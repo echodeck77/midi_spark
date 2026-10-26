@@ -36,6 +36,7 @@ struct FourfoldRootView: View {
     var stepIndex: Int { get { m.stepIndex } nonmutating set { m.stepIndex = newValue } }
     var busChannels: [Int] { get { m.busChannels } nonmutating set { m.busChannels = newValue } }
     var ignoreAllNotesOff: Bool { get { m.ignoreAllNotesOff } nonmutating set { m.ignoreAllNotesOff = newValue } }
+    var clashPolicy: ClashPolicy { get { m.clashPolicy } nonmutating set { m.clashPolicy = newValue } }   // SOURCES STACK ferry (2026-10-26): dev-only rig setting
     var showPresets: Bool { get { m.showPresets } nonmutating set { m.showPresets = newValue } }
     var presetList: [String] { get { m.presetList } nonmutating set { m.presetList = newValue } }
     var currentPreset: String { get { m.currentPreset } nonmutating set { m.currentPreset = newValue } }
@@ -389,6 +390,11 @@ struct FourfoldRootView: View {
                                                    ignoreAllNotesOff = v
                                                    au?.setIgnoreAllNotesOff(v)   // the SAME setter the cog page's INPUT toggle uses (§3.6, literal)
                                                },
+                                               clashPolicy: clashPolicy,
+                                               onSetClashPolicy: { p in   // SOURCES STACK ferry (2026-10-26): dev-only rig setting — no undo
+                                                   clashPolicy = p
+                                                   au?.setClashPolicy(p)
+                                               },
                                                busChannels: busChannels,
                                                // The page calls the outputs MAIN OUT A–D; Fourfold's AU names its MIDI ports the same (FourfoldAudioUnit.midiOutputNames).
                                                outputNames: ["Out A", "Out B", "Out C", "Out D"],
@@ -508,6 +514,7 @@ struct FourfoldRootView: View {
         euclideousMidiInChannelMask = au.uiEuclideousMidiInChannelMask()
         euclideousHostStopBehavior = au.uiEuclideousHostStopBehavior()
         ignoreAllNotesOff = au.uiIgnoreAllNotesOff()
+        clashPolicy = au.uiClashPolicy()
         euclideousChordSets = au.uiEuclideousChordSets()
         euclideousActiveChordSet = au.uiActiveChordSet()
         euclideousRiffs = au.uiEuclideousRiffs()
@@ -890,6 +897,7 @@ struct FourfoldRootView: View {
         if nd.playing != d.playing || nd.effectivePlaying != d.effectivePlaying || nd.tempo != d.tempo || nd.pass != d.pass { d = nd }
         let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
         let ian = au.uiIgnoreAllNotesOff(); if ian != ignoreAllNotesOff { ignoreAllNotesOff = ian }
+        let cp = au.uiClashPolicy(); if cp != clashPolicy { clashPolicy = cp }
         let rs = au.uiReelState();     if rs != reelState { reelState = rs }   // the header tape icon's state
         let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
         let sw = au.uiSwing();         if sw != swing { swing = sw }
@@ -913,6 +921,7 @@ final class FourfoldModel: ObservableObject {
     @Published var stepIndex: Int = 2
     @Published var busChannels: [Int] = [1, 2, 3, 4]
     @Published var ignoreAllNotesOff: Bool = true
+    @Published var clashPolicy: ClashPolicy = .allow
     @Published var showPresets: Bool = false
     @Published var presetList: [String] = []
     @Published var currentPreset: String = ""

@@ -295,6 +295,8 @@ public class FourfoldAudioUnit: AUAudioUnit {
 
     func uiIgnoreAllNotesOff() -> Bool { document.ignoreAllNotesOffResolved }   // INPUT (Paul 2026-09-06): ignore a source's CC120/123 flood
     func setIgnoreAllNotesOff(_ on: Bool) { editDocument { $0.ignoreAllNotesOff = on } }
+    func uiClashPolicy() -> ClashPolicy { document.euclideousClashPolicy ?? .allow }   // SOURCES STACK ferry (2026-10-26): the stored dev-only clash policy (the DEBUG settings control reflects it)
+    func setClashPolicy(_ p: ClashPolicy) { editDocument { $0.euclideousClashPolicy = p } }   // rig setting — no undo
     // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): same request/consume shape as masterPanic,
     // narrower scope (Euclideous's own row only — see Router.process's own consumption of the flag).
     func euclideousAllNotesOff() { kernel.euclideousAllNotesOffRequest() }
@@ -508,12 +510,14 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let keepIgnoreAllNotesOff = document.ignoreAllNotesOff
         let keepBusChannels = document.busChannels
         let keepHostStop = document.euclideousHostStopBehavior
+        let keepClashPolicy = document.euclideousClashPolicy   // SOURCES STACK ferry (2026-10-26): a rig setting, kept across a preset load (§1.6)
         editDocument {
             $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded()   // migrate is a no-op for v4 builders
             $0.euclideousMidiInChannelMask = keepMidiInMask
             $0.ignoreAllNotesOff = keepIgnoreAllNotesOff
             $0.busChannels = keepBusChannels
             $0.euclideousHostStopBehavior = keepHostStop
+            $0.euclideousClashPolicy = keepClashPolicy
         }
         clearPendingBuild()   // K2: the new doc carries its own BUILD state — drop the outgoing session's stale pending
         currentPresetName = name
@@ -566,12 +570,14 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let keepIgnoreAllNotesOff = document.ignoreAllNotesOff
         let keepBusChannels = document.busChannels
         let keepHostStop = document.euclideousHostStopBehavior
+        let keepClashPolicy = document.euclideousClashPolicy   // SOURCES STACK ferry (2026-10-26): rig setting (§1.6)
         editDocument {                       // one undoable step
             $0 = doc
             $0.euclideousMidiInChannelMask = keepMidiInMask
             $0.ignoreAllNotesOff = keepIgnoreAllNotesOff
             $0.busChannels = keepBusChannels
             $0.euclideousHostStopBehavior = keepHostStop
+            $0.euclideousClashPolicy = keepClashPolicy
         }
         clearPendingBuild()                  // K2: drop the outgoing session's stale BUILD pending (the preset carries its own)
         currentPresetName = PresetStore.sanitize(name)

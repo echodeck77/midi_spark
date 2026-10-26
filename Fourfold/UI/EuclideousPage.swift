@@ -867,6 +867,8 @@ struct EuclideousPage: View {
     let onSetMidiInChannelMask: (UInt16) -> Void
     let ignoreAllNotesOff: Bool
     let onSetIgnoreAllNotesOff: (Bool) -> Void
+    let clashPolicy: ClashPolicy                       // SOURCES STACK ferry (2026-10-26): dev-only CLASHES setting (DEBUG settings block)
+    let onSetClashPolicy: (ClashPolicy) -> Void
     let busChannels: [Int]
     let outputNames: [String]
     let allOutputName: String
@@ -1699,7 +1701,8 @@ struct EuclideousPage: View {
                         outputNames: outputNames, allOutputName: allOutputName, onSetBusChannel: onSetBusChannel,
                         onAllNotesOff: onAllNotesOff,
                         hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior, showsHostStopBehavior: showsHostStopBehavior,
-                        pulseLevel: pulseLevel, onSetPulseLevel: onSetPulseLevel
+                        pulseLevel: pulseLevel, onSetPulseLevel: onSetPulseLevel,
+                        clashPolicy: clashPolicy, onSetClashPolicy: onSetClashPolicy
                     )
                     .padding(.horizontal, sp16)
                     .zIndex(5)

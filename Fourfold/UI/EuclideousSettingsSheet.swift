@@ -17,6 +17,12 @@ private struct FFSHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
+/// SOURCES STACK ferry (2026-10-26) §6.3: the MIDI IN tab's natural height, measured only in DEBUG (the CLASHES
+/// block makes it the tallest tab, so the sheet must size to it or it would silently scroll).
+private struct FFSMidiInHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
 
 struct EuclideousSettingsSheet: View {
     @Binding var tab: Int   // 0 MIDI IN · 1 MAIN OUT · 2 CLOCK — owned by the caller so it persists in memory, not saved (§2.6)
@@ -51,7 +57,13 @@ struct EuclideousSettingsSheet: View {
     let pulseLevel: Int
     let onSetPulseLevel: (Int) -> Void
 
+    // SOURCES STACK ferry (2026-10-26) §6: CLASHES — a DEV-build-only rig setting (ALLOW/DROP, judged by ear).
+    // The inputs are carried unconditionally; the control + the second height-measure below are `#if DEBUG`.
+    let clashPolicy: ClashPolicy
+    let onSetClashPolicy: (ClashPolicy) -> Void
+
     @State private var mainOutNaturalHeight: CGFloat = 0
+    @State private var midiInNaturalHeight: CGFloat = 0   // §6.3: measured only in DEBUG (the CLASHES block makes MIDI IN the tallest tab)
     @State private var allNotesOffSentAt: Date? = nil
 
     private let laneColours = EuclideousRingPalette.laneMark
@@ -59,7 +71,12 @@ struct EuclideousSettingsSheet: View {
     var body: some View {
         let cardW = euclideousSettingsSheetWidth(containerW: containerW)
         let fixedChrome: CGFloat = 44 + 8 + 36 + 8 + 16 + 8 /* title+gap+tabs+gap+footer+gap-before-footer */ + 16 /* card padding ×2, sp8 each side */
+        // §6.3: MAIN OUT is normally the tallest tab, but in DEBUG the CLASHES block makes MIDI IN taller — size to the max.
+        #if DEBUG
+        let desired = max(1, max(mainOutNaturalHeight, midiInNaturalHeight)) + fixedChrome
+        #else
         let desired = max(1, mainOutNaturalHeight) + fixedChrome
+        #endif
         let available = max(1, containerH - headerBottomY - 16)
         let cardH = min(desired, available)
 
@@ -82,6 +99,16 @@ struct EuclideousSettingsSheet: View {
                         .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
                 )
                 .onPreferenceChange(FFSHeightKey.self) { mainOutNaturalHeight = $0 }
+                #if DEBUG
+                .background(   // §6.3: the DEBUG-only second measure — MIDI IN (with its CLASHES block) is now the tallest tab
+                    midiInTabContent
+                        .frame(width: cardW - 16, alignment: .top)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .background(GeometryReader { g in Color.clear.preference(key: FFSMidiInHeightKey.self, value: g.size.height) })
+                        .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+                )
+                .onPreferenceChange(FFSMidiInHeightKey.self) { midiInNaturalHeight = $0 }
+                #endif
         }
     }
 
@@ -152,7 +179,7 @@ struct EuclideousSettingsSheet: View {
 
     // MARK: - Shared block/control chrome (§2.7/§2.8)
 
-    private func block<Content: View>(name: String, value: String? = nil, description: String, @ViewBuilder control: () -> Content) -> some View {
+    private func block<Content: View>(name: String, value: String? = nil, description: String? = nil, @ViewBuilder control: () -> Content) -> some View {
         VStack(spacing: 8) {
             HStack {
                 Text(name).font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(0.14 * 9)
@@ -165,9 +192,11 @@ struct EuclideousSettingsSheet: View {
             }
             .frame(height: 16)
             control()
-            Text(description).font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(Color(hex: 0xAAB0BA)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let description {   // SOURCES STACK §6.2: the DEBUG CLASHES block passes none — no description line
+                Text(description).font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(Color(hex: 0xAAB0BA)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
@@ -219,6 +248,15 @@ struct EuclideousSettingsSheet: View {
                     onSetIgnoreAllNotesOff(i == 0)
                 }
             }
+            #if DEBUG
+            // SOURCES STACK ferry (2026-10-26) §6: dev-only CLASHES — ALLOW keeps every stacked note, DROP thins a
+            // lower layer's note a semitone from a higher layer's. No description line (§6.2 overrides §2.7 here).
+            block(name: "CLASHES") {
+                segmented([("ALLOW", 56), ("DROP", 48)], selected: clashPolicy == .allow ? 0 : 1) { i in
+                    onSetClashPolicy(i == 0 ? .allow : .drop)
+                }
+            }
+            #endif
         }
     }
     private var channelGrid: some View {
