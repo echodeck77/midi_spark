@@ -424,9 +424,27 @@ the same pipeline as any other row; it is not a special-cased render path.
   the other. A rhythm restart on a muted cell still takes effect; a muted hit still advances the walk.
   Render-thread care: nothing in either core may allocate; `migrateRestartChains` (which does allocate) runs
   only on `AudioUnitViewController`'s main-thread resync loop, never from `Router`.
-- **Source.** One page-level selector — MIDI IN / CHORDS (a self-contained degree-matrix+rate
-  chord generator, no 8×8-grid receiver dependency) / KEY (a scale pool). No per-lane source, no
-  dependency on the wider receiver/door graph. **CHORDS GRID ferry (Fourfold only, 2026-10-24):**
+- **Source.** **SOURCES STACK ferry (Fourfold only, 2026-10-26) — the three sources stop being exclusive.**
+  MIDI IN ALWAYS listens (through LISTEN ON — no switch); CHORDS and KEY each STACK beneath it into the one
+  shared pool, priority MIDI → CHORDS → KEY, pitch-ordered. Each of CHORDS/KEY has two cells — plays *while MIDI
+  plays* / *when there's no MIDI* (both ⇒ always, neither ⇒ off) — stored as a page-level `PluginState.euclideousSourcePlan`
+  (`SourcePlan`, additive-Optional; nil DERIVES from the legacy page-level `euclideousNoteSource`, now decode-only:
+  MIDI⇒all false, CHORDS/KEY⇒that pair true; `sourcePlanResolved`). The merge is the ONE pure
+  `euclideousBuildSourceStack` (Derivations.swift): a single contributing layer is copied verbatim (byte-identical
+  to the old exclusive source — the load-bearing invariant), 2+ layers merge with PC-dedupe + KEY-nearest-mean +
+  a cross-layer ±1 DROP; the Router builds the three layers each window (`fillMidiLayer`/`fillKeyLayer`/
+  `fillChordLayer` → `mergeStack`, `refreshStack` per chord-step change) and computes MIDI PLAYING with a 50 ms
+  RELEASE GRACE (`EuclideousSourceStack.releaseGraceSeconds`). **Behaviour change (§1.3, by design):** a KEY/CHORDS
+  document used to IGNORE incoming MIDI; now held notes join its pool (nothing held ⇒ exactly as before). The golden
+  harness holds a chord, so it was re-derived `793a8fe5…`→`65ebc7d9…` (nothing-held byte-identity proven `f9a5…`
+  unchanged). MIDI always listening also means **HOLD/LATCH apply continuously**, not only under a MIDI source.
+  The header's source selector is now a 3-LIGHT STATUS display (playing/waiting/off, MIDI never off;
+  `euclideousSourceLights`) opening a **SOURCES pop-up** (`euclideousSourcesPopupLayout`: MIDI chips + a CHORDS/KEY
+  toggle table + a live NOW column; the CHORDS label opens the chord grid). lane-1 status rides the existing 30 Hz
+  poll (`Router.EuclideousSourceStatus`). **CLASHES** (ALLOW/DROP) is a DEV-build-only rig setting on the settings
+  sheet's MIDI IN tab (`PluginState.euclideousClashPolicy`; `clashPolicyResolved` forces ALLOW in release), kept
+  across preset loads. `euclideousNoteSource` stays decode-only (the nil-derivation input); the UI writes the plan.
+  **CHORDS GRID ferry (Fourfold only, 2026-10-24):**
   the CHORDS popup now holds FOUR independently-stored progressions (`PluginState.euclideousChordSets`
   + `activeChordSet`, replacing the single `euclideousChords` grid, which stays decode-only) in tabs
   styled like the riff tabs; tapping a tab switches it immediately (Paul: manual-only, no queue-to-
