@@ -1,7 +1,7 @@
 //  LaneSoloPainter.swift
 //  The SOLO button that replaced the step-count box at the end of each lane's comet row (LANE SOLO ferry, 2026-10-21), and the touch handling behind it.
 //
-//  SwiftUI-only on purpose (GridUI seam rule), like `OutputRingPainter.swift`. All the decisions are pure and live in Derivations.swift: the look (`euclideousSoloButtonLook`), tap vs hold
+//  SwiftUI-only on purpose (GridUI seam rule), like `WalkTagPainter.swift`. All the decisions are pure and live in Derivations.swift: the look (`euclideousSoloButtonLook`), tap vs hold
 //  (`EuclideousSoloPress`, `euclideousSoloLatchAfter`), the words. This file only draws and wires a finger to them.
 
 import SwiftUI

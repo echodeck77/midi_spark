@@ -82,41 +82,6 @@ struct EuclideousSourceControlFramePreferenceKey: PreferenceKey {
     }
 }
 
-/// A tapped output's pulse (Fourfold header §7.1): `token` increments per tap so a second tap restarts the ring animation.
-struct EuclideousOutputPulse: Equatable { var output: Int; var token: Int }
-/// What one lane shows for the active output cue (pulse or hold-trace): which output, whether it's a held trace, and the
-/// cue itself (`dim`, or a ring around the OUT circle / RHYTHM tab).
-struct EuclideousOutputCueInfo { let output: Int; let held: Bool; let token: Int; let cue: EuclideousOutputCue }
-
-/// The ring a pulse/trace draws on a lane (Fourfold header §7.1/§7.2): 2pt #DFE3EA. A PULSE starts at 95% opacity and
-/// scale 1 and eases out over 650ms to 0% and scale 1.35; a HELD trace sits still at 95% until release. Visual only — never
-/// blocks a touch. Reduce Motion: fade only, no scale.
-struct EuclideousOutputCueRing: View {
-    // RESTART CHAINS ferry §10: `.circle` (the old RHYTHM-tab OUT circle) is retired — kept only because
-    // removing the case would also force touching every exhaustive switch below for no behavioural gain; no
-    // caller constructs it any more (reported, not silently left reachable). `.tab` now rings the MIX tab
-    // chip (unchanged geometry, still what the RHYTHM tab's own ring used); `.mixButton` is new, §10.2's own
-    // "the button's rounded rectangle outset by 1pt (radius 7)".
-    enum Kind { case circle, tab, mixButton }
-    let kind: Kind
-    let held: Bool
-    let reduceMotion: Bool
-    @State private var progress: CGFloat = 0
-    var body: some View {
-        Group {
-            switch kind {
-            case .circle: Circle().stroke(Color(hex: 0xDFE3EA), lineWidth: 2)
-            case .tab: RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0xDFE3EA), lineWidth: 2).padding(4)
-            case .mixButton: RoundedRectangle(cornerRadius: 7).strokeBorder(Color(hex: 0xDFE3EA), lineWidth: 2).padding(-1)
-            }
-        }
-        .opacity(held ? 0.95 : 0.95 * Double(1 - progress))
-        .scaleEffect(held || reduceMotion ? 1 : 1 + 0.35 * progress)
-        .allowsHitTesting(false)
-        .onAppear { if !held { withAnimation(.easeOut(duration: 0.65)) { progress = 1 } } }
-    }
-}
-
 /// LONG-PRESS HELP (usability ferry §3.3, literal): "long-pressing any control for 0.5s shows a small
 /// bubble above it with a one-line plain-English explanation; it disappears on release... must never also
 /// change the control's value." Attached ALONGSIDE a control's own `.onTapGesture`, never replacing it —
@@ -791,7 +756,6 @@ struct EuclideousPage: View {
     // unless the source was MIDI).
     let holdLatchMode: EuclideousHoldLatchMode?
     let onSetHoldLatchMode: (EuclideousHoldLatchMode?) -> Void
-    let mainOutMask: UInt8
     // LANE SOLO (2026-10-21): the latched solo mask (saved) and the held one (a finger down; UI only). `soloEffective` is what every dim and the engine use.
     let soloMask: UInt8
     let soloHeld: UInt8
@@ -856,14 +820,12 @@ struct EuclideousPage: View {
     let onSetResetSpanBars: (Int) -> Void
     let onSetKeyRoot: (Int) -> Void
     let onSetKeyType: (ScaleType) -> Void
-    let onSetMainOutMask: (UInt8) -> Void
     /// LANE SOLO §3: a finger lands on lane i's SOLO button / lifts off it (`latchToggles` = it was a tap).
     let onSoloDown: (Int) -> Void
     let onSoloUp: (Int, Bool) -> Void
     // FOURFOLD SETTINGS (2026-10-15 ferry) — the sheet's own 4 document fields, threaded in the same plain
-    // live-mirror/onSet shape as every field above. `ignoreAllNotesOff`/`busChannels`/`outputNames`/
-    // `allOutputName` are the EXISTING, already-live fields/constants this ferry's MIDI IN/MAIN OUT tabs give
-    // a SECOND UI surface to (§3.6/§4.3) — not new model, new UI only.
+    // live-mirror/onSet shape as every field above. `ignoreAllNotesOff`/`busChannels`/`allOutputName` are the
+    // EXISTING, already-live fields/constants this ferry's MIDI IN/PORTS tabs give a SECOND UI surface to — not new model, new UI only.
     let midiInChannelMask: UInt16
     let onSetMidiInChannelMask: (UInt16) -> Void
     let ignoreAllNotesOff: Bool
@@ -871,7 +833,6 @@ struct EuclideousPage: View {
     let clashPolicy: ClashPolicy                       // SOURCES STACK ferry (2026-10-26): dev-only CLASHES setting (DEBUG settings block)
     let onSetClashPolicy: (ClashPolicy) -> Void
     let busChannels: [Int]
-    let outputNames: [String]
     let allOutputName: String
     let onSetBusChannel: (Int, Int) -> Void
     let onAllNotesOff: () -> Void
@@ -914,10 +875,6 @@ struct EuclideousPage: View {
     @State private var lanesRollCache = EuclideousLanesRollCache()
     @State private var pulseSettleTick = 0   // PULSE §9.1: see `pulseLive`
     @State private var notesPickerOpen: Set<Int> = []   // NOTES tab ferry §4.5: the lanes whose PLAY AS picker is open — not saved, not an undo step
-    // ALT ROUTING ferry §2.4: the ONE open ALT panel (lane + source part), or nil. Not saved, not an undo step; mutually
-    // exclusive with the PLAY AS picker (§2.6). One at a time, like every other page pop-up.
-    @State private var altPanelOpen: AltPanelKey? = nil
-    struct AltPanelKey: Equatable { var lane: Int; var part: EuclideousOutPart }
     @State private var riffReadoutCache = EuclideousRiffReadoutCache()   // the riff readout / never-play set, memoised per lane on its inputs (RIFF WALK §7.2)
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
     // opens, changed only by value drags), the NOTE cell touched last (the strip's preview), the double-tap memory, and whether this touch has opened its undo step.
@@ -1444,12 +1401,8 @@ struct EuclideousPage: View {
     @State private var chordsClipboard: MachineParams? = nil
     // Holding a finger on a grid cell shows that column's pool instead of the playing one (§7.3).
     @State private var chordsHeldColumn: Int? = nil
-    // FOURFOLD HEADER (2026-10-15): the selected CHORDS segment's frame (the chord grid anchors under it), the output ring
-    // currently HELD (§4.7, nil = none) and the last tapped output's PULSE (§7.1). Each ring's own tap-vs-hold press state
-    // lives INSIDE `EuclideousRingPressable` (one instance per ring), not here.
+    // FOURFOLD HEADER (2026-10-15): the selected CHORDS segment's frame (the chord grid anchors under it).
     @State private var sourceControlFrame: CGRect? = nil   // SOURCES STACK ferry (2026-10-26): the status control's frame; SOURCES + the chord grid anchor under it
-    @State private var heldOutput: Int? = nil
-    @State private var outputPulse: EuclideousOutputPulse? = nil
     // riffDirPopupLane RETIRED 2026-10-10 alongside the RIFF tab — direction selection lives inline in the
     // melody pop-up's WALK section now, no separate nested popup needed.
     // MASK MODE POPUP (Paul 2026-10-10, "Euclid mask, modes and settings" ferry §4): "tapping opens a picker
@@ -1700,8 +1653,7 @@ struct EuclideousPage: View {
                         onCloseSheet: { settingsOpen = false },
                         midiInMask: midiInChannelMask, onSetMidiInMask: onSetMidiInChannelMask,
                         ignoreAllNotesOff: ignoreAllNotesOff, onSetIgnoreAllNotesOff: onSetIgnoreAllNotesOff,
-                        laneMasks: euclideousLaneMasks(lines), mainOutMask: mainOutMask, soloSilenced: (0..<4).map { soloSilenced($0) }, busChannels: busChannels,
-                        outputNames: outputNames, allOutputName: allOutputName, onSetBusChannel: onSetBusChannel,
+                        busChannels: busChannels, allOutputName: allOutputName, onSetBusChannel: onSetBusChannel,
                         onAllNotesOff: onAllNotesOff,
                         hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior, showsHostStopBehavior: showsHostStopBehavior,
                         pulseLevel: pulseLevel, onSetPulseLevel: onSetPulseLevel,
@@ -1765,8 +1717,7 @@ struct EuclideousPage: View {
     private func pageGeometry(_ size: CGSize) -> (containerW: CGFloat, hdr: EuclideousHeaderLayout, page: EuclideousPageLayout) {
         let containerW = size.width - sp16 * 2
         let page = euclideousPageLayout(size: size, bottomInset: pageBottomInset)
-        let hdr = euclideousHeaderLayout(containerW: containerW, isLandscape: page.isLandscape,
-                                         riffLeadingX: page.riffLeadingX, laneCentreX: page.laneCentreX)
+        let hdr = euclideousHeaderLayout(containerW: containerW, isLandscape: page.isLandscape, riffLeadingX: page.riffLeadingX)
         return (containerW, hdr, page)
     }
     private func pageBody(_ size: CGSize) -> some View {
@@ -1883,8 +1834,6 @@ struct EuclideousPage: View {
         return ZStack(alignment: .topLeading) {
             headerBrand(layout).frame(width: layout.brand.width, height: HM.rowH, alignment: .leading)
                 .offset(x: layout.brand.x, y: CGFloat(layout.brand.row) * rowStep)
-            headerOutputs(layout).frame(width: layout.outputs.width, height: HM.rowH, alignment: .leading)
-                .offset(x: layout.outputs.x, y: CGFloat(layout.outputs.row) * rowStep)
             headerNotes().frame(width: layout.notes.width, height: HM.rowH, alignment: .leading)
                 .offset(x: layout.notes.x, y: CGFloat(layout.notes.row) * rowStep)
             headerUtilities(layout).frame(width: layout.utilities.width, height: HM.rowH, alignment: .trailing)
@@ -2004,93 +1953,6 @@ struct EuclideousPage: View {
         }
     }
 
-    // MARK: OUTPUTS — "OUT" + the four output rings (MAIN OUT A–D)
-    private func headerOutputs(_ layout: EuclideousHeaderLayout) -> some View {
-        let compact = layout.compact
-        let pitch = compact ? HM.compactRingPitch : HM.ringPitch
-        let naturalPitch = compact ? HM.compactRingNaturalPitch : HM.ringNaturalPitch
-        return HStack(spacing: 0) {
-            if !compact {
-                Text("OUT").font(.system(size: HM.captionSize, weight: .bold, design: .monospaced))
-                    .tracking(HM.captionTracking * HM.captionSize).foregroundColor(headerDim).lineLimit(1)
-                    .frame(width: HM.captionWidth, alignment: .leading)
-                Color.clear.frame(width: HM.sp4, height: 1)
-            }
-            // One TimelineView for the four rings (never one per ring — the page's standing DSP rule): it only ticks while
-            // the transport runs, because the only thing animating here is a strike's pulse (PULSE §6; it keeps running for 1.5 s after a stop, then idles).
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
-                let now = tl.date.timeIntervalSinceReferenceDate
-                HStack(spacing: 0) {
-                    ForEach(0..<4, id: \.self) { b in outputRing(b, pitch: pitch, naturalPitch: naturalPitch, now: now) }
-                }
-            }
-        }
-    }
-
-    /// PULSE §6: a quarter's flash f — its lane routes to this output, the output is ON, and that lane's latest strike of EITHER layer (riff or notes) has happened: f = the flash envelope of the velocity it
-    /// played (the louder layer), `now` seconds after its onset, scaled by P. Nothing animates when nothing strikes, and the strike decays by itself after a stop.
-    private func ringFlare(_ b: Int, now: Double) -> [Double] {
-        let p = euclideousPulseScale(level: pulseLevel)
-        guard p > 0, (mainOutMask >> UInt8(b)) & 1 != 0 else { return [0, 0, 0, 0] }
-        return (0..<4).map { lane -> Double in
-            // PER-LAYER ROUTING ferry §6.1: a quarter flares on output b only for a LAYER that both routes to b (and is on)
-            // AND actually struck. Either layer counts — if both, the louder of the two that route here drives the envelope.
-            guard lane < lines.count, let s = pulseFeed.latest(lane: lane, where: { $0.onsetAt <= now }) else { return 0 }
-            // ALT §8.3: a quarter flares when a struck layer routes to b through EITHER its MAIN or (mode-using) ALT mask.
-            let eff = euclideousEffectiveRouting(lines[lane])
-            // link-aware + ALT (mode-using) + the Display nil⇒A-D rule (a no-mask part plays A–D).
-            func lit(_ pr: EuclideousPartRouting) -> Bool { (((pr.mainMask ?? 0x0F) | (pr.alt.mode.usesAlt ? pr.alt.altMask : 0)) >> UInt8(b)) & 1 != 0 }
-            var vel = 0
-            if lines[lane].riffOnResolved, lit(eff.riff) { vel = max(vel, Int(s.riffVel)) }
-            if lines[lane].notesOnResolved, lit(eff.notes) { vel = max(vel, Int(s.notesVel)) }
-            guard vel > 0 else { return 0 }
-            return euclideousPulseEnvelopes(velocity: vel, seconds: now - s.onsetAt, scale: p).f
-        }
-    }
-
-    private func outputRing(_ b: Int, pitch: CGFloat, naturalPitch: CGFloat, now: Double) -> some View {
-        let masks = euclideousLaneMasks(lines)
-        let state = euclideousOutputRingState(output: b, laneMasks: masks, mainOutMask: mainOutMask)
-        let held = heldOutput == b
-        let flare = ringFlare(b, now: now)
-        let ringDim = EuclideousLaneDimLevels((0..<4).map { heldOutput != nil && !held ? false : soloSilenced($0) })
-        return EuclideousRingPressable(
-            onTap: { toggleMainOut(b); pulseOutput(b) },
-            onHold: { began in
-                // A hold NEVER toggles. Only the ring that is currently the traced one may clear the trace.
-                if began { heldOutput = b } else if heldOutput == b { heldOutput = nil }
-            }
-        ) {
-            // The ring's own canvas renders at its NATURAL size (its hardcoded radius-17 circle needs that room —
-            // shrinking the view's own frame instead of scaling the finished render would clip it before the scale
-            // ever applied). `.scaleEffect` shrinks the already-complete render to 75%, then the outer `.frame`
-            // reclaims only that much row space — same technique as EuclideousSettingsSheet's `mainOutRow`.
-            EuclideousOutputRing(letter: ["A", "B", "C", "D"][b], state: state, laneColours: laneAccents, held: held,
-                                 flare: flare, dim: ringDim, width: naturalPitch, height: HM.rowH)   // LANE SOLO §6.6: a solo-silenced lane's quarter at 42 % (not while the whole ring is already at 42 % for a trace — never stacked)
-                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: ringDim)
-                .scaleEffect(HM.outputRingScale)
-                .frame(width: pitch, height: HM.rowH * HM.outputRingScale)
-                .opacity(heldOutput != nil && !held ? 0.42 : 1)        // §4.7: while one is held, the other three sit at 42%
-        }
-        .accessibilityElement(children: .ignore)
-        // §6.3: "Main out A, on, fed by lane 1 riff and notes, and lane 4 riff" — names the PART each lane feeds with.
-        .accessibilityLabel(euclideousOutputRingAccessibilityLabel(output: b, lines: lines, mainOutMask: mainOutMask))
-        .accessibilityHint("Hold to show its lanes")
-        .accessibilityAddTraits(.isButton)
-        .ringToggleTrait()
-        .accessibilityAction { toggleMainOut(b); pulseOutput(b) }
-        .accessibilityAction(named: "Show its lanes") { pulseOutput(b) }   // VoiceOver can't perform a hold
-    }
-    private func toggleMainOut(_ b: Int) { onSetMainOutMask(mainOutMask ^ (1 << UInt8(b))) }   // unchanged action: no undo recorded
-    /// PULSE (§7.1): one ring per routed lane, then gone. Visual only — no state worth keeping, no undo.
-    private func pulseOutput(_ b: Int) {
-        let token = (outputPulse?.token ?? 0) + 1
-        outputPulse = EuclideousOutputPulse(output: b, token: token)
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            if outputPulse?.token == token { outputPulse = nil }
-        }
-    }
     // MARK: NOTES — the source control + the key pill
     private func headerNotes() -> some View {
         HStack(spacing: HM.sp8) {
@@ -2290,30 +2152,6 @@ struct EuclideousPage: View {
     private func closeAllOtherOverlays() {
         keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; swingPopupOpen = false; riffTabMenuLane = nil
         chordsTabMenuIndex = nil; sourcesPopupOpen = false   // SOURCES STACK ferry (2026-10-26): one overlay at a time (§5.1)
-    }
-
-    // MARK: LANE SIDE of the output cues (§10) — pulse (after a tap) and trace (while held)
-    /// What lane `lane`'s CARD shows right now (dim only, §10.3 — the ring moved to MIX/the MIX tab, below):
-    /// nil when nothing is pulsing/held or this lane isn't involved.
-    private func outputCue(forLane lane: Int) -> EuclideousOutputCueInfo? {
-        let mode: EuclideousOutputCueMode, output: Int, token: Int
-        if let h = heldOutput { mode = .trace; output = h; token = 0 }
-        else if let p = outputPulse { mode = .pulse; output = p.output; token = p.token }
-        else { return nil }
-        let cue = euclideousOutputCues(output: output, laneMasks: euclideousLaneMasks(lines), mode: mode)[lane]
-        return cue == .none ? nil : EuclideousOutputCueInfo(output: output, held: mode == .trace, token: token, cue: cue)
-    }
-    /// PER-LAYER ROUTING ferry §6.2 — where the active output's pulse/trace ring goes, if any: each counting lane's
-    /// RIFF/NOTES tab OUT circle (if that tab is showing and that part routes), else its RIFF or NOTES tab-row CELL.
-    /// Decided per lane by its own current tab; nil when no lane counts for the active output.
-    private func outputRingTargets() -> (output: Int, held: Bool, token: Int, targets: [EuclideousOutputRingTarget])? {
-        let held: Bool, output: Int, token: Int
-        if let h = heldOutput { held = true; output = h; token = 0 }
-        else if let p = outputPulse { held = false; output = p.output; token = p.token }
-        else { return nil }
-        let kinds = laneTab.map { EuclideousTabKind(rawValue: $0.rawValue) ?? .rhythm }
-        let targets = euclideousOutputRingTargets(output: output, lines: lines, laneTabs: kinds)
-        return targets.isEmpty ? nil : (output, held, token, targets)
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -3061,9 +2899,8 @@ struct EuclideousPage: View {
         // matches the reference 306 exactly, and scales only if a caller ever hands this a different height.
         let contentAreaH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: height)   // card height − 104 (comet 44 + tabs 28 + 2 × 10 inset + 2 × 6 gap)
         let steps = max(2, min(16, line.steps))
-        // LANE SOLO §6.1: a solo-silenced lane's card content draws at 42 % — except the SOLO button and the card's own ground / border — and never stacks with the output-ring TRACE dim below (which already
-        // dims the whole card).
-        let soloDimContent = soloSilenced(idx) && outputCue(forLane: idx)?.cue != .dim
+        // LANE SOLO §6.1: a solo-silenced lane's card content draws at 42 % — except the SOLO button and the card's own ground / border.
+        let soloDimContent = soloSilenced(idx)
         VStack(alignment: .leading, spacing: cardRowGap) {
             // LISTEN TAB: a FOLLOW lane PLAYS its partner's pattern, at the partner's rate — so its bar shows THAT (lit cells in the
             // partner's colour, faded; the comet sweeping at the partner's pace) and its bar gestures edit the PARTNER, the thing it
@@ -3160,9 +2997,6 @@ struct EuclideousPage: View {
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1B1D23)))
         .clipped()
-        // FOURFOLD §7.2: while an output ring is HELD, every lane NOT routed to it sits at the existing OFF-dim 42% (no animation
-        // — release restores everything at once). Routed lanes get their ring in `laneTabRow` / `laneOutRow` instead.
-        .opacity(outputCue(forLane: idx)?.cue == .dim ? 0.42 : 1)
         .overlay(euclideousRandomReturnHighlight(idx, width: width, height: height))
         }
     }
@@ -3234,7 +3068,6 @@ struct EuclideousPage: View {
     // SwiftUI — every one of these call sites already draws directly over that background, so the
     // composited result reads exactly as a blend with it, matching every other tint already in this file.
     private func lane100(_ c: Color) -> Color { c }
-    private func lane40(_ c: Color) -> Color { c.opacity(0.4) }
     private func lane20(_ c: Color) -> Color { c.opacity(0.2) }
 
     // PATTERN CONTROL BLOCK's own button styling (ratified PATTERN-tab-layout ferry, 2026-10-12, §6,
@@ -3539,10 +3372,7 @@ struct EuclideousPage: View {
     }
 
     private func laneTabRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
-        // PER-LAYER ROUTING ferry §6.2: when a pulse/trace targets this lane's RIFF/NOTES tab CELL (because that tab
-        // isn't the one showing), the ring goes around its chip here — radius 6, inset sp4, as 7.1 draws a tab ring.
-        let ring = outputRingTargets()
-        return HStack(spacing: 4) {
+        HStack(spacing: 4) {
             ForEach(EuclideousLaneTab.allCases, id: \.rawValue) { t in
                 let sel = (idx < laneTab.count ? laneTab[idx] : .rhythm) == t
                 // CLARITY PASS (2026-10-23) §2: RIFF/NOTES/LISTEN each carry a GLYPH (a square / an upright bar / a circle) where the round status dot used to sit — filled in a lane's colour while that tab's thing is ON
@@ -3552,13 +3382,6 @@ struct EuclideousPage: View {
                 .frame(maxWidth: .infinity, alignment: .center).frame(height: rowH)
                 // LANE LOCK 5.4: the underline and — on a tab with a control that differs from L — a 6pt lane100 dot (6pt from its trailing edge, 5pt from its top), in ONE overlay
                 .overlay(tabDecor(idx, t, sel: sel, accent))
-                // PER-LAYER ROUTING ferry §6.2: a pulse/trace ring around this RIFF/NOTES tab cell when the active output
-                // routes through it on this lane and that tab isn't showing (so its own OUT circle isn't on screen).
-                .overlay {
-                    if let c = ring, (t == .riff && c.targets.contains(.riffTabCell(lane: idx))) || (t == .notes && c.targets.contains(.notesTabCell(lane: idx))) {
-                        EuclideousOutputCueRing(kind: .tab, held: c.held, reduceMotion: reduceMotion).id(c.token)
-                    }
-                }
                 .contentShape(Rectangle())
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(euclideousTabAccessibilityLabel(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, lines: lines, lane: idx))   // §4.1: "Rhythm, 5 of 16 hits" · "Riff, on" · "Listen, on, following lane 2"
@@ -3567,7 +3390,6 @@ struct EuclideousPage: View {
                     // §1.6: the STEPS picker and the restart editor both close when the card switches tab.
                     if stepsPickerLane == idx { stepsPickerLane = nil }
                     if restartEditorLane == idx { restartEditorLane = nil }
-                    if altPanelOpen?.lane == idx { altPanelOpen = nil }   // ALT §2.4: switching the card's tab closes its panel
                 }
             }
             // LANE LOCK 5.1: a locked lane's badge sits at the trailing end (drawn over the card); the tabs share what is left by the same rule (equal width, spacing 4)
@@ -3618,20 +3440,9 @@ struct EuclideousPage: View {
                 if borrowed { listenPausedOverlay(idx, line, label: "RHYTHM", width: fullWidth, height: contentAreaH) { $0.listenRhythm = .own } }
             }
         case .riff:
-            ZStack(alignment: .topLeading) {
-                riffTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
-                // ALT §2.1: the panel covers the tab's content (x 10–312.5), leaving the OUT column live beside it.
-                if altPanelOpen == AltPanelKey(lane: idx, part: .riff) {
-                    altPanel(idx, line, accent, part: .riff, width: max(1, fullWidth - EuclideousOutColumnLayout.width - sp4), height: contentAreaH)
-                }
-            }
+            riffTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         case .notes:
-            ZStack(alignment: .topLeading) {
-                notesTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
-                if altPanelOpen == AltPanelKey(lane: idx, part: .notes) {
-                    altPanel(idx, line, accent, part: .notes, width: max(1, fullWidth - EuclideousOutColumnLayout.width - sp4), height: contentAreaH)
-                }
-            }
+            notesTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         case .listen:
             listenTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         }
@@ -4009,376 +3820,6 @@ struct EuclideousPage: View {
             stepsPickerLane = nil
         }
         .accessibilityLabel("\(length) steps, \(hits) hits\(isCurrent ? ", current length" : "")")
-    }
-
-    /// RESTART CHAINS ferry §9.7/§9.9 — the lane's OUT A–D row, moved here from the RHYTHM tab's own
-    /// `laneOutRow` (deleted: nothing else used it). Reuses `euclideousLaneOutChipStyle` verbatim (the SAME
-    /// three-state look `laneOutRow` drew as circles) as a rounded rectangle instead — "header §7.3's dashed
-    /// circle as a rounded rectangle" — and carries over its own ring wiring (§10.2), now targeting THIS
-    /// button instead of the old RHYTHM-tab circle.
-    private func mixOutRow(lane: Int, width: CGFloat, height: CGFloat) -> some View {
-        let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
-        let accent = laneAccents[lane % laneAccents.count]
-        let mask = line.emitterMask ?? 0
-        let names = ["A", "B", "C", "D"]
-        let btnW = max(1, (width - sp4 * 3) / 4)
-        return HStack(spacing: sp4) {
-            ForEach(0..<4, id: \.self) { b in
-                let routed = (mask >> UInt8(b)) & 1 != 0
-                let mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
-                let style = euclideousLaneOutChipStyle(routed: routed, mainOn: mainOn)
-                let textColor: Color = {
-                    switch style {
-                    case .filled: return patternEmitterActiveText
-                    case .hollowDashed: return lane100(accent)
-                    case .plain: return patternUnselectedText
-                    }
-                }()
-                Text(names[b]).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    .foregroundColor(textColor)
-                    .frame(width: btnW, height: height)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(style == .filled ? lane100(accent) : (style == .plain ? patternUnselectedFill : Color.clear)))
-                    .overlay(
-                        Group {
-                            switch style {
-                            case .filled: EmptyView()
-                            case .hollowDashed: RoundedRectangle(cornerRadius: 6).stroke(lane100(accent), style: StrokeStyle(lineWidth: 2, dash: [3, 3]))
-                            case .plain: EmptyView()
-                            }
-                        }
-                    )
-                    // RHYTHM fixes §5.3 (2026-10-21): drawn size stays btnW×height (height=outRowH=20); the
-                    // hit area extends 2pt up/down only (to 24 tall) — there's exactly a 4pt gap (sp4) to the
-                    // OCT stepper above, so this never reaches into it.
-                    .contentShape(Rectangle().path(in: CGRect(x: 0, y: -2, width: btnW, height: height + 4)))
-                    .onTapGesture { edit(lane) { $0.emitterMask = ($0.emitterMask ?? 0) ^ (1 << UInt8(b)) } }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel("Lane \(lane + 1), output \(names[b]), \(routed ? "on" : "off")\(style == .hollowDashed ? ", main out \(names[b]) is off" : "")")
-            }
-        }
-        .frame(width: width, height: height)
-    }
-
-    /// PER-LAYER EMITTER ROUTING ferry §1–§2: the slim A–D OUT column down the right edge of the RIFF / NOTES tab.
-    /// `part` picks which layer's mask it edits and flares on (`riffOutMask` on RIFF, `notesOutMask` on NOTES). It
-    /// spans the tab's whole content height (`height` = `contentAreaH`), 32 wide, laid out by `euclideousOutColumnLayout`.
-    /// §1.7: it is part of the tab body — while that layer is off it draws at 42% WITH the rest of the body and stays
-    /// live (the caller wraps it in that opacity). One TimelineView drives all four circles' strike flare (§2.4), the
-    /// page's standing one-timeline rule; it ticks only while `pulseLive`. No new polling, no engine path (§2.4/§2.6).
-    private func outColumn(_ idx: Int, _ line: EuclidLine, _ accent: Color, part: EuclideousOutPart, height: CGFloat) -> some View {
-        let lay = euclideousOutColumnLayout(height: height)
-        // ALT §1.5 / §4.4: a part that FOLLOWS shows the LEADER's effective settings; its circles/dots/ALT button read
-        // the leader's, and every tap edits the LEADER's stored fields (`editPart`).
-        let eff = euclideousEffectiveRouting(line)
-        let pr = part == .riff ? eff.riff : eff.notes
-        let follows = euclideousPartFollows(part, outLink: line.outLink)
-        let editPart: EuclideousOutPart = follows ? (line.outLink == .riff ? .riff : .notes) : part
-        // OUT-MASK-NIL (2026-10-25): a part with no stored mask (nil) DISPLAYS as A–D — the engine inherits the cell bus
-        // and plays all four — so the column shows the effective MAIN mask with nil ⇒ 0b1111 (the `…Display` semantics).
-        let mask = pr.mainMask ?? 0b1111
-        let altMode = pr.alt.mode, altMask = pr.alt.altMask
-        let names = ["A", "B", "C", "D"]
-        let ring = outputRingTargets()   // §6.2: a pulse/trace may ring this tab's own X circle
-        let panelOpen = altPanelOpen == AltPanelKey(lane: idx, part: part)
-        return ZStack(alignment: .topLeading) {
-            Rectangle().fill(Color(hex: 0x262930))
-                .frame(width: lay.rule.width, height: lay.rule.height).offset(x: lay.rule.minX, y: lay.rule.minY)
-            // §1.5: "LINK" (lane100) while following, else "OUT" (#8A909A).
-            Text(follows ? "LINK" : "OUT").font(.system(size: 9, weight: .bold, design: .monospaced)).kerning(0.14 * 9)
-                .foregroundColor(follows ? lane100(accent) : Color(hex: 0x8A909A))
-                .frame(width: lay.caption.width, height: lay.caption.height, alignment: .center)
-                .offset(x: lay.caption.minX, y: lay.caption.minY)
-                .accessibilityHidden(true)
-            // §2.4: the strike flare. One TimelineView for all four circles (never one per circle).
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
-                let now = tl.date.timeIntervalSinceReferenceDate
-                let flares = outColumnFlares(idx, part: part, now: now)
-                ZStack(alignment: .topLeading) {
-                    ForEach(0..<4, id: \.self) { b in
-                        let routed = (mask >> UInt8(b)) & 1 != 0
-                        let mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
-                        let ringed = ring?.output == b && ring?.targets.contains(part == .riff ? .riffCircle(lane: idx) : .notesCircle(lane: idx)) == true
-                        outCircle(idx, part: editPart, output: b, name: names[b], accent: accent,
-                                  state: euclideousOutCircleState(routed: routed, mainOn: mainOn), flare: flares[b],
-                                  cue: ringed ? ring : nil, dot: euclideousAltDotShows(mode: altMode, altMask: altMask, output: b), dotDashed: !mainOn)
-                            .frame(width: lay.targets[b].width, height: lay.targets[b].height)
-                            .offset(x: lay.targets[b].minX, y: lay.targets[b].minY)
-                    }
-                }
-            }
-            // §1.2 the ALT button under D, centred in the 32×32 ALT target.
-            altButton(idx, part: part, accent: accent, look: euclideousAltButtonLook(modeOn: altMode != .off, panelOpen: panelOpen), modeOn: altMode != .off)
-                .frame(width: lay.alt.width, height: lay.alt.height).offset(x: lay.alt.minX, y: lay.alt.minY)
-        }
-        .frame(width: EuclideousOutColumnLayout.width, height: height, alignment: .topLeading)
-        .accessibilityElement(children: .contain)
-        // §10.2: while following, the group reads "Riff outputs, following the notes" (or the reverse).
-        .accessibilityLabel((part == .riff ? "Riff outputs" : "Notes outputs") + (follows ? ", following the \(part == .riff ? "notes" : "riff")" : ""))
-    }
-    /// §1.2 the ALT button: 30 × 28, radius 7, "ALT" 10 pt heavy 0.06 em, three looks (`euclideousAltButtonLook`). A tap
-    /// opens the panel for this (lane, part), or closes it if already open (§1.3, not an undo step; closes the picker §2.6).
-    private func altButton(_ idx: Int, part: EuclideousOutPart, accent: Color, look: EuclideousAltButtonLook, modeOn: Bool) -> some View {
-        let fill: Color = { switch look { case .off: return Color(hex: 0x2A2D34); case .modeOn: return lane20(accent); case .open: return Color(hex: 0xDFE3EA) } }()
-        let text: Color = { switch look { case .off: return Color(hex: 0x8A909A); case .modeOn: return Color(hex: 0xF2F4F7); case .open: return Color(hex: 0x0D0F14) } }()
-        let key = AltPanelKey(lane: idx, part: part)
-        return Text("ALT").font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(0.06 * 10)
-            .foregroundColor(text)
-            .frame(width: 30, height: 28)
-            .background(RoundedRectangle(cornerRadius: 7).fill(fill))
-            .overlay(look == .modeOn ? RoundedRectangle(cornerRadius: 7).strokeBorder(lane100(accent), lineWidth: 1) : nil)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)   // centre the 30×28 button in its 32×32 target
-            .contentShape(Rectangle())
-            .onTapGesture { notesPickerOpen.remove(idx); altPanelOpen = (altPanelOpen == key) ? nil : key }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Alternate routing")
-            .accessibilityValue(altButtonAccessibilityValue(idx, part: part))
-            .accessibilityHint("Double-tap to open")
-            .accessibilityAddTraits(look == .open ? [.isButton, .isSelected] : .isButton)
-    }
-    /// ALT ROUTING ferry §2–§3: the panel over the tab's content (the column stays live beside it). Its SOURCE is
-    /// `part`; it shows the EFFECTIVE routing (a follower shows the leader's) and every edit writes `editPart`'s stored
-    /// fields (§4.4). All frames from the one pure `euclideousAltPanelLayout`; nothing previews (§7.3).
-    private func altPanel(_ idx: Int, _ line: EuclidLine, _ accent: Color, part: EuclideousOutPart, width: CGFloat, height: CGFloat) -> some View {
-        let lay = euclideousAltPanelLayout(panel: CGRect(x: 0, y: 0, width: width, height: height))
-        let eff = euclideousEffectiveRouting(line)
-        let pr = part == .riff ? eff.riff : eff.notes
-        let follows = euclideousPartFollows(part, outLink: line.outLink)
-        let leadsHere = part == .riff ? line.outLink == .riff : line.outLink == .notes
-        let editPart: EuclideousOutPart = follows ? (line.outLink == .riff ? .riff : .notes) : part
-        let a = pr.alt                                   // the effective ALT params shown
-        let sourceName = part == .riff ? "RIFF" : "NOTES", otherName = part == .riff ? "NOTES" : "RIFF"
-        let isRiff = part == .riff
-        // §7.2 the live bars: lit while the transport runs and this part plays (the exact per-hit MAIN/ALT split is
-        // device-owed, §7.1 — this shows which groups are in play).
-        let partPlays = clock.playing && (part == .riff ? line.riffOnResolved : line.notesOnResolved)
-        func place<V: View>(_ r: CGRect, @ViewBuilder _ v: () -> V) -> some View { v().frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY) }
-        return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x1B1D23))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(hex: 0x2E3138), lineWidth: 1))
-                .shadow(color: .black.opacity(0.6), radius: 11, x: 0, y: 8)
-            // §3.1 HEADER
-            place(lay.header) {
-                ZStack(alignment: .leading) {
-                    (Text("ALT").font(.system(size: 11, weight: .heavy, design: .monospaced)).kerning(0.1 * 11).foregroundColor(Color(hex: 0xF2F4F7))
-                        + Text("  \(sourceName)").font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(0.08 * 10).foregroundColor(lane100(accent)))
-                        .padding(.leading, 2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }.accessibilityHidden(true)
-            place(lay.applyControl) { altApplyControl(idx, source: part, sourceName: sourceName, otherName: otherName, follows: follows, leadsHere: leadsHere) }
-            place(lay.closeButton) { altCloseButton(idx) }
-            // §3.2 GROUPS
-            place(lay.groupsWell) { RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)).overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x262930), lineWidth: 1)) }
-            altGroupRow(idx, label: "MAIN", bar: lay.mainBar, labelRect: lay.mainLabel, circles: lay.mainCircles, mask: pr.mainMask ?? 0, accent: accent, altRow: false, dimmed: false, barLit: partPlays, editPart: editPart)
-            altGroupRow(idx, label: "ALT", bar: lay.altBar, labelRect: lay.altLabel, circles: lay.altCircles, mask: a.altMask, accent: accent, altRow: true, dimmed: !a.mode.usesAlt, barLit: partPlays && a.mode.usesAlt, editPart: editPart)
-            // §3.4 MODE SELECTOR
-            place(lay.selectorWell) { RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)) }
-            ForEach(0..<min(10, lay.modeSegments.count), id: \.self) { i in
-                let mode = EuclideousAltMode.allCases[i]
-                let disabled = isRiff && (mode == .rests || mode == .spread)   // §3.4 notes-only modes greyed on the riff
-                place(lay.modeSegments[i]) { altModeSegment(idx, mode: mode, selected: a.mode == mode, disabled: disabled, editPart: editPart) }
-            }
-            // §3.5 SETTINGS
-            place(lay.settings) { altSettingsRow(idx, a: a, accent: accent, editPart: editPart) }
-        }
-        .frame(width: width, height: height, alignment: .topLeading)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Alternate routing for the \(sourceName.lowercased())")
-        .accessibilityAddTraits(.isModal)
-    }
-    private func altCloseButton(_ idx: Int) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
-            Path { p in p.move(to: CGPoint(x: 1, y: 1)); p.addLine(to: CGPoint(x: 7, y: 7)); p.move(to: CGPoint(x: 7, y: 1)); p.addLine(to: CGPoint(x: 1, y: 7)) }
-                .stroke(Color(hex: 0xAAB0BA), style: StrokeStyle(lineWidth: 1.5, lineCap: .round)).frame(width: 8, height: 8)
-        }
-        .frame(width: 24, height: 24).contentShape(Rectangle()).onTapGesture { altPanelOpen = nil }
-        .accessibilityElement(children: .ignore).accessibilityLabel("Close").accessibilityAddTraits(.isButton)
-    }
-    /// §3.1 APPLY: two segments — the source ("RIFF"/"NOTES") and "BOTH" (or "= RIFF"/"= NOTES", selected, while following).
-    private func altApplyControl(_ idx: Int, source: EuclideousOutPart, sourceName: String, otherName: String, follows: Bool, leadsHere: Bool) -> some View {
-        func seg(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(0.06 * 10)
-                .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
-                .padding(.horizontal, 9).frame(maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Color(hex: 0xDFE3EA) : Color.clear))
-                .contentShape(Rectangle()).onTapGesture(perform: action)
-                .accessibilityElement(children: .ignore).accessibilityLabel("Apply to \(label == sourceName ? "the \(sourceName.lowercased()) only" : label)").accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        }
-        let bothSelected = leadsHere || follows
-        return HStack(spacing: 0) {
-            Text("APPLY").font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(0.06 * 10).foregroundColor(Color(hex: 0x6E727B)).padding(.trailing, 8).accessibilityHidden(true)
-            HStack(spacing: 2) {
-                seg(sourceName, selected: !bothSelected) { edit(idx) { $0.setOutLink(apply: false, source: source) } }
-                seg(follows ? "= \(otherName)" : "BOTH", selected: bothSelected) { edit(idx) { $0.setOutLink(apply: true, source: source) } }
-            }
-            .padding(2).background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34)))
-        }
-    }
-    /// §3.2 one group row: a live bar (step 6 makes it live; static #2A2D34 here), a label, and four A–D circles.
-    private func altGroupRow(_ idx: Int, label: String, bar: CGRect, labelRect: CGRect, circles: [CGRect], mask: UInt8, accent: Color, altRow: Bool, dimmed: Bool, barLit: Bool, editPart: EuclideousOutPart) -> some View {
-        let names = ["A", "B", "C", "D"]
-        return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 1.5).fill(barLit ? lane100(accent) : Color(hex: 0x2A2D34)).frame(width: bar.width, height: bar.height).offset(x: bar.minX, y: bar.minY)
-            Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).kerning(0.08 * 11).foregroundColor(Color(hex: 0xF2F4F7))
-                .frame(width: labelRect.width, height: labelRect.height, alignment: .leading).offset(x: labelRect.minX, y: labelRect.minY).accessibilityHidden(true)
-            ForEach(0..<4, id: \.self) { b in
-                let routed = (mask >> UInt8(b)) & 1 != 0, mainOn = (mainOutMask >> UInt8(b)) & 1 != 0
-                altPanelCircle(name: names[b], state: euclideousOutCircleState(routed: routed, mainOn: mainOn), accent: accent, altFilled: altRow && routed)
-                    .frame(width: circles[b].width, height: circles[b].height).offset(x: circles[b].minX, y: circles[b].minY)
-                    .contentShape(Rectangle())
-                    .onTapGesture { edit(idx) { altRow ? $0.toggleAltOutput(editPart, bit: 1 << UInt8(b)) : $0.toggleOutput(editPart, bit: 1 << UInt8(b)) } }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(label == "MAIN" ? "Main" : "Alt") to output \(names[b]), \(routed ? "on" : "off")\(dimmed ? ", not used by this mode" : "")")
-                    .accessibilityAddTraits(.isButton)
-            }
-        }
-        .opacity(dimmed ? 0.42 : 1)   // §3.2: the ALT row dims while the mode doesn't use ALT, but stays live
-    }
-    /// §3.2 a 26 pt panel circle (radius 12): the column circle's look; a routed ALT circle adds a lane20 disc.
-    private func altPanelCircle(name: String, state: EuclideousOutCircleState, accent: Color, altFilled: Bool) -> some View {
-        let ringColor: Color = state == .unrouted ? Color(hex: 0x3A3E47) : lane100(accent)
-        let letterColor: Color = state == .routed ? Color(hex: 0xF2F4F7) : (state == .routedMainOff ? lane100(accent) : Color(hex: 0x8A909A))
-        let dashed = state == .routedMainOff
-        return ZStack {
-            Circle().inset(by: 1).fill(Color(hex: state == .routedMainOff ? 0x131519 : 0x2A2D34))
-            if altFilled { Circle().inset(by: 1).fill(lane20(accent)) }
-            Circle().inset(by: 1).stroke(ringColor, style: dashed ? StrokeStyle(lineWidth: 2, lineCap: .butt, dash: [3, 3]) : StrokeStyle(lineWidth: 2))
-            Text(name).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(letterColor)
-        }
-        .frame(width: 26, height: 26).frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    /// §3.4 one mode segment.
-    private func altModeSegment(_ idx: Int, mode: EuclideousAltMode, selected: Bool, disabled: Bool, editPart: EuclideousOutPart) -> some View {
-        Text(mode.rawValue).font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(0.04 * 10)
-            .foregroundColor(disabled ? Color(hex: 0x4A4E57) : (selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Color(hex: 0xDFE3EA) : Color.clear))
-            .contentShape(Rectangle())
-            .onTapGesture { if !disabled { edit(idx) { $0.setAltMode(editPart, mode) } } }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(euclideousAltModeAccessibilityLabel(mode))
-            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-            .accessibilityHidden(disabled)
-    }
-    /// §3.5 the settings row for the current mode.
-    @ViewBuilder private func altSettingsRow(_ idx: Int, a: EuclideousAltParams, accent: Color, editPart: EuclideousOutPart) -> some View {
-        switch a.mode {
-        case .off:    altNote("EVERY HIT GOES TO MAIN")
-        case .rests:  altNote("HITS ON RIFF RESTS GO TO ALT")
-        case .robin:  altNote("EACH HIT TO THE NEXT LIT MAIN")
-        case .spread: altNote("CHORD NOTES SHARED ACROSS MAIN")
-        case .hits, .steps:
-            let unitOne = a.mode == .hits ? "HIT" : "STEP"
-            HStack(spacing: sp4) {
-                melodyStepper("SWAP EVERY", value: a.every, range: 1...8, width: 143.25, height: 40, valueText: "\(a.every) \(unitOne)\(a.every == 1 ? "" : "S")", lowDisabled: a.every == 1, highDisabled: a.every == 8) { v in edit(idx) { $0.editAlt(editPart) { $0.every = v } } }
-                melodyStepper("OFFSET", value: a.offset, range: 0...(2 * a.every - 1), width: 143.25, height: 40, valueText: "\(a.offset)", wraps: true) { v in edit(idx) { $0.editAlt(editPart) { $0.offset = v } } }
-            }
-        case .passes:
-            HStack(spacing: sp4) {
-                melodyStepper("SWAP EVERY", value: a.passes, range: 1...8, width: 143.25, height: 40, valueText: "\(a.passes) PASS\(a.passes == 1 ? "" : "ES")", lowDisabled: a.passes == 1, highDisabled: a.passes == 8) { v in edit(idx) { $0.editAlt(editPart) { $0.passes = v } } }
-                melodyStepper("OFFSET", value: a.passOffset, range: 0...(2 * a.passes - 1), width: 143.25, height: 40, valueText: "\(a.passOffset)", wraps: true) { v in edit(idx) { $0.editAlt(editPart) { $0.passOffset = v } } }
-            }
-        case .chance:
-            melodyStepper("CHANCE OF ALT", value: a.chance / 10, range: 1...9, width: 290.5, height: 40, valueText: "\(a.chance)%", lowDisabled: a.chance <= 10, highDisabled: a.chance >= 90) { v in edit(idx) { $0.editAlt(editPart) { $0.chance = v * 10 } } }
-        case .strip:
-            altStripCells(idx, strip: a.strip, accent: accent, editPart: editPart)
-        case .split:
-            melodyStepper("ALT ABOVE", value: a.splitRank, range: 0...7, width: 290.5, height: 40, valueText: a.splitLowest ? "LOWEST" : altSplitRankName(rank: a.splitRank), lowDisabled: a.splitLowest, highDisabled: a.splitRank == 7) { v in edit(idx) { $0.editAlt(editPart) { $0.split = v } } }
-        }
-    }
-    private func altNote(_ text: String) -> some View {
-        Text(text).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1).truncationMode(.tail)
-            .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, 10)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)).overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x262930), lineWidth: 1)))
-    }
-    /// §3.6 eight STRIP cells (MAIN/ALT, with the cell number), 3 pt apart; a tap flips one.
-    private func altStripCells(_ idx: Int, strip: UInt8, accent: Color, editPart: EuclideousOutPart) -> some View {
-        HStack(spacing: 3) {
-            ForEach(0..<8, id: \.self) { i in
-                let alt = (strip >> UInt8(i)) & 1 != 0
-                VStack(spacing: 1) {
-                    Text(alt ? "ALT" : "MAIN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(alt ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)).lineLimit(1).minimumScaleFactor(1)
-                    Text("\(i + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x5C6069))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 6).fill(alt ? lane20(accent) : Color(hex: 0x2A2D34)))
-                .overlay(alt ? RoundedRectangle(cornerRadius: 6).strokeBorder(lane100(accent), lineWidth: 1) : nil)
-                .contentShape(Rectangle())
-                .onTapGesture { edit(idx) { $0.editAlt(editPart) { $0.strip ^= (1 << UInt8(i)) } } }
-                .accessibilityElement(children: .ignore).accessibilityLabel("Step \(i + 1), \(alt ? "alt" : "main")").accessibilityAddTraits(.isButton)
-            }
-        }
-    }
-    /// §3.5 SPLIT's rank name — the riff grid's own row name for that rank (nothing held ⇒ the bare number), the same
-    /// `riffLivePool` + `euclideousDisplayNoteName` pairing the riff-grid labels use.
-    private func altSplitRankName(rank: Int) -> String {
-        guard rank >= 1 else { return "LOWEST" }
-        return (rank <= riffLivePool.count) ? euclideousDisplayNoteName(riffLivePool[rank - 1], source: noteSource, pool: riffLivePool, keyRoot: keyRoot, keyType: keyType) : "\(rank)"
-    }
-    /// §10.1: the ALT button's spoken value — the effective part's mode + settings (so a follower reads the leader's).
-    private func altButtonAccessibilityValue(_ idx: Int, part: EuclideousOutPart) -> String {
-        guard idx < lines.count else { return "off" }
-        let pr = part == .riff ? euclideousEffectiveRouting(lines[idx]).riff : euclideousEffectiveRouting(lines[idx]).notes
-        return euclideousAltButtonVoiceValue(pr.alt)
-    }
-    /// §2.4: for each output A–D, this lane's `part` layer struck a note that leaves on it — f = the flash envelope of
-    /// that strike's own-layer velocity, `now` seconds after onset, scaled by P. 0 when the part doesn't route there,
-    /// the main out is off, this layer didn't strike, or PULSE is off. Mirrors `ringFlare` but uses ONE layer's velocity.
-    private func outColumnFlares(_ idx: Int, part: EuclideousOutPart, now: Double) -> [Double] {
-        let p = euclideousPulseScale(level: pulseLevel)
-        guard p > 0, idx < lines.count, let s = pulseFeed.latest(lane: idx, where: { $0.onsetAt <= now }) else { return [0, 0, 0, 0] }
-        let vel = part == .riff ? Int(s.riffVel) : Int(s.notesVel)
-        guard vel > 0 else { return [0, 0, 0, 0] }
-        // ALT §7.1: flare the part's EFFECTIVE lit outputs — MAIN (nil ⇒ A-D, the Display rule) plus the ALT group while
-        // the mode uses it — so an ALT output flashes when the layer strikes. (The exact per-hit MAIN-vs-ALT split is
-        // device-owed: the feed carries no per-hit group and the pitch/set modes can't be re-derived UI-side — §7.1.)
-        let pr = part == .riff ? euclideousEffectiveRouting(lines[idx]).riff : euclideousEffectiveRouting(lines[idx]).notes
-        let mask = (pr.mainMask ?? 0x0F) | (pr.alt.mode.usesAlt ? pr.alt.altMask : 0)
-        let f = euclideousPulseEnvelopes(velocity: vel, seconds: now - s.onsetAt, scale: p).f
-        return (0..<4).map { b in ((mask >> UInt8(b)) & 1 != 0 && (mainOutMask >> UInt8(b)) & 1 != 0) ? f : 0 }
-    }
-    /// §2.2–§2.5: one output circle — the header rings' disc and letter at radius 13, with a single lane-colour ring in
-    /// place of the header's four quarters. Tap toggles this output's bit in this part's mask through the `edit` undo
-    /// funnel (`toggleOutput`). §2.4 flare: the ring thickens 2→3 pt over a 6 pt lane40 glow and the disc washes to lane20.
-    private func outCircle(_ idx: Int, part: EuclideousOutPart, output b: Int, name: String, accent: Color,
-                           state: EuclideousOutCircleState, flare f: Double,
-                           cue: (output: Int, held: Bool, token: Int, targets: [EuclideousOutputRingTarget])?,
-                           dot: Bool = false, dotDashed: Bool = false) -> some View {
-        let discFill = Color(hex: state == .routedMainOff ? 0x1B1D23 : 0x2A2D34)   // §2.3: routed+main-off disc is hollow, the card fill shows
-        let ringColor: Color = state == .unrouted ? Color(hex: 0x3A3E47) : lane100(accent)
-        let letterColor: Color = state == .routed ? Color(hex: 0xF2F4F7) : (state == .routedMainOff ? lane100(accent) : Color(hex: 0x8A909A))
-        let dashed = state == .routedMainOff
-        return ZStack {
-            if f > 0 { Circle().inset(by: 1).stroke(lane40(accent), lineWidth: 6).opacity(f) }   // §2.4 glow
-            Circle().inset(by: 1).fill(discFill)
-            if f > 0 { Circle().inset(by: 1).fill(lane20(accent)).opacity(f) }                   // §2.4 disc wash
-            Circle().inset(by: 1).stroke(ringColor, style: dashed ? StrokeStyle(lineWidth: 2, lineCap: .butt, dash: [3, 3]) : StrokeStyle(lineWidth: 2 + f))
-            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(letterColor)
-            // §1.4 ALT dot: a 7 pt lane100 disc with a 2 pt card-fill ring (11 pt overall) on the circle's ring at its
-            // bottom-right (135° clockwise from 12 o'clock); dashed (a hollow lane100 ring) when its main out is off.
-            if dot {
-                Group {
-                    if dotDashed {
-                        Circle().inset(by: 1).stroke(lane100(accent), style: StrokeStyle(lineWidth: 2, lineCap: .butt, dash: [3, 3])).frame(width: 11, height: 11)
-                    } else {
-                        Circle().fill(lane100(accent)).frame(width: 7, height: 7).overlay(Circle().stroke(Color(hex: 0x1B1D23), lineWidth: 2).frame(width: 9, height: 9))
-                    }
-                }
-                .offset(x: 14 * 0.7071, y: 14 * 0.7071)   // 135° on the radius-14 ring, from the circle's centre
-            }
-        }
-        .frame(width: 28, height: 28)
-        // §6.2: the header's pulse/trace ring sits 2 pt #DFE3EA with its inner edge sp4 outside the 28 pt circle.
-        .overlay { if let c = cue { EuclideousOutputCueRing(kind: .circle, held: c.held, reduceMotion: reduceMotion).id(c.token).frame(width: 28 + 2 * (sp4 + 2), height: 28 + 2 * (sp4 + 2)) } }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)   // centre the 28 pt circle in its 32 × 44 target
-        .contentShape(Rectangle())
-        .onTapGesture { edit(idx) { $0.toggleOutput(part, bit: 1 << UInt8(b)) } }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(part == .riff ? "Riff" : "Notes") to output \(name), \(state == .unrouted ? "off" : "on")\(state == .routedMainOff ? ", main out \(name) is off" : "")\(dot ? ", also in alt" : "")")
-        .accessibilityHint("Double-tap to route or unroute")
-        .accessibilityAddTraits(.isButton)
-        .ringToggleTrait()
     }
 
     /// Draws one feel glyph — ♩ (U+2669 QUARTER NOTE) for straight, ♩+"." for dotted, ♩+a raised "3" for
@@ -5073,30 +4514,22 @@ struct EuclideousPage: View {
     /// reported, not hand-fitted), so the header row and tab row stop moving between tabs. Upper zone: Row A
     /// (card + WALK strip + direction row) + Row B (ADVANCE EVERY). Lower zone: ON REST row + values row.
     private func riffTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        // PER-LAYER EMITTER ROUTING ferry §1.2/§1.3: the content loses the OUT column's 32 pt and the sp4 gap to it (36 total).
-        let contentW = max(1, fullWidth - EuclideousOutColumnLayout.width - sp4)
-        let layout = euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: contentW, sp4: sp4)
+        let layout = euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
         // LISTEN REBUILT (2026-10-23): RIFF pauses whole under SHADOW or ECHO now (§9.9's `borrowedTabs`), not SHADOW alone.
         let paused = line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo
-        return ZStack(alignment: .topLeading) {
-            HStack(spacing: sp4) {
-                VStack(spacing: sp4) {
-                    riffTopRow(idx, line, accent, layout: layout)
-                    riffAdvanceRow(idx, line, accent, layout: layout).frame(height: layout.rowBHeight)
-                    riffOnRestRow(idx, line, accent, layout: layout).frame(height: layout.lowerRowHeight)
-                    melodyValuesRow(idx, line, accent, fullWidth: contentW, stepperWidth: layout.valueStepperWidth)
-                        .frame(height: layout.lowerRowHeight)
-                        .opacity(line.riffOnResolved ? 1.0 : 0.42)
-                }
-                .frame(width: contentW)
-                // §1.7: the column dims to 42% with the body while the riff is off, but stays live.
-                outColumn(idx, line, accent, part: .riff, height: contentAreaH)
+        return ZStack {
+            VStack(spacing: sp4) {
+                riffTopRow(idx, line, accent, layout: layout)
+                riffAdvanceRow(idx, line, accent, layout: layout).frame(height: layout.rowBHeight)
+                riffOnRestRow(idx, line, accent, layout: layout).frame(height: layout.lowerRowHeight)
+                melodyValuesRow(idx, line, accent, fullWidth: fullWidth, stepperWidth: layout.valueStepperWidth)
+                    .frame(height: layout.lowerRowHeight)
                     .opacity(line.riffOnResolved ? 1.0 : 0.42)
             }
             .opacity(paused ? EuclideousListenPauseMetrics.dimOpacity : 1)
             .allowsHitTesting(!paused)
             .accessibilityHidden(paused)
-            if paused { listenPausedOverlay(idx, line, label: "RIFF", width: contentW, height: contentAreaH) { $0.listenPitch = .own } }
+            if paused { listenPausedOverlay(idx, line, label: "RIFF", width: fullWidth, height: contentAreaH) { $0.listenPitch = .own } }
         }
     }
     /// §7 (LISTEN REBUILT, 2026-10-23): the opacity a borrowed tab's own content dims to underneath its
@@ -5301,11 +4734,7 @@ struct EuclideousPage: View {
         // LISTEN REBUILT (2026-10-23): NOTES pauses whole under SHADOW or ECHO (§9.9's `borrowedTabs`, NOTES
         // reads the riff far beyond one pitch, so it always pauses alongside RIFF — confirmed, not assumed).
         let shadowing = line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo
-        // PER-LAYER EMITTER ROUTING ferry §1.2/§1.3: the content loses the OUT column (32) + its sp4 gap (36 total);
-        // §1.6: the PLAY AS picker alone still covers the WHOLE content box (column included), so it uses `layFull`.
-        let contentW = max(1, fullWidth - EuclideousOutColumnLayout.width - sp4)
-        let lay = euclideousNotesTabLayout(contentAreaH: contentAreaH, fullWidth: contentW, sp4: sp4)
-        let layFull = euclideousNotesTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
+        let lay = euclideousNotesTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
         let data = notesTabData(line)
         let way = line.notesPlayAsResolved
         let plays = line.notesPlaysResolved, rests = line.notesRestsResolved
@@ -5319,7 +4748,7 @@ struct EuclideousPage: View {
         // one VoiceOver group per row (§11.2): the group spans the content width at the row's own y, its children keep their layout x
         func group<V: View>(_ row: CGRect, label: String, @ViewBuilder _ v: () -> V) -> some View {
             ZStack(alignment: .topLeading) { v() }
-                .frame(width: contentW, height: row.height, alignment: .topLeading)
+                .frame(width: fullWidth, height: row.height, alignment: .topLeading)
                 .offset(x: 0, y: row.minY)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(label)
@@ -5403,7 +4832,7 @@ struct EuclideousPage: View {
                                 .equatable()
                                 .contentShape(Rectangle())
                                 .modifier(lockOutlineMod(idx, .notesPlayAs, accent))
-                                .onTapGesture { altPanelOpen = nil; notesPickerOpen.insert(idx) }   // §2.6: opening the picker closes the ALT panel
+                                .onTapGesture { notesPickerOpen.insert(idx) }
                                 .euclideousHelp("How the lit notes play on each hit it chooses.")
                                 .accessibilityElement(children: .ignore)
                                 .accessibilityLabel(euclideousNotesPlayAsButtonLabel(way))
@@ -5424,18 +4853,13 @@ struct EuclideousPage: View {
                     }
                 }
                 .opacity(isOn ? 1.0 : 0.42)
-                // PER-LAYER ROUTING ferry §1.7: the OUT column is part of the body — it dims to 42% with the rest while
-                // the notes are off and stays live; it pauses (0.18, no hits, a11y hidden) with the body under SHADOW/ECHO.
-                outColumn(idx, line, accent, part: .notes, height: contentAreaH)
-                    .opacity(isOn ? 1.0 : 0.42)
-                    .offset(x: contentW + sp4, y: 0)
             }
             .opacity(shadowing ? EuclideousListenPauseMetrics.dimOpacity : 1)
             .allowsHitTesting(!shadowing)
             .accessibilityHidden(shadowing)
-            if shadowing { listenPausedOverlay(idx, line, label: "NOTES", width: contentW, height: contentAreaH) { $0.listenPitch = .own } }
+            if shadowing { listenPausedOverlay(idx, line, label: "NOTES", width: fullWidth, height: contentAreaH) { $0.listenPitch = .own } }
             if notesPickerOpen.contains(idx) {
-                EuclideousNotesPickerView(layout: layFull, current: way, list: data.list, accent: lane100(accent),
+                EuclideousNotesPickerView(layout: lay, current: way, list: data.list, accent: lane100(accent),
                                           onChoose: { w in
                                               if w != way { edit(idx) { $0.notesPlayAs = w } }
                                               notesPickerOpen.remove(idx)
@@ -5449,7 +4873,7 @@ struct EuclideousPage: View {
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
         // §4.5: switching the tab, a layout change or the card going away closes the picker
         .onDisappear { notesPickerOpen.remove(idx) }
-        .onChange(of: contentAreaH) { _ in notesPickerOpen.remove(idx); altPanelOpen = nil }   // §2.4: a layout change closes both pop-ups
+        .onChange(of: contentAreaH) { _ in notesPickerOpen.remove(idx) }
         .onChange(of: fullWidth) { _ in notesPickerOpen.remove(idx) }
     }
 

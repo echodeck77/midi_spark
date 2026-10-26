@@ -8,7 +8,7 @@ import SwiftUI
 
 /// §2.3: "one fixed height for all three tabs: the tallest tab's natural height at that width" — measured
 /// live (not hand-derived as a text-wrap-aware formula, which would drift from real font metrics the first
-/// time a description's wording changes) via a hidden copy of MAIN OUT's own content, always rendered
+/// time a description's wording changes) via a hidden copy of PORTS' own content, always rendered
 /// off-screen regardless of which tab is actually showing. A disclosed implementation choice: §2.3's own
 /// words ask for "one formula, like the header ladder," but the header ladder's own inputs are all fixed
 /// numeric constants — these rows include wrapped prose, which a live measurement reproduces exactly and a
@@ -25,7 +25,7 @@ private struct FFSMidiInHeightKey: PreferenceKey {
 }
 
 struct EuclideousSettingsSheet: View {
-    @Binding var tab: Int   // 0 MIDI IN · 1 MAIN OUT · 2 CLOCK — owned by the caller so it persists in memory, not saved (§2.6)
+    @Binding var tab: Int   // 0 MIDI IN · 1 PORTS · 2 CLOCK — owned by the caller so it persists in memory, not saved (§2.6)
     let containerW: CGFloat
     let containerH: CGFloat
     let headerBottomY: CGFloat
@@ -37,14 +37,10 @@ struct EuclideousSettingsSheet: View {
     let ignoreAllNotesOff: Bool
     let onSetIgnoreAllNotesOff: (Bool) -> Void
 
-    // MAIN OUT (§4)
-    let laneMasks: [UInt8]
-    let mainOutMask: UInt8
-    let soloSilenced: [Bool]      // LANE SOLO (2026-10-21): the rings' solo-silenced lanes' quarters draw at 42 %, as the header's rings do
-    let busChannels: [Int]        // 1-based, A...D
-    let outputNames: [String]     // the REAL host-visible names, A...D (index 0...3) — NOT assumed "FOURFOLD A"
+    // PORTS (THE NINE PORTS, 2026-10-26 — was MAIN OUT): one channel per port, eight steppers in lane order
+    let busChannels: [Int]        // 1-based, one per port: Riff A, Notes A … Notes D (index = bus, `FourfoldPorts`)
     let allOutputName: String     // the REAL host-visible name for the "All" cable — NOT assumed "FOURFOLD ALL"
-    let onSetBusChannel: (Int, Int) -> Void   // (bus 0...3, new 1-based channel)
+    let onSetBusChannel: (Int, Int) -> Void   // (bus 0...7, new 1-based channel)
     let onAllNotesOff: () -> Void
 
     // CLOCK (§5)
@@ -62,7 +58,7 @@ struct EuclideousSettingsSheet: View {
     let clashPolicy: ClashPolicy
     let onSetClashPolicy: (ClashPolicy) -> Void
 
-    @State private var mainOutNaturalHeight: CGFloat = 0
+    @State private var portsNaturalHeight: CGFloat = 0
     @State private var midiInNaturalHeight: CGFloat = 0   // §6.3: measured only in DEBUG (the CLASHES block makes MIDI IN the tallest tab)
     @State private var allNotesOffSentAt: Date? = nil
 
@@ -71,11 +67,11 @@ struct EuclideousSettingsSheet: View {
     var body: some View {
         let cardW = euclideousSettingsSheetWidth(containerW: containerW)
         let fixedChrome: CGFloat = 44 + 8 + 36 + 8 + 16 + 8 /* title+gap+tabs+gap+footer+gap-before-footer */ + 16 /* card padding ×2, sp8 each side */
-        // §6.3: MAIN OUT is normally the tallest tab, but in DEBUG the CLASHES block makes MIDI IN taller — size to the max.
+        // §6.3: PORTS is normally the tallest tab, but in DEBUG the CLASHES block makes MIDI IN taller — size to the max.
         #if DEBUG
-        let desired = max(1, max(mainOutNaturalHeight, midiInNaturalHeight)) + fixedChrome
+        let desired = max(1, max(portsNaturalHeight, midiInNaturalHeight)) + fixedChrome
         #else
-        let desired = max(1, mainOutNaturalHeight) + fixedChrome
+        let desired = max(1, portsNaturalHeight) + fixedChrome
         #endif
         let available = max(1, containerH - headerBottomY - 16)
         let cardH = min(desired, available)
@@ -91,14 +87,14 @@ struct EuclideousSettingsSheet: View {
             card(width: cardW, height: cardH)
                 .offset(y: headerBottomY + 8)
                 .background(
-                    // Hidden MAIN OUT measurement — always rendered, never shown, drives the ONE fixed height.
-                    mainOutTabContent(measuring: true)
+                    // Hidden PORTS measurement — always rendered, never shown, drives the ONE fixed height.
+                    portsTabContent(measuring: true)
                         .frame(width: cardW - 16, alignment: .top)
                         .fixedSize(horizontal: false, vertical: true)
                         .background(GeometryReader { g in Color.clear.preference(key: FFSHeightKey.self, value: g.size.height) })
                         .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
                 )
-                .onPreferenceChange(FFSHeightKey.self) { mainOutNaturalHeight = $0 }
+                .onPreferenceChange(FFSHeightKey.self) { portsNaturalHeight = $0 }
                 #if DEBUG
                 .background(   // §6.3: the DEBUG-only second measure — MIDI IN (with its CLASHES block) is now the tallest tab
                     midiInTabContent
@@ -120,7 +116,7 @@ struct EuclideousSettingsSheet: View {
                 Group {
                     switch tab {
                     case 0: midiInTabContent
-                    case 1: mainOutTabContent(measuring: false)
+                    case 1: portsTabContent(measuring: false)
                     default: clockTabContent
                     }
                 }
@@ -160,7 +156,7 @@ struct EuclideousSettingsSheet: View {
         HStack(spacing: 4) {
             ForEach(0..<3, id: \.self) { i in
                 let selected = tab == i
-                let name = ["MIDI IN", "MAIN OUT", "CLOCK"][i]
+                let name = ["MIDI IN", "PORTS", "CLOCK"][i]
                 VStack(spacing: 0) {
                     Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.08 * 11)
                         .foregroundColor(selected ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
@@ -279,14 +275,14 @@ struct EuclideousSettingsSheet: View {
         }
     }
 
-    // MARK: - MAIN OUT tab (§4)
+    // MARK: - PORTS tab (THE NINE PORTS, 2026-10-26)
 
-    private func mainOutTabContent(measuring: Bool) -> some View {
+    private func portsTabContent(measuring: Bool) -> some View {
         VStack(spacing: 8) {
-            block(name: "CHANNELS", description: "Each main out sends on its own channel. \(allOutputName.uppercased()) carries all four together.") {
+            block(name: "CHANNELS", description: "Each port stamps its notes with its own channel. \(allOutputName.uppercased()) carries all eight together, told apart by these.") {
                 VStack(spacing: 4) {
-                    ForEach(0..<4, id: \.self) { bus in
-                        mainOutRow(bus, interactive: !measuring)
+                    ForEach(euclideousPortsTabRows(), id: \.lane) { row in
+                        portsLaneRow(row, interactive: !measuring)
                     }
                 }
             }
@@ -310,49 +306,46 @@ struct EuclideousSettingsSheet: View {
             }
         }
     }
-    private func mainOutRow(_ bus: Int, interactive: Bool) -> some View {
-        let state = euclideousOutputRingState(output: bus, laneMasks: laneMasks, mainOutMask: mainOutMask)
-        let letter = ["A", "B", "C", "D"][bus]
-        let name = bus < outputNames.count ? outputNames[bus] : letter
-        let ch = bus < busChannels.count ? busChannels[bus] : bus + 1
-        return HStack(spacing: 8) {
-            // The ring's OWN canvas stays at its natural 44×44 (its hardcoded radius-17 circle needs that
-            // room — shrinking the view's own size instead of scaling it would clip the circle against a
-            // too-small canvas before the scale ever applied). `.scaleEffect` shrinks the already-complete
-            // render to radius 13.6/2pt arcs/dash 2-1.6 — exactly 0.8× the existing constants, per §4.1 —
-            // then `.frame` only constrains how much ROW SPACE it occupies.
-            EuclideousOutputRing(letter: letter, state: state, laneColours: laneColours, dim: EuclideousLaneDimLevels(soloSilenced))
-                .scaleEffect(0.8)
-                .frame(width: 32, height: 32)
-                .allowsHitTesting(false)
+    /// One lane's two ports side by side: its letter in the lane colour, then RIFF and NOTES with a channel stepper each.
+    private func portsLaneRow(_ row: EuclideousPortsTabRow, interactive: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(row.letter).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                .foregroundColor(row.lane < laneColours.count ? laneColours[row.lane] : Color(hex: 0xF2F4F7))
+                .frame(width: 14)
                 .accessibilityHidden(true)
-            Text(name).font(.system(size: 10, weight: .bold, design: .monospaced)).tracking(0.06 * 10)
-                .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1).truncationMode(.tail)
-            Spacer(minLength: 4)
+            ForEach(row.ports, id: \.bus) { port in
+                portsStepper(port, interactive: interactive)
+            }
+        }
+        .frame(height: 32)
+    }
+    private func portsStepper(_ port: EuclideousPortsTabPort, interactive: Bool) -> some View {
+        let ch = port.bus < busChannels.count ? busChannels[port.bus] : port.bus + 1
+        let atMin = ch <= 1, atMax = ch >= 16
+        return HStack(spacing: 4) {
+            Text(port.label).font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(0.14 * 9)
+                .foregroundColor(Color(hex: 0x8A909A)).lineLimit(1)
+                .frame(width: 36, alignment: .leading)
             HStack(spacing: 0) {
-                let atMin = ch <= 1, atMax = ch >= 16
                 Image(systemName: "chevron.left").font(.system(size: 12, weight: .heavy))
                     .foregroundColor(Color(hex: 0xAAB0BA)).opacity(atMin ? 0.4 : 1)
                     .frame(width: 32, height: 32).contentShape(Rectangle())
-                    .onTapGesture { if interactive, !atMin { onSetBusChannel(bus, ch - 1) } }
+                    .onTapGesture { if interactive, !atMin { onSetBusChannel(port.bus, ch - 1) } }
                     .accessibilityLabel("Decrease channel")
-                Text("CH").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(0.14 * 9)
-                    .foregroundColor(Color(hex: 0x8A909A))
-                Color.clear.frame(width: 4, height: 1)
                 Text("\(ch)").font(.system(size: 12, weight: .heavy, design: .monospaced)).monospacedDigit()
-                    .foregroundColor(Color(hex: 0xF2F4F7)).frame(width: 16)
+                    .foregroundColor(Color(hex: 0xF2F4F7)).frame(width: 20)
                 Image(systemName: "chevron.right").font(.system(size: 12, weight: .heavy))
                     .foregroundColor(Color(hex: 0xAAB0BA)).opacity(atMax ? 0.4 : 1)
                     .frame(width: 32, height: 32).contentShape(Rectangle())
-                    .onTapGesture { if interactive, !atMax { onSetBusChannel(bus, ch + 1) } }
+                    .onTapGesture { if interactive, !atMax { onSetBusChannel(port.bus, ch + 1) } }
                     .accessibilityLabel("Increase channel")
             }
-            .frame(width: 112, height: 32)
+            .frame(height: 32)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x2A2D34)))
         }
-        .frame(height: 32)
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Main out \(letter), \(name), channel \(ch)")
+        .accessibilityLabel(euclideousPortChannelAccessibilityLabel(bus: port.bus, channel: ch))
     }
 
     // MARK: - CLOCK tab (§5)
@@ -367,7 +360,7 @@ struct EuclideousSettingsSheet: View {
                     }
                 }
             }
-            // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows, MIX pads and OUT rings. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.
+            // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows and MIX pads. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.
             block(name: "STRIKE PULSE",
                   description: "How strongly each strike shows, by how hard it played. OFF shows none; SUBTLE is softer. Reduce Motion also turns off dips, swells, tails and ripples.") {
                 segmented([("OFF", 48), ("SUBTLE", 64), ("FULL", 56)], selected: max(0, min(2, pulseLevel))) { i in onSetPulseLevel(i) }

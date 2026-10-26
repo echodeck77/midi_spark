@@ -1,6 +1,6 @@
 //  RestartFlashPainter.swift
 //  The flash on the RHYTHM tab's restart tiles (2026-10-21): a lane-colour wash, a soft light band sweeping across, a white rim with an outer glow — drawn from the plain numbers
-//  `euclideousRestartFlashLook` returns (all the decisions are pure and live in Derivations.swift). SwiftUI-only on purpose (GridUI seam rule), like `OutputRingPainter.swift`.
+//  `euclideousRestartFlashLook` returns (all the decisions are pure and live in Derivations.swift). SwiftUI-only on purpose (GridUI seam rule), like `WalkTagPainter.swift`.
 
 import SwiftUI
 

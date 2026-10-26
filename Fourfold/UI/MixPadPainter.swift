@@ -1,7 +1,7 @@
 //  MixPadPainter.swift
 //  The MIX tab's XY PAD (gate × velocity) and OCT STEPPER (ferry "MIX tab", 2026-10-18).
 //
-//  SwiftUI-only on purpose (GridUI seam rule: no UIKit, no AU frameworks), like `OutputRingPainter.swift`: every number — region
+//  SwiftUI-only on purpose (GridUI seam rule: no UIKit, no AU frameworks), like `WalkTagPainter.swift`: every number — region
 //  rects, puck centre, ticks, and the touch-to-value inverse — comes from the pure `EuclideousMixPadGeometry` in Derivations.swift,
 //  so the drawing and the touch can never disagree about where a value sits. The pad owns only its own touch state (one finger per
 //  pad, independent of every other pad), and reports values + undo checkpoints through `onEditStep`.
