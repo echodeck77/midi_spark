@@ -79,8 +79,8 @@ final class Host {
     var hash: UInt64 = 0xcbf29ce484222325 // FNV-1a over every MIDI message the AU sends, for --golden
     var eventCount = 0
     var playing = true
-    var onsPerCable = [Int](repeating: 0, count: 5)
-    var offsPerCable = [Int](repeating: 0, count: 5)
+    var onsPerCable = [Int](repeating: 0, count: FourfoldPorts.cableCount)
+    var offsPerCable = [Int](repeating: 0, count: FourfoldPorts.cableCount)
     var firstOns: [(Int64, UInt8, UInt8)] = []
     let au: FourfoldAudioUnit
     let buf: AVAudioPCMBuffer
@@ -131,9 +131,9 @@ final class Host {
     func start() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { [unowned self] _ in self.render(480) }
         Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [unowned self] _ in
-            print("HOST beat=\(String(format: "%.1f", self.sampleTime * self.tempo / 60 / self.sr)) ons per cable [All,A,B,C,D]=\(self.onsPerCable) offs=\(self.offsPerCable) firstA=\(self.firstOns.prefix(6).map { "\($0.1)@\($0.0)" })")
+            print("HOST beat=\(String(format: "%.1f", self.sampleTime * self.tempo / 60 / self.sr)) ons per cable [All,RiffA,NotesA,RiffB,NotesB,RiffC,NotesC,RiffD,NotesD]=\(self.onsPerCable) offs=\(self.offsPerCable) firstA=\(self.firstOns.prefix(6).map { "\($0.1)@\($0.0)" })")
             let t = self.au.tapeStats()
-            var tOn = [Int](repeating: 0, count: 5), tOff = [Int](repeating: 0, count: 5)
+            var tOn = [Int](repeating: 0, count: FourfoldPorts.cableCount), tOff = [Int](repeating: 0, count: FourfoldPorts.cableCount)
             for e in self.au.sessionTape.events(from: 0, to: Int.max) { if e.isOn { tOn[e.cable] += 1 } else { tOff[e.cable] += 1 } }
             print("DIAG panics=\(self.au.kernelDiagnostics().panics) stuckReason=\(self.au.kernelDiagnostics().stuckReason)")   // the engine's stuck-note self-heal count (see the 2026-10-25 status-log entry)
             print("TAPE notes ons per cable \(tOn) offs \(tOff)")

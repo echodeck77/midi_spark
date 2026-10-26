@@ -2658,9 +2658,39 @@ func euclideousLaneOutChipStyle(routed: Bool, mainOn: Bool) -> EuclideousLaneOut
 }
 
 
-// ── PER-LAYER EMITTER ROUTING ferry (2026-10-25) §1–§2: the OUT column on the RIFF and NOTES tabs ──────────
-/// Which layer of a lane a routing applies to (ferry §2.5): the RIFF tab edits `riffOutMask`, the NOTES tab `notesOutMask`.
+// ── THE NINE PORTS (Paul 2026-10-26, replaces the emitter toggles) ─────────────────────────────────────────
+/// Which layer of a lane a note belongs to. A lane's RIFF and its NOTES each leave on their OWN port, always.
 enum EuclideousOutPart: Equatable { case riff, notes }
+
+/// Fourfold's MIDI outputs, as the host lists them: cable 0 is ALL (every stream, told apart by channel), then one port per lane per layer —
+/// Riff A, Notes A, Riff B, Notes B, … Notes D (lane 1 is "A"). There is no routing to choose: a note's port follows from its lane and layer.
+/// A BUS is the engine's name for a port without ALL, so `bus = 2 × lane + (notes ? 1 : 0)` and `cable = bus + 1`; a bus mask has one bit per port (8 bits).
+enum FourfoldPorts {
+    static let cableCount = 9
+    static let busCount = 8
+    static let all = 0
+    static let laneLetters = ["A", "B", "C", "D"]
+    /// The host-visible names (AUM prepends the plugin's own name).
+    static let names: [String] = ["All"] + (0..<4).flatMap { ["Emit Riff \(laneLetters[$0])", "Emit Notes \(laneLetters[$0])"] }
+    @inline(__always) static func bus(lane: Int, part: EuclideousOutPart) -> Int { 2 * lane + (part == .notes ? 1 : 0) }
+    @inline(__always) static func cable(lane: Int, part: EuclideousOutPart) -> Int { bus(lane: lane, part: part) + 1 }
+    /// The bus mask (one bit) for a lane's layer.
+    @inline(__always) static func busMask(lane: Int, part: EuclideousOutPart) -> UInt8 { UInt8(1) << UInt8(bus(lane: lane, part: part)) }
+    /// Both of a lane's ports.
+    @inline(__always) static func laneBusMask(_ lane: Int) -> UInt8 { UInt8(3) << UInt8(2 * lane) }
+    /// The lane and layer a cable carries; nil for ALL (cable 0) and anything out of range.
+    static func lanePart(ofCable cable: Int) -> (lane: Int, part: EuclideousOutPart)? {
+        guard cable >= 1, cable < cableCount else { return nil }
+        return ((cable - 1) / 2, (cable - 1) % 2 == 0 ? .riff : .notes)
+    }
+    /// "RIFF A" / "NOTES C" — the page's own short wording (upper case, like the rest of the page); "ALL" for cable 0.
+    static func shortName(cable: Int) -> String {
+        guard let lp = lanePart(ofCable: cable) else { return "ALL" }
+        return (lp.part == .riff ? "RIFF " : "NOTES ") + laneLetters[lp.lane]
+    }
+}
+
+// ── PER-LAYER EMITTER ROUTING ferry (2026-10-25) §1–§2: the OUT column on the RIFF and NOTES tabs ──────────
 
 /// §2.3: one output circle's look, from this part's routing bit for the output and the output's `euclideousMainOutMask`
 /// bit. Four input combinations, three looks — "not routed, main out off" is the same as "not routed" (§2.3). The

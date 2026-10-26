@@ -12,7 +12,7 @@ import Foundation
 final class FourfoldSoak {
     private var client = MIDIClientRef(), inPort = MIDIPortRef(), outPort = MIDIPortRef()
     private let lock = NSLock()
-    private static let ports = 5, channels = 16, notes = 128
+    private static let ports = FourfoldPorts.cableCount, channels = 16, notes = 128
     private var sounding = [Bool](repeating: false, count: ports * channels * notes)   // what a synth listening to that port would be doing: the key is ON or OFF
     private var onTime = [UInt64](repeating: 0, count: ports * channels * notes)
     private var totalOns = 0, totalOffs = 0, unmatchedOffs = 0, doubleOns = 0, blanketOffs = 0
@@ -48,7 +48,7 @@ final class FourfoldSoak {
         MIDIClientCreate("Fourfold soak" as CFString, nil, nil, &client)
         MIDIInputPortCreateWithBlock(client, "soak-in" as CFString, &inPort) { [weak self] list, ref in self?.collect(list, source: Int(bitPattern: ref) - 1) }
         MIDIOutputPortCreate(client, "soak-out" as CFString, &outPort)
-        for i in 0..<5 { MIDIPortConnectSource(inPort, engine.midi.sources[i], UnsafeMutableRawPointer(bitPattern: i + 1)) }
+        for i in 0..<Self.ports { MIDIPortConnectSource(inPort, engine.midi.sources[i], UnsafeMutableRawPointer(bitPattern: i + 1)) }
         let destination = engine.midi.destination
         let presets = engine.au.factoryPresetNames()
         engine.setPlaying(true); playing = true
@@ -179,7 +179,7 @@ final class FourfoldSoak {
         checks += 1
         var stuck: [String] = []
         for p in 0..<Self.ports { for c in 0..<Self.channels { for n in 0..<Self.notes where sounding[(p * Self.channels + c) * Self.notes + n] {
-            stuck.append("\(["All", "A", "B", "C", "D"][p]) ch\(c + 1) note \(n)")
+            stuck.append("\(FourfoldPorts.names[p]) ch\(c + 1) note \(n)")
         } } }
         if !stuck.isEmpty { failures += 1; log("SOAK FAIL @ \(label): \(stuck.count) note(s) still ON after the stop: " + stuck.prefix(8).joined(separator: "; ")) }
     }

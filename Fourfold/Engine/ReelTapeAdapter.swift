@@ -39,7 +39,7 @@ extension SessionTape {
         return h
     }
 
-    /// The drawable notes of filed passes `lo…hi` laid end to end (a note held across a boundary reunites), outputs A–D only, plus the total length in beats — the tape's `ReelDeck.rangeRoll`.
+    /// The drawable notes of filed passes `lo…hi` laid end to end (a note held across a boundary reunites), the eight ports only (not ALL), plus the total length in beats — the tape's `ReelDeck.rangeRoll`.
     func reelRangeRoll(from lo: Int, to hi: Int) -> (notes: [ReelDeck.Note], totalBeats: Double) {
         var out: [ReelDeck.Note] = []
         var open: [Int: (start: Double, vel: UInt8)] = [:]
@@ -47,7 +47,7 @@ extension SessionTape {
         var p = min(lo, hi); let end = max(lo, hi)
         while p <= end {
             if let cycle = reelPassCycleBeats(p) {
-                for e in reelPassEvents(p) where e.cable >= 1 && e.cable <= 4 {
+                for e in reelPassEvents(p) where e.cable >= 1 && e.cable <= FourfoldPorts.busCount {
                     let key = Int(e.cable) << 8 | Int(e.b1)
                     let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
                     let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
@@ -79,7 +79,7 @@ extension SessionTape {
         return (out, offset)
     }
 
-    /// The MIDI files for passes `lo…hi`: `emitterMask` 0 = the A–D sum as one file, else one per selected output (A = bit 0 … D = bit 3). The tempo header is the tempo the first pass was PLAYED at (REEL-12), not the current one.
+    /// The MIDI files for passes `lo…hi`: `emitterMask` 0 = the sum of the eight ports as one file, else one per selected port (bit 0 = Riff A, bit 1 = Notes A … bit 7 = Notes D, `FourfoldPorts`). The tempo header is the tempo the first pass was PLAYED at (REEL-12), not the current one.
     func reelExportFiles(from lo: Int, to hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] {
         let f = filedPasses()
         guard !f.isEmpty else { return [] }
@@ -87,12 +87,13 @@ extension SessionTape {
         let bpm = self.bpm(at: f[first].startTick)
         var files: [(name: String, data: Data)] = []
         if emitterMask == 0 {
-            let (evs, total) = reelExportEvents(from: lo, to: hi, cables: [1, 2, 3, 4])
+            let (evs, total) = reelExportEvents(from: lo, to: hi, cables: Set((1...FourfoldPorts.busCount).map { UInt8($0) }))
             if !evs.isEmpty { files.append((name: "Fourfold-All.mid", data: MidiFile.encode(events: evs, bpm: bpm, ppq: 480, loopBeats: total))) }
         } else {
-            for (i, letter) in ["A", "B", "C", "D"].enumerated() where (emitterMask & (1 << UInt8(i))) != 0 {
+            for i in 0..<FourfoldPorts.busCount where (emitterMask & (1 << UInt8(i))) != 0 {
                 let (evs, total) = reelExportEvents(from: lo, to: hi, cables: [UInt8(i + 1)])
-                if !evs.isEmpty { files.append((name: "Fourfold-\(letter).mid", data: MidiFile.encode(events: evs, bpm: bpm, ppq: 480, loopBeats: total))) }
+                let label = FourfoldPorts.shortName(cable: i + 1).capitalized
+                if !evs.isEmpty { files.append((name: "Fourfold-\(label).mid", data: MidiFile.encode(events: evs, bpm: bpm, ppq: 480, loopBeats: total))) }
             }
         }
         return files

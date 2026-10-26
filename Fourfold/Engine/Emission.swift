@@ -111,12 +111,12 @@ final class ReelDeck {
     // appending a synthetic OFF at `cycleBeats`, so the note re-strikes each loop instead of hanging. Fixed scratch, no alloc
     // (this runs once per promote/select, off the per-window render path). Uses the last-set `cycleBeats` (a step-rate change
     // is rare and self-corrects on the next promote/select).
-    private var openStatus = [UInt8](repeating: 0xFF, count: 4 * 128)   // per (cable 1–4, note) the open ON's status byte; 0xFF = closed
+    private var openStatus = [UInt8](repeating: 0xFF, count: FourfoldPorts.busCount * 128)   // per (cable 1–8, note) the open ON's status byte; 0xFF = closed
     private func closeOpenLoopNotes() {
         for i in openStatus.indices { openStatus[i] = 0xFF }
         for i in 0..<loopN {
             let e = loop[i]
-            guard e.cable >= 1, e.cable <= 4 else { continue }
+            guard e.cable >= 1, e.cable <= FourfoldPorts.busCount else { continue }
             let k = Int(e.cable - 1) * 128 + Int(e.b1 & 0x7F)
             let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
             let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
@@ -219,7 +219,7 @@ final class ReelDeck {
         var open: [Int: (start: Double, vel: UInt8, machine: UInt32)] = [:]   // key = cable<<8 | note
         for i in 0..<loopN {
             let e = loop[i]
-            guard e.cable >= 1, e.cable <= 4 else { continue }
+            guard e.cable >= 1, e.cable <= FourfoldPorts.busCount else { continue }
             let key = Int(e.cable) << 8 | Int(e.b1)
             let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
             let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
@@ -272,7 +272,7 @@ final class ReelDeck {
                     let base = slot * ReelDeck.histCap
                     for i in 0..<histLen[slot] {
                         let e = hist[base + i]
-                        guard e.cable >= 1, e.cable <= 4 else { continue }
+                        guard e.cable >= 1, e.cable <= FourfoldPorts.busCount else { continue }
                         let key = Int(e.cable) << 8 | Int(e.b1)
                         let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
                         let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)

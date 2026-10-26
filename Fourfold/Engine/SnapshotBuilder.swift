@@ -233,13 +233,11 @@ enum SnapshotBuilder {
         }
 
         // v3.0 (delta §7): per-bus stamp channels A–D, clamped 1–16, defaulted if the doc is short.
-        var busCh = [UInt8](repeating: 0, count: 4)
-        for i in 0..<4 {
-            let v = doc.busChannelsResolved[i]   // CR-8: nil/short-safe (busChannels is now Optional)
-            busCh[i] = UInt8(max(1, min(16, v)))
+        var busCh = [UInt8](repeating: 0, count: FourfoldPorts.busCount)
+        let busChResolved = doc.busChannelsResolved   // CR-8: nil/short-safe (busChannels is now Optional); THE NINE PORTS: one per port
+        for i in 0..<FourfoldPorts.busCount {
+            busCh[i] = UInt8(max(1, min(16, busChResolved[i])))
         }
-        // delta §6a: enable mask (nil/old docs ⇒ all enabled — the loader default).
-        func packMask(_ flags: [Bool]) -> UInt8 { var m: UInt8 = 0; for (i, on) in flags.prefix(4).enumerated() where on { m |= 1 << UInt8(i) }; return m }
         // The ONE passthrough rule: a bypassed identity slot = the source plays untreated as a hold-tail. LEGATO
         // (Paul 2026-08-23): a chain with NO machines just PASSES THROUGH — the held note is struck once and SUSTAINED
         // (adopted across columns) rather than re-struck every step. (A .retrig identity re-attacked the chord at each
@@ -265,7 +263,7 @@ enum SnapshotBuilder {
                            machines: machines,
                            cells: cells,
                            busChannels: busCh,
-                           busEnabledMask: packMask(doc.busEnabledResolved),
+                           busEnabledMask: 0xFF,   // THE NINE PORTS: every port is always on (the per-output enable was an emitter toggle, retired 2026-10-26)
                            ignoreAllNotesOff: doc.ignoreAllNotesOffResolved,
                            rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved,
                            rowLaunchAnchor: rowLaunchAnchorResolved)

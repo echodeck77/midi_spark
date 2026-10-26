@@ -1,17 +1,17 @@
 //  FourfoldMIDI.swift
-//  FOURFOLD Step 3 (2026-10-23): the standalone app's CoreMIDI shell — the medium-specific end of the emission boundary (seam rule 3). OUT: five virtual sources, one per AU cable (All, Out A…D), so the wires are visible
+//  FOURFOLD Step 3 (2026-10-23): the standalone app's CoreMIDI shell — the medium-specific end of the emission boundary (seam rule 3). OUT: nine virtual sources, one per AU cable (All, Emit Riff A, Emit Notes A … Emit Notes D), so the wires are visible
 //  ports in every other app. IN: an input port connected to every other source on the system (hardware, Bluetooth, network, other apps) plus a virtual destination "Fourfold In"; complete channel-voice messages go to `onInput`.
-//  Stable unique ids, so another app can remember a connection to "Fourfold Out A" across launches.
+//  Stable unique ids, so another app can remember a connection to "Fourfold Emit Riff A" across launches.
 
 import CoreMIDI
 import Foundation
 
 final class FourfoldMIDI {
-    static let sourceNames = ["Fourfold All", "Fourfold Out A", "Fourfold Out B", "Fourfold Out C", "Fourfold Out D"]
-    private static let uniqueIDBase: Int32 = 0x4652_4644   // "FRFD"; +0…4 the sources, +10 the destination
+    static let sourceNames = FourfoldPorts.names.map { "Fourfold " + $0 }
+    private static let uniqueIDBase: Int32 = 0x4652_4644   // "FRFD"; +0…8 the sources, +10 the destination
 
     private var client = MIDIClientRef()
-    private(set) var sources = [MIDIEndpointRef](repeating: 0, count: 5)
+    private(set) var sources = [MIDIEndpointRef](repeating: 0, count: FourfoldPorts.cableCount)
     private(set) var destination = MIDIEndpointRef()
     private var inputPort = MIDIPortRef()
     private var connected = Set<MIDIEndpointRef>()
@@ -27,7 +27,7 @@ final class FourfoldMIDI {
             let id = note.pointee.messageID
             if id == .msgSetupChanged || id == .msgObjectAdded || id == .msgObjectRemoved { DispatchQueue.main.async { self?.connectAllSources() } }
         }
-        for i in 0..<5 {
+        for i in 0..<FourfoldPorts.cableCount {
             MIDISourceCreate(client, Self.sourceNames[i] as CFString, &sources[i])
             MIDIObjectSetIntegerProperty(sources[i], kMIDIPropertyUniqueID, Self.uniqueIDBase &+ Int32(i))
         }
@@ -55,9 +55,9 @@ final class FourfoldMIDI {
     }
     var connectedSourceCount: Int { connected.count }
 
-    /// OUT (render thread): one message on cable 0…4 (All, A, B, C, D), stamped with the host time it should sound at.
+    /// OUT (render thread): one message on cable 0…8 (All, Riff A, Notes A … Notes D), stamped with the host time it should sound at.
     func send(cable: Int, bytes: UnsafePointer<UInt8>, length: Int, hostTime: UInt64) {
-        guard cable >= 0, cable < 5, length > 0, length <= 256 else { return }
+        guard cable >= 0, cable < FourfoldPorts.cableCount, length > 0, length <= 256 else { return }
         let list = listBuffer.assumingMemoryBound(to: MIDIPacketList.self)
         let pkt = MIDIPacketListInit(list)
         _ = MIDIPacketListAdd(list, 1024, pkt, hostTime, length, bytes)   // one packet of at most 256 bytes always fits the 1024-byte list

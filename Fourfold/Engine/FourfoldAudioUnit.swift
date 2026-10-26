@@ -1,7 +1,7 @@
 //  FourfoldAudioUnit.swift  — FOURFOLD's copy of the AU class (Step 4, 2026-10-23: copied from AUExtension/MidiSparkAudioUnit.swift and renamed; the 8x8 original is frozen). The standalone app builds it directly; the extension
 //  returns it from its factory.
 //  AUv3 MIDI processor (aumi). Spec v2.8.
-//  Declares five MIDI outputs (§7b: All + Emit A–D), the 35-parameter table with stable addresses (§8/§13.5),
+//  Declares nine MIDI outputs (All + Emit Riff/Notes A–D, `FourfoldPorts`), the 35-parameter table with stable addresses (§8/§13.5),
 //  fullState as the host-level Preset (§1/§9), and wires the render kernel.
 
 import Foundation
@@ -342,14 +342,11 @@ public class FourfoldAudioUnit: AUAudioUnit {
         return m
     }
 
-    // MARK: - Five MIDI outputs — the load-bearing line (§7b/§8). AUM shows these as five sources.
-    // delta §7b: FIVE cables — All (0) carries every emitter channel-distinguished; A–D (1–4) each
-    // carry their own stream. Static; serves single-cable and multi-out hosts simultaneously.
-    // Labels kept short (AUM prepends the plugin name); "All" sorts before the "Emit ·" group in
-    // AUM's alphabetical list, instead of landing between A and C.
-    public override var midiOutputNames: [String] {
-        ["All", "Out A", "Out B", "Out C", "Out D"]   // cables 0–4 (the page calls the outputs MAIN OUT A–D)
-    }
+    // MARK: - Nine MIDI outputs — the load-bearing line (§7b/§8). AUM shows these as nine sources.
+    // THE NINE PORTS (Paul 2026-10-26): All (cable 0) carries every stream, told apart by channel; then one port per lane per LAYER —
+    // Riff A, Notes A, Riff B, Notes B … Notes D (cables 1–8). A note's port is fixed by its lane and layer; there is nothing to route.
+    // Static; serves single-cable and multi-out hosts simultaneously. Labels as Paul named them (AUM prepends the plugin name).
+    public override var midiOutputNames: [String] { FourfoldPorts.names }
 
     /// IDENTITY — keep in step with `Fourfold/AU/Info.plist` (type / subtype / manufacturer) and `project.yml` (bundle ids). The standalone app never registers this description (it builds the AU directly); it only needs to be well-formed.
     /// `Frfd` / `OutM` (Outlier MIDI) is a one-way door once anyone has saved an AUM session (plan: "Decisions").

@@ -2798,9 +2798,13 @@ struct PluginState: Codable, Equatable {
     var activeScene: Int? = nil
     var morphMaster: Double? = nil // DECODE-ONLY ZOMBIE (delta §9 item 5): param #300 was REMOVED 2026-09-16 (address
                                    // free to reuse) and the render never applied it — kept only so older docs decode.
-    var busChannels: [Int]? = nil  // v3.0 (delta §7): each bus A–D stamps this channel on exit
-    /// The 4 stamp channels, nil/short-array safe (missing ⇒ 1,2,3,4). Non-persisting read helper.
-    var busChannelsResolved: [Int] { let b = busChannels ?? []; return (0..<4).map { $0 < b.count ? b[$0] : $0 + 1 } }
+    var busChannels: [Int]? = nil  // v3.0 (delta §7): each port stamps this channel on exit. THE NINE PORTS (2026-10-26): 8 entries, one per port (Riff A, Notes A, … Notes D); a session saved before that holds 4 (one per lane)
+    /// The 8 stamp channels, one per port (`FourfoldPorts`), nil/short-array safe. Missing ⇒ 1…8. A pre-ports document stored 4 (one per LANE): both of a lane's ports take its number, so what it sent on ALL is unchanged.
+    var busChannelsResolved: [Int] {
+        let b = busChannels ?? []
+        if !b.isEmpty && b.count <= 4 { return (0..<8).map { let lane = $0 / 2; return lane < b.count ? b[lane] : lane + 1 } }
+        return (0..<8).map { $0 < b.count ? b[$0] : $0 + 1 }
+    }
     // ROW 8 (Paul 2026-08-22, Docs/row8-spec.md): the bottom ACTION strip — 8 TYPED performance cells. DOCUMENT state is
     // the authoring {type · payload · mover}; the toggle/radio LIT state is captured PER SCENE (SceneState.row8On).
     // Additive-Optional → old docs decode nil ⇒ the factory "danger gradient" deck (Row8Cell.factoryDeck).

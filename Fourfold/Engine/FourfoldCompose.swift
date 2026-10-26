@@ -39,7 +39,7 @@ enum FourfoldCompose {
         return [ProcessorSlot(type: .euclid, params: p)]
     }
 
-    /// The scene: the Euclideous cell at column 0 of the reserved row, all four outputs open (each lane's own `emitterMask` is the real per-lane selector), its input the door at index 3 ("receiver 4"),
+    /// The scene: the Euclideous cell at column 0 of the reserved row, all outputs open (a note's port is fixed by its lane and layer, `FourfoldPorts`), its input the door at index 3 ("receiver 4"),
     /// and the row pinned to a 1-step continuous pass. Every other cell is empty. `rowLane` is always a full `Snap.rows` array (the Snapshot contract: an empty one means "use the global lap key").
     static func scene(chain: [ProcessorSlot]) -> SceneState {
         var s = SceneState.empty()

@@ -1,7 +1,7 @@
 //  FourfoldSelfTest.swift
 //  FOURFOLD Step 3 (2026-10-23): an in-process check of the app's MIDI shell, run only with `--midi-selftest` (Scripts/fourfold-harness/app-test.sh). The iOS simulator's CoreMIDI does not reach macOS, so the app listens to ITS OWN
 //  output ports from a second CoreMIDI client and sends a note to ITS OWN input, then prints what it saw to stderr:
-//    OUT  — note-ons and note-offs per source (All, Out A…D), and how far ahead of "now" the packets' host-time stamps are (they should be a little ahead: the render runs a buffer before the sound);
+//    OUT  — note-ons and note-offs per source (All, Emit Riff A … Emit Notes D), and how far ahead of "now" the packets' host-time stamps are (they should be a little ahead: the render runs a buffer before the sound);
 //    IN   — a note sent to "Fourfold In" must reach the AU (the held-note count goes 0 → 1 → 0).
 
 import CoreMIDI
@@ -11,7 +11,7 @@ final class FourfoldSelfTest {
     private var client = MIDIClientRef()
     private var inPort = MIDIPortRef(), outPort = MIDIPortRef()
     private let lock = NSLock()
-    private var ons = [Int](repeating: 0, count: 5), offs = [Int](repeating: 0, count: 5)
+    private var ons = [Int](repeating: 0, count: FourfoldPorts.cableCount), offs = [Int](repeating: 0, count: FourfoldPorts.cableCount)
     private var leadMs: [Double] = []
     private let timebase: mach_timebase_info_data_t = { var t = mach_timebase_info_data_t(); mach_timebase_info(&t); return t }()
 
@@ -19,7 +19,7 @@ final class FourfoldSelfTest {
         MIDIClientCreate("Fourfold selftest" as CFString, nil, nil, &client)
         MIDIInputPortCreateWithBlock(client, "st-in" as CFString, &inPort) { [weak self] list, ref in self?.collect(list, source: Int(bitPattern: ref) - 1) }
         MIDIOutputPortCreate(client, "st-out" as CFString, &outPort)
-        for i in 0..<5 { MIDIPortConnectSource(inPort, engine.midi.sources[i], UnsafeMutableRawPointer(bitPattern: i + 1)) }
+        for i in 0..<FourfoldPorts.cableCount { MIDIPortConnectSource(inPort, engine.midi.sources[i], UnsafeMutableRawPointer(bitPattern: i + 1)) }
         let destination = engine.midi.destination
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
             let before = engine.au.kernelDiagnostics().poolCount
@@ -49,7 +49,7 @@ final class FourfoldSelfTest {
             lock.lock(); defer { lock.unlock() }
             let lead = leadMs.sorted()
             let med = lead.isEmpty ? Double.nan : lead[lead.count / 2]
-            log("SELFTEST OUT: note-ons [All,A,B,C,D]=\(ons) note-offs=\(offs); host-time lead of packets over 'now' (ms): min=\(String(format: "%.1f", lead.first ?? .nan)) median=\(String(format: "%.1f", med)) max=\(String(format: "%.1f", lead.last ?? .nan)) over \(lead.count) note-ons")
+            log("SELFTEST OUT: note-ons [All,RiffA,NotesA,RiffB,NotesB,RiffC,NotesC,RiffD,NotesD]=\(ons) note-offs=\(offs); host-time lead of packets over 'now' (ms): min=\(String(format: "%.1f", lead.first ?? .nan)) median=\(String(format: "%.1f", med)) max=\(String(format: "%.1f", lead.last ?? .nan)) over \(lead.count) note-ons")
         }
     }
 
@@ -77,7 +77,7 @@ final class FourfoldSelfTest {
     }
 
     private func collect(_ list: UnsafePointer<MIDIPacketList>, source: Int) {
-        guard source >= 0, source < 5 else { return }
+        guard source >= 0, source < FourfoldPorts.cableCount else { return }
         let now = mach_absolute_time()
         for packet in list.unsafeSequence() {
             let n = Int(packet.pointee.length)

@@ -60,7 +60,7 @@ struct SnapCell {
     var dormant = false        // LADDER: a non-active rung while LADDER mode is on — silent (skipped at the emit
                                // guards, like `muted`) but present/visible; resolved in the builder so the render
                                // thread stays LADDER-unaware. Default false → identical to pre-LADDER behaviour.
-    var busMask: UInt8 = 0     // bits 0–3 = A–D (§2.3: the only exits)
+    var busMask: UInt8 = 0     // the cell's exits (non-zero ⇒ it emits); a Euclideous lane's real port is chosen per note (`FourfoldPorts`)
     var runStartColumn: Int8 = -1   // LEGATO precompute (§7 v2.4) — UI-thread work, render just reads
     // v3.0 graph routing (delta §1, precomputed here so render never scans):
     var resolvedParent: Int8 = -1   // referenced row IF occupied & ≠ self, else −1 (= MIDI IN)
@@ -238,8 +238,8 @@ final class SnapshotBox {
     let swing: Double                // 50…75 (§4 v2.3)
     let machines: [SnapMachine]        // ≥16 — sized to the document
     let cells: [SnapCell]            // Snap.cells (256 = maxCols·rows), index = column * Snap.rows + row
-    let busChannels: [UInt8]         // v3.0 (delta §7): 4 stamp channels (1–16) for buses A–D
-    let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ emitter i (A–D) enabled; disabled = no output
+    let busChannels: [UInt8]         // v3.0 (delta §7): 8 stamp channels (1–16), one per port (Riff A … Notes D, `FourfoldPorts`)
+    let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ port i enabled; disabled = no output (always 0xFF now)
     let ignoreAllNotesOff: Bool      // INPUT (Paul 2026-09-06): ignore an incoming CC120/123 (All Sound/Notes Off) so a chatty source (which floods these around each chord) can't wipe the live input pool. Default true.
     // PER-PART CLOCK (Paul 2026-08-19): the raw per-row step/len arrive as init params + are resolved below; only the RESOLVED arrays are stored.
     let rowStep: [Double]            // RESOLVED per-row step (always Snap.rows long; falls back to `stepBeats`) — what the render reads
@@ -248,7 +248,7 @@ final class SnapshotBox {
     let rowLaneMask: [UInt16]         // PER-ROW LAP (Paul 2026-08-19): per-row column-loop mask; empty ⇒ use the EPHEMERAL global lap (laneMask) for every row. Non-empty (count Snap.rows) ⇒ each row reads its own.
 
     init(generation: UInt64, stepBeats: Double, swing: Double,
-         machines: [SnapMachine], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0b1111,
+         machines: [SnapMachine], cells: [SnapCell], busChannels: [UInt8], busEnabledMask: UInt8 = 0xFF,
          ignoreAllNotesOff: Bool = true,
          rowStepBeats: [Double] = [], rowLen: [Int] = [], rowLaneMask: [UInt16] = [],
          rowLaunchAnchor: [Double] = []) {

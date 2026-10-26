@@ -37,10 +37,10 @@ struct TapeEvent: Equatable {
     var isNote: Bool { kind == .note }
     var isOn: Bool { type == .noteOn }
     var isPitchBend: Bool { type == .pitchBend }
-    /// 0 = the ALL cable, 1–4 = outputs A–D.
-    var cable: Int { Int((aux >> 4) & 0x07) }
-    /// 0…3 for A–D; nil for the ALL cable.
-    var output: Int? { cable >= 1 && cable <= 4 ? cable - 1 : nil }
+    /// 0 = the ALL cable, 1–8 = Riff A, Notes A … Notes D (`FourfoldPorts`).
+    var cable: Int { Int((aux >> 4) & 0x0F) }
+    /// 0…7 for the eight ports (a bus); nil for the ALL cable.
+    var output: Int? { cable >= 1 && cable <= FourfoldPorts.busCount ? cable - 1 : nil }
     var lane: Int? { meta & 0x20 != 0 ? Int((meta >> 3) & 0x03) : nil }
     var channel: UInt8 { aux & 0x0F }
     var note: UInt8 { d1 }
@@ -60,7 +60,7 @@ struct TapeEvent: Equatable {
     private static func pack(_ t: T, lane: Int?, cable: Int, channel: UInt8) -> (meta: UInt8, aux: UInt8) {
         var m = t.rawValue
         if let l = lane { m |= UInt8(max(0, min(3, l))) << 3 | 0x20 }
-        return (m, (channel & 0x0F) | UInt8(max(0, min(4, cable))) << 4)
+        return (m, (channel & 0x0F) | UInt8(max(0, min(FourfoldPorts.busCount, cable))) << 4)
     }
     /// A raw MIDI message as the Router emitted it. Note-on with velocity 0 is a note-off. Nil for a status the tape does not keep (nothing the engine sends today).
     static func message(tick: UInt32, status: UInt8, d1: UInt8, d2: UInt8, cable: Int, lane: Int?) -> TapeEvent? {
@@ -481,8 +481,8 @@ final class TapeRecorder {
 
     init(writer: TapeWriter) {
         self.writer = writer
-        laneOfNote = UnsafeMutablePointer<Int8>.allocate(capacity: 5 * 16 * 128)
-        laneOfNote.initialize(repeating: -1, count: 5 * 16 * 128)
+        laneOfNote = UnsafeMutablePointer<Int8>.allocate(capacity: FourfoldPorts.cableCount * 16 * 128)
+        laneOfNote.initialize(repeating: -1, count: FourfoldPorts.cableCount * 16 * 128)
     }
     deinit { laneOfNote.deallocate() }
 
@@ -540,7 +540,7 @@ final class TapeRecorder {
         var laneTag = -1
         let status = b0 & 0xF0
         if status == 0x80 || status == 0x90 {
-            let idx = (Int(min(cable, 4)) * 16 + Int(b0 & 0x0F)) * 128 + Int(b1 & 0x7F)
+            let idx = (Int(min(cable, UInt8(FourfoldPorts.busCount))) * 16 + Int(b0 & 0x0F)) * 128 + Int(b1 & 0x7F)
             if status == 0x90 && b2 > 0 { laneOfNote[idx] = Int8(truncatingIfNeeded: lane); laneTag = lane } else { laneTag = Int(laneOfNote[idx]) }
         }
         guard let e = TapeEvent.message(tick: UInt32(clamping: t), status: b0, d1: b1, d2: b2, cable: Int(cable), lane: laneTag >= 0 ? laneTag : nil) else { return }
