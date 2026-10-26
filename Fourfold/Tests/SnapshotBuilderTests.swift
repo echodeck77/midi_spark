@@ -523,10 +523,10 @@ final class SnapshotBuilderTests: XCTestCase {
     // now — per-lane `EuclidLine.sourceMode` governs real behaviour, see testEuclideousSourceModeSurvivesSnap-
     // shotBuild above; KEY mode itself now generates a real scale pool, Router.swift's `.key` branch, not an
     // empty one — the §4.4 gap this comment used to describe was closed 2026-10-09.)
-    // HOLD/LATCH (Paul 2026-10-20): the field reaches the Euclideous row's own SnapParams (`procs[0]`,
-    // same hop `globalSrcChanMask` already uses), gated to MIDI IN only — CHORDS/KEY force it to nil
-    // regardless of the stored value, since neither source has physical note-on/off to freeze or toggle.
-    func testEuclideousHoldLatchModeOnlyReachesTheRowWhenSourceIsMidi() {
+    // HOLD/LATCH (Paul 2026-10-20): the field reaches the Euclideous row's own SnapParams (`procs[0]`, same hop
+    // `globalSrcChanMask` already uses). SOURCES STACK ferry (2026-10-26): MIDI IN ALWAYS listens now, so the mode
+    // reaches the row REGARDLESS of the (decode-only) source value — the old `== .midi ? … : nil` gate is gone.
+    func testEuclideousHoldLatchModeReachesTheRowForEverySource() {
         var st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) },
                              scenes: [{ var s = SceneState.empty()
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: machineIDs[0], buses: [.a])
@@ -540,9 +540,9 @@ final class SnapshotBuilderTests: XCTestCase {
         st.euclideousHoldLatchMode = .latch
         XCTAssertEqual(resolved(st), .latch)
         st.euclideousNoteSource = .chords
-        XCTAssertNil(resolved(st), "CHORDS: forced nil — no physical note-on/off to freeze or toggle")
+        XCTAssertEqual(resolved(st), .latch, "CHORDS: MIDI always listens, so the stored mode still reaches the row")
         st.euclideousNoteSource = .key
-        XCTAssertNil(resolved(st), "KEY: same")
+        XCTAssertEqual(resolved(st), .latch, "KEY: same — MIDI always listens")
         // an untouched document (nil, nil) must resolve to nil — byte-identical for every pre-existing session.
         let untouched = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) },
                                     scenes: [{ var s = SceneState.empty()

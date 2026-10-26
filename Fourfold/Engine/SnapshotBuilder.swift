@@ -109,16 +109,17 @@ enum SnapshotBuilder {
                 // (Router.swift's `.key` branch, fixed the same day this comment was written — see its own
                 // note there for why it was previously silent).
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
-                    sc.procs[0].euclideousNoteSourceResolved = doc.euclideousNoteSourceResolved
-                    // FOURFOLD SETTINGS, MIDI IN tab (2026-10-15 ferry §3.5): "LISTEN ON" replaces the literal
-                    // 0xFFFF this used to force in unconditionally for a MIDI-mode row — CHORDS/KEY still get a
-                    // flat 0 here, unread by either branch (Router.swift's `.chords`/`.key` cases never consult
-                    // `globalSrcChanMask` at all), so narrowing MIDI's own mask can't leak into them.
-                    sc.procs[0].globalSrcChanMask = doc.euclideousNoteSourceResolved == .midi ? doc.euclideousMidiInChannelMaskResolved : 0
+                    sc.procs[0].euclideousNoteSourceResolved = doc.euclideousNoteSourceResolved   // kept for diagnostics; the stacked pool reads the plan below
+                    // SOURCES STACK ferry (2026-10-26): the stacking plan + the dev-only clash policy.
+                    sc.procs[0].euclideousSourcePlan = doc.sourcePlanResolved
+                    sc.procs[0].euclideousClashPolicy = doc.clashPolicyResolved
+                    // SOURCES STACK: MIDI IN ALWAYS LISTENS now — the LISTEN ON mask is passed unconditionally (not
+                    // gated to a `.midi` source), and HOLD/LATCH applies whenever MIDI contributes. Byte-identical for
+                    // every existing document because the golden harness feeds no MIDI (an empty live pool contributes
+                    // nothing regardless of the mask); the pre-ferry `== .midi ? … : 0`/`nil` gates are gone.
+                    sc.procs[0].globalSrcChanMask = doc.euclideousMidiInChannelMaskResolved
                     sc.procs[0].globalSrcChanMaskSet = true
-                    // HOLD/LATCH (Paul 2026-10-20): only meaningful against MIDI IN — CHORDS/KEY already
-                    // generate a fixed algorithmic pool with no physical note-on/off to freeze or toggle.
-                    sc.procs[0].euclideousHoldLatchMode = doc.euclideousNoteSourceResolved == .midi ? doc.euclideousHoldLatchMode : nil
+                    sc.procs[0].euclideousHoldLatchMode = doc.euclideousHoldLatchMode
                 }
                 // RESET SPAN (Paul 2026-10-08, §2.2): a SEPARATE, independent guard from the block above — this
                 // has nothing to do with receivers, so it must not be skipped just because none are configured.

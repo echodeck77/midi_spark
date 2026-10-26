@@ -444,6 +444,24 @@ final class Router {
     private var euclideousRiffLiveNotes = [UInt8](repeating: 0, count: 16)
     private var euclideousRiffLiveCount = 0
     func euclideousRiffLivePool() -> [UInt8] { Array(euclideousRiffLiveNotes.prefix(euclideousRiffLiveCount)) }
+    // SOURCES STACK ferry (2026-10-26) §2.9/§3: lane-1's (the global pool's) source status, read-and-copied on the
+    // MAIN thread (the only Array alloc here, never on the render path), published through the existing 30 Hz poll.
+    // The UI derives the chord NAME and the REST/WAITING/OFF labels from the SourcePlan + the display clock; this
+    // carries only the render-only facts (which layers are sounding, the held MIDI notes, KEY's added count).
+    struct EuclideousSourceStatus: Equatable {
+        var midiNotes: [UInt8] = []
+        var midiPlaying = false
+        var chordsLit = false
+        var chordsRest = false
+        var keyLit = false
+        var keyAdded = 0
+    }
+    func euclideousSourceStatus() -> EuclideousSourceStatus {
+        EuclideousSourceStatus(midiNotes: Array(euclideousStatusMidiNotes.prefix(euclideousStatusMidiCount)),
+                               midiPlaying: euclideousStatusMidiPlaying,
+                               chordsLit: euclideousStatusChordsLit, chordsRest: euclideousStatusChordsRest,
+                               keyLit: euclideousStatusKeyLit, keyAdded: euclideousStatusKeyAdded)
+    }
     // Unified UI-poll surface: EVERY direction (not just DRUNK) writes its resolved step index here, so the poll
     // layer only ever reads one simple array regardless of which direction a lane is using.
     private var euclideousRiffStep = [Int](repeating: -1, count: 4)
@@ -731,6 +749,21 @@ final class Router {
     // grid keeps reading the single shared `srcNoteBuf`/`srcNoteCount` exactly as before this feature.
     private var globalSrcBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
     private var globalSrcCount = 0
+    // SOURCES STACK ferry (2026-10-26): the MIDI and KEY source layers (CHORDS reuses `chordPoolScratch`), merged
+    // into `globalSrcBuf` by `euclideousBuildSourceStack`. Preallocated — no render-thread allocation.
+    private var midiLayerBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
+    private var keyLayerBuf = [Int](repeating: 0, count: 128)
+    private var keyLayerCount = 0
+    private var euclideousMidiLastNonEmptySample: Int64 = .min / 2   // §0.2 grace clock; "long ago" at start
+    private var euclideousStackMidiPlaying = false                   // this window's MIDI-PLAYING (with release grace)
+    // §2.9 status, published to the UI by `euclideousSourceStatus()` (read-and-copied on the main thread).
+    private var euclideousStatusMidiNotes = [UInt8](repeating: 0, count: 8)
+    private var euclideousStatusMidiCount = 0
+    private var euclideousStatusMidiPlaying = false
+    private var euclideousStatusChordsLit = false
+    private var euclideousStatusChordsRest = false
+    private var euclideousStatusKeyLit = false
+    private var euclideousStatusKeyAdded = 0
     private var euclideousListenOrderScratch = [Int](repeating: 0, count: 32)   // the LISTEN processing order for the row being emitted (see `euclideousListenProcessingOrderInto`)
     // Per-hit working arrays, allocated ONCE here. They used to be `[T](repeating:count:)` locals — a heap allocation each, per hit, on the render thread (invariant 3). `takeScratch` moves one out (so it is uniquely owned and
     // writes never copy) and re-zeroes it; the caller's `defer` puts it back. Never nested: a hit takes each at most once, and no hit runs inside another.
@@ -765,26 +798,9 @@ final class Router {
         for i in 0..<count { a[i] = value }
         return a
     }
-    /// In-place, stable, ascending sort of `globalSrcBuf[0..<n]` by note. `globalSrcBuf[0..<n].sort` copies the slice into a fresh array first — a heap allocation on the render thread, once per window. Insertion sort: n is a handful of
-    /// notes (at most 128), and a strict `>` keeps equal notes in their arrival order, exactly what the stable stdlib sort did.
-    private func sortGlobalSrc(_ n: Int) {
-        guard n > 1 else { return }
-        for i in 1..<n {
-            let x = globalSrcBuf[i]
-            var j = i - 1
-            while j >= 0 && globalSrcBuf[j].note > x.note { globalSrcBuf[j + 1] = globalSrcBuf[j]; j -= 1 }
-            globalSrcBuf[j + 1] = x
-        }
-    }
-    private func fillGlobalSrcFromPool(_ pool: NotePool, chanMask: UInt16) {
-        globalSrcCount = 0
-        let c = pool.srcCount(chanMask: chanMask, cableMask: 0b1111)
-        for k in 0..<c where globalSrcCount < globalSrcBuf.count {
-            let n = pool.srcAscending(k, chanMask: chanMask, cableMask: 0b1111)
-            globalSrcBuf[globalSrcCount] = (Int(n), pool.velocity(n)); globalSrcCount += 1
-        }
-        sortGlobalSrc(globalSrcCount)   // ferry rule: "sort low to high" — MIDI's held-note order isn't guaranteed ascending
-    }
+    // SOURCES STACK ferry (2026-10-26): the Router's own `sortGlobalSrc` / `fillGlobalSrcFromPool` were replaced by
+    // the shared free functions `euclideousStackSort` / `euclideousFillPoolLayer` (Derivations.swift) — the stacked
+    // pool's single sort + layer-fill, so the merge and the layer buffers share ONE implementation.
     // TICK DEDUP, keyed per (row, slot) not just per row (Paul 2026-10-05, fixing the timing smear investigated
     // and left open on 2026-10-03: "`lastTick[row]` is a SINGLE scalar SHARED across every line on this row —
     // safe for one real line; a known limitation for 2+ real lines sharing a row across a window boundary").
@@ -1817,17 +1833,31 @@ final class Router {
         // nothing else held anywhere (and no lane's stale legacy field happening to still say `.chords`)
         // incorrectly fell through and went silent. No existing test caught it: every CHORDS/KEY RouterTest
         // passes a non-empty pool incidentally, masking the gap.
-        let euclideousGeneratedSourceActive = {
-            guard let src = box.cells[Snap.euclideousRow].procs.first?.euclideousNoteSourceResolved else { return false }
-            return src == .chords || src == .key
-        }()
-        // HOLD/LATCH (Paul 2026-10-20): the SAME gap CHORDS/KEY mode found above — a HOLD-sustained or LATCH-
-        // accumulated pool must keep driving the row even once every physical key is released, same
-        // "generates its own content" exception, just sourced from `euclideousHoldLatchPool` (this render's
-        // persistent frozen/latched notes) instead of an algorithmic generator.
-        let euclideousHoldLatchActive = box.cells[Snap.euclideousRow].procs.first?.euclideousHoldLatchMode != nil && euclideousHoldLatchPool.count > 0
+        // SOURCES STACK ferry (2026-10-26): MIDI IN always listens; CHORDS and KEY stack per the plan. Compute
+        // MIDI PLAYING once per window — held notes now (filtered by LISTEN ON), OR within RELEASE GRACE of the
+        // last non-empty window (§0.1/§0.2, so a legato chord change never lets a NO-MIDI layer blip in) — then
+        // the plan's conditions, which GENERALISE the old `source == .chords || .key` gate. Byte-identical for
+        // every pre-ferry document: the harness feeds no MIDI, and a KEY/CHORDS doc derives a plan whose condition
+        // is met exactly when the old exclusive source made this true. `euclideousStackMidiPlaying` is read again
+        // by the stacked-pool build in `emitGeneratorRow`.
+        let euProc = box.cells[Snap.euclideousRow].procs.first
+        // HOLD/LATCH (Paul 2026-10-20): a HOLD-sustained or LATCH-accumulated pool keeps driving the row once every
+        // physical key is released — a non-empty MIDI contribution even with nothing held.
+        let euclideousHoldLatchActive = euProc?.euclideousHoldLatchMode != nil && euclideousHoldLatchPool.count > 0
+        let euMidiNonEmpty = (euProc.map { pool.srcCount(chanMask: $0.globalSrcChanMask, cableMask: 0b1111) > 0 } ?? false) || euclideousHoldLatchActive
+        if euMidiNonEmpty { euclideousMidiLastNonEmptySample = windowStart }
+        euclideousStackMidiPlaying = euclideousMidiPlaying(nonEmpty: euMidiNonEmpty, windowStart: windowStart, lastNonEmptySample: euclideousMidiLastNonEmptySample, sampleRate: sampleRate)
+        let euPlan = euProc?.euclideousSourcePlan ?? SourcePlan()
+        let euChordsActive = euclideousStackMidiPlaying ? euPlan.chordsWithMidi : euPlan.chordsNoMidi
+        let euKeyActive = euclideousStackMidiPlaying ? euPlan.keyWithMidi : euPlan.keyNoMidi
+        let euclideousGeneratedSourceActive = euChordsActive || euKeyActive
         guard pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
+            // SOURCES STACK §2.9: nothing contributes this window (mergeStack won't run) — quiet the status so the UI
+            // doesn't hold a stale light. MIDI may still read "playing" via the release grace even with nothing held.
+            euclideousStatusMidiCount = 0; euclideousStatusMidiPlaying = euclideousStackMidiPlaying
+            euclideousStatusChordsLit = false; euclideousStatusChordsRest = false
+            euclideousStatusKeyLit = false; euclideousStatusKeyAdded = 0
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
 
@@ -2111,93 +2141,82 @@ final class Router {
             // with that tick's own beat and rebuilds only when the beat falls in a different chord step than the pool was built for (a chord change — not per window).
             var chordPoolStep = Int.min
             let chordPoolRateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
-            func fillChordPool(atBeat m: Double) {
+            // SOURCES STACK ferry (2026-10-26): MIDI always listens, CHORDS and KEY stack under it. The three layers
+            // are built into their own buffers, then `euclideousBuildSourceStack` merges them into globalSrcBuf. The
+            // per-window MIDI-PLAYING flag (`euclideousStackMidiPlaying`) was computed in `process()`; recompute the
+            // CHORDS condition here from the plan to gate the per-tick chord refresh.
+            var chordLayerCount = 0, chordLayerIsRest = false
+            var midiLayerCount = 0
+            let euPlan = p.euclideousSourcePlan
+            let euChordsActive = euclideousStackMidiPlaying ? euPlan.chordsWithMidi : euPlan.chordsNoMidi
+            func fillChordLayer(atBeat m: Double) {
                 chordPoolStep = Int((m / chordPoolRateBeats).rounded(.down))
-                let chordCount = chordSeqNotesInto(&chordPoolScratch, beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
-                globalSrcCount = min(globalSrcBuf.count, chordCount)
-                for k in 0..<globalSrcCount { globalSrcBuf[k] = (chordPoolScratch[k], 100) }   // 100 = the standing "no live velocity to inherit" default (matches strikeChord's own explicitVel fallback)
-                sortGlobalSrc(globalSrcCount)
+                chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
+                chordLayerIsRest = chordLayerCount == 0   // §2.6: chordSeqNotesInto returns 0 ONLY for a REST column (PATTERN mode — a real degree always yields ≥1)
             }
-            func refreshChordPool(atBeat m: Double) {
-                guard isEuclideousRow, p.euclideousNoteSourceResolved == .chords else { return }
-                let mm = m + 1e-9                                    // a tick beat a hair under a chord boundary (an inexact `tick × sub`) belongs to the new chord
+            func mergeStack(atBeat m: Double) {
+                fillChordLayer(atBeat: m)
+                let st = euclideousBuildSourceStack(
+                    into: &globalSrcBuf, cap: globalSrcBuf.count,
+                    midi: midiLayerBuf[0..<midiLayerCount], midiPlaying: euclideousStackMidiPlaying,
+                    chords: chordPoolScratch[0..<chordLayerCount], chordsIsRest: chordLayerIsRest,
+                    key: keyLayerBuf[0..<keyLayerCount],
+                    plan: euPlan, clash: p.euclideousClashPolicy, midiStatusOut: &euclideousStatusMidiNotes)
+                globalSrcCount = st.count
+                euclideousStatusMidiCount = min(euclideousStatusMidiNotes.count, st.midiAdmitted)
+                euclideousStatusMidiPlaying = st.midiPlaying
+                euclideousStatusChordsLit = st.chordsLit; euclideousStatusChordsRest = st.chordsRest
+                euclideousStatusKeyLit = st.keyLit; euclideousStatusKeyAdded = st.keyAdded
+            }
+            // §2: re-merge at a tick only when the CHORDS column changed AND chords are contributing — otherwise the
+            // window-start merge stands (byte-identical to a KEY/MIDI doc, which never changed within a window either).
+            func refreshStack(atBeat m: Double) {
+                guard isEuclideousRow, euChordsActive else { return }
+                let mm = m + 1e-9                                    // a tick a hair under a chord boundary belongs to the new chord
                 guard Int((mm / chordPoolRateBeats).rounded(.down)) != chordPoolStep else { return }
-                fillChordPool(atBeat: mm)
+                mergeStack(atBeat: mm)
             }
-            // HOLD/LATCH (Paul 2026-10-20, fixed 2026-10-21): checked HERE, unconditionally once per
-            // Euclideous-row tick, not nested inside `case .midi:` below — `p.euclideousHoldLatchMode` is
-            // forced to nil by SnapshotBuilder whenever source isn't MIDI, so a check that only runs inside
-            // `.midi:` never sees that transition and never resets: HOLD could freeze a chord, the page
-            // switch to CHORDS/KEY (mode reads nil, but the nested check was never reached to notice), then
-            // switch BACK to MIDI with the OLD stored mode and no reset having happened, resuming the stale
-            // frozen/latched pool from before the detour instead of starting fresh. Running the comparison
-            // here instead catches both edges (leaving MIDI drops it; returning sees `prevMode` already nil).
+            // HOLD/LATCH (Paul 2026-10-20, fixed 2026-10-21): checked HERE, once per Euclideous-row tick, so leaving
+            // and returning to a MIDI contribution both reset correctly. Must run BEFORE fillMidiLayer (which reads
+            // the pool). MIDI always listens now, so this no longer needs a source-mode guard.
             if isEuclideousRow, p.euclideousHoldLatchMode != euclideousHoldLatchPrevMode {
                 euclideousHoldLatchPool.reset()
                 for i in euclideousHoldLatchPrevHeld.indices { euclideousHoldLatchPrevHeld[i] = false }
                 euclideousHoldLatchPrevMode = p.euclideousHoldLatchMode
             }
-            if isEuclideousRow {
-                switch p.euclideousNoteSourceResolved {
-                case .chords:
-                    fillChordPool(atBeat: mWinStart)
-                case .key:
-                    // KEY (Paul 2026-10-09 originally, re-scoped 2026-10-12): the key's own scale tones in ONE
-                    // base octave — the generic "extend by octaves to 8" rule (the new ferry's own pool-and-
-                    // ranks §2) now does what a hardcoded 2-octave raw read used to do, so pre-baking a second
-                    // octave here would double-extend. Mirrors `scaleNotes`'s own formula (root+interval,
-                    // realized from baseOct 3 = MIDI 48/C3 — the established "a scale as a pool" convention
-                    // elsewhere in this codebase), just ONE octave's worth now, not two.
-                    let root = ((p.euclideousChordKeyRoot % 12) + 12) % 12
-                    let base = 3 * 12 + 12   // baseOct 3 → MIDI 48 (C3), the C-1 convention `scaleNotes` itself uses
-                    // Written straight into the pool buffer (a temporary `[Int]` of the tones, and the slice copy `sort` makes, were two heap allocations per window on the render thread).
-                    var keyCount = 0
-                    for iv in p.euclideousChordKeyTones where keyCount < globalSrcBuf.count {
-                        let n = base + root + iv
-                        if n >= 0 && n <= 127 { globalSrcBuf[keyCount] = (n, 100); keyCount += 1 }
+            // The MIDI layer: `livePool` (not the shadowed `pool`) avoids a self-arming door's content leaking in;
+            // filtered by LISTEN ON. HOLD mirrors/freezes it, LATCH accumulates — both read back OMNI (filtered at
+            // capture). Always built now (MIDI always listens); an empty live pool yields an empty layer.
+            func fillMidiLayer() {
+                switch p.euclideousHoldLatchMode {
+                case .hold:
+                    if livePool.srcCount(chanMask: p.globalSrcChanMask, cableMask: 0b1111) > 0 {
+                        euclideousHoldLatchPool.captureFiltered(from: livePool, chanMask: p.globalSrcChanMask, cableMask: 0b1111)
                     }
-                    globalSrcCount = keyCount
-                    sortGlobalSrc(globalSrcCount)
-                case .midi:
-                    if p.globalSrcChanMaskSet {
-                        // LITERALLY LIVE (Paul 2026-10-09, two rounds, now page-level not per-lane): `pool` here
-                        // is `emitGeneratorRow`'s own SHADOWED local (`effectivePool(for:live:)`) — reading
-                        // `livePool` (this function's own un-substituted parameter) instead avoids a self-arming
-                        // door's generated content leaking through; no receiver dependency at all. `globalSrcChanMask`
-                        // was always 0xFFFF (OMNI) here until the 2026-10-15 "Fourfold settings" ferry — it's now
-                        // the MIDI IN tab's own "LISTEN ON" channel mask (SnapshotBuilder.swift), filtering which
-                        // channels of `livePool` actually reach every lane AND the riff (both read this SAME
-                        // `fillGlobalSrcFromPool` output via `laneCount`/`laneNotes` below — one filtered pool,
-                        // shared, so the riff inherits lane 1's filtering for free, with no separate mask of its own).
-                        // HOLD/LATCH (Paul 2026-10-20): HOLD mirrors `livePool` live while it's non-empty
-                        // (byte-identical to the `nil` case) and freezes the last non-empty snapshot the instant
-                        // it goes empty (`captureFiltered`, reused verbatim from the door LATCH-strip's own FREEZE
-                        // primitive). LATCH toggles membership on each note newly risen since last render
-                        // (`latchAddStep`, reused verbatim from the door ADD-latch's own rising-edge primitive)
-                        // and ignores note-off entirely. Both read back at chanMask 0xFFFF (OMNI): the pool was
-                        // already filtered by `p.globalSrcChanMask` AT CAPTURE — re-filtering by a LATER (possibly
-                        // narrower) mask would wrongly drop already-frozen/latched notes, the exact bug
-                        // `NotePool.omniRead`'s own doc comment names ("replay stops when I disable the input
-                        // channel"). The reset-on-mode-change check itself now lives above, outside this `.midi:`
-                        // arm (2026-10-21 fix) — it used to live here, which meant it never ran while the source
-                        // was CHORDS/KEY, so a HOLD/LATCH pool could go stale across a source detour and resume
-                        // on return to MIDI IN.
-                        switch p.euclideousHoldLatchMode {
-                        case .hold:
-                            if livePool.srcCount(chanMask: p.globalSrcChanMask, cableMask: 0b1111) > 0 {
-                                euclideousHoldLatchPool.captureFiltered(from: livePool, chanMask: p.globalSrcChanMask, cableMask: 0b1111)
-                            }
-                            fillGlobalSrcFromPool(euclideousHoldLatchPool, chanMask: 0xFFFF)
-                        case .latch:
-                            euclideousHoldLatchPool.latchAddStep(from: livePool, chanMask: p.globalSrcChanMask, cableMask: 0b1111, prevHeld: &euclideousHoldLatchPrevHeld)
-                            fillGlobalSrcFromPool(euclideousHoldLatchPool, chanMask: 0xFFFF)
-                        case nil:
-                            fillGlobalSrcFromPool(livePool, chanMask: p.globalSrcChanMask)
-                        }
-                    } else {
-                        globalSrcUsesLegacy = true
-                    }
+                    midiLayerCount = euclideousFillPoolLayer(into: &midiLayerBuf, from: euclideousHoldLatchPool, chanMask: 0xFFFF)
+                case .latch:
+                    euclideousHoldLatchPool.latchAddStep(from: livePool, chanMask: p.globalSrcChanMask, cableMask: 0b1111, prevHeld: &euclideousHoldLatchPrevHeld)
+                    midiLayerCount = euclideousFillPoolLayer(into: &midiLayerBuf, from: euclideousHoldLatchPool, chanMask: 0xFFFF)
+                case nil:
+                    midiLayerCount = euclideousFillPoolLayer(into: &midiLayerBuf, from: livePool, chanMask: p.globalSrcChanMask)
                 }
+            }
+            // The KEY layer: the scale tones in ONE base octave (baseOct 3 = MIDI 48/C3); the rank-fold rule extends
+            // higher octaves, so pre-baking a second octave would double-extend. Exactly today's `.key` formula.
+            func fillKeyLayer() {
+                let root = ((p.euclideousChordKeyRoot % 12) + 12) % 12
+                let base = 3 * 12 + 12
+                var n = 0
+                for iv in p.euclideousChordKeyTones where n < keyLayerBuf.count {
+                    let note = base + root + iv
+                    if note >= 0 && note <= 127 { keyLayerBuf[n] = note; n += 1 }
+                }
+                keyLayerCount = n
+            }
+            if isEuclideousRow {
+                fillMidiLayer()
+                fillKeyLayer()
+                mergeStack(atBeat: mWinStart)
             }
             func laneCount(_ li: Int) -> Int { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcCount : srcCount }
             func laneNotes(_ li: Int) -> ArraySlice<(note: Int, vel: UInt8)> { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcBuf[0..<globalSrcCount] : srcNotes }
@@ -2481,7 +2500,7 @@ final class Router {
                                  let ph = euclideousLaneChainPhase(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains, legacySpanBeats: ladderSpanBeats)
                                  return ph.rawIsHit ? euclidTickDelay[ph.raw] : 0
                              }) { tick, mTickBeat, _, _ in
-                    refreshChordPool(atBeat: mTickBeat)   // CHORDS: this tick reads the chord that is current at ITS beat, not at the window's start
+                    refreshStack(atBeat: mTickBeat)   // SOURCES STACK: re-merge if the CHORDS column changed at THIS tick's beat (chord-contributing docs only)
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
                     // used by the GridUI comet-bar — a discrete hit/rest decision needs exact integer ticks, a

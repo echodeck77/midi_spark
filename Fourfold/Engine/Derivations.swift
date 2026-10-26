@@ -875,6 +875,21 @@ struct EuclideousStackResult: Equatable {
     }
 }
 
+/// Fill `buf` with a NotePool's notes (filtered by `chanMask`), ascending with their velocities, cap-guarded;
+/// returns the count. The MIDI layer and the per-cell global pool both use it (replaces the Router's old
+/// `fillGlobalSrcFromPool`/`sortGlobalSrc` pair). Free (not a method) so a Router ivar can be passed `inout`
+/// without an overlapping-access-to-self error.
+@inline(__always) func euclideousFillPoolLayer(into buf: inout [(note: Int, vel: UInt8)], from pool: NotePool, chanMask: UInt16) -> Int {
+    var n = 0
+    let c = pool.srcCount(chanMask: chanMask, cableMask: 0b1111)
+    for k in 0..<c where n < buf.count {
+        let note = pool.srcAscending(k, chanMask: chanMask, cableMask: 0b1111)
+        buf[n] = (Int(note), pool.velocity(note)); n += 1
+    }
+    euclideousStackSort(&buf, count: n)   // the held-note order isn't guaranteed ascending
+    return n
+}
+
 /// The note of pitch-class `pc` (0…11) nearest `mean`, ties to the LOWER note, clamped to 0…127 (§2.4c).
 @inline(__always) func euclideousNearestOctave(pc: Int, mean: Int) -> Int {
     var best = pc, bestD = abs(pc - mean), c = pc + 12

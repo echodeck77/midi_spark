@@ -666,19 +666,25 @@ final class RouterTests: XCTestCase {
     // NOTE: the CHORDS-phase pool is non-empty (`chord([72])`, unrelated to the HOLD'd note) — this
     // predates the `euclideousGeneratedSourceActive` fix just below (2026-10-21), kept so this test still
     // passes an honest `pool.count > 0` regardless of which guard condition is doing the letting-through.
-    func testEuclideousHoldDoesNotResumeAStalePoolAfterASourceDetourThroughChords() {
+    // SOURCES STACK ferry (2026-10-26): MIDI IN always listens now, so HOLD/LATCH are no longer gated to a MIDI
+    // "source" — the old "a CHORDS/KEY source detour resets HOLD" artifact (which depended on the resolved
+    // holdLatchMode being forced nil for non-MIDI) is gone. The new invariant: HOLD's frozen pool PERSISTS across a
+    // SourcePlan / source change, and is reset only by a holdLatch MODE change (off↔hold↔latch) — its existing
+    // reset trigger. Verified both ways here.
+    func testEuclideousHoldPoolPersistsAcrossAPlanChangeAndResetsOnlyOnAModeChange() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, rate: .r1_16, sourceMode: .midi)]
-        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
-                             scenes: [{ var s = SceneState.empty()
-                                 s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-                                 return s }()])
-        st.euclideousNoteSource = .midi
-        st.euclideousHoldLatchMode = .hold
-        let midiHoldBox = SnapshotBuilder.build(from: st)
-        st.euclideousNoteSource = .chords   // euclideousHoldLatchMode stays .hold in the DOCUMENT — SnapshotBuilder
-                                            // forces the RESOLVED value to nil here; the stored field is untouched.
-        let chordsBox = SnapshotBuilder.build(from: st)
+        func boxWith(source: EuclideousLaneSource, hold: EuclideousHoldLatchMode?) -> SnapshotBox {
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                 scenes: [{ var s = SceneState.empty()
+                                     s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                                     return s }()])
+            st.euclideousNoteSource = source; st.euclideousHoldLatchMode = hold
+            return SnapshotBuilder.build(from: st)
+        }
+        let midiHoldBox = boxWith(source: .midi, hold: .hold)
+        let chordsHoldBox = boxWith(source: .chords, hold: .hold)   // holdLatch STAYS .hold now — MIDI still listens under CHORDS
+        let offBox = boxWith(source: .midi, hold: nil)
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let windowBeats = Double(frames) * tempo / 60.0 / sr
@@ -692,15 +698,19 @@ final class RouterTests: XCTestCase {
             }
             return (start, Int64(ts))
         }
-        _ = drive(midiHoldBox, chord([60]), windows: 8)         // HOLD freezes [60]
-        _ = drive(chordsBox, chord([72]), windows: 8)           // detour through CHORDS (something else held, so the
-                                                                 // row's own guard passes honestly) — must reset the stale pool
-        // BACK to MIDI IN, nothing physically held: a stale, unreset pool would resume sounding 60 here.
-        let (backStart, backEnd) = drive(midiHoldBox, NotePool(), windows: 8)
-        router.process(box: midiHoldBox, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo,
+        _ = drive(midiHoldBox, chord([60]), windows: 8)              // HOLD freezes [60]
+        _ = drive(chordsHoldBox, NotePool(), windows: 8)             // PLAN CHANGE to CHORDS, nothing newly held — HOLD mode unchanged, so no reset
+        // BACK to the MIDI source, nothing held: if the plan-change detour had reset HOLD, this would be silent.
+        // PICK LOW on the surviving frozen pool [60] strikes 60 — proving HOLD persisted across the plan change.
+        let (keepStart, keepEnd) = drive(midiHoldBox, NotePool(), windows: 8)
+        let acrossPlan = Set(e.ons.filter { $0.cable == 1 && $0.sample >= keepStart && $0.sample < keepEnd }.map { Int($0.note) })
+        XCTAssertTrue(acrossPlan.contains(60), "HOLD's frozen [60] persists across a plan change (MIDI always listens): got \(acrossPlan)")
+        // MODE CHANGE (HOLD → off), nothing held: the pool resets — [60] is gone.
+        let (offStart, offEnd) = drive(offBox, NotePool(), windows: 8)
+        router.process(box: offBox, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo,
                        sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        let afterDetour = Set(e.ons.filter { $0.cable == 1 && $0.sample >= backStart && $0.sample < backEnd }.map { Int($0.note) })
-        XCTAssertTrue(afterDetour.isEmpty, "a CHORDS/KEY detour must drop HOLD's frozen pool, not let it resume on return to MIDI IN: got \(afterDetour)")
+        let afterOff = Set(e.ons.filter { $0.cable == 1 && $0.sample >= offStart && $0.sample < offEnd }.map { Int($0.note) })
+        XCTAssertTrue(afterOff.isEmpty, "turning HOLD off (a mode change) resets the frozen pool: got \(afterOff)")
         assertNothingLeftSounding(e)
     }
     // REGRESSION (found while writing the test above, 2026-10-21): `euclideousGeneratedSourceActive`
@@ -1173,7 +1183,11 @@ final class RouterTests: XCTestCase {
     // now plays the page's own KEY+SCALE picker as a real pool (Router.swift's `.key` branch), a previously-
     // disclosed-but-unbuilt gap (§4.4 of the original rework spec) finally closed. Renamed + rewritten from
     // "yields empty pool" to the actual, opposite claim: real notes, from the SCALE (not live MIDI).
-    func testEuclideousRiffKeyModeReadsTheScalePoolNotLiveMidi() {
+    // SOURCES STACK ferry (2026-10-26): KEY no longer IGNORES live MIDI — a held note now STACKS into the pool
+    // (§1.3; the stacking itself is covered by SourceStackTests). This test's surviving invariant is the one that
+    // didn't change: with NOTHING held, KEY reads its own scale (byte-identical to before — "sounds as before
+    // until you play a note"). So the pool is empty here.
+    func testEuclideousRiffKeyModeReadsTheScalePoolWhenNothingHeld() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // rank 1 = the pool's own lowest note
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, useRiff: true, sourceMode: .key)]   // lane 0 ("lane 1") KEY governs the riff it drives
@@ -1183,18 +1197,19 @@ final class RouterTests: XCTestCase {
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let pool = NotePool(); pool.noteOn(72, velocity: 100, channel: 0)   // real MIDI present — KEY mode must ignore it entirely
+        let pool = NotePool()   // nothing held — KEY reads its own scale
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
-        XCTAssertFalse(notes.isEmpty, "KEY mode must now generate real notes from the page's own scale")
-        XCTAssertFalse(notes.contains(72), "KEY mode must never sound the live MIDI note — it's independent of any held input")
+        XCTAssertFalse(notes.isEmpty, "KEY mode generates real notes from the page's own scale")
         XCTAssertTrue(notes.contains(48), "rank 1 of the default (untouched KEY picker) C natural-minor pool is C3 = MIDI 48")
     }
     // PER-LANE I/O (Paul 2026-10-08) SUPERSEDES the old global `euclideousLanesSourceMidi` switch this test
     // used to set — each lane's own `sourceMode` governs it now.
     // REWRITTEN AGAIN (Paul 2026-10-09, 2nd report), same reason as the riff test above.
-    func testEuclideousLanesKeyModeReadsTheScalePoolNotLiveMidi() {
+    // SOURCES STACK ferry (2026-10-26): as the riff test above — KEY now stacks held MIDI (§1.3); the nothing-held
+    // invariant (KEY reads its scale) is what this preserves, so the pool is empty.
+    func testEuclideousLanesKeyModeReadsTheScalePoolWhenNothingHeld() {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 1, noteSel: .low, sourceMode: .key)]
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
@@ -1203,12 +1218,11 @@ final class RouterTests: XCTestCase {
                                   s.cells[0][Snap.euclideousRow] = cell
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)   // real MIDI present — must be ignored
+        let pool = NotePool()   // nothing held
         let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
-        XCTAssertFalse(notes.isEmpty, "a lane's own sourceMode set to KEY must now sound the scale, not stay silent")
-        XCTAssertFalse(notes.contains(60), "KEY mode must never sound the live MIDI note")
+        XCTAssertFalse(notes.isEmpty, "a lane's own sourceMode set to KEY must sound the scale, not stay silent")
         XCTAssertEqual(notes, [48], "PICK LOW on the default C natural-minor pool strikes only its lowest note, C3 = MIDI 48")
     }
     // EUCLIDEOUS PAGE REWORK: `mainOutMask` is a GLOBAL master gate applied AFTER chopMask's full result, not
@@ -1698,8 +1712,9 @@ final class RouterTests: XCTestCase {
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4", channel: 2)]
         st.euclideousKeyRoot = 0; st.euclideousKeyType = .major   // C major
         st.euclideousChords = { var m = MachineParams(); m.chordsDegrees = [4]; m.chordsSteps = 1; return m }()   // a 1-step V progression: [55,59,62]
+        // SOURCES STACK ferry (2026-10-26): nothing held — this test's point is the SHARED page-level source
+        // (not per-lane), which a held note would confound now that MIDI stacks (§1.3, covered by SourceStackTests).
         let pool = NotePool()
-        pool.noteOn(60, velocity: 100, channel: 1)
 
         // Global = KEY: all 3 lanes, regardless of their own stale field, must sound the SAME note — the
         // scale's own root (48) — and nothing else.
@@ -4344,27 +4359,31 @@ final class RouterTests: XCTestCase {
     /// GOLDEN — captured on the engine BEFORE the MIX ferry's per-pitch-gate change (origin/main 16c634c): preset name → (stream hash,
     /// note-on count) over 8 bars. With `notesGate`/`notesVelocity` unset every layer resolves to GATE / VEL + offset, so every
     /// preset must render the identical note-ons, note-offs and velocities (ferry §9.8).
+    // RE-DERIVED (SOURCES STACK ferry, 2026-10-26): `mixPresetStreamHash` holds an 8-note chord, so each (KEY)
+    // preset now STACKS it (§1.3) instead of ignoring it — the note-on COUNTS are unchanged (same hits, same
+    // pattern) but the pitches shift, so the hashes are re-captured. The nothing-held path is byte-identical
+    // (proven: the golden harness hash with the held chord removed is unchanged).
     private let mixPresetGolden: [String: (UInt64, Int)] = [
-        "STRIDE WALK": (15158537513244454245, 600),
-        "MIRROR WALK": (14602258971500086829, 784),
-        "PENDULUM": (16553319164548356549, 528),
-        "PING-PONG LEAD": (1749720456999276605, 800),
-        "DRUNKEN WALK": (6298240852141731197, 592),
-        "RANDOM GARDEN": (2134285747163594173, 920),
-        "OCTAVE COLUMN": (374866415379030501, 1312),
-        "KOTEKAN": (4950508307049700157, 1032),
-        "FIVE AGAINST EIGHT": (14264613458961964333, 640),
-        "MIRRORED PITCH": (13040720679594914645, 464),
-        "FIFTH ABOVE": (1304043531156515901, 656),
-        "HELD BREATH": (7294625709145352757, 56),
-        "STUTTER FILL": (7961789708151856301, 1816),
-        "CALL AND HOLD": (15395334754731690733, 432),
-        "LONG TAIL": (9801365217848589509, 168),
-        "GAPPED GROOVE": (6558745496196285037, 520),
+        "STRIDE WALK": (6168364862632642045, 600),
+        "MIRROR WALK": (6204117388055271837, 784),
+        "PENDULUM": (11567705030411899445, 528),
+        "PING-PONG LEAD": (711664263031071181, 800),
+        "DRUNKEN WALK": (15524742981605799493, 592),
+        "RANDOM GARDEN": (7154063027458442317, 920),
+        "OCTAVE COLUMN": (9720919113763100165, 1312),
+        "KOTEKAN": (1297621385045809549, 1032),
+        "FIVE AGAINST EIGHT": (5540162588808137805, 640),
+        "MIRRORED PITCH": (5908691881391394509, 464),
+        "FIFTH ABOVE": (4479998024556000813, 656),
+        "HELD BREATH": (2945310191899515381, 56),
+        "STUTTER FILL": (10347056216180706237, 1816),
+        "CALL AND HOLD": (16552615296063593685, 432),
+        "LONG TAIL": (10492748551630768469, 168),
+        "GAPPED GROOVE": (8377323656873881549, 520),
         "EARLY BLOOM": (8167914719946807021, 280),
-        "SCALE WALK": (57570067221704893, 656),
-        "ARPEGGIO LADDER": (4270012540596340973, 2064),
-        "BACKWARDS GLANCE": (645646754865243525, 648)
+        "SCALE WALK": (10064008740683928397, 656),
+        "ARPEGGIO LADDER": (9057584224733359309, 2064),
+        "BACKWARDS GLANCE": (5036636513419635557, 648)
     ]
     func testEveryFactoryPresetRendersTheSameNoteStreamAsBeforeThePerPitchGateEngine() {
         XCTAssertEqual(EuclideousPresets.all.count, 20)
@@ -4383,27 +4402,29 @@ final class RouterTests: XCTestCase {
     // still hold"). CAPTURED on origin/main 45695d9, immediately before this ferry.
 
     /// GOLDEN: preset name → (stream hash, note-on count) over 32 bars. CAPTURED on origin/main 45695d9.
+    // RE-DERIVED (SOURCES STACK ferry, 2026-10-26): see `mixPresetGolden` above — the held 8-note chord now stacks
+    // (§1.3); note-on counts unchanged, pitches shifted, hashes re-captured.
     private let mixPresetGolden32Bar: [String: (UInt64, Int)] = [
-        "STRIDE WALK": (831820865381378157, 2328),
-        "MIRROR WALK": (6489747601493623733, 3088),
-        "PENDULUM": (6800816789757416157, 2064),
-        "PING-PONG LEAD": (18098557554159599645, 3152),
-        "DRUNKEN WALK": (8886565560488585693, 2320),
-        "RANDOM GARDEN": (8632756865124567781, 3608),
-        "OCTAVE COLUMN": (10401564588974730405, 5152),
-        "KOTEKAN": (6473049491052627197, 4104),
-        "FIVE AGAINST EIGHT": (10832974719036374229, 2520),
-        "MIRRORED PITCH": (8941714960727834565, 1808),
-        "FIFTH ABOVE": (1875793484491886317, 2576),
-        "HELD BREATH": (4230917446120789245, 176),
-        "STUTTER FILL": (3378533769270569309, 7216),
-        "CALL AND HOLD": (5269097481486390693, 1680),
-        "LONG TAIL": (16980282056334019437, 624),
-        "GAPPED GROOVE": (3601599944325882293, 2056),
+        "STRIDE WALK": (9847254068948805653, 2328),
+        "MIRROR WALK": (17862636274147658733, 3088),
+        "PENDULUM": (295903942167563949, 2064),
+        "PING-PONG LEAD": (10053356941132544829, 3152),
+        "DRUNKEN WALK": (16581078814285963645, 2320),
+        "RANDOM GARDEN": (14300696462933218229, 3608),
+        "OCTAVE COLUMN": (8525472979467752901, 5152),
+        "KOTEKAN": (12049133740688487853, 4104),
+        "FIVE AGAINST EIGHT": (1350780353670530213, 2520),
+        "MIRRORED PITCH": (10296314337924117805, 1808),
+        "FIFTH ABOVE": (4486419050105030221, 2576),
+        "HELD BREATH": (2374976432163717117, 176),
+        "STUTTER FILL": (4624369957544641613, 7216),
+        "CALL AND HOLD": (47400560685150229, 1680),
+        "LONG TAIL": (9342141579379106125, 624),
+        "GAPPED GROOVE": (9715314839542305845, 2056),
         "EARLY BLOOM": (3149805307358152269, 1072),
-        "SCALE WALK": (12071472341642071061, 2576),
-        "ARPEGGIO LADDER": (8737780371356034493, 8208),
-        "BACKWARDS GLANCE": (8410249369364103757, 2568)
+        "SCALE WALK": (1100791796420783621, 2576),
+        "ARPEGGIO LADDER": (17929865405229773485, 8208),
+        "BACKWARDS GLANCE": (2226517903261686557, 2568)
     ]
     func testEveryFactoryPresetRendersTheSameNoteStreamOver32BarsBeforeRestartChains() {
         XCTAssertEqual(EuclideousPresets.all.count, 20)
@@ -6042,7 +6063,9 @@ final class RouterTests: XCTestCase {
         for gate in [0.5, 1.0] {
             let (box, p) = chordsBox(gate: gate)
             for frames: UInt32 in [64, 256, 1024, 2048, 4096] {
-                let e = fxRun(box, beats: 33, frames: frames, pool: [60])
+                // SOURCES STACK ferry (2026-10-26): nothing held — CHORDS generates its own pool; a held note would
+                // now STACK (§1.3) and shift the ranks this test reads. The chord-change refresh is the invariant here.
+                let e = fxRun(box, beats: 33, frames: frames, pool: [])
                 for hitBeat in stride(from: 0.0, through: 28.0, by: 4.0) {
                     let col = Int(hitBeat / 2) % 8
                     let ideal = chordsIdealNote(p, beat: hitBeat, rank: ranks[col])
