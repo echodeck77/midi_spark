@@ -85,6 +85,7 @@ final class Host {
     let au: FourfoldAudioUnit
     let buf: AVAudioPCMBuffer
     var timer: Timer?
+    var dumpName: String?    // --dump (with --golden): print every message as "DUMP <doc>\t<cable>\t<sample>\t<bytes>" so two engine versions can be compared event by event, not just by hash
     var watching = false     // --alloc: the MIDI block does nothing but count (the harness's own bookkeeping must not look like the AU's allocation)
 
     init() {
@@ -107,6 +108,7 @@ final class Host {
             func mix(_ v: UInt64) { self.hash = (self.hash ^ v) &* 0x100000001b3 }
             mix(UInt64(cable)); mix(UInt64(bitPattern: Int64(t) &- Int64(self.baseSample)))
             for i in 0..<len { mix(UInt64(bytes[i])) }
+            if let d = self.dumpName { fputs("DUMP \(d)\t\(cable)\t\(Int64(t) &- Int64(self.baseSample))\t\((0..<len).map { String(bytes[$0], radix: 16) }.joined(separator: " "))\n", stderr) }
             if len >= 3 {
                 let st = bytes[0] & 0xF0
                 if st == 0x90 && bytes[2] > 0 { self.onsPerCable[Int(cable)] += 1; if self.firstOns.count < 12 && cable == 1 { self.firstOns.append((t, bytes[1], bytes[2])) } }
@@ -170,6 +172,7 @@ extension Host {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in     // …which has run by now
                 for _ in 0..<8 { render(480) }
                 hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                if CommandLine.arguments.contains("--dump") { dumpName = name }
                 hold([60, 64, 67]); playing = true
                 for _ in 0..<6400 { render(480) }                                  // 128 beats = 32 bars at 120 BPM
                 playing = false; for _ in 0..<8 { render(480) }
