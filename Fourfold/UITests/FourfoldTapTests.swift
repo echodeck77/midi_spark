@@ -103,6 +103,19 @@ final class FourfoldTapTests: XCTestCase {
         need(app.el("Riff to output B, off"), "lane 1's riff OUT B, off after a second tap")
     }
 
+    /// A fresh document sends lane 1 to A, lane 2 to B, lane 3 to C and lane 4 to D (it used to send every lane to A).
+    func testEachLaneStartsOnItsOwnOutput() {
+        let app = XCUIApplication.fresh()
+        let outputs = ["A", "B", "C", "D"]
+        for lane in 0..<4 {
+            app.els(prefix: "Riff, ").element(boundBy: lane).tap()
+            for (i, o) in outputs.enumerated() {
+                need(app.el("Riff to output \(o), \(i == lane ? "on" : "off")"), "lane \(lane + 1)'s riff OUT \(o) reads \(i == lane ? "on" : "off") on a fresh document")
+            }
+            app.els(prefix: "Rhythm, ").element(boundBy: lane).tap()
+        }
+    }
+
     /// OUT-MASK-NIL-1: a factory preset stores no output mask and sounds on A-D, so its circles must read ON, and the first
     /// tap must switch off just that one output.
     func testAFactoryPresetShowsItsOutputCirclesLitAndATapSwitchesOffOnlyThatOne() {

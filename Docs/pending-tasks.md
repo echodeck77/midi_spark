@@ -11,6 +11,11 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 - [ ] DECIDE (Paul): MASK-REPEAT and REPEAT-HOLD replay on the riff MAIN group, not the per-hit ALT switch (a frozen repeat). Say if a held/mask repeat should re-evaluate the ALT mode instead.
 - [ ] (noted) Fourfold-only; `AUExtension/` untouched. Every lane starts OFF, so sessions/presets are byte-identical (golden confirms).
 
+## ★ FOURFOLD — DEFAULT EMITTERS (2026-10-26; `Docs/euclideous-status-log.md`)
+- [x] DONE: a fresh document routes lane 1 → A, 2 → B, 3 → C, 4 → D (was every lane → A). Existing sessions and saved presets are untouched.
+- [ ] PRESETS-ROUTING (Paul to decide): the 20 factory presets store no output mask, so every lane plays on all four outputs (A–D). Giving them lane i → output i would be one small change in `EuclideousPresets.swift` but changes what they sound like on a multi-output setup (golden re-baselined for all 20). Recommended if you run one synth per output; leave as is if you want presets to be heard on every output.
+- [ ] DEVICE: fresh instance in AUM with A–D routed to four destinations: lane 1 on A (ch 1), lane 2 on B (ch 2); lanes 3 and 4 are silent until given hits.
+
 ## ★ FOURFOLD — STACK OVERFLOW #3 (2026-10-25, `FourfoldAU-2026-10-25-213535.ips`; `Docs/euclideous-status-log.md`)
 - [x] FIXED: `EuclideousStackBreak` around the lane cards, lane tab content, header, riff panel and sequencer panel — deepest point Debug 1,130 → 372 KB, Release 932 → 359 KB; guard `FourfoldStackBudgetTests` (600 KB budget; 888 KB without the fix).
 - [ ] DEVICE: relaunch the Debug build from Xcode, put every lane on NOTES, drag a MIX pad for a while (the crash scenario), then rotate and open the settings sheet / chords / presets; nothing should crash.

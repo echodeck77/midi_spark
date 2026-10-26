@@ -1,4 +1,4 @@
-GOLDEN (default): events=1032 hash=a1770e8f9aa5c9af
+GOLDEN (default): events=1032 hash=58c6b5ba5a8cf1d3
 GOLDEN STRIDE WALK: events=4656 hash=9fcb563ef91f7cc5
 GOLDEN MIRROR WALK: events=6176 hash=fa425030c5bdce45
 GOLDEN PENDULUM: events=4128 hash=98f01d9cdc526779
@@ -19,4 +19,4 @@ GOLDEN EARLY BLOOM: events=2144 hash=dd591af1eccb91fd
 GOLDEN SCALE WALK: events=5152 hash=9fd8579f3f54faa1
 GOLDEN ARPEGGIO LADDER: events=16416 hash=17698772e7bf4105
 GOLDEN BACKWARDS GLANCE: events=5136 hash=88d625ba6c78302d
-GOLDEN ALL: documents=21 events=118824 hash=793a8fe5479c4f1e
+GOLDEN ALL: documents=21 events=118824 hash=7ed85aab27858f9a

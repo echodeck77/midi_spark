@@ -2827,7 +2827,7 @@ struct PluginState: Codable, Equatable {
     /// only row 0 is meant active there), a short/missing array here pads with a PER-INDEX default (ferry
     /// 2026-10-09 §5): lane 1 (index 0) opens at 1 hit of 8 steps (the struct's own plain default — "a fresh
     /// lane defaults to 1 of 8"); lanes 2-4 open at 0 hits of 8 steps (deliberately silent until raised —
-    /// DIFFERENT from lane 1, not a copy-paste); every lane defaults to output A (`emitterMask = 0b0001`) and
+    /// DIFFERENT from lane 1, not a copy-paste); every lane defaults to its own output (lane 1 → A … lane 4 → D, `emitterMask = 1 << i`) and
     /// riff ON with direction FWD (`useRiff = true`, `riffDir` left nil so it resolves to `.forward`) — see
     /// `euclideousDefaultLine(_:)` below. SUPERSEDES an earlier "every lane identical, pulses floored to ≥1"
     /// design (2026-10-06, fixing a since-resolved "no sound at all" bug from a stale pulses:0 default) — that
@@ -2839,11 +2839,11 @@ struct PluginState: Codable, Equatable {
     private static func euclideousDefaultLine(_ i: Int) -> EuclidLine {
         // NEW DEFAULT STATE (usability ferry §8.2, 2026-10-11, literal): "riff R1 [see EuclideousRiff.
         // ranksResolved's own default above]; lane 1: riff FWD, 3/8, rate 1/8; lane 2: riff FWD, 5/16,
-        // rate 1/16, OCT +1; lanes 3-4: 0 hits. All outputs A, source KEY." SUPERSEDES the prior ferry's
+        // rate 1/16, OCT +1; lanes 3-4: 0 hits. All outputs A [CHANGED 2026-10-26: lane i → output i], source KEY." SUPERSEDES the prior ferry's
         // own "lane 1 = 1 of 8, lanes 2-4 = 0 hits" default entirely — a fresh/never-touched Euclideous
         // instance now opens on this musical shape instead.
         var x = EuclidLine(noteSel: .low)
-        x.emitterMask = 0b0001        // every lane outputs to A
+        x.emitterMask = UInt8(1) << UInt8(min(max(i, 0), 3))   // lane 1 → A, lane 2 → B, lane 3 → C, lane 4 → D (Paul 2026-10-26; it was every lane → A)
         x.sourceMode = .key           // "source KEY" — set explicitly rather than relying on the shared
                                        // nil->.key fallback, so this default reads correctly even if that
                                        // fallback is ever revised for an unrelated reason.

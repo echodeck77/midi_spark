@@ -652,7 +652,7 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertEqual(lines[1].pulses, 5); XCTAssertEqual(lines[1].steps, 16); XCTAssertEqual(lines[1].rate, .r1_16)
         XCTAssertEqual(lines[1].riffOctaveResolved, 1)
         XCTAssertTrue(lines[2...3].allSatisfy { $0.pulses == 0 }, "lanes 3-4 open deliberately silent (0 hits)")
-        XCTAssertTrue(lines.allSatisfy { $0.emitterMask == 0b0001 }, "every lane defaults to output A")
+        XCTAssertEqual(lines.map { $0.emitterMask }, [0b0001, 0b0010, 0b0100, 0b1000], "lane 1 defaults to output A, lane 2 to B, lane 3 to C, lane 4 to D")
         XCTAssertTrue(lines.allSatisfy { $0.sourceModeResolved == .key }, "every lane defaults to source KEY")
         // MELODY POP-UP (Paul 2026-10-10 ferry §2): NOTE defaults to LOWEST, MODE defaults to RIFF — found
         // on a plan self-re-audit that `euclideousDefaultLine`, not EuclidLine's own shared accessor
