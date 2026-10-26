@@ -4651,46 +4651,6 @@ func euclideousPageLayout(size: CGSize, bottomInset: CGFloat = 0) -> EuclideousP
     return euclideousPageLayout(size: size, headerKind: kind, bottomInset: bottomInset)
 }
 
-// MARK: - SMALL-WINDOW FALLBACK (2026-10-24 ferry): below this, the page stops laying out for real
-// and shows a scaled-down mockup of itself instead. A NEW, coarser tier BELOW the existing per-panel
-// `floors` system (Paul: "shrinking the entire interface so it's obvious the user needs to resize")
-// — floors stay exactly as they are (a merely-cramped panel still renders for real, unshrunk, as
-// today; that choice is untouched). Neither surface that feeds this (AUM resizing the plugin's host
-// window, or Split View/Slide Over/Stage Manager resizing the standalone app's) will reliably keep
-// the window above any size we ask for, so this is the one real defense for both.
-
-/// The plugin's own `preferredContentSize` hint (`FourfoldViewController.swift`: `CGSize(760, 480)`)
-/// mirrored for portrait — "too small" means exactly "smaller than what we already told the host/OS
-/// we wanted," in whichever orientation the view is currently in.
-enum EuclideousTooSmall {
-    static let landscapeMin = CGSize(width: 760, height: 480)
-    static let portraitMin = CGSize(width: 480, height: 760)
-}
-
-/// Whether the page should stop laying out for real and show the scaled-mockup fallback instead.
-func euclideousPageTooSmall(_ size: CGSize) -> Bool {
-    let landscape = size.width > size.height
-    let floor = landscape ? EuclideousTooSmall.landscapeMin : EuclideousTooSmall.portraitMin
-    return size.width < floor.width || size.height < floor.height
-}
-
-/// How to draw the fallback: render the real page at `reference` (one of Paul's own two reference
-/// sizes — `PageLayoutTests.swift` already pins everything else in this file against these two),
-/// then scale the WHOLE thing down uniformly to fit inside the real (small) `size`, centred.
-struct EuclideousTooSmallLayout: Equatable {
-    var reference: CGSize
-    var scale: CGFloat
-    var origin: CGPoint
-}
-func euclideousTooSmallLayout(size: CGSize) -> EuclideousTooSmallLayout {
-    let landscape = size.width > size.height
-    let ref = landscape ? CGSize(width: 1190, height: 726) : CGSize(width: 814, height: 1102)
-    let scale = max(0.05, min(size.width / ref.width, size.height / ref.height))
-    let scaledW = ref.width * scale, scaledH = ref.height * scale
-    let origin = CGPoint(x: (size.width - scaledW) / 2, y: (size.height - scaledH) / 2)
-    return EuclideousTooSmallLayout(reference: ref, scale: scale, origin: origin)
-}
-
 // MARK: - MIX TAB (ferry 2026-10-18): gate, velocity and octave for every layer
 //
 // Pure, Foundation-only support for the sequencer panel's MIX tab and the per-layer gate/velocity model: the legato predicate

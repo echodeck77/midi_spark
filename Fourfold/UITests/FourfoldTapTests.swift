@@ -117,6 +117,20 @@ final class FourfoldTapTests: XCTestCase {
         for o in ["B", "C", "D"] { need(app.el("Riff to output \(o), on"), "riff OUT \(o) still on after A was tapped") }
     }
 
+    /// A small window (AUM's minimized plugin window, Stage Manager, Split View) must stay the live, interactive page — there is no "resize to continue" screen any more.
+    func testASmallWindowStaysLiveAndInteractive() {
+        for size in ["480x320", "440x700"] {
+            let app = XCUIApplication.fresh(["--window-size=\(size)"])
+            XCTAssertFalse(app.el("Window too small. Resize to continue.").exists, "no too-small screen at \(size)")
+            XCTAssertFalse(app.staticTexts["RESIZE TO CONTINUE"].exists, "no resize message at \(size)")
+            need(app.buttons["Lanes"], "the LANES tab at \(size)").tap()
+            XCTAssertTrue(app.buttons["Lanes"].isSelected, "tapping LANES selects it at \(size)")
+            app.buttons["FX"].tap()
+            XCTAssertTrue(app.buttons["FX"].isSelected, "tapping FX selects it at \(size)")
+            app.terminate()
+        }
+    }
+
     func testTheNoteSourceHoldAndLatchControlsSelect() {
         let app = XCUIApplication.fresh()
         XCTAssertTrue(app.buttons["Key"].isSelected, "KEY is the default note source")

@@ -28,7 +28,7 @@ struct FourfoldAppView: View {
             VStack(spacing: 0) {
                 transportBar
                 if let au = model.engine?.au {
-                    FourfoldRootView(au: au, internalTransport: true)
+                    FourfoldRootView(au: au, internalTransport: true).modifier(FourfoldTestWindowSize())
                 } else {
                     Spacer()
                     Text(model.launchError ?? "NO ENGINE").font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundColor(dim)
@@ -37,12 +37,8 @@ struct FourfoldAppView: View {
             }
         }
         .preferredColorScheme(.dark)
-        // SMALL-WINDOW FALLBACK (2026-10-24 ferry): a best-effort ask, NOT the real defense — Apple's own
-        // docs call `sizeRestrictions` "a preference, not a guarantee" (it can still let the window go
-        // smaller, and on some iPadOS versions resets to 0). `euclideousPageTooSmall`'s scaled fallback
-        // inside EuclideousPage is what actually handles a window that ends up small anyway; this just
-        // reduces how often that fallback is needed. No AppDelegate/SceneDelegate exists in this app and
-        // none is added for this one property — grabbing the connected scene directly is simpler.
+        // A best-effort ask that the window not shrink below the plugin's own preferred size. Apple's docs call `sizeRestrictions` "a preference, not a guarantee" (it can still let the
+        // window go smaller, and on some iPadOS versions resets to 0), so the page itself stays live and interactive at whatever size it is given (the old "RESIZE TO CONTINUE" fallback was removed).
         .onAppear {
             if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
                 scene.sizeRestrictions?.minimumSize = CGSize(width: 760, height: 480)
@@ -159,5 +155,17 @@ struct FourfoldAppView: View {
                 .background(RoundedRectangle(cornerRadius: 8).fill(panel))
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// UI-test seam: the launch argument `--window-size=480x320` frames the page to that size, as a small host window would. It does nothing without the argument.
+struct FourfoldTestWindowSize: ViewModifier {
+    static let size: CGSize? = {
+        guard let arg = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--window-size=") }) else { return nil }
+        let wh = arg.dropFirst("--window-size=".count).split(separator: "x").compactMap { Double($0) }
+        return wh.count == 2 ? CGSize(width: wh[0], height: wh[1]) : nil
+    }()
+    @ViewBuilder func body(content: Content) -> some View {
+        if let s = Self.size { content.frame(width: s.width, height: s.height, alignment: .topLeading).clipped() } else { content }
     }
 }

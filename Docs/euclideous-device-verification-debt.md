@@ -17,22 +17,10 @@ shrink as often as it grows. If it only ever grows, it's not doing its job.
 
 ## Open items
 
-### SMALL-WINDOW FALLBACK (2026-10-24 ferry — plugin + standalone app)
-- Resize the plugin's AUM window below ~760x480 (landscape) or ~480x760 (portrait): the real page
-  disappears entirely and a scaled-down, dimmed mockup of itself appears instead, with "RESIZE TO
-  CONTINUE" readable over it — confirm it actually reads as "resize me," not as a crash/blank screen.
-  Taps on the shrunk mockup must do nothing (no stray edits land once you resize back up).
-  No automated test can drive AUM's own window chrome — this is the one thing about this ferry that
-  genuinely needs a real host.
-- Resize back above the threshold: the real interactive page returns immediately, with no stuck
-  popups (a chords/key/settings sheet open before shrinking should NOT reappear open after growing
-  back — confirm it doesn't, since those are inside the branch that gets skipped while small).
-- The standalone app in iPad Split View / Slide Over / Stage Manager: shrink the window by hand —
-  does `sizeRestrictions.minimumSize` (760x480) actually resist going below it at all on your iPadOS
-  version? (Apple's own docs call it "a preference, not a guarantee" — if the OS ignores it
-  entirely, the SAME scaled fallback above should still catch it; confirm it does.)
-- Both orientations: rotate while the window is already below threshold (if the OS allows that) —
-  confirm the fallback recomputes against the new orientation's own floor, not a stale one.
+### SMALL WINDOW — the fallback is REMOVED (2026-10-26, Paul: "remove this")
+- Shrink the plugin's AUM window below ~760x480 (landscape) or ~480x760 (portrait): you get the live page, no "RESIZE TO CONTINUE" screen — everything is tappable. At small sizes expect a cramped layout (text truncated or overlapping); report the smallest size at which it is still usable and what gets in the way.
+- Known limit (seen in the simulator at 320x480, not at 480x320 or 440x700): when a lane card's box is smaller than its controls, the controls overflow it and can catch taps meant for the panel below (the RHYTHM RESTART tile of lane 4 swallowed the LANES tab). Say if you hit this in AUM — the fix would be to scale the whole page to fit (still interactive) rather than cram it.
+- The standalone app in Split View / Slide Over / Stage Manager: `sizeRestrictions.minimumSize` (760x480) is still asked for and is only a preference; below it the page stays live.
 
 ### ▶ FOURFOLD — THE iPAD PASS (one ordered session; written 2026-10-24 — the per-step Fourfold lines further down stay as the detail)
 Nothing in Fourfold has run on a device yet: everything so far is simulator + unit tests. Do these in order (an early failure makes the rest moot); report each as "step N.n: what I saw". Prefer a RELEASE build for judgement calls and a DEBUG run as a second opinion — Debug has crashed on the plugin's 1 MB main stack before (2026-10-21).
