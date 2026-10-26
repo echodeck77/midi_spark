@@ -152,6 +152,22 @@ enum KillStepMode: String, Codable, CaseIterable { case on = "ON", mute = "MUTE"
 /// this enum's own cases don't carry; there's no picker for WHICH chord door, by design (no receiver-picking
 /// UI returns to this page) — an unconfigured CHORDS lane is honestly silent, not a guessed fallback.
 enum EuclideousLaneSource: String, Codable, CaseIterable { case midi, key, chords }
+// SOURCES STACK ferry (Paul 2026-10-26): the three note sources stop being exclusive. MIDI IN ALWAYS listens;
+// CHORDS and KEY each STACK beneath it. Each generated source has two conditions — plays while MIDI plays /
+// plays when there's no MIDI (both ⇒ always, neither ⇒ off). Page-level (`PluginState.euclideousSourcePlan`),
+// one value feeding every lane (the pool is global); shaped as ONE value type so a lane can later carry its
+// own override (spec §8 — NOT built now). SUPERSEDES the exclusive `euclideousNoteSource` as the behaviour
+// driver; that field stays decode-only as the nil-derivation fallback (`sourcePlanResolved`, §1.2).
+struct SourcePlan: Equatable, Codable {
+    var chordsWithMidi = false
+    var chordsNoMidi   = false
+    var keyWithMidi    = false
+    var keyNoMidi      = false
+}
+// SOURCES STACK §1.6: CLASHES is a DEV-build-only rig setting (judged by ear) — ALLOW keeps every stacked note,
+// DROP thins a lower layer's note that sits a semitone from a higher layer's (§2.7). `clashPolicyResolved`
+// forces ALLOW in release builds whatever is stored, so a stored DROP can never reach a shipped build.
+enum ClashPolicy: String, Codable, CaseIterable { case allow = "ALLOW", drop = "DROP" }
 // FOURFOLD SETTINGS, CLOCK tab (2026-10-15 ferry, "Fourfold settings" §5.1).
 enum EuclideousHostStopBehavior: String, Codable, CaseIterable { case keepPlaying, stop }
 
@@ -2996,6 +3012,31 @@ struct PluginState: Codable, Equatable {
             FileHandle.standardError.write("Fourfold: Euclideous lanes disagree on legacy per-lane source (\(legacy)) — migrating to lane 1's (\(legacy[0]))\n".data(using: .utf8) ?? Data())
         }
         return legacy[0]
+    }
+    // SOURCES STACK ferry (Paul 2026-10-26, §1.1-§1.2): the stacking plan. Additive-Optional, decode-tolerant
+    // (synthesized Codable). nil DERIVES from today's exclusive source so every existing document/preset is
+    // byte-identical: MIDI ⇒ all false (CHORDS/KEY never add); CHORDS ⇒ chords both true ("always"); KEY ⇒ key
+    // both true. The UI stops writing `euclideousNoteSource` and writes this instead; the old field survives
+    // only as this derivation's input.
+    var euclideousSourcePlan: SourcePlan? = nil
+    var sourcePlanResolved: SourcePlan {
+        if let p = euclideousSourcePlan { return p }
+        switch euclideousNoteSourceResolved {
+        case .midi:   return SourcePlan()                                            // all false
+        case .chords: return SourcePlan(chordsWithMidi: true, chordsNoMidi: true)     // "always"
+        case .key:    return SourcePlan(keyWithMidi: true, keyNoMidi: true)           // "always"
+        }
+    }
+    // SOURCES STACK §1.6: the dev-only clash policy (a rig setting, not undoable, carried across preset loads
+    // like the settings ferry's four). nil ⇒ ALLOW. `clashPolicyResolved` is the ONLY reader — it returns the
+    // stored value under DEBUG but ALLOW unconditionally in release, so a shipped build never drops a note.
+    var euclideousClashPolicy: ClashPolicy? = nil
+    var clashPolicyResolved: ClashPolicy {
+        #if DEBUG
+        return euclideousClashPolicy ?? .allow
+        #else
+        return .allow
+        #endif
     }
     // FOURFOLD SETTINGS — MIDI IN "LISTEN ON" (2026-10-15 ferry, "Fourfold settings"): which channels MIDI IN
     // hears, a 16-bit mask (bit c = channel c+1, matching `Receiver.channelMask`'s own documented convention —

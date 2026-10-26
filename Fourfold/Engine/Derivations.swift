@@ -829,6 +829,164 @@ func chordSeqNotesInto(_ out: inout [Int], beat m: Double, _ p: SnapParams, keyR
     return diatonicChordInto(&out, degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: p.chordsVoicing, spread: p.chordsSpread)
 }
 
+// MARK: - SOURCES STACK (ferry 2026-10-26: MIDI always listens; CHORDS and KEY stack under it)
+
+enum EuclideousSourceStack {
+    /// §0.2 RELEASE GRACE: moving from one held chord to the next mustn't let a NO-MIDI layer blip in between.
+    static let releaseGraceSeconds: Double = 0.050
+}
+
+/// §0.1 MIDI PLAYING: the MIDI pool holds a note now, OR its last note ended less than RELEASE GRACE ago (so a
+/// legato chord change never lets a NO-MIDI layer blip in). Pure (the Router stamps `lastNonEmptySample` and
+/// calls this per window); `< grace` is strict so exactly 50 ms counts as ended.
+@inline(__always) func euclideousMidiPlaying(nonEmpty: Bool, windowStart: Int64, lastNonEmptySample: Int64, sampleRate: Double) -> Bool {
+    if nonEmpty { return true }
+    return (windowStart - lastNonEmptySample) < Int64(EuclideousSourceStack.releaseGraceSeconds * sampleRate)
+}
+
+/// §2.9 status, computed as the merge's byproduct (POD: only Int/Bool, so returning it never heap-allocates on
+/// the render thread). The UI derives the chord NAME / REST / WAITING / OFF text from `SourcePlan` + the display
+/// clock — this carries only the render-only facts.
+struct EuclideousStackResult: Equatable {
+    var count = 0            // merged pool size written into `dest`
+    var midiAdmitted = 0     // MIDI notes held (status chip count; may exceed what the chips show)
+    var midiPlaying = false
+    var chordsLit = false    // CHORDS condition met AND it contributed ≥1 note (not a rest)
+    var chordsRest = false   // CHORDS condition met but the column is a REST
+    var keyLit = false       // KEY condition met AND it added ≥1 note
+    var keyAdded = 0
+}
+
+/// §2.7 DROP: the pitch class of `note`, widened ±1 semitone, as a 12-bit mask. A lower layer's note is dropped
+/// when its EXACT pitch class hits a higher layer's widened mask (tested with `euclideousListenAvoidDrops`).
+@inline(__always) func euclideousWidenPitchClass(_ note: Int) -> UInt16 {
+    let pc = ((note % 12) + 12) % 12
+    return (UInt16(1) << UInt16(pc)) | (UInt16(1) << UInt16((pc + 1) % 12)) | (UInt16(1) << UInt16((pc + 11) % 12))
+}
+
+/// In-place stable ascending insertion sort by note (matches the Router's `sortGlobalSrc`: `>` keeps arrival
+/// order, allocation-free). The one sort the stacked pool and the Router's layer buffers both use.
+@inline(__always) func euclideousStackSort(_ a: inout [(note: Int, vel: UInt8)], count: Int) {
+    var i = 1
+    while i < count {
+        let x = a[i]; var j = i - 1
+        while j >= 0 && a[j].note > x.note { a[j + 1] = a[j]; j -= 1 }
+        a[j + 1] = x; i += 1
+    }
+}
+
+/// The note of pitch-class `pc` (0…11) nearest `mean`, ties to the LOWER note, clamped to 0…127 (§2.4c).
+@inline(__always) func euclideousNearestOctave(pc: Int, mean: Int) -> Int {
+    var best = pc, bestD = abs(pc - mean), c = pc + 12
+    while c <= 127 { let d = abs(c - mean); if d < bestD { best = c; bestD = d }; c += 12 }   // `<` keeps the lower on a tie
+    return best
+}
+
+/// §2: merge the three already-built layers into `dest[0..<cap]`, ascending, and report the status. Pure and
+/// allocation-free (slices are views, the return is POD, `dest`/`midiStatusOut` are caller-owned buffers).
+/// Layers arrive ascending: `midi` = `fillGlobalSrcFromPool`'s output; `chords` = `chordSeqNotesInto`'s notes
+/// (REST ⇒ empty + `chordsIsRest`); `key` = the scale in the base octave (today's `.key` arm). §2.3: when exactly
+/// one layer contributes it is copied verbatim (so a single-source document is byte-identical to today).
+func euclideousBuildSourceStack(
+    into dest: inout [(note: Int, vel: UInt8)], cap: Int,
+    midi: ArraySlice<(note: Int, vel: UInt8)>, midiPlaying: Bool,
+    chords: ArraySlice<Int>, chordsIsRest: Bool,
+    key: ArraySlice<Int>,
+    plan: SourcePlan, clash: ClashPolicy,
+    midiStatusOut: inout [UInt8]
+) -> EuclideousStackResult {
+    // §0.3 conditions for the current MIDI state; §2.6 a CHORDS rest silences KEY while CHORDS's condition holds.
+    let chordsActive = midiPlaying ? plan.chordsWithMidi : plan.chordsNoMidi
+    let keyActive = (midiPlaying ? plan.keyWithMidi : plan.keyNoMidi) && !(chordsActive && chordsIsRest)
+    let midiC = !midi.isEmpty
+    let chordsC = chordsActive && !chordsIsRest && !chords.isEmpty
+    let keyC = keyActive && !key.isEmpty
+
+    // §2.9 status skeleton (filled per path below). midiAdmitted is the held-note count for the chips.
+    var r = EuclideousStackResult()
+    r.midiPlaying = midiPlaying
+    r.midiAdmitted = midi.count
+    r.chordsRest = chordsActive && chordsIsRest
+    let statusCap = midiStatusOut.count
+    for i in 0..<min(statusCap, midi.count) { midiStatusOut[i] = UInt8(max(0, min(127, midi[midi.startIndex + i].note))) }
+
+    @inline(__always) func finish() -> EuclideousStackResult { euclideousStackSort(&dest, count: r.count); return r }
+
+    let contributing = (midiC ? 1 : 0) + (chordsC ? 1 : 0) + (keyC ? 1 : 0)
+
+    // §2.5 nothing contributing ⇒ an empty pool (as a MIDI lane with nothing held is today).
+    if contributing == 0 { return r }
+
+    // §2.3 exactly one layer ⇒ copy it verbatim (no merge pipeline) — the byte-identity lever.
+    if contributing == 1 {
+        if midiC {
+            for e in midi where r.count < cap { dest[r.count] = e; r.count += 1 }
+        } else if chordsC {
+            for n in chords where r.count < cap { dest[r.count] = (n, 100); r.count += 1 }
+            r.chordsLit = r.count > 0
+        } else {
+            for n in key where r.count < cap { dest[r.count] = (n, 100); r.count += 1 }
+            r.keyLit = r.count > 0; r.keyAdded = r.count
+        }
+        return finish()
+    }
+
+    // §2.4 two or more layers: fill MIDI → CHORDS → KEY, dedup by pitch class, cap-guarded.
+    var presentPC: UInt16 = 0
+    // §2.7: a lower layer drops against a HIGHER layer's admitted PCs, widened ±1 — never against its OWN layer.
+    // So CHORDS tests `midiMask` (MIDI only); KEY tests `keyMask` (MIDI + admitted CHORDS). A chord PC is widened
+    // into `keyMask` only AFTER it is admitted, so same-layer chord notes (e.g. Cmaj7's B and C) never drop each other.
+    var midiMask: UInt16 = 0, keyMask: UInt16 = 0
+    // a. MIDI, as-is (highest priority, never dropped, never deduped away).
+    if midiC {
+        for e in midi where r.count < cap {
+            dest[r.count] = e; r.count += 1
+            presentPC |= UInt16(1) << UInt16(((e.note % 12) + 12) % 12)
+            if clash == .drop { let w = euclideousWidenPitchClass(e.note); midiMask |= w; keyMask |= w }
+        }
+    }
+    // b. CHORDS, lowest-first, PC-dedup, (DROP: skip a semitone from an admitted MIDI PC — `midiMask`, NOT the chord's own).
+    if chordsC {
+        for n in chords where r.count < cap {
+            let pc = UInt16(((n % 12) + 12) % 12)
+            if (presentPC >> pc) & 1 != 0 { continue }
+            if clash == .drop && euclideousListenAvoidDrops(note: n, mask: midiMask) { continue }
+            dest[r.count] = (n, 100); r.count += 1
+            presentPC |= UInt16(1) << pc
+            if clash == .drop { keyMask |= euclideousWidenPitchClass(n) }   // widen only for the KEY layer
+            r.chordsLit = true
+        }
+    }
+    // c. KEY, each scale PC not present, placed in the octave nearest the mean of the admitted MIDI+CHORDS notes
+    //    (computed once), nearest-first, ties to the lower note; (DROP: skip a semitone from MIDI/CHORDS).
+    if keyC {
+        let admitted = r.count
+        var mean = 60
+        if admitted > 0 { var s = 0; for i in 0..<admitted { s += dest[i].note }; mean = s / admitted }
+        var taken: UInt16 = 0   // which key-slice indices are already placed (≤16 scale notes)
+        let keyBase = key.startIndex, keyN = key.count
+        while r.count < cap {
+            // pick the not-yet-taken, not-present, (not-dropped) key note nearest the mean; ties → lower placed note.
+            var pick = -1, pickNote = 0, pickD = Int.max
+            for j in 0..<keyN where (taken >> UInt16(j)) & 1 == 0 {
+                let pc = ((key[keyBase + j] % 12) + 12) % 12
+                if (presentPC >> UInt16(pc)) & 1 != 0 { taken |= UInt16(1) << UInt16(j); continue }
+                let note = euclideousNearestOctave(pc: pc, mean: mean)
+                if clash == .drop && euclideousListenAvoidDrops(note: note, mask: keyMask) { taken |= UInt16(1) << UInt16(j); continue }
+                let d = abs(note - mean)
+                if d < pickD || (d == pickD && note < pickNote) { pick = j; pickNote = note; pickD = d }
+            }
+            if pick < 0 { break }
+            taken |= UInt16(1) << UInt16(pick)
+            dest[r.count] = (pickNote, 100); r.count += 1
+            presentPC |= UInt16(1) << UInt16(((pickNote % 12) + 12) % 12)
+            r.keyAdded += 1
+        }
+        r.keyLit = r.keyAdded > 0
+    }
+    return finish()
+}
+
 /// The next degree in a functional random WALK (SPEC-chords-stage §1 WALK — "the gravity dice"): SEEDED (replay-exact, no
 /// accumulated state — the caller passes the step ordinal as `seed`), weighted by tonal gravity. From `prev` (0…6) the draw
 /// favours resolution — V/vii° pull to I, I opens outward, ii/IV wander toward the dominant. Returns 0…6. Pure/testable.
