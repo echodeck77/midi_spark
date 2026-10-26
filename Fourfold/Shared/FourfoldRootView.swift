@@ -54,6 +54,7 @@ struct FourfoldRootView: View {
     var euclideousRiffPositions: [Int] { get { m.euclideousRiffPositions } nonmutating set { m.euclideousRiffPositions = newValue } }
     var euclideousMaskPositions: [Int] { get { m.euclideousMaskPositions } nonmutating set { m.euclideousMaskPositions = newValue } }
     var euclideousRiffLivePool: [UInt8] { get { m.euclideousRiffLivePool } nonmutating set { m.euclideousRiffLivePool = newValue } }
+    var euclideousSourceStatus: Router.EuclideousSourceStatus { get { m.euclideousSourceStatus } nonmutating set { m.euclideousSourceStatus = newValue } }
     var euclideousLanesSeqStep: Int { get { m.euclideousLanesSeqStep } nonmutating set { m.euclideousLanesSeqStep = newValue } }
     var euclideousRiffsSeqStep: Int { get { m.euclideousRiffsSeqStep } nonmutating set { m.euclideousRiffsSeqStep = newValue } }
     var euclideousWipeEvent: [Router.EuclideousNoteViewEventSnapshot?] { get { m.euclideousWipeEvent } nonmutating set { m.euclideousWipeEvent = newValue } }
@@ -142,7 +143,7 @@ struct FourfoldRootView: View {
                                                // (`refreshTiming` re-polls `swing` right after, matching ArrangementBar's own
                                                // `onSwing` call site exactly).
                                                swing: swing, onSetSwing: { au?.setSwing($0); refreshTiming() },
-                                               noteSource: euclideousNoteSource,
+                                               noteSource: euclideousNoteSource, sourceStatus: euclideousSourceStatus,
                                                onSetNoteSource: { v in
                                                    guard v != euclideousNoteSource else { return }   // UNDO-6: choosing what is already chosen is not an edit
                                                    euclideousRecordUndo(coalesceKey: nil)
@@ -741,6 +742,8 @@ struct FourfoldRootView: View {
     if mp != euclideousMaskPositions { euclideousMaskPositions = mp }
     let rlp = au.pollEuclideousRiffLivePool()
     if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
+    let ss = au.pollEuclideousSourceStatus()   // SOURCES STACK: lane-1 source status on the existing 30 Hz poll (no new timer)
+    if ss != euclideousSourceStatus { euclideousSourceStatus = ss }
     applyLandedLockSnaps()   // LANE LOCK: a snap the render thread has landed is written into the document within a poll tick (30 Hz)
     applyLockStoppedRule()   // LANE LOCK 6.5: a stopped page has no lines to wait for
     let lss = au.pollEuclideousLanesSeqStep()
@@ -909,6 +912,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
     @Published var euclideousMaskPositions: [Int] = [-1, -1, -1, -1]
     @Published var euclideousRiffLivePool: [UInt8] = []
+    @Published var euclideousSourceStatus = Router.EuclideousSourceStatus()
     @Published var euclideousLanesSeqStep: Int = -1
     @Published var euclideousRiffsSeqStep: Int = -1
     @Published var euclideousWipeEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]

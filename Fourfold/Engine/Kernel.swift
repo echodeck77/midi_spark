@@ -148,6 +148,7 @@ final class Kernel {
     func euclideousRiffWalkState() -> [Int64] { router.euclideousRiffWalkState() }   // the live hit-ordinal each lane's walk last advanced on, for the main-thread cycle prediction (Paul 2026-10-12; simplified from a 3-field tuple once DRUNK was removed, 2026-10-13)
     func euclideousMaskPositions() -> [Int] { router.euclideousMaskPositions() }   // each lane's own mask position, polled — hit-driven, not a self-clock (Paul 2026-10-11 bugfix)
     func euclideousRiffLivePool() -> [UInt8] { router.euclideousRiffLivePool() }   // the ascending notes currently feeding the riff's own pool, polled (Paul 2026-10-08)
+    func euclideousSourceStatus() -> Router.EuclideousSourceStatus { router.euclideousSourceStatus() }   // SOURCES STACK ferry (2026-10-26): lane-1's source status, polled
     func euclideousNoteViewEvents() -> [[Router.EuclideousNoteViewEventSnapshot]] { router.drainEuclideousNoteViewEvents() }   // NOTE VIEW's per-lane event queue, drained (Paul 2026-10-10)
     func euclideousLanesSeqStep() -> Int { router.euclideousLanesSeqStep() }   // the LANES sequencer's current step, polled (2026-10-14 sequencer panel ferry)
     func euclideousRiffsSeqStep() -> Int { router.euclideousRiffsSeqStep() }   // the RIFFS sequencer's current step, polled (2026-10-14)

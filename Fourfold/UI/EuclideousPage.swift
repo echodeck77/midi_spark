@@ -780,6 +780,7 @@ struct EuclideousPage: View {
     // it no longer is). One page-level choice, same live-mirror/onSet convention as resetSpanBars/keyRoot
     // above.
     let noteSource: EuclideousLaneSource
+    let sourceStatus: Router.EuclideousSourceStatus   // SOURCES STACK ferry (2026-10-26): lane-1's live source status for the header lights + SOURCES NOW column
     let onSetNoteSource: (EuclideousLaneSource) -> Void
     // HOLD/LATCH (Paul 2026-10-20): two mutually-exclusive header buttons beside the key pill, same live-
     // mirror/onSet convention as `noteSource` above. nil = off (plain live MIDI, today's behaviour). Only
