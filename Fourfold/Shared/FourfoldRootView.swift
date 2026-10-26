@@ -63,6 +63,7 @@ struct FourfoldRootView: View {
     var euclideousKeyRoot: Int { get { m.euclideousKeyRoot } nonmutating set { m.euclideousKeyRoot = newValue } }
     var euclideousKeyType: ScaleType { get { m.euclideousKeyType } nonmutating set { m.euclideousKeyType = newValue } }
     var euclideousNoteSource: EuclideousLaneSource { get { m.euclideousNoteSource } nonmutating set { m.euclideousNoteSource = newValue } }
+    var euclideousSourcePlan: SourcePlan? { get { m.euclideousSourcePlan } nonmutating set { m.euclideousSourcePlan = newValue } }
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? { get { m.euclideousHoldLatchMode } nonmutating set { m.euclideousHoldLatchMode = newValue } }
     var euclideousMainOutMask: UInt8 { get { m.euclideousMainOutMask } nonmutating set { m.euclideousMainOutMask = newValue } }
     var euclideousSoloMask: UInt8 { get { m.euclideousSoloMask } nonmutating set { m.euclideousSoloMask = newValue } }
@@ -479,6 +480,7 @@ struct FourfoldRootView: View {
         euclideousKeyRoot = au.uiEuclideousKeyRoot()
         euclideousKeyType = au.uiEuclideousKeyType()
         euclideousNoteSource = au.uiEuclideousNoteSource()
+        euclideousSourcePlan = au.uiEuclideousSourcePlan()
         euclideousHoldLatchMode = au.uiEuclideousHoldLatchMode()
         euclideousMainOutMask = au.uiEuclideousMainOutMask()
         euclideousSoloMask = au.uiEuclideousSoloMask()
@@ -539,7 +541,7 @@ struct FourfoldRootView: View {
         EuclideousUndoSnapshot(lines: euclideousLines, riff: euclideousRiff, resetSpanBars: euclideousResetSpanBars,
                                 keyRoot: euclideousKeyRoot, keyType: euclideousKeyType,
                                 chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
-                                noteSource: euclideousNoteSource,
+                                noteSource: euclideousNoteSource, sourcePlan: euclideousSourcePlan,
                                 riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                 lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
                                 holdLatchMode: euclideousHoldLatchMode)
@@ -598,6 +600,7 @@ struct FourfoldRootView: View {
         euclideousChordSets = s.chordSets
         euclideousActiveChordSet = s.activeChordSet
         euclideousNoteSource = s.noteSource
+        euclideousSourcePlan = s.sourcePlan
         euclideousRiffs = s.riffs
         euclideousActiveRiff = s.activeRiff
         euclideousLanesSeq = s.lanesSeq
@@ -609,6 +612,7 @@ struct FourfoldRootView: View {
             $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType
             $0.euclideousChordSets = s.chordSets; $0.activeChordSet = s.activeChordSet
             $0.euclideousNoteSource = s.noteSource
+            $0.euclideousSourcePlan = s.sourcePlan
             $0.riffs = s.riffs; $0.activeRiff = s.activeRiff
             $0.euclideousLanesSeqOn = s.lanesSeq.on; $0.euclideousLanesSeqRate = s.lanesSeq.rate
             $0.euclideousLanesSeqLen = s.lanesSeq.len; $0.euclideousLanesSeqCells = s.lanesSeq.cells
@@ -793,6 +797,7 @@ struct FourfoldRootView: View {
         let echd = au.uiEuclideousChordSets(); if echd != euclideousChordSets { euclideousChordSets = echd; euclideousResynced = true }
         let eacs = au.uiActiveChordSet(); if eacs != euclideousActiveChordSet { euclideousActiveChordSet = eacs; euclideousResynced = true }
         let ens = au.uiEuclideousNoteSource(); if ens != euclideousNoteSource { euclideousNoteSource = ens; euclideousResynced = true }
+        let esp = au.uiEuclideousSourcePlan(); if esp != euclideousSourcePlan { euclideousSourcePlan = esp; euclideousResynced = true }
         let ehlm = au.uiEuclideousHoldLatchMode(); if ehlm != euclideousHoldLatchMode { euclideousHoldLatchMode = ehlm; euclideousResynced = true }
         // SEQUENCER PANEL (2026-10-14 ferry) — same checklist discipline as the 6 lines just above.
         let erfs = au.uiEuclideousRiffs(); if erfs != euclideousRiffs { euclideousRiffs = erfs; euclideousResynced = true }
@@ -913,6 +918,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousKeyRoot: Int = 0
     @Published var euclideousKeyType: ScaleType = .naturalMinor
     @Published var euclideousNoteSource: EuclideousLaneSource = .key
+    @Published var euclideousSourcePlan: SourcePlan? = nil
     @Published var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil
     @Published var euclideousMainOutMask: UInt8 = 0b1111
     @Published var euclideousSoloMask: UInt8 = 0

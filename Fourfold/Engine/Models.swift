@@ -3525,6 +3525,10 @@ struct EuclideousUndoSnapshot: Equatable {
     // page-level setting here (play/stop and MAIN OUT are the only two explicit exceptions, enforced at
     // restore time, not at this snapshot's own shape).
     var noteSource: EuclideousLaneSource
+    // SOURCES STACK ferry (2026-10-26): the stacking plan, undoable like noteSource. OPTIONAL — nil means "not
+    // set yet," so an undo/redo that restores nil leaves the document's legacy nil-derivation (from noteSource)
+    // intact rather than stamping an explicit all-false plan. CLASHES is a rig setting and is NOT in this snapshot.
+    var sourcePlan: SourcePlan? = nil
     // SEQUENCER PANEL (2026-10-14 ferry): four riffs + which one's active + both step clocks — undoable
     // page-level settings, same bucket as `riff`/`resetSpanBars` above, no §7.3-style exclusion named for
     // any of these. (Restored 2026-10-18 — the looper's own `liveGrid` single-pattern snapshot that

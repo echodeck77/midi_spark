@@ -128,6 +128,11 @@ struct SnapParams {
     var globalSrcChanMask: UInt16 = 0xFFFF
     var globalSrcChanMaskSet: Bool = false
     var euclideousNoteSourceResolved: EuclideousLaneSource = .key
+    // SOURCES STACK ferry (2026-10-26): the resolved stacking plan + the dev-only clash policy, threaded from
+    // `doc.sourcePlanResolved` / `doc.clashPolicyResolved`. Only the Euclideous row's cell reads them (Router's
+    // `.euclid` stacked-pool build). Defaults keep every non-Euclideous cell and a pre-thread build inert.
+    var euclideousSourcePlan: SourcePlan = SourcePlan()
+    var euclideousClashPolicy: ClashPolicy = .allow
     // HOLD/LATCH (Paul 2026-10-20): nil = off (plain live MIDI, today's behaviour). Only consulted by
     // Router.swift's `.euclid` `case .midi:` branch — inert for CHORDS/KEY and every non-Euclideous `.euclid` cell.
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil

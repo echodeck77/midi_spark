@@ -269,7 +269,7 @@ final class UndoAuditTests: XCTestCase {
         let capture = try body(of: src, from: "func euclideousSnapshot()", to: "func euclideousRecordUndo")
         let apply = try body(of: src, from: "func euclideousApply(", to: "func euclideousUndoAction")
         let labels = Mirror(reflecting: snapshot([])).children.compactMap { $0.label }
-        XCTAssertEqual(Set(labels), ["lines", "riff", "resetSpanBars", "keyRoot", "keyType", "chordSets", "activeChordSet", "noteSource", "riffs", "activeRiff", "lanesSeq", "riffsSeq", "fx", "holdLatchMode", "presetPlay"],
+        XCTAssertEqual(Set(labels), ["lines", "riff", "resetSpanBars", "keyRoot", "keyType", "chordSets", "activeChordSet", "noteSource", "sourcePlan", "riffs", "activeRiff", "lanesSeq", "riffsSeq", "fx", "holdLatchMode", "presetPlay"],
                        "the undo snapshot changed shape: update `euclideousSnapshot()`, `euclideousApply` and this list together")
         for l in labels {
             let uses = apply.components(separatedBy: "s.\(l)").count - 1

@@ -239,6 +239,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func uiEuclideousKeyRoot() -> Int { document.euclideousKeyRootResolved }
     func uiEuclideousKeyType() -> ScaleType { document.euclideousKeyTypeResolved }
     func uiEuclideousNoteSource() -> EuclideousLaneSource { document.euclideousNoteSourceResolved }
+    func uiEuclideousSourcePlan() -> SourcePlan? { document.euclideousSourcePlan }   // SOURCES STACK: the raw optional (nil ⇒ UI shows the derived plan)
     func uiEuclideousHoldLatchMode() -> EuclideousHoldLatchMode? { document.euclideousHoldLatchMode }   // HOLD/LATCH (2026-10-20): nil = off, no Resolved coercion needed
     func uiEuclideousMainOutMask() -> UInt8 { document.euclideousMainOutMaskResolved }
     func uiEuclideousSoloMask() -> UInt8 { document.euclideousSoloMaskResolved }
