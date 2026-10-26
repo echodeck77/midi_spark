@@ -4303,6 +4303,44 @@ func euclideousListenOnAllIsLit(_ mask: UInt16) -> Bool { mask == 0xFFFF }
 /// wrapped prose a hand-rolled constant-based formula could only approximate, not reproduce exactly.
 func euclideousSettingsSheetWidth(containerW: CGFloat) -> CGFloat { min(448, containerW) }
 
+// ── SOURCES header lights (SOURCES STACK ferry 2026-10-26 §4.2/§4.3) ─────────────────────────────────
+enum EuclideousSourceLight: Equatable { case playing, waiting, off }
+/// §4.3 the three header lights from the live status + the plan. MIDI IN is NEVER off (playing while it holds
+/// notes, else waiting). CHORDS/KEY are off when both of their cells are unlit; else playing when the layer is
+/// sounding, else waiting (a CHORDS rest shows as waiting too — §4.3).
+func euclideousSourceLights(midiPlaying: Bool, chordsLit: Bool, keyLit: Bool, plan: SourcePlan)
+    -> (midi: EuclideousSourceLight, chords: EuclideousSourceLight, key: EuclideousSourceLight) {
+    let chordsOn = plan.chordsWithMidi || plan.chordsNoMidi
+    let keyOn = plan.keyWithMidi || plan.keyNoMidi
+    return (midiPlaying ? .playing : .waiting,
+            !chordsOn ? .off : (chordsLit ? .playing : .waiting),
+            !keyOn ? .off : (keyLit ? .playing : .waiting))
+}
+
+// ── SOURCES pop-up geometry (SOURCES STACK ferry 2026-10-26 §5) ──────────────────────────────────────
+/// The approximate rendered width of "MIDI PLAYING" (9 pt heavy monospaced, 0.14 em tracking) — the threshold
+/// below which a table CELL is too narrow for the header label and it wraps onto two lines (§5.7). Device-owed.
+let euclideousSourcesHeaderLabelWidth: CGFloat = 79
+struct EuclideousSourcesPopupLayout: Equatable {
+    var width: CGFloat          // §5.2 min(412, containerW)
+    var labelW: CGFloat = 76    // §5.5 LABEL column
+    var cellW: CGFloat          // §5.5 (block inner − 76 − 72 − 24) ÷ 2
+    var nowW: CGFloat = 72      // §5.5 NOW column
+    var headerRowH: CGFloat     // §5.7 20, or 28 when a CELL is narrower than "MIDI PLAYING"
+    var blockInnerW: CGFloat    // a block's content width (surface − padding, block − padding)
+}
+/// §5 the SOURCES pop-up's shared geometry: surface #1B1D23 with sp8 padding; each block #22252C with sp8 padding;
+/// both blocks share four columns LABEL 76 · CELL · CELL · NOW 72 with sp8 gaps (3 × 8 = 24). Pure (tested §12).
+func euclideousSourcesPopupLayout(containerW: CGFloat) -> EuclideousSourcesPopupLayout {
+    let sp8: CGFloat = 8
+    let width = min(412, containerW)
+    let blockInnerW = width - sp8 * 2 /* surface padding */ - sp8 * 2 /* block padding */
+    let cellW = (blockInnerW - 76 - 72 - 24) / 2   // 24 = 3 column gaps × sp8
+    return EuclideousSourcesPopupLayout(width: width, cellW: cellW,
+                                        headerRowH: cellW < euclideousSourcesHeaderLabelWidth ? 28 : 20,
+                                        blockInnerW: blockInnerW)
+}
+
 // ── ring painting decisions + the press state machine ───────────────────────────────────────────────
 
 /// What sits behind an output ring's letter. Spec §4.5: OFF draws NO disc ("the ground shows through") — but HELD (§4.7)

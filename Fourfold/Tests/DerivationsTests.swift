@@ -2489,6 +2489,26 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousSettingsSheetWidth(containerW: 343), 343, "narrow container: spans it")
     }
 
+    // SOURCES STACK ferry (2026-10-26) §12: the pop-up's width, CELL and header-row height at the reference widths.
+    func testSourcesPopupGeometry() {
+        for w in [1158.0, 868.0, 600.0] as [CGFloat] {
+            let l = euclideousSourcesPopupLayout(containerW: w)
+            XCTAssertEqual(l.width, 412, "wide containers cap the pop-up at 412 (w=\(w))")
+            XCTAssertEqual(l.cellW, 104, accuracy: 1e-9, "CELL = (380 − 76 − 72 − 24) / 2 at width 412")
+            XCTAssertEqual(l.headerRowH, 20, "CELL 104 ≥ the 'MIDI PLAYING' width ⇒ a 20 pt header row")
+        }
+        let narrow = euclideousSourcesPopupLayout(containerW: 343)
+        XCTAssertEqual(narrow.width, 343, "a narrow container: the pop-up spans it")
+        XCTAssertEqual(narrow.cellW, 69.5, accuracy: 1e-9, "CELL = (311 − 172) / 2 = 69.5 at width 343 (§5.5 'report it at 343')")
+        XCTAssertEqual(narrow.headerRowH, 28, "CELL 69.5 < the 'MIDI PLAYING' width ⇒ the header row wraps to 28 pt")
+    }
+    // SOURCES STACK §4.6: the status control keeps the 184-wide footprint, so the NOTES group stays 426 (the
+    // header ladder is unchanged — the ferry's stale "312" predates the HOLD/LATCH chips).
+    func testNotesGroupStaysAt426() {
+        XCTAssertEqual(euclideousHeaderGroupWidths(compact: false).notes, 426)
+        XCTAssertEqual(EuclideousHeaderMetrics.segmentedWidth, 184, "the status control reuses the segmented control's 184×32 footprint")
+    }
+
     // LISTEN REBUILT (2026-10-23): `testWalkTagWithAndGapsSplitTheLanesRawHitsAndLeaveTheOrdinalAlone` and
     // `testWalkTagGapsLaneThreadsToItsNextStrikeNotToASilencedHit` deleted — WITH/GAPS's per-tick STRIKE
     // filter (`EuclideousWalkListenFilter`) no longer exists; COPY/FILL already replace the buffer itself

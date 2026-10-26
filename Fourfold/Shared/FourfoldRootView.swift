@@ -65,6 +65,16 @@ struct FourfoldRootView: View {
     var euclideousKeyType: ScaleType { get { m.euclideousKeyType } nonmutating set { m.euclideousKeyType = newValue } }
     var euclideousNoteSource: EuclideousLaneSource { get { m.euclideousNoteSource } nonmutating set { m.euclideousNoteSource = newValue } }
     var euclideousSourcePlan: SourcePlan? { get { m.euclideousSourcePlan } nonmutating set { m.euclideousSourcePlan = newValue } }
+    /// The RESOLVED plan for the UI (mirrors PluginState.sourcePlanResolved): the stored plan, or — nil — derived
+    /// from the legacy exclusive source. Read from the @Published mirrors so a cell tap updates the UI at once.
+    var euclideousSourcePlanResolvedUI: SourcePlan {
+        if let p = euclideousSourcePlan { return p }
+        switch euclideousNoteSource {
+        case .midi:   return SourcePlan()
+        case .chords: return SourcePlan(chordsWithMidi: true, chordsNoMidi: true)
+        case .key:    return SourcePlan(keyWithMidi: true, keyNoMidi: true)
+        }
+    }
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? { get { m.euclideousHoldLatchMode } nonmutating set { m.euclideousHoldLatchMode = newValue } }
     var euclideousMainOutMask: UInt8 { get { m.euclideousMainOutMask } nonmutating set { m.euclideousMainOutMask = newValue } }
     var euclideousSoloMask: UInt8 { get { m.euclideousSoloMask } nonmutating set { m.euclideousSoloMask = newValue } }
@@ -144,6 +154,15 @@ struct FourfoldRootView: View {
                                                // `onSwing` call site exactly).
                                                swing: swing, onSetSwing: { au?.setSwing($0); refreshTiming() },
                                                noteSource: euclideousNoteSource, sourceStatus: euclideousSourceStatus,
+                                               sourcePlan: euclideousSourcePlanResolvedUI,
+                                               onToggleSourceCell: { kp in   // SOURCES STACK ferry (2026-10-26): flip one cell, undo like a source switch (§1.7); writes the plan, never the legacy source
+                                                   euclideousRecordUndo(coalesceKey: nil)
+                                                   var p = euclideousSourcePlanResolvedUI   // materialise from the derived plan so the first tap keeps the other three cells
+                                                   p[keyPath: kp].toggle()
+                                                   euclideousSourcePlan = p
+                                                   au?.editDocument { $0.euclideousSourcePlan = p }
+                                                   publish()
+                                               },
                                                onSetNoteSource: { v in
                                                    guard v != euclideousNoteSource else { return }   // UNDO-6: choosing what is already chosen is not an edit
                                                    euclideousRecordUndo(coalesceKey: nil)
