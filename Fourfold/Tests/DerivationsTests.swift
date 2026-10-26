@@ -58,6 +58,14 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual((0..<10).map { gL(altP(.robin), main: 0b0101, q: Int64($0)) }.joined(), "ACACACACAC")
         // SPREAD over MAIN A,B,C: note at place j → the j-th MAIN output (A,B,C,A,…)
         XCTAssertEqual((0..<4).map { gL(altP(.spread), main: 0b0111, place: $0) }.joined(), "ABCA")
+        // REVIEW FIX (adversarial, 2026-10-26): a nil MAIN (every factory preset / fresh lane inherits A-D) must make
+        // ROBIN/SPREAD cycle A→B→C→D — NOT route to a 0 mask (silent) while the header/circles show A-D lit. An
+        // EXPLICIT empty MAIN (0, non-nil) still stays silent (a part routed nowhere sounds nowhere).
+        func robinNil(_ q: Int64) -> UInt8? { euclideousAltGroup(altP(.robin), mainMask: nil, altMask: 0, q: q, s: 0, p: 0, h: 0, lane: 0, leadPartId: 0, isRestHit: false, notePitch: 60, splitThreshold: 0, spreadPlace: 0) }
+        XCTAssertEqual((0..<5).map { robinNil(Int64($0)).map { ["A","B","C","D"][$0.trailingZeroBitCount] } ?? "·" }.joined(), "ABCDA", "ROBIN on a nil (inherited A-D) MAIN cycles A-D, not silence")
+        func spreadNil(_ place: Int) -> UInt8? { euclideousAltGroup(altP(.spread), mainMask: nil, altMask: 0, q: 0, s: 0, p: 0, h: 0, lane: 0, leadPartId: 0, isRestHit: false, notePitch: 60, splitThreshold: 0, spreadPlace: place) }
+        XCTAssertEqual((0..<5).map { spreadNil($0).map { ["A","B","C","D"][$0.trailingZeroBitCount] } ?? "·" }.joined(), "ABCDA", "SPREAD on a nil MAIN spreads across A-D")
+        XCTAssertEqual(euclideousAltGroup(altP(.robin), mainMask: 0, altMask: 0, q: 0, s: 0, p: 0, h: 0, lane: 0, leadPartId: 0, isRestHit: false, notePitch: 60, splitThreshold: 0, spreadPlace: 0), 0, "an EXPLICIT empty MAIN (0) still routes ROBIN nowhere")
         // CHANCE is replay-exact and ~uniform: over 10,000 h the ALT share is 48–52% at CHANCE 50, 8–12% at 10, 88–92% at 90.
         func altShare(_ chance: Int) -> Double {
             var a = 0; for h in 0..<10_000 where euclideousAltChanceRoll(lane: 2, part: 0, h: Int64(h)) < chance { a += 1 }

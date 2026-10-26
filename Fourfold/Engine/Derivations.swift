@@ -2575,10 +2575,13 @@ func euclideousAltGroup(_ a: EuclideousAltParams, mainMask: UInt8?, altMask: UIn
     case .rests:  return isRestHit ? altMask : mainMask
     case .split:  return notePitch > splitThreshold ? altMask : mainMask       // §5.2: ALT if above T, else MAIN
     case .robin:                                                               // one MAIN output, index q mod count
-        let m = mainMask ?? 0, n = m.nonzeroBitCount
+        // nil MAIN ⇒ A-D (the Display nil⇒0x0F rule the header/circles/`euclideousLaneMasks` and OFF all use), so ROBIN
+        // on an untouched lane (every factory preset inherits A-D) cycles A→B→C→D instead of routing to a 0 mask (silent)
+        // while the UI shows A-D lit. An EXPLICIT empty MAIN (0, non-nil) still returns 0 — a part routed nowhere is silent.
+        let m = (mainMask ?? 0x0F) & 0x0F, n = m.nonzeroBitCount
         return n == 0 ? 0 : UInt8(1 << euclideousNthSetBit(m, Int(((q % Int64(n)) + Int64(n)) % Int64(n))))
     case .spread:                                                              // this note's place → one MAIN output
-        let m = mainMask ?? 0, n = m.nonzeroBitCount
+        let m = (mainMask ?? 0x0F) & 0x0F, n = m.nonzeroBitCount    // nil MAIN ⇒ A-D, as ROBIN above (Display/OFF convention)
         return n == 0 ? 0 : UInt8(1 << euclideousNthSetBit(m, ((spreadPlace % n) + n) % n))
     }
 }
