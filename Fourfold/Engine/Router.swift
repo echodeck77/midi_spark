@@ -1889,11 +1889,15 @@ final class Router {
     /// controller keeps deduping against what is really on the wire. The bus set, the cable pair (own + ALL) and the channel stamp are the notes' own.
     private func emitModCC(cc: Int, value: Int, busMask: UInt8, atSample: Int64, out: MIDIEmitter?, force: Bool = false) {
         guard let out, cc >= 0 && cc <= 127, value >= 0 && value <= 127 else { return }
+        var allChannels: UInt16 = 0   // channels already sent on ALL by this call: two ports on one channel must not double the CC there
         for bus in 0..<FourfoldPorts.busCount where bit(busMask, bus) && bit(busEnabledMask, bus) {
             if soloEmitterMask != 0 && !bit(soloEmitterMask, bus) { continue }
             let ch = (busChannels[bus] &- 1) & 15
             emitModCCWire(cable: UInt8(bus + 1), ch: ch, cc: cc, value: value, atSample: atSample, out: out, force: force)
-            emitModCCWire(cable: 0,               ch: ch, cc: cc, value: value, atSample: atSample, out: out, force: force)   // §7b ALL cable
+            if allChannels & (1 << UInt16(ch)) == 0 {
+                allChannels |= 1 << UInt16(ch)
+                emitModCCWire(cable: 0,           ch: ch, cc: cc, value: value, atSample: atSample, out: out, force: force)   // §7b ALL cable
+            }
         }
     }
     @inline(__always)
@@ -3408,7 +3412,7 @@ final class Router {
                             var fxAnySounds = false
                             for j in 0..<pitchCount where finalPitch(pitches[j], oct: 0) != nil { fxAnySounds = true; break }
                             if let ccv = fx.cc, emits, fxAnySounds, !masterMute {
-                                let ccBusMask = chopMask(cell, m: mTickBeat, S: S, base: riffBus)   // ferry: the FX CC follows the RIFF layer (the hit it fires on); flagged judgment call, no notes in a CC
+                                let ccBusMask = chopMask(cell, m: mTickBeat, S: S, base: riffBus | notesBus)   // the FX CC goes to BOTH of the lane's ports (Paul 2026-10-27), so a synth on either one hears the row
                                 let ccSample = sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
                                 emitModCC(cc: max(0, min(119, Int(fxAll.ccNumber))), value: ccv, busMask: ccBusMask, atSample: ccSample, out: out, force: true)
                             }

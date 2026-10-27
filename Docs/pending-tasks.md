@@ -8,8 +8,8 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 ## ★ FOURFOLD — THE NINE PORTS (2026-10-27; `Docs/euclideous-status-log.md`) — supersedes the per-layer-routing, ALT-routing and default-emitters sections that used to be here
 - [x] DONE: a note's port is fixed by lane + layer (All, Emit Riff A, Emit Notes A … Emit Notes D); eight per-port channels; the emitter masks, ALT, MAIN OUT, the header rings and the OUT columns are gone. Proven event-for-event against the previous engine (golden harness `--dump`).
 - [ ] DEVICE: the "Nine ports" lines in `Docs/euclideous-device-verification-debt.md` — chiefly the port list in AUM (names and order), two synths on Riff A / Notes A, the PORTS tab, the header without rings, the reel's per-port tags.
-- [ ] DECIDE (Paul): AUM may sort the ports alphabetically (all Notes before all Riff). If that reads badly, the names could be "Emit A Riff"/"Emit A Notes"… — a one-line change in `FourfoldPorts.names` (+ `shortName`, tests).
-- [ ] DECIDE (Paul): the FX CC row still follows the RIFF layer (CC leaves on the lane's Riff port + ALL only). Should it also go to the Notes port?
+- [x] DECIDED (Paul, 2026-10-27): the port order/names are fine as they are ("Emit Riff A", "Emit Notes A" …).
+- [x] DONE (Paul, 2026-10-27: "FX should go to notes too"): the FX CC row now goes out on BOTH of the lane's ports (Riff and Notes) plus ALL — each on its own channel; ALL carries one copy per distinct channel. DEVICE: see the debt file's "FX CC" line.
 - [ ] DECIDE (Paul): a never-touched document now stamps channels 1…8 (was 1…4 per lane); a document that stored four lane channels keeps them on both ports. Say if the fresh default should instead be 1,1,2,2,3,3,4,4.
 - [ ] (noted) The 20 factory presets store no routing, so each lane's riff/notes now sound only on that lane's ports (they used to sound on all four outputs). `AUExtension/` (8x8 State) is untouched.
 - [ ] (noted) The old four-output fan-out lost lit notes under legato (gate 100, unreachable from the UI); the nine-ports engine does not have the fault.

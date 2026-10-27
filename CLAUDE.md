@@ -394,7 +394,7 @@ the same pipeline as any other row; it is not a special-cased render path.
   `euclideousRatchetStrikeVelocity`) shares the hit's velocity across the strikes (FX ratchets only; the mask RATCHET stays flat); and Euclideous strikes count against their OWN flood budget (`Router.euclideousFloodCapPerBeat` 160 a beat per output, a
   separate counter from the 8×8 engine's 48 — four lanes of RATCH 4 at 1/16 on one output lost a quarter of their notes). The FX lane dots and buttons dim (and VoiceOver says why) for a lane no row can act on — riff off or SHADOW
   (`euclideousFXLaneIdleReason`); VoiceOver steps VEL and CC by 4. CC goes through `emitModCC(force:)`
-  with the notes' own channel stamp. The tab's columns come from `euclideousRiffCellW` — the riff grid's own function — and every UI number is a pure
+  to BOTH of the lane's ports (Riff and Notes — Paul 2026-10-27), each with its own port's channel stamp, and once per distinct channel on ALL. The tab's columns come from `euclideousRiffCellW` — the riff grid's own function — and every UI number is a pure
   `euclideousFX*` function; `FXPanelPainter.swift` only paints them. A moved NOTE rank folds through `riffResolveExtended` (rank 0 is never a rest).
 - **ONE per-tick core (restart chains, 2026-10-19 — supersedes the LANES GRID ferry's own masked core).**
   `euclideousLaneChainTick`/`euclideousLaneChainPhase` (Derivations.swift) decide, for a lane tick, the

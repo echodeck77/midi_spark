@@ -5724,8 +5724,11 @@ final class RouterTests: XCTestCase {
     func testFXCCSendsOnceBeforeTheNoteOnOnEveryChannelAndBothCables() {
         let e = fxRun(fxBox([fxLine(gate: 0.5)], fx: fxCells([(5, 1, 20)]), buses: [.a]), beats: 3.5)
         let cc = ccEvents(e)
-        XCTAssertEqual(cc.count, 2, "one message per hit, on the bus's own cable and the ALL cable")
-        XCTAssertEqual(Set(cc.map { $0.cable }), [0, 1]); XCTAssertTrue(cc.allSatisfy { $0.cc == 74 && $0.value == 20 && $0.chan == 0 })
+        // THE NINE PORTS + "FX should go to notes too" (Paul 2026-10-27): the CC goes to BOTH of the lane's ports — Riff A (channel 1) and Notes A (channel 2) — and to ALL on each of those channels
+        XCTAssertEqual(cc.count, 4, "one message per hit on each of the lane's two ports, and each one's copy on the ALL cable")
+        XCTAssertEqual(Set(cc.map { $0.cable }), [0, 1, 2]); XCTAssertTrue(cc.allSatisfy { $0.cc == 74 && $0.value == 20 })
+        XCTAssertEqual(Set(cc.filter { $0.cable == 1 }.map { $0.chan }), [0]); XCTAssertEqual(Set(cc.filter { $0.cable == 2 }.map { $0.chan }), [1])
+        XCTAssertEqual(Set(cc.filter { $0.cable == 0 }.map { $0.chan }), [0, 1], "ALL tells the two streams apart by channel")
         XCTAssertTrue(cc.allSatisfy { abs(Double($0.sample) / 24_000 - 1) < 0.01 }, "at the hit's own sample")
         // …and ahead of the note-on at that sample, on each cable
         for cable: UInt8 in [0, 1] {
@@ -5737,16 +5740,31 @@ final class RouterTests: XCTestCase {
         // the channel is the bus's stamp — the SAME one its notes use (here channel 1 → wire 0)
         XCTAssertEqual(e.ons.first { $0.cable == 1 }?.chan, cc.first?.chan)
         // a hit routed to ALL FOUR outputs sends the CC on each of their cables (and each one's own stamped channel) plus the ALL cable
-        // all four lanes: the CC follows each lane's RIFF layer, so it goes out on each lane's riff port (1, 3, 5, 7) and ALL
+        // all four lanes: the CC goes out on both ports of each lane (all eight) and ALL
         let all = fxRun(fxBox([fxLine(gate: 0.5), fxLine(gate: 0.5), fxLine(gate: 0.5), fxLine(gate: 0.5)], fx: fxCells([(5, 1, 20)])), beats: 1.5)
-        XCTAssertEqual(Set(ccEvents(all).map { $0.cable }), [0, 1, 3, 5, 7])
-        XCTAssertEqual(Set(ccEvents(all).filter { $0.cable != 0 }.map { $0.chan }), [0, 2, 4, 6], "each port on its own channel stamp (port i stamps channel i+1)")
+        XCTAssertEqual(Set(ccEvents(all).map { $0.cable }), Set(0...8))
+        XCTAssertEqual(Set(ccEvents(all).filter { $0.cable != 0 }.map { $0.chan }), Set(0...7), "each port on its own channel stamp (port i stamps channel i+1)")
     }
     func testFXCCOnlyForTheLanesTheRowIsOnForAndOnTheirOwnBuses() {
         let l1 = fxLine(), l2 = fxLine()
         let e = fxRun(fxBox([l1, l2], fx: fxCells([(5, 1, 20)], lanes: [5: 0b0010])), beats: 3.5)
-        XCTAssertEqual(Set(ccEvents(e).map { $0.cable }), [0, 3], "lane 2's RIFF port (Emit Riff B = cable 3) and the ALL cable; nothing on lane 1's port (cable 1)")
-        XCTAssertEqual(ccEvents(e).count, 2)
+        XCTAssertEqual(Set(ccEvents(e).map { $0.cable }), [0, 3, 4], "lane 2's two ports (Emit Riff B = cable 3, Emit Notes B = cable 4) and the ALL cable; nothing on lane 1's ports (cables 1, 2)")
+        XCTAssertEqual(ccEvents(e).count, 4)
+    }
+    func testFXCCOnAllIsNotDoubledWhenBothPortsShareAChannel() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [fxLine(gate: 0.5)]
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi; st.euclideousFX = fxCells([(5, 1, 20)])
+        st.busChannels = [5, 5, 3, 4, 5, 6, 7, 8]   // Riff A and Notes A on the same channel
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord(fxPoolNotes), beats: 3.5, into: e, forceColumn: 0)
+        let cc = ccEvents(e)
+        XCTAssertEqual(cc.filter { $0.cable == 1 }.count, 1); XCTAssertEqual(cc.filter { $0.cable == 2 }.count, 1, "each port gets its own copy")
+        XCTAssertEqual(cc.filter { $0.cable == 0 }.count, 1, "…but ALL carries one: both are channel 5, the same message")
     }
     func testFXCCSendsOncePerRatchetedHitAndOnAHitThatCarriesOnLegato() {   // (legato from the lane's own gate 1.0 since 2026-10-20)
         let r = fxRun(fxBox([fxLine(gate: 0.5)], fx: fxCells([(0, 1, 4), (5, 1, 50)])), beats: 3.5)
