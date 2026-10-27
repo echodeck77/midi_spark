@@ -84,6 +84,12 @@ final class FourfoldAccessibilityTests: XCTestCase {
         audit(app, "\(landscape ? "landscape" : "portrait") \(name)")
     }
     private func laneTab(_ prefix: String) -> (XCUIApplication) -> Void { { $0.els(prefix: prefix).element(boundBy: 0).tap() } }
+    /// HOCKET (2026-10-27): the pop-up with a lit rule (a RED RIFF / BLUE RIFF swap), so the chips, the cycle strip, the steppers and the routes all exist when the audit looks.
+    private func hocket(_ app: XCUIApplication) {
+        app.els(prefix: "Hocket").firstMatch.tap()
+        XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 4), "Hocket did not open")
+        for chip in ["Main: red riff, off", "Alt: blue riff, off"] { let c = app.buttons[chip]; if c.waitForExistence(timeout: 3) { c.tap() } }
+    }
     private func open(_ button: String, expect: String) -> (XCUIApplication) -> Void { { app in app.buttons[button].tap(); XCTAssertTrue(app.staticTexts[expect].waitForExistence(timeout: 4), "\(button) did not open") } }
 
     func testAuditMixPortrait()      { screen("page MIX", landscape: false) { _ in } }
@@ -96,6 +102,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditKeyPopupPortrait() { screen("key popup", landscape: false, open("Key, C minor", expect: "KEY")) }
     func testAuditSwingPortrait()    { screen("swing", landscape: false, open("Swing, straight", expect: "SWING")) }
     func testAuditSettingsPortrait() { screen("settings", landscape: false) { $0.buttons["Settings"].tap() } }
+    func testAuditHocketPortrait()   { screen("hocket popup", landscape: false, hocket) }
 
     func testAuditMixLandscape()      { screen("page MIX", landscape: true) { _ in } }
     func testAuditLanesLandscape()    { screen("page LANES", landscape: true) { $0.buttons["Lanes"].tap() } }
@@ -107,6 +114,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditKeyPopupLandscape() { screen("key popup", landscape: true, open("Key, C minor", expect: "KEY")) }
     func testAuditSwingLandscape()    { screen("swing", landscape: true, open("Swing, straight", expect: "SWING")) }
     func testAuditSettingsLandscape() { screen("settings", landscape: true) { $0.buttons["Settings"].tap() } }
+    func testAuditHocketLandscape()   { screen("hocket popup", landscape: true, hocket) }
 
     /// The one rule the audit cannot see: a control with NO label at all is invisible to VoiceOver. Every Button / Switch / Slider on every screen must have one.
     func testNoButtonSwitchOrSliderIsUnlabelled() {

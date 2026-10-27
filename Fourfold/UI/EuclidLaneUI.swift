@@ -460,11 +460,12 @@ struct EuclidCometBar: View {
                 // LANE STRIP (ferry 2026-10-21): the Euclideous lane card's strip — a riff track over a key row on these same step columns, the playhead in place of the comet. Everything it draws is a
                 // pure function of the plan the page built (`EuclideousStripPlan`) and the clock; see `drawEuclideousStrip`.
                 if let strip, stripLeg < strip.legs.count {
+                    let hocketLooks = hocketStripLooks(strip, playing: running)   // HOCKET §9.3 (nil/nil when no rule is lit)
                     let xs: [CGFloat] = (0..<n).map { insetL + boxXs[$0] }
                     let playhead: EuclideousStripPlayhead? = running ? euclideousStripPlayhead(raw: cometRaw, n: n, dir: dir, xs: xs, columnW: boxW) : nil
                     drawEuclideousStrip(&ctx, EuclideousStripFrameInput(hits: strip.legs[stripLeg].hits, shadowed: strip.shadowed, frames: euclideousStripLayout(xs: xs, columnW: boxW), groupSize: euclidStepGroupSize(forRate: rate), tint: tint, playhead: playhead,
                                                                          areaMinX: insetL, areaMaxX: insetL + usable, current: stripCurrentStep,
-                                                                         riffStrikes: stripStrikes.riff, noteStrikes: stripStrikes.notes, scale: pulseScale, reduceMotion: reduceMotion))
+                                                                         riffStrikes: stripStrikes.riff, noteStrikes: stripStrikes.notes, riffLook: hocketLooks.riff, notesLook: hocketLooks.notes, ownLane: strip.lane, scale: pulseScale, reduceMotion: reduceMotion))
                     return
                 }
                 // BOX CONTENT IS DIRECTION-INDEPENDENT — box `i` always shows `buf[i]`, the raw pattern buffer at

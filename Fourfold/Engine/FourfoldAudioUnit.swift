@@ -273,6 +273,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     /// The ascending notes currently feeding the riff's own pool — same fast cadence as the riff positions
     /// above, so the riff panel's resolved-note display can never lag its own cursor dots.
     func pollEuclideousRiffLivePool() -> [UInt8] { kernel.euclideousRiffLivePool() }
+    func pollHocketLive() -> (counts: [Int64], running: Bool) { kernel.hocketLive() }   // HOCKET §8: rides the existing 30 Hz fast poll
     func pollEuclideousSourceStatus() -> Router.EuclideousSourceStatus { kernel.euclideousSourceStatus() }   // SOURCES STACK: rides the existing 30 Hz fastPoll
     /// Euclideous's own beacon readiness, polled independent of the BUILD-page editor's own editorOpen-gated
     /// poll — Euclideous's page can be open (and its beacon needs updating) whether or not BuildPage's own

@@ -1946,23 +1946,23 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88 + 8 + 44 + 8 + 44, accuracy: 1e-9)
         XCTAssertEqual(f.brand, 296, accuracy: 0.2)
         // WIDENED 312→426 (2026-10-20, HOLD/LATCH): two fixed-width chips (48+54) + the sp4 between them + the sp8 before them. UTILITIES is 4 icons (presets · SWING · REEL · settings).
-        XCTAssertEqual(f.notes, 426); XCTAssertEqual(f.utilities, 176)
+        XCTAssertEqual(f.notes, 426); XCTAssertEqual(f.utilities, 176 + 100, "HOCKET ferry: the pill's reserved width (92) and the sp8 before the presets button")
         XCTAssertEqual(HM.segmentedWidth, 184)
         let c = euclideousHeaderGroupWidths(compact: true)
         // RANDOM MODE / LANE LOCK (§2.2): compact BRAND grew +44 for the dice and +44 for the padlock; the compact target is 36 wide.
-        XCTAssertEqual(c.brand, 93 + 44 + 44); XCTAssertEqual(c.utilities, 144)
-        XCTAssertEqual(c.brand + c.utilities + c.gap, 93 + 44 + 44 + 144 + 8, "layout C's row 1: BRAND and UTILITIES, one gap apart")
+        XCTAssertEqual(c.brand, 93 + 44 + 44); XCTAssertEqual(c.utilities, 144 + 100)
+        XCTAssertEqual(c.brand + c.utilities + c.gap, 93 + 44 + 44 + 144 + 100 + 8, "layout C's row 1: BRAND and UTILITIES, one gap apart")
         XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
         XCTAssertEqual(HM.wordmarkWidth, 8 * 11 * 0.76, accuracy: 1e-9)
     }
-    // WIDENED to 1900 (2026-10-23) so NOTES sits unclamped on the riff panel's leading edge, clear of the four utility icons.
+    // WIDENED to 1900 (2026-10-23), then to 2300 (HOCKET ferry, 2026-10-27: UTILITIES grew by the pill's 100) so NOTES sits unclamped on the riff panel's leading edge, clear of the utility icons.
     func testLayoutAPutsNotesOnTheRiffPanel() {
-        let l = hdrLayout(1900, landscape: true)
+        let l = hdrLayout(2300, landscape: true)
         XCTAssertEqual(l.kind, .a); XCTAssertEqual(l.rowCount, 1); XCTAssertEqual(l.height, 44)
-        let cols = pageFor(1900, landscape: true)
-        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1900, accuracy: 1e-9)
+        let cols = pageFor(2300, landscape: true)
+        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 2300, accuracy: 1e-9)
         XCTAssertEqual(l.notes.x, cols.riffLeadingX, accuracy: 1e-9, "NOTES' leading edge on the riff panel's")
-        assertHeaderInvariants(l, 1900, "A@1900")
+        assertHeaderInvariants(l, 2300, "A@2300")
     }
     func testLayoutANotesSlidesLeftToClearUtilitiesAtItsFloor() {
         let full = euclideousHeaderGroupWidths(compact: false)
@@ -1978,11 +1978,12 @@ final class DerivationsTests: XCTestCase {
         for cw in stride(from: w, through: w + 400, by: 7) { assertHeaderInvariants(hdrLayout(cw, landscape: true), cw, "A@\(cw)") }
     }
     func testLayoutBAt500AndCAt470() {
-        let b = hdrLayout(500, landscape: false)
+        let b = hdrLayout(620, landscape: false)   // (500 before the HOCKET button: B now needs 587.88)
         XCTAssertEqual(b.kind, .b); XCTAssertEqual(b.rowCount, 2); XCTAssertEqual(b.height, 44 + 4 + 44)
         XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.notes.x, 0, "NOTES on row 2's leading edge")
         XCTAssertEqual([b.brand.row, b.utilities.row], [0, 0])
-        assertHeaderInvariants(b, 500, "B@500")
+        assertHeaderInvariants(b, 620, "B@620")
+        XCTAssertEqual(hdrLayout(500, landscape: false).kind, .c, "500 used to be layout B; with the HOCKET button it is C")
         let c = hdrLayout(470, landscape: false)
         XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
         XCTAssertEqual(c.widths.gap, 8)

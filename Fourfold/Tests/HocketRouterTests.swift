@@ -435,4 +435,52 @@ final class HocketRouterTests: XCTestCase {
         }
         assertBalanced(big)
     }
+
+    // MARK: - §8 / §9.3 — what the displays read
+
+    private func renderKeepingRouter(_ st: PluginState, beats total: Double, frames: UInt32 = 480) -> (router: Router, emitter: HEmitter, drained: [[Router.EuclideousNoteViewEventSnapshot]]) {
+        let box = SnapshotBuilder.build(from: st)
+        let pool = NotePool(); for n in [60, 64, 67] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
+        let router = Router(); var diag = KernelDiag(); let e = HEmitter()
+        let totalFrames = Int(total * 24_000) - 1
+        var done = 0, beat = 0.0, ts = 0.0
+        var drained: [[Router.EuclideousNoteViewEventSnapshot]] = [[], [], [], []]
+        while done < totalFrames {
+            let n = UInt32(min(Int(frames), totalFrames - done))
+            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: n, out: e, diag: &diag)
+            let evs = router.drainEuclideousNoteViewEvents()
+            for l in 0..<4 { drained[l] += evs[l] }
+            done += Int(n); beat += Double(n) * 120.0 / 60 / 48_000; ts += Double(n)
+        }
+        return (router, e, drained)
+    }
+    func testTheLiveCountIsTheReferenceLanesHitCountAtTheLastWindowsStart() {
+        let lanes = (0..<4).map { laneLine($0) }
+        let r1 = rule(main: [RR], alt: [BR]) { $0.mainLen = 3; $0.altLen = 1 }
+        let a = renderKeepingRouter(doc(lanes: lanes, rules: [r1]), beats: 1.75)       // RED has struck hits at 0, 0.5, 1.0, 1.5
+        XCTAssertEqual(a.router.hocketLive().counts[0], 3, "x = the 4th hit's index")
+        XCTAssertTrue(a.router.hocketLive().running)
+        let b = renderKeepingRouter(doc(lanes: lanes, rules: [r1]), beats: 0.4)
+        XCTAssertEqual(b.router.hocketLive().counts[0], 0, "before the 2nd hit")
+        XCTAssertEqual(a.router.hocketLive().counts[1], 0, "an unused rule slot reads 0")
+        let bars = renderKeepingRouter(doc(lanes: lanes, rules: [rule(main: [RR], alt: [BR]) { $0.unit = .bars }]), beats: 9)
+        XCTAssertEqual(bars.router.hocketLive().counts[0], 2, "BARS: bar 3 of the page clock")
+        let none = renderKeepingRouter(doc(lanes: lanes), beats: 2)
+        XCTAssertEqual(none.router.hocketLive().counts, [0, 0, 0, 0], "no rule: nothing published")
+    }
+    func testTheHitEventNamesTheOutputEachPitchLeftOn() {
+        let lanes = (0..<4).map { laneLine($0, riff: false) }
+        let crossing = renderKeepingRouter(doc(lanes: lanes, rules: crossingRules()), beats: 8)
+        func dests(_ lane: Int, bar: Int) -> Set<Int8> {
+            Set(crossing.drained[lane].filter { $0.onsetBeat >= Double(bar) * 4 && $0.onsetBeat < Double(bar + 1) * 4 }.flatMap { $0.dests })
+        }
+        XCTAssertEqual(dests(0, bar: 0), [1], "bar 1: RED NOTES' hits left on RED NOTES (bus 1)"); XCTAssertEqual(dests(1, bar: 0), [3])
+        XCTAssertEqual(dests(0, bar: 1), [3], "bar 2: RED's notes left on BLUE NOTES (bus 3) — the strip flashes in blue"); XCTAssertEqual(dests(1, bar: 1), [1])
+        XCTAssertTrue(crossing.drained[2].flatMap { $0.dests }.allSatisfy { $0 == 5 }, "AMBER is in no rule: its own output (bus 5)")
+        let plain = renderKeepingRouter(doc(lanes: lanes), beats: 2)
+        XCTAssertEqual(Set(plain.drained[0].flatMap { $0.dests }), [1], "no rule: every strike reports its own output")
+        let swap = renderKeepingRouter(doc(rules: [rule(main: [RR], alt: [BR]) { $0.mainLen = 3; $0.altLen = 1 }]), beats: 2)
+        XCTAssertTrue(swap.drained[0].contains { $0.hasRiffNote && $0.dests.first == 0 }, "RED's riff note reports bus 0")
+        XCTAssertTrue(swap.drained[0].allSatisfy { !$0.notes.isEmpty }, "a hit RED's riff rests on the ALT turn posts no event for that layer's note")
+    }
 }

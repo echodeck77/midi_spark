@@ -473,6 +473,13 @@ final class Router {
         var keyLit = false
         var keyAdded = 0
     }
+    /// HOCKET §8: the count x of each rule at the START of the last window the Euclideous row ran, and whether the transport ran — published to the UI by `hocketLive()` (read-and-copied on the main thread, like the source
+    /// status). The displays derive the turn from x with the SAME `hocketTurn` the engine plays by, so a chip lit on screen is a chip heard; nothing predicts.
+    private var hocketLiveCounts = SIMD4<Int64>(repeating: 0)
+    private var hocketLiveRunning = false
+    func hocketLive() -> (counts: [Int64], running: Bool) {
+        ([hocketLiveCounts[0], hocketLiveCounts[1], hocketLiveCounts[2], hocketLiveCounts[3]], hocketLiveRunning)
+    }
     func euclideousSourceStatus() -> EuclideousSourceStatus {
         EuclideousSourceStatus(midiNotes: Array(euclideousStatusMidiNotes.prefix(euclideousStatusMidiCount)),
                                midiPlaying: euclideousStatusMidiPlaying,
@@ -549,6 +556,10 @@ final class Router {
     /// PULSE ferry (§1.3): the velocity each `nvScratch` pitch played with — parallel storage, fixed-size, written beside `nvScratch` at the Euclideous push sites only.
     private var nvVelScratch = [UInt8](repeating: 0, count: Router.noteViewMaxNotes)
     private var nvVels = [UInt8](repeating: 0, count: 4 * Router.noteViewRing * Router.noteViewMaxNotes)
+    /// HOCKET §9.3: the OUTPUT (bus 0…7) each `nvScratch` pitch actually left on — after a lit rule's routing — parallel storage written beside `nvVelScratch` at the Euclideous push sites; −1 = not reported. It is how the strip's
+    /// flash learns which lane's colour a layer's notes went out in, in time to draw.
+    private var nvDestScratch = [Int8](repeating: -1, count: Router.noteViewMaxNotes)
+    private var nvDests = [Int8](repeating: -1, count: 4 * Router.noteViewRing * Router.noteViewMaxNotes)
     /// Records ONE step's outcome for `lane` (0...3) — called from inside `runEuclidLine` at its 3 real
     /// decision points (hit, miss-playing, rest-flash). Reads `noteCount` entries from `nvScratch`
     /// (written by the caller just before this call) — the FINAL, already-transposed/octave-shifted,
@@ -569,6 +580,7 @@ final class Router {
         let nbase = slot * Router.noteViewMaxNotes
         for i in 0..<Router.noteViewMaxNotes { nvNotes[nbase + i] = i < nc ? nvScratch[i] : 0 }
         for i in 0..<Router.noteViewMaxNotes { nvVels[nbase + i] = (withVels && i < nc) ? nvVelScratch[i] : 0 }   // PULSE §1.3: 0 = this site reports no velocities
+        for i in 0..<Router.noteViewMaxNotes { nvDests[nbase + i] = (withVels && i < nc) ? nvDestScratch[i] : -1 }   // HOCKET §9.3: −1 = this site reports no outputs
         nvHead[lane] = (nvHead[lane] + 1) % Router.noteViewRing
         if nvNew[lane] < Router.noteViewRing { nvNew[lane] &+= 1 }
     }
@@ -1236,6 +1248,8 @@ final class Router {
         var vels: [UInt8] = []
         /// RESTART TILES ferry (2026-10-22): the riff column whose note this hit struck — `column`, except on a REPEAT hit where it is the repeated note's column (`column` stays the hit's own rest seat). -1 = none.
         var cellColumn: Int8 = -1
+        /// HOCKET §9.3: the output (bus 0…7) each pitch in `notes` left on, parallel to `notes` — the lane's own output unless a lit rule moved it. −1 = this site does not report it (an empty array on the older sites).
+        var dests: [Int8] = []
     }
     func drainEuclideousNoteViewEvents() -> [[EuclideousNoteViewEventSnapshot]] {
         var out: [[EuclideousNoteViewEventSnapshot]] = []
@@ -1251,7 +1265,8 @@ final class Router {
                 let cnt = Int(nvNoteCount[slot])
                 let notes = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvNotes[nbase + $0] }
                 let vels = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvVels[nbase + $0] }
-                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes, column: nvColumn[slot], rank: nvRank[slot], hasRiffNote: nvHasRiffNote[slot], hostSeconds: nvHostSeconds[slot], vels: vels, cellColumn: nvCellColumn[slot]))
+                let dests = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvDests[nbase + $0] }
+                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes, column: nvColumn[slot], rank: nvRank[slot], hasRiffNote: nvHasRiffNote[slot], hostSeconds: nvHostSeconds[slot], vels: vels, cellColumn: nvCellColumn[slot], dests: dests))
             }
             out.append(events)
         }
@@ -1665,6 +1680,7 @@ final class Router {
         // HOCKET (2026-10-27) §7.3: the outputs of every LIT rule — their strikes JOIN a sounding key. Read before the echo ring drains and any lane strikes. A joinable strike's in-window off is held back (`deferClose`) so that a
         // second holder (another lane's passed line, the output's own part) can still join; they are all closed here, at their own times, once every lane has struck. Nothing is flagged unless a rule is lit (§7.6).
         hocketLitBusMask = box.cells[Snap.euclideousRow].procs.first?.hocketRules.litBusMask ?? 0
+        hocketLiveRunning = playing
         defer {
             if hocketDeferredCloses {
                 hocketDeferredCloses = false
@@ -2715,7 +2731,7 @@ final class Router {
                                     }
                                     if nvSent {
                                         var nc = 0
-                                        for i in 0..<n where nc < Router.noteViewMaxNotes { if let p = finalPitch(Int(euclideousLastSoundedNotes[lineIndex * 9 + i]), oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = euclideousLastSoundedVels[lineIndex * 9 + i]; nc += 1 } }
+                                        for i in 0..<n where nc < Router.noteViewMaxNotes { if let p = finalPitch(Int(euclideousLastSoundedNotes[lineIndex * 9 + i]), oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = euclideousLastSoundedVels[lineIndex * 9 + i]; nvDestScratch[nc] = Int8(truncatingIfNeeded: max(0, Int(euclideousLastSoundedBus[lineIndex * 9 + i])).trailingZeroBitCount); nc += 1 } }
                                         if nc > 0 {
                                             let (onset, duration) = nvTiming(gb)
                                             pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: nc, withVels: true)
@@ -3375,7 +3391,7 @@ final class Router {
                                 }
                                 if nvSent {
                                     var nc = 0
-                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = pitchVel[j]; nc += 1 } }
+                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = pitchVel[j]; nvDestScratch[nc] = Int8(truncatingIfNeeded: pitchBus[j].trailingZeroBitCount); nc += 1 } }
                                     if nc > 0 {
                                         let (onset, duration) = nvTiming(repGb)
                                         // WIPE TELEMETRY: a REPEAT TRIGGER (this branch) still reports the
@@ -3666,7 +3682,7 @@ final class Router {
                                 // ("a downstream ECHO echoes only strike 0, not the ratchet copies").
                                 if nvSent {
                                     var nc = 0
-                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = euclideousRatchetStrikeVelocity(base: pitchVel[j], shape: ratchShape, k: 0, n: nRep); nc += 1 } }
+                                    for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = euclideousRatchetStrikeVelocity(base: pitchVel[j], shape: ratchShape, k: 0, n: nRep); nvDestScratch[nc] = Int8(truncatingIfNeeded: pitchBus[j].trailingZeroBitCount); nc += 1 } }
                                     if nc > 0 {
                                         let (onset, duration) = nvTiming(repSpacing * pitchGate[0])   // NOTE VIEW's one duration: pitch 0's
                                         pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: nc,
@@ -3719,7 +3735,7 @@ final class Router {
                             cacheWholeSet()
                             if nvSent {
                                 var nc = 0
-                                for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = pitchVel[j]; nc += 1 } }
+                                for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = pitchVel[j]; nvDestScratch[nc] = Int8(truncatingIfNeeded: pitchBus[j].trailingZeroBitCount); nc += 1 } }
                                 if nc > 0 {
                                     let (onset, duration) = nvTiming(gateBeatsWithTie(pitchGate[0], tieOf(0)))   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
                                     pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieOf(0) > 0 ? 3 : 0, noteCount: nc,
@@ -4435,6 +4451,18 @@ final class Router {
             }
             }   // HOCKET: the clock pre-pass / play pass loop
             hocketClockPass = false
+            // HOCKET §8: the count of each lit rule at this window's start, from the SAME `hocketCount` the notes are routed by (the clocks above are this window's).
+            if isEuclideousRow {
+                var live = SIMD4<Int64>(repeating: 0)
+                if hocketRules.litMask != 0 {
+                    for ri in 0..<HocketRuleSet.maxRules where hocketRules.litMask & (UInt8(1) << UInt8(ri)) != 0 {
+                        let s = hocketRules[ri]
+                        let ref = s.referenceLane
+                        live[ri] = hocketCount(unit: s.unit, clock: (ref >= 0 && hocketClocks[ref * 2].valid) ? hocketClocks[ref * 2] : nil, atMusicalBeat: mWinStart, beatsPerBar: beatsPerBar)
+                    }
+                }
+                hocketLiveCounts = live
+            }
             linesView = p.euclidLines   // release the scratch lines (so the next window rewrites them in place)
         default:
             break

@@ -719,6 +719,7 @@ struct EuclideousPage: View {
     let fx: EuclideousFX
     // HOCKET (2026-10-27): the document's rules ([] = none stored; the pop-up then shows an empty R1). Every edit goes through `onEditHocket`, which the VC turns into one document write + one republish.
     let hocketRules: [HocketRule]
+    let hocketLive: HocketLiveModel      // HOCKET §8: the count of each lit rule as the Router last published it — read ONLY by leaf views that observe it
     let lanesSeqStep: Int
     let riffsSeqStep: Int
     // RIFF-CELL WIPES (Paul 2026-10-10 ferry) — each lane's latest wipe-eligible event (column/rank >= 0).
@@ -1376,6 +1377,9 @@ struct EuclideousPage: View {
     // as `laneTab` above.
     @State private var settingsOpen = false
     @State private var settingsTab = 0
+    // HOCKET (2026-10-27): the pop-up's open state and which rule tab it shows — neither is saved; it opens on R1 (§2.4).
+    @State private var hocketPopupOpen = false
+    @State private var hocketShowing = 0
     // SWING (2026-10-17): the global, scene-wide SWING control (AUParameter 1 — shared with the rest of the
     // 8×8 grid, not Euclideous-specific data) gets its own anchored popover off a third UTILITIES icon, the
     // same "one overlay at a time" family as `settingsOpen`/`keyPopupOpen`/`chordsPopupOpen` below.
@@ -1642,7 +1646,7 @@ struct EuclideousPage: View {
                         .zIndex(3)
                     let hdr = pageGeometry(box).hdr
                     let target = hdr.compact ? HM.compactTarget : HM.target
-                    let anchorX = sp16 + hdr.utilities.x + target
+                    let anchorX = sp16 + hdr.utilities.x + hdr.utilities.width - 3 * target   // the metronome is the third target from the right (the HOCKET pill sits before presets)
                     let anchorY = HM.topMargin + hdr.height
                     swingPopupCard
                         .offset(x: min(max(anchorX, sp8), max(sp8, box.width - 200 - sp8)), y: anchorY + sp4)
@@ -1665,6 +1669,14 @@ struct EuclideousPage: View {
                     )
                     .padding(.horizontal, sp16)
                     .zIndex(5)
+                }
+                // HOCKET (2026-10-27) §2.1: the pop-up opens the way the settings sheet does — the same anchoring and scrim — and opening one closes the other.
+                if hocketPopupOpen {
+                    let pg = pageGeometry(box)
+                    HocketPopup(containerW: pg.containerW, containerH: box.height, headerBottomY: HM.topMargin + pg.hdr.height,
+                                rules: hocketRules, showing: $hocketShowing, live: hocketLive, onEdit: onEditHocket, onClose: { hocketPopupOpen = false })
+                        .padding(.horizontal, sp16)
+                        .zIndex(5)
                 }
             }
             .coordinateSpace(name: "euclideousXY")
@@ -2061,7 +2073,7 @@ struct EuclideousPage: View {
             }
         )
         .contentShape(Rectangle())
-        .onTapGesture { settingsOpen = false; swingPopupOpen = false; sourcesPopupOpen = false; keyPopupOpen = true }   // §2.1: opening it closes the sheet + SOURCES first
+        .onTapGesture { settingsOpen = false; swingPopupOpen = false; sourcesPopupOpen = false; hocketPopupOpen = false; keyPopupOpen = true }   // §2.1: opening it closes the sheet + SOURCES first
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Key, \(euclideousKeySpokenName(root: keyRoot, type: keyType))")
         .accessibilityHint("Double-tap to change")
@@ -2072,9 +2084,11 @@ struct EuclideousPage: View {
     private func headerUtilities(_ layout: EuclideousHeaderLayout) -> some View {
         let target = layout.compact ? HM.compactTarget : HM.target
         return HStack(spacing: 0) {
+            hocketHeaderButton
+            Color.clear.frame(width: HM.sp8, height: 1)
             Image(systemName: "folder").font(.system(size: 18)).foregroundColor(headerDim)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
-                .onTapGesture { settingsOpen = false; swingPopupOpen = false; sourcesPopupOpen = false; onOpenPresets() }   // §2.1: opening it closes the other overlays first
+                .onTapGesture { settingsOpen = false; swingPopupOpen = false; sourcesPopupOpen = false; hocketPopupOpen = false; onOpenPresets() }   // §2.1: opening it closes the other overlays first
                 .accessibilityLabel("Presets").accessibilityAddTraits(.isButton)
             // SWING (2026-10-17): a third icon, same selected-state styling as the gear just below. Tinted
             // when swing is away from its 50 (straight) default, so a non-neutral value stays visible at a
@@ -2108,6 +2122,31 @@ struct EuclideousPage: View {
                 }
                 .accessibilityLabel("Settings").accessibilityAddTraits(.isButton).accessibilityAddTraits(settingsOpen ? .isSelected : [])
         }
+    }
+    /// HOCKET (2026-10-27) §1: the header's HOCKET button — a text pill before the presets button (44 pt target, 30 pt drawn, radius 7, 12 pt side padding, 10 pt heavy at 0.08 em), its three looks from the pure
+    /// `hocketButtonLook`. An `AnyView`-returning leaf like the page's other header additions (the 1 MB stack rule). Opening the pop-up closes every other overlay; a tap on it again closes it. Not an undo step.
+    private var hocketHeaderButton: AnyView {
+        let lit = hocketRules.filter { $0.isLit }.count
+        let look = hocketButtonLook(litRules: lit, open: hocketPopupOpen)
+        let label = hocketButtonLabel(litRules: lit)
+        let face = Font.system(size: HocketButtonMetrics.fontSize, weight: .heavy, design: .monospaced)
+        let track = HocketButtonMetrics.tracking * HocketButtonMetrics.fontSize
+        let ink = Color(hex: look.text.hex)
+        return AnyView(
+            (Text(label.word).font(face).tracking(track).foregroundColor(ink) + Text(label.count ?? "").font(face).tracking(track).foregroundColor(ink.opacity(hocketButtonCountOpacity)))
+                .lineLimit(1).fixedSize()
+                .frame(width: HocketButtonMetrics.width(litRules: lit), height: HocketButtonMetrics.height)
+                .background(RoundedRectangle(cornerRadius: HocketButtonMetrics.radius).fill(Color(hex: look.fill.hex).opacity(look.fill.alpha)))
+                .overlay(look.borderWidth > 0 ? AnyView(RoundedRectangle(cornerRadius: HocketButtonMetrics.radius).strokeBorder(Color(hex: look.border.hex), lineWidth: look.borderWidth)) : nil)
+                .frame(width: HocketButtonMetrics.width(litRules: lit), height: HM.rowH).contentShape(Rectangle())
+                .onTapGesture {
+                    if !hocketPopupOpen { closeAllOtherOverlays(); settingsOpen = false; hocketShowing = 0 }   // §2.1 / §2.4: opening it closes the settings sheet and the other pop-ups, and it opens on R1
+                    hocketPopupOpen.toggle()
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(HocketAX.buttonLabel).accessibilityValue(HocketAX.buttonValue(litRules: lit)).accessibilityHint(HocketAX.buttonHint)
+                .accessibilityAddTraits(.isButton).accessibilityAddTraits(hocketPopupOpen ? .isSelected : [])
+        )
     }
     /// The REEL icon + its touch target. An `AnyView`-returning leaf like the page's other additions: it kept `headerUtilities`' DEBUG frame flat on the 1 MB extension stack (+0.6 KB inline, measured).
     private func reelHeaderButton(target: CGFloat) -> AnyView {
@@ -2156,6 +2195,7 @@ struct EuclideousPage: View {
     private func closeAllOtherOverlays() {
         keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; swingPopupOpen = false; riffTabMenuLane = nil
         chordsTabMenuIndex = nil; sourcesPopupOpen = false   // SOURCES STACK ferry (2026-10-26): one overlay at a time (§5.1)
+        hocketPopupOpen = false   // HOCKET (2026-10-27): the same
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -2856,7 +2896,8 @@ struct EuclideousPage: View {
                                                spokenPitch: { p in
                                                    (0...127).contains(p) ? euclideousAccessibleDisplayNoteName(UInt8(p), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) : "no note"
                                                })
-        return EuclideousStripPlan(legs: legs, sweepLength: steps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase)
+        return EuclideousStripPlan(legs: legs, sweepLength: steps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase, hocketRules: hocketRules, hocketLive: hocketLive, lane: idx,
+                                   riffPartOn: !euclideousMixLayerIsOff(line, notes: false), notesPartOn: !euclideousMixLayerIsOff(line, notes: true))
     }
     /// A pitch named the way the riff grid names its rows (`riffNoteLabelColumn`): C4, A♭3 — spelled relative to what is held for MIDI IN / CHORDS, from the key for KEY.
     private func stripNoteName(_ p: Int) -> String {
@@ -3369,7 +3410,12 @@ struct EuclideousPage: View {
                 } else {   // (`ViewThatFits` is iOS 16: on iOS 15 a tab too narrow for "RHYTHM 5/16" cuts the count again, as it did before the mini fix)
                     title.lineLimit(1).truncationMode(.tail)
                 }
-                if glyph.shape != .none { EuclideousTabGlyphView(shape: glyph.shape, on: glyph.on, fill: fill) }
+                if glyph.shape != .none {
+                    // HOCKET §9.2: with a rule lit the RIFF square / NOTES bar draw their hocket state (a leaf that observes the live model)
+                    if (glyph.shape == .square || glyph.shape == .bar) && hocketRules.contains(where: { $0.isLit }) {
+                        HocketPartGlyph(shape: glyph.shape, on: glyph.on, fill: fill, lane: idx, rules: hocketRules, live: hocketLive, ground: Color(hex: 0x1B1D23))
+                    } else { EuclideousTabGlyphView(shape: glyph.shape, on: glyph.on, fill: fill) }
+                }
             }
             .opacity(glyph.shape != .none && !glyph.on ? 0.4 : 1)
         )
@@ -3388,7 +3434,8 @@ struct EuclideousPage: View {
                 .overlay(tabDecor(idx, t, sel: sel, accent))
                 .contentShape(Rectangle())
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(euclideousTabAccessibilityLabel(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, lines: lines, lane: idx))   // §4.1: "Rhythm, 5 of 16 hits" · "Riff, on" · "Listen, on, following lane 2"
+                .hocketPartAX(base: euclideousTabAccessibilityLabel(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, lines: lines, lane: idx), lane: idx, notes: t == .notes,
+                              partOff: euclideousMixLayerIsOff(line, notes: t == .notes), rules: (t == .riff || t == .notes) ? hocketRules : [], live: hocketLive)   // §4.1 + §10.9: "Rhythm, 5 of 16 hits" · "Riff, on" · "Listen, on, following lane 2"
                 .onTapGesture {
                     if idx < laneTab.count { laneTab[idx] = t }
                     // §1.6: the STEPS picker and the restart editor both close when the card switches tab.
@@ -6167,7 +6214,8 @@ struct EuclideousPage: View {
         VStack(spacing: sp4) {
             EuclideousMixPad(cellW: grid.cellW, padH: grid.padH, gate: v.gate, velocity: v.velocity, accent: accent, off: off, notes: notes,
                              accessibilityLabelText: euclideousMixPadAccessibilityLabel(lane: lane, notes: notes, off: off),
-                             onEditStep: { newStep, mutate in editStep(lane, newStep, mutate) })
+                             onEditStep: { newStep, mutate in editStep(lane, newStep, mutate) },
+                             hocketLane: lane, hocketRules: hocketRules, hocketLive: hocketLive)
             EuclideousMixOctaveStepper(cellW: grid.cellW, height: grid.stepperH, octave: euclideousMixOctave(of: line, notes: notes), accent: accent,
                                        opacity: euclideousMixOffStepperOpacity(off: off, soloSilenced: soloSilenced(lane)),
                                        accessibilityLabelText: euclideousMixOctaveAccessibilityLabel(lane: lane, notes: notes),

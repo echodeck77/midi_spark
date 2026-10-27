@@ -4182,10 +4182,11 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
     let wordmarkW = M.wordmarkWidth
     // RANDOM MODE ferry §2.2: the dice sits sp8 after redo — one more target + one more gap than before. LANE LOCK ferry §2.2: the padlock sits sp8 after the dice — once more (+52 at 44, +44 at the compact 36)
     let brand = M.markSize + M.sp8 + (compact ? 0 : wordmarkW + M.sp16) + 4 * t + 2 * M.sp8
-    // UTILITIES is 4 icons (REEL, 2026-10-23 · presets · SWING, 2026-10-17 · settings), one `t`-wide touch target each.
+    // UTILITIES is the HOCKET button (HOCKET ferry, 2026-10-27: a text pill sized for its widest label, "HOCKET · 4", plus the sp8 before the presets button) then 4 icons (presets · SWING, 2026-10-17 · REEL, 2026-10-23 ·
+    // settings), one `t`-wide touch target each. The pill's width follows its label (`HocketButtonMetrics.width(litRules:)`); the header reserves the widest so nothing else moves when the count appears.
     // THE NINE PORTS (2026-10-26): the OUTPUTS group (the four output rings) is gone — a note's port is fixed by its lane and layer.
     return EuclideousHeaderGroupWidths(brand: brand, notes: M.segmentedWidth + M.sp8 + M.keyPillWidth + M.sp8 + M.holdLatchWidth,
-                                       utilities: 4 * t, gap: compact ? M.sp8 : M.sp16)
+                                       utilities: 4 * t + M.sp8 + HocketButtonMetrics.reservedWidth, gap: compact ? M.sp8 : M.sp16)
 }
 
 struct EuclideousHeaderGroupFrame: Equatable { var x: CGFloat; var width: CGFloat; var row: Int }
@@ -7938,7 +7939,9 @@ struct EuclideousPulseStrike: Equatable { var onsetBeat: Double; var onsetAt: Do
     /// RESTART TILES ferry (2026-10-22): the riff column whose NOTE this hit struck (`column`, except a REPEAT hit's repeated note) — the MELODY tile's cell for the strike. -1 = no riff note.
     var cellColumn: Int8 = -1
     /// The comet tile this strike belongs to, resolved ONCE (`EuclideousPulseFeed.resolveTiles`) for the lane geometry `tileKey` names — the chain-aware mapping is not free, so it is not redone every frame. -1 = not resolved yet.
-    var tile: Int16 = -1; var tileKey: Int = 0 }   // `rank` / `column`: the riff-grid row and column the engine reports for this hit (REPEAT's rank is the repeated note's); -1 = none
+    var tile: Int16 = -1; var tileKey: Int = 0
+    /// HOCKET §9.3: the output (bus 0…7) each layer's notes left on — the lane's own unless a lit rule moved them; −1 = the event doesn't say (the strip then flashes in the lane's own colour).
+    var riffDest: Int8 = -1, notesDest: Int8 = -1 }   // `rank` / `column`: the riff-grid row and column the engine reports for this hit (REPEAT's rank is the repeated note's); -1 = none
 
 /// 9.2: the small retained list per lane, filled from the existing NOTE VIEW poll (nothing new is polled). Main-thread only (filled by the poll, read inside the surfaces' TimelineViews), held in
 /// `LiveTelemetry` so filling it never re-runs the page body. A strike is a kind 0 / 3 event that carries notes; a rest flash (kind 2), a tied rest with nothing struck and a muted / FX-tied hit post
@@ -7961,7 +7964,8 @@ final class EuclideousPulseFeed {
             var notes: UInt8 = 0
             if ev.notes.count > first { for i in first..<ev.notes.count { notes = max(notes, vel(i)) } }
             let at = anchorAt.timeIntervalSinceReferenceDate + (ev.onsetBeat - anchorBeat) * secPerBeat
-            rings[lane].append(EuclideousPulseStrike(onsetBeat: ev.onsetBeat, onsetAt: at, riffVel: ev.hasRiffNote ? vel(0) : 0, notesVel: notes, rank: ev.hasRiffNote ? ev.rank : -1, column: ev.hasRiffNote ? ev.column : -1, cellColumn: ev.hasRiffNote ? ev.cellColumn : -1))
+            rings[lane].append(EuclideousPulseStrike(onsetBeat: ev.onsetBeat, onsetAt: at, riffVel: ev.hasRiffNote ? vel(0) : 0, notesVel: notes, rank: ev.hasRiffNote ? ev.rank : -1, column: ev.hasRiffNote ? ev.column : -1, cellColumn: ev.hasRiffNote ? ev.cellColumn : -1,
+                                                                            riffDest: ev.hasRiffNote && !ev.dests.isEmpty ? ev.dests[0] : -1, notesDest: ev.notes.count > first && ev.dests.count > first ? ev.dests[first] : -1))
             if rings[lane].count > Self.ringCap { rings[lane].removeFirst(rings[lane].count - Self.ringCap) }
         }
     }
@@ -8322,7 +8326,7 @@ func euclideousStripPlayhead(raw: Double, n: Int, dir: EuclidDir, xs: [CGFloat],
 
 // ── strikes (4.x) ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-typealias EuclideousStripTileStrike = (velocity: Int, seconds: Double)
+typealias EuclideousStripTileStrike = (velocity: Int, seconds: Double, dest: Int)   // dest: the output (bus 0…7) the strike's notes left on, −1 = the event doesn't say (HOCKET §9.3)
 /// Each step's latest strike of each layer, separately: the riff's (its chip) and the notes' (its key). A strike still in the future (its onset after `now`, a reference-date time) is not there yet.
 /// A strike's step is its resolved `tile` (`EuclideousPulseFeed.resolveTiles`).
 func euclideousStripTileStrikes(_ strikes: [EuclideousPulseStrike], tiles n: Int, now: Double) -> (riff: [EuclideousStripTileStrike?], notes: [EuclideousStripTileStrike?]) {
@@ -8331,8 +8335,8 @@ func euclideousStripTileStrikes(_ strikes: [EuclideousPulseStrike], tiles n: Int
     for s in strikes where s.onsetAt <= now {
         let t = Int(s.tile)
         guard t >= 0, t < n else { continue }
-        if s.riffVel > 0 { riff[t] = (Int(s.riffVel), now - s.onsetAt) }
-        if s.notesVel > 0 { notes[t] = (Int(s.notesVel), now - s.onsetAt) }
+        if s.riffVel > 0 { riff[t] = (Int(s.riffVel), now - s.onsetAt, Int(s.riffDest)) }
+        if s.notesVel > 0 { notes[t] = (Int(s.notesVel), now - s.onsetAt, Int(s.notesDest)) }
     }
     return (riff, notes)
 }
@@ -8960,3 +8964,507 @@ func hocketCount(unit: HocketUnit, clock: HocketLaneClock?, atMusicalBeat m: Dou
     case .passes: return clock.map { hocketLaneCounts($0, atMusicalBeat: m).pass } ?? 0
     }
 }
+
+// MARK: - HOCKET (ferry 2026-10-27) §1–§4 — the pop-up's looks, texts and frames (pure; the views only paint these)
+// Every colour is an sRGB hex + an opacity; every size is in pt. The views (`HocketPopup.swift`, the header button) read these functions and nothing else, so a look is decided in ONE place and tested (tests 13, 14).
+
+struct HocketColor: Equatable {
+    var hex: UInt32
+    var alpha: Double = 1
+    init(_ hex: UInt32, _ alpha: Double = 1) { self.hex = hex; self.alpha = alpha }
+}
+enum HocketPalette {
+    static let ink = HocketColor(0x0D0F14), light = HocketColor(0xDFE3EA), text = HocketColor(0xF2F4F7), mid = HocketColor(0xAAB0BA), dim = HocketColor(0x8A909A)
+    static let plate = HocketColor(0x2A2D34), well = HocketColor(0x131519), group = HocketColor(0x22252C), sheet = HocketColor(0x1B1D23), sheetBorder = HocketColor(0x2E3138)
+    static let rule = HocketColor(0x262930), dashed = HocketColor(0x3A3E47), amber = HocketColor(0xFFB454)
+    static let takenFill = HocketColor(0x1F2127), takenText = HocketColor(0x6E727B), takenTag = HocketColor(0x4A4E57), altCell = HocketColor(0x454A55)
+    static let litFill = HocketColor(0xDFE3EA, 0.12)
+    /// The four lane colours — `EuclideousRingPalette.laneMark`'s hexes.
+    static let lane: [HocketColor] = [HocketColor(0xF25959), HocketColor(0x59BFF2), HocketColor(0xF2BF40), HocketColor(0x8CD973)]
+    static func lane100(_ l: Int) -> HocketColor { lane[max(0, min(3, l))] }
+    static func lane20(_ l: Int) -> HocketColor { HocketColor(lane100(l).hex, 0.2) }
+}
+
+// ── §1.2 the header button ──────────────────────────────────────────────────────────────────────────────────────────────
+struct HocketButtonLook: Equatable {
+    var fill: HocketColor
+    var borderWidth: CGFloat      // 0 = no border
+    var border: HocketColor
+    var text: HocketColor
+}
+/// §1.2: dark when no rule is lit and the pop-up is closed; light-ringed when at least one rule is lit; filled light while the pop-up is open.
+func hocketButtonLook(litRules: Int, open: Bool) -> HocketButtonLook {
+    if open { return HocketButtonLook(fill: HocketPalette.light, borderWidth: 0, border: HocketPalette.light, text: HocketPalette.ink) }
+    if litRules > 0 { return HocketButtonLook(fill: HocketPalette.litFill, borderWidth: 1, border: HocketPalette.light, text: HocketPalette.text) }
+    return HocketButtonLook(fill: HocketPalette.plate, borderWidth: 0, border: HocketPalette.plate, text: HocketPalette.dim)
+}
+/// The label's two runs: "HOCKET", then " · n" (drawn at `countOpacity` of the text colour) when a rule is lit.
+func hocketButtonLabel(litRules n: Int) -> (word: String, count: String?) { ("HOCKET", n > 0 ? " · \(n)" : nil) }
+let hocketButtonCountOpacity = 0.7
+enum HocketButtonMetrics {
+    static let target: CGFloat = 44, height: CGFloat = 30, radius: CGFloat = 7, padX: CGFloat = 12, fontSize: CGFloat = 10, tracking: CGFloat = 0.08
+    /// The pill's width for a label of `characters` characters (the page's monospaced advance estimate, like the HOLD/LATCH chips' widths).
+    static func width(characters: Int) -> CGFloat { padX * 2 + CGFloat(characters) * fontSize * (EuclideousHeaderMetrics.monoAdvance + tracking) }
+    /// What the header RESERVES: the widest label, "HOCKET · 4", so nothing else moves when the count appears.
+    static var reservedWidth: CGFloat { width(characters: 10) }
+    static func width(litRules n: Int) -> CGFloat { width(characters: 6 + (n > 0 ? 4 : 0)) }
+}
+
+// ── §3.3 / §3.6 the rule row ────────────────────────────────────────────────────────────────────────────────────────────
+struct HocketTabLook: Equatable {
+    enum Dot: Equatable { case filled(HocketColor), ring(HocketColor) }   // ring = 1.5 pt
+    var fill: HocketColor
+    var label: HocketColor
+    var dot: Dot
+}
+func hocketTabLook(showing: Bool, lit: Bool) -> HocketTabLook {
+    if showing { return HocketTabLook(fill: HocketPalette.light, label: HocketPalette.ink, dot: lit ? .filled(HocketPalette.ink) : .ring(HocketPalette.ink)) }
+    return HocketTabLook(fill: HocketPalette.plate, label: HocketPalette.mid, dot: lit ? .filled(HocketPalette.text) : .ring(HocketPalette.dim))
+}
+struct HocketOnOffLook: Equatable { var label: String; var fill: HocketColor; var borderWidth: CGFloat; var border: HocketColor; var text: HocketColor }
+func hocketOnOffLook(on: Bool) -> HocketOnOffLook {
+    on ? HocketOnOffLook(label: "RULE ON", fill: HocketPalette.litFill, borderWidth: 1, border: HocketPalette.light, text: HocketPalette.text)
+       : HocketOnOffLook(label: "RULE OFF", fill: HocketPalette.plate, borderWidth: 1, border: HocketPalette.plate, text: HocketPalette.dim)
+}
+/// §3.7: while the showing rule is off, its body draws at 42 % and stays live.
+let hocketOffRuleBodyOpacity = 0.42
+
+// ── §4.4 an output chip ─────────────────────────────────────────────────────────────────────────────────────────────────
+struct HocketChipLook: Equatable {
+    enum Glyph: Equatable { case filled(HocketColor), outline(HocketColor, opacity: Double) }   // outline = 1.5 pt
+    var fill: HocketColor
+    var border: HocketColor              // 1 pt
+    var text: HocketColor
+    var glyph: Glyph
+    var glow: [(radius: CGFloat, spread: CGFloat, color: HocketColor)] = []   // `0 0 0 1 lane100` = (radius 0, spread 1); `0 0 14 lane100 @60%` = (radius 14, spread 0)
+    var tag: String? = nil               // "R 2" — taken by another rule
+    var responds = true
+    static func == (a: HocketChipLook, b: HocketChipLook) -> Bool {
+        a.fill == b.fill && a.border == b.border && a.text == b.text && a.glyph == b.glyph && a.tag == b.tag && a.responds == b.responds
+            && a.glow.count == b.glow.count && zip(a.glow, b.glow).allSatisfy { $0.radius == $1.radius && $0.spread == $1.spread && $0.color == $1.color }
+    }
+}
+/// §4.4's four looks, in precedence order: taken by another rule · live (a group member whose turn it is) · in this group · not in this group. `lane` is the chip's lane (0…3); `takenBy` the OTHER rule's number (1…4).
+func hocketChipLook(lane: Int, inGroup: Bool, live: Bool, takenBy: Int?) -> HocketChipLook {
+    let l100 = HocketPalette.lane100(lane)
+    if let n = takenBy {
+        return HocketChipLook(fill: HocketPalette.takenFill, border: HocketPalette.takenFill, text: HocketPalette.takenText, glyph: .outline(HocketPalette.takenText, opacity: 0.6), tag: "R\(n)", responds: false)
+    }
+    if inGroup && live {
+        return HocketChipLook(fill: HocketColor(l100.hex, 0.42), border: l100, text: HocketPalette.text, glyph: .filled(l100),
+                              glow: [(0, 1, l100), (14, 0, HocketColor(l100.hex, 0.6))])
+    }
+    if inGroup { return HocketChipLook(fill: HocketPalette.lane20(lane), border: l100, text: HocketPalette.text, glyph: .filled(l100)) }
+    return HocketChipLook(fill: HocketPalette.plate, border: HocketPalette.plate, text: HocketPalette.mid, glyph: .outline(HocketPalette.mid, opacity: 0.45))
+}
+/// §4.4 order badge: while a group holds two or more outputs, each member carries its 1-up position; nothing otherwise.
+func hocketOrderBadge(position: Int?, groupCount: Int) -> Int? { (position != nil && groupCount >= 2) ? position! + 1 : nil }
+enum HocketChipMetrics {
+    static let height: CGFloat = 44, radius: CGFloat = 8, padX: CGFloat = 8, glyphGap: CGFloat = 7, fontSize: CGFloat = 11, tracking: CGFloat = 0.05
+    static let tagInset: CGFloat = 4, tagHeight: CGFloat = 13, tagPadX: CGFloat = 4, tagRadius: CGFloat = 4, tagFont: CGFloat = 8
+    static let badgeDisc: CGFloat = 15, badgeRing: CGFloat = 2, badgeFont: CGFloat = 9, badgeAbove: CGFloat = 6, badgeBeyond: CGFloat = 5
+    /// The clarity-pass layer glyphs (9 × 9 square, 6 × 12 bar) — `EuclideousTabGlyphView.square` / `.bar`.
+    static func glyphWidth(notes: Bool) -> CGFloat { notes ? 6 : 9 }
+}
+
+// ── text ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+enum HocketText {
+    static let title = "HOCKET"
+    static let swapNote = "MAIN AND ALT PLAY THEIR OWN PARTS. THE RULE CHOOSES WHICH YOU HEAR."
+    static let passNote = "ON ALT TURNS, MAIN\u{2019}S NOTES MOVE TO THE ALT OUTPUTS."
+    static func mainHint(_ m: HocketRuleMode) -> String { m == .swap ? "HEARD FIRST" : "LINES TO PASS" }
+    static let mainEmpty = "PICK AT LEAST ONE MAIN OUTPUT."
+    static let countsOnClock = "COUNTS ON THE SHARED CLOCK"
+    static let footer = "EACH OUTPUT BELONGS TO ONE RULE. THE ALL OUTPUT CARRIES EVERY NOTE, WHICHEVER GROUP IS PLAYING."
+    static let noAlt = "NO ALT OUTPUT: ALT TURNS ARE SILENT."
+    static let everyAltPasses = "EVERY ALT IS ALSO PASSING ITS OWN LINE, SO REPLACE AND MERGE SOUND THE SAME."
+    /// "1 HIT" … "8 HITS": the unit's word, singular at 1.
+    static func count(_ n: Int, _ u: HocketUnit) -> String {
+        let word: String
+        switch u { case .hits: word = n == 1 ? "HIT" : "HITS"; case .steps: word = n == 1 ? "STEP" : "STEPS"; case .passes: word = n == 1 ? "PASS" : "PASSES"; case .bars: word = n == 1 ? "BAR" : "BARS" }
+        return "\(n) \(word)"
+    }
+    /// The cycle strip's caption: "3 HITS MAIN · 1 HIT ALT".
+    static func cycleCaption(_ r: HocketRule) -> String { "\(count(r.mainLen, r.unit)) MAIN \u{00B7} \(count(r.altLen, r.unit)) ALT" }
+    /// Output names joined for prose: "A", "A AND B", "A, B AND C".
+    static func joinedNames(_ names: [String]) -> String {
+        switch names.count { case 0: return ""; case 1: return names[0]; case 2: return "\(names[0]) AND \(names[1])"
+        default: return names.dropLast().joined(separator: ", ") + " AND " + names.last! }
+    }
+    static func name(cable: Int) -> String { HocketLaneNames.output(bus: cable - 1) }
+}
+/// §4.8 — in SWAP PARTS, outputs in both groups always play. nil when none are.
+func hocketBothGroupsNote(_ r: HocketRule) -> String? {
+    guard r.mode == .swap else { return nil }
+    let both = r.main.filter { r.alt.contains($0) }.map(HocketText.name(cable:))
+    guard !both.isEmpty else { return nil }
+    return both.count == 1 ? "\(both[0]) IS IN BOTH GROUPS, SO IT ALWAYS PLAYS." : "\(HocketText.joinedNames(both)) ARE IN BOTH GROUPS, SO THEY ALWAYS PLAY."
+}
+/// §4.9 — one line per MAIN output, in group order. TOGETHER: "RED NOTES → BLUE NOTES" (MAIN i → ALT i mod n). ROTATE: "RED NOTES → BLUE NOTES · AMBER NOTES, IN TURN" (the ALT outputs listed from ALT i mod n; no ", IN TURN"
+/// with one). ALT empty: the single line "NO ALT OUTPUT: ALT TURNS ARE SILENT.".
+func hocketRouteLines(_ r: HocketRule) -> [String] {
+    guard !r.alt.isEmpty else { return [HocketText.noAlt] }
+    let n = r.alt.count
+    return r.main.enumerated().map { i, m in
+        let from = HocketText.name(cable: m)
+        if r.several == .together { return "\(from) \u{2192} \(HocketText.name(cable: r.alt[i % n]))" }
+        let order = (0..<n).map { HocketText.name(cable: r.alt[(i % n + $0) % n]) }
+        return "\(from) \u{2192} \(order.joined(separator: " \u{00B7} "))" + (n > 1 ? ", IN TURN" : "")
+    }
+}
+/// §4.9 — the receivers (the ALT outputs some MAIN output can pass to; TOGETHER: ALT i mod n for each MAIN i, ROTATE: every ALT output) that are not in MAIN are AFFECTED.
+func hocketRouteAffected(_ r: HocketRule) -> [Int] {
+    guard !r.alt.isEmpty else { return [] }
+    let n = r.alt.count
+    let receivers: Set<Int> = r.several == .rotate ? Set(r.alt) : Set(r.main.indices.map { r.alt[$0 % n] })
+    return r.alt.filter { receivers.contains($0) && !r.main.contains($0) }
+}
+func hocketRouteNote(_ r: HocketRule) -> String? {
+    guard !r.alt.isEmpty else { return nil }
+    let affected = hocketRouteAffected(r).map(HocketText.name(cable:))
+    if affected.isEmpty { return HocketText.everyAltPasses }
+    let many = affected.count > 1
+    let joined = HocketText.joinedNames(affected)
+    return r.own == .replace ? (many ? "\(joined) DROP THEIR OWN PARTS WHILE THEY CARRY THE LINE." : "\(joined) DROPS ITS OWN PART WHILE IT CARRIES THE LINE.")
+                             : (many ? "\(joined) KEEP PLAYING THEIR OWN PARTS AS WELL." : "\(joined) KEEPS PLAYING ITS OWN PART AS WELL.")
+}
+
+// ── the pop-up's edits (each is ONE undo step, taken by `onEditHocket`) ───────────────────────────────────────────────────
+/// §4.5 — a tap on an untaken chip adds the output to the END of the group, or removes it and closes the gap. Removing a MAIN output resets COUNT ON to the first MAIN output.
+func hocketToggleOutput(_ r: inout HocketRule, cable: Int, inMain: Bool) {
+    if inMain {
+        if let i = r.main.firstIndex(of: cable) { r.main.remove(at: i); r.countOn = 0 } else if (1...8).contains(cable) { r.main.append(cable) }
+    } else {
+        if let i = r.alt.firstIndex(of: cable) { r.alt.remove(at: i) } else if (1...8).contains(cable) { r.alt.append(cable) }
+    }
+}
+/// §4.6 — MAIN / ALT stop at 1 and 8; changing either sets OFFSET to OFFSET mod the new MAIN + ALT.
+func hocketStepLength(_ r: inout HocketRule, main: Bool, by d: Int) {
+    if main { r.mainLen = max(1, min(8, r.mainLen + d)) } else { r.altLen = max(1, min(8, r.altLen + d)) }
+    r.offset = r.offset % max(1, r.mainLen + r.altLen)
+}
+/// §4.6 — OFFSET runs 0 … MAIN + ALT − 1 and wraps both ways.
+func hocketStepOffset(_ r: inout HocketRule, by d: Int) {
+    let L = max(1, r.mainLen + r.altLen)
+    r.offset = (((r.offset + d) % L) + L) % L
+}
+/// §4.6 — COUNT ON steps through the MAIN outputs in group order, wrapping.
+func hocketStepCountOn(_ r: inout HocketRule, by d: Int) {
+    let n = r.main.count
+    guard n > 0 else { r.countOn = 0; return }
+    r.countOn = (((r.countOn + d) % n) + n) % n
+}
+/// §3.4 — delete rule `i`: later rules renumber, and the rule before it (or R1) is shown. Deleting the only rule leaves one empty rule (§5.3). Returns the index to show.
+@discardableResult func hocketDeleteRule(_ rules: inout [HocketRule], at i: Int) -> Int {
+    guard rules.indices.contains(i) else { return max(0, min(i, rules.count - 1)) }
+    if rules.count == 1 { rules = [HocketRule()]; return 0 }
+    rules.remove(at: i)
+    return max(0, i - 1)
+}
+/// §3.5 — the add button appends an empty rule while there are fewer than four; returns its index.
+@discardableResult func hocketAddRule(_ rules: inout [HocketRule]) -> Int? {
+    guard rules.count < HocketRuleSet.maxRules else { return nil }
+    rules.append(HocketRule())
+    return rules.count - 1
+}
+/// §4.4 — the rule that has taken `cable` (in either of its groups, on or off), other than rule `i`: its 1-based number.
+func hocketOutputOwner(cable: Int, rules: [HocketRule], excluding i: Int) -> Int? {
+    for (k, r) in rules.enumerated() where k != i && r.outputs.contains(cable) { return k + 1 }
+    return nil
+}
+
+// ── §10 VoiceOver (U+2019 for apostrophes) ───────────────────────────────────────────────────────────────────────────────
+enum HocketAX {
+    static let buttonLabel = "Hocket", buttonHint = "Double-tap to open"
+    static func buttonValue(litRules n: Int) -> String { n == 0 ? "off" : (n == 1 ? "1 rule on" : "\(n) rules on") }
+    static let popupLabel = "Hocket", closeLabel = "Close", addLabel = "Add a rule", deleteAction = "Delete rule"
+    static func tab(rule n: Int, lit: Bool) -> String { "Rule \(n), \(lit ? "on" : "off")" }
+    static func onOff(rule n: Int, on: Bool) -> String { "Rule \(n), \(on ? "on" : "off")" }
+    static func modeName(_ m: HocketRuleMode) -> String { m == .swap ? "Swap parts" : "Pass the line" }
+    static func unitName(_ u: HocketUnit) -> String { u.rawValue.capitalized }
+    /// "red riff" — the output's name as VoiceOver says it.
+    static func outputName(cable: Int) -> String { HocketLaneNames.output(bus: cable - 1).lowercased() }
+    /// "Main: red riff, on" / ", off"; in a group of two or more ", position 2"; taken by another rule: "Main: red riff, used by rule 2".
+    static func chip(group: String, cable: Int, inGroup: Bool, position: Int?, groupCount: Int, takenBy: Int?) -> String {
+        let base = "\(group): \(outputName(cable: cable))"
+        if let n = takenBy { return "\(base), used by rule \(n)" }
+        return base + ", " + (inGroup ? "on" : "off") + ((inGroup && groupCount >= 2 && position != nil) ? ", position \(position! + 1)" : "")
+    }
+    static func stepperValue(_ n: Int, _ u: HocketUnit) -> String { HocketText.count(n, u).lowercased() }
+    static func cycle(_ r: HocketRule) -> String { "Cycle: \(r.mainLen) main, \(r.altLen) alt, offset \(r.offset)" }
+    /// §10.9 — the hocket state appended after "on" in a lane tab's / MIX pad's label: "resting" · "away on the blue lane" · "carrying the red lane’s line" · both for a crossing. nil when playing and not carrying.
+    static func partState(_ v: HocketPartView) -> String? {
+        var parts: [String] = []
+        switch v.play {
+        case .resting: parts.append("resting")
+        case .away(let bus): parts.append("away on the \(HocketLaneNames.name(lane: bus / 2).lowercased()) lane")
+        case .playing: break
+        }
+        if v.carrying >= 0 { parts.append("carrying the \(HocketLaneNames.name(lane: v.carrying / 2).lowercased()) lane\u{2019}s line") }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+}
+
+// ── §2.2 / §4.11 the frames ─────────────────────────────────────────────────────────────────────────────────────────────
+enum HocketPopupMetrics {
+    static let maxWidth: CGFloat = 420, pad: CGFloat = 14, radius: CGFloat = 14, sectionGap: CGFloat = 14, itemGap: CGFloat = 7
+    static let closeTarget: CGFloat = 44, closePlate: CGFloat = 30, closeCross: CGFloat = 10
+    static let ruleAbove: CGFloat = 12, ruleLine: CGFloat = 1
+    static let tabHeight: CGFloat = 40, tabMinWidth: CGFloat = 48, tabPadX: CGFloat = 12, tabGap: CGFloat = 4, tabFont: CGFloat = 12, tabDot: CGFloat = 7, tabLabelGap: CGFloat = 7
+    static let addWidth: CGFloat = 44, addHeight: CGFloat = 40, addPlus: CGFloat = 10
+    static let onOffHeight: CGFloat = 40, onOffPadX: CGFloat = 14, onOffFont: CGFloat = 10, onOffTracking: CGFloat = 0.1
+    static let modeInset: CGFloat = 3, modeSegHeight: CGFloat = 34, modeSegGap: CGFloat = 3, modeFont: CGFloat = 11
+    static let sectionHeader: CGFloat = 18, altHeaderMin: CGFloat = 30, liveBar = CGSize(width: 3, height: 14), barGap: CGFloat = 7
+    static let gridLabel: CGFloat = 44, gridLabelGap: CGFloat = 6, chipGap: CGFloat = 4, gridRowGap: CGFloat = 4
+    static let unitInset: CGFloat = 3, unitSegHeight: CGFloat = 30, unitSegGap: CGFloat = 3
+    static let stepperHeight: CGFloat = 52, stepperGap: CGFloat = 4, stepperZone: CGFloat = 26, stepperChevron: CGFloat = 10
+    static let countOnHeight: CGFloat = 44, countOnZone: CGFloat = 40, countOnGap: CGFloat = 10
+    static let cellHeight: CGFloat = 28, cellGap: CGFloat = 3, captionAbove: CGFloat = 5, captionFont: CGFloat = 9
+    static let severalInset: CGFloat = 2, severalSegHeight: CGFloat = 26, severalSegGap: CGFloat = 2, severalPadX: CGFloat = 9, severalFont: CGFloat = 9
+    static let routesPad = (top: CGFloat(8), trailing: CGFloat(8), bottom: CGFloat(10), leading: CGFloat(12))
+    /// The narrowest container the settings sheet is exercised at (a 300 pt host: `FourfoldPortsTests`).
+    static let narrowestContainer: CGFloat = 300
+    /// §2.2 — width min(420, the settings sheet's container width).
+    static func width(containerW: CGFloat) -> CGFloat { min(maxWidth, euclideousSettingsSheetWidth(containerW: containerW)) }
+    /// The page's monospaced text estimate: characters × size × (advance + tracking).
+    static func textWidth(_ chars: Int, size: CGFloat, tracking em: CGFloat = 0) -> CGFloat { CGFloat(chars) * size * (EuclideousHeaderMetrics.monoAdvance + em) }
+    /// Greedy word wrap under the same estimate — how many lines `text` takes in `width`.
+    static func lines(_ text: String, width: CGFloat, size: CGFloat, tracking em: CGFloat = 0) -> Int {
+        let per = max(1, Int((width / (size * (EuclideousHeaderMetrics.monoAdvance + em))).rounded(.down)))
+        var lines = 1, cur = 0
+        for w in text.split(separator: " ", omittingEmptySubsequences: true) {
+            let n = w.count
+            if cur == 0 { cur = n } else if cur + 1 + n <= per { cur += 1 + n } else { lines += 1; cur = n }
+            while cur > per { lines += 1; cur -= per }   // a word longer than a line breaks
+        }
+        return lines
+    }
+    static func textHeight(_ text: String, width: CGFloat, size: CGFloat, tracking em: CGFloat = 0) -> CGFloat {
+        CGFloat(lines(text, width: width, size: size, tracking: em)) * (size * 1.4).rounded(.up)
+    }
+}
+
+struct HocketPopupFrames: Equatable {
+    var width: CGFloat, contentWidth: CGFloat
+    // fixed region (header row + rule row): frames in CONTENT space — origin at the sheet's padding corner
+    var title: CGRect, closeTarget: CGRect, closePlate: CGRect, closeCross: CGRect
+    var ruleLine: CGRect
+    var tabs: [CGRect], add: CGRect?, onOff: CGRect
+    var fixedHeight: CGFloat
+    // body (scrolls): frames in BODY space — origin at the body's top-left
+    var mode: CGRect, modeSegments: [CGRect], modeNote: CGRect
+    var mainHeader: CGRect, mainBar: CGRect, mainGridLabels: [CGRect], mainChips: [[CGRect]], mainEmptyHint: CGRect?
+    var everyHeader: CGRect, unit: CGRect, unitSegments: [CGRect], steppers: [CGRect], countOn: CGRect, countOnZones: [CGRect], cycleCells: [CGRect], cycleCaption: CGRect
+    var altHeader: CGRect, altBar: CGRect, several: CGRect, severalSegments: [CGRect], altGridLabels: [CGRect], altChips: [[CGRect]], bothGroupsNote: CGRect?
+    var routes: CGRect?, routesHeader: CGRect?, routesControl: CGRect?, routeLines: [CGRect], routesNote: CGRect?
+    var bodyHeight: CGFloat
+    var footer: CGRect                       // body space, last
+    var totalHeight: CGFloat                 // the sheet's height if nothing scrolled: padding + fixed + gap + body + padding
+    /// Things the estimate says will TRUNCATE at this width (a chip name, a stepper value, a COUNT ON name) — reported, never shrunk.
+    var truncations: [String]
+    /// The rule row didn't fit on one line: the on/off button wrapped under the tabs.
+    var ruleRowWraps: Bool
+}
+
+func hocketPopupFrames(width W: CGFloat, ruleCount: Int, rule r: HocketRule) -> HocketPopupFrames {
+    typealias M = HocketPopupMetrics
+    let cw = W - 2 * M.pad
+    var trunc: [String] = []
+    // ── header row (44) ──
+    let headerH = M.closeTarget
+    let titleW = M.textWidth(6, size: 14, tracking: 0.14)
+    let title = CGRect(x: 0, y: (headerH - 14) / 2, width: titleW, height: 14)
+    let closeT = CGRect(x: cw - M.closeTarget, y: 0, width: M.closeTarget, height: M.closeTarget)
+    let closeP = CGRect(x: closeT.midX - M.closePlate / 2, y: closeT.midY - M.closePlate / 2, width: M.closePlate, height: M.closePlate)
+    let cross = CGRect(x: closeP.midX - M.closeCross / 2, y: closeP.midY - M.closeCross / 2, width: M.closeCross, height: M.closeCross)
+    // ── rule row ──
+    var y = headerH + M.sectionGap + M.ruleAbove
+    let ruleLine = CGRect(x: 0, y: y, width: cw, height: M.ruleLine)
+    y += M.ruleLine + M.itemGap
+    let tabNatural = 2 * M.tabPadX + M.textWidth(2, size: M.tabFont) + M.tabLabelGap + M.tabDot
+    let onOffLabel = hocketOnOffLook(on: r.on).label
+    let onOffW = 2 * M.onOffPadX + M.textWidth(onOffLabel.count, size: M.onOffFont, tracking: M.onOffTracking)
+    let showsAdd = ruleCount < HocketRuleSet.maxRules
+    func rowWidth(_ tabW: CGFloat) -> CGFloat {
+        CGFloat(ruleCount) * tabW + CGFloat(max(0, ruleCount - 1)) * M.tabGap + (showsAdd ? M.tabGap + M.addWidth : 0) + M.tabGap + onOffW
+    }
+    var tabW = max(M.tabMinWidth, tabNatural)
+    if rowWidth(tabW) > cw { tabW = M.tabMinWidth }                         // shrink the padding down to the 48 pt minimum before anything wraps
+    let wraps = rowWidth(tabW) > cw
+    var tabs: [CGRect] = []
+    var x: CGFloat = 0
+    for _ in 0..<ruleCount { tabs.append(CGRect(x: x, y: y, width: tabW, height: M.tabHeight)); x += tabW + M.tabGap }
+    var add: CGRect? = nil
+    if showsAdd { add = CGRect(x: x, y: y + (M.tabHeight - M.addHeight) / 2, width: M.addWidth, height: M.addHeight) }
+    var onOff = CGRect(x: cw - onOffW, y: y, width: onOffW, height: M.onOffHeight)
+    var ruleRowEnd = y + M.tabHeight
+    if wraps { onOff = CGRect(x: cw - onOffW, y: y + M.tabHeight + M.itemGap, width: onOffW, height: M.onOffHeight); ruleRowEnd = onOff.maxY }
+    let fixedH = ruleRowEnd
+    // ── body (own coordinate space) ──
+    var by: CGFloat = 0
+    // mode
+    let modeH = 2 * M.modeInset + M.modeSegHeight
+    let mode = CGRect(x: 0, y: by, width: cw, height: modeH)
+    let segW = (cw - 2 * M.modeInset - M.modeSegGap) / 2
+    let modeSegs = [CGRect(x: M.modeInset, y: by + M.modeInset, width: segW, height: M.modeSegHeight), CGRect(x: M.modeInset + segW + M.modeSegGap, y: by + M.modeInset, width: segW, height: M.modeSegHeight)]
+    if M.textWidth(10, size: M.modeFont, tracking: 0.08) > segW { trunc.append("SWAP PARTS") }
+    if M.textWidth(13, size: M.modeFont, tracking: 0.08) > segW { trunc.append("PASS THE LINE") }
+    by += modeH + M.itemGap
+    let noteText = r.mode == .swap ? HocketText.swapNote : HocketText.passNote
+    let noteH = M.textHeight(noteText, width: cw, size: 10, tracking: 0.04)
+    let modeNote = CGRect(x: 0, y: by, width: cw, height: noteH)
+    by += noteH + M.sectionGap
+    // MAIN
+    let mainHeader = CGRect(x: 0, y: by, width: cw, height: M.sectionHeader)
+    let mainBar = CGRect(x: 0, y: by + (M.sectionHeader - M.liveBar.height) / 2, width: M.liveBar.width, height: M.liveBar.height)
+    by += M.sectionHeader + M.itemGap
+    func grid(top: CGFloat) -> (labels: [CGRect], chips: [[CGRect]], bottom: CGFloat, chipW: CGFloat) {
+        let chipW = (cw - M.gridLabel - M.gridLabelGap - 3 * M.chipGap) / 4
+        var labels: [CGRect] = [], chips: [[CGRect]] = []
+        for row in 0..<2 {
+            let ry = top + CGFloat(row) * (HocketChipMetrics.height + M.gridRowGap)
+            labels.append(CGRect(x: 0, y: ry, width: M.gridLabel, height: HocketChipMetrics.height))
+            chips.append((0..<4).map { CGRect(x: M.gridLabel + M.gridLabelGap + CGFloat($0) * (chipW + M.chipGap), y: ry, width: chipW, height: HocketChipMetrics.height) })
+        }
+        return (labels, chips, top + 2 * HocketChipMetrics.height + M.gridRowGap, chipW)
+    }
+    let mainGrid = grid(top: by)
+    by = mainGrid.bottom
+    let longest = HocketLaneNames.lane.map { $0.count }.max() ?? 5
+    let chipTextW = mainGrid.chipW - 2 * HocketChipMetrics.padX - HocketChipMetrics.glyphWidth(notes: false) - HocketChipMetrics.glyphGap
+    if M.textWidth(longest, size: HocketChipMetrics.fontSize, tracking: HocketChipMetrics.tracking) > chipTextW { trunc.append("lane names on the output chips") }
+    var emptyHint: CGRect? = nil
+    if r.main.isEmpty {
+        by += M.itemGap
+        let h = M.textHeight(HocketText.mainEmpty, width: cw, size: 10)
+        emptyHint = CGRect(x: 0, y: by, width: cw, height: h); by += h
+    }
+    by += M.sectionGap
+    // SWAP EVERY
+    let everyHeader = CGRect(x: 0, y: by, width: cw, height: M.sectionHeader)
+    by += M.sectionHeader + M.itemGap
+    let unit = CGRect(x: 0, y: by, width: cw, height: 2 * M.unitInset + M.unitSegHeight)
+    let uSegW = (cw - 2 * M.unitInset - 3 * M.unitSegGap) / 4
+    let unitSegs = (0..<4).map { CGRect(x: M.unitInset + CGFloat($0) * (uSegW + M.unitSegGap), y: by + M.unitInset, width: uSegW, height: M.unitSegHeight) }
+    if M.textWidth(6, size: 10, tracking: 0.08) > uSegW { trunc.append("PASSES unit") }
+    by += unit.height + M.itemGap
+    let stW = (cw - 2 * M.stepperGap) / 3
+    let steppers = (0..<3).map { CGRect(x: CGFloat($0) * (stW + M.stepperGap), y: by, width: stW, height: M.stepperHeight) }
+    let valueW = stW - 2 * M.stepperZone
+    let widest = max(HocketText.count(8, r.unit).count, HocketText.count(r.mainLen, r.unit).count, HocketText.count(r.altLen, r.unit).count)
+    if M.textWidth(widest, size: 12) > valueW { trunc.append("stepper values") }
+    by += M.stepperHeight + M.itemGap
+    let countOn = CGRect(x: 0, y: by, width: cw, height: M.countOnHeight)
+    let countZones = [CGRect(x: 0, y: by, width: M.countOnZone, height: M.countOnHeight), CGRect(x: cw - M.countOnZone, y: by, width: M.countOnZone, height: M.countOnHeight)]
+    let countsOnLane = (r.unit == .hits || r.unit == .passes) && !r.main.isEmpty
+    if countsOnLane {
+        let nameW = cw - 2 * M.countOnZone - 2 * 4
+        if M.textWidth(HocketText.count(1, .hits).count - 2 + 9, size: 12, tracking: 0.04) + M.textWidth(9, size: 9, tracking: 0.1) + M.countOnGap > nameW { trunc.append("COUNT ON name") }
+    } else if M.textWidth(HocketText.countsOnClock.count, size: 10, tracking: 0.06) > cw - 16 { trunc.append("COUNTS ON THE SHARED CLOCK") }
+    by += M.countOnHeight + M.itemGap
+    let L = max(2, min(16, r.mainLen + r.altLen))
+    let cellW = (cw - CGFloat(L - 1) * M.cellGap) / CGFloat(L)
+    let cells = (0..<L).map { CGRect(x: CGFloat($0) * (cellW + M.cellGap), y: by, width: cellW, height: M.cellHeight) }
+    by += M.cellHeight + M.captionAbove
+    let captionH = (M.captionFont * 1.4).rounded(.up)
+    let caption = CGRect(x: 0, y: by, width: cw, height: captionH)
+    by += captionH + M.sectionGap
+    // ALT
+    let severalW = 2 * M.severalInset + 2 * (2 * M.severalPadX) + M.textWidth(8, size: M.severalFont, tracking: 0.08) + M.textWidth(6, size: M.severalFont, tracking: 0.08) + M.severalSegGap
+    let altHeaderH = max(M.altHeaderMin, 2 * M.severalInset + M.severalSegHeight)
+    let altHeader = CGRect(x: 0, y: by, width: cw, height: altHeaderH)
+    let altBar = CGRect(x: 0, y: by + (altHeaderH - M.liveBar.height) / 2, width: M.liveBar.width, height: M.liveBar.height)
+    let severalR = CGRect(x: cw - severalW, y: by + (altHeaderH - (2 * M.severalInset + M.severalSegHeight)) / 2, width: severalW, height: 2 * M.severalInset + M.severalSegHeight)
+    let tw = M.textWidth(8, size: M.severalFont, tracking: 0.08) + 2 * M.severalPadX
+    let severalSegs = [CGRect(x: severalR.minX + M.severalInset, y: severalR.minY + M.severalInset, width: tw, height: M.severalSegHeight),
+                       CGRect(x: severalR.minX + M.severalInset + tw + M.severalSegGap, y: severalR.minY + M.severalInset, width: M.textWidth(6, size: M.severalFont, tracking: 0.08) + 2 * M.severalPadX, height: M.severalSegHeight)]
+    by += altHeaderH + M.itemGap
+    let altGrid = grid(top: by)
+    by = altGrid.bottom
+    var bothNote: CGRect? = nil
+    if let t = hocketBothGroupsNote(r) { by += M.itemGap; let h = M.textHeight(t, width: cw, size: 10, tracking: 0.04); bothNote = CGRect(x: 0, y: by, width: cw, height: h); by += h }
+    // ROUTES (PASS THE LINE, MAIN not empty)
+    var routes: CGRect? = nil, routesHeader: CGRect? = nil, routesControl: CGRect? = nil, routeLineRects: [CGRect] = [], routesNote: CGRect? = nil
+    if r.mode == .pass && !r.main.isEmpty {
+        by += M.sectionGap
+        let top = by, inner = cw - M.routesPad.leading - M.routesPad.trailing
+        var ry = top + M.routesPad.top
+        let ctlH = 2 * M.severalInset + M.severalSegHeight
+        let ownW = 2 * M.severalInset + (M.textWidth(7, size: M.severalFont, tracking: 0.08) + 2 * M.severalPadX) + M.severalSegGap + (M.textWidth(5, size: M.severalFont, tracking: 0.08) + 2 * M.severalPadX)
+        routesHeader = CGRect(x: M.routesPad.leading, y: ry, width: inner, height: ctlH)
+        routesControl = CGRect(x: M.routesPad.leading + inner - ownW, y: ry, width: ownW, height: ctlH)
+        ry += ctlH
+        for line in hocketRouteLines(r) {
+            ry += M.itemGap
+            let h = M.textHeight(line, width: inner, size: 11, tracking: 0.04)
+            routeLineRects.append(CGRect(x: M.routesPad.leading, y: ry, width: inner, height: h)); ry += h
+        }
+        if let n = hocketRouteNote(r) {
+            ry += M.itemGap
+            let h = M.textHeight(n, width: inner, size: 10, tracking: 0.04)
+            routesNote = CGRect(x: M.routesPad.leading, y: ry, width: inner, height: h); ry += h
+        }
+        ry += M.routesPad.bottom
+        routes = CGRect(x: 0, y: top, width: cw, height: ry - top)
+        by = ry
+    }
+    // footer
+    by += M.sectionGap
+    let footH = M.textHeight(HocketText.footer, width: cw, size: 9, tracking: 0.06)
+    let footer = CGRect(x: 0, y: by, width: cw, height: footH)
+    by += footH
+    let total = M.pad + fixedH + M.sectionGap + by + M.pad
+    return HocketPopupFrames(width: W, contentWidth: cw, title: title, closeTarget: closeT, closePlate: closeP, closeCross: cross, ruleLine: ruleLine, tabs: tabs, add: add, onOff: onOff, fixedHeight: fixedH,
+                             mode: mode, modeSegments: modeSegs, modeNote: modeNote, mainHeader: mainHeader, mainBar: mainBar, mainGridLabels: mainGrid.labels, mainChips: mainGrid.chips, mainEmptyHint: emptyHint,
+                             everyHeader: everyHeader, unit: unit, unitSegments: unitSegs, steppers: steppers, countOn: countOn, countOnZones: countZones, cycleCells: cells, cycleCaption: caption,
+                             altHeader: altHeader, altBar: altBar, several: severalR, severalSegments: severalSegs, altGridLabels: altGrid.labels, altChips: altGrid.chips, bothGroupsNote: bothNote,
+                             routes: routes, routesHeader: routesHeader, routesControl: routesControl, routeLines: routeLineRects, routesNote: routesNote, bodyHeight: by, footer: footer, totalHeight: total,
+                             truncations: trunc, ruleRowWraps: wraps)
+}
+
+// ── §9.2 the glyph, §9.3 the strip (pure: the painters read these and nothing else) ──────────────────────────────────────────
+/// What a lane's RIFF square / NOTES bar draws for its hocket state — on the tab row (clarity pass §2) and on the MIX pad label (§3.4), at the clarity pass's sizes. `partOff` is the tab's own on/off
+/// (`euclideousMixLayerIsOff`): an off part shows only the clarity pass's off look, hocket states don't apply (9.1). A muted or solo-silenced lane is NOT off here — it keeps drawing its hocket state under the 42 % dim (9.4).
+struct HocketGlyphSpec: Equatable {
+    enum Body: Equatable {
+        case offLook                  // the clarity pass's: a 1.5 pt #AAB0BA outline, the label and glyph at 40 %
+        case filled(HocketColor)      // playing: filled lane100, the clarity pass's on look
+        case outline(HocketColor)     // resting / away: hollow, a 1.5 pt lane100 inner outline at full strength — never the off look
+    }
+    var body: Body
+    var awayDisc: HocketColor?        // a 7 pt disc in the away lane's lane100, with a 1.5 pt ring of the card's (or pad's) fill
+    var carriedRing: HocketColor?     // outside the glyph: 2 pt of the card's fill, then 1.5 pt of the carried lane's lane100
+    static let outlineWidth: CGFloat = 1.5
+    static let disc: CGFloat = 7, discRing: CGFloat = 1.5, discBeyond: CGFloat = 3, discBelow: CGFloat = 1
+    static let ringGap: CGFloat = 2, ringWidth: CGFloat = 1.5
+    /// The look switch of recording fixes §3.4: 0.15 s.
+    static let easeSeconds = 0.15
+}
+func hocketGlyphSpec(lane: Int, partOff: Bool, view: HocketPartView) -> HocketGlyphSpec {
+    if partOff { return HocketGlyphSpec(body: .offLook, awayDisc: nil, carriedRing: nil) }
+    let own = HocketPalette.lane100(lane)
+    var body = HocketGlyphSpec.Body.filled(own)
+    var disc: HocketColor? = nil
+    switch view.play {
+    case .playing: break
+    case .resting: body = .outline(own)
+    case .away(let bus): body = .outline(own); disc = HocketPalette.lane100(bus / 2)
+    }
+    return HocketGlyphSpec(body: body, awayDisc: disc, carriedRing: view.carrying >= 0 ? HocketPalette.lane100(view.carrying / 2) : nil)
+}
+/// §9.3 — what one layer of a lane's comet strip draws while the transport runs: a RESTING layer's marks (the riff chips, the notes keys) are hollow, a 1.5 pt outline in their usual colour across the whole strip, and don't
+/// flash; a PLAYING or AWAY layer flashes as today, in the lane100 of the lane whose output its notes left on (`flashLane`; the strike's own output when the hit event names it, else this). Carrying adds nothing here.
+struct HocketStripLayerLook: Equatable {
+    var hollow: Bool
+    var flashLane: Int?
+    static let hollowWidth: CGFloat = 1.5
+}
+func hocketStripLayerLook(lane: Int, view: HocketPartView) -> HocketStripLayerLook {
+    switch view.play {
+    case .resting: return HocketStripLayerLook(hollow: true, flashLane: nil)
+    case .playing: return HocketStripLayerLook(hollow: false, flashLane: lane)
+    case .away(let bus): return HocketStripLayerLook(hollow: false, flashLane: bus / 2)
+    }
+}
+/// The lane a flash takes the colour of, given the output the strike's note actually left on (`dest`, a bus 0…7, −1 = the hit event does not say) — the event wins, so a flash is always the colour of where the note went.
+func hocketFlashLane(ownLane: Int, dest: Int) -> Int { dest >= 0 && dest < 8 ? dest / 2 : ownLane }

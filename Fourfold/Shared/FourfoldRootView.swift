@@ -145,7 +145,7 @@ struct FourfoldRootView: View {
                                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                                riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
-                                               hocketRules: hocketRules,
+                                               hocketRules: hocketRules, hocketLive: meters.hocket,
                                                lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                                wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                                pulseFeed: meters.pulse, pulseLevel: pulseLevel,
@@ -775,6 +775,7 @@ struct FourfoldRootView: View {
     if mp != euclideousMaskPositions { euclideousMaskPositions = mp }
     let rlp = au.pollEuclideousRiffLivePool()
     if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
+    let hl = au.pollHocketLive(); meters.hocket.update(counts: hl.counts, running: hl.running)   // HOCKET §8: the lit rules' counts (the pop-up and the lane cards read them through leaf views)
     let ss = au.pollEuclideousSourceStatus()   // SOURCES STACK: lane-1 source status on the existing 30 Hz poll (no new timer)
     if ss != euclideousSourceStatus { euclideousSourceStatus = ss }
     applyLandedLockSnaps()   // LANE LOCK: a snap the render thread has landed is written into the document within a poll tick (30 Hz)

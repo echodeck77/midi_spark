@@ -257,8 +257,8 @@ final class PageLayoutTests: XCTestCase {
         // WIDENED 312→426 (2026-10-20, HOLD/LATCH header buttons) — NOTES' own width grew 114pt, so its
         // clamped x (which ends at the same point before UTILITIES either way) shifts left by exactly that.
         let l = headerFor(land, landscapeRef)
-        XCTAssertEqual(l.notes.x, 1158 - 176 - 16 - 426, accuracy: 1e-9)   // FOURFOLD REEL LINK (2026-10-23): UTILITIES 132 → 176 (the REEL icon), so NOTES' clamped x is 44 further left
-        XCTAssertEqual(l.notes.x, 540, accuracy: 1e-9, "today's x at 1190 (741.12 clamped to 540)")
+        XCTAssertEqual(l.notes.x, 1158 - 276 - 16 - 426, accuracy: 1e-9)   // FOURFOLD REEL LINK (2026-10-23): UTILITIES 132 → 176 (the REEL icon); HOCKET (2026-10-27): → 276 (the pill + its sp8), so NOTES' clamped x is 100 further left
+        XCTAssertEqual(l.notes.x, 440, accuracy: 1e-9, "today's x at 1190 (741.12 clamped to 440 since the HOCKET button; 540 before)")
         XCTAssertLessThan(l.notes.x, land.riffLeadingX)
     }
 

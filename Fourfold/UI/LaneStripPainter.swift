@@ -46,6 +46,13 @@ struct EuclideousStripPlan {
     var shadowed: Bool
     /// The hits' VoiceOver sentence (6.1); the bar adds "on step N" and "silent at this step", which move with the clock.
     var hitsPhrase: String
+    /// HOCKET §9.3: the document's rules, the live counts and which lane this is — what the strip reads each frame (from the TimelineView, never observed) to draw a resting layer's marks hollow and to flash a layer in the colour of the lane it left on.
+    var hocketRules: [HocketRule] = []
+    var hocketLive: HocketLiveModel? = nil
+    var lane = 0
+    /// The riff / notes TAB is on (an off part shows only the clarity pass's off look; hocket states don't apply, 9.1).
+    var riffPartOn = true
+    var notesPartOn = true
 
     func legIndex(raw: Double) -> Int { euclideousStripLegIndex(raw: raw, n: sweepLength, legCount: legs.count) }
 }
@@ -67,8 +74,26 @@ struct EuclideousStripFrameInput {
     var current: Int?
     var riffStrikes: [EuclideousStripTileStrike?]
     var noteStrikes: [EuclideousStripTileStrike?]
+    /// HOCKET §9.3: what each layer draws while a rule is lit — hollow marks and no flash while RESTING, the flash colour otherwise (nil = no hocket: exactly as before).
+    var riffLook: HocketStripLayerLook? = nil
+    var notesLook: HocketStripLayerLook? = nil
+    var ownLane = 0
     var scale: Double
     var reduceMotion: Bool
+}
+
+/// HOCKET §9.3: the two layers' looks for one frame — nil when nothing is lit, the transport is stopped, or the part is off.
+func hocketStripLooks(_ s: EuclideousStripPlan, playing: Bool) -> (riff: HocketStripLayerLook?, notes: HocketStripLayerLook?) {
+    guard playing, let live = s.hocketLive, s.hocketRules.contains(where: { $0.isLit }) else { return (nil, nil) }
+    let riff = s.riffPartOn ? hocketStripLayerLook(lane: s.lane, view: hocketLivePartView(lane: s.lane, notes: false, rules: s.hocketRules, live: live)) : nil
+    let notes = s.notesPartOn ? hocketStripLayerLook(lane: s.lane, view: hocketLivePartView(lane: s.lane, notes: true, rules: s.hocketRules, live: live)) : nil
+    return (riff, notes)
+}
+/// The colour a strike's flash and glow take: the lane's own `tint` unless the strike's notes left on ANOTHER lane's output — then that lane's lane100 (HOCKET §9.3).
+private func flashTint(_ d: EuclideousStripFrameInput, _ strike: EuclideousStripTileStrike?) -> Color {
+    guard let strike else { return d.tint }
+    let lane = hocketFlashLane(ownLane: d.ownLane, dest: strike.dest)
+    return lane == d.ownLane ? d.tint : Color(h: HocketPalette.lane100(lane).hex)
 }
 
 private func stripFont(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .monospaced) }
@@ -133,17 +158,21 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
     // 4. the chips
     for i in 0..<n where i < d.hits.count {
         guard let chip = d.hits[i].chip else { continue }
-        let isCurrent = d.current == i && !chip.hollow && !chip.grey
-        let strike = i < d.riffStrikes.count ? d.riffStrikes[i] : nil
+        let isCurrent = d.current == i && !chip.hollow && !chip.grey && d.riffLook?.hollow != true
+        let riffRests = d.riffLook?.hollow == true                                            // HOCKET §9.3: a resting layer's marks are hollow and don't flash
+        let strike = (i < d.riffStrikes.count && !riffRests) ? d.riffStrikes[i] : nil
+        let flash = flashTint(d, strike)
         let env = strike.map { euclideousPulseEnvelopes(velocity: $0.velocity, seconds: $0.seconds, scale: d.scale) } ?? .none
         let look = euclideousStripChipLook(env, scale: d.scale, reduceMotion: d.reduceMotion)
         let frame = euclideousStripChipFrame(column: d.frames[i].column, rank: chip.rank).offsetBy(dx: 0, dy: look.dip)
         let shape = RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame)
-        if chip.hollow {
+        if riffRests {
+            ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius - 0.75).path(in: frame.insetBy(dx: 0.75, dy: 0.75)), with: .color(chip.grey ? P.greyChip : P.noteChip), lineWidth: HocketStripLayerLook.hollowWidth)
+        } else if chip.hollow {
             let outline = RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5))
             if look.glowAlpha > 0.01 {
                 ctx.drawLayer { layer in
-                    layer.addFilter(.shadow(color: d.tint.opacity(look.glowAlpha), radius: look.glowBlur / 2))
+                    layer.addFilter(.shadow(color: flash.opacity(look.glowAlpha), radius: look.glowBlur / 2))
                     layer.stroke(outline, with: .color(d.tint), style: dash)
                 }
             }
@@ -151,11 +180,12 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
         } else {
             if look.glowAlpha > 0.01 {
                 ctx.drawLayer { layer in
-                    layer.addFilter(.shadow(color: d.tint.opacity(look.glowAlpha), radius: look.glowBlur / 2))   // a SwiftUI radius is about half a CSS blur
+                    layer.addFilter(.shadow(color: flash.opacity(look.glowAlpha), radius: look.glowBlur / 2))   // a SwiftUI radius is about half a CSS blur
                     layer.fill(shape, with: .color(chip.grey ? P.greyChip : P.noteChip))
                 }
             }
             ctx.fill(shape, with: .color(chip.grey ? P.greyChip : P.noteChip))
+            if look.glowAlpha > 0.01 && strike != nil && flash != d.tint { ctx.fill(shape, with: .color(flash.opacity(look.glowAlpha))) }   // an AWAY flash: the chip takes the colour of the lane it went to (§9.3)
             if isCurrent {
                 // the arrow's own one-lane fill over the light chip — the arrow-on-its-cell look (the lane colour at 95% falling to 55%)
                 ctx.fill(shape, with: .linearGradient(Gradient(colors: [d.tint.opacity(EuclideousArrowStyle.topAlpha), d.tint.opacity(EuclideousArrowStyle.bottomAlpha)]),
@@ -163,7 +193,7 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
             }
         }
         if euclideousStripShowsChipLabel(columnWidth: d.frames[i].column.width) {
-            let text = Text("\(chip.column)").font(stripFont(M.chipLabelSize)).foregroundColor(chip.hollow ? d.tint : P.ink)
+            let text = Text("\(chip.column)").font(stripFont(M.chipLabelSize)).foregroundColor(riffRests ? (chip.grey ? P.greyChip : P.noteChip) : (chip.hollow ? d.tint : P.ink))
             ctx.draw(ctx.resolve(text), at: CGPoint(x: frame.midX, y: frame.midY), anchor: .center)
         }
     }
@@ -175,20 +205,26 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
         let k = d.hits[i].key
         let plays = k?.plays ?? false
         let shape = RoundedRectangle(cornerRadius: M.keyRadius).path(in: key)
-        let strike = i < d.noteStrikes.count ? d.noteStrikes[i] : nil
+        let notesRest = d.notesLook?.hollow == true                                           // HOCKET §9.3: a resting layer's keys are hollow and don't flash
+        let strike = (i < d.noteStrikes.count && !notesRest) ? d.noteStrikes[i] : nil
+        let flash = flashTint(d, strike)
         let env = strike.map { euclideousPulseEnvelopes(velocity: $0.velocity, seconds: $0.seconds, scale: d.scale) } ?? .none
         let look = euclideousStripKeyLook(env, scale: d.scale, reduceMotion: d.reduceMotion)
         // a strike lights the key it lands on even when the pass shown says the notes were not due there (the engine struck: the display must not hide it)
         if look.glowAlpha > 0.01 {
             ctx.drawLayer { layer in
-                layer.addFilter(.shadow(color: d.tint.opacity(look.glowAlpha), radius: 5))   // blur 10, spread 1
+                layer.addFilter(.shadow(color: flash.opacity(look.glowAlpha), radius: 5))   // blur 10, spread 1
                 layer.fill(RoundedRectangle(cornerRadius: M.keyRadius + 1).path(in: key.insetBy(dx: -1, dy: -1)), with: .color(plays ? P.keyPlays : P.keyDark))
             }
         }
-        ctx.fill(shape, with: .color(plays ? P.keyPlays : P.keyDark))
-        ctx.stroke(RoundedRectangle(cornerRadius: M.keyRadius - 0.5).path(in: key.insetBy(dx: 0.5, dy: 0.5)), with: .color(plays ? P.keyPlaysBorder : P.keyDarkBorder), lineWidth: 1)
+        if notesRest {   // §9.3: hollow — a 1.5 pt outline in the key's usual (border) colour instead of its fill
+            ctx.stroke(RoundedRectangle(cornerRadius: M.keyRadius - 0.75).path(in: key.insetBy(dx: 0.75, dy: 0.75)), with: .color(plays ? P.keyPlaysBorder : P.keyDarkBorder), lineWidth: HocketStripLayerLook.hollowWidth)
+        } else {
+            ctx.fill(shape, with: .color(plays ? P.keyPlays : P.keyDark))
+            ctx.stroke(RoundedRectangle(cornerRadius: M.keyRadius - 0.5).path(in: key.insetBy(dx: 0.5, dy: 0.5)), with: .color(plays ? P.keyPlaysBorder : P.keyDarkBorder), lineWidth: 1)
+        }
         if look.ringAlpha > 0.01 {
-            ctx.stroke(RoundedRectangle(cornerRadius: M.keyRadius - 0.75).path(in: key.insetBy(dx: 0.75, dy: 0.75)), with: .color(d.tint.opacity(look.ringAlpha)), lineWidth: 1.5)
+            ctx.stroke(RoundedRectangle(cornerRadius: M.keyRadius - 0.75).path(in: key.insetBy(dx: 0.75, dy: 0.75)), with: .color(flash.opacity(look.ringAlpha)), lineWidth: 1.5)
         }
         guard plays, let k else { continue }
         // the lane bar — or, below 100% CHANCE, a ring that says "may skip"

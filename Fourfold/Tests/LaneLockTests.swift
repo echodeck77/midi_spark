@@ -314,10 +314,12 @@ final class LaneLockTests: XCTestCase {
         // THE NINE PORTS (2026-10-26): no OUTPUTS group — A needs brand + notes + utilities + two gaps, B needs brand + utilities + one gap
         let a = full.brand + full.notes + full.utilities + 2 * full.gap
         let b = full.brand + full.utilities + full.gap
-        XCTAssertEqual(a, 929.88, accuracy: 0.01); XCTAssertEqual(b, 487.88, accuracy: 0.01)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 929.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 929.9, isLandscape: true), .a)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 487.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 487.9, isLandscape: false), .b)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1158, isLandscape: true), .a, "the 1190 reference still gets the one-row header")
+        // HOCKET ferry (2026-10-27): the utilities group grew by the pill (92) + sp8 — A 929.88 → 1029.88, B 487.88 → 587.88.
+        XCTAssertEqual(a, 1029.88, accuracy: 0.01); XCTAssertEqual(b, 587.88, accuracy: 0.01)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1029.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 1029.9, isLandscape: true), .a)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 587.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 587.9, isLandscape: false), .b)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 992, isLandscape: true), .b, "a 1024-wide landscape window (container 992) now takes the two-row header")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1158, isLandscape: true), .a, "the 1190 reference still gets the one-row header")   // (1158 ≥ 1029.88)
         XCTAssertEqual(euclideousHeaderKind(containerW: 1101, isLandscape: true), .a, "an iPad mini 6 at its full 1133 width now gets the one-row header too")
         XCTAssertEqual(euclideousHeaderKind(containerW: 929.9, isLandscape: false), .b, "portrait never uses the one-row header")
     }

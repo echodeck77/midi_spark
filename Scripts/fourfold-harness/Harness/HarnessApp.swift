@@ -237,7 +237,7 @@ extension Host {
                 for _ in 0..<8 { render(480) }
                 baseSample = sampleTime
                 hold([60, 64, 67]); playing = true
-                if i == 0 { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // the unwatched warm-up lap
+                if i == 0 || name.contains("HOCKET") { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // an unwatched warm-up lap: Swift's one-time generic-metadata instantiation (the first use of each type) is not what this measures; HOCKET's types are first touched by its own scenarios   // the unwatched warm-up lap
                 eventCount = 0; AllocWatch.reset(); watching = true
                 for w in 0..<6400 {
                     if name.contains("REPLAY") {   // a pass replays from the middle of the run to three-quarters of it: the replay itself, the live engine running silently underneath, and the hand-back

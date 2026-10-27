@@ -5,6 +5,8 @@
 import Foundation
 
 final class FourfoldTelemetry {
+    /// HOCKET §8: the count of each lit rule, as the Router last published it (the pop-up's chips, bars and ring and the lane cards' glyphs observe it — never the page body).
+    let hocket = HocketLiveModel()
     // The BEAT anchor (4 Hz): the playheads extrapolate the beat from (anchor, anchorAt) at 30 fps, so it only needs re-anchoring periodically.
     var beatAnchor = 0.0
     var beatAnchorAt = Date()

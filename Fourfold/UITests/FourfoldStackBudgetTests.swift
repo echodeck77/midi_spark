@@ -34,6 +34,13 @@ final class FourfoldStackBudgetTests: XCTestCase {
             for panel in ["Lanes", "FX", "Mix"] where app.buttons[panel].waitForExistence(timeout: 3) { app.buttons[panel].tap() }
         }
         XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 1.0)
+        let hocket = app.els(prefix: "Hocket").firstMatch                    // HOCKET (2026-10-27): the pop-up with a lit rule is the deepest new build chain
+        if hocket.waitForExistence(timeout: 3) {
+            hocket.tap()
+            for chip in ["Main: red riff, off", "Alt: blue riff, off"] { let c = app.buttons[chip]; if c.waitForExistence(timeout: 3) { c.tap() } }
+            Thread.sleep(forTimeInterval: 0.6)
+        }
         let kb = deepest(app)
         print("STACK PROBE deepest = \(kb) KB (budget \(Self.budgetKB) KB)")
         XCTAssertGreaterThan(kb, 0, "the probe saw nothing — is it wired?")

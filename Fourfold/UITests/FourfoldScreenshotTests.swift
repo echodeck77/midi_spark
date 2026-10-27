@@ -48,6 +48,39 @@ final class FourfoldScreenshotTests: XCTestCase {
         }
     }
 
+    /// HOCKET (2026-10-27): the pop-up in the states the ferry's acceptance walks through — empty, a swap rule while playing (live chips), a pass rule, a second rule (taken chips with R tags), the lane cards after closing it.
+    func testTheHocketPopup() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+        Thread.sleep(forTimeInterval: 2)
+        func step(_ el: XCUIElement, _ side: CGFloat = 0.5) { if el.waitForExistence(timeout: 3) { el.coordinate(withNormalizedOffset: CGVector(dx: side, dy: 0.5)).tap() } }
+        step(app.el("Hocket")); Thread.sleep(forTimeInterval: 1); attach("6-hocket-empty")
+        step(app.el("Main: red riff, off")); step(app.el("Alt: blue riff, off"))
+        step(app.el("Main length"), 0.9); step(app.el("Main length"), 0.9)
+        Thread.sleep(forTimeInterval: 1.2); attach("6-hocket-swap-live")
+        step(app.el("Pass the line")); step(app.el("Main: red notes, off")); step(app.el("Main: blue notes, off")); step(app.el("Alt: blue notes, off")); step(app.el("Alt: red notes, off"))
+        Thread.sleep(forTimeInterval: 1.2); attach("6-hocket-pass-crossing")
+        step(app.el("Add a rule")); step(app.el("Main: amber notes, off")); step(app.el("Alt: green notes, off"))
+        Thread.sleep(forTimeInterval: 1.2); attach("6-hocket-rule-2-taken")
+        step(app.el("Close")); Thread.sleep(forTimeInterval: 1.5); attach("6-hocket-lane-cards")
+        // reopen on the narrowest-ish layout: portrait
+        XCUIDevice.shared.orientation = .portrait; Thread.sleep(forTimeInterval: 2)
+        step(app.el("Hocket")); Thread.sleep(forTimeInterval: 1); attach("6-hocket-portrait")
+    }
+
+    /// HOCKET §9: a riff crossing on BARS (RED RIFF and BLUE RIFF trade places every other bar) with the pop-up closed, shot across a few bars so both turns show on the lane cards' glyphs, MIX labels and strips.
+    func testTheHocketGlyphStates() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+        Thread.sleep(forTimeInterval: 2)
+        func step(_ el: XCUIElement, _ side: CGFloat = 0.5) { if el.waitForExistence(timeout: 3) { el.coordinate(withNormalizedOffset: CGVector(dx: side, dy: 0.5)).tap() } }
+        step(app.el("Hocket")); Thread.sleep(forTimeInterval: 0.8)
+        step(app.el("Pass the line")); step(app.el("Bars"))
+        step(app.el("Main: red riff, off")); step(app.el("Main: blue riff, off")); step(app.el("Alt: blue riff, off")); step(app.el("Alt: red riff, off"))
+        step(app.el("Close")); Thread.sleep(forTimeInterval: 0.6)
+        for i in 1...6 { attach("7-glyphs-\(i)"); Thread.sleep(forTimeInterval: 1.3) }
+    }
+
     /// The home screen with the app's icon on it (the icon at its real on-screen size), before and after paging.
     func testTheIconOnTheHomeScreen() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()

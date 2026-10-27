@@ -51,6 +51,10 @@ struct EuclideousMixPad: View {
     let onEditStep: (Bool, @escaping (inout EuclidLine) -> Void) -> Void
     /// Preview/harness hook only: draw the TOUCHED look (16pt puck + glow) without a finger. Never set by the page.
     var showTouched = false
+    /// HOCKET §9.2 / §10.9: this pad's lane and the rules + live counts its label's glyph and VoiceOver state follow (no rule lit ⇒ the plain clarity-pass label).
+    var hocketLane = 0
+    var hocketRules: [HocketRule] = []
+    var hocketLive: HocketLiveModel? = nil
 
     @State private var touchingState = false
     @State private var burst = EuclideousPadUndoBurst()
@@ -72,7 +76,11 @@ struct EuclideousMixPad: View {
         HStack(spacing: 5) {
             Text(notes ? "NOTES" : "RIFF").font(heavyMono(EuclideousMixMetrics.labelSize)).tracking(1)
                 .foregroundColor(off ? EuclideousMixPalette.labelOff : EuclideousMixPalette.labelOn).lineLimit(1)
-            EuclideousTabGlyphView(shape: notes ? .bar : .square, on: !off, fill: accent)
+            if let live = hocketLive, hocketRules.contains(where: { $0.isLit }) {
+                HocketPartGlyph(shape: notes ? .bar : .square, on: !off, fill: accent, lane: hocketLane, rules: hocketRules, live: live, ground: EuclideousMixPalette.track)
+            } else {
+                EuclideousTabGlyphView(shape: notes ? .bar : .square, on: !off, fill: accent)
+            }
         }
         .padding(.top, EuclideousMixMetrics.labelTop).padding(.leading, EuclideousMixMetrics.labelLeft)
         .allowsHitTesting(false)
@@ -89,7 +97,7 @@ struct EuclideousMixPad: View {
         .frame(width: cellW, height: padH)
         .overlay(alignment: .topLeading) { padLabel }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabelText)
+        .hocketPartAX(base: accessibilityLabelText, lane: hocketLane, notes: notes, partOff: off, rules: hocketRules, live: hocketLive)
     }
 
     /// §3.5: "VEL 100" bottom-left, "GATE 90%" bottom-right, 10 pt, inset 4 from the bottom and 6 from the side; the words yield to the numbers by pad width (`euclideousMixReadouts`). The word is the quiet #8A909A, the number #F2F4F7.
@@ -165,7 +173,7 @@ struct EuclideousMixPad: View {
                 }
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabelText)
+        .hocketPartAX(base: accessibilityLabelText, lane: hocketLane, notes: notes, partOff: off, rules: hocketRules, live: hocketLive)
         .accessibilityValue(euclideousMixPadAccessibilityValue(gate: gate, velocity: velocity))
         .accessibilityAdjustableAction { direction in
             write(gate: gate, velocity: euclideousMixVelocityStep(velocity, up: direction == .increment), newStepAlways: true)
