@@ -29,8 +29,8 @@ Every lane carries the same four facets — what differs is what each is current
 
 ## Vocabulary
 
-Deliberately not the wider 8×8 State vocabulary — FourStep has no receiver/door graph, no cables
-beyond a flat A–D toggle, no chain of twenty processor types. This is the whole glossary:
+Deliberately not the wider 8×8 State vocabulary — FourStep has no receiver/door graph, nothing to route
+(a note's output is fixed by its lane and layer), no chain of twenty processor types. This is the whole glossary:
 
 - **Lane** — one of four independent voices, each with its own rhythm, riff position, lit notes,
   and mask.
@@ -42,8 +42,9 @@ beyond a flat A–D toggle, no chain of twenty processor types. This is the whol
   Mask processor that lives elsewhere in the shared engine.
 - **Sequencer panel** — the two-tab step grid (LANES / RIFFS) controlling which lane sounds, and
   which riff plays, at each step of its own independent sequence.
-- **Main out A–D** — a flat per-lane output toggle; four destinations, no bus/cable/channel-stamp
-  model behind it.
+- **Ports** — nine MIDI outputs (2026-10-26): **All**, then **Emit Riff A, Emit Notes A, Emit Riff B … Emit Notes D**.
+  A lane's riff always leaves on its Riff port and its lit notes on its Notes port (lane 1 is "A"); All carries
+  everything. Nothing is switched or routed. Each port stamps its own MIDI channel (Settings), so All can be told apart.
 
 ## Still a reactive, chord-following instrument
 

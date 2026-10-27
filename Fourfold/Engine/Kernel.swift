@@ -518,7 +518,7 @@ final class Kernel {
 
     /// Force-silence the whole engine (the STUCK-NOTE heal shared by both a8 nets): dump the corpse for the
     /// log FIRST (always legible), all-notes-off every router voice, flush any stranded passthrough echo as a
-    /// note-off on All + Emit A, and count the self-heal. `hardTrap` = a HARD invariant (DEBUG crashes into the
+    /// note-off on All + Emit Riff A, and count the self-heal. `hardTrap` = a HARD invariant (DEBUG crashes into the
     /// logged corpse); false = a heuristic net (soft-heal only, no trap).
     private func healStuckNotes(now: Int64, hardTrap: Bool, reasonCode: Int32, diag: inout KernelDiag) {
         // RENDER-THREAD DISCIPLINE (Paul 2026-09-12): the CURE runs here (alloc-free); the REPORT does NOT. We record
@@ -532,7 +532,7 @@ final class Kernel {
         diag.silenceViolated = true
         diag.panics &+= 1
         router.allNotesOff(atSample: now, out: reelTap)                  // close any leaked sequenced voices (alloc-free). Through the reel tap, so the offs that really went out are on the tape too (reel phase 1b)
-        if let out = midiOut {                                           // flush stranded echoes as offs on All + Emit A
+        if let out = midiOut {                                           // flush stranded echoes as offs on All + Emit Riff A
             let drained = passthroughGate.drainActive()                  // fills a fixed-size scratch + returns a count — no allocation even when echoes are genuinely stranded (code-review finding 2026-10-04)
             for i in 0..<drained {
                 let (chan, note) = passthroughGate.drained(i)
@@ -585,7 +585,7 @@ final class Kernel {
             }
         }
         // CONTROLLER ROUTING (v1): CC · PB · AT · PC forward to each door's CONTROLLERS emitters (union), RE-STAMPED to
-        // the emitter's stamp channel + cable. SUPERSEDES the old CC/PB/AT passthrough (All + Emit A). Notes (soundcheck)
+        // the emitter's stamp channel + cable. SUPERSEDES the old CC/PB/AT passthrough (All + Emit Riff A). Notes (soundcheck)
         // + system keep the passthrough below. (Ownership suppression — a BEND/MOD stage owning an address — is the
         // reserved rule, not v1: for now forward + generate both, last-writer.)
         if isForwardableController(bytes[0]), let out = midiOut {
@@ -608,7 +608,7 @@ final class Kernel {
             }
             return   // controller handled by the routing forward — skip the legacy passthrough
         }
-        // §2.6 (reconciled to §7b): stopped-note passthrough (soundcheck) go out on All (0) + Emit A (1).
+        // §2.6 (reconciled to §7b): stopped-note passthrough (soundcheck) go out on All (0) + Emit Riff A (1).
         // a8: routed through the gate so a note-OFF follows its forwarded ON regardless of state now.
         let pNote = length >= 2 ? bytes[1] : 0
         let pVel  = length >= 3 ? bytes[2] : 0
@@ -621,7 +621,7 @@ final class Kernel {
             let n = min(length, 3)
             for i in 0..<n { passthroughScratch[i] = bytes[i] }
             var m = mask
-            while m != 0 {                                  // forward on each cable in the mask (0 = All, 1 = Emit A)
+            while m != 0 {                                  // forward on each cable in the mask (0 = All, 1 = Emit Riff A)
                 let cable = UInt8(m.trailingZeroBitCount); m &= m - 1
                 _ = out(sampleTime, cable, n, &passthroughScratch)
             }
