@@ -9098,7 +9098,7 @@ func hocketBothGroupsNote(_ r: HocketRule) -> String? {
     guard r.mode == .swap else { return nil }
     let both = r.main.filter { r.alt.contains($0) }.map(HocketText.name(cable:))
     guard !both.isEmpty else { return nil }
-    return both.count == 1 ? "\(both[0]) IS IN BOTH GROUPS, SO IT ALWAYS PLAYS." : "\(HocketText.joinedNames(both)) ARE IN BOTH GROUPS, SO THEY ALWAYS PLAY."
+    return both.count == 1 ? "\(both[0]) IS IN BOTH GROUPS, SO IT ALWAYS PLAYS." : "\(both.joined(separator: " AND ")) ARE IN BOTH GROUPS, SO THEY ALWAYS PLAY."   // §4.8 literally: the names joined by " AND " (§4.9's REPLACE/MERGE note words it differently on purpose)
 }
 /// §4.9 — one line per MAIN output, in group order. TOGETHER: "RED NOTES → BLUE NOTES" (MAIN i → ALT i mod n). ROTATE: "RED NOTES → BLUE NOTES · AMBER NOTES, IN TURN" (the ALT outputs listed from ALT i mod n; no ", IN TURN"
 /// with one). ALT empty: the single line "NO ALT OUTPUT: ALT TURNS ARE SILENT.".
@@ -9208,6 +9208,8 @@ enum HocketAX {
 // ── §2.2 / §4.11 the frames ─────────────────────────────────────────────────────────────────────────────────────────────
 enum HocketPopupMetrics {
     static let maxWidth: CGFloat = 420, pad: CGFloat = 14, radius: CGFloat = 14, sectionGap: CGFloat = 14, itemGap: CGFloat = 7
+    /// §4.11: the least height of a touch target; a drawn frame under it extends its HIT area (vertically, evenly) into the spacing around it.
+    static let minTarget: CGFloat = 44
     static let closeTarget: CGFloat = 44, closePlate: CGFloat = 30, closeCross: CGFloat = 10
     static let ruleAbove: CGFloat = 12, ruleLine: CGFloat = 1
     static let tabHeight: CGFloat = 40, tabMinWidth: CGFloat = 48, tabPadX: CGFloat = 12, tabGap: CGFloat = 4, tabFont: CGFloat = 12, tabDot: CGFloat = 7, tabLabelGap: CGFloat = 7

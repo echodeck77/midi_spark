@@ -119,7 +119,7 @@ final class HocketLooksTests: XCTestCase {
         XCTAssertNil(hocketBothGroupsNote(rule(main: [RR], alt: [BR])))
         XCTAssertEqual(hocketBothGroupsNote(rule(main: [RR], alt: [RR, BR])), "RED RIFF IS IN BOTH GROUPS, SO IT ALWAYS PLAYS.")
         XCTAssertEqual(hocketBothGroupsNote(rule(main: [RR, BR], alt: [BR, RR])), "RED RIFF AND BLUE RIFF ARE IN BOTH GROUPS, SO THEY ALWAYS PLAY.")
-        XCTAssertEqual(hocketBothGroupsNote(rule(main: [RR, BR, AR], alt: [RR, BR, AR])), "RED RIFF, BLUE RIFF AND AMBER RIFF ARE IN BOTH GROUPS, SO THEY ALWAYS PLAY.")
+        XCTAssertEqual(hocketBothGroupsNote(rule(main: [RR, BR, AR], alt: [RR, BR, AR])), "RED RIFF AND BLUE RIFF AND AMBER RIFF ARE IN BOTH GROUPS, SO THEY ALWAYS PLAY.")
         XCTAssertNil(hocketBothGroupsNote(rule(main: [RR], alt: [RR]) { $0.mode = .pass }), "only SWAP PARTS explains a both-groups output")
     }
     func testTheWordsAndCounts() {

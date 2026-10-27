@@ -176,6 +176,27 @@ final class HocketModelTests: XCTestCase {
         XCTAssertEqual(p.ruleOfBus[0], 0); XCTAssertEqual(p.ruleOfBus[1], 0); XCTAssertEqual(p.ruleOfBus[2], 0); XCTAssertEqual(p.ruleOfBus[7], -1); XCTAssertEqual(p.ruleOfBus[4], -1)
         XCTAssertFalse(p[1].lit); XCTAssertFalse(p[2].lit)
     }
+    /// Review fix (2026-10-27): the undo probe's box term used to read the MACHINE FACE's `hocketRules` (always the default — `SnapshotBuilder` writes the rules into the CELL's `procs[0]`), so a missed republish could
+    /// never fail `box=`. `euclideousProbeDescription` is what the probe hashes: it must move when a rule is lit, and when the lanes change.
+    func testTheUndoProbesBoxDescriptionSeesTheRulesAndTheLanes() throws {
+        var st = PluginState.makeInit()
+        st.machines.append(Machine(machineID: FourfoldCompose.machineID, type: .euclid))
+        func compose() {
+            let input = FourfoldCompose.Input(lines: st.euclideousLinesResolved, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
+                                              soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
+            st.scenes = [FourfoldCompose.scene(input)]
+        }
+        compose()
+        let none = try XCTUnwrap(SnapshotBuilder.build(from: st).euclideousProbeDescription)
+        st.hocketRules = HocketRuleSet([rule(main: [1], alt: [3])])
+        let lit = try XCTUnwrap(SnapshotBuilder.build(from: st).euclideousProbeDescription)
+        XCTAssertNotEqual(none, lit, "a lit rule moves the probe's box term (it read the machine face before, which never holds the rules)")
+        st.hocketRules = HocketRuleSet([rule(main: [1], alt: [3]) { $0.mainLen = 2 }])
+        XCTAssertNotEqual(lit, try XCTUnwrap(SnapshotBuilder.build(from: st).euclideousProbeDescription), "an edit to a rule's length moves it too")
+        st.hocketRules = HocketRuleSet([rule(main: [1], alt: [3])])
+        XCTAssertEqual(lit, try XCTUnwrap(SnapshotBuilder.build(from: st).euclideousProbeDescription), "the same document describes the same")
+        XCTAssertTrue(lit.hasPrefix("[") && lit.contains("|"), "the lanes (the machine face's four EuclidLines) are still the first half of the term")
+    }
     func testAGroupHoldsEightOutputsInOrderAsPlainValueStorage() {
         let g = HocketGroup(cables: [8, 1, 0, 9, 4])
         XCTAssertEqual((0..<g.count).map { g[$0] }, [7, 0, 3], "cables → buses in tapped order; ALL (0) and unknown cables are not stored")

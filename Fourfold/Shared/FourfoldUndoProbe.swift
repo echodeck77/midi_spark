@@ -20,13 +20,17 @@ struct FourfoldUndoProbe: View {
 
     var body: some View {
         if Self.enabled {
-            Rectangle().fill(Color.white.opacity(0.01)).frame(width: 3, height: 3)
-                .accessibilityElement(children: .ignore)
-                .accessibilityIdentifier("undoProbe")
-                .accessibilityLabel("Undo probe")
-                .accessibilityValue(describe())
-                .allowsHitTesting(false)
-                .onAppear { FourfoldUndoProbeHost.install(au: au) }
+            // Re-read every 0.25 s as well as on a model change: the render snapshot is published one runloop turn AFTER an edit, so a reading taken the instant `m` changes saw the box one edit behind (`box=0`) and nothing re-ran the
+            // body once it caught up. Only the `box=` term could be affected; the page / document / stage terms are synchronous.
+            TimelineView(.periodic(from: Date(), by: 0.25)) { _ in
+                Rectangle().fill(Color.white.opacity(0.01)).frame(width: 3, height: 3)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("undoProbe")
+                    .accessibilityLabel("Undo probe")
+                    .accessibilityValue(describe())
+                    .allowsHitTesting(false)
+                    .onAppear { FourfoldUndoProbeHost.install(au: au) }
+            }
         }
     }
 

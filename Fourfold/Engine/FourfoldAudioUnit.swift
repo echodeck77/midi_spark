@@ -138,11 +138,8 @@ public class FourfoldAudioUnit: AUAudioUnit {
     /// UNDO AUDIT probe (main thread, read-only): is the snapshot the render thread holds the one the AU would build from what it was given right now? Compares the Euclideous lanes of the published box with a fresh build.
     func probeBoxAgreement() -> Bool {
         func lanesHash(_ box: SnapshotBox?) -> UInt64 {
-            guard let box, Snap.euclideousRow < box.cells.count else { return 0 }
-            let cell = box.cells[Snap.euclideousRow]
-            guard cell.machineIndex >= 0, Int(cell.machineIndex) < box.machines.count else { return 0 }
-            let p = box.machines[Int(cell.machineIndex)].a
-            return FourfoldUndoProbe.fnv(String(describing: p.euclidLines)) ^ FourfoldUndoProbe.fnv(String(describing: p.hocketRules))   // HOCKET: the live box's rules too
+            guard let d = box?.euclideousProbeDescription else { return 0 }
+            return FourfoldUndoProbe.fnv(d)   // the lanes AND the HOCKET rules of the box (see `euclideousProbeDescription`: the rules live in the cell's procs[0])
         }
         return lanesHash(store.acquire()) == lanesHash(SnapshotBuilder.build(from: renderDoc(), generation: 0))
     }

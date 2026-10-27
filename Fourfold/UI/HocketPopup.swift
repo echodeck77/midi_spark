@@ -17,6 +17,11 @@ private extension View {
     /// Put a leaf at a frame inside a `ZStack(alignment: .topLeading)` of known size.
     func place(_ r: CGRect) -> some View { frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY) }
 }
+/// §4.11: a touch target is at least 44 tall, extending into the spacing around it. The HIT area grows (vertically only, evenly) to 44 around the drawn frame; nothing is redrawn. Apply it as the `contentShape` BEFORE any `.offset`
+/// (a shape set after an offset stays at the un-offset position) — `hocketPopupFrames`' own test models the same expansion and proves no two expanded targets overlap.
+private struct HocketHitShape: Shape {
+    func path(in r: CGRect) -> Path { Path(r.insetBy(dx: 0, dy: -max(0, (HocketPopupMetrics.minTarget - r.height) / 2))) }
+}
 
 struct HocketPopup: View {
     let containerW: CGFloat
@@ -37,11 +42,13 @@ struct HocketPopup: View {
         let available = max(1, containerH - headerBottomY - 16)
         let cardH = min(f.totalHeight, available)
         return ZStack(alignment: .topTrailing) {
+            // The scrim covers the page BELOW the header (§2.1: the header stays live — Undo, presets, the HOCKET button itself — and a tap on the dimmed page closes). Shape and gesture are set BEFORE the offset: set after it
+            // they stay at the un-offset position, which put the tap area over the header and left the bottom of the page live under the dim.
             Color(hex: 0x0C0E12).opacity(0.58)
                 .frame(width: containerW, height: max(0, containerH - headerBottomY))
-                .offset(y: headerBottomY)
                 .contentShape(Rectangle())
                 .onTapGesture { onClose() }
+                .offset(y: headerBottomY)
                 .accessibilityHidden(true)
             card(f, cardH: cardH, shown: shown, idx: idx)
                 .offset(y: headerBottomY + 8)
@@ -63,14 +70,16 @@ struct HocketPopup: View {
                               },
                               onToggleOn: { onEdit(true) { rs in if rs.indices.contains(idx) { rs[idx].on.toggle() } } })
                 .frame(width: f.contentWidth, height: f.fixedHeight, alignment: .topLeading)
+            // The viewport reaches M.pad past the content's right edge (into the sheet's own padding) so an order badge on a fourth-column chip — drawn beyond the chip's edge (§4.4) — is not clipped; the content stays where it was.
             ScrollView(.vertical, showsIndicators: false) {
                 EuclideousStackBreak {
                     AnyView(HocketBody(f: f, rules: shown, idx: idx, snap: snap, live: live, edit: onEdit)
                                 .frame(width: f.contentWidth, height: f.bodyHeight, alignment: .topLeading)
-                                .opacity(shown[idx].on ? 1 : hocketOffRuleBodyOpacity))
+                                .opacity(shown[idx].on ? 1 : hocketOffRuleBodyOpacity)
+                                .frame(width: f.contentWidth + M.pad, alignment: .leading))
                 }
             }
-            .frame(width: f.contentWidth, height: scrollH)
+            .frame(width: f.contentWidth + M.pad, height: scrollH, alignment: .leading)
         }
         .padding(M.pad)
         .frame(width: f.width, height: cardH, alignment: .topLeading)
@@ -126,7 +135,10 @@ private struct HocketFixedRegion: View {
                 .accessibilityAddTraits(.isHeader)
             closeButton
             Color(HocketPalette.rule).place(f.ruleLine).accessibilityHidden(true)
-            ForEach(0..<f.tabs.count, id: \.self) { i in tab(i).place(f.tabs[i]) }
+            ForEach(0..<f.tabs.count, id: \.self) { i in
+                let grow = max(0, (HocketPopupMetrics.minTarget - f.tabs[i].height) / 2)
+                tab(i, inset: grow).place(f.tabs[i].insetBy(dx: 0, dy: -grow))
+            }
             if let add = f.add { addButton.place(add) }
             onOffButton.place(f.onOff)
         }
@@ -150,7 +162,9 @@ private struct HocketFixedRegion: View {
         .accessibilityLabel(HocketAX.closeLabel).accessibilityAddTraits(.isButton)
     }
 
-    private func tab(_ i: Int) -> some View {
+    /// `inset`: transparent margin above and below the drawn tab that makes the press area 44 tall (§4.11) — `EuclideousLockPressable` takes its hit shape from its content's bounds, so the margin lives in the content and the
+    /// caller places the tab in the frame grown by the same amount.
+    private func tab(_ i: Int, inset: CGFloat) -> some View {
         let look = hocketTabLook(showing: i == idx, lit: rules[i].isLit)
         return EuclideousLockPressable(
             label: HocketAX.tab(rule: i + 1, lit: rules[i].isLit), value: "", hint: "", holdActionName: HocketAX.deleteAction,
@@ -162,6 +176,7 @@ private struct HocketFixedRegion: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color(look.fill)))
+                    .padding(.vertical, inset)
                 )
             },
             onTap: { onShow(i) },
@@ -185,7 +200,7 @@ private struct HocketFixedRegion: View {
             }
             .stroke(Color(HocketPalette.mid), style: StrokeStyle(lineWidth: 1.6, lineCap: .round)).frame(width: 10, height: 10)
         }
-        .contentShape(Rectangle())
+        .contentShape(HocketHitShape())
         .onTapGesture { onAdd() }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(HocketAX.addLabel).accessibilityAddTraits(.isButton)
@@ -197,7 +212,7 @@ private struct HocketFixedRegion: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color(look.fill)))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(look.border), lineWidth: look.borderWidth))
-            .contentShape(Rectangle())
+            .contentShape(HocketHitShape())
             .onTapGesture { onToggleOn() }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(HocketAX.onOff(rule: idx + 1, on: rules[idx].on))
@@ -252,7 +267,7 @@ private struct HocketBody: View {
         hocketText(label, size, em: em, selected ? HocketPalette.ink : HocketPalette.mid).lineLimit(1).truncationMode(.tail)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(RoundedRectangle(cornerRadius: radius).fill(selected ? Color(HocketPalette.light) : Color.clear))
-            .contentShape(Rectangle())
+            .contentShape(HocketHitShape())
     }
 
     // 4.2 MAIN
@@ -332,7 +347,6 @@ private struct HocketBody: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(HocketAX.chip(group: isMain ? "Main" : "Alt", cable: cable, inGroup: pos != nil, position: pos, groupCount: group.count, takenBy: owner))
         .accessibilityAddTraits(look.responds ? .isButton : [])
-        .accessibilityHint(look.responds ? "Double-tap to toggle" : "")
         .opacity(owner != nil ? 1 : 1)
     }
     @ViewBuilder private func glyph(notes: Bool, _ g: HocketChipLook.Glyph) -> some View {

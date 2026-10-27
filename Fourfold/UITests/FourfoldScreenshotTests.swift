@@ -68,6 +68,17 @@ final class FourfoldScreenshotTests: XCTestCase {
         step(app.el("Hocket")); Thread.sleep(forTimeInterval: 1); attach("6-hocket-portrait")
     }
 
+    /// HOCKET §4.4 (review 2026-10-27): order badges on a group of 3+ — the fourth-column chips' badges sit beyond the chip's right edge and used to be clipped by the scroll viewport.
+    func testTheHocketBadges() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()
+        Thread.sleep(forTimeInterval: 1.5)
+        func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
+        step(app.el("Hocket"))
+        for chip in ["Main: red riff, off", "Main: blue riff, off", "Main: amber riff, off", "Main: green riff, off", "Main: green notes, off", "Main: amber notes, off", "Alt: red notes, off", "Alt: blue notes, off", "Alt: green notes, off"] { step(app.el(chip)) }
+        Thread.sleep(forTimeInterval: 1); attach("6-hocket-badges")
+    }
+
     /// HOCKET §3: the DELETE RULE popover after a hold on rule 2's tab, with a taken chip behind it.
     func testTheHocketDeletePopover() {
         XCUIDevice.shared.orientation = .landscapeLeft

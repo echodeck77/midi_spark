@@ -415,6 +415,49 @@ final class FourfoldUndoAuditTests: XCTestCase {
         XCTAssertEqual(r.snap, c.snap); XCTAssertTrue(r.consistent, r.raw); XCTAssertEqual(r.resyncs, 0, r.raw)
     }
 
+    /// HOCKET (review 2026-10-27): the probe finally exercises the rules. Every pop-up edit (chip taps, the unit, add rule, delete rule by hold) is ONE step and moves ONLY the `hocketRules` part of the snapshot; the page, the
+    /// document and the render input agree after each; and with the pop-up OPEN the header's Undo / Redo act on the page (§2.1: the header stays live) and the pop-up follows — its chips and tabs read the undone / redone rules.
+    func testHocket_PopupEditsAreStepsAndUndoRedoRetraceThemWithThePopupOpen() {
+        launch()
+        let base = settled()
+        app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Hocket'")).firstMatch.tap()
+        XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 4), "the pop-up opened")
+        let opened = settled()
+        XCTAssertEqual(opened.snap, base.snap, "opening the pop-up changes no setting (§2.4)"); XCTAssertEqual(opened.undo, base.undo, "and is not a step")
+        func rule2Tab() -> XCUIElement { app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", "Rule 2")).firstMatch }
+
+        app.buttons["Main: red riff, off"].tap(); let a = settled()
+        XCTAssertEqual(a.differingParts(from: base), ["hocketRules"], "a chip tap changes only the rules: \(a.raw)"); XCTAssertEqual(a.undo, base.undo + 1, a.raw); XCTAssertTrue(a.consistent, a.raw)
+        app.buttons["Alt: blue riff, off"].tap(); let b = settled()
+        XCTAssertEqual(b.differingParts(from: a), ["hocketRules"], b.raw); XCTAssertEqual(b.undo, base.undo + 2, b.raw); XCTAssertTrue(b.consistent, b.raw)
+        app.buttons["Bars"].tap(); let c = settled()
+        XCTAssertEqual(c.differingParts(from: b), ["hocketRules"], c.raw); XCTAssertEqual(c.undo, base.undo + 3, c.raw); XCTAssertTrue(c.consistent, c.raw)
+        app.buttons["Add a rule"].tap(); let d = settled()
+        XCTAssertEqual(d.differingParts(from: c), ["hocketRules"], "an added (empty) rule is a document change: \(d.raw)"); XCTAssertEqual(d.undo, base.undo + 4, d.raw)
+        XCTAssertTrue(rule2Tab().waitForExistence(timeout: 3), "rule 2's tab")
+        rule2Tab().press(forDuration: 0.8)
+        XCTAssertTrue(app.buttons["Delete rule 2"].waitForExistence(timeout: 3), "the DELETE RULE popover"); app.buttons["Delete rule 2"].tap(); let e = settled()
+        XCTAssertEqual(e.snap, c.snap, "deleting rule 2 leaves rule 1 as it was: \(e.raw)"); XCTAssertEqual(e.undo, base.undo + 5, e.raw); XCTAssertTrue(e.consistent, e.raw)
+        XCTAssertFalse(rule2Tab().exists, "rule 2 is gone from the pop-up")
+
+        undo(); let u1 = settled()
+        XCTAssertEqual(u1.snap, d.snap, "↶ brings rule 2 back: \(u1.raw)"); XCTAssertTrue(u1.consistent, u1.raw)
+        XCTAssertTrue(app.buttons["Close"].exists, "the pop-up is still open: a header tap acts, it does not close the pop-up")
+        XCTAssertTrue(rule2Tab().waitForExistence(timeout: 3), "and it shows the restored rule 2")
+        undo(); XCTAssertEqual(settled().snap, c.snap); XCTAssertFalse(rule2Tab().exists)
+        undo(); XCTAssertEqual(settled().snap, b.snap)
+        undo(); XCTAssertEqual(settled().snap, a.snap)
+        XCTAssertTrue(app.buttons["Main: red riff, on"].exists, "the chip reads the rule as it was after the first tap"); XCTAssertTrue(app.buttons["Alt: blue riff, off"].exists)
+        undo(); let u5 = settled()
+        XCTAssertEqual(u5.snap, base.snap, "five ↶ are back to no rules: \(u5.raw)"); XCTAssertTrue(u5.consistent, u5.raw)
+        XCTAssertTrue(app.buttons["Main: red riff, off"].exists, "the chips read an empty rule"); XCTAssertTrue(app.buttons["Close"].exists)
+        redo(); XCTAssertEqual(settled().snap, a.snap)
+        redo(); redo(); redo(); redo()
+        let r = settled()
+        XCTAssertEqual(r.snap, e.snap, "five ↷ are back where the edits ended: \(r.raw)"); XCTAssertTrue(r.consistent, r.raw); XCTAssertEqual(r.resyncs, 0, r.raw)
+        XCTAssertTrue(app.buttons["Alt: blue riff, on"].exists); XCTAssertFalse(rule2Tab().exists)
+    }
+
     func testLock_UndoNeverCreatesAnInconsistencyWithALockedLanePresent() {
         launch()
         app.switches["Lock mode"].tap()

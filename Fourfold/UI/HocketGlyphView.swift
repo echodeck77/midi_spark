@@ -26,6 +26,7 @@ struct HocketPartGlyph: View {
     let rules: [HocketRule]
     @ObservedObject var live: HocketLiveModel
     let ground: Color                         // the card's fill (the pad's, on MIX): the rings are drawn in it
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // Reduce Motion: the state change is instant, no 0.15 s ease
 
     var body: some View {
         let notes = shape == .bar
@@ -52,7 +53,7 @@ struct HocketPartGlyph: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .animation(.easeInOut(duration: HocketGlyphSpec.easeSeconds), value: spec)
+        .animation(reduceMotion ? nil : .easeInOut(duration: HocketGlyphSpec.easeSeconds), value: spec)
     }
 }
 

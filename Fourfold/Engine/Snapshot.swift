@@ -334,6 +334,15 @@ final class SnapshotBox {
         self.rowLength = (0..<Snap.rows).map(resolvedLen)
         self.rowLaunchAnchor = (0..<Snap.rows).map { $0 < rowLaunchAnchor.count ? rowLaunchAnchor[$0] : 0 }   // PLAY-FERRY LAUNCH: pad to Snap.rows; unset ⇒ 0 = no anchor (byte-identical)
     }
+
+    /// UNDO PROBE (`FourfoldAudioUnit.probeBoxAgreement`): what this box holds for the Euclideous row that the page's document can change — the four lanes (the machine face) and the HOCKET rules. The rules are read from the
+    /// CELL's `procs[0]` because that is where `SnapshotBuilder` writes them (the machine face's `hocketRules` is always the default, so hashing it could never see a missed republish). nil when the box has no Euclideous row.
+    var euclideousProbeDescription: String? {
+        guard Snap.euclideousRow < cells.count else { return nil }
+        let cell = cells[Snap.euclideousRow]
+        guard cell.machineIndex >= 0, Int(cell.machineIndex) < machines.count else { return nil }
+        return String(describing: machines[Int(cell.machineIndex)].a.euclidLines) + "|" + String(describing: cell.procs.first?.hocketRules)
+    }
 }
 
 // MARK: - Macro modulation (the offset applier — base ⊕ Σ value×delta, clamped)

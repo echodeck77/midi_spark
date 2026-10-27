@@ -49,6 +49,39 @@ final class FourfoldTapTests: XCTestCase {
         need(app.buttons["Add a rule"], "the add button is back")
     }
 
+    /// HOCKET §2.1 (review 2026-10-27): "the page below dimmed to 42% and still playing, closed by its ×, by the HOCKET button, or by a tap on the dimmed page". The scrim covers the page BELOW the header, so a tap on a header control
+    /// (here Undo) acts on the page and leaves the pop-up open, while a tap on the dimmed page — the lower left, clear of the right-aligned card — closes it. (The scrim's hit area used to sit `headerBottomY` too high: a header tap closed
+    /// the pop-up without acting, and the bottom of the page stayed live under the dim.)
+    func testHocketHeaderStaysLiveWhilePopupIsOpenAndADimmedPageTapClosesIt() {
+        let app = XCUIApplication.fresh()
+        app.els(prefix: "Hocket").firstMatch.tap()
+        need(app.buttons["Close"], "the pop-up's Close button")
+        app.buttons["Add a rule"].tap()
+        let tab2 = app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", "Rule 2")).firstMatch
+        need(tab2, "rule 2's tab")
+        app.buttons["Undo"].tap()
+        XCTAssertFalse(tab2.waitForExistence(timeout: 1.5), "Undo acted on the page: rule 2 is gone")
+        XCTAssertTrue(app.buttons["Close"].exists, "and the pop-up stayed open")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.95)).tap()
+        XCTAssertFalse(app.buttons["Close"].waitForExistence(timeout: 1.5), "a tap on the dimmed page (lower left) closed the pop-up")
+    }
+
+    /// HOCKET §4.11: every touch target is at least 44 tall, extending into the spacing around it. The unit segments are drawn 30 tall; a tap 6 pt ABOVE one (inside the 7 pt it extends by) still selects it, and so does one on a
+    /// mode segment (34 tall, extends 5) 4 pt below.
+    func testHocketTargetsUnder44TallTakeTapsInTheSpacingAroundThem() {
+        let app = XCUIApplication.fresh()
+        app.els(prefix: "Hocket").firstMatch.tap()
+        need(app.buttons["Close"], "the pop-up's Close button")
+        let steps = app.buttons["Steps"]; need(steps, "the STEPS unit segment")
+        XCTAssertFalse(steps.isSelected, "HITS is the default unit")
+        steps.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -6)).tap()
+        XCTAssertTrue(steps.waitForExistence(timeout: 1) && steps.isSelected, "a tap 6 pt above the 30-tall segment selected it")
+        let pass = app.buttons["Pass the line"]; need(pass, "the PASS THE LINE segment")
+        XCTAssertFalse(pass.isSelected)
+        pass.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1)).withOffset(CGVector(dx: 0, dy: 4)).tap()
+        XCTAssertTrue(pass.isSelected, "a tap 4 pt below the 34-tall segment selected it")
+    }
+
     func testTheTempoButtonsStepTheBpm() {
         let app = XCUIApplication.fresh()
         need(app.el("Tempo, 120 beats per minute"), "the tempo control at 120")
