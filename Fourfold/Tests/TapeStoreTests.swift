@@ -40,6 +40,16 @@ final class TapeStoreTests: XCTestCase {
         XCTAssertTrue(out.withUnsafeMutableBufferPointer { s.read(block: 1, into: $0.baseAddress!) })
         XCTAssertEqual(out, b)
     }
+    // Review 2026-10-27: a session.tape written before the nine ports has cables 1-4 meaning "outputs A–D"; read with the new meaning every pass would land on the wrong port. Its old magic makes it start over.
+    func testATapeWrittenBeforeTheNinePortsIsResetNotMisread() {
+        let a = block(1, count: 16)
+        do { let s = TapeStore(url: url(), chunkEvents: 16)!; _ = loadAll(s); _ = put(s, a) }
+        let h = try! FileHandle(forUpdating: url()); try! h.seek(toOffset: 7); try! h.write(contentsOf: Data([0x01])); try! h.close()   // the version-1 magic
+        let s = TapeStore(url: url(), chunkEvents: 16)!
+        XCTAssertEqual(loadAll(s), [], "an old-meaning tape is discarded")
+        XCTAssertEqual(s.blocks.count, 0)
+        XCTAssertEqual(put(s, a), 0, "and the store is usable from a clean start")
+    }
     func testATornTailIsCutAndTheGoodPartKept() {
         let a = block(1, count: 16), b = block(2, count: 16), c = block(3, count: 16)
         do { let s = TapeStore(url: url(), chunkEvents: 16)!; _ = loadAll(s); _ = put(s, a); _ = put(s, b); _ = put(s, c) }

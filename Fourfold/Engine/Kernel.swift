@@ -218,16 +218,16 @@ final class Kernel {
     func reelCycleValue() -> Double { reel.loopCycle }              // the SELECTED pass's length in beats (piano-roll x-axis + export) — not the live rate
     /// EXPORT (step 2): the recorded pass as SMF files — the A–D "sum" plus a per-emitter stem for each that has events.
     // (reelExport() — the whole-pass SMF export — was removed 2026-08-27; superseded by reelExportRange, its only path.)
-    /// EXPORT a pass RANGE × a port SELECTION (Paul 2026-08-26). emitterMask == 0 ⇒ the MASTER (the sum of the eight ports) as one file;
+    /// EXPORT a pass RANGE × a port SELECTION (Paul 2026-08-26). portMask == 0 ⇒ the MASTER (the sum of the eight ports) as one file;
     /// else one stem per selected port (Riff A = bit0 … Notes D = bit7). Each file is the passes [lo,hi] concatenated into one phrase.
-    func reelExportRange(fromPass lo: Int, toPass hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] {
+    func reelExportRange(fromPass lo: Int, toPass hi: Int, portMask: UInt8) -> [(name: String, data: Data)] {
         let ppq = 480
         var files: [(name: String, data: Data)] = []
-        if emitterMask == 0 {   // MASTER — the sum of the eight ports
+        if portMask == 0 {   // MASTER — the sum of the eight ports
             let (evs, total) = reel.exportRangeEvents(fromPass: lo, toPass: hi, cables: Set((1...FourfoldPorts.busCount).map { UInt8($0) }))
             if !evs.isEmpty { files.append((name: "Fourfold-All.mid", data: MidiFile.encode(events: evs, bpm: reelTempoStored, ppq: ppq, loopBeats: total))) }
         } else {                // the SELECTED emitter stems
-            for i in 0..<FourfoldPorts.busCount where (emitterMask & (1 << UInt8(i))) != 0 {
+            for i in 0..<FourfoldPorts.busCount where (portMask & (1 << UInt8(i))) != 0 {
                 let (evs, total) = reel.exportRangeEvents(fromPass: lo, toPass: hi, cables: [UInt8(i + 1)])
                 if !evs.isEmpty { files.append((name: "Fourfold-\(FourfoldPorts.shortName(cable: i + 1).capitalized).mid", data: MidiFile.encode(events: evs, bpm: reelTempoStored, ppq: ppq, loopBeats: total))) }
             }

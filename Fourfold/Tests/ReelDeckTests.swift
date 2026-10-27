@@ -235,6 +235,18 @@ final class ReelDeckTests: XCTestCase {
     // CR-3[review]: a note-ON with no matching OFF (held across the pass boundary, or truncated when the pass was
     // re-selected from the browser) must get a SYNTHETIC off at the loop end — else replay() re-emits the ON forever
     // with no OFF ⇒ a stuck note (invariant 4).
+    // Review 2026-10-27: the ALL cable (0) is replayed too, and carries each port on its own channel — a note held across the pass end on ALL, on its channel, gets its off on ALL (it used to be left to ring until STOP).
+    func testUnclosedNoteOnAllAndOnAPortEachGetTheirOwnSyntheticOff() {
+        let deck = ReelDeck()
+        deck.cycleBeats = 4.0
+        deck.record(beat: 1.0, cable: 0, 0x94, 62, 100); deck.record(beat: 1.0, cable: 5, 0x94, 62, 100)   // the same note, ch 5, on ALL and on Emit Riff C — neither is closed
+        deck.record(beat: 1.0, cable: 0, 0x97, 62, 100); deck.record(beat: 1.0, cable: 6, 0x97, 62, 100)   // …and again on ch 8 / Emit Notes C
+        deck.promote()
+        let rec = ReelRec()
+        deck.replay(beatPos: 3.5, windowBeats: 1.0, cycleBeats: 4.0, beatsPerSample: 0.001, windowStart: 0, out: rec)
+        let offs = rec.events.filter { $0.b0 & 0xF0 == 0x80 }.map { "\($0.cable):\($0.b0 & 0x0F)" }.sorted()
+        XCTAssertEqual(offs, ["0:4", "0:7", "5:4", "6:7"], "one synthetic off per open (cable, channel, note), ALL included")
+    }
     func testUnclosedNoteGetsSyntheticOffAtLoopEnd() {
         let deck = ReelDeck()
         deck.cycleBeats = 4.0

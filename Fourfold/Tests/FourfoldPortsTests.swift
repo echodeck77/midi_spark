@@ -43,4 +43,13 @@ final class FourfoldPortsTests: XCTestCase {
         d.busChannels = [16, 15, 14]
         XCTAssertEqual(d.busChannelsResolved, [16, 16, 15, 15, 14, 14, 4, 4])
     }
+
+    // Review 2026-10-27: the PORTS tab's lane row is 278 pt of fixed-width controls, so a card under 310 pt (a small windowed host) stacks RIFF over NOTES instead of clipping.
+    func testThePortsRowStacksOnlyWhenItWouldNotFit() {
+        XCTAssertEqual(EuclideousPortsRowMetrics.sideBySideW, 278)
+        XCTAssertFalse(euclideousPortsRowIsStacked(cardWidth: 448), "the sheet's normal width")
+        XCTAssertFalse(euclideousPortsRowIsStacked(cardWidth: 310), "exactly enough")
+        XCTAssertTrue(euclideousPortsRowIsStacked(cardWidth: 309.99))
+        XCTAssertTrue(euclideousPortsRowIsStacked(cardWidth: euclideousSettingsSheetWidth(containerW: 300)), "a 300 pt host")
+    }
 }

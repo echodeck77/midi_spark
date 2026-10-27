@@ -257,8 +257,8 @@ final class RouterTests: XCTestCase {
         router.process(box: b, pool: chord([60, 64, 67]), playing: true, beatPos: 0.1, tempo: 120, sampleRate: 48_000,
                        timestampSample: 2048, frameCount: 2048, panic: true, out: e, diag: &diag)
         let ccs = e.events.filter { $0.status == 0xB0 }
-        XCTAssertEqual(ccs.filter { $0.note == 123 }.count, 5 * 16, "CC123 (All-Notes-Off) on every channel of every cable")
-        XCTAssertEqual(ccs.filter { $0.note == 120 }.count, 5 * 16, "CC120 (All-Sound-Off) on every channel of every cable")
+        XCTAssertEqual(ccs.filter { $0.note == 123 }.count, FourfoldPorts.cableCount * 16, "CC123 (All-Notes-Off) on every channel of every cable (ALL + the eight ports)")
+        XCTAssertEqual(ccs.filter { $0.note == 120 }.count, FourfoldPorts.cableCount * 16, "CC120 (All-Sound-Off) on every channel of every cable (ALL + the eight ports)")
         assertNothingLeftSounding(e)
     }
 
@@ -4213,7 +4213,7 @@ final class RouterTests: XCTestCase {
     }
     // §4.6/§10 test 4: every sounding Euclideous voice gets its own note-off on its own channel, CC 123 goes
     // out on all 4 outputs' CURRENT channels, and the lane keeps playing afterward.
-    func testFourfoldAllNotesOffClosesEuclideousVoicesCC123sAllFourOutputsAndTheLaneContinues() {
+    func testFourfoldAllNotesOffClosesEuclideousVoicesCC123sAllEightPortsAndTheLaneContinues() {
         // pulses:2,steps:2 (not 1,1): the pattern builder clamps its step count to a minimum of 2
         // (`n = max(2, min(16, nIn))`), so a literal `steps:1` silently becomes a 2-element [hit,rest]
         // alternation, not a genuine always-hit single step — 2-of-2 is the real "every tick is a hit."
@@ -4941,6 +4941,24 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(notesOnly.ons.filter { $0.cable == 2 }.isEmpty)
         XCTAssertTrue(notesOnly.ons.filter { $0.cable == 1 }.isEmpty, "nothing leaks onto the riff port")
         assertNothingLeftSounding(notesOnly)
+    }
+    // Review 2026-10-27: the bus MASK of lane D's notes port is 128 — wider than an Int8 — so the REPEAT cache (and legato tracking) must hold it without wrapping into "unset" (which would send the replay to the riff port).
+    func testMixRepeatReplayOnLaneDKeepsTheNotesPortAndTheRiffPort() {
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 2; m.steps = 2; m.chance = 1; m.mode = .repeatNote; m.repeatCount = 3
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [5, 0, 0, 0, 0, 0, 0, 0])
+        var off = EuclidLine(); off.enabled = false
+        c.paramsA.euclidLines = [off, off, off, mixLine(pulses: 4, gate: 0.5, notesGate: 0.25, mask: m)]   // only lane D plays
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        mixRun(SnapshotBuilder.build(from: st), beats: 3.5, into: e, maskOn: true)
+        XCTAssertGreaterThanOrEqual(e.ons.filter { $0.note == 55 && $0.cable == 7 }.count, 3, "lane D's riff pitch and its replays are on Emit Riff D (cable 7)")
+        XCTAssertGreaterThanOrEqual(e.ons.filter { $0.note == 48 && $0.cable == 8 }.count, 3, "lane D's lit note and its replays are on Emit Notes D (cable 8)")
+        XCTAssertTrue(e.ons.filter { $0.note == 48 }.allSatisfy { $0.cable == 0 || $0.cable == 8 }, "…and never on the riff port")
+        assertNothingLeftSounding(e)
     }
     // Adversarial review 2026-10-27: PANIC's belt-and-braces CC120/CC123 reaches ALL and every one of the eight ports on every channel (it stopped at cable 4).
     func testPanicControllersReachAllNineCables() {
@@ -6457,6 +6475,8 @@ final class RouterTests: XCTestCase {
         // the hit on 3 (tick 2, k = 0): G3, A♭3, C4 at 0, 25 and 50 ms; all end where an unrolled hit (GATE 50% of the 1-beat gap = 12 000) would end
         let r0 = notesOnsAt(e, hit: 2)
         XCTAssertEqual(r0.map { $0.note }, [G3, Ab3, C4]); XCTAssertEqual(r0.map { $0.at }, [0, 1200, 2400])
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 && $0.sample >= 24_000 && $0.sample < 36_000 }.isEmpty, "the rolled notes — the deferred ones included — leave on Emit Notes A, never the riff's port")
+        XCTAssertEqual(e.ons.filter { $0.cable == 2 && $0.sample >= 24_000 && $0.sample < 36_000 }.count, 3)
         for n in r0 { XCTAssertEqual(n.off, 12_000, "\(n.note) ends where the unrolled hit's notes end") }
         // the hit on 5 (tick 4, k = 1): C4, A♭3, G3, also 25 ms apart; the unrolled length is 50% of the half-beat gap = 6 000
         let r1 = notesOnsAt(e, hit: 4)
@@ -6475,6 +6495,8 @@ final class RouterTests: XCTestCase {
             // the hit on 3: C4, G3, A♭3 at 0, 1/6, 1/3 of a beat after it (4 000 samples apart), each lasting GATE × 1/6 of a beat
             let r = notesOnsAt(e, hit: 2)
             XCTAssertEqual(r.map { $0.note }, [C4, G3, Ab3]); XCTAssertEqual(r.map { $0.at }, [0, 4000, 8000])
+            XCTAssertTrue(e.ons.filter { $0.cable == 1 && $0.sample >= 24_000 && $0.sample < 36_000 }.isEmpty, "gate \(gate): the spread notes — the deferred ones included — leave on Emit Notes A")
+            XCTAssertEqual(e.ons.filter { $0.cable == 2 && $0.sample >= 24_000 && $0.sample < 36_000 }.count, 3)
             for n in r { XCTAssertEqual(Double((n.off ?? 0) - n.at), gate * 4000, accuracy: 2, "gate \(gate): lasts its effective gate as a share of its slot") }
             assertNothingLeftSounding(e)
         }

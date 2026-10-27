@@ -308,16 +308,27 @@ struct EuclideousSettingsSheet: View {
     }
     /// One lane's two ports side by side: its letter in the lane colour, then RIFF and NOTES with a channel stepper each.
     private func portsLaneRow(_ row: EuclideousPortsTabRow, interactive: Bool) -> some View {
-        HStack(spacing: 8) {
-            Text(row.letter).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                .foregroundColor(row.lane < laneColours.count ? laneColours[row.lane] : Color(hex: 0xF2F4F7))
-                .frame(width: 14)
-                .accessibilityHidden(true)
-            ForEach(row.ports, id: \.bus) { port in
-                portsStepper(port, interactive: interactive)
+        let letter = Text(row.letter).font(.system(size: 12, weight: .heavy, design: .monospaced))
+            .foregroundColor(row.lane < laneColours.count ? laneColours[row.lane] : Color(hex: 0xF2F4F7))
+            .frame(width: EuclideousPortsRowMetrics.letterW)
+            .accessibilityHidden(true)
+        return Group {
+            if euclideousPortsRowIsStacked(cardWidth: euclideousSettingsSheetWidth(containerW: containerW)) {
+                // a narrow card (a small windowed host): RIFF over NOTES, the notes stepper indented under the first
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: EuclideousPortsRowMetrics.gap) { letter; portsStepper(row.ports[0], interactive: interactive) }.frame(height: 32)
+                    HStack(spacing: EuclideousPortsRowMetrics.gap) { Color.clear.frame(width: EuclideousPortsRowMetrics.letterW, height: 1); portsStepper(row.ports[1], interactive: interactive) }.frame(height: 32)
+                }
+            } else {
+                HStack(spacing: EuclideousPortsRowMetrics.gap) {
+                    letter
+                    ForEach(row.ports, id: \.bus) { port in
+                        portsStepper(port, interactive: interactive)
+                    }
+                }
+                .frame(height: 32)
             }
         }
-        .frame(height: 32)
     }
     private func portsStepper(_ port: EuclideousPortsTabPort, interactive: Bool) -> some View {
         let ch = port.bus < busChannels.count ? busChannels[port.bus] : port.bus + 1

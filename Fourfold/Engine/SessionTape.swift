@@ -12,9 +12,9 @@
 import Foundation
 import Atomics
 
-/// One recorded record, 8 bytes — everything the output sent: channel-voice messages (note on/off, CC, pitch bend) exactly as the `ReelDeck` holds them, on cables 0–4 (0 = ALL, 1–4 = A–D), plus
+/// One recorded record, 8 bytes — everything the output sent: channel-voice messages (note on/off, CC, pitch bend) exactly as the `ReelDeck` holds them, on cables 0–8 (0 = ALL, 1–8 = Emit Riff A, Emit Notes A … Emit Notes D, `FourfoldPorts`), plus
 /// three markers (tempo, pass start, transport segment). `tick` is session time (`SessionTape.ppq` per beat).
-/// meta: bits 0-2 type · bits 3-4 lane (0…3) · bit 5 lane known.   aux: bits 0-3 MIDI channel · bits 4-6 cable (0…4) — for a segment marker bit 0 = starting.
+/// meta: bits 0-2 type · bits 3-4 lane (0…3) · bit 5 lane known.   aux: bits 0-3 MIDI channel · bits 4-7 cable (0…8) — for a segment marker bit 0 = starting.
 struct TapeEvent: Equatable {
     var tick: UInt32
     var d1: UInt8
@@ -474,7 +474,7 @@ final class TapeRecorder {
     private var stopWindow = false               // the one window after a stop: the Router's flush note-offs land here
     private var stopTick = 0
     private(set) var recordedEvents = 0
-    // The lane that played each sounding note, so its note-off (which the Router sends without a tag) carries the same lane: [cable 0…4][channel][note].
+    // The lane that played each sounding note, so its note-off (which the Router sends without a tag) carries the same lane: [cable 0…8][channel][note].
     private let laneOfNote: UnsafeMutablePointer<Int8>
     static let jumpToleranceBeats = 0.05         // a beat further than this (plus one window) from where the last window ended is a jump, not a continuation
     static let minTempoGapTicks = 60             // a tempo ramp files at most one marker per 1/16 beat

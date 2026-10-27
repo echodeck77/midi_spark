@@ -2687,6 +2687,15 @@ func euclideousPortsTabRows() -> [EuclideousPortsTabRow] {
             EuclideousPortsTabPort(bus: FourfoldPorts.bus(lane: lane, part: .notes), label: "NOTES")])
     }
 }
+/// The PORTS tab's lane row is fixed-width: a letter (14) + two steppers (36 label + 4 + 84 = 124 each) + two 8 pt gaps = 278 pt. The sheet's block gives it `cardWidth − 32` (card and block padding), so under a 310 pt card the two steppers
+/// no longer fit side by side and the row stacks them (RIFF over NOTES). Never reached on an iPad window of normal size; a windowed host on an old iPad can get there.
+enum EuclideousPortsRowMetrics {
+    static let letterW: CGFloat = 14, gap: CGFloat = 8, labelW: CGFloat = 36, labelGap: CGFloat = 4, stepperW: CGFloat = 84
+    static var portW: CGFloat { labelW + labelGap + stepperW }
+    static var sideBySideW: CGFloat { letterW + gap + portW + gap + portW }
+    static let cardChrome: CGFloat = 32
+}
+func euclideousPortsRowIsStacked(cardWidth: CGFloat) -> Bool { cardWidth - EuclideousPortsRowMetrics.cardChrome < EuclideousPortsRowMetrics.sideBySideW }
 /// VoiceOver for one port's channel stepper: the host-visible port name and its channel — "Emit Riff A, channel 3".
 func euclideousPortChannelAccessibilityLabel(bus: Int, channel: Int) -> String {
     let cable = bus + 1

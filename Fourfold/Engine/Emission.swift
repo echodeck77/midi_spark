@@ -111,20 +111,21 @@ final class ReelDeck {
     // appending a synthetic OFF at `cycleBeats`, so the note re-strikes each loop instead of hanging. Fixed scratch, no alloc
     // (this runs once per promote/select, off the per-window render path). Uses the last-set `cycleBeats` (a step-rate change
     // is rare and self-corrects on the next promote/select).
-    private var openStatus = [UInt8](repeating: 0xFF, count: FourfoldPorts.busCount * 128)   // per (cable 1–8, note) the open ON's status byte; 0xFF = closed
+    // Keyed by (cable 0–8, channel, note): ALL (cable 0) is replayed too, and since THE NINE PORTS it carries every port's stream on that port's own channel — a held-across note on ALL needs its off like any other.
+    private var openStatus = [UInt8](repeating: 0xFF, count: FourfoldPorts.cableCount * 16 * 128)   // the open ON's status byte; 0xFF = closed
     private func closeOpenLoopNotes() {
         for i in openStatus.indices { openStatus[i] = 0xFF }
         for i in 0..<loopN {
             let e = loop[i]
-            guard e.cable >= 1, e.cable <= FourfoldPorts.busCount else { continue }
-            let k = Int(e.cable - 1) * 128 + Int(e.b1 & 0x7F)
+            guard e.cable <= FourfoldPorts.busCount else { continue }
+            let k = (Int(e.cable) * 16 + Int(e.b0 & 0x0F)) * 128 + Int(e.b1 & 0x7F)
             let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
             let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
             if isOn { openStatus[k] = e.b0 } else if isOff { openStatus[k] = 0xFF }
         }
         let off = max(0.0, loopCycle)                                  // close at the SELECTED pass's own length (not the live rate)
         for k in openStatus.indices where openStatus[k] != 0xFF && loopN < ReelDeck.cap {
-            let cable = UInt8(k / 128 + 1), note = UInt8(k % 128), status = 0x80 | (openStatus[k] & 0x0F)
+            let cable = UInt8(k / (16 * 128)), note = UInt8(k % 128), status = 0x80 | (openStatus[k] & 0x0F)
             loop[loopN] = Ev(beat: off, cable: cable, b0: status, b1: note, b2: 0); loopN += 1
         }
     }

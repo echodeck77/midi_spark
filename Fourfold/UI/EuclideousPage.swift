@@ -724,7 +724,7 @@ struct EuclideousPage: View {
     // removed along with that panel (2026-10-14 sequencer-panel ferry) — this one survives, feeding the
     // riff grid's own walk-arrow markers, a genuinely separate feature.
     let wipeEvents: [Router.EuclideousNoteViewEventSnapshot?]
-    // FOURFOLD HEADER (§4.8): each lane's latest real strike of any kind — read ONLY by the output rings' flare.
+    // FOURFOLD HEADER (§4.8): each lane's latest real strike of any kind — read by the NOTES key flash (the header's output rings that first used it are gone).
     let strikeEvents: [Router.EuclideousNoteViewEventSnapshot?]
     // PULSE ferry (2026-10-20): the retained strike feed (velocities, display-clock onsets) every strike effect reads, and the PULSE level (0 OFF · 1 SUBTLE · 2 FULL).
     let pulseFeed: EuclideousPulseFeed
@@ -4696,7 +4696,7 @@ struct EuclideousPage: View {
         return NotesTabData(specs: specs, list: list, spoken: spokenNames)
     }
     /// 10.1 / 10.2: which keys are sounding and where the riff dot sits, for lane `idx` at `beat` — from the lane's latest strike event (the engine's own NOTE VIEW event, the same feed the
-    /// header rings and the comet bar flash from) and `euclideousNotesKeyFlash`; nothing is kept per frame. ROLL's spacing needs the gap to the lane's next hit, so that is worked out
+    /// comet bar flashes from) and `euclideousNotesKeyFlash`; nothing is kept per frame. ROLL's spacing needs the gap to the lane's next hit, so that is worked out
     /// from the lane's own walk config exactly as the engine does (`euclideousNextChainHitGapBeats`).
     private func notesKeyFlash(_ idx: Int, _ line: EuclidLine, list: EuclideousNotesList, now: Double) -> EuclideousNotesKeyFlash {
         // the strike's pitches come from the latest NOTE VIEW event; its velocities and display-clock onset from the feed's matching strike (PULSE §8.1: the glow takes §1's f for the notes layer's played velocity)

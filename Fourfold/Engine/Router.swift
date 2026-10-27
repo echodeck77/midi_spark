@@ -284,7 +284,7 @@ final class Router {
     // `euclideousLastSoundedCount[i] = 0`, so nothing ever reads a stale slot.
     private var euclideousLastSoundedVels = [UInt8](repeating: 0, count: 4 * 9)
     // THE NINE PORTS: the per-pitch BUS sibling — a replayed set goes back out on the port each pitch first struck on (a riff pitch on the riff port, a lit note on the notes port), gated by `euclideousLastSoundedCount` like its siblings.
-    private var euclideousLastSoundedBus = [Int8](repeating: -1, count: 4 * 9)
+    private var euclideousLastSoundedBus = [Int16](repeating: -1, count: 4 * 9)   // a bus MASK (one bit, up to 128) — wider than Int8 on purpose
     // MIX TAB (2026-10-18): the per-pitch GATE sibling to `euclideousLastSoundedVels` — each cached pitch replays at its OWN layer's
     // gate (riff pitch = GATE, lit notes/TOP/TOP2 = the notes gate), gated by `euclideousLastSoundedCount[i]` like its siblings.
     private var euclideousLastSoundedGates = [Double](repeating: 0, count: 4 * 9)
@@ -311,7 +311,7 @@ final class Router {
     // (an ALT switch) does NOT reuse the old voice — the match becomes output-aware and the old voice closes/the new
     // strikes fresh. -1 ⇒ inherit (matches the `pitchBus` convention). For every lane with ALT OFF a pitch's group is
     // constant hit-to-hit, so the extra predicate is always true and the match is byte-identical.
-    private var euclideousLegatoBus = [Int8](repeating: -1, count: 4 * 9)
+    private var euclideousLegatoBus = [Int16](repeating: -1, count: 4 * 9)   // a bus MASK (one bit, up to 128 = lane D's notes port) — Int8 would trap on it
     private var euclideousLegatoCount = [Int](repeating: 0, count: 4)
     // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
     // immediately") — checked in its OWN unconditional loop (NOT nested inside the per-line dispatch
@@ -780,7 +780,7 @@ final class Router {
     private var hitMaskBuf = [Bool](repeating: false, count: 16)
     private var legatoMatched = [Int](repeating: -1, count: 9)
     private var legatoNewPitch = [Int8](repeating: -1, count: 9)
-    private var legatoNewBus = [Int8](repeating: -1, count: 9)   // ALT §6.3: the group each newly-tracked legato pitch opened on
+    private var legatoNewBus = [Int16](repeating: -1, count: 9)   // ALT §6.3: the group each newly-tracked legato pitch opened on
     private var legatoNewOwn = [Int16](repeating: -1, count: 9)
     private var legatoNewAll = [Int16](repeating: -1, count: 9)
     @inline(__always) private func takeScratch<T>(_ store: inout [T], count: Int, filledWith value: T) -> [T] {
@@ -2030,9 +2030,8 @@ final class Router {
         // its own finite gate-based length — a non-legato pitch just has its tracking absent and any previously-open legato voice's own
         // already-scheduled finite close fires on its own schedule.
         @discardableResult
-        // PER-LAYER ROUTING ferry (2026-10-25): `busOf(j)` gives pitch j its own output mask — a riff pitch's riffBus,
-        // a notes pitch's notesBus, a §4.2 collision slot's notesOnly. A non-escaping closure (no allocation). For every
-        // existing lane every pitch resolves to emitterMask, so a new legato pitch opens on the same cables as before.
+        // THE NINE PORTS: `busOf(j)` gives pitch j its own bus — a riff pitch's riffBus, a notes pitch's notesBus (a pitch both layers play is two slots). A non-escaping closure (no allocation); a legato note is
+        // tracked with the bus it opened on, so it only carries on while it keeps leaving on the same port.
         func reconcileEuclidLegato(lineIndex: Int, pitches: [Int], pitchCount: Int, vels: [UInt8], gates: [Double], tau: Double,
                                     isRatchetThisHit: Bool, overlapBeats: Double, busOf: (Int) -> UInt8?) -> UInt16 {
             func isLegatoPitch(_ j: Int) -> Bool { !isRatchetThisHit && j < gates.count && euclideousGateIsLegato(gates[j]) }
@@ -2075,7 +2074,7 @@ final class Router {
             for j in 0..<pitchCount where isLegatoPitch(j) {
                 legatoMask |= UInt16(1) << UInt16(j)
                 newPitch[tracked] = Int8(clamping: pitches[j])
-                newBus[tracked] = Int8(busOf(j).map(Int.init) ?? -1)   // ALT §6.3: remember the group this voice opened on
+                newBus[tracked] = Int16(busOf(j).map(Int.init) ?? -1)   // ALT §6.3: remember the group this voice opened on
                 if matchedOldIndexForNew[j] >= 0 {
                     let i = matchedOldIndexForNew[j]
                     newOwn[tracked] = euclideousLegatoOwnSlot[base + i]; newAll[tracked] = euclideousLegatoAllSlot[base + i]
@@ -2548,7 +2547,7 @@ final class Router {
                     // lanes). Without this guard, an ordinary EUCLID processor on any other row would also
                     // write into this SAME 4-slot queue, corrupting Euclideous's own NOTE VIEW with
                     // whichever unrelated cell happened to strike most recently.
-                    // ferry: a hit produces a NOTE VIEW event (UI flare telemetry) if EITHER layer would leave anywhere — the union of the two parts. Both equal emitterMask for an existing lane, so byte-identical.
+                    // ferry: a hit produces a NOTE VIEW event (UI flare telemetry) if EITHER layer would leave anywhere — the union of the lane's two ports.
                     let nvSent = isEuclideousRow && chopMask(cell, m: mTickBeat, S: S, base: riffBus | notesBus) != 0
                     func nvTiming(_ gateBeatsReal: Double) -> (onset: Double, duration: Double) {
                         let onsetReal = realOf(mTickBeat, stepBeats: S, a: a)
@@ -3296,7 +3295,7 @@ final class Router {
                                     euclideousLastSoundedNotes[lineIndex * 9 + i] = Int8(clamping: pitches[i])
                                     euclideousLastSoundedVels[lineIndex * 9 + i] = pitchVel[i]
                                     euclideousLastSoundedGates[lineIndex * 9 + i] = pitchGate[i]
-                                    euclideousLastSoundedBus[lineIndex * 9 + i] = Int8(truncatingIfNeeded: pitchBus[i])
+                                    euclideousLastSoundedBus[lineIndex * 9 + i] = Int16(truncatingIfNeeded: pitchBus[i])
                                 }
                                 if nvSent {
                                     var nc = 0
@@ -3400,7 +3399,7 @@ final class Router {
                                     euclideousLastSoundedNotes[lineIndex * 9 + i] = Int8(clamping: pitches[i])
                                     euclideousLastSoundedVels[lineIndex * 9 + i] = pitchVel[i]
                                     euclideousLastSoundedGates[lineIndex * 9 + i] = pitchGate[i]
-                                    euclideousLastSoundedBus[lineIndex * 9 + i] = Int8(truncatingIfNeeded: pitchBus[i])
+                                    euclideousLastSoundedBus[lineIndex * 9 + i] = Int16(truncatingIfNeeded: pitchBus[i])
                                 }
                                 euclideousLastSoundedVel[lineIndex] = vel   // UNCHANGED — stays shared with the legacy non-Euclideous `.repeatNote` path; never widened/removed
                             }

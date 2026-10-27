@@ -346,7 +346,7 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(a.euclidLines[0].riffLengthResolved, 6, "per-line LENGTH must survive the resolve")
         XCTAssertTrue(a.euclidLines[0].riffAdvanceStepResolved, "per-line ADVANCE must survive the resolve")
         XCTAssertEqual(a.euclidLines[0].melodyTransposeResolved, -4, "per-line TRANSPOSE must survive the resolve")
-        // clamping survives the resolve too (mirrors the emitterMask/riffOctave precedent just above)
+        // clamping survives the resolve too (mirrors the riffOctave precedent just above)
         let clamped = box(machines(customizing: 0) {
             $0.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8, riffStride: 99, riffLength: 99, melodyTranspose: 99)]
         }) { _ in }.machines[0].a

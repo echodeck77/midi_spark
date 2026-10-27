@@ -49,6 +49,8 @@ struct FourfoldReelBrowser: View {
 
     private let poll = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
+    /// Two stacked port tags (≈ 12 pt each + 2) need this much lane-row height; shorter rows lay them side by side.
+    static let reelPortTagsStackedMinHeight: CGFloat = 28
     static let laneHues: [Color] = [Color(red: 0.19, green: 0.83, blue: 0.91),   // A cyan
                                     Color(red: 0.36, green: 0.92, blue: 0.52),   // B green
                                     Color(red: 1.0,  green: 0.72, blue: 0.2),    // C amber
@@ -292,6 +294,12 @@ struct FourfoldReelBrowser: View {
         func toggle(_ ports: [Int]) {
             if ports.allSatisfy({ reelExportPorts.contains($0) }) { ports.forEach { reelExportPorts.remove($0) } } else { ports.forEach { reelExportPorts.insert($0) } }
         }
+        @ViewBuilder func portTags() -> some View {
+            tag("RIFF \(FourfoldPorts.laneLetters[lane])", riffNotes.count, selected: riffSelected, tint: hue)
+                .onTapGesture { toggle([riffBus]) }
+            tag("NOTES \(FourfoldPorts.laneLetters[lane])", notesNotes.count, selected: notesSelected, tint: notesHue)
+                .onTapGesture { toggle([notesBus]) }
+        }
         func tag(_ name: String, _ count: Int, selected: Bool, tint: Color) -> some View {
             HStack(spacing: 3) {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 8, weight: .bold)).foregroundColor(selected ? tint : tint.opacity(0.4))
@@ -336,11 +344,12 @@ struct FourfoldReelBrowser: View {
                     }
                 }
             }.frame(width: width, height: height)
-            VStack(alignment: .leading, spacing: 2) {
-                tag("RIFF \(FourfoldPorts.laneLetters[lane])", riffNotes.count, selected: riffSelected, tint: hue)
-                    .onTapGesture { toggle([riffBus]) }
-                tag("NOTES \(FourfoldPorts.laneLetters[lane])", notesNotes.count, selected: notesSelected, tint: notesHue)
-                    .onTapGesture { toggle([notesBus]) }
+            Group {
+                if height >= Self.reelPortTagsStackedMinHeight {
+                    VStack(alignment: .leading, spacing: 2) { portTags() }
+                } else {
+                    HStack(spacing: 2) { portTags() }   // a one-cell-tall lane on a small reel has no room for two stacked tags (review 2026-10-27)
+                }
             }.padding(.leading, 4)
         }
         .overlay(riffSelected && notesSelected ? RoundedRectangle(cornerRadius: 3).stroke(hue, lineWidth: 1.5) : nil)   // BOTH ports selected for export
@@ -353,7 +362,7 @@ struct FourfoldReelBrowser: View {
         let (lo, hi) = reelExportRange()
         guard lo >= 0, hi >= 0, reelExportAvailability(anyPass: reelPassNumbers.contains { $0 >= 0 }, selected: true, outputCounts: reelOutputCounts(), lanes: reelExportPorts).ok else { return }
         var mask: UInt8 = 0; for l in reelExportPorts where l >= 0 && l < FourfoldPorts.busCount { mask |= (1 << UInt8(l)) }
-        let files = au?.reelExportRangeFiles(fromPass: lo, toPass: hi, emitterMask: mask) ?? []
+        let files = au?.reelExportRangeFiles(fromPass: lo, toPass: hi, portMask: mask) ?? []
         guard !files.isEmpty else { return }
         // In the standalone app the exports are kept in Documents/Reel exports (visible in the Files app, like the presets); in the AU extension they stay temporary — its container is invisible.
         var dir = FileManager.default.temporaryDirectory

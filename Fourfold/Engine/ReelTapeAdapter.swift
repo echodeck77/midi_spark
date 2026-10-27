@@ -79,18 +79,18 @@ extension SessionTape {
         return (out, offset)
     }
 
-    /// The MIDI files for passes `lo…hi`: `emitterMask` 0 = the sum of the eight ports as one file, else one per selected port (bit 0 = Riff A, bit 1 = Notes A … bit 7 = Notes D, `FourfoldPorts`). The tempo header is the tempo the first pass was PLAYED at (REEL-12), not the current one.
-    func reelExportFiles(from lo: Int, to hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] {
+    /// The MIDI files for passes `lo…hi`: `portMask` 0 = the sum of the eight ports as one file, else one per selected port (bit 0 = Riff A, bit 1 = Notes A … bit 7 = Notes D, `FourfoldPorts`). The tempo header is the tempo the first pass was PLAYED at (REEL-12), not the current one.
+    func reelExportFiles(from lo: Int, to hi: Int, portMask: UInt8) -> [(name: String, data: Data)] {
         let f = filedPasses()
         guard !f.isEmpty else { return [] }
         let first = max(0, min(min(lo, hi), f.count - 1))
         let bpm = self.bpm(at: f[first].startTick)
         var files: [(name: String, data: Data)] = []
-        if emitterMask == 0 {
+        if portMask == 0 {
             let (evs, total) = reelExportEvents(from: lo, to: hi, cables: Set((1...FourfoldPorts.busCount).map { UInt8($0) }))
             if !evs.isEmpty { files.append((name: "Fourfold-All.mid", data: MidiFile.encode(events: evs, bpm: bpm, ppq: 480, loopBeats: total))) }
         } else {
-            for i in 0..<FourfoldPorts.busCount where (emitterMask & (1 << UInt8(i))) != 0 {
+            for i in 0..<FourfoldPorts.busCount where (portMask & (1 << UInt8(i))) != 0 {
                 let (evs, total) = reelExportEvents(from: lo, to: hi, cables: [UInt8(i + 1)])
                 let label = FourfoldPorts.shortName(cable: i + 1).capitalized
                 if !evs.isEmpty { files.append((name: "Fourfold-\(label).mid", data: MidiFile.encode(events: evs, bpm: bpm, ppq: 480, loopBeats: total))) }

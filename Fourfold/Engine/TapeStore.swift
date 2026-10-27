@@ -12,7 +12,8 @@ import Foundation
 final class TapeStore {
     struct Block { var offset: UInt64; var count: Int; var minTick: UInt32; var maxTick: UInt32 }
 
-    static let fileMagic: [UInt8] = [0x46, 0x46, 0x54, 0x41, 0x50, 0x45, 0x00, 0x01]
+    // Version 2 (THE NINE PORTS, 2026-10-27): the cable field now means ALL + eight ports (it used to mean ALL + outputs A–D), so a version-1 file is reset on load instead of being re-read with its passes on the wrong ports.
+    static let fileMagic: [UInt8] = [0x46, 0x46, 0x54, 0x41, 0x50, 0x45, 0x00, 0x02]
     static let blockMagic: UInt32 = 0xB10C_7A9E
     static let fileHeaderBytes: UInt64 = 16, blockHeaderBytes: UInt64 = 24
 
