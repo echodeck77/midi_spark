@@ -47,9 +47,9 @@ final class SessionTapeTests: XCTestCase {
     }
 
     func testOutOfRangeFieldsAreClamped() {
-        let e = TapeEvent.note(tick: 5, on: true, note: 200, vel: 255, cable: 9, lane: 7, channel: 31)
+        let e = TapeEvent.note(tick: 5, on: true, note: 200, vel: 255, cable: 20, lane: 7, channel: 31)
         XCTAssertEqual(e.note, 200 & 0x7F)
-        XCTAssertEqual(e.cable, 4)
+        XCTAssertEqual(e.cable, FourfoldPorts.busCount, "the highest port")
         XCTAssertEqual(e.lane, 3)
         XCTAssertEqual(e.channel, 15)
     }

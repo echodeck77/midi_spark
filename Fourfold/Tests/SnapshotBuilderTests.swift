@@ -675,7 +675,7 @@ final class SnapshotBuilderTests: XCTestCase {
         var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [s])
         d.busChannels = [5, 2, 99, 0]   // 99 and 0 are out of range → clamp to 16 / 1
         let b = SnapshotBuilder.build(from: d)
-        XCTAssertEqual(b.busChannels, [5, 2, 16, 1])
+        XCTAssertEqual(b.busChannels, [5, 5, 2, 2, 16, 16, 1, 1], "a four-lane list fills both ports of each lane")
         XCTAssertEqual(b.cells[0].inputChannel, 3)
     }
 

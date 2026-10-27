@@ -269,12 +269,12 @@ final class MigrationTests: XCTestCase {
         for k in ["busChannels", "activeScene", "morphMaster"] { root.removeValue(forKey: k) }
         let r = try JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: root))   // must NOT throw
         XCTAssertNil(r.busChannels); XCTAssertNil(r.activeScene); XCTAssertNil(r.morphMaster)
-        XCTAssertEqual(r.busChannelsResolved, [1, 2, 3, 4], "nil ⇒ the default stamp channels")
+        XCTAssertEqual(r.busChannelsResolved, [1, 2, 3, 4, 5, 6, 7, 8], "nil ⇒ the default stamp channels (one per port)")
         XCTAssertEqual(r.activeSceneResolved, 0, "nil ⇒ scene 0")
         // morphMaster is a decode-only zombie now (the render never reads it; morphMasterResolved was removed 2026-09-17) — its nil is asserted above.
         // and the present values still round-trip when the keys ARE there
         let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(d))
-        XCTAssertEqual(back.busChannelsResolved, [7, 8, 9, 10]); XCTAssertEqual(back.activeSceneResolved, 1); XCTAssertEqual(back.morphMaster, 0.5)
+        XCTAssertEqual(back.busChannelsResolved, [7, 7, 8, 8, 9, 9, 10, 10], "a pre-nine-ports four-lane list fills both ports of each lane"); XCTAssertEqual(back.activeSceneResolved, 1); XCTAssertEqual(back.morphMaster, 0.5)
     }
 
     /// `resolved4` — the shared nil-safe per-emitter resolver behind ~11 rack helpers. Its four branches:

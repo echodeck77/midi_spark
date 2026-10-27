@@ -6197,6 +6197,29 @@ final class RouterTests: XCTestCase {
         for h in 0..<10 where [0, 3].contains(h % 5) { XCTAssertFalse(aByHit[h].isEmpty, "play hit \(h): the riff sounds") }
         for h in 0..<10 { XCTAssertFalse(bByHit[h].isEmpty, "hit \(h): the notes chord sounds in full") }
     }
+    // THE NINE PORTS: each port stamps its OWN channel. Lane 1's riff leaves on Emit Riff A with that port's channel, its notes on Emit Notes A with theirs, and ALL carries each stream on the channel of the port it came from.
+    func testEachPortStampsItsOwnChannelAndAllCarriesThemToldApart() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: notesExRanks)
+        c.paramsA.euclidLines = [notesLine(.chord, when: 0b11)]
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi
+        st.busChannels = [3, 9, 1, 1, 1, 1, 1, 1]   // Riff A = channel 3, Notes A = channel 9
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(from: st), chord(notesExPool), beats: 4.5, into: e, forceColumn: 0)
+        assertNothingLeftSounding(e)
+        for cable: UInt8 in [0, 1, 2] {
+            XCTAssertFalse(e.ons.filter { $0.cable == cable }.isEmpty, "cable \(cable) sounds")
+        }
+        XCTAssertEqual(Set(e.events.filter { $0.cable == 1 }.map { $0.chan }), [2], "Emit Riff A: channel 3 → wire 2")
+        XCTAssertEqual(Set(e.events.filter { $0.cable == 2 }.map { $0.chan }), [8], "Emit Notes A: channel 9 → wire 8")
+        XCTAssertEqual(Set(e.events.filter { $0.cable == 0 }.map { $0.chan }), [2, 8], "ALL carries the riff on channel 3 and the notes on channel 9")
+        XCTAssertEqual(e.ons.filter { $0.cable == 0 && $0.chan == 2 }.count, e.ons.filter { $0.cable == 1 }.count, "ALL's channel-3 stream is exactly the riff port's")
+        XCTAssertEqual(e.ons.filter { $0.cable == 0 && $0.chan == 8 }.count, e.ons.filter { $0.cable == 2 }.count, "…and its channel-9 stream exactly the notes port's")
+    }
+
     // §4 test 5 (mid-note stress, mirrors testEuclideousStuckNoteStressRapidLitOctaveRiffToggling): toggle both
     // layers through one Router across many renders, over a lane running ties, ratchets,
     // ROLL/RUN, GATE 100 and transport restarts. Nothing may be left sounding on ANY output.
