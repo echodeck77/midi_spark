@@ -4924,6 +4924,33 @@ final class RouterTests: XCTestCase {
         }
         assertNothingLeftSounding(e)
     }
+    // THE NINE PORTS (adversarial review 2026-10-27): a REPEAT replay sends each cached pitch back out on the port it FIRST struck on — the riff pitch on Emit Riff A, the lit note on Emit Notes A — not
+    // everything on the riff port. repeatCount 3 exercises both replay paths (the REPEAT trigger and the hold that continues it).
+    func testMixRepeatReplaysEachPitchOnItsOwnPort() {
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 2; m.steps = 2; m.chance = 1; m.mode = .repeatNote; m.repeatCount = 3
+        let e = RecordingEmitter()
+        mixRun(mixBox(mixLine(pulses: 4, gate: 0.5, notesGate: 0.25, mask: m)), beats: 3.5, into: e, maskOn: true)
+        XCTAssertGreaterThanOrEqual(e.ons.filter { $0.note == 55 }.count, 3, "the riff pitch struck and was replayed")
+        XCTAssertTrue(e.ons.filter { $0.note == 55 }.allSatisfy { $0.cable == 0 || $0.cable == 1 }, "every riff-pitch strike, replays included, is on Emit Riff A (or ALL)")
+        XCTAssertTrue(e.ons.filter { $0.note == 48 }.allSatisfy { $0.cable == 0 || $0.cable == 2 }, "every lit-note strike, replays included, is on Emit Notes A (or ALL)")
+        XCTAssertGreaterThanOrEqual(e.ons.filter { $0.note == 48 && $0.cable == 2 }.count, 3)
+        assertNothingLeftSounding(e)
+        // a lane with its riff OFF: the lit notes are the whole set, so every replay stays on Emit Notes A
+        let notesOnly = RecordingEmitter()
+        mixRun(mixBox(mixLine(pulses: 4, gate: 0.5, notesGate: 0.25, riffOn: false, mask: m)), beats: 3.5, into: notesOnly, maskOn: true)
+        XCTAssertFalse(notesOnly.ons.filter { $0.cable == 2 }.isEmpty)
+        XCTAssertTrue(notesOnly.ons.filter { $0.cable == 1 }.isEmpty, "nothing leaks onto the riff port")
+        assertNothingLeftSounding(notesOnly)
+    }
+    // Adversarial review 2026-10-27: PANIC's belt-and-braces CC120/CC123 reaches ALL and every one of the eight ports on every channel (it stopped at cable 4).
+    func testPanicControllersReachAllNineCables() {
+        let e = RecordingEmitter()
+        Router().panicControllers(atSample: 0, out: e)
+        for cable in 0...FourfoldPorts.busCount {
+            let ccs = e.events.filter { $0.cable == UInt8(cable) && $0.status == 0xB0 }
+            XCTAssertEqual(ccs.count, 32, "cable \(cable): CC120 + CC123 on all 16 channels")
+        }
+    }
     // §9.7 — stuck-note stress: both gates (across 100%), both velocities, both layers on and off, the lit mask, MONO steal and transport restarts.
     func testMixPerLayerGateVelocityStuckNoteStress() {
         let pool: [UInt8] = [60, 62, 64, 65, 67, 69, 71, 72]

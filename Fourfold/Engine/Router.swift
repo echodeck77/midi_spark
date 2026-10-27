@@ -283,6 +283,8 @@ final class Router {
     // transport edge, same as `euclideousLastSoundedNotes` itself — both are safely gated by
     // `euclideousLastSoundedCount[i] = 0`, so nothing ever reads a stale slot.
     private var euclideousLastSoundedVels = [UInt8](repeating: 0, count: 4 * 9)
+    // THE NINE PORTS: the per-pitch BUS sibling — a replayed set goes back out on the port each pitch first struck on (a riff pitch on the riff port, a lit note on the notes port), gated by `euclideousLastSoundedCount` like its siblings.
+    private var euclideousLastSoundedBus = [Int8](repeating: -1, count: 4 * 9)
     // MIX TAB (2026-10-18): the per-pitch GATE sibling to `euclideousLastSoundedVels` — each cached pitch replays at its OWN layer's
     // gate (riff pitch = GATE, lit notes/TOP/TOP2 = the notes gate), gated by `euclideousLastSoundedCount[i]` like its siblings.
     private var euclideousLastSoundedGates = [Double](repeating: 0, count: 4 * 9)
@@ -773,6 +775,7 @@ final class Router {
     private var hitPitchBus = [Int](repeating: -1, count: 9)
     private var hitCachedPitches = [Int](repeating: 0, count: 9)
     private var hitCachedVels = [UInt8](repeating: 0, count: 9)
+    private var hitCachedBus = [Int](repeating: -1, count: 9)
     private var hitCachedGates = [Double](repeating: 0, count: 9)
     private var hitMaskBuf = [Bool](repeating: false, count: 16)
     private var legatoMatched = [Int](repeating: -1, count: 9)
@@ -1276,7 +1279,7 @@ final class Router {
     /// blameless reset. Only on the hard flush (master-MUTE long-press / panic) — never on ordinary edges.
     func panicControllers(atSample time: Int64, out: MIDIEmitter?) {
         guard let out else { return }
-        for cable: UInt8 in 0...4 {
+        for cable: UInt8 in 0...UInt8(FourfoldPorts.busCount) {   // ALL + the eight ports
             for ch: UInt8 in 0...15 {
                 out.emit(sampleTime: time, cable: cable, 0xB0 | ch, 120, 0)   // All Sound Off
                 out.emit(sampleTime: time, cable: cable, 0xB0 | ch, 123, 0)   // All Notes Off
@@ -2614,11 +2617,13 @@ final class Router {
                                     var cachedPitches = takeScratch(&hitCachedPitches, count: 9, filledWith: 0)
                                     var cachedVels = takeScratch(&hitCachedVels, count: 9, filledWith: 0)
                                     var cachedGates = takeScratch(&hitCachedGates, count: 9, filledWith: 0)
-                                    defer { hitCachedPitches = cachedPitches; hitCachedVels = cachedVels; hitCachedGates = cachedGates }
+                                    var cachedBus = takeScratch(&hitCachedBus, count: 9, filledWith: -1)
+                                    defer { hitCachedPitches = cachedPitches; hitCachedVels = cachedVels; hitCachedGates = cachedGates; hitCachedBus = cachedBus }
                                     for i in 0..<n {
                                         cachedPitches[i] = Int(euclideousLastSoundedNotes[lineIndex * 9 + i])
                                         cachedVels[i] = euclideousLastSoundedVels[lineIndex * 9 + i]
                                         cachedGates[i] = euclideousLastSoundedGates[lineIndex * 9 + i]
+                                        let cb = Int(euclideousLastSoundedBus[lineIndex * 9 + i]); cachedBus[i] = cb >= 0 ? cb : Int(riffBus)
                                     }
                                     let gb = max(minGateBeats5ms, cachedGates[0] * nextHitGapBeats)   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
                                     // GATE/legato: a REPEAT-hold's cached set IS, by definition, exactly what's
@@ -2626,12 +2631,12 @@ final class Router {
                                     // (no re-strike) at 100%, correctly continuing to extend rather than
                                     // restriking each tick; below 100% it clears tracking and this falls
                                     // through to the OLD per-tick restrike loop, now on the new gap-based gate.
-                                    // ferry §4.1: a REPEAT-HOLD replay is the riff layer — route it to riffBus (pitchBus isn't built on this early path).
+                                    // THE NINE PORTS: each replayed pitch goes back out on the port it first struck on (`cachedBus`; pitchBus isn't built on this early path).
                                     let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: cachedPitches, pitchCount: n, vels: cachedVels, gates: cachedGates,
-                                                                         tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: { _ in riffBus })
+                                                                         tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: { i in UInt8(truncatingIfNeeded: cachedBus[i]) })
                                     for i in 0..<n where handled & (UInt16(1) << UInt16(i)) == 0 {
                                         strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: max(minGateBeats5ms, cachedGates[i] * nextHitGapBeats), octave: 0,
-                                                    explicitNote: cachedPitches[i], explicitVel: cachedVels[i], busOverride: riffBus)
+                                                    explicitNote: cachedPitches[i], explicitVel: cachedVels[i], busOverride: UInt8(truncatingIfNeeded: cachedBus[i]))
                                     }
                                     if nvSent {
                                         var nc = 0
@@ -2879,7 +2884,7 @@ final class Router {
                             defer { hitPitchGate = pitchGate }
                             // THE NINE PORTS (2026-10-26): each merged pitch leaves on its OWN port — a riff pitch on the lane's RIFF port (`riffBus`), a notes pitch on its NOTES port (`notesBus`). `busOf(j)` is what every
                             // strike/defer below reads in place of the lane-wide `busOverride`. The two layers are independent streams: a notes pitch equal to the riff pitch is NOT dropped — it takes its own slot (the same
-                            // pitch on the other port). At most 1 riff pitch + 8 lit notes = 9 slots, the scratch size.
+                            // pitch on the other port). The scratch holds 9 slots: a riff pitch + up to 8 lit notes; a hit with more distinct pitches (TOP/TOP2 beyond rank 8 on a big held chord) drops the extras, as it always did.
                             var pitchBus = takeScratch(&hitPitchBus, count: 9, filledWith: -1)
                             defer { hitPitchBus = pitchBus }
                             func busOf(_ j: Int) -> UInt8? { j < 9 && pitchBus[j] >= 0 ? UInt8(pitchBus[j]) : nil }
@@ -3265,12 +3270,14 @@ final class Router {
                                 let cachedN = euclideousLastSoundedCount[lineIndex]
                                 if cachedN > 0 {
                                     pitchCount = min(9, cachedN)
-                                    notesPitchMask = 0; notesSlotBits = ~0   // a replayed set strikes together and carries on as the riff note does (as before)
+                                    notesPitchMask = 0; notesSlotBits = ~0   // a replayed set strikes together (no spread)
                                     for i in 0..<pitchCount {
                                         pitches[i] = Int(euclideousLastSoundedNotes[lineIndex * 9 + i])
                                         pitchVel[i] = euclideousLastSoundedVels[lineIndex * 9 + i]
                                         pitchGate[i] = euclideousLastSoundedGates[lineIndex * 9 + i]
-                                        pitchBus[i] = Int(riffBus)   // ferry §4.1: REPEAT's replayed set is the riff layer, routed to riffBus
+                                        let cb = Int(euclideousLastSoundedBus[lineIndex * 9 + i])
+                                        pitchBus[i] = cb >= 0 ? cb : Int(riffBus)   // THE NINE PORTS: back out on the port each pitch first struck on (a notes-layer pitch stays on the notes port)
+                                        if pitchBus[i] == Int(notesBus) { notesPitchMask |= UInt16(1) << UInt16(i) }   // …and keeps the notes layer's TIE extension
                                     }
                                 }
                                 euclideousMaskRepeatRemaining[lineIndex] = mm.repeatCountResolved - 1
@@ -3289,6 +3296,7 @@ final class Router {
                                     euclideousLastSoundedNotes[lineIndex * 9 + i] = Int8(clamping: pitches[i])
                                     euclideousLastSoundedVels[lineIndex * 9 + i] = pitchVel[i]
                                     euclideousLastSoundedGates[lineIndex * 9 + i] = pitchGate[i]
+                                    euclideousLastSoundedBus[lineIndex * 9 + i] = Int8(truncatingIfNeeded: pitchBus[i])
                                 }
                                 if nvSent {
                                     var nc = 0
@@ -3392,6 +3400,7 @@ final class Router {
                                     euclideousLastSoundedNotes[lineIndex * 9 + i] = Int8(clamping: pitches[i])
                                     euclideousLastSoundedVels[lineIndex * 9 + i] = pitchVel[i]
                                     euclideousLastSoundedGates[lineIndex * 9 + i] = pitchGate[i]
+                                    euclideousLastSoundedBus[lineIndex * 9 + i] = Int8(truncatingIfNeeded: pitchBus[i])
                                 }
                                 euclideousLastSoundedVel[lineIndex] = vel   // UNCHANGED — stays shared with the legacy non-Euclideous `.repeatNote` path; never widened/removed
                             }
