@@ -608,3 +608,49 @@ final class PortsStressTests: XCTestCase {
         XCTAssertGreaterThan(hocketPassedNotes, 20, "the raw-gate fuzz passes lines between lanes too (\(hocketPassedNotes))")
     }
 }
+
+// MARK: - lane isolation under a lit rule (adversarial review 2026-10-27)
+extension PortsStressTests {
+    /// A lit rule on lanes 1–2 must leave lanes 3–4's outputs byte-identical (the clock pre-pass runs the reference lanes twice a window; ALL joins only while a rule is lit, and these channels are distinct).
+    func testARuleOnLanes1And2LeavesLanes3And4OutputsByteIdentical() {
+        var diverged: [String] = [], litRuns = 0
+        for seed in 1...160 {
+            var g = SM64(UInt64(seed) &* 0x9E3779B97F4A7C15)
+            var (st, pool) = rDoc(&g, lanes: (0..<4).map { _ in rPlayingLane(&g) }, rawGates: seed % 2 == 0)
+            pool.reset(); for n in [48, 55, 60, 64, 67, 72] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
+            st.euclideousNoteSource = .midi
+            st.busChannels = [1, 2, 3, 4, 5, 6, 7, 8]
+            var r = HocketRule()
+            switch seed % 4 {
+            case 0: r.main = [1]; r.alt = [3]; r.unit = .hits; r.mainLen = 3; r.altLen = 1
+            case 1: r.mode = .pass; r.main = [2]; r.alt = [4]; r.unit = .bars
+            case 2: r.mode = .pass; r.main = [1, 2]; r.alt = [3, 4]; r.several = .rotate; r.unit = .passes; r.mainLen = 2
+            default: r.main = [2, 4]; r.alt = [1]; r.unit = .hits; r.countOn = 1; r.several = .rotate
+            }
+            var baseState = st; baseState.hocketRules = nil
+            var ruleState = st; ruleState.hocketRules = HocketRuleSet([r]); ruleState.busChannels = st.busChannels
+            func run(_ s: PluginState) -> [TaggedEmitter.Ev] {
+                var gg = SM64(UInt64(seed) &* 77)
+                let box = SnapshotBuilder.build(from: s)
+                let router = Router(); var diag = KernelDiag(); let e = TaggedEmitter()
+                var beat = 0.0, ts = 0.0
+                for w in 0..<60 {
+                    e.win = w
+                    let frames = UInt32([512, 1024, 2048, 4096].randomElement(using: &gg)!)
+                    router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: 140, sampleRate: 48_000, timestampSample: ts, frameCount: frames,
+                                   euclideousSoloLive: UInt16(s.euclideousSoloMaskResolved), out: e, diag: &diag)
+                    beat += Double(frames) * 140.0 / 60.0 / 48_000; ts += Double(frames)
+                }
+                return e.events
+            }
+            let a = run(baseState), b = run(ruleState)
+            func slice(_ evs: [TaggedEmitter.Ev]) -> [String] {
+                evs.filter { ($0.status == 0x90 || $0.status == 0x80) && (($0.cable >= 5 && $0.cable <= 8) || ($0.cable == 0 && $0.chan >= 4 && $0.chan <= 7)) }.map { "\($0.sample)/\($0.cable)/\($0.status)/\($0.chan)/\($0.note)/\($0.vel)" }
+            }
+            let sa = slice(a).sorted(), sb = slice(b).sorted()          // as sets: which voice slot a note lands in (so the order a window's offs come out in) shifts when another lane's notes are routed
+            litRuns += 1
+            if sa != sb { diverged.append("seed \(seed) (rule kind \(seed % 4)): \(sa.count) vs \(sb.count) events on lanes 3–4's outputs") }
+        }
+        XCTAssertTrue(diverged.isEmpty, "a rule on lanes 1–2 changed lanes 3–4's outputs: \(diverged.prefix(5))")
+    }
+}

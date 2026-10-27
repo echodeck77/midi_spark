@@ -197,6 +197,7 @@ final class Router {
     private var groupMax = [Int64](repeating: .min, count: 128)
     private var hocketLitBusMask: UInt8 = 0         // every output in either group of a LIT rule — read by `emitOneBus` (set from the snapshot at the top of each window)
     private var hocketDeferredCloses = false        // a voice has `deferClose` set: sweep them when the window ends
+    private var groupMembers = 0                    // HOCKET §7.3: voices that belong to a note group right now (0 whenever no rule has ever been lit, or its notes have all ended — the byte-identical state)
     private var hocketRules = HocketRulesSnap()     // this window's rules (the Euclideous row's); inert when none is lit
     /// The reference lanes' rhythms for this window, captured by the clock pre-pass — [lane × 2 + segment] (segment 1 = the part of a lock-split window after the snap line). Built at init so no render-time allocation.
     private var hocketClocks: [HocketLaneClock] = (0..<8).map { _ in HocketLaneClock() }
@@ -957,6 +958,7 @@ final class Router {
         for i in refcount.indices { refcount[i] = 0 }
         for i in groupCount.indices { groupCount[i] = 0; groupMax[i] = .min }
         hocketDeferredCloses = false
+        groupMembers = 0
         distinctSounding = 0
         wasPlaying = false
         resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0 }
@@ -1112,14 +1114,15 @@ final class Router {
             if join {
                 for i in voices.indices where voices[i].active && !voices[i].silent && voices[i].group != 0 && voices[i].note == note && voices[i].chan == chan && voices[i].cable == cable
                     && voices[i].onSample <= onSample && onSample < voices[i].offSample { joinedGroup = voices[i].group; break }
-                if joinedGroup == 0 { for g in groupCount.indices where groupCount[g] == 0 { newGroup = Int32(g + 1); break } }
+                // a PLAIN holder of the key (a note struck before a rule was lit) is still counted by `refcount`: this strike re-articulates it exactly as it always was, and the note group begins with the next strike.
+                if joinedGroup == 0 && refcount[idx] == 0 { for g in groupCount.indices where groupCount[g] == 0 { newGroup = Int32(g + 1); break } }
             }
             let joining = joinedGroup != 0
-            if joining { groupCount[Int(joinedGroup) - 1] += 1; voiceGroup = joinedGroup }
+            if joining { groupCount[Int(joinedGroup) - 1] += 1; voiceGroup = joinedGroup; groupMembers += 1 }
             else {
                 // the restrike rule: a PLAIN holder of the key (refcount > 0) is re-articulated (off, then on) — exactly as it always was. A note group is its own thing: it never restrikes, is never counted by `refcount` and
                 // always ends with its own off, so a group and a plain note on one key (two outputs sharing a channel, one in a lit rule) stack, each with exactly one on and one off.
-                if newGroup != 0 { groupCount[Int(newGroup) - 1] = 1; groupMax[Int(newGroup) - 1] = .min; voiceGroup = newGroup }
+                if newGroup != 0 { groupCount[Int(newGroup) - 1] = 1; groupMax[Int(newGroup) - 1] = .min; voiceGroup = newGroup; groupMembers += 1 }
                 else if refcount[idx] > 0 { out.emit(sampleTime: onSample, cable: cable, 0x80 | chan, note, 0) }
             }
             if !joining {
@@ -1288,6 +1291,8 @@ final class Router {
         let cable = voices[i].cable, chan = voices[i].chan, note = voices[i].note
         let wasSilent = voices[i].silent
         let g = Int(voices[i].group) - 1
+        // HOCKET: a voice whose off was held back to the end of the window (`deferClose`) has ALREADY ended at its own `offSample`; an edge that closes it later than that (a transport edge, a mute) must not stretch it.
+        if voices[i].deferClose { time = min(time, voices[i].offSample) }
         voices[i].active = false
         voices[i].offSample = .max
         voices[i].silent = false
@@ -1302,6 +1307,7 @@ final class Router {
             // swept in), and it is the group's own off — a group that stacked on another note of the same key (an overlap the strike order could not merge) is released by its own off, never left sounding.
             groupMax[g] = max(groupMax[g], time)
             groupCount[g] -= 1
+            groupMembers = max(0, groupMembers - 1)
             if groupCount[g] > 0 { return }
             time = groupMax[g]; groupMax[g] = .min
             distinctSounding = max(0, distinctSounding - 1)
@@ -1322,7 +1328,14 @@ final class Router {
     private func drainDue(windowStart: Int64, windowEnd: Int64,
                           out: MIDIEmitter?) {
         for i in voices.indices where voices[i].active && voices[i].offSample <= windowEnd {
-            closeVoice(i, atSample: max(voices[i].offSample, windowStart), out: out)
+            if voices[i].group != 0 {
+                // HOCKET §7.3: a note-group holder due this window is closed at the END of the window, with the rest of the held-back offs — a strike later in this window, struck at a time before this holder's off, still joins it
+                // (closing it here would make the same input a double note-on in a large window and a clean note in a small one).
+                voices[i].offSample = max(voices[i].offSample, windowStart)
+                voices[i].deferClose = true; hocketDeferredCloses = true
+            } else {
+                closeVoice(i, atSample: max(voices[i].offSample, windowStart), out: out)
+            }
         }
     }
 
@@ -1454,6 +1467,13 @@ final class Router {
         diag.lastEmitChan = lastCh
     }
 
+    /// HOCKET §7.3: is a note group SOUNDING on this key (`cable`, `chan`, `note`) at sample `t` — started at or before it, ending after? Only asked while `groupMembers > 0`, so a document that never lit a rule never scans.
+    private func hocketGroupSounding(cable: UInt8, chan: UInt8, note: UInt8, at t: Int64) -> Bool {
+        for i in voices.indices where voices[i].active && voices[i].group != 0 && voices[i].note == note && voices[i].chan == chan && voices[i].cable == cable
+            && voices[i].onSample <= t && t < voices[i].offSample { return true }
+        return false
+    }
+
     /// Emit ONE lit bus of a fanned articulation: enable gate → flood budget → the two cables (own bus+1 and ALL), both channel-stamped identically and tagged with the origin bus (§6a/§7b).
     /// Returns the wire channel it stamped, or −1 if nothing audible was emitted. A regular method (not a captured closure) — no render-path allocation.
     @discardableResult
@@ -1467,15 +1487,20 @@ final class Router {
         if euclideous { euclideousOnsThisBeat[bus] &+= 1 } else { noteOnsThisBeat[bus] &+= 1 }
         let ch = (busChannels[bus] &- 1) & 15   // the bus stamp (1–16 → 0–15 wire)
         // HOCKET §7.3: a strike to an output of a LIT rule joins a sounding key instead of re-articulating it (never a legato hold — those are tracked per slot; unreachable in production, gate max 0.99).
-        let join = euclideous && !euclideousLegato && hocketLitBusMask & (UInt8(1) << UInt8(bus)) != 0
+        // A strike joins a sounding key when its OUTPUT is in a lit rule, or when a note group is sounding on that very key at that time (an unlit output's note that lands on a lit output's — on ALL, where outputs sharing a channel
+        // share keys — must not become a second note-on of a note that is already sounding). Every other strike keeps the old re-articulation, so a lane no rule touches keeps its outputs exactly as they were.
+        let hocketStrike = euclideous && !euclideousLegato
+        let litBus = hocketLitBusMask & (UInt8(1) << UInt8(bus)) != 0
+        let joinOwn = hocketStrike && (litBus || (groupMembers > 0 && hocketGroupSounding(cable: UInt8(bus + 1), chan: ch, note: note, at: onSample)))
+        let joinAll = hocketStrike && (litBus || (groupMembers > 0 && hocketGroupSounding(cable: 0, chan: ch, note: note, at: onSample)))
         let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus),
-                            onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: join)
+                            onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: joinOwn)
         if own >= 0 { onVoiceOpened(own) }
-        if own >= 0 && offSample <= windowEnd { if join { voices[own].deferClose = true; hocketDeferredCloses = true } else { closeVoice(own, atSample: offSample, out: out) } }
+        if own >= 0 && offSample <= windowEnd { if joinOwn { voices[own].deferClose = true; hocketDeferredCloses = true } else { closeVoice(own, atSample: offSample, out: out) } }
         let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
-                            onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: join)
+                            onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: joinAll)
         if all >= 0 { onVoiceOpened(all) }
-        if all >= 0 && offSample <= windowEnd { if join { voices[all].deferClose = true; hocketDeferredCloses = true } else { closeVoice(all, atSample: offSample, out: out) } }
+        if all >= 0 && offSample <= windowEnd { if joinAll { voices[all].deferClose = true; hocketDeferredCloses = true } else { closeVoice(all, atSample: offSample, out: out) } }
         return Int(ch)
     }
 
