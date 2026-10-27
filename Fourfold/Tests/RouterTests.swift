@@ -2665,9 +2665,10 @@ final class RouterTests: XCTestCase {
     // THE NINE PORTS (Paul 2026-10-26): a lane's port is fixed by its lane and layer — lane 1's riff leaves on "Emit Riff A" (cable 1) whatever buses the cell lists, and on ALL (cable 0). No other port sounds.
     func testALanesRiffLeavesOnItsOwnPortAndOnAll() {
         var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8)]
-        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][0] = Cell(machineID: "gold", buses: [.d]) }   // the cell's own bus is irrelevant now
-        let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e); assertNothingLeftSounding(e)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 1, 1, 1, 1, 1, 1, 1])
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 3, steps: 8, useRiff: true, riffOn: true, sourceMode: .midi, riffLength: 8, notesOn: false)]   // a riff-only lane
+        let b = box(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }) { $0.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.d]) }   // the cell's own bus is irrelevant now
+        let e = RecordingEmitter(); run(b, chord([60]), beats: 2, into: e, forceColumn: 0); assertNothingLeftSounding(e)
         XCTAssertTrue(e.ons.contains { $0.cable == 1 }, "cable 1 = Emit Riff A")
         XCTAssertTrue(e.ons.contains { $0.cable == 0 }, "sanity: the shared ALL cable still fires per §7b")
         XCTAssertFalse(e.ons.contains { $0.cable >= 2 }, "no other port carries lane 1's riff")
@@ -4282,33 +4283,35 @@ final class RouterTests: XCTestCase {
     // preset now STACKS it (§1.3) instead of ignoring it — the note-on COUNTS are unchanged (same hits, same
     // pattern) but the pitches shift, so the hashes are re-captured. The nothing-held path is byte-identical
     // (proven: the golden harness hash with the held chord removed is unchanged).
+    // RE-BASELINED 2026-10-26 (THE NINE PORTS): each note now leaves once on its lane/layer port (+ ALL) instead of four fanned copies on cables 1-4. The old and new streams were compared event by event
+    // (the golden harness dump: the union of the lane ports equals the old lane cable for all 21 documents), so a changed hash here is a deliberate re-baseline, not a loss.
     private let mixPresetGolden: [String: (UInt64, Int)] = [
-        "STRIDE WALK": (6168364862632642045, 600),
-        "MIRROR WALK": (6204117388055271837, 784),
-        "PENDULUM": (11567705030411899445, 528),
-        "PING-PONG LEAD": (711664263031071181, 800),
-        "DRUNKEN WALK": (15524742981605799493, 592),
-        "RANDOM GARDEN": (7154063027458442317, 920),
-        "OCTAVE COLUMN": (9720919113763100165, 1312),
-        "KOTEKAN": (1297621385045809549, 1032),
-        "FIVE AGAINST EIGHT": (5540162588808137805, 640),
-        "MIRRORED PITCH": (5908691881391394509, 464),
-        "FIFTH ABOVE": (4479998024556000813, 656),
-        "HELD BREATH": (2945310191899515381, 56),
-        "STUTTER FILL": (10347056216180706237, 1816),
-        "CALL AND HOLD": (16552615296063593685, 432),
-        "LONG TAIL": (10492748551630768469, 168),
-        "GAPPED GROOVE": (8377323656873881549, 520),
-        "EARLY BLOOM": (8167914719946807021, 280),
-        "SCALE WALK": (10064008740683928397, 656),
-        "ARPEGGIO LADDER": (9057584224733359309, 2064),
-        "BACKWARDS GLANCE": (5036636513419635557, 648)
+        "STRIDE WALK": (4452038724447072905, 150),
+        "MIRROR WALK": (11204820269963661461, 196),
+        "PENDULUM": (17567557764861765409, 132),
+        "PING-PONG LEAD": (2617663027980270217, 200),
+        "DRUNKEN WALK": (9163567636198500537, 148),
+        "RANDOM GARDEN": (13516015032109222981, 230),
+        "OCTAVE COLUMN": (15700108419564016341, 328),
+        "KOTEKAN": (12236030087872240729, 258),
+        "FIVE AGAINST EIGHT": (8286113435390483353, 160),
+        "MIRRORED PITCH": (14286579382680702297, 116),
+        "FIFTH ABOVE": (8280769842741832989, 164),
+        "HELD BREATH": (3461997351957887357, 14),
+        "STUTTER FILL": (11464727751677607641, 454),
+        "CALL AND HOLD": (2493909249759920189, 108),
+        "LONG TAIL": (1844439001540584441, 42),
+        "GAPPED GROOVE": (3283608825670117557, 130),
+        "EARLY BLOOM": (7649683036973012597, 70),
+        "SCALE WALK": (16393339973220058701, 164),
+        "ARPEGGIO LADDER": (11120597958475725613, 516),
+        "BACKWARDS GLANCE": (6188868845114221813, 162),
     ]
     func testEveryFactoryPresetRendersTheSameNoteStreamAsBeforeThePerPitchGateEngine() {
         XCTAssertEqual(EuclideousPresets.all.count, 20)
         for (name, make) in EuclideousPresets.all {
-            guard let want = mixPresetGolden[name] else { XCTFail("no golden for \(name)"); continue }
             let got = mixPresetStreamHash(make())
+            guard let want = mixPresetGolden[name] else { XCTFail("CAPTURE \"\(name)\": (\(got.hash), \(got.ons)),"); continue }
             XCTAssertEqual(got.ons, want.1, "\(name): note-on count")
             XCTAssertEqual(got.hash, want.0, "\(name): the note-on/off/velocity stream over 8 bars must be bit-identical to before this change")
         }
@@ -4323,33 +4326,35 @@ final class RouterTests: XCTestCase {
     /// GOLDEN: preset name → (stream hash, note-on count) over 32 bars. CAPTURED on origin/main 45695d9.
     // RE-DERIVED (SOURCES STACK ferry, 2026-10-26): see `mixPresetGolden` above — the held 8-note chord now stacks
     // (§1.3); note-on counts unchanged, pitches shifted, hashes re-captured.
+    // RE-BASELINED 2026-10-26 (THE NINE PORTS): each note now leaves once on its lane/layer port (+ ALL) instead of four fanned copies on cables 1-4. The old and new streams were compared event by event
+    // (the golden harness dump: the union of the lane ports equals the old lane cable for all 21 documents), so a changed hash here is a deliberate re-baseline, not a loss.
     private let mixPresetGolden32Bar: [String: (UInt64, Int)] = [
-        "STRIDE WALK": (9847254068948805653, 2328),
-        "MIRROR WALK": (17862636274147658733, 3088),
-        "PENDULUM": (295903942167563949, 2064),
-        "PING-PONG LEAD": (10053356941132544829, 3152),
-        "DRUNKEN WALK": (16581078814285963645, 2320),
-        "RANDOM GARDEN": (14300696462933218229, 3608),
-        "OCTAVE COLUMN": (8525472979467752901, 5152),
-        "KOTEKAN": (12049133740688487853, 4104),
-        "FIVE AGAINST EIGHT": (1350780353670530213, 2520),
-        "MIRRORED PITCH": (10296314337924117805, 1808),
-        "FIFTH ABOVE": (4486419050105030221, 2576),
-        "HELD BREATH": (2374976432163717117, 176),
-        "STUTTER FILL": (4624369957544641613, 7216),
-        "CALL AND HOLD": (47400560685150229, 1680),
-        "LONG TAIL": (9342141579379106125, 624),
-        "GAPPED GROOVE": (9715314839542305845, 2056),
-        "EARLY BLOOM": (3149805307358152269, 1072),
-        "SCALE WALK": (1100791796420783621, 2576),
-        "ARPEGGIO LADDER": (17929865405229773485, 8208),
-        "BACKWARDS GLANCE": (2226517903261686557, 2568)
+        "STRIDE WALK": (13822323837150460665, 582),
+        "MIRROR WALK": (7488563397367134333, 772),
+        "PENDULUM": (3299878779248237745, 516),
+        "PING-PONG LEAD": (17122116975887345249, 788),
+        "DRUNKEN WALK": (3810478243758117905, 580),
+        "RANDOM GARDEN": (2008340844201093933, 902),
+        "OCTAVE COLUMN": (13131403485959583637, 1288),
+        "KOTEKAN": (7497977219237101505, 1026),
+        "FIVE AGAINST EIGHT": (1920166546066561433, 630),
+        "MIRRORED PITCH": (16901786376726594665, 452),
+        "FIFTH ABOVE": (7079728983239140837, 644),
+        "HELD BREATH": (5451689188035011389, 44),
+        "STUTTER FILL": (10587582401958187457, 1804),
+        "CALL AND HOLD": (5160328941742779549, 420),
+        "LONG TAIL": (14142359366104233265, 156),
+        "GAPPED GROOVE": (6157493590289436901, 514),
+        "EARLY BLOOM": (15187463197634540853, 268),
+        "SCALE WALK": (2968469548204137605, 644),
+        "ARPEGGIO LADDER": (9356654418709018637, 2052),
+        "BACKWARDS GLANCE": (13523471118400115545, 642),
     ]
     func testEveryFactoryPresetRendersTheSameNoteStreamOver32BarsBeforeRestartChains() {
         XCTAssertEqual(EuclideousPresets.all.count, 20)
         for (name, make) in EuclideousPresets.all {
-            guard let want = mixPresetGolden32Bar[name] else { XCTFail("no golden for \(name)"); continue }
             let got = mixPresetStreamHash(make(), bars: 32)
+            guard let want = mixPresetGolden32Bar[name] else { XCTFail("CAPTURE \"\(name)\": (\(got.hash), \(got.ons)),"); continue }
             XCTAssertEqual(got.ons, want.1, "\(name): note-on count over 32 bars")
             XCTAssertEqual(got.hash, want.0, "\(name): the note-on/off/velocity stream over 32 bars must be bit-identical before/after the restart-chain rewrite")
         }
@@ -5273,7 +5278,7 @@ final class RouterTests: XCTestCase {
     // MARK: - FX TAB engine (ferry 2026-10-18, §15)
 
     /// One lane, 4-of-4 at 1/4 (one hit per beat, a gap of 24 000 samples at 120 BPM / 48 kHz), the riff walked FWD over 8 columns — so beat k reads column k mod 8.
-    private func fxLine(gate: Double = 0.5, vel: Int = 90, emitter: UInt8? = nil, litNotes: UInt8 = 0, onRest: EuclidRiffOnRest = .skip, riffOn: Bool = true) -> EuclidLine {
+    private func fxLine(gate: Double = 0.5, vel: Int = 90, litNotes: UInt8 = 0, onRest: EuclidRiffOnRest = .skip, riffOn: Bool = true) -> EuclidLine {
         var l = EuclidLine(target: 0, pulses: 4, steps: 4)
         l.gate = gate; l.velocityAbsolute = vel; l.rate = .r1_4; l.useRiff = true; l.litNotes = litNotes; l.riffOn = riffOn; l.sourceMode = .midi
         l.riffLength = 8; l.notesOn = true; l.riffOnRest = onRest
@@ -5686,7 +5691,7 @@ final class RouterTests: XCTestCase {
     }
     func testFXTieDoesNotApplyToALaneItsRowIsOffForAndStopsEveryOtherRowOnItsHit() {
         // two lanes (A and B): TIE only for lane 1; lane 2 still plays that hit — with its RATCH
-        var l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0010)
+        var l1 = fxLine(gate: 0.5), l2 = fxLine(gate: 0.5)
         l1.target = 0; l2.target = 0
         let fx = fxCells([(2, 2, 1), (0, 2, 3), (3, 2, 120)], lanes: [2: 0b0001])
         let e = fxRun(fxBox([l1, l2], fx: fx), beats: 4.5)
@@ -5738,7 +5743,7 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(Set(ccEvents(all).filter { $0.cable != 0 }.map { $0.chan }), [0, 2, 4, 6], "each port on its own channel stamp (port i stamps channel i+1)")
     }
     func testFXCCOnlyForTheLanesTheRowIsOnForAndOnTheirOwnBuses() {
-        let l1 = fxLine(emitter: 0b0001), l2 = fxLine(emitter: 0b0010)
+        let l1 = fxLine(), l2 = fxLine()
         let e = fxRun(fxBox([l1, l2], fx: fxCells([(5, 1, 20)], lanes: [5: 0b0010])), beats: 3.5)
         XCTAssertEqual(Set(ccEvents(e).map { $0.cable }), [0, 3], "lane 2's RIFF port (Emit Riff B = cable 3) and the ALL cable; nothing on lane 1's port (cable 1)")
         XCTAssertEqual(ccEvents(e).count, 2)
@@ -5786,7 +5791,7 @@ final class RouterTests: XCTestCase {
     func testFXAllSixRowsAreIdenticalAtEveryBufferSizeAndAfterATransportRestart() {
         let fx = fxCells([(0, 1, 3), (1, 2, 100), (2, 3, 1), (3, 4, 110), (4, 5, 1), (5, 6, 40), (0, 7, 2), (1, 0, 25)], passes: 4, ccBase: 64)
         var l = fxLine(gate: 0.8); l.litNotes = 0b101
-        let box = fxBox([l, fxLine(gate: 0.5, emitter: 0b0010)], fx: fx)
+        let box = fxBox([l, fxLine(gate: 0.5)], fx: fx)
         // `sampleOf` TRUNCATES a beat-derived sample, so an event that lands exactly on a sample boundary can land one sample either side depending on the window it
         // is computed in (pre-existing, engine-wide; not FX). So "identical at every buffer size" means: the same events, in the same order, on the same cables and
         // channels, each within ONE sample — checked over a span that ends at an arbitrary sample (not on a hit boundary, where one run could include an event the
@@ -5808,8 +5813,8 @@ final class RouterTests: XCTestCase {
         same(replay, ref, "after a restart the output is the same as from a fresh start")
     }
     func testFXStressCyclingTieGate100RatchAndLanesMuteWithTransportRestartsLeavesNothingSounding() {
-        var l1 = fxLine(gate: 0.8, emitter: 0b0001); l1.litNotes = 0b11; l1.muteCells16 = 0b1010_1010_1010_1010; l1.muteUnit = EuclideousMuteUnit.fourSteps.rawValue
-        var l2 = fxLine(gate: 1.0, emitter: 0b0010); l2.muteCells16 = 0b1111_0000_1111_0000; l2.muteUnit = EuclideousMuteUnit.step.rawValue
+        var l1 = fxLine(gate: 0.8); l1.litNotes = 0b11; l1.muteCells16 = 0b1010_1010_1010_1010; l1.muteUnit = EuclideousMuteUnit.fourSteps.rawValue
+        var l2 = fxLine(gate: 1.0); l2.muteCells16 = 0b1111_0000_1111_0000; l2.muteUnit = EuclideousMuteUnit.step.rawValue
         let fx = fxCells([(2, 1, 1), (1, 2, 100), (0, 3, 4), (2, 4, 1), (1, 5, 100), (0, 6, 3), (1, 7, 100), (0, 0, 2), (2, 2, 1)], ccBase: 10)
         for frames: UInt32 in [64, 512, 2048] {
             let e = fxRun(fxBox([l1, l2], ranks: [1, 1, 2, 2, 3, 3, 4, 4], fx: fx), beats: 60, frames: frames, restartAt: [7.3, 15.9, 16.2, 31.7, 44.4])
@@ -6037,25 +6042,26 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         return notesStreamHash(e)
     }
-    /// GOLDEN: "ON REST/riff/gate" -> (stream hash, note-on count) over 8 passes. CAPTURED on origin/main 03adfa5, before the NOTES-tab engine change. With lit notes FILL is NOT the same as SKIP (984 vs 408
+    /// GOLDEN: "ON REST/riff/gate" -> (stream hash, note-on count) over 8 passes. First captured on origin/main 03adfa5 before the NOTES-tab engine change; RE-BASELINED 2026-10-26 for THE NINE PORTS (a lane's riff and notes now leave on
+    /// their own ports, once each — the old hashes covered four fanned copies on cables 1-4). Equivalence with the previous engine was shown event by event (a differential run of the old engine over 126 lit-note scenarios), not assumed. With lit notes FILL is NOT the same as SKIP (984 vs 408
     /// note-ons at riff/50): SKIP silences the lit notes on a rest hit, FILL sounds them. (The riff-ferry goldens that show FILL == SKIP had no lit notes.)
     private let notesExampleGolden: [String: (UInt64, Int)] = [
-        "SKIP/riff/50": (4458790343570662725, 408),
-        "SKIP/riff/100": (18259817443166798221, 188),
-        "SKIP/noriff/50": (6276098541914531621, 984),
-        "SKIP/noriff/100": (7172130965572859533, 24),
-        "FILL/riff/50": (5910540215221559509, 984),
-        "FILL/riff/100": (13226157152018472061, 24),
-        "FILL/noriff/50": (6276098541914531621, 984),
-        "FILL/noriff/100": (7172130965572859533, 24),
-        "TIE/riff/50": (15200567670056044365, 408),
-        "TIE/riff/100": (13226157152018472061, 24),
-        "TIE/noriff/50": (6276098541914531621, 984),
-        "TIE/noriff/100": (7172130965572859533, 24),
-        "REPEAT/riff/50": (16200784428846764181, 984),
-        "REPEAT/riff/100": (13226157152018472061, 24),
-        "REPEAT/noriff/50": (6276098541914531621, 984),
-        "REPEAT/noriff/100": (7172130965572859533, 24),
+        "SKIP/riff/50": (12690103774184033117, 136),
+        "SKIP/riff/100": (4486010582545170945, 136),
+        "SKIP/noriff/50": (12320423553789432805, 246),
+        "SKIP/noriff/100": (7891301250875414781, 6),
+        "FILL/riff/50": (7666187331739609581, 280),
+        "FILL/riff/100": (5559364759916278797, 40),
+        "FILL/noriff/50": (12320423553789432805, 246),
+        "FILL/noriff/100": (7891301250875414781, 6),
+        "TIE/riff/50": (13008851594258254857, 136),
+        "TIE/riff/100": (16479695456170733453, 40),
+        "TIE/noriff/50": (12320423553789432805, 246),
+        "TIE/noriff/100": (7891301250875414781, 6),
+        "REPEAT/riff/50": (6809101602893517517, 328),
+        "REPEAT/riff/100": (16479695456170733453, 40),
+        "REPEAT/noriff/50": (12320423553789432805, 246),
+        "REPEAT/noriff/100": (7891301250875414781, 6),
     ]
     func testNotesExampleLaneGoldensBeforeTheNotesTabEngine() {
         var captured = ""
@@ -6074,31 +6080,51 @@ final class RouterTests: XCTestCase {
     }
 
     // PER-LAYER ROUTING ferry (2026-10-25) test 1: the example lane with C4/G3/A♭3 lit, under ON REST SKIP/TIE/REPEAT,
-    // each of the seven PLAY AS ways, at GATE 50 and 100 — the per-cable stream hashed. Captured on this branch BEFORE
-    // the per-layer-routing engine change; after it, with riffOutMask == notesOutMask (every existing lane resolves
-    // both to its old emitterMask), every hash must still match (spec §4.6 / acceptance "sounds exactly as before").
+    // each of the seven PLAY AS ways, at GATE 50 and 100 — the per-cable stream hashed. RE-BASELINED 2026-10-26 for THE NINE PORTS (riff on cable 1, notes on cable 2, once each;
+    // a notes pitch equal to the riff's now sounds too, and the notes layer re-strikes a pitch the riff is holding through a tied rest).
     private let notesWaysGolden: [String: (UInt64, Int)] = [
-        "CHORD/SKIP/50": (10054848013082510981, 984), "CHORD/SKIP/100": (3200313633293787309, 24),
-        "CHORD/TIE/50": (17629362488232197917, 792), "CHORD/TIE/100": (48661647883158169, 152),
-        "CHORD/REPEAT/50": (15807986313069577477, 984), "CHORD/REPEAT/100": (3200313633293787309, 24),
-        "ROLL/SKIP/50": (14567783607294242325, 984), "ROLL/SKIP/100": (13226157152018472061, 24),
-        "ROLL/TIE/50": (14198707387006728741, 792), "ROLL/TIE/100": (2994495042814497737, 152),
-        "ROLL/REPEAT/50": (15618083038872147325, 984), "ROLL/REPEAT/100": (13226157152018472061, 24),
-        "RUN/SKIP/50": (736639228304322141, 984), "RUN/SKIP/100": (6709164085346647821, 984),
-        "RUN/TIE/50": (13953679457953526837, 792), "RUN/TIE/100": (2130036519675944641, 792),
-        "RUN/REPEAT/50": (10511754416665526173, 984), "RUN/REPEAT/100": (15401347499590931105, 792),
-        "CYCLE/SKIP/50": (4748095973841926533, 416), "CYCLE/SKIP/100": (8179424858457907782, 192),
-        "CYCLE/TIE/50": (11236128383869476541, 352), "CYCLE/TIE/100": (4590776896499000073, 186),
-        "CYCLE/REPEAT/50": (5496063334470539525, 544), "CYCLE/REPEAT/100": (2281279816838394877, 180),
-        "BOUNCE/SKIP/50": (5258866803760872717, 432), "BOUNCE/SKIP/100": (16343498192574806973, 194),
-        "BOUNCE/TIE/50": (7487573829174149277, 384), "BOUNCE/TIE/100": (8833938039741147518, 184),
-        "BOUNCE/REPEAT/50": (7364660405557152253, 576), "BOUNCE/REPEAT/100": (2783199097459551762, 184),
-        "SPLIT/SKIP/50": (5597775636958076885, 560), "SPLIT/SKIP/100": (4676173967520636334, 198),
-        "SPLIT/TIE/50": (12411348924136901669, 464), "SPLIT/TIE/100": (17982277185042415146, 200),
-        "SPLIT/REPEAT/50": (13825109542956489373, 656), "SPLIT/REPEAT/100": (111842766493665773, 190),
-        "BUILD/SKIP/50": (1237790500967678749, 696), "BUILD/SKIP/100": (2586430327853252826, 176),
-        "BUILD/TIE/50": (996027076392409301, 592), "BUILD/TIE/100": (11221681539064863537, 172),
-        "BUILD/REPEAT/50": (752240821409610333, 784), "BUILD/REPEAT/100": (3663768266286976269, 170),
+        "CHORD/SKIP/50": (14025580817501144261, 280),
+        "CHORD/SKIP/100": (12097197857564399989, 40),
+        "CHORD/TIE/50": (5122652739073805597, 280),
+        "CHORD/TIE/100": (12097197857564399989, 40),
+        "CHORD/REPEAT/50": (9980545331391485893, 328),
+        "CHORD/REPEAT/100": (3651468184188127413, 40),
+        "ROLL/SKIP/50": (15782014024193859009, 280),
+        "ROLL/SKIP/100": (5559364759916278797, 40),
+        "ROLL/TIE/50": (5116068208864631257, 280),
+        "ROLL/TIE/100": (5559364759916278797, 40),
+        "ROLL/REPEAT/50": (16209104902570524977, 328),
+        "ROLL/REPEAT/100": (16479695456170733453, 40),
+        "RUN/SKIP/50": (7786046350381849221, 280),
+        "RUN/SKIP/100": (6624809384248958557, 280),
+        "RUN/TIE/50": (490797460821893925, 280),
+        "RUN/TIE/100": (6624809384248958557, 280),
+        "RUN/REPEAT/50": (5803563409337803661, 328),
+        "RUN/REPEAT/100": (6323659856158640477, 280),
+        "CYCLE/SKIP/50": (3252825241058987325, 116),
+        "CYCLE/SKIP/100": (8031977606822889941, 116),
+        "CYCLE/TIE/50": (8007414704935413093, 116),
+        "CYCLE/TIE/100": (8031977606822889941, 116),
+        "CYCLE/REPEAT/50": (1456389340772524605, 164),
+        "CYCLE/REPEAT/100": (62022000099735833, 116),
+        "BOUNCE/SKIP/50": (6907018714258327205, 116),
+        "BOUNCE/SKIP/100": (7296941090362475385, 116),
+        "BOUNCE/TIE/50": (2903455578959938653, 116),
+        "BOUNCE/TIE/100": (7296941090362475385, 116),
+        "BOUNCE/REPEAT/50": (15481452493543628613, 164),
+        "BOUNCE/REPEAT/100": (18164645256176883081, 116),
+        "SPLIT/SKIP/50": (13794394544017044789, 156),
+        "SPLIT/SKIP/100": (16226468857358502481, 156),
+        "SPLIT/TIE/50": (17825175939881135805, 156),
+        "SPLIT/TIE/100": (16226468857358502481, 156),
+        "SPLIT/REPEAT/50": (12818833709771914197, 204),
+        "SPLIT/REPEAT/100": (8308606473226537417, 156),
+        "BUILD/SKIP/50": (6681771585810992421, 196),
+        "BUILD/SKIP/100": (2421371508393122633, 90),
+        "BUILD/TIE/50": (17904430494067855581, 196),
+        "BUILD/TIE/100": (2421371508393122633, 90),
+        "BUILD/REPEAT/50": (11837208648637064885, 244),
+        "BUILD/REPEAT/100": (2082834733881598317, 90),
     ]
     func testNotesExampleWaysGoldensBeforePerLayerRouting() {
         var captured = ""
@@ -6271,12 +6297,13 @@ final class RouterTests: XCTestCase {
         for p in 0..<2 { XCTAssertEqual(bu[p], [[Ab3], [C4], [G3, C4], [C4], [G3, Ab3, C4]], "BUILD pass \(p)") }
     }
     func testNotesBothWithTheRiffOnTheRiffKeepsItsPitchAndTheHitStillCountsForK() {
-        // Both, CYCLE, riff on, passes 0-1, hits 1 3 5 6 8: C4, G3, A♭3, nothing (the riff plays C4), G3 | nothing (the riff plays A♭3), C4, G3, A♭3, C4
+        // Both, CYCLE, riff on, passes 0-1, hits 1 3 5 6 8: the notes layer plays C4, G3, A♭3, C4, G3 | A♭3, C4, G3, A♭3, C4 whatever the riff plays (the riff's A♭3 / C4 on hits 1 and 6 are on the other port, so
+        // a matching pitch sounds on both — THE NINE PORTS: the layers no longer drop each other's pitches), and every hit still counts for k.
         let cy = notesPasses(notesRender(notesLine(.cycle), passes: 2), 2)
-        XCTAssertEqual(cy[0], [[Ab3, C4], [G3], [Ab3], [C4], [G3]]); XCTAssertEqual(cy[1], [[Ab3], [C4], [G3], [Ab3, C4], [C4]])
-        // Both, BUILD, riff on, pass 0: C4, C4 + G3, C4 + G3 + A♭3, nothing (C4 is the riff's), C4 + G3
+        XCTAssertEqual(cy[0], [[Ab3, C4], [G3], [Ab3], [C4, C4], [G3]]); XCTAssertEqual(cy[1], [[Ab3, Ab3], [C4], [G3], [Ab3, C4], [C4]])
+        // Both, BUILD, riff on, pass 0: C4, C4 + G3, C4 + G3 + A♭3, C4 (twice: the riff's too), C4 + G3
         let bu = notesPasses(notesRender(notesLine(.build), passes: 1), 1)
-        XCTAssertEqual(bu[0], [[Ab3, C4], [G3, C4], [G3, Ab3, C4], [C4], [G3, C4]])
+        XCTAssertEqual(bu[0], [[Ab3, C4], [G3, C4], [G3, Ab3, C4], [C4, C4], [G3, C4]])
     }
     func testNotesInvertTransposeAndOnRestNeverChangeWhichHitsAreRestHits() {
         // RESTS only, CHORD: the lit notes sound exactly on hit indices 1, 2, 4 — whatever INVERT, TRANSPOSE or ON REST do to the riff
@@ -6349,8 +6376,8 @@ final class RouterTests: XCTestCase {
     private func notesOnsAt(_ e: RecordingEmitter, hit tick: Int) -> [(note: Int, at: Int64, off: Int64?)] {
         let lo = Int64(tick) * 12_000, hi = lo + 12_000
         var out: [(note: Int, at: Int64, off: Int64?)] = []
-        for ev in e.ons where ev.cable == 1 && ev.sample >= lo - 12 && ev.sample < hi - 12 {
-            let off = e.offs.first { $0.cable == 1 && $0.note == ev.note && $0.sample > ev.sample }?.sample
+        for ev in e.ons where (ev.cable == 1 || ev.cable == 2) && ev.sample >= lo - 12 && ev.sample < hi - 12 {   // lane 1's two ports (THE NINE PORTS)
+            let off = e.offs.first { $0.cable == ev.cable && $0.note == ev.note && $0.sample > ev.sample }?.sample
             // a deferred note lands on the sample its beat maps to, which can be a sample early; every expectation here is a multiple of 4, so compare on a 4-sample grid
             func q(_ x: Int64) -> Int64 { Int64((Double(x) / 4).rounded()) * 4 }
             out.append((Int(ev.note), q(ev.sample - lo), off.map { q($0 - lo) }))
@@ -6383,10 +6410,11 @@ final class RouterTests: XCTestCase {
             for n in r { XCTAssertEqual(Double((n.off ?? 0) - n.at), gate * 4000, accuracy: 2, "gate \(gate): lasts its effective gate as a share of its slot") }
             assertNothingLeftSounding(e)
         }
-        // RUN, both, the hit on 1: the riff's A♭3 at the hit, and the notes C4 and G3 at 0 and 1/4 of a beat after it (m is 2 once A♭3 is dropped)
+        // RUN, both, the hit on 1: the riff's A♭3 at the hit on Emit Riff A, and the notes layer's whole chord — C4, G3, A♭3 (nothing is dropped for matching the riff's pitch any more) — at 0, 1/6 and 1/3 of a beat after it on Emit Notes A
         let e = notesRender(notesLine(.run), passes: 1)
         let h1 = notesOnsAt(e, hit: 0)
-        XCTAssertEqual(h1.filter { $0.note == Ab3 }.map { $0.at }, [0]); XCTAssertEqual(h1.filter { $0.note == C4 }.map { $0.at }, [0]); XCTAssertEqual(h1.filter { $0.note == G3 }.map { $0.at }, [6000])
+        XCTAssertEqual(h1.filter { $0.note == Ab3 }.map { $0.at }, [0, 8000], "the riff's A♭3 at the hit, the notes layer's own A♭3 in its third slot")
+        XCTAssertEqual(h1.filter { $0.note == C4 }.map { $0.at }, [0]); XCTAssertEqual(h1.filter { $0.note == G3 }.map { $0.at }, [4000])
         // the later notes land on the same samples at every buffer size
         let ref = notesOnsAt(notesRender(notesLine(.run, when: 0b10), passes: 1), hit: 2).map { [Int64($0.note), $0.at] }
         for frames: UInt32 in [64, 256, 1024] {
@@ -6397,24 +6425,25 @@ final class RouterTests: XCTestCase {
         // FX RATCH 2 on the riff column the hit on 1 reads (column 6 = index 5): two strikes, each of ALL the chosen notes together, no spread
         let fx = fxCells([(row: 0, col: 5, v: 2)], lanes: [0: 0b0001])
         let e = notesRender(notesLine(.run), passes: 1, fx: fx)
-        let at0 = Set(e.ons.filter { $0.cable == 1 && $0.sample == 0 }.map { Int($0.note) }), atHalf = Set(e.ons.filter { $0.cable == 1 && $0.sample == 6000 }.map { Int($0.note) })
+        let at0 = Set(e.ons.filter { ($0.cable == 1 || $0.cable == 2) && $0.sample == 0 }.map { Int($0.note) }), atHalf = Set(e.ons.filter { ($0.cable == 1 || $0.cable == 2) && $0.sample == 6000 }.map { Int($0.note) })
         XCTAssertEqual(at0, [Ab3, C4, G3]); XCTAssertEqual(atHalf, [Ab3, C4, G3], "the second strike repeats the whole hit, all notes together")
         assertNothingLeftSounding(e)
     }
 
     // test 8: TIE
-    func testNotesTieRestsStrikeTheNotesUnderTheHeldRiffNoteAndNeverTheHeldPitchAgain() {
-        // RESTS only, TIE, CHORD: the rest hits 3 and 5 strike G3 and C4 under the riff's A♭3 (held from hit 1); hit 8 strikes G3 and A♭3 under the C4 held from hit 6
+    func testNotesTieRestsStrikeTheWholeChordUnderTheHeldRiffNote() {
+        // RESTS only, TIE, CHORD: the rest hits 3 and 5 strike G3, A♭3 and C4 on Emit Notes A under the riff's A♭3 (held from hit 1 on Emit Riff A — THE NINE PORTS: the notes layer strikes the
+        // held pitch too, on its own port); hit 8 strikes the whole chord under the C4 held from hit 6
         let e = notesRender(notesLine(.chord, when: 0b10, onRest: .tie), passes: 2)
         let g = notesPasses(e, 2)
-        for p in 0..<2 { XCTAssertEqual(g[p], [[Ab3], [G3, C4], [G3, C4], [C4], [G3, Ab3]], "pass \(p)") }
+        for p in 0..<2 { XCTAssertEqual(g[p], [[Ab3], [G3, Ab3, C4], [G3, Ab3, C4], [C4], [G3, Ab3, C4]], "pass \(p)") }
         // the notes struck on hit 3 end by hit 5 as they would at an untied hit (GATE 50% of the 1-beat gap = 12 000); the held riff note carries through both
         let h3 = notesOnsAt(e, hit: 2)
         for n in h3 { XCTAssertEqual(n.off, 12_000, "note \(n.note) from hit 3 ends at its own gate") }
         let riff = e.ons.first { $0.cable == 1 && $0.note == UInt8(Ab3) && $0.sample == 0 }
         let riffOff = e.offs.first { $0.cable == 1 && $0.note == UInt8(Ab3) && $0.sample > 0 }
         XCTAssertNotNil(riff); XCTAssertGreaterThanOrEqual(riffOff?.sample ?? 0, 48_000, "the riff note rings on through the tied rests 3 and 5")
-        XCTAssertEqual(e.ons.filter { $0.cable == 1 && $0.note == UInt8(Ab3) && $0.sample > 0 && $0.sample < 60_000 }.count, 0, "A♭3 is never struck again while it is held")
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 && $0.note == UInt8(Ab3) && $0.sample > 0 && $0.sample < 60_000 }.count, 0, "the riff's A♭3 is never struck again on its own port while it is held")
         assertNothingLeftSounding(e)
         // PLAYS only: the tied rests strike nothing and the notes struck on hit 1 carry on with the riff note — the pre-change TIE golden, note for note
         var plays = notesExLine(onRest: .tie, riffOn: true, gate: 0.5); plays.notesWhen = 0b01
@@ -6505,7 +6534,7 @@ final class RouterTests: XCTestCase {
         }
         router.process(box: fxBox([lineFor(0)], ranks: notesExRanks), pool: chord(notesExPool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
-        XCTAssertGreaterThan(e.ons.count, 100)
+        XCTAssertGreaterThan(e.ons.count, 20)
     }
 
     // MARK: PULSE ferry §1.3 — the hit event carries the velocity each pitch actually played with
@@ -6612,19 +6641,21 @@ final class RouterTests: XCTestCase {
         return (h, e.ons.count)
     }
     /// GOLDEN: scenario name → (stream hash, note-on count). CAPTURED on origin/main 612c365, before the DYNAMICS ferry changed anything.
+    // RE-BASELINED 2026-10-26 (THE NINE PORTS): each note now leaves once on its lane/layer port (+ ALL) instead of four fanned copies on cables 1-4. The old and new streams were compared event by event
+    // (the golden harness dump: the union of the lane ports equals the old lane cable for all 21 documents), so a changed hash here is a deliberate re-baseline, not a loss.
     private let syntheticGolden: [String: (UInt64, Int)] = [
-        "four lanes, no FX": (2369415864824715333, 800),
-        "four lanes, FX ratch/gate/tie/vel": (15251175310064653733, 1008),
-        "four lanes, FX, transport restarts": (18130081851072502405, 2072),
-        "muted lane with lit notes": (3312976233490713525, 208),
-        "mask ACCENT": (5253426162309938749, 128),
-        "mask SWELL": (13038166893529998973, 104)
+        "four lanes, no FX": (4369050809413385053, 212),
+        "four lanes, FX ratch/gate/tie/vel": (11247511680661603941, 276),
+        "four lanes, FX, transport restarts": (13299253536188814689, 566),
+        "muted lane with lit notes": (17814569004106749181, 54),
+        "mask ACCENT": (3960708281242124349, 32),
+        "mask SWELL": (8954558365778718345, 26),
     ]
     func testSyntheticLanesRenderTheirGoldenNoteStreams() {
         for sc in goldenScenarios() {
             let got = goldenStreamHash(sc)
             XCTAssertGreaterThan(got.ons, 0, "\(sc.name): the scenario must actually sound")
-            guard let want = syntheticGolden[sc.name] else { XCTFail("no golden for \(sc.name): (\(got.hash), \(got.ons))"); continue }
+            guard let want = syntheticGolden[sc.name] else { XCTFail("CAPTURE \"\(sc.name)\": (\(got.hash), \(got.ons)),"); continue }
             XCTAssertEqual(got.ons, want.1, "\(sc.name): note-on count")
             XCTAssertEqual(got.hash, want.0, "\(sc.name): the note-on/off/velocity stream must be bit-identical")
         }
@@ -6667,20 +6698,21 @@ final class RouterTests: XCTestCase {
         return scenarios
     }
     /// GOLDEN: scenario name → (stream hash, note-on count). CAPTURED on origin/main e7b6da9.
+    // RE-BASELINED 2026-10-26 (THE NINE PORTS): each note now leaves once on its lane/layer port (+ ALL) instead of four fanned copies on cables 1-4. The old and new streams were compared event by event
+    // (the golden harness dump: the union of the lane ports equals the old lane cable for all 21 documents), so a changed hash here is a deliberate re-baseline, not a loss.
     private let rhythmPolishGolden: [String: (UInt64, Int)] = [
-        "TILT x OFFSET x FWD": (5352633688982272725, 712),
-        "TILT x OFFSET x BKW": (15399358455468573405, 680),
-        "TILT x OFFSET x PING-PONG": (522207749321150981, 704),
-        // LISTEN REBUILT (2026-10-23): recaptured fresh for "COPY a TILTed OFFSET partner" — see the scenario's own comment.
-        "COPY a TILTed OFFSET partner": (6788349491252245445, 256),
-        "TILT x OFFSET with rhythm and melody chains": (15993422064495286957, 376),
-        "TILT x OFFSET with TIE and REPEAT": (727378462195434669, 256)
+        "TILT x OFFSET x FWD": (6424509767972655085, 186),
+        "TILT x OFFSET x BKW": (14560852710904160205, 178),
+        "TILT x OFFSET x PING-PONG": (8707187135128853133, 184),
+        "COPY a TILTed OFFSET partner": (8904666703349071269, 64),
+        "TILT x OFFSET with rhythm and melody chains": (18417663692944792989, 94),
+        "TILT x OFFSET with TIE and REPEAT": (15256231894166947141, 64),
     ]
     func testTiltOffsetCopyLanesRenderTheirGoldenNoteStreams() {
         for sc in rhythmPolishScenarios() {
             let got = goldenStreamHash(sc)
             XCTAssertGreaterThan(got.ons, 0, "\(sc.name): the scenario must actually sound")
-            guard let want = rhythmPolishGolden[sc.name] else { XCTFail("no golden for \(sc.name): (\(got.hash), \(got.ons))"); continue }
+            guard let want = rhythmPolishGolden[sc.name] else { XCTFail("CAPTURE \"\(sc.name)\": (\(got.hash), \(got.ons)),"); continue }
             XCTAssertEqual(got.ons, want.1, "\(sc.name): note-on count (hash \(got.hash))")
             XCTAssertEqual(got.hash, want.0, "\(sc.name): the note-on/off/velocity stream must be bit-identical")
         }
@@ -7679,7 +7711,7 @@ final class RouterTests: XCTestCase {
         let lastEnd = complete.last?.endTick ?? 0
         for (p, tp) in zip(filed, complete) {
             XCTAssertEqual(tp.cycleTicks, Int((r.cycle * 960).rounded()), file: file, line: line)
-            for cable in 0...4 {
+            for cable in 0...FourfoldPorts.busCount {
                 for e in r.deck.exportRangeEvents(fromPass: p, toPass: p, cables: [UInt8(cable)]).events {
                     let status = (e.b0 & 0xF0) == 0x90 && e.b2 == 0 ? 0x80 | (e.b0 & 0x0F) : e.b0           // a note-on with velocity 0 is a note-off to the tape
                     // The deck files a hit that the sample grid put a hair BEFORE a pass boundary (97.3 BPM puts a downbeat hit 1 sample early) at the END of the old pass; the tape rounds to 1/960 beat and files it at the
@@ -7703,25 +7735,25 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThanOrEqual(worst, 1, "\(what): every message sits within one tick (1/960 beat) of where the deck put it", file: file, line: line)
     }
     func testTheSessionTapeHoldsWhatTheReelDeckFiled() {
-        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0100)
-        assertTapeMatchesDeck(fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13), "two lanes on A and C")
+        let l1 = fxLine(gate: 0.5), l2 = fxLine(gate: 0.5)
+        assertTapeMatchesDeck(fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13), "two lanes")
         var busy: [EuclidLine] = []
         for i in 0..<4 {
             var l = fxLine(gate: 0.5, litNotes: 0b0000_0111); l.rate = .r1_32; l.steps = 16; l.pulses = 16
             busy.append(l)
         }
         assertTapeMatchesDeck(fourfoldReel(fxBoxScene(busy, fx: fxCells((0..<8).map { (0, $0, 3) }), stepRate: .r1_8), beats: 13), "four dense ratcheting lanes")
-        assertTapeMatchesDeck(fourfoldReel(fxBoxScene([fxLine(gate: 0.5), fxLine(gate: 1.0, emitter: 0b0010)], fx: fxCells([(5, 0, 64), (5, 2, 100), (5, 5, 10)]), stepRate: .r1_8), beats: 13), "a CC row")
+        assertTapeMatchesDeck(fourfoldReel(fxBoxScene([fxLine(gate: 0.5), fxLine(gate: 1.0)], fx: fxCells([(5, 0, 64), (5, 2, 100), (5, 5, 10)]), stepRate: .r1_8), beats: 13), "a CC row")
         assertTapeMatchesDeck(fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_4), beats: 25, frames: 333, tempo: 97.3), "odd window size and tempo, an 8-beat pass")
     }
     /// REEL PHASE 1c — the browser's view of the tape matches its view of the ring: the same passes, the same notes, the same files' worth of events.
     func testTheTapeShowsTheBrowserWhatTheDeckDid() {
-        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0100)
+        let l1 = fxLine(gate: 0.5), l2 = fxLine(gate: 0.5)
         var busy: [EuclidLine] = []
         for i in 0..<4 { var l = fxLine(gate: 0.5, litNotes: 0b0000_0111); l.rate = .r1_32; l.steps = 16; l.pulses = 16; busy.append(l) }
         let scenes: [(String, SnapshotBox)] = [("two lanes", fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8)),
                                                ("four dense lanes", fxBoxScene(busy, fx: fxCells((0..<8).map { (0, $0, 3) }), stepRate: .r1_8)),
-                                               ("a CC row", fxBoxScene([fxLine(gate: 0.5), fxLine(gate: 1.0, emitter: 0b0010)], fx: fxCells([(5, 0, 64), (5, 2, 100)]), stepRate: .r1_8))]
+                                               ("a CC row", fxBoxScene([fxLine(gate: 0.5), fxLine(gate: 1.0)], fx: fxCells([(5, 0, 64), (5, 2, 100)]), stepRate: .r1_8))]
         for (what, box) in scenes {
             let r = fourfoldReel(box, beats: 13)
             let deckPasses = r.deck.passNumbers().filter { $0 >= 0 }
@@ -7748,7 +7780,7 @@ final class RouterTests: XCTestCase {
     }
     func testTheTapeKeepsThePassesTheRingForgets() {
         // REEL-1: 75 passes of 4 beats. The ring keeps the newest 64; the tape keeps all 74 that were played whole (the 75th is still going), and the first is still there to be replayed or saved.
-        let r = fourfoldReel(fxBoxScene([fxLine(gate: 0.5, emitter: 0b0001), fxLine(gate: 0.5, emitter: 0b0100)], fx: EuclideousFX(), stepRate: .r1_8), beats: 300, tempo: 240)
+        let r = fourfoldReel(fxBoxScene([fxLine(gate: 0.5), fxLine(gate: 0.5)], fx: EuclideousFX(), stepRate: .r1_8), beats: 300, tempo: 240)
         XCTAssertEqual(r.deck.passNumbers().filter { $0 >= 0 }.count, ReelDeck.histCount, "the ring is full and has dropped the oldest")
         XCTAssertGreaterThan(r.deck.passCounter, ReelDeck.histCount)
         let filed = r.tape.filedPasses()
@@ -7759,7 +7791,7 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(r.tape.droppedEvents, 0)
     }
     func testTheSessionTapeNamesTheLaneThatPlayedEachNote() {
-        let r = fourfoldReel(fxBoxScene([fxLine(gate: 0.5, emitter: 0b0001), fxLine(gate: 0.5, emitter: 0b0100)], fx: EuclideousFX(), stepRate: .r1_8), beats: 9)
+        let r = fourfoldReel(fxBoxScene([fxLine(gate: 0.5), fxLine(gate: 0.5)], fx: EuclideousFX(), stepRate: .r1_8), beats: 9)
         let notes = r.tape.events(from: 0, to: Int.max)
         XCTAssertFalse(notes.isEmpty)
         for e in notes where e.cable == 1 { XCTAssertEqual(e.lane, 0, "everything on A came from lane 1 — notes and their offs") }
@@ -7769,7 +7801,7 @@ final class RouterTests: XCTestCase {
 
     func testFourfoldOutputIsFiledOnTheCablesItWasRoutedTo() {
         // lane 1 → MAIN OUT A, lane 2 → MAIN OUT C; 1/8 scene rate ⇒ a 4-beat pass. 13 beats = three filed passes + the one in progress.
-        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0100)
+        let l1 = fxLine(gate: 0.5), l2 = fxLine(gate: 0.5)
         let r = fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13)
         XCTAssertEqual(r.cycle, 4, accuracy: 1e-9)
         let passes = r.deck.passNumbers().filter { $0 >= 0 }
@@ -7786,7 +7818,7 @@ final class RouterTests: XCTestCase {
         }
     }
     func testFourfoldPassExportsOnlyTheSelectedOutputsAndConcatenatesAPassRange() {
-        let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0010)
+        let l1 = fxLine(gate: 0.5), l2 = fxLine(gate: 0.5)
         let r = fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13)
         let a = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [1])   // lane 1's riff = Emit Riff A
         let b = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [3])   // lane 2's riff = Emit Riff B

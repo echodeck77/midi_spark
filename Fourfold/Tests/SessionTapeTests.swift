@@ -19,7 +19,7 @@ final class SessionTapeTests: XCTestCase {
             let on = Bool.random(using: &rng)
             let note = UInt8.random(in: 0...127, using: &rng)
             let vel = UInt8.random(in: 1...127, using: &rng)
-            let cab = Int.random(in: 0...4, using: &rng)
+            let cab = Int.random(in: 0...FourfoldPorts.busCount, using: &rng)   // ALL + the eight ports
             let lane: Int? = Bool.random(using: &rng) ? Int.random(in: 0...3, using: &rng) : nil
             let ch = UInt8.random(in: 0...15, using: &rng)
             let e = TapeEvent.note(tick: tick, on: on, note: note, vel: vel, cable: cab, lane: lane, channel: ch)
@@ -346,7 +346,7 @@ final class SessionTapeTests: XCTestCase {
     func testMessagesRoundTripToTheSameWireBytes() {
         let cases: [(UInt8, UInt8, UInt8)] = [(0x90, 60, 100), (0x93, 127, 1), (0x80, 60, 0), (0x8F, 0, 0), (0xB0, 74, 127), (0xB5, 1, 0), (0xE0, 0, 64), (0xE2, 127, 127)]
         for (st, a, b) in cases {
-            for cable in 0...4 {
+            for cable in 0...FourfoldPorts.busCount {
                 let e = TapeEvent.message(tick: 9, status: st, d1: a, d2: b, cable: cable, lane: 2)!
                 XCTAssertEqual(e.wire.status, st); XCTAssertEqual(e.wire.d1, a); XCTAssertEqual(e.wire.d2, b)
                 XCTAssertEqual(e.cable, cable); XCTAssertEqual(e.lane, 2); XCTAssertEqual(e.channel, st & 0x0F)
