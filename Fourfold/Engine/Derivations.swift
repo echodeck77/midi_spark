@@ -8824,45 +8824,68 @@ struct HocketTurn: Equatable {
 }
 
 /// PASS THE LINE: the ALT output MAIN position `i` passes to this turn (−1 = nowhere: ALT empty). TOGETHER ⇒ ALT[i mod n]; ROTATE ⇒ ALT[(i + k) mod n].
-@inline(__always) func hocketPassTarget(mainIndex i: Int, rule: HocketRuleSnap, turn: HocketTurn) -> Int {
+/// The ALT positions (indices into the ALT group) that MAIN position `i`'s line reaches, as a bit set (bit j = ALT[j]), for `m` MAIN and `n` ALT outputs. **TOGETHER** pairs by order (MAIN i → ALT[i mod n]) AND lets the extra ALT outputs share
+/// the MAIN lines when MAIN has fewer outputs than ALT (every ALT j also receives MAIN[j mod m]), so one line passed to two ALT outputs comes out of both, while a crossing (MAIN A, B → ALT B, A) still pairs one to one. **ROTATE** sends it to ONE
+/// ALT output a turn: ALT[(i + k) mod n]. (Paul, 2026-10-27: "TOGETHER = all at once, ROTATE = one at a time".) The ONE definition: the engine, the live chips, the glyph states and the ROUTES text all read it.
+@inline(__always) func hocketPassAltPositions(mainIndex i: Int, mainCount m: Int, altCount n: Int, rotate: Bool, k: Int64) -> UInt8 {
+    guard n > 0, m > 0 else { return 0 }
+    if rotate { return UInt8(1) << UInt8(Int((Int64(i) + k) % Int64(n))) }
+    var bits = UInt8(1) << UInt8(i % n)
+    for j in 0..<n where j % m == i { bits |= UInt8(1) << UInt8(j) }
+    return bits
+}
+/// The outputs (a bit set of buses) MAIN position `i`'s line leaves on this ALT turn.
+@inline(__always) func hocketPassTargets(mainIndex i: Int, rule: HocketRuleSnap, turn: HocketTurn) -> UInt8 {
     let n = rule.alt.count
-    guard n > 0 else { return -1 }
-    return rule.rotate ? rule.alt[Int((Int64(i) + turn.k) % Int64(n))] : rule.alt[i % n]
+    guard n > 0 else { return 0 }
+    let pos = hocketPassAltPositions(mainIndex: i, mainCount: rule.main.count, altCount: n, rotate: rule.rotate, k: turn.k)
+    var m: UInt8 = 0
+    for j in 0..<n where pos & (UInt8(1) << UInt8(j)) != 0 { m |= UInt8(1) << UInt8(rule.alt[j]) }
+    return m
+}
+/// The FIRST output MAIN position `i`'s line leaves on (the lowest bus), −1 when none.
+@inline(__always) func hocketPassTarget(mainIndex i: Int, rule: HocketRuleSnap, turn: HocketTurn) -> Int {
+    let m = hocketPassTargets(mainIndex: i, rule: rule, turn: turn)
+    return m == 0 ? -1 : m.trailingZeroBitCount
 }
 /// Which outputs receive a line this turn (bit b = bus b): PASS THE LINE on an ALT turn, every ALT output some MAIN output passes to.
 func hocketReceivers(rule: HocketRuleSnap, turn: HocketTurn) -> UInt8 {
     guard rule.mode == .pass, turn.isAlt else { return 0 }
     var m: UInt8 = 0
-    for i in 0..<rule.main.count {
-        let t = hocketPassTarget(mainIndex: i, rule: rule, turn: turn)
-        if t >= 0 { m |= UInt8(1) << UInt8(t) }
-    }
+    for i in 0..<rule.main.count { m |= hocketPassTargets(mainIndex: i, rule: rule, turn: turn) }
     return m
 }
 /// The SOURCE of the line output `o` receives this turn — the first MAIN output, in group order, that passes to it; −1 when none does.
 func hocketCarriedSource(by o: Int, rule: HocketRuleSnap, turn: HocketTurn) -> Int {
-    guard rule.mode == .pass, turn.isAlt else { return -1 }
-    for i in 0..<rule.main.count where hocketPassTarget(mainIndex: i, rule: rule, turn: turn) == o { return rule.main[i] }
+    guard rule.mode == .pass, turn.isAlt, o >= 0, o < 8 else { return -1 }
+    for i in 0..<rule.main.count where hocketPassTargets(mainIndex: i, rule: rule, turn: turn) & (UInt8(1) << UInt8(o)) != 0 { return rule.main[i] }
     return -1
 }
-/// §6.5 — for one note of output `o` (a member of `rule`), the output it leaves on, or −1 for none.
-func hocketOutput(for o: Int, rule: HocketRuleSnap, turn: HocketTurn) -> Int {
+/// §6.5 — for one note of output `o` (a member of `rule`), the OUTPUTS it leaves on (a bit set of buses; 0 = none, silent here and on ALL). One output unless a PASS fans the line out to several ALT outputs.
+func hocketOutputs(for o: Int, rule: HocketRuleSnap, turn: HocketTurn) -> UInt8 {
+    let own = UInt8(1) << UInt8(o)
     let mainIndex = rule.main.index(of: o), inAlt = rule.alt.contains(bus: o)
     switch rule.mode {
     case .swap:
-        if mainIndex != nil && inAlt { return o }                       // in both groups: it always plays
-        if !turn.isAlt { return mainIndex != nil ? o : -1 }
-        if !rule.rotate { return inAlt ? o : -1 }
+        if mainIndex != nil && inAlt { return own }                     // in both groups: it always plays
+        if !turn.isAlt { return mainIndex != nil ? own : 0 }
+        if !rule.rotate { return inAlt ? own : 0 }
         let n = rule.alt.count
-        guard n > 0 else { return -1 }
-        return rule.alt[Int(turn.k % Int64(n))] == o ? o : -1
+        guard n > 0 else { return 0 }
+        return rule.alt[Int(turn.k % Int64(n))] == o ? own : 0
     case .pass:
-        if !turn.isAlt { return o }
-        if let i = mainIndex { return hocketPassTarget(mainIndex: i, rule: rule, turn: turn) }
+        if !turn.isAlt { return own }
+        if let i = mainIndex { return hocketPassTargets(mainIndex: i, rule: rule, turn: turn) }
         // an ALT-only output: silent while it carries a line under REPLACE, otherwise it plays its own part
-        if inAlt, rule.replace, hocketReceivers(rule: rule, turn: turn) & (UInt8(1) << UInt8(o)) != 0 { return -1 }
-        return o
+        if inAlt, rule.replace, hocketReceivers(rule: rule, turn: turn) & own != 0 { return 0 }
+        return own
     }
+}
+/// The single output a note of `o` leaves on, for the displays that draw one: its own when it still sounds there, else the first destination; −1 for none.
+func hocketOutput(for o: Int, rule: HocketRuleSnap, turn: HocketTurn) -> Int {
+    let m = hocketOutputs(for: o, rule: rule, turn: turn)
+    if m == 0 { return -1 }
+    return m & (UInt8(1) << UInt8(o)) != 0 ? o : m.trailingZeroBitCount
 }
 /// §8.1 — which chips are heard NOW (bit b = bus b): MAIN's grid on a MAIN turn; on an ALT turn ALT's (SWAP: every ALT chip, or ALT[k mod n] under ROTATE; PASS: the ALT chips receiving a line). An output in both
 /// groups is live in each group whose turn it is.
@@ -9104,19 +9127,28 @@ func hocketBothGroupsNote(_ r: HocketRule) -> String? {
 /// with one). ALT empty: the single line "NO ALT OUTPUT: ALT TURNS ARE SILENT.".
 func hocketRouteLines(_ r: HocketRule) -> [String] {
     guard !r.alt.isEmpty else { return [HocketText.noAlt] }
-    let n = r.alt.count
-    return r.main.enumerated().map { i, m in
-        let from = HocketText.name(cable: m)
-        if r.several == .together { return "\(from) \u{2192} \(HocketText.name(cable: r.alt[i % n]))" }
+    let n = r.alt.count, m = r.main.count
+    return r.main.enumerated().map { i, from in
+        let src = HocketText.name(cable: from)
+        if r.several == .together {
+            let pos = hocketPassAltPositions(mainIndex: i, mainCount: m, altCount: n, rotate: false, k: 0)
+            let names = (0..<n).filter { pos & (UInt8(1) << UInt8($0)) != 0 }.map { HocketText.name(cable: r.alt[$0]) }
+            return "\(src) \u{2192} \(HocketText.joinedNames(names))"
+        }
         let order = (0..<n).map { HocketText.name(cable: r.alt[(i % n + $0) % n]) }
-        return "\(from) \u{2192} \(order.joined(separator: " \u{00B7} "))" + (n > 1 ? ", IN TURN" : "")
+        return "\(src) \u{2192} \(order.joined(separator: " \u{00B7} "))" + (n > 1 ? ", IN TURN" : "")
     }
 }
-/// §4.9 — the receivers (the ALT outputs some MAIN output can pass to; TOGETHER: ALT i mod n for each MAIN i, ROTATE: every ALT output) that are not in MAIN are AFFECTED.
+/// §4.9 — the receivers (the ALT outputs some MAIN output can pass to: TOGETHER — every ALT output the pairing and the sharing reach, ROTATE — every ALT output) that are not in MAIN are AFFECTED.
 func hocketRouteAffected(_ r: HocketRule) -> [Int] {
     guard !r.alt.isEmpty else { return [] }
-    let n = r.alt.count
-    let receivers: Set<Int> = r.several == .rotate ? Set(r.alt) : Set(r.main.indices.map { r.alt[$0 % n] })
+    let n = r.alt.count, m = r.main.count
+    var receivers = Set<Int>()
+    for i in 0..<m {
+        let pos = hocketPassAltPositions(mainIndex: i, mainCount: m, altCount: n, rotate: false, k: 0)
+        for j in 0..<n where pos & (UInt8(1) << UInt8(j)) != 0 { receivers.insert(r.alt[j]) }
+    }
+    if r.several == .rotate { receivers = Set(r.alt) }
     return r.alt.filter { receivers.contains($0) && !r.main.contains($0) }
 }
 func hocketRouteNote(_ r: HocketRule) -> String? {
@@ -9443,7 +9475,7 @@ struct HocketGlyphSpec: Equatable {
     static let easeSeconds = 0.15
 }
 func hocketGlyphSpec(lane: Int, partOff: Bool, view: HocketPartView) -> HocketGlyphSpec {
-    if partOff { return HocketGlyphSpec(body: .offLook, awayDisc: nil, carriedRing: nil) }
+    if partOff { return HocketGlyphSpec(body: .offLook, awayDisc: nil, carriedRing: view.carrying >= 0 ? HocketPalette.lane100(view.carrying / 2) : nil) }   // a part that is off still SOUNDS a line passed to it (Paul, 2026-10-27)
     let own = HocketPalette.lane100(lane)
     var body = HocketGlyphSpec.Body.filled(own)
     var disc: HocketColor? = nil

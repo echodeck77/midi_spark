@@ -3512,52 +3512,76 @@ final class Router {
                                     }
                                     return turns[ri]
                                 }
-                                // §7.2: a note passed to a part that is off — its tab off, its lane's PLAY off, its LANES cell muted at this beat, or solo-silenced — is silent there and on ALL.
+                                // §7.2 (revised, Paul 2026-10-27): a line passed to an output sounds on it whether or not that lane's own RIFF / NOTES layer is switched on — an output is a port. What still swallows it is the DESTINATION LANE
+                                // being PLAY-off, LANES-muted at this beat or solo-silenced. (A SOURCE part that is off strikes nothing, so it passes nothing.)
                                 func hocketDestIsOff(_ dest: Int) -> Bool {
                                     let dl = dest >> 1
                                     guard dl < linesView.count else { return true }
                                     let dline = linesView[dl]
-                                    if euclideousMixLayerIsOff(dline, notes: dest & 1 == 1) || !dline.enabledResolved { return true }
+                                    if !dline.enabledResolved { return true }
                                     let geo = euclideousLaneStepGeometry(lines: linesView, lane: dl, defaultRateBeats: p.euclidRateBeats)
                                     let g = euclideousLaneGridResolved(line: dline, lane: dl, legacyOn: p.euclideousLanesSeqOn, legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
                                                                        legacyCells: p.euclideousLanesSeqCells, stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub, beatsPerBar: beatsPerBar)
                                     let unit = g.muteUnit.beats(stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub)
                                     return !euclideousLaneMayStrike(lane: dl, soloMask: soloMaskNow(snapshot: p.soloMask), muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: g.muteCells, unitBeats: unit), enabled: true)
                                 }
-                                var w = 0
-                                var newPitchMask: UInt16 = 0
-                                var newSlotBits: UInt64 = ~0
+                                // Phase 1 — expand: each pitch leaves on every output its rule gives it (usually one). The first destination reuses the pitch's own slot; a further one (a PASS fanned out to several ALT outputs)
+                                // appends a copy at the end — same pitch, gate, slot and layer flag, its own destination and the receiving pad's velocity — up to the engine's 9 notes a hit (the extras beyond that are dropped).
+                                // A pitch sent nowhere is marked dead and removed in phase 2.
+                                var deadBits: UInt16 = 0
+                                var total = pitchCount
                                 var changed = false
                                 var riffNoteSurvives = hadRiffNote
                                 for j in 0..<pitchCount {
                                     let srcBus = pitchBus[j].trailingZeroBitCount
                                     let ri = srcBus < 8 ? Int(hocketRules.ruleOfBus[srcBus]) : -1
-                                    var dest = srcBus
-                                    if ri >= 0 {
-                                        dest = hocketOutput(for: srcBus, rule: hocketRules[ri], turn: hocketTurnOf(ri))
-                                        if dest >= 0 && dest != srcBus && hocketDestIsOff(dest) { dest = -1 }
-                                    }
-                                    if dest < 0 { changed = true; if j == 0 && hadRiffNote { riffNoteSurvives = false }; continue }   // sent nowhere
-                                    let nib = (notesSlotBits >> UInt64(4 * j)) & 0xF
-                                    pitches[w] = pitches[j]; pitchGate[w] = pitchGate[j]
-                                    pitchVel[w] = pitchVel[j]
-                                    pitchBus[w] = pitchBus[j]
-                                    if dest != srcBus {
-                                        changed = true
-                                        pitchBus[w] = 1 << dest
-                                        let dl = dest >> 1
-                                        if dl < linesView.count {   // §6.6: the receiving part's MIX VEL in place of the source pad's, under the hit's own accent / swell
-                                            let passed = hocketPassedVelocity(fxVel: fx.vel, destNotes: dest & 1 == 1, destVelocityAbsolute: linesView[dl].velocityAbsoluteResolved,
-                                                                              destNotesVelocity: linesView[dl].notesVelocityResolved)
-                                            pitchVel[w] = UInt8(max(1, min(127, Int(passed) + velDelta)))
+                                    if ri < 0 { continue }
+                                    var mask = hocketOutputs(for: srcBus, rule: hocketRules[ri], turn: hocketTurnOf(ri))
+                                    var others = mask & ~(UInt8(1) << UInt8(srcBus))
+                                    while others != 0 { let d = Int(others.trailingZeroBitCount); others &= others - 1; if hocketDestIsOff(d) { mask &= ~(UInt8(1) << UInt8(d)) } }
+                                    if mask == UInt8(1) << UInt8(srcBus) { continue }                  // still on its own output only: untouched
+                                    changed = true
+                                    if mask == 0 { deadBits |= UInt16(1) << UInt16(j); if j == 0 && hadRiffNote { riffNoteSurvives = false }; continue }
+                                    let baseVel = pitchVel[j], baseGate = pitchGate[j]
+                                    let flagNotes = (notesPitchMask >> UInt16(j)) & 1, nib = (notesSlotBits >> UInt64(4 * j)) & 0xF
+                                    var first = true
+                                    while mask != 0 {
+                                        let d = Int(mask.trailingZeroBitCount); mask &= mask - 1
+                                        var slot = j
+                                        if first { first = false }
+                                        else if total < 9 {
+                                            slot = total; total += 1
+                                            pitches[slot] = pitches[j]; pitchGate[slot] = baseGate
+                                            if flagNotes != 0 { notesPitchMask |= UInt16(1) << UInt16(slot) } else { notesPitchMask &= ~(UInt16(1) << UInt16(slot)) }
+                                            notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * slot))) | (nib << UInt64(4 * slot))
+                                        } else { break }
+                                        pitchBus[slot] = 1 << d
+                                        pitchVel[slot] = baseVel
+                                        if d != srcBus {
+                                            let dl = d >> 1
+                                            if dl < linesView.count {   // §6.6: the receiving part's MIX VEL in place of the source pad's, under the hit's own accent / swell
+                                                let passed = hocketPassedVelocity(fxVel: fx.vel, destNotes: d & 1 == 1, destVelocityAbsolute: linesView[dl].velocityAbsoluteResolved,
+                                                                                  destNotesVelocity: linesView[dl].notesVelocityResolved)
+                                                pitchVel[slot] = UInt8(max(1, min(127, Int(passed) + velDelta)))
+                                            }
                                         }
                                     }
-                                    if (notesPitchMask >> UInt16(j)) & 1 != 0 { newPitchMask |= UInt16(1) << UInt16(w) }
-                                    newSlotBits = (newSlotBits & ~(UInt64(0xF) << UInt64(4 * w))) | (nib << UInt64(4 * w))
-                                    w += 1
+                                }
+                                // Phase 2 — compact: drop the dead pitches, keeping the order and each survivor's layer flag and strike slot.
+                                var w = 0
+                                var newPitchMask: UInt16 = 0
+                                var newSlotBits: UInt64 = ~0
+                                if changed {
+                                    for j in 0..<total where deadBits & (UInt16(1) << UInt16(j)) == 0 {
+                                        let nib = (notesSlotBits >> UInt64(4 * j)) & 0xF
+                                        pitches[w] = pitches[j]; pitchGate[w] = pitchGate[j]; pitchVel[w] = pitchVel[j]; pitchBus[w] = pitchBus[j]
+                                        if (notesPitchMask >> UInt16(j)) & 1 != 0 { newPitchMask |= UInt16(1) << UInt16(w) }
+                                        newSlotBits = (newSlotBits & ~(UInt64(0xF) << UInt64(4 * w))) | (nib << UInt64(4 * w))
+                                        w += 1
+                                    }
                                 }
                                 if changed {
-                                    for j in w..<pitchCount { pitchBus[j] = -1 }
+                                    for j in w..<total { pitchBus[j] = -1 }
                                     pitchCount = w
                                     notesPitchMask = newPitchMask; notesSlotBits = newSlotBits
                                     hadRiffNote = riffNoteSurvives

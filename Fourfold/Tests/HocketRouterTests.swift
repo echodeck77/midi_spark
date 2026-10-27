@@ -245,14 +245,54 @@ final class HocketRouterTests: XCTestCase {
         XCTAssertEqual(e.all(redRiff), base.all(redRiff), "RED RIFF is in both groups, so it sounds on every turn")
         XCTAssertEqual(beats(e.ons(blueRiff)), [0.5, 1.5, 2.5, 3.5], "BLUE RIFF (ALT only) plays on ALT turns")
     }
-    func testAnOffPartPassesNothingAndSwallowsAPassedLine() {
+    /// Paul, 2026-10-27 (revises §7.2): a line passed to an output SOUNDS on it even when that lane's own layer is switched off — an output is a port. A SOURCE part that is off still passes nothing.
+    func testAPassedLineSoundsOnAnOutputWhoseOwnPartIsOffAndAnOffSourcePassesNothing() {
         var lanes = (0..<4).map { laneLine($0, riff: false) }
         lanes[1].notesOn = false; lanes[1].litNotes = 0                               // BLUE NOTES switched off
         let e = render(doc(lanes: lanes, rules: crossingRules()), beats: 12), base = render(doc(lanes: lanes), beats: 12)
-        XCTAssertTrue(e.ons(blueNotes).isEmpty, "BLUE NOTES is off: nothing on its output, ever")
-        XCTAssertTrue(e.ons(redNotes).filter { $0.beat >= 4 && $0.beat < 8 }.isEmpty, "bar 2: RED's line moved to BLUE NOTES (off), and BLUE passes nothing — RED NOTES' own output is silent too")
+        func pairs(_ evs: [HEmitter.Ev], _ lo: Double, _ hi: Double) -> [String] { evs.filter { $0.beat >= lo && $0.beat < hi }.map { "\($0.beat)/\($0.note)" } }
+        XCTAssertTrue(pairs(e.ons(blueNotes), 0, 4).isEmpty && pairs(e.ons(blueNotes), 8, 12).isEmpty, "bars 1 and 3: BLUE NOTES' own part is off, so it plays nothing")
+        XCTAssertEqual(pairs(e.ons(blueNotes), 4, 8), pairs(base.ons(redNotes), 4, 8), "bar 2: RED's line leaves on BLUE NOTES although BLUE's own NOTES layer is off")
+        XCTAssertFalse(pairs(e.ons(blueNotes), 4, 8).isEmpty)
+        XCTAssertTrue(e.ons(blueNotes).filter { $0.beat >= 4 && $0.beat < 8 }.allSatisfy { $0.chan == chanNibble(blueNotes) }, "…on BLUE NOTES' channel")
+        XCTAssertTrue(e.ons(redNotes).filter { $0.beat >= 4 && $0.beat < 8 }.isEmpty, "bar 2: RED NOTES' own output is silent — its line moved, and BLUE's off part passes nothing back")
         XCTAssertEqual(e.ons(redNotes).filter { $0.beat < 4 || $0.beat >= 8 }, base.ons(redNotes).filter { $0.beat < 4 || $0.beat >= 8 }, "bars 1 and 3: RED plays as normal")
-        XCTAssertEqual(e.ons(0).filter { $0.beat >= 4 && $0.beat < 8 }.filter { $0.chan == chanNibble(blueNotes) || $0.chan == chanNibble(redNotes) }.count, 0, "bar 2: silent on ALL too")
+        XCTAssertEqual(e.ons(0).filter { $0.beat >= 4 && $0.beat < 8 && $0.chan == chanNibble(blueNotes) }.count, e.ons(blueNotes).filter { $0.beat >= 4 && $0.beat < 8 }.count, "bar 2: ALL carries the passed line on BLUE NOTES' channel too")
+        assertBalanced(e)
+    }
+    /// Paul, 2026-10-27: ONE MAIN output passed to TWO ALT outputs (a riff and a notes output), TOGETHER: the line comes out of BOTH, each at the receiving pad's MIX VEL — at any window size; BLUE's NOTES layer is off and it still sounds.
+    func testOneLinePassedToARiffAndANotesOutputComesOutOfBoth() {
+        var lanes = (0..<4).map { laneLine($0, notes: false) }
+        lanes[1].velocityAbsolute = 90; lanes[1].notesVelocity = 40                 // BLUE's RIFF pad 90, NOTES pad 40
+        let rules = [rule(main: [RR], alt: [BR, BN]) { $0.mode = .pass; $0.mainLen = 1; $0.altLen = 1 }]
+        for frames in [UInt32(480), 8192] {
+            let e = render(doc(lanes: lanes, rules: rules), beats: 4, frames: frames), base = render(doc(lanes: lanes), beats: 4, frames: frames)
+            for b in [0.5, 1.5, 2.5, 3.5] {                                          // the ALT turns
+                let red = base.ons(redRiff).filter { $0.beat == b }.map { $0.note }
+                XCTAssertFalse(red.isEmpty)
+                let onRiff = e.ons(blueRiff).filter { $0.beat == b }, onNotes = e.ons(blueNotes).filter { $0.beat == b }
+                XCTAssertEqual(onRiff.map { $0.note }, red, "\(frames) frames, hit at \(b): BLUE RIFF carries RED RIFF's note")
+                XCTAssertEqual(onNotes.map { $0.note }, red, "\(frames) frames, hit at \(b): …and so does BLUE NOTES")
+                XCTAssertTrue(onRiff.allSatisfy { $0.vel == 90 } && onNotes.allSatisfy { $0.vel == 40 }, "\(frames) frames: each at its receiving pad's MIX VEL (riff 90, notes 40)")
+                XCTAssertTrue(onRiff.allSatisfy { $0.chan == chanNibble(blueRiff) } && onNotes.allSatisfy { $0.chan == chanNibble(blueNotes) }, "each on its own output's channel")
+                XCTAssertTrue(e.ons(redRiff).filter { $0.beat == b }.isEmpty, "RED RIFF's own output is silent on an ALT turn (its line moved)")
+                XCTAssertEqual(e.ons(0).filter { $0.beat == b && ($0.chan == chanNibble(blueRiff) || $0.chan == chanNibble(blueNotes)) }.count, onRiff.count + onNotes.count, "ALL carries both")
+            }
+            XCTAssertEqual(e.ons(redRiff).filter { [0.0, 1.0, 2.0, 3.0].contains($0.beat) }, base.ons(redRiff).filter { [0.0, 1.0, 2.0, 3.0].contains($0.beat) }, "MAIN turns: RED plays as normal")
+            assertBalanced(e)
+        }
+    }
+    /// 2 MAIN, 3 ALT (TOGETHER): MAIN 0 reaches ALT 0 and 2, MAIN 1 reaches ALT 1.
+    func testTwoMainOutputsAndThreeAltOutputsShareTheLines() {
+        let lanes = (0..<4).map { laneLine($0, riff: true, notes: false) }
+        let rules = [rule(main: [RR, AR], alt: [BR, GR, BN]) { $0.mode = .pass; $0.mainLen = 1; $0.altLen = 1; $0.own = .merge }]
+        let e = render(doc(lanes: lanes, rules: rules), beats: 4), base = render(doc(lanes: lanes), beats: 4)
+        for b in [0.5, 1.5, 2.5, 3.5] {
+            let red = base.ons(redRiff).filter { $0.beat == b }.map { $0.note }, amber = base.ons(amberRiff).filter { $0.beat == b }.map { $0.note }
+            XCTAssertEqual(e.ons(blueNotes).filter { $0.beat == b }.map { $0.note }, red, "ALT[2] = BLUE NOTES carries MAIN 0 (RED RIFF)")
+            XCTAssertTrue(e.ons(blueRiff).filter { $0.beat == b }.map { $0.note }.contains { red.contains($0) }, "ALT[0] = BLUE RIFF carries MAIN 0 (RED RIFF) as well")
+            XCTAssertTrue(e.ons(greenRiff).filter { $0.beat == b }.map { $0.note }.contains { amber.contains($0) }, "ALT[1] = GREEN RIFF carries MAIN 1 (AMBER RIFF)")
+        }
         assertBalanced(e)
     }
 

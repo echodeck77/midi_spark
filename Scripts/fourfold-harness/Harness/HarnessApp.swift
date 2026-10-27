@@ -195,7 +195,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -228,6 +228,11 @@ extension Host {
                     au.editDocument { $0.hocketRules = HocketRuleSet([
                         { var r = HocketRule(); r.main = [1, 5]; r.alt = [3, 7]; r.unit = .steps; r.mainLen = 4; r.altLen = 3; r.offset = 2; return r }(),
                         { var r = HocketRule(); r.mode = .pass; r.main = [2, 6]; r.alt = [6, 2]; r.unit = .bars; r.own = .replace; return r }()]) }
+                }
+                if name.contains("HOCKET FANOUT") {   // one line to six ALT outputs on TOGETHER (the copies are appended to the hit's pitch set), and a second rule that fans a notes-layer pair out
+                    au.editDocument { $0.hocketRules = HocketRuleSet([
+                        { var r = HocketRule(); r.mode = .pass; r.main = [1]; r.alt = [3, 4, 5, 6, 7, 8]; r.own = .merge; r.mainLen = 1; r.altLen = 1; return r }(),
+                        { var r = HocketRule(); r.mode = .pass; r.main = [2]; r.alt = [2]; r.unit = .steps; r.own = .merge; return r }()]) }
                 }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }
                 if name.contains("LATCH") { au.editDocument { $0.euclideousHoldLatchMode = .latch } }

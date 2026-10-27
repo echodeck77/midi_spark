@@ -45,7 +45,8 @@ final class HocketGlyphTests: XCTestCase {
         XCTAssertEqual(hocketGlyphSpec(lane: 0, partOff: false, view: HocketPartView(play: .away(bus: 3), carrying: -1)), HocketGlyphSpec(body: .outline(own), awayDisc: blue, carriedRing: nil), "away: hollow + a disc in the away lane's colour")
         XCTAssertEqual(hocketGlyphSpec(lane: 0, partOff: false, view: HocketPartView(play: .playing, carrying: 4)), HocketGlyphSpec(body: .filled(own), awayDisc: nil, carriedRing: amber), "carrying: the glyph as its own state + a ring in the carried lane's colour")
         XCTAssertEqual(hocketGlyphSpec(lane: 0, partOff: false, view: HocketPartView(play: .away(bus: 3), carrying: 4)), HocketGlyphSpec(body: .outline(own), awayDisc: blue, carriedRing: amber), "a crossing: both marks")
-        XCTAssertEqual(hocketGlyphSpec(lane: 2, partOff: true, view: HocketPartView(play: .away(bus: 3), carrying: 4)), HocketGlyphSpec(body: .offLook, awayDisc: nil, carriedRing: nil))
+        XCTAssertEqual(hocketGlyphSpec(lane: 2, partOff: true, view: HocketPartView(play: .away(bus: 3), carrying: -1)), HocketGlyphSpec(body: .offLook, awayDisc: nil, carriedRing: nil), "an off part that carries nothing is the off look")
+        XCTAssertEqual(hocketGlyphSpec(lane: 2, partOff: true, view: HocketPartView(play: .playing, carrying: 4)), HocketGlyphSpec(body: .offLook, awayDisc: nil, carriedRing: amber), "an off part still SOUNDS a line passed to it, so it shows the carrying ring")
         // the sizes the spec gives
         XCTAssertEqual(HocketGlyphSpec.disc, 7); XCTAssertEqual(HocketGlyphSpec.discRing, 1.5); XCTAssertEqual(HocketGlyphSpec.ringGap, 2); XCTAssertEqual(HocketGlyphSpec.ringWidth, 1.5); XCTAssertEqual(HocketGlyphSpec.easeSeconds, 0.15)
         XCTAssertEqual(HocketGlyphSpec.discBeyond, 3); XCTAssertEqual(HocketGlyphSpec.discBelow, 1)

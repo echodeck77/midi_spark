@@ -60,6 +60,7 @@ final class FourfoldAppModel: ObservableObject {
         // `--midi-selftest`: check the CoreMIDI shell in-process and print the result to stderr (FourfoldSelfTest).
         if CommandLine.arguments.contains("--midi-selftest"), let engine { selfTest.run(engine: engine) }
         if let engine { selfTest.stateTest(engine: engine) }
+        if let engine { selfTest.hocketTest(engine: engine) }
         // `--soak <seconds> [--soak-seed N]`: a long randomised stress run of the live app that checks for stuck notes (FourfoldSoak; Scripts/fourfold-harness/soak.sh).
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--soak"), let engine {

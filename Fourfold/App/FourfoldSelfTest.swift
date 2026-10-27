@@ -53,6 +53,23 @@ final class FourfoldSelfTest {
         }
     }
 
+    /// `--hocket-test mode:main:alt` (e.g. `swap:1:3`, `pass:2:4`; outputs are cables 1…8): a second after launch, store ONE rule the way the pop-up's funnel does (`editDocument`), so the SELFTEST OUT line shows which of the nine
+    /// outputs the real engine, in the real app, then sounds on.
+    func hocketTest(engine: FourfoldEngine) {
+        let a = CommandLine.arguments
+        guard let i = a.firstIndex(of: "--hocket-test"), i + 1 < a.count else { return }
+        let parts = a[i + 1].split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3 else { log("SELFTEST HOCKET: expected mode:main:alt"); return }
+        var rule = HocketRule()
+        rule.mode = parts[0] == "pass" ? .pass : .swap
+        rule.main = parts[1].split(separator: ",").compactMap { Int($0) }
+        rule.alt = parts[2].split(separator: ",").compactMap { Int($0) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            engine.au.editDocument { $0.hocketRules = HocketRuleSet([rule]) }
+            self.log("SELFTEST HOCKET: stored \(a[i + 1]) -> rules \(engine.au.uiHocketRules().map { "\($0.mode) main=\($0.main) alt=\($0.alt) lit=\($0.isLit)" })")
+        }
+    }
+
     /// `--state-test-write`: change a document field a second after launch (the app's 3 s autosave then writes it). `--state-test-read`: print that field — run in the NEXT launch it shows whether the session came back.
     func stateTest(engine: FourfoldEngine) {
         if CommandLine.arguments.contains("--state-test-write") {

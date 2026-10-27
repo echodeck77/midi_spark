@@ -79,13 +79,38 @@ final class HocketTurnTests: XCTestCase {
         XCTAssertEqual(hocketReceivers(rule: none, turn: alt), 0)
     }
     func testAnAltOnlyOutputIsSilentWhileItCarriesALineUnderReplaceAndPlaysUnderMerge() {
-        func rule(_ own: HocketOwn) -> HocketRuleSnap { snap { $0.mode = .pass; $0.main = [2]; $0.alt = [4, 6]; $0.own = own } }
+        func rule(_ own: HocketOwn, rotate: Bool = false) -> HocketRuleSnap { snap { $0.mode = .pass; $0.main = [2]; $0.alt = [4, 6]; $0.own = own; $0.several = rotate ? .rotate : .together } }
         let alt = HocketTurn(isAlt: true, k: 0)
-        XCTAssertEqual(hocketReceivers(rule: rule(.replace), turn: alt), 0b0000_1000, "TOGETHER: MAIN 0 → ALT[0] = BLUE NOTES (bus 3)")
+        XCTAssertEqual(hocketReceivers(rule: rule(.replace), turn: alt), 0b0010_1000, "TOGETHER: one MAIN output and two ALT outputs — the line goes to BOTH (BLUE NOTES, bus 3, and AMBER NOTES, bus 5)")
         XCTAssertEqual(hocketOutput(for: 3, rule: rule(.replace), turn: alt), -1, "REPLACE: the receiver's own part is silent")
+        XCTAssertEqual(hocketOutput(for: 5, rule: rule(.replace), turn: alt), -1, "…for every receiver")
         XCTAssertEqual(hocketOutput(for: 3, rule: rule(.merge), turn: alt), 3, "MERGE: it keeps playing")
-        XCTAssertEqual(hocketOutput(for: 5, rule: rule(.replace), turn: alt), 5, "an ALT output that receives nothing plays its own part")
         XCTAssertEqual(hocketOutput(for: 3, rule: rule(.replace), turn: HocketTurn(isAlt: false, k: 0)), 3, "MAIN turn: every output plays its own")
+        // ROTATE sends it to ONE ALT output a turn: the one that receives nothing plays its own part
+        XCTAssertEqual(hocketReceivers(rule: rule(.replace, rotate: true), turn: alt), 0b0000_1000)
+        XCTAssertEqual(hocketOutput(for: 5, rule: rule(.replace, rotate: true), turn: alt), 5, "an ALT output that receives nothing plays its own part")
+    }
+    /// TOGETHER (Paul, 2026-10-27): pairs by order, and lets the extra ALT outputs share the MAIN lines when MAIN has fewer outputs; ROTATE is one ALT output a turn.
+    func testTogetherPairsByOrderAndSharesTheLinesAcrossExtraAltOutputs() {
+        func pos(_ i: Int, _ m: Int, _ n: Int, rotate: Bool = false, k: Int64 = 0) -> UInt8 { hocketPassAltPositions(mainIndex: i, mainCount: m, altCount: n, rotate: rotate, k: k) }
+        XCTAssertEqual(pos(0, 1, 2), 0b11, "1 MAIN, 2 ALT: both")
+        XCTAssertEqual(pos(0, 1, 3), 0b111, "1 MAIN, 3 ALT: all three")
+        XCTAssertEqual(pos(0, 2, 2), 0b01); XCTAssertEqual(pos(1, 2, 2), 0b10, "2 MAIN, 2 ALT: a crossing pairs one to one")
+        XCTAssertEqual(pos(0, 2, 3), 0b101, "2 MAIN, 3 ALT: MAIN 0 → ALT 0 and 2 …"); XCTAssertEqual(pos(1, 2, 3), 0b010, "… MAIN 1 → ALT 1")
+        XCTAssertEqual(pos(0, 3, 2), 0b01); XCTAssertEqual(pos(1, 3, 2), 0b10); XCTAssertEqual(pos(2, 3, 2), 0b01, "3 MAIN, 2 ALT: fan-in, i mod n")
+        XCTAssertEqual(pos(0, 4, 1), 0b1, "any MAIN count, one ALT: the one")
+        for k in 0..<5 { XCTAssertEqual(pos(0, 1, 3, rotate: true, k: Int64(k)), UInt8(1) << UInt8(k % 3), "ROTATE: one ALT output a turn") }
+        XCTAssertEqual(pos(1, 2, 3, rotate: true, k: 1), 0b100, "ROTATE: ALT[(i + k) mod n]")
+        XCTAssertEqual(pos(0, 0, 2), 0); XCTAssertEqual(pos(0, 1, 0), 0, "nothing to pair")
+        // the engine's output set agrees with the positions, for every rule shape
+        for m in 1...3 { for n in 1...3 {
+            let r = snap { $0.mode = .pass; $0.main = Array(1...m); $0.alt = Array(4...(3 + n)); $0.own = .merge }
+            for i in 0..<m {
+                var want: UInt8 = 0; let p = pos(i, m, n)
+                for j in 0..<n where p & (UInt8(1) << UInt8(j)) != 0 { want |= UInt8(1) << UInt8(3 + j) }
+                XCTAssertEqual(hocketOutputs(for: i, rule: r, turn: HocketTurn(isAlt: true, k: 0)), want, "m=\(m) n=\(n) i=\(i)")
+            }
+        } }
     }
 
     // MARK: - §8.1 / §9.1
@@ -97,7 +122,7 @@ final class HocketTurnTests: XCTestCase {
         let rot = snap { $0.main = [1]; $0.alt = [3, 5]; $0.several = .rotate }
         XCTAssertEqual(hocketLiveChips(rule: rot, turn: HocketTurn(isAlt: true, k: 1)).alt, 0b0001_0000, "ROTATE: ALT[1] = cable 5 = bus 4")
         let pass = snap { $0.mode = .pass; $0.main = [2]; $0.alt = [4, 6] }
-        XCTAssertEqual(hocketLiveChips(rule: pass, turn: HocketTurn(isAlt: true, k: 0)).alt, 0b0000_1000, "PASS: the ALT chips receiving a line")
+        XCTAssertEqual(hocketLiveChips(rule: pass, turn: HocketTurn(isAlt: true, k: 0)).alt, 0b0010_1000, "PASS: the ALT chips receiving a line (TOGETHER: both of two ALT outputs)")
     }
     func testPartStates() {
         var rules = HocketRulesSnap(rules: [{ var r = HocketRule(); r.mode = .pass; r.main = [2, 4]; r.alt = [4, 2]; return r }()])

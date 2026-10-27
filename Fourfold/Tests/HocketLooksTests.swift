@@ -279,4 +279,15 @@ final class HocketLooksTests: XCTestCase {
         XCTAssertEqual(HocketAX.partState(HocketPartView(play: .playing, carrying: 0)), "carrying the red lane\u{2019}s line")
         XCTAssertEqual(HocketAX.partState(HocketPartView(play: .away(bus: 3), carrying: 1)), "away on the blue lane, carrying the red lane\u{2019}s line", "both for a crossing")
     }
+
+    /// TOGETHER with fewer MAIN than ALT outputs shares the lines (Paul, 2026-10-27): ROUTES names every receiver, and every ALT output counts as affected.
+    func testTheRouteTextNamesEveryOutputAFannedOutLineReaches() {
+        var r = HocketRule(); r.mode = .pass; r.main = [1]; r.alt = [3, 4]; r.several = .together
+        XCTAssertEqual(hocketRouteLines(r), ["RED RIFF \u{2192} BLUE RIFF AND BLUE NOTES"])
+        XCTAssertEqual(hocketRouteAffected(r), [3, 4])
+        r.main = [1, 5]; r.alt = [3, 4, 7]                                           // 2 MAIN, 3 ALT: MAIN 0 → ALT 0 and 2, MAIN 1 → ALT 1
+        XCTAssertEqual(hocketRouteLines(r), ["RED RIFF \u{2192} BLUE RIFF AND GREEN RIFF", "AMBER RIFF \u{2192} BLUE NOTES"])
+        r.several = .rotate; r.main = [1]; r.alt = [3, 4]
+        XCTAssertEqual(hocketRouteLines(r), ["RED RIFF \u{2192} BLUE RIFF \u{00B7} BLUE NOTES, IN TURN"], "ROTATE keeps its own wording: one at a time")
+    }
 }
