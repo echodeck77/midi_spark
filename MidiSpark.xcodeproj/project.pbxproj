@@ -186,6 +186,7 @@
 		999F001A6896EB83AB4DF907 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */; };
 		9A832AC171E5542BAD35793F /* NotesTabPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EED3540DD5920A264F6F08 /* NotesTabPainter.swift */; };
 		9B202EF7465E2476A86573C2 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0504D981DD4BF1856C773AA7 /* MidiFile.swift */; };
+		9B837C00B3B0EAA1C05C8BD1 /* HocketModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EA698A26E0E82CDCE82B8A /* HocketModelTests.swift */; };
 		9BAF886FF9516AB5F1598E24 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD9084051F44A6CAA1CFDFA9 /* Models.swift */; };
 		9D819AFF08BC2DDCE42B5F3B /* PresetStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */; };
 		9E72B64FD55D3542492F0113 /* GridSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CBF035AD049143522CAD057 /* GridSkin.swift */; };
@@ -543,6 +544,7 @@
 		CFD093523154373C2AAE660A /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
 		CFED50679781AA2244482FB5 /* FourfoldStackBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldStackBudgetTests.swift; sourceTree = "<group>"; };
 		D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CogPage.swift; sourceTree = "<group>"; };
+		D1EA698A26E0E82CDCE82B8A /* HocketModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketModelTests.swift; sourceTree = "<group>"; };
 		D276BBCDD2EF6CDEC29EDA27 /* AcceptanceGatesSpecialTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceGatesSpecialTests.swift; sourceTree = "<group>"; };
 		D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D2EEEDB7EA84061D398367F9 /* LockModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockModePainter.swift; sourceTree = "<group>"; };
@@ -713,6 +715,7 @@
 				C08CEAAFF57F496AB60992D7 /* FourfoldTransportTests.swift */,
 				61A29EBC243C8C44F0013668 /* FXTabTests.swift */,
 				727D77E0616F8B7F3F9F2B02 /* HocketGoldenTests.swift */,
+				D1EA698A26E0E82CDCE82B8A /* HocketModelTests.swift */,
 				A7DA6ABCB082900BEE40BD4E /* LaneLockTests.swift */,
 				EBD9DBBEEFA1051724E66556 /* LanesGridTests.swift */,
 				225D04471362741A939D49DE /* LaneSoloTests.swift */,
@@ -1376,6 +1379,7 @@
 				D2F912D985A2AE74BF23B5A9 /* FourfoldTransportClock.swift in Sources */,
 				BE8C5FC00FE0F49C2EB7F07F /* FourfoldTransportTests.swift in Sources */,
 				A2FB6485683B038D5E84F0CE /* HocketGoldenTests.swift in Sources */,
+				9B837C00B3B0EAA1C05C8BD1 /* HocketModelTests.swift in Sources */,
 				F05E9AE1A7913956B2AE8C67 /* LaneLockTests.swift in Sources */,
 				C824D765CA367D040CAEB674 /* LaneSoloTests.swift in Sources */,
 				EBC5C46DF44DF3FB225CBABA /* LaneStripFuzzTests.swift in Sources */,

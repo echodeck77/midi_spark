@@ -92,6 +92,73 @@ struct SnapCell {
 
 // MARK: - Resolved per-state params (the single resolved param bag — the A/B morph layer was removed; paramsB/typeB are decode-only legacy)
 
+// MARK: - HOCKET (ferry 2026-10-27) — the rules as the render thread reads them
+// Fixed-size VALUE storage only (a count and a SIMD vector, no array): copying a snapshot never touches the heap and the render thread never allocates (spec §5.6). Four rules, groups of up to eight outputs.
+/// An ordered group of up to eight outputs as BUS indices (0…7 = Emit Riff A … Emit Notes D, `FourfoldPorts.bus`). The document stores CABLES (`HocketRule`); `init(cables:)` converts once, on the main thread.
+struct HocketGroup: Equatable {
+    private(set) var count = 0
+    private var buses = SIMD8<UInt8>(repeating: 0)
+    init() {}
+    init(cables: [Int]) {
+        for c in cables where (1...8).contains(c) && count < 8 { buses[count] = UInt8(c - 1); count += 1 }
+    }
+    subscript(i: Int) -> Int { Int(buses[i]) }
+    var isEmpty: Bool { count == 0 }
+    func index(of bus: Int) -> Int? {
+        for i in 0..<count where Int(buses[i]) == bus { return i }
+        return nil
+    }
+    func contains(bus: Int) -> Bool { index(of: bus) != nil }
+    /// Bit b set ⇔ bus b is in the group.
+    var mask: UInt8 {
+        var m: UInt8 = 0
+        for i in 0..<count { m |= UInt8(1) << buses[i] }
+        return m
+    }
+}
+struct HocketRuleSnap: Equatable {
+    var lit = false                       // on AND MAIN not empty (§3.3) — an unlit rule touches nothing (§6.1)
+    var mode: HocketRuleMode = .swap
+    var main = HocketGroup(), alt = HocketGroup()
+    var unit: HocketUnit = .hits
+    var mainLen = 1, altLen = 1, offset = 0
+    var rotate = false                    // several == ROTATE
+    var replace = true                    // own == REPLACE
+    var countOnBus = -1                   // the bus of COUNT ON's output (its lane is the rule's reference lane); −1 = none
+    init() {}
+    init(_ r: HocketRule) {
+        lit = r.isLit; mode = r.mode; main = HocketGroup(cables: r.main); alt = HocketGroup(cables: r.alt)
+        unit = r.unit; mainLen = r.mainLen; altLen = r.altLen; offset = r.offset
+        rotate = r.several == .rotate; replace = r.own == .replace
+        countOnBus = r.main.indices.contains(r.countOn) ? r.main[r.countOn] - 1 : -1
+    }
+    var cycleLength: Int { mainLen + altLen }
+    var referenceLane: Int { countOnBus >= 0 ? countOnBus / 2 : -1 }
+}
+struct HocketRulesSnap: Equatable {
+    var r0 = HocketRuleSnap(), r1 = HocketRuleSnap(), r2 = HocketRuleSnap(), r3 = HocketRuleSnap()
+    var litMask: UInt8 = 0                // bit i = rule i is lit
+    var litBusMask: UInt8 = 0             // every output in either group of a LIT rule — the outputs whose strikes JOIN a sounding key (§7.3)
+    var ruleOfBus = SIMD8<Int8>(repeating: -1)   // the lit rule an output is in (−1 = none); at most one by §5.4
+    init() {}
+    init(rules: [HocketRule]) {
+        for (i, r) in rules.prefix(HocketRuleSet.maxRules).enumerated() {
+            let s = HocketRuleSnap(r)
+            self[i] = s
+            guard s.lit else { continue }
+            litMask |= UInt8(1) << UInt8(i)
+            litBusMask |= s.main.mask | s.alt.mask
+            for b in 0..<8 where (s.main.mask | s.alt.mask) & (UInt8(1) << UInt8(b)) != 0 { ruleOfBus[b] = Int8(i) }
+        }
+    }
+    subscript(i: Int) -> HocketRuleSnap {
+        get { switch i { case 0: return r0; case 1: return r1; case 2: return r2; default: return r3 } }
+        set { switch i { case 0: r0 = newValue; case 1: r1 = newValue; case 2: r2 = newValue; default: r3 = newValue } }
+    }
+    /// No lit rule: the Router's output is unchanged, bit for bit (§7.6).
+    var isInert: Bool { litMask == 0 }
+}
+
 struct SnapParams {
     var type: ProcessorType = .arp
     var octaves: UInt8 = 1
@@ -155,6 +222,8 @@ struct SnapParams {
     var activeRiff: Int = 0   // which riff plays when RIFFS seq is off (and which tab the editor shows)
     // FX TAB (2026-10-18): the page-level FX rows, resolved/clamped by `PluginState.euclideousFXResolved`, gated to `Snap.euclideousRow` — fixed-size flat arrays, only ever READ on the render thread.
     var euclideousFX: EuclideousFX = EuclideousFX()
+    // HOCKET (2026-10-27): the page-level rules, gated to `Snap.euclideousRow`; inert (no lit rule) ⇒ the Router's output is unchanged, bit for bit.
+    var hocketRules: HocketRulesSnap = HocketRulesSnap()
     var euclideousLanesSeqOn: Bool = false
     var euclideousLanesSeqRate: EuclideousSeqRate = .oneBar
     var euclideousLanesSeqLen: Int = 8

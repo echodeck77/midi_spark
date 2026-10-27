@@ -141,7 +141,8 @@ public class FourfoldAudioUnit: AUAudioUnit {
             guard let box, Snap.euclideousRow < box.cells.count else { return 0 }
             let cell = box.cells[Snap.euclideousRow]
             guard cell.machineIndex >= 0, Int(cell.machineIndex) < box.machines.count else { return 0 }
-            return FourfoldUndoProbe.fnv(String(describing: box.machines[Int(cell.machineIndex)].a.euclidLines))
+            let p = box.machines[Int(cell.machineIndex)].a
+            return FourfoldUndoProbe.fnv(String(describing: p.euclidLines)) ^ FourfoldUndoProbe.fnv(String(describing: p.hocketRules))   // HOCKET: the live box's rules too
         }
         return lanesHash(store.acquire()) == lanesHash(SnapshotBuilder.build(from: renderDoc(), generation: 0))
     }
@@ -226,6 +227,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // unrelated `MachineParams` field, not this one; only `EffectiveParamsTests.swift` still exercises
     // this resolver directly, to prove the migration itself still works).
     func uiEuclideousFX() -> EuclideousFX { document.euclideousFXResolved }   // FX TAB (2026-10-18)
+    func uiHocketRules() -> [HocketRule] { document.hocketRulesResolved }   // HOCKET (2026-10-27): sanitised, ≤ 4 rules; [] = none stored
     func uiEuclideousLanesSeq() -> EuclideousLanesSeq {
         EuclideousLanesSeq(on: document.euclideousLanesSeqOnResolved, rate: document.euclideousLanesSeqRateResolved,
                             len: document.euclideousLanesSeqLenResolved, cells: document.euclideousLanesSeqCellsResolved)

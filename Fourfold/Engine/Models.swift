@@ -1329,6 +1329,117 @@ extension EuclideousFX: Codable {
         if ratchShape != 0 { try c.encode(Int(ratchShape), forKey: .ratchShape) }   // only when set: a default document encodes exactly as before
     }
 }
+// MARK: - HOCKET (ferry 2026-10-27)
+// A rule trades or passes lines between Fourfold's eight lane outputs (the nine-output build: ALL, then a riff and a notes output per lane). One additive-Optional, decode-tolerant document field
+// (`PluginState.hocketRules`) holds up to four rules; nil or empty ⇒ no rules ⇒ every output sounds exactly as the nine-output build sends it (spec §5.2, §7.6).
+// OUTPUTS ARE STORED BY THEIR STABLE HOST IDENTITY — the output's CABLE as `FourfoldPorts.cable` defines it (1 = Emit Riff A, 2 = Emit Notes A … 8 = Emit Notes D), never a display name. Cable 0 is ALL, which is never in a
+// group, so a stored 0 (like any other unknown value) is dropped at decode (§5.4). The engine works in BUS indices (cable − 1); `HocketGroup` (Snapshot.swift) converts once, on the main thread.
+// The enum names avoid the 8x8 leftovers `HocketMode` (GAPS/TRADE) and `ProcessorType.hocket`, which this engine copy still carries but can never reach.
+enum HocketRuleMode: String, Codable, CaseIterable { case swap = "SWAP", pass = "PASS" }
+enum HocketUnit: String, Codable, CaseIterable { case hits = "HITS", steps = "STEPS", passes = "PASSES", bars = "BARS" }
+enum HocketSeveral: String, Codable, CaseIterable { case together = "TOGETHER", rotate = "ROTATE" }
+enum HocketOwn: String, Codable, CaseIterable { case replace = "REPLACE", merge = "MERGE" }
+
+struct HocketRule: Equatable {
+    /// §5.3 — the empty rule: on; SWAP; no outputs; HITS; 1 main / 1 alt; offset 0; TOGETHER; COUNT ON the first MAIN output; REPLACE.
+    var on = true
+    var mode: HocketRuleMode = .swap
+    var main: [Int] = []          // cables 1…8, in the order they were tapped
+    var alt: [Int] = []
+    var unit: HocketUnit = .hits
+    var mainLen = 1               // 1…8
+    var altLen = 1                // 1…8
+    var offset = 0                // 0 … mainLen + altLen − 1
+    var several: HocketSeveral = .together
+    var countOn = 0               // an index into `main`
+    var own: HocketOwn = .replace
+
+    static let maxLen = 8
+    /// §3.3 — a rule is lit when it is on and its MAIN group isn't empty. An unlit rule touches no output (§6.1).
+    var isLit: Bool { on && !main.isEmpty }
+    /// MAIN + ALT, the length of the cycle (2…16).
+    var cycleLength: Int { mainLen + altLen }
+    /// Every output this rule holds, in either group (an output is "taken" by it whether the rule is on or off, §4.4).
+    var outputs: Set<Int> { Set(main).union(alt) }
+
+    /// §5.4's per-rule clamps: lengths into 1…8, the offset into 0 … L − 1, COUNT ON to 0 when it points past MAIN, groups cleaned (unknown outputs, ALL and repeats dropped; an output may be in BOTH groups).
+    func normalized() -> HocketRule {
+        var r = self
+        r.main = Self.cleanGroup(main); r.alt = Self.cleanGroup(alt)
+        r.mainLen = max(1, min(Self.maxLen, mainLen)); r.altLen = max(1, min(Self.maxLen, altLen))
+        r.offset = max(0, min(r.mainLen + r.altLen - 1, offset))
+        r.countOn = r.main.indices.contains(countOn) ? countOn : 0
+        return r
+    }
+    static func cleanGroup(_ g: [Int]) -> [Int] {
+        var seen = Set<Int>(), out: [Int] = []
+        for c in g where (1...8).contains(c) && seen.insert(c).inserted { out.append(c) }
+        return out
+    }
+}
+extension HocketRule: Codable {
+    enum CodingKeys: String, CodingKey { case on, mode, main, alt, unit, mainLen, altLen, offset, several, countOn, own }
+    /// Never throws on content: an unreadable key keeps its §5.3 default, an unknown enum word takes the default, numbers clamp (§5.4).
+    init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        func int(_ k: CodingKeys) -> Int? { ((try? c.decodeIfPresent(EuclideousFXLossyInt.self, forKey: k)) ?? nil)?.value }
+        func word<E: RawRepresentable>(_ k: CodingKeys, _ type: E.Type) -> E? where E.RawValue == String {
+            guard let s = (try? c.decodeIfPresent(String.self, forKey: k)) ?? nil else { return nil }
+            return E(rawValue: s)
+        }
+        func list(_ k: CodingKeys) -> [Int] { ((try? c.decodeIfPresent([EuclideousFXLossyInt].self, forKey: k)) ?? nil)?.compactMap { $0.value } ?? [] }
+        if let b = (try? c.decodeIfPresent(Bool.self, forKey: .on)) ?? nil { on = b }
+        if let m = word(.mode, HocketRuleMode.self) { mode = m }
+        if let u = word(.unit, HocketUnit.self) { unit = u }
+        if let s = word(.several, HocketSeveral.self) { several = s }
+        if let o = word(.own, HocketOwn.self) { own = o }
+        main = list(.main); alt = list(.alt)
+        if let n = int(.mainLen) { mainLen = n }
+        if let n = int(.altLen) { altLen = n }
+        if let n = int(.offset) { offset = n }
+        if let n = int(.countOn) { countOn = n }
+        self = normalized()
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(on, forKey: .on); try c.encode(mode, forKey: .mode)
+        try c.encode(main, forKey: .main); try c.encode(alt, forKey: .alt)
+        try c.encode(unit, forKey: .unit); try c.encode(mainLen, forKey: .mainLen); try c.encode(altLen, forKey: .altLen); try c.encode(offset, forKey: .offset)
+        try c.encode(several, forKey: .several); try c.encode(countOn, forKey: .countOn); try c.encode(own, forKey: .own)
+    }
+}
+
+/// The document's rules: encoded as a plain array of rules, SANITISED whenever one is built or decoded (§5.4) — rules past the fourth dropped, an output already used by an EARLIER rule (in either of its groups, on or off)
+/// dropped from every later one. A stored value that isn't an array of rules at all decodes to no rules, never to a failed document load.
+struct HocketRuleSet: Equatable, Codable {
+    static let maxRules = 4
+    private(set) var rules: [HocketRule]
+    init(_ rules: [HocketRule] = []) { self.rules = Self.sanitised(rules) }
+    init(from decoder: Decoder) throws {
+        guard let c = try? decoder.singleValueContainer(), let raw = try? c.decode([HocketRule].self) else { rules = []; return }
+        rules = Self.sanitised(raw)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(rules)
+    }
+    static func sanitised(_ raw: [HocketRule]) -> [HocketRule] {
+        var used = Set<Int>(), out: [HocketRule] = []
+        for r0 in raw.prefix(maxRules) {
+            var r = r0.normalized()
+            let counted = r.main.indices.contains(r.countOn) ? r.main[r.countOn] : nil      // COUNT ON names an OUTPUT; keep naming it when earlier rules take outputs out of MAIN
+            r.main = r.main.filter { !used.contains($0) }
+            r.alt = r.alt.filter { !used.contains($0) }
+            r.countOn = counted.flatMap { r.main.firstIndex(of: $0) } ?? 0
+            r = r.normalized()
+            used.formUnion(r.outputs)
+            out.append(r)
+        }
+        return out
+    }
+}
+
 struct EuclideousLanesSeq: Equatable {
     var on: Bool = false
     var rate: EuclideousSeqRate = .oneBar
@@ -2818,6 +2929,10 @@ struct PluginState: Codable, Equatable {
     // document and all 20 factory presets sound exactly as before. `Resolved` clamps everything (the render path and the UI only ever read this).
     var euclideousFX: EuclideousFX? = nil
     var euclideousFXResolved: EuclideousFX { (euclideousFX ?? EuclideousFX()).normalized() }
+    // HOCKET (ferry 2026-10-27): up to four rules trading or passing lines between the eight lane outputs — one additive-Optional field; nil or empty ⇒ no rules (the pop-up then shows one empty R1 that is stored only once
+    // something in it is edited). Sanitised by `HocketRuleSet` whenever it is built or decoded, so `hocketRulesResolved` is what the render path, the page and undo all read.
+    var hocketRules: HocketRuleSet? = nil
+    var hocketRulesResolved: [HocketRule] { hocketRules?.rules ?? [] }
     // KEY + SCALE: a page-level root+type pair, reusing the existing `ScaleType` enum purely as storage —
     // does NOT pre-wire the SCALE-door/KEY±/FOUNT machinery §4.3 explicitly leaves open (a genuinely
     // independent new field, not a reference to any door's own scale pool).
@@ -3365,6 +3480,7 @@ struct EuclideousUndoSnapshot: Equatable {
     var riffsSeq: EuclideousRiffsSeq
     var fx: EuclideousFX = EuclideousFX()   // FX TAB (2026-10-18): cells, lane sets, PASSES, CC number, BASE — undoable page-level state (selection/brush/bubble are not)
     var holdLatchMode: EuclideousHoldLatchMode? = nil   // HOLD/LATCH (2026-10-20): undoable like noteSource above, no §7.3-style exclusion
+    var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the rules — undoable page-level state (which rule tab is showing, and whether the pop-up is open, are not); [] = none stored
     /// UNDO-5 (2026-10-25): lanes' PLAY/STOP are never undoable (§7.3) — EXCEPT across a preset load, which is itself a step and replaces them: only such a step carries the flags it must put back (`nil` = every other step, which
     /// keeps the live flags as always). Captured by `loadPreset` / `loadFactoryPreset`, and re-stamped on the opposite side when that step is undone or redone so ↶ and ↷ both land on the right flags.
     var presetPlay: [EuclideousLanePlay]? = nil

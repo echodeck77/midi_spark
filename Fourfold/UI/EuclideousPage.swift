@@ -717,6 +717,8 @@ struct EuclideousPage: View {
     // FX TAB (2026-10-18 ferry): the page-level FX rows (six rows × the riff's eight columns, per-row lane sets, PASSES / CC / BASE). Read-only here; every
     // edit goes through `onEditFX`, which the VC turns into one document write + one republish.
     let fx: EuclideousFX
+    // HOCKET (2026-10-27): the document's rules ([] = none stored; the pop-up then shows an empty R1). Every edit goes through `onEditHocket`, which the VC turns into one document write + one republish.
+    let hocketRules: [HocketRule]
     let lanesSeqStep: Int
     let riffsSeqStep: Int
     // RIFF-CELL WIPES (Paul 2026-10-10 ferry) — each lane's latest wipe-eligible event (column/rank >= 0).
@@ -808,6 +810,8 @@ struct EuclideousPage: View {
     /// FX TAB: like `onEditStep` — `newStep: true` takes a `coalesceKey: nil` undo checkpoint (the first value-changing write of a tap / stroke / drag / toggle),
     /// `false` writes into the step already open (the rest of the stroke, a double-tap's second tap).
     let onEditFX: (Bool, @escaping (inout EuclideousFX) -> Void) -> Void
+    /// HOCKET: like `onEditFX` — `newStep: true` takes a `coalesceKey: nil` undo checkpoint, `false` writes into the step already open. The closure edits the rules as the pop-up shows them (an empty R1 when none are stored).
+    let onEditHocket: (Bool, @escaping (inout [HocketRule]) -> Void) -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
     // §4.8 (2026-10-15 ferry): "a preset pick is one undo step" — a DISCRETE action, same class as
     // `onSetActiveRiff`/`onSetKeyRoot` below, not a continuous gesture. Routing a preset pick through the
