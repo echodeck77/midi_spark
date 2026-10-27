@@ -5,6 +5,14 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — HOCKET (2026-10-27; `Docs/euclideous-status-log.md`, branch `feature/hocket`)
+- [x] DONE: the HOCKET header button + pop-up (≤ 4 rules, SWAP PARTS / PASS THE LINE, HITS / STEPS / PASSES / BARS), engine routing before ALL is filled, live chips / bars / ring, lane-card + MIX glyph states, comet-strip hollow resting marks and destination-colour flash, VoiceOver. Proven: golden `--dump` identical with no rule lit; `PortsStressTests` hocket fuzzes; Release `--alloc` zero.
+- [ ] DEVICE: the eight "HOCKET —" lines in `Docs/euclideous-device-verification-debt.md` (header pill width + the 1024-wide A→B change, glyph reads, strip flash, passed-line level, chips, live displays, how it sounds, short-window scrolling).
+- [ ] DECIDE (Paul): the pill is a computed 92 pt (not measured) and costs 100 pt of header: a 1024-wide landscape window now gets the two-row header. Options: keep; shorten the label to "HKT · n"; move HOCKET into the settings row.
+- [ ] (noted) A passed line does NOT carry its FX CC row (the CC goes out on the SOURCE lane's ports); mask REPEAT's replay paths bypass rules (the mask is inert in production).
+- [ ] (noted) SOURCES opening still leaves the settings sheet open (existing gap, not HOCKET's); HOCKET closes every other overlay.
+- [ ] (noted) A REFERENCE lane that isn't running this window (PLAY off, or HITS 0 and not inverted) holds a HITS / PASSES rule's count at 0 (no clock is captured for it); STEPS / BARS read the page clock and never stop. The spec is silent; step 1's note ("count still follows its pattern") was changed in step 4. Easy to change if Paul wants the count to follow the pattern of a switched-off lane.
+
 ## ★ FOURFOLD — THE NINE PORTS (2026-10-27; `Docs/euclideous-status-log.md`) — supersedes the per-layer-routing, ALT-routing and default-emitters sections that used to be here
 - [x] DONE: a note's port is fixed by lane + layer (All, Emit Riff A, Emit Notes A … Emit Notes D); eight per-port channels; the emitter masks, ALT, MAIN OUT, the header rings and the OUT columns are gone. Proven event-for-event against the previous engine (golden harness `--dump`).
 - [ ] DEVICE: the "Nine ports" lines in `Docs/euclideous-device-verification-debt.md` — chiefly the port list in AUM (names and order), two synths on Riff A / Notes A, the PORTS tab, the header without rings, the reel's per-port tags.
