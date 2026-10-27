@@ -283,7 +283,7 @@ final class UndoAuditTests: XCTestCase {
     }
     func testEveryDocumentFieldAnUndoableFunnelWritesIsRestoredByUndo() throws {
         let src = try rootViewSource()
-        let funnels = try body(of: src, from: "onSetNoteSource:", to: "onSetMainOutMask:")          // every funnel between these two records an undo step (mainOut, solo, settings after it do not, by design — §7.3)
+        let funnels = try body(of: src, from: "onSetNoteSource:", to: "onSoloDown:")          // every funnel between these two records an undo step (solo, settings after it do not, by design — §7.3)
         let apply = try body(of: src, from: "func euclideousApply(", to: "func euclideousUndoAction")
         func fields(_ text: String) -> Set<String> {
             var out: Set<String> = []
@@ -310,7 +310,7 @@ final class UndoAuditTests: XCTestCase {
     func testEveryUndoableFunnelRefusesAnEditThatChangesNothing() throws {
         // UNDO-6, as a tripwire over the source: each funnel that records must have an equality guard between "compute the new value" and "record" — a new funnel added without one fails here.
         let src = try rootViewSource()
-        let funnels = try body(of: src, from: "onSetNoteSource:", to: "onSetMainOutMask:")
+        let funnels = try body(of: src, from: "onSetNoteSource:", to: "onSoloDown:")
         let parts = funnels.components(separatedBy: "\n").filter { $0.contains("euclideousRecordUndo(") || $0.contains("m.checkpoint.take(") }
         XCTAssertGreaterThan(parts.count, 8)
         let withoutGuard = funnels.components(separatedBy: ": { ").dropFirst().filter { $0.contains("euclideousRecordUndo(") && !($0.contains("guard ") && $0.range(of: "guard ")!.lowerBound < $0.range(of: "euclideousRecordUndo(")!.lowerBound) }

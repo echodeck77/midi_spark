@@ -1327,16 +1327,16 @@ func realOf(_ musicalBeat: Double, stepBeats S: Double, a: Double) -> Double {
 }
 
 /// PASSTHROUGH routing (§2.6 reconciled to the §7b 5-cable model). The raw CC/PB/AT stream and the
-/// stopped-transport NOTE passthrough go out on **All (cable 0) + Emit A (cable 1)** — bit i set ⇒
+/// stopped-transport NOTE passthrough go out on **All (cable 0) + Emit Riff A (cable 1)** — bit i set ⇒
 /// forward on cable i. CC/PB/AT always forward; notes forward ONLY when stopped and not being replaced
-/// by an audition (§6.4). Returns 0 = drop. Two cables so a synth patched to either "All" or "Emit A"
+/// by an audition (§6.4). Returns 0 = drop. Two cables so a synth patched to either "All" or "Emit Riff A"
 /// receives controllers + soundcheck; the §6a emitter toggle governs NOTE emission, not this raw stream.
 /// NOTE (Paul 2026-08-29): the Kernel now gates the NOTE branch OFF by policy (`noteMonitorPassthrough`,
 /// default false) so a fresh instance is silent — a CELL is the sole note source. This pure function +
 /// PassthroughGate stay intact/tested so the monitor can be re-enabled behind a soundcheck toggle later.
 func passthroughCableMask(isNote: Bool, playing: Bool, auditionSuppressing: Bool) -> UInt8 {
     let forward = isNote ? (!playing && !auditionSuppressing) : true
-    return forward ? 0b0000_0011 : 0        // cable 0 (All) + cable 1 (Emit A)
+    return forward ? 0b0000_0011 : 0        // cable 0 (All) + cable 1 (Emit Riff A)
 }
 
 /// PASSTHROUGH GATE (a8 hang fix, 2026-07-25) — the STATEFUL wrapper that makes raw-note passthrough
