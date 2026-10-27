@@ -32,6 +32,17 @@ private final class TaggedEmitter: MIDIEmitter {
 
 final class PortsStressTests: XCTestCase {
 
+    // HOCKET ferry (2026-10-27) §12 test 1: a fingerprint of EVERY message the 600 + 600 seeded sessions send, captured on the nine-output engine (main 9f1b08d) before any hocket work. With no hocket rule in the
+    // document (these seeds draw none) the engine must stay byte-identical — including the raw-gate seeds, where legato runs on every port, which the factory-preset golden never reaches.
+    private var lastSessionHash: UInt64 = 0
+    private func sessionHash(_ e: TaggedEmitter) -> UInt64 {
+        var h: UInt64 = 0xcbf29ce484222325
+        for ev in e.events {
+            for v in [UInt64(bitPattern: ev.sample), UInt64(ev.cable), UInt64(ev.status), UInt64(ev.chan), UInt64(ev.note), UInt64(ev.vel)] { h = (h ^ v) &* 0x100000001b3 }
+        }
+        return h
+    }
+
     // ---- document generation ---------------------------------------------------
 
     private func rLine(_ g: inout SM64) -> EuclidLine {
@@ -289,6 +300,7 @@ final class PortsStressTests: XCTestCase {
                        sampleRate: sr, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
         stopWins.insert(windows)
 
+        lastSessionHash = sessionHash(e)
         // If the voice table got close to full, the ALL-union property can legitimately break
         // (own opens, all can't). Note it but don't let it mask the stuck-note checks.
         if let msg = analyse(e, seed: seed, winChans: winChans, stopWins: stopWins) {
@@ -344,19 +356,27 @@ final class PortsStressTests: XCTestCase {
 
     func testFuzzManySeeds() {
         var firstFail: String? = nil
+        var fingerprint: UInt64 = 0xcbf29ce484222325
         for s in 1...600 {
             if let msg = runSession(seed: UInt64(s), windows: 24) { firstFail = msg; break }
+            fingerprint = (fingerprint ^ lastSessionHash) &* 0x100000001b3
         }
-        if let f = firstFail { XCTFail(f) }
+        if let f = firstFail { XCTFail(f); return }
+        XCTAssertEqual(fingerprint, Self.fuzzFingerprint, "CAPTURE fuzzFingerprint = \(fingerprint) — the 600 seeded sessions' message streams must be bit-identical with no hocket rule")
     }
+    private static let fuzzFingerprint: UInt64 = 12223291212352416553
     // The same fuzz with gate/notesGate left as generated (up to exactly 1.0 = legato), so the legato tracking runs on every port with every layer feature around it.
     func testFuzzRawGatesReachLegatoOnEveryPort() {
         var firstFail: String? = nil
+        var fingerprint: UInt64 = 0xcbf29ce484222325
         for s in 1...600 {
             if let msg = runSession(seed: UInt64(s) &+ 100_000, windows: 24, rawGates: true) { firstFail = msg; break }
+            fingerprint = (fingerprint ^ lastSessionHash) &* 0x100000001b3
         }
-        if let f = firstFail { XCTFail(f) }
+        if let f = firstFail { XCTFail(f); return }
+        XCTAssertEqual(fingerprint, Self.fuzzFingerprintRaw, "CAPTURE fuzzFingerprintRaw = \(fingerprint) — the 600 raw-gate sessions' message streams must be bit-identical with no hocket rule")
     }
+    private static let fuzzFingerprintRaw: UInt64 = 16229716498077922819
 
     // Lane isolation: only lane k emits on cables 2k+1 / 2k+2; other lanes' ports stay silent.
     func testLaneIsolation() {

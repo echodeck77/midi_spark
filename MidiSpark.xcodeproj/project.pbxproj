@@ -191,6 +191,7 @@
 		9E72B64FD55D3542492F0113 /* GridSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CBF035AD049143522CAD057 /* GridSkin.swift */; };
 		9EA52987FF34C515C43D3DA8 /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */; };
 		9ECB09C3718DCEDA6647C48C /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */; };
+		A2FB6485683B038D5E84F0CE /* HocketGoldenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 727D77E0616F8B7F3F9F2B02 /* HocketGoldenTests.swift */; };
 		A30E4B4E80A4AAA15D91D659 /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF568CF69A6423C9DCB4B2DD /* SnapshotBuilder.swift */; };
 		A32BADF736B242A3C559A098 /* MixPadPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BD8A7AD9DA57CA503786525 /* MixPadPainter.swift */; };
 		A42C52017423FAE78A52DA9C /* CellLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5E253FF72BF5D6483D14FD /* CellLibraryStore.swift */; };
@@ -447,6 +448,7 @@
 		6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandom.swift; sourceTree = "<group>"; };
 		6FECA3302B50E7D4800DF132 /* FourfoldAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldAccessibilityTests.swift; sourceTree = "<group>"; };
 		7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildPage.swift; sourceTree = "<group>"; };
+		727D77E0616F8B7F3F9F2B02 /* HocketGoldenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketGoldenTests.swift; sourceTree = "<group>"; };
 		72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStoreTests.swift; sourceTree = "<group>"; };
 		72C3BD2C1AC32230B747C194 /* AcceptanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTests.swift; sourceTree = "<group>"; };
 		72D750CFBA16E2C4B8FBE705 /* UndoAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UndoAuditTests.swift; sourceTree = "<group>"; };
@@ -710,6 +712,7 @@
 				F67ED63B8C6514D20364DCFB /* FourfoldPortsTests.swift */,
 				C08CEAAFF57F496AB60992D7 /* FourfoldTransportTests.swift */,
 				61A29EBC243C8C44F0013668 /* FXTabTests.swift */,
+				727D77E0616F8B7F3F9F2B02 /* HocketGoldenTests.swift */,
 				A7DA6ABCB082900BEE40BD4E /* LaneLockTests.swift */,
 				EBD9DBBEEFA1051724E66556 /* LanesGridTests.swift */,
 				225D04471362741A939D49DE /* LaneSoloTests.swift */,
@@ -1372,6 +1375,7 @@
 				C875D48D800180B8838CE151 /* FourfoldPortsTests.swift in Sources */,
 				D2F912D985A2AE74BF23B5A9 /* FourfoldTransportClock.swift in Sources */,
 				BE8C5FC00FE0F49C2EB7F07F /* FourfoldTransportTests.swift in Sources */,
+				A2FB6485683B038D5E84F0CE /* HocketGoldenTests.swift in Sources */,
 				F05E9AE1A7913956B2AE8C67 /* LaneLockTests.swift in Sources */,
 				C824D765CA367D040CAEB674 /* LaneSoloTests.swift in Sources */,
 				EBC5C46DF44DF3FB225CBABA /* LaneStripFuzzTests.swift in Sources */,
