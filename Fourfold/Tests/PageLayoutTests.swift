@@ -114,16 +114,32 @@ final class PageLayoutTests: XCTestCase {
     }
     func testHeaderKindThresholdsAreTheLaddersOwn() {
         let full = euclideousHeaderGroupWidths(compact: false)
-        let aNeeds = full.brand + full.outputs + full.notes + full.utilities + 3 * full.gap
-        let bNeeds = full.brand + full.outputs + full.utilities + 2 * full.gap
+        let aNeeds = full.brand + full.notes + full.utilities + 2 * full.gap   // THE NINE PORTS (2026-10-26): no OUTPUTS group
+        let bNeeds = full.brand + full.utilities + full.gap
         XCTAssertEqual(euclideousHeaderKind(containerW: aNeeds, isLandscape: true), .a)
         XCTAssertEqual(euclideousHeaderKind(containerW: aNeeds - 0.01, isLandscape: true), .b)
         XCTAssertEqual(euclideousHeaderKind(containerW: 5000, isLandscape: false), .b, "portrait never uses A")
         XCTAssertEqual(euclideousHeaderKind(containerW: bNeeds - 0.01, isLandscape: false), .c)
         for cw in stride(from: 300, through: 1500, by: 7) { for landscape in [true, false] {
-            let l = euclideousHeaderLayout(containerW: CGFloat(cw), isLandscape: landscape, riffLeadingX: 0, laneCentreX: CGFloat(cw) / 2)
+            let l = euclideousHeaderLayout(containerW: CGFloat(cw), isLandscape: landscape, riffLeadingX: 0)
             XCTAssertEqual(l.kind, euclideousHeaderKind(containerW: CGFloat(cw), isLandscape: landscape), "\(cw) \(landscape)")
         } }
+    }
+    func testHeaderGroupsNeverOverlapOrLeaveTheContainer() {
+        for cw in stride(from: 300, through: 1500, by: 7) { for landscape in [true, false] { for riffX in [CGFloat(0), 300, 777.33, 2000] {
+            let l = euclideousHeaderLayout(containerW: CGFloat(cw), isLandscape: landscape, riffLeadingX: riffX)
+            let tag = "\(cw) \(landscape) \(riffX)"
+            XCTAssertEqual(l.brand.x, 0, tag); XCTAssertEqual(l.brand.row, 0, tag)
+            XCTAssertEqual(l.utilities.x + l.utilities.width, CGFloat(cw), accuracy: 1e-9, "\(tag): the gear ends at the right edge"); XCTAssertEqual(l.utilities.row, 0, tag)
+            if l.kind == .a {
+                XCTAssertEqual(l.notes.row, 0, tag)
+                XCTAssertGreaterThanOrEqual(l.notes.x, l.brand.width + l.widths.gap - 1e-9, "\(tag): NOTES clears BRAND")
+                XCTAssertLessThanOrEqual(l.notes.x + l.notes.width + l.widths.gap, l.utilities.x + 1e-9, "\(tag): NOTES clears UTILITIES")
+            } else {
+                XCTAssertEqual(l.notes.row, 1, tag); XCTAssertEqual(l.notes.x, 0, tag)
+                XCTAssertLessThanOrEqual(l.brand.width + l.widths.gap, l.utilities.x + (l.kind == .c ? 1e9 : 1e-9), tag)
+            }
+        } } }
     }
 
     // MARK: 4–7. what each box does with its frame
@@ -148,20 +164,6 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(rp.onRestButtonWidth, 98.33, accuracy: 0.01); XCTAssertEqual(rp.valueStepperWidth, 88.75, accuracy: 0.01)
     }
     /// Floors ferry (2026-10-23): the WALK strip (read-only) drops out exactly when showing it would leave
-    /// PER-LAYER EMITTER ROUTING ferry (2026-10-25) §1.3 + test 9: the RIFF tab's content is now laid out at
-    /// fullWidth 302.5 (= 338.5 − the OUT column's 36). The riff card stays 90 wide (four-button direction row,
-    /// §0.1(f)); the ferry's own "expect" numbers follow: right column 208.5, direction buttons 49.125, ADVANCE
-    /// HIT/STEP 77.25, ON REST 76.83, value steppers 72.625.
-    func testPerLayerNarrowedRiffTabFramesMatchTheFerrysExpectedNumbers() {
-        let r = euclideousRiffTabLayout(contentAreaH: 208, fullWidth: 302.5)
-        XCTAssertEqual(r.rightColumnWidth, 208.5, accuracy: 0.01, "right column 208.5 (card stays 90)")
-        XCTAssertEqual(r.directionButtonWidth, 49.125, accuracy: 0.01, "four direction buttons 49.125")
-        XCTAssertEqual(r.hitStepButtonWidth, 77.25, accuracy: 0.01, "ADVANCE HIT/STEP 77.25")
-        XCTAssertEqual(r.onRestButtonWidth, 76.8333, accuracy: 0.01, "ON REST SKIP/TIE/REPEAT 76.83")
-        XCTAssertEqual(r.valueStepperWidth, 72.625, accuracy: 0.01, "value steppers 72.625")
-        XCTAssertFalse(r.underFloor, "nothing under floor at the reference")
-    }
-
     /// the direction row (real controls) under its own 32pt floor — never above, never below.
     func testRiffTabWalkStripDropsExactlyAtTheDirectionRowFloor() {
         // rowAHeight computed so that (rowAHeight - 4 - 38) lands exactly 1pt either side of the 32pt floor.
@@ -248,27 +250,7 @@ final class PageLayoutTests: XCTestCase {
     // MARK: 8. the header's inputs
 
     private func headerFor(_ p: EuclideousPageLayout, _ size: CGSize) -> EuclideousHeaderLayout {
-        euclideousHeaderLayout(containerW: size.width - 32, isLandscape: p.isLandscape, riffLeadingX: p.riffLeadingX, laneCentreX: p.laneCentreX)
-    }
-    /// Page x of ring `i`'s centre: container offset (16) + the OUTPUTS group's x + its caption lead + i × pitch + pitch / 2.
-    private func ringCentre(_ l: EuclideousHeaderLayout, _ i: Int) -> CGFloat {
-        16 + l.outputs.x + l.widths.outputsLead + CGFloat(i) * EuclideousHeaderMetrics.ringPitch + EuclideousHeaderMetrics.ringPitch / 2
-    }
-    func testRingsCentreOnTheLaneGutterInBothOrientations() {
-        let hl = headerFor(land, landscapeRef)
-        XCTAssertEqual(hl.kind, .a)
-        // NARROWED 44→33pt pitch (2026-10-20, output rings to 75%): spacing between ring centres shrank from 44 to 33.
-        // LANE LOCK ferry (§2.2): BRAND grew another 52pt (the padlock), so at the 1190 reference the rings' ideal x (centred on the lane gutter) is now LEFT of BRAND's trailing edge + sp16 — they pin flush against
-        // BRAND, 17.19pt right of the gutter (before: 351.17 … 450.17, centred). Reported as a consequence of the required BRAND width, not a choice.
-        for (i, x) in [368.36, 401.36, 434.36, 467.36].enumerated() { XCTAssertEqual(ringCentre(hl, i), CGFloat(x), accuracy: 0.01, "landscape ring \(i)") }
-        XCTAssertEqual(hl.outputs.x, hl.brand.width + hl.widths.gap, accuracy: 1e-9, "the rings are pinned flush against BRAND")
-        let hp = headerFor(port, portraitRef)
-        XCTAssertEqual(hp.kind, .b); XCTAssertEqual(hp.utilities.x + hp.utilities.width + 16, 798, accuracy: 1e-9, "row 1 now fits: the gear ends at the right margin")
-        // LANE LOCK ferry (§2.2): the same pin in portrait (before: 357.5 … 456.5, centred) — 10.86pt right of the gutter.
-        for (i, x) in [368.36, 401.36, 434.36, 467.36].enumerated() { XCTAssertEqual(ringCentre(hp, i), CGFloat(x), accuracy: 0.01, "portrait ring \(i)") }
-        // the rings sit to the RIGHT of the gutter by exactly how far BRAND pushes them (they used to be centred on it)
-        XCTAssertEqual((ringCentre(hl, 1) + ringCentre(hl, 2)) / 2 - land.gutterX, 17.19, accuracy: 0.01)
-        XCTAssertEqual((ringCentre(hp, 1) + ringCentre(hp, 2)) / 2 - port.gutterX, 10.86, accuracy: 0.01)
+        euclideousHeaderLayout(containerW: size.width - 32, isLandscape: p.isLandscape, riffLeadingX: p.riffLeadingX)
     }
     func testNotesDoesNotMoveAt1190() {
         // layout A: NOTES wants the riff panel's leading edge (777.33 now, 741.12 before) but slides left to sp16 before the 3 utility icons either way
@@ -284,10 +266,10 @@ final class PageLayoutTests: XCTestCase {
 
     func testFloorsAreFlaggedNotFixedAtTheOtherSizes() {
         // a guess at the 8.3-inch iPad mini's landscape plugin view: box 355 × 274
-        // FOURFOLD REEL LINK (2026-10-23): the REEL icon raised layout A's floor to a 1134-wide view, so a 1113-wide view now gets the two-row header (boxes start at 111, not 64): 47pt more height
-        // (636 → 683) keeps this guess's 355 × 274 box, which is what the floors below are about.
-        let mini = euclideousPageLayout(size: CGSize(width: 1113, height: 683))
-        XCTAssertEqual(mini.headerKind, .b)
+        // THE NINE PORTS (2026-10-26): with the header rings gone layout A's floor is 962 wide (container 930 + the two margins), so this 1113-wide view has the one-row header again (boxes start at 64)
+        // and the view's original 636 height gives this guess's 355 × 274 box, which is what the floors below are about. (The REEL icon had pushed it to the two-row header and 683.)
+        let mini = euclideousPageLayout(size: CGSize(width: 1113, height: 636))
+        XCTAssertEqual(mini.headerKind, .a)
         XCTAssertEqual(mini.box.width, 355, accuracy: 1e-9); XCTAssertEqual(mini.box.height, 274, accuracy: 1e-9)
         let area = euclideousMixGridArea(panelWidth: 355, panelHeight: 274)
         let g = euclideousMixGrid(width: area.width, height: area.height)

@@ -16,7 +16,6 @@ enum FourfoldAuditAllowList {
     /// Single known issues: audit type + the element's label (matched by prefix).
     static let known: [(type: String, label: String, why: String)] = [
         ("textClipped", "FOURFOLD", "the audit flags the header wordmark's tight frame; the pictures show it whole — looks like a false positive, confirm on device"),
-        ("textClipped", "OUT", "the header's OUT caption, same: tight frame, not visibly cut"),
         ("textClipped", "NOTES", "the NOTES tab's rotated caption (35 × 212): flagged, not visibly cut in the pictures — confirm on device"),
         ("textClipped", "Invert melody", "RIFF tab control caption: look at it on the mini"),
         ("textClipped", "ITS LINE, IN TURN", "LISTEN tab option caption (74 pt wide): probably truly cut — look at it"),

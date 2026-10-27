@@ -211,22 +211,6 @@ final class NotesTabTests: XCTestCase {
         for (i, c) in bottom.enumerated() { near(l.pickerCells[3 + i], c.0 - 10, 211 - 94, c.1 - c.0, 85, "bottom cell \(i)") }
         XCTAssertFalse(l.underFloor)
     }
-    // PER-LAYER EMITTER ROUTING ferry (2026-10-25) §1.3 + test 9: with the OUT column taking 36 pt, the NOTES tab's
-    // content is now laid out at fullWidth 302.5 (= 338.5 − 36). The ferry's own "expect" numbers: strip 35 unchanged,
-    // right column x 48–312.5 (264.5 wide), ten keys 24.25 (floor 24), PLAYS/RESTS 58.25, CHANCE 88, PLAY AS/RECEIVED 212.5.
-    func testPerLayerNarrowedNotesTabFramesMatchTheFerrysExpectedNumbers() {
-        let l = euclideousNotesTabLayout(contentAreaH: 208, fullWidth: 302.5)
-        near(l.strip, 0, 0, 35, 208, "strip unchanged")
-        near(l.keyRow, 38, 0, 264.5, 82, "right column 264.5 wide")   // colX 38 … 302.5
-        XCTAssertEqual(l.keys[0].width, 24.25, accuracy: 0.01, "keys 24.25")
-        XCTAssertFalse(l.underFloor, "keys 24.25 are over the 24 floor")
-        near(l.plays, 90, 86, 58.25, 38, "PLAYS 58.25"); near(l.rests, 148.25 + 4, 86, 58.25, 38, "RESTS 58.25")
-        near(l.chance, 214.5, 86, 88, 38, "CHANCE 88")
-        near(l.playAs, 90, 128, 212.5, 38, "PLAY AS 212.5"); near(l.received, 90, 170, 212.5, 38, "RECEIVED 212.5")
-        // §1.6: the picker still covers the WHOLE content box (338.5), not the narrowed body — the UI builds it from a full-width layout.
-        let full = euclideousNotesTabLayout(contentAreaH: 208, fullWidth: 338.5)
-        near(full.picker, 0, 0, 338.5, 208, "picker full width")
-    }
     func testTheLayoutAtNarrowerContentWidthsFlagsOnlyWhatFallsUnderTheFloors() {
         let at300 = euclideousNotesTabLayout(contentAreaH: 208, fullWidth: 300)
         XCTAssertEqual(at300.keys[0].width, 24, accuracy: 0.01); XCTAssertEqual(at300.plays.width, 57, accuracy: 0.01); XCTAssertEqual(at300.rests.width, 57, accuracy: 0.01)

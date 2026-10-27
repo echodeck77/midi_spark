@@ -7,196 +7,13 @@ import XCTest
 
 final class DerivationsTests: XCTestCase {
 
-    // MARK: ALT ROUTING ferry (2026-10-25) §5 — the group function (test 3)
-    private func altP(_ mode: EuclideousAltMode, every: Int = 1, offset: Int = 0, strip: UInt8 = 0b1111_0000,
-                      passes: Int = 1, passOffset: Int = 0, chance: Int = 50, splitLowest: Bool = false, splitRank: Int = 0,
-                      altMask: UInt8 = 0b0010) -> EuclideousAltParams {
-        EuclideousAltParams(mode: mode, every: every, offset: offset, strip: strip, passes: passes, passOffset: passOffset,
-                            chance: chance, splitLowest: splitLowest, splitRank: splitRank, altMask: altMask)
-    }
-    /// "M" if the note leaves on MAIN, "A" on ALT, else "·" (ROBIN/SPREAD letters A–D for their chosen output).
-    private func g(_ p: EuclideousAltParams, main: UInt8 = 0b0001, q: Int64 = 0, s: Int64 = 0, pass: Int = 0, h: Int64 = 0,
-                   lane: Int = 0, lead: Int = 0, rest: Bool = false, pitch: Int = 60, splitT: Int = 0, place: Int = 0) -> String {
-        let m = euclideousAltGroup(p, mainMask: main, altMask: p.altMask, q: q, s: s, p: pass, h: h, lane: lane, leadPartId: lead,
-                                   isRestHit: rest, notePitch: pitch, splitThreshold: splitT, spreadPlace: place)
-        switch m { case 0b0001: return "M"; case 0b0010: return "A"; default: break }
-        if let m, m != 0 { return ["A", "B", "C", "D"][m.trailingZeroBitCount] }   // ROBIN/SPREAD single output
-        return "·"   // nowhere
-    }
-    /// ROBIN/SPREAD decode to the output LETTER (A–D), since their outputs are MAIN bits, not the M/ALT pair.
-    private func gL(_ p: EuclideousAltParams, main: UInt8, q: Int64 = 0, place: Int = 0) -> String {
-        guard let m = euclideousAltGroup(p, mainMask: main, altMask: p.altMask, q: q, s: 0, p: 0, h: 0, lane: 0, leadPartId: 0,
-                                         isRestHit: false, notePitch: 60, splitThreshold: 0, spreadPlace: place), m != 0 else { return "·" }
-        return ["A", "B", "C", "D"][m.trailingZeroBitCount]
-    }
-    func testAltGroupFunctionMatchesTheFerrysTable() {
-        // the example lane's 5 pattern hits/pass are at step indices 0,2,4,5,7 (s), their pattern-hit ordinal q counts all 5.
-        let hitS: [Int64] = [0, 2, 4, 5, 7]
-        func seq(_ p: EuclideousAltParams, pass: Int, by: (Int, Int64) -> String) -> String {
-            (0..<5).map { by($0, hitS[$0]) }.joined()   // the five hits of one pass
-        }
-        // HITS 1: M A M A M | A M A M A (swap on q, every 1)
-        XCTAssertEqual((0..<10).map { g(altP(.hits), q: Int64($0)) }.joined(), "MAMAMAMAMA")
-        // HITS 2, OFFSET 1: M A A M M | A A M M A
-        XCTAssertEqual((0..<10).map { g(altP(.hits, every: 2, offset: 1), q: Int64($0)) }.joined(), "MAAMMAAMMA")
-        // STEPS 2: M A M M A every pass (swap on s). pass 2's steps are +8, same result.
-        XCTAssertEqual(hitS.map { g(altP(.steps, every: 2), s: $0) }.joined(), "MAMMA")
-        XCTAssertEqual(hitS.map { g(altP(.steps, every: 2), s: $0 + 8) }.joined(), "MAMMA")
-        // STRIP, default cells (5–8 ALT): M M A A A every pass (strip bit s mod 8)
-        XCTAssertEqual(hitS.map { g(altP(.strip), s: $0) }.joined(), "MMAAA")
-        // PASSES 1: a whole pass to one group, alternating: M | A | M
-        XCTAssertEqual([0, 1, 2].map { g(altP(.passes), pass: $0) }.joined(), "MAM")
-        // RESTS (notes): the example lane's hits are play,rest,rest,play,rest within a pass → M A A M A
-        let restByHit = [false, true, true, false, true]
-        XCTAssertEqual((0..<5).map { g(altP(.rests), rest: restByHit[$0]) }.joined(), "MAAMA")
-        // SPLIT by rank/threshold: ALT only above T. Below/equal → MAIN.
-        XCTAssertEqual(g(altP(.split), pitch: 55, splitT: 55), "M", "equal to T is MAIN")
-        XCTAssertEqual(g(altP(.split), pitch: 56, splitT: 55), "A", "above T is ALT")
-        // ROBIN over MAIN A,B,C: A B C A B | C A B C A (index q mod 3)
-        XCTAssertEqual((0..<10).map { gL(altP(.robin), main: 0b0111, q: Int64($0)) }.joined(), "ABCABCABCA")
-        // ROBIN over MAIN A,C: A C A C A | C A C A C
-        XCTAssertEqual((0..<10).map { gL(altP(.robin), main: 0b0101, q: Int64($0)) }.joined(), "ACACACACAC")
-        // SPREAD over MAIN A,B,C: note at place j → the j-th MAIN output (A,B,C,A,…)
-        XCTAssertEqual((0..<4).map { gL(altP(.spread), main: 0b0111, place: $0) }.joined(), "ABCA")
-        // REVIEW FIX (adversarial, 2026-10-26): a nil MAIN (every factory preset / fresh lane inherits A-D) must make
-        // ROBIN/SPREAD cycle A→B→C→D — NOT route to a 0 mask (silent) while the header/circles show A-D lit. An
-        // EXPLICIT empty MAIN (0, non-nil) still stays silent (a part routed nowhere sounds nowhere).
-        func robinNil(_ q: Int64) -> UInt8? { euclideousAltGroup(altP(.robin), mainMask: nil, altMask: 0, q: q, s: 0, p: 0, h: 0, lane: 0, leadPartId: 0, isRestHit: false, notePitch: 60, splitThreshold: 0, spreadPlace: 0) }
-        XCTAssertEqual((0..<5).map { robinNil(Int64($0)).map { ["A","B","C","D"][$0.trailingZeroBitCount] } ?? "·" }.joined(), "ABCDA", "ROBIN on a nil (inherited A-D) MAIN cycles A-D, not silence")
-        func spreadNil(_ place: Int) -> UInt8? { euclideousAltGroup(altP(.spread), mainMask: nil, altMask: 0, q: 0, s: 0, p: 0, h: 0, lane: 0, leadPartId: 0, isRestHit: false, notePitch: 60, splitThreshold: 0, spreadPlace: place) }
-        XCTAssertEqual((0..<5).map { spreadNil($0).map { ["A","B","C","D"][$0.trailingZeroBitCount] } ?? "·" }.joined(), "ABCDA", "SPREAD on a nil MAIN spreads across A-D")
-        XCTAssertEqual(euclideousAltGroup(altP(.robin), mainMask: 0, altMask: 0, q: 0, s: 0, p: 0, h: 0, lane: 0, leadPartId: 0, isRestHit: false, notePitch: 60, splitThreshold: 0, spreadPlace: 0), 0, "an EXPLICIT empty MAIN (0) still routes ROBIN nowhere")
-        // CHANCE is replay-exact and ~uniform: over 10,000 h the ALT share is 48–52% at CHANCE 50, 8–12% at 10, 88–92% at 90.
-        func altShare(_ chance: Int) -> Double {
-            var a = 0; for h in 0..<10_000 where euclideousAltChanceRoll(lane: 2, part: 0, h: Int64(h)) < chance { a += 1 }
-            return Double(a) / 100.0
-        }
-        XCTAssertEqual(altShare(50), 50, accuracy: 2); XCTAssertEqual(altShare(10), 10, accuracy: 2); XCTAssertEqual(altShare(90), 90, accuracy: 2)
-        // replay-exact: the same (lane, part, h) always rolls the same
-        XCTAssertEqual(euclideousAltChanceRoll(lane: 1, part: 0, h: 7), euclideousAltChanceRoll(lane: 1, part: 0, h: 7))
-        XCTAssertNotEqual(euclideousAltChanceRoll(lane: 1, part: 0, h: 7), euclideousAltChanceRoll(lane: 1, part: 1, h: 7), "riff and notes roll apart")
-        _ = seq   // (helper kept for readability of the pass structure above)
-    }
-    // §8.1 (test 7): the header quarter-lit mask counts a part's effective MAIN plus its effective ALT while the mode
-    // uses alt — and nothing while the part is off or the mode is OFF/ROBIN/SPREAD.
-    func testAltHeaderLaneMasksCountTheAltGroupWhenTheModeUsesIt() {
-        var l = EuclidLine(pulses: 3, steps: 8); l.riffOutMask = 0b0001; l.notesOutMask = 0b0000; l.notesOn = false
-        // riff MAIN A, no ALT mode ⇒ just A
-        XCTAssertEqual(euclideousLaneMasks([l])[0], 0b0001)
-        // riff HITS with ALT B ⇒ A | B (the mode uses alt)
-        l.setAltMode(.riff, .hits); l.riffAlt?.altMask = 0b0010
-        XCTAssertEqual(euclideousLaneMasks([l])[0], 0b0011, "HITS lights MAIN A + ALT B")
-        // ROBIN does NOT add the ALT mask (it distributes across MAIN)
-        l.setAltMode(.riff, .robin)
-        XCTAssertEqual(euclideousLaneMasks([l])[0], 0b0001, "ROBIN lights only MAIN")
-        // riff OFF ⇒ nothing, whatever the ALT mode
-        l.setAltMode(.riff, .hits); l.riffOn = false
-        XCTAssertEqual(euclideousLaneMasks([l])[0], 0b0000, "a part that is off lights nothing")
-    }
-    // §4.4 the effective routing: a follower adopts the leader's MAIN + ALT; leadPartId becomes the leader's.
-    func testAltEffectiveRoutingResolvesTheLink() {
-        var l = EuclidLine(pulses: 3, steps: 8); l.riffOutMask = 0b0001; l.notesOutMask = 0b0010
-        l.setAltMode(.riff, .hits)   // riff ALT on (seeds ALT); notes own
-        // no link: each part its own, leading itself
-        var e = euclideousEffectiveRouting(l)
-        XCTAssertEqual(e.riff.mainMask, 0b0001); XCTAssertEqual(e.notes.mainMask, 0b0010)
-        XCTAssertEqual(e.riff.leadPartId, 0); XCTAssertEqual(e.notes.leadPartId, 1)
-        XCTAssertEqual(e.riff.alt.mode, .hits); XCTAssertEqual(e.notes.alt.mode, .off)
-        // riff leads (BOTH from the riff): the notes adopt the riff's MAIN + ALT + leadPartId 0; the notes' OWN stay stored.
-        l.setOutLink(apply: true, source: .riff)
-        e = euclideousEffectiveRouting(l)
-        XCTAssertEqual(e.notes.mainMask, 0b0001, "the notes follow the riff's MAIN (A)")
-        XCTAssertEqual(e.notes.alt.mode, .hits, "and the riff's ALT"); XCTAssertEqual(e.notes.leadPartId, 0)
-        XCTAssertEqual(l.notesOutMask, 0b0010, "the notes' own mask is untouched and returns when the link clears")
-    }
 
-    // §2.1–§3.6 (test 9): the panel's frames at the 302.5 × 208 reference, and §2.2's short-panel floors.
-    func testAltPanelLayoutAtReference() {
-        let p = euclideousAltPanelLayout(panel: CGRect(x: 0, y: 0, width: 302.5, height: 208))
-        // §2.1 rows (panel-local; add the panel's card y 94 for the card coords in §2.1): header 100–124, groups 128–197,
-        // selector 201–251, settings 255–295.
-        XCTAssertEqual(p.header.minY, 6, accuracy: 0.01); XCTAssertEqual(p.header.height, 24, accuracy: 0.01)
-        XCTAssertEqual(p.groupsWell.minY, 34, accuracy: 0.01); XCTAssertEqual(p.groupsWell.height, 69, accuracy: 0.01)
-        XCTAssertEqual(p.selectorWell.minY, 107, accuracy: 0.01); XCTAssertEqual(p.selectorWell.height, 50, accuracy: 0.01)
-        XCTAssertEqual(p.settings.minY, 161, accuracy: 0.01); XCTAssertEqual(p.settings.height, 40, accuracy: 0.01)
-        // content width 290.5 → mode segments 55.3, the two HITS/STEPS steppers 143.25, STRIP cells 33.7
-        XCTAssertEqual(p.modeSegments.count, 10)
-        XCTAssertEqual(p.modeSegments[0].width, 55.3, accuracy: 0.01)
-        XCTAssertEqual((p.settings.width - 4) / 2, 143.25, accuracy: 0.01, "the two steppers are sp4 apart")
-        XCTAssertEqual((p.settings.width - 7 * 3) / 8, 33.69, accuracy: 0.1, "eight STRIP cells 3 pt apart")
-        XCTAssertEqual(p.mainCircles.count, 4); XCTAssertEqual(p.altCircles.count, 4)
-        XCTAssertFalse(p.underFloor)
-    }
-    // §2.2: a short panel shrinks the group rows to a 28 floor, then the settings row to 36, and flags.
-    func testAltPanelShortLayoutFlagsItsFloors() {
-        let short = euclideousAltPanelLayout(panel: CGRect(x: 0, y: 0, width: 302.5, height: 150))
-        XCTAssertTrue(short.underFloor)
-        XCTAssertLessThanOrEqual(short.mainRow.height, 32); XCTAssertGreaterThanOrEqual(short.mainRow.height, 28)
-    }
 
-    // §1.2/§1.4/§1.5/§10.1 (test 8): the ALT button's three looks, the dots, LINK, and the spoken value.
-    func testAltButtonLooksDotsLinkAndVoice() {
-        XCTAssertEqual(euclideousAltButtonLook(modeOn: false, panelOpen: false), .off)
-        XCTAssertEqual(euclideousAltButtonLook(modeOn: true, panelOpen: false), .modeOn)
-        XCTAssertEqual(euclideousAltButtonLook(modeOn: false, panelOpen: true), .open)
-        XCTAssertEqual(euclideousAltButtonLook(modeOn: true, panelOpen: true), .open, "panel open wins over the mode")
-        // dots only while the mode USES ALT, on the ALT-mask outputs; OFF/ROBIN/SPREAD none
-        XCTAssertTrue(euclideousAltDotShows(mode: .hits, altMask: 0b0010, output: 1))
-        XCTAssertFalse(euclideousAltDotShows(mode: .hits, altMask: 0b0010, output: 0))
-        XCTAssertFalse(euclideousAltDotShows(mode: .off, altMask: 0b0010, output: 1))
-        XCTAssertFalse(euclideousAltDotShows(mode: .robin, altMask: 0b1111, output: 1), "ROBIN shows no dots")
-        XCTAssertFalse(euclideousAltDotShows(mode: .spread, altMask: 0b1111, output: 1), "SPREAD shows no dots")
-        // LINK: a part follows when the OTHER leads
-        XCTAssertTrue(euclideousPartFollows(.notes, outLink: .riff)); XCTAssertFalse(euclideousPartFollows(.riff, outLink: .riff))
-        XCTAssertTrue(euclideousPartFollows(.riff, outLink: .notes)); XCTAssertFalse(euclideousPartFollows(.riff, outLink: nil))
-        // §10.1 spoken value
-        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.off)), "off")
-        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.hits, every: 2, offset: 1)), "swap every 2 hits, offset 1")
-        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.hits, every: 1, offset: 0)), "swap every 1 hit")
-        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.chance, chance: 50)), "chance of alt 50 percent")
-        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.split, splitLowest: true)), "split above the lowest note")
-        XCTAssertEqual(euclideousAltButtonVoiceValue(altP(.split, splitLowest: false, splitRank: 4), splitName: "G3"), "split above G3")
-    }
 
     // MARK: PER-LAYER EMITTER ROUTING ferry (2026-10-25) §2 — the OUT column
 
-    // §2.3 / test 6: the four (routed, main-out) combinations give three looks; "not routed, main out off" == "not routed".
-    func testPerLayerOutCircleStateFourCombinations() {
-        XCTAssertEqual(euclideousOutCircleState(routed: true,  mainOn: true),  .routed)
-        XCTAssertEqual(euclideousOutCircleState(routed: true,  mainOn: false), .routedMainOff)
-        XCTAssertEqual(euclideousOutCircleState(routed: false, mainOn: true),  .unrouted)
-        XCTAssertEqual(euclideousOutCircleState(routed: false, mainOn: false), .unrouted, "not routed is one look regardless of the main out")
-    }
 
-    // ALT ferry §1.1 + test 9: at the reference the 32-wide column over a 208-tall content area FILLS it — the "OUT"
-    // caption on a 12 pt line, a 2 pt gap, four 40-tall targets at local y 14 / 54 / 94 / 134 (= card y 108/148/188/228),
-    // a 2 pt gap, then the 32-tall ALT target at local y 176 (= card y 270–302). The 1 pt rule is card y 98–298.
-    func testPerLayerOutColumnLayoutAtReference() {
-        let c = euclideousOutColumnLayout(height: 208)
-        XCTAssertEqual(c.caption, CGRect(x: 0, y: 0, width: 32, height: 12))
-        XCTAssertEqual(c.targetH, 40, accuracy: 0.01)
-        XCTAssertEqual(c.targets.map { $0.minY }, [14, 54, 94, 134])
-        XCTAssertTrue(c.targets.allSatisfy { $0.width == 32 && $0.height == 40 })
-        XCTAssertEqual(c.alt, CGRect(x: 0, y: 176, width: 32, height: 32), "the ALT target fills the bottom (card y 270–302)")
-        XCTAssertEqual(c.rule, CGRect(x: 0, y: 4, width: 1, height: 200))
-        XCTAssertFalse(c.underFloor)
-        // the whole block exactly fills the column: ALT's bottom == the column height
-        XCTAssertEqual(c.alt.maxY, 208, accuracy: 0.01)
-    }
 
-    // §1.1: in a short column the four circle targets shrink equally to a 36 pt floor (the caption, gaps and ALT target
-    // keep their size), then flag.
-    func testPerLayerOutColumnTargetsShrinkToTheFloor() {
-        // (height − 48)/4 == 36 exactly at height 192: at the floor, not under it.
-        let atFloor = euclideousOutColumnLayout(height: 192)
-        XCTAssertEqual(atFloor.targetH, 36, accuracy: 0.01); XCTAssertFalse(atFloor.underFloor)
-        // shorter still: the targets can't shrink below 36, so they'd overflow — flagged.
-        let under = euclideousOutColumnLayout(height: 180)
-        XCTAssertEqual(under.targetH, 36, accuracy: 0.01); XCTAssertTrue(under.underFloor)
-        // a tall column caps the targets at 40 (they never grow past it; the extra height is unused slack the spec allows).
-        let tall = euclideousOutColumnLayout(height: 300)
-        XCTAssertEqual(tall.targetH, 40, accuracy: 0.01, "capped at 40 however tall the column")
-    }
 
     // MARK: swing warp (§4)
 
@@ -1146,13 +963,6 @@ final class DerivationsTests: XCTestCase {
     }
 
 
-    // MARK: - FERRY §4 — the lane-output chip's 3-way style, all 4 combinations
-    func testEuclideousLaneOutChipStyleCoversAllFourCombinations() {
-        XCTAssertEqual(euclideousLaneOutChipStyle(routed: true, mainOn: true), .filled)
-        XCTAssertEqual(euclideousLaneOutChipStyle(routed: true, mainOn: false), .hollowDashed)
-        XCTAssertEqual(euclideousLaneOutChipStyle(routed: false, mainOn: true), .plain)
-        XCTAssertEqual(euclideousLaneOutChipStyle(routed: false, mainOn: false), .plain)
-    }
 
     func testEuclideousKeyIsFlatMatchesTheStandardCircleOfFifthsRoots() {
         for root in [5, 10, 3, 8, 1] { XCTAssertTrue(euclideousKeyIsFlat(root), "pitch class \(root) is a conventional flat-key root") }
@@ -2101,107 +1911,22 @@ final class DerivationsTests: XCTestCase {
         XCTAssertLessThanOrEqual(ScaleType.allCases.map { euclideousKeyLabel(root: 1, type: $0).count }.max() ?? 0, 13, "the 120pt pill fits 13 characters")
     }
 
-    // §10.1 — ring state, for each output and all 16 lane-mask combinations.
-    func testFourfoldRingStateFollowsLanesAcrossAllSixteenCombinations() {
-        for output in 0..<4 {
-            for combo in 0..<16 {
-                // bit i of `combo` = lane i routed to THIS output; the OTHER outputs' bits are noise that must not matter.
-                let noise: UInt8 = 0b1111 & ~(1 << UInt8(output))
-                let masks: [UInt8] = (0..<4).map { lane in
-                    let routed = (combo >> lane) & 1 != 0
-                    return (routed ? (1 << UInt8(output)) : 0) | (lane % 2 == 0 ? noise : 0)
-                }
-                let on = euclideousOutputRingState(output: output, laneMasks: masks, mainOutMask: 0b1111)
-                XCTAssertEqual(on.lit, (0..<4).map { (combo >> $0) & 1 != 0 }, "output \(output) combo \(combo): quarters = lanes 0 TL, 1 TR, 2 BL, 3 BR")
-                XCTAssertEqual(on.mode, combo == 0 ? .onUnrouted : .onRouted, "output \(output) combo \(combo)")
-                XCTAssertFalse(on.dashed)
-                let off = euclideousOutputRingState(output: output, laneMasks: masks, mainOutMask: 0b1111 & ~(1 << UInt8(output)))
-                XCTAssertEqual(off.mode, .off, "output \(output) combo \(combo): the output's own main bit off → dashed for every combination")
-                XCTAssertTrue(off.dashed)
-                XCTAssertEqual(off.lit, on.lit, "…and lit quarters keep their lane colour")
-                // another output's main bit must not affect this ring
-                let other = euclideousOutputRingState(output: output, laneMasks: masks, mainOutMask: 1 << UInt8(output))
-                XCTAssertEqual(other.mode, on.mode)
-            }
-        }
-        XCTAssertEqual(euclideousRingQuarterCentreDegrees, [315, 45, 225, 135], "lane 0 TL … lane 3 BR, clockwise from 12 o'clock")
-        XCTAssertEqual(euclideousRingArcDegrees, 66)
-    }
-    func testFourfoldRingAcceptanceExampleLane3ToBLanes1And4ToA() {
-        // §11: lane 3 → B, lanes 1 and 4 → A. Lane indices are 0-based here.
-        let masks: [UInt8] = [0b0001, 0, 0b0010, 0b0001]
-        let a = euclideousOutputRingState(output: 0, laneMasks: masks, mainOutMask: 0b1111)
-        XCTAssertEqual(a.lit, [true, false, false, true], "A: top-left (lane 1) and bottom-right (lane 4)")
-        let b = euclideousOutputRingState(output: 1, laneMasks: masks, mainOutMask: 0b1111)
-        XCTAssertEqual(b.lit, [false, false, true, false], "B: bottom-left (lane 3)")
-        for o in 2..<4 { XCTAssertEqual(euclideousOutputRingState(output: o, laneMasks: masks, mainOutMask: 0b1111).mode, .onUnrouted) }
-    }
 
-    // §10.3 — the lane-card DIM half (RESTART CHAINS ferry §10: the ring half moved to MIX, tested below).
-    func testFourfoldCuesPulseDimsNothingAndTraceDimsUnroutedLanes() {
-        let masks: [UInt8] = [0b0001, 0b0010, 0b0010, 0b0001]   // lanes 0,3 → A; lanes 1,2 → B
-        XCTAssertEqual(euclideousOutputCues(output: 0, laneMasks: masks, mode: .pulse),
-                       [.none, .none, .none, .none], "a tap dims no lane card")
-        XCTAssertEqual(euclideousOutputCues(output: 0, laneMasks: masks, mode: .trace),
-                       [.none, .dim, .dim, .none], "hold A: lanes 2 and 3 (routed to B) drop to 42%, lanes 1 and 4 (routed to A) don't")
-        XCTAssertEqual(euclideousOutputCues(output: 2, laneMasks: masks, mode: .trace),
-                       [.dim, .dim, .dim, .dim], "no lane routed to C: all four dim")
-        let all: [UInt8] = [0b1000, 0b1000, 0b1000, 0b1000]
-        XCTAssertFalse(euclideousOutputCues(output: 3, laneMasks: all, mode: .trace).contains(.dim), "every lane routed: none dim")
-    }
-    // PER-LAYER ROUTING ferry §6.2 / test 8 — pulse/trace targets: each lane that COUNTS for the output gets ONE ring,
-    // around its own RIFF/NOTES OUT circle if that tab is showing and that part routes, else its RIFF or NOTES tab cell.
-    private func routedLine(riff: UInt8?, notes: UInt8?, riffOn: Bool = true, notesOn: Bool = true) -> EuclidLine {
-        var l = EuclidLine(pulses: 3, steps: 8); l.riffOutMask = riff; l.notesOutMask = notes; l.riffOn = riffOn; l.notesOn = notesOn
-        return l
-    }
-    func testPerLayerRingTargetsPickTheShowingTabsCircleElseTheTabCell() {
-        let lines = [routedLine(riff: 0b0001, notes: 0),        // lane 0: riff → A, showing RIFF → RIFF circle
-                     routedLine(riff: 0, notes: 0b0001),        // lane 1: notes → A, showing NOTES → NOTES circle
-                     routedLine(riff: 0b0001, notes: 0),        // lane 2: riff → A, showing RHYTHM → RIFF tab cell
-                     routedLine(riff: 0, notes: 0b0001)]        // lane 3: notes → A, showing LISTEN → NOTES tab cell
-        let tabs: [EuclideousTabKind] = [.riff, .notes, .rhythm, .listen]
-        XCTAssertEqual(euclideousOutputRingTargets(output: 0, lines: lines, laneTabs: tabs),
-                       [.riffCircle(lane: 0), .notesCircle(lane: 1), .riffTabCell(lane: 2), .notesTabCell(lane: 3)])
-        // Output B: no lane routes there → no ring.
-        XCTAssertEqual(euclideousOutputRingTargets(output: 1, lines: lines, laneTabs: tabs), [])
-        // A part that routes to A but whose LAYER is off does NOT count (§6.1).
-        let off = [routedLine(riff: 0b0001, notes: 0, riffOn: false)]
-        XCTAssertEqual(euclideousOutputRingTargets(output: 0, lines: off, laneTabs: [.riff]), [], "riff routes A but riff is off ⇒ no ring")
-        // Showing RIFF but only the NOTES routes to A → the NOTES tab cell (not the RIFF circle).
-        let notesOnly = [routedLine(riff: 0, notes: 0b0001)]
-        XCTAssertEqual(euclideousOutputRingTargets(output: 0, lines: notesOnly, laneTabs: [.riff]), [.notesTabCell(lane: 0)])
-    }
-    // §6.1 / test 7 — the header quarter-lit mask: a quarter lights for a lane only when a part routes there AND that
-    // part's layer is on; and the VoiceOver names which parts feed the output (§6.3).
-    func testPerLayerHeaderQuarterLitAndVoiceOverNameParts() {
-        let lines = [routedLine(riff: 0b0001, notes: 0b0010),                 // lane 1: riff A, notes B (both on)
-                     routedLine(riff: 0b0001, notes: 0b0001, notesOn: false), // lane 2: riff A on, notes A OFF
-                     routedLine(riff: 0, notes: 0)]
-        XCTAssertEqual(euclideousLaneMasks(lines), [0b0011, 0b0001, 0, 0], "lane 1 lit A+B; lane 2 lit A only (notes off)")
-        XCTAssertEqual(euclideousOutputRingAccessibilityLabel(output: 0, lines: lines, mainOutMask: 0b1111),
-                       "Main out A, on, fed by lane 1 riff, and lane 2 riff")
-        XCTAssertEqual(euclideousOutputRingAccessibilityLabel(output: 1, lines: lines, mainOutMask: 0b1101),
-                       "Main out B, off, fed by lane 1 notes")
-        XCTAssertEqual(euclideousOutputRingAccessibilityLabel(output: 2, lines: lines, mainOutMask: 0b1111),
-                       "Main out C, on, fed by no lanes")
-    }
 
     // §10.3 — the layout ladder.
     private typealias HM = EuclideousHeaderMetrics
-    /// PAGE LAYOUT ferry (2026-10-19): the header's two positional inputs come from the PAGE layout (the riff panel's x and the lane gutter's centre,
-    /// less the page margin) — the old 36% landscape column split is gone. `pageFor` builds the page a header of this container width sits over (the
-    /// height is synthetic: any value that keeps the orientation).
+    /// PAGE LAYOUT ferry (2026-10-19): the header's one positional input (the riff panel's x, less the page margin) comes from the PAGE layout. `pageFor` builds the page a header of this
+    /// container width sits over (the height is synthetic: any value that keeps the orientation).
     private func pageFor(_ containerW: CGFloat, landscape: Bool) -> EuclideousPageLayout {
         euclideousPageLayout(size: CGSize(width: containerW + 32, height: landscape ? 600 : containerW + 432))
     }
     private func hdrLayout(_ containerW: CGFloat, landscape: Bool) -> EuclideousHeaderLayout {
         let p = pageFor(containerW, landscape: landscape)
-        return euclideousHeaderLayout(containerW: containerW, isLandscape: landscape, riffLeadingX: p.riffLeadingX, laneCentreX: p.laneCentreX)
+        return euclideousHeaderLayout(containerW: containerW, isLandscape: landscape, riffLeadingX: p.riffLeadingX)
     }
     /// no two groups on a row closer than the layout's gap; nothing past either container edge.
     private func assertHeaderInvariants(_ l: EuclideousHeaderLayout, _ containerW: CGFloat, _ msg: String, file: StaticString = #filePath, line: UInt = #line) {
-        let frames = [l.brand, l.outputs, l.notes, l.utilities]
+        let frames = [l.brand, l.notes, l.utilities]
         for f in frames {
             XCTAssertGreaterThanOrEqual(f.x, -1e-9, "\(msg): nothing before the leading edge", file: file, line: line)
             XCTAssertLessThanOrEqual(f.x + f.width, containerW + 1e-9, "\(msg): nothing past the trailing edge", file: file, line: line)
@@ -2213,14 +1938,94 @@ final class DerivationsTests: XCTestCase {
             }
         }
     }
-    /// The x of the middle of the FOUR RINGS (not the OUTPUTS group): the group's x + the caption's lead + half the rings' span.
-    private func ringsCentre(_ l: EuclideousHeaderLayout) -> CGFloat { l.outputs.x + l.widths.outputsLead + l.widths.ringsSpan / 2 }
-    // FOURFOLD REEL LINK (2026-10-23)
-    func testTheReelBrowserCopyNamesOutputsOnFourfoldAndEmittersOnTheWorkbench() {
+    // THE NINE PORTS (2026-10-26): the OUTPUTS group (the four rings) is gone from the header — a note's port is fixed by its lane and layer.
+    func testTheHeaderHasThreeGroupsAndNoRings() {
+        let f = euclideousHeaderGroupWidths(compact: false)
+        let wordmark: CGFloat = 8 * 11 * 0.76          // 8 chars × 11pt × (0.6 advance + 0.16 tracking)
+        // RANDOM MODE ferry (§2.2): the dice adds one more sp8 + one more target after redo — +52pt (+8+44). LANE LOCK ferry (§2.2): the padlock sits sp8 after the dice — once more, +52pt (+8+44).
+        XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88 + 8 + 44 + 8 + 44, accuracy: 1e-9)
+        XCTAssertEqual(f.brand, 296, accuracy: 0.2)
+        // WIDENED 312→426 (2026-10-20, HOLD/LATCH): two fixed-width chips (48+54) + the sp4 between them + the sp8 before them. UTILITIES is 4 icons (presets · SWING · REEL · settings).
+        XCTAssertEqual(f.notes, 426); XCTAssertEqual(f.utilities, 176)
+        XCTAssertEqual(HM.segmentedWidth, 184)
+        let c = euclideousHeaderGroupWidths(compact: true)
+        // RANDOM MODE / LANE LOCK (§2.2): compact BRAND grew +44 for the dice and +44 for the padlock; the compact target is 36 wide.
+        XCTAssertEqual(c.brand, 93 + 44 + 44); XCTAssertEqual(c.utilities, 144)
+        XCTAssertEqual(c.brand + c.utilities + c.gap, 93 + 44 + 44 + 144 + 8, "layout C's row 1: BRAND and UTILITIES, one gap apart")
+        XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
+        XCTAssertEqual(HM.wordmarkWidth, 8 * 11 * 0.76, accuracy: 1e-9)
+    }
+    // WIDENED to 1900 (2026-10-23) so NOTES sits unclamped on the riff panel's leading edge, clear of the four utility icons.
+    func testLayoutAPutsNotesOnTheRiffPanel() {
+        let l = hdrLayout(1900, landscape: true)
+        XCTAssertEqual(l.kind, .a); XCTAssertEqual(l.rowCount, 1); XCTAssertEqual(l.height, 44)
+        let cols = pageFor(1900, landscape: true)
+        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1900, accuracy: 1e-9)
+        XCTAssertEqual(l.notes.x, cols.riffLeadingX, accuracy: 1e-9, "NOTES' leading edge on the riff panel's")
+        assertHeaderInvariants(l, 1900, "A@1900")
+    }
+    func testLayoutANotesSlidesLeftToClearUtilitiesAtItsFloor() {
+        let full = euclideousHeaderGroupWidths(compact: false)
+        let w = full.brand + full.notes + full.utilities + 2 * full.gap   // A's exact need: 929.88
+        let l = hdrLayout(w, landscape: true)
+        let cols = pageFor(w, landscape: true)
+        XCTAssertEqual(l.kind, .a)
+        XCTAssertLessThan(l.notes.x, cols.riffLeadingX, "NOTES slid left to clear UTILITIES")
+        XCTAssertEqual(l.utilities.x - (l.notes.x + l.notes.width), full.gap, accuracy: 1e-9)
+        XCTAssertEqual(l.notes.x - (l.brand.x + l.brand.width), full.gap, accuracy: 1e-9, "…and at A's floor it sits one gap clear of BRAND too")
+        assertHeaderInvariants(l, w, "A at its exact need")
+        XCTAssertEqual(hdrLayout(w - 1, landscape: true).kind, .b, "one point narrower falls to B")
+        for cw in stride(from: w, through: w + 400, by: 7) { assertHeaderInvariants(hdrLayout(cw, landscape: true), cw, "A@\(cw)") }
+    }
+    func testLayoutBAt500AndCAt470() {
+        let b = hdrLayout(500, landscape: false)
+        XCTAssertEqual(b.kind, .b); XCTAssertEqual(b.rowCount, 2); XCTAssertEqual(b.height, 44 + 4 + 44)
+        XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.notes.x, 0, "NOTES on row 2's leading edge")
+        XCTAssertEqual([b.brand.row, b.utilities.row], [0, 0])
+        assertHeaderInvariants(b, 500, "B@500")
+        let c = hdrLayout(470, landscape: false)
+        XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
+        XCTAssertEqual(c.widths.gap, 8)
+        assertHeaderInvariants(c, 470, "C@470")
+        // a landscape page too narrow for A falls to B, never A; portrait never uses A, however wide.
+        XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
+        XCTAssertEqual(hdrLayout(1200, landscape: false).kind, .b)
+    }
+    func testFourfoldKeySpokenNameSpellsOutEveryScale() {
+        XCTAssertEqual(euclideousKeySpokenName(root: 0, type: .naturalMinor), "C minor")
+        XCTAssertEqual(euclideousKeySpokenName(root: 6, type: .mixolydian), "F sharp mixolydian")
+        for t in ScaleType.allCases { XCTAssertFalse(euclideousKeySpokenName(root: 3, type: t).hasSuffix("MIXO"), "\(t)") }
+    }
+    // THE NINE PORTS (2026-10-26): the PORTS tab of the settings sheet — one row per lane, RIFF then NOTES, eight channel steppers in all.
+    func testThePortsTabListsEightPortsInLaneOrder() {
+        let rows = euclideousPortsTabRows()
+        XCTAssertEqual(rows.map { $0.letter }, ["A", "B", "C", "D"])
+        XCTAssertEqual(rows.flatMap { $0.ports.map { $0.bus } }, Array(0..<8), "riff bus 2·lane, notes bus 2·lane + 1")
+        XCTAssertEqual(rows.flatMap { $0.ports.map { $0.label } }, ["RIFF", "NOTES", "RIFF", "NOTES", "RIFF", "NOTES", "RIFF", "NOTES"])
+        XCTAssertEqual(euclideousPortChannelAccessibilityLabel(bus: 0, channel: 1), "Emit Riff A, channel 1")
+        XCTAssertEqual(euclideousPortChannelAccessibilityLabel(bus: 7, channel: 16), "Emit Notes D, channel 16")
+        XCTAssertEqual(rows.flatMap { $0.ports.map { euclideousPortChannelAccessibilityLabel(bus: $0.bus, channel: 3) } }.map { $0.replacingOccurrences(of: ", channel 3", with: "") },
+                       Array(FourfoldPorts.names.dropFirst()), "every stepper is named for the port the host lists")
+    }
+    func testThePortsAreNamedAndNumberedForTheHost() {
+        XCTAssertEqual(FourfoldPorts.names, ["All", "Emit Riff A", "Emit Notes A", "Emit Riff B", "Emit Notes B", "Emit Riff C", "Emit Notes C", "Emit Riff D", "Emit Notes D"])
+        XCTAssertEqual(FourfoldPorts.cableCount, 9); XCTAssertEqual(FourfoldPorts.busCount, 8)
+        for lane in 0..<4 {
+            XCTAssertEqual(FourfoldPorts.cable(lane: lane, part: .riff), 1 + 2 * lane); XCTAssertEqual(FourfoldPorts.cable(lane: lane, part: .notes), 2 + 2 * lane)
+            XCTAssertEqual(FourfoldPorts.laneBusMask(lane), FourfoldPorts.busMask(lane: lane, part: .riff) | FourfoldPorts.busMask(lane: lane, part: .notes))
+            XCTAssertEqual(FourfoldPorts.lanePart(ofCable: 1 + 2 * lane)?.lane, lane); XCTAssertEqual(FourfoldPorts.lanePart(ofCable: 2 + 2 * lane)?.part, .notes)
+        }
+        XCTAssertNil(FourfoldPorts.lanePart(ofCable: 0)); XCTAssertNil(FourfoldPorts.lanePart(ofCable: 9))
+        XCTAssertEqual(FourfoldPorts.shortName(cable: 0), "ALL"); XCTAssertEqual(FourfoldPorts.shortName(cable: 4), "NOTES B")
+    }
+    // FOURFOLD REEL LINK (2026-10-23) · THE NINE PORTS (2026-10-26): Fourfold's lanes each have a riff and a notes port; the workbench still says emitter.
+    func testTheReelBrowserCopyNamesPortsOnFourfoldAndEmittersOnTheWorkbench() {
         let fourfold = reelInstructionText(fourfold: true), workbench = reelInstructionText(fourfold: false)
-        XCTAssertTrue(fourfold.contains("that output")); XCTAssertFalse(fourfold.contains("emitter"), "Fourfold has outputs A–D, not emitters")
-        XCTAssertTrue(workbench.contains("that emitter")); XCTAssertFalse(workbench.contains("output"))
-        XCTAssertEqual(fourfold.replacingOccurrences(of: "output", with: "emitter"), workbench, "otherwise the same sentence — one browser, two names")
+        XCTAssertTrue(fourfold.contains("both its ports")); XCTAssertTrue(fourfold.contains("RIFF / NOTES")); XCTAssertFalse(fourfold.contains("emitter"))
+        XCTAssertTrue(workbench.contains("that emitter")); XCTAssertFalse(workbench.contains("ports"))
+        XCTAssertEqual(reelExportPortsLabel([]), "MASTER")
+        XCTAssertEqual(reelExportPortsLabel([0]), "RIFF A"); XCTAssertEqual(reelExportPortsLabel([5, 2]), "RIFF B·NOTES C")
+        XCTAssertEqual(reelExportPortsLabel([0, 1, 2]), "3 PORTS"); XCTAssertEqual(reelExportPortsLabel([9, -1]), "MASTER", "out-of-range ports are ignored")
     }
     func testThePassLengthLineReadsInBeats() {
         XCTAssertEqual(reelPassLengthText(beats: 4), "1 PASS = 4 BEATS")
@@ -2228,137 +2033,6 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(reelPassLengthText(beats: 0.5), "1 PASS = 0.5 BEATS")
         XCTAssertEqual(reelPassLengthText(beats: 2.6666666), "1 PASS = 2.67 BEATS", "a triplet-rate pass rounds to two places")
         XCTAssertEqual(reelPassLengthText(beats: 0), "1 PASS = —"); XCTAssertEqual(reelPassLengthText(beats: .nan), "1 PASS = —")
-    }
-    func testFourfoldGroupWidthsComeFromTheSameConstantsTheViewsDrawWith() {
-        let f = euclideousHeaderGroupWidths(compact: false)
-        let wordmark: CGFloat = 8 * 11 * 0.76          // 8 chars × 11pt × (0.6 advance + 0.16 tracking)
-        let caption: CGFloat = 3 * 9 * 0.74            // "OUT": 3 chars × 9pt × (0.6 + 0.14)
-        // RANDOM MODE ferry (§2.2): the dice adds one more sp8 + one more target after redo — +52pt (+8+44).
-        // LANE LOCK ferry (§2.2): the padlock sits sp8 after the dice — once more, +52pt (+8+44).
-        XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88 + 8 + 44 + 8 + 44, accuracy: 1e-9)
-        XCTAssertEqual(f.brand, 296, accuracy: 0.2)
-        // NARROWED 44→33 / 40→30pt ring pitch (2026-10-20, output rings to 75%): 4 rings × 11pt less = 44pt off
-        // `outputs`/`ringsSpan`, and 4 × 10pt = 40pt off the compact `c.outputs`.
-        XCTAssertEqual(f.outputs, caption + 4 + 132, accuracy: 1e-9)
-        XCTAssertEqual(f.outputsLead, caption + 4, accuracy: 1e-9, "the caption + sp4 before the first ring's target")
-        XCTAssertEqual(f.ringsSpan, 132, accuracy: 1e-9)
-        // UTILITIES is 3 icons (presets · SWING, 2026-10-17 · settings): 2×t / 3×t before/after; FOURFOLD REEL LINK (2026-10-23) added the REEL icon — 4×t.
-        // WIDENED 312→426 (2026-10-20, HOLD/LATCH header buttons): two fixed-width chips (48+54) + the sp4
-        // gap between them + the sp8 before them = 114pt added after the key pill.
-        XCTAssertEqual(f.notes, 426); XCTAssertEqual(f.utilities, 176)
-        XCTAssertEqual(HM.segmentedWidth, 184)
-        let c = euclideousHeaderGroupWidths(compact: true)
-        // RANDOM MODE ferry (§2.2): "In layout C the dice target is 36 wide, like the other icon targets" — +8+36=44.
-        // LANE LOCK ferry (§2.2): "In layout C the target is 36 wide, like the other icon targets" — the padlock adds another +8+36=44.
-        XCTAssertEqual(c.brand, 93 + 44 + 44); XCTAssertEqual(c.outputs, 120); XCTAssertEqual(c.utilities, 144)
-        XCTAssertEqual(c.outputsLead, 0, "layout C hides the caption: the group IS the rings")
-        XCTAssertEqual(c.brand + c.outputs + c.utilities + 2 * c.gap, 337 + 44 + 44 + 36, "layout C's row 1 (+36: the REEL icon's compact target)")
-        XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
-    }
-    // WIDENED from 1158 → 1300 (2026-10-17, UTILITIES grew from 2 to 3 icons — the SWING icon — so the
-    // fully-unclamped "comfortable A" case now needs a wider container; 1158 now lands in the SLID case
-    // the sibling test below covers).
-    // WIDENED again 1300 → 1500 (PAGE LAYOUT ferry, 2026-10-19): the riff panel is now the THIRD of three equal columns (it started 36% in), so NOTES only
-    // sits unclamped on its leading edge once the container is wide enough that the three utility icons don't push it left.
-    // WIDENED again 1500 → 1750 (2026-10-20, HOLD/LATCH header buttons): NOTES grew 114pt, so it needs a
-    // wider container before its unclamped position stops colliding with UTILITIES.
-    // WIDENED again 1750 → 1900 (FOURFOLD REEL LINK, 2026-10-23): UTILITIES gained the REEL icon (+44), so NOTES is only unclamped from ≈1870.
-    func testFourfoldLayoutAAt1500PutsNotesOnTheRiffPanelAndRingsOnTheLaneGutter() {
-        let l = hdrLayout(1900, landscape: true)
-        XCTAssertEqual(l.kind, .a); XCTAssertEqual(l.rowCount, 1); XCTAssertEqual(l.height, 44)
-        let cols = pageFor(1900, landscape: true)
-        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 1900, accuracy: 1e-9)
-        XCTAssertEqual(l.notes.x, cols.riffLeadingX, accuracy: 1e-9, "NOTES' leading edge on the riff panel's")
-        XCTAssertEqual(ringsCentre(l), cols.laneCentreX, accuracy: 1e-9, "the RINGS (not the caption-inclusive group) centred on the lane gutter (between lane columns 1 and 2)")
-        XCTAssertNotEqual(l.outputs.x + l.outputs.width / 2, cols.laneCentreX, "…so the caption-inclusive group is NOT what's centred")
-        assertHeaderInvariants(l, 1900, "A@1900")
-    }
-    // WIDENED from 868 → 900 (2026-10-17) for the SWING icon, then RENUMBERED to 960 and its story CHANGED
-    // (2026-10-20, HOLD/LATCH header buttons): NOTES is now wider (426pt) than the rings' own upper-bound
-    // clamp room, so once the container is wide enough for layout A at all, it's NOTES — not BRAND — that
-    // pushes the rings off-centre (the rings clamp against NOTES' leading edge, not BRAND's trailing edge;
-    // confirmed by reading the actual gap at a few widths, not assumed from the old story).
-    // RENUMBERED AGAIN, story CHANGED AGAIN (RANDOM MODE ferry §2.2): BRAND grew +52pt (the dice) — confirmed
-    // by direct probing of `euclideousHeaderLayout`'s own `headerClamp` calls (not assumed): the ring-vs-NOTES
-    // clamp window this test used to demonstrate (NOTES pinned to UTILITIES, rings pinned to NOTES' own
-    // leading edge) is now a single-point transition, not a stable width range — `headerClamp`'s own
-    // degenerate fallback (`lo > hi ⇒ return lo`, its defensive "no room at all" branch) fires across the
-    // whole range just above A's own floor instead: there is no longer enough room between BRAND's trailing
-    // edge and NOTES' own (UTILITIES-clamped) leading edge for the rings' ideal span, so they pin to
-    // `brand + gap` (flush against BRAND) rather than centring anywhere near the lane gutter — a DIFFERENT,
-    // but equally real, way NOTES' extra width (426pt) still pushes the rings off-centre.
-    func testFourfoldLayoutANotesClampPushesRingsToTheDegenerateBrandFallback() {
-        let w: CGFloat = 1106   // LANE LOCK ferry §2.2: A's floor rose 1006 → 1058 with the padlock; FOURFOLD REEL LINK: → 1102 with the REEL icon
-        let full = euclideousHeaderGroupWidths(compact: false)
-        let l = hdrLayout(w, landscape: true)
-        let cols = pageFor(w, landscape: true)
-        XCTAssertEqual(l.kind, .a)
-        XCTAssertLessThan(l.notes.x, cols.riffLeadingX, "NOTES slid left to clear UTILITIES")
-        XCTAssertEqual(l.utilities.x - (l.notes.x + l.notes.width), 16, accuracy: 1e-9)
-        XCTAssertGreaterThan(abs(ringsCentre(l) - cols.laneCentreX), 1, "rings are NOT centred on the lane gutter here")
-        // The degenerate fallback: no room at all between BRAND and NOTES for the rings' own span, so
-        // `headerClamp` returns its lower bound outright — rings sit flush against BRAND, not against NOTES.
-        XCTAssertEqual(l.outputs.x, full.brand + full.gap, accuracy: 1e-9, "rings pinned flush against BRAND (the degenerate fallback), not centred")
-        assertHeaderInvariants(l, w, "A@1106")
-    }
-    func testFourfoldLayoutBAt600AndCAt343() {
-        let b = hdrLayout(660, landscape: false)   // LANE LOCK ferry §2.2: B's floor rose ≈564 → ≈616 with the padlock, so 600 is C now
-        XCTAssertEqual(b.kind, .b); XCTAssertEqual(b.rowCount, 2); XCTAssertEqual(b.height, 44 + 4 + 44)
-        XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.notes.x, 0, "NOTES on row 2's leading edge")
-        XCTAssertEqual([b.brand.row, b.outputs.row, b.utilities.row], [0, 0, 0])
-        assertHeaderInvariants(b, 660, "B@660")
-        // WIDENED from 343 → 380 (2026-10-17) for row 1's own floor (341→377 when SWING joined UTILITIES).
-        // WIDENED again 380 → 430 (2026-10-20, HOLD/LATCH header buttons): NOTES grew to 426pt — now WIDER
-        // than row 1's own floor (369, down from 377: ring-scaling shrank compact OUTPUTS 160→120) — so
-        // NOTES' own row, not row 1, is what sets C's real floor now.
-        // WIDENED again 430 → 470 (FOURFOLD REEL LINK, 2026-10-23): the REEL icon makes row 1 (461) wider than NOTES' row (426) again, so row 1 is C's floor.
-        let c = hdrLayout(470, landscape: false)
-        XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
-        XCTAssertEqual(c.widths.gap, 8)
-        assertHeaderInvariants(c, 470, "C@470")
-        // Row 1's OWN floor (brand+outputs+utilities): 369 now (was 377 before ring-scaling shrank compact
-        // OUTPUTS 160→120) — no longer C's real floor (see the comment above: NOTES' own 426pt width is).
-        // RANDOM MODE ferry §2.2: compact BRAND grew +44pt (the dice, compact-target-sized) — 369 → 413.
-        // LANE LOCK ferry §2.2: the padlock adds another +44 — 413 → 457. FOURFOLD REEL LINK (2026-10-23): the REEL icon adds one compact target, +36 — 457 → 493.
-        XCTAssertEqual(c.widths.brand + c.widths.outputs + c.widths.utilities + 2 * c.widths.gap + 2 * 16, 493)
-        // a landscape page too narrow for A falls to B, never A.
-        XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
-        // portrait never uses A, however wide.
-        XCTAssertEqual(hdrLayout(1200, landscape: false).kind, .b)
-    }
-    func testFourfoldRingsCentreOnTheLaneGutterInBWhenNothingClampsThem() {
-        // Portrait B at 900: lane grid spans the container, so the gutter is its centre; nothing clamps the rings.
-        let b = hdrLayout(900, landscape: false)
-        XCTAssertEqual(b.kind, .b)
-        XCTAssertEqual(ringsCentre(b), 450, accuracy: 1e-9)
-        assertHeaderInvariants(b, 900, "B@900")
-        // A landscape window too narrow for A: B uses the LANE column's gutter, not the container's centre.
-        let lb = hdrLayout(760, landscape: true)
-        let cols = pageFor(760, landscape: true)
-        XCTAssertEqual(lb.kind, .b)
-        XCTAssertEqual(ringsCentre(lb), max(cols.laneCentreX, lb.widths.brand + lb.widths.gap + lb.widths.outputsLead + lb.widths.ringsSpan / 2), accuracy: 1e-9)
-        assertHeaderInvariants(lb, 760, "B@760 landscape")
-        // C has no caption, so its group and its rings share one centre.
-        // WIDENED from 520 → 560 (2026-10-17): UTILITIES' 3rd icon raised the B/C threshold from ≈512 to
-        // ≈556 — 520 now falls on the C side instead of demonstrating "just above the line, still B".
-        // WIDENED again 560 → 612 (RANDOM MODE ferry §2.2): BRAND grew +52pt, raising the B/C threshold by
-        // the same 52pt (≈556 → ≈608) — shifting this width by the identical amount keeps the same
-        // relative tightness the original 560 was chosen for.
-        // WIDENED again 612 → 664 (LANE LOCK ferry §2.2): the padlock grew BRAND another 52pt (≈608 → ≈616 + the same 52 shift).
-        let c = hdrLayout(664, landscape: false)
-        XCTAssertEqual(c.kind, .b) // 664 ≥ ≈616: still B
-        let c2 = hdrLayout(500, landscape: false)
-        XCTAssertEqual(c2.kind, .c)
-        XCTAssertEqual(ringsCentre(c2), c2.outputs.x + c2.outputs.width / 2, accuracy: 1e-9)
-    }
-    func testFourfoldLayoutAFitsExactlyAtItsOwnNeedWithEveryGroupPacked() {
-        let w = euclideousHeaderGroupWidths(compact: false)
-        let need = w.brand + w.outputs + w.notes + w.utilities + 3 * w.gap
-        let l = hdrLayout(need, landscape: true)
-        XCTAssertEqual(l.kind, .a)
-        assertHeaderInvariants(l, need, "A at its exact need")
-        XCTAssertEqual(hdrLayout(need - 1, landscape: true).kind, .b, "one point narrower falls to B")
-        for cw in stride(from: need, through: need + 400, by: 7) { assertHeaderInvariants(hdrLayout(cw, landscape: true), cw, "A@\(cw)") }
     }
 
     // §4.8 → PULSE ferry §6: the ring's flash is §1's velocity-scaled envelope (the step-based `euclideousRingFlare` is retired).
@@ -2370,24 +2044,6 @@ final class DerivationsTests: XCTestCase {
         for i in 0...50 { let v = euclideousPulseEnvelopes(velocity: 100, seconds: Double(i) * 0.03, scale: 1).f; XCTAssertLessThanOrEqual(v, last + 1e-12); last = v }
         // the OLD windows still exist for the BUILD-page editor's own comet bar
         XCTAssertEqual(euclideousFlareAfterglowSteps, 1.5); XCTAssertEqual(euclideousFlareBurstSteps, 0.35)
-    }
-    // The painter's disc/letter decision (held OFF must still get its light disc, or the ink letter vanishes on the ground).
-    func testFourfoldRingDiscAndLetterTable() {
-        typealias M = EuclideousOutputRingMode
-        for mode in [M.onRouted, .onUnrouted, .off] {
-            XCTAssertEqual(euclideousRingDisc(mode: mode, held: true), .held, "held always has the light disc, even OFF (\(mode))")
-            XCTAssertEqual(euclideousRingLetterTone(mode: mode, held: true), .ink)
-        }
-        XCTAssertEqual(euclideousRingDisc(mode: .onRouted, held: false), .base)
-        XCTAssertEqual(euclideousRingDisc(mode: .onUnrouted, held: false), .base)
-        XCTAssertEqual(euclideousRingDisc(mode: .off, held: false), .none, "OFF: no disc, the ground shows through")
-        XCTAssertEqual(euclideousRingLetterTone(mode: .onRouted, held: false), .on)
-        XCTAssertEqual(euclideousRingLetterTone(mode: .onUnrouted, held: false), .unrouted)
-        XCTAssertEqual(euclideousRingLetterTone(mode: .off, held: false), .off)
-        // the invariant that was broken: an INK letter never sits without the light disc.
-        for mode in [M.onRouted, .onUnrouted, .off] { for held in [false, true] {
-            if euclideousRingLetterTone(mode: mode, held: held) == .ink { XCTAssertEqual(euclideousRingDisc(mode: mode, held: held), .held) }
-        } }
     }
     // The tap-vs-hold machine (§4.6/§4.7).
     func testFourfoldRingPressTapHoldDragAndCancel() {
@@ -2426,20 +2082,6 @@ final class DerivationsTests: XCTestCase {
         a.touchDown(); XCTAssertEqual(a.holdTimerFired(), .holdBegan)
         b.touchDown(); XCTAssertEqual(b.touchEnded(), .tap)
         XCTAssertEqual(a.touchEnded(), .holdEnded)
-    }
-    func testFourfoldLaneMasksResolveBothPartsFromEmitterMaskForAnUntouchedLane() {
-        // PER-LAYER ROUTING ferry §6.1: an untouched lane inherits emitterMask in both parts; with the notes layer on
-        // by default, its lit mask is emitterMask. nil emitterMask ⇒ the Router inherits the cell's open bus, so the
-        // lane sounds on A-D and the page lights all four (OUT-MASK-NIL-1, 2026-10-25; it used to light none). (Padded to 4.)
-        var a = EuclidLine(); a.emitterMask = 0b0101
-        var b = EuclidLine(); b.emitterMask = nil
-        XCTAssertEqual(euclideousLaneMasks([a, b]), [0b0101, 0b1111, 0, 0])
-    }
-    func testFourfoldKeySpokenNameSpellsOutEveryScale() {
-        XCTAssertEqual(euclideousKeySpokenName(root: 0, type: .naturalMinor), "C minor")
-        XCTAssertEqual(euclideousKeySpokenName(root: 6, type: .mixolydian), "F sharp mixolydian")
-        for t in ScaleType.allCases { XCTAssertFalse(euclideousKeySpokenName(root: 3, type: t).hasSuffix("MIXO"), "\(t)") }
-        XCTAssertEqual(HM.wordmarkWidth, 8 * 11 * 0.76, accuracy: 1e-9); XCTAssertEqual(HM.captionWidth, 3 * 9 * 0.74, accuracy: 1e-9)
     }
 
     // MARK: - FERRY (2026-10-15, "Fourfold settings — a gear, one sheet, three tabs") §10 test 1
