@@ -19,6 +19,36 @@ final class FourfoldTapTests: XCTestCase {
         need(app.staticTexts["STOPPED"], "the stopped readout again")
     }
 
+    /// HOCKET (2026-10-27): the header button opens the pop-up, two chip taps make a lit swap rule, the button then reads "1 rule on", and closing leaves the rule lit.
+    func testHocketPopupBuildsARuleAndTheButtonCountsIt() {
+        let app = XCUIApplication.fresh()
+        let button = app.els(prefix: "Hocket").firstMatch
+        need(button, "the HOCKET button"); XCTAssertEqual(button.value as? String, "off")
+        button.tap()
+        need(app.buttons["Close"], "the pop-up's Close button")
+        need(app.staticTexts["PICK AT LEAST ONE MAIN OUTPUT."], "the empty-MAIN hint")
+        app.buttons["Main: red riff, off"].tap(); app.buttons["Alt: blue riff, off"].tap()
+        need(app.buttons["Main: red riff, on"], "RED RIFF in MAIN"); need(app.buttons["Alt: blue riff, on"], "BLUE RIFF in ALT")
+        app.buttons["Close"].tap()
+        XCTAssertFalse(app.buttons["Close"].waitForExistence(timeout: 1), "the pop-up closed")
+        XCTAssertEqual(app.els(prefix: "Hocket").firstMatch.value as? String, "1 rule on")
+    }
+
+    /// HOCKET §3 / acceptance: a 300 ms hold on a rule's tab opens DELETE RULE n, and tapping it removes the rule.
+    func testHocketHoldOnARulesTabDeletesIt() {
+        let app = XCUIApplication.fresh()
+        app.els(prefix: "Hocket").firstMatch.tap()
+        need(app.buttons["Close"], "the pop-up's Close button")
+        app.buttons["Add a rule"].tap()
+        let tab2 = app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", "Rule 2")).firstMatch
+        need(tab2, "rule 2's tab")
+        tab2.press(forDuration: 0.8)
+        need(app.buttons["Delete rule 2"], "the DELETE RULE 2 popover")
+        app.buttons["Delete rule 2"].tap()
+        XCTAssertFalse(tab2.waitForExistence(timeout: 1), "rule 2 is gone")
+        need(app.buttons["Add a rule"], "the add button is back")
+    }
+
     func testTheTempoButtonsStepTheBpm() {
         let app = XCUIApplication.fresh()
         need(app.el("Tempo, 120 beats per minute"), "the tempo control at 120")

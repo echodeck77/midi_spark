@@ -68,6 +68,18 @@ final class FourfoldScreenshotTests: XCTestCase {
         step(app.el("Hocket")); Thread.sleep(forTimeInterval: 1); attach("6-hocket-portrait")
     }
 
+    /// HOCKET §3: the DELETE RULE popover after a hold on rule 2's tab, with a taken chip behind it.
+    func testTheHocketDeletePopover() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()
+        Thread.sleep(forTimeInterval: 1.5)
+        func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
+        step(app.el("Hocket")); step(app.el("Main: red riff, off")); step(app.el("Alt: blue riff, off")); step(app.el("Add a rule"))
+        let tab2 = app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", "Rule 2")).firstMatch
+        if tab2.waitForExistence(timeout: 3) { tab2.press(forDuration: 0.8) }
+        Thread.sleep(forTimeInterval: 1); attach("6-hocket-delete-popover")
+    }
+
     /// HOCKET §9: a riff crossing on BARS (RED RIFF and BLUE RIFF trade places every other bar) with the pop-up closed, shot across a few bars so both turns show on the lane cards' glyphs, MIX labels and strips.
     func testTheHocketGlyphStates() {
         XCUIDevice.shared.orientation = .landscapeLeft

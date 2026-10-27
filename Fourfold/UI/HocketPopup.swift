@@ -61,14 +61,8 @@ struct HocketPopup: View {
                                   onEdit(true) { rs in if let n = hocketAddRule(&rs) { newIndex = n } }
                                   showing = newIndex; deleteFor = nil
                               },
-                              onToggleOn: { onEdit(true) { rs in if rs.indices.contains(idx) { rs[idx].on.toggle() } } },
-                              onDelete: { i in
-                                  var next = 0
-                                  onEdit(true) { rs in next = hocketDeleteRule(&rs, at: i) }
-                                  showing = next; deleteFor = nil
-                              })
+                              onToggleOn: { onEdit(true) { rs in if rs.indices.contains(idx) { rs[idx].on.toggle() } } })
                 .frame(width: f.contentWidth, height: f.fixedHeight, alignment: .topLeading)
-                .zIndex(1)
             ScrollView(.vertical, showsIndicators: false) {
                 EuclideousStackBreak {
                     AnyView(HocketBody(f: f, rules: shown, idx: idx, snap: snap, live: live, edit: onEdit)
@@ -83,11 +77,34 @@ struct HocketPopup: View {
         .background(RoundedRectangle(cornerRadius: M.radius).fill(Color(HocketPalette.sheet)))
         .overlay(RoundedRectangle(cornerRadius: M.radius).stroke(Color(HocketPalette.sheetBorder), lineWidth: 1))
         .shadow(color: .black.opacity(0.6), radius: 11, y: 8)
-        .overlay(deleteFor == nil ? nil : AnyView(Color.clear.contentShape(Rectangle()).onTapGesture { deleteFor = nil }.accessibilityHidden(true)).zIndex(0))
+        .overlay(deleteFor == nil ? nil : AnyView(Color.clear.contentShape(Rectangle()).onTapGesture { deleteFor = nil }.accessibilityHidden(true)))
+        .overlay(alignment: .topLeading) {
+            if let d = deleteFor, d < f.tabs.count {
+                deletePopover(d, f: f) { i in
+                    var next = 0
+                    onEdit(true) { rs in next = hocketDeleteRule(&rs, at: i) }
+                    showing = next; deleteFor = nil
+                }
+                .padding(M.pad)
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(HocketAX.popupLabel)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { onClose() }
+    }
+
+    private func deletePopover(_ d: Int, f: HocketPopupFrames, onDelete: @escaping (Int) -> Void) -> some View {
+        let tab = f.tabs[d]
+        let w = HocketPopupMetrics.textWidth("DELETE RULE \(d + 1)".count, size: 10) + 24
+        return hocketText("DELETE RULE \(d + 1)", 10, HocketPalette.text).lineLimit(1)
+            .frame(width: w, height: 32)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(HocketPalette.plate)))
+            .shadow(color: .black.opacity(0.45), radius: 6, y: 3)
+            .contentShape(Rectangle())
+            .onTapGesture { onDelete(d) }
+            .offset(x: min(tab.minX, max(0, f.contentWidth - w)), y: tab.maxY + 4)
+            .accessibilityLabel("Delete rule \(d + 1)").accessibilityAddTraits(.isButton)
     }
 }
 
@@ -101,7 +118,6 @@ private struct HocketFixedRegion: View {
     let onShow: (Int) -> Void
     let onAdd: () -> Void
     let onToggleOn: () -> Void
-    let onDelete: (Int) -> Void
 
     var body: some View {
         typealias M = HocketPopupMetrics
@@ -113,7 +129,6 @@ private struct HocketFixedRegion: View {
             ForEach(0..<f.tabs.count, id: \.self) { i in tab(i).place(f.tabs[i]) }
             if let add = f.add { addButton.place(add) }
             onOffButton.place(f.onOff)
-            if let d = deleteFor, d < f.tabs.count { deletePopover(d) }
         }
     }
 
@@ -189,18 +204,6 @@ private struct HocketFixedRegion: View {
             .accessibilityAddTraits(.isButton)
     }
 
-    private func deletePopover(_ d: Int) -> some View {
-        let tab = f.tabs[d]
-        let w = HocketPopupMetrics.textWidth("DELETE RULE \(d + 1)".count, size: 10) + 24
-        return hocketText("DELETE RULE \(d + 1)", 10, HocketPalette.text).lineLimit(1)
-            .frame(width: w, height: 32)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(HocketPalette.plate)))
-            .shadow(color: .black.opacity(0.45), radius: 6, y: 3)
-            .contentShape(Rectangle())
-            .onTapGesture { onDelete(d) }
-            .offset(x: min(tab.minX, max(0, f.contentWidth - w)), y: tab.maxY + 4)
-            .accessibilityLabel("Delete rule \(d + 1)").accessibilityAddTraits(.isButton)
-    }
 }
 
 // ── the body: the rule's mode, MAIN, SWAP EVERY, ALT and ROUTES, then the footer ───────────────────────────────────────────

@@ -28,6 +28,9 @@ enum FourfoldAuditAllowList {
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
     /// letters are the "–" placeholders). More than this on any screen is a new unlabelled piece of text.
     static let unlocatedElementDetectionCeiling = 6
+    /// The HOCKET pop-up is a MODAL group (spec §10.2): while it is up VoiceOver — and this audit — treat the dimmed page behind the scrim as not there, so the page's visible text is reported as "potentially inaccessible" (measured 2026-10-27: 40 in
+    /// portrait, 60 in landscape; 0 on every screen, the pop-up included, once the modal trait is removed). That is the intended behaviour, not a missing label, so those two screens accept up to 80 unlocated findings; every other audit type still runs in full.
+    static func unlocatedElementDetectionCeilingFor(screen: String) -> Int { screen.contains("hocket popup") ? 80 : unlocatedElementDetectionCeiling }
 
 }
 
@@ -57,7 +60,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
                         }
                         if name == "elementDetection" && label == "?" { unlocated += 1 }
                         let known = FourfoldAuditAllowList.acceptedTypes[name] != nil || FourfoldAuditAllowList.known.contains { $0.type == name && label.hasPrefix($0.label) }
-                            || (name == "elementDetection" && label == "?" && unlocated <= FourfoldAuditAllowList.unlocatedElementDetectionCeiling)
+                            || (name == "elementDetection" && label == "?" && unlocated <= FourfoldAuditAllowList.unlocatedElementDetectionCeilingFor(screen: screen))
                         if !known { mineUnknown += 1 }
                         let detail = label == "?" ? " | " + issue.detailedDescription.replacingOccurrences(of: "\n", with: " ") : ""   // an issue with no element (elementDetection) says where only in its detail
                         mine.append("\(known ? "known  " : "NEW    ")\(name) | \(label) | \(f) | \(issue.compactDescription)\(detail)")
