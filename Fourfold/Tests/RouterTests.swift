@@ -896,9 +896,9 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         XCTAssertEqual(Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) }), [48, 55], "both lit ranks (1→C3/48, 2→G3/55) sound every hit; the un-lit rank 3 (60) never strikes")
     }
-    func testEuclideousRiffAndLitNoteDedupToOneStrikeWhenPitchesCoincide() {
-        // Acceptance 2: "Riff added: tap FWD. Every hit plays C3, G3 and the riff note. Where the riff
-        // note is C3 or G3, that pitch sounds once."
+    func testEuclideousRiffAndLitNoteCoincidingPitchSoundsOnceOnEachPort() {
+        // Acceptance 2, as amended by THE NINE PORTS: "Riff added: tap FWD. Every hit plays C3, G3 and the riff note." The riff and the notes layer are independent streams
+        // on their own ports, so where the riff note is C3 or G3 that pitch sounds ONCE ON EACH PORT (it used to be dropped from the notes layer).
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: [1])   // always rank 1 → pool[0] → 48 (C3), coincides with the lit rank-1 button
         // notesWhen: PLAYS only — the riff reads columns 2-8 (rests) after column 1, and a lane built in this build plays its lit notes on rest hits too (WHEN RESTS); this test is about
@@ -910,9 +910,10 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         run(SnapshotBuilder.build(from: st), chord([48, 55, 60]), beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
-        let ons = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
-        XCTAssertEqual(Set(ons), [48, 55], "the merged set is {48,55} — the riff's own rank-1 pitch coincides with the lit rank-1 pitch")
-        XCTAssertEqual(ons.filter { $0 == 48 }.count, 1, "the coincident pitch gets exactly ONE note-on, not two")
+        let riffOns = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }, notesOns = e.ons.filter { $0.cable == 2 }.map { Int($0.note) }
+        XCTAssertEqual(riffOns, [48], "the riff's own rank-1 pitch, once, on Emit Riff A")
+        XCTAssertEqual(Set(notesOns), [48, 55], "the lit notes (rank 1 and 2), each once, on Emit Notes A — including the pitch the riff also plays")
+        XCTAssertEqual(notesOns.filter { $0 == 48 }.count, 1)
     }
     func testEuclideousNothingLitAndRiffOffIsCompletelySilent() {
         // Acceptance 7: "Silent lane: unlight everything with the riff off. The lane is silent..."
@@ -3394,7 +3395,7 @@ final class RouterTests: XCTestCase {
             let e = RecordingEmitter()
             run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 4, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 && $0.note == 60 }.count   // rank 1 = note 60, the lit pick
+            return e.ons.filter { $0.cable == 2 && $0.note == 60 }.count   // rank 1 = note 60, the lit pick, on Emit Notes A
         }
         XCTAssertEqual(litOnCount(gate: 1.0), 1, "the lit note (rank 1) sustains as ONE note-on across all 3 riff-moving hits at 100%")
         XCTAssertGreaterThan(litOnCount(gate: 0.9), 1, "below 100% the lit note re-strikes on each hit")
@@ -3561,15 +3562,14 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         run(SnapshotBuilder.build(from: st), chord([60]), beats: 0.3, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
-        let ons = e.ons.filter { $0.cable == 1 }
+        let ons = e.ons.filter { $0.cable == 2 }   // a riff-off lane plays its lit notes on Emit Notes A
         XCTAssertEqual(ons.count, 1)
         XCTAssertEqual(ons[0].note, 60, "rank 1's +1 shift is stored but no longer sounds: the plain pool note (60), not 72")
     }
 
-    /// Acceptance #5 (literal): NOTES VEL offsets the lit notes' own velocity, never the riff note's — and a
-    /// riff/lit pitch collision sounds ONCE, at the riff's own velocity (the riff layer's `addPitch` always
-    /// runs first, so first-insertion-wins dedup gives this for free, not a special case).
-    func testEuclideousNotesVelOffsetsLitNotesOnlyAndCollisionSoundsOnceAtRiffVelocity() {
+    /// Acceptance #5 (literal): NOTES VEL offsets the lit notes' own velocity, never the riff note's — and (THE NINE PORTS) a riff/lit pitch collision sounds on BOTH ports,
+    /// each at its own layer's velocity: the riff's on Emit Riff A, the lit note's (offset) on Emit Notes A.
+    func testEuclideousNotesVelOffsetsLitNotesOnlyAndCollisionSoundsOnEachPortAtItsOwnVelocity() {
         func onsFor(ranks: [Int], litMask: UInt8, offset: Int) -> [(note: UInt8, vel: UInt8)] {
             var c = Machine(machineID: "gold", type: .euclid)
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 1, ranks: ranks)
@@ -3582,7 +3582,7 @@ final class RouterTests: XCTestCase {
             let e = RecordingEmitter()
             run(SnapshotBuilder.build(from: st), chord([60, 64]), beats: 0.3, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
-            return e.ons.filter { $0.cable == 1 }.map { (note: $0.note, vel: $0.vel) }.sorted { $0.note < $1.note }
+            return e.ons.filter { $0.cable == 1 || $0.cable == 2 }.map { (note: $0.note, vel: $0.vel) }.sorted { $0.note < $1.note }
         }
         // Riff resolves rank2 (pool[1]=64) at vel 100; rank1 (pool[0]=60) is ALSO lit with a +20 offset —
         // two genuinely distinct pitches, each carrying its OWN layer's velocity.
@@ -3590,12 +3590,11 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(distinct.count, 2, "the riff note (64) and the lit note (60) are distinct pitches, both sound")
         XCTAssertEqual(distinct[0].note, 60); XCTAssertEqual(Int(distinct[0].vel), 120, "lit note: velocityAbsolute(100) + notesVelOffset(20)")
         XCTAssertEqual(distinct[1].note, 64); XCTAssertEqual(Int(distinct[1].vel), 100, "riff note: velocityAbsolute alone, unaffected by notesVelOffset")
-        // Riff resolves rank1 (pool[0]=60); rank1 is ALSO lit with the SAME +20 offset — the identical pitch
-        // from both layers must collapse to exactly ONE note-on, at the RIFF's own velocity (100), not 120.
+        // Riff resolves rank1 (pool[0]=60); rank1 is ALSO lit with the SAME +20 offset — the identical pitch sounds on each port, at each layer's own velocity.
         let collision = onsFor(ranks: [1], litMask: 0b0000_0001, offset: 20)
-        XCTAssertEqual(collision.count, 1, "a riff/lit pitch collision sounds once, not twice")
-        XCTAssertEqual(collision[0].note, 60)
-        XCTAssertEqual(Int(collision[0].vel), 100, "the collision sounds at the RIFF's own velocity, since the riff layer's addPitch always runs first")
+        XCTAssertEqual(collision.count, 2, "a riff/lit pitch collision sounds on both ports")
+        XCTAssertEqual(collision.map { Int($0.note) }, [60, 60])
+        XCTAssertEqual(collision.map { Int($0.vel) }.sorted(), [100, 120], "the riff's copy at the riff's velocity, the lit note's copy at velocity + the NOTES VEL offset")
     }
 
     /// `notesOn: false` silences the whole notes layer while the riff is off — the lit bits themselves are
@@ -3634,7 +3633,7 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 0.3, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
-        let ons = e.ons.filter { $0.cable == 1 }
+        let ons = e.ons.filter { $0.cable == 2 }   // a riff-off lane plays its lit notes on Emit Notes A
         XCTAssertEqual(ons.count, 1)
         XCTAssertEqual(ons[0].note, 67, "TOP must resolve the plain highest pool note (67), ignoring every per-note shift slot entirely")
     }
@@ -4182,8 +4181,8 @@ final class RouterTests: XCTestCase {
     // tick) + the default ~0.9 gate keeps the hit sounding for ~3.6 beats, well past the switch at beat 2.
     func testFourfoldBusChannelChangeMidNoteClosesOnTheOriginalChannel() {
         let line = EuclidLine(target: 0, pulses: 1, steps: 1, rate: .r1_1)
-        let boxCh5 = fourfoldSingleLaneBox(busChannels: [5, 2, 3, 4], line: line)
-        let boxCh9 = fourfoldSingleLaneBox(busChannels: [9, 2, 3, 4], line: line)
+        let boxCh5 = fourfoldSingleLaneBox(busChannels: [5, 5, 3, 4, 5, 6, 7, 8], line: line)   // lane 1's two ports both on channel 5 (it plays on one of them)
+        let boxCh9 = fourfoldSingleLaneBox(busChannels: [9, 9, 3, 4, 5, 6, 7, 8], line: line)
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let windowBeats = Double(frames) * tempo / 60.0 / sr
@@ -4201,8 +4200,8 @@ final class RouterTests: XCTestCase {
         router.process(box: boxCh9, pool: chord([60]), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
                         timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
-        XCTAssertTrue(e.ons.filter { $0.cable == 1 }.contains { $0.chan == 4 }, "channel 5 (1-based) = wire nibble 4")
-        XCTAssertTrue(e.offs.filter { $0.cable == 1 }.contains { $0.chan == 4 }, "the note that opened on channel 5 must close on channel 5, not the live channel 9 at close time")
+        XCTAssertTrue(e.ons.filter { $0.cable == 1 || $0.cable == 2 }.contains { $0.chan == 4 }, "channel 5 (1-based) = wire nibble 4")
+        XCTAssertTrue(e.offs.filter { $0.cable == 1 || $0.cable == 2 }.contains { $0.chan == 4 }, "the note that opened on channel 5 must close on channel 5, not the live channel 9 at close time")
     }
     // §4.6/§10 test 4: every sounding Euclideous voice gets its own note-off on its own channel, CC 123 goes
     // out on all 4 outputs' CURRENT channels, and the lane keeps playing afterward.
@@ -4211,7 +4210,7 @@ final class RouterTests: XCTestCase {
         // (`n = max(2, min(16, nIn))`), so a literal `steps:1` silently becomes a 2-element [hit,rest]
         // alternation, not a genuine always-hit single step — 2-of-2 is the real "every tick is a hit."
         let line = EuclidLine(target: 0, pulses: 2, steps: 2, rate: .r1_1)
-        let box = fourfoldSingleLaneBox(busChannels: [5, 6, 7, 8], line: line)
+        let box = fourfoldSingleLaneBox(busChannels: [5, 6, 7, 8, 9, 10, 11, 12], line: line)   // one channel per port
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let windowBeats = Double(frames) * tempo / 60.0 / sr
@@ -4232,10 +4231,11 @@ final class RouterTests: XCTestCase {
         router.process(box: box, pool: chord([60]), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr,
                         timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
-        XCTAssertTrue(e.offs.filter { $0.cable == 1 }.contains { $0.note == 60 && $0.chan == 4 }, "the sounding voice's own note-off, on its own channel (5 → wire 4)")
-        let cc123Chans = Set(e.events.filter { $0.status == 0xB0 && $0.note == 123 && $0.cable >= 1 && $0.cable <= 4 }.map { $0.chan })
-        XCTAssertEqual(cc123Chans, Set([4, 5, 6, 7]), "CC123 on all 4 outputs' current channels (5,6,7,8 → wire 4,5,6,7)")
-        XCTAssertGreaterThanOrEqual(e.ons.filter { $0.cable == 1 }.count, 2, "the lane keeps playing after the flush")
+        XCTAssertTrue(e.offs.filter { $0.cable == 1 || $0.cable == 2 }.contains { $0.note == 60 && Int($0.chan) == 4 + Int($0.cable) - 1 }, "the sounding voice's own note-off, on its own port's channel (port i → channel 5+i → wire 4+i)")
+        let cc123 = e.events.filter { $0.status == 0xB0 && $0.note == 123 && $0.cable >= 1 && $0.cable <= 8 }
+        XCTAssertEqual(Set(cc123.map { $0.chan }), Set(4...11), "CC123 on all 8 ports' current channels (5…12 → wire 4…11)")
+        XCTAssertTrue(cc123.allSatisfy { Int($0.chan) == 4 + Int($0.cable) - 1 }, "each port's CC123 on that port's own channel")
+        XCTAssertGreaterThanOrEqual(e.ons.filter { $0.cable == 1 || $0.cable == 2 }.count, 2, "the lane keeps playing after the flush")
     }
 
     // MARK: - MIX TAB (ferry 2026-10-18) — the 20 factory presets must sound EXACTLY as before the per-pitch-gate engine change.
@@ -4807,7 +4807,7 @@ final class RouterTests: XCTestCase {
     /// Every sounding of `note` on cable 1: its note-on sample and the sample of the note-off that closes it.
     private func mixNotes(_ e: RecordingEmitter, _ note: UInt8) -> [(on: Int64, off: Int64?)] {
         var out: [(on: Int64, off: Int64?)] = []
-        for ev in e.events where ev.cable == 1 && ev.note == note {
+        for ev in e.events where (ev.cable == 1 || ev.cable == 2) && ev.note == note {   // lane 1's two ports together (THE NINE PORTS): the riff pitch and the lit notes are told apart by pitch here
             if ev.status == 0x90 { out.append((ev.sample, nil)) }
             else if ev.status == 0x80, let i = out.lastIndex(where: { $0.off == nil }) { out[i].off = ev.sample }
         }
@@ -4880,14 +4880,14 @@ final class RouterTests: XCTestCase {
         var m = EuclidLineMask(); m.enabled = true; m.pulses = 2; m.steps = 2; m.chance = 1; m.mode = .chord; m.chordA = 2; m.chordB = 4
         let withRiff = RecordingEmitter()
         mixRun(mixBox(mixLine(pulses: 1, gate: 0.5, notesGate: 0.25, litNotes: 0b0000_0001, mask: m)), beats: 5, into: withRiff, maskOn: true)
-        let extrasA = Set(withRiff.ons.filter { $0.cable == 1 }.map { $0.note }).subtracting([55, 48])
+        let extrasA = Set(withRiff.ons.filter { $0.cable == 1 || $0.cable == 2 }.map { $0.note }).subtracting([55, 48])
         XCTAssertFalse(extrasA.isEmpty, "the CHORD mask added notes")
         for n in extrasA { XCTAssertEqual(Double(mixLength(withRiff, n) ?? 0), 0.5 * 96_000, accuracy: 6, "extra \(n): the riff pitch it comes from sets its gate") }
         XCTAssertEqual(Double(mixLength(withRiff, 48) ?? 0), 0.25 * 96_000, accuracy: 6, "the lit note keeps the notes gate")
         assertNothingLeftSounding(withRiff)
         let litOnly = RecordingEmitter()
         mixRun(mixBox(mixLine(pulses: 1, gate: 0.5, notesGate: 0.25, litNotes: 0b0000_0001, riffOn: false, mask: m)), beats: 5, into: litOnly, maskOn: true)
-        let extrasB = Set(litOnly.ons.filter { $0.cable == 1 }.map { $0.note }).subtracting([48])
+        let extrasB = Set(litOnly.ons.filter { $0.cable == 1 || $0.cable == 2 }.map { $0.note }).subtracting([48])
         XCTAssertFalse(extrasB.isEmpty)
         for n in extrasB { XCTAssertEqual(Double(mixLength(litOnly, n) ?? 0), 0.25 * 96_000, accuracy: 6, "extra \(n): no riff pitch on this hit, so the notes layer's gate") }
         assertNothingLeftSounding(litOnly)
@@ -5249,20 +5249,20 @@ final class RouterTests: XCTestCase {
         EuclidLine(target: 0, pulses: 4, steps: 4, gate: 0.6, velocityAbsolute: 90, rate: .r1_4, useRiff: true, litNotes: 0b0000_0001, riffOn: true,
                    sourceMode: .midi, riffLength: 2, notesOn: true, notesGate: 1.0)
     }
-    /// §4.2 (the probe's permanent form): a held pitch the next hit strikes again closes at the hit's OWN sample, just BEFORE its new note-on in stream order —
-    /// never 10 ms after it (which used to leave OFF@+10ms then ON@hit on the wire, cutting the new note on a time-sorting host).
     func testARestruckHeldPitchClosesAtTheHitsOwnSampleBeforeItsNewNoteOn() {
-        let e = RecordingEmitter()
-        mixRun(mixBox(fxRestrikeLine(), ranks: [2, 1, 0, 0, 0, 0, 0, 0]), beats: 3.5, into: e)
+        // THE NINE PORTS: the riff and the notes layer no longer share a port, so the restrike is built on ONE port — a legato riff note held from hit 1 and struck AGAIN by hit 2
+        // (an FX GATE cell of 60 % takes hit 2 below legato, so it cannot carry on and re-strikes the same pitch).
+        var l = fxLine(gate: 1.0); l.notesOn = false
+        let e = fxRun(fxBox([l], ranks: [1, 1, 1, 1, 1, 1, 1, 1], fx: fxCells([(row: 1, col: 1, v: 60)])), beats: 3.5)
         let evs = e.events.filter { $0.cable == 1 && $0.note == 48 }
-        let secondOn = evs.firstIndex { $0.status == 0x90 && $0.sample > 12_000 }!
+        let secondOn = try! XCTUnwrap(evs.firstIndex { $0.status == 0x90 && $0.sample > 12_000 })
+        XCTAssertGreaterThan(secondOn, 0)
         XCTAssertEqual(evs[secondOn - 1].status, 0x80, "the old note's OFF comes first…")
         XCTAssertEqual(evs[secondOn - 1].sample, evs[secondOn].sample, "…at the SAME sample as the new ON")
         var sounding = 0
         for ev in evs { sounding += ev.status == 0x90 ? 1 : -1; XCTAssertLessThanOrEqual(sounding, 1, "a pitch never overlaps itself") }
         assertNothingLeftSounding(e)
     }
-
     // MARK: - FX TAB engine (ferry 2026-10-18, §15)
 
     /// One lane, 4-of-4 at 1/4 (one hit per beat, a gap of 24 000 samples at 120 BPM / 48 kHz), the riff walked FWD over 8 columns — so beat k reads column k mod 8.
@@ -7775,12 +7775,12 @@ final class RouterTests: XCTestCase {
     func testFourfoldPassExportsOnlyTheSelectedOutputsAndConcatenatesAPassRange() {
         let l1 = fxLine(gate: 0.5, emitter: 0b0001), l2 = fxLine(gate: 0.5, emitter: 0b0010)
         let r = fourfoldReel(fxBoxScene([l1, l2], fx: EuclideousFX(), stepRate: .r1_8), beats: 13)
-        let a = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [1])
-        let b = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [2])
+        let a = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [1])   // lane 1's riff = Emit Riff A
+        let b = r.deck.exportRangeEvents(fromPass: 0, toPass: 1, cables: [3])   // lane 2's riff = Emit Riff B
         XCTAssertFalse(a.events.isEmpty); XCTAssertFalse(b.events.isEmpty)
         XCTAssertEqual(a.totalBeats, 8, accuracy: 1e-9, "two passes of four beats, concatenated")
         XCTAssertTrue(a.events.allSatisfy { $0.b0 & 0x0F == 0 && $0.b1 >= 48 && $0.b1 <= 60 }, "only lane 1's notes (the pool's range) in A's file")
-        XCTAssertEqual(a.events.count, b.events.count, "two identical lanes on two outputs ⇒ two files of the same length")
+        XCTAssertEqual(a.events.count, b.events.count, "two identical lanes on two ports ⇒ two files of the same length")
         let beats = a.events.map { $0.beat }
         XCTAssertEqual(beats, beats.sorted(), "events come out in time order across the pass boundary")
         XCTAssertGreaterThan(beats.last ?? 0, 4, "the second pass sits after the first")
@@ -7802,7 +7802,4 @@ final class RouterTests: XCTestCase {
         let kept = r.deck.exportRangeEvents(fromPass: 1, toPass: 1, cables: [0, 1, 2, 3, 4]).events.count
         XCTAssertEqual(kept, emitted, "the filed pass holds every event the render emitted in it — no tail lost")
     }
-
-
 }
-
