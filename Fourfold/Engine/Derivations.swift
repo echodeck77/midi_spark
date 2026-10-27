@@ -2677,6 +2677,22 @@ enum FourfoldPorts {
     }
 }
 
+/// The settings sheet's PORTS tab: one row per lane (its letter), two ports per row — RIFF then NOTES — each with its own channel stepper.
+struct EuclideousPortsTabPort: Equatable { var bus: Int; var label: String }
+struct EuclideousPortsTabRow: Equatable { var lane: Int; var letter: String; var ports: [EuclideousPortsTabPort] }
+func euclideousPortsTabRows() -> [EuclideousPortsTabRow] {
+    (0..<4).map { lane in
+        EuclideousPortsTabRow(lane: lane, letter: FourfoldPorts.laneLetters[lane], ports: [
+            EuclideousPortsTabPort(bus: FourfoldPorts.bus(lane: lane, part: .riff), label: "RIFF"),
+            EuclideousPortsTabPort(bus: FourfoldPorts.bus(lane: lane, part: .notes), label: "NOTES")])
+    }
+}
+/// VoiceOver for one port's channel stepper: the host-visible port name and its channel — "Emit Riff A, channel 3".
+func euclideousPortChannelAccessibilityLabel(bus: Int, channel: Int) -> String {
+    let cable = bus + 1
+    return "\(cable < FourfoldPorts.names.count ? FourfoldPorts.names[cable] : "Port \(cable)"), channel \(channel)"
+}
+
 /// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable
 /// without a live `EuclideousPage` render. Deliberately mirrors the REAL render path's own hit-test exactly
 /// (`euclidPatternInto`+`euclidTiltPattern`+`euclidReadIndex`, the SAME pair/order `Router.runEuclidLine`
@@ -3903,10 +3919,8 @@ struct EuclideousTagDrawing: Equatable {
 
 // MARK: - FOURFOLD HEADER (ferry "Fourfold header", approved by Paul 2026-10-15)
 //
-// Pure, Foundation-only support for the regrouped header: the key label, the output rings' state and the lane-side
-// pulse/trace cues, the A/B/C layout ladder (ONE formula shared by the header and the page body below it), and the
-// ring flare envelope. Nothing here knows about SwiftUI; `EuclideousPage` and `OutputRingPainter` only draw what these
-// return.
+// Pure, Foundation-only support for the regrouped header: the key label and the A/B/C layout ladder (ONE formula shared by the
+// header and the page body below it). Nothing here knows about SwiftUI; `EuclideousPage` only draws what these return.
 
 /// The key as the RECEIVER chip prints it (`"<root> <ScaleType.label>"`, ASCII sharps): e.g. "C MINOR", "A MIXO",
 /// "D DORIAN". ONE function, used by the header's key pill AND `Receiver.scaleLabel`, so the two can never disagree.
@@ -4052,10 +4066,18 @@ struct EuclideousRingPress: Equatable {
 }
 
 // MARK: - FOURFOLD REEL LINK (2026-10-23)
-/// The pass browser's instruction line. Fourfold's A–D are its MAIN OUT outputs, not 8×8 emitters, so the wording follows the page it was opened from.
+/// The pass browser's instruction line. Fourfold's lanes each have two ports (riff and notes), not 8×8 emitters, so the wording follows the page it was opened from.
 func reelInstructionText(fourfold: Bool) -> String {
-    let who = fourfold ? "output" : "emitter"
-    return "Tap a pass to hear it. PAGE steps through the whole history; EXTEND grows the selection across passes (the roll and SAVE cover the range). Tap a lane to export just that \(who) (none = the master mix)."
+    let head = "Tap a pass to hear it. PAGE steps through the whole history; EXTEND grows the selection across passes (the roll and SAVE cover the range). "
+    return head + (fourfold ? "Tap a lane to export both its ports, or its RIFF / NOTES tag for just that port (none = the master mix)."
+                            : "Tap a lane to export just that emitter (none = the master mix).")
+}
+/// SAVE's label for the port selection (bit index 0…7): MASTER for none, the names for one or two, "n PORTS" beyond that.
+func reelExportPortsLabel(_ ports: Set<Int>) -> String {
+    let valid = ports.filter { $0 >= 0 && $0 < FourfoldPorts.busCount }.sorted()
+    if valid.isEmpty { return "MASTER" }
+    if valid.count > 2 { return "\(valid.count) PORTS" }
+    return valid.map { FourfoldPorts.shortName(cable: $0 + 1) }.joined(separator: "·")
 }
 /// "1 PASS = 4 BEATS". A pass is eight steps of the global step rate (the 8×8 clock — Fourfold's lanes have their own rates, so a pass is a slice of time, not a lap of any lane).
 func reelPassLengthText(beats: Double) -> String {
@@ -4098,7 +4120,7 @@ func reelUniqueFileName(_ name: String, exists: (String) -> Bool) -> String {
     return "\(base) \(n).mid"
 }
 struct ReelExportAvailability: Equatable { var ok: Bool; var reason: String? }
-/// Whether SAVE can do anything, and if not WHY — in one short line. `outputCounts` = notes per output A–D in the selected range; `lanes` = the outputs ticked for export (empty = the master mix).
+/// Whether SAVE can do anything, and if not WHY — in one short line. `outputCounts` = notes per port (Riff A, Notes A … Notes D) in the selected range; `lanes` = the ports ticked for export, as bit indexes 0…7 (empty = the master mix).
 func reelExportAvailability(anyPass: Bool, selected: Bool, outputCounts: [Int], lanes: Set<Int>) -> ReelExportAvailability {
     guard anyPass else { return ReelExportAvailability(ok: false, reason: "Nothing recorded yet.") }
     guard selected else { return ReelExportAvailability(ok: false, reason: "Tap a pass to choose what to save.") }
@@ -4108,7 +4130,7 @@ func reelExportAvailability(anyPass: Bool, selected: Bool, outputCounts: [Int], 
     }
     let withNotes = lanes.filter { count($0) > 0 }
     if !withNotes.isEmpty { return ReelExportAvailability(ok: true, reason: nil) }
-    let names = lanes.sorted().map { ["A", "B", "C", "D"][min(3, max(0, $0))] }
+    let names = lanes.sorted().map { FourfoldPorts.shortName(cable: min(FourfoldPorts.busCount - 1, max(0, $0)) + 1).capitalized }
     return ReelExportAvailability(ok: false, reason: "Nothing on \(names.joined(separator: ", ")) in these passes.")
 }
 /// "Passes 1-7 have dropped off the tape." — the ring keeps only the newest 64; the oldest one still held being number n (1-based) means the n-1 before it are gone. nil while nothing has been dropped.
@@ -4126,19 +4148,9 @@ enum EuclideousHeaderMetrics {
     static let centreLineY: CGFloat = 31
     static var topMargin: CGFloat { centreLineY - rowH / 2 }
     static let target: CGFloat = 44, compactTarget: CGFloat = 36
-    /// The output rings' CANVAS stays at its NATURAL size (fed to `EuclideousOutputRing`'s own `width`/`height`) —
-    /// shrinking the view's own frame instead of scaling the finished render clips the hardcoded radius-17 circle
-    /// before the scale ever applies (the exact hazard `EuclideousSettingsSheet.mainOutRow` already worked around
-    /// with `.scaleEffect` + a reclaiming `.frame`). `ringPitch`/`compactRingPitch` are the POST-scale LAYOUT
-    /// footprint every other header formula reads; the call site applies `.scaleEffect(outputRingScale)` then
-    /// reclaims exactly this width/height.
-    static let outputRingScale: CGFloat = 0.75   // Paul, 2026-10-20: output emitter toggles to 75% of their original size
-    static let ringNaturalPitch: CGFloat = 44, compactRingNaturalPitch: CGFloat = 40
-    static let ringPitch: CGFloat = ringNaturalPitch * outputRingScale, compactRingPitch: CGFloat = compactRingNaturalPitch * outputRingScale
     static let markSize: CGFloat = 13
     static let monoAdvance: CGFloat = 0.6          // em — the page's monospaced advance estimate
     static let wordmarkChars = 8, wordmarkSize: CGFloat = 11, wordmarkTracking: CGFloat = 0.16
-    static let captionChars = 3, captionSize: CGFloat = 9, captionTracking: CGFloat = 0.14
     static let segmentWidths: [CGFloat] = [66, 70, 40]
     static let segmentInset: CGFloat = 4
     static var segmentedWidth: CGFloat { segmentWidths.reduce(0, +) + segmentInset * 2 }   // 184
@@ -4149,30 +4161,22 @@ enum EuclideousHeaderMetrics {
     static var holdLatchWidth: CGFloat { holdLatchChipWidths.reduce(0, +) + sp4 }   // 2 chips + the gap between them
     /// The two text runs whose widths the layout estimates — the views use these SAME numbers for their frames.
     static var wordmarkWidth: CGFloat { CGFloat(wordmarkChars) * wordmarkSize * (monoAdvance + wordmarkTracking) }
-    static var captionWidth: CGFloat { CGFloat(captionChars) * captionSize * (monoAdvance + captionTracking) }
 }
 struct EuclideousHeaderGroupWidths: Equatable {
-    var brand: CGFloat, outputs: CGFloat, notes: CGFloat, utilities: CGFloat
+    var brand: CGFloat, notes: CGFloat, utilities: CGFloat
     var gap: CGFloat            // the space between row-1 groups: sp16 (A, B) or sp8 (C)
-    /// How far into the OUTPUTS group the first ring's target starts (the "OUT" caption + sp4; 0 when the caption is hidden).
-    /// The RINGS — not the whole group — are what the spec centres on the lane gutter (§2.3), so the layout needs this.
-    var outputsLead: CGFloat
-    /// The four rings' own span (the OUTPUTS group minus its lead).
-    var ringsSpan: CGFloat { outputs - outputsLead }
 }
 /// Each group's width, once, from the same constants the views draw with.
 func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
     typealias M = EuclideousHeaderMetrics
     let t = compact ? M.compactTarget : M.target
     let wordmarkW = M.wordmarkWidth
-    let captionW = M.captionWidth
-    // RANDOM MODE ferry §2.2: the dice sits sp8 after redo — one more target + one more gap than before. LANE LOCK ferry §2.2: the padlock sits sp8 after the dice — once more (+52 at 44, +44 at the compact 36).
+    // RANDOM MODE ferry §2.2: the dice sits sp8 after redo — one more target + one more gap than before. LANE LOCK ferry §2.2: the padlock sits sp8 after the dice — once more (+52 at 44, +44 at the compact 36)
     let brand = M.markSize + M.sp8 + (compact ? 0 : wordmarkW + M.sp16) + 4 * t + 2 * M.sp8
-    let lead = compact ? 0 : captionW + M.sp4
-    let outputs = lead + 4 * (compact ? M.compactRingPitch : M.ringPitch)
     // UTILITIES is 4 icons (REEL, 2026-10-23 · presets · SWING, 2026-10-17 · settings), one `t`-wide touch target each.
-    return EuclideousHeaderGroupWidths(brand: brand, outputs: outputs, notes: M.segmentedWidth + M.sp8 + M.keyPillWidth + M.sp8 + M.holdLatchWidth,
-                                       utilities: 4 * t, gap: compact ? M.sp8 : M.sp16, outputsLead: lead)
+    // THE NINE PORTS (2026-10-26): the OUTPUTS group (the four output rings) is gone — a note's port is fixed by its lane and layer.
+    return EuclideousHeaderGroupWidths(brand: brand, notes: M.segmentedWidth + M.sp8 + M.keyPillWidth + M.sp8 + M.holdLatchWidth,
+                                       utilities: 4 * t, gap: compact ? M.sp8 : M.sp16)
 }
 
 struct EuclideousHeaderGroupFrame: Equatable { var x: CGFloat; var width: CGFloat; var row: Int }
@@ -4180,7 +4184,7 @@ struct EuclideousHeaderLayout: Equatable {
     enum Kind: Equatable { case a, b, c }
     var kind: Kind
     var widths: EuclideousHeaderGroupWidths
-    var brand: EuclideousHeaderGroupFrame, outputs: EuclideousHeaderGroupFrame
+    var brand: EuclideousHeaderGroupFrame
     var notes: EuclideousHeaderGroupFrame, utilities: EuclideousHeaderGroupFrame
     var rowCount: Int { kind == .a ? 1 : 2 }
     var compact: Bool { kind == .c }
@@ -4188,42 +4192,36 @@ struct EuclideousHeaderLayout: Equatable {
 }
 private func headerClamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { lo > hi ? lo : min(max(v, lo), hi) }
 
-/// The header's layout A / B / C for a container width — the ladder's ONE decision (A: landscape and wide enough for all four groups on one
-/// row; B: two rows; C: two compact rows when even B won't fit). It depends only on the width and the orientation, never on where the gutter
-/// or the riff panel sit, so the page layout can take the kind as an input and the header can then take its positions from the page layout.
+/// The header's layout A / B / C for a container width — the ladder's ONE decision (A: landscape and wide enough for all three groups on one
+/// row; B: two rows; C: two compact rows when even B won't fit). It depends only on the width and the orientation, never on where the
+/// riff panel sits, so the page layout can take the kind as an input and the header can then take its positions from the page layout.
 func euclideousHeaderKind(containerW: CGFloat, isLandscape: Bool) -> EuclideousHeaderLayout.Kind {
     let full = euclideousHeaderGroupWidths(compact: false)
-    let aNeeds = full.brand + full.outputs + full.notes + full.utilities + 3 * full.gap
-    let bNeeds = full.brand + full.outputs + full.utilities + 2 * full.gap
+    let aNeeds = full.brand + full.notes + full.utilities + 2 * full.gap
+    let bNeeds = full.brand + full.utilities + full.gap
     if isLandscape && containerW >= aNeeds { return .a }
     return containerW < bNeeds ? .c : .b
 }
 
-/// The first layout that fits `containerW` (page width − sp16 × 2). `riffLeadingX` / `laneCentreX` are in container
-/// coordinates (the page layout's `riffLeadingX` / `laneCentreX`, which are the riff panel's x and the lane gutter's x less the page margin). Portrait
-/// never uses A. Positions are solved with ONE clamp per group, so no combination of slides can leave two groups
-/// closer than their stated gap while the layout still "fits". The RINGS (not the OUTPUTS group with its caption) are what
-/// centre on `laneCentreX` (spec §2.3), so the group's x is `laneCentreX − outputsLead − ringsSpan/2`, then clamped.
-func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX: CGFloat, laneCentreX: CGFloat) -> EuclideousHeaderLayout {
-    typealias M = EuclideousHeaderMetrics
+/// The first layout that fits `containerW` (page width − sp16 × 2). `riffLeadingX` is in container coordinates (the page layout's
+/// `riffLeadingX`, the riff panel's x less the page margin). Portrait never uses A. Positions are solved with ONE clamp, so no
+/// combination of slides can leave two groups closer than their stated gap while the layout still "fits".
+func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX: CGFloat) -> EuclideousHeaderLayout {
     let full = euclideousHeaderGroupWidths(compact: false)
     let kind = euclideousHeaderKind(containerW: containerW, isLandscape: isLandscape)
     if kind == .a {
         let uX = containerW - full.utilities
-        // NOTES: on the riff panel's leading edge, slid left until it clears UTILITIES by sp16 — but never so far left
-        // that the rings (and BRAND) lose their own room.
-        let notesX = headerClamp(riffLeadingX, full.brand + full.outputs + 2 * full.gap, uX - full.gap - full.notes)
-        let ringsX = headerClamp(laneCentreX - full.outputsLead - full.ringsSpan / 2, full.brand + full.gap, notesX - full.gap - full.outputs)
+        // NOTES: on the riff panel's leading edge, slid left until it clears UTILITIES by sp16 — but never so far left that BRAND loses its room.
+        let notesX = headerClamp(riffLeadingX, full.brand + full.gap, uX - full.gap - full.notes)
         return EuclideousHeaderLayout(kind: .a, widths: full,
-                                      brand: .init(x: 0, width: full.brand, row: 0), outputs: .init(x: ringsX, width: full.outputs, row: 0),
+                                      brand: .init(x: 0, width: full.brand, row: 0),
                                       notes: .init(x: notesX, width: full.notes, row: 0), utilities: .init(x: uX, width: full.utilities, row: 0))
     }
     let compact = kind == .c
     let w = compact ? euclideousHeaderGroupWidths(compact: true) : full
     let uX = containerW - w.utilities
-    let ringsX = headerClamp(laneCentreX - w.outputsLead - w.ringsSpan / 2, w.brand + w.gap, uX - w.gap - w.outputs)
     return EuclideousHeaderLayout(kind: compact ? .c : .b, widths: w,
-                                  brand: .init(x: 0, width: w.brand, row: 0), outputs: .init(x: ringsX, width: w.outputs, row: 0),
+                                  brand: .init(x: 0, width: w.brand, row: 0),
                                   notes: .init(x: 0, width: w.notes, row: 1), utilities: .init(x: uX, width: w.utilities, row: 0))
 }
 

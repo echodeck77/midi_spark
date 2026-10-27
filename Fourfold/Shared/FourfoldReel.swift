@@ -1,7 +1,7 @@
 //  FourfoldReel.swift
 //  FOURFOLD Step 2 (2026-10-23, Docs/standalone-plan.md): the REEL pass browser as a standalone view. Converted from BuildReel.swift (an `extension DiagView` that needed 19 reel @State vars and the
 //  8x8 host's 4 Hz poll) so Fourfold has no dependency on the 8x8 host: it owns its state, polls the AU itself while it is open, and shows the share sheet itself.
-//  Fourfold differences from the 8x8 browser: the sidebar says "output" (A–D are MAIN OUT) and shows `1 PASS = n BEATS` instead of RESTORE SETUP (that re-deploys an 8×8 play-grid scene; Fourfold has none).
+//  Fourfold differences from the 8x8 browser: the sidebar says "port" (Riff A … Notes D, `FourfoldPorts`) and shows `1 PASS = n BEATS` instead of RESTORE SETUP (that re-deploys an 8×8 play-grid scene; Fourfold has none).
 //  Everything the browser reads comes from the AU's reel API (`reelPassNumbers`, `reelSelectedRoll`, `reelExportRangeFiles`…), shared with the 8x8 browser, so pass filing / replay / export behave identically.
 
 import SwiftUI
@@ -34,7 +34,7 @@ struct FourfoldReelBrowser: View {
     @State var reelShareURLs: [URL] = []                 // EXPORT: the written SMF files to share
     @State var reelShowShare = false
     @State var reelPassNumbers: [Int] = []               // the 64 ring slots, oldest→newest
-    @State var reelRoll: [ReelDeck.Note] = []            // the selected pass's notes (A–D piano-roll lanes)
+    @State var reelRoll: [ReelDeck.Note] = []            // the selected pass's notes (cables 1…8: a lane's riff and its notes share a roll row)
     @State var reelSelPassNo: Int = -1                   // the currently selected/playing pass (−1 = auto latest)
     @State var reelCycle: Double = 4                     // the pass length in beats (piano-roll x-axis)
     @State var reelLastBeat: Double = 0                  // last polled beat + its wall-clock stamp → smooth roll playhead
@@ -45,7 +45,7 @@ struct FourfoldReelBrowser: View {
     @State var reelSelLoPass = -1                        // MULTI-PASS EXPORT: a pass RANGE [lo,hi] (◀/▶ extend)
     @State var reelSelHiPass = -1
     @State var reelRangeCyc: Double = 0                  // the concatenated range length in beats (0 ⇒ single pass, use reelCycle)
-    @State var reelExportLanes: Set<Int> = []            // selected output lanes A–D (0…3); empty ⇒ export the MASTER (A–D sum)
+    @State var reelExportPorts: Set<Int> = []            // selected ports, bit index 0…7 (Riff A, Notes A … Notes D); empty ⇒ export the MASTER (the eight ports summed)
 
     private let poll = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
@@ -53,6 +53,9 @@ struct FourfoldReelBrowser: View {
                                     Color(red: 0.36, green: 0.92, blue: 0.52),   // B green
                                     Color(red: 1.0,  green: 0.72, blue: 0.2),    // C amber
                                     Color(red: 0.85, green: 0.5,  blue: 0.95)]   // D violet
+    /// The same hues lightened, for a lane's NOTES layer — it shares the lane's roll row with the riff.
+    static let notesHues: [Color] = [Color(red: 0.62, green: 0.93, blue: 0.97), Color(red: 0.68, green: 0.97, blue: 0.78),
+                                     Color(red: 1.0, green: 0.86, blue: 0.58), Color(red: 0.93, green: 0.74, blue: 0.98)]
 
     /// The 4 Hz refresh the 8x8 host's poll did while its pop-up was open: the ring, the selected roll, the pass length, the beat stamp.
     private func refresh() {
@@ -108,7 +111,7 @@ struct FourfoldReelBrowser: View {
             refresh()
             reelPage = Int.max                                                    // OPEN ON THE NEWEST PAGE (clamped to the last page) — Paul 2026-08-26
             reelSelLoPass = -1; reelSelHiPass = -1; reelRangeCyc = 0              // fresh selection (the anchor = the auto-latest pass)
-            reelExportLanes = []                                                  // start exporting the master mix
+            reelExportPorts = []                                                  // start exporting the master mix
         }
         .onDisappear { au?.reelStopReplay(); au?.reelSetBrowsing(false) }         // close → stop any replay + resume normal play, record again next pass
         .onReceive(poll) { _ in refresh() }
@@ -153,7 +156,7 @@ struct FourfoldReelBrowser: View {
             let visible = reelVisiblePasses()
             let (rlo, rhi) = reelExportRange()
             let selLabel = rlo < 0 ? "—" : (rlo == rhi ? "PASS \(rlo + 1)" : "PASSES \(rlo + 1)–\(rhi + 1)")
-            let laneLabel = reelExportLanes.isEmpty ? "MASTER" : reelExportLanes.sorted().map { ["A", "B", "C", "D"][$0] }.joined(separator: "·")
+            let laneLabel = reelExportPortsLabel(reelExportPorts)
             // PAGINATION — page the whole history (32 passes at a time), independent of the selection (Paul 2026-08-26).
             HStack(spacing: 8) {
                 reelStepBtn(back: true, enabled: page > 0) { reelPage = max(0, page - 1) }
@@ -183,12 +186,12 @@ struct FourfoldReelBrowser: View {
             }
             Spacer()
             // REEL PHASE 0 (REEL-6): SAVE used to do nothing, silently, with no selection or an empty output. It now says why it cannot.
-            let avail = reelExportAvailability(anyPass: anyPass, selected: rlo >= 0, outputCounts: reelOutputCounts(), lanes: reelExportLanes)
+            let avail = reelExportAvailability(anyPass: anyPass, selected: rlo >= 0, outputCounts: reelOutputCounts(), lanes: reelExportPorts)
             if let why = avail.reason {
                 Text(why).font(.system(size: 11, weight: .medium)).foregroundColor(.white.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Button { reelExport() } label: {                             // SAVE the pass RANGE × the emitter selection → share sheet
+            Button { reelExport() } label: {                             // SAVE the pass RANGE × the port selection → share sheet
                 Text(rlo >= 0 ? "SAVE \(selLabel) · \(laneLabel)" : "SAVE").font(.system(size: 10.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
                     .foregroundColor(avail.ok ? .black : ffDim).frame(maxWidth: .infinity).padding(.vertical, 10)
                     .background(RoundedRectangle(cornerRadius: 6).fill(avail.ok ? ffCyan.opacity(0.9) : ffCell))
@@ -222,7 +225,7 @@ struct FourfoldReelBrowser: View {
                 .background(RoundedRectangle(cornerRadius: 6).fill(ffCell)).overlay(RoundedRectangle(cornerRadius: 6).stroke(ffEdge, lineWidth: 1))
         }.disabled(!enabled)
     }
-    // The 4 piano-roll lanes (bottom 4 rows of the 8×8) + a shared PLAYHEAD that sweeps while a pass replays. Each lane is
+    // The 4 piano-roll lanes (bottom 4 rows of the 8×8; each holds that lane's riff AND its notes) + a shared PLAYHEAD that sweeps while a pass replays. Each lane is
     // ONE grid-cell tall and the full grid width, laid out with the SAME gap as the pass rows so the whole page reads as a
     // uniform 8×8 (Paul 2026-08-26). Lanes do not collapse — all four always render.
     private func reelRollSection(width: CGFloat, laneH: CGFloat, gap: CGFloat) -> some View {
@@ -269,20 +272,39 @@ struct FourfoldReelBrowser: View {
                 if playing { au?.reelStopReplay() } else { reelSelectPass(pass) }
             }
     }
-    // One emitter piano-roll lane. Draws the selected pass's notes for cable = lane+1 over a reference grid: 8 CELL
-    // dividers (vertical), OCTAVE dividers (horizontal at each C) with the C labelled on the left + right axis. Pitch is
-    // framed to whole octaves and shared across all lanes; x = pass length; opacity = velocity; the playhead lights notes.
+    // One lane's piano-roll row. Draws the selected pass's notes for BOTH of the lane's ports (cable 2·lane+1 = RIFF, 2·lane+2 = NOTES) over a reference grid: 8 CELL
+    // dividers (vertical), OCTAVE dividers (horizontal at each C) with the C labelled on the left + right axis. Pitch is framed to whole octaves and shared across
+    // all lanes; x = pass length; opacity = velocity; the playhead lights notes. The riff is the lane's colour, the notes a lighter shade of it.
+    // Export: the two tags at the left toggle ONE port each; a tap anywhere else on the row toggles both.
     private func reelLane(_ lane: Int, width: CGFloat, height: CGFloat, phase: Double?) -> some View {
-        let hue = Self.laneHues[lane]
-        let notes = reelRoll.filter { Int($0.cable) == lane + 1 }
+        let hue = Self.laneHues[lane], notesHue = Self.notesHues[lane]
+        let riffBus = FourfoldPorts.bus(lane: lane, part: .riff), notesBus = FourfoldPorts.bus(lane: lane, part: .notes)
+        let riffNotes = reelRoll.filter { Int($0.cable) == riffBus + 1 }
+        let notesNotes = reelRoll.filter { Int($0.cable) == notesBus + 1 }
         let all = reelRoll.map { Int($0.note) }
         let rawLo = all.min() ?? 48, rawHi = all.max() ?? 72
         let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)   // frame to whole octaves → a C at top + bottom
         let span = CGFloat(hi - lo)
         let cyc = max(0.0001, reelEffCycle)                                      // the range total (multi-pass) or the single pass length
-        let selected = reelExportLanes.contains(lane)                           // this emitter is in the export selection (Paul 2026-08-26)
+        let riffSelected = reelExportPorts.contains(riffBus), notesSelected = reelExportPorts.contains(notesBus)   // this port is in the export selection
         let head = phase.map { $0 * cyc }                                        // the playhead's beat, or nil
         func yOf(_ note: Int) -> CGFloat { (1 - CGFloat(note - lo) / span) * (height - 6) + 3 }
+        func toggle(_ ports: [Int]) {
+            if ports.allSatisfy({ reelExportPorts.contains($0) }) { ports.forEach { reelExportPorts.remove($0) } } else { ports.forEach { reelExportPorts.insert($0) } }
+        }
+        func tag(_ name: String, _ count: Int, selected: Bool, tint: Color) -> some View {
+            HStack(spacing: 3) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 8, weight: .bold)).foregroundColor(selected ? tint : tint.opacity(0.4))
+                Text(name).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(tint.opacity(selected ? 1 : 0.8))
+                if reelSelPassNo >= 0 || reelSelLoPass >= 0 {   // how many notes this port holds in the selection (a port with none cannot be saved)
+                    Text("\(count)").font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundColor(ffDim)
+                }
+            }
+            .padding(.horizontal, 3)
+            .background(RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.35)))
+            .overlay(selected ? RoundedRectangle(cornerRadius: 3).stroke(tint, lineWidth: 1) : nil)
+            .contentShape(Rectangle())
+        }
         return ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.04)).frame(width: width, height: height)
             Canvas { ctx, sz in
@@ -300,38 +322,37 @@ struct FourfoldReelBrowser: View {
                                with: .color(.white.opacity(0.10)), lineWidth: 0.5)
                     n += 12
                 }
-                // NOTES — each painted the MACHINE of the cell that played it (upcoming + already-played alike);
-                // falls back to the lane hue when the pass predates the machine tag. (Paul 2026-08-19)
-                for note in notes {
-                    let nc = note.machine != 0 ? Color(hex: note.machine) : hue
-                    let x = CGFloat(note.start / cyc) * sz.width
-                    let w = max(2, CGFloat((note.end - note.start) / cyc) * sz.width)
-                    let y = yOf(Int(note.note))
-                    let active = head.map { $0 >= note.start && $0 < note.end } ?? false
-                    let base = 0.45 + 0.5 * Double(note.vel) / 127
-                    let rect = CGRect(x: x, y: y - (active ? 2.5 : 1.5), width: min(w, sz.width - x), height: active ? 5 : 3)
-                    if active { ctx.fill(Path(roundedRect: rect.insetBy(dx: -1.5, dy: -1.5), cornerRadius: 2), with: .color(nc.opacity(0.35))) }   // glow under
-                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1.4), with: .color(nc.opacity(active ? 1.0 : base)))
+                // NOTES — each painted in its layer's colour (Fourfold has one machine, so the machine hue told nothing): the riff in the lane colour, the notes layer lighter.
+                for (layer, tint) in [(riffNotes, hue), (notesNotes, notesHue)] {
+                    for note in layer {
+                        let x = CGFloat(note.start / cyc) * sz.width
+                        let w = max(2, CGFloat((note.end - note.start) / cyc) * sz.width)
+                        let y = yOf(Int(note.note))
+                        let active = head.map { $0 >= note.start && $0 < note.end } ?? false
+                        let base = 0.45 + 0.5 * Double(note.vel) / 127
+                        let rect = CGRect(x: x, y: y - (active ? 2.5 : 1.5), width: min(w, sz.width - x), height: active ? 5 : 3)
+                        if active { ctx.fill(Path(roundedRect: rect.insetBy(dx: -1.5, dy: -1.5), cornerRadius: 2), with: .color(tint.opacity(0.35))) }   // glow under
+                        ctx.fill(Path(roundedRect: rect, cornerRadius: 1.4), with: .color(tint.opacity(active ? 1.0 : base)))
+                    }
                 }
             }.frame(width: width, height: height)
-            HStack(spacing: 3) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 8, weight: .bold)).foregroundColor(selected ? hue : hue.opacity(0.4))
-                Text(["A", "B", "C", "D"][lane]).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(hue.opacity(selected ? 1 : 0.8))
-                if reelSelPassNo >= 0 || reelSelLoPass >= 0 {   // how many notes this output holds in the selection (an output with none cannot be saved)
-                    Text("\(notes.count)").font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundColor(ffDim)
-                }
+            VStack(alignment: .leading, spacing: 2) {
+                tag("RIFF \(FourfoldPorts.laneLetters[lane])", riffNotes.count, selected: riffSelected, tint: hue)
+                    .onTapGesture { toggle([riffBus]) }
+                tag("NOTES \(FourfoldPorts.laneLetters[lane])", notesNotes.count, selected: notesSelected, tint: notesHue)
+                    .onTapGesture { toggle([notesBus]) }
             }.padding(.leading, 4)
         }
-        .overlay(selected ? RoundedRectangle(cornerRadius: 3).stroke(hue, lineWidth: 1.5) : nil)   // SELECTED emitter — highlighted for export (Paul 2026-08-26)
+        .overlay(riffSelected && notesSelected ? RoundedRectangle(cornerRadius: 3).stroke(hue, lineWidth: 1.5) : nil)   // BOTH ports selected for export
         .contentShape(Rectangle())
-        .onTapGesture { if reelExportLanes.contains(lane) { reelExportLanes.remove(lane) } else { reelExportLanes.insert(lane) } }   // tap a lane → toggle it in the export selection (none ⇒ master)
+        .onTapGesture { toggle([riffBus, notesBus]) }   // tap the lane → toggle both its ports in the export selection (none ⇒ master)
     }
-    // EXPORT the recorded pass to SMF files (the A–D sum + per-emitter stems), then present a share sheet. (Paul 2026-08-18)
-    // EXPORT the selected pass RANGE × the selected emitter LANES (Paul 2026-08-26). No lane selected ⇒ the MASTER (A–D sum).
+    // EXPORT the recorded pass to SMF files (the sum of the eight ports + per-port stems), then present a share sheet. (Paul 2026-08-18)
+    // EXPORT the selected pass RANGE × the selected PORTS (Paul 2026-08-26). No port selected ⇒ the MASTER (the eight ports summed).
     private func reelExport() {
         let (lo, hi) = reelExportRange()
-        guard lo >= 0, hi >= 0, reelExportAvailability(anyPass: reelPassNumbers.contains { $0 >= 0 }, selected: true, outputCounts: reelOutputCounts(), lanes: reelExportLanes).ok else { return }
-        var mask: UInt8 = 0; for l in reelExportLanes where l >= 0 && l < 4 { mask |= (1 << UInt8(l)) }
+        guard lo >= 0, hi >= 0, reelExportAvailability(anyPass: reelPassNumbers.contains { $0 >= 0 }, selected: true, outputCounts: reelOutputCounts(), lanes: reelExportPorts).ok else { return }
+        var mask: UInt8 = 0; for l in reelExportPorts where l >= 0 && l < FourfoldPorts.busCount { mask |= (1 << UInt8(l)) }
         let files = au?.reelExportRangeFiles(fromPass: lo, toPass: hi, emitterMask: mask) ?? []
         guard !files.isEmpty else { return }
         // In the standalone app the exports are kept in Documents/Reel exports (visible in the Files app, like the presets); in the AU extension they stay temporary — its container is invisible.
@@ -353,10 +374,10 @@ struct FourfoldReelBrowser: View {
         reelShareURLs = urls
         reelShowShare = true
     }
-    /// Notes per output A–D in what is selected now (the roll holds the selected pass, or the whole range).
+    /// Notes per port (Riff A, Notes A … Notes D) in what is selected now (the roll holds the selected pass, or the whole range).
     private func reelOutputCounts() -> [Int] {
-        var c = [0, 0, 0, 0]
-        for n in reelRoll where n.cable >= 1 && n.cable <= 4 { c[Int(n.cable) - 1] += 1 }
+        var c = [Int](repeating: 0, count: FourfoldPorts.busCount)
+        for n in reelRoll where n.cable >= 1 && Int(n.cable) <= FourfoldPorts.busCount { c[Int(n.cable) - 1] += 1 }
         return c
     }
     // The pass range to export/highlight: the [lo,hi] set by ◀/▶, else the single selected pass. (pass numbers)

@@ -77,7 +77,6 @@ struct FourfoldRootView: View {
         }
     }
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? { get { m.euclideousHoldLatchMode } nonmutating set { m.euclideousHoldLatchMode = newValue } }
-    var euclideousMainOutMask: UInt8 { get { m.euclideousMainOutMask } nonmutating set { m.euclideousMainOutMask = newValue } }
     var euclideousSoloMask: UInt8 { get { m.euclideousSoloMask } nonmutating set { m.euclideousSoloMask = newValue } }
     var euclideousSoloHeld: UInt8 { get { m.euclideousSoloHeld } nonmutating set { m.euclideousSoloHeld = newValue } }
     var euclideousLocks: [EuclideousLaneLock] { get { m.euclideousLocks } nonmutating set { m.euclideousLocks = newValue } }
@@ -185,7 +184,6 @@ struct FourfoldRootView: View {
                                                // (the @State vars + their AU getter/setter plumbing) stay in place, just unreachable
                                                // from this call site — decode-safety for an old saved doc, matching how
                                                // euclideousReceiver was handled when ITS control was dropped.
-                                               mainOutMask: euclideousMainOutMask,
                                                soloMask: euclideousSoloMask, soloHeld: euclideousSoloHeld,
                                                chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
                                                onEditChordSet: { idx, mutate in
@@ -349,12 +347,6 @@ struct FourfoldRootView: View {
                                                    au?.editDocument { $0.euclideousKeyType = v }
                                                    publish()
                                                },
-                                               onSetMainOutMask: { v in
-                                                   // §7.3 ("main outputs... not undoable") — not recorded, deliberately.
-                                                   euclideousMainOutMask = v
-                                                   au?.editDocument { $0.euclideousMainOutMask = v }
-                                                   publish()
-                                               },
                                                // LANE SOLO (2026-10-21, §3): touch-down puts the lane in the HELD mask at once (it counts as soloed for sound and every dim from the moment of touch); the lift clears it and — for a tap
                                                // only — flips the lane's LATCHED bit, in the SAME update (one publish, no flicker). Neither records undo (the output rings don't); only the latched mask is saved.
                                                // The effective mask goes to the render thread FIRST (`setEuclideousSoloLive`: one store the kernel reads at its next window), so the mute does not wait for the scene to be composed and a
@@ -377,8 +369,7 @@ struct FourfoldRootView: View {
                                                    publish()
                                                },
                                                // FOURFOLD SETTINGS (2026-10-15 ferry) — §6.3/§6.4: "no undo steps... changes
-                                               // apply at once," same as onSetMainOutMask/onToggleEnabled/onSetMainOutMask
-                                               // above — none of these 4 record onto euclideousUndo.
+                                               // apply at once," same as the solo and source setters above — none of these 4 record onto euclideousUndo.
                                                midiInChannelMask: euclideousMidiInChannelMask,
                                                onSetMidiInChannelMask: { v in
                                                    euclideousMidiInChannelMask = v
@@ -396,8 +387,6 @@ struct FourfoldRootView: View {
                                                    au?.setClashPolicy(p)
                                                },
                                                busChannels: busChannels,
-                                               // The page calls the outputs MAIN OUT A–D; Fourfold's AU names its MIDI ports the same (FourfoldAudioUnit.midiOutputNames).
-                                               outputNames: ["Out A", "Out B", "Out C", "Out D"],
                                                allOutputName: "All",
                                                onSetBusChannel: { bus, ch in
                                                    guard bus >= 0, bus < busChannels.count else { return }
@@ -441,7 +430,7 @@ struct FourfoldRootView: View {
     // ── publish: the Fourfold replacement for 8x8's buildPublishScene ──
     /// Compose the Fourfold cell from the live mirrors and hand it to the AU. Called after every document write (the engine reads these @State vars only through here).
     func publish() {
-        let input = FourfoldCompose.Input(lines: euclideousLines, riff: euclideousRiff, riffs: euclideousRiffs, activeRiff: euclideousActiveRiff, mainOutMask: euclideousMainOutMask,
+        let input = FourfoldCompose.Input(lines: euclideousLines, riff: euclideousRiff, riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                           soloMask: euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld),   // LANE SOLO: latched | held — the render thread sees only the union
                                           locks: euclideousLocks, lockRevs: euclideousLockRevs)
         let chain = FourfoldCompose.chain(input)
@@ -508,7 +497,6 @@ struct FourfoldRootView: View {
         euclideousNoteSource = au.uiEuclideousNoteSource()
         euclideousSourcePlan = au.uiEuclideousSourcePlan()
         euclideousHoldLatchMode = au.uiEuclideousHoldLatchMode()
-        euclideousMainOutMask = au.uiEuclideousMainOutMask()
         euclideousSoloMask = au.uiEuclideousSoloMask()
         au.setEuclideousSoloLive(euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld))   // the live word follows the document (a restore / a preset load)
         euclideousMidiInChannelMask = au.uiEuclideousMidiInChannelMask()
@@ -819,7 +807,6 @@ struct FourfoldRootView: View {
         let ersb = au.uiEuclideousResetSpanBars(); if ersb != euclideousResetSpanBars { euclideousResetSpanBars = ersb; euclideousResynced = true }
         let ekr = au.uiEuclideousKeyRoot(); if ekr != euclideousKeyRoot { euclideousKeyRoot = ekr; euclideousResynced = true }
         let ekt = au.uiEuclideousKeyType(); if ekt != euclideousKeyType { euclideousKeyType = ekt; euclideousResynced = true }
-        let emom = au.uiEuclideousMainOutMask(); if emom != euclideousMainOutMask { euclideousMainOutMask = emom; euclideousResynced = true }
         let esol = au.uiEuclideousSoloMask(); if esol != euclideousSoloMask { euclideousSoloMask = esol; au.setEuclideousSoloLive(euclideousSoloEffective(latched: esol, held: euclideousSoloHeld)); euclideousResynced = true }   // LANE SOLO: a preset load / session restore replaces it
         let emicm = au.uiEuclideousMidiInChannelMask(); if emicm != euclideousMidiInChannelMask { euclideousMidiInChannelMask = emicm; euclideousResynced = true }
         let ehsb = au.uiEuclideousHostStopBehavior(); if ehsb != euclideousHostStopBehavior { euclideousHostStopBehavior = ehsb; euclideousResynced = true }
@@ -919,7 +906,7 @@ final class FourfoldModel: ObservableObject {
     let meters = FourfoldTelemetry()
     @Published var swing: Int = 50
     @Published var stepIndex: Int = 2
-    @Published var busChannels: [Int] = [1, 2, 3, 4]
+    @Published var busChannels: [Int] = [1, 2, 3, 4, 5, 6, 7, 8]
     @Published var ignoreAllNotesOff: Bool = true
     @Published var clashPolicy: ClashPolicy = .allow
     @Published var showPresets: Bool = false
@@ -952,7 +939,6 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousNoteSource: EuclideousLaneSource = .key
     @Published var euclideousSourcePlan: SourcePlan? = nil
     @Published var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil
-    @Published var euclideousMainOutMask: UInt8 = 0b1111
     @Published var euclideousSoloMask: UInt8 = 0
     @Published var euclideousSoloHeld: UInt8 = 0
     @Published var euclideousLocks: [EuclideousLaneLock] = Array(repeating: EuclideousLaneLock(), count: 4)

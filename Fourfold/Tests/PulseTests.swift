@@ -86,8 +86,8 @@ final class PulseTests: XCTestCase {
         XCTAssertEqual(Double(full.diameter), 56, accuracy: 1e-9); XCTAssertEqual(full.opacity, 0, accuracy: 1e-12)
     }
 
-    // MARK: 7. the ring
-    func testRingStrokeAndLetter() {
+    // MARK: 7. the ring stroke and the note name
+    func testRingStrokeAndNameLit() {
         XCTAssertEqual(euclideousPulseRingStroke(f: 1), 5); XCTAssertEqual(euclideousPulseRingStroke(f: 0), 2.5); XCTAssertEqual(euclideousPulseRingStroke(f: 0.5), 3.75); XCTAssertEqual(euclideousPulseRingStroke(f: 9), 5)
         XCTAssertTrue(euclideousPulseNameLit(f: 0.13)); XCTAssertFalse(euclideousPulseNameLit(f: 0.12))
     }

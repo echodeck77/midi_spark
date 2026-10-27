@@ -36,7 +36,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             ("5-lane-listen", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Listen, '")).element(boundBy: 0).tap() }),
             ("5-presets", { $0.buttons["Presets"].tap() }), ("5-key", { $0.buttons["Key, C minor"].tap() }), ("5-swing", { $0.buttons["Swing, straight"].tap() }),
             ("5-settings-midi-in", { $0.buttons["Settings"].tap() }),
-            ("5-settings-main-out", { $0.buttons["Settings"].tap(); $0.buttons["MAIN OUT"].tap() }),
+            ("5-settings-ports", { $0.buttons["Settings"].tap(); $0.buttons["PORTS"].tap() }),
             ("5-settings-clock", { $0.buttons["Settings"].tap(); $0.buttons["CLOCK"].tap() }),
         ]
         for (name, open) in screens {

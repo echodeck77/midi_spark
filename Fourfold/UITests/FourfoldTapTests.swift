@@ -94,42 +94,6 @@ final class FourfoldTapTests: XCTestCase {
         need(app.el("Lane 1 riff"), "the MIX pads again")
     }
 
-    func testAnOutputCircleOnTheRiffTabTogglesItsRouting() {
-        let app = XCUIApplication.fresh()
-        app.els(prefix: "Riff, ").element(boundBy: 0).tap()           // the per-layer routing ferry moved the OUT buttons off MIX onto each lane's RIFF and NOTES tabs
-        need(app.el("Riff to output B, off"), "lane 1's riff OUT B, off").tap()        // (a toggle-trait control reports as a switch, so ask for it by label, not by type)
-        need(app.el("Riff to output B, on"), "lane 1's riff OUT B, on after a tap")
-        app.el("Riff to output B, on").tap()
-        need(app.el("Riff to output B, off"), "lane 1's riff OUT B, off after a second tap")
-    }
-
-    /// A fresh document sends lane 1 to A, lane 2 to B, lane 3 to C and lane 4 to D (it used to send every lane to A).
-    func testEachLaneStartsOnItsOwnOutput() {
-        let app = XCUIApplication.fresh()
-        let outputs = ["A", "B", "C", "D"]
-        for lane in 0..<4 {
-            app.els(prefix: "Riff, ").element(boundBy: lane).tap()
-            for (i, o) in outputs.enumerated() {
-                need(app.el("Riff to output \(o), \(i == lane ? "on" : "off")"), "lane \(lane + 1)'s riff OUT \(o) reads \(i == lane ? "on" : "off") on a fresh document")
-            }
-            app.els(prefix: "Rhythm, ").element(boundBy: lane).tap()
-        }
-    }
-
-    /// OUT-MASK-NIL-1: a factory preset stores no output mask and sounds on A-D, so its circles must read ON, and the first
-    /// tap must switch off just that one output.
-    func testAFactoryPresetShowsItsOutputCirclesLitAndATapSwitchesOffOnlyThatOne() {
-        let app = XCUIApplication.fresh()
-        app.buttons["Presets"].tap()
-        need(app.buttons["FIVE AGAINST EIGHT, factory preset"], "a factory preset row", timeout: 10).tap()
-        gone(app.staticTexts["PRESETS"], "the preset browser after choosing a preset")
-        app.els(prefix: "Riff, ").element(boundBy: 0).tap()
-        for o in ["A", "B", "C", "D"] { need(app.el("Riff to output \(o), on"), "a preset lane's riff OUT \(o) reads on") }
-        app.el("Riff to output A, on").tap()
-        need(app.el("Riff to output A, off"), "riff OUT A, off after one tap")
-        for o in ["B", "C", "D"] { need(app.el("Riff to output \(o), on"), "riff OUT \(o) still on after A was tapped") }
-    }
-
     /// A small window (AUM's minimized plugin window, Stage Manager, Split View) must stay the live, interactive page — there is no "resize to continue" screen any more.
     func testASmallWindowStaysLiveAndInteractive() {
         for size in ["480x320", "440x700"] {
@@ -189,24 +153,36 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertNotEqual(before, after, "loading FIVE AGAINST EIGHT should change the lanes")
     }
 
+    /// THE NINE PORTS (2026-10-26): the lane cards carry no output toggles and the header no rings; routing is fixed, and the settings sheet's PORTS tab gives each of the eight ports its own channel.
+    func testThePageHasNoOutputToggles() {
+        let app = XCUIApplication.fresh()
+        gone(app.buttons["Show its lanes"].firstMatch, "the retired header rings' action")
+        app.els(prefix: "Riff, ").element(boundBy: 0).tap()
+        gone(app.el("Riff to output B, off"), "the retired OUT column on the RIFF tab")
+    }
+
     func testTheSettingsSheetOpensEditsAChannelAndCloses() {
         let app = XCUIApplication.fresh()
         app.buttons["Settings"].tap()
         need(app.buttons["MIDI IN"].firstMatch, "the settings sheet's MIDI IN tab")
-        app.buttons["MAIN OUT"].tap()
+        app.buttons["PORTS"].tap()
         // (the sheet keeps a hidden, invisible copy of this page to measure its height, so ask for the one that can be touched)
         let hittable = { (label: String) -> XCUIElement in
             let all = app.images.matching(NSPredicate(format: "label == %@", label)).allElementsBoundByIndex
             return all.first(where: { $0.isHittable }) ?? all[0]
         }
-        need(app.images.matching(NSPredicate(format: "label == %@", "Increase channel")).firstMatch, "the MAIN OUT page's channel steppers")
+        need(app.images.matching(NSPredicate(format: "label == %@", "Increase channel")).firstMatch, "the PORTS page's channel steppers")
+        // eight ports, each named as the host lists it, each on its own channel on a fresh document
+        for (i, name) in ["Emit Riff A", "Emit Notes A", "Emit Riff B", "Emit Notes B", "Emit Riff C", "Emit Notes C", "Emit Riff D", "Emit Notes D"].enumerated() {
+            need(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "\(name), channel \(i + 1)")).firstMatch, "\(name) reads channel \(i + 1)")
+        }
         hittable("Increase channel").tap()
         Thread.sleep(forTimeInterval: 0.6)
-        let seen = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Main out A, Out A'")).allElementsBoundByIndex.map(\.label)
-        XCTAssertTrue(seen.contains("Main out A, Out A, channel 2"), "out A should read channel 2 after +; the sheet says \(seen)")
+        let seen = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Emit Riff A'")).allElementsBoundByIndex.map(\.label)
+        XCTAssertTrue(seen.contains("Emit Riff A, channel 2"), "Riff A should read channel 2 after +; the sheet says \(seen)")
         hittable("Decrease channel").tap()
         app.buttons["Close settings"].tap()
-        gone(app.buttons["MAIN OUT"].firstMatch, "the settings sheet after Close")
+        gone(app.buttons["PORTS"].firstMatch, "the settings sheet after Close")
     }
 
     func testTheBluetoothMIDIScreenOpensAndCloses() {

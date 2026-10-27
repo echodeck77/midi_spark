@@ -1,6 +1,6 @@
 #!/bin/bash
 # FOURFOLD standalone-app test in the iOS simulator — builds the REAL Fourfold app, launches it playing (--autoplay) with its MIDI self-test (--midi-selftest), and prints what the self-test saw:
-# notes out per virtual source (All, Out A…D) with their host-time lead, and a note sent into "Fourfold In" reaching the engine. (The simulator's CoreMIDI does not reach macOS, so the app listens to itself.)
+# notes out per virtual source (All, Emit Riff A … Emit Notes D) with their host-time lead, and a note sent into "Fourfold In" reaching the engine. (The simulator's CoreMIDI does not reach macOS, so the app listens to itself.)
 #   sh Scripts/fourfold-harness/app-test.sh
 set -e
 cd "$(dirname "$0")/../.."
