@@ -193,7 +193,9 @@ extension Host {
         timer?.invalidate()
         guard AllocWatch.install() else { fputs("ALLOC UNAVAILABLE: no malloc_logger symbol in this process\n", stderr); exit(2) }
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
-        let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY"]
+        // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
+        let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -217,6 +219,16 @@ extension Host {
                     }
                 }
                 if name.contains("MIDI IN") { au.editDocument { $0.euclideousNoteSource = .midi } }
+                if name.contains("HOCKET HITS+PASSES") {
+                    au.editDocument { $0.hocketRules = HocketRuleSet([
+                        { var r = HocketRule(); r.main = [1]; r.alt = [3, 5, 7]; r.several = .rotate; r.mainLen = 3; r.altLen = 2; return r }(),
+                        { var r = HocketRule(); r.mode = .pass; r.main = [2, 4]; r.alt = [6, 8]; r.several = .rotate; r.unit = .passes; r.own = .merge; return r }()]) }
+                }
+                if name.contains("HOCKET STEPS+BARS") {
+                    au.editDocument { $0.hocketRules = HocketRuleSet([
+                        { var r = HocketRule(); r.main = [1, 5]; r.alt = [3, 7]; r.unit = .steps; r.mainLen = 4; r.altLen = 3; r.offset = 2; return r }(),
+                        { var r = HocketRule(); r.mode = .pass; r.main = [2, 6]; r.alt = [6, 2]; r.unit = .bars; r.own = .replace; return r }()]) }
+                }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }
                 if name.contains("LATCH") { au.editDocument { $0.euclideousHoldLatchMode = .latch } }
             } else { au.loadFactoryPreset(named: name) }

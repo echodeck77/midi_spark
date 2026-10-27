@@ -78,6 +78,9 @@ final class Router {
                                      // reconcileBypass). Excluded from the grid hold-reconcile (emitColumnHolds candidate loop)
                                      // so the grid boundary never closes it; allNotesOff closes it on every transport/scene edge.
         var euclideousLane: Int8 = -1 // LANE SOLO (2026-10-21): the Euclideous lane that struck this voice (−1 = none) — see `Router.euclideousStrikeLane`
+        var onSample: Int64 = 0      // HOCKET §7.3: when this voice's note-on sounds (a later strike joins only a holder that is sounding at ITS time)
+        var group: Int32 = 0         // HOCKET §7.3: the note group this voice belongs to (1-based id into `groupCount`; 0 = none — every strike to an output of no lit rule)
+        var deferClose = false       // HOCKET §7.3: a JOINABLE strike's in-window off waits for the end of the window (every lane has struck by then), so a second holder of the same key can still join it
         var euclideousLegato = false // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): an IMMORTAL legato-held voice owned
                                      // entirely by reconcileEuclidLegato (its own stateless-per-tick reconcile, mirroring
                                      // rtcHold/glideAnchor exactly). MUST be excluded from the grid hold-reconcile
@@ -184,6 +187,21 @@ final class Router {
     // 9 cables (THE NINE PORTS, 2026-10-26): 0 = ALL, then Riff A, Notes A … Notes D (`FourfoldPorts`).
     private var refcount = [UInt8](repeating: 0, count: FourfoldPorts.cableCount * 16 * 128)
     private var distinctSounding = 0   // number of (cable,ch,note) with refcount > 0 (diag; kept incrementally)
+
+    // HOCKET (ferry 2026-10-27). §7.3 — a strike whose destination output is in a LIT rule JOINS a note of the same (output, channel, pitch) that is sounding at its own time: no second note-on, and the note's off goes out when
+    // the LAST holder ends. Strikes reach the wire in LANE order, not time order, so "sounding at its time" is decided by intervals: the voices that overlap in time form a NOTE GROUP (`Voice.group`, an id into these two
+    // arrays — the live holder count and the latest end seen). A group is ONE note: one note-on at its first strike, one note-off at its latest end, whatever order its holders were struck or swept in. Holders that do not
+    // overlap are separate groups (separate notes), so a note that has already ended is never joined by a later hit. Strikes to every OTHER output keep today's restrike (off then on), so with no lit rule the output is
+    // byte-identical to the nine-output build (§7.6).
+    private var groupCount = [Int32](repeating: 0, count: 128)
+    private var groupMax = [Int64](repeating: .min, count: 128)
+    private var hocketLitBusMask: UInt8 = 0         // every output in either group of a LIT rule — read by `emitOneBus` (set from the snapshot at the top of each window)
+    private var hocketDeferredCloses = false        // a voice has `deferClose` set: sweep them when the window ends
+    private var hocketRules = HocketRulesSnap()     // this window's rules (the Euclideous row's); inert when none is lit
+    /// The reference lanes' rhythms for this window, captured by the clock pre-pass — [lane × 2 + segment] (segment 1 = the part of a lock-split window after the snap line). Built at init so no render-time allocation.
+    private var hocketClocks: [HocketLaneClock] = (0..<8).map { _ in HocketLaneClock() }
+    private var hocketClockSplit = [Bool](repeating: false, count: 4)
+    private var hocketClockPass = false             // true while the pre-pass runs: `runEuclidLine` captures its clock and returns before playing anything
 
     private var busChannels: [UInt8] = [1, 2, 3, 4, 5, 6, 7, 8]   // per-port stamp channels (a bus = a port without ALL, `FourfoldPorts`), refreshed each process
     private var heldColumns: UInt16 = 0   // §5b COLUMN-SUBSET LAP: held column keys (bit i = column i),
@@ -925,6 +943,8 @@ final class Router {
     private func performReset() {
         for i in voices.indices { voices[i].active = false; voices[i].offSample = .max; voices[i].silent = false }
         for i in refcount.indices { refcount[i] = 0 }
+        for i in groupCount.indices { groupCount[i] = 0; groupMax[i] = .min }
+        hocketDeferredCloses = false
         distinctSounding = 0
         wasPlaying = false
         resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0 }
@@ -1053,7 +1073,7 @@ final class Router {
                            onSample: Int64, offSample: Int64,
                            velocity: UInt8 = 96, out: MIDIEmitter?, silent: Bool = false,
                            bypassRecv: Int8 = -1, meter: Bool = false, rtcHold: Bool = false,
-                           euclideousLegato: Bool = false) -> Int {
+                           euclideousLegato: Bool = false, join: Bool = false) -> Int {
         guard let out else { return -1 }
         // Claim a slot BEFORE emitting: at capacity we DROP the note (return −1 without emitting) rather
         // than emit an on we can't schedule an off for — an untrackable note would hang. The drop is CLEAN
@@ -1066,6 +1086,7 @@ final class Router {
 
         // §6a CLAIM: a SILENT voice (a muted claimant's reservation) is tracked for exclusivity only —
         // no wire note-on and no refcount, so it can never emit an off or hold a shared channel alive.
+        var voiceGroup: Int32 = 0
         if !silent {
             let idx = rcIndex(cable, chan, note)
             // WIRE ARTICULATION = RESTRIKE (user 2026-08-09, spec `-wire-articulation`): a strike on an ALREADY-
@@ -1073,18 +1094,37 @@ final class Router {
             // proper re-attack that retriggers mono synths and pairs offs correctly. The refcount is UNCHANGED by
             // the re-articulation off (it governs the true release only), so the note still ends solely at
             // refcount→0 and nothing is left stuck. (MERGE — the old on-only overlap — is the deferred option chip.)
-            if refcount[idx] > 0 { out.emit(sampleTime: onSample, cable: cable, 0x80 | chan, note, 0) }
-            // MACHINE TAG: hand the reel the sounding cell's DISPLAY hue just before the note-ON, so its piano roll
-            // paints each note its machine (no-op on every emitter but the ReelTap). (Paul 2026-08-19)
-            if let b = curBox, currentMachineIndex >= 0, Int(currentMachineIndex) < b.machines.count {
-                out.markHue(b.machines[Int(currentMachineIndex)].hue)
+            // HOCKET §7.3: a JOINABLE strike joins the note group of a voice of the same key that is SOUNDING at its own time (it started at or before, and ends after) — no second note-on, no re-articulation off. A holder that
+            // has not started yet, or has already ended, is a different note: this strike founds a group of its own (a note the strike order could not merge stays a stacked note with its own on and off, never a stuck one).
+            var joinedGroup: Int32 = 0, newGroup: Int32 = 0
+            if join {
+                for i in voices.indices where voices[i].active && !voices[i].silent && voices[i].group != 0 && voices[i].note == note && voices[i].chan == chan && voices[i].cable == cable
+                    && voices[i].onSample <= onSample && onSample < voices[i].offSample { joinedGroup = voices[i].group; break }
+                if joinedGroup == 0 { for g in groupCount.indices where groupCount[g] == 0 { newGroup = Int32(g + 1); break } }
             }
-            out.markLane(Int(euclideousStrikeLane))   // LANE TAG (reel phase 1b): which Euclid lane is striking, for the session tape
-            out.markCell(currentCellIndex)   // CELL TAG: the PART roll filters to the selected rung per column (Paul 2026-09-03)
-            out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
-            if refcount[idx] == 0 { distinctSounding += 1 }
-            refcount[idx] += 1
-            if Int(bus) < FourfoldPorts.busCount && onSample > emitterLastOnsetSample[Int(bus)] { emitterLastOnsetSample[Int(bus)] = onSample }   // HOCKET: the wire's latest onset (TRADE reads it)
+            let joining = joinedGroup != 0
+            if joining { groupCount[Int(joinedGroup) - 1] += 1; voiceGroup = joinedGroup }
+            else {
+                // the restrike rule: a PLAIN holder of the key (refcount > 0) is re-articulated (off, then on) — exactly as it always was. A note group is its own thing: it never restrikes, is never counted by `refcount` and
+                // always ends with its own off, so a group and a plain note on one key (two outputs sharing a channel, one in a lit rule) stack, each with exactly one on and one off.
+                if newGroup != 0 { groupCount[Int(newGroup) - 1] = 1; groupMax[Int(newGroup) - 1] = .min; voiceGroup = newGroup }
+                else if refcount[idx] > 0 { out.emit(sampleTime: onSample, cable: cable, 0x80 | chan, note, 0) }
+            }
+            if !joining {
+                // MACHINE TAG: hand the reel the sounding cell's DISPLAY hue just before the note-ON, so its piano roll
+                // paints each note its machine (no-op on every emitter but the ReelTap). (Paul 2026-08-19)
+                if let b = curBox, currentMachineIndex >= 0, Int(currentMachineIndex) < b.machines.count {
+                    out.markHue(b.machines[Int(currentMachineIndex)].hue)
+                }
+                out.markLane(Int(euclideousStrikeLane))   // LANE TAG (reel phase 1b): which Euclid lane is striking, for the session tape
+                out.markCell(currentCellIndex)   // CELL TAG: the PART roll filters to the selected rung per column (Paul 2026-09-03)
+                out.emit(sampleTime: onSample, cable: cable, 0x90 | chan, note, max(1, velocity))   // §7 clause 1: note-ons ALWAYS emit
+            }
+            if !joining {
+                if newGroup != 0 { distinctSounding += 1 }                       // a note group counts once, for the diagnostics (never in `refcount`)
+                else { if refcount[idx] == 0 { distinctSounding += 1 }; refcount[idx] += 1 }
+            }
+            if !joining, Int(bus) < FourfoldPorts.busCount && onSample > emitterLastOnsetSample[Int(bus)] { emitterLastOnsetSample[Int(bus)] = onSample }   // HOCKET: the wire's latest onset (TRADE reads it)
             // METER-TRUTH (Paul 2026-08-25): a direct-injection note-on (GLIDE) bypasses emitArtic/emitOneBus, so it
             // must light the emitter strip HERE or it sounds invisibly. Opt-in (`meter`) so the normal path — which
             // already meters in emitOneBus — never double-counts. Bus-keyed, same accumulators as §6a metering.
@@ -1104,6 +1144,8 @@ final class Router {
         voices[slot].cable = cable
         voices[slot].bus = bus
         voices[slot].offSample = offSample
+        voices[slot].onSample = onSample
+        voices[slot].group = voiceGroup
         voices[slot].silent = silent
         voices[slot].machineIndex = currentMachineIndex   // §2 adoption identity (MACHINE-AND-FACE)
         voices[slot].alt = currentAlt
@@ -1225,17 +1267,32 @@ final class Router {
         for i in voices.indices where voices[i].active && voices[i].bus == bus { closeVoice(i, atSample: time, out: out) }
     }
 
-    private func closeVoice(_ i: Int, atSample time: Int64, out: MIDIEmitter?) {
+    private func closeVoice(_ i: Int, atSample timeIn: Int64, out: MIDIEmitter?) {
         guard voices[i].active else { return }
+        var time = timeIn
         let cable = voices[i].cable, chan = voices[i].chan, note = voices[i].note
         let wasSilent = voices[i].silent
+        let g = Int(voices[i].group) - 1
         voices[i].active = false
         voices[i].offSample = .max
         voices[i].silent = false
+        voices[i].deferClose = false
+        voices[i].group = 0
         // §6a CLAIM: a silent reservation never touched the wire or the refcount — just free the slot.
         if wasSilent { return }
 
         let idx = rcIndex(cable, chan, note)
+        if g >= 0 {
+            // HOCKET §7.3: a holder of a NOTE GROUP. The note is one note however many strikes joined it: its off goes out when the LAST holder has ended, at the LATEST end among them (whatever order the voices are
+            // swept in), and it is the group's own off — a group that stacked on another note of the same key (an overlap the strike order could not merge) is released by its own off, never left sounding.
+            groupMax[g] = max(groupMax[g], time)
+            groupCount[g] -= 1
+            if groupCount[g] > 0 { return }
+            time = groupMax[g]; groupMax[g] = .min
+            distinctSounding = max(0, distinctSounding - 1)
+            out?.emit(sampleTime: time, cable: cable, 0x80 | chan, note, 0)
+            return
+        }
         if refcount[idx] > 0 { refcount[idx] -= 1 }
         if refcount[idx] == 0 {
             distinctSounding = max(0, distinctSounding - 1)
@@ -1394,14 +1451,16 @@ final class Router {
         if euclideous ? euclideousOnsThisBeat[bus] >= Router.euclideousFloodCapPerBeat : noteOnsThisBeat[bus] >= Router.floodCapPerBeat { floodDropped &+= 1; return -1 }
         if euclideous { euclideousOnsThisBeat[bus] &+= 1 } else { noteOnsThisBeat[bus] &+= 1 }
         let ch = (busChannels[bus] &- 1) & 15   // the bus stamp (1–16 → 0–15 wire)
+        // HOCKET §7.3: a strike to an output of a LIT rule joins a sounding key instead of re-articulating it (never a legato hold — those are tracked per slot; unreachable in production, gate max 0.99).
+        let join = euclideous && !euclideousLegato && hocketLitBusMask & (UInt8(1) << UInt8(bus)) != 0
         let own = openVoice(note: note, chan: ch, cable: UInt8(bus + 1), bus: UInt8(bus),
-                            onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato)
+                            onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: join)
         if own >= 0 { onVoiceOpened(own) }
-        if own >= 0 && offSample <= windowEnd { closeVoice(own, atSample: offSample, out: out) }
+        if own >= 0 && offSample <= windowEnd { if join { voices[own].deferClose = true; hocketDeferredCloses = true } else { closeVoice(own, atSample: offSample, out: out) } }
         let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
-                            onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato)
+                            onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: join)
         if all >= 0 { onVoiceOpened(all) }
-        if all >= 0 && offSample <= windowEnd { closeVoice(all, atSample: offSample, out: out) }
+        if all >= 0 && offSample <= windowEnd { if join { voices[all].deferClose = true; hocketDeferredCloses = true } else { closeVoice(all, atSample: offSample, out: out) } }
         return Int(ch)
     }
 
@@ -1603,6 +1662,15 @@ final class Router {
         self.beatsPerBar = beatsPerBar              // FERRY §3: this render's real bar length, in this engine's own beat unit (quarter notes)
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
+        // HOCKET (2026-10-27) §7.3: the outputs of every LIT rule — their strikes JOIN a sounding key. Read before the echo ring drains and any lane strikes. A joinable strike's in-window off is held back (`deferClose`) so that a
+        // second holder (another lane's passed line, the output's own part) can still join; they are all closed here, at their own times, once every lane has struck. Nothing is flagged unless a rule is lit (§7.6).
+        hocketLitBusMask = box.cells[Snap.euclideousRow].procs.first?.hocketRules.litBusMask ?? 0
+        defer {
+            if hocketDeferredCloses {
+                hocketDeferredCloses = false
+                for i in voices.indices where voices[i].active && voices[i].deferClose { closeVoice(i, atSample: voices[i].offSample, out: out) }
+            }
+        }
         curBox = box                                // for the reel's machine-by-cell note tag (openVoice reads the sounding machine's hue)
         heldColumns = laneMask                      // §5b lap: held column keys, this render
         // PER-ROW LAP (Paul 2026-08-19): the scene may set a per-row loop mask (BUILD's two grids loop independently);
@@ -2472,6 +2540,14 @@ final class Router {
                 func isHitAt(_ s: Int) -> Bool { euclidBuf[euclidReadIndex(s, n: eN, dir: eDir)] }
                 var cycleHits = 0; for s in 0..<cycleLen where isHitAt(s) { cycleHits += 1 }
                 let effHits = Int64(max(1, cycleHits))
+                // HOCKET: the clock pre-pass stops here — it only wanted this lane's rhythm for the window (slot 0, or the before/after segments of a lock-split window), never to play it.
+                if hocketClockPass {
+                    let split = tickFrom != -Double.infinity || tickBefore != Double.infinity
+                    if split { hocketClockSplit[lineIndex] = true }
+                    hocketClocks[lineIndex * 2 + (tickFrom == -Double.infinity ? 0 : 1)].capture(cells: euclidBuf, delays: euclidTickDelay, timing: timingActive, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub,
+                                                                                                    chains: chains, legacySpanBeats: ladderSpanBeats)
+                    return
+                }
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                              beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
@@ -3377,6 +3453,80 @@ final class Router {
                                 if shifted >= 0 && shifted <= 127 { pitches[i] = shifted }
                                 pitchVel[i] = UInt8(max(1, min(127, Int(pitchVel[i]) + velDelta)))
                             }
+                            // HOCKET (2026-10-27) §6–§7: each pitch of this hit leaves on the output the lit rule its OUTPUT belongs to says it takes THIS turn — decided once, here, at the hit's first strike, so a ratcheted / rolled /
+                            // run hit keeps every strike on that turn — or on none (silent here and on ALL). Placed after the mute / tie / FX decisions (a hit that does not strike passes nothing) and before the legato reconcile, the
+                            // strikes, the deferred echo tails, the REPEAT cache and the NOTE VIEW event, which all read `busOf(j)` / the compacted arrays, so every one of them follows the new routing. A passed pitch keeps its own
+                            // note, gate, ties and per-hit velocity; only the receiving part's MIX VEL replaces the source pad's (`hocketPassedVelocity`), and it takes the destination output's channel (`emitOneBus` stamps by bus).
+                            if hocketRules.litMask != 0 {
+                                var haveTurn: UInt8 = 0
+                                var turns = HocketTurns()
+                                func hocketTurnOf(_ ri: Int) -> HocketTurn {
+                                    if haveTurn & (UInt8(1) << UInt8(ri)) == 0 {
+                                        let s = hocketRules[ri]
+                                        let ref = s.referenceLane
+                                        let slot = ref >= 0 ? ref * 2 + ((hocketClockSplit[ref] && mTickBeat >= lockSplitBeat) ? 1 : 0) : 0
+                                        let x = hocketCount(unit: s.unit, clock: ref >= 0 && hocketClocks[slot].valid ? hocketClocks[slot] : nil, atMusicalBeat: mTickBeat, beatsPerBar: beatsPerBar)
+                                        turns[ri] = hocketTurn(x: x, offset: s.offset, mainLen: s.mainLen, altLen: s.altLen)
+                                        haveTurn |= UInt8(1) << UInt8(ri)
+                                    }
+                                    return turns[ri]
+                                }
+                                // §7.2: a note passed to a part that is off — its tab off, its lane's PLAY off, its LANES cell muted at this beat, or solo-silenced — is silent there and on ALL.
+                                func hocketDestIsOff(_ dest: Int) -> Bool {
+                                    let dl = dest >> 1
+                                    guard dl < linesView.count else { return true }
+                                    let dline = linesView[dl]
+                                    if euclideousMixLayerIsOff(dline, notes: dest & 1 == 1) || !dline.enabledResolved { return true }
+                                    let geo = euclideousLaneStepGeometry(lines: linesView, lane: dl, defaultRateBeats: p.euclidRateBeats)
+                                    let g = euclideousLaneGridResolved(line: dline, lane: dl, legacyOn: p.euclideousLanesSeqOn, legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
+                                                                       legacyCells: p.euclideousLanesSeqCells, stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub, beatsPerBar: beatsPerBar)
+                                    let unit = g.muteUnit.beats(stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub)
+                                    return !euclideousLaneMayStrike(lane: dl, soloMask: soloMaskNow(snapshot: p.soloMask), muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: g.muteCells, unitBeats: unit), enabled: true)
+                                }
+                                var w = 0
+                                var newPitchMask: UInt16 = 0
+                                var newSlotBits: UInt64 = ~0
+                                var changed = false
+                                var riffNoteSurvives = hadRiffNote
+                                for j in 0..<pitchCount {
+                                    let srcBus = pitchBus[j].trailingZeroBitCount
+                                    let ri = srcBus < 8 ? Int(hocketRules.ruleOfBus[srcBus]) : -1
+                                    var dest = srcBus
+                                    if ri >= 0 {
+                                        dest = hocketOutput(for: srcBus, rule: hocketRules[ri], turn: hocketTurnOf(ri))
+                                        if dest >= 0 && dest != srcBus && hocketDestIsOff(dest) { dest = -1 }
+                                    }
+                                    if dest < 0 { changed = true; if j == 0 && hadRiffNote { riffNoteSurvives = false }; continue }   // sent nowhere
+                                    let nib = (notesSlotBits >> UInt64(4 * j)) & 0xF
+                                    pitches[w] = pitches[j]; pitchGate[w] = pitchGate[j]
+                                    pitchVel[w] = pitchVel[j]
+                                    pitchBus[w] = pitchBus[j]
+                                    if dest != srcBus {
+                                        changed = true
+                                        pitchBus[w] = 1 << dest
+                                        let dl = dest >> 1
+                                        if dl < linesView.count {   // §6.6: the receiving part's MIX VEL in place of the source pad's, under the hit's own accent / swell
+                                            let passed = hocketPassedVelocity(fxVel: fx.vel, destNotes: dest & 1 == 1, destVelocityAbsolute: linesView[dl].velocityAbsoluteResolved,
+                                                                              destNotesVelocity: linesView[dl].notesVelocityResolved)
+                                            pitchVel[w] = UInt8(max(1, min(127, Int(passed) + velDelta)))
+                                        }
+                                    }
+                                    if (notesPitchMask >> UInt16(j)) & 1 != 0 { newPitchMask |= UInt16(1) << UInt16(w) }
+                                    newSlotBits = (newSlotBits & ~(UInt64(0xF) << UInt64(4 * w))) | (nib << UInt64(4 * w))
+                                    w += 1
+                                }
+                                if changed {
+                                    for j in w..<pitchCount { pitchBus[j] = -1 }
+                                    pitchCount = w
+                                    notesPitchMask = newPitchMask; notesSlotBits = newSlotBits
+                                    hadRiffNote = riffNoteSurvives
+                                    if pitchCount == 0 {   // every pitch of the hit went nowhere: the hit is silent, ending what the lane held exactly as a muted hit does
+                                        reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
+                                                               tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf)
+                                        return
+                                    }
+                                }
+                            }
                             // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): the below-100%/REPEAT-cache gate is
                             // now `gate * nextHitGapBeats` (the gap to the lane's OWN next real pattern hit),
                             // floored at 5ms, plus TIE's own forward extension — replaces the old fixed
@@ -4154,9 +4304,29 @@ final class Router {
             let euclideousListenCount: Int
             if isEuclideousRow { euclideousListenCount = euclideousListenProcessingOrderInto(&euclideousListenOrderScratch, lines: p.euclidLines) }
             else { euclideousListenCount = min(p.euclidLines.count, euclideousListenOrderScratch.count); for i in 0..<euclideousListenCount { euclideousListenOrderScratch[i] = i } }
+            // HOCKET (2026-10-27): this window's rules (the Euclideous row's only), and which lanes the lit HITS / PASSES rules count on (`referenceLane`). A reference lane's rhythm — exactly what its own `runEuclidLine` builds
+            // (rolls, COPY/FILL, TILT, restarts, a lock snap) — must be known BEFORE any lane plays, because another lane's note-on may need its count. So those lanes run once first in a CLOCK pre-pass: the same code up to
+            // the point it would start playing, capturing the arguments of its per-tick core into `hocketClocks`, then returning. Nothing is played or remembered by it; with no lit HITS/PASSES rule it does not exist.
+            var hocketRefMask: UInt8 = 0
+            if isEuclideousRow {
+                hocketRules = p.hocketRules
+                if !hocketRules.isInert {
+                    for ri in 0..<HocketRuleSet.maxRules where hocketRules.litMask & (UInt8(1) << UInt8(ri)) != 0 {
+                        let s = hocketRules[ri]
+                        if (s.unit == .hits || s.unit == .passes) && s.referenceLane >= 0 { hocketRefMask |= UInt8(1) << UInt8(s.referenceLane) }
+                    }
+                }
+            } else { hocketRules = HocketRulesSnap() }
+            if hocketRefMask != 0 {
+                for i in 0..<8 { hocketClocks[i].valid = false }
+                for i in 0..<4 { hocketClockSplit[i] = false }
+            }
+            for hocketPass in 0..<(hocketRefMask != 0 ? 2 : 1) {
+            hocketClockPass = hocketRefMask != 0 && hocketPass == 0
             for listenSlot in 0..<euclideousListenCount {
                 let lineIndex = euclideousListenOrderScratch[listenSlot]
                 guard lineIndex < p.euclidLines.count else { continue }
+                if hocketClockPass && hocketRefMask & (UInt8(1) << UInt8(lineIndex)) == 0 { continue }   // the pre-pass visits only the reference lanes
                 // RANDOM MODE ferry (§6.1): "one slot per card tab" — a lane may have THREE independent
                 // pending THROW/TWEAK/BACK/hold overrides in flight at once, each at its own `landingBeat`,
                 // compared against `beatPos` — the SAME absolute beat every other per-tick decision in this
@@ -4263,6 +4433,8 @@ final class Router {
                     runSegment(tickFrom: -Double.infinity, tickBefore: Double.infinity)
                 }
             }
+            }   // HOCKET: the clock pre-pass / play pass loop
+            hocketClockPass = false
             linesView = p.euclidLines   // release the scratch lines (so the next window rewrites them in place)
         default:
             break

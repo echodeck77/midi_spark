@@ -19,14 +19,16 @@ private struct SM64: RandomNumberGenerator {
 }
 
 private final class TaggedEmitter: MIDIEmitter {
-    struct Ev { let sample: Int64; let cable: UInt8; let status: UInt8; let chan: UInt8; let note: UInt8; let vel: UInt8; let win: Int }
+    struct Ev { let sample: Int64; let cable: UInt8; let status: UInt8; let chan: UInt8; let note: UInt8; let vel: UInt8; let win: Int; var lane = -1 }
     var events: [Ev] = []
     var win = 0
+    private var pendingLane = -1
+    func markLane(_ lane: Int) { pendingLane = lane }                  // HOCKET: which lane struck the note-on that follows (lane isolation, §12 test 16)
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
         // Treat a 0x90 with vel 0 as an off (running-status off), as hosts do.
         var st = b0 & 0xF0
         if st == 0x90 && b2 == 0 { st = 0x80 }
-        events.append(Ev(sample: sampleTime, cable: cable, status: st, chan: b0 & 0x0F, note: b1, vel: b2, win: win))
+        events.append(Ev(sample: sampleTime, cable: cable, status: st, chan: b0 & 0x0F, note: b1, vel: b2, win: win, lane: st == 0x90 ? pendingLane : -1))
     }
 }
 
@@ -444,5 +446,165 @@ final class PortsStressTests: XCTestCase {
             if riffOnly && onNotesPort { XCTFail("seed \(s): riff-only lane emitted on NOTES port (cable 2)"); return }
             if !riffOnly && onRiffPort { XCTFail("seed \(s): notes-only lane emitted on RIFF port (cable 1)"); return }
         }
+    }
+
+    // MARK: - HOCKET (ferry 2026-10-27) §12 test 16 — "a stress run cycling every setting of every rule during ties, ratchets, ROLL, RUN, GATE 100, LANES mutes and transport restarts leaves nothing sounding on any of the nine outputs"
+    // Seeds are SEPARATE from the two fingerprinted fuzz runs above (they draw no rules and must stay byte-identical).
+
+    private func rHocketRules(_ g: inout SM64) -> [HocketRule] {
+        var pool = Array(1...8); pool.shuffle(using: &g)
+        var rules: [HocketRule] = []
+        for _ in 0..<Int.random(in: 0...4, using: &g) {
+            var r = HocketRule()
+            r.on = Int.random(in: 0...5, using: &g) != 0
+            r.mode = Int.random(in: 0...2, using: &g) == 0 ? .swap : .pass
+            let nm = Int.random(in: 1...3, using: &g), na = Int.random(in: 1...3, using: &g)
+            r.main = Array(pool.prefix(nm)); pool.removeFirst(min(nm, pool.count))
+            r.alt = Array(pool.prefix(na)); pool.removeFirst(min(na, pool.count))
+            if let m = r.main.first, Int.random(in: 0...3, using: &g) == 0 { r.alt.append(m) }          // an output in both groups of its own rule
+            r.unit = HocketUnit.allCases.randomElement(using: &g)!
+            let small = Int.random(in: 0...2, using: &g) != 0                                  // mostly short cycles, so ALT turns come round often
+            r.mainLen = small ? Int.random(in: 1...3, using: &g) : Int.random(in: 1...8, using: &g); r.altLen = small ? Int.random(in: 1...3, using: &g) : Int.random(in: 1...8, using: &g); r.offset = Int.random(in: 0...15, using: &g)
+            r.several = Bool.random(using: &g) ? .together : .rotate
+            r.countOn = Int.random(in: 0...3, using: &g)
+            r.own = Bool.random(using: &g) ? .replace : .merge
+            rules.append(r)
+        }
+        return HocketRuleSet(rules).rules
+    }
+    /// One edit of one setting of one rule (or a whole new set, or a delete) — every setting the pop-up has.
+    private func editRules(_ rules: inout [HocketRule], _ g: inout SM64) {
+        let what = Int.random(in: 0...13, using: &g)
+        if what == 0 || rules.isEmpty { rules = rHocketRules(&g); return }
+        let i = Int.random(in: 0..<rules.count, using: &g)
+        var r = rules[i]
+        switch what {
+        case 1: r.on.toggle()
+        case 2: r.mode = r.mode == .swap ? .pass : .swap
+        case 3: if r.main.isEmpty { r.main = [Int.random(in: 1...8, using: &g)] } else { r.main.removeLast() }
+        case 4: if r.alt.isEmpty { r.alt = [Int.random(in: 1...8, using: &g)] } else { r.alt.removeFirst() }
+        case 5: r.unit = HocketUnit.allCases.randomElement(using: &g)!
+        case 6: r.mainLen = Int.random(in: 1...8, using: &g)
+        case 7: r.altLen = Int.random(in: 1...8, using: &g)
+        case 8: r.offset = Int.random(in: 0...15, using: &g)
+        case 9: r.several = r.several == .together ? .rotate : .together
+        case 10: r.own = r.own == .replace ? .merge : .replace
+        case 11: r.countOn = Int.random(in: 0...3, using: &g)
+        case 12: rules.remove(at: i); return                                   // delete the rule
+        default: r.main.shuffle(using: &g); r.alt.shuffle(using: &g)
+        }
+        rules[i] = r
+        rules = HocketRuleSet(rules).rules
+    }
+
+    /// Coverage: how many note-ons left on ANOTHER lane's output (a passed line) and how many windows ran with a rule lit — so a fuzz that stopped exercising the feature would fail instead of passing quietly.
+    private var hocketPassedNotes = 0, hocketLitWindows = 0, hocketSharedChannelRuns = 0
+    /// A random lane that mostly PLAYS (so there are notes to pass): on, a real rhythm, riff and/or notes lit, mostly its own rhythm and pitches (LISTEN borrowing is still exercised now and then).
+    private func rPlayingLane(_ g: inout SM64) -> EuclidLine {
+        var l = rLine(&g)
+        l.enabled = Int.random(in: 0...9, using: &g) == 0 ? false : nil
+        l.pulses = max(2, l.pulses); l.steps = max(l.pulses, l.steps)
+        if Int.random(in: 0...3, using: &g) != 0 { l.riffOn = true; l.useRiff = true }
+        if Int.random(in: 0...3, using: &g) != 0 { l.notesOn = true; if l.litOrderResolved.count == 0 { l.litNotes = 0b0000_0011 } }
+        if Int.random(in: 0...3, using: &g) != 0 { l.listenRhythm = .own; l.listenPitch = .own }
+        l.patternMiss = nil
+        return l
+    }
+    private func runHocketSession(seed: UInt64, windows: Int, rawGates: Bool) -> String? {
+        var g = SM64(seed)
+        let router = Router()
+        var diag = KernelDiag()
+        let e = TaggedEmitter()
+        var (st, pool) = rDoc(&g, lanes: (0..<4).map { _ in rPlayingLane(&g) }, rawGates: rawGates)
+        pool.reset(); for n in [48, 55, 60, 64, 67, 72] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
+        st.euclideousNoteSource = .midi
+        let distinctChannels = Bool.random(using: &g)
+        if distinctChannels { st.busChannels = Array((1...16).shuffled(using: &g).prefix(8)) }
+        var rules = rHocketRules(&g)
+        st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules)
+        var box = SnapshotBuilder.build(from: st)
+        let sr = 48_000.0
+        var tempo = Double([120, 140, 160, 200].randomElement(using: &g)!)
+        var beat = 0.0, ts = 0.0
+        var playing = true
+        var winChans: [[UInt8]] = [], winLit: [UInt8] = [], winStart: [Int64] = []
+        func litMask(_ b: SnapshotBox) -> UInt8 { b.cells[Snap.euclideousRow].procs.first?.hocketRules.litBusMask ?? 0 }
+        for w in 0..<windows {
+            e.win = w
+            if Int.random(in: 0...2, using: &g) == 0 {            // a rule edit lands between two windows, with notes sounding
+                editRules(&rules, &g)
+                st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules)
+                box = SnapshotBuilder.build(from: st)
+            }
+            if Int.random(in: 0...9, using: &g) == 0 {            // a whole new set of LANES mutes / lanes, the rules kept
+                let keep = st.hocketRules; let ch = st.busChannels
+                (st, _) = rDoc(&g, lanes: (0..<4).map { _ in rPlayingLane(&g) }, rawGates: rawGates); st.euclideousNoteSource = .midi; st.hocketRules = keep; st.busChannels = ch
+                box = SnapshotBuilder.build(from: st)
+            }
+            if Int.random(in: 0...4, using: &g) == 0 { tempo = Double([60, 90, 120, 160, 200].randomElement(using: &g)!) }
+            if Int.random(in: 0...7, using: &g) == 0 {
+                pool.reset()
+                for _ in 0..<Int.random(in: 1...5, using: &g) { pool.noteOn(UInt8.random(in: 36...84, using: &g), velocity: UInt8.random(in: 20...127, using: &g), channel: 0) }
+            }
+            let frames = UInt32([512, 1024, 2048, 4096, 8192].randomElement(using: &g)!)
+            if Int.random(in: 0...11, using: &g) == 0 { playing.toggle() }                        // transport restarts
+            if Int.random(in: 0...12, using: &g) == 0 { beat += Double.random(in: -8...32, using: &g) }   // seek / loop jump
+            winChans.append(box.busChannels); winLit.append(litMask(box)); winStart.append(Int64(ts))
+            router.process(box: box, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames,
+                           euclideousSoloLive: UInt16(st.euclideousSoloMaskResolved), out: e, diag: &diag)
+            beat += Double(frames) * tempo / 60.0 / sr
+            ts += Double(frames)
+        }
+        e.win = windows
+        winChans.append(box.busChannels); winLit.append(litMask(box)); winStart.append(Int64(ts))
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
+
+        // ---- invariants ----
+        hocketLitWindows += winLit.filter { $0 != 0 }.count
+        if !distinctChannels { hocketSharedChannelRuns += 1 }
+        var bal: [Int: Int] = [:]
+        var portMS: [String: Int] = [:], allMS: [String: Int] = [:]
+        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {
+            let k = (Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)
+            if ev.status == 0x90 {
+                bal[k, default: 0] += 1
+                if ev.cable >= 1 && ev.cable <= 8 {
+                    let want = (winChans[ev.win][Int(ev.cable) - 1] &- 1) & 15
+                    if ev.chan != want { return "seed \(seed): cable \(ev.cable) note-ON ch \(ev.chan) != the port's channel \(want) (win \(ev.win))" }
+                    // lane isolation: a lane's note leaves only on its own two outputs, unless a LIT rule says the destination output takes passed notes
+                    let portLane = (Int(ev.cable) - 1) / 2
+                    if ev.lane >= 0 && ev.lane != portLane { hocketPassedNotes += 1 }
+                    // A deferred strike (a ratchet repeat, a ROLL / RUN note) of a hit struck BEFORE a rule edit keeps the routing it began with (§6.4, §7.4 — "only notes struck after the change follow the new routing"), so it
+                    // may land on an output the new rules no longer name: an output lit in any window of the previous 4 seconds is allowed. A strike by the new rules never reaches an output no rule has ever named.
+                    var litRecently = false
+                    for j in 0...ev.win where winLit[j] & (UInt8(1) << UInt8(ev.cable - 1)) != 0 && winStart[j] >= ev.sample - 4 * 48_000 { litRecently = true; break }
+                    if ev.lane >= 0 && ev.lane != portLane && !litRecently {
+                        return "seed \(seed): lane \(ev.lane) struck a note on lane \(portLane)'s output (cable \(ev.cable)) with no lit rule naming it (win \(ev.win))"
+                    }
+                }
+                let key = "\(ev.sample)/\(ev.note)/\(ev.vel)/\(ev.chan)"
+                if ev.cable == 0 { allMS[key, default: 0] += 1 } else if ev.cable <= 8 { portMS[key, default: 0] += 1 }
+            } else {
+                bal[k, default: 0] -= 1
+                if bal[k]! < 0 { return "seed \(seed): ORPHAN note-off cable \(ev.cable) ch \(ev.chan) note \(ev.note) (win \(ev.win))" }
+            }
+        }
+        for (k, v) in bal where v != 0 { return "seed \(seed): STUCK note — cable \((k / 128) / 16) ch \((k / 128) % 16) note \(k % 128) balance \(v) at the end" }
+        if distinctChannels && portMS != allMS {
+            let a = portMS.filter { allMS[$0.key] != $0.value }.keys.sorted().first, b = allMS.filter { portMS[$0.key] != $0.value }.keys.sorted().first
+            return "seed \(seed): ALL != the union of the ports (distinct channels) — port-only \(a ?? "-") / all-only \(b ?? "-")"
+        }
+        return nil
+    }
+
+    func testHocketRulesChangingMidRunNeverStrandANoteOrLeakAcrossLanes() {
+        for s in 1...300 { if let msg = runHocketSession(seed: UInt64(s) &+ 500_000, windows: 120, rawGates: false) { XCTFail(msg); return } }
+        XCTAssertGreaterThan(hocketPassedNotes, 200, "the fuzz must actually pass lines between lanes (\(hocketPassedNotes) passed notes)")
+        XCTAssertGreaterThan(hocketLitWindows, 1000, "…with rules lit (\(hocketLitWindows) windows)")
+        XCTAssertGreaterThan(hocketSharedChannelRuns, 50, "…and some sessions share channels across ports")
+    }
+    func testHocketRulesChangingMidRunAtGate100() {
+        for s in 1...300 { if let msg = runHocketSession(seed: UInt64(s) &+ 700_000, windows: 120, rawGates: true) { XCTFail(msg); return } }
+        XCTAssertGreaterThan(hocketPassedNotes, 20, "the raw-gate fuzz passes lines between lanes too (\(hocketPassedNotes))")
     }
 }

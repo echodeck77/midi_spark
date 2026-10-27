@@ -8789,3 +8789,174 @@ func euclideousRestartTileCellWidth(count: Int, width: CGFloat) -> CGFloat {
     return max(1, (width - 2 * CGFloat(count - 1)) / CGFloat(count))
 }
 
+
+// MARK: - HOCKET (ferry 2026-10-27) §6 — the turn function
+// PURE, allocation-free, safe on the render thread. The Router (per note-on) and every display (the pop-up's live chips, the cycle strip's ring, the lane cards' glyphs, the strip's flash) call THESE and nothing else: there is no second
+// derivation of "which turn is it" or "where does this note leave". Outputs are BUS indices 0…7 here (`FourfoldPorts`: 0 = Emit Riff A … 7 = Emit Notes D); −1 means "nowhere".
+
+/// The names an output carries in HOCKET's own text (RED, BLUE, AMBER, GREEN — Paul, 2026-10-27). The outputs themselves are letter-named in AUM ("Emit Riff A"); these name the LANES by their colour.
+enum HocketLaneNames {
+    static let lane = ["RED", "BLUE", "AMBER", "GREEN"]
+    static func name(lane l: Int) -> String { l >= 0 && l < lane.count ? lane[l] : "?" }
+    /// "RED RIFF", "BLUE NOTES" … for a bus 0…7.
+    static func output(bus: Int) -> String { bus >= 0 && bus < 8 ? "\(lane[bus / 2]) \(bus % 2 == 0 ? "RIFF" : "NOTES")" : "?" }
+}
+
+struct HocketTurn: Equatable {
+    var isAlt = false
+    var k: Int64 = 0            // §6.3's ALT turn index, floor((x + offset) ÷ L)
+}
+/// §6.3 — with L = mainLen + altLen the turn at count `x` is ALT when (x + offset) mod L ≥ mainLen.
+@inline(__always) func hocketTurn(x: Int64, offset: Int, mainLen: Int, altLen: Int) -> HocketTurn {
+    let L = Int64(max(1, mainLen + altLen))
+    let s = max(0, x) + Int64(max(0, offset))
+    let k = floorDiv(s, L)
+    return HocketTurn(isAlt: s - k * L >= Int64(mainLen), k: k)
+}
+/// The cycle strip's cell shape (§4.6): cell i (from 0) is an ALT cell when (i + offset) mod L ≥ mainLen.
+@inline(__always) func hocketCycleCellIsAlt(_ i: Int, offset: Int, mainLen: Int, altLen: Int) -> Bool {
+    let L = max(1, mainLen + altLen)
+    return (i + offset) % L >= mainLen
+}
+
+/// PASS THE LINE: the ALT output MAIN position `i` passes to this turn (−1 = nowhere: ALT empty). TOGETHER ⇒ ALT[i mod n]; ROTATE ⇒ ALT[(i + k) mod n].
+@inline(__always) func hocketPassTarget(mainIndex i: Int, rule: HocketRuleSnap, turn: HocketTurn) -> Int {
+    let n = rule.alt.count
+    guard n > 0 else { return -1 }
+    return rule.rotate ? rule.alt[Int((Int64(i) + turn.k) % Int64(n))] : rule.alt[i % n]
+}
+/// Which outputs receive a line this turn (bit b = bus b): PASS THE LINE on an ALT turn, every ALT output some MAIN output passes to.
+func hocketReceivers(rule: HocketRuleSnap, turn: HocketTurn) -> UInt8 {
+    guard rule.mode == .pass, turn.isAlt else { return 0 }
+    var m: UInt8 = 0
+    for i in 0..<rule.main.count {
+        let t = hocketPassTarget(mainIndex: i, rule: rule, turn: turn)
+        if t >= 0 { m |= UInt8(1) << UInt8(t) }
+    }
+    return m
+}
+/// The SOURCE of the line output `o` receives this turn — the first MAIN output, in group order, that passes to it; −1 when none does.
+func hocketCarriedSource(by o: Int, rule: HocketRuleSnap, turn: HocketTurn) -> Int {
+    guard rule.mode == .pass, turn.isAlt else { return -1 }
+    for i in 0..<rule.main.count where hocketPassTarget(mainIndex: i, rule: rule, turn: turn) == o { return rule.main[i] }
+    return -1
+}
+/// §6.5 — for one note of output `o` (a member of `rule`), the output it leaves on, or −1 for none.
+func hocketOutput(for o: Int, rule: HocketRuleSnap, turn: HocketTurn) -> Int {
+    let mainIndex = rule.main.index(of: o), inAlt = rule.alt.contains(bus: o)
+    switch rule.mode {
+    case .swap:
+        if mainIndex != nil && inAlt { return o }                       // in both groups: it always plays
+        if !turn.isAlt { return mainIndex != nil ? o : -1 }
+        if !rule.rotate { return inAlt ? o : -1 }
+        let n = rule.alt.count
+        guard n > 0 else { return -1 }
+        return rule.alt[Int(turn.k % Int64(n))] == o ? o : -1
+    case .pass:
+        if !turn.isAlt { return o }
+        if let i = mainIndex { return hocketPassTarget(mainIndex: i, rule: rule, turn: turn) }
+        // an ALT-only output: silent while it carries a line under REPLACE, otherwise it plays its own part
+        if inAlt, rule.replace, hocketReceivers(rule: rule, turn: turn) & (UInt8(1) << UInt8(o)) != 0 { return -1 }
+        return o
+    }
+}
+/// §8.1 — which chips are heard NOW (bit b = bus b): MAIN's grid on a MAIN turn; on an ALT turn ALT's (SWAP: every ALT chip, or ALT[k mod n] under ROTATE; PASS: the ALT chips receiving a line). An output in both
+/// groups is live in each group whose turn it is.
+func hocketLiveChips(rule: HocketRuleSnap, turn: HocketTurn) -> (main: UInt8, alt: UInt8) {
+    guard !turn.isAlt else {
+        switch rule.mode {
+        case .pass: return (0, hocketReceivers(rule: rule, turn: turn))
+        case .swap:
+            if !rule.rotate { return (0, rule.alt.mask) }
+            let n = rule.alt.count
+            return (0, n > 0 ? UInt8(1) << UInt8(rule.alt[Int(turn.k % Int64(n))]) : 0)
+        }
+    }
+    return (rule.main.mask, 0)
+}
+
+/// The turn in force for each rule, plus whether any of it is live (the transport runs). Stopped ⇒ every part is playing.
+struct HocketTurns: Equatable {
+    var t0 = HocketTurn(), t1 = HocketTurn(), t2 = HocketTurn(), t3 = HocketTurn()
+    var running = false
+    subscript(i: Int) -> HocketTurn {
+        get { switch i { case 0: return t0; case 1: return t1; case 2: return t2; default: return t3 } }
+        set { switch i { case 0: t0 = newValue; case 1: t1 = newValue; case 2: t2 = newValue; default: t3 = newValue } }
+    }
+}
+/// §9.1 — the one hocket state of a lane's riff or notes part (its output `bus`) for the turn in force now. `away` names the destination BUS (its lane is the away lane); `carrying` names the SOURCE bus of the line the part's
+/// own output receives (−1 = none) — independent of `play`, so a crossing is `away` and carrying at once.
+struct HocketPartView: Equatable {
+    enum Play: Equatable { case playing, resting, away(bus: Int) }
+    var play: Play = .playing
+    var carrying = -1
+}
+func hocketPartView(bus o: Int, rules: HocketRulesSnap, turns: HocketTurns) -> HocketPartView {
+    var v = HocketPartView()
+    guard turns.running, o >= 0, o < 8 else { return v }
+    let ri = Int(rules.ruleOfBus[o])
+    guard ri >= 0 else { return v }
+    let rule = rules[ri], turn = turns[ri]
+    let dest = hocketOutput(for: o, rule: rule, turn: turn)
+    v.play = dest < 0 ? .resting : (dest == o ? .playing : .away(bus: dest))
+    v.carrying = hocketCarriedSource(by: o, rule: rule, turn: turn)
+    return v
+}
+
+/// §6.6 — a passed note's velocity: its per-hit velocity (`fxVel`: the FX VEL cell the hit carries, nil when none) under the DESTINATION part's MIX VEL in place of the source pad's. MIX VEL is the BASE a hit's own velocity
+/// replaces, so a hit with no FX VEL cell takes the destination pad's value and an FX-VEL accent travels as its absolute value (notes layer: the cell plus that pad's offset from the riff pad, as `euclideousFXLitVelocity` has it).
+func hocketPassedVelocity(fxVel: Int?, destNotes: Bool, destVelocityAbsolute: Int, destNotesVelocity: Int) -> UInt8 {
+    let riffPad = max(1, min(127, destVelocityAbsolute))
+    if destNotes {
+        let notesPad = max(1, min(127, destNotesVelocity))
+        return fxVel.map { euclideousFXLitVelocity(fxVel: $0, notesVelocity: notesPad, velocityAbsolute: riffPad) } ?? UInt8(notesPad)
+    }
+    return fxVel.map { UInt8(max(1, min(127, $0))) } ?? UInt8(riffPad)
+}
+
+// MARK: - HOCKET §6.2 — the count x
+/// One reference lane's rhythm as `runEuclidLine` just built it for the window — exactly the arguments its own per-tick core is called with, so the count is the lane's own `ord` / `cy`, never a second derivation.
+/// The Router keeps eight of these (lane × lock-split segment) in preallocated storage and fills them in place (`capture`); a display builds its own.
+struct HocketLaneClock {
+    var valid = false
+    var buf = [Bool](repeating: false, count: 32)         // the lane's hit cells (tick space when the lane has timing, else the n-step buffer)
+    var delay = [Double](repeating: 0, count: 32)         // a hit's delay (steps into its cell), when `hasTiming`
+    var hasTiming = false
+    var n = 0, cycleLen = 1
+    var dir: EuclidDir = .fwd
+    var sub = 0.25
+    var chains = EuclideousLaneRestartChains.off
+    var legacySpanBeats = 0.0
+    /// Copy a lane's window state in place — no allocation (the arrays are already 32 long).
+    mutating func capture(cells: [Bool], delays: [Double], timing: Bool, n: Int, dir: EuclidDir, cycleLen: Int, sub: Double,
+                          chains: EuclideousLaneRestartChains, legacySpanBeats: Double) {
+        let m = min(32, cycleLen, cells.count)
+        for i in 0..<32 { buf[i] = i < m ? cells[i] : false }
+        if timing { for i in 0..<min(32, delays.count) { delay[i] = delays[i] } }
+        hasTiming = timing
+        self.n = n; self.dir = dir; self.cycleLen = max(1, cycleLen); self.sub = sub; self.chains = chains; self.legacySpanBeats = legacySpanBeats
+        valid = true
+    }
+}
+/// The reference lane's counts at the musical beat `m`. HITS: its pattern hits since its rhythm origin, up to and including this moment, minus one — counted before LANES, solo, the mask or FX act on them (a muted hit still moves
+/// it) — and 0 before its first hit. A hit delayed into its cell (OFFSET's fraction / fine TILT) counts only once its own time has come. PASSES: its pass index from the same origin (0 in the first pass). A rhythm restart zeroes both.
+func hocketLaneCounts(_ c: HocketLaneClock, atMusicalBeat m: Double) -> (hit: Int64, pass: Int64) {
+    guard c.valid, c.sub > 0 else { return (0, 0) }
+    let f = m / c.sub + 1e-9
+    let tick = Int64(f.rounded(.down))
+    let info = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: c.cycleLen, sub: c.sub, tick: tick, chains: c.chains,
+                                       legacySpanBeats: c.legacySpanBeats, advanceStep: false)
+    var ord = info.ord
+    if info.rawIsHit, c.hasTiming, info.raw >= 0, info.raw < c.delay.count, c.delay[info.raw] > f - Double(tick) + 1e-9 { ord -= 1 }
+    return (max(0, ord), max(0, info.cy))
+}
+/// §6.2 — a rule's count at the musical beat `m`. STEPS and BARS read the page clock from beat 0 (a sixteenth = 0.25 beat; a bar = the host's `beatsPerBar`); HITS and PASSES read the reference lane's clock (`nil` — a lane that
+/// isn't running this window — holds the count at 0).
+func hocketCount(unit: HocketUnit, clock: HocketLaneClock?, atMusicalBeat m: Double, beatsPerBar: Double) -> Int64 {
+    switch unit {
+    case .steps: return max(0, Int64((m / 0.25 + 1e-9).rounded(.down)))
+    case .bars: return beatsPerBar > 0 ? max(0, Int64((m / beatsPerBar + 1e-9).rounded(.down))) : 0
+    case .hits: return clock.map { hocketLaneCounts($0, atMusicalBeat: m).hit } ?? 0
+    case .passes: return clock.map { hocketLaneCounts($0, atMusicalBeat: m).pass } ?? 0
+    }
+}
