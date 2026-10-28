@@ -225,6 +225,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // this resolver directly, to prove the migration itself still works).
     func uiEuclideousFX() -> EuclideousFX { document.euclideousFXResolved }   // FX TAB (2026-10-18)
     func uiHocketRules() -> [HocketRule] { document.hocketRulesResolved }   // HOCKET (2026-10-27): sanitised, ≤ 4 rules; [] = none stored
+    func uiEmitterRatchets() -> EmitterRatchetSet { document.euclideousEmitterRatchetsResolved }   // EMITTER RATCHET (2026-10-28): the four output ratchets; nil in the document = all defaults
     func uiEuclideousLanesSeq() -> EuclideousLanesSeq {
         EuclideousLanesSeq(on: document.euclideousLanesSeqOnResolved, rate: document.euclideousLanesSeqRateResolved,
                             len: document.euclideousLanesSeqLenResolved, cells: document.euclideousLanesSeqCellsResolved)

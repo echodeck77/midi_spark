@@ -1458,6 +1458,78 @@ struct HocketRuleSet: Equatable, Codable {
     }
 }
 
+// MARK: - EMITTER RATCHET (RATCH tab ferry, 2026-10-28)
+// Four page-level ratchets, one per OUTPUT A–D (index 0…3), each driven by its own Euclid pattern. One additive-Optional, decode-tolerant document field (`PluginState.euclideousEmitterRatchets`) holds the four as FIXED-SIZE
+// data (four named members, no array); nil, short, long or unreadable ⇒ four emitters at the defaults, all off (§1.4), so an old session and every factory preset sound exactly as before.
+struct EmitterRatchet: Equatable {
+    var on = false          // default OFF
+    var steps = 8           // 2…16
+    var hits = 3            // 0…steps
+    var offset = 0          // 0…steps − 1
+    var chance = 100        // 0…100 in steps of 5
+    var strikes = 3         // 2…4
+
+    static let minSteps = 2, maxSteps = 16, minStrikes = 2, maxStrikes = 4, chanceStep = 5
+    var isDefault: Bool { self == EmitterRatchet() }
+
+    /// §1.2 / §1.3: STEPS first, then HITS ≤ STEPS and OFFSET ≤ STEPS − 1 against it — so one write that sets STEPS also clamps the other two, in the same undo step. CHANCE snaps to the nearest 5.
+    func normalized() -> EmitterRatchet {
+        var r = self
+        r.steps = max(Self.minSteps, min(Self.maxSteps, steps))
+        r.hits = max(0, min(r.steps, hits))
+        r.offset = max(0, min(r.steps - 1, offset))
+        r.chance = max(0, min(100, Int((Double(chance) / Double(Self.chanceStep)).rounded()) * Self.chanceStep))
+        r.strikes = max(Self.minStrikes, min(Self.maxStrikes, strikes))
+        return r
+    }
+}
+extension EmitterRatchet: Codable {
+    enum CodingKeys: String, CodingKey { case on, steps, hits, offset, chance, strikes }
+    /// Never throws on content: an unreadable key keeps its default, numbers clamp (§1.2).
+    init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        func int(_ k: CodingKeys) -> Int? { ((try? c.decodeIfPresent(EuclideousFXLossyInt.self, forKey: k)) ?? nil)?.value }
+        if let b = (try? c.decodeIfPresent(Bool.self, forKey: .on)) ?? nil { on = b }
+        if let n = int(.steps) { steps = n }
+        if let n = int(.hits) { hits = n }
+        if let n = int(.offset) { offset = n }
+        if let n = int(.chance) { chance = n }
+        if let n = int(.strikes) { strikes = n }
+        self = normalized()
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(on, forKey: .on); try c.encode(steps, forKey: .steps); try c.encode(hits, forKey: .hits); try c.encode(offset, forKey: .offset)
+        try c.encode(chance, forKey: .chance); try c.encode(strikes, forKey: .strikes)
+    }
+}
+
+/// The document's four emitter ratchets: FIXED-SIZE storage (four named members and a subscript — no array to allocate or share), encoded as a plain array of four. Every write through the subscript is normalised.
+struct EmitterRatchetSet: Equatable, Codable {
+    static let count = 4
+    private var e0 = EmitterRatchet(), e1 = EmitterRatchet(), e2 = EmitterRatchet(), e3 = EmitterRatchet()
+    init() {}
+    init(_ list: [EmitterRatchet]) { for (i, r) in list.prefix(Self.count).enumerated() { self[i] = r } }
+    /// A stored value that isn't an array of ratchets at all decodes to the defaults, never to a failed document load; a short array leaves the rest at their defaults, a long one drops the extras.
+    init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.singleValueContainer(), let raw = try? c.decode([EmitterRatchet].self) else { return }
+        for (i, r) in raw.prefix(Self.count).enumerated() { self[i] = r }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(asArray)
+    }
+    subscript(i: Int) -> EmitterRatchet {
+        get { switch i { case 0: return e0; case 1: return e1; case 2: return e2; default: return e3 } }
+        set { let n = newValue.normalized(); switch i { case 0: e0 = n; case 1: e1 = n; case 2: e2 = n; default: e3 = n } }
+    }
+    var asArray: [EmitterRatchet] { [e0, e1, e2, e3] }
+    /// Nothing has been touched: the same as no stored value at all (undo restores nil for it).
+    var isAllDefault: Bool { self == EmitterRatchetSet() }
+}
+
 struct EuclideousLanesSeq: Equatable {
     var on: Bool = false
     var rate: EuclideousSeqRate = .oneBar
@@ -2953,6 +3025,10 @@ struct PluginState: Codable, Equatable {
     // something in it is edited). Sanitised by `HocketRuleSet` whenever it is built or decoded, so `hocketRulesResolved` is what the render path, the page and undo all read.
     var hocketRules: HocketRuleSet? = nil
     var hocketRulesResolved: [HocketRule] { hocketRules?.rules ?? [] }
+    // EMITTER RATCHET (RATCH tab ferry, 2026-10-28): one ratchet per output A–D, each with its own Euclid pattern. Additive-Optional and decode-tolerant: nil ⇒ four emitters at the defaults, all OFF (§1.4), so an old document plays
+    // bit-identically. `…Resolved` is what the render path (via `SnapshotBuilder`), the page and undo all read.
+    var euclideousEmitterRatchets: EmitterRatchetSet? = nil
+    var euclideousEmitterRatchetsResolved: EmitterRatchetSet { euclideousEmitterRatchets ?? EmitterRatchetSet() }
     // KEY + SCALE: a page-level root+type pair, reusing the existing `ScaleType` enum purely as storage —
     // does NOT pre-wire the SCALE-door/KEY±/FOUNT machinery §4.3 explicitly leaves open (a genuinely
     // independent new field, not a reference to any door's own scale pool).
@@ -3501,6 +3577,7 @@ struct EuclideousUndoSnapshot: Equatable {
     var fx: EuclideousFX = EuclideousFX()   // FX TAB (2026-10-18): cells, lane sets, PASSES, CC number, BASE — undoable page-level state (selection/brush/bubble are not)
     var holdLatchMode: EuclideousHoldLatchMode? = nil   // HOLD/LATCH (2026-10-20): undoable like noteSource above, no §7.3-style exclusion
     var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the rules — undoable page-level state (which rule tab is showing, and whether the pop-up is open, are not); [] = none stored
+    var emitterRatchets: EmitterRatchetSet = EmitterRatchetSet()   // EMITTER RATCHET (2026-10-28): the four output ratchets — undoable page-level state; all-default restores "nothing stored" (nil)
     /// UNDO-5 (2026-10-25): lanes' PLAY/STOP are never undoable (§7.3) — EXCEPT across a preset load, which is itself a step and replaces them: only such a step carries the flags it must put back (`nil` = every other step, which
     /// keeps the live flags as always). Captured by `loadPreset` / `loadFactoryPreset`, and re-stamped on the opposite side when that step is undone or redone so ↶ and ↷ both land on the right flags.
     var presetPlay: [EuclideousLanePlay]? = nil

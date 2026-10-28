@@ -159,6 +159,38 @@ struct HocketRulesSnap: Equatable {
     var isInert: Bool { litMask == 0 }
 }
 
+// MARK: - EMITTER RATCHET (RATCH tab ferry 2026-10-28) — the four output ratchets as the render thread reads them
+// Fixed-size VALUE storage only (four named members, no array): copying a snapshot never touches the heap. `patternMask` is built on the MAIN thread, by the page's own Euclid function (`emitterRatchetPatternMask`), so the
+// render thread never runs it: bit i set ⇔ pattern step i is a hit (§1.7).
+struct EmitterRatchetCfg: Equatable {
+    var on = false
+    var steps = 8, hits = 3, offset = 0, chance = 100, strikes = 3
+    var patternMask: UInt16 = 0
+    init() { patternMask = emitterRatchetPatternMask(steps: steps, hits: hits, offset: offset) }
+    init(_ r: EmitterRatchet) {
+        let n = r.normalized()
+        on = n.on; steps = n.steps; hits = n.hits; offset = n.offset; chance = n.chance; strikes = n.strikes
+        patternMask = emitterRatchetPatternMask(steps: steps, hits: hits, offset: offset)
+    }
+    @inline(__always) func isHit(_ i: Int) -> Bool { i >= 0 && i < 16 && (patternMask >> UInt16(i)) & 1 != 0 }
+}
+struct EmitterRatchetSnap: Equatable {
+    var e0 = EmitterRatchetCfg(), e1 = EmitterRatchetCfg(), e2 = EmitterRatchetCfg(), e3 = EmitterRatchetCfg()
+    /// FX COUNTS (dev builds only, RATCH tab ferry §7): false = count the hits that leave on the emitter (the default, and always in release); true = index by the striking lane's pattern step `s`.
+    var countsSteps = false
+    init() {}
+    init(_ set: EmitterRatchetSet, countsSteps: Bool = false) {
+        for i in 0..<EmitterRatchetSet.count { self[i] = EmitterRatchetCfg(set[i]) }
+        self.countsSteps = countsSteps
+    }
+    subscript(i: Int) -> EmitterRatchetCfg {
+        get { switch i { case 0: return e0; case 1: return e1; case 2: return e2; default: return e3 } }
+        set { switch i { case 0: e0 = newValue; case 1: e1 = newValue; case 2: e2 = newValue; default: e3 = newValue } }
+    }
+    /// At least one emitter is ON (the Router's whole ratchet path is skipped otherwise, bit for bit).
+    var anyOn: Bool { e0.on || e1.on || e2.on || e3.on }
+}
+
 struct SnapParams {
     var type: ProcessorType = .arp
     var octaves: UInt8 = 1
@@ -224,6 +256,8 @@ struct SnapParams {
     var euclideousFX: EuclideousFX = EuclideousFX()
     // HOCKET (2026-10-27): the page-level rules, gated to `Snap.euclideousRow`; inert (no lit rule) ⇒ the Router's output is unchanged, bit for bit.
     var hocketRules: HocketRulesSnap = HocketRulesSnap()
+    // EMITTER RATCHET (2026-10-28): the page-level output ratchets, gated to `Snap.euclideousRow`; all OFF (the default) ⇒ the Router's output is unchanged, bit for bit.
+    var emitterRatchets: EmitterRatchetSnap = EmitterRatchetSnap()
     var euclideousLanesSeqOn: Bool = false
     var euclideousLanesSeqRate: EuclideousSeqRate = .oneBar
     var euclideousLanesSeqLen: Int = 8
@@ -341,7 +375,7 @@ final class SnapshotBox {
         guard Snap.euclideousRow < cells.count else { return nil }
         let cell = cells[Snap.euclideousRow]
         guard cell.machineIndex >= 0, Int(cell.machineIndex) < machines.count else { return nil }
-        return String(describing: machines[Int(cell.machineIndex)].a.euclidLines) + "|" + String(describing: cell.procs.first?.hocketRules)
+        return String(describing: machines[Int(cell.machineIndex)].a.euclidLines) + "|" + String(describing: cell.procs.first?.hocketRules) + "|" + String(describing: cell.procs.first?.emitterRatchets)   // EMITTER RATCHET (2026-10-28): the four output ratchets live in procs[0] too
     }
 }
 

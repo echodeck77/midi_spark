@@ -9548,3 +9548,107 @@ func hocketStripLayerLook(lane: Int, view: HocketPartView) -> HocketStripLayerLo
 }
 /// The lane a flash takes the colour of, given the output the strike's note actually left on (`dest`, a bus 0…7, −1 = the hit event does not say) — the event wins, so a flash is always the colour of where the note went.
 func hocketFlashLane(ownLane: Int, dest: Int) -> Int { dest >= 0 && dest < 8 ? dest / 2 : ownLane }
+
+// MARK: - EMITTER RATCHET (RATCH tab ferry, 2026-10-28) §1.7 / §2 — the pattern, the count and the decision (pure; the Router and every display call these, never a second derivation)
+// Four page-level ratchets, one per OUTPUT A–D. An "emitter hit" on output X is a processed lane hit that sends at least one note on X; X counts them, and its own Euclid pattern + CHANCE decide which ones it ratchets.
+
+/// §1.7 — P(i) for i in 0..<steps as a bit mask (bit i ⇔ step i is a hit): exactly the pattern the RHYTHM tab draws for a lane at these STEPS / HITS / OFFSET with TILT 0 and the pattern not flipped, because it IS that lane's one
+/// builder (`euclideousHitPatternInto`). Built on the MAIN thread (SnapshotBuilder) and shipped in the snapshot, so the render thread never runs any Euclid code for it.
+func emitterRatchetPatternMask(steps: Int, hits: Int, offset: Int) -> UInt16 {
+    let n = max(EmitterRatchet.minSteps, min(EmitterRatchet.maxSteps, steps))
+    var cells = [Bool](repeating: false, count: n)
+    var micro = [Double](repeating: 0, count: n)
+    euclideousHitPatternInto(pulses: max(0, min(n, hits)), steps: n, rotate: offset, tilt: 0, fine: false, customHits: nil, patternMiss: false, cells: &cells, micro: &micro)
+    var m: UInt16 = 0
+    for i in 0..<n where cells[i] { m |= UInt16(1) << UInt16(i) }
+    return m
+}
+
+/// §2.6 — the salt of the emitter ratchet's CHANCE roll ("EMITRTCH"): no other roll in the engine uses it (notes CHANCE 0x4E4F5445…, mask CHANCE 0xA24BAED4963EE407, mask ratchet 0x2545F491…).
+let emitterRatchetSalt: UInt64 = 0x454D_4954_5254_4348
+/// §2.6 — the roll, 0…99: `splitmix64Mix` of the output's index and the hit's count (c_X BEFORE its increment in HITS mode; the striking lane's pattern step `s` in STEPS mode) under the salt. Replay-exact.
+func emitterRatchetRoll(output: Int, v: Int64) -> Int {
+    let seed = emitterRatchetSalt ^ (UInt64(truncatingIfNeeded: output &+ 1) &* 0x9E37_79B9_7F4A_7C15) ^ UInt64(bitPattern: v)
+    return Int(splitmix64Mix(seed) % 100)
+}
+
+/// §2.7 — what the emitter decides for one emitter hit: the pattern index it fell on, whether P(index) is a hit, whether it ratchets, and STRIKES (the cap on the beat width is applied where the strikes are laid out).
+/// `missed` = the emitter is ON and P(index) is a hit but CHANCE failed (the hit feed's MISSED bit); an OFF emitter never misses.
+struct EmitterRatchetDecision: Equatable {
+    var index = 0
+    var isHit = false
+    var ratchets = false
+    var strikes = 3
+    var missed = false
+}
+/// §2.6 — X ratchets the hit if ON, and P(index) is a hit, and roll < CHANCE. CHANCE 100 always passes; CHANCE 0 never does. `v` is the count (HITS) or the lane's pattern step (STEPS); the index is `v mod STEPS`.
+func emitterRatchetDecide(_ cfg: EmitterRatchetCfg, output: Int, v: Int64) -> EmitterRatchetDecision {
+    let n = Int64(max(1, cfg.steps))
+    let index = Int(((v % n) + n) % n)
+    let hit = cfg.isHit(index)
+    var passes = false
+    if cfg.on && hit { passes = cfg.chance >= 100 || (cfg.chance > 0 && emitterRatchetRoll(output: output, v: v) < cfg.chance) }
+    return EmitterRatchetDecision(index: index, isHit: hit, ratchets: passes, strikes: cfg.strikes, missed: cfg.on && hit && !passes)
+}
+
+/// §2.2 / §2.3 / §2.5 — the four emitters' counters. FIXED-SIZE value storage (SIMD lanes and four named decisions), so the Router owns one without allocating and a test drives it directly.
+/// `hit(...)` is called ONCE per emitter hit on output X, in the Router's processing order: hits on one output at the SAME sample (same `window`, same `sample`) share the first one's decision and count once (§2.2).
+/// The counter c_X goes up by one per emitter hit whatever the mode, whether or not X is ON (§2.1); in STEPS mode (§2.4) c_X is simply not read.
+struct EmitterRatchetCounter: Equatable {
+    private(set) var counts = SIMD4<Int64>(repeating: 0)
+    private var cacheWindow = SIMD4<Int64>(repeating: -1)
+    private var cacheSample = SIMD4<Int64>(repeating: -1)
+    private var d0 = EmitterRatchetDecision(), d1 = EmitterRatchetDecision(), d2 = EmitterRatchetDecision(), d3 = EmitterRatchetDecision()
+    /// Byte x = output x's pattern index at its most recent emitter hit, 0xFF = none yet (the strip's current slot). Read by the UI through a main-thread accessor.
+    private(set) var indexPacked: UInt32 = 0xFFFF_FFFF
+
+    /// §2.5 — the count origin: every counter back to 0, the same-sample cache and the published indices cleared.
+    mutating func reset() { self = EmitterRatchetCounter() }
+
+    mutating func hit(cfg: EmitterRatchetCfg, output x: Int, countsSteps: Bool, laneStep: Int64, window: Int64, sample: Int64) -> EmitterRatchetDecision {
+        guard x >= 0 && x < 4 else { return EmitterRatchetDecision() }
+        if cacheWindow[x] == window && cacheSample[x] == sample { return cached(x) }
+        let v = countsSteps ? laneStep : counts[x]
+        let d = emitterRatchetDecide(cfg, output: x, v: v)
+        counts[x] &+= 1
+        cacheWindow[x] = window; cacheSample[x] = sample
+        switch x { case 0: d0 = d; case 1: d1 = d; case 2: d2 = d; default: d3 = d }
+        let shift = UInt32(8 * x)
+        indexPacked = (indexPacked & ~(UInt32(0xFF) << shift)) | (UInt32(truncatingIfNeeded: d.index) << shift)
+        return d
+    }
+    private func cached(_ x: Int) -> EmitterRatchetDecision { switch x { case 0: return d0; case 1: return d1; case 2: return d2; default: return d3 } }
+    /// Output x's most recent pattern index, nil before its first emitter hit.
+    func currentIndex(_ x: Int) -> Int? { let b = (indexPacked >> UInt32(8 * x)) & 0xFF; return b == 0xFF ? nil : Int(b) }
+}
+
+/// The five value cells of a card, left to right (§4.6): their labels, ranges, defaults and what one VoiceOver step is. HITS' range follows STEPS (0…STEPS), OFFSET's follows it too (0…STEPS − 1); setting a value
+/// clamps at the ends and never wraps, and setting STEPS clamps the other two in the same write (§1.3).
+enum EmitterRatchetField: Int, CaseIterable {
+    case steps, hits, offset, chance, strikes
+    var label: String { ["STEPS", "HITS", "OFFSET", "CHANCE", "STRIKES"][rawValue] }
+    var defaultValue: Int { [8, 3, 0, 100, 3][rawValue] }
+    /// One step of a drag or a VoiceOver swipe: CHANCE moves in fives, everything else by one.
+    var step: Int { self == .chance ? EmitterRatchet.chanceStep : 1 }
+    func range(in r: EmitterRatchet) -> ClosedRange<Int> {
+        switch self {
+        case .steps: return EmitterRatchet.minSteps...EmitterRatchet.maxSteps
+        case .hits: return 0...r.steps
+        case .offset: return 0...max(0, r.steps - 1)
+        case .chance: return 0...100
+        case .strikes: return EmitterRatchet.minStrikes...EmitterRatchet.maxStrikes
+        }
+    }
+    func value(of r: EmitterRatchet) -> Int {
+        switch self { case .steps: return r.steps; case .hits: return r.hits; case .offset: return r.offset; case .chance: return r.chance; case .strikes: return r.strikes }
+    }
+    /// `r` with this field set to `v` (clamped to its range, CHANCE snapped to 5); STEPS drags HITS and OFFSET down with it.
+    func setting(_ v: Int, in r: EmitterRatchet) -> EmitterRatchet {
+        var out = r
+        let c = max(range(in: r).lowerBound, min(range(in: r).upperBound, v))
+        switch self { case .steps: out.steps = c; case .hits: out.hits = c; case .offset: out.offset = c; case .chance: out.chance = c; case .strikes: out.strikes = c }
+        return out.normalized()
+    }
+    /// §6.2 — a double tap resets the cell to its default; HITS and OFFSET are clamped by STEPS (§1.3).
+    func reset(in r: EmitterRatchet) -> EmitterRatchet { setting(defaultValue, in: r) }
+}

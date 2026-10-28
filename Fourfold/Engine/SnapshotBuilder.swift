@@ -139,6 +139,7 @@ enum SnapshotBuilder {
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
                     sc.procs[0].euclideousFX = doc.euclideousFXResolved   // FX TAB (2026-10-18): page-level, no MachineParams hop — same shape as the sequencer fields below
                     sc.procs[0].hocketRules = HocketRulesSnap(rules: doc.hocketRulesResolved)   // HOCKET (2026-10-27): page-level, no MachineParams hop — fixed-size value data for the render thread
+                    sc.procs[0].emitterRatchets = EmitterRatchetSnap(doc.euclideousEmitterRatchetsResolved)   // EMITTER RATCHET (2026-10-28): page-level, no MachineParams hop; the Euclid masks are built here, on the main thread
                     sc.procs[0].euclideousLanesSeqOn = doc.euclideousLanesSeqOnResolved
                     sc.procs[0].euclideousLanesSeqRate = doc.euclideousLanesSeqRateResolved
                     sc.procs[0].euclideousLanesSeqLen = doc.euclideousLanesSeqLenResolved

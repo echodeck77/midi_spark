@@ -719,6 +719,8 @@ struct EuclideousPage: View {
     let fx: EuclideousFX
     // HOCKET (2026-10-27): the document's rules ([] = none stored; the pop-up then shows an empty R1). Every edit goes through `onEditHocket`, which the VC turns into one document write + one republish.
     let hocketRules: [HocketRule]
+    // EMITTER RATCHET (RATCH tab ferry, 2026-10-28): the document's four output ratchets (all defaults when nothing is stored). Every edit goes through `onEditEmitterRatchet`, which the VC turns into one document write + one republish.
+    let emitterRatchets: EmitterRatchetSet
     let hocketLive: HocketLiveModel      // HOCKET §8: the count of each lit rule as the Router last published it — read ONLY by leaf views that observe it
     let rollLive: NoteRollLive           // CARD BACKS §5: each part's recent notes and when each output last took one — read ONLY inside the card backs' own frame clocks
     let lanesSeqStep: Int
@@ -814,6 +816,8 @@ struct EuclideousPage: View {
     let onEditFX: (Bool, @escaping (inout EuclideousFX) -> Void) -> Void
     /// HOCKET: like `onEditFX` — `newStep: true` takes a `coalesceKey: nil` undo checkpoint, `false` writes into the step already open. The closure edits the rules as the pop-up shows them (an empty R1 when none are stored).
     let onEditHocket: (Bool, @escaping (inout [HocketRule]) -> Void) -> Void
+    /// EMITTER RATCHET: like `onEditFX` — `newStep: true` takes a `coalesceKey: nil` undo checkpoint (a toggle tap, a double-tap reset, a VoiceOver swipe, the first change of a value drag), `false` writes into the step already open.
+    let onEditEmitterRatchet: (Bool, @escaping (inout EmitterRatchetSet) -> Void) -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
     // §4.8 (2026-10-15 ferry): "a preset pick is one undo step" — a DISCRETE action, same class as
     // `onSetActiveRiff`/`onSetKeyRoot` below, not a continuous gesture. Routing a preset pick through the
