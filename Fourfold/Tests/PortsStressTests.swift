@@ -745,3 +745,114 @@ extension PortsStressTests {
         XCTAssertTrue(diverged.isEmpty, "a rule on lanes 1–2 changed lanes 3–4's outputs: \(diverged.prefix(5))")
     }
 }
+
+// MARK: - ADVERSARIAL REVIEW of CARD BACKS (2026-10-28) — HOCKET × non-default routing masks
+// The shipped HOCKET fuzz draws `rDoc(lanes:)`, which never randomises masks, and HocketRouterTests render through a two-pass adapter (riff parts only, then notes parts) — so a lit rule on parts that share outputs,
+// reach several outputs or reach none is exercised nowhere. This runs the HOCKET session with random masks drawn at the start AND changed mid-run, and also checks the roll feed against the wire.
+extension PortsStressTests {
+    private func runHocketMaskSession(seed: UInt64, windows: Int, rawGates: Bool, sameChannels: Bool = false) -> String? {
+        var g = SM64(seed)
+        let router = Router()
+        var diag = KernelDiag()
+        let e = TaggedEmitter()
+        var lanes = (0..<4).map { _ in rRouting(&g, rPlayingLane(&g)) }
+        var (st, pool) = rDoc(&g, lanes: lanes, rawGates: rawGates)
+        pool.reset(); for n in [48, 55, 60, 64, 67, 72] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
+        st.euclideousNoteSource = .midi
+        let distinctChannels = !sameChannels && Bool.random(using: &g)
+        if distinctChannels { st.busChannels = Array((1...16).shuffled(using: &g).prefix(4)) }
+        var rules = rHocketRules(&g)
+        st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules)
+        var box = SnapshotBuilder.build(from: st)
+        let sr = 48_000.0
+        var tempo = Double([120, 140, 160, 200].randomElement(using: &g)!)
+        var beat = 0.0, ts = 0.0
+        var playing = true
+        var winChans: [[UInt8]] = [], winParams: [(beat: Double, ts: Double)] = [], winTempos: [Double] = []
+        var rolls: [NoteRollRecord] = []
+        var maxActive = 0
+        func rebuild() {
+            st.euclideousLines = lanes
+            let ls = rawGates ? lanes : st.euclideousLinesResolved
+            st.euclideousLines = ls
+            let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
+                                              soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
+            st.scenes = [FourfoldCompose.scene(input)]
+            box = SnapshotBuilder.build(from: st)
+        }
+        rebuild()
+        for w in 0..<windows {
+            e.win = w
+            if Int.random(in: 0...2, using: &g) == 0 { editRules(&rules, &g); st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules); box = SnapshotBuilder.build(from: st) }
+            if Int.random(in: 0...2, using: &g) == 0 { lanes = lanes.map { rRouting(&g, $0) }; rebuild() }          // masks change with notes sounding
+            if Int.random(in: 0...12, using: &g) == 0 { lanes = (0..<4).map { _ in rRouting(&g, rPlayingLane(&g)) }; rebuild() }
+            if Int.random(in: 0...4, using: &g) == 0 { tempo = Double([60, 90, 120, 160, 200].randomElement(using: &g)!) }
+            if Int.random(in: 0...7, using: &g) == 0 {
+                pool.reset()
+                for _ in 0..<Int.random(in: 1...5, using: &g) { pool.noteOn(UInt8.random(in: 36...84, using: &g), velocity: UInt8.random(in: 20...127, using: &g), channel: 0) }
+            }
+            let frames = UInt32([256, 512, 1024, 2048, 4096, 8192].randomElement(using: &g)!)
+            if Int.random(in: 0...11, using: &g) == 0 { playing.toggle() }
+            if Int.random(in: 0...12, using: &g) == 0 { beat += Double.random(in: -8...32, using: &g) }
+            let allOff = Int.random(in: 0...14, using: &g) == 0, panic = Int.random(in: 0...40, using: &g) == 0
+            let live = Int.random(in: 0...5, using: &g) == 0 ? (0x100 | UInt16.random(in: 0...15, using: &g)) : UInt16(st.euclideousSoloMaskResolved)   // 0x100 = "the page has spoken": without it the router ignores the live word (the shipped fuzz never sets it)
+            winChans.append(box.busChannels); winParams.append((beat, ts)); winTempos.append(tempo)
+            router.process(box: box, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames,
+                           panic: panic, euclideousAllNotesOff: allOff, euclideousSoloLive: live, out: e, diag: &diag)
+            rolls += router.rollRing.drain()
+            maxActive = max(maxActive, diag.activeVoiceCount)
+            beat += Double(frames) * tempo / 60.0 / sr
+            ts += Double(frames)
+        }
+        e.win = windows
+        winChans.append(box.busChannels); winParams.append((beat, ts)); winTempos.append(tempo)
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
+        rolls += router.rollRing.drain()
+        var bal: [Int: Int] = [:]
+        var portMS: [String: Int] = [:], allMS: [String: Int] = [:]
+        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {
+            let k = (Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)
+            if ev.status == 0x90 {
+                bal[k, default: 0] += 1
+                if ev.cable >= 1 && ev.cable <= 4 {
+                    let want = (winChans[ev.win][Int(ev.cable) - 1] &- 1) & 15
+                    if ev.chan != want { return "seed \(seed): cable \(ev.cable) note-ON ch \(ev.chan) != the output's channel \(want) (win \(ev.win))" }
+                }
+                let key = "\(ev.sample)/\(ev.note)/\(ev.vel)/\(ev.chan)"
+                if ev.cable == 0 { allMS[key, default: 0] += 1 } else if ev.cable <= 4 { portMS[key, default: 0] += 1 }
+            } else {
+                bal[k, default: 0] -= 1
+                if bal[k]! < 0 { return "seed \(seed): ORPHAN note-off cable \(ev.cable) ch \(ev.chan) note \(ev.note) (win \(ev.win))" }
+            }
+        }
+        for (k, v) in bal where v != 0 { return "seed \(seed): STUCK note — cable \((k / 128) / 16) ch \((k / 128) % 16) note \(k % 128) balance \(v) at the end" }
+        if distinctChannels && portMS != allMS && maxActive < 120 {
+            let a = portMS.filter { allMS[$0.key] != $0.value }.keys.sorted().first, b = allMS.filter { portMS[$0.key] != $0.value }.keys.sorted().first
+            return "seed \(seed): ALL != the union of the outputs (distinct channels, maxActive \(maxActive)) — output-only \(a ?? "-") / all-only \(b ?? "-")"
+        }
+        var m = NoteRollModel(); m.ingest(rolls)
+        if m.openCount != 0 { return "seed \(seed): \(m.openCount) note(s) left open in the roll after the stop" }
+        return nil
+    }
+    func testReviewHocketWithRoutingMasksNeverStrandsANote() {
+        var fails: [String] = []
+        for s in 1...400 { if let msg = runHocketMaskSession(seed: UInt64(s) &+ 910_000, windows: 100, rawGates: false) { fails.append(msg); if fails.count >= 6 { break } } }
+        XCTAssertTrue(fails.isEmpty, fails.joined(separator: "\n"))
+    }
+    func testReviewHocketWithRoutingMasksAtGate100() {
+        var fails: [String] = []
+        for s in 1...400 { if let msg = runHocketMaskSession(seed: UInt64(s) &+ 920_000, windows: 100, rawGates: true) { fails.append(msg); if fails.count >= 6 { break } } }
+        XCTAssertTrue(fails.isEmpty, fails.joined(separator: "\n"))
+    }
+    /// The same session, 3,000 more seeds (mixed gates and channel plans) — the long run behind "nothing found".
+    func testReviewHocketWithRoutingMasksLongRun() {
+        var fails: [String] = []
+        for s in 1...3000 { if let msg = runHocketMaskSession(seed: UInt64(s) &+ 940_000, windows: 80, rawGates: s % 3 == 0, sameChannels: s % 5 == 0) { fails.append(msg); if fails.count >= 6 { break } } }
+        XCTAssertTrue(fails.isEmpty, fails.joined(separator: "\n"))
+    }
+    func testReviewHocketWithRoutingMasksOnSharedChannels() {
+        var fails: [String] = []
+        for s in 1...400 { if let msg = runHocketMaskSession(seed: UInt64(s) &+ 930_000, windows: 100, rawGates: s % 2 == 0, sameChannels: true) { fails.append(msg); if fails.count >= 6 { break } } }
+        XCTAssertTrue(fails.isEmpty, fails.joined(separator: "\n"))
+    }
+}

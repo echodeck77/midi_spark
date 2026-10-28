@@ -92,7 +92,7 @@ final class Router {
                                      // Euclideous's own row never registers as a hold-adopting cell for that mechanism.
                                      // allNotesOff still closes it on every transport/scene edge (unconditional, as always).
     }
-    private var voices = [Voice](repeating: Voice(), count: 128)
+    private var voices = [Voice](repeating: Voice(), count: 256)   // (128 until the card backs: one strike on a part routed to all four outputs is 8 voices, and four busy lanes filled the table — ENGINE REVIEW 2026-10-28)
 
     // LANE SOLO (2026-10-21): which Euclideous lane struck a voice / an echo tail (−1 = none, every other row). `euclideousStrikeLane` is set for the duration of one lane's `runEuclidLine` and, per tail, while the
     // echo ring drains, and stamped by `openVoice` / `pushEchoTail` — so a solo that silences a lane can end exactly ITS sounding notes and pending repeats at once (`cutSoloSilencedLanes`).
@@ -194,8 +194,8 @@ final class Router {
     // arrays — the live holder count and the latest end seen). A group is ONE note: one note-on at its first strike, one note-off at its latest end, whatever order its holders were struck or swept in. Holders that do not
     // overlap are separate groups (separate notes), so a note that has already ended is never joined by a later hit. Strikes to every OTHER output keep today's restrike (off then on), so with no lit rule the output is
     // byte-identical to the nine-output build (§7.6).
-    private var groupCount = [Int32](repeating: 0, count: 128)
-    private var groupMax = [Int64](repeating: .min, count: 128)
+    private var groupCount = [Int32](repeating: 0, count: 256)
+    private var groupMax = [Int64](repeating: .min, count: 256)
     private var hocketLitBusMask: UInt8 = 0         // every output in either group of a LIT rule — read by `emitOneBus` (set from the snapshot at the top of each window)
     private var hocketDeferredCloses = false        // a voice has `deferClose` set: sweep them when the window ends
     private var groupMembers = 0                    // HOCKET §7.3: voices that belong to a note group right now (0 whenever no rule has ever been lit, or its notes have all ended — the byte-identical state)
@@ -1118,7 +1118,7 @@ final class Router {
         // drop silently — the note-hungry all-16 fan is the one path that trips this cap. (corrected 2026-08-27)
         var slot = -1
         for i in voices.indices where !voices[i].active { slot = i; break }
-        guard slot >= 0 else { return -1 }
+        guard slot >= 0 else { floodDropped &+= 1; return -1 }   // a refused strike is COUNTED (HEALTH shows it) — it used to vanish silently
 
         // §6a CLAIM: a SILENT voice (a muted claimant's reservation) is tracked for exclusivity only —
         // no wire note-on and no refcount, so it can never emit an off or hold a shared channel alive.
@@ -1325,7 +1325,7 @@ final class Router {
         if wasSilent { return }
         // CARD BACKS §5: a note cut before its planned end (a mute, a solo, a stop, a panic) — or a legato hold that finally closes — tells the roll where it really ended: once per strike, from the output's own cable.
         if cable != 0 && (plannedOff == .max || wasLegato || timeIn < plannedOff) {   // a legato hold is closed by the reconcile, which has already rewritten its `offSample` — it always ends with a record
-            rollRing.push(NoteRollRecord(onBeat: startBeat, length: Float(max(0, Double(time - startedAt) * fBeatsPerSample)), pitch: note, velocity: 0, part: ofPart & 7, flags: NoteRollRecord.endFlag))
+            rollRing.push(NoteRollRecord(onBeat: startBeat, length: Float(max(0, Double(max(time, fWindowStart) - startedAt) * fBeatsPerSample)), pitch: note, velocity: 0, part: ofPart & 7, flags: NoteRollRecord.endFlag))   // (a stop / panic / reset cuts at `renderSampleImmediate`, far before any window: clamp to the window's start so the roll shows where it ended)
         }
 
         let idx = rcIndex(cable, chan, note)
@@ -3108,9 +3108,11 @@ final class Router {
                                 for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == bus { return }   // the same pitch on the SAME part: first insertion wins
                                 var outs: UInt8 = 0xFF
                                 if notesLayer {   // §2.5: a notes pitch the riff strikes on this hit too (or is HOLDING through a tied rest) leaves only on the outputs the riff does not use; none left ⇒ the duplicate is dropped, as it always was
-                                    var riffHas = heldByRiff
-                                    if !riffHas { for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == Int(riffBus) { riffHas = true; break } }
-                                    if riffHas {
+                                    var riffHas = heldByRiff, inSet = false
+                                    if !riffHas { for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == Int(riffBus) { riffHas = true; inSet = true; break } }
+                                    // ENGINE REVIEW (2026-10-28): with a HOCKET rule lit the in-set duplicate is kept through the remap and resolved AFTER it (against the parts the pitches actually end up on) — dropping it here took the notes layer's
+                                    // pitch away for good on a turn where the rule swapped the riff off the output. With no rule lit this is the old immediate rule, byte for byte.
+                                    if riffHas && !(inSet && hocketRules.litMask != 0) {
                                         let notesOuts = partOut[notesBus.trailingZeroBitCount] & 0x0F, riffOuts = partOut[riffBus.trailingZeroBitCount] & 0x0F
                                         if notesOuts & riffOuts != 0 { if notesOuts & ~riffOuts == 0 { return }; outs = notesOuts & ~riffOuts }
                                     }
@@ -3447,6 +3449,7 @@ final class Router {
                                             notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * i))) | (((notesSlotBits >> UInt64(4 * last)) & 0xF) << UInt64(4 * i))
                                             notesSlotBits |= UInt64(0xF) << UInt64(4 * last)
                                             pitchBus[i] = pitchBus[last]   // PER-LAYER ROUTING: the output mask travels with the pitch moved into slot i too
+                                            pitchOuts[i] = pitchOuts[last]; pitchOuts[last] = 0xFF   // ENGINE REVIEW (2026-10-28): …and so does its collision set (the notes copy of the riff's pitch lost its "B only" and struck on A too)
                                             pitchCount -= 1
                                         } else {
                                             i += 1
@@ -3674,6 +3677,20 @@ final class Router {
                                                 pitchVel[slot] = UInt8(max(1, min(127, Int(passed) + velDelta)))
                                             }
                                         }
+                                    }
+                                }
+                                // Phase 1b — the notes layer's copy of a pitch the riff ALSO strikes (kept through the remap, see `addPitch`) leaves only on the outputs no surviving riff copy of that pitch uses; none left ⇒ dropped. A riff pitch the
+                                // rule sent nowhere (dead) or to a part with no outputs protects nothing, so the notes layer's pitch sounds.
+                                do {
+                                    for j in 0..<total where deadBits & (UInt16(1) << UInt16(j)) == 0 && (notesPitchMask >> UInt16(j)) & 1 != 0 && pitchBus[j] > 0 {
+                                        var riffUnion: UInt8 = 0
+                                        for i in 0..<total where i != j && deadBits & (UInt16(1) << UInt16(i)) == 0 && (notesPitchMask >> UInt16(i)) & 1 == 0 && pitches[i] == pitches[j] && pitchBus[i] > 0 {
+                                            riffUnion |= (pitchOuts[i] != 0xFF ? pitchOuts[i] : partOut[pitchBus[i].trailingZeroBitCount]) & 0x0F
+                                        }
+                                        if riffUnion == 0 { continue }
+                                        let mine = (pitchOuts[j] != 0xFF ? pitchOuts[j] : partOut[pitchBus[j].trailingZeroBitCount]) & 0x0F
+                                        if mine & riffUnion == 0 { continue }
+                                        if mine & ~riffUnion == 0 { deadBits |= UInt16(1) << UInt16(j); changed = true } else { pitchOuts[j] = mine & ~riffUnion }
                                     }
                                 }
                                 // Phase 2 — compact: drop the dead pitches, keeping the order and each survivor's layer flag and strike slot.

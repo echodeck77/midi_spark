@@ -63,6 +63,7 @@ final class NoteRollRing {
         var i = start
         while i < tail { out.append(buffer[Int(i & mask)]); i &+= 1 }
         // the producer may have lapped the slots read first while they were being copied: re-read the count and drop whatever it could have started overwriting — record i is at risk once written ≥ i + cap (those copies may be torn)
+        atomicMemoryFence(ordering: .acquiring)   // the plain copies above must complete before the count is read again (the seqlock reader's fence)
         let tail2 = written.load(ordering: .acquiring)
         if tail2 >= cap, tail2 - cap + 1 > start {
             let lost = Int(min(tail, tail2 - cap + 1) - start)
