@@ -1,7 +1,7 @@
 #!/bin/sh
 # Fourfold's QUICK test runs — the cheap path while iterating (CLAUDE.md "Pace and test runs"). The FULL suite is `sh Scripts/run-fourfold-tests.sh` and runs ONCE, right before landing.
 #   sh Scripts/run-fourfold-quick.sh [area]
-#     fast    (default) every class EXCEPT the three heavy ones (RouterTests ≈3 min, PortsStressTests ≈2 min, HocketGoldenTests ≈2 min) — about a minute with the build; use after almost any change
+#     fast    (default) every class EXCEPT the three heavy ones (RouterTests ≈3 min, PortsStressTests ≈12 min as of 2026-10-28, HocketGoldenTests ≈2 min) — about a minute with the build; use after almost any change
 #     engine  the engine's own classes: RouterTests + HocketRouterTests + NoteRollTests + FourfoldPortsTests + SnapshotBuilderTests + EffectiveParamsTests + MigrationTests   (≈4 min — after a Router / Models change)
 #     stress  PortsStressTests only (the seeded fuzzes: stuck notes, channels, ALL = union, roll vs wire)
 #     golden  HocketGoldenTests only (the 20 presets × 3 window sizes, byte-identical with no rule lit)
