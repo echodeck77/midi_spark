@@ -5,6 +5,17 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — CARD BACKS (2026-10-28; `Docs/euclideous-status-log.md`, branch `feature/card-backs`) — supersedes THE NINE PORTS' eight ports below (the five-output wiring is back; the per-part masks are new)
+- [x] DONE: five outputs (All + A–D, Paul's override of the ferry's "no ALL"); per-part routing masks (`riffOutMask` / `notesOutMask`, default = the lane's own output); the roll feed (`NoteRollRing`); the PATTERN | MIX header switch (116 pt, Paul's override of 132) with the 280 ms staggered flip; the card backs (XY, OCT, live roll, four jacks, label pill, invitations); the MIX tab retired (LANES | FX); PORTS tab = four steppers; the reel back on outputs A–D; tape magic v3.
+- [ ] DEVICE: the "CARD BACKS —" lines in `Docs/euclideous-device-verification-debt.md` (the switch width and the two-row header at 1180 / 1176 / 1133 / 1113, the flip feel, every look and size on the back, the roll against what you hear, the jacks in AUM, VoiceOver order).
+- [ ] DECIDE (Paul): OCT and transpose as performance controls — act per part (as OCT does now), per lane or per page, immediately or at the next bar? (The ferry's cover note asked; the answer decides where the controls belong. Recommendation in the reply: keep OCT per part and immediate on the back, add nothing else until you say.)
+- [ ] DECIDE (Paul): ≤ 108 pt for the switch would keep the 1180 pt window on the one-row header (116 does not); the 1190 pt reference is unaffected.
+- [ ] (noted) The lane lock does NOT cover routing (a jack tap is an undo step but a locked lane does not snap it back); a HOCKET-passed line shows on the receiving part's roll; the XY pad / OCT dim and go inert with their part off (the MIX pad's rule).
+- [ ] (noted) The GATE-100 legato cases: the pre-nine engine stopped striking the lit notes after the third pass at a 100 % gate (unreachable from the UI and from a document); this engine strikes every real hit. The pinned equivalence test excludes those 13 scenarios and says why.
+- [ ] (noted) Two lanes striking the same pitch at overlapping times no longer share a refcount (separate outputs): their offs differ from the old single-cable stream, their note-ons do not. ALL still carries both on each output's own channel.
+- [ ] (noted) An AUM session saved with the nine-port wiring must be re-patched; an old `session.tape` is discarded on first launch.
+- [ ] (noted) `FourfoldPorts`' name still reads "ports"; the file, the tests and docs say outputs / parts. Not renamed (it is the one definition the engine, the reel and the PORTS tab share).
+
 ## ★ FOURFOLD — HOCKET (2026-10-27; `Docs/euclideous-status-log.md`, branch `feature/hocket`)
 - [x] DONE: the HOCKET header button + pop-up (≤ 4 rules, SWAP PARTS / PASS THE LINE, HITS / STEPS / PASSES / BARS), engine routing before ALL is filled, live chips / bars / ring, lane-card + MIX glyph states, comet-strip hollow resting marks and destination-colour flash, VoiceOver. Proven: golden `--dump` identical with no rule lit; `PortsStressTests` hocket fuzzes; Release `--alloc` zero.
 - [ ] DEVICE: the eight "HOCKET —" lines in `Docs/euclideous-device-verification-debt.md` (header pill width + the 1024-wide A→B change, glyph reads, strip flash, passed-line level, chips, live displays, how it sounds, short-window scrolling).
