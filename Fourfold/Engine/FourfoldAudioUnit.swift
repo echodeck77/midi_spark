@@ -112,7 +112,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         if let s = TapeStore(url: dir.appendingPathComponent("fourfold-tape-\(UUID().uuidString).tape"), chunkEvents: tape.chunkEvents, deleteOnClose: true) { tape.attach(store: s) }
     }
     private static var sweptSpills = false
-    func reelExportRangeFiles(fromPass lo: Int, toPass hi: Int, portMask: UInt8) -> [(name: String, data: Data)] { kernel.tape.reelExportFiles(from: lo, to: hi, portMask: portMask) }   // pass RANGE × emitter selection
+    func reelExportRangeFiles(fromPass lo: Int, toPass hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] { kernel.tape.reelExportFiles(from: lo, to: hi, emitterMask: emitterMask) }   // pass RANGE × emitter selection
     func reelRangeRoll(fromPass lo: Int, toPass hi: Int) -> (notes: [ReelDeck.Note], cycle: Double) { let r = kernel.tape.reelRangeRoll(from: lo, to: hi); return (r.notes, r.totalBeats) }   // the concatenated roll for a multi-pass selection
     func reelPassNumbers() -> [Int] { Array(0..<kernel.tape.filedPasses().count) }   // the passes played whole, oldest→newest (shown 1-based)
     func reelPassSignatures() -> [UInt64] { kernel.tape.reelSignatures() }   // per-pass content hash (aligned with passNumbers) → REMOVE DUPLICATES toggle

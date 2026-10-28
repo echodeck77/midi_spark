@@ -19,7 +19,7 @@ final class SessionTapeTests: XCTestCase {
             let on = Bool.random(using: &rng)
             let note = UInt8.random(in: 0...127, using: &rng)
             let vel = UInt8.random(in: 1...127, using: &rng)
-            let cab = Int.random(in: 0...FourfoldPorts.busCount, using: &rng)   // ALL + the eight ports
+            let cab = Int.random(in: 0...4, using: &rng)
             let lane: Int? = Bool.random(using: &rng) ? Int.random(in: 0...3, using: &rng) : nil
             let ch = UInt8.random(in: 0...15, using: &rng)
             let e = TapeEvent.note(tick: tick, on: on, note: note, vel: vel, cable: cab, lane: lane, channel: ch)
@@ -47,9 +47,9 @@ final class SessionTapeTests: XCTestCase {
     }
 
     func testOutOfRangeFieldsAreClamped() {
-        let e = TapeEvent.note(tick: 5, on: true, note: 200, vel: 255, cable: 20, lane: 7, channel: 31)
+        let e = TapeEvent.note(tick: 5, on: true, note: 200, vel: 255, cable: 9, lane: 7, channel: 31)
         XCTAssertEqual(e.note, 200 & 0x7F)
-        XCTAssertEqual(e.cable, FourfoldPorts.busCount, "the highest port")
+        XCTAssertEqual(e.cable, 4)
         XCTAssertEqual(e.lane, 3)
         XCTAssertEqual(e.channel, 15)
     }
@@ -346,7 +346,7 @@ final class SessionTapeTests: XCTestCase {
     func testMessagesRoundTripToTheSameWireBytes() {
         let cases: [(UInt8, UInt8, UInt8)] = [(0x90, 60, 100), (0x93, 127, 1), (0x80, 60, 0), (0x8F, 0, 0), (0xB0, 74, 127), (0xB5, 1, 0), (0xE0, 0, 64), (0xE2, 127, 127)]
         for (st, a, b) in cases {
-            for cable in 0...FourfoldPorts.busCount {
+            for cable in 0...4 {
                 let e = TapeEvent.message(tick: 9, status: st, d1: a, d2: b, cable: cable, lane: 2)!
                 XCTAssertEqual(e.wire.status, st); XCTAssertEqual(e.wire.d1, a); XCTAssertEqual(e.wire.d2, b)
                 XCTAssertEqual(e.cable, cable); XCTAssertEqual(e.lane, 2); XCTAssertEqual(e.channel, st & 0x0F)

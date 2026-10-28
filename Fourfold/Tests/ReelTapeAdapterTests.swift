@@ -89,12 +89,12 @@ final class ReelTapeAdapterTests: XCTestCase {
             return nil
         }
         let t = tape(passes: 3, bpm: 97.3)
-        let files = t.reelExportFiles(from: 0, to: 1, portMask: 0)
+        let files = t.reelExportFiles(from: 0, to: 1, emitterMask: 0)
         XCTAssertEqual(files.map { $0.name }, ["Fourfold-All.mid"])
         XCTAssertEqual(tempoOf(files[0].data) ?? 0, 97.3, accuracy: 0.05)
-        XCTAssertEqual(t.reelExportFiles(from: 0, to: 1, portMask: 0b0011).map { $0.name }, ["Fourfold-Riff A.mid", "Fourfold-Notes A.mid"], "bit 0 = Emit Riff A, bit 1 = Emit Notes A")
-        XCTAssertEqual(t.reelExportFiles(from: 0, to: 1, portMask: 0b0100).count, 0, "an output with nothing on it makes no file")
-        XCTAssertEqual(SessionTape(chunkEvents: 16, poolSize: 2).reelExportFiles(from: 0, to: 0, portMask: 0).count, 0)
+        XCTAssertEqual(t.reelExportFiles(from: 0, to: 1, emitterMask: 0b0011).map { $0.name }, ["Fourfold-A.mid", "Fourfold-B.mid"])
+        XCTAssertEqual(t.reelExportFiles(from: 0, to: 1, emitterMask: 0b0100).count, 0, "an output with nothing on it makes no file")
+        XCTAssertEqual(SessionTape(chunkEvents: 16, poolSize: 2).reelExportFiles(from: 0, to: 0, emitterMask: 0).count, 0)
     }
     func testIdenticalPassesHashEqualAndDifferentOnesDoNot() {
         let t = tape(passes: 4)

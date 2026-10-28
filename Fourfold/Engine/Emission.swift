@@ -117,7 +117,7 @@ final class ReelDeck {
         for i in openStatus.indices { openStatus[i] = 0xFF }
         for i in 0..<loopN {
             let e = loop[i]
-            guard e.cable <= FourfoldPorts.busCount else { continue }
+            guard e.cable <= FourfoldPorts.outputCount else { continue }
             let k = (Int(e.cable) * 16 + Int(e.b0 & 0x0F)) * 128 + Int(e.b1 & 0x7F)
             let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
             let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
@@ -220,7 +220,7 @@ final class ReelDeck {
         var open: [Int: (start: Double, vel: UInt8, machine: UInt32)] = [:]   // key = cable<<8 | note
         for i in 0..<loopN {
             let e = loop[i]
-            guard e.cable >= 1, e.cable <= FourfoldPorts.busCount else { continue }
+            guard e.cable >= 1, e.cable <= FourfoldPorts.outputCount else { continue }
             let key = Int(e.cable) << 8 | Int(e.b1)
             let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
             let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)
@@ -273,7 +273,7 @@ final class ReelDeck {
                     let base = slot * ReelDeck.histCap
                     for i in 0..<histLen[slot] {
                         let e = hist[base + i]
-                        guard e.cable >= 1, e.cable <= FourfoldPorts.busCount else { continue }
+                        guard e.cable >= 1, e.cable <= FourfoldPorts.outputCount else { continue }
                         let key = Int(e.cable) << 8 | Int(e.b1)
                         let isOn = (e.b0 & 0xF0) == 0x90 && e.b2 > 0
                         let isOff = (e.b0 & 0xF0) == 0x80 || ((e.b0 & 0xF0) == 0x90 && e.b2 == 0)

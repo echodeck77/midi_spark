@@ -12,9 +12,9 @@
 import Foundation
 import Atomics
 
-/// One recorded record, 8 bytes — everything the output sent: channel-voice messages (note on/off, CC, pitch bend) exactly as the `ReelDeck` holds them, on cables 0–8 (0 = ALL, 1–8 = Emit Riff A, Emit Notes A … Emit Notes D, `FourfoldPorts`), plus
+/// One recorded record, 8 bytes — everything the output sent: channel-voice messages (note on/off, CC, pitch bend) exactly as the `ReelDeck` holds them, on cables 0–4 (0 = ALL, 1–4 = outputs A–D), plus
 /// three markers (tempo, pass start, transport segment). `tick` is session time (`SessionTape.ppq` per beat).
-/// meta: bits 0-2 type · bits 3-4 lane (0…3) · bit 5 lane known.   aux: bits 0-3 MIDI channel · bits 4-7 cable (0…8) — for a segment marker bit 0 = starting.
+/// meta: bits 0-2 type · bits 3-4 lane (0…3) · bit 5 lane known.   aux: bits 0-3 MIDI channel · bits 4-7 cable (0…4) — for a segment marker bit 0 = starting.
 struct TapeEvent: Equatable {
     var tick: UInt32
     var d1: UInt8
@@ -37,10 +37,10 @@ struct TapeEvent: Equatable {
     var isNote: Bool { kind == .note }
     var isOn: Bool { type == .noteOn }
     var isPitchBend: Bool { type == .pitchBend }
-    /// 0 = the ALL cable, 1–8 = Riff A, Notes A … Notes D (`FourfoldPorts`).
+    /// 0 = the ALL cable, 1–4 = the outputs A … D (`FourfoldPorts`).
     var cable: Int { Int((aux >> 4) & 0x0F) }
-    /// 0…7 for the eight ports (a bus); nil for the ALL cable.
-    var output: Int? { cable >= 1 && cable <= FourfoldPorts.busCount ? cable - 1 : nil }
+    /// 0…3 for A–D; nil for the ALL cable.
+    var output: Int? { cable >= 1 && cable <= FourfoldPorts.outputCount ? cable - 1 : nil }
     var lane: Int? { meta & 0x20 != 0 ? Int((meta >> 3) & 0x03) : nil }
     var channel: UInt8 { aux & 0x0F }
     var note: UInt8 { d1 }
@@ -60,7 +60,7 @@ struct TapeEvent: Equatable {
     private static func pack(_ t: T, lane: Int?, cable: Int, channel: UInt8) -> (meta: UInt8, aux: UInt8) {
         var m = t.rawValue
         if let l = lane { m |= UInt8(max(0, min(3, l))) << 3 | 0x20 }
-        return (m, (channel & 0x0F) | UInt8(max(0, min(FourfoldPorts.busCount, cable))) << 4)
+        return (m, (channel & 0x0F) | UInt8(max(0, min(FourfoldPorts.outputCount, cable))) << 4)
     }
     /// A raw MIDI message as the Router emitted it. Note-on with velocity 0 is a note-off. Nil for a status the tape does not keep (nothing the engine sends today).
     static func message(tick: UInt32, status: UInt8, d1: UInt8, d2: UInt8, cable: Int, lane: Int?) -> TapeEvent? {
@@ -474,7 +474,7 @@ final class TapeRecorder {
     private var stopWindow = false               // the one window after a stop: the Router's flush note-offs land here
     private var stopTick = 0
     private(set) var recordedEvents = 0
-    // The lane that played each sounding note, so its note-off (which the Router sends without a tag) carries the same lane: [cable 0…8][channel][note].
+    // The lane that played each sounding note, so its note-off (which the Router sends without a tag) carries the same lane: [cable 0…4][channel][note].
     private let laneOfNote: UnsafeMutablePointer<Int8>
     static let jumpToleranceBeats = 0.05         // a beat further than this (plus one window) from where the last window ended is a jump, not a continuation
     static let minTempoGapTicks = 60             // a tempo ramp files at most one marker per 1/16 beat
@@ -540,7 +540,7 @@ final class TapeRecorder {
         var laneTag = -1
         let status = b0 & 0xF0
         if status == 0x80 || status == 0x90 {
-            let idx = (Int(min(cable, UInt8(FourfoldPorts.busCount))) * 16 + Int(b0 & 0x0F)) * 128 + Int(b1 & 0x7F)
+            let idx = (Int(min(cable, UInt8(FourfoldPorts.outputCount))) * 16 + Int(b0 & 0x0F)) * 128 + Int(b1 & 0x7F)
             if status == 0x90 && b2 > 0 { laneOfNote[idx] = Int8(truncatingIfNeeded: lane); laneTag = lane } else { laneTag = Int(laneOfNote[idx]) }
         }
         guard let e = TapeEvent.message(tick: UInt32(clamping: t), status: b0, d1: b1, d2: b2, cable: Int(cable), lane: laneTag >= 0 ? laneTag : nil) else { return }

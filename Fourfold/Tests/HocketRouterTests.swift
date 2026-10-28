@@ -19,6 +19,31 @@ private final class HEmitter: MIDIEmitter {
     func all(_ cable: UInt8) -> [Ev] { events.filter { $0.cable == cable } }
 }
 
+// CARD BACKS (2026-10-28): a lane's RIFF and NOTES are two PARTS that share the lane's output, but these tests read the engine part by part — as the nine ports numbered them: cable 1…8 = RED RIFF, RED NOTES, BLUE RIFF … GREEN NOTES, each on
+// channel 1…8. So the part-by-part streams are rebuilt by rendering TWICE — once with only the RIFF parts routed (lane L → output L), once with only the NOTES parts — and filing each output's messages under the part that was routed to it.
+// Nothing between a part's decision and its wire message (the hocket turn, the remap, legato, the join) depends on the masks, so the two runs together are what the engine does to every part; ALL's copy of a message is filed under the same
+// part (ALL carries the output's own channel). The tests of what two parts do on ONE shared output (`…SharedOutput…`) render directly instead.
+private final class PartTap: MIDIEmitter {
+    let out: HEmitter; let layer: Int
+    init(_ out: HEmitter, _ layer: Int) { self.out = out; self.layer = layer }
+    func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
+        let st = b0 & 0xF0
+        guard st == 0x90 || st == 0x80 else { return }
+        let o = cable == 0 ? Int(b0 & 0x0F) + 1 : Int(cable)
+        let part = UInt8(2 * (o - 1) + 1 + layer)
+        out.emit(sampleTime: sampleTime, cable: cable == 0 ? 0 : part, st | (part - 1), b1, b2)
+    }
+}
+private final class PartRouter {
+    private let routers = [Router(), Router()]
+    private var diags = [KernelDiag(), KernelDiag()]
+    func process(boxes: [SnapshotBox], pool: NotePool, playing: Bool, beatPos: Double, tempo: Double, beatsPerBar: Double = 4, sampleRate: Double, timestampSample: Double, frameCount: UInt32, out: HEmitter) {
+        for l in 0..<2 {
+            routers[l].process(box: boxes[l], pool: pool, playing: playing, beatPos: beatPos, tempo: tempo, beatsPerBar: beatsPerBar, sampleRate: sampleRate, timestampSample: timestampSample, frameCount: frameCount, out: PartTap(out, l), diag: &diags[l])
+        }
+    }
+}
+
 final class HocketRouterTests: XCTestCase {
     // cables
     private let redRiff: UInt8 = 1, redNotes: UInt8 = 2, blueRiff: UInt8 = 3, blueNotes: UInt8 = 4, amberRiff: UInt8 = 5, amberNotes: UInt8 = 6, greenRiff: UInt8 = 7, greenNotes: UInt8 = 8
@@ -51,14 +76,43 @@ final class HocketRouterTests: XCTestCase {
         let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
                                           soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]
+        st.euclideousLines = ls                                               // the lines as the engine gets them (raw or resolved), so `partBoxes` can route them again
         return st
+    }
+    /// The two snapshots of a document — riff parts routed to their lane's output, then notes parts — the `PartRouter` renders (see the note above the class).
+    private func partBoxes(_ st: PluginState) -> [SnapshotBox] {
+        (0..<2).map { layer in
+            var s = st
+            let ls = (st.euclideousLines ?? []).enumerated().map { (i, l) -> EuclidLine in
+                var m = l; m.riffOutMask = layer == 0 ? UInt8(1 << i) : 0; m.notesOutMask = layer == 1 ? UInt8(1 << i) : 0; return m
+            }
+            let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
+                                              soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
+            s.scenes = [FourfoldCompose.scene(input)]
+            return SnapshotBuilder.build(from: s)
+        }
     }
     /// Play from bar 1 for `beats`, then stop. A held C-major triad.
     private func render(_ st: PluginState, beats: Double, frames: UInt32 = 480) -> HEmitter {
+        let boxes = partBoxes(st)
+        let pool = NotePool(); for n in [60, 64, 67] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
+        let router = PartRouter(); let e = HEmitter()
+        let total = Int(beats * 24_000) - 1                                   // the window ends just short of `beats`, so a hit exactly on it belongs to the next stretch
+        var done = 0, beat = 0.0, ts = 0.0
+        while done < total {
+            let n = UInt32(min(Int(frames), total - done))
+            router.process(boxes: boxes, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: n, out: e)
+            done += Int(n); beat += Double(n) * 120.0 / 60 / 48_000; ts += Double(n)
+        }
+        router.process(boxes: boxes, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: 512, out: e)
+        return e
+    }
+    /// The document through ONE Router as the AU runs it: each lane's two parts on the lane's own output (cables 1…4, channel = output), ALL carrying them all.
+    private func renderDirect(_ st: PluginState, beats: Double, frames: UInt32 = 480) -> HEmitter {
         let box = SnapshotBuilder.build(from: st)
         let pool = NotePool(); for n in [60, 64, 67] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
         let router = Router(); var diag = KernelDiag(); let e = HEmitter()
-        let total = Int(beats * 24_000) - 1                                   // the window ends just short of `beats`, so a hit exactly on it belongs to the next stretch
+        let total = Int(beats * 24_000) - 1
         var done = 0, beat = 0.0, ts = 0.0
         while done < total {
             let n = UInt32(min(Int(frames), total - done))
@@ -88,7 +142,7 @@ final class HocketRouterTests: XCTestCase {
 
     // MARK: - the fixture itself
 
-    func testTheBaselineEveryLaneSoundsOnItsOwnTwoOutputsAndAllCarriesAllEight() {
+    func testTheBaselineEveryPartSoundsOnEveryHitOfItsLaneAndAllCarriesAllEight() {
         let e = render(doc(), beats: 4)
         for c in UInt8(1)...8 {
             XCTAssertEqual(beats(e.ons(c)), [0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5], "cable \(c) sounds on every hit of its lane")
@@ -99,6 +153,22 @@ final class HocketRouterTests: XCTestCase {
         XCTAssertTrue(e.ons(redNotes).allSatisfy { [72, 76, 79].contains(Int($0.note)) }, "RED NOTES: a C-major triad one octave up, got \(e.ons(redNotes).map { $0.note })")
         XCTAssertTrue(e.ons(blueNotes).allSatisfy { [48, 52, 55].contains(Int($0.note)) }, "BLUE NOTES: one octave down, got \(e.ons(blueNotes).map { $0.note })")
         assertBalanced(e)
+    }
+
+    /// The same document through one Router as the AU runs it: the lane's riff and notes share its output, so the output carries what the two parts played apart — with a pitch both strike on one hit sounded once (the notes layer
+    /// drops the duplicate on the output they share) — and ALL carries the four outputs.
+    func testTheBaselineEveryLaneSoundsOnItsOwnOutputAndAllCarriesAllFour() {
+        let direct = renderDirect(doc(), beats: 4), apart = render(doc(), beats: 4)
+        for c in UInt8(1)...4 {
+            let riff = apart.ons(2 * c - 1), notes = apart.ons(2 * c)
+            let want = Set(riff.map { "\($0.sample)/\($0.note)" }).union(notes.map { "\($0.sample)/\($0.note)" })
+            XCTAssertEqual(Set(direct.ons(c).map { "\($0.sample)/\($0.note)" }), want, "output \(c) is the union of its lane's two parts")
+            XCTAssertEqual(direct.ons(c).count, want.count, "…each pitch of each hit once")
+            XCTAssertLessThan(direct.ons(c).count, riff.count + notes.count, "…and the notes layer's pitch the riff also plays is dropped, so there are fewer than the two parts' sum")
+            XCTAssertTrue(direct.ons(c).allSatisfy { $0.chan == c - 1 }, "…on the output's own channel")
+        }
+        XCTAssertEqual(direct.ons(0).count, (1...4).reduce(0) { $0 + direct.ons(UInt8($1)).count }, "ALL carries exactly what left on the four outputs")
+        assertBalanced(direct)
     }
 
     // MARK: - test 5 — swap together
@@ -393,18 +463,18 @@ final class HocketRouterTests: XCTestCase {
     /// A rule edit lands between two windows; every note struck before it ends where it began, at the time it would have ended anyway.
     private func changeMidRun(first: [HocketRule], then: [HocketRule], lanes: [EuclidLine], rawGates: Bool, changeBeat: Double = 1.25, beats total: Double = 6, configure: @escaping (inout PluginState) -> Void = { _ in }) -> (changed: HEmitter, steady: HEmitter) {
         func run(_ second: [HocketRule]?) -> HEmitter {
-            let a = SnapshotBuilder.build(from: doc(lanes: lanes, rules: first, rawGates: rawGates, configure: configure))
-            let b = SnapshotBuilder.build(from: doc(lanes: lanes, rules: second ?? first, rawGates: rawGates, configure: configure))
+            let a = partBoxes(doc(lanes: lanes, rules: first, rawGates: rawGates, configure: configure))
+            let b = partBoxes(doc(lanes: lanes, rules: second ?? first, rawGates: rawGates, configure: configure))
             let pool = NotePool(); for n in [60, 64, 67] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
-            let router = Router(); var diag = KernelDiag(); let e = HEmitter()
+            let router = PartRouter(); let e = HEmitter()
             let totalFrames = Int(total * 24_000) - 1
             var done = 0, beat = 0.0, ts = 0.0
             while done < totalFrames {
                 let n = UInt32(min(480, totalFrames - done))
-                router.process(box: beat >= changeBeat ? b : a, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: n, out: e, diag: &diag)
+                router.process(boxes: beat >= changeBeat ? b : a, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: n, out: e)
                 done += Int(n); beat += Double(n) * 120.0 / 60 / 48_000; ts += Double(n)
             }
-            router.process(box: b, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
+            router.process(boxes: b, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: 512, out: e)
             return e
         }
         return (run(then), run(nil))
@@ -676,14 +746,14 @@ final class HocketRouterTests: XCTestCase {
             return max(0, n - 1)
         }
         for frames in [UInt32(480), 8192] {
-            let box = SnapshotBuilder.build(from: st)
+            let boxes = partBoxes(st)
             let pool = NotePool(); for n in [60, 64, 67] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
-            let router = Router(); var diag = KernelDiag(); let e = HEmitter()
+            let router = PartRouter(); let e = HEmitter()
             var done = 0, beat = 3.0
             let total = Int(4.0 * 24_000) - 1
             while done < total {
                 let n = UInt32(min(Int(frames), total - done))
-                router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: Double(Int(3.0 * 24_000) + done), frameCount: n, out: e, diag: &diag)
+                router.process(boxes: boxes, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: Double(Int(3.0 * 24_000) + done), frameCount: n, out: e)
                 done += Int(n); beat += Double(n) * 120.0 / 60 / 48_000
             }
             let got = e.ons(blueRiff).map { ($0.beat * 1000).rounded() / 1000 }, redGot = e.ons(redRiff).map { ($0.beat * 1000).rounded() / 1000 }
@@ -695,17 +765,17 @@ final class HocketRouterTests: XCTestCase {
     }
 
     private func renderBpb(_ st: PluginState, beats: Double, bpb: Double, frames: UInt32 = 480) -> HEmitter {
-        let box = SnapshotBuilder.build(from: st)
+        let boxes = partBoxes(st)
         let pool = NotePool(); for n in [60, 64, 67] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
-        let router = Router(); var diag = KernelDiag(); let e = HEmitter()
+        let router = PartRouter(); let e = HEmitter()
         let total = Int(beats * 24_000) - 1
         var done = 0, beat = 0.0, ts = 0.0
         while done < total {
             let n = UInt32(min(Int(frames), total - done))
-            router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: 120, beatsPerBar: bpb, sampleRate: 48_000, timestampSample: ts, frameCount: n, out: e, diag: &diag)
+            router.process(boxes: boxes, pool: pool, playing: true, beatPos: beat, tempo: 120, beatsPerBar: bpb, sampleRate: 48_000, timestampSample: ts, frameCount: n, out: e)
             done += Int(n); beat += Double(n) * 120.0 / 60 / 48_000; ts += Double(n)
         }
-        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: 120, beatsPerBar: bpb, sampleRate: 48_000, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
+        router.process(boxes: boxes, pool: pool, playing: false, beatPos: beat, tempo: 120, beatsPerBar: bpb, sampleRate: 48_000, timestampSample: ts, frameCount: 512, out: e)
         return e
     }
     /// §6.2: BARS counts the HOST's bars — at 3/4 a bar is three beats, not four (the Router must pass `beatsPerBar` through).
@@ -742,22 +812,21 @@ final class HocketRouterTests: XCTestCase {
         XCTAssertEqual(beats(e.ons(blueRiff)), allHits.filter { let x = Int($0 * 2); return x % 2 == 1 && (x / 2) % 2 == 1 }, "BLUE RIFF (ALT[1]) sounds on the ALT turns with an odd k")
         assertBalanced(e)
     }
-    /// §7.3 on ALL: a pre-nine-ports document gives a lane's riff and notes ports ONE channel. With RED RIFF in a lit rule and RED NOTES in none, a pitch both play is ONE note-on on ALL while it sounds (the lit riff strikes first and
+    /// §7.3 on ALL: a lane's riff and notes parts leave on ONE output, so ONE channel. With RED RIFF in a lit rule and RED NOTES in none, a pitch both play is ONE note-on on ALL while it sounds (the lit riff strikes first and
     /// the unlit notes join it); the lanes no rule touches (AMBER, GREEN) send exactly the messages they send with no rule at all — their own same-key collisions keep the engine's old re-articulation.
-    func testSharedChannelsOnAllNeverSendASecondNoteOnForASoundingKeyAndUnlitLanesAreUntouched() {
+    func testSharedOutputChannelsOnAllNeverSendASecondNoteOnForASoundingKeyAndUnlitLanesAreUntouched() {
         for frames in [UInt32(480), 8192] {
-            let channels: (inout PluginState) -> Void = { $0.busChannels = [1, 1, 2, 2, 3, 3, 4, 4] }
-            let st = doc(rules: [rule(main: [RR], alt: [BR]) { $0.mainLen = 1; $0.altLen = 1 }], configure: channels)
-            let e = render(st, beats: 4, frames: frames), base = render(doc(configure: channels), beats: 4, frames: frames)
+            let st = doc(rules: [rule(main: [RR], alt: [BR]) { $0.mainLen = 1; $0.altLen = 1 }])
+            let e = renderDirect(st, beats: 4, frames: frames), base = renderDirect(doc(), beats: 4, frames: frames)
             var sounding: [String: Int] = [:], doubled: [String] = []
-            for ev in e.events.sorted(by: { ($0.sample, $0.on ? 1 : 0) < ($1.sample, $1.on ? 1 : 0) }) where ev.cable == 0 && ev.chan == 0 {      // RED's shared channel (wire nibble 0)
+            for ev in e.events.sorted(by: { ($0.sample, $0.on ? 1 : 0) < ($1.sample, $1.on ? 1 : 0) }) where ev.cable == 0 && ev.chan == 0 {      // RED's channel (wire nibble 0)
                 let k = "ch\(ev.chan)-\(ev.note)"
                 if ev.on { if (sounding[k] ?? 0) > 0 { doubled.append("\(k)@\(ev.beat)") }; sounding[k, default: 0] += 1 } else { sounding[k, default: 0] -= 1 }
             }
             XCTAssertTrue(doubled.isEmpty, "\(frames) frames: a second note-on on ALL for a key already sounding: \(doubled)")
             XCTAssertTrue(sounding.values.allSatisfy { $0 == 0 }, "\(frames) frames: every note ended")
             func key(_ ev: HEmitter.Ev) -> String { "\(ev.sample)/\(ev.cable)/\(ev.on)/\(ev.chan)/\(ev.note)/\(ev.vel)" }
-            let untouched: (HEmitter.Ev) -> Bool = { $0.cable == 5 || $0.cable == 6 || $0.cable == 7 || $0.cable == 8 || ($0.cable == 0 && ($0.chan == 2 || $0.chan == 3)) }
+            let untouched: (HEmitter.Ev) -> Bool = { $0.cable == 3 || $0.cable == 4 || ($0.cable == 0 && ($0.chan == 2 || $0.chan == 3)) }
             XCTAssertEqual(e.events.filter(untouched).map(key).sorted(), base.events.filter(untouched).map(key).sorted(), "\(frames) frames: AMBER's and GREEN's outputs are exactly what they are with no rule")
         }
     }
@@ -767,15 +836,15 @@ final class HocketRouterTests: XCTestCase {
         for i in [0, 1] { lanes[i].octave = 0 }
         lanes[1].notesGate = 0.9; lanes[0].rotate = 1; lanes[0].notesGate = 0.25         // BLUE strikes C4 at 0.0 (sounding to 0.45); RED strikes C4 at 0.25 — passed to BLUE NOTES once the rule is lit
         let before = doc(lanes: lanes), after = doc(lanes: lanes, rules: [rule(main: [RN], alt: [BN]) { $0.mode = .pass; $0.own = .merge; $0.offset = 1 }])
-        let boxA = SnapshotBuilder.build(from: before), boxB = SnapshotBuilder.build(from: after)
+        let boxA = partBoxes(before), boxB = partBoxes(after)
         let pool = NotePool(); for n in [60, 64, 67] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
-        let router = Router(); var diag = KernelDiag(); let e = HEmitter()
+        let router = PartRouter(); let e = HEmitter()
         var beat = 0.0, ts = 0.0
         for w in 0..<100 {                                                    // 480-frame windows; the rule is lit from the 3rd window (beat 0.04)
-            router.process(box: w < 2 ? boxA : boxB, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: 480, out: e, diag: &diag)
+            router.process(boxes: w < 2 ? boxA : boxB, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: 480, out: e)
             beat += 480.0 * 120.0 / 60 / 48_000; ts += 480
         }
-        router.process(box: boxB, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
+        router.process(boxes: boxB, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: 512, out: e)
         var sounding: [String: Int] = [:], doubled: [String] = []
         for ev in e.events {                                                  // EMISSION order: a restrike is on / off / on, never on / on
             let k = "c\(ev.cable)-ch\(ev.chan)-\(ev.note)"

@@ -1,7 +1,8 @@
-//  PortsStressTests.swift — a seeded fuzz of THE NINE PORTS (written by the 2026-10-27 adversarial review, which found the lane-D legato trap with it).
-//  Drives one Router through many randomised render windows (random documents, note sources,
-//  tempo, window sizes, transport edges, busChannels changing mid-note, solo/allNotesOff/panic)
-//  and asserts the port/channel/stuck-note invariants after every stop and at the end.
+//  PortsStressTests.swift — a seeded fuzz of the OUTPUTS (first written for THE NINE PORTS by the 2026-10-27 adversarial review, which found the lane-D legato trap with it; CARD BACKS 2026-10-28 moved it to the
+//  five outputs and added the per-part routing masks to what it randomises).
+//  Drives one Router through many randomised render windows (random documents, random part→output masks, note sources,
+//  tempo, window sizes, transport edges, busChannels and the masks changing mid-note, solo/allNotesOff/panic)
+//  and asserts the output/channel/stuck-note invariants after every stop and at the end.
 
 import XCTest
 
@@ -34,8 +35,8 @@ private final class TaggedEmitter: MIDIEmitter {
 
 final class PortsStressTests: XCTestCase {
 
-    // HOCKET ferry (2026-10-27) §12 test 1: a fingerprint of EVERY message the 600 + 600 seeded sessions send, captured on the nine-output engine (main 9f1b08d) before any hocket work. With no hocket rule in the
-    // document (these seeds draw none) the engine must stay byte-identical — including the raw-gate seeds, where legato runs on every port, which the factory-preset golden never reaches.
+    // HOCKET ferry (2026-10-27) §12 test 1 → re-baselined for CARD BACKS (2026-10-28): a fingerprint of EVERY message the 600 + 600 seeded sessions send (the draws now include random part→output masks, so the old nine-output
+    // fingerprints are not comparable). With no hocket rule in the document (these seeds draw none) the engine must stay byte-identical from here on — including the raw-gate seeds, where legato runs on every part, which the factory-preset golden never reaches.
     private var lastSessionHash: UInt64 = 0
     private func sessionHash(_ e: TaggedEmitter) -> UInt64 {
         var h: UInt64 = 0xcbf29ce484222325
@@ -139,10 +140,18 @@ final class PortsStressTests: XCTestCase {
 
     /// Build a full Fourfold page document + its note pool.
     /// `rawGates`: feed the chain the lines as generated (gate/notesGate up to exactly 1.0 = LEGATO reaches the engine), instead of through `euclideousLinesResolved` (the app's publish path, which caps them at 0.99).
-    private func rDoc(_ g: inout SM64, lanes: [EuclidLine]? = nil, rawGates: Bool = false) -> (PluginState, NotePool) {
+    /// CARD BACKS: each part's routing mask drawn at random — mostly its lane's own output (nil), sometimes any subset of A–D, sometimes none (a part that sounds nowhere).
+    private func rRouting(_ g: inout SM64, _ l: EuclidLine) -> EuclidLine {
+        var m = l
+        func mask(_ g: inout SM64) -> UInt8? { [nil, nil, UInt8.random(in: 0...15, using: &g), UInt8.random(in: 1...15, using: &g), 0].randomElement(using: &g)! }
+        m.riffOutMask = mask(&g); m.notesOutMask = mask(&g)
+        return m
+    }
+    private func rDoc(_ g: inout SM64, lanes: [EuclidLine]? = nil, rawGates: Bool = false, randomRouting: Bool = true) -> (PluginState, NotePool) {
         var st = PluginState.makeInit()
         st.machines.append(Machine(machineID: FourfoldCompose.machineID, type: .euclid))
-        let raw = lanes ?? (0..<4).map { _ in rLine(&g) }
+        var raw = lanes ?? (0..<4).map { _ in rLine(&g) }
+        if lanes == nil && randomRouting { raw = raw.map { rRouting(&g, $0) } }
         st.euclideousLines = raw
         // Production-faithful: the real publish path feeds the chain `document.euclideousLinesResolved`
         // (uiEuclideousLines), which clamps gate/notesGate to 0.99 etc. Mirror that so the fuzz hunts
@@ -167,13 +176,13 @@ final class PortsStressTests: XCTestCase {
         st.euclideousKeyRoot = Int.random(in: 0...11, using: &g)
         st.euclideousKeyType = ScaleType.allCases.randomElement(using: &g)!
         st.euclideousHoldLatchMode = [nil, .hold, .latch].randomElement(using: &g)!
-        // busChannels: 8-form, 4-form (both ports of a lane share a channel), out-of-range, and 0.
+        // busChannels: the 4-form (one per output), a nine-ports 8-form, out-of-range, 0, short, and the default.
         switch Int.random(in: 0...4, using: &g) {
-        case 0: st.busChannels = (0..<8).map { _ in Int.random(in: 1...16, using: &g) }
-        case 1: st.busChannels = (0..<4).map { _ in Int.random(in: 1...16, using: &g) }   // pre-ports 4-form
-        case 2: st.busChannels = (0..<8).map { _ in Int.random(in: 0...99, using: &g) }   // out-of-range / 0
+        case 0: st.busChannels = (0..<8).map { _ in Int.random(in: 1...16, using: &g) }   // a nine-ports document
+        case 1: st.busChannels = (0..<4).map { _ in Int.random(in: 1...16, using: &g) }
+        case 2: st.busChannels = (0..<4).map { _ in Int.random(in: 0...99, using: &g) }   // out-of-range / 0
         case 3: st.busChannels = [UInt8.random(in: 0...20, using: &g)].map { _ in Int.random(in: 1...16, using: &g) }   // short
-        default: st.busChannels = nil                                                     // default 1...8
+        default: st.busChannels = nil                                                     // default 1...4
         }
         let pool = NotePool()
         for _ in 0..<Int.random(in: 0...6, using: &g) {
@@ -192,7 +201,7 @@ final class PortsStressTests: XCTestCase {
         // balance per (cable, chan, note)
         var bal: [Int: Int] = [:]
         func key(_ c: UInt8, _ ch: UInt8, _ n: UInt8) -> Int { (Int(c) * 16 + Int(ch)) * 128 + Int(n) }
-        // union check: multiset of (sample,note,vel,chan) of NOTE-ONs for ports 1..8 vs ALL (0).
+        // union check: multiset of (sample,note,vel,chan) of NOTE-ONs for outputs 1..4 vs ALL (0).
         // Only ONs form an exact union — offs collapse/shift on ALL by the §7 collision refcount +
         // restrike policy (a restrike-off fires whenever refcount>0), so an off-union would false-fail.
         var portMS: [String: Int] = [:], allMS: [String: Int] = [:]
@@ -203,11 +212,11 @@ final class PortsStressTests: XCTestCase {
             let k = key(ev.cable, ev.chan, ev.note)
             if ev.status == 0x90 {
                 bal[k, default: 0] += 1
-                // (e) per-port channel stamp at note-on: cable c on-channel == expected port c-1 channel THIS window
-                if ev.cable >= 1 && ev.cable <= 8 {
+                // (e) per-output channel stamp at note-on: cable c on-channel == expected output c-1 channel THIS window
+                if ev.cable >= 1 && ev.cable <= 4 {
                     let want = (winChans[ev.win][Int(ev.cable) - 1] &- 1) & 15
                     if ev.chan != want {
-                        return "seed \(seed): cable \(ev.cable) note-ON ch \(ev.chan) != expected port channel \(want) (win \(ev.win))"
+                        return "seed \(seed): cable \(ev.cable) note-ON ch \(ev.chan) != expected output channel \(want) (win \(ev.win))"
                     }
                 }
             } else {
@@ -219,7 +228,7 @@ final class PortsStressTests: XCTestCase {
             // union bookkeeping — ONs only
             if ev.status == 0x90 {
                 if ev.cable == 0 { allMS[msk(ev), default: 0] += 1 }
-                else if ev.cable <= 8 { portMS[msk(ev), default: 0] += 1 }
+                else if ev.cable <= 4 { portMS[msk(ev), default: 0] += 1 }
             }
         }
         // (a) end-of-run: nothing left sounding
@@ -227,12 +236,12 @@ final class PortsStressTests: XCTestCase {
             let c = (k / 128) / 16, ch = (k / 128) % 16, n = k % 128
             return "seed \(seed): STUCK note — cable \(c) ch \(ch) note \(n) balance \(v) at end"
         }
-        // (d) ALL == union of the eight ports (notes only). Skip if the voice table ever filled (own may open, all may not).
+        // (d) ALL == union of the four outputs (notes only). Skip if the voice table ever filled (own may open, all may not).
         if portMS != allMS {
             // surface the first discrepancy
             let onlyPort = portMS.filter { allMS[$0.key] != $0.value }.keys.sorted().first
             let onlyAll = allMS.filter { portMS[$0.key] != $0.value }.keys.sorted().first
-            return "seed \(seed): ALL != union of ports — port-only \(onlyPort ?? "-") / all-only \(onlyAll ?? "-")"
+            return "seed \(seed): ALL != union of outputs — output-only \(onlyPort ?? "-") / all-only \(onlyAll ?? "-")"
         }
         return nil
     }
@@ -261,10 +270,18 @@ final class PortsStressTests: XCTestCase {
             if Int.random(in: 0...2, using: &g) == 0 {   // busChannels change mid-note
                 switch Int.random(in: 0...3, using: &g) {
                 case 0: st.busChannels = (0..<8).map { _ in Int.random(in: 1...16, using: &g) }
-                case 1: let c = Int.random(in: 1...16, using: &g); st.busChannels = [c, c, c, c, c, c, c, c]   // every port same channel
+                case 1: let c = Int.random(in: 1...16, using: &g); st.busChannels = [c, c, c, c]   // every output the same channel
                 case 2: st.busChannels = (0..<4).map { _ in Int.random(in: 1...16, using: &g) }
-                default: st.busChannels = (0..<8).map { _ in Int.random(in: 0...99, using: &g) }
+                default: st.busChannels = (0..<4).map { _ in Int.random(in: 0...99, using: &g) }
                 }
+                box = SnapshotBuilder.build(from: st)
+            }
+            if Int.random(in: 0...2, using: &g) == 0 {   // CARD BACKS: the part→output masks change mid-note (a jack tapped while notes sound): nothing may strand, move or double
+                let ls = (st.euclideousLines ?? []).map { rRouting(&g, $0) }
+                st.euclideousLines = ls
+                let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
+                                                  soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
+                st.scenes = [FourfoldCompose.scene(input)]
                 box = SnapshotBuilder.build(from: st)
             }
             if Int.random(in: 0...4, using: &g) == 0 { tempo = Double([60, 90, 120, 160, 200].randomElement(using: &g)!) }
@@ -347,12 +364,12 @@ final class PortsStressTests: XCTestCase {
                 beat += 512 * 120.0 / 60 / 48000; ts += 512
             }
             router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: 48000, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
-            let port = UInt8(FourfoldPorts.cable(lane: lane, part: notes ? .notes : .riff))
+            let port = UInt8(lane + 1)   // CARD BACKS: both of a lane's parts leave on its own output by default
             XCTAssertFalse(e.events.filter { $0.cable == port && $0.status == 0x90 }.isEmpty, "lane \(lane + 1) \(notes ? "notes" : "riff") legato sounds on cable \(port)")
             var bal: [Int: Int] = [:]
             for ev in e.events where ev.status == 0x90 || ev.status == 0x80 { bal[(Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note), default: 0] += ev.status == 0x90 ? 1 : -1 }
             XCTAssertTrue(bal.values.allSatisfy { $0 == 0 }, "lane \(lane + 1) \(notes ? "notes" : "riff") legato leaves nothing sounding")
-            XCTAssertTrue(e.events.filter { $0.cable >= 1 && $0.cable <= 8 && $0.cable != port }.isEmpty, "…and nothing leaks onto another port")
+            XCTAssertTrue(e.events.filter { $0.cable >= 1 && $0.cable <= 4 && $0.cable != port }.isEmpty, "…and nothing leaks onto another output")
         } }
     }
 
@@ -366,7 +383,7 @@ final class PortsStressTests: XCTestCase {
         if let f = firstFail { XCTFail(f); return }
         XCTAssertEqual(fingerprint, Self.fuzzFingerprint, "CAPTURE fuzzFingerprint = \(fingerprint) — the 600 seeded sessions' message streams must be bit-identical with no hocket rule")
     }
-    private static let fuzzFingerprint: UInt64 = 12223291212352416553
+    private static let fuzzFingerprint: UInt64 = 5971859914748538723
     // The same fuzz with gate/notesGate left as generated (up to exactly 1.0 = legato), so the legato tracking runs on every port with every layer feature around it.
     func testFuzzRawGatesReachLegatoOnEveryPort() {
         var firstFail: String? = nil
@@ -378,9 +395,9 @@ final class PortsStressTests: XCTestCase {
         if let f = firstFail { XCTFail(f); return }
         XCTAssertEqual(fingerprint, Self.fuzzFingerprintRaw, "CAPTURE fuzzFingerprintRaw = \(fingerprint) — the 600 raw-gate sessions' message streams must be bit-identical with no hocket rule")
     }
-    private static let fuzzFingerprintRaw: UInt64 = 16229716498077922819
+    private static let fuzzFingerprintRaw: UInt64 = 10435385204888038160
 
-    // Lane isolation: only lane k emits on cables 2k+1 / 2k+2; other lanes' ports stay silent.
+    // Lane isolation: with every part on its lane's own output, only lane k emits on cable k+1; the other outputs stay silent.
     func testLaneIsolation() {
         for s in 1...800 {
             var g = SM64(UInt64(s) &* 0x1234567)
@@ -393,7 +410,7 @@ final class PortsStressTests: XCTestCase {
             // make the live lane definitely produce something
             lines[live].riffOn = true; lines[live].pulses = 8; lines[live].steps = 8
             var gg = SM64(UInt64(s))
-            var (st, pool) = rDoc(&gg, lanes: lines)
+            var (st, pool) = rDoc(&gg, lanes: lines, randomRouting: false)
             st.euclideousSoloMask = 0; st.euclideousNoteSource = .midi
             st.euclideousSourcePlan = SourcePlan()
             pool.reset(); for n in [60, 64, 67, 72] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
@@ -407,8 +424,8 @@ final class PortsStressTests: XCTestCase {
             var beat = 0.0, ts = 0.0
             for _ in 0..<20 { router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48000, timestampSample: ts, frameCount: 1024, out: e, diag: &diag); beat += 1024 * 120 / 60 / 48000; ts += 1024 }
             router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: 48000, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
-            for ev in e.events where ev.cable >= 1 && ev.cable <= 8 {
-                let laneOfCable = (Int(ev.cable) - 1) / 2
+            for ev in e.events where ev.cable >= 1 && ev.cable <= 4 {
+                let laneOfCable = Int(ev.cable) - 1
                 if laneOfCable != live {
                     XCTFail("seed \(s): disabled lane \(laneOfCable) emitted on cable \(ev.cable) (only lane \(live) live)")
                     return
@@ -417,38 +434,64 @@ final class PortsStressTests: XCTestCase {
         }
     }
 
-    // Riff-off / notes-off port separation.
-    func testRiffNotesPortSeparation() {
+    // CARD BACKS test 3: a part leaves on exactly the outputs its mask names. A lane with only its riff on emits only on the riff mask's outputs; with only its notes on, only on the notes mask's; a part routed nowhere makes no
+    // sound on any output (the other lanes are off). Both parts on: the union of the two masks, nothing outside it.
+    func testEachPartLeavesOnExactlyTheOutputsItsMaskNames() {
+        var sawSilent = 0, sawMulti = 0, sawExact = 0
         for s in 1...800 {
             var g = SM64(UInt64(s) &* 0x55AA55AA)
-            let riffOnly = Bool.random(using: &g)
+            let which = Int.random(in: 0...2, using: &g)                       // 0 riff only, 1 notes only, 2 both
+            let live = Int.random(in: 0...3, using: &g)
             var l = EuclidLine()
             l.enabled = true; l.pulses = 8; l.steps = 8
-            l.riffOn = riffOnly; l.useRiff = riffOnly
-            if riffOnly { l.litNotes = 0; l.topLit = false; l.top2Lit = false }
+            l.riffOn = which != 1; l.useRiff = which != 1
+            if which == 0 { l.litNotes = 0; l.topLit = false; l.top2Lit = false }
             else { l.litNotes = 0b0000_0011; l.notesWhen = 0b11; l.notesPlayAs = .chord }
-            let lines = [l, EuclidLine(), EuclidLine(), EuclidLine()].map { var x = $0; if $0 != l { x.enabled = false }; return x }
-            var gg = SM64(UInt64(s))
-            var (st, pool) = rDoc(&gg, lanes: lines)
-            st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(); st.euclideousSoloMask = 0
-            pool.reset(); for n in [60, 64, 67] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
-            st.euclideousLines = lines
-            let rl = st.euclideousLinesResolved
-            let input = FourfoldCompose.Input(lines: rl, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: 0, soloMask: 0, locks: st.euclideousLocksResolved, lockRevs: 0)
-            st.scenes = [FourfoldCompose.scene(input)]
-            let box = SnapshotBuilder.build(from: st)
-            let router = Router(); var diag = KernelDiag(); let e = TaggedEmitter()
-            var beat = 0.0, ts = 0.0
-            for _ in 0..<24 { router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48000, timestampSample: ts, frameCount: 1024, out: e, diag: &diag); beat += 1024 * 120 / 60 / 48000; ts += 1024 }
-            router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: 48000, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
-            let onRiffPort = e.events.contains { $0.cable == 1 && $0.status == 0x90 }
-            let onNotesPort = e.events.contains { $0.cable == 2 && $0.status == 0x90 }
-            if riffOnly && onNotesPort { XCTFail("seed \(s): riff-only lane emitted on NOTES port (cable 2)"); return }
-            if !riffOnly && onRiffPort { XCTFail("seed \(s): notes-only lane emitted on RIFF port (cable 1)"); return }
+            func mask(_ g: inout SM64) -> UInt8? { [nil, UInt8.random(in: 0...15, using: &g), UInt8.random(in: 1...15, using: &g), 0].randomElement(using: &g)! }
+            let riffMask = mask(&g), notesMask = mask(&g)
+            func run(routed: Bool) -> [TaggedEmitter.Ev] {
+                var x = l
+                if routed { x.riffOutMask = riffMask; x.notesOutMask = notesMask }
+                var lines = (0..<4).map { _ -> EuclidLine in var o = EuclidLine(); o.enabled = false; return o }
+                lines[live] = x
+                var gg = SM64(UInt64(s))
+                var (st, pool) = rDoc(&gg, lanes: lines, randomRouting: false)
+                st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(); st.euclideousSoloMask = 0
+                pool.reset(); for n in [60, 64, 67] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
+                st.euclideousLines = lines
+                let rl = st.euclideousLinesResolved
+                let input = FourfoldCompose.Input(lines: rl, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: 0, soloMask: 0, locks: st.euclideousLocksResolved, lockRevs: 0)
+                st.scenes = [FourfoldCompose.scene(input)]
+                let box = SnapshotBuilder.build(from: st)
+                let router = Router(); var diag = KernelDiag(); let e = TaggedEmitter()
+                var beat = 0.0, ts = 0.0
+                for _ in 0..<24 { router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: 120, sampleRate: 48000, timestampSample: ts, frameCount: 1024, out: e, diag: &diag); beat += 1024 * 120 / 60 / 48000; ts += 1024 }
+                router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: 120, sampleRate: 48000, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
+                return e.events
+            }
+            let ev = run(routed: true), reference = run(routed: false)
+            var probe = l; probe.riffOutMask = riffMask; probe.notesOutMask = notesMask
+            let rm = probe.riffOutMaskResolved(lane: live), nm = probe.notesOutMaskResolved(lane: live)
+            let allowed: UInt8 = which == 0 ? rm : which == 1 ? nm : rm | nm
+            let used = ev.filter { $0.cable >= 1 && $0.cable <= 4 && $0.status == 0x90 }.reduce(UInt8(0)) { $0 | (UInt8(1) << ($1.cable - 1)) }
+            if used & ~allowed != 0 { XCTFail("seed \(s): the lane emitted on outputs \(used) outside its mask \(allowed) (riff \(rm), notes \(nm), mode \(which))"); return }
+            // a single part that sounds at all (its unrouted reference did) sounds on EVERY output of its mask; two parts only have to stay inside the union (either may be silent by the document)
+            let refSounded = reference.contains { $0.status == 0x90 }
+            if which != 2 && refSounded && used != allowed { XCTFail("seed \(s): the mask \(allowed) names outputs the part never sounded on (used \(used), mode \(which))"); return }
+            if which != 2 && refSounded && allowed != 0 { sawExact += 1 }
+            if allowed == 0 { sawSilent += 1; XCTAssertTrue(ev.filter { $0.status == 0x90 }.isEmpty, "seed \(s): routed nowhere ⇒ no note-on on any cable, ALL included") }
+            if allowed.nonzeroBitCount > 1 { sawMulti += 1 }
+            let allOn = ev.filter { $0.cable == 0 && $0.status == 0x90 }.count, outOn = ev.filter { $0.cable >= 1 && $0.cable <= 4 && $0.status == 0x90 }.count
+            if allOn != outOn { XCTFail("seed \(s): ALL carries \(allOn) note-ons but the outputs \(outOn)"); return }
+            var bal: [Int: Int] = [:]
+            for e in ev where e.status == 0x90 || e.status == 0x80 { bal[(Int(e.cable) * 16 + Int(e.chan)) * 128 + Int(e.note), default: 0] += e.status == 0x90 ? 1 : -1 }
+            if !bal.values.allSatisfy({ $0 == 0 }) { XCTFail("seed \(s): a note left sounding"); return }
         }
+        XCTAssertGreaterThan(sawSilent, 20, "the draws must include parts routed nowhere"); XCTAssertGreaterThan(sawMulti, 100, "…and parts routed to several outputs")
+        XCTAssertGreaterThan(sawExact, 100, "…and single parts whose every output was checked")
     }
 
-    // MARK: - HOCKET (ferry 2026-10-27) §12 test 16 — "a stress run cycling every setting of every rule during ties, ratchets, ROLL, RUN, GATE 100, LANES mutes and transport restarts leaves nothing sounding on any of the nine outputs"
+    // MARK: - HOCKET (ferry 2026-10-27) §12 test 16 — "a stress run cycling every setting of every rule during ties, ratchets, ROLL, RUN, GATE 100, LANES mutes and transport restarts leaves nothing sounding on any output"
     // Seeds are SEPARATE from the two fingerprinted fuzz runs above (they draw no rules and must stay byte-identical).
 
     private func rHocketRules(_ g: inout SM64) -> [HocketRule] {
@@ -519,7 +562,7 @@ final class PortsStressTests: XCTestCase {
         pool.reset(); for n in [48, 55, 60, 64, 67, 72] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
         st.euclideousNoteSource = .midi
         let distinctChannels = Bool.random(using: &g)
-        if distinctChannels { st.busChannels = Array((1...16).shuffled(using: &g).prefix(8)) }
+        if distinctChannels { st.busChannels = Array((1...16).shuffled(using: &g).prefix(4)) }
         var rules = rHocketRules(&g)
         st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules)
         var box = SnapshotBuilder.build(from: st)
@@ -538,7 +581,7 @@ final class PortsStressTests: XCTestCase {
             }
             if Int.random(in: 0...9, using: &g) == 0 {            // a whole new set of LANES mutes / lanes, the rules kept
                 let keep = st.hocketRules; let ch = st.busChannels
-                (st, _) = rDoc(&g, lanes: (0..<4).map { _ in rPlayingLane(&g) }, rawGates: rawGates); st.euclideousNoteSource = .midi; st.hocketRules = keep; st.busChannels = ch
+                (st, _) = rDoc(&g, lanes: (0..<4).map { _ in rPlayingLane(&g) }, rawGates: rawGates, randomRouting: false); st.euclideousNoteSource = .midi; st.hocketRules = keep; st.busChannels = ch
                 box = SnapshotBuilder.build(from: st)
             }
             if Int.random(in: 0...4, using: &g) == 0 { tempo = Double([60, 90, 120, 160, 200].randomElement(using: &g)!) }
@@ -568,22 +611,22 @@ final class PortsStressTests: XCTestCase {
             let k = (Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)
             if ev.status == 0x90 {
                 bal[k, default: 0] += 1
-                if ev.cable >= 1 && ev.cable <= 8 {
+                if ev.cable >= 1 && ev.cable <= 4 {
                     let want = (winChans[ev.win][Int(ev.cable) - 1] &- 1) & 15
-                    if ev.chan != want { return "seed \(seed): cable \(ev.cable) note-ON ch \(ev.chan) != the port's channel \(want) (win \(ev.win))" }
-                    // lane isolation: a lane's note leaves only on its own two outputs, unless a LIT rule says the destination output takes passed notes
-                    let portLane = (Int(ev.cable) - 1) / 2
+                    if ev.chan != want { return "seed \(seed): cable \(ev.cable) note-ON ch \(ev.chan) != the output's channel \(want) (win \(ev.win))" }
+                    // lane isolation: a lane's note leaves only on its own output, unless a LIT rule says a part of the destination lane takes passed notes
+                    let portLane = Int(ev.cable) - 1
                     if ev.lane >= 0 && ev.lane != portLane { hocketPassedNotes += 1 }
                     // A deferred strike (a ratchet repeat, a ROLL / RUN note) of a hit struck BEFORE a rule edit keeps the routing it began with (§6.4, §7.4 — "only notes struck after the change follow the new routing"), so it
                     // may land on an output the new rules no longer name: an output lit in any window of the previous 4 seconds is allowed. A strike by the new rules never reaches an output no rule has ever named.
                     var litRecently = false
-                    for j in 0...ev.win where winLit[j] & (UInt8(1) << UInt8(ev.cable - 1)) != 0 && winStart[j] >= ev.sample - 4 * 48_000 { litRecently = true; break }
+                    for j in 0...ev.win where winLit[j] & (UInt8(3) << UInt8(2 * (ev.cable - 1))) != 0 && winStart[j] >= ev.sample - 4 * 48_000 { litRecently = true; break }
                     if ev.lane >= 0 && ev.lane != portLane && !litRecently {
                         return "seed \(seed): lane \(ev.lane) struck a note on lane \(portLane)'s output (cable \(ev.cable)) with no lit rule naming it (win \(ev.win))"
                     }
                 }
                 let key = "\(ev.sample)/\(ev.note)/\(ev.vel)/\(ev.chan)"
-                if ev.cable == 0 { allMS[key, default: 0] += 1 } else if ev.cable <= 8 { portMS[key, default: 0] += 1 }
+                if ev.cable == 0 { allMS[key, default: 0] += 1 } else if ev.cable <= 4 { portMS[key, default: 0] += 1 }
             } else {
                 bal[k, default: 0] -= 1
                 if bal[k]! < 0 { return "seed \(seed): ORPHAN note-off cable \(ev.cable) ch \(ev.chan) note \(ev.note) (win \(ev.win))" }
@@ -592,7 +635,7 @@ final class PortsStressTests: XCTestCase {
         for (k, v) in bal where v != 0 { return "seed \(seed): STUCK note — cable \((k / 128) / 16) ch \((k / 128) % 16) note \(k % 128) balance \(v) at the end" }
         if distinctChannels && portMS != allMS {
             let a = portMS.filter { allMS[$0.key] != $0.value }.keys.sorted().first, b = allMS.filter { portMS[$0.key] != $0.value }.keys.sorted().first
-            return "seed \(seed): ALL != the union of the ports (distinct channels) — port-only \(a ?? "-") / all-only \(b ?? "-")"
+            return "seed \(seed): ALL != the union of the outputs (distinct channels) — output-only \(a ?? "-") / all-only \(b ?? "-")"
         }
         return nil
     }
@@ -601,7 +644,7 @@ final class PortsStressTests: XCTestCase {
         for s in 1...300 { if let msg = runHocketSession(seed: UInt64(s) &+ 500_000, windows: 120, rawGates: false) { XCTFail(msg); return } }
         XCTAssertGreaterThan(hocketPassedNotes, 200, "the fuzz must actually pass lines between lanes (\(hocketPassedNotes) passed notes)")
         XCTAssertGreaterThan(hocketLitWindows, 1000, "…with rules lit (\(hocketLitWindows) windows)")
-        XCTAssertGreaterThan(hocketSharedChannelRuns, 50, "…and some sessions share channels across ports")
+        XCTAssertGreaterThan(hocketSharedChannelRuns, 50, "…and some sessions share channels across outputs")
     }
     func testHocketRulesChangingMidRunAtGate100() {
         for s in 1...300 { if let msg = runHocketSession(seed: UInt64(s) &+ 700_000, windows: 120, rawGates: true) { XCTFail(msg); return } }
@@ -616,10 +659,10 @@ extension PortsStressTests {
         var diverged: [String] = [], litRuns = 0
         for seed in 1...160 {
             var g = SM64(UInt64(seed) &* 0x9E3779B97F4A7C15)
-            var (st, pool) = rDoc(&g, lanes: (0..<4).map { _ in rPlayingLane(&g) }, rawGates: seed % 2 == 0)
+            var (st, pool) = rDoc(&g, lanes: (0..<4).map { _ in rPlayingLane(&g) }, rawGates: seed % 2 == 0, randomRouting: false)
             pool.reset(); for n in [48, 55, 60, 64, 67, 72] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
             st.euclideousNoteSource = .midi
-            st.busChannels = [1, 2, 3, 4, 5, 6, 7, 8]
+            st.busChannels = [1, 2, 3, 4]
             var r = HocketRule()
             switch seed % 4 {
             case 0: r.main = [1]; r.alt = [3]; r.unit = .hits; r.mainLen = 3; r.altLen = 1
@@ -645,7 +688,7 @@ extension PortsStressTests {
             }
             let a = run(baseState), b = run(ruleState)
             func slice(_ evs: [TaggedEmitter.Ev]) -> [String] {
-                evs.filter { ($0.status == 0x90 || $0.status == 0x80) && (($0.cable >= 5 && $0.cable <= 8) || ($0.cable == 0 && $0.chan >= 4 && $0.chan <= 7)) }.map { "\($0.sample)/\($0.cable)/\($0.status)/\($0.chan)/\($0.note)/\($0.vel)" }
+                evs.filter { ($0.status == 0x90 || $0.status == 0x80) && (($0.cable == 3 || $0.cable == 4) || ($0.cable == 0 && ($0.chan == 2 || $0.chan == 3))) }.map { "\($0.sample)/\($0.cable)/\($0.status)/\($0.chan)/\($0.note)/\($0.vel)" }
             }
             let sa = slice(a).sorted(), sb = slice(b).sorted()          // as sets: which voice slot a note lands in (so the order a window's offs come out in) shifts when another lane's notes are routed
             litRuns += 1

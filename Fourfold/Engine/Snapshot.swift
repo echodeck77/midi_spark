@@ -304,8 +304,8 @@ final class SnapshotBox {
     let swing: Double                // 50…75 (§4 v2.3)
     let machines: [SnapMachine]        // ≥16 — sized to the document
     let cells: [SnapCell]            // Snap.cells (256 = maxCols·rows), index = column * Snap.rows + row
-    let busChannels: [UInt8]         // v3.0 (delta §7): 8 stamp channels (1–16), one per port (Riff A … Notes D, `FourfoldPorts`)
-    let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ port i enabled; disabled = no output (always 0xFF now)
+    let busChannels: [UInt8]         // v3.0 (delta §7): 4 stamp channels (1–16), one per OUTPUT (A … D, `FourfoldPorts`)
+    let busEnabledMask: UInt8        // delta §6a: bit i set ⇒ part i enabled; disabled = no output (always 0xFF now)
     let ignoreAllNotesOff: Bool      // INPUT (Paul 2026-09-06): ignore an incoming CC120/123 (All Sound/Notes Off) so a chatty source (which floods these around each chord) can't wipe the live input pool. Default true.
     // PER-PART CLOCK (Paul 2026-08-19): the raw per-row step/len arrive as init params + are resolved below; only the RESOLVED arrays are stored.
     let rowStep: [Double]            // RESOLVED per-row step (always Snap.rows long; falls back to `stepBeats`) — what the render reads

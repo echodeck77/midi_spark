@@ -1997,36 +1997,33 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousKeySpokenName(root: 6, type: .mixolydian), "F sharp mixolydian")
         for t in ScaleType.allCases { XCTAssertFalse(euclideousKeySpokenName(root: 3, type: t).hasSuffix("MIXO"), "\(t)") }
     }
-    // THE NINE PORTS (2026-10-26): the PORTS tab of the settings sheet — one row per lane, RIFF then NOTES, eight channel steppers in all.
-    func testThePortsTabListsEightPortsInLaneOrder() {
+    // CARD BACKS (2026-10-28): the PORTS tab of the settings sheet — one row per OUTPUT (A–D) with its own channel stepper.
+    func testThePortsTabListsTheFourOutputsInOrder() {
         let rows = euclideousPortsTabRows()
         XCTAssertEqual(rows.map { $0.letter }, ["A", "B", "C", "D"])
-        XCTAssertEqual(rows.flatMap { $0.ports.map { $0.bus } }, Array(0..<8), "riff bus 2·lane, notes bus 2·lane + 1")
-        XCTAssertEqual(rows.flatMap { $0.ports.map { $0.label } }, ["RIFF", "NOTES", "RIFF", "NOTES", "RIFF", "NOTES", "RIFF", "NOTES"])
-        XCTAssertEqual(euclideousPortChannelAccessibilityLabel(bus: 0, channel: 1), "Emit Riff A, channel 1")
-        XCTAssertEqual(euclideousPortChannelAccessibilityLabel(bus: 7, channel: 16), "Emit Notes D, channel 16")
+        XCTAssertEqual(rows.flatMap { $0.ports.map { $0.bus } }, [0, 1, 2, 3], "one stepper per output, in output order")
+        XCTAssertEqual(euclideousPortChannelAccessibilityLabel(bus: 0, channel: 1), "A, channel 1")
+        XCTAssertEqual(euclideousPortChannelAccessibilityLabel(bus: 3, channel: 16), "D, channel 16")
         XCTAssertEqual(rows.flatMap { $0.ports.map { euclideousPortChannelAccessibilityLabel(bus: $0.bus, channel: 3) } }.map { $0.replacingOccurrences(of: ", channel 3", with: "") },
-                       Array(FourfoldPorts.names.dropFirst()), "every stepper is named for the port the host lists")
+                       Array(FourfoldPorts.names.dropFirst()), "every stepper is named for the output the host lists")
     }
-    func testThePortsAreNamedAndNumberedForTheHost() {
-        XCTAssertEqual(FourfoldPorts.names, ["All", "Emit Riff A", "Emit Notes A", "Emit Riff B", "Emit Notes B", "Emit Riff C", "Emit Notes C", "Emit Riff D", "Emit Notes D"])
-        XCTAssertEqual(FourfoldPorts.cableCount, 9); XCTAssertEqual(FourfoldPorts.busCount, 8)
+    func testTheOutputsAreNamedAndNumberedForTheHost() {
+        XCTAssertEqual(FourfoldPorts.names, ["All", "A", "B", "C", "D"])
+        XCTAssertEqual(FourfoldPorts.cableCount, 5); XCTAssertEqual(FourfoldPorts.outputCount, 4); XCTAssertEqual(FourfoldPorts.busCount, 8, "eight PARTS: a riff and a notes per lane")
         for lane in 0..<4 {
-            XCTAssertEqual(FourfoldPorts.cable(lane: lane, part: .riff), 1 + 2 * lane); XCTAssertEqual(FourfoldPorts.cable(lane: lane, part: .notes), 2 + 2 * lane)
             XCTAssertEqual(FourfoldPorts.laneBusMask(lane), FourfoldPorts.busMask(lane: lane, part: .riff) | FourfoldPorts.busMask(lane: lane, part: .notes))
-            XCTAssertEqual(FourfoldPorts.lanePart(ofCable: 1 + 2 * lane)?.lane, lane); XCTAssertEqual(FourfoldPorts.lanePart(ofCable: 2 + 2 * lane)?.part, .notes)
+            XCTAssertEqual(FourfoldPorts.lanePart(ofBus: 2 * lane)?.lane, lane); XCTAssertEqual(FourfoldPorts.lanePart(ofBus: 2 * lane + 1)?.part, .notes)
+            XCTAssertEqual(FourfoldPorts.defaultOutputMask(bus: 2 * lane), UInt8(1) << UInt8(lane)); XCTAssertEqual(FourfoldPorts.defaultOutputMask(bus: 2 * lane + 1), UInt8(1) << UInt8(lane))
         }
-        XCTAssertNil(FourfoldPorts.lanePart(ofCable: 0)); XCTAssertNil(FourfoldPorts.lanePart(ofCable: 9))
-        XCTAssertEqual(FourfoldPorts.shortName(cable: 0), "ALL"); XCTAssertEqual(FourfoldPorts.shortName(cable: 4), "NOTES B")
+        XCTAssertNil(FourfoldPorts.lanePart(ofBus: 8)); XCTAssertNil(FourfoldPorts.lanePart(ofBus: -1))
+        XCTAssertEqual(FourfoldPorts.shortName(cable: 0), "ALL"); XCTAssertEqual(FourfoldPorts.shortName(cable: 1), "A"); XCTAssertEqual(FourfoldPorts.shortName(cable: 4), "D"); XCTAssertEqual(FourfoldPorts.shortName(cable: 5), "ALL")
     }
-    // FOURFOLD REEL LINK (2026-10-23) · THE NINE PORTS (2026-10-26): Fourfold's lanes each have a riff and a notes port; the workbench still says emitter.
-    func testTheReelBrowserCopyNamesPortsOnFourfoldAndEmittersOnTheWorkbench() {
+    // FOURFOLD REEL LINK (2026-10-23): Fourfold's A–D are outputs, the workbench's are emitters.
+    func testTheReelBrowserCopyNamesOutputsOnFourfoldAndEmittersOnTheWorkbench() {
         let fourfold = reelInstructionText(fourfold: true), workbench = reelInstructionText(fourfold: false)
-        XCTAssertTrue(fourfold.contains("both its ports")); XCTAssertTrue(fourfold.contains("RIFF / NOTES")); XCTAssertFalse(fourfold.contains("emitter"))
-        XCTAssertTrue(workbench.contains("that emitter")); XCTAssertFalse(workbench.contains("ports"))
-        XCTAssertEqual(reelExportPortsLabel([]), "MASTER")
-        XCTAssertEqual(reelExportPortsLabel([0]), "RIFF A"); XCTAssertEqual(reelExportPortsLabel([5, 2]), "RIFF B·NOTES C")
-        XCTAssertEqual(reelExportPortsLabel([0, 1, 2]), "3 PORTS"); XCTAssertEqual(reelExportPortsLabel([9, -1]), "MASTER", "out-of-range ports are ignored")
+        XCTAssertTrue(fourfold.contains("that output")); XCTAssertFalse(fourfold.contains("emitter"), "Fourfold has outputs A–D, not emitters")
+        XCTAssertTrue(workbench.contains("that emitter")); XCTAssertFalse(workbench.contains("output"))
+        XCTAssertEqual(fourfold.replacingOccurrences(of: "output", with: "emitter"), workbench, "otherwise the same sentence — one browser, two names")
     }
     func testThePassLengthLineReadsInBeats() {
         XCTAssertEqual(reelPassLengthText(beats: 4), "1 PASS = 4 BEATS")

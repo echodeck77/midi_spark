@@ -113,13 +113,16 @@ final class EffectiveParamsTests: XCTestCase {
         let back = try JSONDecoder().decode(EuclidLine.self, from: data)
         XCTAssertEqual(back.rate, .r1_8t)
     }
-    // THE NINE PORTS (2026-10-26): a document written while a lane had an emitter mask, per-layer masks or ALT routing still loads — those keys are ignored — and is never written back with them.
+    // THE NINE PORTS (2026-10-26) → CARD BACKS (2026-10-28): a document written while a lane had an emitter mask, per-layer masks or ALT routing still loads. The per-part masks are alive again (they carry the part's outputs); the emitter mask and the ALT routing are
+    // not — their keys are ignored and never written back.
     func testALaneSavedWithTheRetiredRoutingKeysStillDecodesAndTheKeysAreDropped() throws {
         let json = #"{"target":0,"pulses":5,"steps":8,"rotate":0,"invert":false,"emitterMask":5,"riffOutMask":1,"notesOutMask":2,"riffAlt":{"mode":"HITS","altMask":2},"notesAlt":{"mode":"SPLIT"},"outLink":"RIFF"}"#
         let line = try JSONDecoder().decode(EuclidLine.self, from: Data(json.utf8))   // MUST NOT throw
         XCTAssertEqual(line.pulses, 5, "everything else is read as before")
         let back = String(decoding: try JSONEncoder().encode(line), as: UTF8.self)
-        for key in ["emitterMask", "riffOutMask", "notesOutMask", "riffAlt", "notesAlt", "outLink"] { XCTAssertFalse(back.contains(key), "\(key) is not written back") }
+        for key in ["emitterMask", "riffAlt", "notesAlt", "outLink"] { XCTAssertFalse(back.contains(key), "\(key) is not written back") }
+        XCTAssertEqual(line.riffOutMask, 0b0001); XCTAssertEqual(line.notesOutMask, 0b0010, "the part masks are read…")
+        XCTAssertTrue(back.contains("riffOutMask") && back.contains("notesOutMask"), "…and written back")
     }
 
     // RIFF ADVANCE (Paul 2026-10-06): useRiff/riffRotate/riffOctave are the newest three EuclidLine fields — same
@@ -820,6 +823,7 @@ final class EffectiveParamsTests: XCTestCase {
         // NOTES TAB (2026-10-19). riffOnRest is `.repeatLast` above, not `.fill`: FILL leaves ON REST and decodes as SKIP by design (§9).
         l.notesWhen = 0b01; l.notesChance = 50; l.notesPlayAs = .split; l.notesReceivedOnly = true
         l.offsetFraction = 0.35; l.tiltFine = -0.3   // RHYTHM POLISH (2026-10-22)
+        l.riffOutMask = 0b0101; l.notesOutMask = 0b1000   // CARD BACKS (2026-10-28): the outputs each part leaves on
         var order = EuclideousLitOrder(); for p in [0, 2, 4, 6, 8, 9] { order.append(p) }; l.setLitOrder(order)   // = the litNotes / topLit / top2Lit set above
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {

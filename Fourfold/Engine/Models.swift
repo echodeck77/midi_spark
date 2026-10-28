@@ -267,8 +267,15 @@ struct EuclidLine: Codable, Equatable {
     // (byte-identical for every existing doc, incl. the BUILD-page EUCLID processor, which has no UI for this and
     // will never set it). Lets each of Euclideous's 4 lanes run its own tempo-relative rate.
     var rate: ArpRate? = nil
-    // THE NINE PORTS (Paul 2026-10-26): a lane has no output setting — its RIFF leaves on its Riff port and its NOTES on its Notes port, always (`FourfoldPorts`). The per-lane emitter mask, the per-layer
-    // routing masks and the ALT groups that lived here are gone; an older document's keys for them are ignored at decode.
+    // CARD BACKS (Paul 2026-10-28): each PART of a lane — its RIFF and its NOTES — carries its own 4-bit routing mask over the four outputs A–D (bit n = output A + n); a part leaves on every output whose bit is set, and a part
+    // routed nowhere sounds nowhere (its notes still reach the roll, marked silent). nil ⇒ the lane's OWN output (lane 1 → A, lane 2 → B, lane 3 → C, lane 4 → D), so every lane that has neither field resolves BOTH parts to its
+    // own output. Additive-Optional and decode-tolerant: a document that carries the pre-nine-ports keys of the same names reads them back (bits above the fourth are dropped on read).
+    var riffOutMask: UInt8? = nil
+    var notesOutMask: UInt8? = nil
+    /// This lane's RIFF part's outputs (bits A–D); `lane` is the lane's index (0–3) — the default is its own output.
+    func riffOutMaskResolved(lane: Int) -> UInt8 { (riffOutMask ?? (UInt8(1) << UInt8(max(0, min(3, lane))))) & 0x0F }
+    /// This lane's NOTES part's outputs (bits A–D).
+    func notesOutMaskResolved(lane: Int) -> UInt8 { (notesOutMask ?? (UInt8(1) << UInt8(max(0, min(3, lane))))) & 0x0F }
     // RIFF ADVANCE (Paul 2026-10-06, EUCLIDEOUS): when on, this lane's hits step through the page's shared
     // EuclideousRiff pattern instead of noteSel/octave — REPLACES them entirely, not layered on top. riffRotate/
     // riffOctave are this lane's own INDEPENDENT offsets into that one shared pattern (driven by the same
@@ -939,6 +946,8 @@ extension EuclidLine {
         // the notes velocity pinned from it — survive a session or preset round trip.
         velocityAbsolute = try c.decodeIfPresent(Int.self, forKey: .velocityAbsolute)
         notesGate = try c.decodeIfPresent(Double.self, forKey: .notesGate)
+        riffOutMask = (try c.decodeIfPresent(UInt8.self, forKey: .riffOutMask)).map { $0 & 0x0F }
+        notesOutMask = (try c.decodeIfPresent(UInt8.self, forKey: .notesOutMask)).map { $0 & 0x0F }
         notesVelocity = try c.decodeIfPresent(Int.self, forKey: .notesVelocity)
         muteCells16 = try c.decodeIfPresent(UInt16.self, forKey: .muteCells16)
         muteUnit = try c.decodeIfPresent(UInt8.self, forKey: .muteUnit)
@@ -2744,12 +2753,12 @@ struct PluginState: Codable, Equatable {
     var activeScene: Int? = nil
     var morphMaster: Double? = nil // DECODE-ONLY ZOMBIE (delta §9 item 5): param #300 was REMOVED 2026-09-16 (address
                                    // free to reuse) and the render never applied it — kept only so older docs decode.
-    var busChannels: [Int]? = nil  // v3.0 (delta §7): each port stamps this channel on exit. THE NINE PORTS (2026-10-26): 8 entries, one per port (Riff A, Notes A, … Notes D); a session saved before that holds 4 (one per lane)
-    /// The 8 stamp channels, one per port (`FourfoldPorts`), nil/short-array safe. Missing ⇒ 1…8. A pre-ports document stored 4 (one per LANE): both of a lane's ports take its number, so what it sent on ALL is unchanged.
+    var busChannels: [Int]? = nil  // v3.0 (delta §7): each OUTPUT stamps this channel on exit. CARD BACKS (2026-10-28): 4 entries, one per output A–D (default 1…4); a nine-ports document holds 8 (one per port): output n takes the RIFF port's entry (2n)
+    /// The 4 stamp channels, one per output A–D (`FourfoldPorts`), nil/short-array safe. Missing ⇒ 1…4. An 8-entry (nine-ports) document maps output n ← entry 2n (the lane's riff port); a 5-to-7-entry list reads the same way.
     var busChannelsResolved: [Int] {
         let b = busChannels ?? []
-        if !b.isEmpty && b.count <= 4 { return (0..<8).map { let lane = $0 / 2; return lane < b.count ? b[lane] : lane + 1 } }
-        return (0..<8).map { $0 < b.count ? b[$0] : $0 + 1 }
+        if b.count > 4 { return (0..<4).map { 2 * $0 < b.count ? b[2 * $0] : $0 + 1 } }
+        return (0..<4).map { $0 < b.count ? b[$0] : $0 + 1 }
     }
     // ROW 8 (Paul 2026-08-22, Docs/row8-spec.md): the bottom ACTION strip — 8 TYPED performance cells. DOCUMENT state is
     // the authoring {type · payload · mover}; the toggle/radio LIT state is captured PER SCENE (SceneState.row8On).
@@ -2927,6 +2936,8 @@ struct PluginState: Codable, Equatable {
     }
     // FX TAB (ferry 2026-10-18): the whole tab as ONE additive-Optional field; nil ⇒ every cell empty and the §1.3/§1.4 defaults, so every pre-feature
     // document and all 20 factory presets sound exactly as before. `Resolved` clamps everything (the render path and the UI only ever read this).
+    /// RETIRED (card backs, 2026-10-28): the page's MAIN OUT mask — every output is always on now, so nothing shows, sets or reads it. Kept so a document that stored one decodes and writes it back unchanged.
+    var euclideousMainOutMask: UInt8? = nil
     var euclideousFX: EuclideousFX? = nil
     var euclideousFXResolved: EuclideousFX { (euclideousFX ?? EuclideousFX()).normalized() }
     // HOCKET (ferry 2026-10-27): up to four rules trading or passing lines between the eight lane outputs — one additive-Optional field; nil or empty ⇒ no rules (the pop-up then shows one empty R1 that is stored only once

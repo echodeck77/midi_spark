@@ -205,21 +205,23 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(on.cells[5 * Snap.rows + 1].runStartColumn, 5, "ladder: the active rung (col 5, row 1) runs from its OWN column")
     }
 
-    // THE NINE PORTS: every port is always enabled (the per-output enable was an emitter toggle and is gone) and there are eight stamp channels.
-    func testEveryPortIsEnabledAndThereAreEightStampChannels() {
+    // CARD BACKS: every part is always enabled (the per-output enable was an emitter toggle and is gone) and there are four stamp channels, one per output.
+    func testEveryPartIsEnabledAndThereAreFourStampChannels() {
         let st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
         let b = SnapshotBuilder.build(from: st)
         XCTAssertEqual(b.busEnabledMask, 0xFF)
-        XCTAssertEqual(b.busChannels, [1, 2, 3, 4, 5, 6, 7, 8], "a fresh document stamps each port with its own channel")
+        XCTAssertEqual(b.busChannels, [1, 2, 3, 4], "a fresh document stamps each output with its own channel")
     }
-    func testAPreNinePortsDocumentsFourLaneChannelsFillBothPortsOfEachLane() {
+    func testTheStampChannelsAreOnePerOutputAndANinePortsDocumentMapsItsRiffPortsOntoThem() {
         var st = PluginState(machines: machines(customizing: 0) { _ in }, scenes: [SceneState.empty()])
         st.busChannels = [5, 6, 7, 8]
-        XCTAssertEqual(SnapshotBuilder.build(from: st).busChannels, [5, 5, 6, 6, 7, 7, 8, 8], "the lane's number is both its ports' number, so ALL is unchanged")
+        XCTAssertEqual(SnapshotBuilder.build(from: st).busChannels, [5, 6, 7, 8], "a four-entry list is one per output A–D")
         st.busChannels = [9, 8, 7, 6, 5, 4, 3, 2]
-        XCTAssertEqual(SnapshotBuilder.build(from: st).busChannels, [9, 8, 7, 6, 5, 4, 3, 2], "an eight-entry list is one per port")
-        st.busChannels = [0, 99, 3, 4, 5, 6, 7, 8]
-        XCTAssertEqual(SnapshotBuilder.build(from: st).busChannels, [1, 16, 3, 4, 5, 6, 7, 8], "clamped to 1…16")
+        XCTAssertEqual(SnapshotBuilder.build(from: st).busChannels, [9, 7, 5, 3], "a document saved with eight ports: output n takes its lane's riff-port channel (entry 2n)")
+        st.busChannels = [0, 99, 3, 4]
+        XCTAssertEqual(SnapshotBuilder.build(from: st).busChannels, [1, 16, 3, 4], "clamped to 1…16")
+        st.busChannels = [6]
+        XCTAssertEqual(SnapshotBuilder.build(from: st).busChannels, [6, 2, 3, 4], "a short list keeps its entries and defaults the rest")
     }
 
     // MARK: - RECEIVERS (delta §9 item 11) — cell → receiver → SnapCell filter resolution
@@ -675,7 +677,7 @@ final class SnapshotBuilderTests: XCTestCase {
         var d = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [s])
         d.busChannels = [5, 2, 99, 0]   // 99 and 0 are out of range → clamp to 16 / 1
         let b = SnapshotBuilder.build(from: d)
-        XCTAssertEqual(b.busChannels, [5, 5, 2, 2, 16, 16, 1, 1], "a four-lane list fills both ports of each lane")
+        XCTAssertEqual(b.busChannels, [5, 2, 16, 1])
         XCTAssertEqual(b.cells[0].inputChannel, 3)
     }
 

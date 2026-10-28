@@ -234,9 +234,9 @@ enum SnapshotBuilder {
         }
 
         // v3.0 (delta §7): per-bus stamp channels A–D, clamped 1–16, defaulted if the doc is short.
-        var busCh = [UInt8](repeating: 0, count: FourfoldPorts.busCount)
-        let busChResolved = doc.busChannelsResolved   // CR-8: nil/short-safe (busChannels is now Optional); THE NINE PORTS: one per port
-        for i in 0..<FourfoldPorts.busCount {
+        var busCh = [UInt8](repeating: 0, count: FourfoldPorts.outputCount)
+        let busChResolved = doc.busChannelsResolved   // CR-8: nil/short-safe (busChannels is now Optional); CARD BACKS: one per output A–D
+        for i in 0..<FourfoldPorts.outputCount {
             busCh[i] = UInt8(max(1, min(16, busChResolved[i])))
         }
         // The ONE passthrough rule: a bypassed identity slot = the source plays untreated as a hold-tail. LEGATO
@@ -264,7 +264,7 @@ enum SnapshotBuilder {
                            machines: machines,
                            cells: cells,
                            busChannels: busCh,
-                           busEnabledMask: 0xFF,   // THE NINE PORTS: every port is always on (the per-output enable was an emitter toggle, retired 2026-10-26)
+                           busEnabledMask: 0xFF,   // every part is always on (the per-output enable was an emitter toggle, retired 2026-10-26)
                            ignoreAllNotesOff: doc.ignoreAllNotesOffResolved,
                            rowStepBeats: rowStepBeats, rowLen: rowLenResolved, rowLaneMask: rowLaneResolved,
                            rowLaunchAnchor: rowLaunchAnchorResolved)
@@ -356,6 +356,8 @@ enum SnapshotBuilder {
                                                                       missVelocity: $0.missVelocity.map { clamp($0, 0, 2) },
                                                                       patternMiss: $0.patternMiss,
                                                                       rate: $0.rate,
+                                                                      // CARD BACKS (2026-10-28): each part's output mask — declared right after `rate` in Models.swift, so this literal's argument order must match; a field left out here silently resets every render.
+                                                                      riffOutMask: $0.riffOutMask.map { $0 & 0x0F }, notesOutMask: $0.notesOutMask.map { $0 & 0x0F },
                                                                       useRiff: $0.useRiff, melodyMode: $0.melodyMode,
                                                                       litNotes: $0.litNotes, topLit: $0.topLit, top2Lit: $0.top2Lit, riffOn: $0.riffOn,
                                                                       // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, 2nd same-day ferry) — `melodyMode`

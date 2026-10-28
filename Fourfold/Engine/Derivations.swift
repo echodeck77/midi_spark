@@ -2645,61 +2645,57 @@ func euclideousAccessibleDisplayNoteName(_ n: UInt8, source: EuclideousLaneSourc
 }
 
 
-// ── THE NINE PORTS (Paul 2026-10-26, replaces the emitter toggles) ─────────────────────────────────────────
-/// Which layer of a lane a note belongs to. A lane's RIFF and its NOTES each leave on their OWN port, always.
+// ── OUTPUTS AND PARTS (card backs, Paul 2026-10-28; replaces the nine ports) ───────────────────────────────────────────────
+/// Which layer of a lane a note belongs to. A lane has two PARTS: its RIFF and its NOTES.
 enum EuclideousOutPart: Equatable { case riff, notes }
 
-/// Fourfold's MIDI outputs, as the host lists them: cable 0 is ALL (every stream, told apart by channel), then one port per lane per layer —
-/// Riff A, Notes A, Riff B, Notes B, … Notes D (lane 1 is "A"). There is no routing to choose: a note's port follows from its lane and layer.
-/// A BUS is the engine's name for a port without ALL, so `bus = 2 × lane + (notes ? 1 : 0)` and `cable = bus + 1`; a bus mask has one bit per port (8 bits).
+/// Fourfold's MIDI outputs, as the host lists them: cable 0 is ALL (every note that leaves on any of A–D, on the channel it left with), then four outputs A, B, C, D (cables 1–4). Each PART of each lane is routed to any of
+/// A–D by its own 4-bit mask (`EuclidLine.riffOutMask` / `notesOutMask`; default: the lane's own output). A PART is the engine's identity for a note — `part = 2 × lane + (notes ? 1 : 0)`, 0…7 — and a part mask has one bit per part.
+/// (Named `bus` in much of the engine: a bus is a part; an OUTPUT is what the host sees.)
 enum FourfoldPorts {
-    static let cableCount = 9
-    static let busCount = 8
+    static let cableCount = 5          // ALL + A…D
+    static let outputCount = 4         // A…D
+    static let busCount = 8            // PARTS: a lane's riff and its notes
     static let all = 0
     static let laneLetters = ["A", "B", "C", "D"]
-    /// The host-visible names (AUM prepends the plugin's own name).
-    static let names: [String] = ["All"] + (0..<4).flatMap { ["Emit Riff \(laneLetters[$0])", "Emit Notes \(laneLetters[$0])"] }
+    /// The host-visible names (AUM prepends the plugin's own name): All, A, B, C, D.
+    static let names: [String] = ["All"] + laneLetters
     @inline(__always) static func bus(lane: Int, part: EuclideousOutPart) -> Int { 2 * lane + (part == .notes ? 1 : 0) }
-    @inline(__always) static func cable(lane: Int, part: EuclideousOutPart) -> Int { bus(lane: lane, part: part) + 1 }
-    /// The bus mask (one bit) for a lane's layer.
+    /// The part mask (one bit) for a lane's layer.
     @inline(__always) static func busMask(lane: Int, part: EuclideousOutPart) -> UInt8 { UInt8(1) << UInt8(bus(lane: lane, part: part)) }
-    /// Both of a lane's ports.
+    /// Both of a lane's parts.
     @inline(__always) static func laneBusMask(_ lane: Int) -> UInt8 { UInt8(3) << UInt8(2 * lane) }
-    /// The lane and layer a cable carries; nil for ALL (cable 0) and anything out of range.
-    static func lanePart(ofCable cable: Int) -> (lane: Int, part: EuclideousOutPart)? {
-        guard cable >= 1, cable < cableCount else { return nil }
-        return ((cable - 1) / 2, (cable - 1) % 2 == 0 ? .riff : .notes)
+    /// The lane and layer of a part (0…7).
+    static func lanePart(ofBus bus: Int) -> (lane: Int, part: EuclideousOutPart)? {
+        guard bus >= 0, bus < busCount else { return nil }
+        return (bus / 2, bus % 2 == 0 ? .riff : .notes)
     }
-    /// "RIFF A" / "NOTES C" — the page's own short wording (upper case, like the rest of the page); "ALL" for cable 0.
-    static func shortName(cable: Int) -> String {
-        guard let lp = lanePart(ofCable: cable) else { return "ALL" }
-        return (lp.part == .riff ? "RIFF " : "NOTES ") + laneLetters[lp.lane]
-    }
+    /// The cable of output `o` (0 = A … 3 = D): ALL is cable 0, so output A is cable 1.
+    @inline(__always) static func cable(output o: Int) -> Int { o + 1 }
+    /// The default routing of part `bus`: its lane's own output (a one-bit mask over A–D).
+    @inline(__always) static func defaultOutputMask(bus: Int) -> UInt8 { UInt8(1) << UInt8((bus / 2) & 3) }
+    /// "A" … "D" for cables 1–4; "ALL" for cable 0 and anything out of range — the page's own short wording.
+    static func shortName(cable: Int) -> String { cable >= 1 && cable <= outputCount ? laneLetters[cable - 1] : "ALL" }
 }
 
-/// The settings sheet's PORTS tab: one row per lane (its letter), two ports per row — RIFF then NOTES — each with its own channel stepper.
+/// The settings sheet's PORTS tab: one row per OUTPUT (its letter), each with its own channel stepper.
 struct EuclideousPortsTabPort: Equatable { var bus: Int; var label: String }
 struct EuclideousPortsTabRow: Equatable { var lane: Int; var letter: String; var ports: [EuclideousPortsTabPort] }
 func euclideousPortsTabRows() -> [EuclideousPortsTabRow] {
-    (0..<4).map { lane in
-        EuclideousPortsTabRow(lane: lane, letter: FourfoldPorts.laneLetters[lane], ports: [
-            EuclideousPortsTabPort(bus: FourfoldPorts.bus(lane: lane, part: .riff), label: "RIFF"),
-            EuclideousPortsTabPort(bus: FourfoldPorts.bus(lane: lane, part: .notes), label: "NOTES")])
-    }
+    (0..<4).map { o in EuclideousPortsTabRow(lane: o, letter: FourfoldPorts.laneLetters[o], ports: [EuclideousPortsTabPort(bus: o, label: "CH")]) }
 }
-/// The PORTS tab's lane row is fixed-width: a letter (14) + two steppers (36 label + 4 + 84 = 124 each) + two 8 pt gaps = 278 pt. The sheet's block gives it `cardWidth − 32` (card and block padding), so under a 310 pt card the two steppers
-/// no longer fit side by side and the row stacks them (RIFF over NOTES). Never reached on an iPad window of normal size; a windowed host on an old iPad can get there.
+/// The PORTS tab's output row is fixed-width: a letter (14) + one stepper (36 label + 4 + 84 = 124) + a gap = 146 pt. The sheet's block gives it `cardWidth − 32` (card and block padding); below that it still fits down to a 178 pt card.
 enum EuclideousPortsRowMetrics {
     static let letterW: CGFloat = 14, gap: CGFloat = 8, labelW: CGFloat = 36, labelGap: CGFloat = 4, stepperW: CGFloat = 84
     static var portW: CGFloat { labelW + labelGap + stepperW }
-    static var sideBySideW: CGFloat { letterW + gap + portW + gap + portW }
+    static var sideBySideW: CGFloat { letterW + gap + portW }
     static let cardChrome: CGFloat = 32
 }
 func euclideousPortsRowIsStacked(cardWidth: CGFloat) -> Bool { cardWidth - EuclideousPortsRowMetrics.cardChrome < EuclideousPortsRowMetrics.sideBySideW }
-/// VoiceOver for one port's channel stepper: the host-visible port name and its channel — "Emit Riff A, channel 3".
+/// VoiceOver for one output's channel stepper: the host-visible output name and its channel — "A, channel 3".
 func euclideousPortChannelAccessibilityLabel(bus: Int, channel: Int) -> String {
     let cable = bus + 1
-    return "\(cable < FourfoldPorts.names.count ? FourfoldPorts.names[cable] : "Port \(cable)"), channel \(channel)"
+    return "\(cable < FourfoldPorts.names.count ? FourfoldPorts.names[cable] : "Output \(cable)"), channel \(channel)"
 }
 
 /// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable
@@ -4075,18 +4071,10 @@ struct EuclideousRingPress: Equatable {
 }
 
 // MARK: - FOURFOLD REEL LINK (2026-10-23)
-/// The pass browser's instruction line. Fourfold's lanes each have two ports (riff and notes), not 8×8 emitters, so the wording follows the page it was opened from.
+/// The pass browser's instruction line. Fourfold's A–D are its outputs, not 8×8 emitters, so the wording follows the page it was opened from.
 func reelInstructionText(fourfold: Bool) -> String {
-    let head = "Tap a pass to hear it. PAGE steps through the whole history; EXTEND grows the selection across passes (the roll and SAVE cover the range). "
-    return head + (fourfold ? "Tap a lane to export both its ports, or its RIFF / NOTES tag for just that port (none = the master mix)."
-                            : "Tap a lane to export just that emitter (none = the master mix).")
-}
-/// SAVE's label for the port selection (bit index 0…7): MASTER for none, the names for one or two, "n PORTS" beyond that.
-func reelExportPortsLabel(_ ports: Set<Int>) -> String {
-    let valid = ports.filter { $0 >= 0 && $0 < FourfoldPorts.busCount }.sorted()
-    if valid.isEmpty { return "MASTER" }
-    if valid.count > 2 { return "\(valid.count) PORTS" }
-    return valid.map { FourfoldPorts.shortName(cable: $0 + 1) }.joined(separator: "·")
+    let who = fourfold ? "output" : "emitter"
+    return "Tap a pass to hear it. PAGE steps through the whole history; EXTEND grows the selection across passes (the roll and SAVE cover the range). Tap a lane to export just that \(who) (none = the master mix)."
 }
 /// "1 PASS = 4 BEATS". A pass is eight steps of the global step rate (the 8×8 clock — Fourfold's lanes have their own rates, so a pass is a slice of time, not a lap of any lane).
 func reelPassLengthText(beats: Double) -> String {
@@ -4129,7 +4117,7 @@ func reelUniqueFileName(_ name: String, exists: (String) -> Bool) -> String {
     return "\(base) \(n).mid"
 }
 struct ReelExportAvailability: Equatable { var ok: Bool; var reason: String? }
-/// Whether SAVE can do anything, and if not WHY — in one short line. `outputCounts` = notes per port (Riff A, Notes A … Notes D) in the selected range; `lanes` = the ports ticked for export, as bit indexes 0…7 (empty = the master mix).
+/// Whether SAVE can do anything, and if not WHY — in one short line. `outputCounts` = notes per output A–D in the selected range; `lanes` = the outputs ticked for export (empty = the master mix).
 func reelExportAvailability(anyPass: Bool, selected: Bool, outputCounts: [Int], lanes: Set<Int>) -> ReelExportAvailability {
     guard anyPass else { return ReelExportAvailability(ok: false, reason: "Nothing recorded yet.") }
     guard selected else { return ReelExportAvailability(ok: false, reason: "Tap a pass to choose what to save.") }
@@ -4139,7 +4127,7 @@ func reelExportAvailability(anyPass: Bool, selected: Bool, outputCounts: [Int], 
     }
     let withNotes = lanes.filter { count($0) > 0 }
     if !withNotes.isEmpty { return ReelExportAvailability(ok: true, reason: nil) }
-    let names = lanes.sorted().map { FourfoldPorts.shortName(cable: min(FourfoldPorts.busCount - 1, max(0, $0)) + 1).capitalized }
+    let names = lanes.sorted().map { ["A", "B", "C", "D"][min(3, max(0, $0))] }
     return ReelExportAvailability(ok: false, reason: "Nothing on \(names.joined(separator: ", ")) in these passes.")
 }
 /// "Passes 1-7 have dropped off the tape." — the ring keeps only the newest 64; the oldest one still held being number n (1-based) means the n-1 before it are gone. nil while nothing has been dropped.

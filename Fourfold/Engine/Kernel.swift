@@ -156,7 +156,7 @@ final class Kernel {
     // `euclideousPlayingRiffIndex()` forwarder deleted 2026-10-18 (adversarial review) — zero callers
     // left once the ferry dropping the looper also dropped the editing-vs-playing distinction it served.
 
-    private var busChannels: [UInt8] = [1, 2, 3, 4, 5, 6, 7, 8]               // CONTROLLER ROUTING (v1): per-port stamp channels (for the re-stamp forward)
+    private var busChannels: [UInt8] = [1, 2, 3, 4]                           // CONTROLLER ROUTING (v1): per-output stamp channels (for the re-stamp forward)
     private var ignoreAllNotesOff = true     // INPUT (Paul 2026-09-06): mirror of box.ignoreAllNotesOff — suppress a source's CC120/123 wiping the live pool
     // NOTE MONITOR (Paul 2026-08-29): raw held notes are NOT echoed to the output — a CELL is the sole note source, so a
     // fresh instance (nothing selected) is SILENT. Default OFF; kept as a flag so a soundcheck toggle can re-enable it.
@@ -219,16 +219,16 @@ final class Kernel {
     func reelCycleValue() -> Double { reel.loopCycle }              // the SELECTED pass's length in beats (piano-roll x-axis + export) — not the live rate
     /// EXPORT (step 2): the recorded pass as SMF files — the A–D "sum" plus a per-emitter stem for each that has events.
     // (reelExport() — the whole-pass SMF export — was removed 2026-08-27; superseded by reelExportRange, its only path.)
-    /// EXPORT a pass RANGE × a port SELECTION (Paul 2026-08-26). portMask == 0 ⇒ the MASTER (the sum of the eight ports) as one file;
-    /// else one stem per selected port (Riff A = bit0 … Notes D = bit7). Each file is the passes [lo,hi] concatenated into one phrase.
-    func reelExportRange(fromPass lo: Int, toPass hi: Int, portMask: UInt8) -> [(name: String, data: Data)] {
+    /// EXPORT a pass RANGE × an output SELECTION (Paul 2026-08-26). emitterMask == 0 ⇒ the MASTER (the A–D sum) as one file;
+    /// else one stem per selected output (A = bit0 … D = bit3). Each file is the passes [lo,hi] concatenated into one phrase.
+    func reelExportRange(fromPass lo: Int, toPass hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] {
         let ppq = 480
         var files: [(name: String, data: Data)] = []
-        if portMask == 0 {   // MASTER — the sum of the eight ports
-            let (evs, total) = reel.exportRangeEvents(fromPass: lo, toPass: hi, cables: Set((1...FourfoldPorts.busCount).map { UInt8($0) }))
+        if emitterMask == 0 {   // MASTER — the A–D sum
+            let (evs, total) = reel.exportRangeEvents(fromPass: lo, toPass: hi, cables: Set((1...FourfoldPorts.outputCount).map { UInt8($0) }))
             if !evs.isEmpty { files.append((name: "Fourfold-All.mid", data: MidiFile.encode(events: evs, bpm: reelTempoStored, ppq: ppq, loopBeats: total))) }
-        } else {                // the SELECTED emitter stems
-            for i in 0..<FourfoldPorts.busCount where (portMask & (1 << UInt8(i))) != 0 {
+        } else {                // the SELECTED output stems
+            for i in 0..<FourfoldPorts.outputCount where (emitterMask & (1 << UInt8(i))) != 0 {
                 let (evs, total) = reel.exportRangeEvents(fromPass: lo, toPass: hi, cables: [UInt8(i + 1)])
                 if !evs.isEmpty { files.append((name: "Fourfold-\(FourfoldPorts.shortName(cable: i + 1).capitalized).mid", data: MidiFile.encode(events: evs, bpm: reelTempoStored, ppq: ppq, loopBeats: total))) }
             }
@@ -239,7 +239,7 @@ final class Kernel {
         let r = reel.rangeRoll(fromPass: lo, toPass: hi); return (r.notes, r.totalBeats)   // read-only value copy — safe off the render thread while browsing freezes the tape
     }
     private func reelBlanketOff(out: MIDIEmitter?) {                // CC120 + CC123 on every channel × cable — kills the loop's ringing notes on stop
-        for cable in UInt8(0)...UInt8(FourfoldPorts.busCount) { for ch in UInt8(0)..<16 {
+        for cable in UInt8(0)...UInt8(FourfoldPorts.outputCount) { for ch in UInt8(0)..<16 {
             out?.emit(sampleTime: renderSampleImmediate, cable: cable, 0xB0 | ch, 120, 0)
             out?.emit(sampleTime: renderSampleImmediate, cable: cable, 0xB0 | ch, 123, 0)
         } }
@@ -590,7 +590,7 @@ final class Kernel {
         // + system keep the passthrough below. (Ownership suppression — a BEND/MOD stage owning an address — is the
         // reserved rule, not v1: for now forward + generate both, last-writer.)
         if isForwardableController(bytes[0]), let out = midiOut {
-            let fwd: UInt8 = 0xFF   // CC · PC · AT · PB from any input go to all eight ports (Riff A … Notes D), re-stamped with each port's own channel
+            let fwd: UInt8 = 0x0F   // CC · PC · AT · PB from any input go to the four outputs (A … D), re-stamped with each output's own channel
             // CC120/123 (all-sound/all-notes-off): do NOT relay it to the synth when either a HOLD/LATCH is armed (it would
             // kill the deliberately-held chord DOWNSTREAM even though we keep it internally) OR ignoreAllNotesOff is on (the
             // source floods it as noise — Finding 2, 2026-09-07: forwarding it when NO latch was armed silenced the grid's OWN
@@ -604,7 +604,7 @@ final class Kernel {
                 while m != 0 {
                     let bus = Int(m.trailingZeroBitCount); m &= m - 1
                     passthroughScratch[0] = (bytes[0] & 0xF0) | ((busChannels[bus] &- 1) & 15)   // RE-STAMP the channel
-                    _ = out(sampleTime, UInt8(bus + 1), n, &passthroughScratch)                  // the port's cable (Riff A = 1 … Notes D = 8)
+                    _ = out(sampleTime, UInt8(bus + 1), n, &passthroughScratch)                  // the output's cable (A = 1 … D = 4)
                 }
             }
             return   // controller handled by the routing forward — skip the legacy passthrough

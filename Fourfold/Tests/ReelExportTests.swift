@@ -80,10 +80,10 @@ final class ReelExportTests: XCTestCase {
     }
 
     func testAnEmptyOutputIsNamedInsteadOfBeingSilentlySkipped() {
-        // a lane with only a riff has nothing on its Notes port, so ticking that port and pressing SAVE used to do nothing at all (ports: 0 = Riff A, 1 = Notes A, 2 = Riff B …)
-        let a = reelExportAvailability(anyPass: true, selected: true, outputCounts: [40, 0, 0, 0, 0, 0, 0, 0], lanes: [1])
-        XCTAssertFalse(a.ok); XCTAssertEqual(a.reason, "Nothing on Notes A in these passes.")
-        XCTAssertEqual(reelExportAvailability(anyPass: true, selected: true, outputCounts: [40, 0, 0, 0, 0, 0, 0, 0], lanes: [1, 2, 3]).reason, "Nothing on Notes A, Riff B, Notes B in these passes.")
+        // everything routes to A by default, so ticking B and pressing SAVE used to do nothing at all
+        let a = reelExportAvailability(anyPass: true, selected: true, outputCounts: [40, 0, 0, 0], lanes: [1])
+        XCTAssertFalse(a.ok); XCTAssertEqual(a.reason, "Nothing on B in these passes.")
+        XCTAssertEqual(reelExportAvailability(anyPass: true, selected: true, outputCounts: [40, 0, 0, 0], lanes: [1, 2, 3]).reason, "Nothing on B, C, D in these passes.")
     }
 
     func testAMixOfFullAndEmptyOutputsStillSaves() {
