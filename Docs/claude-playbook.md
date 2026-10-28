@@ -117,7 +117,7 @@ riff walk). It is NOT a substitute for the full suite's "Tests green" row in the
 Done table below — truly cross-cutting shared primitives (swing, clock, the parameter address
 table, snapshot publish, note-off refcounting) are ridden by every row including Euclideous's, and
 a regression there can hide behind a test whose body never mentions "euclid" or "riff" at all.
-Run the full suite before commit → merge → push, same as always.
+Run the full suite ONCE, right before landing (not before every commit) — see CLAUDE.md "Pace and test runs".
 
 ## Device-verification debt is a list, not a feeling buried in prose
 

@@ -53,6 +53,14 @@ Euclideous need is normal and expected; building new 8×8-grid-workbench UI is n
   ask, opacity/size/colour values I picked, and interpretations that could differ from his intent. Never
   let a likely mismatch go unstated; naming it up front saves a round-trip.
 
+## Pace and test runs — BE STRATEGIC (Paul 2026-10-05, 2026-10-19, 2026-10-28; a 9-step ferry took ~7 h because this was not followed)
+- **While iterating, run only the classes the change can reach** (`sh Scripts/run-fourfold-tests.sh -only-testing:FourfoldTests/<Class> …`): engine/Router → `RouterTests`, `PortsStressTests`, `Hocket*Tests`, `NoteRollTests`; layout/header → `PageLayoutTests`, `CardBackTests`, `DerivationsTests`; a model field → `EffectiveParamsTests`, `SnapshotBuilderTests`. Seconds to ~3 min.
+- **The FULL suite runs ONCE, right before landing, with nothing else running.** It is ≈9 min for ≈1,400 tests (the "3–4 min / 1,070" elsewhere is stale) and ≈19 min if a harness or simulator runs beside it. Never run it after a docs-only, comment-only or test-only edit, and never "to checkpoint" a step of a ferry.
+- **Engine change:** the golden harness + `CONFIG=Release … --alloc` once, at the end. **UI change:** build + the one relevant UI test on ONE iPad while iterating; other iPads and the audits once, before landing.
+- **Never idle-wait.** Start slow checks with `run_in_background` and keep working; keep every foreground call under the 10-minute tool limit; shut down any simulator you booted.
+- **A multi-step ferry lands in slices** (each green slice → `Scripts/land-on-main.sh`), not as one 9-step branch. Adversarial-review agents are OPT-IN (Paul asks, or a slice touches the render path) and run AFTER landing — never a gate.
+- **Give an estimate when starting and one status line at each phase boundary** (Paul should never have to ask "why so slow").
+
 ## Git workflow — AT LEAST TWO INSTANCES, SEPARATE WORKTREES (Paul 2026-09-11, hard rule — supersedes the shared-tree rule)
 Paul runs **AT LEAST TWO Claude Code instances at once** (sometimes more), each in its OWN git **worktree** — a
 separate working directory backed by the ONE shared `.git`. This is why they can NEVER collide in the working tree
@@ -215,7 +223,7 @@ the same pipeline as any other row; it is not a special-cased render path.
   `AUExtension/` and `Tests/` are 8x8 State's and FROZEN while 8x8 is on hold: **an engine fix lands in ONE copy only** — put Fourfold fixes in `Fourfold/Engine`, and never expect an `AUExtension/` edit to reach Fourfold (or the reverse).
   Fourfold's engine can only ever see one `.euclid` cell (`FourfoldCompose`), so the other processors, the rack, doors/latch/replay, ROW 8, macros and the master panel are NOT in the copy (Step 4 trimmed 26.3k → 20.6k lines; see `Docs/euclideous-status-log.md`).
   - Compile check: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project MidiSpark.xcodeproj -scheme Fourfold -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build` (`xcodegen generate` first after adding/removing files).
-  - **Tests: `sh Scripts/run-fourfold-tests.sh`** (scheme `FourfoldTests`, ≈3–4 min for ≈1,070 tests; pass `-only-testing:FourfoldTests/RouterTests` to narrow). It compiles `Fourfold/Engine`'s Foundation-only files + `Fourfold/Tests`; membership is by file, so there is no classifier to maintain.
+  - **Tests: `sh Scripts/run-fourfold-tests.sh`** (scheme `FourfoldTests`, ≈9 min for ≈1,400 tests — run it ONCE before landing, see "Pace and test runs"; pass `-only-testing:FourfoldTests/RouterTests` to narrow). It compiles `Fourfold/Engine`'s Foundation-only files + `Fourfold/Tests`; membership is by file, so there is no classifier to maintain.
     A test is deleted only when it exercises something Fourfold's engine no longer has — read a failing test by name before deleting it.
     **`PortsStressTests`** is a seeded fuzz of the outputs (random documents, random part→output masks (none included), sources, tempo, window sizes, transport jumps, `busChannels` and the masks changing mid-note; asserts no stuck note, no orphan off, each message on its OUTPUT's channel, ALL = the exact union of A–D's note-ons, lane isolation, every wire note-on has a roll record and nothing is left open after the stop) — 600 seeds normally and 600 with RAW gates (so legato runs on every part); extend it when you add an engine feature that emits.
   - **The sound oracle: `sh Scripts/fourfold-harness/run.sh --golden` then `diff Scripts/fourfold-harness/golden.txt build/fourfold-harness/golden.txt`** (21 documents × 32 bars, a hash of every MIDI byte the AU sends). Run it before and after ANY engine change; the script deletes the previous result first
