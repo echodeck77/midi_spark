@@ -30,6 +30,6 @@ LOG=$(mktemp)
 sh Scripts/run-fourfold-tests.sh $ARGS > "$LOG" 2>&1 || true
 grep -E "error: " "$LOG" | sed 's#^.*/Fourfold/##' | sort -u | head -30
 grep -E "Executed [0-9]+ tests?, with" "$LOG" | tail -1 | sed 's/^[[:space:]]*//'
-if grep -q "TEST SUCCEEDED" "$LOG"; then RESULT=PASS; else RESULT=FAIL; fi
+if grep -q "TEST SUCCEEDED" "$LOG" && ! grep -qE "Executed 0 tests?," "$LOG"; then RESULT=PASS; else RESULT=FAIL; fi   # zero tests run (a mistyped class name) is a FAIL, never a pass
 echo "[$AREA] $RESULT in $(( $(date +%s) - START )) s   (full log: $LOG)"
 [ "$RESULT" = PASS ]
