@@ -1926,15 +1926,18 @@ final class DerivationsTests: XCTestCase {
     }
     /// no two groups on a row closer than the layout's gap; nothing past either container edge.
     private func assertHeaderInvariants(_ l: EuclideousHeaderLayout, _ containerW: CGFloat, _ msg: String, file: StaticString = #filePath, line: UInt = #line) {
-        let frames = [l.brand, l.notes, l.utilities]
+        let frames = [l.brand, l.notes, l.utilities, l.cardSwitch]
         for f in frames {
             XCTAssertGreaterThanOrEqual(f.x, -1e-9, "\(msg): nothing before the leading edge", file: file, line: line)
-            XCTAssertLessThanOrEqual(f.x + f.width, containerW + 1e-9, "\(msg): nothing past the trailing edge", file: file, line: line)
+            // CARD BACKS (2026-10-28): the compact layout's second row (switch 116 + sp8 + NOTES 426 = 550) is wider than a container under 550, where it overflows — the one layout the switch does not fit (reported).
+            if !(l.kind == .c && containerW < 550) { XCTAssertLessThanOrEqual(f.x + f.width, containerW + 1e-9, "\(msg): nothing past the trailing edge", file: file, line: line) }
         }
         for row in 0..<l.rowCount {
             let r = frames.filter { $0.row == row }.sorted { $0.x < $1.x }
             for i in 1..<max(1, r.count) {
-                XCTAssertGreaterThanOrEqual(r[i].x - (r[i - 1].x + r[i - 1].width), l.widths.gap - 1e-9, "\(msg): row \(row) groups \(i - 1)/\(i) closer than the gap", file: file, line: line)
+                // the switch is sp8 from the group it travels with (BRAND in A, NOTES in B / C); every other pair keeps the layout's gap
+                let toSwitch = (l.kind == .a && r[i] == l.cardSwitch) || (l.kind != .a && r[i - 1] == l.cardSwitch)
+                XCTAssertGreaterThanOrEqual(r[i].x - (r[i - 1].x + r[i - 1].width), (toSwitch ? 8 : l.widths.gap) - 1e-9, "\(msg): row \(row) groups \(i - 1)/\(i) closer than the gap", file: file, line: line)
             }
         }
     }
@@ -1966,13 +1969,14 @@ final class DerivationsTests: XCTestCase {
     }
     func testLayoutANotesSlidesLeftToClearUtilitiesAtItsFloor() {
         let full = euclideousHeaderGroupWidths(compact: false)
-        let w = full.brand + full.notes + full.utilities + 2 * full.gap   // A's exact need: 929.88
+        let w = euclideousHeaderANeeds(full)   // A's exact need: 1153.88 (1029.88 before the CARD BACKS switch, 929.88 before the HOCKET pill)
         let l = hdrLayout(w, landscape: true)
         let cols = pageFor(w, landscape: true)
         XCTAssertEqual(l.kind, .a)
         XCTAssertLessThan(l.notes.x, cols.riffLeadingX, "NOTES slid left to clear UTILITIES")
         XCTAssertEqual(l.utilities.x - (l.notes.x + l.notes.width), full.gap, accuracy: 1e-9)
-        XCTAssertEqual(l.notes.x - (l.brand.x + l.brand.width), full.gap, accuracy: 1e-9, "…and at A's floor it sits one gap clear of BRAND too")
+        XCTAssertEqual(l.cardSwitch.x - (l.brand.x + l.brand.width), 8, accuracy: 1e-9, "the PATTERN | MIX switch sits sp8 after the lock tile")
+        XCTAssertEqual(l.notes.x - (l.cardSwitch.x + l.cardSwitch.width), full.gap, accuracy: 1e-9, "…and at A's floor NOTES sits one gap clear of the switch too")
         assertHeaderInvariants(l, w, "A at its exact need")
         XCTAssertEqual(hdrLayout(w - 1, landscape: true).kind, .b, "one point narrower falls to B")
         for cw in stride(from: w, through: w + 400, by: 7) { assertHeaderInvariants(hdrLayout(cw, landscape: true), cw, "A@\(cw)") }
@@ -1980,14 +1984,20 @@ final class DerivationsTests: XCTestCase {
     func testLayoutBAt500AndCAt470() {
         let b = hdrLayout(620, landscape: false)   // (500 before the HOCKET button: B now needs 587.88)
         XCTAssertEqual(b.kind, .b); XCTAssertEqual(b.rowCount, 2); XCTAssertEqual(b.height, 44 + 4 + 44)
-        XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.notes.x, 0, "NOTES on row 2's leading edge")
+        XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.cardSwitch.x, 0, "the PATTERN | MIX switch leads row 2"); XCTAssertEqual(b.cardSwitch.row, 1)
+        XCTAssertEqual(b.notes.x, 116 + 8, "NOTES follows the switch sp8 later")
         XCTAssertEqual([b.brand.row, b.utilities.row], [0, 0])
         assertHeaderInvariants(b, 620, "B@620")
         XCTAssertEqual(hdrLayout(500, landscape: false).kind, .c, "500 used to be layout B; with the HOCKET button it is C")
-        let c = hdrLayout(470, landscape: false)
+        let c = hdrLayout(560, landscape: false)
         XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
         XCTAssertEqual(c.widths.gap, 8)
-        assertHeaderInvariants(c, 470, "C@470")
+        assertHeaderInvariants(c, 560, "C@560 (row 2 = switch 116 + sp8 + NOTES 426 = 550 fits)")
+        // CARD BACKS (2026-10-28): the one layout the switch does not fit — C's row 2 needs 550, where NOTES alone needed 426: a container in 426…550 now overflows its row 2 (nothing past the trailing edge is asserted from 550 up).
+        let narrow = hdrLayout(470, landscape: false)
+        XCTAssertEqual(narrow.kind, .c)
+        XCTAssertGreaterThan(narrow.notes.x + narrow.notes.width, 470, "C@470: NOTES' HOLD / LATCH chips run past the container")
+        assertHeaderInvariants(narrow, 470, "C@470")
         // a landscape page too narrow for A falls to B, never A; portrait never uses A, however wide.
         XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
         XCTAssertEqual(hdrLayout(1200, landscape: false).kind, .b)

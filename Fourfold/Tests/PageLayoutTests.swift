@@ -114,7 +114,8 @@ final class PageLayoutTests: XCTestCase {
     }
     func testHeaderKindThresholdsAreTheLaddersOwn() {
         let full = euclideousHeaderGroupWidths(compact: false)
-        let aNeeds = full.brand + full.notes + full.utilities + 2 * full.gap   // THE NINE PORTS (2026-10-26): no OUTPUTS group
+        let aNeeds = euclideousHeaderANeeds(full)   // CARD BACKS (2026-10-28): brand + sp8 + the 116 pt PATTERN | MIX switch + gap + notes + gap + utilities = 1153.88 (1029.88 before the switch)
+        XCTAssertEqual(aNeeds, 1153.88, accuracy: 0.01)
         let bNeeds = full.brand + full.utilities + full.gap
         XCTAssertEqual(euclideousHeaderKind(containerW: aNeeds, isLandscape: true), .a)
         XCTAssertEqual(euclideousHeaderKind(containerW: aNeeds - 0.01, isLandscape: true), .b)
@@ -132,11 +133,13 @@ final class PageLayoutTests: XCTestCase {
             XCTAssertEqual(l.brand.x, 0, tag); XCTAssertEqual(l.brand.row, 0, tag)
             XCTAssertEqual(l.utilities.x + l.utilities.width, CGFloat(cw), accuracy: 1e-9, "\(tag): the gear ends at the right edge"); XCTAssertEqual(l.utilities.row, 0, tag)
             if l.kind == .a {
-                XCTAssertEqual(l.notes.row, 0, tag)
-                XCTAssertGreaterThanOrEqual(l.notes.x, l.brand.width + l.widths.gap - 1e-9, "\(tag): NOTES clears BRAND")
+                XCTAssertEqual(l.notes.row, 0, tag); XCTAssertEqual(l.cardSwitch.row, 0, tag)
+                XCTAssertEqual(l.cardSwitch.x, l.brand.width + 8, accuracy: 1e-9, "\(tag): the switch sits sp8 after the lock tile")
+                XCTAssertGreaterThanOrEqual(l.notes.x, l.cardSwitch.x + l.cardSwitch.width + l.widths.gap - 1e-9, "\(tag): NOTES clears the switch")
                 XCTAssertLessThanOrEqual(l.notes.x + l.notes.width + l.widths.gap, l.utilities.x + 1e-9, "\(tag): NOTES clears UTILITIES")
             } else {
-                XCTAssertEqual(l.notes.row, 1, tag); XCTAssertEqual(l.notes.x, 0, tag)
+                XCTAssertEqual(l.notes.row, 1, tag); XCTAssertEqual(l.cardSwitch.row, 1, tag); XCTAssertEqual(l.cardSwitch.x, 0, "\(tag): the switch leads row 2")
+                XCTAssertEqual(l.notes.x, l.cardSwitch.width + 8, accuracy: 1e-9, "\(tag): NOTES (the source control first) follows it sp8 later")
                 XCTAssertLessThanOrEqual(l.brand.width + l.widths.gap, l.utilities.x + (l.kind == .c ? 1e9 : 1e-9), tag)
             }
         } } }
@@ -268,8 +271,9 @@ final class PageLayoutTests: XCTestCase {
         // a guess at the 8.3-inch iPad mini's landscape plugin view: box 355 × 274
         // THE NINE PORTS (2026-10-26): with the header rings gone layout A's floor is 962 wide (container 930 + the two margins), so this 1113-wide view has the one-row header again (boxes start at 64)
         // and the view's original 636 height gives this guess's 355 × 274 box, which is what the floors below are about. (The REEL icon had pushed it to the two-row header and 683.)
-        let mini = euclideousPageLayout(size: CGSize(width: 1113, height: 636))
-        XCTAssertEqual(mini.headerKind, .a)
+        // CARD BACKS (2026-10-28): the PATTERN | MIX switch (+124) lifts A's floor to a 1185.88 view, so this 1113-wide view takes the two-row header again (boxes start at 111) and needs 683 high for the same 355 × 274 box.
+        let mini = euclideousPageLayout(size: CGSize(width: 1113, height: 683))
+        XCTAssertEqual(mini.headerKind, .b)
         XCTAssertEqual(mini.box.width, 355, accuracy: 1e-9); XCTAssertEqual(mini.box.height, 274, accuracy: 1e-9)
         let area = euclideousMixGridArea(panelWidth: 355, panelHeight: 274)
         let g = euclideousMixGrid(width: area.width, height: area.height)

@@ -219,6 +219,7 @@ targets:
     sources:
       - Fourfold/Tests
       - path: Fourfold/Engine/Derivations.swift
+      - path: Fourfold/Engine/CardBack.swift
       - path: Fourfold/Engine/Models.swift
       - path: Fourfold/Engine/Snapshot.swift
       - path: Fourfold/Engine/SnapshotBuilder.swift

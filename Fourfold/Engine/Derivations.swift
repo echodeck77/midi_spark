@@ -4162,6 +4162,9 @@ enum EuclideousHeaderMetrics {
 struct EuclideousHeaderGroupWidths: Equatable {
     var brand: CGFloat, notes: CGFloat, utilities: CGFloat
     var gap: CGFloat            // the space between row-1 groups: sp16 (A, B) or sp8 (C)
+    /// CARD BACKS ferry (2026-10-28) §3.1: the PATTERN | MIX switch's width (116 — Paul narrowed the ferry's 132 so layout A still holds at a 1190 pt view). It is not part of any group: it has its own frame in the layout, sp8 after
+    /// the lock tile (BRAND's last item) in layout A, and sp8 before the NOTES group's source control on row 2 in layouts B and C.
+    var cardSwitch: CGFloat = EuclideousCardSwitchMetrics.width
 }
 /// Each group's width, once, from the same constants the views draw with.
 func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
@@ -4184,18 +4187,25 @@ struct EuclideousHeaderLayout: Equatable {
     var widths: EuclideousHeaderGroupWidths
     var brand: EuclideousHeaderGroupFrame
     var notes: EuclideousHeaderGroupFrame, utilities: EuclideousHeaderGroupFrame
+    /// The PATTERN | MIX switch (CARD BACKS §3.1): row 0 right after BRAND in layout A, row 1 at the leading edge (NOTES follows it) in B and C.
+    var cardSwitch: EuclideousHeaderGroupFrame
     var rowCount: Int { kind == .a ? 1 : 2 }
     var compact: Bool { kind == .c }
     var height: CGFloat { rowCount == 1 ? EuclideousHeaderMetrics.rowH : EuclideousHeaderMetrics.rowH * 2 + EuclideousHeaderMetrics.sp4 }
 }
 private func headerClamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { lo > hi ? lo : min(max(v, lo), hi) }
+/// Layout A's exact need (container width): BRAND, sp8, the PATTERN | MIX switch, a gap, NOTES, a gap, UTILITIES. CARD BACKS (2026-10-28) added `cardSwitch + sp8` (124) to the pre-switch 1029.88.
+func euclideousHeaderANeeds(_ w: EuclideousHeaderGroupWidths) -> CGFloat {
+    w.brand + EuclideousHeaderMetrics.sp8 + w.cardSwitch + w.gap + w.notes + w.gap + w.utilities
+}
 
 /// The header's layout A / B / C for a container width — the ladder's ONE decision (A: landscape and wide enough for all three groups on one
 /// row; B: two rows; C: two compact rows when even B won't fit). It depends only on the width and the orientation, never on where the
 /// riff panel sits, so the page layout can take the kind as an input and the header can then take its positions from the page layout.
 func euclideousHeaderKind(containerW: CGFloat, isLandscape: Bool) -> EuclideousHeaderLayout.Kind {
     let full = euclideousHeaderGroupWidths(compact: false)
-    let aNeeds = full.brand + full.notes + full.utilities + 2 * full.gap
+    let aNeeds = euclideousHeaderANeeds(full)
+    // B and C keep the switch on row 2 with NOTES, so row 1 (BRAND + UTILITIES) — which decides B against C — is unchanged.
     let bNeeds = full.brand + full.utilities + full.gap
     if isLandscape && containerW >= aNeeds { return .a }
     return containerW < bNeeds ? .c : .b
@@ -4209,18 +4219,22 @@ func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX
     let kind = euclideousHeaderKind(containerW: containerW, isLandscape: isLandscape)
     if kind == .a {
         let uX = containerW - full.utilities
-        // NOTES: on the riff panel's leading edge, slid left until it clears UTILITIES by sp16 — but never so far left that BRAND loses its room.
-        let notesX = headerClamp(riffLeadingX, full.brand + full.gap, uX - full.gap - full.notes)
+        let switchX = full.brand + EuclideousHeaderMetrics.sp8                         // CARD BACKS §3.1: sp8 after the lock tile
+        // NOTES: on the riff panel's leading edge, slid left until it clears UTILITIES by sp16 — but never so far left that the switch loses its room.
+        let notesX = headerClamp(riffLeadingX, switchX + full.cardSwitch + full.gap, uX - full.gap - full.notes)
         return EuclideousHeaderLayout(kind: .a, widths: full,
                                       brand: .init(x: 0, width: full.brand, row: 0),
-                                      notes: .init(x: notesX, width: full.notes, row: 0), utilities: .init(x: uX, width: full.utilities, row: 0))
+                                      notes: .init(x: notesX, width: full.notes, row: 0), utilities: .init(x: uX, width: full.utilities, row: 0),
+                                      cardSwitch: .init(x: switchX, width: full.cardSwitch, row: 0))
     }
     let compact = kind == .c
     let w = compact ? euclideousHeaderGroupWidths(compact: true) : full
     let uX = containerW - w.utilities
+    // CARD BACKS §3.1: on row 2 the switch sits at the leading edge and NOTES (its source control first) follows it sp8 later; row 1 (BRAND + UTILITIES) is unchanged.
     return EuclideousHeaderLayout(kind: compact ? .c : .b, widths: w,
                                   brand: .init(x: 0, width: w.brand, row: 0),
-                                  notes: .init(x: 0, width: w.notes, row: 1), utilities: .init(x: uX, width: w.utilities, row: 0))
+                                  notes: .init(x: w.cardSwitch + EuclideousHeaderMetrics.sp8, width: w.notes, row: 1), utilities: .init(x: uX, width: w.utilities, row: 0),
+                                  cardSwitch: .init(x: 0, width: w.cardSwitch, row: 1))
 }
 
 // MARK: - PAGE LAYOUT (ferry "Page layout: six equal boxes in both orientations", ratified 2026-10-19)

@@ -312,15 +312,19 @@ final class LaneLockTests: XCTestCase {
         let full = euclideousHeaderGroupWidths(compact: false), compact = euclideousHeaderGroupWidths(compact: true)
         XCTAssertEqual(full.brand, 295.88, accuracy: 0.01); XCTAssertEqual(compact.brand, 181)
         // THE NINE PORTS (2026-10-26): no OUTPUTS group — A needs brand + notes + utilities + two gaps, B needs brand + utilities + one gap
-        let a = full.brand + full.notes + full.utilities + 2 * full.gap
+        let a = euclideousHeaderANeeds(full)
         let b = full.brand + full.utilities + full.gap
         // HOCKET ferry (2026-10-27): the utilities group grew by the pill (92) + sp8 — A 929.88 → 1029.88, B 487.88 → 587.88.
-        XCTAssertEqual(a, 1029.88, accuracy: 0.01); XCTAssertEqual(b, 587.88, accuracy: 0.01)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1029.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 1029.9, isLandscape: true), .a)
+        // CARD BACKS ferry (2026-10-28): the 116 pt PATTERN | MIX switch + its sp8 (124) lifts A to 1153.88 (view 1185.88); B is unchanged — the switch rides row 2 with NOTES there, so row 1 (BRAND + UTILITIES) still decides B against C.
+        XCTAssertEqual(a, 1153.88, accuracy: 0.01); XCTAssertEqual(b, 587.88, accuracy: 0.01)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1153.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 1153.9, isLandscape: true), .a)
         XCTAssertEqual(euclideousHeaderKind(containerW: 587.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 587.9, isLandscape: false), .b)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 992, isLandscape: true), .b, "a 1024-wide landscape window (container 992) now takes the two-row header")
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1158, isLandscape: true), .a, "the 1190 reference still gets the one-row header")   // (1158 ≥ 1029.88)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1101, isLandscape: true), .a, "an iPad mini 6 at its full 1133 width now gets the one-row header too")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 992, isLandscape: true), .b, "a 1024-wide landscape window (container 992) takes the two-row header")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1158, isLandscape: true), .a, "the 1190 reference still gets the one-row header with the switch")   // (1158 ≥ 1153.88, 4.12 pt to spare)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1162, isLandscape: true), .a, "an iPad Pro 11\" (1194) keeps the one-row header")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1148, isLandscape: true), .b, "an iPad Air 11\" at 1180 now takes the two-row header (it had the one-row header before the switch)")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1144, isLandscape: true), .b, "a 1176-wide view — the width a 376 pt card implies — takes the two-row header with the switch")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1101, isLandscape: true), .b, "an iPad mini 6 at its full 1133 width takes the two-row header again")
         XCTAssertEqual(euclideousHeaderKind(containerW: 929.9, isLandscape: false), .b, "portrait never uses the one-row header")
     }
 
