@@ -3106,8 +3106,8 @@ struct EuclideousPage: View {
         side == .pattern ? AnyView(laneCard(idx, width: width, height: height)) : AnyView(laneCardBack(idx, width: width, height: height))
     }
 
-    /// The back (MIX): the same top row as the front, a "MIX" strip, then the riff row and the notes row — XY pad and OCT stepper on the left, the part's live roll and its four output jacks on the right. Every edit goes through the
-    /// page's own funnels: the XY pad writes the fields the MIX pad wrote (`euclideousMixPadWriteIfEnabled`, one undo step per touch burst), OCT and the part's on/off switch the fields the tabs set, a jack toggles one bit of the part's mask
+    /// The back (MIX): the same top row as the front, a "MIX" strip, then the riff row and the notes row — the VEL/GATE pad and the PITCH pad on the left, the part's live roll and its four output jacks on the right. Every edit goes through the
+    /// page's own funnels: the VEL/GATE pad writes the fields the MIX pad wrote (`euclideousMixPadWrite`, one undo step per touch burst; live while the part is off), the PITCH pad the part's OCT field and out-transpose (`euclideousCardPitchWrite`, one step per drag), the part's on/off switch the fields the tabs set, a jack toggles one bit of the part's mask
     /// (`riffOutMask` / `notesOutMask`) as ONE undo step.
     @ViewBuilder private func laneCardBack(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
@@ -3119,12 +3119,12 @@ struct EuclideousPage: View {
         let runs = euclideousLaneRunsInEngine(line)
         let riffV = euclideousMixPadValues(of: line, notes: false), notesV = euclideousMixPadValues(of: line, notes: true)
         let riff = EuclideousCardBackPartInput(on: !euclideousMixLayerIsOff(line, notes: false), gate: riffV.gate, velocity: riffV.velocity,
-                                               octave: euclideousMixOctave(of: line, notes: false), mask: line.riffOutMaskResolved(lane: idx))
+                                               octave: euclideousMixOctave(of: line, notes: false), transpose: line.riffOutTransposeResolved, mask: line.riffOutMaskResolved(lane: idx))
         let notes = EuclideousCardBackPartInput(on: !euclideousMixLayerIsOff(line, notes: true), gate: notesV.gate, velocity: notesV.velocity,
-                                                octave: euclideousMixOctave(of: line, notes: true), mask: line.notesOutMaskResolved(lane: idx))
+                                                octave: euclideousMixOctave(of: line, notes: true), transpose: line.notesOutTransposeResolved, mask: line.notesOutMaskResolved(lane: idx))
         let callbacks = EuclideousCardBackCallbacks(
             xy: { _, newStep, mutate in editStep(idx, newStep, mutate) },
-            oct: { part, o in edit(idx) { l in if part == .notes { euclideousSetNotesOctave(&l, o) } else { euclideousSetRiffOctave(&l, o) } } },
+            pitch: { _, newStep, mutate in editStep(idx, newStep, mutate) },       // CARD BACKS v2: the PITCH pad (octave + out-transpose) — the same burst-per-drag funnel as the VEL/GATE pad
             toggleOn: { part in cardBackToggle(idx, part) },
             jack: { part, o in
                 editStep(idx, true) { l in
@@ -3149,8 +3149,7 @@ struct EuclideousPage: View {
                                dimRows: soloDim, rolls: rollLive, beatAt: { walkTagBeat(at: $0) }, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, live: pulseLive,
                                hocketRules: hocketRules, hocketLive: hocketLive, callbacks: callbacks)
             .frame(width: width, height: height)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1B1D23)))
-            .clipped()
+            .clipped()          // (the back paints its own fill and border — `EuclideousCardBackView`, §4.2)
     }
     /// The label pill (and the TURN ON invitations): the part's on/off, the field and the undo step the tab's own switch uses.
     private func cardBackToggle(_ idx: Int, _ part: EuclideousCardPart) {

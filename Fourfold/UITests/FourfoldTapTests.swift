@@ -157,7 +157,7 @@ final class FourfoldTapTests: XCTestCase {
         need(app.buttons["Lane 1 cell size PASS"], "the LANES panel again")
     }
 
-    /// CARD BACKS (2026-10-28): the header's PATTERN | MIX switch turns all four cards over; each back carries a riff row and a notes row whose controls reach the engine — the part's switch, an output jack, OCT and the XY pad.
+    /// CARD BACKS (2026-10-28): the header's PATTERN | MIX switch turns all four cards over; each back carries a riff row and a notes row whose controls reach the engine — the part's switch, an output jack, the PITCH pad and the VEL/GATE pad.
     func testTheCardSwitchTurnsTheLaneCardsToTheirBacksAndTheControlsEdit() {
         let app = XCUIApplication.fresh()
         XCTAssertTrue(app.buttons["Pattern"].isSelected, "the cards open on PATTERN")
@@ -170,12 +170,16 @@ final class FourfoldTapTests: XCTestCase {
         jackB.tap()
         need(app.el("Riff to output B, empty"), "…and unplugs again")
         need(app.el("Riff, on"), "the riff's label switch").tap()
-        need(app.el("Riff, off"), "the riff goes off"); need(app.el("Turn on riff"), "…and the roll offers to turn it back on").tap()
-        need(app.el("Riff, on"), "TURN ON RIFF turns it on")
-        let oct = app.els(prefix: "Riff octave").element(boundBy: 0)
-        need(oct, "the riff's OCT stepper")
-        oct.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
-        need(app.el("Riff octave, plus 1"), "the + zone raises the riff an octave")
+        need(app.el("Riff, off"), "the riff goes off").tap()
+        need(app.el("Riff, on"), "…and the same label turns it back on (there is no turn-on button)")
+        XCTAssertFalse(app.el("Turn on riff").exists, "no turn-on pill")
+        let pitch = app.els(prefix: "Riff pitch").element(boundBy: 0)
+        need(pitch, "the riff's PITCH pad")
+        XCTAssertEqual(pitch.value as? String, "octave 0, transpose 0")
+        pitch.coordinate(withNormalizedOffset: CGVector(dx: 0.89, dy: 0.06)).tap()           // the top-right detent: octave +2, transpose +7
+        XCTAssertEqual(pitch.value as? String, "octave +2, transpose +7", "a tap writes the detent under the finger")
+        pitch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()        // a double tap sets both back to 0
+        XCTAssertEqual(pitch.value as? String, "octave 0, transpose 0", "a double tap resets both")
         let vel = app.els(prefix: "Riff velocity").element(boundBy: 0)
         need(vel, "the riff's XY pad")
         let before = vel.label

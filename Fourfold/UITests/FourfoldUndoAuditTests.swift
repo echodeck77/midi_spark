@@ -155,7 +155,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
     // MARK: CARD BACKS (2026-10-28) — the back's edits go through the same funnels: a jack tap, a part's label switch and an OCT tap are each ONE step, and ↶ / ↷ retrace them exactly
 
     func openBacks() { app.buttons["Mix"].tap(); Thread.sleep(forTimeInterval: 0.9) }   // the flip takes 490 ms
-    func testCardBack_JackPartAndOctEditsAreStepsAndUndoRedoRetraceThemExactly() {
+    func testCardBack_JackPartAndPitchEditsAreStepsAndUndoRedoRetraceThemExactly() {
         let p0 = launch(); openBacks()
         let pBack = settled()
         XCTAssertEqual(pBack.snap, p0.snap, "turning the cards over edits nothing"); XCTAssertEqual(pBack.undo, 0, pBack.raw)
@@ -165,9 +165,9 @@ final class FourfoldUndoAuditTests: XCTestCase {
         XCTAssertEqual(p2.snap, p0.snap, "the second tap unplugs it again"); XCTAssertEqual(p2.undo, 2, "…and is its own step (a jack tap never coalesces): \(p2.raw)")
         app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Riff, on'")).firstMatch.tap(); let p3 = settled()
         XCTAssertNotEqual(p3.snap, p2.snap, "the label switch turns the part off"); XCTAssertTrue(p3.consistent, p3.raw)
-        app.els(prefix: "Riff octave").firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap(); let p4 = settled()
-        XCTAssertNotEqual(p4.snap, p3.snap, "the OCT + zone raises the riff"); XCTAssertTrue(p4.consistent, p4.raw)
-        undo(); XCTAssertEqual(settled().snap, p3.snap, "↶ takes the octave back")
+        app.els(prefix: "Riff pitch").firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.89, dy: 0.06)).tap(); let p4 = settled()
+        XCTAssertNotEqual(p4.snap, p3.snap, "the PITCH pad raises the riff an octave and transposes it (live while the part is off)"); XCTAssertTrue(p4.consistent, p4.raw)
+        undo(); XCTAssertEqual(settled().snap, p3.snap, "↶ takes the pitch back")
         undo(); XCTAssertEqual(settled().snap, p2.snap, "↶ turns the part back on")
         undo(); let u = settled(); XCTAssertEqual(u.snap, p1.snap, "↶ plugs the jack back in"); XCTAssertTrue(u.consistent, u.raw)
         redo(); XCTAssertEqual(settled().snap, p2.snap)
@@ -189,7 +189,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
                 desc = "jack \(part) \(out) lane \(lane + 1)"
                 app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "\(part) to output \(out), ")).element(boundBy: lane).tap()
             case 3: desc = "toggle \(part) lane \(lane + 1)"; app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "\(part), ")).element(boundBy: lane).tap()
-            case 4: desc = "oct+ \(part) lane \(lane + 1)"; app.els(prefix: "\(part) octave").element(boundBy: lane).coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+            case 4: desc = "pitch \(part) lane \(lane + 1)"; app.els(prefix: "\(part) pitch").element(boundBy: lane).coordinate(withNormalizedOffset: CGVector(dx: 0.05 + Double(rng.int(0...90)) / 100, dy: 0.05 + Double(rng.int(0...90)) / 100)).tap()
             case 5: desc = "UNDO"; undo()
             default: desc = "REDO"; redo()
             }
@@ -209,8 +209,8 @@ final class FourfoldUndoAuditTests: XCTestCase {
             if p.snap != oracle.live || p.undo != oracle.past || !p.consistent { print("UNDOAUDIT BACK FUZZ STOPPED \(ctx)"); return }
         }
     }
-    func testCardBack_RandomJackPartAndOctEditsUndoAndRedoAgreeWithTheHistoryContract_seed1() { runBackFuzz(seed: 11, length: 24) }
-    func testCardBack_RandomJackPartAndOctEditsUndoAndRedoAgreeWithTheHistoryContract_seed2() { runBackFuzz(seed: 12, length: 24) }
+    func testCardBack_RandomJackPartAndPitchEditsUndoAndRedoAgreeWithTheHistoryContract_seed1() { runBackFuzz(seed: 11, length: 24) }
+    func testCardBack_RandomJackPartAndPitchEditsUndoAndRedoAgreeWithTheHistoryContract_seed2() { runBackFuzz(seed: 12, length: 24) }
 
     // MARK: S1 — different controls, one key
 

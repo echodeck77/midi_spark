@@ -91,7 +91,7 @@ final class CardBackTests: XCTestCase {
 
     // MARK: §4 / test 7 the back's frames
 
-    /// The ferry's reference card (376 × 316) with the ferry's own strip top (y 62): every number §4.3–4.4 and §7.2 gives.
+    /// The ferry's reference card (376 × 316) with the ferry's own strip top (y 62): every number §4.3–4.4 and §7.2 give (CARD BACKS v2).
     func testTheFerrysNumbersAtTheReferenceCard() {
         let L = euclideousCardBackLayout(card: CGSize(width: 376, height: 316), stripTop: EuclideousCardBackMetrics.stripTopFerry)
         XCTAssertEqual(L.strip, CGRect(x: 10, y: 62, width: 356, height: 22), "the MIX strip: x 10–366, y 62–84")
@@ -99,16 +99,16 @@ final class CardBackTests: XCTestCase {
         XCTAssertEqual(L.riff.row, CGRect(x: 10, y: 92, width: 356, height: 103), "the riff row: y 92–195"); XCTAssertEqual(L.notes.row, CGRect(x: 10, y: 203, width: 356, height: 103), "the notes row: y 203–306")
         for p in [L.riff, L.notes] {
             let r = p.row
-            XCTAssertEqual(p.xy, CGRect(x: r.minX, y: r.minY, width: 92, height: 71), "the XY pad: x 0–92, y 0 to rowH − 32")
-            XCTAssertEqual(p.oct, CGRect(x: r.minX, y: r.maxY - 28, width: 92, height: 28), "OCT: 28 tall at the bottom"); near(p.oct.minY - p.xy.maxY, 4, "sp4 between them")
-            XCTAssertEqual(p.rollPanel, CGRect(x: r.minX + 100, y: r.minY, width: 256, height: 103), "the roll panel: x 100–356")
-            XCTAssertEqual(p.roll, CGRect(x: r.minX + 100, y: r.minY, width: 256, height: 57), "the roll: y 0 to rowH − 46"); XCTAssertEqual(p.jackStrip, CGRect(x: r.minX + 100, y: r.minY + 57, width: 256, height: 46), "the jack strip: the bottom 46")
-            XCTAssertEqual(p.seam, CGRect(x: r.minX + 100, y: r.minY + 57, width: 256, height: 2), "the seam: 2 pt along the top of the jack strip, the roll's full width")
-            XCTAssertEqual(p.jackCells.map { $0.width }, [64, 64, 64, 64]); near(p.jackCells[0].minX, p.jackStrip.minX); near(p.jackCells[3].maxX, p.jackStrip.maxX)
-            for (i, cell) in p.jackCells.enumerated() {
-                XCTAssertEqual(p.jackLights[i], CGRect(x: cell.minX + 8, y: cell.midY - 3, width: 6, height: 6), "the light: 6 pt, 8 pt in, centred")
-                XCTAssertEqual(p.jackSockets[i], CGRect(x: cell.minX + 18, y: cell.midY - 12, width: 24, height: 24), "the socket: 24 pt, its leading edge 18 pt in, centred")
-                near(p.jackLetters[i].minX, cell.minX + 46, "the letter: 46 pt in"); near(p.jackLetters[i].midY, cell.midY)
+            XCTAssertEqual(p.velGate, CGRect(x: r.minX, y: r.minY, width: 72, height: 103), "the VEL/GATE pad: x 0–72, the row's full height")
+            XCTAssertEqual(p.pitch, CGRect(x: r.minX + 76, y: r.minY, width: 72, height: 103), "sp4, then the PITCH pad: x 76–148")
+            XCTAssertEqual(p.rollPanel, CGRect(x: r.minX + 156, y: r.minY, width: 200, height: 103), "sp8, then the roll panel: x 156–356 (200 wide)")
+            XCTAssertEqual(p.roll, CGRect(x: r.minX + 156, y: r.minY, width: 200, height: 71), "the roll: y 0 to rowH − 32 (71 tall)")
+            XCTAssertEqual(p.jackStrip, CGRect(x: r.minX + 156, y: r.minY + 71, width: 200, height: 32), "the jack strip: the bottom 32 (y 71–103)")
+            XCTAssertEqual(p.seam, CGRect(x: r.minX + 156, y: r.minY + 71, width: 200, height: 2), "the seam: 2 pt along the top of the jack strip, the roll's full width")
+            XCTAssertEqual(p.jackCells.map { $0.width }, [50, 50, 50, 50]); near(p.jackCells[0].minX, p.jackStrip.minX); near(p.jackCells[3].maxX, p.jackStrip.maxX)
+            for i in 0..<4 {
+                XCTAssertEqual(p.jackTargets[i], CGRect(x: p.jackCells[i].minX, y: r.minY + 59, width: 50, height: 44), "target \(i): a quarter of the panel wide, 44 tall, y 59–103 — 12 pt up over the roll's bottom edge")
+                XCTAssertEqual(p.jackSockets[i], CGRect(x: p.jackCells[i].midX - 11, y: p.jackCells[i].midY - 11, width: 22, height: 22), "the socket: 22 pt, centred in the cell")
             }
         }
         XCTAssertTrue(L.floors.isEmpty, "no floor flags at the reference: \(L.floors)")
@@ -119,8 +119,22 @@ final class CardBackTests: XCTestCase {
         let L = euclideousCardBackLayout(card: CGSize(width: 376, height: 316))
         XCTAssertEqual(L.strip, CGRect(x: 10, y: 60, width: 356, height: 22)); near(L.rowHeight, 104)
         XCTAssertEqual(L.riff.row.minY, 90); XCTAssertEqual(L.riff.row.maxY, 194); XCTAssertEqual(L.notes.row.minY, 202); XCTAssertEqual(L.notes.row.maxY, 306)
-        near(L.riff.xy.height, 72); near(L.riff.roll.height, 58); near(L.riff.jackStrip.height, 46)
+        near(L.riff.velGate.height, 104); near(L.riff.roll.height, 72); near(L.riff.jackStrip.height, 32)
         near(L.notes.row.maxY, 316 - 10, "the notes row ends on the content box's bottom")
+    }
+    /// §4.5: in narrower cards the two pads keep 72 each down to their floor before the roll panel narrows below 176.
+    func testThePadsGiveWayBeforeTheRollPanelDoes() {
+        func widths(_ cardW: CGFloat) -> (pad: CGFloat, panel: CGFloat) {
+            let L = euclideousCardBackLayout(card: CGSize(width: cardW, height: 316)); return (L.riff.velGate.width, L.riff.rollPanel.width)
+        }
+        near(widths(376).pad, 72); near(widths(376).panel, 200)
+        near(widths(356 + 20 - 24).pad, 72, "a roll panel of exactly 176 keeps 72-pt pads"); near(widths(356 + 20 - 24).panel, 176)
+        let mid = widths(300)               // content 280: 280 − 12 − 176 = 92 → 46 each
+        near(mid.pad, 46); near(mid.panel, 176, "the pads gave up width, the roll panel did not")
+        let narrow = widths(250)            // content 230: the pads would be 21 — they stop at their 44 floor and the panel narrows below 176
+        near(narrow.pad, 44); near(narrow.panel, 230 - 12 - 88)
+        XCTAssertTrue(euclideousCardBackLayout(card: CGSize(width: 250, height: 316)).floors.contains { $0.name == "jack target width" }, "…which flags the 44-pt jack-target floor")
+        XCTAssertTrue(euclideousCardBackLayout(card: CGSize(width: 300, height: 316)).floors.isEmpty, "the 46-pt pads are above the floor and the targets are 44")
     }
     /// The lane-card sizes the page produces at the iPad sizes the project tests, and the floors that flag on the back (drawn at the formula's values, never shrunk).
     func testTheFloorsAtEveryLayoutThePageCanProduce() {
@@ -134,10 +148,12 @@ final class CardBackTests: XCTestCase {
             let card = p.box
             let L = euclideousCardBackLayout(card: card)
             let flagged = L.floors.map { "\($0.name) \(String(format: "%.1f", Double($0.value)))<\(Int($0.floor))" }.joined(separator: ", ")
-            table.append("CARDBACK-LAYOUT \(name): header \(p.headerKind) card \(String(format: "%.1f", Double(card.width)))×\(String(format: "%.1f", Double(card.height))) rowH \(String(format: "%.1f", Double(L.rowHeight))) xy \(String(format: "%.1f", Double(L.riff.xy.height))) roll \(String(format: "%.1f", Double(L.riff.roll.height))) cell \(String(format: "%.1f", Double(L.riff.jackCells[0].width))) floors [\(flagged)]")
-            XCTAssertGreaterThan(L.riff.xy.height, 0); XCTAssertGreaterThan(L.riff.roll.height, 0)
+            table.append("CARDBACK-LAYOUT \(name): header \(p.headerKind) card \(String(format: "%.1f", Double(card.width)))×\(String(format: "%.1f", Double(card.height))) rowH \(String(format: "%.1f", Double(L.rowHeight))) pad \(String(format: "%.1f", Double(L.riff.velGate.width)))×\(String(format: "%.1f", Double(L.riff.velGate.height))) roll \(String(format: "%.1f", Double(L.riff.roll.width)))×\(String(format: "%.1f", Double(L.riff.roll.height))) target \(String(format: "%.1f", Double(L.riff.jackTargets[0].width))) floors [\(flagged)]")
+            XCTAssertGreaterThan(L.riff.velGate.height, 0); XCTAssertGreaterThan(L.riff.roll.height, 0)
             XCTAssertLessThanOrEqual(L.notes.row.maxY, card.height - 10 + 1e-9, "\(name): the back never leaves the card")
             near(L.riff.row.height, L.notes.row.height, "\(name): equal rows")
+            XCTAssertGreaterThanOrEqual(L.riff.velGate.width, 44 - 1e-9, "\(name): the pads never go under their floor")
+            XCTAssertLessThanOrEqual(L.riff.rollPanel.maxX, L.riff.row.maxX + 1e-9)
         }
         print(table.joined(separator: "\n"))
     }
@@ -150,20 +166,28 @@ final class CardBackTests: XCTestCase {
         XCTAssertEqual(riff.pill.origin, CGPoint(x: 115, y: 97), "5 pt in"); near(riff.pill.height, 20)
         near(riff.pill.width, 7 + 9 + 6 + 4 * 9 * 0.78 + 7, "7 pt padding, the 9 × 9 glyph, 6 pt, 'RIFF' at 9 pt heavy 0.12 em (0.66 em advance, as measured on device)")
         XCTAssertEqual(riff.glyph.size, CGSize(width: 9, height: 9)); near(riff.glyph.minX, riff.pill.minX + 7); near(riff.glyph.midY, riff.pill.midY); near(riff.text.minX, riff.glyph.maxX + 6)
-        XCTAssertEqual(riff.target.height, 44); near(riff.target.midY, riff.pill.midY); near(riff.target.minX, riff.pill.minX); near(riff.target.width, riff.pill.width)
+        XCTAssertEqual(riff.target.height, 32, "CARD BACKS v2: the target is 32 tall…"); near(riff.target.minX, roll.minX, "…from the roll's top-left…"); near(riff.target.minY, roll.minY); XCTAssertGreaterThanOrEqual(riff.target.width, 44, "…and at least 44 wide")
+        near(riff.target.width, riff.pill.maxX - roll.minX, "(the pill is wider than 44 here, so the target covers it)")
         let notes = euclideousCardLabelFrames(roll: roll, part: .notes)
         XCTAssertEqual(notes.glyph.size, CGSize(width: 6, height: 12), "NOTES is the 6 × 12 bar"); near(notes.pill.width, 7 + 6 + 6 + 5 * 9 * 0.78 + 7)
         near(EuclideousCardLabelMetrics.radius, 5); XCTAssertEqual(EuclideousCardLabelMetrics.fill, HocketColor(0x131519, 0.82)); near(EuclideousCardLabelMetrics.offAlpha, 0.55)
     }
-    func testTheInvitationsAndWhichOneTheRollOffers() {
-        XCTAssertEqual(euclideousCardInvitation(part: .riff, partOn: false, laneHasHits: true), .turnOnRiff); XCTAssertEqual(euclideousCardInvitation(part: .notes, partOn: false, laneHasHits: false), .turnOnNotes, "off wins over no hits: one at a time")
-        XCTAssertEqual(euclideousCardInvitation(part: .riff, partOn: true, laneHasHits: false), .addHits); XCTAssertNil(euclideousCardInvitation(part: .notes, partOn: true, laneHasHits: true))
-        XCTAssertEqual([EuclideousCardInvitation.turnOnRiff, .turnOnNotes, .addHits].map { $0.label }, ["TURN ON RIFF", "TURN ON NOTES", "ADD HITS"])
+    /// §5.5: there is no turn-on button — the label is the switch — so the roll offers exactly one thing: ADD HITS, while the part is on and the lane's rhythm has no hits.
+    func testTheRollOffersOnlyAddHits() {
+        for part in [EuclideousCardPart.riff, .notes] {
+            XCTAssertNil(euclideousCardInvitation(part: part, partOn: false, laneHasHits: true), "an off part offers nothing")
+            XCTAssertNil(euclideousCardInvitation(part: part, partOn: false, laneHasHits: false), "…not even with no hits")
+            XCTAssertEqual(euclideousCardInvitation(part: part, partOn: true, laneHasHits: false), .addHits)
+            XCTAssertNil(euclideousCardInvitation(part: part, partOn: true, laneHasHits: true))
+        }
+        XCTAssertEqual([EuclideousCardInvitation.turnOnRiff, .turnOnNotes, .addHits].map { $0.label }, ["TURN ON RIFF", "TURN ON NOTES", "ADD HITS"], "(the two hidden cases keep their words)")
         let roll = CGRect(x: 110, y: 92, width: 256, height: 57)
-        let f = euclideousCardInvitationFrames(roll: roll, .turnOnNotes)
-        near(f.pill.height, 28); near(f.pill.midX, roll.midX); near(f.pill.midY, roll.midY); near(f.pill.width, 10 + 9 + 6 + 13 * 8 * 0.76 + 10, "10 pt padding, the 9 × 9 plus, 6 pt, the label at 8 pt heavy 0.1 em (0.66 em advance)")
+        let f = euclideousCardInvitationFrames(roll: roll, .addHits)
+        near(f.pill.height, 28); near(f.pill.midX, roll.midX); near(f.pill.midY, roll.midY); near(f.pill.width, 10 + 9 + 6 + 8 * 8 * 0.76 + 10, "10 pt padding, the 9 × 9 plus, 6 pt, the label at 8 pt heavy 0.1 em (0.66 em advance)")
         XCTAssertEqual(f.target.height, 44); near(f.target.midY, roll.midY); XCTAssertEqual(f.plus.size, CGSize(width: 9, height: 9)); near(f.plus.minX, f.pill.minX + 10); near(f.text.minX, f.plus.maxX + 6)
         near(EuclideousCardInvitationMetrics.radius, 7); near(EuclideousCardInvitationMetrics.fillAlpha, 0.20); near(EuclideousCardInvitationMetrics.plusStroke, 1.6)
+        let floor = euclideousCardInvitationRollWidthFloor()
+        XCTAssertLessThan(floor, 176, "the label and ADD HITS fit side by side in any roll the layout keeps at 176")
     }
 
     // MARK: §6 XY and OCT
@@ -198,32 +222,105 @@ final class CardBackTests: XCTestCase {
         XCTAssertEqual(EuclideousCardOctMetrics.fill, HocketColor(0x22252C)); near(EuclideousCardOctMetrics.height, 28); near(EuclideousCardOctMetrics.radius, 7)
     }
 
+    // MARK: CARD BACKS v2 §6.3–6.8 / test 14 the PITCH pad
+
+    func testThePitchPadsDetentsSitWhereTheFormulaSaysAndReadBack() {
+        let pad = CGRect(x: 10, y: 92, width: 72, height: 103)
+        typealias V = EuclideousCardPitchValue
+        // x = 6 + (t + 7) ÷ 14 × (w − 14), y = 6 + (top − o) ÷ (top − bottom) × (h − 14), with top +2 and bottom −2
+        let tl = euclideousCardPitchDot(V(octave: 2, transpose: -7), in: pad), br = euclideousCardPitchDot(V(octave: -2, transpose: 7), in: pad), home = euclideousCardPitchDot(.home, in: pad)
+        near(tl.x, 10 + 6); near(tl.y, 92 + 6); near(br.x, 10 + 6 + 58); near(br.y, 92 + 6 + 89); near(home.x, 10 + 6 + 29); near(home.y, 92 + 6 + 44.5)
+        for o in -2...2 { for t in -7...7 {
+            let v = V(octave: o, transpose: t)
+            XCTAssertEqual(euclideousCardPitchValue(at: euclideousCardPitchDot(v, in: pad), in: pad), v, "every detent reads back as itself (\(o), \(t))")
+        } }
+        // a touch between detents snaps to the nearest; the far corners and beyond clamp to the edge detents
+        let cellW = 58.0 / 14, cellH = 89.0 / 4
+        let nearHome = CGPoint(x: home.x + cellW * 0.4, y: home.y - cellH * 0.4)
+        XCTAssertEqual(euclideousCardPitchValue(at: nearHome, in: pad), .home, "less than half a detent away stays on the detent")
+        XCTAssertEqual(euclideousCardPitchValue(at: CGPoint(x: home.x + cellW * 0.6, y: home.y - cellH * 0.6), in: pad), V(octave: 1, transpose: 1), "more than half moves to the next one, on both axes")
+        XCTAssertEqual(euclideousCardPitchValue(at: CGPoint(x: pad.minX - 80, y: pad.minY - 80), in: pad), V(octave: 2, transpose: -7), "top-left corner and beyond")
+        XCTAssertEqual(euclideousCardPitchValue(at: CGPoint(x: pad.maxX + 80, y: pad.maxY + 80), in: pad), V(octave: -2, transpose: 7), "bottom-right corner and beyond")
+        XCTAssertEqual(euclideousCardPitchValue(at: CGPoint(x: pad.midX, y: pad.midY), in: pad), V(octave: 0, transpose: 0), "the centre is home")
+        XCTAssertEqual(euclideousCardPitchValue(at: CGPoint(x: pad.maxX, y: pad.minY), in: pad), V(octave: 2, transpose: 7), "top-right corner")
+        XCTAssertEqual(euclideousCardPitchValue(at: CGPoint(x: pad.minX, y: pad.maxY), in: pad), V(octave: -2, transpose: -7), "bottom-left corner")
+        _ = euclideousCardPitchValue(at: CGPoint(x: CGFloat.nan, y: 5), in: pad)                // a NaN touch never traps
+        // a degenerate pad never divides by zero
+        _ = euclideousCardPitchValue(at: CGPoint(x: 3, y: 3), in: CGRect(x: 0, y: 0, width: 14, height: 14)); _ = euclideousCardPitchValue(at: CGPoint(x: 3, y: 3), in: CGRect(x: 0, y: 0, width: 0, height: 0))
+    }
+    func testThePitchPadsDrawing() {
+        let pad = CGRect(x: 0, y: 0, width: 72, height: 103)
+        typealias V = EuclideousCardPitchValue
+        XCTAssertNil(euclideousCardPitchRect(.home, in: pad), "at home: no rectangle")
+        let away = V(octave: 1, transpose: 2)
+        let r = euclideousCardPitchRect(away, in: pad)!, dot = euclideousCardPitchDot(away, in: pad), home = euclideousCardPitchDot(.home, in: pad)
+        near(r.minX, home.x); near(r.maxX, dot.x); near(r.maxY, home.y); near(r.minY, dot.y, "away: a rectangle from the home point to the dot")
+        let below = euclideousCardPitchRect(V(octave: -1, transpose: -3), in: pad)!
+        near(below.maxX, home.x); near(below.minY, home.y, "…whichever corner the dot is in")
+        XCTAssertEqual(euclideousCardPitchDetents(in: pad).count, 75, "5 octave rows × 15 transpose columns")
+        XCTAssertEqual(euclideousCardPitchDetents(in: pad).filter { $0.edge }.count, 15, "the columns at t = 0 and ±7 (3 × 5) are the brighter dots")
+        let lines = euclideousCardPitchHomeLines(in: pad)
+        near(lines.horizontal.midY, home.y); near(lines.horizontal.width, 72); near(lines.horizontal.height, 1); near(lines.vertical.midX, home.x); near(lines.vertical.height, 103)
+        XCTAssertEqual(euclideousCardPitchTexts(V(octave: 1, transpose: 2)).oct, "OCT +1"); XCTAssertEqual(euclideousCardPitchTexts(V(octave: 1, transpose: 2)).trans, "TRANS +2")
+        XCTAssertEqual(euclideousCardPitchTexts(.home).oct, "OCT 0", "0 at zero"); XCTAssertEqual(euclideousCardPitchTexts(.home).trans, "TRANS 0")
+        XCTAssertEqual(euclideousCardPitchTexts(V(octave: -2, transpose: -7)).oct, "OCT \u{2212}2", "U+2212 for minus"); XCTAssertEqual(euclideousCardPitchTexts(V(octave: -2, transpose: -7)).trans, "TRANS \u{2212}7")
+        typealias P = EuclideousCardPitchMetrics
+        XCTAssertEqual(P.well, HocketColor(0x131519)); XCTAssertEqual(P.border, HocketColor(0x262930)); near(P.radius, 8); XCTAssertEqual(P.detentColor, HocketColor(0x2E3138)); XCTAssertEqual(P.detentEdgeColor, HocketColor(0x4A4E57))
+        XCTAssertEqual(P.homeLine, HocketColor(0x30333A)); XCTAssertEqual(P.homeCrosshair, HocketColor(138 << 16 | 144 << 8 | 154, 0.35)); XCTAssertEqual(P.homeDot, HocketColor(0x8A909A))
+        near(P.dot, 11); near(P.dotRing, 2); near(P.fillAlpha, 0.22); near(P.crosshairAlpha, 0.60); near(P.detent, 2); near(P.textFont, 8); near(P.textInset, 5)
+    }
+    /// What the pad writes: the part's own OCT field (the notes layer's through `octave` directly — a pad on an OFF part must not switch it on) and its out-transpose, nil at 0; nothing else on the line moves.
+    func testThePitchPadWritesTheRightFieldsAndNeverSwitchesAPartOn() {
+        typealias V = EuclideousCardPitchValue
+        var l = EuclidLine(pulses: 3, steps: 8)
+        l.notesOn = false; l.riffOn = false
+        let before = l
+        euclideousCardPitchWrite(&l, notes: false, V(octave: 1, transpose: 2))
+        XCTAssertEqual(l.riffOctave, 1); XCTAssertEqual(l.riffOutTranspose, 2); XCTAssertNil(l.notesOutTranspose); XCTAssertFalse(l.riffOnResolved, "the riff part stays off")
+        euclideousCardPitchWrite(&l, notes: true, V(octave: -2, transpose: -7))
+        XCTAssertEqual(l.octave, -2); XCTAssertEqual(l.notesOutTranspose, -7); XCTAssertEqual(l.notesOn, false, "writing the notes pitch did not switch NOTES on (euclideousSetNotesOctave would have)")
+        XCTAssertEqual(euclideousCardPitchValue(of: l, notes: true), V(octave: -2, transpose: -7)); XCTAssertEqual(euclideousCardPitchValue(of: l, notes: false), V(octave: 1, transpose: 2))
+        euclideousCardPitchWrite(&l, notes: false, .home); euclideousCardPitchWrite(&l, notes: true, .home)
+        XCTAssertNil(l.riffOutTranspose); XCTAssertNil(l.notesOutTranspose, "home stores no transpose")
+        l.riffOctave = nil; l.octave = before.octave
+        XCTAssertEqual(l.riffOutTranspose, before.riffOutTranspose); XCTAssertEqual(l.notesOutTranspose, before.notesOutTranspose)
+        euclideousCardPitchWrite(&l, notes: false, V(octave: 9, transpose: 40)); XCTAssertEqual(l.riffOctave, 2); XCTAssertEqual(l.riffOutTranspose, 7, "out-of-range values clamp")
+    }
+    func testThePitchPadsStepsForVoiceOver() {
+        typealias V = EuclideousCardPitchValue
+        XCTAssertEqual(euclideousCardPitchOctaveStep(V(octave: 1, transpose: 3), up: true), V(octave: 2, transpose: 3)); XCTAssertNil(euclideousCardPitchOctaveStep(V(octave: 2, transpose: 0), up: true), "no wrap at the top")
+        XCTAssertNil(euclideousCardPitchOctaveStep(V(octave: -2, transpose: 0), up: false)); XCTAssertEqual(euclideousCardPitchOctaveStep(.home, up: false), V(octave: -1, transpose: 0))
+        XCTAssertEqual(euclideousCardPitchTransposeStep(V(octave: 1, transpose: 6), up: true), V(octave: 1, transpose: 7)); XCTAssertNil(euclideousCardPitchTransposeStep(V(octave: 0, transpose: 7), up: true))
+        XCTAssertNil(euclideousCardPitchTransposeStep(V(octave: 0, transpose: -7), up: false)); XCTAssertEqual(euclideousCardPitchTransposeStep(.home, up: false), V(octave: 0, transpose: -1))
+    }
+
     // MARK: §7 / test 8 the jacks
 
     func testTheJackLooks() {
         let lane = HocketPalette.lane100(0)
+        let ink = HocketColor(0x0D0F14)
         let on = euclideousJackLook(lane: 0, plugged: true, partOn: true)
-        XCTAssertEqual(on.ring, lane); XCTAssertEqual(on.plug, lane); XCTAssertEqual(on.plugCap, HocketColor(0x15161A)); XCTAssertEqual(on.letter, HocketColor(0xF2F4F7))
+        XCTAssertEqual(on.ring, lane, "ring lane100"); XCTAssertEqual(on.plug, HocketColor(lane.hex, 0.75), "a plug disc in lane100 at 75 %"); XCTAssertEqual(on.letter, ink, "…carrying the letter in ink #0D0F14")
         XCTAssertEqual(on.cellFill, euclideousCardMix(HocketColor(0x101114), toward: lane, 0.12), "#101114 mixed 12 % toward lane100"); XCTAssertEqual(on.cellFill?.hex, 0x2B1A1C)
-        XCTAssertEqual(on.light, HocketColor(lane.hex, 0.30))
         let off = euclideousJackLook(lane: 0, plugged: true, partOn: false)
-        XCTAssertEqual(off.ring, lane); XCTAssertEqual(off.plug, HocketColor(lane.hex, 0.45), "the plug disc at 45 %"); XCTAssertEqual(off.plugCap, HocketColor(0x15161A)); XCTAssertEqual(off.letter, HocketColor(0xF2F4F7))
-        XCTAssertNil(off.cellFill, "the cell unfilled"); XCTAssertEqual(off.light, HocketColor(0x2A2D34))
+        XCTAssertEqual(off.ring, lane); XCTAssertEqual(off.plug, HocketColor(lane.hex, 0.40), "the plug disc at 40 % with the part off"); XCTAssertEqual(off.letter, ink)
+        XCTAssertNil(off.cellFill, "the cell unfilled")
         let un = euclideousJackLook(lane: 0, plugged: false, partOn: true)
-        XCTAssertEqual(un.ring, HocketColor(0x3A3E47)); XCTAssertNil(un.plug); XCTAssertNil(un.plugCap); XCTAssertEqual(un.letter, HocketColor(0x6E727B)); XCTAssertNil(un.cellFill); XCTAssertEqual(un.light, HocketColor(0x2A2D34))
+        XCTAssertEqual(un.ring, HocketColor(0x3A3E47)); XCTAssertNil(un.plug, "unplugged: the pins show, no plug and so no letter"); XCTAssertNil(un.cellFill)
         XCTAssertEqual(euclideousJackLook(lane: 0, plugged: false, partOn: false), un, "unplugged looks the same whether or not the part is on")
         for l in 1..<4 { XCTAssertEqual(euclideousJackLook(lane: l, plugged: true, partOn: true).ring, HocketPalette.lane100(l), "every lane colour") }
-        // the socket artwork's numbers
+        // the socket artwork's numbers (§7.2)
         typealias J = EuclideousJackMetrics
-        near(J.ringWidth, 1.5); near(J.socketRadius, 10.5); near(J.plugRadius, 8.5); near(J.capRadius, 3); XCTAssertEqual(J.socketDisc, HocketColor(0x0B0C0E)); XCTAssertEqual(J.notchColor, HocketColor(0x3A3E47)); near(J.notch.width, 2.5); near(J.notch.height, 2.5)
-        XCTAssertEqual(J.pins, [CGPoint(x: 6.4, y: 10.4), CGPoint(x: 17.6, y: 10.4), CGPoint(x: 8, y: 15.2), CGPoint(x: 16, y: 15.2), CGPoint(x: 12, y: 17.2)]); near(J.pinSize, 2.3); XCTAssertEqual(J.pinColor, HocketColor(0x4A4E57))
+        near(J.ringWidth, 1.5); near(J.socketRadius, 10); near(J.plugRadius, 8); XCTAssertEqual(J.socketDisc, HocketColor(0x0B0C0E)); XCTAssertEqual(J.notchColor, HocketColor(0x3A3E47)); near(J.notch.width, 2.4); near(J.notch.height, 2.4); near(J.notchRadius, 0.5)
+        XCTAssertEqual(J.pins, [CGPoint(x: 5.8, y: 9.6), CGPoint(x: 16.2, y: 9.6), CGPoint(x: 7.3, y: 14), CGPoint(x: 14.7, y: 14), CGPoint(x: 11, y: 15.9)]); near(J.pinSize, 2.2); XCTAssertEqual(J.pinColor, HocketColor(0x4A4E57))
+        near(J.letterFont, 9); XCTAssertEqual(J.cellBase, HocketColor(0x101114)); XCTAssertEqual(J.stripBorder, HocketColor(0x262930)); near(J.stripRadius, 8)
     }
     func testTheJackActivityDecaysLinearlyOver220Milliseconds() {
         for (ms, amount) in [(0.0, 1.0), (55, 0.75), (110, 0.5), (165, 0.25), (220, 0.0), (300, 0.0)] {
             let a = euclideousJackActivity(sinceNoteOn: ms / 1000)
-            near(a.amount, amount, "\(ms) ms"); near(a.glowRadius, CGFloat(10 * amount)); near(a.glowAlpha, 0.9 * amount); near(a.cellMix, 0.12 + 0.16 * amount, "the fill: 12 % → 28 % toward lane100"); near(a.lightMix, amount)
+            near(a.amount, amount, "\(ms) ms"); near(a.glowRadius, CGFloat(5 * amount)); near(a.glowAlpha, 0.95 * amount); near(a.cellMix, 0.12 + 0.16 * amount, "the fill: 12 % → 28 % toward lane100"); near(a.plugWhiteMix, 0.35 * amount, "the plug: 35 % toward white")
         }
-        near(euclideousJackActivity(sinceNoteOn: 0).glowRadius, 10, "a 10 pt glow"); near(euclideousJackActivity(sinceNoteOn: 0).cellMix, 0.28)
+        near(euclideousJackActivity(sinceNoteOn: 0).glowRadius, 5, "a 5 pt glow"); near(euclideousJackActivity(sinceNoteOn: 0).cellMix, 0.28); near(euclideousJackActivity(sinceNoteOn: 0).glowAlpha, 0.95)
         near(euclideousJackActivity(sinceNoteOn: -1).amount, 0, "before any note: quiet")
     }
     func testTheSeamGlowsOnANoteAndFallsBack() {
@@ -340,6 +437,10 @@ final class CardBackTests: XCTestCase {
         XCTAssertEqual(AX.partToggle(.riff, on: true), "Riff, on"); XCTAssertEqual(AX.partToggle(.notes, on: false), "Notes, off")
         XCTAssertEqual(AX.xy(.riff, velocity: 24, gate: 0.38), "Riff velocity 24, gate 38%")
         XCTAssertEqual(AX.oct(.riff, value: 0), "Riff octave, 0"); XCTAssertEqual(AX.oct(.notes, value: 1), "Notes octave, plus 1"); XCTAssertEqual(AX.oct(.notes, value: -2), "Notes octave, minus 2")
+        XCTAssertEqual(AX.pitch(.riff), "Riff pitch"); XCTAssertEqual(AX.pitch(.notes), "Notes pitch")
+        XCTAssertEqual(AX.pitchValue(EuclideousCardPitchValue(octave: 1, transpose: 2)), "octave +1, transpose +2"); XCTAssertEqual(AX.pitchValue(.home), "octave 0, transpose 0")
+        XCTAssertEqual(AX.pitchValue(EuclideousCardPitchValue(octave: -2, transpose: -7)), "octave \u{2212}2, transpose \u{2212}7")
+        XCTAssertEqual([AX.transposeUp, AX.transposeDown, AX.resetPitch], ["Transpose up", "Transpose down", "Reset pitch"])
         XCTAssertEqual(AX.roll(.riff, silent: false), "Riff playing"); XCTAssertEqual(AX.roll(.riff, silent: true), "Riff silent")
         XCTAssertEqual(AX.jack(.riff, output: 0, plugged: true), "Riff to output A, plugged in"); XCTAssertEqual(AX.jack(.notes, output: 3, plugged: false), "Notes to output D, empty")
         XCTAssertEqual(AX.invitation(.turnOnNotes), "Turn on notes"); XCTAssertEqual(AX.invitation(.turnOnRiff), "Turn on riff"); XCTAssertEqual(AX.invitation(.addHits), "Add hits")

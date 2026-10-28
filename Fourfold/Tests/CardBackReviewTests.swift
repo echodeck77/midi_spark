@@ -23,7 +23,7 @@ final class CardBackReviewTests: XCTestCase {
                 let f = L.part(part)
                 let roll = CGRect(x: 0, y: 0, width: f.roll.width, height: f.roll.height)
                 let lab = euclideousCardLabelFrames(roll: roll, part: part)
-                for kind in [EuclideousCardInvitation.addHits, part == .riff ? .turnOnRiff : .turnOnNotes] {
+                for kind in [EuclideousCardInvitation.addHits] {   // the only invitation the roll offers (CARD BACKS v2)
                     let inv = euclideousCardInvitationFrames(roll: roll, kind, avoiding: lab.pill)
                     let overlap = inv.pill.intersects(lab.pill) || inv.target.intersects(lab.target)
                     if inv.pill.minX < roll.minX - 1e-9 || inv.pill.maxX > roll.maxX + 1e-9 { if !reported { outsideRoll.append("\(fmt(s)) \(part) \(kind.label)") } }
@@ -51,26 +51,30 @@ final class CardBackReviewTests: XCTestCase {
                        euclideousCardInvitationFrames(roll: wide, .addHits).pill, "a roll with room keeps the invitation centred")
     }
 
-    /// The jack letter stays inside its cell wherever the cell meets the floor (46 pt); below it the floor list says so.
-    func testTheJackLetterFitsItsCellAtOrAboveTheFloor() {
-        var bad: [String] = [], unreported: [String] = []
+    /// CARD BACKS v2: at every size the page lays out un-scaled the two pads and the roll panel sit side by side inside the row without overlapping; the pads give way (72 → 44) BEFORE the roll panel drops under 176; the jack targets are
+    /// bottom-aligned with the row, as wide as their cell, and never run past it; a socket fits its cell wherever the cell is as wide as the socket.
+    func testThePadsGiveWayBeforeTheRollAndNothingOverlapsAtAnyLayout() {
+        var bad: [String] = [], padsShrunk = 0, rollUnder = 0
         for s in sizes() {
             let L = euclideousCardBackLayout(card: euclideousPageLayout(size: s).box)
-            let cell = L.riff.jackCells[0], letter = L.riff.jackLetters[0]
-            let overflow = letter.minX + EuclideousCardBackMetrics.letterAdvance > cell.maxX + 1e-9
-            let reported = L.floors.contains { $0.name == "jack cell width" }
-            if overflow && !reported { bad.append("\(fmt(s)) cell \(cell.width)") }
-            if reported && cell.width >= EuclideousCardBackMetrics.floorJackCellWidth { unreported.append(fmt(s)) }
+            for f in [L.riff, L.notes] {
+                if !(f.velGate.maxX < f.pitch.minX && f.pitch.maxX < f.rollPanel.minX && f.rollPanel.maxX <= f.row.maxX + 1e-9) { bad.append("\(fmt(s)) row order") }
+                if f.velGate.width < 44 - 1e-9 || abs(f.velGate.width - f.pitch.width) > 1e-9 { bad.append("\(fmt(s)) pads \(f.velGate.width) / \(f.pitch.width)") }
+                if f.velGate.width < 72 - 1e-9 { padsShrunk += 1; if f.velGate.width > 44 + 1e-9 && abs(f.rollPanel.width - 176) > 1e-6 { bad.append("\(fmt(s)) pads give way but the panel is \(f.rollPanel.width), not 176") } }
+                if f.rollPanel.width < 176 - 1e-6 { rollUnder += 1; if f.velGate.width > 44 + 1e-9 { bad.append("\(fmt(s)) the roll panel narrowed below 176 with the pads still above their floor") } }
+                for i in 0..<4 {
+                    let c = f.jackCells[i], t = f.jackTargets[i], k = f.jackSockets[i]
+                    if abs(t.maxY - f.row.maxY) > 1e-9 || abs(t.height - 44) > 1e-9 || abs(t.minX - c.minX) > 1e-9 || abs(t.width - c.width) > 1e-9 { bad.append("\(fmt(s)) target \(i) \(t)") }
+                    if c.width >= 22 && (k.minX < c.minX - 1e-9 || k.maxX > c.maxX + 1e-9) { bad.append("\(fmt(s)) socket \(i) outside its cell") }
+                    if abs(k.midX - c.midX) > 1e-9 || abs(k.midY - c.midY) > 1e-9 { bad.append("\(fmt(s)) socket \(i) not centred") }
+                }
+                // the label's 32-tall target (from the roll's top-left) and the jack targets (the bottom 44 of the row) only meet where the row is shorter than 76
+                let lab = euclideousCardLabelFrames(roll: CGRect(origin: .zero, size: f.roll.size), part: .riff).target.offsetBy(dx: f.roll.minX, dy: f.roll.minY)
+                if f.row.height >= 76 && lab.intersects(f.jackTargets[0]) { bad.append("\(fmt(s)) the label's target meets a jack's at rowH \(f.row.height)") }
+            }
         }
-        XCTAssertTrue(bad.isEmpty, "the letter overflows with no floor reported: \(bad.prefix(4))"); XCTAssertTrue(unreported.isEmpty)
-    }
-    func testTightCellsPullTheLightSocketAndLetterIn() {
-        let wide = euclideousCardBackLayout(card: CGSize(width: 376, height: 316)).riff
-        let tight = euclideousCardBackLayout(card: CGSize(width: 316, height: 316)).riff     // a 196 pt panel → 49 pt cells: wide enough for the floor, tight for the letter
-        XCTAssertGreaterThanOrEqual(wide.jackCells[0].width, EuclideousCardBackMetrics.tightBelow); XCTAssertLessThan(tight.jackCells[0].width, EuclideousCardBackMetrics.tightBelow)
-        XCTAssertEqual(wide.jackSockets[0].minX - wide.jackCells[0].minX, 18); XCTAssertEqual(tight.jackSockets[0].minX - tight.jackCells[0].minX, 13)
-        XCTAssertLessThanOrEqual(tight.jackLetters[0].minX + EuclideousCardBackMetrics.letterAdvance, tight.jackCells[0].maxX + 1e-9)
-        XCTAssertGreaterThan(tight.jackSockets[0].minX, tight.jackLights[0].maxX, "the light does not touch the socket")
+        XCTAssertTrue(bad.isEmpty, "\(bad.prefix(5))")
+        print("CARDBACKREVIEW sizes with the pads shrunk: \(padsShrunk), with the roll panel under 176: \(rollUnder)")
     }
 
     /// `euclideousCardXYValues` used to divide by `pad.height − 14` and trap in `Int(…)` at a pad exactly 14 pt tall (it happens at real page heights). Every pad height from 0 to 200 and every touch point gives in-range values.

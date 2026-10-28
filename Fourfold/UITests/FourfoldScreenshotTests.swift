@@ -122,6 +122,8 @@ final class FourfoldScreenshotTests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.5)
         let jacks = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff to output C'"))
         if jacks.count > 0 { jacks.element(boundBy: 0).tap() }
+        let pitch = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff pitch'"))      // CARD BACKS v2: the riff's PITCH pad away from home (the away rectangle, the lane-coloured dot)
+        if pitch.count > 0 { pitch.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.2)).tap() }
         let notesToggle = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes, on'"))
         if notesToggle.count > 0 { notesToggle.element(boundBy: 0).tap() }
         Thread.sleep(forTimeInterval: 2)

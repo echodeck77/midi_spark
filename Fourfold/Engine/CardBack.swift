@@ -114,24 +114,18 @@ enum EuclideousCardBackMetrics {
     static let stripTopFerry: CGFloat = 62
     static let stripHeight: CGFloat = 22, stripRadius: CGFloat = 6, stripPadX: CGFloat = 9
     static let stripFont: CGFloat = 10, stripTracking: CGFloat = 0.14
-    static let fillColor = HocketColor(0x17191E), borderAlpha = 0.28, borderWidth: CGFloat = 1
+    /// §4.2: the BACK's own fill and a 1 pt lane100 border at 28 % — on the CARD (CARD BACKS v2 puts them there; the first build drew them round the roll panel instead and left the card in the front's #1B1D23).
+    static let fillColor = HocketColor(0x17191E), borderAlpha = 0.28, borderWidth: CGFloat = 1, cardRadius: CGFloat = 12
     static let stripAlpha = 0.12
-    // inside a row (§4.4)
-    static let leftColumnWidth: CGFloat = 92, columnGap: CGFloat = 8
-    static let octHeight: CGFloat = 28, octGap: CGFloat = 4
-    static var xyBelow: CGFloat { octHeight + octGap }                                      // the XY pad ends 32 above the row's bottom
-    static let jackStripHeight: CGFloat = 46
+    // inside a row (§4.4, CARD BACKS v2): [VEL/GATE pad][sp4][PITCH pad][sp8][roll panel]; the pads keep 72 pt each until the roll panel would drop under 176, then give way down to their 44 pt floor
+    static let padWidth: CGFloat = 72, padGap: CGFloat = 4, columnGap: CGFloat = 8
+    static let rollPanelPreferredMin: CGFloat = 176
+    static let jackStripHeight: CGFloat = 32, jackTargetHeight: CGFloat = 44
     static let jackCount = 4
     // floors (§4.5)
-    static let floorXY: CGFloat = 44, floorRoll: CGFloat = 40, floorJackCellWidth: CGFloat = 46
-    // jack cell internals (§7.2)
-    static let lightSize: CGFloat = 6, lightInset: CGFloat = 8
-    static let socketSize: CGFloat = 24, socketInset: CGFloat = 18
-    static let letterInset: CGFloat = 46, letterFont: CGFloat = 10
-    /// CARD BACKS review (2026-10-28): a cell narrower than `letterInset` + the letter (≈ 6.6 pt) + 1 pulls the light, the socket and the letter in (5 / 13 / 39) so the letter stays inside it down to `floorJackCellWidth`.
-    static let tightLightInset: CGFloat = 5, tightSocketInset: CGFloat = 13, tightLetterInset: CGFloat = 39
-    static var letterAdvance: CGFloat { letterFont * EuclideousCardLabelMetrics.monoAdvance }
-    static var tightBelow: CGFloat { letterInset + letterAdvance + 1 }
+    static let floorPadWidth: CGFloat = 44, floorPadHeight: CGFloat = 60, floorRoll: CGFloat = 40, floorJackTargetWidth: CGFloat = 44
+    // the socket (§7.2): a 22 pt box centred in the cell's drawn area
+    static let socketSize: CGFloat = 22
     static let seamHeight: CGFloat = 2
 }
 
@@ -143,9 +137,11 @@ struct EuclideousCardBackFloor: Equatable {
 /// One part's row, in CARD coordinates.
 struct EuclideousCardBackPartFrames: Equatable {
     var row: CGRect
-    var xy: CGRect, oct: CGRect
+    /// The VEL/GATE pad and the PITCH pad: each the row's full height.
+    var velGate: CGRect, pitch: CGRect
     var rollPanel: CGRect, roll: CGRect, jackStrip: CGRect, seam: CGRect
-    var jackCells: [CGRect], jackLights: [CGRect], jackSockets: [CGRect], jackLetters: [CGRect]
+    /// The four cells as DRAWN (a quarter of the panel wide, 32 tall), the touch targets (the same width, 44 tall, bottom-aligned with the row — 12 pt reaching up over the roll) and the 22 pt sockets centred in the cells.
+    var jackCells: [CGRect], jackTargets: [CGRect], jackSockets: [CGRect]
 }
 struct EuclideousCardBackLayout: Equatable {
     var card: CGSize
@@ -156,46 +152,51 @@ struct EuclideousCardBackLayout: Equatable {
     var floors: [EuclideousCardBackFloor]
     func part(_ p: EuclideousCardPart) -> EuclideousCardBackPartFrames { p == .riff ? riff : notes }
 }
+/// The width each pad gets in a content box `w` wide: 72, or less when the roll panel (what is left after the two pads and their gaps) would fall under 176 — never under the 44 pt floor.
+func euclideousCardBackPadWidth(contentWidth w: CGFloat) -> CGFloat {
+    typealias M = EuclideousCardBackMetrics
+    let fixed = M.padGap + M.columnGap
+    return max(M.floorPadWidth, min(M.padWidth, (w - fixed - M.rollPanelPreferredMin) / 2))
+}
 /// §4.3–4.5 and §7.2: every frame on the back from the card's size. The content box is the card inset by 10; the MIX strip starts at `stripTop`; the two rows split what is left under the strip, sp8 apart and sp8 below it:
-/// rowH = (contentBottom − stripBottom − 2·sp8) ÷ 2. In a row: the left column (92 wide: the XY pad, sp4, OCT 28 tall at the bottom), sp8, then the roll panel — the roll (rowH − 46 tall) on top of the 46-tall jack strip.
+/// rowH = (contentBottom − stripBottom − 2·sp8) ÷ 2. In a row: the VEL/GATE pad, sp4, the PITCH pad, sp8, then the roll panel — the roll (rowH − 32 tall) on top of the 32-tall jack strip, whose four 44-tall touch targets
+/// reach 12 pt up over the roll's bottom edge.
 func euclideousCardBackLayout(card: CGSize, stripTop: CGFloat = EuclideousCardBackMetrics.stripTopSource) -> EuclideousCardBackLayout {
     typealias M = EuclideousCardBackMetrics
     let x0 = M.inset, w = max(1, card.width - 2 * M.inset)
     let bottom = card.height - M.inset
     let strip = CGRect(x: x0, y: stripTop, width: w, height: M.stripHeight)
     let rowH = (bottom - strip.maxY - 2 * M.sp8) / 2
+    let padW = euclideousCardBackPadWidth(contentWidth: w)
     func part(rowTop: CGFloat) -> EuclideousCardBackPartFrames {
         let row = CGRect(x: x0, y: rowTop, width: w, height: rowH)
-        let xy = CGRect(x: x0, y: rowTop, width: M.leftColumnWidth, height: rowH - M.xyBelow)
-        let oct = CGRect(x: x0, y: rowTop + rowH - M.octHeight, width: M.leftColumnWidth, height: M.octHeight)
-        let panelX = x0 + M.leftColumnWidth + M.columnGap
-        let panel = CGRect(x: panelX, y: rowTop, width: max(1, w - M.leftColumnWidth - M.columnGap), height: rowH)
+        let velGate = CGRect(x: x0, y: rowTop, width: padW, height: rowH)
+        let pitch = CGRect(x: velGate.maxX + M.padGap, y: rowTop, width: padW, height: rowH)
+        let panelX = pitch.maxX + M.columnGap
+        let panel = CGRect(x: panelX, y: rowTop, width: max(1, x0 + w - panelX), height: rowH)
         let roll = CGRect(x: panelX, y: rowTop, width: panel.width, height: rowH - M.jackStripHeight)
         let jackStrip = CGRect(x: panelX, y: roll.maxY, width: panel.width, height: M.jackStripHeight)
         let seam = CGRect(x: panelX, y: jackStrip.minY, width: panel.width, height: M.seamHeight)
         let cellW = panel.width / CGFloat(M.jackCount)
-        var cells: [CGRect] = [], lights: [CGRect] = [], sockets: [CGRect] = [], letters: [CGRect] = []
+        var cells: [CGRect] = [], targets: [CGRect] = [], sockets: [CGRect] = []
         for i in 0..<M.jackCount {
             let cell = CGRect(x: panelX + CGFloat(i) * cellW, y: jackStrip.minY, width: cellW, height: M.jackStripHeight)
             cells.append(cell)
-            let tight = cellW < M.tightBelow
-            let lightIn = tight ? M.tightLightInset : M.lightInset, socketIn = tight ? M.tightSocketInset : M.socketInset, letterIn = tight ? M.tightLetterInset : M.letterInset
-            lights.append(CGRect(x: cell.minX + lightIn, y: cell.midY - M.lightSize / 2, width: M.lightSize, height: M.lightSize))
-            sockets.append(CGRect(x: cell.minX + socketIn, y: cell.midY - M.socketSize / 2, width: M.socketSize, height: M.socketSize))
-            let letterW = max(1, cell.width - letterIn)
-            letters.append(CGRect(x: cell.minX + letterIn, y: cell.midY - M.letterFont * 0.6, width: letterW, height: M.letterFont * 1.2))
+            targets.append(CGRect(x: cell.minX, y: rowTop + rowH - M.jackTargetHeight, width: cellW, height: M.jackTargetHeight))
+            sockets.append(CGRect(x: cell.midX - M.socketSize / 2, y: cell.midY - M.socketSize / 2, width: M.socketSize, height: M.socketSize))
         }
-        return EuclideousCardBackPartFrames(row: row, xy: xy, oct: oct, rollPanel: panel, roll: roll, jackStrip: jackStrip, seam: seam,
-                                            jackCells: cells, jackLights: lights, jackSockets: sockets, jackLetters: letters)
+        return EuclideousCardBackPartFrames(row: row, velGate: velGate, pitch: pitch, rollPanel: panel, roll: roll, jackStrip: jackStrip, seam: seam,
+                                            jackCells: cells, jackTargets: targets, jackSockets: sockets)
     }
     let riff = part(rowTop: strip.maxY + M.sp8)
     let notes = part(rowTop: riff.row.maxY + M.sp8)
     var floors: [EuclideousCardBackFloor] = []
-    let cell = riff.jackCells[0].width
-    if riff.xy.height < M.floorXY { floors.append(EuclideousCardBackFloor(name: "XY pad height", value: riff.xy.height, floor: M.floorXY)) }
+    if riff.velGate.width < M.floorPadWidth { floors.append(EuclideousCardBackFloor(name: "pad width", value: riff.velGate.width, floor: M.floorPadWidth)) }
+    if riff.velGate.height < M.floorPadHeight { floors.append(EuclideousCardBackFloor(name: "pad height", value: riff.velGate.height, floor: M.floorPadHeight)) }
     if riff.roll.height < M.floorRoll { floors.append(EuclideousCardBackFloor(name: "roll height", value: riff.roll.height, floor: M.floorRoll)) }
-    if cell < M.floorJackCellWidth { floors.append(EuclideousCardBackFloor(name: "jack cell width", value: cell, floor: M.floorJackCellWidth)) }
-    // review 2026-10-28: the roll must be wide enough for the label pill AND the widest invitation side by side (5 + label + gap + invitation + 5), else the invitation overlaps the label
+    let target = riff.jackTargets[0].width
+    if target < M.floorJackTargetWidth { floors.append(EuclideousCardBackFloor(name: "jack target width", value: target, floor: M.floorJackTargetWidth)) }
+    // the roll must be wide enough for the label pill AND the invitation side by side (5 + label + gap + invitation + 5), else the invitation overlaps the label
     let rollNeeds = euclideousCardInvitationRollWidthFloor()
     if riff.roll.width < rollNeeds { floors.append(EuclideousCardBackFloor(name: "roll width for the label and its invitation", value: riff.roll.width, floor: rollNeeds)) }
     return EuclideousCardBackLayout(card: card, strip: strip, riff: riff, notes: notes, rowHeight: rowH, floors: floors)
@@ -205,7 +206,7 @@ func euclideousCardBackLayout(card: CGSize, stripTop: CGFloat = EuclideousCardBa
 
 enum EuclideousCardLabelMetrics {
     static let inset: CGFloat = 5, height: CGFloat = 20, radius: CGFloat = 5, padX: CGFloat = 7, glyphGap: CGFloat = 6
-    static let font: CGFloat = 9, tracking: CGFloat = 0.12, targetHeight: CGFloat = 44
+    static let font: CGFloat = 9, tracking: CGFloat = 0.12, targetHeight: CGFloat = 32, targetMinWidth: CGFloat = 44
     static let fill = HocketColor(0x131519, 0.82), offAlpha = 0.55
     static let monoAdvance: CGFloat = 0.66      // SF Mono Heavy measures ≈ 0.66 em an advance on device (0.6 clipped "TURN ON NOTES" to "TURN ON NOT…")
     static func textWidth(_ chars: Int, size: CGFloat, tracking em: CGFloat) -> CGFloat { CGFloat(chars) * size * (monoAdvance + em) }
@@ -213,7 +214,7 @@ enum EuclideousCardLabelMetrics {
 struct EuclideousCardLabelFrames: Equatable {
     var pill: CGRect, target: CGRect, glyph: CGRect, text: CGRect
 }
-/// §5.4: top-left of the roll, 5 pt in: a pill 20 tall (radius 5, 7 pt side padding) holding the part's glyph, 6 pt, then the label (9 pt heavy, 0.12 em); a 44-tall touch target centred on the pill.
+/// §5.4: top-left of the roll, 5 pt in: a pill 20 tall (radius 5, 7 pt side padding) holding the part's glyph, 6 pt, then the label (9 pt heavy, 0.12 em). CARD BACKS v2: its touch target is at least 44 wide and 32 tall, from the roll's top-left.
 func euclideousCardLabelFrames(roll: CGRect, part: EuclideousCardPart) -> EuclideousCardLabelFrames {
     typealias L = EuclideousCardLabelMetrics
     let g = part.glyphSize
@@ -221,15 +222,15 @@ func euclideousCardLabelFrames(roll: CGRect, part: EuclideousCardPart) -> Euclid
     let pill = CGRect(x: roll.minX + L.inset, y: roll.minY + L.inset, width: L.padX + g.width + L.glyphGap + textW + L.padX, height: L.height)
     let glyph = CGRect(x: pill.minX + L.padX, y: pill.midY - g.height / 2, width: g.width, height: g.height)
     let text = CGRect(x: glyph.maxX + L.glyphGap, y: pill.minY, width: textW, height: L.height)
-    return EuclideousCardLabelFrames(pill: pill, target: CGRect(x: pill.minX, y: pill.midY - L.targetHeight / 2, width: pill.width, height: L.targetHeight), glyph: glyph, text: text)
+    return EuclideousCardLabelFrames(pill: pill, target: CGRect(x: roll.minX, y: roll.minY, width: max(L.targetMinWidth, pill.maxX - roll.minX), height: L.targetHeight), glyph: glyph, text: text)
 }
 
-/// The narrowest roll that holds the NOTES label pill (the wider of the two) and the widest invitation (TURN ON NOTES) side by side without touching.
+/// The narrowest roll that holds the NOTES label pill (the wider of the two) and the invitation (ADD HITS) side by side without touching.
 func euclideousCardInvitationRollWidthFloor() -> CGFloat {
     typealias L = EuclideousCardLabelMetrics
     typealias I = EuclideousCardInvitationMetrics
     let label = L.padX + EuclideousCardPart.notes.glyphSize.width + L.glyphGap + L.textWidth(EuclideousCardPart.notes.label.count, size: L.font, tracking: L.tracking) + L.padX
-    let inv = I.padX + I.plus + I.plusGap + L.textWidth(EuclideousCardInvitation.turnOnNotes.label.count, size: I.font, tracking: I.tracking) + I.padX
+    let inv = I.padX + I.plus + I.plusGap + L.textWidth(EuclideousCardInvitation.addHits.label.count, size: I.font, tracking: I.tracking) + I.padX   // CARD BACKS v2: ADD HITS is the only invitation (the label is the switch)
     return L.inset + label + I.labelGap + inv + L.inset
 }
 enum EuclideousCardInvitation: Equatable {
@@ -260,10 +261,10 @@ func euclideousCardInvitationFrames(roll: CGRect, _ kind: EuclideousCardInvitati
                                           plus: CGRect(x: pill.minX + I.padX, y: pill.midY - I.plus / 2, width: I.plus, height: I.plus),
                                           text: CGRect(x: pill.minX + I.padX + I.plus + I.plusGap, y: pill.minY, width: textW, height: I.pillHeight))
 }
-/// §5.6: which invitation (if any) the roll offers — one at a time: the part off ⇒ TURN ON <part>; on but the lane's rhythm has no hits ⇒ ADD HITS.
+/// §5.5 / §5.6 (CARD BACKS v2): there is no turn-on button — the label is the switch — so the roll offers exactly one thing: ADD HITS, while the part is ON and the lane's rhythm has no hits. (The two TURN ON cases of
+/// `EuclideousCardInvitation` stay in the type, hidden: nothing returns them.)
 func euclideousCardInvitation(part: EuclideousCardPart, partOn: Bool, laneHasHits: Bool) -> EuclideousCardInvitation? {
-    if !partOn { return part == .riff ? .turnOnRiff : .turnOnNotes }
-    return laneHasHits ? nil : .addHits
+    partOn && !laneHasHits ? .addHits : nil
 }
 
 // MARK: - §6 the XY pad and OCT
@@ -322,6 +323,88 @@ func euclideousCardOctFrames(oct: CGRect, valueChars: Int = 2) -> EuclideousCard
 func euclideousCardOctValueText(_ v: Int) -> String { euclideousMixOctaveText(v) }
 func euclideousCardOctValueIsLaneColour(_ v: Int) -> Bool { v != 0 }
 
+// MARK: - CARD BACKS v2 §6.3–6.8 the PITCH pad
+
+/// The PITCH pad sets a part's OCTAVE (rows, the part's own OCT field, −2…+2) and its OUT-TRANSPOSE (columns, −7…+7 steps of the key's scale). Both snap: every detent is a value. Not the RIFF tab's TRANS (a rank shift) and never
+/// written by it.
+enum EuclideousCardPitchMetrics {
+    static let octaveTop = 2, octaveBottom = -2, transposeMax = 7
+    static let inset: CGFloat = 6, travelLoss: CGFloat = 14          // x = 6 + (t + 7) ÷ 14 × (w − 14), y = 6 + (top − o) ÷ (top − bottom) × (h − 14)
+    static let radius: CGFloat = 8, dot: CGFloat = 11, dotRing: CGFloat = 2, textInset: CGFloat = 5
+    static let detent: CGFloat = 2
+    static let well = HocketColor(0x131519), border = HocketColor(0x262930), detentColor = HocketColor(0x2E3138), detentEdgeColor = HocketColor(0x4A4E57), homeLine = HocketColor(0x30333A)
+    static let homeCrosshair = HocketColor(0x8A909A, 0.35), homeDot = HocketColor(0x8A909A), text = HocketColor(0xDFE3EA)
+    static let fillAlpha = 0.22, crosshairAlpha = 0.60, lineWidth: CGFloat = 1
+    static let textFont: CGFloat = 8, textTracking: CGFloat = 0.06
+}
+struct EuclideousCardPitchValue: Equatable {
+    var octave: Int
+    var transpose: Int
+    static let home = EuclideousCardPitchValue(octave: 0, transpose: 0)
+    var isHome: Bool { octave == 0 && transpose == 0 }
+}
+/// §6.4: detent (o, t)'s centre in `pad`.
+func euclideousCardPitchDot(_ v: EuclideousCardPitchValue, in pad: CGRect) -> CGPoint {
+    typealias P = EuclideousCardPitchMetrics
+    let o = max(P.octaveBottom, min(P.octaveTop, v.octave)), t = max(-P.transposeMax, min(P.transposeMax, v.transpose))
+    let tx = max(1, pad.width - P.travelLoss), ty = max(1, pad.height - P.travelLoss)
+    return CGPoint(x: pad.minX + P.inset + CGFloat(t + P.transposeMax) / CGFloat(2 * P.transposeMax) * tx,
+                   y: pad.minY + P.inset + CGFloat(P.octaveTop - o) / CGFloat(P.octaveTop - P.octaveBottom) * ty)
+}
+/// §6.3: the detent nearest the finger — a drag moves the dot to it, so every position is a value; clamped to the pad's edge detents.
+func euclideousCardPitchValue(at p: CGPoint, in pad: CGRect) -> EuclideousCardPitchValue {
+    typealias P = EuclideousCardPitchMetrics
+    let tx = max(1, pad.width - P.travelLoss), ty = max(1, pad.height - P.travelLoss)
+    let tf = ((p.x - pad.minX - P.inset) / tx * CGFloat(2 * P.transposeMax)).rounded() - CGFloat(P.transposeMax)
+    let of = CGFloat(P.octaveTop) - ((p.y - pad.minY - P.inset) / ty * CGFloat(P.octaveTop - P.octaveBottom)).rounded()
+    let t = Int(max(CGFloat(-P.transposeMax), min(CGFloat(P.transposeMax), tf.isFinite ? tf : 0)))
+    let o = Int(max(CGFloat(P.octaveBottom), min(CGFloat(P.octaveTop), of.isFinite ? of : 0)))
+    return EuclideousCardPitchValue(octave: o, transpose: t)
+}
+/// Every detent's centre: 5 octave rows × 15 transpose columns. `edge` marks the columns at t = 0 and ±7 (drawn in the brighter #4A4E57).
+func euclideousCardPitchDetents(in pad: CGRect) -> [(point: CGPoint, edge: Bool)] {
+    typealias P = EuclideousCardPitchMetrics
+    var out: [(CGPoint, Bool)] = []
+    for o in stride(from: P.octaveTop, through: P.octaveBottom, by: -1) {
+        for t in -P.transposeMax...P.transposeMax { out.append((euclideousCardPitchDot(EuclideousCardPitchValue(octave: o, transpose: t), in: pad), t == 0 || abs(t) == P.transposeMax)) }
+    }
+    return out
+}
+/// §6.4: the rectangle spanning from the home point to the dot (lane100 at 22 %); nil at home.
+func euclideousCardPitchRect(_ v: EuclideousCardPitchValue, in pad: CGRect) -> CGRect? {
+    guard !v.isHome else { return nil }
+    let d = euclideousCardPitchDot(v, in: pad), h = euclideousCardPitchDot(.home, in: pad)
+    return CGRect(x: min(d.x, h.x), y: min(d.y, h.y), width: abs(d.x - h.x), height: abs(d.y - h.y))
+}
+/// §6.4: the home lines (1 pt #30333A) — horizontal through octave 0, vertical through transpose 0 — across the whole pad.
+func euclideousCardPitchHomeLines(in pad: CGRect) -> (horizontal: CGRect, vertical: CGRect) {
+    let h = euclideousCardPitchDot(.home, in: pad), w = EuclideousCardPitchMetrics.lineWidth
+    return (CGRect(x: pad.minX, y: h.y - w / 2, width: pad.width, height: w), CGRect(x: h.x - w / 2, y: pad.minY, width: w, height: pad.height))
+}
+/// "OCT +1" top-left, "TRANS +2" bottom-right: U+2212 for minus, "0" at zero.
+func euclideousCardPitchTexts(_ v: EuclideousCardPitchValue) -> (oct: String, trans: String) {
+    ("OCT \(euclideousMixOctaveText(v.octave))", "TRANS \(euclideousMixOctaveText(v.transpose))")
+}
+/// Gestures (§6.8) written as values: the octave one step up / down (VoiceOver swipe), the transpose one step, and the reset.
+func euclideousCardPitchOctaveStep(_ v: EuclideousCardPitchValue, up: Bool) -> EuclideousCardPitchValue? {
+    let n = v.octave + (up ? 1 : -1)
+    return (EuclideousCardPitchMetrics.octaveBottom...EuclideousCardPitchMetrics.octaveTop).contains(n) ? EuclideousCardPitchValue(octave: n, transpose: v.transpose) : nil
+}
+func euclideousCardPitchTransposeStep(_ v: EuclideousCardPitchValue, up: Bool) -> EuclideousCardPitchValue? {
+    let n = v.transpose + (up ? 1 : -1)
+    return abs(n) <= EuclideousCardPitchMetrics.transposeMax ? EuclideousCardPitchValue(octave: v.octave, transpose: n) : nil
+}
+/// What the part reads as, and the one place a pitch value is written onto a lane. The octave goes straight into the part's own OCT field (`riffOctave`, or the notes layer's `octave` — NOT through `euclideousSetNotesOctave`, which also
+/// switches the NOTES layer on: the pad is live on an OFF part and must not turn it on); the out-transpose into `riffOutTranspose` / `notesOutTranspose`, stored as nil at 0 so a pad put back home leaves the document as it was.
+func euclideousCardPitchValue(of line: EuclidLine, notes: Bool) -> EuclideousCardPitchValue {
+    EuclideousCardPitchValue(octave: euclideousMixOctave(of: line, notes: notes), transpose: notes ? line.notesOutTransposeResolved : line.riffOutTransposeResolved)
+}
+func euclideousCardPitchWrite(_ line: inout EuclidLine, notes: Bool, _ v: EuclideousCardPitchValue) {
+    let o = max(EuclideousCardPitchMetrics.octaveBottom, min(EuclideousCardPitchMetrics.octaveTop, v.octave))
+    let t = max(-EuclideousCardPitchMetrics.transposeMax, min(EuclideousCardPitchMetrics.transposeMax, v.transpose))
+    if notes { line.octave = o; line.notesOutTranspose = t == 0 ? nil : t } else { line.riffOctave = o; line.riffOutTranspose = t == 0 ? nil : t }
+}
+
 // MARK: - §7 the jacks
 
 /// A colour mix in sRGB 8-bit space: `amount` of `b` into `a` (alpha mixed the same way).
@@ -335,53 +418,52 @@ func euclideousCardMix(_ a: HocketColor, toward b: HocketColor, _ amount: Double
 }
 
 enum EuclideousJackMetrics {
-    static let ringWidth: CGFloat = 1.5, socketRadius: CGFloat = 10.5, plugRadius: CGFloat = 8.5, capRadius: CGFloat = 3
-    static let notch = CGSize(width: 2.5, height: 2.5), notchRadius: CGFloat = 0.5, pinSize: CGFloat = 2.3
-    /// The five pins' centres in the 24 pt socket box (§7.3).
-    static let pins: [CGPoint] = [CGPoint(x: 6.4, y: 10.4), CGPoint(x: 17.6, y: 10.4), CGPoint(x: 8, y: 15.2), CGPoint(x: 16, y: 15.2), CGPoint(x: 12, y: 17.2)]
-    static let socketDisc = HocketColor(0x0B0C0E), notchColor = HocketColor(0x3A3E47), pinColor = HocketColor(0x4A4E57), cap = HocketColor(0x15161A)
-    static let cellBase = HocketColor(0x101114), stripBorder = HocketColor(0x262930), unplugRing = HocketColor(0x3A3E47)
-    static let letterOn = HocketColor(0xF2F4F7), letterOff = HocketColor(0x6E727B), lightOff = HocketColor(0x2A2D34)
-    static let cellMixPlugged = 0.12, cellMixActive = 0.28, lightAlphaPlugged = 0.30, plugAlphaPartOff = 0.45
+    /// CARD BACKS v2 §7.2: a 22 pt box — a disc of r 10 in #0B0C0E with a 1.5 pt ring, a 2.4 × 2.4 key notch at 12 o'clock (#3A3E47, radius 0.5) and five 2.2 pt pins in #4A4E57. No other mark in the cell.
+    static let ringWidth: CGFloat = 1.5, socketRadius: CGFloat = 10, plugRadius: CGFloat = 8
+    static let notch = CGSize(width: 2.4, height: 2.4), notchRadius: CGFloat = 0.5, pinSize: CGFloat = 2.2
+    /// The five pins' centres in the 22 pt socket box.
+    static let pins: [CGPoint] = [CGPoint(x: 5.8, y: 9.6), CGPoint(x: 16.2, y: 9.6), CGPoint(x: 7.3, y: 14), CGPoint(x: 14.7, y: 14), CGPoint(x: 11, y: 15.9)]
+    static let socketDisc = HocketColor(0x0B0C0E), notchColor = HocketColor(0x3A3E47), pinColor = HocketColor(0x4A4E57)
+    static let cellBase = HocketColor(0x101114), stripBorder = HocketColor(0x262930), stripRadius: CGFloat = 8, unplugRing = HocketColor(0x3A3E47)
+    static let letterInk = HocketColor(0x0D0F14), letterFont: CGFloat = 9
+    static let plugAlphaPartOn = 0.75, plugAlphaPartOff = 0.40
+    static let cellMixPlugged = 0.12, cellMixActive = 0.28
     static let decay: Double = 0.220
-    static let glowRadius: CGFloat = 10, glowAlpha = 0.90
+    static let plugFlashWhiteMix = 0.35, glowRadius: CGFloat = 5, glowAlpha = 0.95
     static let seamGlowRadius: CGFloat = 6, seamGlowAlpha = 0.80, seamAlphaAudible = 0.35
     static let seamOff = HocketColor(0x262930)
 }
 struct EuclideousJackLook: Equatable {
     var ring: HocketColor
-    var plug: HocketColor?               // the disc of r 8.5 over the pins (nil: unplugged)
-    var plugCap: HocketColor?            // the r 3 cap
-    var letter: HocketColor
+    var plug: HocketColor?               // the disc of r 8 over the pins, carrying the letter (nil: unplugged — pins showing, no letter)
+    var letter: HocketColor              // ink on the plug
     var cellFill: HocketColor?           // nil: unfilled
-    var light: HocketColor
 }
-/// §7.3 (a pure function of the lane's colour index, plugged and the part being on).
-///  - plugged, part on: ring lane100; plug lane100; cap #15161A; letter #F2F4F7; cell #101114 mixed 12 % toward lane100; light lane100 at 30 %
-///  - plugged, part off: as above but the plug at 45 %, the cell unfilled, the light #2A2D34
-///  - unplugged: ring #3A3E47, no plug, letter #6E727B, cell unfilled, light #2A2D34
+/// §7.3 (a pure function of the lane's colour index, plugged — this part's mask holds this output — and the part being on):
+///  - plugged, part on: ring lane100; plug lane100 at 75 % carrying the output's letter in ink #0D0F14; the cell #101114 mixed 12 % toward lane100
+///  - plugged, part off: ring lane100; plug lane100 at 40 %; the cell unfilled
+///  - unplugged: ring #3A3E47, the pins showing, no plug, no letter; the cell unfilled
 func euclideousJackLook(lane: Int, plugged: Bool, partOn: Bool) -> EuclideousJackLook {
     typealias J = EuclideousJackMetrics
     let lane100 = HocketPalette.lane100(lane)
-    guard plugged else { return EuclideousJackLook(ring: J.unplugRing, plug: nil, plugCap: nil, letter: J.letterOff, cellFill: nil, light: J.lightOff) }
+    guard plugged else { return EuclideousJackLook(ring: J.unplugRing, plug: nil, letter: J.letterInk, cellFill: nil) }
     if partOn {
-        return EuclideousJackLook(ring: lane100, plug: lane100, plugCap: J.cap, letter: J.letterOn, cellFill: euclideousCardMix(J.cellBase, toward: lane100, J.cellMixPlugged),
-                                  light: HocketColor(lane100.hex, J.lightAlphaPlugged))
+        return EuclideousJackLook(ring: lane100, plug: HocketColor(lane100.hex, J.plugAlphaPartOn), letter: J.letterInk, cellFill: euclideousCardMix(J.cellBase, toward: lane100, J.cellMixPlugged))
     }
-    return EuclideousJackLook(ring: lane100, plug: HocketColor(lane100.hex, J.plugAlphaPartOff), plugCap: J.cap, letter: J.letterOn, cellFill: nil, light: J.lightOff)
+    return EuclideousJackLook(ring: lane100, plug: HocketColor(lane100.hex, J.plugAlphaPartOff), letter: J.letterInk, cellFill: nil)
 }
-/// §7.5: a note-on through this output: the light goes to lane100 with a 10 pt glow at 90 % and the cell's fill to 28 % toward lane100; both fall back to the plugged look linearly over 220 ms. `amount` is 1 at the note-on, 0 from 220 ms.
+/// §7.5: a note-on through this output: the plug disc mixes 35 % toward white with a 5 pt lane100 glow at 95 %, and its cell's fill goes to 28 % toward lane100; both fall back to the plugged look linearly over 220 ms. `amount` is 1 at the note-on, 0 from 220 ms.
 struct EuclideousJackActivity: Equatable {
     var amount: Double
     var glowRadius: CGFloat
     var glowAlpha: Double
     var cellMix: Double              // the fill's mix toward lane100: 0.12 (plugged) … 0.28 (note-on)
-    var lightMix: Double             // the light's mix from its plugged colour toward lane100 at full alpha
+    var plugWhiteMix: Double         // the plug's mix toward #FFFFFF: 0 … 0.35
 }
 func euclideousJackActivity(sinceNoteOn t: Double) -> EuclideousJackActivity {
     typealias J = EuclideousJackMetrics
     let a = t < 0 ? 0 : max(0, min(1, 1 - t / J.decay))
-    return EuclideousJackActivity(amount: a, glowRadius: J.glowRadius * CGFloat(a), glowAlpha: J.glowAlpha * a, cellMix: J.cellMixPlugged + (J.cellMixActive - J.cellMixPlugged) * a, lightMix: a)
+    return EuclideousJackActivity(amount: a, glowRadius: J.glowRadius * CGFloat(a), glowAlpha: J.glowAlpha * a, cellMix: J.cellMixPlugged + (J.cellMixActive - J.cellMixPlugged) * a, plugWhiteMix: J.plugFlashWhiteMix * a)
 }
 /// §7.6: the seam — lane100 at 35 % while the part is audible, else #262930; on a note-on lane100 at full with a 6 pt glow at 80 %, falling back over 220 ms.
 struct EuclideousSeamLook: Equatable { var colour: HocketColor; var glowRadius: CGFloat; var glowAlpha: Double }
@@ -516,6 +598,10 @@ enum EuclideousCardBackAX {
     static func xy(_ part: EuclideousCardPart, velocity: Int, gate: Double) -> String { "\(part.spoken) velocity \(velocity), gate \(euclideousMixGateValueText(gate: gate))" }
     /// OCT (adjustable): "Riff octave, 0" — the value spoken as the MIX stepper speaks it ("plus 1", "minus 2").
     static func oct(_ part: EuclideousCardPart, value: Int) -> String { "\(part.spoken) octave, \(euclideousMixOctaveSpoken(value))" }
+    /// The PITCH pad (adjustable): label "Riff pitch", value "octave +1, transpose +2"; swipe up / down changes the octave by one; custom actions "Transpose up", "Transpose down" and "Reset pitch".
+    static func pitch(_ part: EuclideousCardPart) -> String { "\(part.spoken) pitch" }
+    static func pitchValue(_ v: EuclideousCardPitchValue) -> String { "octave \(euclideousMixOctaveText(v.octave)), transpose \(euclideousMixOctaveText(v.transpose))" }
+    static let transposeUp = "Transpose up", transposeDown = "Transpose down", resetPitch = "Reset pitch"
     /// The roll, one static element: "Riff playing" / "Riff silent" (silent = routed to no output).
     static func roll(_ part: EuclideousCardPart, silent: Bool) -> String { "\(part.spoken) \(silent ? "silent" : "playing")" }
     /// A jack (a toggle): "Riff to output A, plugged in" / "Riff to output A, empty".

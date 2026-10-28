@@ -56,19 +56,21 @@ struct EuclideousCardSideSwitch: View {
 
 // MARK: - the back
 
-/// What one part's row shows and edits. The values are the ones the MIX pad reads (`euclideousMixPadValues`, `euclideousMixOctave`).
+/// What one part's row shows and edits. The values are the ones the MIX pad reads (`euclideousMixPadValues`), the part's OCT field and its out-transpose (`euclideousCardPitchValue`).
 struct EuclideousCardBackPartInput: Equatable {
     var on: Bool
     var gate: Double
     var velocity: Int
     var octave: Int
+    var transpose: Int
     var mask: UInt8
 }
 
 struct EuclideousCardBackCallbacks {
-    /// The XY pad's write: `(part, newStep, mutate)` — the page's `editStep`, one undo step per touch burst.
+    /// The VEL/GATE pad's write: `(part, newStep, mutate)` — the page's `editStep`, one undo step per touch burst.
     var xy: (EuclideousCardPart, Bool, @escaping (inout EuclidLine) -> Void) -> Void
-    var oct: (EuclideousCardPart, Int) -> Void
+    /// The PITCH pad's write (octave and out-transpose together): the same shape — one undo step per drag, a double-tap's reset joining the burst.
+    var pitch: (EuclideousCardPart, Bool, @escaping (inout EuclidLine) -> Void) -> Void
     var toggleOn: (EuclideousCardPart) -> Void
     var jack: (EuclideousCardPart, Int) -> Void
     var invite: (EuclideousCardPart, EuclideousCardInvitation) -> Void
@@ -112,6 +114,8 @@ struct EuclideousCardBackView: View {
             .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: dimRows)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: EuclideousCardBackMetrics.cardRadius).fill(Color(EuclideousCardBackMetrics.fillColor)))
+        .overlay(RoundedRectangle(cornerRadius: EuclideousCardBackMetrics.cardRadius).strokeBorder(accent.opacity(EuclideousCardBackMetrics.borderAlpha), lineWidth: EuclideousCardBackMetrics.borderWidth).allowsHitTesting(false))   // §4.2
         .accessibilityElement(children: .contain)
         .accessibilityLabel(EuclideousCardBackAX.group(lane: lane))
     }
@@ -156,18 +160,21 @@ struct EuclideousCardBackPartRow: View {
 
     var body: some View {
         let invitation = euclideousCardInvitation(part: part, partOn: input.on, laneHasHits: laneHasHits)
+        let vg = local(frames.velGate), pp = local(frames.pitch), panel = local(frames.rollPanel)
         return ZStack(alignment: .topLeading) {
-            EuclideousCardXYPad(frame: local(frames.xy).size, lane: lane, part: part, accent: accent, gate: input.gate, velocity: input.velocity, enabled: input.on,
+            // §5.5: both pads draw at 42 % while the part is off and stay live (they write; the PITCH pad never switches the part on)
+            EuclideousCardXYPad(frame: vg.size, lane: lane, part: part, accent: accent, gate: input.gate, velocity: input.velocity, dimmed: !input.on,
                                 onEditStep: { newStep, mutate in callbacks.xy(part, newStep, mutate) })
-                .offset(x: local(frames.xy).minX, y: local(frames.xy).minY)
-            EuclideousCardOct(size: local(frames.oct).size, accent: accent, part: part, value: input.octave, dimmed: !input.on, onSet: { callbacks.oct(part, $0) })
-                .offset(x: local(frames.oct).minX, y: local(frames.oct).minY)
+                .offset(x: vg.minX, y: vg.minY)
+            EuclideousCardPitchPad(frame: pp.size, part: part, accent: accent, value: EuclideousCardPitchValue(octave: input.octave, transpose: input.transpose), dimmed: !input.on,
+                                   onEditStep: { newStep, mutate in callbacks.pitch(part, newStep, mutate) })
+                .offset(x: pp.minX, y: pp.minY)
             rollAndJacks()
-                .offset(x: local(frames.rollPanel).minX, y: local(frames.rollPanel).minY)
-            // §5.4: the label pill is the part's on/off switch; §5.6: the invitation, centred in the roll, at full strength over the dim
+                .offset(x: panel.minX, y: panel.minY)
+            // §5.4: the label pill is the part's on/off switch; §5.6: ADD HITS, centred in the roll, at full strength over the dim
             labelPill
-                .offset(x: local(frames.rollPanel).minX, y: local(frames.rollPanel).minY)
-            if let invitation { invitationPill(invitation).offset(x: local(frames.rollPanel).minX, y: local(frames.rollPanel).minY) }
+                .offset(x: panel.minX, y: panel.minY)
+            if let invitation { invitationPill(invitation).offset(x: panel.minX, y: panel.minY) }
             jackTargets
         }
         .frame(width: frames.row.width, height: frames.row.height, alignment: .topLeading)
@@ -181,48 +188,40 @@ struct EuclideousCardBackPartRow: View {
         let roll = CGRect(x: 0, y: 0, width: frames.roll.width, height: frames.roll.height)
         let strip = CGRect(x: 0, y: frames.jackStrip.minY - panel.minY, width: panel.width, height: frames.jackStrip.height)
         let cells = frames.jackCells.map { $0.offsetBy(dx: -panel.minX, dy: -panel.minY) }
-        let lights = frames.jackLights.map { $0.offsetBy(dx: -panel.minX, dy: -panel.minY) }
         let sockets = frames.jackSockets.map { $0.offsetBy(dx: -panel.minX, dy: -panel.minY) }
-        let letters = frames.jackLetters.map { $0.offsetBy(dx: -panel.minX, dy: -panel.minY) }
         let seam = CGRect(x: 0, y: frames.seam.minY - panel.minY, width: panel.width, height: frames.seam.height)
         let model = rolls
         let tracker = span
         let laneIdx = lane, p = partIndex, on = input.on, mask = input.mask, hasHits = laneHasHits, audibleAt = laneAudibleAt, tempoNow = tempo, bpb = beatsPerBar, beatOf = beatAt
-        let dimmed = !on
         return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !live)) { tl in
             Canvas { ctx, sz in
                 let now = beatOf(tl.date)
                 let laneAud = audibleAt(tl.date)
                 let audible = on && mask & 0x0F != 0 && laneAud && hasHits
-                drawPanel(&ctx, size: sz, roll: roll, strip: strip, lane: laneIdx)
-                drawRoll(&ctx, roll: roll, model: model.model, part: p, lane: laneIdx, now: now, bpb: bpb, date: tl.date, tracker: tracker, on: on, hasHits: hasHits, laneAudible: laneAud, silent: mask & 0x0F == 0)
-                drawJacks(&ctx, seam: seam, cells: cells, lights: lights, sockets: sockets, letters: letters, lane: laneIdx, mask: mask, on: on, audible: audible, model: model.model, part: p, now: now, tempo: tempoNow)
+                drawRoll(&ctx, roll: roll, model: model.model, part: p, lane: laneIdx, now: now, bpb: bpb, date: tl.date, tracker: tracker, on: on, hasHits: hasHits, laneAudible: laneAud)
+                drawJacks(&ctx, strip: strip, seam: seam, cells: cells, sockets: sockets, lane: laneIdx, mask: mask, on: on, audible: audible, model: model.model, part: p, now: now, tempo: tempoNow)
             }
             .frame(width: panel.width, height: panel.height)
         }
         .frame(width: panel.width, height: panel.height)
-        .opacity(dimmed ? 1 : 1)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(EuclideousCardBackAX.roll(part, silent: silent || !on))
+        .accessibilityLabel(EuclideousCardBackAX.roll(part, silent: silent || !input.on))
     }
 
-    private func drawPanel(_ ctx: inout GraphicsContext, size: CGSize, roll: CGRect, strip: CGRect, lane: Int) {
-        typealias M = EuclideousCardBackMetrics
-        let r = EuclideousRollMetrics.topRadius
-        let shape = Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: r)
-        ctx.fill(shape, with: .color(Color(M.fillColor)))
-        ctx.stroke(shape, with: .color(accent.opacity(M.borderAlpha)), lineWidth: M.borderWidth)
-    }
+    /// A rounded-corner shape for the TOP edge of `r` only (the roll) or the BOTTOM edge only (the jack strip): a rounded rectangle taller than `r` by the radius, clipped to `r` by the caller. (`UnevenRoundedRectangle` is iOS 16.)
+    private func topRounded(_ r: CGRect) -> Path { Path(roundedRect: CGRect(x: r.minX, y: r.minY, width: r.width, height: r.height + 2 * EuclideousRollMetrics.topRadius), cornerRadius: EuclideousRollMetrics.topRadius) }
+    private func bottomRounded(_ r: CGRect) -> Path { Path(roundedRect: CGRect(x: r.minX, y: r.minY - 2 * EuclideousJackMetrics.stripRadius, width: r.width, height: r.height + 2 * EuclideousJackMetrics.stripRadius), cornerRadius: EuclideousJackMetrics.stripRadius) }
 
     private func drawRoll(_ ctx: inout GraphicsContext, roll: CGRect, model: NoteRollModel, part p: Int, lane: Int, now: Double, bpb: Double, date: Date, tracker: RollSpanTracker,
-                          on: Bool, hasHits: Bool, laneAudible: Bool, silent: Bool) {
+                          on: Bool, hasHits: Bool, laneAudible: Bool) {
         typealias R = EuclideousRollMetrics
         var layer = ctx
-        let clip = Path(roundedRect: roll, cornerRadius: R.topRadius)
-        layer.clip(to: clip)
+        layer.clip(to: Path(roll))
+        let shape = topRounded(roll)
         let live = laneAudible && on && hasHits
         layer.opacity = on ? 1 : 0.42
-        layer.fill(Path(roll), with: .color(Color(euclideousRollGround(lane: lane, laneAudible: laneAudible, partOn: on, laneHasHits: hasHits))))
+        layer.fill(shape, with: .color(Color(euclideousRollGround(lane: lane, laneAudible: laneAudible, partOn: on, laneHasHits: hasHits))))
+        layer.clip(to: shape)
         let window = Double(R.windowBars) * max(1, bpb)
         let notes = model.notes(part: p, from: now - window, to: now, now: now)
         let target = euclideousRollTargetSpan(pitches: notes.map { Int($0.pitch) })
@@ -251,14 +250,19 @@ struct EuclideousCardBackPartRow: View {
         }
         let head = euclideousRollPlayhead(lane: lane, audible: live, roll: roll)
         layer.fill(Path(head.rect), with: .color(Color(head.colour)))
-        ctx.stroke(Path(roundedRect: roll, cornerRadius: R.topRadius), with: .color(Color(R.border)), lineWidth: R.borderWidth)
-        _ = silent
+        layer.stroke(topRounded(roll.insetBy(dx: 0.5, dy: 0.5)), with: .color(Color(R.border)), lineWidth: R.borderWidth)   // 1 pt #262930, radius 8 on the top corners, none on the bottom
     }
 
-    private func drawJacks(_ ctx: inout GraphicsContext, seam: CGRect, cells: [CGRect], lights: [CGRect], sockets: [CGRect], letters: [CGRect], lane: Int, mask: UInt8, on: Bool, audible: Bool,
+    /// §7: the jack strip (#101114, a 1 pt #262930 border, radius 8 on the bottom corners only), four equal cells A–D each with its socket; a plugged output wears a plug carrying its letter. Activity (a note-on through the output)
+    /// flashes the plug and warms the cell; the seam above the strip glows on every note-on of a plugged output.
+    private func drawJacks(_ ctx: inout GraphicsContext, strip: CGRect, seam: CGRect, cells: [CGRect], sockets: [CGRect], lane: Int, mask: UInt8, on: Bool, audible: Bool,
                            model: NoteRollModel, part p: Int, now: Double, tempo: Double) {
         typealias J = EuclideousJackMetrics
         let lane100 = HocketPalette.lane100(lane)
+        var layer = ctx
+        layer.clip(to: Path(strip))
+        let shape = bottomRounded(strip)
+        layer.fill(shape, with: .color(Color(J.cellBase)))
         var seamSince = Double.infinity
         for o in 0..<4 {
             let plugged = euclideousJackIsPlugged(mask: mask, output: o)
@@ -268,32 +272,33 @@ struct EuclideousCardBackPartRow: View {
             seamSince = min(seamSince, plugged && on ? since : Double.infinity)
             let act = euclideousJackActivity(sinceNoteOn: since.isFinite ? since : -1)
             let cell = cells[o]
-            // the cell: its fill (a plugged, on part), warming toward the lane colour on a note-on
-            ctx.fill(Path(cell), with: .color(Color(J.cellBase)))
-            if look.cellFill != nil {
-                ctx.fill(Path(cell), with: .color(Color(euclideousCardMix(J.cellBase, toward: lane100, act.cellMix))))
-            }
-            if o > 0 { ctx.fill(Path(CGRect(x: cell.minX - 0.5, y: cell.minY, width: 1, height: cell.height)), with: .color(Color(J.stripBorder))) }
-            // the light
-            let lightColour = act.amount > 0 && plugged && on ? euclideousCardMix(look.light, toward: HocketColor(lane100.hex, 1), act.lightMix) : look.light
-            if act.glowRadius > 0 && plugged && on {
-                ctx.drawLayer { g in
-                    g.addFilter(.shadow(color: Color(HocketColor(lane100.hex, act.glowAlpha)), radius: act.glowRadius))
-                    g.fill(Path(ellipseIn: lights[o]), with: .color(Color(lightColour)))
-                }
-            } else { ctx.fill(Path(ellipseIn: lights[o]), with: .color(Color(lightColour))) }
-            // the socket and (when plugged) the plug
+            if look.cellFill != nil { layer.fill(Path(cell), with: .color(Color(euclideousCardMix(J.cellBase, toward: lane100, act.cellMix)))) }   // 12 % plugged, up to 28 % on a note-on
+        }
+        layer.stroke(shape, with: .color(Color(J.stripBorder)), lineWidth: 2)                                                                    // 2 pt centred on the edge, clipped to the strip: a 1 pt border inside it
+        for o in 0..<4 {
+            let plugged = euclideousJackIsPlugged(mask: mask, output: o)
+            let look = euclideousJackLook(lane: lane, plugged: plugged, partOn: on)
+            let last = model.lastOnBeatByOutput[p][o]
+            let since = last.isFinite ? max(0, (now - last) * 60 / max(1, tempo)) : Double.infinity
+            let act = euclideousJackActivity(sinceNoteOn: since.isFinite ? since : -1)
             let s = sockets[o]
-            ctx.fill(Path(ellipseIn: CGRect(x: s.midX - J.socketRadius, y: s.midY - J.socketRadius, width: 2 * J.socketRadius, height: 2 * J.socketRadius)), with: .color(Color(J.socketDisc)))
-            ctx.stroke(Path(ellipseIn: CGRect(x: s.midX - J.socketRadius, y: s.midY - J.socketRadius, width: 2 * J.socketRadius, height: 2 * J.socketRadius)), with: .color(Color(look.ring)), lineWidth: J.ringWidth)
-            ctx.fill(Path(roundedRect: CGRect(x: s.midX - J.notch.width / 2, y: s.minY + 1.5, width: J.notch.width, height: J.notch.height), cornerRadius: J.notchRadius), with: .color(Color(J.notchColor)))
+            let disc = CGRect(x: s.midX - J.socketRadius, y: s.midY - J.socketRadius, width: 2 * J.socketRadius, height: 2 * J.socketRadius)
+            ctx.fill(Path(ellipseIn: disc), with: .color(Color(J.socketDisc)))
+            ctx.stroke(Path(ellipseIn: disc.insetBy(dx: J.ringWidth / 2, dy: J.ringWidth / 2)), with: .color(Color(look.ring)), lineWidth: J.ringWidth)
+            ctx.fill(Path(roundedRect: CGRect(x: s.midX - J.notch.width / 2, y: s.minY + 1 + J.ringWidth, width: J.notch.width, height: J.notch.height), cornerRadius: J.notchRadius), with: .color(Color(J.notchColor)))
             for pin in J.pins { ctx.fill(Path(ellipseIn: CGRect(x: s.minX + pin.x - J.pinSize / 2, y: s.minY + pin.y - J.pinSize / 2, width: J.pinSize, height: J.pinSize)), with: .color(Color(J.pinColor))) }
             if let plug = look.plug {
-                ctx.fill(Path(ellipseIn: CGRect(x: s.midX - J.plugRadius, y: s.midY - J.plugRadius, width: 2 * J.plugRadius, height: 2 * J.plugRadius)), with: .color(Color(plug)))
-                if let cap = look.plugCap { ctx.fill(Path(ellipseIn: CGRect(x: s.midX - J.capRadius, y: s.midY - J.capRadius, width: 2 * J.capRadius, height: 2 * J.capRadius)), with: .color(Color(cap))) }
+                let flash = plugged && on && act.amount > 0
+                let plugColour = flash ? euclideousCardMix(plug, toward: HocketColor(0xFFFFFF, plug.alpha), act.plugWhiteMix) : plug
+                let pr = CGRect(x: s.midX - J.plugRadius, y: s.midY - J.plugRadius, width: 2 * J.plugRadius, height: 2 * J.plugRadius)
+                if flash && act.glowRadius > 0 {
+                    ctx.drawLayer { g in
+                        g.addFilter(.shadow(color: Color(HocketColor(lane100.hex, act.glowAlpha)), radius: act.glowRadius))
+                        g.fill(Path(ellipseIn: pr), with: .color(Color(plugColour)))
+                    }
+                } else { ctx.fill(Path(ellipseIn: pr), with: .color(Color(plugColour))) }
+                ctx.draw(Text(euclideousJackLetters[o]).font(heavyMono(J.letterFont)).foregroundColor(Color(look.letter)), at: CGPoint(x: s.midX, y: s.midY), anchor: .center)
             }
-            // the letter
-            ctx.draw(Text(euclideousJackLetters[o]).font(heavyMono(EuclideousCardBackMetrics.letterFont)).foregroundColor(Color(look.letter)), at: CGPoint(x: letters[o].minX, y: letters[o].midY), anchor: .leading)
         }
         // §7.6: the seam between the roll and the jack strip
         let seamLook = euclideousSeamLook(lane: lane, audible: audible, sinceNoteOn: seamSince.isFinite ? seamSince : -1)
@@ -356,11 +361,11 @@ struct EuclideousCardBackPartRow: View {
         .frame(width: frames.rollPanel.width, height: frames.rollPanel.height, alignment: .topLeading)
     }
 
-    // MARK: the jacks' touch cells (§7.4)
+    // MARK: the jacks' touch targets (§4.4, §7.4): 44 tall, bottom-aligned with the row, so they reach 12 pt up over the roll's bottom edge — the roll takes no touches there
     private var jackTargets: some View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<4, id: \.self) { o in
-                let cell = local(frames.jackCells[o])
+                let cell = local(frames.jackTargets[o])
                 let plugged = euclideousJackIsPlugged(mask: input.mask, output: o)
                 Color.clear.contentShape(Rectangle()).frame(width: cell.width, height: cell.height).offset(x: cell.minX, y: cell.minY)
                     .onTapGesture { callbacks.jack(part, o) }
@@ -399,7 +404,8 @@ struct EuclideousCardXYPad: View {
     let accent: Color
     let gate: Double
     let velocity: Int
-    let enabled: Bool
+    /// The part is off: the pad draws at 42 % and stays live (CARD BACKS v2 §5.5 — it writes, and never switches the part on).
+    let dimmed: Bool
     let onEditStep: (Bool, @escaping (inout EuclidLine) -> Void) -> Void
 
     @State private var burst = EuclideousPadUndoBurst()
@@ -437,16 +443,14 @@ struct EuclideousCardXYPad: View {
             .position(dot).allowsHitTesting(false)
         }
         .frame(width: frame.width, height: frame.height)
-        .opacity(enabled ? 1 : 0.42)
+        .opacity(dimmed ? 0.42 : 1)
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { drag in
-                guard enabled else { return }      // an OFF part's pad still takes (and swallows) the touch — it must not fall through to what is under it — but writes nothing
                 if !touching { touching = true; startLocation = drag.location; lastWritten = nil; burst.touchDown(at: now()) }
                 apply(drag.location)
             }
             .onEnded { drag in
-                guard enabled else { return }
                 let start = startLocation ?? drag.location
                 let moved = hypot(drag.location.x - start.x, drag.location.y - start.y)
                 touching = false; startLocation = nil
@@ -458,12 +462,11 @@ struct EuclideousCardXYPad: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(EuclideousCardBackAX.xy(part, velocity: velocity, gate: gate))
         .accessibilityAdjustableAction { direction in
-            guard enabled else { return }
             write(gate: gate, velocity: euclideousMixVelocityStep(velocity, up: direction == .increment), newStepAlways: true)
         }
-        .accessibilityAction(named: "Longer gate") { if enabled { write(gate: euclideousMixGateStep(gate, longer: true), velocity: velocity, newStepAlways: true) } }
-        .accessibilityAction(named: "Shorter gate") { if enabled { write(gate: euclideousMixGateStep(gate, longer: false), velocity: velocity, newStepAlways: true) } }
-        .accessibilityAction(named: "Reset") { if enabled { resetAlways() } }
+        .accessibilityAction(named: "Longer gate") { write(gate: euclideousMixGateStep(gate, longer: true), velocity: velocity, newStepAlways: true) }
+        .accessibilityAction(named: "Shorter gate") { write(gate: euclideousMixGateStep(gate, longer: false), velocity: velocity, newStepAlways: true) }
+        .accessibilityAction(named: "Reset") { resetAlways() }
     }
     private func apply(_ p: CGPoint) {
         let v = euclideousCardXYValues(at: p, in: pad)
@@ -475,17 +478,111 @@ struct EuclideousCardXYPad: View {
     private func write(gate g: Double, velocity v: Int, newStepAlways: Bool) {
         let newStep = newStepAlways ? true : burst.nextWriteNeedsNewStep()
         let notes = part == .notes
-        onEditStep(newStep) { l in _ = euclideousMixPadWriteIfEnabled(&l, notes: notes, gate: g, velocity: v) }
+        onEditStep(newStep) { l in euclideousMixPadWrite(&l, notes: notes, gate: g, velocity: v) }   // live while the part is off (CARD BACKS v2 §5.5): the unguarded write — it never turns the layer on
     }
     private func reset() {
         if abs(gate - 0.9) < 1e-9, velocity == 100 { return }
         let newStep = burst.nextWriteNeedsNewStep()
         let notes = part == .notes
-        onEditStep(newStep) { l in _ = euclideousMixPadResetIfEnabled(&l, notes: notes) }
+        onEditStep(newStep) { l in euclideousMixPadReset(&l, notes: notes) }
     }
     private func resetAlways() {
         let notes = part == .notes
-        onEditStep(true) { l in _ = euclideousMixPadResetIfEnabled(&l, notes: notes) }
+        onEditStep(true) { l in euclideousMixPadReset(&l, notes: notes) }
+    }
+}
+
+// MARK: - the PITCH pad (CARD BACKS v2 §6.3–6.8)
+
+/// Octave (rows) × out-transpose in scale steps (columns), snapping: a drag moves the dot to the detent under the finger and writes both values as it goes (ONE undo step per drag); a double tap sets both to 0 (continuing the
+/// burst, so one undo returns to before the first tap). VoiceOver: adjustable (up / down = the octave), custom actions for the transpose and the reset. Live while the part is off.
+struct EuclideousCardPitchPad: View {
+    let frame: CGSize
+    let part: EuclideousCardPart
+    let accent: Color
+    let value: EuclideousCardPitchValue
+    let dimmed: Bool
+    let onEditStep: (Bool, @escaping (inout EuclidLine) -> Void) -> Void
+
+    @State private var burst = EuclideousPadUndoBurst()
+    @State private var touching = false
+    @State private var startLocation: CGPoint? = nil
+    @State private var lastWritten: EuclideousCardPitchValue? = nil
+    @State private var lastShortTapAt: Double? = nil
+    private func now() -> Double { Date().timeIntervalSinceReferenceDate }
+    private var pad: CGRect { CGRect(origin: .zero, size: frame) }
+
+    var body: some View {
+        typealias P = EuclideousCardPitchMetrics
+        let v = value, away = !v.isHome, isTouching = self.touching
+        let texts = euclideousCardPitchTexts(v)
+        let size = frame
+        return Canvas { ctx, sz in
+            let pad = CGRect(origin: .zero, size: sz)
+            let well = Path(roundedRect: pad, cornerRadius: P.radius)
+            ctx.fill(well, with: .color(Color(P.well)))
+            var layer = ctx
+            layer.clip(to: well)
+            for d in euclideousCardPitchDetents(in: pad) {
+                layer.fill(Path(ellipseIn: CGRect(x: d.point.x - P.detent / 2, y: d.point.y - P.detent / 2, width: P.detent, height: P.detent)), with: .color(Color(d.edge ? P.detentEdgeColor : P.detentColor)))
+            }
+            let home = euclideousCardPitchHomeLines(in: pad)
+            layer.fill(Path(home.horizontal), with: .color(Color(P.homeLine))); layer.fill(Path(home.vertical), with: .color(Color(P.homeLine)))
+            let dot = euclideousCardPitchDot(v, in: pad)
+            if let r = euclideousCardPitchRect(v, in: pad) { layer.fill(Path(r), with: .color(accent.opacity(P.fillAlpha))) }
+            let cross: Color = away ? accent.opacity(P.crosshairAlpha) : Color(P.homeCrosshair)
+            layer.fill(Path(CGRect(x: pad.minX, y: dot.y - P.lineWidth / 2, width: pad.width, height: P.lineWidth)), with: .color(cross))
+            layer.fill(Path(CGRect(x: dot.x - P.lineWidth / 2, y: pad.minY, width: P.lineWidth, height: pad.height)), with: .color(cross))
+            let d = P.dot + (isTouching ? 4 : 0)
+            layer.fill(Path(ellipseIn: CGRect(x: dot.x - d / 2 - P.dotRing, y: dot.y - d / 2 - P.dotRing, width: d + 2 * P.dotRing, height: d + 2 * P.dotRing)), with: .color(Color(P.well)))
+            layer.fill(Path(ellipseIn: CGRect(x: dot.x - d / 2, y: dot.y - d / 2, width: d, height: d)), with: .color(away ? accent : Color(P.homeDot)))
+            let tracking = P.textTracking * P.textFont
+            ctx.draw(Text(texts.oct).font(heavyMono(P.textFont)).tracking(tracking).foregroundColor(Color(P.text)), at: CGPoint(x: P.textInset, y: P.textInset), anchor: .topLeading)
+            ctx.draw(Text(texts.trans).font(heavyMono(P.textFont)).tracking(tracking).foregroundColor(Color(P.text)), at: CGPoint(x: sz.width - P.textInset, y: sz.height - P.textInset), anchor: .bottomTrailing)
+            layer.stroke(well, with: .color(Color(P.border)), lineWidth: 2)    // 1 pt #262930 border (2 pt centred on the clipped edge)
+        }
+        .frame(width: size.width, height: size.height)
+        .opacity(dimmed ? 0.42 : 1)
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { drag in
+                if !self.touching { self.touching = true; startLocation = drag.location; lastWritten = nil; burst.touchDown(at: now()) }
+                apply(drag.location)
+            }
+            .onEnded { drag in
+                let start = startLocation ?? drag.location
+                let moved = hypot(drag.location.x - start.x, drag.location.y - start.y)
+                self.touching = false; startLocation = nil
+                burst.touchEnd(at: now())
+                if moved <= 4 {
+                    if let last = lastShortTapAt, now() - last <= EuclideousPadUndoBurst.continueWithin { lastShortTapAt = nil; reset(newStepAlways: false) } else { lastShortTapAt = now() }
+                } else { lastShortTapAt = nil }
+            })
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(EuclideousCardBackAX.pitch(part))
+        .accessibilityValue(EuclideousCardBackAX.pitchValue(value))
+        .accessibilityAdjustableAction { direction in
+            if let n = euclideousCardPitchOctaveStep(value, up: direction == .increment) { write(n, newStepAlways: true) }
+        }
+        .accessibilityAction(named: EuclideousCardBackAX.transposeUp) { if let n = euclideousCardPitchTransposeStep(value, up: true) { write(n, newStepAlways: true) } }
+        .accessibilityAction(named: EuclideousCardBackAX.transposeDown) { if let n = euclideousCardPitchTransposeStep(value, up: false) { write(n, newStepAlways: true) } }
+        .accessibilityAction(named: EuclideousCardBackAX.resetPitch) { reset(newStepAlways: true) }
+    }
+    private func apply(_ p: CGPoint) {
+        let v = euclideousCardPitchValue(at: p, in: pad)
+        if let last = lastWritten, last == v { return }
+        lastWritten = v
+        if v == value { return }
+        write(v, newStepAlways: false)
+    }
+    private func write(_ v: EuclideousCardPitchValue, newStepAlways: Bool) {
+        let newStep = newStepAlways ? true : burst.nextWriteNeedsNewStep()
+        let notes = part == .notes
+        onEditStep(newStep) { l in euclideousCardPitchWrite(&l, notes: notes, v) }
+    }
+    private func reset(newStepAlways: Bool) {
+        if value.isHome, !newStepAlways { return }
+        write(.home, newStepAlways: newStepAlways)
     }
 }
 
