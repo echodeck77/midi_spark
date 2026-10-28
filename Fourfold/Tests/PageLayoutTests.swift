@@ -56,7 +56,8 @@ final class PageLayoutTests: XCTestCase {
         // need), then the HOLD/LATCH header buttons widened NOTES by 114pt (953.86) — net +70, still short of 868.
         XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 900, height: 600)).headerKind, .b, "868 < the now-953.86 layout A needs")
         XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 1190, height: 600)).headerKind, .a)
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 400, height: 900)).headerKind, .c)
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 400, height: 900)).headerKind, .d, "a container under 550 takes the three-row header (CARD BACKS review)")
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 600, height: 900)).headerKind, .c)
     }
 
     // MARK: 3. the sweep
@@ -121,6 +122,7 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(euclideousHeaderKind(containerW: aNeeds - 0.01, isLandscape: true), .b)
         XCTAssertEqual(euclideousHeaderKind(containerW: 5000, isLandscape: false), .b, "portrait never uses A")
         XCTAssertEqual(euclideousHeaderKind(containerW: bNeeds - 0.01, isLandscape: false), .c)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 549.99, isLandscape: false), .d); XCTAssertEqual(euclideousHeaderKind(containerW: 550, isLandscape: false), .c)
         for cw in stride(from: 300, through: 1500, by: 7) { for landscape in [true, false] {
             let l = euclideousHeaderLayout(containerW: CGFloat(cw), isLandscape: landscape, riffLeadingX: 0)
             XCTAssertEqual(l.kind, euclideousHeaderKind(containerW: CGFloat(cw), isLandscape: landscape), "\(cw) \(landscape)")
@@ -137,9 +139,13 @@ final class PageLayoutTests: XCTestCase {
                 XCTAssertEqual(l.cardSwitch.x, l.brand.width + 8, accuracy: 1e-9, "\(tag): the switch sits sp8 after the lock tile")
                 XCTAssertGreaterThanOrEqual(l.notes.x, l.cardSwitch.x + l.cardSwitch.width + l.widths.gap - 1e-9, "\(tag): NOTES clears the switch")
                 XCTAssertLessThanOrEqual(l.notes.x + l.notes.width + l.widths.gap, l.utilities.x + 1e-9, "\(tag): NOTES clears UTILITIES")
+            } else if l.kind == .d {
+                XCTAssertEqual(l.cardSwitch.row, 1, tag); XCTAssertEqual(l.notes.row, 2, tag); XCTAssertEqual(l.cardSwitch.x, 0, tag); XCTAssertEqual(l.notes.x, 0, tag)
+                if cw >= 448 { XCTAssertLessThanOrEqual(l.notes.x + l.notes.width, CGFloat(cw) + 1e-9, "\(tag): NOTES stays inside the container on its own row") }   // (448 = the narrowest container the page lays out un-scaled: a 480 pt view)
             } else {
                 XCTAssertEqual(l.notes.row, 1, tag); XCTAssertEqual(l.cardSwitch.row, 1, tag); XCTAssertEqual(l.cardSwitch.x, 0, "\(tag): the switch leads row 2")
                 XCTAssertEqual(l.notes.x, l.cardSwitch.width + 8, accuracy: 1e-9, "\(tag): NOTES (the source control first) follows it sp8 later")
+                if cw >= 448 { XCTAssertLessThanOrEqual(l.notes.x + l.notes.width, CGFloat(cw) + 1e-9, "\(tag): B and C keep row 2 inside the container") }
                 XCTAssertLessThanOrEqual(l.brand.width + l.widths.gap, l.utilities.x + (l.kind == .c ? 1e9 : 1e-9), tag)
             }
         } } }

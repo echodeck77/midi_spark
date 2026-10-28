@@ -1986,6 +1986,8 @@ struct EuclideousPage: View {
     /// §3.2: a tap on the unselected segment flips all four cards (lane n starts n × 70 ms late); the frame clock runs until the last one has finished.
     private func setCardSide(_ side: EuclideousCardSide) {
         guard side != cardSide else { return }
+        // a tap while the cards are still turning is ignored (review 2026-10-28): restarting from the other side popped a half-turned card to full width
+        if let start = cardFlipStart, euclideousCardFlipIsLive(since: Date().timeIntervalSince(start), reduceMotion: reduceMotion) { return }
         cardSide = side
         cardFlipStart = Date()
         let total = reduceMotion ? EuclideousCardFlipMetrics.reduceMotionDuration : EuclideousCardFlipMetrics.totalDuration
@@ -3114,6 +3116,7 @@ struct EuclideousPage: View {
         let soloDim = soloSilenced(idx)
         let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
         let muteCells = gridView.grid.muteCells, muteUnit = gridView.muteUnitBeats
+        let runs = euclideousLaneRunsInEngine(line)
         let riffV = euclideousMixPadValues(of: line, notes: false), notesV = euclideousMixPadValues(of: line, notes: true)
         let riff = EuclideousCardBackPartInput(on: !euclideousMixLayerIsOff(line, notes: false), gate: riffV.gate, velocity: riffV.velocity,
                                                octave: euclideousMixOctave(of: line, notes: false), mask: line.riffOutMaskResolved(lane: idx))
@@ -3139,9 +3142,9 @@ struct EuclideousPage: View {
             })
         EuclideousCardBackView(lane: idx, size: CGSize(width: width, height: height), accent: accent,
                                topRow: laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: laneStripPlan(idx, line), soloDimContent: soloDim),
-                               riff: riff, notes: notes, laneHasHits: euclideousLaneRunsInEngine(line),
+                               riff: riff, notes: notes, laneHasHits: line.pulses > 0 || line.patternMissResolved,     // ADD HITS is about the RHYTHM having hits — a PLAY-off lane still has them
                                laneAudibleAt: { date in
-                                   !soloDim && (muteCells == 0xFFFF || euclideousLaneAudible(beat: lanesMusicalBeat(real: walkTagBeat(at: date)), cells16: muteCells, unitBeats: muteUnit))
+                                   runs && !soloDim && (muteCells == 0xFFFF || euclideousLaneAudible(beat: lanesMusicalBeat(real: walkTagBeat(at: date)), cells16: muteCells, unitBeats: muteUnit))
                                },
                                dimRows: soloDim, rolls: rollLive, beatAt: { walkTagBeat(at: $0) }, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, live: pulseLive,
                                hocketRules: hocketRules, hocketLive: hocketLive, callbacks: callbacks)
@@ -3152,7 +3155,11 @@ struct EuclideousPage: View {
     /// The label pill (and the TURN ON invitations): the part's on/off, the field and the undo step the tab's own switch uses.
     private func cardBackToggle(_ idx: Int, _ part: EuclideousCardPart) {
         edit(idx) { l in
-            if part == .riff { l.riffOn = !(l.riffOnResolved) } else { l.notesOn = !euclideousNotesLayerIsOn(l) }
+            if part == .riff { l.riffOn = !(l.riffOnResolved); return }
+            if euclideousNotesLayerIsOn(l) { l.notesOn = false; return }
+            // turning NOTES on with no note lit would change nothing (the layer reads on only while a note is selected — the factory document starts that way): light the lowest note in the same step
+            l.notesOn = true
+            if !euclideousNotesHaveSelection(l) { var order = EuclideousLitOrder(); order.append(0); l.setLitOrder(order) }
         }
     }
 

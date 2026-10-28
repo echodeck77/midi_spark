@@ -1929,8 +1929,8 @@ final class DerivationsTests: XCTestCase {
         let frames = [l.brand, l.notes, l.utilities, l.cardSwitch]
         for f in frames {
             XCTAssertGreaterThanOrEqual(f.x, -1e-9, "\(msg): nothing before the leading edge", file: file, line: line)
-            // CARD BACKS (2026-10-28): the compact layout's second row (switch 116 + sp8 + NOTES 426 = 550) is wider than a container under 550, where it overflows — the one layout the switch does not fit (reported).
-            if !(l.kind == .c && containerW < 550) { XCTAssertLessThanOrEqual(f.x + f.width, containerW + 1e-9, "\(msg): nothing past the trailing edge", file: file, line: line) }
+            // CARD BACKS (2026-10-28, review): under 550 the third row (layout D) takes NOTES alone, so every layout keeps every group inside the container.
+            XCTAssertLessThanOrEqual(f.x + f.width, containerW + 1e-9, "\(msg): nothing past the trailing edge", file: file, line: line)
         }
         for row in 0..<l.rowCount {
             let r = frames.filter { $0.row == row }.sorted { $0.x < $1.x }
@@ -1988,16 +1988,17 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(b.notes.x, 116 + 8, "NOTES follows the switch sp8 later")
         XCTAssertEqual([b.brand.row, b.utilities.row], [0, 0])
         assertHeaderInvariants(b, 620, "B@620")
-        XCTAssertEqual(hdrLayout(500, landscape: false).kind, .c, "500 used to be layout B; with the HOCKET button it is C")
+        XCTAssertEqual(hdrLayout(500, landscape: false).kind, .d, "500 used to be layout B, then C; with the card-side switch (row 2 needs 550) it is the three-row D")
         let c = hdrLayout(560, landscape: false)
         XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
         XCTAssertEqual(c.widths.gap, 8)
         assertHeaderInvariants(c, 560, "C@560 (row 2 = switch 116 + sp8 + NOTES 426 = 550 fits)")
-        // CARD BACKS (2026-10-28): the one layout the switch does not fit — C's row 2 needs 550, where NOTES alone needed 426: a container in 426…550 now overflows its row 2 (nothing past the trailing edge is asserted from 550 up).
+        // CARD BACKS (2026-10-28, review): the switch and NOTES together need 550 on row 2, where NOTES alone needed 426 — a container narrower than that (a Split View half, a small AUM window) would push HOLD / LATCH off the page, so the header
+        // takes a THIRD row: brand + utilities, the switch, then NOTES, each inside the container.
         let narrow = hdrLayout(470, landscape: false)
-        XCTAssertEqual(narrow.kind, .c)
-        XCTAssertGreaterThan(narrow.notes.x + narrow.notes.width, 470, "C@470: NOTES' HOLD / LATCH chips run past the container")
-        assertHeaderInvariants(narrow, 470, "C@470")
+        XCTAssertEqual(narrow.kind, .d); XCTAssertEqual(narrow.rowCount, 3); XCTAssertTrue(narrow.compact)
+        XCTAssertLessThanOrEqual(narrow.notes.x + narrow.notes.width, 470, "D@470: NOTES' HOLD / LATCH chips stay inside the container")
+        assertHeaderInvariants(narrow, 470, "D@470")
         // a landscape page too narrow for A falls to B, never A; portrait never uses A, however wide.
         XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
         XCTAssertEqual(hdrLayout(1200, landscape: false).kind, .b)

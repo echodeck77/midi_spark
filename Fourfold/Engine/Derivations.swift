@@ -4182,16 +4182,17 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
 
 struct EuclideousHeaderGroupFrame: Equatable { var x: CGFloat; var width: CGFloat; var row: Int }
 struct EuclideousHeaderLayout: Equatable {
-    enum Kind: Equatable { case a, b, c }
+    /// A one row · B two rows · C two compact rows · D (CARD BACKS review 2026-10-28) three compact rows: the container is too narrow for the switch and NOTES to share row 2 (550 pt), so the switch has row 2 and NOTES row 3.
+    enum Kind: Equatable { case a, b, c, d }
     var kind: Kind
     var widths: EuclideousHeaderGroupWidths
     var brand: EuclideousHeaderGroupFrame
     var notes: EuclideousHeaderGroupFrame, utilities: EuclideousHeaderGroupFrame
     /// The PATTERN | MIX switch (CARD BACKS §3.1): row 0 right after BRAND in layout A, row 1 at the leading edge (NOTES follows it) in B and C.
     var cardSwitch: EuclideousHeaderGroupFrame
-    var rowCount: Int { kind == .a ? 1 : 2 }
-    var compact: Bool { kind == .c }
-    var height: CGFloat { rowCount == 1 ? EuclideousHeaderMetrics.rowH : EuclideousHeaderMetrics.rowH * 2 + EuclideousHeaderMetrics.sp4 }
+    var rowCount: Int { kind == .a ? 1 : (kind == .d ? 3 : 2) }
+    var compact: Bool { kind == .c || kind == .d }
+    var height: CGFloat { EuclideousHeaderMetrics.rowH * CGFloat(rowCount) + EuclideousHeaderMetrics.sp4 * CGFloat(rowCount - 1) }
 }
 private func headerClamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { lo > hi ? lo : min(max(v, lo), hi) }
 /// Layout A's exact need (container width): BRAND, sp8, the PATTERN | MIX switch, a gap, NOTES, a gap, UTILITIES. CARD BACKS (2026-10-28) added `cardSwitch + sp8` (124) to the pre-switch 1029.88.
@@ -4208,6 +4209,9 @@ func euclideousHeaderKind(containerW: CGFloat, isLandscape: Bool) -> EuclideousH
     // B and C keep the switch on row 2 with NOTES, so row 1 (BRAND + UTILITIES) — which decides B against C — is unchanged.
     let bNeeds = full.brand + full.utilities + full.gap
     if isLandscape && containerW >= aNeeds { return .a }
+    // the switch and NOTES need `cardSwitch + sp8 + notes` on row 2 (550): narrower than that (a Split View half, a small AUM window) they would push HOLD / LATCH off the page, so the switch gets row 2 and NOTES row 3
+    let row2Needs = full.cardSwitch + EuclideousHeaderMetrics.sp8 + full.notes
+    if containerW < row2Needs { return .d }
     return containerW < bNeeds ? .c : .b
 }
 
@@ -4227,9 +4231,15 @@ func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX
                                       notes: .init(x: notesX, width: full.notes, row: 0), utilities: .init(x: uX, width: full.utilities, row: 0),
                                       cardSwitch: .init(x: switchX, width: full.cardSwitch, row: 0))
     }
-    let compact = kind == .c
+    let compact = kind == .c || kind == .d
     let w = compact ? euclideousHeaderGroupWidths(compact: true) : full
     let uX = containerW - w.utilities
+    if kind == .d {
+        return EuclideousHeaderLayout(kind: .d, widths: w,
+                                      brand: .init(x: 0, width: w.brand, row: 0),
+                                      notes: .init(x: 0, width: w.notes, row: 2), utilities: .init(x: uX, width: w.utilities, row: 0),
+                                      cardSwitch: .init(x: 0, width: w.cardSwitch, row: 1))
+    }
     // CARD BACKS §3.1: on row 2 the switch sits at the leading edge and NOTES (its source control first) follows it sp8 later; row 1 (BRAND + UTILITIES) is unchanged.
     return EuclideousHeaderLayout(kind: compact ? .c : .b, widths: w,
                                   brand: .init(x: 0, width: w.brand, row: 0),
@@ -4255,7 +4265,9 @@ enum EuclideousPageMetrics {
     /// rounded to the 8pt grid = 64. Layouts B and C: row 2's controls end at y 95 → 111 (row 2's controls sit at y 63–95 in source).
     static let topOneRowHeader: CGFloat = 64
     static let topTwoRowHeader: CGFloat = 111
-    static func top(_ kind: EuclideousHeaderLayout.Kind) -> CGFloat { kind == .a ? topOneRowHeader : topTwoRowHeader }
+    /// Layout D (three header rows): row 3's controls end 48 pt lower than row 2's (95 + 48 = 143 → 159).
+    static let topThreeRowHeader: CGFloat = 159
+    static func top(_ kind: EuclideousHeaderLayout.Kind) -> CGFloat { kind == .a ? topOneRowHeader : (kind == .d ? topThreeRowHeader : topTwoRowHeader) }
     /// The bottom margin: sp16, or the view's bottom safe-area inset (the home-indicator zone) when that is larger, so no box ever sits in it. An inset of 9 gives 16; an
     /// inset of 20 gives 20. The page is laid out on the view's FULL height (the inset is passed in, not subtracted from `size`).
     static func bottomMargin(inset: CGFloat) -> CGFloat { max(margin, inset) }

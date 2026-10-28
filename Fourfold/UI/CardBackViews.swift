@@ -33,6 +33,7 @@ struct EuclideousCardSideSwitch: View {
         .opacity(enabled ? 1 : 0.4)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(EuclideousCardBackAX.switchGroup)
+        .accessibilityHint(enabled ? "" : "Not available while lock or random mode is on")
     }
     private func segment(_ s: EuclideousCardSide, frame: CGRect, target: CGRect) -> some View {
         typealias M = EuclideousCardSwitchMetrics
@@ -336,7 +337,7 @@ struct EuclideousCardBackPartRow: View {
     private func invitationPill(_ kind: EuclideousCardInvitation) -> some View {
         typealias I = EuclideousCardInvitationMetrics
         let roll = CGRect(x: 0, y: 0, width: frames.roll.width, height: frames.roll.height)
-        let f = euclideousCardInvitationFrames(roll: roll, kind)
+        let f = euclideousCardInvitationFrames(roll: roll, kind, avoiding: euclideousCardLabelFrames(roll: roll, part: part).pill)
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: I.radius).fill(accent.opacity(I.fillAlpha)).frame(width: f.pill.width, height: f.pill.height).offset(x: f.pill.minX, y: f.pill.minY)
             RoundedRectangle(cornerRadius: I.radius).strokeBorder(accent, lineWidth: I.borderWidth).frame(width: f.pill.width, height: f.pill.height).offset(x: f.pill.minX, y: f.pill.minY)
@@ -438,13 +439,14 @@ struct EuclideousCardXYPad: View {
         .frame(width: frame.width, height: frame.height)
         .opacity(enabled ? 1 : 0.42)
         .contentShape(Rectangle())
-        .allowsHitTesting(enabled)
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { drag in
+                guard enabled else { return }      // an OFF part's pad still takes (and swallows) the touch — it must not fall through to what is under it — but writes nothing
                 if !touching { touching = true; startLocation = drag.location; lastWritten = nil; burst.touchDown(at: now()) }
                 apply(drag.location)
             }
             .onEnded { drag in
+                guard enabled else { return }
                 let start = startLocation ?? drag.location
                 let moved = hypot(drag.location.x - start.x, drag.location.y - start.y)
                 touching = false; startLocation = nil
@@ -518,8 +520,7 @@ struct EuclideousCardOct: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .opacity(dimmed ? 0.5 : 1)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(EuclideousCardBackAX.oct(part, value: value))
-        .accessibilityValue(euclideousMixOctaveSpoken(value))
+        .accessibilityLabel(EuclideousCardBackAX.oct(part, value: value))   // the value is in the label ("Riff octave, plus 1"): a separate value made VoiceOver say it twice
         .accessibilityAdjustableAction { direction in
             if let n = euclideousMixOctaveNext(value, up: direction == .increment) { onSet(n) }
         }

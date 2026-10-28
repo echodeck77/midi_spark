@@ -123,11 +123,15 @@ enum EuclideousCardBackMetrics {
     static let jackStripHeight: CGFloat = 46
     static let jackCount = 4
     // floors (§4.5)
-    static let floorXY: CGFloat = 44, floorRoll: CGFloat = 40, floorJackCellWidth: CGFloat = 44
+    static let floorXY: CGFloat = 44, floorRoll: CGFloat = 40, floorJackCellWidth: CGFloat = 46
     // jack cell internals (§7.2)
     static let lightSize: CGFloat = 6, lightInset: CGFloat = 8
     static let socketSize: CGFloat = 24, socketInset: CGFloat = 18
     static let letterInset: CGFloat = 46, letterFont: CGFloat = 10
+    /// CARD BACKS review (2026-10-28): a cell narrower than `letterInset` + the letter (≈ 6.6 pt) + 1 pulls the light, the socket and the letter in (5 / 13 / 39) so the letter stays inside it down to `floorJackCellWidth`.
+    static let tightLightInset: CGFloat = 5, tightSocketInset: CGFloat = 13, tightLetterInset: CGFloat = 39
+    static var letterAdvance: CGFloat { letterFont * EuclideousCardLabelMetrics.monoAdvance }
+    static var tightBelow: CGFloat { letterInset + letterAdvance + 1 }
     static let seamHeight: CGFloat = 2
 }
 
@@ -174,10 +178,12 @@ func euclideousCardBackLayout(card: CGSize, stripTop: CGFloat = EuclideousCardBa
         for i in 0..<M.jackCount {
             let cell = CGRect(x: panelX + CGFloat(i) * cellW, y: jackStrip.minY, width: cellW, height: M.jackStripHeight)
             cells.append(cell)
-            lights.append(CGRect(x: cell.minX + M.lightInset, y: cell.midY - M.lightSize / 2, width: M.lightSize, height: M.lightSize))
-            sockets.append(CGRect(x: cell.minX + M.socketInset, y: cell.midY - M.socketSize / 2, width: M.socketSize, height: M.socketSize))
-            let letterW = max(1, cell.width - M.letterInset)
-            letters.append(CGRect(x: cell.minX + M.letterInset, y: cell.midY - M.letterFont * 0.6, width: letterW, height: M.letterFont * 1.2))
+            let tight = cellW < M.tightBelow
+            let lightIn = tight ? M.tightLightInset : M.lightInset, socketIn = tight ? M.tightSocketInset : M.socketInset, letterIn = tight ? M.tightLetterInset : M.letterInset
+            lights.append(CGRect(x: cell.minX + lightIn, y: cell.midY - M.lightSize / 2, width: M.lightSize, height: M.lightSize))
+            sockets.append(CGRect(x: cell.minX + socketIn, y: cell.midY - M.socketSize / 2, width: M.socketSize, height: M.socketSize))
+            let letterW = max(1, cell.width - letterIn)
+            letters.append(CGRect(x: cell.minX + letterIn, y: cell.midY - M.letterFont * 0.6, width: letterW, height: M.letterFont * 1.2))
         }
         return EuclideousCardBackPartFrames(row: row, xy: xy, oct: oct, rollPanel: panel, roll: roll, jackStrip: jackStrip, seam: seam,
                                             jackCells: cells, jackLights: lights, jackSockets: sockets, jackLetters: letters)
@@ -189,6 +195,9 @@ func euclideousCardBackLayout(card: CGSize, stripTop: CGFloat = EuclideousCardBa
     if riff.xy.height < M.floorXY { floors.append(EuclideousCardBackFloor(name: "XY pad height", value: riff.xy.height, floor: M.floorXY)) }
     if riff.roll.height < M.floorRoll { floors.append(EuclideousCardBackFloor(name: "roll height", value: riff.roll.height, floor: M.floorRoll)) }
     if cell < M.floorJackCellWidth { floors.append(EuclideousCardBackFloor(name: "jack cell width", value: cell, floor: M.floorJackCellWidth)) }
+    // review 2026-10-28: the roll must be wide enough for the label pill AND the widest invitation side by side (5 + label + gap + invitation + 5), else the invitation overlaps the label
+    let rollNeeds = euclideousCardInvitationRollWidthFloor()
+    if riff.roll.width < rollNeeds { floors.append(EuclideousCardBackFloor(name: "roll width for the label and its invitation", value: riff.roll.width, floor: rollNeeds)) }
     return EuclideousCardBackLayout(card: card, strip: strip, riff: riff, notes: notes, rowHeight: rowH, floors: floors)
 }
 
@@ -215,23 +224,38 @@ func euclideousCardLabelFrames(roll: CGRect, part: EuclideousCardPart) -> Euclid
     return EuclideousCardLabelFrames(pill: pill, target: CGRect(x: pill.minX, y: pill.midY - L.targetHeight / 2, width: pill.width, height: L.targetHeight), glyph: glyph, text: text)
 }
 
+/// The narrowest roll that holds the NOTES label pill (the wider of the two) and the widest invitation (TURN ON NOTES) side by side without touching.
+func euclideousCardInvitationRollWidthFloor() -> CGFloat {
+    typealias L = EuclideousCardLabelMetrics
+    typealias I = EuclideousCardInvitationMetrics
+    let label = L.padX + EuclideousCardPart.notes.glyphSize.width + L.glyphGap + L.textWidth(EuclideousCardPart.notes.label.count, size: L.font, tracking: L.tracking) + L.padX
+    let inv = I.padX + I.plus + I.plusGap + L.textWidth(EuclideousCardInvitation.turnOnNotes.label.count, size: I.font, tracking: I.tracking) + I.padX
+    return L.inset + label + I.labelGap + inv + L.inset
+}
 enum EuclideousCardInvitation: Equatable {
     case turnOnRiff, turnOnNotes, addHits
     var label: String { switch self { case .turnOnRiff: return "TURN ON RIFF"; case .turnOnNotes: return "TURN ON NOTES"; case .addHits: return "ADD HITS" } }
 }
 enum EuclideousCardInvitationMetrics {
-    static let pillHeight: CGFloat = 28, radius: CGFloat = 7, padX: CGFloat = 10, targetHeight: CGFloat = 44
+    static let pillHeight: CGFloat = 28, radius: CGFloat = 7, padX: CGFloat = 10, targetHeight: CGFloat = 44, labelGap: CGFloat = 6
     static let plus: CGFloat = 9, plusStroke: CGFloat = 1.6, plusGap: CGFloat = 6
     static let font: CGFloat = 8, tracking: CGFloat = 0.1
     static let fillAlpha = 0.20, borderWidth: CGFloat = 1
 }
 struct EuclideousCardInvitationFrames: Equatable { var pill: CGRect, target: CGRect, plus: CGRect, text: CGRect }
 /// §5.6: centred in the roll — a pill 28 tall (10 pt side padding): a 9 × 9 plus, 6 pt, the label (8 pt heavy, 0.1 em); a 44-tall target. It draws at full strength over the 42 % dim.
-func euclideousCardInvitationFrames(roll: CGRect, _ kind: EuclideousCardInvitation) -> EuclideousCardInvitationFrames {
+/// `avoiding` (the label pill's frame, review 2026-10-28): a roll too narrow for both pills centred slides the invitation right until it clears the label by `labelGap` — never past the roll's right edge less its inset; if even that overlaps
+/// (a roll narrower than the two pills together) it stays right-aligned, drawn above the label, and its touch target — the later sibling — takes the shared taps.
+func euclideousCardInvitationFrames(roll: CGRect, _ kind: EuclideousCardInvitation, avoiding label: CGRect? = nil) -> EuclideousCardInvitationFrames {
     typealias I = EuclideousCardInvitationMetrics
     let textW = EuclideousCardLabelMetrics.textWidth(kind.label.count, size: I.font, tracking: I.tracking)
     let w = I.padX + I.plus + I.plusGap + textW + I.padX
-    let pill = CGRect(x: roll.midX - w / 2, y: roll.midY - I.pillHeight / 2, width: w, height: I.pillHeight)
+    var x = roll.midX - w / 2
+    if let label, x < label.maxX + I.labelGap {
+        x = min(label.maxX + I.labelGap, roll.maxX - EuclideousCardLabelMetrics.inset - w)
+        if x < roll.minX { x = roll.minX }
+    }
+    let pill = CGRect(x: x, y: roll.midY - I.pillHeight / 2, width: w, height: I.pillHeight)
     return EuclideousCardInvitationFrames(pill: pill, target: CGRect(x: pill.minX, y: roll.midY - I.targetHeight / 2, width: w, height: I.targetHeight),
                                           plus: CGRect(x: pill.minX + I.padX, y: pill.midY - I.plus / 2, width: I.plus, height: I.plus),
                                           text: CGRect(x: pill.minX + I.padX + I.plus + I.plusGap, y: pill.minY, width: textW, height: I.pillHeight))
@@ -258,7 +282,7 @@ func euclideousCardXYDot(gate: Double, velocity: Int, in pad: CGRect) -> CGPoint
 }
 func euclideousCardXYValues(at p: CGPoint, in pad: CGRect) -> (gate: Double, velocity: Int) {
     typealias X = EuclideousCardXYMetrics
-    let tx = pad.width - 2 * X.inset, ty = pad.height - 2 * X.inset
+    let tx = max(1, pad.width - 2 * X.inset), ty = max(1, pad.height - 2 * X.inset)   // (review 2026-10-28: a pad exactly 2 × the inset tall divided by zero and trapped in `Int(...)`)
     let g = Int((Double((p.x - pad.minX - X.inset) / tx) * 100).rounded())
     let v = Int((Double((pad.maxY - X.inset - p.y) / ty) * 127).rounded())
     return (Double(max(1, min(Int(euclideousLaneGateMax * 100), g))) / 100, max(1, min(127, v)))
