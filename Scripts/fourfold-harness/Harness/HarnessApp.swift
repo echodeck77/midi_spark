@@ -195,7 +195,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) ROUTED"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -234,6 +234,9 @@ extension Host {
                         { var r = HocketRule(); r.mode = .pass; r.main = [1]; r.alt = [3, 4, 5, 6, 7, 8]; r.own = .merge; r.mainLen = 1; r.altLen = 1; return r }(),
                         { var r = HocketRule(); r.mode = .pass; r.main = [2]; r.alt = [2]; r.unit = .steps; r.own = .merge; return r }()]) }
                 }
+                if name.contains("ROUTED") {   // CARD BACKS (2026-10-28): the routing worst case — every riff part on all four outputs, the notes parts on A+C or all four, lane 4's notes routed nowhere (drawn, never sent); the roll ring takes a record per strike
+                    au.editDocument { var ls = $0.euclideousLinesResolved; for i in 0..<4 { ls[i].riffOutMask = 0x0F; ls[i].notesOutMask = i == 3 ? 0 : (i % 2 == 0 ? 0b0101 : 0x0F) }; $0.euclideousLines = ls }
+                }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }
                 if name.contains("LATCH") { au.editDocument { $0.euclideousHoldLatchMode = .latch } }
             } else { au.loadFactoryPreset(named: name) }
@@ -242,7 +245,7 @@ extension Host {
                 for _ in 0..<8 { render(480) }
                 baseSample = sampleTime
                 hold([60, 64, 67]); playing = true
-                if i == 0 || name.contains("HOCKET") { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // an unwatched warm-up lap: Swift's one-time generic-metadata instantiation (the first use of each type) is not what this measures; HOCKET's types are first touched by its own scenarios   // the unwatched warm-up lap
+                if i == 0 || name.contains("HOCKET") || name.contains("ROUTED") { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // an unwatched warm-up lap: Swift's one-time generic-metadata instantiation (the first use of each type) is not what this measures; HOCKET's types are first touched by its own scenarios   // the unwatched warm-up lap
                 eventCount = 0; AllocWatch.reset(); watching = true
                 for w in 0..<6400 {
                     if name.contains("REPLAY") {   // a pass replays from the middle of the run to three-quarters of it: the replay itself, the live engine running silently underneath, and the hand-back

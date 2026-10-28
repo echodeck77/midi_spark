@@ -49,6 +49,7 @@ final class Router {
         var note: UInt8 = 0
         var chan: UInt8 = 0
         var cable: UInt8 = 0
+        var rollOnBeat: Double = 0   // CARD BACKS §5: the host beat the strike began on, as the roll record named it — an END record repeats it, whatever the transport has done since (a seek moves the beat↔sample map)
         var bus: UInt8 = 0           // delta §6a: originating emitter (0–3), so an emitter-disable can
         var offSample: Int64 = .max  // close exactly its notes (own cable + its All copy).
         var silent = false           // delta §6a CLAIM: a MUTED claimant's ghost voice — tracked for
@@ -1311,6 +1312,7 @@ final class Router {
         var time = timeIn
         let cable = voices[i].cable, chan = voices[i].chan, note = voices[i].note
         let wasSilent = voices[i].silent
+        let plannedOff = voices[i].offSample, startedAt = voices[i].onSample, ofPart = voices[i].bus, wasLegato = voices[i].euclideousLegato, startBeat = voices[i].rollOnBeat
         let g = Int(voices[i].group) - 1
         // HOCKET: a voice whose off was held back to the end of the window (`deferClose`) has ALREADY ended at its own `offSample`; an edge that closes it later than that (a transport edge, a mute) must not stretch it.
         if voices[i].deferClose { time = min(time, voices[i].offSample) }
@@ -1321,6 +1323,10 @@ final class Router {
         voices[i].group = 0
         // §6a CLAIM: a silent reservation never touched the wire or the refcount — just free the slot.
         if wasSilent { return }
+        // CARD BACKS §5: a note cut before its planned end (a mute, a solo, a stop, a panic) — or a legato hold that finally closes — tells the roll where it really ended: once per strike, from the output's own cable.
+        if cable != 0 && (plannedOff == .max || wasLegato || timeIn < plannedOff) {   // a legato hold is closed by the reconcile, which has already rewritten its `offSample` — it always ends with a record
+            rollRing.push(NoteRollRecord(onBeat: startBeat, length: Float(max(0, Double(time - startedAt) * fBeatsPerSample)), pitch: note, velocity: 0, part: ofPart & 7, flags: NoteRollRecord.endFlag))
+        }
 
         let idx = rcIndex(cable, chan, note)
         if g >= 0 {
@@ -1467,6 +1473,16 @@ final class Router {
 
     /// Is bit `bus` (0–3) set in a per-emitter mask?
     @inline(__always) private func bit(_ mask: UInt8, _ bus: Int) -> Bool { mask & (1 << UInt8(bus)) != 0 }
+
+    /// CARD BACKS §5: the feed behind each part's live piano roll — one record per note a part strikes (a part routed nowhere included, marked silent), one END record per note cut before its planned end. Drained on the main thread.
+    let rollRing = NoteRollRing()
+    private var rollStruckOuts: UInt8 = 0       // the outputs whose own voice took the strike being emitted (set by `emitOneOutput`, read by `emitOneBus`)
+    @inline(__always) private func rollBeat(_ sample: Int64) -> Double { fBeatPos + Double(sample - fWindowStart) * fBeatsPerSample }
+    @inline(__always) private func rollNoteStruck(part: Int, note: UInt8, velocity: UInt8, onSample: Int64, offSample: Int64, outs: UInt8) {
+        let held = offSample == .max && outs & NoteRollRecord.outsMask != 0     // a silent note has no voice to close, so it is never left open (a legato strike of one is drawn as a tick)
+        let length: Float = held ? .infinity : offSample == .max ? 0 : Float(max(0, Double(offSample - onSample) * fBeatsPerSample))
+        rollRing.push(NoteRollRecord(onBeat: rollBeat(onSample), length: length, pitch: note, velocity: velocity, part: UInt8(part & 7), flags: (outs & NoteRollRecord.outsMask) | (held ? NoteRollRecord.heldFlag : 0)))
+    }
     /// One articulation (note, on/off samples) fanned across the PARTS in `busMask` (usually one: a lane's riff or its notes). Fourfold has no rack (claim / flatten / curve / fence / mono / pocket / conversation), no ALT / TURNS / DEAL
     /// routing and no receiver strip, so a part is just: enabled? → the outputs it is routed to (`outsOverride`, else `partOut`) → for each output the flood budget and the two cables (the output's own and ALL), stamped with the output's channel.
     private func emitArtic(note: UInt8, busMask: UInt8, outsOverride: UInt8? = nil,
@@ -1512,12 +1528,16 @@ final class Router {
                             onVoiceOpened: (Int) -> Void = { _ in }, euclideousLegato: Bool = false) -> Int {
         guard bit(busEnabledMask, bus) else { return -1 }
         var outs = (outsOverride ?? (bus < 8 ? partOut[bus] : 0x0F)) & 0x0F
+        let routed = outs
+        rollStruckOuts = 0
         var lastCh = -1
         while outs != 0 {
             let o = Int(outs.trailingZeroBitCount); outs &= outs - 1
             let c = emitOneOutput(o, part: bus, note: note, velocity: velocity, onSample: onSample, offSample: offSample, windowEnd: windowEnd, out: out, onVoiceOpened: onVoiceOpened, euclideousLegato: euclideousLegato)
             if c >= 0 { lastCh = c }
         }
+        // the roll draws what the part struck: the outputs that took the note (a strike the flood governor or a full voice table refused is not drawn), or — a part routed nowhere — the note marked silent
+        if routed == 0 || rollStruckOuts != 0 { rollNoteStruck(part: bus, note: note, velocity: velocity, onSample: onSample, offSample: offSample, outs: rollStruckOuts) }
         return lastCh
     }
 
@@ -1540,7 +1560,7 @@ final class Router {
         let joinAll = hocketStrike && (litBus || (groupMembers > 0 && hocketGroupSounding(cable: 0, chan: ch, note: note, at: onSample)))
         let own = openVoice(note: note, chan: ch, cable: UInt8(o + 1), bus: UInt8(bus),
                             onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: joinOwn)
-        if own >= 0 { onVoiceOpened(own) }
+        if own >= 0 { onVoiceOpened(own); rollStruckOuts |= UInt8(1) << UInt8(o); voices[own].rollOnBeat = rollBeat(onSample) }
         if own >= 0 && offSample <= windowEnd { if joinOwn { voices[own].deferClose = true; hocketDeferredCloses = true } else { closeVoice(own, atSample: offSample, out: out) } }
         let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
                             onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: joinAll)

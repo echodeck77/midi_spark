@@ -246,10 +246,49 @@ final class PortsStressTests: XCTestCase {
         return nil
     }
 
+    /// CARD BACKS §13 test 9 — the roll feed against the wire, over a whole random session. Every note-on on an output has a record naming that output at the same beat and pitch (the wire may carry FEWER than the records — the flood
+    /// governor and a full voice table drop strikes, a part routed nowhere has none — never more), every record is well-formed, and after the stop nothing is left open in the model.
+    private func rollAnalysis(_ e: TaggedEmitter, _ rolls: [NoteRollRecord], _ params: [(beat: Double, ts: Double)], _ tempos: [Double], sr: Double, seed: UInt64) -> String? {
+        var fed: [String: Int] = [:]
+        for r in rolls {
+            if r.part > 7 || r.pitch > 127 || r.flags & 0xC0 != 0 { return "seed \(seed): a malformed roll record \(r)" }
+            rollRecordsSeen += 1
+            if r.isEnd { continue }
+            if r.isSilent { rollSilentSeen += 1 }
+            for o in 0..<4 where r.outs & (1 << UInt8(o)) != 0 { fed["\(o)/\(r.pitch)/\(Int((r.onBeat * 1e6).rounded()))", default: 0] += 1 }
+        }
+        var wire: [String: Int] = [:]
+        for ev in e.events where ev.status == 0x90 && ev.cable >= 1 && ev.cable <= 4 {
+            let w = params[ev.win]
+            let beat = w.beat + Double(ev.sample - Int64(w.ts)) * tempos[ev.win] / 60.0 / sr
+            wire["\(Int(ev.cable) - 1)/\(ev.note)/\(Int((beat * 1e6).rounded()))", default: 0] += 1
+            rollWireChecked += 1
+        }
+        for (k, n) in wire where (fed[k] ?? 0) < n {
+            // an event within a rounding step of the key (the beat is a Double sum): accept a neighbour
+            let parts = k.split(separator: "/"); let o = parts[0], p = parts[1], b = Int(parts[2])!
+            if (fed["\(o)/\(p)/\(b - 1)", default: 0] + fed["\(o)/\(p)/\(b + 1)", default: 0]) >= n - (fed[k] ?? 0) { continue }
+            return "seed \(seed): \(n) note-on(s) on output \(Int(o)! + 1) for note \(p) at beat \(Double(b) / 1e6) but only \(fed[k] ?? 0) roll record(s)"
+        }
+        var m = NoteRollModel(); m.ingest(rolls)
+        if m.openCount != 0 {
+            var detail = ""
+            for (pi, part) in m.parts.enumerated() { for n in part where n.endBeat == nil {
+                detail += " [part \(pi) pitch \(n.pitch) on \(n.onBeat) outs \(n.outs) vel \(n.velocity)]"
+                for r in rolls where r.part == UInt8(pi) && r.pitch == n.pitch && abs(r.onBeat - n.onBeat) < 1e-3 { detail += " rec(flags \(r.flags) len \(r.length) onBeat \(r.onBeat))" }
+            } }
+            return "seed \(seed): \(m.openCount) note(s) left open in the roll after the stop:\(detail)"
+        }
+        return nil
+    }
+
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
+    /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
+    private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0
     private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false) -> String? {
         var g = SM64(seed)
         let router = Router()
+        var rolls: [NoteRollRecord] = [], winParams: [(beat: Double, ts: Double)] = []
         var diag = KernelDiag()
         let e = TaggedEmitter()
         var (st, pool) = rDoc(&g, rawGates: rawGates)
@@ -260,6 +299,7 @@ final class PortsStressTests: XCTestCase {
         var playing = true
         var wasPlaying = true
         var winChans: [[UInt8]] = []
+        var winTempos: [Double] = []
         var stopWins = Set<Int>()
         var maxActive = 0
 
@@ -303,10 +343,12 @@ final class PortsStressTests: XCTestCase {
             let laneMask: UInt16 = Int.random(in: 0...4, using: &g) == 0 ? UInt16.random(in: 0...0xFF, using: &g) : 0
 
             winChans.append(box.busChannels)
+            winParams.append((beat, ts)); winTempos.append(tempo)
             router.process(box: box, pool: pool, playing: playing, beatPos: beat, tempo: tempo,
                            sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: laneMask,
                            panic: panic, euclideousAllNotesOff: allOff, euclideousSoloLive: liveSolo,
                            out: e, diag: &diag)
+            rolls += router.rollRing.drain()
             maxActive = max(maxActive, diag.activeVoiceCount)
             if !playing && wasPlaying { stopWins.insert(w) }   // this window carried the stop edge → flush
             beat += Double(frames) * tempo / 60.0 / sr
@@ -315,9 +357,12 @@ final class PortsStressTests: XCTestCase {
         // final hard stop: a playing→stopped edge must flush everything.
         e.win = windows
         winChans.append(box.busChannels)
+        winParams.append((beat, ts)); winTempos.append(tempo)
         router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo,
                        sampleRate: sr, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
+        rolls += router.rollRing.drain()
         stopWins.insert(windows)
+        if let msg = rollAnalysis(e, rolls, winParams, winTempos, sr: sr, seed: seed) { return msg }
 
         lastSessionHash = sessionHash(e)
         // If the voice table got close to full, the ALL-union property can legitimately break
@@ -381,6 +426,9 @@ final class PortsStressTests: XCTestCase {
             fingerprint = (fingerprint ^ lastSessionHash) &* 0x100000001b3
         }
         if let f = firstFail { XCTFail(f); return }
+        XCTAssertGreaterThan(rollRecordsSeen, 800, "the roll check must actually see notes (\(rollRecordsSeen) records)")
+        XCTAssertGreaterThan(rollSilentSeen, 150, "…including parts routed nowhere (\(rollSilentSeen))")
+        XCTAssertGreaterThan(rollWireChecked, 600, "…and match the wire (\(rollWireChecked) note-ons)")
         XCTAssertEqual(fingerprint, Self.fuzzFingerprint, "CAPTURE fuzzFingerprint = \(fingerprint) — the 600 seeded sessions' message streams must be bit-identical with no hocket rule")
     }
     private static let fuzzFingerprint: UInt64 = 5971859914748538723

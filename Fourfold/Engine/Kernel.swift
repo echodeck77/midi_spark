@@ -149,6 +149,7 @@ final class Kernel {
     func euclideousMaskPositions() -> [Int] { router.euclideousMaskPositions() }   // each lane's own mask position, polled — hit-driven, not a self-clock (Paul 2026-10-11 bugfix)
     func euclideousRiffLivePool() -> [UInt8] { router.euclideousRiffLivePool() }   // the ascending notes currently feeding the riff's own pool, polled (Paul 2026-10-08)
     func hocketLive() -> (counts: [Int64], running: Bool) { router.hocketLive() }   // HOCKET §8: the lit rules' counts, on the existing 30 Hz poll
+    func drainNoteRoll() -> [NoteRollRecord] { router.rollRing.drain() }              // CARD BACKS §5: the notes struck since the last poll (main thread; the ring is single-consumer)
     func euclideousSourceStatus() -> Router.EuclideousSourceStatus { router.euclideousSourceStatus() }   // SOURCES STACK ferry (2026-10-26): lane-1's source status, polled
     func euclideousNoteViewEvents() -> [[Router.EuclideousNoteViewEventSnapshot]] { router.drainEuclideousNoteViewEvents() }   // NOTE VIEW's per-lane event queue, drained (Paul 2026-10-10)
     func euclideousLanesSeqStep() -> Int { router.euclideousLanesSeqStep() }   // the LANES sequencer's current step, polled (2026-10-14 sequencer panel ferry)
