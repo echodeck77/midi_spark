@@ -257,6 +257,7 @@
 		C875D48D800180B8838CE151 /* FourfoldPortsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F67ED63B8C6514D20364DCFB /* FourfoldPortsTests.swift */; };
 		C92C119B5BC121BBC214A873 /* CardBack.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB85C75FDBCD12F45FAB3DC /* CardBack.swift */; };
 		CAD5208AFAFD119B887A0322 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */; };
+		CB3A0A5022DD3AEE477726B1 /* FourfoldCardBackReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FCF94D6B0B577386D2EB82A /* FourfoldCardBackReviewTests.swift */; };
 		CB94FD3868B139E13FADBBE0 /* FourfoldSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE73B92A4EF42A15B2A9DDF /* FourfoldSelfTest.swift */; };
 		CBBC295B11E91C7833E213C7 /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523B1AEB32CCEF31AA60CCA9 /* Router.swift */; };
 		CD4434757A2B48F725E628F4 /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59DF6CD888C95040E34660D5 /* EuclideousLock.swift */; };
@@ -280,6 +281,7 @@
 		D5669CDD83B455D97E2721EE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC80E358AFF64399AA7C7A69 /* ContentView.swift */; };
 		D65F68826CE914624ED051EF /* DragDropPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CFDBBF6EDAEF5051E4DD83 /* DragDropPage.swift */; };
 		D68CF806B68E2CDFFDF5411B /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0504D981DD4BF1856C773AA7 /* MidiFile.swift */; };
+		D6A1757F18E186A687B7B0D2 /* CardBackReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0024C31E772682B8A6B1C552 /* CardBackReviewTests.swift */; };
 		D6E0D57CCCB98AFCD6A1245B /* FourfoldUIHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C2B1597D4FE5A642D881E53 /* FourfoldUIHelpers.swift */; };
 		D767C243D5F256253014F295 /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0FF4898E2B013BF63E6CE0 /* EuclideousPage.swift */; };
 		D8BD22D1CF5FD1970D2A1F25 /* FourfoldViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B505AD7C314653CD2DB395CD /* FourfoldViewController.swift */; };
@@ -385,6 +387,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0024C31E772682B8A6B1C552 /* CardBackReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardBackReviewTests.swift; sourceTree = "<group>"; };
 		009F351D5DC24E7BAC8DFB3A /* EuclideousRandom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandom.swift; sourceTree = "<group>"; };
 		00A0AAF1BEFC7A0801E48D8E /* ChordsGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordsGridTests.swift; sourceTree = "<group>"; };
 		00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
@@ -523,6 +526,7 @@
 		9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTelemetry.swift; sourceTree = "<group>"; };
 		9F4D4A126C52BC03C659EC8C /* LaneStripFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripFuzzTests.swift; sourceTree = "<group>"; };
 		9F916631CD0B4974C26CB893 /* SessionTape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTape.swift; sourceTree = "<group>"; };
+		9FCF94D6B0B577386D2EB82A /* FourfoldCardBackReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldCardBackReviewTests.swift; sourceTree = "<group>"; };
 		A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildGridSelector.swift; sourceTree = "<group>"; };
 		A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelHeaderIcon.swift; sourceTree = "<group>"; };
 		A54B806162177B626AC22A5D /* WalkTagPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkTagPainter.swift; sourceTree = "<group>"; };
@@ -740,6 +744,7 @@
 		2974FA1F2F9619847B1BC9C0 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				0024C31E772682B8A6B1C552 /* CardBackReviewTests.swift */,
 				AB063E2496497A1B3757D426 /* CardBackTests.swift */,
 				00A0AAF1BEFC7A0801E48D8E /* ChordsGridTests.swift */,
 				6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */,
@@ -1005,6 +1010,7 @@
 			isa = PBXGroup;
 			children = (
 				6FECA3302B50E7D4800DF132 /* FourfoldAccessibilityTests.swift */,
+				9FCF94D6B0B577386D2EB82A /* FourfoldCardBackReviewTests.swift */,
 				54A2360C33B73BDF7D5D05DD /* FourfoldMonkeyTests.swift */,
 				5BEA593FF5849CFB5ADE3B53 /* FourfoldScreenshotTests.swift */,
 				CFED50679781AA2244482FB5 /* FourfoldStackBudgetTests.swift */,
@@ -1334,6 +1340,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F00A3C3B78F764B6D950A2DA /* FourfoldAccessibilityTests.swift in Sources */,
+				CB3A0A5022DD3AEE477726B1 /* FourfoldCardBackReviewTests.swift in Sources */,
 				126EFE2CA5202E0E11739F95 /* FourfoldMonkeyTests.swift in Sources */,
 				7D18DC173F7A5A158D2BFBE0 /* FourfoldScreenshotTests.swift in Sources */,
 				BFE4869E17DEFCAF14D9E1DF /* FourfoldStackBudgetTests.swift in Sources */,
@@ -1417,6 +1424,7 @@
 			files = (
 				25B419195913DB1102E1FD61 /* BuildModel.swift in Sources */,
 				84A446E1688A40EAD3762C2D /* CardBack.swift in Sources */,
+				D6A1757F18E186A687B7B0D2 /* CardBackReviewTests.swift in Sources */,
 				F5F640D877514DB16E14FE4B /* CardBackTests.swift in Sources */,
 				50D3FB0F2FD2D19D2F42B5F8 /* ChordsGridTests.swift in Sources */,
 				380EF70566461B22D7C2CF72 /* ClarityPassTests.swift in Sources */,
