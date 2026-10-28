@@ -3125,8 +3125,10 @@ struct EuclideousPage: View {
             toggleOn: { part in cardBackToggle(idx, part) },
             jack: { part, o in
                 editStep(idx, true) { l in
-                    if part == .riff { l.riffOutMask = euclideousJackToggle(mask: l.riffOutMaskResolved(lane: idx), output: o) }
-                    else { l.notesOutMask = euclideousJackToggle(mask: l.notesOutMaskResolved(lane: idx), output: o) }
+                    // a mask equal to the lane's own output is stored as NO mask, so tapping a jack back leaves the document as it was (and a preset that stores no routing stays that way)
+                    let own = UInt8(1) << UInt8(max(0, min(3, idx)))
+                    if part == .riff { let m = euclideousJackToggle(mask: l.riffOutMaskResolved(lane: idx), output: o); l.riffOutMask = m == own ? nil : m }
+                    else { let m = euclideousJackToggle(mask: l.notesOutMaskResolved(lane: idx), output: o); l.notesOutMask = m == own ? nil : m }
                 }
             },
             invite: { part, kind in
