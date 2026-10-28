@@ -195,7 +195,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -239,6 +239,16 @@ extension Host {
                 }
                 if name.contains("OUT-TRANSPOSE") {   // CARD BACKS v2 (2026-10-28): every part shifted by scale steps (±7 included) on top of the routing worst case — the scale-step mover runs on every strike
                     au.editDocument { var ls = $0.euclideousLinesResolved; for i in 0..<4 { ls[i].riffOutTranspose = [3, -4, 7, -7][i]; ls[i].notesOutTranspose = [-5, 2, 7, -7][i] }; $0.euclideousLines = ls }
+                }
+                if name.contains("EMITTER RATCHETS") {   // RATCH tab ferry (2026-10-28): every output ratcheting — the ×4 every-hit case with a CHANCE roll, a partial pattern, a rare one — on top of the routing / hocket worst cases: the count, the decision and the strike layout must allocate nothing
+                    au.editDocument {
+                        var set = EmitterRatchetSet()
+                        set[0] = EmitterRatchet(on: true, steps: 16, hits: 16, offset: 0, chance: 75, strikes: 4)
+                        set[1] = EmitterRatchet(on: true, steps: 5, hits: 3, offset: 1, chance: 50, strikes: 2)
+                        set[2] = EmitterRatchet(on: true, steps: 7, hits: 4, offset: 2, chance: 100, strikes: 3)
+                        set[3] = EmitterRatchet(on: true, steps: 2, hits: 2, offset: 0, chance: 25, strikes: 4)
+                        $0.euclideousEmitterRatchets = set
+                    }
                 }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }
                 if name.contains("LATCH") { au.editDocument { $0.euclideousHoldLatchMode = .latch } }

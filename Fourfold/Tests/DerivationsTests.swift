@@ -2510,11 +2510,12 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual((-2...2).map(euclideousMixOctaveSpoken), ["minus 2", "minus 1", "0", "plus 1", "plus 2"])
     }
     // §1 → CARD BACKS §8: the MIX tab is retired (hidden, not deleted) — the panel's tabs are LANES then FX, LANES the default, equal widths.
-    func testSequencerTabsAreLanesThenFXWithEqualWidths() {
+    // RATCH tab ferry (2026-10-28): RATCH is the third VISIBLE tab, after FX (the fourth case of the enum); LANES stays the default.
+    func testSequencerTabsAreLanesThenFXThenRatchWithEqualWidths() {
         XCTAssertEqual(EuclideousSeqTab.visible, [.lanes]); XCTAssertEqual(EuclideousSeqTab.default, .lanes)
-        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .fx])
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .fx, .ratch])
         XCTAssertFalse(EuclideousSeqTab.visible(fxAvailable: true).contains(.mix), "no MIX tab any more")
-        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).map { $0.label }, ["LANES", "FX"])
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).map { $0.label }, ["LANES", "FX", "RATCH"])
         XCTAssertEqual(euclideousSeqTabWidth(count: 2, contentWidth: 401), 198.5, accuracy: 1e-9, "two tabs at the reference panel")
         XCTAssertEqual(euclideousSeqTabWidth(count: 1, contentWidth: 401), 401)
     }

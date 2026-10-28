@@ -17,6 +17,11 @@ private struct FFSHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
+/// RATCH tab ferry (2026-10-28) §7.4: the CLOCK tab's natural height, measured only in DEBUG (the FX COUNTS block makes it as tall as the others, so the sheet must size to it or it would silently scroll).
+private struct FFSClockHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
 /// SOURCES STACK ferry (2026-10-26) §6.3: the MIDI IN tab's natural height, measured only in DEBUG (the CLASHES
 /// block makes it the tallest tab, so the sheet must size to it or it would silently scroll).
 private struct FFSMidiInHeightKey: PreferenceKey {
@@ -57,9 +62,13 @@ struct EuclideousSettingsSheet: View {
     // The inputs are carried unconditionally; the control + the second height-measure below are `#if DEBUG`.
     let clashPolicy: ClashPolicy
     let onSetClashPolicy: (ClashPolicy) -> Void
+    // RATCH tab ferry (2026-10-28) §7: FX COUNTS — a DEV-build-only rig setting (HITS · STEPS, judged by ear), on the CLOCK tab. Carried unconditionally; the control + the third height measure are `#if DEBUG`.
+    let fxCounts: FxCountsMode
+    let onSetFxCounts: (FxCountsMode) -> Void
 
     @State private var portsNaturalHeight: CGFloat = 0
     @State private var midiInNaturalHeight: CGFloat = 0   // §6.3: measured only in DEBUG (the CLASHES block makes MIDI IN the tallest tab)
+    @State private var clockNaturalHeight: CGFloat = 0    // RATCH tab §7.4: measured only in DEBUG (the FX COUNTS block grows CLOCK)
     @State private var allNotesOffSentAt: Date? = nil
 
     private let laneColours = EuclideousRingPalette.laneMark
@@ -69,7 +78,7 @@ struct EuclideousSettingsSheet: View {
         let fixedChrome: CGFloat = 44 + 8 + 36 + 8 + 16 + 8 /* title+gap+tabs+gap+footer+gap-before-footer */ + 16 /* card padding ×2, sp8 each side */
         // §6.3: PORTS is normally the tallest tab, but in DEBUG the CLASHES block makes MIDI IN taller — size to the max.
         #if DEBUG
-        let desired = max(1, max(portsNaturalHeight, midiInNaturalHeight)) + fixedChrome
+        let desired = max(1, max(portsNaturalHeight, max(midiInNaturalHeight, clockNaturalHeight))) + fixedChrome
         #else
         let desired = max(1, portsNaturalHeight) + fixedChrome
         #endif
@@ -104,6 +113,14 @@ struct EuclideousSettingsSheet: View {
                         .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
                 )
                 .onPreferenceChange(FFSMidiInHeightKey.self) { midiInNaturalHeight = $0 }
+                .background(   // RATCH tab §7.4: the DEBUG-only third measure — CLOCK with its FX COUNTS block
+                    clockTabContent
+                        .frame(width: cardW - 16, alignment: .top)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .background(GeometryReader { g in Color.clear.preference(key: FFSClockHeightKey.self, value: g.size.height) })
+                        .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+                )
+                .onPreferenceChange(FFSClockHeightKey.self) { clockNaturalHeight = $0 }
                 #endif
         }
     }
@@ -359,6 +376,20 @@ struct EuclideousSettingsSheet: View {
                     }
                 }
             }
+            #if DEBUG
+            // RATCH tab ferry (2026-10-28) §7: dev-only FX COUNTS — what an output's ratchet counts: HITS (the emitter hits that leave on the output) or STEPS (the striking lane's pattern step). No value, no description line.
+            block(name: "FX COUNTS") {
+                segmented([("HITS", 48), ("STEPS", 56)], selected: fxCounts == .hits ? 0 : 1) { i in
+                    onSetFxCounts(i == 0 ? .hits : .steps)
+                }
+                // §8.5: ONE element, "FX counts", its selected state as the value; a swipe up / down flips it
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("FX counts")
+                .accessibilityValue(fxCounts == .hits ? "HITS" : "STEPS")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAdjustableAction { _ in onSetFxCounts(fxCounts == .hits ? .steps : .hits) }
+            }
+            #endif
             // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows and MIX pads. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.
             block(name: "STRIKE PULSE",
                   description: "How strongly each strike shows, by how hard it played. OFF shows none; SUBTLE is softer. Reduce Motion also turns off dips, swells, tails and ripples.") {

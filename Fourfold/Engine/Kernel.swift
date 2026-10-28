@@ -86,6 +86,8 @@ final class Kernel {
     func setEuclideousLockLive(held: UInt8, revs: UInt32) { euclideousLockLive = EuclideousLockLive.word(held: held, revs: revs) }
     /// The snap seq the Router bumps each time a lock snap lands (one byte per lane) and the beats they landed at — the page polls these and applies the snap to the document (D3/D4).
     func euclideousLockSnapSeq() -> UInt32 { router.lockSnapSeqPacked }
+    /// EMITTER RATCHET §3.10: each output's pattern index at its most recent emitter hit, one byte per output A…D (0xFF = none yet) — a plain word the render thread rewrites and the page's 30 Hz poll reads, like the lock snap seq.
+    func emitterIndexPacked() -> UInt32 { router.emitterIndexLive }
     func euclideousAllNotesOffRequest() { euclideousAllNotesOffRequested = true }
     // MULTI-SCENE: a clean one-shot voice flush on a scene SWITCH — closes the old scene's sounding notes so
     // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).

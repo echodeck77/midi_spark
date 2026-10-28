@@ -252,6 +252,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func setEuclideousLockLive(held: UInt8, revs: UInt32) { kernel.setEuclideousLockLive(held: held, revs: revs) }
     /// LANE LOCK: the Router's landed-snap counters (one byte per lane) and the beats they landed at — the page applies each landed snap to the document.
     func pollEuclideousLockSnapSeq() -> UInt32 { kernel.euclideousLockSnapSeq() }
+    func pollEmitterIndexPacked() -> UInt32 { kernel.emitterIndexPacked() }   // EMITTER RATCHET §3.10: rides the existing 30 Hz fast poll (no array copy — nothing for the render thread to copy-on-write)
     func uiEuclideousLocks() -> [EuclideousLaneLock] { document.euclideousLocksResolved }
     // FOURFOLD SETTINGS (2026-10-15 ferry): MIDI IN tab's channel mask + CLOCK tab's host-stop behaviour.
     func uiEuclideousMidiInChannelMask() -> UInt16 { document.euclideousMidiInChannelMaskResolved }
@@ -298,6 +299,8 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func setIgnoreAllNotesOff(_ on: Bool) { editDocument { $0.ignoreAllNotesOff = on } }
     func uiClashPolicy() -> ClashPolicy { document.euclideousClashPolicy ?? .allow }   // SOURCES STACK ferry (2026-10-26): the stored dev-only clash policy (the DEBUG settings control reflects it)
     func setClashPolicy(_ p: ClashPolicy) { editDocument { $0.euclideousClashPolicy = p } }   // rig setting — no undo
+    func uiFxCounts() -> FxCountsMode { document.euclideousFxCounts ?? .hits }   // RATCH tab ferry (2026-10-28) §7: the stored dev-only FX COUNTS (the DEBUG settings control reflects it)
+    func setFxCounts(_ m: FxCountsMode) { editDocument { $0.euclideousFxCounts = m } }   // rig setting — no undo
     // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): same request/consume shape as masterPanic,
     // narrower scope (Euclideous's own row only — see Router.process's own consumption of the flag).
     func euclideousAllNotesOff() { kernel.euclideousAllNotesOffRequest() }
@@ -509,6 +512,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let keepBusChannels = document.busChannels
         let keepHostStop = document.euclideousHostStopBehavior
         let keepClashPolicy = document.euclideousClashPolicy   // SOURCES STACK ferry (2026-10-26): a rig setting, kept across a preset load (§1.6)
+        let keepFxCounts = document.euclideousFxCounts   // RATCH tab ferry (2026-10-28): rig setting, kept across a preset load (§7.3)
         editDocument {
             $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded()   // migrate is a no-op for v4 builders
             $0.euclideousMidiInChannelMask = keepMidiInMask
@@ -516,6 +520,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
             $0.busChannels = keepBusChannels
             $0.euclideousHostStopBehavior = keepHostStop
             $0.euclideousClashPolicy = keepClashPolicy
+            $0.euclideousFxCounts = keepFxCounts
         }
         clearPendingBuild()   // K2: the new doc carries its own BUILD state — drop the outgoing session's stale pending
         currentPresetName = name
@@ -569,6 +574,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let keepBusChannels = document.busChannels
         let keepHostStop = document.euclideousHostStopBehavior
         let keepClashPolicy = document.euclideousClashPolicy   // SOURCES STACK ferry (2026-10-26): rig setting (§1.6)
+        let keepFxCounts = document.euclideousFxCounts   // RATCH tab ferry (2026-10-28): rig setting (§7.3)
         editDocument {                       // one undoable step
             $0 = doc
             $0.euclideousMidiInChannelMask = keepMidiInMask
@@ -576,6 +582,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
             $0.busChannels = keepBusChannels
             $0.euclideousHostStopBehavior = keepHostStop
             $0.euclideousClashPolicy = keepClashPolicy
+            $0.euclideousFxCounts = keepFxCounts
         }
         clearPendingBuild()                  // K2: drop the outgoing session's stale BUILD pending (the preset carries its own)
         currentPresetName = PresetStore.sanitize(name)

@@ -132,6 +132,37 @@ final class FourfoldScreenshotTests: XCTestCase {
         attach("8-back-6-flipped-back")
     }
 
+    /// RATCH tab ferry (2026-10-28): the tab as it opens (every emitter off), then with A at 16 / 16 / ×4 (every slot four bars) and B at CHANCE 50 — playing, in both orientations — so the strips, bars and cells can be looked at.
+    func testTheRatchTab() {
+        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+        let device = XCUIDevice.shared
+        device.orientation = .portrait
+        Thread.sleep(forTimeInterval: 1.5)
+        let tab = app.buttons["Ratchet"]
+        if tab.waitForExistence(timeout: 5) { tab.tap() }
+        Thread.sleep(forTimeInterval: 1.5)
+        attach("9-ratch-1-portrait-off")
+        func drag(_ label: String, by dy: CGFloat) {
+            let cell = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).element(boundBy: 0)
+            guard cell.exists else { return }
+            let p = cell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            p.press(forDuration: 0.05, thenDragTo: p.withOffset(CGVector(dx: 0, dy: dy)))
+        }
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Ratchet on emitter A")).element(boundBy: 0).tap()
+        drag("Emitter A steps ", by: -90); drag("Emitter A hits ", by: -140); drag("Emitter A strikes ", by: -40)
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Ratchet on emitter B")).element(boundBy: 0).tap()
+        drag("Emitter B chance ", by: 15)
+        Thread.sleep(forTimeInterval: 2)
+        attach("9-ratch-2-portrait-a-16-16-x4")
+        device.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 3)
+        attach("9-ratch-3-landscape-a-16-16-x4")
+        device.orientation = .portraitUpsideDown
+        Thread.sleep(forTimeInterval: 2.5)
+        attach("9-ratch-4-portrait-upside-down")
+        device.orientation = .portrait
+    }
+
     /// The home screen with the app's icon on it (the icon at its real on-screen size), before and after paging.
     func testTheIconOnTheHomeScreen() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()

@@ -237,6 +237,7 @@ targets:
       - path: Fourfold/Engine/ReelTapeAdapter.swift
       - path: Fourfold/Engine/TapeStore.swift
       - path: Fourfold/Engine/NoteRollRing.swift
+      - path: Fourfold/Engine/EmitterRatchetUI.swift
       - path: Fourfold/Shared/FourfoldTransportClock.swift
     dependencies:
       - package: Atomics

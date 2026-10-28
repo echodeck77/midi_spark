@@ -98,6 +98,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditCardBackPortrait()  { screen("card backs", landscape: false) { $0.buttons["Mix"].tap() } }
     func testAuditLanesPortrait()    { screen("page LANES", landscape: false) { $0.buttons["Lanes"].tap() } }
     func testAuditFxPortrait()       { screen("page FX", landscape: false) { $0.buttons["FX"].tap() } }
+    func testAuditRatchPortrait()    { screen("page RATCH", landscape: false) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabPortrait()  { screen("lane tab RIFF", landscape: false, laneTab("Riff, ")) }
     func testAuditNotesTabPortrait() { screen("lane tab NOTES", landscape: false, laneTab("Notes")) }
     func testAuditListenTabPortrait() { screen("lane tab LISTEN", landscape: false, laneTab("Listen, ")) }
@@ -110,6 +111,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditCardBackLandscape() { screen("card backs", landscape: true) { $0.buttons["Mix"].tap() } }
     func testAuditLanesLandscape()    { screen("page LANES", landscape: true) { $0.buttons["Lanes"].tap() } }
     func testAuditFxLandscape()       { screen("page FX", landscape: true) { $0.buttons["FX"].tap() } }
+    func testAuditRatchLandscape()    { screen("page RATCH", landscape: true) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabLandscape()  { screen("lane tab RIFF", landscape: true, laneTab("Riff, ")) }
     func testAuditNotesTabLandscape() { screen("lane tab NOTES", landscape: true, laneTab("Notes")) }
     func testAuditListenTabLandscape() { screen("lane tab LISTEN", landscape: true, laneTab("Listen, ")) }

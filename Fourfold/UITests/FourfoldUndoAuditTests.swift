@@ -475,6 +475,39 @@ final class FourfoldUndoAuditTests: XCTestCase {
         XCTAssertEqual(r.snap, c.snap); XCTAssertTrue(r.consistent, r.raw); XCTAssertEqual(r.resyncs, 0, r.raw)
     }
 
+    /// RATCH tab ferry (2026-10-28): every edit on the RATCH tab — a toggle tap, a value drag, a double-tap reset — is ONE step and moves ONLY the `emitterRatchets` part of the snapshot; the page, the document and the render
+    /// input agree after each; a reset that changes nothing records nothing; and undo / redo retrace them.
+    func testRatch_EditsAreStepsAndUndoRedoRetraceThem() {
+        launch()
+        let base = settled()
+        app.buttons["Ratchet"].tap()
+        let opened = settled()
+        XCTAssertEqual(opened.snap, base.snap, "opening the tab changes no setting"); XCTAssertEqual(opened.undo, base.undo, "and is not a step")
+
+        app.el("Ratchet on emitter A").tap(); let a = settled()
+        XCTAssertEqual(a.differingParts(from: base), ["emitterRatchets"], "a toggle changes only the ratchets: \(a.raw)"); XCTAssertEqual(a.undo, base.undo + 1, a.raw); XCTAssertTrue(a.consistent, a.raw)
+
+        let chance = app.el("Emitter A chance 100 percent")
+        XCTAssertTrue(chance.waitForExistence(timeout: 3), "A's CHANCE cell")
+        let from = chance.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 30))); let b = settled()
+        XCTAssertEqual(b.differingParts(from: a), ["emitterRatchets"], "ONE drag across the cell: \(b.raw)"); XCTAssertEqual(b.undo, a.undo + 1, "one drag is ONE undo step: \(b.raw)"); XCTAssertTrue(b.consistent, b.raw)
+
+        app.els(prefix: "Emitter A chance ").element(boundBy: 0).doubleTap(); let c = settled()
+        XCTAssertEqual(c.differingParts(from: b), ["emitterRatchets"], c.raw); XCTAssertEqual(c.undo, b.undo + 1, "a double-tap reset is one step: \(c.raw)"); XCTAssertTrue(c.consistent, c.raw)
+        app.els(prefix: "Emitter A chance ").element(boundBy: 0).doubleTap(); let d = settled()
+        XCTAssertEqual(d.undo, c.undo, "a reset that changes nothing records nothing: \(d.raw)"); XCTAssertEqual(d.snap, c.snap)
+
+        undo(); let u1 = settled()
+        XCTAssertEqual(u1.snap, b.snap, "↶ takes the reset back: \(u1.raw)"); XCTAssertTrue(u1.consistent, u1.raw)
+        undo(); let u2 = settled()
+        XCTAssertEqual(u2.snap, a.snap, "↶ takes the drag back: \(u2.raw)")
+        undo(); let u3 = settled()
+        XCTAssertEqual(u3.snap, base.snap, "↶ takes the toggle back: \(u3.raw)"); XCTAssertTrue(u3.consistent, u3.raw)
+        redo(); redo(); redo(); let r = settled()
+        XCTAssertEqual(r.snap, c.snap, "↷ ×3 retraces them all: \(r.raw)"); XCTAssertTrue(r.consistent, r.raw); XCTAssertEqual(r.resyncs, 0, r.raw)
+    }
+
     /// HOCKET (review 2026-10-27): the probe finally exercises the rules. Every pop-up edit (chip taps, the unit, add rule, delete rule by hold) is ONE step and moves ONLY the `hocketRules` part of the snapshot; the page, the
     /// document and the render input agree after each; and with the pop-up OPEN the header's Undo / Redo act on the page (§2.1: the header stays live) and the pop-up follows — its chips and tabs read the undone / redone rules.
     func testHocket_PopupEditsAreStepsAndUndoRedoRetraceThemWithThePopupOpen() {

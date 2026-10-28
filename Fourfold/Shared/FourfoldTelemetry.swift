@@ -9,6 +9,8 @@ final class FourfoldTelemetry {
     let hocket = HocketLiveModel()
     /// CARD BACKS §5: the notes each part struck (the rolls) and when each output last took one (the jack lights).
     let rolls = NoteRollLive()
+    /// RATCH tab §3.10: each output's pattern index at its latest emitter hit (the RATCH tab's strikes' current slot — observed by that tab's leaf views only).
+    let emitters = EmitterRatchetLive()
     // The BEAT anchor (4 Hz): the playheads extrapolate the beat from (anchor, anchorAt) at 30 fps, so it only needs re-anchoring periodically.
     var beatAnchor = 0.0
     var beatAnchorAt = Date()

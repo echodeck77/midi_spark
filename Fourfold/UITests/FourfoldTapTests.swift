@@ -157,6 +157,41 @@ final class FourfoldTapTests: XCTestCase {
         need(app.buttons["Lane 1 cell size PASS"], "the LANES panel again")
     }
 
+    /// RATCH tab ferry (2026-10-28): the third visible tab shows four cards; a toggle tap, a value drag and a double-tap reset each reach the document, and each is ONE undo step.
+    func testTheRatchTabTogglesAnEmitterDragsAValueResetsItAndUndoes() {
+        let app = XCUIApplication.fresh()
+        app.buttons["Ratchet"].tap()
+        XCTAssertTrue(app.buttons["Ratchet"].isSelected, "tapping RATCH selects it")
+        let toggle = need(app.el("Ratchet on emitter A"), "emitter A's toggle")
+        XCTAssertEqual(value(toggle), "off", "every emitter starts off")
+        for letter in ["B", "C", "D"] { need(app.el("Ratchet on emitter \(letter)"), "emitter \(letter)'s toggle") }
+        need(app.el("Emitter A pattern, 3 of 8, offset 0, 3 strikes"), "A's strip")
+        toggle.tap()
+        XCTAssertEqual(value(app.el("Ratchet on emitter A")), "on")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(value(app.el("Ratchet on emitter A")), "off", "a toggle tap is one undo step")
+        app.el("Ratchet on emitter A").tap()
+        // drag A's CHANCE cell down 30 pt: it falls (CHANCE moves 5 per 3 pt)
+        let chance = need(app.el("Emitter A chance 100 percent"), "A's CHANCE cell")
+        let from = chance.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 30)))
+        let dragged = app.els(prefix: "Emitter A chance ").element(boundBy: 0)
+        need(dragged, "A's CHANCE cell after the drag")
+        XCTAssertNotEqual(dragged.label, "Emitter A chance 100 percent", "dragging down lowered CHANCE")
+        // a double tap resets it to its default
+        dragged.doubleTap()
+        need(app.el("Emitter A chance 100 percent"), "CHANCE back at its default after a double tap")
+        // the reset was one undo step: undo takes the dragged value back
+        app.buttons["Undo"].tap()
+        XCTAssertNotEqual(app.els(prefix: "Emitter A chance ").element(boundBy: 0).label, "Emitter A chance 100 percent", "undo brought the dragged value back")
+        // a single tap on a cell does nothing
+        let steps = need(app.el("Emitter A steps 8"), "A's STEPS cell"); steps.tap()
+        XCTAssertTrue(app.el("Emitter A steps 8").exists, "a single tap changes nothing")
+        // switching tabs never changes data
+        app.buttons["Lanes"].tap(); app.buttons["Ratchet"].tap()
+        XCTAssertEqual(value(app.el("Ratchet on emitter A")), "on")
+    }
+
     /// CARD BACKS (2026-10-28): the header's PATTERN | MIX switch turns all four cards over; each back carries a riff row and a notes row whose controls reach the engine — the part's switch, an output jack, the PITCH pad and the VEL/GATE pad.
     func testTheCardSwitchTurnsTheLaneCardsToTheirBacksAndTheControlsEdit() {
         let app = XCUIApplication.fresh()

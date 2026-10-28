@@ -4503,6 +4503,7 @@ enum EuclideousPageFloor: Equatable, Hashable {
     case mixCellW, mixPadH, mixPadHStop   // MIX: cellW < 84 · padH < 76 · padH < 60
     case riffRows                    // riff grid rows < 24
     case fxRows                      // FX rows < 24
+    case ratchRows                   // RATCH tab (2026-10-28): a card under 52 pt (§4.8) — the frame is reported, the cards are drawn at the formula's height
 }
 
 /// Which floors a box of this size falls under. Every flagged item is still drawn at the formula's values.
@@ -4523,6 +4524,7 @@ func euclideousPageFloors(box: CGSize) -> [EuclideousPageFloor] {
     if euclideousRiffPanelLayout(box: box).belowFloor { out.append(.riffRows) }
     let body = euclideousSeqTabBodySize(panelWidth: box.width, panelHeight: box.height)
     if euclideousFXRowH(contentHeight: body.height) < EuclideousFXLayout.minRowH { out.append(.fxRows) }
+    if emitterRatchetLayout(bodySize: body, portrait: true).belowFloor { out.append(.ratchRows) }   // orientation-free: a landscape card is min(60, the shared height), so it is under 52 exactly when the shared height is
     return out
 }
 
@@ -5060,14 +5062,14 @@ struct EuclideousPadUndoBurst: Equatable {
 /// lived inside this tab strip at all, in any revision — it lives in the standalone `riffGridView` panel,
 /// shown directly in the page layout, restored there 2026-10-18.
 enum EuclideousSeqTab: Int, CaseIterable {
-    case mix = 0, lanes = 1, riffs = 2, fx = 3
-    var label: String { switch self { case .mix: return "MIX"; case .lanes: return "LANES"; case .riffs: return "RIFFS"; case .fx: return "FX" } }
+    case mix = 0, lanes = 1, riffs = 2, fx = 3, ratch = 4   // RATCH tab ferry (2026-10-28): the fourth case, after FX — a per-output Euclid ratchet (`EmitterRatchetUI.swift`)
+    var label: String { switch self { case .mix: return "MIX"; case .lanes: return "LANES"; case .riffs: return "RIFFS"; case .fx: return "FX"; case .ratch: return "RATCH" } }
     /// The tabs a layout without FX shows. PAGE LAYOUT ferry (2026-10-19): no layout is without FX any more — portrait's panel is the riff panel's own width,
     /// so the FX columns match the riff grid's, and it is 319 tall — but the list stays for a caller that wants it.
     /// CARD BACKS (2026-10-28) §8: the MIX tab is RETIRED — what it edited (VEL, GATE, OCT per part) now lives on the lane cards' backs. The case stays (hidden, not deleted), so the panel is LANES | FX and LANES is the default.
     static let visible: [EuclideousSeqTab] = [.lanes]
     /// FX is the second tab after LANES (the page offers it in both orientations since the PAGE LAYOUT ferry).
-    static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.lanes, .fx] : visible }
+    static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.lanes, .fx, .ratch] : visible }   // RATCH tab ferry: RATCH is the third VISIBLE tab (MIX is retired), after FX
     static let `default`: EuclideousSeqTab = .lanes
 }
 /// Tabs only: equal widths across the full content width, sp4 apart (two tabs at the 401pt reference = 198.5 each).
@@ -7987,7 +7989,9 @@ struct EuclideousPulseStrike: Equatable { var onsetBeat: Double; var onsetAt: Do
     /// The comet tile this strike belongs to, resolved ONCE (`EuclideousPulseFeed.resolveTiles`) for the lane geometry `tileKey` names — the chain-aware mapping is not free, so it is not redone every frame. -1 = not resolved yet.
     var tile: Int16 = -1; var tileKey: Int = 0
     /// HOCKET §9.3: the output (bus 0…7) each layer's notes left on — the lane's own unless a lit rule moved them; −1 = the event doesn't say (the strip then flashes in the lane's own colour).
-    var riffDest: Int8 = -1, notesDest: Int8 = -1 }   // `rank` / `column`: the riff-grid row and column the engine reports for this hit (REPEAT's rank is the repeated note's); -1 = none
+    var riffDest: Int8 = -1, notesDest: Int8 = -1
+    /// EMITTER RATCHET §3.10: the hit's RATCHED (low nibble) and MISSED (high nibble) outputs, bit 0…3 = A…D — what the RATCH tab's toggles and strips flare on. 0 for a hit no output ratcheted or missed.
+    var emitMasks: UInt8 = 0 }   // `rank` / `column`: the riff-grid row and column the engine reports for this hit (REPEAT's rank is the repeated note's); -1 = none
 
 /// 9.2: the small retained list per lane, filled from the existing NOTE VIEW poll (nothing new is polled). Main-thread only (filled by the poll, read inside the surfaces' TimelineViews), held in
 /// `LiveTelemetry` so filling it never re-runs the page body. A strike is a kind 0 / 3 event that carries notes; a rest flash (kind 2), a tied rest with nothing struck and a muted / FX-tied hit post
@@ -8011,7 +8015,7 @@ final class EuclideousPulseFeed {
             if ev.notes.count > first { for i in first..<ev.notes.count { notes = max(notes, vel(i)) } }
             let at = anchorAt.timeIntervalSinceReferenceDate + (ev.onsetBeat - anchorBeat) * secPerBeat
             rings[lane].append(EuclideousPulseStrike(onsetBeat: ev.onsetBeat, onsetAt: at, riffVel: ev.hasRiffNote ? vel(0) : 0, notesVel: notes, rank: ev.hasRiffNote ? ev.rank : -1, column: ev.hasRiffNote ? ev.column : -1, cellColumn: ev.hasRiffNote ? ev.cellColumn : -1,
-                                                                            riffDest: ev.hasRiffNote && !ev.dests.isEmpty ? ev.dests[0] : -1, notesDest: ev.notes.count > first && ev.dests.count > first ? ev.dests[first] : -1))
+                                                                            riffDest: ev.hasRiffNote && !ev.dests.isEmpty ? ev.dests[0] : -1, notesDest: ev.notes.count > first && ev.dests.count > first ? ev.dests[first] : -1, emitMasks: ev.emitMasks))
             if rings[lane].count > Self.ringCap { rings[lane].removeFirst(rings[lane].count - Self.ringCap) }
         }
     }

@@ -64,6 +64,27 @@ final class NoteRollTests: XCTestCase {
 
     // MARK: the model
 
+    /// RATCH tab ferry: an output's ratchet can put several strikes of one pitch on one start beat next to another output's held legato note. An END record names the output whose voice closed (bits 0–3), so each closes the
+    /// note that left on that output — and a note still open is closed before one already finished. An END that names no output (0, the old form) still closes the newest note it matches.
+    func testSeveralStrikesOfOnePitchAtOneStartBeatAreToldApartByTheOutputAnEndNames() {
+        var m = NoteRollModel()
+        let held = NoteRollRecord(onBeat: 35.5, length: .infinity, pitch: 66, velocity: 34, part: 4, flags: 0b1100 | NoteRollRecord.heldFlag)       // legato, held on C and D
+        let a = NoteRollRecord(onBeat: 35.5, length: 0.0067, pitch: 66, velocity: 34, part: 4, flags: 0b0001)                                          // three short strikes on A (a ratchet's pile of overdue strikes)
+        m.ingest([held, a, a, a])
+        XCTAssertEqual(m.openCount, 1)
+        m.ingest([NoteRollRecord(onBeat: 35.5, length: 0.0569, pitch: 66, velocity: 0, part: 4, flags: NoteRollRecord.endFlag | 0b0100),    // C's voice closes
+                  NoteRollRecord(onBeat: 35.5, length: 0.0569, pitch: 66, velocity: 0, part: 4, flags: NoteRollRecord.endFlag | 0b1000)])   // …and D's
+        XCTAssertEqual(m.openCount, 0, "the held note closes")
+        let aNotes = m.parts[4].filter { $0.outs == 0b0001 }
+        XCTAssertEqual(aNotes.count, 3); XCTAssertTrue(aNotes.allSatisfy { abs(($0.endBeat ?? 0) - (35.5 + 0.0067)) < 1e-4 }, "A's strikes keep their own lengths: no END of the held note's reached them")
+        XCTAssertEqual(m.parts[4].first { $0.outs == 0b1100 }?.endBeat ?? 0, 35.5 + 0.0569, accuracy: 1e-4)
+        // the old form (outs 0) closes the open note first, then the newest finished one
+        var old = NoteRollModel()
+        old.ingest([held, a])
+        old.ingest([NoteRollRecord(onBeat: 35.5, length: 0.05, pitch: 66, velocity: 0, part: 4, flags: NoteRollRecord.endFlag)])
+        XCTAssertEqual(old.openCount, 0, "an END that names no output closes the note still open")
+    }
+
     func testTheModelDrawsANoteFromItsStrikeToItsPlannedEndAndAnEndRecordCutsItShort() {
         var m = NoteRollModel()
         m.ingest([NoteRollRecord(onBeat: 4, length: 1, pitch: 60, velocity: 90, part: 2, flags: 0b0100)])

@@ -157,6 +157,16 @@ final class PortsStressTests: XCTestCase {
                                           soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]
     }
+    /// RATCH tab ferry (2026-10-28): four random output ratchets — mostly ON, every STEPS / HITS / OFFSET / CHANCE / STRIKES — drawn from their OWN stream, so the pinned fingerprints (no ratchets) stay exactly what they were.
+    private func rEmitters(_ x: inout SM64) -> EmitterRatchetSet {
+        var set = EmitterRatchetSet()
+        for i in 0..<4 {
+            let steps = Int.random(in: 2...16, using: &x)
+            set[i] = EmitterRatchet(on: Int.random(in: 0...3, using: &x) != 0, steps: steps, hits: Int.random(in: 0...steps, using: &x), offset: Int.random(in: 0..<steps, using: &x),
+                                    chance: [100, 100, 75, 50, 25, 5, 0].randomElement(using: &x)!, strikes: Int.random(in: 2...4, using: &x))
+        }
+        return set
+    }
     private func rDoc(_ g: inout SM64, lanes: [EuclidLine]? = nil, rawGates: Bool = false, randomRouting: Bool = true) -> (PluginState, NotePool) {
         var st = PluginState.makeInit()
         st.machines.append(Machine(machineID: FourfoldCompose.machineID, type: .euclid))
@@ -295,8 +305,9 @@ final class PortsStressTests: XCTestCase {
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0
-    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false) -> String? {
+    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false) -> String? {
         var g = SM64(seed)
+        var x = SM64(seed ^ 0xE317_A7C4_0000)     // RATCH tab ferry: the emitter ratchets draw from their OWN stream too
         var h = SM64(seed ^ 0x0A7C_0FFE_E000)      // CARD BACKS v2: the out-transposes draw from their OWN stream, so the pinned fingerprints (no out-transpose) stay exactly what they were
         let router = Router()
         var rolls: [NoteRollRecord] = [], winParams: [(beat: Double, ts: Double)] = []
@@ -304,6 +315,7 @@ final class PortsStressTests: XCTestCase {
         let e = TaggedEmitter()
         var (st, pool) = rDoc(&g, rawGates: rawGates)
         if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }
+        if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }
         var box = SnapshotBuilder.build(from: st)
         let sr = 48_000.0
         var tempo = Double([90, 120, 140].randomElement(using: &g)!)
@@ -318,7 +330,8 @@ final class PortsStressTests: XCTestCase {
         for w in 0..<windows {
             e.win = w
             // mutate the document / transport between windows
-            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if emitters, x.next() % 3 == 0 { st.euclideousEmitterRatchets = rEmitters(&x); box = SnapshotBuilder.build(from: st) }   // RATCH tab ferry: a toggle / value dragged while notes (and deferred strikes) sound
             if outTranspose, h.next() % 3 == 0 { retranspose(&st, &h, zeroed: zeroedTranspose); box = SnapshotBuilder.build(from: st) }   // CARD BACKS v2: a PITCH pad dragged while notes sound
             if Int.random(in: 0...2, using: &g) == 0 {   // busChannels change mid-note
                 switch Int.random(in: 0...3, using: &g) {
@@ -476,6 +489,31 @@ final class PortsStressTests: XCTestCase {
     }
     func testOutTransposeSessionsAtGate100() {
         for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 300_000, windows: 24, rawGates: true, outTranspose: true) { XCTFail(msg); return } }
+    }
+
+    // RATCH tab ferry (2026-10-28): output ratchets drawn at random AND changing mid-note — nothing strands, no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
+    func testEmitterRatchetSessionsHoldEveryInvariant() {
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 500_000, windows: 24, emitters: true) { XCTFail(msg); return } }
+    }
+    func testEmitterRatchetSessionsAtGate100() {   // legato runs on every part around the ratcheting outputs
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 510_000, windows: 24, rawGates: true, emitters: true) { XCTFail(msg); return } }
+    }
+    /// The invariant fuzzes pass whether or not a ratchet ever reaches the wire: compare each session with the SAME session without the ratchets — most must differ.
+    func testEmitterRatchetSessionsReallyChangeTheNotesOnTheWire() {
+        var differing = 0, total = 0
+        for s in 1...240 {
+            let seed = UInt64(s) &+ 520_000
+            XCTAssertNil(runSession(seed: seed, windows: 24, emitters: true)); let ratcheted = lastSessionHash
+            XCTAssertNil(runSession(seed: seed, windows: 24)); let plain = lastSessionHash
+            total += 1; if ratcheted != plain { differing += 1 }
+        }
+        // random sessions are mostly sparse (lanes off, soloed away, 24 short windows): about one in seven is dense enough for a ratchet to land
+        XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with ratchets on — they are not reaching the wire")
+    }
+    func testEmitterRatchetsWithHocketRulesAndRoutingMasksNeverStrandANote() {
+        var fails: [String] = []
+        for s in 1...300 { if let msg = runHocketMaskSession(seed: UInt64(s) &+ 530_000, windows: 100, rawGates: s % 2 == 0, sameChannels: s % 5 == 0, emitters: true) { fails.append(msg); if fails.count >= 6 { break } } }
+        XCTAssertTrue(fails.isEmpty, fails.joined(separator: "\n"))
     }
 
     // Lane isolation: with every part on its lane's own output, only lane k emits on cable k+1; the other outputs stay silent.
@@ -783,8 +821,9 @@ extension PortsStressTests {
 // The shipped HOCKET fuzz draws `rDoc(lanes:)`, which never randomises masks, and HocketRouterTests render through a two-pass adapter (riff parts only, then notes parts) — so a lit rule on parts that share outputs,
 // reach several outputs or reach none is exercised nowhere. This runs the HOCKET session with random masks drawn at the start AND changed mid-run, and also checks the roll feed against the wire.
 extension PortsStressTests {
-    private func runHocketMaskSession(seed: UInt64, windows: Int, rawGates: Bool, sameChannels: Bool = false) -> String? {
+    private func runHocketMaskSession(seed: UInt64, windows: Int, rawGates: Bool, sameChannels: Bool = false, emitters: Bool = false) -> String? {
         var g = SM64(seed)
+        var x = SM64(seed ^ 0xE317_A7C4_0000)     // RATCH tab ferry: the emitter ratchets draw from their OWN stream
         let router = Router()
         var diag = KernelDiag()
         let e = TaggedEmitter()
@@ -796,6 +835,7 @@ extension PortsStressTests {
         if distinctChannels { st.busChannels = Array((1...16).shuffled(using: &g).prefix(4)) }
         var rules = rHocketRules(&g)
         st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules)
+        if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }
         var box = SnapshotBuilder.build(from: st)
         let sr = 48_000.0
         var tempo = Double([120, 140, 160, 200].randomElement(using: &g)!)
@@ -817,6 +857,7 @@ extension PortsStressTests {
         for w in 0..<windows {
             e.win = w
             if Int.random(in: 0...2, using: &g) == 0 { editRules(&rules, &g); st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules); box = SnapshotBuilder.build(from: st) }
+            if emitters, x.next() % 3 == 0 { st.euclideousEmitterRatchets = rEmitters(&x); box = SnapshotBuilder.build(from: st) }
             if Int.random(in: 0...2, using: &g) == 0 { lanes = lanes.map { rRouting(&g, $0) }; rebuild() }          // masks change with notes sounding
             if Int.random(in: 0...12, using: &g) == 0 { lanes = (0..<4).map { _ in rRouting(&g, rPlayingLane(&g)) }; rebuild() }
             if Int.random(in: 0...4, using: &g) == 0 { tempo = Double([60, 90, 120, 160, 200].randomElement(using: &g)!) }

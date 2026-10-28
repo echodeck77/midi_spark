@@ -17,7 +17,7 @@ struct NoteRollRecord: Equatable {
     var pitch: UInt8
     var velocity: UInt8
     var part: UInt8             // 0…7: 2·lane + (notes ? 1 : 0) — the part the note LEFT from (after a HOCKET pass, the receiving part)
-    var flags: UInt8            // bits 0–3: the outputs A–D it left on (0 = routed nowhere: silent) · bit 4: END record · bit 5: held (a legato note with no planned end)
+    var flags: UInt8            // bits 0–3: the outputs A–D it left on (0 = routed nowhere: silent) · bit 4: END record (bits 0–3 then name the ONE output whose voice closed; 0 = not said) · bit 5: held (a legato note with no planned end)
 
     static let outsMask: UInt8 = 0x0F, endFlag: UInt8 = 0x10, heldFlag: UInt8 = 0x20
     var outs: UInt8 { flags & NoteRollRecord.outsMask }
@@ -97,8 +97,10 @@ struct NoteRollModel: Equatable {
         for r in records {
             let p = Int(r.part & 7)
             if r.isEnd {
-                // close the open note this record names: same part, same pitch, same start (an END record repeats the start it closes)
-                if let i = parts[p].lastIndex(where: { $0.pitch == r.pitch && abs($0.onBeat - r.onBeat) < 1e-6 }) { parts[p][i].endBeat = r.onBeat + Double(r.length) }
+                // close the note this record names: same part, same pitch, same start (an END record repeats the start it closes) — and, when the record names the output whose voice closed, a note that left on that output. Several strikes of one
+                // pitch can share a start beat (an output's ratchet beside another output's held note, a clamped pile of overdue strikes), so a note still open is closed before one already finished.
+                func names(_ n: NoteRollNote) -> Bool { n.pitch == r.pitch && abs(n.onBeat - r.onBeat) < 1e-6 && (r.outs == 0 || n.outs & r.outs != 0) }
+                if let i = parts[p].lastIndex(where: { names($0) && $0.endBeat == nil }) ?? parts[p].lastIndex(where: names) { parts[p][i].endBeat = r.onBeat + Double(r.length) }
                 continue
             }
             parts[p].append(NoteRollNote(onBeat: r.onBeat, endBeat: r.isHeld || !r.length.isFinite ? nil : r.onBeat + Double(r.length), pitch: r.pitch, velocity: r.velocity, outs: r.outs))

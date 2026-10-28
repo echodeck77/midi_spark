@@ -723,6 +723,7 @@ struct EuclideousPage: View {
     let emitterRatchets: EmitterRatchetSet
     let hocketLive: HocketLiveModel      // HOCKET §8: the count of each lit rule as the Router last published it — read ONLY by leaf views that observe it
     let rollLive: NoteRollLive           // CARD BACKS §5: each part's recent notes and when each output last took one — read ONLY inside the card backs' own frame clocks
+    let emitterLive: EmitterRatchetLive  // RATCH tab §3.10: each output's current pattern index — observed ONLY by the RATCH tab's own leaf views
     let lanesSeqStep: Int
     let riffsSeqStep: Int
     // RIFF-CELL WIPES (Paul 2026-10-10 ferry) — each lane's latest wipe-eligible event (column/rank >= 0).
@@ -842,6 +843,8 @@ struct EuclideousPage: View {
     let onSetIgnoreAllNotesOff: (Bool) -> Void
     let clashPolicy: ClashPolicy                       // SOURCES STACK ferry (2026-10-26): dev-only CLASHES setting (DEBUG settings block)
     let onSetClashPolicy: (ClashPolicy) -> Void
+    let fxCounts: FxCountsMode                         // RATCH tab ferry (2026-10-28): dev-only FX COUNTS (the DEBUG settings block; the RATCH strip's VoiceOver says what it counts)
+    let onSetFxCounts: (FxCountsMode) -> Void
     let busChannels: [Int]
     let allOutputName: String
     let onSetBusChannel: (Int, Int) -> Void
@@ -1675,7 +1678,8 @@ struct EuclideousPage: View {
                         onAllNotesOff: onAllNotesOff,
                         hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior, showsHostStopBehavior: showsHostStopBehavior,
                         pulseLevel: pulseLevel, onSetPulseLevel: onSetPulseLevel,
-                        clashPolicy: clashPolicy, onSetClashPolicy: onSetClashPolicy
+                        clashPolicy: clashPolicy, onSetClashPolicy: onSetClashPolicy,
+                        fxCounts: fxCounts, onSetFxCounts: onSetFxCounts
                     )
                     .padding(.horizontal, sp16)
                     .zIndex(5)
@@ -1760,7 +1764,7 @@ struct EuclideousPage: View {
                 .overlay(euclideousRandomRiffGridOverlay(cornerRadius: 12))
                 .allowsHitTesting(!euclideousLockMode)
                 .offset(x: page.riff.minX, y: page.riff.minY)
-            EuclideousStackBreak { AnyView(sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true)) }   // FX in portrait too: its columns match the riff grid's (same width)
+            EuclideousStackBreak { AnyView(sequencerPanel(maxWidth: box.width, maxHeight: box.height, fxAvailable: true, portrait: !page.isLandscape)) }   // FX in portrait too: its columns match the riff grid's (same width)
                 .overlay(euclideousRandomPanelDim(cornerRadius: 12))
                 .allowsHitTesting(!euclideousLockMode)
                 .offset(x: page.seq.minX, y: page.seq.minY)
@@ -6006,10 +6010,10 @@ struct EuclideousPage: View {
     // panel this feature retired was the only surface that ever called `euclideousSilenceReason`
     // (Derivations.swift) — that pure function and its own tests are UNTOUCHED, just orphaned (zero UI call
     // sites now), ready to be wired into wherever §10 lands once it's answered. Not reused here as a guess.
-    private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat, fxAvailable: Bool = false) -> some View {
+    private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat, fxAvailable: Bool = false, portrait: Bool = false) -> some View {
         // FX TAB: offered in both orientations since the PAGE LAYOUT ferry (2026-10-19) — in portrait this panel sits BESIDE the riff panel at the same width, so each FX
         // column takes the riff grid's column width and the same offset from its own panel's leading edge (§10.3, by construction); `fxAvailable` stays a parameter.
-        let tab: EuclideousSeqTab = (sequencerTab == .fx && !fxAvailable) || sequencerTab == .mix ? .lanes : sequencerTab   // CARD BACKS §8: MIX is retired — a stray .mix shows LANES
+        let tab: EuclideousSeqTab = ((sequencerTab == .fx || sequencerTab == .ratch) && !fxAvailable) || sequencerTab == .mix ? .lanes : sequencerTab   // CARD BACKS §8: MIX is retired — a stray .mix shows LANES (RATCH, like FX, needs the wide panel)
         let innerW = max(1, maxWidth - sp8 * 2)
         let innerH = max(1, maxHeight - sp8 * 2)
         let tabBody = euclideousSeqTabBodySize(panelWidth: maxWidth, panelHeight: maxHeight)   // LANES' and FX's area: one function, shared with the page's floor list
@@ -6031,6 +6035,8 @@ struct EuclideousPage: View {
                 lanesTab(width: tabBody.width, height: tabBody.height)   // LANES GRID (2026-10-18): replaces the old step grid + ON/RATE/LEN row
             case .fx:
                 fxTab(width: tabBody.width, height: tabBody.height)
+            case .ratch:   // RATCH tab ferry (2026-10-28): a per-output Euclid ratchet — four cards A–D
+                ratchTab(width: tabBody.width, height: tabBody.height, portrait: portrait)
             case .riffs:   // hidden (unreachable from the tab row) — kept so its code stays compiled
                 VStack(spacing: sp4) {
                     sequencerRiffsGrid(width: innerW, height: gridH).frame(width: innerW, height: gridH)
@@ -6049,12 +6055,13 @@ struct EuclideousPage: View {
     /// already show the step) and, sharing its slot, the RESET-hold hint "TAP = RESTART" (RESET's gesture and restart marks are unchanged).
     private func sequencerTabRow(width: CGFloat, height: CGFloat, fxAvailable: Bool, selected: EuclideousSeqTab) -> some View {
         let tabs = EuclideousSeqTab.visible(fxAvailable: fxAvailable)
-        let tabW = euclideousSeqTabWidth(count: tabs.count, contentWidth: width)
+        let tabWidths = euclideousSeqTabWidths(tabs: tabs, contentWidth: width)   // RATCH tab ferry (2026-10-28): RATCH is a fixed 80 wide; LANES and FX share the rest
         // PER-LAYER ROUTING ferry §6.2: routing moved off MIX onto the RIFF/NOTES tabs, so a pulse/trace no longer
         // rings the sequencer-panel MIX tab chip (the ring now goes to a lane's own RIFF/NOTES circle or tab cell).
         return HStack(spacing: sp4) {
-            ForEach(tabs, id: \.rawValue) { tab in
+            ForEach(Array(tabs.enumerated()), id: \.element.rawValue) { idx, tab in
                 let sel = selected == tab
+                let tabW = idx < tabWidths.count ? tabWidths[idx] : 0
                 // The on/off ring beside LANES is gone with the ON switch (LANES GRID, 2026-10-18): the grid is always live.
                 ZStack(alignment: .bottom) {
                     HStack(spacing: 6) {
@@ -6072,7 +6079,7 @@ struct EuclideousPage: View {
                     resetPopupLane = nil   // §6: "switching tabs closes it"
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(tab == .fx ? "FX" : tab.label.capitalized)   // §14.1: the tab is read "FX", not "Fx"
+                .accessibilityLabel(tab == .fx ? "FX" : (tab == .ratch ? emitterRatchetTabAccessibilityLabel() : tab.label.capitalized))   // §14.1: the tab is read "FX", not "Fx"; §8.1 (RATCH): "Ratchet"
                 .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)   // SwiftUI has no tab trait; button + selected, like the lane tabs
             }
         }
@@ -6154,6 +6161,22 @@ struct EuclideousPage: View {
     /// Derivations.swift. The columns are the riff grid's own (`euclideousRiffCellW`). This page supplies the data (the document's FX, the written ranks named exactly
     /// as the riff grid's label column names them, the NOTE preview, the flash from the engine's hit events) and the edits — each tap / double-tap pair / stroke /
     /// value drag / lane toggle / stepper tap or drag is ONE undo step (`fxEdit`).
+    /// THE RATCH TAB (ferry 2026-10-28): four cards A–D, each an on/off toggle, a 16-slot strip of that output's Euclid pattern and five drag cells. All numbers come from `emitterRatchetLayout` (EmitterRatchetUI.swift); the painter
+    /// (RatchPanelPainter.swift) only paints them. Every edit is one document write + one republish through `onEditEmitterRatchet`.
+    private func ratchTab(width: CGFloat, height: CGFloat, portrait: Bool) -> some View {
+        let layout = emitterRatchetLayout(bodySize: CGSize(width: width, height: height), portrait: portrait)
+        let feed = pulseFeed
+        #if DEBUG
+        let counts: String? = fxCounts == .steps ? "steps" : "hits"   // §8.3: a dev build says what the count is; a release build always counts hits and says nothing
+        #else
+        let counts: String? = nil
+        #endif
+        return EuclideousStackBreak {
+            AnyView(EuclideousRatchetPanel(layout: layout, ratchets: emitterRatchets, accents: laneAccents, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
+                                           strikes: { (0..<4).map { feed.strikes(lane: $0) } }, live: emitterLive, onEdit: onEditEmitterRatchet)
+                .frame(width: width, height: height, alignment: .topLeading))
+        }
+    }
     private func fxTab(width: CGFloat, height: CGFloat) -> some View {
         let layout = euclideousFXLayout(width: width, height: height)
         let ranks = effectiveGridRanks

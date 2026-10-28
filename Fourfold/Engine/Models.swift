@@ -168,6 +168,9 @@ struct SourcePlan: Equatable, Codable {
 // DROP thins a lower layer's note that sits a semitone from a higher layer's (§2.7). `clashPolicyResolved`
 // forces ALLOW in release builds whatever is stored, so a stored DROP can never reach a shipped build.
 enum ClashPolicy: String, Codable, CaseIterable { case allow = "ALLOW", drop = "DROP" }
+// RATCH tab ferry (2026-10-28) §7: FX COUNTS is a DEV-build-only rig setting (judged by ear) — what an output's ratchet counts: HITS (the emitter hits that leave on the output, the default and the only mode in release) or STEPS
+// (the striking lane's pattern step `s`). `fxCountsResolved` forces HITS in release builds whatever is stored.
+enum FxCountsMode: String, Codable, CaseIterable { case hits = "HITS", steps = "STEPS" }
 // FOURFOLD SETTINGS, CLOCK tab (2026-10-15 ferry, "Fourfold settings" §5.1).
 enum EuclideousHostStopBehavior: String, Codable, CaseIterable { case keepPlaying, stop }
 
@@ -3077,6 +3080,15 @@ struct PluginState: Codable, Equatable {
         return euclideousClashPolicy ?? .allow
         #else
         return .allow
+        #endif
+    }
+    // RATCH tab ferry §7.3: FX COUNTS, stored exactly where CLASHES is (the encoded document, but a rig setting: not undoable, kept across a preset load). nil ⇒ HITS; release builds always count HITS.
+    var euclideousFxCounts: FxCountsMode? = nil
+    var fxCountsResolved: FxCountsMode {
+        #if DEBUG
+        return euclideousFxCounts ?? .hits
+        #else
+        return .hits
         #endif
     }
     // FOURFOLD SETTINGS — MIDI IN "LISTEN ON" (2026-10-15 ferry, "Fourfold settings"): which channels MIDI IN

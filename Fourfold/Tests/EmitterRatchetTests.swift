@@ -40,6 +40,8 @@ final class EmitterRatchetTests: XCTestCase {
         XCTAssertTrue(c.isHit(0)); XCTAssertFalse(c.isHit(1)); XCTAssertTrue(c.isHit(2)); XCTAssertFalse(c.isHit(5), "past STEPS nothing is a hit"); XCTAssertFalse(c.isHit(-1)); XCTAssertFalse(c.isHit(99))
         XCTAssertFalse(EmitterRatchetCfg().on, "a fresh emitter is off")
         XCTAssertEqual(EmitterRatchetCfg().patternMask, 0b0100_1001, "…at 8 / 3 / 0")
+        XCTAssertEqual(EmitterRatchetCfg.defaultPatternMask, emitterRatchetPatternMask(steps: 8, hits: 3, offset: 0), "the render thread's literal default IS the page's pattern")
+        XCTAssertEqual(EmitterRatchetCfg(EmitterRatchet()), EmitterRatchetCfg(), "the default document value and the inert default agree")
     }
 
     // MARK: - §1.2 / §1.3 — ranges, defaults, and STEPS dragging HITS and OFFSET down in the same write
@@ -303,5 +305,201 @@ final class EmitterRatchetTests: XCTestCase {
         var b = a
         _ = b.hit(cfg: cfg(), output: 1, countsSteps: false, laneStep: 0, window: 1, sample: 0)
         XCTAssertEqual(a.counts[1], 1); XCTAssertEqual(b.counts[1], 2)
+    }
+
+    // MARK: - §4.1 — the tab strip
+
+    func testRatchIsAFixed80AndTheOtherTabsShareTheRest() {
+        let w = euclideousSeqTabWidths(tabs: [.lanes, .fx, .ratch], contentWidth: 364.67)
+        XCTAssertEqual(w[2], 80); XCTAssertEqual(w[0], w[1], accuracy: 1e-9)
+        XCTAssertEqual(w[0], (364.67 - 8 - 80) / 2, accuracy: 1e-9, "LANES and FX share what is left, sp4 apart")
+        XCTAssertEqual(w.reduce(0, +) + 8, 364.67, accuracy: 1e-9, "the strip fills the content width")
+        XCTAssertEqual(euclideousSeqTabWidths(tabs: [.lanes, .fx], contentWidth: 401), [198.5, 198.5], "without RATCH it is the old equal split")
+        XCTAssertEqual(euclideousSeqTabWidths(tabs: [], contentWidth: 100), [])
+        XCTAssertEqual(euclideousSeqTabWidth(count: 2, contentWidth: 401), 198.5, "the old function is kept")
+        XCTAssertEqual(EuclideousSeqTab.ratch.rawValue, 4); XCTAssertEqual(EuclideousSeqTab.ratch.label, "RATCH"); XCTAssertEqual(emitterRatchetTabAccessibilityLabel(), "Ratchet")
+        XCTAssertEqual(EuclideousSeqTab.default, .lanes, "the panel still opens on LANES")
+    }
+
+    // MARK: - §4.2–§4.8 — the layout
+
+    func testLandscapeCardsAreTheFerrysNumbers() {
+        // the ferry's frame: panel 410 × 303 → tab body 394 × 263 (the panel less 8 + 20 + 4 above and 8 below, 8 each side)
+        let l = emitterRatchetLayout(bodySize: CGSize(width: 394, height: 263), portrait: false)
+        XCTAssertEqual(l.cards.map { $0.minY + 32 }, [35, 101, 167, 233], "cards at panel y 35 / 101 / 167 / 233 (the body starts at panel y 32)")
+        XCTAssertTrue(l.cards.allSatisfy { $0.width == 394 && $0.height == 60 && $0.minX == 0 }, "x 8 of the panel, 394 wide, 60 tall")
+        XCTAssertEqual(l.cards.last!.maxY + 32, 293, "the last card ends at 293")
+        XCTAssertEqual(l.toggle, CGRect(x: 0, y: 4, width: 44, height: 52), "the toggle target: 44 × 52 at the card's left edge")
+        XCTAssertEqual(l.strip, CGRect(x: 50, y: 4, width: 336, height: 20), "the right column is 336 wide, the strip 20 tall")
+        XCTAssertEqual(l.cells.count, 5); XCTAssertEqual(l.cells[0].minY, 28, "the readout row starts 4 below the strip"); XCTAssertEqual(l.cells[0].height, 28)
+        XCTAssertEqual(l.cells[0].width, 336.0 / 5, accuracy: 1e-9); XCTAssertEqual(l.cells[4].maxX, 386, accuracy: 1e-9)
+        XCTAssertEqual(l.slots.count, 16)
+        XCTAssertEqual(l.slots[0].width, (336.0 - 30) / 16, accuracy: 1e-9, "about 19.1 wide"); XCTAssertEqual(l.slots[1].minX - l.slots[0].maxX, 2, accuracy: 1e-9)
+        XCTAssertEqual(l.slots[15].maxX, 386, accuracy: 1e-9)
+        XCTAssertFalse(l.belowFloor)
+    }
+    func testTheRealPanelScalesTheWidthAndKeepsEverythingElse() {
+        // the 1190 × 726 reference: the panel is 380.67 × 319 → body 364.67 × 279
+        let l = emitterRatchetLayout(bodySize: CGSize(width: 364.67, height: 279), portrait: false)
+        XCTAssertEqual(l.cardHeight, 60); XCTAssertEqual(l.cards[3].maxY + 32, 293); XCTAssertEqual(l.strip.width, 364.67 - 58, accuracy: 1e-9)
+        XCTAssertEqual(l.slots[0].width, (364.67 - 58 - 30) / 16, accuracy: 1e-9)
+        XCTAssertEqual(l.cells[0].height, 28)
+        XCTAssertFalse(l.belowFloor)
+        // iPad mini 6 landscape: panel 361.67 × 304.5 → body 345.67 × 264.5 — the four cards still fit, with 3.5 pt to spare below the last
+        let mini = emitterRatchetLayout(bodySize: CGSize(width: 345.67, height: 264.5), portrait: false)
+        XCTAssertEqual(mini.cardHeight, 60); XCTAssertLessThanOrEqual(mini.cards[3].maxY, 264.5); XCTAssertFalse(mini.belowFloor)
+    }
+    func testPortraitCardsShareTheHeightEquallyAndTheReadoutTakesTheRest() {
+        // 814 × 1102: the panel is 387 × 319.67 → body 371 × 279.67; the four cards share the height (3 above, 6 apart)
+        let p = emitterRatchetLayout(bodySize: CGSize(width: 371, height: 279.67), portrait: true)
+        let h = (279.67 - 3 - 18) / 4
+        XCTAssertEqual(p.cardHeight, h, accuracy: 1e-9); XCTAssertGreaterThan(h, 60)
+        XCTAssertEqual(p.cards[1].minY - p.cards[0].maxY, 6, accuracy: 1e-9); XCTAssertEqual(p.cards[3].maxY, 279.67, accuracy: 1e-9)
+        XCTAssertEqual(p.strip.height, 20, "the strip stays 20"); XCTAssertEqual(p.cells[0].height, h - 8 - 24, accuracy: 1e-9, "the readout row takes the rest"); XCTAssertGreaterThanOrEqual(p.cells[0].height, 24)
+        XCTAssertFalse(p.belowFloor)
+        // every full-screen iPad frame computed in the ferry's audit keeps its cards at 52 or more
+        for body in [CGSize(width: 352 - 16, height: 330 - 40), CGSize(width: 385 - 16, height: 312.3 - 40), CGSize(width: 361.67 - 16, height: 304.5 - 40)] {
+            XCTAssertFalse(emitterRatchetLayout(bodySize: body, portrait: true).belowFloor, "\(body)")
+            XCTAssertFalse(emitterRatchetLayout(bodySize: body, portrait: false).belowFloor, "\(body)")
+        }
+    }
+    func testACardUnder52IsReportedNotClamped() {
+        // a Stage-Manager window at the scale-to-fit minimum: panel ≈ 172 tall → body ≈ 132
+        let small = emitterRatchetLayout(bodySize: CGSize(width: 300, height: 132), portrait: false)
+        XCTAssertTrue(small.belowFloor); XCTAssertLessThan(small.cardHeight, 52); XCTAssertGreaterThan(small.cardHeight, 0, "drawn at the formula's height, listed — never shrunk to nothing")
+        XCTAssertGreaterThanOrEqual(small.cells[0].height, 24, "the readout row never goes under 24")
+        XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 172)).contains(.ratchRows))
+        XCTAssertFalse(euclideousPageFloors(box: CGSize(width: 380.67, height: 319)).contains(.ratchRows))
+        XCTAssertFalse(euclideousPageFloors(box: CGSize(width: 387, height: 319.67)).contains(.ratchRows))
+    }
+    func testStrikeBarsAreCentredTwoWideOneApartAndTheRestDotTwoByTwo() {
+        let slot = CGRect(x: 100, y: 4, width: 19.125, height: 20)
+        for n in 2...4 {
+            let bars = emitterRatchetBarRects(in: slot, strikes: n)
+            XCTAssertEqual(bars.count, n); XCTAssertTrue(bars.allSatisfy { $0.width == 2 })
+            XCTAssertEqual(bars.map { $0.height }, Array([14, 12, 10, 8].prefix(n)).map { CGFloat($0) }, "14, 12, 10, 8 in strike order")
+            for i in 1..<n { XCTAssertEqual(bars[i].minX - bars[i - 1].maxX, 1, accuracy: 1e-9, "1 apart") }
+            XCTAssertEqual((bars.first!.minX + bars.last!.maxX) / 2, slot.midX, accuracy: 1e-9, "centred across")
+            XCTAssertTrue(bars.allSatisfy { abs($0.midY - slot.midY) < 1e-9 }, "centred down")
+            XCTAssertTrue(bars.allSatisfy { slot.contains($0) }, "nothing overlaps or clips at 16 / 16 / ×4 (n = \(n))")
+        }
+        XCTAssertEqual(emitterRatchetRestDot(in: slot), CGRect(x: slot.midX - 1, y: slot.midY - 1, width: 2, height: 2))
+        XCTAssertEqual(emitterRatchetBarAlpha(chance: 100), 1); XCTAssertEqual(emitterRatchetBarAlpha(chance: 0), 0.5); XCTAssertEqual(emitterRatchetBarAlpha(chance: 50), 0.75, accuracy: 1e-12)
+        // at the narrowest slot the four bars (11 pt) still fit
+        let narrow = emitterRatchetLayout(bodySize: CGSize(width: 336 - 16, height: 264), portrait: true).slots[0]
+        XCTAssertGreaterThan(narrow.width, 11)
+    }
+
+    // MARK: - §4.6 / §4.7 / §6.2 — the cells
+
+    func testTheValueTextBarShareAndDragFollowTheFerry() {
+        var r = EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0, chance: 75, strikes: 3)
+        XCTAssertEqual(EmitterRatchetField.allCases.map { emitterRatchetValueText($0, r) }, ["8", "3", "0", "75%", "\u{00D7}3"])
+        r.offset = 2; XCTAssertEqual(emitterRatchetValueText(.offset, r), "+2")
+        // the bar: the value's share of its range, never under 6 %
+        XCTAssertEqual(emitterRatchetBarShare(.steps, EmitterRatchet(steps: 16)), 1); XCTAssertEqual(emitterRatchetBarShare(.steps, EmitterRatchet(steps: 2)), 0.06, "the minimum")
+        XCTAssertEqual(emitterRatchetBarShare(.chance, EmitterRatchet(chance: 50)), 0.5)
+        XCTAssertEqual(emitterRatchetBarShare(.strikes, EmitterRatchet(strikes: 3)), 0.5); XCTAssertEqual(emitterRatchetBarShare(.hits, EmitterRatchet(steps: 8, hits: 8)), 1)
+        XCTAssertEqual(emitterRatchetBarShare(.hits, EmitterRatchet(steps: 8, hits: 0)), 0.06); XCTAssertEqual(emitterRatchetBarShare(.offset, EmitterRatchet(steps: 8, offset: 7)), 1)
+        // drag: up raises, down lowers; STEPS / HITS / OFFSET 1 per 10 pt, CHANCE 5 per 3 pt, STRIKES 1 per 18 pt; clamps, never wraps
+        let base = EmitterRatchet(on: true, steps: 8, hits: 3, offset: 3, chance: 50, strikes: 3)
+        XCTAssertEqual(emitterRatchetDragActivation, 6)
+        XCTAssertEqual(emitterRatchetDragValue(.steps, start: base, travelUp: 25).steps, 10, "2 steps in 25 pt")
+        XCTAssertEqual(emitterRatchetDragValue(.steps, start: base, travelUp: -25).steps, 6)
+        XCTAssertEqual(emitterRatchetDragValue(.steps, start: base, travelUp: 9).steps, 8, "under 10 pt nothing has moved yet")
+        XCTAssertEqual(emitterRatchetDragValue(.chance, start: base, travelUp: 7).chance, 60, "7 pt = 2 steps of 5")
+        XCTAssertEqual(emitterRatchetDragValue(.chance, start: base, travelUp: -300).chance, 0); XCTAssertEqual(emitterRatchetDragValue(.chance, start: base, travelUp: 300).chance, 100)
+        XCTAssertEqual(emitterRatchetDragValue(.strikes, start: base, travelUp: 17).strikes, 3); XCTAssertEqual(emitterRatchetDragValue(.strikes, start: base, travelUp: 18).strikes, 4)
+        XCTAssertEqual(emitterRatchetDragValue(.strikes, start: base, travelUp: 60).strikes, 4, "clamped at the top, never wrapping to 2")
+        XCTAssertEqual(emitterRatchetDragValue(.hits, start: base, travelUp: 100).hits, 8, "HITS tops out at STEPS")
+        XCTAssertEqual(emitterRatchetDragValue(.offset, start: base, travelUp: 100).offset, 7); XCTAssertEqual(emitterRatchetDragValue(.offset, start: base, travelUp: -100).offset, 0)
+        XCTAssertEqual(emitterRatchetDragValue(.steps, start: base, travelUp: -100).hits, 2, "dragging STEPS down drags HITS with it (2 steps: HITS ≤ 2, OFFSET ≤ 1)")
+        XCTAssertEqual(emitterRatchetDragValue(.steps, start: base, travelUp: -100).offset, 1)
+    }
+
+    // MARK: - §8 — VoiceOver
+
+    func testVoiceOverWordsAreTheFerrys() {
+        let r = EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0, chance: 75, strikes: 3)
+        XCTAssertEqual(emitterRatchetToggleLabel(output: 0), "Ratchet on emitter A"); XCTAssertEqual(emitterRatchetToggleLabel(output: 3), "Ratchet on emitter D")
+        XCTAssertEqual(emitterRatchetToggleValue(on: true), "on"); XCTAssertEqual(emitterRatchetToggleValue(on: false), "off")
+        XCTAssertEqual(emitterRatchetStripLabel(output: 0, r, counts: nil), "Emitter A pattern, 3 of 8, offset 0, 3 strikes")
+        XCTAssertEqual(emitterRatchetStripLabel(output: 1, r, counts: "hits"), "Emitter B pattern, 3 of 8 hits, offset 0, 3 strikes", "a dev build says what it counts")
+        XCTAssertEqual(emitterRatchetStripLabel(output: 2, r, counts: "steps"), "Emitter C pattern, 3 of 8 steps, offset 0, 3 strikes")
+        XCTAssertEqual(EmitterRatchetField.allCases.map { emitterRatchetCellLabel(output: 0, $0, r) },
+                       ["Emitter A steps 8", "Emitter A hits 3", "Emitter A offset 0", "Emitter A chance 75 percent", "Emitter A strikes 3"])
+        var o = r; o.offset = 2
+        XCTAssertEqual(emitterRatchetCellLabel(output: 0, .offset, o), "Emitter A offset plus 2")
+    }
+
+    // MARK: - §5.3 / §5.4 — the flare
+
+    func testTheFlareIsTheLowestLanesRatchetOrMissAndFadesOnThePulseTimingAndIsGoneAfterAndWhenPulseIsOff() {
+        func strike(at: Double, masks: UInt8, vel: UInt8 = 100) -> EuclideousPulseStrike {
+            var s = EuclideousPulseStrike(onsetBeat: 0, onsetAt: at, riffVel: vel, notesVel: 0); s.emitMasks = masks; return s
+        }
+        let none: [[EuclideousPulseStrike]] = [[], [], [], []]
+        XCTAssertNil(emitterRatchetFlare(output: 0, strikes: none, now: 1, scale: 1))
+        // lane 2 (index 1) ratcheted output A at t = 10 → RATCHED, decaying with τ 0.16 s
+        let one: [[EuclideousPulseStrike]] = [[], [strike(at: 10, masks: 0b0001)], [], []]
+        let f0 = emitterRatchetFlare(output: 0, strikes: one, now: 10, scale: 1)
+        XCTAssertEqual(f0?.lane, 1); XCTAssertEqual(f0?.ratcheted, true); XCTAssertEqual(f0?.f ?? 0, euclideousPulseEnvelopes(velocity: 100, seconds: 0, scale: 1).f, accuracy: 1e-12)
+        let f1 = emitterRatchetFlare(output: 0, strikes: one, now: 10.16, scale: 1)
+        XCTAssertEqual(f1?.f ?? 0, euclideousPulseEnvelopes(velocity: 100, seconds: 0.16, scale: 1).f, accuracy: 1e-12); XCTAssertLessThan(f1!.f, f0!.f)
+        XCTAssertNil(emitterRatchetFlare(output: 0, strikes: one, now: 12, scale: 1), "gone after the 1.5 s afterglow")
+        XCTAssertNil(emitterRatchetFlare(output: 0, strikes: one, now: 9.9, scale: 1), "a strike that has not happened yet draws nothing")
+        XCTAssertNil(emitterRatchetFlare(output: 1, strikes: one, now: 10, scale: 1), "another output's bit")
+        XCTAssertNil(emitterRatchetFlare(output: 0, strikes: one, now: 10, scale: 0), "PULSE off: no flare")
+        // MISSED is the high nibble
+        let miss: [[EuclideousPulseStrike]] = [[strike(at: 5, masks: 0b0010_0000)], [], [], []]
+        let m = emitterRatchetFlare(output: 1, strikes: miss, now: 5.05, scale: 1)
+        XCTAssertEqual(m?.ratcheted, false); XCTAssertEqual(m?.lane, 0)
+        // several lanes at once: the lowest-numbered lane's colour; a clearly later strike wins
+        let both: [[EuclideousPulseStrike]] = [[], [strike(at: 20.001, masks: 0b0001)], [strike(at: 20, masks: 0b0001)], []]
+        XCTAssertEqual(emitterRatchetFlare(output: 0, strikes: both, now: 20.01, scale: 1)?.lane, 1)
+        let later: [[EuclideousPulseStrike]] = [[strike(at: 20, masks: 0b0001)], [], [strike(at: 20.3, masks: 0b0001)], []]
+        XCTAssertEqual(emitterRatchetFlare(output: 0, strikes: later, now: 20.31, scale: 1)?.lane, 2, "the most recent strike")
+    }
+
+    // MARK: - §7 / §10 test 12 — FX COUNTS (dev builds only)
+
+    func testFxCountsIsStoredLikeClashesDefaultsToHitsAndIsAlwaysHitsInRelease() throws {
+        var st = PluginState.makeInit()
+        XCTAssertNil(st.euclideousFxCounts); XCTAssertEqual(st.fxCountsResolved, .hits, "nil ⇒ HITS")
+        st.euclideousFxCounts = .steps
+        #if DEBUG
+        XCTAssertEqual(st.fxCountsResolved, .steps, "a dev build honours the stored value")
+        #else
+        XCTAssertEqual(st.fxCountsResolved, .hits, "a release build always counts HITS, whatever is stored")
+        #endif
+        // it is stored where CLASHES is — in the encoded document — and an absent key decodes to nil
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(st))
+        XCTAssertEqual(back.euclideousFxCounts, .steps); XCTAssertEqual(back, st)
+        var obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(PluginState.makeInit())) as! [String: Any]
+        XCTAssertNil(obj["euclideousFxCounts"], "an untouched document writes no key")
+        obj["euclideousFxCounts"] = "garbage"
+        XCTAssertNil((try? JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: obj)))?.euclideousFxCounts, "a stored value that is not HITS or STEPS never loads as one")
+    }
+    func testTheSnapshotCarriesTheCountsFlagOnlyWhenTheModeIsSteps() throws {
+        var st = composedState()
+        XCTAssertFalse(try rowParams(st).emitterRatchets.countsSteps)
+        st.euclideousFxCounts = .steps
+        #if DEBUG
+        XCTAssertTrue(try rowParams(st).emitterRatchets.countsSteps)
+        #else
+        XCTAssertFalse(try rowParams(st).emitterRatchets.countsSteps)
+        #endif
+    }
+    /// §7.1 / §10 test 12: the FX COUNTS block is `#if DEBUG` on the settings sheet — a release build has no such control (and says nothing about what it counts). A source tripwire, like the repo's others.
+    func testTheFxCountsBlockSitsInsideADebugOnlyRegionOfTheSettingsSheet() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("UI/EuclideousSettingsSheet.swift")
+        let src = try String(contentsOf: url, encoding: .utf8)
+        let r = try XCTUnwrap(src.range(of: "block(name: \"FX COUNTS\")"))
+        let before = String(src[..<r.lowerBound])
+        let open = try XCTUnwrap(before.range(of: "#if DEBUG", options: .backwards))
+        if let close = before.range(of: "#endif", options: .backwards) { XCTAssertLessThan(close.lowerBound, open.lowerBound, "the nearest preceding conditional is an open `#if DEBUG`") }
+        let after = String(src[r.upperBound...])
+        XCTAssertNotNil(after.range(of: "#endif")); XCTAssertTrue(after.prefix(1200).contains("#endif"), "…and it closes right after the block")
+        XCTAssertFalse(src.contains("description: \"FX COUNTS"), "no description line (§7.2)")
     }
 }

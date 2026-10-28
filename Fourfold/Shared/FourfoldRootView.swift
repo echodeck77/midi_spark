@@ -37,6 +37,7 @@ struct FourfoldRootView: View {
     var busChannels: [Int] { get { m.busChannels } nonmutating set { m.busChannels = newValue } }
     var ignoreAllNotesOff: Bool { get { m.ignoreAllNotesOff } nonmutating set { m.ignoreAllNotesOff = newValue } }
     var clashPolicy: ClashPolicy { get { m.clashPolicy } nonmutating set { m.clashPolicy = newValue } }   // SOURCES STACK ferry (2026-10-26): dev-only rig setting
+    var fxCounts: FxCountsMode { get { m.fxCounts } nonmutating set { m.fxCounts = newValue } }   // RATCH tab ferry (2026-10-28): dev-only rig setting
     var showPresets: Bool { get { m.showPresets } nonmutating set { m.showPresets = newValue } }
     var presetList: [String] { get { m.presetList } nonmutating set { m.presetList = newValue } }
     var currentPreset: String { get { m.currentPreset } nonmutating set { m.currentPreset = newValue } }
@@ -146,7 +147,7 @@ struct FourfoldRootView: View {
                                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                                riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
-                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, hocketLive: meters.hocket, rollLive: meters.rolls,
+                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters,
                                                lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                                wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                                pulseFeed: meters.pulse, pulseLevel: pulseLevel,
@@ -415,6 +416,11 @@ struct FourfoldRootView: View {
                                                    clashPolicy = p
                                                    au?.setClashPolicy(p)
                                                },
+                                               fxCounts: fxCounts,
+                                               onSetFxCounts: { v in   // RATCH tab ferry (2026-10-28): dev-only rig setting — no undo
+                                                   fxCounts = v
+                                                   au?.setFxCounts(v)
+                                               },
                                                busChannels: busChannels,
                                                allOutputName: "All",
                                                onSetBusChannel: { bus, ch in
@@ -532,6 +538,7 @@ struct FourfoldRootView: View {
         euclideousHostStopBehavior = au.uiEuclideousHostStopBehavior()
         ignoreAllNotesOff = au.uiIgnoreAllNotesOff()
         clashPolicy = au.uiClashPolicy()
+        fxCounts = au.uiFxCounts()
         euclideousChordSets = au.uiEuclideousChordSets()
         euclideousActiveChordSet = au.uiActiveChordSet()
         euclideousRiffs = au.uiEuclideousRiffs()
@@ -793,6 +800,7 @@ struct FourfoldRootView: View {
     if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
     let hl = au.pollHocketLive(); meters.hocket.update(counts: hl.counts, running: hl.running)   // HOCKET §8: the lit rules' counts (the pop-up and the lane cards read them through leaf views)
     meters.rolls.poll(records: au.pollNoteRoll(), beat: meters.beat, playing: d.effectivePlaying)   // CARD BACKS §5: the rolls and jack lights, from the same 30 Hz poll
+    meters.emitters.update(packed: au.pollEmitterIndexPacked(), running: d.effectivePlaying)   // RATCH tab §3.10: each output's current pattern index, from the same 30 Hz poll (cleared while the transport is not running)
     let ss = au.pollEuclideousSourceStatus()   // SOURCES STACK: lane-1 source status on the existing 30 Hz poll (no new timer)
     if ss != euclideousSourceStatus { euclideousSourceStatus = ss }
     applyLandedLockSnaps()   // LANE LOCK: a snap the render thread has landed is written into the document within a poll tick (30 Hz)
@@ -924,6 +932,7 @@ struct FourfoldRootView: View {
         let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
         let ian = au.uiIgnoreAllNotesOff(); if ian != ignoreAllNotesOff { ignoreAllNotesOff = ian }
         let cp = au.uiClashPolicy(); if cp != clashPolicy { clashPolicy = cp }
+        let fc = au.uiFxCounts(); if fc != fxCounts { fxCounts = fc }   // RATCH tab ferry: a rig setting, so (like CLASHES) in the SECOND block — it never wipes undo
         let rs = au.uiReelState();     if rs != reelState { reelState = rs }   // the header tape icon's state
         let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
         let sw = au.uiSwing();         if sw != swing { swing = sw }
@@ -948,6 +957,7 @@ final class FourfoldModel: ObservableObject {
     @Published var busChannels: [Int] = [1, 2, 3, 4]
     @Published var ignoreAllNotesOff: Bool = true
     @Published var clashPolicy: ClashPolicy = .allow
+    @Published var fxCounts: FxCountsMode = .hits   // RATCH tab ferry (2026-10-28): dev-only FX COUNTS (HITS · STEPS)
     @Published var showPresets: Bool = false
     @Published var presetList: [String] = []
     @Published var currentPreset: String = ""

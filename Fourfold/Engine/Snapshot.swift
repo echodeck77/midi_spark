@@ -165,8 +165,11 @@ struct HocketRulesSnap: Equatable {
 struct EmitterRatchetCfg: Equatable {
     var on = false
     var steps = 8, hits = 3, offset = 0, chance = 100, strikes = 3
-    var patternMask: UInt16 = 0
-    init() { patternMask = emitterRatchetPatternMask(steps: steps, hits: hits, offset: offset) }
+    /// The default 8 / 3 / 0 pattern as a literal: `init()` runs on the RENDER thread too (the Router's inert default for a cell with no ratchets), and building the mask needs a heap array — `EmitterRatchetTests` pins this
+    /// literal to `emitterRatchetPatternMask(steps: 8, hits: 3, offset: 0)`.
+    static let defaultPatternMask: UInt16 = 0b0100_1001
+    var patternMask: UInt16 = EmitterRatchetCfg.defaultPatternMask
+    init() {}
     init(_ r: EmitterRatchet) {
         let n = r.normalized()
         on = n.on; steps = n.steps; hits = n.hits; offset = n.offset; chance = n.chance; strikes = n.strikes
