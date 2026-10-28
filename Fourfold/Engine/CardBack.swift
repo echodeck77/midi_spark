@@ -274,7 +274,14 @@ func euclideousCardInvitation(part: EuclideousCardPart, partOn: Bool, laneHasHit
 enum EuclideousCardXYMetrics {
     static let inset: CGFloat = 7, dot: CGFloat = 11, dotRing: CGFloat = 2, radius: CGFloat = 8, textInset: CGFloat = 5
     static let well = HocketColor(0x131519), border = HocketColor(0x262930), text = HocketColor(0xDFE3EA)
+    /// §6.2: "a 2 pt #131519 ring" — the well's own colour (the retired MIX pad's puck ring was #15161A; the first build of the back kept that one).
+    static let dotRingColor = HocketColor(0x131519)
     static let fillAlpha = 0.22, crosshairAlpha = 0.60, crosshairWidth: CGFloat = 1, textFont: CGFloat = 8, textTracking: CGFloat = 0.06
+}
+/// Does `chars` characters of the pads' 8 pt heavy label face (0.06 em tracking) fit in a pad `padWidth` wide with the 5 pt text inset on both sides? (The pads shrink to 44 pt in small windows; a word that cannot fit is
+/// shortened to its value rather than left to run over the neighbouring pad — §4.6 "truncate, never shrink".)
+func euclideousCardPadTextFits(_ chars: Int, padWidth: CGFloat) -> Bool {
+    EuclideousCardLabelMetrics.textWidth(chars, size: EuclideousCardXYMetrics.textFont, tracking: EuclideousCardXYMetrics.textTracking) <= padWidth - 2 * EuclideousCardXYMetrics.textInset + 1e-9
 }
 func euclideousCardXYDot(gate: Double, velocity: Int, in pad: CGRect) -> CGPoint {
     typealias X = EuclideousCardXYMetrics
@@ -298,7 +305,10 @@ func euclideousCardXYCrosshair(dot: CGPoint, in pad: CGRect) -> (horizontal: CGR
     return (CGRect(x: pad.minX, y: dot.y - w / 2, width: pad.width, height: w), CGRect(x: dot.x - w / 2, y: pad.minY, width: w, height: pad.height))
 }
 /// "VEL 24" top-left and "38%" bottom-right, 5 pt in (8 pt heavy, 0.06 em, #DFE3EA). The gate text is the page's own (`euclideousMixGateValueText`).
-func euclideousCardXYTexts(gate: Double, velocity: Int) -> (vel: String, gate: String) { ("VEL \(velocity)", euclideousMixGateValueText(gate: gate)) }
+func euclideousCardXYTexts(gate: Double, velocity: Int, padWidth: CGFloat = .infinity) -> (vel: String, gate: String) {
+    let word = "VEL \(velocity)"
+    return (euclideousCardPadTextFits(word.count, padWidth: padWidth) ? word : "\(velocity)", euclideousMixGateValueText(gate: gate))
+}
 
 enum EuclideousCardOctMetrics {
     static let height: CGFloat = 28, radius: CGFloat = 7, zone: CGFloat = 28, glyph: CGFloat = 10, glyphStroke: CGFloat = 1.6
@@ -382,8 +392,11 @@ func euclideousCardPitchHomeLines(in pad: CGRect) -> (horizontal: CGRect, vertic
     return (CGRect(x: pad.minX, y: h.y - w / 2, width: pad.width, height: w), CGRect(x: h.x - w / 2, y: pad.minY, width: w, height: pad.height))
 }
 /// "OCT +1" top-left, "TRANS +2" bottom-right: U+2212 for minus, "0" at zero.
-func euclideousCardPitchTexts(_ v: EuclideousCardPitchValue) -> (oct: String, trans: String) {
-    ("OCT \(euclideousMixOctaveText(v.octave))", "TRANS \(euclideousMixOctaveText(v.transpose))")
+/// In a pad too narrow for the word and the value ("TRANS +7" needs 56 pt) only the value is drawn.
+func euclideousCardPitchTexts(_ v: EuclideousCardPitchValue, padWidth: CGFloat = .infinity) -> (oct: String, trans: String) {
+    let o = euclideousMixOctaveText(v.octave), t = euclideousMixOctaveText(v.transpose)
+    let oct = "OCT \(o)", trans = "TRANS \(t)"
+    return (euclideousCardPadTextFits(oct.count, padWidth: padWidth) ? oct : o, euclideousCardPadTextFits(trans.count, padWidth: padWidth) ? trans : t)
 }
 /// Gestures (§6.8) written as values: the octave one step up / down (VoiceOver swipe), the transpose one step, and the reset.
 func euclideousCardPitchOctaveStep(_ v: EuclideousCardPitchValue, up: Bool) -> EuclideousCardPitchValue? {

@@ -3154,11 +3154,12 @@ func euclideousKeyPitchClassMask(root: Int, intervals: [Int]) -> UInt16 {
 }
 /// Moves `note` by `steps` steps of the scale whose pitch classes are `pcMask` (a scale of k notes: ±k steps is one octave). A note IN the scale lands on the scale note n steps away, crossing octaves as the steps wrap; a note
 /// OUTSIDE it moves as the scale note just below it does and keeps its semitone offset (the below-the-lowest-degree case anchors to the top degree of the octave below). The result is pinned to 0…127 (CARD BACKS v2 §6.6: "clamp").
-/// `steps == 0` or an empty scale returns `note` UNCHANGED (not even pinned), so the engine's zero-transpose path is the very value it always used. Allocation-free: bit tricks over the 12-bit mask, no sorted pitch-class array.
+/// `steps == 0`, an empty scale, or a `note` ALREADY outside 0…127 returns `note` UNCHANGED (not even pinned): the zero-transpose path is the very value the engine always used, and a pitch the engine would DROP downstream (`finalPitch` / `strikeChord`
+/// refuse anything outside 0…127 — a riff OCT +2 over a high source note) stays dropped instead of being pinned to 127 and sounding (adversarial review 2026-10-28). Allocation-free: bit tricks over the 12-bit mask, no sorted pitch-class array.
 /// (The LISTEN mover `euclideousListenMoveByInterval` does the same job for INTERVAL but allocates, and is one octave high for an off-scale note below its octave's lowest degree — e.g. C in D major — so it is not reused here.)
 func euclideousScaleStepMove(note: Int, steps: Int, pcMask: UInt16) -> Int {
     let mask = pcMask & 0x0FFF
-    guard steps != 0, mask != 0 else { return note }
+    guard steps != 0, mask != 0, note >= 0, note <= 127 else { return note }
     let pc = ((note % 12) + 12) % 12
     let m = mask.nonzeroBitCount
     let below = mask & UInt16((1 << (pc + 1)) - 1)                         // degrees at or under the note's own pitch class

@@ -249,6 +249,7 @@
 		C4FC8D3D987668BF1C537345 /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */; };
 		C51F6C7CA3B78101EE7826D8 /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54B806162177B626AC22A5D /* WalkTagPainter.swift */; };
 		C5FAA70DAA2123BDE08E7E23 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE216B742656753132B6BF90 /* RestartFlashPainter.swift */; };
+		C6656143061820D54D6F44FA /* FourfoldPitchDragReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 308B7B55B57D1EAE8DC0952B /* FourfoldPitchDragReviewTests.swift */; };
 		C7040C6E9599ECE99A704117 /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2CE4922DDE31C0061FDC98 /* LanesPanelPainter.swift */; };
 		C75FC6C8A41B660EA8B61575 /* HocketLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8CBCD5A831F4919B9B9C46 /* HocketLive.swift */; };
 		C773834BAB5ECD7E076FA16C /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */; };
@@ -419,6 +420,7 @@
 		29E016452526AE786D501E59 /* FourfoldAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldAppModel.swift; sourceTree = "<group>"; };
 		2F82B632EB1561C42D3E6FEA /* CellBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CellBrowser.swift; sourceTree = "<group>"; };
 		2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Emission.swift; sourceTree = "<group>"; };
+		308B7B55B57D1EAE8DC0952B /* FourfoldPitchDragReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldPitchDragReviewTests.swift; sourceTree = "<group>"; };
 		31975DCDE7466D94FADACC26 /* MacroAuthoring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroAuthoring.swift; sourceTree = "<group>"; };
 		32B0370916996785351E85CE /* FourfoldAU.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FourfoldAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		33ADAC80653CA2A15DC3535E /* RestartTilePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartTilePainter.swift; sourceTree = "<group>"; };
@@ -1018,6 +1020,7 @@
 				6FECA3302B50E7D4800DF132 /* FourfoldAccessibilityTests.swift */,
 				9FCF94D6B0B577386D2EB82A /* FourfoldCardBackReviewTests.swift */,
 				54A2360C33B73BDF7D5D05DD /* FourfoldMonkeyTests.swift */,
+				308B7B55B57D1EAE8DC0952B /* FourfoldPitchDragReviewTests.swift */,
 				5BEA593FF5849CFB5ADE3B53 /* FourfoldScreenshotTests.swift */,
 				CFED50679781AA2244482FB5 /* FourfoldStackBudgetTests.swift */,
 				4F27CCA1D229CE4863430480 /* FourfoldTapTests.swift */,
@@ -1348,6 +1351,7 @@
 				F00A3C3B78F764B6D950A2DA /* FourfoldAccessibilityTests.swift in Sources */,
 				CB3A0A5022DD3AEE477726B1 /* FourfoldCardBackReviewTests.swift in Sources */,
 				126EFE2CA5202E0E11739F95 /* FourfoldMonkeyTests.swift in Sources */,
+				C6656143061820D54D6F44FA /* FourfoldPitchDragReviewTests.swift in Sources */,
 				7D18DC173F7A5A158D2BFBE0 /* FourfoldScreenshotTests.swift in Sources */,
 				BFE4869E17DEFCAF14D9E1DF /* FourfoldStackBudgetTests.swift in Sources */,
 				BAAEAA2A082378363DDDE24B /* FourfoldTapTests.swift in Sources */,

@@ -73,6 +73,36 @@ final class OutTransposeTests: XCTestCase {
         }
     }
 
+    /// A note ALREADY outside 0…127 is handed back untouched (the engine drops such a pitch; pinning it would make it sound — adversarial review 2026-10-28); an in-range note the shift pushes outside is pinned.
+    func testANoteOutsideTheMidiRangeIsHandedBackUntouched() {
+        let c = mask(0, .major)
+        for n in [-1, -40, 128, 150, 10_000, -10_000] { for s in [-7, -1, 1, 7] { XCTAssertEqual(mv(n, s, c), n, "note \(n) steps \(s)") } }
+        XCTAssertEqual(mv(127, 1, c), 127); XCTAssertEqual(mv(0, -1, c), 0)
+    }
+    /// Brute force against an independent oracle (sorted pitch-class array, written separately): every scale × root × note −40…160 × steps −14…14 — 909,324 cases, covering the `below == 0` branch the agreement test skips.
+    func testItAgreesWithAnIndependentOracleEverywhere() {
+        func oracle(_ note: Int, _ steps: Int, _ pcs: [Int]) -> Int {
+            guard steps != 0, !pcs.isEmpty, note >= 0, note <= 127 else { return note }
+            let m = pcs.count, pc = ((note % 12) + 12) % 12
+            var octave = (note - pc) / 12, degree = -1
+            for i in 0..<m where pcs[i] <= pc { degree = i }
+            let offset: Int
+            if degree >= 0 { offset = pc - pcs[degree] } else { degree = m - 1; offset = pc - (pcs[m - 1] - 12); octave -= 1 }
+            let base = degree + steps, wrapped = ((base % m) + m) % m, laps = (base - wrapped) / m
+            return max(0, min(127, (octave + laps) * 12 + pcs[wrapped] + offset))
+        }
+        var checked = 0
+        for type in ScaleType.allCases { for root in 0..<12 {
+            let m = mask(root, type), pcs = Array(Set(type.intervals.map { (($0 + root) % 12 + 12) % 12 })).sorted()
+            for note in -40...160 { for steps in -14...14 {
+                let got = mv(note, steps, m), want = oracle(note, steps, pcs)
+                if got != want { XCTFail("\(type) root \(root) note \(note) steps \(steps): got \(got), oracle \(want)"); return }
+                checked += 1
+            } }
+        } }
+        XCTAssertGreaterThan(checked, 900_000)
+    }
+
     // MARK: persistence (§13.2)
 
     func testTheTwoFieldsDefaultToZeroClampAndRoundTrip() throws {

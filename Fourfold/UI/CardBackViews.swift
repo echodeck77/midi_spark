@@ -206,6 +206,7 @@ struct EuclideousCardBackPartRow: View {
         .frame(width: panel.width, height: panel.height)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(EuclideousCardBackAX.roll(part, silent: silent || !input.on))
+        .accessibilitySortPriority(2)
     }
 
     /// A rounded-corner shape for the TOP edge of `r` only (the roll) or the BOTTOM edge only (the jack strip): a rounded rectangle taller than `r` by the radius, clipped to `r` by the caller. (`UnevenRoundedRectangle` is iOS 16.)
@@ -335,6 +336,7 @@ struct EuclideousCardBackPartRow: View {
                 .accessibilityElement(children: .ignore)
                 .hocketPartAX(base: EuclideousCardBackAX.partToggle(part, on: input.on), lane: lane, notes: part == .notes, partOff: !input.on, rules: hocketRules, live: hocketLive)
                 .accessibilityAddTraits(.isButton)
+                .accessibilitySortPriority(5)
         }
         .opacity(input.on ? 1 : L.offAlpha)
         .frame(width: frames.rollPanel.width, height: frames.rollPanel.height, alignment: .topLeading)
@@ -357,6 +359,7 @@ struct EuclideousCardBackPartRow: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(EuclideousCardBackAX.invitation(kind))
                 .accessibilityAddTraits(.isButton)
+                .accessibilitySortPriority(0)
         }
         .frame(width: frames.rollPanel.width, height: frames.rollPanel.height, alignment: .topLeading)
     }
@@ -373,6 +376,7 @@ struct EuclideousCardBackPartRow: View {
                     .accessibilityLabel(EuclideousCardBackAX.jack(part, output: o, plugged: plugged))
                     .accessibilityAddTraits(.isButton)
                     .ringToggleTrait()
+                    .accessibilitySortPriority(1)
             }
         }
     }
@@ -410,16 +414,17 @@ struct EuclideousCardXYPad: View {
 
     @State private var burst = EuclideousPadUndoBurst()
     @State private var touching = false
-    @State private var startLocation: CGPoint? = nil
     @State private var lastWritten: (gate: Double, velocity: Int)? = nil
     @State private var lastShortTapAt: Double? = nil
+    /// True exactly while a drag is live — and, unlike `onEnded`, it also falls back to false when the system CANCELS the gesture (a call, a Control Center swipe), which is how a cancelled touch is noticed (review 2026-10-28).
+    @GestureState private var gestureLive = false
     private func now() -> Double { Date().timeIntervalSinceReferenceDate }
     private var pad: CGRect { CGRect(origin: .zero, size: frame) }
 
     var body: some View {
         typealias X = EuclideousCardXYMetrics
         let dot = euclideousCardXYDot(gate: gate, velocity: velocity, in: pad)
-        let texts = euclideousCardXYTexts(gate: gate, velocity: velocity)
+        let texts = euclideousCardXYTexts(gate: gate, velocity: velocity, padWidth: frame.width)
         let cross = euclideousCardXYCrosshair(dot: dot, in: pad)
         let fill = euclideousCardXYFillRect(dot: dot, in: pad)
         let d = X.dot + (touching ? 4 : 0)
@@ -437,7 +442,7 @@ struct EuclideousCardXYPad: View {
                 .frame(width: frame.width, height: frame.height, alignment: .bottomTrailing).padding(.trailing, 0)
                 .offset(x: -X.textInset, y: -X.textInset).allowsHitTesting(false)
             ZStack {
-                Circle().fill(EuclideousMixPalette.puckRing).frame(width: d + 2 * X.dotRing, height: d + 2 * X.dotRing)
+                Circle().fill(Color(X.dotRingColor)).frame(width: d + 2 * X.dotRing, height: d + 2 * X.dotRing)
                 Circle().fill(accent).frame(width: d, height: d)
             }
             .position(dot).allowsHitTesting(false)
@@ -446,21 +451,25 @@ struct EuclideousCardXYPad: View {
         .opacity(dimmed ? 0.42 : 1)
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 0)
+            .updating($gestureLive) { _, live, _ in live = true }
             .onChanged { drag in
-                if !touching { touching = true; startLocation = drag.location; lastWritten = nil; burst.touchDown(at: now()) }
+                if !touching { touching = true; lastWritten = nil; burst.touchDown(at: now()) }
                 apply(drag.location)
             }
             .onEnded { drag in
-                let start = startLocation ?? drag.location
-                let moved = hypot(drag.location.x - start.x, drag.location.y - start.y)
-                touching = false; startLocation = nil
+                let moved = hypot(drag.location.x - drag.startLocation.x, drag.location.y - drag.startLocation.y)
+                touching = false
                 burst.touchEnd(at: now())
                 if moved <= 4 {
                     if let last = lastShortTapAt, now() - last <= EuclideousPadUndoBurst.continueWithin { lastShortTapAt = nil; reset() } else { lastShortTapAt = now() }
                 } else { lastShortTapAt = nil }
             })
+        .onChange(of: gestureLive) { live in
+            if !live && touching { touching = false; lastWritten = nil; lastShortTapAt = nil; burst.touchEnd(at: now()) }   // the system cancelled the touch: close its burst so the next drag is a fresh undo step
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(EuclideousCardBackAX.xy(part, velocity: velocity, gate: gate))
+        .accessibilitySortPriority(4)
         .accessibilityAdjustableAction { direction in
             write(gate: gate, velocity: euclideousMixVelocityStep(velocity, up: direction == .increment), newStepAlways: true)
         }
@@ -472,8 +481,7 @@ struct EuclideousCardXYPad: View {
         let v = euclideousCardXYValues(at: p, in: pad)
         if let last = lastWritten, abs(last.gate - v.gate) < 1e-9, last.velocity == v.velocity { return }
         lastWritten = v
-        if abs(v.gate - gate) < 1e-9, v.velocity == velocity { return }
-        write(gate: v.gate, velocity: v.velocity, newStepAlways: false)
+        write(gate: v.gate, velocity: v.velocity, newStepAlways: false)   // (not compared with the model's value: it lags a render behind, and a return to the starting spot within one frame would be skipped — the funnel drops a write that changes nothing)
     }
     private func write(gate g: Double, velocity v: Int, newStepAlways: Bool) {
         let newStep = newStepAlways ? true : burst.nextWriteNeedsNewStep()
@@ -506,16 +514,16 @@ struct EuclideousCardPitchPad: View {
 
     @State private var burst = EuclideousPadUndoBurst()
     @State private var touching = false
-    @State private var startLocation: CGPoint? = nil
     @State private var lastWritten: EuclideousCardPitchValue? = nil
     @State private var lastShortTapAt: Double? = nil
+    @GestureState private var gestureLive = false           // see the VEL/GATE pad: false again when the system cancels the touch
     private func now() -> Double { Date().timeIntervalSinceReferenceDate }
     private var pad: CGRect { CGRect(origin: .zero, size: frame) }
 
     var body: some View {
         typealias P = EuclideousCardPitchMetrics
         let v = value, away = !v.isHome, isTouching = self.touching
-        let texts = euclideousCardPitchTexts(v)
+        let texts = euclideousCardPitchTexts(v, padWidth: frame.width)
         let size = frame
         return Canvas { ctx, sz in
             let pad = CGRect(origin: .zero, size: sz)
@@ -537,30 +545,34 @@ struct EuclideousCardPitchPad: View {
             layer.fill(Path(ellipseIn: CGRect(x: dot.x - d / 2 - P.dotRing, y: dot.y - d / 2 - P.dotRing, width: d + 2 * P.dotRing, height: d + 2 * P.dotRing)), with: .color(Color(P.well)))
             layer.fill(Path(ellipseIn: CGRect(x: dot.x - d / 2, y: dot.y - d / 2, width: d, height: d)), with: .color(away ? accent : Color(P.homeDot)))
             let tracking = P.textTracking * P.textFont
-            ctx.draw(Text(texts.oct).font(heavyMono(P.textFont)).tracking(tracking).foregroundColor(Color(P.text)), at: CGPoint(x: P.textInset, y: P.textInset), anchor: .topLeading)
-            ctx.draw(Text(texts.trans).font(heavyMono(P.textFont)).tracking(tracking).foregroundColor(Color(P.text)), at: CGPoint(x: sz.width - P.textInset, y: sz.height - P.textInset), anchor: .bottomTrailing)
+            layer.draw(Text(texts.oct).font(heavyMono(P.textFont)).tracking(tracking).foregroundColor(Color(P.text)), at: CGPoint(x: P.textInset, y: P.textInset), anchor: .topLeading)
+            layer.draw(Text(texts.trans).font(heavyMono(P.textFont)).tracking(tracking).foregroundColor(Color(P.text)), at: CGPoint(x: sz.width - P.textInset, y: sz.height - P.textInset), anchor: .bottomTrailing)   // on the clipped layer: a word never runs out of the pad
             layer.stroke(well, with: .color(Color(P.border)), lineWidth: 2)    // 1 pt #262930 border (2 pt centred on the clipped edge)
         }
         .frame(width: size.width, height: size.height)
         .opacity(dimmed ? 0.42 : 1)
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 0)
+            .updating($gestureLive) { _, live, _ in live = true }
             .onChanged { drag in
-                if !self.touching { self.touching = true; startLocation = drag.location; lastWritten = nil; burst.touchDown(at: now()) }
+                if !self.touching { self.touching = true; lastWritten = nil; burst.touchDown(at: now()) }
                 apply(drag.location)
             }
             .onEnded { drag in
-                let start = startLocation ?? drag.location
-                let moved = hypot(drag.location.x - start.x, drag.location.y - start.y)
-                self.touching = false; startLocation = nil
+                let moved = hypot(drag.location.x - drag.startLocation.x, drag.location.y - drag.startLocation.y)
+                self.touching = false
                 burst.touchEnd(at: now())
                 if moved <= 4 {
                     if let last = lastShortTapAt, now() - last <= EuclideousPadUndoBurst.continueWithin { lastShortTapAt = nil; reset(newStepAlways: false) } else { lastShortTapAt = now() }
                 } else { lastShortTapAt = nil }
             })
+        .onChange(of: gestureLive) { live in
+            if !live && self.touching { self.touching = false; lastWritten = nil; lastShortTapAt = nil; burst.touchEnd(at: now()) }   // the system cancelled the touch: close its burst
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(EuclideousCardBackAX.pitch(part))
         .accessibilityValue(EuclideousCardBackAX.pitchValue(value))
+        .accessibilitySortPriority(3)
         .accessibilityAdjustableAction { direction in
             if let n = euclideousCardPitchOctaveStep(value, up: direction == .increment) { write(n, newStepAlways: true) }
         }
@@ -572,8 +584,7 @@ struct EuclideousCardPitchPad: View {
         let v = euclideousCardPitchValue(at: p, in: pad)
         if let last = lastWritten, last == v { return }
         lastWritten = v
-        if v == value { return }
-        write(v, newStepAlways: false)
+        write(v, newStepAlways: false)           // (not compared with the model's value: it lags a render behind — the funnel drops a write that changes nothing)
     }
     private func write(_ v: EuclideousCardPitchValue, newStepAlways: Bool) {
         let newStep = newStepAlways ? true : burst.nextWriteNeedsNewStep()

@@ -148,8 +148,9 @@ final class PortsStressTests: XCTestCase {
         return m
     }
     /// CARD BACKS v2: each part's out-transpose drawn at random from its own stream — mostly 0 / nil, often a few steps either way, sometimes the extremes — and the scene rebuilt the way an edit publishes it.
-    private func retranspose(_ st: inout PluginState, _ h: inout SM64) {
-        func t(_ h: inout SM64) -> Int? { [nil, 0, Int.random(in: -7...7, using: &h), Int.random(in: -3...3, using: &h), 7, -7].randomElement(using: &h)! }
+    /// `zeroed`: draw the very same values from the stream but store none of them — the control run the pitch-sensitivity test compares against.
+    private func retranspose(_ st: inout PluginState, _ h: inout SM64, zeroed: Bool = false) {
+        func t(_ h: inout SM64) -> Int? { let v = [nil, 0, Int.random(in: -7...7, using: &h), Int.random(in: -3...3, using: &h), 7, -7].randomElement(using: &h)!; return zeroed ? nil : v }
         let ls = (st.euclideousLines ?? []).map { l -> EuclidLine in var m = l; m.riffOutTranspose = t(&h); m.notesOutTranspose = t(&h); return m }
         st.euclideousLines = ls
         let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
@@ -294,7 +295,7 @@ final class PortsStressTests: XCTestCase {
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0
-    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false) -> String? {
+    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false) -> String? {
         var g = SM64(seed)
         var h = SM64(seed ^ 0x0A7C_0FFE_E000)      // CARD BACKS v2: the out-transposes draw from their OWN stream, so the pinned fingerprints (no out-transpose) stay exactly what they were
         let router = Router()
@@ -302,7 +303,7 @@ final class PortsStressTests: XCTestCase {
         var diag = KernelDiag()
         let e = TaggedEmitter()
         var (st, pool) = rDoc(&g, rawGates: rawGates)
-        if outTranspose { retranspose(&st, &h) }
+        if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }
         var box = SnapshotBuilder.build(from: st)
         let sr = 48_000.0
         var tempo = Double([90, 120, 140].randomElement(using: &g)!)
@@ -317,8 +318,8 @@ final class PortsStressTests: XCTestCase {
         for w in 0..<windows {
             e.win = w
             // mutate the document / transport between windows
-            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
-            if outTranspose, h.next() % 3 == 0 { retranspose(&st, &h); box = SnapshotBuilder.build(from: st) }   // CARD BACKS v2: a PITCH pad dragged while notes sound
+            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if outTranspose, h.next() % 3 == 0 { retranspose(&st, &h, zeroed: zeroedTranspose); box = SnapshotBuilder.build(from: st) }   // CARD BACKS v2: a PITCH pad dragged while notes sound
             if Int.random(in: 0...2, using: &g) == 0 {   // busChannels change mid-note
                 switch Int.random(in: 0...3, using: &g) {
                 case 0: st.busChannels = (0..<8).map { _ in Int.random(in: 1...16, using: &g) }
@@ -460,6 +461,18 @@ final class PortsStressTests: XCTestCase {
     // CARD BACKS v2 (2026-10-28): out-transposes drawn at random AND changing mid-note — nothing strands, no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
     func testOutTransposeSessionsHoldEveryInvariant() {
         for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 200_000, windows: 24, outTranspose: true) { XCTFail(msg); return } }
+    }
+    /// The invariant fuzzes above pass whether or not a shift ever reaches the wire (mutation-tested by the 2026-10-28 review: with `outShift` disabled they stayed green). This one compares each session with the SAME session whose
+    /// out-transposes were drawn but not stored: the two must differ on the wire in most seeds, or the shifts never arrive.
+    func testOutTransposeSessionsReallyChangeTheNotesOnTheWire() {
+        var differing = 0, total = 0
+        for s in 1...120 {
+            let seed = UInt64(s) &+ 400_000
+            XCTAssertNil(runSession(seed: seed, windows: 24, outTranspose: true)); let shifted = lastSessionHash
+            XCTAssertNil(runSession(seed: seed, windows: 24, outTranspose: true, zeroedTranspose: true)); let control = lastSessionHash
+            total += 1; if shifted != control { differing += 1 }
+        }
+        XCTAssertGreaterThan(differing, total / 6, "only \(differing) of \(total) sessions sounded different with out-transposes on — the shifts are not reaching the wire")
     }
     func testOutTransposeSessionsAtGate100() {
         for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 300_000, windows: 24, rawGates: true, outTranspose: true) { XCTFail(msg); return } }

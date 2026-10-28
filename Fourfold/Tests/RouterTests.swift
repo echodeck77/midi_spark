@@ -8380,3 +8380,59 @@ extension RouterTests {
         XCTAssertEqual(firstNote(.harmonicMinor), 50)
     }
 }
+
+// MARK: - CARD BACKS v2 adversarial review (2026-10-28): clamp vs drop, and the two shift sites no test reached (LISTEN follower, mask CHORD extras)
+extension RouterTests {
+    /// A pitch that resolves OUTSIDE 0…127 before the shift (a riff OCT +2 over a high source note) is DROPPED by the engine; out-transpose must not pin it to 127 and make it sound.
+    func testOutTransposeNeverResurrectsAPitchTheEngineDrops() {
+        var l = fxLine(); l.riffOctave = 2                                       // 126 + 24 = 150
+        func ons(_ t: Int?) -> Int {
+            var m = l; m.riffOutTranspose = t
+            return fxRun(otBox([m], ranks: [1, 1, 1, 1, 1, 1, 1, 1], keyRoot: 4), beats: 4.5, pool: [126]).ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertEqual(ons(nil), 0, "a 150 pitch is dropped with no out-transpose")
+        XCTAssertEqual(ons(1), 0, "…and stays dropped with out-transpose +1 (it used to clamp to 127 and sound)")
+        XCTAssertEqual(ons(-1), 0)
+        // an in-range pitch the shift pushes past the top is still pinned (the ferry's 'clamp')
+        var top = fxLine(); top.riffOutTranspose = 7
+        let hi = fxRun(otBox([top], ranks: [1, 1, 1, 1, 1, 1, 1, 1], keyRoot: 0, keyType: .major), beats: 0.5, pool: [125]).ons.filter { $0.cable == 1 }
+        XCTAssertEqual(hi.first.map { Int($0.note) }, 127, "125 + 7 steps in C major is far past 127: pinned")
+    }
+    /// LISTEN SHADOW: the follower's OWN out-transpose applies to the note it plays, and the SOURCE lane's shift is baked into the strike the follower copies (then the follower's interval, then its own shift).
+    func testOutTransposeOnAShadowFollowerAndItsSource() {
+        let major = ScaleType.major.intervals, key = euclideousKeyPitchClassMask(root: 0, intervals: major)
+        func follower(redT: Int?, blueT: Int?) -> [Int] {
+            var red = listenRedLine(); red.riffOutTranspose = redT
+            var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenPitch = .shadow; blue.listenInterval = 2; blue.riffOutTranspose = blueT
+            return listenRun(red, blue, keyRoot: 0, keyType: .major).map { Int($0.note) }
+        }
+        let base = follower(redT: nil, blueT: nil)
+        XCTAssertEqual(base, [40, 41, 42], "red's C2 D2 E♭2 a diatonic third up in C major (the existing T5)")
+        let own = follower(redT: nil, blueT: 1)
+        XCTAssertEqual(own, base.map { euclideousScaleStepMove(note: $0, steps: 1, pcMask: key) }, "the follower's own out-transpose moves what it plays")
+        XCTAssertNotEqual(own, base)
+        let redShifted = [36, 38, 39].map { euclideousScaleStepMove(note: $0, steps: 2, pcMask: key) }
+        let inherited = follower(redT: 2, blueT: nil)
+        XCTAssertEqual(inherited, redShifted.map { euclideousListenMoveByInterval(note: $0, interval: 2, octave: 0, keyRoot: 0, scaleIntervals: major) }, "the source's shift is part of the strike the follower copies")
+        XCTAssertNotEqual(inherited, base)
+        let both = follower(redT: 2, blueT: 1)
+        XCTAssertEqual(both, inherited.map { euclideousScaleStepMove(note: $0, steps: 1, pcMask: key) }, "the two shifts compound: the source's is inherited, the follower's own is applied on top")
+    }
+    /// The (test-only) per-lane mask's CHORD mode adds notes resolved from the pool: they move with the part that struck them, and the other part does not.
+    func testOutTransposeMovesTheMaskChordExtrasWithTheirPart() {
+        var m = EuclidLineMask(); m.enabled = true; m.pulses = 2; m.steps = 2; m.chance = 1; m.mode = .chord; m.chordA = 2; m.chordB = 4
+        let key = euclideousKeyPitchClassMask(root: 0, intervals: ScaleType.naturalMinor.intervals)         // mixBox's default key: C minor
+        func played(_ t: Int?) -> Set<Int> {
+            var l = mixLine(pulses: 1, gate: 0.5, notesGate: 0.25, litNotes: 0b0000_0001, mask: m)         // the riff reads 55, the lit note 48
+            l.riffOutTranspose = t
+            let e = RecordingEmitter(); mixRun(mixBox(l), beats: 5, into: e, maskOn: true)
+            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        }
+        let base = played(nil), up = played(2)
+        let baseExtras = base.subtracting([55, 48]); XCTAssertFalse(baseExtras.isEmpty, "the CHORD mask added notes")
+        let riff = euclideousScaleStepMove(note: 55, steps: 2, pcMask: key)
+        XCTAssertNotEqual(riff, 55)
+        XCTAssertTrue(up.contains(riff), "the riff pitch moved"); XCTAssertTrue(up.contains(48), "the notes part's lit note did not")
+        XCTAssertEqual(up.subtracting([riff, 48]), Set(baseExtras.map { euclideousScaleStepMove(note: $0, steps: 2, pcMask: key) }), "the CHORD extras moved with the riff part")
+    }
+}

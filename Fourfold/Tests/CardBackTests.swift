@@ -269,6 +269,21 @@ final class CardBackTests: XCTestCase {
         XCTAssertEqual(P.homeLine, HocketColor(0x30333A)); XCTAssertEqual(P.homeCrosshair, HocketColor(138 << 16 | 144 << 8 | 154, 0.35)); XCTAssertEqual(P.homeDot, HocketColor(0x8A909A))
         near(P.dot, 11); near(P.dotRing, 2); near(P.fillAlpha, 0.22); near(P.crosshairAlpha, 0.60); near(P.detent, 2); near(P.textFont, 8); near(P.textInset, 5)
     }
+    /// Review 2026-10-28: in a pad too narrow for the word and its value only the value is drawn (a 44 pt pad used to let "TRANS +7" run ~7 pt out over its neighbour); the full words appear as soon as they fit.
+    func testThePadsTextsYieldToTheirValuesInANarrowPad() {
+        typealias V = EuclideousCardPitchValue
+        let v = V(octave: -2, transpose: 7)
+        XCTAssertEqual(euclideousCardPitchTexts(v).oct, "OCT \u{2212}2"); XCTAssertEqual(euclideousCardPitchTexts(v).trans, "TRANS +7", "no width given: the full words")
+        let at72 = euclideousCardPitchTexts(v, padWidth: 72); XCTAssertEqual(at72.oct, "OCT \u{2212}2"); XCTAssertEqual(at72.trans, "TRANS +7", "the reference 72 pt pad holds both words")
+        let at44 = euclideousCardPitchTexts(v, padWidth: 44)
+        XCTAssertEqual(at44.trans, "+7", "'TRANS +7' is 46 pt of type in a pad with 34 pt of room"); XCTAssertEqual(at44.oct, "\u{2212}2", "'OCT −2' is 34.6 pt: a hair over 34")
+        XCTAssertTrue(euclideousCardPadTextFits(8, padWidth: 57), "8 characters need 46.08 + 10"); XCTAssertFalse(euclideousCardPadTextFits(8, padWidth: 56))
+        XCTAssertEqual(euclideousCardXYTexts(gate: 0.38, velocity: 127, padWidth: 44).vel, "127", "'VEL 127' needs 51 pt of pad"); XCTAssertEqual(euclideousCardXYTexts(gate: 0.38, velocity: 127, padWidth: 72).vel, "VEL 127")
+        XCTAssertEqual(euclideousCardXYTexts(gate: 0.38, velocity: 24, padWidth: 44).gate, "38%", "the gate text is always short enough")
+        XCTAssertEqual(euclideousCardXYTexts(gate: 0.38, velocity: 24).vel, "VEL 24", "(the existing form is the default)")
+        XCTAssertEqual(EuclideousCardXYMetrics.dotRingColor, HocketColor(0x131519), "§6.2: the VEL/GATE dot's 2 pt ring is #131519, the same as the PITCH pad's")
+        XCTAssertEqual(EuclideousCardXYMetrics.dotRingColor, EuclideousCardPitchMetrics.well)
+    }
     /// What the pad writes: the part's own OCT field (the notes layer's through `octave` directly — a pad on an OFF part must not switch it on) and its out-transpose, nil at 0; nothing else on the line moves.
     func testThePitchPadWritesTheRightFieldsAndNeverSwitchesAPartOn() {
         typealias V = EuclideousCardPitchValue
