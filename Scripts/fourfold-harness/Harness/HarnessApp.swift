@@ -195,7 +195,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) ROUTED"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -236,6 +236,9 @@ extension Host {
                 }
                 if name.contains("ROUTED") {   // CARD BACKS (2026-10-28): the routing worst case — every riff part on all four outputs, the notes parts on A+C or all four, lane 4's notes routed nowhere (drawn, never sent); the roll ring takes a record per strike
                     au.editDocument { var ls = $0.euclideousLinesResolved; for i in 0..<4 { ls[i].riffOutMask = 0x0F; ls[i].notesOutMask = i == 3 ? 0 : (i % 2 == 0 ? 0b0101 : 0x0F) }; $0.euclideousLines = ls }
+                }
+                if name.contains("OUT-TRANSPOSE") {   // CARD BACKS v2 (2026-10-28): every part shifted by scale steps (±7 included) on top of the routing worst case — the scale-step mover runs on every strike
+                    au.editDocument { var ls = $0.euclideousLinesResolved; for i in 0..<4 { ls[i].riffOutTranspose = [3, -4, 7, -7][i]; ls[i].notesOutTranspose = [-5, 2, 7, -7][i] }; $0.euclideousLines = ls }
                 }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }
                 if name.contains("LATCH") { au.editDocument { $0.euclideousHoldLatchMode = .latch } }

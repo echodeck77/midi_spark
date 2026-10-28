@@ -8261,3 +8261,122 @@ extension RouterTests {
         assertNothingLeftSounding(e2)
     }
 }
+
+// MARK: - CARD BACKS v2 (2026-10-28) — a part's OUT-TRANSPOSE: its notes move by steps of the KEY pill's scale, just before its octave
+extension RouterTests {
+    /// `fxBox` with the page's KEY set (root + scale), so the expected pitches are a statement about the scale, not about the default key.
+    private func otBox(_ lines: [EuclidLine], ranks: [Int] = [1, 2, 3, 4, 5, 6, 7, 8], keyRoot: Int = 0, keyType: ScaleType = .naturalMinor) -> SnapshotBox {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: ranks)
+        c.paramsA.euclidLines = lines
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi
+        st.euclideousKeyRoot = keyRoot; st.euclideousKeyType = keyType
+        return SnapshotBuilder.build(from: st)
+    }
+    private func otNotes(_ e: RecordingEmitter, cable: UInt8) -> [Int] { fxOns(e, cable: cable).map { Int($0.note) } }
+
+    // §13.13 — the riff with OCT +1 and out-transpose +2 sounds each riff note two SCALE steps and an octave up; the notes part, routed to B, is untouched; ALL is the union.
+    func testOutTransposeMovesTheRiffPartByScaleStepsAndLeavesTheNotesPartAlone() {
+        func line(riffT: Int?, notesT: Int?) -> EuclidLine {
+            var l = fxLine(litNotes: 0b1).routed(riff: 0b0001, notes: 0b0010)           // riff → A, notes → B
+            l.riffOctave = 1; l.riffOutTranspose = riffT; l.notesOutTranspose = notesT
+            return l
+        }
+        let key = euclideousKeyPitchClassMask(root: 4, intervals: ScaleType.naturalMinor.intervals)              // E minor
+        let base = fxRun(otBox([line(riffT: nil, notesT: nil)], keyRoot: 4), beats: 4.5)
+        let baseRiff = otNotes(base, cable: 1), baseNotes = otNotes(base, cable: 2)
+        XCTAssertEqual(baseRiff.count, 5); XCTAssertEqual(baseNotes.count, 5)
+        XCTAssertEqual(baseRiff.first, 60, "pool rank 1 is C3 (48); OCT +1 makes C4")
+        let up = fxRun(otBox([line(riffT: 2, notesT: nil)], keyRoot: 4), beats: 4.5)
+        XCTAssertEqual(otNotes(up, cable: 1), baseRiff.map { euclideousScaleStepMove(note: $0, steps: 2, pcMask: key) }, "every riff note moved two scale steps")
+        XCTAssertEqual(otNotes(up, cable: 1).first, 64, "C4 in E minor: C → D → E4")
+        XCTAssertEqual(otNotes(up, cable: 2), baseNotes, "the notes part did not move")
+        XCTAssertEqual(up.ons.filter { $0.cable == 0 }.count, up.ons.filter { $0.cable == 1 }.count + up.ons.filter { $0.cable == 2 }.count, "ALL carries what A and B sent")
+        XCTAssertEqual(Set(up.ons.filter { $0.cable == 0 }.map { Int($0.note) }), Set(otNotes(up, cable: 1) + otNotes(up, cable: 2)), "…at their final pitches")
+        // the other part: only the notes move, and by steps DOWN
+        let down = fxRun(otBox([line(riffT: nil, notesT: -3)], keyRoot: 4), beats: 4.5)
+        XCTAssertEqual(otNotes(down, cable: 2), baseNotes.map { euclideousScaleStepMove(note: $0, steps: -3, pcMask: key) })
+        XCTAssertEqual(otNotes(down, cable: 1), baseRiff)
+        XCTAssertNotEqual(otNotes(down, cable: 2), baseNotes)
+        // zero is the engine as it was, event for event
+        var zero = line(riffT: 0, notesT: 0); zero.riffOutTranspose = 0
+        XCTAssertEqual(fxStream(fxRun(otBox([zero], keyRoot: 4), beats: 4.5)), fxStream(base), "out-transpose 0 changes nothing")
+        assertNothingLeftSounding(up); assertNothingLeftSounding(down)
+    }
+    // §13.4 — the notes layer's duplicate of a riff pitch is dropped on a shared output by FINAL pitch: the two parts moving apart un-collides them; moving together keeps them colliding.
+    func testACollisionIsJudgedOnFinalPitches() {
+        func ons(riffT: Int, notesT: Int) -> Int {
+            var l = fxLine(litNotes: 0b1)                                               // both parts on lane 1's own output A; the riff and the lit note are both pool rank 1 (C3)
+            l.riffOutTranspose = riffT; l.notesOutTranspose = notesT
+            return fxRun(otBox([l], ranks: [1, 1, 1, 1, 1, 1, 1, 1]), beats: 4.5).ons.filter { $0.cable == 1 }.count
+        }
+        XCTAssertEqual(ons(riffT: 0, notesT: 0), 5, "the same pitch from both parts on one output: one note-on a hit")
+        XCTAssertEqual(ons(riffT: 2, notesT: 2), 5, "both moved the same way: still the same pitch, still one")
+        XCTAssertEqual(ons(riffT: 2, notesT: 0), 10, "moved apart: two different pitches, two note-ons a hit")
+        XCTAssertEqual(ons(riffT: 0, notesT: -1), 10)
+    }
+    // A change while a note sounds (90 % gate): the note struck before the edit ends at ITS pitch at its normal time; the next one takes the new pitch.
+    func testChangingTheOutTransposeWhileANoteSoundsNeverMovesOrStrandsIt() {
+        var l = fxLine(gate: 0.9); l.riffOctave = 0
+        func box(_ t: Int?) -> SnapshotBox { var m = l; m.riffOutTranspose = t; return otBox([m], ranks: [1, 1, 1, 1, 1, 1, 1, 1]) }
+        let before = box(nil), after = box(2)
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let sr = 48_000.0, tempo = 120.0, frames: UInt32 = 480
+        var beat = 0.0, ts = 0.0
+        let editBeat = 1.4                                                              // the hit at beat 1 is still sounding (to beat 1.9)
+        while beat < 4 {
+            router.process(box: beat < editBeat ? before : after, pool: chord(fxPoolNotes), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += Double(frames) * tempo / 60 / sr; ts += Double(frames)
+        }
+        router.process(box: after, pool: chord(fxPoolNotes), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
+        let key = euclideousKeyPitchClassMask(root: 0, intervals: ScaleType.naturalMinor.intervals)
+        let ons = fxOns(e, cable: 1).filter { $0.beat < 3.99 }
+        XCTAssertEqual(ons.map { Int($0.beat.rounded()) }, [0, 1, 2, 3])
+        let plain = Int(ons[0].note), moved = euclideousScaleStepMove(note: plain, steps: 2, pcMask: key)
+        XCTAssertNotEqual(plain, moved)
+        XCTAssertEqual(ons.map { Int($0.note) }, [plain, plain, moved, moved], "hits before the edit keep the old pitch, hits after take the new")
+        let off = e.offs.first { $0.cable == 1 && Int($0.note) == plain && Double($0.sample) / 24_000 > ons[1].beat }
+        XCTAssertEqual(Double(off?.sample ?? 0) / 24_000, ons[1].beat + 0.9, accuracy: 0.01, "the note sounding at the edit ends on its own pitch at its normal time")
+        XCTAssertNil(e.events.first { $0.cable == 1 && $0.status == 0x80 && Int($0.note) == moved && $0.sample >= 0 && Double($0.sample) / 24_000 < 2 }, "…and nothing is ever released at the new pitch before it began")
+        assertNothingLeftSounding(e)
+    }
+    // GATE 100 (legato): a note held across hits at one pitch does NOT carry into a hit at a different pitch — it ends there, and the new pitch begins.
+    func testLegatoNeverCarriesAcrossAChangeOfPitch() {
+        var l = fxLine(gate: 1.0); l.riffOctave = 0
+        func box(_ t: Int?) -> SnapshotBox { var m = l; m.riffOutTranspose = t; return otBox([m], ranks: [1, 1, 1, 1, 1, 1, 1, 1]) }
+        func run(_ editAt: Double?) -> RecordingEmitter {
+            let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+            let sr = 48_000.0, tempo = 120.0, frames: UInt32 = 480
+            var beat = 0.0, ts = 0.0
+            while beat < 4 {
+                router.process(box: (editAt.map { beat >= $0 } ?? false) ? box(2) : box(nil), pool: chord(fxPoolNotes), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += Double(frames) * tempo / 60 / sr; ts += Double(frames)
+            }
+            router.process(box: box(2), pool: chord(fxPoolNotes), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
+            return e
+        }
+        let steady = run(nil)
+        XCTAssertEqual(fxOns(steady, cable: 1).count, 1, "at 100 % one pitch is ONE legato note-on across every hit")
+        let e = run(1.4)
+        let ons = fxOns(e, cable: 1)
+        XCTAssertEqual(ons.count, 2, "the pitch change starts a second note: one carried note before the edit, one after")
+        XCTAssertNotEqual(ons[0].note, ons[1].note)
+        let firstOff = e.offs.first { $0.cable == 1 && $0.note == ons[0].note }
+        XCTAssertNotNil(firstOff); XCTAssertLessThanOrEqual(Double(firstOff?.sample ?? .max) / 24_000, ons[1].beat + 0.05, "the first note is released at the hit where the pitch changed — not carried over it")
+        assertNothingLeftSounding(e)
+    }
+    // a different key reaches the engine: the same +1 step is a different interval in a different scale
+    func testTheStepIsInTheKeyPillsScale() {
+        func firstNote(_ type: ScaleType) -> Int {
+            var l = fxLine(); l.riffOutTranspose = 1
+            return Int(fxOns(fxRun(otBox([l], keyRoot: 0, keyType: type), beats: 0.5), cable: 1)[0].note)
+        }
+        XCTAssertEqual(firstNote(.major), 50, "C3 +1 in C major → D3")
+        XCTAssertEqual(firstNote(.chromatic), 49, "C3 +1 in the chromatic scale → C♯3")
+        XCTAssertEqual(firstNote(.majorPentatonic), 50)
+        XCTAssertEqual(firstNote(.harmonicMinor), 50)
+    }
+}

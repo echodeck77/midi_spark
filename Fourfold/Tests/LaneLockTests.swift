@@ -49,7 +49,7 @@ final class LaneLockTests: XCTestCase {
         let blank = EuclidLine()
         let others: [(String, (inout EuclidLine) -> Void)] = [
             ("enabled", { $0.enabled = false }), ("gate", { $0.gate = 0.5 }), ("velocityAbsolute", { $0.velocityAbsolute = 60 }),
-            ("octave", { $0.octave = 1 }), ("riffOctave", { $0.riffOctave = -1 }), ("notesGate", { $0.notesGate = 0.4 }), ("notesVelocity", { $0.notesVelocity = 70 }),
+            ("octave", { $0.octave = 1 }), ("riffOctave", { $0.riffOctave = -1 }), ("riffOutTranspose", { $0.riffOutTranspose = 2 }), ("notesOutTranspose", { $0.notesOutTranspose = -2 }), ("notesGate", { $0.notesGate = 0.4 }), ("notesVelocity", { $0.notesVelocity = 70 }),
             ("muteCells16", { $0.muteCells16 = 0x00FF }), ("muteUnit", { $0.muteUnit = 1 }), ("sourceMode", { $0.sourceMode = .midi }),
             ("listenRhythmMode", { $0.listenRhythmMode = .with }), ("listenPitchMode", { $0.listenPitchMode = .shadow }), ("listenLevelMode", { $0.listenLevelMode = .duck }),
             // LISTEN REBUILT (2026-10-23): the nine new fields are not lock fields either — confirmed, not assumed.

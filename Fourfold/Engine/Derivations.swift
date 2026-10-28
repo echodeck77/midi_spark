@@ -3144,6 +3144,36 @@ func euclideousListenMoveByInterval(note: Int, interval: Int, octave: Int, keyRo
     let moved = (noteOctave + laps) * 12 + pcs[wrapped] + offset + 12 * octave
     return euclideousListenOctaveClamp(moved)
 }
+// MARK: - CARD BACKS v2: a part's OUT-TRANSPOSE (steps of the KEY pill's scale)
+
+/// The KEY pill's scale as a 12-bit pitch-class set: bit pc is set for every degree `(interval + root) mod 12`. Zero for an empty scale. Built once per render window — no allocation (iterating an array allocates nothing).
+func euclideousKeyPitchClassMask(root: Int, intervals: [Int]) -> UInt16 {
+    var m: UInt16 = 0
+    for iv in intervals { m |= UInt16(1) << UInt16((((iv + root) % 12) + 12) % 12) }
+    return m
+}
+/// Moves `note` by `steps` steps of the scale whose pitch classes are `pcMask` (a scale of k notes: ±k steps is one octave). A note IN the scale lands on the scale note n steps away, crossing octaves as the steps wrap; a note
+/// OUTSIDE it moves as the scale note just below it does and keeps its semitone offset (the below-the-lowest-degree case anchors to the top degree of the octave below). The result is pinned to 0…127 (CARD BACKS v2 §6.6: "clamp").
+/// `steps == 0` or an empty scale returns `note` UNCHANGED (not even pinned), so the engine's zero-transpose path is the very value it always used. Allocation-free: bit tricks over the 12-bit mask, no sorted pitch-class array.
+/// (The LISTEN mover `euclideousListenMoveByInterval` does the same job for INTERVAL but allocates, and is one octave high for an off-scale note below its octave's lowest degree — e.g. C in D major — so it is not reused here.)
+func euclideousScaleStepMove(note: Int, steps: Int, pcMask: UInt16) -> Int {
+    let mask = pcMask & 0x0FFF
+    guard steps != 0, mask != 0 else { return note }
+    let pc = ((note % 12) + 12) % 12
+    let m = mask.nonzeroBitCount
+    let below = mask & UInt16((1 << (pc + 1)) - 1)                         // degrees at or under the note's own pitch class
+    var octave = (note - pc) / 12
+    let degree: Int, offset: Int
+    if below != 0 { degree = below.nonzeroBitCount - 1; offset = pc - (15 - below.leadingZeroBitCount) }
+    else { degree = m - 1; offset = pc - ((15 - mask.leadingZeroBitCount) - 12); octave -= 1 }   // below every degree of this octave: the top degree of the octave below
+    let base = degree + steps
+    let wrapped = ((base % m) + m) % m
+    let laps = (base - wrapped) / m
+    var bits = mask
+    for _ in 0..<wrapped { bits &= bits &- 1 }                            // the wrapped-th set bit, counting up from the lowest
+    let moved = (octave + laps) * 12 + bits.trailingZeroBitCount + offset
+    return max(0, min(127, moved))
+}
 /// §4.3/§9.8: does `mask` (from `euclideousListenAvoidMask`) require dropping `note`?
 func euclideousListenAvoidDrops(note: Int, mask: UInt16) -> Bool {
     (mask >> UInt16(((note % 12) + 12) % 12)) & 1 != 0

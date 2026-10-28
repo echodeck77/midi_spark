@@ -330,6 +330,22 @@ final class HocketRouterTests: XCTestCase {
         XCTAssertEqual(e.ons(0).filter { $0.beat >= 4 && $0.beat < 8 && $0.chan == chanNibble(blueNotes) }.count, e.ons(blueNotes).filter { $0.beat >= 4 && $0.beat < 8 }.count, "bar 2: ALL carries the passed line on BLUE NOTES' channel too")
         assertBalanced(e)
     }
+    /// CARD BACKS v2 §6.6: a passed note keeps its SOURCE's pitch — the source part's octave and out-transpose included; the receiving part's own out-transpose does not touch it.
+    func testAPassedNoteKeepsItsSourcesPitchOutTransposeIncluded() {
+        var lanes = (0..<4).map { laneLine($0, notes: false) }
+        lanes[0].riffOutTranspose = 2; lanes[1].riffOutTranspose = -3                 // RED RIFF +2 steps, BLUE RIFF (the receiver) −3
+        let rules = [rule(main: [RR], alt: [BR]) { $0.mode = .pass; $0.mainLen = 1; $0.altLen = 1 }]
+        let e = render(doc(lanes: lanes, rules: rules), beats: 4), base = render(doc(lanes: lanes), beats: 4)
+        for b in [0.5, 1.5, 2.5, 3.5] {                                               // the ALT turns
+            let red = base.ons(redRiff).filter { $0.beat == b }.map { $0.note }
+            XCTAssertFalse(red.isEmpty)
+            XCTAssertEqual(e.ons(blueRiff).filter { $0.beat == b }.map { $0.note }, red, "hit at \(b): BLUE RIFF carries RED RIFF's note at RED's final pitch")
+        }
+        var plain = lanes; plain[0].riffOutTranspose = nil; plain[1].riffOutTranspose = nil
+        let flat = render(doc(lanes: plain, rules: rules), beats: 4)
+        XCTAssertNotEqual(e.ons(blueRiff).map { $0.note }, flat.ons(blueRiff).map { $0.note }, "the out-transpose is audible in the passed line")
+        assertBalanced(e)
+    }
     /// Paul, 2026-10-27: ONE MAIN output passed to TWO ALT outputs (a riff and a notes output), TOGETHER: the line comes out of BOTH, each at the receiving pad's MIX VEL — at any window size; BLUE's NOTES layer is off and it still sounds.
     func testOneLinePassedToARiffAndANotesOutputComesOutOfBoth() {
         var lanes = (0..<4).map { laneLine($0, notes: false) }

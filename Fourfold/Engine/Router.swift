@@ -2460,6 +2460,8 @@ final class Router {
                                 riffDir: RiffDir = .forward, riffDirSeed: Int = 0, riffDirBias: Double = 0, tilt: Double = 0,
                                 riffLock: Bool = false, riffInvert: Bool = false, riffOnRest: EuclidRiffOnRest = .skip,
                                 riffStride: Int = 1, riffLength: Int = 8, riffAdvanceStep: Bool = false, riffAdvanceEvery: Int = 1, melodyTranspose: Int = 0,
+                                // CARD BACKS v2 (2026-10-28): each PART's out-transpose — steps of the KEY pill's scale, applied where the part's pitch is CHOSEN (`outShift` below), so every later reader sees the final pitch.
+                                riffOutTranspose: Int = 0, notesOutTranspose: Int = 0,
                                 mask: EuclidLineMask = EuclidLineMask(), customHits: [Bool]? = nil,
                                 // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry) — read ONLY
                                 // inside the new `isEuclideousRow` branch below; every other (non-Euclideous)
@@ -3102,6 +3104,14 @@ final class Router {
                             // every strike below reads.
                             var notesPitchMask: UInt16 = 0
                             var pitchCount = 0
+                            // CARD BACKS v2: a part's OUT-TRANSPOSE — N steps of the KEY pill's scale (`euclideousScaleStepMove`), the last pitch change before the part's octave (the octave is already inside `riffResolve`; scale steps commute with
+                            // +12, so the order only shows at the 0/127 pin). Applied where each pitch is CHOSEN, so the dedupe in `addPitch`, the held-riff-pitch and TIE comparisons, NOTE VIEW, the roll, ratchet / ROLL / RUN tails and the
+                            // hocket remap all work on the FINAL pitch (a passed hocket note keeps its source's pitch). Zero ⇒ the very value the engine always used; the key's pitch-class mask is built only when a part has a shift.
+                            let outKeyMask: UInt16 = (riffOutTranspose != 0 || notesOutTranspose != 0) ? euclideousKeyPitchClassMask(root: p.euclideousChordKeyRoot, intervals: p.euclideousChordKeyTones) : 0
+                            func outShift(_ v: Int, notes: Bool) -> Int {
+                                let steps = notes ? notesOutTranspose : riffOutTranspose
+                                return steps == 0 ? v : euclideousScaleStepMove(note: v, steps: steps, pcMask: outKeyMask)
+                            }
                             func addPitch(_ v: Int, vel: UInt8, gate g: Double, notesLayer: Bool = false, heldByRiff: Bool = false) {
                                 guard pitchCount < 9 else { return }
                                 let bus = Int(notesLayer ? notesBus : riffBus)
@@ -3213,7 +3223,7 @@ final class Router {
                                     cycle.forEachPitch(idx) { note in
                                         let moved = euclideousListenMoveByInterval(note: note, interval: listenInterval, octave: listenOctave,
                                                                                     keyRoot: p.euclideousChordKeyRoot, scaleIntervals: p.euclideousChordKeyTones)
-                                        addPitch(moved, vel: UInt8(velocityAbsolute), gate: gate)
+                                        addPitch(outShift(moved, notes: false), vel: UInt8(velocityAbsolute), gate: gate)
                                     }
                                 }
                                 if listenPitch == .shadow {
@@ -3313,9 +3323,10 @@ final class Router {
                                             repeatedColumn = Int8(found.column)
                                             return strikeRiffRawRank(found.rank, repeating: true)
                                         }
-                                    } else if let note0 = fxMoved
+                                    } else if let note0Raw = fxMoved
                                                 ? riffResolveExtended(rank: rank, oct: riffOctave, n: thisLaneCount, asc: { notes[$0].note })   // a NOTE-moved rank folds both ways (rank 0 = the octave below)
                                                 : riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
+                                        let note0 = outShift(note0Raw, notes: false)   // CARD BACKS v2: the riff part's out-transpose
                                         hadRiffNote = true
                                         riffRank = rank; riffNote = note0
                                         addPitch(note0, vel: fxRiffVel(), gate: fxRiffGate())   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
@@ -3368,7 +3379,7 @@ final class Router {
                                         }
                                         let pick = euclideousNotesWayPick(list: notesList, way: notesPlayAs, k: notesK)
                                         for i in 0..<pick.count {
-                                            let pch = notesList.pitch(pick[i])
+                                            let pch = outShift(notesList.pitch(pick[i]), notes: true)   // CARD BACKS v2: the notes part's out-transpose
                                             let at = pitchCount
                                             addPitch(pch, vel: fxLitVel(), gate: fxLitGate(), notesLayer: true, heldByRiff: pch == heldRiffPitch)
                                             if pitchCount > at {
@@ -3406,7 +3417,7 @@ final class Router {
                                         if euclideousNotesWhenChooses(when: notesWhen, isRestHit: isRest), euclideousNotesChanceAllows(chance: notesChance, lane: lineIndex, h: scanH) {
                                             if isRest {
                                                 let pk = euclideousNotesWayPick(list: notesList, way: notesPlayAs, k: scanK)
-                                                for i in 0..<pk.count where notesList.pitch(pk[i]) != heldForTie || notesOnlyOuts != 0 { strikes = true; break }   // a pitch the riff holds still strikes on the outputs only the notes use
+                                                for i in 0..<pk.count where outShift(notesList.pitch(pk[i]), notes: true) != heldForTie || notesOnlyOuts != 0 { strikes = true; break }   // a pitch the riff holds still strikes on the outputs only the notes use
                                             }
                                             scanK += 1
                                         }
@@ -3556,7 +3567,7 @@ final class Router {
                                 repNote = pitches[0..<pitchCount].max() ?? pitches[0]
                                 repRank = thisLaneCount   // best-effort fallback: CHORD's own resolveRank below only needs A pool rank for its interval offsets, not which specific toggle produced this exact pitch
                                 // NOTES TAB: the representative's pool rank is the rank of the play-list entry that struck this pitch (the list is the one thing that resolved it).
-                                for i in 0..<notesList.count where notesList.pitch(i) == repNote { repRank = notesList.rank(i); break }
+                                for i in 0..<notesList.count where outShift(notesList.pitch(i), notes: true) == repNote { repRank = notesList.rank(i); break }
                             }
                             let maskOct = hadRiffNote ? riffOctave : octave
                             // RIFF/NOTES SPLIT: the representative's own base velocity, layer-aware — mirrors
@@ -3598,7 +3609,7 @@ final class Router {
                             // resolved note, never `xf.note` directly) so the uniform loop below lands them at
                             // exactly `xf.vel`, not double-counted.
                             let velDelta = Int(xf.vel) - Int(repVelBase)
-                            for extra in xf.extra { addPitch(extra, vel: repVelBase, gate: repGateBase) }   // CHORD's own stab notes, deduped against everything already in the set
+                            for extra in xf.extra { addPitch(outShift(extra, notes: !hadRiffNote), vel: repVelBase, gate: repGateBase) }   // CHORD's own stab notes, deduped against everything already in the set
                             for i in 0..<pitchCount {
                                 let shifted = pitches[i] + noteDelta
                                 if shifted >= 0 && shifted <= 127 { pitches[i] = shifted }
@@ -4571,7 +4582,7 @@ final class Router {
                               // mask's code and saved data for now"), just never fed a genuinely-enabled
                               // mask here. The non-Euclideous call path (none exists today, but kept
                               // symmetric for any future caller) still passes the real resolved mask.
-                              melodyTranspose: L.melodyTransposeResolved, mask: (isEuclideousRow && !euclideousMaskEnabledForTests) ? EuclidLineMask() : L.maskResolved,
+                              melodyTranspose: L.melodyTransposeResolved, riffOutTranspose: L.riffOutTransposeResolved, notesOutTranspose: L.notesOutTransposeResolved, mask: (isEuclideousRow && !euclideousMaskEnabledForTests) ? EuclidLineMask() : L.maskResolved,
                               // RENDER-THREAD ALLOCATION FIX (2026-10-13 adversarial review): `customHitsResolved`
                               // can allocate (padding/truncating to a target length) whenever the stored array's
                               // own length disagrees with the target — a latent, currently-unreachable risk since

@@ -112,6 +112,7 @@
 		57BCDCBF45A53D8A884EBBA3 /* HocketGlyphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB4E013DDA3B122F0BEEBFB8 /* HocketGlyphView.swift */; };
 		58C0C039EB97E7DB0F167462 /* FourfoldEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41C41DF4A68365DC33446B95 /* FourfoldEngine.swift */; };
 		58D4D5B400586BB6CDEC53FB /* LockModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11A47312E5B36EA267536F5 /* LockModePainter.swift */; };
+		598774BB6D7BAFCCA015D419 /* OutTransposeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03A0A18293719D2C8BD2B9FB /* OutTransposeTests.swift */; };
 		59AB6964C8403D8ECB724041 /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */; };
 		5A1ECD0A184CC6B215ED8EFD /* FourfoldApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64516CBB3BE6C619CF15CBF3 /* FourfoldApp.swift */; };
 		5A8A8BD8E9DBBC7033433590 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9400D76881E4F5F6EFFF6BF3 /* Emission.swift */; };
@@ -393,6 +394,7 @@
 		00A0AAF1BEFC7A0801E48D8E /* ChordsGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordsGridTests.swift; sourceTree = "<group>"; };
 		00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
 		02F746D9F92666A12823BADF /* Fourfold.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Fourfold.entitlements; sourceTree = "<group>"; };
+		03A0A18293719D2C8BD2B9FB /* OutTransposeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutTransposeTests.swift; sourceTree = "<group>"; };
 		0504D981DD4BF1856C773AA7 /* MidiFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiFile.swift; sourceTree = "<group>"; };
 		0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
 		08530382AAA337959EA7983D /* SnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilder.swift; sourceTree = "<group>"; };
@@ -774,6 +776,7 @@
 				372CA48448A531F0C9C47D25 /* MigrationTests.swift */,
 				EE63B3EA2A58FDDCB52C7C9D /* NoteRollTests.swift */,
 				354DBFBF5F37251A2C53939E /* NotesTabTests.swift */,
+				03A0A18293719D2C8BD2B9FB /* OutTransposeTests.swift */,
 				5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */,
 				4448C88CC517582DAFC89326 /* PortsStressTests.swift */,
 				99F625F72C3FD2D49A4440D5 /* PresetStoreTests.swift */,
@@ -1466,6 +1469,7 @@
 				7F7C8B318D46429B3492F2C4 /* NoteRollRing.swift in Sources */,
 				F55BED8580E387C57A9357FD /* NoteRollTests.swift in Sources */,
 				9181BD2325284B21706DD007 /* NotesTabTests.swift in Sources */,
+				598774BB6D7BAFCCA015D419 /* OutTransposeTests.swift in Sources */,
 				FB90E1D2C6DD0490D543E2CC /* PageLayoutTests.swift in Sources */,
 				50DDE4A2AA20ABE1CD4B82AF /* PortsStressTests.swift in Sources */,
 				C79BA16AFBFFB6C53F200E37 /* PresetStore.swift in Sources */,

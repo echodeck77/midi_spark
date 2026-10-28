@@ -641,6 +641,12 @@ struct EuclidLine: Codable, Equatable {
     //    stored `tilt` would change how existing sessions sound, so a lane plays unrounded only when `tiltFine` is set (the TILT slider writes both fields, so an older build still reads `tilt`). nil ⇒ today's rounded TILT.
     var offsetFraction: Double? = nil
     var tiltFine: Double? = nil
+    // CARD BACKS v2 (Paul 2026-10-28, the PITCH pad) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant: each PART's OUT-TRANSPOSE, −7…+7 STEPS of the KEY pill's scale, the last pitch change
+    // before the part's octave (`euclideousScaleStepMove`). NOT `melodyTranspose` (the RIFF tab's TRANS, which shifts RANKS) and never written by it. nil ⇒ 0, byte-identical to a document that never had it.
+    var riffOutTranspose: Int? = nil
+    var notesOutTranspose: Int? = nil
+    var riffOutTransposeResolved: Int { max(-7, min(7, riffOutTranspose ?? 0)) }
+    var notesOutTransposeResolved: Int { max(-7, min(7, notesOutTranspose ?? 0)) }
     /// `offsetFraction` as the engine reads it: 0 for nil / non-finite, else clamped into 0..<1.
     var offsetFractionResolved: Double {
         guard let f = offsetFraction, f.isFinite else { return 0 }
@@ -961,6 +967,9 @@ extension EuclidLine {
         // RHYTHM POLISH ferry (2026-10-22, §4.1): tolerant by construction (`try?`): a wrong-typed value reads as missing, never a whole-session reset; clamped at decode.
         offsetFraction = (try? c.decodeIfPresent(Double.self, forKey: .offsetFraction)).flatMap { $0 }.flatMap { $0.isFinite ? max(0, min(1 - 1e-9, $0)) : nil }
         tiltFine = (try? c.decodeIfPresent(Double.self, forKey: .tiltFine)).flatMap { $0 }.flatMap { $0.isFinite ? max(-1, min(1, $0)) : nil }
+        // CARD BACKS v2: tolerant (`try?`), clamped at decode.
+        riffOutTranspose = (try? c.decodeIfPresent(Int.self, forKey: .riffOutTranspose)).flatMap { $0 }.map { max(-7, min(7, $0)) }
+        notesOutTranspose = (try? c.decodeIfPresent(Int.self, forKey: .notesOutTranspose)).flatMap { $0 }.map { max(-7, min(7, $0)) }
         // NOTES TAB ferry (2026-10-19, §5): tolerant by construction (`try?`): a wrong-typed value reads as missing, never a whole-session reset.
         let rawWhen = (try? c.decodeIfPresent(UInt8.self, forKey: .notesWhen)).flatMap { $0 }
         notesChance = (try? c.decodeIfPresent(Int.self, forKey: .notesChance)).flatMap { $0 }.map(EuclidLine.nearestLegalNotesChance)

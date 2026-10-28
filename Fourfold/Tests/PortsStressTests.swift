@@ -147,6 +147,15 @@ final class PortsStressTests: XCTestCase {
         m.riffOutMask = mask(&g); m.notesOutMask = mask(&g)
         return m
     }
+    /// CARD BACKS v2: each part's out-transpose drawn at random from its own stream — mostly 0 / nil, often a few steps either way, sometimes the extremes — and the scene rebuilt the way an edit publishes it.
+    private func retranspose(_ st: inout PluginState, _ h: inout SM64) {
+        func t(_ h: inout SM64) -> Int? { [nil, 0, Int.random(in: -7...7, using: &h), Int.random(in: -3...3, using: &h), 7, -7].randomElement(using: &h)! }
+        let ls = (st.euclideousLines ?? []).map { l -> EuclidLine in var m = l; m.riffOutTranspose = t(&h); m.notesOutTranspose = t(&h); return m }
+        st.euclideousLines = ls
+        let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
+                                          soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
+        st.scenes = [FourfoldCompose.scene(input)]
+    }
     private func rDoc(_ g: inout SM64, lanes: [EuclidLine]? = nil, rawGates: Bool = false, randomRouting: Bool = true) -> (PluginState, NotePool) {
         var st = PluginState.makeInit()
         st.machines.append(Machine(machineID: FourfoldCompose.machineID, type: .euclid))
@@ -285,13 +294,15 @@ final class PortsStressTests: XCTestCase {
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0
-    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false) -> String? {
+    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false) -> String? {
         var g = SM64(seed)
+        var h = SM64(seed ^ 0x0A7C_0FFE_E000)      // CARD BACKS v2: the out-transposes draw from their OWN stream, so the pinned fingerprints (no out-transpose) stay exactly what they were
         let router = Router()
         var rolls: [NoteRollRecord] = [], winParams: [(beat: Double, ts: Double)] = []
         var diag = KernelDiag()
         let e = TaggedEmitter()
         var (st, pool) = rDoc(&g, rawGates: rawGates)
+        if outTranspose { retranspose(&st, &h) }
         var box = SnapshotBuilder.build(from: st)
         let sr = 48_000.0
         var tempo = Double([90, 120, 140].randomElement(using: &g)!)
@@ -306,7 +317,8 @@ final class PortsStressTests: XCTestCase {
         for w in 0..<windows {
             e.win = w
             // mutate the document / transport between windows
-            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if outTranspose, h.next() % 3 == 0 { retranspose(&st, &h); box = SnapshotBuilder.build(from: st) }   // CARD BACKS v2: a PITCH pad dragged while notes sound
             if Int.random(in: 0...2, using: &g) == 0 {   // busChannels change mid-note
                 switch Int.random(in: 0...3, using: &g) {
                 case 0: st.busChannels = (0..<8).map { _ in Int.random(in: 1...16, using: &g) }
@@ -444,6 +456,14 @@ final class PortsStressTests: XCTestCase {
         XCTAssertEqual(fingerprint, Self.fuzzFingerprintRaw, "CAPTURE fuzzFingerprintRaw = \(fingerprint) — the 600 raw-gate sessions' message streams must be bit-identical with no hocket rule")
     }
     private static let fuzzFingerprintRaw: UInt64 = 10435385204888038160
+
+    // CARD BACKS v2 (2026-10-28): out-transposes drawn at random AND changing mid-note — nothing strands, no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
+    func testOutTransposeSessionsHoldEveryInvariant() {
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 200_000, windows: 24, outTranspose: true) { XCTFail(msg); return } }
+    }
+    func testOutTransposeSessionsAtGate100() {
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 300_000, windows: 24, rawGates: true, outTranspose: true) { XCTFail(msg); return } }
+    }
 
     // Lane isolation: with every part on its lane's own output, only lane k emits on cable k+1; the other outputs stay silent.
     func testLaneIsolation() {
