@@ -53,16 +53,19 @@ final class NoteRollRing {
         let cap = UInt64(NoteRollRing.capacity)
         let tail = written.load(ordering: .acquiring)
         if tail <= cursor { return [] }
+        // The producer starts writing record n into the slot of record n − cap BEFORE it publishes n + 1, so while `written == tail` the slot of record tail − cap may already be half-written: the consumer never trusts more than
+        // cap − 1 records. A consumer that has fallen further behind than that skips to the newest cap − 1 (the oldest are dropped, never the newest).
+        let safe = cap - 1
         var start = cursor
-        if tail - start > cap { dropped &+= (tail - cap) - start; start = tail - cap }          // fell behind by more than a ring: keep the newest
+        if tail - start > safe { dropped &+= (tail - safe) - start; start = tail - safe }
         var out: [NoteRollRecord] = []
         out.reserveCapacity(Int(tail - start))
         var i = start
         while i < tail { out.append(buffer[Int(i & mask)]); i &+= 1 }
-        // the producer may have lapped the slots read first while they were being copied: re-read the count and drop whatever it could have overwritten (those copies may be torn)
+        // the producer may have lapped the slots read first while they were being copied: re-read the count and drop whatever it could have started overwriting — record i is at risk once written ≥ i + cap (those copies may be torn)
         let tail2 = written.load(ordering: .acquiring)
-        if tail2 > tail, tail2 - cap > start {
-            let lost = Int(min(tail, tail2 - cap) - start)
+        if tail2 >= cap, tail2 - cap + 1 > start {
+            let lost = Int(min(tail, tail2 - cap + 1) - start)
             dropped &+= UInt64(lost)
             out.removeFirst(min(lost, out.count))
         }
@@ -84,8 +87,10 @@ struct NoteRollNote: Equatable {
 struct NoteRollModel: Equatable {
     static let perPartCap = 768
     private(set) var parts: [[NoteRollNote]] = Array(repeating: [], count: 8)
-    /// The newest strike per part, as a host beat — the jack activity lights read it.
+    /// The newest strike per part, as a host beat.
     private(set) var lastOnBeat: [Double] = Array(repeating: -.infinity, count: 8)
+    /// The newest strike per part and OUTPUT (A–D = 0…3), as a host beat — the jacks' activity lights read it (a part routed nowhere never lights one).
+    private(set) var lastOnBeatByOutput: [[Double]] = Array(repeating: Array(repeating: -.infinity, count: 4), count: 8)
 
     mutating func ingest(_ records: [NoteRollRecord]) {
         for r in records {
@@ -98,6 +103,7 @@ struct NoteRollModel: Equatable {
             parts[p].append(NoteRollNote(onBeat: r.onBeat, endBeat: r.isHeld || !r.length.isFinite ? nil : r.onBeat + Double(r.length), pitch: r.pitch, velocity: r.velocity, outs: r.outs))
             if parts[p].count > NoteRollModel.perPartCap { parts[p].removeFirst(parts[p].count - NoteRollModel.perPartCap) }
             lastOnBeat[p] = max(lastOnBeat[p], r.onBeat)
+            for o in 0..<4 where r.outs & (1 << UInt8(o)) != 0 { lastOnBeatByOutput[p][o] = max(lastOnBeatByOutput[p][o], r.onBeat) }
         }
     }
     /// Notes of a part that touch the beat window [from, to) — a held note counts until `now`.
@@ -106,7 +112,10 @@ struct NoteRollModel: Equatable {
         return parts[part].filter { $0.onBeat < to && ($0.endBeat ?? max(now, $0.onBeat)) > from }
     }
     /// Forget everything (the transport started again, or jumped back).
-    mutating func clear() { for i in parts.indices { parts[i].removeAll(keepingCapacity: true) }; lastOnBeat = Array(repeating: -.infinity, count: 8) }
+    mutating func clear() {
+        for i in parts.indices { parts[i].removeAll(keepingCapacity: true) }
+        lastOnBeat = Array(repeating: -.infinity, count: 8); lastOnBeatByOutput = Array(repeating: Array(repeating: -.infinity, count: 4), count: 8)
+    }
     /// Drop notes that ended before `beat` (the window moved on).
     mutating func prune(before beat: Double) {
         for i in parts.indices { parts[i].removeAll { ($0.endBeat ?? .infinity) < beat } }

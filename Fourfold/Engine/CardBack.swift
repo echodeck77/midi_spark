@@ -198,7 +198,7 @@ enum EuclideousCardLabelMetrics {
     static let inset: CGFloat = 5, height: CGFloat = 20, radius: CGFloat = 5, padX: CGFloat = 7, glyphGap: CGFloat = 6
     static let font: CGFloat = 9, tracking: CGFloat = 0.12, targetHeight: CGFloat = 44
     static let fill = HocketColor(0x131519, 0.82), offAlpha = 0.55
-    static let monoAdvance: CGFloat = 0.6
+    static let monoAdvance: CGFloat = 0.66      // SF Mono Heavy measures ≈ 0.66 em an advance on device (0.6 clipped "TURN ON NOTES" to "TURN ON NOT…")
     static func textWidth(_ chars: Int, size: CGFloat, tracking em: CGFloat) -> CGFloat { CGFloat(chars) * size * (monoAdvance + em) }
 }
 struct EuclideousCardLabelFrames: Equatable {

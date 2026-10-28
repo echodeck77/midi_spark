@@ -28,3 +28,10 @@ sleep 7; xcrun simctl terminate "$UDID" com.outliermidi.Fourfold 2>/dev/null || 
 sleep 5; xcrun simctl terminate "$UDID" com.outliermidi.Fourfold 2>/dev/null || true
 grep -ah "^SELFTEST STATE" "$OUT/state-write.log" "$OUT/state-read.log" || echo "no STATE lines"
 echo "screenshot: $OUT/app-shot.png"
+# CARD BACKS: ROUTING in the real app — lane 1 alone, its parts routed by `--route-test riffMask:notesMask` (bit n = output A + n). Each line is the SELFTEST OUT counts [All,A,B,C,D].
+for R in "1:1" "5:2" "0:0"; do
+  xcrun simctl terminate "$UDID" com.outliermidi.Fourfold 2>/dev/null || true
+  (xcrun simctl launch --console "$UDID" com.outliermidi.Fourfold --autoplay --midi-selftest --route-test "$R" > "$OUT/route-$R.log" 2>&1 &)
+  sleep 14; xcrun simctl terminate "$UDID" com.outliermidi.Fourfold 2>/dev/null || true
+  echo "route $R:"; grep -ah "^SELFTEST ROUTE\|^SELFTEST OUT" "$OUT/route-$R.log" | cut -c1-170 || true
+done

@@ -720,6 +720,7 @@ struct EuclideousPage: View {
     // HOCKET (2026-10-27): the document's rules ([] = none stored; the pop-up then shows an empty R1). Every edit goes through `onEditHocket`, which the VC turns into one document write + one republish.
     let hocketRules: [HocketRule]
     let hocketLive: HocketLiveModel      // HOCKET §8: the count of each lit rule as the Router last published it — read ONLY by leaf views that observe it
+    let rollLive: NoteRollLive           // CARD BACKS §5: each part's recent notes and when each output last took one — read ONLY inside the card backs' own frame clocks
     let lanesSeqStep: Int
     let riffsSeqStep: Int
     // RIFF-CELL WIPES (Paul 2026-10-10 ferry) — each lane's latest wipe-eligible event (column/rank >= 0).
@@ -879,6 +880,11 @@ struct EuclideousPage: View {
     // (`lanesSubTab`) is retired along with the RESTART view itself — the panel is mute-only now.
     @State private var lanesRollCache = EuclideousLanesRollCache()
     @State private var pulseSettleTick = 0   // PULSE §9.1: see `pulseLive`
+    // CARD BACKS (2026-10-28) §3: which side the four lane cards show — PATTERN (the front, as before) or MIX (the back: the part rows). Ephemeral like the tabs, never persisted; `cardFlipStart` is when the switch was last tapped
+    // (nil = never: no flip to draw) and `cardFlipTick` is bumped when the last card has finished turning, so the frame clock can pause.
+    @State private var cardSide: EuclideousCardSide = .pattern
+    @State private var cardFlipStart: Date? = nil
+    @State private var cardFlipTick = 0
     @State private var notesPickerOpen: Set<Int> = []   // NOTES tab ferry §4.5: the lanes whose PLAY AS picker is open — not saved, not an undo step
     @State private var riffReadoutCache = EuclideousRiffReadoutCache()   // the riff readout / never-play set, memoised per lane on its inputs (RIFF WALK §7.2)
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
@@ -1761,10 +1767,10 @@ struct EuclideousPage: View {
             modeFinishLayer(size)
             // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard itself): the device crash named the frames "closure #1
             // in closure #1 in landscapeLayout/portraitLayout" resolving 4 laneCard copies' combined type — erasing here keeps each one independently resolvable.
-            EuclideousStackBreak { AnyView(laneCard(0, width: box.width, height: box.height)) }.offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
-            EuclideousStackBreak { AnyView(laneCard(1, width: box.width, height: box.height)) }.offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
-            EuclideousStackBreak { AnyView(laneCard(2, width: box.width, height: box.height)) }.offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
-            EuclideousStackBreak { AnyView(laneCard(3, width: box.width, height: box.height)) }.offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
+            EuclideousStackBreak { AnyView(laneCardSided(0, width: box.width, height: box.height)) }.offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
+            EuclideousStackBreak { AnyView(laneCardSided(1, width: box.width, height: box.height)) }.offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
+            EuclideousStackBreak { AnyView(laneCardSided(2, width: box.width, height: box.height)) }.offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
+            EuclideousStackBreak { AnyView(laneCardSided(3, width: box.width, height: box.height)) }.offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
             modeHint(size)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -1850,6 +1856,8 @@ struct EuclideousPage: View {
         return ZStack(alignment: .topLeading) {
             headerBrand(layout).frame(width: layout.brand.width, height: HM.rowH, alignment: .leading)
                 .offset(x: layout.brand.x, y: CGFloat(layout.brand.row) * rowStep)
+            headerCardSwitch().frame(width: layout.cardSwitch.width, height: HM.rowH, alignment: .leading)
+                .offset(x: layout.cardSwitch.x, y: CGFloat(layout.cardSwitch.row) * rowStep)
             headerNotes().frame(width: layout.notes.width, height: HM.rowH, alignment: .leading)
                 .offset(x: layout.notes.x, y: CGFloat(layout.notes.row) * rowStep)
             headerUtilities(layout).frame(width: layout.utilities.width, height: HM.rowH, alignment: .trailing)
@@ -1909,7 +1917,7 @@ struct EuclideousPage: View {
         }
         .frame(width: target, height: HM.rowH)
         .contentShape(Rectangle())
-        .onTapGesture { euclideousLockMode = true }
+        .onTapGesture { forceCardsToPattern(); euclideousLockMode = true }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Lock mode")
         .accessibilityValue((on ? "on" : "off") + (any ? ", " + euclideousLockedLanesPhrase(lockedLanes) : ""))
@@ -1965,9 +1973,26 @@ struct EuclideousPage: View {
             // §3.3: each card opens on its own normal tab (LISTEN maps to RHYTHM — rawValues 0/1/2 agree,
             // 3 has no counterpart) rather than always defaulting to RHYTHM regardless of what was showing.
             euclideousRandomTab = laneTab.map { EuclideousRandomTab(rawValue: $0.rawValue) ?? .rhythm }
+            forceCardsToPattern()
             euclideousRandomMode = true
         }
     }
+
+    // MARK: CARD SIDE — the PATTERN | MIX switch (CARD BACKS §3)
+    /// Lock and random mode replace the whole card, so the switch is inert (dimmed) while either is on and the cards show PATTERN.
+    private func headerCardSwitch() -> some View {
+        EuclideousCardSideSwitch(side: cardSide, rowH: HM.rowH, enabled: !euclideousLockMode && !euclideousRandomMode, onTap: { setCardSide($0) })
+    }
+    /// §3.2: a tap on the unselected segment flips all four cards (lane n starts n × 70 ms late); the frame clock runs until the last one has finished.
+    private func setCardSide(_ side: EuclideousCardSide) {
+        guard side != cardSide else { return }
+        cardSide = side
+        cardFlipStart = Date()
+        let total = reduceMotion ? EuclideousCardFlipMetrics.reduceMotionDuration : EuclideousCardFlipMetrics.totalDuration
+        DispatchQueue.main.asyncAfter(deadline: .now() + total + 0.05) { cardFlipTick &+= 1 }
+    }
+    /// Lock and random mode show the front: no flip, the side just returns to PATTERN (ADD HITS flips with the animation instead).
+    private func forceCardsToPattern() { cardSide = .pattern; cardFlipStart = nil }
 
     // MARK: NOTES — the source control + the key pill
     private func headerNotes() -> some View {
@@ -2922,6 +2947,87 @@ struct EuclideousPage: View {
         return euclideousStripCurrentStep(cfg: cfg, landedTick: tp.landedTick, passLapStartTick: plan.lapStartTick, arrowStaysOnTiedNote: tp.seatIsRest && !arrow.hollow, legs: plan.legs)
     }
 
+    /// The card's TOP ROW — the play tile, the comet strip and the SOLO tile — shared by the front (PATTERN) and the back (MIX): the same view in the same place, so a flip never moves it.
+    private func laneCometRow(_ idx: Int, line: EuclidLine, accent: Color, innerWidth: CGFloat, stripPlan: EuclideousStripPlan, soloDimContent: Bool) -> AnyView {
+        AnyView(laneCometRowBody(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent))
+    }
+    @ViewBuilder private func laneCometRowBody(_ idx: Int, line: EuclidLine, accent: Color, innerWidth: CGFloat, stripPlan: EuclideousStripPlan, soloDimContent: Bool) -> some View {
+        // LISTEN TAB: a FOLLOW lane PLAYS its partner's pattern, at the partner's rate — so its bar shows THAT (lit cells in the
+        // partner's colour, faded; the comet sweeping at the partner's pace) and its bar gestures edit the PARTNER, the thing it
+        // is following (2026-10-16). SHADOW keeps its footer-height partner-colour band (see `EuclidLaneBox`).
+        let followIdx = euclideousRhythmBorrowPartner(lane: idx, lines: lines)
+        let gestureLane = euclideousRhythmGestureTarget(lane: idx, lines: lines)
+        let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: lines) : nil
+        let listenFollowTint: Color? = followIdx.map { laneAccents[$0 % laneAccents.count] }   // the partner's colour: the lit cells + the badge dot
+        let listenShadowTint: Color? = (line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo) ? laneAccents[line.listenSourceResolved(ownLane: idx) % laneAccents.count] : nil
+        // LANES GRID: the lane's own grid, resolved exactly as the engine resolves it, so the card's comet / flashes follow the rhythm origin and a
+        // lane the grid has muted dims. Both stay nil for a lane with no restart marks / no mute, leaving its card byte-identical.
+        let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
+        let cardMuteCells = gridView.grid.muteCells, cardMuteUnit = gridView.muteUnitBeats
+        // RESTART CHAINS (ferry 2026-10-19): `.off` (both FREE) during the brief pre-first-resync window,
+        // the same safe default the Router and the walk mirror fall back to — this lane's OWN chains
+        // regardless of FOLLOW (mirrors the old grid's lookup, which also read `line` not the partner).
+        let cardChains: EuclideousLaneRestartChains = line.usesRestartChains
+            ? EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []), melody: .from(line.restartMelodyPasses ?? []),
+                                          barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub)
+            : .off
+        EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
+                      // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
+                      // border/fill around just this row (the step-bar area) — always `false` now; the
+                      // selection indicator moved to a single outline around the ENTIRE card below.
+                      selected: false, touched: allRowsTouched || singleTouchedLanes.contains(idx),
+                      clock: clock, rate: euclideousStripDivisionRate(lane: idx, lines: lines), spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
+                      // RHYTHM GESTURE CONTROLS (Paul 2026-10-14, re-enabled — mirrors MASK's own
+                      // identical wiring, `maskStepBar` below, just targeting this lane's REAL
+                      // pulses/rotate instead of its mask's): up adds hits, down removes, left/right
+                      // is offset — routed through the SAME `euclideousSliderCommit` the RHYTHM tab's
+                      // own HITS/OFFSET sliders use, so an edited (hand-drawn) pattern rebuilds/round-
+                      // trips identically whichever control you drag, and OFFSET can't disagree with
+                      // the slider's own just-fixed drag-direction mirror.
+                      // A FOLLOWing lane's gestures edit the lane it follows (`gestureLane` = idx for every other lane).
+                      onRotateDelta: { d in euclideousApplyRhythmX(gestureLane, d) },
+                      onHitsDelta: { d in euclideousApplyRhythmY(gestureLane, d) },
+                      // §2.5: PINCH goes through the one STEPS setter too, so HITS/OFFSET memory survives it.
+                      onStepsDelta: { d in edit(gestureLane) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(max(2, min(16, l.steps + d)))) } },
+                      onAllRotateDelta: { d in euclideousApplyAllRhythmX(d) },
+                      onAllHitsDelta: { d in euclideousApplyAllRhythmY(d) },
+                      onDragState: { point, allRows in
+                          lockCometTouch(idx, lane: gestureLane, down: point != nil, all: allRows)   // LANE LOCK 6.2: a finger on the comet bar writes lock fields too
+                          euclideousRhythmDragState(gestureLane, via: idx, point, allRows)
+                      },
+                      // WHOLE-CARD SELECTION HIGHLIGHT REMOVED (Paul: "remove the highlight that
+                      // sometimes appears around the euclid lane boxes") — `onSelect` has no remaining
+                      // effect anywhere on this page (confirmed by grep before removing the state it
+                      // used to drive), so this is a genuine no-op, not a disabled one.
+                      onSelect: { },
+                      onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
+                      // THE STRIP (LANE STRIP ferry 2026-10-21): a pure plan, not a view — `EuclidCometBar` paints the riff track and the key row from it; `stripCurrent` is asked per display frame which step's
+                      // chip is the current one (the arrow's hit).
+                      strip: stripPlan, stripCurrent: { beat, _ in stripCurrentStep(idx, plan: stripPlan, beat: beat) },
+                      pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
+                      // LANE SOLO (2026-10-21, §1): the step-count box's slot — same 44 × 44 frame, so the strip doesn't move — now holds the SOLO button. `stepCountBadge` (and its parameter) stay, unused here (§1.3): the
+                      // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
+                      soloButton: soloButton(idx, accent), soloButtonWidth: stepCountBadgeTotalWidth, soloDim: soloDimContent,
+                      // EXACT DIMENSIONS (2026-10-13 ferry): zero self-padding, 6pt spacing, the CHIP+
+                      // triangle play button, flat LANE-100/#2c2f36 cell colours, the hand-placed notch.
+                      compact: true,
+                      // STEP GROUPS (2026-10-14 ferry): the RHYTHM tab's own main step row groups its
+                      // steps (4, or 3 under triplet feel) with a leftover rule — this is the ONE call
+                      // site this ferry's own §1-4 target ("a lane's step row"); the MASK step bar
+                      // (§5, `maskStepBar`) opts in separately, and the regular BUILD-page EUCLID
+                      // editor (GridUI.swift) is untouched, per `grouped`'s own false default.
+                      grouped: true, listenShadowTint: listenShadowTint,
+                      // FOLLOW: the bar's cells must be the pattern that actually plays (the partner's), or the footer drawn
+                      // inside them — and the cells themselves — disagree with the engine. They are drawn in the partner's
+                      // colour, faded, and the comet sweeps at the partner's rate × the multiplier.
+                      patternOverride: laneTimingBoxes(idx, line) ?? followEff.map { Array($0.buf.prefix($0.n)) },
+                      cellTint: listenFollowTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
+                      rateBeatsOverride: followEff?.rateBeats,
+                      restartChains: cardChains.isActive ? cardChains : nil,
+                      mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) },
+                      lockOutline: lockOn(idx, .cometStrip))
+    }
+
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
         if euclideousRandomMode {
             euclideousRandomLaneCard(idx, width: width, height: height)
@@ -2947,80 +3053,7 @@ struct EuclideousPage: View {
         // LANE SOLO §6.1: a solo-silenced lane's card content draws at 42 % — except the SOLO button and the card's own ground / border.
         let soloDimContent = soloSilenced(idx)
         VStack(alignment: .leading, spacing: cardRowGap) {
-            // LISTEN TAB: a FOLLOW lane PLAYS its partner's pattern, at the partner's rate — so its bar shows THAT (lit cells in the
-            // partner's colour, faded; the comet sweeping at the partner's pace) and its bar gestures edit the PARTNER, the thing it
-            // is following (2026-10-16). SHADOW keeps its footer-height partner-colour band (see `EuclidLaneBox`).
-            let followIdx = euclideousRhythmBorrowPartner(lane: idx, lines: lines)
-            let gestureLane = euclideousRhythmGestureTarget(lane: idx, lines: lines)
-            let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: lines) : nil
-            let listenFollowTint: Color? = followIdx.map { laneAccents[$0 % laneAccents.count] }   // the partner's colour: the lit cells + the badge dot
-            let listenShadowTint: Color? = (line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo) ? laneAccents[line.listenSourceResolved(ownLane: idx) % laneAccents.count] : nil
-            // LANES GRID: the lane's own grid, resolved exactly as the engine resolves it, so the card's comet / flashes follow the rhythm origin and a
-            // lane the grid has muted dims. Both stay nil for a lane with no restart marks / no mute, leaving its card byte-identical.
-            let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
-            let cardMuteCells = gridView.grid.muteCells, cardMuteUnit = gridView.muteUnitBeats
-            // RESTART CHAINS (ferry 2026-10-19): `.off` (both FREE) during the brief pre-first-resync window,
-            // the same safe default the Router and the walk mirror fall back to — this lane's OWN chains
-            // regardless of FOLLOW (mirrors the old grid's lookup, which also read `line` not the partner).
-            let cardChains: EuclideousLaneRestartChains = line.usesRestartChains
-                ? EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []), melody: .from(line.restartMelodyPasses ?? []),
-                                              barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub)
-                : .off
-            EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
-                          // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
-                          // border/fill around just this row (the step-bar area) — always `false` now; the
-                          // selection indicator moved to a single outline around the ENTIRE card below.
-                          selected: false, touched: allRowsTouched || singleTouchedLanes.contains(idx),
-                          clock: clock, rate: euclideousStripDivisionRate(lane: idx, lines: lines), spanN: 0,   // SPAN stays machine-wide/free-run — a deliberate V1 scope limit, not asked for per-lane
-                          // RHYTHM GESTURE CONTROLS (Paul 2026-10-14, re-enabled — mirrors MASK's own
-                          // identical wiring, `maskStepBar` below, just targeting this lane's REAL
-                          // pulses/rotate instead of its mask's): up adds hits, down removes, left/right
-                          // is offset — routed through the SAME `euclideousSliderCommit` the RHYTHM tab's
-                          // own HITS/OFFSET sliders use, so an edited (hand-drawn) pattern rebuilds/round-
-                          // trips identically whichever control you drag, and OFFSET can't disagree with
-                          // the slider's own just-fixed drag-direction mirror.
-                          // A FOLLOWing lane's gestures edit the lane it follows (`gestureLane` = idx for every other lane).
-                          onRotateDelta: { d in euclideousApplyRhythmX(gestureLane, d) },
-                          onHitsDelta: { d in euclideousApplyRhythmY(gestureLane, d) },
-                          // §2.5: PINCH goes through the one STEPS setter too, so HITS/OFFSET memory survives it.
-                          onStepsDelta: { d in edit(gestureLane) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(max(2, min(16, l.steps + d)))) } },
-                          onAllRotateDelta: { d in euclideousApplyAllRhythmX(d) },
-                          onAllHitsDelta: { d in euclideousApplyAllRhythmY(d) },
-                          onDragState: { point, allRows in
-                              lockCometTouch(idx, lane: gestureLane, down: point != nil, all: allRows)   // LANE LOCK 6.2: a finger on the comet bar writes lock fields too
-                              euclideousRhythmDragState(gestureLane, via: idx, point, allRows)
-                          },
-                          // WHOLE-CARD SELECTION HIGHLIGHT REMOVED (Paul: "remove the highlight that
-                          // sometimes appears around the euclid lane boxes") — `onSelect` has no remaining
-                          // effect anywhere on this page (confirmed by grep before removing the state it
-                          // used to drive), so this is a genuine no-op, not a disabled one.
-                          onSelect: { },
-                          onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                          // THE STRIP (LANE STRIP ferry 2026-10-21): a pure plan, not a view — `EuclidCometBar` paints the riff track and the key row from it; `stripCurrent` is asked per display frame which step's
-                          // chip is the current one (the arrow's hit).
-                          strip: stripPlan, stripCurrent: { beat, _ in stripCurrentStep(idx, plan: stripPlan, beat: beat) },
-                          pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
-                          // LANE SOLO (2026-10-21, §1): the step-count box's slot — same 44 × 44 frame, so the strip doesn't move — now holds the SOLO button. `stepCountBadge` (and its parameter) stay, unused here (§1.3): the
-                          // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
-                          soloButton: soloButton(idx, accent), soloButtonWidth: stepCountBadgeTotalWidth, soloDim: soloDimContent,
-                          // EXACT DIMENSIONS (2026-10-13 ferry): zero self-padding, 6pt spacing, the CHIP+
-                          // triangle play button, flat LANE-100/#2c2f36 cell colours, the hand-placed notch.
-                          compact: true,
-                          // STEP GROUPS (2026-10-14 ferry): the RHYTHM tab's own main step row groups its
-                          // steps (4, or 3 under triplet feel) with a leftover rule — this is the ONE call
-                          // site this ferry's own §1-4 target ("a lane's step row"); the MASK step bar
-                          // (§5, `maskStepBar`) opts in separately, and the regular BUILD-page EUCLID
-                          // editor (GridUI.swift) is untouched, per `grouped`'s own false default.
-                          grouped: true, listenShadowTint: listenShadowTint,
-                          // FOLLOW: the bar's cells must be the pattern that actually plays (the partner's), or the footer drawn
-                          // inside them — and the cells themselves — disagree with the engine. They are drawn in the partner's
-                          // colour, faded, and the comet sweeps at the partner's rate × the multiplier.
-                          patternOverride: laneTimingBoxes(idx, line) ?? followEff.map { Array($0.buf.prefix($0.n)) },
-                          cellTint: listenFollowTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
-                          rateBeatsOverride: followEff?.rateBeats,
-                          restartChains: cardChains.isActive ? cardChains : nil,
-                          mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) },
-                          lockOutline: lockOn(idx, .cometStrip))
+            laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
@@ -3043,6 +3076,81 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1B1D23)))
         .clipped()
         .overlay(euclideousRandomReturnHighlight(idx, width: width, height: height))
+        }
+    }
+
+    // MARK: CARD BACKS (2026-10-28) — the two sides of a lane card and the flip between them
+    /// The card as the page shows it: the side `cardSide` names, or — for 490 ms after the switch is tapped — the flip (§3.3: each card scales horizontally about its centre, swapping sides at the midpoint, lane n starting n × 70 ms
+    /// late; Reduce Motion crossfades all four in 150 ms). Lock and random mode replace the whole card, so they always show the front. A card ignores touches from the tap until it has finished turning.
+    private func laneCardSided(_ idx: Int, width: CGFloat, height: CGFloat) -> AnyView {
+        if euclideousRandomMode || euclideousLockMode { return AnyView(laneCard(idx, width: width, height: height)) }
+        _ = cardFlipTick                                           // the tick's bump is what re-evaluates this once the last card has turned
+        guard let start = cardFlipStart, euclideousCardFlipIsLive(since: Date().timeIntervalSince(start), reduceMotion: reduceMotion) else {
+            return AnyView(cardSideView(cardSide, idx, width: width, height: height))
+        }
+        let front = cardSideView(.pattern, idx, width: width, height: height), back = cardSideView(.mix, idx, width: width, height: height)
+        let reduce = reduceMotion, target = cardSide
+        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { tl in
+            let f = euclideousCardFlip(sinceTap: tl.date.timeIntervalSince(start), lane: idx, target: target, reduceMotion: reduce)
+            ZStack {
+                if let under = f.underSide { (under == .pattern ? front : back).opacity(f.underOpacity) }
+                (f.side == .pattern ? front : back).opacity(f.opacity)
+            }
+            .scaleEffect(x: max(0.0001, f.scaleX), y: 1, anchor: .center)
+            .allowsHitTesting(!f.ignoresTouches)
+        })
+    }
+    private func cardSideView(_ side: EuclideousCardSide, _ idx: Int, width: CGFloat, height: CGFloat) -> AnyView {
+        side == .pattern ? AnyView(laneCard(idx, width: width, height: height)) : AnyView(laneCardBack(idx, width: width, height: height))
+    }
+
+    /// The back (MIX): the same top row as the front, a "MIX" strip, then the riff row and the notes row — XY pad and OCT stepper on the left, the part's live roll and its four output jacks on the right. Every edit goes through the
+    /// page's own funnels: the XY pad writes the fields the MIX pad wrote (`euclideousMixPadWriteIfEnabled`, one undo step per touch burst), OCT and the part's on/off switch the fields the tabs set, a jack toggles one bit of the part's mask
+    /// (`riffOutMask` / `notesOutMask`) as ONE undo step.
+    @ViewBuilder private func laneCardBack(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        let accent = laneAccents[idx % laneAccents.count]
+        let innerWidth = EuclideousLaneCardMetrics.innerWidth(cardWidth: width)
+        let soloDim = soloSilenced(idx)
+        let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
+        let muteCells = gridView.grid.muteCells, muteUnit = gridView.muteUnitBeats
+        let riffV = euclideousMixPadValues(of: line, notes: false), notesV = euclideousMixPadValues(of: line, notes: true)
+        let riff = EuclideousCardBackPartInput(on: !euclideousMixLayerIsOff(line, notes: false), gate: riffV.gate, velocity: riffV.velocity,
+                                               octave: euclideousMixOctave(of: line, notes: false), mask: line.riffOutMaskResolved(lane: idx))
+        let notes = EuclideousCardBackPartInput(on: !euclideousMixLayerIsOff(line, notes: true), gate: notesV.gate, velocity: notesV.velocity,
+                                                octave: euclideousMixOctave(of: line, notes: true), mask: line.notesOutMaskResolved(lane: idx))
+        let callbacks = EuclideousCardBackCallbacks(
+            xy: { _, newStep, mutate in editStep(idx, newStep, mutate) },
+            oct: { part, o in edit(idx) { l in if part == .notes { euclideousSetNotesOctave(&l, o) } else { euclideousSetRiffOctave(&l, o) } } },
+            toggleOn: { part in cardBackToggle(idx, part) },
+            jack: { part, o in
+                editStep(idx, true) { l in
+                    if part == .riff { l.riffOutMask = euclideousJackToggle(mask: l.riffOutMaskResolved(lane: idx), output: o) }
+                    else { l.notesOutMask = euclideousJackToggle(mask: l.notesOutMaskResolved(lane: idx), output: o) }
+                }
+            },
+            invite: { part, kind in
+                switch kind {
+                case .turnOnRiff, .turnOnNotes: cardBackToggle(idx, part)
+                case .addHits: laneTab[idx] = .rhythm; setCardSide(.pattern)      // §5.6: take the player to the rhythm
+                }
+            })
+        EuclideousCardBackView(lane: idx, size: CGSize(width: width, height: height), accent: accent,
+                               topRow: laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: laneStripPlan(idx, line), soloDimContent: soloDim),
+                               riff: riff, notes: notes, laneHasHits: euclideousLaneRunsInEngine(line),
+                               laneAudibleAt: { date in
+                                   !soloDim && (muteCells == 0xFFFF || euclideousLaneAudible(beat: lanesMusicalBeat(real: walkTagBeat(at: date)), cells16: muteCells, unitBeats: muteUnit))
+                               },
+                               dimRows: soloDim, rolls: rollLive, beatAt: { walkTagBeat(at: $0) }, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, live: pulseLive,
+                               hocketRules: hocketRules, hocketLive: hocketLive, callbacks: callbacks)
+            .frame(width: width, height: height)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1B1D23)))
+            .clipped()
+    }
+    /// The label pill (and the TURN ON invitations): the part's on/off, the field and the undo step the tab's own switch uses.
+    private func cardBackToggle(_ idx: Int, _ part: EuclideousCardPart) {
+        edit(idx) { l in
+            if part == .riff { l.riffOn = !(l.riffOnResolved) } else { l.notesOn = !euclideousNotesLayerIsOn(l) }
         }
     }
 
@@ -5889,7 +5997,7 @@ struct EuclideousPage: View {
     private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat, fxAvailable: Bool = false) -> some View {
         // FX TAB: offered in both orientations since the PAGE LAYOUT ferry (2026-10-19) — in portrait this panel sits BESIDE the riff panel at the same width, so each FX
         // column takes the riff grid's column width and the same offset from its own panel's leading edge (§10.3, by construction); `fxAvailable` stays a parameter.
-        let tab: EuclideousSeqTab = (sequencerTab == .fx && !fxAvailable) ? .mix : sequencerTab
+        let tab: EuclideousSeqTab = (sequencerTab == .fx && !fxAvailable) || sequencerTab == .mix ? .lanes : sequencerTab   // CARD BACKS §8: MIX is retired — a stray .mix shows LANES
         let innerW = max(1, maxWidth - sp8 * 2)
         let innerH = max(1, maxHeight - sp8 * 2)
         let tabBody = euclideousSeqTabBodySize(panelWidth: maxWidth, panelHeight: maxHeight)   // LANES' and FX's area: one function, shared with the page's floor list

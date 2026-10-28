@@ -5021,10 +5021,11 @@ enum EuclideousSeqTab: Int, CaseIterable {
     var label: String { switch self { case .mix: return "MIX"; case .lanes: return "LANES"; case .riffs: return "RIFFS"; case .fx: return "FX" } }
     /// The tabs a layout without FX shows. PAGE LAYOUT ferry (2026-10-19): no layout is without FX any more — portrait's panel is the riff panel's own width,
     /// so the FX columns match the riff grid's, and it is 319 tall — but the list stays for a caller that wants it.
-    static let visible: [EuclideousSeqTab] = [.mix, .lanes]
-    /// FX is the third tab after MIX and LANES (the page offers it in both orientations since the PAGE LAYOUT ferry).
-    static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.mix, .lanes, .fx] : visible }
-    static let `default`: EuclideousSeqTab = .mix
+    /// CARD BACKS (2026-10-28) §8: the MIX tab is RETIRED — what it edited (VEL, GATE, OCT per part) now lives on the lane cards' backs. The case stays (hidden, not deleted), so the panel is LANES | FX and LANES is the default.
+    static let visible: [EuclideousSeqTab] = [.lanes]
+    /// FX is the second tab after LANES (the page offers it in both orientations since the PAGE LAYOUT ferry).
+    static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.lanes, .fx] : visible }
+    static let `default`: EuclideousSeqTab = .lanes
 }
 /// Tabs only: equal widths across the full content width, sp4 apart (two tabs at the 401pt reference = 198.5 each).
 func euclideousSeqTabWidth(count: Int, contentWidth: CGFloat) -> CGFloat {

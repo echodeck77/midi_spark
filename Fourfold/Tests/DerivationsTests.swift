@@ -2508,10 +2508,12 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual((-2...2).map(euclideousMixOctaveText), ["\u{2212}2", "\u{2212}1", "0", "+1", "+2"])
         XCTAssertEqual((-2...2).map(euclideousMixOctaveSpoken), ["minus 2", "minus 1", "0", "plus 1", "plus 2"])
     }
-    // §1 — tabs: MIX then LANES, RIFFS hidden, MIX the default, equal widths.
-    func testSequencerTabsAreMixThenLanesWithEqualWidths() {
-        XCTAssertEqual(EuclideousSeqTab.visible, [.mix, .lanes]); XCTAssertEqual(EuclideousSeqTab.default, .mix)
-        XCTAssertEqual(EuclideousSeqTab.visible.map { $0.label }, ["MIX", "LANES"])
+    // §1 → CARD BACKS §8: the MIX tab is retired (hidden, not deleted) — the panel's tabs are LANES then FX, LANES the default, equal widths.
+    func testSequencerTabsAreLanesThenFXWithEqualWidths() {
+        XCTAssertEqual(EuclideousSeqTab.visible, [.lanes]); XCTAssertEqual(EuclideousSeqTab.default, .lanes)
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .fx])
+        XCTAssertFalse(EuclideousSeqTab.visible(fxAvailable: true).contains(.mix), "no MIX tab any more")
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).map { $0.label }, ["LANES", "FX"])
         XCTAssertEqual(euclideousSeqTabWidth(count: 2, contentWidth: 401), 198.5, accuracy: 1e-9, "two tabs at the reference panel")
         XCTAssertEqual(euclideousSeqTabWidth(count: 1, contentWidth: 401), 401)
     }

@@ -11,6 +11,7 @@
 		0237DEC8D0623653E5BBC0DA /* EuclideousRandomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923F68D1FA979B5D22C2336D /* EuclideousRandomTests.swift */; };
 		0292738F25406C9B34ABE6D6 /* MidiSparkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */; };
 		02B414323ED3737F7469018B /* TapeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B187EF1F183D7FB9E3E25FE /* TapeStore.swift */; };
+		030EF26A6C9B745121BAC89E /* NoteRollLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8515C7210E9F11CE0F1D84D6 /* NoteRollLive.swift */; };
 		05DAA79479B5AE2D667435E8 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD093523154373C2AAE660A /* DesignKit.swift */; };
 		061D4BB40DA0FAF758D21370 /* FourfoldStackProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586ABD7101A0017667893A62 /* FourfoldStackProbe.swift */; };
 		07A28929FA0D94C33CDACFD6 /* HocketTurnTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F140AC21A0E9E7E6E094A95C /* HocketTurnTests.swift */; };
@@ -131,6 +132,7 @@
 		67A54484318BE306142EB54F /* BuildPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */; };
 		6857BAD7A3831FD984E990C8 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 5B3B1E8D15FD3E391FF50D3E /* Atomics */; };
 		692A1708CCCE988100850092 /* PulseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1FE1781AE0C4878A7935FE /* PulseTests.swift */; };
+		6A375C221E5AD79912A93116 /* CardBackViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F426003B0AC179AD87C598 /* CardBackViews.swift */; };
 		6A7DF1EC0AE5A263F34A6587 /* HocketLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8CBCD5A831F4919B9B9C46 /* HocketLive.swift */; };
 		6A80FF3C35E374A0CDF78CB1 /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 978929AD94B53C409F7F63AA /* LaneStripPainter.swift */; };
 		6B98CD09D9D422991069BB57 /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F4BE86660C760F3CD73866 /* Kernel.swift */; };
@@ -173,6 +175,7 @@
 		84A446E1688A40EAD3762C2D /* CardBack.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB85C75FDBCD12F45FAB3DC /* CardBack.swift */; };
 		85C23AA269DD6D994DA6FF81 /* EditPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2C4528E7A184FABB7EF270 /* EditPage.swift */; };
 		86DBDA072FBE5381278BC901 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
+		87752A6A7A157E26863E3776 /* CardBackViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F426003B0AC179AD87C598 /* CardBackViews.swift */; };
 		8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
 		895F99D3F9F1BE1F2238EE20 /* SessionTapeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4725DDA30BD137A2E7F2623 /* SessionTapeTests.swift */; };
 		89F120D37D531726D0D7C663 /* UndoAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D750CFBA16E2C4B8FBE705 /* UndoAuditTests.swift */; };
@@ -329,6 +332,7 @@
 		F98AB3C003834E203E8A2A09 /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */; };
 		FB90E1D2C6DD0490D543E2CC /* PageLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */; };
 		FDC4CCB5FA83EBBCF5518EFE /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E074C5873A3072DF6841935F /* PresetStore.swift */; };
+		FEA5BFC3C5181521186804C3 /* NoteRollLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8515C7210E9F11CE0F1D84D6 /* NoteRollLive.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -484,6 +488,7 @@
 		8221885E2107EBA3F721C051 /* AcceptanceRatchetStrumTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceRatchetStrumTests.swift; sourceTree = "<group>"; };
 		822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclidLaneUI.swift; sourceTree = "<group>"; };
 		84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrangementBar.swift; sourceTree = "<group>"; };
+		8515C7210E9F11CE0F1D84D6 /* NoteRollLive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRollLive.swift; sourceTree = "<group>"; };
 		85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPage.swift; sourceTree = "<group>"; };
 		8624A489A951D42AFB805E16 /* RackMatrix.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RackMatrix.swift; sourceTree = "<group>"; };
 		86B78244085974D781CC1A40 /* RestartChainsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartChainsTests.swift; sourceTree = "<group>"; };
@@ -611,6 +616,7 @@
 		F760F9EC70B6E5E30769292C /* AutoPilot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPilot.swift; sourceTree = "<group>"; };
 		F83DE6BC106F7FAAF5034BAB /* ClarityPassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClarityPassTests.swift; sourceTree = "<group>"; };
 		F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashPainter.swift; sourceTree = "<group>"; };
+		F9F426003B0AC179AD87C598 /* CardBackViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardBackViews.swift; sourceTree = "<group>"; };
 		FB579E7A98D1755158B6B0DE /* ManualView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualView.swift; sourceTree = "<group>"; };
 		FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloPainter.swift; sourceTree = "<group>"; };
 		FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXPanelPainter.swift; sourceTree = "<group>"; };
@@ -799,6 +805,7 @@
 		579DBC9CBF245449D69C3E27 /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				F9F426003B0AC179AD87C598 /* CardBackViews.swift */,
 				CFD093523154373C2AAE660A /* DesignKit.swift */,
 				85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */,
 				FDF54D865F988739612526D4 /* EuclideousSettingsSheet.swift */,
@@ -916,6 +923,7 @@
 				9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */,
 				56273CD5B28C7640784AA413 /* FourfoldUndoProbe.swift */,
 				3E8CBCD5A831F4919B9B9C46 /* HocketLive.swift */,
+				8515C7210E9F11CE0F1D84D6 /* NoteRollLive.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -1257,6 +1265,7 @@
 			files = (
 				7BD70412B03E98F53058D7B1 /* BuildModel.swift in Sources */,
 				C92C119B5BC121BBC214A873 /* CardBack.swift in Sources */,
+				87752A6A7A157E26863E3776 /* CardBackViews.swift in Sources */,
 				E2328DE8513AA01051578B12 /* Derivations.swift in Sources */,
 				CD888CC73ABF80F56B20C95F /* DesignKit.swift in Sources */,
 				7258783B60191EF8E5A237BD /* Diag.swift in Sources */,
@@ -1297,6 +1306,7 @@
 				9B202EF7465E2476A86573C2 /* MidiFile.swift in Sources */,
 				BEAA8CB5EC2ADCA841BE6066 /* MixPadPainter.swift in Sources */,
 				9BAF886FF9516AB5F1598E24 /* Models.swift in Sources */,
+				030EF26A6C9B745121BAC89E /* NoteRollLive.swift in Sources */,
 				2B20C428089E72458CB25B3C /* NoteRollRing.swift in Sources */,
 				1AD97DB35C6C3B45B70171A9 /* NotesTabPainter.swift in Sources */,
 				1A20747CD8C5C94DB29A9532 /* PresetBrowser.swift in Sources */,
@@ -1478,6 +1488,7 @@
 			files = (
 				204572430D6CE1EBADA36680 /* BuildModel.swift in Sources */,
 				AB93D45851A70F9C05234F29 /* CardBack.swift in Sources */,
+				6A375C221E5AD79912A93116 /* CardBackViews.swift in Sources */,
 				4AAAD0D744835419AF120580 /* Derivations.swift in Sources */,
 				05DAA79479B5AE2D667435E8 /* DesignKit.swift in Sources */,
 				113044D12C85756D9F258C57 /* Diag.swift in Sources */,
@@ -1510,6 +1521,7 @@
 				D68CF806B68E2CDFFDF5411B /* MidiFile.swift in Sources */,
 				D4BBF9E02862E0AD84905885 /* MixPadPainter.swift in Sources */,
 				542020F81F4F52D34C16DF18 /* Models.swift in Sources */,
+				FEA5BFC3C5181521186804C3 /* NoteRollLive.swift in Sources */,
 				B4B265FC5D368CFCE12A1F3C /* NoteRollRing.swift in Sources */,
 				D4CAF6ED943F404ECB85F9AE /* NotesTabPainter.swift in Sources */,
 				CE97BD814E8D16F33DECB416 /* PresetBrowser.swift in Sources */,

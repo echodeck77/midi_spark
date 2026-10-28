@@ -1,7 +1,7 @@
 //  FourfoldSelfTest.swift
 //  FOURFOLD Step 3 (2026-10-23): an in-process check of the app's MIDI shell, run only with `--midi-selftest` (Scripts/fourfold-harness/app-test.sh). The iOS simulator's CoreMIDI does not reach macOS, so the app listens to ITS OWN
 //  output ports from a second CoreMIDI client and sends a note to ITS OWN input, then prints what it saw to stderr:
-//    OUT  — note-ons and note-offs per source (All, Emit Riff A … Emit Notes D), and how far ahead of "now" the packets' host-time stamps are (they should be a little ahead: the render runs a buffer before the sound);
+//    OUT  — note-ons and note-offs per source (All, A, B, C, D), and how far ahead of "now" the packets' host-time stamps are (they should be a little ahead: the render runs a buffer before the sound);
 //    IN   — a note sent to "Fourfold In" must reach the AU (the held-note count goes 0 → 1 → 0).
 
 import CoreMIDI
@@ -49,12 +49,12 @@ final class FourfoldSelfTest {
             lock.lock(); defer { lock.unlock() }
             let lead = leadMs.sorted()
             let med = lead.isEmpty ? Double.nan : lead[lead.count / 2]
-            log("SELFTEST OUT: note-ons [All,RiffA,NotesA,RiffB,NotesB,RiffC,NotesC,RiffD,NotesD]=\(ons) note-offs=\(offs); host-time lead of packets over 'now' (ms): min=\(String(format: "%.1f", lead.first ?? .nan)) median=\(String(format: "%.1f", med)) max=\(String(format: "%.1f", lead.last ?? .nan)) over \(lead.count) note-ons")
+            log("SELFTEST OUT: note-ons [All,A,B,C,D]=\(ons) note-offs=\(offs); host-time lead of packets over 'now' (ms): min=\(String(format: "%.1f", lead.first ?? .nan)) median=\(String(format: "%.1f", med)) max=\(String(format: "%.1f", lead.last ?? .nan)) over \(lead.count) note-ons")
         }
     }
 
-    /// `--hocket-test mode:main:alt` (e.g. `swap:1:3`, `pass:2:4`; outputs are cables 1…8): a second after launch, store ONE rule the way the pop-up's funnel does (`editDocument`), so the SELFTEST OUT line shows which of the nine
-    /// outputs the real engine, in the real app, then sounds on.
+    /// `--hocket-test mode:main:alt` (e.g. `swap:1:3`, `pass:2:4`; the numbers are PARTS 1…8: red riff, red notes … green notes): a second after launch, store ONE rule the way the pop-up's funnel does (`editDocument`), so the
+    /// SELFTEST OUT line shows which of the five outputs the real engine, in the real app, then sounds on.
     func hocketTest(engine: FourfoldEngine) {
         let a = CommandLine.arguments
         guard let i = a.firstIndex(of: "--hocket-test"), i + 1 < a.count else { return }
@@ -67,6 +67,26 @@ final class FourfoldSelfTest {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             engine.au.editDocument { $0.hocketRules = HocketRuleSet([rule]) }
             self.log("SELFTEST HOCKET: stored \(a[i + 1]) -> rules \(engine.au.uiHocketRules().map { "\($0.mode) main=\($0.main) alt=\($0.alt) lit=\($0.isLit)" })")
+        }
+    }
+
+    /// CARD BACKS: `--route-test riffMask:notesMask` (bit n = output A + n, e.g. `5:2` = riff on A and C, notes on B; `0:0` = both parts routed nowhere): a second after launch, route lane 1's two parts the way a jack tap does
+    /// (the lane's `riffOutMask` / `notesOutMask` through `editDocument`, with the notes part switched on and a note lit), so the SELFTEST OUT line shows which of the five outputs the real engine, in the real app, sounds on.
+    func routeTest(engine: FourfoldEngine) {
+        let a = CommandLine.arguments
+        guard let i = a.firstIndex(of: "--route-test"), i + 1 < a.count else { return }
+        let parts = a[i + 1].split(separator: ":", omittingEmptySubsequences: false).compactMap { UInt8($0) }
+        guard parts.count == 2 else { log("SELFTEST ROUTE: expected riffMask:notesMask"); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            engine.au.editDocument {
+                var ls = $0.euclideousLinesResolved
+                ls[0].riffOutMask = parts[0] & 0x0F; ls[0].notesOutMask = parts[1] & 0x0F
+                ls[0].notesOn = true; if ls[0].litNotesResolved == 0 { ls[0].litNotes = 0b0000_0010 }
+                for l in 1..<ls.count { ls[l].enabled = false }                       // only lane 1 plays, so every message is lane 1's
+                $0.euclideousLines = ls
+            }
+            let l = engine.au.uiEuclideousLines()[0]
+            self.log("SELFTEST ROUTE: lane 1 riff mask \(l.riffOutMaskResolved(lane: 0)) notes mask \(l.notesOutMaskResolved(lane: 0))")
         }
     }
 

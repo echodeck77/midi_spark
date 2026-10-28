@@ -31,33 +31,35 @@ final class NoteRollTests: XCTestCase {
         let ring = NoteRollRing(), cap = NoteRollRing.capacity
         for i in 0..<(cap + 300) { ring.push(rec(i)) }
         let got = ring.drain()
-        XCTAssertEqual(got.count, cap, "a full ring's worth")
-        XCTAssertEqual(got.first?.onBeat, 300, "the 300 oldest were dropped"); XCTAssertEqual(got.last?.onBeat, Double(cap + 299), "the newest is there")
-        XCTAssertEqual(got.map { $0.onBeat }, (300..<(cap + 300)).map(Double.init), "in order, no gap")
-        XCTAssertEqual(ring.dropped, 300)
+        XCTAssertEqual(got.count, cap - 1, "a full ring's worth less the one slot the producer may be writing")
+        XCTAssertEqual(got.first?.onBeat, 301, "the 301 oldest were dropped"); XCTAssertEqual(got.last?.onBeat, Double(cap + 299), "the newest is there")
+        XCTAssertEqual(got.map { $0.onBeat }, (301..<(cap + 300)).map(Double.init), "in order, no gap")
+        XCTAssertEqual(ring.dropped, 301)
         ring.push(rec(999_999)); XCTAssertEqual(ring.drain().map { $0.onBeat }, [999_999], "and it carries on from there")
     }
     /// A producer thread pushes numbered records as fast as it can while this thread drains: every record that comes out is whole (all its fields agree with its number), the numbers only ever rise, and a lapped consumer's loss is
     /// counted — never a torn record, never a repeat.
     func testAConcurrentProducerNeverShowsATornRecordOrARepeat() {
         let ring = NoteRollRing()
-        let total = 400_000
+        let total = 1_500_000
         let done = ManagedFlag()
         let producer = Thread { for i in 0..<total { ring.push(self.rec(i, part: UInt8(i & 7), outs: UInt8(i & 15))) }; done.set() }
         producer.start()
         var last = -1, seen = 0
         func check(_ batch: [NoteRollRecord]) {
             for r in batch {
+                guard r.onBeat.isFinite, r.onBeat >= 0, r.onBeat < Double(total) else { XCTFail("a torn record: onBeat \(r.onBeat)"); continue }
                 let i = Int(r.onBeat)
                 XCTAssertGreaterThan(i, last, "numbers rise: no repeat, no reorder")
                 XCTAssertEqual(r.pitch, UInt8(i & 0x7F)); XCTAssertEqual(r.velocity, UInt8((i * 3) & 0x7F)); XCTAssertEqual(r.part, UInt8(i & 7)); XCTAssertEqual(r.flags, UInt8(i & 15)); XCTAssertEqual(r.length, Float(i % 7) + 0.5)
                 last = i; seen += 1
             }
         }
-        while !done.isSet { check(ring.drain()) }
+        while !done.isSet { check(ring.drain()); if Int.random(in: 0..<3) == 0 { usleep(UInt32.random(in: 20...600)) } }   // a consumer that sometimes dawdles, so the producer laps the ring
         check(ring.drain())
         XCTAssertEqual(last, total - 1, "the newest record always arrives")
         XCTAssertEqual(UInt64(seen) + ring.dropped, UInt64(total), "every record is either delivered or counted as dropped")
+        XCTAssertGreaterThan(seen, 1_000, "the consumer really read while the producer ran"); XCTAssertGreaterThan(ring.dropped, 0, "…and fell behind often enough for the ring to lap it")
     }
 
     // MARK: the model
@@ -77,6 +79,9 @@ final class NoteRollTests: XCTestCase {
         m.ingest([NoteRollRecord(onBeat: 8, length: 1, pitch: 50, velocity: 70, part: 0, flags: 0)])
         XCTAssertTrue(m.parts[0][0].outs == 0, "a part routed nowhere still draws its note, marked silent")
         XCTAssertEqual(m.lastOnBeat[0], 8)
+        m.ingest([NoteRollRecord(onBeat: 9, length: 1, pitch: 52, velocity: 70, part: 1, flags: 0b0110)])
+        XCTAssertEqual(m.lastOnBeatByOutput[1], [-.infinity, 9, 9, -.infinity], "the jacks' lights: the outputs B and C took the note")
+        XCTAssertEqual(m.lastOnBeatByOutput[0], [-.infinity, -.infinity, -.infinity, -.infinity], "a silent strike lights nothing")
         m.prune(before: 7); XCTAssertTrue(m.parts[2].isEmpty); XCTAssertEqual(m.parts[0].count, 1)
         m.clear(); XCTAssertTrue(m.parts.allSatisfy { $0.isEmpty }); XCTAssertEqual(m.lastOnBeat[0], -.infinity)
     }

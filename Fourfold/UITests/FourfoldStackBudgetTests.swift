@@ -31,7 +31,7 @@ final class FourfoldStackBudgetTests: XCTestCase {
                     if t.waitForExistence(timeout: 3) { t.tap() }
                 }
             }
-            for panel in ["Lanes", "FX", "Mix"] where app.buttons[panel].waitForExistence(timeout: 3) { app.buttons[panel].tap() }
+            for panel in ["Lanes", "FX", "Mix", "Pattern", "Mix"] where app.buttons[panel].waitForExistence(timeout: 3) { app.buttons[panel].tap() }
         }
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.0)

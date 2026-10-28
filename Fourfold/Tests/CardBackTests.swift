@@ -148,11 +148,11 @@ final class CardBackTests: XCTestCase {
         let roll = CGRect(x: 110, y: 92, width: 256, height: 57)
         let riff = euclideousCardLabelFrames(roll: roll, part: .riff)
         XCTAssertEqual(riff.pill.origin, CGPoint(x: 115, y: 97), "5 pt in"); near(riff.pill.height, 20)
-        near(riff.pill.width, 7 + 9 + 6 + 4 * 9 * 0.72 + 7, "7 pt padding, the 9 × 9 glyph, 6 pt, 'RIFF' at 9 pt heavy 0.12 em")
+        near(riff.pill.width, 7 + 9 + 6 + 4 * 9 * 0.78 + 7, "7 pt padding, the 9 × 9 glyph, 6 pt, 'RIFF' at 9 pt heavy 0.12 em (0.66 em advance, as measured on device)")
         XCTAssertEqual(riff.glyph.size, CGSize(width: 9, height: 9)); near(riff.glyph.minX, riff.pill.minX + 7); near(riff.glyph.midY, riff.pill.midY); near(riff.text.minX, riff.glyph.maxX + 6)
         XCTAssertEqual(riff.target.height, 44); near(riff.target.midY, riff.pill.midY); near(riff.target.minX, riff.pill.minX); near(riff.target.width, riff.pill.width)
         let notes = euclideousCardLabelFrames(roll: roll, part: .notes)
-        XCTAssertEqual(notes.glyph.size, CGSize(width: 6, height: 12), "NOTES is the 6 × 12 bar"); near(notes.pill.width, 7 + 6 + 6 + 5 * 9 * 0.72 + 7)
+        XCTAssertEqual(notes.glyph.size, CGSize(width: 6, height: 12), "NOTES is the 6 × 12 bar"); near(notes.pill.width, 7 + 6 + 6 + 5 * 9 * 0.78 + 7)
         near(EuclideousCardLabelMetrics.radius, 5); XCTAssertEqual(EuclideousCardLabelMetrics.fill, HocketColor(0x131519, 0.82)); near(EuclideousCardLabelMetrics.offAlpha, 0.55)
     }
     func testTheInvitationsAndWhichOneTheRollOffers() {
@@ -161,7 +161,7 @@ final class CardBackTests: XCTestCase {
         XCTAssertEqual([EuclideousCardInvitation.turnOnRiff, .turnOnNotes, .addHits].map { $0.label }, ["TURN ON RIFF", "TURN ON NOTES", "ADD HITS"])
         let roll = CGRect(x: 110, y: 92, width: 256, height: 57)
         let f = euclideousCardInvitationFrames(roll: roll, .turnOnNotes)
-        near(f.pill.height, 28); near(f.pill.midX, roll.midX); near(f.pill.midY, roll.midY); near(f.pill.width, 10 + 9 + 6 + 13 * 8 * 0.7 + 10, "10 pt padding, the 9 × 9 plus, 6 pt, the label at 8 pt heavy 0.1 em")
+        near(f.pill.height, 28); near(f.pill.midX, roll.midX); near(f.pill.midY, roll.midY); near(f.pill.width, 10 + 9 + 6 + 13 * 8 * 0.76 + 10, "10 pt padding, the 9 × 9 plus, 6 pt, the label at 8 pt heavy 0.1 em (0.66 em advance)")
         XCTAssertEqual(f.target.height, 44); near(f.target.midY, roll.midY); XCTAssertEqual(f.plus.size, CGSize(width: 9, height: 9)); near(f.plus.minX, f.pill.minX + 10); near(f.text.minX, f.plus.maxX + 6)
         near(EuclideousCardInvitationMetrics.radius, 7); near(EuclideousCardInvitationMetrics.fillAlpha, 0.20); near(EuclideousCardInvitationMetrics.plusStroke, 1.6)
     }

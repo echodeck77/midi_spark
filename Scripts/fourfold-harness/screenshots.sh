@@ -32,7 +32,7 @@ for t in m:
         dst = os.path.join(d, name.replace('/', '-').replace(' ', '-') + ext)
         shutil.copy(src, dst); os.remove(src); n += 1
         # iOS captures the screen in its fixed PORTRAIT frame, so the rotated shots come out sideways: turn them upright
-        turn = {'2-landscape-left': '270', '4-landscape-right': '90', '3-portrait-upside-down': '180'}.get(name)
+        turn = {'2-landscape-left': '270', '4-landscape-right': '90', '3-portrait-upside-down': '180', '8-back-2-landscape-left': '270', '8-back-4-landscape-right': '90', '8-back-3-portrait-upside-down': '180', '8-back-5-routed-and-off': '270', '8-back-6-flipped-back': '270'}.get(name)
         if turn: subprocess.run(['sips', '-r', turn, dst], capture_output=True)
 print('  ', n, 'pictures')
 PY

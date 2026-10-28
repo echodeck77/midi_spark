@@ -145,7 +145,7 @@ struct FourfoldRootView: View {
                                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                                riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
-                                               hocketRules: hocketRules, hocketLive: meters.hocket,
+                                               hocketRules: hocketRules, hocketLive: meters.hocket, rollLive: meters.rolls,
                                                lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                                wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                                pulseFeed: meters.pulse, pulseLevel: pulseLevel,
@@ -776,6 +776,7 @@ struct FourfoldRootView: View {
     let rlp = au.pollEuclideousRiffLivePool()
     if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
     let hl = au.pollHocketLive(); meters.hocket.update(counts: hl.counts, running: hl.running)   // HOCKET §8: the lit rules' counts (the pop-up and the lane cards read them through leaf views)
+    meters.rolls.poll(records: au.pollNoteRoll(), beat: meters.beat, playing: d.effectivePlaying)   // CARD BACKS §5: the rolls and jack lights, from the same 30 Hz poll
     let ss = au.pollEuclideousSourceStatus()   // SOURCES STACK: lane-1 source status on the existing 30 Hz poll (no new timer)
     if ss != euclideousSourceStatus { euclideousSourceStatus = ss }
     applyLandedLockSnaps()   // LANE LOCK: a snap the render thread has landed is written into the document within a poll tick (30 Hz)
@@ -927,7 +928,7 @@ final class FourfoldModel: ObservableObject {
     let meters = FourfoldTelemetry()
     @Published var swing: Int = 50
     @Published var stepIndex: Int = 2
-    @Published var busChannels: [Int] = [1, 2, 3, 4, 5, 6, 7, 8]
+    @Published var busChannels: [Int] = [1, 2, 3, 4]
     @Published var ignoreAllNotesOff: Bool = true
     @Published var clashPolicy: ClashPolicy = .allow
     @Published var showPresets: Bool = false

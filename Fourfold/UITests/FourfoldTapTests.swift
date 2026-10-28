@@ -145,16 +145,44 @@ final class FourfoldTapTests: XCTestCase {
         need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the RHYTHM tab again")
     }
 
-    func testTheSequencerPanelSwitchesBetweenMixLanesAndFx() {
+    /// CARD BACKS §8: the MIX tab is gone — the lower-right panel is LANES | FX, and opens on LANES.
+    func testTheSequencerPanelSwitchesBetweenLanesAndFx() {
         let app = XCUIApplication.fresh()
-        need(app.el("Lane 1 riff"), "the MIX pads")
-        app.buttons["Lanes"].tap()
-        need(app.buttons["Lane 1 cell size PASS"], "the LANES panel's rate box")
+        need(app.buttons["Lane 1 cell size PASS"], "the LANES panel's rate box (it opens on LANES)")
         XCTAssertTrue(app.buttons["Lanes"].isSelected)
+        XCTAssertFalse(app.buttons["Mix"].exists && app.buttons["Lanes"].frame.intersects(app.buttons["Mix"].frame), "no MIX tab beside LANES")
         app.buttons["FX"].tap()
         need(app.buttons["FX row, ratchet, all lanes, selected"], "the FX panel's RATCH row")
-        app.buttons["Mix"].tap()
-        need(app.el("Lane 1 riff"), "the MIX pads again")
+        app.buttons["Lanes"].tap()
+        need(app.buttons["Lane 1 cell size PASS"], "the LANES panel again")
+    }
+
+    /// CARD BACKS (2026-10-28): the header's PATTERN | MIX switch turns all four cards over; each back carries a riff row and a notes row whose controls reach the engine — the part's switch, an output jack, OCT and the XY pad.
+    func testTheCardSwitchTurnsTheLaneCardsToTheirBacksAndTheControlsEdit() {
+        let app = XCUIApplication.fresh()
+        XCTAssertTrue(app.buttons["Pattern"].isSelected, "the cards open on PATTERN")
+        need(app.buttons["Mix"], "the header's MIX segment").tap()
+        need(app.el("Lane 1 mix"), "lane 1's back")
+        XCTAssertTrue(app.buttons["Mix"].isSelected)
+        let jackB = need(app.el("Riff to output B, empty"), "lane 1's riff jack B")
+        jackB.tap()
+        need(app.el("Riff to output B, plugged in"), "the jack plugs in")
+        jackB.tap()
+        need(app.el("Riff to output B, empty"), "…and unplugs again")
+        need(app.el("Riff, on"), "the riff's label switch").tap()
+        need(app.el("Riff, off"), "the riff goes off"); need(app.el("Turn on riff"), "…and the roll offers to turn it back on").tap()
+        need(app.el("Riff, on"), "TURN ON RIFF turns it on")
+        let oct = app.els(prefix: "Riff octave").element(boundBy: 0)
+        need(oct, "the riff's OCT stepper")
+        oct.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        need(app.el("Riff octave, plus 1"), "the + zone raises the riff an octave")
+        let vel = app.els(prefix: "Riff velocity").element(boundBy: 0)
+        need(vel, "the riff's XY pad")
+        let before = vel.label
+        vel.swipeUp()
+        XCTAssertNotEqual(vel.label, before, "an adjustment moves the velocity")
+        app.buttons["Pattern"].tap()
+        need(app.els(prefix: "Rhythm, ").element(boundBy: 0), "the front again")
     }
 
     /// A small window (AUM's minimized plugin window, Stage Manager, Split View) must stay the live, interactive page — there is no "resize to continue" screen any more.
@@ -235,14 +263,14 @@ final class FourfoldTapTests: XCTestCase {
             return all.first(where: { $0.isHittable }) ?? all[0]
         }
         need(app.images.matching(NSPredicate(format: "label == %@", "Increase channel")).firstMatch, "the PORTS page's channel steppers")
-        // eight ports, each named as the host lists it, each on its own channel on a fresh document
-        for (i, name) in ["Emit Riff A", "Emit Notes A", "Emit Riff B", "Emit Notes B", "Emit Riff C", "Emit Notes C", "Emit Riff D", "Emit Notes D"].enumerated() {
+        // four outputs, each named as the host lists it, each on its own channel on a fresh document
+        for (i, name) in ["A", "B", "C", "D"].enumerated() {
             need(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "\(name), channel \(i + 1)")).firstMatch, "\(name) reads channel \(i + 1)")
         }
         hittable("Increase channel").tap()
         Thread.sleep(forTimeInterval: 0.6)
-        let seen = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Emit Riff A'")).allElementsBoundByIndex.map(\.label)
-        XCTAssertTrue(seen.contains("Emit Riff A, channel 2"), "Riff A should read channel 2 after +; the sheet says \(seen)")
+        let seen = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'A, channel'")).allElementsBoundByIndex.map(\.label)
+        XCTAssertTrue(seen.contains("A, channel 2"), "output A should read channel 2 after +; the sheet says \(seen)")
         hittable("Decrease channel").tap()
         app.buttons["Close settings"].tap()
         gone(app.buttons["PORTS"].firstMatch, "the settings sheet after Close")

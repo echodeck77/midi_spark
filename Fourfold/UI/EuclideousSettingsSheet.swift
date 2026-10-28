@@ -37,10 +37,10 @@ struct EuclideousSettingsSheet: View {
     let ignoreAllNotesOff: Bool
     let onSetIgnoreAllNotesOff: (Bool) -> Void
 
-    // PORTS (THE NINE PORTS, 2026-10-26 — was MAIN OUT): one channel per port, eight steppers in lane order
-    let busChannels: [Int]        // 1-based, one per port: Riff A, Notes A … Notes D (index = bus, `FourfoldPorts`)
+    // PORTS (CARD BACKS, 2026-10-28 — the nine ports' eight steppers are four again): one channel per OUTPUT, A–D in order
+    let busChannels: [Int]        // 1-based, one per output: A, B, C, D (index = output, `FourfoldPorts`)
     let allOutputName: String     // the REAL host-visible name for the "All" cable — NOT assumed "FOURFOLD ALL"
-    let onSetBusChannel: (Int, Int) -> Void   // (bus 0...7, new 1-based channel)
+    let onSetBusChannel: (Int, Int) -> Void   // (output 0...3, new 1-based channel)
     let onAllNotesOff: () -> Void
 
     // CLOCK (§5)
@@ -275,11 +275,11 @@ struct EuclideousSettingsSheet: View {
         }
     }
 
-    // MARK: - PORTS tab (THE NINE PORTS, 2026-10-26)
+    // MARK: - PORTS tab (CARD BACKS, 2026-10-28: one channel stepper per output A–D)
 
     private func portsTabContent(measuring: Bool) -> some View {
         VStack(spacing: 8) {
-            block(name: "CHANNELS", description: "Each port stamps its notes with its own channel. \(allOutputName.uppercased()) carries all eight together, told apart by these.") {
+            block(name: "CHANNELS", description: "Each output stamps its notes with its own channel. \(allOutputName.uppercased()) carries all four together, told apart by these.") {
                 VStack(spacing: 4) {
                     ForEach(euclideousPortsTabRows(), id: \.lane) { row in
                         portsLaneRow(row, interactive: !measuring)
@@ -306,29 +306,17 @@ struct EuclideousSettingsSheet: View {
             }
         }
     }
-    /// One lane's two ports side by side: its letter in the lane colour, then RIFF and NOTES with a channel stepper each.
+    /// One output's row: its letter in the lane colour, then its channel stepper.
     private func portsLaneRow(_ row: EuclideousPortsTabRow, interactive: Bool) -> some View {
         let letter = Text(row.letter).font(.system(size: 12, weight: .heavy, design: .monospaced))
             .foregroundColor(row.lane < laneColours.count ? laneColours[row.lane] : Color(hex: 0xF2F4F7))
             .frame(width: EuclideousPortsRowMetrics.letterW)
             .accessibilityHidden(true)
-        return Group {
-            if euclideousPortsRowIsStacked(cardWidth: euclideousSettingsSheetWidth(containerW: containerW)) {
-                // a narrow card (a small windowed host): RIFF over NOTES, the notes stepper indented under the first
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: EuclideousPortsRowMetrics.gap) { letter; portsStepper(row.ports[0], interactive: interactive) }.frame(height: 32)
-                    HStack(spacing: EuclideousPortsRowMetrics.gap) { Color.clear.frame(width: EuclideousPortsRowMetrics.letterW, height: 1); portsStepper(row.ports[1], interactive: interactive) }.frame(height: 32)
-                }
-            } else {
-                HStack(spacing: EuclideousPortsRowMetrics.gap) {
-                    letter
-                    ForEach(row.ports, id: \.bus) { port in
-                        portsStepper(port, interactive: interactive)
-                    }
-                }
-                .frame(height: 32)
-            }
+        return HStack(spacing: EuclideousPortsRowMetrics.gap) {
+            letter
+            ForEach(row.ports, id: \.bus) { port in portsStepper(port, interactive: interactive) }
         }
+        .frame(height: 32)
     }
     private func portsStepper(_ port: EuclideousPortsTabPort, interactive: Bool) -> some View {
         let ch = port.bus < busChannels.count ? busChannels[port.bus] : port.bus + 1

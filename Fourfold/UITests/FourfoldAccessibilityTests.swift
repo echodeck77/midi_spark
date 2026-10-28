@@ -95,7 +95,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     }
     private func open(_ button: String, expect: String) -> (XCUIApplication) -> Void { { app in app.buttons[button].tap(); XCTAssertTrue(app.staticTexts[expect].waitForExistence(timeout: 4), "\(button) did not open") } }
 
-    func testAuditMixPortrait()      { screen("page MIX", landscape: false) { _ in } }
+    func testAuditCardBackPortrait()  { screen("card backs", landscape: false) { $0.buttons["Mix"].tap() } }
     func testAuditLanesPortrait()    { screen("page LANES", landscape: false) { $0.buttons["Lanes"].tap() } }
     func testAuditFxPortrait()       { screen("page FX", landscape: false) { $0.buttons["FX"].tap() } }
     func testAuditRiffTabPortrait()  { screen("lane tab RIFF", landscape: false, laneTab("Riff, ")) }
@@ -107,7 +107,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditSettingsPortrait() { screen("settings", landscape: false) { $0.buttons["Settings"].tap() } }
     func testAuditHocketPortrait()   { screen("hocket popup", landscape: false, hocket) }
 
-    func testAuditMixLandscape()      { screen("page MIX", landscape: true) { _ in } }
+    func testAuditCardBackLandscape() { screen("card backs", landscape: true) { $0.buttons["Mix"].tap() } }
     func testAuditLanesLandscape()    { screen("page LANES", landscape: true) { $0.buttons["Lanes"].tap() } }
     func testAuditFxLandscape()       { screen("page FX", landscape: true) { $0.buttons["FX"].tap() } }
     func testAuditRiffTabLandscape()  { screen("lane tab RIFF", landscape: true, laneTab("Riff, ")) }
