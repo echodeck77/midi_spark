@@ -162,7 +162,7 @@ final class FourfoldTapTests: XCTestCase {
         let toggle = need(app.el("Ratchet on emitter A"), "emitter A's toggle")
         XCTAssertEqual(value(toggle), "off", "every emitter starts off")
         for letter in ["B", "C", "D"] { need(app.el("Ratchet on emitter \(letter)"), "emitter \(letter)'s toggle") }
-        need(app.el("Emitter A pattern, 3 of 8, offset 0, 3 strikes"), "A's strip")
+        need(app.els(prefix: "Emitter A pattern, 3 of 8").firstMatch, "A's strip")   // (a dev build says what it counts: "3 of 8 hits, offset 0, 3 strikes"; a release build says nothing)
         toggle.tap()
         XCTAssertEqual(value(app.el("Ratchet on emitter A")), "on")
         app.buttons["Undo"].tap()

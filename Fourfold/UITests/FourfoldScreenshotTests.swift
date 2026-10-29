@@ -104,6 +104,25 @@ final class FourfoldScreenshotTests: XCTestCase {
         for i in 1...6 { attach("7-glyphs-\(i)"); Thread.sleep(forTimeInterval: 1.3) }
     }
 
+    /// TAB STRIP (2026-10-29): the one strip above the lane cards on each tab (the glyph clusters, the selected segment), MIX, then random mode and lock mode with their faces at the shorter cards — landscape.
+    func testTheLaneStripAndTheModes() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+        Thread.sleep(forTimeInterval: 2)
+        func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
+        attach("9-strip-1-rhythm")
+        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-2-riff")
+        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-3-notes")
+        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Listen, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-4-listen")
+        step(app.buttons["Mix"]); Thread.sleep(forTimeInterval: 1.2); attach("9-strip-5-mix")
+        step(app.buttons["Rhythm"]); Thread.sleep(forTimeInterval: 1.2)
+        step(app.buttons["Random mode"]); Thread.sleep(forTimeInterval: 1); attach("9-strip-6-random-mode")
+        step(app.buttons["Random mode"]); Thread.sleep(forTimeInterval: 0.6)
+        step(app.switches["Lock mode"]); Thread.sleep(forTimeInterval: 1); attach("9-strip-7-lock-mode")
+        step(app.switches["Lock mode"]); Thread.sleep(forTimeInterval: 0.6)
+        attach("9-strip-8-back-on-rhythm")
+    }
+
     /// CARD BACKS (2026-10-28): the four lane cards on their BACK (the strip's MIX segment), playing, in every orientation — the picture the ferry's §14 acceptance is judged against — then with the riff routed to A and C and
     /// the notes part switched off (an unplugged jack, a part off with its invitation, the roll dimmed).
     func testTheCardBacks() {

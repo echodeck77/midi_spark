@@ -326,9 +326,9 @@ struct EuclideousLaneTap: ViewModifier {
     }
 }
 
-// MARK: - 5.1 / 5.2 the badge on a locked lane's tab row
+// MARK: - 5.1 / 5.2 the badge on a locked lane's top row (TAB STRIP 2026-10-29: it used to end the card's tab row)
 
-/// The padlock badge: 34 × 34 at the trailing end of the tab row, a 44-tall touch target centred on it. Tap unlocks (7.3), a hold locks what's playing (7.2). At L it is a quiet outline; while the lane has moved it counts
+/// The padlock badge: 34 × 34 in the card's top row, before the SOLO tile (`EuclideousLockBadge`), a 44-tall touch target centred on it. Tap unlocks (7.3), a hold locks what's playing (7.2). At L it is a quiet outline; while the lane has moved it counts
 /// down to the line it will snap back on — a number of bars, then, in the last bar (and on the BEAT grid), one dot per beat left (more than 4: the number). It never dims.
 struct EuclideousLockBadgeView: View {
     let lane: Int
