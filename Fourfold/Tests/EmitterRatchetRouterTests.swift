@@ -68,14 +68,17 @@ private func on(steps: Int = 8, hits: Int = 3, offset: Int = 0, chance: Int = 10
 }
 
 /// Run `beats` of playing windows from beat 0 at `tempo`, with optional transport restarts (a stop window, then back to beat 0), scene flushes (a session / preset load) and document swaps (an edit), then one STOP window.
-private func play(_ rig: Rig, beats: Double, frames: UInt32 = 2048, tempo: Double = 120, restartAt: [Double] = [], flushAt: [Double] = [], swapAt: [(beat: Double, rig: Rig)] = [], pool notes: [UInt8] = pool) -> Played {
+private func play(_ rig: Rig, beats: Double, frames: UInt32 = 2048, tempo: Double = 120, restartAt: [Double] = [], flushAt: [Double] = [], swapAt: [(beat: Double, rig: Rig)] = [], allOffAt: [Double] = [], jumpAt: [(at: Double, to: Double)] = [], pool notes: [UInt8] = pool) -> Played {
     let tap = Tap(), router = Router()
     var diag = KernelDiag(); let sr = 48_000.0
     let p = NotePool(); for n in notes { p.noteOn(n, velocity: 100, channel: 0) }
     var box = rig.box()
     var ts = 0.0, origin = 0.0
-    func beatNow() -> Double { (ts - origin) * tempo / 60.0 / sr }
+    var jumped = 0.0   // beats added by a jump while playing (a host loop, free-run handing the clock back)
+    func beatNow() -> Double { (ts - origin) * tempo / 60.0 / sr + jumped }
+    var jumps = jumpAt.sorted { $0.at < $1.at }
     var restarts = restartAt.sorted(), flushes = flushAt.sorted(), swaps = swapAt.sorted { $0.beat < $1.beat }
+    var allOffs = allOffAt.sorted()
     var nv: [(beat: Double, lane: Int, masks: UInt8)] = []
     var restartSamples: [Int64] = []
     func drain() {
@@ -83,6 +86,7 @@ private func play(_ rig: Rig, beats: Double, frames: UInt32 = 2048, tempo: Doubl
         for (lane, evs) in all.enumerated() { for e in evs { nv.append((e.onsetBeat, lane, e.emitMasks)) } }
     }
     while beatNow() < beats {
+        if let j = jumps.first, beatNow() >= j.at { jumps.removeFirst(); jumped += j.to - beatNow() }
         if let r = restarts.first, beatNow() >= r {
             restarts.removeFirst()
             router.process(box: box, pool: p, playing: false, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: tap, diag: &diag)
@@ -91,7 +95,9 @@ private func play(_ rig: Rig, beats: Double, frames: UInt32 = 2048, tempo: Doubl
         if let s = swaps.first, beatNow() >= s.beat { swaps.removeFirst(); box = s.rig.box() }
         var flush = false
         if let f = flushes.first, beatNow() >= f { flushes.removeFirst(); flush = true }
-        router.process(box: box, pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, sceneFlush: flush, out: tap, diag: &diag)
+        var allOff = false
+        if let a = allOffs.first, beatNow() >= a { allOffs.removeFirst(); allOff = true }
+        router.process(box: box, pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, euclideousAllNotesOff: allOff, sceneFlush: flush, out: tap, diag: &diag)
         drain()
         ts += Double(frames)
     }
@@ -144,6 +150,25 @@ final class EmitterRatchetRouterTests: XCTestCase {
         XCTAssertEqual(Set(e.tap.ons(1).map { $0.note }).count, 2, "two different notes")
     }
 
+    /// ADVERSARIAL REVIEW (2026-10-28): lanes run their whole window one after another, so two lanes that BOTH hit an output several times inside one window must still share each shared sample's decision — the result may not depend
+    /// on the buffer size. (The cache used to remember a single sample per output.)
+    func testTwoLockstepLanesOnOneOutputGiveTheSameStrikesAtEveryBufferSize() {
+        var l2 = line(pulses: 8, steps: 8, rate: .r1_16); l2.octave = 1; l2.riffOctave = 1; l2.riffOutMask = 0b0001; l2.notesOutMask = 0b0001
+        let l1 = line(pulses: 8, steps: 8, rate: .r1_16)
+        let rig = Rig(lines: [l1, l2], emitters: emitters([(0, on(steps: 4, hits: 1, strikes: 2))]), ranks: [1, 1, 1, 1, 1, 1, 1, 1])
+        var results: [[Int]] = []
+        for frames in [UInt32(256), 2048, 32_768] {
+            let e = play(rig, beats: 6, frames: frames)
+            assertNothingLeftSounding(e.tap)
+            // quarter-beat hits: bucket the note-ons by 16th (6,000 samples)
+            var c = [Int](repeating: 0, count: 24)
+            for ev in e.tap.ons(1) { let b = Int(Double(ev.sample) / 6_000 + 0.01); if b < 24 { c[b] += 1 } }
+            results.append(c)
+        }
+        XCTAssertEqual(results[0], results[1], "256 and 2048 frames agree"); XCTAssertEqual(results[1], results[2], "…and so does a 32,768-frame buffer with several hits per lane per window")
+        XCTAssertEqual(results[0].filter { $0 == 4 }.count, 6, "one emitter hit in every four ratchets ×2 for BOTH lanes' notes: 2 lanes × 2 strikes = 4 note-ons on those 16ths, 2 on the rest")
+    }
+
     // MARK: - §10 test 3 — what does not count
 
     func testASilencedLanesHitsDoNotAdvanceTheCount() {
@@ -151,6 +176,19 @@ final class EmitterRatchetRouterTests: XCTestCase {
         var l2 = line(); l2.octave = 1; l2.riffOutMask = 0b0001; l2.notesOutMask = 0b0001
         let e = play(Rig(lines: [line(), l2], emitters: emitters([(0, on(steps: 4, hits: 1, strikes: 3))]), solo: 0b0001), beats: 12)
         XCTAssertEqual(perBeat(e.tap, beats: 12), (0..<12).map { $0 % 4 == 0 ? 3 : 1 }, "a silenced lane sends nothing, so it is no emitter hit: the pattern runs on lane 1's hits alone")
+    }
+    /// ADVERSARIAL REVIEW (2026-10-28): spec test 3 names a LANES-muted hit; the first version used a solo-silenced lane. A lane whose LANES mute grid is all clear is inaudible at every hit — it must not count either.
+    func testALanesMutedLanesHitsDoNotAdvanceTheCount() {
+        var l2 = line(); l2.octave = 1; l2.riffOutMask = 0b0001; l2.notesOutMask = 0b0001; l2.muteCells16 = 0          // every LANES cell clear: this lane never sounds
+        let e = play(Rig(lines: [line(), l2], emitters: emitters([(0, on(steps: 4, hits: 1, strikes: 3))])), beats: 12)
+        XCTAssertEqual(perBeat(e.tap, beats: 12), (0..<12).map { $0 % 4 == 0 ? 3 : 1 }, "a LANES-muted hit sends nothing, so it is no emitter hit: the pattern runs on lane 1's hits alone")
+    }
+    /// §3.9: ALL NOTES OFF ends what sounds and leaves nothing stuck, and it is not a count origin (the count carries on) — pending ratchet tails are cancelled exactly as FX RATCH's are (which is: not by this request).
+    func testAllNotesOffMidRatchetLeavesNothingStuckAndDoesNotResetTheCount() {
+        let rig = Rig(lines: [line()], emitters: emitters([(0, on(steps: 4, hits: 1, strikes: 4))]))
+        let e = play(rig, beats: 12, frames: 128, allOffAt: [4.1])
+        assertNothingLeftSounding(e.tap)
+        XCTAssertEqual(perBeat(e.tap, beats: 12).enumerated().filter { $0.element >= 4 }.map { $0.offset }, [0, 4, 8], "the ratchets stay on hits 0, 4, 8: ALL NOTES OFF restarts nothing")
     }
     func testATiedHitSendsNothingSoItNeverCountsAndNeverRatchets() {
         // TIE on column 1 (row 2): the hit at beats 1, 9, 17… ties the note before it. STEPS 4 / HITS 1: every fourth SOUNDING hit ratchets.
@@ -390,5 +428,59 @@ final class EmitterRatchetRouterTests: XCTestCase {
         while ts < 48_000 * 1.3 { router.process(box: box, pool: p, playing: true, beatPos: ts * 2 / 48_000, tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: 2048, forceColumn: 0, out: tap, diag: &diag); ts += 2048 }
         XCTAssertEqual(router.emitterIndexLive & 0xFF, 2, "hits 0, 1, 2 have happened by beat 2.6 → A's latest index is 2")
         XCTAssertEqual(router.emitterIndexLive >> 8, 0x00FF_FFFF, "B, C and D have taken no hit")
+    }
+    // MARK: - adversarial review (2026-10-29): the engine reviewer's findings 2 and 3
+
+    /// A beat jump while the transport keeps running (a host loop; free-run handing the clock back) puts every lane on a new beat with no transport edge. The count restarts with them — a loop must repeat, not carry the history of its
+    /// previous passes (ferry §2.5: "whenever every lane's rhythm origin restarts together… and whatever else does that today").
+    func testALoopJumpWhilePlayingRestartsTheCountSoTheLoopRepeats() {
+        let rig = Rig(lines: [line()], emitters: emitters([(0, on(steps: 4, hits: 1, strikes: 3))]))   // a ratchet on hits 0, 4, 8, …
+        let r = play(rig, beats: 14, jumpAt: [(6.0, 0.0)])
+        let jumpSample = Int64((6.0 * 24_000 / 2048).rounded(.up)) * 2048   // the first window that starts at or after beat 6 is the one that lands on beat 0
+        var after = [Int](repeating: 0, count: 8)
+        for e in r.tap.ons(1) where e.sample >= jumpSample { let b = Int(Double(e.sample - jumpSample) / 24_000 + 0.001); if b < 8 { after[b] += 1 } }
+        XCTAssertEqual(after, [3, 1, 1, 1, 3, 1, 1, 1], "after the jump the first hit is hit 0 again: it ratchets, and so does the fifth")
+        assertNothingLeftSounding(r.tap)
+    }
+
+    /// Windows that follow each other are not a jump: nothing in a plain run restarts the count (the existing origin tests hold 0, 3, 6, 9 — this pins the same at a small buffer, where a tolerance that was too tight would reset it).
+    func testAPlainRunAtASmallBufferNeverRestartsTheCount() {
+        let r = play(Rig(lines: [line()], emitters: emitters([(0, on(steps: 3, hits: 1, strikes: 3))])), beats: 12, frames: 64)
+        XCTAssertEqual(perBeat(r.tap, beats: 12), (0..<12).map { $0 % 3 == 0 ? 3 : 1 })
+    }
+
+    /// A deferred strike on an output that does NOT ratchet follows the part's routing when it falls due, exactly as without the feature: tapping a jack off halfway through a hit stops that output's pending strikes at once, whether or not
+    /// ANOTHER output of the same note is ratcheting. (The tail used to freeze "the outputs less the ratcheting one" at the hit.)
+    func testPendingStrikesFollowARoutingEditOnAnOutputThatDoesNotRatchet() {
+        var fx = EuclideousFX(); for c in 0..<8 { fx.cells[0 * 8 + c] = 3 }   // FX RATCH ×3 on every column
+        func rig(routedToC: Bool, aOn: Bool) -> Rig {
+            let m: UInt8 = routedToC ? 0b0101 : 0b0001
+            return Rig(lines: [line(riffOut: m, notesOut: m)], emitters: aOn ? emitters([(0, on(steps: 2, hits: 2, strikes: 2))]) : EmitterRatchetSet(), fx: fx)
+        }
+        let swapBeat = 2.0 + 0.15   // hit 2 is struck at beat 2.0; its deferred strikes fall at 2.33 and 2.67
+        func cNoteOnsAfterTheSwap(aOn: Bool) -> (before: Int, after: Int) {
+            let r = play(rig(routedToC: true, aOn: aOn), beats: 4, frames: 128, swapAt: [(swapBeat, rig(routedToC: false, aOn: aOn))])
+            let ons = r.tap.ons(3)
+            return (ons.filter { Double($0.sample) <= swapBeat * 24_000 }.count, ons.filter { Double($0.sample) > swapBeat * 24_000 }.count)
+        }
+        let without = cNoteOnsAfterTheSwap(aOn: false), with = cNoteOnsAfterTheSwap(aOn: true)
+        XCTAssertEqual(without.after, 0, "control: with the emitter off, un-jacking C stops its pending FX-ratchet strikes")
+        XCTAssertEqual(with.after, 0, "…and with A ratcheting it stops them just the same")
+        XCTAssertEqual(with.before, without.before, "C's strikes before the edit are the same either way: A's ratchet is A's alone")
+    }
+    /// The ratchet's OWN pending strikes follow the part's routing when they fall due, as FX RATCH's do: un-jack A halfway through a hit A ratchets and the strikes still to come on A stop (they used to ring on A, frozen at the hit),
+    /// while C — which never ratcheted — keeps its one ordinary copy per hit.
+    func testAnOutputsPendingRatchetStrikesStopWhenItsJackIsTappedOff() {
+        func rig(routedToA: Bool) -> Rig {
+            let m: UInt8 = routedToA ? 0b0101 : 0b0100
+            return Rig(lines: [line(riffOut: m, notesOut: m)], emitters: emitters([(0, on(steps: 2, hits: 2, strikes: 3))]))   // A ratchets ×3 on every hit: strikes at +0, +⅓, +⅔ of the beat
+        }
+        let swapBeat = 2.0 + 0.15
+        let r = play(rig(routedToA: true), beats: 4, frames: 128, swapAt: [(swapBeat, rig(routedToA: false))])
+        let aAfter = r.tap.ons(1).filter { Double($0.sample) > swapBeat * 24_000 && Double($0.sample) < 3.0 * 24_000 - 100 }.count
+        XCTAssertEqual(aAfter, 0, "A's pending strikes at 2.33 and 2.67 do not sound once A is un-jacked")
+        XCTAssertEqual(r.tap.ons(1).filter { Double($0.sample) >= 2.0 * 24_000 - 100 && Double($0.sample) <= swapBeat * 24_000 }.count, 1, "…and the strike already struck before the edit stays")
+        XCTAssertEqual(r.tap.ons(3).filter { Double($0.sample) >= 2.0 * 24_000 - 100 && Double($0.sample) < 3.0 * 24_000 - 100 }.count, 1, "C's ordinary copy of the hit is untouched")
+        assertNothingLeftSounding(r.tap)
     }
 }

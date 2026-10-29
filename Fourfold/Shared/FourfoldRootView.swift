@@ -330,6 +330,7 @@ struct FourfoldRootView: View {
                                                    au?.editDocument { $0.euclideousEmitterRatchets = r }
                                                    publish()
                                                },
+                                               onEmitterRatchetDragEnd: { euclideousUndo.dropLastStepIfUnchanged(current: euclideousSnapshot()) },   // UNDO-6: a drag that wandered off and came back is not a step
                                                onEditRiffsSeq: { mutate in
                                                    var s = euclideousRiffsSeq
                                                    mutate(&s)

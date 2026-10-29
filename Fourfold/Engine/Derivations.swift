@@ -9595,14 +9595,17 @@ func emitterRatchetDecide(_ cfg: EmitterRatchetCfg, output: Int, v: Int64) -> Em
     return EmitterRatchetDecision(index: index, isHit: hit, ratchets: passes, strikes: cfg.strikes, missed: cfg.on && hit && !passes)
 }
 
-/// §2.2 / §2.3 / §2.5 — the four emitters' counters. FIXED-SIZE value storage (SIMD lanes and four named decisions), so the Router owns one without allocating and a test drives it directly.
-/// `hit(...)` is called ONCE per emitter hit on output X, in the Router's processing order: hits on one output at the SAME sample (same `window`, same `sample`) share the first one's decision and count once (§2.2).
-/// The counter c_X goes up by one per emitter hit whatever the mode, whether or not X is ON (§2.1); in STEPS mode (§2.4) c_X is simply not read.
+/// §2.2 / §2.3 / §2.5 — the four emitters' counters. FIXED-SIZE value storage (SIMD lanes), so the Router owns one without allocating and a test drives it directly.
+/// `hit(...)` is called ONCE per emitter hit on output X, in the Router's processing order: hits on one output at the SAME sample (same `window`) share the first one's decision and count once (§2.2). Lanes run their whole window one
+/// after another, so the counter remembers EVERY sample it has decided for each output during the window (`cacheCapacity` per output; a window that overflows it still counts every hit, it only stops sharing the oldest samples — far
+/// beyond any real window: 32 hits on one output from the lanes before the current one). The counter c_X goes up by one per emitter hit whatever the mode, whether or not X is ON (§2.1); in STEPS mode (§2.4) c_X is simply not read.
 struct EmitterRatchetCounter: Equatable {
+    static let cacheCapacity = 32
     private(set) var counts = SIMD4<Int64>(repeating: 0)
-    private var cacheWindow = SIMD4<Int64>(repeating: -1)
-    private var cacheSample = SIMD4<Int64>(repeating: -1)
-    private var d0 = EmitterRatchetDecision(), d1 = EmitterRatchetDecision(), d2 = EmitterRatchetDecision(), d3 = EmitterRatchetDecision()
+    private var cacheWindow: Int64 = -1                      // the window the entries below belong to
+    private var cacheLen = SIMD4<Int32>(repeating: 0)        // entries ever added this window, per output (the ring slot is len mod capacity)
+    private var s0 = SIMD32<Int64>(repeating: -1), s1 = SIMD32<Int64>(repeating: -1), s2 = SIMD32<Int64>(repeating: -1), s3 = SIMD32<Int64>(repeating: -1)   // the samples decided, per output
+    private var d0 = SIMD32<UInt32>(repeating: 0), d1 = SIMD32<UInt32>(repeating: 0), d2 = SIMD32<UInt32>(repeating: 0), d3 = SIMD32<UInt32>(repeating: 0)   // …and what was decided (packed)
     /// Byte x = output x's pattern index at its most recent emitter hit, 0xFF = none yet (the strip's current slot). Read by the UI through a main-thread accessor.
     private(set) var indexPacked: UInt32 = 0xFFFF_FFFF
 
@@ -9611,17 +9614,29 @@ struct EmitterRatchetCounter: Equatable {
 
     mutating func hit(cfg: EmitterRatchetCfg, output x: Int, countsSteps: Bool, laneStep: Int64, window: Int64, sample: Int64) -> EmitterRatchetDecision {
         guard x >= 0 && x < 4 else { return EmitterRatchetDecision() }
-        if cacheWindow[x] == window && cacheSample[x] == sample { return cached(x) }
+        if window != cacheWindow { cacheWindow = window; cacheLen = SIMD4<Int32>(repeating: 0) }
+        let have = Int(min(cacheLen[x], Int32(Self.cacheCapacity)))
+        for i in 0..<have where samples(x)[i] == sample { return Self.unpack(decisions(x)[i], strikes: cfg.strikes) }
         let v = countsSteps ? laneStep : counts[x]
         let d = emitterRatchetDecide(cfg, output: x, v: v)
         counts[x] &+= 1
-        cacheWindow[x] = window; cacheSample[x] = sample
-        switch x { case 0: d0 = d; case 1: d1 = d; case 2: d2 = d; default: d3 = d }
+        let slot = Int(cacheLen[x]) % Self.cacheCapacity
+        cacheLen[x] &+= 1
+        setEntry(x, slot, sample: sample, packed: Self.pack(d))
         let shift = UInt32(8 * x)
         indexPacked = (indexPacked & ~(UInt32(0xFF) << shift)) | (UInt32(truncatingIfNeeded: d.index) << shift)
         return d
     }
-    private func cached(_ x: Int) -> EmitterRatchetDecision { switch x { case 0: return d0; case 1: return d1; case 2: return d2; default: return d3 } }
+    private func samples(_ x: Int) -> SIMD32<Int64> { switch x { case 0: return s0; case 1: return s1; case 2: return s2; default: return s3 } }
+    private func decisions(_ x: Int) -> SIMD32<UInt32> { switch x { case 0: return d0; case 1: return d1; case 2: return d2; default: return d3 } }
+    private mutating func setEntry(_ x: Int, _ slot: Int, sample: Int64, packed: UInt32) {
+        switch x { case 0: s0[slot] = sample; d0[slot] = packed; case 1: s1[slot] = sample; d1[slot] = packed; case 2: s2[slot] = sample; d2[slot] = packed; default: s3[slot] = sample; d3[slot] = packed }
+    }
+    // index (4 bits) · isHit · ratchets · missed — STRIKES is the config's, so a cached answer takes the asking lane's current value (it cannot differ inside one window)
+    private static func pack(_ d: EmitterRatchetDecision) -> UInt32 { UInt32(d.index & 0xF) | (d.isHit ? 0x10 : 0) | (d.ratchets ? 0x20 : 0) | (d.missed ? 0x40 : 0) }
+    private static func unpack(_ p: UInt32, strikes: Int) -> EmitterRatchetDecision {
+        EmitterRatchetDecision(index: Int(p & 0xF), isHit: p & 0x10 != 0, ratchets: p & 0x20 != 0, strikes: strikes, missed: p & 0x40 != 0)
+    }
     /// Output x's most recent pattern index, nil before its first emitter hit.
     func currentIndex(_ x: Int) -> Int? { let b = (indexPacked >> UInt32(8 * x)) & 0xFF; return b == 0xFF ? nil : Int(b) }
 }

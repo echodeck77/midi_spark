@@ -7,10 +7,13 @@ import SwiftUI
 final class EmitterRatchetLive: ObservableObject {
     /// Output A…D's current pattern index, −1 = none (nothing has hit it yet, or the transport is not running).
     @Published private(set) var indices: [Int] = [-1, -1, -1, -1]
+    /// The slot each output's most recent flare belongs to — kept through a stop (the flare's 1.5 s afterglow outlives the highlighted slot, which clears) and replaced by the next hit. Not published: the strip's TimelineView reads it.
+    private(set) var lastIndices: [Int] = [-1, -1, -1, -1]
     func update(packed: UInt32, running: Bool) {
         var next = [Int](repeating: -1, count: 4)
-        if running { for x in 0..<4 { let b = (packed >> UInt32(8 * x)) & 0xFF; next[x] = b == 0xFF ? -1 : Int(b) } }
+        for x in 0..<4 { let b = (packed >> UInt32(8 * x)) & 0xFF; if b != 0xFF { lastIndices[x] = Int(b); if running { next[x] = Int(b) } } }
         if next != indices { indices = next }
     }
+    func flareIndex(_ x: Int) -> Int? { x >= 0 && x < lastIndices.count && lastIndices[x] >= 0 ? lastIndices[x] : nil }
     func index(_ x: Int) -> Int? { x >= 0 && x < indices.count && indices[x] >= 0 ? indices[x] : nil }
 }

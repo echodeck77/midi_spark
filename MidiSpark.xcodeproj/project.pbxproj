@@ -156,6 +156,7 @@
 		76200A32A504EA152B5EE00C /* FXTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17864B5ACB5F8D44C78497C4 /* FXTabTests.swift */; };
 		76D1A6880AAD5A2FAB978C4C /* FourfoldTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */; };
 		773F692F8B836B1C245ED1F8 /* FourfoldMIDI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4156E25D4881F600935CB6A5 /* FourfoldMIDI.swift */; };
+		77A6290787D99EF6136EBF84 /* EmitterRatchetMutationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E88E3033C6B3EF5CB7DD6F5 /* EmitterRatchetMutationTests.swift */; };
 		78511070F695BACE30936CB6 /* DerivationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98149EBE4B9E76352A457113 /* DerivationsTests.swift */; };
 		7972392F67F1F17CBABBE729 /* DerivationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9240C6CA393EE4F4B6FD09AB /* DerivationsTests.swift */; };
 		7A16BFD5D61928B1E76A6DB0 /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54B806162177B626AC22A5D /* WalkTagPainter.swift */; };
@@ -540,6 +541,7 @@
 		9D5FD8318A130F2A8C70369A /* EuclideousRandomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandomTests.swift; sourceTree = "<group>"; };
 		9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousSettingsSheet.swift; sourceTree = "<group>"; };
 		9E8567597528341F414DC3D5 /* RhythmPolishTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RhythmPolishTests.swift; sourceTree = "<group>"; };
+		9E88E3033C6B3EF5CB7DD6F5 /* EmitterRatchetMutationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterRatchetMutationTests.swift; sourceTree = "<group>"; };
 		9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTransportClock.swift; sourceTree = "<group>"; };
 		9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTelemetry.swift; sourceTree = "<group>"; };
 		9F4D4A126C52BC03C659EC8C /* LaneStripFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripFuzzTests.swift; sourceTree = "<group>"; };
@@ -770,6 +772,7 @@
 				6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */,
 				9240C6CA393EE4F4B6FD09AB /* DerivationsTests.swift */,
 				9AE6D8F7DB5682AAE6EFA15E /* EffectiveParamsTests.swift */,
+				9E88E3033C6B3EF5CB7DD6F5 /* EmitterRatchetMutationTests.swift */,
 				0020B93EA1C4C6C4EF443729 /* EmitterRatchetRouterTests.swift */,
 				086AB1299B67DEE6EEB6AD09 /* EmitterRatchetTests.swift */,
 				79CAD1A32B1C9FC9B5BEAF2E /* EngineReviewTests.swift */,
@@ -1465,6 +1468,7 @@
 				48945756C07AD7AD3107E51D /* Diag.swift in Sources */,
 				819B652118BED142B9A10073 /* EffectiveParamsTests.swift in Sources */,
 				2AB5EB9EA0763C9ECA31CA30 /* Emission.swift in Sources */,
+				77A6290787D99EF6136EBF84 /* EmitterRatchetMutationTests.swift in Sources */,
 				C4B435D192FA99140BB67FAC /* EmitterRatchetRouterTests.swift in Sources */,
 				D44E9B13D7D4F6D3187F5DB5 /* EmitterRatchetTests.swift in Sources */,
 				7AF84097F78692131905933F /* EmitterRatchetUI.swift in Sources */,

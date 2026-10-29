@@ -477,8 +477,14 @@ final class EmitterRatchetTests: XCTestCase {
         XCTAssertEqual(back.euclideousFxCounts, .steps); XCTAssertEqual(back, st)
         var obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(PluginState.makeInit())) as! [String: Any]
         XCTAssertNil(obj["euclideousFxCounts"], "an untouched document writes no key")
-        obj["euclideousFxCounts"] = "garbage"
-        XCTAssertNil((try? JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: obj)))?.euclideousFxCounts, "a stored value that is not HITS or STEPS never loads as one")
+        // adversarial review: a stored value that is not HITS or STEPS must NEVER fail the document load (the AU's `fullState` and the preset store decode with `try?`, so a throw silently drops the whole session) — it reads as HITS
+        for garbage: Any in ["garbage", "steps", 7, true, ["x": 1], NSNull()] {
+            obj["euclideousFxCounts"] = garbage
+            let doc = try JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: obj))
+            XCTAssertTrue(doc.euclideousFxCounts == nil || doc.euclideousFxCounts == .hits, "\(garbage) loads as HITS (or nothing), never as STEPS and never as a failure")
+        }
+        obj["euclideousFxCounts"] = "STEPS"
+        XCTAssertEqual(try JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: obj)).euclideousFxCounts, .steps)
     }
     func testTheSnapshotCarriesTheCountsFlagOnlyWhenTheModeIsSteps() throws {
         var st = composedState()
@@ -501,5 +507,58 @@ final class EmitterRatchetTests: XCTestCase {
         let after = String(src[r.upperBound...])
         XCTAssertNotNil(after.range(of: "#endif")); XCTAssertTrue(after.prefix(1200).contains("#endif"), "…and it closes right after the block")
         XCTAssertFalse(src.contains("description: \"FX COUNTS"), "no description line (§7.2)")
+    }
+
+    // ADVERSARIAL REVIEW (2026-10-28): the same-sample cache used to hold ONE (window, sample) per output, so a lane that hit an output more than once in a window evicted the entry the NEXT lane needed.
+    func testSeveralHitsPerWindowFromTwoLanesStillShareTheirDecisionsPerSample() {
+        var c = EmitterRatchetCounter(); let a = cfg(steps: 4, hits: 1, chance: 50)
+        // lane 1 plays its whole window first: hits at samples 100, 300 and 500 …
+        let lane1 = [100, 300, 500].map { c.hit(cfg: a, output: 0, countsSteps: false, laneStep: 0, window: 9, sample: Int64($0)) }
+        XCTAssertEqual(c.counts[0], 3)
+        // … then lane 2 plays the same window, hitting the same samples (and one of its own): the shared ones count nothing and answer as lane 1's did
+        let lane2 = [100, 300, 500].map { c.hit(cfg: a, output: 0, countsSteps: false, laneStep: 0, window: 9, sample: Int64($0)) }
+        XCTAssertEqual(lane2, lane1, "each of lane 2's hits shares the decision of lane 1's hit at that sample")
+        XCTAssertEqual(c.counts[0], 3, "…and none of them counts again")
+        let own = c.hit(cfg: a, output: 0, countsSteps: false, laneStep: 0, window: 9, sample: 400)
+        XCTAssertEqual(c.counts[0], 4); XCTAssertEqual(own.index, 3, "a sample no earlier lane hit is a hit of its own")
+        // the next window starts afresh, and a window with more hits than the cache holds still counts every one
+        var big = EmitterRatchetCounter()
+        for i in 0..<(EmitterRatchetCounter.cacheCapacity + 8) { _ = big.hit(cfg: a, output: 2, countsSteps: false, laneStep: 0, window: 1, sample: Int64(i) * 10) }
+        XCTAssertEqual(big.counts[2], Int64(EmitterRatchetCounter.cacheCapacity + 8), "overflowing the cache never drops a count")
+        let fresh = big.hit(cfg: a, output: 2, countsSteps: false, laneStep: 0, window: 2, sample: 0)
+        XCTAssertEqual(big.counts[2], Int64(EmitterRatchetCounter.cacheCapacity + 9)); XCTAssertEqual(fresh.index, (EmitterRatchetCounter.cacheCapacity + 8) % 4)
+    }
+
+    // ADVERSARIAL REVIEW (2026-10-28)
+    func testExtremeStoredNumbersNeverTrapTheDecode() throws {
+        // `Int(Double(chance) / 5 …) * 5` overflowed for a stored Int.max / Int.min and killed the process at load
+        for v in [Int.max, Int.min, Int.max - 3, Int.min + 3, 1 << 62, -(1 << 62), 1_000_000_007, -1_000_000_007] {
+            let r = EmitterRatchet(on: true, steps: v, hits: v, offset: v, chance: v, strikes: v).normalized()
+            XCTAssertTrue((2...16).contains(r.steps) && (0...16).contains(r.hits) && (0..<16).contains(r.offset) && (0...100).contains(r.chance) && r.chance % 5 == 0 && (2...4).contains(r.strikes), "\(v)")
+        }
+        let json = "[{\"on\":true,\"steps\":9223372036854775807,\"hits\":-9223372036854775808,\"offset\":9223372036854775807,\"chance\":9223372036854775807,\"strikes\":-9223372036854775808}]"
+        let r = try decode(ratchetsJSON: json).euclideousEmitterRatchetsResolved[0]
+        XCTAssertEqual([r.steps, r.hits, r.offset, r.chance, r.strikes], [16, 0, 15, 100, 2])
+        let f = EmitterRatchetField.chance
+        XCTAssertEqual(f.setting(Int.max, in: EmitterRatchet()).chance, 100); XCTAssertEqual(f.setting(Int.min, in: EmitterRatchet()).chance, 0)
+    }
+    /// UNDO-6 for this funnel: a drag that wandered off and came back is not a step — the page drops the checkpoint's step when the live state equals what it holds.
+    func testADragThatReturnsToItsStartIsNotAnUndoStep() {
+        var undo = UndoStack<EuclideousUndoSnapshot>()
+        func snap(_ s: EmitterRatchetSet) -> EuclideousUndoSnapshot {
+            var x = EuclideousUndoSnapshot(lines: [], riff: EuclideousRiff(), resetSpanBars: 0, keyRoot: 0, keyType: .major, chordSets: [], activeChordSet: 0, noteSource: .midi, riffs: [], activeRiff: 0,
+                                           lanesSeq: EuclideousLanesSeq(), riffsSeq: EuclideousRiffsSeq())
+            x.emitterRatchets = s
+            return x
+        }
+        var set = EmitterRatchetSet()
+        undo.record(snap(set), coalesceKey: nil)                        // the drag's first change takes its checkpoint of the state BEFORE it …
+        set[0] = EmitterRatchetField.strikes.setting(4, in: set[0])      // … writes 3 → 4, then wanders back to 3 …
+        set[0] = EmitterRatchetField.strikes.setting(3, in: set[0])
+        XCTAssertTrue(undo.dropLastStepIfUnchanged(current: snap(set)), "it ended where it began: its step is dropped")
+        XCTAssertTrue(undo.past.isEmpty)
+        undo.record(snap(set), coalesceKey: nil); set[0] = EmitterRatchetField.strikes.setting(4, in: set[0])
+        XCTAssertFalse(undo.dropLastStepIfUnchanged(current: snap(set)), "a drag that really changed something keeps its step")
+        XCTAssertEqual(undo.past.count, 1)
     }
 }

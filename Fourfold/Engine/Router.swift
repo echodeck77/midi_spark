@@ -934,6 +934,8 @@ final class Router {
         var vel: UInt8 = 0           // the DRY velocity; echo k = vel · feedDelay · decay^(k-1)
         var busMask: UInt8 = 0
         var outsOverride: UInt8 = 0xFF   // CARD BACKS: a collision slot's own output set (0xFF = none: resolve from the part's mask)
+        var outsExclude: UInt8 = 0       // EMITTER RATCHET: outputs this hit's emitter ratchets took over — a tail with no explicit set follows the part's routing WHEN IT FALLS DUE, less these (0 = none)
+        var outsOnly: UInt8 = 0x0F       // EMITTER RATCHET: …and only these (an output's own ratchet strikes: that output, if the part is still routed to it when they fall due)
         var timeBeats: Double = 0.5
         var repeats: Int = 0         // 1…16
         var feedDelay: Double = 0.7  // input send — first echo level
@@ -962,7 +964,7 @@ final class Router {
 
     private var echoTailsActive: Bool { echoTails.contains { $0.active } }
     private func clearEchoTails() { for i in echoTails.indices { echoTails[i].active = false }; echoPrevMEnd = .nan }
-    private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, outsOverride: UInt8? = nil, timeBeats: Double, repeats: Int,
+    private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, outsOverride: UInt8? = nil, outsExclude: UInt8 = 0, outsOnly: UInt8 = 0x0F, timeBeats: Double, repeats: Int,
                               feedDelay: Double, decay: Double, offset: Double, pitch: Int, gateBeats: Double) {
         guard repeats > 0, timeBeats > 0, busMask != 0 else { return }
         var slot = -1
@@ -972,7 +974,7 @@ final class Router {
             for i in echoTails.indices where echoTails[i].onset < echoTails[oldest].onset { oldest = i }
             slot = oldest
         }
-        echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask, outsOverride: outsOverride ?? 0xFF,
+        echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask, outsOverride: outsOverride ?? 0xFF, outsExclude: outsOverride == nil ? outsExclude : 0, outsOnly: outsOverride == nil ? outsOnly : 0x0F,
                                    timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
                                    decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats,
                                    lane: euclideousStrikeLane)
@@ -1620,7 +1622,10 @@ final class Router {
     private func drainEchoTails(mStart: Double, mEnd: Double, beatPos: Double, beatsPerSample: Double,
                                windowStart: Int64, windowEnd: Int64, S: Double, a: Double,
                                out: MIDIEmitter?, diag: inout KernelDiag) {
-        if !echoPrevMEnd.isNaN && abs(mStart - echoPrevMEnd) > S { clearEchoTails() }   // seek/loop/tempo jump → drop tails
+        if !echoPrevMEnd.isNaN && abs(mStart - echoPrevMEnd) > S {   // seek/loop/tempo jump → drop tails
+            clearEchoTails()
+            resetEmitterRatchetOrigin()   // EMITTER RATCHET §2.5: a jump while the transport runs (a host loop, free-run handing the clock back) puts every lane back on a new beat with no transport edge — the count restarts with them, so a loop repeats
+        }
         // WINDOW CONTIGUITY (FX TAB ferry, 2026-10-18): the previous window's `mEnd` and this window's `mStart` are the same instant, but a host's `beatPos` for the
         // next window is NOT bit-identical to `beatPos + frames × beatsPerSample`, so the half-open `[mStart, mEnd)` below could leave a one-ulp GAP between two windows —
         // and a deferred strike landing exactly on that boundary (a ratchet's thirds on a 64-multiple sample) would fire in neither. Within a microbeat of the previous
@@ -1643,7 +1648,19 @@ final class Router {
                                    windowStart: windowStart, S: S, a: a)
                 let offT = sampleOf(musical: tau + e.gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                     windowStart: windowStart, S: S, a: a)
-                emitArtic(note: UInt8(n), busMask: e.busMask, outsOverride: e.outsOverride == 0xFF ? nil : e.outsOverride, onSample: onT, offSample: offT,
+                var tailBus = e.busMask
+                var tailOuts: UInt8? = e.outsOverride == 0xFF ? nil : e.outsOverride
+                if (e.outsExclude != 0 || e.outsOnly != 0x0F) && tailOuts == nil {
+                    // EMITTER RATCHET: the part's routing as it stands NOW — less the outputs the hit's emitter ratchets took over (the ordinary strike), or only the ratcheting output (its own strikes) — never a frozen copy of the set made at the hit,
+                    // which would ignore a jack tapped since. Several parts are struck once, under the lowest.
+                    var union: UInt8 = 0, m = tailBus
+                    while m != 0 { let part = Int(m.trailingZeroBitCount); m &= m &- 1; union |= part < 8 ? partOut[part] : 0x0F }
+                    union &= 0x0F
+                    let rest = union & ~e.outsExclude & e.outsOnly
+                    if union != 0 && rest == 0 { continue }          // nothing it is routed to is this strike's output any more
+                    tailOuts = rest; tailBus = UInt8(1) << UInt8(tailBus.trailingZeroBitCount)
+                }
+                emitArtic(note: UInt8(n), busMask: tailBus, outsOverride: tailOuts, onSample: onT, offSample: offT,
                           windowEnd: windowEnd, velocity: UInt8(min(127, v)), out: out, diag: &diag)
             }
         }
@@ -3827,6 +3844,9 @@ final class Router {
                                 let all = emitOutsOf(j)
                                 return all & emitRatchetOuts == 0 ? outsOf(j) : all & ~emitRatchetOuts
                             }
+                            // A DEFERRED strike of a pitch with no explicit output set still follows the part's routing when it falls due, as it always has: the tail names only the outputs the emitter ratchets took over (`outsExclude`).
+                            func tailExclude(_ j: Int) -> UInt8 { emitRatchetOuts != 0 && outsOf(j) == nil && emitOutsOf(j) & emitRatchetOuts != 0 ? emitRatchetOuts : 0 }
+                            func tailOuts(_ j: Int) -> UInt8? { tailExclude(j) != 0 ? nil : outsStrike(j) }
                             func strikesPlain(_ j: Int) -> Bool { (emitOnlyBits >> UInt16(j)) & 1 == 0 }
                             // §3.2: every note the hit sends on a ratcheting output sounds n times there — strike k at the hit + k × step ÷ n, laid out like FX RATCH's (strike 0 now; one inside this window struck where it belongs; the rest deferred
                             // on the echo ring), each lasting the pitch's effective gate as a share of its slot (never under 5 ms), at the hit's velocity (FLAT), on that output only. ROLL / RUN never apply here (§3.5): the notes strike together.
@@ -3851,11 +3871,11 @@ final class Router {
                                         guard k < n else { continue }
                                         let lastRegular = tieLast ? n - 2 : n - 1
                                         if k <= lastRegular {
-                                            pushEchoTail(onset: mTickBeat + Double(k - 1) * spacing, note: fp, vel: pitchVel[j], busMask: repBusMask, outsOverride: xBit,
+                                            pushEchoTail(onset: mTickBeat + Double(k - 1) * spacing, note: fp, vel: pitchVel[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
                                                          timeBeats: spacing, repeats: lastRegular - k + 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: gate)
                                         }
                                         if tieLast && k <= n - 1 {
-                                            pushEchoTail(onset: mTickBeat + Double(n - 2) * spacing, note: fp, vel: pitchVel[j], busMask: repBusMask, outsOverride: xBit,
+                                            pushEchoTail(onset: mTickBeat + Double(n - 2) * spacing, note: fp, vel: pitchVel[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
                                                          timeBeats: spacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: lastGate)
                                         }
                                     }
@@ -3940,19 +3960,19 @@ final class Router {
                                     let lastRegular = tieLast ? nRep - 2 : nRep - 1          // the last strike a plain tail serves
                                     if k <= lastRegular {
                                         if ratchShape == 0 {
-                                            pushEchoTail(onset: mTickBeat + Double(k - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask, outsOverride: outsStrike(j),
+                                            pushEchoTail(onset: mTickBeat + Double(k - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask, outsOverride: tailOuts(j), outsExclude: tailExclude(j),
                                                          timeBeats: repSpacing, repeats: lastRegular - k + 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                          gateBeats: repGate)
                                         } else {
                                             for m in k...lastRegular {   // a shaped ratchet: one tail per strike, each at its own velocity
-                                                pushEchoTail(onset: mTickBeat + Double(m - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(m), busMask: repBusMask, outsOverride: outsStrike(j),
+                                                pushEchoTail(onset: mTickBeat + Double(m - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(m), busMask: repBusMask, outsOverride: tailOuts(j), outsExclude: tailExclude(j),
                                                              timeBeats: repSpacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                              gateBeats: repGate)
                                             }
                                         }
                                     }
                                     if tieLast && k <= nRep - 1 {
-                                        pushEchoTail(onset: mTickBeat + Double(nRep - 2) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(nRep - 1), busMask: repBusMask, outsOverride: outsStrike(j),
+                                        pushEchoTail(onset: mTickBeat + Double(nRep - 2) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(nRep - 1), busMask: repBusMask, outsOverride: tailOuts(j), outsExclude: tailExclude(j),
                                                      timeBeats: repSpacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                      gateBeats: lastGate)
                                     }
@@ -4005,7 +4025,7 @@ final class Router {
                                         // strike registered here would only be looked at next window — after its time — and be lost at a large buffer. Strike it where it belongs.
                                         strikeChord(tau: mTickBeat + start, velScale: 1.0, gateBeats: length, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsStrike(j))
                                     } else if let fp = finalPitch(pitches[j], oct: 0) {   // a pitch outside MIDI 0…127 is dropped, as `strikeChord` drops it
-                                        pushEchoTail(onset: mTickBeat, note: fp, vel: pitchVel[j], busMask: chopMask(cell, m: mTickBeat, S: S, base: busOf(j) ?? bm), outsOverride: outsStrike(j),
+                                        pushEchoTail(onset: mTickBeat, note: fp, vel: pitchVel[j], busMask: chopMask(cell, m: mTickBeat, S: S, base: busOf(j) ?? bm), outsOverride: tailOuts(j), outsExclude: tailExclude(j),
                                                      timeBeats: start, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                      gateBeats: length)
                                     }

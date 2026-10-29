@@ -170,7 +170,14 @@ struct SourcePlan: Equatable, Codable {
 enum ClashPolicy: String, Codable, CaseIterable { case allow = "ALLOW", drop = "DROP" }
 // RATCH tab ferry (2026-10-28) §7: FX COUNTS is a DEV-build-only rig setting (judged by ear) — what an output's ratchet counts: HITS (the emitter hits that leave on the output, the default and the only mode in release) or STEPS
 // (the striking lane's pattern step `s`). `fxCountsResolved` forces HITS in release builds whatever is stored.
-enum FxCountsMode: String, Codable, CaseIterable { case hits = "HITS", steps = "STEPS" }
+enum FxCountsMode: String, Codable, CaseIterable {
+    case hits = "HITS", steps = "STEPS"
+    /// Never throws on content: a stored value that is not HITS or STEPS (a hand-edited or future document) reads as HITS — a throwing decode here would fail the WHOLE `PluginState` load and `fullState` / preset loading drop the session silently.
+    init(from decoder: Decoder) throws {
+        let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
+        self = FxCountsMode(rawValue: raw) ?? .hits
+    }
+}
 // FOURFOLD SETTINGS, CLOCK tab (2026-10-15 ferry, "Fourfold settings" §5.1).
 enum EuclideousHostStopBehavior: String, Codable, CaseIterable { case keepPlaying, stop }
 
@@ -1481,7 +1488,7 @@ struct EmitterRatchet: Equatable {
         r.steps = max(Self.minSteps, min(Self.maxSteps, steps))
         r.hits = max(0, min(r.steps, hits))
         r.offset = max(0, min(r.steps - 1, offset))
-        r.chance = max(0, min(100, Int((Double(chance) / Double(Self.chanceStep)).rounded()) * Self.chanceStep))
+        r.chance = Int((Double(max(0, min(100, chance))) / Double(Self.chanceStep)).rounded()) * Self.chanceStep   // clamp BEFORE the arithmetic: a stored Int.max used to trap in `Int(…) * 5` (adversarial review)
         r.strikes = max(Self.minStrikes, min(Self.maxStrikes, strikes))
         return r
     }

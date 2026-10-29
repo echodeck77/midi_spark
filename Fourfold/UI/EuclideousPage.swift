@@ -819,6 +819,8 @@ struct EuclideousPage: View {
     let onEditHocket: (Bool, @escaping (inout [HocketRule]) -> Void) -> Void
     /// EMITTER RATCHET: like `onEditFX` — `newStep: true` takes a `coalesceKey: nil` undo checkpoint (a toggle tap, a double-tap reset, a VoiceOver swipe, the first change of a value drag), `false` writes into the step already open.
     let onEditEmitterRatchet: (Bool, @escaping (inout EmitterRatchetSet) -> Void) -> Void
+    /// A value drag on the RATCH tab ended (or was cancelled): the page drops its undo step if the drag ended exactly where it began (UNDO-6's rule for checkpoint funnels).
+    let onEmitterRatchetDragEnd: () -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
     // §4.8 (2026-10-15 ferry): "a preset pick is one undo step" — a DISCRETE action, same class as
     // `onSetActiveRiff`/`onSetKeyRoot` below, not a continuous gesture. Routing a preset pick through the
@@ -6173,7 +6175,7 @@ struct EuclideousPage: View {
         #endif
         return EuclideousStackBreak {
             AnyView(EuclideousRatchetPanel(layout: layout, ratchets: emitterRatchets, accents: laneAccents, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
-                                           strikes: { (0..<4).map { feed.strikes(lane: $0) } }, live: emitterLive, onEdit: onEditEmitterRatchet)
+                                           strikes: { (0..<4).map { feed.strikes(lane: $0) } }, live: emitterLive, onEdit: onEditEmitterRatchet, onDragEnd: onEmitterRatchetDragEnd)
                 .frame(width: width, height: height, alignment: .topLeading))
         }
     }

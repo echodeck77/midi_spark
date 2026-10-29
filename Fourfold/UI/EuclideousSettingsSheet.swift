@@ -382,13 +382,13 @@ struct EuclideousSettingsSheet: View {
                 segmented([("HITS", 48), ("STEPS", 56)], selected: fxCounts == .hits ? 0 : 1) { i in
                     onSetFxCounts(i == 0 ? .hits : .steps)
                 }
-                // §8.5: ONE element, "FX counts", its selected state as the value; a swipe up / down flips it
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("FX counts")
-                .accessibilityValue(fxCounts == .hits ? "HITS" : "STEPS")
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAdjustableAction { _ in onSetFxCounts(fxCounts == .hits ? .steps : .hits) }
             }
+            // §8.5: the WHOLE block is ONE element, "FX counts" — its caption would otherwise be read as well — with the selected state as the value; a swipe up / down flips it
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("FX counts")
+            .accessibilityValue(fxCounts == .hits ? "HITS" : "STEPS")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAdjustableAction { _ in onSetFxCounts(fxCounts == .hits ? .steps : .hits) }
             #endif
             // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows and MIX pads. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.
             block(name: "STRIKE PULSE",

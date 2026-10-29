@@ -98,9 +98,17 @@ private struct EmitterRatchetCell: View {
     let size: CGSize
     let leadingRule: Bool
     let onEdit: (Bool, @escaping (inout EmitterRatchetSet) -> Void) -> Void
+    let onDragEnd: () -> Void                                     // the page drops the drag's undo step when it ended where it began
     @State private var pressed = false
     @State private var dragStart: EmitterRatchet? = nil
     @State private var dragEdited = false
+    @GestureState private var gestureLive = false            // false again when the system CANCELS the touch (a call, a Control Center swipe): `onEnded` never runs then, so this is what closes the drag (as on the card backs' pads)
+
+    private func finishDrag() {
+        let edited = dragEdited
+        pressed = false; dragStart = nil; dragEdited = false
+        if edited { onDragEnd() }
+    }
 
     var body: some View {
         typealias P = EmitterRatchetPalette
@@ -113,7 +121,10 @@ private struct EmitterRatchetCell: View {
         return ZStack(alignment: .topLeading) {
             if pressed { RoundedRectangle(cornerRadius: M.cellPressedRadius).fill(P.light) }
             if leadingRule && !pressed { Rectangle().fill(P.rule).frame(width: 1, height: size.height) }
-            HStack(alignment: .firstTextBaseline, spacing: M.cellLabelGap) { label.lineLimit(1); value.lineLimit(1) }
+            HStack(alignment: .firstTextBaseline, spacing: M.cellLabelGap) {
+                label.lineLimit(1).layoutPriority(0)                       // in a narrow cell (iPad mini: 55 pt) the LABEL truncates — "CHANCE 100%" must never read "10…" (§4.9: truncate, never shrink)
+                value.lineLimit(1).fixedSize().layoutPriority(1)
+            }
                 .frame(width: size.width, alignment: .center)
                 .padding(.top, M.cellLabelTop)
             ZStack(alignment: .leading) {
@@ -128,6 +139,7 @@ private struct EmitterRatchetCell: View {
         .onTapGesture(count: 2) { onEdit(true) { $0[i] = f.reset(in: $0[i]) } }          // §6.2: a double tap resets the cell (HITS and OFFSET clamped by STEPS)
         .gesture(
             DragGesture(minimumDistance: emitterRatchetDragActivation)
+                .updating($gestureLive) { _, live, _ in live = true }
                 .onChanged { v in
                     pressed = true
                     if dragStart == nil { dragStart = r; dragEdited = false }
@@ -135,15 +147,18 @@ private struct EmitterRatchetCell: View {
                     let want = f.value(of: target)
                     if want != f.value(of: r) { onEdit(!dragEdited) { $0[i] = f.setting(want, in: $0[i]) }; dragEdited = true }   // one undo step per drag
                 }
-                .onEnded { _ in pressed = false; dragStart = nil; dragEdited = false }
+                .onEnded { _ in finishDrag() }
         )
+        .onChange(of: gestureLive) { live in
+            if !live { finishDrag() }   // a cancelled touch: no stale fill, no stale start value, and the next drag is its own undo step
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(emitterRatchetCellLabel(output: output, field, r))
         .accessibilityAdjustableAction { dir in
             let delta = dir == .increment ? f.step : -f.step
             onEdit(true) { $0[i] = f.setting(f.value(of: $0[i]) + delta, in: $0[i]) }    // §8.4: each swipe changes the value by one step (CHANCE 5), one undo step
         }
-        .accessibilityAction(named: "Reset") { onEdit(true) { $0[i] = f.reset(in: $0[i]) } }
+        .accessibilityAction { onEdit(true) { $0[i] = f.reset(in: $0[i]) } }   // §8.4 "Double-tap resets": a VoiceOver double-tap ACTIVATES the element (it never fires a count-2 tap gesture), so the default action is the reset
     }
 }
 
@@ -160,6 +175,7 @@ struct EuclideousRatchetPanel: View {
     let strikes: () -> [[EuclideousPulseStrike]] // the PULSE feed's strikes per lane
     @ObservedObject var live: EmitterRatchetLive
     let onEdit: (Bool, @escaping (inout EmitterRatchetSet) -> Void) -> Void
+    let onDragEnd: () -> Void
 
     var body: some View {
         typealias P = EmitterRatchetPalette
@@ -179,6 +195,7 @@ struct EuclideousRatchetPanel: View {
         let mask = emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: r.offset)
         let slotsLocal = layout.slots.map { CGRect(x: $0.minX - layout.strip.minX, y: 0, width: $0.width, height: $0.height) }
         let current = live.index(x) ?? -1
+        let flareSlot = live.flareIndex(x) ?? current       // the flare outlives a stop (its 1.5 s afterglow) though the highlighted slot clears
         let accentOf: (Int) -> Color = { accents[max(0, min(accents.count - 1, $0))] }
         return HStack(alignment: .top, spacing: 0) {
             // the toggle target: 44 × the card's inner height, the disc centred in it (§4.3)
@@ -204,7 +221,7 @@ struct EuclideousRatchetPanel: View {
                     EmitterRatchetStripBase(slots: slotsLocal, r: r, mask: mask, current: current).equatable()
                     TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !playing)) { tl in
                         let fl = emitterRatchetFlare(output: x, strikes: strikes(), now: tl.date.timeIntervalSinceReferenceDate, scale: pulseScale)
-                        EmitterRatchetStripFlare(slots: slotsLocal, r: r, mask: mask, current: current, flare: fl, accent: fl.map { accentOf($0.lane) } ?? .clear)
+                        EmitterRatchetStripFlare(slots: slotsLocal, r: r, mask: mask, current: flareSlot, flare: fl, accent: fl.map { accentOf($0.lane) } ?? .clear)
                     }
                 }
                 .frame(width: stripW, height: M.stripHeight, alignment: .topLeading)
@@ -212,7 +229,7 @@ struct EuclideousRatchetPanel: View {
                 .accessibilityLabel(emitterRatchetStripLabel(output: x, r, counts: counts))
                 HStack(spacing: 0) {
                     ForEach(0..<5, id: \.self) { c in
-                        EmitterRatchetCell(output: x, field: EmitterRatchetField.allCases[c], r: r, size: layout.cells[c].size, leadingRule: c > 0, onEdit: onEdit)
+                        EmitterRatchetCell(output: x, field: EmitterRatchetField.allCases[c], r: r, size: layout.cells[c].size, leadingRule: c > 0, onEdit: onEdit, onDragEnd: onDragEnd)
                     }
                 }
             }

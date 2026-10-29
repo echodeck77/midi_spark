@@ -930,3 +930,172 @@ extension PortsStressTests {
         XCTAssertTrue(fails.isEmpty, fails.joined(separator: "\n"))
     }
 }
+
+// MARK: - DENSE emitter-ratchet fuzz + the isolation property (adversarial review, 2026-10-29 — adopted from the engine reviewer's scratch tests)
+// The sparse emitter fuzzes above run 24 windows over lanes that are often off. These make every lane busy (1/8, 1/16, 1/16T, 1/32; most steps hits), route every part somewhere, run all four emitters (mostly) ON with real patterns,
+// 300–400 windows with tempo/pool/routing/emitter edits, beat jumps, transport toggles and ALL NOTES OFF, hocket on a third of the seeds, shared channels on a quarter, gate 1.0 in the mix (legato). They found the two
+// determinism holes and the frozen-routing tail that the review fixed — and nothing else in ≈820 sessions.
+extension PortsStressTests {
+    private func rDenseLane(_ g: inout SM64, noLegato: Bool) -> EuclidLine {
+        var l = rLine(&g)
+        l.enabled = nil
+        l.steps = [4, 5, 6, 8, 12, 16].randomElement(using: &g)!
+        l.pulses = max(2, Int(Double(l.steps) * [0.5, 0.75, 1.0].randomElement(using: &g)!))
+        l.rate = [ArpRate.r1_8, .r1_16, .r1_16, .r1_32, .r1_16t].randomElement(using: &g)!
+        l.riffOn = true; l.useRiff = true; l.notesOn = true
+        l.litNotes = 0; l.notesLitOrder = Array(UInt8(0)...9).shuffled(using: &g).prefix(Int.random(in: 0...3, using: &g)).map { $0 }
+        l.listenRhythm = .own; l.listenPitch = .own; l.patternMiss = nil
+        l.gate = [1.0, 1.0, 0.99, 0.5, 0.9].randomElement(using: &g)!
+        l.notesGate = [1.0, 0.99, 0.5].randomElement(using: &g)!
+        if noLegato { l.gate = min(l.gate ?? 0.9, 0.99); l.notesGate = min(l.notesGate ?? 0.9, 0.99) }
+        l.tilt = 0; l.tiltFine = nil; l.offsetFraction = nil; l.restartRhythmBars = nil; l.restartMelodyPasses = nil
+        l.muteCells16 = nil; l.muteUnit = nil
+        l.direction = .fwd
+        l.riffOnRest = [EuclidRiffOnRest.skip, .tie, .repeatLast].randomElement(using: &g)!
+        return l
+    }
+    private func rDenseEmitters(_ x: inout SM64, outputs: UInt8) -> EmitterRatchetSet {
+        var set = EmitterRatchetSet()
+        for i in 0..<4 {
+            let steps = Int.random(in: 2...8, using: &x)
+            set[i] = EmitterRatchet(on: Int.random(in: 0...5, using: &x) != 0 && (outputs >> UInt8(i)) & 1 != 0, steps: steps, hits: Int.random(in: 1...steps, using: &x), offset: Int.random(in: 0..<steps, using: &x),
+                                    chance: [100, 100, 100, 75, 50].randomElement(using: &x)!, strikes: Int.random(in: 2...4, using: &x))
+        }
+        return set
+    }
+    private struct DenseResult { var fail: String?; var events: [TaggedEmitter.Ev] = []; var dropped = 0; var noteOns = 0 }
+    /// One dense session. `outputs` = which emitters may be ON (0 = none: the control); `routingEdits` = lane part routing / whole-lane replacement mid-run; every other random draw is independent of both, so the SAME seed with different
+    /// `outputs` is the same session with only the emitters changed.
+    private func denseRun(seed: UInt64, windows: Int, hocket: Bool, sameChannels: Bool, outputs: UInt8 = 0b1111, routingEdits: Bool = true, jumps: Bool = true, noLegato: Bool = false) -> DenseResult {
+        var g = SM64(seed)
+        var x = SM64(seed ^ 0xE317_A7C4_0000)
+        let router = Router()
+        var diag = KernelDiag()
+        let e = TaggedEmitter()
+        var lanes = (0..<4).map { _ in rRouting(&g, rDenseLane(&g, noLegato: noLegato)) }
+        var (st, pool) = rDoc(&g, lanes: lanes, rawGates: true)
+        pool.reset(); for n in [48, 55, 60, 64, 67, 72] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
+        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan()
+        st.euclideousFX = Int.random(in: 0...2, using: &g) == 0 ? rFX(&g) : EuclideousFX()
+        st.busChannels = sameChannels ? [1, 1, 1, 1] : [1, 2, 3, 4]
+        var rules = hocket ? rHocketRules(&g) : []
+        st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules)
+        st.euclideousEmitterRatchets = rDenseEmitters(&x, outputs: outputs)
+        var box = SnapshotBuilder.build(from: st)
+        let sr = 48_000.0
+        var tempo = Double([120, 140, 160, 200].randomElement(using: &g)!)
+        var beat = 0.0, ts = 0.0
+        var playing = true
+        var winChans: [[UInt8]] = [], winParams: [(beat: Double, ts: Double)] = [], winTempos: [Double] = []
+        var rolls: [NoteRollRecord] = []
+        var maxActive = 0
+        func rebuild() {
+            st.euclideousLines = lanes
+            let input = FourfoldCompose.Input(lines: lanes, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
+                                              soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
+            st.scenes = [FourfoldCompose.scene(input)]
+            box = SnapshotBuilder.build(from: st)
+        }
+        st.euclideousSoloMask = 0
+        rebuild()
+        for w in 0..<windows {
+            e.win = w
+            if hocket, Int.random(in: 0...20, using: &g) == 0 { editRules(&rules, &g); st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules); box = SnapshotBuilder.build(from: st) }
+            if x.next() % 24 == 0 { st.euclideousEmitterRatchets = rDenseEmitters(&x, outputs: outputs); box = SnapshotBuilder.build(from: st) }
+            let editLaneRouting = Int.random(in: 0...30, using: &g) == 0, replaceLanes = Int.random(in: 0...60, using: &g) == 0
+            if editLaneRouting && routingEdits { lanes = lanes.map { rRouting(&g, $0) }; rebuild() }
+            if replaceLanes && routingEdits { lanes = (0..<4).map { _ in rRouting(&g, rDenseLane(&g, noLegato: noLegato)) }; rebuild() }
+            if Int.random(in: 0...40, using: &g) == 0 { tempo = Double([90, 120, 160, 200, 240].randomElement(using: &g)!) }
+            if Int.random(in: 0...40, using: &g) == 0 { pool.reset(); for _ in 0..<Int.random(in: 1...5, using: &g) { pool.noteOn(UInt8.random(in: 36...84, using: &g), velocity: UInt8.random(in: 20...127, using: &g), channel: 0) } }
+            let frames = UInt32([128, 256, 512, 1024, 2048, 4096].randomElement(using: &g)!)
+            if Int.random(in: 0...80, using: &g) == 0 { playing.toggle() }
+            let jump = Int.random(in: 0...80, using: &g) == 0 ? Double.random(in: -8...32, using: &g) : 0
+            if jumps { beat += jump }
+            let allOff = Int.random(in: 0...120, using: &g) == 0
+            let live: UInt16 = Int.random(in: 0...60, using: &g) == 0 ? (0x100 | UInt16.random(in: 0...15, using: &g)) : 0
+            winChans.append(box.busChannels); winParams.append((beat, ts)); winTempos.append(tempo)
+            router.process(box: box, pool: pool, playing: playing, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames,
+                           euclideousAllNotesOff: allOff, euclideousSoloLive: live, out: e, diag: &diag)
+            rolls += router.rollRing.drain()
+            maxActive = max(maxActive, diag.activeVoiceCount)
+            beat += Double(frames) * tempo / 60.0 / sr
+            ts += Double(frames)
+        }
+        e.win = windows
+        winChans.append(box.busChannels); winParams.append((beat, ts)); winTempos.append(tempo)
+        router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: 512, out: e, diag: &diag)
+        rolls += router.rollRing.drain()
+        var result = DenseResult(fail: nil, events: e.events, dropped: router.floodDropped, noteOns: e.events.filter { $0.status == 0x90 && $0.cable >= 1 && $0.cable <= 4 }.count)
+        var bal: [Int: Int] = [:]
+        var portMS: [String: Int] = [:], allMS: [String: Int] = [:]
+        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {
+            let k = (Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)
+            if ev.status == 0x90 {
+                bal[k, default: 0] += 1
+                if ev.cable >= 1 && ev.cable <= 4 {
+                    let want = (winChans[ev.win][Int(ev.cable) - 1] &- 1) & 15
+                    if ev.chan != want { result.fail = "seed \(seed): cable \(ev.cable) note-ON ch \(ev.chan) != the output's channel \(want) (win \(ev.win))"; return result }
+                }
+                let key = "\(ev.sample)/\(ev.note)/\(ev.vel)/\(ev.chan)"
+                if ev.cable == 0 { allMS[key, default: 0] += 1 } else if ev.cable <= 4 { portMS[key, default: 0] += 1 }
+            } else {
+                bal[k, default: 0] -= 1
+                if bal[k]! < 0 { result.fail = "seed \(seed): ORPHAN note-off cable \(ev.cable) ch \(ev.chan) note \(ev.note) (win \(ev.win))"; return result }
+            }
+        }
+        for (k, v) in bal where v != 0 { result.fail = "seed \(seed): STUCK note — cable \((k / 128) / 16) ch \((k / 128) % 16) note \(k % 128) balance \(v) at the end"; return result }
+        if !sameChannels && portMS != allMS && maxActive < 120 {   // a full voice table legitimately starves a late output
+            let a = portMS.filter { allMS[$0.key] != $0.value }.keys.sorted().first, b = allMS.filter { portMS[$0.key] != $0.value }.keys.sorted().first
+            result.fail = "seed \(seed): ALL != the union of the outputs (maxActive \(maxActive)) — output-only \(a ?? "-") / all-only \(b ?? "-")"; return result
+        }
+        if let msg = rollAnalysis(e, rolls, winParams, winTempos, sr: sr, seed: seed) { result.fail = msg }
+        return result
+    }
+
+    func testDenseEmitterRatchetSessionsHoldEveryInvariantAndVisiblyAddStrikes() {
+        var fails: [String] = [], with = 0, without = 0
+        for s in 1...60 {
+            let seed = UInt64(s) &+ 700_000
+            let r = denseRun(seed: seed, windows: 400, hocket: s % 3 == 0, sameChannels: s % 4 == 0)
+            if let f = r.fail { fails.append(f); if fails.count >= 6 { break } }
+            with += r.noteOns
+            without += denseRun(seed: seed, windows: 400, hocket: s % 3 == 0, sameChannels: s % 4 == 0, outputs: 0).noteOns
+        }
+        XCTAssertGreaterThan(with, without * 11 / 10, "dense lanes with the emitters on must strike visibly more than the same sessions with them off")
+        XCTAssertTrue(fails.isEmpty, fails.joined(separator: "\n"))
+    }
+    /// The harness itself must be deterministic, or the isolation comparison below proves nothing.
+    func testDenseSessionsAreDeterministic() {
+        var bad: [String] = []
+        for s in 1...20 {
+            let seed = UInt64(s) &+ 900_000
+            func run() -> [String] { denseRun(seed: seed, windows: 300, hocket: false, sameChannels: false, jumps: s % 2 == 0, noLegato: true).events.map { "\($0.cable)/\($0.sample)/\($0.status)/\($0.chan)/\($0.note)/\($0.vel)" } }
+            if run() != run() { bad.append("seed \(seed): the same session gave different events") }
+        }
+        XCTAssertTrue(bad.isEmpty, bad.joined(separator: "\n"))
+    }
+    /// ISOLATION (ferry §3.3): with only output A ratcheting, B, C and D carry exactly what they carry with every emitter OFF — note-ons bit for bit (gates under 100 %, distinct channels, no hocket: the documented exceptions;
+    /// Lane routing is NOT edited mid-run here: a jack ADDED while a hit's strikes are pending is picked up by an ordinary FX-RATCH / ROLL tail, which a pitch whose every output ratchets never pushes — a known, documented residual; the jack-REMOVED case has its own test in EmitterRatchetRouterTests). Note-offs are compared without their time: when two voices share a key and fall due in one window the wire off is stamped with the time of whichever
+    /// holder the sweep closes last (slot order) — a PRE-EXISTING quirk that A's strikes reshuffle by occupying slots, a few milliseconds on an off, not a ratchet effect.
+    func testOtherOutputsAreBitIdenticalWhenOnlyOneOutputRatchets() {
+        var bad: [String] = [], compared = 0
+        for s in 1...60 {
+            let seed = UInt64(s) &+ 900_000
+            let a = denseRun(seed: seed, windows: 300, hocket: false, sameChannels: false, outputs: 0b0001, routingEdits: false, jumps: s % 2 == 0, noLegato: true)
+            let b = denseRun(seed: seed, windows: 300, hocket: false, sameChannels: false, outputs: 0, routingEdits: false, jumps: s % 2 == 0, noLegato: true)
+            if let f = a.fail ?? b.fail { bad.append(f); continue }
+            if a.dropped > 0 || b.dropped > 0 { continue }   // the flood governor legitimately starves a late output, and A's strikes change who is starved
+            func key(_ ev: TaggedEmitter.Ev) -> String { "\(ev.cable)/\(ev.status == 0x90 ? String(ev.sample) : "-")/\(ev.status)/\(ev.chan)/\(ev.note)/\(ev.vel)" }
+            let ka = a.events.filter { $0.cable >= 2 && $0.cable <= 4 && ($0.status == 0x90 || $0.status == 0x80) }.map(key).sorted()
+            let kb = b.events.filter { $0.cable >= 2 && $0.cable <= 4 && ($0.status == 0x90 || $0.status == 0x80) }.map(key).sorted()
+            compared += 1
+            if ka != kb {
+                let onlyA = Set(ka).subtracting(kb).sorted().prefix(3), onlyB = Set(kb).subtracting(ka).sorted().prefix(3)
+                bad.append("seed \(seed): B/C/D streams differ (\(ka.count) vs \(kb.count) events): with-only \(Array(onlyA)) / without-only \(Array(onlyB))")
+                if bad.count >= 5 { break }
+            }
+        }
+        XCTAssertGreaterThan(compared, 30, "too many sessions were skipped for flood drops to prove anything")
+        XCTAssertTrue(bad.isEmpty, bad.joined(separator: "\n"))
+    }
+}
