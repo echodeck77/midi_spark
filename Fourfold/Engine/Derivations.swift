@@ -4076,6 +4076,103 @@ func euclideousSourceLights(midiPlaying: Bool, chordsLit: Bool, keyLit: Bool, pl
             !keyOn ? .off : (keyLit ? .playing : .waiting))
 }
 
+// MARK: - Sources panel v2 (2026-10-28): four switchable sources, colours, pips, the panel geometry
+
+/// §3 the four source colours, each with an ink for text ON it (hex; the view wraps them in `Color`). srcMidi equals
+/// the existing text token #F2F4F7 and srcKey #8D95A3 is NEAR headerDim #8A909A — both reported as near-dups (§3.2).
+enum EuclideousSourceColour {
+    static let midi:   (fill: Int, ink: Int) = (0xF2F4F7, 0x0D0F14)
+    static let chords: (fill: Int, ink: Int) = (0xB9A8FF, 0x160F33)
+    static let pick:   (fill: Int, ink: Int) = (0xF2A7CF, 0x2B0D1E)
+    static let key:    (fill: Int, ink: Int) = (0x8D95A3, 0x0D0F14)
+}
+
+/// §2.8/§4.3 each source's light from the plan + the live status: off (switch off) · playing (on & contributing) ·
+/// waiting (on & not contributing). MIDI "contributes" = it is playing (holding, or within RELEASE GRACE); CHORDS /
+/// PICK / KEY use their §2.3 condition flag (KEY can be playing and add 0). The one rule the pips, the row switches
+/// and the COUNT colour all read.
+func euclideousSourceStatuses(plan: SourcePlan, midiPlaying: Bool, chordsLit: Bool, pickLit: Bool, keyLit: Bool)
+    -> (midi: EuclideousSourceLight, chords: EuclideousSourceLight, pick: EuclideousSourceLight, key: EuclideousSourceLight) {
+    func s(_ on: Bool, _ lit: Bool) -> EuclideousSourceLight { !on ? .off : (lit ? .playing : .waiting) }
+    return (s(plan.midiOnR, midiPlaying), s(plan.chordsOnR, chordsLit), s(plan.pickOnR, pickLit), s(plan.keyOnR, keyLit))
+}
+
+/// §4.7 the header button's VoiceOver value: "<key>, MIDI IN playing, CHORDS waiting, PICK off, KEY playing".
+func euclideousSourceButtonAccessibilityValue(keyLabel: String, midi: EuclideousSourceLight,
+                                              chords: EuclideousSourceLight, pick: EuclideousSourceLight, key: EuclideousSourceLight) -> String {
+    func w(_ s: EuclideousSourceLight) -> String { s == .playing ? "playing" : (s == .waiting ? "waiting" : "off") }
+    return "\(keyLabel), MIDI IN \(w(midi)), CHORDS \(w(chords)), PICK \(w(pick)), KEY \(w(key))"
+}
+
+/// Which inline editor is open under a source row (§5.13 one at a time).
+enum EuclideousSourceEditor: Equatable { case none, pick, key }
+
+/// §5/§7 the SOURCES panel geometry — ONE pure function for every frame (the views re-derive nothing). Text widths
+/// (MODE's two segments; from them the key widths) are monospaced-advance ESTIMATES, device-owed like the CHORDS
+/// pop-up's `labelW`. `scaleCount` = the KEY editor's scale-type count (13 today), wrapped into rows of ≤ 6 (§5.12).
+struct EuclideousSourcesPanelLayout: Equatable {
+    var width: CGFloat              // §5.2 min(448, containerW)
+    var blockInnerW: CGFloat        // a block's content width (surface − sp8×2, block − sp8×2)
+    let labelW: CGFloat = 84        // §5.6 LABEL column (the source switch)
+    let countW: CGFloat = 24        // §5.6/§5.9 COUNT column
+    let rowH: CGFloat = 44          // §5.5
+    let rowGap: CGFloat = 4         // §5.5 sp4
+    var modeAddW: CGFloat           // §5.10 the ADD segment (text + 10 pt each side)
+    var modeReplaceW: CGFloat       // §5.10 the REPLACE segment
+    var modeW: CGFloat              // §5.10 the whole ADD/REPLACE container (2 pt inset + segs + 2 pt between)
+    var contentW: CGFloat           // §5.8 CONTENT on a non-MIDI row
+    var contentMidiW: CGFloat       // CONTENT on the MIDI row (narrower by MODE + sp8)
+    var pickKeyW: CGFloat           // §5.11 each of the 12 PICK keys
+    var rootKeyW: CGFloat           // §5.12 each of the 12 ROOT buttons (= pickKeyW)
+    let octaveStepperW: CGFloat = 84 // §5.11
+    let octaveStepperH: CGFloat = 52
+    let pickKeyH: CGFloat = 52       // §5.11
+    let rootH: CGFloat = 40          // §5.12 ROOT buttons
+    let scaleH: CGFloat = 32         // §5.12 SCALE buttons
+    var scaleCols: Int               // §5.12 ≤ 6 per row
+    var scaleRows: Int
+    var scaleW: CGFloat              // each SCALE button (CONTENT ÷ cols, 3 apart)
+    var poolChipW: CGFloat           // §7.2 each of the 8 POOL chips
+    let poolChipH: CGFloat = 36      // §7.3
+    var sourcesBlockH: CGFloat       // §5.5 four rows + gaps + the open editor + the block padding
+    var poolBlockH: CGFloat          // §7.2
+    var contentH: CGFloat            // §5.2 title + sourcesBlock + poolBlock (+ the sp8 gaps) — the scroll check reads this
+}
+func euclideousSourcesPanelLayout(containerW: CGFloat, editor: EuclideousSourceEditor = .none, scaleCount: Int = 13) -> EuclideousSourcesPanelLayout {
+    let sp8: CGFloat = 8, sp4: CGFloat = 4, gap3: CGFloat = 3
+    let width = min(448, containerW)                          // §5.2
+    let blockInnerW = width - sp8 * 2 /* surface pad */ - sp8 * 2 /* block pad */
+    // §5.10 MODE: 9 pt heavy monospaced, 0.04 em — each segment = its text + 10 pt each side; container = 2 pt inset both ends + 2 pt between.
+    let adv: CGFloat = 9 * (0.6 + 0.04)
+    let modeAddW = (3 * adv + 20).rounded()                   // "ADD"
+    let modeReplaceW = (7 * adv + 20).rounded()               // "REPLACE"
+    let modeW = 2 + modeAddW + 2 + modeReplaceW + 2
+    let labelW: CGFloat = 84, countW: CGFloat = 24
+    let contentW = blockInnerW - labelW - sp8 - sp8 - countW  // §5.6 non-MIDI row
+    let contentMidiW = contentW - modeW - sp8                 // §5.6 the MIDI row also carries MODE
+    let pickKeyW = (contentW - gap3 * 11) / 12                // §5.11 twelve keys, 3 apart, over the CONTENT width
+    let scaleCols = min(6, max(1, scaleCount))                // §5.12 ≤ 6 per row
+    let scaleRows = Int((Double(max(1, scaleCount)) / Double(scaleCols)).rounded(.up))
+    let scaleW = (contentW - gap3 * CGFloat(scaleCols - 1)) / CGFloat(scaleCols)
+    let poolChipW = (contentW - sp4 * 7) / 8                  // §7.2 eight chips, sp4 apart, over the CONTENT width
+    // Heights. §5.11 PICK editor sits 2 above / 6 below; §5.12 KEY editor 2 above / 4 below (ROOT row + the scale rows, 6 apart).
+    let pickEditorH: CGFloat = 2 + 52 /* stepper = keys */ + 6
+    let keyScaleBlockH = CGFloat(scaleRows) * 32 + CGFloat(scaleRows - 1) * gap3
+    let keyEditorH: CGFloat = 2 + (40 /* ROOT */ + 6 + keyScaleBlockH) + 4
+    let editorH: CGFloat = editor == .pick ? pickEditorH : (editor == .key ? keyEditorH : 0)
+    let sourcesBlockH = sp8 + 44 * 4 + sp4 * 3 + editorH + sp8
+    let poolBlockH = sp8 + 36 + sp8
+    let contentH = 40 /* title */ + sp8 + sourcesBlockH + sp8 + poolBlockH
+    return EuclideousSourcesPanelLayout(
+        width: width, blockInnerW: blockInnerW,
+        modeAddW: modeAddW, modeReplaceW: modeReplaceW, modeW: modeW,
+        contentW: contentW, contentMidiW: contentMidiW,
+        pickKeyW: pickKeyW, rootKeyW: pickKeyW,
+        scaleCols: scaleCols, scaleRows: scaleRows, scaleW: scaleW,
+        poolChipW: poolChipW,
+        sourcesBlockH: sourcesBlockH, poolBlockH: poolBlockH, contentH: contentH)
+}
+
 // ── SOURCES pop-up geometry (SOURCES STACK ferry 2026-10-26 §5) ──────────────────────────────────────
 /// The approximate rendered width of "MIDI PLAYING" (9 pt heavy monospaced, 0.14 em tracking) — the threshold
 /// below which a table CELL is too narrow for the header label and it wraps onto two lines (§5.7). Device-owed.
@@ -4218,7 +4315,8 @@ enum EuclideousHeaderMetrics {
     static let segmentWidths: [CGFloat] = [66, 70, 40]
     static let segmentInset: CGFloat = 4
     static var segmentedWidth: CGFloat { segmentWidths.reduce(0, +) + segmentInset * 2 }   // 184
-    static let keyPillWidth: CGFloat = 120
+    static let keyPillWidth: CGFloat = 120           // Sources panel v2: the key pill is gone; kept only for the KEY pop-up card width until that is deleted too
+    static let sourceButtonWidth: CGFloat = 192      // Sources panel v2 §4.1: the one SOURCES button (four pips + the key label + a chevron)
     // HOLD/LATCH (Paul 2026-10-20): two fixed-width chips after the key pill, same "nothing moves when the
     // selection changes" shape as `segmentWidths` above — chip 0 = HOLD (4 chars), chip 1 = LATCH (5 chars).
     static let holdLatchChipWidths: [CGFloat] = [48, 54]
@@ -4243,7 +4341,9 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
     // UTILITIES is the HOCKET button (HOCKET ferry, 2026-10-27: a text pill sized for its widest label, "HOCKET · 4", plus the sp8 before the presets button) then 4 icons (presets · SWING, 2026-10-17 · REEL, 2026-10-23 ·
     // settings), one `t`-wide touch target each. The pill's width follows its label (`HocketButtonMetrics.width(litRules:)`); the header reserves the widest so nothing else moves when the count appears.
     // THE NINE PORTS (2026-10-26): the OUTPUTS group (the four output rings) is gone — a note's port is fixed by its lane and layer.
-    return EuclideousHeaderGroupWidths(brand: brand, notes: M.segmentedWidth + M.sp8 + M.keyPillWidth + M.sp8 + M.holdLatchWidth,
+    // Sources panel v2 §4.5: NOTES = the SOURCES button (192) + sp8 + HOLD/LATCH (106) = 306 (was 426; the button
+    // replaces the 184 source control + the 120 key pill). HOLD/LATCH stays (§8); nothing else in the group moves.
+    return EuclideousHeaderGroupWidths(brand: brand, notes: M.sourceButtonWidth + M.sp8 + M.holdLatchWidth,
                                        utilities: 4 * t + M.sp8 + HocketButtonMetrics.reservedWidth, gap: compact ? M.sp8 : M.sp16)
 }
 
@@ -4262,7 +4362,7 @@ struct EuclideousHeaderLayout: Equatable {
     var height: CGFloat { EuclideousHeaderMetrics.rowH * CGFloat(rowCount) + EuclideousHeaderMetrics.sp4 * CGFloat(rowCount - 1) }
 }
 private func headerClamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { lo > hi ? lo : min(max(v, lo), hi) }
-/// Layout A's exact need (container width): BRAND, sp8, the PATTERN | MIX switch, a gap, NOTES, a gap, UTILITIES. CARD BACKS (2026-10-28) added `cardSwitch + sp8` (124) to the pre-switch 1029.88.
+/// Layout A's exact need (container width): BRAND, sp8, the PATTERN | MIX switch, a gap, NOTES, a gap, UTILITIES. Sources panel v2 (2026-10-28) shrank NOTES 426 → 306 (the SOURCES button replaces the source control + key pill), so A now needs 1033.88 (was 1153.88) and row2Needs 430 (was 550); bNeeds 587.88 is unchanged.
 func euclideousHeaderANeeds(_ w: EuclideousHeaderGroupWidths) -> CGFloat {
     w.brand + EuclideousHeaderMetrics.sp8 + w.cardSwitch + w.gap + w.notes + w.gap + w.utilities
 }
@@ -4276,7 +4376,7 @@ func euclideousHeaderKind(containerW: CGFloat, isLandscape: Bool) -> EuclideousH
     // B and C keep the switch on row 2 with NOTES, so row 1 (BRAND + UTILITIES) — which decides B against C — is unchanged.
     let bNeeds = full.brand + full.utilities + full.gap
     if isLandscape && containerW >= aNeeds { return .a }
-    // the switch and NOTES need `cardSwitch + sp8 + notes` on row 2 (550): narrower than that (a Split View half, a small AUM window) they would push HOLD / LATCH off the page, so the switch gets row 2 and NOTES row 3
+    // the switch and NOTES need `cardSwitch + sp8 + notes` on row 2 (430, Sources panel v2 — was 550): narrower than that (a Split View half, a small AUM window) they would push HOLD / LATCH off the page, so the switch gets row 2 and NOTES row 3
     let row2Needs = full.cardSwitch + EuclideousHeaderMetrics.sp8 + full.notes
     if containerW < row2Needs { return .d }
     return containerW < bNeeds ? .c : .b
