@@ -362,12 +362,16 @@ struct EuclidLine: Codable, Equatable {
     // resolve, on the MAIN thread only, inside `SnapshotBuilder.build()` — see its own call site, mirroring
     // the pre-existing `euclideousNoteSourceResolved` precedent (also PluginState-level, also main-thread-
     // only) exactly.
+    /// A lane that has none of the legacy note-selection markers set (a bare `EuclidLine()`, as a factory preset leaves its spare lanes, or a lane saved before these fields existed). The page reads it as the ferry's fresh default
+    /// (nothing lit, riff on, FWD). `PluginState.euclideousLinesResolved` writes `useRiff = true` onto such a lane so that reading survives `euclidLinesForEditing()`, which fills in `noteSel` for every lane and would otherwise
+    /// make the engine's copy look touched — and migrate to the legacy "rank 1 lit, riff off".
+    var isUntouchedLane: Bool { melodyMode == nil && useRiff == nil && noteSel == nil && target == 0 && pick == nil }
     private var litMigrated: (lit: UInt8, top: Bool, top2: Bool, riffOn: Bool, warn: Bool) {
         // A genuinely fresh, never-touched lane must resolve to the ferry's own stated default ("nothing
         // lit, riff on, FWD"), not fall into the switch below — `melodyModeResolved`/`noteSelResolved`
         // would otherwise read `.note`/their own `default` ("ALL"-shaped) fallback for a lane that has
         // NEVER had any of these fields touched, which would wrongly migrate it to "1 lit, logged."
-        guard melodyMode != nil || useRiff != nil || noteSel != nil || target != 0 || pick != nil else {
+        guard !isUntouchedLane else {
             return (0, false, false, true, false)
         }
         if melodyModeResolved == .riff { return (0, false, false, true, false) }
@@ -2960,6 +2964,9 @@ struct PluginState: Codable, Equatable {
             var line = i < (L ?? []).count ? L![i] : Self.euclideousDefaultLine(i)
             // LEGATO REMOVED FROM A LANE'S GATE (2026-10-19): a stored 100% (an older session, or one set before this) loads as 99% — the UI and the engine (which are fed from
             // this) agree, and a repeated pitch re-strikes. (The FX tab's GATE row followed on 2026-10-20: it tops out at 95 and a stored 100 loads as 95.)
+            // AN UNTOUCHED LANE (2026-10-29): say "riff" out loud, so the page and the engine — which both get this line, the engine's copy after `euclidLinesForEditing()` has filled in a note selector — read it the same way:
+            // riff on, nothing lit. (Before this, the engine migrated such a lane to the legacy "rank 1 lit, riff off" and played its notes layer while the page showed it off.) The stored document is not rewritten.
+            if line.isUntouchedLane { line.useRiff = true }
             if let g = line.gate, g > euclideousLaneGateMax { line.gate = euclideousLaneGateMax }
             if let g = line.notesGate, g > euclideousLaneGateMax { line.notesGate = euclideousLaneGateMax }
             if line.resetSteps == nil {
