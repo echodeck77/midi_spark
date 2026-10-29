@@ -4465,14 +4465,18 @@ enum EuclideousPageMetrics {
     static func bottomMargin(inset: CGFloat) -> CGFloat { max(margin, inset) }
 }
 
-/// A lane card's fixed rows, hoisted out of the view so the page's floor list and the card draw from the same numbers: the comet row (44), the
-/// tab row (28), the 10pt inset on every side and two 6pt gaps leave `contentAreaH = card height − 104` for the lane tab (RHYTHM: lower zone 80,
-/// upper zone the rest = card height − 188).
+/// A lane card's fixed rows, hoisted out of the view so the page's floor list and the card draw from the same numbers: the comet row (44), the 10pt inset on every side and ONE 8pt gap leave
+/// `contentAreaH = card height − 72` for the lane tab (RHYTHM: lower zone 80, upper zone the rest = card height − 156). TAB STRIP ferry (2026-10-29): the card's own tab row (28, with its 6pt gaps) is gone — the page's one strip
+/// chooses the tab — so the body starts sp8 below the top row (y 62) and every tab gained 32pt (it was card height − 104).
 enum EuclideousLaneCardMetrics {
-    static let inset: CGFloat = 10, rowGap: CGFloat = 6, cometRowH: CGFloat = 44, tabRowH: CGFloat = 28
+    static let inset: CGFloat = 10, rowGap: CGFloat = 6, cometRowH: CGFloat = 44
+    /// The gap between the top row and the body (the tab row's 28 + 2 × 6 became this one gap).
+    static let bodyGap: CGFloat = 8
     /// RHYTHM's STEPS picker covers both zones and is built only when they reach this (`tabContent`).
     static let rhythmZonesFloor: CGFloat = 192
-    static var chromeH: CGFloat { cometRowH + tabRowH + inset * 2 + rowGap * 2 }
+    /// The body's top, in card coordinates: inset + the top row + the gap = 62.
+    static var bodyTop: CGFloat { inset + cometRowH + bodyGap }
+    static var chromeH: CGFloat { bodyTop + inset }
     static func innerWidth(cardWidth: CGFloat) -> CGFloat { max(1, cardWidth - inset * 2) }
     static func contentAreaH(cardHeight: CGFloat) -> CGFloat { max(1, cardHeight - chromeH) }
 }
@@ -4665,14 +4669,18 @@ enum EuclideousPageFloor: Equatable, Hashable {
     case riffRows                    // riff grid rows < 24
     case fxRows                      // FX rows < 24
     case ratchRows                   // RATCH tab (2026-10-28): a card under 52 pt (§4.8) — the frame is reported, the cards are drawn at the formula's height
+    case laneStrip                   // TAB STRIP (2026-10-29): a strip segment under 96 pt wide — the four glyph clusters hide; labels truncate, nothing shrinks
 }
 
 /// Which floors a box of this size falls under. Every flagged item is still drawn at the formula's values.
-func euclideousPageFloors(box: CGSize) -> [EuclideousPageFloor] {
+/// `box` is the riff panel's and the bottom-right panel's size; `laneBox` the lane card's (shorter since the TAB STRIP ferry — nil means the same as `box`, which is what the callers that only have one size mean);
+/// `stripWidth` the lane strip's (nil: not asked).
+func euclideousPageFloors(box: CGSize, laneBox: CGSize? = nil, stripWidth: CGFloat? = nil) -> [EuclideousPageFloor] {
     var out: [EuclideousPageFloor] = []
-    let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: box.height)
+    let lane = laneBox ?? box
+    let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: lane.height)
     if contentH < EuclideousLaneCardMetrics.rhythmZonesFloor { out.append(.rhythmZones) }
-    let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: box.width))
+    let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: lane.width))
     if r.rowAHeight < EuclideousRiffTabFloors.rowAHeight { out.append(.riffRowA) }
     if r.directionRowHeight < EuclideousRiffTabFloors.directionRowHeight { out.append(.riffDirectionRow) }
     if r.lowerRowHeight < EuclideousRiffTabFloors.lowerRowHeight { out.append(.riffLowerRows) }
@@ -4686,14 +4694,19 @@ func euclideousPageFloors(box: CGSize) -> [EuclideousPageFloor] {
     let body = euclideousSeqTabBodySize(panelWidth: box.width, panelHeight: box.height)
     if euclideousFXRowH(contentHeight: body.height) < EuclideousFXLayout.minRowH { out.append(.fxRows) }
     if emitterRatchetLayout(bodySize: body, portrait: true).belowFloor { out.append(.ratchRows) }   // orientation-free: a landscape card is min(60, the shared height), so it is under 52 exactly when the shared height is
+    if let sw = stripWidth, euclideousLaneStripLayout(width: sw).belowFloor { out.append(.laneStrip) }
     return out
 }
 
 struct EuclideousPageLayout: Equatable {
     var isLandscape: Bool
     var headerKind: EuclideousHeaderLayout.Kind
-    /// The one box size (all six frames have it).
+    /// The riff panel's and the bottom-right panel's size (those two frames are the page's old equal box). TAB STRIP ferry (2026-10-29): the lane cards are shorter — see `laneBox`.
     var box: CGSize
+    /// A lane card's size: the lane area less the strip (28) and its gap (8) and the gap between the two card rows, halved.
+    var laneBox: CGSize
+    /// The lane strip's frame (page coordinates): the lane area's width, 28 tall, at its top.
+    var strip: CGRect
     /// Lane cards 1–4, the riff panel and the MIX | LANES | FX panel, in page coordinates (0,0 = the view's top-left).
     var lanes: [CGRect]
     var riff: CGRect
@@ -4723,12 +4736,22 @@ func euclideousPageLayout(size: CGSize, headerKind: EuclideousHeaderLayout.Kind,
     func frame(_ col: Int, _ row: Int) -> CGRect {
         CGRect(x: P.margin + CGFloat(col) * (cw + P.gap), y: top + CGFloat(row) * (rh + P.gap), width: cw, height: rh)
     }
-    let lanes = [frame(0, 0), frame(1, 0), frame(0, 1), frame(1, 1)]
     let riff = landscape ? frame(2, 0) : frame(0, 2)
     let seq = landscape ? frame(2, 1) : frame(1, 2)
     let box = CGSize(width: cw, height: rh)
-    return EuclideousPageLayout(isLandscape: landscape, headerKind: headerKind, box: box, lanes: lanes, riff: riff, seq: seq,
-                                gutterX: P.margin + cw + P.gap / 2, floors: euclideousPageFloors(box: box))
+    // TAB STRIP (2026-10-29): the lane area (columns 1–2 in landscape, the page in portrait; rows 1–2) holds the strip, sp8, then the four cards in their 2 × 2. The cards keep their columns' x and width; their height is
+    // (the area's height − strip − sp8 − the gap between the two rows) / 2.
+    let strip = CGRect(x: P.margin, y: top, width: cw * 2 + P.gap, height: EuclideousLaneStripMetrics.height)
+    let areaH = rh * 2 + P.gap
+    let laneH = max(1, (areaH - EuclideousLaneStripMetrics.height - P.gap - P.gap) / 2)
+    let laneTop = top + EuclideousLaneStripMetrics.height + P.gap
+    func laneFrame(_ col: Int, _ row: Int) -> CGRect {
+        CGRect(x: P.margin + CGFloat(col) * (cw + P.gap), y: laneTop + CGFloat(row) * (laneH + P.gap), width: cw, height: laneH)
+    }
+    let lanes = [laneFrame(0, 0), laneFrame(1, 0), laneFrame(0, 1), laneFrame(1, 1)]
+    let laneBox = CGSize(width: cw, height: laneH)
+    return EuclideousPageLayout(isLandscape: landscape, headerKind: headerKind, box: box, laneBox: laneBox, strip: strip, lanes: lanes, riff: riff, seq: seq,
+                                gutterX: P.margin + cw + P.gap / 2, floors: euclideousPageFloors(box: box, laneBox: laneBox, stripWidth: strip.width))
 }
 /// `euclideousPageLayout` with the header kind taken from the header's own ladder for this view width — what the page itself calls.
 func euclideousPageLayout(size: CGSize, bottomInset: CGFloat = 0) -> EuclideousPageLayout {

@@ -108,15 +108,8 @@ enum EuclideousCardPart: Int, Equatable { case riff = 0, notes = 1
 enum EuclideousCardBackMetrics {
     static let inset: CGFloat = EuclideousLaneCardMetrics.inset                            // 10: the content box's side and bottom inset
     static let sp4: CGFloat = 4, sp8: CGFloat = 8
-    /// The MIX strip's top. SOURCE (the lane card): inset 10 + comet row 44 + gap 6 = 60, where the RHYTHM / RIFF / NOTES / LISTEN tab row starts. The FERRY's reference numbers put the strip at y 62 (tiles y 10–52, tab row top 62):
-    /// a 2 pt difference. Source wins; both are testable through `euclideousCardBackLayout(card:stripTop:)`.
-    static var stripTopSource: CGFloat { EuclideousLaneCardMetrics.inset + EuclideousLaneCardMetrics.cometRowH + EuclideousLaneCardMetrics.rowGap }
-    static let stripTopFerry: CGFloat = 62
-    static let stripHeight: CGFloat = 22, stripRadius: CGFloat = 6, stripPadX: CGFloat = 9
-    static let stripFont: CGFloat = 10, stripTracking: CGFloat = 0.14
     /// §4.2: the BACK's own fill and a 1 pt lane100 border at 28 % — on the CARD (CARD BACKS v2 puts them there; the first build drew them round the roll panel instead and left the card in the front's #1B1D23).
     static let fillColor = HocketColor(0x17191E), borderAlpha = 0.28, borderWidth: CGFloat = 1, cardRadius: CGFloat = 12
-    static let stripAlpha = 0.12
     // inside a row (§4.4, CARD BACKS v2): [VEL/GATE pad][sp4][PITCH pad][sp8][roll panel]; the pads keep 72 pt each until the roll panel would drop under 176, then give way down to their 44 pt floor
     static let padWidth: CGFloat = 72, padGap: CGFloat = 4, columnGap: CGFloat = 8
     static let rollPanelPreferredMin: CGFloat = 176
@@ -145,7 +138,8 @@ struct EuclideousCardBackPartFrames: Equatable {
 }
 struct EuclideousCardBackLayout: Equatable {
     var card: CGSize
-    var strip: CGRect
+    /// The body's top in card coordinates (62): the first row starts here.
+    var bodyTop: CGFloat
     var riff: EuclideousCardBackPartFrames, notes: EuclideousCardBackPartFrames
     var rowHeight: CGFloat
     /// Every floor under its minimum at this card size (drawn at the formula's values and listed, never shrunk — the page's own rule).
@@ -158,15 +152,14 @@ func euclideousCardBackPadWidth(contentWidth w: CGFloat) -> CGFloat {
     let fixed = M.padGap + M.columnGap
     return max(M.floorPadWidth, min(M.padWidth, (w - fixed - M.rollPanelPreferredMin) / 2))
 }
-/// §4.3–4.5 and §7.2: every frame on the back from the card's size. The content box is the card inset by 10; the MIX strip starts at `stripTop`; the two rows split what is left under the strip, sp8 apart and sp8 below it:
-/// rowH = (contentBottom − stripBottom − 2·sp8) ÷ 2. In a row: the VEL/GATE pad, sp4, the PITCH pad, sp8, then the roll panel — the roll (rowH − 32 tall) on top of the 32-tall jack strip, whose four 44-tall touch targets
-/// reach 12 pt up over the roll's bottom edge.
-func euclideousCardBackLayout(card: CGSize, stripTop: CGFloat = EuclideousCardBackMetrics.stripTopSource) -> EuclideousCardBackLayout {
+/// §4.3–4.5 and §7.2: every frame on the back from the card's size. The content box is the card inset by 10; the body starts at `bodyTop` (62: sp8 below the top row — TAB STRIP ferry 2026-10-29: the back's own "MIX" strip is gone, the
+/// page's strip chooses the tab) and the two rows split what is left, sp8 apart: rowH = (contentBottom − bodyTop − sp8) ÷ 2. In a row: the VEL/GATE pad, sp4, the PITCH pad, sp8, then the roll panel — the roll (rowH − 32 tall) on
+/// top of the 32-tall jack strip, whose four 44-tall touch targets reach 12 pt up over the roll's bottom edge.
+func euclideousCardBackLayout(card: CGSize, bodyTop: CGFloat = EuclideousLaneCardMetrics.bodyTop) -> EuclideousCardBackLayout {
     typealias M = EuclideousCardBackMetrics
     let x0 = M.inset, w = max(1, card.width - 2 * M.inset)
     let bottom = card.height - M.inset
-    let strip = CGRect(x: x0, y: stripTop, width: w, height: M.stripHeight)
-    let rowH = (bottom - strip.maxY - 2 * M.sp8) / 2
+    let rowH = (bottom - bodyTop - M.sp8) / 2
     let padW = euclideousCardBackPadWidth(contentWidth: w)
     func part(rowTop: CGFloat) -> EuclideousCardBackPartFrames {
         let row = CGRect(x: x0, y: rowTop, width: w, height: rowH)
@@ -188,7 +181,7 @@ func euclideousCardBackLayout(card: CGSize, stripTop: CGFloat = EuclideousCardBa
         return EuclideousCardBackPartFrames(row: row, velGate: velGate, pitch: pitch, rollPanel: panel, roll: roll, jackStrip: jackStrip, seam: seam,
                                             jackCells: cells, jackTargets: targets, jackSockets: sockets)
     }
-    let riff = part(rowTop: strip.maxY + M.sp8)
+    let riff = part(rowTop: bodyTop)
     let notes = part(rowTop: riff.row.maxY + M.sp8)
     var floors: [EuclideousCardBackFloor] = []
     if riff.velGate.width < M.floorPadWidth { floors.append(EuclideousCardBackFloor(name: "pad width", value: riff.velGate.width, floor: M.floorPadWidth)) }
@@ -199,7 +192,7 @@ func euclideousCardBackLayout(card: CGSize, stripTop: CGFloat = EuclideousCardBa
     // the roll must be wide enough for the label pill AND the invitation side by side (5 + label + gap + invitation + 5), else the invitation overlaps the label
     let rollNeeds = euclideousCardInvitationRollWidthFloor()
     if riff.roll.width < rollNeeds { floors.append(EuclideousCardBackFloor(name: "roll width for the label and its invitation", value: riff.roll.width, floor: rollNeeds)) }
-    return EuclideousCardBackLayout(card: card, strip: strip, riff: riff, notes: notes, rowHeight: rowH, floors: floors)
+    return EuclideousCardBackLayout(card: card, bodyTop: bodyTop, riff: riff, notes: notes, rowHeight: rowH, floors: floors)
 }
 
 // MARK: - §5.4 the label pill, §5.6 the invitations

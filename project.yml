@@ -238,6 +238,7 @@ targets:
       - path: Fourfold/Engine/TapeStore.swift
       - path: Fourfold/Engine/NoteRollRing.swift
       - path: Fourfold/Engine/EmitterRatchetUI.swift
+      - path: Fourfold/Engine/LaneViewStrip.swift   # TAB STRIP ferry (2026-10-29): the page's one tab, the strip's frames, glyph looks and VoiceOver strings (Foundation-only)
       - path: Fourfold/Shared/FourfoldTransportClock.swift
     dependencies:
       - package: Atomics

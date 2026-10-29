@@ -23,12 +23,17 @@ final class PageLayoutTests: XCTestCase {
     // MARK: 1–2. the references
 
     func testLandscapeReferenceIsThreeColumnsByTwoRowsOfSixEqualBoxes() {
+        // TAB STRIP ferry (2026-10-29) §1.3: the lane area (columns 1–2) holds the 28-tall strip, sp8, then the four cards (380.67 × 301); the riff panel and the bottom-right panel keep the old equal box (380.67 × 319) and their frames.
         let p = land
         XCTAssertTrue(p.isLandscape); XCTAssertEqual(p.headerKind, .a, "1158 wide, landscape: the header is layout A")
         XCTAssertEqual(p.box.width, 380.67, accuracy: 0.01); XCTAssertEqual(p.box.height, 319, accuracy: 1e-9)
-        near(p.lanes[0], 16, 64, 380.67, 319, "lane 1"); near(p.lanes[1], 404.67, 64, 380.67, 319, "lane 2")
-        near(p.lanes[2], 16, 391, 380.67, 319, "lane 3"); near(p.lanes[3], 404.67, 391, 380.67, 319, "lane 4")
+        XCTAssertEqual(p.laneBox.width, 380.67, accuracy: 0.01); XCTAssertEqual(p.laneBox.height, 301, accuracy: 1e-9)
+        near(p.strip, 16, 64, 769.33, 28, "the strip spans the lane area (the ferry's 753.33 is 16 short — Paul chose the lane area's width)")
+        near(p.lanes[0], 16, 100, 380.67, 301, "lane 1"); near(p.lanes[1], 404.67, 100, 380.67, 301, "lane 2")
+        near(p.lanes[2], 16, 409, 380.67, 301, "lane 3"); near(p.lanes[3], 404.67, 409, 380.67, 301, "lane 4")
         near(p.riff, 793.33, 64, 380.67, 319, "riff panel"); near(p.seq, 793.33, 391, 380.67, 319, "MIX | LANES | FX panel")
+        XCTAssertEqual(p.strip.maxX, p.lanes[1].maxX, accuracy: 1e-9, "the strip ends flush with lane 2's right edge")
+        XCTAssertEqual(p.lanes[3].maxY, 710, accuracy: 1e-9, "everything still ends at y 710")
         XCTAssertEqual(p.gutterX, 400.67, accuracy: 0.01, "was 378.5")
         XCTAssertEqual(p.seq.maxX, 1174, accuracy: 1e-9, "nothing past x 1174"); XCTAssertEqual(p.seq.maxY, 710, accuracy: 1e-9, "nothing past y 710")
         XCTAssertEqual(p.riffLeadingX, 777.33, accuracy: 0.01); XCTAssertEqual(p.laneCentreX, 384.67, accuracy: 0.01)
@@ -38,9 +43,12 @@ final class PageLayoutTests: XCTestCase {
         let p = port
         XCTAssertFalse(p.isLandscape); XCTAssertEqual(p.headerKind, .b, "782 wide, portrait: layout B")
         XCTAssertEqual(p.box.width, 387, accuracy: 1e-9); XCTAssertEqual(p.box.height, 319.67, accuracy: 0.01)
-        near(p.lanes[0], 16, 111, 387, 319.67, "lane 1"); near(p.lanes[1], 411, 111, 387, 319.67, "lane 2")
-        near(p.lanes[2], 16, 438.67, 387, 319.67, "lane 3"); near(p.lanes[3], 411, 438.67, 387, 319.67, "lane 4")
+        XCTAssertEqual(p.laneBox.width, 387, accuracy: 1e-9); XCTAssertEqual(p.laneBox.height, 301.67, accuracy: 0.01)
+        near(p.strip, 16, 111, 782, 28, "the strip spans both columns")
+        near(p.lanes[0], 16, 147, 387, 301.67, "lane 1"); near(p.lanes[1], 411, 147, 387, 301.67, "lane 2")
+        near(p.lanes[2], 16, 456.67, 387, 301.67, "lane 3"); near(p.lanes[3], 411, 456.67, 387, 301.67, "lane 4")
         near(p.riff, 16, 766.33, 387, 319.67, "riff panel"); near(p.seq, 411, 766.33, 387, 319.67, "MIX | LANES | FX panel")
+        XCTAssertEqual(p.lanes[2].maxY + 8, p.riff.minY, accuracy: 1e-9, "row 3 is unchanged at 766.33")
         XCTAssertEqual(p.gutterX, 407, accuracy: 1e-9, "was 442.5")
         XCTAssertEqual(p.seq.maxX, 798, accuracy: 1e-9, "the second column ends 16pt inside the 814 view (it ran to 869 before)")
         XCTAssertEqual(p.seq.maxY, 1086, accuracy: 0.01)
@@ -93,8 +101,13 @@ final class PageLayoutTests: XCTestCase {
                 let top = EuclideousPageMetrics.top(kind)
                 let tag = "\(w)×\(h) \(kind)"
                 XCTAssertEqual(p.isLandscape, w > h, tag)
+                // TAB STRIP: the strip sits at the top of the lane area, sp8 above the cards, as wide as the two card columns plus their gap
+                XCTAssertEqual(p.strip.minY, top, accuracy: 1e-9, tag); XCTAssertEqual(p.strip.height, 28, tag)
+                XCTAssertEqual(p.strip.minX, p.lanes[0].minX, accuracy: 1e-9, tag); XCTAssertEqual(p.strip.maxX, p.lanes[1].maxX, accuracy: 1e-9, "\(tag): the strip spans the lane area")
+                XCTAssertEqual(p.lanes[0].minY - p.strip.maxY, 8, accuracy: 1e-9, "\(tag): sp8 between the strip and the cards")
                 for f in all {
-                    XCTAssertEqual(f.width, p.box.width, accuracy: 1e-9, "\(tag): same width"); XCTAssertEqual(f.height, p.box.height, accuracy: 1e-9, "\(tag): same height")
+                    let isLane = p.lanes.contains(f)
+                    XCTAssertEqual(f.width, p.box.width, accuracy: 1e-9, "\(tag): same width"); XCTAssertEqual(f.height, isLane ? p.laneBox.height : p.box.height, accuracy: 1e-9, "\(tag): same height")
                     XCTAssertGreaterThanOrEqual(f.minX, 16 - 1e-9, tag); XCTAssertLessThanOrEqual(f.maxX, size.width - 16 + 1e-9, "\(tag): right margin")
                     XCTAssertGreaterThanOrEqual(f.minY, top - 1e-9, "\(tag): below the header"); XCTAssertLessThanOrEqual(f.maxY, size.height - 16 + 1e-9, "\(tag): bottom margin")
                 }
@@ -182,21 +195,23 @@ final class PageLayoutTests: XCTestCase {
     // MARK: 4–7. what each box does with its frame
 
     func testLaneCardZonesAtBothReferences() {
-        for (p, upper, rowA) in [(land, 131.0, 89.0), (port, 131.67, 89.67)] {
-            let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: p.box.height)
-            XCTAssertEqual(contentH - 80 - 4, upper, accuracy: 0.01, "upper zone = card height − 188")
-            XCTAssertEqual(p.box.height - 188, upper, accuracy: 0.01)
-            let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: p.box.width))
-            XCTAssertEqual(r.rowAHeight, rowA, accuracy: 0.01, "RIFF's row A is 89 against its floor of 82")
+        // TAB STRIP ferry (2026-10-29) §3.2 / test 3: the card's tab row is gone, the body starts at y 62 and RHYTHM's upper zone is the card height − 156 (it was − 188).
+        XCTAssertEqual(EuclideousLaneCardMetrics.bodyTop, 62); XCTAssertEqual(EuclideousLaneCardMetrics.chromeH, 72)
+        for (p, upper, rowA) in [(land, 145.0, 103.0), (port, 145.67, 103.67)] {
+            let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: p.laneBox.height)
+            XCTAssertEqual(contentH - 80 - 4, upper, accuracy: 0.01, "upper zone = card height − 156")
+            XCTAssertEqual(p.laneBox.height - 156, upper, accuracy: 0.01)
+            let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: p.laneBox.width))
+            XCTAssertEqual(r.rowAHeight, rowA, accuracy: 0.01, "RIFF's row A is 103 against its floor of 82")
             XCTAssertFalse(r.underFloor)
         }
         // widths: landscape content 360.67, portrait 367
-        let rl = euclideousRiffTabLayout(contentAreaH: land.box.height - 104, fullWidth: land.box.width - 20)
+        let rl = euclideousRiffTabLayout(contentAreaH: land.laneBox.height - 72, fullWidth: land.laneBox.width - 20)
         XCTAssertEqual(rl.rightColumnWidth, 266.67, accuracy: 0.01)
         // Floors ferry (2026-10-23): 4 buttons over 3 gaps now (PENDULUM removed 2026-10-22; was ÷5 over 4 gaps, stale since then).
         XCTAssertEqual(rl.directionButtonWidth, 63.67, accuracy: 0.01)
         XCTAssertEqual(rl.hitStepButtonWidth, 106.33, accuracy: 0.01); XCTAssertEqual(rl.onRestButtonWidth, 96.22, accuracy: 0.01); XCTAssertEqual(rl.valueStepperWidth, 87.17, accuracy: 0.01)
-        let rp = euclideousRiffTabLayout(contentAreaH: port.box.height - 104, fullWidth: port.box.width - 20)
+        let rp = euclideousRiffTabLayout(contentAreaH: port.laneBox.height - 72, fullWidth: port.laneBox.width - 20)
         XCTAssertEqual(rp.directionButtonWidth, 65.25, accuracy: 0.01); XCTAssertEqual(rp.hitStepButtonWidth, 109.5, accuracy: 0.01)
         XCTAssertEqual(rp.onRestButtonWidth, 98.33, accuracy: 0.01); XCTAssertEqual(rp.valueStepperWidth, 88.75, accuracy: 0.01)
     }
@@ -343,8 +358,10 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(wp.headerKind, .b); XCTAssertEqual(wp.box.width, 330, accuracy: 1e-9); XCTAssertEqual(wp.box.height, (900 - 111 - 32) / 3, accuracy: 1e-9)
         XCTAssertFalse(wp.floors.isEmpty)
         // each flag is exactly its threshold
-        XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 295)).contains(.rhythmZones), "contentAreaH 191 < 192")
-        XCTAssertFalse(euclideousPageFloors(box: CGSize(width: 380, height: 296)).contains(.rhythmZones), "contentAreaH 192")
+        // (the card's chrome is 72 now: a card 263 tall has contentAreaH 191, 264 has 192 — it was 295 / 296 with the tab row)
+        XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 319), laneBox: CGSize(width: 380, height: 263)).contains(.rhythmZones), "contentAreaH 191 < 192")
+        XCTAssertFalse(euclideousPageFloors(box: CGSize(width: 380, height: 319), laneBox: CGSize(width: 380, height: 264)).contains(.rhythmZones), "contentAreaH 192")
+        XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 263)).contains(.rhythmZones), "one size given: the lane card is that size")
     }
 
     // MARK: the bottom safe-area inset (Paul's ruling, 2026-10-19)
@@ -360,7 +377,7 @@ final class PageLayoutTests: XCTestCase {
         let l20 = euclideousPageLayout(size: landscapeRef, bottomInset: 20), p20 = euclideousPageLayout(size: portraitRef, bottomInset: 20)
         XCTAssertEqual(l20.seq.maxY, 726 - 20, accuracy: 1e-9); XCTAssertEqual(l20.box.height, (726 - 64 - 20 - 8) / 2, accuracy: 1e-9)
         XCTAssertEqual(p20.seq.maxY, 1102 - 20, accuracy: 1e-9); XCTAssertEqual(p20.box.height, (1102 - 111 - 20 - 16) / 3, accuracy: 1e-9)
-        for p in [l20, p20] { XCTAssertEqual(p.lanes[0].minY, EuclideousPageMetrics.top(p.headerKind), "the top edge doesn't move") }
+        for p in [l20, p20] { XCTAssertEqual(p.strip.minY, EuclideousPageMetrics.top(p.headerKind), "the top edge doesn't move"); XCTAssertEqual(p.lanes[0].minY, p.strip.maxY + 8, "the cards sit sp8 below the strip") }
         // the 9pt-short page (no inset passed): the riff box is ~314.5 / 316.67 and its rows clear the floor (24.44 / 24.71)
         let short = euclideousPageLayout(size: CGSize(width: 1190, height: 717))
         XCTAssertEqual(short.box.height, 314.5, accuracy: 1e-9)

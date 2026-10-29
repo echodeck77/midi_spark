@@ -104,7 +104,6 @@ struct EuclideousCardBackView: View {
                 .frame(width: layout.card.width - 2 * EuclideousCardBackMetrics.inset, height: EuclideousLaneCardMetrics.cometRowH, alignment: .topLeading)
                 .offset(x: EuclideousCardBackMetrics.inset, y: EuclideousCardBackMetrics.inset)
             ZStack(alignment: .topLeading) {   // a solo-silenced lane dims everything but the top row, once (the page's 42 %)
-                strip(layout.strip)
                 EuclideousCardBackPartRow(lane: lane, part: .riff, frames: layout.riff, input: riff, accent: accent, laneHasHits: laneHasHits, laneAudibleAt: laneAudibleAt, rolls: rolls,
                                           beatAt: beatAt, beatsPerBar: beatsPerBar, tempo: tempo, live: live, hocketRules: hocketRules, hocketLive: hocketLive, callbacks: callbacks)
                 EuclideousCardBackPartRow(lane: lane, part: .notes, frames: layout.notes, input: notes, accent: accent, laneHasHits: laneHasHits, laneAudibleAt: laneAudibleAt, rolls: rolls,
@@ -118,18 +117,6 @@ struct EuclideousCardBackView: View {
         .overlay(RoundedRectangle(cornerRadius: EuclideousCardBackMetrics.cardRadius).strokeBorder(accent.opacity(EuclideousCardBackMetrics.borderAlpha), lineWidth: EuclideousCardBackMetrics.borderWidth).allowsHitTesting(false))   // §4.2
         .accessibilityElement(children: .contain)
         .accessibilityLabel(EuclideousCardBackAX.group(lane: lane))
-    }
-
-    /// §4.2: the "MIX" strip — lane100 at 12 %, the word in lane100.
-    private func strip(_ r: CGRect) -> some View {
-        typealias M = EuclideousCardBackMetrics
-        return ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: M.stripRadius).fill(accent.opacity(M.stripAlpha))
-            Text("MIX").font(heavyMono(M.stripFont)).tracking(M.stripTracking * M.stripFont).foregroundColor(accent).padding(.leading, M.stripPadX)
-        }
-        .frame(width: r.width, height: r.height)
-        .offset(x: r.minX, y: r.minY)
-        .accessibilityHidden(true)
     }
 }
 

@@ -16,6 +16,7 @@
 		061D4BB40DA0FAF758D21370 /* FourfoldStackProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586ABD7101A0017667893A62 /* FourfoldStackProbe.swift */; };
 		07A28929FA0D94C33CDACFD6 /* HocketTurnTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F140AC21A0E9E7E6E094A95C /* HocketTurnTests.swift */; };
 		082EDD25118D30F089077601 /* CellBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F82B632EB1561C42D3E6FEA /* CellBrowser.swift */; };
+		09E7B614451586A1EF09FF2B /* LaneViewStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594C398B05FB437D79DB0AFA /* LaneViewStrip.swift */; };
 		0B0CC3EA63F8052C181868AE /* FourfoldUndoAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D7C93D75576EE5D4C9BF72E /* FourfoldUndoAuditTests.swift */; };
 		0B4C0968B20E749F93964440 /* EngineReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79CAD1A32B1C9FC9B5BEAF2E /* EngineReviewTests.swift */; };
 		0C924EDD62DA8F1C8070ADC3 /* RandomModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCBDE4866C54153107885AD8 /* RandomModePainter.swift */; };
@@ -27,6 +28,7 @@
 		0FE7446438ED46D7FC87AFC8 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17328D614B4463EECE452DA4 /* BuildModel.swift */; };
 		113044D12C85756D9F258C57 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
 		11389DE07A052AF31C5B1535 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
+		12439134E8AE1F2CBAFD42A0 /* LaneViewStripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0207165FA77A08D14FDF6B09 /* LaneViewStripTests.swift */; };
 		126EFE2CA5202E0E11739F95 /* FourfoldMonkeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A2360C33B73BDF7D5D05DD /* FourfoldMonkeyTests.swift */; };
 		14001737F3526E61A6910D74 /* ManualView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB579E7A98D1755158B6B0DE /* ManualView.swift */; };
 		145EEF1854DA254EBDE44F89 /* BuildGridSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */; };
@@ -35,6 +37,7 @@
 		1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */; };
 		1A20747CD8C5C94DB29A9532 /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500BF1C84A48860BBCA8AED1 /* PresetBrowser.swift */; };
 		1A3B2656E03557B4A9AB7E8D /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */; };
+		1A78E35F86A81ACCB38CAA7F /* LaneViewStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594C398B05FB437D79DB0AFA /* LaneViewStrip.swift */; };
 		1AD97DB35C6C3B45B70171A9 /* NotesTabPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E82635E86506C99FF107FC8 /* NotesTabPainter.swift */; };
 		1CD11205DFE28DBF0E1C4396 /* PageLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF035CA65CFDFF5CAA7ED84D /* PageLayoutTests.swift */; };
 		1E9FABB2A0905ABA064EF049 /* ChaosDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */; };
@@ -238,6 +241,7 @@
 		B1E615052A448F59878B0215 /* RatchPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A753F80E70DA093255A1D3 /* RatchPanelPainter.swift */; };
 		B30A6F494B84A1E0BD7FA8E3 /* SourceStackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895B3CF80D62A9017460EF53 /* SourceStackTests.swift */; };
 		B38DC5D3B8ED2F5C5FB02F16 /* FourfoldUndoProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56273CD5B28C7640784AA413 /* FourfoldUndoProbe.swift */; };
+		B421863728D43057F3C6B6B5 /* LaneViewStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594C398B05FB437D79DB0AFA /* LaneViewStrip.swift */; };
 		B4B265FC5D368CFCE12A1F3C /* NoteRollRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B90A0E5E3C7A378FB0B7952 /* NoteRollRing.swift */; };
 		B4C9115BCC69FB671BDEAAB0 /* ClarityPassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F83DE6BC106F7FAAF5034BAB /* ClarityPassTests.swift */; };
 		B64A1ED4BC582D4B5BE08990 /* FourfoldStackProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586ABD7101A0017667893A62 /* FourfoldStackProbe.swift */; };
@@ -406,6 +410,7 @@
 		009F351D5DC24E7BAC8DFB3A /* EuclideousRandom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandom.swift; sourceTree = "<group>"; };
 		00A0AAF1BEFC7A0801E48D8E /* ChordsGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordsGridTests.swift; sourceTree = "<group>"; };
 		00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
+		0207165FA77A08D14FDF6B09 /* LaneViewStripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneViewStripTests.swift; sourceTree = "<group>"; };
 		02F746D9F92666A12823BADF /* Fourfold.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Fourfold.entitlements; sourceTree = "<group>"; };
 		03A0A18293719D2C8BD2B9FB /* OutTransposeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutTransposeTests.swift; sourceTree = "<group>"; };
 		0504D981DD4BF1856C773AA7 /* MidiFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiFile.swift; sourceTree = "<group>"; };
@@ -471,6 +476,7 @@
 		56273CD5B28C7640784AA413 /* FourfoldUndoProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldUndoProbe.swift; sourceTree = "<group>"; };
 		56A2346CB2C876A900961902 /* Diag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diag.swift; sourceTree = "<group>"; };
 		586ABD7101A0017667893A62 /* FourfoldStackProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldStackProbe.swift; sourceTree = "<group>"; };
+		594C398B05FB437D79DB0AFA /* LaneViewStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneViewStrip.swift; sourceTree = "<group>"; };
 		59DF6CD888C95040E34660D5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
 		5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLayoutTests.swift; sourceTree = "<group>"; };
 		5B1FE1781AE0C4878A7935FE /* PulseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTests.swift; sourceTree = "<group>"; };
@@ -794,6 +800,7 @@
 				225D04471362741A939D49DE /* LaneSoloTests.swift */,
 				9F4D4A126C52BC03C659EC8C /* LaneStripFuzzTests.swift */,
 				F2312CDF903FBE2ABB3E824E /* LaneStripTests.swift */,
+				0207165FA77A08D14FDF6B09 /* LaneViewStripTests.swift */,
 				BC6819599CED217146F91C04 /* ListenTabTests.swift */,
 				7A20C66088682B1B60A45B7C /* MidiFileTests.swift */,
 				372CA48448A531F0C9C47D25 /* MigrationTests.swift */,
@@ -994,6 +1001,7 @@
 				E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */,
 				B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */,
 				C1F4BE86660C760F3CD73866 /* Kernel.swift */,
+				594C398B05FB437D79DB0AFA /* LaneViewStrip.swift */,
 				0504D981DD4BF1856C773AA7 /* MidiFile.swift */,
 				CD9084051F44A6CAA1CFDFA9 /* Models.swift */,
 				9B90A0E5E3C7A378FB0B7952 /* NoteRollRing.swift */,
@@ -1343,6 +1351,7 @@
 				6B98CD09D9D422991069BB57 /* Kernel.swift in Sources */,
 				C4FC8D3D987668BF1C537345 /* LaneSoloPainter.swift in Sources */,
 				E8E25A44F9A7319F6683F04F /* LaneStripPainter.swift in Sources */,
+				1A78E35F86A81ACCB38CAA7F /* LaneViewStrip.swift in Sources */,
 				1EE2A1AEE5092A07851CD9FE /* LanesPanelPainter.swift in Sources */,
 				54E1359ABAD90A7E9CD9C4BD /* LockModePainter.swift in Sources */,
 				9B202EF7465E2476A86573C2 /* MidiFile.swift in Sources */,
@@ -1496,6 +1505,8 @@
 				C824D765CA367D040CAEB674 /* LaneSoloTests.swift in Sources */,
 				EBC5C46DF44DF3FB225CBABA /* LaneStripFuzzTests.swift in Sources */,
 				E532C12BE0004C37412F9559 /* LaneStripTests.swift in Sources */,
+				B421863728D43057F3C6B6B5 /* LaneViewStrip.swift in Sources */,
+				12439134E8AE1F2CBAFD42A0 /* LaneViewStripTests.swift in Sources */,
 				D08D82C2CBB2C7595C9F0E29 /* LanesGridTests.swift in Sources */,
 				4D1ED5A783E864704FEFF3A6 /* ListenTabTests.swift in Sources */,
 				4C85D2EB2EC89304C0620DBA /* MidiFile.swift in Sources */,
@@ -1571,6 +1582,7 @@
 				310545FAC5863CD3DAD77CC4 /* Kernel.swift in Sources */,
 				31D850833DB23E88DEC4FE99 /* LaneSoloPainter.swift in Sources */,
 				6A80FF3C35E374A0CDF78CB1 /* LaneStripPainter.swift in Sources */,
+				09E7B614451586A1EF09FF2B /* LaneViewStrip.swift in Sources */,
 				C7040C6E9599ECE99A704117 /* LanesPanelPainter.swift in Sources */,
 				58D4D5B400586BB6CDEC53FB /* LockModePainter.swift in Sources */,
 				D68CF806B68E2CDFFDF5411B /* MidiFile.swift in Sources */,

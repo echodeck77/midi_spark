@@ -91,36 +91,36 @@ final class CardBackTests: XCTestCase {
 
     // MARK: §4 / test 7 the back's frames
 
-    /// The ferry's reference card (376 × 316) with the ferry's own strip top (y 62): every number §4.3–4.4 and §7.2 give (CARD BACKS v2).
-    func testTheFerrysNumbersAtTheReferenceCard() {
-        let L = euclideousCardBackLayout(card: CGSize(width: 376, height: 316), stripTop: EuclideousCardBackMetrics.stripTopFerry)
-        XCTAssertEqual(L.strip, CGRect(x: 10, y: 62, width: 356, height: 22), "the MIX strip: x 10–366, y 62–84")
-        near(L.rowHeight, 103, "rowH = (306 − 84 − 2 × 8) ÷ 2")
-        XCTAssertEqual(L.riff.row, CGRect(x: 10, y: 92, width: 356, height: 103), "the riff row: y 92–195"); XCTAssertEqual(L.notes.row, CGRect(x: 10, y: 203, width: 356, height: 103), "the notes row: y 203–306")
+    /// A 376 × 316 card: every number §4.3–4.4 and §7.2 give, with the TAB STRIP ferry's body top (y 62: sp8 below the top row — the back's own "MIX" strip is gone) — rowH = (306 − 62 − 8) ÷ 2 = 118.
+    func testTheNumbersAtAReferenceCard() {
+        let L = euclideousCardBackLayout(card: CGSize(width: 376, height: 316))
+        near(L.bodyTop, 62); near(L.rowHeight, 118, "rowH = (306 − 62 − 8) ÷ 2")
+        XCTAssertEqual(L.riff.row, CGRect(x: 10, y: 62, width: 356, height: 118), "the riff row: y 62–180"); XCTAssertEqual(L.notes.row, CGRect(x: 10, y: 188, width: 356, height: 118), "the notes row: y 188–306")
         for p in [L.riff, L.notes] {
             let r = p.row
-            XCTAssertEqual(p.velGate, CGRect(x: r.minX, y: r.minY, width: 72, height: 103), "the VEL/GATE pad: x 0–72, the row's full height")
-            XCTAssertEqual(p.pitch, CGRect(x: r.minX + 76, y: r.minY, width: 72, height: 103), "sp4, then the PITCH pad: x 76–148")
-            XCTAssertEqual(p.rollPanel, CGRect(x: r.minX + 156, y: r.minY, width: 200, height: 103), "sp8, then the roll panel: x 156–356 (200 wide)")
-            XCTAssertEqual(p.roll, CGRect(x: r.minX + 156, y: r.minY, width: 200, height: 71), "the roll: y 0 to rowH − 32 (71 tall)")
-            XCTAssertEqual(p.jackStrip, CGRect(x: r.minX + 156, y: r.minY + 71, width: 200, height: 32), "the jack strip: the bottom 32 (y 71–103)")
-            XCTAssertEqual(p.seam, CGRect(x: r.minX + 156, y: r.minY + 71, width: 200, height: 2), "the seam: 2 pt along the top of the jack strip, the roll's full width")
+            XCTAssertEqual(p.velGate, CGRect(x: r.minX, y: r.minY, width: 72, height: 118), "the VEL/GATE pad: x 0–72, the row's full height")
+            XCTAssertEqual(p.pitch, CGRect(x: r.minX + 76, y: r.minY, width: 72, height: 118), "sp4, then the PITCH pad: x 76–148")
+            XCTAssertEqual(p.rollPanel, CGRect(x: r.minX + 156, y: r.minY, width: 200, height: 118), "sp8, then the roll panel: x 156–356 (200 wide)")
+            XCTAssertEqual(p.roll, CGRect(x: r.minX + 156, y: r.minY, width: 200, height: 86), "the roll: y 0 to rowH − 32 (86 tall)")
+            XCTAssertEqual(p.jackStrip, CGRect(x: r.minX + 156, y: r.minY + 86, width: 200, height: 32), "the jack strip: the bottom 32 (y 86–118)")
+            XCTAssertEqual(p.seam, CGRect(x: r.minX + 156, y: r.minY + 86, width: 200, height: 2), "the seam: 2 pt along the top of the jack strip, the roll's full width")
             XCTAssertEqual(p.jackCells.map { $0.width }, [50, 50, 50, 50]); near(p.jackCells[0].minX, p.jackStrip.minX); near(p.jackCells[3].maxX, p.jackStrip.maxX)
             for i in 0..<4 {
-                XCTAssertEqual(p.jackTargets[i], CGRect(x: p.jackCells[i].minX, y: r.minY + 59, width: 50, height: 44), "target \(i): a quarter of the panel wide, 44 tall, y 59–103 — 12 pt up over the roll's bottom edge")
+                XCTAssertEqual(p.jackTargets[i], CGRect(x: p.jackCells[i].minX, y: r.minY + 74, width: 50, height: 44), "target \(i): a quarter of the panel wide, 44 tall, y 74–118 — 12 pt up over the roll's bottom edge")
                 XCTAssertEqual(p.jackSockets[i], CGRect(x: p.jackCells[i].midX - 11, y: p.jackCells[i].midY - 11, width: 22, height: 22), "the socket: 22 pt, centred in the cell")
             }
         }
         XCTAssertTrue(L.floors.isEmpty, "no floor flags at the reference: \(L.floors)")
-    }
-    /// SOURCE wins: the lane card's tab row starts at 10 + 44 + 6 = 60 (the ferry says 62), so with the default strip top the strip is y 60–82 and every row is a point taller.
-    func testTheSameFormulasFromTheSourcesTabRowTop() {
-        near(EuclideousCardBackMetrics.stripTopSource, 60); near(EuclideousCardBackMetrics.stripTopFerry, 62)
-        let L = euclideousCardBackLayout(card: CGSize(width: 376, height: 316))
-        XCTAssertEqual(L.strip, CGRect(x: 10, y: 60, width: 356, height: 22)); near(L.rowHeight, 104)
-        XCTAssertEqual(L.riff.row.minY, 90); XCTAssertEqual(L.riff.row.maxY, 194); XCTAssertEqual(L.notes.row.minY, 202); XCTAssertEqual(L.notes.row.maxY, 306)
-        near(L.riff.velGate.height, 104); near(L.riff.roll.height, 72); near(L.riff.jackStrip.height, 32)
         near(L.notes.row.maxY, 316 - 10, "the notes row ends on the content box's bottom")
+    }
+    /// TAB STRIP ferry §3.3 / test 3: on the page's real lane cards (the strip and its gap take 36 off each card row) rowH is 110.5 in landscape and 110.83 in portrait — it was 105.5 / 105.83 with the MIX strip.
+    func testTheRowsOnThePagesLaneCardsAtBothReferences() {
+        let land = euclideousPageLayout(size: CGSize(width: 1190, height: 726)).laneBox, port = euclideousPageLayout(size: CGSize(width: 814, height: 1102)).laneBox
+        near(land.height, 301); XCTAssertEqual(port.height, 301.6667, accuracy: 1e-3)
+        let L = euclideousCardBackLayout(card: land), P = euclideousCardBackLayout(card: port)
+        near(L.bodyTop, 62); near(L.rowHeight, 110.5); XCTAssertEqual(P.rowHeight, 110.8333, accuracy: 1e-3)
+        near(L.riff.row.minY, 62); near(L.notes.row.minY, 62 + 110.5 + 8); near(L.notes.row.maxY, 301 - 10)
+        near(L.riff.velGate.height, 110.5); near(L.riff.roll.height, 78.5)
     }
     /// §4.5: in narrower cards the two pads keep 72 each down to their floor before the roll panel narrows below 176.
     func testThePadsGiveWayBeforeTheRollPanelDoes() {
@@ -145,7 +145,7 @@ final class CardBackTests: XCTestCase {
         var table: [String] = []
         for (name, size) in sizes {
             let p = euclideousPageLayout(size: size)
-            let card = p.box
+            let card = p.laneBox
             let L = euclideousCardBackLayout(card: card)
             let flagged = L.floors.map { "\($0.name) \(String(format: "%.1f", Double($0.value)))<\(Int($0.floor))" }.joined(separator: ", ")
             table.append("CARDBACK-LAYOUT \(name): header \(p.headerKind) card \(String(format: "%.1f", Double(card.width)))×\(String(format: "%.1f", Double(card.height))) rowH \(String(format: "%.1f", Double(L.rowHeight))) pad \(String(format: "%.1f", Double(L.riff.velGate.width)))×\(String(format: "%.1f", Double(L.riff.velGate.height))) roll \(String(format: "%.1f", Double(L.riff.roll.width)))×\(String(format: "%.1f", Double(L.riff.roll.height))) target \(String(format: "%.1f", Double(L.riff.jackTargets[0].width))) floors [\(flagged)]")
