@@ -187,10 +187,17 @@ final class PortsStressTests: XCTestCase {
                                           locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]
         st.euclideousFX = rFX(&g)
-        // note source: MIDI (held pool) + a stacking plan of KEY / CHORDS
+        // note source (Sources panel v2): the four v2 switches, the MIDI ADD/REPLACE mode, and a random PICK set —
+        // so the fuzz exercises the PICK layer and ADD/REPLACE (§5). The legacy cells are no longer the driver.
         var plan = SourcePlan()
-        plan.chordsWithMidi = Bool.random(using: &g); plan.chordsNoMidi = Bool.random(using: &g)
-        plan.keyWithMidi = Bool.random(using: &g); plan.keyNoMidi = Bool.random(using: &g)
+        plan.midiOn = Bool.random(using: &g); plan.chordsOn = Bool.random(using: &g)
+        plan.pickOn = Bool.random(using: &g); plan.keyOn = Bool.random(using: &g)
+        plan.midiMode = Bool.random(using: &g) ? .replace : .add
+        if plan.pickOn == true {
+            var picks = Set<UInt8>()
+            for _ in 0..<Int.random(in: 0...6, using: &g) { picks.insert(UInt8(Int.random(in: 36...84, using: &g))) }
+            plan.pickNotes = picks.sorted()
+        }
         st.euclideousSourcePlan = plan
         st.euclideousNoteSource = [.midi, .key, .chords].randomElement(using: &g)!
         st.euclideousKeyRoot = Int.random(in: 0...11, using: &g)
@@ -457,7 +464,7 @@ final class PortsStressTests: XCTestCase {
         XCTAssertGreaterThan(rollWireChecked, 600, "…and match the wire (\(rollWireChecked) note-ons)")
         XCTAssertEqual(fingerprint, Self.fuzzFingerprint, "CAPTURE fuzzFingerprint = \(fingerprint) — the 600 seeded sessions' message streams must be bit-identical with no hocket rule")
     }
-    private static let fuzzFingerprint: UInt64 = 5971859914748538723
+    private static let fuzzFingerprint: UInt64 = 13009198474520543722   // Sources panel v2: re-derived — the fuzz now randomises the v2 plan + PICK layer (the §1.3 remap of legacy plans + PICK changed the streams; invariants still hold)
     // The same fuzz with gate/notesGate left as generated (up to exactly 1.0 = legato), so the legato tracking runs on every port with every layer feature around it.
     func testFuzzRawGatesReachLegatoOnEveryPort() {
         var firstFail: String? = nil
@@ -469,7 +476,7 @@ final class PortsStressTests: XCTestCase {
         if let f = firstFail { XCTFail(f); return }
         XCTAssertEqual(fingerprint, Self.fuzzFingerprintRaw, "CAPTURE fuzzFingerprintRaw = \(fingerprint) — the 600 raw-gate sessions' message streams must be bit-identical with no hocket rule")
     }
-    private static let fuzzFingerprintRaw: UInt64 = 10435385204888038160
+    private static let fuzzFingerprintRaw: UInt64 = 13499883941085834421   // Sources panel v2: re-derived (v2 plan + PICK layer in the fuzz)
 
     // CARD BACKS v2 (2026-10-28): out-transposes drawn at random AND changing mid-note — nothing strands, no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
     func testOutTransposeSessionsHoldEveryInvariant() {
