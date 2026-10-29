@@ -204,7 +204,8 @@ final class NotesTabTests: XCTestCase {
         for (i, k) in l.keys.enumerated() { near(k, ranksX[i].0 - 10, 0, ranksX[i].1 - ranksX[i].0, 82, "key \(i)") }
         near(l.whenLabel, 38, 86, 48, 38, "WHEN label"); near(l.plays, 90, 86, 76.25, 38, "PLAYS"); near(l.rests, 170.25, 86, 76.25, 38, "RESTS"); near(l.chance, 250.5, 86, 88, 38, "CHANCE")
         near(l.playAsLabel, 38, 128, 48, 38, "PLAY AS label"); near(l.playAs, 90, 128, 248.5, 38, "PLAY AS button")
-        near(l.soundLabel, 38, 170, 48, 38, "SOUND ONLY label"); near(l.received, 90, 170, 248.5, 38, "RECEIVED")
+        // the RECEIVED toggle's row now holds the four NOTES output toggles (left, 55% of the control width) + the octave control (right)
+        near(l.notesOut, 90, 170, 134.475, 38, "notes output toggles"); near(l.notesOctave, 228.475, 170, 110.025, 38, "notes octave")
         near(l.picker, 0, 0, 338.5, 208, "picker"); near(l.pickerHeader, 6, 6, 326.5, 18, "picker header"); near(l.pickerClose, 302.5, 6, 30, 18, "close")
         let top: [(CGFloat, CGFloat)] = [(16, 122.17), (126.17, 232.33), (236.33, 342.5)], bottom: [(CGFloat, CGFloat)] = [(16, 94.625), (98.625, 177.25), (181.25, 259.875), (263.875, 342.5)]
         for (i, c) in top.enumerated() { near(l.pickerCells[i], c.0 - 10, 122 - 94, c.1 - c.0, 85, "top cell \(i)") }

@@ -7926,7 +7926,7 @@ struct EuclideousNotesTabLayout: Equatable {
     var keys: [CGRect]                 // ranks 1-8, then TOP 2, then TOP
     var keyRow: CGRect, whenRow: CGRect, playAsRow: CGRect, soundRow: CGRect
     var whenLabel: CGRect, playAsLabel: CGRect, soundLabel: CGRect
-    var plays: CGRect, rests: CGRect, chance: CGRect, playAs: CGRect, received: CGRect
+    var plays: CGRect, rests: CGRect, chance: CGRect, playAs: CGRect, notesOut: CGRect, notesOctave: CGRect
     var picker: CGRect, pickerHeader: CGRect, pickerClose: CGRect
     var pickerCells: [CGRect]          // CHORD, ROLL, RUN, then CYCLE, BOUNCE, SPLIT, BUILD
     var underFloor: Bool
@@ -7955,7 +7955,12 @@ func euclideousNotesTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CG
     let chance = CGRect(x: fullWidth - L.chanceW, y: whenY, width: L.chanceW, height: L.rowH)
     let wide = max(1, fullWidth - ctrlX)
     let playAs = CGRect(x: ctrlX, y: playAsY, width: wide, height: lowerRowH)
-    let received = CGRect(x: ctrlX, y: soundY, width: wide, height: lowerRowH)
+    // Sources/NOTES rework (2026-10-29): the old RECEIVED toggle's row now holds the four NOTES output toggles on
+    // the left and a horizontal OCTAVE control on the right.
+    let soundGap = sp4
+    let outW = max(1, (wide - soundGap) * 0.55)
+    let notesOut = CGRect(x: ctrlX, y: soundY, width: outW, height: lowerRowH)
+    let notesOctave = CGRect(x: notesOut.maxX + soundGap, y: soundY, width: max(1, wide - outW - soundGap), height: lowerRowH)
     // the picker: both zones and the gap, 6 pt padding, a header row, then two rows of ways splitting the rest
     let pad = L.pickerPad
     let innerW = max(1, fullWidth - 2 * pad)
@@ -7980,7 +7985,7 @@ func euclideousNotesTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CG
         whenLabel: CGRect(x: colX, y: whenY, width: L.labelW, height: L.rowH),
         playAsLabel: CGRect(x: colX, y: playAsY, width: L.labelW, height: lowerRowH),
         soundLabel: CGRect(x: colX, y: soundY, width: L.labelW, height: lowerRowH),
-        plays: plays, rests: rests, chance: chance, playAs: playAs, received: received,
+        plays: plays, rests: rests, chance: chance, playAs: playAs, notesOut: notesOut, notesOctave: notesOctave,
         picker: CGRect(x: 0, y: 0, width: fullWidth, height: contentAreaH),
         pickerHeader: CGRect(x: pad, y: pad, width: innerW, height: L.pickerHeaderH),
         pickerClose: CGRect(x: fullWidth - pad - L.closeW, y: pad, width: L.closeW, height: L.pickerHeaderH),

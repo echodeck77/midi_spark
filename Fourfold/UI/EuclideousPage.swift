@@ -1438,6 +1438,7 @@ struct EuclideousPage: View {
     @State private var sourcesPopupOpen = false   // SOURCES STACK ferry (2026-10-26): the SOURCES panel (one overlay at a time; §5.1)
     @State private var sourcesEditor: EuclideousSourceEditor = .none   // Sources panel v2 §5.13: which inline editor is open (one at a time)
     @State private var sourcesChordsPage = false                       // §6: the panel is showing the CHORDS page (vs the SOURCES page); reset when the panel closes (§6.3)
+    @State private var octaveDragLanes: Set<Int> = []                  // NOTES-tab octave slider (2026-10-29): lanes with a drag in progress, so a drag is ONE undo burst
     @State private var pickEditorOctave: Int = 4                       // §5.11/§1.7 the PICK editor's shown octave NUMBER (C4-convention, range 1…7 = C whose MIDI is 24…96); 4 = middle C (MIDI 60). UI state, not saved; set on open.
     @State private var sourcesGhostChips: [UInt8] = []   // §5.6: the last-held MIDI notes, shown as ghost chips until the next note-on
     // CHORDS GRID ferry (2026-10-24) §4.6: the riff tabs' own long-press COPY/PASTE/CLEAR pattern, mirrored
@@ -4968,6 +4969,69 @@ struct EuclideousPage: View {
     /// The whole NOTES tab (NOTES TAB ferry 2026-10-19 §1-§4): the strip across both zones, then four rows — the ten keys, WHEN (PLAYS · RESTS · CHANCE), PLAY AS and SOUND ONLY — and, over both
     /// zones and the gap, the PLAY AS picker while it is open. Every frame comes from `euclideousNotesTabLayout`. While the notes layer is off everything right of the strip draws at 42% and stays live;
     /// the strip keeps its own look and the picker is not dimmed.
+    // NOTES OUTPUT TOGGLES (2026-10-29): four A/B/C/D discs editing the NOTES part's `notesOutMask` (the old MIX
+    // OUT-circle look). A tap toggles one output as ONE undo step — the same funnel the card-back jacks use
+    // (`euclideousJackToggle`; a mask equal to the lane's own output is stored as nil, so a round-trip leaves no mask).
+    private func notesOutputToggles(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
+        let mask = line.notesOutMaskResolved(lane: idx)
+        return HStack(spacing: 4) {
+            ForEach(0..<4, id: \.self) { o in
+                notesOutputDisc(["A", "B", "C", "D"][o], on: (mask >> UInt8(o)) & 1 != 0, accent: accent) {
+                    editStep(idx, true) { l in
+                        let own = UInt8(1) << UInt8(max(0, min(3, idx)))
+                        let m = euclideousJackToggle(mask: l.notesOutMaskResolved(lane: idx), output: o)
+                        l.notesOutMask = m == own ? nil : m
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxHeight: .infinity, alignment: .center)
+    }
+    private func notesOutputDisc(_ letter: String, on: Bool, accent: Color, tap: @escaping () -> Void) -> some View {
+        ZStack {
+            Circle().fill(on ? lane20(accent) : Color.clear)
+                .overlay(Circle().strokeBorder(on ? lane100(accent) : Color(hex: 0x3A3E47), lineWidth: 2))
+            Text(letter).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
+        }
+        .frame(width: 28, height: 28).contentShape(Circle()).onTapGesture(perform: tap)
+        .accessibilityElement(children: .ignore).accessibilityLabel("Notes output \(letter)")
+        .accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+    }
+    // NOTES OCTAVE (2026-10-29): a horizontal slide control over −2…+2 editing the NOTES part's `octave` — the SAME
+    // field the card-back PITCH pad's notes octave writes, applied as `oct:` when the notes pool is resolved, so it
+    // shifts the part AFTER the notes come in (at 0, as played; at −1, an octave down, however it arrived). A drag is
+    // ONE undo burst; 0 is stored as nil (byte-identical). Playing an octave up with this at −1 cancels — expected.
+    private func notesOctaveControl(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
+        let oct = max(-2, min(2, line.octaveResolved))
+        let octStr = oct == 0 ? "0" : (oct > 0 ? "+\(oct)" : "\(oct)")
+        return GeometryReader { g in
+            let w = g.size.width, h = g.size.height
+            let thumbW = max(40, min(w, h))
+            let thumbX = CGFloat(oct + 2) / 4 * max(0, w - thumbW)
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x2A2D34)).frame(height: 6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6).fill(lane20(accent)).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(lane100(accent), lineWidth: 1))
+                    Text("OCT \(octStr)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
+                }.frame(width: thumbW, height: h).offset(x: thumbX)
+            }
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                let f = max(0, min(1, v.location.x / max(1, w)))
+                let newOct = Int((f * 4).rounded()) - 2
+                let first = !octaveDragLanes.contains(idx); octaveDragLanes.insert(idx)
+                if newOct != max(-2, min(2, line.octaveResolved)) || first {
+                    editStep(idx, first) { $0.octave = newOct == 0 ? nil : newOct }
+                }
+            }.onEnded { _ in octaveDragLanes.remove(idx) })
+            .accessibilityElement(children: .ignore).accessibilityLabel("Notes octave").accessibilityValue(octStr)
+            .accessibilityAdjustableAction { dir in
+                let n = max(-2, min(2, oct + (dir == .increment ? 1 : -1)))
+                if n != oct { editStep(idx, true) { $0.octave = n == 0 ? nil : n } }
+            }
+        }
+    }
     private func notesTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let isOn = line.notesOnResolved
         // LISTEN REBUILT (2026-10-23): NOTES pauses whole under SHADOW or ECHO (§9.9's `borrowedTabs`, NOTES
@@ -5080,15 +5144,11 @@ struct EuclideousPage: View {
                                 .accessibilityAddTraits(.isButton)
                         }
                     }
-                    // SOUND ONLY (§3.4)
-                    group(lay.soundRow, label: euclideousNotesSoundOnlyGroupLabel) {
-                        placed(lay.soundLabel, in: lay.soundRow) { riffRowLabel("SOUND", "ONLY") }.accessibilityHidden(true)
-                        placed(lay.received, in: lay.soundRow) {
-                            notesToggle("RECEIVED", on: line.notesReceivedOnlyResolved, accent: accent, accessibility: euclideousNotesReceivedLabel, hint: euclideousNotesReceivedHint,
-                                        help: "Keep lit octave copies silent, so lit ranks join in as the held chord grows.", lane: idx, outline: lockOn(idx, .notesReceived)) {
-                                edit(idx) { $0.notesReceivedOnly = !$0.notesReceivedOnlyResolved }
-                            }
-                        }
+                    // NOTES OUTPUT + OCTAVE (2026-10-29): the four NOTES output toggles (left) and a horizontal octave
+                    // control (right) replace RECEIVED. The octave shifts the notes part AFTER the pool is read (`line.octave`).
+                    group(lay.soundRow, label: "Notes output and octave") {
+                        placed(lay.notesOut, in: lay.soundRow) { notesOutputToggles(idx, line, accent) }
+                        placed(lay.notesOctave, in: lay.soundRow) { notesOctaveControl(idx, line, accent) }
                     }
                 }
                 .opacity(isOn ? 1.0 : 0.42)
