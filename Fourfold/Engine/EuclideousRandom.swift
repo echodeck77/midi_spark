@@ -286,12 +286,12 @@ func euclideousRandomRiffTag(dir: RiffDir, invert: Bool, advanceStep: Bool, ever
 /// §8.4's coverage check, over the lane's first 8 passes from the melody origin (ordinals 0..<8·HITS),
 /// via the SAME `euclideousRiffColumn` the Router/UI walk mirror calls — never a second walk formula.
 func euclideousRandomRiffCoverage(dir: RiffDir, every: Int, stride: Int, shift: Int, length: Int, hits: Int,
-                                   writtenRanks: [Int]) -> (reached: Set<Int>, soundingReached: Bool) {
+                                   writtenRanks: [Int], columns: Int = 8) -> (reached: Set<Int>, soundingReached: Bool) {
     var reached = Set<Int>()
     var soundingReached = false
     let ordinals = max(1, 8 * hits)
     for o in 0..<ordinals {
-        let col = euclideousRiffColumn(ordinal: Int64(o), every: every, direction: dir, length: length, stride: stride, shift: shift)
+        let col = euclideousRiffColumn(ordinal: Int64(o), every: every, direction: dir, length: length, stride: stride, shift: shift, columns: columns)
         reached.insert(col)
         if col < writtenRanks.count, writtenRanks[col] >= 1 { soundingReached = true }
     }
@@ -304,6 +304,7 @@ func euclideousRandomThrowRiff(current: (dir: RiffDir, advanceStep: Bool, advanc
                                           role: EuclideousRandomRole),
                                 writtenRanks: [Int],
                                 others: [EuclideousRandomOtherLane],
+                                columns: Int = 8, onRestFixed: Bool = false,   // POLY RIFF: the grid's width, and ON REST is SKIP there (not rolled — the stored choice is kept)
                                 rng: inout EuclideousRandomRNG) -> EuclideousRandomRiffResult? {
     let riffOnOthers = others.filter { $0.riffOn }
     let otherDirs = Set(riffOnOthers.map { $0.riffDir })
@@ -328,12 +329,13 @@ func euclideousRandomThrowRiff(current: (dir: RiffDir, advanceStep: Bool, advanc
             ? euclideousRandomWeightedPick([(true, 3), (false, 2)], rng: &rng)
             : euclideousRandomWeightedPick([(false, 3), (true, 2)], rng: &rng)
 
-        let onRest = euclideousRandomWeightedPick([(EuclidRiffOnRest.skip, 5), (.tie, 3), (.repeatLast, 2)], rng: &rng)
+        let rolledOnRest = euclideousRandomWeightedPick([(EuclidRiffOnRest.skip, 5), (.tie, 3), (.repeatLast, 2)], rng: &rng)   // always drawn, so the stream is the same with or without POLY
+        let onRest = onRestFixed ? current.onRest : rolledOnRest
         let stride = euclideousRandomWeightedPick([(1, 6), (2, 2), (3, 2)], rng: &rng)
         let shift = Double.random(in: 0..<1, using: &rng) < 0.5 ? 0 : Int(rng.next() % UInt64(max(1, current.length)))
 
         let (reached, soundingReached) = euclideousRandomRiffCoverage(dir: dir, every: every, stride: stride, shift: shift,
-                                                                        length: current.length, hits: current.hits, writtenRanks: writtenRanks)
+                                                                        length: current.length, hits: current.hits, writtenRanks: writtenRanks, columns: columns)
         guard reached.count >= Int(ceil(Double(current.length) / 2)) else { continue }
         guard current.length - reached.count <= 2 else { continue }
         guard soundingReached else { continue }
@@ -356,9 +358,10 @@ func euclideousRandomThrowRiff(current: (dir: RiffDir, advanceStep: Bool, advanc
 func euclideousRandomTweakRiff(current: (dir: RiffDir, advanceStep: Bool, advanceEvery: Int, invert: Bool,
                                           onRest: EuclidRiffOnRest, stride: Int, shift: Int, length: Int, hits: Int),
                                 writtenRanks: [Int],
+                                columns: Int = 8, onRestFixed: Bool = false,   // POLY RIFF: the grid's width; ON REST is not rolled in POLY
                                 rng: inout EuclideousRandomRNG) -> EuclideousRandomRiffResult? {
     enum Move { case direction, every, stride, shift, hitStep, onRest }
-    let options: [(Move, Int)] = [(.direction, 3), (.every, 2), (.stride, 2), (.shift, 2), (.hitStep, 1), (.onRest, 1)]
+    let options: [(Move, Int)] = [(.direction, 3), (.every, 2), (.stride, 2), (.shift, 2), (.hitStep, 1)] + (onRestFixed ? [] : [(.onRest, 1)])
 
     for _ in 0..<60 {
         let move = euclideousRandomWeightedPick(options, rng: &rng)
@@ -394,7 +397,7 @@ func euclideousRandomTweakRiff(current: (dir: RiffDir, advanceStep: Bool, advanc
             tag = "ON REST \(current.onRest.rawValue)→\(onRest.rawValue)"
         }
         let (reached, soundingReached) = euclideousRandomRiffCoverage(dir: dir, every: every, stride: stride, shift: shift,
-                                                                        length: current.length, hits: current.hits, writtenRanks: writtenRanks)
+                                                                        length: current.length, hits: current.hits, writtenRanks: writtenRanks, columns: columns)
         guard reached.count >= Int(ceil(Double(current.length) / 2)), current.length - reached.count <= 2, soundingReached else { continue }
         return EuclideousRandomRiffResult(dir: dir, advanceStep: advanceStep, advanceEvery: every, invert: current.invert,
                                            onRest: onRest, stride: stride, shift: shift, tag: tag)

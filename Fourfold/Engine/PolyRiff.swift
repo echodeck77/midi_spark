@@ -40,8 +40,9 @@ struct EuclideousPolyRiff: Codable, Equatable {
         let note: EuclideousPolyNote?
         init(from decoder: Decoder) throws { note = try? EuclideousPolyNote(from: decoder) }
     }
+    /// Lenient all the way up: anything that is not an object with a `notes` list (an array, a number, a string) reads as an empty riff — it never fails the whole document.
     init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: Keys.self)
+        guard let c = try? decoder.container(keyedBy: Keys.self) else { return }
         notes = ((try? c.decodeIfPresent([Lossy].self, forKey: .notes)) ?? nil)?.compactMap { $0.note } ?? []
     }
 
@@ -72,7 +73,7 @@ struct EuclideousPolyRiff: Codable, Equatable {
     func note(covering col: Int, rank: Int) -> EuclideousPolyNote? { notes.first { $0.rank == rank && col >= $0.col && col < $0.col + max(1, $0.len) } }
     var isEmpty: Bool { notes.isEmpty }
 
-    /// First use of POLY: the MONO riff's eight columns as length-1 notes, twice over (columns 1–8 and 9–16). A lane's LEN defaults to the grid's width, so the doubled figure sounds exactly as the MONO riff did (which wraps at 8).
+    /// First use of POLY: the MONO riff's eight columns as length-1 notes, twice over (columns 1–8 and 9–16). A lane's LEN defaults to the grid's width (16), so the doubled figure plays the MONO stream for FWD / REV and for any explicit LEN of 8 or less. PENDULUM and PING-PONG with the default LEN walk 16 columns, not 8 — a different (valid) melody, so those lanes change sound on the first switch (adversarial review 2026-10-29).
     static func seeded(from mono: EuclideousRiff) -> EuclideousPolyRiff {
         let r = mono.ranksResolved
         var notes: [EuclideousPolyNote] = []
@@ -140,35 +141,62 @@ extension PluginState {
 /// column on each of its hits) rings that long from ITS hit.
 @inline(__always) func euclideousPolyHitsAhead(len: Int, every: Int) -> Int { max(0, len - 1) * max(1, every) }
 
-/// One poly note's length in beats under ADV HIT: the time from this hit to the `n`-th hit after it in full, plus GATE × the gap that follows that hit — the TIE rule's shape ("the gap up to the tied hit, GATE × the following gap"); with
-/// `n == 0` it is exactly MONO's `gate × gap to the next hit`. A melody restart inside the span ends the note AT the restart hit (the walk starts over there). Every hit's own rhythm / restart origins are honoured because each future tick is
-/// asked of `euclideousLaneChainTick`, the same call the TIE lookahead makes. Allocation-free; bounded by `cycleLen × (n + 1)` ticks.
+/// The times, in beats from THIS hit, of the lane's next hits ahead (`times[k − 1]` = the k-th following hit), up to `maxHits` of them — ONE scan serves every note of a hit, whatever their lengths. Every future tick is asked of
+/// `euclideousLaneChainTick`, the call the TIE lookahead makes, so each hit's own rhythm / melody origins and its timing delay are honoured. The scan stops at a melody restart hit (`restartIndex` = that hit's 1-based index, else 0: the walk
+/// starts over there) or at the tick cap. The cap is generous because a rhythm-restart chain can cut passes short and leave few hits per lap: `cycleLen × (maxHits + 1) × 8 + 256` ticks. Allocation-free (`times` is the caller's scratch).
+func euclideousPolyHitTimes(maxHits: Int, times: inout [Double], buf: [Bool], eN: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
+                            chains: EuclideousLaneRestartChains, legacySpanBeats: Double, timing: EuclideousHitTiming = .none) -> (found: Int, restartIndex: Int) {
+    guard maxHits > 0, times.count >= maxHits else { return (0, 0) }
+    let dThis = timing.isNone ? 0 : timing.delaySteps(raw: euclideousLaneChainPhase(buf: buf, n: eN, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
+                                                                                    legacySpanBeats: legacySpanBeats).raw)
+    let cap = max(1, cycleLen) * (maxHits + 1) * 8 + 256
+    var hits = 0, j = 0, restart = 0
+    while j < cap && hits < maxHits {
+        j += 1
+        let info = euclideousLaneChainTick(buf: buf, n: eN, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick + Int64(j), chains: chains, legacySpanBeats: legacySpanBeats, advanceStep: false)
+        guard info.rawIsHit else { continue }
+        let dJ = timing.isNone ? 0 : timing.delaySteps(raw: info.raw)
+        times[hits] = (Double(j) + (timing.isNone ? 0 : dJ - dThis)) * sub
+        hits += 1
+        if !chains.melody.isFree, info.advOrd == 0 { restart = hits; break }
+    }
+    return (hits, restart)
+}
+/// One poly note's length in beats under ADV HIT, from `euclideousPolyHitTimes`: the time from this hit to the `n`-th hit after it in full, plus GATE × the gap that follows that hit — the TIE rule's shape; with `n == 0` it is exactly
+/// MONO's `gate × gap to the next hit`. A melody restart on or before the note's last hit ends the note AT that hit; a restart that is merely the hit AFTER it is just the end of its final gate-scaled gap. A scan that ran out of hits
+/// (a pattern with too few) rings to the last hit it found, then GATE × the next gap.
+func euclideousPolyRingFromTimes(hitsAhead n: Int, gate: Double, nextHitGapBeats: Double, minGateBeats: Double, times: [Double], found: Int, restartIndex: Int) -> Double {
+    guard n > 0 else { return max(minGateBeats, gate * nextHitGapBeats) }
+    if restartIndex > 0 && restartIndex <= n && restartIndex <= times.count { return max(minGateBeats, times[restartIndex - 1]) }
+    if found > n && n < times.count { return max(minGateBeats, times[n - 1] + gate * (times[n] - times[n - 1])) }
+    let last = found > 0 && found <= times.count ? times[found - 1] : 0
+    return max(minGateBeats, last + gate * nextHitGapBeats)
+}
+/// The one-note form (the LANES roll draws each bar through it; the Router scans once per hit instead and calls `euclideousPolyRingFromTimes` — the same arithmetic).
 func euclideousPolyRingBeats(hitsAhead n: Int, gate: Double, nextHitGapBeats: Double, minGateBeats: Double,
                              buf: [Bool], eN: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
                              chains: EuclideousLaneRestartChains, legacySpanBeats: Double, timing: EuclideousHitTiming = .none) -> Double {
     guard n > 0 else { return max(minGateBeats, gate * nextHitGapBeats) }
-    let dThis = timing.isNone ? 0 : timing.delaySteps(raw: euclideousLaneChainPhase(buf: buf, n: eN, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
-                                                                                    legacySpanBeats: legacySpanBeats).raw)
-    let cap = max(1, cycleLen) * (n + 1)
-    var hits = 0, j = 0
-    var tN = 0.0                                                    // the time to the n-th hit ahead
-    while j < cap {
-        j += 1
-        let t = tick + Int64(j)
-        let info = euclideousLaneChainTick(buf: buf, n: eN, dir: dir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains, legacySpanBeats: legacySpanBeats, advanceStep: false)
-        guard info.rawIsHit else { continue }
-        let dJ = timing.isNone ? 0 : timing.delaySteps(raw: info.raw)
-        let at = (Double(j) + (timing.isNone ? 0 : dJ - dThis)) * sub
-        // a melody restart ends the note AT that hit when the restart falls on or before the note's last hit; a restart that is merely the hit AFTER it is just the end of its final, GATE-scaled gap
-        if !chains.melody.isFree, info.advOrd == 0, hits + 1 <= n { return max(minGateBeats, at) }
-        hits += 1
-        if hits == n { tN = at }
-        else if hits == n + 1 { return max(minGateBeats, tN + gate * (at - tN)) }
-    }
-    return max(minGateBeats, tN + gate * nextHitGapBeats)           // a degenerate pattern ran out of hits: the last gap we know
+    var times = [Double](repeating: 0, count: n + 1)
+    let r = euclideousPolyHitTimes(maxHits: n + 1, times: &times, buf: buf, eN: eN, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats, timing: timing)
+    return euclideousPolyRingFromTimes(hitsAhead: n, gate: gate, nextHitGapBeats: nextHitGapBeats, minGateBeats: minGateBeats, times: times, found: r.found, restartIndex: r.restartIndex)
 }
 
-/// Under ADV STEP the walk counts lane steps (ticks), so a note's extra length is plain time: `(len − 1) × every` steps, then GATE × the gap to the next hit — a length-1 note again exactly MONO's.
-@inline(__always) func euclideousPolyRingBeatsStep(len: Int, every: Int, gate: Double, nextHitGapBeats: Double, sub: Double, minGateBeats: Double) -> Double {
-    max(minGateBeats, Double(max(0, len - 1) * max(1, every)) * sub + gate * nextHitGapBeats)
+/// What the ADV STEP ring needs to find a melody restart: the lane's pattern and chains (under ADV STEP the walk counts every tick, so a restart is any tick whose ordinal is 0).
+struct EuclideousPolyStepRestartScan {
+    var buf: [Bool], eN: Int, dir: EuclidDir, cycleLen: Int, tick: Int64, chains: EuclideousLaneRestartChains, legacySpanBeats: Double
+}
+/// Under ADV STEP the walk counts lane steps (ticks), so a note's extra length is plain time: `(len − 1) × every` steps, then GATE × the gap to the next hit — a length-1 note again exactly MONO's. A melody restart inside that span
+/// ends the note at the restart tick (`scan`, nil = no chain to look at).
+func euclideousPolyRingBeatsStep(len: Int, every: Int, gate: Double, nextHitGapBeats: Double, sub: Double, minGateBeats: Double, scan: EuclideousPolyStepRestartScan? = nil) -> Double {
+    let plain = max(minGateBeats, Double(max(0, len - 1) * max(1, every)) * sub + gate * nextHitGapBeats)
+    guard len > 1, sub > 0, let sc = scan, !sc.chains.melody.isFree else { return plain }
+    let limit = Int(plain / sub) + 2
+    var j = 1
+    while j <= limit {
+        let info = euclideousLaneChainTick(buf: sc.buf, n: sc.eN, dir: sc.dir, cycleLen: sc.cycleLen, sub: sub, tick: sc.tick + Int64(j), chains: sc.chains, legacySpanBeats: sc.legacySpanBeats, advanceStep: true)
+        if info.advOrd == 0 { return max(minGateBeats, min(plain, Double(j) * sub)) }
+        j += 1
+    }
+    return plain
 }

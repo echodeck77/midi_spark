@@ -22,6 +22,9 @@ final class PolyRiffRouterTests: XCTestCase {
         return l
     }
     private func box(_ lines: [EuclidLine], poly: EuclideousPolyRiff?, on: Bool = true, mono: [Int] = [1, 2, 3, 4, 5, 6, 7, 8], fx: EuclideousFX = EuclideousFX()) -> SnapshotBox {
+        SnapshotBuilder.build(from: boxState(lines, poly: poly, on: on, mono: mono, fx: fx))
+    }
+    private func boxState(_ lines: [EuclidLine], poly: EuclideousPolyRiff?, on: Bool = true, mono: [Int] = [1, 2, 3, 4, 5, 6, 7, 8], fx: EuclideousFX = EuclideousFX()) -> PluginState {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: mono)
         c.paramsA.euclidLines = lines
@@ -31,7 +34,7 @@ final class PolyRiffRouterTests: XCTestCase {
         st.euclideousNoteSource = .midi; st.euclideousFX = fx
         if on { st.riffPoly = true }
         st.polyRiff = poly
-        return SnapshotBuilder.build(from: st)
+        return st
     }
     private func run(_ box: SnapshotBox, beats: Double, frames: UInt32 = 2048) -> PolyEmitter {
         let e = PolyEmitter(); let router = Router(); var diag = KernelDiag()
@@ -142,13 +145,118 @@ final class PolyRiffRouterTests: XCTestCase {
     private func stride2(_ len: Int) -> [EuclideousPolyNote] { stride(from: 0, to: 16, by: max(1, len)).map { n($0, 1, len) } }
 
     func testALongNoteEndsAtAMelodyRestart() {
-        // melody restart every pass (4 hits): a length-8 note struck on the first hit of a pass is cut at the next pass's first hit — 4 beats on
+        // melody restart every pass (4 hits = 4 beats). Column 0 plays a DIFFERENT pitch (rank 2) from the long note (rank 1, length 8, column 1), so the restart's re-strike cannot hide the cut behind the same key's refcount:
+        // struck on hit 1 of each pass, the long note would ring 7.5 beats; the restart ends it 3 beats on.
         var l = lane(length: 16)
         l.restartMelodyPasses = [1]
-        let e = run(box([l], poly: EuclideousPolyRiff(notes: [n(0, 1, 8)])), beats: 12)
+        let e = run(box([l], poly: EuclideousPolyRiff(notes: [n(0, 2), n(1, 1, 8)])), beats: 14)
+        let ss = soundings(e, 48)
+        XCTAssertGreaterThanOrEqual(ss.count, 3)
+        for (i, s) in ss.prefix(3).enumerated() {
+            near(s.on, Int64(4 * i + 1) * beat); near(s.off, Int64(4 * i + 4) * beat, "pass \(i): cut at the next pass's first hit (3 beats after the strike), not 7.5 beats on")
+        }
+    }
+    /// ADV HIT counts lane hits and ADV STEP counts ticks. 3 hits in 4 steps (hits at beats 0, 2, 3, 4, 6, 7 …, the gaps 2, 1, 1, 2, 1, 1): a length-2 note on column 3 is struck on the 4th hit in ADV HIT (beat 4; the next hits are
+    /// +2 and +3 on) and on the hit at tick 3 in ADV STEP (beat 3; +1 and +3 on) — so the two formulas give different lengths and swapping them is audible.
+    func testTheRingFollowsTheAdvanceMode() {
+        var l = lane(gate: 0.5); l.pulses = 3; l.steps = 4
+        let poly = EuclideousPolyRiff(notes: [n(3, 1, 2)])
+        let hit = soundings(run(box([l], poly: poly), beats: 9), 48)
+        near(hit[0].on, 4 * beat); near(hit[0].off, 4 * beat + Int64(2.5 * Double(beat)), "ADV HIT: 2 beats to the next hit, then 0.5 × the 1-beat gap after it")
+        var st = l; st.riffAdvanceStep = true
+        let step = soundings(run(box([st], poly: poly), beats: 9), 48)
+        near(step[0].on, 3 * beat); near(step[0].off, 3 * beat + Int64(1.5 * Double(beat)), "ADV STEP: one more step (1 beat), then 0.5 × the 1-beat gap to the next hit")
+    }
+    /// A HOCKET PASS copies a POLY note to other outputs; each copy rings for the note's own length (the per-pitch ring travels with the copy).
+    func testAHocketCopyOfAPolyNoteRingsAsLongAsTheOriginal() {
+        var lanes = [lane(gate: 0.5)]
+        for _ in 0..<2 { var o = EuclidLine(target: 0, pulses: 0, steps: 4); o.rate = .r1_4; lanes.append(o) }
+        var rule = HocketRule(); rule.mode = .pass; rule.main = [1]; rule.alt = [3, 5]; rule.own = .merge; rule.offset = 1     // hit 0 is an ALT turn: lane 1's riff goes to lane 2's and lane 3's riff outputs
+        var st = boxState(lanes, poly: EuclideousPolyRiff(notes: [n(0, 1, 3)]))
+        st.hocketRules = HocketRuleSet([rule])
+        let e = run(SnapshotBuilder.build(from: st), beats: 6)
+        var cables: Set<UInt8> = []
+        for c in UInt8(1)...3 {
+            var open: Int64?
+            for ev in e.events where ev.cable == c && ev.note == 48 {
+                if ev.status == 0x90 { open = ev.sample; cables.insert(c) }
+                else if ev.status == 0x80, let o = open { near(ev.sample - o, Int64(2.5 * Double(beat)), "cable \(c): a length-3 note rings 2 + 0.5 beats on every output it reached"); open = nil }
+            }
+        }
+        XCTAssertGreaterThanOrEqual(cables.count, 2, "the note reached the passed outputs as well as its own: \(cables)")
+    }
+    /// WHEN = RESTS plays the notes layer only on hits whose column has no note STARTING on it (a tail is a rest hit).
+    func testTheNotesLayerSeesAColumnWithNoStartAsARest() {
+        var l = lane(gate: 0.5); l.litNotes = 0b100; l.notesWhen = 0b10; l.notesOn = true      // rank 3 = pool[2] = 52, on rests only
+        let e = run(box([l], poly: EuclideousPolyRiff(notes: [n(0, 1, 2)])), beats: 6)
+        let ons = e.ons.filter { $0.cable == 1 && $0.sample < 5 * beat }.map { [Int(($0.sample + 100) / beat), Int($0.note)] }
+        XCTAssertEqual(ons.first { $0[1] == 48 }, [0, 48], "the riff note on its column")
+        XCTAssertFalse(ons.contains { $0[0] == 0 && $0[1] == 52 }, "no notes-layer strike where a riff note starts")
+        XCTAssertTrue(ons.contains { $0[0] == 1 && $0[1] == 52 }, "the held tail column is a rest hit: the notes layer plays there: \(ons)")
+        XCTAssertTrue(ons.contains { $0[0] == 2 && $0[1] == 52 })
+    }
+
+    // MARK: adversarial review (2026-10-29), engine — the ring scan, melody restarts in ADV STEP, a stopped lane
+
+    /// Every hit time (the lane's note-ons on its own output, all pitches) — the oracle for "how long should a note of N hits ring".
+    private func hitTimes(_ e: PolyEmitter) -> [Int64] { Array(Set(e.ons.filter { $0.cable == 1 }.map { $0.sample })).sorted() }
+
+    /// A rhythm-restart chain cuts each pass short, so hits are far apart in ticks (1 pulse in 9 steps of 1/8 with a restart every 2 bars): the ring's scan used to give up after `cycleLen × (n + 1)` ticks and fall back to the gap-to-next, so a long note rang
+    /// for a fraction of its length. The oracle is the engine's own hit times: a note struck on hit i with n hits ahead rings to hit i + n, then GATE × the gap that follows.
+    func testALongNoteRingsToItsLastHitWhenARhythmRestartSpreadsTheHits() {
+        var l = lane(gate: 0.5, length: 16); l.pulses = 1; l.steps = 9; l.rate = .r1_8; l.rotate = 1; l.restartRhythmBars = [2]
+        // column 0 = the long note (rank 1, length 4); every other column a short rank-2 note, so every hit sounds and the hit times can be read off the stream
+        let poly = EuclideousPolyRiff(notes: [n(0, 1, 4)] + (1..<16).map { n($0, 2, 1) })
+        let e = run(box([l], poly: poly), beats: 160)
+        let times = hitTimes(e)
+        let longs = soundings(e, 48)
+        XCTAssertGreaterThanOrEqual(longs.count, 2)
+        var checked = 0
+        for s in longs.prefix(3) {
+            guard let i = times.firstIndex(where: { abs($0 - s.on) <= 2 }), i + 4 < times.count else { continue }
+            let want = Double(times[i + 3]) + 0.5 * Double(times[i + 4] - times[i + 3])
+            XCTAssertEqual(Double(s.off), want, accuracy: 4, "a length-4 note rings 3 hits on, then gate × the gap after that one (hit times \(times[i...i + 4]))")
+            XCTAssertGreaterThan(Double(s.off - s.on), Double(l.steps) * 4 * Double(beat) / 8 * 4, "…which here is longer than the old scan's tick cap (cycleLen × (n + 1) steps)")
+            checked += 1
+        }
+        XCTAssertGreaterThan(checked, 0, "the fixture must reach the property")
+    }
+    /// ADV STEP's ring is plain time, so a melody restart inside it used to be ignored and the note rang past the restart. 4 hits in 4 steps, melody restart every 2 passes (8 beats): a note struck at beat 1 (length 16, so far longer than the 7 beats left)
+    /// is cut at the restart, beat 8 — on a pitch the restart hit does not re-strike (the restart re-reads column 0, which holds a different pitch).
+    func testAStepModeNoteEndsAtAMelodyRestart() {
+        var l = lane(gate: 0.5, length: 16, step: true); l.restartMelodyPasses = [2]
+        let e = run(box([l], poly: EuclideousPolyRiff(notes: [n(0, 2), n(1, 1, 16)])), beats: 20)
         let ss = soundings(e, 48)
         XCTAssertGreaterThanOrEqual(ss.count, 2)
-        for s in ss { XCTAssertLessThanOrEqual(Double(s.off - s.on) / Double(beat), 4.0 + 0.01, "ended at (or before) the walk's restart") }
+        near(ss[0].on, beat); near(ss[0].off, 8 * beat, "cut at the melody restart, not 15 + 0.5 beats on")
+    }
+    /// The same restart rule from the pure function (what the LANES roll draws).
+    func testTheStepRingStopsAtTheRestartTick() {
+        let chains = EuclideousLaneRestartChains(rhythm: .free, melody: .from([2]), barBeats: 4, lapBeats: 4)
+        let scan = EuclideousPolyStepRestartScan(buf: [true, true, true, true], eN: 4, dir: .fwd, cycleLen: 4, tick: 1, chains: chains, legacySpanBeats: 4)
+        XCTAssertEqual(euclideousPolyRingBeatsStep(len: 16, every: 1, gate: 0.5, nextHitGapBeats: 1, sub: 1, minGateBeats: 0.01, scan: scan), 7.0, accuracy: 1e-9)
+        XCTAssertEqual(euclideousPolyRingBeatsStep(len: 3, every: 1, gate: 0.5, nextHitGapBeats: 1, sub: 1, minGateBeats: 0.01, scan: scan), 2.5, accuracy: 1e-9, "a span that ends first is untouched")
+        XCTAssertEqual(euclideousPolyRingBeatsStep(len: 16, every: 1, gate: 0.5, nextHitGapBeats: 1, sub: 1, minGateBeats: 0.01, scan: nil), 15.5, accuracy: 1e-9)
+    }
+    /// Stopping a lane (PLAY off) used to leave a long POLY note ringing for up to 120 hits. It ends at once; a MONO lane's notes are untouched by the same edit (its ring-out is one gap).
+    func testStoppingAPolyLaneCutsItsLongNotes() {
+        let poly = EuclideousPolyRiff(notes: [n(0, 1, 16)])
+        var st = boxState([lane(gate: 0.5, length: 16)], poly: poly)
+        let router = Router(); var diag = KernelDiag(); let e = PolyEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let p = NotePool(); for pn in pool { p.noteOn(pn, velocity: 100, channel: 0) }
+        var ts = 0.0
+        var box = SnapshotBuilder.build(from: st)
+        func beatNow() -> Double { ts * tempo / 60.0 / sr }
+        while beatNow() < 3 { router.process(box: box, pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag); ts += Double(frames) }
+        let stopAt = Int64(ts)
+        var off = st.machines[0]; off.paramsA.euclidLines?[0].enabled = false; st.machines[0] = off
+        box = SnapshotBuilder.build(from: st)
+        for _ in 0..<4 { router.process(box: box, pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag); ts += Double(frames) }
+        let c = soundings(e, 48)
+        XCTAssertEqual(c.count, 1)
+        XCTAssertLessThanOrEqual(c[0].off, stopAt + Int64(2 * frames), "the long note ended when its lane was stopped, not 15 beats on")
+        XCTAssertGreaterThan(c[0].off, 0)
     }
 
     // MARK: things POLY switches off

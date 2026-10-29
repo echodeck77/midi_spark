@@ -3848,7 +3848,7 @@ func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Do
     guard polledStep >= 0 else { return nil }
     let len = max(1, min(cfg.columns, cfg.length))
     func rankAt(_ s: Int) -> Int { s >= 0 && s < ranks.count ? max(0, min(8, ranks[s])) : 0 }
-    guard (0..<len).contains(where: { rankAt($0) >= 1 }) else { return nil }   // empty riff: no tag
+    guard euclideousRiffWindowColumns(length: len, shift: cfg.rotate, columns: cfg.columns).contains(where: { rankAt($0) >= 1 }) else { return nil }   // empty riff: no tag — over the columns the walk really reads (LEN from SHIFT, wrapping), not 0..<LEN
     let vis = euclideousWalkVisitedRange(dir: cfg.riffDir, length: len, stride: cfg.stride, rotate: cfg.rotate)
 
     // A tag sitting on the polled step with nothing scheduled: stopped transport, stopped lane, no hits, or a
@@ -6130,7 +6130,7 @@ func euclideousRhythmCycleQ(lapBeats: Double, barBeats: Double, rhythmChain: Euc
 /// cuts THIS pass short is reflected automatically, with no separate "cut short" branch (§14 test 5).
 func euclideousRiffFooterList(pass q: Int64, buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double,
                               chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
-                              riffDir: RiffDir, stride: Int, length: Int, shift: Int, every: Int, seed: UInt64) -> [(step: Int, column: Int)] {
+                              riffDir: RiffDir, stride: Int, length: Int, shift: Int, every: Int, seed: UInt64, columns: Int = 8) -> [(step: Int, column: Int)] {
     guard sub > 0 else { return [] }
     let lapBeats = Double(cycleLen) * sub
     let passStartTick = euclideousOriginTick(euclideousPassStart(q, lapBeats: lapBeats, barBeats: chains.barBeats, rhythmChain: chains.rhythm), sub: sub)
@@ -6140,7 +6140,7 @@ func euclideousRiffFooterList(pass q: Int64, buf: [Bool], n: Int, dir: EuclidDir
     while tick < nextPassStartTick {
         let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
         if info.rawIsHit {
-            let col = euclideousRiffColumn(ordinal: info.advOrd, every: every, direction: riffDir, length: length, stride: stride, shift: shift, seed: seed)
+            let col = euclideousRiffColumn(ordinal: info.advOrd, every: every, direction: riffDir, length: length, stride: stride, shift: shift, seed: seed, columns: columns)
             out.append((info.raw, col))
         }
         tick += 1
@@ -6159,7 +6159,7 @@ struct EuclideousRiffReadout {
 }
 func euclideousRiffReadout(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double,
                            chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
-                           riffDir: RiffDir, stride: Int, length: Int, shift: Int, every: Int, seed: UInt64) -> EuclideousRiffReadout? {
+                           riffDir: RiffDir, stride: Int, length: Int, shift: Int, every: Int, seed: UInt64, columns: Int = 8) -> EuclideousRiffReadout? {
     guard sub > 0 else { return nil }
     let lapBeats = Double(cycleLen) * sub
     let P = Int64(euclideousFXWalkPeriod(dir: riffDir, length: length, stride: stride))
@@ -6183,14 +6183,14 @@ func euclideousRiffReadout(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, s
     for q in 0..<J {
         let list = euclideousRiffFooterList(pass: q, buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, chains: chains,
                                             legacySpanBeats: legacySpanBeats, advanceStep: advanceStep, riffDir: riffDir,
-                                            stride: stride, length: len, shift: shift, every: every, seed: seed)
+                                            stride: stride, length: len, shift: shift, every: every, seed: seed, columns: columns)
         F.append(list.map { $0.column })
         for (_, col) in list { playedColumns.insert(col) }
     }
     // never-play: §7.6 — columns in the lane's own window (RIFF WINDOW ferry: LEN columns starting at SHIFT,
     // wrapping at 8 — no longer always 0...LEN) no hit reads over the J passes examined.
     var neverPlay = Set<Int>()
-    for c in euclideousRiffWindowColumns(length: len, shift: shift) where !playedColumns.contains(c) { neverPlay.insert(c) }
+    for c in euclideousRiffWindowColumns(length: len, shift: shift, columns: columns) where !playedColumns.contains(c) { neverPlay.insert(c) }
     // the strip's own never-play set is in WALK-STEP space (w mod P), not column space — recompute the
     // walk steps actually visited by replaying each pass's own hit ordinals through euclideousRiffWalkStep.
     for q in 0..<J {
@@ -6232,17 +6232,18 @@ final class EuclideousRiffReadoutCache {
     struct Key: Equatable {
         var buf: [Bool], n: Int, dir: EuclidDir, sub: Double, chains: EuclideousLaneRestartChains, spanBeats: Double, advanceStep: Bool
         var riffDir: RiffDir, stride: Int, length: Int, shift: Int, every: Int, seed: UInt64
+        var columns: Int = 8   // POLY RIFF: the grid's width — the readout walks 16 columns for a POLY lane
     }
     private var slots: [(key: Key, value: EuclideousRiffReadout?)?] = [nil, nil, nil, nil]
     private(set) var computeCount = 0
     private func compute(_ k: Key) -> EuclideousRiffReadout? {
         computeCount += 1
         return euclideousRiffReadout(buf: k.buf, n: k.n, dir: k.dir, cycleLen: euclidCycleLen(k.dir, n: k.n), sub: k.sub, chains: k.chains, legacySpanBeats: k.spanBeats,
-                                     advanceStep: k.advanceStep, riffDir: k.riffDir, stride: k.stride, length: k.length, shift: k.shift, every: k.every, seed: k.seed)
+                                     advanceStep: k.advanceStep, riffDir: k.riffDir, stride: k.stride, length: k.length, shift: k.shift, every: k.every, seed: k.seed, columns: k.columns)
     }
     func readout(lane: Int, cfg c: EuclideousWalkLaneConfig) -> EuclideousRiffReadout? {
         let key = Key(buf: c.buf, n: c.n, dir: c.dir, sub: c.sub, chains: c.chains, spanBeats: c.spanBeats, advanceStep: c.advanceStep,
-                      riffDir: c.riffDir, stride: c.stride, length: c.length, shift: c.rotate, every: c.every, seed: c.seed)
+                      riffDir: c.riffDir, stride: c.stride, length: c.length, shift: c.rotate, every: c.every, seed: c.seed, columns: c.columns)
         guard lane >= 0, lane < slots.count else { return compute(key) }
         if let hit = slots[lane], hit.key == key { return hit.value }
         let value = compute(key)
@@ -6546,13 +6547,26 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
         if let ps = polyStarts, c.riffOn {
             let audible = euclideousLaneAudible(beat: hitBeat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)
             var any = false
-            for note in ps(w.playedStep) {
+            let starts = ps(w.playedStep)
+            var times: [Double] = [], found = 0, restartIndex = 0
+            if !c.advanceStep {   // the Router's own single scan per hit (`euclideousPolyHitTimes`), shared by every note of the column
+                let maxAhead = starts.reduce(0) { max($0, euclideousPolyHitsAhead(len: $1.len, every: c.every)) }
+                if maxAhead > 0 {
+                    times = [Double](repeating: 0, count: min(129, maxAhead + 1))
+                    let r = euclideousPolyHitTimes(maxHits: times.count, times: &times, buf: c.buf, eN: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains,
+                                                   legacySpanBeats: c.spanBeats, timing: c.timing)
+                    found = r.found; restartIndex = r.restartIndex
+                }
+            }
+            for note in starts {
                 let r = euclideousRiffStepRanks(ranks: [note.rank], invert: c.invert, transpose: c.transpose)[0]
                 guard r >= 1 else { continue }
                 let ring = c.advanceStep
-                    ? euclideousPolyRingBeatsStep(len: note.len, every: c.every, gate: c.gate, nextHitGapBeats: gap, sub: c.sub, minGateBeats: minGateBeats)
-                    : euclideousPolyRingBeats(hitsAhead: euclideousPolyHitsAhead(len: note.len, every: c.every), gate: c.gate, nextHitGapBeats: gap, minGateBeats: minGateBeats,
-                                              buf: c.buf, eN: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats, timing: c.timing)
+                    ? euclideousPolyRingBeatsStep(len: note.len, every: c.every, gate: c.gate, nextHitGapBeats: gap, sub: c.sub, minGateBeats: minGateBeats,
+                                                  scan: note.len > 1 && !c.chains.melody.isFree
+                                                      ? EuclideousPolyStepRestartScan(buf: c.buf, eN: c.n, dir: c.dir, cycleLen: cycleLen, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats) : nil)
+                    : euclideousPolyRingFromTimes(hitsAhead: euclideousPolyHitsAhead(len: note.len, every: c.every), gate: c.gate, nextHitGapBeats: gap, minGateBeats: minGateBeats,
+                                                  times: times, found: found, restartIndex: restartIndex)
                 out.append(EuclideousRollHit(beat: hitBeat, rank: r, gateBeats: ring, audible: audible)); any = true
             }
             if !any { out.append(EuclideousRollHit(beat: hitBeat, rank: 0, gateBeats: euclideousPitchGateBeats(gate: c.gate, nextHitGapBeats: gap, tieExt: 0, minGateBeats: minGateBeats), audible: audible)) }
@@ -8092,10 +8106,10 @@ struct EuclideousNotesKeyFlash: Equatable {
 /// - `eventPitches`: the pitches the hit struck, in strike order (the NOTE VIEW event's `notes`; the riff note first when `hasRiffNote`).
 /// - `seconds`: time since the strike's onset (the hit); `riffVel` / `notesVel`: the velocities the two layers played.
 /// - `list`: the CURRENT play list built at octave 0; `pitchShift` is 12 × the lane's notes octave (what the engine added when it resolved them).
-func euclideousNotesKeyFlash(eventPitches: [UInt8], hasRiffNote: Bool, riffRank: Int, seconds: Double, riffVel: Int, notesVel: Int, list: EuclideousNotesList, pitchShift: Int, way: EuclidNotesPlayAs,
+func euclideousNotesKeyFlash(eventPitches: [UInt8], hasRiffNote: Bool, riffNotes: Int = 1, riffRank: Int, seconds: Double, riffVel: Int, notesVel: Int, list: EuclideousNotesList, pitchShift: Int, way: EuclidNotesPlayAs,
                              stepBeats: Double, gapBeats: Double, lenBeats: Double, legato: Bool, tempo: Double, scale: Double) -> EuclideousNotesKeyFlash {
     var out = EuclideousNotesKeyFlash()
-    let first = hasRiffNote ? 1 : 0
+    let first = hasRiffNote ? max(1, riffNotes) : 0
     var matched: [Int] = []   // list indices, in strike order
     if eventPitches.count > first {
         for k in first..<eventPitches.count {
@@ -8248,7 +8262,7 @@ final class EuclideousPulseFeed {
         for ev in events where (ev.kind == 0 || ev.kind == 3) && !ev.notes.isEmpty {
             if let last = rings[lane].last, ev.onsetBeat < last.onsetBeat - 0.5 { rings[lane].removeAll(keepingCapacity: true) }   // the beat went back: a restart or a loop
             func vel(_ i: Int) -> UInt8 { i < ev.vels.count ? ev.vels[i] : 100 }
-            let first = ev.hasRiffNote ? 1 : 0
+            let first = ev.riffNotes   // the leading pitches are the riff's — one in MONO, several for a POLY chord
             var notes: UInt8 = 0
             if ev.notes.count > first { for i in first..<ev.notes.count { notes = max(notes, vel(i)) } }
             let at = anchorAt.timeIntervalSinceReferenceDate + (ev.onsetBeat - anchorBeat) * secPerBeat
@@ -8452,7 +8466,7 @@ struct EuclideousStripNotes {
 /// The notes walk a lane config describes — the same fields the Router builds `EuclideousNotesWalk` from.
 func euclideousNotesWalk(from c: EuclideousWalkLaneConfig) -> EuclideousNotesWalk {
     EuclideousNotesWalk(n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep,
-                        riffDir: c.riffDir, stride: c.stride, length: c.length, rotate: c.rotate, seed: c.seed, every: c.every)
+                        riffDir: c.riffDir, stride: c.stride, length: c.length, rotate: c.rotate, seed: c.seed, every: c.every, columns: c.columns)   // POLY RIFF: the strip's count k walks the same grid width as the Router's
 }
 /// REPEAT's repeated rank at the hit on absolute `tick`: the WRITTEN rank of the nearest earlier hit's column that is not a rest (`euclideousRiffRepeatLookback`, the Router's own call), nil
 /// when there is none (the hit then plays as SKIP).

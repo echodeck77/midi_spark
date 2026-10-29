@@ -62,6 +62,13 @@ struct EuclideousPolyDrag: Equatable {
 }
 
 extension EuclideousPolyRiff {
+    /// VoiceOver's "make the note longer / shorter": the note covering (`col`, `rank`) gets `delta` more (or fewer) columns at its tail end, never fewer than 1, never into the next note at its rank or off the grid. A cell no note covers changes nothing.
+    func resized(noteAt col: Int, rank: Int, by delta: Int) -> EuclideousPolyRiff {
+        guard let n = normalized.note(covering: col, rank: rank) else { return self }
+        let tail = n.col + n.len - 1
+        let started = EuclideousPolyDrag.begin(self, col: tail, rank: rank)     // touched on its tail: the head is the end that stays
+        return started.drag.update(started.riff, fingerCol: max(n.col, tail + delta)).riff
+    }
     /// VoiceOver activation of a cell (and a plain tap): a note covering it goes, otherwise a length-1 note appears — the same rule a touch follows, with no drag.
     func toggled(col: Int, rank: Int) -> EuclideousPolyRiff {
         let started = EuclideousPolyDrag.begin(self, col: col, rank: rank)

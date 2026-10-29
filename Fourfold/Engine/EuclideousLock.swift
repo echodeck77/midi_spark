@@ -207,6 +207,8 @@ struct LaneLockKey: Equatable {
     var riffOn: Bool, riffDir: RiffDir, riffInvert: Bool
     var advanceEvery: Int, advanceStep: Bool, onRest: EuclidRiffOnRest
     var length: Int, shift: Int, stride: Int, transpose: Int
+    /// POLY RIFF (2026-10-29): LEN and SHIFT as the 16-column POLY grid reads them (1…16 and 0…15); `length` / `shift` above are MONO's 8-column view (1…8 and mod 8), which cannot see a POLY-only change. Both views must agree for a lane not to be deviated.
+    var lengthPoly: Int, shiftPoly: Int
     var litOrder: EuclideousLitOrder
     var notesOn: Bool, notesWhen: UInt8, notesChance: Int, notesPlayAs: EuclidNotesPlayAs, notesReceived: Bool
 }
@@ -221,6 +223,7 @@ extension LaneLockFields {
                            riffOn: l.riffOnResolved, riffDir: l.riffDirResolved, riffInvert: l.riffInvertResolved,
                            advanceEvery: l.riffAdvanceEveryResolved, advanceStep: l.riffAdvanceStepResolved, onRest: l.riffOnRestResolved,
                            length: l.riffLengthResolved, shift: l.riffRotateResolved, stride: l.riffStrideResolved, transpose: l.melodyTransposeResolved,
+                           lengthPoly: l.riffLengthResolved(columns: EuclideousPolyMetrics.columns), shiftPoly: l.riffRotateResolved(columns: EuclideousPolyMetrics.columns),
                            litOrder: l.litOrderResolved,
                            notesOn: l.notesOnResolved, notesWhen: l.notesWhenResolved, notesChance: l.notesChanceResolved, notesPlayAs: l.notesPlayAsResolved, notesReceived: l.notesReceivedOnlyResolved)
     }

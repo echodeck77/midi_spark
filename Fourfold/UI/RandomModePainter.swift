@@ -183,7 +183,7 @@ struct EuclideousRandomCardView: View {
             case .pingpong: dirName = "ping-pong"
             case .random, .drunk: dirName = "forward"   // coerced to FWD (RIFF WALK ferry, 2026-10-13) — never actually resolved
             }
-            return "Riff walk, \(dirName), length \(line.riffLengthResolved)"
+            return "Riff walk, \(dirName), length \(riffColumns == 8 ? line.riffLengthResolved : line.riffLengthResolved(columns: riffColumns))"
         case .notes:
             let order = line.litOrderResolved
             return order.count == 0 ? "No notes lit" : "\(order.count) notes lit"

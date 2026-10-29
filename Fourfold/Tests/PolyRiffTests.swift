@@ -184,6 +184,109 @@ final class PolyRiffTests: XCTestCase {
         XCTAssertEqual(euclideousPolyRingBeatsStep(len: 3, every: 2, gate: 0.5, nextHitGapBeats: 2, sub: 0.5, minGateBeats: 0.01), 2.0 + 1.0, accuracy: 1e-9, "(3 − 1) × 2 steps of 0.5, then gate × the gap")
     }
 
+    // MARK: adversarial review (2026-10-29) — fixes
+
+    /// The lane lock compared LEN and SHIFT only through MONO's 8-column resolvers, so a lane locked with LEN 12 / SHIFT 11 in POLY never read as deviated when either changed (LEN 9…16 and SHIFT 8…15 resolve to 8 and mod 8).
+    func testTheLaneLockSeesPolyLengthAndShift() {
+        var l = EuclidLine(target: 0, pulses: 4, steps: 8); l.riffLength = 12; l.riffRotate = 11
+        let locked = LaneLockFields(line: l)
+        XCTAssertFalse(euclideousLockDeviated(line: l, from: locked))
+        for (len, shift) in [(14, 11), (9, 11), (16, 11), (12, 3), (12, 12), (12, 0)] {
+            var m = l; m.riffLength = len; m.riffRotate = shift
+            XCTAssertTrue(euclideousLockDeviated(line: m, from: locked), "LEN \(len) SHIFT \(shift) differs from LEN 12 SHIFT 11 in POLY")
+        }
+        var unset = l; unset.riffLength = nil
+        XCTAssertTrue(euclideousLockDeviated(line: unset, from: locked), "LEN unset (16 in POLY) is not 12")
+        // the MONO fields still count exactly as before
+        var m = l; m.riffStride = 3; XCTAssertTrue(euclideousLockDeviated(line: m, from: locked))
+    }
+    func testAWrongShapedPolyRiffReadsAsEmptyAndNeverFailsTheDocument() throws {
+        for bad in ["[]", "5", "\"x\"", "null", "{\"notes\":3}", "{\"notes\":{}}"] {
+            let r = try JSONDecoder().decode(EuclideousPolyRiff.self, from: Data(bad.utf8))
+            XCTAssertTrue(r.isEmpty, bad)
+        }
+        var st = PluginState.makeInit(); st.polyRiff = EuclideousPolyRiff(notes: [note(1, 2, 3)])
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(st)) as? [String: Any])
+        obj["polyRiff"] = [Any]()                      // an array where the object belongs
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONSerialization.data(withJSONObject: obj))
+        XCTAssertTrue(back.polyRiffResolved.isEmpty, "an empty POLY riff — the document survives")
+    }
+
+    /// The WALK strip's readout (never-play columns) walked only 8 columns, so in POLY it was withheld ("CYCLE TOO LONG TO COUNT"). With `columns: 16` a stride-2 walk over 16 columns never reads the odd ones.
+    func testTheRiffReadoutWalksSixteenColumns() {
+        let buf = [Bool](repeating: true, count: 4)
+        func readout(stride: Int, length: Int, columns: Int) -> EuclideousRiffReadout? {
+            euclideousRiffReadout(buf: buf, n: 4, dir: .fwd, cycleLen: 4, sub: 1, chains: EuclideousLaneRestartChains(rhythm: .free, melody: .free, barBeats: 4, lapBeats: 4), legacySpanBeats: 0, advanceStep: false, riffDir: .forward, stride: stride, length: length, shift: 0, every: 1, seed: 0, columns: columns)
+        }
+        let r = readout(stride: 2, length: 16, columns: 16)
+        XCTAssertEqual(r?.neverPlay, Set([1, 3, 5, 7, 9, 11, 13, 15]))
+        XCTAssertEqual(readout(stride: 1, length: 16, columns: 16)?.neverPlay, [], "stride 1 reaches every column")
+        XCTAssertEqual(readout(stride: 2, length: 8, columns: 8)?.neverPlay, Set([1, 3, 5, 7]), "MONO is as it was")
+        let cache = EuclideousRiffReadoutCache()
+        var l = EuclidLine(target: 0, pulses: 4, steps: 4); l.rate = .r1_4; l.riffLength = 16; l.riffStride = 2; l.restartRhythmBars = []; l.restartMelodyPasses = []   // FREE chains, stored (so the walk config carries real chains)
+        let poly = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, riffColumns: 16)!
+        let mono = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+        XCTAssertEqual(cache.readout(lane: 0, cfg: poly)?.neverPlay.count, 8, "a POLY lane's readout is over 16 columns")
+        XCTAssertNotEqual(cache.readout(lane: 0, cfg: mono)?.neverPlay.count, 8, "…and the cache keys on the grid width, so the same lane in MONO is recomputed over 8")
+    }
+
+    // MARK: adversarial review (2026-10-29) — the mirrors that still read ONE riff pitch / EIGHT columns
+
+    /// A POLY chord strikes several riff pitches on one hit; the pulse feed read only the first as the riff's and counted the rest as NOTES-layer strikes (lighting the key row, the notes glow and the hocket marks on a riff-only chord).
+    func testThePulseFeedCountsEveryLeadingRiffPitchOfAChordAsTheRiffs() {
+        func strike(riffCount: Int, hasRiff: Bool = true) -> EuclideousPulseStrike? {
+            let ev = Router.EuclideousNoteViewEventSnapshot(onsetBeat: 0, durationBeat: 1, kind: 0, notes: [48, 52, 55, 60], column: 2, rank: 1, hasRiffNote: hasRiff, riffNoteCount: riffCount, vels: [80, 81, 82, 99], dests: [0, 0, 0, 0])
+            let feed = EuclideousPulseFeed(); feed.ingest(lane: 0, events: [ev], anchorBeat: 0, anchorAt: Date(), tempo: 120)
+            return feed.strikes(lane: 0).first
+        }
+        XCTAssertEqual(strike(riffCount: 3)?.notesVel, 99, "three riff pitches, then ONE notes-layer pitch (velocity 99)"); XCTAssertEqual(strike(riffCount: 3)?.riffVel, 80)
+        XCTAssertEqual(strike(riffCount: 4)?.notesVel, 0, "a riff-only chord: the notes layer did not strike")
+        XCTAssertEqual(strike(riffCount: -1)?.notesVel, 99, "an event that does not report a count reads as MONO's one riff pitch: the later pitches are the notes layer's… (-1 = 1)")
+        XCTAssertEqual(strike(riffCount: -1)?.riffVel, 80)
+        XCTAssertEqual(Router.EuclideousNoteViewEventSnapshot(onsetBeat: 0, durationBeat: 1, kind: 0, notes: [], hasRiffNote: true).riffNotes, 1)
+        XCTAssertEqual(Router.EuclideousNoteViewEventSnapshot(onsetBeat: 0, durationBeat: 1, kind: 0, notes: []).riffNotes, 0)
+    }
+    func testTheMirrorsCarryTheGridWidthAndTheShiftedWindow() {
+        var l = EuclidLine(target: 0, pulses: 4, steps: 4); l.rate = .r1_4; l.riffOn = true; l.riffLength = 4; l.riffRotate = 12
+        let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, riffColumns: 16)!
+        XCTAssertEqual(euclideousNotesWalk(from: cfg).columns, 16, "the strip's notes count k walks the grid the Router walks")
+        // notes only on columns 12…15 — the window LEN 4 from SHIFT 12 — used to be taken for an empty riff (the check ran over columns 0…3)
+        var ranks = [Int](repeating: 0, count: 16); for c in 12..<16 { ranks[c] = 3 }
+        let plan = euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: 1, secondsPerBeat: 0.5, polledStep: 12, running: false)
+        XCTAssertNotNil(plan); XCTAssertEqual(plan?.seatStep, 12); XCTAssertEqual(plan?.seatRank, 3)
+        XCTAssertEqual(euclideousRiffWindowColumns(length: 6, shift: 14, columns: 16), [14, 15, 0, 1, 2, 3])
+        XCTAssertEqual(euclideousRiffWindowColumns(length: 6, shift: 14), [6, 7, 0, 1, 2, 3], "MONO wraps at 8")
+        let off = euclideousRailSpec(lane: 0, riffOn: false, running: false, muted: false, played: [], current: nil, trail: [], heading: .still, flare: 0, columns: 16)
+        XCTAssertEqual(off.segments.count, 16)
+        let on = euclideousRailSpec(lane: 0, riffOn: true, running: true, muted: false, played: [12, 13], current: 13, trail: [12], heading: .right, flare: 0, columns: 16)
+        XCTAssertEqual(on.segments[13].look, .current(.right)); XCTAssertEqual(on.segments[12].look, .trail(0)); XCTAssertEqual(on.segments.count, 16)
+        XCTAssertEqual(euclideousRailSpec(lane: 0, riffOn: true, running: true, muted: false, played: [], current: 13, trail: [], heading: .right, flare: 0).segments.count, 8, "MONO's rail is eight")
+    }
+    func testACellStrikeOnAColumnPastEightLightsItsCell() {
+        let order = euclideousRiffCycleOrder(dir: .forward, length: 16, stride: 1, shift: 0, columns: 16)
+        var s = EuclideousPulseStrike(onsetBeat: 0, onsetAt: 10, riffVel: 100, notesVel: 0); s.cellColumn = 12
+        let bank = euclideousRestartCellStrikes([s], columnCells: order.columnCells, now: 10.05)
+        XCTAssertGreaterThan(bank.mix(cell: 12, scale: 1, reduceMotion: false), 0.5); XCTAssertEqual(bank.mix(cell: 4, scale: 1, reduceMotion: false), 0)
+    }
+    /// Random mode rolled over an 8-column grid: a LEN-12 POLY lane with notes only on columns 8…11 had "NOTHING TO CHANGE", TWEAK's SHIFT folded to 8, and THROW could pick TIE / REPEAT (dead in POLY).
+    func testRandomRiffRollsOverTheGridTheLaneWalks() {
+        var written = [Int](repeating: 0, count: 16); for c in 8..<12 { written[c] = 4 }
+        let cov8 = euclideousRandomRiffCoverage(dir: .forward, every: 1, stride: 1, shift: 0, length: 12, hits: 4, writtenRanks: written)
+        let cov16 = euclideousRandomRiffCoverage(dir: .forward, every: 1, stride: 1, shift: 0, length: 12, hits: 4, writtenRanks: written, columns: 16)
+        XCTAssertTrue(cov8.reached.allSatisfy { $0 < 8 }); XCTAssertEqual(cov16.reached, Set(0..<12), "LEN 12 from SHIFT 0 reaches columns 0…11")
+        XCTAssertTrue(cov16.soundingReached)
+        var thrown = 0
+        for seed in 1...40 {
+            var rng = EuclideousRandomRNG(seed: UInt64(seed))
+            let cur = (dir: RiffDir.forward, advanceStep: false, advanceEvery: 1, invert: false, onRest: EuclidRiffOnRest.tie, stride: 1, shift: 0, length: 12, hits: 4, role: EuclideousRandomRole.medium)
+            if let r = euclideousRandomThrowRiff(current: cur, writtenRanks: written, others: [], columns: 16, onRestFixed: true, rng: &rng) { thrown += 1; XCTAssertEqual(r.onRest, .tie, "ON REST is not rolled in POLY — the stored choice is kept") }
+            var rng2 = EuclideousRandomRNG(seed: UInt64(seed))
+            let cur2 = (dir: RiffDir.forward, advanceStep: false, advanceEvery: 1, invert: false, onRest: EuclidRiffOnRest.tie, stride: 1, shift: 0, length: 12, hits: 4)
+            if let r = euclideousRandomTweakRiff(current: cur2, writtenRanks: written, columns: 16, onRestFixed: true, rng: &rng2) { XCTAssertEqual(r.onRest, .tie); XCTAssertTrue(r.shift >= 0 && r.shift < 12) }
+        }
+        XCTAssertGreaterThan(thrown, 10, "a POLY lane with notes past column 8 can be thrown")
+    }
+
     // MARK: slice 3 — the restart tile's track at 16 columns
 
     func testTheCycleOrderHoldsSixteenColumns() {

@@ -92,6 +92,18 @@ final class PolyRiffEditTests: XCTestCase {
         r = EuclideousPolyRiff(notes: [n(2, 4, 3)]).toggled(col: 3, rank: 4); XCTAssertTrue(r.isEmpty, "a tail cell removes the whole note")
     }
 
+    // MARK: VoiceOver's longer / shorter
+
+    func testResizeByOneLengthensAndShortensFromTheTail() {
+        let riff = EuclideousPolyRiff(notes: [n(2, 3, 3), n(9, 3, 1), n(4, 6, 1)])
+        XCTAssertEqual(shape(riff.resized(noteAt: 2, rank: 3, by: 1)), [[2, 3, 4], [4, 6, 1], [9, 3, 1]].sorted { ($0[0], $0[1]) < ($1[0], $1[1]) })
+        XCTAssertEqual(shape(riff.resized(noteAt: 3, rank: 3, by: -1)).first { $0[1] == 3 }, [2, 3, 2], "from any cell the note covers")
+        XCTAssertEqual(shape(riff.resized(noteAt: 2, rank: 3, by: -9)).first { $0[0] == 2 && $0[1] == 3 }, [2, 3, 1], "never under one column")
+        XCTAssertEqual(shape(riff.resized(noteAt: 2, rank: 3, by: 30)).first { $0[0] == 2 && $0[1] == 3 }, [2, 3, 7], "stops before the next note on its rank (column 9)")
+        XCTAssertEqual(shape(EuclideousPolyRiff(notes: [n(14, 1, 2)]).resized(noteAt: 14, rank: 1, by: 5)), [[14, 1, 2]], "and at the grid's edge")
+        XCTAssertEqual(shape(riff.resized(noteAt: 12, rank: 5, by: 1)), shape(riff), "an empty cell: nothing changes")
+    }
+
     // MARK: what the arrows and the walk mirror read
 
     func testTopRanksAndTheArrowSeat() {

@@ -175,11 +175,13 @@ final class Router {
     /// note-on still gets its note-off (`closeVoice` owns the refcount), so nothing is left sounding.
     private func cutSoloSilencedLanes(soloMask: UInt8, atSample t: Int64, out: MIDIEmitter?) {
         guard soloMask & 0x0F != 0 else { return }
-        for lane in 0..<4 where euclideousSoloSilences(lane: lane, soloMask: soloMask) {
-            let tag = Int8(lane)
-            for i in voices.indices where voices[i].active && voices[i].euclideousLane == tag { closeVoice(i, atSample: t, out: out) }
-            for i in echoTails.indices where echoTails[i].active && echoTails[i].lane == tag { echoTails[i].active = false }
-        }
+        for lane in 0..<4 where euclideousSoloSilences(lane: lane, soloMask: soloMask) { cutLaneVoices(lane, atSample: t, out: out) }
+    }
+    /// Every sounding voice and pending deferred strike of Euclideous lane `lane`, ended at `t` (each voice's note-off still goes through `closeVoice`'s refcount, so nothing is left sounding).
+    private func cutLaneVoices(_ lane: Int, atSample t: Int64, out: MIDIEmitter?) {
+        let tag = Int8(lane)
+        for i in voices.indices where voices[i].active && voices[i].euclideousLane == tag { closeVoice(i, atSample: t, out: out) }
+        for i in echoTails.indices where echoTails[i].active && echoTails[i].lane == tag { echoTails[i].active = false }
     }
 
     // Collision refcount (§7, normative): per (bus, channel, note). Note-ONs always emit
@@ -583,6 +585,7 @@ final class Router {
     // no distinct riff pitch per this ferry's own ruling) — lets the display layer (note box/summary label)
     // show "the riff note + n" vs. "the lowest sounding note + n" without re-deriving lane-level state.
     private var nvHasRiffNote = [Bool](repeating: false, count: 4 * Router.noteViewRing)
+    private var nvRiffCount = [UInt8](repeating: 0, count: 4 * Router.noteViewRing)   // POLY RIFF (2026-10-29): how many of the event's LEADING pitches are the riff's (1 in MONO; up to 8 for a POLY chord)
     private var nvHostSeconds = [Double](repeating: 0, count: 4 * Router.noteViewRing)   // DEBUG device log: the note-on's host-clock time (see the snapshot field)
     /// Set by the Kernel (DEBUG only) before each `process` — the host-clock seconds of this window's first sample; 0 = unknown.
     var debugWindowHostSeconds: Double = 0
@@ -612,12 +615,13 @@ final class Router {
     /// is pre-capped at `noteViewMaxNotes` by every caller (ample for any realistic chord). Write-side
     /// `nvNew` is capped at the ring size (never over-counted), matching `focusNoteNew`'s own idiom
     /// exactly — the ring naturally keeps-newest/drops-oldest with no extra branching needed.
-    private func pushNoteViewEvent(lane: Int, onsetBeat: Double, durationBeat: Double, kind: UInt8, noteCount: Int, column: Int8 = -1, rank: Int8 = -1, hasRiffNote: Bool = false, withVels: Bool = false, cellColumn: Int8 = -1, emitMasks: UInt8 = 0) {
+    private func pushNoteViewEvent(lane: Int, onsetBeat: Double, durationBeat: Double, kind: UInt8, noteCount: Int, column: Int8 = -1, rank: Int8 = -1, hasRiffNote: Bool = false, riffCount: Int = -1, withVels: Bool = false, cellColumn: Int8 = -1, emitMasks: UInt8 = 0) {
         guard lane >= 0, lane < 4 else { return }
         let slot = lane * Router.noteViewRing + nvHead[lane]
         nvOnsetBeat[slot] = onsetBeat; nvDurationBeat[slot] = durationBeat; nvKind[slot] = kind
         nvEmitMasks[slot] = emitMasks   // EMITTER RATCHET §3.10: RATCHED (low nibble) / MISSED (high nibble) outputs of this hit; 0 at every site that is not an emitter hit
         nvColumn[slot] = column; nvRank[slot] = rank; nvHasRiffNote[slot] = hasRiffNote; nvCellColumn[slot] = cellColumn
+        nvRiffCount[slot] = UInt8(max(0, min(9, riffCount >= 0 ? riffCount : (hasRiffNote ? 1 : 0))))
         nvHostSeconds[slot] = (debugWindowHostSeconds > 0 && fBeatsPerSample > 0) ? debugWindowHostSeconds + (onsetBeat - fBeatPos) / fBeatsPerSample / fSampleRate : 0
         let nc = max(0, min(Router.noteViewMaxNotes, noteCount))
         nvNoteCount[slot] = UInt8(nc)
@@ -855,6 +859,7 @@ final class Router {
     // writes never copy) and re-zeroes it; the caller's `defer` puts it back. Never nested: a hit takes each at most once, and no hit runs inside another.
     private var chordPoolScratch = [Int](repeating: 0, count: 8)   // the CHORDS note source's chord, built once per window (`chordSeqNotesInto`)
     private var hitRanks = [Int](repeating: 0, count: 16)   // 16 = the POLY grid's width; MONO fills and reads the first 8 only
+    private var polyHitTimes = [Double](repeating: 0, count: 130)   // POLY RIFF: the scan's times of the next hits (one scan per hit; up to 16 steps × EVERY 8 + 1)
     private var hitPitchPolyBeats = [Double](repeating: 0, count: 9)   // POLY RIFF: a poly note's own ring length in beats (0 = the ordinary gate rule)
     private var hitPitches = [Int](repeating: 0, count: 9)
     private var hitPitchVel = [UInt8](repeating: 0, count: 9)
@@ -1305,6 +1310,9 @@ final class Router {
         var rank: Int8 = -1
         // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second ferry): see `nvHasRiffNote`'s own doc comment.
         var hasRiffNote: Bool = false
+        /// POLY RIFF (2026-10-29): how many of `notes` (the leading ones) are the riff's — -1 = not reported (read as 1 when `hasRiffNote`, 0 otherwise: MONO). A POLY chord strikes several riff pitches on one hit.
+        var riffNoteCount: Int = -1
+        var riffNotes: Int { riffNoteCount >= 0 ? riffNoteCount : (hasRiffNote ? 1 : 0) }
         /// DEBUG DEVICE LOG (walk-tags ferry 2026-10-15): the note-on's moment on the host clock (`CACurrentMediaTime`
         /// timeline) — the window's host time + the onset's sample offset. 0 = unknown (the Kernel only stamps it in
         /// DEBUG builds, and only when the host supplied a valid host time).
@@ -1334,7 +1342,7 @@ final class Router {
                 let notes = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvNotes[nbase + $0] }
                 let vels = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvVels[nbase + $0] }
                 let dests = (0..<min(Router.noteViewMaxNotes, cnt)).map { nvDests[nbase + $0] }
-                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes, column: nvColumn[slot], rank: nvRank[slot], hasRiffNote: nvHasRiffNote[slot], hostSeconds: nvHostSeconds[slot], vels: vels, cellColumn: nvCellColumn[slot], dests: dests, emitMasks: nvEmitMasks[slot]))
+                events.append(EuclideousNoteViewEventSnapshot(onsetBeat: nvOnsetBeat[slot], durationBeat: nvDurationBeat[slot], kind: nvKind[slot], notes: notes, column: nvColumn[slot], rank: nvRank[slot], hasRiffNote: nvHasRiffNote[slot], riffNoteCount: Int(nvRiffCount[slot]), hostSeconds: nvHostSeconds[slot], vels: vels, cellColumn: nvCellColumn[slot], dests: dests, emitMasks: nvEmitMasks[slot]))
             }
             out.append(events)
         }
@@ -3256,6 +3264,7 @@ final class Router {
                             /// a rest no longer ends the hit by itself — the notes layer may still strike on it; only when it plays nothing does the hit end exactly as it used to.
                             var restEnd = 0
                             func tieOf(_ j: Int) -> Double { (notesPitchMask >> UInt16(j)) & 1 != 0 ? tieNotesExt : tieExt }
+                            func nvRiffLead() -> Int { var n = 0; while hadRiffNote && n < pitchCount && (notesPitchMask >> UInt16(n)) & 1 == 0 { n += 1 }; return n }   // the leading riff pitches of the hit (NOTE VIEW's convention: the riff's first)
                             func gateBeatsOf(_ j: Int) -> Double { polyBeats[j] > 0 ? polyBeats[j] : gateBeatsWithTie(pitchGate[j], tieOf(j)) }   // a poly note's own length, else the gate-and-TIE rule
                             var wipeColumn: Int8 = -1, wipeRankOut: Int8 = -1
                             var wipeCellColumn: Int8 = -1, repeatedColumn: Int8 = -1   // RESTART TILES: the column whose NOTE struck (the REPEAT lookback's column on a REPEAT hit, else the hit's own)
@@ -3354,7 +3363,23 @@ final class Router {
                                 // (`euclideousPolyRingBeats`; length 1 is exactly MONO's `gate × gap to the next hit`); the FX tab is off and ON REST is SKIP — no start ⇒ a SKIP-like rest hit. A note moved below rank 1 by
                                 // TRANSPOSE is dropped (as MONO's would be a rest). The mask's rank modes are dead on this row, so there is no MIRROR / LEAP / CLIMB here.
                                 let polyMask = p.polyRiff.startMask(playedStep)
-                                var ringKey = -1, ringBeats = 0.0                       // the last distinct length asked for and its ring: notes of one length share it
+                                // ONE scan of the lane's next hits serves every note of the hit (`euclideousPolyHitTimes`); under ADV STEP the ring is plain time (`euclideousPolyRingBeatsStep`, which looks for a melody restart tick itself).
+                                var scanFound = 0, scanRestart = 0
+                                if !riffAdvanceStep {
+                                    var maxAhead = 0
+                                    var mk = 1
+                                    while mk <= EuclideousPolyMetrics.ranks {
+                                        if polyMask & (UInt8(1) << UInt8(mk - 1)) != 0 { maxAhead = max(maxAhead, euclideousPolyHitsAhead(len: p.polyRiff.length(col: playedStep, rank: mk), every: riffAdvanceEvery)) }
+                                        mk += 1
+                                    }
+                                    if maxAhead > 0 {
+                                        var times = takeScratch(&polyHitTimes, count: 130, filledWith: 0.0)
+                                        let r = euclideousPolyHitTimes(maxHits: min(129, maxAhead + 1), times: &times, buf: euclidBuf, eN: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
+                                                                       legacySpanBeats: ladderSpanBeats, timing: hitTiming)
+                                        scanFound = r.found; scanRestart = r.restartIndex
+                                        polyHitTimes = times
+                                    }
+                                }
                                 var rk = 1
                                 while rk <= EuclideousPolyMetrics.ranks {
                                     if polyMask & (UInt8(1) << UInt8(rk - 1)) != 0 {
@@ -3363,17 +3388,17 @@ final class Router {
                                         if rank >= 1, let note0Raw = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
                                             let note0 = outShift(note0Raw, notes: false)
                                             let len = p.polyRiff.length(col: playedStep, rank: rk)
-                                            let key = riffAdvanceStep ? len : euclideousPolyHitsAhead(len: len, every: riffAdvanceEvery)
-                                            if key != ringKey {
-                                                ringKey = key
-                                                ringBeats = riffAdvanceStep
-                                                    ? euclideousPolyRingBeatsStep(len: len, every: riffAdvanceEvery, gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, sub: sub, minGateBeats: minGateBeats5ms)
-                                                    : euclideousPolyRingBeats(hitsAhead: key, gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, minGateBeats: minGateBeats5ms,
-                                                                              buf: euclidBuf, eN: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
-                                                                              legacySpanBeats: ladderSpanBeats, timing: hitTiming)
-                                            }
+                                            let ringBeats = riffAdvanceStep
+                                                ? euclideousPolyRingBeatsStep(len: len, every: riffAdvanceEvery, gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, sub: sub, minGateBeats: minGateBeats5ms,
+                                                                              scan: len > 1 && !chains.melody.isFree
+                                                                                  ? EuclideousPolyStepRestartScan(buf: euclidBuf, eN: eN, dir: eDir, cycleLen: cycleLen, tick: tick, chains: chains, legacySpanBeats: ladderSpanBeats) : nil)
+                                                : euclideousPolyRingFromTimes(hitsAhead: euclideousPolyHitsAhead(len: len, every: riffAdvanceEvery), gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, minGateBeats: minGateBeats5ms,
+                                                                              times: polyHitTimes, found: scanFound, restartIndex: scanRestart)
                                             let at = pitchCount
                                             addPitch(note0, vel: fxRiffVel(), gate: fxRiffGate())
+                                            if pitchCount == at {   // folded onto a pitch this hit already strikes (a pool smaller than the ranks): the LONGER of the two rings stands
+                                                for j in 0..<pitchCount where pitches[j] == note0 && pitchBus[j] == Int(riffBus) { polyBeats[j] = max(polyBeats[j], ringBeats) }
+                                            }
                                             if pitchCount > at {
                                                 polyBeats[at] = ringBeats
                                                 if !hadRiffNote {
@@ -3697,7 +3722,7 @@ final class Router {
                                         // substitute). Only -1/-1 when riff is off/FILL/SKIP-degraded this
                                         // tick, same as every other push site.
                                         pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieOf(0) > 0 ? 3 : 0, noteCount: nc,
-                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true, cellColumn: wipeCellColumn)
+                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, riffCount: nvRiffLead(), withVels: true, cellColumn: wipeCellColumn)
                                     }
                                 }
                                 return
@@ -4099,7 +4124,7 @@ final class Router {
                                     if nc > 0 {
                                         let (onset, duration) = nvTiming(repSpacing * pitchGate[0])   // NOTE VIEW's one duration: pitch 0's
                                         pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: nc,
-                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true, cellColumn: wipeCellColumn, emitMasks: emitMasks)
+                                                           column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, riffCount: nvRiffLead(), withVels: true, cellColumn: wipeCellColumn, emitMasks: emitMasks)
                                     }
                                 }
                                 cacheWholeSet()
@@ -4153,7 +4178,7 @@ final class Router {
                                 if nc > 0 {
                                     let (onset, duration) = nvTiming(gateBeatsOf(0))   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
                                     pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieOf(0) > 0 ? 3 : 0, noteCount: nc,
-                                                       column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true, cellColumn: wipeCellColumn, emitMasks: emitMasks)
+                                                       column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, riffCount: nvRiffLead(), withVels: true, cellColumn: wipeCellColumn, emitMasks: emitMasks)
                                 }
                             }
                             return
@@ -4643,6 +4668,7 @@ final class Router {
                     let isEnabled = i < p.euclidLines.count ? p.euclidLines[i].enabledResolved : true
                     if euclideousLineWasEnabled[i] && !isEnabled {
                         closeLegatoVoices(lane: i, atSample: windowStart, out: out)
+                        if p.polyRiff.on { cutLaneVoices(i, atSample: windowStart, out: out) }   // POLY RIFF: a long note is not left ringing for up to 120 hits after its lane is stopped (MONO's ring-out is one gap, unchanged)
                     }
                     euclideousLineWasEnabled[i] = isEnabled
                 }

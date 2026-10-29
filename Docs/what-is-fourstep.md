@@ -18,9 +18,9 @@ Every lane carries the same four facets — what differs is what each is current
 
 - **Rhythm** — the pattern itself: K-of-N Euclidean hits, rotated and tilted early/late, with
   its own direction (forward / backward / ping-pong) and its own restart point.
-- **Riff** — a walked stencil of ranks: six walk directions over one shared 8-step rank matrix,
-  four independently stored — lock to a fixed restart, invert, tie over a rest, capture a played
-  line as ranks against the held chord.
+- **Riff** — a walked stencil of ranks: six walk directions over one shared rank matrix (MONO: 8 columns, one rank each;
+  POLY: 16 columns of notes with a length, several at once) — lock to a fixed restart, invert, tie over a rest. (The four stored
+  riffs and "capture a played line" are gone: one riff per mode.)
 - **Notes** — an additive lit layer: up to eight ranks plus top/top-2, each with its own octave
   shift, sounding *alongside* the riff, not instead of it.
 - **Mask** — a pattern over the pattern: a second K-of-N shape gating the lane's own hits (mute,
@@ -34,10 +34,9 @@ Deliberately not the wider 8×8 State vocabulary — FourStep has no receiver/do
 
 - **Lane** — one of four independent voices, each with its own rhythm, riff position, lit notes,
   and mask.
-- **Riff** — a stencil of ranks over an 8-step grid, shared across whichever lanes are currently
-  walking it; four stored, one edited at a time.
-- **Riff capture** — "play a line in": latch a chord, play a line, FourStep records it as ranks
-  against that chord so it replays correctly against any later chord.
+- **Riff** — a stencil of ranks over an 8-step grid (MONO) or a 16-column grid of notes with a length (POLY), shared across
+  whichever lanes are currently walking it; one riff per mode, a MONO | POLY switch on the panel.
+- ~~**Riff capture**~~ — deleted 2026-09-10 (it recorded a played line as ranks against the held chord).
 - **Mask** — a per-lane modifier pattern; not the same thing as the separate, standalone Euclid
   Mask processor that lives elsewhere in the shared engine.
 - **Sequencer panel** — the two-tab step grid (LANES / RIFFS) controlling which lane sounds, and

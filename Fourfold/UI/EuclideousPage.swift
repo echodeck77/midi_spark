@@ -1072,9 +1072,9 @@ struct EuclideousPage: View {
             let role = euclideousRandomRole(hits: l.pulses, steps: l.steps, stepBeats: l.rate?.beats ?? 0.5)
             let current = (dir: l.euclideousRiffDirResolved, advanceStep: l.riffAdvanceStepResolved, advanceEvery: l.riffAdvanceEveryResolved,
                            invert: l.riffInvertResolved, onRest: l.riffOnRestResolved, stride: l.riffStrideResolved,
-                           shift: l.riffShiftRequestedResolved, length: l.riffLengthResolved, hits: l.pulses, role: role)
+                           shift: riffRandomShift(l), length: riffRandomLength(l), hits: l.pulses, role: role)
             var rng = EuclideousRandomRNG(seed: euclideousRandomNextSeed())
-            guard let r = euclideousRandomThrowRiff(current: current, writtenRanks: writtenRanks, others: euclideousRandomOtherLanes(except: lane), rng: &rng) else {
+            guard let r = euclideousRandomThrowRiff(current: current, writtenRanks: writtenRanks, others: euclideousRandomOtherLanes(except: lane), columns: walkColumns, onRestFixed: riffPoly, rng: &rng) else {
                 euclideousRandomMarkNothingToChange(lane: lane, tab: tab)
                 return
             }
@@ -1088,7 +1088,7 @@ struct EuclideousPage: View {
             let current = (litOrder: l.litOrderResolved, when: l.notesWhenResolved, chance: l.notesChanceResolved, playAs: l.notesPlayAsResolved)
             var rng = EuclideousRandomRNG(seed: euclideousRandomNextSeed())
             guard let r = euclideousRandomThrowNotes(role: role, current: current, riffOn: l.riffOnResolved, writtenRanks: writtenRanks,
-                                                      length: l.riffLengthResolved, receivedOnly: l.notesReceivedOnlyResolved,
+                                                      length: riffRandomLength(l), receivedOnly: l.notesReceivedOnlyResolved,
                                                       receivedCount: 0, rng: &rng) else {
                 euclideousRandomMarkNothingToChange(lane: lane, tab: tab)
                 return
@@ -1123,9 +1123,9 @@ struct EuclideousPage: View {
             let writtenRanks = effectiveGridRanks
             let current = (dir: l.euclideousRiffDirResolved, advanceStep: l.riffAdvanceStepResolved, advanceEvery: l.riffAdvanceEveryResolved,
                            invert: l.riffInvertResolved, onRest: l.riffOnRestResolved, stride: l.riffStrideResolved,
-                           shift: l.riffShiftRequestedResolved, length: l.riffLengthResolved, hits: l.pulses)
+                           shift: riffRandomShift(l), length: riffRandomLength(l), hits: l.pulses)
             var rng = EuclideousRandomRNG(seed: euclideousRandomNextSeed())
-            guard let r = euclideousRandomTweakRiff(current: current, writtenRanks: writtenRanks, rng: &rng) else {
+            guard let r = euclideousRandomTweakRiff(current: current, writtenRanks: writtenRanks, columns: walkColumns, onRestFixed: riffPoly, rng: &rng) else {
                 euclideousRandomMarkNothingToChange(lane: lane, tab: tab); return
             }
             euclideousRandomQueue(lane: lane, tab: .riff, waiting: .tweaking, tag: r.tag) { roll in
@@ -1136,11 +1136,11 @@ struct EuclideousPage: View {
             let writtenRanks = effectiveGridRanks
             let role = euclideousRandomRole(hits: l.pulses, steps: l.steps, stepBeats: l.rate?.beats ?? 0.5)
             let allowed = euclideousRandomAllowedNotesPositions(role: role, riffOn: l.riffOnResolved, writtenRanks: writtenRanks,
-                                                                 length: l.riffLengthResolved, receivedOnly: l.notesReceivedOnlyResolved, receivedCount: 0)
+                                                                 length: riffRandomLength(l), receivedOnly: l.notesReceivedOnlyResolved, receivedCount: 0)
             let current = (litOrder: l.litOrderResolved, when: l.notesWhenResolved, chance: l.notesChanceResolved, playAs: l.notesPlayAsResolved)
             var rng = EuclideousRandomRNG(seed: euclideousRandomNextSeed())
             guard let r = euclideousRandomTweakNotes(role: role, current: current, allowed: allowed, riffOn: l.riffOnResolved,
-                                                      writtenRanks: writtenRanks, length: l.riffLengthResolved, rng: &rng) else {
+                                                      writtenRanks: writtenRanks, length: riffRandomLength(l), rng: &rng) else {
                 euclideousRandomMarkNothingToChange(lane: lane, tab: tab); return
             }
             euclideousRandomQueue(lane: lane, tab: .notes, waiting: .tweaking, tag: r.tag) { roll in
@@ -1404,6 +1404,7 @@ struct EuclideousPage: View {
     @State private var riffTabMenuLane: Int? = nil
     @State private var polyDrag: EuclideousPolyDrag? = nil      // POLY RIFF: the touch shaping a note right now
     @State private var polyDragLastCol: Int = -1
+    @GestureState private var polyTouching = false   // true while a finger is down on the POLY grid; it resets on a CANCELLED touch too (`onEnded` does not fire then) — see `polyGridGesture`
     @State private var riffClipboard: EuclideousRiff? = nil
     // FOURFOLD SETTINGS (2026-10-15 ferry): `settingsTab` is explicitly NOT saved ("the sheet reopens on the
     // tab it was left on, in memory, MIDI IN the first time," §2.6) — plain ephemeral @State, same convention
@@ -1832,12 +1833,12 @@ struct EuclideousPage: View {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .strokeBorder(Color(hex: 0xDFE3EA).opacity(0.4), lineWidth: 1.5)
                 .allowsHitTesting(false)
-                .overlay(alignment: .topTrailing) {
+                .overlay(alignment: .bottomTrailing) {
                     Text("RANDOM").font(.system(size: 8.5, weight: .heavy)).tracking(0.85)
                         .foregroundColor(Color(hex: 0x0D0F14)).lineLimit(1)
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0xDFE3EA)))
-                        .padding(.top, 8 + EuclideousRiffPanelMetrics.tabRowH + EuclideousRiffPanelMetrics.tabToGrid + 4).padding(.trailing, 12)   // POLY RIFF: top-right of the grid — the MONO | POLY control owns the top-left
+                        .padding(.bottom, 6).padding(.trailing, 10)   // POLY RIFF: bottom-right, over the rails' end — the MONO | POLY control owns the top row and the grid's notes stay clear
                         .allowsHitTesting(false)
                 }
         }
@@ -3060,7 +3061,7 @@ struct EuclideousPage: View {
         let notes: EuclideousStripNotes? = layerOn
             ? EuclideousStripNotes(layerOn: true, when: line.notesWhenResolved, chance: line.notesChanceResolved, way: line.notesPlayAsResolved, list: notesPlayList(line), lane: idx) : nil
         let legs = euclideousStripLegs(pattern: pattern, hitSteps: hitSteps, prediction: prediction, lapSteps: steps, ranks: ranks, anyLit: layerOn, fxTieColumns: riffPoly ? 0 : euclideousFXTieColumns(fx, line: line, lane: idx),   // POLY: the FX rows are off
-                                       pingPong: line.directionResolved == .pingpong, riffPlays: playsRiff, grey: grey, onRest: line.riffOnRestResolved, cfg: cfg, lapStartTick: lapStartTick,
+                                       pingPong: line.directionResolved == .pingpong, riffPlays: playsRiff, grey: grey, onRest: riffPoly ? .skip : line.riffOnRestResolved, cfg: cfg, lapStartTick: lapStartTick,   // POLY: ON REST is SKIP — no hollow REPEAT chip on a silent column
                                        notes: notes, polyStarts: riffPoly ? { [polyRiff] col in polyRiff.ranksStarting(at: col - 1) } : nil, name: stripNoteName)
         // VoiceOver (§6): read the sweep the lane is on at this body (PING-PONG has two); the note at a written rank is the riff grid's row name, a pitch is spoken as the NOTES tab's keys speak it
         var nowLeg = 0
@@ -4723,7 +4724,7 @@ struct EuclideousPage: View {
                 let selected = current == r
                 let unavailable = riffPoly && r != .skip
                 melodyButton(r.rawValue == "REPEAT" ? "REPEAT" : r.rawValue, on: selected, accent: accent, height: layout.lowerRowHeight, fontSize: 11, cornerRadius: 7,
-                             help: riffOnRestHelpPhrase(r), lane: idx, outline: selected && lockOn(idx, .onRest)) { edit(idx) { $0.riffOnRest = r } }
+                             help: riffOnRestHelpPhrase(r), lane: idx, outline: selected && lockOn(idx, .onRest)) { if !riffPoly { edit(idx) { $0.riffOnRest = r } } }   // POLY: SKIP is shown, not stored — a tap must not overwrite a TIE / REPEAT kept for MONO
                     .frame(width: layout.onRestButtonWidth)
                     // §9.5 / NOTES TAB §9.3: SKIP and TIE keep their plain labels; REPEAT reads "Repeat" with its own hint.
                     .accessibilityElement(children: .ignore)
@@ -4951,7 +4952,7 @@ struct EuclideousPage: View {
         }
         let g = line.notesGateResolved
         let len = euclideousPitchGateBeats(gate: g, nextHitGapBeats: gap, tieExt: 0, minGateBeats: 0.005 * tempo / 60.0)
-        return euclideousNotesKeyFlash(eventPitches: ev.notes, hasRiffNote: ev.hasRiffNote, riffRank: Int(ev.rank), seconds: now - s.onsetAt, riffVel: Int(s.riffVel), notesVel: Int(s.notesVel), list: list,
+        return euclideousNotesKeyFlash(eventPitches: ev.notes, hasRiffNote: ev.hasRiffNote, riffNotes: ev.riffNotes, riffRank: Int(ev.rank), seconds: now - s.onsetAt, riffVel: Int(s.riffVel), notesVel: Int(s.notesVel), list: list,
                                        pitchShift: 12 * max(-2, min(2, line.octaveResolved)), way: way, stepBeats: step, gapBeats: gap, lenBeats: len, legato: g >= 1.0,
                                        tempo: tempo, scale: euclideousPulseScale(level: pulseLevel))
     }
@@ -5816,6 +5817,7 @@ struct EuclideousPage: View {
                         .frame(width: gridSize.width, height: gridSize.height)
                         .contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 0)
+                            .updating($polyTouching) { _, touching, _ in touching = true }
                             .onChanged { g in polyDragChanged(at: g.location, layout: layout) }
                             .onEnded { _ in polyDragEnded() })
                     if midiEmpty {
@@ -5842,6 +5844,13 @@ struct EuclideousPage: View {
         .frame(width: box.width, height: box.height, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
         .overlay(alignment: .topLeading) { riffPanelOverlay(layout: layout, ranks: ranks, suppressArrows: midiEmpty, played: playedNow) }
+        // A touch that is CANCELLED (another app comes forward, Control Center, an interruption) never calls `onEnded`: the gesture state resets, and a drag left armed would take the NEXT touch for its continuation. The hop lets a normal
+        // `onEnded` (which clears the drag itself, and may remove a tapped note) run first. Leaving the POLY grid (a mode switch) drops it too.
+        .onChange(of: polyTouching) { touching in
+            guard !touching else { return }
+            DispatchQueue.main.async { if polyDrag != nil { polyDrag = nil; polyDragLastCol = -1 } }
+        }
+        .onDisappear { polyDrag = nil; polyDragLastCol = -1 }
     }
     /// The touch: the first call of a gesture begins it (the cell it lands on), every later call that has moved to another column reshapes the note; the rank is the one it began on.
     private func polyDragChanged(at point: CGPoint, layout: EuclideousRiffPanelLayout) {
@@ -5878,7 +5887,10 @@ struct EuclideousPage: View {
                     .accessibilityLabel(polyCellLabel(col: col, rank: rank, here: here))
                     .accessibilityValue(covering.map { $0.col == col ? "note, length \($0.len)" : "held from step \($0.col + 1)" } ?? "off")
                     .accessibilityAddTraits(.isButton)
+                    .accessibilityHint(covering.map { $0.col == col ? "Removes the note" : "Removes the whole note" } ?? "Adds a note")
                     .accessibilityAction { onEditPolyRiff { r in r = r.toggled(col: col, rank: rank) } }
+                    .modifier(EuclideousOptionalNamedAction(name: covering?.col == col ? "Make note longer" : nil, action: { onEditPolyRiff { r in r = r.resized(noteAt: col, rank: rank, by: 1) } }))
+                    .modifier(EuclideousOptionalNamedAction(name: (covering?.col == col && (covering?.len ?? 1) > 1) ? "Make note shorter" : nil, action: { onEditPolyRiff { r in r = r.resized(noteAt: col, rank: rank, by: -1) } }))
             }
         }
         .frame(width: l.gridSize.width, height: l.gridSize.height, alignment: .topLeading)
@@ -6104,6 +6116,9 @@ struct EuclideousPage: View {
     }
     /// POLY RIFF: what a lane's walk config differs in while POLY is on — the grid is 16 wide, the FX rows are off (an empty table, so the mirrors' FX paths stay idle) and ON REST is SKIP.
     private var walkColumns: Int { riffPoly ? EuclideousPolyMetrics.columns : 8 }
+    /// POLY RIFF: random mode rolls over the grid the lane really walks — LEN to 16 and SHIFT from the lane's own (16-wrapping) offset.
+    private func riffRandomLength(_ l: EuclidLine) -> Int { riffPoly ? l.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : l.riffLengthResolved }
+    private func riffRandomShift(_ l: EuclidLine) -> Int { riffPoly ? l.riffRotateResolved(columns: EuclideousPolyMetrics.columns) : l.riffShiftRequestedResolved }
     private var walkFX: EuclideousFX { riffPoly ? EuclideousFX() : fx }
     private func polyAdjusted(_ cfg: EuclideousWalkLaneConfig?) -> EuclideousWalkLaneConfig? {
         guard riffPoly, var c = cfg else { return cfg }
@@ -6113,7 +6128,7 @@ struct EuclideousPage: View {
     /// The readout for lane `idx`'s current riff settings (§7), nil when over budget. MEMOISED on its inputs (§7.2's own ask; `EuclideousRiffReadoutCache`): the lane card's mini-grid,
     /// its WALK strip and the riff panel's rails all read it on every body evaluation, but it is only recomputed when a lane's pattern, rate, chains or riff settings change.
     private func riffReadout(_ idx: Int) -> EuclideousRiffReadout? {
-        guard !riffPoly, let c = riffWalkConfig(idx) else { return nil }   // POLY RIFF: no never-play readout yet (it walks 8 columns) — nil is the fallback every reader already has (every column of the window fills)
+        guard let c = riffWalkConfig(idx) else { return nil }   // POLY RIFF: `c.columns` is 16 for a POLY lane, so the readout (never-play columns, hits per cycle) walks the real grid
         return riffReadoutCache.readout(lane: idx, cfg: c)
     }
     /// The UI clock's beat at `date` — the same `anchor + elapsed × tempo` extrapolation every other live view on

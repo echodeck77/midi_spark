@@ -51,7 +51,7 @@ struct FourfoldUndoProbe: View {
         let pend = (0..<12).filter { $0 < m.euclideousPendingRolls.count && m.euclideousPendingRolls[$0] != nil }.count
         func h(_ x: Any) -> String { String(Self.fnv(String(describing: x)) & 0xFFFF, radix: 16) }
         let parts = [h(snap.lines), h(snap.riff), h(snap.resetSpanBars), h(snap.keyRoot), h(snap.keyType), h(snap.chordSets), h(snap.activeChordSet), h(snap.noteSource), h(snap.sourcePlan), h(snap.riffs), h(snap.activeRiff),
-                     h(snap.lanesSeq), h(snap.riffsSeq), h(snap.fx), h(snap.holdLatchMode), h(snap.hocketRules), h(snap.emitterRatchets), h(snap.riffPoly), h(snap.polyRiff)].joined(separator: ",")
+                     h(snap.lanesSeq), h(snap.riffsSeq), h(snap.fx), h(snap.holdLatchMode), h(snap.hocketRules), h(snap.emitterRatchets), h(snap.riffPoly), h(snap.polyRiff as Any)].joined(separator: ",")
         let play = m.euclideousLines.map { $0.enabledResolved ? "1" : "0" }.joined()
         return "snap=\(short(Self.fnv(String(describing: snap)))) doc=\(short(Self.fnv(String(describing: doc)))) agree=\(snap == doc ? 1 : 0) stage=\(staged ? 1 : 0) box=\(box ? 1 : 0) parts=\(parts) play=\(play) "
              + "undo=\(m.euclideousUndo.past.count) redo=\(m.euclideousUndo.future.count) resyncs=\(m.probeResyncs) pend=\(pend) voices=\(au.kernelDiagnostics().activeVoiceCount) lanes=\(lanes)"

@@ -36,7 +36,7 @@ The page had:
 
 ### 2.1 Riff editor on the main page
 - The riff editor lives on the main page, not in a popup.
-- The riff is hardcoded to 8 steps. Remove the step-count control.
+- The riff is hardcoded to 8 steps. Remove the step-count control. **[Amended by the POLY RIFF ferry, 2026-10-29: MONO stays 8 steps; POLY is a 16-column grid with note lengths — see CLAUDE.md's POLY RIFF bullet. The four stored riffs (§3, §4) are gone: one riff per mode.]**
 - The header RIFF pill and the popup are removed.
 - The riff control is reduced in size, to give the space to the lane boxes.
 - Saved riffs longer than 8 steps: Paul's ruling is not to worry about them. No migration work required.
