@@ -4132,6 +4132,46 @@ func euclideousResolveSourcePlan(stored: SourcePlan?, legacySource: EuclideousLa
 /// Which inline editor is open under a source row (§5.13 one at a time).
 enum EuclideousSourceEditor: Equatable { case none, pick, key }
 
+/// §5.11 toggle a PICK note: remove it if present, else add it (ascending, deduped) — but never beyond 16 (a 17th add
+/// is dropped). The ONE PICK-edit rule the editor and the tests share.
+func euclideousPickToggle(_ notes: [UInt8], _ note: UInt8) -> [UInt8] {
+    var p = notes
+    if let i = p.firstIndex(of: note) { p.remove(at: i) }
+    else if p.count < 16 { p.append(note); p.sort() }
+    return p
+}
+/// §5.11 the PICK editor's opening octave NUMBER (C4-convention, octave = note/12 − 1): the lowest picked note's
+/// octave, else middle C (4). Clamped to 1…7 (the octaves whose C lies in MIDI 24…96). UI state, not saved (§1.7).
+func euclideousPickEditorDefaultOctave(_ picks: [UInt8]) -> Int {
+    guard let lo = picks.min() else { return 4 }
+    return max(1, min(7, Int(lo) / 12 - 1))
+}
+
+/// §7.4 the POOL preview for a specific CHORDS column (a finger down on a grid cell) — the SAME merge the engine
+/// runs (§7.5), over the live MIDI held notes, THAT column's chord tones, the live PICK notes and the KEY layer.
+/// Main-thread only (the UI's hold preview; it allocates, which is fine off the render thread). Returns the first
+/// ≤8 ranks with each note's source (0 MIDI · 1 CHORDS · 2 PICK · 3 KEY — the merge's own priority).
+func euclideousColumnPreviewPool(midiNotes: [UInt8], chordTones: [Int], pickNotes: [UInt8], keyTones: [Int],
+                                 midiPlaying: Bool, plan: SourcePlan) -> (notes: [UInt8], sources: [UInt8]) {
+    var dest = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
+    var chips = [UInt8](repeating: 0, count: 8)
+    let midi = midiNotes.map { (note: Int($0), vel: UInt8(100)) }
+    let pick = pickNotes.map { Int($0) }
+    let r = euclideousBuildSourceStack(into: &dest, cap: 128, midi: midi[...], midiPlaying: midiPlaying,
+                                       chords: chordTones[...], chordsIsRest: chordTones.isEmpty,
+                                       pick: pick[...], key: keyTones[...], plan: plan, clash: .allow, midiStatusOut: &chips)
+    var notes = [UInt8](), sources = [UInt8]()
+    for i in 0..<min(8, r.count) {
+        let note = dest[i].note, n8 = UInt8(max(0, min(127, note)))
+        notes.append(n8)
+        if midiNotes.contains(n8) { sources.append(0) }
+        else if chordTones.contains(note) { sources.append(1) }
+        else if pickNotes.contains(n8) { sources.append(2) }
+        else { sources.append(3) }
+    }
+    return (notes, sources)
+}
+
 /// §5/§7 the SOURCES panel geometry — ONE pure function for every frame (the views re-derive nothing). Text widths
 /// (MODE's two segments; from them the key widths) are monospaced-advance ESTIMATES, device-owed like the CHORDS
 /// pop-up's `labelW`. `scaleCount` = the KEY editor's scale-type count (13 today), wrapped into rows of ≤ 6 (§5.12).

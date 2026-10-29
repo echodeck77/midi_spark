@@ -2095,70 +2095,8 @@ struct EuclideousPage: View {
     /// 184×32 #2A2D34 r8 / sp4-inset footprint, holding three fixed-width lights (66/70/40) that show MIDI IN ·
     /// CHORDS · KEY as playing / waiting / off. Tapping ANYWHERE opens the SOURCES pop-up; while it's open the
     /// container gains a 1.5 pt #DFE3EA inner border. No chevron, no selection (§4.5).
-    private func headerSourceControl() -> some View {
-        let lights = euclideousSourceLights(midiPlaying: sourceStatus.midiPlaying, chordsLit: sourceStatus.chordsLit,
-                                            keyLit: sourceStatus.keyLit, plan: sourcePlan)
-        let items: [(label: String, state: EuclideousSourceLight, w: CGFloat)] =
-            [("MIDI IN", lights.midi, HM.segmentWidths[0]), ("CHORDS", lights.chords, HM.segmentWidths[1]), ("KEY", lights.key, HM.segmentWidths[2])]
-        return HStack(spacing: 0) {
-            ForEach(0..<3, id: \.self) { i in headerSourceLight(items[i].label, state: items[i].state, width: items[i].w) }
-        }
-        .padding(.horizontal, HM.segmentInset)
-        .frame(width: HM.segmentedWidth, height: 32)
-        .background(RoundedRectangle(cornerRadius: 8).fill(patternUnselectedFill))
-        .overlay(sourcesPopupOpen ? RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0xDFE3EA), lineWidth: 1.5) : nil)   // §4.4 open-state outline
-        .background(GeometryReader { g in
-            Color.clear.preference(key: EuclideousSourceControlFramePreferenceKey.self, value: g.frame(in: .named("euclideousXY")))
-        })
-        .contentShape(Rectangle())
-        .onTapGesture { if sourcesPopupOpen { sourcesPopupOpen = false } else { closeAllOtherOverlays(); sourcesPopupOpen = true } }   // §4.4: tap toggles SOURCES
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Sources")
-        .accessibilityValue("MIDI IN \(euclideousLightWord(lights.midi)), CHORDS \(euclideousLightWord(lights.chords)), KEY \(euclideousLightWord(lights.key))")
-        .accessibilityAddTraits(sourcesPopupOpen ? [.isButton, .isSelected] : .isButton)
-    }
-    /// One header light (§4.2): playing = #DFE3EA fill + #0D0F14 ink; waiting = 1.5 pt #8A909A inner border + #DFE3EA
-    /// ink; off = no fill/border + #5C626C ink. 10 pt heavy, 0.06 em tracking. Fixed width — nothing moves per state.
-    private func headerSourceLight(_ label: String, state: EuclideousSourceLight, width: CGFloat) -> some View {
-        ZStack {
-            switch state {
-            case .playing: RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xDFE3EA)).frame(height: 24)
-            case .waiting: RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x8A909A), lineWidth: 1.5).frame(height: 24)
-            case .off:     Color.clear.frame(height: 24)
-            }
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6).lineLimit(1)
-                .foregroundColor(state == .playing ? Color(hex: 0x0D0F14) : (state == .off ? Color(hex: 0x5C626C) : Color(hex: 0xDFE3EA)))
-        }
-        .frame(width: width, height: 32)
-    }
-    private func euclideousLightWord(_ s: EuclideousSourceLight) -> String { s == .playing ? "playing" : (s == .waiting ? "waiting" : "off") }
-    /// The key pill (§6): the current key in the receiver chip's own format, a chevron, tap → the existing key pop-up
-    /// anchored under it. Shown and active in every source mode. While the pop-up is open it inverts and the chevron flips.
-    private func headerKeyPill() -> some View {
-        let open = keyPopupOpen
-        return HStack(spacing: HM.sp8) {
-            Text(euclideousKeyLabel(root: keyRoot, type: keyType)).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
-                .foregroundColor(open ? headerInk : headerText).lineLimit(1).truncationMode(.tail)
-            Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundColor(open ? headerInk : headerMuted)
-                .rotationEffect(.degrees(open ? 180 : 0)).fixedSize()
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, HM.sp8)
-        .frame(width: HM.keyPillWidth, height: 32)
-        .background(RoundedRectangle(cornerRadius: 8).fill(open ? Color(hex: 0xDFE3EA) : patternUnselectedFill))
-        .background(
-            GeometryReader { g in
-                // The key pop-up's anchor — the publisher MOVED here from the old KEY chip (the pop-up reads it unchanged).
-                Color.clear.preference(key: EuclideousRiffTabFramePreferenceKey.self, value: g.frame(in: .named("euclideousXY")))
-            }
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { settingsOpen = false; swingPopupOpen = false; sourcesPopupOpen = false; hocketPopupOpen = false; keyPopupOpen = true }   // §2.1: opening it closes the sheet + SOURCES first
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Key, \(euclideousKeySpokenName(root: keyRoot, type: keyType))")
-        .accessibilityHint("Double-tap to change")
-        .accessibilityAddTraits(.isButton)
-    }
+    // Sources panel v2 §6.4: the old 3-light source control (headerSourceControl / headerSourceLight /
+    // euclideousLightWord) and the key pill (headerKeyPill) are replaced by the SOURCES button — deleted.
 
     // MARK: UTILITIES — presets, swing, reel, settings (outline icons, one family with undo/redo)
     private func headerUtilities(_ layout: EuclideousHeaderLayout) -> some View {
@@ -2340,46 +2278,8 @@ struct EuclideousPage: View {
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
 
-    // MARK: - KEY (Paul 2026-10-08, moved into header row 1 above)
-
-    /// KEY mode's exact root/scale options and whether it should reuse the SCALE-door/FOUNT machinery are
-    /// explicitly OPEN (spec §4.3) — this reuses the existing, already-canonical `ScaleType` (13 cases) as
-    /// the scale list rather than inventing a second taxonomy, which is the one part of this picker that
-    /// ISN'T a guess; the root grid reuses this codebase's own standard 12-note-name array.
-    private var keyPopupCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("KEY").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-            HStack(spacing: 4) {
-                ForEach(0..<12, id: \.self) { k in
-                    let on = ((keyRoot % 12) + 12) % 12 == k
-                    Text(noteNames[k]).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? .black : .white.opacity(0.75))
-                        .frame(maxWidth: .infinity).frame(height: 32)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.08)))
-                        .contentShape(Rectangle())
-                        .onTapGesture { onSetKeyRoot(k) }
-                }
-            }
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 4) {
-                    ForEach(ScaleType.allCases, id: \.self) { t in
-                        let on = keyType == t
-                        Text(t.label).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                            .foregroundColor(on ? .black : .white.opacity(0.8))
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).frame(height: 32)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.08)))
-                            .contentShape(Rectangle())
-                            .onTapGesture { onSetKeyType(t); keyPopupOpen = false }
-                    }
-                }
-            }
-            .frame(maxHeight: 280)
-        }
-        .padding(16).frame(width: 260)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
-    }
+    // Sources panel v2 §5.12 / §6.4: the KEY pop-up (keyPopupCard) is re-hosted inline in the KEY row
+    // (keyEditorInline) — deleted.
 
     // MARK: - The CHORDS pop-up (Paul 2026-10-08): "a pop-up to a chord grid with rate control... base this on
     // the existing chord grid used on the chord door."
@@ -2405,65 +2305,8 @@ struct EuclideousPage: View {
     /// user clicks it") — no queue-to-next-column-boundary, so "shown" and "playing" are always the same tab.
     private var chordsActiveSet: Int { max(0, min(3, activeChordSet)) }
     private var chordsActive: MachineParams { let i = chordsActiveSet; return i < chordSets.count ? chordSets[i] : MachineParams() }
-    private func chordsPopupCard(_ size: CGSize) -> some View {
-        let chords = chordsActive
-        let steps = chords.chordsStepsResolved
-        let degrees = chords.chordsDegreesResolved16()
-        let colours = chords.chordsColoursResolved16()
-        let minorKey = euclideousScaleIsMinor(keyType.intervals)
-        let maxW = min(640, size.width - 32)
-        let contentBox = CGSize(width: maxW - 40, height: (size.height - 60) - 40)
-        let layout = euclideousChordsPopupLayout(box: contentBox, steps: steps)
-        return ZStack(alignment: .topLeading) {
-            chordsTitleRow(chords: chords, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
-                .frame(width: contentBox.width, height: EuclideousChordsPopupMetrics.titleRowH, alignment: .leading)
-            chordsTabRow()
-                .frame(width: contentBox.width, height: EuclideousChordsPopupMetrics.tabRowH)
-                .offset(y: layout.tabRowTop)
-            chordsStepsRateRow(chords: chords, steps: steps)
-                .frame(height: EuclideousChordsPopupMetrics.stepsRateRowH, alignment: .leading)
-                .offset(y: layout.stepsRateRowTop)
-            chordsGrid(layout: layout, chords: chords, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
-                .frame(width: layout.gridWidth, height: layout.gridH, alignment: .topLeading)
-                .offset(y: layout.gridTop)
-            chordsPlayheadBar(layout: layout, chords: chords, steps: steps)
-                .frame(width: layout.gridWidth, height: EuclideousChordsPopupMetrics.playheadBarH, alignment: .leading)
-                .offset(y: layout.playheadBarTop)
-            chordsPoolStrip(layout: layout, chords: chords, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
-                .frame(width: layout.gridWidth, height: EuclideousChordsPopupMetrics.poolStripH, alignment: .leading)
-                .offset(y: layout.poolStripTop)
-        }
-        .frame(width: contentBox.width, height: contentBox.height, alignment: .topLeading)
-        .padding(20)
-        .frame(width: maxW)
-        // CHORDS GRID ferry §2.2: top-align — a `.frame(maxHeight:)` with no `alignment:` defaults to .center,
-        // which is what pushed the title down inside the near-full-height box (Paul's screenshot).
-        .frame(maxHeight: size.height - 60, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.1, green: 0.11, blue: 0.13)))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
-    }
-
-    /// §6.1/§6.3: the title row — "CHORDS", the live chord name, and the close button. §6.1's own rule: read
-    /// `euclideousChordsPlayingColumn` ONLY, never a second derivation. §6.4: stopped, no wash/bar and the
-    /// name shows the column the next PLAY would start on (the same formula, at the frozen anchor beat).
-    private func chordsTitleRow(chords: MachineParams, degrees: [Int], colours: [Int], steps: Int, minorKey: Bool) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
-            let beat = walkTagBeat(at: tl.date)
-            let col = chordsPlayingColumn(beat: beat, chords: chords, steps: steps)
-            let (name, _) = chordsNameAndIsRest(column: col, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
-            HStack(spacing: 0) {
-                Text("CHORDS").font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
-                Text(" \u{00B7} ").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
-                Text(name).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
-                Spacer()
-                Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundColor(.white.opacity(0.5))
-                    .contentShape(Rectangle()).onTapGesture { chordsPopupOpen = false }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Chords, \(name)")
-        }
-    }
+    // Sources panel v2 §6.4: the standalone CHORDS overlay (chordsPopupCard + chordsTitleRow with its close button)
+    // is re-hosted as the panel's CHORDS page (sourcesChordsPageCard + sourcesChordsTitleRow) — deleted.
     // MARK: - SOURCES panel (Sources panel v2, 2026-10-28, §5 / §7) — the SOURCES page
 
     /// §5.8 status opacity: a source's content draws at 100 % playing · 60 % waiting · 35 % off.
@@ -2646,8 +2489,7 @@ struct EuclideousPage: View {
     }
     private func togglePickEditor() {
         if sourcesEditor == .pick { sourcesEditor = .none; return }
-        let picks = sourcePlan.pickNotesR
-        pickEditorOctave = picks.isEmpty ? 4 : max(1, min(7, Int(picks.min() ?? 60) / 12 - 1))   // §5.11 lowest picked note's octave, else middle C
+        pickEditorOctave = euclideousPickEditorDefaultOctave(sourcePlan.pickNotesR)   // §5.11 lowest picked note's octave, else middle C
         sourcesEditor = .pick
     }
     // §5.6/§5.8 the KEY row: switch · CONTENT (a button → the KEY editor: the key label (always 100 %) + a scale strip + chevron) · COUNT.
@@ -2724,10 +2566,7 @@ struct EuclideousPage: View {
         .accessibilityElement(children: .ignore).accessibilityLabel(name).accessibilityAddTraits(picked ? [.isButton, .isSelected] : .isButton)
     }
     private func togglePickNote(_ note: Int) {
-        let n = UInt8(max(0, min(127, note)))
-        var picks = sourcePlan.pickNotesR
-        if let idx = picks.firstIndex(of: n) { picks.remove(at: idx) }
-        else { if picks.count >= 16 { return }; picks.append(n); picks.sort() }   // §5.11 the 16-note limit; §1.1 ascending
+        let picks = euclideousPickToggle(sourcePlan.pickNotesR, UInt8(max(0, min(127, note))))   // §5.11 add/remove, ascending, ≤16
         writeSourcePlan { $0.pickNotes = picks }
     }
 
@@ -2787,24 +2626,26 @@ struct EuclideousPage: View {
     }
 
     // §7 the POOL block: lane-1's stacked pool (ranks 1…8), each chip in its source's colour; "+n" = the pool dropped total.
-    private func sourcesPoolBlockV2(blockInnerW: CGFloat) -> some View {
-        let notes = sourceStatus.poolNotes, sources = sourceStatus.poolSources
+    private func sourcesPoolBlockV2(blockInnerW: CGFloat, preview: (notes: [UInt8], sources: [UInt8], label: String)? = nil) -> some View {
+        let notes = preview?.notes ?? sourceStatus.poolNotes
+        let sources = preview?.sources ?? sourceStatus.poolSources
         let flat = euclideousKeyIsFlat(((keyRoot % 12) + 12) % 12, scaleType: keyType)
         let poolChipW = ((blockInnerW - 124) - 28) / 8   // contentW = inner − LABEL 84 − sp8×2 − COUNT 24; 8 chips sp4 apart (§7.2)
         return HStack(spacing: 8) {
-            Text("POOL").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.06 * 10).foregroundColor(Color(hex: 0x8A909A))
+            Text(preview?.label ?? "POOL").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.06 * 10)
+                .foregroundColor(Color(hex: preview != nil ? 0xAAB0BA : 0x8A909A))   // §7.4 "COL n" in #AAB0BA while a cell is held
                 .frame(width: 84, alignment: .leading).padding(.leading, 10).lineLimit(1)
             HStack(spacing: 4) {
                 ForEach(0..<8, id: \.self) { i in
                     poolChip(rank: i + 1, note: i < notes.count ? notes[i] : nil, source: i < sources.count ? sources[i] : 3, width: poolChipW, flat: flat)
                 }
             }
-            Text(sourceStatus.dropped > 0 ? "+\(sourceStatus.dropped)" : "").font(.system(size: 10, weight: .heavy, design: .monospaced))
+            Text(preview == nil && sourceStatus.dropped > 0 ? "+\(sourceStatus.dropped)" : "").font(.system(size: 10, weight: .heavy, design: .monospaced))
                 .foregroundColor(Color(hex: 0x8A909A)).frame(width: 24, alignment: .center)
         }
         .padding(8).frame(width: blockInnerW + 16, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
-        .accessibilityElement(children: .ignore).accessibilityLabel(poolAccessibilityLabel())
+        .accessibilityElement(children: .ignore).accessibilityLabel(preview != nil ? "Pool, \(preview!.label)" : poolAccessibilityLabel())
     }
     private func poolSourceColour(_ s: UInt8) -> (fill: UInt32, ink: UInt32) {
         switch s { case 0: return EuclideousSourceColour.midi; case 1: return EuclideousSourceColour.chords; case 2: return EuclideousSourceColour.pick; default: return EuclideousSourceColour.key }
@@ -2844,6 +2685,20 @@ struct EuclideousPage: View {
         let maxW = min(640, size.width - 32)
         let contentBox = CGSize(width: maxW - 40, height: (size.height - 60) - 40)
         let layout = euclideousChordsPopupLayout(box: contentBox, steps: steps)
+        // §7.4: while a finger is down on a grid cell, the POOL block previews THAT column's stacked pool ("COL n").
+        let keyRootPc = ((keyRoot % 12) + 12) % 12
+        let keyTones: [Int] = keyType.intervals.compactMap { let n = 48 + keyRootPc + $0; return (n >= 0 && n <= 127) ? n : nil }
+        let poolPreview: (notes: [UInt8], sources: [UInt8], label: String)? = {
+            guard let colHeld = chordsHeldColumn, steps > 0 else { return nil }
+            let col = max(0, min(steps - 1, colHeld))
+            let (deg, rest) = chordsDegreeAt(step: col, degrees: Array(degrees.prefix(steps)), rotate: 0)
+            let src = chordsSourceStepAt(step: col, degrees: Array(degrees.prefix(steps)), rotate: 0)
+            let colour = (src.map { $0 < colours.count ? colours[$0] : 0 }) ?? 0
+            let tones = rest ? [] : euclideousChordTones(degree: deg, colour: colour, scaleTones: keyType.intervals, rootNote: 48 + keyRoot, minorKey: minorKey, spread: .close)
+            let p = euclideousColumnPreviewPool(midiNotes: sourceStatus.midiNotes, chordTones: tones, pickNotes: sourcePlan.pickNotesR,
+                                                keyTones: keyTones, midiPlaying: sourceStatus.midiPlaying, plan: sourcePlan)
+            return (p.notes, p.sources, "COL \(col + 1)")
+        }()
         return ZStack(alignment: .topLeading) {
             sourcesChordsTitleRow(chords: chords, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
                 .frame(width: contentBox.width, height: EuclideousChordsPopupMetrics.titleRowH, alignment: .leading)
@@ -2855,7 +2710,7 @@ struct EuclideousPage: View {
                 .frame(width: layout.gridWidth, height: EuclideousChordsPopupMetrics.playheadBarH, alignment: .leading).offset(y: layout.playheadBarTop)
             // §6.2: the panel's POOL block (§7) replaces the chord pool strip, at the grid's width. (It is 52 tall vs
             // the old strip's 32 — device-owed: the chord frame may want ~20 pt more at the bottom.)
-            sourcesPoolBlockV2(blockInnerW: layout.gridWidth - 16).offset(y: layout.poolStripTop)
+            sourcesPoolBlockV2(blockInnerW: layout.gridWidth - 16, preview: poolPreview).offset(y: layout.poolStripTop)
         }
         .frame(width: contentBox.width, height: contentBox.height, alignment: .topLeading)
         .padding(20).frame(width: maxW).frame(maxHeight: size.height - 60, alignment: .top)
@@ -2893,157 +2748,8 @@ struct EuclideousPage: View {
         }
     }
 
-    // MARK: - SOURCES pop-up (SOURCES STACK ferry 2026-10-26 §5)
-    /// §5: the SOURCES pop-up — the MIDI IN readout, the CHORDS/KEY toggle table and a live NOW column. Surface,
-    /// blocks and columns all from `euclideousSourcesPopupLayout`; present like the key pop-up (the engine runs).
-    private func sourcesPopupCard(_ size: CGSize) -> some View {
-        let L = euclideousSourcesPopupLayout(containerW: size.width)
-        return VStack(alignment: .leading, spacing: 8) {
-            sourcesTitleRow()
-            sourcesMidiBlock(L)
-            sourcesTableBlock(L)
-        }
-        .padding(8)
-        .frame(width: L.width, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1B1D23)))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x3A3E47), lineWidth: 1))
-        .shadow(color: .black.opacity(0.45), radius: 20, y: 16)
-        .onChange(of: sourceStatus.midiNotes) { n in if !n.isEmpty { sourcesGhostChips = n } }   // §5.6: remember the last-held notes
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Sources")
-        .accessibilityAddTraits(.isModal)
-        .accessibilityAction(.escape) { sourcesPopupOpen = false }   // §5.1: VoiceOver escape closes it (new — the key pop-up has none)
-    }
-    /// §5.4 the title row.
-    private func sourcesTitleRow() -> AnyView {
-        AnyView(HStack { Text("SOURCES").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.16 * 11).foregroundColor(Color(hex: 0xF2F4F7)); Spacer() }
-            .padding(.horizontal, 8).frame(height: 44).accessibilityAddTraits(.isHeader))
-    }
-    /// §5.6 the MIDI IN block: the label, note chips in the two CELL columns, and the NOW count.
-    private func sourcesMidiBlock(_ L: EuclideousSourcesPopupLayout) -> AnyView {
-        let chipsW = 2 * L.cellW + 8   // the two CELL columns and their gap
-        let held = sourceStatus.midiPlaying && !sourceStatus.midiNotes.isEmpty
-        let notes = held ? sourceStatus.midiNotes : sourcesGhostChips
-        return AnyView(
-            HStack(spacing: 8) {
-                Text("MIDI IN").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6).foregroundColor(Color(hex: 0xF2F4F7)).frame(width: L.labelW, alignment: .leading)
-                sourcesChipRow(notes: notes, held: held, areaW: chipsW).frame(width: chipsW, alignment: .leading)
-                sourcesNowCell(text: sourceStatus.midiPlaying ? "\(sourceStatus.midiNotes.count) NOTE\(sourceStatus.midiNotes.count == 1 ? "" : "S")" : "NO NOTES", playing: sourceStatus.midiPlaying, w: L.nowW)
-            }
-            .frame(height: 32).padding(8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
-            .frame(maxWidth: .infinity, alignment: .leading)
-        )
-    }
-    /// §5.6 the note chips, leading-aligned; the last chip reads "+n" if the rest don't fit; one empty ghost if none ever played.
-    private func sourcesChipRow(notes: [UInt8], held: Bool, areaW: CGFloat) -> AnyView {
-        let fit = max(1, Int((areaW + 4) / (28 + 4)))   // ≥28 wide + sp4 between
-        guard !notes.isEmpty else {
-            return AnyView(HStack(spacing: 4) { sourcesChip(text: "", held: false) }.frame(maxWidth: .infinity, alignment: .leading))
-        }
-        let shown = notes.count <= fit ? notes.map { stripNoteName(Int($0)) } : notes.prefix(max(0, fit - 1)).map { stripNoteName(Int($0)) } + ["+\(notes.count - max(0, fit - 1))"]
-        return AnyView(HStack(spacing: 4) { ForEach(Array(shown.enumerated()), id: \.offset) { sourcesChip(text: $0.element, held: held) } }.frame(maxWidth: .infinity, alignment: .leading))
-    }
-    private func sourcesChip(text: String, held: Bool) -> AnyView {
-        AnyView(Text(text).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6).lineLimit(1)
-            .foregroundColor(held ? Color(hex: 0x0D0F14) : Color(hex: 0x3A3E47))
-            .padding(.horizontal, 4).frame(minWidth: 28, minHeight: 24)
-            .background(held ? AnyView(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xDFE3EA)))
-                               : AnyView(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x2A2D34), lineWidth: 1))))
-    }
-    /// §5.7 the table block: the state header row, then the CHORDS and KEY rows.
-    private func sourcesTableBlock(_ L: EuclideousSourcesPopupLayout) -> AnyView {
-        let midiPlaying = sourceStatus.midiPlaying
-        return AnyView(
-            VStack(spacing: 4) {
-                sourcesTableHeader(L, midiPlaying: midiPlaying)
-                sourcesSourceRow(L, isChords: true)
-                sourcesSourceRow(L, isChords: false)
-            }
-            .padding(8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
-            .frame(maxWidth: .infinity, alignment: .leading)
-        )
-    }
-    /// §5.7 the header row: blank · MIDI PLAYING · NO MIDI · NOW; the current-state column is lit with a 2 pt bottom bar.
-    private func sourcesTableHeader(_ L: EuclideousSourcesPopupLayout, midiPlaying: Bool) -> AnyView {
-        func head(_ s: String, current: Bool) -> AnyView {
-            AnyView(VStack(spacing: 2) {
-                Text(s).font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(0.14 * 9).multilineTextAlignment(.center)
-                    .foregroundColor(current ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)).frame(width: L.cellW)
-                Rectangle().fill(current ? Color(hex: 0xDFE3EA) : Color.clear).frame(width: L.cellW, height: 2)
-            })
-        }
-        return AnyView(HStack(spacing: 8) {
-            Color.clear.frame(width: L.labelW, height: L.headerRowH)
-            head("MIDI PLAYING", current: midiPlaying)
-            head("NO MIDI", current: !midiPlaying)
-            Text("NOW").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(0.14 * 9).foregroundColor(Color(hex: 0x8A909A)).frame(width: L.nowW, alignment: .leading)
-        }.frame(height: L.headerRowH))
-    }
-    /// §5.7 one source row: the label (CHORDS is a button → the chord grid; KEY is plain), two toggle cells, the NOW cell.
-    private func sourcesSourceRow(_ L: EuclideousSourcesPopupLayout, isChords: Bool) -> AnyView {
-        let p = sourcePlan
-        let on = isChords ? (p.chordsWithMidi || p.chordsNoMidi) : (p.keyWithMidi || p.keyNoMidi)
-        let withMidiLit = isChords ? p.chordsWithMidi : p.keyWithMidi
-        let noMidiLit = isChords ? p.chordsNoMidi : p.keyNoMidi
-        let withMidiKP: WritableKeyPath<SourcePlan, Bool> = isChords ? \.chordsWithMidi : \.keyWithMidi
-        let noMidiKP: WritableKeyPath<SourcePlan, Bool> = isChords ? \.chordsNoMidi : \.keyNoMidi
-        let label: AnyView = isChords
-            ? AnyView(HStack(spacing: 4) {
-                Text("CHORDS").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
-                Image(systemName: "square.grid.3x3").font(.system(size: 12))
-              }.foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)).frame(width: L.labelW, alignment: .leading)
-               .contentShape(Rectangle()).onTapGesture { sourcesPopupOpen = false; chordsPopupOpen = true }   // §5.7: opens the chord grid
-               .accessibilityElement(children: .ignore).accessibilityLabel("Chords, edit chord grid").accessibilityAddTraits(.isButton))
-            : AnyView(Text("KEY").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
-                .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)).frame(width: L.labelW, alignment: .leading))
-        let nowPlaying = isChords ? sourceStatus.chordsLit : sourceStatus.keyLit
-        return AnyView(HStack(spacing: 8) {
-            label
-            sourcesCell(lit: withMidiLit, w: L.cellW, label: "\(isChords ? "CHORDS" : "KEY") while MIDI plays") { onToggleSourceCell(withMidiKP) }
-            sourcesCell(lit: noMidiLit, w: L.cellW, label: "\(isChords ? "CHORDS" : "KEY") with no MIDI") { onToggleSourceCell(noMidiKP) }
-            sourcesNowCell(text: isChords ? sourcesChordNowText() : sourcesKeyNowText(), playing: nowPlaying, w: L.nowW)
-        }.frame(height: 32))
-    }
-    /// §5.7 a toggle cell: lit = #DFE3EA "PLAYS" ink #0D0F14; unlit = #2A2D34, no text.
-    private func sourcesCell(lit: Bool, w: CGFloat, label: String, tap: @escaping () -> Void) -> AnyView {
-        AnyView(ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(lit ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34))
-            if lit { Text("PLAYS").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6).foregroundColor(Color(hex: 0x0D0F14)) }
-        }
-        .frame(width: w, height: 32).contentShape(Rectangle()).onTapGesture(perform: tap)
-        .accessibilityElement(children: .ignore).accessibilityLabel(label).accessibilityValue(lit ? "plays" : "off").accessibilityAddTraits(.isButton))
-    }
-    /// §5.8 the NOW cell: a 6 pt dot (glowing when playing), sp4, then the value, truncating.
-    private func sourcesNowCell(text: String, playing: Bool, w: CGFloat) -> AnyView {
-        AnyView(HStack(spacing: 4) {
-            Circle().fill(playing ? Color(hex: 0xDFE3EA) : Color(hex: 0x3A3E47)).frame(width: 6, height: 6)
-                .shadow(color: playing ? Color(hex: 0xDFE3EA).opacity(0.6) : .clear, radius: playing ? 6 : 0)
-            Text(text).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6).lineLimit(1).truncationMode(.tail)
-                .foregroundColor(playing ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
-            Spacer(minLength: 0)
-        }.frame(width: w, alignment: .leading).accessibilityHidden(true))
-    }
-    /// §5.7 the CHORDS NOW value: OFF / WAITING / REST / the live chord name.
-    private func sourcesChordNowText() -> String {
-        let p = sourcePlan
-        guard p.chordsWithMidi || p.chordsNoMidi else { return "OFF" }
-        guard (sourceStatus.midiPlaying ? p.chordsWithMidi : p.chordsNoMidi) else { return "WAITING" }
-        if sourceStatus.chordsRest { return "REST" }
-        let chords = chordsActive, steps = chords.chordsStepsResolved
-        let col = chordsPlayingColumn(beat: walkTagBeat(at: Date()), chords: chords, steps: steps)
-        let (name, rest) = chordsNameAndIsRest(column: col, degrees: chords.chordsDegreesResolved16(), colours: chords.chordsColoursResolved16(), steps: steps, minorKey: euclideousScaleIsMinor(keyType.intervals))
-        return rest ? "REST" : name
-    }
-    /// §5.7 the KEY NOW value: OFF / WAITING / "+n NOTE(S)" (n may be 0).
-    private func sourcesKeyNowText() -> String {
-        let p = sourcePlan
-        guard p.keyWithMidi || p.keyNoMidi else { return "OFF" }
-        guard (sourceStatus.midiPlaying ? p.keyWithMidi : p.keyNoMidi) else { return "WAITING" }
-        let n = sourceStatus.keyAdded
-        return "+\(n) NOTE\(n == 1 ? "" : "S")"
-    }
+    // Sources panel v2 §5 / §6.4: the old SOURCES pop-up (sourcesPopupCard + its MIDI readout / CHORDS·KEY toggle
+    // table / NOW column) is replaced by the v2 panel (sourcesPanelCard) — deleted.
     /// §6.1: beat → column, via the ONE shared formula (`euclideousChordsPlayingColumn`). §6.4's "the column
     /// the next play would start on" IS the beat-floor formula's own answer when stopped (the frozen anchor
     /// beat still floors to a column) — no second branch needed for the stopped case.
@@ -3286,57 +2992,8 @@ struct EuclideousPage: View {
         }
     }
 
-    /// §7: eight rank chips splitting the grid's width, showing the pool of the PLAYING column (or the held
-    /// column, §7.3, while a finger is down on a grid cell).
-    private func chordsPoolStrip(layout: EuclideousChordsPopupLayout, chords: MachineParams, degrees: [Int], colours: [Int], steps: Int, minorKey: Bool) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
-            let beat = walkTagBeat(at: tl.date)
-            let playingCol = clock.playing ? chordsPlayingColumn(beat: beat, chords: chords, steps: steps) : chordsPlayingColumn(beat: clock.anchor, chords: chords, steps: steps)
-            let shownCol = chordsHeldColumn ?? playingCol
-            let (deg, rest) = steps > 0 ? chordsDegreeAt(step: shownCol, degrees: Array(degrees.prefix(steps)), rotate: 0) : (0, true)
-            let src = steps > 0 ? chordsSourceStepAt(step: shownCol, degrees: Array(degrees.prefix(steps)), rotate: 0) : nil
-            let colour = (src.map { $0 < colours.count ? colours[$0] : 0 }) ?? 0
-            let tones = rest ? [] : euclideousChordTones(degree: deg, colour: colour, scaleTones: keyType.intervals, rootNote: 48 + keyRoot, minorKey: minorKey, spread: .close)
-            let pool = euclideousGlobalPoolExtended(sortedRaw: tones)
-            let chipW = (layout.gridWidth - EuclideousMixMetrics.sp4 * 7) / 8
-            let rootPc = tones.isEmpty ? -1 : ((tones[0] % 12) + 12) % 12
-            HStack(spacing: EuclideousMixMetrics.sp4) {
-                ForEach(0..<8, id: \.self) { i in
-                    let rank = i + 1
-                    let note = i < pool.count ? UInt8(max(0, min(127, pool[i]))) : nil
-                    let isRoot = note.map { Int($0) % 12 == rootPc } ?? false
-                    let isColourTone = note != nil && i >= 3 && colour != 0   // the 3-note triad's own ranks are 1-3; anything added by a colour is rank 4+
-                    ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08))
-                        if let note {
-                            VStack(spacing: 2) {
-                                Text("\(rank)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-                                    .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 4).padding(.top, 3)
-                                Spacer()
-                                Text(euclideousDisplayNoteName(note, source: .chords, pool: pool.map { UInt8(max(0, min(127, $0))) }, keyRoot: keyRoot, keyType: keyType))
-                                    .font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.85))
-                                Spacer()
-                            }
-                        } else {
-                            Text("\u{2013}").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.3))
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                        if isRoot {
-                            Rectangle().fill(Color(hex: 0xDFE3EA)).frame(height: 2)
-                                .padding(.horizontal, 4)
-                                .frame(maxHeight: .infinity, alignment: .bottom)
-                        }
-                        if isColourTone {
-                            RoundedRectangle(cornerRadius: 6).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 2])).foregroundColor(Color(hex: 0xAAB0BA))
-                        }
-                    }
-                    .frame(width: chipW, height: EuclideousChordsPopupMetrics.poolStripH)
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(rest ? "Pool, rest" : "Pool, column \(shownCol + 1)")
-        }
-    }
+    // Sources panel v2 §6.2: the chord pop-up's own pool strip is replaced by the panel's POOL block
+    // (sourcesPoolBlockV2, with the §7.4 "COL n" finger-down preview) — deleted.
 
     // LANE-CARD RESET-PROGRESS BACKGROUND FILL REMOVED (Paul 2026-10-12: "remove... the Euclid control
     // background effect") — the slow per-lane band that used to creep across a card as the RESET SPAN

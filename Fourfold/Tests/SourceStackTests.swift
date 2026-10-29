@@ -211,4 +211,19 @@ final class SourceStackTests: XCTestCase {
         XCTAssertEqual(st.clashPolicyResolved, .allow)
         #endif
     }
+
+    // §9.13 the PICK editor: toggle (ascending, deduped, ≤16) + the opening octave (default / range).
+    func testPickEditorToggleAndOctave() {
+        XCTAssertEqual(euclideousPickToggle([60, 64], 62), [60, 62, 64], "an add lands ascending")
+        XCTAssertEqual(euclideousPickToggle([60, 64], 60), [64], "tapping a picked note removes it")
+        let full = Array<UInt8>(60..<76)   // 16 notes
+        XCTAssertEqual(euclideousPickToggle(full, 59).count, 16, "a 17th note is dropped (the 16-note limit)")
+        XCTAssertEqual(euclideousPickToggle(full, 60), Array<UInt8>(61..<76), "removing one of the 16 still works")
+        // the opening octave NUMBER (C4-convention): lowest picked note's octave, else middle C (4), clamped 1…7.
+        XCTAssertEqual(euclideousPickEditorDefaultOctave([]), 4)
+        XCTAssertEqual(euclideousPickEditorDefaultOctave([60]), 4, "C4 = 60 → octave 4")
+        XCTAssertEqual(euclideousPickEditorDefaultOctave([36]), 2, "C2 = 36 → octave 2")
+        XCTAssertEqual(euclideousPickEditorDefaultOctave([127]), 7, "clamped to 7")
+        XCTAssertEqual(euclideousPickEditorDefaultOctave([12]), 1, "clamped to 1")
+    }
 }
