@@ -1603,42 +1603,8 @@ struct EuclideousPage: View {
                         .zIndex(3)
                     chordsTabMenuCard(idx).position(x: box.width / 2, y: box.height / 2).zIndex(4)
                 }
-                if keyPopupOpen {
-                    // ANCHORED POPOVER, now UNDER THE KEY PILL (Fourfold header ferry §6.2): a non-dimming full-screen
-                    // tap-catcher, and the card's TOP edge sp4 below the pill, its leading edge on the pill's (clamped
-                    // inside the page). The old placement centred the card beside the anchor at y ≥ 140 — fine for a
-                    // mid-page tab, wrong for a header pill (it would hang ~50pt off the top). Falls back to centre if the
-                    // pill hasn't published a frame yet.
-                    Color.clear.contentShape(Rectangle()).onTapGesture { keyPopupOpen = false }
-                        .frame(width: box.width, height: box.height)
-                        .zIndex(3)
-                    if let f = riffKeyTabFrame {
-                        keyPopupCard
-                            .offset(x: min(max(f.minX, sp8), max(sp8, box.width - 260 - sp8)), y: f.maxY + sp4)
-                            .zIndex(4)
-                    } else {
-                        keyPopupCard.position(x: box.width / 2, y: box.height / 2).zIndex(4)
-                    }
-                }
-                // THE CHORDS POP-UP — same dimming scrim as before (content unchanged), now ANCHORED under the SOURCES
-                // STATUS CONTROL (SOURCES STACK ferry §5.7 — the chords segment is gone; it opens from the SOURCES
-                // table's CHORDS label): top edge sp4 below the control, leading edge on the control's, clamped inside.
-                if chordsPopupOpen {
-                    Color.black.opacity(0.55).ignoresSafeArea()
-                        .onTapGesture { chordsPopupOpen = false }
-                        .zIndex(3)
-                    if let f = sourceControlFrame {
-                        let cardW = min(640, box.width - 32)
-                        chordsPopupCard(box)
-                            .offset(x: min(max(f.minX, sp8), max(sp8, box.width - cardW - sp8)), y: f.maxY + sp4)
-                            .zIndex(4)
-                    } else {
-                        chordsPopupCard(box).position(x: box.width / 2, y: box.height / 2).zIndex(4)
-                    }
-                }
-                // THE SOURCES POP-UP (SOURCES STACK ferry §5): presented like the key pop-up — a non-dimming tap-catcher
-                // (the engine keeps running), the card's top edge sp4 below the control, leading edge on the control's,
-                // slid left if it would cross the trailing edge. Falls back to centre until the control has a frame.
+                // Sources panel v2 §6.4 / §5.12: the standalone key pop-up and chord-grid overlays are GONE — KEY edits
+                // inline in the KEY row and CHORDS is a page inside the SOURCES panel (below).
                 if sourcesPopupOpen {
                     // Sources panel v2 §5.1 / §6.1: a non-dimming tap-catcher (the engine keeps running); the panel's
                     // top edge sp8 below the button, leading edge on the button's, slid left if it would cross the
