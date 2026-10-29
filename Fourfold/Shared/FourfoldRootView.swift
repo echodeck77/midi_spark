@@ -50,6 +50,8 @@ struct FourfoldRootView: View {
     var euclideousRiff: EuclideousRiff { get { m.euclideousRiff } nonmutating set { m.euclideousRiff = newValue } }
     var euclideousRiffs: [EuclideousRiff] { get { m.euclideousRiffs } nonmutating set { m.euclideousRiffs = newValue } }
     var euclideousActiveRiff: Int { get { m.euclideousActiveRiff } nonmutating set { m.euclideousActiveRiff = newValue } }
+    var euclideousRiffPoly: Bool { get { m.euclideousRiffPoly } nonmutating set { m.euclideousRiffPoly = newValue } }
+    var euclideousPolyRiff: EuclideousPolyRiff? { get { m.euclideousPolyRiff } nonmutating set { m.euclideousPolyRiff = newValue } }
     var euclideousLanesSeq: EuclideousLanesSeq { get { m.euclideousLanesSeq } nonmutating set { m.euclideousLanesSeq = newValue } }
     var euclideousFX: EuclideousFX { get { m.euclideousFX } nonmutating set { m.euclideousFX = newValue } }
     var hocketRules: [HocketRule] { get { m.hocketRules } nonmutating set { m.hocketRules = newValue } }
@@ -139,7 +141,7 @@ struct FourfoldRootView: View {
     func pageView(_ geo: GeometryProxy) -> AnyView {
         AnyView(
             EuclideousPage(lines: euclideousLines,
-                                               riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
+                                               riffs: euclideousRiffs, activeRiff: euclideousActiveRiff, riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff ?? EuclideousPolyRiff(),
                                                riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
                                                hocketRules: hocketRules, emitterRatchets: emitterRatchets, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters,
@@ -278,6 +280,27 @@ struct FourfoldRootView: View {
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    euclideousActiveRiff = v
                                                    au?.editDocument { $0.activeRiff = v }
+                                                   publish()
+                                               },
+                                               // POLY RIFF (2026-10-29): the mode is a discrete step of its own; the first switch to POLY seeds the grid from the MONO riff (`seeded(from:)`: its 8 columns twice over, so the lane's
+                                               // default LEN of 16 plays the very stream MONO did). One drag on the POLY grid is one step (`gestureKey` coalesces the burst).
+                                               onSetRiffPoly: { on in
+                                                   guard on != euclideousRiffPoly else { return }
+                                                   euclideousRecordUndo(coalesceKey: nil)
+                                                   var stored = euclideousPolyRiff
+                                                   if on && stored == nil { stored = EuclideousPolyRiff.seeded(from: euclideousRiffs[max(0, min(euclideousRiffs.count - 1, euclideousActiveRiff))]) }
+                                                   euclideousRiffPoly = on; euclideousPolyRiff = stored
+                                                   au?.editDocument { $0.riffPoly = on ? true : nil; $0.polyRiff = stored }
+                                                   publish()
+                                               },
+                                               onEditPolyRiff: { mutate in
+                                                   var r = euclideousPolyRiff ?? EuclideousPolyRiff()
+                                                   mutate(&r)
+                                                   r = r.normalized
+                                                   guard r != (euclideousPolyRiff ?? EuclideousPolyRiff()) else { return }
+                                                   euclideousRecordUndo(coalesceKey: gestureKey("euclideousPolyRiff"))
+                                                   euclideousPolyRiff = r
+                                                   au?.editDocument { $0.polyRiff = r }
                                                    publish()
                                                },
                                                onEditLanesSeq: { mutate in
@@ -545,6 +568,7 @@ struct FourfoldRootView: View {
         euclideousActiveChordSet = au.uiActiveChordSet()
         euclideousRiffs = au.uiEuclideousRiffs()
         euclideousActiveRiff = au.uiEuclideousActiveRiff()
+        euclideousRiffPoly = au.uiRiffPoly(); euclideousPolyRiff = au.uiPolyRiff()
         euclideousLanesSeq = au.uiEuclideousLanesSeq()
         euclideousFX = au.uiEuclideousFX()
         hocketRules = au.uiHocketRules()
@@ -599,7 +623,8 @@ struct FourfoldRootView: View {
                                 noteSource: euclideousNoteSource, sourcePlan: euclideousSourcePlan,
                                 riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                 lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
-                                holdLatchMode: euclideousHoldLatchMode, hocketRules: hocketRules, emitterRatchets: emitterRatchets)
+                                holdLatchMode: euclideousHoldLatchMode, hocketRules: hocketRules, emitterRatchets: emitterRatchets,
+                                riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff)
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -658,6 +683,7 @@ struct FourfoldRootView: View {
         euclideousSourcePlan = s.sourcePlan
         euclideousRiffs = s.riffs
         euclideousActiveRiff = s.activeRiff
+        euclideousRiffPoly = s.riffPoly; euclideousPolyRiff = s.polyRiff
         euclideousLanesSeq = s.lanesSeq
         euclideousRiffsSeq = s.riffsSeq
         euclideousFX = s.fx
@@ -671,6 +697,7 @@ struct FourfoldRootView: View {
             $0.euclideousNoteSource = s.noteSource
             $0.euclideousSourcePlan = s.sourcePlan
             $0.riffs = s.riffs; $0.activeRiff = s.activeRiff
+            $0.riffPoly = s.riffPoly ? true : nil; $0.polyRiff = s.polyRiff   // POLY RIFF: false / nothing stored restores "nil"
             $0.euclideousLanesSeqOn = s.lanesSeq.on; $0.euclideousLanesSeqRate = s.lanesSeq.rate
             $0.euclideousLanesSeqLen = s.lanesSeq.len; $0.euclideousLanesSeqCells = s.lanesSeq.cells
             $0.euclideousRiffsSeqOn = s.riffsSeq.on; $0.euclideousRiffsSeqRate = s.riffsSeq.rate
@@ -865,6 +892,8 @@ struct FourfoldRootView: View {
         // SEQUENCER PANEL (2026-10-14 ferry) — same checklist discipline as the 6 lines just above.
         let erfs = au.uiEuclideousRiffs(); if erfs != euclideousRiffs { euclideousRiffs = erfs; euclideousResynced = true }
         let ear = au.uiEuclideousActiveRiff(); if ear != euclideousActiveRiff { euclideousActiveRiff = ear; euclideousResynced = true }
+        let erp = au.uiRiffPoly(); if erp != euclideousRiffPoly { euclideousRiffPoly = erp; euclideousResynced = true }
+        let epr = au.uiPolyRiff(); if epr != euclideousPolyRiff { euclideousPolyRiff = epr; euclideousResynced = true }
         let els = au.uiEuclideousLanesSeq(); if els != euclideousLanesSeq { euclideousLanesSeq = els; euclideousResynced = true }
         let ers = au.uiEuclideousRiffsSeq(); if ers != euclideousRiffsSeq { euclideousRiffsSeq = ers; euclideousResynced = true }
         let efx = au.uiEuclideousFX(); if efx != euclideousFX { euclideousFX = efx; euclideousResynced = true }
@@ -972,6 +1001,8 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousRiff: EuclideousRiff = EuclideousRiff()
     @Published var euclideousRiffs: [EuclideousRiff] = [EuclideousRiff(), EuclideousRiff.empty, EuclideousRiff.empty, EuclideousRiff.empty]
     @Published var euclideousActiveRiff: Int = 0
+    @Published var euclideousRiffPoly: Bool = false           // POLY RIFF (2026-10-29)
+    @Published var euclideousPolyRiff: EuclideousPolyRiff? = nil
     @Published var euclideousLanesSeq: EuclideousLanesSeq = EuclideousLanesSeq()
     @Published var euclideousFX: EuclideousFX = EuclideousFX()
     @Published var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the document's rules, sanitised; [] = none stored

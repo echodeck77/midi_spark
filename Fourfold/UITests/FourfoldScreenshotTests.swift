@@ -125,6 +125,26 @@ final class FourfoldScreenshotTests: XCTestCase {
 
     /// CARD BACKS (2026-10-28): the four lane cards on their BACK (the strip's MIX segment), playing, in every orientation — the picture the ferry's §14 acceptance is judged against — then with the riff routed to A and C and
     /// the notes part switched off (an unplugged jack, a part off with its invitation, the roll dimmed).
+    /// POLY RIFF (2026-10-29): the MONO | POLY control and the sixteen-column grid — MONO first (the control in the boxes' row), then POLY seeded from it, then a few notes added, one stretched, one removed — in portrait and landscape.
+    func testThePolyRiffGrid() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--fresh", "--autoplay"]
+        app.launch()
+        for (name, o) in [("1-portrait", UIDeviceOrientation.portrait), ("2-landscape", .landscapeLeft)] {
+            XCUIDevice.shared.orientation = o
+            Thread.sleep(forTimeInterval: 2)
+            app.buttons["Mono"].tap(); Thread.sleep(forTimeInterval: 0.6); attach("poly-\(name)-a-mono")
+            app.buttons["Poly"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("poly-\(name)-b-seeded")
+            func cell(_ step: Int, _ row: Int) -> XCUIElement { app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Step \(step),")).element(boundBy: row) }
+            cell(2, 0).press(forDuration: 0.1, thenDragTo: cell(7, 0))          // rank 8: a long note, steps 2…7
+            cell(10, 3).press(forDuration: 0.1, thenDragTo: cell(14, 3))        // rank 5: steps 10…14
+            cell(1, 1).tap()                                                    // rank 7: a single note under the first
+            cell(3, 5).tap()                                                    // a seeded note taken away
+            Thread.sleep(forTimeInterval: 1.2); attach("poly-\(name)-c-edited")
+        }
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     func testTheCardBacks() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
         let device = XCUIDevice.shared

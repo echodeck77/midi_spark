@@ -19,6 +19,33 @@ final class FourfoldTapTests: XCTestCase {
         need(app.staticTexts["STOPPED"], "the stopped readout again")
     }
 
+    /// POLY RIFF (2026-10-29): the riff panel's four boxes are gone; a MONO | POLY control sits in their row, MONO selected on a fresh launch, and switching is a tap each way.
+    func testTheRiffPanelHasAMonoPolyControlAndNoRiffBoxes() {
+        let app = XCUIApplication.fresh()
+        let mono = app.buttons["Mono"], poly = app.buttons["Poly"]
+        need(mono, "the MONO segment"); need(poly, "the POLY segment")
+        XCTAssertTrue(mono.isSelected, "MONO is the default"); XCTAssertFalse(poly.isSelected)
+        XCTAssertEqual(app.els(prefix: "Riff 1").count, 0, "the four riff boxes are gone")
+        poly.tap(); XCTAssertTrue(app.buttons["Poly"].isSelected); XCTAssertFalse(app.buttons["Mono"].isSelected)
+        app.buttons["Mono"].tap(); XCTAssertTrue(app.buttons["Mono"].isSelected)
+    }
+    /// POLY: a tap on an empty cell makes a length-1 note, a second tap on it takes it away, and pressing a cell then dragging sideways stretches the note — the head cell reads "note, length 5", the cells it covers "held from step 4".
+    func testPolyGridTapsAddAndRemoveAndADragStretchesANote() {
+        let app = XCUIApplication.fresh()
+        app.buttons["Poly"].tap()
+        func cell(_ step: Int, rowFromTop: Int) -> XCUIElement { app.els(prefix: "Step \(step),").element(boundBy: rowFromTop) }
+        need(cell(3, rowFromTop: 0), "the POLY grid's cell, step 3 on the top row")
+        XCTAssertEqual(cell(3, rowFromTop: 0).value as? String, "off", "rank 8 is empty in the seeded riff")
+        cell(3, rowFromTop: 0).tap()
+        XCTAssertEqual(cell(3, rowFromTop: 0).value as? String, "note, length 1")
+        cell(3, rowFromTop: 0).tap()
+        XCTAssertEqual(cell(3, rowFromTop: 0).value as? String, "off", "a second tap takes the note away")
+        cell(4, rowFromTop: 0).press(forDuration: 0.1, thenDragTo: cell(8, rowFromTop: 0))
+        XCTAssertEqual(cell(4, rowFromTop: 0).value as? String, "note, length 5")
+        XCTAssertEqual(cell(6, rowFromTop: 0).value as? String, "held from step 4")
+        XCTAssertEqual(cell(9, rowFromTop: 0).value as? String, "off")
+    }
+
     /// HOCKET (2026-10-27): the header button opens the pop-up, two chip taps make a lit swap rule, the button then reads "1 rule on", and closing leaves the rule lit.
     func testHocketPopupBuildsARuleAndTheButtonCountsIt() {
         let app = XCUIApplication.fresh()

@@ -1798,9 +1798,9 @@ func euclideousRiffColumn(ordinal o: Int64, every: Int, direction dir: RiffDir, 
 /// current riff window," so the mini-grid thumbnail, the never-play computation and the rail's played-column
 /// set can't disagree about which columns the walk can actually reach. Before this ferry the window was
 /// always `0..<length`; now it's this set instead, wherever a caller used to test `col < length`.
-func euclideousRiffWindowColumns(length: Int, shift: Int) -> Set<Int> {
-    let len = max(1, min(8, length))
-    return Set((0..<len).map { ((shift + $0) % 8 + 8) % 8 })
+func euclideousRiffWindowColumns(length: Int, shift: Int, columns: Int = 8) -> Set<Int> {
+    let len = max(1, min(columns, length))
+    return Set((0..<len).map { ((shift + $0) % columns + columns) % columns })
 }
 
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
@@ -2898,7 +2898,7 @@ func euclideousRiffLapBaseline(hitSteps: [EuclidHitStep], lapSteps: Int, isMelod
 /// MELODY-tab ferry — removed; the generic chain RIFF processor keeps its own, unrelated DRUNK untouched),
 /// so every direction here is a pure function of the ordinal alone — no live-walk state to poll.
 func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool, dir: RiffDir, stride: Int, length: Int,
-                                    rotate: Int, seed: UInt64, startOrd: Int64, every: Int = 1) -> [Int] {
+                                    rotate: Int, seed: UInt64, startOrd: Int64, every: Int = 1, columns: Int = 8) -> [Int] {
     guard !hitSteps.isEmpty, length > 0 else { return [] }
     let firstTick = hitSteps[0].tick
     return hitSteps.enumerated().map { (hitIdx, hs) in
@@ -2908,7 +2908,7 @@ func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool,
         let advOrd: Int64 = advanceStep ? startOrd + Int64(hs.tick - firstTick) : startOrd + Int64(hitIdx)
         // LANE STRIP ferry (2026-10-21): through `euclideousRiffColumn`, the one ordinal -> column function the Router, the mirror, the rails and REPEAT call. This used to walk
         // `riffStepAt(raw: ordinal × stride)` itself and so ignored ADVANCE EVERY: with EVERY ≥ 2 the footer numbers disagreed with the engine. `every` 1 is byte-identical.
-        return euclideousRiffColumn(ordinal: advOrd, every: every, direction: dir, length: length, stride: stride, shift: rotate, seed: seed) + 1   // 1-based, matching the grid's own displayed rank numbers
+        return euclideousRiffColumn(ordinal: advOrd, every: every, direction: dir, length: length, stride: stride, shift: rotate, seed: seed, columns: columns) + 1   // 1-based, matching the grid's own displayed rank numbers
     }
 }
 
@@ -2925,9 +2925,11 @@ func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitS
     var lapStartTick: Int64? = nil
     // LANES GRID §2.8: the lap's baseline takes BOTH origins — the riff ordinal the CURRENT lap's first hit reads, from the engine's own per-tick core, not reverse-derived from the polled ordinal.
     if let cfg, let lap = euclideousLapStart(cfg: cfg, beat: nowBeat) { baseline.startOrd = lap.ordinal; lapStartTick = lap.lapStartTick }
+    let cols = cfg?.columns ?? 8   // POLY RIFF: the walk's grid width (16 in POLY)
     let prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: line.riffAdvanceStepResolved, dir: line.euclideousRiffDirResolved,
-                                                    stride: line.riffStrideResolved, length: line.riffLengthResolved, rotate: line.riffRotateResolved,
-                                                    seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)), startOrd: baseline.startOrd, every: line.riffAdvanceEveryResolved)
+                                                    stride: line.riffStrideResolved, length: cols == 8 ? line.riffLengthResolved : line.riffLengthResolved(columns: cols),
+                                                    rotate: cols == 8 ? line.riffRotateResolved : line.riffRotateResolved(columns: cols),
+                                                    seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)), startOrd: baseline.startOrd, every: line.riffAdvanceEveryResolved, columns: cols)
     return EuclideousFooterPass(prediction: prediction, startOrd: baseline.startOrd, lapStartTick: lapStartTick)
 }
 
@@ -3583,6 +3585,7 @@ struct EuclideousWalkLaneConfig {
     var advanceStep: Bool = false   // ADV STEP
     var seed: UInt64 = 0
     var every: Int = 1              // RIFF WALK ferry §5.2: ADVANCE EVERY — 1 is today's behaviour
+    var columns: Int = 8            // POLY RIFF (2026-10-29): the riff grid's width the walk wraps at — 16 for a lane walking the POLY grid
     /// SWING: the engine ticks in MUSICAL beats and maps each tick's onset to real time through `realOf`
     /// (`a` = swing% / 50, `swingStepBeats` = the scene's step beats). `a == 1` (50%) is the identity.
     var swingA: Double = 1
@@ -3685,7 +3688,7 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                               lanesSeqRate: EuclideousSeqRate, lanesSeqLen: Int, lanesSeqOn: Bool = false, lanesSeqCells: [Bool]? = nil,
                               fx: EuclideousFX = EuclideousFX(),
                               defaultRateBeats: Double = 0.25, swingPercent: Double = 50, stepBeats: Double = 0.5,
-                              beatsPerBar: Double = 4, tempo: Double = 120) -> EuclideousWalkLaneConfig? {
+                              beatsPerBar: Double = 4, tempo: Double = 120, riffColumns: Int = 8) -> EuclideousWalkLaneConfig? {
     guard lane >= 0, lane < lines.count else { return nil }
     let L = lines[lane]
     guard let eff = euclideousEffectiveHitPattern(lane: lane, lines: lines, defaultRateBeats: defaultRateBeats) else { return nil }
@@ -3723,9 +3726,9 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
     return EuclideousWalkLaneConfig(buf: buf, n: n, dir: cfgDir, sub: sub, spanBeats: spanBeats,
                                     grid: grid, chains: chains, muteCells: g.muteCells,
                                     muteUnitBeats: g.muteUnit.beats(stepBeats: sub, passBeats: Double(cycleLen) * sub),
-                                    riffDir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved, length: L.riffLengthResolved,
-                                    rotate: L.riffRotateResolved, locked: L.riffLockResolved, advanceStep: L.riffAdvanceStepResolved,
-                                    seed: UInt64(bitPattern: Int64(L.riffDirSeedResolved)), every: L.riffAdvanceEveryResolved,
+                                    riffDir: L.euclideousRiffDirResolved, stride: L.riffStrideResolved, length: riffColumns == 8 ? L.riffLengthResolved : L.riffLengthResolved(columns: riffColumns),
+                                    rotate: riffColumns == 8 ? L.riffRotateResolved : L.riffRotateResolved(columns: riffColumns), locked: L.riffLockResolved, advanceStep: L.riffAdvanceStepResolved,
+                                    seed: UInt64(bitPattern: Int64(L.riffDirSeedResolved)), every: L.riffAdvanceEveryResolved, columns: riffColumns,
                                     swingA: min(75, max(50, swingPercent)) / 50.0, swingStepBeats: max(0.03125, stepBeats),
                                     riffOn: L.riffOnResolved, gate: L.gateResolved, onRest: L.riffOnRestResolved,
                                     invert: L.riffInvertResolved, transpose: L.melodyTransposeResolved,
@@ -3767,7 +3770,7 @@ func euclideousWalkTick(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Euclideou
 /// through `euclideousRiffColumn` (ordinal -> walk step w = floor(ord/EVERY) -> column), the ONE place
 /// this mirror turns an ordinal into a column, so it can't drift from the Router's own formula.
 func euclideousWalkStep(_ c: EuclideousWalkLaneConfig, ord: Int64) -> Int {
-    euclideousRiffColumn(ordinal: ord, every: c.every, direction: c.riffDir, length: max(1, c.length), stride: c.stride, shift: c.rotate, seed: c.seed)
+    euclideousRiffColumn(ordinal: ord, every: c.every, direction: c.riffDir, length: max(1, c.length), stride: c.stride, shift: c.rotate, seed: c.seed, columns: c.columns)
 }
 /// The walk position BEFORE SHIFT — the axis "up the steps / down the steps" is measured on. Also routed
 /// through the walk step (not the raw ordinal), so "facing" agrees with what the walk actually did between
@@ -3843,7 +3846,7 @@ struct EuclideousWalkTagPlan: Equatable {
 func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Double, secondsPerBeat spb: Double,
                            polledStep: Int, running: Bool, polledOrdinal: Int64? = nil) -> EuclideousWalkTagPlan? {
     guard polledStep >= 0 else { return nil }
-    let len = max(1, min(8, cfg.length))
+    let len = max(1, min(cfg.columns, cfg.length))
     func rankAt(_ s: Int) -> Int { s >= 0 && s < ranks.count ? max(0, min(8, ranks[s])) : 0 }
     guard (0..<len).contains(where: { rankAt($0) >= 1 }) else { return nil }   // empty riff: no tag
     let vis = euclideousWalkVisitedRange(dir: cfg.riffDir, length: len, stride: cfg.stride, rotate: cfg.rotate)
@@ -3851,7 +3854,7 @@ func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Do
     // A tag sitting on the polled step with nothing scheduled: stopped transport, stopped lane, no hits, or a
     // prediction the poll doesn't corroborate.
     func staticPlan() -> EuclideousWalkTagPlan? {
-        let step = min(polledStep, 7)
+        let step = min(polledStep, cfg.columns - 1)
         let right = cfg.riffDir != .reverse
         var rank = rankAt(step)
         let rest = rank == 0
@@ -4658,13 +4661,16 @@ struct EuclideousRiffPanelLayout: Equatable {
     var labelW: CGFloat
     /// Floors ferry: the tab row's own fair-share-resolved height (nominal 20, or `tabRowCompactH`).
     var tabRowH: CGFloat
+    /// POLY RIFF (2026-10-29): the grid's width in columns and the gap between them — 8 and 4 (every MONO layout, the defaults) or 16 and 2 (`euclideousPolyPanelLayout`).
+    var columns: Int = 8
+    var colGap: CGFloat = M.colGap
     var belowFloor: Bool { rowH < M.minRowH }
     var tabWidth: CGFloat { (box.width - M.padding * 2 - M.tabGap * 3) / 4 }
     /// Column 0's left edge: padding + the note-label column + its gap.
     var firstColumnX: CGFloat { M.padding + labelW + M.labelGap }
     var gridTop: CGFloat { M.padding + tabRowH + M.tabToGrid }
-    var gridSize: CGSize { CGSize(width: cellW * 8 + M.colGap * 7, height: cellH * 8 + M.rowGap * 7) }
-    func columnLeft(_ c: Int) -> CGFloat { firstColumnX + CGFloat(c) * (cellW + M.colGap) }
+    var gridSize: CGSize { CGSize(width: cellW * CGFloat(columns) + colGap * CGFloat(columns - 1), height: cellH * 8 + M.rowGap * 7) }
+    func columnLeft(_ c: Int) -> CGFloat { firstColumnX + CGFloat(c) * (cellW + colGap) }
     /// Row `r` counted from the top (rank 8 is row 0).
     func rowTop(_ r: Int) -> CGFloat { gridTop + CGFloat(r) * (cellH + M.rowGap) }
     func cellFrame(column: Int, rank: Int) -> CGRect { CGRect(x: columnLeft(column), y: rowTop(8 - rank), width: cellW, height: cellH) }
@@ -4879,8 +4885,9 @@ func euclideousSetRiffLength(_ line: inout EuclidLine, _ L: Int) {
 /// wrapping — e.g. SHIFT 9 stores as 1), into `riffRotate`, the one field the engine and every other reader
 /// keep reading. Independent of LENGTH: LEN 4 SHIFT 5 reads columns 6,7,8,1 (wrapping past the end), and
 /// changing LEN afterwards never perturbs SHIFT.
-func euclideousSetRiffShift(_ line: inout EuclidLine, _ v: Int) {
-    line.riffRotate = ((v % 8) + 8) % 8
+func euclideousSetRiffShift(_ line: inout EuclidLine, _ v: Int, columns: Int = 8) {
+    let c = max(1, columns)   // POLY RIFF: the grid's width — 8 (MONO, the default) or 16
+    line.riffRotate = ((v % c) + c) % c
 }
 /// NOTES layer octave (the NOTES tab's octave trough): writing it also switches the notes layer ON, as that control always has.
 func euclideousSetNotesOctave(_ line: inout EuclidLine, _ v: Int) {
@@ -7530,7 +7537,7 @@ func euclideousRailWalk(cfg: EuclideousWalkLaneConfig, hitTick: Int64) -> Euclid
     let len = max(1, cfg.length)
     let cycleLen = euclidCycleLen(cfg.dir, n: cfg.n)
     func column(_ ord: Int64) -> Int {
-        euclideousRiffColumn(ordinal: ord, every: cfg.every, direction: cfg.riffDir, length: len, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed)
+        euclideousRiffColumn(ordinal: ord, every: cfg.every, direction: cfg.riffDir, length: len, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed, columns: cfg.columns)
     }
     let here = euclideousLaneChainTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: hitTick, chains: cfg.chains,
                                        legacySpanBeats: cfg.spanBeats, advanceStep: cfg.advanceStep)
@@ -7560,8 +7567,8 @@ func euclideousRailWalk(cfg: EuclideousWalkLaneConfig, hitTick: Int64) -> Euclid
 /// inside the lane's own window (RIFF WINDOW ferry: LEN columns starting at SHIFT, wrapping at 8) and not in
 /// the readout's never-play set (`neverPlay` is empty when the readout is over budget or the lane has no
 /// hits, 7.6's fallbacks — so every column in the window fills).
-func euclideousRailPlayedColumns(length: Int, shift: Int, neverPlay: Set<Int>) -> Set<Int> {
-    Set(euclideousRiffWindowColumns(length: length, shift: shift).filter { !neverPlay.contains($0) })
+func euclideousRailPlayedColumns(length: Int, shift: Int, neverPlay: Set<Int>, columns: Int = 8) -> Set<Int> {
+    Set(euclideousRiffWindowColumns(length: length, shift: shift, columns: columns).filter { !neverPlay.contains($0) })
 }
 
 enum EuclideousRailLook: Equatable { case notPlayed, played, trail(Int), current(EuclideousArrowHeading) }
@@ -7580,17 +7587,17 @@ enum EuclideousRailStyle {
 }
 /// §6.2 / §6.4: one rail's eight segments. Riff off → all eight not-played at 60%, the number at 42%, nothing current. A stopped lane or transport (or before the lane's first hit) →
 /// the played columns only. Muted by the LANES grid → the segments and the chevron at 42%, the number at full strength. `current` outranks a trail column.
-func euclideousRailSpec(lane: Int, riffOn: Bool, running: Bool, muted: Bool, played: Set<Int>, current: Int?, trail: [Int], heading: EuclideousArrowHeading, flare: Double) -> EuclideousRailSpec {
+func euclideousRailSpec(lane: Int, riffOn: Bool, running: Bool, muted: Bool, played: Set<Int>, current: Int?, trail: [Int], heading: EuclideousArrowHeading, flare: Double, columns: Int = 8) -> EuclideousRailSpec {
     typealias S = EuclideousRailStyle
     guard riffOn else {
-        return EuclideousRailSpec(lane: lane, segments: [EuclideousRailSegment](repeating: EuclideousRailSegment(look: .notPlayed, opacity: S.riffOffOpacity), count: 8),
+        return EuclideousRailSpec(lane: lane, segments: [EuclideousRailSegment](repeating: EuclideousRailSegment(look: .notPlayed, opacity: S.riffOffOpacity), count: columns),
                                   numberOpacity: S.riffOffNumberOpacity, flare: 0)
     }
     let opacity = muted ? S.mutedOpacity : 1
-    var segs = (0..<8).map { EuclideousRailSegment(look: played.contains($0) ? .played : .notPlayed, opacity: opacity) }
+    var segs = (0..<columns).map { EuclideousRailSegment(look: played.contains($0) ? .played : .notPlayed, opacity: opacity) }
     var f = 0.0
-    if running, let cur = current, (0..<8).contains(cur) {
-        for (k, c) in trail.prefix(3).enumerated() where (0..<8).contains(c) { segs[c].look = .trail(k) }
+    if running, let cur = current, (0..<columns).contains(cur) {
+        for (k, c) in trail.prefix(3).enumerated() where (0..<columns).contains(c) { segs[c].look = .trail(k) }
         segs[cur].look = .current(heading)
         f = flare
     }

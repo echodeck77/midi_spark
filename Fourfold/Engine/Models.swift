@@ -3633,6 +3633,8 @@ struct EuclideousUndoSnapshot: Equatable {
     var holdLatchMode: EuclideousHoldLatchMode? = nil   // HOLD/LATCH (2026-10-20): undoable like noteSource above, no §7.3-style exclusion
     var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the rules — undoable page-level state (which rule tab is showing, and whether the pop-up is open, are not); [] = none stored
     var emitterRatchets: EmitterRatchetSet = EmitterRatchetSet()   // EMITTER RATCHET (2026-10-28): the four output ratchets — undoable page-level state; all-default restores "nothing stored" (nil)
+    var riffPoly: Bool = false                   // POLY RIFF (2026-10-29): the MONO | POLY mode — undoable page-level state (a step of its own)
+    var polyRiff: EuclideousPolyRiff? = nil      // …and the POLY riff itself (nil = nothing stored); one drag is one step
     /// UNDO-5 (2026-10-25): lanes' PLAY/STOP are never undoable (§7.3) — EXCEPT across a preset load, which is itself a step and replaces them: only such a step carries the flags it must put back (`nil` = every other step, which
     /// keeps the live flags as always). Captured by `loadPreset` / `loadFactoryPreset`, and re-stamped on the opposite side when that step is undone or redone so ↶ and ↷ both land on the right flags.
     var presetPlay: [EuclideousLanePlay]? = nil

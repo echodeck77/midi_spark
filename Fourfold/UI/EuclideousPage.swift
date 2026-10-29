@@ -693,6 +693,9 @@ struct EuclideousPage: View {
     // simply never reads or writes them again, matching this project's own "hide, don't delete" rule.
     let riffs: [EuclideousRiff]
     let activeRiff: Int
+    /// POLY RIFF (2026-10-29): the MONO | POLY mode and the POLY riff (the four riff boxes are gone; `riffs` / `activeRiff` are only the MONO riff now — the one that was active).
+    let riffPoly: Bool
+    let polyRiff: EuclideousPolyRiff
     let riffPositions: [Int]
     // RIFF POSITION MARKERS + LANE FOOTERS (Paul 2026-10-12 ferry): each lane's live hit-ordinal + DRUNK walk
     // state — the main-thread cycle prediction's own `startOrd`/`drunkLive` baseline, same live-poll class as
@@ -812,6 +815,8 @@ struct EuclideousPage: View {
     // generic per-lane `onEdit` funnel, same reasoning as `onSetKeyRoot`).
     let onEditRiffs: (@escaping (inout [EuclideousRiff]) -> Void) -> Void
     let onSetActiveRiff: (Int) -> Void
+    let onSetRiffPoly: (Bool) -> Void
+    let onEditPolyRiff: (@escaping (inout EuclideousPolyRiff) -> Void) -> Void
     let onEditLanesSeq: (@escaping (inout EuclideousLanesSeq) -> Void) -> Void
     /// FX TAB: like `onEditStep` — `newStep: true` takes a `coalesceKey: nil` undo checkpoint (the first value-changing write of a tap / stroke / drag / toggle),
     /// `false` writes into the step already open (the rest of the stroke, a double-tap's second tap).
@@ -878,7 +883,12 @@ struct EuclideousPage: View {
     // FOUR RIFFS (2026-10-18 ferry): the grid shows `riffs[activeRiff]` directly — no looper, no
     // beat-dependent derivation. Every lane reads this SAME array via `activeRiff`, so editing the
     // grid here is editing exactly what's sounding ("ONE GLOBAL RIFF" ferry, 2026-10-12).
+    /// The riff that is playing, one rank per column: the MONO riff's eight, or — in POLY — the highest rank STARTING on each of the sixteen (0 = a rest column; the arrows, the strip and the pictures read it as the column's rank).
     var effectiveGridRanks: [Int] {
+        if riffPoly { return polyRiff.topRanks }
+        return effectiveMonoRanks
+    }
+    private var effectiveMonoRanks: [Int] {
         riffs[max(0, min(3, activeRiff))].ranksResolved
     }
 
@@ -1392,6 +1402,8 @@ struct EuclideousPage: View {
     // FOUR RIFFS (restored 2026-10-18): a long press on a riff tab opens COPY/PASTE/CLEAR for that tab;
     // `riffClipboard` is the one-slot clipboard it shares across all four tabs.
     @State private var riffTabMenuLane: Int? = nil
+    @State private var polyDrag: EuclideousPolyDrag? = nil      // POLY RIFF: the touch shaping a note right now
+    @State private var polyDragLastCol: Int = -1
     @State private var riffClipboard: EuclideousRiff? = nil
     // FOURFOLD SETTINGS (2026-10-15 ferry): `settingsTab` is explicitly NOT saved ("the sheet reopens on the
     // tab it was left on, in memory, MIDI IN the first time," §2.6) — plain ephemeral @State, same convention
@@ -1820,12 +1832,12 @@ struct EuclideousPage: View {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .strokeBorder(Color(hex: 0xDFE3EA).opacity(0.4), lineWidth: 1.5)
                 .allowsHitTesting(false)
-                .overlay(alignment: .topLeading) {
+                .overlay(alignment: .topTrailing) {
                     Text("RANDOM").font(.system(size: 8.5, weight: .heavy)).tracking(0.85)
                         .foregroundColor(Color(hex: 0x0D0F14)).lineLimit(1)
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0xDFE3EA)))
-                        .padding(8)
+                        .padding(.top, 8 + EuclideousRiffPanelMetrics.tabRowH + EuclideousRiffPanelMetrics.tabToGrid + 4).padding(.trailing, 12)   // POLY RIFF: top-right of the grid — the MONO | POLY control owns the top-left
                         .allowsHitTesting(false)
                 }
         }
@@ -3047,7 +3059,7 @@ struct EuclideousPage: View {
         for hs in hitSteps where hs.bufIdx >= 0 && hs.bufIdx < steps { pattern[hs.bufIdx] = true }
         let notes: EuclideousStripNotes? = layerOn
             ? EuclideousStripNotes(layerOn: true, when: line.notesWhenResolved, chance: line.notesChanceResolved, way: line.notesPlayAsResolved, list: notesPlayList(line), lane: idx) : nil
-        let legs = euclideousStripLegs(pattern: pattern, hitSteps: hitSteps, prediction: prediction, lapSteps: steps, ranks: ranks, anyLit: layerOn, fxTieColumns: euclideousFXTieColumns(fx, line: line, lane: idx),
+        let legs = euclideousStripLegs(pattern: pattern, hitSteps: hitSteps, prediction: prediction, lapSteps: steps, ranks: ranks, anyLit: layerOn, fxTieColumns: riffPoly ? 0 : euclideousFXTieColumns(fx, line: line, lane: idx),   // POLY: the FX rows are off
                                        pingPong: line.directionResolved == .pingpong, riffPlays: playsRiff, grey: grey, onRest: line.riffOnRestResolved, cfg: cfg, lapStartTick: lapStartTick,
                                        notes: notes, name: stripNoteName)
         // VoiceOver (§6): read the sweep the lane is on at this body (PING-PONG has two); the note at a written rank is the riff grid's row name, a pitch is spoken as the NOTES tab's keys speak it
@@ -4287,17 +4299,18 @@ struct EuclideousPage: View {
     /// (`(fullWidth − 3 inter-chip 3pt gaps) / 4` — at the 326pt reference this is exactly 79.25, matching
     /// the ferry's own literal table).
     private func melodyValuesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, stepperWidth: CGFloat? = nil) -> some View {
-        let n = line.riffLengthResolved
-        let shift = line.riffRotateResolved
+        let cols = riffPoly ? EuclideousPolyMetrics.columns : 8          // POLY RIFF: the grid's width — LEN runs 1…16 and SHIFT wraps at 16 in POLY
+        let n = riffPoly ? line.riffLengthResolved(columns: cols) : line.riffLengthResolved
+        let shift = riffPoly ? line.riffRotateResolved(columns: cols) : line.riffRotateResolved
         let w = stepperWidth ?? max(1, (fullWidth - 3 * sp4) / 4)
         return HStack(spacing: sp4) {
-            melodyStepper("LEN", value: n, range: 1...8, width: w, help: "How many riff columns, from SHIFT, the walk loops over", lane: idx, outline: lockOn(idx, .length)) { v in
+            melodyStepper("LEN", value: n, range: 1...cols, width: w, help: "How many riff columns, from SHIFT, the walk loops over", lane: idx, outline: lockOn(idx, .length)) { v in
                 edit(idx) { euclideousSetRiffLength(&$0, v) }   // RIFF WINDOW ferry: the ONE LEN setter — independent of SHIFT now, nothing to pin
             }
             .accessibilityElement(children: .ignore).accessibilityLabel("Length").accessibilityValue(lockSpoken(idx, .length, "\(n)"))
             .accessibilityAdjustableAction { dir in
                 switch dir {
-                case .increment: edit(idx) { euclideousSetRiffLength(&$0, min(8, n + 1)) }
+                case .increment: edit(idx) { euclideousSetRiffLength(&$0, min(cols, n + 1)) }
                 case .decrement: edit(idx) { euclideousSetRiffLength(&$0, max(1, n - 1)) }
                 @unknown default: break
                 }
@@ -4305,15 +4318,15 @@ struct EuclideousPage: View {
             // RIFF WINDOW ferry (2026-10-21): SHIFT picks which riff column (1...8) the window starts at,
             // wrapping past column 8 back to column 1 — independent of LENGTH (LEN 4 SHIFT 4 reads columns
             // 5,6,7,8). `wraps: true` makes the ‹/› taps cycle 7→0 and 0→7 to match.
-            melodyStepper("SHIFT", value: shift, range: 0...7, width: w, help: "Which riff column the walk starts reading from, wrapping at 8", wraps: true, lane: idx, outline: lockOn(idx, .shift)) { v in
-                edit(idx) { euclideousSetRiffShift(&$0, v) }   // RIFF WINDOW ferry: the ONE SHIFT setter — wraps at 8, nothing to do with LEN
+            melodyStepper("SHIFT", value: shift, range: 0...(cols - 1), width: w, help: "Which riff column the walk starts reading from, wrapping at \(cols)", wraps: true, lane: idx, outline: lockOn(idx, .shift)) { v in
+                edit(idx) { euclideousSetRiffShift(&$0, v, columns: cols) }   // RIFF WINDOW ferry: the ONE SHIFT setter — wraps at the grid's width, nothing to do with LEN
             }
-            .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityHint("Which riff column the walk starts reading from, wrapping at 8")
+            .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityHint("Which riff column the walk starts reading from, wrapping at \(cols)")
             .accessibilityValue(lockSpoken(idx, .shift, "\(shift)"))
             .accessibilityAdjustableAction { dir in
                 switch dir {
-                case .increment: edit(idx) { euclideousSetRiffShift(&$0, (shift + 1) % 8) }
-                case .decrement: edit(idx) { euclideousSetRiffShift(&$0, (shift + 7) % 8) }
+                case .increment: edit(idx) { euclideousSetRiffShift(&$0, (shift + 1) % cols, columns: cols) }
+                case .decrement: edit(idx) { euclideousSetRiffShift(&$0, (shift + cols - 1) % cols, columns: cols) }
                 @unknown default: break
                 }
             }
@@ -4377,25 +4390,33 @@ struct EuclideousPage: View {
     /// now follows instead (a rest is already 0 by construction, so "no lit cell" already covers both cases
     /// uniformly with the same `1...8` bounds check, no separate rest-vs-out-of-range branching needed).
     private func riffMiniGrid(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGFloat) -> some View {
-        let n = 8
+        let poly = riffPoly                                                    // POLY RIFF: sixteen narrow columns, a note drawn across the columns it covers
+        let n = poly ? EuclideousPolyMetrics.columns : 8
         let stepRanks = euclideousRiffStepRanks(ranks: effectiveGridRanks, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
-        let len = line.riffLengthResolved
-        let curStep = (idx < riffPositions.count && euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)) ? riffPositions[idx] : -1   // the live step only while the lane runs (as the WALK strip's ring)
+        let len = poly ? line.riffLengthResolved(columns: n) : line.riffLengthResolved
+        let curStep = (idx < riffPositions.count && euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)) ? riffPositions[idx] : -1   // the live step only while the lane runs (as the WALK strip
         let isRiff = line.riffOnResolved
         let neverPlay = riffReadout(idx)?.neverPlay ?? []   // RIFF WALK ferry §2.1/§7.6
-        let window = euclideousRiffWindowColumns(length: len, shift: line.riffRotateResolved)   // RIFF WINDOW ferry (2026-10-21): the window wraps at 8, not always columns 1...LEN
-        let cell = max(1, (size - 7) / 8)   // 8 cells + 7 gaps of 1pt
+        let window = euclideousRiffWindowColumns(length: len, shift: poly ? line.riffRotateResolved(columns: n) : line.riffRotateResolved, columns: n)   // RIFF WINDOW ferry (2026-10-21): the window wraps at the grid's width, not always columns 1...LEN
+        let cellW = max(1, (size - CGFloat(n - 1)) / CGFloat(n)), cellH = max(1, (size - 7) / 8)   // n cells + (n − 1) gaps of 1pt across, 8 rows + 7 gaps down
+        let tr = line.melodyTransposeResolved, inv = line.riffInvertResolved
         return VStack(spacing: 1) {
             ForEach((1...8).reversed(), id: \.self) { rank in
                 HStack(spacing: 1) {
                     ForEach(0..<n, id: \.self) { col in
-                        let raw = col < stepRanks.count ? stepRanks[col] : 0
-                        let isHit = raw >= 1 && raw <= 8 && raw == rank
+                        let isHit: Bool = {
+                            if poly {
+                                let src = inv ? 9 - (rank - tr) : rank - tr   // the written rank that INVERT and TRANSPOSE turn into this row
+                                return src >= 1 && src <= 8 && polyRiff.note(covering: col, rank: src) != nil
+                            }
+                            let raw = col < stepRanks.count ? stepRanks[col] : 0
+                            return raw >= 1 && raw <= 8 && raw == rank
+                        }()
                         let inWindow = window.contains(col)
                         let isCur = col == curStep
-                        RoundedRectangle(cornerRadius: 1.5)
+                        RoundedRectangle(cornerRadius: poly ? 0.75 : 1.5)
                             .fill(riffMiniGridFill(isRiff: isRiff, isHit: isHit, isCur: isCur))
-                            .frame(width: cell, height: cell)
+                            .frame(width: cellW, height: cellH)
                             .opacity((!inWindow || neverPlay.contains(col)) ? 0.32 : 1.0)
                     }
                 }
@@ -4462,7 +4483,7 @@ struct EuclideousPage: View {
         let cfg = riffWalkConfig(idx)
         let readout = riffReadout(idx)
         let stepRanks = euclideousRiffStepRanks(ranks: effectiveGridRanks, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
-        let len = line.riffLengthResolved
+        let len = riffPoly ? line.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : line.riffLengthResolved   // POLY RIFF: LEN runs to 16
         let every = line.riffAdvanceEveryResolved
         let P = euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)
         let readoutText = euclideousRiffReadoutText(readout, overBudget: readout == nil)
@@ -4484,7 +4505,7 @@ struct EuclideousPage: View {
                 HStack(spacing: 1.5) {
                     ForEach(0..<16, id: \.self) { i in
                         if i < P, let cfg {
-                            let col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg.riffDir, length: len, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed)
+                            let col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg.riffDir, length: len, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed, columns: cfg.columns)
                             let rank = col < stepRanks.count ? stepRanks[col] : 0
                             let isRest = rank < 1
                             let neverPlays = readout?.neverPlayWalkSteps.contains(i) ?? false
@@ -4565,7 +4586,7 @@ struct EuclideousPage: View {
         if readoutText == "NO HITS TO PLAY" { return "No hits to play." }
         var cols: [String] = []
         for i in 0..<P {
-            let col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg.riffDir, length: len, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed)
+            let col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg.riffDir, length: len, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed, columns: cfg.columns)
             let rank = col < stepRanks.count ? stepRanks[col] : 0
             cols.append(rank < 1 ? "rest" : "\(col + 1)")
         }
@@ -4694,11 +4715,13 @@ struct EuclideousPage: View {
     /// NOTES tab's RESTS now does what it was for). A lane still holding `.fill` in memory reads as SKIP — which is what its decoder makes it.
     private func riffOnRestRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
         let isRiff = line.riffOnResolved
-        let current: EuclidRiffOnRest = line.riffOnRestResolved == .fill ? .skip : line.riffOnRestResolved
+        // POLY RIFF: a note's length replaces TIE and a silent column is just silent — ON REST is SKIP, and TIE / REPEAT are dimmed and inert while POLY is on (the stored choice returns with MONO)
+        let current: EuclidRiffOnRest = riffPoly ? .skip : (line.riffOnRestResolved == .fill ? .skip : line.riffOnRestResolved)
         return HStack(spacing: sp4) {
             riffRowLabel("ON REST", "IN RIFF").frame(width: layout.labelColumnWidth)
             ForEach([EuclidRiffOnRest.skip, .tie, .repeatLast], id: \.self) { r in
                 let selected = current == r
+                let unavailable = riffPoly && r != .skip
                 melodyButton(r.rawValue == "REPEAT" ? "REPEAT" : r.rawValue, on: selected, accent: accent, height: layout.lowerRowHeight, fontSize: 11, cornerRadius: 7,
                              help: riffOnRestHelpPhrase(r), lane: idx, outline: selected && lockOn(idx, .onRest)) { edit(idx) { $0.riffOnRest = r } }
                     .frame(width: layout.onRestButtonWidth)
@@ -4706,8 +4729,9 @@ struct EuclideousPage: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(r == .repeatLast ? "Repeat" : r.rawValue.capitalized)
                     .accessibilityValue(euclideousLockAppendSnapWords("", outlined: selected && lockOn(idx, .onRest)))
-                    .accessibilityHint(r == .repeatLast ? "Plays the riff's previous note again" : "")
+                    .accessibilityHint(unavailable ? "Not used in POLY" : (r == .repeatLast ? "Plays the riff's previous note again" : ""))
                     .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                    .opacity(unavailable ? 0.3 : 1).allowsHitTesting(!unavailable)
             }
         }
         .opacity(isRiff ? 1.0 : 0.42)
@@ -5610,28 +5634,23 @@ struct EuclideousPage: View {
             var p = Path(); p.move(to: CGPoint(x: r.minX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY)); p.addLine(to: CGPoint(x: r.minX, y: r.maxY)); p.closeSubpath(); return p
         }
     }
+    /// POLY RIFF (2026-10-29): the long-press menu the four riff boxes opened (COPY / PASTE / CLEAR) is now the MONO | POLY control's: with one riff per mode there is nothing to copy between, so only CLEAR is offered, for the
+    /// mode showing. (COPY / PASTE and `riffClipboard` are kept, unreachable — hide, don't delete.)
     private func riffTabMenuCard(_ idx: Int) -> some View {
-        func row(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+        func row(_ label: String, action: @escaping () -> Void) -> some View {
             Text(label).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                .foregroundColor(enabled ? .white.opacity(0.85) : .white.opacity(0.3))
+                .foregroundColor(.white.opacity(0.85))
                 .frame(maxWidth: .infinity).frame(height: 36)
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
-                .onTapGesture { if enabled { action() } }
+                .onTapGesture { action() }
+                .accessibilityAddTraits(.isButton)
         }
         return VStack(spacing: 8) {
-            Text("RIFF \(idx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
-            row("COPY") {
-                riffClipboard = idx < riffs.count ? riffs[idx] : nil
-                riffTabMenuLane = nil
-            }
-            row("PASTE", enabled: riffClipboard != nil) {
-                guard let c = riffClipboard else { return }
-                onEditRiffs { r in guard idx < r.count else { return }; r[idx] = c }
-                riffTabMenuLane = nil
-            }
+            Text(riffPoly ? "POLY RIFF" : "MONO RIFF").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
             row("CLEAR") {
-                onEditRiffs { r in guard idx < r.count else { return }; r[idx] = .empty }
+                if riffPoly { onEditPolyRiff { $0 = EuclideousPolyRiff() } }
+                else { let active = max(0, min(3, activeRiff)); onEditRiffs { r in guard active < r.count else { return }; r[active] = .empty } }
                 riffTabMenuLane = nil
             }
         }
@@ -5640,7 +5659,35 @@ struct EuclideousPage: View {
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
-    private func riffGridView(box: CGSize) -> some View {
+    /// POLY RIFF (2026-10-29): the MONO | POLY control that replaced the four riff boxes in the panel's top row — the segmented-control look of the lane strip at the row's 20 pt (14 compact): a #1F2127 container (r6, 2 inset),
+    /// two equal segments (r4), the selected one #DFE3EA with ink. A tap switches the mode (one undo step; the first switch to POLY seeds the grid from the MONO riff); a long press offers CLEAR for the mode showing.
+    /// VoiceOver "Mono" / "Poly" — never starting "Riff, " or "Riff 1" (the UI tests match those prefixes).
+    private func riffModeRow(height: CGFloat) -> some View {
+        let ink = Color(hex: 0x0D0F14)
+        return HStack(spacing: 2) {
+            ForEach([false, true], id: \.self) { poly in
+                let sel = riffPoly == poly
+                Text(poly ? "POLY" : "MONO").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.1)
+                    .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
+                    .frame(maxWidth: .infinity).frame(height: max(1, height - 4))
+                    .background(RoundedRectangle(cornerRadius: 4).fill(sel ? Color(hex: 0xDFE3EA) : Color.clear))
+                    .contentShape(Rectangle())
+                    .onTapGesture { onSetRiffPoly(poly) }
+                    .onLongPressGesture(minimumDuration: 0.5) { riffTabMenuLane = 0 }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(poly ? "Poly" : "Mono")
+                    .accessibilityAddTraits(sel ? [.isButton, .isSelected] : [.isButton])
+            }
+        }
+        .padding(2)
+        .frame(height: height)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1F2127)))
+    }
+    /// The riff panel: the MONO grid exactly as it was, or — in POLY — the sixteen-column grid.
+    private func riffGridView(box: CGSize) -> AnyView {
+        riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box))
+    }
+    private func monoRiffGridView(box: CGSize) -> some View {
         let n = 8
         let ranks = effectiveGridRanks
         // RIFF PANEL ferry (2026-10-19) §1/§8.1: the panel's inside comes from ONE pure function of the box the page gives it — the tab row, the grid's cell
@@ -5667,7 +5714,7 @@ struct EuclideousPage: View {
             return euclideousAppendSilencedBySolo(euclideousRailAccessibilityLabel(lane: i, riffOn: f.riffOn, running: f.running, played: playedNow[i], current: w.current, heading: w.heading, muted: f.muted), silenced: f.soloSilenced)
         }
         return VStack(alignment: .leading, spacing: 0) {
-            riffTabRow(height: layout.tabRowH)
+            riffModeRow(height: layout.tabRowH)
             Color.clear.frame(height: EuclideousRiffPanelMetrics.tabToGrid)
             HStack(spacing: sp4) {
                 riffNoteLabelColumn(pool: pool, source: source, cellH: cellH, labelW: layout.labelW)
@@ -5729,6 +5776,118 @@ struct EuclideousPage: View {
         .frame(width: box.width, height: box.height, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
         .overlay(alignment: .topLeading) { riffPanelOverlay(layout: layout, ranks: ranks, suppressArrows: midiEmpty, played: playedNow) }
+    }
+
+    // MARK: - POLY RIFF (2026-10-29): the sixteen-column grid
+    //
+    // The same panel as MONO — the MONO | POLY row, the note-name column, the grid, the four rails — with sixteen narrower columns (`euclideousPolyPanelLayout`) and cells as tall as their rows. A note is a bar across the columns
+    // it covers (`EuclideousPolyGridView`, one Canvas). ONE drag overlay owns every touch (`EuclideousPolyDrag`, pure and tested): touching an empty cell makes a length-1 note there, dragging sideways stretches it either way,
+    // touching a note and lifting takes it away, dragging from a note moves its nearer end. The arrows and rails are MONO's (`riffPanelOverlay`), reading the walk at 16 columns; an arrow's rank is the highest note
+    // STARTING on its column (`topRanks`), hollow on a column where none starts.
+    private func polyRiffGridView(box: CGSize) -> some View {
+        let layout = euclideousPolyPanelLayout(box: box)
+        let cellH = layout.cellH
+        let source = noteSource
+        let pool = riffLivePool
+        let midiEmpty = source == .midi && pool.isEmpty
+        let ranks = polyRiff.topRanks
+        let beatNow = walkTagBeat(at: Date())
+        let frameNow = riffLaneFrames(ranks: ranks, beat: beatNow)
+        let arrowsNow: [EuclideousArrowCell] = midiEmpty ? [] : riffArrowCells(frameNow)
+        let cols = EuclideousPolyMetrics.columns
+        let playedNow: [Set<Int>] = (0..<4).map { i in
+            i < lines.count ? euclideousRailPlayedColumns(length: lines[i].riffLengthResolved(columns: cols), shift: lines[i].riffRotateResolved(columns: cols), neverPlay: [], columns: cols) : []
+        }
+        let railLabels: [String] = (0..<4).map { i in
+            guard let f = frameNow.first(where: { $0.lane == i }) else { return "Lane \(i + 1): riff off" }
+            let w = riffRailInputs(f)
+            return euclideousAppendSilencedBySolo(euclideousRailAccessibilityLabel(lane: i, riffOn: f.riffOn, running: f.running, played: playedNow[i], current: w.current, heading: w.heading, muted: f.muted), silenced: f.soloSilenced)
+        }
+        let gridSize = layout.gridSize
+        return VStack(alignment: .leading, spacing: 0) {
+            riffModeRow(height: layout.tabRowH)
+            Color.clear.frame(height: EuclideousRiffPanelMetrics.tabToGrid)
+            HStack(spacing: sp4) {
+                riffNoteLabelColumn(pool: pool, source: source, cellH: cellH, labelW: layout.labelW)
+                ZStack(alignment: .topLeading) {
+                    EuclideousPolyGridView(riff: polyRiff, layout: layout)
+                    polyCellAccessibility(layout: layout, arrows: arrowsNow, pool: pool)
+                    Color.clear
+                        .frame(width: gridSize.width, height: gridSize.height)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 0)
+                            .onChanged { g in polyDragChanged(at: g.location, layout: layout) }
+                            .onEnded { _ in polyDragEnded() })
+                    if midiEmpty {
+                        Text("HOLD NOTES TO PLAY").font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundColor(Color(hex: 0xAAB0BA))
+                            .padding(.horizontal, sp8).padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x15161A).opacity(0.9)))
+                            .frame(width: gridSize.width, height: gridSize.height)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
+            Color.clear.frame(height: EuclideousRiffPanelMetrics.gridToRails)
+            VStack(spacing: EuclideousRiffPanelMetrics.railGap) {
+                ForEach(0..<4, id: \.self) { i in
+                    Color.clear.frame(height: EuclideousRiffPanelMetrics.railH)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(railLabels[i])
+                }
+            }
+            .frame(height: EuclideousRiffPanelMetrics.railsH)
+        }
+        .padding(sp8)
+        .frame(width: box.width, height: box.height, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+        .overlay(alignment: .topLeading) { riffPanelOverlay(layout: layout, ranks: ranks, suppressArrows: midiEmpty, played: playedNow) }
+    }
+    /// The touch: the first call of a gesture begins it (the cell it lands on), every later call that has moved to another column reshapes the note; the rank is the one it began on.
+    private func polyDragChanged(at point: CGPoint, layout: EuclideousRiffPanelLayout) {
+        let cell = euclideousPolyCellAt(point, layout: layout)
+        if let d = polyDrag {
+            guard cell.col != polyDragLastCol else { return }
+            polyDragLastCol = cell.col
+            var next: EuclideousPolyDrag? = nil
+            onEditPolyRiff { r in let u = d.update(r, fingerCol: cell.col); r = u.riff; next = u.drag }
+            polyDrag = next ?? d
+        } else {
+            var started: EuclideousPolyDrag? = nil
+            onEditPolyRiff { r in let b = EuclideousPolyDrag.begin(r, col: cell.col, rank: cell.rank); r = b.riff; started = b.drag }
+            polyDrag = started
+            polyDragLastCol = cell.col
+        }
+    }
+    private func polyDragEnded() {
+        if let d = polyDrag { onEditPolyRiff { r in r = d.end(r) } }
+        polyDrag = nil; polyDragLastCol = -1
+    }
+    /// One VoiceOver element per cell (the picture is a Canvas): "Step 3, E♭" (or "Step 3, rank 2" where the pool does not reach), plus the arrow phrase of any lane sitting there; the value says whether a note STARTS there
+    /// ("note, length 3"), is HELD through it ("held from step 2") or the cell is "off"; activating it does what a plain tap does.
+    private func polyCellAccessibility(layout l: EuclideousRiffPanelLayout, arrows: [EuclideousArrowCell], pool: [UInt8]) -> some View {
+        let x0 = l.columnLeft(0), y0 = l.rowTop(0)
+        return ZStack(alignment: .topLeading) {
+            ForEach(0..<(l.columns * 8), id: \.self) { k in
+                let col = k % l.columns, rank = 8 - k / l.columns
+                let f = l.cellFrame(column: col, rank: rank)
+                let covering = polyRiff.note(covering: col, rank: rank)
+                let here = arrows.first { $0.column == col && $0.rank == rank }
+                Color.clear.frame(width: f.width, height: f.height).offset(x: f.minX - x0, y: f.minY - y0)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(polyCellLabel(col: col, rank: rank, here: here))
+                    .accessibilityValue(covering.map { $0.col == col ? "note, length \($0.len)" : "held from step \($0.col + 1)" } ?? "off")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { onEditPolyRiff { r in r = r.toggled(col: col, rank: rank) } }
+            }
+        }
+        .frame(width: l.gridSize.width, height: l.gridSize.height, alignment: .topLeading)
+    }
+    private func polyCellLabel(col: Int, rank: Int, here: EuclideousArrowCell?) -> String {
+        let noteName = (rank >= 1 && rank <= riffLivePool.count) ? euclideousDisplayNoteName(riffLivePool[rank - 1], source: noteSource, pool: riffLivePool, keyRoot: keyRoot, keyType: keyType) : nil
+        guard let here else { return noteName.map { "Step \(col + 1), \($0)" } ?? "Step \(col + 1), rank \(rank)" }
+        let stepPart = noteName.map { "Step \(col + 1), \($0)" } ?? "Step \(col + 1)"
+        return stepPart + euclideousArrowCellPhrase(members: here.members.map { EuclideousArrowMember(lane: $0.lane, heading: $0.heading) }, onRest: here.hollow)
     }
 
     // MARK: - RIFF PANEL ferry (2026-10-19): the blended ARROWS and the lane RAILS
@@ -5840,7 +5999,7 @@ struct EuclideousPage: View {
                     let f = frames.first(where: { $0.lane == i })
                     let w = f.map(riffRailInputs) ?? (nil, [], EuclideousArrowHeading.still)
                     return euclideousRailSpec(lane: i, riffOn: f?.riffOn ?? false, running: f?.running ?? false, muted: f?.dimmed ?? false,
-                                              played: i < played.count ? played[i] : [], current: w.0, trail: w.1, heading: w.2, flare: f?.flare ?? 0)
+                                              played: i < played.count ? played[i] : [], current: w.0, trail: w.1, heading: w.2, flare: f?.flare ?? 0, columns: layout.columns)
                 })
             }
         }
@@ -5940,12 +6099,13 @@ struct EuclideousPage: View {
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
         return euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars,
                                         lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
-                                        swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
+                                        swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo,
+                                        riffColumns: riffPoly ? EuclideousPolyMetrics.columns : 8)
     }
     /// The readout for lane `idx`'s current riff settings (§7), nil when over budget. MEMOISED on its inputs (§7.2's own ask; `EuclideousRiffReadoutCache`): the lane card's mini-grid,
     /// its WALK strip and the riff panel's rails all read it on every body evaluation, but it is only recomputed when a lane's pattern, rate, chains or riff settings change.
     private func riffReadout(_ idx: Int) -> EuclideousRiffReadout? {
-        guard let c = riffWalkConfig(idx) else { return nil }
+        guard !riffPoly, let c = riffWalkConfig(idx) else { return nil }   // POLY RIFF: no never-play readout yet (it walks 8 columns) — nil is the fallback every reader already has (every column of the window fills)
         return riffReadoutCache.readout(lane: idx, cfg: c)
     }
     /// The UI clock's beat at `date` — the same `anchor + elapsed × tempo` extrapolation every other live view on
@@ -6073,7 +6233,9 @@ struct EuclideousPage: View {
             case .lanes:
                 lanesTab(width: tabBody.width, height: tabBody.height)   // LANES GRID (2026-10-18): replaces the old step grid + ON/RATE/LEN row
             case .fx:
+                // POLY RIFF: the FX rows act on the MONO riff's eight columns; in POLY they do nothing (the cells are kept for MONO), so the tab is dimmed, inert and hidden from VoiceOver
                 fxTab(width: tabBody.width, height: tabBody.height)
+                    .opacity(riffPoly ? 0.3 : 1).allowsHitTesting(!riffPoly).accessibilityHidden(riffPoly)
             case .ratch:   // RATCH tab ferry (2026-10-28): a per-output Euclid ratchet — four cards A–D
                 ratchTab(width: tabBody.width, height: tabBody.height, portrait: portrait)
             case .riffs:   // hidden (unreachable from the tab row) — kept so its code stays compiled

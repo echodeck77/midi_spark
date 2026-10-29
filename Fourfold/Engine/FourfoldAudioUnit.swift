@@ -214,6 +214,8 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // slot 0 the instant it's read, so nothing downstream of THIS forwarder ever needs the old field again.
     func uiEuclideousRiffs() -> [EuclideousRiff] { document.riffsResolved }
     func uiEuclideousActiveRiff() -> Int { document.activeRiffResolved }
+    func uiRiffPoly() -> Bool { document.riffPolyResolved }                  // POLY RIFF (2026-10-29)
+    func uiPolyRiff() -> EuclideousPolyRiff? { document.polyRiff }
     // `uiEuclideousLiveGrid()` (a forwarder for the looper's decode-only `euclideousLiveGridResolved`)
     // is DELETED here (2026-10-18 adversarial review found it orphaned — its one caller, `refreshFrom
     // Document`'s resync block, was removed by the same ferry that dropped the looper, and this one

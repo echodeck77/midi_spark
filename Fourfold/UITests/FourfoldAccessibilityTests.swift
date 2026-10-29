@@ -105,6 +105,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditFxPortrait()       { screen("page FX", landscape: false) { $0.buttons["FX"].tap() } }
     func testAuditRatchPortrait()    { screen("page RATCH", landscape: false) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabPortrait()  { screen("lane tab RIFF", landscape: false, laneTab("Riff, ")) }
+    func testAuditPolyRiffPortrait() { screen("poly riff", landscape: false) { $0.buttons["Poly"].tap() } }   // POLY RIFF (2026-10-29): the sixteen-column grid and the MONO | POLY control
     func testAuditNotesTabPortrait() { screen("lane tab NOTES", landscape: false, laneTab("Notes")) }
     func testAuditListenTabPortrait() { screen("lane tab LISTEN", landscape: false, laneTab("Listen, ")) }
     func testAuditPresetsPortrait()  { screen("presets", landscape: false, open("Presets", expect: "PRESETS")) }

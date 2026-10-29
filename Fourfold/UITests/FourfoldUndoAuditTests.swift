@@ -23,7 +23,7 @@ struct UndoProbeReading {
     var voices: Int { Int(kv["voices"] ?? "") ?? -1 }
     var lanes: String { kv["lanes"] ?? "?" }
     var play: String { kv["play"] ?? "?" }
-    static let partNames = ["lines", "riff", "resetSpanBars", "keyRoot", "keyType", "chordSets", "activeChordSet", "noteSource", "sourcePlan", "riffs", "activeRiff", "lanesSeq", "riffsSeq", "fx", "holdLatchMode", "hocketRules", "emitterRatchets"]
+    static let partNames = ["lines", "riff", "resetSpanBars", "keyRoot", "keyType", "chordSets", "activeChordSet", "noteSource", "sourcePlan", "riffs", "activeRiff", "lanesSeq", "riffsSeq", "fx", "holdLatchMode", "hocketRules", "emitterRatchets", "riffPoly", "polyRiff"]
     var parts: [String] { (kv["parts"] ?? "").split(separator: ",").map(String.init) }
     /// Which snapshot fields differ from `other` — so a failing hash says WHAT is different.
     func differingParts(from other: UndoProbeReading) -> [String] { zip(parts, other.parts).enumerated().filter { $0.element.0 != $0.element.1 }.map { Self.partNames[$0.offset] } }
@@ -109,7 +109,8 @@ final class FourfoldUndoAuditTests: XCTestCase {
         app.buttons[cell].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap(); Thread.sleep(forTimeInterval: 0.2)
     }
-    func riffSwitch(_ n: Int) { app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Riff \(n)")).firstMatch.tap() }
+    /// POLY RIFF (2026-10-29): the four riff boxes became a MONO | POLY control — tapping the segment already showing changes nothing (and pushes no step), tapping the other one is one undo step.
+    func riffMode(poly: Bool) { app.buttons[poly ? "Poly" : "Mono"].firstMatch.tap() }
     func loadPreset(_ name: String) {
         app.buttons["Presets"].tap()
         let row = app.buttons["\(name), factory preset"]
@@ -234,7 +235,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         stepsUp(); _ = settled()
         undo(); let afterUndo = settled()
         XCTAssertEqual(afterUndo.redo, 1)
-        riffSwitch(1); let p = settled()           // riff 1 is already the one being edited: tapping it again changes nothing
+        riffMode(poly: false); let p = settled()   // MONO is already the mode showing: tapping it again changes nothing
         XCTAssertEqual(p.snap, afterUndo.snap, "the tap really was a no-op")
         XCTAssertEqual(p.redo, 1, "…so redo is still there: \(p.raw)")
         XCTAssertEqual(p.undo, 0, "…and no empty step was pushed")
@@ -328,7 +329,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
 
     func testSixtyRapidUndoRedoTapsLeaveEverythingConsistent() {
         launch()
-        noteSource("CHORDS while MIDI plays"); noteSource("KEY while MIDI plays"); stepsUp(); riffSwitch(2); noteSource("CHORDS with no MIDI")
+        noteSource("CHORDS while MIDI plays"); noteSource("KEY while MIDI plays"); stepsUp(); riffMode(poly: true); noteSource("CHORDS with no MIDI")
         let before = settled()
         for i in 0..<60 { if i % 2 == 0 { undo() } else { redo() } }
         let after = settled()
@@ -621,7 +622,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         launch()
         app.buttons["Play"].tap()
         Thread.sleep(forTimeInterval: 0.6)
-        noteSource("CHORDS while MIDI plays"); noteSource("KEY with no MIDI"); riffSwitch(2); stepsUp(); noteSource("CHORDS with no MIDI"); noteSource("KEY while MIDI plays")
+        noteSource("CHORDS while MIDI plays"); noteSource("KEY with no MIDI"); riffMode(poly: true); stepsUp(); noteSource("CHORDS with no MIDI"); noteSource("KEY while MIDI plays")
         let before = settled()
         for i in 0..<40 { if i % 3 == 2 { redo() } else { undo() }; if i % 10 == 9 { let m = read(); XCTAssertTrue(m.consistent, "mid-storm: \(m.raw)") } }
         let mid = settled()
@@ -641,7 +642,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         var description: String {
             switch self {
             case .stepsUp: return "steps+"; case .stepsDown: return "steps−"; case .hits(let u): return "hits\(u ? "↑" : "↓")"; case .offset: return "offset"
-            case .source(let s): return "source:\(s)"; case .riff(let n): return "riff\(n)"; case .riffCell(let st, let r): return "cell(step \(st) rank \(r))"; case .keyScale: return "key-scale"; case .fxCell(let n, let r): return "fx(note \(n) \(r))"
+            case .source(let s): return "source:\(s)"; case .riff(let n): return "mode\(n % 2 == 0 ? "poly" : "mono")"; case .riffCell(let st, let r): return "cell(step \(st) rank \(r))"; case .keyScale: return "key-scale"; case .fxCell(let n, let r): return "fx(note \(n) \(r))"
             case .preset(let p): return "preset:\(p)"; case .undo: return "UNDO"; case .redo: return "REDO"
             }
         }
@@ -663,7 +664,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case 2: op = .hits(rng.int(0...1) == 0)
             case 3: op = .offset
             case 4, 5: op = .source(["CHORDS while MIDI plays", "CHORDS with no MIDI", "KEY with no MIDI"][rng.int(0...2)])   // each toggle flips one SOURCES cell — always a change, always one step
-            case 6: op = .riff(rng.int(2...4))
+            case 6: op = .riff(rng.int(2...4))   // 2, 4 → POLY · 3 → MONO (the control that replaced the four riff boxes)
             case 7: op = .preset("FIVE AGAINST EIGHT")
             case 8, 9: op = .riffCell(rng.int(1...8), rng.int(1...8))
             case 10: op = .keyScale
@@ -679,7 +680,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case .hits(let u): dragHits(up: u)
             case .offset: dragOffset()
             case .source(let s): noteSource(s)
-            case .riff(let n): riffSwitch(n)
+            case .riff(let n): riffMode(poly: n % 2 == 0)
             case .riffCell(let st, let r): app.buttons["Step \(st), rank \(r)"].firstMatch.tap()
             case .fxCell(let n, let row): fxCell(note: n, row: row)
             case .keyScale:
