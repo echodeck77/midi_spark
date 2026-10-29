@@ -62,7 +62,8 @@ final class PageLayoutTests: XCTestCase {
         // the header kind comes from the header's own ladder on the page's container width
         // 2026-10-20: two offsetting changes — output rings to 75% dropped OUTPUTS by 44pt (839.86 layout A
         // need), then the HOLD/LATCH header buttons widened NOTES by 114pt (953.86) — net +70, still short of 868.
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 900, height: 600)).headerKind, .b, "868 < the 925.88 layout A needs (TAB STRIP: it was 1153.88)")
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 800, height: 600)).headerKind, .b, "768 < the 805.88 layout A needs (TAB STRIP + Sources panel v2: it was 1153.88)")
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 900, height: 600)).headerKind, .a, "868 ≥ 805.88: the one-row header")
         XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 1190, height: 600)).headerKind, .a)
         XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 400, height: 900)).headerKind, .c, "the three-row D is retired (it existed for the PATTERN | MIX switch): a narrow container takes the compact two-row header")
         XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 600, height: 900)).headerKind, .b, "568 ≥ B's 483.88")
@@ -341,8 +342,8 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertFalse(f.contains(.mixPadH), "padH 71 ≥ minPadH 64 now the OUT row is gone"); XCTAssertFalse(f.contains(.mixPadHStop))
         XCTAssertTrue(f.contains(.riffRows), "20.1 (even after the tab-row fair-share gives it back 0.75) is still under 24"); XCTAssertFalse(f.contains(.fxRows), "FX rows 24.67 clear 24")
         // windowed AUM panels
-        let wl = euclideousPageLayout(size: CGSize(width: 900, height: 600))
-        XCTAssertEqual(wl.headerKind, .b, "868 < A's 925.88: B, boxes start at 111")
+        let wl = euclideousPageLayout(size: CGSize(width: 900, height: 553))   // (900 × 600 under the old ladder; layout A holds from a 837.88 view now, so 553 high gives the same 284 × 232.5 box under the one-row header)
+        XCTAssertEqual(wl.headerKind, .a, "868 ≥ A's 805.88: boxes start at 64")
         XCTAssertEqual(wl.box.width, 284, accuracy: 1e-9); XCTAssertEqual(wl.box.height, 232.5, accuracy: 1e-9)
         // §5.2: at this windowed size the pad is 56.25 — under the 64 floor (`.mixPadH`) but no longer under the 48 stop (`.mixPadHStop`), the OUT row's room reclaimed.
         XCTAssertTrue(Set(wl.floors).isSuperset(of: [.mixCellW, .mixPadH, .rhythmZones, .riffRows, .fxRows]), "\(wl.floors)")

@@ -313,17 +313,17 @@ final class LaneLockTests: XCTestCase {
     func testHeaderThresholds() {
         let full = euclideousHeaderGroupWidths(compact: false), compact = euclideousHeaderGroupWidths(compact: true)
         XCTAssertEqual(full.brand, 191.88, accuracy: 0.01); XCTAssertEqual(compact.brand, 93)
-        // TAB STRIP ferry (2026-10-29): the dice, the padlock and the PATTERN | MIX switch left the header — A needs brand + notes + utilities + two gaps = 925.88 (view 957.88), B needs brand + utilities + one gap = 483.88 (view 515.88).
+        // TAB STRIP ferry (2026-10-29): the dice, the padlock and the PATTERN | MIX switch left the header — A needs brand + notes (306, Sources panel v2) + utilities + two gaps = 805.88 (view 837.88), B needs brand + utilities + one gap = 483.88 (view 515.88).
         let a = euclideousHeaderANeeds(full)
         let b = full.brand + full.utilities + full.gap
-        XCTAssertEqual(a, 925.88, accuracy: 0.01); XCTAssertEqual(b, 483.88, accuracy: 0.01)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 925.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 925.9, isLandscape: true), .a)
+        XCTAssertEqual(a, 805.88, accuracy: 0.01); XCTAssertEqual(b, 483.88, accuracy: 0.01)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 805.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 805.9, isLandscape: true), .a)
         XCTAssertEqual(euclideousHeaderKind(containerW: 483.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 483.9, isLandscape: false), .b)
         XCTAssertEqual(euclideousHeaderKind(containerW: 992, isLandscape: true), .a, "a 1024-wide landscape window (container 992) has the one-row header again")
         XCTAssertEqual(euclideousHeaderKind(containerW: 1158, isLandscape: true), .a, "the 1190 reference keeps the one-row header (now with 232 pt to spare)")
         XCTAssertEqual(euclideousHeaderKind(containerW: 1148, isLandscape: true), .a, "an iPad Air 11\" at 1180")
         XCTAssertEqual(euclideousHeaderKind(containerW: 1101, isLandscape: true), .a, "an iPad mini 6 at its full 1133 width")
-        XCTAssertEqual(euclideousHeaderKind(containerW: 900, isLandscape: true), .b, "a 932-wide window")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 780, isLandscape: true), .b, "a 812-wide window")
         XCTAssertEqual(euclideousHeaderKind(containerW: 929.9, isLandscape: false), .b, "portrait never uses the one-row header")
     }
 

@@ -1946,7 +1946,7 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88, accuracy: 1e-9, "the mark, the wordmark, undo and redo (it was 295.88 with the dice and the padlock, 52 pt each: a 44 target and an sp8 gap)")
         XCTAssertEqual(f.brand, 191.88, accuracy: 0.01)
         // WIDENED 312→426 (2026-10-20, HOLD/LATCH): two fixed-width chips (48+54) + the sp4 between them + the sp8 before them. UTILITIES is 4 icons (presets · SWING · REEL · settings).
-        XCTAssertEqual(f.notes, 426); XCTAssertEqual(f.utilities, 176 + 100, "HOCKET ferry: the pill's reserved width (92) and the sp8 before the presets button")
+        XCTAssertEqual(f.notes, 306, "Sources panel v2: the SOURCES button (192) + sp8 + HOLD/LATCH (106); it was 426 (source control 184 + key pill 120 + HOLD/LATCH)"); XCTAssertEqual(f.utilities, 176 + 100, "HOCKET ferry: the pill's reserved width (92) and the sp8 before the presets button")
         XCTAssertEqual(HM.segmentedWidth, 184)
         let c = euclideousHeaderGroupWidths(compact: true)
         XCTAssertEqual(c.brand, 93, "compact: the mark and two 36 pt targets (it was 181 with the dice and the padlock, 44 pt each)"); XCTAssertEqual(c.utilities, 144 + 100)
@@ -1964,14 +1964,14 @@ final class DerivationsTests: XCTestCase {
             XCTAssertEqual(left, right, accuracy: 1e-9, "\(cw): equal space either side of the middle group")
             assertHeaderInvariants(l, cw, "A@\(cw)")
         }
-        // the 1190 reference: 191.88 | 132.06 | NOTES 323.94…749.94 | 132.06 | 882 UTILITIES
+        // the 1190 reference: 191.88 | 192.06 | NOTES 383.94…689.94 | 192.06 | 882 UTILITIES
         let ref = hdrLayout(1158, landscape: true)
-        XCTAssertEqual(ref.notes.x, 323.94, accuracy: 0.01)
+        XCTAssertEqual(ref.notes.x, 383.94, accuracy: 0.01)
     }
     func testLayoutAAtItsFloorHasOneGapEitherSideOfNotes() {
         let full = euclideousHeaderGroupWidths(compact: false)
-        let w = euclideousHeaderANeeds(full)   // A's exact need: 925.88 (1153.88 with the card-side switch and the dice and padlock; 1029.88 before that, 929.88 before the HOCKET pill)
-        XCTAssertEqual(w, 925.88, accuracy: 0.01)
+        let w = euclideousHeaderANeeds(full)   // A's exact need: 805.88 (925.88 with the 426 NOTES; 1153.88 with the card-side switch and the dice and padlock too)
+        XCTAssertEqual(w, 805.88, accuracy: 0.01)
         let l = hdrLayout(w, landscape: true)
         XCTAssertEqual(l.kind, .a)
         XCTAssertEqual(l.notes.x - (l.brand.x + l.brand.width), full.gap, accuracy: 1e-9)
@@ -1990,7 +1990,7 @@ final class DerivationsTests: XCTestCase {
         let c = hdrLayout(470, landscape: false)
         XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
         XCTAssertEqual(c.widths.gap, 8)
-        assertHeaderInvariants(c, 470, "C@470 (NOTES' 426 fits row 2)")
+        assertHeaderInvariants(c, 470, "C@470 (NOTES' 306 fits row 2)")
         // the three-row D is retired: it existed to give the switch its own row. Narrower than NOTES itself (426) the group overflows whichever row it is on.
         XCTAssertEqual(hdrLayout(400, landscape: false).kind, .c)
         // a landscape page too narrow for A falls to B, never A; portrait never uses A, however wide.
@@ -2149,8 +2149,8 @@ final class DerivationsTests: XCTestCase {
     }
     // SOURCES STACK §4.6: the status control keeps the 184-wide footprint, so the NOTES group stays 426 (the
     // header ladder is unchanged — the ferry's stale "312" predates the HOLD/LATCH chips).
-    func testNotesGroupStaysAt426() {
-        XCTAssertEqual(euclideousHeaderGroupWidths(compact: false).notes, 426)
+    func testNotesGroupIsTheSourcesButtonAndHoldLatch() {
+        XCTAssertEqual(euclideousHeaderGroupWidths(compact: false).notes, 306, "Sources panel v2: the SOURCES button 192 + sp8 + HOLD/LATCH 106 (it was 426: the source control 184 + the key pill 120 + HOLD/LATCH)")
         XCTAssertEqual(EuclideousHeaderMetrics.segmentedWidth, 184, "the status control reuses the segmented control's 184×32 footprint")
     }
 
