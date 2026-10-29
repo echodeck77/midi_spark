@@ -7132,8 +7132,8 @@ final class RouterTests: XCTestCase {
         var perCell = [Int](repeating: 0, count: 8)
         for ev in events {
             XCTAssertEqual(ev.cellColumn, ev.column, "a normal hit strikes the cell of the column it read")
-            let cell = Int((columnCells >> UInt32(4 * Int(ev.cellColumn))) & 0xF)
-            XCTAssertLessThan(cell, 8); perCell[cell] += 1
+            let cell = Int(columnCells[Int(ev.cellColumn)])
+            XCTAssertTrue(cell >= 0 && cell < 8); perCell[cell] += 1
         }
         XCTAssertEqual(perCell, [2, 2, 2, 2, 2, 0, 0, 0], "cells 1–5 strike twice each (EVERY 2); the three ghosts never")
         XCTAssertEqual(events.map { Int($0.cellColumn) + 1 }, [8, 8, 7, 7, 6, 6, 5, 5, 4, 4], "REV: column 8 first, each note for two hits")

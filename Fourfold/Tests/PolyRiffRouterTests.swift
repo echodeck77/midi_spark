@@ -184,6 +184,44 @@ final class PolyRiffRouterTests: XCTestCase {
         }
     }
 
+    // MARK: the LANES roll draws what the engine plays
+
+    /// The roll's bars (`euclideousLaneRollHits`, the LANES panel's picture) against the notes the Router really sounds: the same hits at the same beats, the same pitches, and each bar as long as the note rings until the next
+    /// strike of the same pitch cuts it — for random POLY riffs and every direction / EVERY / stride / length / shift / gate.
+    func testTheRollMatchesTheEnginesNotesForRandomPolyLanes() {
+        var rng = PolyRiffRNG(0x2011)
+        let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
+        for seed in 0..<40 {
+            var notes: [EuclideousPolyNote] = []
+            for _ in 0..<(Int(rng.next() % 12) + 2) { notes.append(n(Int(rng.next() % 16), Int(rng.next() % 8) + 1, Int(rng.next() % 6) + 1)) }
+            let poly = EuclideousPolyRiff(notes: notes)
+            let l = lane(gate: [0.3, 0.6, 0.95][Int(rng.next() % 3)], every: Int(rng.next() % 3) + 1, dir: dirs[Int(rng.next() % 4)], length: rng.next() % 3 == 0 ? nil : Int(rng.next() % 16) + 1,
+                         stride: Int(rng.next() % 5) + 1, shift: Int(rng.next() % 16))
+            let e = run(box([l], poly: poly), beats: 40)
+            let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, riffColumns: 16)!
+            let hits = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 30, minGateBeats: 0.01, polyStarts: { poly.startingNotes(at: $0) }) { c, _ in poly.topRanks[c] }
+            let sounded = hits.filter { $0.rank >= 1 }
+            // the engine's strikes in the window, keyed by (sample, pitch)
+            let ons = e.ons.filter { $0.cable == 1 && $0.sample < 30 * beat - 100 }
+            XCTAssertEqual(ons.count, sounded.count, "seed \(seed): the roll draws one bar per struck note")
+            // a pitch struck again while it still rings stays on until the LAST holder ends (the engine's per-key reference count), so the wire's off for a run of overlapping strikes is the latest end among them
+            for pitch in Set(sounded.map { pool[$0.rank - 1] }) {
+                let bars = sounded.filter { pool[$0.rank - 1] == pitch }.sorted { $0.beat < $1.beat }
+                var clusterEnds: [Double] = []
+                var end = -1.0
+                for bar in bars {
+                    let start = bar.beat * Double(beat), stop = start + bar.gateBeats * Double(beat)
+                    if end >= 0 && start < end - 2 { end = max(end, stop) } else { if end >= 0 { clusterEnds.append(end) }; end = stop }
+                }
+                if end >= 0 { clusterEnds.append(end) }
+                let offs = e.offs.filter { $0.cable == 1 && $0.note == pitch && $0.sample > 0 }.map { Double($0.sample) }
+                for ce in clusterEnds where ce < 30 * Double(beat) - 5 {
+                    XCTAssertTrue(offs.contains { abs($0 - ce) <= 3 }, "seed \(seed): pitch \(pitch) should go off at \(ce / Double(beat)) beats (the roll's last bar of a run); the engine's offs: \(offs.map { $0 / Double(beat) })")
+                }
+            }
+        }
+    }
+
     // MARK: nothing sticks
 
     func testSeededPolyFuzzLeavesNothingSoundingAndNoOrphanOffs() {

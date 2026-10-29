@@ -3061,7 +3061,7 @@ struct EuclideousPage: View {
             ? EuclideousStripNotes(layerOn: true, when: line.notesWhenResolved, chance: line.notesChanceResolved, way: line.notesPlayAsResolved, list: notesPlayList(line), lane: idx) : nil
         let legs = euclideousStripLegs(pattern: pattern, hitSteps: hitSteps, prediction: prediction, lapSteps: steps, ranks: ranks, anyLit: layerOn, fxTieColumns: riffPoly ? 0 : euclideousFXTieColumns(fx, line: line, lane: idx),   // POLY: the FX rows are off
                                        pingPong: line.directionResolved == .pingpong, riffPlays: playsRiff, grey: grey, onRest: line.riffOnRestResolved, cfg: cfg, lapStartTick: lapStartTick,
-                                       notes: notes, name: stripNoteName)
+                                       notes: notes, polyStarts: riffPoly ? { [polyRiff] col in polyRiff.ranksStarting(at: col - 1) } : nil, name: stripNoteName)
         // VoiceOver (§6): read the sweep the lane is on at this body (PING-PONG has two); the note at a written rank is the riff grid's row name, a pitch is spoken as the NOTES tab's keys speak it
         var nowLeg = 0
         if legs.count > 1, let cfg, let lapStartTick { nowLeg = euclideousStripLegIndex(raw: Double(Int64((lanesMusicalBeat(real: walkTagBeat(at: Date())) / cfg.sub).rounded(.down)) - lapStartTick), n: steps, legCount: legs.count) }
@@ -3595,7 +3595,7 @@ struct EuclideousPage: View {
         let displayLine = euclideousRandomHeldLane == idx ? (state.original ?? line) : line
         let slot = euclideousRandomPendingSlot(lane: idx, tab: tab)
         EuclideousRandomCardView(lane: idx, width: width, height: height, accent: accent, line: displayLine,
-                                  riffRanks: effectiveGridRanks, tab: tab, state: state, holding: euclideousRandomHeldLane == idx,
+                                  riffRanks: effectiveGridRanks, riffColumns: walkColumns, tab: tab, state: state, holding: euclideousRandomHeldLane == idx,
                                   onSelectTab: { t in
                                       if euclideousRandomHeldLane == idx { euclideousRandomHoldEnded(lane: idx) }   // release the OLD tab's render-thread override before switching
                                       euclideousRandomTab[idx] = t
@@ -5935,9 +5935,9 @@ struct EuclideousPage: View {
             if let o = heldOriginal {
                 var subs = lines; subs[i] = o
                 let cyc = clock.stepBeats * Double(max(1, clock.cols))
-                cfg = euclideousWalkLaneConfig(lane: i, lines: subs, cyc: cyc, resetSpanBars: resetSpanBars,
-                                                lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
-                                                swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo)
+                cfg = polyAdjusted(euclideousWalkLaneConfig(lane: i, lines: subs, cyc: cyc, resetSpanBars: resetSpanBars,
+                                                lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: walkFX,
+                                                swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, riffColumns: walkColumns))
             } else {
                 cfg = riffWalkConfig(i)
             }
@@ -6097,10 +6097,18 @@ struct EuclideousPage: View {
     private func riffWalkConfig(_ idx: Int) -> EuclideousWalkLaneConfig? {
         guard idx >= 0, idx < lines.count else { return nil }
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
-        return euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars,
-                                        lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
+        return polyAdjusted(euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars,
+                                        lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: walkFX,
                                         swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo,
-                                        riffColumns: riffPoly ? EuclideousPolyMetrics.columns : 8)
+                                        riffColumns: walkColumns))
+    }
+    /// POLY RIFF: what a lane's walk config differs in while POLY is on — the grid is 16 wide, the FX rows are off (an empty table, so the mirrors' FX paths stay idle) and ON REST is SKIP.
+    private var walkColumns: Int { riffPoly ? EuclideousPolyMetrics.columns : 8 }
+    private var walkFX: EuclideousFX { riffPoly ? EuclideousFX() : fx }
+    private func polyAdjusted(_ cfg: EuclideousWalkLaneConfig?) -> EuclideousWalkLaneConfig? {
+        guard riffPoly, var c = cfg else { return cfg }
+        c.onRest = .skip
+        return c
     }
     /// The readout for lane `idx`'s current riff settings (§7), nil when over budget. MEMOISED on its inputs (§7.2's own ask; `EuclideousRiffReadoutCache`): the lane card's mini-grid,
     /// its WALK strip and the riff panel's rails all read it on every body evaluation, but it is only recomputed when a lane's pattern, rate, chains or riff settings change.
@@ -6316,13 +6324,14 @@ struct EuclideousPage: View {
             let unit = v.muteUnitBeats
             let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
             let key = EuclideousLanesRollCache.Key(lines: lines, lanesSeq: lanesSeq, ranks: ranks, windowStart: win.start, unit: unit, restartTab: false,
-                                                    beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, swing: clock.swing, fx: fx)
+                                                    beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, swing: clock.swing, fx: fx, poly: riffPoly ? polyRiff : nil)
             let roll = lanesRollCache.roll(lane: lane, key: key) {
-                guard let cfg = euclideousWalkLaneConfig(lane: lane, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
-                                                          lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: fx,
+                guard let cfg = polyAdjusted(euclideousWalkLaneConfig(lane: lane, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
+                                                          lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: walkFX,
                                                           swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar,
-                                                          tempo: clock.tempo) else { return [] }
-                return euclideousLaneRollHits(cfg: cfg, windowStart: win.start, windowBeats: win.length, minGateBeats: 0.005 * clock.tempo / 60.0) { column, _ in
+                                                          tempo: clock.tempo, riffColumns: walkColumns)) else { return [] }
+                return euclideousLaneRollHits(cfg: cfg, windowStart: win.start, windowBeats: win.length, minGateBeats: 0.005 * clock.tempo / 60.0,
+                                              polyStarts: riffPoly ? { [polyRiff] col in polyRiff.startingNotes(at: col) } : nil) { column, _ in
                     column >= 0 && column < ranks.count ? ranks[column] : 0
                 }
             }
@@ -6764,6 +6773,7 @@ final class EuclideousLanesRollCache {
         var tempo: Double
         var swing: Double
         var fx: EuclideousFX   // every FX edit (cells, lane bits, PASSES, …) recomputes the roll (FX ferry §13.4)
+        var poly: EuclideousPolyRiff? = nil   // POLY RIFF: the whole POLY riff (the top ranks alone cannot see a length or a second note) — nil in MONO
     }
     private var store: [Int: (key: Key, roll: [EuclideousRollHit])] = [:]
     func roll(lane: Int, key: Key, make: () -> [EuclideousRollHit]) -> [EuclideousRollHit] {

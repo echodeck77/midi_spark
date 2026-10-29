@@ -17,6 +17,7 @@ struct EuclideousRandomCardView: View {
     let accent: Color
     let line: EuclidLine   // the CURRENT state as heard (already merged with any still-queued roll)
     let riffRanks: [Int]
+    var riffColumns: Int = 8   // POLY RIFF (2026-10-29): the riff grid's width — 8 (MONO) or 16 (POLY, `riffRanks` = the top rank starting on each column)
     let tab: EuclideousRandomTab
     let state: EuclideousRandomRollState
     let holding: Bool
@@ -161,7 +162,7 @@ struct EuclideousRandomCardView: View {
     @ViewBuilder private func picture(beat: Double, riffGlow: Double, notesGlow: Double) -> some View {
         switch tab {
         case .rhythm: EuclideousRandomRhythmPicture(line: line, original: state.original, accent: accent, beat: beat, strikeGlow: riffGlow)
-        case .riff: EuclideousRandomRiffPicture(line: line, original: state.original, accent: accent, riffRanks: riffRanks, strikeGlow: riffGlow)
+        case .riff: EuclideousRandomRiffPicture(line: line, original: state.original, accent: accent, riffRanks: riffRanks, strikeGlow: riffGlow, columns: riffColumns)
         case .notes: EuclideousRandomNotesPicture(line: line, original: state.original, accent: accent, riffRanks: riffRanks, lane: lane, strikeGlow: notesGlow)
         }
     }
@@ -476,14 +477,19 @@ struct EuclideousRandomRiffPicture: View {
     let riffRanks: [Int]
     /// 0…1 flash of this lane's latest riff strike — the walk path brightens on a hit.
     var strikeGlow: Double = 0
+    /// POLY RIFF (2026-10-29): the riff grid's width — 8 (MONO) or 16 (POLY); `riffRanks` then holds the top rank starting on each of the sixteen columns.
+    var columns: Int = 8
+
+    private func lenOf(_ l: EuclidLine) -> Int { columns == 8 ? l.riffLengthResolved : l.riffLengthResolved(columns: columns) }
+    private func shiftOf(_ l: EuclidLine) -> Int { columns == 8 ? l.riffRotateResolved : l.riffRotateResolved(columns: columns) }
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
-            let length = line.riffLengthResolved
-            let colW = w / 8
+            let length = lenOf(line)
+            let colW = w / CGFloat(columns)
             ZStack(alignment: .topLeading) {
-                ForEach(0..<8, id: \.self) { c in
+                ForEach(0..<columns, id: \.self) { c in
                     let within = c < length
                     let sounds = c < riffRanks.count && riffRanks[c] >= 1
                     Rectangle().fill(within ? (sounds ? Color(hex: 0x22252C) : Color(hex: 0x1F2127)) : Color.clear)
@@ -516,11 +522,11 @@ struct EuclideousRandomRiffPicture: View {
     /// The first 12 hits from the melody origin (ordinal 0...11), each at the column the engine's own walk
     /// reads — `euclideousRiffColumn`, never a second derivation — placed evenly top-to-bottom.
     private func points(for l: EuclidLine, h: CGFloat, colW: CGFloat) -> [(CGPoint, Bool)] {
-        let length = l.riffLengthResolved
+        let length = lenOf(l)
         let seed = UInt64(bitPattern: Int64(l.riffDirSeedResolved))
         return (0..<12).map { ord in
             let col = euclideousRiffColumn(ordinal: Int64(ord), every: l.riffAdvanceEveryResolved, direction: l.euclideousRiffDirResolved,
-                                            length: length, stride: l.riffStrideResolved, shift: l.riffRotateResolved, seed: seed)
+                                            length: length, stride: l.riffStrideResolved, shift: shiftOf(l), seed: seed, columns: columns)
             let y = 22 + CGFloat(ord) / 11 * (h - 30)
             let sounds = col < riffRanks.count && riffRanks[col] >= 1
             return (CGPoint(x: CGFloat(col) * colW + colW / 2, y: y), sounds)

@@ -192,6 +192,10 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
                                                       startPoint: CGPoint(x: frame.midX, y: frame.minY), endPoint: CGPoint(x: frame.midX, y: frame.maxY)))
             }
         }
+        // POLY RIFF: the other notes starting on this column — a plain chip at each one's height (no label, no flash: the main chip carries them)
+        for extra in d.hits[i].extraRanks {
+            ctx.fill(RoundedRectangle(cornerRadius: M.chipRadius).path(in: euclideousStripChipFrame(column: d.frames[i].column, rank: extra).offsetBy(dx: 0, dy: look.dip)), with: .color(riffRests ? Color.clear : P.noteChip))
+        }
         if euclideousStripShowsChipLabel(columnWidth: d.frames[i].column.width) {
             let text = Text("\(chip.column)").font(stripFont(M.chipLabelSize)).foregroundColor(riffRests ? (chip.grey ? P.greyChip : P.noteChip) : (chip.hollow ? d.tint : P.ink))
             ctx.draw(ctx.resolve(text), at: CGPoint(x: frame.midX, y: frame.midY), anchor: .center)

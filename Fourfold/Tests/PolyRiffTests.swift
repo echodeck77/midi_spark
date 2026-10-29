@@ -183,6 +183,36 @@ final class PolyRiffTests: XCTestCase {
         XCTAssertEqual(euclideousPolyRingBeatsStep(len: 1, every: 1, gate: 0.5, nextHitGapBeats: 2, sub: 0.5, minGateBeats: 0.01), 1.0, accuracy: 1e-9, "length 1: MONO's gate × gap")
         XCTAssertEqual(euclideousPolyRingBeatsStep(len: 3, every: 2, gate: 0.5, nextHitGapBeats: 2, sub: 0.5, minGateBeats: 0.01), 2.0 + 1.0, accuracy: 1e-9, "(3 − 1) × 2 steps of 0.5, then gate × the gap")
     }
+
+    // MARK: slice 3 — the restart tile's track at 16 columns
+
+    func testTheCycleOrderHoldsSixteenColumns() {
+        let o = euclideousRiffCycleOrder(dir: .forward, length: 16, stride: 1, shift: 0, columns: 16)
+        XCTAssertEqual(o.length, 16); XCTAssertEqual(o.period, 16); XCTAssertEqual(o.visited, 16)
+        XCTAssertEqual((0..<16).map { o.cell(ofColumn: $0) }, (0..<16).map { Optional($0) }, "FWD: column i is cell i")
+        XCTAssertEqual((0..<16).map { o.column(ofCell: $0) }, Array(0..<16))
+        XCTAssertEqual((0..<16).map { o.distinctThrough(step: $0) }, Array(1...16))
+        let rev = euclideousRiffCycleOrder(dir: .reverse, length: 16, stride: 1, shift: 3, columns: 16)
+        XCTAssertEqual(rev.column(ofCell: 0), 2, "REV from the last window column: (15 + 3) mod 16"); XCTAssertEqual(rev.cell(ofColumn: 2), 0)
+        let ping = euclideousRiffCycleOrder(dir: .pingpong, length: 16, stride: 1, shift: 0, columns: 16)
+        XCTAssertEqual(ping.period, 32); XCTAssertEqual(ping.visited, 16); XCTAssertEqual(ping.distinctThrough(step: 31), 16)
+        XCTAssertEqual(ping.distinctThrough(step: 5), 6)
+        // MONO is the 8-column track it always was
+        let mono = euclideousRiffCycleOrder(dir: .pendulum, length: 8, stride: 1, shift: 0)
+        XCTAssertEqual(mono.columnCells.count, 8); XCTAssertEqual(mono.period, 14)
+    }
+    func testTheMelodyTileOfAPolyLaneHasOneCellPerWalkedColumn() {
+        var l = EuclidLine(target: 0, pulses: 4, steps: 4); l.rate = .r1_4; l.useRiff = true; l.riffOn = true
+        l.riffLength = 12; l.riffRotate = 10; l.restartMelodyPasses = [2]
+        let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, riffColumns: 16)!
+        XCTAssertEqual(cfg.columns, 16); XCTAssertEqual(cfg.length, 12); XCTAssertEqual(cfg.rotate, 10)
+        let st = restartTileState(.melody, cfg: cfg, beat: 0.1, running: true)
+        XCTAssertEqual(st.count, 12, "one cell per riff column of the window — 12, not the MONO grid's 8")
+        XCTAssertEqual(st.cell(forColumn: 10), 0, "the window starts at column 10 (SHIFT)"); XCTAssertEqual(st.cell(forColumn: 15), 5); XCTAssertEqual(st.cell(forColumn: 0), 6); XCTAssertEqual(st.cell(forColumn: 5), 11)
+        XCTAssertNil(st.cell(forColumn: 6), "columns outside the window have no cell")
+        let mono = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
+        XCTAssertEqual(restartTileState(.melody, cfg: mono, beat: 0.1, running: true).count, 8, "the same lane in MONO: its 8-column window")
+    }
 }
 
 /// A tiny deterministic generator for the table tests.

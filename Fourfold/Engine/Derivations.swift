@@ -6508,6 +6508,7 @@ struct EuclideousRollHit: Equatable {
 /// exactly: SHADOW lanes (their pitch comes from the partner, so the roll shows the lane's OWN riff column), an AVOID-muted pick, and a
 /// FILL hit (it strikes the lane's own NOTE pick, which the rank axis cannot show) — those draw as rests (rank 0).
 func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double, windowBeats: Double, minGateBeats: Double,
+                            polyStarts: ((Int) -> [(rank: Int, len: Int)])? = nil,
                             rankAt: (_ column: Int, _ beat: Double) -> Int) -> [EuclideousRollHit] {
     guard c.sub > 0, c.n > 0, windowBeats > 0 else { return [] }
     let cycleLen = euclidCycleLen(c.dir, n: c.n)
@@ -6541,6 +6542,22 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
         let g = fxHit.gatePct.map { Double($0) / 100 } ?? c.gate
         let gap = euclideousNextChainHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, cap: cycleLen * 4,
                                                   chains: c.chains, legacySpanBeats: c.spanBeats, timing: c.timing)
+        // POLY RIFF (2026-10-29): every note STARTING on the column is a bar of its own, as long as the Router rings it (`euclideousPolyRingBeats`; length 1 = MONO's gate × gap); a column where none starts draws the rest line.
+        if let ps = polyStarts, c.riffOn {
+            let audible = euclideousLaneAudible(beat: hitBeat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)
+            var any = false
+            for note in ps(w.playedStep) {
+                let r = euclideousRiffStepRanks(ranks: [note.rank], invert: c.invert, transpose: c.transpose)[0]
+                guard r >= 1 else { continue }
+                let ring = c.advanceStep
+                    ? euclideousPolyRingBeatsStep(len: note.len, every: c.every, gate: c.gate, nextHitGapBeats: gap, sub: c.sub, minGateBeats: minGateBeats)
+                    : euclideousPolyRingBeats(hitsAhead: euclideousPolyHitsAhead(len: note.len, every: c.every), gate: c.gate, nextHitGapBeats: gap, minGateBeats: minGateBeats,
+                                              buf: c.buf, eN: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats, timing: c.timing)
+                out.append(EuclideousRollHit(beat: hitBeat, rank: r, gateBeats: ring, audible: audible)); any = true
+            }
+            if !any { out.append(EuclideousRollHit(beat: hitBeat, rank: 0, gateBeats: euclideousPitchGateBeats(gate: c.gate, nextHitGapBeats: gap, tieExt: 0, minGateBeats: minGateBeats), audible: audible)) }
+            continue
+        }
         var tie = 0.0
         if rank >= 1, c.onRest == .tie || laneHasTieFX {
             tie = euclideousChainTieExtensionBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains,
@@ -8420,6 +8437,8 @@ struct EuclideousStripHit: Equatable {
     var key: EuclideousStripKey? = nil
     var column: Int? = nil   // the footer's riff column for this hit (1-based), nil when none is read
     var tick: Int = -1       // the hit's lap-local tick (its place in the pass), -1 for a rest
+    /// POLY RIFF (2026-10-29): the OTHER ranks of notes that start on this hit's column (the chip carries the highest) — each is drawn as a plain chip at its own height. Empty in MONO.
+    var extraRanks: [Int] = []
 }
 /// What the key row needs to know about the lane's notes layer: the layer on (`euclideousNotesLayerIsOn`), WHEN, CHANCE, the way, the play list and the lane index (CHANCE's roll is seeded with it).
 struct EuclideousStripNotes {
@@ -8450,7 +8469,7 @@ func euclideousStripRepeatRank(cfg c: EuclideousWalkLaneConfig, ranks: [Int], ti
 ///   · `notes` nil = the notes layer is off / ignored: every key is unlit.
 ///   · `name` names a pitch the way the riff grid does; `keyLabels` false skips the label work (k is not free) when the keys are too narrow to show one.
 func euclideousStripHits(pattern: [Bool], hitSteps: [EuclidHitStep], states: [EuclidFooterState], ranks: [Int], riffPlays: Bool, grey: Bool, onRest: EuclidRiffOnRest,
-                         cfg: EuclideousWalkLaneConfig?, lapStartTick: Int64?, notes: EuclideousStripNotes?, keyLabels: Bool = true, name: (Int) -> String) -> [EuclideousStripHit] {
+                         cfg: EuclideousWalkLaneConfig?, lapStartTick: Int64?, notes: EuclideousStripNotes?, keyLabels: Bool = true, polyStarts: ((Int) -> [Int])? = nil, name: (Int) -> String) -> [EuclideousStripHit] {
     let n = pattern.count
     var out = [EuclideousStripHit](repeating: EuclideousStripHit(), count: n)
     var tickAt = [Int](repeating: -1, count: n)
@@ -8466,7 +8485,7 @@ func euclideousStripHits(pattern: [Bool], hitSteps: [EuclidHitStep], states: [Eu
             hit.column = col
             let r = writtenRank(col)
             if r >= 1 {
-                if riffPlays { hit.chip = EuclideousStripChip(rank: r, column: col, hollow: false, grey: false) }
+                if riffPlays { hit.chip = EuclideousStripChip(rank: r, column: col, hollow: false, grey: false); if let ps = polyStarts { hit.extraRanks = ps(col).filter { $0 != r && $0 >= 1 && $0 <= 8 } } }
                 else if grey { hit.chip = EuclideousStripChip(rank: r, column: col, hollow: false, grey: true) }
             }
         case .hitOnRest(let col):
@@ -8523,14 +8542,14 @@ func euclideousStripLegIndex(raw: Double, n: Int, legCount: Int) -> Int { legCou
 /// The strip's legs for the pass the footers show: `hitSteps` / `prediction` are the footers' (`euclideousLapHitSteps`, `euclideousFooterPass`), split into sweeps for PING-PONG; each leg's states come from
 /// `euclideousFooterStates` over its own hits and its chips, gaps and keys from `euclideousStripHits`.
 func euclideousStripLegs(pattern: [Bool], hitSteps: [EuclidHitStep], prediction: [Int]?, lapSteps: Int, ranks: [Int], anyLit: Bool, fxTieColumns: UInt8, pingPong: Bool,
-                         riffPlays: Bool, grey: Bool, onRest: EuclidRiffOnRest, cfg: EuclideousWalkLaneConfig?, lapStartTick: Int64?, notes: EuclideousStripNotes?, name: (Int) -> String) -> [EuclideousStripLeg] {
+                         riffPlays: Bool, grey: Bool, onRest: EuclidRiffOnRest, cfg: EuclideousWalkLaneConfig?, lapStartTick: Int64?, notes: EuclideousStripNotes?, polyStarts: ((Int) -> [Int])? = nil, name: (Int) -> String) -> [EuclideousStripLeg] {
     let all = Array(hitSteps.indices)
     let groups: [[Int]] = pingPong ? [all.filter { hitSteps[$0].tick < lapSteps }, all.filter { hitSteps[$0].tick >= lapSteps }] : [all]
     return groups.map { idxs in
         let steps = idxs.map { hitSteps[$0] }
         let pred: [Int]? = prediction.map { p in idxs.compactMap { $0 < p.count ? p[$0] : nil } }
         let states = euclideousFooterStates(hitSteps: steps, lapSteps: lapSteps, prediction: pred, riffRanksResolved: ranks, anyLit: anyLit, fxTieColumns: fxTieColumns)
-        let hits = euclideousStripHits(pattern: pattern, hitSteps: steps, states: states, ranks: ranks, riffPlays: riffPlays, grey: grey, onRest: onRest, cfg: cfg, lapStartTick: lapStartTick, notes: notes, name: name)
+        let hits = euclideousStripHits(pattern: pattern, hitSteps: steps, states: states, ranks: ranks, riffPlays: riffPlays, grey: grey, onRest: onRest, cfg: cfg, lapStartTick: lapStartTick, notes: notes, polyStarts: polyStarts, name: name)
         return EuclideousStripLeg(hitSteps: steps, hits: hits)
     }
 }
@@ -8854,14 +8873,13 @@ struct EuclideousRestartTileState: Equatable {
     var ghostFromFraction: Double? = nil  // continuous RHYTHM: the dashed tail starts here
     var restartsIn: Int? = nil            // whole bars (RHYTHM) / passes (MELODY) until the next restart, rounded up; nil when FREE or not running
     /// MELODY: the riff column → cell map (4 bits per column 0…7, 0xF = no cell) that a strike's column is looked up in, and how many of the cells the walk reaches this cycle before the next melody restart (all of them when FREE).
-    var columnCells: UInt32 = 0xFFFF_FFFF
+    var columnCells: [Int8] = [Int8](repeating: -1, count: 8)   // POLY RIFF (2026-10-29): an array, 16 long in POLY (a 4-bit packing cannot hold 16 cells and "none")
     var reachable: Int = 0
     func cell(_ i: Int) -> UInt8 { i >= 0 && i < 16 ? UInt8((cellBits >> UInt32(2 * i)) & 3) : 0 }
     /// The cell a strike on riff column `c` belongs to, nil when the track has none for it.
     func cell(forColumn c: Int) -> Int? {
-        guard c >= 0, c < 8 else { return nil }
-        let v = Int((columnCells >> UInt32(4 * c)) & 0xF)
-        return v == 0xF ? nil : v
+        guard c >= 0, c < columnCells.count, columnCells[c] >= 0 else { return nil }
+        return Int(columnCells[c])
     }
     var litCount: Int { (0..<min(count, 16)).filter { cell($0) == 1 }.count }
     var ghostCount: Int { (0..<min(count, 16)).filter { cell($0) == 2 }.count }
@@ -8900,39 +8918,42 @@ func euclideousNextMelodyRestart(after beat: Double, lapBeats: Double, barBeats:
 /// RESTART TILES §1.2 / §1.3 — the riff's walk cycle as the MELODY tile's cells: cell i is the i-th DISTINCT riff column the walk visits from the start of a cycle (FWD LEN → 1 order, REV the other way, PEND / PING outward
 /// then back — a revisit adds no cell). A cycle is `period` walk steps (`euclideousFXWalkPeriod`: D ÷ gcd(D, STRIDE), D = LEN · 2·LEN−2 · 2·LEN) and ends where the walk returns to its start. The track always has LEN cells: columns
 /// the stride never visits follow the visited ones in window order (they are never reached). RAND / DRUNK can't reach the Euclideous row (`euclideousRiffDirResolved` coerces them to FWD) but are handled: column order, `unpredictable`.
-/// Fixed-size: 4 bits per column / cell / walk step.
+/// Arrays since the POLY RIFF ferry (2026-10-29): `columns` long, `cellColumns` one entry per cell, `distinct` one per walk step.
 struct EuclideousRiffCycleOrder: Equatable {
     var length = 1, period = 1, visited = 0
     var unpredictable = false
-    var columnCells: UInt32 = 0xFFFF_FFFF     // column 0…7 → its cell (0xF = none)
-    var cellColumns: UInt32 = 0               // cell 0…7 → its column
-    var distinctBits: UInt64 = 0              // walk step 0…15 → how many distinct cells the walk has reached through that step (1…8)
-    func column(ofCell i: Int) -> Int { i >= 0 && i < 8 ? Int((cellColumns >> UInt32(4 * i)) & 0xF) : 0 }
-    func cell(ofColumn c: Int) -> Int? { guard c >= 0, c < 8 else { return nil }; let v = Int((columnCells >> UInt32(4 * c)) & 0xF); return v == 0xF ? nil : v }
-    func distinctThrough(step w: Int) -> Int { w < 0 ? 0 : Int((distinctBits >> UInt64(4 * min(15, w))) & 0xF) }
+    var columnCells: [Int8] = [Int8](repeating: -1, count: 8)   // column → its cell (−1 = none); `columns` long
+    var cellColumns: [UInt8] = []                               // cell → its column
+    var distinct: [UInt8] = []                                  // walk step → how many distinct cells the walk has reached through that step
+    func column(ofCell i: Int) -> Int { i >= 0 && i < cellColumns.count ? Int(cellColumns[i]) : 0 }
+    func cell(ofColumn c: Int) -> Int? { c >= 0 && c < columnCells.count && columnCells[c] >= 0 ? Int(columnCells[c]) : nil }
+    func distinctThrough(step w: Int) -> Int { w < 0 || distinct.isEmpty ? 0 : Int(distinct[min(w, distinct.count - 1)]) }
 }
-func euclideousRiffCycleOrder(dir: RiffDir, length: Int, stride: Int, shift: Int) -> EuclideousRiffCycleOrder {
+/// POLY RIFF (2026-10-29): `columns` is the riff grid's width (8, or 16 for a lane walking the POLY grid — the track then has up to 16 cells and the walk's period reaches 2 × 16); the arrays replace the 4-bit packing that could only hold 8.
+func euclideousRiffCycleOrder(dir: RiffDir, length: Int, stride: Int, shift: Int, columns: Int = 8) -> EuclideousRiffCycleOrder {
     var o = EuclideousRiffCycleOrder()
-    let L = max(1, min(8, length)), st = max(1, stride)
+    let cols = max(1, columns)
+    let L = max(1, min(cols, length)), st = max(1, stride)
     o.length = L
+    o.columnCells = [Int8](repeating: -1, count: cols)
     var count = 0
-    func assign(_ col: Int) { o.columnCells = (o.columnCells & ~(UInt32(0xF) << UInt32(4 * col))) | (UInt32(count) << UInt32(4 * col)); o.cellColumns |= UInt32(col) << UInt32(4 * count); count += 1 }
-    func assigned(_ col: Int) -> Bool { (o.columnCells >> UInt32(4 * col)) & 0xF != 0xF }
+    func assign(_ col: Int) { o.columnCells[col] = Int8(count); o.cellColumns.append(UInt8(col)); count += 1 }
+    func assigned(_ col: Int) -> Bool { o.columnCells[col] >= 0 }
     if dir == .random || dir == .drunk {
         o.unpredictable = true; o.period = L
-        for i in 0..<L { assign(riffRotateStep(i, by: shift, steps: 8)); o.distinctBits |= UInt64(count) << UInt64(4 * i) }
+        for i in 0..<L { assign(riffRotateStep(i, by: shift, steps: cols)); o.distinct.append(UInt8(count)) }
         o.visited = L
         return o
     }
-    let P = max(1, min(16, euclideousFXWalkPeriod(dir: dir, length: L, stride: st)))
+    let P = max(1, min(2 * cols, euclideousFXWalkPeriod(dir: dir, length: L, stride: st)))
     o.period = P
     for w in 0..<P {
-        let col = riffRotateStep(riffStepAt(dir, raw: w * st, steps: L, seed: 0), by: shift, steps: 8)
+        let col = riffRotateStep(riffStepAt(dir, raw: w * st, steps: L, seed: 0), by: shift, steps: cols)
         if !assigned(col) { assign(col) }
-        o.distinctBits |= UInt64(count) << UInt64(4 * w)
+        o.distinct.append(UInt8(count))
     }
     o.visited = count
-    for i in 0..<L { let col = riffRotateStep(i, by: shift, steps: 8); if !assigned(col) { assign(col) } }   // the stride never reaches these
+    for i in 0..<L { let col = riffRotateStep(i, by: shift, steps: cols); if !assigned(col) { assign(col) } }   // the stride never reaches these
     return o
 }
 
@@ -8970,8 +8991,8 @@ func restartTileState(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneCo
     case .melody:
         let chain = c.chains.melody
         st.isFree = chain.isFree
-        let L = max(1, min(8, c.length))
-        let order = euclideousRiffCycleOrder(dir: c.riffDir, length: L, stride: c.stride, shift: c.rotate)
+        let L = max(1, min(c.columns, c.length))
+        let order = euclideousRiffCycleOrder(dir: c.riffDir, length: L, stride: c.stride, shift: c.rotate, columns: c.columns)
         let every = max(1, c.every)
         let cycleUnits = Int64(max(1, order.period * every))   // one full walk cycle, in hits (ADV HIT) or steps (ADV STEP)
         st.count = L
@@ -9050,11 +9071,11 @@ struct EuclideousCellStrikeBank {
         return euclideousPulseFilter(.glow, scale: p, reduceMotion: reduceMotion) == .off ? 0 : env.f
     }
 }
-func euclideousRestartCellStrikes(_ strikes: [EuclideousPulseStrike], columnCells: UInt32, now: Double) -> EuclideousCellStrikeBank {
+func euclideousRestartCellStrikes(_ strikes: [EuclideousPulseStrike], columnCells: [Int8], now: Double) -> EuclideousCellStrikeBank {
     var bank = EuclideousCellStrikeBank()
-    for s in strikes where s.onsetAt <= now && s.riffVel > 0 && s.cellColumn >= 0 && s.cellColumn < 8 {
-        let v = Int((columnCells >> UInt32(4 * Int(s.cellColumn))) & 0xF)
-        if v != 0xF { bank.record(cell: v, velocity: Int(s.riffVel), seconds: now - s.onsetAt) }
+    for s in strikes where s.onsetAt <= now && s.riffVel > 0 && s.cellColumn >= 0 && Int(s.cellColumn) < columnCells.count {
+        let v = Int(columnCells[Int(s.cellColumn)])
+        if v >= 0 { bank.record(cell: v, velocity: Int(s.riffVel), seconds: now - s.onsetAt) }
     }
     return bank
 }

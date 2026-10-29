@@ -73,6 +73,10 @@ extension EuclideousPolyRiff {
         if let top = n.filter({ $0.col == col }).map({ $0.rank }).max() { return top }
         return n.filter { col > $0.col && col < $0.col + $0.len }.map { $0.rank }.max() ?? 0
     }
+    /// The notes STARTING on `col` — rank and length, lowest rank first (the order the Router strikes them in).
+    func startingNotes(at col: Int) -> [(rank: Int, len: Int)] { normalized.notes.filter { $0.col == col }.sorted { $0.rank < $1.rank }.map { (rank: $0.rank, len: $0.len) } }
+    /// The ranks of the notes STARTING on `col`, highest first (the lane strip draws one chip each).
+    func ranksStarting(at col: Int) -> [Int] { normalized.notes.filter { $0.col == col }.map { $0.rank }.sorted(by: >) }
     /// Per column, the highest rank STARTING there (0 = a rest column) — the array the walk mirror (`euclideousWalkTagPlan`) reads as `ranks`.
     var topRanks: [Int] {
         var out = [Int](repeating: 0, count: EuclideousPolyMetrics.columns)
