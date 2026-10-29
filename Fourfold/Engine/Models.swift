@@ -159,11 +159,36 @@ enum EuclideousLaneSource: String, Codable, CaseIterable { case midi, key, chord
 // own override (spec §8 — NOT built now). SUPERSEDES the exclusive `euclideousNoteSource` as the behaviour
 // driver; that field stays decode-only as the nil-derivation fallback (`sourcePlanResolved`, §1.2).
 struct SourcePlan: Equatable, Codable {
+    // SOURCES STACK (2026-10-26) legacy cells — DECODE-ONLY since Sources panel v2 (the UI stopped writing them;
+    // `sourcePlanResolved` maps a stored 4-cell plan to the v2 fields, §1.3). Kept decodable for old sessions.
     var chordsWithMidi = false
     var chordsNoMidi   = false
     var keyWithMidi    = false
     var keyNoMidi      = false
+    // Sources panel v2 (2026-10-28) §1.1: four switches in priority order, the MIDI ADD/REPLACE choice, and the
+    // tapped-in PICK notes. Additive-Optional (nil ⇒ this plan predates v2; `sourcePlanResolved` fills them from
+    // the legacy cells or the legacy exclusive source). The RESOLVED plan returned by `sourcePlanResolved` always
+    // carries concrete v2 values, so the engine/snapshot/UI read the v2 fields; the legacy cells are then ignored.
+    var midiOn: Bool? = nil
+    var chordsOn: Bool? = nil
+    var pickOn: Bool? = nil
+    var keyOn: Bool? = nil
+    var midiMode: MidiMode? = nil
+    var pickNotes: [UInt8]? = nil
+    /// true iff any v2 field is present (⇒ a v2-written plan; absence ⇒ derive from the legacy cells / source).
+    var hasV2: Bool { midiOn != nil || chordsOn != nil || pickOn != nil || keyOn != nil || midiMode != nil || pickNotes != nil }
+    // Concrete reads for the engine/UI off a RESOLVED plan. The `??` defaults only fire for an unresolved default
+    // SourcePlan() (a non-Euclideous SnapParams cell, never read for the pool): midiOn⇒true keeps MIDI listening.
+    var midiOnR: Bool { midiOn ?? true }
+    var chordsOnR: Bool { chordsOn ?? (chordsWithMidi || chordsNoMidi) }
+    var pickOnR: Bool { pickOn ?? false }
+    var keyOnR: Bool { keyOn ?? (keyWithMidi || keyNoMidi) }
+    var midiModeR: MidiMode { midiMode ?? .add }
+    var pickNotesR: [UInt8] { pickNotes ?? [] }
 }
+// Sources panel v2 §1.1 / §2.2: what happens to CHORDS/PICK/KEY while MIDI IN is playing — ADD (they stack on
+// top) or REPLACE (they step aside until MIDI stops, within RELEASE GRACE). Global (one value for all parts).
+enum MidiMode: String, Codable, CaseIterable { case add = "ADD", replace = "REPLACE" }
 // SOURCES STACK §1.6: CLASHES is a DEV-build-only rig setting (judged by ear) — ALLOW keeps every stacked note,
 // DROP thins a lower layer's note that sits a semitone from a higher layer's (§2.7). `clashPolicyResolved`
 // forces ALLOW in release builds whatever is stored, so a stored DROP can never reach a shipped build.
@@ -3071,11 +3096,31 @@ struct PluginState: Codable, Equatable {
     // only as this derivation's input.
     var euclideousSourcePlan: SourcePlan? = nil
     var sourcePlanResolved: SourcePlan {
-        if let p = euclideousSourcePlan { return p }
+        // Sources panel v2 §1.1-§1.3: ALWAYS return a plan whose v2 fields are concrete (the engine/snapshot/UI
+        // read the v2 fields; the legacy cells are then ignored). Three cases:
+        if let p = euclideousSourcePlan {
+            if p.hasV2 {
+                // §1.1 a v2-written plan: fill any still-nil v2 field with its neutral default.
+                return SourcePlan(midiOn: p.midiOnR, chordsOn: p.chordsOnR, pickOn: p.pickOnR,
+                                  keyOn: p.keyOnR, midiMode: p.midiModeR, pickNotes: p.pickNotesR)
+            }
+            // §1.3 (Route A) a stored legacy 4-cell plan: chordsOn/keyOn = either of that row's cells lit; midiOn
+            // true; REPLACE iff every LIT row is lit for NO-MIDI-only (a "while MIDI" row has no v2 equivalent, so
+            // it becomes ADD-always — the one mapping that changes what a held-MIDI session plays, §1.3). pickOn off.
+            let chordsOn = p.chordsWithMidi || p.chordsNoMidi
+            let keyOn = p.keyWithMidi || p.keyNoMidi
+            let chordsNoMidiOnly = p.chordsNoMidi && !p.chordsWithMidi
+            let keyNoMidiOnly = p.keyNoMidi && !p.keyWithMidi
+            let allLitAreNoMidiOnly = (!chordsOn || chordsNoMidiOnly) && (!keyOn || keyNoMidiOnly)
+            let mode: MidiMode = (chordsOn || keyOn) && allLitAreNoMidiOnly ? .replace : .add
+            return SourcePlan(midiOn: true, chordsOn: chordsOn, pickOn: false, keyOn: keyOn, midiMode: mode, pickNotes: [])
+        }
+        // §1.2 no stored plan: derive from the legacy exclusive source. midiOn ALWAYS true (MIDI always listens, as
+        // SOURCES STACK); CHORDS/KEY follow the source; midiMode ADD; PICK off — byte-identical to SOURCES STACK.
         switch euclideousNoteSourceResolved {
-        case .midi:   return SourcePlan()                                            // all false
-        case .chords: return SourcePlan(chordsWithMidi: true, chordsNoMidi: true)     // "always"
-        case .key:    return SourcePlan(keyWithMidi: true, keyNoMidi: true)           // "always"
+        case .midi:   return SourcePlan(midiOn: true, chordsOn: false, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
+        case .chords: return SourcePlan(midiOn: true, chordsOn: true,  pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
+        case .key:    return SourcePlan(midiOn: true, chordsOn: false, pickOn: false, keyOn: true,  midiMode: .add, pickNotes: [])
         }
     }
     // SOURCES STACK §1.6: the dev-only clash policy (a rig setting, not undoable, carried across preset loads

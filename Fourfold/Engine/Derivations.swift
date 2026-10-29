@@ -851,10 +851,19 @@ struct EuclideousStackResult: Equatable {
     var count = 0            // merged pool size written into `dest`
     var midiAdmitted = 0     // MIDI notes held (status chip count; may exceed what the chips show)
     var midiPlaying = false
-    var chordsLit = false    // CHORDS condition met AND it contributed ≥1 note (not a rest)
-    var chordsRest = false   // CHORDS condition met but the column is a REST
-    var keyLit = false       // KEY condition met AND it added ≥1 note
+    // Sources panel v2 §2.8 status = each source's §2.3 CONDITION is met ("playing"), independent of how many it
+    // put in the pool (KEY can be playing and add 0). The UI turns these + the plan's switches into off/playing/waiting.
+    var chordsLit = false    // CHORDS contributes (on, allowed, not a rest, non-empty)
+    var chordsRest = false   // CHORDS is on & allowed but the column is a REST (shown as waiting)
+    var pickLit = false      // PICK contributes
+    var keyLit = false       // KEY contributes
+    // §2.7 per-source added (notes each actually put in the pool) + pool dropped (would have been admitted — passed
+    // PC-dedup and the clash test — but the cap was full; PC duplicates and clashes do NOT count as dropped).
+    var midiAdded = 0
+    var chordsAdded = 0
+    var pickAdded = 0
     var keyAdded = 0
+    var dropped = 0
 }
 
 /// §2.7 DROP: the pitch class of `note`, widened ±1 semitone, as a 12-bit mask. A lower layer's note is dropped
@@ -906,98 +915,125 @@ func euclideousBuildSourceStack(
     into dest: inout [(note: Int, vel: UInt8)], cap: Int,
     midi: ArraySlice<(note: Int, vel: UInt8)>, midiPlaying: Bool,
     chords: ArraySlice<Int>, chordsIsRest: Bool,
+    pick: ArraySlice<Int>,
     key: ArraySlice<Int>,
     plan: SourcePlan, clash: ClashPolicy,
     midiStatusOut: inout [UInt8]
 ) -> EuclideousStackResult {
-    // §0.3 conditions for the current MIDI state; §2.6 a CHORDS rest silences KEY while CHORDS's condition holds.
-    let chordsActive = midiPlaying ? plan.chordsWithMidi : plan.chordsNoMidi
-    let keyActive = (midiPlaying ? plan.keyWithMidi : plan.keyNoMidi) && !(chordsActive && chordsIsRest)
-    let midiC = !midi.isEmpty
-    let chordsC = chordsActive && !chordsIsRest && !chords.isEmpty
+    // Sources panel v2 §2.2: MIDI PLAYING only while the MIDI switch is on; a lower layer is "allowed" under ADD,
+    // or whenever MIDI isn't playing (REPLACE steps CHORDS/PICK/KEY aside while MIDI plays). §2.6 a CHORDS rest
+    // silences KEY while CHORDS is on & allowed.
+    let midiPlayingGated = midiPlaying && plan.midiOnR
+    let allowed = plan.midiModeR == .add || !midiPlayingGated
+    let midiC = plan.midiOnR && !midi.isEmpty
+    let chordsAllowed = plan.chordsOnR && allowed
+    let chordsC = chordsAllowed && !chordsIsRest && !chords.isEmpty
+    let pickC = plan.pickOnR && allowed && !pick.isEmpty
+    let keyActive = plan.keyOnR && allowed && !(chordsAllowed && chordsIsRest)
     let keyC = keyActive && !key.isEmpty
 
-    // §2.9 status skeleton (filled per path below). midiAdmitted is the held-note count for the chips.
+    // §2.8 status skeleton: *Lit = the §2.3 condition is met (playing), independent of how many it added. The UI
+    // turns these + the plan's switches into off/playing/waiting. midiAdmitted is the held-note count for the chips.
     var r = EuclideousStackResult()
-    r.midiPlaying = midiPlaying
+    r.midiPlaying = midiPlayingGated
     r.midiAdmitted = midi.count
-    r.chordsRest = chordsActive && chordsIsRest
+    r.chordsRest = chordsAllowed && chordsIsRest
+    r.chordsLit = chordsC; r.pickLit = pickC; r.keyLit = keyC
     let statusCap = midiStatusOut.count
     for i in 0..<min(statusCap, midi.count) { midiStatusOut[i] = UInt8(max(0, min(127, midi[midi.startIndex + i].note))) }
 
     @inline(__always) func finish() -> EuclideousStackResult { euclideousStackSort(&dest, count: r.count); return r }
 
-    let contributing = (midiC ? 1 : 0) + (chordsC ? 1 : 0) + (keyC ? 1 : 0)
+    let contributing = (midiC ? 1 : 0) + (chordsC ? 1 : 0) + (pickC ? 1 : 0) + (keyC ? 1 : 0)
 
     // §2.5 nothing contributing ⇒ an empty pool (as a MIDI lane with nothing held is today).
     if contributing == 0 { return r }
 
-    // §2.3 exactly one layer ⇒ copy it verbatim (no merge pipeline) — the byte-identity lever.
+    // §2.4 exactly one layer ⇒ copy it verbatim (no merge pipeline) — the byte-identity lever. PICK-alone (§2.4) =
+    // pickNotes ascending (the model keeps them ascending and deduped).
     if contributing == 1 {
         if midiC {
-            for e in midi where r.count < cap { dest[r.count] = e; r.count += 1 }
+            for e in midi { if r.count < cap { dest[r.count] = e; r.count += 1; r.midiAdded += 1 } else { r.dropped += 1 } }
         } else if chordsC {
-            for n in chords where r.count < cap { dest[r.count] = (n, 100); r.count += 1 }
-            r.chordsLit = r.count > 0
+            for n in chords { if r.count < cap { dest[r.count] = (n, 100); r.count += 1; r.chordsAdded += 1 } else { r.dropped += 1 } }
+        } else if pickC {
+            for n in pick { if r.count < cap { dest[r.count] = (n, 100); r.count += 1; r.pickAdded += 1 } else { r.dropped += 1 } }
         } else {
-            for n in key where r.count < cap { dest[r.count] = (n, 100); r.count += 1 }
-            r.keyLit = r.count > 0; r.keyAdded = r.count
+            for n in key { if r.count < cap { dest[r.count] = (n, 100); r.count += 1; r.keyAdded += 1 } else { r.dropped += 1 } }
         }
         return finish()
     }
 
-    // §2.4 two or more layers: fill MIDI → CHORDS → KEY, dedup by pitch class, cap-guarded.
+    // §2.5 two or more layers: fill MIDI → CHORDS → PICK → KEY, dedup by pitch class, cap-guarded.
     var presentPC: UInt16 = 0
-    // §2.7: a lower layer drops against a HIGHER layer's admitted PCs, widened ±1 — never against its OWN layer.
-    // So CHORDS tests `midiMask` (MIDI only); KEY tests `keyMask` (MIDI + admitted CHORDS). A chord PC is widened
-    // into `keyMask` only AFTER it is admitted, so same-layer chord notes (e.g. Cmaj7's B and C) never drop each other.
+    // §2.6: a lower layer drops against a HIGHER layer's admitted PCs, widened ±1 — never against its OWN layer.
+    // CHORDS tests `midiMask` (MIDI only); PICK is NEVER dropped; KEY tests `keyMask` (MIDI + admitted CHORDS +
+    // admitted PICK). A chord/pick PC widens into `keyMask` only AFTER it is admitted, so same-layer notes never
+    // drop each other; PICK counts as a higher layer for KEY (§2.6).
     var midiMask: UInt16 = 0, keyMask: UInt16 = 0
     // a. MIDI, as-is (highest priority, never dropped, never deduped away).
     if midiC {
-        for e in midi where r.count < cap {
-            dest[r.count] = e; r.count += 1
-            presentPC |= UInt16(1) << UInt16(((e.note % 12) + 12) % 12)
-            if clash == .drop { let w = euclideousWidenPitchClass(e.note); midiMask |= w; keyMask |= w }
+        for e in midi {
+            if r.count < cap {
+                dest[r.count] = e; r.count += 1; r.midiAdded += 1
+                presentPC |= UInt16(1) << UInt16(((e.note % 12) + 12) % 12)
+                if clash == .drop { let w = euclideousWidenPitchClass(e.note); midiMask |= w; keyMask |= w }
+            } else { r.dropped += 1 }
         }
     }
     // b. CHORDS, lowest-first, PC-dedup, (DROP: skip a semitone from an admitted MIDI PC — `midiMask`, NOT the chord's own).
     if chordsC {
-        for n in chords where r.count < cap {
+        for n in chords {
             let pc = UInt16(((n % 12) + 12) % 12)
             if (presentPC >> pc) & 1 != 0 { continue }
             if clash == .drop && euclideousListenAvoidDrops(note: n, mask: midiMask) { continue }
-            dest[r.count] = (n, 100); r.count += 1
-            presentPC |= UInt16(1) << pc
-            if clash == .drop { keyMask |= euclideousWidenPitchClass(n) }   // widen only for the KEY layer
-            r.chordsLit = true
+            if r.count < cap {
+                dest[r.count] = (n, 100); r.count += 1; r.chordsAdded += 1
+                presentPC |= UInt16(1) << pc
+                if clash == .drop { keyMask |= euclideousWidenPitchClass(n) }   // widen only for the KEY layer
+            } else { r.dropped += 1 }
         }
     }
-    // c. KEY, each scale PC not present, placed in the octave nearest the mean of the admitted MIDI+CHORDS notes
-    //    (computed once), nearest-first, ties to the lower note; (DROP: skip a semitone from MIDI/CHORDS).
+    // c. PICK (§2.5c), lowest-first, PC-dedup against the pool, NEVER dropped by the clash policy (§2.6). An admitted
+    //    pick widens into `keyMask` so KEY drops a semitone from it (PICK is a higher layer for KEY).
+    if pickC {
+        for n in pick {
+            let pc = UInt16(((n % 12) + 12) % 12)
+            if (presentPC >> pc) & 1 != 0 { continue }
+            if r.count < cap {
+                dest[r.count] = (n, 100); r.count += 1; r.pickAdded += 1
+                presentPC |= UInt16(1) << pc
+                if clash == .drop { keyMask |= euclideousWidenPitchClass(n) }
+            } else { r.dropped += 1 }
+        }
+    }
+    // d. KEY, each scale PC not present, placed in the octave nearest the mean of the admitted MIDI+CHORDS+PICK
+    //    notes (computed once), nearest-first, ties to the lower note; (DROP: skip a semitone from MIDI/CHORDS/PICK).
     if keyC {
         let admitted = r.count
         var mean = 60
         if admitted > 0 { var s = 0; for i in 0..<admitted { s += dest[i].note }; mean = s / admitted }
         var taken: UInt16 = 0   // which key-slice indices are already placed (≤16 scale notes)
         let keyBase = key.startIndex, keyN = key.count
-        while r.count < cap {
+        while true {
             // pick the not-yet-taken, not-present, (not-dropped) key note nearest the mean; ties → lower placed note.
-            var pick = -1, pickNote = 0, pickD = Int.max
+            var sel = -1, pickNote = 0, pickD = Int.max
             for j in 0..<keyN where (taken >> UInt16(j)) & 1 == 0 {
                 let pc = ((key[keyBase + j] % 12) + 12) % 12
                 if (presentPC >> UInt16(pc)) & 1 != 0 { taken |= UInt16(1) << UInt16(j); continue }
                 let note = euclideousNearestOctave(pc: pc, mean: mean)
                 if clash == .drop && euclideousListenAvoidDrops(note: note, mask: keyMask) { taken |= UInt16(1) << UInt16(j); continue }
                 let d = abs(note - mean)
-                if d < pickD || (d == pickD && note < pickNote) { pick = j; pickNote = note; pickD = d }
+                if d < pickD || (d == pickD && note < pickNote) { sel = j; pickNote = note; pickD = d }
             }
-            if pick < 0 { break }
-            taken |= UInt16(1) << UInt16(pick)
-            dest[r.count] = (pickNote, 100); r.count += 1
-            presentPC |= UInt16(1) << UInt16(((pickNote % 12) + 12) % 12)
-            r.keyAdded += 1
+            if sel < 0 { break }
+            taken |= UInt16(1) << UInt16(sel)
+            if r.count < cap {
+                dest[r.count] = (pickNote, 100); r.count += 1
+                presentPC |= UInt16(1) << UInt16(((pickNote % 12) + 12) % 12)
+                r.keyAdded += 1
+            } else { r.dropped += 1 }
         }
-        r.keyLit = r.keyAdded > 0
     }
     return finish()
 }
@@ -4033,8 +4069,8 @@ enum EuclideousSourceLight: Equatable { case playing, waiting, off }
 /// sounding, else waiting (a CHORDS rest shows as waiting too — §4.3).
 func euclideousSourceLights(midiPlaying: Bool, chordsLit: Bool, keyLit: Bool, plan: SourcePlan)
     -> (midi: EuclideousSourceLight, chords: EuclideousSourceLight, key: EuclideousSourceLight) {
-    let chordsOn = plan.chordsWithMidi || plan.chordsNoMidi
-    let keyOn = plan.keyWithMidi || plan.keyNoMidi
+    let chordsOn = plan.chordsOnR   // Sources panel v2: read the resolved v2 switch (not the legacy cells)
+    let keyOn = plan.keyOnR
     return (midiPlaying ? .playing : .waiting,
             !chordsOn ? .off : (chordsLit ? .playing : .waiting),
             !keyOn ? .off : (keyLit ? .playing : .waiting))

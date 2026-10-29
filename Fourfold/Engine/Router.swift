@@ -813,6 +813,9 @@ final class Router {
     // into `globalSrcBuf` by `euclideousBuildSourceStack`. Preallocated — no render-thread allocation.
     private var midiLayerBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
     private var keyLayerBuf = [Int](repeating: 0, count: 128)
+    // Sources panel v2 §2.10: the PICK layer — the resolved plan's `pickNotes` (≤16) copied into this fixed buffer
+    // once per window (no render-thread allocation; the snapshot's `pickNotes` array is bounded ≤16, like busChannels).
+    private var pickLayerBuf = [Int](repeating: 0, count: 16)
     private var keyLayerCount = 0
     private var euclideousMidiLastNonEmptySample: Int64 = .min / 2   // §0.2 grace clock; "long ago" at start
     private var euclideousStackMidiPlaying = false                   // this window's MIDI-PLAYING (with release grace)
@@ -2055,9 +2058,15 @@ final class Router {
         if euMidiNonEmpty { euclideousMidiLastNonEmptySample = windowStart }
         euclideousStackMidiPlaying = euclideousMidiPlaying(nonEmpty: euMidiNonEmpty, windowStart: windowStart, lastNonEmptySample: euclideousMidiLastNonEmptySample, sampleRate: sampleRate)
         let euPlan = euProc?.euclideousSourcePlan ?? SourcePlan()
-        let euChordsActive = euclideousStackMidiPlaying ? euPlan.chordsWithMidi : euPlan.chordsNoMidi
-        let euKeyActive = euclideousStackMidiPlaying ? euPlan.keyWithMidi : euPlan.keyNoMidi
-        let euclideousGeneratedSourceActive = euChordsActive || euKeyActive
+        // Sources panel v2 §2.2/§2.3: a lower layer could contribute when its switch is on AND it is "allowed" (ADD,
+        // or MIDI not playing). This generalises SOURCES STACK's with/no-MIDI gate; the early-out guard below
+        // processes the row whenever anything could sound (incl. a PICK-only document with nothing held).
+        let euMidiPlayingGated = euclideousStackMidiPlaying && euPlan.midiOnR
+        let euAllowed = euPlan.midiModeR == .add || !euMidiPlayingGated
+        let euChordsActive = euPlan.chordsOnR && euAllowed
+        let euKeyActive = euPlan.keyOnR && euAllowed
+        let euPickActive = euPlan.pickOnR && euAllowed && !(euPlan.pickNotes?.isEmpty ?? true)
+        let euclideousGeneratedSourceActive = euChordsActive || euKeyActive || euPickActive
         guard pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
             // SOURCES STACK §2.9: nothing contributes this window (mergeStack won't run) — quiet the status so the UI
@@ -2368,8 +2377,11 @@ final class Router {
             // CHORDS condition here from the plan to gate the per-tick chord refresh.
             var chordLayerCount = 0, chordLayerIsRest = false
             var midiLayerCount = 0
+            var pickLayerCount = 0
             let euPlan = p.euclideousSourcePlan
-            let euChordsActive = euclideousStackMidiPlaying ? euPlan.chordsWithMidi : euPlan.chordsNoMidi
+            // Sources panel v2: re-merge on a chord-step change whenever CHORDS is ON (a redundant merge under
+            // REPLACE-while-MIDI is harmless — `euclideousBuildSourceStack` re-evaluates "allowed").
+            let euChordsActive = euPlan.chordsOnR
             func fillChordLayer(atBeat m: Double) {
                 chordPoolStep = Int((m / chordPoolRateBeats).rounded(.down))
                 chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
@@ -2381,6 +2393,7 @@ final class Router {
                     into: &globalSrcBuf, cap: globalSrcBuf.count,
                     midi: midiLayerBuf[0..<midiLayerCount], midiPlaying: euclideousStackMidiPlaying,
                     chords: chordPoolScratch[0..<chordLayerCount], chordsIsRest: chordLayerIsRest,
+                    pick: pickLayerBuf[0..<pickLayerCount],
                     key: keyLayerBuf[0..<keyLayerCount],
                     plan: euPlan, clash: p.euclideousClashPolicy, midiStatusOut: &euclideousStatusMidiNotes)
                 globalSrcCount = st.count
@@ -2434,8 +2447,17 @@ final class Router {
                 }
                 keyLayerCount = n
             }
+            // The PICK layer (Sources panel v2 §2.5c): the resolved plan's tapped-in notes, ascending, ≤16, copied
+            // into the fixed `pickLayerBuf` (no allocation — the snapshot's pickNotes array is bounded ≤16).
+            func fillPickLayer() {
+                pickLayerCount = 0
+                if let pn = euPlan.pickNotes {
+                    for v in pn where pickLayerCount < pickLayerBuf.count { pickLayerBuf[pickLayerCount] = Int(v); pickLayerCount += 1 }
+                }
+            }
             if isEuclideousRow {
                 fillMidiLayer()
+                fillPickLayer()
                 fillKeyLayer()
                 mergeStack(atBeat: mWinStart)
             }
