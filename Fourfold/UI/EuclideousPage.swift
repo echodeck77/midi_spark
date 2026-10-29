@@ -1439,6 +1439,7 @@ struct EuclideousPage: View {
     @State private var sourcesEditor: EuclideousSourceEditor = .none   // Sources panel v2 §5.13: which inline editor is open (one at a time)
     @State private var sourcesChordsPage = false                       // §6: the panel is showing the CHORDS page (vs the SOURCES page); reset when the panel closes (§6.3)
     @State private var octaveDragLanes: Set<Int> = []                  // NOTES-tab octave slider (2026-10-29): lanes with a drag in progress, so a drag is ONE undo burst
+    @State private var riffOctaveDragLanes: Set<Int> = []              // RIFF-tab octave slider (2026-10-29): the same, for the riff part's own octave control
     @State private var pickEditorOctave: Int = 4                       // §5.11/§1.7 the PICK editor's shown octave NUMBER (C4-convention, range 1…7 = C whose MIDI is 24…96); 4 = middle C (MIDI 60). UI state, not saved; set on open.
     @State private var sourcesGhostChips: [UInt8] = []   // §5.6: the last-held MIDI notes, shown as ghost chips until the next note-on
     // CHORDS GRID ferry (2026-10-24) §4.6: the riff tabs' own long-press COPY/PASTE/CLEAR pattern, mirrored
@@ -4192,14 +4193,6 @@ struct EuclideousPage: View {
         case .drunk: return "one step at a time, randomly"
         }
     }
-    private func riffOnRestHelpPhrase(_ r: EuclidRiffOnRest) -> String {
-        switch r {
-        case .skip: return "On a riff rest, play nothing"
-        case .fill: return "On a riff rest, play nothing from the riff, but keep lit notes sounding"   // MIX ferry Q1: FILL no longer strikes its own pick
-        case .tie: return "On a riff rest, hold the previous note"   // §3.3's own literal REST TIE example
-        case .repeatLast: return "On a riff rest, play the riff's previous note again"   // RIFF WALK ferry §9.5
-        }
-    }
 
     // MARK: - MELODY TAB (Paul 2026-10-13 ferry, "MELODY tab on the lane cards") — every setting the old
     // anchored pop-up held (note choice, octave, all riff settings) now lives in-card, on its own tab,
@@ -4354,6 +4347,26 @@ struct EuclideousPage: View {
                 @unknown default: break
                 }
             }
+        }
+    }
+    /// RIFF OUTPUT + OCTAVE row (2026-10-29): replaces the RIFF tab's ON REST row at the bottom of the lane box,
+    /// below the LEN/SHIFT/STRIDE/TRANS values. The four output toggles (left, 55 % of the width) edit the RIFF
+    /// part's own `riffOutMask`, the octave control (right) its own `riffOctave` — the exact `part*` cores the
+    /// NOTES tab uses, so the two tabs' output/octave controls are identical but for the field they touch.
+    private func riffOutputOctaveRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat) -> some View {
+        let gap = sp4
+        let outW = max(1, (fullWidth - gap) * 0.55)
+        return HStack(spacing: gap) {
+            partOutputToggles(idx, accent: accent, mask: line.riffOutMaskResolved(lane: idx), label: "Riff output") { l, o in
+                let own = UInt8(1) << UInt8(max(0, min(3, idx)))
+                let m = euclideousJackToggle(mask: l.riffOutMaskResolved(lane: idx), output: o)
+                l.riffOutMask = m == own ? nil : m
+            }
+            .frame(width: outW)
+            partOctaveControl(idx, accent: accent, oct: line.riffOctaveResolved, dragLanes: $riffOctaveDragLanes, label: "Riff octave") { l, n in
+                l.riffOctave = n == 0 ? nil : n
+            }
+            .frame(width: max(1, fullWidth - outW - gap))
         }
     }
     // MARK: - RIFF TAB (Paul's third same-day ferry, "split MELODY into RIFF and NOTES tabs"; corrected by a
@@ -4713,31 +4726,6 @@ struct EuclideousPage: View {
         }
         .opacity(isRiff ? 1.0 : 0.42)
     }
-    /// RIFF WALK ferry §1.4 — the ON REST row: "ON REST" / "IN RIFF" label, then SKIP / TIE / REPEAT. NOTES TAB ferry §9: FILL is gone from the row (it adds no pitch of its own; the
-    /// NOTES tab's RESTS now does what it was for). A lane still holding `.fill` in memory reads as SKIP — which is what its decoder makes it.
-    private func riffOnRestRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
-        let isRiff = line.riffOnResolved
-        // POLY RIFF: a note's length replaces TIE and a silent column is just silent — ON REST is SKIP, and TIE / REPEAT are dimmed and inert while POLY is on (the stored choice returns with MONO)
-        let current: EuclidRiffOnRest = riffPoly ? .skip : (line.riffOnRestResolved == .fill ? .skip : line.riffOnRestResolved)
-        return HStack(spacing: sp4) {
-            riffRowLabel("ON REST", "IN RIFF").frame(width: layout.labelColumnWidth)
-            ForEach([EuclidRiffOnRest.skip, .tie, .repeatLast], id: \.self) { r in
-                let selected = current == r
-                let unavailable = riffPoly && r != .skip
-                melodyButton(r.rawValue == "REPEAT" ? "REPEAT" : r.rawValue, on: selected, accent: accent, height: layout.lowerRowHeight, fontSize: 11, cornerRadius: 7,
-                             help: riffOnRestHelpPhrase(r), lane: idx, outline: selected && lockOn(idx, .onRest)) { if !riffPoly { edit(idx) { $0.riffOnRest = r } } }   // POLY: SKIP is shown, not stored — a tap must not overwrite a TIE / REPEAT kept for MONO
-                    .frame(width: layout.onRestButtonWidth)
-                    // §9.5 / NOTES TAB §9.3: SKIP and TIE keep their plain labels; REPEAT reads "Repeat" with its own hint.
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(r == .repeatLast ? "Repeat" : r.rawValue.capitalized)
-                    .accessibilityValue(euclideousLockAppendSnapWords("", outlined: selected && lockOn(idx, .onRest)))
-                    .accessibilityHint(unavailable ? "Not used in POLY" : (r == .repeatLast ? "Plays the riff's previous note again" : ""))
-                    .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-                    .opacity(unavailable ? 0.3 : 1).allowsHitTesting(!unavailable)
-            }
-        }
-        .opacity(isRiff ? 1.0 : 0.42)
-    }
     /// §2.6's label column: a name over a second line, 3pt below, centred vertically as a pair — replaces
     /// the retired rotated `melodyVerticalLabel("ADV"/"REST", ...)` single-word labels.
     private func riffRowLabel(_ top: String, _ bottom: String) -> some View {
@@ -4752,7 +4740,8 @@ struct EuclideousPage: View {
     /// (`euclideousRiffTabLayout`, §1.5 — reusing RHYTHM's real `patternBlockH`/`upperH` split, not the
     /// ferry's own literal 124/208 reference figures, which don't match the real `contentAreaH` formula —
     /// reported, not hand-fitted), so the header row and tab row stop moving between tabs. Upper zone: Row A
-    /// (card + WALK strip + direction row) + Row B (ADVANCE EVERY). Lower zone: ON REST row + values row.
+    /// (card + WALK strip + direction row) + Row B (ADVANCE EVERY). Lower zone (2026-10-29, ON REST row removed):
+    /// values row (LEN/SHIFT/STRIDE/TRANS) + the RIFF output toggles & octave row.
     private func riffTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let layout = euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
         // LISTEN REBUILT (2026-10-23): RIFF pauses whole under SHADOW or ECHO now (§9.9's `borrowedTabs`), not SHADOW alone.
@@ -4761,8 +4750,12 @@ struct EuclideousPage: View {
             VStack(spacing: sp4) {
                 riffTopRow(idx, line, accent, layout: layout)
                 riffAdvanceRow(idx, line, accent, layout: layout).frame(height: layout.rowBHeight)
-                riffOnRestRow(idx, line, accent, layout: layout).frame(height: layout.lowerRowHeight)
+                // RIFF OUTPUT + OCTAVE ferry (2026-10-29): the ON REST row is GONE from this tab; its slot now holds
+                // the values row (moved up) and, below it, the RIFF output toggles + octave control.
                 melodyValuesRow(idx, line, accent, fullWidth: fullWidth, stepperWidth: layout.valueStepperWidth)
+                    .frame(height: layout.lowerRowHeight)
+                    .opacity(line.riffOnResolved ? 1.0 : 0.42)
+                riffOutputOctaveRow(idx, line, accent, fullWidth: fullWidth)
                     .frame(height: layout.lowerRowHeight)
                     .opacity(line.riffOnResolved ? 1.0 : 0.42)
             }
@@ -4969,41 +4962,34 @@ struct EuclideousPage: View {
     /// The whole NOTES tab (NOTES TAB ferry 2026-10-19 §1-§4): the strip across both zones, then four rows — the ten keys, WHEN (PLAYS · RESTS · CHANCE), PLAY AS and SOUND ONLY — and, over both
     /// zones and the gap, the PLAY AS picker while it is open. Every frame comes from `euclideousNotesTabLayout`. While the notes layer is off everything right of the strip draws at 42% and stays live;
     /// the strip keeps its own look and the picker is not dimmed.
-    // NOTES OUTPUT TOGGLES (2026-10-29): four A/B/C/D discs editing the NOTES part's `notesOutMask` (the old MIX
-    // OUT-circle look). A tap toggles one output as ONE undo step — the same funnel the card-back jacks use
-    // (`euclideousJackToggle`; a mask equal to the lane's own output is stored as nil, so a round-trip leaves no mask).
-    private func notesOutputToggles(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
-        let mask = line.notesOutMaskResolved(lane: idx)
-        return HStack(spacing: 4) {
+    // PART OUTPUT TOGGLES + OCTAVE (2026-10-29): four A/B/C/D discs editing a PART's own output mask (`notesOutMask`
+    // for NOTES, `riffOutMask` for RIFF — the old MIX OUT-circle look) and a horizontal octave slide control over its
+    // own octave field (`octave` / `riffOctave`), BOTH shared by the NOTES tab and the RIFF tab. A disc tap toggles
+    // one output as ONE undo step through the card-back jack funnel (`euclideousJackToggle`; a mask equal to the lane's
+    // own output stores as nil). The octave shifts the part AFTER its pool is read (at 0, as played; at −1, an octave
+    // down, however it arrived) — the SAME field the card-back PITCH pad writes; a drag is ONE undo burst, 0 stored nil.
+    private func partOutputToggles(_ idx: Int, accent: Color, mask: UInt8, label: String, write: @escaping (inout EuclidLine, Int) -> Void) -> some View {
+        HStack(spacing: 4) {
             ForEach(0..<4, id: \.self) { o in
-                notesOutputDisc(["A", "B", "C", "D"][o], on: (mask >> UInt8(o)) & 1 != 0, accent: accent) {
-                    editStep(idx, true) { l in
-                        let own = UInt8(1) << UInt8(max(0, min(3, idx)))
-                        let m = euclideousJackToggle(mask: l.notesOutMaskResolved(lane: idx), output: o)
-                        l.notesOutMask = m == own ? nil : m
-                    }
+                partOutputDisc(["A", "B", "C", "D"][o], on: (mask >> UInt8(o)) & 1 != 0, accent: accent, label: label) {
+                    editStep(idx, true) { write(&$0, o) }
                 }
             }
             Spacer(minLength: 0)
         }
         .frame(maxHeight: .infinity, alignment: .center)
     }
-    private func notesOutputDisc(_ letter: String, on: Bool, accent: Color, tap: @escaping () -> Void) -> some View {
+    private func partOutputDisc(_ letter: String, on: Bool, accent: Color, label: String, tap: @escaping () -> Void) -> some View {
         ZStack {
             Circle().fill(on ? lane20(accent) : Color.clear)
                 .overlay(Circle().strokeBorder(on ? lane100(accent) : Color(hex: 0x3A3E47), lineWidth: 2))
             Text(letter).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
         }
         .frame(width: 28, height: 28).contentShape(Circle()).onTapGesture(perform: tap)
-        .accessibilityElement(children: .ignore).accessibilityLabel("Notes output \(letter)")
+        .accessibilityElement(children: .ignore).accessibilityLabel("\(label) \(letter)")
         .accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }
-    // NOTES OCTAVE (2026-10-29): a horizontal slide control over −2…+2 editing the NOTES part's `octave` — the SAME
-    // field the card-back PITCH pad's notes octave writes, applied as `oct:` when the notes pool is resolved, so it
-    // shifts the part AFTER the notes come in (at 0, as played; at −1, an octave down, however it arrived). A drag is
-    // ONE undo burst; 0 is stored as nil (byte-identical). Playing an octave up with this at −1 cancels — expected.
-    private func notesOctaveControl(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
-        let oct = max(-2, min(2, line.octaveResolved))
+    private func partOctaveControl(_ idx: Int, accent: Color, oct: Int, dragLanes: Binding<Set<Int>>, label: String, write: @escaping (inout EuclidLine, Int) -> Void) -> some View {
         let octStr = oct == 0 ? "0" : (oct > 0 ? "+\(oct)" : "\(oct)")
         return GeometryReader { g in
             let w = g.size.width, h = g.size.height
@@ -5020,15 +5006,13 @@ struct EuclideousPage: View {
             .gesture(DragGesture(minimumDistance: 0).onChanged { v in
                 let f = max(0, min(1, v.location.x / max(1, w)))
                 let newOct = Int((f * 4).rounded()) - 2
-                let first = !octaveDragLanes.contains(idx); octaveDragLanes.insert(idx)
-                if newOct != max(-2, min(2, line.octaveResolved)) || first {
-                    editStep(idx, first) { $0.octave = newOct == 0 ? nil : newOct }
-                }
-            }.onEnded { _ in octaveDragLanes.remove(idx) })
-            .accessibilityElement(children: .ignore).accessibilityLabel("Notes octave").accessibilityValue(octStr)
+                let first = !dragLanes.wrappedValue.contains(idx); dragLanes.wrappedValue.insert(idx)
+                if newOct != oct || first { editStep(idx, first) { write(&$0, newOct) } }
+            }.onEnded { _ in dragLanes.wrappedValue.remove(idx) })
+            .accessibilityElement(children: .ignore).accessibilityLabel(label).accessibilityValue(octStr)
             .accessibilityAdjustableAction { dir in
                 let n = max(-2, min(2, oct + (dir == .increment ? 1 : -1)))
-                if n != oct { editStep(idx, true) { $0.octave = n == 0 ? nil : n } }
+                if n != oct { editStep(idx, true) { write(&$0, n) } }
             }
         }
     }
@@ -5147,8 +5131,18 @@ struct EuclideousPage: View {
                     // NOTES OUTPUT + OCTAVE (2026-10-29): the four NOTES output toggles (left) and a horizontal octave
                     // control (right) replace RECEIVED. The octave shifts the notes part AFTER the pool is read (`line.octave`).
                     group(lay.soundRow, label: "Notes output and octave") {
-                        placed(lay.notesOut, in: lay.soundRow) { notesOutputToggles(idx, line, accent) }
-                        placed(lay.notesOctave, in: lay.soundRow) { notesOctaveControl(idx, line, accent) }
+                        placed(lay.notesOut, in: lay.soundRow) {
+                            partOutputToggles(idx, accent: accent, mask: line.notesOutMaskResolved(lane: idx), label: "Notes output") { l, o in
+                                let own = UInt8(1) << UInt8(max(0, min(3, idx)))
+                                let m = euclideousJackToggle(mask: l.notesOutMaskResolved(lane: idx), output: o)
+                                l.notesOutMask = m == own ? nil : m
+                            }
+                        }
+                        placed(lay.notesOctave, in: lay.soundRow) {
+                            partOctaveControl(idx, accent: accent, oct: max(-2, min(2, line.octaveResolved)), dragLanes: $octaveDragLanes, label: "Notes octave") { l, n in
+                                l.octave = n == 0 ? nil : n
+                            }
+                        }
                     }
                 }
                 .opacity(isOn ? 1.0 : 0.42)
