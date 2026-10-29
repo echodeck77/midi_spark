@@ -892,9 +892,15 @@ struct EuclideousPage: View {
     @State private var pulseSettleTick = 0   // PULSE §9.1: see `pulseLive`
     // CARD BACKS (2026-10-28) §3: which side the four lane cards show — PATTERN (the front, as before) or MIX (the back: the part rows). Ephemeral like the tabs, never persisted; `cardFlipStart` is when the switch was last tapped
     // (nil = never: no flip to draw) and `cardFlipTick` is bumped when the last card has finished turning, so the frame clock can pause.
-    @State private var cardSide: EuclideousCardSide = .pattern
+    // TAB STRIP (2026-10-29): `pageTab` is the ONE tab all four cards show (it replaces the per-card `laneTab` and `cardSide`): any front tab shows the fronts on that tab, MIX shows the backs. `flipFrom` is the tab it left, so a front
+    // card keeps showing the OLD front tab through the first half of its turn to MIX. Ephemeral like the tabs before it: a fresh page always opens on RHYTHM, never on MIX.
+    @State private var pageTab: EuclideousPageTab = .opening
+    @State private var flipFrom: EuclideousPageTab? = nil
     @State private var cardFlipStart: Date? = nil
     @State private var cardFlipTick = 0
+    private var cardSide: EuclideousCardSide { pageTab.isMix ? .mix : .pattern }
+    /// The front tab the cards draw: the page tab, or — while MIX is showing (the backs; random / lock faces; the first half of a turn to MIX) — the tab it came from.
+    private var frontLaneTab: EuclideousLaneTab { EuclideousLaneTab(rawValue: (pageTab.front ?? flipFrom?.front ?? .rhythm).rawValue) ?? .rhythm }
     @State private var notesPickerOpen: Set<Int> = []   // NOTES tab ferry §4.5: the lanes whose PLAY AS picker is open — not saved, not an undo step
     @State private var riffReadoutCache = EuclideousRiffReadoutCache()   // the riff readout / never-play set, memoised per lane on its inputs (RIFF WALK §7.2)
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
@@ -935,7 +941,6 @@ struct EuclideousPage: View {
     // with no local @State of their own left to track (no pop-up to open/collapse).
     // PER-LANE TABS: which of RHYTHM/MELODY/MASK each lane currently shows — purely local/ephemeral, same
     // convention as touchedPad above (not persisted; a fresh page open always starts every lane on RHYTHM).
-    @State private var laneTab: [EuclideousLaneTab] = [.rhythm, .rhythm, .rhythm, .rhythm]
     // RANDOM MODE ferry (§1.1): page-local, ephemeral — not in the document, not an undo step, not saved.
     @State private var euclideousRandomMode = false
     // The card's own tab while in random mode (RHYTHM/RIFF/NOTES only — LISTEN maps to RHYTHM, §3.3).
@@ -1737,9 +1742,8 @@ struct EuclideousPage: View {
     // where the content sits) puts the content at 326×286. Three rows — step row (44) · tab row (28) · tab
     // content (202) — separated by two 6pt gaps: 44+6+28+6+202 = 286, matching exactly.
     private let cardInset: CGFloat = EuclideousLaneCardMetrics.inset   // PAGE LAYOUT ferry: the four lane-card rows live in Derivations.swift now,
-    private let cardRowGap: CGFloat = EuclideousLaneCardMetrics.rowGap // so the page's floor list and the card draw from the same numbers
+    private let cardBodyGap: CGFloat = EuclideousLaneCardMetrics.bodyGap // so the page's floor list and the card draw from the same numbers
     private let cometRowH: CGFloat = EuclideousLaneCardMetrics.cometRowH
-    private let tabRowH: CGFloat = EuclideousLaneCardMetrics.tabRowH
 
     // MARK: - THE PAGE (PAGE LAYOUT ferry, ratified 2026-10-19: "six equal boxes in both orientations, portrait fits the view, MIX fills in portrait")
     //
@@ -1759,10 +1763,13 @@ struct EuclideousPage: View {
     }
     private func pageBody(_ size: CGSize) -> some View {
         let g = pageGeometry(size)
-        let page = g.page, box = page.box
+        let page = g.page, box = page.box, laneBox = page.laneBox
         return ZStack(alignment: .topLeading) {
             EuclideousStackBreak { AnyView(fourfoldHeader(g.hdr, containerW: g.containerW)) }
                 .offset(x: sp16, y: HM.topMargin)
+            // TAB STRIP (2026-10-29): the lane area's one tab strip sits right after the header in the tree (VoiceOver reads header → strip → …) and below `modeFinishLayer`, so lock mode's full-page tap catcher swallows a touch on it.
+            EuclideousStackBreak { AnyView(laneViewStrip(width: page.strip.width)) }
+                .offset(x: page.strip.minX, y: page.strip.minY)
             // The overlays go on BEFORE the `.offset` (a SwiftUI `.offset` moves only the drawing: an overlay added after it is laid out at the UN-offset position — the "RANDOM" badge and its border
             // appeared at the page's top-left, over the header, instead of on the riff grid; the lock dim had the same fault).
             EuclideousStackBreak { AnyView(riffGridView(box: box)) }
@@ -1782,10 +1789,10 @@ struct EuclideousPage: View {
             modeFinishLayer(size)
             // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard itself): the device crash named the frames "closure #1
             // in closure #1 in landscapeLayout/portraitLayout" resolving 4 laneCard copies' combined type — erasing here keeps each one independently resolvable.
-            EuclideousStackBreak { AnyView(laneCardSided(0, width: box.width, height: box.height)) }.offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
-            EuclideousStackBreak { AnyView(laneCardSided(1, width: box.width, height: box.height)) }.offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
-            EuclideousStackBreak { AnyView(laneCardSided(2, width: box.width, height: box.height)) }.offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
-            EuclideousStackBreak { AnyView(laneCardSided(3, width: box.width, height: box.height)) }.offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
+            EuclideousStackBreak { AnyView(laneCardSided(0, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
+            EuclideousStackBreak { AnyView(laneCardSided(1, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
+            EuclideousStackBreak { AnyView(laneCardSided(2, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
+            EuclideousStackBreak { AnyView(laneCardSided(3, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
             modeHint(size)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -1871,8 +1878,6 @@ struct EuclideousPage: View {
         return ZStack(alignment: .topLeading) {
             headerBrand(layout).frame(width: layout.brand.width, height: HM.rowH, alignment: .leading)
                 .offset(x: layout.brand.x, y: CGFloat(layout.brand.row) * rowStep)
-            headerCardSwitch().frame(width: layout.cardSwitch.width, height: HM.rowH, alignment: .leading)
-                .offset(x: layout.cardSwitch.x, y: CGFloat(layout.cardSwitch.row) * rowStep)
             headerNotes().frame(width: layout.notes.width, height: HM.rowH, alignment: .leading)
                 .offset(x: layout.notes.x, y: CGFloat(layout.notes.row) * rowStep)
             headerUtilities(layout).frame(width: layout.utilities.width, height: HM.rowH, alignment: .trailing)
@@ -1881,7 +1886,7 @@ struct EuclideousPage: View {
         .frame(width: containerW, height: layout.height, alignment: .topLeading)
     }
 
-    // MARK: BRAND — the mark, FOURFOLD, undo, redo
+    // MARK: BRAND — the mark, FOURFOLD, undo, redo (TAB STRIP 2026-10-29: the dice, the padlock and PATTERN | MIX left; BRAND is the mark, the wordmark, undo and redo)
     private func headerBrand(_ layout: EuclideousHeaderLayout) -> some View {
         let compact = layout.compact
         let target = compact ? HM.compactTarget : HM.target
@@ -1907,32 +1912,29 @@ struct EuclideousPage: View {
                 .onTapGesture { if canRedo { onRedo() } }
                 .euclideousHelp("Redo the last undone change")
                 .accessibilityLabel("Redo").accessibilityAddTraits(.isButton)
-            // RANDOM MODE ferry §2: the dice, sp8 after redo.
-            Color.clear.frame(width: HM.sp8, height: 1)
-            euclideousRandomDice(target: target)
-            // LANE LOCK ferry §2: the padlock, sp8 after the dice.
-            Color.clear.frame(width: HM.sp8, height: 1)
-            euclideousLockPadlock(target: target)
+            // TAB STRIP (2026-10-29): the dice and the padlock moved into the lane strip (`laneViewStrip`).
         }
     }
 
     // MARK: LANE LOCK — the padlock (§2) and the mode (§1)
-    private func euclideousLockPadlock(target: CGFloat) -> AnyView {
+    /// TAB STRIP (2026-10-29): drawn at 28 × 28 (plate radius 8, glyph 16) in the strip, with a 36 × 44 touch target — same looks, states, tap and VoiceOver as the header's tile had.
+    private func euclideousLockPadlock() -> AnyView {
+        typealias S = EuclideousLaneStripMetrics
         let on = euclideousLockMode
         let lockedLanes = (0..<4).filter { $0 < locks.count && locks[$0].isLocked }
         let any = !lockedLanes.isEmpty
         let glyph = on || any ? "lock.fill" : "lock.open"
         let glyphColor: Color = on ? Color(hex: 0x0D0F14) : (any ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
         return AnyView(ZStack {
-            RoundedRectangle(cornerRadius: 9)
+            RoundedRectangle(cornerRadius: S.tilePlateRadius)
                 .fill(on ? Color(hex: 0xDFE3EA) : Color.clear)
-                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(on ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
-                .frame(width: 36, height: 36)
-            Image(systemName: glyph).font(.system(size: 18, weight: .regular)).foregroundColor(glyphColor)
+                .overlay(RoundedRectangle(cornerRadius: S.tilePlateRadius).strokeBorder(on ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
+                .frame(width: S.tileSize, height: S.tileSize)
+            Image(systemName: glyph).font(.system(size: S.tileGlyph, weight: .regular)).foregroundColor(glyphColor)
         }
-        .frame(width: target, height: HM.rowH)
+        .frame(width: S.tileTargetWidth, height: S.targetHeight)
         .contentShape(Rectangle())
-        .onTapGesture { forceCardsToPattern(); euclideousLockMode = true }
+        .onTapGesture { euclideousLockMode = true }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Lock mode")
         .accessibilityValue((on ? "on" : "off") + (any ? ", " + euclideousLockedLanesPhrase(lockedLanes) : ""))
@@ -1949,67 +1951,80 @@ struct EuclideousPage: View {
     }
 
     // MARK: RANDOM MODE — the dice (§2)
-    private func euclideousRandomDice(target: CGFloat) -> some View {
+    /// TAB STRIP (2026-10-29): 28 × 28 plate (radius 8, glyph 16) with a 36 × 44 touch target; the marching-ants ring is 32 round it (it was 40 round the header's 36 plate).
+    private func euclideousRandomDice() -> AnyView {
+        typealias S = EuclideousLaneStripMetrics
         let on = euclideousRandomMode
-        return ZStack {
-            RoundedRectangle(cornerRadius: 9)
+        return AnyView(ZStack {
+            RoundedRectangle(cornerRadius: S.tilePlateRadius)
                 .fill(on ? Color(hex: 0xDFE3EA) : Color.clear)
-                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(on ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
-                .frame(width: 36, height: 36)
+                .overlay(RoundedRectangle(cornerRadius: S.tilePlateRadius).strokeBorder(on ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
+                .frame(width: S.tileSize, height: S.tileSize)
             Image(systemName: "die.face.4")
-                .font(.system(size: 20, weight: .regular))
+                .font(.system(size: S.tileGlyph, weight: .regular))
                 .foregroundColor(on ? Color(hex: 0x0D0F14) : headerMuted)
             // A moving dotted ("marching ants") line around the dice while random mode is on — purely
             // decorative, so a plain wall-clock TimelineView is fine (not the render/engine path
             // architecture invariants govern; this never reaches the document or the snapshot).
             if on {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
-                    RoundedRectangle(cornerRadius: 11)
+                    RoundedRectangle(cornerRadius: S.diceRingRadius)
                         .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 3], dashPhase: euclideousMarchingAntsPhase(tl.date)))
                         .foregroundColor(Color(hex: 0xDFE3EA))
-                        .frame(width: 40, height: 40)
+                        .frame(width: S.diceRingSize, height: S.diceRingSize)
                 }
             }
         }
-        .frame(width: target, height: HM.rowH)
+        .frame(width: S.tileTargetWidth, height: S.targetHeight)
         .contentShape(Rectangle())
         .onTapGesture { euclideousRandomToggle() }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Random mode")
         .accessibilityValue(on ? "on" : "off")
         .accessibilityHint("Turns the lane cards into throw and tweak")
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(.isButton))
     }
 
     private func euclideousRandomToggle() {
         if euclideousRandomMode {
             euclideousRandomFinish()
         } else {
-            // §3.3: each card opens on its own normal tab (LISTEN maps to RHYTHM — rawValues 0/1/2 agree,
-            // 3 has no counterpart) rather than always defaulting to RHYTHM regardless of what was showing.
-            euclideousRandomTab = laneTab.map { EuclideousRandomTab(rawValue: $0.rawValue) ?? .rhythm }
-            forceCardsToPattern()
+            // TAB STRIP §6.1: every random card's selector starts on the page tab (RHYTHM when the page tab is LISTEN or MIX); the page tab itself is untouched and no card flips — the random faces replace the cards in place.
+            euclideousRandomTab = Array(repeating: euclideousRandomStartTab(pageTab), count: 4)
             euclideousRandomMode = true
         }
     }
 
-    // MARK: CARD SIDE — the PATTERN | MIX switch (CARD BACKS §3)
-    /// Lock and random mode replace the whole card, so the switch is inert (dimmed) while either is on and the cards show PATTERN.
-    private func headerCardSwitch() -> some View {
-        EuclideousCardSideSwitch(side: cardSide, rowH: HM.rowH, enabled: !euclideousLockMode && !euclideousRandomMode, onTap: { setCardSide($0) })
+    // MARK: THE LANE STRIP — the page's one tab (TAB STRIP 2026-10-29)
+    /// A tap on a strip segment: nothing when it is already selected; otherwise every card shows the new tab. Between two front tabs the cards change at once; between MIX and a front tab all four turn over (CARD BACKS §3.3: lane n
+    /// starts n × 70 ms late; the frame clock runs until the last has finished). A tap that would start a turn while the cards are still turning is ignored (review 2026-10-28: restarting popped a half-turned card to full width).
+    private func selectPageTab(_ tapped: EuclideousPageTab) {
+        guard let change = euclideousPageTabTap(current: pageTab, tapped: tapped) else { return }
+        if change.flips, let start = cardFlipStart, euclideousCardFlipIsLive(since: Date().timeIntervalSince(start), reduceMotion: reduceMotion) { return }
+        // the STEPS picker, the restart editor and the NOTES picker belong to a card's tab: they close when the tab changes (the tab row used to close its own lane's; every card shows the one tab now)
+        stepsPickerLane = nil; restartEditorLane = nil; notesPickerOpen.removeAll()
+        flipFrom = pageTab
+        pageTab = change.tab
+        if change.flips {
+            cardFlipStart = Date()
+            let total = reduceMotion ? EuclideousCardFlipMetrics.reduceMotionDuration : EuclideousCardFlipMetrics.totalDuration
+            DispatchQueue.main.asyncAfter(deadline: .now() + total + 0.05) { cardFlipTick &+= 1 }
+        }
     }
-    /// §3.2: a tap on the unselected segment flips all four cards (lane n starts n × 70 ms late); the frame clock runs until the last one has finished.
-    private func setCardSide(_ side: EuclideousCardSide) {
-        guard side != cardSide else { return }
-        // a tap while the cards are still turning is ignored (review 2026-10-28): restarting from the other side popped a half-turned card to full width
-        if let start = cardFlipStart, euclideousCardFlipIsLive(since: Date().timeIntervalSince(start), reduceMotion: reduceMotion) { return }
-        cardSide = side
-        cardFlipStart = Date()
-        let total = reduceMotion ? EuclideousCardFlipMetrics.reduceMotionDuration : EuclideousCardFlipMetrics.totalDuration
-        DispatchQueue.main.asyncAfter(deadline: .now() + total + 0.05) { cardFlipTick &+= 1 }
+    /// The strip, in the lane area: the tab control, MIX, and the page's own dice and padlock tiles. The glyph clusters read the four lanes' lines (`euclideousLaneStripGlyphs`).
+    private func laneViewStrip(width: CGFloat) -> AnyView {
+        AnyView(EuclideousLaneViewStrip(width: width, tab: pageTab, lines: lines, laneColours: laneAccents.map { lane100($0) }, hocketRules: hocketRules, hocketLive: hocketLive,
+                                        dice: euclideousRandomDice(), padlock: euclideousLockPadlock(), onSelect: { stripTabTapped($0) }))
     }
-    /// Lock and random mode show the front: no flip, the side just returns to PATTERN (ADD HITS flips with the animation instead).
-    private func forceCardsToPattern() { cardSide = .pattern; cardFlipStart = nil }
+    /// §6: while random or lock mode is on the strip's tabs take no input — a touch finishes the mode and is consumed. (Lock mode's full-page tap catcher sits above the strip and finishes it for a finger; this is the same rule for
+    /// a VoiceOver activation, and random mode's whole story — it has no catcher, only the dice ends it otherwise.)
+    private func stripTabTapped(_ tab: EuclideousPageTab) {
+        switch euclideousStripTapAction(randomMode: euclideousRandomMode, lockMode: euclideousLockMode) {
+        case .finishRandom: euclideousRandomFinish()
+        case .finishLock: euclideousFinishActiveMode()
+        case .selectTab: selectPageTab(tab)
+        }
+    }
 
     // MARK: NOTES — the SOURCES button (Sources panel v2 §4; replaces the source control + the key pill) + HOLD/LATCH
     private func headerNotes() -> some View {
@@ -3455,7 +3470,8 @@ struct EuclideousPage: View {
                       rateBeatsOverride: followEff?.rateBeats,
                       restartChains: cardChains.isActive ? cardChains : nil,
                       mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) },
-                      lockOutline: lockOn(idx, .cometStrip))
+                      lockOutline: lockOn(idx, .cometStrip),
+                      lockBadge: lockBadgeView(idx))   // TAB STRIP §6.2: a locked lane's badge sits before SOLO, the strip ending sp4 before it
     }
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
@@ -3466,7 +3482,7 @@ struct EuclideousPage: View {
         } else {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
         let accent = laneAccents[idx % laneAccents.count]
-        let tab = idx < laneTab.count ? laneTab[idx] : .rhythm
+        let tab = frontLaneTab   // TAB STRIP: the page's one tab
         let stripPlan = laneStripPlan(idx, line)   // LANE STRIP ferry: the riff track and the key row, from the footers' own per-hit functions
         // ONE INNER WIDTH FOR EVERY ROW — every row below is built from THIS one width, never the raw card
         // `width` (W = 326 at the ferry's own reference 346pt card). "Wider cards: flexible items share the
@@ -3478,11 +3494,11 @@ struct EuclideousPage: View {
         // THREE FIXED ROWS (ferry: step row 44 · tab row 28 · tab content 202, two 6pt gaps between them) —
         // `contentAreaH` is no longer a "whatever's left" budget; it's the literal 202 whenever `height`
         // matches the reference 306 exactly, and scales only if a caller ever hands this a different height.
-        let contentAreaH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: height)   // card height − 104 (comet 44 + tabs 28 + 2 × 10 inset + 2 × 6 gap)
+        let contentAreaH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: height)   // card height − 72 (comet 44 + the sp8 gap + 2 × 10 inset): the card's own tab row is gone (TAB STRIP 2026-10-29)
         let steps = max(2, min(16, line.steps))
         // LANE SOLO §6.1: a solo-silenced lane's card content draws at 42 % — except the SOLO button and the card's own ground / border.
         let soloDimContent = soloSilenced(idx)
-        VStack(alignment: .leading, spacing: cardRowGap) {
+        VStack(alignment: .leading, spacing: cardBodyGap) {
             laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
@@ -3494,9 +3510,6 @@ struct EuclideousPage: View {
             // independently-resolvable chunks — the SAME technique this function already uses for
             // `stepCountBadge` below (and, at the time, the now-retired `trailingContent` slot) — rather
             // than a logic change; nothing about what's drawn or how it behaves is different.
-            AnyView(laneTabRow(idx, line, accent, rowH: tabRowH))
-                .opacity(soloDimContent ? EuclideousLaneDimStyle.opacity : 1)
-                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDimContent)
             EuclideousStackBreak { AnyView(tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth)) }
                 .opacity(soloDimContent ? EuclideousLaneDimStyle.opacity : 1)
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDimContent)
@@ -3565,7 +3578,7 @@ struct EuclideousPage: View {
             invite: { part, kind in
                 switch kind {
                 case .turnOnRiff, .turnOnNotes: cardBackToggle(idx, part)
-                case .addHits: laneTab[idx] = .rhythm; setCardSide(.pattern)      // §5.6: take the player to the rhythm
+                case .addHits: selectPageTab(.rhythm)      // §5.6 (TAB STRIP §4.4): take the player to the rhythm — the page tab, with the flip
                 }
             })
         EuclideousCardBackView(lane: idx, size: CGSize(width: width, height: height), accent: accent,
@@ -3834,40 +3847,20 @@ struct EuclideousPage: View {
     private func lockOutlineMod(_ idx: Int, _ c: EuclideousLockControl, _ accent: Color) -> EuclideousLockOutline {
         EuclideousLockOutline(on: lockOn(idx, c), accent: accent)
     }
-    private func lockTabDiffers(_ idx: Int, _ t: EuclideousLaneTab) -> Bool {
-        guard lockLocked(idx) else { return false }
-        let tab: EuclideousLockTab
-        switch t { case .rhythm: tab = .rhythm; case .riff: tab = .riff; case .notes: tab = .notes; case .listen: return false }
-        return euclideousLockChangedTabs(lockDiff(idx)).contains(tab)
-    }
-    /// The ring (5.5: once per snap / capture) and the badge (5.1) as ONE value in the card's modifier chain.
+    /// The ring (5.5: once per snap / capture) as ONE value in the card's modifier chain. (TAB STRIP 2026-10-29: the badge left this overlay for the card's top row — `lockBadgeView` — and the tab dots went with the tab row.)
     private func lockCardOverlays(_ idx: Int, width: CGFloat, accent: Color) -> AnyView {
         AnyView(ZStack(alignment: .topLeading) {
             EuclideousLockRing(start: idx < lockRingStart.count ? lockRingStart[idx] : nil, accent: accent, radius: 12, reduceMotion: reduceMotion)
-            lockBadge(idx, width: width)
         })
     }
-    private func tabDecor(_ idx: Int, _ t: EuclideousLaneTab, sel: Bool, _ accent: Color) -> AnyView {
-        AnyView(ZStack {
-            Rectangle().fill(sel ? lane100(accent) : patternUnselectedFill).frame(height: 2).frame(maxHeight: .infinity, alignment: .bottom)
-            lockTabDot(idx, t, lane100(accent)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        })
-    }
-    /// 5.4: the dot on a tab with a control that differs from L (6pt, 6pt from its trailing edge, 5pt from its top).
-    private func lockTabDot(_ idx: Int, _ t: EuclideousLaneTab, _ accent: Color) -> AnyView {
-        guard lockTabDiffers(idx, t) else { return AnyView(EmptyView()) }
-        return AnyView(Circle().fill(accent).frame(width: 6, height: 6).padding(.top, 5).padding(.trailing, 6).allowsHitTesting(false))
-    }
-    /// 5.1 / 5.2: the badge, drawn over the card (never dimmed) at the tab row's trailing end; none for an unlocked lane.
-    private func lockBadge(_ idx: Int, width: CGFloat) -> AnyView {
-        guard lockLocked(idx), let st = lockOf(idx).state, idx < lines.count else { return AnyView(EmptyView()) }
+    /// 5.1 / 5.2 (TAB STRIP §6.2): the badge in the card's top row, before SOLO — never dimmed; nil for an unlocked lane (its top row is unchanged). The back's top row is this same row, so the badge shows there too.
+    private func lockBadgeView(_ idx: Int) -> AnyView? {
+        guard lockLocked(idx), let st = lockOf(idx).state, idx < lines.count else { return nil }
         let accent = laneAccents[idx % laneAccents.count]
-        let touch = EuclideousLockBadge.touchFrame(cardWidth: width)
         return AnyView(EuclideousLockBadgeView(lane: idx, accent: accent, deviated: euclideousLockDeviated(line: lines[idx], from: st), grid: lockOf(idx).gridResolved,
                                                held: idx < lockHeld.count && lockHeld[idx], running: clock.playing, tempo: clock.tempo, barBeats: clock.beatsPerBar,
                                                beatAt: { walkTagBeat(at: $0) },
-                                               onTap: { onLockCommand(idx, .unlock) }, onHold: { onLockCommand(idx, .capture) })
-            .offset(x: touch.minX, y: touch.minY))
+                                               onTap: { onLockCommand(idx, .unlock) }, onHold: { onLockCommand(idx, .capture) }))
     }
 
     // MARK: LANE LOCK — the lane card in lock mode (§4)
@@ -3918,79 +3911,9 @@ struct EuclideousPage: View {
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
 
-    /// CLARITY PASS §2: one tab's label (11 pt heavy, tracking 1) with its glyph after it (sp5), or — on RHYTHM — a space and "hits/steps" in lane100 (same face and size, no tracking). A single `Text` with
-    /// tail truncation, so a narrow tab loses the count before the label ("truncate, never shrink"). An OFF glyph tab (RIFF / NOTES / LISTEN) dims its label and glyph to 40 %, selected or not.
-    private func laneTabLabel(_ idx: Int, _ line: EuclidLine, _ t: EuclideousLaneTab, sel: Bool, accent: Color) -> AnyView {
-        let glyph = euclideousTabGlyph(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, line: line, lane: idx)
-        let face = Font.system(size: 11, weight: .heavy, design: .monospaced)
-        let name = Text(t.label).font(face).tracking(1).foregroundColor(sel ? patternSelectedText : patternUnselectedText)
-        // §7.1: RHYTHM always shows a count (its own hits/steps, or "← n" while borrowed); RIFF/NOTES show
-        // nothing UNLESS paused, in which case they show the same "← n" link.
-        let tabKind = EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm
-        let borrowedMark = tabKind == .rhythm
-            ? euclideousRhythmBorrowPartner(lane: idx, lines: lines) != nil
-            : euclideousPausedTabHeaderText(tab: tabKind, lane: idx, lines: lines) != nil
-        let suffix: String? = t == .rhythm ? euclideousRhythmTabCount(lane: idx, lines: lines)
-            : euclideousPausedTabHeaderText(tab: tabKind, lane: idx, lines: lines)
-        // §7.1: "← n" is drawn "in the SOURCE's lane100 at full strength" — only the ordinary hits/steps
-        // count (not borrowed) uses the card's own lane colour.
-        let suffixColor = borrowedMark ? lane100(laneAccents[line.listenSourceResolved(ownLane: idx) % laneAccents.count]) : lane100(accent)
-        let title: Text = suffix.map { name + Text(" " + $0).font(face).tracking(0).foregroundColor(suffixColor) } ?? name
-        // A tab too narrow for "RHYTHM 5/16" (the iPad mini; a locked lane's badge) used to cut the NUMBER ("5/…"). The count is what the tab is for, so the word gives way first: "RHY 5/16". (Nothing shrinks.)
-        let shortTitle: Text? = (t == .rhythm && suffix != nil)
-            ? Text("RHY").font(face).tracking(1).foregroundColor(sel ? patternSelectedText : patternUnselectedText) + Text(" " + suffix!).font(face).tracking(0).foregroundColor(suffixColor) : nil
-        let fill: Color = {
-            switch glyph.fill {
-            case .lane(let l): return lane100(laneAccents[max(0, l) % laneAccents.count])
-            }
-        }()
-        return AnyView(
-            HStack(spacing: 5) {
-                if let shortTitle, #available(iOS 16.0, *) {
-                    ViewThatFits(in: .horizontal) {
-                        title.lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                        shortTitle.lineLimit(1).truncationMode(.tail)
-                    }
-                } else {   // (`ViewThatFits` is iOS 16: on iOS 15 a tab too narrow for "RHYTHM 5/16" cuts the count again, as it did before the mini fix)
-                    title.lineLimit(1).truncationMode(.tail)
-                }
-                if glyph.shape != .none {
-                    // HOCKET §9.2: with a rule lit the RIFF square / NOTES bar draw their hocket state (a leaf that observes the live model)
-                    if (glyph.shape == .square || glyph.shape == .bar) && hocketRules.contains(where: { $0.isLit }) {
-                        HocketPartGlyph(shape: glyph.shape, on: glyph.on, fill: fill, lane: idx, rules: hocketRules, live: hocketLive, ground: Color(hex: 0x1B1D23))
-                    } else { EuclideousTabGlyphView(shape: glyph.shape, on: glyph.on, fill: fill) }
-                }
-            }
-            .opacity(glyph.shape != .none && !glyph.on ? 0.4 : 1)
-        )
-    }
-
-    private func laneTabRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
-        HStack(spacing: 4) {
-            ForEach(EuclideousLaneTab.allCases, id: \.rawValue) { t in
-                let sel = (idx < laneTab.count ? laneTab[idx] : .rhythm) == t
-                // CLARITY PASS (2026-10-23) §2: RIFF/NOTES/LISTEN each carry a GLYPH (a square / an upright bar / a circle) where the round status dot used to sit — filled in a lane's colour while that tab's thing is ON
-                // (exactly what filled the dot: `euclideousTabGlyph`), a 1.5 pt outline and the label + glyph at 40 % while off; RHYTHM shows its "hits/steps" in lane100 instead. The underline and the LOCK dot
-                // are the overlay below, outside the dimmed content. (The label is its own AnyView-returning leaf, like the rest of this row — the 1 MB stack rule.)
-                laneTabLabel(idx, line, t, sel: sel, accent: accent)
-                .frame(maxWidth: .infinity, alignment: .center).frame(height: rowH)
-                // LANE LOCK 5.4: the underline and — on a tab with a control that differs from L — a 6pt lane100 dot (6pt from its trailing edge, 5pt from its top), in ONE overlay
-                .overlay(tabDecor(idx, t, sel: sel, accent))
-                .contentShape(Rectangle())
-                .accessibilityElement(children: .ignore)
-                .hocketPartAX(base: euclideousTabAccessibilityLabel(tab: EuclideousTabKind(rawValue: t.rawValue) ?? .rhythm, lines: lines, lane: idx), lane: idx, notes: t == .notes,
-                              partOff: euclideousMixLayerIsOff(line, notes: t == .notes), rules: (t == .riff || t == .notes) ? hocketRules : [], live: hocketLive)   // §4.1 + §10.9: "Rhythm, 5 of 16 hits" · "Riff, on" · "Listen, on, following lane 2"
-                .onTapGesture {
-                    if idx < laneTab.count { laneTab[idx] = t }
-                    // §1.6: the STEPS picker and the restart editor both close when the card switches tab.
-                    if stepsPickerLane == idx { stepsPickerLane = nil }
-                    if restartEditorLane == idx { restartEditorLane = nil }
-                }
-            }
-            // LANE LOCK 5.1: a locked lane's badge sits at the trailing end (drawn over the card); the tabs share what is left by the same rule (equal width, spacing 4)
-            if lockLocked(idx) { Color.clear.frame(width: EuclideousLockBadge.size, height: 1) }
-        }
-    }
+    // MARK: - Per-lane tab content
+    // (TAB STRIP 2026-10-29: the card's own tab row — `laneTabRow` / `laneTabLabel` / `tabDecor` and the lock dots — is gone; the page's lane strip chooses the tab. The pure helpers it used —
+    // `euclideousRhythmTabCount`, `euclideousPausedTabHeaderText`, `euclideousTabAccessibilityLabel`, `euclideousLockChangedTabs` — stay in Derivations.swift, untouched.)
 
     /// LAYOUT (PATTERN-tab-layout ferry, ratified 2026-10-12, literal §1: "the content is 84pt tall: two
     /// lines of 38pt with a 4pt gap between them"): `contentAreaH` is the WHOLE space this tab's content
@@ -5180,7 +5103,7 @@ struct EuclideousPage: View {
                     .background(RoundedRectangle(cornerRadius: 7).fill(lane20(sourceAccent)))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(sourceAccent), lineWidth: 1))
                     .contentShape(Rectangle())
-                    .onTapGesture { if idx < laneTab.count { laneTab[idx] = .listen } }
+                    .onTapGesture { selectPageTab(.listen) }   // TAB STRIP: LISTEN is the page's tab now — all four cards go there
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Go to Listen")
                     .accessibilityAddTraits(.isButton)

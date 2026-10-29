@@ -294,37 +294,36 @@ final class LaneLockTests: XCTestCase {
         XCTAssertTrue(euclideousLockCardLayout(size: CGSize(width: 299, height: 319)).belowFloor)
         XCTAssertTrue(euclideousLockCardLayout(size: CGSize(width: 380, height: 249)).belowFloor)
     }
-    func testBadgeAndTabWidths() {
-        for (card, with, without) in [(380.67, 77.67, 87.17), (387.0, 79.25, 88.75)] {
+    /// TAB STRIP ferry (2026-10-29) §6.2 / test 7: the badge is in the card's TOP ROW — 34 × 34 centred on the 44-high row, sp4 before SOLO — and the comet strip ends sp4 before it. Strip widths with and without it.
+    func testBadgeAndTopRowStripWidths() {
+        for (card, without, with) in [(380.67, 260.67, 224.67), (387.0, 267.0, 231.0)] {
             let inner = card - 20
-            XCTAssertEqual(EuclideousLockBadge.tabWidth(innerWidth: inner, withBadge: false), without, accuracy: 0.01)
-            XCTAssertEqual(EuclideousLockBadge.tabWidth(innerWidth: inner, withBadge: true), with, accuracy: 0.01)
+            XCTAssertEqual(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: false), without, accuracy: 0.01)
+            XCTAssertEqual(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: true), with, accuracy: 0.01)
+            XCTAssertEqual(without - with, 36, accuracy: 1e-9, "the badge takes 34 + sp4 (the gap before SOLO already was sp6, now sp4 + the badge + sp4: 6 → 4 + 34 + 4)")
             let b = EuclideousLockBadge.frame(cardWidth: card)
-            XCTAssertEqual(b, CGRect(x: card - 44, y: 54, width: 34, height: 34)); XCTAssertEqual(b.maxX, card - 10); XCTAssertEqual(b.maxY, 88)
+            XCTAssertEqual(b, CGRect(x: card - 10 - 44 - 4 - 34, y: 15, width: 34, height: 34), "centred on the row (y 10…54): 5 pt above and below")
+            XCTAssertEqual(b.maxX + 4 + 44 + 10, card, accuracy: 1e-9, "sp4, then the 44 pt SOLO tile, then the card's 10 pt inset")
             let t = EuclideousLockBadge.touchFrame(cardWidth: card)
-            XCTAssertEqual(t.height, 44); XCTAssertEqual(t.midY, b.midY)
-            // the longest label ("LISTEN" + its dot, 11pt heavy mono with 1pt tracking) fits the narrower tab: no truncation
-            let longest = 6 * (11 * 0.6 + 1) + 5 + 7
-            XCTAssertLessThan(longest, with)
+            XCTAssertEqual(t.height, 44); XCTAssertEqual(t.width, 34); XCTAssertEqual(t.midY, b.midY, accuracy: 1e-9); XCTAssertEqual(t.minY, 10)
+            // the strip ends sp4 before the badge
+            XCTAssertEqual(10 + 44 + 6 + with + 4, b.minX, accuracy: 0.01, "play tile, sp6, the strip, then sp4 to the badge")
         }
     }
     func testHeaderThresholds() {
         let full = euclideousHeaderGroupWidths(compact: false), compact = euclideousHeaderGroupWidths(compact: true)
-        XCTAssertEqual(full.brand, 295.88, accuracy: 0.01); XCTAssertEqual(compact.brand, 181)
-        // THE NINE PORTS (2026-10-26): no OUTPUTS group — A needs brand + notes + utilities + two gaps, B needs brand + utilities + one gap
+        XCTAssertEqual(full.brand, 191.88, accuracy: 0.01); XCTAssertEqual(compact.brand, 93)
+        // TAB STRIP ferry (2026-10-29): the dice, the padlock and the PATTERN | MIX switch left the header — A needs brand + notes + utilities + two gaps = 925.88 (view 957.88), B needs brand + utilities + one gap = 483.88 (view 515.88).
         let a = euclideousHeaderANeeds(full)
         let b = full.brand + full.utilities + full.gap
-        // HOCKET ferry (2026-10-27): the utilities group grew by the pill (92) + sp8 — A 929.88 → 1029.88, B 487.88 → 587.88.
-        // CARD BACKS ferry (2026-10-28): the 116 pt PATTERN | MIX switch + its sp8 (124) lifts A to 1153.88 (view 1185.88); B is unchanged — the switch rides row 2 with NOTES there, so row 1 (BRAND + UTILITIES) still decides B against C.
-        XCTAssertEqual(a, 1153.88, accuracy: 0.01); XCTAssertEqual(b, 587.88, accuracy: 0.01)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1153.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 1153.9, isLandscape: true), .a)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 587.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 587.9, isLandscape: false), .b)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 992, isLandscape: true), .b, "a 1024-wide landscape window (container 992) takes the two-row header")
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1158, isLandscape: true), .a, "the 1190 reference still gets the one-row header with the switch")   // (1158 ≥ 1153.88, 4.12 pt to spare)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1162, isLandscape: true), .a, "an iPad Pro 11\" (1194) keeps the one-row header")
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1148, isLandscape: true), .b, "an iPad Air 11\" at 1180 now takes the two-row header (it had the one-row header before the switch)")
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1144, isLandscape: true), .b, "a 1176-wide view — the width a 376 pt card implies — takes the two-row header with the switch")
-        XCTAssertEqual(euclideousHeaderKind(containerW: 1101, isLandscape: true), .b, "an iPad mini 6 at its full 1133 width takes the two-row header again")
+        XCTAssertEqual(a, 925.88, accuracy: 0.01); XCTAssertEqual(b, 483.88, accuracy: 0.01)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 925.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 925.9, isLandscape: true), .a)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 483.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 483.9, isLandscape: false), .b)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 992, isLandscape: true), .a, "a 1024-wide landscape window (container 992) has the one-row header again")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1158, isLandscape: true), .a, "the 1190 reference keeps the one-row header (now with 232 pt to spare)")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1148, isLandscape: true), .a, "an iPad Air 11\" at 1180")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 1101, isLandscape: true), .a, "an iPad mini 6 at its full 1133 width")
+        XCTAssertEqual(euclideousHeaderKind(containerW: 900, isLandscape: true), .b, "a 932-wide window")
         XCTAssertEqual(euclideousHeaderKind(containerW: 929.9, isLandscape: false), .b, "portrait never uses the one-row header")
     }
 

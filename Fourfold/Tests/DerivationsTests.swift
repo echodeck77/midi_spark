@@ -1926,79 +1926,73 @@ final class DerivationsTests: XCTestCase {
     }
     /// no two groups on a row closer than the layout's gap; nothing past either container edge.
     private func assertHeaderInvariants(_ l: EuclideousHeaderLayout, _ containerW: CGFloat, _ msg: String, file: StaticString = #filePath, line: UInt = #line) {
-        let frames = [l.brand, l.notes, l.utilities, l.cardSwitch]
+        let frames = [l.brand, l.notes, l.utilities]
         for f in frames {
             XCTAssertGreaterThanOrEqual(f.x, -1e-9, "\(msg): nothing before the leading edge", file: file, line: line)
-            // CARD BACKS (2026-10-28, review): under 550 the third row (layout D) takes NOTES alone, so every layout keeps every group inside the container.
             XCTAssertLessThanOrEqual(f.x + f.width, containerW + 1e-9, "\(msg): nothing past the trailing edge", file: file, line: line)
         }
         for row in 0..<l.rowCount {
             let r = frames.filter { $0.row == row }.sorted { $0.x < $1.x }
             for i in 1..<max(1, r.count) {
-                // the switch is sp8 from the group it travels with (BRAND in A, NOTES in B / C); every other pair keeps the layout's gap
-                let toSwitch = (l.kind == .a && r[i] == l.cardSwitch) || (l.kind != .a && r[i - 1] == l.cardSwitch)
-                XCTAssertGreaterThanOrEqual(r[i].x - (r[i - 1].x + r[i - 1].width), (toSwitch ? 8 : l.widths.gap) - 1e-9, "\(msg): row \(row) groups \(i - 1)/\(i) closer than the gap", file: file, line: line)
+                XCTAssertGreaterThanOrEqual(r[i].x - (r[i - 1].x + r[i - 1].width), l.widths.gap - 1e-9, "\(msg): row \(row) groups \(i - 1)/\(i) closer than the gap", file: file, line: line)
             }
         }
     }
     // THE NINE PORTS (2026-10-26): the OUTPUTS group (the four rings) is gone from the header — a note's port is fixed by its lane and layer.
+    // TAB STRIP (2026-10-29): so are the dice, the padlock and the PATTERN | MIX switch — BRAND is the mark, the wordmark, undo and redo.
     func testTheHeaderHasThreeGroupsAndNoRings() {
         let f = euclideousHeaderGroupWidths(compact: false)
         let wordmark: CGFloat = 8 * 11 * 0.76          // 8 chars × 11pt × (0.6 advance + 0.16 tracking)
-        // RANDOM MODE ferry (§2.2): the dice adds one more sp8 + one more target after redo — +52pt (+8+44). LANE LOCK ferry (§2.2): the padlock sits sp8 after the dice — once more, +52pt (+8+44).
-        XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88 + 8 + 44 + 8 + 44, accuracy: 1e-9)
-        XCTAssertEqual(f.brand, 296, accuracy: 0.2)
+        XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88, accuracy: 1e-9, "the mark, the wordmark, undo and redo (it was 295.88 with the dice and the padlock, 52 pt each: a 44 target and an sp8 gap)")
+        XCTAssertEqual(f.brand, 191.88, accuracy: 0.01)
         // WIDENED 312→426 (2026-10-20, HOLD/LATCH): two fixed-width chips (48+54) + the sp4 between them + the sp8 before them. UTILITIES is 4 icons (presets · SWING · REEL · settings).
         XCTAssertEqual(f.notes, 426); XCTAssertEqual(f.utilities, 176 + 100, "HOCKET ferry: the pill's reserved width (92) and the sp8 before the presets button")
         XCTAssertEqual(HM.segmentedWidth, 184)
         let c = euclideousHeaderGroupWidths(compact: true)
-        // RANDOM MODE / LANE LOCK (§2.2): compact BRAND grew +44 for the dice and +44 for the padlock; the compact target is 36 wide.
-        XCTAssertEqual(c.brand, 93 + 44 + 44); XCTAssertEqual(c.utilities, 144 + 100)
-        XCTAssertEqual(c.brand + c.utilities + c.gap, 93 + 44 + 44 + 144 + 100 + 8, "layout C's row 1: BRAND and UTILITIES, one gap apart")
+        XCTAssertEqual(c.brand, 93, "compact: the mark and two 36 pt targets (it was 181 with the dice and the padlock, 44 pt each)"); XCTAssertEqual(c.utilities, 144 + 100)
+        XCTAssertEqual(c.brand + c.utilities + c.gap, 93 + 144 + 100 + 8, "layout C's row 1: BRAND and UTILITIES, one gap apart")
         XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
         XCTAssertEqual(HM.wordmarkWidth, 8 * 11 * 0.76, accuracy: 1e-9)
     }
-    // WIDENED to 1900 (2026-10-23), then to 2300 (HOCKET ferry, 2026-10-27: UTILITIES grew by the pill's 100) so NOTES sits unclamped on the riff panel's leading edge, clear of the utility icons.
-    func testLayoutAPutsNotesOnTheRiffPanel() {
-        let l = hdrLayout(2300, landscape: true)
-        XCTAssertEqual(l.kind, .a); XCTAssertEqual(l.rowCount, 1); XCTAssertEqual(l.height, 44)
-        let cols = pageFor(2300, landscape: true)
-        XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, 2300, accuracy: 1e-9)
-        XCTAssertEqual(l.notes.x, cols.riffLeadingX, accuracy: 1e-9, "NOTES' leading edge on the riff panel's")
-        assertHeaderInvariants(l, 2300, "A@2300")
+    // TAB STRIP (2026-10-29) §5.2: NOTES is CENTRED between BRAND's trailing edge and UTILITIES' leading edge (it used to sit on the riff panel's leading edge, slid left to clear UTILITIES).
+    func testLayoutACentresNotesBetweenBrandAndUtilities() {
+        for cw in [CGFloat(1158), 1400, 2300] {
+            let l = hdrLayout(cw, landscape: true)
+            XCTAssertEqual(l.kind, .a); XCTAssertEqual(l.rowCount, 1); XCTAssertEqual(l.height, 44)
+            XCTAssertEqual(l.brand.x, 0); XCTAssertEqual(l.utilities.x + l.utilities.width, cw, accuracy: 1e-9)
+            let left = l.notes.x - (l.brand.x + l.brand.width), right = l.utilities.x - (l.notes.x + l.notes.width)
+            XCTAssertEqual(left, right, accuracy: 1e-9, "\(cw): equal space either side of the middle group")
+            assertHeaderInvariants(l, cw, "A@\(cw)")
+        }
+        // the 1190 reference: 191.88 | 132.06 | NOTES 323.94…749.94 | 132.06 | 882 UTILITIES
+        let ref = hdrLayout(1158, landscape: true)
+        XCTAssertEqual(ref.notes.x, 323.94, accuracy: 0.01)
     }
-    func testLayoutANotesSlidesLeftToClearUtilitiesAtItsFloor() {
+    func testLayoutAAtItsFloorHasOneGapEitherSideOfNotes() {
         let full = euclideousHeaderGroupWidths(compact: false)
-        let w = euclideousHeaderANeeds(full)   // A's exact need: 1153.88 (1029.88 before the CARD BACKS switch, 929.88 before the HOCKET pill)
+        let w = euclideousHeaderANeeds(full)   // A's exact need: 925.88 (1153.88 with the card-side switch and the dice and padlock; 1029.88 before that, 929.88 before the HOCKET pill)
+        XCTAssertEqual(w, 925.88, accuracy: 0.01)
         let l = hdrLayout(w, landscape: true)
-        let cols = pageFor(w, landscape: true)
         XCTAssertEqual(l.kind, .a)
-        XCTAssertLessThan(l.notes.x, cols.riffLeadingX, "NOTES slid left to clear UTILITIES")
+        XCTAssertEqual(l.notes.x - (l.brand.x + l.brand.width), full.gap, accuracy: 1e-9)
         XCTAssertEqual(l.utilities.x - (l.notes.x + l.notes.width), full.gap, accuracy: 1e-9)
-        XCTAssertEqual(l.cardSwitch.x - (l.brand.x + l.brand.width), 8, accuracy: 1e-9, "the PATTERN | MIX switch sits sp8 after the lock tile")
-        XCTAssertEqual(l.notes.x - (l.cardSwitch.x + l.cardSwitch.width), full.gap, accuracy: 1e-9, "…and at A's floor NOTES sits one gap clear of the switch too")
         assertHeaderInvariants(l, w, "A at its exact need")
         XCTAssertEqual(hdrLayout(w - 1, landscape: true).kind, .b, "one point narrower falls to B")
         for cw in stride(from: w, through: w + 400, by: 7) { assertHeaderInvariants(hdrLayout(cw, landscape: true), cw, "A@\(cw)") }
     }
     func testLayoutBAt500AndCAt470() {
-        let b = hdrLayout(620, landscape: false)   // (500 before the HOCKET button: B now needs 587.88)
+        let b = hdrLayout(620, landscape: false)
         XCTAssertEqual(b.kind, .b); XCTAssertEqual(b.rowCount, 2); XCTAssertEqual(b.height, 44 + 4 + 44)
-        XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.cardSwitch.x, 0, "the PATTERN | MIX switch leads row 2"); XCTAssertEqual(b.cardSwitch.row, 1)
-        XCTAssertEqual(b.notes.x, 116 + 8, "NOTES follows the switch sp8 later")
+        XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.notes.x, 0, "NOTES alone leads row 2 (the switch that used to lead it is the lane strip's MIX)")
         XCTAssertEqual([b.brand.row, b.utilities.row], [0, 0])
         assertHeaderInvariants(b, 620, "B@620")
-        XCTAssertEqual(hdrLayout(500, landscape: false).kind, .d, "500 used to be layout B, then C; with the card-side switch (row 2 needs 550) it is the three-row D")
-        let c = hdrLayout(560, landscape: false)
+        XCTAssertEqual(hdrLayout(500, landscape: false).kind, .b, "500 is layout B now: B needs 483.88 without the dice and the padlock (587.88 before)")
+        let c = hdrLayout(470, landscape: false)
         XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
         XCTAssertEqual(c.widths.gap, 8)
-        assertHeaderInvariants(c, 560, "C@560 (row 2 = switch 116 + sp8 + NOTES 426 = 550 fits)")
-        // CARD BACKS (2026-10-28, review): the switch and NOTES together need 550 on row 2, where NOTES alone needed 426 — a container narrower than that (a Split View half, a small AUM window) would push HOLD / LATCH off the page, so the header
-        // takes a THIRD row: brand + utilities, the switch, then NOTES, each inside the container.
-        let narrow = hdrLayout(470, landscape: false)
-        XCTAssertEqual(narrow.kind, .d); XCTAssertEqual(narrow.rowCount, 3); XCTAssertTrue(narrow.compact)
-        XCTAssertLessThanOrEqual(narrow.notes.x + narrow.notes.width, 470, "D@470: NOTES' HOLD / LATCH chips stay inside the container")
-        assertHeaderInvariants(narrow, 470, "D@470")
+        assertHeaderInvariants(c, 470, "C@470 (NOTES' 426 fits row 2)")
+        // the three-row D is retired: it existed to give the switch its own row. Narrower than NOTES itself (426) the group overflows whichever row it is on.
+        XCTAssertEqual(hdrLayout(400, landscape: false).kind, .c)
         // a landscape page too narrow for A falls to B, never A; portrait never uses A, however wide.
         XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
         XCTAssertEqual(hdrLayout(1200, landscape: false).kind, .b)

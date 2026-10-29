@@ -25,13 +25,12 @@ final class FourfoldStackBudgetTests: XCTestCase {
         for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
             XCUIDevice.shared.orientation = orientation
             Thread.sleep(forTimeInterval: 1.0)
-            for tab in ["Riff, ", "Notes", "Listen, ", "Rhythm, "] {
-                for lane in 0..<4 {
-                    let t = app.els(prefix: tab).element(boundBy: lane)
-                    if t.waitForExistence(timeout: 3) { t.tap() }
-                }
+            // TAB STRIP (2026-10-29): one tab for all four cards — each tab is built on every lane at once
+            for tab in ["Riff, ", "Notes, ", "Listen, ", "Rhythm"] {
+                let t = app.els(prefix: tab).firstMatch
+                if t.waitForExistence(timeout: 3) { t.tap() }
             }
-            for panel in ["Lanes", "FX", "Ratchet", "Mix", "Pattern", "Mix"] where app.buttons[panel].waitForExistence(timeout: 3) { app.buttons[panel].tap() }
+            for panel in ["Lanes", "FX", "Ratchet", "Mix", "Rhythm", "Mix", "Rhythm"] where app.buttons[panel].waitForExistence(timeout: 3) { app.buttons[panel].tap() }
         }
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.0)

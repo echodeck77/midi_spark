@@ -25,30 +25,28 @@ final class CardBackTests: XCTestCase {
         XCTAssertNil(euclideousCardSwitchTapTarget(tapped: .pattern, current: .pattern)); XCTAssertNil(euclideousCardSwitchTapTarget(tapped: .mix, current: .mix))
         XCTAssertEqual(euclideousCardSwitchTapTarget(tapped: .mix, current: .pattern), .mix); XCTAssertEqual(euclideousCardSwitchTapTarget(tapped: .pattern, current: .mix), .pattern)
     }
-    /// Header widths with the switch (Paul: 116, so layout A holds at 1190): A 1029.88 → 1153.88; B 587.88 unchanged; C row 2 needs 550.
-    func testTheHeadersLayoutsWithTheSwitch() {
+    /// TAB STRIP (2026-10-29): the switch left the header (MIX is the strip's own tab), taking its 124 with it — and the dice and padlock's 104 went too: A needs 925.88 (it was 1153.88), B 483.88 (587.88).
+    func testTheHeadersLayoutsWithoutTheSwitch() {
         let full = euclideousHeaderGroupWidths(compact: false)
-        near(full.cardSwitch, 116)
-        near(euclideousHeaderANeeds(full), 295.88 + 8 + 116 + 16 + 426 + 16 + 276, "A: BRAND + sp8 + switch + gap + NOTES + gap + UTILITIES")
-        near(euclideousHeaderANeeds(full), 1153.88)
-        near(full.brand + full.utilities + full.gap, 587.88, "B's row 1 is untouched")
-        // A at the 1190 reference: the switch right after the lock tile; NOTES pinned by the right edge exactly where it was (440)
+        near(euclideousHeaderANeeds(full), 191.88 + 16 + 426 + 16 + 276, "A: BRAND + gap + NOTES + gap + UTILITIES")
+        near(euclideousHeaderANeeds(full), 925.88)
+        near(full.brand + full.utilities + full.gap, 483.88, "B's row 1: the narrower BRAND")
+        // A at the 1190 reference: NOTES centred between BRAND and UTILITIES
         let p = euclideousPageLayout(size: CGSize(width: 1190, height: 834))
         XCTAssertEqual(p.headerKind, .a)
         let l = euclideousHeaderLayout(containerW: 1158, isLandscape: true, riffLeadingX: p.riffLeadingX)
-        near(l.brand.width, 295.88); near(l.cardSwitch.x, 303.88); near(l.cardSwitch.width, 116); XCTAssertEqual(l.cardSwitch.row, 0)
-        near(l.notes.x, 440, "NOTES does not move at 1190 (435.88 is its floor now)"); near(l.notes.x - (l.cardSwitch.x + l.cardSwitch.width), 20.12)
+        near(l.brand.width, 191.88); near(l.notes.x, 323.94, "NOTES centred in the space between BRAND and UTILITIES")
         // the widths the layouts DO and DO NOT fit
         let a = euclideousHeaderANeeds(full)
         XCTAssertEqual(euclideousHeaderKind(containerW: a, isLandscape: true), .a); XCTAssertEqual(euclideousHeaderKind(containerW: a - 0.01, isLandscape: true), .b)
-        for (view, kind) in [(1376.0, EuclideousHeaderLayout.Kind.a), (1210, .a), (1194, .a), (1190, .a), (1186, .a), (1185, .b), (1180, .b), (1176, .b), (1133, .b), (1113, .b), (1024, .b)] {
+        for (view, kind) in [(1376.0, EuclideousHeaderLayout.Kind.a), (1210, .a), (1194, .a), (1190, .a), (1186, .a), (1185, .a), (1180, .a), (1176, .a), (1133, .a), (1113, .a), (1024, .a), (958, .a), (957, .b), (900, .b)] {
             XCTAssertEqual(euclideousHeaderKind(containerW: CGFloat(view) - 32, isLandscape: true), kind, "landscape view \(view)")
         }
-        // B and C: the switch leads row 2
+        // B and C: NOTES alone leads row 2
         let b = euclideousHeaderLayout(containerW: 800, isLandscape: false, riffLeadingX: 0)
-        XCTAssertEqual(b.kind, .b); XCTAssertEqual(b.cardSwitch.row, 1); near(b.cardSwitch.x, 0); near(b.notes.x, 124)
-        let c = euclideousHeaderLayout(containerW: 550, isLandscape: false, riffLeadingX: 0)
-        XCTAssertEqual(c.kind, .c); near(c.notes.x + c.notes.width, 550, "C fits exactly from 550")
+        XCTAssertEqual(b.kind, .b); XCTAssertEqual(b.notes.row, 1); near(b.notes.x, 0)
+        let c = euclideousHeaderLayout(containerW: 440, isLandscape: false, riffLeadingX: 0)
+        XCTAssertEqual(c.kind, .c); near(c.notes.x + c.notes.width, 426, "NOTES (426) fits from 426")
     }
 
     // MARK: §3.3 / §3.5 / test 6 the flip

@@ -58,8 +58,8 @@ final class FourfoldCardBackReviewTests: XCTestCase {
         XCTAssertFalse(pitch.label.contains("octave"), "the label carries the value: \(pitch.label)")
     }
 
-    /// A 500 pt wide window (Split View half, a small AUM window; it is centred on the screen, so everything is judged against the gear, which ends at the page's trailing edge): HOLD, LATCH and the card-side switch stay inside it —
-    /// the header takes a third row there.
+    /// A 500 pt wide window (Split View half, a small AUM window; it is centred on the screen, so everything is judged against the gear, which ends at the page's trailing edge): HOLD, LATCH and the strip's MIX stay inside it —
+    /// TAB STRIP (2026-10-29): the header is two rows there (NOTES alone on row 2), and the lane strip sits below it.
     func testAPortraitWindow500WideKeepsHoldAndLatchInsideThePage() {
         launch(["--window-size=500x900"], orientation: .portrait)
         let edge = need(app.buttons["Settings"], "the gear (the page's trailing edge)").frame.maxX
@@ -67,7 +67,7 @@ final class FourfoldCardBackReviewTests: XCTestCase {
             let b = need(app.buttons[name], "the \(name) control")
             XCTAssertLessThanOrEqual(b.frame.maxX, edge + 1, "\(name) ends at \(b.frame.maxX), past the page's edge \(edge)")
         }
-        XCTAssertGreaterThan(app.buttons["Hold"].frame.minY, app.buttons["Mix"].frame.maxY - 1, "NOTES sits on its own row below the switch")
+        XCTAssertGreaterThan(app.buttons["Mix"].frame.minY, app.buttons["Hold"].frame.maxY - 1, "the lane strip sits below the header")
     }
 
     /// ADD HITS' touch target and the riff label's must not overlap (the invitation slides clear of the label); lane 3 has no hits on the factory document, so it offers ADD HITS on whatever iPad this runs on.

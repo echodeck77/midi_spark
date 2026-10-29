@@ -62,10 +62,10 @@ final class PageLayoutTests: XCTestCase {
         // the header kind comes from the header's own ladder on the page's container width
         // 2026-10-20: two offsetting changes — output rings to 75% dropped OUTPUTS by 44pt (839.86 layout A
         // need), then the HOLD/LATCH header buttons widened NOTES by 114pt (953.86) — net +70, still short of 868.
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 900, height: 600)).headerKind, .b, "868 < the now-953.86 layout A needs")
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 900, height: 600)).headerKind, .b, "868 < the 925.88 layout A needs (TAB STRIP: it was 1153.88)")
         XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 1190, height: 600)).headerKind, .a)
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 400, height: 900)).headerKind, .d, "a container under 550 takes the three-row header (CARD BACKS review)")
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 600, height: 900)).headerKind, .c)
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 400, height: 900)).headerKind, .c, "the three-row D is retired (it existed for the PATTERN | MIX switch): a narrow container takes the compact two-row header")
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 600, height: 900)).headerKind, .b, "568 ≥ B's 483.88")
     }
 
     // MARK: 3. the sweep
@@ -128,18 +128,17 @@ final class PageLayoutTests: XCTestCase {
     }
     func testHeaderKindThresholdsAreTheLaddersOwn() {
         let full = euclideousHeaderGroupWidths(compact: false)
-        // Sources panel v2 (2026-10-28): NOTES is the 306 pt SOURCES group (button 192 + sp8 + HOLD/LATCH 106), down
-        // from 426 (source control 184 + key pill 120 + HOLD/LATCH 106), so aNeeds = brand 295.88 + sp8 + switch 116
-        // + gap + notes 306 + gap + utilities 276 = 1033.88 (was 1153.88), and row2Needs = 116 + sp8 + 306 = 430 (was 550).
-        XCTAssertEqual(full.notes, 306, accuracy: 0.01)
-        let aNeeds = euclideousHeaderANeeds(full)
-        XCTAssertEqual(aNeeds, 1033.88, accuracy: 0.01)
+        XCTAssertEqual(full.notes, 306, accuracy: 0.01, "Sources panel v2: the SOURCES button (192) + sp8 + HOLD/LATCH (106)")
+        let aNeeds = euclideousHeaderANeeds(full)   // TAB STRIP (2026-10-29): brand 191.88 + gap + notes 306 + gap + utilities 276 = 805.88 (1033.88 with the switch, the dice and the padlock; 1153.88 with the old 426 NOTES)
+        XCTAssertEqual(aNeeds, 805.88, accuracy: 0.01)
         let bNeeds = full.brand + full.utilities + full.gap
         XCTAssertEqual(euclideousHeaderKind(containerW: aNeeds, isLandscape: true), .a)
         XCTAssertEqual(euclideousHeaderKind(containerW: aNeeds - 0.01, isLandscape: true), .b)
         XCTAssertEqual(euclideousHeaderKind(containerW: 5000, isLandscape: false), .b, "portrait never uses A")
         XCTAssertEqual(euclideousHeaderKind(containerW: bNeeds - 0.01, isLandscape: false), .c)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 429.99, isLandscape: false), .d); XCTAssertEqual(euclideousHeaderKind(containerW: 430, isLandscape: false), .c)
+        XCTAssertEqual(bNeeds, 483.88, accuracy: 0.01)
+        XCTAssertEqual(euclideousHeaderKind(containerW: bNeeds, isLandscape: false), .b)
+        for cw in stride(from: 200, through: 2400, by: 3) { for landscape in [true, false] { XCTAssertNotEqual(euclideousHeaderKind(containerW: CGFloat(cw), isLandscape: landscape), .d, "\(cw): the three-row layout is retired") } }
         for cw in stride(from: 300, through: 1500, by: 7) { for landscape in [true, false] {
             let l = euclideousHeaderLayout(containerW: CGFloat(cw), isLandscape: landscape, riffLeadingX: 0)
             XCTAssertEqual(l.kind, euclideousHeaderKind(containerW: CGFloat(cw), isLandscape: landscape), "\(cw) \(landscape)")
@@ -170,23 +169,19 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertGreaterThan(pick.sourcesBlockH, none.sourcesBlockH)
     }
     func testHeaderGroupsNeverOverlapOrLeaveTheContainer() {
-        for cw in stride(from: 300, through: 1500, by: 7) { for landscape in [true, false] { for riffX in [CGFloat(0), 300, 777.33, 2000] {
+        for cw in stride(from: 440, through: 1500, by: 7) { for landscape in [true, false] { for riffX in [CGFloat(0), 300, 777.33, 2000] {
             let l = euclideousHeaderLayout(containerW: CGFloat(cw), isLandscape: landscape, riffLeadingX: riffX)
             let tag = "\(cw) \(landscape) \(riffX)"
             XCTAssertEqual(l.brand.x, 0, tag); XCTAssertEqual(l.brand.row, 0, tag)
             XCTAssertEqual(l.utilities.x + l.utilities.width, CGFloat(cw), accuracy: 1e-9, "\(tag): the gear ends at the right edge"); XCTAssertEqual(l.utilities.row, 0, tag)
             if l.kind == .a {
-                XCTAssertEqual(l.notes.row, 0, tag); XCTAssertEqual(l.cardSwitch.row, 0, tag)
-                XCTAssertEqual(l.cardSwitch.x, l.brand.width + 8, accuracy: 1e-9, "\(tag): the switch sits sp8 after the lock tile")
-                XCTAssertGreaterThanOrEqual(l.notes.x, l.cardSwitch.x + l.cardSwitch.width + l.widths.gap - 1e-9, "\(tag): NOTES clears the switch")
-                XCTAssertLessThanOrEqual(l.notes.x + l.notes.width + l.widths.gap, l.utilities.x + 1e-9, "\(tag): NOTES clears UTILITIES")
-            } else if l.kind == .d {
-                XCTAssertEqual(l.cardSwitch.row, 1, tag); XCTAssertEqual(l.notes.row, 2, tag); XCTAssertEqual(l.cardSwitch.x, 0, tag); XCTAssertEqual(l.notes.x, 0, tag)
-                if cw >= 448 { XCTAssertLessThanOrEqual(l.notes.x + l.notes.width, CGFloat(cw) + 1e-9, "\(tag): NOTES stays inside the container on its own row") }   // (448 = the narrowest container the page lays out un-scaled: a 480 pt view)
+                XCTAssertEqual(l.notes.row, 0, tag)
+                XCTAssertGreaterThanOrEqual(l.notes.x, l.brand.width + l.widths.gap - 1e-9, "\(tag): NOTES clears BRAND")
+                XCTAssertLessThanOrEqual(l.notes.x + l.notes.width + l.widths.gap, l.utilities.x + 1e-9, "\(tag): …and UTILITIES")
+                XCTAssertEqual(l.notes.x, euclideousHeaderLayout(containerW: CGFloat(cw), isLandscape: landscape, riffLeadingX: 0).notes.x, accuracy: 1e-9, "\(tag): the riff panel's edge no longer moves it")
             } else {
-                XCTAssertEqual(l.notes.row, 1, tag); XCTAssertEqual(l.cardSwitch.row, 1, tag); XCTAssertEqual(l.cardSwitch.x, 0, "\(tag): the switch leads row 2")
-                XCTAssertEqual(l.notes.x, l.cardSwitch.width + 8, accuracy: 1e-9, "\(tag): NOTES (the source control first) follows it sp8 later")
-                if cw >= 448 { XCTAssertLessThanOrEqual(l.notes.x + l.notes.width, CGFloat(cw) + 1e-9, "\(tag): B and C keep row 2 inside the container") }
+                XCTAssertEqual(l.notes.row, 1, tag); XCTAssertEqual(l.notes.x, 0, "\(tag): NOTES alone leads row 2")
+                XCTAssertLessThanOrEqual(l.notes.x + l.notes.width, CGFloat(cw) + 1e-9, "\(tag): B and C keep row 2 inside the container")
                 XCTAssertLessThanOrEqual(l.brand.width + l.widths.gap, l.utilities.x + (l.kind == .c ? 1e9 : 1e-9), tag)
             }
         } } }
@@ -304,23 +299,21 @@ final class PageLayoutTests: XCTestCase {
     private func headerFor(_ p: EuclideousPageLayout, _ size: CGSize) -> EuclideousHeaderLayout {
         euclideousHeaderLayout(containerW: size.width - 32, isLandscape: p.isLandscape, riffLeadingX: p.riffLeadingX)
     }
-    func testNotesDoesNotMoveAt1190() {
-        // layout A: NOTES wants the riff panel's leading edge but slides left to sp16 before the 3 utility icons.
-        // Sources panel v2 (2026-10-28): NOTES SHRANK 426 → 306 (the SOURCES button replaces the source control +
-        // key pill), so its clamped x — which ends at the same point before UTILITIES — shifts RIGHT by 120.
+    func testNotesIsCentredAt1190() {
+        // TAB STRIP (2026-10-29) §5.2: layout A centres NOTES (306, Sources panel v2) between BRAND (0…191.88) and UTILITIES (882…1158): x 383.94 (it was 560, pinned 16 before UTILITIES)
         let l = headerFor(land, landscapeRef)
-        XCTAssertEqual(l.notes.x, 1158 - 276 - 16 - 306, accuracy: 1e-9)   // UTILITIES 276 (HOCKET pill + icons); NOTES 306
-        XCTAssertEqual(l.notes.x, 560, accuracy: 1e-9, "today's x at 1190 (clamped to 560 since NOTES is 306; 440 when it was 426)")
+        XCTAssertEqual(l.notes.x, 383.94, accuracy: 0.01)
+        XCTAssertEqual(l.notes.x - l.brand.width, l.utilities.x - (l.notes.x + l.notes.width), accuracy: 1e-9)
         XCTAssertLessThan(l.notes.x, land.riffLeadingX)
     }
 
     // MARK: 9. floors
 
     func testFloorsAreFlaggedNotFixedAtTheOtherSizes() {
-        // a guess at the 8.3-inch iPad mini's landscape plugin view: box 355 × 274
-        // THE NINE PORTS (2026-10-26): with the header rings gone layout A's floor is 962 wide, so a 1113-wide view has the one-row header (boxes start at 64) and a 636-high view gives this 355 × 274 box.
-        // CARD BACKS (2026-10-28): the PATTERN | MIX switch (+124) lifted A's floor to a 1185.88 view, so 1113 took the two-row header (top 111) and needed 683 high for the same box.
-        // SOURCES PANEL v2 (2026-10-28): NOTES shrank 426 → 306, lowering A's floor to a ≈1066-wide view, so this 1113-wide view has the ONE-row header AGAIN (top 64) and is back to 636 high for the same 355 × 274 box.
+        // a guess at the 8.3-inch iPad mini's landscape plugin view: box 355 × 274 (TAB STRIP 2026-10-29: the header lost the switch, the dice and the padlock — layout A holds from a 837.88 view, so 1113 wide has the one-row header and the 274 box needs 636 high, as it did before CARD BACKS)
+        // THE NINE PORTS (2026-10-26): with the header rings gone layout A's floor is 962 wide (container 930 + the two margins), so this 1113-wide view has the one-row header again (boxes start at 64)
+        // and the view's original 636 height gives this guess's 355 × 274 box, which is what the floors below are about. (The REEL icon had pushed it to the two-row header and 683.)
+        // CARD BACKS (2026-10-28): the PATTERN | MIX switch (+124) lifts A's floor to a 1185.88 view, so this 1113-wide view takes the two-row header again (boxes start at 111) and needs 683 high for the same 355 × 274 box.
         let mini = euclideousPageLayout(size: CGSize(width: 1113, height: 636))
         XCTAssertEqual(mini.headerKind, .a)
         XCTAssertEqual(mini.box.width, 355, accuracy: 1e-9); XCTAssertEqual(mini.box.height, 274, accuracy: 1e-9)
@@ -349,7 +342,7 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertTrue(f.contains(.riffRows), "20.1 (even after the tab-row fair-share gives it back 0.75) is still under 24"); XCTAssertFalse(f.contains(.fxRows), "FX rows 24.67 clear 24")
         // windowed AUM panels
         let wl = euclideousPageLayout(size: CGSize(width: 900, height: 600))
-        XCTAssertEqual(wl.headerKind, .b, "868 wide: B, boxes start at 111")
+        XCTAssertEqual(wl.headerKind, .b, "868 < A's 925.88: B, boxes start at 111")
         XCTAssertEqual(wl.box.width, 284, accuracy: 1e-9); XCTAssertEqual(wl.box.height, 232.5, accuracy: 1e-9)
         // §5.2: at this windowed size the pad is 56.25 — under the 64 floor (`.mixPadH`) but no longer under the 48 stop (`.mixPadHStop`), the OUT row's room reclaimed.
         XCTAssertTrue(Set(wl.floors).isSuperset(of: [.mixCellW, .mixPadH, .rhythmZones, .riffRows, .fxRows]), "\(wl.floors)")

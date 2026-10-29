@@ -37,6 +37,13 @@ func euclideousRandomStartTab(_ tab: EuclideousPageTab) -> EuclideousRandomTab {
     switch tab { case .rhythm: return .rhythm; case .riff: return .riff; case .notes: return .notes; case .listen, .mix: return .rhythm }
 }
 
+/// What a touch on a strip TAB (a RHYTHM · RIFF · NOTES · LISTEN segment, or MIX) does (TAB STRIP §6): ordinarily it selects the tab; while random mode is on it finishes random mode, and while lock mode is on it finishes lock mode —
+/// either way the touch is consumed (the tab does not change). Random mode wins when both are on (the random faces are what is showing). The dice and the padlock are not tabs: they toggle their own modes.
+enum EuclideousStripTapAction: Equatable { case selectTab, finishRandom, finishLock }
+func euclideousStripTapAction(randomMode: Bool, lockMode: Bool) -> EuclideousStripTapAction {
+    randomMode ? .finishRandom : (lockMode ? .finishLock : .selectTab)
+}
+
 // MARK: - the strip's frames
 
 enum EuclideousLaneStripMetrics {

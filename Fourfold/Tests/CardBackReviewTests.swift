@@ -90,7 +90,7 @@ final class CardBackReviewTests: XCTestCase {
         }
     }
 
-    /// Every header group stays inside its container at every width the page lays out un-scaled (portrait from 480 wide → container 448; landscape from 760), in whichever layout (A, B, C, or the three-row D) is chosen.
+    /// Every header group stays inside its container at every width the page lays out un-scaled (portrait from 480 wide → container 448; landscape from 760), in whichever layout (A, B or C) is chosen. (TAB STRIP 2026-10-29: the three-row D is retired.)
     func testEveryHeaderGroupStaysInsideTheContainerAtEveryUnscaledWidth() {
         var overflow: [String] = [], kinds = Set<String>()
         for view in stride(from: 480, through: 1376, by: 4) {
@@ -102,22 +102,21 @@ final class CardBackReviewTests: XCTestCase {
                 let l = euclideousHeaderLayout(containerW: cw, isLandscape: p.isLandscape, riffLeadingX: p.riffLeadingX)
                 kinds.insert("\(l.kind)")
                 XCTAssertEqual(p.headerKind, l.kind, "the page and the header agree on the layout at \(view)")
-                XCTAssertLessThanOrEqual(l.cardSwitch.row, l.rowCount - 1); XCTAssertLessThanOrEqual(l.notes.row, l.rowCount - 1)
-                for (n, g) in [("brand", l.brand), ("notes", l.notes), ("utilities", l.utilities), ("cardSwitch", l.cardSwitch)] where g.x + g.width > cw + 1e-6 {
+                XCTAssertLessThanOrEqual(l.notes.row, l.rowCount - 1)
+                for (n, g) in [("brand", l.brand), ("notes", l.notes), ("utilities", l.utilities)] where g.x + g.width > cw + 1e-6 {
                     overflow.append("\(landscape ? "landscape" : "portrait") view \(view) (container \(Int(cw))): \(n) ends at \(Int(g.x + g.width)) (kind \(l.kind), row \(g.row))")
                 }
             }
         }
         XCTAssertTrue(overflow.isEmpty, "a header group runs past the container: \(overflow.prefix(4))")
-        XCTAssertEqual(kinds, ["a", "b", "c", "d"], "every layout is exercised")
+        XCTAssertEqual(kinds, ["a", "b", "c"], "every layout the ladder chooses is exercised")
     }
-    func testLayoutDHasThreeRowsAndItsOwnTop() {
-        let narrow = euclideousHeaderLayout(containerW: 480, isLandscape: false, riffLeadingX: 0)
-        XCTAssertEqual(narrow.kind, .d); XCTAssertEqual(narrow.rowCount, 3); XCTAssertTrue(narrow.compact)
-        XCTAssertEqual(narrow.height, 44 * 3 + 4 * 2)
-        XCTAssertEqual([narrow.brand.row, narrow.utilities.row, narrow.cardSwitch.row, narrow.notes.row], [0, 0, 1, 2])
+    /// TAB STRIP (2026-10-29): the three-row D existed to give the PATTERN | MIX switch its own row; the ladder never chooses it now (its layout code and top stay, unreachable).
+    func testTheLadderNeverChoosesTheRetiredThreeRowLayout() {
+        let narrow = euclideousHeaderLayout(containerW: 400, isLandscape: false, riffLeadingX: 0)
+        XCTAssertEqual(narrow.kind, .c); XCTAssertEqual(narrow.rowCount, 2); XCTAssertTrue(narrow.compact)
+        XCTAssertEqual([narrow.brand.row, narrow.utilities.row, narrow.notes.row], [0, 0, 1])
         XCTAssertEqual(EuclideousPageMetrics.top(.d), 159); XCTAssertEqual(EuclideousPageMetrics.top(.c), 111)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 549.9, isLandscape: false), .d); XCTAssertEqual(euclideousHeaderKind(containerW: 550, isLandscape: false), .c)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 587.88, isLandscape: false), .b)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 483.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 483.88, isLandscape: false), .b)
     }
 }

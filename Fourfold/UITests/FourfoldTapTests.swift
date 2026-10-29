@@ -93,11 +93,8 @@ final class FourfoldTapTests: XCTestCase {
 
     func testStepsUndoAndRedoGoThroughTheEngineAndBack() {
         let app = XCUIApplication.fresh()
-        let before = app.els(prefix: "Rhythm, ").element(boundBy: 0).label
-        XCTAssertEqual(before, "Rhythm, 3 of 8 hits")
         app.buttons["More steps, now 8"].firstMatch.tap()
         need(app.buttons["More steps, now 9"].firstMatch, "lane 1 at 9 steps after one + tap")
-        need(app.el("Rhythm, 3 of 9 hits"), "the RHYTHM tab following the new length")
         app.buttons["Undo"].tap()
         need(app.buttons["More steps, now 8"].firstMatch, "8 steps after Undo")
         app.buttons["Redo"].tap()
@@ -112,7 +109,6 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(value(hits), "3")
         hits.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).press(forDuration: 0.05, thenDragTo: hits.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)))
         XCTAssertNotEqual(value(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch), "3", "dragging the HITS fader up should add hits")
-        XCTAssertNotEqual(app.els(prefix: "Rhythm, ").element(boundBy: 0).label, "Rhythm, 3 of 8 hits")
     }
 
     func testDraggingOffsetMovesThePattern() {
@@ -135,13 +131,14 @@ final class FourfoldTapTests: XCTestCase {
 
     func testEveryLaneTabOpensItsOwnContent() {
         let app = XCUIApplication.fresh()
-        app.els(prefix: "Riff, ").element(boundBy: 0).tap()
+        // TAB STRIP (2026-10-29): one strip chooses the tab for all four cards
+        app.els(prefix: "Riff, ").firstMatch.tap()
         need(app.el("Advance every"), "the RIFF tab's ADVANCE EVERY row")   // (the WALK strip above it is dropped on a card too short for it — the iPad mini — so it is not the thing to look for)
-        app.els(prefix: "Notes").element(boundBy: 0).tap()
+        app.els(prefix: "Notes, ").firstMatch.tap()
         need(app.el("Notes layer, off, 0 notes lit"), "the NOTES tab's layer switch")
-        app.els(prefix: "Listen, ").element(boundBy: 0).tap()
+        app.els(prefix: "Listen, ").firstMatch.tap()
         need(app.el("Follow lane 2"), "the LISTEN tab's partner picker")
-        app.els(prefix: "Rhythm, ").element(boundBy: 0).tap()
+        app.buttons["Rhythm"].tap()
         need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the RHYTHM tab again")
     }
 
@@ -195,8 +192,9 @@ final class FourfoldTapTests: XCTestCase {
     /// CARD BACKS (2026-10-28): the header's PATTERN | MIX switch turns all four cards over; each back carries a riff row and a notes row whose controls reach the engine — the part's switch, an output jack, the PITCH pad and the VEL/GATE pad.
     func testTheCardSwitchTurnsTheLaneCardsToTheirBacksAndTheControlsEdit() {
         let app = XCUIApplication.fresh()
-        XCTAssertTrue(app.buttons["Pattern"].isSelected, "the cards open on PATTERN")
-        need(app.buttons["Mix"], "the header's MIX segment").tap()
+        XCTAssertTrue(app.buttons["Rhythm"].isSelected, "the strip opens on RHYTHM and never on MIX")
+        XCTAssertFalse(app.buttons["Mix"].isSelected)
+        need(app.buttons["Mix"], "the strip's MIX segment").tap()
         need(app.el("Lane 1 mix"), "lane 1's back")
         XCTAssertTrue(app.buttons["Mix"].isSelected)
         let jackB = need(app.el("Riff to output B, empty"), "lane 1's riff jack B")
@@ -220,8 +218,8 @@ final class FourfoldTapTests: XCTestCase {
         let before = vel.label
         vel.swipeUp()
         XCTAssertNotEqual(vel.label, before, "an adjustment moves the velocity")
-        app.buttons["Pattern"].tap()
-        need(app.els(prefix: "Rhythm, ").element(boundBy: 0), "the front again")
+        app.buttons["Rhythm"].tap()
+        need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the fronts again, on RHYTHM")
     }
 
     /// A small window (AUM's minimized plugin window, Stage Manager, Split View) must stay the live, interactive page — there is no "resize to continue" screen any more.
@@ -274,12 +272,14 @@ final class FourfoldTapTests: XCTestCase {
 
     func testThePresetBrowserLoadsAPreset() {
         let app = XCUIApplication.fresh()
-        let before = (0..<4).map { app.els(prefix: "Rhythm, ").element(boundBy: $0).label }
+        // TAB STRIP (2026-10-29): the lane tabs' "Rhythm, n of m hits" labels are gone — RHYTHM is showing on all four cards, so read each lane's HITS fader and STEPS stepper
+        func lanes() -> [String] { (0..<4).map { "\(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).element(boundBy: $0).value as? String ?? "?") / \(app.els(prefix: "More steps, now ").element(boundBy: $0).label)" } }
+        let before = lanes()
         app.buttons["Presets"].tap()
         need(app.staticTexts["PRESETS"], "the preset browser")
         need(app.buttons["FIVE AGAINST EIGHT, factory preset"], "a factory preset row").tap()
         gone(app.staticTexts["PRESETS"], "the preset browser after choosing a preset")
-        let after = (0..<4).map { app.els(prefix: "Rhythm, ").element(boundBy: $0).label }
+        let after = lanes()
         XCTAssertNotEqual(before, after, "loading FIVE AGAINST EIGHT should change the lanes")
     }
 
@@ -287,7 +287,7 @@ final class FourfoldTapTests: XCTestCase {
     func testThePageHasNoOutputToggles() {
         let app = XCUIApplication.fresh()
         gone(app.buttons["Show its lanes"].firstMatch, "the retired header rings' action")
-        app.els(prefix: "Riff, ").element(boundBy: 0).tap()
+        app.els(prefix: "Riff, ").firstMatch.tap()
         gone(app.el("Riff to output B, off"), "the retired OUT column on the RIFF tab")
     }
 

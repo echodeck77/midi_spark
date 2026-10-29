@@ -117,6 +117,43 @@ final class LaneViewStripTests: XCTestCase {
         XCTAssertEqual(euclideousRandomStartTab(.listen), .rhythm, "random mode throws RHYTHM, RIFF or NOTES"); XCTAssertEqual(euclideousRandomStartTab(.mix), .rhythm)
     }
 
+    // MARK: the strip and the cards at every layout the page can produce
+
+    /// The sizes the project tests the page at (the iPads, the windowed AUM / Stage Manager sizes): header kind, the strip and its segments, the lane card and its zones, the floors that flag — printed as `TABSTRIP-LAYOUT` lines for the status log,
+    /// and held to the invariants that must be true everywhere (the strip fits the lane area; the cards end where the old equal boxes did; nothing is negative).
+    func testTheStripAndTheCardsAtEveryLayoutThePageCanProduce() {
+        let sizes: [(String, CGSize)] = [("1376×1032", CGSize(width: 1376, height: 1032)), ("1366×1024", CGSize(width: 1366, height: 1024)), ("1194×834", CGSize(width: 1194, height: 834)), ("1190×726 (ref)", CGSize(width: 1190, height: 726)),
+                                         ("1180×820", CGSize(width: 1180, height: 820)), ("1133×744 (mini)", CGSize(width: 1133, height: 744)), ("1113×683", CGSize(width: 1113, height: 683)), ("1113×636", CGSize(width: 1113, height: 636)),
+                                         ("1024×768", CGSize(width: 1024, height: 768)), ("900×600 window", CGSize(width: 900, height: 600)), ("834×1210", CGSize(width: 834, height: 1210)), ("814×1102 (ref)", CGSize(width: 814, height: 1102)),
+                                         ("768×1024", CGSize(width: 768, height: 1024)), ("744×1133 (mini)", CGSize(width: 744, height: 1133)), ("700×900 window", CGSize(width: 700, height: 900)), ("600×900 window", CGSize(width: 600, height: 900)),
+                                         ("500×900 window", CGSize(width: 500, height: 900)), ("300×700 window", CGSize(width: 300, height: 700))]
+        func f(_ v: CGFloat) -> String { String(format: "%.1f", Double(v)) }
+        var table: [String] = []
+        for (name, size) in sizes {
+            let p = euclideousPageLayout(size: size)
+            let S = euclideousLaneStripLayout(width: p.strip.width)
+            let content = EuclideousLaneCardMetrics.contentAreaH(cardHeight: p.laneBox.height)
+            let back = euclideousCardBackLayout(card: p.laneBox)
+            let inner = EuclideousLaneCardMetrics.innerWidth(cardWidth: p.laneBox.width)
+            table.append("TABSTRIP-LAYOUT \(name): header \(p.headerKind) top \(f(EuclideousPageMetrics.top(p.headerKind))) | strip \(f(p.strip.width)) seg \(f(S.segmentWidth)) clusters \(S.clustersVisible ? "shown" : "HIDDEN") | lane \(f(p.laneBox.width))×\(f(p.laneBox.height)) content \(f(content)) upper \(f(content - 84)) rowH(back) \(f(back.rowHeight)) | comet strip \(f(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: false)))/\(f(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: true))) | floors \(p.floors)")
+            XCTAssertEqual(p.strip.maxX, p.lanes[1].maxX, accuracy: 1e-9, name); XCTAssertEqual(p.strip.minY + 28 + 8, p.lanes[0].minY, accuracy: 1e-9, name)
+            XCTAssertEqual(p.lanes[3].maxY, p.isLandscape ? p.seq.maxY : p.riff.minY - 8, accuracy: 1e-6, "\(name): the cards end where the old equal boxes did")
+            XCTAssertGreaterThan(p.laneBox.height, 0); XCTAssertGreaterThan(content, 0)
+            XCTAssertEqual(S.mix.width, 78); XCTAssertEqual(S.dice.width, 28); XCTAssertEqual(S.padlock.width, 28)
+            XCTAssertEqual(p.floors.contains(.laneStrip), S.belowFloor, name)
+        }
+        print(table.joined(separator: "\n"))
+    }
+
+    // MARK: 7. random mode and lock mode
+
+    func testATouchOnAStripTabFinishesARunningModeAndChangesNothing() {
+        XCTAssertEqual(euclideousStripTapAction(randomMode: false, lockMode: false), .selectTab)
+        XCTAssertEqual(euclideousStripTapAction(randomMode: true, lockMode: false), .finishRandom, "random mode: the tab does not change, the mode ends")
+        XCTAssertEqual(euclideousStripTapAction(randomMode: false, lockMode: true), .finishLock, "lock mode likewise")
+        XCTAssertEqual(euclideousStripTapAction(randomMode: true, lockMode: true), .finishRandom, "both on: the random faces are what is showing, so they finish first")
+    }
+
     // MARK: 7.1 VoiceOver
 
     func testSegmentLabels() {

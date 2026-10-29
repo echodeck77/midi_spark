@@ -149,6 +149,8 @@ struct EuclidLaneBox: View {
     var mutedAt: ((Double) -> Bool)? = nil
     /// LANE LOCK 5.3: the comet bar's dashed "will snap back" outline (a gesture on the bar wrote a lock field that differs from L). false (every other caller) ⇒ byte-identical.
     var lockOutline: Bool = false
+    /// TAB STRIP ferry (2026-10-29) §6.2: a locked lane's badge (34 × 34, `EuclideousLockBadge`) sits between the comet strip and the SOLO tile, sp4 either side; the strip ends sp4 before it. nil (every other caller / lane) ⇒ the row is unchanged.
+    var lockBadge: AnyView? = nil
 
     var body: some View {
         let on = line.enabledResolved
@@ -163,7 +165,10 @@ struct EuclidLaneBox: View {
             // badge gap 8pt. NOT measured via GeometryReader — so `EuclidCometBar` can compute its box pitch
             // (for the rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
             let gap: CGFloat = compact ? 6 : 8
-            let badgeReserve: CGFloat = soloButton != nil ? (gap + soloButtonWidth) : (stepCountBadge == nil ? 0 : (gap + stepCountBadgeWidth))
+            // The badge's layout slot is its 34 minus what the negative padding pulls in on each side (the row's 6 pt gap becomes the ferry's sp4): 30.
+            let lockPull = gap - EuclideousLockBadge.gap
+            let lockReserve: CGFloat = (soloButton != nil && lockBadge != nil) ? (gap + EuclideousLockBadge.size - 2 * lockPull) : 0
+            let badgeReserve: CGFloat = soloButton != nil ? (gap + soloButtonWidth + lockReserve) : (stepCountBadge == nil ? 0 : (gap + stepCountBadgeWidth))
             let leadReserve: CGFloat = compact ? 50 : 64
             // `patternOverride` is already FINISHED (partner's pattern, this lane's own OFFSET + INV baked in), so it goes in as a
             // hand-edited pattern with nothing left to rotate, tilt or invert — the bar's own customHits path replaces generation.
@@ -188,7 +193,10 @@ struct EuclidLaneBox: View {
                 .overlay(alignment: .bottom) { if let t = listenShadowTint { Rectangle().fill(t).frame(height: 14).allowsHitTesting(false) } }
                 .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.1: the whole strip (cells, riff track, key row, playhead, the SHADOW band) once at 42 %
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDim)
-            if let soloButton { soloButton } else if let stepCountBadge { stepCountBadge }
+            if let soloButton {
+                if let lockBadge { lockBadge.frame(width: EuclideousLockBadge.size, height: height).padding(.horizontal, -(gap - EuclideousLockBadge.gap)) }
+                soloButton
+            } else if let stepCountBadge { stepCountBadge }
         }
         .padding(compact ? 0 : 6)
         .frame(width: width, height: height)   // EXPLICIT width/height — the stroke/background below can never bleed past it

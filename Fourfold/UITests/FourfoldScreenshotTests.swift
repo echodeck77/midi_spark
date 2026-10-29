@@ -104,7 +104,7 @@ final class FourfoldScreenshotTests: XCTestCase {
         for i in 1...6 { attach("7-glyphs-\(i)"); Thread.sleep(forTimeInterval: 1.3) }
     }
 
-    /// CARD BACKS (2026-10-28): the four lane cards on their BACK (the header's MIX segment), playing, in every orientation — the picture the ferry's §14 acceptance is judged against — then with the riff routed to A and C and
+    /// CARD BACKS (2026-10-28): the four lane cards on their BACK (the strip's MIX segment), playing, in every orientation — the picture the ferry's §14 acceptance is judged against — then with the riff routed to A and C and
     /// the notes part switched off (an unplugged jack, a part off with its invitation, the roll dimmed).
     func testTheCardBacks() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
@@ -128,7 +128,7 @@ final class FourfoldScreenshotTests: XCTestCase {
         if notesToggle.count > 0 { notesToggle.element(boundBy: 0).tap() }
         Thread.sleep(forTimeInterval: 2)
         attach("8-back-5-routed-and-off")
-        app.buttons["Pattern"].tap(); Thread.sleep(forTimeInterval: 1.5)
+        app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 1.5)
         attach("8-back-6-flipped-back")
     }
 
