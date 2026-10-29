@@ -1424,6 +1424,7 @@ struct EuclideousPage: View {
     @State private var chordsPopupOpen = false
     @State private var sourcesPopupOpen = false   // SOURCES STACK ferry (2026-10-26): the SOURCES panel (one overlay at a time; §5.1)
     @State private var sourcesEditor: EuclideousSourceEditor = .none   // Sources panel v2 §5.13: which inline editor is open (one at a time)
+    @State private var sourcesChordsPage = false                       // §6: the panel is showing the CHORDS page (vs the SOURCES page); reset when the panel closes (§6.3)
     @State private var pickEditorOctave: Int = 4                       // §5.11/§1.7 the PICK editor's shown octave NUMBER (C4-convention, range 1…7 = C whose MIDI is 24…96); 4 = middle C (MIDI 60). UI state, not saved; set on open.
     @State private var sourcesGhostChips: [UInt8] = []   // §5.6: the last-held MIDI notes, shown as ghost chips until the next note-on
     // CHORDS GRID ferry (2026-10-24) §4.6: the riff tabs' own long-press COPY/PASTE/CLEAR pattern, mirrored
@@ -1639,19 +1640,26 @@ struct EuclideousPage: View {
                 // (the engine keeps running), the card's top edge sp4 below the control, leading edge on the control's,
                 // slid left if it would cross the trailing edge. Falls back to centre until the control has a frame.
                 if sourcesPopupOpen {
-                    // Sources panel v2 §5.1: a non-dimming tap-catcher (the engine keeps running); the panel's top edge
-                    // sp8 below the button, leading edge on the button's, slid left if it would cross the trailing edge.
-                    Color.clear.contentShape(Rectangle()).onTapGesture { sourcesPopupOpen = false; sourcesEditor = .none }
+                    // Sources panel v2 §5.1 / §6.1: a non-dimming tap-catcher (the engine keeps running); the panel's
+                    // top edge sp8 below the button, leading edge on the button's, slid left if it would cross the
+                    // trailing edge. The CHORDS page is the same panel with a wider (chord-grid) frame, §6.
+                    Color.clear.contentShape(Rectangle()).onTapGesture { sourcesPopupOpen = false; sourcesEditor = .none; sourcesChordsPage = false }
                         .frame(width: box.width, height: box.height)
                         .zIndex(3)
-                    let cardW = euclideousSourcesPanelLayout(containerW: box.width).width
-                    if let f = sourceControlFrame {
-                        sourcesPanelCard(box, topY: f.maxY + sp8)
-                            .offset(x: min(max(f.minX, sp8), max(sp8, box.width - cardW - sp8)), y: f.maxY + sp8)
-                            .zIndex(4)
-                    } else {
-                        sourcesPanelCard(box, topY: 64).position(x: box.width / 2, y: box.height / 2).zIndex(4)
+                    let cardW = sourcesChordsPage ? min(640, box.width - 32) : euclideousSourcesPanelLayout(containerW: box.width).width
+                    let f = sourceControlFrame
+                    let topY = (f?.maxY ?? 56) + sp8
+                    let offX: CGFloat = f.map { min(max($0.minX, sp8), max(sp8, box.width - cardW - sp8)) } ?? max(sp8, (box.width - cardW) / 2)
+                    ZStack(alignment: .topLeading) {
+                        if sourcesChordsPage {
+                            sourcesChordsPageCard(box).transition(reduceMotion ? .opacity : .move(edge: .trailing))   // §6.1 push in from the trailing edge
+                        } else {
+                            sourcesPanelCard(box, topY: topY).transition(reduceMotion ? .opacity : .move(edge: .leading))
+                        }
                     }
+                    .offset(x: offX, y: topY)
+                    .animation(reduceMotion ? .easeInOut(duration: 0.15) : .easeOut(duration: 0.22), value: sourcesChordsPage)   // §6.1 220 ms / Reduce Motion 150 ms crossfade
+                    .zIndex(4)
                 }
                 // THE XY PAD VALUE BUBBLE is RETIRED along with the pads themselves (usability ferry,
                 // 2026-10-12) — each of the six new sliders shows its own value permanently, in place, so
@@ -2505,7 +2513,7 @@ struct EuclideousPage: View {
         return VStack(alignment: .leading, spacing: 8) {
             sourcesTitleRowV2()
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 8) { sourcesBlockV2(L); sourcesPoolBlockV2(L) }
+                VStack(alignment: .leading, spacing: 8) { sourcesBlockV2(L); sourcesPoolBlockV2(blockInnerW: L.blockInnerW) }
             }
             .frame(height: min(belowTitleH, availBelow))   // §5.2: scrolls only when it overflows (expected at 343 with an editor open)
         }
@@ -2628,7 +2636,7 @@ struct EuclideousPage: View {
             }
             sourceContentWell(width: L.contentW) { chordsRowContent(state: state) }
                 .contentShape(Rectangle())
-                .onTapGesture { sourcesEditor = .none; sourcesPopupOpen = false; closeAllOtherOverlays(); chordsPopupOpen = true }   // §6 (interim: the existing chord grid re-anchored under the button)
+                .onTapGesture { sourcesEditor = .none; sourcesChordsPage = true }   // §6: show the CHORDS page inside the same panel
             sourceCountView(added: sourceStatus.chordsAdded, colour: EuclideousSourceColour.chords.fill, on: sourcePlan.chordsOnR)
         }
     }
@@ -2812,21 +2820,22 @@ struct EuclideousPage: View {
     }
 
     // §7 the POOL block: lane-1's stacked pool (ranks 1…8), each chip in its source's colour; "+n" = the pool dropped total.
-    private func sourcesPoolBlockV2(_ L: EuclideousSourcesPanelLayout) -> some View {
+    private func sourcesPoolBlockV2(blockInnerW: CGFloat) -> some View {
         let notes = sourceStatus.poolNotes, sources = sourceStatus.poolSources
         let flat = euclideousKeyIsFlat(((keyRoot % 12) + 12) % 12, scaleType: keyType)
+        let poolChipW = ((blockInnerW - 124) - 28) / 8   // contentW = inner − LABEL 84 − sp8×2 − COUNT 24; 8 chips sp4 apart (§7.2)
         return HStack(spacing: 8) {
             Text("POOL").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.06 * 10).foregroundColor(Color(hex: 0x8A909A))
                 .frame(width: 84, alignment: .leading).padding(.leading, 10).lineLimit(1)
             HStack(spacing: 4) {
                 ForEach(0..<8, id: \.self) { i in
-                    poolChip(rank: i + 1, note: i < notes.count ? notes[i] : nil, source: i < sources.count ? sources[i] : 3, width: L.poolChipW, flat: flat)
+                    poolChip(rank: i + 1, note: i < notes.count ? notes[i] : nil, source: i < sources.count ? sources[i] : 3, width: poolChipW, flat: flat)
                 }
             }
             Text(sourceStatus.dropped > 0 ? "+\(sourceStatus.dropped)" : "").font(.system(size: 10, weight: .heavy, design: .monospaced))
                 .foregroundColor(Color(hex: 0x8A909A)).frame(width: 24, alignment: .center)
         }
-        .padding(8).frame(width: L.blockInnerW + 16, alignment: .leading)
+        .padding(8).frame(width: blockInnerW + 16, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
         .accessibilityElement(children: .ignore).accessibilityLabel(poolAccessibilityLabel())
     }
@@ -2852,6 +2861,69 @@ struct EuclideousPage: View {
         let flat = euclideousKeyIsFlat(((keyRoot % 12) + 12) % 12, scaleType: keyType)
         let parts = zip(sourceStatus.poolNotes, sourceStatus.poolSources).map { "\(euclideousNoteViewName($0.0, flatKey: flat)) \(srcNames[Int(min(3, $0.1))])" }
         return "Pool: " + (parts.isEmpty ? "empty" : parts.joined(separator: ", "))
+    }
+
+    // MARK: - SOURCES panel: the CHORDS page (§6)
+
+    /// §6 the CHORDS page — the chord grid re-hosted inside the panel (the panel's frame becomes the chord-grid card's
+    /// frame, §6.1): a "‹ SOURCES" back title + the CHORDS pip + name, the lilac grid, and the §7 POOL block in place
+    /// of the chord's own pool strip. Same tabs / steps / rate / playhead as the standalone card.
+    private func sourcesChordsPageCard(_ size: CGSize) -> some View {
+        let chords = chordsActive
+        let steps = chords.chordsStepsResolved
+        let degrees = chords.chordsDegreesResolved16()
+        let colours = chords.chordsColoursResolved16()
+        let minorKey = euclideousScaleIsMinor(keyType.intervals)
+        let maxW = min(640, size.width - 32)
+        let contentBox = CGSize(width: maxW - 40, height: (size.height - 60) - 40)
+        let layout = euclideousChordsPopupLayout(box: contentBox, steps: steps)
+        return ZStack(alignment: .topLeading) {
+            sourcesChordsTitleRow(chords: chords, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
+                .frame(width: contentBox.width, height: EuclideousChordsPopupMetrics.titleRowH, alignment: .leading)
+            chordsTabRow().frame(width: contentBox.width, height: EuclideousChordsPopupMetrics.tabRowH).offset(y: layout.tabRowTop)
+            chordsStepsRateRow(chords: chords, steps: steps).frame(height: EuclideousChordsPopupMetrics.stepsRateRowH, alignment: .leading).offset(y: layout.stepsRateRowTop)
+            chordsGrid(layout: layout, chords: chords, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
+                .frame(width: layout.gridWidth, height: layout.gridH, alignment: .topLeading).offset(y: layout.gridTop)
+            chordsPlayheadBar(layout: layout, chords: chords, steps: steps)
+                .frame(width: layout.gridWidth, height: EuclideousChordsPopupMetrics.playheadBarH, alignment: .leading).offset(y: layout.playheadBarTop)
+            // §6.2: the panel's POOL block (§7) replaces the chord pool strip, at the grid's width. (It is 52 tall vs
+            // the old strip's 32 — device-owed: the chord frame may want ~20 pt more at the bottom.)
+            sourcesPoolBlockV2(blockInnerW: layout.gridWidth - 16).offset(y: layout.poolStripTop)
+        }
+        .frame(width: contentBox.width, height: contentBox.height, alignment: .topLeading)
+        .padding(20).frame(width: maxW).frame(maxHeight: size.height - 60, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1B1D23)))               // §5.3 the same panel surface, morphed frame
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x3A3E47), lineWidth: 1))
+        .shadow(color: .black.opacity(0.45), radius: 20, y: 16)
+        .accessibilityElement(children: .contain).accessibilityLabel("Chords").accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape) { sourcesChordsPage = false }
+    }
+    /// §6.2 the CHORDS page title: "‹ SOURCES" back, then the CHORDS pip + "CHORDS · <name>" (no close button).
+    private func sourcesChordsTitleRow(chords: MachineParams, degrees: [Int], colours: [Int], steps: Int, minorKey: Bool) -> some View {
+        let chordsStatus = euclideousSourceStatuses(plan: sourcePlan, midiPlaying: sourceStatus.midiPlaying,
+                                                    chordsLit: sourceStatus.chordsLit, pickLit: sourceStatus.pickLit, keyLit: sourceStatus.keyLit).chords
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
+            let beat = walkTagBeat(at: tl.date)
+            let col = chordsPlayingColumn(beat: beat, chords: chords, steps: steps)
+            let (name, _) = chordsNameAndIsRest(column: col, degrees: degrees, colours: colours, steps: steps, minorKey: minorKey)
+            HStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left").font(.system(size: 10, weight: .bold)).foregroundColor(Color(hex: 0xAAB0BA))
+                    Text("SOURCES").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.06 * 10).foregroundColor(Color(hex: 0xAAB0BA))
+                }
+                .padding(.leading, 10).frame(height: 44).contentShape(Rectangle())
+                .onTapGesture { sourcesChordsPage = false }
+                .accessibilityElement(children: .ignore).accessibilityLabel("Back to sources").accessibilityAddTraits(.isButton)
+                Spacer().frame(width: 12)
+                sourcePip(chordsStatus, colour: EuclideousSourceColour.chords.fill)
+                Spacer().frame(width: 8)
+                Text("CHORDS").font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.9))
+                Text(" \u{00B7} ").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.4))
+                Text(name).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                Spacer()
+            }
+            .accessibilityElement(children: .contain)
+        }
     }
 
     // MARK: - SOURCES pop-up (SOURCES STACK ferry 2026-10-26 §5)
@@ -3193,8 +3265,8 @@ struct EuclideousPage: View {
             let colourVal = r - 11   // row 12 -> ChordColour.seventh(1) ... row 17 -> .sus4(6)
             let on = c < colours.count && colours[c] == colourVal
             RoundedRectangle(cornerRadius: 4)
-                .fill(on ? Color.white.opacity(0.9) : Color.white.opacity(0.06))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: 1))
+                .fill(on ? Color(hex: EuclideousSourceColour.chords.fill) : Color.white.opacity(0.06))   // §6.2 lit colour cells fill srcChords
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(on ? Color(hex: EuclideousSourceColour.chords.fill) : Color.white.opacity(0.12), lineWidth: 1))
                 .opacity(isRest ? 0.42 : 1)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -3210,9 +3282,10 @@ struct EuclideousPage: View {
             let cell = chordsMatrixCell(Array(degrees.prefix(16)), step: c, steps: steps)
             let on = cell.bright == deg
             let dimOn = !on && cell.faint == deg
+            let litColour = deg == 7 ? Color(hex: 0x5C626C) : Color(hex: EuclideousSourceColour.chords.fill)   // §6.2 lit = srcChords; a lit REST = #5C626C
             RoundedRectangle(cornerRadius: 4)
-                .fill(on ? Color.white.opacity(0.9) : (dimOn ? Color.white.opacity(0.22) : Color.white.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(on ? 0.9 : 0.12), lineWidth: 1))
+                .fill(on ? litColour : (dimOn ? Color.white.opacity(0.22) : Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(on ? litColour : Color.white.opacity(0.12), lineWidth: 1))
                 .contentShape(Rectangle())
                 .onTapGesture {
                     // Matches the regular CHORDS processor's own set: an unconditional write, no
