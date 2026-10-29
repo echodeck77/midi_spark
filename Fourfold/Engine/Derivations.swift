@@ -1788,10 +1788,10 @@ func euclideousRiffWalkStep(ordinal o: Int64, every: Int) -> Int64 {
 /// unaffected by this change (mod 8 == mod length in both cases), so this only changes lanes that combine a
 /// short LENGTH with a nonzero SHIFT — exactly the combination that used to silently do nothing useful.
 @inline(__always)
-func euclideousRiffColumn(ordinal o: Int64, every: Int, direction dir: RiffDir, length: Int, stride: Int, shift: Int, seed: UInt64 = 0) -> Int {
+func euclideousRiffColumn(ordinal o: Int64, every: Int, direction dir: RiffDir, length: Int, stride: Int, shift: Int, seed: UInt64 = 0, columns: Int = 8) -> Int {
     let w = euclideousRiffWalkStep(ordinal: o, every: every)
     let step = riffStepAt(dir, raw: Int(w) * stride, steps: max(1, length), seed: seed)
-    return riffRotateStep(step, by: shift, steps: 8)
+    return riffRotateStep(step, by: shift, steps: columns)   // POLY RIFF (2026-10-29): `columns` is the grid's width — 8 (MONO, the default: every existing call) or 16 (POLY)
 }
 /// RIFF WINDOW ferry (2026-10-21): the set of columns (0-based, 0...7) a LENGTH-wide window starting at SHIFT
 /// covers, wrapping past column 8 back to column 1 — the ONE definition of "is this column inside the lane's
@@ -7702,6 +7702,7 @@ struct EuclideousNotesWalk {
     var rotate: Int
     var seed: UInt64
     var every: Int
+    var columns: Int = 8      // POLY RIFF (2026-10-29): the riff grid's width (16 in POLY) — the walk's column wraps at it
 }
 
 /// 6.4: the count k runs in blocks of this many hits (and restarts at the melody origin).
@@ -7746,7 +7747,7 @@ func euclideousNotesCountBefore(buf: [Bool], w: EuclideousNotesWalk, tick: Int64
     if !w.advanceStep {
         var hp = blockStart
         while hp < h {
-            let col = euclideousRiffColumn(ordinal: hp, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed)
+            let col = euclideousRiffColumn(ordinal: hp, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed, columns: w.columns)
             if euclideousNotesWhenChooses(when: when, isRestHit: rankAt(col, thisBeat) < 1) && euclideousNotesChanceAllows(chance: chance, lane: lane, h: hp) { k += 1 }
             hp += 1
         }
@@ -7762,7 +7763,7 @@ func euclideousNotesCountBefore(buf: [Bool], w: EuclideousNotesWalk, tick: Int64
             let hp = h - Int64(found)
             let info = euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: t, chains: w.chains,
                                                legacySpanBeats: w.legacySpanBeats, advanceStep: true)
-            let col = euclideousRiffColumn(ordinal: info.advOrd, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed)
+            let col = euclideousRiffColumn(ordinal: info.advOrd, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed, columns: w.columns)
             if euclideousNotesWhenChooses(when: when, isRestHit: rankAt(col, thisBeat) < 1) && euclideousNotesChanceAllows(chance: chance, lane: lane, h: hp) { k += 1 }
         }
         t -= 1

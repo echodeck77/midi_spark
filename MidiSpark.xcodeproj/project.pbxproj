@@ -203,6 +203,7 @@
 		90CAF376E5D83AE1DE42ED0E /* UntouchedLaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2E434FEDE5AC96D7475BCE9 /* UntouchedLaneTests.swift */; };
 		9181BD2325284B21706DD007 /* NotesTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 354DBFBF5F37251A2C53939E /* NotesTabTests.swift */; };
 		9380473CD41B52BD940490C1 /* FourfoldRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */; };
+		94FD0CE78263BD0BCB5F36BD /* PolyRiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73F2A52D11932A681050086 /* PolyRiff.swift */; };
 		955BA08A6B46B09D64ED0EB4 /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */; };
 		965C21A77C376F3057CB4206 /* RestartFlashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C44DDB2035A6F3CE3FA8C /* RestartFlashTests.swift */; };
 		96D95AD2579E7D75BE561066 /* AcceptanceFactoryLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */; };
@@ -214,6 +215,7 @@
 		9B202EF7465E2476A86573C2 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0504D981DD4BF1856C773AA7 /* MidiFile.swift */; };
 		9B837C00B3B0EAA1C05C8BD1 /* HocketModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EA698A26E0E82CDCE82B8A /* HocketModelTests.swift */; };
 		9BAF886FF9516AB5F1598E24 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD9084051F44A6CAA1CFDFA9 /* Models.swift */; };
+		9C119BC2950B1D3854DD1BA0 /* PolyRiffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E31C280A2B3D60B7BEEEA9 /* PolyRiffTests.swift */; };
 		9D819AFF08BC2DDCE42B5F3B /* PresetStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */; };
 		9E72B64FD55D3542492F0113 /* GridSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CBF035AD049143522CAD057 /* GridSkin.swift */; };
 		9EA52987FF34C515C43D3DA8 /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */; };
@@ -252,6 +254,7 @@
 		BDE29B3A43C5B4464DF6F208 /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF568CF69A6423C9DCB4B2DD /* SnapshotBuilder.swift */; };
 		BE8C5FC00FE0F49C2EB7F07F /* FourfoldTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08CEAAFF57F496AB60992D7 /* FourfoldTransportTests.swift */; };
 		BEAA8CB5EC2ADCA841BE6066 /* MixPadPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */; };
+		BF2AF2915CBA6D12BE6865C3 /* PolyRiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73F2A52D11932A681050086 /* PolyRiff.swift */; };
 		BFADB19C396460B7B42F4BC2 /* MidiFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A20C66088682B1B60A45B7C /* MidiFileTests.swift */; };
 		BFE4869E17DEFCAF14D9E1DF /* FourfoldStackBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFED50679781AA2244482FB5 /* FourfoldStackBudgetTests.swift */; };
 		C09B7A16E54595BA2D6D5A3D /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF568CF69A6423C9DCB4B2DD /* SnapshotBuilder.swift */; };
@@ -327,11 +330,13 @@
 		E7784ECA8F44A813DF1AB6BE /* SnapshotBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB72B97F862EE82E9F92BEE8 /* SnapshotBuilderTests.swift */; };
 		E79F969969D54DA2CB4B2287 /* FourfoldReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E30016BB623E045246A0488 /* FourfoldReel.swift */; };
 		E8AE1645E57A562D79661AD2 /* CogPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */; };
+		E8C23ABF3D2A50670505E8AD /* PolyRiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73F2A52D11932A681050086 /* PolyRiff.swift */; };
 		E8E25A44F9A7319F6683F04F /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 978929AD94B53C409F7F63AA /* LaneStripPainter.swift */; };
 		E8FF8B95B04B3227E6F58C36 /* TapeStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACBF8AB7F0AEC84050F092D /* TapeStoreTests.swift */; };
 		EA087F9900B2491699B17506 /* LaneViewStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47EFEFD20A4BE99C391A7781 /* LaneViewStripPainter.swift */; };
 		EA0F411C0669D4E76F8D4771 /* RestartTilePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33ADAC80653CA2A15DC3535E /* RestartTilePainter.swift */; };
 		EA12B8EA582FDBCD044746B9 /* MacroAuthoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31975DCDE7466D94FADACC26 /* MacroAuthoring.swift */; };
+		EB9CE84DA9D6331CC2D82BF5 /* PolyRiffRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF0A2C1D3809EFFB73B3B50 /* PolyRiffRouterTests.swift */; };
 		EBAECBA5B3E3F98B83E42E48 /* ReelDeckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */; };
 		EBC5C46DF44DF3FB225CBABA /* LaneStripFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4D4A126C52BC03C659EC8C /* LaneStripFuzzTests.swift */; };
 		ED3B41CB67B5883BFE0F07E1 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 651E122AE1C1D347649F79D7 /* Atomics */; };
@@ -486,6 +491,7 @@
 		5B858B91950A98DA4EC31ED3 /* FourfoldUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FourfoldUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5BEA593FF5849CFB5ADE3B53 /* FourfoldScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldScreenshotTests.swift; sourceTree = "<group>"; };
 		5D7C93D75576EE5D4C9BF72E /* FourfoldUndoAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldUndoAuditTests.swift; sourceTree = "<group>"; };
+		5DF0A2C1D3809EFFB73B3B50 /* PolyRiffRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiffRouterTests.swift; sourceTree = "<group>"; };
 		5E7EE844DA2AAE3D8DD7FAC2 /* FourfoldSoak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldSoak.swift; sourceTree = "<group>"; };
 		5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelTapeAdapterTests.swift; sourceTree = "<group>"; };
 		61A29EBC243C8C44F0013668 /* FXTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXTabTests.swift; sourceTree = "<group>"; };
@@ -503,6 +509,7 @@
 		6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClarityPassTests.swift; sourceTree = "<group>"; };
 		6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandom.swift; sourceTree = "<group>"; };
 		6FECA3302B50E7D4800DF132 /* FourfoldAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldAccessibilityTests.swift; sourceTree = "<group>"; };
+		70E31C280A2B3D60B7BEEEA9 /* PolyRiffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiffTests.swift; sourceTree = "<group>"; };
 		7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildPage.swift; sourceTree = "<group>"; };
 		727D77E0616F8B7F3F9F2B02 /* HocketGoldenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketGoldenTests.swift; sourceTree = "<group>"; };
 		72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStoreTests.swift; sourceTree = "<group>"; };
@@ -632,6 +639,7 @@
 		E398927CED84CAC2C67B9CF0 /* PulseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTests.swift; sourceTree = "<group>"; };
 		E3ED784D8D44D8DED77F121C /* RoomsLatticeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomsLatticeTests.swift; sourceTree = "<group>"; };
 		E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldAudioUnit.swift; sourceTree = "<group>"; };
+		E73F2A52D11932A681050086 /* PolyRiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiff.swift; sourceTree = "<group>"; };
 		E881ACD3CFC301D9E276ED00 /* HocketLooksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketLooksTests.swift; sourceTree = "<group>"; };
 		EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStore.swift; sourceTree = "<group>"; };
 		EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelDeckTests.swift; sourceTree = "<group>"; };
@@ -811,6 +819,8 @@
 				354DBFBF5F37251A2C53939E /* NotesTabTests.swift */,
 				03A0A18293719D2C8BD2B9FB /* OutTransposeTests.swift */,
 				5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */,
+				5DF0A2C1D3809EFFB73B3B50 /* PolyRiffRouterTests.swift */,
+				70E31C280A2B3D60B7BEEEA9 /* PolyRiffTests.swift */,
 				4448C88CC517582DAFC89326 /* PortsStressTests.swift */,
 				99F625F72C3FD2D49A4440D5 /* PresetStoreTests.swift */,
 				5B1FE1781AE0C4878A7935FE /* PulseTests.swift */,
@@ -1009,6 +1019,7 @@
 				0504D981DD4BF1856C773AA7 /* MidiFile.swift */,
 				CD9084051F44A6CAA1CFDFA9 /* Models.swift */,
 				9B90A0E5E3C7A378FB0B7952 /* NoteRollRing.swift */,
+				E73F2A52D11932A681050086 /* PolyRiff.swift */,
 				E074C5873A3072DF6841935F /* PresetStore.swift */,
 				68F897CA5367D074206AFCA5 /* ReelTapeAdapter.swift */,
 				523B1AEB32CCEF31AA60CCA9 /* Router.swift */,
@@ -1365,6 +1376,7 @@
 				030EF26A6C9B745121BAC89E /* NoteRollLive.swift in Sources */,
 				2B20C428089E72458CB25B3C /* NoteRollRing.swift in Sources */,
 				1AD97DB35C6C3B45B70171A9 /* NotesTabPainter.swift in Sources */,
+				E8C23ABF3D2A50670505E8AD /* PolyRiff.swift in Sources */,
 				1A20747CD8C5C94DB29A9532 /* PresetBrowser.swift in Sources */,
 				FDC4CCB5FA83EBBCF5518EFE /* PresetStore.swift in Sources */,
 				0C924EDD62DA8F1C8070ADC3 /* RandomModePainter.swift in Sources */,
@@ -1523,6 +1535,9 @@
 				9181BD2325284B21706DD007 /* NotesTabTests.swift in Sources */,
 				598774BB6D7BAFCCA015D419 /* OutTransposeTests.swift in Sources */,
 				FB90E1D2C6DD0490D543E2CC /* PageLayoutTests.swift in Sources */,
+				BF2AF2915CBA6D12BE6865C3 /* PolyRiff.swift in Sources */,
+				EB9CE84DA9D6331CC2D82BF5 /* PolyRiffRouterTests.swift in Sources */,
+				9C119BC2950B1D3854DD1BA0 /* PolyRiffTests.swift in Sources */,
 				50DDE4A2AA20ABE1CD4B82AF /* PortsStressTests.swift in Sources */,
 				C79BA16AFBFFB6C53F200E37 /* PresetStore.swift in Sources */,
 				5CE639FE1C31C52CF9452B0C /* PresetStoreTests.swift in Sources */,
@@ -1597,6 +1612,7 @@
 				FEA5BFC3C5181521186804C3 /* NoteRollLive.swift in Sources */,
 				B4B265FC5D368CFCE12A1F3C /* NoteRollRing.swift in Sources */,
 				D4CAF6ED943F404ECB85F9AE /* NotesTabPainter.swift in Sources */,
+				94FD0CE78263BD0BCB5F36BD /* PolyRiff.swift in Sources */,
 				CE97BD814E8D16F33DECB416 /* PresetBrowser.swift in Sources */,
 				20646456AFE103561CB819CE /* PresetStore.swift in Sources */,
 				8208BB44A8037D26B215F5F0 /* RandomModePainter.swift in Sources */,

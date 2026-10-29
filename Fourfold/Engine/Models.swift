@@ -498,6 +498,8 @@ struct EuclidLine: Codable, Equatable {
     // modulus becomes LENGTH instead of the shared riff pattern's full step count (§3.2).
     var riffLength: Int? = nil
     var riffLengthResolved: Int { max(1, min(8, riffLength ?? 8)) }
+    /// POLY RIFF: the lane's LEN against a grid `columns` wide (nil ⇒ the full width, so a POLY lane walks all 16 columns until told otherwise). `columns` 8 is `riffLengthResolved`, exactly.
+    func riffLengthResolved(columns: Int) -> Int { max(1, min(max(1, columns), riffLength ?? columns)) }
     // ADVANCE (nil ⇒ false = HIT, §2 default): HIT = today's behaviour, the walk advances once per
     // hit of this lane's own Euclid pattern. STEP = the walk advances on EVERY step (hit or miss) —
     // notes still only sound on hits (§3.5); ON REST still only fires when a hit lands on a rest.
@@ -838,6 +840,8 @@ struct EuclidLine: Codable, Equatable {
     var useRiffResolved: Bool { melodyModeResolved == .riff }
     // RIFF WINDOW ferry (2026-10-21): wraps at the riff's 8 columns, not LENGTH — see `riffRotate`'s own comment.
     var riffRotateResolved: Int { ((riffRotate ?? 0) % 8 + 8) % 8 }
+    /// POLY RIFF: SHIFT wraps at the grid's width. `columns` 8 is `riffRotateResolved`, exactly.
+    func riffRotateResolved(columns: Int) -> Int { let c = max(1, columns); return (((riffRotate ?? 0) % c) + c) % c }
     // OCT RANGE −2…+2 (ferry "Engine" rule 4 — was ±3).
     var riffOctaveResolved: Int { max(-2, min(2, riffOctave ?? 0)) }
     var riffDirResolved: RiffDir { riffDir ?? .forward }
@@ -3005,6 +3009,10 @@ struct PluginState: Codable, Equatable {
     // only while the RIFFS sequencer is genuinely ON.
     var riffs: [EuclideousRiff]? = nil
     var activeRiff: Int? = nil
+    // POLY RIFF ferry (2026-10-29): the riff panel's MONO | POLY mode (nil ⇒ MONO, the riff exactly as before) and the POLY riff itself (16 columns, notes with a length, several at once). The four riff boxes are gone: `riffs` /
+    // `activeRiff` are still decoded, and `normalizeRiffsAtLoad` (PolyRiff.swift) folds a loaded document to the one riff that was active. POLY is page-level (shared by every lane) and not a lane-lock field.
+    var riffPoly: Bool? = nil
+    var polyRiff: EuclideousPolyRiff? = nil
     var riffsResolved: [EuclideousRiff] { euclideousRiffsMigrated(riffs, legacySingular: euclideousRiffResolved) }
     var activeRiffResolved: Int { max(0, min(3, activeRiff ?? 0)) }
     // THE RIFF (FERRY "looper tabs replace the riff tabs", ratified 2026-10-16, §8.1) — SUPERSEDES

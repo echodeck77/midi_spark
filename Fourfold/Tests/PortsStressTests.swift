@@ -149,6 +149,24 @@ final class PortsStressTests: XCTestCase {
     }
     /// CARD BACKS v2: each part's out-transpose drawn at random from its own stream — mostly 0 / nil, often a few steps either way, sometimes the extremes — and the scene rebuilt the way an edit publishes it.
     /// `zeroed`: draw the very same values from the stream but store none of them — the control run the pitch-sensitivity test compares against.
+    /// POLY RIFF ferry (2026-10-29): a random POLY riff (several notes a column, lengths 1…16, sometimes empty) with the mode mostly ON — and the lanes' riff walk fields spread over every direction / EVERY / stride / LEN / SHIFT / ADV mode — drawn from the session's OWN stream.
+    private func repoly(_ st: inout PluginState, _ q: inout SM64) {
+        var notes: [EuclideousPolyNote] = []
+        for _ in 0..<Int.random(in: 0...20, using: &q) { notes.append(EuclideousPolyNote(col: Int.random(in: 0...15, using: &q), rank: Int.random(in: 1...8, using: &q), len: Int.random(in: 1...16, using: &q))) }
+        st.polyRiff = EuclideousPolyRiff(notes: notes)
+        st.riffPoly = Int.random(in: 0...5, using: &q) != 0
+        var ls = st.euclideousLines ?? []
+        for i in 0..<ls.count where Bool.random(using: &q) {
+            ls[i].riffOn = true
+            ls[i].riffLength = [nil, 16, Int.random(in: 1...16, using: &q)].randomElement(using: &q)!
+            ls[i].riffAdvanceEvery = Int.random(in: 1...4, using: &q); ls[i].riffStride = Int.random(in: 1...7, using: &q); ls[i].riffRotate = Int.random(in: 0...15, using: &q)
+            ls[i].riffDir = [RiffDir.forward, .reverse, .pendulum, .pingpong].randomElement(using: &q)!; ls[i].riffAdvanceStep = Int.random(in: 0...3, using: &q) == 0
+        }
+        st.euclideousLines = ls
+        let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
+                                          soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
+        st.scenes = [FourfoldCompose.scene(input)]
+    }
     private func retranspose(_ st: inout PluginState, _ h: inout SM64, zeroed: Bool = false) {
         func t(_ h: inout SM64) -> Int? { let v = [nil, 0, Int.random(in: -7...7, using: &h), Int.random(in: -3...3, using: &h), 7, -7].randomElement(using: &h)!; return zeroed ? nil : v }
         let ls = (st.euclideousLines ?? []).map { l -> EuclidLine in var m = l; m.riffOutTranspose = t(&h); m.notesOutTranspose = t(&h); return m }
@@ -312,8 +330,9 @@ final class PortsStressTests: XCTestCase {
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0
-    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false) -> String? {
+    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, poly: Bool = false) -> String? {
         var g = SM64(seed)
+        var q = SM64(seed ^ 0x0F01_7A11_0000)      // POLY RIFF ferry: the POLY riff draws from its OWN stream too, so the pinned fingerprints (MONO) stay exactly what they were
         var x = SM64(seed ^ 0xE317_A7C4_0000)     // RATCH tab ferry: the emitter ratchets draw from their OWN stream too
         var h = SM64(seed ^ 0x0A7C_0FFE_E000)      // CARD BACKS v2: the out-transposes draw from their OWN stream, so the pinned fingerprints (no out-transpose) stay exactly what they were
         let router = Router()
@@ -323,6 +342,7 @@ final class PortsStressTests: XCTestCase {
         var (st, pool) = rDoc(&g, rawGates: rawGates)
         if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }
         if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }
+        if poly { repoly(&st, &q) }
         var box = SnapshotBuilder.build(from: st)
         let sr = 48_000.0
         var tempo = Double([90, 120, 140].randomElement(using: &g)!)
@@ -337,9 +357,10 @@ final class PortsStressTests: XCTestCase {
         for w in 0..<windows {
             e.win = w
             // mutate the document / transport between windows
-            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if poly { repoly(&st, &q) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
             if emitters, x.next() % 3 == 0 { st.euclideousEmitterRatchets = rEmitters(&x); box = SnapshotBuilder.build(from: st) }   // RATCH tab ferry: a toggle / value dragged while notes (and deferred strikes) sound
             if outTranspose, h.next() % 3 == 0 { retranspose(&st, &h, zeroed: zeroedTranspose); box = SnapshotBuilder.build(from: st) }   // CARD BACKS v2: a PITCH pad dragged while notes sound
+            if poly, q.next() % 3 == 0 { repoly(&st, &q); box = SnapshotBuilder.build(from: st) }   // POLY RIFF: the grid edited — notes added, stretched, removed, the mode flipped — while notes (and their long tails) sound
             if Int.random(in: 0...2, using: &g) == 0 {   // busChannels change mid-note
                 switch Int.random(in: 0...3, using: &g) {
                 case 0: st.busChannels = (0..<8).map { _ in Int.random(in: 1...16, using: &g) }
@@ -493,6 +514,25 @@ final class PortsStressTests: XCTestCase {
             total += 1; if shifted != control { differing += 1 }
         }
         XCTAssertGreaterThan(differing, total / 6, "only \(differing) of \(total) sessions sounded different with out-transposes on — the shifts are not reaching the wire")
+    }
+    // POLY RIFF ferry (2026-10-29): POLY riffs drawn at random AND edited mid-note, on top of the full random document (hocket-free, random routing masks, FX, sources, locks, solo): nothing strands, no orphan off, each message on its
+    // output's channel, ALL = the union of the outputs, the roll equals the wire — the same invariants as every other fuzz here.
+    func testPolySessionsHoldEveryInvariant() {
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 600_000, windows: 24, poly: true) { XCTFail(msg); return } }
+    }
+    func testPolySessionsAtGate100() {
+        for s in 1...200 { if let msg = runSession(seed: UInt64(s) &+ 700_000, windows: 24, rawGates: true, poly: true) { XCTFail(msg); return } }
+    }
+    /// The invariant fuzz passes whether or not POLY ever reaches the wire: each seed is run with POLY drawn and without it (the same document otherwise) and the two streams must differ in most seeds.
+    func testPolySessionsReallyChangeTheNotesOnTheWire() {
+        var differing = 0, total = 0
+        for s in 1...80 {
+            let seed = UInt64(s) &+ 800_000
+            XCTAssertNil(runSession(seed: seed, windows: 24, poly: true)); let polyHash = lastSessionHash
+            XCTAssertNil(runSession(seed: seed, windows: 24)); let mono = lastSessionHash
+            total += 1; if polyHash != mono { differing += 1 }
+        }
+        XCTAssertGreaterThan(differing, total / 4, "only \(differing) of \(total) sessions sounded different in POLY — the mode is not reaching the wire")
     }
     func testOutTransposeSessionsAtGate100() {
         for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 300_000, windows: 24, rawGates: true, outTranspose: true) { XCTFail(msg); return } }

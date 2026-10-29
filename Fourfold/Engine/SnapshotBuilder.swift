@@ -137,6 +137,7 @@ enum SnapshotBuilder {
                 // Euclideous cell's MachineParams fresh from live @State every time — a row-gated PluginState
                 // read would silently never see what either of those actually populate).
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
+                    sc.procs[0].polyRiff = doc.polyRiffSnapResolved   // POLY RIFF (2026-10-29): page-level, no MachineParams hop — fixed-size value data for the render thread
                     sc.procs[0].euclideousFX = doc.euclideousFXResolved   // FX TAB (2026-10-18): page-level, no MachineParams hop — same shape as the sequencer fields below
                     sc.procs[0].hocketRules = HocketRulesSnap(rules: doc.hocketRulesResolved)   // HOCKET (2026-10-27): page-level, no MachineParams hop — fixed-size value data for the render thread
                     sc.procs[0].emitterRatchets = EmitterRatchetSnap(doc.euclideousEmitterRatchetsResolved, countsSteps: doc.fxCountsResolved == .steps)   // EMITTER RATCHET (2026-10-28): page-level, no MachineParams hop; the Euclid masks are built here, on the main thread
@@ -380,7 +381,7 @@ enum SnapshotBuilder {
                                                                       tilt: $0.tilt.map { clamp($0, -1, 1) },
                                                                       riffLock: $0.riffLock, riffInvert: $0.riffInvert, riffOnRest: $0.riffOnRest,
                                                                       riffStride: $0.riffStride.map { clamp($0, 1, 7) },
-                                                                      riffLength: $0.riffLength.map { clamp($0, 1, 8) },
+                                                                      riffLength: $0.riffLength.map { clamp($0, 1, 16) },   // POLY RIFF: up to the POLY grid's 16 columns here; MONO still reads it through `riffLengthResolved` (1…8), so a stored 9…16 plays 8 there as ever
                                                                       riffAdvanceStep: $0.riffAdvanceStep,
                                                                       // RIFF WALK ferry (2026-10-19): declared right after riffAdvanceStep in
                                                                       // Models.swift — threaded here for the exact same reason every field on

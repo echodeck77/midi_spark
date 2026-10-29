@@ -257,6 +257,8 @@ struct SnapParams {
     var activeRiff: Int = 0   // which riff plays when RIFFS seq is off (and which tab the editor shows)
     // FX TAB (2026-10-18): the page-level FX rows, resolved/clamped by `PluginState.euclideousFXResolved`, gated to `Snap.euclideousRow` — fixed-size flat arrays, only ever READ on the render thread.
     var euclideousFX: EuclideousFX = EuclideousFX()
+    // POLY RIFF (2026-10-29): the page-level POLY riff and its mode flag, gated to `Snap.euclideousRow` — fixed-size flat arrays, only ever READ on the render thread. `on` false (the default) ⇒ the Router takes its MONO path, bit for bit.
+    var polyRiff: PolyRiffSnap = PolyRiffSnap()
     // HOCKET (2026-10-27): the page-level rules, gated to `Snap.euclideousRow`; inert (no lit rule) ⇒ the Router's output is unchanged, bit for bit.
     var hocketRules: HocketRulesSnap = HocketRulesSnap()
     // EMITTER RATCHET (2026-10-28): the page-level output ratchets, gated to `Snap.euclideousRow`; all OFF (the default) ⇒ the Router's output is unchanged, bit for bit.

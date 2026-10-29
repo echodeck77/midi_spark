@@ -854,7 +854,8 @@ final class Router {
     // Per-hit working arrays, allocated ONCE here. They used to be `[T](repeating:count:)` locals — a heap allocation each, per hit, on the render thread (invariant 3). `takeScratch` moves one out (so it is uniquely owned and
     // writes never copy) and re-zeroes it; the caller's `defer` puts it back. Never nested: a hit takes each at most once, and no hit runs inside another.
     private var chordPoolScratch = [Int](repeating: 0, count: 8)   // the CHORDS note source's chord, built once per window (`chordSeqNotesInto`)
-    private var hitRanks = [Int](repeating: 0, count: 8)
+    private var hitRanks = [Int](repeating: 0, count: 16)   // 16 = the POLY grid's width; MONO fills and reads the first 8 only
+    private var hitPitchPolyBeats = [Double](repeating: 0, count: 9)   // POLY RIFF: a poly note's own ring length in beats (0 = the ordinary gate rule)
     private var hitPitches = [Int](repeating: 0, count: 9)
     private var hitPitchVel = [UInt8](repeating: 0, count: 9)
     private var hitPitchGate = [Double](repeating: 0, count: 9)
@@ -3117,7 +3118,10 @@ final class Router {
                         // raw ordinal directly. EVERY 1 (riffAdvanceEvery's default) makes w == advOrd, so
                         // this is byte-identical to the old two-line riffStepAt/riffRotateStep pipeline at
                         // EVERY 1 (test 1/test 3).
-                        let playedStep = euclideousRiffColumn(ordinal: advOrd, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed)
+                        // POLY RIFF (2026-10-29): the Euclideous row in POLY mode walks a 16-column grid (MONO: 8, unchanged — the default `columns`); only this row ever has it on.
+                        let polyOn = isEuclideousRow && p.polyRiff.on
+                        let riffColumns = polyOn ? EuclideousPolyMetrics.columns : 8
+                        let playedStep = euclideousRiffColumn(ordinal: advOrd, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
                         if isEuclideousRow {
                             euclideousRiffStep[lineIndex] = playedStep   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern — now true in BOTH modes
                             euclideousRiffLastOrd[lineIndex] = advOrd    // RIFF MARKERS/FOOTERS poll (2026-10-12): the ordinal this cursor just advanced on
@@ -3161,14 +3165,16 @@ final class Router {
                             // thread bookkeeping of any kind (§6.4: the render thread never records; the
                             // main thread owns the loop and publishes it the ordinary way).
                             let euclideousLiveGridRanksForHit = p.euclideousLiveGrid.ranksResolved
-                            var ranks = takeScratch(&hitRanks, count: 8, filledWith: 0)
+                            var ranks = takeScratch(&hitRanks, count: 16, filledWith: 0)
                             defer { hitRanks = ranks }
-                            for col in 0..<8 {
+                            // POLY RIFF: a column's representative rank is the highest rank that STARTS there (0 = no note starts: a rest hit) — the notes layer's rest test and `writtenRankAt` read it.
+                            if polyOn { for col in 0..<EuclideousPolyMetrics.columns { ranks[col] = p.polyRiff.topRank(col) } }
+                            else { for col in 0..<8 {
                                 ranks[col] = euclideousLooperEffectiveRank(column: col, beat: mTickBeat, liveGrid: euclideousLiveGridRanksForHit,
                                                                             active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
                                                                             passes: p.euclideousLooperPasses, startRanks: p.euclideousLooperStartRanks,
                                                                             events: p.euclideousLooperEvents, beatsPerBar: beatsPerBar)
-                            }
+                            } }
                             // NOTES TAB (2026-10-19, §6.7): a lit note's per-rank octave shift no longer sounds — the closure that read it is gone. `notesVel` below is the notes layer's own
                             // base velocity; the riff note keeps the lane's plain `velocityAbsolute` untouched.
                             let notesVel = UInt8(max(1, min(127, notesVelocity)))   // MIX TAB: the notes layer's OWN velocity (resolved — nil ⇒ VEL + the legacy offset — at the call site)
@@ -3186,6 +3192,9 @@ final class Router {
                             // first-insertion-wins (so on a collision the RIFF pitch's gate wins, exactly as its velocity already does).
                             var pitchGate = takeScratch(&hitPitchGate, count: 9, filledWith: 0)
                             defer { hitPitchGate = pitchGate }
+                            // POLY RIFF: per-pitch ring length in beats for a stretched poly note (0 ⇒ the ordinary gate rule); it travels with its pitch through the AVOID / HOCKET rewrites below.
+                            var polyBeats = takeScratch(&hitPitchPolyBeats, count: 9, filledWith: 0.0)
+                            defer { hitPitchPolyBeats = polyBeats }
                             // THE NINE PORTS (2026-10-26): each merged pitch leaves on its OWN port — a riff pitch on the lane's RIFF port (`riffBus`), a notes pitch on its NOTES port (`notesBus`). `busOf(j)` is what every
                             // strike/defer below reads in place of the lane-wide `busOverride`. The two layers are independent streams: a notes pitch equal to the riff pitch is NOT dropped — it takes its own slot (the same
                             // pitch on the other port). The scratch holds 9 slots: a riff pitch + up to 8 lit notes; a hit with more distinct pitches (TOP/TOP2 beyond rank 8 on a big held chord) drops the extras, as it always did.
@@ -3247,13 +3256,14 @@ final class Router {
                             /// a rest no longer ends the hit by itself — the notes layer may still strike on it; only when it plays nothing does the hit end exactly as it used to.
                             var restEnd = 0
                             func tieOf(_ j: Int) -> Double { (notesPitchMask >> UInt16(j)) & 1 != 0 ? tieNotesExt : tieExt }
+                            func gateBeatsOf(_ j: Int) -> Double { polyBeats[j] > 0 ? polyBeats[j] : gateBeatsWithTie(pitchGate[j], tieOf(j)) }   // a poly note's own length, else the gate-and-TIE rule
                             var wipeColumn: Int8 = -1, wipeRankOut: Int8 = -1
                             var wipeCellColumn: Int8 = -1, repeatedColumn: Int8 = -1   // RESTART TILES: the column whose NOTE struck (the REPEAT lookback's column on a REPEAT hit, else the hit's own)
                             // FX TAB (ferry 2026-10-18): the page-level FX rows (a fixed-size, read-only snapshot — nothing here allocates) and THIS hit's decision
                             // from the one shared `euclideousFXApply`. `fx` stays empty (every row off) unless the lane plays its riff and a row has a cell for
                             // this column — so with every cell empty and BASE none every line below behaves exactly as before.
                             let fxAll = p.euclideousFX
-                            let fxLive = !fxAll.isInert
+                            let fxLive = !polyOn && !fxAll.isInert   // POLY RIFF: the FX tab is off in POLY (its cells are kept for MONO)
                             let fxTieLane = fxLive && fxAll.rowHasCells(2, lane: lineIndex)
                             var fx = EuclideousFXHit()
                             func fxRiffVel() -> UInt8 { fx.vel.map { UInt8($0) } ?? UInt8(velocityAbsolute) }                       // VEL replaces the lane's VELOCITY for the riff note…
@@ -3262,7 +3272,8 @@ final class Router {
                             func fxLitGate() -> Double { fx.gatePct.map { Double($0) / 100 } ?? notesGate }                          // one effective gate per hit (GATE overrides the notes layer's own too)
                             /// A column's WRITTEN rank at a beat (the grid, or the looper's effective rank) — what 6.1's "rest hit" and 6.4's count read.
                             func writtenRankAt(_ column: Int, _ beat: Double) -> Int {
-                                euclideousLooperEffectiveRank(column: column, beat: beat, liveGrid: euclideousLiveGridRanksForHit,
+                                if polyOn { return p.polyRiff.topRank(column) }
+                                return euclideousLooperEffectiveRank(column: column, beat: beat, liveGrid: euclideousLiveGridRanksForHit,
                                                                active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
                                                                passes: p.euclideousLooperPasses, startRanks: p.euclideousLooperStartRanks,
                                                                events: p.euclideousLooperEvents, beatsPerBar: beatsPerBar)
@@ -3337,6 +3348,44 @@ final class Router {
                                     euclideousEchoFollowerJ[lineIndex] += 1
                                 }
                                 if pitchCount > notesBefore { hadRiffNote = true; riffRank = thisLaneCount; riffNote = pitches[notesBefore] }
+                            } else if riffOn, thisLaneCount > 0, polyOn {
+                                // POLY RIFF (2026-10-29): the walk lands on one column of the 16-column grid and EVERY note that starts there strikes — each through the same INVERT → TRANSPOSE → `riffResolve` → out-transpose →
+                                // `addPitch` steps as a MONO note (lowest rank first, so pitch 0 is "the riff note" for NOTE VIEW's primary / +n convention). A note rings for its LENGTH in walk steps from this hit
+                                // (`euclideousPolyRingBeats`; length 1 is exactly MONO's `gate × gap to the next hit`); the FX tab is off and ON REST is SKIP — no start ⇒ a SKIP-like rest hit. A note moved below rank 1 by
+                                // TRANSPOSE is dropped (as MONO's would be a rest). The mask's rank modes are dead on this row, so there is no MIRROR / LEAP / CLIMB here.
+                                let polyMask = p.polyRiff.startMask(playedStep)
+                                var ringKey = -1, ringBeats = 0.0                       // the last distinct length asked for and its ring: notes of one length share it
+                                var rk = 1
+                                while rk <= EuclideousPolyMetrics.ranks {
+                                    if polyMask & (UInt8(1) << UInt8(rk - 1)) != 0 {
+                                        let invRank = riffInvert ? 9 - rk : rk
+                                        let rank = invRank + melodyTranspose
+                                        if rank >= 1, let note0Raw = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
+                                            let note0 = outShift(note0Raw, notes: false)
+                                            let len = p.polyRiff.length(col: playedStep, rank: rk)
+                                            let key = riffAdvanceStep ? len : euclideousPolyHitsAhead(len: len, every: riffAdvanceEvery)
+                                            if key != ringKey {
+                                                ringKey = key
+                                                ringBeats = riffAdvanceStep
+                                                    ? euclideousPolyRingBeatsStep(len: len, every: riffAdvanceEvery, gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, sub: sub, minGateBeats: minGateBeats5ms)
+                                                    : euclideousPolyRingBeats(hitsAhead: key, gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, minGateBeats: minGateBeats5ms,
+                                                                              buf: euclidBuf, eN: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
+                                                                              legacySpanBeats: ladderSpanBeats, timing: hitTiming)
+                                            }
+                                            let at = pitchCount
+                                            addPitch(note0, vel: fxRiffVel(), gate: fxRiffGate())
+                                            if pitchCount > at {
+                                                polyBeats[at] = ringBeats
+                                                if !hadRiffNote {
+                                                    hadRiffNote = true; riffRank = rank; riffNote = note0
+                                                    if invRank >= 1 && invRank <= 8 { wipeColumn = Int8(playedStep); wipeRankOut = Int8(invRank); wipeCellColumn = Int8(playedStep) }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    rk += 1
+                                }
+                                if !hadRiffNote { restEnd = 1 }
                             } else if riffOn, thisLaneCount > 0 {
                                 let leapStep = (maskedChancePassed && mm.modeResolved == .leap)
                                     ? (((playedStep + mm.leapStepsResolved) % riffLength) + riffLength) % riffLength
@@ -3447,7 +3496,7 @@ final class Router {
                             // follow chord changes. NOTES ON/OFF: off silences the lit notes from the next hit but keeps them lit. The rhythm, the LANES mute, the mask and FX TIE still decide
                             // first (they all act below, exactly as before).
                             let nw = EuclideousNotesWalk(n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, chains: chains, legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep,
-                                                         riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed, every: riffAdvanceEvery)
+                                                         riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed, every: riffAdvanceEvery, columns: riffColumns)
                             var notesStruck = 0                    // pitches the notes layer actually added this hit (m, after 7.2)
                             // 7.2 / 8.3: the riff pitch a tied rest carries on is never struck again (on an output the riff holds it on).
                             let heldRiffPitch = restEnd == 2 ? euclideousHeldRiffPitch[lineIndex] : -1
@@ -3503,7 +3552,7 @@ final class Router {
                             }
                             // TIE (§8.3-§8.4): how far each layer's notes carry on. Only a hit that strikes something asks (the riff note through every tied rest; the notes layer's notes up to
                             // the first tied rest the notes layer itself strikes on, working k forward from this hit's).
-                            if riffOn, pitchCount > 0, riffOnRest == .tie || fxTieLane {
+                            if !polyOn, riffOn, pitchCount > 0, riffOnRest == .tie || fxTieLane {   // POLY: length replaces TIE
                                 let heldForTie = hadRiffNote ? riffNote : heldRiffPitch
                                 let notesOnlyOuts = (partOut[notesBus.trailingZeroBitCount] & ~partOut[riffBus.trailingZeroBitCount]) & 0x0F   // outputs the notes reach that the riff does not
                                 var scanK = notesK + (notesCounted ? 1 : 0)
@@ -3550,7 +3599,7 @@ final class Router {
                                     var i = 0
                                     while i < pitchCount {
                                         if euclideousListenAvoidDrops(note: pitches[i], mask: mask) {
-                                            pitches[i] = pitches[pitchCount - 1]; pitchVel[i] = pitchVel[pitchCount - 1]; pitchGate[i] = pitchGate[pitchCount - 1]
+                                            pitches[i] = pitches[pitchCount - 1]; pitchVel[i] = pitchVel[pitchCount - 1]; pitchGate[i] = pitchGate[pitchCount - 1]; polyBeats[i] = polyBeats[pitchCount - 1]
                                             // NOTES TAB: the layer mark and the ROLL / RUN strike slot travel with the pitch that moved into slot i
                                             let last = pitchCount - 1
                                             notesPitchMask = (notesPitchMask & ~(UInt16(1) << UInt16(i))) | (((notesPitchMask >> UInt16(last)) & 1) << UInt16(i))
@@ -3609,18 +3658,18 @@ final class Router {
                                     for i in 0..<pitchCount {
                                         pitches[i] = Int(euclideousLastSoundedNotes[lineIndex * 9 + i])
                                         pitchVel[i] = euclideousLastSoundedVels[lineIndex * 9 + i]
-                                        pitchGate[i] = euclideousLastSoundedGates[lineIndex * 9 + i]
+                                        pitchGate[i] = euclideousLastSoundedGates[lineIndex * 9 + i]; polyBeats[i] = 0
                                         let cb = Int(euclideousLastSoundedBus[lineIndex * 9 + i])
                                         pitchOuts[i] = 0xFF; pitchBus[i] = cb >= 0 ? cb : Int(riffBus)   // THE NINE PORTS: back out on the port each pitch first struck on (a notes-layer pitch stays on the notes port)
                                         if pitchBus[i] == Int(notesBus) { notesPitchMask |= UInt16(1) << UInt16(i) }   // …and keeps the notes layer's TIE extension
                                     }
                                 }
                                 euclideousMaskRepeatRemaining[lineIndex] = mm.repeatCountResolved - 1
-                                let repGb = gateBeatsWithTie(pitchGate[0], tieOf(0))   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
+                                let repGb = gateBeatsOf(0)   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
                                 let repHandled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vels: pitchVel, gates: pitchGate,
                                                                         tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf)
                                 for j in 0..<pitchCount where repHandled & (UInt16(1) << UInt16(j)) == 0 {
-                                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsWithTie(pitchGate[j], tieOf(j)), octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsOf(j))
+                                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsOf(j), octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsOf(j))
                                 }
                                 euclideousLastSoundedCount[lineIndex] = pitchCount
                                 // The trigger caches the WHOLE set — notes, velocities AND (MIX ferry) gates. It used to write only the notes, so a REPEAT
@@ -3771,7 +3820,7 @@ final class Router {
                                         if first { first = false }
                                         else if total < 9 {
                                             slot = total; total += 1
-                                            pitches[slot] = pitches[j]; pitchGate[slot] = baseGate
+                                            pitches[slot] = pitches[j]; pitchGate[slot] = baseGate; polyBeats[slot] = polyBeats[j]
                                             if flagNotes != 0 { notesPitchMask |= UInt16(1) << UInt16(slot) } else { notesPitchMask &= ~(UInt16(1) << UInt16(slot)) }
                                             notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * slot))) | (nib << UInt64(4 * slot))
                                         } else { break }
@@ -3809,7 +3858,7 @@ final class Router {
                                 if changed {
                                     for j in 0..<total where deadBits & (UInt16(1) << UInt16(j)) == 0 {
                                         let nib = (notesSlotBits >> UInt64(4 * j)) & 0xF
-                                        pitches[w] = pitches[j]; pitchGate[w] = pitchGate[j]; pitchVel[w] = pitchVel[j]; pitchBus[w] = pitchBus[j]; pitchOuts[w] = pitchOuts[j]
+                                        pitches[w] = pitches[j]; pitchGate[w] = pitchGate[j]; polyBeats[w] = polyBeats[j]; pitchVel[w] = pitchVel[j]; pitchBus[w] = pitchBus[j]; pitchOuts[w] = pitchOuts[j]
                                         if (notesPitchMask >> UInt16(j)) & 1 != 0 { newPitchMask |= UInt16(1) << UInt16(w) }
                                         newSlotBits = (newSlotBits & ~(UInt64(0xF) << UInt64(4 * w))) | (nib << UInt64(4 * w))
                                         w += 1
@@ -4071,7 +4120,7 @@ final class Router {
                             if isRoll {
                                 var firstNotes = 0
                                 for j in 0..<pitchCount where slotNibble(j) != 0xF { firstNotes = j; break }
-                                rollSpacing = euclideousNotesRollSpacingBeats(m: spreadM, gapBeats: nextHitGapBeats, lenBeats: gateBeatsWithTie(pitchGate[firstNotes], tieOf(firstNotes)),
+                                rollSpacing = euclideousNotesRollSpacingBeats(m: spreadM, gapBeats: nextHitGapBeats, lenBeats: gateBeatsOf(firstNotes),
                                                                               legato: pitchGate[firstNotes] >= 1.0, tempo: tempo)
                             }
                             // ferry §4.1: ROLL/RUN spread the NOTES layer's own notes — each deferred strike routes to pitch j's own mask (notesBus, or a §4.2 collision slot's notesOnly).
@@ -4080,7 +4129,7 @@ final class Router {
                                     let pos = strikePosition(j)
                                     let start = Double(pos) * (isRun ? runSlot : rollSpacing)
                                     let length = isRun ? max(minGateBeats5ms, runNoteGate * runSlot)
-                                                       : max(minGateBeats5ms, gateBeatsWithTie(pitchGate[j], tieOf(j)) - start)   // every note ends where it would without the roll
+                                                       : max(minGateBeats5ms, gateBeatsOf(j) - start)   // every note ends where it would without the roll
                                     if pos == 0 || start <= 0 {
                                         strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: length, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsStrike(j))
                                     } else if mTickBeat + start < mWinEnd {
@@ -4093,7 +4142,7 @@ final class Router {
                                                      gateBeats: length)
                                     }
                                 } else {
-                                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsWithTie(pitchGate[j], tieOf(j)), octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsStrike(j))
+                                    strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsOf(j), octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsStrike(j))
                                 }
                             }
                             emitterRatchetStrikes()   // EMITTER RATCHET: the ratcheting outputs' copies of this hit (§3.2) — the ordinary strikes above skipped exactly those outputs
@@ -4102,7 +4151,7 @@ final class Router {
                                 var nc = 0
                                 for j in 0..<pitchCount where nc < Router.noteViewMaxNotes { if let p = finalPitch(pitches[j], oct: 0) { nvScratch[nc] = p; nvVelScratch[nc] = pitchVel[j]; nvDestScratch[nc] = Int8(truncatingIfNeeded: pitchBus[j].trailingZeroBitCount); nc += 1 } }
                                 if nc > 0 {
-                                    let (onset, duration) = nvTiming(gateBeatsWithTie(pitchGate[0], tieOf(0)))   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
+                                    let (onset, duration) = nvTiming(gateBeatsOf(0))   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
                                     pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: tieOf(0) > 0 ? 3 : 0, noteCount: nc,
                                                        column: wipeColumn, rank: wipeRankOut, hasRiffNote: hadRiffNote, withVels: true, cellColumn: wipeCellColumn, emitMasks: emitMasks)
                                 }
@@ -4738,7 +4787,7 @@ final class Router {
                               riffBus: FourfoldPorts.busMask(lane: lineIndex, part: .riff), notesBus: FourfoldPorts.busMask(lane: lineIndex, part: .notes),
                               missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
                               patternMiss: L.patternMissResolved,
-                              useRiff: L.useRiffResolved, riffRotate: riffRoll?.riffRotate ?? L.riffRotateResolved, riffOctave: L.riffOctaveResolved,
+                              useRiff: L.useRiffResolved, riffRotate: riffRoll?.riffRotate ?? (isEuclideousRow && p.polyRiff.on ? L.riffRotateResolved(columns: EuclideousPolyMetrics.columns) : L.riffRotateResolved), riffOctave: L.riffOctaveResolved,
                               // EUCLIDEOUS-SCOPED DRUNK/RANDOM→FWD (Paul 2026-10-13 ferry, Presets rule 1):
                               // `riffStepAt`'s own `.drunk`/`.random` arms already degrade to the plain
                               // forward position regardless (confirmed by reading — this call was already
@@ -4749,7 +4798,7 @@ final class Router {
                               riffDir: riffRoll?.riffDir ?? (isEuclideousRow ? L.euclideousRiffDirResolved : L.riffDirResolved), riffDirSeed: L.riffDirSeedResolved, riffDirBias: L.riffDirBiasResolved,
                               tilt: L.tiltResolved,
                               riffLock: L.riffLockResolved, riffInvert: riffRoll?.riffInvert ?? L.riffInvertResolved, riffOnRest: riffRoll?.riffOnRest ?? L.riffOnRestResolved,
-                              riffStride: riffRoll?.riffStride ?? L.riffStrideResolved, riffLength: L.riffLengthResolved, riffAdvanceStep: riffRoll?.riffAdvanceStep ?? L.riffAdvanceStepResolved,
+                              riffStride: riffRoll?.riffStride ?? L.riffStrideResolved, riffLength: isEuclideousRow && p.polyRiff.on ? L.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : L.riffLengthResolved, riffAdvanceStep: riffRoll?.riffAdvanceStep ?? L.riffAdvanceStepResolved,
                               riffAdvanceEvery: riffRoll?.riffAdvanceEvery ?? L.riffAdvanceEveryResolved,   // RIFF WALK ferry §5: EVERY 1 (today's behaviour) by default
                               // LISTEN (ferry 2026-10-14 §1): "stop the Euclid mask affecting output" —
                               // Euclideous's own row now ALWAYS passes a disabled (default) mask, ignoring
