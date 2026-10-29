@@ -4081,10 +4081,10 @@ func euclideousSourceLights(midiPlaying: Bool, chordsLit: Bool, keyLit: Bool, pl
 /// §3 the four source colours, each with an ink for text ON it (hex; the view wraps them in `Color`). srcMidi equals
 /// the existing text token #F2F4F7 and srcKey #8D95A3 is NEAR headerDim #8A909A — both reported as near-dups (§3.2).
 enum EuclideousSourceColour {
-    static let midi:   (fill: Int, ink: Int) = (0xF2F4F7, 0x0D0F14)
-    static let chords: (fill: Int, ink: Int) = (0xB9A8FF, 0x160F33)
-    static let pick:   (fill: Int, ink: Int) = (0xF2A7CF, 0x2B0D1E)
-    static let key:    (fill: Int, ink: Int) = (0x8D95A3, 0x0D0F14)
+    static let midi:   (fill: UInt32, ink: UInt32) = (0xF2F4F7, 0x0D0F14)
+    static let chords: (fill: UInt32, ink: UInt32) = (0xB9A8FF, 0x160F33)
+    static let pick:   (fill: UInt32, ink: UInt32) = (0xF2A7CF, 0x2B0D1E)
+    static let key:    (fill: UInt32, ink: UInt32) = (0x8D95A3, 0x0D0F14)
 }
 
 /// §2.8/§4.3 each source's light from the plan + the live status: off (switch off) · playing (on & contributing) ·
@@ -4102,6 +4102,31 @@ func euclideousSourceButtonAccessibilityValue(keyLabel: String, midi: Euclideous
                                               chords: EuclideousSourceLight, pick: EuclideousSourceLight, key: EuclideousSourceLight) -> String {
     func w(_ s: EuclideousSourceLight) -> String { s == .playing ? "playing" : (s == .waiting ? "waiting" : "off") }
     return "\(keyLabel), MIDI IN \(w(midi)), CHORDS \(w(chords)), PICK \(w(pick)), KEY \(w(key))"
+}
+
+/// §1.1-§1.3 the ONE source-plan resolver — `PluginState.sourcePlanResolved` and the UI mirror both call it, so the
+/// engine and the panel can never disagree about what a stored plan means. Always returns a plan whose v2 fields are
+/// concrete: a v2 plan fills its nils (§1.1); a stored legacy 4-cell plan maps §1.3; nil derives §1.2 from the
+/// legacy exclusive source (midiOn always true, CHORDS/KEY follow the source, ADD, PICK off — SOURCES-STACK-identical).
+func euclideousResolveSourcePlan(stored: SourcePlan?, legacySource: EuclideousLaneSource) -> SourcePlan {
+    if let p = stored {
+        if p.hasV2 {
+            return SourcePlan(midiOn: p.midiOnR, chordsOn: p.chordsOnR, pickOn: p.pickOnR,
+                              keyOn: p.keyOnR, midiMode: p.midiModeR, pickNotes: p.pickNotesR)
+        }
+        let chordsOn = p.chordsWithMidi || p.chordsNoMidi
+        let keyOn = p.keyWithMidi || p.keyNoMidi
+        let chordsNoMidiOnly = p.chordsNoMidi && !p.chordsWithMidi
+        let keyNoMidiOnly = p.keyNoMidi && !p.keyWithMidi
+        let allLitAreNoMidiOnly = (!chordsOn || chordsNoMidiOnly) && (!keyOn || keyNoMidiOnly)
+        let mode: MidiMode = (chordsOn || keyOn) && allLitAreNoMidiOnly ? .replace : .add
+        return SourcePlan(midiOn: true, chordsOn: chordsOn, pickOn: false, keyOn: keyOn, midiMode: mode, pickNotes: [])
+    }
+    switch legacySource {
+    case .midi:   return SourcePlan(midiOn: true, chordsOn: false, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
+    case .chords: return SourcePlan(midiOn: true, chordsOn: true,  pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
+    case .key:    return SourcePlan(midiOn: true, chordsOn: false, pickOn: false, keyOn: true,  midiMode: .add, pickNotes: [])
+    }
 }
 
 /// Which inline editor is open under a source row (§5.13 one at a time).

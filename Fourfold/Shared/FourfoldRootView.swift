@@ -69,15 +69,10 @@ struct FourfoldRootView: View {
     var euclideousKeyType: ScaleType { get { m.euclideousKeyType } nonmutating set { m.euclideousKeyType = newValue } }
     var euclideousNoteSource: EuclideousLaneSource { get { m.euclideousNoteSource } nonmutating set { m.euclideousNoteSource = newValue } }
     var euclideousSourcePlan: SourcePlan? { get { m.euclideousSourcePlan } nonmutating set { m.euclideousSourcePlan = newValue } }
-    /// The RESOLVED plan for the UI (mirrors PluginState.sourcePlanResolved): the stored plan, or — nil — derived
-    /// from the legacy exclusive source. Read from the @Published mirrors so a cell tap updates the UI at once.
+    /// The RESOLVED v2 plan for the UI — the SAME resolver the engine uses (`euclideousResolveSourcePlan`), read from
+    /// the @Published mirrors so a switch/MODE/PICK tap updates the panel at once. Its v2 fields are always concrete.
     var euclideousSourcePlanResolvedUI: SourcePlan {
-        if let p = euclideousSourcePlan { return p }
-        switch euclideousNoteSource {
-        case .midi:   return SourcePlan()
-        case .chords: return SourcePlan(chordsWithMidi: true, chordsNoMidi: true)
-        case .key:    return SourcePlan(keyWithMidi: true, keyNoMidi: true)
-        }
+        euclideousResolveSourcePlan(stored: euclideousSourcePlan, legacySource: euclideousNoteSource)
     }
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? { get { m.euclideousHoldLatchMode } nonmutating set { m.euclideousHoldLatchMode = newValue } }
     var euclideousSoloMask: UInt8 { get { m.euclideousSoloMask } nonmutating set { m.euclideousSoloMask = newValue } }
@@ -163,6 +158,12 @@ struct FourfoldRootView: View {
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    var p = euclideousSourcePlanResolvedUI   // materialise from the derived plan so the first tap keeps the other three cells
                                                    p[keyPath: kp].toggle()
+                                                   euclideousSourcePlan = p
+                                                   au?.editDocument { $0.euclideousSourcePlan = p }
+                                                   publish()
+                                               },
+                                               onSetSourcePlan: { p in   // Sources panel v2 §1.6: a switch / MODE / PICK key — one discrete undo step; store the v2 plan
+                                                   euclideousRecordUndo(coalesceKey: nil)
                                                    euclideousSourcePlan = p
                                                    au?.editDocument { $0.euclideousSourcePlan = p }
                                                    publish()

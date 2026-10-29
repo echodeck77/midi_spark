@@ -3102,34 +3102,10 @@ struct PluginState: Codable, Equatable {
     // both true. The UI stops writing `euclideousNoteSource` and writes this instead; the old field survives
     // only as this derivation's input.
     var euclideousSourcePlan: SourcePlan? = nil
-    var sourcePlanResolved: SourcePlan {
-        // Sources panel v2 §1.1-§1.3: ALWAYS return a plan whose v2 fields are concrete (the engine/snapshot/UI
-        // read the v2 fields; the legacy cells are then ignored). Three cases:
-        if let p = euclideousSourcePlan {
-            if p.hasV2 {
-                // §1.1 a v2-written plan: fill any still-nil v2 field with its neutral default.
-                return SourcePlan(midiOn: p.midiOnR, chordsOn: p.chordsOnR, pickOn: p.pickOnR,
-                                  keyOn: p.keyOnR, midiMode: p.midiModeR, pickNotes: p.pickNotesR)
-            }
-            // §1.3 (Route A) a stored legacy 4-cell plan: chordsOn/keyOn = either of that row's cells lit; midiOn
-            // true; REPLACE iff every LIT row is lit for NO-MIDI-only (a "while MIDI" row has no v2 equivalent, so
-            // it becomes ADD-always — the one mapping that changes what a held-MIDI session plays, §1.3). pickOn off.
-            let chordsOn = p.chordsWithMidi || p.chordsNoMidi
-            let keyOn = p.keyWithMidi || p.keyNoMidi
-            let chordsNoMidiOnly = p.chordsNoMidi && !p.chordsWithMidi
-            let keyNoMidiOnly = p.keyNoMidi && !p.keyWithMidi
-            let allLitAreNoMidiOnly = (!chordsOn || chordsNoMidiOnly) && (!keyOn || keyNoMidiOnly)
-            let mode: MidiMode = (chordsOn || keyOn) && allLitAreNoMidiOnly ? .replace : .add
-            return SourcePlan(midiOn: true, chordsOn: chordsOn, pickOn: false, keyOn: keyOn, midiMode: mode, pickNotes: [])
-        }
-        // §1.2 no stored plan: derive from the legacy exclusive source. midiOn ALWAYS true (MIDI always listens, as
-        // SOURCES STACK); CHORDS/KEY follow the source; midiMode ADD; PICK off — byte-identical to SOURCES STACK.
-        switch euclideousNoteSourceResolved {
-        case .midi:   return SourcePlan(midiOn: true, chordsOn: false, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
-        case .chords: return SourcePlan(midiOn: true, chordsOn: true,  pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
-        case .key:    return SourcePlan(midiOn: true, chordsOn: false, pickOn: false, keyOn: true,  midiMode: .add, pickNotes: [])
-        }
-    }
+    // Sources panel v2 §1.1-§1.3: ALWAYS a plan whose v2 fields are concrete (the engine/snapshot/UI read them; the
+    // legacy cells are then ignored). The shared `euclideousResolveSourcePlan` (Derivations.swift) is the ONE resolver
+    // so the engine and the panel can never disagree about what a stored plan means.
+    var sourcePlanResolved: SourcePlan { euclideousResolveSourcePlan(stored: euclideousSourcePlan, legacySource: euclideousNoteSourceResolved) }
     // SOURCES STACK §1.6: the dev-only clash policy (a rig setting, not undoable, carried across preset loads
     // like the settings ferry's four). nil ⇒ ALLOW. `clashPolicyResolved` is the ONLY reader — it returns the
     // stored value under DEBUG but ALLOW unconditionally in release, so a shipped build never drops a note.

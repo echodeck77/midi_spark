@@ -500,8 +500,17 @@ final class Router {
         var midiPlaying = false
         var chordsLit = false
         var chordsRest = false
+        var pickLit = false
         var keyLit = false
+        // Sources panel v2 §5.9/§7: per-source added (the COUNT column), the pool's dropped total, and lane-1's merged
+        // pool — ranks 1…8 with each note's source (0 MIDI · 1 CHORDS · 2 PICK · 3 KEY). The POOL block reads these.
+        var midiAdded = 0
+        var chordsAdded = 0
+        var pickAdded = 0
         var keyAdded = 0
+        var dropped = 0
+        var poolNotes: [UInt8] = []
+        var poolSources: [UInt8] = []
     }
     /// HOCKET §8: the count x of each rule at the START of the last window the Euclideous row ran, and whether the transport ran — published to the UI by `hocketLive()` (read-and-copied on the main thread, like the source
     /// status). The displays derive the turn from x with the SAME `hocketTurn` the engine plays by, so a chip lit on screen is a chip heard; nothing predicts.
@@ -514,7 +523,11 @@ final class Router {
         EuclideousSourceStatus(midiNotes: Array(euclideousStatusMidiNotes.prefix(euclideousStatusMidiCount)),
                                midiPlaying: euclideousStatusMidiPlaying,
                                chordsLit: euclideousStatusChordsLit, chordsRest: euclideousStatusChordsRest,
-                               keyLit: euclideousStatusKeyLit, keyAdded: euclideousStatusKeyAdded)
+                               pickLit: euclideousStatusPickLit, keyLit: euclideousStatusKeyLit,
+                               midiAdded: euclideousStatusMidiAdded, chordsAdded: euclideousStatusChordsAdded,
+                               pickAdded: euclideousStatusPickAdded, keyAdded: euclideousStatusKeyAdded, dropped: euclideousStatusDropped,
+                               poolNotes: Array(euclideousStatusPoolNotes.prefix(euclideousStatusPoolCount)),
+                               poolSources: Array(euclideousStatusPoolSources.prefix(euclideousStatusPoolCount)))
     }
     // Unified UI-poll surface: EVERY direction (not just DRUNK) writes its resolved step index here, so the poll
     // layer only ever reads one simple array regardless of which direction a lane is using.
@@ -827,6 +840,16 @@ final class Router {
     private var euclideousStatusChordsRest = false
     private var euclideousStatusKeyLit = false
     private var euclideousStatusKeyAdded = 0
+    // Sources panel v2 §5.9/§7: the per-source added counts, the pool dropped total, PICK's status, and lane-1's
+    // first ≤8 pool notes with each note's source (fixed buffers; the getter slices them on the main thread).
+    private var euclideousStatusPickLit = false
+    private var euclideousStatusMidiAdded = 0
+    private var euclideousStatusChordsAdded = 0
+    private var euclideousStatusPickAdded = 0
+    private var euclideousStatusDropped = 0
+    private var euclideousStatusPoolNotes = [UInt8](repeating: 0, count: 8)
+    private var euclideousStatusPoolSources = [UInt8](repeating: 0, count: 8)
+    private var euclideousStatusPoolCount = 0
     private var euclideousListenOrderScratch = [Int](repeating: 0, count: 32)   // the LISTEN processing order for the row being emitted (see `euclideousListenProcessingOrderInto`)
     // Per-hit working arrays, allocated ONCE here. They used to be `[T](repeating:count:)` locals — a heap allocation each, per hit, on the render thread (invariant 3). `takeScratch` moves one out (so it is uniquely owned and
     // writes never copy) and re-zeroes it; the caller's `defer` puts it back. Never nested: a hit takes each at most once, and no hit runs inside another.
@@ -2074,6 +2097,8 @@ final class Router {
             euclideousStatusMidiCount = 0; euclideousStatusMidiPlaying = euclideousStackMidiPlaying
             euclideousStatusChordsLit = false; euclideousStatusChordsRest = false
             euclideousStatusKeyLit = false; euclideousStatusKeyAdded = 0
+            euclideousStatusPickLit = false; euclideousStatusDropped = 0; euclideousStatusPoolCount = 0
+            euclideousStatusMidiAdded = 0; euclideousStatusChordsAdded = 0; euclideousStatusPickAdded = 0
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
 
@@ -2401,6 +2426,22 @@ final class Router {
                 euclideousStatusMidiPlaying = st.midiPlaying
                 euclideousStatusChordsLit = st.chordsLit; euclideousStatusChordsRest = st.chordsRest
                 euclideousStatusKeyLit = st.keyLit; euclideousStatusKeyAdded = st.keyAdded
+                // Sources panel v2 §5.9/§7: the per-source added counts + the pool dropped total.
+                euclideousStatusPickLit = st.pickLit; euclideousStatusDropped = st.dropped
+                euclideousStatusMidiAdded = st.midiAdded; euclideousStatusChordsAdded = st.chordsAdded; euclideousStatusPickAdded = st.pickAdded
+                // §7.3: tag lane-1's first ≤8 pool notes with the source that supplied each — the merge's OWN priority
+                // (MIDI → CHORDS → PICK, else KEY) over the SAME layer buffers. Exact; no second pool is built (§7.5).
+                let poolShown = min(8, globalSrcCount)
+                euclideousStatusPoolCount = poolShown
+                for i in 0..<poolShown {
+                    let n = globalSrcBuf[i].note
+                    euclideousStatusPoolNotes[i] = UInt8(max(0, min(127, n)))
+                    var src: UInt8 = 3, hit = false
+                    for k in 0..<midiLayerCount where midiLayerBuf[k].note == n { src = 0; hit = true; break }
+                    if !hit { for k in 0..<chordLayerCount where chordPoolScratch[k] == n { src = 1; hit = true; break } }
+                    if !hit { for k in 0..<pickLayerCount where pickLayerBuf[k] == n { src = 2; break } }
+                    euclideousStatusPoolSources[i] = src
+                }
             }
             // §2: re-merge at a tick only when the CHORDS column changed AND chords are contributing — otherwise the
             // window-start merge stands (byte-identical to a KEY/MIDI doc, which never changed within a window either).
