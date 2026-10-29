@@ -188,7 +188,7 @@ func euclideousLaneStripLabel(tab: EuclideousPageTab, glyphs: [EuclideousTabGlyp
             if case .lane(let src) = g.fill { return "lane \(lane + 1) following lane \(src + 1)" }
             return "lane \(lane + 1)"
         }
-        return "\(name), \(follows.joined(separator: " and "))"
+        return "\(name), \(joined(follows))"
     }
     if onLanes.count == 4 { return "\(name), all on" }
     let nums = joined(onLanes.map(String.init))

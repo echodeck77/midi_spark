@@ -294,6 +294,18 @@ final class LaneLockTests: XCTestCase {
         XCTAssertTrue(euclideousLockCardLayout(size: CGSize(width: 299, height: 319)).belowFloor)
         XCTAssertTrue(euclideousLockCardLayout(size: CGSize(width: 380, height: 249)).belowFloor)
     }
+    /// Adversarial review (TAB STRIP, 2026-10-29): the hint hangs from the card's bottom and the tick strip (y 240–252) from its top; on a card under 276 tall they crossed (6 pt at 256), so the hint is not drawn there.
+    func testTheHintIsDrawnOnlyWhereItClearsTheTickStrip() {
+        for h in [250.0, 256, 270, 275.9] as [CGFloat] {
+            let L = euclideousLockCardLayout(size: CGSize(width: 380.67, height: h))
+            XCTAssertFalse(L.hintFits, "h \(h): the hint would cross the ticks")
+        }
+        for h in [276.0, 301, 301.67, 319] as [CGFloat] {
+            let L = euclideousLockCardLayout(size: CGSize(width: 380.67, height: h))
+            XCTAssertTrue(L.hintFits, "h \(h)")
+            XCTAssertGreaterThanOrEqual(L.hint.minY, L.gridTicks.maxY); XCTAssertGreaterThanOrEqual(L.hint.minY, L.ruleLine.maxY)
+        }
+    }
     /// TAB STRIP ferry (2026-10-29) §6.2 / test 7: the badge is in the card's TOP ROW — 34 × 34 centred on the 44-high row, sp4 before SOLO — and the comet strip ends sp4 before it. Strip widths with and without it.
     func testBadgeAndTopRowStripWidths() {
         for (card, without, with) in [(380.67, 260.67, 224.67), (387.0, 267.0, 231.0)] {

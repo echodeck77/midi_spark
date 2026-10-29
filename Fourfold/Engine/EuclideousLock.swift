@@ -437,6 +437,8 @@ struct EuclideousLockCardLayout: Equatable {
     var ruleLine: CGRect { CGRect(x: 10, y: 222, width: contentWidth, height: 14) }
     var gridTicks: CGRect { CGRect(x: 10, y: 240, width: contentWidth, height: 12) }
     var hint: CGRect { CGRect(x: 10, y: size.height - 24, width: contentWidth, height: 14) }
+    /// The hint hangs from the card's bottom, the tick strip from its top: under 276 tall (252 + 24) they would cross, so the hint is not drawn (TAB STRIP adversarial review, 2026-10-29 — the shorter 301 pt cards put more windowed sizes in this range).
+    var hintFits: Bool { hint.minY >= gridTicks.maxY }
     /// Every frame, for the "nothing crosses the card's edge" test.
     var allFrames: [CGRect] {
         var r: [CGRect] = [numberCircle, titleRow, statusRow, padlock, summary, snapBackLabel, gridRow, selector, ruleLine, gridTicks, hint]

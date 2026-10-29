@@ -641,8 +641,8 @@ struct EuclideousStepsStepper: View {
 
 /// PER-LANE TABS (Paul 2026-10-07): PATTERN/RIFF/MASK, switching independently per lane — replaces
 /// the old always-visible stacked DIRECTION/HIT-MISS-RATE/RIFF-direction rows with one tabbed slot.
-/// This enum's `laneTab` state is purely ephemeral (never persisted), so reordering/removing its raw
-/// values here has no migration concern — a fresh page open still starts every lane on PATTERN.
+/// Its value is derived from the page's one tab (`pageTab`, TAB STRIP 2026-10-29: `frontLaneTab`), which is purely ephemeral (never persisted), so reordering/removing its raw
+/// values here has no migration concern — a fresh page open still starts on RHYTHM. (The per-lane `laneTab` state this comment first described is gone.)
 // RIFF TAB RETIRED (Paul 2026-10-10 ferry §1.2) — its own direction/FREE-LOCK/INVERT/ON-REST controls moved
 // to the melody pop-up's WALK section. `laneTab` is purely ephemeral (never persisted, never defaults to a
 // removed case — confirmed by its own declaration), so there's no "stuck on a now-gone tab" migration needed.
@@ -1908,7 +1908,7 @@ struct EuclideousPage: View {
         }
         .frame(width: S.tileTargetWidth, height: S.targetHeight)
         .contentShape(Rectangle())
-        .onTapGesture { euclideousLockMode = true }
+        .onTapGesture { cardFlipStart = nil; euclideousLockMode = true }   // a mode's faces replace the cards in place, so a turn in progress is dropped (finishing mid-turn used to resume it half-way)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Lock mode")
         .accessibilityValue((on ? "on" : "off") + (any ? ", " + euclideousLockedLanesPhrase(lockedLanes) : ""))
@@ -1965,6 +1965,7 @@ struct EuclideousPage: View {
         } else {
             // TAB STRIP §6.1: every random card's selector starts on the page tab (RHYTHM when the page tab is LISTEN or MIX); the page tab itself is untouched and no card flips — the random faces replace the cards in place.
             euclideousRandomTab = Array(repeating: euclideousRandomStartTab(pageTab), count: 4)
+            cardFlipStart = nil
             euclideousRandomMode = true
         }
     }
@@ -3530,9 +3531,8 @@ struct EuclideousPage: View {
         // CLAUDE.md status entry for this ferry; nothing here can literally halt rendering, so a too-narrow
         // card still lays out (by the same scaling formulas), just unverified below the reference size.
         let innerWidth = EuclideousLaneCardMetrics.innerWidth(cardWidth: width)
-        // THREE FIXED ROWS (ferry: step row 44 · tab row 28 · tab content 202, two 6pt gaps between them) —
-        // `contentAreaH` is no longer a "whatever's left" budget; it's the literal 202 whenever `height`
-        // matches the reference 306 exactly, and scales only if a caller ever hands this a different height.
+        // TWO ROWS since the TAB STRIP ferry (2026-10-29): the top row (44) and the tab content below it (the tab row is gone) —
+        // `contentAreaH` is the card's height less the 72 pt of chrome, never a "whatever's left" budget.
         let contentAreaH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: height)   // card height − 72 (comet 44 + the sp8 gap + 2 × 10 inset): the card's own tab row is gone (TAB STRIP 2026-10-29)
         let steps = max(2, min(16, line.steps))
         // LANE SOLO §6.1: a solo-silenced lane's card content draws at 42 % — except the SOLO button and the card's own ground / border.

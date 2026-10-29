@@ -143,7 +143,7 @@ struct EuclideousLockCardView: View {
             selector(L)
             place(L.ruleLine, label(grid.ruleLine, color: locked ? P.text : P.mute, size: 9, tracking: 0.72, alignment: .center))
             place(L.gridTicks, ticks())
-            place(L.hint, label("TAP TO LOCK OR UNLOCK · HOLD TO LOCK WHAT'S PLAYING", color: P.mute, size: 8, tracking: 0.64, alignment: .center))
+            if L.hintFits { place(L.hint, label("TAP TO LOCK OR UNLOCK · HOLD TO LOCK WHAT'S PLAYING", color: P.mute, size: 8, tracking: 0.64, alignment: .center)) }
             EuclideousLockRing(start: ringStart, accent: accent, radius: 12, reduceMotion: reduceMotion)
         }
         .frame(width: size.width, height: size.height)
@@ -385,7 +385,7 @@ struct EuclideousLockBadgeView: View {
     }
     private func pressable(_ c: EuclideousLockCountdown?) -> AnyView {
         AnyView(EuclideousLockPressable(label: "Lane \(lane + 1) locked", value: spoken(c), hint: "Double-tap to unlock", holdActionName: "Lock what's playing", extraTapName: "Unlock",
-                                        content: { heldLook in face(heldLook, c) }, onTap: onTap, onHold: onHold))
+                                        content: { heldLook in AnyView(face(heldLook, c).frame(width: 34, height: 44)) }, onTap: onTap, onHold: onHold))   // the 34 × 44 target the badge's spec names: the gesture's shape is the content's, so the content is the target
     }
     var body: some View {
         Group {

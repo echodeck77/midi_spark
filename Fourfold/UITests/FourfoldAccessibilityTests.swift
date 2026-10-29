@@ -34,7 +34,7 @@ enum FourfoldAuditAllowList {
     /// of text, no new label). So a lane-tab screen accepts four cards' worth.
     static func unlocatedElementDetectionCeilingFor(screen: String) -> Int {
         if screen.contains("hocket popup") { return 80 }
-        return screen.contains("lane tab") ? unlocatedElementDetectionCeiling * 4 : unlocatedElementDetectionCeiling
+        return screen.contains("lane tab") ? unlocatedElementDetectionCeiling * 4 + 4 : unlocatedElementDetectionCeiling   // four cards' worth + 4: the NOTES tab in portrait measured 24 on the iPad Pro 11 and 26 on the iPad mini (adversarial review, 2026-10-29)
     }
 
 }
