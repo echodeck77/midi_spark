@@ -1,5 +1,5 @@
 //  LaneViewStripPainter.swift
-//  TAB STRIP ferry (2026-10-29): the page's one tab strip — RHYTHM · RIFF · NOTES · LISTEN in one segmented control, MIX on its own, then the dice and the padlock (the page passes those two tiles in: they read the page's mode state).
+//  TAB STRIP ferry (2026-10-29; MIX folded in 2026-10-30): the page's one tab strip — RHYTHM · RIFF · NOTES · LISTEN · MIX in one segmented control, then the dice and the padlock (the page passes those two tiles in: they read the page's mode state).
 //  Every frame, state and word comes from LaneViewStrip.swift (`euclideousLaneStripLayout`, `…SegmentContent`, `…Glyphs`, `…GlyphLook`, `…Label`); this file only paints them. SwiftUI-only on purpose (GridUI seam rule).
 //  (The "strip" here is the lane area's tab strip — not the lane card's comet strip, and not the bottom-right panel's tab row or the riff panel's riff tabs.)
 
@@ -96,8 +96,7 @@ struct EuclideousLaneViewStrip: View {
         let L = euclideousLaneStripLayout(width: width)
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: M.containerRadius).fill(Color(M.container)).frame(width: L.tabControl.width, height: L.tabControl.height)
-            ForEach(0..<4, id: \.self) { i in segment(i, L) }
-            mixSegment(L)
+            ForEach(0..<L.segments.count, id: \.self) { i in segment(i, L) }     // RHYTHM · RIFF · NOTES · LISTEN · MIX (MIX is just the fifth segment, 2026-10-30)
             dice.frame(width: M.tileTargetWidth, height: M.targetHeight).offset(x: L.diceTarget.minX, y: L.diceTarget.minY)
             padlock.frame(width: M.tileTargetWidth, height: M.targetHeight).offset(x: L.padlockTarget.minX, y: L.padlockTarget.minY)
         }
@@ -132,23 +131,6 @@ struct EuclideousLaneViewStrip: View {
                 .offset(x: target.minX, y: target.minY)
         }
     }
-    private func mixSegment(_ L: EuclideousLaneStripLayout) -> some View {
-        let sel = tab == .mix
-        let seg = L.mixSegment, target = L.mixTarget
-        return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: M.containerRadius).fill(Color(M.container)).frame(width: L.mix.width, height: L.mix.height).offset(x: L.mix.minX, y: L.mix.minY)
-            if sel { RoundedRectangle(cornerRadius: M.segmentRadius).fill(Color(M.selectedFill)).frame(width: seg.width, height: seg.height).offset(x: seg.minX, y: seg.minY) }
-            label(EuclideousPageTab.mix.label, selected: sel).frame(width: seg.width, height: seg.height).offset(x: seg.minX, y: seg.minY)
-                .allowsHitTesting(false).accessibilityHidden(true)
-            Color.clear.frame(width: target.width, height: target.height).contentShape(Rectangle())
-                .onTapGesture { onSelect(.mix) }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(euclideousLaneStripLabel(tab: .mix, glyphs: []))
-                .accessibilityAddTraits(sel ? [.isButton, .isSelected] : [.isButton])
-                .offset(x: target.minX, y: target.minY)
-        }
-    }
-
     private func label(_ text: String, selected: Bool) -> some View {
         Text(text).font(.system(size: M.labelFont, weight: .heavy, design: .monospaced)).tracking(M.labelFont * M.labelTracking)
             .foregroundColor(Color(selected ? M.selectedText : M.unselectedText)).lineLimit(1).truncationMode(.tail)

@@ -1,5 +1,5 @@
 //  LaneViewStrip.swift
-//  TAB STRIP ferry (2026-10-29): the pure functions behind the page's one tab strip — the segmented RHYTHM · RIFF · NOTES · LISTEN control, MIX on its own, then the dice and the padlock — and the page's one tab value.
+//  TAB STRIP ferry (2026-10-29; MIX folded into the one control 2026-10-30): the pure functions behind the page's one tab strip — the segmented RHYTHM · RIFF · NOTES · LISTEN · MIX control, then the dice and the padlock — and the page's one tab value.
 //  Foundation only, on purpose (the macOS test target compiles this file directly): every frame, colour, state and word the strip draws is decided — and tested — here; the views paint these and nothing else.
 //
 //  The strip sits in the lane area, 28 tall, above the four lane cards. All four cards show the one selected tab; MIX shows their backs. A strip is NOT the bottom-right panel's tab row or the riff panel's riff tabs (those keep their names).
@@ -23,14 +23,16 @@ enum EuclideousPageTab: Int, CaseIterable, Equatable {
     var label: String { spokenName.uppercased() }
 }
 
-/// What a tap on the strip does: nothing when the segment is already selected; otherwise the new tab, and whether the cards turn over (the flip) — exactly when one of the two tabs is MIX.
+/// What a tap on the strip does: nothing when the segment is already selected; otherwise the new tab, which ALWAYS
+/// turns the cards over (the flip). Paul, 2026-10-30: MIX lives in the one segmented control now, and every tab
+/// change — front → front as well as front ↔ MIX — uses the same card flip, so `flips` is always true on a change.
 struct EuclideousPageTabChange: Equatable {
     var tab: EuclideousPageTab
     var flips: Bool
 }
 func euclideousPageTabTap(current: EuclideousPageTab, tapped: EuclideousPageTab) -> EuclideousPageTabChange? {
     guard tapped != current else { return nil }
-    return EuclideousPageTabChange(tab: tapped, flips: current.isMix != tapped.isMix)
+    return EuclideousPageTabChange(tab: tapped, flips: true)
 }
 /// Which tab a random card's selector starts on when random mode begins: the page tab, or RHYTHM when the page tab is LISTEN (random mode throws RHYTHM, RIFF or NOTES) or MIX.
 func euclideousRandomStartTab(_ tab: EuclideousPageTab) -> EuclideousRandomTab {
@@ -50,7 +52,6 @@ enum EuclideousLaneStripMetrics {
     static let height: CGFloat = 28
     static let containerInset: CGFloat = 3, containerRadius: CGFloat = 8
     static let segmentHeight: CGFloat = 22, segmentRadius: CGFloat = 6, segmentGap: CGFloat = 3
-    static let mixWidth: CGFloat = 78
     static let tileSize: CGFloat = 28, tilePlateRadius: CGFloat = 8, tileGlyph: CGFloat = 16
     static let tileTargetWidth: CGFloat = 36, targetHeight: CGFloat = 44
     static let sp4: CGFloat = 4, sp8: CGFloat = 8
@@ -81,44 +82,38 @@ func euclideousLaneStripClusterWidth(_ shape: EuclideousGlyphShape) -> CGFloat {
 
 struct EuclideousLaneStripLayout: Equatable {
     var bounds: CGRect                   // (0, 0, width, 28) — strip coordinates throughout
-    var tabControl: CGRect               // the container of the four segments
-    var segments: [CGRect]               // RHYTHM, RIFF, NOTES, LISTEN — the drawn segments (22 tall)
+    var tabControl: CGRect               // the container of the five segments
+    var segments: [CGRect]               // RHYTHM, RIFF, NOTES, LISTEN, MIX — the drawn segments (22 tall)
     var segmentTargets: [CGRect]         // each its width by 44 tall, centred on the segment
-    var mix: CGRect                      // MIX's container (78 × 28)
-    var mixSegment: CGRect               // the one drawn segment inside it
-    var mixTarget: CGRect                // 78 × 44
     var dice: CGRect, padlock: CGRect    // 28 × 28 plates
     var diceTarget: CGRect, padlockTarget: CGRect   // 36 × 44, centred on the plate
-    /// The four glyph clusters show only while every segment is at least 96 wide.
+    /// The glyph clusters show only while every segment is at least 96 wide.
     var clustersVisible: Bool
     var segmentWidth: CGFloat { segments.first?.width ?? 0 }
     var belowFloor: Bool { segmentWidth < EuclideousLaneStripMetrics.segmentFloor }
 }
-/// The strip's frames for a lane area `width` wide (landscape: columns 1–2; portrait: the page): the tab control takes what MIX (78), the dice and the padlock (28 each) and their gaps (sp8, sp8, sp4) leave.
-/// Landscape reference 769.33 → control 615.33, segments 150.08; portrait 782 → 628, 153.25.
+/// The strip's frames for a lane area `width` wide (landscape: columns 1–2; portrait: the page): the tab control takes what the dice and the padlock (28 each) and their gaps (sp8, sp4) leave.
+/// MIX is the fifth segment of the one control now (Paul, 2026-10-30), not its own container. Landscape reference 769.33 → control 701.33, segments 136.67; portrait 782 → 714, 139.2.
 func euclideousLaneStripLayout(width: CGFloat) -> EuclideousLaneStripLayout {
     typealias M = EuclideousLaneStripMetrics
     let w = max(1, width)
     let padlockX = w - M.tileSize
     let diceX = padlockX - M.sp4 - M.tileSize
-    let mixX = diceX - M.sp8 - M.mixWidth
-    let controlW = max(1, mixX - M.sp8)
+    let controlW = max(1, diceX - M.sp8)
     let control = CGRect(x: 0, y: 0, width: controlW, height: M.height)
-    let segW = max(1, (controlW - 2 * M.containerInset - 3 * M.segmentGap) / 4)
+    let count = EuclideousPageTab.allCases.count          // five: RHYTHM · RIFF · NOTES · LISTEN · MIX
+    let segW = max(1, (controlW - 2 * M.containerInset - CGFloat(count - 1) * M.segmentGap) / CGFloat(count))
     let segY = (M.height - M.segmentHeight) / 2
     var segs: [CGRect] = [], targets: [CGRect] = []
-    for i in 0..<4 {
+    for i in 0..<count {
         let r = CGRect(x: M.containerInset + CGFloat(i) * (segW + M.segmentGap), y: segY, width: segW, height: M.segmentHeight)
         segs.append(r)
         targets.append(CGRect(x: r.minX, y: r.midY - M.targetHeight / 2, width: r.width, height: M.targetHeight))
     }
-    let mix = CGRect(x: mixX, y: 0, width: M.mixWidth, height: M.height)
-    let mixSeg = CGRect(x: mix.minX + M.containerInset, y: segY, width: M.mixWidth - 2 * M.containerInset, height: M.segmentHeight)
-    let mixTarget = CGRect(x: mix.minX, y: mixSeg.midY - M.targetHeight / 2, width: M.mixWidth, height: M.targetHeight)
     let dice = CGRect(x: diceX, y: 0, width: M.tileSize, height: M.tileSize)
     let padlock = CGRect(x: padlockX, y: 0, width: M.tileSize, height: M.tileSize)
     func target(_ tile: CGRect) -> CGRect { CGRect(x: tile.midX - M.tileTargetWidth / 2, y: tile.midY - M.targetHeight / 2, width: M.tileTargetWidth, height: M.targetHeight) }
-    return EuclideousLaneStripLayout(bounds: CGRect(x: 0, y: 0, width: w, height: M.height), tabControl: control, segments: segs, segmentTargets: targets, mix: mix, mixSegment: mixSeg, mixTarget: mixTarget,
+    return EuclideousLaneStripLayout(bounds: CGRect(x: 0, y: 0, width: w, height: M.height), tabControl: control, segments: segs, segmentTargets: targets,
                                      dice: dice, padlock: padlock, diceTarget: target(dice), padlockTarget: target(padlock), clustersVisible: segW >= M.segmentFloor)
 }
 

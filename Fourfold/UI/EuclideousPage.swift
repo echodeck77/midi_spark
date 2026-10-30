@@ -913,7 +913,6 @@ struct EuclideousPage: View {
     @State private var flipFrom: EuclideousPageTab? = nil
     @State private var cardFlipStart: Date? = nil
     @State private var cardFlipTick = 0
-    private var cardSide: EuclideousCardSide { pageTab.isMix ? .mix : .pattern }
     /// The front tab the cards draw: the page tab, or — while MIX is showing (the backs; random / lock faces; the first half of a turn to MIX) — the tab it came from.
     private var frontLaneTab: EuclideousLaneTab { EuclideousLaneTab(rawValue: (pageTab.front ?? flipFrom?.front ?? .rhythm).rawValue) ?? .rhythm }
     @State private var notesPickerOpen: Set<Int> = []   // NOTES tab ferry §4.5: the lanes whose PLAY AS picker is open — not saved, not an undo step
@@ -3192,7 +3191,7 @@ struct EuclideousPage: View {
                       lockBadge: lockBadgeView(idx))   // TAB STRIP §6.2: a locked lane's badge sits before SOLO, the strip ending sp4 before it
     }
 
-    @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> some View {
+    @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat, tabOverride: EuclideousLaneTab? = nil) -> some View {
         if euclideousRandomMode {
             euclideousRandomLaneCard(idx, width: width, height: height)
         } else if euclideousLockMode {
@@ -3200,7 +3199,7 @@ struct EuclideousPage: View {
         } else {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
         let accent = laneAccents[idx % laneAccents.count]
-        let tab = frontLaneTab   // TAB STRIP: the page's one tab
+        let tab = tabOverride ?? frontLaneTab   // TAB STRIP: the page's one tab (the flip overrides it to draw the tab being left / entered, flip-on-every-tab-change 2026-10-30)
         let stripPlan = laneStripPlan(idx, line)   // LANE STRIP ferry: the riff track and the key row, from the footers' own per-hit functions
         // ONE INNER WIDTH FOR EVERY ROW — every row below is built from THIS one width, never the raw card
         // `width` (W = 326 at the ferry's own reference 346pt card). "Wider cards: flexible items share the
@@ -3239,29 +3238,34 @@ struct EuclideousPage: View {
         }
     }
 
-    // MARK: CARD BACKS (2026-10-28) — the two sides of a lane card and the flip between them
-    /// The card as the page shows it: the side `cardSide` names, or — for 490 ms after the switch is tapped — the flip (§3.3: each card scales horizontally about its centre, swapping sides at the midpoint, lane n starting n × 70 ms
-    /// late; Reduce Motion crossfades all four in 150 ms). Lock and random mode replace the whole card, so they always show the front. A card ignores touches from the tap until it has finished turning.
+    // MARK: CARD BACKS (2026-10-28) — the card's content and the flip between tabs (flip-on-every-tab-change, 2026-10-30)
+    /// The card as the page shows it: the tab `pageTab` names, or — for 490 ms after a tab is tapped — the turn (§3.3: each card scales horizontally about its centre, swapping its content at the midpoint, lane n starting n × 70 ms
+    /// late; Reduce Motion crossfades all four in 150 ms). Since 2026-10-30 EVERY tab change turns the cards (front → front as well as front ↔ MIX), drawing the tab being LEFT (`flipFrom`) in the first half and the tab being ENTERED
+    /// (`pageTab`) in the second. Lock and random mode replace the whole card, so they always show the front. A card ignores touches from the tap until it has finished turning.
     private func laneCardSided(_ idx: Int, width: CGFloat, height: CGFloat) -> AnyView {
         if euclideousRandomMode || euclideousLockMode { return AnyView(laneCard(idx, width: width, height: height)) }
         _ = cardFlipTick                                           // the tick's bump is what re-evaluates this once the last card has turned
         guard let start = cardFlipStart, euclideousCardFlipIsLive(since: Date().timeIntervalSince(start), reduceMotion: reduceMotion) else {
-            return AnyView(cardSideView(cardSide, idx, width: width, height: height))
+            return AnyView(pageTabCardView(pageTab, idx, width: width, height: height))
         }
-        let front = cardSideView(.pattern, idx, width: width, height: height), back = cardSideView(.mix, idx, width: width, height: height)
-        let reduce = reduceMotion, target = cardSide
+        let fromView = pageTabCardView(flipFrom ?? pageTab, idx, width: width, height: height)
+        let toView = pageTabCardView(pageTab, idx, width: width, height: height)
+        let reduce = reduceMotion
         return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { tl in
-            let f = euclideousCardFlip(sinceTap: tl.date.timeIntervalSince(start), lane: idx, target: target, reduceMotion: reduce)
+            let f = euclideousCardTurn(sinceTap: tl.date.timeIntervalSince(start), lane: idx, reduceMotion: reduce)
             ZStack {
-                if let under = f.underSide { (under == .pattern ? front : back).opacity(f.underOpacity) }
-                (f.side == .pattern ? front : back).opacity(f.opacity)
+                if let underTo = f.underShowsTo { (underTo ? toView : fromView).opacity(f.underOpacity) }
+                (f.showsTo ? toView : fromView).opacity(f.opacity)
             }
             .scaleEffect(x: max(0.0001, f.scaleX), y: 1, anchor: .center)
             .allowsHitTesting(!f.ignoresTouches)
         })
     }
-    private func cardSideView(_ side: EuclideousCardSide, _ idx: Int, width: CGFloat, height: CGFloat) -> AnyView {
-        side == .pattern ? AnyView(laneCard(idx, width: width, height: height)) : AnyView(laneCardBack(idx, width: width, height: height))
+    /// The content of one page tab: a front tab draws the lane card on that tab (the flip overrides `frontLaneTab`), MIX draws the card back.
+    private func pageTabCardView(_ tab: EuclideousPageTab, _ idx: Int, width: CGFloat, height: CGFloat) -> AnyView {
+        guard let front = tab.front else { return AnyView(laneCardBack(idx, width: width, height: height)) }
+        let laneTab = EuclideousLaneTab(rawValue: front.rawValue) ?? .rhythm
+        return AnyView(laneCard(idx, width: width, height: height, tabOverride: laneTab))
     }
 
     /// The back (MIX): the same top row as the front, a "MIX" strip, then the riff row and the notes row — the VEL/GATE pad and the PITCH pad on the left, the part's live roll and its four output jacks on the right. Every edit goes through the

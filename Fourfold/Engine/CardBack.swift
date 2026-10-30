@@ -88,6 +88,24 @@ func euclideousCardFlip(sinceTap t: Double, lane: Int, target: EuclideousCardSid
     let scale = abs(1 - 2 * euclideousEaseInOut(p))
     return EuclideousCardFlipFrame(scaleX: CGFloat(scale), side: p < 0.5 ? from : target, opacity: 1, underSide: nil, underOpacity: 0, ignoresTouches: true)
 }
+/// Flip on EVERY tab change (Paul, 2026-10-30): the same turn, reported as which CONTENT to draw — the tab being
+/// LEFT in the first half, the tab being ENTERED in the second — rather than a card SIDE, so a front → front turn
+/// (RHYTHM → RIFF, …) animates exactly like the front ↔ MIX one. A thin relabel of `euclideousCardFlip`: its `.pattern`
+/// marker means "show the TO content" and its `.mix` marker "show the FROM content", so all of its tested geometry
+/// (scale, 70 ms stagger, 150 ms Reduce-Motion crossfade, touch-ignoring) is reused unchanged.
+struct EuclideousCardTurnFrame: Equatable {
+    var scaleX: CGFloat
+    var showsTo: Bool                 // false: draw the FROM (old) tab; true: the TO (new) tab
+    var opacity: Double
+    var underShowsTo: Bool?           // the content drawn beneath during a Reduce-Motion crossfade (nil otherwise)
+    var underOpacity: Double
+    var ignoresTouches: Bool
+}
+func euclideousCardTurn(sinceTap t: Double, lane: Int, reduceMotion: Bool = false) -> EuclideousCardTurnFrame {
+    let f = euclideousCardFlip(sinceTap: t, lane: lane, target: .pattern, reduceMotion: reduceMotion)
+    return EuclideousCardTurnFrame(scaleX: f.scaleX, showsTo: f.side == .pattern, opacity: f.opacity,
+                                   underShowsTo: f.underSide.map { $0 == .pattern }, underOpacity: f.underOpacity, ignoresTouches: f.ignoresTouches)
+}
 /// Is any card still turning (so the page needs its frame clock)?
 func euclideousCardFlipIsLive(since t: Double, reduceMotion: Bool = false) -> Bool {
     let now = euclideousMicroseconds(t)
