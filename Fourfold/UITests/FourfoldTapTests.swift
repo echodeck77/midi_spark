@@ -76,9 +76,9 @@ final class FourfoldTapTests: XCTestCase {
         }
         XCTAssertTrue(seen.values.contains(where: { $0.count >= 2 }), "a column holding a chord shows an arrow on each note while a lane is on it: \(seen)")
     }
-    /// POLY REVERSE (2026-10-30): lane 1 walking backward meets a held note at its LAST column — rank 8 held over steps 1…4 and rank 7 held over steps 3…4 both end on step 4, so while lane 1 is there ITS arrows sit on step 4's
-    /// top two cells (plus the seeded single-column note there). A forward walk would have put them on steps 1 and 3, one at a time.
-    func testAReversedLaneSeatsItsChordArrowsOnTheNotesLastColumn() {
+    /// POLY REVERSE (2026-10-30): lane 1 walking in `direction` (a direction button's label) meets a held note at its LAST column on the way back — rank 8 held over steps 1…4 and rank 7 held over steps 3…4 both end on step 4, so
+    /// while lane 1 is there ITS arrows sit on step 4's top two cells (plus the seeded single-column note there). A forward walk would have put them on steps 1 and 3, one at a time.
+    private func assertLane1SeatsItsChordArrowsOnTheNotesLastColumn(direction: String, seconds: TimeInterval) {
         let app = XCUIApplication.fresh()
         app.buttons["Poly"].tap()
         func cell(_ step: Int, _ row: Int) -> XCUIElement { app.els(prefix: "Step \(step),").element(boundBy: row) }
@@ -86,11 +86,11 @@ final class FourfoldTapTests: XCTestCase {
         cell(1, 0).press(forDuration: 0.1, thenDragTo: cell(4, 0))
         cell(3, 1).press(forDuration: 0.1, thenDragTo: cell(4, 1))
         XCTAssertEqual(cell(1, 0).value as? String, "note, length 4"); XCTAssertEqual(cell(3, 1).value as? String, "note, length 2")
-        let rev = app.els(prefix: "Backward Each Time").element(boundBy: 0)
-        if !rev.exists { app.els(prefix: "Riff, ").firstMatch.tap() }
-        need(rev, "lane 1's backward button on the RIFF tab"); rev.tap()
+        let button = app.els(prefix: direction).element(boundBy: 0)
+        if !button.exists { app.els(prefix: "Riff, ").firstMatch.tap() }
+        need(button, "lane 1's \(direction) button on the RIFF tab"); button.tap()
         app.buttons["Play"].tap()
-        let deadline = Date().addingTimeInterval(30)
+        let deadline = Date().addingTimeInterval(seconds)
         var seen: [String: [String]] = [:]
         func lane1(_ step: String) -> Int { (seen[step] ?? []).filter { $0.contains("lane 1") || $0.contains("lanes 1") }.count }
         while Date() < deadline {
@@ -100,6 +100,9 @@ final class FourfoldTapTests: XCTestCase {
         }
         XCTAssertGreaterThanOrEqual(lane1("Step 4"), 2, "lane 1's two held notes both strike on step 4: \(seen)")
     }
+    func testAReversedLaneSeatsItsChordArrowsOnTheNotesLastColumn() { assertLane1SeatsItsChordArrowsOnTheNotesLastColumn(direction: "Backward Each Time", seconds: 30) }
+    /// PING-PONG (2026-10-30): the same notes are met at their last column on the way back (the second visit of the end step), not only at their first on the way up.
+    func testAPingPongLaneSeatsItsChordArrowsOnTheNotesLastColumnComingBack() { assertLane1SeatsItsChordArrowsOnTheNotesLastColumn(direction: "Forward, Then Back, Each End Twice", seconds: 60) }
 
     /// HOCKET (2026-10-27): the header button opens the pop-up, two chip taps make a lit swap rule, the button then reads "1 rule on", and closing leaves the rule lit.
     func testHocketPopupBuildsARuleAndTheButtonCountsIt() {

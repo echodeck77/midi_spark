@@ -3129,8 +3129,9 @@ final class Router {
                         // POLY RIFF (2026-10-29): the Euclideous row in POLY mode walks a 16-column grid (MONO: 8, unchanged — the default `columns`); only this row ever has it on.
                         let polyOn = isEuclideousRow && p.polyRiff.on
                         let riffColumns = polyOn ? EuclideousPolyMetrics.columns : 8
-                        // REVERSE (2026-10-30): a REV walk heads toward lower columns, so it meets a held note at its LAST column — that is where the note strikes (its end is treated as its start; same ring, in steps). One flag decides it for the strike, the rest test and the notes layer's count.
-                        let polyEnds = polyOn && euclideousPolyWalksEnds(riffDir: riffDir)
+                        // REVERSE (2026-10-30): a walk heading toward lower columns (REV; the backward legs of PENDULUM / PING-PONG) meets a held note at its LAST column — that is where the note strikes (its end is treated as its start; same ring, in steps);
+                        // a PENDULUM's turn meets both ends. `euclideousPolyTrigger` decides it per hit for the strike, the rest test and (per earlier hit) the notes layer's count.
+                        let polyTrig: EuclideousPolyTrigger = polyOn ? euclideousPolyTrigger(riffDir: riffDir, length: riffLength, stride: riffStride, every: riffAdvanceEvery, ordinal: advOrd) : .starts
                         let playedStep = euclideousRiffColumn(ordinal: advOrd, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
                         if isEuclideousRow {
                             euclideousRiffStep[lineIndex] = playedStep   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern — now true in BOTH modes
@@ -3178,7 +3179,7 @@ final class Router {
                             var ranks = takeScratch(&hitRanks, count: 16, filledWith: 0)
                             defer { hitRanks = ranks }
                             // POLY RIFF: a column's representative rank is the highest rank that STARTS there (0 = no note starts: a rest hit) — the notes layer's rest test and `writtenRankAt` read it.
-                            if polyOn { for col in 0..<EuclideousPolyMetrics.columns { ranks[col] = p.polyRiff.topTriggerRank(col, ends: polyEnds) } }
+                            if polyOn { for col in 0..<EuclideousPolyMetrics.columns { ranks[col] = p.polyRiff.topTriggerRank(col, polyTrig) } }
                             else { for col in 0..<8 {
                                 ranks[col] = euclideousLooperEffectiveRank(column: col, beat: mTickBeat, liveGrid: euclideousLiveGridRanksForHit,
                                                                             active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
@@ -3283,7 +3284,7 @@ final class Router {
                             func fxLitGate() -> Double { fx.gatePct.map { Double($0) / 100 } ?? notesGate }                          // one effective gate per hit (GATE overrides the notes layer's own too)
                             /// A column's WRITTEN rank at a beat (the grid, or the looper's effective rank) — what 6.1's "rest hit" and 6.4's count read.
                             func writtenRankAt(_ column: Int, _ beat: Double) -> Int {
-                                if polyOn { return p.polyRiff.topTriggerRank(column, ends: polyEnds) }
+                                if polyOn { return p.polyRiff.topTriggerRank(column, polyTrig) }
                                 return euclideousLooperEffectiveRank(column: column, beat: beat, liveGrid: euclideousLiveGridRanksForHit,
                                                                active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
                                                                passes: p.euclideousLooperPasses, startRanks: p.euclideousLooperStartRanks,
@@ -3364,14 +3365,14 @@ final class Router {
                                 // `addPitch` steps as a MONO note (lowest rank first, so pitch 0 is "the riff note" for NOTE VIEW's primary / +n convention). A note rings for its LENGTH in walk steps from this hit
                                 // (`euclideousPolyRingBeats`; length 1 is exactly MONO's `gate × gap to the next hit`); the FX tab is off and ON REST is SKIP — no start ⇒ a SKIP-like rest hit. A note moved below rank 1 by
                                 // TRANSPOSE is dropped (as MONO's would be a rest). The mask's rank modes are dead on this row, so there is no MIRROR / LEAP / CLIMB here.
-                                let polyMask = p.polyRiff.triggerMask(playedStep, ends: polyEnds)
+                                let polyMask = p.polyRiff.triggerMask(playedStep, polyTrig)
                                 // ONE scan of the lane's next hits serves every note of the hit (`euclideousPolyHitTimes`); under ADV STEP the ring is plain time (`euclideousPolyRingBeatsStep`, which looks for a melody restart tick itself).
                                 var scanFound = 0, scanRestart = 0
                                 if !riffAdvanceStep {
                                     var maxAhead = 0
                                     var mk = 1
                                     while mk <= EuclideousPolyMetrics.ranks {
-                                        if polyMask & (UInt8(1) << UInt8(mk - 1)) != 0 { maxAhead = max(maxAhead, euclideousPolyHitsAhead(len: p.polyRiff.triggerLength(col: playedStep, rank: mk, ends: polyEnds), every: riffAdvanceEvery)) }
+                                        if polyMask & (UInt8(1) << UInt8(mk - 1)) != 0 { maxAhead = max(maxAhead, euclideousPolyHitsAhead(len: p.polyRiff.triggerLength(col: playedStep, rank: mk, polyTrig), every: riffAdvanceEvery)) }
                                         mk += 1
                                     }
                                     if maxAhead > 0 {
@@ -3389,7 +3390,7 @@ final class Router {
                                         let rank = invRank + melodyTranspose
                                         if rank >= 1, let note0Raw = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
                                             let note0 = outShift(note0Raw, notes: false)
-                                            let len = p.polyRiff.triggerLength(col: playedStep, rank: rk, ends: polyEnds)
+                                            let len = p.polyRiff.triggerLength(col: playedStep, rank: rk, polyTrig)
                                             let ringBeats = riffAdvanceStep
                                                 ? euclideousPolyRingBeatsStep(len: len, every: riffAdvanceEvery, gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, sub: sub, minGateBeats: minGateBeats5ms,
                                                                               scan: len > 1 && !chains.melody.isFree
@@ -3549,7 +3550,7 @@ final class Router {
                                     if notesList.count > 0 {
                                         if usesCount {
                                             notesK = euclideousNotesCountBefore(buf: euclidBuf, w: nw, tick: tick, h: notesH, when: notesWhen, chance: notesChance, lane: lineIndex,
-                                                                                thisBeat: mTickBeat, rankAt: writtenRankAt)
+                                                                                thisBeat: mTickBeat, rankAt: writtenRankAt, poly: polyOn ? p.polyRiff : nil)
                                         }
                                         let pick = euclideousNotesWayPick(list: notesList, way: notesPlayAs, k: notesK)
                                         for i in 0..<pick.count {

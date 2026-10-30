@@ -212,6 +212,13 @@ extension Host {
                 lanes(&ls) { l, i in l.pulses = [9, 5, 7, 11][i]; l.steps = [16, 12, 16, 16][i]; l.riffOn = true; l.riffLength = [nil, 16, 12, nil][i]
                                      l.riffDir = [.reverse, .reverse, .reverse, .forward][i]; l.riffAdvanceEvery = [1, 2, 1, 1][i]; l.riffRotate = [0, 0, 3, 0][i] }
                 s.euclideousLines = ls }),
+            // PENDULUM / PING-PONG (2026-10-30): per hit, a note is struck at its first column going up, its last going down, and at a PENDULUM's turn by both ends. All four lanes have hits; the walks differ in LEN, EVERY, STRIDE and ADV.
+            ("POLY pendulum and ping-pong", { s in
+                s.polyRiff = EuclideousPolyRiff(notes: [(0, 1, 16), (1, 3, 5), (3, 6, 2), (6, 2, 7), (6, 5, 3), (9, 4, 1), (12, 7, 4), (13, 1, 3), (15, 8, 1)].map { EuclideousPolyNote(col: $0.0, rank: $0.1, len: $0.2) }); s.riffPoly = true
+                var ls = s.euclideousLinesResolved
+                lanes(&ls) { l, i in l.pulses = [9, 5, 7, 11][i]; l.steps = [16, 12, 16, 16][i]; l.riffOn = true; l.riffLength = [nil, 11, 16, 7][i]
+                                     l.riffDir = [.pendulum, .pendulum, .pingpong, .pingpong][i]; l.riffAdvanceEvery = [1, 2, 1, 1][i]; l.riffStride = [1, 1, 3, 1][i]; l.riffAdvanceStep = i == 3 }
+                s.euclideousLines = ls }),
         ]
         timer?.invalidate()
         var all: UInt64 = 0xcbf29ce484222325, total = 0

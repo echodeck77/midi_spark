@@ -283,13 +283,13 @@ final class PolyRiffRouterTests: XCTestCase {
         near(soundings(e, 55)[0].off - soundings(e, 55)[0].on, Int64(1.5 * Double(beat)), "length 2: 1 step + 0.5")
         XCTAssertEqual(e.ons.filter { $0.cable == 1 && $0.sample < 13 * beat - 100 }.count, 0, "nothing sounds at columns 15…3 (no note ends there, none starts there)")
     }
-    /// A forward walk is exactly what it was, and PENDULUM / PING-PONG keep the forward rule on both legs (a note strikes at its FIRST column).
-    func testForwardAndPendulumStillStrikeOnTheFirstColumn() {
+    /// A forward walk strikes a note on its FIRST column, exactly as it always did; the same note under PENDULUM (0 1 2 3 2 1) strikes there on the way up (hits 1, 7) and on its LAST column on the way down (hits 4, 10).
+    func testForwardStillStrikesOnTheFirstColumnAndAPendulumOnBothEnds() {
         let poly = EuclideousPolyRiff(notes: [n(1, 1, 2)])   // columns 1…2
         let fwd = run(box([lane(gate: 0.5, length: 4)], poly: poly), beats: 12).ons.filter { $0.cable == 1 }.map { Int(($0.sample + 100) / beat) }
         XCTAssertEqual(fwd, [1, 5, 9], "FWD, LEN 4: column 1 on hits 1, 5, 9")
         let pend = run(box([lane(gate: 0.5, dir: .pendulum, length: 4)], poly: poly), beats: 12).ons.filter { $0.cable == 1 }.map { Int(($0.sample + 100) / beat) }
-        XCTAssertEqual(pend, [1, 5, 7, 11], "PENDULUM walks 0 1 2 3 2 1: the note strikes on column 1 (hits 1, 5, 7, 11), never on its end")
+        XCTAssertEqual(pend, [1, 4, 7, 10], "PENDULUM: column 1 going up (hits 1, 7), column 2 — the note's end — coming down (hits 4, 10)")
     }
     /// With every note one column long the two ends are the same cell, so REV sounds exactly as it did.
     func testSingleColumnNotesReverseAsBefore() {
@@ -297,25 +297,123 @@ final class PolyRiffRouterTests: XCTestCase {
         let e = run(box([lane(gate: 0.5, dir: .reverse, length: 16)], poly: poly), beats: 14)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.map { [Int(($0.sample + 100) / beat), Int($0.note)] }, [[0, 48], [6, 53], [12, 50], [12, 57]], "column 15 on hit 0, 9 on hit 6, 3 on hit 12 (two notes)")
     }
-    /// The arrows: a chord seats one on each note it strikes, a single note one, a rest column none (a hollow seat keeps its one) — read through the Router's own trigger rule, so a REV lane's arrows sit on the notes' last columns.
+    private func walkCfg(_ l: EuclidLine) -> EuclideousWalkLaneConfig { euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, riffColumns: 16)! }
+    /// The arrows: a chord seats one on each note it strikes, a single note one, a rest column none (a hollow seat keeps its one) — read through the Router's own trigger rule, so a REV lane's arrows sit on the notes' last columns and a
+    /// PENDULUM's turn shows the notes of both ends.
     func testAChordDrawsAnArrowOnEachOfItsNotes() {
         let poly = EuclideousPolyRiff(notes: [n(4, 1), n(4, 3), n(4, 5, 3), n(9, 2)])
-        let seat = EuclideousLaneArrowState(lane: 1, column: 4, rank: 5, hollow: false, heading: .right)
-        let seats = euclideousPolyArrowSeats(seat, poly: poly, riffDir: .forward)
+        let snap = PolyRiffSnap(poly, on: true)
+        let fwdCfg = walkCfg(lane(length: 16)), revCfg = walkCfg(lane(dir: .reverse, length: 16))
+        let seat = EuclideousLaneArrowState(lane: 1, column: 4, rank: 5, hollow: false, heading: .right, ordinal: 4)
+        let seats = euclideousPolyArrowSeats(seat, poly: snap, cfg: fwdCfg)
         XCTAssertEqual(seats.map { $0.rank }, [1, 3, 5], "one arrow per note starting on column 4")
-        XCTAssertTrue(seats.allSatisfy { $0.lane == 1 && $0.column == 4 && $0.heading == .right && !$0.hollow })
+        XCTAssertTrue(seats.allSatisfy { $0.lane == 1 && $0.column == 4 && $0.heading == .right && !$0.hollow && $0.ordinal == 4 })
         let cells = euclideousArrowCells(seats + [EuclideousLaneArrowState(lane: 2, column: 4, rank: 3, hollow: false, heading: .right)])
         XCTAssertEqual(cells.map { $0.rank }, [1, 3, 5], "lane 3 on rank 3 shares the arrow lane 2 has there")
         XCTAssertEqual(cells.first { $0.rank == 3 }?.members.map { $0.lane }, [1, 2])
-        // REV: the same riff's note 5 (columns 4…6) is met at column 6; column 4 now has nothing ending on it
+        // REV: the same riff's note 5 (columns 4…6) is met at column 6; column 4 has only the two single-column notes ENDING on it
         let revSeat = EuclideousLaneArrowState(lane: 0, column: 6, rank: 5, hollow: false, heading: .left)
-        XCTAssertEqual(euclideousPolyArrowSeats(revSeat, poly: poly, riffDir: .reverse).map { $0.rank }, [5])
-        XCTAssertEqual(poly.triggerRanks(at: 4, ends: true), [3, 1], "on column 4 only the two single-column notes END (the long one ends on column 6)")
+        XCTAssertEqual(euclideousPolyArrowSeats(revSeat, poly: snap, cfg: revCfg).map { $0.rank }, [5])
+        let revAt4 = EuclideousLaneArrowState(lane: 0, column: 4, rank: 3, hollow: false, heading: .left)
+        XCTAssertEqual(euclideousPolyArrowSeats(revAt4, poly: snap, cfg: revCfg).map { $0.rank }, [1, 3])
+        // PENDULUM over 16 columns: ordinal 3 is on the way up (starts), ordinal 15 is the top turn (both ends), ordinal 20 on the way down (ends)
+        let turn = EuclideousPolyRiff(notes: [n(15, 2), n(12, 6, 4), n(3, 4, 3)])   // rank 2 starts and ends on 15, rank 6 ends there; rank 4 columns 3…5
+        let turnSnap = PolyRiffSnap(turn, on: true)
+        let pendCfg = walkCfg(lane(dir: .pendulum, length: 16))
+        XCTAssertEqual(euclideousPolyArrowSeats(EuclideousLaneArrowState(lane: 0, column: 15, rank: 6, hollow: false, heading: .left, ordinal: 15), poly: turnSnap, cfg: pendCfg).map { $0.rank }, [2, 6], "the turn meets the starting note and the one ending there")
+        XCTAssertEqual(euclideousPolyArrowSeats(EuclideousLaneArrowState(lane: 0, column: 3, rank: 4, hollow: false, heading: .right, ordinal: 3), poly: turnSnap, cfg: pendCfg).map { $0.rank }, [4])
+        XCTAssertEqual(euclideousPolyArrowSeats(EuclideousLaneArrowState(lane: 0, column: 5, rank: 4, hollow: false, heading: .left, ordinal: 25), poly: turnSnap, cfg: pendCfg).map { $0.rank }, [4], "ordinal 25 is column 5 on the way down: the note ends there")
         // a hollow (rest) seat and a lone note keep their one arrow
         let hollow = EuclideousLaneArrowState(lane: 0, column: 4, rank: 5, hollow: true, heading: .right)
-        XCTAssertEqual(euclideousPolyArrowSeats(hollow, poly: poly, riffDir: .forward).count, 1)
+        XCTAssertEqual(euclideousPolyArrowSeats(hollow, poly: snap, cfg: fwdCfg).count, 1)
         let lone = EuclideousLaneArrowState(lane: 0, column: 9, rank: 2, hollow: false, heading: .right)
-        XCTAssertEqual(euclideousPolyArrowSeats(lone, poly: poly, riffDir: .forward).count, 1)
+        XCTAssertEqual(euclideousPolyArrowSeats(lone, poly: snap, cfg: fwdCfg).count, 1)
+    }
+    /// PENDULUM (positions 0 1 2 3 2 1 over LEN 4): a note is struck at its first column on the way up, at its last on the way down, and at a turn by whichever end the turn is on. A chord of three that all END on column 2 sounds as
+    /// a chord on the way down only; the notes that start on the way up sound one at a time.
+    func testAPendulumMeetsNotesAtTheEndItsLegIsHeadingFor() {
+        let poly = EuclideousPolyRiff(notes: [n(0, 1, 3), n(2, 3, 1), n(1, 5, 2)])   // rank 1: columns 0…2 · rank 3: column 2 · rank 5: columns 1…2
+        let e = run(box([lane(gate: 0.5, dir: .pendulum, length: 4)], poly: poly), beats: 5)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.map { [Int(($0.sample + 100) / beat), Int($0.note)] },
+                       [[0, 48], [1, 55], [2, 52], [4, 48], [4, 52], [4, 55]],
+                       "hit 0 (col 0, the bottom turn) starts rank 1; hit 1 (col 1, up) starts rank 5; hit 2 (col 2, up) starts rank 3; hit 3 (col 3, the top turn) nothing; hit 4 (col 2, down) meets all three ends; hit 5 (col 1, down) none end there")
+    }
+    /// A note held across the whole PENDULUM sounds on both legs: it starts at the bottom turn, and again at the top turn where it ENDS — so it is never silent for a half cycle.
+    func testAWholeGridNoteSoundsThroughAPendulum() {
+        let poly = EuclideousPolyRiff(notes: [n(0, 1, 16)])
+        let e = run(box([lane(gate: 0.5, dir: .pendulum, length: 16)], poly: poly), beats: 62)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 && $0.note == 48 }.map { Int(($0.sample + 100) / beat) }, [0, 15, 30, 45, 60], "bottom turn (hit 0, 30, 60) and top turn (hit 15, 45)")
+    }
+    /// PING-PONG (0 1 2 3 3 2 1 0 over LEN 4, each end visited twice): the first visit of an end arrives, the second leaves. A note across all four columns starts on the way up (hit 0), is met at its end on the way down (hit 4), and starts
+    /// again (hit 8) — continuous, every four hits.
+    func testAWholeGridNoteSoundsThroughPingPong() {
+        let poly = EuclideousPolyRiff(notes: [n(0, 1, 4)])
+        let e = run(box([lane(gate: 0.5, dir: .pingpong, length: 4)], poly: poly), beats: 14)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.map { Int(($0.sample + 100) / beat) }, [0, 4, 8, 12])
+        // a held note 1…2: up-leg start on column 1 (hit 1), down-leg end on column 2 (hit 5)
+        let mid = run(box([lane(gate: 0.5, dir: .pingpong, length: 4)], poly: EuclideousPolyRiff(notes: [n(1, 1, 2)])), beats: 10)
+        XCTAssertEqual(mid.ons.filter { $0.cable == 1 }.map { Int(($0.sample + 100) / beat) }, [1, 5, 9])
+    }
+
+    /// The strip's chips and the arrows' seats against the walk mirror (which RouterTests pin to the real render): on every hit of a random pass — all four riff directions, any LEN / STRIDE / SHIFT / EVERY, ADV HIT and STEP — the chips
+    /// the strip draws are exactly the notes the hit strikes under the Router's trigger rule (a hit that strikes none is a gap), and the arrows seat on the same ranks.
+    func testThePolyStripAndArrowsShowTheNotesTheWalkStrikes() {
+        var rng = PolyRiffRNG(0xA77E)
+        var hitsChecked = 0, chords = 0, gaps = 0, arrowsChecked = 0
+        for trial in 0..<500 {
+            let nSteps = Int(rng.next() % 15) + 2
+            var l = EuclidLine(target: 0, pulses: Int(rng.next() % UInt64(nSteps)) + 1, steps: nSteps, rate: [.r1_16, .r1_8, .r1_4][Int(rng.next() % 3)], useRiff: true, sourceMode: .midi)
+            l.rotate = Int(rng.next() % UInt64(nSteps)); l.direction = [.fwd, .bkw, .pingpong][Int(rng.next() % 3)]
+            l.riffDir = [.forward, .reverse, .pendulum, .pingpong][Int(rng.next() % 4)]
+            l.riffLength = Int(rng.next() % 16) + 1; l.riffStride = Int(rng.next() % 3) + 1; l.riffRotate = Int(rng.next() % 16)
+            l.riffAdvanceEvery = Int(rng.next() % 4) + 1; l.riffAdvanceStep = rng.next() % 2 == 0; l.riffOn = true
+            var notes: [EuclideousPolyNote] = []
+            for _ in 0..<(Int(rng.next() % 14) + 2) { notes.append(n(Int(rng.next() % 16), Int(rng.next() % 8) + 1, Int(rng.next() % 8) + 1)) }
+            let poly = EuclideousPolyRiff(notes: notes), snap = PolyRiffSnap(poly, on: true)
+            guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, riffColumns: 16) else { XCTFail("no cfg"); continue }
+            let hitSteps = euclideousLapHitSteps(pulses: l.pulses, steps: nSteps, rotate: l.rotate, tilt: l.tiltResolved, patternMiss: false, customHits: l.customHitsResolved(nSteps), dir: l.directionResolved)
+            guard !hitSteps.isEmpty else { continue }
+            let cycleLen = euclidCycleLen(l.directionResolved, n: nSteps)
+            let nowBeat = (Double(Int64(cycleLen) * Int64(rng.next() % 30 + 3)) + Double(rng.next() % UInt64(cycleLen)) + 0.1) * cfg.sub
+            let pass = euclideousFooterPass(line: l, cfg: cfg, hitSteps: hitSteps, lapSteps: nSteps, liveOrd: 0, nowBeat: nowBeat)
+            guard let lapStart = pass.lapStartTick else { XCTFail("trial \(trial): no lap start"); continue }
+            var pattern = [Bool](repeating: false, count: nSteps)
+            for hs in hitSteps { pattern[hs.bufIdx] = true }
+            let pingPong = l.directionResolved == .pingpong
+            let legs = euclideousStripLegs(pattern: pattern, hitSteps: hitSteps, prediction: pass.prediction, lapSteps: nSteps, ranks: poly.topRanks, anyLit: true, fxTieColumns: 0, pingPong: pingPong, riffPlays: true, grey: false,
+                                           onRest: .skip, cfg: cfg, lapStartTick: lapStart, notes: nil, poly: snap, polyOrdinals: pass.ordinals, name: { "n\($0)" })
+            for (li, leg) in legs.enumerated() {
+                for (j, hs) in leg.hitSteps.enumerated() {
+                    let t = lapStart + Int64(hs.tick)
+                    let w = euclideousWalkTick(cfg, tick: t)
+                    XCTAssertTrue(w.isHit, "trial \(trial): the footers' hit is the engine's hit")
+                    let expected = snap.triggerRanks(w.playedStep, euclideousPolyTrigger(cfg: cfg, ordinal: w.advOrd))   // highest first
+                    let h = leg.hits[hs.bufIdx]
+                    hitsChecked += 1
+                    if expected.isEmpty {
+                        XCTAssertEqual(h.kind, .gap, "trial \(trial) leg \(li) hit \(j) (\(l.riffDir), ord \(w.advOrd), col \(w.playedStep)): a hit that strikes nothing is a gap"); XCTAssertNil(h.chip); gaps += 1
+                    } else {
+                        XCTAssertEqual(h.kind, .hit)
+                        XCTAssertEqual(h.chip?.rank, expected[0], "trial \(trial) leg \(li) hit \(j) (\(l.riffDir), ord \(w.advOrd), col \(w.playedStep)): the chip is the highest note struck")
+                        XCTAssertEqual(Set(h.extraRanks + [h.chip?.rank ?? 0]), Set(expected), "trial \(trial) leg \(li) hit \(j) (\(l.riffDir), ord \(w.advOrd)): the other chips are the other notes struck")
+                        if expected.count > 1 { chords += 1 }
+                    }
+                    // the arrow seated on this hit (when the plan has landed on it): one arrow per note struck, none on a rest
+                    let beat = (Double(t) + 0.1) * cfg.sub
+                    guard let plan = euclideousWalkTagPlan(cfg: cfg, ranks: poly.topRanks, beat: beat, secondsPerBeat: 0.5, polledStep: w.playedStep, running: true, polledOrdinal: w.advOrd, poly: snap), plan.landedTick == t else { continue }
+                    let arrow = euclideousLaneArrowState(lane: 0, cfg: cfg, plan: plan, polledOrdinal: w.advOrd)
+                    XCTAssertEqual(arrow.ordinal, w.advOrd, "trial \(trial) hit \(j): the arrow names the hit it shows")
+                    let seats = euclideousPolyArrowSeats(arrow, poly: snap, cfg: cfg)
+                    if expected.isEmpty { XCTAssertTrue(arrow.hollow, "trial \(trial) hit \(j): a rest hit's arrow is hollow"); XCTAssertEqual(seats.count, 1) }
+                    else {
+                        XCTAssertFalse(arrow.hollow); XCTAssertEqual(arrow.column, w.playedStep)
+                        XCTAssertEqual(seats.map { $0.rank }.sorted(by: >), expected, "trial \(trial) hit \(j) (\(l.riffDir), ord \(w.advOrd), col \(w.playedStep)): an arrow on each note struck")
+                        arrowsChecked += 1
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(hitsChecked, 2000); XCTAssertGreaterThan(chords, 100); XCTAssertGreaterThan(gaps, 100); XCTAssertGreaterThan(arrowsChecked, 500)
     }
 
     // MARK: things POLY switches off
@@ -366,9 +464,7 @@ final class PolyRiffRouterTests: XCTestCase {
                          stride: Int(rng.next() % 5) + 1, shift: Int(rng.next() % 16))
             let e = run(box([l], poly: poly), beats: 40)
             let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, riffColumns: 16)!
-            let ends = euclideousPolyWalksEnds(riffDir: l.euclideousRiffDirResolved)   // a REV walk meets a held note at its last column
-            let topRanks = poly.topTriggerRanks(ends: ends)
-            let hits = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 30, minGateBeats: 0.01, polyStarts: { poly.triggeringNotes(at: $0, ends: ends).map { (rank: $0.rank, len: $0.len) } }) { c, _ in topRanks[c] }
+            let hits = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 30, minGateBeats: 0.01, poly: PolyRiffSnap(poly, on: true)) { c, _ in poly.topRanks[c] }   // the roll asks `euclideousPolyTrigger` per hit, as the Router does
             let sounded = hits.filter { $0.rank >= 1 }
             // the engine's strikes in the window, keyed by (sample, pitch)
             let ons = e.ons.filter { $0.cable == 1 && $0.sample < 30 * beat - 100 }

@@ -2889,6 +2889,13 @@ func euclideousRiffLapBaseline(hitSteps: [EuclidHitStep], lapSteps: Int, isMelod
     }
 }
 
+/// The riff ordinal each of this lap's hits reads, one per `hitSteps` entry (the footers' and the strip's one source of "which hit is this" — POLY decides the end(s) of a note a hit meets from it).
+/// DIRECTION FIX (2026-10-13 adversarial review): STEP-advance's "elapsed real ticks since the lap's first hit" is measured on the TICK axis (`.tick`), not the buffer-index axis — the two only coincide for FWD.
+/// See `EuclidHitStep`'s own doc comment.
+func euclideousRiffCycleOrdinals(hitSteps: [EuclidHitStep], advanceStep: Bool, startOrd: Int64) -> [Int64] {
+    guard let first = hitSteps.first else { return [] }
+    return hitSteps.enumerated().map { (hitIdx, hs) in advanceStep ? startOrd + Int64(hs.tick - first.tick) : startOrd + Int64(hitIdx) }
+}
 /// The riff step (1-based, matching the grid's own displayed rank numbers) each of this lap's hits will
 /// play, in hit order — one entry per `hitSteps` entry. `startOrd` is the baseline ordinal for this lap's
 /// FIRST hit (0 under LOCK — the walk re-anchors every lap; the live running hit-count under FREE, so
@@ -2900,12 +2907,8 @@ func euclideousRiffLapBaseline(hitSteps: [EuclidHitStep], lapSteps: Int, isMelod
 func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool, dir: RiffDir, stride: Int, length: Int,
                                     rotate: Int, seed: UInt64, startOrd: Int64, every: Int = 1, columns: Int = 8) -> [Int] {
     guard !hitSteps.isEmpty, length > 0 else { return [] }
-    let firstTick = hitSteps[0].tick
-    return hitSteps.enumerated().map { (hitIdx, hs) in
-        // DIRECTION FIX (2026-10-13 adversarial review): STEP-advance's "elapsed real ticks since the lap's
-        // first hit" must be measured on the TICK axis (`.tick`), not the buffer-index axis — the two only
-        // coincide for FWD. See `EuclidHitStep`'s own doc comment.
-        let advOrd: Int64 = advanceStep ? startOrd + Int64(hs.tick - firstTick) : startOrd + Int64(hitIdx)
+    let ords = euclideousRiffCycleOrdinals(hitSteps: hitSteps, advanceStep: advanceStep, startOrd: startOrd)
+    return ords.map { advOrd in
         // LANE STRIP ferry (2026-10-21): through `euclideousRiffColumn`, the one ordinal -> column function the Router, the mirror, the rails and REPEAT call. This used to walk
         // `riffStepAt(raw: ordinal × stride)` itself and so ignored ADVANCE EVERY: with EVERY ≥ 2 the footer numbers disagreed with the engine. `every` 1 is byte-identical.
         return euclideousRiffColumn(ordinal: advOrd, every: every, direction: dir, length: length, stride: stride, shift: rotate, seed: seed, columns: columns) + 1   // 1-based, matching the grid's own displayed rank numbers
@@ -2915,7 +2918,7 @@ func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool,
 /// LANE STRIP ferry (2026-10-21): the pass the footers show, assembled in ONE place so the page and the tests call the same code — the lap that contains `nowBeat` (read when the page's body runs, which is
 /// when the footers switch passes), its hits' riff columns (`prediction`, one per hit in time order), the ordinal its first hit reads (`startOrd`) and the ABSOLUTE tick of its first step
 /// (`lapStartTick`; nil when the pattern has no hit or `cfg` is unknown), from which every hit's own tick follows (`lapStartTick + hit.tick`).
-struct EuclideousFooterPass: Equatable { var prediction: [Int]; var startOrd: Int64; var lapStartTick: Int64? }
+struct EuclideousFooterPass: Equatable { var prediction: [Int]; var startOrd: Int64; var lapStartTick: Int64?; var ordinals: [Int64] = [] }
 func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitSteps: [EuclidHitStep], lapSteps: Int, liveOrd: Int64, nowBeat: Double) -> EuclideousFooterPass {
     let isMelodyRestartPass = cfg.map {
         euclideousIsMelodyChainRestartPass(beat: nowBeat, lapBeats: $0.chains.lapBeats, barBeats: $0.chains.barBeats, rhythmChain: $0.chains.rhythm, melodyChain: $0.chains.melody)
@@ -2930,7 +2933,8 @@ func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitS
                                                     stride: line.riffStrideResolved, length: cols == 8 ? line.riffLengthResolved : line.riffLengthResolved(columns: cols),
                                                     rotate: cols == 8 ? line.riffRotateResolved : line.riffRotateResolved(columns: cols),
                                                     seed: UInt64(bitPattern: Int64(line.riffDirSeedResolved)), startOrd: baseline.startOrd, every: line.riffAdvanceEveryResolved, columns: cols)
-    return EuclideousFooterPass(prediction: prediction, startOrd: baseline.startOrd, lapStartTick: lapStartTick)
+    return EuclideousFooterPass(prediction: prediction, startOrd: baseline.startOrd, lapStartTick: lapStartTick,
+                                ordinals: euclideousRiffCycleOrdinals(hitSteps: hitSteps, advanceStep: line.riffAdvanceStepResolved, startOrd: baseline.startOrd))
 }
 
 /// Per-step footer state (ferry Part 2) — `prediction` is `euclideousRiffCyclePrediction`'s own output,
@@ -2947,7 +2951,8 @@ func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitS
 /// because nothing will sound" (every step, hit or miss alike, becomes `.miss`).
 /// `hitTied` (FX TAB §13.2): a hit an FX TIE cell applies to — drawn exactly as a hit on a tied rest (`hitOnRest`), but it can never be a FILL strike.
 enum EuclidFooterState: Equatable { case hit(riffStep: Int?), hitOnRest(riffStep: Int), hitTied(riffStep: Int), miss }
-func euclideousFooterStates(hitSteps: [EuclidHitStep], lapSteps: Int, prediction: [Int]?, riffRanksResolved: [Int], anyLit: Bool = true, fxTieColumns: UInt8 = 0) -> [EuclidFooterState] {
+func euclideousFooterStates(hitSteps: [EuclidHitStep], lapSteps: Int, prediction: [Int]?, riffRanksResolved: [Int], anyLit: Bool = true, fxTieColumns: UInt8 = 0,
+                            polyRest: ((_ hitIndex: Int, _ column: Int) -> Bool)? = nil) -> [EuclidFooterState] {
     var out = [EuclidFooterState](repeating: .miss, count: max(0, lapSteps))
     guard prediction != nil || anyLit else { return out }   // riff off, nothing lit: every step is .miss
     // `.bufIdx` is the screen-box position (the footer row sits directly under the step boxes, which never
@@ -2958,7 +2963,8 @@ func euclideousFooterStates(hitSteps: [EuclidHitStep], lapSteps: Int, prediction
     for (i, hs) in hitSteps.enumerated() where hs.bufIdx >= 0 && hs.bufIdx < out.count {
         guard let prediction, i < prediction.count else { out[hs.bufIdx] = .hit(riffStep: nil); continue }
         let riffStep = prediction[i]
-        let isRest = riffStep >= 1 && riffStep <= riffRanksResolved.count && riffRanksResolved[riffStep - 1] == 0
+        // POLY RIFF (2026-10-30): a hit is a rest when the notes IT meets (which end of a note depends on the hit's walk direction) are none — `polyRest` answers for hit `i` and 0-based column
+        let isRest = polyRest.map { riffStep >= 1 && riffStep <= EuclideousPolyMetrics.columns && $0(i, riffStep - 1) } ?? (riffStep >= 1 && riffStep <= riffRanksResolved.count && riffRanksResolved[riffStep - 1] == 0)
         let fxTied = !isRest && riffStep >= 1 && riffStep <= 8 && (fxTieColumns >> UInt8(riffStep - 1)) & 1 != 0   // `riffStep` is the 1-based column the walk reads (after SHIFT)
         out[hs.bufIdx] = isRest ? .hitOnRest(riffStep: riffStep) : (fxTied ? .hitTied(riffStep: riffStep) : .hit(riffStep: riffStep))
     }
@@ -3844,10 +3850,19 @@ struct EuclideousWalkTagPlan: Equatable {
 /// the RIFF-tab thumbnail reads; < 0 = not started). `running` = transport playing AND the lane playing. Returns
 /// nil when there is nothing to draw (not started, or the riff has no notes on the steps the walk visits).
 func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Double, secondsPerBeat spb: Double,
-                           polledStep: Int, running: Bool, polledOrdinal: Int64? = nil) -> EuclideousWalkTagPlan? {
+                           polledStep: Int, running: Bool, polledOrdinal: Int64? = nil, poly: PolyRiffSnap? = nil) -> EuclideousWalkTagPlan? {
     guard polledStep >= 0 else { return nil }
     let len = max(1, min(cfg.columns, cfg.length))
-    func rankAt(_ s: Int) -> Int { s >= 0 && s < ranks.count ? max(0, min(8, ranks[s])) : 0 }
+    // POLY RIFF (2026-10-30): the rank a hit on column `s` reads is the highest note it STRIKES, which depends on the end(s) of a note that hit meets (`euclideousPolyTrigger`) — so each read names the ordinal of the hit it is for;
+    // with none given (an emptiness test, a neighbouring column's held row) any note starting or ending there counts.
+    func rankAt(_ s: Int, _ ord: Int64? = nil) -> Int {
+        if let poly {
+            guard s >= 0 && s < cfg.columns else { return 0 }
+            guard let ord else { return poly.topAnyRank(s) }
+            return poly.topTriggerRank(s, euclideousPolyTrigger(cfg: cfg, ordinal: ord))
+        }
+        return s >= 0 && s < ranks.count ? max(0, min(8, ranks[s])) : 0
+    }
     guard euclideousRiffWindowColumns(length: len, shift: cfg.rotate, columns: cfg.columns).contains(where: { rankAt($0) >= 1 }) else { return nil }   // empty riff: no tag — over the columns the walk really reads (LEN from SHIFT, wrapping), not 0..<LEN
     let vis = euclideousWalkVisitedRange(dir: cfg.riffDir, length: len, stride: cfg.stride, rotate: cfg.rotate)
 
@@ -3856,7 +3871,7 @@ func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Do
     func staticPlan() -> EuclideousWalkTagPlan? {
         let step = min(polledStep, cfg.columns - 1)
         let right = cfg.riffDir != .reverse
-        var rank = rankAt(step)
+        var rank = rankAt(step, polledOrdinal)
         let rest = rank == 0
         if rest {
             var found = 0
@@ -3874,7 +3889,7 @@ func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Do
                 let o2 = po - Int64(j)
                 guard o2 >= 0 else { break }
                 let col = euclideousWalkStep(cfg, ord: o2)
-                let r = rankAt(col)
+                let r = rankAt(col, o2)
                 if r >= 1 { stay = EuclideousTieStay(step: col, rank: r, ordinal: o2); break }
             }
         }
@@ -3907,23 +3922,24 @@ func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Do
         // The last note the lane actually PLAYED: walk back through its real earlier hits (correct under ADV STEP,
         // where ordinals also tick on non-hits, and across a LOCK/reset restart, where they jump back to 0).
         for t in scan.prev.dropFirst() {
-            let r = rankAt(euclideousWalkTick(cfg, tick: t).playedStep)
+            let wt = euclideousWalkTick(cfg, tick: t)
+            let r = rankAt(wt.playedStep, wt.advOrd)
             if r >= 1 { return r }
         }
         // None in the recent hits (a long run of rests, or the lane has barely started): the nearest note behind in
         // walk order.
         for j in 1...(2 * len + 2) {
-            let r = rankAt(euclideousWalkStep(cfg, ord: ord - Int64(j)))
+            let r = rankAt(euclideousWalkStep(cfg, ord: ord - Int64(j)), ord - Int64(j))
             if r >= 1 { return r }
         }
         return nil
     }
     let seatStep = tP.playedStep
-    var seatRank = rankAt(seatStep)
+    var seatRank = rankAt(seatStep, tP.advOrd)
     let seatIsRest = seatRank == 0
     if seatIsRest { guard let held = heldRank(before: tP.advOrd) else { return nil }; seatRank = held }
     let destStep = tH.playedStep
-    let destRankRaw = rankAt(destStep)
+    let destRankRaw = rankAt(destStep, tH.advOrd)
     let dest = EuclideousTagDest(step: destStep, rank: destRankRaw >= 1 ? destRankRaw : seatRank, isRest: destRankRaw == 0)
     let isReset = tH.advOrd <= tP.advOrd
 
@@ -3958,7 +3974,7 @@ func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Do
     if seatIsRest, cfg.onRest == .tie {
         for t in scan.prev.dropFirst() {
             let w = euclideousWalkTick(cfg, tick: t)
-            let r = rankAt(w.playedStep)
+            let r = rankAt(w.playedStep, w.advOrd)
             if r >= 1 { stay = EuclideousTieStay(step: w.playedStep, rank: r, ordinal: w.advOrd); break }
         }
         if stay == nil {
@@ -3966,7 +3982,7 @@ func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Do
                 let o2 = tP.advOrd - Int64(j)
                 guard o2 >= 0 else { break }
                 let col = euclideousWalkStep(cfg, ord: o2)
-                let r = rankAt(col)
+                let r = rankAt(col, o2)
                 if r >= 1 { stay = EuclideousTieStay(step: col, rank: r, ordinal: o2); break }
             }
         }
@@ -6509,7 +6525,7 @@ struct EuclideousRollHit: Equatable {
 /// exactly: SHADOW lanes (their pitch comes from the partner, so the roll shows the lane's OWN riff column), an AVOID-muted pick, and a
 /// FILL hit (it strikes the lane's own NOTE pick, which the rank axis cannot show) — those draw as rests (rank 0).
 func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double, windowBeats: Double, minGateBeats: Double,
-                            polyStarts: ((Int) -> [(rank: Int, len: Int)])? = nil,
+                            poly: PolyRiffSnap? = nil,
                             rankAt: (_ column: Int, _ beat: Double) -> Int) -> [EuclideousRollHit] {
     guard c.sub > 0, c.n > 0, windowBeats > 0 else { return [] }
     let cycleLen = euclidCycleLen(c.dir, n: c.n)
@@ -6543,11 +6559,12 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
         let g = fxHit.gatePct.map { Double($0) / 100 } ?? c.gate
         let gap = euclideousNextChainHitGapBeats(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, cap: cycleLen * 4,
                                                   chains: c.chains, legacySpanBeats: c.spanBeats, timing: c.timing)
-        // POLY RIFF (2026-10-29): every note STARTING on the column is a bar of its own, as long as the Router rings it (`euclideousPolyRingBeats`; length 1 = MONO's gate × gap); a column where none starts draws the rest line.
-        if let ps = polyStarts, c.riffOn {
+        // POLY RIFF (2026-10-29): every note the hit STRIKES on the column — those starting there, ending there or both, by the way the walk is moving (`euclideousPolyTrigger`, the Router's own call) — is a bar of its own, as long as
+        // the Router rings it (`euclideousPolyRingBeats`; length 1 = MONO's gate × gap); a column where none is struck draws the rest line.
+        if let poly, c.riffOn {
             let audible = euclideousLaneAudible(beat: hitBeat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)
             var any = false
-            let starts = ps(w.playedStep)
+            let starts = poly.triggerNotes(w.playedStep, euclideousPolyTrigger(cfg: c, ordinal: w.advOrd))
             var times: [Double] = [], found = 0, restartIndex = 0
             if !c.advanceStep {   // the Router's own single scan per hit (`euclideousPolyHitTimes`), shared by every note of the column
                 let maxAhead = starts.reduce(0) { max($0, euclideousPolyHitsAhead(len: $1.len, every: c.every)) }
@@ -7529,6 +7546,8 @@ struct EuclideousLaneArrowState: Equatable {
     var rank: Int
     var hollow: Bool
     var heading: EuclideousArrowHeading
+    /// The ordinal of the hit the arrow shows (POLY: which end(s) of a note that hit meets).
+    var ordinal: Int64 = 0
 }
 /// §4.1/§4.8: the cell a lane's arrow occupies, from the SAME plan the marker used (so where it sits and when it moves are unchanged). A hit on a rest seats the arrow in the
 /// rest's own column at the held row, hollow — under SKIP, FILL and REPEAT alike (the engine plays nothing, a lit-notes layer, or the repeated note there; the cell is the
@@ -7541,7 +7560,7 @@ func euclideousLaneArrowState(lane: Int, cfg: EuclideousWalkLaneConfig, plan: Eu
         (column, rank, hollow, ordinal) = (plan.seatStep, plan.seatRank, plan.seatIsRest, plan.seatOrdinal ?? polledOrdinal)
     }
     let heading = euclideousArrowHeading(riffDir: cfg.riffDir, length: cfg.length, stride: cfg.stride, every: cfg.every, ordinal: ordinal)
-    return EuclideousLaneArrowState(lane: lane, column: column, rank: rank, hollow: hollow, heading: heading)
+    return EuclideousLaneArrowState(lane: lane, column: column, rank: rank, hollow: hollow, heading: heading, ordinal: ordinal)
 }
 /// POLY RIFF (2026-10-30): a hit that strikes several notes (a chord) seats ONE arrow on each, not just on the top one — `strikingRanks` are the ranks the lane's current hit strikes (`EuclideousPolyRiff.triggerRanks`), `base` the arrow
 /// the walk plan seated on the highest. A rest (hollow) seat, a single note, or a seat that is not one of the striking ranks keeps its one arrow.
@@ -7781,7 +7800,12 @@ func euclideousNotesHitOrdinal(buf: [Bool], w: EuclideousNotesWalk, tick: Int64)
 ///   · ADV HIT: the walk ordinal IS the hit ordinal, so the column of hit h' is a closed form — O(h mod 1024), no ticks.
 ///   · ADV STEP: the walk ordinal is a tick count, so the earlier hits are found by stepping the lane's ticks backwards (at most 1023 hits, the same shape as REPEAT's lookback).
 func euclideousNotesCountBefore(buf: [Bool], w: EuclideousNotesWalk, tick: Int64, h: Int64, when: UInt8, chance: Int, lane: Int,
-                                thisBeat: Double, rankAt: (_ column: Int, _ beat: Double) -> Int) -> Int {
+                                thisBeat: Double, rankAt: (_ column: Int, _ beat: Double) -> Int, poly: PolyRiffSnap? = nil) -> Int {
+    // POLY RIFF (2026-10-30): whether an EARLIER hit was a rest is decided by what THAT hit meets (its own walk direction), so each earlier hit asks `euclideousPolyTrigger` with its own ordinal
+    func isRestHit(_ col: Int, ordinal: Int64) -> Bool {
+        if let poly { return poly.topTriggerRank(col, euclideousPolyTrigger(riffDir: w.riffDir, length: w.length, stride: w.stride, every: w.every, ordinal: ordinal)) < 1 }
+        return rankAt(col, thisBeat) < 1
+    }
     guard h > 0 else { return 0 }
     let blockStart = h - (h % euclideousNotesBlock)
     let want = Int(h - blockStart)
@@ -7792,7 +7816,7 @@ func euclideousNotesCountBefore(buf: [Bool], w: EuclideousNotesWalk, tick: Int64
         var hp = blockStart
         while hp < h {
             let col = euclideousRiffColumn(ordinal: hp, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed, columns: w.columns)
-            if euclideousNotesWhenChooses(when: when, isRestHit: rankAt(col, thisBeat) < 1) && euclideousNotesChanceAllows(chance: chance, lane: lane, h: hp) { k += 1 }
+            if euclideousNotesWhenChooses(when: when, isRestHit: isRestHit(col, ordinal: hp)) && euclideousNotesChanceAllows(chance: chance, lane: lane, h: hp) { k += 1 }
             hp += 1
         }
         return k
@@ -7808,7 +7832,7 @@ func euclideousNotesCountBefore(buf: [Bool], w: EuclideousNotesWalk, tick: Int64
             let info = euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: t, chains: w.chains,
                                                legacySpanBeats: w.legacySpanBeats, advanceStep: true)
             let col = euclideousRiffColumn(ordinal: info.advOrd, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed, columns: w.columns)
-            if euclideousNotesWhenChooses(when: when, isRestHit: rankAt(col, thisBeat) < 1) && euclideousNotesChanceAllows(chance: chance, lane: lane, h: hp) { k += 1 }
+            if euclideousNotesWhenChooses(when: when, isRestHit: isRestHit(col, ordinal: info.advOrd)) && euclideousNotesChanceAllows(chance: chance, lane: lane, h: hp) { k += 1 }
         }
         t -= 1
     }
@@ -8494,13 +8518,17 @@ func euclideousStripRepeatRank(cfg c: EuclideousWalkLaneConfig, ranks: [Int], ti
 ///   · `notes` nil = the notes layer is off / ignored: every key is unlit.
 ///   · `name` names a pitch the way the riff grid does; `keyLabels` false skips the label work (k is not free) when the keys are too narrow to show one.
 func euclideousStripHits(pattern: [Bool], hitSteps: [EuclidHitStep], states: [EuclidFooterState], ranks: [Int], riffPlays: Bool, grey: Bool, onRest: EuclidRiffOnRest,
-                         cfg: EuclideousWalkLaneConfig?, lapStartTick: Int64?, notes: EuclideousStripNotes?, keyLabels: Bool = true, polyStarts: ((Int) -> [Int])? = nil, name: (Int) -> String) -> [EuclideousStripHit] {
+                         cfg: EuclideousWalkLaneConfig?, lapStartTick: Int64?, notes: EuclideousStripNotes?, keyLabels: Bool = true, poly: PolyRiffSnap? = nil, polyOrdinals: [Int64]? = nil, name: (Int) -> String) -> [EuclideousStripHit] {
     let n = pattern.count
     var out = [EuclideousStripHit](repeating: EuclideousStripHit(), count: n)
     var tickAt = [Int](repeating: -1, count: n)
     for hs in hitSteps where hs.bufIdx >= 0 && hs.bufIdx < n { tickAt[hs.bufIdx] = hs.tick }   // PING-PONG writes a step twice; the later leg wins, as in the footers
     func writtenRank(_ column: Int) -> Int { column >= 1 && column <= ranks.count ? max(0, min(8, ranks[column - 1])) : 0 }
     let nw = cfg.map(euclideousNotesWalk(from:))
+    // POLY RIFF (2026-10-30): the notes a hit strikes depend on which end(s) of a note its walk direction meets, so each strip hit names its ordinal (the footers' `euclideousRiffCycleOrdinals`, one per `hitSteps` entry)
+    var ordAt = [Int64](repeating: 0, count: n)
+    if let ords = polyOrdinals { for (k, hs) in hitSteps.enumerated() where hs.bufIdx >= 0 && hs.bufIdx < n && k < ords.count { ordAt[hs.bufIdx] = ords[k] } }
+    func polyMode(_ i: Int) -> EuclideousPolyTrigger? { poly != nil && cfg != nil && polyOrdinals != nil ? euclideousPolyTrigger(cfg: cfg!, ordinal: ordAt[i]) : nil }
     for i in 0..<n where pattern[i] {
         var hit = EuclideousStripHit(kind: .hit, tick: tickAt[i])
         let state: EuclidFooterState = i < states.count ? states[i] : .miss
@@ -8508,9 +8536,10 @@ func euclideousStripHits(pattern: [Bool], hitSteps: [EuclidHitStep], states: [Eu
         switch state {
         case .hit(let col?), .hitTied(let col):
             hit.column = col
-            let r = writtenRank(col)
+            let mode = polyMode(i)
+            let r = mode.map { poly!.topTriggerRank(col - 1, $0) } ?? writtenRank(col)
             if r >= 1 {
-                if riffPlays { hit.chip = EuclideousStripChip(rank: r, column: col, hollow: false, grey: false); if let ps = polyStarts { hit.extraRanks = ps(col).filter { $0 != r && $0 >= 1 && $0 <= 8 } } }
+                if riffPlays { hit.chip = EuclideousStripChip(rank: r, column: col, hollow: false, grey: false); if let mode { hit.extraRanks = poly!.triggerRanks(col - 1, mode).filter { $0 != r && $0 >= 1 && $0 <= 8 } } }
                 else if grey { hit.chip = EuclideousStripChip(rank: r, column: col, hollow: false, grey: true) }
             }
         case .hitOnRest(let col):
@@ -8536,7 +8565,7 @@ func euclideousStripHits(pattern: [Bool], hitSteps: [EuclidHitStep], states: [Eu
                 if euclideousNotesWayUsesCount(notes.way), let cfg, let nw, let t = absTick {
                     let h = euclideousNotesHitOrdinal(buf: cfg.buf, w: nw, tick: t)
                     k = euclideousNotesCountBefore(buf: cfg.buf, w: nw, tick: t, h: h, when: notes.when, chance: notes.chance, lane: notes.lane,
-                                                   thisBeat: Double(t) * cfg.sub, rankAt: { col, _ in col >= 0 && col < ranks.count ? ranks[col] : 0 })
+                                                   thisBeat: Double(t) * cfg.sub, rankAt: { col, _ in col >= 0 && col < ranks.count ? ranks[col] : 0 }, poly: polyMode(i) != nil ? poly : nil)
                 }
                 let pick = euclideousNotesWayPick(list: notes.list, way: notes.way, k: k)
                 for j in 0..<pick.count { picked.append(notes.list.pitch(pick[j])) }
@@ -8567,14 +8596,17 @@ func euclideousStripLegIndex(raw: Double, n: Int, legCount: Int) -> Int { legCou
 /// The strip's legs for the pass the footers show: `hitSteps` / `prediction` are the footers' (`euclideousLapHitSteps`, `euclideousFooterPass`), split into sweeps for PING-PONG; each leg's states come from
 /// `euclideousFooterStates` over its own hits and its chips, gaps and keys from `euclideousStripHits`.
 func euclideousStripLegs(pattern: [Bool], hitSteps: [EuclidHitStep], prediction: [Int]?, lapSteps: Int, ranks: [Int], anyLit: Bool, fxTieColumns: UInt8, pingPong: Bool,
-                         riffPlays: Bool, grey: Bool, onRest: EuclidRiffOnRest, cfg: EuclideousWalkLaneConfig?, lapStartTick: Int64?, notes: EuclideousStripNotes?, polyStarts: ((Int) -> [Int])? = nil, name: (Int) -> String) -> [EuclideousStripLeg] {
+                         riffPlays: Bool, grey: Bool, onRest: EuclidRiffOnRest, cfg: EuclideousWalkLaneConfig?, lapStartTick: Int64?, notes: EuclideousStripNotes?, poly: PolyRiffSnap? = nil, polyOrdinals: [Int64]? = nil, name: (Int) -> String) -> [EuclideousStripLeg] {
     let all = Array(hitSteps.indices)
     let groups: [[Int]] = pingPong ? [all.filter { hitSteps[$0].tick < lapSteps }, all.filter { hitSteps[$0].tick >= lapSteps }] : [all]
     return groups.map { idxs in
         let steps = idxs.map { hitSteps[$0] }
         let pred: [Int]? = prediction.map { p in idxs.compactMap { $0 < p.count ? p[$0] : nil } }
-        let states = euclideousFooterStates(hitSteps: steps, lapSteps: lapSteps, prediction: pred, riffRanksResolved: ranks, anyLit: anyLit, fxTieColumns: fxTieColumns)
-        let hits = euclideousStripHits(pattern: pattern, hitSteps: steps, states: states, ranks: ranks, riffPlays: riffPlays, grey: grey, onRest: onRest, cfg: cfg, lapStartTick: lapStartTick, notes: notes, polyStarts: polyStarts, name: name)
+        let ords: [Int64]? = polyOrdinals.map { o in idxs.compactMap { $0 < o.count ? o[$0] : nil } }
+        var polyRest: ((Int, Int) -> Bool)? = nil
+        if let poly, let cfg, let ords { polyRest = { k, col in k < ords.count && poly.topTriggerRank(col, euclideousPolyTrigger(cfg: cfg, ordinal: ords[k])) < 1 } }
+        let states = euclideousFooterStates(hitSteps: steps, lapSteps: lapSteps, prediction: pred, riffRanksResolved: ranks, anyLit: anyLit, fxTieColumns: fxTieColumns, polyRest: polyRest)
+        let hits = euclideousStripHits(pattern: pattern, hitSteps: steps, states: states, ranks: ranks, riffPlays: riffPlays, grey: grey, onRest: onRest, cfg: cfg, lapStartTick: lapStartTick, notes: notes, poly: poly, polyOrdinals: ords, name: name)
         return EuclideousStripLeg(hitSteps: steps, hits: hits)
     }
 }

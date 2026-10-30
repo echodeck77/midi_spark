@@ -145,45 +145,66 @@ final class PolyRiffTests: XCTestCase {
         l.riffRotate = -3; XCTAssertEqual(l.riffRotateResolved, 5); XCTAssertEqual(l.riffRotateResolved(columns: 16), 13)
     }
 
-    // MARK: REVERSE (2026-10-30) — the snapshot's end tables and the document-side trigger helpers
+    // MARK: REVERSE (2026-10-30) — the snapshot's end tables and which end(s) of a note a hit meets
 
     func testTheSnapshotHoldsEndsAndTheirLengthsToo() {
         // rank 3: columns 2…5 and 6…7 (back to back, so neither is clipped); rank 1: column 5 only
         let riff = EuclideousPolyRiff(notes: [EuclideousPolyNote(col: 2, rank: 3, len: 4), EuclideousPolyNote(col: 6, rank: 3, len: 2), EuclideousPolyNote(col: 5, rank: 1, len: 1)])
         XCTAssertEqual(riff.normalized.notes.count, 3); XCTAssertEqual(riff.normalized.notes.map { $0.len }.sorted(), [1, 2, 4], "the fixture survives normalisation")
         let s = PolyRiffSnap(riff, on: true)
-        XCTAssertEqual(s.triggerMask(2, ends: false), 0b100); XCTAssertEqual(s.triggerMask(5, ends: false), 0b001); XCTAssertEqual(s.triggerMask(6, ends: false), 0b100)
-        XCTAssertEqual(s.triggerMask(5, ends: true), 0b101, "rank 3 (columns 2…5) and rank 1 (column 5) both END on column 5")
-        XCTAssertEqual(s.triggerMask(7, ends: true), 0b100, "rank 3 (columns 6…7) ends on 7")
-        XCTAssertEqual(s.triggerMask(2, ends: true), 0)
-        XCTAssertEqual(s.triggerLength(col: 5, rank: 3, ends: true), 4, "a REV hit on column 5 strikes the long note at its length")
-        XCTAssertEqual(s.triggerLength(col: 7, rank: 3, ends: true), 2)
-        XCTAssertEqual(s.triggerLength(col: 6, rank: 3, ends: false), 2, "…and a forward hit on 6 the note STARTING there")
-        XCTAssertEqual(s.topTriggerRank(5, ends: true), 3); XCTAssertEqual(s.topTriggerRank(2, ends: true), 0); XCTAssertEqual(s.topTriggerRank(2, ends: false), 3)
+        XCTAssertEqual(s.triggerMask(2, .starts), 0b100); XCTAssertEqual(s.triggerMask(5, .starts), 0b001); XCTAssertEqual(s.triggerMask(6, .starts), 0b100)
+        XCTAssertEqual(s.triggerMask(5, .ends), 0b101, "rank 3 (columns 2…5) and rank 1 (column 5) both END on column 5")
+        XCTAssertEqual(s.triggerMask(7, .ends), 0b100, "rank 3 (columns 6…7) ends on 7")
+        XCTAssertEqual(s.triggerMask(2, .ends), 0)
+        XCTAssertEqual(s.triggerMask(5, .both), 0b101, "both = starts ∪ ends"); XCTAssertEqual(s.triggerMask(2, .both), 0b100); XCTAssertEqual(s.triggerMask(6, .both), 0b100)
+        XCTAssertEqual(s.triggerLength(col: 5, rank: 3, .ends), 4, "a backward hit on column 5 strikes the long note at its length")
+        XCTAssertEqual(s.triggerLength(col: 7, rank: 3, .ends), 2)
+        XCTAssertEqual(s.triggerLength(col: 6, rank: 3, .starts), 2, "…and a forward hit on 6 the note STARTING there")
+        XCTAssertEqual(s.triggerLength(col: 5, rank: 3, .both), 4, "an ending note keeps its own length under .both"); XCTAssertEqual(s.triggerLength(col: 2, rank: 3, .both), 4)
+        XCTAssertEqual(s.triggerLength(col: 5, rank: 1, .both), 1)
+        XCTAssertEqual(s.triggerLength(col: 3, rank: 3, .both), 0, "a held-through column strikes nothing")
+        XCTAssertEqual(s.topTriggerRank(5, .ends), 3); XCTAssertEqual(s.topTriggerRank(2, .ends), 0); XCTAssertEqual(s.topTriggerRank(2, .starts), 3); XCTAssertEqual(s.topAnyRank(7), 3); XCTAssertEqual(s.topAnyRank(3), 0)
     }
-    func testTheDocumentSideTriggerHelpersAgreeWithTheSnapshotOnRandomRiffs() {
+    /// The snapshot's tables against a brute-force read of the notes themselves, over 200 random riffs.
+    func testTheSnapshotsTriggerReadsMatchABruteForceOverTheNotes() {
         var rng = PolyRiffRNG(0x7E57)
         for _ in 0..<200 {
             var notes: [EuclideousPolyNote] = []
             for _ in 0..<(Int(rng.next() % 14) + 1) { notes.append(EuclideousPolyNote(col: Int(rng.next() % 16), rank: Int(rng.next() % 8) + 1, len: Int(rng.next() % 16) + 1)) }
             let riff = EuclideousPolyRiff(notes: notes)
             let snap = PolyRiffSnap(riff, on: true)
-            for ends in [false, true] {
-                let tops = riff.topTriggerRanks(ends: ends)
+            for mode in [EuclideousPolyTrigger.starts, .ends, .both] {
                 for col in 0..<16 {
-                    let docNotes = riff.triggeringNotes(at: col, ends: ends)
-                    let mask = snap.triggerMask(col, ends: ends)
-                    XCTAssertEqual(docNotes.map { $0.rank }.reduce(UInt8(0)) { $0 | (UInt8(1) << UInt8($1 - 1)) }, mask, "col \(col) ends \(ends)")
-                    for n in docNotes { XCTAssertEqual(snap.triggerLength(col: col, rank: n.rank, ends: ends), n.len) }
-                    XCTAssertEqual(tops[col], snap.topTriggerRank(col, ends: ends))
-                    XCTAssertEqual(riff.triggerRanks(at: col, ends: ends), docNotes.map { $0.rank }.sorted(by: >))
+                    let expected = riff.normalized.notes.filter { n in
+                        let startsHere = n.col == col, endsHere = n.col + n.len - 1 == col
+                        switch mode { case .starts: return startsHere; case .ends: return endsHere; case .both: return startsHere || endsHere }
+                    }.sorted { $0.rank < $1.rank }
+                    let got = snap.triggerNotes(col, mode)
+                    XCTAssertEqual(got.map { $0.rank }, expected.map { $0.rank }, "col \(col) \(mode)")
+                    XCTAssertEqual(got.map { $0.len }, expected.map { $0.len }, "col \(col) \(mode)")
+                    XCTAssertEqual(snap.triggerRanks(col, mode), expected.map { $0.rank }.sorted(by: >))
+                    XCTAssertEqual(snap.topTriggerRank(col, mode), expected.map { $0.rank }.max() ?? 0)
                 }
             }
         }
     }
-    func testOnlyAReverseWalkMeetsNotesAtTheirEnd() {
-        XCTAssertTrue(euclideousPolyWalksEnds(riffDir: .reverse))
-        for d in [RiffDir.forward, .pendulum, .pingpong] { XCTAssertFalse(euclideousPolyWalksEnds(riffDir: d), "\(d)") }
+    /// The one decision of which end(s) a hit meets: FWD starts, REV ends, and PENDULUM / PING-PONG per hit from the positions either side of it.
+    func testTheTriggerModeFollowsTheWalk() {
+        func modes(_ d: RiffDir, len: Int = 4, stride: Int = 1, every: Int = 1, hits: Int) -> [EuclideousPolyTrigger] {
+            (0..<hits).map { euclideousPolyTrigger(riffDir: d, length: len, stride: stride, every: every, ordinal: Int64($0)) }
+        }
+        XCTAssertEqual(modes(.forward, hits: 8), [EuclideousPolyTrigger](repeating: .starts, count: 8))
+        XCTAssertEqual(modes(.reverse, hits: 8), [EuclideousPolyTrigger](repeating: .ends, count: 8))
+        // PENDULUM 0 1 2 3 2 1 | 0 1 …: the interior of each leg meets one end, a turn (arrive one way, leave the other) both
+        XCTAssertEqual(modes(.pendulum, hits: 7), [.both, .starts, .starts, .both, .ends, .ends, .both])
+        // PING-PONG 0 1 2 3 3 2 1 0 | 0 1 …: each doubled end step is two visits — the first arrives (the leg it ends), the second leaves (the leg it starts)
+        XCTAssertEqual(modes(.pingpong, hits: 9), [.starts, .starts, .starts, .starts, .ends, .ends, .ends, .ends, .starts])
+        // ADV EVERY 2: the walk step is ordinal ÷ 2, so both hits of a step meet the same ends
+        XCTAssertEqual(modes(.pendulum, every: 2, hits: 8), [.both, .both, .starts, .starts, .starts, .starts, .both, .both])
+        // a walk that never moves (LEN 1) is a forward one; a stride that skips over the fold is still read from the positions
+        XCTAssertEqual(modes(.pendulum, len: 1, hits: 3), [EuclideousPolyTrigger](repeating: .starts, count: 3))
+        // LEN 8, STRIDE 3: the positions run 0 3 6 5 2 1 4 7 4 1 …, the fold is stepped over rather than landed on, and the modes still follow the positions
+        XCTAssertEqual(modes(.pendulum, len: 8, stride: 3, hits: 8), [.both, .starts, .both, .ends, .ends, .both, .starts, .both])
     }
 
     // MARK: ring length
