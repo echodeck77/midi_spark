@@ -96,12 +96,19 @@ struct PolyRiffSnap: Equatable {
     var starts: [UInt8] = [UInt8](repeating: 0, count: EuclideousPolyMetrics.columns)
     /// `lengths[col * 8 + rank − 1]` = that note's length in walk steps (0 = none).
     var lengths: [UInt8] = [UInt8](repeating: 0, count: EuclideousPolyMetrics.columns * EuclideousPolyMetrics.ranks)
+    /// The same notes seen from their LAST column: bit (rank − 1) of `ends[col]` = a note ENDS on `col` at `rank`, and `endLengths[col * 8 + rank − 1]` is its length. A walk heading toward lower columns (REV) meets a held note at this end
+    /// and treats it as the note's start (it then rings the same number of steps).
+    var ends: [UInt8] = [UInt8](repeating: 0, count: EuclideousPolyMetrics.columns)
+    var endLengths: [UInt8] = [UInt8](repeating: 0, count: EuclideousPolyMetrics.columns * EuclideousPolyMetrics.ranks)
     init() {}
     init(_ riff: EuclideousPolyRiff, on: Bool) {
         self.on = on
         for n in riff.normalized.notes {
             starts[n.col] |= UInt8(1) << UInt8(n.rank - 1)
             lengths[n.col * EuclideousPolyMetrics.ranks + (n.rank - 1)] = UInt8(n.len)
+            let last = n.col + n.len - 1
+            ends[last] |= UInt8(1) << UInt8(n.rank - 1)
+            endLengths[last * EuclideousPolyMetrics.ranks + (n.rank - 1)] = UInt8(n.len)
         }
     }
     @inline(__always) func startMask(_ col: Int) -> UInt8 { col >= 0 && col < starts.count ? starts[col] : 0 }
@@ -114,6 +121,31 @@ struct PolyRiffSnap: Equatable {
         let m = startMask(col)
         return m == 0 ? 0 : 8 - m.leadingZeroBitCount
     }
+    /// The notes a hit on `col` STRIKES: those starting there, or — for a walk heading toward lower columns (`euclideousPolyWalksEnds`) — those ending there. One call decides the mask, the length and the top rank, so the engine and
+    /// every picture of it read the same thing.
+    @inline(__always) func triggerMask(_ col: Int, ends useEnds: Bool) -> UInt8 {
+        guard useEnds else { return startMask(col) }
+        return col >= 0 && col < ends.count ? ends[col] : 0
+    }
+    @inline(__always) func triggerLength(col: Int, rank: Int, ends useEnds: Bool) -> Int {
+        guard useEnds else { return length(col: col, rank: rank) }
+        let i = col * EuclideousPolyMetrics.ranks + (rank - 1)
+        return col >= 0 && rank >= 1 && rank <= EuclideousPolyMetrics.ranks && i < endLengths.count ? Int(endLengths[i]) : 0
+    }
+    @inline(__always) func topTriggerRank(_ col: Int, ends useEnds: Bool) -> Int {
+        let m = triggerMask(col, ends: useEnds)
+        return m == 0 ? 0 : 8 - m.leadingZeroBitCount
+    }
+}
+
+/// REVERSE (2026-10-30): a POLY walk that heads toward LOWER columns every step (the riff direction REV) meets a held note at its LAST column, so that is where the note strikes — the end is treated as the start, and the note rings the
+/// same number of walk steps. A note held from column 2 to 15 therefore sounds the same walked either way (forward it strikes at 2 and rings to 15; reversed it strikes at 15 and rings to 2). PENDULUM and PING-PONG keep
+/// the forward rule on both legs.
+@inline(__always) func euclideousPolyWalksEnds(riffDir: RiffDir) -> Bool { riffDir == .reverse }
+
+/// The arrows a lane's current hit draws in POLY: its walk-plan seat (on the highest note the hit strikes) and one more for every other note the hit strikes — a chord shows an arrow on each of its notes.
+func euclideousPolyArrowSeats(_ seat: EuclideousLaneArrowState, poly: EuclideousPolyRiff, riffDir: RiffDir) -> [EuclideousLaneArrowState] {
+    euclideousLaneArrowStates(seat, strikingRanks: poly.triggerRanks(at: seat.column, ends: euclideousPolyWalksEnds(riffDir: riffDir)))
 }
 
 // MARK: - the document fields

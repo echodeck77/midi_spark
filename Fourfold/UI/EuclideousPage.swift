@@ -891,6 +891,11 @@ struct EuclideousPage: View {
     private var effectiveMonoRanks: [Int] {
         riffs[max(0, min(3, activeRiff))].ranksResolved
     }
+    /// The riff's rank per column as a lane walking in `dir` reads it: MONO's, or in POLY the highest rank a hit on each column STRIKES — a note's first column for a forward walk, its last column for a REV walk (`euclideousPolyWalksEnds`,
+    /// the Router's own flag). Every per-lane picture of the walk (arrows, strip, LANES roll) reads this, never `effectiveGridRanks`.
+    private func gridRanks(dir: RiffDir) -> [Int] {
+        riffPoly ? polyRiff.topTriggerRanks(ends: euclideousPolyWalksEnds(riffDir: dir)) : effectiveGridRanks
+    }
 
     // SEQUENCER PANEL (2026-10-14 ferry §1; MIX ferry 2026-10-18 §1.5): which tab is showing — MIX first and the DEFAULT, LANES second,
     // RIFFS hidden — purely ephemeral, never persisted (so a fresh page always opens on MIX).
@@ -3057,14 +3062,15 @@ struct EuclideousPage: View {
             lapStartTick = euclideousLapStart(cfg: cfg, beat: lanesMusicalBeat(real: walkTagBeat(at: Date())))?.lapStartTick   // the keys' count k needs the pass's ticks even with the riff off
         }
         // riff off with nothing lit: every step is a `.miss` ("nothing will sound"); a hit an FX TIE cell applies to reads as a hit on a tied rest
-        let ranks = effectiveGridRanks
+        let stripEnds = euclideousPolyWalksEnds(riffDir: walkCfg?.riffDir ?? line.euclideousRiffDirResolved)
+        let ranks = gridRanks(dir: walkCfg?.riffDir ?? line.euclideousRiffDirResolved)
         var pattern = [Bool](repeating: false, count: steps)
         for hs in hitSteps where hs.bufIdx >= 0 && hs.bufIdx < steps { pattern[hs.bufIdx] = true }
         let notes: EuclideousStripNotes? = layerOn
             ? EuclideousStripNotes(layerOn: true, when: line.notesWhenResolved, chance: line.notesChanceResolved, way: line.notesPlayAsResolved, list: notesPlayList(line), lane: idx) : nil
         let legs = euclideousStripLegs(pattern: pattern, hitSteps: hitSteps, prediction: prediction, lapSteps: steps, ranks: ranks, anyLit: layerOn, fxTieColumns: riffPoly ? 0 : euclideousFXTieColumns(fx, line: line, lane: idx),   // POLY: the FX rows are off
                                        pingPong: line.directionResolved == .pingpong, riffPlays: playsRiff, grey: grey, onRest: riffPoly ? .skip : line.riffOnRestResolved, cfg: cfg, lapStartTick: lapStartTick,   // POLY: ON REST is SKIP — no hollow REPEAT chip on a silent column
-                                       notes: notes, polyStarts: riffPoly ? { [polyRiff] col in polyRiff.ranksStarting(at: col - 1) } : nil, name: stripNoteName)
+                                       notes: notes, polyStarts: riffPoly ? { [polyRiff] col in polyRiff.triggerRanks(at: col - 1, ends: stripEnds) } : nil, name: stripNoteName)
         // VoiceOver (§6): read the sweep the lane is on at this body (PING-PONG has two); the note at a written rank is the riff grid's row name, a pitch is spoken as the NOTES tab's keys speak it
         var nowLeg = 0
         if legs.count > 1, let cfg, let lapStartTick { nowLeg = euclideousStripLegIndex(raw: Double(Int64((lanesMusicalBeat(real: walkTagBeat(at: Date())) / cfg.sub).rounded(.down)) - lapStartTick), n: steps, legCount: legs.count) }
@@ -3098,7 +3104,7 @@ struct EuclideousPage: View {
     private func stripCurrentStep(_ idx: Int, plan: EuclideousStripPlan, beat: Double) -> EuclideousStripCurrent? {
         guard plan.riffPlays, let cfg = plan.cfg, idx < lines.count, idx < riffPositions.count, clock.playing, lines[idx].enabledResolved else { return nil }
         let ord: Int64? = idx < riffWalkState.count ? riffWalkState[idx] : nil
-        guard let tp = euclideousWalkTagPlan(cfg: cfg, ranks: effectiveGridRanks, beat: beat, secondsPerBeat: 60.0 / max(1.0, clock.tempo), polledStep: riffPositions[idx], running: true,
+        guard let tp = euclideousWalkTagPlan(cfg: cfg, ranks: gridRanks(dir: cfg.riffDir), beat: beat, secondsPerBeat: 60.0 / max(1.0, clock.tempo), polledStep: riffPositions[idx], running: true,
                                              polledOrdinal: ord) else { return nil }
         let arrow = euclideousLaneArrowState(lane: idx, cfg: cfg, plan: tp, polledOrdinal: ord ?? 0)
         return euclideousStripCurrentStep(cfg: cfg, landedTick: tp.landedTick, passLapStartTick: plan.lapStartTick, arrowStaysOnTiedNote: tp.seatIsRest && !arrow.hollow, legs: plan.legs)
@@ -6018,7 +6024,7 @@ struct EuclideousPage: View {
             // `running` is NOT gated on the mute: a muted hit still advances the walk, and the arrow / rail stay on it (dimmed to 42%).
             // a lane that is not RUNNING (its PLAY / STOP off, 0 HITS, or the transport stopped) has no arrow: the engine keeps its last step, and an arrow resting on it read as a lane still walking
             let plan = (euclideousLaneArrowShows(riffOn: riffOn, running: running) && i < riffPositions.count)
-                ? euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: spb, polledStep: riffPositions[i], running: running,
+                ? euclideousWalkTagPlan(cfg: cfg, ranks: riffPoly ? gridRanks(dir: cfg.riffDir) : ranks, beat: beat, secondsPerBeat: spb, polledStep: riffPositions[i], running: running,
                                         polledOrdinal: i < riffWalkState.count ? riffWalkState[i] : nil)
                 : nil
             return RiffLaneFrame(lane: i, cfg: cfg, riffOn: riffOn, running: running, muted: muted, soloSilenced: soloSilenced(i), flare: flare, plan: plan)
@@ -6026,8 +6032,12 @@ struct EuclideousPage: View {
     }
     /// The arrows' cells: each lane's seat (`euclideousLaneArrowState`), grouped by the cell they share.
     private func riffArrowCells(_ frames: [RiffLaneFrame]) -> [EuclideousArrowCell] {
-        euclideousArrowCells(frames.compactMap { f in
-            f.plan.map { euclideousLaneArrowState(lane: f.lane, cfg: f.cfg, plan: $0, polledOrdinal: f.lane < riffWalkState.count ? riffWalkState[f.lane] : 0) }
+        euclideousArrowCells(frames.flatMap { f -> [EuclideousLaneArrowState] in
+            guard let plan = f.plan else { return [] }
+            let seat = euclideousLaneArrowState(lane: f.lane, cfg: f.cfg, plan: plan, polledOrdinal: f.lane < riffWalkState.count ? riffWalkState[f.lane] : 0)
+            // POLY: a chord strikes several notes on one hit — one arrow on each of them (the Router's own trigger rule: `euclideousPolyWalksEnds`)
+            guard riffPoly else { return [seat] }
+            return euclideousPolyArrowSeats(seat, poly: polyRiff, riffDir: f.cfg.riffDir)
         })
     }
     /// A rail's current column, its trail and its heading — only while the lane runs and its latest hit is known (a stopped lane or transport, or a lane before its first hit,
@@ -6386,9 +6396,11 @@ struct EuclideousPage: View {
     /// the tempo) or the window wraps — never per frame. The read-only rhythm/melody marks (§8.3) now come
     /// from each lane's resolved CHAINS, not the retired masks.
     private func lanesPanelLanes(beat: Double) -> [EuclideousLanesPanelLane] {
-        let ranks = effectiveGridRanks   // the riff that is playing — the SAME read the footer and the grid use
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
         return (0..<4).map { lane in
+            let laneDir: RiffDir = lane < lines.count ? lines[lane].euclideousRiffDirResolved : .forward
+            let ranks = gridRanks(dir: laneDir)   // the riff that is playing — the SAME read the footer and the grid use (a POLY lane walking in REV reads its notes' last columns)
+            let rollEnds = euclideousPolyWalksEnds(riffDir: laneDir)
             let v = euclideousLaneGridView(lines: lines, lane: lane, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
             let unit = v.muteUnitBeats
             let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
@@ -6400,7 +6412,7 @@ struct EuclideousPage: View {
                                                           swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar,
                                                           tempo: clock.tempo, riffColumns: walkColumns)) else { return [] }
                 return euclideousLaneRollHits(cfg: cfg, windowStart: win.start, windowBeats: win.length, minGateBeats: 0.005 * clock.tempo / 60.0,
-                                              polyStarts: riffPoly ? { [polyRiff] col in polyRiff.startingNotes(at: col) } : nil) { column, _ in
+                                              polyStarts: riffPoly ? { [polyRiff] col in polyRiff.triggeringNotes(at: col, ends: rollEnds).map { (rank: $0.rank, len: $0.len) } } : nil) { column, _ in
                     column >= 0 && column < ranks.count ? ranks[column] : 0
                 }
             }

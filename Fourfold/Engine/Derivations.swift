@@ -7543,6 +7543,12 @@ func euclideousLaneArrowState(lane: Int, cfg: EuclideousWalkLaneConfig, plan: Eu
     let heading = euclideousArrowHeading(riffDir: cfg.riffDir, length: cfg.length, stride: cfg.stride, every: cfg.every, ordinal: ordinal)
     return EuclideousLaneArrowState(lane: lane, column: column, rank: rank, hollow: hollow, heading: heading)
 }
+/// POLY RIFF (2026-10-30): a hit that strikes several notes (a chord) seats ONE arrow on each, not just on the top one — `strikingRanks` are the ranks the lane's current hit strikes (`EuclideousPolyRiff.triggerRanks`), `base` the arrow
+/// the walk plan seated on the highest. A rest (hollow) seat, a single note, or a seat that is not one of the striking ranks keeps its one arrow.
+func euclideousLaneArrowStates(_ base: EuclideousLaneArrowState, strikingRanks: [Int]) -> [EuclideousLaneArrowState] {
+    guard !base.hollow, strikingRanks.count > 1, strikingRanks.contains(base.rank) else { return [base] }
+    return strikingRanks.sorted().map { var s = base; s.rank = $0; return s }
+}
 struct EuclideousArrowCell: Equatable { var column: Int; var rank: Int; var members: [EuclideousLaneArrowState]; var hollow: Bool }
 /// §4.1: lanes whose arrows sit in the same cell share ONE arrow (hollow only if every lane in it is on a rest). Cells come out in the order of their lowest lane.
 func euclideousArrowCells(_ states: [EuclideousLaneArrowState]) -> [EuclideousArrowCell] {

@@ -204,6 +204,14 @@ extension Host {
                 lanes(&ls) { l, i in l.riffOn = true; l.riffLength = [16, 11, 16, 7][i]; l.riffAdvanceEvery = [1, 2, 3, 1][i]; l.riffDir = [.forward, .pendulum, .reverse, .pingpong][i]
                                      l.riffStride = [1, 1, 3, 5][i]; l.riffRotate = [0, 5, 9, 14][i]; l.riffAdvanceStep = i == 3 }
                 s.euclideousLines = ls }),
+            // REVERSE (2026-10-30): a REV walk strikes a held note at its LAST column. Every lane has hits here (the factory lanes 3 and 4 have none), three of them walk backward — one with ADV EVERY 2, one over a 12-column window with SHIFT 3 —
+            // and the fourth walks forward as the control.
+            ("POLY reverse", { s in
+                s.polyRiff = EuclideousPolyRiff(notes: [(0, 1, 6), (2, 3, 14), (2, 6, 3), (8, 5, 5), (10, 2, 1), (12, 7, 4), (15, 4, 1)].map { EuclideousPolyNote(col: $0.0, rank: $0.1, len: $0.2) }); s.riffPoly = true
+                var ls = s.euclideousLinesResolved
+                lanes(&ls) { l, i in l.pulses = [9, 5, 7, 11][i]; l.steps = [16, 12, 16, 16][i]; l.riffOn = true; l.riffLength = [nil, 16, 12, nil][i]
+                                     l.riffDir = [.reverse, .reverse, .reverse, .forward][i]; l.riffAdvanceEvery = [1, 2, 1, 1][i]; l.riffRotate = [0, 0, 3, 0][i] }
+                s.euclideousLines = ls }),
         ]
         timer?.invalidate()
         var all: UInt64 = 0xcbf29ce484222325, total = 0

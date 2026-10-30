@@ -46,6 +46,61 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(cell(9, rowFromTop: 0).value as? String, "off")
     }
 
+    /// The POLY grid's cells that carry a lane arrow right now, per step — read from ONE accessibility snapshot of the whole screen (a live query resolves element by element while the arrows move).
+    private func arrowCells(_ app: XCUIApplication) -> [String: [String]] {
+        guard let snap = try? app.snapshot() else { return [:] }
+        var out: [String: [String]] = [:]
+        func walk(_ s: XCUIElementSnapshot) {
+            let l = s.label
+            if l.hasPrefix("Step "), l.contains(", lane "), let comma = l.firstIndex(of: ",") { out[String(l[..<comma]), default: []].append(l) }
+            for c in s.children { walk(c) }
+        }
+        walk(snap)
+        return out
+    }
+    /// POLY (2026-10-30): a hit that strikes a chord draws an arrow on EACH of its notes. Notes on the top two rows of every column make every hit a chord (with the seeded note); while the lanes play, some step shows two or more
+    /// arrow cells at once.
+    func testAChordShowsAnArrowOnEachOfItsNotes() {
+        let app = XCUIApplication.fresh()
+        app.buttons["Poly"].tap()
+        func cell(_ step: Int, _ row: Int) -> XCUIElement { app.els(prefix: "Step \(step),").element(boundBy: row) }
+        need(cell(1, 0), "the POLY grid")
+        for step in 1...16 { for row in [0, 1] where cell(step, row).value as? String == "off" { cell(step, row).tap() } }
+        app.buttons["Play"].tap()
+        let deadline = Date().addingTimeInterval(20)
+        var seen: [String: [String]] = [:]
+        while Date() < deadline {
+            seen = arrowCells(app)
+            if seen.values.contains(where: { $0.count >= 2 }) { break }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        XCTAssertTrue(seen.values.contains(where: { $0.count >= 2 }), "a column holding a chord shows an arrow on each note while a lane is on it: \(seen)")
+    }
+    /// POLY REVERSE (2026-10-30): lane 1 walking backward meets a held note at its LAST column — rank 8 held over steps 1…4 and rank 7 held over steps 3…4 both end on step 4, so while lane 1 is there ITS arrows sit on step 4's
+    /// top two cells (plus the seeded single-column note there). A forward walk would have put them on steps 1 and 3, one at a time.
+    func testAReversedLaneSeatsItsChordArrowsOnTheNotesLastColumn() {
+        let app = XCUIApplication.fresh()
+        app.buttons["Poly"].tap()
+        func cell(_ step: Int, _ row: Int) -> XCUIElement { app.els(prefix: "Step \(step),").element(boundBy: row) }
+        need(cell(1, 0), "the POLY grid")
+        cell(1, 0).press(forDuration: 0.1, thenDragTo: cell(4, 0))
+        cell(3, 1).press(forDuration: 0.1, thenDragTo: cell(4, 1))
+        XCTAssertEqual(cell(1, 0).value as? String, "note, length 4"); XCTAssertEqual(cell(3, 1).value as? String, "note, length 2")
+        let rev = app.els(prefix: "Backward Each Time").element(boundBy: 0)
+        if !rev.exists { app.els(prefix: "Riff, ").firstMatch.tap() }
+        need(rev, "lane 1's backward button on the RIFF tab"); rev.tap()
+        app.buttons["Play"].tap()
+        let deadline = Date().addingTimeInterval(30)
+        var seen: [String: [String]] = [:]
+        func lane1(_ step: String) -> Int { (seen[step] ?? []).filter { $0.contains("lane 1") || $0.contains("lanes 1") }.count }
+        while Date() < deadline {
+            seen = arrowCells(app)
+            if lane1("Step 4") >= 2 { break }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTAssertGreaterThanOrEqual(lane1("Step 4"), 2, "lane 1's two held notes both strike on step 4: \(seen)")
+    }
+
     /// HOCKET (2026-10-27): the header button opens the pop-up, two chip taps make a lit swap rule, the button then reads "1 rule on", and closing leaves the rule lit.
     func testHocketPopupBuildsARuleAndTheButtonCountsIt() {
         let app = XCUIApplication.fresh()

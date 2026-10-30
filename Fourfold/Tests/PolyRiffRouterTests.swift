@@ -259,6 +259,65 @@ final class PolyRiffRouterTests: XCTestCase {
         XCTAssertGreaterThan(c[0].off, 0)
     }
 
+    // MARK: REVERSE (2026-10-30) — a walk heading toward lower columns meets a held note at its end and strikes it there
+
+    /// A note held from column 2 to 15 sounds the same walked either way: forward it strikes at column 2 and rings to 15; in REV it strikes at 15 (the first column read) and rings to 2 — the same length, 13 steps + GATE × the gap.
+    func testAHeldNoteSoundsTheSameReversedAsForward() {
+        let poly = EuclideousPolyRiff(notes: [n(2, 1, 14)])
+        let fwd = soundings(run(box([lane(gate: 0.5, length: 16)], poly: poly), beats: 40), 48)
+        let rev = soundings(run(box([lane(gate: 0.5, dir: .reverse, length: 16)], poly: poly), beats: 40), 48)
+        XCTAssertGreaterThanOrEqual(fwd.count, 2); XCTAssertGreaterThanOrEqual(rev.count, 2)
+        near(fwd[0].on, 2 * beat); near(fwd[0].off, 2 * beat + Int64(13.5 * Double(beat)))
+        near(rev[0].on, 0, "REV reads column 15 first: the note's end is its start"); near(rev[0].off, Int64(13.5 * Double(beat)), "…and it rings the same 13 steps + 0.5 × a gap")
+        XCTAssertEqual(rev[0].off - rev[0].on, fwd[0].off - fwd[0].on, "identical length forward and reversed")
+        near(rev[1].on - rev[0].on, 16 * beat, "one strike a lap, as forward")
+    }
+    /// A chord reversed: every note ENDING on the column strikes together, each with its own length.
+    func testAReversedChordStrikesOnTheNotesLastColumn() {
+        let poly = EuclideousPolyRiff(notes: [n(0, 1, 3), n(2, 3, 1), n(1, 5, 2)])   // rank 1: columns 0…2, rank 3: column 2, rank 5: columns 1…2 — all three end on column 2
+        let e = run(box([lane(gate: 0.5, dir: .reverse, length: 16)], poly: poly), beats: 20)
+        let at2 = e.ons.filter { $0.cable == 1 && $0.sample >= 13 * beat - 2 && $0.sample <= 13 * beat + 2 }   // REV: column 15 − k on hit k, so column 2 is hit 13
+        XCTAssertEqual(Set(at2.map { $0.note }), [48, 52, 55], "three notes at one sample")
+        near(soundings(e, 48)[0].off - soundings(e, 48)[0].on, Int64(2.5 * Double(beat)), "length 3: 2 steps + 0.5")
+        near(soundings(e, 52)[0].off - soundings(e, 52)[0].on, beat / 2, "length 1")
+        near(soundings(e, 55)[0].off - soundings(e, 55)[0].on, Int64(1.5 * Double(beat)), "length 2: 1 step + 0.5")
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 && $0.sample < 13 * beat - 100 }.count, 0, "nothing sounds at columns 15…3 (no note ends there, none starts there)")
+    }
+    /// A forward walk is exactly what it was, and PENDULUM / PING-PONG keep the forward rule on both legs (a note strikes at its FIRST column).
+    func testForwardAndPendulumStillStrikeOnTheFirstColumn() {
+        let poly = EuclideousPolyRiff(notes: [n(1, 1, 2)])   // columns 1…2
+        let fwd = run(box([lane(gate: 0.5, length: 4)], poly: poly), beats: 12).ons.filter { $0.cable == 1 }.map { Int(($0.sample + 100) / beat) }
+        XCTAssertEqual(fwd, [1, 5, 9], "FWD, LEN 4: column 1 on hits 1, 5, 9")
+        let pend = run(box([lane(gate: 0.5, dir: .pendulum, length: 4)], poly: poly), beats: 12).ons.filter { $0.cable == 1 }.map { Int(($0.sample + 100) / beat) }
+        XCTAssertEqual(pend, [1, 5, 7, 11], "PENDULUM walks 0 1 2 3 2 1: the note strikes on column 1 (hits 1, 5, 7, 11), never on its end")
+    }
+    /// With every note one column long the two ends are the same cell, so REV sounds exactly as it did.
+    func testSingleColumnNotesReverseAsBefore() {
+        let poly = EuclideousPolyRiff(notes: [n(3, 2), n(3, 6), n(9, 4), n(15, 1)])
+        let e = run(box([lane(gate: 0.5, dir: .reverse, length: 16)], poly: poly), beats: 14)
+        XCTAssertEqual(e.ons.filter { $0.cable == 1 }.map { [Int(($0.sample + 100) / beat), Int($0.note)] }, [[0, 48], [6, 53], [12, 50], [12, 57]], "column 15 on hit 0, 9 on hit 6, 3 on hit 12 (two notes)")
+    }
+    /// The arrows: a chord seats one on each note it strikes, a single note one, a rest column none (a hollow seat keeps its one) — read through the Router's own trigger rule, so a REV lane's arrows sit on the notes' last columns.
+    func testAChordDrawsAnArrowOnEachOfItsNotes() {
+        let poly = EuclideousPolyRiff(notes: [n(4, 1), n(4, 3), n(4, 5, 3), n(9, 2)])
+        let seat = EuclideousLaneArrowState(lane: 1, column: 4, rank: 5, hollow: false, heading: .right)
+        let seats = euclideousPolyArrowSeats(seat, poly: poly, riffDir: .forward)
+        XCTAssertEqual(seats.map { $0.rank }, [1, 3, 5], "one arrow per note starting on column 4")
+        XCTAssertTrue(seats.allSatisfy { $0.lane == 1 && $0.column == 4 && $0.heading == .right && !$0.hollow })
+        let cells = euclideousArrowCells(seats + [EuclideousLaneArrowState(lane: 2, column: 4, rank: 3, hollow: false, heading: .right)])
+        XCTAssertEqual(cells.map { $0.rank }, [1, 3, 5], "lane 3 on rank 3 shares the arrow lane 2 has there")
+        XCTAssertEqual(cells.first { $0.rank == 3 }?.members.map { $0.lane }, [1, 2])
+        // REV: the same riff's note 5 (columns 4…6) is met at column 6; column 4 now has nothing ending on it
+        let revSeat = EuclideousLaneArrowState(lane: 0, column: 6, rank: 5, hollow: false, heading: .left)
+        XCTAssertEqual(euclideousPolyArrowSeats(revSeat, poly: poly, riffDir: .reverse).map { $0.rank }, [5])
+        XCTAssertEqual(poly.triggerRanks(at: 4, ends: true), [3, 1], "on column 4 only the two single-column notes END (the long one ends on column 6)")
+        // a hollow (rest) seat and a lone note keep their one arrow
+        let hollow = EuclideousLaneArrowState(lane: 0, column: 4, rank: 5, hollow: true, heading: .right)
+        XCTAssertEqual(euclideousPolyArrowSeats(hollow, poly: poly, riffDir: .forward).count, 1)
+        let lone = EuclideousLaneArrowState(lane: 0, column: 9, rank: 2, hollow: false, heading: .right)
+        XCTAssertEqual(euclideousPolyArrowSeats(lone, poly: poly, riffDir: .forward).count, 1)
+    }
+
     // MARK: things POLY switches off
 
     func testTheFXTabIsOffInPoly() {
@@ -307,7 +366,9 @@ final class PolyRiffRouterTests: XCTestCase {
                          stride: Int(rng.next() % 5) + 1, shift: Int(rng.next() % 16))
             let e = run(box([l], poly: poly), beats: 40)
             let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, riffColumns: 16)!
-            let hits = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 30, minGateBeats: 0.01, polyStarts: { poly.startingNotes(at: $0) }) { c, _ in poly.topRanks[c] }
+            let ends = euclideousPolyWalksEnds(riffDir: l.euclideousRiffDirResolved)   // a REV walk meets a held note at its last column
+            let topRanks = poly.topTriggerRanks(ends: ends)
+            let hits = euclideousLaneRollHits(cfg: cfg, windowStart: 0, windowBeats: 30, minGateBeats: 0.01, polyStarts: { poly.triggeringNotes(at: $0, ends: ends).map { (rank: $0.rank, len: $0.len) } }) { c, _ in topRanks[c] }
             let sounded = hits.filter { $0.rank >= 1 }
             // the engine's strikes in the window, keyed by (sample, pitch)
             let ons = e.ons.filter { $0.cable == 1 && $0.sample < 30 * beat - 100 }

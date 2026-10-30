@@ -85,9 +85,17 @@ extension EuclideousPolyRiff {
     /// The ranks of the notes STARTING on `col`, highest first (the lane strip draws one chip each).
     func ranksStarting(at col: Int) -> [Int] { normalized.notes.filter { $0.col == col }.map { $0.rank }.sorted(by: >) }
     /// Per column, the highest rank STARTING there (0 = a rest column) — the array the walk mirror (`euclideousWalkTagPlan`) reads as `ranks`.
-    var topRanks: [Int] {
+    var topRanks: [Int] { topTriggerRanks(ends: false) }
+    /// The notes a hit on `col` strikes — those starting there, or (`ends`, a REV walk: `euclideousPolyWalksEnds`) those ending there — rank and length, lowest rank first (the order the Router strikes them in).
+    func triggeringNotes(at col: Int, ends: Bool) -> [(rank: Int, len: Int)] {
+        normalized.notes.filter { (ends ? $0.col + $0.len - 1 : $0.col) == col }.sorted { $0.rank < $1.rank }.map { (rank: $0.rank, len: $0.len) }
+    }
+    /// The ranks a hit on `col` strikes, highest first (the strip draws one chip each, the riff panel one arrow each).
+    func triggerRanks(at col: Int, ends: Bool) -> [Int] { triggeringNotes(at: col, ends: ends).map { $0.rank }.sorted(by: >) }
+    /// Per column, the highest rank a hit there strikes (0 = a rest column): `topRanks` for a forward walk, the same read from the notes' last columns for a REV walk.
+    func topTriggerRanks(ends: Bool) -> [Int] {
         var out = [Int](repeating: 0, count: EuclideousPolyMetrics.columns)
-        for n in normalized.notes { out[n.col] = max(out[n.col], n.rank) }
+        for n in normalized.notes { let c = ends ? n.col + n.len - 1 : n.col; out[c] = max(out[c], n.rank) }
         return out
     }
 }

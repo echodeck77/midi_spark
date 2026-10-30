@@ -23,4 +23,5 @@ GOLDEN ALL: documents=21 events=30480 hash=e2145d0db886264c
 GOLDEN POLY POLY seeded: events=1032 hash=ca4d3bfa80b8479f
 GOLDEN POLY POLY chords and long notes: events=1800 hash=4aed7121141a65ad
 GOLDEN POLY POLY walks: events=548 hash=7d79dcacb3d23c8f
-GOLDEN POLY ALL: documents=3 events=3380 hash=b02dc328c7b81d82
+GOLDEN POLY POLY reverse: events=1564 hash=d81d905961a1d539
+GOLDEN POLY ALL: documents=4 events=4944 hash=23e6851d3dd015c1
