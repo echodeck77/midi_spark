@@ -836,6 +836,13 @@ final class Router {
     private var keyLayerCount = 0
     private var euclideousMidiLastNonEmptySample: Int64 = .min / 2   // §0.2 grace clock; "long ago" at start
     private var euclideousStackMidiPlaying = false                   // this window's MIDI-PLAYING (with release grace)
+    /// §a8b: the Euclideous row had a legitimate SOURCE this window (live MIDI held, OR a generative KEY/CHORDS/PICK
+    /// source, OR a held/latched pool, OR a canon-delayed lane still due output) — i.e. the per-window guard below
+    /// let the row produce. The Kernel's PLAYING silence-leak net reads this: Euclideous is a GENERATOR, not only a
+    /// live-input processor, so a KEY/CHORDS pattern legitimately sustains voices with an EMPTY live pool — treating
+    /// that as a stuck note (the net's original processor-only premise) force-closed real notes every debounce
+    /// (Paul's reel "long notes", every 2 bars, 2026-10-31). Read-only by the Kernel right after `process` returns.
+    private(set) var euclideousSourcePresent = false
     // §2.9 status, published to the UI by `euclideousSourceStatus()` (read-and-copied on the main thread).
     private var euclideousStatusMidiNotes = [UInt8](repeating: 0, count: 8)
     private var canonMidiStatusScratch = [UInt8](repeating: 0, count: 8)   // CHORD CANON: a delayed lane's merge writes its MIDI-status bytes here, so it never clobbers the live merge's status
@@ -2120,7 +2127,9 @@ final class Router {
         if playing { canonElapsedAccum += Double(frameCount) * beatsPerSample }
         var canonAnyLane = false
         if let ls = euProc?.euclidLines { for L in ls where L.chordDelayResolved > 0 || L.chordSlipResolved > 0 { canonAnyLane = true; break } }
-        guard pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive || canonAnyLane else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
+        let euclideousAnySource = pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive || canonAnyLane
+        euclideousSourcePresent = euclideousAnySource   // §a8b: tell the Kernel's silence-leak net the row is a live source (generative sources drive voices with an empty live pool)
+        guard euclideousAnySource else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
             // SOURCES STACK §2.9: nothing contributes this window (mergeStack won't run) — quiet the status so the UI
             // doesn't hold a stale light. MIDI may still read "playing" via the release grace even with nothing held.

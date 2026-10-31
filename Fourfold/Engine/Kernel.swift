@@ -507,7 +507,11 @@ final class Kernel {
             // CR-18[extra]: reel REPLAY replaces the live output and SKIPS router.process, so diag.activeVoiceCount goes
             // stale — exempt the replay state from the leak net (else it false-fires "playing silence leak", bumping diag.panics).
             // ROW 8 FREEZE (Paul 2026-08-22): frozen = voices deliberately SUSTAIN with no emission → exempt it too.
-            let liveEmpty = playing && pool.count == 0 && reel.state != .replaying
+            // §a8b: Euclideous is a GENERATOR, not only a live-input processor — a KEY/CHORDS/PICK (or held/latched, or
+            // canon-delayed) pattern legitimately sustains voices with an EMPTY live `pool`. Count that as input present,
+            // else the empty-input clock runs out and the leak net force-closes real notes every debounce (Paul's reel
+            // "long notes", every 2 bars, 2026-10-31). `euclideousSourcePresent` = the row's own per-window source guard.
+            let liveEmpty = playing && pool.count == 0 && !router.euclideousSourcePresent && reel.state != .replaying
             emptyInputSamples = liveEmpty ? emptyInputSamples &+ Int64(frameCount) : 0
             let columnSamples = Int64(max(1.0, box.stepBeats * 60.0 / max(1.0, tempo) * sampleRate))
             let debounce = max(Int64(sampleRate), 4 &* columnSamples)   // ≥ 1 s AND ≥ 4 columns — never cuts a legit tail
