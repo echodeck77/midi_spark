@@ -22,6 +22,7 @@ final class HocketGoldenTests: XCTestCase {
     /// The document as the app publishes it: the lines resolved, composed into the Euclideous cell's chain, built into a snapshot.
     private func box(for s0: PluginState) -> SnapshotBox {
         var st = s0
+        st.euclideousSameNoteGuard = false   // these goldens pin the PRE-same-note-guard stream (2026-10-31); the guard (default ON) moves same-pitch offs earlier and has its own SameNoteGuardTests — exclude its orthogonal effect here
         st.machines.append(Machine(machineID: FourfoldCompose.machineID, type: .euclid))
         let input = FourfoldCompose.Input(lines: st.euclideousLinesResolved, riff: st.euclideousRiffResolved, riffs: st.riffsResolved,
                                           activeRiff: st.activeRiffResolved, soloMask: st.euclideousSoloMaskResolved,

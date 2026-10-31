@@ -4253,6 +4253,7 @@ final class RouterTests: XCTestCase {
     /// (sample, cable, status, channel, note, velocity) plus the note-on count.
     private func mixPresetStreamHash(_ s0: PluginState, bars: Double = 8) -> (hash: UInt64, ons: Int, events: Int) {
         var s = s0
+        s.euclideousSameNoteGuard = false   // these pins reproduce the PRE-same-note-guard stream (2026-10-31); the guard (default ON) moves same-pitch offs earlier and has its own SameNoteGuardTests — exclude its orthogonal effect here
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = s.euclideousLinesResolved
         c.paramsA.euclideousRiff = s.euclideousRiffResolved
@@ -6153,6 +6154,7 @@ final class RouterTests: XCTestCase {
     }
     private func routingPresetRun(_ s0: PluginState, bars: Double) -> RecordingEmitter {
         var s = s0
+        s.euclideousSameNoteGuard = false   // these pins reproduce the PRE-same-note-guard stream (2026-10-31); the guard (default ON) moves same-pitch offs earlier and has its own SameNoteGuardTests — exclude its orthogonal effect here
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = s.euclideousLinesResolved
         c.paramsA.euclideousRiff = s.euclideousRiffResolved
