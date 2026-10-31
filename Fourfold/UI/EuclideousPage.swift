@@ -853,6 +853,10 @@ struct EuclideousPage: View {
     let onSetClashPolicy: (ClashPolicy) -> Void
     let fxCounts: FxCountsMode                         // RATCH tab ferry (2026-10-28): dev-only FX COUNTS (the DEBUG settings block; the RATCH strip's VoiceOver says what it counts)
     let onSetFxCounts: (FxCountsMode) -> Void
+    let canonEntry: CanonEntry                         // CHORD CANON ferry (2026-10-31): dev-only ENTRY (WRAP · CHORD 1 · WAIT) — the DEBUG settings block
+    let onSetCanonEntry: (CanonEntry) -> Void
+    let canonUnit: CanonUnit                           // …and the page's DELAY unit (STEPS · PASSES · BARS), shared by the four lanes' CANON rows — an undoable page field
+    let onSetCanonUnit: (CanonUnit) -> Void
     let busChannels: [Int]
     let allOutputName: String
     let onSetBusChannel: (Int, Int) -> Void
@@ -1682,7 +1686,8 @@ struct EuclideousPage: View {
                         hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior, showsHostStopBehavior: showsHostStopBehavior,
                         pulseLevel: pulseLevel, onSetPulseLevel: onSetPulseLevel,
                         clashPolicy: clashPolicy, onSetClashPolicy: onSetClashPolicy,
-                        fxCounts: fxCounts, onSetFxCounts: onSetFxCounts
+                        fxCounts: fxCounts, onSetFxCounts: onSetFxCounts,
+                        canonEntry: canonEntry, onSetCanonEntry: onSetCanonEntry
                     )
                     .padding(.horizontal, sp16)
                     .zIndex(5)
@@ -5587,6 +5592,62 @@ struct EuclideousPage: View {
         )
         .frame(width: fullWidth, height: height)
     }
+    /// CHORD CANON (2026-10-31): the CANON row — DELAY · SLIP · UNIT on the PITCH panel's look. The lane reads the CHORDS layer DELAY units (of the page's UNIT, each worth this lane's own length) behind the host beat — a time-shift,
+    /// so a progression plays through the lane in order, late — and SLIP is the chance it misses a chord change and holds the old chord one chord step longer. UNIT is shared: a tap on any lane's row changes all four. The row stays
+    /// editable when it has no effect right now (CHORDS off, or the lane follows another lane's notes) but draws at half strength, and VoiceOver says why.
+    /// One CANON stepper: the PITCH panel's stepper look, but its two 30 pt tap zones sit INSIDE its own bounds (`listenStepper` extends its zones 14 pt past the stepper to reach 44, which in a row of three steppers 4 pt apart
+    /// lands one stepper's zone on its neighbour's — a tap on DELAY's › was measured reaching nothing at all).
+    private func canonStepper(_ label: String, value: String, spoken: String, name: String, width: CGFloat, height: CGFloat, onDec: @escaping () -> Void, onInc: @escaping () -> Void) -> AnyView {
+        let zone: CGFloat = 30
+        return AnyView(ZStack {
+            RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34))
+            VStack(spacing: 2) {
+                Text(label).font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Text(value).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
+            }
+            HStack(spacing: 0) {
+                Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    .frame(width: zone, height: height).contentShape(Rectangle()).onTapGesture(perform: onDec)
+                Spacer(minLength: 0)
+                Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    .frame(width: zone, height: height).contentShape(Rectangle()).onTapGesture(perform: onInc)
+            }
+        }
+        .frame(width: width, height: height)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(name).accessibilityValue(spoken)
+        .accessibilityAdjustableAction { dir in if dir == .increment { onInc() } else { onDec() } })
+    }
+    private func listenCanonRow(_ idx: Int, _ line: EuclidLine, fullWidth: CGFloat, height: CGFloat) -> AnyView {   // AnyView leaves, like every other tab leaf: the extension's 1 MB main-thread stack
+        let labelW: CGFloat = 50, pad: CGFloat = 4, gap: CGFloat = 4
+        let w = max(1, fullWidth - labelW)
+        let stepperW = max(1, (w - pad * 2 - gap * 2) / 3)
+        let stepperH = max(1, height - pad * 2)
+        let inert = euclideousCanonInertReason(chordsOn: sourcePlan.chordsOnR, pitch: line.listenPitchResolved)
+        let delay = line.chordDelayResolved, slip = line.chordSlipResolved
+        func stepper(_ label: String, value: String, spoken: String, name: String, onDec: @escaping () -> Void, onInc: @escaping () -> Void) -> AnyView {
+            canonStepper(label, value: value, spoken: spoken, name: name, width: stepperW, height: stepperH, onDec: onDec, onInc: onInc)
+        }
+        return AnyView(HStack(spacing: 0) {
+            Text("CANON").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            HStack(spacing: gap) {
+                stepper("DELAY", value: euclideousCanonDelayText(delay), spoken: euclideousCanonDelaySpoken(delay: delay, unit: canonUnit, inert: inert), name: "Canon delay, lane \(idx + 1)",
+                        onDec: { edit(idx) { let v = euclideousCanonDelayMoved($0.chordDelayResolved, by: -1); $0.chordDelay = v == 0 ? nil : v } },
+                        onInc: { edit(idx) { let v = euclideousCanonDelayMoved($0.chordDelayResolved, by: 1); $0.chordDelay = v == 0 ? nil : v } })
+                stepper("SLIP", value: euclideousCanonSlipText(slip), spoken: euclideousCanonSlipSpoken(slip: slip, inert: inert), name: "Canon slip, lane \(idx + 1)",
+                        onDec: { edit(idx) { let v = euclideousCanonSlipMoved($0.chordSlipResolved, by: -1); $0.chordSlip = v == 0 ? nil : v } },
+                        onInc: { edit(idx) { let v = euclideousCanonSlipMoved($0.chordSlipResolved, by: 1); $0.chordSlip = v == 0 ? nil : v } })
+                stepper("UNIT", value: canonUnit.rawValue, spoken: euclideousCanonUnitSpoken(canonUnit), name: "Canon unit, all lanes",
+                        onDec: { onSetCanonUnit(euclideousCanonUnitMoved(canonUnit, by: -1)) },
+                        onInc: { onSetCanonUnit(euclideousCanonUnitMoved(canonUnit, by: 1)) })
+            }
+            .padding(pad)
+            .frame(width: w, height: height)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x24262C)))
+            .opacity(inert == nil ? 1 : 0.5)
+        }
+        .frame(width: fullWidth, height: height))
+    }
     /// §2.6: the footer, pinned to the bottom of whatever room §2.1-§2.5 left (`euclideousListenTabLayout`
     /// drops it first under pressure, so by the time this is called `showFooter` is already decided true).
     private func listenFooter(fullWidth: CGFloat, height: CGFloat) -> some View {
@@ -5604,6 +5665,7 @@ struct EuclideousPage: View {
             if rhythmPanelShown { listenRhythmPanel(idx, line, accent, fullWidth: fullWidth, height: layout.rhythmPanelH) }
             listenPitchRow(idx, line, accent, fullWidth: fullWidth, height: layout.pitchRowH)
             if pitchPanelShown { listenPitchPanel(idx, line, fullWidth: fullWidth, height: layout.pitchPanelH) }
+            listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonRowH)
             if layout.showFooter { listenFooter(fullWidth: fullWidth, height: layout.footerH) }
             Spacer(minLength: 0)
         }

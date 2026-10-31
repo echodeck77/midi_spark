@@ -319,34 +319,40 @@ final class ListenTabTests: XCTestCase {
     // MARK: 5. §2's own tab layout — proportional shrink with a 30pt floor, footer dropped first
 
     func testListenTabLayoutAtFullSizeWithNoPanelsFitsAtIdealHeightsAndKeepsTheFooter() {
-        let l = euclideousListenTabLayout(contentAreaH: 202, rhythmPanelShown: false, pitchPanelShown: false)
-        XCTAssertEqual(l.followRowH, 44); XCTAssertEqual(l.rhythmRowH, 44); XCTAssertEqual(l.pitchRowH, 44)
+        // 229 = the card's real content height since the TAB STRIP ferry (301 − 72 chrome); four 44 rows + three 8 gaps = 200, and the footer's 16 + 8 makes 224. (CHORD CANON added the CANON row: four rows now.)
+        let l = euclideousListenTabLayout(contentAreaH: 229, rhythmPanelShown: false, pitchPanelShown: false)
+        XCTAssertEqual(l.followRowH, 44); XCTAssertEqual(l.rhythmRowH, 44); XCTAssertEqual(l.pitchRowH, 44); XCTAssertEqual(l.canonRowH, 44)
         XCTAssertEqual(l.rhythmPanelH, 0); XCTAssertEqual(l.pitchPanelH, 0)
         XCTAssertTrue(l.showFooter); XCTAssertEqual(l.footerH, 16); XCTAssertTrue(l.fits)
+    }
+    func testListenTabLayoutAtTheOlderReferenceHeightDropsTheFooterButKeepsEveryRowAtIdeal() {
+        let l = euclideousListenTabLayout(contentAreaH: 202, rhythmPanelShown: false, pitchPanelShown: false)
+        XCTAssertFalse(l.showFooter); XCTAssertEqual(l.footerH, 0)
+        XCTAssertEqual([l.followRowH, l.rhythmRowH, l.pitchRowH, l.canonRowH], [44, 44, 44, 44]); XCTAssertTrue(l.fits)
     }
     func testListenTabLayoutWithOnlyTheRhythmPanelDropsTheFooterAndShrinksProportionally() {
         let l = euclideousListenTabLayout(contentAreaH: 202, rhythmPanelShown: true, pitchPanelShown: false)
         XCTAssertFalse(l.showFooter); XCTAssertEqual(l.footerH, 0)
-        XCTAssertEqual(l.followRowH, 32); XCTAssertEqual(l.rhythmRowH, 32); XCTAssertEqual(l.rhythmPanelH, 82); XCTAssertEqual(l.pitchRowH, 32)
+        XCTAssertEqual(l.followRowH, 30); XCTAssertEqual(l.rhythmRowH, 30); XCTAssertEqual(l.rhythmPanelH, 66); XCTAssertEqual(l.pitchRowH, 30); XCTAssertEqual(l.canonRowH, 30)
         XCTAssertEqual(l.pitchPanelH, 0, "PITCH's own panel isn't shown, so it takes no height at all")
         XCTAssertFalse(l.fits, "scale < 1 — everything shrank below its ideal")
     }
     func testListenTabLayoutWithBothPanelsOpenShrinksEveryRow() {
         let l = euclideousListenTabLayout(contentAreaH: 202, rhythmPanelShown: true, pitchPanelShown: true)
         XCTAssertFalse(l.showFooter)
-        XCTAssertEqual(l.followRowH, 30); XCTAssertEqual(l.rhythmRowH, 30); XCTAssertEqual(l.rhythmPanelH, 53)
-        XCTAssertEqual(l.pitchRowH, 30); XCTAssertEqual(l.pitchPanelH, 53)
+        XCTAssertEqual(l.followRowH, 30); XCTAssertEqual(l.rhythmRowH, 30); XCTAssertEqual(l.rhythmPanelH, 45)
+        XCTAssertEqual(l.pitchRowH, 30); XCTAssertEqual(l.pitchPanelH, 45); XCTAssertEqual(l.canonRowH, 30)
         XCTAssertFalse(l.fits)
     }
     func testListenTabLayoutNeverShrinksAnInteractiveRowBelowThirtyPoints() {
         let l = euclideousListenTabLayout(contentAreaH: 50, rhythmPanelShown: true, pitchPanelShown: true)
-        for h in [l.followRowH, l.rhythmRowH, l.rhythmPanelH, l.pitchRowH, l.pitchPanelH] { XCTAssertGreaterThanOrEqual(h, 30) }
+        for h in [l.followRowH, l.rhythmRowH, l.rhythmPanelH, l.pitchRowH, l.pitchPanelH, l.canonRowH] { XCTAssertGreaterThanOrEqual(h, 30) }
         XCTAssertFalse(l.fits)
     }
     func testListenTabLayoutAtAGenerousHeightNeverExceedsIdealEvenWithRoomToSpare() {
         let l = euclideousListenTabLayout(contentAreaH: 2000, rhythmPanelShown: true, pitchPanelShown: true)
         XCTAssertEqual(l.followRowH, 44); XCTAssertEqual(l.rhythmRowH, 44); XCTAssertEqual(l.rhythmPanelH, 112)
-        XCTAssertEqual(l.pitchRowH, 44); XCTAssertEqual(l.pitchPanelH, 112)
+        XCTAssertEqual(l.pitchRowH, 44); XCTAssertEqual(l.pitchPanelH, 112); XCTAssertEqual(l.canonRowH, 44)
         XCTAssertTrue(l.showFooter); XCTAssertTrue(l.fits)
     }
 }

@@ -38,6 +38,8 @@ struct FourfoldRootView: View {
     var ignoreAllNotesOff: Bool { get { m.ignoreAllNotesOff } nonmutating set { m.ignoreAllNotesOff = newValue } }
     var clashPolicy: ClashPolicy { get { m.clashPolicy } nonmutating set { m.clashPolicy = newValue } }   // SOURCES STACK ferry (2026-10-26): dev-only rig setting
     var fxCounts: FxCountsMode { get { m.fxCounts } nonmutating set { m.fxCounts = newValue } }   // RATCH tab ferry (2026-10-28): dev-only rig setting
+    var canonEntry: CanonEntry { get { m.canonEntry } nonmutating set { m.canonEntry = newValue } }   // CHORD CANON ferry (2026-10-31): dev-only rig setting
+    var euclideousCanonUnit: CanonUnit { get { m.euclideousCanonUnit } nonmutating set { m.euclideousCanonUnit = newValue } }   // CHORD CANON: the page's DELAY unit (undoable)
     var showPresets: Bool { get { m.showPresets } nonmutating set { m.showPresets = newValue } }
     var presetList: [String] { get { m.presetList } nonmutating set { m.presetList = newValue } }
     var currentPreset: String { get { m.currentPreset } nonmutating set { m.currentPreset = newValue } }
@@ -446,6 +448,19 @@ struct FourfoldRootView: View {
                                                    fxCounts = v
                                                    au?.setFxCounts(v)
                                                },
+                                               canonEntry: canonEntry,
+                                               onSetCanonEntry: { v in   // CHORD CANON ferry (2026-10-31): dev-only rig setting — no undo
+                                                   canonEntry = v
+                                                   au?.setCanonEntry(v)
+                                               },
+                                               canonUnit: euclideousCanonUnit,
+                                               onSetCanonUnit: { u in   // CHORD CANON: one discrete step (the unit is shared by all four lanes)
+                                                   guard u != euclideousCanonUnit else { return }
+                                                   euclideousRecordUndo(coalesceKey: nil)
+                                                   euclideousCanonUnit = u
+                                                   au?.editDocument { $0.euclideousCanonUnit = u == .passes ? nil : u }
+                                                   publish()
+                                               },
                                                busChannels: busChannels,
                                                allOutputName: "All",
                                                onSetBusChannel: { bus, ch in
@@ -564,11 +579,13 @@ struct FourfoldRootView: View {
         ignoreAllNotesOff = au.uiIgnoreAllNotesOff()
         clashPolicy = au.uiClashPolicy()
         fxCounts = au.uiFxCounts()
+        canonEntry = au.uiCanonEntry()
         euclideousChordSets = au.uiEuclideousChordSets()
         euclideousActiveChordSet = au.uiActiveChordSet()
         euclideousRiffs = au.uiEuclideousRiffs()
         euclideousActiveRiff = au.uiEuclideousActiveRiff()
         euclideousRiffPoly = au.uiRiffPoly(); euclideousPolyRiff = au.uiPolyRiff()
+        euclideousCanonUnit = au.uiCanonUnit()
         euclideousLanesSeq = au.uiEuclideousLanesSeq()
         euclideousFX = au.uiEuclideousFX()
         hocketRules = au.uiHocketRules()
@@ -624,7 +641,7 @@ struct FourfoldRootView: View {
                                 riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                 lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
                                 holdLatchMode: euclideousHoldLatchMode, hocketRules: hocketRules, emitterRatchets: emitterRatchets,
-                                riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff)
+                                riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff, canonUnit: euclideousCanonUnit)
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -684,6 +701,7 @@ struct FourfoldRootView: View {
         euclideousRiffs = s.riffs
         euclideousActiveRiff = s.activeRiff
         euclideousRiffPoly = s.riffPoly; euclideousPolyRiff = s.polyRiff
+        euclideousCanonUnit = s.canonUnit
         euclideousLanesSeq = s.lanesSeq
         euclideousRiffsSeq = s.riffsSeq
         euclideousFX = s.fx
@@ -698,6 +716,7 @@ struct FourfoldRootView: View {
             $0.euclideousSourcePlan = s.sourcePlan
             $0.riffs = s.riffs; $0.activeRiff = s.activeRiff
             $0.riffPoly = s.riffPoly ? true : nil; $0.polyRiff = s.polyRiff   // POLY RIFF: false / nothing stored restores "nil"
+            $0.euclideousCanonUnit = s.canonUnit == .passes ? nil : s.canonUnit   // CHORD CANON: the default restores "nil"
             $0.euclideousLanesSeqOn = s.lanesSeq.on; $0.euclideousLanesSeqRate = s.lanesSeq.rate
             $0.euclideousLanesSeqLen = s.lanesSeq.len; $0.euclideousLanesSeqCells = s.lanesSeq.cells
             $0.euclideousRiffsSeqOn = s.riffsSeq.on; $0.euclideousRiffsSeqRate = s.riffsSeq.rate
@@ -894,6 +913,7 @@ struct FourfoldRootView: View {
         let ear = au.uiEuclideousActiveRiff(); if ear != euclideousActiveRiff { euclideousActiveRiff = ear; euclideousResynced = true }
         let erp = au.uiRiffPoly(); if erp != euclideousRiffPoly { euclideousRiffPoly = erp; euclideousResynced = true }
         let epr = au.uiPolyRiff(); if epr != euclideousPolyRiff { euclideousPolyRiff = epr; euclideousResynced = true }
+        let ecu = au.uiCanonUnit(); if ecu != euclideousCanonUnit { euclideousCanonUnit = ecu; euclideousResynced = true }   // CHORD CANON (2026-10-31)
         let els = au.uiEuclideousLanesSeq(); if els != euclideousLanesSeq { euclideousLanesSeq = els; euclideousResynced = true }
         let ers = au.uiEuclideousRiffsSeq(); if ers != euclideousRiffsSeq { euclideousRiffsSeq = ers; euclideousResynced = true }
         let efx = au.uiEuclideousFX(); if efx != euclideousFX { euclideousFX = efx; euclideousResynced = true }
@@ -963,6 +983,7 @@ struct FourfoldRootView: View {
         let nb = au.uiBusChannels();   if nb != busChannels { busChannels = nb }
         let ian = au.uiIgnoreAllNotesOff(); if ian != ignoreAllNotesOff { ignoreAllNotesOff = ian }
         let cp = au.uiClashPolicy(); if cp != clashPolicy { clashPolicy = cp }
+        let ce = au.uiCanonEntry(); if ce != canonEntry { canonEntry = ce }   // CHORD CANON: a rig setting, in the SECOND block with CLASHES and FX COUNTS — it never wipes undo
         let fc = au.uiFxCounts(); if fc != fxCounts { fxCounts = fc }   // RATCH tab ferry: a rig setting, so (like CLASHES) in the SECOND block — it never wipes undo
         let rs = au.uiReelState();     if rs != reelState { reelState = rs }   // the header tape icon's state
         let si = au.uiStepRateIndex(); if si != stepIndex { stepIndex = si }
@@ -989,6 +1010,7 @@ final class FourfoldModel: ObservableObject {
     @Published var ignoreAllNotesOff: Bool = true
     @Published var clashPolicy: ClashPolicy = .allow
     @Published var fxCounts: FxCountsMode = .hits   // RATCH tab ferry (2026-10-28): dev-only FX COUNTS (HITS · STEPS)
+    @Published var canonEntry: CanonEntry = .wrap   // CHORD CANON ferry (2026-10-31): dev-only ENTRY (WRAP · CHORD 1 · WAIT)
     @Published var showPresets: Bool = false
     @Published var presetList: [String] = []
     @Published var currentPreset: String = ""
@@ -1003,6 +1025,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousActiveRiff: Int = 0
     @Published var euclideousRiffPoly: Bool = false           // POLY RIFF (2026-10-29)
     @Published var euclideousPolyRiff: EuclideousPolyRiff? = nil
+    @Published var euclideousCanonUnit: CanonUnit = .passes   // CHORD CANON (2026-10-31): the DELAY unit shared by the four lanes
     @Published var euclideousLanesSeq: EuclideousLanesSeq = EuclideousLanesSeq()
     @Published var euclideousFX: EuclideousFX = EuclideousFX()
     @Published var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the document's rules, sanitised; [] = none stored

@@ -216,6 +216,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func uiEuclideousActiveRiff() -> Int { document.activeRiffResolved }
     func uiRiffPoly() -> Bool { document.riffPolyResolved }                  // POLY RIFF (2026-10-29)
     func uiPolyRiff() -> EuclideousPolyRiff? { document.polyRiff }
+    func uiCanonUnit() -> CanonUnit { document.canonUnitResolved }           // CHORD CANON (2026-10-31): the page's DELAY unit (part of the music — saved with a preset, undoable)
     // `uiEuclideousLiveGrid()` (a forwarder for the looper's decode-only `euclideousLiveGridResolved`)
     // is DELETED here (2026-10-18 adversarial review found it orphaned — its one caller, `refreshFrom
     // Document`'s resync block, was removed by the same ferry that dropped the looper, and this one
@@ -303,6 +304,8 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func setClashPolicy(_ p: ClashPolicy) { editDocument { $0.euclideousClashPolicy = p } }   // rig setting — no undo
     func uiFxCounts() -> FxCountsMode { document.euclideousFxCounts ?? .hits }   // RATCH tab ferry (2026-10-28) §7: the stored dev-only FX COUNTS (the DEBUG settings control reflects it)
     func setFxCounts(_ m: FxCountsMode) { editDocument { $0.euclideousFxCounts = m } }   // rig setting — no undo
+    func uiCanonEntry() -> CanonEntry { document.euclideousCanonEntry ?? .wrap }   // CHORD CANON (2026-10-31): the stored dev-only ENTRY (the DEBUG settings control reflects it)
+    func setCanonEntry(_ e: CanonEntry) { editDocument { $0.euclideousCanonEntry = e } }   // rig setting — no undo
     // FOURFOLD SETTINGS, MAIN OUT tab (2026-10-15 ferry §4.6): same request/consume shape as masterPanic,
     // narrower scope (Euclideous's own row only — see Router.process's own consumption of the flag).
     func euclideousAllNotesOff() { kernel.euclideousAllNotesOffRequest() }
@@ -515,6 +518,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let keepHostStop = document.euclideousHostStopBehavior
         let keepClashPolicy = document.euclideousClashPolicy   // SOURCES STACK ferry (2026-10-26): a rig setting, kept across a preset load (§1.6)
         let keepFxCounts = document.euclideousFxCounts   // RATCH tab ferry (2026-10-28): rig setting, kept across a preset load (§7.3)
+        let keepCanonEntry = document.euclideousCanonEntry   // CHORD CANON ferry (2026-10-31): rig setting, kept across a preset load
         editDocument {
             $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded()   // migrate is a no-op for v4 builders
             $0.euclideousMidiInChannelMask = keepMidiInMask
@@ -523,6 +527,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
             $0.euclideousHostStopBehavior = keepHostStop
             $0.euclideousClashPolicy = keepClashPolicy
             $0.euclideousFxCounts = keepFxCounts
+            $0.euclideousCanonEntry = keepCanonEntry
         }
         clearPendingBuild()   // K2: the new doc carries its own BUILD state — drop the outgoing session's stale pending
         currentPresetName = name
@@ -577,6 +582,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let keepHostStop = document.euclideousHostStopBehavior
         let keepClashPolicy = document.euclideousClashPolicy   // SOURCES STACK ferry (2026-10-26): rig setting (§1.6)
         let keepFxCounts = document.euclideousFxCounts   // RATCH tab ferry (2026-10-28): rig setting (§7.3)
+        let keepCanonEntry = document.euclideousCanonEntry   // CHORD CANON ferry (2026-10-31): rig setting
         editDocument {                       // one undoable step
             $0 = doc
             $0.euclideousMidiInChannelMask = keepMidiInMask
@@ -585,6 +591,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
             $0.euclideousHostStopBehavior = keepHostStop
             $0.euclideousClashPolicy = keepClashPolicy
             $0.euclideousFxCounts = keepFxCounts
+            $0.euclideousCanonEntry = keepCanonEntry
         }
         clearPendingBuild()                  // K2: drop the outgoing session's stale BUILD pending (the preset carries its own)
         currentPresetName = PresetStore.sanitize(name)

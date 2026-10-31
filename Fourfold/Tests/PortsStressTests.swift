@@ -168,6 +168,30 @@ final class PortsStressTests: XCTestCase {
                                           soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]
     }
+    /// CHORD CANON ferry (2026-10-31): the lanes' DELAY / SLIP, the page's UNIT and (a DEBUG rig setting) ENTRY drawn from their OWN stream — the CHORDS layer forced on (with a random progression) so the shift can reach the wire — and the scene
+    /// rebuilt the way an edit publishes it. `off`: draw the very same values but store no DELAY / SLIP — the control run the "really changes the wire" test compares against.
+    private func recanon(_ st: inout PluginState, _ k: inout SM64, off: Bool = false) {
+        var plan = st.sourcePlanResolved
+        plan.chordsOn = true
+        st.euclideousSourcePlan = plan
+        var cfg = MachineParams()
+        cfg.chordsSteps = Int.random(in: 2...16, using: &k)
+        cfg.chordsDegrees = (0..<cfg.chordsSteps!).map { _ in Int.random(in: -1...11, using: &k) }
+        cfg.chordsRate = [StepRate.r1_1, .r1_2, .r1_4].randomElement(using: &k)!
+        st.setEuclideousChordSet(st.activeChordSetResolved, cfg)
+        st.euclideousCanonUnit = CanonUnit.allCases.randomElement(using: &k)!
+        st.euclideousCanonEntry = CanonEntry.allCases.randomElement(using: &k)!
+        var ls = st.euclideousLines ?? []
+        for i in 0..<ls.count {
+            let d = [0, 0, Int.random(in: 1...8, using: &k)].randomElement(using: &k)!
+            let sl = [0, 0, 5 * Int.random(in: 1...10, using: &k)].randomElement(using: &k)!
+            ls[i].chordDelay = off || d == 0 ? nil : d; ls[i].chordSlip = off || sl == 0 ? nil : sl
+        }
+        st.euclideousLines = ls
+        let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
+                                          soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
+        st.scenes = [FourfoldCompose.scene(input)]
+    }
     private func retranspose(_ st: inout PluginState, _ h: inout SM64, zeroed: Bool = false) {
         func t(_ h: inout SM64) -> Int? { let v = [nil, 0, Int.random(in: -7...7, using: &h), Int.random(in: -3...3, using: &h), 7, -7].randomElement(using: &h)!; return zeroed ? nil : v }
         let ls = (st.euclideousLines ?? []).map { l -> EuclidLine in var m = l; m.riffOutTranspose = t(&h); m.notesOutTranspose = t(&h); return m }
@@ -331,10 +355,11 @@ final class PortsStressTests: XCTestCase {
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0
-    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, poly: Bool = false, polyModeOff: Bool = false) -> String? {
+    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false) -> String? {
         var g = SM64(seed)
         var q = SM64(seed ^ 0x0F01_7A11_0000)      // POLY RIFF ferry: the POLY riff draws from its OWN stream too, so the pinned fingerprints (MONO) stay exactly what they were
         var x = SM64(seed ^ 0xE317_A7C4_0000)     // RATCH tab ferry: the emitter ratchets draw from their OWN stream too
+        var kc = SM64(seed ^ 0xCA70_C4A0_0001)     // CHORD CANON ferry: the delays, slips, unit and entry draw from their OWN stream, so every pinned fingerprint (no canon) stays exactly what it was
         var h = SM64(seed ^ 0x0A7C_0FFE_E000)      // CARD BACKS v2: the out-transposes draw from their OWN stream, so the pinned fingerprints (no out-transpose) stay exactly what they were
         let router = Router()
         var rolls: [NoteRollRecord] = [], winParams: [(beat: Double, ts: Double)] = []
@@ -344,6 +369,7 @@ final class PortsStressTests: XCTestCase {
         if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }
         if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }
         if poly { repoly(&st, &q, modeOff: polyModeOff) }
+        if canon { recanon(&st, &kc, off: canonOff) }
         var box = SnapshotBuilder.build(from: st)
         let sr = 48_000.0
         var tempo = Double([90, 120, 140].randomElement(using: &g)!)
@@ -358,9 +384,10 @@ final class PortsStressTests: XCTestCase {
         for w in 0..<windows {
             e.win = w
             // mutate the document / transport between windows
-            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if poly { repoly(&st, &q, modeOff: polyModeOff) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if poly { repoly(&st, &q, modeOff: polyModeOff) }; if canon { recanon(&st, &kc, off: canonOff) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
             if emitters, x.next() % 3 == 0 { st.euclideousEmitterRatchets = rEmitters(&x); box = SnapshotBuilder.build(from: st) }   // RATCH tab ferry: a toggle / value dragged while notes (and deferred strikes) sound
             if outTranspose, h.next() % 3 == 0 { retranspose(&st, &h, zeroed: zeroedTranspose); box = SnapshotBuilder.build(from: st) }   // CARD BACKS v2: a PITCH pad dragged while notes sound
+            if canon, kc.next() % 3 == 0 { recanon(&st, &kc, off: canonOff); box = SnapshotBuilder.build(from: st) }   // CHORD CANON: a DELAY / SLIP / UNIT edited while notes sound
             if poly, q.next() % 3 == 0 { repoly(&st, &q, modeOff: polyModeOff); box = SnapshotBuilder.build(from: st) }   // POLY RIFF: the grid edited — notes added, stretched, removed, the mode flipped — while notes (and their long tails) sound
             if Int.random(in: 0...2, using: &g) == 0 {   // busChannels change mid-note
                 switch Int.random(in: 0...3, using: &g) {
@@ -534,6 +561,26 @@ final class PortsStressTests: XCTestCase {
             total += 1; if polyHash != mono { differing += 1 }
         }
         XCTAssertGreaterThan(differing, total / 4, "only \(differing) of \(total) sessions sounded different in POLY — the mode is not reaching the wire")
+    }
+    // CHORD CANON ferry (2026-10-31): per-lane delays, slips, the unit and the entry drawn at random AND edited mid-note, on top of the full random document: nothing strands, no orphan off, each message on its output's channel, ALL = the union
+    // of the outputs, the roll equals the wire.
+    func testCanonSessionsHoldEveryInvariant() {
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 900_000, windows: 24, canon: true) { XCTFail(msg); return } }
+    }
+    func testCanonSessionsAtGate100() {
+        for s in 1...200 { if let msg = runSession(seed: UInt64(s) &+ 910_000, windows: 24, rawGates: true, canon: true) { XCTFail(msg); return } }
+    }
+    /// The invariant fuzzes pass whether or not a delay ever reaches the wire: compare each session with the SAME draws stored without any DELAY / SLIP — most must differ.
+    func testCanonSessionsReallyChangeTheNotesOnTheWire() {
+        var differing = 0, total = 0
+        for s in 1...120 {
+            let seed = UInt64(s) &+ 920_000
+            XCTAssertNil(runSession(seed: seed, windows: 24, canon: true)); let canon = lastSessionHash
+            XCTAssertNil(runSession(seed: seed, windows: 24, canon: true, canonOff: true)); let plain = lastSessionHash
+            total += 1; if canon != plain { differing += 1 }
+        }
+        // random sessions are mostly sparse (lanes off, soloed away, 24 short windows, a few chord changes): about one in nine is dense enough for a delay to change a note
+        XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with delays on — they are not reaching the wire")
     }
     func testOutTransposeSessionsAtGate100() {
         for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 300_000, windows: 24, rawGates: true, outTranspose: true) { XCTFail(msg); return } }

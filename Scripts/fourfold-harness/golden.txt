@@ -26,3 +26,8 @@ GOLDEN POLY POLY walks: events=648 hash=90d47a3deb0efc77
 GOLDEN POLY POLY reverse: events=1564 hash=d81d905961a1d539
 GOLDEN POLY POLY pendulum and ping-pong: events=2088 hash=1e4bba3044bb8077
 GOLDEN POLY ALL: documents=5 events=7132 hash=106160379077d6fa
+GOLDEN CANON CANON passes: events=3748 hash=1b83061f42253995
+GOLDEN CANON CANON bars and slip: events=3748 hash=ac2893eab9b7bfe1
+GOLDEN CANON CANON steps: events=3748 hash=2b935983295a2b9
+GOLDEN CANON CANON lanes of 5 7 11 16: events=4064 hash=72e2261988347033
+GOLDEN CANON ALL: documents=4 events=15308 hash=b7685649c9190827

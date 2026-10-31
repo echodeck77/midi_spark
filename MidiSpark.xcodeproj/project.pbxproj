@@ -209,6 +209,7 @@
 		9380473CD41B52BD940490C1 /* FourfoldRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */; };
 		94FD0CE78263BD0BCB5F36BD /* PolyRiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73F2A52D11932A681050086 /* PolyRiff.swift */; };
 		955BA08A6B46B09D64ED0EB4 /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */; };
+		960ACD49BD8FBEB02D6E8C4F /* ChordCanonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C65CD0797F00553F393868 /* ChordCanonTests.swift */; };
 		965C21A77C376F3057CB4206 /* RestartFlashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C44DDB2035A6F3CE3FA8C /* RestartFlashTests.swift */; };
 		96D95AD2579E7D75BE561066 /* AcceptanceFactoryLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */; };
 		98438A098C9E21AEC8237627 /* FourfoldBluetoothMIDIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D8C6146A8A708D00931B05 /* FourfoldBluetoothMIDIView.swift */; };
@@ -612,6 +613,7 @@
 		C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldRootView.swift; sourceTree = "<group>"; };
 		C340F6C0DDE17211F0D4E422 /* PolyRiffEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiffEdit.swift; sourceTree = "<group>"; };
 		C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixPadPainter.swift; sourceTree = "<group>"; };
+		C4C65CD0797F00553F393868 /* ChordCanonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordCanonTests.swift; sourceTree = "<group>"; };
 		C6696EEB895A52FCBB9F0125 /* MidiSparkAudioUnit+CellLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MidiSparkAudioUnit+CellLibrary.swift"; sourceTree = "<group>"; };
 		C89867917AE363D25219BF74 /* ListenTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenTabTests.swift; sourceTree = "<group>"; };
 		CB72B97F862EE82E9F92BEE8 /* SnapshotBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilderTests.swift; sourceTree = "<group>"; };
@@ -796,6 +798,7 @@
 			children = (
 				0024C31E772682B8A6B1C552 /* CardBackReviewTests.swift */,
 				AB063E2496497A1B3757D426 /* CardBackTests.swift */,
+				C4C65CD0797F00553F393868 /* ChordCanonTests.swift */,
 				00A0AAF1BEFC7A0801E48D8E /* ChordsGridTests.swift */,
 				6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */,
 				9240C6CA393EE4F4B6FD09AB /* DerivationsTests.swift */,
@@ -1504,6 +1507,7 @@
 				84A446E1688A40EAD3762C2D /* CardBack.swift in Sources */,
 				D6A1757F18E186A687B7B0D2 /* CardBackReviewTests.swift in Sources */,
 				F5F640D877514DB16E14FE4B /* CardBackTests.swift in Sources */,
+				960ACD49BD8FBEB02D6E8C4F /* ChordCanonTests.swift in Sources */,
 				50D3FB0F2FD2D19D2F42B5F8 /* ChordsGridTests.swift in Sources */,
 				380EF70566461B22D7C2CF72 /* ClarityPassTests.swift in Sources */,
 				CE7A58D6EDC60C74AD08C3BC /* Derivations.swift in Sources */,

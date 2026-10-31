@@ -113,6 +113,8 @@ enum SnapshotBuilder {
                     // SOURCES STACK ferry (2026-10-26): the stacking plan + the dev-only clash policy.
                     sc.procs[0].euclideousSourcePlan = doc.sourcePlanResolved
                     sc.procs[0].euclideousClashPolicy = doc.clashPolicyResolved
+                    sc.procs[0].canonUnit = doc.canonUnitResolved        // CHORD CANON (2026-10-31): page-level, no MachineParams hop
+                    sc.procs[0].canonEntry = doc.canonEntryResolved
                     // SOURCES STACK: MIDI IN ALWAYS LISTENS now — the LISTEN ON mask is passed unconditionally (not
                     // gated to a `.midi` source), and HOLD/LATCH applies whenever MIDI contributes. Byte-identical for
                     // every existing document because the golden harness feeds no MIDI (an empty live pool contributes
@@ -447,7 +449,9 @@ enum SnapshotBuilder {
                                                                       // RHYTHM POLISH (2026-10-22): the continuous OFFSET fraction and TILT's fine value — raw passthrough, the same fresh-literal reason as every field above.
                                                                       offsetFraction: $0.offsetFraction, tiltFine: $0.tiltFine.map { clamp($0, -1, 1) },
                                                                       // CARD BACKS v2 (2026-10-28): each part's out-transpose, declared last in Models.swift — this memberwise literal's argument order must match.
-                                                                      riffOutTranspose: $0.riffOutTranspose.map { clamp($0, -7, 7) }, notesOutTranspose: $0.notesOutTranspose.map { clamp($0, -7, 7) }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
+                                                                      riffOutTranspose: $0.riffOutTranspose.map { clamp($0, -7, 7) }, notesOutTranspose: $0.notesOutTranspose.map { clamp($0, -7, 7) },
+                                                                      // CHORD CANON (2026-10-31): each lane's chord DELAY and SLIP, declared last in Models.swift — this memberwise literal's argument order must match.
+                                                                      chordDelay: $0.chordDelay.map { clamp($0, 0, euclideousCanonMaxDelay) }, chordSlip: $0.chordSlip.map { EuclidLine.legalCanonSlip($0) }) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
         // LISTEN TAB preset-load safety (§4's own "(My interpretation.)"): "if a loaded preset contains a
         // loop, switch off the row that closes it." Applied ONCE here, after every lane's own fields have
         // been resolved above, so a hand-edited or legacy doc can never reach the render path (or the UI,

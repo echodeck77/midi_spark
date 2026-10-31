@@ -65,6 +65,9 @@ struct EuclideousSettingsSheet: View {
     // RATCH tab ferry (2026-10-28) §7: FX COUNTS — a DEV-build-only rig setting (HITS · STEPS, judged by ear), on the CLOCK tab. Carried unconditionally; the control + the third height measure are `#if DEBUG`.
     let fxCounts: FxCountsMode
     let onSetFxCounts: (FxCountsMode) -> Void
+    // CHORD CANON ferry (2026-10-31): ENTRY — a DEV-build-only rig setting (WRAP · CHORD 1 · WAIT, judged by ear), on the CLOCK tab. Carried unconditionally; the control is `#if DEBUG`.
+    let canonEntry: CanonEntry
+    let onSetCanonEntry: (CanonEntry) -> Void
 
     @State private var portsNaturalHeight: CGFloat = 0
     @State private var midiInNaturalHeight: CGFloat = 0   // §6.3: measured only in DEBUG (the CLASHES block makes MIDI IN the tallest tab)
@@ -389,6 +392,24 @@ struct EuclideousSettingsSheet: View {
             .accessibilityValue(fxCounts == .hits ? "HITS" : "STEPS")
             .accessibilityAddTraits(.isButton)
             .accessibilityAdjustableAction { _ in onSetFxCounts(fxCounts == .hits ? .steps : .hits) }
+            #endif
+            #if DEBUG
+            // CHORD CANON ferry (2026-10-31): dev-only ENTRY — what a delayed lane does before its delay has run out from the host's beat 0. WRAP reads the end of the progression (as if the loop had been running); CHORD 1
+            // holds the first chord until the lane's turn; WAIT plays no chord until then (a chord REST). Release builds always WRAP.
+            block(name: "CANON ENTRY",
+                  description: "A delayed lane in the first beats of the song. WRAP: the end of the progression, as if it were already running. CHORD 1: the first chord, held until its turn. WAIT: no chord until its turn.") {
+                segmented([("WRAP", 48), ("CHORD 1", 72), ("WAIT", 48)], selected: CanonEntry.allCases.firstIndex(of: canonEntry) ?? 0) { i in
+                    onSetCanonEntry(CanonEntry.allCases[max(0, min(CanonEntry.allCases.count - 1, i))])
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Canon entry")
+            .accessibilityValue(canonEntry.rawValue.lowercased())
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAdjustableAction { dir in
+                let all = CanonEntry.allCases, i = all.firstIndex(of: canonEntry) ?? 0
+                onSetCanonEntry(all[max(0, min(all.count - 1, i + (dir == .increment ? 1 : -1)))])
+            }
             #endif
             // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows and MIX pads. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.
             block(name: "STRIKE PULSE",

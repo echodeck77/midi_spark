@@ -3249,6 +3249,7 @@ struct EuclideousListenTabLayout: Equatable {
     var rhythmPanelH: CGFloat    // 0 when RHYTHM is OWN — no space kept (§2.3)
     var pitchRowH: CGFloat
     var pitchPanelH: CGFloat     // 0 when PITCH is OWN or AVOID — no space kept (§2.5)
+    var canonRowH: CGFloat       // CHORD CANON (2026-10-31): the CANON row (DELAY · SLIP · UNIT) under PITCH — always shown
     var showFooter: Bool
     var footerH: CGFloat
     var gap: CGFloat
@@ -3261,6 +3262,7 @@ func euclideousListenTabLayout(contentAreaH: CGFloat, rhythmPanelShown: Bool, pi
     if rhythmPanelShown { mainIdeals.append(idealPanel) }
     mainIdeals.append(idealRow)   // PITCH
     if pitchPanelShown { mainIdeals.append(idealPanel) }
+    mainIdeals.append(idealRow)   // CANON (CHORD CANON, 2026-10-31)
     let mainGaps = CGFloat(max(0, mainIdeals.count - 1)) * gap
     let mainIdealTotal = mainIdeals.reduce(0, +) + mainGaps
     let footerBudget = idealFooter + gap
@@ -3274,8 +3276,9 @@ func euclideousListenTabLayout(contentAreaH: CGFloat, rhythmPanelShown: Bool, pi
     let rhythmPanelH = rhythmPanelShown ? next() : 0
     let pitchRowH = next()
     let pitchPanelH = pitchPanelShown ? next() : 0
+    let canonRowH = next()
     return EuclideousListenTabLayout(followRowH: followRowH, rhythmRowH: rhythmRowH, rhythmPanelH: rhythmPanelH,
-                                      pitchRowH: pitchRowH, pitchPanelH: pitchPanelH,
+                                      pitchRowH: pitchRowH, pitchPanelH: pitchPanelH, canonRowH: canonRowH,
                                       showFooter: showFooter, footerH: showFooter ? idealFooter : 0, gap: gap, fits: scale >= 1)
 }
 
@@ -9970,3 +9973,98 @@ enum EmitterRatchetField: Int, CaseIterable {
     /// §6.2 — a double tap resets the cell to its default; HITS and OFFSET are clamped by STEPS (§1.3).
     func reset(in r: EmitterRatchet) -> EmitterRatchet { setting(defaultValue, in: r) }
 }
+
+// MARK: - CHORD CANON (ferry 2026-10-31) — a lane reads the CHORDS layer behind the host beat
+//
+// A pure time-shift of the chord derivation, never a remembered history: the chord at host beat `m` is a closed form (`chordSeqNotesInto`: the column is `floor(m / rate)` through the progression, wrapped), so a lane DELAYED by
+// `d` beats simply asks that same function for beat `m − d`. If the player's progression is I–vi–IV–V a bar each, a lane two bars behind plays I–vi–IV–V two bars behind — a canon; the lanes never converge, because
+// the shift is applied to the time, not to "whatever the latest chord is". Order of operations: the host beat → this shift (and the SLIP below) → the shared pool merge (MIDI IN / PICK / KEY are not functions of the beat
+// and are NOT shifted) → the lane's own transforms (OCT, ROT, out-transpose …) → the grid. Nothing here allocates or remembers.
+//
+//  · DELAY is `delay` UNITS of the page's `CanonUnit`, each unit worth THIS lane's own length: STEPS = its step, PASSES = its lap (`cycleLen × sub`, so a 5-step and a 16-step lane phase against each other), BARS = the host bar.
+//  · SLIP is the percent chance, per chord change, that the lane misses the change and holds the PREVIOUS chord for one more chord step, then follows again: the read step is `k − (roll(k) ? 1 : 0)`, a stateless function of
+//    the delayed step `k`, so it is replay-exact, can never lag more than one chord step, and a lane that missed one is back in step at the very next change unless it misses that one too.
+//  · ENTRY decides only the first `delay` beats of the host timeline (the delayed beat is still before beat 0): see `CanonEntry`.
+
+/// DELAY is 0…8 units; SLIP is 0…50 % in steps of 5.
+let euclideousCanonMaxDelay = 8
+let euclideousCanonSlipStep = 5
+let euclideousCanonSlipMax = 50
+/// The salt of the SLIP roll ("CANONSLP"): no other roll in the engine uses it.
+let euclideousCanonSlipSalt: UInt64 = 0x4341_4E4F_4E53_4C50
+/// The pool cache key of a lane still WAITING for its first chord — no real chord step can equal it (`Int.min` itself is the "nothing built yet" key).
+let euclideousCanonWaitingKey = Int.min + 1
+
+/// The SLIP roll, 0…99: `splitmix64Mix` of the lane and the DELAYED chord step `k` under the salt. Replay-exact: a pure function of (lane, k).
+@inline(__always) func euclideousCanonSlipRoll(lane: Int, step k: Int) -> Int {
+    let x = UInt64(bitPattern: Int64(k)) &* 0x9E37_79B9_7F4A_7C15 &+ UInt64(truncatingIfNeeded: lane) &* 0xBF58_476D_1CE4_E5B9 &+ euclideousCanonSlipSalt
+    return Int(splitmix64Mix(x) % 100)
+}
+
+/// The beats one DELAY unit is worth for a lane (its own step / lap, the host bar).
+func euclideousCanonUnitBeats(_ unit: CanonUnit, stepBeats: Double, lapBeats: Double, barBeats: Double) -> Double {
+    switch unit { case .steps: return stepBeats; case .passes: return lapBeats; case .bars: return barBeats }
+}
+/// A lane's DELAY in beats (0 for a non-finite or non-positive length).
+func euclideousCanonDelayBeats(delay: Int, unit: CanonUnit, stepBeats: Double, lapBeats: Double, barBeats: Double) -> Double {
+    let u = euclideousCanonUnitBeats(unit, stepBeats: stepBeats, lapBeats: lapBeats, barBeats: barBeats)
+    guard u.isFinite, u > 0 else { return 0 }
+    return Double(max(0, min(euclideousCanonMaxDelay, delay))) * u
+}
+
+/// What a delayed lane reads of the CHORDS layer at host beat `m`: the chord STEP (an index into the progression's own timeline, `floor(beat / rate)`; negative while the delayed beat is before beat 0 and the entry lets it
+/// be) and whether the lane is still WAITING for its first chord (the chord layer is then a rest).
+struct EuclideousCanonRead: Equatable { var step: Int; var waiting: Bool }
+func euclideousCanonChordRead(beat m: Double, rateBeats: Double, delayBeats: Double, slipPercent: Int, entry: CanonEntry, lane: Int) -> EuclideousCanonRead {
+    let rate = rateBeats > 0 ? rateBeats : 4
+    // `+ 1e-9`: a tick a hair under a chord boundary (float noise in `m − d`) belongs to the new chord, as the live pool's refresh already treats it.
+    var k = Int(((m - max(0, delayBeats) + 1e-9) / rate).rounded(.down))
+    if slipPercent > 0 && euclideousCanonSlipRoll(lane: lane, step: k) < slipPercent { k -= 1 }
+    switch entry {
+    case .wrap:       return EuclideousCanonRead(step: k, waiting: false)
+    case .firstChord: return EuclideousCanonRead(step: max(0, k), waiting: false)
+    case .wait:       return EuclideousCanonRead(step: max(0, k), waiting: k < 0)
+    }
+}
+/// The beat to hand `chordSeqNotesInto` for a chord step: the MIDDLE of the step, so no float error in `step × rate / rate` can move it into a neighbour.
+@inline(__always) func euclideousCanonStepBeat(step: Int, rateBeats: Double) -> Double {
+    (Double(step) + 0.5) * (rateBeats > 0 ? rateBeats : 4)
+}
+
+
+// MARK: - CHORD CANON, the LISTEN tab's CANON row (ferry 2026-10-31) — what the row says
+//
+// The row is three steppers on the PITCH panel's look: DELAY (0…8, in the page's unit), SLIP (0…50 %, in fives) and UNIT (STEPS · PASSES · BARS, shared by all four lanes). Every word it shows or speaks is decided here.
+
+/// Why the row can have no effect on this lane right now (nil = it is live): CHORDS is the only layer a delay can shift, and a lane that follows another lane's notes (SHADOW / ECHO) does not read its own pool.
+func euclideousCanonInertReason(chordsOn: Bool, pitch: EuclideousListenPitchMode) -> String? {
+    if !chordsOn { return "CHORDS is off" }
+    if pitch == .shadow || pitch == .echo { return "this lane follows another lane's notes" }
+    return nil
+}
+/// The next value of DELAY one step up or down (clamped, never wrapping); 0 is stored as nil.
+func euclideousCanonDelayMoved(_ delay: Int, by d: Int) -> Int { max(0, min(euclideousCanonMaxDelay, delay + d)) }
+/// The next value of SLIP one step (5 %) up or down (clamped, never wrapping).
+func euclideousCanonSlipMoved(_ slip: Int, by d: Int) -> Int { EuclidLine.legalCanonSlip(max(0, min(euclideousCanonSlipMax, slip + d * euclideousCanonSlipStep))) }
+/// The unit one step along STEPS · PASSES · BARS (clamped, never wrapping).
+func euclideousCanonUnitMoved(_ unit: CanonUnit, by d: Int) -> CanonUnit {
+    let all = CanonUnit.allCases
+    guard let i = all.firstIndex(of: unit) else { return .passes }
+    return all[max(0, min(all.count - 1, i + d))]
+}
+func euclideousCanonDelayText(_ delay: Int) -> String { "\(max(0, min(euclideousCanonMaxDelay, delay)))" }
+func euclideousCanonSlipText(_ slip: Int) -> String { "\(EuclidLine.legalCanonSlip(slip))%" }
+/// VoiceOver: "Canon delay, 2 passes" / "off"; an inert row says why after the value.
+func euclideousCanonDelaySpoken(delay: Int, unit: CanonUnit, inert: String?) -> String {
+    let d = max(0, min(euclideousCanonMaxDelay, delay))
+    let plural = unit.rawValue.lowercased(), singular: String
+    switch unit { case .steps: singular = "step"; case .passes: singular = "pass"; case .bars: singular = "bar" }
+    let base = d == 0 ? "off" : "\(d) \(d == 1 ? singular : plural)"
+    return inert.map { "\(base), no effect: \($0)" } ?? base
+}
+func euclideousCanonSlipSpoken(slip: Int, inert: String?) -> String {
+    let s = EuclidLine.legalCanonSlip(slip)
+    let base = s == 0 ? "off" : "\(s) percent"
+    return inert.map { "\(base), no effect: \($0)" } ?? base
+}
+func euclideousCanonUnitSpoken(_ unit: CanonUnit) -> String { unit.rawValue.lowercased() }

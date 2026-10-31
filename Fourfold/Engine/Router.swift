@@ -838,6 +838,7 @@ final class Router {
     private var euclideousStackMidiPlaying = false                   // this window's MIDI-PLAYING (with release grace)
     // §2.9 status, published to the UI by `euclideousSourceStatus()` (read-and-copied on the main thread).
     private var euclideousStatusMidiNotes = [UInt8](repeating: 0, count: 8)
+    private var canonMidiStatusScratch = [UInt8](repeating: 0, count: 8)   // CHORD CANON: a delayed lane's merge writes its MIDI-status bytes here, so it never clobbers the live merge's status
     private var euclideousStatusMidiCount = 0
     private var euclideousStatusMidiPlaying = false
     private var euclideousStatusChordsLit = false
@@ -2460,6 +2461,31 @@ final class Router {
                 guard Int((mm / chordPoolRateBeats).rounded(.down)) != chordPoolStep else { return }
                 mergeStack(atBeat: mm)
             }
+            // CHORD CANON (2026-10-31): a delayed lane's pool — the SAME merge as `mergeStack`, with the CHORDS layer read at the lane's own chord step (a rest while it is still waiting for its first chord), written into the
+            // same `globalSrcBuf` the lane's reads already use. A lane's ticks run back to back, so the buffer is re-keyed (`chordPoolStep`) whenever the step it needs differs from the one it holds, exactly as the live
+            // refresh does; it never touches the status the live merge publishes to the UI (the SOURCES panel shows the live pool). MIDI IN, PICK and KEY are the window's own layers, unshifted.
+            func mergeCanonStack(_ read: EuclideousCanonRead) {
+                chordPoolStep = read.waiting ? euclideousCanonWaitingKey : read.step
+                if read.waiting {
+                    chordLayerCount = 0; chordLayerIsRest = true
+                } else {
+                    chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: euclideousCanonStepBeat(step: read.step, rateBeats: chordPoolRateBeats), p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
+                    chordLayerIsRest = chordLayerCount == 0
+                }
+                let st = euclideousBuildSourceStack(
+                    into: &globalSrcBuf, cap: globalSrcBuf.count,
+                    midi: midiLayerBuf[0..<midiLayerCount], midiPlaying: euclideousStackMidiPlaying,
+                    chords: chordPoolScratch[0..<chordLayerCount], chordsIsRest: chordLayerIsRest,
+                    pick: pickLayerBuf[0..<pickLayerCount],
+                    key: keyLayerBuf[0..<keyLayerCount],
+                    plan: euPlan, clash: p.euclideousClashPolicy, midiStatusOut: &canonMidiStatusScratch)
+                globalSrcCount = st.count
+            }
+            func refreshCanonStack(beat m: Double, delayBeats: Double, slip: Int, lane: Int) {
+                let read = euclideousCanonChordRead(beat: m, rateBeats: chordPoolRateBeats, delayBeats: delayBeats, slipPercent: slip, entry: p.canonEntry, lane: lane)
+                guard (read.waiting ? euclideousCanonWaitingKey : read.step) != chordPoolStep else { return }
+                mergeCanonStack(read)
+            }
             // HOLD/LATCH (Paul 2026-10-20, fixed 2026-10-21): checked HERE, once per Euclideous-row tick, so leaving
             // and returning to a MIDI contribution both reset correctly. Must run BEFORE fillMidiLayer (which reads
             // the pool). MIDI always listens now, so this no longer needs a source-mode guard.
@@ -2702,6 +2728,17 @@ final class Router {
                 // pre-feature document, migrated from the old sequencer + reset — `euclideousLaneGridResolved`) against THIS lane's own step
                 // length and lap. `cycleLen` is the Router's lap in ticks; the units are integer multiples of the lane's tick.
                 let cycleLen = euclidCycleLen(dir, n: n)
+                // CHORD CANON (2026-10-31): a lane with a DELAY and/or a SLIP reads the CHORDS layer through `refreshCanonStack` (below); every other lane — and every lane when CHORDS is off, where there is nothing to
+                // shift — keeps the shared pool and the live refresh, byte-identical to before. A unit is THIS lane's own: its step (`sub`), its lap (`cycleLen × sub`, the same lap the restart chains count), the host bar.
+                var canonLane = false, canonDelayBeats = 0.0, canonSlip = 0
+                if isEuclideousRow, euChordsActive, lineIndex < linesView.count {
+                    let cl = linesView[lineIndex]
+                    let dl = cl.chordDelayResolved, sl = cl.chordSlipResolved
+                    if dl > 0 || sl > 0 {
+                        canonLane = true; canonSlip = sl
+                        canonDelayBeats = euclideousCanonDelayBeats(delay: dl, unit: p.canonUnit, stepBeats: sub, lapBeats: Double(cycleLen) * sub, barBeats: beatsPerBar)
+                    }
+                }
                 // RHYTHM POLISH (2026-10-22): a lane with a fractional OFFSET and/or a fine TILT is read in TICK space — `euclideousHitLayoutInto` turns the buffer-space cells + in-step positions into the cell each hit
                 // STARTS in (direction mirrored, wrapped round the lap) and its delay in that cell; every reader below then sees `eN` / `eDir` = (the lap's tick count, FWD) over those cells. A lane with neither keeps
                 // (`n`, `dir`) over the buffer — the exact path it always ran.
@@ -2796,7 +2833,8 @@ final class Router {
                                  let ph = euclideousLaneChainPhase(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains, legacySpanBeats: ladderSpanBeats)
                                  return ph.rawIsHit ? euclidTickDelay[ph.raw] : 0
                              }) { tick, mTickBeat, _, _ in
-                    refreshStack(atBeat: mTickBeat)   // SOURCES STACK: re-merge if the CHORDS column changed at THIS tick's beat (chord-contributing docs only)
+                    if canonLane { refreshCanonStack(beat: mTickBeat, delayBeats: canonDelayBeats, slip: canonSlip, lane: lineIndex) }   // CHORD CANON: this lane's own chord step
+                    else { refreshStack(atBeat: mTickBeat) }   // SOURCES STACK: re-merge if the CHORDS column changed at THIS tick's beat (chord-contributing docs only)
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
                     // used by the GridUI comet-bar — a discrete hit/rest decision needs exact integer ticks, a

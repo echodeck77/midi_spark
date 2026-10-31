@@ -825,6 +825,7 @@ final class EffectiveParamsTests: XCTestCase {
         l.offsetFraction = 0.35; l.tiltFine = -0.3   // RHYTHM POLISH (2026-10-22)
         l.riffOutMask = 0b0101; l.notesOutMask = 0b1000   // CARD BACKS (2026-10-28): the outputs each part leaves on
         l.riffOutTranspose = -3; l.notesOutTranspose = 5   // CARD BACKS v2 (2026-10-28): each part's out-transpose, in scale steps
+        l.chordDelay = 3; l.chordSlip = 15   // CHORD CANON (2026-10-31): the lane's chord DELAY and SLIP
         var order = EuclideousLitOrder(); for p in [0, 2, 4, 6, 8, 9] { order.append(p) }; l.setLitOrder(order)   // = the litNotes / topLit / top2Lit set above
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {

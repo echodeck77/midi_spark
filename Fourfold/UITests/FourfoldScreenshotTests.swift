@@ -123,6 +123,17 @@ final class FourfoldScreenshotTests: XCTestCase {
         attach("9-strip-8-back-on-rhythm")
     }
 
+    /// CHORD CANON (2026-10-31): the LISTEN tab's CANON row in landscape (the card is shorter there than in portrait) and the debug-only CANON ENTRY control on the settings sheet's CLOCK tab.
+    func testTheCanonRowAndTheEntrySetting() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()
+        Thread.sleep(forTimeInterval: 2)
+        func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
+        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Listen, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape")
+        step(app.buttons["Settings"]); step(app.buttons["CLOCK"]); Thread.sleep(forTimeInterval: 1); attach("10-canon-entry-clock-tab")
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     /// CARD BACKS (2026-10-28): the four lane cards on their BACK (the strip's MIX segment), playing, in every orientation — the picture the ferry's §14 acceptance is judged against — then with the riff routed to A and C and
     /// the notes part switched off (an unplugged jack, a part off with its invitation, the roll dimmed).
     /// POLY RIFF (2026-10-29): the MONO | POLY control and the sixteen-column grid — MONO first (the control in the boxes' row), then POLY seeded from it, then a few notes added, one stretched, one removed — in portrait and landscape.

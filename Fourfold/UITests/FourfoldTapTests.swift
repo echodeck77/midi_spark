@@ -227,6 +227,40 @@ final class FourfoldTapTests: XCTestCase {
         need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the RHYTHM tab again")
     }
 
+    /// CHORD CANON (2026-10-31): the CANON row under PITCH on the LISTEN tab — a lane's DELAY and SLIP step through the engine and back through undo; the UNIT is one value shared by all four rows (and undoable). The factory document's
+    /// source is KEY, so the row reports that it has no effect (it still edits). The value follows a tap a moment later (the edit goes through the document and back), so each check waits for it.
+    func testTheCanonRowStepsDelayAndSlipAndTheSharedUnit() {
+        let app = XCUIApplication.fresh()
+        app.els(prefix: "Listen, ").firstMatch.tap()
+        func waitValue(_ label: String, _ prefix: String, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
+            let end = Date().addingTimeInterval(4)
+            while !value(app.el(label)).hasPrefix(prefix) && Date() < end { Thread.sleep(forTimeInterval: 0.1) }
+            XCTAssertTrue(value(app.el(label)).hasPrefix(prefix), "\(what) — \(label) reads \"\(value(app.el(label)))\", wanted \"\(prefix)…\"", file: file, line: line)
+        }
+        func tapUp(_ label: String) { need(app.el(label), label).coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }   // the › zone is the stepper's right 30 pt
+        let delay = need(app.el("Canon delay, lane 1"), "lane 1's CANON DELAY stepper")
+        XCTAssertTrue(value(delay).hasPrefix("off"), "DELAY starts off — \(value(delay))")
+        XCTAssertTrue(value(delay).contains("CHORDS is off"), "…and says why it has no effect on the KEY source — \(value(delay))")
+        tapUp("Canon delay, lane 1"); waitValue("Canon delay, lane 1", "1 pass", "› steps DELAY to 1 pass")
+        tapUp("Canon slip, lane 1"); waitValue("Canon slip, lane 1", "5 percent", "› steps SLIP to 5 percent")
+        Thread.sleep(forTimeInterval: 0.7)   // the two edits are two steps (a pause longer than the gesture gap)
+        app.buttons["Undo"].tap(); app.buttons["Undo"].tap()
+        waitValue("Canon delay, lane 1", "off", "two undos put DELAY back")
+        app.buttons["Redo"].tap()
+        waitValue("Canon delay, lane 1", "1 pass", "a redo brings it back")
+        // the unit is shared: one tap on lane 1's UNIT moves all four rows
+        let units = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Canon unit, all lanes"))
+        XCTAssertEqual(units.count, 4, "every lane's card carries the shared UNIT stepper")
+        XCTAssertEqual(value(units.element(boundBy: 0)), "passes")
+        units.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        waitValue("Canon unit, all lanes", "bars", "› moves the UNIT to bars")
+        for i in 0..<4 { XCTAssertEqual(value(units.element(boundBy: i)), "bars", "lane \(i + 1)'s UNIT followed") }
+        waitValue("Canon delay, lane 1", "1 bar", "the lane's DELAY is now counted in bars")
+        app.buttons["Undo"].tap()
+        waitValue("Canon unit, all lanes", "passes", "undo puts the unit back")
+        XCTAssertEqual(value(units.element(boundBy: 2)), "passes", "…on every row")
+    }
+
     /// CARD BACKS §8: the MIX tab is gone — the lower-right panel is LANES | FX, and opens on LANES.
     func testTheSequencerPanelSwitchesBetweenLanesAndFx() {
         let app = XCUIApplication.fresh()

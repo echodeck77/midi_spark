@@ -203,6 +203,26 @@ enum FxCountsMode: String, Codable, CaseIterable {
         self = FxCountsMode(rawValue: raw) ?? .hits
     }
 }
+// CHORD CANON ferry (2026-10-31): the unit a lane's CANON DELAY is counted in — one page-level choice shared by all four lanes, each lane's unit worth its OWN length (a 5-step and a 16-step lane
+// phase against each other under PASSES). Tolerant decode: an unknown stored value reads as PASSES.
+enum CanonUnit: String, Codable, CaseIterable {
+    case steps = "STEPS", passes = "PASSES", bars = "BARS"
+    init(from decoder: Decoder) throws {
+        let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
+        self = CanonUnit(rawValue: raw) ?? .passes
+    }
+}
+// CHORD CANON ferry: ENTRY is a DEV-build-only rig setting (judged by ear) — what a delayed lane does before its delay has run out from the host's beat 0 (its delayed beat is still before the song):
+// WRAP = it reads the progression as if the loop had been running (the end of the cycle), START ON CHORD 1 = it holds the first chord until its turn, WAIT = no chord yet (the chord layer is a rest, so the lane's
+// chord-fed notes are silent) until the delay has run out. `canonEntryResolved` forces WRAP in release builds whatever is stored. Tolerant decode: unknown reads as WRAP.
+enum CanonEntry: String, Codable, CaseIterable {
+    case wrap = "WRAP", firstChord = "CHORD 1", wait = "WAIT"
+    init(from decoder: Decoder) throws {
+        let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
+        self = CanonEntry(rawValue: raw) ?? .wrap
+    }
+}
+
 // FOURFOLD SETTINGS, CLOCK tab (2026-10-15 ferry, "Fourfold settings" §5.1).
 enum EuclideousHostStopBehavior: String, Codable, CaseIterable { case keepPlaying, stop }
 
@@ -688,6 +708,18 @@ struct EuclidLine: Codable, Equatable {
     var notesOutTranspose: Int? = nil
     var riffOutTransposeResolved: Int { max(-7, min(7, riffOutTranspose ?? 0)) }
     var notesOutTransposeResolved: Int { max(-7, min(7, notesOutTranspose ?? 0)) }
+    // CHORD CANON ferry (Paul 2026-10-31) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. The lane reads the CHORDS layer of the shared pool `chordDelay` units (the page's `canonUnit`) BEHIND the
+    // host beat, a pure time-shift of the chord derivation (nothing is remembered); `chordSlip` is the percent chance, per chord change, that the lane misses it and holds the previous chord for one more chord step.
+    // Both nil ⇒ 0, byte-identical to a document that never had them. They shape ONLY the CHORDS layer (MIDI IN, PICK and KEY are not functions of the beat) and are not lane-lock fields.
+    var chordDelay: Int? = nil
+    var chordSlip: Int? = nil
+    var chordDelayResolved: Int { max(0, min(euclideousCanonMaxDelay, chordDelay ?? 0)) }
+    var chordSlipResolved: Int { EuclidLine.legalCanonSlip(chordSlip ?? 0) }
+    /// Nearest multiple of 5 in 0…50 (7 -> 5, 8 -> 10, 99 -> 50, -3 -> 0).
+    static func legalCanonSlip(_ v: Int) -> Int {
+        let c = max(0, min(euclideousCanonSlipMax, v))
+        return ((c + euclideousCanonSlipStep / 2) / euclideousCanonSlipStep) * euclideousCanonSlipStep
+    }
     /// `offsetFraction` as the engine reads it: 0 for nil / non-finite, else clamped into 0..<1.
     var offsetFractionResolved: Double {
         guard let f = offsetFraction, f.isFinite else { return 0 }
@@ -1013,6 +1045,9 @@ extension EuclidLine {
         // CARD BACKS v2: tolerant (`try?`), clamped at decode.
         riffOutTranspose = (try? c.decodeIfPresent(Int.self, forKey: .riffOutTranspose)).flatMap { $0 }.map { max(-7, min(7, $0)) }
         notesOutTranspose = (try? c.decodeIfPresent(Int.self, forKey: .notesOutTranspose)).flatMap { $0 }.map { max(-7, min(7, $0)) }
+        // CHORD CANON: tolerant (`try?`), clamped at decode.
+        chordDelay = (try? c.decodeIfPresent(Int.self, forKey: .chordDelay)).flatMap { $0 }.map { max(0, min(euclideousCanonMaxDelay, $0)) }
+        chordSlip = (try? c.decodeIfPresent(Int.self, forKey: .chordSlip)).flatMap { $0 }.map { EuclidLine.legalCanonSlip($0) }
         // NOTES TAB ferry (2026-10-19, §5): tolerant by construction (`try?`): a wrong-typed value reads as missing, never a whole-session reset.
         let rawWhen = (try? c.decodeIfPresent(UInt8.self, forKey: .notesWhen)).flatMap { $0 }
         notesChance = (try? c.decodeIfPresent(Int.self, forKey: .notesChance)).flatMap { $0 }.map(EuclidLine.nearestLegalNotesChance)
@@ -3125,6 +3160,18 @@ struct PluginState: Codable, Equatable {
         return .allow
         #endif
     }
+    // CHORD CANON ferry (2026-10-31): the page-level DELAY unit (nil ⇒ PASSES; part of the music, so it saves and loads with a preset) and the dev-only ENTRY rig setting (nil ⇒ WRAP; kept across a preset load, not
+    // undoable; `canonEntryResolved` is the ONLY reader — the stored value under DEBUG, WRAP in release).
+    var euclideousCanonUnit: CanonUnit? = nil
+    var canonUnitResolved: CanonUnit { euclideousCanonUnit ?? .passes }
+    var euclideousCanonEntry: CanonEntry? = nil
+    var canonEntryResolved: CanonEntry {
+        #if DEBUG
+        return euclideousCanonEntry ?? .wrap
+        #else
+        return .wrap
+        #endif
+    }
     // RATCH tab ferry §7.3: FX COUNTS, stored exactly where CLASHES is (the encoded document, but a rig setting: not undoable, kept across a preset load). nil ⇒ HITS; release builds always count HITS.
     var euclideousFxCounts: FxCountsMode? = nil
     var fxCountsResolved: FxCountsMode {
@@ -3635,6 +3682,7 @@ struct EuclideousUndoSnapshot: Equatable {
     var emitterRatchets: EmitterRatchetSet = EmitterRatchetSet()   // EMITTER RATCHET (2026-10-28): the four output ratchets — undoable page-level state; all-default restores "nothing stored" (nil)
     var riffPoly: Bool = false                   // POLY RIFF (2026-10-29): the MONO | POLY mode — undoable page-level state (a step of its own)
     var polyRiff: EuclideousPolyRiff? = nil      // …and the POLY riff itself (nil = nothing stored); one drag is one step
+    var canonUnit: CanonUnit = .passes           // CHORD CANON (2026-10-31): the DELAY unit — undoable page-level state (the lanes' DELAY / SLIP ride in `lines`); PASSES restores "nil"
     /// UNDO-5 (2026-10-25): lanes' PLAY/STOP are never undoable (§7.3) — EXCEPT across a preset load, which is itself a step and replaces them: only such a step carries the flags it must put back (`nil` = every other step, which
     /// keeps the live flags as always). Captured by `loadPreset` / `loadFactoryPreset`, and re-stamped on the opposite side when that step is undone or redone so ↶ and ↷ both land on the right flags.
     var presetPlay: [EuclideousLanePlay]? = nil

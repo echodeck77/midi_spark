@@ -225,7 +225,8 @@ extension Host {
         func step(_ i: Int) {
             if i == docs.count {
                 fputs("GOLDEN POLY ALL: documents=\(docs.count) events=\(total) hash=\(String(all, radix: 16))\n", stderr)
-                exit(0)
+                goldenCanon()
+                return
             }
             let (name, edit) = docs[i]
             playing = false; for _ in 0..<8 { render(480) }
@@ -248,6 +249,64 @@ extension Host {
     }
 }
 
+/// CHORD CANON (2026-10-31): a CHORDS progression that changes twice a bar through colours and the four borrowed chords, stacked ABOVE the held MIDI chord (so the delayed CHORDS layer meets the unshifted MIDI layer), and four
+/// lanes with their own DELAY and SLIP. `shapes` gives the lanes the 5 · 7 · 11 · 16 step lengths (and a PING-PONG and a BKW) so the unit's own-lap rule is exercised; otherwise the lanes share 9/16 · 5/12 · 7/16 · 11/16.
+func canonDocument(_ s: inout PluginState, unit: CanonUnit, delays: [Int], slips: [Int], shapes: Bool = false) {
+    s.euclideousSourcePlan = SourcePlan(midiOn: true, chordsOn: true, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
+    var cfg = s.euclideousChordSetsResolved[s.activeChordSetResolved]
+    cfg.chordsSteps = 16
+    cfg.chordsDegrees = [0, 9, 3, 11, 4, 8, 10, 5, 0, 2, 7, 6, 1, 8, 9, 10]
+    cfg.chordsColours = [1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6, 0, 1, 2]
+    cfg.chordsRate = .r1_2
+    s.setEuclideousChordSet(s.activeChordSetResolved, cfg)
+    s.euclideousCanonUnit = unit
+    var ls = s.euclideousLinesResolved
+    for i in 0..<4 {
+        ls[i].pulses = (shapes ? [3, 4, 6, 9] : [9, 5, 7, 11])[i]; ls[i].steps = (shapes ? [5, 7, 11, 16] : [16, 12, 16, 16])[i]
+        if shapes { ls[i].direction = [.fwd, .pingpong, .bkw, .fwd][i] }
+        ls[i].riffOn = true
+        ls[i].chordDelay = delays[i] == 0 ? nil : delays[i]; ls[i].chordSlip = slips[i] == 0 ? nil : slips[i]
+    }
+    s.euclideousLines = ls
+}
+
+extension Host {
+    /// The CHORD CANON documents, appended AFTER `GOLDEN POLY ALL` so every line above stays the oracle for "nothing moved when no lane is delayed". ENTRY is left at its default (WRAP) — a dev setting a Release build ignores.
+    func goldenCanon() {
+        let docs: [(String, (inout PluginState) -> Void)] = [
+            ("CANON passes", { s in canonDocument(&s, unit: .passes, delays: [0, 1, 2, 3], slips: [0, 0, 0, 0]) }),
+            ("CANON bars and slip", { s in canonDocument(&s, unit: .bars, delays: [0, 1, 2, 4], slips: [0, 10, 20, 30]) }),
+            ("CANON steps", { s in canonDocument(&s, unit: .steps, delays: [0, 3, 5, 8], slips: [5, 0, 15, 50]) }),
+            ("CANON lanes of 5 7 11 16", { s in canonDocument(&s, unit: .passes, delays: [1, 1, 1, 1], slips: [0, 10, 0, 20], shapes: true) }),
+        ]
+        timer?.invalidate()
+        var all: UInt64 = 0xcbf29ce484222325, total = 0
+        func step(_ i: Int) {
+            if i == docs.count {
+                fputs("GOLDEN CANON ALL: documents=\(docs.count) events=\(total) hash=\(String(all, radix: 16))\n", stderr)
+                exit(0)
+            }
+            let (name, edit) = docs[i]
+            playing = false; for _ in 0..<8 { render(480) }
+            au.resetToFreshInit(); au.editDocument(edit)
+            publishDocument()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
+                for _ in 0..<8 { render(480) }
+                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                if CommandLine.arguments.contains("--dump") { dumpName = "CANON: " + name }
+                hold([60, 64, 67]); playing = true
+                for _ in 0..<6400 { render(480) }
+                playing = false; for _ in 0..<8 { render(480) }
+                release([60, 64, 67])
+                fputs("GOLDEN CANON \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
+                all = (all ^ hash) &* 0x100000001b3; total += eventCount
+                DispatchQueue.main.async { step(i + 1) }
+            }
+        }
+        step(0)
+    }
+}
+
 extension Host {
     /// The allocation audit: warm the default document unwatched (one-time lazy initialisation is not what this measures), then for the default document and every factory preset render 32 bars under a held chord with the allocation
     /// watch on around the render block only — including the transport-start edge and the stop edge — and print what the render thread allocated.
@@ -257,7 +316,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -304,6 +363,9 @@ extension Host {
                         $0.euclideousLines = ls
                     }
                 }
+                if name.contains("CANON") {   // CHORD CANON (2026-10-31): every lane delayed and slipping (the per-lane pool re-merge on every chord step, the slip roll), the 5 · 7 · 11 · 16 lap lengths in the second run — on top of the HOCKET fan-out there
+                    au.editDocument { canonDocument(&$0, unit: name.contains("shapes") ? .passes : .bars, delays: [1, 2, 3, 8], slips: [0, 10, 25, 50], shapes: name.contains("shapes")) }
+                }
                 if name.contains("ROUTED") {   // CARD BACKS (2026-10-28): the routing worst case — every riff part on all four outputs, the notes parts on A+C or all four, lane 4's notes routed nowhere (drawn, never sent); the roll ring takes a record per strike
                     au.editDocument { var ls = $0.euclideousLinesResolved; for i in 0..<4 { ls[i].riffOutMask = 0x0F; ls[i].notesOutMask = i == 3 ? 0 : (i % 2 == 0 ? 0b0101 : 0x0F) }; $0.euclideousLines = ls }
                 }
@@ -328,7 +390,7 @@ extension Host {
                 for _ in 0..<8 { render(480) }
                 baseSample = sampleTime
                 hold([60, 64, 67]); playing = true
-                if i == 0 || name.contains("HOCKET") || name.contains("ROUTED") { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // an unwatched warm-up lap: Swift's one-time generic-metadata instantiation (the first use of each type) is not what this measures; HOCKET's types are first touched by its own scenarios   // the unwatched warm-up lap
+                if i == 0 || name.contains("HOCKET") || name.contains("ROUTED") || name.contains("CANON") { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // an unwatched warm-up lap: Swift's one-time generic-metadata instantiation (the first use of each type) is not what this measures; HOCKET's types are first touched by its own scenarios   // the unwatched warm-up lap
                 eventCount = 0; AllocWatch.reset(); watching = true
                 for w in 0..<6400 {
                     if name.contains("REPLAY") {   // a pass replays from the middle of the run to three-quarters of it: the replay itself, the live engine running silently underneath, and the hand-back

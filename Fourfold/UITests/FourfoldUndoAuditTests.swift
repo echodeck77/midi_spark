@@ -23,7 +23,7 @@ struct UndoProbeReading {
     var voices: Int { Int(kv["voices"] ?? "") ?? -1 }
     var lanes: String { kv["lanes"] ?? "?" }
     var play: String { kv["play"] ?? "?" }
-    static let partNames = ["lines", "riff", "resetSpanBars", "keyRoot", "keyType", "chordSets", "activeChordSet", "noteSource", "sourcePlan", "riffs", "activeRiff", "lanesSeq", "riffsSeq", "fx", "holdLatchMode", "hocketRules", "emitterRatchets", "riffPoly", "polyRiff"]
+    static let partNames = ["lines", "riff", "resetSpanBars", "keyRoot", "keyType", "chordSets", "activeChordSet", "noteSource", "sourcePlan", "riffs", "activeRiff", "lanesSeq", "riffsSeq", "fx", "holdLatchMode", "hocketRules", "emitterRatchets", "riffPoly", "polyRiff", "canonUnit"]
     var parts: [String] { (kv["parts"] ?? "").split(separator: ",").map(String.init) }
     /// Which snapshot fields differ from `other` — so a failing hash says WHAT is different.
     func differingParts(from other: UndoProbeReading) -> [String] { zip(parts, other.parts).enumerated().filter { $0.element.0 != $0.element.1 }.map { Self.partNames[$0.offset] } }

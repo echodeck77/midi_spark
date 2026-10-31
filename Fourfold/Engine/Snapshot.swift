@@ -232,6 +232,10 @@ struct SnapParams {
     // `.euclid` stacked-pool build). Defaults keep every non-Euclideous cell and a pre-thread build inert.
     var euclideousSourcePlan: SourcePlan = SourcePlan()
     var euclideousClashPolicy: ClashPolicy = .allow
+    // CHORD CANON ferry (2026-10-31): the page's DELAY unit and the dev-only ENTRY setting (`doc.canonUnitResolved` / `doc.canonEntryResolved`). Only the Euclideous row's lanes read them, and only a lane whose
+    // `chordDelay` / `chordSlip` is above 0 (Router: `canonLane`); the defaults keep every other cell and every undelayed lane on the shared pool.
+    var canonUnit: CanonUnit = .passes
+    var canonEntry: CanonEntry = .wrap
     // HOLD/LATCH (Paul 2026-10-20): nil = off (plain live MIDI, today's behaviour). Only consulted by
     // Router.swift's `.euclid` `case .midi:` branch — inert for CHORDS/KEY and every non-Euclideous `.euclid` cell.
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil
