@@ -380,6 +380,7 @@ final class Kernel {
         // at the WRONG length under half/double speed and the MIDI comes out garbled (Paul 2026-08-24).
         let reelCycleBeats = Double(Snap.cols) * box.stepBeats
         let reelBps = sampleRate > 0 ? tempo / 60.0 / sampleRate : 0
+        renderWindowBeats = Double(frameCount) * reelBps   // this block's beat span — the FREE-RUN clock's per-window advance (Kernel.swift ~438). The Step-4 fork (2026-10-24) dropped this assignment with the reel-capture code it sat beside (8x8 keeps it at AUExtension/Kernel.swift:920), leaving `renderWindowBeats` stuck at 0, which FROZE free-run (KEEP PLAYING while the host is stopped) at beat 0. Restored 2026-10-31.
         let reelWinStart = Int64(timestamp.pointee.mSampleTime)
         if reelToggle {                                            // a touch: off→armed · armed→off · replaying→off(+flush)
             reelToggle = false
