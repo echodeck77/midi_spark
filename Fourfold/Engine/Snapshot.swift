@@ -236,6 +236,11 @@ struct SnapParams {
     // `chordDelay` / `chordSlip` is above 0 (Router: `canonLane`); the defaults keep every other cell and every undelayed lane on the shared pool.
     var canonUnit: CanonUnit = .passes
     var canonEntry: CanonEntry = .wrap
+    // SAME-NOTE GAP GUARD (2026-10-31): when the NEXT riff hit on a lane is the same written rank (⇒ the same pitch),
+    // shorten this note's tail so a host that delivers MIDI at buffer granularity (AUM at a large buffer) cannot merge
+    // the note-off with the identical next note-on — which downstream reads as a clipped or stuck note. Shorten only,
+    // never a stuck note. Default ON; the settings sheet toggles it. Only the Euclideous row's MONO riff reads it.
+    var euclideousSameNoteGuard: Bool = true
     // HOLD/LATCH (Paul 2026-10-20): nil = off (plain live MIDI, today's behaviour). Only consulted by
     // Router.swift's `.euclid` `case .midi:` branch — inert for CHORDS/KEY and every non-Euclideous `.euclid` cell.
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil

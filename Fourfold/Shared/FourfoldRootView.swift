@@ -90,6 +90,7 @@ struct FourfoldRootView: View {
     var euclideousHoldOverrides: EuclideousPendingRollSlots { get { m.euclideousHoldOverrides } nonmutating set { m.euclideousHoldOverrides = newValue } }
     var euclideousMidiInChannelMask: UInt16 { get { m.euclideousMidiInChannelMask } nonmutating set { m.euclideousMidiInChannelMask = newValue } }
     var euclideousHostStopBehavior: EuclideousHostStopBehavior { get { m.euclideousHostStopBehavior } nonmutating set { m.euclideousHostStopBehavior = newValue } }
+    var euclideousSameNoteGuard: Bool { get { m.euclideousSameNoteGuard } nonmutating set { m.euclideousSameNoteGuard = newValue } }
     // CHORDS GRID ferry (2026-10-24): 4 independently-stored progressions replace the single `euclideousChords`
     // grid above. `activeChordSet` is BOTH which tab plays AND which tab the popup edits — Paul, 2026-10-24:
     // "I only want the chords tab to be switched manually when a user clicks it" (no queue-to-next-boundary).
@@ -478,6 +479,12 @@ struct FourfoldRootView: View {
                                                    au?.editDocument { $0.euclideousHostStopBehavior = v }
                                                    publish()
                                                },
+                                               sameNoteGuard: euclideousSameNoteGuard,
+                                               onSetSameNoteGuard: { v in
+                                                   euclideousSameNoteGuard = v
+                                                   au?.editDocument { $0.euclideousSameNoteGuard = v }
+                                                   publish()
+                                               },
                                                onSetPulseLevel: { pulseLevel = max(0, min(2, $0)) },   // PULSE §7.1: a device preference (@AppStorage), not the document — no undo, no publish
                                                onOpenPresets: openPresets,
                                                reelRecording: d.playing && reelState != 2,   // the 8×8 header's own rule for the tape's red
@@ -576,6 +583,7 @@ struct FourfoldRootView: View {
         au.setEuclideousSoloLive(euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld))   // the live word follows the document (a restore / a preset load)
         euclideousMidiInChannelMask = au.uiEuclideousMidiInChannelMask()
         euclideousHostStopBehavior = au.uiEuclideousHostStopBehavior()
+        euclideousSameNoteGuard = au.uiEuclideousSameNoteGuard()
         ignoreAllNotesOff = au.uiIgnoreAllNotesOff()
         clashPolicy = au.uiClashPolicy()
         fxCounts = au.uiFxCounts()
@@ -903,6 +911,7 @@ struct FourfoldRootView: View {
         let esol = au.uiEuclideousSoloMask(); if esol != euclideousSoloMask { euclideousSoloMask = esol; au.setEuclideousSoloLive(euclideousSoloEffective(latched: esol, held: euclideousSoloHeld)); euclideousResynced = true }   // LANE SOLO: a preset load / session restore replaces it
         let emicm = au.uiEuclideousMidiInChannelMask(); if emicm != euclideousMidiInChannelMask { euclideousMidiInChannelMask = emicm; euclideousResynced = true }
         let ehsb = au.uiEuclideousHostStopBehavior(); if ehsb != euclideousHostStopBehavior { euclideousHostStopBehavior = ehsb; euclideousResynced = true }
+        let esng = au.uiEuclideousSameNoteGuard(); if esng != euclideousSameNoteGuard { euclideousSameNoteGuard = esng; euclideousResynced = true }
         let echd = au.uiEuclideousChordSets(); if echd != euclideousChordSets { euclideousChordSets = echd; euclideousResynced = true }
         let eacs = au.uiActiveChordSet(); if eacs != euclideousActiveChordSet { euclideousActiveChordSet = eacs; euclideousResynced = true }
         let ens = au.uiEuclideousNoteSource(); if ens != euclideousNoteSource { euclideousNoteSource = ens; euclideousResynced = true }
@@ -1057,6 +1066,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots()
     @Published var euclideousMidiInChannelMask: UInt16 = 0xFFFF
     @Published var euclideousHostStopBehavior: EuclideousHostStopBehavior = .keepPlaying
+    @Published var euclideousSameNoteGuard: Bool = true   // SAME-NOTE GAP GUARD (2026-10-31): default ON
     @Published var euclideousChordSets: [MachineParams] = [MachineParams(), MachineParams(), MachineParams(), MachineParams()]
     @Published var euclideousActiveChordSet: Int = 0
 }

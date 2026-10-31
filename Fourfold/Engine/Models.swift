@@ -3166,6 +3166,11 @@ struct PluginState: Codable, Equatable {
     // undoable; `canonEntryResolved` is the ONLY reader — the stored value under DEBUG, WRAP in release).
     var euclideousCanonUnit: CanonUnit? = nil
     var canonUnitResolved: CanonUnit { euclideousCanonUnit ?? .passes }
+    // SAME-NOTE GAP GUARD (2026-10-31): nil ⇒ ON (default). Shortens a riff note whose very next hit repeats the same
+    // pitch, so a host delivering MIDI at buffer granularity can't merge the off with the identical next on (a clipped
+    // or stuck note downstream). The settings sheet toggles it. See SnapParams.euclideousSameNoteGuard.
+    var euclideousSameNoteGuard: Bool? = nil
+    var euclideousSameNoteGuardResolved: Bool { euclideousSameNoteGuard ?? true }
     var euclideousCanonEntry: CanonEntry? = nil
     var canonEntryResolved: CanonEntry {
         #if DEBUG

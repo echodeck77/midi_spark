@@ -3272,6 +3272,22 @@ final class Router {
                                                                             passes: p.euclideousLooperPasses, startRanks: p.euclideousLooperStartRanks,
                                                                             events: p.euclideousLooperEvents, beatsPerBar: beatsPerBar)
                             } }
+                            // SAME-NOTE GAP GUARD (2026-10-31): when the NEXT riff hit reads the SAME written rank as this one (⇒ the same pitch — INVERT / TRANSPOSE / octave / out-transpose all apply equally to both, so
+                            // equal written ranks resolve to equal pitches), cap this riff note's gate so the off and the identical next on can never land in ONE host delivery buffer (AUM at a large buffer merges them → a
+                            // clipped or stuck note downstream). `euclideousRiffColumn` is the SAME walk function the strike uses, so the one-hit lookahead can't drift from the real walk. MONO riff only (v1); SHORTEN-only, so
+                            // it can never strand a note (invariant 4). A rest next (rank 0) never matches, so TIE/SKIP rests don't trigger it; under EVERY > 1 two consecutive hits read the same column — which IS the collision.
+                            var sameNoteRiffGateCap = 1.0        // the riff gate, scaled so the off clears the identical next on (MONO only — see the POLY note at the ring site)
+                            if isEuclideousRow, p.euclideousSameNoteGuard, !polyOn, nextHitGapBeats > 1e-9 {
+                                let curRank = (playedStep >= 0 && playedStep < ranks.count) ? ranks[playedStep] : 0
+                                if curRank >= 1 {
+                                    let nextStep = euclideousRiffColumn(ordinal: advOrd &+ 1, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
+                                    let nextRank = (nextStep >= 0 && nextStep < ranks.count) ? ranks[nextStep] : 0
+                                    if nextRank == curRank {
+                                        let gapBeats = euclideousSameNoteGuardGapBeats(windowBeats: windowBeats, nextHitGapBeats: nextHitGapBeats, tempo: tempo)
+                                        if gapBeats > 0 { sameNoteRiffGateCap = max(0, 1 - gapBeats / nextHitGapBeats) }
+                                    }
+                                }
+                            }
                             // NOTES TAB (2026-10-19, §6.7): a lit note's per-rank octave shift no longer sounds — the closure that read it is gone. `notesVel` below is the notes layer's own
                             // base velocity; the riff note keeps the lane's plain `velocityAbsolute` untouched.
                             let notesVel = UInt8(max(1, min(127, notesVelocity)))   // MIX TAB: the notes layer's OWN velocity (resolved — nil ⇒ VEL + the legacy offset — at the call site)
@@ -3477,12 +3493,13 @@ final class Router {
                                         if rank >= 1, let note0Raw = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
                                             let note0 = outShift(note0Raw, notes: false)
                                             let len = p.polyRiff.triggerLength(col: playedStep, rank: rk, polyTrig)
-                                            let ringBeats = riffAdvanceStep
+                                            var ringBeats = riffAdvanceStep
                                                 ? euclideousPolyRingBeatsStep(len: len, every: riffAdvanceEvery, gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, sub: sub, minGateBeats: minGateBeats5ms,
                                                                               scan: len > 1 && !chains.melody.isFree
                                                                                   ? EuclideousPolyStepRestartScan(buf: euclidBuf, eN: eN, dir: eDir, cycleLen: cycleLen, tick: tick, chains: chains, legacySpanBeats: ladderSpanBeats) : nil)
                                                 : euclideousPolyRingFromTimes(hitsAhead: euclideousPolyHitsAhead(len: len, every: riffAdvanceEvery), gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, minGateBeats: minGateBeats5ms,
                                                                               times: polyHitTimes, found: scanFound, restartIndex: scanRestart)
+                                            // SAME-NOTE GAP GUARD is MONO-only (v1): POLY's own length model (`polyBeats` / the roll's prediction) is a separate derivation, so shortening a poly ring here would diverge from the LANES roll. POLY same-pitch repeats are left to the host-buffer fix; the seeded-POLY ≡ MONO invariant is tested with the guard OFF.
                                             let at = pitchCount
                                             addPitch(note0, vel: fxRiffVel(), gate: fxRiffGate())
                                             if pitchCount == at {   // folded onto a pitch this hit already strikes (a pool smaller than the ranks): the LONGER of the two rings stands
@@ -3590,7 +3607,9 @@ final class Router {
                                         let note0 = outShift(note0Raw, notes: false)   // CARD BACKS v2: the riff part's out-transpose
                                         hadRiffNote = true
                                         riffRank = rank; riffNote = note0
-                                        addPitch(note0, vel: fxRiffVel(), gate: fxRiffGate())   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
+                                        // SAME-NOTE GAP GUARD: cap the gate so the off clears the identical next on — but ONLY for a real re-strike. At gate 1.0 the same pitch is held as one immortal legato voice (no off between repeats, so nothing for a host to merge); capping it below 1.0 would wrongly turn the hold into a re-strike.
+                                        let rg0 = fxRiffGate()
+                                        addPitch(note0, vel: fxRiffVel(), gate: rg0 < 1.0 ? min(rg0, sameNoteRiffGateCap) : rg0)   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
                                         // WIPE TELEMETRY (ferry "riff-cell wipes" §2.2): mirrors the retired fork's
                                         // own wipeRank computation exactly — MIRROR re-applied to `invRank` (the
                                         // pre-TRANSPOSE value), "after INVERT, MIRROR and LEAP but before

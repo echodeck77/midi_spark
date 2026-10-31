@@ -32,6 +32,7 @@ final class PolyRiffRouterTests: XCTestCase {
         sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
         st.euclideousNoteSource = .midi; st.euclideousFX = fx
+        st.euclideousSameNoteGuard = false   // SAME-NOTE GAP GUARD (2026-10-31) is MONO-only and buffer-adaptive; these tests verify the POLY engine + the seeded-POLY ≡ MONO invariant, so they run WITHOUT the host-robustness layer (which SameNoteGuardTests covers)
         if on { st.riffPoly = true }
         st.polyRiff = poly
         return st

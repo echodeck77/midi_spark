@@ -863,6 +863,8 @@ struct EuclideousPage: View {
     let onAllNotesOff: () -> Void
     let hostStopBehavior: EuclideousHostStopBehavior
     let onSetHostStopBehavior: (EuclideousHostStopBehavior) -> Void
+    let sameNoteGuard: Bool
+    let onSetSameNoteGuard: (Bool) -> Void
     let onSetPulseLevel: (Int) -> Void   // PULSE §7.1: the settings sheet's STRIKE PULSE row (a device preference — `pulseLevel` above)
     let onOpenPresets: () -> Void   // (Paul 2026-10-11: "add a preset button on the euclidius page" — presets
                                      // were only reachable by leaving this page; opens the SAME browser overlay
@@ -1684,6 +1686,7 @@ struct EuclideousPage: View {
                         busChannels: busChannels, allOutputName: allOutputName, onSetBusChannel: onSetBusChannel,
                         onAllNotesOff: onAllNotesOff,
                         hostStopBehavior: hostStopBehavior, onSetHostStopBehavior: onSetHostStopBehavior, showsHostStopBehavior: showsHostStopBehavior,
+                        sameNoteGuard: sameNoteGuard, onSetSameNoteGuard: onSetSameNoteGuard,
                         pulseLevel: pulseLevel, onSetPulseLevel: onSetPulseLevel,
                         clashPolicy: clashPolicy, onSetClashPolicy: onSetClashPolicy,
                         fxCounts: fxCounts, onSetFxCounts: onSetFxCounts,

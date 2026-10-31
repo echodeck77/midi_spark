@@ -510,7 +510,7 @@ final class PortsStressTests: XCTestCase {
         XCTAssertGreaterThan(rollWireChecked, 600, "…and match the wire (\(rollWireChecked) note-ons)")
         XCTAssertEqual(fingerprint, Self.fuzzFingerprint, "CAPTURE fuzzFingerprint = \(fingerprint) — the 600 seeded sessions' message streams must be bit-identical with no hocket rule")
     }
-    private static let fuzzFingerprint: UInt64 = 13009198474520543722   // Sources panel v2: re-derived — the fuzz now randomises the v2 plan + PICK layer (the §1.3 remap of legacy plans + PICK changed the streams; invariants still hold)
+    private static let fuzzFingerprint: UInt64 = 13522893726867791650   // SAME-NOTE GAP GUARD (2026-10-31, default ON): re-derived — a riff note whose next hit repeats its pitch is shortened at large fuzz buffers; every stuck-note/orphan/leak invariant still holds (firstFail stayed nil over all 600 seeds). Prior: 13009198474520543722 (Sources panel v2)
     // The same fuzz with gate/notesGate left as generated (up to exactly 1.0 = legato), so the legato tracking runs on every port with every layer feature around it.
     func testFuzzRawGatesReachLegatoOnEveryPort() {
         var firstFail: String? = nil
@@ -522,7 +522,7 @@ final class PortsStressTests: XCTestCase {
         if let f = firstFail { XCTFail(f); return }
         XCTAssertEqual(fingerprint, Self.fuzzFingerprintRaw, "CAPTURE fuzzFingerprintRaw = \(fingerprint) — the 600 raw-gate sessions' message streams must be bit-identical with no hocket rule")
     }
-    private static let fuzzFingerprintRaw: UInt64 = 13499883941085834421   // Sources panel v2: re-derived (v2 plan + PICK layer in the fuzz)
+    private static let fuzzFingerprintRaw: UInt64 = 3418054771815735941   // SAME-NOTE GAP GUARD (2026-10-31, default ON): re-derived — raw gates reach legato (gate 1.0), which the guard leaves ALONE (a held same-pitch note has no off between repeats to merge); invariants held over all 600 raw-gate seeds. Prior: 13499883941085834421 (Sources panel v2)
 
     // CARD BACKS v2 (2026-10-28): out-transposes drawn at random AND changing mid-note — nothing strands, no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
     func testOutTransposeSessionsHoldEveryInvariant() {

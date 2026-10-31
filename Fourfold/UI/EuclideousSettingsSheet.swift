@@ -54,6 +54,11 @@ struct EuclideousSettingsSheet: View {
     /// false (the standalone Fourfold app, 2026-10-23): the app's own transport is the clock, so "when the host stops" has no meaning and the row is not shown.
     var showsHostStopBehavior: Bool = true
 
+    // SAME-NOTE GAP GUARD (2026-10-31): default ON. Shortens a riff note whose next hit repeats its pitch so a host that
+    // delivers MIDI at buffer granularity (AUM at a large buffer) can't merge the off with the identical next on.
+    let sameNoteGuard: Bool
+    let onSetSameNoteGuard: (Bool) -> Void
+
     // PULSE (ferry 2026-10-20, §7.1): a device-wide display preference — 0 OFF · 1 SUBTLE · 2 FULL — shown beside CLOCK's own row. Not in the document, no undo.
     let pulseLevel: Int
     let onSetPulseLevel: (Int) -> Void
@@ -379,6 +384,17 @@ struct EuclideousSettingsSheet: View {
                     }
                 }
             }
+            block(name: "SAME-NOTE GAP",
+                  description: "When a riff note is immediately followed by the same pitch, leave a tiny gap before the repeat so a host delivering MIDI in large buffers can't merge them into a clipped or stuck note. ON unless a host times finely.") {
+                segmented([("ON", 48), ("OFF", 48)], selected: sameNoteGuard ? 0 : 1) { i in
+                    onSetSameNoteGuard(i == 0)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Same-note gap")
+            .accessibilityValue(sameNoteGuard ? "on" : "off")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAdjustableAction { _ in onSetSameNoteGuard(!sameNoteGuard) }
             #if DEBUG
             // RATCH tab ferry (2026-10-28) §7: dev-only FX COUNTS — what an output's ratchet counts: HITS (the emitter hits that leave on the output) or STEPS (the striking lane's pattern step). No value, no description line.
             block(name: "FX COUNTS") {

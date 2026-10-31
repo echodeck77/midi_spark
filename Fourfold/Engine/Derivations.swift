@@ -3283,6 +3283,22 @@ func euclideousListenTabLayout(contentAreaH: CGFloat, rhythmPanelShown: Bool, pi
 }
 
 
+// MARK: - SAME-NOTE GAP GUARD (2026-10-31) — survive a host that delivers MIDI at buffer granularity
+//
+// When a riff hit repeats the SAME pitch as the very next hit, the note-off and the identical next note-on sit only a
+// gate-gap apart. A host that hands MIDI to its destinations at audio-buffer granularity (AUM at a large buffer) can
+// drop both into one buffer, so the receiver sees "on, off" back-to-back and clips the second note — or loses the off
+// and the first note hangs. This returns the minimum silent gap (in beats) to leave before such a repeat so the off and
+// the next on can never land in the same host buffer: ≈ 1.5 render windows (a window IS one host buffer), with a ~30 ms
+// fallback when the window length is unknown, and never more than HALF the gap to the next hit so the note stays musical.
+// It only ever SHORTENS a note (the caller caps the gate), so it can never leave a note open — invariant 4 holds.
+func euclideousSameNoteGuardGapBeats(windowBeats: Double, nextHitGapBeats: Double, tempo: Double) -> Double {
+    guard nextHitGapBeats > 0, tempo > 0 else { return 0 }
+    let fallback = 0.030 * (tempo / 60.0)                       // ~30 ms in beats, when the window length is unknown
+    let gap = windowBeats > 0 ? windowBeats * 1.5 : fallback
+    return max(0, min(gap, nextHitGapBeats * 0.5))              // ≤ half the gap: a same-pitch repeat keeps ≥ 50 % of its length
+}
+
 // MARK: - HIT TIMING (RHYTHM POLISH ferry, 2026-10-22, §5) — continuous OFFSET and TILT
 //
 // A hit's TIME inside a pass is its step plus a fraction of a step: OFFSET's fractional part shifts every hit later by that fraction (in the control's own sense — on the bar, to the right), and TILT, when the lane has

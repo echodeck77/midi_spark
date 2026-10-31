@@ -260,6 +260,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // FOURFOLD SETTINGS (2026-10-15 ferry): MIDI IN tab's channel mask + CLOCK tab's host-stop behaviour.
     func uiEuclideousMidiInChannelMask() -> UInt16 { document.euclideousMidiInChannelMaskResolved }
     func uiEuclideousHostStopBehavior() -> EuclideousHostStopBehavior { document.euclideousHostStopBehaviorResolved }
+    func uiEuclideousSameNoteGuard() -> Bool { document.euclideousSameNoteGuardResolved }   // SAME-NOTE GAP GUARD (2026-10-31)
     // CHORDS GRID ferry (2026-10-24): 4 independently-stored progressions + which one plays/is edited.
     func uiEuclideousChordSets() -> [MachineParams] { document.euclideousChordSetsResolved }
     func uiActiveChordSet() -> Int { document.activeChordSetResolved }
@@ -519,6 +520,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let keepClashPolicy = document.euclideousClashPolicy   // SOURCES STACK ferry (2026-10-26): a rig setting, kept across a preset load (§1.6)
         let keepFxCounts = document.euclideousFxCounts   // RATCH tab ferry (2026-10-28): rig setting, kept across a preset load (§7.3)
         let keepCanonEntry = document.euclideousCanonEntry   // CHORD CANON ferry (2026-10-31): rig setting, kept across a preset load
+        let keepSameNoteGuard = document.euclideousSameNoteGuard   // SAME-NOTE GAP GUARD (2026-10-31): rig setting, kept across a preset load
         editDocument {
             $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded()   // migrate is a no-op for v4 builders
             $0.euclideousMidiInChannelMask = keepMidiInMask
@@ -528,6 +530,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
             $0.euclideousClashPolicy = keepClashPolicy
             $0.euclideousFxCounts = keepFxCounts
             $0.euclideousCanonEntry = keepCanonEntry
+            $0.euclideousSameNoteGuard = keepSameNoteGuard
         }
         clearPendingBuild()   // K2: the new doc carries its own BUILD state — drop the outgoing session's stale pending
         currentPresetName = name
@@ -583,6 +586,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let keepClashPolicy = document.euclideousClashPolicy   // SOURCES STACK ferry (2026-10-26): rig setting (§1.6)
         let keepFxCounts = document.euclideousFxCounts   // RATCH tab ferry (2026-10-28): rig setting (§7.3)
         let keepCanonEntry = document.euclideousCanonEntry   // CHORD CANON ferry (2026-10-31): rig setting
+        let keepSameNoteGuard = document.euclideousSameNoteGuard   // SAME-NOTE GAP GUARD (2026-10-31): rig setting
         editDocument {                       // one undoable step
             $0 = doc
             $0.euclideousMidiInChannelMask = keepMidiInMask
@@ -592,6 +596,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
             $0.euclideousClashPolicy = keepClashPolicy
             $0.euclideousFxCounts = keepFxCounts
             $0.euclideousCanonEntry = keepCanonEntry
+            $0.euclideousSameNoteGuard = keepSameNoteGuard
         }
         clearPendingBuild()                  // K2: drop the outgoing session's stale BUILD pending (the preset carries its own)
         currentPresetName = PresetStore.sanitize(name)
