@@ -839,6 +839,17 @@ final class Router {
     // §2.9 status, published to the UI by `euclideousSourceStatus()` (read-and-copied on the main thread).
     private var euclideousStatusMidiNotes = [UInt8](repeating: 0, count: 8)
     private var canonMidiStatusScratch = [UInt8](repeating: 0, count: 8)   // CHORD CANON: a delayed lane's merge writes its MIDI-status bytes here, so it never clobbers the live merge's status
+    // CHORD CANON, all sources (2026-10-31): the history of the pool's live layers (MIDI IN, PICK, KEY) a delayed lane reads `d` beats back, on the ELAPSED clock (beats since the transport started — it keeps counting through a host loop
+    // or seek). The one piece of canon state; reset at a transport edge, a reset and a scene flush. See CanonHistory.swift.
+    private var canonHistory = EuclideousCanonHistory()
+    private var canonElapsedAccum = 0.0          // elapsed beats at the START of the next window (advanced once a playing window)
+    private var canonWinElapsed = 0.0            // …at the start of THIS window
+    private var canonMidiBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: EuclideousCanonHistory.midiCap)
+    private var canonPickBuf = [Int](repeating: 0, count: EuclideousCanonHistory.pickCap)
+    private var canonKeyBuf = [Int](repeating: 0, count: 12)
+    private var canonBufChord = Int.min          // what the shared pool buffer holds when `chordPoolStep` is the dirty key: a delayed lane's chord step …
+    private var canonBufEntry = Int64.min        // … and its history entry (-1 = none: waiting)
+    private func resetCanonClock() { canonElapsedAccum = 0; canonWinElapsed = 0; canonHistory.reset(); canonBufChord = .min; canonBufEntry = .min }
     private var euclideousStatusMidiCount = 0
     private var euclideousStatusMidiPlaying = false
     private var euclideousStatusChordsLit = false
@@ -1030,6 +1041,7 @@ final class Router {
         distinctSounding = 0
         wasPlaying = false
         resetEmitterRatchetOrigin()   // EMITTER RATCHET §2.5: a reset is a count origin
+        resetCanonClock()             // CHORD CANON: the elapsed clock and the history start over
         resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0 }
         prevEffColumn = -1
         prevBusEnabledMask = 0xFF
@@ -1913,6 +1925,7 @@ final class Router {
                 euclideousMaskStep[i] = -1   // the UI-pollable position resets alongside the ordinal it mirrors
             }
             for i in 0..<4 { nvHead[i] = 0; nvNew[i] = 0 }   // NOTE VIEW: a fresh play/stop clears any stale queued events, not just future ones (Paul 2026-10-10)
+            resetCanonClock()             // CHORD CANON: a run starts at elapsed 0 with an empty history (a held chord is the first entry of the first window)
             resetEmitterRatchetOrigin()   // EMITTER RATCHET §2.5: every lane's rhythm origin restarts together at a transport edge — the four counters go back to 0 (a lane's OWN restart, an edit to STEPS / HITS / OFFSET: no)
             euclideousHoldLatchPool.reset()   // HOLD/LATCH: a fresh play/stop drops any stale frozen/latched notes (Paul 2026-10-20)
             for i in euclideousHoldLatchPrevHeld.indices { euclideousHoldLatchPrevHeld[i] = false }   // no re-allocation on the render thread — mutate in place, matching every sibling reset above
@@ -1960,6 +1973,7 @@ final class Router {
             allNotesOff(atSample: renderSampleImmediate, out: out)
             prevEffColumn = -1
             resetEmitterRatchetOrigin()                  // EMITTER RATCHET §2.5: a session / preset load is a count origin
+            resetCanonClock()                            // CHORD CANON: …and a history origin (a loaded preset's lanes do not replay the old document's pool)
             clearEchoTails()                             // ECHO: scene-mortal — the old scene's tails die
             flushEuclideousLegato()   // MOD: the old scene's CC state resets on the switch
         }
@@ -2100,7 +2114,13 @@ final class Router {
         let euKeyActive = euPlan.keyOnR && euAllowed
         let euPickActive = euPlan.pickOnR && euAllowed && !(euPlan.pickNotes?.isEmpty ?? true)
         let euclideousGeneratedSourceActive = euChordsActive || euKeyActive || euPickActive
-        guard pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
+        // CHORD CANON, all sources: the elapsed clock advances once per playing window (before the early-out below, which must not stall it), and a row with a delayed lane keeps running with nothing held — a delayed lane
+        // still hears what was played `d` beats ago after the player lets go.
+        canonWinElapsed = canonElapsedAccum
+        if playing { canonElapsedAccum += Double(frameCount) * beatsPerSample }
+        var canonAnyLane = false
+        if let ls = euProc?.euclidLines { for L in ls where L.chordDelayResolved > 0 || L.chordSlipResolved > 0 { canonAnyLane = true; break } }
+        guard pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive || canonAnyLane else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
             // SOURCES STACK §2.9: nothing contributes this window (mergeStack won't run) — quiet the status so the UI
             // doesn't hold a stale light. MIDI may still read "playing" via the release grace even with nothing held.
@@ -2461,30 +2481,50 @@ final class Router {
                 guard Int((mm / chordPoolRateBeats).rounded(.down)) != chordPoolStep else { return }
                 mergeStack(atBeat: mm)
             }
-            // CHORD CANON (2026-10-31): a delayed lane's pool — the SAME merge as `mergeStack`, with the CHORDS layer read at the lane's own chord step (a rest while it is still waiting for its first chord), written into the
-            // same `globalSrcBuf` the lane's reads already use. A lane's ticks run back to back, so the buffer is re-keyed (`chordPoolStep`) whenever the step it needs differs from the one it holds, exactly as the live
-            // refresh does; it never touches the status the live merge publishes to the UI (the SOURCES panel shows the live pool). MIDI IN, PICK and KEY are the window's own layers, unshifted.
-            func mergeCanonStack(_ read: EuclideousCanonRead) {
-                chordPoolStep = read.waiting ? euclideousCanonWaitingKey : read.step
+            // CHORD CANON (2026-10-31, all sources): a delayed lane's pool — the SAME merge as `mergeStack`, but of the layers as they were `d` beats ago: MIDI IN / PICK / KEY from the history (`canonHistory`, the entry in force at elapsed
+            // beat e − d; the player's note-offs and a key change reach the lane `d` late), CHORDS from its closed form at host beat m − d (a rest while the lane is still waiting for its first chord, in which case every layer is
+            // empty and the lane is silent). Written into the same `globalSrcBuf` the lane's reads already use; the buffer is re-keyed (chord step, history entry) whenever the lane needs a different pool, and `chordPoolStep` is
+            // parked on the dirty key so the live refresh restores the live pool for the next undelayed lane. It never touches the status the live merge publishes to the UI (the SOURCES panel shows the live pool).
+            func mergeCanonStack(_ read: EuclideousCanonRead, entry: Int64) {
+                var midiN = 0, pickN = 0, keyN = 0
+                var playing = false
+                if !read.waiting && entry >= 0 {
+                    midiN = canonHistory.fillMidi(entry, into: &canonMidiBuf)
+                    playing = canonHistory.midiPlaying(entry)
+                    pickN = canonHistory.fillPick(entry, into: &canonPickBuf)
+                    let k = canonHistory.key(entry)
+                    keyN = euclideousCanonKeyNotes(root: k.root, mask: k.mask, into: &canonKeyBuf)
+                }
                 if read.waiting {
                     chordLayerCount = 0; chordLayerIsRest = true
-                } else {
+                } else if euPlan.chordsOnR {
                     chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: euclideousCanonStepBeat(step: read.step, rateBeats: chordPoolRateBeats), p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
                     chordLayerIsRest = chordLayerCount == 0
+                } else {
+                    chordLayerCount = 0; chordLayerIsRest = false
                 }
                 let st = euclideousBuildSourceStack(
                     into: &globalSrcBuf, cap: globalSrcBuf.count,
-                    midi: midiLayerBuf[0..<midiLayerCount], midiPlaying: euclideousStackMidiPlaying,
+                    midi: canonMidiBuf[0..<midiN], midiPlaying: playing,
                     chords: chordPoolScratch[0..<chordLayerCount], chordsIsRest: chordLayerIsRest,
-                    pick: pickLayerBuf[0..<pickLayerCount],
-                    key: keyLayerBuf[0..<keyLayerCount],
+                    pick: canonPickBuf[0..<pickN],
+                    key: canonKeyBuf[0..<keyN],
                     plan: euPlan, clash: p.euclideousClashPolicy, midiStatusOut: &canonMidiStatusScratch)
                 globalSrcCount = st.count
             }
             func refreshCanonStack(beat m: Double, delayBeats: Double, slip: Int, lane: Int) {
-                let read = euclideousCanonChordRead(beat: m, rateBeats: chordPoolRateBeats, delayBeats: delayBeats, slipPercent: slip, entry: p.canonEntry, lane: lane)
-                guard (read.waiting ? euclideousCanonWaitingKey : read.step) != chordPoolStep else { return }
-                mergeCanonStack(read)
+                let e = canonWinElapsed + (m - mWinStart)                       // elapsed beats at this tick
+                let read = euclideousCanonChordRead(beat: m, elapsed: e, rateBeats: chordPoolRateBeats, delayBeats: delayBeats, slipPercent: slip, entry: p.canonEntry, lane: lane)
+                var entry: Int64 = -1
+                if !read.waiting, let sq = canonHistory.seq(atOrBefore: e - delayBeats) {
+                    entry = sq
+                    // SLIP, for the live layers: a change the lane misses leaves it on the previous entry — the same stateless "one behind" as the chord step, rolled on the entry's own sequence number
+                    if slip > 0, sq > canonHistory.oldestSeq, euclideousCanonSlipRoll(lane: lane, step: Int(truncatingIfNeeded: sq) ^ 0x5BD1_E995) < slip { entry = sq - 1 }
+                }
+                let chordKey = read.waiting ? euclideousCanonWaitingKey : read.step
+                if chordPoolStep == euclideousCanonDirtyKey && canonBufChord == chordKey && canonBufEntry == entry { return }   // the buffer already holds exactly this pool
+                mergeCanonStack(read, entry: entry)
+                chordPoolStep = euclideousCanonDirtyKey; canonBufChord = chordKey; canonBufEntry = entry
             }
             // HOLD/LATCH (Paul 2026-10-20, fixed 2026-10-21): checked HERE, once per Euclideous-row tick, so leaving
             // and returning to a MIDI contribution both reset correctly. Must run BEFORE fillMidiLayer (which reads
@@ -2536,6 +2576,11 @@ final class Router {
                 fillPickLayer()
                 fillKeyLayer()
                 mergeStack(atBeat: mWinStart)
+                // CHORD CANON, all sources: while any lane is delayed, remember the live layers (an unchanged window records nothing) so a delayed lane can read them back.
+                if p.euclidLines.contains(where: { $0.chordDelayResolved > 0 || $0.chordSlipResolved > 0 }) {
+                    canonHistory.record(at: canonWinElapsed, midi: midiLayerBuf[0..<midiLayerCount], midiPlaying: euclideousStackMidiPlaying, pick: pickLayerBuf[0..<pickLayerCount],
+                                        keyRoot: p.euclideousChordKeyRoot, keyMask: euclideousCanonKeyMask(tones: p.euclideousChordKeyTones))
+                }
             }
             func laneCount(_ li: Int) -> Int { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcCount : srcCount }
             func laneNotes(_ li: Int) -> ArraySlice<(note: Int, vel: UInt8)> { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcBuf[0..<globalSrcCount] : srcNotes }
@@ -2731,7 +2776,7 @@ final class Router {
                 // CHORD CANON (2026-10-31): a lane with a DELAY and/or a SLIP reads the CHORDS layer through `refreshCanonStack` (below); every other lane — and every lane when CHORDS is off, where there is nothing to
                 // shift — keeps the shared pool and the live refresh, byte-identical to before. A unit is THIS lane's own: its step (`sub`), its lap (`cycleLen × sub`, the same lap the restart chains count), the host bar.
                 var canonLane = false, canonDelayBeats = 0.0, canonSlip = 0
-                if isEuclideousRow, euChordsActive, lineIndex < linesView.count {
+                if isEuclideousRow, lineIndex < linesView.count {
                     let cl = linesView[lineIndex]
                     let dl = cl.chordDelayResolved, sl = cl.chordSlipResolved
                     if dl > 0 || sl > 0 {
@@ -2833,8 +2878,11 @@ final class Router {
                                  let ph = euclideousLaneChainPhase(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains, legacySpanBeats: ladderSpanBeats)
                                  return ph.rawIsHit ? euclidTickDelay[ph.raw] : 0
                              }) { tick, mTickBeat, _, _ in
-                    if canonLane { refreshCanonStack(beat: mTickBeat, delayBeats: canonDelayBeats, slip: canonSlip, lane: lineIndex) }   // CHORD CANON: this lane's own chord step
-                    else { refreshStack(atBeat: mTickBeat) }   // SOURCES STACK: re-merge if the CHORDS column changed at THIS tick's beat (chord-contributing docs only)
+                    if canonLane { refreshCanonStack(beat: mTickBeat, delayBeats: canonDelayBeats, slip: canonSlip, lane: lineIndex) }   // CHORD CANON: this lane's own pool, `d` beats back
+                    else {
+                        if chordPoolStep == euclideousCanonDirtyKey { mergeStack(atBeat: mTickBeat + 1e-9) }   // a delayed lane left its own pool in the shared buffer: put the live one back before this lane reads it
+                        refreshStack(atBeat: mTickBeat)   // SOURCES STACK: re-merge if the CHORDS column changed at THIS tick's beat (chord-contributing docs only)
+                    }
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
                     // used by the GridUI comet-bar — a discrete hit/rest decision needs exact integer ticks, a

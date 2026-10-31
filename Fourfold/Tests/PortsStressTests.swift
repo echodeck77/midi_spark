@@ -168,12 +168,9 @@ final class PortsStressTests: XCTestCase {
                                           soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]
     }
-    /// CHORD CANON ferry (2026-10-31): the lanes' DELAY / SLIP, the page's UNIT and (a DEBUG rig setting) ENTRY drawn from their OWN stream — the CHORDS layer forced on (with a random progression) so the shift can reach the wire — and the scene
+    /// CHORD CANON ferry (2026-10-31): the lanes' DELAY / SLIP, the page's UNIT and (a DEBUG rig setting) ENTRY drawn from their OWN stream — a random CHORDS progression (the document's own random source plan stands: MIDI IN, CHORDS, PICK and KEY in any mix, with the session's notes pressed and released while the delays run) — and the scene
     /// rebuilt the way an edit publishes it. `off`: draw the very same values but store no DELAY / SLIP — the control run the "really changes the wire" test compares against.
     private func recanon(_ st: inout PluginState, _ k: inout SM64, off: Bool = false) {
-        var plan = st.sourcePlanResolved
-        plan.chordsOn = true
-        st.euclideousSourcePlan = plan
         var cfg = MachineParams()
         cfg.chordsSteps = Int.random(in: 2...16, using: &k)
         cfg.chordsDegrees = (0..<cfg.chordsSteps!).map { _ in Int.random(in: -1...11, using: &k) }

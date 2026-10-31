@@ -397,7 +397,7 @@ struct EuclideousSettingsSheet: View {
             // CHORD CANON ferry (2026-10-31): dev-only ENTRY — what a delayed lane does before its delay has run out from the host's beat 0. WRAP reads the end of the progression (as if the loop had been running); CHORD 1
             // holds the first chord until the lane's turn; WAIT plays no chord until then (a chord REST). Release builds always WRAP.
             block(name: "CANON ENTRY",
-                  description: "A delayed lane in the first beats of the song. WRAP: the end of the progression, as if it were already running. CHORD 1: the first chord, held until its turn. WAIT: no chord until its turn.") {
+                  description: "A delayed lane in the first beats of a run, before its delay has run out. WRAP: the end of the chord progression, as if it were already running. CHORD 1: what was sounding at the start, held until its turn. WAIT: silent until its turn.") {
                 segmented([("WRAP", 48), ("CHORD 1", 72), ("WAIT", 48)], selected: CanonEntry.allCases.firstIndex(of: canonEntry) ?? 0) { i in
                     onSetCanonEntry(CanonEntry.allCases[max(0, min(CanonEntry.allCases.count - 1, i))])
                 }

@@ -240,6 +240,7 @@ targets:
       - path: Fourfold/Engine/EmitterRatchetUI.swift
       - path: Fourfold/Engine/LaneViewStrip.swift   # TAB STRIP ferry (2026-10-29): the page's one tab, the strip's frames, glyph looks and VoiceOver strings (Foundation-only)
       - path: Fourfold/Engine/PolyRiff.swift   # POLY RIFF ferry (2026-10-29): the POLY riff model, its render-thread copy and the ring-length maths (Foundation-only)
+      - path: Fourfold/Engine/CanonHistory.swift   # CHORD CANON, all sources (2026-10-31): the history of the pool's live layers a delayed lane reads back (Foundation only)
       - path: Fourfold/Engine/PolyRiffEdit.swift   # POLY RIFF ferry slice 2: the drag maths and the POLY grid's frames (Foundation + CoreGraphics only)
       - path: Fourfold/Shared/FourfoldTransportClock.swift
     dependencies:

@@ -9974,17 +9974,18 @@ enum EmitterRatchetField: Int, CaseIterable {
     func reset(in r: EmitterRatchet) -> EmitterRatchet { setting(defaultValue, in: r) }
 }
 
-// MARK: - CHORD CANON (ferry 2026-10-31) — a lane reads the CHORDS layer behind the host beat
+// MARK: - CHORD CANON (ferry 2026-10-31) — a lane reads the pool behind the host beat
 //
-// A pure time-shift of the chord derivation, never a remembered history: the chord at host beat `m` is a closed form (`chordSeqNotesInto`: the column is `floor(m / rate)` through the progression, wrapped), so a lane DELAYED by
-// `d` beats simply asks that same function for beat `m − d`. If the player's progression is I–vi–IV–V a bar each, a lane two bars behind plays I–vi–IV–V two bars behind — a canon; the lanes never converge, because
-// the shift is applied to the time, not to "whatever the latest chord is". Order of operations: the host beat → this shift (and the SLIP below) → the shared pool merge (MIDI IN / PICK / KEY are not functions of the beat
-// and are NOT shifted) → the lane's own transforms (OCT, ROT, out-transpose …) → the grid. Nothing here allocates or remembers.
+// A delayed lane hears the pool as it was `d` beats ago. CHORDS is a closed form of the host beat (`chordSeqNotesInto`: the column is `floor(m / rate)` through the progression, wrapped), so the lane simply asks it for
+// beat `m − d` — no memory. MIDI IN, PICK and KEY are only known as they happen, so the Router remembers them in a fixed-size ring (`EuclideousCanonHistory`, on the ELAPSED beat clock) and the lane reads the entry in force
+// at elapsed `e − d`: the player's chord arrives `d` late, and so do the note-offs and a key change. Then the same stack merge as the live pool (`euclideousBuildSourceStack`, with the plan as it is now and the history's own
+// MIDI-PLAYING flag). If the player moves through four chords in four bars, a lane delayed by two bars plays the same four chords two bars behind — a canon; the lanes never converge, because the shift is applied to the
+// time, not to "whatever the latest chord is". Order of operations: host beat → shift / slip → pool merge → the lane's own transforms (OCT, ROT, out-transpose …) → grid.
 //
 //  · DELAY is `delay` UNITS of the page's `CanonUnit`, each unit worth THIS lane's own length: STEPS = its step, PASSES = its lap (`cycleLen × sub`, so a 5-step and a 16-step lane phase against each other), BARS = the host bar.
-//  · SLIP is the percent chance, per chord change, that the lane misses the change and holds the PREVIOUS chord for one more chord step, then follows again: the read step is `k − (roll(k) ? 1 : 0)`, a stateless function of
-//    the delayed step `k`, so it is replay-exact, can never lag more than one chord step, and a lane that missed one is back in step at the very next change unless it misses that one too.
-//  · ENTRY decides only the first `delay` beats of the host timeline (the delayed beat is still before beat 0): see `CanonEntry`.
+//  · SLIP is the percent chance, per change, that the lane misses it and stays on the PREVIOUS state for one more change, then follows again: for CHORDS the read step is `k − (roll(k) ? 1 : 0)`, for the history the read entry is
+//    `seq − (roll(seq) ? 1 : 0)` — stateless, replay-exact, never more than one change behind.
+//  · ENTRY decides only the first `d` elapsed beats of a run (nothing yet `d` beats back): see `CanonEntry`.
 
 /// DELAY is 0…8 units; SLIP is 0…50 % in steps of 5.
 let euclideousCanonMaxDelay = 8
@@ -9994,6 +9995,8 @@ let euclideousCanonSlipMax = 50
 let euclideousCanonSlipSalt: UInt64 = 0x4341_4E4F_4E53_4C50
 /// The pool cache key of a lane still WAITING for its first chord — no real chord step can equal it (`Int.min` itself is the "nothing built yet" key).
 let euclideousCanonWaitingKey = Int.min + 1
+/// What `chordPoolStep` holds while the shared pool buffer carries a DELAYED lane's pool: no live chord step equals it, so the live refresh always re-merges before the next undelayed lane reads the buffer.
+let euclideousCanonDirtyKey = Int.min + 2
 
 /// The SLIP roll, 0…99: `splitmix64Mix` of the lane and the DELAYED chord step `k` under the salt. Replay-exact: a pure function of (lane, k).
 @inline(__always) func euclideousCanonSlipRoll(lane: Int, step k: Int) -> Int {
@@ -10012,19 +10015,24 @@ func euclideousCanonDelayBeats(delay: Int, unit: CanonUnit, stepBeats: Double, l
     return Double(max(0, min(euclideousCanonMaxDelay, delay))) * u
 }
 
-/// What a delayed lane reads of the CHORDS layer at host beat `m`: the chord STEP (an index into the progression's own timeline, `floor(beat / rate)`; negative while the delayed beat is before beat 0 and the entry lets it
+/// What a delayed lane reads of the CHORDS layer at host beat `m` (the other layers come from the history, `EuclideousCanonHistory`): the chord STEP (an index into the progression's own timeline, `floor(beat / rate)`; negative while the delayed beat is before beat 0 and the entry lets it
 /// be) and whether the lane is still WAITING for its first chord (the chord layer is then a rest).
 struct EuclideousCanonRead: Equatable { var step: Int; var waiting: Bool }
-func euclideousCanonChordRead(beat m: Double, rateBeats: Double, delayBeats: Double, slipPercent: Int, entry: CanonEntry, lane: Int) -> EuclideousCanonRead {
+/// `e` is the ELAPSED beat — beats since the transport started — so "the delay has not run out yet" (`e < d`) means the first `d` beats of a run, wherever in the song it started (it is `m` itself when the run starts at beat 0).
+func euclideousCanonChordRead(beat m: Double, elapsed e: Double, rateBeats: Double, delayBeats: Double, slipPercent: Int, entry: CanonEntry, lane: Int) -> EuclideousCanonRead {
     let rate = rateBeats > 0 ? rateBeats : 4
-    // `+ 1e-9`: a tick a hair under a chord boundary (float noise in `m − d`) belongs to the new chord, as the live pool's refresh already treats it.
-    var k = Int(((m - max(0, delayBeats) + 1e-9) / rate).rounded(.down))
-    if slipPercent > 0 && euclideousCanonSlipRoll(lane: lane, step: k) < slipPercent { k -= 1 }
-    switch entry {
-    case .wrap:       return EuclideousCanonRead(step: k, waiting: false)
-    case .firstChord: return EuclideousCanonRead(step: max(0, k), waiting: false)
-    case .wait:       return EuclideousCanonRead(step: max(0, k), waiting: k < 0)
+    let d = max(0, delayBeats)
+    if e + 1e-9 < d {
+        switch entry {
+        case .wait:       return EuclideousCanonRead(step: 0, waiting: true)
+        case .firstChord: return EuclideousCanonRead(step: Int(((m - max(0, e) + 1e-9) / rate).rounded(.down)), waiting: false)   // the chord the run started on, held — not a change, so no SLIP
+        case .wrap:       break
+        }
     }
+    // `+ 1e-9`: a tick a hair under a chord boundary (float noise in `m − d`) belongs to the new chord, as the live pool's refresh already treats it.
+    var k = Int(((m - d + 1e-9) / rate).rounded(.down))
+    if slipPercent > 0 && euclideousCanonSlipRoll(lane: lane, step: k) < slipPercent { k -= 1 }
+    return EuclideousCanonRead(step: k, waiting: false)
 }
 /// The beat to hand `chordSeqNotesInto` for a chord step: the MIDDLE of the step, so no float error in `step × rate / rate` can move it into a neighbour.
 @inline(__always) func euclideousCanonStepBeat(step: Int, rateBeats: Double) -> Double {
@@ -10036,17 +10044,17 @@ func euclideousCanonChordRead(beat m: Double, rateBeats: Double, delayBeats: Dou
 //
 // The row is three steppers on the PITCH panel's look: DELAY (0…8, in the page's unit), SLIP (0…50 %, in fives) and UNIT (STEPS · PASSES · BARS, shared by all four lanes). Every word it shows or speaks is decided here.
 
-/// Why the row can have no effect on this lane right now (nil = it is live): CHORDS is the only layer a delay can shift, and a lane that follows another lane's notes (SHADOW / ECHO) does not read its own pool.
-func euclideousCanonInertReason(chordsOn: Bool, pitch: EuclideousListenPitchMode) -> String? {
-    if !chordsOn { return "CHORDS is off" }
+/// Why the row can have no effect on this lane right now (nil = it is live): with no source on there is no pool to delay, and a lane that follows another lane's notes (SHADOW / ECHO) does not read its own pool.
+func euclideousCanonInertReason(sourceOn: Bool, pitch: EuclideousListenPitchMode) -> String? {
+    if !sourceOn { return "no source is on" }
     if pitch == .shadow || pitch == .echo { return "this lane follows another lane's notes" }
     return nil
 }
 /// The line the LISTEN tab's footer shows INSTEAD of its usual hint when a lane HAS a DELAY or SLIP set and the row can have no effect right now — the dim alone did not say why (a row set with CHORDS off sounds exactly like no row at all).
 /// nil when nothing is set or the row is live. Short enough for one 11 pt line on the card (about 42 characters).
-func euclideousCanonInertCaption(chordsOn: Bool, pitch: EuclideousListenPitchMode, delay: Int, slip: Int) -> String? {
+func euclideousCanonInertCaption(sourceOn: Bool, pitch: EuclideousListenPitchMode, delay: Int, slip: Int) -> String? {
     guard delay > 0 || slip > 0 else { return nil }
-    if !chordsOn { return "CANON UNUSED: TURN ON CHORDS IN SOURCES" }
+    if !sourceOn { return "CANON UNUSED: TURN A SOURCE ON (SOURCES)" }
     if pitch == .shadow || pitch == .echo { return "CANON UNUSED: LANE FOLLOWS ANOTHER'S NOTES" }
     return nil
 }

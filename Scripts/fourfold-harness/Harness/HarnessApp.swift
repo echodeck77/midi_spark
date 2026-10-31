@@ -249,10 +249,12 @@ extension Host {
     }
 }
 
+/// The chords the harness's hand plays in the "changing" CANON documents: every 8 beats (400 renders of 480 frames) it lets go and presses the next — a delayed lane hears each change late, and the note-offs.
+let canonHandChords: [[UInt8]] = [[60, 64, 67], [65, 69, 72], [67, 71, 74], [62, 65, 69]]
 /// CHORD CANON (2026-10-31): a CHORDS progression that changes twice a bar through colours and the four borrowed chords, stacked ABOVE the held MIDI chord (so the delayed CHORDS layer meets the unshifted MIDI layer), and four
 /// lanes with their own DELAY and SLIP. `shapes` gives the lanes the 5 · 7 · 11 · 16 step lengths (and a PING-PONG and a BKW) so the unit's own-lap rule is exercised; otherwise the lanes share 9/16 · 5/12 · 7/16 · 11/16.
-func canonDocument(_ s: inout PluginState, unit: CanonUnit, delays: [Int], slips: [Int], shapes: Bool = false) {
-    s.euclideousSourcePlan = SourcePlan(midiOn: true, chordsOn: true, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
+func canonDocument(_ s: inout PluginState, unit: CanonUnit, delays: [Int], slips: [Int], shapes: Bool = false, plan: SourcePlan? = nil) {
+    s.euclideousSourcePlan = plan ?? SourcePlan(midiOn: true, chordsOn: true, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
     var cfg = s.euclideousChordSetsResolved[s.activeChordSetResolved]
     cfg.chordsSteps = 16
     cfg.chordsDegrees = [0, 9, 3, 11, 4, 8, 10, 5, 0, 2, 7, 6, 1, 8, 9, 10]
@@ -273,12 +275,18 @@ func canonDocument(_ s: inout PluginState, unit: CanonUnit, delays: [Int], slips
 extension Host {
     /// The CHORD CANON documents, appended AFTER `GOLDEN POLY ALL` so every line above stays the oracle for "nothing moved when no lane is delayed". ENTRY is left at its default (WRAP) — a dev setting a Release build ignores.
     func goldenCanon() {
-        let docs: [(String, (inout PluginState) -> Void)] = [
-            ("CANON control, no delays", { s in canonDocument(&s, unit: .passes, delays: [0, 0, 0, 0], slips: [0, 0, 0, 0]) }),   // the same CHORDS document with every DELAY and SLIP at 0: the delayed documents below must NOT hash like this one
-            ("CANON passes", { s in canonDocument(&s, unit: .passes, delays: [0, 1, 2, 3], slips: [0, 0, 0, 0]) }),
-            ("CANON bars and slip", { s in canonDocument(&s, unit: .bars, delays: [0, 1, 2, 4], slips: [0, 10, 20, 30]) }),
-            ("CANON steps", { s in canonDocument(&s, unit: .steps, delays: [0, 3, 5, 8], slips: [5, 0, 15, 50]) }),
-            ("CANON lanes of 5 7 11 16", { s in canonDocument(&s, unit: .passes, delays: [1, 1, 1, 1], slips: [0, 10, 0, 20], shapes: true) }),
+        let allSources = SourcePlan(midiOn: true, chordsOn: true, pickOn: true, keyOn: true, midiMode: .add, pickNotes: [72, 76, 79])
+        let docs: [(String, Bool, (inout PluginState) -> Void)] = [
+            ("CANON control, no delays", false, { s in canonDocument(&s, unit: .passes, delays: [0, 0, 0, 0], slips: [0, 0, 0, 0]) }),   // the same CHORDS document with every DELAY and SLIP at 0: the delayed documents below must NOT hash like this one
+            ("CANON passes", false, { s in canonDocument(&s, unit: .passes, delays: [0, 1, 2, 3], slips: [0, 0, 0, 0]) }),
+            ("CANON bars and slip", false, { s in canonDocument(&s, unit: .bars, delays: [0, 1, 2, 4], slips: [0, 10, 20, 30]) }),
+            ("CANON steps", false, { s in canonDocument(&s, unit: .steps, delays: [0, 3, 5, 8], slips: [5, 0, 15, 50]) }),
+            ("CANON lanes of 5 7 11 16", false, { s in canonDocument(&s, unit: .passes, delays: [1, 1, 1, 1], slips: [0, 10, 0, 20], shapes: true) }),
+            // ALL SOURCES (2026-10-31): the delayed lanes now hear incoming MIDI, PICK and KEY as well. The hand changes chord every 8 beats (the lanes hear each change a unit late — and the note-off in between).
+            ("CANON MIDI IN, a hand changing chords", true, { s in canonDocument(&s, unit: .bars, delays: [0, 1, 2, 4], slips: [0, 0, 0, 0], plan: SourcePlan(midiOn: true, chordsOn: false, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])) }),
+            ("CANON MIDI IN with slip, lanes of 5 7 11 16", true, { s in canonDocument(&s, unit: .passes, delays: [1, 1, 2, 3], slips: [0, 10, 25, 50], shapes: true, plan: SourcePlan(midiOn: true, chordsOn: false, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])) }),
+            ("CANON every source", true, { s in canonDocument(&s, unit: .bars, delays: [0, 1, 2, 3], slips: [0, 15, 0, 30], plan: allSources) }),
+            ("CANON MIDI replaces chords", true, { s in canonDocument(&s, unit: .bars, delays: [0, 1, 2, 3], slips: [0, 0, 5, 0], plan: SourcePlan(midiOn: true, chordsOn: true, pickOn: false, keyOn: true, midiMode: .replace, pickNotes: [])) }),
         ]
         timer?.invalidate()
         var all: UInt64 = 0xcbf29ce484222325, total = 0
@@ -287,7 +295,7 @@ extension Host {
                 fputs("GOLDEN CANON ALL: documents=\(docs.count) events=\(total) hash=\(String(all, radix: 16))\n", stderr)
                 exit(0)
             }
-            let (name, edit) = docs[i]
+            let (name, handChanges, edit) = docs[i]
             playing = false; for _ in 0..<8 { render(480) }
             au.resetToFreshInit(); au.editDocument(edit)
             publishDocument()
@@ -296,8 +304,13 @@ extension Host {
                 hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
                 if CommandLine.arguments.contains("--dump") { dumpName = "CANON: " + name }
                 hold([60, 64, 67]); playing = true
-                for _ in 0..<6400 { render(480) }
+                var held = 0
+                for r in 0..<6400 {
+                    if handChanges, r > 0, r % 400 == 0 { release(canonHandChords[held % canonHandChords.count]); held += 1; hold(canonHandChords[held % canonHandChords.count]) }   // the hand lets go and presses the next chord
+                    render(480)
+                }
                 playing = false; for _ in 0..<8 { render(480) }
+                release(canonHandChords[held % canonHandChords.count])
                 release([60, 64, 67])
                 fputs("GOLDEN CANON \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
                 all = (all ^ hash) &* 0x100000001b3; total += eventCount
@@ -317,7 +330,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -364,6 +377,11 @@ extension Host {
                         $0.euclideousLines = ls
                     }
                 }
+                if name.contains("CANON MIDI IN") {   // ALL SOURCES (2026-10-31): incoming MIDI only (the held chord changes every 8 beats below) — the history ring records, the delayed lanes read it back
+                    au.editDocument { canonDocument(&$0, unit: .bars, delays: [1, 2, 3, 8], slips: [0, 10, 25, 50], plan: SourcePlan(midiOn: true, chordsOn: false, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])) }
+                } else if name.contains("CANON every source") {   // MIDI IN + CHORDS + PICK + KEY stacked, the hand changing chord
+                    au.editDocument { canonDocument(&$0, unit: .passes, delays: [1, 2, 3, 8], slips: [0, 10, 25, 50], shapes: true, plan: SourcePlan(midiOn: true, chordsOn: true, pickOn: true, keyOn: true, midiMode: .add, pickNotes: [72, 76, 79])) }
+                }
                 if name.contains("CANON") {   // CHORD CANON (2026-10-31): every lane delayed and slipping (the per-lane pool re-merge on every chord step, the slip roll), the 5 · 7 · 11 · 16 lap lengths in the second run — on top of the HOCKET fan-out there
                     au.editDocument { canonDocument(&$0, unit: name.contains("shapes") ? .passes : .bars, delays: [1, 2, 3, 8], slips: [0, 10, 25, 50], shapes: name.contains("shapes")) }
                 }
@@ -393,7 +411,9 @@ extension Host {
                 hold([60, 64, 67]); playing = true
                 if i == 0 || name.contains("HOCKET") || name.contains("ROUTED") || name.contains("CANON") { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // an unwatched warm-up lap: Swift's one-time generic-metadata instantiation (the first use of each type) is not what this measures; HOCKET's types are first touched by its own scenarios   // the unwatched warm-up lap
                 eventCount = 0; AllocWatch.reset(); watching = true
+                var handIdx = 0
                 for w in 0..<6400 {
+                    if name.contains("hand"), w > 0, w % 400 == 0 { release(canonHandChords[handIdx % canonHandChords.count]); handIdx += 1; hold(canonHandChords[handIdx % canonHandChords.count]) }   // CANON: the hand changes chord
                     if name.contains("REPLAY") {   // a pass replays from the middle of the run to three-quarters of it: the replay itself, the live engine running silently underneath, and the hand-back
                         if w == 3200, let p = au.reelPassNumbers().last(where: { $0 >= 0 }) { au.reelSelectPass(p) }
                         if w == 4800 { au.reelStopReplay() }
@@ -406,6 +426,7 @@ extension Host {
                 fputs("ALLOC \(name): events=\(eventCount) allocations=\(a) frees=\(f)\n", stderr)
                 if a > 0 { dirty += 1; AllocWatch.report(prefix: "ALLOC \(name):") }
                 totalAllocs += a; totalFrees += f
+                if name.contains("hand") { release(canonHandChords[handIdx % canonHandChords.count]) }
                 release([60, 64, 67])
                 DispatchQueue.main.async { step(i + 1) }
             }

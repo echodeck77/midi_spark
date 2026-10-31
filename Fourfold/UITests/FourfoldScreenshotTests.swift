@@ -131,7 +131,7 @@ final class FourfoldScreenshotTests: XCTestCase {
         func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
         step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Listen, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape")
         if let delay = Optional(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Canon delay, lane 1")).firstMatch), delay.waitForExistence(timeout: 3) {
-            delay.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap(); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape-delay-set-chords-off")   // the footer says why
+            delay.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap(); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape-delay-set")
         }
         step(app.buttons["Settings"]); step(app.buttons["CLOCK"]); Thread.sleep(forTimeInterval: 1); attach("10-canon-entry-clock-tab")
         XCUIDevice.shared.orientation = .portrait

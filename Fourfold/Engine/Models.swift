@@ -180,6 +180,8 @@ struct SourcePlan: Equatable, Codable {
     // Concrete reads for the engine/UI off a RESOLVED plan. The `??` defaults only fire for an unresolved default
     // SourcePlan() (a non-Euclideous SnapParams cell, never read for the pool): midiOn⇒true keeps MIDI listening.
     var midiOnR: Bool { midiOn ?? true }
+    /// CHORD CANON: is ANY of the four sources switched on (a delay has nothing to shift when none is)?
+    var anyOnR: Bool { midiOnR || chordsOnR || pickOnR || keyOnR }
     var chordsOnR: Bool { chordsOn ?? (chordsWithMidi || chordsNoMidi) }
     var pickOnR: Bool { pickOn ?? false }
     var keyOnR: Bool { keyOn ?? (keyWithMidi || keyNoMidi) }
@@ -212,9 +214,9 @@ enum CanonUnit: String, Codable, CaseIterable {
         self = CanonUnit(rawValue: raw) ?? .passes
     }
 }
-// CHORD CANON ferry: ENTRY is a DEV-build-only rig setting (judged by ear) — what a delayed lane does before its delay has run out from the host's beat 0 (its delayed beat is still before the song):
-// WRAP = it reads the progression as if the loop had been running (the end of the cycle), START ON CHORD 1 = it holds the first chord until its turn, WAIT = no chord yet (the chord layer is a rest, so the lane's
-// chord-fed notes are silent) until the delay has run out. `canonEntryResolved` forces WRAP in release builds whatever is stored. Tolerant decode: unknown reads as WRAP.
+// CHORD CANON ferry: ENTRY is a DEV-build-only rig setting (judged by ear) — what a delayed lane does in the first `d` beats of a run (the transport started less than `d` beats ago, so there is nothing yet `d` beats back):
+// WRAP = the CHORDS layer reads the cyclic progression as if the loop had been running (the live layers — MIDI IN, PICK, KEY — have no such "before": they hold what the run started on), CHORD 1 = every layer holds what the run
+// started on until the lane's turn, WAIT = every layer is silent (no MIDI, no PICK, no KEY, a chord REST) until the delay has run out. `canonEntryResolved` forces WRAP in release builds whatever is stored. Tolerant decode: unknown reads as WRAP.
 enum CanonEntry: String, Codable, CaseIterable {
     case wrap = "WRAP", firstChord = "CHORD 1", wait = "WAIT"
     init(from decoder: Decoder) throws {

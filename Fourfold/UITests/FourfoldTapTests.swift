@@ -227,8 +227,8 @@ final class FourfoldTapTests: XCTestCase {
         need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the RHYTHM tab again")
     }
 
-    /// CHORD CANON (2026-10-31): the CANON row under PITCH on the LISTEN tab — a lane's DELAY and SLIP step through the engine and back through undo; the UNIT is one value shared by all four rows (and undoable). The factory document's
-    /// source is KEY, so the row reports that it has no effect (it still edits). The value follows a tap a moment later (the edit goes through the document and back), so each check waits for it.
+    /// CHORD CANON (2026-10-31): the CANON row under PITCH on the LISTEN tab — a lane's DELAY and SLIP step through the engine and back through undo; the UNIT is one value shared by all four rows (and undoable). The row works with
+    /// every source (the factory document has MIDI IN and KEY on), so it reports no "no effect" reason. The value follows a tap a moment later (the edit goes through the document and back), so each check waits for it.
     func testTheCanonRowStepsDelayAndSlipAndTheSharedUnit() {
         let app = XCUIApplication.fresh()
         app.els(prefix: "Listen, ").firstMatch.tap()
@@ -240,9 +240,9 @@ final class FourfoldTapTests: XCTestCase {
         func tapUp(_ label: String) { need(app.el(label), label).coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }   // the › zone is the stepper's right 30 pt
         let delay = need(app.el("Canon delay, lane 1"), "lane 1's CANON DELAY stepper")
         XCTAssertTrue(value(delay).hasPrefix("off"), "DELAY starts off — \(value(delay))")
-        XCTAssertTrue(value(delay).contains("CHORDS is off"), "…and says why it has no effect on the KEY source — \(value(delay))")
+        XCTAssertFalse(value(delay).contains("no effect"), "the factory sources (MIDI IN, KEY) are live for the canon — \(value(delay))")
         tapUp("Canon delay, lane 1"); waitValue("Canon delay, lane 1", "1 pass", "› steps DELAY to 1 pass")
-        need(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "CANON UNUSED: TURN ON CHORDS IN SOURCES")).firstMatch, "the footer saying a set DELAY has no effect while CHORDS is off")
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'CANON UNUSED'")).firstMatch.exists, "no \"unused\" footer while a source is on")
         tapUp("Canon slip, lane 1"); waitValue("Canon slip, lane 1", "5 percent", "› steps SLIP to 5 percent")
         Thread.sleep(forTimeInterval: 0.7)   // the two edits are two steps (a pause longer than the gesture gap)
         app.buttons["Undo"].tap(); app.buttons["Undo"].tap()

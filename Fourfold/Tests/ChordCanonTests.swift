@@ -170,16 +170,16 @@ final class ChordCanonTests: XCTestCase {
         XCTAssertEqual(euclideousCanonDelayBeats(delay: 2, unit: .passes, stepBeats: 1, lapBeats: .nan, barBeats: 4), 0)
     }
     func testChordReadIsTheFloorOfTheShiftedBeat() {
-        func step(_ m: Double, d: Double) -> Int { euclideousCanonChordRead(beat: m, rateBeats: 4, delayBeats: d, slipPercent: 0, entry: .wrap, lane: 0).step }
+        func step(_ m: Double, d: Double) -> Int { euclideousCanonChordRead(beat: m, elapsed: m, rateBeats: 4, delayBeats: d, slipPercent: 0, entry: .wrap, lane: 0).step }
         XCTAssertEqual(step(8, d: 0), 2); XCTAssertEqual(step(8, d: 4), 1); XCTAssertEqual(step(7.999, d: 4), 0); XCTAssertEqual(step(3, d: 4), -1)
         XCTAssertEqual(step(8 - 1e-12, d: 0), 2, "a tick a hair under a chord boundary belongs to the new chord")
         XCTAssertEqual(step(12, d: 4 + 1e-12), 2, "…and so does float noise in the delay")
     }
     func testEntryModesOnlyChangeTheTimeBeforeBeatZero() {
         for m in stride(from: 0.0, to: 40, by: 0.5) {
-            let wrap = euclideousCanonChordRead(beat: m, rateBeats: 4, delayBeats: 8, slipPercent: 0, entry: .wrap, lane: 1)
-            let first = euclideousCanonChordRead(beat: m, rateBeats: 4, delayBeats: 8, slipPercent: 0, entry: .firstChord, lane: 1)
-            let wait = euclideousCanonChordRead(beat: m, rateBeats: 4, delayBeats: 8, slipPercent: 0, entry: .wait, lane: 1)
+            let wrap = euclideousCanonChordRead(beat: m, elapsed: m, rateBeats: 4, delayBeats: 8, slipPercent: 0, entry: .wrap, lane: 1)
+            let first = euclideousCanonChordRead(beat: m, elapsed: m, rateBeats: 4, delayBeats: 8, slipPercent: 0, entry: .firstChord, lane: 1)
+            let wait = euclideousCanonChordRead(beat: m, elapsed: m, rateBeats: 4, delayBeats: 8, slipPercent: 0, entry: .wait, lane: 1)
             if m >= 8 { XCTAssertEqual(wrap, first); XCTAssertEqual(wrap, wait); XCTAssertFalse(wait.waiting) }
             else { XCTAssertEqual(first.step, 0); XCTAssertTrue(wait.waiting); XCTAssertLessThan(wrap.step, 0) }
         }
@@ -189,13 +189,13 @@ final class ChordCanonTests: XCTestCase {
         let n = 4000
         for k in 0..<n {
             let m = Double(k) * 4 + 1
-            let r = euclideousCanonChordRead(beat: m, rateBeats: 4, delayBeats: 0, slipPercent: 20, entry: .wrap, lane: 2)
+            let r = euclideousCanonChordRead(beat: m, elapsed: m, rateBeats: 4, delayBeats: 0, slipPercent: 20, entry: .wrap, lane: 2)
             XCTAssertTrue(r.step == k || r.step == k - 1, "never more than one chord step behind")
-            XCTAssertEqual(r, euclideousCanonChordRead(beat: m, rateBeats: 4, delayBeats: 0, slipPercent: 20, entry: .wrap, lane: 2), "replay-exact")
+            XCTAssertEqual(r, euclideousCanonChordRead(beat: m, elapsed: m, rateBeats: 4, delayBeats: 0, slipPercent: 20, entry: .wrap, lane: 2), "replay-exact")
             if r.step == k - 1 { held += 1 }
         }
         XCTAssertEqual(Double(held) / Double(n), 0.20, accuracy: 0.03)
-        XCTAssertEqual(euclideousCanonChordRead(beat: 9, rateBeats: 4, delayBeats: 0, slipPercent: 0, entry: .wrap, lane: 2).step, 2, "SLIP 0 never misses")
+        XCTAssertEqual(euclideousCanonChordRead(beat: 9, elapsed: 9, rateBeats: 4, delayBeats: 0, slipPercent: 0, entry: .wrap, lane: 2).step, 2, "SLIP 0 never misses")
         // a different lane rolls differently
         let a = (0..<200).map { euclideousCanonSlipRoll(lane: 0, step: $0) }, b = (0..<200).map { euclideousCanonSlipRoll(lane: 1, step: $0) }
         XCTAssertNotEqual(a, b)
@@ -207,20 +207,20 @@ final class ChordCanonTests: XCTestCase {
     // MARK: the CANON row
 
     func testTheRowIsInertWhenThereIsNothingToShift() {
-        XCTAssertNil(euclideousCanonInertReason(chordsOn: true, pitch: .own))
-        XCTAssertNil(euclideousCanonInertReason(chordsOn: true, pitch: .avoid), "AVOID plays the lane's own riff from its own pool")
-        XCTAssertEqual(euclideousCanonInertReason(chordsOn: false, pitch: .own), "CHORDS is off")
-        XCTAssertNotNil(euclideousCanonInertReason(chordsOn: true, pitch: .shadow)); XCTAssertNotNil(euclideousCanonInertReason(chordsOn: true, pitch: .echo))
-        XCTAssertEqual(euclideousCanonInertReason(chordsOn: false, pitch: .echo), "CHORDS is off", "the first reason wins")
+        XCTAssertNil(euclideousCanonInertReason(sourceOn: true, pitch: .own))
+        XCTAssertNil(euclideousCanonInertReason(sourceOn: true, pitch: .avoid), "AVOID plays the lane's own riff from its own pool")
+        XCTAssertEqual(euclideousCanonInertReason(sourceOn: false, pitch: .own), "no source is on")
+        XCTAssertNotNil(euclideousCanonInertReason(sourceOn: true, pitch: .shadow)); XCTAssertNotNil(euclideousCanonInertReason(sourceOn: true, pitch: .echo))
+        XCTAssertEqual(euclideousCanonInertReason(sourceOn: false, pitch: .echo), "no source is on", "the first reason wins")
     }
     func testTheFooterExplainsASetRowThatHasNoEffect() {
-        XCTAssertNil(euclideousCanonInertCaption(chordsOn: false, pitch: .own, delay: 0, slip: 0), "nothing set, nothing to explain")
-        XCTAssertNil(euclideousCanonInertCaption(chordsOn: true, pitch: .own, delay: 2, slip: 10), "a live row has no caption")
-        XCTAssertNil(euclideousCanonInertCaption(chordsOn: true, pitch: .avoid, delay: 2, slip: 0))
-        XCTAssertEqual(euclideousCanonInertCaption(chordsOn: false, pitch: .own, delay: 1, slip: 0), "CANON UNUSED: TURN ON CHORDS IN SOURCES")
-        XCTAssertNotNil(euclideousCanonInertCaption(chordsOn: false, pitch: .own, delay: 0, slip: 5), "a SLIP alone is set too")
-        XCTAssertNotNil(euclideousCanonInertCaption(chordsOn: true, pitch: .shadow, delay: 1, slip: 0)); XCTAssertNotNil(euclideousCanonInertCaption(chordsOn: true, pitch: .echo, delay: 1, slip: 0))
-        for c in [euclideousCanonInertCaption(chordsOn: false, pitch: .own, delay: 1, slip: 0)!, euclideousCanonInertCaption(chordsOn: true, pitch: .echo, delay: 1, slip: 0)!] {
+        XCTAssertNil(euclideousCanonInertCaption(sourceOn: false, pitch: .own, delay: 0, slip: 0), "nothing set, nothing to explain")
+        XCTAssertNil(euclideousCanonInertCaption(sourceOn: true, pitch: .own, delay: 2, slip: 10), "a live row has no caption")
+        XCTAssertNil(euclideousCanonInertCaption(sourceOn: true, pitch: .avoid, delay: 2, slip: 0))
+        XCTAssertEqual(euclideousCanonInertCaption(sourceOn: false, pitch: .own, delay: 1, slip: 0), "CANON UNUSED: TURN A SOURCE ON (SOURCES)")
+        XCTAssertNotNil(euclideousCanonInertCaption(sourceOn: false, pitch: .own, delay: 0, slip: 5), "a SLIP alone is set too")
+        XCTAssertNotNil(euclideousCanonInertCaption(sourceOn: true, pitch: .shadow, delay: 1, slip: 0)); XCTAssertNotNil(euclideousCanonInertCaption(sourceOn: true, pitch: .echo, delay: 1, slip: 0))
+        for c in [euclideousCanonInertCaption(sourceOn: false, pitch: .own, delay: 1, slip: 0)!, euclideousCanonInertCaption(sourceOn: true, pitch: .echo, delay: 1, slip: 0)!] {
             XCTAssertLessThanOrEqual(c.count, 44, "one 11 pt line on the card: \(c)")
         }
     }
@@ -239,7 +239,7 @@ final class ChordCanonTests: XCTestCase {
         XCTAssertEqual(euclideousCanonDelayText(2), "2"); XCTAssertEqual(euclideousCanonDelayText(99), "8"); XCTAssertEqual(euclideousCanonSlipText(10), "10%"); XCTAssertEqual(euclideousCanonSlipText(0), "0%")
         XCTAssertEqual(euclideousCanonDelaySpoken(delay: 0, unit: .passes, inert: nil), "off")
         XCTAssertEqual(euclideousCanonDelaySpoken(delay: 1, unit: .passes, inert: nil), "1 pass"); XCTAssertEqual(euclideousCanonDelaySpoken(delay: 3, unit: .bars, inert: nil), "3 bars")
-        XCTAssertEqual(euclideousCanonDelaySpoken(delay: 2, unit: .steps, inert: "CHORDS is off"), "2 steps, no effect: CHORDS is off")
+        XCTAssertEqual(euclideousCanonDelaySpoken(delay: 2, unit: .steps, inert: "no source is on"), "2 steps, no effect: no source is on")
         XCTAssertEqual(euclideousCanonSlipSpoken(slip: 15, inert: nil), "15 percent"); XCTAssertEqual(euclideousCanonSlipSpoken(slip: 0, inert: nil), "off")
         XCTAssertEqual(euclideousCanonUnitSpoken(.passes), "passes")
     }

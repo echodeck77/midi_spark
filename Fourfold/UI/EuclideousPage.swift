@@ -5623,7 +5623,7 @@ struct EuclideousPage: View {
         let w = max(1, fullWidth - labelW)
         let stepperW = max(1, (w - pad * 2 - gap * 2) / 3)
         let stepperH = max(1, height - pad * 2)
-        let inert = euclideousCanonInertReason(chordsOn: sourcePlan.chordsOnR, pitch: line.listenPitchResolved)
+        let inert = euclideousCanonInertReason(sourceOn: sourcePlan.anyOnR, pitch: line.listenPitchResolved)
         let delay = line.chordDelayResolved, slip = line.chordSlipResolved
         func stepper(_ label: String, value: String, spoken: String, name: String, onDec: @escaping () -> Void, onInc: @escaping () -> Void) -> AnyView {
             canonStepper(label, value: value, spoken: spoken, name: name, width: stepperW, height: stepperH, onDec: onDec, onInc: onInc)
@@ -5667,7 +5667,7 @@ struct EuclideousPage: View {
             listenPitchRow(idx, line, accent, fullWidth: fullWidth, height: layout.pitchRowH)
             if pitchPanelShown { listenPitchPanel(idx, line, fullWidth: fullWidth, height: layout.pitchPanelH) }
             listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonRowH)
-            if layout.showFooter { listenFooter(fullWidth: fullWidth, height: layout.footerH, canonCaption: euclideousCanonInertCaption(chordsOn: sourcePlan.chordsOnR, pitch: line.listenPitchResolved, delay: line.chordDelayResolved, slip: line.chordSlipResolved)) }
+            if layout.showFooter { listenFooter(fullWidth: fullWidth, height: layout.footerH, canonCaption: euclideousCanonInertCaption(sourceOn: sourcePlan.anyOnR, pitch: line.listenPitchResolved, delay: line.chordDelayResolved, slip: line.chordSlipResolved)) }
             Spacer(minLength: 0)
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .top)

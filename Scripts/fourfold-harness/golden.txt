@@ -31,4 +31,8 @@ GOLDEN CANON CANON passes: events=3748 hash=13851b08e313d95
 GOLDEN CANON CANON bars and slip: events=3748 hash=a71c7e8c395a81e1
 GOLDEN CANON CANON steps: events=3748 hash=7413df1a371ab8b9
 GOLDEN CANON CANON lanes of 5 7 11 16: events=4064 hash=83403b3653ebf433
-GOLDEN CANON ALL: documents=5 events=19056 hash=49dc62bc09c44416
+GOLDEN CANON CANON MIDI IN, a hand changing chords: events=3748 hash=2fffa96a5696eebd
+GOLDEN CANON CANON MIDI IN with slip, lanes of 5 7 11 16: events=4064 hash=1fa78e17483d663
+GOLDEN CANON CANON every source: events=3748 hash=f4ff1c05b447895d
+GOLDEN CANON CANON MIDI replaces chords: events=3748 hash=5a4cf44ccdbbfb1d
+GOLDEN CANON ALL: documents=9 events=34364 hash=6c676886a48778a4
