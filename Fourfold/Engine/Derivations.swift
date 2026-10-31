@@ -10042,6 +10042,14 @@ func euclideousCanonInertReason(chordsOn: Bool, pitch: EuclideousListenPitchMode
     if pitch == .shadow || pitch == .echo { return "this lane follows another lane's notes" }
     return nil
 }
+/// The line the LISTEN tab's footer shows INSTEAD of its usual hint when a lane HAS a DELAY or SLIP set and the row can have no effect right now — the dim alone did not say why (a row set with CHORDS off sounds exactly like no row at all).
+/// nil when nothing is set or the row is live. Short enough for one 11 pt line on the card (about 42 characters).
+func euclideousCanonInertCaption(chordsOn: Bool, pitch: EuclideousListenPitchMode, delay: Int, slip: Int) -> String? {
+    guard delay > 0 || slip > 0 else { return nil }
+    if !chordsOn { return "CANON UNUSED: TURN ON CHORDS IN SOURCES" }
+    if pitch == .shadow || pitch == .echo { return "CANON UNUSED: LANE FOLLOWS ANOTHER'S NOTES" }
+    return nil
+}
 /// The next value of DELAY one step up or down (clamped, never wrapping); 0 is stored as nil.
 func euclideousCanonDelayMoved(_ delay: Int, by d: Int) -> Int { max(0, min(euclideousCanonMaxDelay, delay + d)) }
 /// The next value of SLIP one step (5 %) up or down (clamped, never wrapping).

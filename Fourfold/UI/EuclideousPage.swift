@@ -5650,9 +5650,10 @@ struct EuclideousPage: View {
     }
     /// §2.6: the footer, pinned to the bottom of whatever room §2.1-§2.5 left (`euclideousListenTabLayout`
     /// drops it first under pressure, so by the time this is called `showFooter` is already decided true).
-    private func listenFooter(fullWidth: CGFloat, height: CGFloat) -> some View {
-        Text("Starts as an exact copy. Rhythm and Riff pause while borrowed; set a row to OWN to get yours back.")
-            .font(.system(size: 11, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
+    /// CHORD CANON: while the lane has a DELAY or SLIP that can have no effect, the footer says so (brighter than the hint it replaces) — see `euclideousCanonInertCaption`.
+    private func listenFooter(fullWidth: CGFloat, height: CGFloat, canonCaption: String? = nil) -> some View {
+        Text(canonCaption ?? "Starts as an exact copy. Rhythm and Riff pause while borrowed; set a row to OWN to get yours back.")
+            .font(.system(size: 11, weight: canonCaption == nil ? .regular : .heavy, design: .monospaced)).foregroundColor(Color(hex: canonCaption == nil ? 0xAAB0BA : 0xE6C46A))
             .lineLimit(2).frame(width: fullWidth, height: height, alignment: .topLeading)
     }
     private func listenTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
@@ -5666,7 +5667,7 @@ struct EuclideousPage: View {
             listenPitchRow(idx, line, accent, fullWidth: fullWidth, height: layout.pitchRowH)
             if pitchPanelShown { listenPitchPanel(idx, line, fullWidth: fullWidth, height: layout.pitchPanelH) }
             listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonRowH)
-            if layout.showFooter { listenFooter(fullWidth: fullWidth, height: layout.footerH) }
+            if layout.showFooter { listenFooter(fullWidth: fullWidth, height: layout.footerH, canonCaption: euclideousCanonInertCaption(chordsOn: sourcePlan.chordsOnR, pitch: line.listenPitchResolved, delay: line.chordDelayResolved, slip: line.chordSlipResolved)) }
             Spacer(minLength: 0)
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .top)

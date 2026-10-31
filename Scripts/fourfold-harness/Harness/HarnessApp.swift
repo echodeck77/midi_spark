@@ -274,6 +274,7 @@ extension Host {
     /// The CHORD CANON documents, appended AFTER `GOLDEN POLY ALL` so every line above stays the oracle for "nothing moved when no lane is delayed". ENTRY is left at its default (WRAP) — a dev setting a Release build ignores.
     func goldenCanon() {
         let docs: [(String, (inout PluginState) -> Void)] = [
+            ("CANON control, no delays", { s in canonDocument(&s, unit: .passes, delays: [0, 0, 0, 0], slips: [0, 0, 0, 0]) }),   // the same CHORDS document with every DELAY and SLIP at 0: the delayed documents below must NOT hash like this one
             ("CANON passes", { s in canonDocument(&s, unit: .passes, delays: [0, 1, 2, 3], slips: [0, 0, 0, 0]) }),
             ("CANON bars and slip", { s in canonDocument(&s, unit: .bars, delays: [0, 1, 2, 4], slips: [0, 10, 20, 30]) }),
             ("CANON steps", { s in canonDocument(&s, unit: .steps, delays: [0, 3, 5, 8], slips: [5, 0, 15, 50]) }),

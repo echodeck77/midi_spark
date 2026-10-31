@@ -242,6 +242,7 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertTrue(value(delay).hasPrefix("off"), "DELAY starts off — \(value(delay))")
         XCTAssertTrue(value(delay).contains("CHORDS is off"), "…and says why it has no effect on the KEY source — \(value(delay))")
         tapUp("Canon delay, lane 1"); waitValue("Canon delay, lane 1", "1 pass", "› steps DELAY to 1 pass")
+        need(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "CANON UNUSED: TURN ON CHORDS IN SOURCES")).firstMatch, "the footer saying a set DELAY has no effect while CHORDS is off")
         tapUp("Canon slip, lane 1"); waitValue("Canon slip, lane 1", "5 percent", "› steps SLIP to 5 percent")
         Thread.sleep(forTimeInterval: 0.7)   // the two edits are two steps (a pause longer than the gesture gap)
         app.buttons["Undo"].tap(); app.buttons["Undo"].tap()

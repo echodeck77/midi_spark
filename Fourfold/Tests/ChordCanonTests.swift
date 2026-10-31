@@ -213,6 +213,17 @@ final class ChordCanonTests: XCTestCase {
         XCTAssertNotNil(euclideousCanonInertReason(chordsOn: true, pitch: .shadow)); XCTAssertNotNil(euclideousCanonInertReason(chordsOn: true, pitch: .echo))
         XCTAssertEqual(euclideousCanonInertReason(chordsOn: false, pitch: .echo), "CHORDS is off", "the first reason wins")
     }
+    func testTheFooterExplainsASetRowThatHasNoEffect() {
+        XCTAssertNil(euclideousCanonInertCaption(chordsOn: false, pitch: .own, delay: 0, slip: 0), "nothing set, nothing to explain")
+        XCTAssertNil(euclideousCanonInertCaption(chordsOn: true, pitch: .own, delay: 2, slip: 10), "a live row has no caption")
+        XCTAssertNil(euclideousCanonInertCaption(chordsOn: true, pitch: .avoid, delay: 2, slip: 0))
+        XCTAssertEqual(euclideousCanonInertCaption(chordsOn: false, pitch: .own, delay: 1, slip: 0), "CANON UNUSED: TURN ON CHORDS IN SOURCES")
+        XCTAssertNotNil(euclideousCanonInertCaption(chordsOn: false, pitch: .own, delay: 0, slip: 5), "a SLIP alone is set too")
+        XCTAssertNotNil(euclideousCanonInertCaption(chordsOn: true, pitch: .shadow, delay: 1, slip: 0)); XCTAssertNotNil(euclideousCanonInertCaption(chordsOn: true, pitch: .echo, delay: 1, slip: 0))
+        for c in [euclideousCanonInertCaption(chordsOn: false, pitch: .own, delay: 1, slip: 0)!, euclideousCanonInertCaption(chordsOn: true, pitch: .echo, delay: 1, slip: 0)!] {
+            XCTAssertLessThanOrEqual(c.count, 44, "one 11 pt line on the card: \(c)")
+        }
+    }
     func testTheSteppersClampAndNeverWrap() {
         XCTAssertEqual(euclideousCanonDelayMoved(0, by: -1), 0); XCTAssertEqual(euclideousCanonDelayMoved(8, by: 1), 8); XCTAssertEqual(euclideousCanonDelayMoved(3, by: 1), 4)
         XCTAssertEqual(euclideousCanonSlipMoved(0, by: -1), 0); XCTAssertEqual(euclideousCanonSlipMoved(50, by: 1), 50); XCTAssertEqual(euclideousCanonSlipMoved(10, by: 1), 15); XCTAssertEqual(euclideousCanonSlipMoved(5, by: -1), 0)
