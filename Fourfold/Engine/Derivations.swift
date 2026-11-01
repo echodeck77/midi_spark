@@ -2163,6 +2163,11 @@ func euclideousRateFromDivisionFeel(division: Int, feel: Int) -> ArpRate {
     return ArpRate.allCases[f * 6 + d]
 }
 
+/// What a lane with no rate of its own plays at: the Euclideous row's machine-wide `euclidRate` (1/16), which nothing in Fourfold changes
+/// (the engine reads `L.rate?.beats ?? p.euclidRateBeats`; every playhead mirror passes 0.25). The RATE grid and the lock card must show THIS,
+/// never the nearest rate to the 8×8 page's step (`clock.stepBeats`, 1/2 by default) — that put lanes 3 and 4 on the wrong cell in a fresh session.
+let euclideousUnsetLaneRate: ArpRate = .r1_16
+
 // ── SIX VERTICAL SLIDERS (usability ferry, 2026-10-12) — replaces the 3 two-axis gesture pads entirely
 // (HITS/TILT shared one pad, OFFSET/STEPS shared another, GATE/VELOCITY the third; now six independent
 // single-axis tracks: HITS · STEPS · OFFSET · TILT · GATE · VELOCITY). Pure logic lives here, not

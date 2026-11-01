@@ -1739,6 +1739,17 @@ final class DerivationsTests: XCTestCase {
             XCTAssertEqual(euclideousRateFromDivisionFeel(division: d, feel: f), rate)
         }
     }
+    /// A lane with no rate of its own plays at the engine's machine-wide default; the RATE grid must light that cell, not the 8×8 page step's.
+    func testUnsetLaneRateIsWhatTheEngineActuallyPlaysAt() {
+        XCTAssertEqual(euclideousUnsetLaneRate, MachineParams().euclidRate)
+        XCTAssertEqual(euclideousUnsetLaneRate.beats, SnapParams().euclidRateBeats)
+        let (d, f) = euclideousRateDivisionFeel(euclideousUnsetLaneRate)
+        XCTAssertEqual(d, 4, "1/16"); XCTAssertEqual(f, 0, "straight")
+        // The fresh document's lanes 3 and 4 are exactly the ones with no rate of their own.
+        let lanes = PluginState(machines: [], scenes: [SceneState.empty()]).euclideousLinesResolved
+        XCTAssertNotNil(lanes[0].rate); XCTAssertNotNil(lanes[1].rate)
+        XCTAssertNil(lanes[2].rate); XCTAssertNil(lanes[3].rate)
+    }
     func testEuclideousRateFromDivisionFeelClampsOutOfRangeInputs() {
         XCTAssertEqual(euclideousRateFromDivisionFeel(division: -1, feel: 0), .r1_1)
         XCTAssertEqual(euclideousRateFromDivisionFeel(division: 99, feel: 99), .r1_32t)

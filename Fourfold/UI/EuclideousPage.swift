@@ -3594,7 +3594,7 @@ struct EuclideousPage: View {
     private func euclideousLockLaneCard(_ idx: Int, width: CGFloat, height: CGFloat) -> AnyView {
         let accent = laneAccents[idx % laneAccents.count]
         let lock = idx < locks.count ? locks[idx] : EuclideousLaneLock()
-        let autoRate = ArpRate.allCases.min(by: { abs($0.beats - clock.stepBeats) < abs($1.beats - clock.stepBeats) }) ?? .r1_16
+        let autoRate = euclideousUnsetLaneRate
         return AnyView(EuclideousLockCardView(lane: idx, size: CGSize(width: width, height: height), accent: accent,
                                               line: idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all), lock: lock, autoRate: autoRate,
                                               held: idx < lockHeld.count && lockHeld[idx], running: clock.playing, tempo: clock.tempo, barBeats: clock.beatsPerBar,
@@ -4134,7 +4134,7 @@ struct EuclideousPage: View {
         let cellH = max(1, (blockH - gap) / 2)   // vertical gap between the grid's 2 rows is 4pt (`gap`), not gridGap(3)
         let feelBtnH = max(1, (blockH - gridGap * 2) / 3)   // feel buttons stack 3pt apart (gridGap), not `gap`
 
-        let autoRate = ArpRate.allCases.min(by: { abs($0.beats - clock.stepBeats) < abs($1.beats - clock.stepBeats) }) ?? .r1_16
+        let autoRate = euclideousUnsetLaneRate
         let resolved = line.rate ?? autoRate
         let (curDiv, curFeel) = euclideousRateDivisionFeel(resolved)
         let divisionLabels = ["1/1", "1/2", "1/4", "1/8", "1/16", "1/32"]
