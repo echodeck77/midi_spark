@@ -3,10 +3,23 @@
 import XCTest
 
 final class FourfoldPortsTests: XCTestCase {
-    func testTheFiveNamesAreAllThenAToD() {
-        XCTAssertEqual(FourfoldPorts.names, ["All", "A", "B", "C", "D"])
+    func testTheFiveNamesAreAllThenOutAToOutD() {
+        XCTAssertEqual(FourfoldPorts.names, ["All", "Out_A", "Out_B", "Out_C", "Out_D"])
         XCTAssertEqual(FourfoldPorts.names.count, FourfoldPorts.cableCount)
         XCTAssertEqual(FourfoldPorts.outputCount, 4)
+    }
+    /// A host lists a plugin's outputs alphabetically, not in cable order (bare letters came out "A, All, B, C, D"): the names must already BE in alphabetical order, case-insensitively and however the host compares them — and so must the standalone app's
+    /// virtual CoreMIDI sources, which are the same names behind a common prefix.
+    func testTheHostsAlphabeticalOrderIsTheCableOrder() {
+        func sorted(_ a: [String], _ cmp: (String, String) -> Bool) -> [String] { a.sorted(by: cmp) }
+        let n = FourfoldPorts.names, standalone = n.map { "Fourfold " + $0 }
+        for list in [n, standalone] {
+            XCTAssertEqual(sorted(list) { $0.lowercased() < $1.lowercased() }, list, "case-insensitive")
+            XCTAssertEqual(sorted(list) { $0 < $1 }, list, "plain code-point order")
+            XCTAssertEqual(sorted(list) { $0.localizedStandardCompare($1) == .orderedAscending }, list, "Finder-style (localized standard) order")
+            XCTAssertEqual(sorted(list) { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }, list, "localized case-insensitive order")
+        }
+        XCTAssertEqual(n.first, "All", "ALL stays first")
     }
     func testPartMathFollowsFromLaneAndLayer() {
         for lane in 0..<4 {

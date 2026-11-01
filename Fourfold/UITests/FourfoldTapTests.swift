@@ -424,12 +424,12 @@ final class FourfoldTapTests: XCTestCase {
         need(app.images.matching(NSPredicate(format: "label == %@", "Increase channel")).firstMatch, "the PORTS page's channel steppers")
         // four outputs, each named as the host lists it, each on its own channel on a fresh document
         for (i, name) in ["A", "B", "C", "D"].enumerated() {
-            need(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "\(name), channel \(i + 1)")).firstMatch, "\(name) reads channel \(i + 1)")
+            need(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Out \(name), channel \(i + 1)")).firstMatch, "Out \(name) reads channel \(i + 1)")
         }
         hittable("Increase channel").tap()
         Thread.sleep(forTimeInterval: 0.6)
-        let seen = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'A, channel'")).allElementsBoundByIndex.map(\.label)
-        XCTAssertTrue(seen.contains("A, channel 2"), "output A should read channel 2 after +; the sheet says \(seen)")
+        let seen = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Out A, channel'")).allElementsBoundByIndex.map(\.label)
+        XCTAssertTrue(seen.contains("Out A, channel 2"), "output A should read channel 2 after +; the sheet says \(seen)")
         hittable("Decrease channel").tap()
         app.buttons["Close settings"].tap()
         gone(app.buttons["PORTS"].firstMatch, "the settings sheet after Close")

@@ -2018,13 +2018,13 @@ final class DerivationsTests: XCTestCase {
         let rows = euclideousPortsTabRows()
         XCTAssertEqual(rows.map { $0.letter }, ["A", "B", "C", "D"])
         XCTAssertEqual(rows.flatMap { $0.ports.map { $0.bus } }, [0, 1, 2, 3], "one stepper per output, in output order")
-        XCTAssertEqual(euclideousPortChannelAccessibilityLabel(bus: 0, channel: 1), "A, channel 1")
-        XCTAssertEqual(euclideousPortChannelAccessibilityLabel(bus: 3, channel: 16), "D, channel 16")
+        XCTAssertEqual(euclideousPortChannelAccessibilityLabel(bus: 0, channel: 1), "Out A, channel 1")
+        XCTAssertEqual(euclideousPortChannelAccessibilityLabel(bus: 3, channel: 16), "Out D, channel 16")
         XCTAssertEqual(rows.flatMap { $0.ports.map { euclideousPortChannelAccessibilityLabel(bus: $0.bus, channel: 3) } }.map { $0.replacingOccurrences(of: ", channel 3", with: "") },
-                       Array(FourfoldPorts.names.dropFirst()), "every stepper is named for the output the host lists")
+                       Array(FourfoldPorts.names.dropFirst()).map { $0.replacingOccurrences(of: "_", with: " ") }, "every stepper is named for the output the host lists (spoken: no underscore)")
     }
     func testTheOutputsAreNamedAndNumberedForTheHost() {
-        XCTAssertEqual(FourfoldPorts.names, ["All", "A", "B", "C", "D"])
+        XCTAssertEqual(FourfoldPorts.names, ["All", "Out_A", "Out_B", "Out_C", "Out_D"])
         XCTAssertEqual(FourfoldPorts.cableCount, 5); XCTAssertEqual(FourfoldPorts.outputCount, 4); XCTAssertEqual(FourfoldPorts.busCount, 8, "eight PARTS: a riff and a notes per lane")
         for lane in 0..<4 {
             XCTAssertEqual(FourfoldPorts.laneBusMask(lane), FourfoldPorts.busMask(lane: lane, part: .riff) | FourfoldPorts.busMask(lane: lane, part: .notes))

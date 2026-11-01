@@ -1,7 +1,7 @@
 //  FourfoldMIDI.swift
-//  FOURFOLD Step 3 (2026-10-23): the standalone app's CoreMIDI shell — the medium-specific end of the emission boundary (seam rule 3). OUT: five virtual sources, one per AU cable (All, A, B, C, D; the nine-port build had nine — All, Emit Riff A, Emit Notes A … Emit Notes D), so the wires are visible
+//  FOURFOLD Step 3 (2026-10-23): the standalone app's CoreMIDI shell — the medium-specific end of the emission boundary (seam rule 3). OUT: five virtual sources, one per AU cable (All, Out_A … Out_D; the nine-port build had nine — All, Emit Riff A, Emit Notes A … Emit Notes D), so the wires are visible
 //  ports in every other app. IN: an input port connected to every other source on the system (hardware, Bluetooth, network, other apps) plus a virtual destination "Fourfold In"; complete channel-voice messages go to `onInput`.
-//  Stable unique ids, so another app can remember a connection to "Fourfold A" across launches.
+//  Stable unique ids, so another app can remember a connection to "Fourfold Out_A" across launches (the unique ids never changed when the names gained their "Out_" prefix).
 
 import CoreMIDI
 import Foundation

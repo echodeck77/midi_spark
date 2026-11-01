@@ -2762,8 +2762,9 @@ enum FourfoldPorts {
     static let busCount = 8            // PARTS: a lane's riff and its notes
     static let all = 0
     static let laneLetters = ["A", "B", "C", "D"]
-    /// The host-visible names (AUM prepends the plugin's own name): All, A, B, C, D.
-    static let names: [String] = ["All"] + laneLetters
+    /// The host-visible names (AUM prepends the plugin's own name): All, Out_A, Out_B, Out_C, Out_D. A host lists a plugin's outputs ALPHABETICALLY, not in cable order — "A, All, B, C, D" when they were bare letters — so the prefix puts All first
+    /// and the four outputs after it, in order. The page itself still says A–D (`laneLetters`, `shortName`); only what a host (and the standalone app's virtual MIDI sources) shows carries the prefix. Order is pinned by `FourfoldPortsTests`.
+    static let names: [String] = ["All"] + laneLetters.map { "Out_" + $0 }
     @inline(__always) static func bus(lane: Int, part: EuclideousOutPart) -> Int { 2 * lane + (part == .notes ? 1 : 0) }
     /// The part mask (one bit) for a lane's layer.
     @inline(__always) static func busMask(lane: Int, part: EuclideousOutPart) -> UInt8 { UInt8(1) << UInt8(bus(lane: lane, part: part)) }
@@ -2796,10 +2797,10 @@ enum EuclideousPortsRowMetrics {
     static let cardChrome: CGFloat = 32
 }
 func euclideousPortsRowIsStacked(cardWidth: CGFloat) -> Bool { cardWidth - EuclideousPortsRowMetrics.cardChrome < EuclideousPortsRowMetrics.sideBySideW }
-/// VoiceOver for one output's channel stepper: the host-visible output name and its channel — "A, channel 3".
+/// VoiceOver for one output's channel stepper: the host-visible output name, spoken ("Out A", not "Out underscore A"), and its channel — "Out A, channel 3".
 func euclideousPortChannelAccessibilityLabel(bus: Int, channel: Int) -> String {
     let cable = bus + 1
-    return "\(cable < FourfoldPorts.names.count ? FourfoldPorts.names[cable] : "Output \(cable)"), channel \(channel)"
+    return "\(cable < FourfoldPorts.names.count ? FourfoldPorts.names[cable].replacingOccurrences(of: "_", with: " ") : "Output \(cable)"), channel \(channel)"
 }
 
 /// §2, the RHYTHM-only tick/window projection the track reuses — standalone and pure so it's unit-testable
