@@ -844,6 +844,60 @@ enum EuclideousSourceStack {
     return (windowStart - lastNonEmptySample) < Int64(EuclideousSourceStack.releaseGraceSeconds * sampleRate)
 }
 
+// MARK: - MIDI IN OCTAVES / ROOT (ferry 2026-11-01)
+
+/// The C the KEY layer's pool starts from: MIDI 48 (C3 in the page's naming, where 60 is C4). `fillKeyLayer`, the canon history's key notes and the OCTAVES fold all read this one value; nothing in the KEY editor moves it.
+let euclideousKeyBaseC = 48
+
+/// §2.2 OCTAVES IGNORE: the held notes' FOLD. For each distinct pitch class p among `src`, the note `baseC + L + ((p − L) mod 12)`, where L is the pitch class of the lowest held note — so that note lands on its own pitch class in `baseC`'s octave and the others sit close above it, within an octave. A duplicated pitch class gives one note (carrying the velocity of the lowest note that has it). Writes ascending into `out[0..<n]` and returns n (≤ 12, so `out` needs ≥ 12 slots; empty ⇒ 0). Pure, allocation-free, idempotent
+/// (folding folded notes gives them back). `src` need not be sorted. The engine and the displays both call this — nothing re-derives a fold.
+func euclideousFoldToBase(_ src: ArraySlice<(note: Int, vel: UInt8)>, into out: inout [(note: Int, vel: UInt8)], baseC: Int) -> Int {
+    guard !src.isEmpty, out.count >= 12 else { return 0 }
+    var lowest = Int.max
+    for e in src where e.note < lowest { lowest = e.note }
+    let low = ((lowest % 12) + 12) % 12
+    var have: UInt16 = 0
+    for e in src {
+        let k = ((((e.note % 12) + 12) % 12) - low + 12) % 12
+        if (have >> UInt16(k)) & 1 == 0 || e.note < out[k].note { out[k] = (e.note, e.vel); have |= UInt16(1) << UInt16(k) }
+    }
+    var n = 0
+    for k in 0..<12 where (have >> UInt16(k)) & 1 != 0 {
+        out[n] = (max(0, min(127, baseC + low + k)), out[k].vel)   // n ≤ k, so slot k was read before any later write reaches it
+        n += 1
+    }
+    return n
+}
+
+/// §2.5a the ROOT transpose in semitones: the lowest held note less the reference C — RAW (Paul 2026-11-01: not folded into −5…+6 under IGNORE; the full distance under both OCTAVES settings).
+@inline(__always) func euclideousRootTranspose(lowestHeld: Int, baseC: Int) -> Int { lowestHeld - baseC }
+
+/// A pool note moved by the root transpose: `+t`, pinned to 0…127 (the one clamp the builder, the source tags and the previews share).
+@inline(__always) func euclideousRootMoved(_ note: Int, by t: Int) -> Int { max(0, min(127, note + t)) }
+
+/// A pitch class named without its octave ("C", "E♭"); the MIDI IN chips under IGNORE and the ROOT chip use it.
+func euclideousPitchClassName(_ note: Int, flatKey: Bool) -> String {
+    (flatKey ? euclideousNoteNamesFlat : euclideousNoteNamesSharp)[((note % 12) + 12) % 12]
+}
+
+/// The MIDI IN chip's label: IGNORE names the pitch class alone, KEEP the note as played (octave included).
+func euclideousMidiChipName(note: Int, octaves: MidiOctaves, flatKey: Bool) -> String {
+    octaves == .ignore ? euclideousPitchClassName(note, flatKey: flatKey) : euclideousNoteViewName(UInt8(max(0, min(127, note))), flatKey: flatKey)
+}
+
+/// MIDI IN chips: 24 pt minimum + 3 pt either side = 30 drawn (Paul 2026-11-01: narrower than the PICK/KEY chips so three fit the 100 pt the ROOT segment and chevron leave at the 448 pt panel), 4 apart, "+n" in a reserved slot.
+let euclideousMidiChipW: CGFloat = 30
+/// How many of `count` MIDI IN chips fit `room`: all of them if they do; else one slot is kept for "+n" (shown = fit − 1); with room for a single chip, that chip alone; with less than a chip, none (the chevron stays).
+func euclideousMidiChipFit(room: CGFloat, count: Int, chipW: CGFloat = euclideousMidiChipW, gap: CGFloat = 4) -> (shown: Int, showsOverflow: Bool) {
+    guard count > 0, room >= chipW else { return (0, false) }
+    if CGFloat(count) * chipW + CGFloat(count - 1) * gap <= room { return (count, false) }
+    let fit = Int((room + gap) / (chipW + gap))
+    return fit >= 2 ? (fit - 1, true) : (1, false)
+}
+
+/// §3.4 the ROOT transpose as COUNT reads it: signed, "0" at zero (U+2212 for the minus, as the rest of the page).
+func euclideousRootCountText(_ t: Int) -> String { t > 0 ? "+\(t)" : (t < 0 ? "\u{2212}\(-t)" : "0") }
+
 /// §2.9 status, computed as the merge's byproduct (POD: only Int/Bool, so returning it never heap-allocates on
 /// the render thread). The UI derives the chord NAME / REST / WAITING / OFF text from `SourcePlan` + the display
 /// clock — this carries only the render-only facts.
@@ -918,14 +972,17 @@ func euclideousBuildSourceStack(
     pick: ArraySlice<Int>,
     key: ArraySlice<Int>,
     plan: SourcePlan, clash: ClashPolicy,
-    midiStatusOut: inout [UInt8]
+    midiStatusOut: inout [UInt8],
+    rootTranspose: Int = 0
 ) -> EuclideousStackResult {
     // Sources panel v2 §2.2: MIDI PLAYING only while the MIDI switch is on; a lower layer is "allowed" under ADD,
     // or whenever MIDI isn't playing (REPLACE steps CHORDS/PICK/KEY aside while MIDI plays). §2.6 a CHORDS rest
     // silences KEY while CHORDS is on & allowed.
     let midiPlayingGated = midiPlaying && plan.midiOnR
-    let allowed = plan.midiModeR == .add || !midiPlayingGated
-    let midiC = plan.midiOnR && !midi.isEmpty
+    // MIDI IN ROOT (2026-11-01): played notes admit nothing, and CHORDS / PICK / KEY are always allowed (as if MIDI weren't playing); only REPLACE steps them aside. `rootTranspose` moves whatever the other layers build.
+    let rootMode = plan.midiModeR == .root
+    let allowed = plan.midiModeR != .replace || !midiPlayingGated
+    let midiC = plan.midiOnR && !rootMode && !midi.isEmpty
     let chordsAllowed = plan.chordsOnR && allowed
     let chordsC = chordsAllowed && !chordsIsRest && !chords.isEmpty
     let pickC = plan.pickOnR && allowed && !pick.isEmpty
@@ -936,13 +993,18 @@ func euclideousBuildSourceStack(
     // turns these + the plan's switches into off/playing/waiting. midiAdmitted is the held-note count for the chips.
     var r = EuclideousStackResult()
     r.midiPlaying = midiPlayingGated
-    r.midiAdmitted = midi.count
+    r.midiAdmitted = rootMode ? 0 : midi.count
     r.chordsRest = chordsAllowed && chordsIsRest
     r.chordsLit = chordsC; r.pickLit = pickC; r.keyLit = keyC
     let statusCap = midiStatusOut.count
-    for i in 0..<min(statusCap, midi.count) { midiStatusOut[i] = UInt8(max(0, min(127, midi[midi.startIndex + i].note))) }
+    if !rootMode { for i in 0..<min(statusCap, midi.count) { midiStatusOut[i] = UInt8(max(0, min(127, midi[midi.startIndex + i].note))) } }
 
-    @inline(__always) func finish() -> EuclideousStackResult { euclideousStackSort(&dest, count: r.count); return r }
+    // §2.6 the root transpose is the pool's LAST step, so every reader of `dest` sees the moved pool; a uniform shift with a clamp keeps the ascending order.
+    @inline(__always) func finish() -> EuclideousStackResult {
+        euclideousStackSort(&dest, count: r.count)
+        if rootTranspose != 0 { for i in 0..<r.count { dest[i].note = euclideousRootMoved(dest[i].note, by: rootTranspose) } }
+        return r
+    }
 
     let contributing = (midiC ? 1 : 0) + (chordsC ? 1 : 0) + (pickC ? 1 : 0) + (keyC ? 1 : 0)
 
@@ -4156,7 +4218,7 @@ func euclideousResolveSourcePlan(stored: SourcePlan?, legacySource: EuclideousLa
     if let p = stored {
         if p.hasV2 {
             return SourcePlan(midiOn: p.midiOnR, chordsOn: p.chordsOnR, pickOn: p.pickOnR,
-                              keyOn: p.keyOnR, midiMode: p.midiModeR, pickNotes: p.pickNotesR)
+                              keyOn: p.keyOnR, midiMode: p.midiModeR, pickNotes: p.pickNotesR, midiOctaves: p.midiOctaves)   // nil stays nil (reads resolve it to IGNORE through `midiOctavesR`), like the legacy branches below
         }
         let chordsOn = p.chordsWithMidi || p.chordsNoMidi
         let keyOn = p.keyWithMidi || p.keyNoMidi
@@ -4174,7 +4236,7 @@ func euclideousResolveSourcePlan(stored: SourcePlan?, legacySource: EuclideousLa
 }
 
 /// Which inline editor is open under a source row (§5.13 one at a time).
-enum EuclideousSourceEditor: Equatable { case none, pick, key }
+enum EuclideousSourceEditor: Equatable { case none, pick, key, midi }
 
 /// §5.11 toggle a PICK note: remove it if present, else add it (ascending, deduped) — but never beyond 16 (a 17th add
 /// is dropped). The ONE PICK-edit rule the editor and the tests share.
@@ -4196,21 +4258,24 @@ func euclideousPickEditorDefaultOctave(_ picks: [UInt8]) -> Int {
 /// Main-thread only (the UI's hold preview; it allocates, which is fine off the render thread). Returns the first
 /// ≤8 ranks with each note's source (0 MIDI · 1 CHORDS · 2 PICK · 3 KEY — the merge's own priority).
 func euclideousColumnPreviewPool(midiNotes: [UInt8], chordTones: [Int], pickNotes: [UInt8], keyTones: [Int],
-                                 midiPlaying: Bool, plan: SourcePlan) -> (notes: [UInt8], sources: [UInt8]) {
+                                 midiPlaying: Bool, plan: SourcePlan, rootTranspose: Int = 0) -> (notes: [UInt8], sources: [UInt8]) {
     var dest = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
     var chips = [UInt8](repeating: 0, count: 8)
     let midi = midiNotes.map { (note: Int($0), vel: UInt8(100)) }
     let pick = pickNotes.map { Int($0) }
     let r = euclideousBuildSourceStack(into: &dest, cap: 128, midi: midi[...], midiPlaying: midiPlaying,
                                        chords: chordTones[...], chordsIsRest: chordTones.isEmpty,
-                                       pick: pick[...], key: keyTones[...], plan: plan, clash: .allow, midiStatusOut: &chips)
+                                       pick: pick[...], key: keyTones[...], plan: plan, clash: .allow, midiStatusOut: &chips, rootTranspose: rootTranspose)
     var notes = [UInt8](), sources = [UInt8]()
+    // The pool is returned MOVED by the root transpose, so each source is recognised by its moved value (ROOT: played notes admit nothing, so never MIDI).
+    func moved(_ x: Int) -> Int { rootTranspose == 0 ? x : euclideousRootMoved(x, by: rootTranspose) }   // t = 0 leaves the pool exactly as the merge built it (the builder only clamps when it moves)
+    let midiTags = plan.midiModeR != .root
     for i in 0..<min(8, r.count) {
         let note = dest[i].note, n8 = UInt8(max(0, min(127, note)))
         notes.append(n8)
-        if midiNotes.contains(n8) { sources.append(0) }
-        else if chordTones.contains(note) { sources.append(1) }
-        else if pickNotes.contains(n8) { sources.append(2) }
+        if midiTags, midiNotes.contains(where: { moved(Int($0)) == note }) { sources.append(0) }
+        else if chordTones.contains(where: { moved($0) == note }) { sources.append(1) }
+        else if pickNotes.contains(where: { moved(Int($0)) == note }) { sources.append(2) }
         else { sources.append(3) }
     }
     return (notes, sources)
@@ -4228,9 +4293,12 @@ struct EuclideousSourcesPanelLayout: Equatable {
     let rowGap: CGFloat = 4         // §5.5 sp4
     var modeAddW: CGFloat           // §5.10 the ADD segment (text + 10 pt each side)
     var modeReplaceW: CGFloat       // §5.10 the REPLACE segment
-    var modeW: CGFloat              // §5.10 the whole ADD/REPLACE container (2 pt inset + segs + 2 pt between)
+    var modeRootW: CGFloat          // MIDI IN ROOT ferry §3.1 the ROOT segment (same shape: text + 10 pt each side)
+    var modeW: CGFloat              // §5.10 the whole ADD/REPLACE/ROOT container (2 pt inset + segs + 2 pt between)
     var contentW: CGFloat           // §5.8 CONTENT on a non-MIDI row
     var contentMidiW: CGFloat       // CONTENT on the MIDI row (narrower by MODE + sp8)
+    var midiChipRoom: CGFloat       // MIDI IN ROOT/OCTAVES ferry §3.2 what the chips get inside CONTENT: its width less 10 pt padding each side and the chevron with its sp6 (0 ⇒ the chips hide, the chevron stays)
+    let midiEditorH: CGFloat = 40   // MIDI IN ROOT/OCTAVES ferry §4.1 the MIDI IN editor: 2 above + one 32 pt row + 6 below
     var pickKeyW: CGFloat           // §5.11 each of the 12 PICK keys
     var rootKeyW: CGFloat           // §5.12 each of the 12 ROOT buttons (= pickKeyW)
     let octaveStepperW: CGFloat = 84 // §5.11
@@ -4255,10 +4323,12 @@ func euclideousSourcesPanelLayout(containerW: CGFloat, editor: EuclideousSourceE
     let adv: CGFloat = 9 * (0.6 + 0.04)
     let modeAddW = (3 * adv + 20).rounded()                   // "ADD"
     let modeReplaceW = (7 * adv + 20).rounded()               // "REPLACE"
-    let modeW = 2 + modeAddW + 2 + modeReplaceW + 2
+    let modeRootW = (4 * adv + 20).rounded()                  // "ROOT" (MIDI IN ROOT/OCTAVES ferry §3.1)
+    let modeW = 2 + modeAddW + 2 + modeReplaceW + 2 + modeRootW + 2
     let labelW: CGFloat = 84, countW: CGFloat = 24
     let contentW = blockInnerW - labelW - sp8 - sp8 - countW  // §5.6 non-MIDI row
     let contentMidiW = contentW - modeW - sp8                 // §5.6 the MIDI row also carries MODE
+    let midiChipRoom = max(0, contentMidiW - 20 /* padding 10 + 10 */ - 16 /* chevron 10 + sp6 */)   // ferry §3.2
     let pickKeyW = (contentW - gap3 * 11) / 12                // §5.11 twelve keys, 3 apart, over the CONTENT width
     let scaleCols = min(6, max(1, scaleCount))                // §5.12 ≤ 6 per row
     let scaleRows = Int((Double(max(1, scaleCount)) / Double(scaleCols)).rounded(.up))
@@ -4268,14 +4338,16 @@ func euclideousSourcesPanelLayout(containerW: CGFloat, editor: EuclideousSourceE
     let pickEditorH: CGFloat = 2 + 52 /* stepper = keys */ + 6
     let keyScaleBlockH = CGFloat(scaleRows) * 32 + CGFloat(scaleRows - 1) * gap3
     let keyEditorH: CGFloat = 2 + (40 /* ROOT */ + 6 + keyScaleBlockH) + 4
-    let editorH: CGFloat = editor == .pick ? pickEditorH : (editor == .key ? keyEditorH : 0)
-    let sourcesBlockH = sp8 + 44 * 4 + sp4 * 3 + editorH + sp8
+    let midiEditorH: CGFloat = 2 + 32 + 6                     // ferry §4.1/§4.2
+    let editorH: CGFloat = editor == .pick ? pickEditorH : (editor == .key ? keyEditorH : (editor == .midi ? midiEditorH : 0))
+    // The four rows sit in a VStack(spacing: sp4): an open editor is a fifth child, so the block gains one more gap (the formula used to leave it out and the rendered block ran 4 pt taller than `sourcesBlockH`).
+    let sourcesBlockH = sp8 + 44 * 4 + sp4 * 3 + (editor == .none ? 0 : sp4) + editorH + sp8
     let poolBlockH = sp8 + 36 + sp8
     let contentH = 40 /* title */ + sp8 + sourcesBlockH + sp8 + poolBlockH
     return EuclideousSourcesPanelLayout(
         width: width, blockInnerW: blockInnerW,
-        modeAddW: modeAddW, modeReplaceW: modeReplaceW, modeW: modeW,
-        contentW: contentW, contentMidiW: contentMidiW,
+        modeAddW: modeAddW, modeReplaceW: modeReplaceW, modeRootW: modeRootW, modeW: modeW,
+        contentW: contentW, contentMidiW: contentMidiW, midiChipRoom: midiChipRoom,
         pickKeyW: pickKeyW, rootKeyW: pickKeyW,
         scaleCols: scaleCols, scaleRows: scaleRows, scaleW: scaleW,
         poolChipW: poolChipW,

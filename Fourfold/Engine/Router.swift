@@ -513,6 +513,9 @@ final class Router {
         var dropped = 0
         var poolNotes: [UInt8] = []
         var poolSources: [UInt8] = []
+        // MIDI IN ROOT (2026-11-01): the latched transpose in semitones and the root note it came from (the lowest held note, or the latched one; -1 = none since load).
+        var rootTranspose = 0
+        var rootNote = -1
     }
     /// HOCKET §8: the count x of each rule at the START of the last window the Euclideous row ran, and whether the transport ran — published to the UI by `hocketLive()` (read-and-copied on the main thread, like the source
     /// status). The displays derive the turn from x with the SAME `hocketTurn` the engine plays by, so a chip lit on screen is a chip heard; nothing predicts.
@@ -529,7 +532,8 @@ final class Router {
                                midiAdded: euclideousStatusMidiAdded, chordsAdded: euclideousStatusChordsAdded,
                                pickAdded: euclideousStatusPickAdded, keyAdded: euclideousStatusKeyAdded, dropped: euclideousStatusDropped,
                                poolNotes: Array(euclideousStatusPoolNotes.prefix(euclideousStatusPoolCount)),
-                               poolSources: Array(euclideousStatusPoolSources.prefix(euclideousStatusPoolCount)))
+                               poolSources: Array(euclideousStatusPoolSources.prefix(euclideousStatusPoolCount)),
+                               rootTranspose: euclideousRootT, rootNote: euclideousRootNote)
     }
     // Unified UI-poll surface: EVERY direction (not just DRUNK) writes its resolved step index here, so the poll
     // layer only ever reads one simple array regardless of which direction a lane is using.
@@ -830,6 +834,11 @@ final class Router {
     // into `globalSrcBuf` by `euclideousBuildSourceStack`. Preallocated — no render-thread allocation.
     private var midiLayerBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
     private var keyLayerBuf = [Int](repeating: 0, count: 128)
+    // MIDI IN OCTAVES (2026-11-01): the IGNORE fold's output — at most 12 notes (one per pitch class), 16 slots. Filled by `mergeStack` / `mergeCanonStack` right before the builder reads it (the history stays raw).
+    private var midiFoldBuf = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 16)
+    // MIDI IN ROOT (2026-11-01): the latched root transpose `t` (semitones) and the root note it came from (-1 = none since load). ENGINE state, not document state: never saved, never an undo step. Held by the render thread; the 30 Hz status poll reads plain Ints (like the other status fields).
+    private var euclideousRootT = 0
+    private var euclideousRootNote = -1
     // Sources panel v2 §2.10: the PICK layer — the resolved plan's `pickNotes` (≤16) copied into this fixed buffer
     // once per window (no render-thread allocation; the snapshot's `pickNotes` array is bounded ≤16, like busChannels).
     private var pickLayerBuf = [Int](repeating: 0, count: 16)
@@ -1067,6 +1076,7 @@ final class Router {
         wasPlaying = false
         resetEmitterRatchetOrigin()   // EMITTER RATCHET §2.5: a reset is a count origin
         resetCanonClock()             // CHORD CANON: the elapsed clock and the history start over
+        euclideousRootT = 0; euclideousRootNote = -1   // MIDI IN ROOT: a reset (like a load) starts the latched transpose at 0 — a transport edge does NOT (§2.5e)
         resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0 }
         prevEffColumn = -1
         prevBusEnabledMask = 0xFF
@@ -1999,6 +2009,7 @@ final class Router {
             prevEffColumn = -1
             resetEmitterRatchetOrigin()                  // EMITTER RATCHET §2.5: a session / preset load is a count origin
             resetCanonClock()                            // CHORD CANON: …and a history origin (a loaded preset's lanes do not replay the old document's pool)
+            euclideousRootT = 0; euclideousRootNote = -1  // MIDI IN ROOT: a session / preset load starts at 0 (§1.4)
             clearEchoTails()                             // ECHO: scene-mortal — the old scene's tails die
             flushEuclideousLegato()   // MOD: the old scene's CC state resets on the switch
         }
@@ -2134,7 +2145,9 @@ final class Router {
         // or MIDI not playing). This generalises SOURCES STACK's with/no-MIDI gate; the early-out guard below
         // processes the row whenever anything could sound (incl. a PICK-only document with nothing held).
         let euMidiPlayingGated = euclideousStackMidiPlaying && euPlan.midiOnR
-        let euAllowed = euPlan.midiModeR == .add || !euMidiPlayingGated
+        let euAllowed = euPlan.midiModeR != .replace || !euMidiPlayingGated
+        // MIDI IN ROOT (§2.5c/d): the latched transpose lives only while MIDI IN is on AND the mode is ROOT — switching either off (or ROOT for ADD / REPLACE) clears it to 0.
+        if !(euPlan.midiOnR && euPlan.midiModeR == .root) { euclideousRootT = 0; euclideousRootNote = -1 }
         let euChordsActive = euPlan.chordsOnR && euAllowed
         let euKeyActive = euPlan.keyOnR && euAllowed
         let euPickActive = euPlan.pickOnR && euAllowed && !(euPlan.pickNotes?.isEmpty ?? true)
@@ -2469,15 +2482,26 @@ final class Router {
                 chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
                 chordLayerIsRest = chordLayerCount == 0   // §2.6: chordSeqNotesInto returns 0 ONLY for a REST column (PATTERN mode — a real degree always yields ≥1)
             }
+            // MIDI IN OCTAVES (2026-11-01) §2.2: under IGNORE (and not ROOT, which admits no played notes) the held notes are FOLDED into `midiFoldBuf` before the builder admits them — before its one-layer short cut — so everything after
+            // (admission, dedupe, KEY's mean, CLASHES, the cap, the readers' octave copies) sees only the folded notes. KEEP passes the layer through untouched (byte-identical). The returned slice is a temporary of the one call, so the next write to `midiFoldBuf` never copies.
+            let euPlanIsRoot = euPlan.midiModeR == .root
+            let euFoldMidi = !euPlanIsRoot && euPlan.midiOctavesR == .ignore
+            func midiForPool(_ src: ArraySlice<(note: Int, vel: UInt8)>) -> ArraySlice<(note: Int, vel: UInt8)> {
+                guard euFoldMidi else { return src }
+                let n = euclideousFoldToBase(src, into: &midiFoldBuf, baseC: euclideousKeyBaseC)
+                return midiFoldBuf[0..<n]
+            }
             func mergeStack(atBeat m: Double) {
                 fillChordLayer(atBeat: m)
+                let t = euclideousRootT
+                let midi = midiForPool(midiLayerBuf[0..<midiLayerCount])
                 let st = euclideousBuildSourceStack(
                     into: &globalSrcBuf, cap: globalSrcBuf.count,
-                    midi: midiLayerBuf[0..<midiLayerCount], midiPlaying: euclideousStackMidiPlaying,
+                    midi: midi, midiPlaying: euclideousStackMidiPlaying,
                     chords: chordPoolScratch[0..<chordLayerCount], chordsIsRest: chordLayerIsRest,
                     pick: pickLayerBuf[0..<pickLayerCount],
                     key: keyLayerBuf[0..<keyLayerCount],
-                    plan: euPlan, clash: p.euclideousClashPolicy, midiStatusOut: &euclideousStatusMidiNotes)
+                    plan: euPlan, clash: p.euclideousClashPolicy, midiStatusOut: &euclideousStatusMidiNotes, rootTranspose: t)
                 globalSrcCount = st.count
                 euclideousStatusMidiCount = min(euclideousStatusMidiNotes.count, st.midiAdmitted)
                 euclideousStatusMidiPlaying = st.midiPlaying
@@ -2494,9 +2518,10 @@ final class Router {
                     let n = globalSrcBuf[i].note
                     euclideousStatusPoolNotes[i] = UInt8(max(0, min(127, n)))
                     var src: UInt8 = 3, hit = false
-                    for k in 0..<midiLayerCount where midiLayerBuf[k].note == n { src = 0; hit = true; break }
-                    if !hit { for k in 0..<chordLayerCount where chordPoolScratch[k] == n { src = 1; hit = true; break } }
-                    if !hit { for k in 0..<pickLayerCount where pickLayerBuf[k] == n { src = 2; break } }
+                    // The pool is MOVED by the root transpose (and the MIDI layer FOLDED), so a note's source is recognised by the layer note's moved value; t = 0 compares exactly as before. ROOT admits no played note.
+                    if !euPlanIsRoot { for k in midi.indices where (t == 0 ? midi[k].note : euclideousRootMoved(midi[k].note, by: t)) == n { src = 0; hit = true; break } }
+                    if !hit { for k in 0..<chordLayerCount where (t == 0 ? chordPoolScratch[k] : euclideousRootMoved(chordPoolScratch[k], by: t)) == n { src = 1; hit = true; break } }
+                    if !hit { for k in 0..<pickLayerCount where (t == 0 ? pickLayerBuf[k] : euclideousRootMoved(pickLayerBuf[k], by: t)) == n { src = 2; break } }
                     euclideousStatusPoolSources[i] = src
                 }
             }
@@ -2532,11 +2557,11 @@ final class Router {
                 }
                 let st = euclideousBuildSourceStack(
                     into: &globalSrcBuf, cap: globalSrcBuf.count,
-                    midi: canonMidiBuf[0..<midiN], midiPlaying: playing,
+                    midi: midiForPool(canonMidiBuf[0..<midiN]), midiPlaying: playing,   // the history is RAW: a delayed lane folds at read time
                     chords: chordPoolScratch[0..<chordLayerCount], chordsIsRest: chordLayerIsRest,
                     pick: canonPickBuf[0..<pickN],
                     key: canonKeyBuf[0..<keyN],
-                    plan: euPlan, clash: p.euclideousClashPolicy, midiStatusOut: &canonMidiStatusScratch)
+                    plan: euPlan, clash: p.euclideousClashPolicy, midiStatusOut: &canonMidiStatusScratch, rootTranspose: euclideousRootT)   // …and moves by the CURRENT t
                 globalSrcCount = st.count
             }
             func refreshCanonStack(beat m: Double, delayBeats: Double, slip: Int, lane: Int) {
@@ -2630,7 +2655,7 @@ final class Router {
             // higher octaves, so pre-baking a second octave would double-extend. Exactly today's `.key` formula.
             func fillKeyLayer() {
                 let root = ((p.euclideousChordKeyRoot % 12) + 12) % 12
-                let base = 3 * 12 + 12
+                let base = euclideousKeyBaseC   // MIDI 48 (baseOct 3 = C3); the OCTAVES fold voices played notes from this same C
                 var n = 0
                 for iv in p.euclideousChordKeyTones where n < keyLayerBuf.count {
                     let note = base + root + iv
@@ -2648,6 +2673,12 @@ final class Router {
             }
             if isEuclideousRow {
                 fillMidiLayer()
+                // MIDI IN ROOT (§2.5a/b): the lowest note held NOW (after LISTEN ON, HOLD / LATCH — the layer is ascending) sets the transpose; with nothing held the last value stays latched (RELEASE GRACE plays no part). The window-top clear in
+                // `process()` already zeroed it when MIDI IN is off or the mode isn't ROOT.
+                if euPlanIsRoot && euPlan.midiOnR && midiLayerCount > 0 {
+                    euclideousRootNote = midiLayerBuf[0].note
+                    euclideousRootT = euclideousRootTranspose(lowestHeld: euclideousRootNote, baseC: euclideousKeyBaseC)
+                }
                 fillPickLayer()
                 fillKeyLayer()
                 mergeStack(atBeat: mWinStart)

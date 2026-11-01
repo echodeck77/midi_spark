@@ -23,6 +23,7 @@ final class HocketGoldenTests: XCTestCase {
     private func box(for s0: PluginState) -> SnapshotBox {
         var st = s0
         st.euclideousSameNoteGuard = false   // these goldens pin the PRE-same-note-guard stream (2026-10-31); the guard (default ON) moves same-pitch offs earlier and has its own SameNoteGuardTests — exclude its orthogonal effect here
+        var plan = st.sourcePlanResolved; plan.midiOctaves = .keep; st.euclideousSourcePlan = plan   // …and the pre-OCTAVES stream (2026-11-01): the held chord stays where it is played. Default IGNORE folds it (the harness golden lists that change); KEEP must be what these pins captured
         st.machines.append(Machine(machineID: FourfoldCompose.machineID, type: .euclid))
         let input = FourfoldCompose.Input(lines: st.euclideousLinesResolved, riff: st.euclideousRiffResolved, riffs: st.riffsResolved,
                                           activeRiff: st.activeRiffResolved, soloMask: st.euclideousSoloMaskResolved,

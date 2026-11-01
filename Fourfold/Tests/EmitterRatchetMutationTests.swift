@@ -32,7 +32,7 @@ private struct MRig {
         var sc = SceneState.empty(); sc.stepRate = .r1_8
         sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
-        st.euclideousNoteSource = .midi
+        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep)   // these tests are about ratchets: they hold notes at the octaves they play
         st.euclideousFX = fx
         st.euclideousEmitterRatchets = emitters.isAllDefault ? nil : emitters
         return SnapshotBuilder.build(from: st)

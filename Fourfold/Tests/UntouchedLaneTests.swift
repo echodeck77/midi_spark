@@ -123,7 +123,7 @@ final class UntouchedLaneTests: XCTestCase {
     private func laneStrikes(_ st0: PluginState, lane: Int, beats: Double) -> (riff: Int, notes: Int) {
         var st = st0
         st.machines.append(Machine(machineID: FourfoldCompose.machineID, type: .euclid))
-        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan()
+        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep)
         let page = st.euclideousLinesResolved
         let input = FourfoldCompose.Input(lines: page, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved, soloMask: 0, locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]

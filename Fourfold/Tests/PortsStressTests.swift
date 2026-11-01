@@ -192,6 +192,15 @@ final class PortsStressTests: XCTestCase {
                                           soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]
     }
+    /// MIDI IN OCTAVES / ROOT: a random OCTAVES choice and MODE (ADD / REPLACE / ROOT). `off` draws the same values and stores the neutral ones (KEEP, ROOT → ADD) — the control for "do they reach the wire".
+    private func reoctaves(_ st: inout PluginState, _ o: inout SM64, off: Bool = false) {
+        var p = st.sourcePlanResolved
+        let oct = [MidiOctaves.ignore, .keep].randomElement(using: &o)!
+        let mode = [MidiMode.add, .replace, .root].randomElement(using: &o)!
+        p.midiOctaves = off ? .keep : oct
+        p.midiMode = off && mode == .root ? .add : mode
+        st.euclideousSourcePlan = p
+    }
     private func retranspose(_ st: inout PluginState, _ h: inout SM64, zeroed: Bool = false) {
         func t(_ h: inout SM64) -> Int? { let v = [nil, 0, Int.random(in: -7...7, using: &h), Int.random(in: -3...3, using: &h), 7, -7].randomElement(using: &h)!; return zeroed ? nil : v }
         let ls = (st.euclideousLines ?? []).map { l -> EuclidLine in var m = l; m.riffOutTranspose = t(&h); m.notesOutTranspose = t(&h); return m }
@@ -241,6 +250,7 @@ final class PortsStressTests: XCTestCase {
             for _ in 0..<Int.random(in: 0...6, using: &g) { picks.insert(UInt8(Int.random(in: 36...84, using: &g))) }
             plan.pickNotes = picks.sorted()
         }
+        plan.midiOctaves = .keep   // the pinned fingerprints and the invariant fuzz hold notes at the octaves they play (IGNORE/ROOT have their own streams: testOctaves* / testRoot*)
         st.euclideousSourcePlan = plan
         st.euclideousNoteSource = [.midi, .key, .chords].randomElement(using: &g)!
         st.euclideousKeyRoot = Int.random(in: 0...11, using: &g)
@@ -355,12 +365,13 @@ final class PortsStressTests: XCTestCase {
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0
-    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false) -> String? {
+    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false, octaves: Bool = false, octavesOff: Bool = false) -> String? {
         var g = SM64(seed)
         var q = SM64(seed ^ 0x0F01_7A11_0000)      // POLY RIFF ferry: the POLY riff draws from its OWN stream too, so the pinned fingerprints (MONO) stay exactly what they were
         var x = SM64(seed ^ 0xE317_A7C4_0000)     // RATCH tab ferry: the emitter ratchets draw from their OWN stream too
         var kc = SM64(seed ^ 0xCA70_C4A0_0001)     // CHORD CANON ferry: the delays, slips, unit and entry draw from their OWN stream, so every pinned fingerprint (no canon) stays exactly what it was
         var h = SM64(seed ^ 0x0A7C_0FFE_E000)      // CARD BACKS v2: the out-transposes draw from their OWN stream, so the pinned fingerprints (no out-transpose) stay exactly what they were
+        var oc = SM64(seed ^ 0x0C7A_5E00_0000)     // MIDI IN OCTAVES / ROOT ferry: the OCTAVES choice and the MODE (ADD / REPLACE / ROOT) draw from their OWN stream, so every pinned fingerprint (KEEP, the document's own mode) stays exactly what it was
         let router = Router()
         var rolls: [NoteRollRecord] = [], winParams: [(beat: Double, ts: Double)] = []
         var diag = KernelDiag()
@@ -370,6 +381,7 @@ final class PortsStressTests: XCTestCase {
         if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }
         if poly { repoly(&st, &q, modeOff: polyModeOff) }
         if canon { recanon(&st, &kc, off: canonOff) }
+        if octaves { reoctaves(&st, &oc, off: octavesOff) }
         var box = SnapshotBuilder.build(from: st)
         let sr = 48_000.0
         var tempo = Double([90, 120, 140].randomElement(using: &g)!)
@@ -384,10 +396,11 @@ final class PortsStressTests: XCTestCase {
         for w in 0..<windows {
             e.win = w
             // mutate the document / transport between windows
-            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if poly { repoly(&st, &q, modeOff: polyModeOff) }; if canon { recanon(&st, &kc, off: canonOff) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if poly { repoly(&st, &q, modeOff: polyModeOff) }; if canon { recanon(&st, &kc, off: canonOff) }; if octaves { reoctaves(&st, &oc, off: octavesOff) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
             if emitters, x.next() % 3 == 0 { st.euclideousEmitterRatchets = rEmitters(&x); box = SnapshotBuilder.build(from: st) }   // RATCH tab ferry: a toggle / value dragged while notes (and deferred strikes) sound
             if outTranspose, h.next() % 3 == 0 { retranspose(&st, &h, zeroed: zeroedTranspose); box = SnapshotBuilder.build(from: st) }   // CARD BACKS v2: a PITCH pad dragged while notes sound
             if canon, kc.next() % 3 == 0 { recanon(&st, &kc, off: canonOff); box = SnapshotBuilder.build(from: st) }   // CHORD CANON: a DELAY / SLIP / UNIT edited while notes sound
+            if octaves, oc.next() % 3 == 0 { reoctaves(&st, &oc, off: octavesOff); box = SnapshotBuilder.build(from: st) }   // MIDI IN OCTAVES / ROOT: the choice or the mode flipped while notes sound
             if poly, q.next() % 3 == 0 { repoly(&st, &q, modeOff: polyModeOff); box = SnapshotBuilder.build(from: st) }   // POLY RIFF: the grid edited — notes added, stretched, removed, the mode flipped — while notes (and their long tails) sound
             if Int.random(in: 0...2, using: &g) == 0 {   // busChannels change mid-note
                 switch Int.random(in: 0...3, using: &g) {
@@ -472,7 +485,7 @@ final class PortsStressTests: XCTestCase {
         else { d.riffOn = true; d.useRiff = true; d.gate = 1.0; d.notesOn = false }
         lines[lane] = d
         st.euclideousLines = lines
-        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(); st.euclideousSoloMask = 0
+        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep); st.euclideousSoloMask = 0
         let use = applyResolved ? st.euclideousLinesResolved : lines
         st.euclideousLines = use
         let input = FourfoldCompose.Input(lines: use, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: 0, soloMask: 0, locks: st.euclideousLocksResolved, lockRevs: 0)
@@ -582,6 +595,26 @@ final class PortsStressTests: XCTestCase {
         // random sessions are mostly sparse (lanes off, soloed away, 24 short windows, a few chord changes): about one in nine is dense enough for a delay to change a note
         XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with delays on — they are not reaching the wire")
     }
+    // MIDI IN OCTAVES / ROOT ferry (2026-11-01): the OCTAVES choice and the MODE (ADD / REPLACE / ROOT) drawn at random AND flipped mid-note, with held notes churning, on top of the full random document: nothing strands (a note ends at the pitch
+    // it started on whatever the fold or the latched transpose does), no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
+    func testOctavesSessionsHoldEveryInvariant() {
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 1_000_000, windows: 24, octaves: true) { XCTFail(msg); return } }
+    }
+    func testOctavesSessionsAtGate100() {
+        for s in 1...200 { if let msg = runSession(seed: UInt64(s) &+ 1_010_000, windows: 24, rawGates: true, octaves: true) { XCTFail(msg); return } }
+    }
+    /// The invariant fuzzes pass whether or not the fold or the root transpose ever reaches the wire: compare each session with the SAME draws stored as KEEP / no ROOT — most must differ.
+    func testOctavesSessionsReallyChangeTheNotesOnTheWire() {
+        var differing = 0, total = 0
+        for s in 1...120 {
+            let seed = UInt64(s) &+ 1_020_000
+            XCTAssertNil(runSession(seed: seed, windows: 24, octaves: true)); let folded = lastSessionHash
+            XCTAssertNil(runSession(seed: seed, windows: 24, octaves: true, octavesOff: true)); let plain = lastSessionHash
+            total += 1; if folded != plain { differing += 1 }
+        }
+        // like the canon control: random sessions are mostly sparse (lanes off, soloed away, MIDI IN off or nothing held in 24 short windows) — about one in seven is dense enough for the fold or a root transpose to change a note
+        XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with IGNORE / ROOT on — they are not reaching the wire")
+    }
     func testOutTransposeSessionsAtGate100() {
         for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 300_000, windows: 24, rawGates: true, outTranspose: true) { XCTFail(msg); return } }
     }
@@ -626,7 +659,7 @@ final class PortsStressTests: XCTestCase {
             var gg = SM64(UInt64(s))
             var (st, pool) = rDoc(&gg, lanes: lines, randomRouting: false)
             st.euclideousSoloMask = 0; st.euclideousNoteSource = .midi
-            st.euclideousSourcePlan = SourcePlan()
+            st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep)
             pool.reset(); for n in [60, 64, 67, 72] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
             st.euclideousLines = lines
             let rl = st.euclideousLinesResolved   // production-faithful (clamps gate etc.)
@@ -670,7 +703,7 @@ final class PortsStressTests: XCTestCase {
                 lines[live] = x
                 var gg = SM64(UInt64(s))
                 var (st, pool) = rDoc(&gg, lanes: lines, randomRouting: false)
-                st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(); st.euclideousSoloMask = 0
+                st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep); st.euclideousSoloMask = 0
                 pool.reset(); for n in [60, 64, 67] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
                 st.euclideousLines = lines
                 let rl = st.euclideousLinesResolved
@@ -1070,7 +1103,7 @@ extension PortsStressTests {
         var lanes = (0..<4).map { _ in rRouting(&g, rDenseLane(&g, noLegato: noLegato)) }
         var (st, pool) = rDoc(&g, lanes: lanes, rawGates: true)
         pool.reset(); for n in [48, 55, 60, 64, 67, 72] { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
-        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan()
+        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep)
         st.euclideousFX = Int.random(in: 0...2, using: &g) == 0 ? rFX(&g) : EuclideousFX()
         st.busChannels = sameChannels ? [1, 1, 1, 1] : [1, 2, 3, 4]
         var rules = hocket ? rHocketRules(&g) : []

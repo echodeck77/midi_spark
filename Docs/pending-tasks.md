@@ -5,6 +5,14 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — MIDI IN: OCTAVES (IGNORE | KEEP) + MODE ROOT (2026-11-01; `Docs/euclideous-status-log.md`, branch `feature/midi-in-octaves-root`)
+- [x] DONE off-device: `SourcePlan.midiOctaves` + `MidiMode.root`, the fold (`euclideousFoldToBase`), the latched raw root transpose in the builder's `finish()`, the MIDI IN editor / ROOT segment / ROOT chip + signed COUNT, tests, KEEP golden byte-identical, Release allocation audit zero.
+- [ ] **STOP / DECIDE (Paul, before landing):** the IGNORE default changes the sound of all 35 golden documents (the default document, the 20 factory presets, 5 POLY, 9 CANON) whenever notes are held — pitches only, event counts unchanged; nothing changes with nothing held. Say go and I re-derive `golden.txt` and land in slices (`golden-keep.txt` already holds the KEEP oracle).
+- [ ] DEVICE: the four "MIDI IN —" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] (noted) 343 pt: the MIDI row's CONTENT is 31 pt, so the chips are hidden and only the chevron shows; a different arrangement (MODE on its own line at narrow widths) is possible if that reads badly.
+- [ ] (noted) a canon-delayed lane applies the CURRENT root transpose, not the one in force `d` beats ago (the history records the raw MIDI layer only).
+- [ ] (noted, pre-existing) the golden harness's hashes depend on a document's position in the run; PICK / KEY chip fit assumes 36 pt per chip while they draw ≥ 40; `onSetSourcePlan` records an undo step for an unchanged value; `UndoAudit` tripwires do not cover the plan funnel.
+
 ## ★ FOURFOLD — CHORD CANON: a lane reads the CHORDS layer behind the host beat (2026-10-31; `Docs/euclideous-status-log.md`, branch `feature/chord-canon`)
 - [x] DONE: per-lane DELAY (0…8) and SLIP (0…50 %) + the page's UNIT (STEPS · PASSES · BARS), a pure time-shift of `chordSeqNotesInto` (no history), the Router's per-lane pool re-key, the CANON row on the LISTEN tab, the dev-only ENTRY (WRAP · CHORD 1 · WAIT), undo for the unit, golden (4 CANON documents) + alloc + fuzz proofs.
 - [ ] DEVICE: the four "CHORD CANON —" lines in `Docs/euclideous-device-verification-debt.md` (the sound, ENTRY by ear, the row's touch targets, the note names).

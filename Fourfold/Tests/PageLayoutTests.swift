@@ -158,7 +158,7 @@ final class PageLayoutTests: XCTestCase {
             XCTAssertEqual(L.rootKeyW, L.pickKeyW, accuracy: 1e-9, "ROOT buttons share the PICK key width at \(cw)")
             XCTAssertEqual(L.poolChipW, (L.contentW - 28) / 8, accuracy: 1e-9, "8 POOL chips, sp4 apart, over CONTENT at \(cw)")
             XCTAssertGreaterThan(L.pickKeyW, 0, "keys stay positive at \(cw)")
-            XCTAssertEqual(L.modeW, 2 + L.modeAddW + 2 + L.modeReplaceW + 2, accuracy: 1e-9, "MODE = inset + ADD + between + REPLACE + inset at \(cw)")
+            XCTAssertEqual(L.modeW, 2 + L.modeAddW + 2 + L.modeReplaceW + 2 + L.modeRootW + 2, accuracy: 1e-9, "MODE = inset + ADD + between + REPLACE + between + ROOT + inset at \(cw)")
         }
         // 13 scale types wrap into 6 + 6 + 1 (rows of ≤ 6, §5.12).
         let s = euclideousSourcesPanelLayout(containerW: 448, editor: .key, scaleCount: 13)

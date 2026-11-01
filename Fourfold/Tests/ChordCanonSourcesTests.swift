@@ -27,7 +27,7 @@ final class ChordCanonSourcesTests: XCTestCase {
         return l
     }
     private func plan(midi: Bool = false, chords: Bool = false, pick: Bool = false, key: Bool = false, mode: MidiMode = .add, pickNotes: [UInt8] = []) -> SourcePlan {
-        SourcePlan(midiOn: midi, chordsOn: chords, pickOn: pick, keyOn: key, midiMode: mode, pickNotes: pickNotes)
+        SourcePlan(midiOn: midi, chordsOn: chords, pickOn: pick, keyOn: key, midiMode: mode, pickNotes: pickNotes, midiOctaves: .keep)   // canon is about WHEN a lane hears the pool, not which octave: played notes stay where they were played
     }
     private func state(_ lines: [EuclidLine], plan: SourcePlan, unit: CanonUnit? = .bars, entry: CanonEntry? = nil, keyRoot: Int = 0) -> PluginState {
         var c = Machine(machineID: "gold", type: .euclid)

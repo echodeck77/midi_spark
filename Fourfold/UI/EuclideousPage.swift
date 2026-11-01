@@ -2372,6 +2372,7 @@ struct EuclideousPage: View {
                                           chordsLit: sourceStatus.chordsLit, pickLit: sourceStatus.pickLit, keyLit: sourceStatus.keyLit)
         return VStack(alignment: .leading, spacing: 4) {
             sourceRowMidi(L, state: st.midi)
+            if sourcesEditor == .midi { midiEditorView(L) }
             sourceRowChords(L, state: st.chords)
             sourceRowPick(L, state: st.pick)
             if sourcesEditor == .pick { pickEditorView(L) }
@@ -2396,9 +2397,9 @@ struct EuclideousPage: View {
         .accessibilityElement(children: .ignore).accessibilityLabel(name).accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }
     /// §5.9 the COUNT column: the source's added count, coloured when > 0, "–" while off.
-    private func sourceCountView(added: Int, colour: UInt32, on: Bool) -> some View {
-        Text(!on ? "–" : "\(added)").font(.system(size: 12, weight: .heavy, design: .monospaced))
-            .foregroundColor(!on ? Color(hex: 0x5C626C) : (added > 0 ? Color(hex: colour) : Color(hex: 0x5C626C)))
+    private func sourceCountView(added: Int, colour: UInt32, on: Bool, text: String? = nil, lit: Bool? = nil) -> some View {
+        Text(!on ? "–" : (text ?? "\(added)")).font(.system(size: 12, weight: .heavy, design: .monospaced))
+            .foregroundColor(!on ? Color(hex: 0x5C626C) : ((lit ?? (added > 0)) ? Color(hex: colour) : Color(hex: 0x5C626C)))
             .frame(width: 24, alignment: .center)
     }
     /// §5.8 the CONTENT well.
@@ -2431,38 +2432,114 @@ struct EuclideousPage: View {
             Spacer(minLength: 0)
         }
     }
-    // §5.6/§5.8 the MIDI row: switch · CONTENT (held chips) · MODE · COUNT.
+    // §5.6/§5.8 the MIDI row: switch · CONTENT (a button → the MIDI IN editor: the held notes — folded ones under OCTAVES IGNORE — or, in ROOT, the one root chip; + a down chevron) · MODE · COUNT (the added count; in ROOT the signed transpose).
+    // MIDI IN OCTAVES / ROOT ferry (2026-11-01) §3. The chips use the narrower 30 pt MIDI chip and take the room CONTENT leaves after its padding and the chevron (`midiChipRoom`); with none (the 343 layout) only the chevron shows.
     private func sourceRowMidi(_ L: EuclideousSourcesPanelLayout, state: EuclideousSourceLight) -> some View {
-        HStack(spacing: 8) {
+        let root = sourcePlan.midiModeR == .root
+        let open = sourcesEditor == .midi
+        let names = midiChipNames()
+        let rootSpoken = sourceStatus.rootNote >= 0 ? euclideousPitchClassName(sourceStatus.rootNote, flatKey: midiNamesFlat) : "none"
+        let t = sourceStatus.rootTranspose
+        let tSpoken = t > 0 ? "plus \(t)" : (t < 0 ? "minus \(-t)" : "zero")
+        return HStack(spacing: 8) {
             sourceLabelSwitch("MIDI IN", on: sourcePlan.midiOnR, pipState: state, colour: EuclideousSourceColour.midi.fill) {
                 writeSourcePlan { $0.midiOn = !sourcePlan.midiOnR }
             }
-            sourceContentWell(width: L.contentMidiW) {
-                noteChipsRow(sourceStatus.midiNotes, colour: EuclideousSourceColour.midi.fill, ink: EuclideousSourceColour.midi.ink,
-                             width: L.contentMidiW - 20, waiting: state == .waiting, off: state == .off).opacity(sourceOpacity(state))
+            sourceContentWell(width: L.contentMidiW, open: open) {
+                HStack(spacing: 6) {
+                    if L.midiChipRoom > 0 {
+                        midiChipsRow(names: names, room: L.midiChipRoom, root: root, state: state)
+                            .frame(width: L.midiChipRoom, alignment: .leading).opacity(sourceOpacity(state))
+                    }
+                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundColor(Color(hex: 0xDFE3EA))
+                        .rotationEffect(.degrees(open ? 180 : 0))
+                }
             }
+            .contentShape(Rectangle()).onTapGesture { sourcesEditor = open ? .none : .midi }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(root ? "Root note, \(rootSpoken), transpose \(tSpoken)" : "MIDI in notes")
+            .accessibilityValue((root ? "" : names.joined(separator: ", ") + (names.isEmpty ? "" : ", ")) + (open ? "expanded" : "collapsed"))
+            .accessibilityAddTraits(.isButton)
             sourceModeToggle(L)
-            sourceCountView(added: sourceStatus.midiAdded, colour: EuclideousSourceColour.midi.fill, on: sourcePlan.midiOnR)
+            sourceCountView(added: sourceStatus.midiAdded, colour: EuclideousSourceColour.midi.fill, on: sourcePlan.midiOnR,
+                            text: root ? euclideousRootCountText(t) : nil, lit: root ? t != 0 : nil)
         }
     }
-    // §5.10 MODE: ADD · REPLACE (35 % while MIDI off, still tappable).
+    private var midiNamesFlat: Bool { euclideousKeyIsFlat(((keyRoot % 12) + 12) % 12, scaleType: keyType) }
+    /// The chips' labels: the held notes (the folded ones under IGNORE — named without an octave —, as played under KEEP); in ROOT the one root note, named by the OCTAVES setting in force; none ⇒ empty.
+    private func midiChipNames() -> [String] {
+        let octaves = sourcePlan.midiOctavesR
+        if sourcePlan.midiModeR == .root {
+            return sourceStatus.rootNote >= 0 ? [euclideousMidiChipName(note: sourceStatus.rootNote, octaves: octaves, flatKey: midiNamesFlat)] : []
+        }
+        return sourceStatus.midiNotes.map { euclideousMidiChipName(note: Int($0), octaves: octaves, flatKey: midiNamesFlat) }
+    }
+    /// §3.2/§3.4 the chips: held look while playing, outlined while waiting (as the other rows); ROOT's chip is held only while MIDI PLAYING and outlined (keeping its text) otherwise; nothing to show ⇒ one empty ghost.
+    private func midiChipsRow(names: [String], room: CGFloat, root: Bool, state: EuclideousSourceLight) -> some View {
+        let fit = euclideousMidiChipFit(room: room, count: names.count)
+        let outlined = root ? state != .playing : state == .waiting
+        let colour = EuclideousSourceColour.midi
+        return HStack(spacing: 4) {
+            if names.isEmpty {
+                if room >= euclideousMidiChipW { RoundedRectangle(cornerRadius: 4).strokeBorder(Color(hex: 0x3A3E47), lineWidth: 1).frame(width: euclideousMidiChipW, height: 24) }
+            } else {
+                ForEach(Array(names.prefix(fit.shown).enumerated()), id: \.offset) { _, name in
+                    Text(name).font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1)
+                        .foregroundColor(Color(hex: state == .off ? 0x5C626C : colour.ink))
+                        .frame(minWidth: euclideousMidiChipW - 6, minHeight: 24).padding(.horizontal, 3)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(outlined ? Color.clear : Color(hex: colour.fill)))
+                        .overlay(outlined ? RoundedRectangle(cornerRadius: 4).strokeBorder(Color(hex: colour.fill), lineWidth: 1) : nil)
+                }
+                if fit.showsOverflow {
+                    Text("+\(names.count - fit.shown)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: euclideousMidiChipW)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+    // MIDI IN OCTAVES / ROOT ferry §4: the MIDI IN editor — one row, OCTAVES · IGNORE | KEEP. 2 above, 6 below, the trailing edge 32 in (the PICK editor's: an 84 pt LABEL column, sp8, the CONTENT width).
+    private func midiEditorView(_ L: EuclideousSourcesPanelLayout) -> some View {
+        let sel = sourcePlan.midiOctavesR
+        let segW = (L.contentW - 3) / 2
+        return HStack(spacing: 8) {
+            Text("OCTAVES").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(0.14 * 9).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1)
+                .padding(.leading, 10).frame(width: 84, alignment: .leading)   // padding first: the column is exactly 84 (the KEY editor's labels draw 94 — padding after the frame)
+            HStack(spacing: 3) {
+                octaveSeg("IGNORE", spoken: "Ignore", value: .ignore, selected: sel == .ignore, width: segW)
+                octaveSeg("KEEP", spoken: "Keep", value: .keep, selected: sel == .keep, width: segW)
+            }
+        }
+        .padding(.top, 2).padding(.bottom, 6)
+        .accessibilityElement(children: .contain).accessibilityLabel("Octaves")
+    }
+    private func octaveSeg(_ label: String, spoken: String, value: MidiOctaves, selected: Bool, width: CGFloat) -> some View {
+        Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.04 * 8).lineLimit(1)
+            .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+            .frame(width: width, height: 32)
+            .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+            .contentShape(Rectangle())
+            .onTapGesture { if sourcePlan.midiOctavesR != value { writeSourcePlan { $0.midiOctaves = value } } }   // one undo step; the selected segment records nothing
+            .accessibilityElement(children: .ignore).accessibilityLabel(spoken).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+    // §5.10 MODE: ADD · REPLACE · ROOT (35 % while MIDI off, still tappable).
     private func sourceModeToggle(_ L: EuclideousSourcesPanelLayout) -> some View {
         let mode = sourcePlan.midiModeR
         return HStack(spacing: 2) {
             modeSeg("ADD", w: L.modeAddW, selected: mode == .add) { writeSourcePlan { $0.midiMode = .add } }
             modeSeg("REPLACE", w: L.modeReplaceW, selected: mode == .replace) { writeSourcePlan { $0.midiMode = .replace } }
+            modeSeg("ROOT", w: L.modeRootW, selected: mode == .root, spoken: "Root") { writeSourcePlan { $0.midiMode = .root } }
         }
         .padding(2).frame(height: 44)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1B1D23)))
         .opacity(sourcePlan.midiOnR ? 1 : 0.35)
     }
-    private func modeSeg(_ label: String, w: CGFloat, selected: Bool, tap: @escaping () -> Void) -> some View {
+    private func modeSeg(_ label: String, w: CGFloat, selected: Bool, spoken: String? = nil, tap: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.04 * 9)
             .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)).lineLimit(1)
             .frame(width: w, height: 40)
             .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color(hex: 0xDFE3EA) : Color.clear))
             .contentShape(Rectangle()).onTapGesture(perform: tap)
-            .accessibilityElement(children: .ignore).accessibilityLabel(label).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityElement(children: .ignore).accessibilityLabel(spoken ?? label).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
     // §5.6/§5.8 the CHORDS row: switch · CONTENT (a button → the CHORDS page: the live chord name + icon + chevron) · COUNT.
     private func sourceRowChords(_ L: EuclideousSourcesPanelLayout, state: EuclideousSourceLight) -> some View {
@@ -2722,7 +2799,8 @@ struct EuclideousPage: View {
             let colour = (src.map { $0 < colours.count ? colours[$0] : 0 }) ?? 0
             let tones = rest ? [] : euclideousChordTones(degree: deg, colour: colour, scaleTones: keyType.intervals, rootNote: 48 + keyRoot, minorKey: minorKey, spread: .close)
             let p = euclideousColumnPreviewPool(midiNotes: sourceStatus.midiNotes, chordTones: tones, pickNotes: sourcePlan.pickNotesR,
-                                                keyTones: keyTones, midiPlaying: sourceStatus.midiPlaying, plan: sourcePlan)
+                                                keyTones: keyTones, midiPlaying: sourceStatus.midiPlaying, plan: sourcePlan,
+                                                rootTranspose: sourcePlan.midiModeR == .root ? sourceStatus.rootTranspose : 0)   // the hold-preview shows the pool as ROOT has moved it
             return (p.notes, p.sources, "COL \(col + 1)")
         }()
         return ZStack(alignment: .topLeading) {

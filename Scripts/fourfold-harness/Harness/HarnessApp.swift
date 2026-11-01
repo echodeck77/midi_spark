@@ -144,6 +144,9 @@ final class Host {
 extension Host {
     /// Publish the document the way FourfoldRootView.publish() does (from the AU's own getters).
     func publishDocument() {
+        // `--octaves-keep` (MIDI IN OCTAVES ferry, 2026-11-01): force OCTAVES KEEP on whatever document was just loaded. The default is IGNORE, which folds the held chord and so changes every document's hash; KEEP must reproduce the pre-ferry
+        // golden byte for byte (`diff Scripts/fourfold-harness/golden-keep.txt` against the run).
+        if CommandLine.arguments.contains("--octaves-keep") { au.editDocument { var p = $0.sourcePlanResolved; p.midiOctaves = .keep; $0.euclideousSourcePlan = p } }
         let input = FourfoldCompose.Input(lines: au.uiEuclideousLines(), riff: au.uiEuclideousRiff(), riffs: au.uiEuclideousRiffs(), activeRiff: au.uiEuclideousActiveRiff(),
                                           soloMask: au.uiEuclideousSoloMask(), locks: au.uiEuclideousLocks(), lockRevs: 0)
         let chain = FourfoldCompose.chain(input)
@@ -293,7 +296,8 @@ extension Host {
         func step(_ i: Int) {
             if i == docs.count {
                 fputs("GOLDEN CANON ALL: documents=\(docs.count) events=\(total) hash=\(String(all, radix: 16))\n", stderr)
-                exit(0)
+                goldenOctaves()
+                return
             }
             let (name, handChanges, edit) = docs[i]
             playing = false; for _ in 0..<8 { render(480) }
@@ -321,6 +325,61 @@ extension Host {
     }
 }
 
+/// MIDI IN OCTAVES / ROOT (2026-11-01): the hands. `octavesHandInversions` are high inversions of a C-major triad then three other chords (the fold must bring them all down to KEY's base octave); `rootHandNotes` one low note every 8
+/// beats (the ROOT transpose: C2 = −12, G1 = −17, C3 = 0, G3 = +7 raw semitones from the base C).
+let octavesHandInversions: [[UInt8]] = [[76, 79, 84], [77, 81, 84], [79, 83, 86], [74, 77, 81]]
+let rootHandNotes: [[UInt8]] = [[50], [43], [48], [55]]
+
+extension Host {
+    /// The MIDI IN OCTAVES / ROOT documents, appended AFTER `GOLDEN CANON ALL` so every line above stays the oracle for "nothing else moved". With `--octaves-keep` the OCTAVES documents sound as KEEP (not IGNORE) — and the three ROOT documents
+    /// must hash IDENTICALLY with and without it: ROOT's transpose is raw under both settings and ROOT admits no played note. NOTE (found 2026-11-01): the harness chains engine state from one document to the next, so a document's hash depends on
+    /// its POSITION in the run (the same document run twice in a row hashes differently; every run of the same list reproduces exactly) — the order of this list is part of the oracle, and adding or moving a document re-derives the lines after it.
+    func goldenOctaves() {
+        func plan(_ chords: Bool, _ key: Bool, _ mode: MidiMode, _ octaves: MidiOctaves?, pick: [UInt8] = []) -> SourcePlan {
+            SourcePlan(midiOn: true, chordsOn: chords, pickOn: !pick.isEmpty, keyOn: key, midiMode: mode, pickNotes: pick, midiOctaves: octaves)
+        }
+        let docs: [(String, [[UInt8]], (inout PluginState) -> Void)] = [
+            ("MIDI alone, high inversions", octavesHandInversions, { s in s.euclideousSourcePlan = plan(false, false, .add, nil) }),
+            ("MIDI alone KEEP, high inversions", octavesHandInversions, { s in s.euclideousSourcePlan = plan(false, false, .add, .keep) }),
+            ("MIDI + KEY, high inversions", octavesHandInversions, { s in s.euclideousSourcePlan = plan(false, true, .add, nil) }),
+            ("MIDI + CHORDS, high inversions", octavesHandInversions, { s in canonDocument(&s, unit: .bars, delays: [0, 0, 0, 0], slips: [0, 0, 0, 0], plan: plan(true, false, .add, nil)) }),
+            ("REPLACE over CHORDS + KEY, high inversions", octavesHandInversions, { s in canonDocument(&s, unit: .bars, delays: [0, 0, 0, 0], slips: [0, 0, 0, 0], plan: plan(true, true, .replace, nil)) }),
+            ("ROOT over CHORDS + KEY, a low note", rootHandNotes, { s in canonDocument(&s, unit: .bars, delays: [0, 0, 0, 0], slips: [0, 0, 0, 0], plan: plan(true, true, .root, nil)) }),
+            ("ROOT over CHORDS + KEY + PICK KEEP, a low note", rootHandNotes, { s in canonDocument(&s, unit: .bars, delays: [0, 0, 0, 0], slips: [0, 0, 0, 0], plan: plan(true, true, .root, .keep, pick: [72, 76, 79])) }),
+            ("ROOT with delayed lanes", rootHandNotes, { s in canonDocument(&s, unit: .bars, delays: [0, 1, 2, 4], slips: [0, 10, 20, 30], plan: plan(true, true, .root, nil)) }),
+        ]
+        timer?.invalidate()
+        var all: UInt64 = 0xcbf29ce484222325, total = 0
+        func step(_ i: Int) {
+            if i == docs.count {
+                fputs("GOLDEN OCTAVES ALL: documents=\(docs.count) events=\(total) hash=\(String(all, radix: 16))\n", stderr)
+                exit(0)
+            }
+            let (name, hand, edit) = docs[i]
+            playing = false; for _ in 0..<8 { render(480) }
+            au.resetToFreshInit(); au.editDocument(edit)
+            publishDocument()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
+                for _ in 0..<8 { render(480) }
+                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                if CommandLine.arguments.contains("--dump") { dumpName = "OCTAVES: " + name }
+                var held = 0
+                hold(hand[0]); playing = true
+                for r in 0..<6400 {
+                    if r > 0, r % 400 == 0 { release(hand[held % hand.count]); held += 1; hold(hand[held % hand.count]) }   // the hand lets go and presses the next
+                    render(480)
+                }
+                playing = false; for _ in 0..<8 { render(480) }
+                release(hand[held % hand.count])
+                fputs("GOLDEN OCTAVES \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
+                all = (all ^ hash) &* 0x100000001b3; total += eventCount
+                DispatchQueue.main.async { step(i + 1) }
+            }
+        }
+        step(0)
+    }
+}
+
 extension Host {
     /// The allocation audit: warm the default document unwatched (one-time lazy initialisation is not what this measures), then for the default document and every factory preset render 32 bars under a held chord with the allocation
     /// watch on around the render block only — including the transport-start edge and the stop edge — and print what the render thread allocated.
@@ -330,7 +389,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -354,6 +413,11 @@ extension Host {
                     }
                 }
                 if name.contains("MIDI IN") { au.editDocument { $0.euclideousNoteSource = .midi } }
+                if name.contains("MIDI IN KEEP") { au.editDocument { $0.euclideousSourcePlan = SourcePlan(midiOn: true, chordsOn: false, pickOn: false, keyOn: true, midiMode: .add, pickNotes: [], midiOctaves: .keep) } }   // MIDI IN OCTAVES (2026-11-01): the default is IGNORE (the fold runs in every "MIDI IN" scenario above); KEEP is the pass-through
+                if name.contains("ROOT hand") {   // MIDI IN ROOT (2026-11-01): the hand's lowest note transposes a CHORDS + KEY pool; with delayed lanes in the second run (the canon merge folds / moves at read time)
+                    let delays = name.contains("delayed") ? [0, 1, 2, 4] : [0, 0, 0, 0]
+                    au.editDocument { canonDocument(&$0, unit: .bars, delays: delays, slips: [0, 0, 0, 0], plan: SourcePlan(midiOn: true, chordsOn: true, pickOn: false, keyOn: true, midiMode: .root, pickNotes: [])) }
+                }
                 if name.contains("HOCKET HITS+PASSES") {
                     au.editDocument { $0.hocketRules = HocketRuleSet([
                         { var r = HocketRule(); r.main = [1]; r.alt = [3, 5, 7]; r.several = .rotate; r.mainLen = 3; r.altLen = 2; return r }(),

@@ -119,6 +119,7 @@
 		5378CBD9629BE30614DE2733 /* ReelHeaderIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */; };
 		542020F81F4F52D34C16DF18 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD9084051F44A6CAA1CFDFA9 /* Models.swift */; };
 		545028F07A69D1A05607B1BD /* MigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372CA48448A531F0C9C47D25 /* MigrationTests.swift */; };
+		5495BE04F784F6B9DF629FD7 /* MidiInOctavesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45EDC2BE8955A84E568CE6A0 /* MidiInOctavesTests.swift */; };
 		54E1359ABAD90A7E9CD9C4BD /* LockModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11A47312E5B36EA267536F5 /* LockModePainter.swift */; };
 		5533EBEF2E9CE4295C52B55C /* manual-skeleton.md in Resources */ = {isa = PBXBuildFile; fileRef = 688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */; };
 		565A178ED04D52344FB8C914 /* CanonHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176469F1675E0C309D28B215 /* CanonHistory.swift */; };
@@ -484,6 +485,7 @@
 		42A11E131366C40F5FB993C3 /* RiffGridArrowFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffGridArrowFuzzTests.swift; sourceTree = "<group>"; };
 		440E5D6E44D2818020EF291B /* TabGlyphPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGlyphPainter.swift; sourceTree = "<group>"; };
 		4448C88CC517582DAFC89326 /* PortsStressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortsStressTests.swift; sourceTree = "<group>"; };
+		45EDC2BE8955A84E568CE6A0 /* MidiInOctavesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiInOctavesTests.swift; sourceTree = "<group>"; };
 		47EFEFD20A4BE99C391A7781 /* LaneViewStripPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneViewStripPainter.swift; sourceTree = "<group>"; };
 		487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceFactoryLibraryTests.swift; sourceTree = "<group>"; };
 		4B5AB77F620263EEC9BCFE6A /* RiffPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffPanelTests.swift; sourceTree = "<group>"; };
@@ -839,6 +841,7 @@
 				0207165FA77A08D14FDF6B09 /* LaneViewStripTests.swift */,
 				BC6819599CED217146F91C04 /* ListenTabTests.swift */,
 				7A20C66088682B1B60A45B7C /* MidiFileTests.swift */,
+				45EDC2BE8955A84E568CE6A0 /* MidiInOctavesTests.swift */,
 				372CA48448A531F0C9C47D25 /* MigrationTests.swift */,
 				EE63B3EA2A58FDDCB52C7C9D /* NoteRollTests.swift */,
 				354DBFBF5F37251A2C53939E /* NotesTabTests.swift */,
@@ -1566,6 +1569,7 @@
 				4D1ED5A783E864704FEFF3A6 /* ListenTabTests.swift in Sources */,
 				4C85D2EB2EC89304C0620DBA /* MidiFile.swift in Sources */,
 				BFADB19C396460B7B42F4BC2 /* MidiFileTests.swift in Sources */,
+				5495BE04F784F6B9DF629FD7 /* MidiInOctavesTests.swift in Sources */,
 				545028F07A69D1A05607B1BD /* MigrationTests.swift in Sources */,
 				4BFF997B67F572F08E8EBF7D /* Models.swift in Sources */,
 				7F7C8B318D46429B3492F2C4 /* NoteRollRing.swift in Sources */,

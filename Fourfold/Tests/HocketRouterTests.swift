@@ -69,7 +69,7 @@ final class HocketRouterTests: XCTestCase {
         var st = PluginState.makeInit()
         st.machines.append(Machine(machineID: FourfoldCompose.machineID, type: .euclid))
         st.euclideousLines = lanes ?? (0..<4).map { laneLine($0) }
-        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(); st.euclideousSoloMask = 0
+        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep); st.euclideousSoloMask = 0
         st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules)
         configure(&st)
         let ls = rawGates ? st.euclideousLines! : st.euclideousLinesResolved     // raw: gate 1.0 (legato) reaches the engine, as the stress tests feed it

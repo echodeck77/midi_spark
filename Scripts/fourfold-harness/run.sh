@@ -5,6 +5,7 @@
 #   sh Scripts/fourfold-harness/run.sh --alloc    # the render-thread allocation audit: counts every malloc/free the AU's render block makes over the default doc + every factory preset (32 bars each); exits 1 and lists the call stacks if any
 #                                                 #   CONFIG=Release sh Scripts/fourfold-harness/run.sh --alloc     (Debug is the default; Release is what ships, and Debug allocates more — run both)
 #   sh Scripts/fourfold-harness/run.sh --golden   # the sound oracle: default doc + every factory preset, 32 bars each, a hash of every MIDI byte (diff against golden.txt after an engine change)
+#   sh Scripts/fourfold-harness/run.sh --golden --octaves-keep   # the same with MIDI IN OCTAVES forced to KEEP (the pre-2026-11-01 sound): diff against golden-keep.txt — the proof that KEEP is byte-for-byte what the engine always did
 # The harness compiles Fourfold/Engine + Fourfold/UI + Fourfold/Shared — the same folders the real targets do. Output: build/fourfold-harness/ (gitignored).
 set -e
 cd "$(dirname "$0")/../.."
@@ -62,9 +63,9 @@ xcrun simctl terminate "$UDID" com.example.FFHarness 2>/dev/null || true
 xcrun simctl install "$UDID" "$APP"
 (xcrun simctl launch --console "$UDID" com.example.FFHarness "$@" > "$OUT/console.log" 2>&1 &)
 if [ "$1" = "--golden" ]; then
-  for i in $(seq 1 900); do grep -aq "GOLDEN CANON ALL" "$OUT/console.log" && break; sleep 1; done
+  for i in $(seq 1 900); do grep -aq "GOLDEN OCTAVES ALL" "$OUT/console.log" && break; sleep 1; done
   grep -a "^GOLDEN" "$OUT/console.log" | tee "$OUT/golden.txt"
-  echo "(compare with Scripts/fourfold-harness/golden.txt: diff Scripts/fourfold-harness/golden.txt $OUT/golden.txt)"
+  echo "(compare with Scripts/fourfold-harness/golden.txt — or golden-keep.txt after --octaves-keep: diff Scripts/fourfold-harness/golden.txt $OUT/golden.txt)"
   exit 0
 fi
 if [ "$1" = "--alloc" ]; then

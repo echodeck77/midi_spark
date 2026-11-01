@@ -175,8 +175,10 @@ struct SourcePlan: Equatable, Codable {
     var keyOn: Bool? = nil
     var midiMode: MidiMode? = nil
     var pickNotes: [UInt8]? = nil
+    /// MIDI IN OCTAVES (2026-11-01): IGNORE (nil resolves to it, old documents included) folds played notes to pitch classes voiced from KEY's base C; KEEP = the played octaves, as before. Declared last (additive-Optional).
+    var midiOctaves: MidiOctaves? = nil
     /// true iff any v2 field is present (⇒ a v2-written plan; absence ⇒ derive from the legacy cells / source).
-    var hasV2: Bool { midiOn != nil || chordsOn != nil || pickOn != nil || keyOn != nil || midiMode != nil || pickNotes != nil }
+    var hasV2: Bool { midiOn != nil || chordsOn != nil || pickOn != nil || keyOn != nil || midiMode != nil || pickNotes != nil || midiOctaves != nil }
     // Concrete reads for the engine/UI off a RESOLVED plan. The `??` defaults only fire for an unresolved default
     // SourcePlan() (a non-Euclideous SnapParams cell, never read for the pool): midiOn⇒true keeps MIDI listening.
     var midiOnR: Bool { midiOn ?? true }
@@ -186,11 +188,26 @@ struct SourcePlan: Equatable, Codable {
     var pickOnR: Bool { pickOn ?? false }
     var keyOnR: Bool { keyOn ?? (keyWithMidi || keyNoMidi) }
     var midiModeR: MidiMode { midiMode ?? .add }
+    var midiOctavesR: MidiOctaves { midiOctaves ?? .ignore }
     var pickNotesR: [UInt8] { pickNotes ?? [] }
 }
 // Sources panel v2 §1.1 / §2.2: what happens to CHORDS/PICK/KEY while MIDI IN is playing — ADD (they stack on
 // top) or REPLACE (they step aside until MIDI stops, within RELEASE GRACE). Global (one value for all parts).
-enum MidiMode: String, Codable, CaseIterable { case add = "ADD", replace = "REPLACE" }
+// MIDI IN OCTAVES/ROOT ferry (2026-11-01): ROOT — played notes never enter the pool; the lowest held note, less the reference C, transposes
+// the pool CHORDS / PICK / KEY build (CHORDS, PICK and KEY are always allowed, as if MIDI weren't playing). An unknown stored value resolves to ADD.
+enum MidiMode: String, Codable, CaseIterable {
+    case add = "ADD", replace = "REPLACE", root = "ROOT"
+    init(from decoder: Decoder) throws {
+        self = MidiMode(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .add
+    }
+}
+// MIDI IN OCTAVES (2026-11-01): IGNORE (the default) — MIDI IN contributes the pitch classes of what is held, voiced close above the lowest note with that note in KEY's base octave; KEEP — the notes as played, byte for byte as before. Unknown stored value ⇒ IGNORE.
+enum MidiOctaves: String, Codable, CaseIterable {
+    case ignore = "IGNORE", keep = "KEEP"
+    init(from decoder: Decoder) throws {
+        self = MidiOctaves(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .ignore
+    }
+}
 // SOURCES STACK §1.6: CLASHES is a DEV-build-only rig setting (judged by ear) — ALLOW keeps every stacked note,
 // DROP thins a lower layer's note that sits a semitone from a higher layer's (§2.7). `clashPolicyResolved`
 // forces ALLOW in release builds whatever is stored, so a stored DROP can never reach a shipped build.

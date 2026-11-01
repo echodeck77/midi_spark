@@ -91,7 +91,7 @@ func euclideousCanonKeyMask(tones: [Int]) -> UInt16 {
 }
 /// The KEY layer from a root and a scale mask: the scale tones in ONE base octave (C3 = 48 + root), ascending — exactly the notes the Router's live `fillKeyLayer` builds from the same key.
 func euclideousCanonKeyNotes(root: Int, mask: UInt16, into out: inout [Int]) -> Int {
-    let r = ((root % 12) + 12) % 12, base = 3 * 12 + 12
+    let r = ((root % 12) + 12) % 12, base = euclideousKeyBaseC
     var n = 0
     for iv in 0..<12 where (mask >> UInt16(iv)) & 1 != 0 && n < out.count {
         let note = base + r + iv

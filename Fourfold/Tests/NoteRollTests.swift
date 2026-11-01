@@ -123,7 +123,7 @@ final class NoteRollTests: XCTestCase {
         let lines = [l1, l2, { var o = EuclidLine(); o.enabled = false; return o }(), { var o = EuclidLine(); o.enabled = false; return o }()]
         var st = PluginState.makeInit()
         st.machines.append(Machine(machineID: FourfoldCompose.machineID, type: .euclid))
-        st.euclideousLines = lines; st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(); st.euclideousSoloMask = 0
+        st.euclideousLines = lines; st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep); st.euclideousSoloMask = 0
         let input = FourfoldCompose.Input(lines: lines, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: 0, soloMask: 0, locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]
         let box = SnapshotBuilder.build(from: st)

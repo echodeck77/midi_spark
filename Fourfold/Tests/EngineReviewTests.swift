@@ -37,7 +37,7 @@ final class EngineReviewTests: XCTestCase {
         st.machines.append(Machine(machineID: FourfoldCompose.machineID, type: .euclid))
         var ls = lines; while ls.count < 4 { var o = EuclidLine(); o.enabled = false; ls.append(o) }
         st.euclideousLines = ls
-        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(); st.euclideousSoloMask = 0
+        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep); st.euclideousSoloMask = 0
         st.euclideousRiff = EuclideousRiff(steps: 8, ranks: ranks)   // default: every riff column reads rank 1
         st.hocketRules = rules.isEmpty ? nil : HocketRuleSet(rules)
         if let channels { st.busChannels = channels }
