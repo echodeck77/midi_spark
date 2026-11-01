@@ -316,43 +316,40 @@ final class ListenTabTests: XCTestCase {
                        "the parameter is honoured literally — only this build's one real caller supplies the confirmed `true`")
     }
 
-    // MARK: 5. §2's own tab layout — proportional shrink with a 30pt floor, footer dropped first
+    // MARK: 5. §2's own tab layout — proportional shrink with a 30pt floor. POOL HOLD (FREEZE, 2026-11-01): the footer caption is GONE and a 6th row (FREEZE) sits under CANON, so five base rows (follow/rhythm/pitch/canon/freeze) share the card.
 
-    func testListenTabLayoutAtFullSizeWithNoPanelsFitsAtIdealHeightsAndKeepsTheFooter() {
-        // 229 = the card's real content height since the TAB STRIP ferry (301 − 72 chrome); four 44 rows + three 8 gaps = 200, and the footer's 16 + 8 makes 224. (CHORD CANON added the CANON row: four rows now.)
+    func testListenTabLayoutAtFullSizeWithNoPanelsShrinksSlightlyToFitTheFreezeRow() {
+        // 229 = the card's content height (301 − 72 chrome). Five 44 rows + four 8 gaps = 252 > 229, so every row shrinks to ≈39 pt; nothing scrolls, nothing hits the 30 pt floor. LISTEN is a temporary home for FREEZE (Paul).
         let l = euclideousListenTabLayout(contentAreaH: 229, rhythmPanelShown: false, pitchPanelShown: false)
-        XCTAssertEqual(l.followRowH, 44); XCTAssertEqual(l.rhythmRowH, 44); XCTAssertEqual(l.pitchRowH, 44); XCTAssertEqual(l.canonRowH, 44)
+        XCTAssertEqual(l.followRowH, 39); XCTAssertEqual(l.rhythmRowH, 39); XCTAssertEqual(l.pitchRowH, 39); XCTAssertEqual(l.canonRowH, 39); XCTAssertEqual(l.freezeRowH, 39)
         XCTAssertEqual(l.rhythmPanelH, 0); XCTAssertEqual(l.pitchPanelH, 0)
-        XCTAssertTrue(l.showFooter); XCTAssertEqual(l.footerH, 16); XCTAssertTrue(l.fits)
+        XCTAssertFalse(l.fits, "a sixth row no longer fits at ideal — the small shrink is accepted")
+        // the cells all share one height (the FREEZE stepper's width/height match the CANON row's — same `height` is passed to both)
+        XCTAssertEqual(l.freezeRowH, l.canonRowH, "FREEZE draws at the same height as CANON")
     }
-    func testListenTabLayoutAtTheOlderReferenceHeightDropsTheFooterButKeepsEveryRowAtIdeal() {
-        let l = euclideousListenTabLayout(contentAreaH: 202, rhythmPanelShown: false, pitchPanelShown: false)
-        XCTAssertFalse(l.showFooter); XCTAssertEqual(l.footerH, 0)
-        XCTAssertEqual([l.followRowH, l.rhythmRowH, l.pitchRowH, l.canonRowH], [44, 44, 44, 44]); XCTAssertTrue(l.fits)
-    }
-    func testListenTabLayoutWithOnlyTheRhythmPanelDropsTheFooterAndShrinksProportionally() {
+    func testListenTabLayoutWithOnlyTheRhythmPanelShrinksProportionally() {
         let l = euclideousListenTabLayout(contentAreaH: 202, rhythmPanelShown: true, pitchPanelShown: false)
-        XCTAssertFalse(l.showFooter); XCTAssertEqual(l.footerH, 0)
-        XCTAssertEqual(l.followRowH, 30); XCTAssertEqual(l.rhythmRowH, 30); XCTAssertEqual(l.rhythmPanelH, 66); XCTAssertEqual(l.pitchRowH, 30); XCTAssertEqual(l.canonRowH, 30)
-        XCTAssertEqual(l.pitchPanelH, 0, "PITCH's own panel isn't shown, so it takes no height at all")
-        XCTAssertFalse(l.fits, "scale < 1 — everything shrank below its ideal")
+        // rows: follow,rhythm,[panel],pitch,canon,freeze → 5 rows + 1 panel. Rows floor to 30; the panel shrinks.
+        XCTAssertEqual(l.followRowH, 30); XCTAssertEqual(l.rhythmRowH, 30); XCTAssertEqual(l.pitchRowH, 30); XCTAssertEqual(l.canonRowH, 30); XCTAssertEqual(l.freezeRowH, 30)
+        XCTAssertGreaterThan(l.rhythmPanelH, 30, "the panel keeps more than a row")
+        XCTAssertEqual(l.pitchPanelH, 0, "PITCH's own panel isn't shown")
+        XCTAssertFalse(l.fits)
     }
-    func testListenTabLayoutWithBothPanelsOpenShrinksEveryRow() {
+    func testListenTabLayoutWithBothPanelsOpenFloorsEveryRow() {
         let l = euclideousListenTabLayout(contentAreaH: 202, rhythmPanelShown: true, pitchPanelShown: true)
-        XCTAssertFalse(l.showFooter)
-        XCTAssertEqual(l.followRowH, 30); XCTAssertEqual(l.rhythmRowH, 30); XCTAssertEqual(l.rhythmPanelH, 45)
-        XCTAssertEqual(l.pitchRowH, 30); XCTAssertEqual(l.pitchPanelH, 45); XCTAssertEqual(l.canonRowH, 30)
+        XCTAssertEqual(l.followRowH, 30); XCTAssertEqual(l.rhythmRowH, 30); XCTAssertEqual(l.pitchRowH, 30); XCTAssertEqual(l.canonRowH, 30); XCTAssertEqual(l.freezeRowH, 30)
+        XCTAssertGreaterThanOrEqual(l.rhythmPanelH, 30); XCTAssertGreaterThanOrEqual(l.pitchPanelH, 30)
         XCTAssertFalse(l.fits)
     }
-    func testListenTabLayoutNeverShrinksAnInteractiveRowBelowThirtyPoints() {
+    func testListenTabLayoutNeverShrinksAnyRowBelowThirtyPoints() {
         let l = euclideousListenTabLayout(contentAreaH: 50, rhythmPanelShown: true, pitchPanelShown: true)
-        for h in [l.followRowH, l.rhythmRowH, l.rhythmPanelH, l.pitchRowH, l.pitchPanelH, l.canonRowH] { XCTAssertGreaterThanOrEqual(h, 30) }
+        for h in [l.followRowH, l.rhythmRowH, l.rhythmPanelH, l.pitchRowH, l.pitchPanelH, l.canonRowH, l.freezeRowH] { XCTAssertGreaterThanOrEqual(h, 30) }
         XCTAssertFalse(l.fits)
     }
-    func testListenTabLayoutAtAGenerousHeightNeverExceedsIdealEvenWithRoomToSpare() {
+    func testListenTabLayoutAtAGenerousHeightNeverExceedsIdeal() {
         let l = euclideousListenTabLayout(contentAreaH: 2000, rhythmPanelShown: true, pitchPanelShown: true)
         XCTAssertEqual(l.followRowH, 44); XCTAssertEqual(l.rhythmRowH, 44); XCTAssertEqual(l.rhythmPanelH, 112)
-        XCTAssertEqual(l.pitchRowH, 44); XCTAssertEqual(l.pitchPanelH, 112); XCTAssertEqual(l.canonRowH, 44)
-        XCTAssertTrue(l.showFooter); XCTAssertTrue(l.fits)
+        XCTAssertEqual(l.pitchRowH, 44); XCTAssertEqual(l.pitchPanelH, 112); XCTAssertEqual(l.canonRowH, 44); XCTAssertEqual(l.freezeRowH, 44)
+        XCTAssertTrue(l.fits)
     }
 }

@@ -153,6 +153,7 @@ final class Kernel {
     func hocketLive() -> (counts: [Int64], running: Bool) { router.hocketLive() }   // HOCKET §8: the lit rules' counts, on the existing 30 Hz poll
     func drainNoteRoll() -> [NoteRollRecord] { router.rollRing.drain() }              // CARD BACKS §5: the notes struck since the last poll (main thread; the ring is single-consumer)
     func euclideousSourceStatus() -> Router.EuclideousSourceStatus { router.euclideousSourceStatus() }   // SOURCES STACK ferry (2026-10-26): lane-1's source status, polled
+    func euclideousPoolHoldStatus() -> [EuclideousPoolHoldLaneStatus] { router.euclideousPoolHoldStatus() }   // POOL HOLD (FREEZE, 2026-11-01): each lane's running hold (dim + draining bar), on the same 30 Hz poll
     func euclideousNoteViewEvents() -> [[Router.EuclideousNoteViewEventSnapshot]] { router.drainEuclideousNoteViewEvents() }   // NOTE VIEW's per-lane event queue, drained (Paul 2026-10-10)
     func euclideousLanesSeqStep() -> Int { router.euclideousLanesSeqStep() }   // the LANES sequencer's current step, polled (2026-10-14 sequencer panel ferry)
     func euclideousRiffsSeqStep() -> Int { router.euclideousRiffsSeqStep() }   // the RIFFS sequencer's current step, polled (2026-10-14)

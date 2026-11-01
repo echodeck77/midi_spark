@@ -3255,25 +3255,25 @@ struct EuclideousListenTabLayout: Equatable {
     var pitchRowH: CGFloat
     var pitchPanelH: CGFloat     // 0 when PITCH is OWN or AVOID — no space kept (§2.5)
     var canonRowH: CGFloat       // CHORD CANON (2026-10-31): the CANON row (DELAY · SLIP · UNIT) under PITCH — always shown
-    var showFooter: Bool
-    var footerH: CGFloat
+    var freezeRowH: CGFloat      // POOL HOLD (FREEZE, 2026-11-01): the FREEZE row directly under CANON — always shown
     var gap: CGFloat
     var fits: Bool
 }
+// POOL HOLD (FREEZE, 2026-11-01): the inert CANON caption footer is GONE (Paul dropped it); a 6th row (FREEZE) sits under CANON. Six rows (follow/rhythm/pitch/canon/freeze + optional panels) share `contentAreaH`, shrinking
+// proportionally to a 30 pt floor — at the 301 pt card (contentAreaH 229) the five base rows + four gaps (252) exceed it, so the rows draw ≈40 pt and `fits` is false; nothing scrolls (the page is a fixed layout). LISTEN is a
+// TEMPORARY home for FREEZE (Paul), so the small shrink is accepted.
 func euclideousListenTabLayout(contentAreaH: CGFloat, rhythmPanelShown: Bool, pitchPanelShown: Bool) -> EuclideousListenTabLayout {
     let gap: CGFloat = 8, floor: CGFloat = 30
-    let idealRow: CGFloat = 44, idealPanel: CGFloat = 44 * 2 + 8 * 3, idealFooter: CGFloat = 16
+    let idealRow: CGFloat = 44, idealPanel: CGFloat = 44 * 2 + 8 * 3
     var mainIdeals: [CGFloat] = [idealRow, idealRow]   // FOLLOW, RHYTHM
     if rhythmPanelShown { mainIdeals.append(idealPanel) }
     mainIdeals.append(idealRow)   // PITCH
     if pitchPanelShown { mainIdeals.append(idealPanel) }
     mainIdeals.append(idealRow)   // CANON (CHORD CANON, 2026-10-31)
+    mainIdeals.append(idealRow)   // FREEZE (POOL HOLD, 2026-11-01)
     let mainGaps = CGFloat(max(0, mainIdeals.count - 1)) * gap
     let mainIdealTotal = mainIdeals.reduce(0, +) + mainGaps
-    let footerBudget = idealFooter + gap
-    let showFooter = mainIdealTotal + footerBudget <= contentAreaH
-    let budget = showFooter ? contentAreaH - footerBudget : contentAreaH
-    let scale = mainIdealTotal > mainGaps ? min(1, max(0, (budget - mainGaps) / (mainIdealTotal - mainGaps))) : 1
+    let scale = mainIdealTotal > mainGaps ? min(1, max(0, (contentAreaH - mainGaps) / (mainIdealTotal - mainGaps))) : 1
     let heights = mainIdeals.map { max(floor, ($0 * scale).rounded()) }
     var i = 0
     func next() -> CGFloat { let h = heights[i]; i += 1; return h }
@@ -3282,9 +3282,10 @@ func euclideousListenTabLayout(contentAreaH: CGFloat, rhythmPanelShown: Bool, pi
     let pitchRowH = next()
     let pitchPanelH = pitchPanelShown ? next() : 0
     let canonRowH = next()
+    let freezeRowH = next()
     return EuclideousListenTabLayout(followRowH: followRowH, rhythmRowH: rhythmRowH, rhythmPanelH: rhythmPanelH,
                                       pitchRowH: pitchRowH, pitchPanelH: pitchPanelH, canonRowH: canonRowH,
-                                      showFooter: showFooter, footerH: showFooter ? idealFooter : 0, gap: gap, fits: scale >= 1)
+                                      freezeRowH: freezeRowH, gap: gap, fits: scale >= 1)
 }
 
 
@@ -10012,6 +10013,42 @@ enum EmitterRatchetField: Int, CaseIterable {
 let euclideousCanonMaxDelay = 8
 let euclideousCanonSlipStep = 5
 let euclideousCanonSlipMax = 50
+/// POOL HOLD (FREEZE, 2026-11-01): a lane keeps its taken pool for 0…8 bars, or 9 = LOCK (never ends until tapped to 0). The drag/stepper runs 0…`euclideousPoolHoldLock`; the value 9 draws the lock glyph.
+let euclideousPoolHoldMax = 8
+let euclideousPoolHoldLock = 9
+/// §2.8 the running hold of one lane, published per window to the UI's 30 Hz poll: the FREEZE cell's dim + draining bar.
+struct EuclideousPoolHoldLaneStatus: Equatable { var running = false; var locked = false; var fraction: Double = 0 }
+/// §3.8 VoiceOver value for a FREEZE cell; `remaining` is the status fraction × hold (nil when not running).
+func euclideousPoolHoldSpoken(hold: Int, running: Bool, fraction: Double) -> String {
+    let base: String
+    if hold <= 0 { base = "off" }
+    else if hold >= euclideousPoolHoldLock { base = "locked" }
+    else { base = hold == 1 ? "1 bar" : "\(hold) bars" }
+    guard running, hold > 0, hold < euclideousPoolHoldLock else { return base }
+    let rem = max(1, Int((fraction * Double(hold)).rounded(.up)))
+    return base + (rem == 1 ? ", 1 remaining" : ", \(rem) remaining")
+}
+/// §3.3 the FREEZE value text: "0"…"8" (LOCK draws the lock glyph instead, handled by the view).
+func euclideousPoolHoldText(_ hold: Int) -> String { "\(max(0, min(euclideousPoolHoldMax, hold)))" }
+/// §3.4 the stepper move: 0…8 then LOCK(9) as the step past 8; from LOCK, ‹ gives 8. Clamped to 0…9.
+func euclideousPoolHoldMoved(_ hold: Int, by delta: Int) -> Int { max(0, min(euclideousPoolHoldLock, hold + delta)) }
+
+/// POOL HOLD (FREEZE) §2.10 — the ONE gate decision, shared by the engine and the tests (no second derivation).
+/// A RUNNING lane's gate: KEEP the held pool while the hold has bars left; at the bar boundary where it expires,
+/// TAKE the delayed pool if it differs (a new hold starts) else PASS (the hold ends); LOCK (9) never expires.
+/// `hold == 0` → PASS (§5.2, the idle case). The engine routes BOTH the armed "take on the next change" (feed
+/// `boundariesSinceTake:1, atBoundary:true` so bst == hold forces the expiry branch regardless of the real value —
+/// this is how the LOCK first-take and §2.4a mid-bar take fall out) AND the §2.6b "hold dropped to 0 while running,
+/// end at the next boundary" (feed `hold:1` so the short-circuit never fires) through THIS function.
+enum PoolHoldAction: Equatable { case keep, take, pass }
+func poolHoldGate(hold: Int, boundariesSinceTake: Int, atBoundary: Bool, delayedDiffers: Bool) -> PoolHoldAction {
+    if hold <= 0 { return .pass }                          // §5.2: hold 0 → PASS always (idle)
+    if hold >= euclideousPoolHoldLock { return .keep }     // LOCK: never expires once holding (first take rides the engine's armed feed)
+    if boundariesSinceTake < hold { return .keep }         // remaining > 0 → still holding
+    // remaining ≤ 0: the hold is expiring — but only AT a bar boundary (§2.4c); between boundaries it keeps holding
+    if atBoundary { return delayedDiffers ? .take : .pass }
+    return .keep
+}
 /// The salt of the SLIP roll ("CANONSLP"): no other roll in the engine uses it.
 let euclideousCanonSlipSalt: UInt64 = 0x4341_4E4F_4E53_4C50
 /// The pool cache key of a lane still WAITING for its first chord — no real chord step can equal it (`Int.min` itself is the "nothing built yet" key).

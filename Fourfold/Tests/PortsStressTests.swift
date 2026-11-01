@@ -182,7 +182,10 @@ final class PortsStressTests: XCTestCase {
         for i in 0..<ls.count {
             let d = [0, 0, Int.random(in: 1...8, using: &k)].randomElement(using: &k)!
             let sl = [0, 0, 5 * Int.random(in: 1...10, using: &k)].randomElement(using: &k)!
+            // POOL HOLD (FREEZE, 2026-11-01): a random hold (incl. LOCK = 9) from the same canon stream; `off` stores none (the control run). Exercises the hold gate under the fuzz's stuck-note / orphan / ALL=union invariants.
+            let h = [0, 0, Int.random(in: 1...euclideousPoolHoldLock, using: &k)].randomElement(using: &k)!
             ls[i].chordDelay = off || d == 0 ? nil : d; ls[i].chordSlip = off || sl == 0 ? nil : sl
+            ls[i].poolHold = off || h == 0 ? nil : h
         }
         st.euclideousLines = ls
         let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,

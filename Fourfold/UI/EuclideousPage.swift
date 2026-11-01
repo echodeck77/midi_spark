@@ -757,6 +757,7 @@ struct EuclideousPage: View {
     // above.
     let noteSource: EuclideousLaneSource
     let sourceStatus: Router.EuclideousSourceStatus   // SOURCES STACK ferry (2026-10-26): lane-1's live source status for the header lights + SOURCES NOW column
+    let poolHoldStatus: [EuclideousPoolHoldLaneStatus]   // POOL HOLD (FREEZE, 2026-11-01): each lane's running hold — the FREEZE cell's dim + draining bar
     let sourcePlan: SourcePlan                         // the RESOLVED v2 plan — drives the SOURCES button's pips + the panel's rows/MODE/PICK/KEY
     let onToggleSourceCell: (WritableKeyPath<SourcePlan, Bool>) -> Void   // (legacy SOURCES STACK cell flip — unused by the v2 panel, kept until the old pop-up is gone)
     let onSetSourcePlan: (SourcePlan) -> Void          // Sources panel v2: write a whole v2 plan (a switch, MODE, or a PICK key) as ONE undo step (§1.6)
@@ -5651,13 +5652,72 @@ struct EuclideousPage: View {
         }
         .frame(width: fullWidth, height: height))
     }
-    /// §2.6: the footer, pinned to the bottom of whatever room §2.1-§2.5 left (`euclideousListenTabLayout`
-    /// drops it first under pressure, so by the time this is called `showFooter` is already decided true).
-    /// CHORD CANON: while the lane has a DELAY or SLIP that can have no effect, the footer says so (brighter than the hint it replaces) — see `euclideousCanonInertCaption`.
-    private func listenFooter(fullWidth: CGFloat, height: CGFloat, canonCaption: String? = nil) -> some View {
-        Text(canonCaption ?? "Starts as an exact copy. Rhythm and Riff pause while borrowed; set a row to OWN to get yours back.")
-            .font(.system(size: 11, weight: canonCaption == nil ? .regular : .heavy, design: .monospaced)).foregroundColor(Color(hex: canonCaption == nil ? 0xAAB0BA : 0xE6C46A))
-            .lineLimit(2).frame(width: fullWidth, height: height, alignment: .topLeading)
+    // POOL HOLD (FREEZE, 2026-11-01): the LISTEN tab's bottom caption (`listenFooter`) is REMOVED (Paul dropped it); the FREEZE row takes its place under CANON. `euclideousCanonInertCaption` is kept (still unit-tested) but no longer drawn.
+    /// POOL HOLD (FREEZE, 2026-11-01) §3: the FREEZE row, directly under the CANON row, drawn like it — ONE stepper under
+    /// DELAY (the real DELAY is one per-lane stepper, not a four-cell row; source wins over the ferry's wording). 0…8 bars
+    /// or LOCK (9, drawn as lock.fill). A running hold dims the value to 60 % and drains a lane-coloured bar under it.
+    private func listenFreezeRow(_ idx: Int, _ line: EuclidLine, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let labelW: CGFloat = 50, pad: CGFloat = 4, gap: CGFloat = 4
+        let w = max(1, fullWidth - labelW)
+        let stepperW = max(1, (w - pad * 2 - gap * 2) / 3)   // the DELAY stepper's exact width (§3.3)
+        let stepperH = max(1, height - pad * 2)
+        let hold = line.poolHoldResolved
+        let status = idx >= 0 && idx < poolHoldStatus.count ? poolHoldStatus[idx] : EuclideousPoolHoldLaneStatus()
+        let accent = laneAccents[idx % laneAccents.count]
+        return AnyView(HStack(spacing: 0) {
+            Text("FREEZE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            HStack(spacing: gap) {
+                freezeStepper(idx, hold: hold, status: status, accent: accent, width: stepperW, height: stepperH)
+                Spacer(minLength: 0)   // the SLIP / UNIT columns stay empty — FREEZE partners DELAY only
+            }
+            .padding(pad)
+            .frame(width: w, height: height)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x24262C)))
+        }
+        .frame(width: fullWidth, height: height))
+    }
+    private func freezeStepper(_ idx: Int, hold: Int, status: EuclideousPoolHoldLaneStatus, accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
+        let zone: CGFloat = 30
+        let locked = hold >= euclideousPoolHoldLock
+        let spoken = euclideousPoolHoldSpoken(hold: hold, running: status.running, fraction: status.fraction)
+        func set(_ v: Int) { edit(idx) { $0.poolHold = v == 0 ? nil : v } }        // 0 stored as nil (additive-Optional default)
+        func setAll(_ v: Int) { onEdit { lines in for i in lines.indices { lines[i].poolHold = v == 0 ? nil : v } } }   // §3.6 long-press: all four lanes, one undo step (laneBits covers all four)
+        return AnyView(ZStack {
+            RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34))
+            VStack(spacing: 2) {
+                Text("FREEZE").font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Group {
+                    if locked { Image(systemName: "lock.fill").font(.system(size: 12)).foregroundColor(Color(hex: 0xF2F4F7)) }
+                    else { Text(euclideousPoolHoldText(hold)).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1) }
+                }
+                .opacity(status.running ? 0.6 : 1)   // §3.7: a running hold draws the value at 60 %
+            }
+            // §3.7 the draining bar: a 2 pt lane-coloured bar along the bottom, inset 6, width = remaining fraction × inner width. Not drawn for a lock (no bar) or when idle.
+            if status.running && !status.locked {
+                GeometryReader { g in
+                    let inner = max(0, g.size.width - 12)
+                    RoundedRectangle(cornerRadius: 1).fill(accent)
+                        .frame(width: max(0, inner * status.fraction), height: 2)
+                        .position(x: 6 + max(0, inner * status.fraction) / 2, y: g.size.height - 2)
+                }
+            }
+            HStack(spacing: 0) {
+                Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    .frame(width: zone, height: height).contentShape(Rectangle()).onTapGesture { set(euclideousPoolHoldMoved(hold, by: -1)) }
+                Spacer(minLength: 0)
+                // §3.5 a tap on the centre sets 0 ONLY while it shows LOCK (a number cell has no centre tap, like DELAY)
+                Color.clear.contentShape(Rectangle()).frame(height: height).onTapGesture { if locked { set(0) } }
+                Spacer(minLength: 0)
+                Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    .frame(width: zone, height: height).contentShape(Rectangle()).onTapGesture { set(euclideousPoolHoldMoved(hold, by: 1)) }
+            }
+        }
+        .frame(width: width, height: height)
+        .simultaneousGesture(LongPressGesture(minimumDuration: EuclideousRingPress.holdSeconds).onEnded { _ in setAll(hold) })   // §3.6: set all four lanes to this value
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Freeze, lane \(idx + 1)").accessibilityValue(spoken)
+        .accessibilityAdjustableAction { dir in set(euclideousPoolHoldMoved(hold, by: dir == .increment ? 1 : -1)) }
+        .accessibilityAction(named: "Set all lanes") { setAll(hold) })
     }
     private func listenTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let rhythmPanelShown = line.listenRhythmResolved != .own
@@ -5670,7 +5730,7 @@ struct EuclideousPage: View {
             listenPitchRow(idx, line, accent, fullWidth: fullWidth, height: layout.pitchRowH)
             if pitchPanelShown { listenPitchPanel(idx, line, fullWidth: fullWidth, height: layout.pitchPanelH) }
             listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonRowH)
-            if layout.showFooter { listenFooter(fullWidth: fullWidth, height: layout.footerH, canonCaption: euclideousCanonInertCaption(sourceOn: sourcePlan.anyOnR, pitch: line.listenPitchResolved, delay: line.chordDelayResolved, slip: line.chordSlipResolved)) }
+            listenFreezeRow(idx, line, fullWidth: fullWidth, height: layout.freezeRowH)   // POOL HOLD (FREEZE, 2026-11-01): directly under CANON; the inert-caption footer is gone (Paul dropped it)
             Spacer(minLength: 0)
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .top)

@@ -63,6 +63,7 @@ struct FourfoldRootView: View {
     var euclideousMaskPositions: [Int] { get { m.euclideousMaskPositions } nonmutating set { m.euclideousMaskPositions = newValue } }
     var euclideousRiffLivePool: [UInt8] { get { m.euclideousRiffLivePool } nonmutating set { m.euclideousRiffLivePool = newValue } }
     var euclideousSourceStatus: Router.EuclideousSourceStatus { get { m.euclideousSourceStatus } nonmutating set { m.euclideousSourceStatus = newValue } }
+    var euclideousPoolHoldStatus: [EuclideousPoolHoldLaneStatus] { get { m.euclideousPoolHoldStatus } nonmutating set { m.euclideousPoolHoldStatus = newValue } }
     var euclideousLanesSeqStep: Int { get { m.euclideousLanesSeqStep } nonmutating set { m.euclideousLanesSeqStep = newValue } }
     var euclideousRiffsSeqStep: Int { get { m.euclideousRiffsSeqStep } nonmutating set { m.euclideousRiffsSeqStep = newValue } }
     var euclideousWipeEvent: [Router.EuclideousNoteViewEventSnapshot?] { get { m.euclideousWipeEvent } nonmutating set { m.euclideousWipeEvent = newValue } }
@@ -158,6 +159,7 @@ struct FourfoldRootView: View {
                                                // `onSwing` call site exactly).
                                                swing: swing, onSetSwing: { au?.setSwing($0); refreshTiming() },
                                                noteSource: euclideousNoteSource, sourceStatus: euclideousSourceStatus,
+                                               poolHoldStatus: euclideousPoolHoldStatus,
                                                sourcePlan: euclideousSourcePlanResolvedUI,
                                                onToggleSourceCell: { kp in   // SOURCES STACK ferry (2026-10-26): flip one cell, undo like a source switch (§1.7); writes the plan, never the legacy source
                                                    euclideousRecordUndo(coalesceKey: nil)
@@ -859,6 +861,8 @@ struct FourfoldRootView: View {
     meters.emitters.update(packed: au.pollEmitterIndexPacked(), running: d.effectivePlaying)   // RATCH tab §3.10: each output's current pattern index, from the same 30 Hz poll (cleared while the transport is not running)
     let ss = au.pollEuclideousSourceStatus()   // SOURCES STACK: lane-1 source status on the existing 30 Hz poll (no new timer)
     if ss != euclideousSourceStatus { euclideousSourceStatus = ss }
+    let phs = au.pollEuclideousPoolHoldStatus()   // POOL HOLD (FREEZE): each lane's running hold (dim + draining bar), same 30 Hz poll
+    if phs != euclideousPoolHoldStatus { euclideousPoolHoldStatus = phs }
     applyLandedLockSnaps()   // LANE LOCK: a snap the render thread has landed is written into the document within a poll tick (30 Hz)
     applyLockStoppedRule()   // LANE LOCK 6.5: a stopped page has no lines to wait for
     let lss = au.pollEuclideousLanesSeqStep()
@@ -1044,6 +1048,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousMaskPositions: [Int] = [-1, -1, -1, -1]
     @Published var euclideousRiffLivePool: [UInt8] = []
     @Published var euclideousSourceStatus = Router.EuclideousSourceStatus()
+    @Published var euclideousPoolHoldStatus = [EuclideousPoolHoldLaneStatus](repeating: EuclideousPoolHoldLaneStatus(), count: 4)   // POOL HOLD (FREEZE, 2026-11-01)
     @Published var euclideousLanesSeqStep: Int = -1
     @Published var euclideousRiffsSeqStep: Int = -1
     @Published var euclideousWipeEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]

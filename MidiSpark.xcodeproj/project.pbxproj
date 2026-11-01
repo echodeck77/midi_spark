@@ -366,6 +366,7 @@
 		F5F640D877514DB16E14FE4B /* CardBackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB063E2496497A1B3757D426 /* CardBackTests.swift */; };
 		F6AD1CD7DE0E239B5C911317 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17328D614B4463EECE452DA4 /* BuildModel.swift */; };
 		F6EE573AB17BEB1885C87D5D /* AcceptanceArpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB6A38FE32EA7DF0350FFDB /* AcceptanceArpTests.swift */; };
+		F6EFBFE6B1CB176B5FDFE546 /* PoolHoldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C095FB6EB2EA58E25B0F802 /* PoolHoldTests.swift */; };
 		F6F02935BDFC696966E97817 /* FourfoldComposeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA52E42396BC32A4B5BA39F /* FourfoldComposeTests.swift */; };
 		F916421D23299C61B01B18B2 /* RiffGridArrowFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A11E131366C40F5FB993C3 /* RiffGridArrowFuzzTests.swift */; };
 		F98AB3C003834E203E8A2A09 /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */; };
@@ -522,6 +523,7 @@
 		68F897CA5367D074206AFCA5 /* ReelTapeAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelTapeAdapter.swift; sourceTree = "<group>"; };
 		6B187EF1F183D7FB9E3E25FE /* TapeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapeStore.swift; sourceTree = "<group>"; };
 		6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
+		6C095FB6EB2EA58E25B0F802 /* PoolHoldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoolHoldTests.swift; sourceTree = "<group>"; };
 		6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClarityPassTests.swift; sourceTree = "<group>"; };
 		6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandom.swift; sourceTree = "<group>"; };
 		6FECA3302B50E7D4800DF132 /* FourfoldAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldAccessibilityTests.swift; sourceTree = "<group>"; };
@@ -846,6 +848,7 @@
 				02BC895877CC2BFAB7C8DF92 /* PolyRiffEditTests.swift */,
 				5DF0A2C1D3809EFFB73B3B50 /* PolyRiffRouterTests.swift */,
 				70E31C280A2B3D60B7BEEEA9 /* PolyRiffTests.swift */,
+				6C095FB6EB2EA58E25B0F802 /* PoolHoldTests.swift */,
 				4448C88CC517582DAFC89326 /* PortsStressTests.swift */,
 				99F625F72C3FD2D49A4440D5 /* PresetStoreTests.swift */,
 				5B1FE1781AE0C4878A7935FE /* PulseTests.swift */,
@@ -1576,6 +1579,7 @@
 				47065C4E2FC4D51CC752D833 /* PolyRiffEditTests.swift in Sources */,
 				EB9CE84DA9D6331CC2D82BF5 /* PolyRiffRouterTests.swift in Sources */,
 				9C119BC2950B1D3854DD1BA0 /* PolyRiffTests.swift in Sources */,
+				F6EFBFE6B1CB176B5FDFE546 /* PoolHoldTests.swift in Sources */,
 				50DDE4A2AA20ABE1CD4B82AF /* PortsStressTests.swift in Sources */,
 				C79BA16AFBFFB6C53F200E37 /* PresetStore.swift in Sources */,
 				5CE639FE1C31C52CF9452B0C /* PresetStoreTests.swift in Sources */,

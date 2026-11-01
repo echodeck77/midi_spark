@@ -856,7 +856,25 @@ final class Router {
     private var canonKeyBuf = [Int](repeating: 0, count: 12)
     private var canonBufChord = Int.min          // what the shared pool buffer holds when `chordPoolStep` is the dirty key: a delayed lane's chord step …
     private var canonBufEntry = Int64.min        // … and its history entry (-1 = none: waiting)
-    private func resetCanonClock() { canonElapsedAccum = 0; canonWinElapsed = 0; canonHistory.reset(); canonBufChord = .min; canonBufEntry = .min }
+    // POOL HOLD (FREEZE, 2026-11-01) §2.9: the running hold per lane — the copy it holds + the bar it took it at — fixed-size, no allocation. Reset at a transport edge / performReset / scene flush (resetCanonClock), never by an edit.
+    private var poolHoldCopy = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 4 * 128)   // lane * 128 + rank
+    private var poolHoldCopyCount = [Int](repeating: 0, count: 4)
+    private var poolHoldRunning = [Bool](repeating: false, count: 4)
+    private var poolHoldTakeBar = [Int](repeating: 0, count: 4)       // host-bar index at the take (boundariesSinceTake = curBar − this)
+    private var poolHoldTakeBeat = [Double](repeating: 0, count: 4)   // beat at the take (for the §2.8 remaining fraction)
+    private var poolHoldLastBar = [Int](repeating: Int.min, count: 4) // last host-bar index processed (atBoundary = curBar > this)
+    // §2.8 status, per lane per window, read by the UI's 30 Hz poll (the FREEZE cell's dim + draining bar).
+    private var poolHoldStatRunning = [Bool](repeating: false, count: 4)
+    private var poolHoldStatLocked = [Bool](repeating: false, count: 4)
+    private var poolHoldStatFraction = [Double](repeating: 0, count: 4)
+    func euclideousPoolHoldStatus() -> [EuclideousPoolHoldLaneStatus] {
+        (0..<4).map { EuclideousPoolHoldLaneStatus(running: poolHoldStatRunning[$0], locked: poolHoldStatLocked[$0], fraction: poolHoldStatFraction[$0]) }
+    }
+    private func resetCanonClock() {
+        canonElapsedAccum = 0; canonWinElapsed = 0; canonHistory.reset(); canonBufChord = .min; canonBufEntry = .min
+        for i in 0..<4 { poolHoldRunning[i] = false; poolHoldLastBar[i] = Int.min; poolHoldCopyCount[i] = 0
+            poolHoldStatRunning[i] = false; poolHoldStatLocked[i] = false; poolHoldStatFraction[i] = 0 }
+    }
     private var euclideousStatusMidiCount = 0
     private var euclideousStatusMidiPlaying = false
     private var euclideousStatusChordsLit = false
@@ -2535,6 +2553,54 @@ final class Router {
                 mergeCanonStack(read, entry: entry)
                 chordPoolStep = euclideousCanonDirtyKey; canonBufChord = chordKey; canonBufEntry = entry
             }
+            // POOL HOLD (FREEZE, 2026-11-01) §2: after the pool is refreshed for THIS lane (canon or live), hold/take/pass it. Like `mergeCanonStack`, a KEEP overwrites the SHARED `globalSrcBuf` with the lane's held copy and parks the
+            // dirty key so the next lane re-merges the live/own pool before it reads; it never touches the status the live merge publishes (the SOURCES panel shows the live pool). The decision is the ONE pure `poolHoldGate`
+            // (Derivations.swift): a RUNNING lane feeds its real counts; an ARMED/first-take lane feeds (1, 1, true) so the gate takes on the next change (LOCK's first-chance take, §2.4a's mid-bar take); a hold dropped to 0 while
+            // running feeds effHold 1 so it ends at the NEXT boundary (§2.6b), not at once. "Differs" is a rank-by-rank NOTE compare of the just-refreshed pool vs the copy (§2.1 fallback — NOT the canon cache key, which changes on a
+            // chord-step advance even when the notes repeat). Fixed-size, no allocation. The caller skips this whole path when the lane is idle at 0, so a session with every FREEZE 0 is byte-identical.
+            func applyPoolHold(lane: Int, hold: Int, beat: Double) {
+                let barBeats = max(1e-9, beatsPerBar)
+                let curBar = Int(((beat + 1e-9) / barBeats).rounded(.down))
+                let base = lane * 128
+                var differs = globalSrcCount != poolHoldCopyCount[lane]
+                if !differs { for i in 0..<globalSrcCount where globalSrcBuf[i].note != poolHoldCopy[base + i].note { differs = true; break } }
+                let action: PoolHoldAction
+                if poolHoldRunning[lane] {
+                    let bst = max(0, curBar - poolHoldTakeBar[lane])
+                    let atB = curBar > poolHoldLastBar[lane]
+                    // §2.6b: a hold dropped to 0 while running ENDS at the next boundary with NO re-take (HOLD 0 pass-through resumes) — feed `hold:1, differs:false` so the gate keeps until the boundary then PASSES. A change to another
+                    // 1…8 (§2.6a) rides the normal gate: remaining = newHold − bst, so it may re-take with the new hold. A change to LOCK rides it too (KEEP forever).
+                    action = hold == 0 ? poolHoldGate(hold: 1, boundariesSinceTake: bst, atBoundary: atB, delayedDiffers: false)
+                                       : poolHoldGate(hold: hold, boundariesSinceTake: bst, atBoundary: atB, delayedDiffers: differs)
+                    poolHoldLastBar[lane] = curBar
+                } else {
+                    action = poolHoldGate(hold: 1, boundariesSinceTake: 1, atBoundary: true, delayedDiffers: differs)   // armed / first-take: take on the next change
+                }
+                switch action {
+                case .keep:
+                    let n = poolHoldCopyCount[lane]
+                    for i in 0..<n { globalSrcBuf[i] = poolHoldCopy[base + i] }
+                    globalSrcCount = n
+                    chordPoolStep = euclideousCanonDirtyKey; canonBufChord = .min; canonBufEntry = .min   // park: no live (chord step, entry) matches, so the next lane re-merges before it reads
+                case .take:
+                    let n = globalSrcCount
+                    for i in 0..<n { poolHoldCopy[base + i] = globalSrcBuf[i] }
+                    poolHoldCopyCount[lane] = n
+                    poolHoldTakeBar[lane] = curBar; poolHoldTakeBeat[lane] = beat; poolHoldLastBar[lane] = curBar
+                    poolHoldRunning[lane] = true
+                case .pass:
+                    poolHoldRunning[lane] = false   // armed: the lane plays the live/delayed pool as refreshed
+                }
+                // §2.8 status for the UI poll: running / locked / the remaining fraction (bars remaining − the fraction of the current bar elapsed) ÷ n.
+                let running = poolHoldRunning[lane]
+                poolHoldStatRunning[lane] = running
+                poolHoldStatLocked[lane] = running && hold >= euclideousPoolHoldLock
+                if running && hold > 0 && hold < euclideousPoolHoldLock {
+                    let bst = Double(max(0, curBar - poolHoldTakeBar[lane]))
+                    let fracBar = (beat - Double(curBar) * barBeats) / barBeats
+                    poolHoldStatFraction[lane] = max(0, min(1, (Double(hold) - bst - fracBar) / Double(hold)))
+                } else { poolHoldStatFraction[lane] = 0 }
+            }
             // HOLD/LATCH (Paul 2026-10-20, fixed 2026-10-21): checked HERE, once per Euclideous-row tick, so leaving
             // and returning to a MIDI contribution both reset correctly. Must run BEFORE fillMidiLayer (which reads
             // the pool). MIDI always listens now, so this no longer needs a source-mode guard.
@@ -2891,6 +2957,11 @@ final class Router {
                     else {
                         if chordPoolStep == euclideousCanonDirtyKey { mergeStack(atBeat: mTickBeat + 1e-9) }   // a delayed lane left its own pool in the shared buffer: put the live one back before this lane reads it
                         refreshStack(atBeat: mTickBeat)   // SOURCES STACK: re-merge if the CHORDS column changed at THIS tick's beat (chord-contributing docs only)
+                    }
+                    // POOL HOLD (FREEZE): the gate sits HERE — the pool is refreshed (DELAY applied), before any per-lane read (out-transpose, octave, the parts). Skipped entirely while the lane is idle at 0 (byte-identical).
+                    if isEuclideousRow, lineIndex >= 0, lineIndex < 4, lineIndex < linesView.count {
+                        let ph = linesView[lineIndex].poolHoldResolved
+                        if ph > 0 || poolHoldRunning[lineIndex] { applyPoolHold(lane: lineIndex, hold: ph, beat: mTickBeat) }
                     }
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`

@@ -715,8 +715,13 @@ struct EuclidLine: Codable, Equatable {
     // Both nil ⇒ 0, byte-identical to a document that never had them. They shape ONLY the CHORDS layer (MIDI IN, PICK and KEY are not functions of the beat) and are not lane-lock fields.
     var chordDelay: Int? = nil
     var chordSlip: Int? = nil
+    // POOL HOLD ferry (FREEZE, Paul 2026-11-01) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. Once the lane takes a note pool it keeps it for `poolHold` bar boundaries, ignoring changes, then takes
+    // whatever the pool is now (skip, never queue); 9 = LOCK (never ends until tapped to 0). nil ⇒ 0 ⇒ the pool path is skipped entirely, byte-identical to a document that never had it. The running hold is ENGINE state, not here.
+    var poolHold: Int? = nil
     var chordDelayResolved: Int { max(0, min(euclideousCanonMaxDelay, chordDelay ?? 0)) }
     var chordSlipResolved: Int { EuclidLine.legalCanonSlip(chordSlip ?? 0) }
+    /// 0…8 bars, or 9 = LOCK; anything outside 0…9 (and nil) resolves to 0 (§1.1).
+    var poolHoldResolved: Int { let v = poolHold ?? 0; return (0...euclideousPoolHoldLock).contains(v) ? v : 0 }
     /// Nearest multiple of 5 in 0…50 (7 -> 5, 8 -> 10, 99 -> 50, -3 -> 0).
     static func legalCanonSlip(_ v: Int) -> Int {
         let c = max(0, min(euclideousCanonSlipMax, v))
@@ -1050,6 +1055,8 @@ extension EuclidLine {
         // CHORD CANON: tolerant (`try?`), clamped at decode.
         chordDelay = (try? c.decodeIfPresent(Int.self, forKey: .chordDelay)).flatMap { $0 }.map { max(0, min(euclideousCanonMaxDelay, $0)) }
         chordSlip = (try? c.decodeIfPresent(Int.self, forKey: .chordSlip)).flatMap { $0 }.map { EuclidLine.legalCanonSlip($0) }
+        // POOL HOLD (FREEZE): tolerant (`try?`), clamped at decode; anything outside 0…9 → 0 via the resolver.
+        poolHold = (try? c.decodeIfPresent(Int.self, forKey: .poolHold)).flatMap { $0 }.map { max(0, min(euclideousPoolHoldLock, $0)) }
         // NOTES TAB ferry (2026-10-19, §5): tolerant by construction (`try?`): a wrong-typed value reads as missing, never a whole-session reset.
         let rawWhen = (try? c.decodeIfPresent(UInt8.self, forKey: .notesWhen)).flatMap { $0 }
         notesChance = (try? c.decodeIfPresent(Int.self, forKey: .notesChance)).flatMap { $0 }.map(EuclidLine.nearestLegalNotesChance)
