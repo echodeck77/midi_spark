@@ -209,6 +209,7 @@ final class Kernel {
     private var reelStopRequest = false                             // control thread: stop replay → resume live
     private var reelBrowsing = false                                // the PASS BROWSER pop-up is open → freeze the history tape
     private var reelRecordFromStart = false                         // was the in-progress pass recorded from its start? (only such passes file)
+    private var reelStoppedFlush = false                            // host transport stopped WHILE replaying → the loop's ringing notes have been closed once (see the transport-stop handler below). Reset when the host plays again.
     func reelSetBrowsing(_ on: Bool) { reelBrowsing = on }          // control thread: pop-up opened/closed
     func reelTouch() { reelToggle = true }                          // control thread: request a state toggle
     func reelStateValue() -> Int { switch reel.state { case .off: return 0; case .armed: return 1; case .replaying: return 2 } }
@@ -258,7 +259,7 @@ final class Kernel {
         pool.reset()
         liveEmitter.out = midiOut       // pick up the current host block before flushing
         router.allNotesOff(atSample: renderSampleImmediate, out: liveEmitter)    // flush any hung notes
-        reel.clear(); reelLastPass = Int.min                                     // THE REEL-TO-REEL: drop the tape on reset
+        reel.clear(); reelLastPass = Int.min; reelStoppedFlush = false           // THE REEL-TO-REEL: drop the tape on reset
         for r in doorRings { r.clearLoop() }; replayEngagedMask = 0; replayCatchToggle = 0   // REPLAY: drop each door's loop + disengage on reset
         fileMask = 0; fileClipGen = .max                                         // FILE: force a reload of clips from the box on the next render
         router.reset()                  // deferred inside the Router too — applied by the process() call this render makes
@@ -391,8 +392,21 @@ final class Kernel {
             case .replaying: reel.state = .off; reelExitFlush = true
             }
         }
-        if !playing, reel.state != .off { reel.state = .off; reelExitFlush = true }   // transport stop → resume live
+        // TRANSPORT STOP. A replaying pass STAYS pinned across a stop so the next PLAY resumes IT (not the live Euclid): the
+        // host beat freezes while stopped, so the replay simply pauses (`reel.replay` is gated on `playing` below) and the loop's
+        // ringing notes are closed ONCE here. Only the never-started `.armed` auto-loop resumes live on stop. The explicit exits
+        // (the reel toggle, reelStopRequest, closing the browser) still return to live. (Paul 2026-11-01: stop+restart replayed live.)
+        if !playing {
+            switch reel.state {
+            case .armed: reel.state = .off; reelExitFlush = true                       // armed but never reached a boundary → resume live
+            case .replaying: if !reelStoppedFlush { reelExitFlush = true; reelStoppedFlush = true }   // close the loop's ringing notes once; STAY replaying so restart resumes the pinned pass
+            case .off: break
+            }
+        } else {
+            reelStoppedFlush = false
+        }
         if reel.adoptStagedLoop() {                                // the pop-up tapped a pass (REEL PHASE 1c: built from the session tape on the main thread and staged): it is pinned now — REPLAY NOW (replace live output)
+            if reel.state == .replaying { reelBlanketOff(out: liveEmitter) }   // PASS→PASS switch: the OLD loop's notes sound on liveEmitter and are NOT router-tracked, so externalFlush can't close them → blanket them off here (else they hang, Paul 2026-11-01)
             reel.state = .replaying; router.externalFlush(box: box, atSample: renderSampleImmediate, out: reelFlushTap)   // reel REPLACES live output (externalFlush also clears glide/mod — Finding 1: no process() edge here) → flush the live WIRE/bypass monitor too (reconcileBypass is skipped during replay, so it can't close them → hung notes, Paul 2026-08-24)
         }
         if reelStopRequest {                                       // the pop-up stopped replay: resume live, drop the pin
@@ -452,7 +466,7 @@ final class Kernel {
         diag.effectivePlaying = rPlaying   // host OR free-run actually running → the UI shows "playing" only when sound is really happening (Paul 2026-09-04)
         // REPLACE the live output with the recorded loop — but keep the live engine running underneath, silently (REEL PHASE 1c): the session tape goes on recording what it plays.
         let replayingLoop = reel.state == .replaying && reel.hasLoop
-        if replayingLoop {
+        if replayingLoop && playing {   // EMIT the loop only while the transport runs — the host beat is frozen when stopped, so a paused replay stays SILENT (and ready to resume on restart); the live Euclid underneath keeps going to the SILENT tap below
             reel.replay(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, cycleBeats: reel.loopCycle,   // loop at the SELECTED pass's own length, not the live rate
                         beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
         }
