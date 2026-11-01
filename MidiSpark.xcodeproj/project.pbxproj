@@ -54,6 +54,7 @@
 		23FDD91646D014E1346B617E /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */; };
 		24FBAC22E0F946FA47ABD0EB /* FourfoldUndoProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56273CD5B28C7640784AA413 /* FourfoldUndoProbe.swift */; };
 		251EEE0C781BF90AFBB9B99F /* FourfoldLinkSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88CB15CBF16CD2853E91702B /* FourfoldLinkSettingsView.swift */; };
+		2594ED671865D7F71B005204 /* AppIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0CC18F46C2EEF16A71C80F2 /* AppIconTests.swift */; };
 		25B419195913DB1102E1FD61 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */; };
 		282189AB3D697A6FA80FB740 /* AcceptanceTuttiLengthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */; };
 		2862323D03259AC99DF87345 /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
@@ -98,6 +99,7 @@
 		47C29EACF7E0D356CD7DADDF /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */; };
 		47CA95171F41A3546DCBCD6D /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = C40FFEC9C51764F0A2A53F81 /* Atomics */; };
 		48945756C07AD7AD3107E51D /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
+		49BF3C1E54D8292EF186DAAF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */; };
 		4A2F4629204778337D64903F /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */; };
 		4A4BDDC9ADAEE30A2ECDE52F /* HocketLooksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E881ACD3CFC301D9E276ED00 /* HocketLooksTests.swift */; };
 		4AAAD0D744835419AF120580 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21FBCA687DA3D7C57F31B353 /* Derivations.swift */; };
@@ -622,6 +624,7 @@
 		BC6819599CED217146F91C04 /* ListenTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenTabTests.swift; sourceTree = "<group>"; };
 		BD247D9F8C873B8151A15B97 /* Fourfold-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Fourfold-Bridging-Header.h"; sourceTree = "<group>"; };
 		C08CEAAFF57F496AB60992D7 /* FourfoldTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTransportTests.swift; sourceTree = "<group>"; };
+		C0CC18F46C2EEF16A71C80F2 /* AppIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconTests.swift; sourceTree = "<group>"; };
 		C1F4BE86660C760F3CD73866 /* Kernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kernel.swift; sourceTree = "<group>"; };
 		C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldRootView.swift; sourceTree = "<group>"; };
 		C340F6C0DDE17211F0D4E422 /* PolyRiffEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiffEdit.swift; sourceTree = "<group>"; };
@@ -810,6 +813,7 @@
 		2974FA1F2F9619847B1BC9C0 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				C0CC18F46C2EEF16A71C80F2 /* AppIconTests.swift */,
 				0024C31E772682B8A6B1C552 /* CardBackReviewTests.swift */,
 				AB063E2496497A1B3757D426 /* CardBackTests.swift */,
 				D4730170C71768BFA49DCB6C /* ChordCanonSourcesTests.swift */,
@@ -1325,6 +1329,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				49BF3C1E54D8292EF186DAAF /* Assets.xcassets in Resources */,
 				636A60432C298D2FA586D43B /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1524,6 +1529,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2594ED671865D7F71B005204 /* AppIconTests.swift in Sources */,
 				25B419195913DB1102E1FD61 /* BuildModel.swift in Sources */,
 				EDCE7FC362CBDE98EF5C09C3 /* CanonHistory.swift in Sources */,
 				84A446E1688A40EAD3762C2D /* CardBack.swift in Sources */,
@@ -2124,6 +2130,7 @@
 		F6EE589E4C232CDF3EE5EAD6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Fourfold/AU/Info.plist;
@@ -2144,6 +2151,7 @@
 		FC5A02F9F6552278F4658838 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Fourfold/AU/Info.plist;

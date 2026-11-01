@@ -5,6 +5,11 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — AU host icon (2026-11-01; `Docs/euclideous-status-log.md`, branch `fix/au-host-icon`)
+- [x] DONE: the FourfoldAU extension carries the Canon AppIcon (shares the app's catalog); `AppIconTests`.
+- [ ] DEVICE: the two "AU host icon" lines in `Docs/euclideous-device-verification-debt.md` — AUM shows the Canon icon; if not, delete any leftover pre-rename "Fourfold" app (`com.paulbarrett.Fourfold`) and relaunch AUM, then tell me what it shows.
+- [ ] (noted) 8x8 State's `MidiSparkAU` has the same no-icon arrangement (ON HOLD).
+
 ## ★ FOURFOLD — MIDI IN: OCTAVES (IGNORE | KEEP) + MODE ROOT (2026-11-01; `Docs/euclideous-status-log.md`, branch `feature/midi-in-octaves-root`)
 - [x] DONE off-device: `SourcePlan.midiOctaves` + `MidiMode.root`, the fold (`euclideousFoldToBase`), the latched raw root transpose in the builder's `finish()`, the MIDI IN editor / ROOT segment / ROOT chip + signed COUNT, tests, KEEP golden byte-identical, Release allocation audit zero.
 - [x] DECIDED + LANDED (Paul said go, 2026-11-01): the IGNORE default changes the sound of all 35 golden documents (the default document, the 20 factory presets, 5 POLY, 9 CANON) whenever notes are held — pitches only, event counts unchanged; nothing changes with nothing held. `golden.txt` is re-derived under IGNORE; `golden-keep.txt` (`run.sh --golden --octaves-keep`) is the pre-ferry oracle + the OCTAVES group.

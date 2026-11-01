@@ -169,12 +169,14 @@ targets:
     sources:
       - path: Fourfold/AU
         excludes: ["Info.plist"]     # hand-maintained, like MidiSparkAU's: never let XcodeGen generate it (it would drop the aumi AudioComponents)
+      - path: Fourfold/App/Assets.xcassets   # the SAME Canon AppIcon set as the app. A host gets a component's icon from the system (`AVAudioUnitComponent.icon`, documented as the CONTAINING APP's icon for an extension); the extension used to carry none of its own, so anything that looks at the extension itself (an older iOS, a host reading its bundle) found nothing. Device-verified: no (the simulator returns nil for every extension-based component).
     # NOTE: no `info:` block here, for the same reason as MidiSparkAU.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.outliermidi.Fourfold.AU
         INFOPLIST_FILE: Fourfold/AU/Info.plist
         GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   # Off-device unit tests for the pure engine core. macOS + host-less logic bundle → runs in
   # seconds with `xcodebuild test`, no simulator. Compiles the pure sources directly (they are
