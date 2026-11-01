@@ -364,6 +364,23 @@ final class MidiInOctavesTests: XCTestCase {
         for b in 9..<13 { XCTAssertEqual(a1[b], b1[b], "beat \(b): the delayed lane still hears the pool as it was a bar ago — unmoved") }
         for b in 13..<20 { XCTAssertEqual(a1[b], b1[b] + 2, "beat \(b): …and moved from the bar it was pressed in") }
     }
+    func testAPoolMovedByTIsAChangedPoolToAFrozenLane() {
+        // POOL HOLD (FREEZE, landed on main alongside this ferry): a pool moved by the root transpose is a changed pool like a chord change (§2.9) — the live lane follows at once, a lane frozen for one bar keeps what it took until its next take
+        var frozen = EuclidLine(target: 0, pulses: 4, steps: 4)
+        frozen.gate = 0.5; frozen.velocityAbsolute = 90; frozen.rate = .r1_4; frozen.useRiff = true; frozen.riffOn = true; frozen.sourceMode = .midi; frozen.notesOn = true; frozen.litNotes = 0
+        frozen.poolHold = 1
+        let st = state(plan(chords: true, mode: .root), extra: [frozen])
+        let base = Rig(st); base.run(to: 24.5)
+        let r = Rig(st); r.run(to: 8.5); r.press([50]); r.run(to: 24.5)
+        let b0 = base.notes(cable: 1, beats: 24), b1 = base.notes(cable: 2, beats: 24), a0 = r.notes(cable: 1, beats: 24), a1 = r.notes(cable: 2, beats: 24)
+        XCTAssertFalse(b1.contains(-1))
+        for b in 9..<24 { XCTAssertEqual(a0[b], b0[b] + 2, "the live lane follows at once (beat \(b))") }
+        XCTAssertEqual(a1[9], b1[9], "the frozen lane has not taken the moved pool yet")
+        let diffs = (9..<24).map { a1[$0] - b1[$0] }
+        XCTAssertTrue(diffs.allSatisfy { $0 == 0 || $0 == 2 }, "a frozen lane plays the old pool or the moved one, never anything else: \(diffs)")
+        XCTAssertEqual(diffs.last, 2, "…and has taken the moved pool by the end")
+        XCTAssertEqual(diffs, diffs.sorted(), "…once: it does not slip back")
+    }
     func testTheHistoryRecordsAChangeOfTAsAChangeOfThePool() {
         var h = EuclideousCanonHistory()
         let layer: [(note: Int, vel: UInt8)] = [(50, 100)], none = [Int]()
