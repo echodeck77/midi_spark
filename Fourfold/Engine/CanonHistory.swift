@@ -28,6 +28,7 @@ struct EuclideousCanonHistory {
     private var pick = [UInt8](repeating: 0, count: capacity * pickCap)
     private var keyRoot = [UInt8](repeating: 0, count: capacity)
     private var keyMask = [UInt16](repeating: 0, count: capacity)
+    private var rootT = [Int16](repeating: 0, count: capacity)          // MIDI IN ROOT: the latched root transpose in force when the entry was recorded (0 outside ROOT) — a delayed lane moves ITS pool by the t of its own moment, not the live one
 
     var oldestSeq: Int64 { nextSeq - Int64(count) }
     var isEmpty: Bool { count == 0 }
@@ -36,18 +37,19 @@ struct EuclideousCanonHistory {
     mutating func reset() { count = 0; nextSeq = 0 }
 
     /// Records the layers as they are at elapsed beat `at`, unless they are exactly what the newest entry holds. `midi` is ascending (the pool layer's own order); only its first 32 notes are kept.
-    mutating func record(at e: Double, midi m: ArraySlice<(note: Int, vel: UInt8)>, midiPlaying: Bool, pick p: ArraySlice<Int>, keyRoot root: Int, keyMask mask: UInt16) {
+    mutating func record(at e: Double, midi m: ArraySlice<(note: Int, vel: UInt8)>, midiPlaying: Bool, pick p: ArraySlice<Int>, keyRoot root: Int, keyMask mask: UInt16, rootT t: Int = 0) {
         let mn = min(Self.midiCap, m.count), pn = min(Self.pickCap, p.count)
         let r = UInt8(truncatingIfNeeded: ((root % 12) + 12) % 12)
+        let rt = Int16(max(-1000, min(1000, t)))
         if count > 0 {
             let s = slot(nextSeq - 1)
-            var same = Int(midiN[s]) == mn && Int(pickN[s]) == pn && playing[s] == midiPlaying && keyRoot[s] == r && keyMask[s] == mask
+            var same = Int(midiN[s]) == mn && Int(pickN[s]) == pn && playing[s] == midiPlaying && keyRoot[s] == r && keyMask[s] == mask && rootT[s] == rt
             if same { for i in 0..<mn where Int(midi[(s * Self.midiCap + i) * 2]) != m[m.startIndex + i].note || midi[(s * Self.midiCap + i) * 2 + 1] != m[m.startIndex + i].vel { same = false; break } }
             if same { for i in 0..<pn where Int(pick[s * Self.pickCap + i]) != p[p.startIndex + i] { same = false; break } }
             if same { return }
         }
         let s = slot(nextSeq)
-        beat[s] = e; playing[s] = midiPlaying; keyRoot[s] = r; keyMask[s] = mask
+        beat[s] = e; playing[s] = midiPlaying; keyRoot[s] = r; keyMask[s] = mask; rootT[s] = rt
         midiN[s] = UInt8(mn); pickN[s] = UInt8(pn)
         for i in 0..<mn { midi[(s * Self.midiCap + i) * 2] = UInt8(truncatingIfNeeded: max(0, min(127, m[m.startIndex + i].note))); midi[(s * Self.midiCap + i) * 2 + 1] = m[m.startIndex + i].vel }
         for i in 0..<pn { pick[s * Self.pickCap + i] = UInt8(truncatingIfNeeded: max(0, min(127, p[p.startIndex + i]))) }
@@ -68,6 +70,7 @@ struct EuclideousCanonHistory {
     }
     func beatOf(_ seq: Int64) -> Double { beat[slot(seq)] }
     func midiPlaying(_ seq: Int64) -> Bool { playing[slot(seq)] }
+    func rootTranspose(_ seq: Int64) -> Int { Int(rootT[slot(seq)]) }
 
     /// The MIDI layer of an entry written into `out` (the pool layer's own `(note, vel)` shape); returns the count.
     func fillMidi(_ seq: Int64, into out: inout [(note: Int, vel: UInt8)]) -> Int {

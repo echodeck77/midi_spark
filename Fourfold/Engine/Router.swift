@@ -1065,6 +1065,20 @@ final class Router {
     // (teardown), nothing is left to clear anyway.
     private var pendingReset = false
     func reset() { pendingReset = true }
+    /// MIDI IN ROOT (§2.5): the latched transpose is maintained in STOPPED windows too — it is a property of what the player holds, not of the transport (a key pressed and released before PLAY still sets it; MIDI IN off, or leaving ROOT, while stopped still clears it).
+    /// The playing path (`process()`'s window-top clear and the per-window update after `fillMidiLayer`) does the same job with the HOLD / LATCH pool; here those modes keep what they hold (they capture only in playing windows).
+    private func updateRootWhileStopped(box: SnapshotBox, pool: NotePool) {
+        let proc = box.cells[Snap.euclideousRow].procs.first
+        let plan = proc?.euclideousSourcePlan ?? SourcePlan()
+        guard plan.midiOnR && plan.midiModeR == .root else { euclideousRootT = 0; euclideousRootNote = -1; return }
+        guard let proc = proc, proc.euclideousHoldLatchMode == nil else { return }
+        let c = pool.srcCount(chanMask: proc.globalSrcChanMask, cableMask: 0b1111)
+        guard c > 0 else { return }
+        var lowest = Int.max
+        for k in 0..<c { lowest = min(lowest, Int(pool.srcAscending(k, chanMask: proc.globalSrcChanMask, cableMask: 0b1111))) }
+        euclideousRootNote = lowest
+        euclideousRootT = euclideousRootTranspose(lowestHeld: lowest, baseC: euclideousKeyBaseC)
+    }
     private func performReset() {
         for i in voices.indices { voices[i].active = false; voices[i].offSample = .max; voices[i].silent = false }
         for i in refcount.indices { refcount[i] = 0 }
@@ -1076,7 +1090,6 @@ final class Router {
         wasPlaying = false
         resetEmitterRatchetOrigin()   // EMITTER RATCHET §2.5: a reset is a count origin
         resetCanonClock()             // CHORD CANON: the elapsed clock and the history start over
-        euclideousRootT = 0; euclideousRootNote = -1   // MIDI IN ROOT: a reset (like a load) starts the latched transpose at 0 — a transport edge does NOT (§2.5e)
         resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0 }
         prevEffColumn = -1
         prevBusEnabledMask = 0xFF
@@ -2018,6 +2031,7 @@ final class Router {
 
         // ---- transport stopped: nothing derives (the live passthrough and the bypass monitor above already ran) ----
         if !playing {
+            updateRootWhileStopped(box: box, pool: pool)
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding
             return
         }
@@ -2540,9 +2554,11 @@ final class Router {
             func mergeCanonStack(_ read: EuclideousCanonRead, entry: Int64) {
                 var midiN = 0, pickN = 0, keyN = 0
                 var playing = false
+                var rootT = 0   // the t in force at the lane's own moment (recorded with the entry), not the live one
                 if !read.waiting && entry >= 0 {
                     midiN = canonHistory.fillMidi(entry, into: &canonMidiBuf)
                     playing = canonHistory.midiPlaying(entry)
+                    rootT = canonHistory.rootTranspose(entry)
                     pickN = canonHistory.fillPick(entry, into: &canonPickBuf)
                     let k = canonHistory.key(entry)
                     keyN = euclideousCanonKeyNotes(root: k.root, mask: k.mask, into: &canonKeyBuf)
@@ -2561,7 +2577,7 @@ final class Router {
                     chords: chordPoolScratch[0..<chordLayerCount], chordsIsRest: chordLayerIsRest,
                     pick: canonPickBuf[0..<pickN],
                     key: canonKeyBuf[0..<keyN],
-                    plan: euPlan, clash: p.euclideousClashPolicy, midiStatusOut: &canonMidiStatusScratch, rootTranspose: euclideousRootT)   // …and moves by the CURRENT t
+                    plan: euPlan, clash: p.euclideousClashPolicy, midiStatusOut: &canonMidiStatusScratch, rootTranspose: rootT)   // …and moves by the t of THAT moment
                 globalSrcCount = st.count
             }
             func refreshCanonStack(beat m: Double, delayBeats: Double, slip: Int, lane: Int) {
@@ -2685,7 +2701,7 @@ final class Router {
                 // CHORD CANON, all sources: while any lane is delayed, remember the live layers (an unchanged window records nothing) so a delayed lane can read them back.
                 if p.euclidLines.contains(where: { $0.chordDelayResolved > 0 || $0.chordSlipResolved > 0 }) {
                     canonHistory.record(at: canonWinElapsed, midi: midiLayerBuf[0..<midiLayerCount], midiPlaying: euclideousStackMidiPlaying, pick: pickLayerBuf[0..<pickLayerCount],
-                                        keyRoot: p.euclideousChordKeyRoot, keyMask: euclideousCanonKeyMask(tones: p.euclideousChordKeyTones))
+                                        keyRoot: p.euclideousChordKeyRoot, keyMask: euclideousCanonKeyMask(tones: p.euclideousChordKeyTones), rootT: euclideousRootT)   // ROOT: a change of t is a change of the pool, like a chord change (spec 2.9)
                 }
             }
             func laneCount(_ li: Int) -> Int { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcCount : srcCount }

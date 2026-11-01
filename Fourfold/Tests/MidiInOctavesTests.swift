@@ -28,6 +28,18 @@ private final class Rig {
             ts += Double(frames)
         }
     }
+    /// `n` windows with the transport STOPPED (the engine keeps listening to the keys; nothing derives).
+    func runStopped(_ n: Int) {
+        for _ in 0..<n {
+            router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: out, diag: &diag)
+            ts += Double(frames)
+        }
+    }
+    /// One playing window carrying a scene flush (what a session / preset load does).
+    func flush() {
+        router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, sceneFlush: true, out: out, diag: &diag)
+        ts += Double(frames)
+    }
     func press(_ n: [UInt8]) { for x in n { pool.noteOn(x, velocity: 100, channel: 0) } }
     func release(_ n: [UInt8]) { for x in n { pool.noteOff(x) } }
     func stop() { router.process(box: box, pool: pool, playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: out, diag: &diag) }
@@ -52,7 +64,7 @@ final class MidiInOctavesTests: XCTestCase {
         SourcePlan(midiOn: midi, chordsOn: chords, pickOn: pick, keyOn: key, midiMode: mode, pickNotes: pickNotes, midiOctaves: octaves)
     }
     /// Lane 1 hits once a beat on `rank` of a flat riff (so each hit plays that rank of the pool); the others are silent. Output A = cable 1.
-    private func state(_ plan: SourcePlan, rank: Int = 1, extra: [EuclidLine] = [], keyRoot: Int = 0, chordDegrees: [Int] = [0, 3, 4, 5], lanePatch: ((inout EuclidLine) -> Void)? = nil) -> PluginState {
+    private func state(_ plan: SourcePlan, rank: Int = 1, extra: [EuclidLine] = [], keyRoot: Int = 0, chordDegrees: [Int] = [0, 3, 4, 5], canonUnit: CanonUnit? = nil, lanePatch: ((inout EuclidLine) -> Void)? = nil) -> PluginState {
         func lane(pulses: Int) -> EuclidLine {
             var l = EuclidLine(target: 0, pulses: pulses, steps: 4)
             l.gate = 0.5; l.velocityAbsolute = 90; l.rate = .r1_4; l.useRiff = true; l.riffOn = true; l.sourceMode = .midi; l.notesOn = true; l.litNotes = 0
@@ -73,6 +85,7 @@ final class MidiInOctavesTests: XCTestCase {
         st.euclideousSourcePlan = plan
         st.euclideousKeyRoot = keyRoot
         st.euclideousKeyType = .major   // the page's default key is natural minor; the ferry's examples are C major
+        st.euclideousCanonUnit = canonUnit
         return st
     }
     // MARK: the model (§1)
@@ -289,7 +302,9 @@ final class MidiInOctavesTests: XCTestCase {
         r.run(to: 8.5)
         XCTAssertEqual(r.status.rootTranspose, 0)
         XCTAssertEqual(r.status.midiNotes, [50], "D3 folded is D3")
-        XCTAssertTrue(r.poolNotes.contains(50))
+        r.press([51]); r.run(to: 9.5)   // D♯3 is NOT in the C major KEY, so only the admitted played note can put it in the pool
+        XCTAssertEqual(r.status.midiNotes, [50, 51])
+        XCTAssertTrue(r.poolNotes.contains(51), "leaving ROOT: the held note enters the pool as IGNORE says")
     }
     func testRootLeavesTheTransportAloneAndAReplaceDocumentSwitchedToRootContributes() {
         let r = Rig(rootState())
@@ -303,6 +318,124 @@ final class MidiInOctavesTests: XCTestCase {
         q.swap(rootState()); q.run(to: 3.5)
         XCTAssertGreaterThan(q.poolNotes.count, 1, "ROOT: CHORDS + KEY contribute while a note is held")
         XCTAssertEqual(q.status.midiAdded, 0)
+    }
+
+    // MARK: adversarial review 2026-11-01
+
+    func testTheLatchFollowsWhatIsHeldEvenWhileTheTransportIsStopped() {
+        let r = Rig(rootState())
+        r.runStopped(4)
+        r.press([50]); r.runStopped(4)                       // pressed with the transport stopped
+        XCTAssertEqual(r.status.rootTranspose, 2); XCTAssertEqual(r.status.rootNote, 50)
+        r.release([50]); r.runStopped(4)
+        XCTAssertEqual(r.status.rootTranspose, 2, "latched while stopped, nothing held")
+        r.run(to: r.beat + 1.5)                              // PLAY with nothing held: the pool is already moved
+        let base = Rig(rootState()); base.run(to: r.beat)
+        XCTAssertEqual(r.status.rootTranspose, 2)
+        XCTAssertEqual(r.poolNotes, base.poolNotes.map { $0 + 2 })
+        // MIDI IN switched off, then on, while STOPPED → cleared (§2.5c), and PLAY starts from 0
+        r.runStopped(2); r.swap(state(plan(midi: false, chords: true, key: true, mode: .root))); r.runStopped(2)
+        XCTAssertEqual(r.status.rootTranspose, 0); XCTAssertEqual(r.status.rootNote, -1)
+        r.swap(rootState()); r.runStopped(2); r.run(to: r.beat + 1.5)
+        XCTAssertEqual(r.status.rootTranspose, 0, "back on: 0 until a note")
+        // leaving ROOT for ADD and returning while stopped clears too (§2.5d)
+        r.press([50]); r.runStopped(2); XCTAssertEqual(r.status.rootTranspose, 2); r.release([50])
+        r.swap(state(plan(chords: true, key: true, mode: .add))); r.runStopped(2); r.swap(rootState()); r.runStopped(2)
+        XCTAssertEqual(r.status.rootTranspose, 0)
+    }
+    func testAHostResetDoesNotClearTheLatch() {
+        // an AU reset() can arrive at a transport edge, a bypass or a sample-rate change; §2.5e says only a load (and MIDI off / leaving ROOT) clears t
+        let r = Rig(rootState())
+        r.run(to: 0.5); r.press([50]); r.run(to: 2.5); r.release([50]); r.run(to: 3.5)
+        r.router.reset(); r.run(to: 4.5)
+        XCTAssertEqual(r.status.rootTranspose, 2); XCTAssertEqual(r.status.rootNote, 50)
+    }
+    func testADelayedLaneMovesItsPoolByTheTOfItsOwnMoment() {
+        // lane 1 is live, lane 2 hears the pool one BAR late. D3 is pressed at beat 8.5: the live lane moves at once, the delayed one a bar later (beat 13 reads beat 9)
+        var delayed = EuclidLine(target: 0, pulses: 4, steps: 4)
+        delayed.gate = 0.5; delayed.velocityAbsolute = 90; delayed.rate = .r1_4; delayed.useRiff = true; delayed.riffOn = true; delayed.sourceMode = .midi; delayed.notesOn = true; delayed.litNotes = 0
+        delayed.chordDelay = 1
+        let st = state(plan(chords: true, mode: .root), extra: [delayed], canonUnit: .bars)
+        let base = Rig(st); base.run(to: 20.5)
+        let r = Rig(st); r.run(to: 8.5); r.press([50]); r.run(to: 20.5)
+        let b0 = base.notes(cable: 1, beats: 20), b1 = base.notes(cable: 2, beats: 20), a0 = r.notes(cable: 1, beats: 20), a1 = r.notes(cable: 2, beats: 20)
+        XCTAssertFalse(b1.contains(-1)); XCTAssertNotEqual(b0, b1, "the delayed lane really is a bar behind")
+        for b in 9..<20 { XCTAssertEqual(a0[b], b0[b] + 2, "live lane, beat \(b)") }
+        for b in 9..<13 { XCTAssertEqual(a1[b], b1[b], "beat \(b): the delayed lane still hears the pool as it was a bar ago — unmoved") }
+        for b in 13..<20 { XCTAssertEqual(a1[b], b1[b] + 2, "beat \(b): …and moved from the bar it was pressed in") }
+    }
+    func testTheHistoryRecordsAChangeOfTAsAChangeOfThePool() {
+        var h = EuclideousCanonHistory()
+        let layer: [(note: Int, vel: UInt8)] = [(50, 100)], none = [Int]()
+        h.record(at: 0, midi: layer[...], midiPlaying: true, pick: none[...], keyRoot: 0, keyMask: 0xAB5, rootT: 2)
+        h.record(at: 1, midi: layer[...], midiPlaying: true, pick: none[...], keyRoot: 0, keyMask: 0xAB5, rootT: 2)
+        XCTAssertEqual(h.count, 1, "an identical window records nothing")
+        h.record(at: 2, midi: layer[...], midiPlaying: true, pick: none[...], keyRoot: 0, keyMask: 0xAB5, rootT: 5)
+        XCTAssertEqual(h.count, 2, "only t changed — still a new entry")
+        XCTAssertEqual(h.rootTranspose(0), 2); XCTAssertEqual(h.rootTranspose(1), 5)
+        h.record(at: 3, midi: layer[...], midiPlaying: true, pick: none[...], keyRoot: 0, keyMask: 0xAB5)   // the default: no ROOT
+        XCTAssertEqual(h.count, 3); XCTAssertEqual(h.rootTranspose(2), 0)
+    }
+
+    // The survivors of the 2026-11-01 mutation review.
+
+    func testADelayedLaneFoldsAtReadTimeUnderIgnoreAndNotUnderKeep() {
+        var delayed = EuclidLine(target: 0, pulses: 4, steps: 4)
+        delayed.gate = 0.5; delayed.velocityAbsolute = 90; delayed.rate = .r1_4; delayed.useRiff = true; delayed.riffOn = true; delayed.sourceMode = .midi; delayed.notesOn = true; delayed.litNotes = 0
+        delayed.chordDelay = 1
+        for (octaves, want) in [(MidiOctaves.ignore, 52), (.keep, 64)] {   // E4 G4 C5 held from beat 0.5: E3 folded, E4 kept
+            let r = Rig(state(plan(octaves: octaves), extra: [delayed], canonUnit: .bars)); r.run(to: 0.5); r.press([64, 67, 72]); r.run(to: 12.5)
+            let live = r.notes(cable: 1, beats: 12), late = r.notes(cable: 2, beats: 12)
+            for b in 6..<12 { XCTAssertEqual(live[b], want, "\(octaves) live lane, beat \(b)"); XCTAssertEqual(late[b], want, "\(octaves) delayed lane, beat \(b): the history is raw, the lane folds at read time") }
+        }
+    }
+    func testASceneFlushClearsTheLatch() {
+        let r = Rig(rootState()); r.run(to: 0.5); r.press([50]); r.run(to: 2.5); r.release([50]); r.run(to: 3.5)
+        XCTAssertEqual(r.status.rootTranspose, 2)
+        r.flush()
+        XCTAssertEqual(r.status.rootTranspose, 0, "a session / preset load starts at 0 (§1.4)"); XCTAssertEqual(r.status.rootNote, -1)
+        r.run(to: r.beat + 1); XCTAssertEqual(r.status.rootTranspose, 0)
+    }
+    func testThePoolBlocksSourceTagsSurviveTheMove() {
+        let base = Rig(rootState()); base.run(to: 2.5)
+        let r = Rig(rootState()); r.run(to: 0.5); r.press([50]); r.run(to: 2.5)
+        XCTAssertEqual(r.poolNotes, base.poolNotes.map { $0 + 2 })
+        XCTAssertEqual(r.status.poolSources, base.status.poolSources, "CHORDS notes stay tagged CHORDS and KEY notes KEY once they are moved")
+        XCTAssertTrue(r.status.poolSources.contains(1) && r.status.poolSources.contains(3))
+        XCTAssertFalse(r.status.poolSources.contains(0), "ROOT admits no played note: nothing is tagged MIDI")
+    }
+    func testTheHoldPreviewShowsThePoolAsRootMovesIt() {
+        let p = plan(chords: true, key: true, mode: .root)
+        let a = euclideousColumnPreviewPool(midiNotes: [], chordTones: [48, 52, 55], pickNotes: [], keyTones: [48, 50, 52, 53, 55, 57, 59], midiPlaying: false, plan: p)
+        let b = euclideousColumnPreviewPool(midiNotes: [], chordTones: [48, 52, 55], pickNotes: [], keyTones: [48, 50, 52, 53, 55, 57, 59], midiPlaying: false, plan: p, rootTranspose: 2)
+        XCTAssertEqual(b.notes, a.notes.map { $0 + 2 }); XCTAssertEqual(b.sources, a.sources)
+        XCTAssertTrue(a.sources.contains(1) && a.sources.contains(3))
+    }
+    func testChordsPlayThroughTheReleaseGraceUnderRoot() {
+        // ROOT never steps CHORDS aside, not even in the 50 ms after the last key goes up: a hit ~30 ms after the release still sounds
+        let r = Rig(state(plan(chords: true, mode: .root)))
+        r.run(to: 0.5); r.press([50]); r.run(to: 5.94); r.release([50]); r.run(to: 6.5)
+        XCTAssertNotEqual(r.notes(cable: 1, beats: 7)[6], -1, "the hit at beat 6 sounds")
+    }
+    func testReplaceKeepsChordsAsideThroughTheReleaseGraceAndThenReturns() {
+        let r = Rig(state(plan(chords: true, key: true, mode: .replace)))
+        r.run(to: 0.5); r.press([60]); r.run(to: 4.5)
+        XCTAssertEqual(r.poolNotes, [48])
+        let t0 = r.beat; r.release([60]); r.run(to: t0 + 0.04)    // two 10 ms windows after the release: still inside RELEASE GRACE
+        XCTAssertEqual(r.poolNotes, [], "CHORDS and KEY are still aside 20 ms after the release")
+        r.run(to: t0 + 0.2)                                       // 100 ms after
+        XCTAssertGreaterThan(r.poolNotes.count, 1, "…and back once the grace has passed")
+    }
+    func testReleasingTheLowestOfSeveralNotesMovesTTowardTheNextLowest() {
+        let r = Rig(rootState()); r.run(to: 0.5); r.press([50, 55]); r.run(to: 2.5)
+        XCTAssertEqual(r.status.rootTranspose, 2); XCTAssertEqual(r.status.rootNote, 50)
+        r.release([50]); r.run(to: 3.5)
+        XCTAssertEqual(r.status.rootTranspose, 7, "G3 is now the lowest held note"); XCTAssertEqual(r.status.rootNote, 55)
+    }
+    func testTheSourceLightsUnderRoot() {
+        let on = plan(chords: true, mode: .root), off = plan(midi: false, chords: true, mode: .root)
+        func lights(_ p: SourcePlan, playing: Bool) -> EuclideousSourceLight { euclideousSourceStatuses(plan: p, midiPlaying: playing, chordsLit: true, pickLit: false, keyLit: false).midi }
+        XCTAssertEqual(lights(on, playing: true), .playing); XCTAssertEqual(lights(on, playing: false), .waiting); XCTAssertEqual(lights(off, playing: true), .off)
     }
 
     // MARK: downstream (§2.6)

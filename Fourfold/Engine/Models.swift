@@ -167,7 +167,7 @@ struct SourcePlan: Equatable, Codable {
     var keyNoMidi      = false
     // Sources panel v2 (2026-10-28) §1.1: four switches in priority order, the MIDI ADD/REPLACE choice, and the
     // tapped-in PICK notes. Additive-Optional (nil ⇒ this plan predates v2; `sourcePlanResolved` fills them from
-    // the legacy cells or the legacy exclusive source). The RESOLVED plan returned by `sourcePlanResolved` always
+    // the legacy cells or the legacy exclusive source). The RESOLVED plan returned by `sourcePlanResolved` always (bar `midiOctaves`, which stays nil until written — read it through `midiOctavesR`)
     // carries concrete v2 values, so the engine/snapshot/UI read the v2 fields; the legacy cells are then ignored.
     var midiOn: Bool? = nil
     var chordsOn: Bool? = nil

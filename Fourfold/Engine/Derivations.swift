@@ -885,6 +885,7 @@ func euclideousMidiChipName(note: Int, octaves: MidiOctaves, flatKey: Bool) -> S
     octaves == .ignore ? euclideousPitchClassName(note, flatKey: flatKey) : euclideousNoteViewName(UInt8(max(0, min(127, note))), flatKey: flatKey)
 }
 
+let euclideousMidiEditorH: CGFloat = 2 + 32 + 6
 /// MIDI IN chips: 24 pt minimum + 3 pt either side = 30 drawn (Paul 2026-11-01: narrower than the PICK/KEY chips so three fit the 100 pt the ROOT segment and chevron leave at the 448 pt panel), 4 apart, "+n" in a reserved slot.
 let euclideousMidiChipW: CGFloat = 30
 /// How many of `count` MIDI IN chips fit `room`: all of them if they do; else one slot is kept for "+n" (shown = fit − 1); with room for a single chip, that chip alone; with less than a chip, none (the chevron stays).
@@ -4298,7 +4299,7 @@ struct EuclideousSourcesPanelLayout: Equatable {
     var contentW: CGFloat           // §5.8 CONTENT on a non-MIDI row
     var contentMidiW: CGFloat       // CONTENT on the MIDI row (narrower by MODE + sp8)
     var midiChipRoom: CGFloat       // MIDI IN ROOT/OCTAVES ferry §3.2 what the chips get inside CONTENT: its width less 10 pt padding each side and the chevron with its sp6 (0 ⇒ the chips hide, the chevron stays)
-    let midiEditorH: CGFloat = 40   // MIDI IN ROOT/OCTAVES ferry §4.1 the MIDI IN editor: 2 above + one 32 pt row + 6 below
+    let midiEditorH: CGFloat = euclideousMidiEditorH   // MIDI IN ROOT/OCTAVES ferry §4.1 the MIDI IN editor: 2 above + one 32 pt row + 6 below
     var pickKeyW: CGFloat           // §5.11 each of the 12 PICK keys
     var rootKeyW: CGFloat           // §5.12 each of the 12 ROOT buttons (= pickKeyW)
     let octaveStepperW: CGFloat = 84 // §5.11
@@ -4338,8 +4339,7 @@ func euclideousSourcesPanelLayout(containerW: CGFloat, editor: EuclideousSourceE
     let pickEditorH: CGFloat = 2 + 52 /* stepper = keys */ + 6
     let keyScaleBlockH = CGFloat(scaleRows) * 32 + CGFloat(scaleRows - 1) * gap3
     let keyEditorH: CGFloat = 2 + (40 /* ROOT */ + 6 + keyScaleBlockH) + 4
-    let midiEditorH: CGFloat = 2 + 32 + 6                     // ferry §4.1/§4.2
-    let editorH: CGFloat = editor == .pick ? pickEditorH : (editor == .key ? keyEditorH : (editor == .midi ? midiEditorH : 0))
+    let editorH: CGFloat = editor == .pick ? pickEditorH : (editor == .key ? keyEditorH : (editor == .midi ? euclideousMidiEditorH : 0))
     // The four rows sit in a VStack(spacing: sp4): an open editor is a fifth child, so the block gains one more gap (the formula used to leave it out and the rendered block ran 4 pt taller than `sourcesBlockH`).
     let sourcesBlockH = sp8 + 44 * 4 + sp4 * 3 + (editor == .none ? 0 : sp4) + editorH + sp8
     let poolBlockH = sp8 + 36 + sp8

@@ -2050,7 +2050,7 @@ struct EuclideousPage: View {
             Color.clear.preference(key: EuclideousSourceControlFramePreferenceKey.self, value: g.frame(in: .named("euclideousXY")))
         })
         .contentShape(Rectangle())
-        .onTapGesture { if sourcesPopupOpen { sourcesPopupOpen = false } else { closeAllOtherOverlays(); sourcesPopupOpen = true } }
+        .onTapGesture { if sourcesPopupOpen { sourcesPopupOpen = false } else { closeAllOtherOverlays(); sourcesEditor = .none; sourcesPopupOpen = true } }   // the panel always OPENS with every editor closed (MIDI IN ferry §4.3) — whichever way it was closed last time
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Sources")
         .accessibilityValue(euclideousSourceButtonAccessibilityValue(keyLabel: euclideousKeySpokenName(root: keyRoot, type: keyType),
@@ -2366,7 +2366,7 @@ struct EuclideousPage: View {
         HStack { Text("SOURCES").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.16 * 11).foregroundColor(Color(hex: 0xF2F4F7)); Spacer() }
             .padding(.leading, 16).frame(height: 40).accessibilityAddTraits(.isHeader)
     }
-    /// §5.5 the sources block: four 44-tall rows, the PICK editor under PICK and the KEY editor under KEY while open.
+    /// §5.5 the sources block: four 44-tall rows, the MIDI IN editor under MIDI IN, the PICK editor under PICK and the KEY editor under KEY while open (one at a time).
     private func sourcesBlockV2(_ L: EuclideousSourcesPanelLayout) -> some View {
         let st = euclideousSourceStatuses(plan: sourcePlan, midiPlaying: sourceStatus.midiPlaying,
                                           chordsLit: sourceStatus.chordsLit, pickLit: sourceStatus.pickLit, keyLit: sourceStatus.keyLit)
@@ -2485,7 +2485,7 @@ struct EuclideousPage: View {
             } else {
                 ForEach(Array(names.prefix(fit.shown).enumerated()), id: \.offset) { _, name in
                     Text(name).font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1)
-                        .foregroundColor(Color(hex: state == .off ? 0x5C626C : colour.ink))
+                        .foregroundColor(Color(hex: state == .off ? 0x5C626C : (outlined ? colour.fill : colour.ink)))   // an outlined chip (ROOT's latched root) draws its text in the source colour: the held look's dark ink would vanish on the well
                         .frame(minWidth: euclideousMidiChipW - 6, minHeight: 24).padding(.horizontal, 3)
                         .background(RoundedRectangle(cornerRadius: 4).fill(outlined ? Color.clear : Color(hex: colour.fill)))
                         .overlay(outlined ? RoundedRectangle(cornerRadius: 4).strokeBorder(Color(hex: colour.fill), lineWidth: 1) : nil)
