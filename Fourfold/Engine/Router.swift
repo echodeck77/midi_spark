@@ -3844,36 +3844,24 @@ final class Router {
                                                        tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf)
                                 return
                             }
-                            // LISTEN REBUILT §4.3 (AVOID): drops EVERY already-resolved pitch (riff or lit —
-                            // not just the riff-sourced one, a real broadening vs the old AVOID) whose
-                            // PITCH CLASS (octave ignored, §4.3/§9.8) is in the source's most recent
-                            // strike. No MOVE any more — the new AVOID is mute-only by construction.
-                            if listenPitch == .avoid, listenSource >= 0, listenSource < 4, listenSource != lineIndex {
-                                var mask: UInt16 = 0
-                                if euclideousEchoCurrent[listenSource].count > 0 {
-                                    euclideousEchoCurrent[listenSource].forEachPitch(euclideousEchoCurrent[listenSource].count - 1) { mask |= UInt16(1) << UInt16((($0 % 12) + 12) % 12) }
-                                } else if euclideousEchoLast[listenSource].count > 0 {
-                                    euclideousEchoLast[listenSource].forEachPitch(euclideousEchoLast[listenSource].count - 1) { mask |= UInt16(1) << UInt16((($0 % 12) + 12) % 12) }
-                                }
-                                if mask != 0 {
-                                    var i = 0
-                                    while i < pitchCount {
-                                        if euclideousListenAvoidDrops(note: pitches[i], mask: mask) {
-                                            pitches[i] = pitches[pitchCount - 1]; pitchVel[i] = pitchVel[pitchCount - 1]; pitchGate[i] = pitchGate[pitchCount - 1]; polyBeats[i] = polyBeats[pitchCount - 1]
-                                            // NOTES TAB: the layer mark and the ROLL / RUN strike slot travel with the pitch that moved into slot i
-                                            let last = pitchCount - 1
-                                            notesPitchMask = (notesPitchMask & ~(UInt16(1) << UInt16(i))) | (((notesPitchMask >> UInt16(last)) & 1) << UInt16(i))
-                                            notesPitchMask &= ~(UInt16(1) << UInt16(last))
-                                            notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * i))) | (((notesSlotBits >> UInt64(4 * last)) & 0xF) << UInt64(4 * i))
-                                            notesSlotBits |= UInt64(0xF) << UInt64(4 * last)
-                                            pitchBus[i] = pitchBus[last]   // PER-LAYER ROUTING: the output mask travels with the pitch moved into slot i too
-                                            pitchOuts[i] = pitchOuts[last]; pitchOuts[last] = 0xFF   // ENGINE REVIEW (2026-10-28): …and so does its collision set (the notes copy of the riff's pitch lost its "B only" and struck on A too)
-                                            pitchCount -= 1
-                                        } else {
-                                            i += 1
-                                        }
-                                    }
-                                    guard pitchCount > 0 else {
+                            // LISTEN AVOID (rebuilt 2026-11-01): a TIME-based hole punch, not a pitch filter. This lane's WHOLE hit is silenced whenever the SOURCE lane
+                            // strikes at the SAME INSTANT (Paul's choice: same onset, within 1e-6 beat — regardless of pitch or octave). The source's window hit-schedule
+                            // was captured BEFORE any lane played (the clock pre-pass → `hocketClocks`, keyed `source*2 [+1 for the after-segment of a lock-split window]`),
+                            // so this is immune to lane PROCESSING ORDER — unlike the old echo read, which saw a later-indexed source's PREVIOUS window. A source hit that is
+                            // LANES-muted or solo-silenced here is not "sounding", so it punches NO hole (the same audibility check HOCKET's destination-swallow uses).
+                            // Known v1 limit: "the source strikes" = it has a RHYTHM hit at that instant; a source hit that lands on a riff REST (SKIP → silent) still
+                            // punches a hole, because the clock carries the rhythm schedule, not the source's riff resolution. The old pitch-class drop is gone.
+                            if listenPitch == .avoid, listenSource >= 0, listenSource < 4, listenSource != lineIndex, listenSource < linesView.count {
+                                let srcClock = hocketClocks[listenSource * 2 + ((hocketClockSplit[listenSource] && mTickBeat >= lockSplitBeat) ? 1 : 0)]
+                                if srcClock.valid, euclideousLaneClockStrikesAt(srcClock, onsetBeat: mTickBeat) {
+                                    let sLine = linesView[listenSource]
+                                    let sGeo = euclideousLaneStepGeometry(lines: linesView, lane: listenSource, defaultRateBeats: p.euclidRateBeats)
+                                    let sGrid = euclideousLaneGridResolved(line: sLine, lane: listenSource, legacyOn: p.euclideousLanesSeqOn, legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
+                                                                           legacyCells: p.euclideousLanesSeqCells, stepBeats: sGeo.sub, passBeats: Double(sGeo.cycleLen) * sGeo.sub, beatsPerBar: beatsPerBar)
+                                    let sUnit = sGrid.muteUnit.beats(stepBeats: sGeo.sub, passBeats: Double(sGeo.cycleLen) * sGeo.sub)
+                                    let sSounding = euclideousLaneMayStrike(lane: listenSource, soloMask: soloMaskNow(snapshot: p.soloMask),
+                                                                            muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: sGrid.muteCells, unitBeats: sUnit), enabled: true)
+                                    if sSounding {
                                         reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
                                                                tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf)
                                         return
@@ -4997,16 +4985,26 @@ final class Router {
                 }
             } else { hocketRules = HocketRulesSnap() }
             emitterRatchets = isEuclideousRow ? p.emitterRatchets : EmitterRatchetSnap()   // EMITTER RATCHET: the Euclideous row's four output ratchets (inert default for every other cell)
-            if hocketRefMask != 0 {
+            // LISTEN AVOID (rebuilt 2026-11-01): a lane whose PITCH is AVOID punches a hole in its OWN hit whenever its SOURCE lane strikes at the same instant. That needs the source's window hit-schedule known BEFORE any lane plays
+            // (the old echo read saw a later-indexed source's PREVIOUS window), so AVOID source lanes JOIN the HOCKET clock pre-pass. `listenSource`/`listenPitch` are not lane-lock fields, so the snapshot doc is the true set.
+            var avoidSourceMask: UInt8 = 0
+            if isEuclideousRow {
+                for li in 0..<min(4, p.euclidLines.count) where p.euclidLines[li].listenPitchResolved == .avoid {
+                    let src = p.euclidLines[li].listenSourceResolved(ownLane: li)
+                    if src >= 0, src < 4, src != li { avoidSourceMask |= UInt8(1) << UInt8(src) }
+                }
+            }
+            let clockMask = hocketRefMask | avoidSourceMask   // lanes needing a pre-pass clock: HOCKET reference lanes ∪ AVOID source lanes
+            if clockMask != 0 {
                 for i in 0..<8 { hocketClocks[i].valid = false }
                 for i in 0..<4 { hocketClockSplit[i] = false }
             }
-            for hocketPass in 0..<(hocketRefMask != 0 ? 2 : 1) {
-            hocketClockPass = hocketRefMask != 0 && hocketPass == 0
+            for hocketPass in 0..<(clockMask != 0 ? 2 : 1) {
+            hocketClockPass = clockMask != 0 && hocketPass == 0
             for listenSlot in 0..<euclideousListenCount {
                 let lineIndex = euclideousListenOrderScratch[listenSlot]
                 guard lineIndex < p.euclidLines.count else { continue }
-                if hocketClockPass && hocketRefMask & (UInt8(1) << UInt8(lineIndex)) == 0 { continue }   // the pre-pass visits only the reference lanes
+                if hocketClockPass && clockMask & (UInt8(1) << UInt8(lineIndex)) == 0 { continue }   // the pre-pass visits only the clock lanes (HOCKET reference + AVOID source)
                 // RANDOM MODE ferry (§6.1): "one slot per card tab" — a lane may have THREE independent
                 // pending THROW/TWEAK/BACK/hold overrides in flight at once, each at its own `landingBeat`,
                 // compared against `beatPos` — the SAME absolute beat every other per-tick decision in this

@@ -5646,7 +5646,7 @@ struct EuclideousPage: View {
             listenModeButton(name: "OWN", hint: "ITS OWN RIFF", lit: mode == .own, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenPitch = .own } }
             listenModeButton(name: "SHADOW", hint: "ITS NOTE NOW", lit: mode == .shadow, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenPitch = .shadow } }
             listenModeButton(name: "ECHO", hint: "ITS LINE, IN TURN", lit: mode == .echo, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenPitch = .echo } }
-            listenModeButton(name: "AVOID", hint: "MUTE ON ITS NOTE", lit: mode == .avoid, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenPitch = .avoid } }
+            listenModeButton(name: "AVOID", hint: "MUTE ON SAME HIT", lit: mode == .avoid, width: btnW, height: height, accent: accent) { edit(idx) { $0.listenPitch = .avoid } }
         }
         .frame(width: fullWidth, height: height)
     }

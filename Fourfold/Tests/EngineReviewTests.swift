@@ -231,21 +231,11 @@ final class EngineReviewTests: XCTestCase {
         }
     }
 
-    // MARK: F6 — LISTEN AVOID's compaction moves a pitch's bus but not its collision output set
-
-    /// Lane 1 (A for the riff, A+B for the notes): the riff plays 52, the notes light 48 and 52 (the notes' 52 is a collision: it may only sound on B). Lane 2 plays 48, and lane 1 AVOIDs lane 2: the 48 is dropped. The AVOID
-    /// compaction moves the last pitch (the notes' 52) into the dropped slot and copies `pitchBus` but not `pitchOuts`, so the 52 loses its "B only" and strikes on A as well — a second note-on of the riff's pitch on A.
-    func testF6_AvoidCompactionKeepsAPitchsCollisionOutputs() {
-        var l1 = line(lit: 0b0000_0101).routedForReview(riff: 0b0001, notes: 0b0011)       // lit ranks 1 (48) and 3 (52); the riff reads rank 3 (52)
-        l1.listenSource = 1; l1.listenPitch = .avoid
-        let l2 = line(riff: false, lit: 0b0000_0001).routedForReview(notes: 0b1000)           // lane 2: notes only, rank 1 = 48, out on D so it never touches A / B
-        let r = render(state([l1, l2], ranks: Array(repeating: 3, count: 8)), pool: pool([48, 50, 52, 53, 55, 57, 59, 60]), beats: 6.5)
-        XCTAssertTrue(r.e.ons(1).contains { $0.note == 52 }, "control: the riff's 52 sounds on A")
-        XCTAssertFalse((r.e.ons(1) + r.e.ons(2)).contains { $0.note == 48 }, "control: AVOID dropped lane 1's 48 (it works at all)")
-        for hit in 1..<6 {
-            XCTAssertEqual(onsAt(r.e, cable: 1, note: 52, hit: hit), 1, "hit \(hit): ONE note-on of 52 on A — the notes copy of it may only sound on B (A=\(onsAt(r.e, cable: 1, note: 52, hit: hit)) B=\(onsAt(r.e, cable: 2, note: 52, hit: hit)))")
-        }
-    }
+    // MARK: F6 — RETIRED (2026-11-01). It guarded the LISTEN-AVOID pitch-COMPACTION path (dropping individual
+    // colliding pitches by class and sliding later slots down, carrying pitchBus/pitchOuts). The AVOID rebuild
+    // replaced that with a TIME-based whole-hit mute — there is no per-pitch compaction any more — so the behaviour
+    // this test exercised no longer exists. The new semantic is covered by RouterTests.testListenT6AvoidMutesEveryColliding
+    // and testListenAvoidMutesOnlyHitsSimultaneousWithTheSource.
 
     // MARK: F3 — the roll's END record for a note cut at the transport edge says it lasted 0 beats
 

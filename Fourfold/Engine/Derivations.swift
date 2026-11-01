@@ -6619,8 +6619,9 @@ struct EuclideousRollHit: Equatable {
 /// the walk mirror (`euclideousWalkTick` = `euclideousLaneTick`), `rankAt` (the effective rank at a riff column and beat — the looper-aware
 /// read), `euclideousNextHitGapBeats`, `euclideousRiffTieExtensionBeats`, `euclideousPitchGateBeats` and `euclideousLaneAudible`. Pure and
 /// side-effect free; the page caches the result per (lane inputs, window) and never recomputes per frame. A lane that cannot be honoured
-/// exactly: SHADOW lanes (their pitch comes from the partner, so the roll shows the lane's OWN riff column), an AVOID-muted pick, and a
+/// exactly: SHADOW lanes (their pitch comes from the partner, so the roll shows the lane's OWN riff column) and a
 /// FILL hit (it strikes the lane's own NOTE pick, which the rank axis cannot show) — those draw as rests (rank 0).
+/// AVOID's time-based holes (rebuilt 2026-11-01) are likewise NOT predicted here: a hit the source silences still draws (device-owed).
 func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double, windowBeats: Double, minGateBeats: Double,
                             poly: PolyRiffSnap? = nil,
                             rankAt: (_ column: Int, _ beat: Double) -> Int) -> [EuclideousRollHit] {
@@ -9432,6 +9433,24 @@ func hocketCount(unit: HocketUnit, clock: HocketLaneClock?, atMusicalBeat m: Dou
     case .hits: return clock.map { hocketLaneCounts($0, atMusicalBeat: m).hit } ?? 0
     case .passes: return clock.map { hocketLaneCounts($0, atMusicalBeat: m).pass } ?? 0
     }
+}
+
+/// LISTEN AVOID (rebuilt 2026-11-01): does the window clock `c` have a rhythm hit whose ONSET falls exactly at musical beat `b`
+/// (within `tol`)? The AVOID hole-punch asks this of its SOURCE lane's captured clock — this lane's whole hit is silenced when the
+/// source strikes at the SAME INSTANT. A hit's OFFSET-fraction / fine-TILT delay never leaves its own cell (§5.2), so the only
+/// candidate is the cell `b` lands in; we read that tick's hit flag and confirm its delayed onset equals `b`. `tol` is 1e-6 beat
+/// (≈0.5 µs at 120 BPM) — strict "same instant", so two lanes merely in adjacent sub-steps or micro-offset never match.
+/// Reuses the SAME per-tick core (`euclideousLaneChainTick`) `runEuclidLine` and `hocketLaneCounts` call, so it cannot drift from
+/// the source's real schedule. Allocation-free.
+func euclideousLaneClockStrikesAt(_ c: HocketLaneClock, onsetBeat b: Double, tol: Double = 1e-6) -> Bool {
+    guard c.valid, c.sub > 0, b >= -tol else { return false }
+    let f = b / c.sub
+    let tick = Int64((f + tol).rounded(.down))
+    let info = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: c.cycleLen, sub: c.sub, tick: tick,
+                                       chains: c.chains, legacySpanBeats: c.legacySpanBeats, advanceStep: false)
+    guard info.rawIsHit else { return false }
+    let delaySteps = (c.hasTiming && info.raw >= 0 && info.raw < c.delay.count) ? c.delay[info.raw] : 0
+    return abs((Double(tick) + delaySteps) * c.sub - b) < tol
 }
 
 // MARK: - HOCKET (ferry 2026-10-27) §1–§4 — the pop-up's looks, texts and frames (pure; the views only paint these)

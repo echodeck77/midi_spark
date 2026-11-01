@@ -320,7 +320,17 @@ the same pipeline as any other row; it is not a special-cased render path.
   (`listenPausedOverlay`: link glyph, "X FOLLOWS LANE n", GO TO LISTEN / USE MY OWN) instead, and its tab header shows
   "← n" (`euclideousPausedTabHeaderText`/the override in `euclideousRhythmTabCount`) in place of a count. ECHO replays
   the source's own struck line in order (`EuclideousEchoCycle`, a per-lane current/last-cycle capture taken right after
-  the riff+notes merge, before HIT-WIDE MASK/mute/solo); AVOID drops every colliding pitch by CLASS, octave-ignored.
+  the riff+notes merge, before HIT-WIDE MASK/mute/solo). **AVOID (rebuilt 2026-11-01, Fourfold only) is now a TIME-based
+  hole punch, not a pitch filter:** a lane whose PITCH is AVOID silences its WHOLE hit whenever its SOURCE lane strikes at
+  the SAME INSTANT (same onset, within 1e-6 beat — pitch/octave ignored). It asks the source's pattern DIRECTLY, not the
+  echo: AVOID source lanes join the HOCKET clock pre-pass (`hocketClocks`, so it's immune to lane processing order — the
+  old echo read saw a later-indexed source's PREVIOUS window), and `euclideousLaneClockStrikesAt` (Derivations.swift,
+  reusing `euclideousLaneChainTick`) answers "does the source strike at this onset?" A source hit that is LANES-muted or
+  solo-silenced isn't "sounding", so it punches no hole (the same audibility check HOCKET's destination-swallow uses). The
+  old pitch-class drop + compaction and `euclideousListenAvoidDrops`-for-LISTEN are gone (the function stays — the SOURCES
+  STACK still calls it). Known v1 limits: "the source strikes" = a RHYTHM hit (a source hit on a riff REST under SKIP still
+  punches a hole); the LANES roll / lane strip don't predict the holes (a muted hit still draws). Golden byte-identical (no
+  factory preset uses AVOID). Tests: `RouterTests.testListenT6…`/`testListenAvoidMutesOnlyHitsSimultaneousWithTheSource`.
   `euclideousRhythmBorrowPartner` (renamed from `euclideousFollowPartner`) is the one "is this lane borrowing RHYTHM"
   decision; `euclideousListenBorrowedHits`/`BorrowedIndex` build COPY/FILL's pattern; `euclideousListenMoveByInterval`
   is INTERVAL/OCTAVE's chromatic-pitch mover (not a reuse of the old SHADOW's pool-rank trick). An old document migrates

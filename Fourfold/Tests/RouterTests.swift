@@ -3826,11 +3826,26 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(hits.map { $0.note }, [40, 41, 42], "T5 SHADOW+3RD (C major): red's C2/D2/E\u{266D}2 (36/38/39) each move a diatonic 3rd up to E2/F2/F\u{266F}2 (40/41/42)")
     }
     func testListenT6AvoidMutesEveryColliding() {
+        // AVOID (rebuilt 2026-11-01) is a TIME-based hole punch: blue's whole hit is muted whenever its SOURCE strikes
+        // at the SAME INSTANT, regardless of pitch. Give blue red's exact 3-of-8 pattern/rate/offset, so every blue hit
+        // lands on a red strike → every one is muted. (Same 0-hit result the old pitch-class AVOID gave for this
+        // identical-pattern case, but now for a timing reason, not a pitch one — see the phase test below.)
         var blue = listenBlueLine()
-        blue.pulses = 3   // "give blue exactly red's settings" — same 3-of-8 pattern, same riff/walk, so its own notes exactly collide with red's
-        blue.listenPitch = .avoid; blue.listenSource = 0   // AVOID is mute-only now — no MOVE action any more (§8.3)
+        blue.pulses = 3   // red's 3-of-8 exactly (cols 0,3,6), same rate, so blue's hits are simultaneous with red's
+        blue.listenPitch = .avoid; blue.listenSource = 0
         let hits = listenRun(listenRedLine(), blue)
-        XCTAssertEqual(hits.count, 0, "T6 AVOID: blue would play exactly what red plays at every hit — all of them dropped by pitch class")
+        XCTAssertEqual(hits.count, 0, "T6 AVOID: every blue hit coincides in time with a red strike, so all are muted")
+    }
+    func testListenAvoidMutesOnlyHitsSimultaneousWithTheSource() {
+        // The defining NEW semantic: AVOID punches a hole ONLY where the source actually strikes at the same instant,
+        // NOT by pitch. red is 3-of-8 (cols 0,3,6 → beats 0, 1.5, 3.0); blue is the default 4-of-8 (cols 0,2,4,6 →
+        // beats 0, 1, 2, 3). Only cols 0 and 6 coincide with a red strike, so blue KEEPS cols 2 and 4 and loses 0 and 6.
+        // The old pitch-class AVOID could never produce this pattern — it dropped by whether blue's pitch matched red's
+        // most-recent class, with no regard to WHEN the two lanes struck.
+        var blue = listenBlueLine()   // 4-of-8
+        blue.listenPitch = .avoid; blue.listenSource = 0
+        let hits = listenRun(listenRedLine(), blue)
+        XCTAssertEqual(listenRhythmString(hits), "..x.x...", "AVOID keeps the hits that DON'T coincide with a source strike (cols 2, 4); cols 0 and 6 (both on a red hit) are muted")
     }
     /// §11.8, literal "Paul's canvas case" (adversarial-review fix — this exact example was never built as
     /// a test the first time, which is why the DELAY grace-period bug above went undetected): source plays
