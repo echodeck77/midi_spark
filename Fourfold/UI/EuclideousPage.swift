@@ -5676,6 +5676,14 @@ struct EuclideousPage: View {
         }
         .frame(width: fullWidth, height: height))
     }
+    /// POOL HOLD (FREEZE) §3.5/§3.6: one gesture per stepper zone — a 0.3 s press sets all four lanes (`long`), a quick tap does the zone's own action (`tap`). EXCLUSIVE, so a long-press NEVER also fires the tap: the earlier
+    /// `.simultaneousGesture` long-press on the whole stepper + per-zone `.onTapGesture` double-fired on a ‹/› zone (set-all AND a step, two undo steps) — adversarial review 2026-11-01.
+    private func freezeZoneGesture(long: @escaping () -> Void, tap: @escaping () -> Void) -> some Gesture {
+        ExclusiveGesture(
+            LongPressGesture(minimumDuration: EuclideousRingPress.holdSeconds).onEnded { _ in long() },
+            TapGesture().onEnded { tap() }
+        )
+    }
     private func freezeStepper(_ idx: Int, hold: Int, status: EuclideousPoolHoldLaneStatus, accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
         let zone: CGFloat = 30
         let locked = hold >= euclideousPoolHoldLock
@@ -5703,17 +5711,17 @@ struct EuclideousPage: View {
             }
             HStack(spacing: 0) {
                 Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                    .frame(width: zone, height: height).contentShape(Rectangle()).onTapGesture { set(euclideousPoolHoldMoved(hold, by: -1)) }
-                Spacer(minLength: 0)
-                // §3.5 a tap on the centre sets 0 ONLY while it shows LOCK (a number cell has no centre tap, like DELAY)
-                Color.clear.contentShape(Rectangle()).frame(height: height).onTapGesture { if locked { set(0) } }
-                Spacer(minLength: 0)
+                    .frame(width: zone, height: height).contentShape(Rectangle())
+                    .gesture(freezeZoneGesture(long: { setAll(hold) }, tap: { set(euclideousPoolHoldMoved(hold, by: -1)) }))
+                // §3.5 a tap on the centre sets 0 ONLY while it shows LOCK (a number cell has no centre tap, like DELAY). The centre FILLS the gap between the chevrons (a Spacer would squeeze it to 0 width), so the lock is tappable and a long-press lands anywhere.
+                Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
+                    .gesture(freezeZoneGesture(long: { setAll(hold) }, tap: { if locked { set(0) } }))
                 Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                    .frame(width: zone, height: height).contentShape(Rectangle()).onTapGesture { set(euclideousPoolHoldMoved(hold, by: 1)) }
+                    .frame(width: zone, height: height).contentShape(Rectangle())
+                    .gesture(freezeZoneGesture(long: { setAll(hold) }, tap: { set(euclideousPoolHoldMoved(hold, by: 1)) }))
             }
         }
         .frame(width: width, height: height)
-        .simultaneousGesture(LongPressGesture(minimumDuration: EuclideousRingPress.holdSeconds).onEnded { _ in setAll(hold) })   // §3.6: set all four lanes to this value
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Freeze, lane \(idx + 1)").accessibilityValue(spoken)
         .accessibilityAdjustableAction { dir in set(euclideousPoolHoldMoved(hold, by: dir == .increment ? 1 : -1)) }
