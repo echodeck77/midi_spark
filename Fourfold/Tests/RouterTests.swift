@@ -8,6 +8,14 @@
 
 import XCTest
 
+private extension SnapshotBuilder {
+    /// RouterTests' documents hold notes where they are played, so they build with MIDI IN OCTAVES KEEP: since 2026-11-01 the default is IGNORE, which folds a held chord into KEY's base octave (the fold has its own tests in MidiInOctavesTests).
+    static func build(keeping st: PluginState) -> SnapshotBox {
+        var d = st; var p = d.sourcePlanResolved; p.midiOctaves = .keep; d.euclideousSourcePlan = p
+        return build(from: d)
+    }
+}
+
 /// Records every emitted message. `status` is the masked channel-voice status (0x90 on / 0x80 off);
 /// `chan` is the low nibble already stamped by the engine.
 private final class RecordingEmitter: MIDIEmitter {
@@ -31,7 +39,7 @@ final class RouterTests: XCTestCase {
         var s = SceneState.empty(); build(&s)
         var st = PluginState(machines: cs, scenes: [s]); st.busChannels = busChannels; st.masterMute = masterMute
         if let receivers { st.receivers = receivers }
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
 
     private func chord(_ notes: [UInt8], channel: UInt8 = 0) -> NotePool {
@@ -310,7 +318,7 @@ final class RouterTests: XCTestCase {
     private func claimBox(_ cs: [Machine], claim: Int?, _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
         var st = PluginState(machines: cs, scenes: [s]); st.claimEmitter = claim
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
 
     // MARK: - CLAIM v2 (§6a) — MULTI-claim (SHARED tier) + LEAK %
@@ -320,7 +328,7 @@ final class RouterTests: XCTestCase {
                               _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
         var st = PluginState(machines: cs, scenes: [s]); st.claimMask = mask; st.claimLeak = leak
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
 
     // MARK: - THE RACK (design-the-rack §3) — the two-tier gate: RACK off ⇒ raw wire regardless of the matrix
@@ -328,7 +336,7 @@ final class RouterTests: XCTestCase {
     private func rackClaimBox(_ cs: [Machine], claim: UInt8, rack: UInt8?, _ build: (inout SceneState) -> Void) -> SnapshotBox {
         var s = SceneState.empty(); build(&s)
         var st = PluginState(machines: cs, scenes: [s]); st.claimMask = claim; st.rackEnabledMask = rack
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
 
 
@@ -362,7 +370,7 @@ final class RouterTests: XCTestCase {
             return s }()])
         st.busChannels = [1, 2, 3, 4]
         st.receivers = [Receiver(name: "1", channel: 1), Receiver(name: "2", channel: 2), Receiver(name: "3", channel: 3), Receiver(name: "4", channel: 4)]
-        let box = SnapshotBuilder.build(from: st)
+        let box = SnapshotBuilder.build(keeping: st)
         let pool = NotePool()
         for n in input { pool.noteOn(UInt8(n), velocity: 100, channel: 0) }
         for (door, classes) in refs { for pc in classes { pool.noteOn(UInt8(84 + pc), velocity: 100, channel: UInt8(door)) } }
@@ -497,7 +505,7 @@ final class RouterTests: XCTestCase {
 
         // (1) Global source = MIDI — both lanes must read the ONE live note, ignoring their own stale fields.
         var stMidi = st; stMidi.euclideousNoteSource = .midi
-        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(from: stMidi), pool, beats: 1, into: e1, forceColumn: 0)
+        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(keeping: stMidi), pool, beats: 1, into: e1, forceColumn: 0)
         assertNothingLeftSounding(e1)
         let notesMidi = Set(lanesOns(e1).map { Int($0.note) })
         XCTAssertTrue(notesMidi.contains(90), "lane 0's .low pick must read the global MIDI pool directly, despite its own stale sourceMode: .chords")
@@ -507,7 +515,7 @@ final class RouterTests: XCTestCase {
         // (2) Flip the ONE knob to CHORDS — both lanes must move together, proving one shared source, not
         // two lanes that merely happened to agree in part (1).
         var stChords = st; stChords.euclideousNoteSource = .chords
-        let e2 = RecordingEmitter(); run(SnapshotBuilder.build(from: stChords), pool, beats: 1, into: e2, forceColumn: 0)
+        let e2 = RecordingEmitter(); run(SnapshotBuilder.build(keeping: stChords), pool, beats: 1, into: e2, forceColumn: 0)
         assertNothingLeftSounding(e2)
         let notesChords = Set(lanesOns(e2).map { Int($0.note) })
         XCTAssertTrue(notesChords.contains(48), "lane 0's .low pick must now read the chord generator's lowest note")
@@ -541,12 +549,12 @@ final class RouterTests: XCTestCase {
         var chordDoor = Receiver(name: "4"); chordDoor.doorMode = .chord   // self-arms unconditionally, generates its own progression
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), chordDoor]
         // GENUINELY EMPTY — nothing played at all, the literal "no MIDI plumbed in" case.
-        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(from: st), NotePool(), beats: 1, into: e1, forceColumn: 0)
+        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), NotePool(), beats: 1, into: e1, forceColumn: 0)
         assertNothingLeftSounding(e1)
         XCTAssertTrue(laneOns(e1).isEmpty, "MIDI IN must stay silent with nothing actually played, even though receiver 4 is a self-arming CHORD door that would otherwise generate its own notes")
         // A REAL live note on the same receiver must still sound — proving this isn't "MIDI IN never works."
         let pool2 = NotePool(); pool2.noteOn(67, velocity: 100, channel: 0)
-        let e2 = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool2, beats: 1, into: e2, forceColumn: 0)
+        let e2 = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), pool2, beats: 1, into: e2, forceColumn: 0)
         assertNothingLeftSounding(e2)
         XCTAssertTrue(laneOns(e2).contains { Int($0.note) == 67 }, "a genuinely live note on receiver 4 must still sound through MIDI IN")
     }
@@ -568,7 +576,7 @@ final class RouterTests: XCTestCase {
                                  return s }()])
         st.euclideousNoteSource = .midi
         st.euclideousHoldLatchMode = mode
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     func testEuclideousHoldSustainsAfterReleaseAndReplacesOnANewChord() {
         let box = euclideousHoldLatchFixture(mode: .hold)
@@ -630,9 +638,9 @@ final class RouterTests: XCTestCase {
                                  return s }()])
         st.euclideousNoteSource = .midi
         st.euclideousHoldLatchMode = .hold
-        let holdBox = SnapshotBuilder.build(from: st)
+        let holdBox = SnapshotBuilder.build(keeping: st)
         st.euclideousHoldLatchMode = .latch
-        let latchBox = SnapshotBuilder.build(from: st)
+        let latchBox = SnapshotBuilder.build(keeping: st)
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let windowBeats = Double(frames) * tempo / 60.0 / sr
@@ -677,7 +685,7 @@ final class RouterTests: XCTestCase {
                                      s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                      return s }()])
             st.euclideousNoteSource = source; st.euclideousHoldLatchMode = hold
-            return SnapshotBuilder.build(from: st)
+            return SnapshotBuilder.build(keeping: st)
         }
         let midiHoldBox = boxWith(source: .midi, hold: .hold)
         let chordsHoldBox = boxWith(source: .chords, hold: .hold)   // holdLatch STAYS .hold now — MIDI still listens under CHORDS
@@ -727,7 +735,7 @@ final class RouterTests: XCTestCase {
                                      return s }()])
             st.euclideousNoteSource = source
             st.euclideousKeyRoot = 0; st.euclideousKeyType = .major
-            return SnapshotBuilder.build(from: st)
+            return SnapshotBuilder.build(keeping: st)
         }
         let eChords = RecordingEmitter()
         run(fixture(source: .chords), NotePool(), beats: 2, into: eChords, forceColumn: 0)
@@ -765,7 +773,7 @@ final class RouterTests: XCTestCase {
         st.euclideousNoteSource = .midi
         let e = RecordingEmitter()
         // 110 BPM / 48kHz / 2048 frames — the device's own numbers, not the suite's 120 default.
-        _ = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 4, into: e,
+        _ = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 4, into: e,
                              forceColumn: 0, tempo: 110, sr: 48_000, frames: 2048)
         // ONE cable only: §7b emits every note twice (its own cable + the ALL cable 0), so an unfiltered
         // list has a zero-delta twin for every hit.
@@ -817,7 +825,7 @@ final class RouterTests: XCTestCase {
                                                  return s }()])
                         st.euclideousNoteSource = .midi
                         let e = RecordingEmitter()
-                        _ = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 4, into: e,
+                        _ = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 4, into: e,
                                              forceColumn: forced, tempo: tempo, sr: 48_000, frames: frames)
                         let onsets = e.ons.filter { $0.cable == 1 }.map { $0.sample }.sorted()
                         guard onsets.count > 2 else { continue }   // a gated column can yield too few to measure
@@ -853,7 +861,7 @@ final class RouterTests: XCTestCase {
                                  return s }()])
         st.euclideousNoteSource = .midi   // one global source (2026-10-12) — the per-lane field above is decode-only now
         let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()
         XCTAssertEqual(events.count, 4, "always 4 lanes, regardless of how many actually posted")
         guard let ev = events[0].first else { return XCTFail("lane 0 should have posted a hit event") }
@@ -880,7 +888,7 @@ final class RouterTests: XCTestCase {
                                  return s }()])
         st.euclideousNoteSource = .midi   // one global source (2026-10-12) — the per-lane field above is decode-only now
         let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()
         guard let ev = events[0].first else { return XCTFail("FILL should post a normal hit event — the lit note sounds") }
         XCTAssertEqual(ev.kind, 0, "FILL shows as a normal hit, not a rest-flash")
@@ -897,7 +905,7 @@ final class RouterTests: XCTestCase {
                               scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
         st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([48, 55, 60]), beats: 2, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([48, 55, 60]), beats: 2, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         XCTAssertEqual(Set(laneOns(e).map { Int($0.note) }), [48, 55], "both lit ranks (1→C3/48, 2→G3/55) sound every hit; the un-lit rank 3 (60) never strikes")
     }
@@ -913,7 +921,7 @@ final class RouterTests: XCTestCase {
                               scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
         st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([48, 55, 60]), beats: 1, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([48, 55, 60]), beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let ons = e.ons.filter { $0.cable == 1 }.map { Int($0.note) }
         XCTAssertEqual(Set(ons), [48, 55], "the merged set is {48,55} — the riff's own rank-1 pitch coincides with the lit rank-1 pitch")
@@ -934,7 +942,7 @@ final class RouterTests: XCTestCase {
         // regardless of which pool is read — but set explicitly so this test doesn't silently rely on that
         // coincidence, matching the fix applied to its sibling Acceptance tests above).
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 2, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([60, 62, 64]), beats: 2, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         XCTAssertTrue(e.ons.filter { $0.cable == 1 }.isEmpty, "nothing lit, riff off — the lane never strikes at all")
     }
@@ -948,7 +956,7 @@ final class RouterTests: XCTestCase {
                                   scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
             st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
             let e = RecordingEmitter()
-            run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 1, into: e, forceColumn: 0)
+            run(SnapshotBuilder.build(keeping: st), chord([60, 64, 67]), beats: 1, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return Set(laneOns(e).map { Int($0.note) })
         }
@@ -965,7 +973,7 @@ final class RouterTests: XCTestCase {
                                   scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
             st.euclideousNoteSource = .midi   // page-level field — the per-line sourceMode above is decode-only
             let e = RecordingEmitter()
-            run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 1, into: e, forceColumn: 0)
+            run(SnapshotBuilder.build(keeping: st), chord([60, 64, 67]), beats: 1, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return (Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) }), Set(e.ons.filter { $0.cable == 2 }.map { Int($0.note) }))
         }
@@ -1019,7 +1027,7 @@ final class RouterTests: XCTestCase {
                                  return s }()])
         st.euclideousNoteSource = .midi   // one global source (2026-10-12) — the per-lane field above is decode-only now
         let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()
         guard let ev = events[0].first else { return XCTFail("riff rank 1 should post a hit event") }
         XCTAssertEqual(ev.notes, [UInt8(72)], "riffResolve already folds +12×riffOctave(1) into the resolved note (60→72) BEFORE strikeChord's own octave:0 — must not be re-applied a second time (which would read 84)")
@@ -1036,7 +1044,7 @@ final class RouterTests: XCTestCase {
         // 0.6 beats, not 1.0: at sub=0.5 the pattern's own 2-tick cycle would repeat exactly AT beat 1.0 —
         // a real window-boundary ambiguity this file's own standing lesson warns about (see
         // testEuclidDownbeatFiresOnAnUnalignedColumnBoundary). 0.6 safely covers ticks 0/0.5 only.
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 0.6, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 0.6, into: e, forceColumn: 0)
         let kinds = router.drainEuclideousNoteViewEvents()[0].map { $0.kind }
         XCTAssertEqual(kinds, [0, 2], "step 0 a real hit (kind 0), step 1 a rest-flash (kind 2) — SKIP never posts a second hit")
     }
@@ -1049,7 +1057,7 @@ final class RouterTests: XCTestCase {
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                  return s }()])
         let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 0.6, into: e, forceColumn: 0)   // see the SKIP test above for why not 1.0
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 0.6, into: e, forceColumn: 0)   // see the SKIP test above for why not 1.0
         let laneEvents = router.drainEuclideousNoteViewEvents()[0]
         XCTAssertEqual(laneEvents.count, 1, "TIE must not post a second event for the rest step — only the original triggering hit, with its own gate already extended to cover it")
         guard let ev = laneEvents.first else { return }
@@ -1078,7 +1086,7 @@ final class RouterTests: XCTestCase {
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                  return s }()])
         let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         guard let ev = router.drainEuclideousNoteViewEvents()[0].first else { return XCTFail("should have posted a hit") }
         XCTAssertEqual(ev.kind, 0, "no rest ever follows this pattern, so riffTieExtensionBeats is always 0 — this must stay an ordinary kind-0 hit")
     }
@@ -1091,7 +1099,7 @@ final class RouterTests: XCTestCase {
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                  return s }()])
         let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         let kinds = router.drainEuclideousNoteViewEvents()[0].map { $0.kind }
         XCTAssertFalse(kinds.contains(1), "an unconfigured MISS side must never post a miss-playing event")
     }
@@ -1112,7 +1120,7 @@ final class RouterTests: XCTestCase {
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                  return s }()])
         let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 1, into: e, forceColumn: 0)
         let kinds = router.drainEuclideousNoteViewEvents()[0].map { $0.kind }
         XCTAssertFalse(kinds.contains(1), "a stale missNoteSel on Euclideous's own row must never post a miss-playing event — the !isEuclideousRow guard makes it inert")
     }
@@ -1129,7 +1137,7 @@ final class RouterTests: XCTestCase {
                                  return s }()])
         let e = RecordingEmitter()
         // 12.5 beats ≈ 12 ticks (beats 0...11) without ever draining in between — comfortably past the 8-slot ring.
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60]), beats: 12.5, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60]), beats: 12.5, into: e, forceColumn: 0)
         let laneEvents = router.drainEuclideousNoteViewEvents()[0]
         XCTAssertEqual(laneEvents.count, 8, "the ring is fixed-capacity 8 — a 12-event burst must not grow it")
         let onsets = laneEvents.map { $0.onsetBeat }
@@ -1175,7 +1183,7 @@ final class RouterTests: XCTestCase {
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let pool = NotePool()   // nothing held — KEY reads its own scale
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let notes = Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
         XCTAssertFalse(notes.isEmpty, "KEY mode generates real notes from the page's own scale")
@@ -1196,7 +1204,7 @@ final class RouterTests: XCTestCase {
                                   return s }()])
         st.receivers = [Receiver(name: "1"), Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
         let pool = NotePool()   // nothing held
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let notes = Set(laneOns(e).map { $0.note })
         XCTAssertFalse(notes.isEmpty, "a lane's own sourceMode set to KEY must sound the scale, not stay silent")
@@ -1243,7 +1251,7 @@ final class RouterTests: XCTestCase {
                                       return s }()])
             st.euclideousNoteSource = .midi   // one global source (2026-10-12) — the per-lane field above is decode-only now
             st.euclideousResetSpanBars = resetSpanBars
-            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         }
@@ -1285,7 +1293,7 @@ final class RouterTests: XCTestCase {
                                       return s }()])
             st.euclideousNoteSource = .midi
             st.euclideousLanesSeqRate = .oneBar   // the ferry's own literal "LANES RATE 1 BAR"
-            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         }
@@ -1339,7 +1347,7 @@ final class RouterTests: XCTestCase {
             st.euclideousNoteSource = .midi
             st.euclideousLanesSeqOn = true
             st.euclideousLanesSeqRate = .oneBar
-            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         }
@@ -1365,7 +1373,7 @@ final class RouterTests: XCTestCase {
             st.euclideousNoteSource = .midi
             st.euclideousLanesSeqOn = true
             st.euclideousLanesSeqRate = .oneBar
-            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         }
@@ -1393,7 +1401,7 @@ final class RouterTests: XCTestCase {
             st.euclideousNoteSource = .midi
             st.euclideousLanesSeqOn = true
             st.euclideousLanesSeqRate = .oneBar
-            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         }
@@ -1438,7 +1446,7 @@ final class RouterTests: XCTestCase {
                 cells[1 * 4 + 0] = false   // lane 0 (index 0) unlit at step 1 (bar 2, 0-indexed)
                 st.euclideousLanesSeqCells = cells
             }
-            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         }
@@ -1484,7 +1492,7 @@ final class RouterTests: XCTestCase {
         st.euclideousRiffsSeqRate = .oneBar
         st.euclideousRiffsSeqLen = 2
         st.euclideousRiffsSeqCells = [0, 1, 0, 0, 0, 0, 0, 0]
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: 7.9, into: e, forceColumn: 0)
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), chord(pool), beats: 7.9, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let picks = e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         XCTAssertFalse(picks.isEmpty)
@@ -1506,7 +1514,7 @@ final class RouterTests: XCTestCase {
                                   return s }()])
         st.euclideousNoteSource = .midi
         st.euclideousRiffsSeqOn = false   // OFF — "the selected tab plays," not the sequencer
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: 3.9, into: e, forceColumn: 0)
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), chord(pool), beats: 3.9, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let picks = e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         XCTAssertFalse(picks.isEmpty)
@@ -1536,7 +1544,7 @@ final class RouterTests: XCTestCase {
         st.euclideousRiffsSeqOn = true
         st.euclideousRiffsSeqRate = .oneBar
         st.euclideousRiffsSeqLen = 8
-        let box = SnapshotBuilder.build(from: st)
+        let box = SnapshotBuilder.build(keeping: st)
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         func stepAt(_ beat: Double) -> Int {
             router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: 120, beatsPerBar: 4.0,
@@ -1567,7 +1575,7 @@ final class RouterTests: XCTestCase {
         st.euclideousLanesSeqOn = true
         st.euclideousLanesSeqRate = .oneBar
         func picksThrough(beats: Double) -> [Int] {
-            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord(pool), beats: beats, into: e, forceColumn: 0)
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), chord(pool), beats: beats, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.compactMap { ev in pool.firstIndex(of: UInt8(ev.note)) }
         }
@@ -1601,7 +1609,7 @@ final class RouterTests: XCTestCase {
                                       return s }()])
             st.euclideousNoteSource = .midi
             let e = RecordingEmitter()
-            run(SnapshotBuilder.build(from: st), chord([60]), beats: 15.9, into: e, forceColumn: 0)
+            run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 15.9, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             let sr = 48_000.0, tempo = 120.0
             return laneOns(e).map { Int((Double($0.sample) / sr * tempo / 60.0).rounded()) }
@@ -1651,7 +1659,7 @@ final class RouterTests: XCTestCase {
         // Global = KEY: all 3 lanes, regardless of their own stale field, must sound the SAME note — the
         // scale's own root (48) — and nothing else.
         var stKey = st; stKey.euclideousNoteSource = .key
-        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(from: stKey), pool, beats: 1, into: e1, forceColumn: 0)
+        let e1 = RecordingEmitter(); run(SnapshotBuilder.build(keeping: stKey), pool, beats: 1, into: e1, forceColumn: 0)
         assertNothingLeftSounding(e1)
         let notesKey = Set(lanesOns(e1).map { Int($0.note) })
         XCTAssertEqual(notesKey, [48], "with the global source set to KEY, all 3 lanes must sound the identical scale-root note, not 3 different per-lane notes")
@@ -1659,7 +1667,7 @@ final class RouterTests: XCTestCase {
         // Global = CHORDS: all 3 lanes must move TOGETHER to the chord generator's lowest note (55) — proving
         // the shared value, not a fixed coincidence of the KEY case above.
         var stChords = st; stChords.euclideousNoteSource = .chords
-        let e2 = RecordingEmitter(); run(SnapshotBuilder.build(from: stChords), pool, beats: 1, into: e2, forceColumn: 0)
+        let e2 = RecordingEmitter(); run(SnapshotBuilder.build(keeping: stChords), pool, beats: 1, into: e2, forceColumn: 0)
         assertNothingLeftSounding(e2)
         let notesChords = Set(lanesOns(e2).map { Int($0.note) })
         XCTAssertEqual(notesChords, [55], "with the global source set to CHORDS, all 3 lanes must sound the identical chord-pool note, not their own stale per-lane value")
@@ -1683,7 +1691,7 @@ final class RouterTests: XCTestCase {
         // actually proving the specific live note below is what's heard.
         st.euclideousNoteSource = .midi
         let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)
-        let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), pool, beats: 1, into: e, forceColumn: 0)
+        let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), pool, beats: 1, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         XCTAssertTrue(laneOns(e).contains { Int($0.note) == 60 }, "an untouched lane must still sound the genuine live note via MIDI — the retired global switch must not silence/replace it anymore")
     }
@@ -1867,7 +1875,7 @@ final class RouterTests: XCTestCase {
             // Must be set explicitly here so the held chord ([60]) is actually what's read, matching every
             // other Euclideous-row RouterTest's own established convention.
             st.euclideousNoteSource = .midi
-            let e = RecordingEmitter(); run(SnapshotBuilder.build(from: st), chord([60]), beats: 1, into: e, forceColumn: 0)
+            let e = RecordingEmitter(); run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 1, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return laneOns(e).map { Int($0.note) }.first
         }
@@ -2343,7 +2351,7 @@ final class RouterTests: XCTestCase {
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                  return s }()])
         let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64, 65, 67, 69, 71, 72]), beats: 0.1, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60, 62, 64, 65, 67, 69, 71, 72]), beats: 0.1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()[0]
         // REWRITTEN (2026-10-13, "audible ratchet take 3"): repeats 1..<nRep now drain via the ECHO ring
         // (pushEchoTail), not synchronous strikeChord calls — the fix for "feels more like a sustain than a
@@ -2390,7 +2398,7 @@ final class RouterTests: XCTestCase {
                                  s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                  return s }()])
         let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64, 65, 67, 69, 71, 72]), beats: 0.1, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60, 62, 64, 65, 67, 69, 71, 72]), beats: 0.1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()[0]
         guard let ev = events.first else { return XCTFail("the first riff tick should post a real-rank hit event") }
         XCTAssertEqual(ev.column, 0, "the riff step actually read (post-LEAP) — step 0 on the very first tick")
@@ -2411,7 +2419,7 @@ final class RouterTests: XCTestCase {
                                       s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                       return s }()])
         let fillE = RecordingEmitter()
-        let fillRouter = runKeepingRouter(SnapshotBuilder.build(from: fillSt), chord([60]), beats: 1, into: fillE, forceColumn: 0)
+        let fillRouter = runKeepingRouter(SnapshotBuilder.build(keeping: fillSt), chord([60]), beats: 1, into: fillE, forceColumn: 0)
         let fillEvents = fillRouter.drainEuclideousNoteViewEvents()[0]
         guard let fillEv = fillEvents.first else { return XCTFail("FILL should post a normal hit event — the lit note sounds") }
         XCTAssertEqual(fillEv.kind, 0)
@@ -2432,7 +2440,7 @@ final class RouterTests: XCTestCase {
             // every sibling NOTE VIEW test in this file already takes (see testEuclideousNoteViewOnRestSkip-
             // PostsARestFlashAndNothingElse's own comment).
             let e2 = RecordingEmitter()
-            let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62]), beats: 0.6, into: e2, forceColumn: 0)
+            let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60, 62]), beats: 0.6, into: e2, forceColumn: 0)
             return router.drainEuclideousNoteViewEvents()[0].count
         }
         // LISTEN (ferry 2026-10-14 §1, "stop the Euclid mask affecting output"): SUPERSEDES the original
@@ -2460,7 +2468,7 @@ final class RouterTests: XCTestCase {
                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
         st.euclideousNoteSource = .midi
         let e = RecordingEmitter()
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
         let events = router.drainEuclideousNoteViewEvents()[0]
         XCTAssertEqual(events.count, 3, "3 real ticks, each posting exactly one combined event")
         guard events.count == 3 else { return }
@@ -2490,7 +2498,7 @@ final class RouterTests: XCTestCase {
         // K=N=3 at r1_8 (sub=0.5): ticks at beats 0/0.5/1.0, the 3rd hit landing exactly at the end of the
         // first lap — 1.1 beats safely captures all 3 without a 4th tick leaking in (the same margin every
         // sibling NOTE VIEW test in this file already uses).
-        let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60, 62, 64]), beats: 1.1, into: e, forceColumn: 0)
         XCTAssertEqual(router.euclideousRiffWalkState()[0], 2, "the 3rd (last) hit's own ordinal — HIT mode, FREE (not locked), counts 0,1,2 across the 3 real ticks")
     }
     // testEuclideousRiffWalkStateDrunkPosMatchesTheLiveWalkPosition removed (2026-10-12 MELODY-tab ferry):
@@ -2848,7 +2856,7 @@ final class RouterTests: XCTestCase {
         var st = PluginState(machines: arpMachines(), scenes: [s]); st.busChannels = [1, 2, 3, 4]; st.masterMute = masterMute
         var r1 = Receiver(name: "1"); r1.rangeLo = rangeLo; r1.rangeHi = rangeHi
         st.receivers = [r1, Receiver(name: "2"), Receiver(name: "3"), Receiver(name: "4")]
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     private func stepWindow(_ router: Router, _ box: SnapshotBox, _ pool: NotePool, playing: Bool,
                             beat: Double, out: RecordingEmitter) {
@@ -2935,7 +2943,7 @@ final class RouterTests: XCTestCase {
         var s = SceneState.empty(); build(&s)
         var st = PluginState(machines: arpMachines(), scenes: [s])
         st.receivers = (0..<4).map { var r = Receiver(name: "\($0 + 1)"); r.muted = mute[$0]; return r }
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
 
 
@@ -2981,7 +2989,7 @@ final class RouterTests: XCTestCase {
         s.cells[0][1] = Cell(machineID: "cyan", buses: [.b])   // → Emit B (cable 2): an arp of NEW note-ons
         var st = PluginState(machines: cs, scenes: [s])
         st.flattenMask = flattenMask; st.flattenAmount = amount
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     private func velsForCable(_ box: SnapshotBox, cable: UInt8) -> Set<UInt8> {
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
@@ -3005,7 +3013,7 @@ final class RouterTests: XCTestCase {
         s.cells[0][0] = Cell(machineID: "gold", buses: [.a, .b])   // one arp fanning to BOTH A and B
         var st = PluginState(machines: arpMachines(), scenes: [s])
         st.altMask = altMask; st.altCount = count
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     private func altCableCounts(_ box: SnapshotBox) -> (Int, Int) {
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
@@ -3028,7 +3036,7 @@ final class RouterTests: XCTestCase {
         var s = SceneState.empty(); s.masterKey = key
         s.cells[0][0] = Cell(machineID: "gold", buses: [.a])   // an arp on Emit A
         var st = PluginState(machines: arpMachines(), scenes: [s]); st.masterMute = mute
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
 
 
@@ -3086,7 +3094,7 @@ final class RouterTests: XCTestCase {
             for c in 0..<8 { s.cells[c][0] = Cell(machineID: "gold", buses: [.a]) }; return s }()])
         st.busChannels = [1, 2, 3, 4]
         st.fenceMask = 0b0001; st.fencePolicy = [policy, 0, 0, 0]; st.fenceLo = [lo, 0, 0, 0]; st.fenceHi = [hi, 127, 127, 127]
-        let b = SnapshotBuilder.build(from: st)
+        let b = SnapshotBuilder.build(keeping: st)
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -3122,7 +3130,7 @@ final class RouterTests: XCTestCase {
             var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
             st.altMask = altMask; st.altCount = [1, 1, 1, 1]
             let e = RecordingEmitter()
-            run(SnapshotBuilder.build(from: st), chord([60]), beats: 32, into: e)
+            run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 32, into: e)
             assertNothingLeftSounding(e)
             return e.ons.map { $0.sample }.sorted()
         }
@@ -3138,7 +3146,7 @@ final class RouterTests: XCTestCase {
         st.curveMask = on ? 0b0001 : 0
         st.curveAmount = [amount, 0, 0, 0]
         st.rackEnabledMask = rack
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
 
     // MARK: - THE RACK — FENCE (per-emitter note-range policy)
@@ -3152,7 +3160,7 @@ final class RouterTests: XCTestCase {
         st.fencePolicy = [policy, 0, 0, 0]; st.fenceLo = [lo, 0, 0, 0]; st.fenceHi = [hi, 127, 127, 127]
         st.rackEnabledMask = rack
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60]), beats: 16, into: e)
+        run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 16, into: e)
         assertNothingLeftSounding(e)
         return Set(e.ons.filter { $0.cable == 1 }.map { $0.note })
     }
@@ -3166,7 +3174,7 @@ final class RouterTests: XCTestCase {
         var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.monoMask = 0b0001; st.monoPriority = [priority, 0, 0, 0]
         let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
-        router.process(box: SnapshotBuilder.build(from: st), pool: chord(notes), playing: true, beatPos: 0,
+        router.process(box: SnapshotBuilder.build(keeping: st), pool: chord(notes), playing: true, beatPos: 0,
                        tempo: 120, sampleRate: 48_000, timestampSample: 0, frameCount: 2048, out: e, diag: &diag)
         var last: [UInt8: UInt8] = [:]
         for ev in e.events where ev.cable == 1 { last[ev.note] = ev.status }
@@ -3187,7 +3195,7 @@ final class RouterTests: XCTestCase {
         var st = PluginState(machines: claimMachines(transposeB: 0), scenes: [s])
         st.convLead = 0; st.convStance = stance
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60]), beats: 16, into: e)
+        run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 16, into: e)
         assertNothingLeftSounding(e)
         return (e.ons.filter { $0.cable == 1 }.count, e.ons.filter { $0.cable == 2 }.count)
     }
@@ -3258,7 +3266,7 @@ final class RouterTests: XCTestCase {
                                   scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
             st.euclideousNoteSource = .midi
             let e = RecordingEmitter()
-            run(SnapshotBuilder.build(from: st), chord([60]), beats: 10, into: e, forceColumn: 0)
+            run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 10, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 && Int($0.note) == 60 }.count
         }
@@ -3284,7 +3292,7 @@ final class RouterTests: XCTestCase {
             // K=N=8 at r1_1 ⇒ a tick every beat. GATE follows the REAL rhythm (the gap to the next hit, not
             // a fixed rate duration) — the window must extend past tick 1 so that gap is resolvable, or a
             // 70%-of-one-beat close (0.7 beats) would still be open at window's end regardless of GATE.
-            run(SnapshotBuilder.build(from: st), chord([60]), beats: 2.2, into: e, forceColumn: 0)
+            run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 2.2, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             guard let on = e.ons.filter({ $0.cable == 1 && Int($0.note) == 60 }).map({ $0.sample }).min(),
                   let off = e.offs.filter({ $0.cable == 1 && Int($0.note) == 60 && $0.sample > on }).map({ $0.sample }).min() else { return nil }
@@ -3318,7 +3326,7 @@ final class RouterTests: XCTestCase {
         // leave hit3's own pitch (60, re-struck by the wrap) un-reconciled at test end, and since this is
         // GATE=0.5 (not legato) that's a harmless, finite-gated voice either way, but keeping the window
         // tight avoids a 3rd, chronologically-later same-pitch onset polluting onsFor(60)'s index[1].
-        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 2.2, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([60, 64, 67]), beats: 2.2, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let onsFor: (UInt8) -> [Int64] = { note in e.ons.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
         let offsFor: (UInt8) -> [Int64] = { note in e.offs.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
@@ -3346,7 +3354,7 @@ final class RouterTests: XCTestCase {
         // sentinel (a deliberate "right now" marker, not a real sample count) — keeping the window tight
         // means hit0's own close (the thing under test) is ALWAYS the real reconcile-computed one, never
         // shadowed by that sentinel sorting to the front of a later, unrelated close.
-        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 1.2, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([60, 64, 67]), beats: 1.2, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let onsFor: (UInt8) -> [Int64] = { note in e.ons.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
         let offsFor: (UInt8) -> [Int64] = { note in e.offs.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
@@ -3366,7 +3374,7 @@ final class RouterTests: XCTestCase {
         st.euclideousNoteSource = .midi
         let e = RecordingEmitter()
         // K=2/N=8: two hits per cycle, both resolving rank1 (riffLength 1) — the SAME pitch on consecutive hits.
-        run(SnapshotBuilder.build(from: st), chord([60]), beats: 2, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 2, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let ons = e.ons.filter { $0.cable == 1 && $0.note == 60 }
         XCTAssertEqual(ons.count, 1, "two consecutive hits on the SAME pitch at 100% must produce exactly ONE note-on, not two")
@@ -3384,7 +3392,7 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         // beats:1.5 captures exactly K=2/N=8's two real hits (ticks 0,4 → tau 0,1.0) and stops before a 3rd,
         // cycle-2 hit at tau=2.0 would otherwise land right at the window's tail boundary.
-        run(SnapshotBuilder.build(from: st), chord([60]), beats: 1.5, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 1.5, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let ons = e.ons.filter { $0.cable == 1 && $0.note == 60 }
         XCTAssertEqual(ons.count, 2, "at 99% (not literally 100) the two hits must strike independently, never merge")
@@ -3400,7 +3408,7 @@ final class RouterTests: XCTestCase {
                                   scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
             st.euclideousNoteSource = .midi
             let e = RecordingEmitter()
-            run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 4, into: e, forceColumn: 0)
+            run(SnapshotBuilder.build(keeping: st), chord([60, 64, 67]), beats: 4, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 2 && $0.note == 60 }.count   // rank 1 = note 60, the lit pick, on Emit Notes A
         }
@@ -3421,7 +3429,7 @@ final class RouterTests: XCTestCase {
         // beats:1.5 — see the sibling 99% test's comment: keeps this to exactly K=2/N=8's two real ticks
         // (one real hit at tick0, one SKIP rest at tick4) and stops well before a 3rd, cycle-2 hit (tick8,
         // real again under ranks[1,0]'s own repeat) would land right at the tail boundary.
-        run(SnapshotBuilder.build(from: st), chord([60]), beats: 1.5, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 1.5, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let ons = e.ons.filter { $0.cable == 1 && $0.note == 60 }.map { $0.sample }.sorted()
         let offs = e.offs.filter { $0.cable == 1 && $0.note == 60 }.map { $0.sample }.sorted()
@@ -3452,7 +3460,7 @@ final class RouterTests: XCTestCase {
         // beats:1.8 captures exactly hit0 (tick0, real), hit1 (tick3, rest/TIE), hit2 (tick6, real) and
         // stops before a 4th, cycle-2 hit (tick8, tau 2.0 — ranks wraps back to rank1) would land right
         // at the tail boundary, same class of fix as the sibling GATE tests above.
-        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 1.8, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([60, 64, 67]), beats: 1.8, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let onsFor: (UInt8) -> [Int64] = { note in e.ons.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
         let offsFor: (UInt8) -> [Int64] = { note in e.offs.filter { $0.cable == 1 && $0.note == note }.map { $0.sample }.sorted() }
@@ -3480,7 +3488,7 @@ final class RouterTests: XCTestCase {
         var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? gold : Machine(machineID: $0, type: .arp) }, scenes: [s])
         st.euclideousNoteSource = .midi
-        let b = SnapshotBuilder.build(from: st)
+        let b = SnapshotBuilder.build(keeping: st)
         let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
         let pool = chord([60]); let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
         let wb = Double(frames) * tempo / 60.0 / sr; var beat = 0.0, ts = 0.0
@@ -3530,13 +3538,13 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
         let windowBeats = Double(frames) * tempo / 60.0 / sr
-        let router = runKeepingRouter(SnapshotBuilder.build(from: sceneFor(lineFor(0), monoOnA: false)), chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: sceneFor(lineFor(0), monoOnA: false)), chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
         var diag = KernelDiag()
         var beat = 0.2, ts = 0.2 / tempo * 60.0 * sr
         for tick in 1...40 {
             // Ticks 15-24: a MONO collision runs alongside the lane, forcing a real voice steal on bus A.
             let monoOnA = (15...24).contains(tick)
-            let box1 = SnapshotBuilder.build(from: sceneFor(lineFor(tick), monoOnA: monoOnA))
+            let box1 = SnapshotBuilder.build(keeping: sceneFor(lineFor(tick), monoOnA: monoOnA))
             // Tick 30: a transport stop/restart mid-run — exercises the 7-edge flush for real.
             if tick == 30 {
                 router.process(box: box1, pool: chord(pool), playing: false, beatPos: beat, tempo: tempo,
@@ -3547,7 +3555,7 @@ final class RouterTests: XCTestCase {
                            sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
-        router.process(box: SnapshotBuilder.build(from: sceneFor(lineFor(40), monoOnA: false)),
+        router.process(box: SnapshotBuilder.build(keeping: sceneFor(lineFor(40), monoOnA: false)),
                        pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
@@ -3567,7 +3575,7 @@ final class RouterTests: XCTestCase {
                               scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
         st.euclideousNoteSource = .midi
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60]), beats: 0.3, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([60]), beats: 0.3, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let ons = e.ons.filter { $0.cable == 2 }   // a riff-off lane plays its lit notes on Emit Notes A
         XCTAssertEqual(ons.count, 1)
@@ -3588,7 +3596,7 @@ final class RouterTests: XCTestCase {
                                   scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
             st.euclideousNoteSource = .midi
             let e = RecordingEmitter()
-            run(SnapshotBuilder.build(from: st), chord([60, 64]), beats: 0.3, into: e, forceColumn: 0)
+            run(SnapshotBuilder.build(keeping: st), chord([60, 64]), beats: 0.3, into: e, forceColumn: 0)
             assertNothingLeftSounding(e)
             return e.ons.filter { $0.cable == 1 }.map { (note: $0.note, vel: $0.vel) }.sorted { $0.note < $1.note }
         }
@@ -3618,7 +3626,7 @@ final class RouterTests: XCTestCase {
                               scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
         st.euclideousNoteSource = .midi
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60, 64]), beats: 0.3, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([60, 64]), beats: 0.3, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         XCTAssertEqual(e.ons.filter { $0.cable == 1 }.count, 0, "nothing sounds — riff off AND the whole notes layer off, even though rank 1 and TOP are still lit underneath")
     }
@@ -3640,7 +3648,7 @@ final class RouterTests: XCTestCase {
                               scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
         st.euclideousNoteSource = .midi
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord([60, 64, 67]), beats: 0.3, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord([60, 64, 67]), beats: 0.3, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         let ons = e.ons.filter { $0.cable == 2 }   // a riff-off lane plays its lit notes on Emit Notes A
         XCTAssertEqual(ons.count, 1)
@@ -3677,12 +3685,12 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
         let windowBeats = Double(frames) * tempo / 60.0 / sr
-        let router = runKeepingRouter(SnapshotBuilder.build(from: sceneFor(lineFor(0), monoOnA: false)), chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: sceneFor(lineFor(0), monoOnA: false)), chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
         var diag = KernelDiag()
         var beat = 0.2, ts = 0.2 / tempo * 60.0 * sr
         for tick in 1...40 {
             let monoOnA = (15...24).contains(tick)
-            let box1 = SnapshotBuilder.build(from: sceneFor(lineFor(tick), monoOnA: monoOnA))
+            let box1 = SnapshotBuilder.build(keeping: sceneFor(lineFor(tick), monoOnA: monoOnA))
             if tick == 30 {
                 router.process(box: box1, pool: chord(pool), playing: false, beatPos: beat, tempo: tempo,
                                sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
@@ -3692,7 +3700,7 @@ final class RouterTests: XCTestCase {
                            sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
-        router.process(box: SnapshotBuilder.build(from: sceneFor(lineFor(40), monoOnA: false)),
+        router.process(box: SnapshotBuilder.build(keeping: sceneFor(lineFor(40), monoOnA: false)),
                        pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         assertNothingLeftSounding(e)
     }
@@ -3735,7 +3743,7 @@ final class RouterTests: XCTestCase {
         // though rhythmically redundant (same grid column, invisible to a per-column dedup check), still
         // advances to a genuinely NEW rank and fires as a real extra note. 3.9 stops comfortably after
         // the last real hit (column 6, beat 3.0) but strictly before the 2nd lap's column 0 (beat 4.0).
-        run(SnapshotBuilder.build(from: st), chord(listenPoolCMinor), beats: 3.9, into: e, forceColumn: 0, tempo: tempo, sr: sr)
+        run(SnapshotBuilder.build(keeping: st), chord(listenPoolCMinor), beats: 3.9, into: e, forceColumn: 0, tempo: tempo, sr: sr)
         assertNothingLeftSounding(e)
         return e.ons.filter { $0.cable == 2 }.sorted { $0.sample < $1.sample }.map { ev in
             let beat = Double(ev.sample) / sr * tempo / 60.0
@@ -3796,7 +3804,7 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter(); let tempo = 110.0, sr = 48_000.0
         // Two full laps (8 beats at 0.5 beat/step × 8 steps = 4 beats/lap) plus a hair, so lap 2's tick 0
         // (absolute tick 8) is reached and finished sounding before the run stops.
-        run(SnapshotBuilder.build(from: st), chord(listenPoolCMinor), beats: 7.9, into: e, forceColumn: 0, tempo: tempo, sr: sr)
+        run(SnapshotBuilder.build(keeping: st), chord(listenPoolCMinor), beats: 7.9, into: e, forceColumn: 0, tempo: tempo, sr: sr)
         assertNothingLeftSounding(e)
         let hits = e.ons.filter { $0.cable == 2 }.sorted { $0.sample < $1.sample }.map { ev -> Int in
             let beat = Double(ev.sample) / sr * tempo / 60.0
@@ -3841,7 +3849,7 @@ final class RouterTests: XCTestCase {
                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b]); return s }()])
         st.euclideousNoteSource = .midi
         let e = RecordingEmitter(); let tempo = 110.0, sr = 48_000.0
-        run(SnapshotBuilder.build(from: st), chord(listenPoolCMinor), beats: 3.9, into: e, forceColumn: 0, tempo: tempo, sr: sr)
+        run(SnapshotBuilder.build(keeping: st), chord(listenPoolCMinor), beats: 3.9, into: e, forceColumn: 0, tempo: tempo, sr: sr)
         assertNothingLeftSounding(e)
         return e.ons.filter { $0.cable == 2 }.sorted { $0.sample < $1.sample }.map { ev in
             let beat = Double(ev.sample) / sr * tempo / 60.0
@@ -3873,7 +3881,7 @@ final class RouterTests: XCTestCase {
                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b]); return s }()])
         st.euclideousNoteSource = .midi
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord(listenPoolCMinor), beats: beats, into: e, forceColumn: 0, tempo: 110, sr: 48_000)
+        run(SnapshotBuilder.build(keeping: st), chord(listenPoolCMinor), beats: beats, into: e, forceColumn: 0, tempo: 110, sr: 48_000)
         assertNothingLeftSounding(e)
         func notes(_ cable: Int) -> [UInt8] { e.ons.filter { $0.cable == cable }.sorted { $0.sample < $1.sample }.map { $0.note } }
         return (notes(1), notes(2))   // lane 1 = output A, lane 2 = output B
@@ -3994,7 +4002,7 @@ final class RouterTests: XCTestCase {
                                          s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
                                          return s }()])
                 st.euclideousLanesSeqRate = .oneBar
-                let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: beats, into: RecordingEmitter(), forceColumn: 0)
+                let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60, 62, 64]), beats: beats, into: RecordingEmitter(), forceColumn: 0)
                 let cfg = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8)!
                 // `runKeepingRouter` renders whole 2048-frame windows until it has covered `beats`, so the last hit it processed is the one
                 // before the END of the final window, not before `beats` itself.
@@ -4036,7 +4044,7 @@ final class RouterTests: XCTestCase {
             st.euclideousNoteSource = .midi
             let e = RecordingEmitter()
             // 8 held notes: every riff rank 1…8 resolves to a real, in-range pitch, so EVERY hit sounds (with a 1-note pool ranks 7–8 fold above 127 and are dropped).
-            run(SnapshotBuilder.build(from: st), chord([48, 50, 52, 53, 55, 57, 59, 60]), beats: 7.9, into: e, forceColumn: 0)
+            run(SnapshotBuilder.build(keeping: st), chord([48, 50, 52, 53, 55, 57, 59, 60]), beats: 7.9, into: e, forceColumn: 0)
             // One onset per hit: a hit can strike several pitches at the same instant (the riff note + a lit note), so collapse those.
             var engineBeats: [Double] = []
             for b in e.ons.filter({ $0.cable == 1 }).map({ Double($0.sample) / 48_000 * 120 / 60 }).sorted() where engineBeats.last.map({ b - $0 > 0.01 }) ?? true { engineBeats.append(b) }
@@ -4074,7 +4082,7 @@ final class RouterTests: XCTestCase {
             let cyc = stepRate.beats * Double(Snap.cols)
             XCTAssertNotEqual(cyc, bpb, "this case is only meaningful where grid-cycle ≠ the host's bar")
             for beats in [7.3, 13.9, 19.1] {
-                let router = runKeepingRouter(SnapshotBuilder.build(from: st), chord([60, 62, 64]), beats: beats, into: RecordingEmitter(), forceColumn: 0, beatsPerBar: bpb)
+                let router = runKeepingRouter(SnapshotBuilder.build(keeping: st), chord([60, 62, 64]), beats: beats, into: RecordingEmitter(), forceColumn: 0, beatsPerBar: bpb)
                 let right = euclideousWalkLaneConfig(lane: 0, lines: [line], cyc: cyc, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, beatsPerBar: bpb)!
                 let windowBeats = 2048.0 * 120.0 / 60.0 / 48_000.0, end = (beats / windowBeats).rounded(.up) * windowBeats
                 guard let last = euclideousWalkScanHits(right, beat: end - 1e-9, back: 1, ahead: 0).prev.first else { XCTFail("no hit"); continue }
@@ -4110,7 +4118,7 @@ final class RouterTests: XCTestCase {
         st.euclideousNoteSource = source
         st.euclideousMidiInChannelMask = mask
         st.busChannels = busChannels
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     // §3.5/§10 test 2: a mask narrowed to channel 1 only filters a MIDI-mode lane's own held pool.
     func testFourfoldMidiInChannelMaskFiltersAMidiModeLaneByChannel() {
@@ -4154,7 +4162,7 @@ final class RouterTests: XCTestCase {
         p.noteOn(60, velocity: 100, channel: 0)    // channel 1 — rank 1, survives
         p.noteOn(64, velocity: 100, channel: 1)    // channel 2 — filtered out of the shared pool entirely
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), p, beats: 7.9, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), p, beats: 7.9, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         XCTAssertFalse(e.ons.filter { $0.cable == 1 }.map { $0.note }.contains(64), "the riff must never reach channel 2's note once it's filtered out of the shared pool")
     }
@@ -4269,7 +4277,7 @@ final class RouterTests: XCTestCase {
             sc.cells[0][Snap.euclideousRow] = cell
             return sc }()]
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: s), chord([48, 50, 52, 53, 55, 57, 59, 60]), beats: bars * 4, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: s), chord([48, 50, 52, 53, 55, 57, 59, 60]), beats: bars * 4, into: e, forceColumn: 0)
         var h: UInt64 = 0xcbf29ce484222325
         func mix(_ v: UInt64) { h = (h ^ v) &* 0x100000001b3 }
         for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {
@@ -4801,7 +4809,7 @@ final class RouterTests: XCTestCase {
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
         if monoOnA { st.monoMask = 0b0001; st.monoPriority = [0, 0, 0, 0] }
         st.euclideousNoteSource = .midi
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     /// `run()` with the test-only mask seam. 120 BPM, 48 kHz: one beat = 24 000 samples.
     private func mixRun(_ box: SnapshotBox, beats: Double, into e: RecordingEmitter, maskOn: Bool = false, startBeat: Double = 0) {
@@ -4955,7 +4963,7 @@ final class RouterTests: XCTestCase {
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
         st.euclideousNoteSource = .midi
         let e = RecordingEmitter()
-        mixRun(SnapshotBuilder.build(from: st), beats: 3.5, into: e, maskOn: true)
+        mixRun(SnapshotBuilder.build(keeping: st), beats: 3.5, into: e, maskOn: true)
         XCTAssertGreaterThanOrEqual(e.ons.filter { $0.note == 55 && $0.cable == 4 }.count, 3, "lane D's riff pitch and its replays are on output D (cable 4)")
         XCTAssertGreaterThanOrEqual(e.ons.filter { $0.note == 48 && $0.cable == 3 }.count, 3, "lane D's lit note and its replays are on output C (cable 3)")
         XCTAssertTrue(e.ons.filter { $0.note == 48 }.allSatisfy { $0.cable == 0 || $0.cable == 3 }, "…and never on the riff part's output")
@@ -4994,12 +5002,12 @@ final class RouterTests: XCTestCase {
         let e = RecordingEmitter()
         let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 1024
         let windowBeats = Double(frames) * tempo / 60.0 / sr
-        let router = runKeepingRouter(SnapshotBuilder.build(from: sceneFor(lineFor(0), monoOnA: false)), chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
+        let router = runKeepingRouter(SnapshotBuilder.build(keeping: sceneFor(lineFor(0), monoOnA: false)), chord(pool), beats: 0.2, into: e, forceColumn: 0, tempo: tempo, sr: sr, frames: frames)
         var diag = KernelDiag()
         var beat = 0.2, ts = 0.2 / tempo * 60.0 * sr
         for tick in 1...90 {
             let monoOnA = (15...24).contains(tick) || (45...50).contains(tick) || (70...76).contains(tick)
-            let box1 = SnapshotBuilder.build(from: sceneFor(lineFor(tick), monoOnA: monoOnA))
+            let box1 = SnapshotBuilder.build(keeping: sceneFor(lineFor(tick), monoOnA: monoOnA))
             if tick == 12 || tick == 30 || tick == 52 || tick == 80 {   // transport restarts mid-stream
                 router.process(box: box1, pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
                 beat += windowBeats; ts += Double(frames)
@@ -5007,7 +5015,7 @@ final class RouterTests: XCTestCase {
             router.process(box: box1, pool: chord(pool), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
-        router.process(box: SnapshotBuilder.build(from: sceneFor(lineFor(90), monoOnA: false)), pool: chord(pool), playing: false, beatPos: beat, tempo: tempo,
+        router.process(box: SnapshotBuilder.build(keeping: sceneFor(lineFor(90), monoOnA: false)), pool: chord(pool), playing: false, beatPos: beat, tempo: tempo,
                        sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
         XCTAssertGreaterThan(e.ons.count, 30, "the stress run actually played")
         XCTAssertGreaterThan(Set(e.ons.map { $0.note }).count, 3, "…across several pitches (both layers, the lit mask moving)")
@@ -5035,7 +5043,7 @@ final class RouterTests: XCTestCase {
             c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8]); c.paramsA.euclidLines = [lineFor(tick)]
             var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc]); st.euclideousNoteSource = .midi
-            let box1 = SnapshotBuilder.build(from: st)
+            let box1 = SnapshotBuilder.build(keeping: st)
             if tick == 20 || tick == 55 {
                 router.process(box: box1, pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
                 beat += windowBeats; ts += Double(frames)
@@ -5043,7 +5051,7 @@ final class RouterTests: XCTestCase {
             router.process(box: box1, pool: chord(pool), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
             beat += windowBeats; ts += Double(frames)
         }
-        router.process(box: SnapshotBuilder.build(from: { var c = Machine(machineID: "gold", type: .euclid); c.paramsA.euclidLines = [lineFor(0)]
+        router.process(box: SnapshotBuilder.build(keeping: { var c = Machine(machineID: "gold", type: .euclid); c.paramsA.euclidLines = [lineFor(0)]
             var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
             return PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc]) }()),
                        pool: chord(pool), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
@@ -5340,7 +5348,7 @@ final class RouterTests: XCTestCase {
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
         st.euclideousNoteSource = .midi
         st.euclideousFX = fx
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     private func fxCells(_ cells: [(row: Int, col: Int, v: Int)], lanes: [Int: UInt8] = [:], passes: UInt8 = 4, ccNumber: UInt8 = 74, ccBase: Int16 = -1, shape: UInt8 = 0) -> EuclideousFX {
         var fx = EuclideousFX(); fx.ratchShape = shape
@@ -5502,7 +5510,7 @@ final class RouterTests: XCTestCase {
         sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
         st.euclideousNoteSource = .midi; st.euclideousFX = fx
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     /// `fxRun` at a chosen tempo, returning the router too (for the flood governor's drop count).
     private func fxRunAt(_ box: SnapshotBox, beats: Double, frames: UInt32, tempo: Double) -> (e: RecordingEmitter, router: Router) {
@@ -5813,7 +5821,7 @@ final class RouterTests: XCTestCase {
         st.euclideousNoteSource = .midi; st.euclideousFX = fxCells([(5, 1, 20)])
         st.busChannels = [5, 5, 3, 4]   // outputs A and B on the same channel
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord(fxPoolNotes), beats: 3.5, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord(fxPoolNotes), beats: 3.5, into: e, forceColumn: 0)
         let cc = ccEvents(e)
         XCTAssertEqual(cc.filter { $0.cable == 1 }.count, 1); XCTAssertEqual(cc.filter { $0.cable == 2 }.count, 1, "each output gets its own copy")
         XCTAssertEqual(cc.filter { $0.cable == 0 }.count, 1, "…but ALL carries one: both are channel 5, the same message")
@@ -6046,7 +6054,7 @@ final class RouterTests: XCTestCase {
         st.euclideousNoteSource = .chords
         var ch = MachineParams(); ch.chordsRate = .r2_1; ch.chordsSteps = 4; ch.chordsDegrees = [0, 5, 3, 4]
         st.euclideousChords = ch
-        let box = SnapshotBuilder.build(from: st)
+        let box = SnapshotBuilder.build(keeping: st)
         return (box, box.cells[Snap.euclideousRow].procs[0])
     }
 
@@ -6166,7 +6174,7 @@ final class RouterTests: XCTestCase {
             sc.cells[0][Snap.euclideousRow] = cell
             return sc }()]
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: s), chord([48, 50, 52, 53, 55, 57, 59, 60]), beats: bars * 4, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: s), chord([48, 50, 52, 53, 55, 57, 59, 60]), beats: bars * 4, into: e, forceColumn: 0)
         return e
     }
     private let routingPreNinePins: [String: String] = [
@@ -6489,7 +6497,7 @@ final class RouterTests: XCTestCase {
         st.euclideousNoteSource = .midi
         st.busChannels = [3, 9, 1, 1]   // A = channel 3, B = channel 9
         let e = RecordingEmitter()
-        run(SnapshotBuilder.build(from: st), chord(notesExPool), beats: 4.5, into: e, forceColumn: 0)
+        run(SnapshotBuilder.build(keeping: st), chord(notesExPool), beats: 4.5, into: e, forceColumn: 0)
         assertNothingLeftSounding(e)
         for cable: UInt8 in [0, 1, 2] {
             XCTAssertFalse(e.ons.filter { $0.cable == cable }.isEmpty, "cable \(cable) sounds")
@@ -6523,7 +6531,7 @@ final class RouterTests: XCTestCase {
             sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
             var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
             st.euclideousNoteSource = .midi; st.euclideousFX = fx
-            return SnapshotBuilder.build(from: st)
+            return SnapshotBuilder.build(keeping: st)
         }
         let e = RecordingEmitter()
         let router = Router(); var diag = KernelDiag()
@@ -7281,7 +7289,7 @@ final class RouterTests: XCTestCase {
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
         st.euclideousNoteSource = .midi
         st.euclideousFX = fx
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     /// Plays `beats` beats in 2048-frame windows on ONE router, taking each window's box from `solo(windowStartBeat)` (a solo change reaches the render thread at a window boundary — the snapshot the next
     /// window acquires), optionally stopping and restarting the transport at the given beats. Returns the stream, the router and the window length in beats.
@@ -7485,7 +7493,7 @@ final class RouterTests: XCTestCase {
             return s
         }()
         let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)
-        return (SnapshotBuilder.build(from: st), pool)
+        return (SnapshotBuilder.build(keeping: st), pool)
     }
 
     /// Runs the fixture from beat 0 to `toBeats` with a single pending RHYTHM roll (4-of-4, i.e. every step
@@ -7654,7 +7662,7 @@ final class RouterTests: XCTestCase {
                              scenes: [{ var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return sc }()])
         st.euclideousNoteSource = .midi
         if let fx { st.euclideousFX = fx }
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     private func lockedRender(_ steps: [LockStep], locks: [EuclideousLaneLock], to: Double, frames: UInt32, chord: [UInt8] = [60], tempo: Double = 120, rolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(), fx: EuclideousFX? = nil, ranks: [Int]? = nil) -> LockRun {
         let sr = 48_000.0
@@ -8203,7 +8211,7 @@ extension RouterTests {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclidLines = [l]
         var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-        let built = SnapshotBuilder.build(from: PluginState(machines: [c], scenes: [sc]))
+        let built = SnapshotBuilder.build(keeping: PluginState(machines: [c], scenes: [sc]))
         let rebuilt = try XCTUnwrap(built.machines.first { $0.a.euclidLines.count == 4 }?.a.euclidLines.first)
         XCTAssertEqual(rebuilt.riffOutMask, 0b0101, "riffOutMask survives the SnapshotBuilder rebuild"); XCTAssertEqual(rebuilt.notesOutMask, 0b1000)
         // the whole-document path the app publishes through (a lane's masks ride `euclideousLines`)
@@ -8276,7 +8284,7 @@ extension RouterTests {
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
         st.euclideousNoteSource = .midi
         st.euclideousKeyRoot = keyRoot; st.euclideousKeyType = keyType
-        return SnapshotBuilder.build(from: st)
+        return SnapshotBuilder.build(keeping: st)
     }
     private func otNotes(_ e: RecordingEmitter, cable: UInt8) -> [Int] { fxOns(e, cable: cable).map { Int($0.note) } }
 

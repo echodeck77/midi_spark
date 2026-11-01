@@ -10,7 +10,7 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 - [ ] **STOP / DECIDE (Paul, before landing):** the IGNORE default changes the sound of all 35 golden documents (the default document, the 20 factory presets, 5 POLY, 9 CANON) whenever notes are held — pitches only, event counts unchanged; nothing changes with nothing held. Say go and I re-derive `golden.txt` and land in slices (`golden-keep.txt` already holds the KEEP oracle).
 - [ ] DEVICE: the four "MIDI IN —" lines in `Docs/euclideous-device-verification-debt.md`.
 - [ ] (noted) 343 pt: the MIDI row's CONTENT is 31 pt, so the chips are hidden and only the chevron shows; a different arrangement (MODE on its own line at narrow widths) is possible if that reads badly.
-- [ ] (noted) a canon-delayed lane applies the CURRENT root transpose, not the one in force `d` beats ago (the history records the raw MIDI layer only).
+- [ ] (noted, from the adversarial review) raw `t` can pile several pool notes onto 127 (or 0) — ROLL / RUN / CYCLE then repeat one key; tapping the selected MODE segment still records an undo step; below ~342 pt the chevron leaves its well.
 - [ ] (noted, pre-existing) the golden harness's hashes depend on a document's position in the run; PICK / KEY chip fit assumes 36 pt per chip while they draw ≥ 40; `onSetSourcePlan` records an undo step for an unchanged value; `UndoAudit` tripwires do not cover the plan funnel.
 
 ## ★ FOURFOLD — CHORD CANON: a lane reads the CHORDS layer behind the host beat (2026-10-31; `Docs/euclideous-status-log.md`, branch `feature/chord-canon`)

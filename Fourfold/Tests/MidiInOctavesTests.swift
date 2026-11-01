@@ -415,7 +415,10 @@ final class MidiInOctavesTests: XCTestCase {
         // ROOT never steps CHORDS aside, not even in the 50 ms after the last key goes up: a hit ~30 ms after the release still sounds
         let r = Rig(state(plan(chords: true, mode: .root)))
         r.run(to: 0.5); r.press([50]); r.run(to: 5.94); r.release([50]); r.run(to: 6.5)
-        XCTAssertNotEqual(r.notes(cable: 1, beats: 7)[6], -1, "the hit at beat 6 sounds")
+        let hit = r.out.ons.filter { $0.cable == 1 && abs(Double($0.sample) / 24_000.0 - 6.0) < 0.05 }
+        XCTAssertEqual(hit.count, 1, "the hit at beat 6 sounds")
+        // …ON the beat: if the row were skipped through the grace the engine would strike it a window late (6.02), not drop it
+        XCTAssertEqual(Double(hit.first?.sample ?? 0) / 24_000.0, 6.0, accuracy: 0.002, "on the beat, not a window late")
     }
     func testReplaceKeepsChordsAsideThroughTheReleaseGraceAndThenReturns() {
         let r = Rig(state(plan(chords: true, key: true, mode: .replace)))

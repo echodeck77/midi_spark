@@ -43,5 +43,5 @@ GOLDEN OCTAVES MIDI + CHORDS, high inversions: events=3748 hash=70dcd74b2df1a895
 GOLDEN OCTAVES REPLACE over CHORDS + KEY, high inversions: events=3748 hash=9684bb3d5ebc7b9
 GOLDEN OCTAVES ROOT over CHORDS + KEY, a low note: events=3500 hash=5c0950914c2ac321
 GOLDEN OCTAVES ROOT over CHORDS + KEY + PICK KEEP, a low note: events=3748 hash=a6fe43600869631
-GOLDEN OCTAVES ROOT with delayed lanes: events=3508 hash=c985c1824f78a84b
-GOLDEN OCTAVES ALL: documents=8 events=21348 hash=8047af5b1eb8a445
+GOLDEN OCTAVES ROOT with delayed lanes: events=3508 hash=b0dd19f952580f5b
+GOLDEN OCTAVES ALL: documents=8 events=21348 hash=9584d4e4a2602075
