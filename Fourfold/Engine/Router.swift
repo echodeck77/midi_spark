@@ -150,11 +150,20 @@ final class Router {
     private var tradeRecNotesMask: UInt16 = 0
     private var tradeRecSlotBits: UInt64 = ~0
     private var tradeRecHadRiff = false
+    // ANSWER status for the UI poll: each lane's running cycle (the phase bar's playhead, the VoiceOver words) and its pool as it is choosing from it right now (the POOL tab's NOW row). Written on the render thread, read on the main
+    // thread — display only, the same plain-property hand-off as the FREEZE status; fixed-size, never reallocated.
+    private var answerStat = [EuclideousAnswerLaneStatus](repeating: EuclideousAnswerLaneStatus(), count: 4)
+    private var lanePoolNotes = [UInt8](repeating: 0, count: 64)       // 4 lanes × 16 ascending notes
+    private var lanePoolCount = [Int](repeating: 0, count: 4)           // the pool's true size (the notes beyond 16 are not copied)
+    func euclideousAnswerStatus() -> [EuclideousAnswerLaneStatus] { answerStat }
+    func euclideousLanePoolStatus() -> [EuclideousLanePoolStatus] {
+        (0..<4).map { l in EuclideousLanePoolStatus(count: lanePoolCount[l], notes: Array(lanePoolNotes[(l * 16)..<(l * 16 + min(16, lanePoolCount[l]))])) }
+    }
     private func answerResetRun() {
         answerFreshRun = true
         for i in 0..<4 { answerLatch[i].reset(); answerUnitIndex[i] = 0; answerBoundary[i] = .infinity }
         answerEngaged = false; answerBeforeBits = 0; answerAfterBits = 0; answerTradeBits = 0; answerFlipAtStart = 0; answerPrevAfterBits = 0
-        for i in 0..<4 { answerTraderOf[i] = 0 }
+        for i in 0..<4 { answerTraderOf[i] = 0; answerStat[i] = EuclideousAnswerLaneStatus() }
     }
     /// Is lane `lane` in phase B at musical beat `m` this window? (Its boundary, if one falls inside the window, is `answerBoundary`; the bits are per LANE, resolved through its phase lane at plan time.)
     @inline(__always) private func answerPhaseIsB(lane: Int, atBeat m: Double) -> Bool {
@@ -209,7 +218,7 @@ final class Router {
     /// window: the next window's start catches up); under a lock split the boundary waits for the next window. Both lanes of a SWAP pair take their phase from the lower-numbered lane.
     private func planAnswer(lines: [EuclidLine], mStart ws: Double, mEnd we: Double, defaultRateBeats: Double, splitSuppressed: Bool) {
         answerEngaged = false; answerBeforeBits = 0; answerAfterBits = 0; answerTradeBits = 0
-        for i in 0..<4 { answerBoundary[i] = .infinity; answerTraderOf[i] = 0 }
+        for i in 0..<4 { answerBoundary[i] = .infinity; answerTraderOf[i] = 0; answerStat[i] = EuclideousAnswerLaneStatus() }
         let n = min(4, lines.count)
         let fresh = answerFreshRun
         answerFreshRun = false
@@ -281,7 +290,22 @@ final class Router {
                 if phaseAfter == .b { answerAfterBits |= UInt8(1) << UInt8(lane) }
             }
             put(pl)
-            if let partner = euclideousAnswerPairPartner(lane: pl, lines: lines) { put(partner) }
+            let pairPartner = euclideousAnswerPairPartner(lane: pl, lines: lines)
+            if let partner = pairPartner { put(partner) }
+            if latch.active {   // the phase bar's playhead and the spoken "n of m": the unit now in force, and how far through it this window starts
+                let u = units(latch.unit, ws)
+                var frac = 0.0
+                if latch.unit == .bars { frac = (ws - Double(barIndex(ws)) * barBeats) / barBeats }
+                else if lap > 0 {
+                    let q = passIndex(ws)
+                    let a = euclideousPassStart(q, lapBeats: lap, barBeats: barBeats, rhythmChain: chain), b = euclideousPassStart(q + 1, lapBeats: lap, barBeats: barBeats, rhythmChain: chain)
+                    frac = b > a ? (ws - a) / (b - a) : 0
+                }
+                let st = EuclideousAnswerLaneStatus(running: true, phaseB: phaseNow == .b, unitInHalf: (u % (2 * latch.each)) % latch.each, each: latch.each,
+                                                   progress: euclideousAnswerPhaseProgress(unitsSinceStart: u, fractionOfUnit: frac, each: latch.each))
+                answerStat[pl] = st
+                if let partner = pairPartner { answerStat[partner] = st }
+            }
         }
         answerEngaged = engaged
         answerFlipAtStart = answerBeforeBits ^ answerPrevAfterBits
@@ -2303,6 +2327,7 @@ final class Router {
             euclideousStatusChordsLit = false; euclideousStatusChordsRest = false
             euclideousStatusKeyLit = false; euclideousStatusKeyAdded = 0
             euclideousStatusPickLit = false; euclideousStatusDropped = 0; euclideousStatusPoolCount = 0
+            for i in 0..<4 { lanePoolCount[i] = 0 }   // POOL NOW: nothing contributes, so no lane is choosing from anything
             euclideousStatusMidiAdded = 0; euclideousStatusChordsAdded = 0; euclideousStatusPickAdded = 0
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
@@ -3141,6 +3166,13 @@ final class Router {
                     if isEuclideousRow, lineIndex >= 0, lineIndex < 4, lineIndex < linesView.count {
                         let ph = linesView[lineIndex].poolHoldResolved
                         if ph > 0 || poolHoldRunning[lineIndex] { applyPoolHold(lane: lineIndex, hold: ph, beat: mTickBeat) }
+                    }
+                    // POOL NOW (ANSWER ferry §10.3): the pool THIS lane is choosing from at this hit — after CANON and FREEZE, the per-lane pool every part of the lane reads. Fixed-size copy (≤ 16 ascending notes + the true count).
+                    if isEuclideousRow, lineIndex >= 0, lineIndex < 4 {
+                        let c = laneCount(lineIndex)
+                        lanePoolCount[lineIndex] = c
+                        let ns = laneNotes(lineIndex)
+                        for i in 0..<min(16, c) { lanePoolNotes[lineIndex * 16 + i] = UInt8(clamping: ns[ns.startIndex + i].note) }
                     }
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
@@ -5246,7 +5278,7 @@ final class Router {
                 // LANE LOCK: the lane plays its window in one segment, or — when a lock snap lands inside it — in two: the old line for the ticks before the line, L applied from it.
                 func runSegment(tickFrom: Double, tickBefore: Double) {
                 let L = linesView[lineIndex]
-                guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { return }
+                guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { if isEuclideousRow, lineIndex < 4 { lanePoolCount[lineIndex] = 0 }; return }
                 // ANSWER: which phase this segment plays in, and so which of the lane's rows act (a cycling row acts as if switched off in phase B, 5.5). With no cycle anywhere this is `L.listenRhythmResolved` / `listenPitchResolved`.
                 let segPhaseB = answerEngaged && lineIndex < 4 && ((tickFrom + 1e-9 >= answerBoundary[lineIndex] ? answerAfterBits : answerBeforeBits) >> UInt8(lineIndex)) & 1 != 0
                 let answerRows = answerEngaged ? euclideousAnswerEffectiveRows(L, phase: segPhaseB ? .b : .a) : EuclideousAnswerRows(rhythm: L.answerRhythmOnResolved, pitch: L.answerPitchOnResolved)

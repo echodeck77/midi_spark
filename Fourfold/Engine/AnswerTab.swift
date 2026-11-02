@@ -272,3 +272,19 @@ func euclideousAnswerTabLayout(contentAreaH: CGFloat, pitchPanelShown: Bool, cyc
     let cycle = cycleRowShown ? next() : 0
     return EuclideousAnswerTabLayout(followRowH: follow, rhythmRowH: rhythm, pitchRowH: pitch, pitchPanelH: panel, tradeRowH: trade, cycleRowH: cycle, gap: M.gap, fits: extra >= 0)
 }
+
+// MARK: - the status the UI polls (ENGINE → page, 30 Hz; display only)
+
+/// One lane's running cycle, for the CYCLE row's phase bar and its spoken value. `running` is false until a cycle is latched (and always while the transport is stopped — the page draws the playhead at 0 then).
+struct EuclideousAnswerLaneStatus: Equatable {
+    var running = false
+    var phaseB = false
+    var unitInHalf = 0         // 0-based unit within the current half (0 ..< each)
+    var each = euclideousAnswerCycleEachDefault
+    var progress = 0.0         // 0…1 across A-then-B (`euclideousAnswerPhaseProgress`)
+}
+/// The pool one lane is choosing from right now (after CANON and FREEZE): up to 16 ascending MIDI notes and the true count.
+struct EuclideousLanePoolStatus: Equatable {
+    var count = 0
+    var notes: [UInt8] = []
+}

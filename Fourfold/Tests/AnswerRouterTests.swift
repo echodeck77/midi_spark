@@ -171,6 +171,57 @@ final class AnswerRouterTests: XCTestCase {
         }
     }
 
+    // MARK: 5.3 — boundaries only
+
+    private func borrowDoc(each: Int, trade: Bool = true) -> PluginState {
+        let red = lane(rate: .r1_4, oct: 0)
+        let blue = lane(rate: .r1_4, oct: 1, vel: 90, gate: 0.4)
+        let green = lane(rate: .r1_8, oct: 0)
+        var gold = lane(rate: .r1_8, oct: -1, vel: 60, gate: 0.9)
+        gold.answerTradeOn = trade; gold.answerTradeMode = .borrow; gold.answerTradeWith = 1; gold.answerCycleEach = each; gold.answerCycleUnit = .bars
+        return state([red, blue, green, gold])
+    }
+    /// 1 when lane 4 plays lane 2's beat-apart strikes in [lo, hi), 0 when its own half-beat ones.
+    private func isTraded(_ e: AnsEmitter, _ lo: Double, _ hi: Double) -> Bool {
+        let b = hitsBetween(e, lane: 3, lo, hi).map { $0.beat }
+        return b == (Int(lo)..<Int(hi)).map(Double.init)
+    }
+    func testAnEachChangeInTheMiddleOfAUnitLandsAtTheNextBoundaryOfTheUnitThenInForce() {
+        // EACH 4 BARS: A until beat 16. At beat 6.5 EACH drops to 1: nothing changes until the bar line at 8, where bar 3 under EACH 1 is phase A, bar 4 phase B (12–16), bar 5 A…
+        let e = run(borrowDoc(each: 4), beats: 28, swapAt: [(6.5, borrowDoc(each: 1))])
+        XCTAssertFalse(isTraded(e, 0, 8), "before the boundary: phase A")
+        XCTAssertFalse(isTraded(e, 8, 12), "bar 3 under EACH 1: A")
+        XCTAssertTrue(isTraded(e, 12, 16), "bar 4: B")
+        XCTAssertFalse(isTraded(e, 16, 20), "bar 5: A")
+        XCTAssertTrue(isTraded(e, 20, 24), "bar 6: B")
+        // The same edit at 6.5 against no edit: until beat 8 the two runs are note for note identical.
+        let plain = run(borrowDoc(each: 4), beats: 28)
+        func upTo8(_ x: AnsEmitter) -> [String] { x.ons.filter { beatOf($0.sample) < 8 }.map { "\($0.cable):\(beatOf($0.sample)):\($0.note)" } }
+        XCTAssertEqual(upTo8(e), upTo8(plain), "an edit between boundaries changes nothing before the next one")
+        assertNothingLeftSounding(e)
+    }
+    func testStartingACycleWaitsForTheNextBoundaryAndEndingItIsAtOnce() {
+        // TRADE off until beat 5.5, then on (EACH 1): the cycle starts at the bar line at 8 — bar 3 is phase A (units 0–1 A, 1–2 B… here bar 3 = unit 2 = A), bar 4 B.
+        let e = run(borrowDoc(each: 1, trade: false), beats: 20, swapAt: [(5.5, borrowDoc(each: 1))])
+        XCTAssertFalse(isTraded(e, 4, 8), "switched on mid-bar-2: nothing yet")
+        XCTAssertFalse(isTraded(e, 8, 12), "bar 3 is unit 2: phase A")
+        XCTAssertTrue(isTraded(e, 12, 16), "bar 4 is unit 3: phase B")
+        // Ending is immediate: TRADE off at beat 13.5, inside phase B — lane 4 is back on its own hits at once.
+        let off = run(borrowDoc(each: 1), beats: 20, swapAt: [(13.5, borrowDoc(each: 1, trade: false))])
+        XCTAssertTrue(isTraded(off, 12, 13), "still trading before the edit")
+        let after = hitsBetween(off, lane: 3, 14, 16).map { $0.beat }
+        XCTAssertEqual(after, [14, 14.5, 15, 15.5], "after TRADE goes off, lane 4 plays its own half-beat hits again")
+        assertNothingLeftSounding(off)
+    }
+    func testACycleIsTheSameAtEveryBufferSize() {
+        var red = lane(oct: 0), blue = lane(oct: 1)
+        blue.listenSource = 0; blue.answerPitchOn = true; blue.answerPitchMode = .shadow; blue.answerPitchCycle = true; blue.answerCycleEach = 1; blue.answerCycleUnit = .bars
+        red.listenSource = 1
+        func shape(_ x: AnsEmitter) -> [String] { x.events.map { (beatOf($0.sample), $0.cable, $0.status, $0.note) }.sorted { ($0.0, $0.1, $0.2, $0.3) < ($1.0, $1.1, $1.2, $1.3) }.map { "\($0.0):\($0.1):\($0.2):\($0.3)" } }
+        let reference = shape(run(state([red, blue]), beats: 20, frames: 2048))
+        for frames: UInt32 in [64, 256, 1024, 4096] { XCTAssertEqual(shape(run(state([red, blue]), beats: 20, frames: frames)), reference, "buffer \(frames)") }
+    }
+
     // MARK: 8 — SWAP
 
     private func swapState() -> PluginState {

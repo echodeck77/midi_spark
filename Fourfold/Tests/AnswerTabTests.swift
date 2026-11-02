@@ -288,4 +288,38 @@ final class AnswerTabTests: XCTestCase {
         XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: ls)), "Pool, lane 2 delayed or held")
         XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: lanes())), "Pool, no delay or hold")
     }
+
+    // MARK: SHADOW's mover is allocation-free (the Release audit exercises it now) and unchanged
+
+    /// The sorted-array version the render path used before ANSWER — the reference for the bitmask rewrite.
+    private func referenceMove(note: Int, interval: Int, octave: Int, keyRoot: Int, scaleIntervals: [Int]) -> Int {
+        let pcs = scaleIntervals.map { ((($0 + keyRoot) % 12) + 12) % 12 }.sorted()
+        guard !pcs.isEmpty else { return euclideousListenOctaveClamp(note + 12 * octave) }
+        let pc = ((note % 12) + 12) % 12
+        let noteOctave = (note - pc) / 12
+        let m = pcs.count
+        let degree: Int, offset: Int
+        if let d = pcs.lastIndex(where: { $0 <= pc }) { degree = d; offset = pc - pcs[d] }
+        else { degree = m - 1; offset = pc - (pcs[m - 1] - 12) }
+        let base = degree + interval
+        let wrapped = ((base % m) + m) % m
+        let laps = (base - wrapped) / m
+        return euclideousListenOctaveClamp((noteOctave + laps) * 12 + pcs[wrapped] + offset + 12 * octave)
+    }
+    func testTheBitmaskShadowMoverEqualsTheSortedArrayOneOnEveryScaleNoteAndInterval() {
+        for scale in ScaleType.allCases {
+            for root in 0..<12 {
+                for note in stride(from: 0, through: 127, by: 3) {
+                    for interval in -6...6 {
+                        for octave in [-3, 0, 2] {
+                            XCTAssertEqual(euclideousListenMoveByInterval(note: note, interval: interval, octave: octave, keyRoot: root, scaleIntervals: scale.intervals),
+                                           referenceMove(note: note, interval: interval, octave: octave, keyRoot: root, scaleIntervals: scale.intervals),
+                                           "\(scale) root \(root) note \(note) interval \(interval) octave \(octave)")
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 3, octave: 1, keyRoot: 0, scaleIntervals: []), referenceMove(note: 60, interval: 3, octave: 1, keyRoot: 0, scaleIntervals: []), "no scale at all")
+    }
 }

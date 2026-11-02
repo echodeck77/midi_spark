@@ -353,7 +353,8 @@ extension Host {
         func step(_ i: Int) {
             if i == docs.count {
                 fputs("GOLDEN OCTAVES ALL: documents=\(docs.count) events=\(total) hash=\(String(all, radix: 16))\n", stderr)
-                exit(0)
+                goldenAnswer()
+                return
             }
             let (name, hand, edit) = docs[i]
             playing = false; for _ in 0..<8 { render(480) }
@@ -380,6 +381,72 @@ extension Host {
     }
 }
 
+/// ANSWER ferry (2026-11-02): the default document's four lanes with rows, CYCLE flags and TRADE set. `variant` picks the shape (see `goldenAnswer`); the lanes keep the default document's own rhythms and riff, so every difference is the ferry's.
+func answerDocument(_ s: inout PluginState, _ variant: Int) {
+    var ls = s.euclideousLinesResolved
+    for i in 0..<4 { ls[i].riffOn = true }
+    ls[1].listenSource = 0; ls[2].listenSource = 0; ls[3].listenSource = 1; ls[0].listenSource = 2
+    func rhythm(_ i: Int, _ m: EuclideousAnswerRhythmMode, cycle: Bool) { ls[i].answerRhythmOn = true; ls[i].answerRhythmMode = m; ls[i].answerRhythmCycle = cycle }
+    func pitch(_ i: Int, _ m: EuclideousAnswerPitchMode, cycle: Bool) { ls[i].answerPitchOn = true; ls[i].answerPitchMode = m; ls[i].answerPitchCycle = cycle }
+    func cycle(_ i: Int, each: Int, _ u: EuclideousAnswerCycleUnit) { ls[i].answerCycleEach = each; ls[i].answerCycleUnit = u }
+    switch variant {
+    case 0:   // every row OFF with the remembered modes, CYCLE flags, WITH and EACH / UNIT all stored: nothing may sound different from a document that never had them
+        for i in 0..<4 { ls[i].answerRhythmMode = .fill; ls[i].answerRhythmCycle = true; ls[i].answerPitchMode = .avoid; ls[i].answerPitchCycle = true; ls[i].answerTradeMode = .borrow; ls[i].answerTradeWith = (i + 1) % 4; cycle(i, each: 3, .passes) }
+    case 1:   // PITCH SHADOW with CYCLE (lane 2, 2 bars) and RHYTHM COPY with CYCLE (lane 3, 1 bar)
+        pitch(1, .shadow, cycle: true); cycle(1, each: 2, .bars); rhythm(2, .copy, cycle: true); cycle(2, each: 1, .bars)
+    case 2:   // PASSES: FILL with CYCLE counting the source's passes, AVOID with CYCLE
+        rhythm(1, .fill, cycle: true); cycle(1, each: 2, .passes); pitch(2, .avoid, cycle: true); cycle(2, each: 3, .passes)
+    case 3:   // BORROW (lane 4 ← lane 2, 2 bars) beside a rhythm that is not cycling
+        ls[3].answerTradeOn = true; ls[3].answerTradeMode = .borrow; ls[3].answerTradeWith = 1; cycle(3, each: 2, .bars); rhythm(2, .copy, cycle: false)
+    case 4:   // SWAP lanes 1 and 3 (4 bars), BORROW lane 4 ← lane 2 in PASSES
+        for (i, w) in [(0, 2), (2, 0)] { ls[i].answerTradeOn = true; ls[i].answerTradeMode = .swap; ls[i].answerTradeWith = w; cycle(i, each: 4, .bars) }
+        ls[3].answerTradeOn = true; ls[3].answerTradeMode = .borrow; ls[3].answerTradeWith = 1; cycle(3, each: 2, .passes)
+    default:  // every row on, cycling rows and a trade on the same lane
+        rhythm(1, .copy, cycle: true); pitch(1, .shadow, cycle: true); ls[1].answerTradeOn = true; ls[1].answerTradeMode = .borrow; ls[1].answerTradeWith = 3; cycle(1, each: 2, .bars)
+        pitch(2, .avoid, cycle: false); rhythm(3, .fill, cycle: false)
+    }
+    s.euclideousLines = ls
+}
+
+extension Host {
+    /// The ANSWER documents, appended AFTER `GOLDEN OCTAVES ALL` so every line above stays the oracle for "nothing moved when no ANSWER row is on" (and document 0 is that case again, with the fields stored). The order of this list is part of the oracle.
+    func goldenAnswer() {
+        let docs: [(String, (inout PluginState) -> Void)] = [
+            ("ANSWER every row off, fields stored", { s in answerDocument(&s, 0) }),
+            ("ANSWER PITCH + RHYTHM cycles in bars", { s in answerDocument(&s, 1) }),
+            ("ANSWER cycles in passes", { s in answerDocument(&s, 2) }),
+            ("ANSWER BORROW", { s in answerDocument(&s, 3) }),
+            ("ANSWER SWAP + BORROW", { s in answerDocument(&s, 4) }),
+            ("ANSWER cycling rows + a trade on one lane", { s in answerDocument(&s, 5) }),
+        ]
+        timer?.invalidate()
+        var all: UInt64 = 0xcbf29ce484222325, total = 0
+        func step(_ i: Int) {
+            if i == docs.count {
+                fputs("GOLDEN ANSWER ALL: documents=\(docs.count) events=\(total) hash=\(String(all, radix: 16))\n", stderr)
+                exit(0)
+            }
+            let (name, edit) = docs[i]
+            playing = false; for _ in 0..<8 { render(480) }
+            au.resetToFreshInit(); au.editDocument(edit)
+            publishDocument()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
+                for _ in 0..<8 { render(480) }
+                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                if CommandLine.arguments.contains("--dump") { dumpName = "ANSWER: " + name }
+                hold([60, 64, 67]); playing = true
+                for _ in 0..<6400 { render(480) }
+                playing = false; for _ in 0..<8 { render(480) }
+                release([60, 64, 67])
+                fputs("GOLDEN ANSWER \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
+                all = (all ^ hash) &* 0x100000001b3; total += eventCount
+                DispatchQueue.main.async { step(i + 1) }
+            }
+        }
+        step(0)
+    }
+}
+
 extension Host {
     /// The allocation audit: warm the default document unwatched (one-time lazy initialisation is not what this measures), then for the default document and every factory preset render 32 bars under a held chord with the allocation
     /// watch on around the render block only — including the transport-start edge and the stop edge — and print what the render thread allocated.
@@ -389,7 +456,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -465,6 +532,9 @@ extension Host {
                         $0.euclideousEmitterRatchets = set
                     }
                 }
+                if name.contains("ANSWER") {   // ANSWER ferry (2026-11-02): the cycle latch, the window split, the phase rows, and TRADE's push — the record, the re-voiced rebuild and a second emission per hit (with the hocket fan-out and the routing worst case in the last run)
+                    au.editDocument { answerDocument(&$0, name.contains("cycles") ? 1 : (name.contains("SWAP") ? 4 : 5)) }
+                }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }
                 if name.contains("LATCH") { au.editDocument { $0.euclideousHoldLatchMode = .latch } }
             } else { au.loadFactoryPreset(named: name) }
@@ -473,7 +543,7 @@ extension Host {
                 for _ in 0..<8 { render(480) }
                 baseSample = sampleTime
                 hold([60, 64, 67]); playing = true
-                if i == 0 || name.contains("HOCKET") || name.contains("ROUTED") || name.contains("CANON") { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // an unwatched warm-up lap: Swift's one-time generic-metadata instantiation (the first use of each type) is not what this measures; HOCKET's types are first touched by its own scenarios   // the unwatched warm-up lap
+                if i == 0 || name.contains("HOCKET") || name.contains("ROUTED") || name.contains("CANON") || name.contains("ANSWER") { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // an unwatched warm-up lap: Swift's one-time generic-metadata instantiation (the first use of each type) is not what this measures; HOCKET's types are first touched by its own scenarios   // the unwatched warm-up lap
                 eventCount = 0; AllocWatch.reset(); watching = true
                 var handIdx = 0
                 for w in 0..<6400 {

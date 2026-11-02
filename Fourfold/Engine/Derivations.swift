@@ -3243,18 +3243,29 @@ func euclideousListenOctaveClamp(_ note: Int) -> Int {
     return n
 }
 func euclideousListenMoveByInterval(note: Int, interval: Int, octave: Int, keyRoot: Int, scaleIntervals: [Int]) -> Int {
-    let pcs = scaleIntervals.map { ((($0 + keyRoot) % 12) + 12) % 12 }.sorted()
-    guard !pcs.isEmpty else { return euclideousListenOctaveClamp(note + 12 * octave) }
+    // Allocation-free (ANSWER ferry, 2026-11-02: SHADOW is on the render path of every PITCH cycle, and the Release allocation audit now exercises it): the scale as a 12-bit pitch-class set, its degrees read off the bits in ascending order.
+    // The arithmetic is the sorted-array version it replaces, step for step (including its one-octave-high result for an off-scale note below its octave's lowest degree).
+    let mask = euclideousKeyPitchClassMask(root: keyRoot, intervals: scaleIntervals)
+    guard mask != 0 else { return euclideousListenOctaveClamp(note + 12 * octave) }
     let pc = ((note % 12) + 12) % 12
     let noteOctave = (note - pc) / 12
-    let m = pcs.count
+    let m = mask.nonzeroBitCount
+    func degreePc(_ n: Int) -> Int {   // the n-th (0-based) pitch class of the scale, ascending
+        var left = n, b = 0
+        while b < 12 {
+            if mask & (UInt16(1) << UInt16(b)) != 0 { if left == 0 { return b }; left -= 1 }
+            b += 1
+        }
+        return 0
+    }
     let degree: Int, offset: Int
-    if let d = pcs.lastIndex(where: { $0 <= pc }) { degree = d; offset = pc - pcs[d] }
-    else { degree = m - 1; offset = pc - (pcs[m - 1] - 12) }   // below every degree THIS octave: anchor to the top degree of the octave below
+    let atOrBelow = mask & UInt16((1 << (pc + 1)) - 1)
+    if atOrBelow != 0 { degree = atOrBelow.nonzeroBitCount - 1; offset = pc - degreePc(degree) }
+    else { degree = m - 1; offset = pc - (degreePc(m - 1) - 12) }   // below every degree THIS octave: anchor to the top degree of the octave below
     let base = degree + interval
     let wrapped = ((base % m) + m) % m
     let laps = (base - wrapped) / m
-    let moved = (noteOctave + laps) * 12 + pcs[wrapped] + offset + 12 * octave
+    let moved = (noteOctave + laps) * 12 + degreePc(wrapped) + offset + 12 * octave
     return euclideousListenOctaveClamp(moved)
 }
 // MARK: - CARD BACKS v2: a part's OUT-TRANSPOSE (steps of the KEY pill's scale)

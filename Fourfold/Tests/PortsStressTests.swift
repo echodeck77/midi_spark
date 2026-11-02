@@ -201,6 +201,30 @@ final class PortsStressTests: XCTestCase {
         p.midiMode = off && mode == .root ? .add : mode
         st.euclideousSourcePlan = p
     }
+    /// ANSWER ferry (2026-11-02): every lane's RHYTHM / PITCH rows (switch, mode, CYCLE), TRADE (mode, WITH — and, half the time, a real SWAP pair formed through `euclideousApplyTradeEdit`) and EACH / UNIT drawn from their OWN stream, and the
+    /// scene rebuilt the way an edit publishes it. `off` draws the very same values but stores every switch off — the control run the "really changes the wire" test compares against.
+    private func reanswer(_ st: inout PluginState, _ a: inout SM64, off: Bool = false) {
+        var ls = st.euclideousLinesResolved
+        for i in 0..<ls.count {
+            let rOn = Int.random(in: 0...2, using: &a) == 0, pOn = Int.random(in: 0...2, using: &a) == 0, tOn = Int.random(in: 0...2, using: &a) == 0
+            let rMode = Bool.random(using: &a), pMode = Bool.random(using: &a), tMode = Bool.random(using: &a)
+            let rCyc = Bool.random(using: &a), pCyc = Bool.random(using: &a)
+            let with = Int.random(in: 0...3, using: &a), source = Int.random(in: 0...3, using: &a), each = Int.random(in: 1...16, using: &a), passes = Int.random(in: 0...2, using: &a) == 0
+            ls[i].listenSource = source
+            ls[i].answerRhythmOn = off ? nil : rOn; ls[i].answerRhythmMode = rMode ? .copy : .fill; ls[i].answerRhythmCycle = rCyc
+            ls[i].answerPitchOn = off ? nil : pOn; ls[i].answerPitchMode = pMode ? .shadow : .avoid; ls[i].answerPitchCycle = pCyc
+            ls[i].answerTradeOn = off ? nil : tOn; ls[i].answerTradeMode = tMode ? .swap : .borrow; ls[i].answerTradeWith = with
+            ls[i].answerCycleEach = each; ls[i].answerCycleUnit = passes ? .passes : .bars
+        }
+        let pairA = Int.random(in: 0...3, using: &a), pairB = (pairA + Int.random(in: 1...3, using: &a)) % 4
+        if Bool.random(using: &a), !off, ls.count == 4 {
+            ls = euclideousApplyTradeEdit(ls, lane: pairA, edit: .mode(.swap)); ls = euclideousApplyTradeEdit(ls, lane: pairA, edit: .with(pairB)); ls = euclideousApplyTradeEdit(ls, lane: pairA, edit: .on(true))
+        }
+        st.euclideousLines = ls
+        let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
+                                          soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
+        st.scenes = [FourfoldCompose.scene(input)]
+    }
     private func retranspose(_ st: inout PluginState, _ h: inout SM64, zeroed: Bool = false) {
         func t(_ h: inout SM64) -> Int? { let v = [nil, 0, Int.random(in: -7...7, using: &h), Int.random(in: -3...3, using: &h), 7, -7].randomElement(using: &h)!; return zeroed ? nil : v }
         let ls = (st.euclideousLines ?? []).map { l -> EuclidLine in var m = l; m.riffOutTranspose = t(&h); m.notesOutTranspose = t(&h); return m }
@@ -365,8 +389,9 @@ final class PortsStressTests: XCTestCase {
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0
-    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false, octaves: Bool = false, octavesOff: Bool = false) -> String? {
+    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false, octaves: Bool = false, octavesOff: Bool = false, answer: Bool = false, answerOff: Bool = false) -> String? {
         var g = SM64(seed)
+        var an = SM64(seed ^ 0xA25E_3E40_0000)     // ANSWER ferry: the rows, CYCLE flags, TRADE and EACH / UNIT draw from their OWN stream, so every pinned fingerprint (no ANSWER fields) stays exactly what it was
         var q = SM64(seed ^ 0x0F01_7A11_0000)      // POLY RIFF ferry: the POLY riff draws from its OWN stream too, so the pinned fingerprints (MONO) stay exactly what they were
         var x = SM64(seed ^ 0xE317_A7C4_0000)     // RATCH tab ferry: the emitter ratchets draw from their OWN stream too
         var kc = SM64(seed ^ 0xCA70_C4A0_0001)     // CHORD CANON ferry: the delays, slips, unit and entry draw from their OWN stream, so every pinned fingerprint (no canon) stays exactly what it was
@@ -382,6 +407,7 @@ final class PortsStressTests: XCTestCase {
         if poly { repoly(&st, &q, modeOff: polyModeOff) }
         if canon { recanon(&st, &kc, off: canonOff) }
         if octaves { reoctaves(&st, &oc, off: octavesOff) }
+        if answer { reanswer(&st, &an, off: answerOff) }
         var box = SnapshotBuilder.build(from: st)
         let sr = 48_000.0
         var tempo = Double([90, 120, 140].randomElement(using: &g)!)
@@ -396,11 +422,12 @@ final class PortsStressTests: XCTestCase {
         for w in 0..<windows {
             e.win = w
             // mutate the document / transport between windows
-            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if poly { repoly(&st, &q, modeOff: polyModeOff) }; if canon { recanon(&st, &kc, off: canonOff) }; if octaves { reoctaves(&st, &oc, off: octavesOff) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if poly { repoly(&st, &q, modeOff: polyModeOff) }; if canon { recanon(&st, &kc, off: canonOff) }; if octaves { reoctaves(&st, &oc, off: octavesOff) }; if answer { reanswer(&st, &an, off: answerOff) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
             if emitters, x.next() % 3 == 0 { st.euclideousEmitterRatchets = rEmitters(&x); box = SnapshotBuilder.build(from: st) }   // RATCH tab ferry: a toggle / value dragged while notes (and deferred strikes) sound
             if outTranspose, h.next() % 3 == 0 { retranspose(&st, &h, zeroed: zeroedTranspose); box = SnapshotBuilder.build(from: st) }   // CARD BACKS v2: a PITCH pad dragged while notes sound
             if canon, kc.next() % 3 == 0 { recanon(&st, &kc, off: canonOff); box = SnapshotBuilder.build(from: st) }   // CHORD CANON: a DELAY / SLIP / UNIT edited while notes sound
-            if octaves, oc.next() % 3 == 0 { reoctaves(&st, &oc, off: octavesOff); box = SnapshotBuilder.build(from: st) }   // MIDI IN OCTAVES / ROOT: the choice or the mode flipped while notes sound
+            if octaves, oc.next() % 3 == 0 { reoctaves(&st, &oc, off: octavesOff); box = SnapshotBuilder.build(from: st) }
+            if answer, an.next() % 3 == 0 { reanswer(&st, &an, off: answerOff); box = SnapshotBuilder.build(from: st) }   // ANSWER: a switch, a CYCLE, a TRADE or EACH / UNIT edited while notes — and traded notes — sound   // MIDI IN OCTAVES / ROOT: the choice or the mode flipped while notes sound
             if poly, q.next() % 3 == 0 { repoly(&st, &q, modeOff: polyModeOff); box = SnapshotBuilder.build(from: st) }   // POLY RIFF: the grid edited — notes added, stretched, removed, the mode flipped — while notes (and their long tails) sound
             if Int.random(in: 0...2, using: &g) == 0 {   // busChannels change mid-note
                 switch Int.random(in: 0...3, using: &g) {
@@ -594,6 +621,24 @@ final class PortsStressTests: XCTestCase {
         }
         // random sessions are mostly sparse (lanes off, soloed away, 24 short windows, a few chord changes): about one in nine is dense enough for a delay to change a note
         XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with delays on — they are not reaching the wire")
+    }
+    // ANSWER ferry (2026-11-02): rows, CYCLE and TRADE (SWAP pairs and BORROWs) drawn at random AND edited mid-note, with transport jumps, held-note churn and every other random edit on top: nothing strands, no orphan off, each message on its
+    // output's channel, ALL = the union, the roll equals the wire — a traded hit's strikes included.
+    func testAnswerSessionsHoldEveryInvariant() {
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 1_000_000, windows: 24, answer: true) { XCTFail(msg); return } }
+    }
+    func testAnswerSessionsAtGate100() {
+        for s in 1...200 { if let msg = runSession(seed: UInt64(s) &+ 1_010_000, windows: 24, rawGates: true, answer: true) { XCTFail(msg); return } }
+    }
+    func testAnswerSessionsReallyChangeTheNotesOnTheWire() {
+        var differing = 0, total = 0
+        for s in 1...120 {
+            let seed = UInt64(s) &+ 1_020_000
+            XCTAssertNil(runSession(seed: seed, windows: 24, answer: true)); let on = lastSessionHash
+            XCTAssertNil(runSession(seed: seed, windows: 24, answer: true, answerOff: true)); let off = lastSessionHash
+            total += 1; if on != off { differing += 1 }
+        }
+        XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with ANSWER on — its rows are not reaching the wire")
     }
     // MIDI IN OCTAVES / ROOT ferry (2026-11-01): the OCTAVES choice and the MODE (ADD / REPLACE / ROOT) drawn at random AND flipped mid-note, with held notes churning, on top of the full random document: nothing strands (a note ends at the pitch
     // it started on whatever the fold or the latched transpose does), no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
