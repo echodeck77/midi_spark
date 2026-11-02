@@ -1190,6 +1190,8 @@ final class Router {
     private var euclideousOutputMuteCells = [UInt16](repeating: 0xFFFF, count: FourfoldPorts.outputCount)
     private var euclideousOutputMuteUnitBeats = [Double](repeating: 0, count: FourfoldPorts.outputCount)
     private var euclideousOutputMuteAny = false
+    // MUTE TAB: the MUSICAL onset beat of the strike currently being emitted (adversarial review 2026-11-02) — the output-mute gate judges the cell on THIS, not the swing-warped sample beat, so it agrees with the drawn grid and the per-lane mute (both use the musical beat). Set per strike (`strikeChord` / the echo-tail drain, where `tau` is the absolute musical onset); only read when `euclideousOutputMuteAny`.
+    private var euclideousStrikeMuteBeat: Double = 0
     private(set) var floodDropped = 0          // session total surfaced to HEALTH ("dropped N this session")
 
     private var echoTailsActive: Bool { echoTails.contains { $0.active } }
@@ -1811,10 +1813,11 @@ final class Router {
                                onSample: Int64, offSample: Int64, windowEnd: Int64, out: MIDIEmitter?,
                                onVoiceOpened: (Int) -> Void, euclideousLegato: Bool) -> Int {
         let euclideous = euclideousStrikeLane >= 0
-        // MUTE TAB (output mute, 2026-11-02): a note never STARTS on an output whose own 16-cell mute grid is CLEAR at this onset beat (the beat of `onSample`, so a deferred ratchet / echo-tail / hocket-passed strike is
-        // judged at ITS own time — they all funnel through here). Offs are never gated ⇒ no stuck note. `euclideousOutputMuteAny` false (the default) makes this a no-op, bit for bit.
+        // MUTE TAB (output mute, 2026-11-02): a note never STARTS on an output whose own 16-cell mute grid is CLEAR at this strike's MUSICAL onset beat (`euclideousStrikeMuteBeat`, set per strike in `strikeChord` / the echo-tail
+        // drain — NOT the swing-warped sample beat, so it agrees with the drawn grid and the per-lane mute; adversarial review 2026-11-02). A deferred ratchet / echo-tail / hocket-passed strike is judged at ITS own musical onset
+        // (they all funnel through here). Offs are never gated ⇒ no stuck note. `euclideousOutputMuteAny` false (the default) makes this a no-op, bit for bit.
         if euclideous, euclideousOutputMuteAny, euclideousOutputMuteCells[o] != 0xFFFF,
-           !euclideousLaneAudible(beat: rollBeat(onSample), cells16: euclideousOutputMuteCells[o], unitBeats: euclideousOutputMuteUnitBeats[o]) {
+           !euclideousLaneAudible(beat: euclideousStrikeMuteBeat, cells16: euclideousOutputMuteCells[o], unitBeats: euclideousOutputMuteUnitBeats[o]) {
             return -1
         }
         // THE FLOOD GOVERNOR: a hard per-OUTPUT budget per beat; overflow DROPS (counted, not silent-failing). Offs are never governed, so a dropped on never opens a voice.
@@ -1900,6 +1903,7 @@ final class Router {
                 guard n >= 0 && n <= 127 else { continue }
                 let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                    windowStart: windowStart, S: S, a: a)
+                euclideousStrikeMuteBeat = tau   // MUTE TAB: a deferred strike is judged at ITS own musical onset (adversarial review 2026-11-02)
                 let offT = sampleOf(musical: tau + e.gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                     windowStart: windowStart, S: S, a: a)
                 var tailBus = e.busMask
@@ -2500,6 +2504,7 @@ final class Router {
         // (that lane's own resolved pool), so a chord can no longer be picked from the wrong lane's notes.
         func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil, busOverride: UInt8? = nil, outsOverride: UInt8? = nil, srcOverride: ArraySlice<(note: Int, vel: UInt8)>? = nil, onVoiceOpened: (Int) -> Void = { _ in }, euclideousLegato: Bool = false) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
+            euclideousStrikeMuteBeat = tau   // MUTE TAB: the output-mute gate reads the MUSICAL onset, not the warped sample beat (adversarial review 2026-11-02)
             // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): `gateBeats == .infinity` is Euclideous legato's own
             // "open-ended, I'll close it myself later" sentinel — `tau + .infinity` would otherwise feed a
             // non-finite musical offset into `sampleOf`, producing garbage. Every OTHER caller passes a
