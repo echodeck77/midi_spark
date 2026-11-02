@@ -2373,7 +2373,11 @@ final class Router {
         // POOL ferry SOURCES: under REPLACE a lane with MIDI IN switched off keeps its CHORDS / PICK / KEY while the player plays — through the RELEASE GRACE and with nothing held too, so such a lane keeps the row alive.
         var laneKeepsGenerated = false
         if let ls = euProc?.euclidLines { for L in ls where !L.poolSrcOn(0) && ((euPlan.chordsOnR && L.poolSrcOn(1)) || (euPlan.keyOnR && L.poolSrcOn(3)) || (euPlan.pickOnR && L.poolSrcOn(2) && !(euPlan.pickNotes?.isEmpty ?? true))) { laneKeepsGenerated = true; break } }
-        let euclideousAnySource = pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive || canonAnyLane || sustainAnyEngaged || laneKeepsGenerated
+        // POOL HOLD (FREEZE): a lane holding a taken pool keeps sounding it after the player lets go — with MIDI IN the keys are up long before the hold ends, and nothing is "contributing" any more, so without this the row early-outs and the lane
+        // falls silent with its hold still running (CHORDS never showed it: its generated source keeps the row alive). A hold that took an EMPTY pool (the live pool was empty at an expiry) holds nothing and does not count.
+        var freezeHolding = false
+        if let ls = euProc?.euclidLines { for l in 0..<min(4, ls.count) where poolHoldRunning[l] && poolHoldCopyCount[l] > 0 && ls[l].enabledResolved { freezeHolding = true; break } }
+        let euclideousAnySource = pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive || canonAnyLane || sustainAnyEngaged || laneKeepsGenerated || freezeHolding
         euclideousSourcePresent = euclideousAnySource   // §a8b: tell the Kernel's silence-leak net the row is a live source (generative sources drive voices with an empty live pool)
         guard euclideousAnySource else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too

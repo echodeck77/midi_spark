@@ -147,6 +147,31 @@ final class PoolEngineTests: XCTestCase {
         XCTAssertLessThanOrEqual(worst, 5, "the worst case: the live build, two sets and two restores")
     }
 
+    // MARK: FREEZE with MIDI IN
+    /// FREEZE holds a lane's pool for n bars (or LOCK) whatever feeds it. With MIDI IN as the ONLY source the player's keys go up long before the hold ends: the lane must keep sounding the taken pool, not fall silent because nothing is held
+    /// any more (the row used to early-out on "no source contributing" although a hold was running).
+    private func noteOns(_ rig: Rig, from beat: Double) -> Int { rig.out.events.filter { $0.status == 0x90 && Double($0.sample) / 24_000 >= beat }.count }
+    func testFreezeKeepsAMidiInLaneSoundingAfterTheKeysAreReleased() {
+        let rig = Rig(state([lane(sources: [0], hold: euclideousPoolHoldLock)], plan: plan(midi: true)))
+        rig.press([60, 64, 67]); rig.run(to: 2.5)
+        XCTAssertEqual(rig.lanePool(0), [60, 64, 67], "the chord is taken")
+        rig.release([60, 64, 67]); rig.run(to: 3.0)
+        let before = noteOns(rig, from: 3.0)
+        rig.run(to: 8.5)
+        XCTAssertGreaterThan(noteOns(rig, from: 3.0), before, "the lane keeps striking the frozen chord after the keys are up")
+        XCTAssertEqual(rig.lanePool(0), [60, 64, 67], "…out of the pool FREEZE took")
+        XCTAssertTrue(rig.status(0).count == 3)
+    }
+    func testAFiniteFreezeKeepsAMidiInLaneSoundingUntilItEndsThenFallsSilentWithNothingHeld() {
+        let rig = Rig(state([lane(sources: [0], hold: 2)], plan: plan(midi: true)))     // 2 bars = 8 beats
+        rig.press([60, 64, 67]); rig.run(to: 2.5)
+        rig.release([60, 64, 67]); rig.run(to: 6.5)
+        XCTAssertEqual(rig.lanePool(0), [60, 64, 67], "still inside the 2 bars")
+        XCTAssertGreaterThan(noteOns(rig, from: 4.0), 0, "…and still sounding")
+        rig.run(to: 16.5)
+        XCTAssertEqual(rig.status(0).count, 0, "the hold ended and nothing is held: the pool is the live (empty) one")
+    }
+
     // MARK: 5 — KEEP
     func testKeepStaysOnTheChordThePedalWentDownOnAndRejoinsOnTheUpEdge() {
         let rig = Rig(state([lane(), lane(sustain: .keep)], plan: plan(chords: true)))
