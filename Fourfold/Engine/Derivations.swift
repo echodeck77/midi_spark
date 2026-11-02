@@ -3173,7 +3173,7 @@ func euclideousListenBreakLoopsOnTheNewModel(_ lines: [EuclidLine]) -> [EuclidLi
         guard euclideousListenIsFollowing(rhythm: L.listenRhythmResolved, pitch: L.listenPitchResolved) else { continue }
         let s = L.listenSourceResolved(ownLane: i)
         if s == i || s >= n || euclideousListenFollowsTransitively(lane: s, target: i, sources: sources) {
-            result[i].listenRhythm = .own; result[i].listenPitch = .own
+            result[i].answerRhythmOn = false; result[i].answerPitchOn = false
         } else {
             sources[i] = s
         }

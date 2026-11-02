@@ -337,6 +337,19 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(a.euclidLines[0].rate, .r1_8t, "per-line rate must survive the resolve, not silently reset")
     }
 
+    // ANSWER (2026-11-02): the eleven per-lane fields are threaded through the same fresh literal — missing one would reset it on every render.
+    func testEuclidLineAnswerFieldsSurviveSnapshotBuild() {
+        var l = EuclidLine(target: 0, pulses: 3, steps: 8)
+        l.answerRhythmOn = true; l.answerRhythmMode = .fill; l.answerRhythmCycle = true; l.answerPitchOn = true; l.answerPitchMode = .avoid; l.answerPitchCycle = true
+        l.answerTradeOn = true; l.answerTradeMode = .borrow; l.answerTradeWith = 2; l.answerCycleEach = 6; l.answerCycleUnit = .passes
+        let a = box(machines(customizing: 0) { $0.paramsA.euclidLines = [l] }) { _ in }.machines[0].a
+        let out = a.euclidLines[0]
+        XCTAssertEqual(out.answerRhythmOn, true); XCTAssertEqual(out.answerRhythmMode, .fill); XCTAssertEqual(out.answerRhythmCycle, true)
+        XCTAssertEqual(out.answerPitchOn, true); XCTAssertEqual(out.answerPitchMode, .avoid); XCTAssertEqual(out.answerPitchCycle, true)
+        XCTAssertEqual(out.answerTradeOn, true); XCTAssertEqual(out.answerTradeMode, .borrow); XCTAssertEqual(out.answerTradeWith, 2)
+        XCTAssertEqual(out.answerCycleEach, 6); XCTAssertEqual(out.answerCycleUnit, .passes)
+    }
+
     // MELODY POP-UP (Paul 2026-10-10 ferry): riffStride/riffLength/riffAdvanceStep/melodyTranspose must
     // ALSO survive the fresh-literal reconstruction — the exact regression class this file keeps
     // guarding for, now exercised for the newest 4 fields.

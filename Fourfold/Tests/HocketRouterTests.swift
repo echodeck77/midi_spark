@@ -703,7 +703,7 @@ final class HocketRouterTests: XCTestCase {
             if c.copyOfAmber {
                 lanes[0].pulses = 2; lanes[0].steps = 8; lanes[0].rotate = 0                    // RED's OWN pattern is different; COPY replaces it with AMBER's
                 lanes[2] = laneLine(2, riff: false, notes: false); lanes[2].pulses = c.k; lanes[2].steps = c.n; lanes[2].rotate = c.rot; lanes[2].rate = c.red
-                lanes[0].listenRhythm = .copy; lanes[0].listenSource = 2
+                lanes[0].setAnswerRhythm(.copy); lanes[0].listenSource = 2
             }
             let rules = [rule(main: [BR, RR], alt: [GR]) { $0.mainLen = 2; $0.altLen = 1; $0.offset = 0; $0.countOn = 1 }]
             var pat = [Bool](repeating: false, count: 32); euclidPatternInto(&pat, pulses: c.k, steps: c.n, rotation: c.rot)

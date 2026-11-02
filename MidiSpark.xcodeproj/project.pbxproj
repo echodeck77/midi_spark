@@ -308,6 +308,7 @@
 		D2A032B560DA0D402529CB97 /* DiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F63E3509EB2EA6FCEF61B7 /* DiceTests.swift */; };
 		D2E8B263A701995DCBC13BD3 /* GridUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */; };
 		D2F912D985A2AE74BF23B5A9 /* FourfoldTransportClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */; };
+		D39C6A71C9CDE1509351FBB8 /* AnswerModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 782849D7F5C6A7AF7F06EB13 /* AnswerModelTests.swift */; };
 		D44E9B13D7D4F6D3187F5DB5 /* EmitterRatchetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 086AB1299B67DEE6EEB6AD09 /* EmitterRatchetTests.swift */; };
 		D45C1A821793F49D844B14A5 /* RoomsLatticeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3ED784D8D44D8DED77F121C /* RoomsLatticeTests.swift */; };
 		D4BBF9E02862E0AD84905885 /* MixPadPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */; };
@@ -537,6 +538,7 @@
 		72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStoreTests.swift; sourceTree = "<group>"; };
 		72C3BD2C1AC32230B747C194 /* AcceptanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTests.swift; sourceTree = "<group>"; };
 		72D750CFBA16E2C4B8FBE705 /* UndoAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UndoAuditTests.swift; sourceTree = "<group>"; };
+		782849D7F5C6A7AF7F06EB13 /* AnswerModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerModelTests.swift; sourceTree = "<group>"; };
 		79CAD1A32B1C9FC9B5BEAF2E /* EngineReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineReviewTests.swift; sourceTree = "<group>"; };
 		7A14036510EE49EB0BD7CE1E /* TestSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSessions.swift; sourceTree = "<group>"; };
 		7A20C66088682B1B60A45B7C /* MidiFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiFileTests.swift; sourceTree = "<group>"; };
@@ -813,6 +815,7 @@
 		2974FA1F2F9619847B1BC9C0 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				782849D7F5C6A7AF7F06EB13 /* AnswerModelTests.swift */,
 				C0CC18F46C2EEF16A71C80F2 /* AppIconTests.swift */,
 				0024C31E772682B8A6B1C552 /* CardBackReviewTests.swift */,
 				AB063E2496497A1B3757D426 /* CardBackTests.swift */,
@@ -1529,6 +1532,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D39C6A71C9CDE1509351FBB8 /* AnswerModelTests.swift in Sources */,
 				2594ED671865D7F71B005204 /* AppIconTests.swift in Sources */,
 				25B419195913DB1102E1FD61 /* BuildModel.swift in Sources */,
 				EDCE7FC362CBDE98EF5C09C3 /* CanonHistory.swift in Sources */,

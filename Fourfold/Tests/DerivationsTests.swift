@@ -2209,7 +2209,7 @@ final class DerivationsTests: XCTestCase {
         var source = EuclidLine(target: 0, pulses: 3, steps: sourceSteps, rate: .r1_8, useRiff: true, sourceMode: .midi)
         source.rotate = sourceRotate; source.restartMask = 0
         var follower = EuclidLine(target: 0, pulses: 2, steps: 8, rate: .r1_16, useRiff: true, sourceMode: .midi)   // its OWN 2-of-8 is irrelevant while borrowing
-        follower.listenRhythm = mode; follower.listenSource = 0
+        follower.setAnswerRhythm(mode); follower.listenSource = 0
         follower.listenDelay = delay; follower.listenDirection = direction; follower.listenSpeed = speed
         follower.restartMask = 0
         return [source, follower]
@@ -2252,14 +2252,14 @@ final class DerivationsTests: XCTestCase {
         XCTAssertNil(euclideousRhythmBorrowPartner(lane: 0, lines: lines), "the source itself is not borrowing from anyone")
         XCTAssertEqual(euclideousRhythmGestureTarget(lane: 0, lines: lines), 0)
         // FILL also counts as borrowing — unlike the old WITH/GAPS, COPY and FILL both replace the pattern wholesale
-        lines[1].listenRhythm = .fill
+        lines[1].setAnswerRhythm(.fill)
         XCTAssertEqual(euclideousRhythmBorrowPartner(lane: 1, lines: lines), 0, "FILL")
         XCTAssertEqual(euclideousRhythmGestureTarget(lane: 1, lines: lines), 0)
         // OWN keeps the lane's own rhythm — not borrowing, gestures edit itself
-        lines[1].listenRhythm = .own
+        lines[1].setAnswerRhythm(.own)
         XCTAssertNil(euclideousRhythmBorrowPartner(lane: 1, lines: lines))
         XCTAssertEqual(euclideousRhythmGestureTarget(lane: 1, lines: lines), 1)
-        lines[1].listenRhythm = nil
+        lines[1].answerRhythmOn = nil
         XCTAssertNil(euclideousRhythmBorrowPartner(lane: 1, lines: lines))
         // out of range
         XCTAssertNil(euclideousRhythmBorrowPartner(lane: 9, lines: lines))

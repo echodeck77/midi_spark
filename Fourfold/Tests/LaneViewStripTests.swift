@@ -72,7 +72,7 @@ final class LaneViewStripTests: XCTestCase {
         (0..<4).map { i in
             var l = EuclidLine(); l.useRiff = true; l.riffOn = !riffOff.contains(i)
             if notesOn.contains(i) { l.notesOn = true; var o = EuclideousLitOrder(); o.append(0); l.setLitOrder(o) } else { l.notesOn = false }
-            if let src = follow[i] { l.listenPitch = .shadow; l.listenSource = src }
+            if let src = follow[i] { l.setAnswerPitch(.shadow); l.listenSource = src }
             return l
         }
     }

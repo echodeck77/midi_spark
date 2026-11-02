@@ -735,6 +735,76 @@ struct EuclidLine: Codable, Equatable {
     // POOL HOLD ferry (FREEZE, Paul 2026-11-01) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. Once the lane takes a note pool it keeps it for `poolHold` bar boundaries, ignoring changes, then takes
     // whatever the pool is now (skip, never queue); 9 = LOCK (never ends until tapped to 0). nil ⇒ 0 ⇒ the pool path is skipped entirely, byte-identical to a document that never had it. The running hold is ENGINE state, not here.
     var poolHold: Int? = nil
+    // ANSWER ferry (Paul 2026-11-02; LISTEN renamed) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. REPLACE the OWN/COPY/FILL and OWN/SHADOW/ECHO/AVOID enums with a per-row SWITCH + a remembered
+    // mode (`listenRhythm`/`listenPitch` stay decodable and are read ONLY by `migratedAnswer`, never written again), a per-row CYCLE flag, and TRADE (play another lane's own strikes in the second half of a cycle). Every one nil ⇒
+    // off / COPY / SHADOW / SWAP / the lowest other lane / EACH 4 / BARS ⇒ a document that never had them plays byte-identical. Not lane-lock fields. The running phase is ENGINE state, never here (§9.5).
+    var answerRhythmOn: Bool? = nil
+    var answerRhythmMode: EuclideousAnswerRhythmMode? = nil
+    var answerRhythmCycle: Bool? = nil
+    var answerPitchOn: Bool? = nil
+    var answerPitchMode: EuclideousAnswerPitchMode? = nil
+    var answerPitchCycle: Bool? = nil
+    var answerTradeOn: Bool? = nil
+    var answerTradeMode: EuclideousAnswerTradeMode? = nil
+    var answerTradeWith: Int? = nil
+    var answerCycleEach: Int? = nil
+    var answerCycleUnit: EuclideousAnswerCycleUnit? = nil
+    var answerRhythmOnResolved: Bool { answerRhythmOn ?? false }
+    var answerRhythmModeResolved: EuclideousAnswerRhythmMode { answerRhythmMode ?? .copy }
+    var answerRhythmCycleResolved: Bool { answerRhythmCycle ?? false }
+    var answerPitchOnResolved: Bool { answerPitchOn ?? false }
+    var answerPitchModeResolved: EuclideousAnswerPitchMode { answerPitchMode ?? .shadow }
+    var answerPitchCycleResolved: Bool { answerPitchCycle ?? false }
+    var answerTradeOnResolved: Bool { answerTradeOn ?? false }
+    var answerTradeModeResolved: EuclideousAnswerTradeMode { answerTradeMode ?? .swap }
+    var answerCycleEachResolved: Int { max(euclideousAnswerCycleEachMin, min(euclideousAnswerCycleEachMax, answerCycleEach ?? euclideousAnswerCycleEachDefault)) }
+    var answerCycleUnitResolved: EuclideousAnswerCycleUnit { answerCycleUnit ?? .bars }
+    /// The lane TRADE reads: the stored one when it is one of the other three lanes, else the lowest-numbered other lane (§9.2).
+    func answerTradeWithResolved(ownLane: Int) -> Int {
+        if let w = answerTradeWith, w >= 0, w < 4, w != ownLane { return w }
+        return ownLane == 0 ? 1 : 0
+    }
+    /// The ONE writer of the RHYTHM row in the old OWN / COPY / FILL vocabulary: OWN switches the row off and keeps the remembered mode; COPY / FILL switch it on in that mode. (Every legacy-shaped caller — the UI's
+    /// "USE MY OWN", the loop breaker, tests — goes through this or writes the new fields directly.)
+    mutating func setAnswerRhythm(_ m: EuclideousListenRhythmMode) {
+        switch m {
+        case .own:  answerRhythmOn = false
+        case .copy: answerRhythmOn = true; answerRhythmMode = .copy
+        case .fill: answerRhythmOn = true; answerRhythmMode = .fill
+        }
+    }
+    /// PITCH likewise. ECHO is hidden (§7): it writes SHADOW, the mode an old ECHO lane opens as.
+    mutating func setAnswerPitch(_ m: EuclideousListenPitchMode) {
+        switch m {
+        case .own:             answerPitchOn = false
+        case .shadow, .echo:   answerPitchOn = true; answerPitchMode = .shadow
+        case .avoid:           answerPitchOn = true; answerPitchMode = .avoid
+        }
+    }
+    /// True once any ANSWER field is written — the lane is then on the ANSWER model and the legacy `listenRhythm`/`listenPitch` no longer feed it (migration runs only while this is false).
+    var usesNewAnswer: Bool {
+        answerRhythmOn != nil || answerRhythmMode != nil || answerRhythmCycle != nil || answerPitchOn != nil || answerPitchMode != nil
+            || answerPitchCycle != nil || answerTradeOn != nil || answerTradeMode != nil || answerTradeWith != nil
+            || answerCycleEach != nil || answerCycleUnit != nil
+    }
+    /// ANSWER migration (§9.3), run once per decode of a document that has no ANSWER field: OWN leaves the row off (the remembered mode COPY / SHADOW is the default anyway, so nothing is written);
+    /// COPY / FILL / SHADOW / AVOID switch the row on in the same mode; ECHO (hidden, §7) opens as SHADOW. Pure.
+    static func migratedAnswer(rhythm: EuclideousListenRhythmMode?, pitch: EuclideousListenPitchMode?)
+        -> (rhythmOn: Bool?, rhythmMode: EuclideousAnswerRhythmMode?, pitchOn: Bool?, pitchMode: EuclideousAnswerPitchMode?)? {
+        var rOn: Bool? = nil, rMode: EuclideousAnswerRhythmMode? = nil, pOn: Bool? = nil, pMode: EuclideousAnswerPitchMode? = nil
+        switch rhythm {
+        case .copy?: rOn = true; rMode = .copy
+        case .fill?: rOn = true; rMode = .fill
+        case .own?, nil: break
+        }
+        switch pitch {
+        case .shadow?, .echo?: pOn = true; pMode = .shadow
+        case .avoid?: pOn = true; pMode = .avoid
+        case .own?, nil: break
+        }
+        guard rOn != nil || pOn != nil else { return nil }
+        return (rOn, rMode, pOn, pMode)
+    }
     var chordDelayResolved: Int { max(0, min(euclideousCanonMaxDelay, chordDelay ?? 0)) }
     var chordSlipResolved: Int { EuclidLine.legalCanonSlip(chordSlip ?? 0) }
     /// 0…8 bars, or 9 = LOCK; anything outside 0…9 (and nil) resolves to 0 (§1.1).
@@ -857,13 +927,21 @@ struct EuclidLine: Codable, Equatable {
         if let s = listenSource, s >= 0, s < 4, s != ownLane { return s }
         return ownLane == 0 ? 1 : 0
     }
-    var listenRhythmResolved: EuclideousListenRhythmMode { listenRhythm ?? .own }
+    /// ANSWER ferry: derived from the row's SWITCH and remembered mode (the stored `listenRhythm` is legacy, read only by `migratedAnswer`). This is PHASE A's view — the lane exactly as set; a cycling lane's phase-B
+    /// view is `euclideousAnswerEffectiveRows` (Derivations.swift). Every pre-ANSWER reader keeps working through it.
+    var listenRhythmResolved: EuclideousListenRhythmMode {
+        guard answerRhythmOnResolved else { return .own }
+        return answerRhythmModeResolved == .fill ? .fill : .copy
+    }
     var listenDelayResolved: Int { max(0, listenDelay ?? 0) }   // upper-bounded live by the caller against the source's own step count (§3.6) — can't self-clamp without that
     var listenFeelResolved: Double { max(-1, min(1, listenFeel ?? 0)) }
     var listenSpeedResolved: Int { max(-2, min(2, listenSpeed ?? 0)) }
     var listenSpeedRatioResolved: Double { pow(2.0, Double(listenSpeedResolved)) }
     var listenDirectionResolved: EuclidDir { listenDirection ?? .fwd }
-    var listenPitchResolved: EuclideousListenPitchMode { listenPitch ?? .own }
+    var listenPitchResolved: EuclideousListenPitchMode {
+        guard answerPitchOnResolved else { return .own }
+        return answerPitchModeResolved == .avoid ? .avoid : .shadow
+    }
     var listenIntervalResolved: Int { max(-6, min(6, listenInterval ?? 0)) }
     var listenOctaveResolved: Int { max(-3, min(3, listenOctave ?? 0)) }
     /// True once any of the nine new-model fields has been written — the lane is then on the NEW model and
@@ -872,7 +950,8 @@ struct EuclidLine: Codable, Equatable {
         listenSource != nil || listenRhythm != nil || listenDelay != nil || listenFeel != nil || listenSpeed != nil
             || listenDirection != nil || listenPitch != nil || listenInterval != nil || listenOctave != nil
     }
-    var isFollowingResolved: Bool { listenRhythmResolved != .own || listenPitchResolved != .own }
+    /// §5.1: RHYTHM on or PITCH on (a cycling row still counts — the loop breaker and the processing order are conservative). TRADE is not following.
+    var isFollowingResolved: Bool { answerRhythmOnResolved || answerPitchOnResolved }
     var gateResolved: Double { gate ?? 0.9 }
     // NOT narrowed to ±2 here (Paul 2026-10-13 ferry, "Engine" rule 4) — `EuclidLine` is SHARED with the
     // regular, non-Euclideous BUILD-page EUCLID processor, whose own OCTAVE stepper reaches ±3 today
@@ -1074,6 +1153,21 @@ extension EuclidLine {
         chordSlip = (try? c.decodeIfPresent(Int.self, forKey: .chordSlip)).flatMap { $0 }.map { EuclidLine.legalCanonSlip($0) }
         // POOL HOLD (FREEZE): tolerant (`try?`), clamped at decode; anything outside 0…9 → 0 via the resolver.
         poolHold = (try? c.decodeIfPresent(Int.self, forKey: .poolHold)).flatMap { $0 }.map { max(0, min(euclideousPoolHoldLock, $0)) }
+        // ANSWER: tolerant (`try?`), clamped at decode; the legacy OWN / ECHO rows migrate once, only while no ANSWER field is present (§9.3).
+        answerRhythmOn = (try? c.decodeIfPresent(Bool.self, forKey: .answerRhythmOn)).flatMap { $0 }
+        answerRhythmMode = (try? c.decodeIfPresent(EuclideousAnswerRhythmMode.self, forKey: .answerRhythmMode)).flatMap { $0 }
+        answerRhythmCycle = (try? c.decodeIfPresent(Bool.self, forKey: .answerRhythmCycle)).flatMap { $0 }
+        answerPitchOn = (try? c.decodeIfPresent(Bool.self, forKey: .answerPitchOn)).flatMap { $0 }
+        answerPitchMode = (try? c.decodeIfPresent(EuclideousAnswerPitchMode.self, forKey: .answerPitchMode)).flatMap { $0 }
+        answerPitchCycle = (try? c.decodeIfPresent(Bool.self, forKey: .answerPitchCycle)).flatMap { $0 }
+        answerTradeOn = (try? c.decodeIfPresent(Bool.self, forKey: .answerTradeOn)).flatMap { $0 }
+        answerTradeMode = (try? c.decodeIfPresent(EuclideousAnswerTradeMode.self, forKey: .answerTradeMode)).flatMap { $0 }
+        answerTradeWith = (try? c.decodeIfPresent(Int.self, forKey: .answerTradeWith)).flatMap { $0 }.map { max(0, min(3, $0)) }
+        answerCycleEach = (try? c.decodeIfPresent(Int.self, forKey: .answerCycleEach)).flatMap { $0 }.map { max(euclideousAnswerCycleEachMin, min(euclideousAnswerCycleEachMax, $0)) }
+        answerCycleUnit = (try? c.decodeIfPresent(EuclideousAnswerCycleUnit.self, forKey: .answerCycleUnit)).flatMap { $0 }
+        if !usesNewAnswer, let m = EuclidLine.migratedAnswer(rhythm: listenRhythm, pitch: listenPitch) {
+            answerRhythmOn = m.rhythmOn; answerRhythmMode = m.rhythmMode; answerPitchOn = m.pitchOn; answerPitchMode = m.pitchMode
+        }
         // NOTES TAB ferry (2026-10-19, §5): tolerant by construction (`try?`): a wrong-typed value reads as missing, never a whole-session reset.
         let rawWhen = (try? c.decodeIfPresent(UInt8.self, forKey: .notesWhen)).flatMap { $0 }
         notesChance = (try? c.decodeIfPresent(Int.self, forKey: .notesChance)).flatMap { $0 }.map(EuclidLine.nearestLegalNotesChance)
@@ -1162,6 +1256,27 @@ enum EuclideousAvoidAction: String, Codable, CaseIterable { case mute = "MUTE", 
 // existing direction glyphs").
 enum EuclideousListenRhythmMode: String, Codable, CaseIterable { case own = "OWN", copy = "COPY", fill = "FILL" }
 enum EuclideousListenPitchMode: String, Codable, CaseIterable { case own = "OWN", shadow = "SHADOW", echo = "ECHO", avoid = "AVOID" }
+// ANSWER ferry (2026-11-02): the modes a row REMEMBERS while its switch is off, and the cycle's unit. String-raw like every sibling enum; an unknown stored value decodes as the default (never a whole-session reset).
+// OWN is not a case: "off" is the row's switch (§3). The legacy enums above stay for decoding only (§9.3).
+enum EuclideousAnswerRhythmMode: String, Codable, CaseIterable {
+    case copy = "COPY", fill = "FILL"
+    init(from decoder: Decoder) throws { self = EuclideousAnswerRhythmMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .copy }
+}
+enum EuclideousAnswerPitchMode: String, Codable, CaseIterable {
+    case shadow = "SHADOW", avoid = "AVOID"
+    init(from decoder: Decoder) throws { self = EuclideousAnswerPitchMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .shadow }
+}
+enum EuclideousAnswerTradeMode: String, Codable, CaseIterable {
+    case swap = "SWAP", borrow = "BORROW"
+    init(from decoder: Decoder) throws { self = EuclideousAnswerTradeMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .swap }
+}
+enum EuclideousAnswerCycleUnit: String, Codable, CaseIterable {
+    case bars = "BARS", passes = "PASSES"
+    init(from decoder: Decoder) throws { self = EuclideousAnswerCycleUnit(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .bars }
+}
+let euclideousAnswerCycleEachMin = 1
+let euclideousAnswerCycleEachMax = 16
+let euclideousAnswerCycleEachDefault = 4
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
 // persists by value, matching every other riff-adjacent enum's own convention (RiffDir, EuclidNoteSel, …).
 // REPEAT (RIFF WALK ferry 2026-10-19 §4.2): a hit on a rest plays the nearest earlier non-rest column's

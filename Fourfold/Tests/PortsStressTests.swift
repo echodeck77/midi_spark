@@ -96,8 +96,8 @@ final class PortsStressTests: XCTestCase {
         l.muteUnit = UInt8.random(in: 0...3, using: &g)
         // LISTEN borrow — COPY/FILL (rhythm), SHADOW/ECHO/AVOID (pitch), with a source lane
         l.listenSource = Int.random(in: 0...3, using: &g)
-        l.listenRhythm = EuclideousListenRhythmMode.allCases.randomElement(using: &g)!
-        l.listenPitch = EuclideousListenPitchMode.allCases.randomElement(using: &g)!
+        l.setAnswerRhythm(EuclideousListenRhythmMode.allCases.randomElement(using: &g)!)
+        l.setAnswerPitch(EuclideousListenPitchMode.allCases.randomElement(using: &g)!)
         l.listenInterval = Int.random(in: -6...6, using: &g)
         l.listenOctave = Int.random(in: -3...3, using: &g)
         l.listenDelay = Int.random(in: 0...6, using: &g)
@@ -796,7 +796,7 @@ final class PortsStressTests: XCTestCase {
         l.pulses = max(2, l.pulses); l.steps = max(l.pulses, l.steps)
         if Int.random(in: 0...3, using: &g) != 0 { l.riffOn = true; l.useRiff = true }
         if Int.random(in: 0...3, using: &g) != 0 { l.notesOn = true; if l.litOrderResolved.count == 0 { l.litNotes = 0b0000_0011 } }
-        if Int.random(in: 0...3, using: &g) != 0 { l.listenRhythm = .own; l.listenPitch = .own }
+        if Int.random(in: 0...3, using: &g) != 0 { l.setAnswerRhythm(.own); l.setAnswerPitch(.own) }
         l.patternMiss = nil
         return l
     }
@@ -1072,7 +1072,7 @@ extension PortsStressTests {
         l.rate = [ArpRate.r1_8, .r1_16, .r1_16, .r1_32, .r1_16t].randomElement(using: &g)!
         l.riffOn = true; l.useRiff = true; l.notesOn = true
         l.litNotes = 0; l.notesLitOrder = Array(UInt8(0)...9).shuffled(using: &g).prefix(Int.random(in: 0...3, using: &g)).map { $0 }
-        l.listenRhythm = .own; l.listenPitch = .own; l.patternMiss = nil
+        l.setAnswerRhythm(.own); l.setAnswerPitch(.own); l.patternMiss = nil
         l.gate = [1.0, 1.0, 0.99, 0.5, 0.9].randomElement(using: &g)!
         l.notesGate = [1.0, 0.99, 0.5].randomElement(using: &g)!
         if noLegato { l.gate = min(l.gate ?? 0.9, 0.99); l.notesGate = min(l.notesGate ?? 0.9, 0.99) }

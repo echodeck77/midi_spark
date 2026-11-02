@@ -23,13 +23,13 @@ final class ListenTabTests: XCTestCase {
     }
     func testListenRebuiltFieldsRoundTripThroughCodable() throws {
         var line = EuclidLine(pulses: 3, steps: 8)
-        line.listenSource = 2; line.listenRhythm = .copy; line.listenDelay = 3; line.listenFeel = -0.4
-        line.listenSpeed = 1; line.listenDirection = .bkw; line.listenPitch = .echo; line.listenInterval = -5; line.listenOctave = 2
+        line.listenSource = 2; line.setAnswerRhythm(.copy); line.listenDelay = 3; line.listenFeel = -0.4
+        line.listenSpeed = 1; line.listenDirection = .bkw; line.setAnswerPitch(.echo); line.listenInterval = -5; line.listenOctave = 2
         let data = try JSONEncoder().encode(line)
         let back = try JSONDecoder().decode(EuclidLine.self, from: data)
         XCTAssertTrue(back.usesNewListen)
         XCTAssertEqual(back.listenSourceResolved(ownLane: 0), 2)
-        XCTAssertEqual(back.listenRhythmResolved, .copy); XCTAssertEqual(back.listenPitchResolved, .echo)
+        XCTAssertEqual(back.listenRhythmResolved, .copy); XCTAssertEqual(back.listenPitchResolved, .shadow, "ECHO is hidden (ANSWER §7): setAnswerPitch(.echo) opens as SHADOW")
         XCTAssertTrue(back.isFollowingResolved)
         XCTAssertEqual(back.listenDelayResolved, 3); XCTAssertEqual(back.listenFeelResolved, -0.4, accuracy: 1e-9)
         XCTAssertEqual(back.listenSpeedResolved, 1); XCTAssertEqual(back.listenSpeedRatioResolved, 2, accuracy: 1e-9)
@@ -147,7 +147,7 @@ final class ListenTabTests: XCTestCase {
         // field is set), so migration must not override the explicit OWN back to COPY.
         var line = EuclidLine(pulses: 3, steps: 8)
         line.listenRhythmMode = .follow; line.listenRhythmPartner = 1   // old, stale
-        line.listenRhythm = .own                                        // new, explicit — the user already decided
+        line.setAnswerRhythm(.own)                                        // new, explicit — the user already decided
         let data = try JSONEncoder().encode(line)
         let back = try JSONDecoder().decode(EuclidLine.self, from: data)
         XCTAssertTrue(back.usesNewListen)
@@ -211,13 +211,13 @@ final class ListenTabTests: XCTestCase {
         for _ in 0..<20_000 {
             var lines = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
             for i in 0..<4 {
-                lines[i].listenRhythm = rhythms.randomElement(using: &g)!; lines[i].listenPitch = pitches.randomElement(using: &g)!
+                if let r = rhythms.randomElement(using: &g)! { lines[i].setAnswerRhythm(r) }; if let p = pitches.randomElement(using: &g)! { lines[i].setAnswerPitch(p) }
                 lines[i].listenSource = [nil, 0, 1, 2, 3, 7, -1].randomElement(using: &g)!
             }
             let expected = euclideousListenProcessingOrder(sources: lines.enumerated().map { $0.element.listenSourceResolved(ownLane: $0.offset) },
                                                            rhythm: lines.map { $0.listenRhythmResolved }, pitch: lines.map { $0.listenPitchResolved })
             let n = euclideousListenProcessingOrderInto(&scratch, lines: lines)
-            XCTAssertEqual(Array(scratch[0..<n]), expected, "lines: \(lines.map { ($0.listenRhythm as Any, $0.listenPitch as Any, $0.listenSource as Any) })")
+            XCTAssertEqual(Array(scratch[0..<n]), expected, "lines: \(lines.map { ($0.listenRhythmResolved, $0.listenPitchResolved, $0.listenSource as Any) })")
             if expected != [0, 1, 2, 3] { withDependencies += 1 }
         }
         XCTAssertGreaterThan(withDependencies, 1000, "the fuzz must actually reorder lanes often, or it proves nothing")
@@ -228,18 +228,18 @@ final class ListenTabTests: XCTestCase {
     }
     func testBreakLoopsOnTheNewModelForcesTheFirstLaneThatClosesACycleBackToOwn() {
         var lines = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
-        lines[0].listenRhythm = .copy; lines[0].listenSource = 1   // 0 -> 1
-        lines[1].listenPitch = .shadow; lines[1].listenSource = 0  // 1 -> 0, closing the loop
+        lines[0].setAnswerRhythm(.copy); lines[0].listenSource = 1   // 0 -> 1
+        lines[1].setAnswerPitch(.shadow); lines[1].listenSource = 0  // 1 -> 0, closing the loop
         let fixed = euclideousListenBreakLoopsOnTheNewModel(lines)
         XCTAssertEqual(fixed[0].listenRhythmResolved, .copy, "lane 0 (scanned first) is untouched — it didn't close anything yet")
         XCTAssertEqual(fixed[1].listenRhythmResolved, .own); XCTAssertEqual(fixed[1].listenPitchResolved, .own, "lane 1's own edge is what closed the loop")
     }
     func testBreakLoopsOnTheNewModelLeavesAnAcyclicGraphUntouched() {
         var lines = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
-        lines[1].listenRhythm = .copy; lines[1].listenSource = 0
-        lines[2].listenPitch = .echo; lines[2].listenSource = 1
+        lines[1].setAnswerRhythm(.copy); lines[1].listenSource = 0
+        lines[2].setAnswerPitch(.echo); lines[2].listenSource = 1
         let fixed = euclideousListenBreakLoopsOnTheNewModel(lines)
-        XCTAssertEqual(fixed[1].listenRhythmResolved, .copy); XCTAssertEqual(fixed[2].listenPitchResolved, .echo)
+        XCTAssertEqual(fixed[1].listenRhythmResolved, .copy); XCTAssertEqual(fixed[2].listenPitchResolved, .shadow)
     }
     func testBorrowedHitsCopyTakesTheSourcesHitsFillTakesItsRests() {
         let source = [true, false, true, false, false]

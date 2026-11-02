@@ -464,7 +464,7 @@ final class MidiInOctavesTests: XCTestCase {
         // lane 1 plays rank 1; lane 2 is a unison SHADOW of it (cable 2); both read the moved pool.
         var shadow = EuclidLine(target: 0, pulses: 4, steps: 4)
         shadow.gate = 0.5; shadow.velocityAbsolute = 90; shadow.rate = .r1_4; shadow.useRiff = true; shadow.riffOn = true; shadow.sourceMode = .midi; shadow.notesOn = true; shadow.litNotes = 0
-        shadow.listenRhythm = .copy; shadow.listenSource = 0; shadow.listenPitch = .shadow; shadow.listenInterval = 0; shadow.listenOctave = 0
+        shadow.setAnswerRhythm(.copy); shadow.listenSource = 0; shadow.setAnswerPitch(.shadow); shadow.listenInterval = 0; shadow.listenOctave = 0
         let st = state(plan(chords: true, mode: .root), extra: [shadow])
         let base = Rig(st); base.run(to: 8.5)
         let r = Rig(st); r.run(to: 0.5); r.press([50]); r.run(to: 8.5)

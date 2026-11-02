@@ -3762,7 +3762,7 @@ final class RouterTests: XCTestCase {
     // REPLACEMENT not a filter) — replaced here with DELAY and BKW, the two genuinely new fugue controls
     // §11's own test 4-6 ask for. T7 (DUCK/ACCENT) is deleted outright — the LEVEL row no longer exists.
     func testListenT1Copy() {
-        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0
+        var blue = listenBlueLine(); blue.setAnswerRhythm(.copy); blue.listenSource = 0
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(listenRhythmString(hits), "x..x..x.", "T1 COPY: blue inherits red's own 3-of-8 pattern exactly")
     }
@@ -3770,13 +3770,13 @@ final class RouterTests: XCTestCase {
     // are not read while COPY or FILL is on." A leftover (or independently-set) chain on a borrowing lane
     // must not shift its pattern phase — this must come out byte-identical to T1's plain COPY.
     func testListenCopyIgnoresTheFollowersOwnLeftoverRestartChains() {
-        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0
+        var blue = listenBlueLine(); blue.setAnswerRhythm(.copy); blue.listenSource = 0
         blue.restartRhythmBars = [1]; blue.restartMelodyPasses = [2]
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(listenRhythmString(hits), "x..x..x.", "a borrowing lane's own restart chains must not apply — byte-identical to T1's plain COPY with no chain set")
     }
     func testListenT2Fill() {
-        var blue = listenBlueLine(); blue.listenRhythm = .fill; blue.listenSource = 0
+        var blue = listenBlueLine(); blue.setAnswerRhythm(.fill); blue.listenSource = 0
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(listenRhythmString(hits), ".xx.xx.x", "T2 FILL: blue plays exactly red's gaps (the complement of red's pattern)")
     }
@@ -3786,7 +3786,7 @@ final class RouterTests: XCTestCase {
     // the wrapped-around rotation happens to contain. Corrected expectation: ticks 0-1 (< DELAY) are forced
     // silent even though the rotated pattern would hit at tick 0; only ticks 2 and 5 actually sound.
     func testListenT3CopyWithDelay() {
-        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenDelay = 2
+        var blue = listenBlueLine(); blue.setAnswerRhythm(.copy); blue.listenSource = 0; blue.listenDelay = 2
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(listenRhythmString(hits), "..x..x..", "T3 DELAY 2, first lap: ticks 0-1 are the transport-start grace period (forced silent, §3.6) even though the rotated pattern (red's 0,3,6 shifted 2 later, wrapping) would hit at 0; only 2 and 5 actually sound")
     }
@@ -3794,7 +3794,7 @@ final class RouterTests: XCTestCase {
     // every lap — a longer run must show the wrapped hit (tick 0 of lap 2, i.e. tick 8 overall) sounding
     // once the lane is well past its first DELAY ticks.
     func testListenT3bDelayGraceIsOnlyAtTransportStartNotEveryLap() {
-        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenDelay = 2
+        var blue = listenBlueLine(); blue.setAnswerRhythm(.copy); blue.listenSource = 0; blue.listenDelay = 2
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 5, 4, 3, 2, 1])
         c.paramsA.euclidLines = [listenRedLine(), blue, EuclidLine(enabled: false), EuclidLine(enabled: false)]
@@ -3813,15 +3813,15 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(hits, [2, 5, 8, 10, 13], "lap 1: 2, 5 (0 suppressed by the grace period); lap 2 (ticks 8-15): all three of 8, 10, 13 sound — the grace period never reapplies")
     }
     func testListenT4CopyBackward() {
-        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenDirection = .bkw
+        var blue = listenBlueLine(); blue.setAnswerRhythm(.copy); blue.listenSource = 0; blue.listenDirection = .bkw
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(listenRhythmString(hits), ".x..x..x", "T4 BKW: red's own order (0,3,6) read back-to-front (6,3,0)")
     }
     func testListenT5ShadowMovesByIntervalInTheCurrentKey() {
         // RHYTHM=COPY too, so blue's hits land EXACTLY on red's own (matching the old T5's own FOLLOW+SHADOW
         // pairing) — each of blue's 3 hits then shadows red's strike from that SAME tick, in order.
-        var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0
-        blue.listenPitch = .shadow; blue.listenInterval = 2   // a third up, in the explicit C MAJOR key below
+        var blue = listenBlueLine(); blue.setAnswerRhythm(.copy); blue.listenSource = 0
+        blue.setAnswerPitch(.shadow); blue.listenInterval = 2   // a third up, in the explicit C MAJOR key below
         let hits = listenRun(listenRedLine(), blue, keyRoot: 0, keyType: .major)
         XCTAssertEqual(hits.map { $0.note }, [40, 41, 42], "T5 SHADOW+3RD (C major): red's C2/D2/E\u{266D}2 (36/38/39) each move a diatonic 3rd up to E2/F2/F\u{266F}2 (40/41/42)")
     }
@@ -3832,7 +3832,7 @@ final class RouterTests: XCTestCase {
         // identical-pattern case, but now for a timing reason, not a pitch one — see the phase test below.)
         var blue = listenBlueLine()
         blue.pulses = 3   // red's 3-of-8 exactly (cols 0,3,6), same rate, so blue's hits are simultaneous with red's
-        blue.listenPitch = .avoid; blue.listenSource = 0
+        blue.setAnswerPitch(.avoid); blue.listenSource = 0
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(hits.count, 0, "T6 AVOID: every blue hit coincides in time with a red strike, so all are muted")
     }
@@ -3843,7 +3843,7 @@ final class RouterTests: XCTestCase {
         // The old pitch-class AVOID could never produce this pattern — it dropped by whether blue's pitch matched red's
         // most-recent class, with no regard to WHEN the two lanes struck.
         var blue = listenBlueLine()   // 4-of-8
-        blue.listenPitch = .avoid; blue.listenSource = 0
+        blue.setAnswerPitch(.avoid); blue.listenSource = 0
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(listenRhythmString(hits), "..x.x...", "AVOID keeps the hits that DON'T coincide with a source strike (cols 2, 4); cols 0 and 6 (both on a red hit) are muted")
     }
@@ -3856,7 +3856,7 @@ final class RouterTests: XCTestCase {
     private func listenEchoCanvasRun(pitch: EuclideousListenPitchMode) -> [(col: Int, note: UInt8, vel: UInt8)] {
         let red = EuclidLine(target: 0, pulses: 8, steps: 8, velocityAbsolute: 100, rate: .r1_8, useRiff: true, riffOn: true, sourceMode: .midi)
         var blue = EuclidLine(target: 0, pulses: 8, steps: 8, velocityAbsolute: 100, rate: .r1_8, useRiff: true, riffOn: true, sourceMode: .midi)
-        blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenDelay = 2; blue.listenPitch = pitch
+        blue.setAnswerRhythm(.copy); blue.listenSource = 0; blue.listenDelay = 2; blue.setAnswerPitch(pitch)
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 3, 2, 1])   // C D E♭ F G E♭ D C
         c.paramsA.euclidLines = [red, blue, EuclidLine(enabled: false), EuclidLine(enabled: false)]
@@ -3907,8 +3907,8 @@ final class RouterTests: XCTestCase {
     // coincidence of blue/red sharing identical standalone settings.
     private func shadowOf(_ red: EuclidLine) -> EuclidLine {
         var blue = red
-        blue.listenRhythm = .copy; blue.listenSource = 0
-        blue.listenPitch = .shadow; blue.listenInterval = 0; blue.listenOctave = 0   // a unison shadow
+        blue.setAnswerRhythm(.copy); blue.listenSource = 0
+        blue.setAnswerPitch(.shadow); blue.listenInterval = 0; blue.listenOctave = 0   // a unison shadow
         return blue
     }
     func testShadowFollowsAPartnerWithAdvanceEvery() {
@@ -3958,7 +3958,7 @@ final class RouterTests: XCTestCase {
         // doesn't somehow let a colliding note through.
         var red = listenRedLine(); red.riffAdvanceEvery = 2
         var blue = red
-        blue.listenPitch = .avoid; blue.listenSource = 0
+        blue.setAnswerPitch(.avoid); blue.listenSource = 0
         let (r, b) = listenBothNotes(red, blue, beats: 12)
         XCTAssertGreaterThanOrEqual(r.count, 8)
         XCTAssertEqual(b.count, 0, "every hit collides with red's real note (EVERY 2 included), so all are dropped")
@@ -7024,7 +7024,7 @@ final class RouterTests: XCTestCase {
         // — the old FOLLOW's "still applies on top" was exactly the half-overridden confusion this rebuild
         // fixes), so they're left on the line (decode-only, inert) rather than deleted, to keep this
         // scenario's shape close to its predecessor's.
-        var follower = line(3, 8, .r1_8, .fwd) { $0.rotate = 2; $0.listenRhythm = .copy; $0.listenSource = 0; $0.patternMiss = true }
+        var follower = line(3, 8, .r1_8, .fwd) { $0.rotate = 2; $0.setAnswerRhythm(.copy); $0.listenSource = 0; $0.patternMiss = true }
         let partner = line(5, 8, .r1_8, .bkw) { $0.tilt = 0.5; $0.rotate = 3 }
         scenarios.append(GoldenScenario(name: "COPY a TILTed OFFSET partner", lines: [partner, follower], ranks: ranks, fx: EuclideousFX(), beats: 16, restartAt: [], maskOn: false))
         let chained = [line(5, 8, .r1_8, .fwd) { $0.tilt = 0.5; $0.rotate = 2; $0.restartRhythmBars = [1]; $0.restartMelodyPasses = [2] },
@@ -7209,7 +7209,7 @@ final class RouterTests: XCTestCase {
         func linesFor(_ k: Int) -> [EuclidLine] {
             let red = EuclidLine(target: 0, pulses: 5, steps: 8, gate: 0.99, velocityAbsolute: 100, rate: .r1_8, useRiff: true, riffOn: true, sourceMode: .midi)
             var blue = EuclidLine(target: 0, pulses: 3, steps: 8, gate: 0.99, velocityAbsolute: 100, rate: .r1_8, useRiff: true, riffOn: true, sourceMode: .midi)
-            blue.listenRhythm = rhythms[k % rhythms.count]; blue.listenPitch = pitches[k % pitches.count]
+            blue.setAnswerRhythm(rhythms[k % rhythms.count]); blue.setAnswerPitch(pitches[k % pitches.count])
             blue.listenSource = 0; blue.listenSpeed = [-2, -1, 0, 1, 2][k % 5]
             blue.listenDirection = dirs[k % dirs.count]; blue.listenDelay = k % 4
             blue.listenFeel = Double(k % 3 - 1) * 0.3
@@ -8428,7 +8428,7 @@ extension RouterTests {
         let major = ScaleType.major.intervals, key = euclideousKeyPitchClassMask(root: 0, intervals: major)
         func follower(redT: Int?, blueT: Int?) -> [Int] {
             var red = listenRedLine(); red.riffOutTranspose = redT
-            var blue = listenBlueLine(); blue.listenRhythm = .copy; blue.listenSource = 0; blue.listenPitch = .shadow; blue.listenInterval = 2; blue.riffOutTranspose = blueT
+            var blue = listenBlueLine(); blue.setAnswerRhythm(.copy); blue.listenSource = 0; blue.setAnswerPitch(.shadow); blue.listenInterval = 2; blue.riffOutTranspose = blueT
             return listenRun(red, blue, keyRoot: 0, keyType: .major).map { Int($0.note) }
         }
         let base = follower(redT: nil, blueT: nil)

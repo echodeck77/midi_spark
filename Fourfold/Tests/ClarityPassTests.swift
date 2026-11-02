@@ -98,7 +98,7 @@ final class ClarityPassTests: XCTestCase {
     // the whole tab (RHYTHM COPY/FILL or PITCH SHADOW/ECHO/AVOID), and there is no ANY any more.
     func testListenGlyphIsTheSourceLanesColourAndOffWithNoSource() {
         // lane 1 (index 0) COPYing lane 2 (index 1): on, in lane 2's colour
-        let copy = lane { $0.listenRhythm = .copy; $0.listenSource = 1 }
+        let copy = lane { $0.setAnswerRhythm(.copy); $0.listenSource = 1 }
         XCTAssertEqual(euclideousTabGlyph(tab: .listen, line: copy, lane: 0), EuclideousTabGlyph(shape: .circle, on: true, fill: .lane(1)))
         // nothing lit: off
         XCTAssertFalse(euclideousTabGlyph(tab: .listen, line: EuclidLine(), lane: 0).on)
@@ -110,15 +110,15 @@ final class ClarityPassTests: XCTestCase {
     }
     func testListenSourceResolvesToAStoredOrDefaultLaneWhileFollowing() {
         // PITCH SHADOW with a stored source: that lane
-        let shadow = lane { $0.listenPitch = .shadow; $0.listenSource = 2 }
+        let shadow = lane { $0.setAnswerPitch(.shadow); $0.listenSource = 2 }
         XCTAssertEqual(euclideousListenSource(shadow, lane: 0), .lane(2))
         // RHYTHM COPY alone is enough to be "following", same resolution
-        let fill = lane { $0.listenRhythm = .fill; $0.listenSource = 3 }
+        let fill = lane { $0.setAnswerRhythm(.fill); $0.listenSource = 3 }
         XCTAssertEqual(euclideousListenSource(fill, lane: 0), .lane(3))
         // a source that is out of range, or the lane itself, falls back to the default partner (lane 2 for lane 1, else lane 1)
-        let outOfRange = lane { $0.listenPitch = .avoid; $0.listenSource = 9 }
+        let outOfRange = lane { $0.setAnswerPitch(.avoid); $0.listenSource = 9 }
         XCTAssertEqual(euclideousListenSource(outOfRange, lane: 1), .lane(0))
-        let selfRef = lane { $0.listenPitch = .echo; $0.listenSource = 0 }
+        let selfRef = lane { $0.setAnswerPitch(.echo); $0.listenSource = 0 }
         XCTAssertEqual(euclideousListenSource(selfRef, lane: 0), .lane(1))
     }
 
@@ -139,19 +139,19 @@ final class ClarityPassTests: XCTestCase {
     func testHeaderShowsTheLinkWhileBorrowedElseNothingOrTheCount() {
         let source: EuclidLine = { var l = EuclidLine(); l.pulses = 3; l.steps = 8; return l }()
         var follower = EuclidLine(); follower.pulses = 5; follower.steps = 16
-        follower.listenRhythm = .copy; follower.listenSource = 0
+        follower.setAnswerRhythm(.copy); follower.listenSource = 0
         let lines = [source, follower]
         XCTAssertEqual(euclideousRhythmTabCount(lane: 0, lines: lines), "3/8", "not borrowing: its own count")
         XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: lines), "← 1", "COPYing lane 1 (index 0): the link, not its own 5/16")
         XCTAssertNil(euclideousPausedTabHeaderText(tab: .riff, lane: 1, lines: lines), "RHYTHM borrowing alone doesn't pause RIFF")
         XCTAssertNil(euclideousPausedTabHeaderText(tab: .notes, lane: 1, lines: lines))
         var pitchLines = lines
-        pitchLines[1].listenPitch = .shadow; pitchLines[1].listenSource = 0
+        pitchLines[1].setAnswerPitch(.shadow); pitchLines[1].listenSource = 0
         XCTAssertEqual(euclideousPausedTabHeaderText(tab: .riff, lane: 1, lines: pitchLines), "← 1")
         XCTAssertEqual(euclideousPausedTabHeaderText(tab: .notes, lane: 1, lines: pitchLines), "← 1", "NOTES pauses alongside RIFF")
-        pitchLines[1].listenPitch = .echo
+        pitchLines[1].setAnswerPitch(.echo)
         XCTAssertEqual(euclideousPausedTabHeaderText(tab: .riff, lane: 1, lines: pitchLines), "← 1", "ECHO pauses RIFF too")
-        pitchLines[1].listenPitch = .avoid
+        pitchLines[1].setAnswerPitch(.avoid)
         XCTAssertNil(euclideousPausedTabHeaderText(tab: .riff, lane: 1, lines: pitchLines), "AVOID does not pause RIFF")
         XCTAssertNil(euclideousPausedTabHeaderText(tab: .rhythm, lane: 1, lines: lines), "no override for RHYTHM itself — it always has its own count/link")
         XCTAssertNil(euclideousPausedTabHeaderText(tab: .riff, lane: 9, lines: lines), "out of range")
@@ -165,18 +165,18 @@ final class ClarityPassTests: XCTestCase {
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, off")
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .notes, lines: [l], lane: 0), "Notes, on")
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Listen, off")
-        l.listenRhythm = .copy; l.listenSource = 1
+        l.setAnswerRhythm(.copy); l.listenSource = 1
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Listen, on, following lane 2")
     }
     // §7/§10: a paused RIFF/NOTES tab says so out loud too, not just via the header's sighted-only "← n".
     func testPausedRiffAndNotesSayTheySayPausedAndWhoTheyFollow() {
         var l = EuclidLine(); l.riffOn = true; l.litNotes = 0b1; l.notesOn = true
-        l.listenPitch = .shadow; l.listenSource = 2
+        l.setAnswerPitch(.shadow); l.listenSource = 2
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, paused, following lane 3")
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .notes, lines: [l], lane: 0), "Notes, paused, following lane 3")
-        l.listenPitch = .echo
+        l.setAnswerPitch(.echo)
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, paused, following lane 3", "ECHO pauses too")
-        l.listenPitch = .avoid
+        l.setAnswerPitch(.avoid)
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, on", "AVOID doesn't pause RIFF")
     }
 
@@ -259,7 +259,7 @@ final class ClarityPassTests: XCTestCase {
     private func copyLines(sourcePulses: Int = 4, sourceSteps: Int = 8, ownPulses: Int = 3, ownSteps: Int = 16, mode: EuclideousListenRhythmMode = .copy) -> [EuclidLine] {
         var source = EuclidLine(pulses: sourcePulses, steps: sourceSteps, rotate: 0, noteSel: .all); source.rate = .r1_8t
         var follower = EuclidLine(pulses: ownPulses, steps: ownSteps, rotate: 0, noteSel: .all); follower.rate = .r1_16
-        follower.listenRhythm = mode; follower.listenSource = 0
+        follower.setAnswerRhythm(mode); follower.listenSource = 0
         return [source, follower]
     }
     func testACopyLanesTabCountIsThePatternThatPlaysNotItsOwnSliders() {
@@ -281,7 +281,7 @@ final class ClarityPassTests: XCTestCase {
         let filled3 = copyLines(sourcePulses: 3, mode: .fill)
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .rhythm, lines: filled3, lane: 1), "Rhythm, paused, following lane 1, 5 of 8 hits", "3 hits flipped is 5 hits: what the strip lights")
         // OWN keeps the lane's own rhythm: the sliders' numbers
-        var own = lines; own[1].listenRhythm = .own
+        var own = lines; own[1].setAnswerRhythm(.own)
         XCTAssertEqual(euclideousRhythmTabCount(lane: 1, lines: own), "3/16")
         // no other lane to borrow from falls back to the lane's own sliders
         let single = [lines[1]]
@@ -293,7 +293,7 @@ final class ClarityPassTests: XCTestCase {
         XCTAssertEqual(euclideousStripDivisionRate(lane: 0, lines: lines), .r1_8t)
         XCTAssertEqual(euclideousStripDivisionRate(lane: 1, lines: lines), .r1_8t, "a COPY lane plays the source's pattern at the source's rate")
         XCTAssertEqual(euclidStepGroupSize(forRate: euclideousStripDivisionRate(lane: 1, lines: lines)), 3, "so its strip shades in threes")
-        var own = lines; own[1].listenRhythm = .own
+        var own = lines; own[1].setAnswerRhythm(.own)
         XCTAssertEqual(euclideousStripDivisionRate(lane: 1, lines: own), .r1_16, "OWN keeps the lane's own division")
         XCTAssertEqual(euclidStepGroupSize(forRate: euclideousStripDivisionRate(lane: 1, lines: own)), 4)
         var unset = EuclidLine(); unset.rate = nil

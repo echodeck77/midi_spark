@@ -816,6 +816,9 @@ final class EffectiveParamsTests: XCTestCase {
         // LISTEN REBUILT (2026-10-23)
         l.listenSource = 2; l.listenRhythm = .fill; l.listenDelay = 3; l.listenFeel = -0.2; l.listenSpeed = 1
         l.listenDirection = .pingpong; l.listenPitch = .echo; l.listenInterval = -4; l.listenOctave = 2
+        // ANSWER (2026-11-02): the eleven switch / mode / cycle / trade fields. The legacy `listenRhythm` / `listenPitch` above stay stored (decode-only) so an old document round-trips.
+        l.answerRhythmOn = true; l.answerRhythmMode = .fill; l.answerRhythmCycle = true; l.answerPitchOn = true; l.answerPitchMode = .avoid; l.answerPitchCycle = true
+        l.answerTradeOn = true; l.answerTradeMode = .borrow; l.answerTradeWith = 3; l.answerCycleEach = 7; l.answerCycleUnit = .passes
         l.notesGate = 0.45; l.notesVelocity = 66
         l.muteCells16 = 0x0F3C; l.muteUnit = 3; l.restartRhythmMask16 = 0x0121; l.restartMelodyMask16 = 0x8040; l.restartUnit = 4   // LANES GRID
         l.restartRhythmBars = [2, 1]; l.restartMelodyPasses = [1]; l.hitsRequested = 5; l.offsetRequested = 3   // RESTART CHAINS (2026-10-19)
