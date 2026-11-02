@@ -553,7 +553,7 @@ final class PortsStressTests: XCTestCase {
         XCTAssertGreaterThan(rollWireChecked, 600, "…and match the wire (\(rollWireChecked) note-ons)")
         XCTAssertEqual(fingerprint, Self.fuzzFingerprint, "CAPTURE fuzzFingerprint = \(fingerprint) — the 600 seeded sessions' message streams must be bit-identical with no hocket rule")
     }
-    private static let fuzzFingerprint: UInt64 = 12319841424680479494   // LISTEN AVOID REBUILT (2026-11-01, time-based hole punch): re-derived — the fuzz draws listenPitch randomly (incl. .avoid), and AVOID now mutes a whole hit on a SAME-INSTANT source strike instead of dropping by pitch class, so AVOID seeds' streams move; every stuck-note/orphan/leak invariant still holds (firstFail stayed nil over all 600 seeds). Prior: 13522893726867791650 (SAME-NOTE GAP GUARD)
+    private static let fuzzFingerprint: UInt64 = 5581030647685258102   // ANSWER ferry (2026-11-02): re-derived — the fuzz draws listenPitch from ALL FOUR old modes and ECHO is gone (an ECHO lane now plays as SHADOW), so the ECHO seeds' streams move. PROVEN to be the only change: with ECHO mapped to OWN in the fuzz, the pre-ferry build (origin/main e95a3e2) and this one both capture 3399493082176765281 — every other seed's 600-session stream is bit-identical. Prior: 12319841424680479494 (LISTEN AVOID REBUILT, time-based hole punch)
     // The same fuzz with gate/notesGate left as generated (up to exactly 1.0 = legato), so the legato tracking runs on every port with every layer feature around it.
     func testFuzzRawGatesReachLegatoOnEveryPort() {
         var firstFail: String? = nil
@@ -565,7 +565,7 @@ final class PortsStressTests: XCTestCase {
         if let f = firstFail { XCTFail(f); return }
         XCTAssertEqual(fingerprint, Self.fuzzFingerprintRaw, "CAPTURE fuzzFingerprintRaw = \(fingerprint) — the 600 raw-gate sessions' message streams must be bit-identical with no hocket rule")
     }
-    private static let fuzzFingerprintRaw: UInt64 = 13291222476058734517   // LISTEN AVOID REBUILT (2026-11-01, time-based hole punch): re-derived — same reason as fuzzFingerprint; the raw-gate seeds that use .avoid move too, invariants held over all 600 raw-gate seeds. Prior: 3418054771815735941 (SAME-NOTE GAP GUARD)
+    private static let fuzzFingerprintRaw: UInt64 = 12825378494907051957   // ANSWER ferry (2026-11-02): re-derived for the same reason (ECHO → SHADOW); with ECHO mapped to OWN the pre-ferry build and this one both capture 6866546876186653398. Prior: 13291222476058734517 (LISTEN AVOID REBUILT)
 
     // CARD BACKS v2 (2026-10-28): out-transposes drawn at random AND changing mid-note — nothing strands, no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
     func testOutTransposeSessionsHoldEveryInvariant() {

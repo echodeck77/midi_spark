@@ -281,6 +281,59 @@ final class AnswerRouterTests: XCTestCase {
         assertNothingLeftSounding(e)
     }
 
+    // MARK: 15 — POOL: NOW shows the delayed pool under CANON and the frozen one under FREEZE
+
+    /// The CHORDS document of the canon tests: four chords a bar (I IV V vi of C natural minor), every lane hitting once a beat on rank 1 — so the lane's pool IS the chord it is reading.
+    private func chordsState(_ lines: [EuclidLine], unit: CanonUnit = .bars) -> PluginState {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 1, 1, 1, 1, 1, 1, 1])
+        c.paramsA.euclidLines = lines
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        var cs = MachineParams(); cs.chordsDegrees = [0, 3, 4, 5]; cs.chordsSteps = 4; cs.chordsRate = .r1_1
+        st.euclideousChordSets = [cs, MachineParams(), MachineParams(), MachineParams()]
+        st.euclideousSourcePlan = SourcePlan(midiOn: false, chordsOn: true, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
+        st.euclideousCanonUnit = unit
+        return st
+    }
+    /// Runs `st` and returns every lane's NOW pool as the status feed reports it once the transport has passed each beat in `at`.
+    private func poolsAt(_ st: PluginState, at beats: [Double]) -> [Double: [EuclideousLanePoolStatus]] {
+        let box = SnapshotBuilder.build(from: st)
+        let router = Router(); var diag = KernelDiag(); let e = AnsEmitter()
+        var ts = 0.0, out: [Double: [EuclideousLanePoolStatus]] = [:]
+        var pending = beats.sorted()
+        let frames: UInt32 = 1024
+        func beatNow() -> Double { ts * 120.0 / 60.0 / 48_000.0 }
+        while let next = pending.first {
+            router.process(box: box, pool: NotePool(), playing: true, beatPos: beatNow(), tempo: 120, sampleRate: 48_000, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            ts += Double(frames)
+            if beatNow() >= next { out[next] = router.euclideousLanePoolStatus(); pending.removeFirst() }
+        }
+        return out
+    }
+    func testNowShowsTheDelayedPoolUnderCanonAndTheFrozenOneUnderFreeze() {
+        func chordLane() -> EuclidLine { var l = lane(rate: .r1_4); l.sourceMode = .midi; return l }
+        var delayed = chordLane(); delayed.chordDelay = 1                     // one bar behind
+        var frozen = chordLane(); frozen.poolHold = euclideousPoolHoldLock    // takes the first pool and keeps it for ever
+        let st = chordsState([chordLane(), delayed, frozen])
+        let p = poolsAt(st, at: [2, 6, 10, 14])
+        func notes(_ beat: Double, _ lane: Int) -> [UInt8] { p[beat]![lane].notes }
+        XCTAssertFalse(notes(2, 0).isEmpty, "lane 1 is choosing from a chord")
+        XCTAssertNotEqual(notes(2, 0), notes(6, 0), "the undelayed lane's pool follows the progression")
+        XCTAssertEqual(notes(6, 1), notes(2, 0), "lane 2, one bar behind: its pool at beat 6 is the chord lane 1 chose from at beat 2")
+        XCTAssertEqual(notes(10, 1), notes(6, 0), "…and at beat 10 the chord lane 1 had at beat 6")
+        XCTAssertEqual(notes(6, 2), notes(2, 2), "FREEZE LOCK: lane 3 keeps the pool it took")
+        XCTAssertEqual(notes(14, 2), notes(2, 2), "…for ever")
+        XCTAssertEqual(p[6]![0].count, p[6]![0].notes.count, "a pool of this size is reported whole")
+    }
+    func testNowIsEmptyWhenNothingContributes() {
+        var st = chordsState([lane(rate: .r1_4)])
+        st.euclideousSourcePlan = SourcePlan(midiOn: false, chordsOn: false, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
+        let p = poolsAt(st, at: [3])
+        XCTAssertEqual(p[3]![0].count, 0)
+    }
+
     // MARK: 13 — stuck notes
 
     func testTradeSwitchedOnAndOffMidNoteLeavesNothingSounding() {
