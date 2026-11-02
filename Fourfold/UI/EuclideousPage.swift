@@ -1505,6 +1505,12 @@ struct EuclideousPage: View {
         Color(red: 0.95, green: 0.75, blue: 0.25), Color(red: 0.55, green: 0.85, blue: 0.45),
     ]
     private let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    /// ANSWER 6.6: the lane whose own strikes lane `idx` EMITS right now — its WITH lane while it is in phase B with TRADE on, else itself. (The lane strip shows that lane's plan; the arrows in the riff panel keep showing each lane's own walk.)
+    private func tradedWithLane(_ idx: Int) -> Int {
+        guard idx >= 0, idx < lines.count, idx < answerPhases.count, answerPhases[idx], lines[idx].answerTradeOnResolved else { return idx }
+        let w = lines[idx].answerTradeWithResolved(ownLane: idx)
+        return w < lines.count ? w : idx
+    }
     /// ANSWER (6.6): the lanes as they PLAY right now — a cycling row acts as off in phase B, so every display that asks "is this lane borrowing its rhythm / shadowing another lane's notes?" reads the lane in the phase it is in. Equal to `lines`
     /// whenever no lane is in phase B; the page reads the phase from the status feed (it changes once a unit, not per frame).
     private var phaseLines: [EuclidLine] {
@@ -3258,7 +3264,7 @@ struct EuclideousPage: View {
                       onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
                       // THE STRIP (LANE STRIP ferry 2026-10-21): a pure plan, not a view — `EuclidCometBar` paints the riff track and the key row from it; `stripCurrent` is asked per display frame which step's
                       // chip is the current one (the arrow's hit).
-                      strip: stripPlan, stripCurrent: { beat, _ in stripCurrentStep(idx, plan: stripPlan, beat: beat) },
+                      strip: stripPlan, stripCurrent: { beat, _ in stripCurrentStep(tradedWithLane(idx), plan: stripPlan, beat: beat) },
                       pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
                       // LANE SOLO (2026-10-21, §1): the step-count box's slot — same 44 × 44 frame, so the strip doesn't move — now holds the SOLO button. `stepCountBadge` (and its parameter) stay, unused here (§1.3): the
                       // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
@@ -3293,7 +3299,8 @@ struct EuclideousPage: View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)   // defensive fallback only — `lines` is always exactly 4 via euclideousLinesResolved
         let accent = laneAccents[idx % laneAccents.count]
         let tab = tabOverride ?? frontLaneTab   // TAB STRIP: the page's one tab (the flip overrides it to draw the tab being left / entered, flip-on-every-tab-change 2026-10-30)
-        let stripPlan = laneStripPlan(idx, line)   // LANE STRIP ferry: the riff track and the key row, from the footers' own per-hit functions
+        let planLane = tradedWithLane(idx)   // ANSWER 6.6: during a traded phase the strip shows what the lane EMITS — the WITH lane's own strikes
+        let stripPlan = laneStripPlan(planLane, planLane < lines.count ? lines[planLane] : line)   // LANE STRIP ferry: the riff track and the key row, from the footers' own per-hit functions
         // ONE INNER WIDTH FOR EVERY ROW — every row below is built from THIS one width, never the raw card
         // `width` (W = 326 at the ferry's own reference 346pt card). "Wider cards: flexible items share the
         // extra width" — `innerWidth` scales directly with `width`, so every formula below that derives from
@@ -3396,7 +3403,7 @@ struct EuclideousPage: View {
                 }
             })
         EuclideousCardBackView(lane: idx, size: CGSize(width: width, height: height), accent: accent,
-                               topRow: laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: laneStripPlan(idx, line), soloDimContent: soloDim),
+                               topRow: laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: laneStripPlan(tradedWithLane(idx), tradedWithLane(idx) < lines.count ? lines[tradedWithLane(idx)] : line), soloDimContent: soloDim),
                                riff: riff, notes: notes, laneHasHits: line.pulses > 0 || line.patternMissResolved,     // ADD HITS is about the RHYTHM having hits — a PLAY-off lane still has them
                                laneAudibleAt: { date in
                                    runs && !soloDim && (muteCells == 0xFFFF || euclideousLaneAudible(beat: lanesMusicalBeat(real: walkTagBeat(at: date)), cells16: muteCells, unitBeats: muteUnit))
@@ -6554,7 +6561,7 @@ struct EuclideousPage: View {
     private func riffWalkConfig(_ idx: Int) -> EuclideousWalkLaneConfig? {
         guard idx >= 0, idx < lines.count else { return nil }
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
-        return polyAdjusted(euclideousWalkLaneConfig(lane: idx, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars,
+        return polyAdjusted(euclideousWalkLaneConfig(lane: idx, lines: phaseLines, cyc: cyc, resetSpanBars: resetSpanBars,
                                         lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: walkFX,
                                         swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo,
                                         riffColumns: walkColumns))
