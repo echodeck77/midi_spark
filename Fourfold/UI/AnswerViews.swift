@@ -40,42 +40,62 @@ struct AnswerPhaseBarView: View {
     }
 }
 
-/// §10.3: the NOW row's chips — the notes this lane is choosing from right now (its pool after CANON and FREEZE: the per-lane pool every part of the lane reads), ascending, named as the SOURCES panel names a pool note, in the sources panel's held-chip look
-/// (24 tall, 30 drawn, 9 pt heavy, radius 4, 4 apart) tinted with the lane's colour; as many as fit at the chip width, then "+n" in the reserved slot; an empty pool is one ghost chip. While FREEZE is holding the chips draw at 60 % (FREEZE's own running
-/// look, its value at 60 %). One VoiceOver element, "Now", whose value is the note names. Fixed-size data from the status feed; the model is observed here, not by the page.
-struct AnswerPoolNowView: View {
+/// POOL ferry 2.2: the NOW row's chips — eight rank chips (§5), ranks 1 to 8 left to right in eight equal columns sp3 apart, naming this lane's pool after CANON, FREEZE and SUSTAIN (the per-lane pool every part of the lane reads) with the NOTES keys'
+/// own received / octave-copy looks; the lit bar marks the ranks the lane struck on its last hit. While FREEZE is holding, or SUSTAIN KEEP is holding with the pedal down, the chips draw at 60 %. One VoiceOver element, "Now", whose value
+/// is the note names in rank order (or "empty"). Fixed-size data from the status feed; the model is observed here, not by the page.
+struct PoolNowChipsView: View {
     let lane: Int
     let tint: Color
-    let room: CGFloat
-    let frozen: Bool
-    let flatKey: Bool
+    let size: CGSize          // the whole row: eight chips and their gaps
+    let frozen: Bool          // FREEZE is running (the page's own status)
+    let spokenName: (Int, [UInt8]) -> String
+    let name: (UInt8, [UInt8]) -> String
     @ObservedObject var live: AnswerLiveModel
 
     var body: some View {
-        let pool = live.pool(lane: lane)
-        let names = pool.notes.map { euclideousNoteViewName($0, flatKey: flatKey) }
-        let count = max(pool.count, names.count)
-        let fit = euclideousMidiChipFit(room: room, count: count)
-        HStack(spacing: 4) {
-            if count == 0 {
-                if room >= euclideousMidiChipW { RoundedRectangle(cornerRadius: 4).strokeBorder(Color(red: 0x3A / 255, green: 0x3E / 255, blue: 0x47 / 255), lineWidth: 1).frame(width: euclideousMidiChipW, height: 24) }
-            } else {
-                ForEach(Array(names.prefix(fit.shown).enumerated()), id: \.offset) { _, name in
-                    Text(name).font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1)
-                        .foregroundColor(Color(red: 0x0D / 255, green: 0x0F / 255, blue: 0x14 / 255))
-                        .frame(minWidth: euclideousMidiChipW - 6, minHeight: 24).padding(.horizontal, 3)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(tint))
-                }
-                if fit.showsOverflow {
-                    Text("+\(count - fit.shown)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(red: 0x8A / 255, green: 0x90 / 255, blue: 0x9A / 255)).frame(width: euclideousMidiChipW)
-                }
-            }
-            Spacer(minLength: 0)
+        let st = live.pool(lane: lane)
+        let sorted = st.notes.map { Int($0) }
+        let chips = euclideousRankChips(sortedPool: sorted, litMask: st.playedRanks) { n in n >= 0 && n <= 127 ? name(UInt8(n), st.notes) : "\u{2013}" }
+        let gap: CGFloat = 3
+        let w = max(1, (size.width - gap * 7) / 8)
+        HStack(spacing: gap) {
+            ForEach(0..<8, id: \.self) { i in EuclideousRankChipView(spec: chips[i], accent: tint, size: CGSize(width: w, height: size.height)) }
         }
-        .frame(width: max(1, room), alignment: .leading)
-        .opacity(frozen ? 0.6 : 1)
+        .frame(width: size.width, height: size.height, alignment: .leading)
+        .opacity(frozen || st.keepHolding ? 0.6 : 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Now")
-        .accessibilityValue(count == 0 ? "empty" : (names.joined(separator: ", ") + (count > names.count ? ", and \(count - names.count) more" : "")))
+        .accessibilityValue(euclideousPoolNowSpoken(names: st.notes.isEmpty ? [] : (0..<8).compactMap { r in
+            let ext = euclideousGlobalPoolExtended(sortedRaw: sorted)
+            return r < ext.count ? spokenName(ext[r], st.notes) : nil
+        }))
+    }
+}
+
+/// POOL ferry 2.5: the PEDAL light — a DISPLAY, not a button: a 5 pt circle, sp4, then "PEDAL" in the mode buttons' heavy label face, centred together on the row's third column. Row on and the pedal down: lane100 fill, ink #15161A, circle
+/// #15161A. Row on, pedal up: no fill, a 1 pt #3A3E47 border, text #AAB0BA, circle #4A4E57. Row off: the off look (#24262C, #7C828D, circle #4A4E57). One VoiceOver element, "Pedal", whose value is "down" or "up".
+struct PoolPedalLightView: View {
+    let lane: Int
+    let rowOn: Bool
+    let accent: Color
+    let size: CGSize
+    @ObservedObject var live: AnswerLiveModel
+
+    var body: some View {
+        let down = live.pool(lane: lane).pedalDown
+        let look = euclideousPedalLook(rowOn: rowOn, pedalDown: down)
+        let ink = Color(red: 0x15 / 255, green: 0x16 / 255, blue: 0x1A / 255)
+        let text: Color = look == .down ? ink : (look == .up ? Color(red: 0xAA / 255, green: 0xB0 / 255, blue: 0xBA / 255) : Color(red: 0x7C / 255, green: 0x82 / 255, blue: 0x8D / 255))
+        let dot: Color = look == .down ? ink : Color(red: 0x4A / 255, green: 0x4E / 255, blue: 0x57 / 255)
+        HStack(spacing: 4) {
+            Circle().fill(dot).frame(width: 5, height: 5)
+            Text("PEDAL").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(text).lineLimit(1)
+        }
+        .frame(width: size.width, height: size.height)
+        .background(RoundedRectangle(cornerRadius: 7).fill(look == .down ? accent : (look == .off ? Color(red: 0x24 / 255, green: 0x26 / 255, blue: 0x2C / 255) : Color.clear)))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(look == .up ? Color(red: 0x3A / 255, green: 0x3E / 255, blue: 0x47 / 255) : Color.clear, lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Pedal, lane \(lane + 1)")
+        .accessibilityValue(euclideousPoolPedalSpoken(down: down))
     }
 }

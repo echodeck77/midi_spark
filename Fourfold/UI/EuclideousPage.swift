@@ -5960,23 +5960,81 @@ struct EuclideousPage: View {
         .accessibilityAdjustableAction { dir in set(euclideousPoolHoldMoved(hold, by: dir == .increment ? 1 : -1)) }
         .accessibilityAction(named: "Set all lanes") { setAll(hold) })
     }
-    /// ANSWER §10 (2026-11-02): the POOL tab — NOW (the notes this lane is choosing from right now), then CANON and FREEZE, moved here unchanged from LISTEN ("they decide when a lane's pool changes, not how the lane relates to another lane"). The body uses
-    /// ANSWER's frame and row grammar: the 50 pt label column and sp8 between rows; three 44 pt rows.
+    /// POOL (ferry 2026-11-02): NOW, SOURCES, CANON, FREEZE, SUSTAIN — which harmony a lane hears and when, never which notes are removed from it. ANSWER's frame and row grammar: the 50 pt label column, sp8 between rows, sp4 between
+    /// controls; heights from `euclideousPoolTabLayout` (44 / 30 / 44 / 44 / 44 giving up height evenly down to a 30 pt floor). When even the floors do not fit (a very short window) the body scrolls: no row is squeezed under 30 pt.
     private func poolTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        let labelW = EuclideousAnswerTabMetrics.labelColumn, gap = EuclideousAnswerTabMetrics.gap
-        let rowH = max(EuclideousAnswerTabMetrics.rowFloor, min(EuclideousAnswerTabMetrics.rowIdeal, (contentAreaH - gap * 2) / 3))
-        let frozen = idx < poolHoldStatus.count && poolHoldStatus[idx].running
-        return VStack(spacing: gap) {
-            HStack(spacing: 0) {
-                Text("NOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-                AnswerPoolNowView(lane: idx, tint: lane100(accent), room: max(1, fullWidth - labelW), frozen: frozen, flatKey: euclideousKeyIsFlat(((keyRoot % 12) + 12) % 12, scaleType: keyType), live: answerLive)
-            }
-            .frame(width: fullWidth, height: rowH)
-            listenCanonRow(idx, line, fullWidth: fullWidth, height: rowH)
-            listenFreezeRow(idx, line, fullWidth: fullWidth, height: rowH)
+        let layout = euclideousPoolTabLayout(contentAreaH: contentAreaH)
+        let rows = VStack(spacing: layout.gap) {
+            poolNowRow(idx, accent, fullWidth: fullWidth, height: layout.nowH)
+            poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
+            listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH)
+            listenFreezeRow(idx, line, fullWidth: fullWidth, height: layout.freezeH)
+            poolSustainRow(idx, line, accent, fullWidth: fullWidth, height: layout.sustainH)
             Spacer(minLength: 0)
         }
-        .frame(width: fullWidth, height: contentAreaH, alignment: .top)
+        if layout.fits { return AnyView(rows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
+        return AnyView(ScrollView(.vertical, showsIndicators: false) { rows.frame(width: fullWidth, alignment: .top) }
+            .frame(width: fullWidth, height: contentAreaH, alignment: .top))
+    }
+    /// 2.2: NOW — the label, then eight rank chips of the lane's pool as it is choosing from it (leaf-observed: the page does not re-run for the status feed).
+    private func poolNowRow(_ idx: Int, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let labelW = EuclideousPoolTabMetrics.labelColumn
+        let frozen = idx < poolHoldStatus.count && poolHoldStatus[idx].running
+        return AnyView(HStack(spacing: 0) {
+            Text("NOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            PoolNowChipsView(lane: idx, tint: lane100(accent), size: CGSize(width: max(1, fullWidth - labelW), height: height), frozen: frozen,
+                             spokenName: { n, pool in euclideousAccessibleDisplayNoteName(UInt8(max(0, min(127, n))), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
+                             name: { n, pool in euclideousDisplayNoteName(n, source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
+                             live: answerLive)
+        }
+        .frame(width: fullWidth, height: height))
+    }
+    /// 2.3: SOURCES — four equal toggles (MIDI IN · CHORDS · PICK · KEY, the sources panel's order), 26 tall, the mode buttons' heavy label face. On: the selected look in the lane's colour; off: the unselected look. A source switched off in the
+    /// sources panel draws at 40 % (it still toggles; the lane's choice is kept for when the source comes back). One `edit`, one undo step, per tap.
+    private func poolSourcesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 4
+        let btnW = max(1, (fullWidth - labelW - gap * 4) / 4)
+        let panel = euclideousPanelSwitches(sourcePlan)
+        let panelOn = [panel.midi, panel.chords, panel.pick, panel.key]
+        let names = ["MIDI IN", "CHORDS", "PICK", "KEY"]
+        return AnyView(HStack(spacing: gap) {
+            Text("SOURCES").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            ForEach(0..<4, id: \.self) { b in
+                let on = line.poolSrcOn(b)
+                Text(names[b]).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1)
+                    .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                    .frame(width: btnW, height: min(EuclideousPoolTabMetrics.toggleH, height))
+                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                    .opacity(euclideousLaneSourceToggleOpacity(panelOn: panelOn[b]))
+                    .frame(width: btnW, height: height)
+                    .contentShape(Rectangle())
+                    .onTapGesture { edit(idx) { $0.setPoolSrc(b, !$0.poolSrcOn(b)) } }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(euclideousPoolSourceNames[b]), lane \(idx + 1)")   // the lane is part of the name: four cards carry the same toggles
+                    .accessibilityValue(euclideousPoolSourceValue(on: on, panelOn: panelOn[b]))
+                    .accessibilityAddTraits(.isButton)
+                    .ringToggleTrait()
+            }
+        }
+        .frame(width: fullWidth, height: height))
+    }
+    /// 2.5: SUSTAIN — the label cell is the row's switch (ANSWER's, off looks and remembered mode included), then KEEP / "TAKE NOTHING NEW" and STACK / "LOSE NOTHING" in ANSWER's mode-button look (a tap selects one and switches the row on),
+    /// then the PEDAL light — a display.
+    private func poolSustainRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 4
+        let btnW = max(1, (fullWidth - labelW - gap * 3) / 3)
+        let on = line.poolSustainOnResolved, mode = line.poolSustainModeResolved
+        func pick(_ m: EuclideousSustainMode) { edit(idx) { $0.poolSustainMode = m; $0.poolSustainOn = true } }   // selecting a mode of an off row switches it on (answer-pool 3.3)
+        return AnyView(HStack(spacing: gap) {
+            answerSwitchCell(name: "SUSTAIN", spoken: "Sustain, lane \(idx + 1)", on: on, accent: accent, width: labelW, height: height) { edit(idx) { $0.poolSustainOn = !$0.poolSustainOnResolved } }
+            answerModeButton(name: "KEEP", hint: "TAKE NOTHING NEW", selected: mode == .keep, rowOn: on, spoken: euclideousSustainModeSpoken(mode: .keep, rowOn: on, lane: idx),
+                             width: btnW, height: height, accent: accent) { pick(.keep) }
+            answerModeButton(name: "STACK", hint: "LOSE NOTHING", selected: mode == .stack, rowOn: on, spoken: euclideousSustainModeSpoken(mode: .stack, rowOn: on, lane: idx),
+                             width: btnW, height: height, accent: accent) { pick(.stack) }
+            PoolPedalLightView(lane: idx, rowOn: on, accent: lane100(accent), size: CGSize(width: btnW, height: height), live: answerLive)
+        }
+        .frame(width: fullWidth, height: height))
     }
     /// ANSWER (2026-11-02): FOLLOW, RHYTHM, PITCH, [the PITCH panel while PITCH is on with SHADOW], TRADE, [the CYCLE row while something cycles]. CANON / FREEZE live on POOL, the rhythm panel on RHYTHM, the footer is gone. Heights come from
     /// `euclideousAnswerTabLayout` (rows 44 when they fit, down to a 30 pt floor).

@@ -299,6 +299,16 @@ struct EuclideousLanePoolStatus: Equatable {
     var playedRanks: UInt8 = 0
 }
 
+/// The part of a lane's pool status the PAGE reads (the NOTES keys): the notes and the two highest — nothing that changes with every hit, so the page is not re-run at the hit rate.
+struct EuclideousLanePoolNotes: Equatable {
+    var count = 0
+    var notes: [UInt8] = []
+    var top2: UInt8 = 0
+    var top: UInt8 = 0
+    init() {}
+    init(_ s: EuclideousLanePoolStatus) { count = s.count; notes = s.notes; top2 = s.top2; top = s.top }
+}
+
 // MARK: - 12: VoiceOver words (the page reads these and nothing else)
 
 /// The three switchable rows.

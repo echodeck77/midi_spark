@@ -10469,6 +10469,14 @@ func euclideousPoolNowSpoken(names: [String]) -> String { names.isEmpty ? "empty
 /// 9.2: a SOURCES toggle's name and value.
 let euclideousPoolSourceNames = ["MIDI in", "Chords", "Pick", "Key"]
 func euclideousPoolSourceValue(on: Bool, panelOn: Bool) -> String { (on ? "on" : "off") + (panelOn ? "" : ", off in sources") }
+/// 9.3: a SUSTAIN mode button, "Sustain keep, lane 2, takes nothing new" (", off" when the row is off). The lane is part of the name: four cards carry the same row.
+func euclideousSustainModeSpoken(mode: EuclideousSustainMode, rowOn: Bool, lane: Int) -> String {
+    let what = mode == .keep ? "takes nothing new" : "loses nothing"
+    return "Sustain \(mode.rawValue.lowercased()), lane \(lane + 1), \(what)\(rowOn ? "" : ", off")"
+}
+/// 2.5: how the PEDAL light draws — the row off, or on with the pedal up / down.
+enum EuclideousPedalLook: Equatable { case off, up, down }
+func euclideousPedalLook(rowOn: Bool, pedalDown: Bool) -> EuclideousPedalLook { !rowOn ? .off : (pedalDown ? .down : .up) }
 /// 9.3: the PEDAL light's value.
 func euclideousPoolPedalSpoken(down: Bool) -> String { down ? "down" : "up" }
 /// 9.4: a grid label chip, "Rank n, <note>".

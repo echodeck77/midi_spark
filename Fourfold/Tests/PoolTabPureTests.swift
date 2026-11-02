@@ -224,3 +224,19 @@ final class PoolTabPureTests: XCTestCase {
         XCTAssertEqual(euclideousRankChipGridSpoken(rank: 3, note: "E flat 3"), "Rank 3, E flat 3"); XCTAssertEqual(euclideousPickedLaneSpoken(1), "lane 2")
     }
 }
+
+final class PoolTabPureExtrasTests: XCTestCase {
+    func testTheSustainModeWordsAndThePedalLook() {
+        XCTAssertEqual(euclideousSustainModeSpoken(mode: .keep, rowOn: true, lane: 1), "Sustain keep, lane 2, takes nothing new")
+        XCTAssertEqual(euclideousSustainModeSpoken(mode: .stack, rowOn: false, lane: 3), "Sustain stack, lane 4, loses nothing, off")
+        XCTAssertEqual(euclideousPedalLook(rowOn: false, pedalDown: true), .off, "a row that is off does not light, whatever the pedal does")
+        XCTAssertEqual(euclideousPedalLook(rowOn: true, pedalDown: false), .up); XCTAssertEqual(euclideousPedalLook(rowOn: true, pedalDown: true), .down)
+    }
+    func testThePageSeesOnlyTheNotesOfALanePool() {
+        var s = EuclideousLanePoolStatus(); s.count = 20; s.notes = [48, 50]; s.top2 = 90; s.top = 95; s.playedRanks = 0b101; s.pedalDown = true
+        let n = EuclideousLanePoolNotes(s)
+        XCTAssertEqual(n.count, 20); XCTAssertEqual(n.notes, [48, 50]); XCTAssertEqual(n.top2, 90); XCTAssertEqual(n.top, 95)
+        var t = s; t.playedRanks = 0b010; t.pedalDown = false
+        XCTAssertEqual(EuclideousLanePoolNotes(t), n, "the played ranks and the pedal are not part of what the page reads")
+    }
+}
