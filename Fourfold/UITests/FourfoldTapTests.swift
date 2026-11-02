@@ -262,7 +262,8 @@ final class FourfoldTapTests: XCTestCase {
     /// POOL (2026-11-02): the POOL tab's SOURCES toggles and SUSTAIN switch / modes edit through the document and back through undo (one step each); NOW reads the pool; the grid's lane picker steps 1 → 2 → 3 → 4 → 1 and the NOTES keys carry
     /// their rank numbers in their names.
     func testThePoolTabSwitchesSourcesSustainAndTheGridPicker() {
-        let app = XCUIApplication.fresh()
+        let app = XCUIApplication.fresh(["--autoplay"])   // a stopped engine has no pools to show (as before the ferry: the old shared pool was only refreshed while playing)
+        Thread.sleep(forTimeInterval: 1.5)
         app.els(prefix: "Pool, ").firstMatch.tap()
         need(app.els(prefix: "Now, lane 1").firstMatch, "the NOW row (a leaf: the status feed does not re-run the page)")
         // SOURCES: a toggle is one undo step, the lane's name is in its label
