@@ -45,3 +45,10 @@ GOLDEN OCTAVES ROOT over CHORDS + KEY, a low note: events=3500 hash=5c0950914c2a
 GOLDEN OCTAVES ROOT over CHORDS + KEY + PICK KEEP, a low note: events=3748 hash=a6fe43600869631
 GOLDEN OCTAVES ROOT with delayed lanes: events=3508 hash=b0dd19f952580f5b
 GOLDEN OCTAVES ALL: documents=8 events=21348 hash=9584d4e4a2602075
+GOLDEN ANSWER ANSWER every row off, fields stored: events=1032 hash=936d68ef3f34a39f
+GOLDEN ANSWER ANSWER PITCH + RHYTHM cycles in bars: events=1032 hash=14fa1a15d166a153
+GOLDEN ANSWER ANSWER cycles in passes: events=1028 hash=69708e30af22393d
+GOLDEN ANSWER ANSWER BORROW: events=1352 hash=85fed7f074ae7efb
+GOLDEN ANSWER ANSWER SWAP + BORROW: events=1352 hash=25e76d940623f8b5
+GOLDEN ANSWER ANSWER cycling rows + a trade on one lane: events=584 hash=c9be3b46d96e3a41
+GOLDEN ANSWER ALL: documents=6 events=6380 hash=97be53a6a1ed7a7d
