@@ -152,19 +152,14 @@ final class Router {
     private var tradeRecHadRiff = false
     // ANSWER status for the UI poll: each lane's running cycle (the phase bar's playhead, the VoiceOver words) and its pool as it is choosing from it right now (the POOL tab's NOW row). Written on the render thread, read on the main
     // thread — display only, the same plain-property hand-off as the FREEZE status; fixed-size, never reallocated.
-    private var answerStat = [EuclideousAnswerLaneStatus](repeating: EuclideousAnswerLaneStatus(), count: 4)
-    private var lanePoolNotes = [UInt8](repeating: 0, count: 64)       // 4 lanes × 16 ascending notes
-    private var lanePoolCount = [Int](repeating: 0, count: 4)           // the pool's true size (the notes beyond 16 are not copied)
-    func euclideousAnswerStatus() -> [EuclideousAnswerLaneStatus] { answerStat }
-    func euclideousLanePoolStatus() -> [EuclideousLanePoolStatus] {
-        (0..<4).map { l in EuclideousLanePoolStatus(count: lanePoolCount[l], notes: Array(lanePoolNotes[(l * 16)..<(l * 16 + min(16, lanePoolCount[l]))]),
-                                                    top2: lanePoolTop[l * 2], top: lanePoolTop[l * 2 + 1], srcBits: lanePoolSrcBits[l], pedalDown: lanePoolPedal, keepHolding: lanePoolKeep[l], playedRanks: lanePlayedRanks[l]) }
-    }
+    private let laneStat = EuclideousLaneStatusStore()   // each lane's pool as it is choosing from it + the POOL status: plain fixed memory (cross-thread display feed)
+    func euclideousAnswerStatus() -> [EuclideousAnswerLaneStatus] { laneStat.answerSnapshot() }
+    func euclideousLanePoolStatus() -> [EuclideousLanePoolStatus] { laneStat.snapshot() }
     private func answerResetRun() {
         answerFreshRun = true
         for i in 0..<4 { answerLatch[i].reset(); answerUnitIndex[i] = 0; answerBoundary[i] = .infinity }
         answerEngaged = false; answerBeforeBits = 0; answerAfterBits = 0; answerTradeBits = 0; answerFlipAtStart = 0; answerPrevAfterBits = 0
-        for i in 0..<4 { answerTraderOf[i] = 0; answerStat[i] = EuclideousAnswerLaneStatus() }
+        for i in 0..<4 { answerTraderOf[i] = 0; laneStat.answer[i] = EuclideousAnswerLaneStatus() }
     }
     /// Is lane `lane` in phase B at musical beat `m` this window? (Its boundary, if one falls inside the window, is `answerBoundary`; the bits are per LANE, resolved through its phase lane at plan time.)
     @inline(__always) private func answerPhaseIsB(lane: Int, atBeat m: Double) -> Bool {
@@ -219,7 +214,7 @@ final class Router {
     /// window: the next window's start catches up); under a lock split the boundary waits for the next window. Both lanes of a SWAP pair take their phase from the lower-numbered lane.
     private func planAnswer(lines: [EuclidLine], mStart ws: Double, mEnd we: Double, defaultRateBeats: Double, splitSuppressed: Bool) {
         answerEngaged = false; answerBeforeBits = 0; answerAfterBits = 0; answerTradeBits = 0
-        for i in 0..<4 { answerBoundary[i] = .infinity; answerTraderOf[i] = 0; answerStat[i] = EuclideousAnswerLaneStatus() }
+        for i in 0..<4 { answerBoundary[i] = .infinity; answerTraderOf[i] = 0; laneStat.answer[i] = EuclideousAnswerLaneStatus() }
         let n = min(4, lines.count)
         let fresh = answerFreshRun
         answerFreshRun = false
@@ -304,8 +299,8 @@ final class Router {
                 }
                 let st = EuclideousAnswerLaneStatus(running: true, phaseB: phaseNow == .b, unitInHalf: (u % (2 * latch.each)) % latch.each, each: latch.each,
                                                    progress: euclideousAnswerPhaseProgress(unitsSinceStart: u, fractionOfUnit: frac, each: latch.each))
-                answerStat[pl] = st
-                if let partner = pairPartner { answerStat[partner] = st }
+                laneStat.answer[pl] = st
+                if let partner = pairPartner { laneStat.answer[partner] = st }
             }
         }
         answerEngaged = engaged
@@ -1017,12 +1012,7 @@ final class Router {
     private var poolHoldTakeBeat = [Double](repeating: 0, count: 4)   // beat at the take (for the §2.8 remaining fraction)
     private var poolHoldLastBar = [Int](repeating: Int.min, count: 4) // last host-bar index processed (atBoundary = curBar > this)
     // §2.8 status, per lane per window, read by the UI's 30 Hz poll (the FREEZE cell's dim + draining bar).
-    private var poolHoldStatRunning = [Bool](repeating: false, count: 4)
-    private var poolHoldStatLocked = [Bool](repeating: false, count: 4)
-    private var poolHoldStatFraction = [Double](repeating: 0, count: 4)
-    func euclideousPoolHoldStatus() -> [EuclideousPoolHoldLaneStatus] {
-        (0..<4).map { EuclideousPoolHoldLaneStatus(running: poolHoldStatRunning[$0], locked: poolHoldStatLocked[$0], fraction: poolHoldStatFraction[$0]) }
-    }
+    func euclideousPoolHoldStatus() -> [EuclideousPoolHoldLaneStatus] { laneStat.holdSnapshot() }
     // POOL ferry SUSTAIN (2026-11-02) §4: per lane, the hold's bookkeeping + its KEEP copy / STACK set (insertion order, oldest first) — fixed-size, no allocation; engine state, never saved. Reset (with the canon clock) at a transport
     // edge, a scene flush / load and a reset, never by an edit; the pedal's LEVEL lives in the Kernel, so a pedal still down after a stop is no edge for any lane.
     private var sustainState = [EuclideousSustainLaneState](repeating: EuclideousSustainLaneState(), count: 4)
@@ -1032,18 +1022,13 @@ final class Router {
     private var sustainSeq: UInt32 = 0
     // POOL ferry status (per lane, written where POOL NOW samples the pool, read by the UI's 30 Hz poll): the two highest notes (TOP 2 / TOP stay right past 16 notes), the lane's effective sources (bit n = source n on), the pedal and KEEP, and the
     // ranks the lane's last hit struck.
-    private var lanePoolTop = [UInt8](repeating: 0, count: 8)          // lane * 2: second-highest, highest
-    private var lanePoolSrcBits = [UInt8](repeating: euclideousPoolSrcAll, count: 4)
-    private var lanePoolKeep = [Bool](repeating: false, count: 4)
-    private var lanePoolPedal = false
-    private var lanePlayedRanks = [UInt8](repeating: 0, count: 4)
     /// How many times the stacked pool function has run, ever (POOL ferry 3.4: the builds a session costs; tests read the difference across a window).
     private(set) var poolBuildCount = 0
     private func resetCanonClock() {
-        sustainResetPending = true; for i in 0..<4 { lanePlayedRanks[i] = 0; lanePoolKeep[i] = false }
+        sustainResetPending = true; for i in 0..<4 { laneStat.played[i] = 0; laneStat.keep[i] = false }
         canonElapsedAccum = 0; canonWinElapsed = 0; canonHistory.reset(); canonBufChord = .min; canonBufEntry = .min
         for i in 0..<4 { poolHoldRunning[i] = false; poolHoldLastBar[i] = Int.min; poolHoldCopyCount[i] = 0
-            poolHoldStatRunning[i] = false; poolHoldStatLocked[i] = false; poolHoldStatFraction[i] = 0 }
+            laneStat.holdRunning[i] = false; laneStat.holdLocked[i] = false; laneStat.holdFraction[i] = 0 }
     }
     private var euclideousStatusMidiCount = 0
     private var euclideousStatusMidiPlaying = false
@@ -2382,7 +2367,7 @@ final class Router {
             euclideousStatusChordsLit = false; euclideousStatusChordsRest = false
             euclideousStatusKeyLit = false; euclideousStatusKeyAdded = 0
             euclideousStatusPickLit = false; euclideousStatusDropped = 0; euclideousStatusPoolCount = 0
-            for i in 0..<4 { lanePoolCount[i] = 0 }   // POOL NOW: nothing contributes, so no lane is choosing from anything
+            for i in 0..<4 { laneStat.count[i] = 0 }   // POOL NOW: nothing contributes, so no lane is choosing from anything
             euclideousStatusMidiAdded = 0; euclideousStatusChordsAdded = 0; euclideousStatusPickAdded = 0
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
@@ -2862,13 +2847,13 @@ final class Router {
                 }
                 // §2.8 status for the UI poll: running / locked / the remaining fraction (bars remaining − the fraction of the current bar elapsed) ÷ n.
                 let running = poolHoldRunning[lane]
-                poolHoldStatRunning[lane] = running
-                poolHoldStatLocked[lane] = running && hold >= euclideousPoolHoldLock
+                laneStat.holdRunning[lane] = running
+                laneStat.holdLocked[lane] = running && hold >= euclideousPoolHoldLock
                 if running && hold > 0 && hold < euclideousPoolHoldLock {
                     let bst = Double(max(0, curBar - poolHoldTakeBar[lane]))
                     let fracBar = (beat - Double(curBar) * barBeats) / barBeats
-                    poolHoldStatFraction[lane] = max(0, min(1, (Double(hold) - bst - fracBar) / Double(hold)))
-                } else { poolHoldStatFraction[lane] = 0 }
+                    laneStat.holdFraction[lane] = max(0, min(1, (Double(hold) - bst - fracBar) / Double(hold)))
+                } else { laneStat.holdFraction[lane] = 0 }
             }
             // POOL ferry SUSTAIN (2026-11-02) §4: the stage after FREEZE. `euclideousSustainGate` (pure) decides: pass, take a down edge, serve the KEEP copy or the STACK union — in place over the shared pool buffer, which is then parked on the dirty
             // key so the next lane re-merges the pool it should read (the way FREEZE's KEEP does).
@@ -2962,16 +2947,16 @@ final class Router {
             // An empty pool clears the lane's lit ranks (nothing is playing out of it).
             func writeLanePoolStatus(lane: Int, line: EuclidLine) {
                 let c = laneCount(lane)
-                lanePoolCount[lane] = c
+                laneStat.count[lane] = c
                 let ns = laneNotes(lane)
-                for i in 0..<min(16, c) { lanePoolNotes[lane * 16 + i] = UInt8(clamping: ns[ns.startIndex + i].note) }
-                lanePoolTop[lane * 2] = c >= 2 ? UInt8(clamping: ns[ns.startIndex + c - 2].note) : 0
-                lanePoolTop[lane * 2 + 1] = c >= 1 ? UInt8(clamping: ns[ns.startIndex + c - 1].note) : 0
+                for i in 0..<min(16, c) { laneStat.notes[lane * 16 + i] = UInt8(clamping: ns[ns.startIndex + i].note) }
+                laneStat.top[lane * 2] = c >= 2 ? UInt8(clamping: ns[ns.startIndex + c - 2].note) : 0
+                laneStat.top[lane * 2 + 1] = c >= 1 ? UInt8(clamping: ns[ns.startIndex + c - 1].note) : 0
                 let eff = euclideousLaneSources(panel: euclideousPanelSwitches(euPlan), mask: line.poolSrcMaskResolved)
-                lanePoolSrcBits[lane] = (eff.midi ? 1 : 0) | (eff.chords ? 2 : 0) | (eff.pick ? 4 : 0) | (eff.key ? 8 : 0)
-                lanePoolKeep[lane] = euclideousSustainKeepIsHolding(sustainState[lane], on: line.poolSustainOnResolved, mode: line.poolSustainModeResolved, pedalDown: sustainPedal)
-                lanePoolPedal = sustainPedal
-                if c == 0 { lanePlayedRanks[lane] = 0 }
+                laneStat.srcBits[lane] = (eff.midi ? 1 : 0) | (eff.chords ? 2 : 0) | (eff.pick ? 4 : 0) | (eff.key ? 8 : 0)
+                laneStat.keep[lane] = euclideousSustainKeepIsHolding(sustainState[lane], on: line.poolSustainOnResolved, mode: line.poolSustainModeResolved, pedalDown: sustainPedal)
+                laneStat.pedal = sustainPedal
+                if c == 0 { laneStat.played[lane] = 0 }
             }
             // A lane with no hits (or switched off) still has a pool its NOW row and NOTES keys name: its pool through its own sources at the window start (CANON, FREEZE and SUSTAIN need hits to act, so they are not applied).
             func idleLanePoolSample(lane: Int, line: EuclidLine) {
@@ -2979,7 +2964,7 @@ final class Router {
                 if mask != euclideousPoolSrcAll { refreshLaneStack(plan: euclideousLaneSourcePlan(euPlan, mask: mask), mask: mask, atBeat: mWinStart) }
                 else if chordPoolStep == euclideousCanonDirtyKey { mergeStack(atBeat: mWinStart + 1e-9) }
                 writeLanePoolStatus(lane: lane, line: line)
-                lanePlayedRanks[lane] = 0
+                laneStat.played[lane] = 0
             }
             // one line = one euclid pass; reuses `euclidBuf` (filled + consumed synchronously before the next line).
             // DIRECTION (Paul 2026-10-01, 3-way redesign): `dir` replaces the old binary `reverse` — FWD/BKW read the
@@ -4751,7 +4736,7 @@ final class Router {
                             // scratch), emit this lane's own hit unless it trades away, then each lane trading WITH it emits the recorded set re-voiced through that lane's own part buses, octave, out-transpose, VEL pad, outputs, hocket,
                             // LANES mute and solo. TRADE reads OWN strikes only (a pusher is never a pushee), so chains and mutual swaps cannot loop.
                             // POOL ferry (2.2 / 6.2): the ranks this hit struck — raw pitches matched to the lane's pool ranks (octave copies included) — for NOW's and the riff grid's lit bar. Kept until the next hit; cleared at a transport edge.
-                            if isEuclideousRow, lineIndex >= 0, lineIndex < 4 { lanePlayedRanks[lineIndex] = euclideousPlayedRankMask(pitches: pitchRaw, count: pitchCount, pool: laneNotes(lineIndex)) }
+                            if isEuclideousRow, lineIndex >= 0, lineIndex < 4 { laneStat.played[lineIndex] = euclideousPlayedRankMask(pitches: pitchRaw, count: pitchCount, pool: laneNotes(lineIndex)) }
                             if tradePushNow != 0 {
                                 tradeRecCount = pitchCount
                                 for j in 0..<pitchCount { tradeRecRaw[j] = pitchRaw[j]; tradeRecGate[j] = pitchGate[j]; tradeRecPoly[j] = polyBeats[j] }

@@ -299,6 +299,38 @@ struct EuclideousLanePoolStatus: Equatable {
     var playedRanks: UInt8 = 0
 }
 
+/// The per-lane pool status the render thread writes and the UI's 30 Hz poll reads, as PLAIN FIXED MEMORY allocated once: no ARC, no copy-on-write, no bounds traps. A Swift array shared across two threads is not safe even for a display feed — a write
+/// while the other thread holds the buffer copies it (an allocation on the render thread) and a racing read can trap on a stale count (the POOL ferry's monkey run crashed on exactly that, `Router.euclideousLanePoolStatus`). A torn read here is a stale
+/// number, never a crash.
+final class EuclideousLaneStatusStore {
+    let notes = UnsafeMutablePointer<UInt8>.allocate(capacity: 64)        // 4 lanes × 16 ascending notes
+    let count = UnsafeMutablePointer<Int>.allocate(capacity: 4)           // each pool's true size (the notes beyond 16 are not copied)
+    let top = UnsafeMutablePointer<UInt8>.allocate(capacity: 8)           // lane * 2: second-highest, highest
+    let srcBits = UnsafeMutablePointer<UInt8>.allocate(capacity: 4)       // the lane's effective sources (bit n = source n on)
+    let keep = UnsafeMutablePointer<Bool>.allocate(capacity: 4)           // SUSTAIN KEEP is holding
+    let played = UnsafeMutablePointer<UInt8>.allocate(capacity: 4)        // the ranks (bit r−1) the lane's last hit struck
+    var pedal = false
+    // The ANSWER cycle status and the FREEZE status ride the same hand-off (they were arrays: the same race).
+    let answer = UnsafeMutablePointer<EuclideousAnswerLaneStatus>.allocate(capacity: 4)
+    let holdRunning = UnsafeMutablePointer<Bool>.allocate(capacity: 4)
+    let holdLocked = UnsafeMutablePointer<Bool>.allocate(capacity: 4)
+    let holdFraction = UnsafeMutablePointer<Double>.allocate(capacity: 4)
+    init() {
+        answer.initialize(repeating: EuclideousAnswerLaneStatus(), count: 4); holdRunning.initialize(repeating: false, count: 4); holdLocked.initialize(repeating: false, count: 4); holdFraction.initialize(repeating: 0, count: 4)
+        notes.initialize(repeating: 0, count: 64); count.initialize(repeating: 0, count: 4); top.initialize(repeating: 0, count: 8)
+        srcBits.initialize(repeating: euclideousPoolSrcAll, count: 4); keep.initialize(repeating: false, count: 4); played.initialize(repeating: 0, count: 4)
+    }
+    deinit { notes.deallocate(); count.deallocate(); top.deallocate(); srcBits.deallocate(); keep.deallocate(); played.deallocate(); answer.deallocate(); holdRunning.deallocate(); holdLocked.deallocate(); holdFraction.deallocate() }
+    func answerSnapshot() -> [EuclideousAnswerLaneStatus] { (0..<4).map { answer[$0] } }
+    func holdSnapshot() -> [EuclideousPoolHoldLaneStatus] { (0..<4).map { EuclideousPoolHoldLaneStatus(running: holdRunning[$0], locked: holdLocked[$0], fraction: holdFraction[$0]) } }
+    /// The UI's read (main thread): everything clamped, so a torn read cannot index out of range.
+    func snapshot() -> [EuclideousLanePoolStatus] {
+        (0..<4).map { l in
+            let c = max(0, count[l]), n = min(16, c)
+            return EuclideousLanePoolStatus(count: c, notes: (0..<n).map { notes[l * 16 + $0] }, top2: top[l * 2], top: top[l * 2 + 1], srcBits: srcBits[l], pedalDown: pedal, keepHolding: keep[l], playedRanks: played[l])
+        }
+    }
+}
 /// The part of a lane's pool status the PAGE reads (the NOTES keys): the notes and the two highest — nothing that changes with every hit, so the page is not re-run at the hit rate.
 struct EuclideousLanePoolNotes: Equatable {
     var count = 0
