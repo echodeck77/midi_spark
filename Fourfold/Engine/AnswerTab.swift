@@ -287,6 +287,16 @@ struct EuclideousAnswerLaneStatus: Equatable {
 struct EuclideousLanePoolStatus: Equatable {
     var count = 0
     var notes: [UInt8] = []
+    /// POOL ferry: the pool's two highest notes (0 when it has fewer), so TOP 2 / TOP stay right for a pool of more than 16 notes.
+    var top2: UInt8 = 0
+    var top: UInt8 = 0
+    /// The lane's EFFECTIVE sources (the sources panel's switches AND the lane's own), bit n = MIDI IN · CHORDS · PICK · KEY.
+    var srcBits: UInt8 = euclideousPoolSrcAll
+    var pedalDown = false
+    /// SUSTAIN KEEP is holding this lane's pool right now.
+    var keepHolding = false
+    /// The ranks (bit r−1) the lane's last hit struck.
+    var playedRanks: UInt8 = 0
 }
 
 // MARK: - 12: VoiceOver words (the page reads these and nothing else)

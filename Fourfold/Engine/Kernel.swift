@@ -163,6 +163,11 @@ final class Kernel {
     // left once the ferry dropping the looper also dropped the editing-vs-playing distinction it served.
 
     private var busChannels: [UInt8] = [1, 2, 3, 4]                           // CONTROLLER ROUTING (v1): per-output stamp channels (for the re-stamp forward)
+    // POOL ferry SUSTAIN (2026-11-02): the pedal — CC64 on MIDI IN, after LISTEN ON's channel filter (the mask is mirrored from the snapshot each render); 64…127 is down, 0…63 up. `sustainDownSeq` counts DOWN EDGES so the Router sees a
+    // press-and-release inside one window as the edge it was. CC64 is still forwarded to the outputs exactly as before; nothing here consumes it. Render thread only; never saved.
+    private var sustainChanMask: UInt16 = 0xFFFF
+    private var sustainPedalDown = false
+    private var sustainDownSeq: UInt32 = 0
     private var ignoreAllNotesOff = true     // INPUT (Paul 2026-09-06): mirror of box.ignoreAllNotesOff — suppress a source's CC120/123 wiping the live pool
     // NOTE MONITOR (Paul 2026-08-29): raw held notes are NOT echoed to the output — a CELL is the sole note source, so a
     // fresh instance (nothing selected) is SILENT. Default OFF; kept as a flag so a soundcheck toggle can re-enable it.
@@ -277,6 +282,7 @@ final class Kernel {
         if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
         busChannels = box.busChannels                   // CONTROLLER ROUTING: per-emitter stamp channels
         ignoreAllNotesOff = box.ignoreAllNotesOff        // INPUT: don't let a source's CC120/123 flood wipe the live pool (Paul 2026-09-06)
+        sustainChanMask = box.cells[Snap.euclideousRow].procs.first?.globalSrcChanMask ?? 0xFFFF   // POOL SUSTAIN: the pedal listens on the same channels MIDI IN does
         diag.renderCount &+= 1
         diag.snapshotGen = box.generation
         liveEmitter.out = midiOut       // sync the emission seam to the current host block, this render
@@ -490,6 +496,7 @@ final class Kernel {
                         euclideousPendingRolls: euclideousPendingRolls,
                         euclideousHoldOverrides: euclideousHoldOverrides,
                         euclideousLockLive: euclideousLockLive,
+                        sustainPedalDown: sustainPedalDown, sustainDownSeq: sustainDownSeq,
                         sceneFlush: flushRequested,
                         out: replayingLoop ? reelSilentTap : reelTap, diag: &diag)   // → reelTap (reel + session tape) → liveEmitter; or, while a pass replays, the silent tap (session tape only)
         }
@@ -596,6 +603,12 @@ final class Kernel {
             diag.ccData1 = length > 1 ? bytes[1] : 0
             diag.ccData2 = length > 2 ? bytes[2] : 0
             if status == 0xB0, length >= 3 {
+                // POOL ferry SUSTAIN (4.1): CC64 on a channel LISTEN ON admits — 64…127 down, 0…63 up; a down edge bumps the counter. Forwarded below like every other controller.
+                if bytes[1] == 64, (sustainChanMask >> UInt16(channel)) & 1 != 0 {
+                    let down = bytes[2] >= 64
+                    if down && !sustainPedalDown { sustainDownSeq &+= 1 }
+                    sustainPedalDown = down
+                }
                 // CC120/123 = ALL-SOUND / ALL-NOTES-OFF → flush our LIVE input pool, then forward. But do NOT touch the armed
                 // LATCH/HOLD pools (Paul 2026-08-31 ROOT CAUSE): many sources send CC123 routinely (on chord release, between
                 // phrases, on transport events), and wiping the frozen chord broke HOLD — the held chord died + the input

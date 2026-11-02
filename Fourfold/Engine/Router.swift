@@ -157,7 +157,8 @@ final class Router {
     private var lanePoolCount = [Int](repeating: 0, count: 4)           // the pool's true size (the notes beyond 16 are not copied)
     func euclideousAnswerStatus() -> [EuclideousAnswerLaneStatus] { answerStat }
     func euclideousLanePoolStatus() -> [EuclideousLanePoolStatus] {
-        (0..<4).map { l in EuclideousLanePoolStatus(count: lanePoolCount[l], notes: Array(lanePoolNotes[(l * 16)..<(l * 16 + min(16, lanePoolCount[l]))])) }
+        (0..<4).map { l in EuclideousLanePoolStatus(count: lanePoolCount[l], notes: Array(lanePoolNotes[(l * 16)..<(l * 16 + min(16, lanePoolCount[l]))]),
+                                                    top2: lanePoolTop[l * 2], top: lanePoolTop[l * 2 + 1], srcBits: lanePoolSrcBits[l], pedalDown: lanePoolPedal, keepHolding: lanePoolKeep[l], playedRanks: lanePlayedRanks[l]) }
     }
     private func answerResetRun() {
         answerFreshRun = true
@@ -1022,7 +1023,24 @@ final class Router {
     func euclideousPoolHoldStatus() -> [EuclideousPoolHoldLaneStatus] {
         (0..<4).map { EuclideousPoolHoldLaneStatus(running: poolHoldStatRunning[$0], locked: poolHoldStatLocked[$0], fraction: poolHoldStatFraction[$0]) }
     }
+    // POOL ferry SUSTAIN (2026-11-02) §4: per lane, the hold's bookkeeping + its KEEP copy / STACK set (insertion order, oldest first) — fixed-size, no allocation; engine state, never saved. Reset (with the canon clock) at a transport
+    // edge, a scene flush / load and a reset, never by an edit; the pedal's LEVEL lives in the Kernel, so a pedal still down after a stop is no edge for any lane.
+    private var sustainState = [EuclideousSustainLaneState](repeating: EuclideousSustainLaneState(), count: 4)
+    private var sustainHeld = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 4 * 128)   // lane * 128 + slot
+    private var sustainResetPending = true
+    private var sustainPedal = false
+    private var sustainSeq: UInt32 = 0
+    // POOL ferry status (per lane, written where POOL NOW samples the pool, read by the UI's 30 Hz poll): the two highest notes (TOP 2 / TOP stay right past 16 notes), the lane's effective sources (bit n = source n on), the pedal and KEEP, and the
+    // ranks the lane's last hit struck.
+    private var lanePoolTop = [UInt8](repeating: 0, count: 8)          // lane * 2: second-highest, highest
+    private var lanePoolSrcBits = [UInt8](repeating: euclideousPoolSrcAll, count: 4)
+    private var lanePoolKeep = [Bool](repeating: false, count: 4)
+    private var lanePoolPedal = false
+    private var lanePlayedRanks = [UInt8](repeating: 0, count: 4)
+    /// How many times the stacked pool function has run, ever (POOL ferry 3.4: the builds a session costs; tests read the difference across a window).
+    private(set) var poolBuildCount = 0
     private func resetCanonClock() {
+        sustainResetPending = true; for i in 0..<4 { lanePlayedRanks[i] = 0; lanePoolKeep[i] = false }
         canonElapsedAccum = 0; canonWinElapsed = 0; canonHistory.reset(); canonBufChord = .min; canonBufEntry = .min
         for i in 0..<4 { poolHoldRunning[i] = false; poolHoldLastBar[i] = Int.min; poolHoldCopyCount[i] = 0
             poolHoldStatRunning[i] = false; poolHoldStatLocked[i] = false; poolHoldStatFraction[i] = 0 }
@@ -2041,11 +2059,14 @@ final class Router {
                  euclideousPendingRolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                  euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                  euclideousLockLive: UInt64 = 0,
+                 sustainPedalDown: Bool = false,   // POOL ferry SUSTAIN: the pedal (CC64 on MIDI IN, after LISTEN ON) and its down-edge counter, from the Kernel
+                 sustainDownSeq: UInt32 = 0,
                  sceneFlush: Bool = false,
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
         if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
         tickRamps(atSample: Int64(timestampSample))   // §7: advance any in-flight .parameterRamp before this window's over() reads
+        sustainPedal = sustainPedalDown; sustainSeq = sustainDownSeq   // POOL SUSTAIN: this window's pedal level and edge count
         self.beatsPerBar = beatsPerBar              // FERRY §3: this render's real bar length, in this engine's own beat unit (quarter notes)
 
         busChannels = box.busChannels               // delta §7: per-bus stamp channels, this render
@@ -2345,7 +2366,10 @@ final class Router {
         if playing { canonElapsedAccum += Double(frameCount) * beatsPerSample }
         var canonAnyLane = false
         if let ls = euProc?.euclidLines { for L in ls where L.chordDelayResolved > 0 || L.chordSlipResolved > 0 { canonAnyLane = true; break } }
-        let euclideousAnySource = pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive || canonAnyLane
+        // POOL ferry SUSTAIN: a lane that took a down edge keeps serving its pool after the player lets go — the row stays processed (and the Kernel's silence-leak net reads it as a live source) while any lane is engaged.
+        var sustainAnyEngaged = false
+        for l in 0..<4 where sustainState[l].engaged { sustainAnyEngaged = true; break }
+        let euclideousAnySource = pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive || canonAnyLane || sustainAnyEngaged
         euclideousSourcePresent = euclideousAnySource   // §a8b: tell the Kernel's silence-leak net the row is a live source (generative sources drive voices with an empty live pool)
         guard euclideousAnySource else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
@@ -2683,6 +2707,7 @@ final class Router {
                 fillChordLayer(atBeat: m)
                 let t = euclideousRootT
                 let midi = midiForPool(midiLayerBuf[0..<midiLayerCount])
+                poolBuildCount &+= 1
                 let st = euclideousBuildSourceStack(
                     into: &globalSrcBuf, cap: globalSrcBuf.count,
                     midi: midi, midiPlaying: euclideousStackMidiPlaying,
@@ -2745,6 +2770,7 @@ final class Router {
                 } else {
                     chordLayerCount = 0; chordLayerIsRest = false
                 }
+                poolBuildCount &+= 1
                 let st = euclideousBuildSourceStack(
                     into: &globalSrcBuf, cap: globalSrcBuf.count,
                     midi: midiForPool(canonMidiBuf[0..<midiN]), midiPlaying: playing,   // the history is RAW: a delayed lane folds at read time
@@ -2815,6 +2841,29 @@ final class Router {
                     let fracBar = (beat - Double(curBar) * barBeats) / barBeats
                     poolHoldStatFraction[lane] = max(0, min(1, (Double(hold) - bst - fracBar) / Double(hold)))
                 } else { poolHoldStatFraction[lane] = 0 }
+            }
+            // POOL ferry SUSTAIN (2026-11-02) §4: the stage after FREEZE. `euclideousSustainGate` (pure) decides: pass, take a down edge, serve the KEEP copy or the STACK union — in place over the shared pool buffer, which is then parked on the dirty
+            // key so the next lane re-merges the pool it should read (the way FREEZE's KEEP does).
+            func sustainApplyStage(lane: Int, on: Bool, mode: EuclideousSustainMode) {
+                euclideousSustainGate(&sustainState[lane], on: on, mode: mode, pedalDown: sustainPedal, downSeq: sustainSeq,
+                                      pool: &globalSrcBuf, poolCount: &globalSrcCount, held: &sustainHeld, heldBase: lane * 128, cap: 128)
+                if sustainState[lane].engaged { chordPoolStep = euclideousCanonDirtyKey; canonBufChord = .min; canonBufEntry = .min }
+            }
+            // …and once per window before the lane's ticks, for a lane that has a down edge to take or is STACKing: a sparse lane (one hit a bar) must not miss the chords that passed between its hits (spec 4.4: "every distinct note its pool has
+            // contained"), and a KEEP lane takes the pool of the window the pedal went down in, not of a later hit. The lane's pool at the window start (CANON's, the lane's own sources, or the live one) goes through a state-free FREEZE peek.
+            func sustainWindowSample(lane: Int, on: Bool, mode: EuclideousSustainMode, canonLane: Bool, canonDelayBeats: Double, canonSlip: Int) {
+                guard on, sustainPedal else { return }
+                let st = sustainState[lane]
+                guard sustainSeq != st.seenDownSeq || (st.engaged && mode == .stack) else { return }
+                if canonLane { refreshCanonStack(beat: mWinStart, delayBeats: canonDelayBeats, slip: canonSlip, lane: lane) }
+                else if chordPoolStep == euclideousCanonDirtyKey { mergeStack(atBeat: mWinStart + 1e-9) }
+                if poolHoldRunning[lane] {
+                    let n = poolHoldCopyCount[lane]
+                    for i in 0..<n { globalSrcBuf[i] = poolHoldCopy[lane * 128 + i] }
+                    globalSrcCount = n
+                }
+                sustainApplyStage(lane: lane, on: on, mode: mode)
+                chordPoolStep = euclideousCanonDirtyKey; canonBufChord = .min; canonBufEntry = .min   // the shared buffer holds this lane's pool now, not the live one
             }
             // HOLD/LATCH (Paul 2026-10-20, fixed 2026-10-21): checked HERE, once per Euclideous-row tick, so leaving
             // and returning to a MIDI contribution both reset correctly. Must run BEFORE fillMidiLayer (which reads
@@ -3175,6 +3224,10 @@ final class Router {
                                                                                                     chains: chains, legacySpanBeats: ladderSpanBeats)
                     return
                 }
+                if isEuclideousRow, lineIndex >= 0, lineIndex < 4, lineIndex < linesView.count {   // POOL ferry SUSTAIN: this lane's pool at the window start, for a down edge to take / a STACK to extend (see `sustainWindowSample`)
+                    sustainWindowSample(lane: lineIndex, on: linesView[lineIndex].poolSustainOnResolved, mode: linesView[lineIndex].poolSustainModeResolved,
+                                        canonLane: canonLane, canonDelayBeats: canonDelayBeats, canonSlip: canonSlip)
+                }
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
                              beatPos: beatPos, windowBeats: windowBeats, windowStart: windowStart,
                              beatsPerSample: beatsPerSample, S: S, a: a, columns: max(1, Int((cyc / S).rounded())),
@@ -3195,12 +3248,24 @@ final class Router {
                         let ph = linesView[lineIndex].poolHoldResolved
                         if ph > 0 || poolHoldRunning[lineIndex] { applyPoolHold(lane: lineIndex, hold: ph, beat: mTickBeat) }
                     }
+                    // POOL ferry SUSTAIN: the stage after FREEZE — before POOL NOW and every per-lane read. Skipped while the lane is off and idle (byte-identical).
+                    if isEuclideousRow, lineIndex >= 0, lineIndex < 4, lineIndex < linesView.count, linesView[lineIndex].poolSustainOnResolved || sustainState[lineIndex].engaged {
+                        sustainApplyStage(lane: lineIndex, on: linesView[lineIndex].poolSustainOnResolved, mode: linesView[lineIndex].poolSustainModeResolved)
+                    }
                     // POOL NOW (ANSWER ferry §10.3): the pool THIS lane is choosing from at this hit — after CANON and FREEZE, the per-lane pool every part of the lane reads. Fixed-size copy (≤ 16 ascending notes + the true count).
                     if isEuclideousRow, lineIndex >= 0, lineIndex < 4 {
                         let c = laneCount(lineIndex)
                         lanePoolCount[lineIndex] = c
                         let ns = laneNotes(lineIndex)
                         for i in 0..<min(16, c) { lanePoolNotes[lineIndex * 16 + i] = UInt8(clamping: ns[ns.startIndex + i].note) }
+                        lanePoolTop[lineIndex * 2] = c >= 2 ? UInt8(clamping: ns[ns.startIndex + c - 2].note) : 0
+                        lanePoolTop[lineIndex * 2 + 1] = c >= 1 ? UInt8(clamping: ns[ns.startIndex + c - 1].note) : 0
+                        if lineIndex < linesView.count {
+                            let eff = euclideousLaneSources(panel: euclideousPanelSwitches(euPlan), mask: linesView[lineIndex].poolSrcMaskResolved)
+                            lanePoolSrcBits[lineIndex] = (eff.midi ? 1 : 0) | (eff.chords ? 2 : 0) | (eff.pick ? 4 : 0) | (eff.key ? 8 : 0)
+                            lanePoolKeep[lineIndex] = euclideousSustainKeepIsHolding(sustainState[lineIndex], on: linesView[lineIndex].poolSustainOnResolved, mode: linesView[lineIndex].poolSustainModeResolved, pedalDown: sustainPedal)
+                        }
+                        lanePoolPedal = sustainPedal
                     }
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
@@ -4642,6 +4707,8 @@ final class Router {
                             // ANSWER 6.1: THIS is the point a lane's own strikes are final — every pitch resolved (riff + notes + SHADOW + AVOID), before the MIX stage `emitHit` is. Record the set first (the lane's own emission rewrites the
                             // scratch), emit this lane's own hit unless it trades away, then each lane trading WITH it emits the recorded set re-voiced through that lane's own part buses, octave, out-transpose, VEL pad, outputs, hocket,
                             // LANES mute and solo. TRADE reads OWN strikes only (a pusher is never a pushee), so chains and mutual swaps cannot loop.
+                            // POOL ferry (2.2 / 6.2): the ranks this hit struck — raw pitches matched to the lane's pool ranks (octave copies included) — for NOW's and the riff grid's lit bar. Kept until the next hit; cleared at a transport edge.
+                            if isEuclideousRow, lineIndex >= 0, lineIndex < 4 { lanePlayedRanks[lineIndex] = euclideousPlayedRankMask(pitches: pitchRaw, count: pitchCount, pool: laneNotes(lineIndex)) }
                             if tradePushNow != 0 {
                                 tradeRecCount = pitchCount
                                 for j in 0..<pitchCount { tradeRecRaw[j] = pitchRaw[j]; tradeRecGate[j] = pitchGate[j]; tradeRecPoly[j] = polyBeats[j] }
@@ -5284,6 +5351,17 @@ final class Router {
                     if (answerFlipAtStart >> UInt8(lane)) & 1 != 0 { answerCloseLegato(lane, atBeat: mWinStart) }
                     let b = answerBoundary[lane]
                     if b.isFinite && ((answerBeforeBits ^ answerAfterBits) >> UInt8(lane)) & 1 != 0 { answerCloseLegato(lane, atBeat: b) }
+                }
+            }
+            // POOL ferry SUSTAIN §4.6: once per window per lane, before any lane plays — a change of SUSTAIN's switch or mode drops the hold and marks the pedal's current down edge as dealt with; a reset (transport edge, load) does the same for all.
+            if isEuclideousRow {
+                if sustainResetPending {
+                    for l in 0..<4 { sustainState[l] = EuclideousSustainLaneState(); sustainState[l].seenDownSeq = sustainSeq }
+                    sustainResetPending = false
+                }
+                for l in 0..<min(4, p.euclidLines.count) {
+                    let L = p.euclidLines[l]
+                    euclideousSustainObserve(&sustainState[l], on: L.poolSustainOnResolved, mode: L.poolSustainModeResolved, pedalDown: sustainPedal, downSeq: sustainSeq)
                 }
             }
             for hocketPass in 0..<(clockMask != 0 ? 2 : 1) {
