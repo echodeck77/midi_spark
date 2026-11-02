@@ -350,6 +350,14 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(out.answerCycleEach, 6); XCTAssertEqual(out.answerCycleUnit, .passes)
     }
 
+    // POOL (2026-11-02): per-lane SOURCES and SUSTAIN ride the same fresh literal.
+    func testEuclidLinePoolFieldsSurviveSnapshotBuild() {
+        var l = EuclidLine(target: 0, pulses: 3, steps: 8)
+        l.poolSrcMask = 0b1010; l.poolSustainOn = true; l.poolSustainMode = .stack
+        let out = box(machines(customizing: 0) { $0.paramsA.euclidLines = [l] }) { _ in }.machines[0].a.euclidLines[0]
+        XCTAssertEqual(out.poolSrcMask, 0b1010); XCTAssertEqual(out.poolSustainOn, true); XCTAssertEqual(out.poolSustainMode, .stack)
+    }
+
     // ANSWER 6.5: a SWAP whose partner does not SWAP back never reaches the render thread.
     func testASnapshotSwitchesOffAnUnreturnedSwap() {
         var a = EuclidLine(target: 0, pulses: 3, steps: 8); a.answerTradeOn = true; a.answerTradeMode = .swap; a.answerTradeWith = 2

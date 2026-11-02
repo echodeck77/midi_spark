@@ -56,6 +56,8 @@ final class LaneLockTests: XCTestCase {
             ("listenSource", { $0.listenSource = 2 }), ("listenRhythm", { $0.setAnswerRhythm(.copy) }), ("listenDelay", { $0.listenDelay = 3 }),
             ("listenFeel", { $0.listenFeel = 0.5 }), ("listenSpeed", { $0.listenSpeed = 1 }), ("listenDirection", { $0.listenDirection = .bkw }),
             ("listenPitch", { $0.setAnswerPitch(.echo) }), ("listenInterval", { $0.listenInterval = 3 }), ("listenOctave", { $0.listenOctave = 1 }),
+            // POOL (2026-11-02): per-lane SOURCES and SUSTAIN are not lock fields either.
+            ("poolSrcMask", { $0.setPoolSrc(0, false) }), ("poolSustainOn", { $0.poolSustainOn = true }), ("poolSustainMode", { $0.poolSustainMode = .stack }),
         ]
         let f0 = LaneLockFields(line: blank)
         for (name, m) in others {

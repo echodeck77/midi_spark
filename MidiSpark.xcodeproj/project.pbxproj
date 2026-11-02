@@ -12,6 +12,7 @@
 		0292738F25406C9B34ABE6D6 /* MidiSparkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */; };
 		02B414323ED3737F7469018B /* TapeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B187EF1F183D7FB9E3E25FE /* TapeStore.swift */; };
 		030EF26A6C9B745121BAC89E /* NoteRollLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8515C7210E9F11CE0F1D84D6 /* NoteRollLive.swift */; };
+		03324D3963B5E9D68630258D /* PoolTabModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77749334275AD68C87E2E707 /* PoolTabModelTests.swift */; };
 		03C9703C81F1038A07A5F978 /* AnswerTradeReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9645E965DE0DE6F90ED9E38 /* AnswerTradeReviewTests.swift */; };
 		05DAA79479B5AE2D667435E8 /* DesignKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD093523154373C2AAE660A /* DesignKit.swift */; };
 		061D4BB40DA0FAF758D21370 /* FourfoldStackProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586ABD7101A0017667893A62 /* FourfoldStackProbe.swift */; };
@@ -553,6 +554,7 @@
 		72A94E5F57A6BFB50CBB78AF /* PresetStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStoreTests.swift; sourceTree = "<group>"; };
 		72C3BD2C1AC32230B747C194 /* AcceptanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTests.swift; sourceTree = "<group>"; };
 		72D750CFBA16E2C4B8FBE705 /* UndoAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UndoAuditTests.swift; sourceTree = "<group>"; };
+		77749334275AD68C87E2E707 /* PoolTabModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoolTabModelTests.swift; sourceTree = "<group>"; };
 		782849D7F5C6A7AF7F06EB13 /* AnswerModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerModelTests.swift; sourceTree = "<group>"; };
 		79CAD1A32B1C9FC9B5BEAF2E /* EngineReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineReviewTests.swift; sourceTree = "<group>"; };
 		7A14036510EE49EB0BD7CE1E /* TestSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSessions.swift; sourceTree = "<group>"; };
@@ -885,6 +887,7 @@
 				5DF0A2C1D3809EFFB73B3B50 /* PolyRiffRouterTests.swift */,
 				70E31C280A2B3D60B7BEEEA9 /* PolyRiffTests.swift */,
 				6C095FB6EB2EA58E25B0F802 /* PoolHoldTests.swift */,
+				77749334275AD68C87E2E707 /* PoolTabModelTests.swift */,
 				4448C88CC517582DAFC89326 /* PortsStressTests.swift */,
 				99F625F72C3FD2D49A4440D5 /* PresetStoreTests.swift */,
 				5B1FE1781AE0C4878A7935FE /* PulseTests.swift */,
@@ -1634,6 +1637,7 @@
 				EB9CE84DA9D6331CC2D82BF5 /* PolyRiffRouterTests.swift in Sources */,
 				9C119BC2950B1D3854DD1BA0 /* PolyRiffTests.swift in Sources */,
 				F6EFBFE6B1CB176B5FDFE546 /* PoolHoldTests.swift in Sources */,
+				03324D3963B5E9D68630258D /* PoolTabModelTests.swift in Sources */,
 				50DDE4A2AA20ABE1CD4B82AF /* PortsStressTests.swift in Sources */,
 				C79BA16AFBFFB6C53F200E37 /* PresetStore.swift in Sources */,
 				5CE639FE1C31C52CF9452B0C /* PresetStoreTests.swift in Sources */,

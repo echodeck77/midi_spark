@@ -749,6 +749,12 @@ struct EuclidLine: Codable, Equatable {
     var answerTradeWith: Int? = nil
     var answerCycleEach: Int? = nil
     var answerCycleUnit: EuclideousAnswerCycleUnit? = nil
+    // POOL ferry (Paul 2026-11-02) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. SOURCES: which of the four inputs (bit 0 MIDI IN · 1 CHORDS · 2 PICK · 3 KEY) feed THIS lane's pool, on top of the
+    // sources panel's own switches; nil ⇒ all four. SUSTAIN: whether the lane obeys the pedal (CC64) and how — KEEP (take nothing new while it is down) or STACK (lose nothing: the union of every note the pool contained). All nil ⇒
+    // every source on, SUSTAIN off ⇒ a document that never had them plays byte-identical. Not lane-lock fields. The pedal, the kept copy and the stacked set are ENGINE state, never here.
+    var poolSrcMask: UInt8? = nil
+    var poolSustainOn: Bool? = nil
+    var poolSustainMode: EuclideousSustainMode? = nil
     var answerRhythmOnResolved: Bool { answerRhythmOn ?? false }
     var answerRhythmModeResolved: EuclideousAnswerRhythmMode { answerRhythmMode ?? .copy }
     var answerRhythmCycleResolved: Bool { answerRhythmCycle ?? false }
@@ -759,6 +765,18 @@ struct EuclidLine: Codable, Equatable {
     var answerTradeModeResolved: EuclideousAnswerTradeMode { answerTradeMode ?? .swap }
     var answerCycleEachResolved: Int { max(euclideousAnswerCycleEachMin, min(euclideousAnswerCycleEachMax, answerCycleEach ?? euclideousAnswerCycleEachDefault)) }
     var answerCycleUnitResolved: EuclideousAnswerCycleUnit { answerCycleUnit ?? .bars }
+    var poolSrcMaskResolved: UInt8 { (poolSrcMask ?? euclideousPoolSrcAll) & euclideousPoolSrcAll }
+    var poolSustainOnResolved: Bool { poolSustainOn ?? false }
+    var poolSustainModeResolved: EuclideousSustainMode { poolSustainMode ?? .keep }
+    /// Is source `bit` (0 MIDI IN · 1 CHORDS · 2 PICK · 3 KEY) switched on for this lane?
+    func poolSrcOn(_ bit: Int) -> Bool { bit >= 0 && bit < 4 && (poolSrcMaskResolved >> UInt8(bit)) & 1 != 0 }
+    /// Switch one source on or off for this lane; all four on is stored as nil, so a lane back at the default is byte-identical to one that never had the field.
+    mutating func setPoolSrc(_ bit: Int, _ on: Bool) {
+        guard bit >= 0 && bit < 4 else { return }
+        var m = poolSrcMaskResolved
+        if on { m |= UInt8(1) << UInt8(bit) } else { m &= ~(UInt8(1) << UInt8(bit)) }
+        poolSrcMask = m == euclideousPoolSrcAll ? nil : m
+    }
     /// The lane TRADE reads: the stored one when it is one of the other three lanes, else the lowest-numbered other lane (§9.2).
     func answerTradeWithResolved(ownLane: Int) -> Int {
         if let w = answerTradeWith, w >= 0, w < 4, w != ownLane { return w }
@@ -1165,6 +1183,9 @@ extension EuclidLine {
         answerTradeWith = (try? c.decodeIfPresent(Int.self, forKey: .answerTradeWith)).flatMap { $0 }.map { max(0, min(3, $0)) }
         answerCycleEach = (try? c.decodeIfPresent(Int.self, forKey: .answerCycleEach)).flatMap { $0 }.map { max(euclideousAnswerCycleEachMin, min(euclideousAnswerCycleEachMax, $0)) }
         answerCycleUnit = (try? c.decodeIfPresent(EuclideousAnswerCycleUnit.self, forKey: .answerCycleUnit)).flatMap { $0 }
+        poolSrcMask = (try? c.decodeIfPresent(UInt8.self, forKey: .poolSrcMask)).flatMap { $0 }.map { $0 & euclideousPoolSrcAll }
+        poolSustainOn = (try? c.decodeIfPresent(Bool.self, forKey: .poolSustainOn)).flatMap { $0 }
+        poolSustainMode = (try? c.decodeIfPresent(EuclideousSustainMode.self, forKey: .poolSustainMode)).flatMap { $0 }
         if !usesNewAnswer, let m = EuclidLine.migratedAnswer(rhythm: listenRhythm, pitch: listenPitch) {
             answerRhythmOn = m.rhythmOn; answerRhythmMode = m.rhythmMode; answerPitchOn = m.pitchOn; answerPitchMode = m.pitchMode
         }
@@ -1277,6 +1298,13 @@ enum EuclideousAnswerCycleUnit: String, Codable, CaseIterable {
 let euclideousAnswerCycleEachMin = 1
 let euclideousAnswerCycleEachMax = 16
 let euclideousAnswerCycleEachDefault = 4
+/// POOL ferry: a lane's SUSTAIN (pedal) behaviour. KEEP takes no pool change while the pedal is down; STACK keeps every note the pool has contained since it went down. An unknown stored value decodes as KEEP.
+enum EuclideousSustainMode: String, Codable, CaseIterable {
+    case keep = "KEEP", stack = "STACK"
+    init(from decoder: Decoder) throws { self = EuclideousSustainMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .keep }
+}
+/// The four SOURCES bits of a lane (0 MIDI IN · 1 CHORDS · 2 PICK · 3 KEY), all on.
+let euclideousPoolSrcAll: UInt8 = 0b1111
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
 // persists by value, matching every other riff-adjacent enum's own convention (RiffDir, EuclidNoteSel, …).
 // REPEAT (RIFF WALK ferry 2026-10-19 §4.2): a hit on a rest plays the nearest earlier non-rest column's
