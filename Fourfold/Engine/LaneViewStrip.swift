@@ -168,7 +168,7 @@ func euclideousLaneStripGlyphLook(_ glyph: EuclideousTabGlyph, selected: Bool) -
 
 /// "Lane view" is the strip's group label.
 let euclideousLaneStripGroupLabel = "Lane view"
-/// A segment's spoken name: "Rhythm"; "Riff, lanes 1, 2 and 4 on" / "Riff, all on" / "Riff, all off" (NOTES likewise); "Pool, lanes 1 and 3 delayed or held" / "Pool, no delay or hold"; "Answer, lane 3 following lane 2" (several:
+/// A segment's spoken name: "Rhythm"; "Riff, lanes 1, 2 and 4 on" / "Riff, all on" / "Riff, all off" (NOTES likewise); "Pool, lanes 1 and 3 set" / "Pool, nothing set"; "Answer, lane 3 following lane 2" (several:
 /// "…, lane 1 following lane 2 and lane 3 following lane 4") / "Answer, all off"; "Mix". `glyphs` are the four lanes' states for the tab (empty for RHYTHM and MIX).
 func euclideousLaneStripLabel(tab: EuclideousPageTab, glyphs: [EuclideousTabGlyph]) -> String {
     let name = tab.spokenName
@@ -179,8 +179,8 @@ func euclideousLaneStripLabel(tab: EuclideousPageTab, glyphs: [EuclideousTabGlyp
         default: return parts.dropLast().joined(separator: ", ") + " and " + parts.last! }
     }
     if tab == .pool {
-        if onLanes.isEmpty { return "\(name), no delay or hold" }
-        return "\(name), \(onLanes.count == 1 ? "lane" : "lanes") \(joined(onLanes.map(String.init))) delayed or held"
+        if onLanes.isEmpty { return "\(name), nothing set" }
+        return "\(name), \(onLanes.count == 1 ? "lane" : "lanes") \(joined(onLanes.map(String.init))) set"
     }
     if onLanes.isEmpty { return "\(name), all off" }
     if tab == .listen {

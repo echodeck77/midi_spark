@@ -285,8 +285,8 @@ final class AnswerTabTests: XCTestCase {
         var ls = lanes(); ls[2].listenSource = 1; ls[2].answerRhythmOn = true; ls[1].chordDelay = 2
         XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: ls)), "Answer, lane 3 following lane 2")
         XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lanes())), "Answer, all off")
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: ls)), "Pool, lane 2 delayed or held")
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: lanes())), "Pool, no delay or hold")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: ls)), "Pool, lane 2 set")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: lanes())), "Pool, nothing set")
     }
 
     // MARK: SHADOW's mover is allocation-free (the Release audit exercises it now) and unchanged

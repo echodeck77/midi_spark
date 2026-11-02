@@ -5076,7 +5076,7 @@ func euclideousTabGlyph(tab: EuclideousTabKind, line: EuclidLine, lane: Int) -> 
     case .rhythm: return EuclideousTabGlyph(shape: .none, on: true, fill: .lane(lane))
     case .riff:   return EuclideousTabGlyph(shape: .square, on: !euclideousMixLayerIsOff(line, notes: false), fill: .lane(lane))
     case .notes:  return EuclideousTabGlyph(shape: .bar, on: !euclideousMixLayerIsOff(line, notes: true), fill: .lane(lane))
-    case .pool:   return EuclideousTabGlyph(shape: .circle, on: line.chordDelayResolved != 0 || line.poolHoldResolved != 0, fill: .lane(lane))   // ANSWER ferry 1.4: lit when the lane's CANON delay or its FREEZE is not 0
+    case .pool:   return EuclideousTabGlyph(shape: .circle, on: euclideousPoolGlyphLit(line), fill: .lane(lane))   // ANSWER ferry 1.4 + POOL ferry 2.6: lit when the lane's CANON delay or FREEZE is not 0, its SUSTAIN is on, or a SOURCES toggle is off
     case .listen:
         switch euclideousListenSource(line, lane: lane) {
         case .lane(let p): return EuclideousTabGlyph(shape: .circle, on: true, fill: .lane(p))
@@ -5137,7 +5137,7 @@ func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, lines: [EuclidLine]
         if euclideousPausedTabHeaderText(tab: .notes, lane: lane, lines: lines) != nil { return "Notes, paused, following lane \(source + 1)" }
         return "Notes, " + (euclideousTabGlyph(tab: .notes, line: line, lane: lane).on ? "on" : "off")
     case .pool:
-        return "Pool, " + (euclideousTabGlyph(tab: .pool, line: line, lane: lane).on ? "delayed or held" : "no delay or hold")
+        return "Pool, " + (euclideousTabGlyph(tab: .pool, line: line, lane: lane).on ? "set" : "nothing set")
     case .listen:
         switch euclideousListenSource(line, lane: lane) {
         case .lane(let p): return "Answer, on, following lane \(p + 1)"
@@ -10250,3 +10250,228 @@ func euclideousCanonSlipSpoken(slip: Int, inert: String?) -> String {
     return inert.map { "\(base), no effect: \($0)" } ?? base
 }
 func euclideousCanonUnitSpoken(_ unit: CanonUnit) -> String { unit.rawValue.lowercased() }
+
+// MARK: - POOL TAB (ferry 2026-11-02): per-lane SOURCES, SUSTAIN, the rank chip, the grid's lane picker, the tab's layout
+//
+// Every number and decision the POOL tab, the NOTES keys and the riff grid's labels draw or the Router acts on comes from here (§8): `euclideousLaneSources`, `euclideousSustainGate`, `euclideousRankChip`, `euclideousPickedLaneNext`.
+// The engine and every display call these; nothing re-derives a second version. The engine-side functions (sources, sustain) are allocation-free over caller-owned buffers.
+
+// ── §8.1 SOURCES ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+/// The four source switches in the sources panel's order (MIDI IN · CHORDS · PICK · KEY).
+struct EuclideousSourceSwitches: Equatable { var midi: Bool; var chords: Bool; var pick: Bool; var key: Bool }
+/// The sources panel's own switches, read off the resolved plan.
+func euclideousPanelSwitches(_ plan: SourcePlan) -> EuclideousSourceSwitches {
+    EuclideousSourceSwitches(midi: plan.midiOnR, chords: plan.chordsOnR, pick: plan.pickOnR, key: plan.keyOnR)
+}
+/// §3.1 / §8.1: a lane's EFFECTIVE switches — a source feeds the lane when it is on in the sources panel AND on the lane (`mask`: bit 0 MIDI IN · 1 CHORDS · 2 PICK · 3 KEY).
+func euclideousLaneSources(panel: EuclideousSourceSwitches, mask: UInt8) -> EuclideousSourceSwitches {
+    EuclideousSourceSwitches(midi: panel.midi && mask & 0b0001 != 0, chords: panel.chords && mask & 0b0010 != 0,
+                             pick: panel.pick && mask & 0b0100 != 0, key: panel.key && mask & 0b1000 != 0)
+}
+/// The plan the stacked pool function runs for a lane: the page plan with the lane's effective switches written in (MIDI mode, OCTAVES, the PICK notes — everything else — untouched, §3.1). A lane with every source on gets the plan
+/// back as it is (the default path, byte-identical). A copy retains the `pickNotes` array; nothing is allocated.
+func euclideousLaneSourcePlan(_ plan: SourcePlan, mask: UInt8) -> SourcePlan {
+    guard mask & euclideousPoolSrcAll != euclideousPoolSrcAll else { return plan }
+    var p = plan
+    let e = euclideousLaneSources(panel: euclideousPanelSwitches(plan), mask: mask)
+    p.midiOn = e.midi; p.chordsOn = e.chords; p.pickOn = e.pick; p.keyOn = e.key
+    return p
+}
+/// 2.3: a source switched off in the sources panel draws its lane toggle at 40 % (it still toggles; the lane's choice is kept for when the source comes back on).
+func euclideousLaneSourceToggleOpacity(panelOn: Bool) -> Double { panelOn ? 1 : 0.4 }
+
+// ── §8.2 SUSTAIN ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+/// One lane's SUSTAIN bookkeeping (engine state, never saved). `engaged`: the lane took a down edge and is holding (KEEP: serving its copy; STACK: serving the union). `seenDownSeq`: the last down edge the lane has dealt with (taken, or
+/// deliberately let go by). `count`: notes in the lane's KEEP copy or STACK set (STACK keeps insertion order, oldest first, so the cap can drop the notes added longest ago).
+struct EuclideousSustainLaneState: Equatable {
+    var engaged = false
+    var seenDownSeq: UInt32 = 0
+    var prevOn = false
+    var prevMode: EuclideousSustainMode = .keep
+    var count = 0
+}
+/// Once per window per lane, before any lane plays (§4.6): SUSTAIN off, or a change of its mode, drops the lane's hold at once and marks the pedal's current down edge as dealt with — so switching SUSTAIN on while the pedal is down
+/// waits for the NEXT down edge, and KEEP ↔ STACK while down behaves as an up edge. An up pedal also dealt with every edge it carried (a press and release inside one window is no edge for a lane that never saw it down).
+func euclideousSustainObserve(_ s: inout EuclideousSustainLaneState, on: Bool, mode: EuclideousSustainMode, pedalDown: Bool, downSeq: UInt32) {
+    if !on || s.prevOn != on || s.prevMode != mode || !pedalDown { s.engaged = false; s.seenDownSeq = downSeq }
+    s.prevOn = on; s.prevMode = mode
+}
+/// §4.2–§4.4: the lane's pool after FREEZE in `pool[0..<poolCount]` (ascending), in and out. SUSTAIN off or the pedal up: the pool passes untouched. A down edge the lane has not dealt with engages it: KEEP copies the pool, STACK seeds its set
+/// with it, and either serves the pool as it is (the copy IS the pool). While engaged KEEP serves its copy and ignores every change; STACK adds each note of the pool it has not got (distinct by pitch; at `cap` the notes added longest ago
+/// leave first) and serves the set ascending. Pedal down with the edge already dealt with (SUSTAIN switched on mid-press): the pool passes. `held[heldBase ..< heldBase + cap]` is the lane's own storage; no allocation.
+func euclideousSustainGate(_ s: inout EuclideousSustainLaneState, on: Bool, mode: EuclideousSustainMode, pedalDown: Bool, downSeq: UInt32,
+                           pool: inout [(note: Int, vel: UInt8)], poolCount: inout Int,
+                           held: inout [(note: Int, vel: UInt8)], heldBase: Int, cap: Int) {
+    guard on else { s.engaged = false; return }
+    guard pedalDown else { s.engaged = false; s.seenDownSeq = downSeq; return }
+    let room = max(0, min(cap, held.count - heldBase, pool.count))
+    if downSeq != s.seenDownSeq {
+        s.seenDownSeq = downSeq; s.engaged = true
+        s.count = min(poolCount, room)
+        for i in 0..<s.count { held[heldBase + i] = pool[i] }
+        return
+    }
+    guard s.engaged else { return }
+    switch mode {
+    case .keep:
+        let n = min(s.count, pool.count)
+        for i in 0..<n { pool[i] = held[heldBase + i] }
+        poolCount = n
+    case .stack:
+        for i in 0..<poolCount {
+            let note = pool[i].note
+            var have = false
+            var j = 0
+            while j < s.count { if held[heldBase + j].note == note { have = true; break }; j += 1 }
+            if have { continue }
+            if room == 0 { continue }
+            if s.count >= room {
+                if s.count > 1 { var k = 1; while k < s.count { held[heldBase + k - 1] = held[heldBase + k]; k += 1 } }
+                s.count -= 1
+            }
+            held[heldBase + s.count] = pool[i]; s.count += 1
+        }
+        let n = min(s.count, pool.count)
+        for i in 0..<n { pool[i] = held[heldBase + i] }
+        euclideousStackSort(&pool, count: n)
+        poolCount = n
+    }
+}
+/// 2.5 PEDAL light / 4.8: is KEEP holding right now (the row on, KEEP, the pedal down and taken)?
+func euclideousSustainKeepIsHolding(_ s: EuclideousSustainLaneState, on: Bool, mode: EuclideousSustainMode, pedalDown: Bool) -> Bool {
+    on && mode == .keep && pedalDown && s.engaged
+}
+
+// ── §5 / §8.3 THE RANK CHIP ──────────────────────────────────────────────────────────────────────────────────────────────
+/// What one chip draws: today's NOTES key (looks, label, lit bar, extras the NOTES keys add) plus the rank number in the corner. NOW, the NOTES keys and the riff grid's label column all draw this one spec with one painter.
+struct EuclideousRankChipSpec: Equatable {
+    /// 1…8 for a rank chip; 0 for the NOTES keys' TOP 2 / TOP (`topKind` says which).
+    var rank: Int
+    /// 0 = a rank chip, 1 = TOP 2, 2 = TOP (they carry no rank number).
+    var topKind: Int = 0
+    /// The received look (fill #30343C); false = an octave copy — and every chip while nothing is held.
+    var received: Bool
+    var lit: Bool
+    /// The whole pool is empty: every chip takes the copy look and its centre shows the rank number (5.4).
+    var empty: Bool
+    /// A rank chip: the full note name (or "–" for a rank with no note); empty pool: the rank number; TOP 2 / TOP: the second line (the note it resolves to now).
+    var name: String
+    /// The corner rank number is drawn (not for TOP 2 / TOP, not for an empty pool, not where it cannot share the chip — `euclideousRankChipFitsCorner`).
+    var cornerNumber: Bool
+    // NOTES-key extras (nil / false for NOW and the grid's labels):
+    var heldBack = false
+    var place: String? = nil
+    var riffDot = false
+    var sounding = 0.0
+}
+/// §5.4 / §8.3: one rank chip of a pool. `name` is the note's display name (nil: no note at this rank).
+func euclideousRankChip(rank: Int, name: String?, received: Bool, lit: Bool, empty: Bool) -> EuclideousRankChipSpec {
+    EuclideousRankChipSpec(rank: rank, received: received && !empty, lit: lit, empty: empty,
+                           name: empty ? String(rank) : (name ?? "\u{2013}"), cornerNumber: !empty)
+}
+/// The eight rank chips of a lane's pool (ascending raw notes), by the SAME received rule and octave extension the NOTES keys have always used: received = rank ≤ pool size, ranks beyond it are octave copies of the pool
+/// (`euclideousGlobalPoolExtended`). `litMask` bit r−1 = rank r lit (NOW / the grid: the ranks the lane is playing; the NOTES keys build their own lit set from the lane's lit order).
+func euclideousRankChips(sortedPool: [Int], litMask: UInt8, name: (Int) -> String) -> [EuclideousRankChipSpec] {
+    let n = sortedPool.count
+    let extended = euclideousGlobalPoolExtended(sortedRaw: sortedPool)
+    return (1...8).map { r in
+        euclideousRankChip(rank: r, name: r <= extended.count ? name(extended[r - 1]) : nil, received: r <= n, lit: (litMask >> UInt8(r - 1)) & 1 != 0, empty: n == 0)
+    }
+}
+/// The note at rank `rank` (1-based) of an ascending pool, octave copies beyond it — `euclideousGlobalPoolExtended`'s order, without building the array (the engine's played-rank mask calls this per strike). nil for an empty pool.
+@inline(__always) func euclideousPoolRankNote(_ pool: ArraySlice<(note: Int, vel: UInt8)>, rank: Int) -> Int? {
+    let n = pool.count
+    guard n > 0, rank >= 1 else { return nil }
+    let k = rank - 1
+    return pool[pool.startIndex + k % n].note + 12 * (k / n)
+}
+/// The ranks 1…8 a hit's raw pitches struck, as a bit mask (bit r−1). `pitches[0..<count]` are the hit's pool-level pitches (before the lane's own octave and out-transpose); a pitch that is no rank of the pool sets nothing.
+func euclideousPlayedRankMask(pitches: [Int], count: Int, pool: ArraySlice<(note: Int, vel: UInt8)>) -> UInt8 {
+    var m: UInt8 = 0
+    guard !pool.isEmpty else { return 0 }
+    for j in 0..<min(count, pitches.count) {
+        for r in 1...8 where euclideousPoolRankNote(pool, rank: r) == pitches[j] { m |= UInt8(1) << UInt8(r - 1); break }
+    }
+    return m
+}
+/// 5.5: the label's width (monospaced advance 0.6 em: the note part 15 pt heavy, the octave part 10 pt bold) and whether the 8 pt corner number (inset 3, 5 wide) can share a `width × height` chip with the centred label — it can when
+/// the two do not overlap in either direction (the label's box sits in the chip above a 6 pt bottom inset).
+func euclideousRankChipLabelWidth(_ name: String) -> CGFloat {
+    let s = euclideousSplitNoteOctave(name)
+    return CGFloat(s.note.count) * 9 + CGFloat(s.octave.count) * 6
+}
+/// The widest name the naming function produces: a letter, one accidental and a two-character octave ("A♯-1").
+let euclideousRankChipWidestName = "A\u{266F}-1"
+let euclideousRankChipCornerInset: CGFloat = 3
+let euclideousRankChipCornerNumberWidth: CGFloat = 5
+func euclideousRankChipFitsCorner(width: CGFloat, height: CGFloat, name: String) -> Bool {
+    let labelW = euclideousRankChipLabelWidth(name)
+    // Glyph extents, not line boxes: the 15 pt label's cap height is ≈ 10.5 pt, centred in the chip above its 6 pt bottom inset; the 8 pt number's ≈ 5.6 pt cap height sits mid-way in a 10 pt line box inset 3 from the top.
+    let labelTop = (height - 6) / 2 - 5.25
+    let numberBottom = euclideousRankChipCornerInset + 5 + 2.8
+    let numberRight = euclideousRankChipCornerInset + euclideousRankChipCornerNumberWidth + 1
+    let clearAbove = labelTop >= numberBottom + 1
+    let clearBeside = (width - labelW) / 2 >= numberRight
+    return clearAbove || clearBeside
+}
+/// 5.5 / 6.2: the narrowest chip width that holds the widest label beside the corner number at a chip height too short to clear it (the riff grid's rows).
+func euclideousRankChipMinWidth() -> CGFloat {
+    (euclideousRankChipLabelWidth(euclideousRankChipWidestName) + 2 * (euclideousRankChipCornerInset + euclideousRankChipCornerNumberWidth + 1)).rounded(.up)
+}
+
+// ── §8.4 THE GRID'S LANE PICKER ──────────────────────────────────────────────────────────────────────────────────────────
+/// 6.3: the next lane, 1 → 2 → 3 → 4 → 1 (0-based here).
+func euclideousPickedLaneNext(_ current: Int) -> Int { (((current % 4) + 4) % 4 + 1) % 4 }
+
+// ── §2 THE TAB'S LAYOUT ──────────────────────────────────────────────────────────────────────────────────────────────────
+enum EuclideousPoolTabMetrics {
+    static let gap: CGFloat = 8, rowIdeal: CGFloat = 44, rowFloor: CGFloat = 30, sourcesH: CGFloat = 30, toggleH: CGFloat = 26
+    static let labelColumn: CGFloat = 50
+    static let rows = 5
+}
+struct EuclideousPoolTabLayout: Equatable {
+    var nowH: CGFloat, sourcesH: CGFloat, canonH: CGFloat, freezeH: CGFloat, sustainH: CGFloat
+    var gap: CGFloat
+    /// false when even the floors do not fit (the body then scrolls; no row is squeezed under 30 pt).
+    var fits: Bool
+    var heights: [CGFloat] { [nowH, sourcesH, canonH, freezeH, sustainH] }
+}
+/// NOW, SOURCES, CANON, FREEZE, SUSTAIN at 44 / 30 / 44 / 44 / 44, sp8 apart, giving up height down to a 30 pt floor evenly when the body is short; whole points left over go to the rows below their ideal, top down.
+func euclideousPoolTabLayout(contentAreaH: CGFloat) -> EuclideousPoolTabLayout {
+    typealias M = EuclideousPoolTabMetrics
+    let ideals: [CGFloat] = [M.rowIdeal, M.sourcesH, M.rowIdeal, M.rowIdeal, M.rowIdeal]
+    let floors: [CGFloat] = [M.rowFloor, M.rowFloor, M.rowFloor, M.rowFloor, M.rowFloor]
+    let avail = contentAreaH - CGFloat(M.rows - 1) * M.gap
+    let floorSum = floors.reduce(0, +)
+    let room = zip(ideals, floors).map { $0 - $1 }
+    let extra = avail - floorSum
+    var h = floors
+    if extra > 0 {
+        let totalRoom = room.reduce(0, +)
+        let share = totalRoom > 0 ? min(1, extra / totalRoom) : 0
+        for i in 0..<h.count { h[i] = floors[i] + (room[i] * share).rounded(.down) }
+        var left = (avail - h.reduce(0, +)).rounded(.down)
+        var i = 0
+        while left > 0 && i < h.count { if h[i] < ideals[i] { h[i] += 1; left -= 1 }; i += 1 }
+    }
+    return EuclideousPoolTabLayout(nowH: h[0], sourcesH: h[1], canonH: h[2], freezeH: h[3], sustainH: h[4], gap: M.gap, fits: extra >= 0)
+}
+
+// ── 2.6 THE TAB STRIP'S POOL GLYPH ───────────────────────────────────────────────────────────────────────────────────────
+/// A lane's POOL pip is lit when its CANON delay or FREEZE is not 0, its SUSTAIN is on, or any of its SOURCES toggles is off.
+func euclideousPoolGlyphLit(_ line: EuclidLine) -> Bool {
+    line.chordDelayResolved != 0 || line.poolHoldResolved != 0 || line.poolSustainOnResolved || line.poolSrcMaskResolved != euclideousPoolSrcAll
+}
+
+// ── §9 VOICEOVER WORDS ───────────────────────────────────────────────────────────────────────────────────────────────────
+/// 9.1: NOW's value — the eight note names in rank order, or "empty".
+func euclideousPoolNowSpoken(names: [String]) -> String { names.isEmpty ? "empty" : names.joined(separator: ", ") }
+/// 9.2: a SOURCES toggle's name and value.
+let euclideousPoolSourceNames = ["MIDI in", "Chords", "Pick", "Key"]
+func euclideousPoolSourceValue(on: Bool, panelOn: Bool) -> String { (on ? "on" : "off") + (panelOn ? "" : ", off in sources") }
+/// 9.3: the PEDAL light's value.
+func euclideousPoolPedalSpoken(down: Bool) -> String { down ? "down" : "up" }
+/// 9.4: a grid label chip, "Rank n, <note>".
+func euclideousRankChipGridSpoken(rank: Int, note: String) -> String { "Rank \(rank), \(note)" }
+/// 9.4: the grid's picker value.
+func euclideousPickedLaneSpoken(_ lane: Int) -> String { "lane \(lane + 1)" }
