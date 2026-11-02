@@ -22,6 +22,7 @@ enum FourfoldAuditAllowList {
         ("textClipped", "TAKE ITS SETUP", "ANSWER tab option caption (≈ 97 pt wide at the reference card): look at it on a narrow card"),
         ("textClipped", "TAP: ON/OFF", "the FX tab's instruction line is cut at the panel width in portrait — a real truncation (seen in the picture: \"…DOUBLE-TAP:…\")"),
         ("textClipped", "ITS NOTE NOW", "ANSWER tab option caption, landscape"),
+        ("textClipped", "TAKE NOTHING NEW", "POOL tab SUSTAIN option caption (the spec's own 16 characters ≈ 96 pt in a ≈ 92 pt button: truncated, never shrunk) — read it on a narrow card"),
     ]
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
     /// letters are the "–" placeholders). More than this on any screen is a new unlabelled piece of text.

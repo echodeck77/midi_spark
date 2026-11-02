@@ -259,6 +259,38 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(value(app.el("Trade, lane 2")), "off", "the pairing was one undo step for both lanes")
     }
 
+    /// POOL (2026-11-02): the POOL tab's SOURCES toggles and SUSTAIN switch / modes edit through the document and back through undo (one step each); NOW reads the pool; the grid's lane picker steps 1 → 2 → 3 → 4 → 1 and the NOTES keys carry
+    /// their rank numbers in their names.
+    func testThePoolTabSwitchesSourcesSustainAndTheGridPicker() {
+        let app = XCUIApplication.fresh()
+        app.els(prefix: "Pool, ").firstMatch.tap()
+        need(app.el("Now"), "the NOW row (a leaf: the status feed does not re-run the page)")
+        // SOURCES: a toggle is one undo step, the lane's name is in its label
+        XCTAssertEqual(value(need(app.el("Key, lane 1"), "lane 1's KEY toggle")), "on")
+        app.el("Key, lane 1").tap()
+        XCTAssertEqual(value(app.el("Key, lane 1")), "off")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(value(app.el("Key, lane 1")), "on", "a source toggle is one undo step")
+        // SUSTAIN: the switch, a mode tap switches the row on, the PEDAL light is a display
+        XCTAssertEqual(value(need(app.el("Sustain, lane 2"), "lane 2's SUSTAIN switch")), "off")
+        app.el("Sustain stack, lane 2, loses nothing, off").tap()
+        XCTAssertEqual(value(app.el("Sustain, lane 2")), "on", "selecting a mode of an off row switches it on")
+        need(app.el("Sustain stack, lane 2, loses nothing"), "…and the buttons lose their \", off\"")
+        XCTAssertEqual(value(need(app.el("Pedal, lane 2"), "the PEDAL light")), "up")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(value(app.el("Sustain, lane 2")), "off", "one undo step")
+        // the grid's picker
+        XCTAssertEqual(value(need(app.el("Notes shown for"), "the lane picker beside the MONO | POLY control")), "lane 1")
+        app.el("Notes shown for").tap()
+        XCTAssertEqual(value(app.el("Notes shown for")), "lane 2")
+        for _ in 0..<3 { app.el("Notes shown for").tap() }
+        XCTAssertEqual(value(app.el("Notes shown for")), "lane 1", "1 → 2 → 3 → 4 → 1")
+        need(app.els(prefix: "Rank 1, ").firstMatch, "the grid's label chips read \"Rank n, <note>\"")
+        // the NOTES keys
+        app.els(prefix: "Notes, ").firstMatch.tap()
+        need(app.els(prefix: "Rank 1, ").firstMatch, "the NOTES keys keep their \"Rank n, …\" names")
+    }
+
     /// CHORD CANON (2026-10-31): the CANON row under PITCH on the LISTEN tab — a lane's DELAY and SLIP step through the engine and back through undo; the UNIT is one value shared by all four rows (and undoable). The row works with
     /// every source (the factory document has MIDI IN and KEY on), so it reports no "no effect" reason. The value follows a tap a moment later (the edit goes through the document and back), so each check waits for it.
     func testTheCanonRowStepsDelayAndSlipAndTheSharedUnit() {
