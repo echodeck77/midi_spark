@@ -104,6 +104,27 @@ final class FourfoldScreenshotTests: XCTestCase {
         for i in 1...6 { attach("7-glyphs-\(i)"); Thread.sleep(forTimeInterval: 1.3) }
     }
 
+    /// ANSWER ferry (2026-11-02): the ANSWER tab bare, then with RHYTHM / PITCH (SHADOW, the panel) / TRADE all on and cycling (the worst-case body), the RHYTHM tab with the strip over the borrowed card, the same lane with CYCLE (a live body), and
+    /// the POOL tab — landscape, then portrait. The pictures the layout is judged against.
+    func testTheAnswerAndPoolTabs() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+        Thread.sleep(forTimeInterval: 2)
+        func tap(_ label: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.4) } }
+        func tapPrefix(_ p: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", p)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.4) } }
+        for (tag, o) in [("land", UIDeviceOrientation.landscapeLeft), ("port", .portrait)] {
+            XCUIDevice.shared.orientation = o
+            Thread.sleep(forTimeInterval: 2)
+            tapPrefix("Answer, "); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-0-bare")
+            tap("Rhythm, lane 1"); attach("11-answer-\(tag)-1-rhythm-on")
+            tap("Pitch, lane 1"); tap("Cycle pitch, lane 1"); tap("Trade, lane 1"); tap("Cycle rhythm, lane 1"); Thread.sleep(forTimeInterval: 1.5); attach("11-answer-\(tag)-2-everything")
+            app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-3-rhythm-tab-live-body-with-cycle")
+            tapPrefix("Answer, "); tap("Cycle rhythm, lane 1"); app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-4-rhythm-tab-borrowed")
+            tapPrefix("Pool, "); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-5-pool")
+        }
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     /// TAB STRIP (2026-10-29): the one strip above the lane cards on each tab (the glyph clusters, the selected segment), MIX, then random mode and lock mode with their faces at the shorter cards — landscape.
     func testTheLaneStripAndTheModes() {
         XCUIDevice.shared.orientation = .landscapeLeft
