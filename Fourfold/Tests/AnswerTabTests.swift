@@ -322,4 +322,31 @@ final class AnswerTabTests: XCTestCase {
         }
         XCTAssertEqual(euclideousListenMoveByInterval(note: 60, interval: 3, octave: 1, keyRoot: 0, scaleIntervals: []), referenceMove(note: 60, interval: 3, octave: 1, keyRoot: 0, scaleIntervals: []), "no scale at all")
     }
+
+    // MARK: 12 — VoiceOver words
+
+    func testModeButtonsSpeakTheirMeaningAndAnOffRowSaysOff() {
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .rhythm, mode: "COPY", lane: 1, rowOn: true), "Rhythm: copy, plays where lane 1 plays")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .rhythm, mode: "FILL", lane: 3, rowOn: false), "Rhythm: fill, plays where lane 3 rests, off")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .pitch, mode: "SHADOW", lane: 2, rowOn: true), "Pitch: shadow, plays the note lane 2 plays now")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .pitch, mode: "AVOID", lane: 2, rowOn: true), "Pitch: avoid, mutes on the same hit as lane 2")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .trade, mode: "SWAP", lane: 4, rowOn: true), "Trade: swap, trades places with lane 4")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .trade, mode: "BORROW", lane: 2, rowOn: false), "Trade: borrow, takes lane 2's setup, off")
+        XCTAssertEqual(euclideousAnswerCycleToggleLabel(row: .rhythm), "Cycle rhythm"); XCTAssertEqual(euclideousAnswerCycleToggleLabel(row: .pitch), "Cycle pitch")
+        XCTAssertEqual(euclideousAnswerWithSpoken(lane: 2, mode: .swap), "lane 3, swap"); XCTAssertEqual(euclideousAnswerWithSpoken(lane: 1, mode: .borrow), "lane 2, borrow")
+    }
+    func testThePhaseBarNamesWhoseTurnItIsAndHowFarThroughTheHalf() {
+        var l = EuclidLine(); l.listenSource = 0; l.answerRhythmOn = true; l.answerRhythmCycle = true; l.answerTradeOn = true; l.answerTradeWith = 2
+        XCTAssertEqual(euclideousAnswerPhaseSpoken(lane: 1, line: l, status: EuclideousAnswerLaneStatus()), "not running")
+        XCTAssertEqual(euclideousAnswerPhaseSpoken(lane: 1, line: l, status: EuclideousAnswerLaneStatus(running: true, phaseB: false, unitInHalf: 0, each: 4, progress: 0)), "following lane 1, 1 of 4")
+        XCTAssertEqual(euclideousAnswerPhaseSpoken(lane: 1, line: l, status: EuclideousAnswerLaneStatus(running: true, phaseB: true, unitInHalf: 2, each: 4, progress: 0.7)), "lane 3, 3 of 4")
+        l.answerRhythmOn = false; l.answerTradeOn = false
+        XCTAssertEqual(euclideousAnswerPhaseSpoken(lane: 1, line: l, status: EuclideousAnswerLaneStatus(running: true, phaseB: false, unitInHalf: 1, each: 2, progress: 0.2)), "own, 2 of 2")
+    }
+    func testTheReduceMotionPlayheadMovesInQuarterUnits() {
+        XCTAssertEqual(euclideousAnswerPlayheadQuantised(0.0, each: 4), 0)
+        XCTAssertEqual(euclideousAnswerPlayheadQuantised(0.03, each: 4), 0, "within the first stop")
+        XCTAssertEqual(euclideousAnswerPlayheadQuantised(0.04, each: 4), 1.0 / 32, accuracy: 1e-12)
+        XCTAssertLessThanOrEqual(euclideousAnswerPlayheadQuantised(1.0, each: 1), 1)
+    }
 }

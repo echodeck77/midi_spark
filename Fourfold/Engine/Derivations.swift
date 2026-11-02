@@ -3736,7 +3736,9 @@ func euclideousRhythmBorrowPartner(lane: Int, lines: [EuclidLine]) -> Int? {
 /// The lane whose RHYTHM the lane's own bar gestures (drag up/down = HITS, left/right = OFFSET, pinch = STEPS) should edit: the
 /// partner it's borrowing from, else itself. A borrowing lane plays its source's pattern, so the gesture edits what it's borrowing.
 func euclideousRhythmGestureTarget(lane: Int, lines: [EuclidLine]) -> Int {
-    euclideousRhythmBorrowPartner(lane: lane, lines: lines) ?? lane
+    // ANSWER §8.3: RHYTHM on WITH CYCLE is not borrowed — the tab is live and the lane's own rhythm plays in phase B, so the bar's gestures edit the lane itself, not the source.
+    if lane >= 0, lane < lines.count, lines[lane].answerRhythmCycleResolved { return lane }
+    return euclideousRhythmBorrowPartner(lane: lane, lines: lines) ?? lane
 }
 /// How faded a borrowing lane's lit cells are drawn (1 = full strength): the cells are the SOURCE's hits in
 /// the source's colour, a little softer than a lane's own so they still read as "borrowed".

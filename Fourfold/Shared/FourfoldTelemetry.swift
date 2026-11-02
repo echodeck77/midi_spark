@@ -7,6 +7,8 @@ import Foundation
 final class FourfoldTelemetry {
     /// HOCKET §8: the count of each lit rule, as the Router last published it (the pop-up's chips, bars and ring and the lane cards' glyphs observe it — never the page body).
     let hocket = HocketLiveModel()
+    /// ANSWER (2026-11-02): each lane's running cycle (the CYCLE row's phase bar) and the pool it is choosing from (the POOL tab's NOW row) — observed by those leaf views only.
+    let answer = AnswerLiveModel()
     /// CARD BACKS §5: the notes each part struck (the rolls) and when each output last took one (the jack lights).
     let rolls = NoteRollLive()
     /// RATCH tab §3.10: each output's pattern index at its latest emitter hit (the RATCH tab's strikes' current slot — observed by that tab's leaf views only).

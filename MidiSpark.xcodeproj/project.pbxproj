@@ -32,6 +32,7 @@
 		11389DE07A052AF31C5B1535 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
 		12439134E8AE1F2CBAFD42A0 /* LaneViewStripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0207165FA77A08D14FDF6B09 /* LaneViewStripTests.swift */; };
 		126EFE2CA5202E0E11739F95 /* FourfoldMonkeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A2360C33B73BDF7D5D05DD /* FourfoldMonkeyTests.swift */; };
+		135B4FF5720F270A0CA55572 /* AnswerLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207CC51539EB0A8FC6E6C8A /* AnswerLive.swift */; };
 		14001737F3526E61A6910D74 /* ManualView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB579E7A98D1755158B6B0DE /* ManualView.swift */; };
 		145EEF1854DA254EBDE44F89 /* BuildGridSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */; };
 		14D864B0AC3A64F8976F82DF /* CanonHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176469F1675E0C309D28B215 /* CanonHistory.swift */; };
@@ -100,6 +101,7 @@
 		47065C4E2FC4D51CC752D833 /* PolyRiffEditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02BC895877CC2BFAB7C8DF92 /* PolyRiffEditTests.swift */; };
 		47C29EACF7E0D356CD7DADDF /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4A5B0315C96A7904CA1D0A /* FXPanelPainter.swift */; };
 		47CA95171F41A3546DCBCD6D /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = C40FFEC9C51764F0A2A53F81 /* Atomics */; };
+		481DDC4D6FAA35B56F87FA74 /* AnswerLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207CC51539EB0A8FC6E6C8A /* AnswerLive.swift */; };
 		48945756C07AD7AD3107E51D /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
 		49BF3C1E54D8292EF186DAAF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */; };
 		4A2F4629204778337D64903F /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */; };
@@ -193,6 +195,7 @@
 		7F7C8B318D46429B3492F2C4 /* NoteRollRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B90A0E5E3C7A378FB0B7952 /* NoteRollRing.swift */; };
 		80358173C9B1DD2FF58E79F6 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */; };
 		819B652118BED142B9A10073 /* EffectiveParamsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE6D8F7DB5682AAE6EFA15E /* EffectiveParamsTests.swift */; };
+		81AE3C7395B6682619270227 /* AnswerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA624E3B8BFEE80AECD9F1D /* AnswerViews.swift */; };
 		8208BB44A8037D26B215F5F0 /* RandomModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCBDE4866C54153107885AD8 /* RandomModePainter.swift */; };
 		8312AACCFD597D5BEC370A22 /* LaneViewStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47EFEFD20A4BE99C391A7781 /* LaneViewStripPainter.swift */; };
 		838F2C247F93E96077E86800 /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08530382AAA337959EA7983D /* SnapshotBuilder.swift */; };
@@ -202,6 +205,7 @@
 		85C23AA269DD6D994DA6FF81 /* EditPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2C4528E7A184FABB7EF270 /* EditPage.swift */; };
 		86DBDA072FBE5381278BC901 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
 		87752A6A7A157E26863E3776 /* CardBackViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F426003B0AC179AD87C598 /* CardBackViews.swift */; };
+		88605E8D0B96DCDABFDD706E /* AnswerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA624E3B8BFEE80AECD9F1D /* AnswerViews.swift */; };
 		8927A283261FCD8BE6B7852D /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
 		895F99D3F9F1BE1F2238EE20 /* SessionTapeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4725DDA30BD137A2E7F2623 /* SessionTapeTests.swift */; };
 		89F120D37D531726D0D7C663 /* UndoAuditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D750CFBA16E2C4B8FBE705 /* UndoAuditTests.swift */; };
@@ -629,6 +633,7 @@
 		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
 		B94A31D253520EA87F4B4A91 /* LaneStripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripTests.swift; sourceTree = "<group>"; };
 		BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTuttiLengthTests.swift; sourceTree = "<group>"; };
+		BBA624E3B8BFEE80AECD9F1D /* AnswerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerViews.swift; sourceTree = "<group>"; };
 		BC4BE4C9BF1C8E4D1C7A915E /* LaneSoloTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloTests.swift; sourceTree = "<group>"; };
 		BC6819599CED217146F91C04 /* ListenTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenTabTests.swift; sourceTree = "<group>"; };
 		BD247D9F8C873B8151A15B97 /* Fourfold-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Fourfold-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -690,6 +695,7 @@
 		EFD6FDF0C7C204768524124D /* FourfoldComposeParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldComposeParityTests.swift; sourceTree = "<group>"; };
 		F11A47312E5B36EA267536F5 /* LockModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockModePainter.swift; sourceTree = "<group>"; };
 		F140AC21A0E9E7E6E094A95C /* HocketTurnTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketTurnTests.swift; sourceTree = "<group>"; };
+		F207CC51539EB0A8FC6E6C8A /* AnswerLive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerLive.swift; sourceTree = "<group>"; };
 		F2312CDF903FBE2ABB3E824E /* LaneStripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripTests.swift; sourceTree = "<group>"; };
 		F23F5E5E4DBDEAD978F1B46B /* GridUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridUI.swift; sourceTree = "<group>"; };
 		F2E434FEDE5AC96D7475BCE9 /* UntouchedLaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UntouchedLaneTests.swift; sourceTree = "<group>"; };
@@ -909,6 +915,7 @@
 		579DBC9CBF245449D69C3E27 /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				BBA624E3B8BFEE80AECD9F1D /* AnswerViews.swift */,
 				F9F426003B0AC179AD87C598 /* CardBackViews.swift */,
 				CFD093523154373C2AAE660A /* DesignKit.swift */,
 				85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */,
@@ -1023,6 +1030,7 @@
 		92FFB2337E7FDB7ECC093A8E /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				F207CC51539EB0A8FC6E6C8A /* AnswerLive.swift */,
 				A9DD9EE712131F93295E6111 /* EmitterRatchetLive.swift */,
 				3E30016BB623E045246A0488 /* FourfoldReel.swift */,
 				C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */,
@@ -1380,7 +1388,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				481DDC4D6FAA35B56F87FA74 /* AnswerLive.swift in Sources */,
 				FD0934CECE8FE814F7E47505 /* AnswerTab.swift in Sources */,
+				88605E8D0B96DCDABFDD706E /* AnswerViews.swift in Sources */,
 				7BD70412B03E98F53058D7B1 /* BuildModel.swift in Sources */,
 				565A178ED04D52344FB8C914 /* CanonHistory.swift in Sources */,
 				C92C119B5BC121BBC214A873 /* CardBack.swift in Sources */,
@@ -1642,7 +1652,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				135B4FF5720F270A0CA55572 /* AnswerLive.swift in Sources */,
 				94487EDD4A77712A09B7D227 /* AnswerTab.swift in Sources */,
+				81AE3C7395B6682619270227 /* AnswerViews.swift in Sources */,
 				204572430D6CE1EBADA36680 /* BuildModel.swift in Sources */,
 				14D864B0AC3A64F8976F82DF /* CanonHistory.swift in Sources */,
 				AB93D45851A70F9C05234F29 /* CardBack.swift in Sources */,

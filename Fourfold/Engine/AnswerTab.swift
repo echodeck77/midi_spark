@@ -288,3 +288,42 @@ struct EuclideousLanePoolStatus: Equatable {
     var count = 0
     var notes: [UInt8] = []
 }
+
+// MARK: - 12: VoiceOver words (the page reads these and nothing else)
+
+/// The three switchable rows.
+enum EuclideousAnswerRow: Int, CaseIterable { case rhythm = 0, pitch = 1, trade = 2
+    var name: String { switch self { case .rhythm: return "Rhythm"; case .pitch: return "Pitch"; case .trade: return "Trade" } }
+}
+/// 12.2 — a mode button: "Rhythm: copy, plays where lane 1 plays"; on a switched-off row ", off" is appended. `lane` is the 1-based lane the mode refers to (the source, or the WITH lane).
+func euclideousAnswerModeSpoken(row: EuclideousAnswerRow, mode: String, lane: Int, rowOn: Bool) -> String {
+    let what: String
+    switch (row, mode.uppercased()) {
+    case (.rhythm, "COPY"): what = "plays where lane \(lane) plays"
+    case (.rhythm, "FILL"): what = "plays where lane \(lane) rests"
+    case (.pitch, "SHADOW"): what = "plays the note lane \(lane) plays now"
+    case (.pitch, "AVOID"): what = "mutes on the same hit as lane \(lane)"
+    case (.trade, "SWAP"): what = "trades places with lane \(lane)"
+    case (.trade, "BORROW"): what = "takes lane \(lane)'s setup"
+    default: what = ""
+    }
+    return "\(row.name): \(mode.lowercased())\(what.isEmpty ? "" : ", \(what)")\(rowOn ? "" : ", off")"
+}
+/// 12.3 — the CYCLE toggle's name.
+func euclideousAnswerCycleToggleLabel(row: EuclideousAnswerRow) -> String { "Cycle \(row.name.lowercased())" }
+/// 12.4 — WITH's value: "lane 3, swap" / "lane 2, borrow".
+func euclideousAnswerWithSpoken(lane: Int, mode: EuclideousAnswerTradeMode) -> String { "lane \(lane + 1), \(mode == .swap ? "swap" : "borrow")" }
+/// 12.5 — the phase bar's value: whose turn it is ("following lane 1", "own", "lane 2") and ", n of m" — the unit within the half (1-based) of EACH. Not running ⇒ "not running".
+func euclideousAnswerPhaseSpoken(lane: Int, line: EuclidLine, status: EuclideousAnswerLaneStatus) -> String {
+    guard status.running else { return "not running" }
+    let colours = euclideousAnswerPhaseColours(lane: lane, line: line)
+    let turn: String
+    if status.phaseB { turn = colours.b == lane ? "own" : "lane \(colours.b + 1)" }
+    else { turn = colours.a == lane ? "own" : "following lane \(colours.a + 1)" }
+    return "\(turn), \(status.unitInHalf + 1) of \(max(1, status.each))"
+}
+/// Reduce Motion (4.2): the playhead moves once a beat, not per frame — progress quantised to 1/(2 × EACH × 4) of the cycle (four stops a unit; a unit is a bar, or a pass, a few beats).
+func euclideousAnswerPlayheadQuantised(_ progress: Double, each: Int) -> Double {
+    let steps = Double(2 * max(1, each) * 4)
+    return min(1, (progress * steps).rounded(.down) / steps)
+}
