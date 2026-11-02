@@ -732,7 +732,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
                 doc.normalizeLocksAtLoad()           // LANE LOCK 3.5: a session always opens at its locked states
                 doc.normalizeRiffsAtLoad()           // POLY RIFF: the four riff boxes are gone — the riff that was active is the one riff
                 doc.normalizeTradesAtLoad()          // ANSWER 6.5: a SWAP whose partner does not SWAP back has its TRADE switched off
-                doc.euclideousMigrateLaneMutesToOutputs()   // MUTE TAB (2026-11-02): an old per-lane mute becomes its home output's mute (lane N → output N)
                 document = doc
                 clearPendingBuild()   // CR-10/K2: the loaded doc carries its OWN BUILD state (via consume*) — drop the outgoing session's stale pending so the next save doesn't re-encode it over the restored doc
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host

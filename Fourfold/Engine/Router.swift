@@ -2072,8 +2072,8 @@ final class Router {
             }
             partOut = pm
         }
-        // MUTE TAB (output mute, 2026-11-02): per-output 16-cell × N-pass mute, time-based on each output's HOME lane's pass (A↔lane 1 … D↔lane 4) — the only reading under which "1 pass" is unambiguous. Read once per window;
-        // `anyMuted` false (the default) ⇒ `euclideousOutputMuteAny` stays false and `emitOneOutput` never runs the gate (byte-identical). Element-mutated, so no render-path allocation.
+        // MUTE TAB (output mute, 2026-11-02; Paul 2026-11-02: the 16 cells DIVIDE a 1…8-PASS window): the 16-cell grid spans `passes` of the output's HOME lane's pass (A↔lane 1 … D↔lane 4), so each cell lasts `passes × homePass / 16`
+        // beats. Read once per window; `anyMuted` false (the default) ⇒ `euclideousOutputMuteAny` stays false and `emitOneOutput` never runs the gate (byte-identical). Element-mutated, so no render-path allocation.
         do {
             let eu = box.cells[Snap.euclideousRow].procs.first
             if let om = eu?.outputMutes, om.anyMuted {
@@ -2083,7 +2083,7 @@ final class Router {
                 for o in 0..<FourfoldPorts.outputCount {
                     euclideousOutputMuteCells[o] = om[o].cells16
                     let geo = euclideousLaneStepGeometry(lines: lines, lane: o, defaultRateBeats: rate)   // home lane o's step + lap
-                    euclideousOutputMuteUnitBeats[o] = Double(om[o].passes) * Double(geo.cycleLen) * geo.sub
+                    euclideousOutputMuteUnitBeats[o] = Double(om[o].passes) * Double(geo.cycleLen) * geo.sub / 16   // a cell = passes-of-a-pass window ÷ 16 cells
                 }
             } else {
                 euclideousOutputMuteAny = false

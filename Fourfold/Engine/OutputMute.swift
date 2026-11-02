@@ -102,36 +102,22 @@ func euclideousOutputLetter(_ output: Int) -> String {
     let letters = ["A", "B", "C", "D"]
     return output >= 0 && output < letters.count ? letters[output] : "?"
 }
-/// The pass-count readout on the rate rail, e.g. "1 PASS" … "8 PASS" (the cell size, lowest = 1).
+/// The pass-count readout on the rail, e.g. "1 PASS" … "8 PASS" — how many passes the 16 cells span (lowest = 1).
 func euclideousOutputMutePassLabel(_ passes: Int) -> String { "\(passes) PASS" }
 /// VoiceOver for one MUTE cell.
 func euclideousOutputMuteCellLabel(output: Int, cell: Int, sounding: Bool) -> String {
     "Output \(euclideousOutputLetter(output)) cell \(cell + 1), \(sounding ? "sounding" : "muted")"
 }
-/// VoiceOver for the ◀ / ▶ pass-size rail.
+/// VoiceOver for the ◀ / ▶ rail — how many passes the output's 16-cell grid spans.
 func euclideousOutputMuteRailLabel(output: Int, passes: Int) -> String {
-    "Output \(euclideousOutputLetter(output)) cell size \(passes) pass\(passes == 1 ? "" : "es")"
+    "Output \(euclideousOutputLetter(output)) showing \(passes) pass\(passes == 1 ? "" : "es")"
 }
 
-// MARK: - Load-time migration from the old per-lane mute
-
-extension PluginState {
-    /// MUTE TAB ferry (2026-11-02): the old per-lane mute (`EuclidLine.muteCells16`/`muteUnit`) is lane N ↔ output N by
-    /// default, so on a session / preset load we seed output N's mute from lane N's and set the lane's grid all-sounding
-    /// (so the per-lane strike gate goes inert and the per-output emission gate carries it). Runs ONCE — only while
-    /// `euclideousOutputMutes` is still nil, so a document already using the new field is untouched and the load is
-    /// idempotent. BEST-EFFORT: the new model is in whole PASSES, so a PASS (the default) / 2PASS lane migrates exactly,
-    /// but a STEP / 4STP cell size (a sub-pass window the new model cannot express) becomes 1 PASS.
-    mutating func euclideousMigrateLaneMutesToOutputs() {
-        guard euclideousOutputMutes == nil, var lines = euclideousLines else { return }
-        var mutes = EuclideousOutputMutes()
-        var any = false
-        for lane in 0..<min(EuclideousOutputMutes.count, lines.count) {
-            guard let cells = lines[lane].muteCells16, cells != 0xFFFF else { continue }
-            any = true
-            mutes[lane] = EuclideousOutputMute(cells16: cells, passes: lines[lane].muteUnitResolved == .twoPass ? 2 : 1)
-            lines[lane].muteCells16 = 0xFFFF   // the per-lane gate goes inert; the output mute carries it now
-        }
-        if any { euclideousLines = lines; euclideousOutputMutes = mutes }
-    }
-}
+// MARK: - The old per-lane mute is NOT migrated
+//
+// MUTE TAB ferry (2026-11-02): Paul's clarification made the 16 cells DIVIDE a 1…8-PASS window (the ◀/▶ sets how many
+// passes the roll/grid spans, NOT the cell size). The old per-lane mute (`EuclidLine.muteCells16`/`muteUnit`) is a
+// different concept (it silences a LANE wherever it routes) on windows up to 32 passes, which the new 1…8-pass model
+// cannot represent faithfully — so there is deliberately NO migration. An old session's per-lane mute keeps SOUNDING
+// (the per-lane strike gate stays live in the Router), it is just not shown or editable in the new per-output MUTE tab;
+// the user re-sets it there. See `Docs/euclideous-device-verification-debt.md`.

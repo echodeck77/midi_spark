@@ -259,7 +259,7 @@ struct EuclideousLanesPanel: View {
 
     // ── the bottom row — MUTE TAB ferry (2026-11-02): the per-lane RHYTHM/MELODY RESTART swatches are gone (outputs have no restart); one caption, DEVICE-OWED wording. ──
     private var legend: some View {
-        Text("\u{25C0}\u{25B6} SETS CELL SIZE IN PASSES \u{00B7} THE ROLL SHOWS WHAT EACH OUTPUT SENDS")
+        Text("\u{25C0}\u{25B6} SETS HOW MANY PASSES THE 16 CELLS SPAN \u{00B7} THE ROLL SHOWS WHAT EACH OUTPUT SENDS")
             .font(heavyMono(8)).tracking(0.4).foregroundColor(EuclideousLanesPalette.dim)
             .lineLimit(1).truncationMode(.tail)
             .frame(width: layout.width, height: EuclideousLanesLayout.legendH, alignment: .leading)

@@ -84,42 +84,11 @@ final class OutputMuteTests: XCTestCase {
         XCTAssertEqual(euclideousOutputMutePassLabel(1), "1 PASS")
         XCTAssertEqual(euclideousOutputMutePassLabel(8), "8 PASS")
         XCTAssertEqual(euclideousOutputMuteCellLabel(output: 1, cell: 2, sounding: false), "Output B cell 3, muted")
-        XCTAssertEqual(euclideousOutputMuteRailLabel(output: 0, passes: 1), "Output A cell size 1 pass")
-        XCTAssertEqual(euclideousOutputMuteRailLabel(output: 3, passes: 4), "Output D cell size 4 passes")
+        XCTAssertEqual(euclideousOutputMuteRailLabel(output: 0, passes: 1), "Output A showing 1 pass")
+        XCTAssertEqual(euclideousOutputMuteRailLabel(output: 3, passes: 4), "Output D showing 4 passes")
     }
 
-    // MARK: load-time migration from the old per-lane mute (lane N → output N)
-
-    func testMigrateSeedsOutputMutesAndClearsThePerLaneGrid() {
-        var p = PluginState(machines: [], scenes: [SceneState.empty()])
-        var l0 = EuclidLine(); l0.muteCells16 = 0x00FF; l0.muteUnit = EuclideousMuteUnit.pass.rawValue       // PASS → 1
-        var l2 = EuclidLine(); l2.muteCells16 = 0xF0F0; l2.muteUnit = EuclideousMuteUnit.twoPass.rawValue     // 2PASS → 2
-        var l3 = EuclidLine(); l3.muteCells16 = 0xAAAA; l3.muteUnit = EuclideousMuteUnit.step.rawValue         // STEP → 1 (lossy, by design)
-        p.euclideousLines = [l0, EuclidLine(), l2, l3]
-        p.euclideousMigrateLaneMutesToOutputs()
-        let m = p.euclideousOutputMutesResolved
-        XCTAssertEqual(m[0], EuclideousOutputMute(cells16: 0x00FF, passes: 1))
-        XCTAssertTrue(m[1].isDefault, "a lane with no mute migrates to the default (all sounding)")
-        XCTAssertEqual(m[2], EuclideousOutputMute(cells16: 0xF0F0, passes: 2))
-        XCTAssertEqual(m[3], EuclideousOutputMute(cells16: 0xAAAA, passes: 1), "STEP collapses to 1 PASS (sub-pass units can't be expressed)")
-        // the per-lane grids are cleared so the per-lane strike gate goes inert
-        for lane in [0, 2, 3] { XCTAssertEqual(p.euclideousLines?[lane].muteCells16, 0xFFFF) }
-    }
-
-    func testMigrateIsIdempotentAndSkipsWhenOutputMutesAlreadySet() {
-        var p = PluginState(machines: [], scenes: [SceneState.empty()])
-        var l0 = EuclidLine(); l0.muteCells16 = 0x00FF
-        p.euclideousLines = [l0]
-        p.euclideousMigrateLaneMutesToOutputs()
-        let once = p
-        p.euclideousMigrateLaneMutesToOutputs()   // the grid is now all-sounding and the field is set → a second run is a no-op
-        XCTAssertEqual(p, once, "idempotent")
-        // a document already on the new field is never touched, even with a stray per-lane grid
-        var q = PluginState(machines: [], scenes: [SceneState.empty()])
-        var ql = EuclidLine(); ql.muteCells16 = 0x0001; q.euclideousLines = [ql]
-        q.euclideousOutputMutes = EuclideousOutputMutes()   // already present (all-default)
-        let qBefore = q
-        q.euclideousMigrateLaneMutesToOutputs()
-        XCTAssertEqual(q, qBefore, "a new-field document is left as-is (the stray per-lane grid is not migrated)")
-    }
+    // NOTE: the old per-lane mute is deliberately NOT migrated (the 16 cells now divide a 1…8-pass window, not the
+    // per-lane cell size). An old session's per-lane mute keeps sounding via the Router's still-live per-lane gate; it
+    // is just not shown in the new per-output MUTE tab. See OutputMute.swift's "The old per-lane mute is NOT migrated".
 }

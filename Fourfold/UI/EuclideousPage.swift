@@ -6841,16 +6841,16 @@ struct EuclideousPage: View {
         }
         .frame(width: width, height: height, alignment: .topLeading)
     }
-    /// MUTE TAB ferry (2026-11-02): each block is an OUTPUT A–D. Its cells are `outputMutes[o]`; its window ticks on the OUTPUT's HOME lane's pass (output o ↔ lane o) × its PASSES; its roll is the REAL MIDI that left on the
-    /// output in the window — the union, across the 8 parts, of the emitted notes (`rollLive`) whose `outs` includes this output — so it reflects the mute, routing, ratchets and hocket, never a prediction.
+    /// MUTE TAB ferry (2026-11-02; Paul: the 16 cells DIVIDE a 1…8-PASS window): each block is an OUTPUT A–D. Its 16 cells (`outputMutes[o]`) span `passes` of the OUTPUT's HOME lane's pass (output o ↔ lane o), so each cell lasts
+    /// `passes × homePass / 16`; its roll is the REAL MIDI that left on the output in that window — the union, across the 8 parts, of the emitted notes (`rollLive`) whose `outs` includes this output — so it reflects the mute, routing, ratchets and hocket, never a prediction.
     private func lanesPanelLanes(beat: Double) -> [EuclideousLanesPanelLane] {
         let mutes = outputMutes
         let model = rollLive.model
         return (0..<4).map { output in
             let v = euclideousLaneGridView(lines: lines, lane: output, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
-            let homePass = Double(v.cycleLen) * v.sub          // output o's HOME lane's pass (the only unambiguous reading of "1 pass" for an output)
+            let homePass = Double(v.cycleLen) * v.sub          // output o's HOME lane's pass (output o ↔ lane o)
             let passes = Int(mutes[output].passes)
-            let unit = Double(max(1, passes)) * homePass
+            let unit = Double(max(1, passes)) * homePass / 16  // the 16 cells divide a `passes`-long window
             let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
             let windowEnd = win.start + win.length
             var roll: [NoteRollNote] = []
