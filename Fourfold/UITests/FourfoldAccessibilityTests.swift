@@ -18,12 +18,10 @@ enum FourfoldAuditAllowList {
         ("textClipped", "FOURFOLD", "the audit flags the header wordmark's tight frame; the pictures show it whole — looks like a false positive, confirm on device"),
         ("textClipped", "NOTES", "the NOTES tab's rotated caption (35 × 212): flagged, not visibly cut in the pictures — confirm on device"),
         ("textClipped", "Invert melody", "RIFF tab control caption: look at it on the mini"),
-        ("textClipped", "ITS LINE, IN TURN", "LISTEN tab option caption (74 pt wide): probably truly cut — look at it"),
-        ("textClipped", "MUTE ON ITS NOTE", "LISTEN tab option caption (74 pt wide): probably truly cut — look at it"),
-        ("textClipped", "Starts as an exact copy", "LISTEN tab's one-line help is cut at the card width in portrait — a real truncation"),
+        ("textClipped", "MUTE ON SAME HIT", "ANSWER tab option caption (≈ 97 pt wide at the reference card): probably truly cut on a narrow card — look at it"),
+        ("textClipped", "TAKE ITS SETUP", "ANSWER tab option caption (≈ 97 pt wide at the reference card): look at it on a narrow card"),
         ("textClipped", "TAP: ON/OFF", "the FX tab's instruction line is cut at the panel width in portrait — a real truncation (seen in the picture: \"…DOUBLE-TAP:…\")"),
-        ("textClipped", "ITS NOTE NOW", "LISTEN tab option caption, landscape"),
-        ("textClipped", "ITS OWN RIFF", "LISTEN tab option caption, landscape"),
+        ("textClipped", "ITS NOTE NOW", "ANSWER tab option caption, landscape"),
     ]
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
     /// letters are the "–" placeholders). More than this on any screen is a new unlabelled piece of text.
@@ -107,7 +105,8 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditRiffTabPortrait()  { screen("lane tab RIFF", landscape: false, laneTab("Riff, ")) }
     func testAuditPolyRiffPortrait() { screen("poly riff", landscape: false) { $0.buttons["Poly"].tap() } }   // POLY RIFF (2026-10-29): the sixteen-column grid and the MONO | POLY control
     func testAuditNotesTabPortrait() { screen("lane tab NOTES", landscape: false, laneTab("Notes")) }
-    func testAuditListenTabPortrait() { screen("lane tab LISTEN", landscape: false, laneTab("Listen, ")) }
+    func testAuditAnswerTabPortrait() { screen("lane tab ANSWER", landscape: false, laneTab("Answer, ")) }
+    func testAuditPoolTabPortrait() { screen("lane tab POOL", landscape: false, laneTab("Pool, ")) }   // ANSWER ferry (2026-11-02): NOW · CANON · FREEZE
     func testAuditPresetsPortrait()  { screen("presets", landscape: false, open("Presets", expect: "PRESETS")) }
     func testAuditKeyPopupPortrait() { screen("key popup", landscape: false, open("Key, C minor", expect: "KEY")) }
     func testAuditSwingPortrait()    { screen("swing", landscape: false, open("Swing, straight", expect: "SWING")) }
@@ -120,7 +119,8 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditRatchLandscape()    { screen("page RATCH", landscape: true) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabLandscape()  { screen("lane tab RIFF", landscape: true, laneTab("Riff, ")) }
     func testAuditNotesTabLandscape() { screen("lane tab NOTES", landscape: true, laneTab("Notes")) }
-    func testAuditListenTabLandscape() { screen("lane tab LISTEN", landscape: true, laneTab("Listen, ")) }
+    func testAuditAnswerTabLandscape() { screen("lane tab ANSWER", landscape: true, laneTab("Answer, ")) }
+    func testAuditPoolTabLandscape() { screen("lane tab POOL", landscape: true, laneTab("Pool, ")) }
     func testAuditPresetsLandscape()  { screen("presets", landscape: true, open("Presets", expect: "PRESETS")) }
     func testAuditKeyPopupLandscape() { screen("key popup", landscape: true, open("Key, C minor", expect: "KEY")) }
     func testAuditSwingLandscape()    { screen("swing", landscape: true, open("Swing, straight", expect: "SWING")) }

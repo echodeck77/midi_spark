@@ -33,7 +33,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             ("5-mix", { _ in }), ("5-lanes", { $0.buttons["Lanes"].tap() }), ("5-fx", { $0.buttons["FX"].tap() }),
             ("5-lane-riff", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff, '")).element(boundBy: 0).tap() }),
             ("5-lane-notes", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes'")).element(boundBy: 0).tap() }),
-            ("5-lane-listen", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Listen, '")).element(boundBy: 0).tap() }),
+            ("5-lane-listen", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Answer, '")).element(boundBy: 0).tap() }),
             ("5-presets", { $0.buttons["Presets"].tap() }), ("5-key", { $0.buttons["Key, C minor"].tap() }), ("5-swing", { $0.buttons["Swing, straight"].tap() }),
             ("5-settings-midi-in", { $0.buttons["Settings"].tap() }),
             ("5-settings-ports", { $0.buttons["Settings"].tap(); $0.buttons["PORTS"].tap() }),
@@ -113,7 +113,7 @@ final class FourfoldScreenshotTests: XCTestCase {
         attach("9-strip-1-rhythm")
         step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-2-riff")
         step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-3-notes")
-        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Listen, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-4-listen")
+        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Answer, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-4-listen")
         step(app.buttons["Mix"]); Thread.sleep(forTimeInterval: 1.2); attach("9-strip-5-mix")
         step(app.buttons["Rhythm"]); Thread.sleep(forTimeInterval: 1.2)
         step(app.buttons["Random mode"]); Thread.sleep(forTimeInterval: 1); attach("9-strip-6-random-mode")
@@ -129,7 +129,7 @@ final class FourfoldScreenshotTests: XCTestCase {
         let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()
         Thread.sleep(forTimeInterval: 2)
         func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
-        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Listen, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape")
+        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Pool, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape")   // ANSWER ferry: CANON lives on the POOL tab now
         if let delay = Optional(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Canon delay, lane 1")).firstMatch), delay.waitForExistence(timeout: 3) {
             delay.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap(); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape-delay-set")
         }

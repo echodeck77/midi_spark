@@ -5534,7 +5534,7 @@ struct EuclideousPage: View {
     private var answerOffText: Color { Color(hex: 0x7C828D) }
     /// §3.1: the row's label cell IS its switch — the label over a 26 × 14 pill, leading-aligned, 3 apart. On: track lane100 at 35 % with a 1 pt lane100 border and the knob lane100 at the trailing end. Off: track #2A2D34, border #3A3E47,
     /// knob #7C828D at the leading end. The knob moves at once. The touch target is the whole cell, at least 44 tall (it reaches past a 30 pt row into the gaps). The label keeps the page's label colour (#8A909A; the ferry says #AAB0BA — source wins on an existing value).
-    private func answerSwitchCell(name: String, on: Bool, accent: Color, width: CGFloat, height: CGFloat, toggle: @escaping () -> Void) -> AnyView {
+    private func answerSwitchCell(name: String, spoken: String, on: Bool, accent: Color, width: CGFloat, height: CGFloat, toggle: @escaping () -> Void) -> AnyView {
         let tapH = max(44, height), padV = (tapH - height) / 2
         return AnyView(VStack(alignment: .leading, spacing: 3) {
             Text(name).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
@@ -5549,7 +5549,7 @@ struct EuclideousPage: View {
         .contentShape(Rectangle().path(in: CGRect(x: 0, y: -padV, width: width, height: tapH)))
         .onTapGesture(perform: toggle)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(name.capitalized)
+        .accessibilityLabel(spoken)   // "Rhythm, lane 2" — the lane is part of the name (§12.1 says "Rhythm"; four cards each carry the switch, and the strip's own RHYTHM segment is a button of that exact name)
         .accessibilityValue(on ? "on" : "off")
         .accessibilityAddTraits(.isButton))
     }
@@ -5600,12 +5600,12 @@ struct EuclideousPage: View {
         let on = line.answerRhythmOnResolved, mode = line.answerRhythmModeResolved, source = line.listenSourceResolved(ownLane: idx) + 1
         func pick(_ m: EuclideousAnswerRhythmMode) { edit(idx) { $0.answerRhythmMode = m; $0.answerRhythmOn = true } }   // §3.3: selecting a mode of an off row switches it on
         return AnyView(HStack(spacing: gap) {
-            answerSwitchCell(name: "RHYTHM", on: on, accent: accent, width: labelW, height: height) { edit(idx) { $0.answerRhythmOn = !$0.answerRhythmOnResolved } }
+            answerSwitchCell(name: "RHYTHM", spoken: "Rhythm, lane \(idx + 1)", on: on, accent: accent, width: labelW, height: height) { edit(idx) { $0.answerRhythmOn = !$0.answerRhythmOnResolved } }
             answerModeButton(name: "COPY", hint: "ITS HITS", selected: mode == .copy, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .rhythm, mode: "COPY", lane: source, rowOn: on),
                              width: btnW, height: height, accent: accent) { pick(.copy) }
             answerModeButton(name: "FILL", hint: "ITS GAPS", selected: mode == .fill, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .rhythm, mode: "FILL", lane: source, rowOn: on),
                              width: btnW, height: height, accent: accent) { pick(.fill) }
-            answerCycleButton(cycleOn: line.answerRhythmCycleResolved, rowOn: on, spoken: euclideousAnswerCycleToggleLabel(row: .rhythm), width: btnW, height: height, accent: accent) {
+            answerCycleButton(cycleOn: line.answerRhythmCycleResolved, rowOn: on, spoken: euclideousAnswerCycleToggleLabel(row: .rhythm, lane: idx), width: btnW, height: height, accent: accent) {
                 edit(idx) { $0.answerRhythmCycle = !$0.answerRhythmCycleResolved }
             }
         }
@@ -5715,12 +5715,12 @@ struct EuclideousPage: View {
         let on = line.answerPitchOnResolved, mode = line.answerPitchModeResolved, source = line.listenSourceResolved(ownLane: idx) + 1
         func pick(_ m: EuclideousAnswerPitchMode) { edit(idx) { $0.answerPitchMode = m; $0.answerPitchOn = true } }
         return AnyView(HStack(spacing: gap) {
-            answerSwitchCell(name: "PITCH", on: on, accent: accent, width: labelW, height: height) { edit(idx) { $0.answerPitchOn = !$0.answerPitchOnResolved } }
+            answerSwitchCell(name: "PITCH", spoken: "Pitch, lane \(idx + 1)", on: on, accent: accent, width: labelW, height: height) { edit(idx) { $0.answerPitchOn = !$0.answerPitchOnResolved } }
             answerModeButton(name: "SHADOW", hint: "ITS NOTE NOW", selected: mode == .shadow, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .pitch, mode: "SHADOW", lane: source, rowOn: on),
                              width: btnW, height: height, accent: accent) { pick(.shadow) }
             answerModeButton(name: "AVOID", hint: "MUTE ON SAME HIT", selected: mode == .avoid, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .pitch, mode: "AVOID", lane: source, rowOn: on),
                              width: btnW, height: height, accent: accent) { pick(.avoid) }
-            answerCycleButton(cycleOn: line.answerPitchCycleResolved, rowOn: on, spoken: euclideousAnswerCycleToggleLabel(row: .pitch), width: btnW, height: height, accent: accent) {
+            answerCycleButton(cycleOn: line.answerPitchCycleResolved, rowOn: on, spoken: euclideousAnswerCycleToggleLabel(row: .pitch, lane: idx), width: btnW, height: height, accent: accent) {
                 edit(idx) { $0.answerPitchCycle = !$0.answerPitchCycleResolved }
             }
         }
@@ -5734,7 +5734,7 @@ struct EuclideousPage: View {
         let on = line.answerTradeOnResolved, mode = line.answerTradeModeResolved, with = line.answerTradeWithResolved(ownLane: idx) + 1
         func trade(_ edits: [EuclideousTradeEdit]) { onEdit { lines in for e in edits { lines = euclideousApplyTradeEdit(lines, lane: idx, edit: e) } } }
         return AnyView(HStack(spacing: gap) {
-            answerSwitchCell(name: "TRADE", on: on, accent: accent, width: labelW, height: height) { trade([.on(!on)]) }
+            answerSwitchCell(name: "TRADE", spoken: "Trade, lane \(idx + 1)", on: on, accent: accent, width: labelW, height: height) { trade([.on(!on)]) }
             answerModeButton(name: "SWAP", hint: "TRADE PLACES", selected: mode == .swap, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .trade, mode: "SWAP", lane: with, rowOn: on),
                              width: btnW, height: height, accent: accent) { trade(on ? [.mode(.swap)] : [.mode(.swap), .on(true)]) }
             answerModeButton(name: "BORROW", hint: "TAKE ITS SETUP", selected: mode == .borrow, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .trade, mode: "BORROW", lane: with, rowOn: on),
@@ -5772,7 +5772,7 @@ struct EuclideousPage: View {
         .frame(width: width, height: height)
         .opacity(on ? 1 : 0.7)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Trade with").accessibilityValue(euclideousAnswerWithSpoken(lane: with, mode: mode))
+        .accessibilityLabel("Trade with, lane \(idx + 1)").accessibilityValue(euclideousAnswerWithSpoken(lane: with, mode: mode))
         .accessibilityAdjustableAction { dir in set(moved(dir == .increment ? 1 : -1)) })
     }
     /// §4: the CYCLE row — the plain label "CYCLE" (not a switch), then three equal columns: EACH (1 … 16), UNIT (BARS · PASSES) — the CANON row's steppers, whose tap zones stay inside their own bounds — and the phase bar. EACH and UNIT go through
@@ -5784,9 +5784,9 @@ struct EuclideousPage: View {
         func edit1(_ e: EuclideousTradeEdit) { onEdit { lines in lines = euclideousApplyTradeEdit(lines, lane: idx, edit: e) } }
         return AnyView(HStack(spacing: gap) {
             Text("CYCLE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            canonStepper("EACH", value: "\(each)", spoken: "\(each)", name: "Each", width: colW, height: height,
+            canonStepper("EACH", value: "\(each)", spoken: "\(each)", name: "Each, lane \(idx + 1)", width: colW, height: height,
                          onDec: { edit1(.each(max(euclideousAnswerCycleEachMin, each - 1))) }, onInc: { edit1(.each(min(euclideousAnswerCycleEachMax, each + 1))) })
-            canonStepper("UNIT", value: unit.rawValue, spoken: unit == .bars ? "bars" : "passes", name: "Unit", width: colW, height: height,
+            canonStepper("UNIT", value: unit.rawValue, spoken: unit == .bars ? "bars" : "passes", name: "Unit, lane \(idx + 1)", width: colW, height: height,
                          onDec: { edit1(.unit(unit == .bars ? .passes : .bars)) }, onInc: { edit1(.unit(unit == .bars ? .passes : .bars)) })
             answerPhaseBar(idx, line, width: colW, height: height)
         }

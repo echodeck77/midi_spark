@@ -310,7 +310,7 @@ func euclideousAnswerModeSpoken(row: EuclideousAnswerRow, mode: String, lane: In
     return "\(row.name): \(mode.lowercased())\(what.isEmpty ? "" : ", \(what)")\(rowOn ? "" : ", off")"
 }
 /// 12.3 — the CYCLE toggle's name.
-func euclideousAnswerCycleToggleLabel(row: EuclideousAnswerRow) -> String { "Cycle \(row.name.lowercased())" }
+func euclideousAnswerCycleToggleLabel(row: EuclideousAnswerRow, lane: Int) -> String { "Cycle \(row.name.lowercased()), lane \(lane + 1)" }
 /// 12.4 — WITH's value: "lane 3, swap" / "lane 2, borrow".
 func euclideousAnswerWithSpoken(lane: Int, mode: EuclideousAnswerTradeMode) -> String { "lane \(lane + 1), \(mode == .swap ? "swap" : "borrow")" }
 /// 12.5 — the phase bar's value: whose turn it is ("following lane 1", "own", "lane 2") and ", n of m" — the unit within the half (1-based) of EACH. Not running ⇒ "not running".

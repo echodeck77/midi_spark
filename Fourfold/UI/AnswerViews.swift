@@ -35,7 +35,7 @@ struct AnswerPhaseBarView: View {
         .frame(width: barW, height: 5)
         .frame(width: width, height: height)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Phase")
+        .accessibilityLabel("Phase, lane \(lane + 1)")
         .accessibilityValue(euclideousAnswerPhaseSpoken(lane: lane, line: line, status: playing ? st : EuclideousAnswerLaneStatus()))
     }
 }
