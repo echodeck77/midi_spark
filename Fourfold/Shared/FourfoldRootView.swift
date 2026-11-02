@@ -701,6 +701,7 @@ struct FourfoldRootView: View {
         }
         // LANE LOCK §9.2: restoring a step never moves a locked lane's lock fields (and the locks themselves are not in a step at all)
         lines = euclideousLockMergeForUndo(restored: lines, current: euclideousLines, locked: euclideousLocks.map { $0.isLocked })
+        lines = euclideousNormalizeTrades(lines).lines   // ANSWER 6.5: an undo result goes through normalizeTrades too (a step recorded from a consistent state restores one; this is the net)
         setEuclideousLines(lines)
         euclideousRiff = s.riff
         euclideousResetSpanBars = s.resetSpanBars
