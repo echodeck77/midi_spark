@@ -39,3 +39,43 @@ struct AnswerPhaseBarView: View {
         .accessibilityValue(euclideousAnswerPhaseSpoken(lane: lane, line: line, status: playing ? st : EuclideousAnswerLaneStatus()))
     }
 }
+
+/// §10.3: the NOW row's chips — the notes this lane is choosing from right now (its pool after CANON and FREEZE: the per-lane pool every part of the lane reads), ascending, named as the SOURCES panel names a pool note, in the sources panel's held-chip look
+/// (24 tall, 30 drawn, 9 pt heavy, radius 4, 4 apart) tinted with the lane's colour; as many as fit at the chip width, then "+n" in the reserved slot; an empty pool is one ghost chip. While FREEZE is holding the chips draw at 60 % (FREEZE's own running
+/// look, its value at 60 %). One VoiceOver element, "Now", whose value is the note names. Fixed-size data from the status feed; the model is observed here, not by the page.
+struct AnswerPoolNowView: View {
+    let lane: Int
+    let tint: Color
+    let room: CGFloat
+    let frozen: Bool
+    let flatKey: Bool
+    @ObservedObject var live: AnswerLiveModel
+
+    var body: some View {
+        let pool = live.pool(lane: lane)
+        let names = pool.notes.map { euclideousNoteViewName($0, flatKey: flatKey) }
+        let count = max(pool.count, names.count)
+        let fit = euclideousMidiChipFit(room: room, count: count)
+        HStack(spacing: 4) {
+            if count == 0 {
+                if room >= euclideousMidiChipW { RoundedRectangle(cornerRadius: 4).strokeBorder(Color(red: 0x3A / 255, green: 0x3E / 255, blue: 0x47 / 255), lineWidth: 1).frame(width: euclideousMidiChipW, height: 24) }
+            } else {
+                ForEach(Array(names.prefix(fit.shown).enumerated()), id: \.offset) { _, name in
+                    Text(name).font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1)
+                        .foregroundColor(Color(red: 0x0D / 255, green: 0x0F / 255, blue: 0x14 / 255))
+                        .frame(minWidth: euclideousMidiChipW - 6, minHeight: 24).padding(.horizontal, 3)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(tint))
+                }
+                if fit.showsOverflow {
+                    Text("+\(count - fit.shown)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(red: 0x8A / 255, green: 0x90 / 255, blue: 0x9A / 255)).frame(width: euclideousMidiChipW)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(width: max(1, room), alignment: .leading)
+        .opacity(frozen ? 0.6 : 1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Now")
+        .accessibilityValue(count == 0 ? "empty" : (names.joined(separator: ", ") + (count > names.count ? ", and \(count - names.count) more" : "")))
+    }
+}

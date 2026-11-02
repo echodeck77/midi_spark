@@ -3780,7 +3780,7 @@ struct EuclideousPage: View {
         case .notes:
             notesTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         case .pool:
-            Color.clear   // ANSWER FERRY step 7 fills this (NOW · CANON · FREEZE)
+            EuclideousStackBreak { AnyView(poolTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)) }
         case .listen:
             listenTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         }
@@ -5851,7 +5851,7 @@ struct EuclideousPage: View {
         let w = max(1, fullWidth - labelW)
         let stepperW = max(1, (w - pad * 2 - gap * 2) / 3)
         let stepperH = max(1, height - pad * 2)
-        let inert = euclideousCanonInertReason(sourceOn: sourcePlan.anyOnR, pitch: line.listenPitchResolved)
+        let inert = euclideousCanonInertReason(sourceOn: sourcePlan.anyOnR, pitch: phaseLines[idx].listenPitchResolved)   // the lane as it PLAYS: a cycling PITCH is inert only while it shadows
         let delay = line.chordDelayResolved, slip = line.chordSlipResolved
         func stepper(_ label: String, value: String, spoken: String, name: String, onDec: @escaping () -> Void, onInc: @escaping () -> Void) -> AnyView {
             canonStepper(label, value: value, spoken: spoken, name: name, width: stepperW, height: stepperH, onDec: onDec, onInc: onInc)
@@ -5950,6 +5950,24 @@ struct EuclideousPage: View {
         .accessibilityLabel("Freeze, lane \(idx + 1)").accessibilityValue(spoken)
         .accessibilityAdjustableAction { dir in set(euclideousPoolHoldMoved(hold, by: dir == .increment ? 1 : -1)) }
         .accessibilityAction(named: "Set all lanes") { setAll(hold) })
+    }
+    /// ANSWER §10 (2026-11-02): the POOL tab — NOW (the notes this lane is choosing from right now), then CANON and FREEZE, moved here unchanged from LISTEN ("they decide when a lane's pool changes, not how the lane relates to another lane"). The body uses
+    /// ANSWER's frame and row grammar: the 50 pt label column and sp8 between rows; three 44 pt rows.
+    private func poolTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
+        let labelW = EuclideousAnswerTabMetrics.labelColumn, gap = EuclideousAnswerTabMetrics.gap
+        let rowH = max(EuclideousAnswerTabMetrics.rowFloor, min(EuclideousAnswerTabMetrics.rowIdeal, (contentAreaH - gap * 2) / 3))
+        let frozen = idx < poolHoldStatus.count && poolHoldStatus[idx].running
+        return VStack(spacing: gap) {
+            HStack(spacing: 0) {
+                Text("NOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+                AnswerPoolNowView(lane: idx, tint: lane100(accent), room: max(1, fullWidth - labelW), frozen: frozen, flatKey: euclideousKeyIsFlat(((keyRoot % 12) + 12) % 12, scaleType: keyType), live: answerLive)
+            }
+            .frame(width: fullWidth, height: rowH)
+            listenCanonRow(idx, line, fullWidth: fullWidth, height: rowH)
+            listenFreezeRow(idx, line, fullWidth: fullWidth, height: rowH)
+            Spacer(minLength: 0)
+        }
+        .frame(width: fullWidth, height: contentAreaH, alignment: .top)
     }
     /// ANSWER (2026-11-02): FOLLOW, RHYTHM, PITCH, [the PITCH panel while PITCH is on with SHADOW], TRADE, [the CYCLE row while something cycles]. CANON / FREEZE live on POOL, the rhythm panel on RHYTHM, the footer is gone. Heights come from
     /// `euclideousAnswerTabLayout` (rows 44 when they fit, down to a 30 pt floor).
