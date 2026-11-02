@@ -3859,6 +3859,7 @@ struct EuclideousUndoSnapshot: Equatable {
     var holdLatchMode: EuclideousHoldLatchMode? = nil   // HOLD/LATCH (2026-10-20): undoable like noteSource above, no §7.3-style exclusion
     var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the rules — undoable page-level state (which rule tab is showing, and whether the pop-up is open, are not); [] = none stored
     var emitterRatchets: EmitterRatchetSet = EmitterRatchetSet()   // EMITTER RATCHET (2026-10-28): the four output ratchets — undoable page-level state; all-default restores "nothing stored" (nil)
+    var outputMutes: EuclideousOutputMutes = EuclideousOutputMutes()   // MUTE TAB (2026-11-02): the four per-output mutes — undoable page-level state; all-default restores "nothing stored" (nil)
     var riffPoly: Bool = false                   // POLY RIFF (2026-10-29): the MONO | POLY mode — undoable page-level state (a step of its own)
     var polyRiff: EuclideousPolyRiff? = nil      // …and the POLY riff itself (nil = nothing stored); one drag is one step
     var canonUnit: CanonUnit = .passes           // CHORD CANON (2026-10-31): the DELAY unit — undoable page-level state (the lanes' DELAY / SLIP ride in `lines`); PASSES restores "nil"

@@ -5414,7 +5414,7 @@ struct EuclideousPadUndoBurst: Equatable {
 /// shown directly in the page layout, restored there 2026-10-18.
 enum EuclideousSeqTab: Int, CaseIterable {
     case mix = 0, lanes = 1, riffs = 2, fx = 3, ratch = 4   // RATCH tab ferry (2026-10-28): the fourth case, after FX — a per-output Euclid ratchet (`EmitterRatchetUI.swift`)
-    var label: String { switch self { case .mix: return "MIX"; case .lanes: return "LANES"; case .riffs: return "RIFFS"; case .fx: return "FX"; case .ratch: return "RATCH" } }
+    var label: String { switch self { case .mix: return "MIX"; case .lanes: return "MUTE"; case .riffs: return "RIFFS"; case .fx: return "FX"; case .ratch: return "RATCH" } }   // MUTE TAB ferry (2026-11-02): the old LANES tab is now MUTE (per-output mute); the case name `.lanes` stays (stable raw value, coupled across the page)
     /// The tabs a layout without FX shows. PAGE LAYOUT ferry (2026-10-19): no layout is without FX any more — portrait's panel is the riff panel's own width,
     /// so the FX columns match the riff grid's, and it is 319 tall — but the list stays for a caller that wants it.
     /// CARD BACKS (2026-10-28) §8: the MIX tab is RETIRED — what it edited (VEL, GATE, OCT per part) now lives on the lane cards' backs. The case stays (hidden, not deleted), so the panel is LANES | FX and LANES is the default.

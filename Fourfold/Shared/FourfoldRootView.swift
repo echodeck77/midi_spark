@@ -58,6 +58,7 @@ struct FourfoldRootView: View {
     var euclideousFX: EuclideousFX { get { m.euclideousFX } nonmutating set { m.euclideousFX = newValue } }
     var hocketRules: [HocketRule] { get { m.hocketRules } nonmutating set { m.hocketRules = newValue } }
     var emitterRatchets: EmitterRatchetSet { get { m.emitterRatchets } nonmutating set { m.emitterRatchets = newValue } }   // EMITTER RATCHET (2026-10-28)
+    var euclideousOutputMutes: EuclideousOutputMutes { get { m.euclideousOutputMutes } nonmutating set { m.euclideousOutputMutes = newValue } }   // MUTE TAB (2026-11-02)
     var euclideousRiffsSeq: EuclideousRiffsSeq { get { m.euclideousRiffsSeq } nonmutating set { m.euclideousRiffsSeq = newValue } }
     var euclideousRiffPositions: [Int] { get { m.euclideousRiffPositions } nonmutating set { m.euclideousRiffPositions = newValue } }
     var euclideousMaskPositions: [Int] { get { m.euclideousMaskPositions } nonmutating set { m.euclideousMaskPositions = newValue } }
@@ -150,7 +151,7 @@ struct FourfoldRootView: View {
                                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff, riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff ?? EuclideousPolyRiff(),
                                                riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
-                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters,
+                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, outputMutes: euclideousOutputMutes, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters,
                                                lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                                wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                                pulseFeed: meters.pulse, pulseLevel: pulseLevel,
@@ -363,6 +364,16 @@ struct FourfoldRootView: View {
                                                    publish()
                                                },
                                                onEmitterRatchetDragEnd: { euclideousUndo.dropLastStepIfUnchanged(current: euclideousSnapshot()) },   // UNDO-6: a drag that wandered off and came back is not a step
+                                               onEditOutputMute: { newStep, mutate in   // MUTE TAB (2026-11-02): one write + one republish, like the emitter ratchets; a cell stroke coalesces into one step via the checkpoint burst
+                                                   var o = euclideousOutputMutes
+                                                   mutate(&o)
+                                                   if newStep { m.checkpoint.newBurst() }
+                                                   guard o != euclideousOutputMutes else { return }
+                                                   if m.checkpoint.take(changed: true) { euclideousRecordUndo(coalesceKey: nil) }
+                                                   euclideousOutputMutes = o
+                                                   au?.editDocument { $0.euclideousOutputMutes = o.isAllDefault ? nil : o }
+                                                   publish()
+                                               },
                                                onEditRiffsSeq: { mutate in
                                                    var s = euclideousRiffsSeq
                                                    mutate(&s)
@@ -603,6 +614,7 @@ struct FourfoldRootView: View {
         euclideousFX = au.uiEuclideousFX()
         hocketRules = au.uiHocketRules()
         emitterRatchets = au.uiEmitterRatchets()
+        euclideousOutputMutes = au.uiEuclideousOutputMutes()   // MUTE TAB (2026-11-02)
         euclideousRiffsSeq = au.uiEuclideousRiffsSeq()
     }
 
@@ -654,6 +666,7 @@ struct FourfoldRootView: View {
                                 riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                 lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
                                 holdLatchMode: euclideousHoldLatchMode, hocketRules: hocketRules, emitterRatchets: emitterRatchets,
+                                outputMutes: euclideousOutputMutes,
                                 riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff, canonUnit: euclideousCanonUnit)
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
@@ -721,6 +734,7 @@ struct FourfoldRootView: View {
         euclideousFX = s.fx
         hocketRules = s.hocketRules
         emitterRatchets = s.emitterRatchets
+        euclideousOutputMutes = s.outputMutes
         euclideousHoldLatchMode = s.holdLatchMode
         au?.editDocument {
             $0.euclideousLines = lines; $0.euclideousRiff = s.riff; $0.euclideousResetSpanBars = s.resetSpanBars
@@ -738,6 +752,7 @@ struct FourfoldRootView: View {
             $0.euclideousFX = s.fx
             $0.hocketRules = s.hocketRules.isEmpty ? nil : HocketRuleSet(s.hocketRules)   // [] restores "nothing stored"
             $0.euclideousEmitterRatchets = s.emitterRatchets.isAllDefault ? nil : s.emitterRatchets   // all-default restores "nothing stored"
+            $0.euclideousOutputMutes = s.outputMutes.isAllDefault ? nil : s.outputMutes   // MUTE TAB: all-default restores "nothing stored"
             $0.euclideousHoldLatchMode = s.holdLatchMode
         }
         historyMoved(clearStack: false)
@@ -943,6 +958,7 @@ struct FourfoldRootView: View {
         let efx = au.uiEuclideousFX(); if efx != euclideousFX { euclideousFX = efx; euclideousResynced = true }
         let ehr = au.uiHocketRules(); if ehr != hocketRules { hocketRules = ehr; euclideousResynced = true }   // HOCKET (2026-10-27)
         let eer = au.uiEmitterRatchets(); if eer != emitterRatchets { emitterRatchets = eer; euclideousResynced = true }   // EMITTER RATCHET (2026-10-28)
+        let eom = au.uiEuclideousOutputMutes(); if eom != euclideousOutputMutes { euclideousOutputMutes = eom; euclideousResynced = true }   // MUTE TAB (2026-11-02)
         if euclideousResynced { m.probeResyncs &+= 1; historyMoved(clearStack: true); publish() }   // UNDO-3: every funnel writes the page AND the document, so a difference here means the document was replaced behind the page's back (host preset menu, project load): the history described a document that is gone   // (`probeResyncs`: UNDO AUDIT — how often the page found itself out of step with the document)
         let nd = au.kernelDiagnostics()
         if nd.panics != lastStuckPanics {   // a8 STUCK-NOTE: the render thread healed since the last poll — log it ONCE here, off the audio thread (was an os_log PER BLOCK on the render path = crackle; Paul 2026-09-12)
@@ -1054,6 +1070,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousFX: EuclideousFX = EuclideousFX()
     @Published var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the document's rules, sanitised; [] = none stored
     @Published var emitterRatchets = EmitterRatchetSet()   // EMITTER RATCHET (2026-10-28): the document's four output ratchets; all defaults when nothing is stored
+    @Published var euclideousOutputMutes = EuclideousOutputMutes()   // MUTE TAB (2026-11-02): the document's four per-output mutes; all defaults when nothing is stored
     @Published var euclideousRiffsSeq: EuclideousRiffsSeq = EuclideousRiffsSeq()
     @Published var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
     @Published var euclideousMaskPositions: [Int] = [-1, -1, -1, -1]

@@ -25,21 +25,20 @@ enum EuclideousLanesPalette {
 
 private func heavyMono(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .monospaced) }
 
-/// One lane's MUTE-view data (RESTART CHAINS ferry §8: the panel is mute-only now). Equatable, so the
-/// static layer re-draws only when something it shows actually changed.
+/// One OUTPUT's MUTE-view data (MUTE TAB ferry 2026-11-02: each block is an output A–D, muting EMISSION on that output).
+/// Equatable, so the static layer re-draws only when something it shows actually changed.
 struct EuclideousLanesPanelLane: Equatable {
-    var grid: EuclideousLaneGrid
-    var unitLabel: String
-    /// The MUTE cell length in beats, and the start of the window the roll covers (`floor(beat / window) × window`).
+    /// Output o's 16-cell mute (bit i set = cell i SOUNDS). The panel edits this (→ `euclideousOutputMutes[o]`).
+    var cells16: UInt16
+    /// The cell size in whole PASSES (1…8) — the rail readout and the ◀ / ▶ bounds.
+    var passes: Int
+    /// The mute cell length in beats (passes × the output's HOME lane's pass), and the start of the window the roll covers.
     var unitBeats: Double
     var windowStart: Double
-    var roll: [EuclideousRollHit]
-    /// Where this lane's restart marks (from its resolved CHAINS, §8.3) fall inside the mute window (read-only ticks, §4.8).
-    var rhythmMarkBeats: [Double]
-    var melodyMarkBeats: [Double]
-    /// LANE SOLO §6.4: the solo mask silences this lane — its whole block (rail, cells, roll, marks, playhead) draws at 42 %, still live. One flag with the LANES mute's own dim of the roll's bars (never stacked: the bars
-    /// already drawn dim for a muted cell stay as they are, this dims the block as a whole).
-    var silenced: Bool = false
+    /// The REAL notes emitted on this output in the window (the actual MIDI, after routing / mute / ratchet / hocket — not a prediction), drawn pitch-positioned like the card-back rolls.
+    var roll: [NoteRollNote]
+    var canDec: Bool { passes > 1 }
+    var canInc: Bool { passes < 8 }
 }
 
 /// The static layer: cell fills, run outlines, restart marks / slots, the roll, the read-only marks. No time in here — the playhead is a
@@ -58,8 +57,6 @@ private struct EuclideousLanesStaticLayer: View, Equatable {
             draw(&ctx, lane: lane, data: data, accent: accents[lane % accents.count])
         }
         .frame(width: layout.width, height: layout.height)
-        .opacity(data.silenced ? EuclideousLaneDimStyle.opacity : 1)
-        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: data.silenced)
         .allowsHitTesting(false)
     }
 
@@ -71,18 +68,17 @@ private struct EuclideousLanesStaticLayer: View, Equatable {
         return layout.gridX + layout.cellLeft(i) + CGFloat(c - Double(i)) * layout.cellW
     }
 
-    /// RESTART CHAINS ferry §8.2: the RESTART view (its rows, marks, slots, outlines and strokes) is gone —
-    /// this now ALWAYS paints the MUTE view. Restarts are set on each lane's own RHYTHM tab (§6).
-    private func draw(_ ctx: inout GraphicsContext, lane: Int, data: EuclideousLanesPanelLane, accent: Color) {
-        let top = layout.laneTop(lane)
+    /// MUTE TAB ferry (2026-11-02): each block is an OUTPUT. The cells are output o's mute grid (a muted cell is dim); the roll behind them is the REAL MIDI that LEFT on this output in the window (from `NoteRollModel`,
+    /// filtered to this output), drawn pitch-positioned — so a muted cell shows up as the gap it actually creates. (The per-lane restart marks are gone — an output has no rhythm of its own.)
+    private func draw(_ ctx: inout GraphicsContext, lane output: Int, data: EuclideousLanesPanelLane, accent: Color) {
+        let top = layout.laneTop(output)
         let gx = layout.gridX
         let cw = layout.cellW, laneH = layout.laneH
-        let scale = laneH / 50
 
-        // ── cells ──
+        // ── cells (bit set = sounds; cleared = muted) ──
         for i in 0..<16 {
             let r = CGRect(x: gx + layout.cellLeft(i), y: top, width: cw, height: laneH)
-            let sounding = (data.grid.muteCells >> UInt16(i)) & 1 != 0
+            let sounding = (data.cells16 >> UInt16(i)) & 1 != 0
             let shape = RoundedRectangle(cornerRadius: 6).path(in: r)
             if sounding {
                 ctx.fill(shape, with: .color(accent.opacity(0.2)))
@@ -92,40 +88,19 @@ private struct EuclideousLanesStaticLayer: View, Equatable {
             }
         }
 
-        // ── the roll (above the cell fills so muted cells still show their dim bars) ──
-        for hit in data.roll where data.unitBeats > 0 {
-            let color: Color
-            if hit.rank < 1 {
-                color = EuclideousLanesPalette.mutedBar.opacity(0.35)   // a rest / no riff rank: the middle line, dim, never blank (§3.3)
-            } else if hit.audible {
-                color = accent.opacity(1)
-            } else {
-                color = EuclideousLanesPalette.mutedBar.opacity(0.5)
-            }
-            let y = top + euclideousRollBarY(rank: hit.rank, laneH: laneH) - (hit.rank < 1 ? 1.5 : 0)
-            // FX RATCH (§13.4): a ratcheted hit is drawn as its n strikes, one slot apart; every other hit is one bar (strikes == 1)
-            for k in 0..<max(1, hit.strikes) {
-                let b0 = hit.beat + Double(k) * hit.spacingBeats
-                let u0 = (b0 - data.windowStart) / data.unitBeats
-                guard u0 >= 0, u0 < 16 else { continue }
-                let len = (k == hit.strikes - 1 && hit.lastGateBeats > 0) ? hit.lastGateBeats : hit.gateBeats
-                let x0 = xOf(u0), x1 = xOf(u0 + len / data.unitBeats)
-                ctx.fill(RoundedRectangle(cornerRadius: 1.5).path(in: CGRect(x: x0, y: y, width: max(2.5, x1 - x0), height: 3)), with: .color(color))
-            }
+        // ── the real emitted roll (above the cells) — pitch-positioned, DEVICE-OWED look: a fixed 36…96 range maps to the block height (notes clamp), each note a bar from its on to its off (held → to the window end). ──
+        let loP = 36.0, hiP = 96.0, pSpan = hiP - loP
+        func yOf(_ pitch: UInt8) -> CGFloat {
+            let t = (Double(pitch) - loP) / pSpan
+            return top + laneH - 2 - CGFloat(min(1, max(0, t))) * (laneH - 4)   // high pitch near the top
         }
-
-        // ── restart marks (§8.3: now derived from each lane's resolved CHAINS, not the retired masks) ──
-        for (beats, melody) in [(data.rhythmMarkBeats, false), (data.melodyMarkBeats, true)] {
-            let h = 20 * scale
-            let y = top + (melody ? 27 : 3) * scale
-            for b in beats {
-                guard data.unitBeats > 0 else { break }
-                let u = (b - data.windowStart) / data.unitBeats
-                guard u >= 0, u < 16 else { continue }
-                let x = xOf(u)
-                ctx.fill(RoundedRectangle(cornerRadius: 1).path(in: CGRect(x: x - 1, y: y, width: 2, height: h)),
-                         with: .color(EuclideousLanesPalette.ink.opacity(0.5)))
-            }
+        for note in data.roll where data.unitBeats > 0 {
+            let u0 = (note.onBeat - data.windowStart) / data.unitBeats
+            let endBeat = note.endBeat ?? (data.windowStart + data.unitBeats * 16)
+            let u1 = (endBeat - data.windowStart) / data.unitBeats
+            guard u1 > 0, u0 < 16 else { continue }
+            let x0 = xOf(max(0, u0)), x1 = xOf(min(16, u1)), y = yOf(note.pitch)
+            ctx.fill(RoundedRectangle(cornerRadius: 1.5).path(in: CGRect(x: x0, y: y - 1.5, width: max(2.5, x1 - x0), height: 3)), with: .color(accent.opacity(1)))
         }
     }
 }
@@ -135,28 +110,21 @@ private struct EuclideousLanesStaticLayer: View, Equatable {
 private struct EuclideousLanesPlayheads: View {
     let layout: EuclideousLanesLayout
     let unitBeats: [Double]
-    let silenced: [Bool]
     let playing: Bool
     let beatAt: (Date) -> Double
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !playing)) { tl in
             let beat = beatAt(tl.date)
-            // one Canvas per lane inside the ONE timeline, so a silenced lane's playhead eases to 42 % on its own (LANE SOLO §6.4)
-            ZStack(alignment: .topLeading) {
-                ForEach(0..<4, id: \.self) { lane in
-                    Canvas { ctx, _ in
-                        guard lane < unitBeats.count, unitBeats[lane] > 0 else { return }
-                        let pos = euclideousLanesPosition(beat: beat, unitBeats: unitBeats[lane], layout: layout)
-                        let r = CGRect(x: layout.gridX + pos.x - 1, y: layout.laneTop(lane) - 2, width: 2, height: layout.laneH + 4)
-                        ctx.drawLayer { layer in
-                            layer.addFilter(.shadow(color: EuclideousLanesPalette.ink.opacity(0.55), radius: 6))
-                            layer.fill(RoundedRectangle(cornerRadius: 1).path(in: r), with: .color(EuclideousLanesPalette.ink))
-                        }
+            Canvas { ctx, _ in
+                for output in 0..<4 {
+                    guard output < unitBeats.count, unitBeats[output] > 0 else { continue }
+                    let pos = euclideousLanesPosition(beat: beat, unitBeats: unitBeats[output], layout: layout)
+                    let r = CGRect(x: layout.gridX + pos.x - 1, y: layout.laneTop(output) - 2, width: 2, height: layout.laneH + 4)
+                    ctx.drawLayer { layer in
+                        layer.addFilter(.shadow(color: EuclideousLanesPalette.ink.opacity(0.55), radius: 6))
+                        layer.fill(RoundedRectangle(cornerRadius: 1).path(in: r), with: .color(EuclideousLanesPalette.ink))
                     }
-                    .frame(width: layout.width, height: layout.height)
-                    .opacity(lane < silenced.count && silenced[lane] ? EuclideousLaneDimStyle.opacity : 1)
-                    .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: lane < silenced.count && silenced[lane])
                 }
             }
             .frame(width: layout.width, height: layout.height)
@@ -175,7 +143,8 @@ struct EuclideousLanesPanel: View {
     let accents: [Color]
     let playing: Bool
     let beatAt: (Date) -> Double
-    let onRateTap: (Int) -> Void
+    /// One ◀ / ▶ step of an output's pass size (output, up). Bounded 1…8 by the page.
+    let onStepPass: (Int, Bool) -> Void
     /// The value the cell under the finger has right now (a stroke starts by painting the OPPOSITE).
     let cellValue: (EuclideousLanesHit) -> Bool
     /// Apply `value` to a cell. `first` is true for the touch-down cell of a stroke (the page opens ONE undo step there).
@@ -193,19 +162,18 @@ struct EuclideousLanesPanel: View {
             ForEach(0..<min(4, lanes.count), id: \.self) { lane in
                 EuclideousLanesStaticLayer(layout: layout, lane: lane, data: lanes[lane], accents: accents).equatable()
             }
-            ForEach(0..<4, id: \.self) { lane in rateBox(lane) }
+            ForEach(0..<4, id: \.self) { output in rateRail(output) }
             gestureLayer
-            EuclideousLanesPlayheads(layout: layout, unitBeats: lanes.map { $0.unitBeats }, silenced: lanes.map { $0.silenced }, playing: playing, beatAt: beatAt)
+            EuclideousLanesPlayheads(layout: layout, unitBeats: lanes.map { $0.unitBeats }, playing: playing, beatAt: beatAt)
             accessibilityCells
             legend
         }
         .frame(width: layout.width, height: layout.height, alignment: .topLeading)
     }
 
-    /// §8.1: "one line replaces the two chips: 'RESTARTS ARE SET ON EACH LANE'S RHYTHM TAB', in the LANES
-    /// hint style, at x8, centred vertically, truncating. It isn't interactive."
+    /// MUTE TAB ferry (2026-11-02): the per-lane restart hint is gone (the blocks are outputs now). One line, same hint style / slot — DEVICE-OWED wording.
     private var subTabHint: some View {
-        Text("RESTARTS ARE SET ON EACH LANE\u{2019}S RHYTHM TAB")
+        Text("MUTE \u{2014} TAP CELLS TO SILENCE EACH OUTPUT")
             .font(heavyMono(8)).tracking(0.48).foregroundColor(EuclideousLanesPalette.dim)
             .lineLimit(1).truncationMode(.tail)
             .padding(.leading, 8)
@@ -213,25 +181,32 @@ struct EuclideousLanesPanel: View {
             .allowsHitTesting(false)
     }
 
-    // ── the rate box (§4.4): lane colour at 20% with a 1pt border, "RATE" over the unit ──
-    private func rateBox(_ lane: Int) -> some View {
-        let accent = accents[lane % accents.count]
-        let data = lane < lanes.count ? lanes[lane] : nil
-        return Button { onRateTap(lane) } label: {
-            VStack(spacing: 3) {
-                Text("RATE").font(.system(size: 7, weight: .medium, design: .monospaced)).tracking(0.42).foregroundColor(EuclideousLanesPalette.dim).lineLimit(1)
-                Text(data?.unitLabel ?? "").font(heavyMono(10)).foregroundColor(EuclideousLanesPalette.ink).lineLimit(1).minimumScaleFactor(1)
+    // ── the rail (MUTE TAB 2026-11-02): the output's LETTER over a ◀ N ▶ pass stepper (bounded 1…8). Output colour at 20% with a 1pt border, in the old RATE box's frame. DEVICE-OWED look: ◀/▶ fit in the 38pt rail. ──
+    private func rateRail(_ output: Int) -> some View {
+        let accent = accents[output % accents.count]
+        let data = output < lanes.count ? lanes[output] : nil
+        let passes = data?.passes ?? 1
+        let arrow = max(10, (EuclideousLanesLayout.railW - 14) / 2)   // ◀ and ▶ hit targets flanking the number
+        return VStack(spacing: 2) {
+            Text(euclideousOutputLetter(output)).font(heavyMono(11)).foregroundColor(accent).lineLimit(1)
+            HStack(spacing: 0) {
+                Button { onStepPass(output, false) } label: {
+                    Text("\u{25C0}").font(heavyMono(9)).foregroundColor(data?.canDec == true ? EuclideousLanesPalette.ink : EuclideousLanesPalette.mutedBar).frame(width: arrow, height: 16)
+                }.buttonStyle(.plain).disabled(data?.canDec != true)
+                Text("\(passes)").font(heavyMono(11)).foregroundColor(EuclideousLanesPalette.ink).frame(minWidth: 10)
+                Button { onStepPass(output, true) } label: {
+                    Text("\u{25B6}").font(heavyMono(9)).foregroundColor(data?.canInc == true ? EuclideousLanesPalette.ink : EuclideousLanesPalette.mutedBar).frame(width: arrow, height: 16)
+                }.buttonStyle(.plain).disabled(data?.canInc != true)
             }
-            .frame(width: EuclideousLanesLayout.railW, height: layout.laneH)
-            .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.2)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent, lineWidth: 1))
+            Text("PASS").font(.system(size: 6, weight: .medium, design: .monospaced)).tracking(0.3).foregroundColor(EuclideousLanesPalette.dim).lineLimit(1)
         }
-        .buttonStyle(.plain)
-        .opacity(data?.silenced == true ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.4 — still live
-        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: data?.silenced == true)
-        .offset(x: 0, y: layout.laneTop(lane))
-        .accessibilityLabel(euclideousAppendSilencedBySolo(euclideousLanesRateBoxLabel(lane: lane, unit: data?.unitLabel ?? ""), silenced: data?.silenced == true))
-        .accessibilityAction(named: "Next size") { onRateTap(lane) }
+        .frame(width: EuclideousLanesLayout.railW, height: layout.laneH)
+        .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.2)))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent, lineWidth: 1))
+        .offset(x: 0, y: layout.laneTop(output))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(euclideousOutputMuteRailLabel(output: output, passes: passes))
+        .accessibilityAdjustableAction { dir in onStepPass(output, dir == .increment) }
     }
 
     // ── the stroke gesture (§5.2): touch-down sets the stroke value to the OPPOSITE of that cell; every cell the finger then passes in the
@@ -265,16 +240,16 @@ struct EuclideousLanesPanel: View {
 
     // ── VoiceOver (§7): every cell is a real button with the spec's words; the gesture layer above does the touching, so these carry no hit area ──
     private var accessibilityCells: some View {
-        ForEach(0..<4, id: \.self) { lane in
+        ForEach(0..<4, id: \.self) { output in
             ForEach(0..<16, id: \.self) { cell in
-                let hit = EuclideousLanesHit(lane: lane, cell: cell, row: 0)
+                let hit = EuclideousLanesHit(lane: output, cell: cell, row: 0)
                 let on = cellValue(hit)
                 Color.clear
                     .frame(width: layout.cellW, height: layout.laneH)
-                    .offset(x: layout.gridX + layout.cellLeft(cell), y: layout.laneTop(lane))
+                    .offset(x: layout.gridX + layout.cellLeft(cell), y: layout.laneTop(output))
                     .allowsHitTesting(false)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(euclideousAppendSilencedBySolo(euclideousLanesMuteCellLabel(lane: lane, cell: cell, sounding: on), silenced: lane < lanes.count && lanes[lane].silenced))
+                    .accessibilityLabel(euclideousOutputMuteCellLabel(output: output, cell: cell, sounding: on))
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction(named: "Toggle") { onToggle(hit) }
                     .accessibilityAction { onToggle(hit) }
@@ -282,23 +257,13 @@ struct EuclideousLanesPanel: View {
         }
     }
 
-    // ── the bottom row (§4.10) — RESTART CHAINS ferry §8.2/§8.3: the RESTART-tab hint text is gone; this is always the MUTE legend now. ──
+    // ── the bottom row — MUTE TAB ferry (2026-11-02): the per-lane RHYTHM/MELODY RESTART swatches are gone (outputs have no restart); one caption, DEVICE-OWED wording. ──
     private var legend: some View {
-        HStack(spacing: 8) {
-            legendItem("RHYTHM RESTART", barY: 2)
-            legendItem("MELODY RESTART", barY: 9)
-        }
-        .frame(width: layout.width, height: EuclideousLanesLayout.legendH, alignment: .leading)
-        .offset(x: 0, y: layout.legendTop)
-    }
-    private func legendItem(_ label: String, barY: CGFloat) -> some View {
-        HStack(spacing: 6) {
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 2).fill(EuclideousLanesPalette.mutedCell).frame(width: 10, height: 16)
-                Rectangle().fill(EuclideousLanesPalette.ink).frame(width: 4, height: 5).offset(x: 3, y: barY)
-            }
-            .frame(width: 10, height: 16)
-            Text(label).font(heavyMono(8)).tracking(0.48).foregroundColor(EuclideousLanesPalette.dim).lineLimit(1).fixedSize()
-        }
+        Text("\u{25C0}\u{25B6} SETS CELL SIZE IN PASSES \u{00B7} THE ROLL SHOWS WHAT EACH OUTPUT SENDS")
+            .font(heavyMono(8)).tracking(0.4).foregroundColor(EuclideousLanesPalette.dim)
+            .lineLimit(1).truncationMode(.tail)
+            .frame(width: layout.width, height: EuclideousLanesLayout.legendH, alignment: .leading)
+            .offset(x: 0, y: layout.legendTop)
+            .allowsHitTesting(false)
     }
 }

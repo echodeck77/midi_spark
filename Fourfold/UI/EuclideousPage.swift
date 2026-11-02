@@ -724,6 +724,8 @@ struct EuclideousPage: View {
     let hocketRules: [HocketRule]
     // EMITTER RATCHET (RATCH tab ferry, 2026-10-28): the document's four output ratchets (all defaults when nothing is stored). Every edit goes through `onEditEmitterRatchet`, which the VC turns into one document write + one republish.
     let emitterRatchets: EmitterRatchetSet
+    // MUTE TAB (2026-11-02): the document's four per-output mutes (the MUTE tab edits these via `onEditOutputMute`). All defaults = nothing muted.
+    let outputMutes: EuclideousOutputMutes
     let hocketLive: HocketLiveModel      // HOCKET §8: the count of each lit rule as the Router last published it — read ONLY by leaf views that observe it
     let rollLive: NoteRollLive           // CARD BACKS §5: each part's recent notes and when each output last took one — read ONLY inside the card backs' own frame clocks
     let emitterLive: EmitterRatchetLive  // RATCH tab §3.10: each output's current pattern index — observed ONLY by the RATCH tab's own leaf views
@@ -831,6 +833,8 @@ struct EuclideousPage: View {
     let onEditEmitterRatchet: (Bool, @escaping (inout EmitterRatchetSet) -> Void) -> Void
     /// A value drag on the RATCH tab ended (or was cancelled): the page drops its undo step if the drag ended exactly where it began (UNDO-6's rule for checkpoint funnels).
     let onEmitterRatchetDragEnd: () -> Void
+    /// MUTE TAB (2026-11-02): one write + one republish — `newStep: true` opens an undo step (a pass ◀/▶ tap, the touch-down cell of a stroke), `false` writes into the step already open (the rest of the stroke).
+    let onEditOutputMute: (Bool, @escaping (inout EuclideousOutputMutes) -> Void) -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
     // §4.8 (2026-10-15 ferry): "a preset pick is one undo step" — a DISCRETE action, same class as
     // `onSetActiveRiff`/`onSetKeyRoot` below, not a continuous gesture. Routing a preset pick through the
@@ -6830,67 +6834,42 @@ struct EuclideousPage: View {
         return TimelineView(.periodic(from: .now, by: 0.25)) { tl in
             EuclideousLanesPanel(layout: layout, lanes: lanesPanelLanes(beat: lanesMusicalBeat(real: walkTagBeat(at: tl.date))), accents: laneAccents,
                                  playing: clock.playing, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) },
-                                 onRateTap: { lane in lanesRateTap(lane) },
+                                 onStepPass: { output, up in lanesStepPass(output, up: up) },
                                  cellValue: { hit in lanesCellValue(hit) },
                                  onApply: { hit, value, first in lanesApply(hit, value, first: first) },
                                  onToggle: { hit in lanesApply(hit, !lanesCellValue(hit), first: true) })
         }
         .frame(width: width, height: height, alignment: .topLeading)
     }
-    /// The four lanes' MUTE data at `beat` (RESTART CHAINS ferry §8: the panel is mute-only now — restarts are
-    /// set on each lane's own RHYTHM tab, §6). The roll feed is cached per lane and recomputed only when one of
-    /// its inputs changes (the lane's settings and its neighbours', the riff, the unit, the window, the bar,
-    /// the tempo) or the window wraps — never per frame. The read-only rhythm/melody marks (§8.3) now come
-    /// from each lane's resolved CHAINS, not the retired masks.
+    /// MUTE TAB ferry (2026-11-02): each block is an OUTPUT A–D. Its cells are `outputMutes[o]`; its window ticks on the OUTPUT's HOME lane's pass (output o ↔ lane o) × its PASSES; its roll is the REAL MIDI that left on the
+    /// output in the window — the union, across the 8 parts, of the emitted notes (`rollLive`) whose `outs` includes this output — so it reflects the mute, routing, ratchets and hocket, never a prediction.
     private func lanesPanelLanes(beat: Double) -> [EuclideousLanesPanelLane] {
-        let ranks = effectiveGridRanks   // the riff that is playing — the SAME read the footer and the grid use
-        let snap = polySnap              // POLY: each bar is a note the hit strikes (`euclideousLaneRollHits` asks `euclideousPolyTrigger`)
-        let cyc = clock.stepBeats * Double(max(1, clock.cols))
-        return (0..<4).map { lane in
-            let v = euclideousLaneGridView(lines: lines, lane: lane, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
-            let unit = v.muteUnitBeats
+        let mutes = outputMutes
+        let model = rollLive.model
+        return (0..<4).map { output in
+            let v = euclideousLaneGridView(lines: lines, lane: output, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
+            let homePass = Double(v.cycleLen) * v.sub          // output o's HOME lane's pass (the only unambiguous reading of "1 pass" for an output)
+            let passes = Int(mutes[output].passes)
+            let unit = Double(max(1, passes)) * homePass
             let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
-            let key = EuclideousLanesRollCache.Key(lines: lines, lanesSeq: lanesSeq, ranks: ranks, windowStart: win.start, unit: unit, restartTab: false,
-                                                    beatsPerBar: clock.beatsPerBar, tempo: clock.tempo, swing: clock.swing, fx: fx, poly: riffPoly ? polyRiff : nil)
-            let roll = lanesRollCache.roll(lane: lane, key: key) {
-                guard let cfg = polyAdjusted(euclideousWalkLaneConfig(lane: lane, lines: lines, cyc: cyc, resetSpanBars: resetSpanBars, lanesSeqRate: lanesSeq.rate,
-                                                          lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: walkFX,
-                                                          swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar,
-                                                          tempo: clock.tempo, riffColumns: walkColumns)) else { return [] }
-                return euclideousLaneRollHits(cfg: cfg, windowStart: win.start, windowBeats: win.length, minGateBeats: 0.005 * clock.tempo / 60.0,
-                                              poly: snap) { column, _ in
-                    column >= 0 && column < ranks.count ? ranks[column] : 0
-                }
+            let windowEnd = win.start + win.length
+            var roll: [NoteRollNote] = []
+            let bit = UInt8(1) << UInt8(output)
+            for part in 0..<8 {
+                for n in model.notes(part: part, from: win.start, to: windowEnd, now: beat) where n.outs & bit != 0 { roll.append(n) }
             }
-            let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
-            let rhythmChain = EuclideousRestartChain.from(line.restartRhythmBars ?? [])
-            let melodyChain = EuclideousRestartChain.from(line.restartMelodyPasses ?? [])
-            let lapBeats = Double(v.cycleLen) * v.sub
-            let rhythmMarks = euclideousChainRhythmMarkBeats(chain: rhythmChain, barBeats: clock.beatsPerBar, windowStart: win.start, windowBeats: win.length)
-            let melodyMarks = euclideousChainMelodyMarkBeats(melodyChain: melodyChain, rhythmChain: rhythmChain, barBeats: clock.beatsPerBar,
-                                                             lapBeats: lapBeats, windowStart: win.start, windowBeats: win.length)
-            return EuclideousLanesPanelLane(grid: v.grid, unitLabel: v.grid.muteUnit.label, unitBeats: unit,
-                                            windowStart: win.start, roll: roll, rhythmMarkBeats: rhythmMarks, melodyMarkBeats: melodyMarks,
-                                            silenced: soloSilenced(lane))   // LANE SOLO §6.4: the block (rail, cells, roll, marks, playhead) at 42 %
+            return EuclideousLanesPanelLane(cells16: mutes[output].cells16, passes: passes, unitBeats: unit, windowStart: win.start, roll: roll)
         }
     }
-    private func lanesGridView(_ lane: Int) -> EuclideousLaneGridView {
-        euclideousLaneGridView(lines: lines, lane: lane, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
-    }
-    private func lanesCellValue(_ hit: EuclideousLanesHit) -> Bool {
-        euclideousLaneGridCellValue(lanesGridView(hit.lane).grid, restart: false, melody: hit.row == 1, cell: hit.cell)
-    }
-    /// One cell edit. `first` opens the stroke's single undo step (`editStep`'s `newStep`); the lane's resolved grid is read at touch-down and the
-    /// first write pins all five fields from it, so a pre-feature lane's migrated values become its stored values.
+    /// A MUTE cell's current value ("lane" index = output index). The stroke paints the OPPOSITE of this.
+    private func lanesCellValue(_ hit: EuclideousLanesHit) -> Bool { outputMutes[hit.lane].sounds(hit.cell) }
+    /// One cell edit on output `hit.lane`. `first` opens the stroke's single undo step; the rest of the stroke writes into it.
     private func lanesApply(_ hit: EuclideousLanesHit, _ value: Bool, first: Bool) {
-        let resolved = lanesGridView(hit.lane).grid
-        editStep(hit.lane, first) { euclideousApplyLaneGridOp(&$0, resolved: resolved, .mute(cell: hit.cell, on: value)) }
+        onEditOutputMute(first) { $0[hit.lane] = $0[hit.lane].settingCell(hit.cell, sounds: value) }
     }
-    /// The rate box: tap cycles muteUnit (STEP → 4STP → PASS → 2PASS → STEP). RESTART CHAINS ferry §8.2: no
-    /// longer has a RESTART-unit mode — restartUnit stays decodable but is no longer written from here.
-    private func lanesRateTap(_ lane: Int) {
-        let resolved = lanesGridView(lane).grid
-        editStep(lane, true) { euclideousApplyLaneGridOp(&$0, resolved: resolved, .nextMuteUnit) }
+    /// The ◀ / ▶ rail: one bounded step (1…8) of an output's cell size in PASSES — one undo step.
+    private func lanesStepPass(_ output: Int, up: Bool) {
+        onEditOutputMute(true) { $0[output] = $0[output].steppingPasses(up: up) }
     }
 
     // MARK: - THE FX TAB (FX ferry, 2026-10-18)

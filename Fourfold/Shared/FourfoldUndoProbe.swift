@@ -44,7 +44,7 @@ struct FourfoldUndoProbe: View {
         let doc = EuclideousUndoSnapshot(lines: noPlay(au.uiEuclideousLines()), riff: au.uiEuclideousRiff(), resetSpanBars: au.uiEuclideousResetSpanBars(),
                                          keyRoot: au.uiEuclideousKeyRoot(), keyType: au.uiEuclideousKeyType(), chordSets: au.uiEuclideousChordSets(), activeChordSet: au.uiActiveChordSet(),
                                          noteSource: au.uiEuclideousNoteSource(), sourcePlan: au.uiEuclideousSourcePlan(), riffs: au.uiEuclideousRiffs(), activeRiff: au.uiEuclideousActiveRiff(),
-                                         lanesSeq: au.uiEuclideousLanesSeq(), riffsSeq: au.uiEuclideousRiffsSeq(), fx: au.uiEuclideousFX(), holdLatchMode: au.uiEuclideousHoldLatchMode(), hocketRules: au.uiHocketRules(), emitterRatchets: au.uiEmitterRatchets(), riffPoly: au.uiRiffPoly(), polyRiff: au.uiPolyRiff(), canonUnit: au.uiCanonUnit())
+                                         lanesSeq: au.uiEuclideousLanesSeq(), riffsSeq: au.uiEuclideousRiffsSeq(), fx: au.uiEuclideousFX(), holdLatchMode: au.uiEuclideousHoldLatchMode(), hocketRules: au.uiHocketRules(), emitterRatchets: au.uiEmitterRatchets(), outputMutes: au.uiEuclideousOutputMutes(), riffPoly: au.uiRiffPoly(), polyRiff: au.uiPolyRiff(), canonUnit: au.uiCanonUnit())
         let staged = m.registeredChain.first.map { noPlay($0.params.euclidLines ?? []) == doc.lines } ?? false
         let box = au.probeBoxAgreement()
         let lanes = snap.lines.map { "\($0.steps)/\($0.pulses)r\($0.rotate)" }.joined(separator: ",")

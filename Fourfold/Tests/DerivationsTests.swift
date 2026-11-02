@@ -2520,7 +2520,7 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(EuclideousSeqTab.visible, [.lanes]); XCTAssertEqual(EuclideousSeqTab.default, .lanes)
         XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .fx, .ratch])
         XCTAssertFalse(EuclideousSeqTab.visible(fxAvailable: true).contains(.mix), "no MIX tab any more")
-        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).map { $0.label }, ["LANES", "FX", "RATCH"])
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).map { $0.label }, ["MUTE", "FX", "RATCH"])   // MUTE TAB ferry (2026-11-02): LANES → MUTE
         XCTAssertEqual(euclideousSeqTabWidth(count: 2, contentWidth: 401), 198.5, accuracy: 1e-9, "two tabs at the reference panel")
         XCTAssertEqual(euclideousSeqTabWidth(count: 1, contentWidth: 401), 401)
     }
