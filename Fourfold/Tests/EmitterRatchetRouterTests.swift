@@ -25,6 +25,7 @@ private struct Rig {
     var fx = EuclideousFX()
     var ranks = [1, 2, 3, 4, 5, 6, 7, 8]
     var solo: UInt8 = 0
+    var outputMutes = EuclideousOutputMutes()   // MUTE TAB (output mute, 2026-11-02): per-output 16-cell × N-pass mute
     var fxCounts: FxCountsMode? = nil    // the dev-only FX COUNTS (honoured in DEBUG builds, which the tests are)
     func box() -> SnapshotBox {
         var c = Machine(machineID: "gold", type: .euclid)
@@ -37,6 +38,7 @@ private struct Rig {
         st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep)   // these tests are about ratchets: they hold notes at the octaves they play
         st.euclideousFX = fx
         st.euclideousEmitterRatchets = emitters.isAllDefault ? nil : emitters
+        st.euclideousOutputMutes = outputMutes.isAllDefault ? nil : outputMutes   // MUTE TAB (output mute, 2026-11-02): nil ⇒ nothing muted, byte-identical
         st.euclideousFxCounts = fxCounts
         return SnapshotBuilder.build(from: st)
     }
@@ -140,6 +142,38 @@ final class EmitterRatchetRouterTests: XCTestCase {
         XCTAssertEqual(plain.events, off.events, "OFF emitters change nothing — a fresh session and an old one sound exactly as before")
         XCTAssertFalse(plain.events.isEmpty)
         XCTAssertTrue(plain.nv.allSatisfy { $0.masks == 0 } && off.nv.allSatisfy { $0.masks == 0 }, "…and an OFF emitter neither ratchets nor misses in the hit feed")
+    }
+
+    // MARK: - MUTE TAB (output mute, 2026-11-02): the gate at emission — a note never STARTS on an output whose own grid is muted, even one routed in from another lane. Others are untouched; ALL = the union of the UNMUTED outputs.
+
+    func testOutputMuteSilencesTheWholeMutedOutputAndLeavesTheOthers() {
+        // Four lanes, default-routed (lane N → output N = A…D), all playing the same figure. Mute output A completely (every cell cleared).
+        let lines = [line(), line(), line(), line()]
+        let baseline = play(Rig(lines: lines), beats: 4)
+        var mutes = EuclideousOutputMutes(); mutes[0] = EuclideousOutputMute(cells16: 0, passes: 1)   // A: every cell muted
+        let muted = play(Rig(lines: lines, outputMutes: mutes), beats: 4)
+        assertNothingLeftSounding(muted.tap)
+        XCTAssertFalse(baseline.tap.ons(1).isEmpty, "A sounds with no mute")
+        XCTAssertTrue(muted.tap.ons(1).isEmpty, "A carries nothing once muted")
+        for c in [UInt8(2), 3, 4] { XCTAssertEqual(muted.tap.ons(c), baseline.tap.ons(c), "output \(c) is untouched by A's mute") }
+        // ALL stamps each copy with its OUTPUT's channel (A = chan 0), so muting A drops exactly A's copies and leaves the rest bit-identical.
+        XCTAssertFalse(baseline.tap.ons(0).filter { $0.chan == 0 }.isEmpty, "ALL carried A's copies with no mute")
+        XCTAssertTrue(muted.tap.ons(0).filter { $0.chan == 0 }.isEmpty, "ALL no longer carries any A copy")
+        XCTAssertEqual(muted.tap.ons(0).filter { $0.chan != 0 }, baseline.tap.ons(0).filter { $0.chan != 0 }, "ALL = the union of the still-sounding outputs, unchanged")
+    }
+
+    func testOutputMuteGatesANoteRoutedToSeveralOutputsOnlyOnTheMutedOne() {
+        // One lane routed to BOTH A and B. Muting A must gate it ON A only — it still sounds on B (the per-output gate is about the output, not the source lane).
+        let l = line(riffOut: 0b0011, notesOut: 0b0011)
+        let baseline = play(Rig(lines: [l]), beats: 4)
+        var mutes = EuclideousOutputMutes(); mutes[0] = EuclideousOutputMute(cells16: 0, passes: 1)
+        let muted = play(Rig(lines: [l], outputMutes: mutes), beats: 4)
+        assertNothingLeftSounding(muted.tap)
+        XCTAssertFalse(baseline.tap.ons(1).isEmpty, "A sounds the routed-in line with no mute")
+        XCTAssertTrue(muted.tap.ons(1).isEmpty, "A is gated")
+        XCTAssertEqual(muted.tap.ons(2), baseline.tap.ons(2), "B still sounds the same line")
+        XCTAssertFalse(muted.tap.ons(2).isEmpty)
+        XCTAssertTrue(muted.tap.ons(0).filter { $0.chan == 0 }.isEmpty, "ALL loses the A copy; the B copy (chan 1) stays")
     }
     func testTwoLanesHittingOneOutputAtOneSampleCountOnceAndShareTheDecision() {
         // lanes 1 and 2 both play to A, in step, in different octaves (so the two notes are told apart). One emitter hit a beat, not two.

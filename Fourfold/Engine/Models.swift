@@ -3255,6 +3255,11 @@ struct PluginState: Codable, Equatable {
     // bit-identically. `…Resolved` is what the render path (via `SnapshotBuilder`), the page and undo all read.
     var euclideousEmitterRatchets: EmitterRatchetSet? = nil
     var euclideousEmitterRatchetsResolved: EmitterRatchetSet { euclideousEmitterRatchets ?? EmitterRatchetSet() }
+    // MUTE TAB (ferry "LANES → MUTE: each block is an emitter", 2026-11-02): one 16-cell × N-pass mute per OUTPUT A–D, gating EMISSION on that output (even notes routed in from another lane). Additive-Optional and
+    // decode-tolerant: nil ⇒ four outputs at the defaults (every cell sounds, 1 pass), so an old document and every factory preset play bit-identically. `…Resolved` is what the render path (via `SnapshotBuilder`),
+    // the page and undo all read. Replaces the per-lane `EuclidLine.muteCells16`/`muteUnit` (lane N → output N on load — see Slice 2's migration); each output's grid ticks on its HOME lane's pass (A↔lane 1 … D↔lane 4).
+    var euclideousOutputMutes: EuclideousOutputMutes? = nil
+    var euclideousOutputMutesResolved: EuclideousOutputMutes { euclideousOutputMutes ?? EuclideousOutputMutes() }
     // KEY + SCALE: a page-level root+type pair, reusing the existing `ScaleType` enum purely as storage —
     // does NOT pre-wire the SCALE-door/KEY±/FOUNT machinery §4.3 explicitly leaves open (a genuinely
     // independent new field, not a reference to any door's own scale pool).

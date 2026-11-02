@@ -1182,6 +1182,11 @@ final class Router {
     private var noteOnsThisBeat = [Int](repeating: 0, count: FourfoldPorts.outputCount)          // per OUTPUT (A–D)
     private var euclideousOnsThisBeat = [Int](repeating: 0, count: FourfoldPorts.outputCount)
     private var lastGovBeat = Int.min
+    // MUTE TAB (output mute, 2026-11-02): per-OUTPUT 16-cell mute (bit set = cell SOUNDS) and the cell length in beats (passes × the output's HOME lane's pass), read once per window from the Euclideous row's snapshot.
+    // Allocated once and element-mutated per window (no realloc, no render-path allocation). `…Any` false (no muted cell anywhere, the default) ⇒ the gate in `emitOneOutput` is skipped entirely, bit for bit.
+    private var euclideousOutputMuteCells = [UInt16](repeating: 0xFFFF, count: FourfoldPorts.outputCount)
+    private var euclideousOutputMuteUnitBeats = [Double](repeating: 0, count: FourfoldPorts.outputCount)
+    private var euclideousOutputMuteAny = false
     private(set) var floodDropped = 0          // session total surfaced to HEALTH ("dropped N this session")
 
     private var echoTailsActive: Bool { echoTails.contains { $0.active } }
@@ -1802,8 +1807,14 @@ final class Router {
     private func emitOneOutput(_ o: Int, part bus: Int, note: UInt8, velocity: UInt8,
                                onSample: Int64, offSample: Int64, windowEnd: Int64, out: MIDIEmitter?,
                                onVoiceOpened: (Int) -> Void, euclideousLegato: Bool) -> Int {
-        // THE FLOOD GOVERNOR: a hard per-OUTPUT budget per beat; overflow DROPS (counted, not silent-failing). Offs are never governed, so a dropped on never opens a voice.
         let euclideous = euclideousStrikeLane >= 0
+        // MUTE TAB (output mute, 2026-11-02): a note never STARTS on an output whose own 16-cell mute grid is CLEAR at this onset beat (the beat of `onSample`, so a deferred ratchet / echo-tail / hocket-passed strike is
+        // judged at ITS own time — they all funnel through here). Offs are never gated ⇒ no stuck note. `euclideousOutputMuteAny` false (the default) makes this a no-op, bit for bit.
+        if euclideous, euclideousOutputMuteAny, euclideousOutputMuteCells[o] != 0xFFFF,
+           !euclideousLaneAudible(beat: rollBeat(onSample), cells16: euclideousOutputMuteCells[o], unitBeats: euclideousOutputMuteUnitBeats[o]) {
+            return -1
+        }
+        // THE FLOOD GOVERNOR: a hard per-OUTPUT budget per beat; overflow DROPS (counted, not silent-failing). Offs are never governed, so a dropped on never opens a voice.
         if euclideous ? euclideousOnsThisBeat[o] >= Router.euclideousFloodCapPerBeat : noteOnsThisBeat[o] >= Router.floodCapPerBeat { floodDropped &+= 1; return -1 }
         if euclideous { euclideousOnsThisBeat[o] &+= 1 } else { noteOnsThisBeat[o] &+= 1 }
         let ch = (busChannels[o] &- 1) & 15   // the OUTPUT's stamp (1–16 → 0–15 wire)
@@ -2050,6 +2061,23 @@ final class Router {
                 for lane in 0..<min(4, lines.count) { pm[2 * lane] = lines[lane].riffOutMaskResolved(lane: lane); pm[2 * lane + 1] = lines[lane].notesOutMaskResolved(lane: lane) }
             }
             partOut = pm
+        }
+        // MUTE TAB (output mute, 2026-11-02): per-output 16-cell × N-pass mute, time-based on each output's HOME lane's pass (A↔lane 1 … D↔lane 4) — the only reading under which "1 pass" is unambiguous. Read once per window;
+        // `anyMuted` false (the default) ⇒ `euclideousOutputMuteAny` stays false and `emitOneOutput` never runs the gate (byte-identical). Element-mutated, so no render-path allocation.
+        do {
+            let eu = box.cells[Snap.euclideousRow].procs.first
+            if let om = eu?.outputMutes, om.anyMuted {
+                euclideousOutputMuteAny = true
+                let lines = eu?.euclidLines ?? []
+                let rate = eu?.euclidRateBeats ?? 0.25
+                for o in 0..<FourfoldPorts.outputCount {
+                    euclideousOutputMuteCells[o] = om[o].cells16
+                    let geo = euclideousLaneStepGeometry(lines: lines, lane: o, defaultRateBeats: rate)   // home lane o's step + lap
+                    euclideousOutputMuteUnitBeats[o] = Double(om[o].passes) * Double(geo.cycleLen) * geo.sub
+                }
+            } else {
+                euclideousOutputMuteAny = false
+            }
         }
         defer {
             if hocketDeferredCloses {

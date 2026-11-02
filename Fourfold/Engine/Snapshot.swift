@@ -272,6 +272,9 @@ struct SnapParams {
     var hocketRules: HocketRulesSnap = HocketRulesSnap()
     // EMITTER RATCHET (2026-10-28): the page-level output ratchets, gated to `Snap.euclideousRow`; all OFF (the default) ⇒ the Router's output is unchanged, bit for bit.
     var emitterRatchets: EmitterRatchetSnap = EmitterRatchetSnap()
+    // MUTE TAB (output mute, 2026-11-02): the page-level per-output mute, gated to `Snap.euclideousRow`; no muted cell anywhere (the default) ⇒ the Router's output-mute gate is skipped, bit for bit. A plain value struct
+    // (four UInt16 + four UInt8), so it is allocation-free on the render path.
+    var outputMutes: EuclideousOutputMutes = EuclideousOutputMutes()
     var euclideousLanesSeqOn: Bool = false
     var euclideousLanesSeqRate: EuclideousSeqRate = .oneBar
     var euclideousLanesSeqLen: Int = 8
