@@ -1,5 +1,5 @@
 //  PoolEngineTests.swift — POOL ferry (2026-11-02), the Router against the real engine: per-lane SOURCES (§3) and SUSTAIN (§4).
-//  A stepping rig drives `Router.process` window by window (480 frames = 0.01 beat at 120 BPM / 48 kHz) with notes pressed, the pedal moved (the arguments the Kernel passes) and the document swapped; each lane hits once a beat, and what it is
+//  A stepping rig drives `Router.process` window by window (480 frames = 0.02 beat at 120 BPM / 48 kHz) with notes pressed, the pedal moved (the arguments the Kernel passes) and the document swapped; each lane hits once a beat, and what it is
 //  choosing from after a hit is read off the same per-lane pool status the POOL tab's NOW row polls (`euclideousLanePoolStatus`).
 
 import XCTest
@@ -61,6 +61,70 @@ final class PoolEngineTests: XCTestCase {
         st.euclideousSourcePlan = plan
         st.euclideousCanonUnit = unit
         return st
+    }
+
+    // MARK: 3 — per-lane SOURCES
+    func testALaneWithMidiInOffKeepsItsChordsWhileThePlayerPlaysUnderReplace() {
+        // lane 1: MIDI IN + CHORDS; lane 2: CHORDS + KEY (no MIDI IN). Panel: MIDI IN in REPLACE, CHORDS and KEY on.
+        let pl = plan(midi: true, chords: true, key: true, mode: .replace)
+        let rig = Rig(state([lane(sources: [0, 1]), lane(sources: [1, 3])], plan: pl))
+        rig.run(to: 1.5)
+        let l1Before = rig.lanePool(0), l2Before = rig.lanePool(1)
+        XCTAssertFalse(l1Before.isEmpty); XCTAssertFalse(l2Before.isEmpty); XCTAssertNotEqual(l1Before, l2Before, "lane 2 also has KEY: a different pool")
+        rig.press([61]); rig.run(to: 2.5)
+        XCTAssertEqual(rig.lanePool(0), [61], "playing replaces lane 1's chord (REPLACE steps CHORDS aside on a lane where MIDI IN is on)")
+        XCTAssertEqual(rig.lanePool(1), l2Before, "…and leaves lane 2 on its chords and key")
+        XCTAssertFalse(rig.lanePool(1).contains(61), "lane 2 never contains a played note")
+        rig.release([61]); rig.run(to: 3.5)                     // still the first bar: the sequencer has not moved on
+        XCTAssertEqual(rig.lanePool(0), l1Before, "lane 1 returns to its chord once the player lets go")
+        XCTAssertEqual(rig.lanePool(1), l2Before, "lane 2 never moved")
+    }
+    func testALaneWithEverySourceOffHasAnEmptyPoolAndSoDoesOneWhoseSourcesAreAllOffInThePanel() {
+        let rig = Rig(state([lane(sources: []), lane(sources: [0, 2]), lane()], plan: plan(chords: true)))   // panel: only CHORDS on
+        rig.press([60]); rig.run(to: 1.5)
+        XCTAssertEqual(rig.status(0).count, 0, "no source on the lane")
+        XCTAssertEqual(rig.status(1).count, 0, "the lane's MIDI IN and PICK are off in the panel")
+        XCTAssertGreaterThan(rig.status(2).count, 0, "an unchanged lane still plays its chords")
+        XCTAssertEqual(rig.status(0).srcBits, 0); XCTAssertEqual(rig.status(1).srcBits, 0, "effective = panel AND lane"); XCTAssertEqual(rig.status(2).srcBits, 0b0010)
+    }
+    func testAChordsOnlyLaneIsMovedByRootLikeEveryOtherLane() {
+        var pl = plan(midi: true, chords: true, mode: .root); pl.midiOctaves = .keep
+        let rig = Rig(state([lane(), lane(sources: [1])], plan: pl))
+        rig.press([50]); rig.run(to: 1.5)
+        XCTAssertEqual(rig.lanePool(1), rig.lanePool(0), "ROOT's transpose is global and applies inside each lane's build")
+        rig.release([50]); rig.press([52]); rig.run(to: 3.5)
+        XCTAssertEqual(rig.lanePool(1), rig.lanePool(0)); XCTAssertFalse(rig.lanePool(1).isEmpty)
+    }
+    func testTheLaneSwitchesChangeNothingWhileAllFourAreOn() {
+        // all four on is the default path: a lane that had its toggles flipped off and on again plays exactly what an untouched lane plays
+        var flipped = lane(); for b in 0..<4 { flipped.setPoolSrc(b, false) }; for b in 0..<4 { flipped.setPoolSrc(b, true) }
+        XCTAssertNil(flipped.poolSrcMask)
+        let rig = Rig(state([lane(), flipped], plan: plan(midi: true, chords: true, key: true)))
+        rig.press([62]); rig.run(to: 6.5)
+        XCTAssertEqual(rig.lanePool(0), rig.lanePool(1))
+    }
+
+    // MARK: 4 — shared builds
+    private func buildsInTheWindowAt(_ beat: Double, _ rig: Rig) -> Int {
+        rig.run(to: beat - 0.02); let before = rig.router.poolBuildCount   // a window is 0.02 beat; a hit belongs to the window that ENDS on it
+        rig.run(to: beat)
+        return rig.router.poolBuildCount - before
+    }
+    func testLanesWithTheSameSourceSetShareOneBuild() {
+        let pl = plan(midi: true, chords: true, key: true)
+        func builds(_ lines: [EuclidLine]) -> Int { let r = Rig(state(lines, plan: pl)); r.press([60]); return buildsInTheWindowAt(2.0, r) }
+        let A: [Int] = [1, 3], B: [Int] = [0, 1]
+        let base = builds([lane(), lane(), lane(), lane()])
+        let fourSame = builds([lane(sources: A), lane(sources: A), lane(sources: A), lane(sources: A)])
+        let twoSets = builds([lane(sources: A), lane(sources: A), lane(sources: B), lane(sources: B)])
+        let customThenDefault = builds([lane(sources: A), lane(), lane(), lane()])
+        let worst = builds([lane(sources: A), lane(), lane(sources: B), lane()])
+        print("POOL-BUILDS per window: default lanes \(base) · four lanes one set \(fourSame) · two sets (2+2) \(twoSets) · one custom lane then three default \(customThenDefault) · custom, default, custom, default \(worst)")
+        XCTAssertEqual(base, 1, "the live pool: one build a window")
+        XCTAssertEqual(fourSame, base + 1, "four lanes with the SAME source set share one build (plus the live one)")
+        XCTAssertEqual(twoSets, base + 2, "two distinct sets cost two")
+        XCTAssertEqual(customThenDefault, base + 2, "a default lane after a custom one puts the live pool back: one more")
+        XCTAssertLessThanOrEqual(worst, 5, "the worst case: the live build, two sets and two restores")
     }
 
     // MARK: 5 — KEEP

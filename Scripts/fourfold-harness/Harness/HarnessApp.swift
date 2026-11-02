@@ -156,6 +156,7 @@ extension Host {
     }
     func hold(_ notes: [UInt8]) { for n in notes { var m: [UInt8] = [0x90, n, 100]; au.scheduleMIDIEventBlock?(AUEventSampleTimeImmediate, 0, 3, &m) } }
     func release(_ notes: [UInt8]) { for n in notes { var m: [UInt8] = [0x80, n, 0]; au.scheduleMIDIEventBlock?(AUEventSampleTimeImmediate, 0, 3, &m) } }
+    func pedal(_ down: Bool) { var m: [UInt8] = [0xB0, 64, down ? 127 : 0]; au.scheduleMIDIEventBlock?(AUEventSampleTimeImmediate, 0, 3, &m) }   // CC64 on channel 1
 
     /// The regression oracle for engine changes: the default document and every factory preset, each rendered for 32 bars under a held C-major chord, hashing every MIDI byte the AU sends. Same hash = same sound.
     /// A chain of main-queue steps (load → publish → [let the AU rebuild its snapshot] → render), because the AU rebuilds on the main queue and a loop inside one block would starve it.
@@ -382,6 +383,14 @@ extension Host {
 }
 
 /// ANSWER ferry (2026-11-02): the default document's four lanes with rows, CYCLE flags and TRADE set. `variant` picks the shape (see `goldenAnswer`); the lanes keep the default document's own rhythms and riff, so every difference is the ferry's.
+/// POOL ferry (2026-11-02): per-lane SOURCES masks (MIDI IN + CHORDS · CHORDS + KEY · PICK · all) and SUSTAIN on every lane (KEEP, STACK, KEEP, STACK). `plan` writes the page plan too (REPLACE with all four sources on and PICK notes).
+func poolDocument(_ s: inout PluginState, plan: Bool) {
+    if plan { s.euclideousSourcePlan = SourcePlan(midiOn: true, chordsOn: true, pickOn: true, keyOn: true, midiMode: .replace, pickNotes: [72, 76, 79], midiOctaves: .keep) }
+    var ls = s.euclideousLinesResolved
+    let masks: [UInt8?] = [0b0011, 0b1010, 0b0100, nil]
+    for i in 0..<4 { ls[i].poolSrcMask = masks[i]; ls[i].poolSustainOn = true; ls[i].poolSustainMode = [EuclideousSustainMode.keep, .stack, .keep, .stack][i] }
+    s.euclideousLines = ls
+}
 func answerDocument(_ s: inout PluginState, _ variant: Int) {
     var ls = s.euclideousLinesResolved
     for i in 0..<4 { ls[i].riffOn = true }
@@ -456,7 +465,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -516,6 +525,7 @@ extension Host {
                 if name.contains("CANON") {   // CHORD CANON (2026-10-31): every lane delayed and slipping (the per-lane pool re-merge on every chord step, the slip roll), the 5 · 7 · 11 · 16 lap lengths in the second run — on top of the HOCKET fan-out there
                     au.editDocument { canonDocument(&$0, unit: name.contains("shapes") ? .passes : .bars, delays: [1, 2, 3, 8], slips: [0, 10, 25, 50], shapes: name.contains("shapes")) }
                 }
+                if name.contains("POOL") { au.editDocument { poolDocument(&$0, plan: !name.contains("CANON")) } }   // POOL ferry (2026-11-02): per-lane sources + SUSTAIN on every lane; the pedal is driven below (CC64 down at 100, up at 300 of every 400 windows)
                 if name.contains("ROUTED") {   // CARD BACKS (2026-10-28): the routing worst case — every riff part on all four outputs, the notes parts on A+C or all four, lane 4's notes routed nowhere (drawn, never sent); the roll ring takes a record per strike
                     au.editDocument { var ls = $0.euclideousLinesResolved; for i in 0..<4 { ls[i].riffOutMask = 0x0F; ls[i].notesOutMask = i == 3 ? 0 : (i % 2 == 0 ? 0b0101 : 0x0F) }; $0.euclideousLines = ls }
                 }
@@ -547,6 +557,7 @@ extension Host {
                 eventCount = 0; AllocWatch.reset(); watching = true
                 var handIdx = 0
                 for w in 0..<6400 {
+                    if name.contains("POOL") { if w % 400 == 100 { pedal(true) } else if w % 400 == 300 { pedal(false) } }   // the sustain pedal (CC64) — KEEP lanes take the pool, STACK lanes extend theirs, the hand keeps changing chord
                     if name.contains("hand"), w > 0, w % 400 == 0 { release(canonHandChords[handIdx % canonHandChords.count]); handIdx += 1; hold(canonHandChords[handIdx % canonHandChords.count]) }   // CANON: the hand changes chord
                     if name.contains("REPLAY") {   // a pass replays from the middle of the run to three-quarters of it: the replay itself, the live engine running silently underneath, and the hand-back
                         if w == 3200, let p = au.reelPassNumbers().last(where: { $0 >= 0 }) { au.reelSelectPass(p) }
