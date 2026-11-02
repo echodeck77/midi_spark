@@ -193,7 +193,7 @@ final class PoolTabPureTests: XCTestCase {
         for h in [229.0, 229.67] {
             let l = euclideousPoolTabLayout(contentAreaH: CGFloat(h))
             XCTAssertTrue(l.fits)
-            XCTAssertEqual(l.heights.reduce(0, +) + 4 * l.gap, 226, accuracy: 0.5, "body \(h): the five rows and four gaps")
+            XCTAssertEqual(l.heights.reduce(0, +) + 4 * l.gap, CGFloat(h).rounded(.down), accuracy: 0.5, "body \(h): the five rows and four gaps fill every whole point of it")
             XCTAssertTrue(l.heights.allSatisfy { $0 >= 30 }, "no row under 30 pt")
             XCTAssertEqual(l.sourcesH, 30, "SOURCES is 30 (its toggles 26)")
             XCTAssertLessThanOrEqual(l.nowH, 44)
