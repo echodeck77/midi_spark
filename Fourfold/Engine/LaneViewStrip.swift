@@ -9,16 +9,17 @@ import Foundation
 
 // MARK: - the page's one tab
 
-/// The tab all four lane cards show. MIX is the fifth: whatever is lit is what you see.
+/// The tab all four lane cards show. MIX is the sixth: whatever is lit is what you see. ANSWER FERRY (2026-11-02): LISTEN is renamed ANSWER (the case keeps its code name `.listen`) and POOL joins between NOTES and ANSWER:
+/// RHYTHM · RIFF · NOTES · POOL · ANSWER · MIX. The raw values are coupled with `EuclideousTabKind` and the page's `EuclideousLaneTab` — reorder all three together.
 enum EuclideousPageTab: Int, CaseIterable, Equatable {
-    case rhythm = 0, riff = 1, notes = 2, listen = 3, mix = 4
+    case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, mix = 5
     /// The page opens on RHYTHM, never on MIX (the tab is not saved, so every open is this).
     static let opening: EuclideousPageTab = .rhythm
     /// The front tab this page tab shows on the cards; nil for MIX (the backs).
     var front: EuclideousTabKind? { self == .mix ? nil : EuclideousTabKind(rawValue: rawValue) }
     var isMix: Bool { self == .mix }
     var spokenName: String {
-        switch self { case .rhythm: return "Rhythm"; case .riff: return "Riff"; case .notes: return "Notes"; case .listen: return "Listen"; case .mix: return "Mix" }
+        switch self { case .rhythm: return "Rhythm"; case .riff: return "Riff"; case .notes: return "Notes"; case .pool: return "Pool"; case .listen: return "Answer"; case .mix: return "Mix" }
     }
     var label: String { spokenName.uppercased() }
 }
@@ -34,9 +35,9 @@ func euclideousPageTabTap(current: EuclideousPageTab, tapped: EuclideousPageTab)
     guard tapped != current else { return nil }
     return EuclideousPageTabChange(tab: tapped, flips: true)
 }
-/// Which tab a random card's selector starts on when random mode begins: the page tab, or RHYTHM when the page tab is LISTEN (random mode throws RHYTHM, RIFF or NOTES) or MIX.
+/// Which tab a random card's selector starts on when random mode begins: the page tab, or RHYTHM when the page tab is POOL, ANSWER or MIX (random mode throws RHYTHM, RIFF or NOTES).
 func euclideousRandomStartTab(_ tab: EuclideousPageTab) -> EuclideousRandomTab {
-    switch tab { case .rhythm: return .rhythm; case .riff: return .riff; case .notes: return .notes; case .listen, .mix: return .rhythm }
+    switch tab { case .rhythm: return .rhythm; case .riff: return .riff; case .notes: return .notes; case .pool, .listen, .mix: return .rhythm }
 }
 
 /// What a touch on a strip TAB (a RHYTHM · RIFF · NOTES · LISTEN segment, or MIX) does (TAB STRIP §6): ordinarily it selects the tab; while random mode is on it finishes random mode, and while lock mode is on it finishes lock mode —
@@ -82,8 +83,8 @@ func euclideousLaneStripClusterWidth(_ shape: EuclideousGlyphShape) -> CGFloat {
 
 struct EuclideousLaneStripLayout: Equatable {
     var bounds: CGRect                   // (0, 0, width, 28) — strip coordinates throughout
-    var tabControl: CGRect               // the container of the five segments
-    var segments: [CGRect]               // RHYTHM, RIFF, NOTES, LISTEN, MIX — the drawn segments (22 tall)
+    var tabControl: CGRect               // the container of the six segments
+    var segments: [CGRect]               // RHYTHM, RIFF, NOTES, POOL, ANSWER, MIX — the drawn segments (22 tall)
     var segmentTargets: [CGRect]         // each its width by 44 tall, centred on the segment
     var dice: CGRect, padlock: CGRect    // 28 × 28 plates
     var diceTarget: CGRect, padlockTarget: CGRect   // 36 × 44, centred on the plate
@@ -93,7 +94,7 @@ struct EuclideousLaneStripLayout: Equatable {
     var belowFloor: Bool { segmentWidth < EuclideousLaneStripMetrics.segmentFloor }
 }
 /// The strip's frames for a lane area `width` wide (landscape: columns 1–2; portrait: the page): the tab control takes what the dice and the padlock (28 each) and their gaps (sp8, sp4) leave.
-/// MIX is the fifth segment of the one control now (Paul, 2026-10-30), not its own container. Landscape reference 769.33 → control 701.33, segments 136.67; portrait 782 → 714, 139.2.
+/// MIX is the last segment of the one control now (Paul, 2026-10-30), not its own container. Landscape reference 769.33 → control 701.33, six segments (ANSWER ferry) 113.39; portrait 782 → 714, 115.5.
 func euclideousLaneStripLayout(width: CGFloat) -> EuclideousLaneStripLayout {
     typealias M = EuclideousLaneStripMetrics
     let w = max(1, width)
@@ -101,7 +102,7 @@ func euclideousLaneStripLayout(width: CGFloat) -> EuclideousLaneStripLayout {
     let diceX = padlockX - M.sp4 - M.tileSize
     let controlW = max(1, diceX - M.sp8)
     let control = CGRect(x: 0, y: 0, width: controlW, height: M.height)
-    let count = EuclideousPageTab.allCases.count          // five: RHYTHM · RIFF · NOTES · LISTEN · MIX
+    let count = EuclideousPageTab.allCases.count          // six: RHYTHM · RIFF · NOTES · POOL · ANSWER · MIX
     let segW = max(1, (controlW - 2 * M.containerInset - CGFloat(count - 1) * M.segmentGap) / CGFloat(count))
     let segY = (M.height - M.segmentHeight) / 2
     var segs: [CGRect] = [], targets: [CGRect] = []
@@ -143,9 +144,9 @@ func euclideousLaneStripSegmentContent(segment: CGRect, tab: EuclideousPageTab, 
 
 // MARK: - the glyph clusters
 
-/// The shape a tab's cluster draws: RIFF square, NOTES bar, LISTEN circle; RHYTHM and MIX have none. (The same shapes as the lane tab-row glyphs had, at the strip's size.)
+/// The shape a tab's cluster draws: RIFF square, NOTES bar, POOL and ANSWER circles; RHYTHM and MIX have none. (The same shapes as the lane tab-row glyphs had, at the strip's size.)
 func euclideousLaneStripShape(_ tab: EuclideousPageTab) -> EuclideousGlyphShape {
-    switch tab { case .riff: return .square; case .notes: return .bar; case .listen: return .circle; case .rhythm, .mix: return .none }
+    switch tab { case .riff: return .square; case .notes: return .bar; case .pool, .listen: return .circle; case .rhythm, .mix: return .none }
 }
 /// The four lanes' glyph states for a tab — one call of the clarity pass's glyph-state function per lane (`euclideousTabGlyph`, Derivations.swift), never a second derivation. Empty for RHYTHM and MIX.
 func euclideousLaneStripGlyphs(tab: EuclideousPageTab, lines: [EuclidLine]) -> [EuclideousTabGlyph] {
@@ -167,8 +168,8 @@ func euclideousLaneStripGlyphLook(_ glyph: EuclideousTabGlyph, selected: Bool) -
 
 /// "Lane view" is the strip's group label.
 let euclideousLaneStripGroupLabel = "Lane view"
-/// A segment's spoken name: "Rhythm"; "Riff, lanes 1, 2 and 4 on" / "Riff, all on" / "Riff, all off" (NOTES likewise); "Listen, lane 3 following lane 2" (several: "…, lane 1 following lane 2 and lane 3 following lane 4") /
-/// "Listen, all off"; "Mix". `glyphs` are the four lanes' states for the tab (empty for RHYTHM and MIX).
+/// A segment's spoken name: "Rhythm"; "Riff, lanes 1, 2 and 4 on" / "Riff, all on" / "Riff, all off" (NOTES likewise); "Pool, lanes 1 and 3 delayed or held" / "Pool, no delay or hold"; "Answer, lane 3 following lane 2" (several:
+/// "…, lane 1 following lane 2 and lane 3 following lane 4") / "Answer, all off"; "Mix". `glyphs` are the four lanes' states for the tab (empty for RHYTHM and MIX).
 func euclideousLaneStripLabel(tab: EuclideousPageTab, glyphs: [EuclideousTabGlyph]) -> String {
     let name = tab.spokenName
     guard euclideousLaneStripShape(tab) != .none, glyphs.count == 4 else { return name }
@@ -176,6 +177,10 @@ func euclideousLaneStripLabel(tab: EuclideousPageTab, glyphs: [EuclideousTabGlyp
     func joined(_ parts: [String]) -> String {
         switch parts.count { case 0: return ""; case 1: return parts[0]; case 2: return "\(parts[0]) and \(parts[1])"
         default: return parts.dropLast().joined(separator: ", ") + " and " + parts.last! }
+    }
+    if tab == .pool {
+        if onLanes.isEmpty { return "\(name), no delay or hold" }
+        return "\(name), \(onLanes.count == 1 ? "lane" : "lanes") \(joined(onLanes.map(String.init))) delayed or held"
     }
     if onLanes.isEmpty { return "\(name), all off" }
     if tab == .listen {

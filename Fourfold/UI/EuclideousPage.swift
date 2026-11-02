@@ -667,8 +667,8 @@ enum EuclideousLaneTab: Int, CaseIterable {
     // not added alongside); `EuclidLine.mask`/`EuclidLineMask`/`runEuclidLine`'s own mask-application code
     // are all untouched, just never reachable from the UI and never fed a genuinely-enabled mask by the
     // one call site that used to (see Router.swift's own call-site comment).
-    case rhythm = 0, riff = 1, notes = 2, listen = 3
-    var label: String { switch self { case .rhythm: "RHYTHM"; case .riff: "RIFF"; case .notes: "NOTES"; case .listen: "LISTEN" } }
+    case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4   // ANSWER FERRY: POOL joined, LISTEN is ANSWER on screen (the case keeps its code name); coupled by raw value with EuclideousTabKind / EuclideousPageTab
+    var label: String { switch self { case .rhythm: "RHYTHM"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "POOL"; case .listen: "ANSWER" } }
 }
 
 /// STACK BREAK (2026-10-25, crash `FourfoldAU-2026-10-25-213535.ips`): the extension's main thread has a 1 MB stack and building the page eagerly nests
@@ -1061,7 +1061,7 @@ struct EuclideousPage: View {
         // LISTEN REBUILT §7.3: "nothing writes the lane's own rhythm or riff settings while borrowed: not
         // the tab, not random mode, not MIDI or automation." THROW on a borrowed RHYTHM/RIFF/NOTES tab
         // no-ops (§0's own research found no such guard existed under the old model — this is new).
-        let borrowed = euclideousListenBorrowedTabs(rhythm: l.listenRhythmResolved, pitch: l.listenPitchResolved, notesReadsRiff: true)
+        let borrowed = euclideousAnswerBorrowedTabs(l, notesReadsRiff: true)
         if (tab == .rhythm && borrowed.rhythm) || (tab == .riff && borrowed.riff) || (tab == .notes && borrowed.notes) {
             euclideousRandomMarkNothingToChange(lane: lane, tab: tab)
             return
@@ -1112,7 +1112,7 @@ struct EuclideousPage: View {
         let tab = euclideousRandomTab[lane]
         let l = euclideousRandomEffectiveLine(lane: lane)
         // LISTEN REBUILT §7.3: same borrowed-tab guard as THROW above.
-        let borrowed = euclideousListenBorrowedTabs(rhythm: l.listenRhythmResolved, pitch: l.listenPitchResolved, notesReadsRiff: true)
+        let borrowed = euclideousAnswerBorrowedTabs(l, notesReadsRiff: true)
         if (tab == .rhythm && borrowed.rhythm) || (tab == .riff && borrowed.riff) || (tab == .notes && borrowed.notes) {
             euclideousRandomMarkNothingToChange(lane: lane, tab: tab)
             return
@@ -3767,6 +3767,8 @@ struct EuclideousPage: View {
             riffTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         case .notes:
             notesTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
+        case .pool:
+            Color.clear   // ANSWER FERRY step 7 fills this (NOW · CANON · FREEZE)
         case .listen:
             listenTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         }

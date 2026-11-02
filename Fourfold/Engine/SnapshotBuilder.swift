@@ -470,6 +470,7 @@ enum SnapshotBuilder {
         // 3-row-partner section are now deleted entirely (orphaned once the engine/UI rewiring removed
         // their own, separate call sites, tasks #31/#32).
         out.euclidLines = euclideousListenBreakLoopsOnTheNewModel(out.euclidLines)
+        out.euclidLines = euclideousNormalizeTrades(out.euclidLines).lines   // ANSWER 6.5: the same safety net for a document that never went through a load path (a fixture, a host that sets state oddly)
         out.euclideousRiff = { let r = p.euclideousRiff ?? EuclideousRiff(); var rr = r
             rr.steps = max(1, min(32, r.steps)); rr.ranks = r.ranksResolved
             return rr }()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved/clamped once here

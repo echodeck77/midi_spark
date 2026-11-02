@@ -350,6 +350,14 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(out.answerCycleEach, 6); XCTAssertEqual(out.answerCycleUnit, .passes)
     }
 
+    // ANSWER 6.5: a SWAP whose partner does not SWAP back never reaches the render thread.
+    func testASnapshotSwitchesOffAnUnreturnedSwap() {
+        var a = EuclidLine(target: 0, pulses: 3, steps: 8); a.answerTradeOn = true; a.answerTradeMode = .swap; a.answerTradeWith = 2
+        let c = EuclidLine(target: 0, pulses: 3, steps: 8)
+        let out = box(machines(customizing: 0) { $0.paramsA.euclidLines = [a, EuclidLine(), c, EuclidLine()] }) { _ in }.machines[0].a
+        XCTAssertEqual(out.euclidLines[0].answerTradeOn, false)
+    }
+
     // MELODY POP-UP (Paul 2026-10-10 ferry): riffStride/riffLength/riffAdvanceStep/melodyTranspose must
     // ALSO survive the fresh-literal reconstruction — the exact regression class this file keeps
     // guarding for, now exercised for the newest 4 fields.

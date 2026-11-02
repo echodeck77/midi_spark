@@ -12,15 +12,15 @@ final class LaneViewStripTests: XCTestCase {
     // MARK: 2. the strip's frames
 
     func testLandscapeReferenceFrames() {
-        // MIX folded into the one control (2026-10-30): five segments, no separate MIX container; the dice and padlock are unmoved.
+        // MIX folded into the one control (2026-10-30): no separate MIX container; the dice and padlock are unmoved. ANSWER ferry (2026-11-02): six segments (POOL joined).
         let L = euclideousLaneStripLayout(width: land.strip.width)
         near(land.strip.width, 769.33)
         near(L.tabControl, 0, 0, 701.33, 28, "the tab control: what the tiles and the gaps leave")
         near(L.dice, 709.33, 0, 28, 28, "the dice"); near(L.padlock, 741.33, 0, 28, 28, "the padlock")
         near(L.padlock.maxX, 769.33, "the padlock ends on the strip's edge"); near(L.dice.maxX + 4, L.padlock.minX, "sp4 between the tiles"); near(L.tabControl.maxX + 8, L.dice.minX, "sp8 before the dice")
-        XCTAssertEqual(L.segments.count, 5)
-        for r in L.segments { near(r.width, 136.67, "segment width"); near(r.height, 22, "segment height"); near(r.minY, 3, "3 pt inset") }
-        near(L.segments[0].minX, 3, "3 pt inset"); near(L.segments[1].minX - L.segments[0].maxX, 3, "segments 3 apart"); near(L.tabControl.maxX - L.segments[4].maxX, 3, "3 pt inset at the end (MIX is the fifth)")
+        XCTAssertEqual(L.segments.count, 6)
+        for r in L.segments { near(r.width, 113.39, "segment width"); near(r.height, 22, "segment height"); near(r.minY, 3, "3 pt inset") }
+        near(L.segments[0].minX, 3, "3 pt inset"); near(L.segments[1].minX - L.segments[0].maxX, 3, "segments 3 apart"); near(L.tabControl.maxX - L.segments[5].maxX, 3, "3 pt inset at the end (MIX is the sixth)")
         for (r, t) in zip(L.segments, L.segmentTargets) { near(t.width, r.width, "target as wide as the segment"); near(t.height, 44, "target 44 tall"); near(t.midY, r.midY, "centred on the segment"); near(t.midX, r.midX, "centred") }
         near(L.diceTarget.width, 36, "tile targets 36 wide"); near(L.diceTarget.height, 44, "…and 44 tall"); near(L.diceTarget.midX, L.dice.midX, "centred on the tile"); near(L.padlockTarget.midY, L.padlock.midY, "centred")
         XCTAssertTrue(L.clustersVisible); XCTAssertFalse(L.belowFloor)
@@ -29,19 +29,19 @@ final class LaneViewStripTests: XCTestCase {
         let L = euclideousLaneStripLayout(width: port.strip.width)
         near(port.strip.width, 782)
         near(L.tabControl, 0, 0, 714, 28, "the tab control"); near(L.dice, 722, 0, 28, 28, "dice"); near(L.padlock, 754, 0, 28, 28, "padlock")
-        XCTAssertEqual(L.segments.count, 5); for r in L.segments { near(r.width, 139.2, "segment width") }
+        XCTAssertEqual(L.segments.count, 6); for r in L.segments { near(r.width, 115.5, "segment width") }
         XCTAssertTrue(L.clustersVisible)
     }
-    /// §2.6: under 96 pt a segment hides the clusters — on all five together — and nothing shrinks: the tiles stay 28, the segments keep 22 tall and the labels are the views' to truncate.
+    /// §2.6: under 96 pt a segment hides the clusters — on all six together — and nothing shrinks: the tiles stay 28, the segments keep 22 tall and the labels are the views' to truncate.
     func testNarrowStripHidesTheClustersOnAllFourAndShrinksNothing() {
-        // a segment is 96 wide when the strip is 5 × 96 + 6 + 12 (the control) + 8 + 28 + 4 + 28 = 566
-        let atFloor = euclideousLaneStripLayout(width: 566), under = euclideousLaneStripLayout(width: 565.9)
+        // a segment is 96 wide when the strip is 6 × 96 + 6 + 15 (the control) + 8 + 28 + 4 + 28 = 665
+        let atFloor = euclideousLaneStripLayout(width: 665), under = euclideousLaneStripLayout(width: 664.9)
         XCTAssertTrue(atFloor.clustersVisible); XCTAssertFalse(atFloor.belowFloor); near(atFloor.segmentWidth, 96)
         XCTAssertFalse(under.clustersVisible); XCTAssertTrue(under.belowFloor)
         let narrow = euclideousLaneStripLayout(width: 268)   // a 300-wide portrait window: two 130-wide cards and their gap
         XCTAssertFalse(narrow.clustersVisible)
         near(narrow.dice.width, 28); near(narrow.padlock.width, 28); for r in narrow.segments { near(r.height, 22) }
-        XCTAssertEqual(narrow.segments.count, 5); XCTAssertEqual(Set(narrow.segments.map { $0.width }).count, 1, "five equal segments")
+        XCTAssertEqual(narrow.segments.count, 6); XCTAssertEqual(Set(narrow.segments.map { $0.width }).count, 1, "six equal segments")
         for tab in EuclideousPageTab.allCases {
             XCTAssertNil(euclideousLaneStripSegmentContent(segment: narrow.segments[1], tab: tab, clustersVisible: false).cluster, "no cluster on any segment when they are hidden")
         }
@@ -51,7 +51,7 @@ final class LaneViewStripTests: XCTestCase {
     /// The label and the cluster centre in the segment as ONE group, sp8 apart; RHYTHM (no cluster) centres its label alone.
     func testLabelAndClusterCentreAsOneGroup() {
         let L = euclideousLaneStripLayout(width: land.strip.width)
-        for tab in [EuclideousPageTab.riff, .notes, .listen] {
+        for tab in [EuclideousPageTab.riff, .notes, .pool, .listen] {
             let c = euclideousLaneStripSegmentContent(segment: L.segments[tab.rawValue], tab: tab, clustersVisible: true)
             guard let cluster = c.cluster else { return XCTFail("\(tab) has a cluster") }
             near((c.label.minX + cluster.maxX) / 2, L.segments[tab.rawValue].midX, "\(tab): the group is centred")
@@ -101,7 +101,7 @@ final class LaneViewStripTests: XCTestCase {
     func testTheTabIsOneValueAndTappingTheSelectedSegmentChangesNothing() {
         XCTAssertEqual(EuclideousPageTab.opening, .rhythm, "the page opens on RHYTHM and never on MIX"); XCTAssertNotEqual(EuclideousPageTab.opening, .mix)
         for t in EuclideousPageTab.allCases { XCTAssertNil(euclideousPageTabTap(current: t, tapped: t), "\(t): tapping the selected segment does nothing") }
-        XCTAssertEqual(EuclideousPageTab.allCases.count, 5)
+        XCTAssertEqual(EuclideousPageTab.allCases.count, 6)
         XCTAssertEqual(EuclideousPageTab.riff.front, .riff); XCTAssertNil(EuclideousPageTab.mix.front)
     }
     func testEveryTabChangeFlips() {
@@ -118,9 +118,9 @@ final class LaneViewStripTests: XCTestCase {
         XCTAssertTrue(euclideousCardTurn(sinceTap: 0.279, lane: 0).showsTo, "the second half draws the TO tab")
         XCTAssertEqual(mid.scaleX, 1, accuracy: 0.001, "the turn starts at full width")
     }
-    func testRandomModeStartsOnThePageTabOrRhythmForListenAndMix() {
+    func testRandomModeStartsOnThePageTabOrRhythmForPoolAnswerAndMix() {
         XCTAssertEqual(euclideousRandomStartTab(.rhythm), .rhythm); XCTAssertEqual(euclideousRandomStartTab(.riff), .riff); XCTAssertEqual(euclideousRandomStartTab(.notes), .notes)
-        XCTAssertEqual(euclideousRandomStartTab(.listen), .rhythm, "random mode throws RHYTHM, RIFF or NOTES"); XCTAssertEqual(euclideousRandomStartTab(.mix), .rhythm)
+        XCTAssertEqual(euclideousRandomStartTab(.listen), .rhythm, "random mode throws RHYTHM, RIFF or NOTES"); XCTAssertEqual(euclideousRandomStartTab(.pool), .rhythm); XCTAssertEqual(euclideousRandomStartTab(.mix), .rhythm)
     }
 
     // MARK: the strip and the cards at every layout the page can produce
@@ -145,9 +145,9 @@ final class LaneViewStripTests: XCTestCase {
             XCTAssertEqual(p.strip.maxX, p.lanes[1].maxX, accuracy: 1e-9, name); XCTAssertEqual(p.strip.minY + 28 + 8, p.lanes[0].minY, accuracy: 1e-9, name)
             XCTAssertEqual(p.lanes[3].maxY, p.isLandscape ? p.seq.maxY : p.riff.minY - 8, accuracy: 1e-6, "\(name): the cards end where the old equal boxes did")
             XCTAssertGreaterThan(p.laneBox.height, 0); XCTAssertGreaterThan(content, 0)
-            XCTAssertEqual(S.segments.count, 5); XCTAssertEqual(S.dice.width, 28); XCTAssertEqual(S.padlock.width, 28)
-            // independent of the layout function: the control is the strip less the dice 28, padlock 28 and their gaps 8 / 4 (= 68); a segment is (control − 2 × 3 inset − 4 × 3 gap) ÷ 5, so it is under 96 exactly below 566
-            XCTAssertEqual(p.floors.contains(.laneStrip), p.strip.width < 566 - 1e-9, name)
+            XCTAssertEqual(S.segments.count, 6); XCTAssertEqual(S.dice.width, 28); XCTAssertEqual(S.padlock.width, 28)
+            // independent of the layout function: the control is the strip less the dice 28, padlock 28 and their gaps 8 / 4 (= 68); a segment is (control − 2 × 3 inset − 5 × 3 gap) ÷ 6, so it is under 96 exactly below 665
+            XCTAssertEqual(p.floors.contains(.laneStrip), p.strip.width < 665 - 1e-9, name)
         }
         print(table.joined(separator: "\n"))
     }
@@ -165,11 +165,11 @@ final class LaneViewStripTests: XCTestCase {
         XCTAssertEqual([M.squareSize.width, M.squareSize.height, M.squareRadius, M.barSize.width, M.barSize.height, M.barRadius, M.circleSize.width, M.glyphGap, M.outlineWidth], [6, 6, 1.5, 3, 8, 1, 6, 4, 1])
         XCTAssertEqual(M.labelClusterGap, 8); XCTAssertEqual(M.segmentFloor, 96)
     }
-    /// The painter draws each tab's cluster from `euclideousLaneStripShape`, not from the glyph's own shape: the two must agree, and be the ferry's (RIFF square, NOTES bar, LISTEN circle, RHYTHM and MIX none).
+    /// The painter draws each tab's cluster from `euclideousLaneStripShape`, not from the glyph's own shape: the two must agree, and be the ferry's (RIFF square, NOTES bar, POOL and ANSWER circles, RHYTHM and MIX none).
     func testEachTabsClusterShapeIsTheFerrysAndTheGlyphFunctionsOwn() {
-        XCTAssertEqual(euclideousLaneStripShape(.riff), .square); XCTAssertEqual(euclideousLaneStripShape(.notes), .bar); XCTAssertEqual(euclideousLaneStripShape(.listen), .circle)
+        XCTAssertEqual(euclideousLaneStripShape(.riff), .square); XCTAssertEqual(euclideousLaneStripShape(.notes), .bar); XCTAssertEqual(euclideousLaneStripShape(.listen), .circle); XCTAssertEqual(euclideousLaneStripShape(.pool), .circle)
         XCTAssertEqual(euclideousLaneStripShape(.rhythm), .none); XCTAssertEqual(euclideousLaneStripShape(.mix), .none)
-        for tab in [EuclideousPageTab.riff, .notes, .listen] {
+        for tab in [EuclideousPageTab.riff, .notes, .pool, .listen] {
             let glyphs = euclideousLaneStripGlyphs(tab: tab, lines: lines(notesOn: [0, 1, 2, 3]))
             XCTAssertEqual(glyphs.count, 4, "\(tab)"); for g in glyphs { XCTAssertEqual(g.shape, euclideousLaneStripShape(tab), "\(tab): the clarity pass's glyph and the strip's shape agree") }
         }
@@ -180,8 +180,8 @@ final class LaneViewStripTests: XCTestCase {
         for tab in EuclideousPageTab.allCases where tab != .mix {
             XCTAssertEqual(tab.front.map { "\($0)" }, "\(tab)", "\(tab) must show the card tab of the same name")
         }
-        XCTAssertEqual(EuclideousPageTab.allCases.map { $0.rawValue }, [0, 1, 2, 3, 4])
-        XCTAssertEqual(EuclideousTabKind.allCases.map { "\($0)" }, ["rhythm", "riff", "notes", "listen"])
+        XCTAssertEqual(EuclideousPageTab.allCases.map { $0.rawValue }, [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(EuclideousTabKind.allCases.map { "\($0)" }, ["rhythm", "riff", "notes", "pool", "listen"])
     }
     /// Spec 2.5 puts the padlock sp4 after the dice with 36-wide targets: the two targets share 4 pt, and the padlock (later in the stack) owns it. Pinned so the overlap is a known number, not an accident.
     func testTheDiceAndPadlockTargetsShareFourPointsAndNothingElse() {
@@ -189,14 +189,14 @@ final class LaneViewStripTests: XCTestCase {
             let S = euclideousLaneStripLayout(width: w)
             near(S.diceTarget.width, 36); near(S.padlockTarget.width, 36); near(S.diceTarget.height, 44); near(S.padlockTarget.height, 44)
             near(S.diceTarget.maxX - S.padlockTarget.minX, 4, "\(w): the dice and padlock targets overlap by 4")
-            XCTAssertLessThanOrEqual(S.segmentTargets[4].maxX, S.diceTarget.minX + 1e-9, "\(w): MIX (the fifth segment) stops before the dice's target")
-            for i in 0..<5 { XCTAssertLessThanOrEqual(S.segmentTargets[i].maxX, (i < 4 ? S.segmentTargets[i + 1].minX : S.tabControl.maxX) + 1e-9, "\(w): segment \(i)'s target does not cross its neighbour") }
+            XCTAssertLessThanOrEqual(S.segmentTargets[5].maxX, S.diceTarget.minX + 1e-9, "\(w): MIX (the sixth segment) stops before the dice's target")
+            for i in 0..<6 { XCTAssertLessThanOrEqual(S.segmentTargets[i].maxX, (i < 5 ? S.segmentTargets[i + 1].minX : S.tabControl.maxX) + 1e-9, "\(w): segment \(i)'s target does not cross its neighbour") }
             XCTAssertLessThanOrEqual(S.padlockTarget.maxX, S.bounds.maxX + 4 + 1e-9)
         }
     }
-    /// At exactly the 96 pt floor every tab's label and cluster fit inside the segment (LISTEN is the widest: 6 letters + sp8 + four 6 pt circles).
+    /// At exactly the 96 pt floor every tab's label and cluster fit inside the segment (ANSWER is the widest: 6 letters + sp8 + four 6 pt circles).
     func testLabelAndClusterFitInASegmentAtTheFloor() {
-        let S = euclideousLaneStripLayout(width: 566)   // five segments at the 96 pt floor
+        let S = euclideousLaneStripLayout(width: 665)   // six segments at the 96 pt floor
         XCTAssertTrue(S.clustersVisible); near(S.segmentWidth, 96)
         for tab in EuclideousPageTab.allCases where tab != .mix {
             let c = euclideousLaneStripSegmentContent(segment: S.segments[2], tab: tab, clustersVisible: true)
@@ -226,10 +226,10 @@ final class LaneViewStripTests: XCTestCase {
         XCTAssertEqual(euclideousLaneStripLabel(tab: .riff, glyphs: euclideousLaneStripGlyphs(tab: .riff, lines: lines(riffOff: [1, 2]))), "Riff, lanes 1 and 4 on")
         XCTAssertEqual(euclideousLaneStripLabel(tab: .notes, glyphs: euclideousLaneStripGlyphs(tab: .notes, lines: lines(notesOn: [0]))), "Notes, lane 1 on")
         XCTAssertEqual(euclideousLaneStripLabel(tab: .notes, glyphs: euclideousLaneStripGlyphs(tab: .notes, lines: lines())), "Notes, all off")
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lines(follow: [2: 1]))), "Listen, lane 3 following lane 2")
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lines(follow: [0: 1, 2: 3]))), "Listen, lane 1 following lane 2 and lane 3 following lane 4")
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lines(follow: [0: 1, 2: 1, 3: 1]))), "Listen, lane 1 following lane 2, lane 3 following lane 2 and lane 4 following lane 2", "three or more read as a list")
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lines())), "Listen, all off")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lines(follow: [2: 1]))), "Answer, lane 3 following lane 2")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lines(follow: [0: 1, 2: 3]))), "Answer, lane 1 following lane 2 and lane 3 following lane 4")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lines(follow: [0: 1, 2: 1, 3: 1]))), "Answer, lane 1 following lane 2, lane 3 following lane 2 and lane 4 following lane 2", "three or more read as a list")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lines())), "Answer, all off")
         XCTAssertEqual(euclideousLaneStripGroupLabel, "Lane view")
     }
 }

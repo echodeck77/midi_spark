@@ -27,6 +27,7 @@ enum PresetStore {
         doc.migrateLegacyRoutingIfNeeded()       // old-schema presets → v3 on load (same as fullState)
         doc.normalizeLocksAtLoad()               // LANE LOCK 3.5: a preset saved while a locked lane was deviated opens at its locked state
         doc.normalizeRiffsAtLoad()               // POLY RIFF: the four riff boxes are gone — the riff that was active is the one riff
+        doc.normalizeTradesAtLoad()              // ANSWER 6.5: a SWAP whose partner does not SWAP back has its TRADE switched off
         return doc
     }
 

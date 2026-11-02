@@ -5039,8 +5039,8 @@ func euclideousNotesLayerIsOn(_ line: EuclidLine) -> Bool { line.notesOnResolved
 // RIFF gets a square, NOTES an upright bar, LISTEN a circle; RHYTHM none. A glyph is filled in a lane's colour when its tab's thing is ON — exactly the condition that filled the old round dot (RIFF `riffOnResolved`, NOTES
 // `euclideousNotesLayerIsOn`, LISTEN a lit row) — and a 1.5 pt outline when off. The MIX pad's label wears the same glyph in the same state, and `euclideousMixLayerIsOff` is the ONE on/off both read.
 
-/// The four lane-card tabs, in tab order (the page's `EuclideousLaneTab` has the same raw values).
-enum EuclideousTabKind: Int, CaseIterable { case rhythm = 0, riff = 1, notes = 2, listen = 3 }
+/// The five lane-card tabs, in tab order (the page's `EuclideousLaneTab` has the same raw values). ANSWER ferry: POOL joined between NOTES and ANSWER (`.listen`, renamed in the UI only).
+enum EuclideousTabKind: Int, CaseIterable { case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4 }
 enum EuclideousGlyphShape: Equatable { case none, square, bar, circle }
 // LISTEN REBUILT (2026-10-23): the old `.anyLane` case (the AVOID-ANY quartered circle) is retired — the
 // new model has exactly one source lane, never "any lane".
@@ -5063,6 +5063,7 @@ func euclideousTabGlyph(tab: EuclideousTabKind, line: EuclidLine, lane: Int) -> 
     case .rhythm: return EuclideousTabGlyph(shape: .none, on: true, fill: .lane(lane))
     case .riff:   return EuclideousTabGlyph(shape: .square, on: !euclideousMixLayerIsOff(line, notes: false), fill: .lane(lane))
     case .notes:  return EuclideousTabGlyph(shape: .bar, on: !euclideousMixLayerIsOff(line, notes: true), fill: .lane(lane))
+    case .pool:   return EuclideousTabGlyph(shape: .circle, on: line.chordDelayResolved != 0 || line.poolHoldResolved != 0, fill: .lane(lane))   // ANSWER ferry 1.4: lit when the lane's CANON delay or its FREEZE is not 0
     case .listen:
         switch euclideousListenSource(line, lane: lane) {
         case .lane(let p): return EuclideousTabGlyph(shape: .circle, on: true, fill: .lane(p))
@@ -5098,7 +5099,7 @@ func euclideousRhythmTabCount(lane: Int, lines: [EuclidLine]) -> String {
 func euclideousPausedTabHeaderText(tab: EuclideousTabKind, lane: Int, lines: [EuclidLine]) -> String? {
     guard lane >= 0, lane < lines.count, tab == .riff || tab == .notes else { return nil }
     let line = lines[lane]
-    let b = euclideousListenBorrowedTabs(rhythm: line.listenRhythmResolved, pitch: line.listenPitchResolved, notesReadsRiff: true)
+    let b = euclideousAnswerBorrowedTabs(line, notesReadsRiff: true)
     let paused = tab == .riff ? b.riff : b.notes
     guard paused else { return nil }
     return "← \(line.listenSourceResolved(ownLane: lane) + 1)"
@@ -5122,10 +5123,12 @@ func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, lines: [EuclidLine]
     case .notes:
         if euclideousPausedTabHeaderText(tab: .notes, lane: lane, lines: lines) != nil { return "Notes, paused, following lane \(source + 1)" }
         return "Notes, " + (euclideousTabGlyph(tab: .notes, line: line, lane: lane).on ? "on" : "off")
+    case .pool:
+        return "Pool, " + (euclideousTabGlyph(tab: .pool, line: line, lane: lane).on ? "delayed or held" : "no delay or hold")
     case .listen:
         switch euclideousListenSource(line, lane: lane) {
-        case .lane(let p): return "Listen, on, following lane \(p + 1)"
-        case .none:        return "Listen, off"
+        case .lane(let p): return "Answer, on, following lane \(p + 1)"
+        case .none:        return "Answer, off"
         }
     }
 }

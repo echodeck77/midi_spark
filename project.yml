@@ -244,6 +244,7 @@ targets:
       - path: Fourfold/Engine/PolyRiff.swift   # POLY RIFF ferry (2026-10-29): the POLY riff model, its render-thread copy and the ring-length maths (Foundation-only)
       - path: Fourfold/Engine/CanonHistory.swift   # CHORD CANON, all sources (2026-10-31): the history of the pool's live layers a delayed lane reads back (Foundation only)
       - path: Fourfold/Engine/PolyRiffEdit.swift   # POLY RIFF ferry slice 2: the drag maths and the POLY grid's frames (Foundation + CoreGraphics only)
+      - path: Fourfold/Engine/AnswerTab.swift   # ANSWER ferry (2026-11-02): cycle phase, SWAP pairing, borrowed tabs, the ANSWER layout (Foundation only)
       - path: Fourfold/Shared/FourfoldTransportClock.swift
     dependencies:
       - package: Atomics

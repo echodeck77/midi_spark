@@ -35,6 +35,7 @@
 		14001737F3526E61A6910D74 /* ManualView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB579E7A98D1755158B6B0DE /* ManualView.swift */; };
 		145EEF1854DA254EBDE44F89 /* BuildGridSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */; };
 		14D864B0AC3A64F8976F82DF /* CanonHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176469F1675E0C309D28B215 /* CanonHistory.swift */; };
+		17C817502F5E7067285E28A9 /* AnswerTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A00150F18F6006F1DFA952 /* AnswerTab.swift */; };
 		17EAAB1A648218E348603562 /* FXTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A29EBC243C8C44F0013668 /* FXTabTests.swift */; };
 		180727125096C44442B220D3 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */; };
 		1897002395044D097D109D39 /* MidiSparkAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */; };
@@ -82,6 +83,7 @@
 		36AE4BF0F091A6FE37D9ED82 /* PolyRiffEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = C340F6C0DDE17211F0D4E422 /* PolyRiffEdit.swift */; };
 		36AE872430F7852DAEE6C3E0 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67830BF03A4A6317D6BFD2F8 /* RiffArrowPainter.swift */; };
 		375BBD4C172FC056545FCC7B /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFF24D7CF876BB9752F7ABB /* Kernel.swift */; };
+		376178F5F4A878A78427BAAD /* AnswerTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2A551E6A367EC4C88F35764 /* AnswerTabTests.swift */; };
 		37F89ABAB74E1492496863CC /* AcceptanceGeneratorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E64ED46642C8C14AB67704 /* AcceptanceGeneratorsTests.swift */; };
 		380EF70566461B22D7C2CF72 /* ClarityPassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */; };
 		3A2A785935974B530833355F /* HocketPopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB03CC002F55E0712BACE13 /* HocketPopup.swift */; };
@@ -215,6 +217,7 @@
 		90CAF376E5D83AE1DE42ED0E /* UntouchedLaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2E434FEDE5AC96D7475BCE9 /* UntouchedLaneTests.swift */; };
 		9181BD2325284B21706DD007 /* NotesTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 354DBFBF5F37251A2C53939E /* NotesTabTests.swift */; };
 		9380473CD41B52BD940490C1 /* FourfoldRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */; };
+		94487EDD4A77712A09B7D227 /* AnswerTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A00150F18F6006F1DFA952 /* AnswerTab.swift */; };
 		94FD0CE78263BD0BCB5F36BD /* PolyRiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73F2A52D11932A681050086 /* PolyRiff.swift */; };
 		955BA08A6B46B09D64ED0EB4 /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822BF7D9B5A9E3F09712DE8A /* EuclidLaneUI.swift */; };
 		960ACD49BD8FBEB02D6E8C4F /* ChordCanonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C65CD0797F00553F393868 /* ChordCanonTests.swift */; };
@@ -375,6 +378,7 @@
 		F916421D23299C61B01B18B2 /* RiffGridArrowFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A11E131366C40F5FB993C3 /* RiffGridArrowFuzzTests.swift */; };
 		F98AB3C003834E203E8A2A09 /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */; };
 		FB90E1D2C6DD0490D543E2CC /* PageLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */; };
+		FD0934CECE8FE814F7E47505 /* AnswerTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A00150F18F6006F1DFA952 /* AnswerTab.swift */; };
 		FDC4CCB5FA83EBBCF5518EFE /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E074C5873A3072DF6841935F /* PresetStore.swift */; };
 		FEA5BFC3C5181521186804C3 /* NoteRollLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8515C7210E9F11CE0F1D84D6 /* NoteRollLive.swift */; };
 		FFF68A224F94D3D845FC95EB /* PolyRiffEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = C340F6C0DDE17211F0D4E422 /* PolyRiffEdit.swift */; };
@@ -614,6 +618,7 @@
 		B0AC546F65D94F67DC988CA8 /* RandomModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RandomModePainter.swift; sourceTree = "<group>"; };
 		B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioUnitViewController.swift; sourceTree = "<group>"; };
 		B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputRingPainter.swift; sourceTree = "<group>"; };
+		B2A551E6A367EC4C88F35764 /* AnswerTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerTabTests.swift; sourceTree = "<group>"; };
 		B324D879C239B5A1451B258F /* WalkTagPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkTagPainter.swift; sourceTree = "<group>"; };
 		B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldCompose.swift; sourceTree = "<group>"; };
 		B3CD05B6D166BF878367A888 /* RoomsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomsPage.swift; sourceTree = "<group>"; };
@@ -633,6 +638,7 @@
 		C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixPadPainter.swift; sourceTree = "<group>"; };
 		C4C65CD0797F00553F393868 /* ChordCanonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordCanonTests.swift; sourceTree = "<group>"; };
 		C6696EEB895A52FCBB9F0125 /* MidiSparkAudioUnit+CellLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MidiSparkAudioUnit+CellLibrary.swift"; sourceTree = "<group>"; };
+		C6A00150F18F6006F1DFA952 /* AnswerTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerTab.swift; sourceTree = "<group>"; };
 		C89867917AE363D25219BF74 /* ListenTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenTabTests.swift; sourceTree = "<group>"; };
 		CB72B97F862EE82E9F92BEE8 /* SnapshotBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilderTests.swift; sourceTree = "<group>"; };
 		CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPresets.swift; sourceTree = "<group>"; };
@@ -816,6 +822,7 @@
 			isa = PBXGroup;
 			children = (
 				782849D7F5C6A7AF7F06EB13 /* AnswerModelTests.swift */,
+				B2A551E6A367EC4C88F35764 /* AnswerTabTests.swift */,
 				C0CC18F46C2EEF16A71C80F2 /* AppIconTests.swift */,
 				0024C31E772682B8A6B1C552 /* CardBackReviewTests.swift */,
 				AB063E2496497A1B3757D426 /* CardBackTests.swift */,
@@ -1043,6 +1050,7 @@
 		BAEE0B160F0F5F8580982775 /* Engine */ = {
 			isa = PBXGroup;
 			children = (
+				C6A00150F18F6006F1DFA952 /* AnswerTab.swift */,
 				1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */,
 				176469F1675E0C309D28B215 /* CanonHistory.swift */,
 				ABB85C75FDBCD12F45FAB3DC /* CardBack.swift */,
@@ -1369,6 +1377,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FD0934CECE8FE814F7E47505 /* AnswerTab.swift in Sources */,
 				7BD70412B03E98F53058D7B1 /* BuildModel.swift in Sources */,
 				565A178ED04D52344FB8C914 /* CanonHistory.swift in Sources */,
 				C92C119B5BC121BBC214A873 /* CardBack.swift in Sources */,
@@ -1533,6 +1542,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				D39C6A71C9CDE1509351FBB8 /* AnswerModelTests.swift in Sources */,
+				17C817502F5E7067285E28A9 /* AnswerTab.swift in Sources */,
+				376178F5F4A878A78427BAAD /* AnswerTabTests.swift in Sources */,
 				2594ED671865D7F71B005204 /* AppIconTests.swift in Sources */,
 				25B419195913DB1102E1FD61 /* BuildModel.swift in Sources */,
 				EDCE7FC362CBDE98EF5C09C3 /* CanonHistory.swift in Sources */,
@@ -1627,6 +1638,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				94487EDD4A77712A09B7D227 /* AnswerTab.swift in Sources */,
 				204572430D6CE1EBADA36680 /* BuildModel.swift in Sources */,
 				14D864B0AC3A64F8976F82DF /* CanonHistory.swift in Sources */,
 				AB93D45851A70F9C05234F29 /* CardBack.swift in Sources */,

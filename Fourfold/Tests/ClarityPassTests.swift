@@ -164,9 +164,9 @@ final class ClarityPassTests: XCTestCase {
         l.riffOn = false; l.litNotes = 1
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .riff, lines: [l], lane: 0), "Riff, off")
         XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .notes, lines: [l], lane: 0), "Notes, on")
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Listen, off")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Answer, off")
         l.setAnswerRhythm(.copy); l.listenSource = 1
-        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Listen, on, following lane 2")
+        XCTAssertEqual(euclideousTabAccessibilityLabel(tab: .listen, lines: [l], lane: 0), "Answer, on, following lane 2")
     }
     // §7/§10: a paused RIFF/NOTES tab says so out loud too, not just via the header's sighted-only "← n".
     func testPausedRiffAndNotesSayTheySayPausedAndWhoTheyFollow() {
