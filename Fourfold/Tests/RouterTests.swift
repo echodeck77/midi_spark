@@ -3871,9 +3871,11 @@ final class RouterTests: XCTestCase {
             return (Int((beat / 0.5).rounded()) % 8, ev.note, ev.vel)
         }
     }
-    func testListenEchoFollowsTheSourcesOwnLineInOrderCanonStyle() {
-        let hits = listenEchoCanvasRun(pitch: .echo)
-        XCTAssertEqual(hits.map { $0.note }, [36, 38, 39, 41, 43, 39], "ECHO: steps 3-8 play C D E♭ F G E♭ — the source's strikes 0...5, not a DELAY-shifted lookup")
+    // ANSWER ferry (2026-11-02, §7): ECHO is hidden — its code stays but no document can reach it. An old ECHO lane OPENS as SHADOW (`setAnswerPitch(.echo)` writes SHADOW, as the decoder's migration does), so the canvas that used
+    // to play the source's strikes in order (C D E♭ F G E♭) now doubles the source's same-tick note, exactly as SHADOW does.
+    func testAnOldEchoLanePlaysAsShadow() {
+        XCTAssertEqual(listenEchoCanvasRun(pitch: .echo).map { $0.note }, listenEchoCanvasRun(pitch: .shadow).map { $0.note })
+        XCTAssertEqual(listenEchoCanvasRun(pitch: .echo).map { $0.note }, [39, 41, 43, 39, 38, 36])
     }
     func testListenShadowDoublesWhateverTheSourceIsPlayingRightNow() {
         let hits = listenEchoCanvasRun(pitch: .shadow)

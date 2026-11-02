@@ -1,0 +1,265 @@
+//  AnswerRouterTests.swift — ANSWER ferry (2026-11-02), §13 tests 4–8, 10–13: the CYCLE phases and TRADE against the real Router. Four lanes on four outputs (cable n+1), 120 BPM at 48 kHz (a beat = 24 000 samples), the MIDI pool
+//  C D E F G A B C held down, and a riff that walks it rank by rank — so a lane's note on a beat says WHERE ITS WALK IS, and its octave says WHICH lane's MIX stage voiced it.
+
+import XCTest
+
+private extension SnapshotBuilder {
+    /// Documents here hold notes where they are played (MIDI IN OCTAVES KEEP), so a pool note is the note the test names.
+    static func build(keeping st: PluginState) -> SnapshotBox {
+        var d = st; var p = d.sourcePlanResolved; p.midiOctaves = .keep; d.euclideousSourcePlan = p
+        return build(from: d)
+    }
+}
+
+private final class AnsEmitter: MIDIEmitter {
+    struct Ev: Equatable { let sample: Int64; let cable: UInt8; let status: UInt8; let chan: UInt8; let note: UInt8; let vel: UInt8 }
+    private(set) var events: [Ev] = []
+    func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) { events.append(Ev(sample: sampleTime, cable: cable, status: b0 & 0xF0, chan: b0 & 0x0F, note: b1, vel: b2)) }
+    var ons: [Ev] { events.filter { $0.status == 0x90 } }
+    var offs: [Ev] { events.filter { $0.status == 0x80 } }
+}
+
+final class AnswerRouterTests: XCTestCase {
+    private let beatSamples = 24_000.0
+    private let pool: [UInt8] = [48, 50, 52, 53, 55, 57, 59, 60]
+
+    // MARK: harness
+
+    /// A lane that hits `pulses` of `steps` at `rate`, walking the pool upward one rank a hit; `oct` is its riff OCT (its MIX stage's octave), `vel` its VEL pad, `gate` its GATE.
+    private func lane(pulses: Int = 8, steps: Int = 8, rate: ArpRate = .r1_4, oct: Int = 0, vel: Int = 100, gate: Double = 0.5) -> EuclidLine {
+        var l = EuclidLine(target: 0, pulses: pulses, steps: steps, velocityAbsolute: vel, rate: rate, useRiff: true, riffOn: true, sourceMode: .midi)
+        l.gate = gate; l.riffOctave = oct
+        return l
+    }
+    private func state(_ lines: [EuclidLine]) -> PluginState {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = lines + (lines.count < 4 ? (lines.count..<4).map { _ in EuclidLine(enabled: false) } : [])
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi
+        return st
+    }
+    private func held() -> NotePool { let p = NotePool(); for n in pool { p.noteOn(n, velocity: 100, channel: 0) }; return p }
+    /// Runs `beats` of playing windows (the box may change per window through `boxAt`), then one STOP window.
+    private func run(_ st: PluginState, beats: Double, frames: UInt32 = 2048, swapAt: [(beat: Double, state: PluginState)] = []) -> AnsEmitter {
+        var box = SnapshotBuilder.build(keeping: st)
+        let e = AnsEmitter(); let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0
+        let p = held()
+        var ts = 0.0
+        var pending = swapAt.sorted { $0.beat < $1.beat }
+        func beatNow() -> Double { ts * tempo / 60.0 / sr }
+        while beatNow() < beats {
+            if let next = pending.first, beatNow() >= next.beat { box = SnapshotBuilder.build(keeping: next.state); pending.removeFirst() }
+            router.process(box: box, pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            ts += Double(frames)
+        }
+        router.process(box: box, pool: p, playing: false, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        return e
+    }
+    /// (beat, note, vel) of every note-on a lane (0-based) sent on its own output, in time order.
+    private func hits(_ e: AnsEmitter, lane: Int) -> [(beat: Double, note: Int, vel: Int)] {
+        e.ons.filter { Int($0.cable) == lane + 1 }.sorted { $0.sample < $1.sample }.map { (beatOf($0.sample), Int($0.note), Int($0.vel)) }
+    }
+    /// A sample's beat, to the millibeat (the engine places a hit within a sample of its beat, sometimes the sample before).
+    private func beatOf(_ sample: Int64) -> Double { ((Double(sample) + 2) / beatSamples * 1000).rounded() / 1000 }
+    private func hitsBetween(_ e: AnsEmitter, lane: Int, _ lo: Double, _ hi: Double) -> [(beat: Double, note: Int, vel: Int)] {
+        hits(e, lane: lane).filter { $0.beat >= lo && $0.beat < hi }
+    }
+    private func assertNothingLeftSounding(_ e: AnsEmitter, file: StaticString = #filePath, line: UInt = #line) {
+        var last: [Int: UInt8] = [:], depth: [Int: Int] = [:]
+        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 {
+            let key = (Int(ev.cable) * 16 + Int(ev.chan)) * 128 + Int(ev.note)
+            last[key] = ev.status
+            depth[key, default: 0] += ev.status == 0x90 ? 1 : -1
+        }
+        for (k, v) in last { XCTAssertEqual(v, 0x80, "cable/channel/note \(k) was left sounding", file: file, line: line) }
+        for (k, d) in depth { XCTAssertEqual(d, 0, "every note-on has its note-off (key \(k))", file: file, line: line) }
+    }
+    /// The pool note a lane with no octave sounds on beat `t` (its walk: one rank a beat, wrapping the riff's eight columns).
+    private func walk(_ t: Int, oct: Int = 0) -> Int { Int(pool[((t % 8) + 8) % 8]) + 12 * oct }
+
+    // MARK: 4 — PITCH CYCLE
+
+    func testPitchCycleDoublesTheSourceThenPlaysItsOwnWalkThenDoublesAgain() {
+        var red = lane(oct: 0), blue = lane(oct: 1)
+        blue.listenSource = 0; blue.answerPitchOn = true; blue.answerPitchMode = .shadow; blue.answerPitchCycle = true; blue.answerCycleEach = 2; blue.answerCycleUnit = .bars
+        red.listenSource = 1
+        let e = run(state([red, blue]), beats: 24)
+        let b = hitsBetween(e, lane: 1, 0, 24)
+        XCTAssertEqual(b.count, 24)
+        for t in 0..<8 { XCTAssertEqual(b[t].note, walk(t), "bars 1–2 (beat \(t)): blue doubles red") }
+        for t in 8..<16 { XCTAssertEqual(b[t].note, walk(t, oct: 1), "bars 3–4 (beat \(t)): blue plays its own walk, an octave up — from where the walk is, not from the start") }
+        for t in 16..<24 { XCTAssertEqual(b[t].note, walk(t), "bars 5–6 (beat \(t)): double again") }
+        XCTAssertEqual(hitsBetween(e, lane: 0, 0, 24).map { $0.note }, (0..<24).map { walk($0) }, "the source is never affected")
+        assertNothingLeftSounding(e)
+    }
+
+    // MARK: 5 — RHYTHM CYCLE
+
+    func testRhythmCycleCopiesTheSourcesHitsInOddBarsAndPlaysItsOwnInEvenBars() {
+        let red = lane(pulses: 3, steps: 8, rate: .r1_8)                    // x..x..x. = beats 0, 1.5, 3 of each bar
+        var blue = lane(pulses: 4, steps: 8, rate: .r1_8, oct: 1)           // x.x.x.x. = beats 0, 1, 2, 3
+        blue.listenSource = 0; blue.answerRhythmOn = true; blue.answerRhythmMode = .copy; blue.answerRhythmCycle = true; blue.answerCycleEach = 1; blue.answerCycleUnit = .bars
+        let e = run(state([red, blue]), beats: 12)
+        func beats(_ lo: Double, _ hi: Double) -> [Double] { hitsBetween(e, lane: 1, lo, hi).map { $0.beat } }
+        XCTAssertEqual(beats(0, 4), [0, 1.5, 3], "bar 1: lane 1's hits")
+        XCTAssertEqual(beats(4, 8), [4, 5, 6, 7], "bar 2: its own")
+        XCTAssertEqual(beats(8, 12), [8, 9.5, 11], "bar 3: lane 1's again")
+        assertNothingLeftSounding(e)
+    }
+
+    // MARK: 6 — PASSES count the borrowed pattern's restarts
+
+    func testPassesCountTheBorrowedEightStepPatternNotTheLanesOwnFiveStepLap() {
+        let red = lane(pulses: 8, steps: 8, rate: .r1_4)                   // an 8-beat lap, a hit a beat
+        var blue = lane(pulses: 5, steps: 5, rate: .r1_8, oct: 1)          // its OWN lap is 2.5 beats, a hit every half beat
+        blue.listenSource = 0; blue.answerRhythmOn = true; blue.answerRhythmMode = .copy; blue.answerRhythmCycle = true; blue.answerCycleEach = 2; blue.answerCycleUnit = .passes
+        let e = run(state([red, blue]), beats: 40)
+        func half(_ lo: Double, _ hi: Double) -> [Double] { hitsBetween(e, lane: 1, lo, hi).map { $0.beat } }
+        XCTAssertEqual(half(0, 16), (0..<16).map(Double.init), "two passes of the 8-step source: blue plays its hits (a beat apart)")
+        XCTAssertEqual(half(16, 32), (0..<32).map { 16 + Double($0) * 0.5 }, "then two passes of its own: a hit every half beat")
+        XCTAssertEqual(half(32, 40), (0..<8).map { 32 + Double($0) }, "and the source's again")
+        assertNothingLeftSounding(e)
+    }
+
+    // MARK: 7 — BORROW
+
+    private func borrowState(blueMute: Bool = false, laneOn: Bool = true) -> PluginState {
+        let red = lane(rate: .r1_4, oct: 0)
+        var blue = lane(rate: .r1_4, oct: 1, vel: 90, gate: 0.4)           // the WITH lane: its own octave, VEL and GATE
+        if blueMute { blue.muteCells16 = 0 }                                 // LANES-muted: it still supplies its strikes
+        let green = lane(rate: .r1_8, oct: 0, vel: 100, gate: 0.9)
+        var gold = lane(rate: .r1_8, oct: -1, vel: 60, gate: 0.9)            // the trader: octave −1, VEL 60
+        gold.answerTradeOn = laneOn; gold.answerTradeMode = .borrow; gold.answerTradeWith = 1; gold.answerCycleEach = 2; gold.answerCycleUnit = .bars
+        return state([red, blue, green, gold])
+    }
+    func testBorrowEmitsTheWithLanesOwnStrikesThroughTheTradersOwnMixInTheSecondHalf() {
+        let e = run(borrowState(), beats: 24)
+        let base = run(borrowState(laneOn: false), beats: 24)
+        // lane 2 (the WITH lane) is unaffected
+        XCTAssertEqual(hits(e, lane: 1).map { $0.note }, hits(base, lane: 1).map { $0.note })
+        XCTAssertEqual(hits(e, lane: 1).map { $0.beat }, hits(base, lane: 1).map { $0.beat })
+        // lane 4: its own half-beat hits in bars 1–2 and 5–6, lane 2's beat-apart strikes in bars 3–4
+        XCTAssertEqual(hitsBetween(e, lane: 3, 0, 8).map { $0.beat }, hitsBetween(base, lane: 3, 0, 8).map { $0.beat }, "phase A: lane 4 plays as it always did")
+        let traded = hitsBetween(e, lane: 3, 8, 16)
+        let lane2 = hitsBetween(e, lane: 1, 8, 16)
+        XCTAssertEqual(traded.map { $0.beat }, lane2.map { $0.beat }, "bars 3–4: lane 4 strikes exactly when lane 2 does")
+        XCTAssertEqual(traded.map { $0.note }, lane2.map { $0.note - 12 * 2 }, "…the same notes through lane 4's own octave (−1 against lane 2's +1)")
+        XCTAssertEqual(traded.map { $0.vel }, Array(repeating: 60, count: lane2.count), "…at lane 4's own VEL")
+        let offs4 = e.offs.filter { $0.cable == 4 }.map { beatOf($0.sample) }
+        for (i, h) in traded.enumerated() {
+            let off = offs4.first { $0 > h.beat + 1e-6 } ?? -1
+            XCTAssertEqual(off - h.beat, 0.4, accuracy: 0.02, "hit \(i): the note lasts lane 2's gate (0.4 of the beat), not lane 4's (0.9)")
+        }
+        XCTAssertEqual(hitsBetween(e, lane: 3, 16, 24).map { $0.beat }, hitsBetween(base, lane: 3, 16, 24).map { $0.beat }, "bars 5–6: back to its own")
+        assertNothingLeftSounding(e)
+    }
+    func testAMutedWithLaneStillSuppliesItsStrikes() {
+        let e = run(borrowState(blueMute: true), beats: 24)
+        XCTAssertTrue(hits(e, lane: 1).isEmpty, "lane 2 is LANES-muted: it plays nothing itself")
+        XCTAssertEqual(hitsBetween(e, lane: 3, 8, 16).count, 8, "…but lane 4 still emits its strikes")
+        assertNothingLeftSounding(e)
+    }
+    func testTradersAndFollowersReadTheSameStrikesAtEveryBufferSize() {
+        let reference = run(borrowState(), beats: 24, frames: 2048)
+        func shape(_ e: AnsEmitter) -> [String] { e.ons.map { (beatOf($0.sample), $0.cable, $0.note, $0.vel) }.sorted { ($0.0, $0.1, $0.2) < ($1.0, $1.1, $1.2) }.map { "\($0.1):\($0.0):\($0.2):\($0.3)" } }
+        for frames: UInt32 in [64, 256, 1024] {
+            XCTAssertEqual(shape(run(borrowState(), beats: 24, frames: frames)), shape(reference), "buffer \(frames)")
+        }
+    }
+
+    // MARK: 8 — SWAP
+
+    private func swapState() -> PluginState {
+        var one = lane(rate: .r1_4, oct: 0, vel: 100, gate: 0.5)              // lane 1: a hit a beat
+        let two = lane(rate: .r1_4, oct: 0)
+        var three = lane(rate: .r1_8, oct: -1, vel: 70, gate: 0.5)            // lane 3: a hit every half beat
+        one.answerTradeOn = true; one.answerTradeMode = .swap; one.answerTradeWith = 2; one.answerCycleEach = 4; one.answerCycleUnit = .bars
+        three.answerTradeOn = true; three.answerTradeMode = .swap; three.answerTradeWith = 0; three.answerCycleEach = 4; three.answerCycleUnit = .bars
+        return state([one, two, three])
+    }
+    func testSwapExchangesTheTwoLanesStrikesInTheSecondHalfAndBackAfter() {
+        let e = run(swapState(), beats: 48)
+        // bars 1–4: each its own; 5–8 (beats 16–32): exchanged; 9–12: back
+        XCTAssertEqual(hitsBetween(e, lane: 0, 0, 16).map { $0.beat }, (0..<16).map(Double.init))
+        XCTAssertEqual(hitsBetween(e, lane: 2, 0, 16).map { $0.beat }, (0..<32).map { Double($0) * 0.5 })
+        XCTAssertEqual(hitsBetween(e, lane: 0, 16, 32).map { $0.beat }, (0..<32).map { 16 + Double($0) * 0.5 }, "lane 1's output carries lane 3's half-beat strikes")
+        XCTAssertEqual(hitsBetween(e, lane: 2, 16, 32).map { $0.beat }, (0..<16).map { 16 + Double($0) }, "lane 3's output carries lane 1's beat-apart strikes")
+        XCTAssertEqual(hitsBetween(e, lane: 0, 16, 32).map { $0.vel }, Array(repeating: 100, count: 32), "lane 3's strikes through lane 1's VEL")
+        XCTAssertEqual(hitsBetween(e, lane: 2, 16, 32).map { $0.vel }, Array(repeating: 70, count: 16), "lane 1's strikes through lane 3's VEL")
+        XCTAssertEqual(hitsBetween(e, lane: 0, 32, 48).map { $0.beat }, (32..<48).map(Double.init), "back to its own")
+        XCTAssertEqual(hitsBetween(e, lane: 2, 32, 48).map { $0.beat }, (0..<32).map { 32 + Double($0) * 0.5 })
+        assertNothingLeftSounding(e)
+    }
+
+    // MARK: 10 — chains cannot loop
+
+    func testATradeReadsOwnStrikesSoACopyOfATradingLaneSeesItsOwn() {
+        var one = lane(pulses: 3, steps: 8, rate: .r1_8, oct: 0)
+        var two = lane(pulses: 5, steps: 8, rate: .r1_8, oct: 1)
+        two.listenSource = 0; two.answerRhythmOn = true; two.answerRhythmMode = .copy
+        one.answerTradeOn = true; one.answerTradeMode = .swap; one.answerTradeWith = 1; one.answerCycleEach = 1
+        two.answerTradeOn = true; two.answerTradeMode = .swap; two.answerTradeWith = 0; two.answerCycleEach = 1
+        let e = run(state([one, two]), beats: 16)
+        // Lane 2 COPIES lane 1's rhythm throughout; with SWAP its OUTPUT carries lane 1's strikes in phase B — the same hits, so it sounds lane 1's pattern in both phases.
+        let beats2 = hits(e, lane: 1).map { $0.beat }
+        XCTAssertFalse(beats2.isEmpty)
+        let want: [Double] = [0, 1.5, 3]
+        for bar in 0..<4 { XCTAssertEqual(hitsBetween(e, lane: 1, Double(bar) * 4, Double(bar + 1) * 4).map { $0.beat }, want.map { $0 + Double(bar) * 4 }, "bar \(bar + 1)") }
+        assertNothingLeftSounding(e)
+    }
+
+    // MARK: 11 — TRADE and a cycling row on one lane
+
+    func testInPhaseBTheTradeWinsAndTheOwnWalkKeepsAdvancing() {
+        let red = lane(rate: .r1_4, oct: 0)
+        var blue = lane(rate: .r1_4, oct: 1)
+        blue.listenSource = 0
+        blue.answerPitchOn = true; blue.answerPitchMode = .shadow; blue.answerPitchCycle = true
+        blue.answerTradeOn = true; blue.answerTradeMode = .borrow; blue.answerTradeWith = 2
+        blue.answerCycleEach = 2
+        let green = lane(rate: .r1_4, oct: -1)
+        let e = run(state([red, blue, green]), beats: 24)
+        let b = hitsBetween(e, lane: 1, 0, 24)
+        for t in 0..<8 { XCTAssertEqual(b[t].note, walk(t), "phase A: PITCH shadows lane 1") }
+        for t in 8..<16 { XCTAssertEqual(b[t].note, walk(t, oct: 1), "phase B: the trade wins — lane 3's strike, through lane 2's octave (lane 3's walk + 12 × (1 − (−1))) — i.e. lane 3's raw walk, an octave up") }
+        for t in 16..<24 { XCTAssertEqual(b[t].note, walk(t), "phase A again — the walk is where the clock says") }
+        assertNothingLeftSounding(e)
+    }
+
+    // MARK: 13 — stuck notes
+
+    func testTradeSwitchedOnAndOffMidNoteLeavesNothingSounding() {
+        var long = lane(rate: .r1_4, oct: 0, gate: 0.99)
+        var other = lane(rate: .r1_8, oct: 1, gate: 0.99)
+        long.answerCycleEach = 1; other.answerCycleEach = 1
+        var onState = state([long, other])
+        var l0 = long, l1 = other
+        l0.answerTradeOn = true; l0.answerTradeMode = .swap; l0.answerTradeWith = 1; l1.answerTradeOn = true; l1.answerTradeMode = .swap; l1.answerTradeWith = 0
+        onState = state([l0, l1])
+        let offState = state([long, other])
+        let e = run(offState, beats: 40, swapAt: [(5.3, onState), (11.7, offState), (17.2, onState), (21.9, offState), (26.4, onState), (33.1, offState)])
+        assertNothingLeftSounding(e)
+        let e2 = run(onState, beats: 40, swapAt: [(6.1, offState), (14.9, onState)])
+        assertNothingLeftSounding(e2)
+    }
+    func testRatchetsAndTiesTravelWithTheTradedHit() {
+        // lane 1 ratchets 3× through an FX row; lane 2 BORROWs it: lane 2 must sound the 3 strikes per hit in phase B.
+        var one = lane(rate: .r1_4, oct: 0, gate: 0.5)
+        var two = lane(rate: .r1_4, oct: 1, gate: 0.5)
+        one.listenSource = 0; two.listenSource = 0
+        two.answerTradeOn = true; two.answerTradeMode = .borrow; two.answerTradeWith = 0; two.answerCycleEach = 1
+        var st = state([one, two])
+        var fx = EuclideousFX(); fx.cells[4] = 3   // RATCH row (0), column 5 — the hit on beat 4: three strikes
+        st.euclideousFX = fx
+        let e = run(st, beats: 12)
+        let base = hitsBetween(e, lane: 0, 0, 12)
+        let two12 = hitsBetween(e, lane: 1, 4, 8)
+        XCTAssertEqual(base.count, 12 + 2, "lane 1 ratchets its column-5 hit (the one on beat 4): three strikes for one")
+        XCTAssertEqual(two12.count, 4 + 2, "lane 2 plays lane 1's ratcheted hit in bar 2: the three strikes travel with it")
+        assertNothingLeftSounding(e)
+    }
+}
