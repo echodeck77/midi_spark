@@ -99,3 +99,63 @@ struct PoolPedalLightView: View {
         .accessibilityValue(euclideousPoolPedalSpoken(down: down))
     }
 }
+
+/// POOL ferry 6.2: the riff grid's note-label column — eight rank chips, rank 8 at the top and rank 1 at the bottom, each `cellH` tall and `labelW` wide with the grid's own row gap, naming the PICKED lane's pool through the NOTES keys' naming function
+/// (received bright, octave copies dark, "–" for a rank with no note), the lit bar on the ranks that lane struck on its last hit. One VoiceOver element per chip, "Rank n, <note>". Observes the status feed itself.
+struct RiffGridLabelColumnView: View {
+    let lane: Int
+    let tint: Color
+    let cellH: CGFloat
+    let labelW: CGFloat
+    let gap: CGFloat
+    let name: (UInt8, [UInt8]) -> String
+    let spokenName: (Int, [UInt8]) -> String
+    @ObservedObject var live: AnswerLiveModel
+
+    var body: some View {
+        let st = live.pool(lane: lane)
+        let sorted = st.notes.map { Int($0) }
+        let extended = euclideousGlobalPoolExtended(sortedRaw: sorted)
+        let chips = euclideousRankChips(sortedPool: sorted, litMask: st.playedRanks) { n in n >= 0 && n <= 127 ? name(UInt8(n), st.notes) : "\u{2013}" }
+        VStack(spacing: gap) {
+            ForEach((1...8).reversed(), id: \.self) { rank in
+                EuclideousRankChipView(spec: chips[rank - 1], accent: tint, size: CGSize(width: labelW, height: cellH))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(rank <= extended.count ? euclideousRankChipGridSpoken(rank: rank, note: spokenName(extended[rank - 1], st.notes)) : "Rank \(rank), no note")
+            }
+        }
+        .frame(width: labelW)
+    }
+}
+
+/// POOL ferry 6.3: the lane picker — four 7 pt circles in a 2 × 2 grid (lanes 1 2 over 3 4), centred in its blank: the picked lane's in its lane100 with a 1 pt lane100 ring 2 out from it, the others at 45 %. A tap anywhere in the blank steps to the
+/// next lane; VoiceOver: adjustable, "Notes shown for", value "lane n".
+struct RiffGridPickerView: View {
+    let picked: Int
+    let accents: [Color]
+    let size: CGSize
+    let step: (Int) -> Void     // +1 / −1
+
+    private func dot(_ lane: Int) -> some View {
+        let on = lane == picked
+        let c = accents[lane % accents.count]
+        return ZStack {
+            Circle().fill(c.opacity(on ? 1 : 0.45)).frame(width: 7, height: 7)
+            if on { Circle().stroke(c, lineWidth: 1).frame(width: 7 + 2 * 2 + 1, height: 7 + 2 * 2 + 1) }   // the ring: 2 pt clear of the circle
+        }
+        .frame(width: 7, height: 7)
+    }
+    var body: some View {
+        VStack(spacing: 5) {
+            HStack(spacing: 7) { dot(0); dot(1) }
+            HStack(spacing: 7) { dot(2); dot(3) }
+        }
+        .frame(width: size.width, height: size.height)
+        .contentShape(Rectangle())
+        .onTapGesture { step(1) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Notes shown for")
+        .accessibilityValue(euclideousPickedLaneSpoken(picked))
+        .accessibilityAdjustableAction { dir in step(dir == .increment ? 1 : -1) }
+    }
+}

@@ -759,6 +759,7 @@ struct EuclideousPage: View {
     let sourceStatus: Router.EuclideousSourceStatus   // SOURCES STACK ferry (2026-10-26): lane-1's live source status for the header lights + SOURCES NOW column
     let poolHoldStatus: [EuclideousPoolHoldLaneStatus]   // POOL HOLD (FREEZE, 2026-11-01): each lane's running hold — the FREEZE cell's dim + draining bar
     let answerPhases: [Bool]                             // ANSWER (2026-11-02): which lanes are in phase B right now — the displays show the lane as it PLAYS (`phaseLines`); changes once a unit
+    let lanePools: [EuclideousLanePoolNotes]             // POOL (2026-11-02): each lane's pool (notes + the two highest), for the NOTES keys — changes only when a pool does, so the page is not re-run at the hit rate
     let answerLive: AnswerLiveModel                      // ANSWER (2026-11-02): each lane's running cycle (the CYCLE row's phase bar) and its pool as it is choosing from it (the POOL tab's NOW row) — leaf views observe it, the page does not
     let sourcePlan: SourcePlan                         // the RESOLVED v2 plan — drives the SOURCES button's pips + the panel's rows/MODE/PICK/KEY
     let onToggleSourceCell: (WritableKeyPath<SourcePlan, Bool>) -> Void   // (legacy SOURCES STACK cell flip — unused by the v2 panel, kept until the old pop-up is gone)
@@ -917,6 +918,8 @@ struct EuclideousPage: View {
     // TAB STRIP (2026-10-29): `pageTab` is the ONE tab all four cards show (it replaces the per-card `laneTab` and `cardSide`): any front tab shows the fronts on that tab, MIX shows the backs. `flipFrom` is the tab it left, so a front
     // card keeps showing the OLD front tab through the first half of its turn to MIX. Ephemeral like the tabs before it: a fresh page always opens on RHYTHM, never on MIX.
     @State private var pageTab: EuclideousPageTab = .opening
+    /// POOL ferry 6.3: the lane whose notes the riff grid's label column names (UI state, never saved; starts at lane 1).
+    @State private var gridLane = 0
     @State private var flipFrom: EuclideousPageTab? = nil
     @State private var cardFlipStart: Date? = nil
     @State private var cardFlipTick = 0
@@ -4975,13 +4978,15 @@ struct EuclideousPage: View {
     /// What the NOTES tab shows for one lane, from the SAME pool the riff grid's note-label column reads: the ten keys (names via the grid's own naming function, received vs octave copy
     /// via the same `rank <= pool.count` test), the play list (6.5) and the spoken names. Nothing held: every key takes the copy look and an en dash, as the grid does.
     private struct NotesTabData {
-        var specs: [EuclideousNotesKeySpec]
+        var specs: [EuclideousRankChipSpec]
         var list: EuclideousNotesList
         var spoken: [[String]]      // per position: the spoken note names (rank key: one or none; TOP: one; TOP 2: up to two)
     }
-    private func notesTabData(_ line: EuclidLine, riffDotRank: Int? = nil, sounding: [Double] = []) -> NotesTabData {
-        let pool = riffLivePool
-        let n = pool.count
+    private func notesTabData(_ line: EuclidLine, lane: Int, riffDotRank: Int? = nil, sounding: [Double] = []) -> NotesTabData {
+        // POOL ferry 6.1: the keys name THIS lane's own pool (after CANON, FREEZE and SUSTAIN) — not the one global pool every lane showed before.
+        let lp = lane >= 0 && lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
+        let pool = lp.notes
+        let n = lp.count
         let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
         func name(_ m: Int) -> String {
             guard m >= 0, m <= 127 else { return "\u{2013}" }
@@ -4994,7 +4999,7 @@ struct EuclideousPage: View {
         let receivedOnly = line.notesReceivedOnlyResolved
         let list = notesPlayList(line)
         let places = euclideousNotesPlaceNumbers(list: list, way: line.notesPlayAsResolved)
-        var specs: [EuclideousNotesKeySpec] = []
+        var specs: [EuclideousRankChipSpec] = []
         var spokenNames: [[String]] = []
         for p in 0..<10 {
             let lit = order.contains(p)
@@ -5002,18 +5007,17 @@ struct EuclideousPage: View {
             if p < 8 {
                 let rank = p + 1
                 let has = rank <= extended.count
-                specs.append(EuclideousNotesKeySpec(position: p, received: rank <= n, lit: lit, heldBack: lit && receivedOnly && rank > n,
-                                                    name: has ? name(extended[rank - 1]) : "\u{2013}", place: places[p],
-                                                    riffDot: riffDotRank == rank, sounding: sound))
+                // §5.4: an empty pool — every key takes the copy look and shows its rank number in the centre (no corner number); otherwise the note name and the corner rank number.
+                specs.append(EuclideousRankChipSpec(rank: rank, topKind: 0, received: n > 0 && rank <= n, lit: lit, empty: n == 0, name: n == 0 ? String(rank) : (has ? name(extended[rank - 1]) : "\u{2013}"),
+                                                    cornerNumber: n > 0, heldBack: lit && receivedOnly && rank > n, place: places[p], riffDot: riffDotRank == rank, sounding: sound))
                 spokenNames.append(has ? [spoken(extended[rank - 1])] : [])
             } else if p == EuclideousLitOrder.topTwoPosition {
-                let second: String = n >= 2 ? name(Int(pool[n - 2])) + "+" : (n == 1 ? name(Int(pool[0])) : "\u{2013}")
-                specs.append(EuclideousNotesKeySpec(position: p, received: n > 0, lit: lit, heldBack: false, name: second, place: places[p], riffDot: false, sounding: sound))
-                spokenNames.append(n >= 2 ? [spoken(Int(pool[n - 2])), spoken(Int(pool[n - 1]))] : (n == 1 ? [spoken(Int(pool[0]))] : []))
+                let second: String = n >= 2 ? name(Int(lp.top2)) + "+" : (n == 1 ? name(Int(pool.first ?? 0)) : "\u{2013}")
+                specs.append(EuclideousRankChipSpec(rank: 0, topKind: 1, received: n > 0, lit: lit, empty: n == 0, name: second, cornerNumber: false, place: places[p], sounding: sound))
+                spokenNames.append(n >= 2 ? [spoken(Int(lp.top2)), spoken(Int(lp.top))] : (n == 1 ? [spoken(Int(pool.first ?? 0))] : []))
             } else {
-                specs.append(EuclideousNotesKeySpec(position: p, received: n > 0, lit: lit, heldBack: false, name: n >= 1 ? name(Int(pool[n - 1])) : "\u{2013}", place: places[p],
-                                                    riffDot: false, sounding: sound))
-                spokenNames.append(n >= 1 ? [spoken(Int(pool[n - 1]))] : [])
+                specs.append(EuclideousRankChipSpec(rank: 0, topKind: 2, received: n > 0, lit: lit, empty: n == 0, name: n >= 1 ? name(Int(lp.top)) : "\u{2013}", cornerNumber: false, place: places[p], sounding: sound))
+                spokenNames.append(n >= 1 ? [spoken(Int(lp.top))] : [])
             }
         }
         return NotesTabData(specs: specs, list: list, spoken: spokenNames)
@@ -5112,7 +5116,7 @@ struct EuclideousPage: View {
         // reads the riff far beyond one pitch, so it always pauses alongside RIFF — confirmed, not assumed).
         let shadowing = euclideousAnswerBorrowedTabs(line, notesReadsRiff: true).notes
         let lay = euclideousNotesTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
-        let data = notesTabData(line)
+        let data = notesTabData(line, lane: idx)
         let way = line.notesPlayAsResolved
         let plays = line.notesPlaysResolved, rests = line.notesRestsResolved
         let chance = line.notesChanceResolved
@@ -5141,7 +5145,7 @@ struct EuclideousPage: View {
                             let flash = notesKeyFlash(idx, line, list: data.list, now: tl.date.timeIntervalSinceReferenceDate)
                             ZStack(alignment: .topLeading) {
                                 ForEach(0..<10, id: \.self) { p in
-                                    let spec: EuclideousNotesKeySpec = {
+                                    let spec: EuclideousRankChipSpec = {
                                         var sp = data.specs[p]
                                         sp.sounding = flash.sounding[p]
                                         sp.riffDot = p < 8 && flash.riffDotRank == p + 1 && flash.riffDotStrength > 0
@@ -5149,7 +5153,7 @@ struct EuclideousPage: View {
                                     }()
                                     // The shape, the tap and the accessibility element go BEFORE the offset: a `.contentShape` applied after `.offset` stays at the un-offset position, which stacked all
                                     // ten keys' hit areas at the row's top-left (over the strip) and left the keys, TOP 2, TOP and the strip's left edge untappable.
-                                    EuclideousNotesKeyView(spec: spec, accent: lane100(accent), size: lay.keys[p].size)
+                                    EuclideousRankChipView(spec: spec, accent: lane100(accent), size: lay.keys[p].size)
                                         .contentShape(Rectangle())
                                         .modifier(laneTapMod(idx) { edit(idx) { euclideousToggleLitPosition(&$0, position: p) } })
                                         .modifier(lockOutlineMod(idx, .noteKey(p), accent))
@@ -6224,10 +6228,10 @@ struct EuclideousPage: View {
             return euclideousAppendSilencedBySolo(euclideousRailAccessibilityLabel(lane: i, riffOn: f.riffOn, running: f.running, played: playedNow[i], current: w.current, heading: w.heading, muted: f.muted), silenced: f.soloSilenced)
         }
         return VStack(alignment: .leading, spacing: 0) {
-            riffModeRow(height: layout.tabRowH)
+            riffTopRow(layout)
             Color.clear.frame(height: EuclideousRiffPanelMetrics.tabToGrid)
             HStack(spacing: sp4) {
-                riffNoteLabelColumn(pool: pool, source: source, cellH: cellH, labelW: layout.labelW)
+                riffNoteLabelColumn(cellH: cellH, labelW: layout.labelW)
                 // DRAGGABLE (see `riffDragLastCell`'s own doc comment above): the matrix VStack carries no
                 // gesture of its own anymore — a single clear overlay, sized to its EXACT pixel footprint,
                 // sits on top and owns the one gesture for the whole grid, matching `sliderLane`'s own
@@ -6315,10 +6319,10 @@ struct EuclideousPage: View {
         }
         let gridSize = layout.gridSize
         return VStack(alignment: .leading, spacing: 0) {
-            riffModeRow(height: layout.tabRowH)
+            riffTopRow(layout)
             Color.clear.frame(height: EuclideousRiffPanelMetrics.tabToGrid)
             HStack(spacing: sp4) {
-                riffNoteLabelColumn(pool: pool, source: source, cellH: cellH, labelW: layout.labelW)
+                riffNoteLabelColumn(cellH: cellH, labelW: layout.labelW)
                 ZStack(alignment: .topLeading) {
                     EuclideousPolyGridView(riff: polyRiff, layout: layout)
                     polyCellAccessibility(layout: layout, arrows: arrowsNow, pool: pool)
@@ -6549,32 +6553,24 @@ struct EuclideousPage: View {
         }
         return out
     }
-    private func riffNoteLabelColumn(pool: [UInt8], source: EuclideousLaneSource, cellH: CGFloat, labelW: CGFloat) -> some View {
-        // The names and their VoiceOver words are worked out ONCE per body; the TimelineView only decides which rows are lit this frame.
-        let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
-        let rows: [(rank: Int, label: String, hasNote: Bool, isReal: Bool, spoken: String)] = (1...8).reversed().map { rank in
-            let hasNote = rank <= extended.count
-            let noteValue = hasNote ? UInt8(extended[rank - 1]) : 0
-            return (rank, hasNote ? euclideousDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType) : "–", hasNote, rank <= pool.count,
-                    hasNote ? "Rank \(rank), \(euclideousAccessibleDisplayNoteName(noteValue, source: source, pool: pool, keyRoot: keyRoot, keyType: keyType))" : "Rank \(rank), no note")
-        }
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
-            riffNoteLabelColumnBody(rows: rows, cellH: cellH, labelW: labelW, lights: riffNameLights(now: tl.date.timeIntervalSinceReferenceDate))
-        }
+    /// POOL ferry 6.2: the note-label column is a column of eight rank chips (rank 1 at the bottom, each in its row's frame) naming the PICKED lane's pool, with the lit bar on the ranks that lane struck on its last hit. A leaf: it observes the status
+    /// feed itself, so the page is not re-run for it. (The label's old per-strike glow from any lane is gone — the lit bar is the picked lane's.)
+    private func riffNoteLabelColumn(cellH: CGFloat, labelW: CGFloat) -> some View {
+        RiffGridLabelColumnView(lane: gridLane, tint: lane100(laneAccents[gridLane % laneAccents.count]), cellH: cellH, labelW: labelW, gap: sp4,
+                                name: { n, pool in euclideousDisplayNoteName(n, source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
+                                spokenName: { n, pool in euclideousAccessibleDisplayNoteName(UInt8(max(0, min(127, n))), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
+                                live: answerLive)
     }
-    private func riffNoteLabelColumnBody(rows: [(rank: Int, label: String, hasNote: Bool, isReal: Bool, spoken: String)], cellH: CGFloat, labelW: CGFloat, lights: [Int: (colour: Color, f: Double)]) -> some View {
-        // (the note names — octave-extended, real-vs-copy dimming, spelled relative to the held chord, "–" with nothing held — are built once in `riffNoteLabelColumn`; see the 2026-10-13 and 2026-10-14 notes in git history)
-        return VStack(spacing: sp4) {
-            ForEach(rows, id: \.rank) { row in
-                Text(row.label).font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(lights[row.rank]?.colour ?? (row.hasNote ? (row.isReal ? Color(hex: 0xDFE3EA) : Color(hex: 0xDFE3EA).opacity(0.55)) : Color(hex: 0x4A4E57)))
-                    .shadow(color: lights[row.rank].map { $0.colour.opacity($0.f) } ?? .clear, radius: lights[row.rank].map { 5 * CGFloat($0.f) } ?? 0)
-                    .frame(width: labelW, height: cellH, alignment: .trailing)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(row.spoken)
+    /// POOL ferry 6.3: the riff panel's top row — the lane picker in a leading blank as wide as the label column (the MONO | POLY control starts at the grid's left edge), then the control. A tap anywhere in the blank steps to the next
+    /// lane (1 → 2 → 3 → 4 → 1); the blank reaches down over the gap under the row, where the 2 × 2 dots sit.
+    private func riffTopRow(_ layout: EuclideousRiffPanelLayout) -> some View {
+        HStack(spacing: sp4) {
+            RiffGridPickerView(picked: gridLane, accents: laneAccents.map { lane100($0) }, size: CGSize(width: layout.labelW, height: layout.tabRowH + EuclideousRiffPanelMetrics.tabToGrid)) { delta in
+                var l = gridLane; for _ in 0..<(delta >= 0 ? 1 : 3) { l = euclideousPickedLaneNext(l) }; gridLane = l
             }
+            .frame(width: layout.labelW, height: layout.tabRowH, alignment: .top)
+            riffModeRow(height: layout.tabRowH)
         }
-        .frame(width: labelW)
     }
     // riffSourceTabs REMOVED ENTIRE (Paul 2026-10-14: "move the midi in/chords/key control to the top
     // header bar and restyle") — superseded by `headerSourceGroup()` above; confirmed zero remaining call

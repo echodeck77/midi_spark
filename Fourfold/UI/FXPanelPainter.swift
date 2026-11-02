@@ -184,7 +184,7 @@ struct EuclideousFXPanel: View {
         let P = EuclideousFXPalette.self
         return ZStack(alignment: .topLeading) {
             Text("RIFF").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(P.dim).lineLimit(1)
-                .frame(width: EuclideousFXLayout.labelW, height: EuclideousFXLayout.headerH, alignment: .trailing)
+                .frame(width: layout.labelW, height: EuclideousFXLayout.headerH, alignment: .trailing)
                 .offset(x: 0, y: layout.headerTop)
             ForEach(0..<8, id: \.self) { c in
                 let h = c < headers.count ? headers[c] : EuclideousFXHeaderLabel(text: "–", rest: true)
@@ -225,7 +225,7 @@ struct EuclideousFXPanel: View {
                     }
                 }
             }
-            .frame(width: EuclideousFXLayout.labelW, height: layout.rowH)
+            .frame(width: layout.labelW, height: layout.rowH)
             .background(RoundedRectangle(cornerRadius: 5).fill(sel ? P.light : P.chip))
             .opacity(mask == 0 ? 0.42 : 1)
         }
@@ -246,7 +246,7 @@ struct EuclideousFXPanel: View {
         let x0 = buttonsEnd + 16
         return ZStack(alignment: .topLeading) {
             Text("LANES").font(heavyMono(8)).tracking(0.32).foregroundColor(P.caption).lineLimit(1)
-                .frame(width: EuclideousFXLayout.labelW, height: EuclideousFXLayout.stripH, alignment: .leading)
+                .frame(width: layout.labelW, height: EuclideousFXLayout.stripH, alignment: .leading)
             HStack(spacing: 4) {
                 ForEach(0..<4, id: \.self) { lane in
                     let on = (mask >> UInt8(lane)) & 1 != 0

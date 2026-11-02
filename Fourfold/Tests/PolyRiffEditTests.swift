@@ -116,7 +116,8 @@ final class PolyRiffEditTests: XCTestCase {
     // MARK: the grid's frames
 
     func testThePolyGridFramesAtBothReferences() {
-        for (box, cellW) in [(CGSize(width: 380.67, height: 319), 18.79), (CGSize(width: 387, height: 319.67), 19.19)] {
+        // POOL ferry (2026-11-02): 1.125 pt narrower each (the 48 pt label column; was 18.79 / 19.19)
+        for (box, cellW) in [(CGSize(width: 380.67, height: 319), 17.67), (CGSize(width: 387, height: 319.67), 18.06)] {
             let l = euclideousPolyPanelLayout(box: box), m = euclideousRiffPanelLayout(box: box)
             XCTAssertEqual(l.columns, 16); XCTAssertEqual(l.colGap, 2); XCTAssertEqual(l.cellW, cellW, accuracy: 0.01)
             XCTAssertEqual(l.labelW, m.labelW, "the note-name column is the MONO one"); XCTAssertEqual(l.tabRowH, m.tabRowH)

@@ -256,8 +256,10 @@ final class PageLayoutTests: XCTestCase {
         // (The layout ferry's own chrome was 77 and its pure height/rows pair is GONE: the panel's inside is laid out by `euclideousRiffPanelLayout`, once.)
         XCTAssertEqual(EuclideousRiffPanelMetrics.chromeH(), 119)
         let l = euclideousRiffPanelLayout(box: land.box), p = euclideousRiffPanelLayout(box: port.box)
-        XCTAssertEqual(l.cellW, 37.83, accuracy: 0.01); XCTAssertEqual(l.rowH, 25, accuracy: 1e-9)
-        XCTAssertEqual(p.cellW, 38.63, accuracy: 0.01); XCTAssertEqual(p.rowH, 25.08, accuracy: 0.01)
+        // POOL ferry (2026-11-02): the label column became a column of rank chips, 48 wide instead of 30 — the cell width gives up 18 / 8 = 2.25 pt (landscape 37.83 → 35.58, portrait 38.63 → 36.38); the formula is unchanged.
+        XCTAssertEqual(l.cellW, 35.58, accuracy: 0.01); XCTAssertEqual(l.rowH, 25, accuracy: 1e-9)
+        XCTAssertEqual(p.cellW, 36.38, accuracy: 0.01); XCTAssertEqual(p.rowH, 25.08, accuracy: 0.01)
+        XCTAssertEqual(l.labelW, 48); XCTAssertEqual(p.labelW, 48); XCTAssertEqual(EuclideousRiffPanelMetrics.labelW, euclideousRankChipMinWidth(), "the column is exactly the narrowest chip that holds the widest label beside its corner number")
     }
     func testFXRowsFollowThePanelAndItsColumnsAreTheRiffGrids() {
         // rows share the height: (content − 86) / 6 with content = box − 40; 29 at the old 260-tall content (a 300pt box); no cap, floor 24
@@ -270,10 +272,10 @@ final class PageLayoutTests: XCTestCase {
             XCTAssertEqual(l.rowH, rowH, accuracy: 0.01)
             XCTAssertEqual(l.hintTop + EuclideousFXLayout.hintH, body.height, accuracy: 1e-9, "the hint ends sp8 above the panel's bottom, whatever the height")
             XCTAssertEqual(l.cellW, euclideousRiffCellW(maxWidth: p.box.width), "the columns are the riff grid's own function")
-            // each FX column's offset from ITS panel's leading edge = the riff grid's column's offset from the riff panel's (8 pad + 30 label + 4 gap, then cellW + 4)
+            // each FX column's offset from ITS panel's leading edge = the riff grid's column's offset from the riff panel's (8 pad + the label column + 4 gap, then cellW + 4)
             for c in 0..<8 {
                 let fxOffset = 8 + l.colLeft(c)
-                let riffOffset = 8 + 30 + 4 + CGFloat(c) * (euclideousRiffCellW(maxWidth: p.box.width) + 4)
+                let riffOffset = 8 + euclideousRiffNoteLabelW(maxWidth: p.box.width) + 4 + CGFloat(c) * (euclideousRiffCellW(maxWidth: p.box.width) + 4)
                 XCTAssertEqual(fxOffset, riffOffset, accuracy: 1e-9, "column \(c)")
                 // …and on the page: landscape the panel sits directly under the riff panel (same x), so the edges are equal on the page too
                 if p.isLandscape { XCTAssertEqual(p.seq.minX + fxOffset, p.riff.minX + riffOffset, accuracy: 1e-9) }
@@ -328,7 +330,7 @@ final class PageLayoutTests: XCTestCase {
         // row drops to its compact floor (14) and chrome shrinks to 113, buying rowH back to 20.125.
         let miniRiffLayout = euclideousRiffPanelLayout(box: CGSize(width: 355, height: 274))
         XCTAssertEqual(miniRiffLayout.rowH, 20.125, accuracy: 1e-9)
-        XCTAssertEqual(miniRiffLayout.tabRowH, 14, accuracy: 1e-9); XCTAssertEqual(miniRiffLayout.labelW, 30, accuracy: 1e-9, "cellW here (34.6) clears minCellW, so the label stays nominal")
+        XCTAssertEqual(miniRiffLayout.tabRowH, 14, accuracy: 1e-9); XCTAssertEqual(miniRiffLayout.labelW, 48, accuracy: 1e-9, "cellW here (32.4) clears minCellW, so the label stays nominal")
         let r = euclideousRiffTabLayout(contentAreaH: 274 - 104, fullWidth: 335)
         XCTAssertEqual(r.rowAHeight, 44, accuracy: 1e-9, "RIFF's row A")
         // Floors ferry (2026-10-23): at this size, showing the WALK strip would leave only 2pt for the

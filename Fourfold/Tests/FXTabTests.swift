@@ -301,9 +301,9 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(l.rowH, 29)
         XCTAssertEqual(l.headerTop, 28); XCTAssertEqual(l.rowTop(0), 46); XCTAssertEqual(l.rowTop(5), 46 + 33 * 5); XCTAssertEqual(l.rowTop(5) + l.rowH, 240)
         XCTAssertEqual(l.hintTop, 244); XCTAssertEqual(l.hintTop + EuclideousFXLayout.hintH, 260, "the reference stack is 260 tall")
-        // the columns are the riff grid's: ONE function, label 30 + gap 4, then cellW with a 4pt column gap, ending at the content's right edge
+        // the columns are the riff grid's: ONE function, the label column (48 since the rank-chip labels, POOL ferry 2026-11-02; was 30) + gap 4, then cellW with a 4pt column gap, ending at the content's right edge
         XCTAssertEqual(l.cellW, euclideousRiffCellW(maxWidth: panelW))
-        for c in 0..<8 { XCTAssertEqual(l.colLeft(c), 34 + CGFloat(c) * (l.cellW + 4), accuracy: 1e-9) }
+        for c in 0..<8 { XCTAssertEqual(l.colLeft(c), 52 + CGFloat(c) * (l.cellW + 4), accuracy: 1e-9) }
         XCTAssertEqual(l.colLeft(7) + l.cellW, w, accuracy: 1e-9)
         XCTAssertEqual(l.bandRect(row: 2), CGRect(x: -4, y: l.rowTop(2) - 2, width: w + 8, height: 33))
         // a shorter panel shares the missing height across the rows down to 24, then stops shrinking; a TALLER one now grows them (no 29pt cap)
@@ -313,7 +313,7 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXLayout(width: w, height: 272.3).rowH, (272.3 - 86) / 6, accuracy: 1e-9)
         XCTAssertEqual(euclideousFXLayout(width: w, height: 279).hintTop + EuclideousFXLayout.hintH, 279, accuracy: 1e-9, "the stack always ends at the content's bottom")
         // the spec's reference panel (410 wide): the strip stack is the same, cellW = (410 − 78) / 8
-        XCTAssertEqual(euclideousFXLayout(width: 394, height: 280).cellW, (410 - 78) / 8.0, accuracy: 1e-9)
+        XCTAssertEqual(euclideousFXLayout(width: 394, height: 280).cellW, (410 - 96) / 8.0, accuracy: 1e-9)
     }
     // Floors ferry (2026-10-23): below the hint-included nominal's own 24pt floor, the hint row (pure text,
     // last in the view, not interactive) drops out first, giving the six rows back its 20pt (16 + the gap

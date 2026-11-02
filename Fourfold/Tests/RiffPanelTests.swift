@@ -17,10 +17,10 @@ final class RiffPanelTests: XCTestCase {
 
     func testPanelLayoutAtThePortraitReferenceAndTheOtherBoxes() {
         let l = euclideousRiffPanelLayout(box: portBox)
-        near(l.rowH, 25.08); near(l.cellW, 38.63); near(l.tabWidth, 89.75)
+        near(l.rowH, 25.08); near(l.cellW, 36.38); near(l.tabWidth, 89.75)   // POOL ferry (2026-11-02): the label column is 48 wide (rank chips; was 30), so cellW is 2.25 pt narrower (was 38.63)
         near(l.rowTop(7) + l.cellH, 262.67)
         for (k, y) in [270.67, 281.67, 292.67, 303.67].enumerated() { near(l.railTop(k), CGFloat(y), "rail \(k)") }
-        for c in 0..<8 { near(l.columnLeft(c), 42 + 42.63 * CGFloat(c), "column \(c)", accuracy: 0.05) }
+        for c in 0..<8 { near(l.columnLeft(c), 60 + 40.38 * CGFloat(c), "column \(c)", accuracy: 0.05) }
         // the floor: 24pt rows need a box 311 tall; 300 is flagged; the page-is-9pt-short boxes (314.5 / 316.67) clear it
         XCTAssertTrue(euclideousRiffPanelLayout(box: CGSize(width: 380.67, height: 300)).belowFloor)
         XCTAssertFalse(euclideousRiffPanelLayout(box: CGSize(width: 380.67, height: 311)).belowFloor)
@@ -43,14 +43,14 @@ final class RiffPanelTests: XCTestCase {
         XCTAssertEqual(justUnder.rowH, 24.74875, accuracy: 1e-9, "chrome shrinks to 113, buying 6pt back")
     }
     func testNoteLabelColumnFairShareDropsExactlyAtTheCellWidthFloor() {
-        // euclideousRiffCellW's nominal cellW (label 30) hits minCellW (24) at maxWidth = 24*8 + 7*4 + 16 + 34 = 270.
-        let atFloor = euclideousRiffNoteLabelW(maxWidth: 270)
-        XCTAssertEqual(atFloor, 30, accuracy: 1e-9); XCTAssertEqual(euclideousRiffCellW(maxWidth: 270), 24, accuracy: 1e-9)
-        let justUnder = euclideousRiffNoteLabelW(maxWidth: 269.99)
-        XCTAssertEqual(justUnder, 20, accuracy: 1e-9, "nominal cellW drops a hair under 24, triggering the compact label")
-        XCTAssertEqual(euclideousRiffCellW(maxWidth: 269.99), 25.24875, accuracy: 1e-9, "the 10pt given back buys cellW back above 24, not just up to it")
+        // euclideousRiffCellW's nominal cellW (label 48, the rank-chip column — POOL ferry 2026-11-02; was 30 / threshold 270) hits minCellW (24) at maxWidth = 24*8 + 7*4 + 16 + 52 = 288.
+        let atFloor = euclideousRiffNoteLabelW(maxWidth: 288)
+        XCTAssertEqual(atFloor, 48, accuracy: 1e-9); XCTAssertEqual(euclideousRiffCellW(maxWidth: 288), 24, accuracy: 1e-9)
+        let justUnder = euclideousRiffNoteLabelW(maxWidth: 287.99)
+        XCTAssertEqual(justUnder, 38, accuracy: 1e-9, "nominal cellW drops a hair under 24, triggering the compact label")
+        XCTAssertEqual(euclideousRiffCellW(maxWidth: 287.99), 25.24875, accuracy: 1e-9, "the 10pt given back buys cellW back above 24, not just up to it")
         // the panel's own layout resolves the same labelW for the same box.width, so the column and grid never disagree
-        XCTAssertEqual(euclideousRiffPanelLayout(box: CGSize(width: 269.99, height: 500)).labelW, 20, accuracy: 1e-9)
+        XCTAssertEqual(euclideousRiffPanelLayout(box: CGSize(width: 287.99, height: 500)).labelW, 38, accuracy: 1e-9)
     }
 
     // MARK: 2. heading
@@ -190,8 +190,8 @@ final class RiffPanelTests: XCTestCase {
     private func lane(_ i: Int, _ h: EuclideousArrowHeading = .right, muted: Bool = false, flare: Double = 0) -> EuclideousArrowLane { EuclideousArrowLane(lane: i, heading: h, muted: muted, flare: flare) }
     func testArrowSizeOutlineAndLabel() {
         let l = euclideousRiffPanelLayout(box: landBox), p = euclideousRiffPanelLayout(box: portBox)
-        near(EuclideousArrowStyle.size(cellW: l.cellW, cellH: l.cellH).width, 30.83); near(EuclideousArrowStyle.size(cellW: l.cellW, cellH: l.cellH).height, 17)
-        near(EuclideousArrowStyle.size(cellW: p.cellW, cellH: p.cellH).width, 31.63); near(EuclideousArrowStyle.size(cellW: p.cellW, cellH: p.cellH).height, 17.08)
+        near(EuclideousArrowStyle.size(cellW: l.cellW, cellH: l.cellH).width, 28.58); near(EuclideousArrowStyle.size(cellW: l.cellW, cellH: l.cellH).height, 17)
+        near(EuclideousArrowStyle.size(cellW: p.cellW, cellH: p.cellH).width, 29.38); near(EuclideousArrowStyle.size(cellW: p.cellW, cellH: p.cellH).height, 17.08)
         // the right arrow in a 30.83 × 17 box: r = 4, t = m = 8.5
         guard case .path(let cmds) = euclideousArrowOutline(kind: .right, w: 30.83, h: 17) else { return XCTFail("a path") }
         XCTAssertEqual(cmds.count, 10)
@@ -394,14 +394,14 @@ final class RiffPanelTests: XCTestCase {
     func testPanelLayoutAtTheLandscapeReference() {
         let l = euclideousRiffPanelLayout(box: landBox)
         XCTAssertEqual(EuclideousRiffPanelMetrics.chromeH(), 119); XCTAssertEqual(EuclideousRiffPanelMetrics.railsH, 41)
-        near(l.rowH, 25); near(l.cellW, 37.83); near(l.cellH, 25)
+        near(l.rowH, 25); near(l.cellW, 35.58); near(l.cellH, 25)   // was 37.83 before the 48 pt rank-chip label column
         near(l.gridTop, 34)
         for r in 0..<8 { near(l.rowTop(r), 34 + 29 * CGFloat(r), "row \(r)") }
         near(l.rowTop(7) + l.cellH, 262, "the last row ends at y 262")
-        for c in 0..<8 { near(l.columnLeft(c), 42 + 41.83 * CGFloat(c), "column \(c)", accuracy: 0.05) }
+        for c in 0..<8 { near(l.columnLeft(c), 60 + 39.58 * CGFloat(c), "column \(c)", accuracy: 0.05) }
         for (k, y) in [270.0, 281, 292, 303].enumerated() { near(l.railTop(k), CGFloat(y), "rail \(k)"); near(l.railSegmentFrame(lane: k, column: 0).height, 8) }
         near(l.railTop(3) + 8 + 8, landBox.height, "the rails end at the bottom padding")
-        near(l.railNumberFrame(0).width, 30); near(l.railNumberFrame(0).minX, 8)
+        near(l.railNumberFrame(0).width, 48); near(l.railNumberFrame(0).minX, 8)
         near(l.railSegmentFrame(lane: 2, column: 5).minX, l.columnLeft(5)); near(l.railSegmentFrame(lane: 2, column: 5).width, l.cellW)
         XCTAssertFalse(l.belowFloor)
         // rank 8 is the top row, rank 1 the bottom

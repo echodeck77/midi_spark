@@ -4758,10 +4758,11 @@ enum EuclideousRiffPanelMetrics {
     /// would leave the eight grid rows under `minRowH`, buying them 6pt back instead of staying fixed
     /// while the grid alone absorbs the squeeze.
     static let tabRowCompactH: CGFloat = 14
-    static let labelW: CGFloat = 30, labelGap: CGFloat = 4, colGap: CGFloat = 4, rowGap: CGFloat = 4
+    /// POOL ferry 5.5 / 6.2: the label column is a column of rank chips now — the narrowest chip that holds the widest name beside its corner number at a grid row's height (`euclideousRankChipMinWidth()`, pinned by test; was 30).
+    static let labelW: CGFloat = 48, labelGap: CGFloat = 4, colGap: CGFloat = 4, rowGap: CGFloat = 4
     /// Floors ferry: the note-label column's own fair-share floor, symmetric with `tabRowCompactH` but on
     /// the width axis — used once the nominal 30pt label would leave `cellW` under `minCellW`.
-    static let labelCompactW: CGFloat = 20
+    static let labelCompactW: CGFloat = 38   // was 20; the corner number hides on a chip that cannot hold it (`euclideousRankChipFitsCorner`)
     static let gridToRails: CGFloat = 8
     static let railH: CGFloat = 8, railGap: CGFloat = 3
     static var railsH: CGFloat { railH * 4 + railGap * 3 }          // 41
@@ -6993,7 +6994,7 @@ let euclideousFXHintText = "TAP: ON/OFF · DRAG ALONG: PAINT · DRAG UP/DOWN: VA
 /// panel's height, `rowH = (content height − 86) / 6`, so the hint always ends sp8 above the panel's bottom (29 at a 260-tall content area, as before);
 /// never below 24 (§10.4's floor — a shorter panel is drawn at 24 and REPORTED by the page's floor list, nothing is shrunk). There is no upper cap.
 struct EuclideousFXLayout: Equatable {
-    static let labelW: CGFloat = 30, gap: CGFloat = 4, colGap: CGFloat = 4
+    static let gap: CGFloat = 4, colGap: CGFloat = 4
     static let stripH: CGFloat = 24, headerH: CGFloat = 14, hintH: CGFloat = 16, rowGap: CGFloat = 4
     static let minRowH: CGFloat = 24, bandPad: CGFloat = 2
     /// Everything but the six rows' own height, WITH the hint row: strip, 4, header, 4, five 4pt row gaps, 4, hint = 86.
@@ -7005,11 +7006,13 @@ struct EuclideousFXLayout: Equatable {
     let height: CGFloat
     let cellW: CGFloat
     let rowH: CGFloat
+    /// The note-label column's width — the riff grid's own (`euclideousRiffNoteLabelW`), so the columns line up (it was a fixed 30 before the rank-chip labels).
+    let labelW: CGFloat
     /// Floors ferry: false once the nominal (hint-included) row height would fall under `minRowH` — the
     /// hint (pure text, last in the view, not interactive) drops out to buy the six rows back height
     /// before anything is forced to the hard 24pt clamp and overflows the panel.
     var showHintRow: Bool = true
-    var firstColX: CGFloat { Self.labelW + Self.gap }
+    var firstColX: CGFloat { labelW + Self.gap }
     func colLeft(_ c: Int) -> CGFloat { firstColX + CGFloat(c) * (cellW + Self.colGap) }
     var headerTop: CGFloat { Self.stripH + Self.rowGap }
     var rowsTop: CGFloat { headerTop + Self.headerH + Self.rowGap }
@@ -7026,7 +7029,7 @@ struct EuclideousFXLayout: Equatable {
 /// `width` is the panel CONTENT width (the panel's width − 16); the riff grid's `maxWidth` is that plus the grid's own 8pt padding on each side.
 func euclideousFXLayout(width: CGFloat, height: CGFloat) -> EuclideousFXLayout {
     let rowH = max(EuclideousFXLayout.minRowH, euclideousFXRowH(contentHeight: height))
-    return EuclideousFXLayout(width: width, height: height, cellW: euclideousRiffCellW(maxWidth: width + 16), rowH: rowH, showHintRow: euclideousFXShowsHintRow(contentHeight: height))
+    return EuclideousFXLayout(width: width, height: height, cellW: euclideousRiffCellW(maxWidth: width + 16), rowH: rowH, labelW: euclideousRiffNoteLabelW(maxWidth: width + 16), showHintRow: euclideousFXShowsHintRow(contentHeight: height))
 }
 /// Floors ferry: whether the hint row is showing for a content area of `contentHeight` — exactly the
 /// condition `euclideousFXRowH` uses below to decide whether to give back its reserved height.
@@ -7050,7 +7053,7 @@ func euclideousFXHit(x: CGFloat, y: CGFloat, layout: EuclideousFXLayout) -> Eucl
     for r in 0..<6 {
         let top = layout.rowTop(r) - 2, bottom = layout.rowTop(r) + layout.rowH + 2
         guard y >= top, y < bottom else { continue }
-        if x >= 0, x < EuclideousFXLayout.labelW + 2 { return .rail(row: r) }
+        if x >= 0, x < layout.labelW + 2 { return .rail(row: r) }
         if let c = euclideousFXColumn(x: x, layout: layout, clamped: false) { return .cell(row: r, col: c) }
         return nil
     }
