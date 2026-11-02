@@ -3300,7 +3300,7 @@ struct EuclideousPage: View {
         let accent = laneAccents[idx % laneAccents.count]
         let tab = tabOverride ?? frontLaneTab   // TAB STRIP: the page's one tab (the flip overrides it to draw the tab being left / entered, flip-on-every-tab-change 2026-10-30)
         let planLane = tradedWithLane(idx)   // ANSWER 6.6: during a traded phase the strip shows what the lane EMITS — the WITH lane's own strikes
-        let stripPlan = laneStripPlan(planLane, planLane < lines.count ? lines[planLane] : line)   // LANE STRIP ferry: the riff track and the key row, from the footers' own per-hit functions
+        let stripPlan = laneStripPlan(planLane, planLane < lines.count ? phaseLines[planLane] : line)   // LANE STRIP ferry: the riff track and the key row, from the footers' own per-hit functions
         // ONE INNER WIDTH FOR EVERY ROW — every row below is built from THIS one width, never the raw card
         // `width` (W = 326 at the ferry's own reference 346pt card). "Wider cards: flexible items share the
         // extra width" — `innerWidth` scales directly with `width`, so every formula below that derives from
@@ -3403,7 +3403,7 @@ struct EuclideousPage: View {
                 }
             })
         EuclideousCardBackView(lane: idx, size: CGSize(width: width, height: height), accent: accent,
-                               topRow: laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: laneStripPlan(tradedWithLane(idx), tradedWithLane(idx) < lines.count ? lines[tradedWithLane(idx)] : line), soloDimContent: soloDim),
+                               topRow: laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: laneStripPlan(tradedWithLane(idx), tradedWithLane(idx) < lines.count ? phaseLines[tradedWithLane(idx)] : line), soloDimContent: soloDim),
                                riff: riff, notes: notes, laneHasHits: line.pulses > 0 || line.patternMissResolved,     // ADD HITS is about the RHYTHM having hits — a PLAY-off lane still has them
                                laneAudibleAt: { date in
                                    runs && !soloDim && (muteCells == 0xFFFF || euclideousLaneAudible(beat: lanesMusicalBeat(real: walkTagBeat(at: date)), cells16: muteCells, unitBeats: muteUnit))
@@ -5558,7 +5558,8 @@ struct EuclideousPage: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)   // "Rhythm, lane 2" — the lane is part of the name (§12.1 says "Rhythm"; four cards each carry the switch, and the strip's own RHYTHM segment is a button of that exact name)
         .accessibilityValue(on ? "on" : "off")
-        .accessibilityAddTraits(.isButton))
+        .accessibilityAddTraits(.isButton)
+        .ringToggleTrait())
     }
     /// §2.8 / §3.2–§3.3: a mode button. Row on: the selected look (lane-20 fill, 1 pt lane100 border, full-strength text) or the unselected look (#2A2D34, muted text). Row OFF: every button draws #24262C with no border and #7C828D text — except
     /// the REMEMBERED mode, which keeps a 1 pt border in lane100 at 35 %. The off look stays touchable: a tap selects the mode and switches the row on.
@@ -5598,7 +5599,8 @@ struct EuclideousPage: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
         .accessibilityValue(cycleOn ? "on" : "off")
-        .accessibilityAddTraits(.isButton))
+        .accessibilityAddTraits(.isButton)
+        .ringToggleTrait())
     }
     /// §2.2: RHYTHM — the switch, then COPY / "ITS HITS", FILL / "ITS GAPS", CYCLE.
     private func listenRhythmRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {

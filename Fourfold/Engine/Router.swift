@@ -5249,6 +5249,15 @@ final class Router {
                 for i in 0..<8 { hocketClocks[i].valid = false }
                 for i in 0..<4 { hocketClockSplit[i] = false }
             }
+            // ANSWER 5.7: a phase boundary ends what a lane was holding the way a mode change does — at the boundary instant (a legato note the old phase left open; finite gates end by themselves). Done for EVERY lane before any lane
+            // plays: a lane processed earlier can push a TRADE hit onto a later lane's legato state, and that first phase-B note must not be closed with the old phase's.
+            if answerEngaged {
+                for lane in 0..<min(4, p.euclidLines.count) {
+                    if (answerFlipAtStart >> UInt8(lane)) & 1 != 0 { answerCloseLegato(lane, atBeat: mWinStart) }
+                    let b = answerBoundary[lane]
+                    if b.isFinite && ((answerBeforeBits ^ answerAfterBits) >> UInt8(lane)) & 1 != 0 { answerCloseLegato(lane, atBeat: b) }
+                }
+            }
             for hocketPass in 0..<(clockMask != 0 ? 2 : 1) {
             hocketClockPass = clockMask != 0 && hocketPass == 0
             for listenSlot in 0..<euclideousListenCount {
@@ -5357,12 +5366,6 @@ final class Router {
                               // RHYTHM POLISH (2026-10-22): a landed rhythm roll replaces the lane's pattern (a randomise clears the fraction), TILT's unrounded marker rides the lane itself.
                               offsetFraction: rhythmRoll == nil ? L.offsetFractionResolved : 0, tiltFine: L.tiltIsFine,
                               tickFrom: tickFrom, tickBefore: tickBefore)
-                }
-                // ANSWER 5.7: a phase boundary ends what the lane was holding the way a mode change does — at the boundary instant (a legato note the old phase left open; finite gates end by themselves).
-                if answerEngaged && !hocketClockPass && lineIndex < 4 {
-                    if (answerFlipAtStart >> UInt8(lineIndex)) & 1 != 0 { answerCloseLegato(lineIndex, atBeat: mWinStart) }
-                    let b = answerBoundary[lineIndex]
-                    if b.isFinite && ((answerBeforeBits ^ answerAfterBits) >> UInt8(lineIndex)) & 1 != 0 { answerCloseLegato(lineIndex, atBeat: b) }
                 }
                 let aSplit = answerEngaged && lineIndex < 4 && !lockHasSplit ? answerBoundary[lineIndex] : Double.infinity
                 if lockHasSplit {
