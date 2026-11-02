@@ -10422,6 +10422,26 @@ func euclideousRankChipMinWidth() -> CGFloat {
     (euclideousRankChipLabelWidth(euclideousRankChipWidestName) + 2 * (euclideousRankChipCornerInset + euclideousRankChipCornerNumberWidth + 1)).rounded(.up)
 }
 
+// ── §4.1 THE PEDAL (CC64 on MIDI IN) ─────────────────────────────────────────────────────────────────────────────────────
+/// A MIDI message's effect on the sustain pedal: CC64 on a channel LISTEN ON admits (and a cable the MIDI IN pool admits) (`chanMask`: bit n = channel n+1), 64 … 127 down, 0 … 63 up. nil = not a pedal message for MIDI IN (another status or controller, or a channel the mask excludes).
+/// The Kernel calls this for every incoming message; CC64 is still forwarded to the outputs as before.
+func euclideousPedalLevel(status: UInt8, controller: UInt8, value: UInt8, chanMask: UInt16, cable: Int = 0) -> Bool? {
+    guard status & 0xF0 == 0xB0, controller == 64, (chanMask >> UInt16(status & 0x0F)) & 1 != 0, cable >= 0, cable < 4 else { return nil }   // the cables the MIDI IN pool admits (`cableMask: 0b1111`)
+    return value >= 64
+}
+/// Several pedals — CC64 on different admitted channels — are ONE pedal: down while ANY channel's is down (a pedal released on channel 2 must not let go of one held on channel 1). `down` is the per-channel bit mask (bit n = channel n+1); returns the
+/// combined level after `channel` moves to `level`.
+func euclideousPedalChannelsUpdate(_ down: inout UInt16, channel: UInt8, to level: Bool) -> Bool {
+    let bit = UInt16(1) << UInt16(channel & 0x0F)
+    if level { down |= bit } else { down &= ~bit }
+    return down != 0
+}
+/// Move the pedal to `new`: a DOWN edge bumps the counter the Router reads (so a press and release inside one window is still an edge); a repeated down, or any up, does not.
+func euclideousPedalAdvance(level: inout Bool, seq: inout UInt32, to new: Bool) {
+    if new && !level { seq &+= 1 }
+    level = new
+}
+
 // ── §8.4 THE GRID'S LANE PICKER ──────────────────────────────────────────────────────────────────────────────────────────
 /// 6.3: the next lane, 1 → 2 → 3 → 4 → 1 (0-based here).
 func euclideousPickedLaneNext(_ current: Int) -> Int { (((current % 4) + 4) % 4 + 1) % 4 }

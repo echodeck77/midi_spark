@@ -5014,7 +5014,7 @@ struct EuclideousPage: View {
                 // §5.4: an empty pool — every key takes the copy look and shows its rank number in the centre (no corner number); otherwise the note name and the corner rank number.
                 specs.append(EuclideousRankChipSpec(rank: rank, topKind: 0, received: n > 0 && rank <= n, lit: lit, empty: n == 0, name: n == 0 ? String(rank) : (has ? name(extended[rank - 1]) : "\u{2013}"),
                                                     cornerNumber: n > 0, heldBack: lit && receivedOnly && rank > n, place: places[p], riffDot: riffDotRank == rank, sounding: sound))
-                spokenNames.append(has ? [spoken(extended[rank - 1])] : [])
+                spokenNames.append(has && extended[rank - 1] <= 127 ? [spoken(extended[rank - 1])] : [])
             } else if p == EuclideousLitOrder.topTwoPosition {
                 let second: String = n >= 2 ? name(Int(lp.top2)) + "+" : (n == 1 ? name(Int(pool.first ?? 0)) : "\u{2013}")
                 specs.append(EuclideousRankChipSpec(rank: 0, topKind: 1, received: n > 0, lit: lit, empty: n == 0, name: second, cornerNumber: false, place: places[p], sounding: sound))
@@ -6232,8 +6232,7 @@ struct EuclideousPage: View {
             return euclideousAppendSilencedBySolo(euclideousRailAccessibilityLabel(lane: i, riffOn: f.riffOn, running: f.running, played: playedNow[i], current: w.current, heading: w.heading, muted: f.muted), silenced: f.soloSilenced)
         }
         return VStack(alignment: .leading, spacing: 0) {
-            riffTopRow(layout)
-            Color.clear.frame(height: EuclideousRiffPanelMetrics.tabToGrid)
+            riffTopRow(layout)   // includes the tab-to-grid gap
             HStack(spacing: sp4) {
                 riffNoteLabelColumn(cellH: cellH, labelW: layout.labelW)
                 // DRAGGABLE (see `riffDragLastCell`'s own doc comment above): the matrix VStack carries no
@@ -6323,8 +6322,7 @@ struct EuclideousPage: View {
         }
         let gridSize = layout.gridSize
         return VStack(alignment: .leading, spacing: 0) {
-            riffTopRow(layout)
-            Color.clear.frame(height: EuclideousRiffPanelMetrics.tabToGrid)
+            riffTopRow(layout)   // includes the tab-to-grid gap
             HStack(spacing: sp4) {
                 riffNoteLabelColumn(cellH: cellH, labelW: layout.labelW)
                 ZStack(alignment: .topLeading) {
@@ -6568,13 +6566,13 @@ struct EuclideousPage: View {
     /// POOL ferry 6.3: the riff panel's top row — the lane picker in a leading blank as wide as the label column (the MONO | POLY control starts at the grid's left edge), then the control. A tap anywhere in the blank steps to the next
     /// lane (1 → 2 → 3 → 4 → 1); the blank reaches down over the gap under the row, where the 2 × 2 dots sit.
     private func riffTopRow(_ layout: EuclideousRiffPanelLayout) -> some View {
-        HStack(spacing: sp4) {
+        HStack(alignment: .top, spacing: sp4) {
             RiffGridPickerView(picked: gridLane, accents: laneAccents.map { lane100($0) }, size: CGSize(width: layout.labelW, height: layout.tabRowH + EuclideousRiffPanelMetrics.tabToGrid)) { delta in
                 var l = gridLane; for _ in 0..<(delta >= 0 ? 1 : 3) { l = euclideousPickedLaneNext(l) }; gridLane = l
             }
-            .frame(width: layout.labelW, height: layout.tabRowH, alignment: .top)
             riffModeRow(height: layout.tabRowH)
         }
+        .frame(height: layout.tabRowH + EuclideousRiffPanelMetrics.tabToGrid, alignment: .top)   // the row's own height plus the gap under it: the picker's whole blank is its touch target
     }
     // riffSourceTabs REMOVED ENTIRE (Paul 2026-10-14: "move the midi in/chords/key control to the top
     // header bar and restyle") — superseded by `headerSourceGroup()` above; confirmed zero remaining call

@@ -167,6 +167,7 @@ final class Kernel {
     // press-and-release inside one window as the edge it was. CC64 is still forwarded to the outputs exactly as before; nothing here consumes it. Render thread only; never saved.
     private var sustainChanMask: UInt16 = 0xFFFF
     private var sustainPedalDown = false
+    private var sustainChanDown: UInt16 = 0   // per-channel CC64 levels (bit n = channel n+1) behind the one pedal
     private var sustainDownSeq: UInt32 = 0
     private var ignoreAllNotesOff = true     // INPUT (Paul 2026-09-06): mirror of box.ignoreAllNotesOff — suppress a source's CC120/123 wiping the live pool
     // NOTE MONITOR (Paul 2026-08-29): raw held notes are NOT echoed to the output — a CELL is the sole note source, so a
@@ -604,10 +605,9 @@ final class Kernel {
             diag.ccData2 = length > 2 ? bytes[2] : 0
             if status == 0xB0, length >= 3 {
                 // POOL ferry SUSTAIN (4.1): CC64 on a channel LISTEN ON admits — 64…127 down, 0…63 up; a down edge bumps the counter. Forwarded below like every other controller.
-                if bytes[1] == 64, (sustainChanMask >> UInt16(channel)) & 1 != 0 {
-                    let down = bytes[2] >= 64
-                    if down && !sustainPedalDown { sustainDownSeq &+= 1 }
-                    sustainPedalDown = down
+                if let down = euclideousPedalLevel(status: bytes[0], controller: bytes[1], value: bytes[2], chanMask: sustainChanMask, cable: cable) {
+                    let any = euclideousPedalChannelsUpdate(&sustainChanDown, channel: channel, to: down)   // one pedal: down while any admitted channel's is down
+                    euclideousPedalAdvance(level: &sustainPedalDown, seq: &sustainDownSeq, to: any)
                 }
                 // CC120/123 = ALL-SOUND / ALL-NOTES-OFF → flush our LIVE input pool, then forward. But do NOT touch the armed
                 // LATCH/HOLD pools (Paul 2026-08-31 ROOT CAUSE): many sources send CC123 routinely (on chord release, between

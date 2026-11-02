@@ -248,6 +248,35 @@ final class PoolEngineTests: XCTestCase {
         XCTAssertEqual(rig.lanePool(0), c, "FREEZE holds C; STACK, after it, adds nothing")
     }
 
+    // The ordinary pianist gesture: the pedal goes down while NOTHING is held (a MIDI-IN-only row early-outs), THEN the player plays. The edge must still be waiting when the first note arrives (the observe bookkeeping runs in every playing
+    // window, processed or not) — found by the POOL adversarial review: it used to be consumed, so STACK never accumulated and KEEP never held.
+    func testThePedalPressedBeforeTheFirstNoteStillEngagesAStackLane() {
+        let rig = Rig(state([lane(sources: [0], sustain: .stack)], plan: plan(midi: true)))
+        rig.run(to: 0.5)
+        rig.pedalDown(); rig.run(to: 1.0)
+        rig.press([60]); rig.run(to: 1.6)
+        rig.release([60]); rig.press([64]); rig.run(to: 2.6)
+        rig.release([64]); rig.press([67]); rig.run(to: 3.6)
+        rig.release([67]); rig.run(to: 4.6)
+        XCTAssertEqual(rig.lanePool(0), [60, 64, 67], "STACK took the pedal's edge when the first note arrived: the union of every note played while down, released notes kept")
+    }
+    func testThePedalPressedBeforeTheFirstNoteStillEngagesAKeepLane() {
+        let rig = Rig(state([lane(sources: [0], sustain: .keep)], plan: plan(midi: true)))
+        rig.run(to: 0.5)
+        rig.pedalDown(); rig.run(to: 1.0)
+        rig.press([60, 64, 67]); rig.run(to: 1.6)
+        rig.release([60, 64, 67]); rig.press([62]); rig.run(to: 2.6)
+        XCTAssertEqual(rig.lanePool(0), [60, 64, 67], "KEEP held the first chord played after the pedal went down, through a later note")
+        rig.pedalUp(); rig.run(to: 3.6)
+        XCTAssertEqual(rig.lanePool(0), [62], "…and rejoined on the up edge")
+    }
+    func testAPedalPressedAndReleasedInSilenceEngagesNothing() {
+        let rig = Rig(state([lane(sources: [0], sustain: .stack)], plan: plan(midi: true)))
+        rig.run(to: 0.5); rig.pedalDown(); rig.run(to: 1.0); rig.pedalUp(); rig.run(to: 1.5)
+        rig.press([60]); rig.run(to: 2.5); rig.release([60]); rig.run(to: 3.5)
+        XCTAssertEqual(rig.lanePool(0), [], "the pedal was up when the note came: nothing stacks")
+    }
+
     // MARK: 9 — edges
     func testSwitchingSustainOnWhileThePedalIsDownWaitsForTheNextDownEdge() {
         var lines = [lane(), lane()]
@@ -285,16 +314,28 @@ final class PoolEngineTests: XCTestCase {
     }
 
     // MARK: 10 — sounding notes
-    func testANoteSoundingAcrossAKeepOrStackChangeEndsAtItsStartingPitch() {
+    /// A note sounding when the pedal goes down (and the pool then changes under a KEEP / STACK lane) keeps its own pitch AND its own end: its note-off lands at exactly the sample it lands at with SUSTAIN off — compared event for event with a control run, not just balanced.
+    func testANoteSoundingAcrossAKeepOrStackChangeEndsAtItsStartingPitchAndTime() {
+        func firstNote(_ rig: Rig) -> (note: UInt8, on: Int64, off: Int64)? {
+            guard let on = rig.out.events.first(where: { $0.status == 0x90 }),
+                  let off = rig.out.events.first(where: { $0.status == 0x80 && $0.note == on.note && $0.sample > on.sample }) else { return nil }
+            return (on.note, on.sample, off.sample)
+        }
         for mode in [EuclideousSustainMode.keep, .stack] {
-            var l = lane(sustain: mode); l.gate = 0.99; l.rate = .r1_1; l.pulses = 1; l.steps = 2
-            let rig = Rig(state([l], plan: plan(chords: true)))
-            rig.run(to: 0.5); rig.pedalDown(); rig.run(to: 12.5); rig.pedalUp(); rig.run(to: 16.5)
-            rig.playing = false; rig.run(to: rig.beat + 0.05)
+            func session(sustain: EuclideousSustainMode?) -> Rig {
+                var l = lane(sustain: sustain); l.gate = 0.99; l.rate = .r1_1; l.pulses = 1; l.steps = 2
+                let rig = Rig(state([l], plan: plan(chords: true)))
+                rig.run(to: 0.5); rig.pedalDown(); rig.run(to: 12.5); rig.pedalUp(); rig.run(to: 16.5)
+                rig.playing = false; rig.run(to: rig.beat + 0.05)
+                return rig
+            }
+            let control = session(sustain: nil), held = session(sustain: mode)
+            guard let c = firstNote(control), let h = firstNote(held) else { return XCTFail("\(mode): no note struck") }
+            XCTAssertEqual(h.note, c.note, "\(mode): the first note is the same")
+            XCTAssertEqual(h.off, c.off, "\(mode): a note sounding when the pedal went down ends at the sample it ends at without SUSTAIN (on \(h.on), off \(h.off) vs \(c.off))")
             var depth: [UInt8: Int] = [:]
-            for ev in rig.out.events where ev.status == 0x90 || ev.status == 0x80 { depth[ev.note, default: 0] += ev.status == 0x90 ? 1 : -1 }
+            for ev in held.out.events where ev.status == 0x90 || ev.status == 0x80 { depth[ev.note, default: 0] += ev.status == 0x90 ? 1 : -1 }
             for (n, d) in depth { XCTAssertEqual(d, 0, "\(mode): note \(n) has its off at its own pitch") }
-            XCTAssertFalse(depth.isEmpty)
         }
     }
 }

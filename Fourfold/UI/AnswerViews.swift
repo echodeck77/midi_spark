@@ -64,7 +64,7 @@ struct PoolNowChipsView: View {
         .frame(width: size.width, height: size.height, alignment: .leading)
         .opacity(frozen || st.keepHolding ? 0.6 : 1)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Now")
+        .accessibilityLabel("Now, lane \(lane + 1)")   // the lane is part of the name: four cards carry a NOW row
         .accessibilityValue(euclideousPoolNowSpoken(names: st.notes.isEmpty ? [] : (0..<8).compactMap { r in
             let ext = euclideousGlobalPoolExtended(sortedRaw: sorted)
             return r < ext.count ? spokenName(ext[r], st.notes) : nil
@@ -121,7 +121,7 @@ struct RiffGridLabelColumnView: View {
             ForEach((1...8).reversed(), id: \.self) { rank in
                 EuclideousRankChipView(spec: chips[rank - 1], accent: tint, size: CGSize(width: labelW, height: cellH))
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(rank <= extended.count ? euclideousRankChipGridSpoken(rank: rank, note: spokenName(extended[rank - 1], st.notes)) : "Rank \(rank), no note")
+                    .accessibilityLabel(rank <= extended.count && extended[rank - 1] <= 127 ? euclideousRankChipGridSpoken(rank: rank, note: spokenName(extended[rank - 1], st.notes)) : "Rank \(rank), no note")
             }
         }
         .frame(width: labelW)

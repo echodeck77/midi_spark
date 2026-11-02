@@ -222,7 +222,7 @@ final class FourfoldTapTests: XCTestCase {
         app.els(prefix: "Notes, ").firstMatch.tap()
         need(app.el("Notes layer, off, 0 notes lit"), "the NOTES tab's layer switch")
         app.els(prefix: "Pool, ").firstMatch.tap()
-        need(app.el("Now"), "the POOL tab's NOW row")
+        need(app.els(prefix: "Now, lane 1").firstMatch, "the POOL tab's NOW row")
         need(app.el("Canon delay, lane 1"), "the POOL tab's CANON row")
         app.els(prefix: "Answer, ").firstMatch.tap()
         need(app.el("Follow lane 2"), "the ANSWER tab's partner picker")
@@ -264,7 +264,7 @@ final class FourfoldTapTests: XCTestCase {
     func testThePoolTabSwitchesSourcesSustainAndTheGridPicker() {
         let app = XCUIApplication.fresh()
         app.els(prefix: "Pool, ").firstMatch.tap()
-        need(app.el("Now"), "the NOW row (a leaf: the status feed does not re-run the page)")
+        need(app.els(prefix: "Now, lane 1").firstMatch, "the NOW row (a leaf: the status feed does not re-run the page)")
         // SOURCES: a toggle is one undo step, the lane's name is in its label
         XCTAssertEqual(value(need(app.el("Key, lane 1"), "lane 1's KEY toggle")), "on")
         app.el("Key, lane 1").tap()
@@ -281,9 +281,17 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(value(app.el("Sustain, lane 2")), "off", "one undo step")
         // the grid's picker
         XCTAssertEqual(value(need(app.el("Notes shown for"), "the lane picker beside the MONO | POLY control")), "lane 1")
+        XCTAssertFalse(app.els(prefix: "Rank 1, no note").firstMatch.exists, "lane 1's pool has notes: its chips name them")
         app.el("Notes shown for").tap()
         XCTAssertEqual(value(app.el("Notes shown for")), "lane 2")
+        // the grid names the PICKED lane's pool: with lane 2's KEY off nothing feeds it (nothing is held), so lane 2's chips have no notes
+        app.el("Key, lane 2").tap()
+        let empty = app.els(prefix: "Rank 1, no note").firstMatch
+        XCTAssertTrue(empty.waitForExistence(timeout: 4), "the grid names lane 2's (empty) pool, not lane 1's")
+        app.el("Key, lane 2").tap()   // back on: lane 2's pool returns
         for _ in 0..<3 { app.el("Notes shown for").tap() }
+        XCTAssertFalse(app.els(prefix: "Rank 1, no note").firstMatch.exists, "back on lane 1 (and lane 2's KEY on again): notes")
+        _ = empty
         XCTAssertEqual(value(app.el("Notes shown for")), "lane 1", "1 → 2 → 3 → 4 → 1")
         need(app.els(prefix: "Rank 1, ").firstMatch, "the grid's label chips read \"Rank n, <note>\"")
         // the NOTES keys

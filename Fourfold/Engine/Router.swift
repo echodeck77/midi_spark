@@ -2356,6 +2356,18 @@ final class Router {
         var canonAnyLane = false
         if let ls = euProc?.euclidLines { for L in ls where L.chordDelayResolved > 0 || L.chordSlipResolved > 0 { canonAnyLane = true; break } }
         // POOL ferry SUSTAIN: a lane that took a down edge keeps serving its pool after the player lets go — the row stays processed (and the Kernel's silence-leak net reads it as a live source) while any lane is engaged.
+        // §4.6 bookkeeping, once per PLAYING window per lane and BEFORE the early-out below (a pedal pressed while nothing is held, then played, must still find its edge waiting — if this ran only in processed windows `prevOn` would go stale
+        // across the silence and the first processed window would misread SUSTAIN's persistent "on" as a fresh switch-on and consume the edge): a change of SUSTAIN's switch or mode drops the hold and marks the pedal's current down edge as dealt
+        // with; a reset (transport edge, load) does the same for every lane. Pure scalar work, no allocation.
+        if let ls = euProc?.euclidLines {
+            if sustainResetPending {
+                for l in 0..<4 { sustainState[l] = EuclideousSustainLaneState(); sustainState[l].seenDownSeq = sustainSeq }
+                sustainResetPending = false
+            }
+            for l in 0..<min(4, ls.count) {
+                euclideousSustainObserve(&sustainState[l], on: ls[l].poolSustainOnResolved, mode: ls[l].poolSustainModeResolved, pedalDown: sustainPedal, downSeq: sustainSeq)
+            }
+        }
         var sustainAnyEngaged = false
         for l in 0..<4 where sustainState[l].engaged { sustainAnyEngaged = true; break }
         // POOL ferry SOURCES: under REPLACE a lane with MIDI IN switched off keeps its CHORDS / PICK / KEY while the player plays — through the RELEASE GRACE and with nothing held too, so such a lane keeps the row alive.
@@ -5384,17 +5396,6 @@ final class Router {
                     if (answerFlipAtStart >> UInt8(lane)) & 1 != 0 { answerCloseLegato(lane, atBeat: mWinStart) }
                     let b = answerBoundary[lane]
                     if b.isFinite && ((answerBeforeBits ^ answerAfterBits) >> UInt8(lane)) & 1 != 0 { answerCloseLegato(lane, atBeat: b) }
-                }
-            }
-            // POOL ferry SUSTAIN §4.6: once per window per lane, before any lane plays — a change of SUSTAIN's switch or mode drops the hold and marks the pedal's current down edge as dealt with; a reset (transport edge, load) does the same for all.
-            if isEuclideousRow {
-                if sustainResetPending {
-                    for l in 0..<4 { sustainState[l] = EuclideousSustainLaneState(); sustainState[l].seenDownSeq = sustainSeq }
-                    sustainResetPending = false
-                }
-                for l in 0..<min(4, p.euclidLines.count) {
-                    let L = p.euclidLines[l]
-                    euclideousSustainObserve(&sustainState[l], on: L.poolSustainOnResolved, mode: L.poolSustainModeResolved, pedalDown: sustainPedal, downSeq: sustainSeq)
                 }
             }
             for hocketPass in 0..<(clockMask != 0 ? 2 : 1) {

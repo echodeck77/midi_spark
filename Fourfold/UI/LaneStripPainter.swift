@@ -24,7 +24,7 @@ enum EuclideousStripPalette {
     static let rhythmRest = Color(h: 0x1A1C21), restDash = Color(h: 0x3A3E47)
     static let greyChip = Color(h: 0x6B707A)
     static let ink = Color(h: 0x0D0F14)
-    /// The NOTES tab's key looks (`EuclideousNotesKeyView`): a received note, and an octave copy / an unlit key.
+    /// The NOTES tab's key looks (`EuclideousRankChipView`): a received note, and an octave copy / an unlit key.
     static let keyPlays = Color(h: 0x30343C), keyPlaysBorder = Color(h: 0x454A54)
     static let keyDark = Color(h: 0x17191E), keyDarkBorder = Color(h: 0x202329)
     static let keyLabel = Color(h: 0xCBCCCE)   // white @ 75% over #30343C — the tab key's label
