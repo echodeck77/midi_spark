@@ -104,6 +104,26 @@ final class PoolEngineTests: XCTestCase {
         XCTAssertEqual(rig.lanePool(0), rig.lanePool(1))
     }
 
+    func testALaneWithNoHitsStillHasAPoolItsNowRowAndKeysCanName() {
+        var idle = lane(); idle.pulses = 0
+        var idleNoKey = lane(sources: [0, 1]); idleNoKey.pulses = 0
+        let rig = Rig(state([lane(), idle, idleNoKey], plan: plan(chords: true, key: true)))
+        rig.run(to: 1.5)
+        XCTAssertFalse(rig.lanePool(1).isEmpty, "an idle lane names the pool through its sources, not an empty one")
+        XCTAssertEqual(rig.lanePool(1), rig.lanePool(0), "…the same as a running lane with the same sources")
+        XCTAssertNotEqual(rig.lanePool(2), rig.lanePool(0), "an idle lane's own sources apply (this one has no KEY)")
+        XCTAssertEqual(rig.status(1).playedRanks, 0, "nothing is playing out of an idle lane")
+    }
+    func testAnEmptyPoolClearsALanesLitRanks() {
+        var l = lane(); l.setPoolSrc(3, true)
+        let rig = Rig(state([l], plan: plan(chords: true, key: true)))
+        rig.run(to: 2.5)
+        XCTAssertNotEqual(rig.status(0).playedRanks, 0, "the lane struck a rank")
+        rig.swap(state([lane(sources: [0])], plan: plan(chords: true, key: true)))   // MIDI IN only, nothing held: an empty pool
+        rig.run(to: 4.5)
+        XCTAssertEqual(rig.status(0).count, 0); XCTAssertEqual(rig.status(0).playedRanks, 0, "an empty pool plays nothing: no lit bar left behind")
+    }
+
     // MARK: 4 — shared builds
     private func buildsInTheWindowAt(_ beat: Double, _ rig: Rig) -> Int {
         rig.run(to: beat - 0.02); let before = rig.router.poolBuildCount   // a window is 0.02 beat; a hit belongs to the window that ENDS on it

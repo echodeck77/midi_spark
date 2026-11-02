@@ -2958,6 +2958,29 @@ final class Router {
             }
             func laneCount(_ li: Int) -> Int { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcCount : srcCount }
             func laneNotes(_ li: Int) -> ArraySlice<(note: Int, vel: UInt8)> { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcBuf[0..<globalSrcCount] : srcNotes }
+            // POOL status (POOL NOW, the NOTES keys, the grid's labels): the pool in the shared buffer RIGHT NOW is lane `lane`'s — ≤ 16 ascending notes + the true count, the two highest, the lane's effective sources, KEEP and the pedal.
+            // An empty pool clears the lane's lit ranks (nothing is playing out of it).
+            func writeLanePoolStatus(lane: Int, line: EuclidLine) {
+                let c = laneCount(lane)
+                lanePoolCount[lane] = c
+                let ns = laneNotes(lane)
+                for i in 0..<min(16, c) { lanePoolNotes[lane * 16 + i] = UInt8(clamping: ns[ns.startIndex + i].note) }
+                lanePoolTop[lane * 2] = c >= 2 ? UInt8(clamping: ns[ns.startIndex + c - 2].note) : 0
+                lanePoolTop[lane * 2 + 1] = c >= 1 ? UInt8(clamping: ns[ns.startIndex + c - 1].note) : 0
+                let eff = euclideousLaneSources(panel: euclideousPanelSwitches(euPlan), mask: line.poolSrcMaskResolved)
+                lanePoolSrcBits[lane] = (eff.midi ? 1 : 0) | (eff.chords ? 2 : 0) | (eff.pick ? 4 : 0) | (eff.key ? 8 : 0)
+                lanePoolKeep[lane] = euclideousSustainKeepIsHolding(sustainState[lane], on: line.poolSustainOnResolved, mode: line.poolSustainModeResolved, pedalDown: sustainPedal)
+                lanePoolPedal = sustainPedal
+                if c == 0 { lanePlayedRanks[lane] = 0 }
+            }
+            // A lane with no hits (or switched off) still has a pool its NOW row and NOTES keys name: its pool through its own sources at the window start (CANON, FREEZE and SUSTAIN need hits to act, so they are not applied).
+            func idleLanePoolSample(lane: Int, line: EuclidLine) {
+                let mask = line.poolSrcMaskResolved
+                if mask != euclideousPoolSrcAll { refreshLaneStack(plan: euclideousLaneSourcePlan(euPlan, mask: mask), mask: mask, atBeat: mWinStart) }
+                else if chordPoolStep == euclideousCanonDirtyKey { mergeStack(atBeat: mWinStart + 1e-9) }
+                writeLanePoolStatus(lane: lane, line: line)
+                lanePlayedRanks[lane] = 0
+            }
             // one line = one euclid pass; reuses `euclidBuf` (filled + consumed synchronously before the next line).
             // DIRECTION (Paul 2026-10-01, 3-way redesign): `dir` replaces the old binary `reverse` — FWD/BKW read the
             // n-length buffer directly/mirrored (unchanged math, renamed); PING-PONG reuses RIFF's own `.pingpong`
@@ -3286,20 +3309,7 @@ final class Router {
                         sustainApplyStage(lane: lineIndex, on: linesView[lineIndex].poolSustainOnResolved, mode: linesView[lineIndex].poolSustainModeResolved)
                     }
                     // POOL NOW (ANSWER ferry §10.3): the pool THIS lane is choosing from at this hit — after CANON and FREEZE, the per-lane pool every part of the lane reads. Fixed-size copy (≤ 16 ascending notes + the true count).
-                    if isEuclideousRow, lineIndex >= 0, lineIndex < 4 {
-                        let c = laneCount(lineIndex)
-                        lanePoolCount[lineIndex] = c
-                        let ns = laneNotes(lineIndex)
-                        for i in 0..<min(16, c) { lanePoolNotes[lineIndex * 16 + i] = UInt8(clamping: ns[ns.startIndex + i].note) }
-                        lanePoolTop[lineIndex * 2] = c >= 2 ? UInt8(clamping: ns[ns.startIndex + c - 2].note) : 0
-                        lanePoolTop[lineIndex * 2 + 1] = c >= 1 ? UInt8(clamping: ns[ns.startIndex + c - 1].note) : 0
-                        if lineIndex < linesView.count {
-                            let eff = euclideousLaneSources(panel: euclideousPanelSwitches(euPlan), mask: linesView[lineIndex].poolSrcMaskResolved)
-                            lanePoolSrcBits[lineIndex] = (eff.midi ? 1 : 0) | (eff.chords ? 2 : 0) | (eff.pick ? 4 : 0) | (eff.key ? 8 : 0)
-                            lanePoolKeep[lineIndex] = euclideousSustainKeepIsHolding(sustainState[lineIndex], on: linesView[lineIndex].poolSustainOnResolved, mode: linesView[lineIndex].poolSustainModeResolved, pedalDown: sustainPedal)
-                        }
-                        lanePoolPedal = sustainPedal
-                    }
+                    if isEuclideousRow, lineIndex >= 0, lineIndex < 4, lineIndex < linesView.count { writeLanePoolStatus(lane: lineIndex, line: linesView[lineIndex]) }
                     // SPAN RE-ANCHOR: FREE (spanBeats 0) = the global grid; else re-sync to step 0 every N cols. Pure/
                     // replay-exact. Kept as exact Int64 arithmetic, not routed through the continuous `euclidPhase`
                     // used by the GridUI comet-bar — a discrete hit/rest decision needs exact integer ticks, a
@@ -5426,7 +5436,7 @@ final class Router {
                 // LANE LOCK: the lane plays its window in one segment, or — when a lock snap lands inside it — in two: the old line for the ticks before the line, L applied from it.
                 func runSegment(tickFrom: Double, tickBefore: Double) {
                 let L = linesView[lineIndex]
-                guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { if isEuclideousRow, lineIndex < 4 { lanePoolCount[lineIndex] = 0 }; return }
+                guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { if isEuclideousRow, lineIndex < 4 { idleLanePoolSample(lane: lineIndex, line: L) }; return }
                 // ANSWER: which phase this segment plays in, and so which of the lane's rows act (a cycling row acts as if switched off in phase B, 5.5). With no cycle anywhere this is `L.listenRhythmResolved` / `listenPitchResolved`.
                 let segPhaseB = answerEngaged && lineIndex < 4 && ((tickFrom + 1e-9 >= answerBoundary[lineIndex] ? answerAfterBits : answerBeforeBits) >> UInt8(lineIndex)) & 1 != 0
                 let answerRows = answerEngaged ? euclideousAnswerEffectiveRows(L, phase: segPhaseB ? .b : .a) : EuclideousAnswerRows(rhythm: L.answerRhythmOnResolved, pitch: L.answerPitchOnResolved)

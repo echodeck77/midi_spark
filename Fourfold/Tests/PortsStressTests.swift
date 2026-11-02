@@ -225,6 +225,19 @@ final class PortsStressTests: XCTestCase {
                                           soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]
     }
+    /// POOL ferry (2026-11-02): per-lane SOURCES (any of the 16 masks, none included) and SUSTAIN (on / KEEP / STACK) from their OWN stream. `off`: draw the same values, store neither — the control for "do they reach the wire".
+    private func repool(_ st: inout PluginState, _ k: inout SM64, off: Bool = false) {
+        var ls = st.euclideousLinesResolved
+        for i in 0..<ls.count {
+            let mask = UInt8.random(in: 0...15, using: &k), on = Int.random(in: 0...1, using: &k) == 0, stack = Bool.random(using: &k)
+            ls[i].poolSrcMask = off || mask == 0b1111 ? nil : mask
+            ls[i].poolSustainOn = off ? nil : on; ls[i].poolSustainMode = stack ? .stack : .keep
+        }
+        st.euclideousLines = ls
+        let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
+                                          soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
+        st.scenes = [FourfoldCompose.scene(input)]
+    }
     private func retranspose(_ st: inout PluginState, _ h: inout SM64, zeroed: Bool = false) {
         func t(_ h: inout SM64) -> Int? { let v = [nil, 0, Int.random(in: -7...7, using: &h), Int.random(in: -3...3, using: &h), 7, -7].randomElement(using: &h)!; return zeroed ? nil : v }
         let ls = (st.euclideousLines ?? []).map { l -> EuclidLine in var m = l; m.riffOutTranspose = t(&h); m.notesOutTranspose = t(&h); return m }
@@ -389,7 +402,7 @@ final class PortsStressTests: XCTestCase {
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0
-    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false, octaves: Bool = false, octavesOff: Bool = false, answer: Bool = false, answerOff: Bool = false) -> String? {
+    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false, octaves: Bool = false, octavesOff: Bool = false, answer: Bool = false, answerOff: Bool = false, pool poolFeature: Bool = false, poolOff: Bool = false) -> String? {
         var g = SM64(seed)
         var an = SM64(seed ^ 0xA25E_3E40_0000)     // ANSWER ferry: the rows, CYCLE flags, TRADE and EACH / UNIT draw from their OWN stream, so every pinned fingerprint (no ANSWER fields) stays exactly what it was
         var q = SM64(seed ^ 0x0F01_7A11_0000)      // POLY RIFF ferry: the POLY riff draws from its OWN stream too, so the pinned fingerprints (MONO) stay exactly what they were
@@ -397,6 +410,8 @@ final class PortsStressTests: XCTestCase {
         var kc = SM64(seed ^ 0xCA70_C4A0_0001)     // CHORD CANON ferry: the delays, slips, unit and entry draw from their OWN stream, so every pinned fingerprint (no canon) stays exactly what it was
         var h = SM64(seed ^ 0x0A7C_0FFE_E000)      // CARD BACKS v2: the out-transposes draw from their OWN stream, so the pinned fingerprints (no out-transpose) stay exactly what they were
         var oc = SM64(seed ^ 0x0C7A_5E00_0000)     // MIDI IN OCTAVES / ROOT ferry: the OCTAVES choice and the MODE (ADD / REPLACE / ROOT) draw from their OWN stream, so every pinned fingerprint (KEEP, the document's own mode) stays exactly what it was
+        var pl = SM64(seed ^ 0x0900_1500_7A11)     // POOL ferry: the per-lane sources, SUSTAIN and the pedal draw from their OWN stream, so every pinned fingerprint (no POOL fields, no pedal) stays exactly what it was
+        var pedalDown = false, pedalSeq: UInt32 = 0
         let router = Router()
         var rolls: [NoteRollRecord] = [], winParams: [(beat: Double, ts: Double)] = []
         var diag = KernelDiag()
@@ -408,6 +423,7 @@ final class PortsStressTests: XCTestCase {
         if canon { recanon(&st, &kc, off: canonOff) }
         if octaves { reoctaves(&st, &oc, off: octavesOff) }
         if answer { reanswer(&st, &an, off: answerOff) }
+        if poolFeature { repool(&st, &pl, off: poolOff) }
         var box = SnapshotBuilder.build(from: st)
         let sr = 48_000.0
         var tempo = Double([90, 120, 140].randomElement(using: &g)!)
@@ -428,6 +444,8 @@ final class PortsStressTests: XCTestCase {
             if canon, kc.next() % 3 == 0 { recanon(&st, &kc, off: canonOff); box = SnapshotBuilder.build(from: st) }   // CHORD CANON: a DELAY / SLIP / UNIT edited while notes sound
             if octaves, oc.next() % 3 == 0 { reoctaves(&st, &oc, off: octavesOff); box = SnapshotBuilder.build(from: st) }
             if answer, an.next() % 3 == 0 { reanswer(&st, &an, off: answerOff); box = SnapshotBuilder.build(from: st) }   // ANSWER: a switch, a CYCLE, a TRADE or EACH / UNIT edited while notes — and traded notes — sound   // MIDI IN OCTAVES / ROOT: the choice or the mode flipped while notes sound
+            if poolFeature, pl.next() % 3 == 0 { repool(&st, &pl, off: poolOff); box = SnapshotBuilder.build(from: st) }   // POOL: a source toggled or SUSTAIN switched / changed mode while notes sound
+            if poolFeature, pl.next() % 3 == 0 { pedalDown.toggle(); if pedalDown { pedalSeq &+= 1 } }   // the pedal moves between windows
             if poly, q.next() % 3 == 0 { repoly(&st, &q, modeOff: polyModeOff); box = SnapshotBuilder.build(from: st) }   // POLY RIFF: the grid edited — notes added, stretched, removed, the mode flipped — while notes (and their long tails) sound
             if Int.random(in: 0...2, using: &g) == 0 {   // busChannels change mid-note
                 switch Int.random(in: 0...3, using: &g) {
@@ -469,6 +487,7 @@ final class PortsStressTests: XCTestCase {
             router.process(box: box, pool: pool, playing: playing, beatPos: beat, tempo: tempo,
                            sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: laneMask,
                            panic: panic, euclideousAllNotesOff: allOff, euclideousSoloLive: liveSolo,
+                           sustainPedalDown: pedalDown, sustainDownSeq: pedalSeq,
                            out: e, diag: &diag)
             rolls += router.rollRing.drain()
             maxActive = max(maxActive, diag.activeVoiceCount)
@@ -639,6 +658,25 @@ final class PortsStressTests: XCTestCase {
             total += 1; if on != off { differing += 1 }
         }
         XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with ANSWER on — its rows are not reaching the wire")
+    }
+    // POOL ferry (2026-11-02): per-lane SOURCES masks, SUSTAIN (KEEP / STACK) and the pedal drawn at random AND moved mid-note, on top of the full random document: nothing strands (a note ends at the pitch it started on whatever a KEEP copy or a STACK
+    // union does to the pool), no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
+    func testPoolSessionsHoldEveryInvariant() {
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 1_100_000, windows: 24, pool: true) { XCTFail(msg); return } }
+    }
+    func testPoolSessionsAtGate100() {
+        for s in 1...200 { if let msg = runSession(seed: UInt64(s) &+ 1_110_000, windows: 24, rawGates: true, pool: true) { XCTFail(msg); return } }
+    }
+    /// The invariant fuzz passes whether or not the sources or the pedal ever reach the wire: compare each session with the SAME draws stored without any lane SOURCES / SUSTAIN — most must differ.
+    func testPoolSessionsReallyChangeTheNotesOnTheWire() {
+        var differing = 0, total = 0
+        for s in 1...120 {
+            let seed = UInt64(s) &+ 1_120_000
+            XCTAssertNil(runSession(seed: seed, windows: 24, pool: true)); let on = lastSessionHash
+            XCTAssertNil(runSession(seed: seed, windows: 24, pool: true, poolOff: true)); let off = lastSessionHash
+            total += 1; if on != off { differing += 1 }
+        }
+        XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with per-lane sources / SUSTAIN on — they are not reaching the wire")
     }
     // MIDI IN OCTAVES / ROOT ferry (2026-11-01): the OCTAVES choice and the MODE (ADD / REPLACE / ROOT) drawn at random AND flipped mid-note, with held notes churning, on top of the full random document: nothing strands (a note ends at the pitch
     // it started on whatever the fold or the latched transpose does), no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.

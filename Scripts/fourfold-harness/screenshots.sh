@@ -2,7 +2,7 @@
 # FOURFOLD screenshots of the REAL standalone app on every iPad the simulator offers (Scripts/fourfold-harness/screenshots.sh).
 # A UI test (Fourfold/UITests) launches the app playing, rotates the iPad through all four orientations and attaches a screenshot of each; this script runs it on every available iPad simulator and exports the pictures to
 #   build/screens/<ipad name>/<picture>.png      — then LOOK at them (layout, clipping, legibility). It judges nothing itself.
-#   sh Scripts/fourfold-harness/screenshots.sh [name-filter]      e.g.  sh Scripts/fourfold-harness/screenshots.sh mini
+#   sh Scripts/fourfold-harness/screenshots.sh [name-filter] [test]      e.g.  sh Scripts/fourfold-harness/screenshots.sh mini      or  … "iPad Pro" FourfoldScreenshotTests/testThePoolTab
 set -e
 cd "$(dirname "$0")/../.."
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
@@ -15,7 +15,7 @@ xcrun simctl list devices available | grep -i "ipad" | grep -i "$FILTER" | sed -
   echo "== $NAME"
   xcrun simctl boot "$UDID" 2>/dev/null || true
   xcrun simctl bootstatus "$UDID" -b > /dev/null 2>&1 || true
-  xcodebuild test-without-building -project MidiSpark.xcodeproj -scheme FourfoldUITests -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$OUT/dd" -only-testing:FourfoldUITests/FourfoldScreenshotTests \
+  xcodebuild test-without-building -project MidiSpark.xcodeproj -scheme FourfoldUITests -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$OUT/dd" -only-testing:FourfoldUITests/${2:-FourfoldScreenshotTests} \
       -resultBundlePath "$OUT/$SLUG.xcresult" CODE_SIGNING_ALLOWED=NO > "$OUT/$SLUG.log" 2>&1 || echo "   tests reported FAILURES on $NAME (see $OUT/$SLUG.log)"
   mkdir -p "$OUT/$SLUG"
   xcrun xcresulttool export attachments --path "$OUT/$SLUG.xcresult" --output-path "$OUT/$SLUG" > /dev/null 2>&1 || echo "   could not export attachments for $NAME"

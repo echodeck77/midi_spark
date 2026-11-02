@@ -123,6 +123,22 @@ final class FourfoldScreenshotTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
     }
 
+    /// POOL ferry (2026-11-02): the POOL tab (NOW, SOURCES, CANON, FREEZE, SUSTAIN), its switches, the NOTES keys as rank chips, and the riff grid's label chips with the lane picker — landscape and portrait.
+    func testThePoolTab() {
+        for (tag, o) in [("land", UIDeviceOrientation.landscapeLeft), ("port", .portrait)] {
+            XCUIDevice.shared.orientation = o
+            let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+            Thread.sleep(forTimeInterval: 2)
+            func tap(_ label: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.5) } }
+            func tapPrefix(_ p: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", p)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.5) } }
+            tapPrefix("Pool, "); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-0-bare")
+            tap("Sustain, lane 1"); tap("Key, lane 2"); tap("Sustain stack, lane 3, loses nothing, off"); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-1-switches")
+            tapPrefix("Notes, "); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-2-notes-keys")
+            tap("Notes shown for"); Thread.sleep(forTimeInterval: 0.8); attach("12-pool-\(tag)-3-grid-lane2")
+        }
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     /// TAB STRIP (2026-10-29): the one strip above the lane cards on each tab (the glyph clusters, the selected segment), MIX, then random mode and lock mode with their faces at the shorter cards — landscape.
     func testTheLaneStripAndTheModes() {
         XCUIDevice.shared.orientation = .landscapeLeft
