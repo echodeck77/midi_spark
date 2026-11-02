@@ -5982,7 +5982,7 @@ struct EuclideousPage: View {
         let pitchPanelShown = line.answerPitchOnResolved && line.answerPitchModeResolved == .shadow
         let cycleShown = euclideousAnswerHasCycle(line)
         let layout = euclideousAnswerTabLayout(contentAreaH: contentAreaH, pitchPanelShown: pitchPanelShown, cycleRowShown: cycleShown)
-        return VStack(spacing: layout.gap) {
+        let rows = VStack(spacing: layout.gap) {
             listenFollowRow(idx, line, fullWidth: fullWidth, height: layout.followRowH)
             listenRhythmRow(idx, line, accent, fullWidth: fullWidth, height: layout.rhythmRowH)
             listenPitchRow(idx, line, accent, fullWidth: fullWidth, height: layout.pitchRowH)
@@ -5991,7 +5991,10 @@ struct EuclideousPage: View {
             if cycleShown { answerCycleRow(idx, line, fullWidth: fullWidth, height: layout.cycleRowH) }
             Spacer(minLength: 0)
         }
-        .frame(width: fullWidth, height: contentAreaH, alignment: .top)
+        // Rows never shrink below their floor (ferry §3). When even the floors do not fit (a short window: the standalone app's transport bar on an iPad mini) the body scrolls, so the last row stays reachable.
+        if layout.fits { return AnyView(rows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
+        return AnyView(ScrollView(.vertical, showsIndicators: false) { rows.frame(width: fullWidth, alignment: .top) }
+            .frame(width: fullWidth, height: contentAreaH, alignment: .top))
     }
 
     // The I/O tab is MOOT (confirmed by reading, not assumed) — it was already retired entirely on

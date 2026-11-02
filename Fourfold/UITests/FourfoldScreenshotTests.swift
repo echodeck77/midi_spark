@@ -34,7 +34,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             ("5-lane-riff", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff, '")).element(boundBy: 0).tap() }),
             ("5-lane-notes", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes'")).element(boundBy: 0).tap() }),
             ("5-lane-listen", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Answer, '")).element(boundBy: 0).tap() }),
-            ("5-presets", { $0.buttons["Presets"].tap() }), ("5-key", { $0.buttons["Key, C minor"].tap() }), ("5-swing", { $0.buttons["Swing, straight"].tap() }),
+            ("5-presets", { $0.buttons["Presets"].tap() }), ("5-key", { $0.buttons["Sources"].tap() }), ("5-swing", { $0.buttons["Swing, straight"].tap() }),
             ("5-settings-midi-in", { $0.buttons["Settings"].tap() }),
             ("5-settings-ports", { $0.buttons["Settings"].tap(); $0.buttons["PORTS"].tap() }),
             ("5-settings-clock", { $0.buttons["Settings"].tap(); $0.buttons["CLOCK"].tap() }),
@@ -107,14 +107,12 @@ final class FourfoldScreenshotTests: XCTestCase {
     /// ANSWER ferry (2026-11-02): the ANSWER tab bare, then with RHYTHM / PITCH (SHADOW, the panel) / TRADE all on and cycling (the worst-case body), the RHYTHM tab with the strip over the borrowed card, the same lane with CYCLE (a live body), and
     /// the POOL tab — landscape, then portrait. The pictures the layout is judged against.
     func testTheAnswerAndPoolTabs() {
-        XCUIDevice.shared.orientation = .landscapeLeft
-        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
-        Thread.sleep(forTimeInterval: 2)
-        func tap(_ label: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.4) } }
-        func tapPrefix(_ p: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", p)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.4) } }
         for (tag, o) in [("land", UIDeviceOrientation.landscapeLeft), ("port", .portrait)] {
             XCUIDevice.shared.orientation = o
+            let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()   // a fresh document each orientation: the taps below are toggles
             Thread.sleep(forTimeInterval: 2)
+            func tap(_ label: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.4) } }
+            func tapPrefix(_ p: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", p)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.4) } }
             tapPrefix("Answer, "); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-0-bare")
             tap("Rhythm, lane 1"); attach("11-answer-\(tag)-1-rhythm-on")
             tap("Pitch, lane 1"); tap("Cycle pitch, lane 1"); tap("Trade, lane 1"); tap("Cycle rhythm, lane 1"); Thread.sleep(forTimeInterval: 1.5); attach("11-answer-\(tag)-2-everything")
