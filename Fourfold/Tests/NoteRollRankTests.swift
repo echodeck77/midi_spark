@@ -141,6 +141,18 @@ final class NoteRollRankTests: XCTestCase {
         }
         XCTAssertEqual(seen, [0, 2], "both lanes' riff parts struck")
     }
+    func testAShadowFollowerWithAnEmptyOwnPoolDrawsTheNotesOnTheRanksTheyCameFrom() {
+        // lane 2 SHADOWs lane 1 but has every source switched off (an EMPTY pool of its own): its strikes copy lane 1's pitches, so each is struck on the rank lane 1 chose it from — not rank 0, and not a lookup in a pool it does not have
+        let one = lane(pulses: 8, steps: 8, rate: .r1_4)
+        var two = lane(pulses: 8, steps: 8, rate: .r1_4)
+        for b in 0..<5 { two.setPoolSrc(b, false) }
+        two.listenSource = 0; two.answerPitchOn = true; two.answerPitchMode = .shadow
+        let r = play(state([one, two]), beats: 8.5)
+        let leader = starts(r, part: 0), follower = starts(r, part: 2)
+        XCTAssertGreaterThanOrEqual(follower.count, 6, "the follower struck")
+        XCTAssertTrue(follower.allSatisfy { $0.rank >= 1 && $0.rank <= 8 }, "no follower strike is unranked (an empty own pool)")
+        for f in follower { XCTAssertTrue(leader.contains { $0.rank == f.rank && $0.pitch == f.pitch }, "the follower's rank \(f.rank) is a rank the leader struck that pitch on") }
+    }
     func testEveryStrikeOfADenseRandomishDocumentCarriesAValidRank() {
         var a = lane(pulses: 5, steps: 8, rate: .r1_8, gate: 0.99, outTranspose: 3, notes: 0b1000_0101), b = lane(pulses: 11, steps: 16, rate: .r1_16, oct: -1, notes: 0b0000_0110)
         a.riffOutMask = 0b0011; b.notesOutMask = 0

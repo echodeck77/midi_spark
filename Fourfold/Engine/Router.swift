@@ -925,19 +925,20 @@ final class Router {
     private struct EuclideousEchoCycle {
         var pitchCount = [Int](repeating: 0, count: 16)    // strike j's own pitch count (0 = never struck)
         var pitches = [Int](repeating: 0, count: 16 * 9)   // strike j's pitches at [j*9 ..< j*9 + pitchCount[j]]
+        var ranks = [UInt8](repeating: 0, count: 16 * 9)   // MIX ROWS: each pitch's pool rank in the SOURCE lane's pool (so a SHADOW / ECHO follower draws the note on the rank it came from, whatever its own pool holds)
         var count = 0                                       // how many of the 16 strike slots are filled so far
         mutating func reset() { count = 0; for i in 0..<16 { pitchCount[i] = 0 } }
-        mutating func append(count pc: Int, from src: [Int]) {
+        mutating func append(count pc: Int, from src: [Int], ranks srcRanks: [UInt8]) {
             guard count < 16 else { return }
             let k = max(0, min(9, pc))
-            for i in 0..<k { pitches[count * 9 + i] = src[i] }
+            for i in 0..<k { pitches[count * 9 + i] = src[i]; ranks[count * 9 + i] = i < srcRanks.count ? srcRanks[i] : 0 }
             pitchCount[count] = k
             count += 1
         }
         /// Allocation-free: calls `body` once per pitch of strike `j` (nothing if `j` is out of range or unstruck).
-        func forEachPitch(_ j: Int, _ body: (Int) -> Void) {
+        func forEachPitch(_ j: Int, _ body: (Int, UInt8) -> Void) {
             guard j >= 0, j < 16, j < count else { return }
-            for i in 0..<pitchCount[j] { body(pitches[j * 9 + i]) }
+            for i in 0..<pitchCount[j] { body(pitches[j * 9 + i], ranks[j * 9 + i]) }
         }
     }
     // Four DISTINCT instances (`repeating:` would share one set of inner arrays across all four, and the first write to each would copy them on the render thread).
@@ -3931,10 +3932,10 @@ final class Router {
                             if shadowOrEchoValid {
                                 let notesBefore = pitchCount
                                 func strikeFrom(_ cycle: EuclideousEchoCycle, _ idx: Int) {
-                                    cycle.forEachPitch(idx) { note in
+                                    cycle.forEachPitch(idx) { note, srcRank in
                                         let moved = euclideousListenMoveByInterval(note: note, interval: listenInterval, octave: listenOctave,
                                                                                     keyRoot: p.euclideousChordKeyRoot, scaleIntervals: p.euclideousChordKeyTones)
-                                        addPitch(outShift(moved, notes: false), vel: UInt8(velocityAbsolute), gate: gate, raw: moved)
+                                        addPitch(outShift(moved, notes: false), vel: UInt8(velocityAbsolute), gate: gate, raw: moved, rank: srcRank == 0 ? nil : srcRank)   // MIX ROWS: the SOURCE lane's rank (an empty own pool names none)
                                     }
                                 }
                                 if listenPitch == .shadow {
@@ -4249,7 +4250,7 @@ final class Router {
                                     euclideousEchoCurrent[lineIndex].reset()
                                     euclideousEchoCycleNum[lineIndex] = cy
                                 }
-                                euclideousEchoCurrent[lineIndex].append(count: pitchCount, from: pitches)
+                                euclideousEchoCurrent[lineIndex].append(count: pitchCount, from: pitches, ranks: pitchRank)
                             }
 
                             // ANSWER ferry (2026-11-02), 4a: everything from here to the end of the hit — the mask, the lane's MIX stage (LANES mute / solo, HOCKET, the legato reconcile, the strikes, the ratchets, the ROLL / RUN spread, the

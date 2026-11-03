@@ -399,7 +399,7 @@ final class PortsStressTests: XCTestCase {
             if r.part > 7 || r.pitch > 127 || r.flags & 0xC0 != 0 || r.rank > 8 { return "seed \(seed): a malformed roll record \(r)" }
             rollRecordsSeen += 1
             if r.isEnd { continue }
-            if r.rank == 0 { rollUnranked += 1 }   // MIX ROWS: a strike that names no pool rank (reported by the rank test; the pool is never empty while a lane strikes)
+            if r.rank == 0 { rollUnranked += 1; rollUnrankedSeeds.append("seed \(seed) part \(r.part) pitch \(r.pitch) beat \(r.onBeat) flags \(r.flags)") }   // MIX ROWS: a strike that names no pool rank (reported by the rank test; the pool is never empty while a lane strikes)
             if r.isSilent { rollSilentSeen += 1 }
             for o in 0..<4 where r.outs & (1 << UInt8(o)) != 0 { fed["\(o)/\(r.pitch)/\(Int((r.onBeat * 1e6).rounded()))", default: 0] += 1 }
         }
@@ -431,6 +431,7 @@ final class PortsStressTests: XCTestCase {
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0, rollUnranked = 0
+    private var rollUnrankedSeeds: [String] = []
     private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, velocities: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false, octaves: Bool = false, octavesOff: Bool = false, answer: Bool = false, answerOff: Bool = false, pool poolFeature: Bool = false, poolOff: Bool = false, mutes: Bool = false, mutesOff: Bool = false) -> String? {
         var g = SM64(seed)
         var an = SM64(seed ^ 0xA25E_3E40_0000)     // ANSWER ferry: the rows, CYCLE flags, TRADE and EACH / UNIT draw from their OWN stream, so every pinned fingerprint (no ANSWER fields) stays exactly what it was
@@ -605,7 +606,7 @@ final class PortsStressTests: XCTestCase {
         XCTAssertGreaterThan(rollRecordsSeen, 800, "the roll check must actually see notes (\(rollRecordsSeen) records)")
         XCTAssertGreaterThan(rollSilentSeen, 150, "…including parts routed nowhere (\(rollSilentSeen))")
         XCTAssertGreaterThan(rollWireChecked, 600, "…and match the wire (\(rollWireChecked) note-ons)")
-        XCTAssertEqual(rollUnranked, 0, "MIX ROWS: every strike of the 600 sessions names a pool rank (\(rollUnranked) of \(rollRecordsSeen) records did not)")
+        XCTAssertEqual(rollUnranked, 0, "MIX ROWS: every strike of the 600 sessions names a pool rank (\(rollUnranked) of \(rollRecordsSeen) records did not: \(rollUnrankedSeeds.prefix(5)))")
         XCTAssertEqual(fingerprint, Self.fuzzFingerprint, "CAPTURE fuzzFingerprint = \(fingerprint) — the 600 seeded sessions' message streams must be bit-identical with no hocket rule")
     }
     private static let fuzzFingerprint: UInt64 = 5581030647685258102   // ANSWER ferry (2026-11-02): re-derived — the fuzz draws listenPitch from ALL FOUR old modes and ECHO is gone (an ECHO lane now plays as SHADOW), so the ECHO seeds' streams move. PROVEN to be the only change: with ECHO mapped to OWN in the fuzz, the pre-ferry build (origin/main e95a3e2) and this one both capture 3399493082176765281 — every other seed's 600-session stream is bit-identical. Prior: 12319841424680479494 (LISTEN AVOID REBUILT, time-based hole punch)
