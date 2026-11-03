@@ -10,9 +10,9 @@ final class NoteRollTests: XCTestCase {
 
     // MARK: the ring
 
-    func testARecordIsSixteenBytesAndCarriesEveryField() {
-        XCTAssertEqual(MemoryLayout<NoteRollRecord>.size, 16)
-        XCTAssertEqual(MemoryLayout<NoteRollRecord>.stride, 16)
+    func testARecordIsSeventeenBytesInA24ByteStrideAndCarriesEveryField() {   // 16 bytes until MIX ROWS (2026-11-03) added the pool rank
+        XCTAssertEqual(MemoryLayout<NoteRollRecord>.size, 17)
+        XCTAssertEqual(MemoryLayout<NoteRollRecord>.stride, 24)
         let r = NoteRollRecord(onBeat: 12.5, length: 0.75, pitch: 61, velocity: 99, part: 6, flags: 0b0101 | NoteRollRecord.heldFlag)
         XCTAssertEqual(r.outs, 0b0101); XCTAssertTrue(r.isHeld); XCTAssertFalse(r.isEnd); XCTAssertFalse(r.isSilent)
         XCTAssertTrue(NoteRollRecord(onBeat: 0, length: 0, pitch: 0, velocity: 0, part: 0, flags: 0).isSilent, "no output bit = routed nowhere")

@@ -10415,6 +10415,19 @@ func euclideousRankChips(sortedPool: [Int], litMask: UInt8, name: (Int) -> Strin
     let k = rank - 1
     return pool[pool.startIndex + k % n].note + 12 * (k / n)
 }
+/// MIX ROWS (2026-11-03): the pool rank 1…8 a pool-level `note` (before the part's octave and out-transpose) was chosen from — the rank whose note it is (`euclideousPoolRankNote`'s octave copies included; the lowest on a tie); a note no rank names
+/// (a FX NOTE move or TRANS fold past the eighth) takes the nearest rank by pitch (the lower on a tie); 0 only for an empty pool. Allocation-free.
+@inline(__always) func euclideousPoolRankOf(_ pool: ArraySlice<(note: Int, vel: UInt8)>, note: Int) -> UInt8 {
+    guard !pool.isEmpty else { return 0 }
+    var best = 1, bestD = Int.max
+    for r in 1...8 {
+        guard let n = euclideousPoolRankNote(pool, rank: r) else { continue }
+        let d = abs(n - note)
+        if d == 0 { return UInt8(r) }
+        if d < bestD { bestD = d; best = r }
+    }
+    return UInt8(best)
+}
 /// The ranks 1…8 a hit's raw pitches struck, as a bit mask (bit r−1). `pitches[0..<count]` are the hit's pool-level pitches (before the lane's own octave and out-transpose); a pitch that is no rank of the pool sets nothing.
 func euclideousPlayedRankMask(pitches: [Int], count: Int, pool: ArraySlice<(note: Int, vel: UInt8)>) -> UInt8 {
     var m: UInt8 = 0

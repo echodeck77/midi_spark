@@ -18,6 +18,8 @@ struct NoteRollRecord: Equatable {
     var velocity: UInt8
     var part: UInt8             // 0…7: 2·lane + (notes ? 1 : 0) — the part the note LEFT from (after a HOCKET pass, the receiving part)
     var flags: UInt8            // bits 0–3: the outputs A–D it left on (0 = routed nowhere: silent) · bit 4: END record (bits 0–3 then name the ONE output whose voice closed; 0 = not said) · bit 5: held (a legato note with no planned end)
+    /// MIX ROWS (2026-11-03): the POOL rank (1…8) the note was chosen from — before the part's out-transpose and octave; 0 = none (the pool was empty). An END record repeats its START's. A 17th byte, so the record's stride is 24.
+    var rank: UInt8 = 0
 
     static let outsMask: UInt8 = 0x0F, endFlag: UInt8 = 0x10, heldFlag: UInt8 = 0x20
     var outs: UInt8 { flags & NoteRollRecord.outsMask }
@@ -37,7 +39,7 @@ final class NoteRollRing {
 
     init() {
         buffer = UnsafeMutablePointer<NoteRollRecord>.allocate(capacity: NoteRollRing.capacity)
-        buffer.initialize(repeating: NoteRollRecord(onBeat: 0, length: 0, pitch: 0, velocity: 0, part: 0, flags: 0), count: NoteRollRing.capacity)
+        buffer.initialize(repeating: NoteRollRecord(onBeat: 0, length: 0, pitch: 0, velocity: 0, part: 0, flags: 0, rank: 0), count: NoteRollRing.capacity)
     }
     deinit { buffer.deallocate() }
 
@@ -82,6 +84,7 @@ struct NoteRollNote: Equatable {
     var pitch: UInt8
     var velocity: UInt8
     var outs: UInt8             // 0 = silent (the part is routed nowhere)
+    var rank: UInt8 = 0         // MIX ROWS: the pool rank 1…8 it was chosen from (0 = none)
 }
 
 /// Main-thread state behind the card backs: each part's recent notes. Pure — fed with drained records, read with a beat window.
@@ -103,7 +106,7 @@ struct NoteRollModel: Equatable {
                 if let i = parts[p].lastIndex(where: { names($0) && $0.endBeat == nil }) ?? parts[p].lastIndex(where: names) { parts[p][i].endBeat = r.onBeat + Double(r.length) }
                 continue
             }
-            parts[p].append(NoteRollNote(onBeat: r.onBeat, endBeat: r.isHeld || !r.length.isFinite ? nil : r.onBeat + Double(r.length), pitch: r.pitch, velocity: r.velocity, outs: r.outs))
+            parts[p].append(NoteRollNote(onBeat: r.onBeat, endBeat: r.isHeld || !r.length.isFinite ? nil : r.onBeat + Double(r.length), pitch: r.pitch, velocity: r.velocity, outs: r.outs, rank: r.rank))
             if parts[p].count > NoteRollModel.perPartCap { parts[p].removeFirst(parts[p].count - NoteRollModel.perPartCap) }
             lastOnBeat[p] = max(lastOnBeat[p], r.onBeat)
             for o in 0..<4 where r.outs & (1 << UInt8(o)) != 0 { lastOnBeatByOutput[p][o] = max(lastOnBeatByOutput[p][o], r.onBeat) }

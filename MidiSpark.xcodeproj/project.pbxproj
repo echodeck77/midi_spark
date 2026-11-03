@@ -161,6 +161,7 @@
 		672E709B5A0D1591E9DDE621 /* LaneStripFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F2A9EB8BFA7038CE4C84B1 /* LaneStripFuzzTests.swift */; };
 		676986606F36F0B2461B1DC7 /* RouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688828AD8E02A3FA163D3656 /* RouterTests.swift */; };
 		67A54484318BE306142EB54F /* BuildPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7144BD5DF2607EF07A2AE6F9 /* BuildPage.swift */; };
+		67F01C5019FD92A5537610C6 /* NoteRollRankTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E192CF53C0406F41E56492 /* NoteRollRankTests.swift */; };
 		6857BAD7A3831FD984E990C8 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 5B3B1E8D15FD3E391FF50D3E /* Atomics */; };
 		692A1708CCCE988100850092 /* PulseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1FE1781AE0C4878A7935FE /* PulseTests.swift */; };
 		6A375C221E5AD79912A93116 /* CardBackViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F426003B0AC179AD87C598 /* CardBackViews.swift */; };
@@ -508,6 +509,7 @@
 		42A11E131366C40F5FB993C3 /* RiffGridArrowFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffGridArrowFuzzTests.swift; sourceTree = "<group>"; };
 		440E5D6E44D2818020EF291B /* TabGlyphPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGlyphPainter.swift; sourceTree = "<group>"; };
 		4448C88CC517582DAFC89326 /* PortsStressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortsStressTests.swift; sourceTree = "<group>"; };
+		44E192CF53C0406F41E56492 /* NoteRollRankTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRollRankTests.swift; sourceTree = "<group>"; };
 		45EDC2BE8955A84E568CE6A0 /* MidiInOctavesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiInOctavesTests.swift; sourceTree = "<group>"; };
 		47EFEFD20A4BE99C391A7781 /* LaneViewStripPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneViewStripPainter.swift; sourceTree = "<group>"; };
 		487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceFactoryLibraryTests.swift; sourceTree = "<group>"; };
@@ -884,6 +886,7 @@
 				7A20C66088682B1B60A45B7C /* MidiFileTests.swift */,
 				45EDC2BE8955A84E568CE6A0 /* MidiInOctavesTests.swift */,
 				372CA48448A531F0C9C47D25 /* MigrationTests.swift */,
+				44E192CF53C0406F41E56492 /* NoteRollRankTests.swift */,
 				EE63B3EA2A58FDDCB52C7C9D /* NoteRollTests.swift */,
 				354DBFBF5F37251A2C53939E /* NotesTabTests.swift */,
 				D8F6B53AC233F6A8E597DA12 /* OutputMuteTests.swift */,
@@ -1634,6 +1637,7 @@
 				5495BE04F784F6B9DF629FD7 /* MidiInOctavesTests.swift in Sources */,
 				545028F07A69D1A05607B1BD /* MigrationTests.swift in Sources */,
 				4BFF997B67F572F08E8EBF7D /* Models.swift in Sources */,
+				67F01C5019FD92A5537610C6 /* NoteRollRankTests.swift in Sources */,
 				7F7C8B318D46429B3492F2C4 /* NoteRollRing.swift in Sources */,
 				F55BED8580E387C57A9357FD /* NoteRollTests.swift in Sources */,
 				9181BD2325284B21706DD007 /* NotesTabTests.swift in Sources */,

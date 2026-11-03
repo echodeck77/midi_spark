@@ -49,7 +49,8 @@ final class Router {
         var note: UInt8 = 0
         var chan: UInt8 = 0
         var cable: UInt8 = 0
-        var rollOnBeat: Double = 0   // CARD BACKS §5: the host beat the strike began on, as the roll record named it — an END record repeats it, whatever the transport has done since (a seek moves the beat↔sample map)
+        var rollRank: UInt8 = 0      // MIX ROWS: the pool rank the strike was chosen from — an END record repeats it
+    var rollOnBeat: Double = 0   // CARD BACKS §5: the host beat the strike began on, as the roll record named it — an END record repeats it, whatever the transport has done since (a seek moves the beat↔sample map)
         var bus: UInt8 = 0           // delta §6a: originating emitter (0–3), so an emitter-disable can
         var offSample: Int64 = .max  // close exactly its notes (own cable + its All copy).
         var silent = false           // delta §6a CLAIM: a MUTED claimant's ghost voice — tracked for
@@ -97,6 +98,8 @@ final class Router {
     // LANE SOLO (2026-10-21): which Euclideous lane struck a voice / an echo tail (−1 = none, every other row). `euclideousStrikeLane` is set for the duration of one lane's `runEuclidLine` and, per tail, while the
     // echo ring drains, and stamped by `openVoice` / `pushEchoTail` — so a solo that silences a lane can end exactly ITS sounding notes and pending repeats at once (`cutSoloSilencedLanes`).
     private var euclideousStrikeLane: Int8 = -1
+    /// MIX ROWS (2026-11-03): the POOL rank (1…8, 0 = none) of the strike being emitted — set by `strikeChord` / the echo-tail drain, read by `emitOneBus` for the roll record and stamped on the voice for its END record.
+    private var euclideousStrikeRank: UInt8 = 0
     /// The UI's LIVE solo word (`Kernel.euclideousSoloLive`: 0x100 | the effective mask once the page has spoken, else 0 = "use the snapshot's"). Written by the main thread the instant a SOLO button is touched,
     /// read here once per render window — so solo reaches the engine within a buffer, not a snapshot rebuild later.
     private var soloLiveWord: UInt16 = 0
@@ -145,6 +148,7 @@ final class Router {
     // TRADE: one hit's strike set as the lane resolved it, taken BEFORE its own emission rewrites the scratch (the hocket remap compacts and expands it), for the lanes that emit it on its behalf.
     private var tradeRecCount = 0
     private var tradeRecRaw = [Int](repeating: 0, count: 9)
+    private var tradeRecRank = [UInt8](repeating: 0, count: 9)
     private var tradeRecGate = [Double](repeating: 0, count: 9)
     private var tradeRecPoly = [Double](repeating: 0, count: 9)
     private var tradeRecNotesMask: UInt16 = 0
@@ -1068,6 +1072,7 @@ final class Router {
     private var legatoNewBus = [Int16](repeating: -1, count: 9)   // ALT §6.3: the group each newly-tracked legato pitch opened on
     private var legatoNewSlots = [Int16](repeating: -1, count: 9 * 8)
     private var legatoNewSlotCount = [UInt8](repeating: 0, count: 9)
+    private var hitPitchRank = [UInt8](repeating: 0, count: 9)   // MIX ROWS: each pitch's POOL rank (1…8, 0 = none) — rides with its pitch through the hocket remap, TRADE and every deferred strike
     private var hitPitchRaw = [Int](repeating: 0, count: 9)   // ANSWER TRADE: each pitch BEFORE the lane's own card-back octave and out-transpose — what another lane re-voices through its own
     private var hitPitchOuts = [UInt8](repeating: 0xFF, count: 9)   // CARD BACKS: a pitch's own output set when it differs from its part's (a note-collision slot); 0xFF = the part's mask
     @inline(__always) private func takeScratch<T>(_ store: inout [T], count: Int, filledWith value: T) -> [T] {
@@ -1156,6 +1161,7 @@ final class Router {
         var active = false
         var onset: Double = 0        // musical beat of the dry strike (echo k at onset + (k + offset)·timeBeats)
         var note: UInt8 = 0
+        var rank: UInt8 = 0          // MIX ROWS: the dry strike's pool rank, so a deferred repeat is drawn on the row it came from
         var vel: UInt8 = 0           // the DRY velocity; echo k = vel · feedDelay · decay^(k-1)
         var busMask: UInt8 = 0
         var outsOverride: UInt8 = 0xFF   // CARD BACKS: a collision slot's own output set (0xFF = none: resolve from the part's mask)
@@ -1196,7 +1202,7 @@ final class Router {
 
     private var echoTailsActive: Bool { echoTails.contains { $0.active } }
     private func clearEchoTails() { for i in echoTails.indices { echoTails[i].active = false }; echoPrevMEnd = .nan }
-    private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, busMask: UInt8, outsOverride: UInt8? = nil, outsExclude: UInt8 = 0, outsOnly: UInt8 = 0x0F, timeBeats: Double, repeats: Int,
+    private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, rank: UInt8 = 0, busMask: UInt8, outsOverride: UInt8? = nil, outsExclude: UInt8 = 0, outsOnly: UInt8 = 0x0F, timeBeats: Double, repeats: Int,
                               feedDelay: Double, decay: Double, offset: Double, pitch: Int, gateBeats: Double) {
         guard repeats > 0, timeBeats > 0, busMask != 0 else { return }
         var slot = -1
@@ -1206,7 +1212,7 @@ final class Router {
             for i in echoTails.indices where echoTails[i].onset < echoTails[oldest].onset { oldest = i }
             slot = oldest
         }
-        echoTails[slot] = EchoTail(active: true, onset: onset, note: note, vel: vel, busMask: busMask, outsOverride: outsOverride ?? 0xFF, outsExclude: outsOverride == nil ? outsExclude : 0, outsOnly: outsOverride == nil ? outsOnly : 0x0F,
+        echoTails[slot] = EchoTail(active: true, onset: onset, note: note, rank: rank, vel: vel, busMask: busMask, outsOverride: outsOverride ?? 0xFF, outsExclude: outsOverride == nil ? outsExclude : 0, outsOnly: outsOverride == nil ? outsOnly : 0x0F,
                                    timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
                                    decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats,
                                    lane: euclideousStrikeLane)
@@ -1578,7 +1584,7 @@ final class Router {
         var time = timeIn
         let cable = voices[i].cable, chan = voices[i].chan, note = voices[i].note
         let wasSilent = voices[i].silent
-        let plannedOff = voices[i].offSample, startedAt = voices[i].onSample, ofPart = voices[i].bus, wasLegato = voices[i].euclideousLegato, startBeat = voices[i].rollOnBeat
+        let plannedOff = voices[i].offSample, startedAt = voices[i].onSample, ofPart = voices[i].bus, wasLegato = voices[i].euclideousLegato, startBeat = voices[i].rollOnBeat, startRank = voices[i].rollRank
         let g = Int(voices[i].group) - 1
         // HOCKET: a voice whose off was held back to the end of the window (`deferClose`) has ALREADY ended at its own `offSample`; an edge that closes it later than that (a transport edge, a mute) must not stretch it.
         if voices[i].deferClose { time = min(time, voices[i].offSample) }
@@ -1591,7 +1597,7 @@ final class Router {
         if wasSilent { return }
         // CARD BACKS §5: a note cut before its planned end (a mute, a solo, a stop, a panic) — or a legato hold that finally closes — tells the roll where it really ended: once per strike, from the output's own cable.
         if cable != 0 && (plannedOff == .max || wasLegato || timeIn < plannedOff) {   // a legato hold is closed by the reconcile, which has already rewritten its `offSample` — it always ends with a record
-            rollRing.push(NoteRollRecord(onBeat: startBeat, length: Float(max(0, Double(max(time, fWindowStart) - startedAt) * fBeatsPerSample)), pitch: note, velocity: 0, part: ofPart & 7, flags: NoteRollRecord.endFlag | (cable <= 4 ? UInt8(1) << (cable &- 1) : 0)))   // RATCH tab: …naming the OUTPUT whose voice closed, so the roll can tell apart several strikes of one pitch that share a start beat   // (a stop / panic / reset cuts at `renderSampleImmediate`, far before any window: clamp to the window's start so the roll shows where it ended)
+            rollRing.push(NoteRollRecord(onBeat: startBeat, length: Float(max(0, Double(max(time, fWindowStart) - startedAt) * fBeatsPerSample)), pitch: note, velocity: 0, part: ofPart & 7, flags: NoteRollRecord.endFlag | (cable <= 4 ? UInt8(1) << (cable &- 1) : 0), rank: startRank))   // RATCH tab: …naming the OUTPUT whose voice closed, so the roll can tell apart several strikes of one pitch that share a start beat   // (a stop / panic / reset cuts at `renderSampleImmediate`, far before any window: clamp to the window's start so the roll shows where it ended)
         }
 
         let idx = rcIndex(cable, chan, note)
@@ -1744,10 +1750,10 @@ final class Router {
     let rollRing = NoteRollRing()
     private var rollStruckOuts: UInt8 = 0       // the outputs whose own voice took the strike being emitted (set by `emitOneOutput`, read by `emitOneBus`)
     @inline(__always) private func rollBeat(_ sample: Int64) -> Double { fBeatPos + Double(sample - fWindowStart) * fBeatsPerSample }
-    @inline(__always) private func rollNoteStruck(part: Int, note: UInt8, velocity: UInt8, onSample: Int64, offSample: Int64, outs: UInt8) {
+    @inline(__always) private func rollNoteStruck(part: Int, note: UInt8, velocity: UInt8, onSample: Int64, offSample: Int64, outs: UInt8, rank: UInt8) {
         let held = offSample == .max && outs & NoteRollRecord.outsMask != 0     // a silent note has no voice to close, so it is never left open (a legato strike of one is drawn as a tick)
         let length: Float = held ? .infinity : offSample == .max ? 0 : Float(max(0, Double(offSample - onSample) * fBeatsPerSample))
-        rollRing.push(NoteRollRecord(onBeat: rollBeat(onSample), length: length, pitch: note, velocity: velocity, part: UInt8(part & 7), flags: (outs & NoteRollRecord.outsMask) | (held ? NoteRollRecord.heldFlag : 0)))
+        rollRing.push(NoteRollRecord(onBeat: rollBeat(onSample), length: length, pitch: note, velocity: velocity, part: UInt8(part & 7), flags: (outs & NoteRollRecord.outsMask) | (held ? NoteRollRecord.heldFlag : 0), rank: rank))
     }
     /// One articulation (note, on/off samples) fanned across the PARTS in `busMask` (usually one: a lane's riff or its notes). Fourfold has no rack (claim / flatten / curve / fence / mono / pocket / conversation), no ALT / TURNS / DEAL
     /// routing and no receiver strip, so a part is just: enabled? → the outputs it is routed to (`outsOverride`, else `partOut`) → for each output the flood budget and the two cables (the output's own and ALL), stamped with the output's channel.
@@ -1803,7 +1809,7 @@ final class Router {
             if c >= 0 { lastCh = c }
         }
         // the roll draws what the part struck: the outputs that took the note (a strike the flood governor or a full voice table refused is not drawn), or — a part routed nowhere — the note marked silent
-        if routed == 0 || rollStruckOuts != 0 { rollNoteStruck(part: bus, note: note, velocity: velocity, onSample: onSample, offSample: offSample, outs: rollStruckOuts) }
+        if routed == 0 || rollStruckOuts != 0 { rollNoteStruck(part: bus, note: note, velocity: velocity, onSample: onSample, offSample: offSample, outs: rollStruckOuts, rank: euclideousStrikeRank) }
         return lastCh
     }
 
@@ -1833,7 +1839,7 @@ final class Router {
         let joinAll = hocketStrike && (litBus || (groupMembers > 0 && hocketGroupSounding(cable: 0, chan: ch, note: note, at: onSample)))
         let own = openVoice(note: note, chan: ch, cable: UInt8(o + 1), bus: UInt8(bus),
                             onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: joinOwn)
-        if own >= 0 { onVoiceOpened(own); rollStruckOuts |= UInt8(1) << UInt8(o); voices[own].rollOnBeat = rollBeat(onSample) }
+        if own >= 0 { onVoiceOpened(own); rollStruckOuts |= UInt8(1) << UInt8(o); voices[own].rollOnBeat = rollBeat(onSample); voices[own].rollRank = euclideousStrikeRank }
         if own >= 0 && offSample <= windowEnd { if joinOwn { voices[own].deferClose = true; hocketDeferredCloses = true } else { closeVoice(own, atSample: offSample, out: out) } }
         let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
                             onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: joinAll)
@@ -1892,6 +1898,7 @@ final class Router {
         for i in echoTails.indices where echoTails[i].active {
             let e = echoTails[i]
             euclideousStrikeLane = e.lane   // LANE SOLO: the repeat's voice is tagged with the lane that pushed it
+            euclideousStrikeRank = e.rank   // MIX ROWS: …and drawn on the pool rank it was struck from
             if e.onset + (Double(e.repeats) + 1) * e.timeBeats < mStart { echoTails[i].active = false; continue }   // all past → retire
             for k in 1...e.repeats {
                 let tau = e.onset + (Double(k) + e.offset) * e.timeBeats     // OFFSET nudges each echo off the grid
@@ -1923,6 +1930,7 @@ final class Router {
             }
         }
         euclideousStrikeLane = -1
+        euclideousStrikeRank = 0
     }
 
     /// The shared subdivision-tick scaffold for ARP and RATCHET. Walks every tick of length `sub`
@@ -2518,9 +2526,11 @@ final class Router {
         // per-lane loop — byte-identical for every other caller (ARP/RIFF/BURST/the lone-driver `.euclid` path
         // elsewhere in the grid). Only the Euclideous per-line HIT/MISS pick calls below pass a real value
         // (that lane's own resolved pool), so a chord can no longer be picked from the wrong lane's notes.
-        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, explicitVel: UInt8? = nil, busOverride: UInt8? = nil, outsOverride: UInt8? = nil, srcOverride: ArraySlice<(note: Int, vel: UInt8)>? = nil, onVoiceOpened: (Int) -> Void = { _ in }, euclideousLegato: Bool = false) {
+        func strikeChord(tau: Double, velScale: Double, gateBeats: Double, onlyIndex: Int? = nil, octave: Int = 0, explicitNote: Int? = nil, rank: UInt8 = 0, explicitVel: UInt8? = nil, busOverride: UInt8? = nil, outsOverride: UInt8? = nil, srcOverride: ArraySlice<(note: Int, vel: UInt8)>? = nil, onVoiceOpened: (Int) -> Void = { _ in }, euclideousLegato: Bool = false) {
             let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a)
             euclideousStrikeMuteBeat = tau   // MUTE TAB: the output-mute gate reads the MUSICAL onset, not the warped sample beat (adversarial review 2026-11-02)
+            euclideousStrikeRank = rank      // MIX ROWS: the roll record and the voice's END record name the pool rank this strike came from (0 outside the Euclideous hit paths)
+            defer { euclideousStrikeRank = 0 }
             // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): `gateBeats == .infinity` is Euclideous legato's own
             // "open-ended, I'll close it myself later" sentinel — `tau + .infinity` would otherwise feed a
             // non-finite musical offset into `sampleOf`, producing garbage. Every OTHER caller passes a
@@ -2576,7 +2586,7 @@ final class Router {
         // THE NINE PORTS: `busOf(j)` gives pitch j its own bus — a riff pitch's riffBus, a notes pitch's notesBus (a pitch both layers play is two slots). A non-escaping closure (no allocation); a legato note is
         // tracked with the bus it opened on, so it only carries on while it keeps leaving on the same port.
         func reconcileEuclidLegato(lineIndex: Int, pitches: [Int], pitchCount: Int, vels: [UInt8], gates: [Double], tau: Double,
-                                    isRatchetThisHit: Bool, overlapBeats: Double, busOf: (Int) -> UInt8?, outsOf: (Int) -> UInt8? = { _ in nil }, neverLegatoBits: UInt16 = 0) -> UInt16 {
+                                    isRatchetThisHit: Bool, overlapBeats: Double, busOf: (Int) -> UInt8?, outsOf: (Int) -> UInt8? = { _ in nil }, neverLegatoBits: UInt16 = 0, ranks: [UInt8] = []) -> UInt16 {
             // EMITTER RATCHET §3.6: a pitch whose every output ratchets is never carried on legato nor tracked — but it stays in `pitches`, so a note held legato on that output sees itself struck again and closes at the hit's own sample.
             func isLegatoPitch(_ j: Int) -> Bool { !isRatchetThisHit && (neverLegatoBits >> UInt16(j)) & 1 == 0 && j < gates.count && euclideousGateIsLegato(gates[j]) }
             func legatoOutsKey(_ j: Int) -> Int {
@@ -2634,7 +2644,7 @@ final class Router {
                     newSlotN[tracked] = UInt8(n)
                 } else {
                     let trackedNow = tracked
-                    strikeChord(tau: tau, velScale: 1.0, gateBeats: .infinity, octave: 0, explicitNote: pitches[j], explicitVel: vels[j], busOverride: busOf(j), outsOverride: outsOf(j),
+                    strikeChord(tau: tau, velScale: 1.0, gateBeats: .infinity, octave: 0, explicitNote: pitches[j], rank: j < ranks.count ? ranks[j] : 0, explicitVel: vels[j], busOverride: busOf(j), outsOverride: outsOf(j),
                                 onVoiceOpened: { slot in let n = Int(newSlotN[trackedNow]); if n < 8 { newSlots[trackedNow * 8 + n] = Int16(slot); newSlotN[trackedNow] = UInt8(n + 1) } }, euclideousLegato: true)
                 }
                 tracked += 1
@@ -3741,6 +3751,8 @@ final class Router {
                             defer { hitPitches = pitches; hitPitchVel = pitchVel }
                             var pitchRaw = takeScratch(&hitPitchRaw, count: 9, filledWith: 0)   // ANSWER TRADE: each pitch before this lane's own card-back octave and out-transpose
                             defer { hitPitchRaw = pitchRaw }
+                            var pitchRank = takeScratch(&hitPitchRank, count: 9, filledWith: 0)  // MIX ROWS: each pitch's pool rank (see `euclideousPoolRankOf`)
+                            defer { hitPitchRank = pitchRank }
                             // MIX TAB (2026-10-18): `pitchGate` is the per-pitch GATE sibling to `pitchVel` — same fixed 9-slot storage, same
                             // first-insertion-wins (so on a collision the RIFF pitch's gate wins, exactly as its velocity already does).
                             var pitchGate = takeScratch(&hitPitchGate, count: 9, filledWith: 0)
@@ -3791,7 +3803,7 @@ final class Router {
                             }
                             // ANSWER TRADE: the parts `addPitch` files a pitch under — this lane's own, except while a TRADE partner's set is being rebuilt from this hit's record (`tradeRebuild`), when they are the partner's.
                             var addRiffBus = riffBus, addNotesBus = notesBus
-                            func addPitch(_ v: Int, vel: UInt8, gate g: Double, notesLayer: Bool = false, heldByRiff: Bool = false, raw: Int? = nil) {
+                            func addPitch(_ v: Int, vel: UInt8, gate g: Double, notesLayer: Bool = false, heldByRiff: Bool = false, raw: Int? = nil, rank: UInt8? = nil) {
                                 guard pitchCount < 9 else { return }
                                 let bus = Int(notesLayer ? addNotesBus : addRiffBus)
                                 for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == bus { return }   // the same pitch on the SAME part: first insertion wins
@@ -3807,6 +3819,7 @@ final class Router {
                                     }
                                 }
                                 pitches[pitchCount] = v; pitchVel[pitchCount] = vel; pitchGate[pitchCount] = g; pitchRaw[pitchCount] = raw ?? v
+                                pitchRank[pitchCount] = rank ?? euclideousPoolRankOf(laneNotes(lineIndex), note: raw ?? v)   // MIX ROWS: the pool rank this pitch was chosen from (a TRADE rebuild passes the sender's)
                                 if notesLayer { notesPitchMask |= UInt16(1) << UInt16(pitchCount) }
                                 pitchBus[pitchCount] = bus
                                 pitchOuts[pitchCount] = outs
@@ -4259,7 +4272,7 @@ final class Router {
                                         for i in 0..<pitchCount {
                                             pitches[i] = Int(euclideousLastSoundedNotes[lineIndex * 9 + i])
                                             pitchVel[i] = euclideousLastSoundedVels[lineIndex * 9 + i]
-                                            pitchGate[i] = euclideousLastSoundedGates[lineIndex * 9 + i]; polyBeats[i] = 0
+                                            pitchGate[i] = euclideousLastSoundedGates[lineIndex * 9 + i]; polyBeats[i] = 0; pitchRank[i] = 0
                                             let cb = Int(euclideousLastSoundedBus[lineIndex * 9 + i])
                                             pitchOuts[i] = 0xFF; pitchBus[i] = cb >= 0 ? cb : Int(riffBus)   // THE NINE PORTS: back out on the port each pitch first struck on (a notes-layer pitch stays on the notes port)
                                             if pitchBus[i] == Int(notesBus) { notesPitchMask |= UInt16(1) << UInt16(i) }   // …and keeps the notes layer's TIE extension
@@ -4268,9 +4281,9 @@ final class Router {
                                     euclideousMaskRepeatRemaining[lineIndex] = mm.repeatCountResolved - 1
                                     let repGb = gateBeatsOf(0)   // NOTE VIEW's one duration: pitch 0's (the riff note when the hit has one)
                                     let repHandled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vels: pitchVel, gates: pitchGate,
-                                                                            tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf)
+                                                                            tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf, ranks: pitchRank)
                                     for j in 0..<pitchCount where repHandled & (UInt16(1) << UInt16(j)) == 0 {
-                                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsOf(j), octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsOf(j))
+                                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsOf(j), octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsOf(j))
                                     }
                                     euclideousLastSoundedCount[lineIndex] = pitchCount
                                     // The trigger caches the WHOLE set — notes, velocities AND (MIX ferry) gates. It used to write only the notes, so a REPEAT
@@ -4336,7 +4349,7 @@ final class Router {
                                     // GATE/legato §2.4: MUTE is a mask-level silence of the whole hit — the notes
                                     // still end here, at this hit's time + overlap, not later.
                                     reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
-                                                           tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf)
+                                                           tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf, ranks: pitchRank)
                                     return
                                 }   // MUTE: "applies to the whole hit" — silent; the walk already advanced normally above
                                 // FX TAB §5: a hit a TIE cell applies to DOESN'T STRIKE — placed AFTER the mute check so a muted hit gets no FX (it still closes held notes there,
@@ -4421,7 +4434,7 @@ final class Router {
                                             if first { first = false }
                                             else if total < 9 {
                                                 slot = total; total += 1
-                                                pitches[slot] = pitches[j]; pitchGate[slot] = baseGate; polyBeats[slot] = polyBeats[j]
+                                                pitches[slot] = pitches[j]; pitchGate[slot] = baseGate; polyBeats[slot] = polyBeats[j]; pitchRank[slot] = pitchRank[j]
                                                 if flagNotes != 0 { notesPitchMask |= UInt16(1) << UInt16(slot) } else { notesPitchMask &= ~(UInt16(1) << UInt16(slot)) }
                                                 notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * slot))) | (nib << UInt64(4 * slot))
                                             } else { break }
@@ -4459,7 +4472,7 @@ final class Router {
                                     if changed {
                                         for j in 0..<total where deadBits & (UInt16(1) << UInt16(j)) == 0 {
                                             let nib = (notesSlotBits >> UInt64(4 * j)) & 0xF
-                                            pitches[w] = pitches[j]; pitchGate[w] = pitchGate[j]; polyBeats[w] = polyBeats[j]; pitchVel[w] = pitchVel[j]; pitchBus[w] = pitchBus[j]; pitchOuts[w] = pitchOuts[j]
+                                            pitches[w] = pitches[j]; pitchGate[w] = pitchGate[j]; polyBeats[w] = polyBeats[j]; pitchRank[w] = pitchRank[j]; pitchVel[w] = pitchVel[j]; pitchBus[w] = pitchBus[j]; pitchOuts[w] = pitchOuts[j]
                                             if (notesPitchMask >> UInt16(j)) & 1 != 0 { newPitchMask |= UInt16(1) << UInt16(w) }
                                             newSlotBits = (newSlotBits & ~(UInt64(0xF) << UInt64(4 * w))) | (nib << UInt64(4 * w))
                                             w += 1
@@ -4472,7 +4485,7 @@ final class Router {
                                         hadRiffNote = riffNoteSurvives
                                         if pitchCount == 0 {   // every pitch of the hit went nowhere: the hit is silent, ending what the lane held exactly as a muted hit does
                                             reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
-                                                                   tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf)
+                                                                   tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf, ranks: pitchRank)
                                             return
                                         }
                                     }
@@ -4579,20 +4592,20 @@ final class Router {
                                             let tieLast = tieOf(j) > 0
                                             let lastGate = tieLast ? max(gate, (nextHitGapBeats - Double(n - 1) * spacing) + pitchGate[j] * tieOf(j)) : gate
                                             let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOf(j) ?? bm)
-                                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gate, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: xBit)
+                                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gate, octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: xBit)
                                             var k = 1
                                             while k < n && mTickBeat + Double(k) * spacing < mWinEnd {
-                                                strikeChord(tau: mTickBeat + Double(k) * spacing, velScale: 1.0, gateBeats: tieLast && k == n - 1 ? lastGate : gate, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: xBit)
+                                                strikeChord(tau: mTickBeat + Double(k) * spacing, velScale: 1.0, gateBeats: tieLast && k == n - 1 ? lastGate : gate, octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: xBit)
                                                 k += 1
                                             }
                                             guard k < n else { continue }
                                             let lastRegular = tieLast ? n - 2 : n - 1
                                             if k <= lastRegular {
-                                                pushEchoTail(onset: mTickBeat + Double(k - 1) * spacing, note: fp, vel: pitchVel[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
+                                                pushEchoTail(onset: mTickBeat + Double(k - 1) * spacing, note: fp, vel: pitchVel[j], rank: pitchRank[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
                                                              timeBeats: spacing, repeats: lastRegular - k + 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: gate)
                                             }
                                             if tieLast && k <= n - 1 {
-                                                pushEchoTail(onset: mTickBeat + Double(n - 2) * spacing, note: fp, vel: pitchVel[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
+                                                pushEchoTail(onset: mTickBeat + Double(n - 2) * spacing, note: fp, vel: pitchVel[j], rank: pitchRank[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
                                                              timeBeats: spacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: lastGate)
                                             }
                                         }
@@ -4616,7 +4629,7 @@ final class Router {
                                     for j in 0..<pitchCount where (notesSlotBits >> UInt64(4 * j)) & 0xF != 0xF { pitchGate[j] = min(pitchGate[j], 0.99) }
                                 }
                                 let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vels: pitchVel, gates: pitchGate,
-                                                                     tau: mTickBeat, isRatchetThisHit: nRep != nil, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsStrike, neverLegatoBits: emitOnlyBits)
+                                                                     tau: mTickBeat, isRatchetThisHit: nRep != nil, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsStrike, neverLegatoBits: emitOnlyBits, ranks: pitchRank)
                                 if let nRep {
                                     // AUDIBLE RATCHET, take 3 — THE REAL ROOT CAUSE (2026-10-13, Paul: first
                                     // "still not working in any perceptible way," then, after take 2 (every
@@ -4654,7 +4667,7 @@ final class Router {
                                         let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOf(j) ?? bm)
                                         // each repeat lasts its pitch's gate × its slot, never under the 5 ms floor (the slot itself is ≥ 10 ms: `euclideousRatchetCap`)
                                         let repGate = max(minGateBeats5ms, repSpacing * pitchGate[j])
-                                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGate, octave: 0, explicitNote: pitches[j],
+                                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: repGate, octave: 0, explicitNote: pitches[j], rank: pitchRank[j],
                                                     explicitVel: euclideousRatchetStrikeVelocity(base: pitchVel[j], shape: ratchShape, k: 0, n: nRep), busOverride: busOf(j), outsOverride: outsStrike(j))
                                         // A pitch outside MIDI 0…127 is dropped by `strikeChord` (strike 0); its deferred strikes must be dropped too — `UInt8(clamping:)` would turn a
                                         // very low pitch into note 0 and sound it (FX NOTE moves ranks far enough to reach this).
@@ -4669,7 +4682,7 @@ final class Router {
                                         // lost 28 %). ROLL / RUN already strike in-window repeats directly, for the same reason.
                                         var k = 1
                                         while k < nRep && mTickBeat + Double(k) * repSpacing < mWinEnd {
-                                            strikeChord(tau: mTickBeat + Double(k) * repSpacing, velScale: 1.0, gateBeats: gateOf(k), octave: 0, explicitNote: pitches[j], explicitVel: velOf(k), busOverride: busOf(j), outsOverride: outsStrike(j))
+                                            strikeChord(tau: mTickBeat + Double(k) * repSpacing, velScale: 1.0, gateBeats: gateOf(k), octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: velOf(k), busOverride: busOf(j), outsOverride: outsStrike(j))
                                             k += 1
                                         }
                                         guard k < nRep else { continue }
@@ -4677,19 +4690,19 @@ final class Router {
                                         let lastRegular = tieLast ? nRep - 2 : nRep - 1          // the last strike a plain tail serves
                                         if k <= lastRegular {
                                             if ratchShape == 0 {
-                                                pushEchoTail(onset: mTickBeat + Double(k - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], busMask: repBusMask, outsOverride: tailOuts(j), outsExclude: tailExclude(j),
+                                                pushEchoTail(onset: mTickBeat + Double(k - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: pitchVel[j], rank: pitchRank[j], busMask: repBusMask, outsOverride: tailOuts(j), outsExclude: tailExclude(j),
                                                              timeBeats: repSpacing, repeats: lastRegular - k + 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                              gateBeats: repGate)
                                             } else {
                                                 for m in k...lastRegular {   // a shaped ratchet: one tail per strike, each at its own velocity
-                                                    pushEchoTail(onset: mTickBeat + Double(m - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(m), busMask: repBusMask, outsOverride: tailOuts(j), outsExclude: tailExclude(j),
+                                                    pushEchoTail(onset: mTickBeat + Double(m - 1) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(m), rank: pitchRank[j], busMask: repBusMask, outsOverride: tailOuts(j), outsExclude: tailExclude(j),
                                                                  timeBeats: repSpacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                                  gateBeats: repGate)
                                                 }
                                             }
                                         }
                                         if tieLast && k <= nRep - 1 {
-                                            pushEchoTail(onset: mTickBeat + Double(nRep - 2) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(nRep - 1), busMask: repBusMask, outsOverride: tailOuts(j), outsExclude: tailExclude(j),
+                                            pushEchoTail(onset: mTickBeat + Double(nRep - 2) * repSpacing, note: UInt8(clamping: pitches[j]), vel: velOf(nRep - 1), rank: pitchRank[j], busMask: repBusMask, outsOverride: tailOuts(j), outsExclude: tailExclude(j),
                                                          timeBeats: repSpacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                          gateBeats: lastGate)
                                         }
@@ -4736,18 +4749,18 @@ final class Router {
                                         let length = isRun ? max(minGateBeats5ms, runNoteGate * runSlot)
                                                            : max(minGateBeats5ms, gateBeatsOf(j) - start)   // every note ends where it would without the roll
                                         if pos == 0 || start <= 0 {
-                                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: length, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsStrike(j))
+                                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: length, octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsStrike(j))
                                         } else if mTickBeat + start < mWinEnd {
                                             // Its own sample is still inside THIS render window. The echo ring is drained at the top of a window, before the ticks run, so a deferred
                                             // strike registered here would only be looked at next window — after its time — and be lost at a large buffer. Strike it where it belongs.
-                                            strikeChord(tau: mTickBeat + start, velScale: 1.0, gateBeats: length, octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsStrike(j))
+                                            strikeChord(tau: mTickBeat + start, velScale: 1.0, gateBeats: length, octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsStrike(j))
                                         } else if let fp = finalPitch(pitches[j], oct: 0) {   // a pitch outside MIDI 0…127 is dropped, as `strikeChord` drops it
-                                            pushEchoTail(onset: mTickBeat, note: fp, vel: pitchVel[j], busMask: chopMask(cell, m: mTickBeat, S: S, base: busOf(j) ?? bm), outsOverride: tailOuts(j), outsExclude: tailExclude(j),
+                                            pushEchoTail(onset: mTickBeat, note: fp, vel: pitchVel[j], rank: pitchRank[j], busMask: chopMask(cell, m: mTickBeat, S: S, base: busOf(j) ?? bm), outsOverride: tailOuts(j), outsExclude: tailExclude(j),
                                                          timeBeats: start, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0,
                                                          gateBeats: length)
                                         }
                                     } else {
-                                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsOf(j), octave: 0, explicitNote: pitches[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsStrike(j))
+                                        strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gateBeatsOf(j), octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: outsStrike(j))
                                     }
                                 }
                                 emitterRatchetStrikes()   // EMITTER RATCHET: the ratcheting outputs' copies of this hit (§3.2) — the ordinary strikes above skipped exactly those outputs
@@ -4769,7 +4782,7 @@ final class Router {
                             if isEuclideousRow, lineIndex >= 0, lineIndex < 4 { laneStat.played[lineIndex] = euclideousPlayedRankMask(pitches: pitchRaw, count: pitchCount, pool: laneNotes(lineIndex)) }
                             if tradePushNow != 0 {
                                 tradeRecCount = pitchCount
-                                for j in 0..<pitchCount { tradeRecRaw[j] = pitchRaw[j]; tradeRecGate[j] = pitchGate[j]; tradeRecPoly[j] = polyBeats[j] }
+                                for j in 0..<pitchCount { tradeRecRaw[j] = pitchRaw[j]; tradeRecRank[j] = pitchRank[j]; tradeRecGate[j] = pitchGate[j]; tradeRecPoly[j] = polyBeats[j] }
                                 tradeRecNotesMask = notesPitchMask; tradeRecSlotBits = notesSlotBits; tradeRecHadRiff = hadRiffNote
                             }
                             if !tradeAwayNow { emitHit(asLane: lineIndex) }
@@ -4789,7 +4802,7 @@ final class Router {
                                         if steps != 0 { v = euclideousScaleStepMove(note: v, steps: steps, pcMask: xOutKey) }
                                         let vel = hocketPassedVelocity(fxVel: fx.vel, destNotes: isNotes, destVelocityAbsolute: xl.velocityAbsoluteResolved, destNotesVelocity: xl.notesVelocityResolved)
                                         let at = pitchCount
-                                        addPitch(v, vel: vel, gate: tradeRecGate[j], notesLayer: isNotes)
+                                        addPitch(v, vel: vel, gate: tradeRecGate[j], notesLayer: isNotes, rank: tradeRecRank[j])   // the traded set keeps the SENDER's pool rank
                                         if pitchCount > at {
                                             polyBeats[at] = tradeRecPoly[j]
                                             notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * at))) | (((tradeRecSlotBits >> UInt64(4 * j)) & 0xF) << UInt64(4 * at))
