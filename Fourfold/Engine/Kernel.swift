@@ -88,6 +88,7 @@ final class Kernel {
     func euclideousLockSnapSeq() -> UInt32 { router.lockSnapSeqPacked }
     /// EMITTER RATCHET §3.10: each output's pattern index at its most recent emitter hit, one byte per output A…D (0xFF = none yet) — a plain word the render thread rewrites and the page's 30 Hz poll reads, like the lock snap seq.
     func emitterIndexPacked() -> UInt32 { router.emitterIndexLive }
+    func emitterVelIndexPacked() -> UInt32 { router.emitterVelIndexLive }   // VELOCITY tab (2026-11-03): each output's velocity-pattern index for the strip's current slot
     func euclideousAllNotesOffRequest() { euclideousAllNotesOffRequested = true }
     // MULTI-SCENE: a clean one-shot voice flush on a scene SWITCH — closes the old scene's sounding notes so
     // the new scene starts clean (a generation change alone doesn't flush). Distinct from panic (not hang-logged).

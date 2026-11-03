@@ -724,11 +724,14 @@ struct EuclideousPage: View {
     let hocketRules: [HocketRule]
     // EMITTER RATCHET (RATCH tab ferry, 2026-10-28): the document's four output ratchets (all defaults when nothing is stored). Every edit goes through `onEditEmitterRatchet`, which the VC turns into one document write + one republish.
     let emitterRatchets: EmitterRatchetSet
+    // VELOCITY tab (2026-11-03): the document's four per-output velocity accents (edited via `onEditEmitterVelocity`). Declared beside the ratchets so the init's call order matches.
+    let emitterVelocities: EmitterVelocitySet
     // MUTE TAB (2026-11-02): the document's four per-output mutes (the MUTE tab edits these via `onEditOutputMute`). All defaults = nothing muted.
     let outputMutes: EuclideousOutputMutes
     let hocketLive: HocketLiveModel      // HOCKET §8: the count of each lit rule as the Router last published it — read ONLY by leaf views that observe it
     let rollLive: NoteRollLive           // CARD BACKS §5: each part's recent notes and when each output last took one — read ONLY inside the card backs' own frame clocks
     let emitterLive: EmitterRatchetLive  // RATCH tab §3.10: each output's current pattern index — observed ONLY by the RATCH tab's own leaf views
+    let emitterVelLive: EmitterRatchetLive  // VELOCITY tab (2026-11-03): each output's velocity-pattern index — observed ONLY by the VELOCITY tab's leaf views (declared here so the call order matches `emitterVelocities` beside it)
     let lanesSeqStep: Int
     let riffsSeqStep: Int
     // RIFF-CELL WIPES (Paul 2026-10-10 ferry) — each lane's latest wipe-eligible event (column/rank >= 0).
@@ -833,6 +836,9 @@ struct EuclideousPage: View {
     let onEditEmitterRatchet: (Bool, @escaping (inout EmitterRatchetSet) -> Void) -> Void
     /// A value drag on the RATCH tab ended (or was cancelled): the page drops its undo step if the drag ended exactly where it began (UNDO-6's rule for checkpoint funnels).
     let onEmitterRatchetDragEnd: () -> Void
+    // VELOCITY tab (2026-11-03): the edit / drag-end funnels (same shape as the RATCH tab's). The data (`emitterVelocities`) and live (`emitterVelLive`) props are declared beside their ratchet siblings above, so the init's call order matches.
+    let onEditEmitterVelocity: (Bool, @escaping (inout EmitterVelocitySet) -> Void) -> Void
+    let onEmitterVelocityDragEnd: () -> Void
     /// MUTE TAB (2026-11-02): one write + one republish — `newStep: true` opens an undo step (a pass ◀/▶ tap, the touch-down cell of a stroke), `false` writes into the step already open (the rest of the stroke).
     let onEditOutputMute: (Bool, @escaping (inout EuclideousOutputMutes) -> Void) -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
@@ -6746,7 +6752,7 @@ struct EuclideousPage: View {
     private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat, fxAvailable: Bool = false, portrait: Bool = false) -> some View {
         // FX TAB: offered in both orientations since the PAGE LAYOUT ferry (2026-10-19) — in portrait this panel sits BESIDE the riff panel at the same width, so each FX
         // column takes the riff grid's column width and the same offset from its own panel's leading edge (§10.3, by construction); `fxAvailable` stays a parameter.
-        let tab: EuclideousSeqTab = ((sequencerTab == .fx || sequencerTab == .ratch) && !fxAvailable) || sequencerTab == .mix ? .lanes : sequencerTab   // CARD BACKS §8: MIX is retired — a stray .mix shows LANES (RATCH, like FX, needs the wide panel)
+        let tab: EuclideousSeqTab = ((sequencerTab == .fx || sequencerTab == .ratch || sequencerTab == .velocity) && !fxAvailable) || sequencerTab == .mix ? .lanes : sequencerTab   // CARD BACKS §8: MIX is retired — a stray .mix shows LANES (RATCH / VELOCITY, like FX, need the wide panel)
         let innerW = max(1, maxWidth - sp8 * 2)
         let innerH = max(1, maxHeight - sp8 * 2)
         let tabBody = euclideousSeqTabBodySize(panelWidth: maxWidth, panelHeight: maxHeight)   // LANES' and FX's area: one function, shared with the page's floor list
@@ -6772,6 +6778,8 @@ struct EuclideousPage: View {
                     .opacity(riffPoly ? 0.3 : 1).allowsHitTesting(!riffPoly).accessibilityHidden(riffPoly)
             case .ratch:   // RATCH tab ferry (2026-10-28): a per-output Euclid ratchet — four cards A–D
                 ratchTab(width: tabBody.width, height: tabBody.height, portrait: portrait)
+            case .velocity:   // VELOCITY tab (2026-11-03): a per-output velocity accent — four cards A–D
+                velocityTab(width: tabBody.width, height: tabBody.height, portrait: portrait)
             case .riffs:   // hidden (unreachable from the tab row) — kept so its code stays compiled
                 VStack(spacing: sp4) {
                     sequencerRiffsGrid(width: innerW, height: gridH).frame(width: innerW, height: gridH)
@@ -6814,7 +6822,7 @@ struct EuclideousPage: View {
                     resetPopupLane = nil   // §6: "switching tabs closes it"
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(tab == .fx ? "FX" : (tab == .ratch ? emitterRatchetTabAccessibilityLabel() : tab.label.capitalized))   // §14.1: the tab is read "FX", not "Fx"; §8.1 (RATCH): "Ratchet"
+                .accessibilityLabel(tab == .fx ? "FX" : (tab == .ratch ? emitterRatchetTabAccessibilityLabel() : (tab == .velocity ? emitterVelocityTabAccessibilityLabel() : tab.label.capitalized)))   // §14.1: the tab is read "FX", not "Fx"; §8.1 (RATCH): "Ratchet"; VELOCITY: "Velocity"
                 .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)   // SwiftUI has no tab trait; button + selected, like the lane tabs
             }
         }
@@ -6889,6 +6897,15 @@ struct EuclideousPage: View {
         return EuclideousStackBreak {
             AnyView(EuclideousRatchetPanel(layout: layout, ratchets: emitterRatchets, accents: laneAccents, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
                                            strikes: { (0..<4).map { feed.strikes(lane: $0) } }, live: emitterLive, onEdit: onEditEmitterRatchet, onDragEnd: onEmitterRatchetDragEnd)
+                .frame(width: width, height: height, alignment: .topLeading))
+        }
+    }
+    /// THE VELOCITY TAB (2026-11-03): four cards A–D, each a toggle, a 16-slot strip of that output's Euclid pattern and five stacked cells (STEPS · HITS · OFFSET · HIT VEL · MISS VEL). Shares the RATCH layout (cellCount 5);
+    /// the painter (VelocityPanelPainter.swift) paints the pure functions. Every edit is one document write + one republish through `onEditEmitterVelocity`.
+    private func velocityTab(width: CGFloat, height: CGFloat, portrait: Bool) -> some View {
+        let layout = emitterRatchetLayout(bodySize: CGSize(width: width, height: height), portrait: portrait, cellCount: EmitterVelocityField.allCases.count)
+        return EuclideousStackBreak {
+            AnyView(EuclideousVelocityPanel(layout: layout, velocities: emitterVelocities, accents: laneAccents, live: emitterVelLive, onEdit: onEditEmitterVelocity, onDragEnd: onEmitterVelocityDragEnd)
                 .frame(width: width, height: height, alignment: .topLeading))
         }
     }

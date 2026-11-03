@@ -13,6 +13,8 @@ final class FourfoldTelemetry {
     let rolls = NoteRollLive()
     /// RATCH tab §3.10: each output's pattern index at its latest emitter hit (the RATCH tab's strikes' current slot — observed by that tab's leaf views only).
     let emitters = EmitterRatchetLive()
+    /// VELOCITY tab (2026-11-03): each output's velocity-pattern index (the VELOCITY tab strip's current slot) — reuses the ratchet's live class, a second instance, observed by that tab only.
+    let emitterVel = EmitterRatchetLive()
     // The BEAT anchor (4 Hz): the playheads extrapolate the beat from (anchor, anchorAt) at 30 fps, so it only needs re-anchoring periodically.
     var beatAnchor = 0.0
     var beatAnchorAt = Date()

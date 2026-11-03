@@ -7,16 +7,17 @@ import CoreGraphics
 
 // MARK: - the tab strip (§4.1)
 
-/// The tab strip's widths: RATCH is a fixed 80; the other tabs share what is left equally, sp4 apart. (The old `euclideousSeqTabWidth` — an equal split — is kept for the callers and tests that still use it.)
+/// The tab strip's widths: RATCH and VELOCITY are a fixed 80 each; the other tabs (MUTE, FX) share what is left equally, sp4 apart. (The old `euclideousSeqTabWidth` — an equal split — is kept for the callers and tests that still use it.)
 func euclideousSeqTabWidths(tabs: [EuclideousSeqTab], contentWidth: CGFloat) -> [CGFloat] {
     guard !tabs.isEmpty else { return [] }
+    func isFixed(_ t: EuclideousSeqTab) -> Bool { t == .ratch || t == .velocity }   // VELOCITY tab (2026-11-03): a fixed-width tab beside RATCH
     let gaps = CGFloat(tabs.count - 1) * 4
-    let fixed = tabs.filter { $0 == .ratch }.count
-    let ratchW: CGFloat = 80
+    let fixed = tabs.filter { isFixed($0) }.count
+    let fixedW: CGFloat = 80
     let others = tabs.count - fixed
-    let rest = max(0, contentWidth - gaps - CGFloat(fixed) * ratchW)
+    let rest = max(0, contentWidth - gaps - CGFloat(fixed) * fixedW)
     let each = others > 0 ? rest / CGFloat(others) : 0
-    return tabs.map { $0 == .ratch ? ratchW : each }
+    return tabs.map { isFixed($0) ? fixedW : each }
 }
 
 // MARK: - the layout (§4.2–§4.8)
@@ -58,7 +59,8 @@ struct EmitterRatchetLayout: Equatable {
 
 /// §4.2–§4.8. `bodySize` is the tab body (the panel less its padding, tab row and gap). Landscape: cards 60 tall, 6 apart, from y 3. Portrait: the four cards share the height equally (6 apart, 35 above in panel terms and the panel's
 /// own 8 below), the readout row taking whatever the 20 pt strip leaves (never under 24). A landscape card that cannot be 60 shares the height the same way.
-func emitterRatchetLayout(bodySize: CGSize, portrait: Bool) -> EmitterRatchetLayout {
+/// `cellCount` is the number of readout cells (6 for the RATCH tab; the VELOCITY tab reuses this layout with 5). Everything else — the cards, toggle, strip and slots — is shared.
+func emitterRatchetLayout(bodySize: CGSize, portrait: Bool, cellCount: Int = EmitterRatchetField.allCases.count) -> EmitterRatchetLayout {
     typealias M = EmitterRatchetMetrics
     let w = max(0, bodySize.width)
     let shared = (bodySize.height - M.top - 3 * M.gap) / 4
@@ -73,9 +75,9 @@ func emitterRatchetLayout(bodySize: CGSize, portrait: Bool) -> EmitterRatchetLay
     let slots = (0..<M.slotCount).map { CGRect(x: colX + CGFloat($0) * (slotW + M.slotGap), y: M.padVertical, width: slotW, height: M.stripHeight) }
     let readoutY = M.padVertical + M.stripHeight + M.stripGap
     let readoutH = max(M.minReadoutHeight, innerH - M.stripHeight - M.stripGap)
-    let cellCount = EmitterRatchetField.allCases.count               // RESTART (2026-11-03): six cells now — STEPS · HITS · OFFSET · CHANCE · STRIKES · RESTART
-    let cellW = colW / CGFloat(cellCount)
-    let cells = (0..<cellCount).map { CGRect(x: colX + CGFloat($0) * cellW, y: readoutY, width: cellW, height: readoutH) }
+    let n = max(1, cellCount)                                        // RATCH: six cells (STEPS · HITS · OFFSET · CHANCE · STRIKES · RESTART); VELOCITY: five (STEPS · HITS · OFFSET · HIT VEL · MISS VEL)
+    let cellW = colW / CGFloat(n)
+    let cells = (0..<n).map { CGRect(x: colX + CGFloat($0) * cellW, y: readoutY, width: cellW, height: readoutH) }
     return EmitterRatchetLayout(cards: cards, toggle: toggle, strip: strip, slots: slots, cells: cells, cardHeight: h)
 }
 

@@ -152,7 +152,7 @@ struct FourfoldRootView: View {
                                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff, riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff ?? EuclideousPolyRiff(),
                                                riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
-                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, outputMutes: euclideousOutputMutes, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters,
+                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, emitterVelocities: emitterVelocities, outputMutes: euclideousOutputMutes, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters, emitterVelLive: meters.emitterVel,
                                                lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                                wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                                pulseFeed: meters.pulse, pulseLevel: pulseLevel,
@@ -365,6 +365,17 @@ struct FourfoldRootView: View {
                                                    publish()
                                                },
                                                onEmitterRatchetDragEnd: { euclideousUndo.dropLastStepIfUnchanged(current: euclideousSnapshot()) },   // UNDO-6: a drag that wandered off and came back is not a step
+                                               onEditEmitterVelocity: { newStep, mutate in   // VELOCITY tab (2026-11-03): one write + one republish, exactly like the emitter ratchets
+                                                   var r = emitterVelocities
+                                                   mutate(&r)
+                                                   if newStep { m.checkpoint.newBurst() }
+                                                   guard r != emitterVelocities else { return }
+                                                   if m.checkpoint.take(changed: true) { euclideousRecordUndo(coalesceKey: nil) }
+                                                   emitterVelocities = r
+                                                   au?.editDocument { $0.euclideousEmitterVelocities = r }
+                                                   publish()
+                                               },
+                                               onEmitterVelocityDragEnd: { euclideousUndo.dropLastStepIfUnchanged(current: euclideousSnapshot()) },
                                                onEditOutputMute: { newStep, mutate in   // MUTE TAB (2026-11-02): one write + one republish, like the emitter ratchets; a cell stroke coalesces into one step via the checkpoint burst
                                                    var o = euclideousOutputMutes
                                                    mutate(&o)
@@ -883,6 +894,7 @@ struct FourfoldRootView: View {
     let hl = au.pollHocketLive(); meters.hocket.update(counts: hl.counts, running: hl.running)   // HOCKET §8: the lit rules' counts (the pop-up and the lane cards read them through leaf views)
     meters.rolls.poll(records: au.pollNoteRoll(), beat: meters.beat, playing: d.effectivePlaying)   // CARD BACKS §5: the rolls and jack lights, from the same 30 Hz poll
     meters.emitters.update(packed: au.pollEmitterIndexPacked(), running: d.effectivePlaying)   // RATCH tab §3.10: each output's current pattern index, from the same 30 Hz poll (cleared while the transport is not running)
+    meters.emitterVel.update(packed: au.pollEmitterVelIndexPacked(), running: d.effectivePlaying)   // VELOCITY tab (2026-11-03): each output's velocity-pattern index, same poll
     let ss = au.pollEuclideousSourceStatus()   // SOURCES STACK: lane-1 source status on the existing 30 Hz poll (no new timer)
     if ss != euclideousSourceStatus { euclideousSourceStatus = ss }
     let phs = au.pollEuclideousPoolHoldStatus()   // POOL HOLD (FREEZE): each lane's running hold (dim + draining bar), same 30 Hz poll

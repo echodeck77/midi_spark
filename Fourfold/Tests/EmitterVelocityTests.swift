@@ -118,6 +118,28 @@ final class EmitterVelocityTests: XCTestCase {
     func testEveryFactoryPresetCarriesNoVelocities() {
         for (name, make) in EuclideousPresets.all { XCTAssertEqual(make().euclideousEmitterVelocitiesResolved, EmitterVelocitySet(), "\(name): a preset without the field loads them all off") }
     }
+    // MARK: - the UI pure functions (value text, bar share, drag, VoiceOver)
+
+    func testValueTextBarShareDragAndVoiceOver() {
+        let v = EmitterVelocity(on: true, steps: 8, hits: 3, offset: 2, hitVel: 20, missVel: -15)
+        XCTAssertEqual(EmitterVelocityField.allCases.map { emitterVelocityValueText($0, v) }, ["8", "3", "+2", "+20", "\u{2212}15"])
+        XCTAssertEqual(emitterVelocityValueText(.hitVel, EmitterVelocity(hitVel: 0)), "0")
+        // the bipolar bar: signed share −1…+1 for HIT VEL / MISS VEL, 0…1 for the pattern fields
+        XCTAssertEqual(emitterVelocityBarShare(.hitVel, EmitterVelocity(hitVel: 63)), 1, accuracy: 1e-9)
+        XCTAssertEqual(emitterVelocityBarShare(.missVel, EmitterVelocity(missVel: -63)), -1, accuracy: 1e-9)
+        XCTAssertEqual(emitterVelocityBarShare(.hitVel, EmitterVelocity(hitVel: 0)), 0, accuracy: 1e-9)
+        XCTAssertEqual(emitterVelocityBarShare(.steps, EmitterVelocity(steps: 16)), 1)
+        // the drag: HIT VEL / MISS VEL move 5 per 3 pt, STEPS one per 10 pt; clamps, never wraps
+        XCTAssertEqual(emitterVelocityDragValue(.hitVel, start: EmitterVelocity(hitVel: 0), travelUp: 9).hitVel, 15, "3 steps of 5 in 9 pt")
+        XCTAssertEqual(emitterVelocityDragValue(.hitVel, start: EmitterVelocity(hitVel: 0), travelUp: -9).hitVel, -15)
+        XCTAssertEqual(emitterVelocityDragValue(.hitVel, start: EmitterVelocity(hitVel: 0), travelUp: 999).hitVel, 63, "clamped at the top")
+        XCTAssertEqual(emitterVelocityDragValue(.steps, start: EmitterVelocity(steps: 8), travelUp: 25).steps, 10)
+        XCTAssertEqual(emitterVelocityCellLabel(output: 0, .hitVel, v), "Emitter A hit velocity plus 20")
+        XCTAssertEqual(emitterVelocityCellLabel(output: 1, .missVel, v), "Emitter B miss velocity minus 15")
+        XCTAssertEqual(emitterVelocityCellLabel(output: 2, .offset, v), "Emitter C offset plus 2")
+        XCTAssertEqual(emitterVelocityStripLabel(output: 0, v), "Emitter A pattern, 3 of 8, hit velocity plus 20, miss velocity minus 15")
+        XCTAssertEqual(emitterVelocityTabAccessibilityLabel(), "Velocity"); XCTAssertEqual(emitterVelocityToggleLabel(output: 3), "Velocity on emitter D")
+    }
     func testTheSnapshotsConfigCarriesTheMaskAndFields() {
         var set = EmitterVelocitySet(); set[1] = EmitterVelocity(on: true, steps: 5, hits: 2, offset: 3, hitVel: 30, missVel: -15)
         let snap = EmitterVelocitySnap(set)
