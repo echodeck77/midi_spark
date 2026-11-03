@@ -74,6 +74,8 @@ struct EuclideousSettingsSheet: View {
     let canonEntry: CanonEntry
     let onSetCanonEntry: (CanonEntry) -> Void
 
+    // MIX ROWS (2026-11-03): the dev-only MIX STRIP choice (a rig setting in UserDefaults, read by the page too).
+    @AppStorage(euclideousMixStripModeKey) private var mixStripModeRaw: String = EuclideousMixStripMode.fit.rawValue
     @State private var portsNaturalHeight: CGFloat = 0
     @State private var midiInNaturalHeight: CGFloat = 0   // §6.3: measured only in DEBUG (the CLASHES block makes MIDI IN the tallest tab)
     @State private var clockNaturalHeight: CGFloat = 0    // RATCH tab §7.4: measured only in DEBUG (the FX COUNTS block grows CLOCK)
@@ -425,6 +427,22 @@ struct EuclideousSettingsSheet: View {
             .accessibilityAdjustableAction { dir in
                 let all = CanonEntry.allCases, i = all.firstIndex(of: canonEntry) ?? 0
                 onSetCanonEntry(all[max(0, min(all.count - 1, i + (dir == .increment ? 1 : -1)))])
+            }
+            #endif
+            #if DEBUG
+            // MIX ROWS (2026-11-03): dev-only MIX STRIP — FIT spreads each lane's steps across its rhythm strip; ALIGNED puts every lane on one 16-column grid so steps line up down the panel (a lane over 16 steps falls back to FIT).
+            // A rig setting kept in UserDefaults like the PULSE level: not in a session or a preset, no undo. Release builds always FIT.
+            block(name: "MIX STRIP") {
+                segmented([("FIT", 48), ("ALIGNED", 72)], selected: mixStripModeRaw == EuclideousMixStripMode.aligned.rawValue ? 1 : 0) { i in
+                    mixStripModeRaw = (i == 0 ? EuclideousMixStripMode.fit : EuclideousMixStripMode.aligned).rawValue
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Mix strip")
+            .accessibilityValue(mixStripModeRaw == EuclideousMixStripMode.aligned.rawValue ? "ALIGNED" : "FIT")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAdjustableAction { _ in
+                mixStripModeRaw = (mixStripModeRaw == EuclideousMixStripMode.aligned.rawValue ? EuclideousMixStripMode.fit : EuclideousMixStripMode.aligned).rawValue
             }
             #endif
             // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows and MIX pads. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.

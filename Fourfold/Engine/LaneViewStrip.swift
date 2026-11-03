@@ -26,14 +26,14 @@ enum EuclideousPageTab: Int, CaseIterable, Equatable {
 
 /// What a tap on the strip does: nothing when the segment is already selected; otherwise the new tab, which ALWAYS
 /// turns the cards over (the flip). Paul, 2026-10-30: MIX lives in the one segmented control now, and every tab
-/// change — front → front as well as front ↔ MIX — uses the same card flip, so `flips` is always true on a change.
+/// change — front → front as well as front ↔ MIX — used the same card flip. MIX ROWS (2026-11-03): MIX is a panel of its own now, not the cards' backs, so a change to or from MIX is instant (no flip, Paul's call); front → front still flips.
 struct EuclideousPageTabChange: Equatable {
     var tab: EuclideousPageTab
     var flips: Bool
 }
 func euclideousPageTabTap(current: EuclideousPageTab, tapped: EuclideousPageTab) -> EuclideousPageTabChange? {
     guard tapped != current else { return nil }
-    return EuclideousPageTabChange(tab: tapped, flips: true)
+    return EuclideousPageTabChange(tab: tapped, flips: current != .mix && tapped != .mix)
 }
 /// Which tab a random card's selector starts on when random mode begins: the page tab, or RHYTHM when the page tab is POOL, ANSWER or MIX (random mode throws RHYTHM, RIFF or NOTES).
 func euclideousRandomStartTab(_ tab: EuclideousPageTab) -> EuclideousRandomTab {

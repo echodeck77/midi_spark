@@ -395,39 +395,6 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(value(app.el("Ratchet on emitter A")), "on")
     }
 
-    /// CARD BACKS (2026-10-28): the header's PATTERN | MIX switch turns all four cards over; each back carries a riff row and a notes row whose controls reach the engine — the part's switch, an output jack, the PITCH pad and the VEL/GATE pad.
-    func testTheCardSwitchTurnsTheLaneCardsToTheirBacksAndTheControlsEdit() {
-        let app = XCUIApplication.fresh()
-        XCTAssertTrue(app.buttons["Rhythm"].isSelected, "the strip opens on RHYTHM and never on MIX")
-        XCTAssertFalse(app.buttons["Mix"].isSelected)
-        need(app.buttons["Mix"], "the strip's MIX segment").tap()
-        need(app.el("Lane 1 mix"), "lane 1's back")
-        XCTAssertTrue(app.buttons["Mix"].isSelected)
-        let jackB = need(app.el("Riff to output B, empty"), "lane 1's riff jack B")
-        jackB.tap()
-        need(app.el("Riff to output B, plugged in"), "the jack plugs in")
-        jackB.tap()
-        need(app.el("Riff to output B, empty"), "…and unplugs again")
-        need(app.el("Riff, on"), "the riff's label switch").tap()
-        need(app.el("Riff, off"), "the riff goes off").tap()
-        need(app.el("Riff, on"), "…and the same label turns it back on (there is no turn-on button)")
-        XCTAssertFalse(app.el("Turn on riff").exists, "no turn-on pill")
-        let pitch = app.els(prefix: "Riff pitch").element(boundBy: 0)
-        need(pitch, "the riff's PITCH pad")
-        XCTAssertEqual(pitch.value as? String, "octave 0, transpose 0")
-        pitch.coordinate(withNormalizedOffset: CGVector(dx: 0.89, dy: 0.06)).tap()           // the top-right detent: octave +2, transpose +7
-        XCTAssertEqual(pitch.value as? String, "octave +2, transpose +7", "a tap writes the detent under the finger")
-        pitch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()        // a double tap sets both back to 0
-        XCTAssertEqual(pitch.value as? String, "octave 0, transpose 0", "a double tap resets both")
-        let vel = app.els(prefix: "Riff velocity").element(boundBy: 0)
-        need(vel, "the riff's XY pad")
-        let before = vel.label
-        vel.swipeUp()
-        XCTAssertNotEqual(vel.label, before, "an adjustment moves the velocity")
-        app.buttons["Rhythm"].tap()
-        need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the fronts again, on RHYTHM")
-    }
-
     /// A small window (AUM's minimized plugin window, Stage Manager, Split View) must stay the live, interactive page — there is no "resize to continue" screen any more.
     func testASmallWindowStaysLiveAndInteractive() {
         for size in ["480x320", "440x700"] {
@@ -440,6 +407,90 @@ final class FourfoldTapTests: XCTestCase {
             XCTAssertTrue(app.buttons["FX"].isSelected, "tapping FX selects it at \(size)")
             app.terminate()
         }
+    }
+
+    // MARK: MIX ROWS (2026-11-03)
+
+    /// MIX swaps the four lane cards for the panel (four lane groups and the emitters) and a front tab swaps them back; the panel's controls read their values aloud. (That the swap has no flip is pinned by `euclideousPageTabTap`.)
+    func testSelectingMixSwapsTheCardsForThePanelAndBack() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertEqual(app.els(prefix: "Riff velocity").count, 0, "the lane cards are showing")
+        app.buttons["Mix"].tap()
+        need(app.els(prefix: "Riff velocity").firstMatch, "the panel's riff VEL slider", timeout: 1.5)
+        for n in 1...4 { need(app.el("Lane \(n)"), "lane \(n)'s band") }
+        for o in ["A", "B", "C", "D"] { need(app.els(prefix: "Output \(o), ").firstMatch, "emitter \(o)") }
+        XCTAssertTrue(app.buttons["Mix"].isSelected)
+        app.buttons["Rhythm"].tap()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.els(prefix: "Riff velocity").firstMatch)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 2.5), .completed, "the cards return and the panel is gone")
+    }
+    /// A fresh session routes lane n to output n from BOTH rows; a tap on a row's A–D toggle is one undo step; the label carries the state.
+    func testTheMixPanelsOutputTogglesRouteAPartAndUndoPutsItBack() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        Thread.sleep(forTimeInterval: 1)
+        app.buttons["Mix"].tap()
+        func inLane(_ n: Int, _ label: String) -> XCUIElement { app.el("Lane \(n)").descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch }
+        need(inLane(1, "Riff to A, on"), "lane 1's riff leaves through A"); need(inLane(1, "Notes to A, on"), "…and its notes too")
+        need(inLane(2, "Notes to B, on"), "lane 2's notes leave through B")
+        XCTAssertFalse(inLane(2, "Notes to A, on").exists)
+        need(inLane(2, "Notes to A, off"), "lane 2's notes do not leave through A yet").tap()
+        need(inLane(2, "Notes to A, on"), "after the tap lane 2's notes leave through A as well")
+        need(inLane(2, "Notes to B, on"), "…and still through B")
+        app.buttons["Undo"].tap()
+        need(inLane(2, "Notes to A, off"), "one undo step takes A away again")
+        inLane(3, "Riff to C, on").tap(); need(inLane(3, "Riff to C, off"), "tapping the only output leaves the part routed nowhere (silent)")
+        app.buttons["Undo"].tap(); need(inLane(3, "Riff to C, on"), "undo")
+    }
+    /// The part's toggle switches it on or off (the same field and undo as the tabs' switch), through the panel.
+    func testTheMixPanelsPartToggleSwitchesThePartAndUndoReturnsIt() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        Thread.sleep(forTimeInterval: 1)
+        app.buttons["Mix"].tap()
+        func inLane(_ n: Int, _ label: String) -> XCUIElement { app.el("Lane \(n)").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch }
+        let riff = need(inLane(3, "Riff, on"), "lane 3's riff toggle"); riff.tap()
+        need(inLane(3, "Riff, off"), "after the tap the part is off")
+        app.buttons["Undo"].tap(); need(inLane(3, "Riff, on"), "one undo step")
+        need(inLane(3, "Notes, off"), "lane 3's notes start off").tap(); need(inLane(3, "Notes, on"), "…and switch on")
+        app.buttons["Undo"].tap(); need(inLane(3, "Notes, off"), "undo")
+    }
+    /// The sliders: a horizontal drag moves a value relative to where it started and is ONE undo step; TRANS snaps to whole steps; a vertical drag that starts on a tile moves nothing; a double tap sets the default.
+    func testTheMixPanelsSlidersDragRelativeSnapUndoAsOneStepAndDoubleTapToDefault() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        Thread.sleep(forTimeInterval: 1)
+        app.buttons["Mix"].tap()
+        func tile(_ prefix: String) -> XCUIElement { app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch }
+        let trans = need(tile("Riff transpose"), "lane 1's riff TRANS tile")
+        XCTAssertEqual(trans.label, "Riff transpose 0")
+        // 0.3 → 0.5 of a 62-pt tile is 12.4 pt of a 50-pt track = 3.5 of 14 steps (the thumb moves in whole steps)
+        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).press(forDuration: 0.05, thenDragTo: trans.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        let moved = tile("Riff transpose").label
+        XCTAssertTrue(["Riff transpose +3", "Riff transpose +4"].contains(moved), "a 12 pt drag is 3–4 whole steps, got \(moved)")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(tile("Riff transpose").label, "Riff transpose 0", "the whole drag was ONE undo step")
+        // a vertical drag starting on the tile moves nothing
+        let vel = need(tile("Riff velocity"), "the riff VEL tile"); XCTAssertEqual(vel.label, "Riff velocity 100")
+        vel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).press(forDuration: 0.05, thenDragTo: vel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)))
+        XCTAssertEqual(tile("Riff velocity").label, "Riff velocity 100", "a vertical drag does not move the value")
+        // a drag to the left lowers it, a double tap puts it back at 100
+        vel.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).press(forDuration: 0.05, thenDragTo: vel.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)))
+        let lowered = tile("Riff velocity").label
+        XCTAssertNotEqual(lowered, "Riff velocity 100", "the drag lowered VEL: \(lowered)")
+        tile("Riff velocity").doubleTap()
+        XCTAssertEqual(tile("Riff velocity").label, "Riff velocity 100", "a double tap sets the default")
+    }
+    /// Random mode started from MIX shows the cards (their random faces) and finishing returns to the panel.
+    func testRandomModeStartedFromMixShowsTheCardsAndReturnsToThePanel() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        Thread.sleep(forTimeInterval: 1)
+        app.buttons["Mix"].tap()
+        need(app.els(prefix: "Riff velocity").firstMatch, "the panel")
+        app.buttons["Random mode"].tap()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.els(prefix: "Riff velocity").firstMatch)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 2.5), .completed, "random mode shows the cards, not the panel")
+        app.buttons["Random mode"].tap()
+        need(app.els(prefix: "Riff velocity").firstMatch, "finishing random mode returns to the MIX panel", timeout: 2.5)
+        XCTAssertTrue(app.buttons["Mix"].isSelected)
     }
 
     // SOURCES STACK ferry (2026-10-26): the note-source radio became a 3-light SOURCES control opening a pop-up of

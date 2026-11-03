@@ -1990,3 +1990,11 @@ _Done this thread (moved off the list): /btw ①②③ · adoption · strips ses
 - [ ] (declared limit, not changed) The sources panel's POOL block, the header's CHORDS pip, the CHORDS row's chord name and the CHORDS popup's pool strip show the LIVE pool = grid 1; a lane on CHORD 2 is visible only in its own NOW row. Decide whether the popup's pool strip / chord-name title should follow the EDITED tab's grid once a lane uses it.
 - [ ] (judgment call) `activeChordSet` still records an undo step when the edit tab changes although it no longer changes sound — kept as an undo step (it is a saved document field). Drop it from the undo list if it feels noisy.
 - [ ] (golden) No golden document pins CHORD 2's wire bytes (the unit tests pin its pool per beat and the alloc audit exercises it); add a `GOLDEN CHORDS 2` document if a byte-level oracle for grid 2 is wanted.
+
+## MIX ROWS follow-ups (2026-11-03)
+- [ ] (spec vs code, decide) The strip numbers a hit by the riff column the card's chip shows; the spec's mockup shows 1, 2, 3 in hit order. One-line switch in `euclideousMixStripSteps(labels:)` (the call in `EuclideousMixBandCanvas`).
+- [ ] (declared limit) A hocket-passed note shows in the RECEIVING part's roll and lights the receiving lane's chip at the source's rank; the spec's 7.4 wants the source roll to draw it too — needs a second feed record per pass (`rank` + source part).
+- [ ] (declared limit) The lane-mute (LANES grid, UI retired) dim and the solo dim on the TOP row are not applied; only what is below the top row dims under a solo, as the spec says.
+- [ ] (look) The part glyph's OFF look is the existing #AAB0BA outline; the spec says a lane100 outline — one constant in `TabGlyphPainter`, which the tab strip also draws.
+- [ ] (audit) `textClipped` on the MIX slider captions / part toggle / SOLO is allow-listed as a false positive; confirm on device and drop the entries if the audit stops flagging.
+- [ ] (tests) The retired card-back views, `euclideousCardBackLayout` and their `CardBackTests` stay compiled; delete them in a later cleanup ferry if nobody wants the backs again.

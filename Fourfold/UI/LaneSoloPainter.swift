@@ -27,6 +27,8 @@ struct EuclideousSoloButton: View {
     let accent: Color
     let latched: Bool
     let heldLook: Bool
+    /// MIX ROWS (2026-11-03): the tile at another frame (120 × 24 on the MIX panel's top row); the radius scales with its height. The default is the card's own 44 × 44, byte for byte.
+    var tile = CGSize(width: EuclideousSoloPalette.size, height: EuclideousSoloPalette.size)
     typealias P = EuclideousSoloPalette
 
     var body: some View {
@@ -36,10 +38,10 @@ struct EuclideousSoloButton: View {
             .font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
             .foregroundColor(look == .off ? P.offLabel : P.ink)
             .lineLimit(1).truncationMode(.tail)
-            .frame(width: P.size, height: P.size)
-            .background(RoundedRectangle(cornerRadius: P.radius).fill(fill))
+            .frame(width: tile.width, height: tile.height)
+            .background(RoundedRectangle(cornerRadius: P.radius * tile.height / P.size).fill(fill))
             .overlay {
-                if look == .off { RoundedRectangle(cornerRadius: P.radius).inset(by: 0.5).stroke(P.offBorder, lineWidth: 1) }
+                if look == .off { RoundedRectangle(cornerRadius: P.radius * tile.height / P.size).inset(by: 0.5).stroke(P.offBorder, lineWidth: 1) }
             }
             .transaction { $0.animation = nil }   // §2.4: at once — the card's own animations never reach it
     }
@@ -52,6 +54,9 @@ struct EuclideousSoloPressable: View {
     let lane: Int
     let accent: Color
     let latched: Bool
+    /// MIX ROWS: the tile's frame and its touch frame (from the tile's top); the card's own call passes neither.
+    var tile = CGSize(width: EuclideousSoloPalette.size, height: EuclideousSoloPalette.size)
+    var target: CGSize? = nil
     let onDown: () -> Void
     /// `true` = a tap (flip the latch); `false` = a hold / cancel (leave it). Either way the held bit is cleared — in the SAME update, so a tap never flickers.
     let onUp: (_ latchToggles: Bool) -> Void
@@ -64,7 +69,8 @@ struct EuclideousSoloPressable: View {
     private func now() -> Double { ProcessInfo.processInfo.systemUptime }
 
     var body: some View {
-        EuclideousSoloButton(accent: accent, latched: latched, heldLook: heldLook)
+        EuclideousSoloButton(accent: accent, latched: latched, heldLook: heldLook, tile: tile)
+            .frame(width: target?.width ?? tile.width, height: target?.height ?? tile.height, alignment: .top)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)

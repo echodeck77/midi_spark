@@ -244,16 +244,22 @@ struct EuclidCompactPlayButton: View {
     let on: Bool
     let accent: Color
     let onToggle: () -> Void
+    /// MIX ROWS (2026-11-03): the tile at another frame — the glyph, its offset and the radius scale with the tile's HEIGHT (44 → 24 for the MIX panel's top row), `target` is the touch frame from the tile's top. The default is the card's own 44 × 44,
+    /// byte for byte.
+    var tile = CGSize(width: 44, height: 44)
+    var target: CGSize? = nil
     var body: some View {
+        let s = tile.height / 44
         ZStack {
             if on {
-                EuclidPlayTriangle().fill(accent).frame(width: 14, height: 18).offset(x: 4)
+                EuclidPlayTriangle().fill(accent).frame(width: 14 * s, height: 18 * s).offset(x: 4 * s)
             } else {
-                Rectangle().fill(accent.opacity(0.4)).frame(width: 13, height: 13).offset(x: 4)
+                Rectangle().fill(accent.opacity(0.4)).frame(width: 13 * s, height: 13 * s).offset(x: 4 * s)
             }
         }
-        .frame(width: 44, height: 44)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
+        .frame(width: tile.width, height: tile.height)
+        .background(RoundedRectangle(cornerRadius: 9 * s).fill(Color(hex: 0x2A2D34)))
+        .frame(width: target?.width ?? tile.width, height: target?.height ?? tile.height, alignment: .top)
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
     }

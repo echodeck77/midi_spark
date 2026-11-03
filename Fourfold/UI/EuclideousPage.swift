@@ -928,6 +928,8 @@ struct EuclideousPage: View {
     // TAB STRIP (2026-10-29): `pageTab` is the ONE tab all four cards show (it replaces the per-card `laneTab` and `cardSide`): any front tab shows the fronts on that tab, MIX shows the backs. `flipFrom` is the tab it left, so a front
     // card keeps showing the OLD front tab through the first half of its turn to MIX. Ephemeral like the tabs before it: a fresh page always opens on RHYTHM, never on MIX.
     @State private var pageTab: EuclideousPageTab = .opening
+    /// MIX ROWS (2026-11-03): the dev-build MIX STRIP choice (FIT | ALIGNED, FIT by default) — a rig setting kept in UserDefaults like the PULSE level, never saved in a session or a preset.
+    @AppStorage(euclideousMixStripModeKey) private var mixStripModeRaw: String = EuclideousMixStripMode.fit.rawValue
     /// POOL ferry 6.3: the lane whose notes the riff grid's label column names (UI state, never saved; starts at lane 1).
     @State private var gridLane = 0
     @State private var flipFrom: EuclideousPageTab? = nil
@@ -1816,10 +1818,16 @@ struct EuclideousPage: View {
             modeFinishLayer(size)
             // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard itself): the device crash named the frames "closure #1
             // in closure #1 in landscapeLayout/portraitLayout" resolving 4 laneCard copies' combined type — erasing here keeps each one independently resolvable.
-            EuclideousStackBreak { AnyView(laneCardSided(0, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
-            EuclideousStackBreak { AnyView(laneCardSided(1, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
-            EuclideousStackBreak { AnyView(laneCardSided(2, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
-            EuclideousStackBreak { AnyView(laneCardSided(3, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
+            // MIX ROWS (2026-11-03): while the page tab is MIX the lane area (the cards' 2 × 2 box) holds the MIX panel instead of the four cards; random mode and lock mode show the cards with their own faces (as for any tab) and finishing
+            // either returns to the panel at once.
+            if mixPanelShows {
+                EuclideousStackBreak { AnyView(mixPanel(size: page.lanes[0].union(page.lanes[3]).size)) }.offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
+            } else {
+                EuclideousStackBreak { AnyView(laneCardSided(0, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
+                EuclideousStackBreak { AnyView(laneCardSided(1, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
+                EuclideousStackBreak { AnyView(laneCardSided(2, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
+                EuclideousStackBreak { AnyView(laneCardSided(3, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
+            }
             modeHint(size)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -2033,6 +2041,7 @@ struct EuclideousPage: View {
         stepsPickerLane = nil; restartEditorLane = nil; notesPickerOpen.removeAll()
         flipFrom = pageTab
         pageTab = change.tab
+        if !change.flips { cardFlipStart = nil }   // MIX ROWS: to or from MIX the view changes at once — a flip still in flight (front → front a moment ago) must not replay over it
         if change.flips {
             cardFlipStart = Date()
             let total = reduceMotion ? EuclideousCardFlipMetrics.reduceMotionDuration : EuclideousCardFlipMetrics.totalDuration
@@ -3348,6 +3357,59 @@ struct EuclideousPage: View {
         }
     }
 
+    // MARK: MIX ROWS (2026-11-03) — the MIX panel
+    /// The panel replaces the cards only while the page tab is MIX and neither mode is showing the cards' own faces.
+    private var mixPanelShows: Bool { pageTab == .mix && !euclideousRandomMode && !euclideousLockMode }
+    private var mixStripMode: EuclideousMixStripMode { EuclideousMixStripMode(rawValue: mixStripModeRaw) ?? .fit }
+    /// One lane's rhythm strip as the card builds it (its own plan, its own live position inputs) — so the panel's strip is the card's strip, calmer.
+    private func mixStripFeed(_ idx: Int) -> EuclideousMixStripFeed {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        let planLane = tradedWithLane(idx)
+        let plan = laneStripPlan(planLane, planLane < lines.count ? phaseLines[planLane] : line)
+        let followIdx = euclideousRhythmBorrowPartner(lane: idx, lines: phaseLines)
+        let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: phaseLines) : nil
+        let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
+        let chains: EuclideousLaneRestartChains = line.usesRestartChains
+            ? EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []), melody: .from(line.restartMelodyPasses ?? []), barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub)
+            : .off
+        let sub = max(0.03125, followEff?.rateBeats ?? euclideousStripDivisionRate(lane: idx, lines: lines).beats)
+        let muteCells = gridView.grid.muteCells, muteUnit = gridView.muteUnitBeats
+        return EuclideousMixStripFeed(legs: plan.legs, n: plan.sweepLength, dir: line.directionResolved, sub: sub, chains: chains.isActive ? chains : nil, lanePlaying: line.enabledResolved,
+                                      mutedAt: muteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: muteCells, unitBeats: muteUnit) })
+    }
+    private func mixPanel(size: CGSize) -> AnyView {
+        let input = EuclideousMixPanelInput(
+            size: size, lines: lines, accents: laneAccents, soloDim: (0..<4).map { soloSilenced($0) },
+            strips: (0..<4).map { mixStripFeed($0) },
+            pools: (0..<4).map { $0 < lanePools.count ? lanePools[$0].notes.map { Int($0) } : [] },
+            poolName: { n, pool in euclideousDisplayNoteName(UInt8(max(0, min(127, n))), source: noteSource, pool: pool.map { UInt8(max(0, min(127, $0))) }, keyRoot: keyRoot, keyType: keyType) },
+            rolls: rollLive, beatAt: { walkTagBeat(at: $0) }, clock: clock, live: pulseLive, stripMode: mixStripMode, hocketRules: hocketRules, hocketLive: hocketLive)
+        let callbacks = EuclideousMixCallbacks(
+            play: { idx, tile, target in
+                let on = idx < lines.count ? lines[idx].enabledResolved : true
+                return AnyView(EuclidCompactPlayButton(on: on, accent: laneAccents[idx % laneAccents.count],
+                                                       onToggle: { edit(idx) { $0.enabled = !($0.enabledResolved) } }, tile: tile, target: target)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Play, lane \(idx + 1)").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(.isButton))   // MIX ROWS §10.2: the first element of a lane; the audit found the card's own tile unlabelled
+            },
+            solo: { idx, tile, target in
+                AnyView(EuclideousSoloPressable(lane: idx, accent: laneAccents[idx % laneAccents.count], latched: (soloMask >> UInt8(idx)) & 1 != 0, tile: tile, target: target,
+                                                onDown: { onSoloDown(idx) }, onUp: { onSoloUp(idx, $0) }))
+            },
+            lockBadge: { lockBadgeView($0) },
+            editStep: { idx, newStep, mutate in editStep(idx, newStep, mutate) },
+            toggleOn: { idx, part in cardBackToggle(idx, part) },
+            toggleOut: { idx, part, o in
+                editStep(idx, true) { l in
+                    // a mask equal to the lane's own output is stored as NO mask, so tapping an output back leaves the document as it was (and a preset that stores no routing stays that way)
+                    let own = UInt8(1) << UInt8(max(0, min(3, idx)))
+                    if part == .riff { let m = euclideousJackToggle(mask: l.riffOutMaskResolved(lane: idx), output: o); l.riffOutMask = m == own ? nil : m }
+                    else { let m = euclideousJackToggle(mask: l.notesOutMaskResolved(lane: idx), output: o); l.notesOutMask = m == own ? nil : m }
+                }
+            })
+        return AnyView(EuclideousMixPanel(input: input, callbacks: callbacks))
+    }
+
     // MARK: CARD BACKS (2026-10-28) — the card's content and the flip between tabs (flip-on-every-tab-change, 2026-10-30)
     /// The card as the page shows it: the tab `pageTab` names, or — for 490 ms after a tab is tapped — the turn (§3.3: each card scales horizontally about its centre, swapping its content at the midpoint, lane n starting n × 70 ms
     /// late; Reduce Motion crossfades all four in 150 ms). Since 2026-10-30 EVERY tab change turns the cards (front → front as well as front ↔ MIX), drawing the tab being LEFT (`flipFrom`) in the first half and the tab being ENTERED
@@ -3373,7 +3435,7 @@ struct EuclideousPage: View {
     }
     /// The content of one page tab: a front tab draws the lane card on that tab (the flip overrides `frontLaneTab`), MIX draws the card back.
     private func pageTabCardView(_ tab: EuclideousPageTab, _ idx: Int, width: CGFloat, height: CGFloat) -> AnyView {
-        guard let front = tab.front else { return AnyView(laneCardBack(idx, width: width, height: height)) }
+        guard let front = tab.front else { return AnyView(laneCardBack(idx, width: width, height: height)) }   // MIX ROWS (2026-11-03): HIDDEN — MIX is the panel now (`mixPanelShows`); nothing reaches this branch (a change to or from MIX never flips), and the back's views stay compiled for the ferry that may want them
         let laneTab = EuclideousLaneTab(rawValue: front.rawValue) ?? .rhythm
         return AnyView(laneCard(idx, width: width, height: height, tabOverride: laneTab))
     }

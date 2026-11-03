@@ -22,6 +22,12 @@ enum FourfoldAuditAllowList {
         ("textClipped", "TAKE ITS SETUP", "ANSWER tab option caption (≈ 97 pt wide at the reference card): look at it on a narrow card"),
         ("textClipped", "TAP: ON/OFF", "the FX tab's instruction line is cut at the panel width in portrait — a real truncation (seen in the picture: \"…DOUBLE-TAP:…\")"),
         ("textClipped", "ITS NOTE NOW", "ANSWER tab option caption, landscape"),
+        ("textClipped", "TRANS", "MIX ROWS (2026-11-03): the slider caption, 7 pt heavy with 0.08 em tracking — drawn whole in the pictures (the audit's frame is the caption's natural 22 × 7); the same heavy tracked mono the other flagged captions use — confirm on device"),
+        ("textClipped", "GATE", "MIX ROWS: the slider caption (7 pt) — same family as TRANS; drawn whole in the pictures"),
+        ("textClipped", "90%", "MIX ROWS: the GATE slider's value (9 pt heavy, right-aligned in its tile) — drawn whole in the pictures; the audit flags the value Texts of the sliders like their captions"),
+        ("textClipped", "100", "MIX ROWS: the VEL slider's value (9 pt heavy) — drawn whole in the pictures; same family as GATE's 90%"),
+        ("textClipped", "RIFF", "MIX ROWS: the part toggle's 8 pt caption (the element is 43 × 40) — drawn whole in the pictures; confirm on device"),
+        ("textClipped", "SOLO", "the SOLO tile's 10 pt label (the card's own 40 × 40; MIX's 120 × 24) — drawn whole in every picture; the audit has flagged it since the POOL ferry — confirm on device"),
         ("textClipped", "TAKE NOTHING NEW", "POOL tab SUSTAIN option caption (the spec's own 16 characters ≈ 96 pt in a ≈ 92 pt button: truncated, never shrunk) — read it on a narrow card"),
     ]
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
@@ -99,7 +105,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     }
     private func open(_ button: String, expect: String) -> (XCUIApplication) -> Void { { app in app.buttons[button].tap(); XCTAssertTrue(app.staticTexts[expect].waitForExistence(timeout: 4), "\(button) did not open") } }
 
-    func testAuditCardBackPortrait()  { screen("card backs", landscape: false) { $0.buttons["Mix"].tap() } }
+    func testAuditMixPanelPortrait()  { screen("mix panel", landscape: false) { $0.buttons["Mix"].tap() } }   // MIX ROWS (2026-11-03): the panel; the card backs are retired
     func testAuditLanesPortrait()    { screen("page LANES", landscape: false) { $0.buttons["Lanes"].tap() } }
     func testAuditFxPortrait()       { screen("page FX", landscape: false) { $0.buttons["FX"].tap() } }
     func testAuditRatchPortrait()    { screen("page RATCH", landscape: false) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
@@ -114,7 +120,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditSettingsPortrait() { screen("settings", landscape: false) { $0.buttons["Settings"].tap() } }
     func testAuditHocketPortrait()   { screen("hocket popup", landscape: false, hocket) }
 
-    func testAuditCardBackLandscape() { screen("card backs", landscape: true) { $0.buttons["Mix"].tap() } }
+    func testAuditMixPanelLandscape() { screen("mix panel", landscape: true) { $0.buttons["Mix"].tap() } }
     func testAuditLanesLandscape()    { screen("page LANES", landscape: true) { $0.buttons["Lanes"].tap() } }
     func testAuditFxLandscape()       { screen("page FX", landscape: true) { $0.buttons["FX"].tap() } }
     func testAuditRatchLandscape()    { screen("page RATCH", landscape: true) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)

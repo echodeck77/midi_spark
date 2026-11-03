@@ -153,44 +153,51 @@ final class FourfoldUndoAuditTests: XCTestCase {
         XCTAssertEqual(r.resyncs, 0, "nothing here should have made the 4 Hz poll correct the page: \(r.raw)")
     }
 
-    // MARK: CARD BACKS (2026-10-28) — the back's edits go through the same funnels: a jack tap, a part's label switch and an OCT tap are each ONE step, and ↶ / ↷ retrace them exactly
+    // MARK: MIX ROWS (2026-11-03) — the panel's edits go through the same funnels (the card backs' ones, retired): an output toggle, a part toggle and a slider drag are each ONE step, and ↶ / ↷ retrace them exactly
 
-    func openBacks() { app.buttons["Mix"].tap(); Thread.sleep(forTimeInterval: 0.9) }   // the flip takes 490 ms
-    func testCardBack_JackPartAndPitchEditsAreStepsAndUndoRedoRetraceThemExactly() {
-        let p0 = launch(); openBacks()
-        let pBack = settled()
-        XCTAssertEqual(pBack.snap, p0.snap, "turning the cards over edits nothing"); XCTAssertEqual(pBack.undo, 0, pBack.raw)
-        app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Riff to output B, empty'")).firstMatch.tap(); let p1 = settled()
-        XCTAssertNotEqual(p1.snap, p0.snap, "a jack tap changes the document"); XCTAssertEqual(p1.undo, 1, p1.raw); XCTAssertTrue(p1.consistent, p1.raw)
-        app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Riff to output B, plugged in'")).firstMatch.tap(); let p2 = settled()
-        XCTAssertEqual(p2.snap, p0.snap, "the second tap unplugs it again"); XCTAssertEqual(p2.undo, 2, "…and is its own step (a jack tap never coalesces): \(p2.raw)")
+    func openMix() { app.buttons["Mix"].tap(); Thread.sleep(forTimeInterval: 0.6) }   // the panel replaces the cards at once
+    private func drag(_ e: XCUIElement, from: Double, to: Double) { e.coordinate(withNormalizedOffset: CGVector(dx: from, dy: 0.5)).press(forDuration: 0.05, thenDragTo: e.coordinate(withNormalizedOffset: CGVector(dx: to, dy: 0.5))) }
+    func testMix_OutputPartAndSliderEditsAreStepsAndUndoRedoRetraceThemExactly() {
+        let p0 = launch(); openMix()
+        let pMix = settled()
+        XCTAssertEqual(pMix.snap, p0.snap, "showing the MIX panel edits nothing"); XCTAssertEqual(pMix.undo, 0, pMix.raw)
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Riff to B, off'")).firstMatch.tap(); let p1 = settled()
+        XCTAssertNotEqual(p1.snap, p0.snap, "an output toggle changes the document"); XCTAssertEqual(p1.undo, 1, p1.raw); XCTAssertTrue(p1.consistent, p1.raw)
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Riff to B, on'")).firstMatch.tap(); let p2 = settled()
+        XCTAssertEqual(p2.snap, p0.snap, "the second tap takes it away again"); XCTAssertEqual(p2.undo, 2, "…and is its own step (an output toggle never coalesces): \(p2.raw)")
         app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Riff, on'")).firstMatch.tap(); let p3 = settled()
-        XCTAssertNotEqual(p3.snap, p2.snap, "the label switch turns the part off"); XCTAssertTrue(p3.consistent, p3.raw)
-        app.els(prefix: "Riff pitch").firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.89, dy: 0.06)).tap(); let p4 = settled()
-        XCTAssertNotEqual(p4.snap, p3.snap, "the PITCH pad raises the riff an octave and transposes it (live while the part is off)"); XCTAssertTrue(p4.consistent, p4.raw)
-        undo(); XCTAssertEqual(settled().snap, p3.snap, "↶ takes the pitch back")
+        XCTAssertNotEqual(p3.snap, p2.snap, "the part toggle turns the part off"); XCTAssertTrue(p3.consistent, p3.raw)
+        drag(app.els(prefix: "Riff octave").firstMatch, from: 0.2, to: 0.9); let p4 = settled()
+        XCTAssertNotEqual(p4.snap, p3.snap, "the OCT slider raises the riff (live while the part is off)"); XCTAssertTrue(p4.consistent, p4.raw)
+        XCTAssertEqual(p4.undo, p3.undo + 1, "a drag is ONE step: \(p4.raw)")
+        undo(); XCTAssertEqual(settled().snap, p3.snap, "↶ takes the octave back")
         undo(); XCTAssertEqual(settled().snap, p2.snap, "↶ turns the part back on")
-        undo(); let u = settled(); XCTAssertEqual(u.snap, p1.snap, "↶ plugs the jack back in"); XCTAssertTrue(u.consistent, u.raw)
+        undo(); let u = settled(); XCTAssertEqual(u.snap, p1.snap, "↶ puts the output back"); XCTAssertTrue(u.consistent, u.raw)
         redo(); XCTAssertEqual(settled().snap, p2.snap)
         redo(); redo(); let r = settled()
         XCTAssertEqual(r.snap, p4.snap, "↷ ×3 retraces to the last edit"); XCTAssertTrue(r.consistent, r.raw); XCTAssertEqual(r.resyncs, 0, "the 4 Hz poll never had to correct the page: \(r.raw)")
     }
-    /// A seeded run of back-side edits and undo / redo against the same oracle the front's fuzz uses.
-    private func runBackFuzz(seed: UInt64, length: Int) {
+    /// A seeded run of panel edits and undo / redo against the same oracle the front's fuzz uses.
+    private func runMixFuzz(seed: UInt64, length: Int) {
         var rng = SplitMix(seed)
-        let first = launch(); openBacks()
+        let first = launch(); openMix()
         var oracle = Timeline(start: first.snap)
         var log: [String] = []
         for i in 0..<length {
             let kind = rng.int(0...6)
             let part = rng.int(0...1) == 0 ? "Riff" : "Notes", out = ["A", "B", "C", "D"][rng.int(0...3)], lane = rng.int(0...3)
+            let slider = ["velocity", "gate", "transpose", "octave"][rng.int(0...3)]
             let desc: String
             switch kind {
             case 0, 1, 2:
-                desc = "jack \(part) \(out) lane \(lane + 1)"
-                app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "\(part) to output \(out), ")).element(boundBy: lane).tap()
-            case 3: desc = "toggle \(part) lane \(lane + 1)"; app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "\(part), ")).element(boundBy: lane).tap()
-            case 4: desc = "pitch \(part) lane \(lane + 1)"; app.els(prefix: "\(part) pitch").element(boundBy: lane).coordinate(withNormalizedOffset: CGVector(dx: 0.05 + Double(rng.int(0...90)) / 100, dy: 0.05 + Double(rng.int(0...90)) / 100)).tap()
+                desc = "output \(part) \(out) lane \(lane + 1)"
+                app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "\(part) to \(out), ")).element(boundBy: lane).tap()
+            case 3:   // (the part toggle reads "Riff, on" / "Riff, off" — a bare "Riff, " prefix would also match the lane strip's own RIFF segment ("Riff, lanes 1, 2 and 4 on"), whose tap changes the page tab)
+                desc = "toggle \(part) lane \(lane + 1)"; app.descendants(matching: .any).matching(NSPredicate(format: "label MATCHES %@", "^\(part), (on|off).*")).element(boundBy: lane).tap()
+            case 4:
+                desc = "slider \(part) \(slider) lane \(lane + 1)"
+                let from = 0.15 + Double(rng.int(0...70)) / 100, to = 0.15 + Double(rng.int(0...70)) / 100
+                drag(app.els(prefix: "\(part) \(slider)").element(boundBy: lane), from: from, to: to)
             case 5: desc = "UNDO"; undo()
             default: desc = "REDO"; redo()
             }
@@ -202,16 +209,16 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case 6: oracle.redo()
             default: if p.snap != oracle.live { oracle.edit(after: p.snap, key: nil) }
             }
-            let ctx = "back seed \(seed) op \(i) [\(desc)] — history: \(log.joined(separator: ", "))\n  probe: \(p.raw)"
+            let ctx = "mix seed \(seed) op \(i) [\(desc)] — history: \(log.joined(separator: ", "))\n  probe: \(p.raw)"
             XCTAssertEqual(p.snap, oracle.live, "the page's state is not what the history says it should be\n  \(ctx)")
             XCTAssertEqual(p.undo, oracle.past, "undo depth\n  \(ctx)"); XCTAssertEqual(p.redo, oracle.future, "redo depth\n  \(ctx)")
             XCTAssertTrue(p.consistent, "page / document / engine disagree\n  \(ctx)")
             XCTAssertEqual(p.resyncs, beforeResyncs, "the 4 Hz poll had to correct the page after this op\n  \(ctx)")
-            if p.snap != oracle.live || p.undo != oracle.past || !p.consistent { print("UNDOAUDIT BACK FUZZ STOPPED \(ctx)"); return }
+            if p.snap != oracle.live || p.undo != oracle.past || !p.consistent { print("UNDOAUDIT MIX FUZZ STOPPED \(ctx)"); return }
         }
     }
-    func testCardBack_RandomJackPartAndPitchEditsUndoAndRedoAgreeWithTheHistoryContract_seed1() { runBackFuzz(seed: 11, length: 24) }
-    func testCardBack_RandomJackPartAndPitchEditsUndoAndRedoAgreeWithTheHistoryContract_seed2() { runBackFuzz(seed: 12, length: 24) }
+    func testMix_RandomOutputPartAndSliderEditsUndoAndRedoAgreeWithTheHistoryContract_seed1() { runMixFuzz(seed: 11, length: 24) }
+    func testMix_RandomOutputPartAndSliderEditsUndoAndRedoAgreeWithTheHistoryContract_seed2() { runMixFuzz(seed: 12, length: 24) }
 
     // MARK: S1 — different controls, one key
 

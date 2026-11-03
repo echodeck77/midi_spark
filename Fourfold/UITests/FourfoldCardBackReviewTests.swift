@@ -1,4 +1,5 @@
-//  FourfoldCardBackReviewTests.swift — CARD BACKS adversarial review (2026-10-28), the reviewer's reproductions kept as regression tests of the REAL app in the simulator.
+//  FourfoldCardBackReviewTests.swift — CARD BACKS adversarial review (2026-10-28), the reviewer's reproductions kept as regression tests of the REAL app in the simulator. MIX ROWS (2026-11-03): the backs are retired, so the
+//  tests that drove them (the pitch pad, ADD HITS) are gone and the two that still mean something run on the MIX panel's part toggles and sliders.
 //    sh Scripts/fourfold-harness/ui-tests.sh "iPad mini" FourfoldUITests/FourfoldCardBackReviewTests
 
 import XCTest
@@ -19,7 +20,7 @@ final class FourfoldCardBackReviewTests: XCTestCase {
         for _ in 0..<8 { Thread.sleep(forTimeInterval: 0.35); let now = read(); if now.raw == last.raw { return now }; last = now }
         return last
     }
-    func openBacks() { app.buttons["Mix"].tap(); Thread.sleep(forTimeInterval: 0.9) }
+    func openBacks() { app.buttons["Mix"].tap(); Thread.sleep(forTimeInterval: 0.6) }   // MIX ROWS: the panel replaces the cards at once
 
     /// On the FACTORY document every lane's NOTES part is off (no lit note): the NOTES label is the switch (there is no turn-on button) and one tap turns it on in ONE step — it lights the lowest note, since "on" needs a lit note.
     func testTheNotesLabelTurnsTheNotesPartOnInOneStepOnTheFactoryDocument() {
@@ -32,30 +33,23 @@ final class FourfoldCardBackReviewTests: XCTestCase {
         XCTAssertEqual(u.snap, p0.snap, "undo returns to the factory document")
     }
 
-    /// CARD BACKS v2 §5.5: the pads stay live while a part is off — a touch writes (velocity / gate, octave / transpose) — but a pad NEVER switches the part on, and a touch on one pad reaches no other control.
-    func testAnOffPartsPadsWriteButNeverSwitchThePartOn() {
+    /// A part's sliders stay live while the part is off — a touch writes (OCT, TRANS) — but a slider NEVER switches the part on, and a touch on one tile reaches no other control (MIX ROWS: the card backs' pads, as sliders).
+    func testAnOffPartsSlidersWriteButNeverSwitchThePartOn() {
         launch(); openBacks()
-        app.els(prefix: "Notes, off").firstMatch.tap(); app.els(prefix: "Notes, on").firstMatch.tap()      // on, then off again: lane 1's NOTES part is off with a lit note
-        let off = settled()
-        XCTAssertTrue(app.els(prefix: "Notes, off").firstMatch.exists)
-        let pitch = app.els(prefix: "Notes pitch").firstMatch
-        pitch.coordinate(withNormalizedOffset: CGVector(dx: 0.89, dy: 0.06)).tap(); let afterPitch = settled()
-        XCTAssertNotEqual(afterPitch.snap, off.snap, "an OFF part's PITCH pad took a touch and wrote nothing"); XCTAssertTrue(afterPitch.consistent, afterPitch.raw)
-        XCTAssertEqual(pitch.value as? String, "octave +2, transpose +7")
-        XCTAssertTrue(app.els(prefix: "Notes, off").firstMatch.exists, "writing the pitch left the NOTES part off")
-        let pad = app.els(prefix: "Notes velocity").firstMatch
-        pad.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap(); let afterPad = settled()
-        XCTAssertNotEqual(afterPad.snap, afterPitch.snap, "an OFF part's VEL/GATE pad took a touch and wrote nothing")
-        XCTAssertTrue(app.els(prefix: "Notes, off").firstMatch.exists, "…and left the part off")
-        XCTAssertEqual(pitch.value as? String, "octave +2, transpose +7", "…and the touch did not fall through to the PITCH pad")
-    }
-
-    /// VoiceOver reads a control's label and then its value: the PITCH pad's octave and transpose are its VALUE, so the label must not carry them (or they are said twice).
-    func testThePitchPadDoesNotSpeakItsValueTwice() {
-        launch(orientation: .portrait); openBacks()
-        let pitch = need(app.els(prefix: "Riff pitch").firstMatch, "the riff's PITCH pad")
-        XCTAssertEqual(pitch.label, "Riff pitch"); XCTAssertEqual(pitch.value as? String, "octave 0, transpose 0")
-        XCTAssertFalse(pitch.label.contains("octave"), "the label carries the value: \(pitch.label)")
+        let lane1 = app.el("Lane 1")
+        func tile(_ prefix: String) -> XCUIElement { lane1.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch }
+        need(tile("Notes, off"), "lane 1's NOTES part starts off on the factory document")
+        let oct = need(tile("Notes octave"), "the notes OCT tile"); XCTAssertEqual(oct.label, "Notes octave 0")
+        let before = settled()
+        oct.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).press(forDuration: 0.05, thenDragTo: oct.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        let after = settled()
+        XCTAssertNotEqual(after.snap, before.snap, "an OFF part's OCT slider took a drag and wrote nothing"); XCTAssertTrue(after.consistent, after.raw)
+        XCTAssertNotEqual(tile("Notes octave").label, "Notes octave 0", "the value moved")
+        XCTAssertTrue(tile("Notes, off").exists, "writing the octave left the NOTES part off")
+        let trans = need(tile("Notes transpose"), "the notes TRANS tile")
+        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).press(forDuration: 0.05, thenDragTo: trans.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        XCTAssertNotEqual(tile("Notes transpose").label, "Notes transpose 0"); XCTAssertTrue(tile("Notes, off").exists, "…and so did the transpose")
+        XCTAssertNotEqual(tile("Notes octave").label, "Notes octave 0", "a drag on one tile did not fall through to another")
     }
 
     /// A 500 pt wide window (Split View half, a small AUM window; it is centred on the screen, so everything is judged against the gear, which ends at the page's trailing edge): HOLD, LATCH and the strip's MIX stay inside it —
@@ -68,12 +62,5 @@ final class FourfoldCardBackReviewTests: XCTestCase {
             XCTAssertLessThanOrEqual(b.frame.maxX, edge + 1, "\(name) ends at \(b.frame.maxX), past the page's edge \(edge)")
         }
         XCTAssertGreaterThan(app.buttons["Mix"].frame.minY, app.buttons["Hold"].frame.maxY - 1, "the lane strip sits below the header")
-    }
-
-    /// ADD HITS' touch target and the riff label's must not overlap (the invitation slides clear of the label); lane 3 has no hits on the factory document, so it offers ADD HITS on whatever iPad this runs on.
-    func testTheAddHitsInvitationAndTheRiffLabelDoNotShareATouchTarget() {
-        launch(orientation: .landscapeLeft); openBacks()
-        let label = need(app.els(prefix: "Riff, on").element(boundBy: 2), "lane 3's RIFF switch"), inv = need(app.el("Add hits"), "its invitation")
-        XCTAssertFalse(label.frame.intersects(inv.frame), "label \(label.frame) and invitation \(inv.frame) overlap")
     }
 }

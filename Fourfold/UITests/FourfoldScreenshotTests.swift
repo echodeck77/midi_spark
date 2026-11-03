@@ -173,52 +173,34 @@ final class FourfoldScreenshotTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
     }
 
-    /// CARD BACKS (2026-10-28): the four lane cards on their BACK (the strip's MIX segment), playing, in every orientation — the picture the ferry's §14 acceptance is judged against — then with the riff routed to A and C and
-    /// the notes part switched off (an unplugged jack, a part off with its invitation, the roll dimmed).
-    /// POLY RIFF (2026-10-29): the MONO | POLY control and the sixteen-column grid — MONO first (the control in the boxes' row), then POLY seeded from it, then a few notes added, one stretched, one removed — in portrait and landscape.
-    func testThePolyRiffGrid() {
-        let app = XCUIApplication()
-        app.launchArguments = ["--fresh", "--autoplay"]
-        app.launch()
-        for (name, o) in [("1-portrait", UIDeviceOrientation.portrait), ("2-landscape", .landscapeLeft)] {
-            XCUIDevice.shared.orientation = o
-            Thread.sleep(forTimeInterval: 2)
-            app.buttons["Mono"].tap(); Thread.sleep(forTimeInterval: 0.6); attach("poly-\(name)-a-mono")
-            app.buttons["Poly"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("poly-\(name)-b-seeded")
-            func cell(_ step: Int, _ row: Int) -> XCUIElement { app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Step \(step),")).element(boundBy: row) }
-            cell(2, 0).press(forDuration: 0.1, thenDragTo: cell(7, 0))          // rank 8: a long note, steps 2…7
-            cell(10, 3).press(forDuration: 0.1, thenDragTo: cell(14, 3))        // rank 5: steps 10…14
-            cell(1, 1).tap()                                                    // rank 7: a single note under the first
-            cell(3, 5).tap()                                                    // a seeded note taken away
-            Thread.sleep(forTimeInterval: 1.2); attach("poly-\(name)-c-edited")
-        }
-        XCUIDevice.shared.orientation = .portrait
-    }
-
-    func testTheCardBacks() {
+    /// MIX ROWS (2026-11-03): the MIX panel (the strip's MIX segment — four lane bands and the A–D emitters), playing, in every orientation — the picture the ferry's §13 acceptance is judged against — then with lane 1's riff also routed
+    /// to C, its TRANS and OCT moved and lane 1's notes off, then back on the cards.
+    func testTheMixPanel() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
         let device = XCUIDevice.shared
         device.orientation = .portrait
         Thread.sleep(forTimeInterval: 1.5)
         let mix = app.buttons["Mix"]
         if mix.waitForExistence(timeout: 5) { mix.tap() }
-        for (name, o) in [("8-back-1-portrait", UIDeviceOrientation.portrait), ("8-back-2-landscape-left", .landscapeLeft), ("8-back-3-portrait-upside-down", .portraitUpsideDown), ("8-back-4-landscape-right", .landscapeRight)] {
+        for (name, o) in [("9-mix-1-portrait", UIDeviceOrientation.portrait), ("9-mix-2-landscape-left", .landscapeLeft), ("9-mix-3-portrait-upside-down", .portraitUpsideDown), ("9-mix-4-landscape-right", .landscapeRight)] {
             device.orientation = o
             Thread.sleep(forTimeInterval: 3)
             attach(name)
         }
         device.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.5)
-        let jacks = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff to output C'"))
-        if jacks.count > 0 { jacks.element(boundBy: 0).tap() }
-        let pitch = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff pitch'"))      // CARD BACKS v2: the riff's PITCH pad away from home (the away rectangle, the lane-coloured dot)
-        if pitch.count > 0 { pitch.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.2)).tap() }
+        let outs = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Riff to C, off'"))      // route lane 1's riff to C as well: a second line to C
+        if outs.count > 0 { outs.element(boundBy: 0).tap() }
+        let trans = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff transpose'"))   // TRANS +2, OCT +1 on lane 1's riff
+        if trans.count > 0 { trans.element(boundBy: 0).swipeUp(); trans.element(boundBy: 0).swipeUp() }
+        let oct = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff octave'"))
+        if oct.count > 0 { oct.element(boundBy: 0).swipeUp() }
         let notesToggle = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes, on'"))
         if notesToggle.count > 0 { notesToggle.element(boundBy: 0).tap() }
         Thread.sleep(forTimeInterval: 2)
-        attach("8-back-5-routed-and-off")
+        attach("9-mix-5-routed-shaped-and-off")
         app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 1.5)
-        attach("8-back-6-flipped-back")
+        attach("9-mix-6-back-to-the-cards")
     }
 
     /// RATCH tab ferry (2026-10-28): the tab as it opens (every emitter off), then with A at 16 / 16 / ×4 (every slot four bars) and B at CHANCE 50 — playing, in both orientations — so the strips, bars and cells can be looked at.

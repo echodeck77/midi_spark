@@ -104,12 +104,16 @@ final class LaneViewStripTests: XCTestCase {
         XCTAssertEqual(EuclideousPageTab.allCases.count, 6)
         XCTAssertEqual(EuclideousPageTab.riff.front, .riff); XCTAssertNil(EuclideousPageTab.mix.front)
     }
-    func testEveryTabChangeFlips() {
-        // Paul, 2026-10-30: EVERY tab change turns the cards now — front → front as well as front ↔ MIX.
-        XCTAssertEqual(euclideousPageTabTap(current: .rhythm, tapped: .notes), EuclideousPageTabChange(tab: .notes, flips: true), "between two front tabs the cards turn over too")
+    func testEveryChangeBetweenFrontTabsFlipsAndAChangeToOrFromMixIsInstant() {
+        // Paul, 2026-10-30: front → front turns the cards over. MIX ROWS (2026-11-03): MIX is a panel of its own, not the cards' backs — a change to or from MIX swaps at once, no flip.
+        XCTAssertEqual(euclideousPageTabTap(current: .rhythm, tapped: .notes), EuclideousPageTabChange(tab: .notes, flips: true), "between two front tabs the cards turn over")
         XCTAssertEqual(euclideousPageTabTap(current: .listen, tapped: .riff), EuclideousPageTabChange(tab: .riff, flips: true))
-        XCTAssertEqual(euclideousPageTabTap(current: .riff, tapped: .mix), EuclideousPageTabChange(tab: .mix, flips: true), "front → MIX turns the cards over")
-        XCTAssertEqual(euclideousPageTabTap(current: .mix, tapped: .notes), EuclideousPageTabChange(tab: .notes, flips: true), "MIX → a front tab turns them back")
+        XCTAssertEqual(euclideousPageTabTap(current: .pool, tapped: .listen), EuclideousPageTabChange(tab: .listen, flips: true))
+        XCTAssertEqual(euclideousPageTabTap(current: .riff, tapped: .mix), EuclideousPageTabChange(tab: .mix, flips: false), "front → MIX: the panel replaces the cards at once")
+        XCTAssertEqual(euclideousPageTabTap(current: .mix, tapped: .notes), EuclideousPageTabChange(tab: .notes, flips: false), "MIX → a front tab: the cards return at once")
+        for t in EuclideousPageTab.allCases where t != .mix {
+            XCTAssertEqual(euclideousPageTabTap(current: .mix, tapped: t)?.flips, false); XCTAssertEqual(euclideousPageTabTap(current: t, tapped: .mix)?.flips, false)
+        }
         // the turn is card back 3.3's flip: lane order, 70 ms apart, 280 ms each, Reduce Motion 150 ms (CardBackTests pins the function; the strip uses it unchanged)
         XCTAssertEqual(EuclideousCardFlipMetrics.stagger, 0.070); XCTAssertEqual(EuclideousCardFlipMetrics.duration, 0.280); XCTAssertEqual(EuclideousCardFlipMetrics.reduceMotionDuration, 0.150)
         // euclideousCardTurn relabels euclideousCardFlip's phases as show-FROM / show-TO (the from tab fills the first half, the to tab the second)

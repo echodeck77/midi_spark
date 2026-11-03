@@ -1,7 +1,5 @@
-//  FourfoldPitchDragReviewTests.swift — CARD BACKS v2 adversarial review (2026-10-28, reviewer-added).
-//  The existing pitch-pad coverage only ever TAPS the pad (one write = trivially one undo step). CARD BACKS v2 §6.8 and the
-//  status log both claim "one undo step per DRAG, a drag that crosses detents changes the values as it goes" — the whole reason
-//  the pad carries an EuclideousPadUndoBurst. Nothing drags it. This drags it across many detents in ONE continuous gesture.
+//  FourfoldPitchDragReviewTests.swift — CARD BACKS v2 adversarial review (2026-10-28, reviewer-added), kept for the MIX panel (2026-11-03): a slider drag is ONE undo step however many values it crosses (the pad's burst, now on the sliders).
+//  The reviewer's point stands: a tap is trivially one step; only a continuous DRAG proves the burst. This drags a TRANS slider across most of its range in ONE gesture.
 //    sh Scripts/fourfold-harness/ui-tests.sh "iPad mini" FourfoldUITests/FourfoldPitchDragReviewTests
 
 import XCTest
@@ -22,21 +20,18 @@ final class FourfoldPitchDragReviewTests: XCTestCase {
         for _ in 0..<8 { Thread.sleep(forTimeInterval: 0.35); let now = read(); if now.raw == last.raw { return now }; last = now }
         return last
     }
-    func openBacks() { app.buttons["Mix"].tap(); Thread.sleep(forTimeInterval: 0.9) }
+    func openBacks() { app.buttons["Mix"].tap(); Thread.sleep(forTimeInterval: 0.6) }
 
-    /// ONE continuous drag across the PITCH pad (top-left → bottom-right, crossing many octave rows and transpose columns) must be
-    /// ONE undo step, and a single ↶ must return to exactly the pre-drag document.
-    func testADragAcrossThePitchPadIsExactlyOneUndoStep() {
+    /// ONE continuous drag across a TRANS slider (crossing many whole steps) must be ONE undo step, and a single ↶ must return to exactly the pre-drag document.
+    func testADragAcrossASliderIsExactlyOneUndoStep() {
         let p0 = launch(); openBacks()
-        let pitch = need(app.els(prefix: "Riff pitch").firstMatch, "the riff's PITCH pad")
+        let trans = need(app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Riff transpose")).firstMatch, "the riff's TRANS slider")
         let before = settled()
-        // a slow press-and-drag from one corner to the far corner: the gesture passes through many detents, so many writes, one burst.
-        pitch.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.08))
-            .press(forDuration: 0.1, thenDragTo: pitch.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.92)))
+        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.1, thenDragTo: trans.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)))
         let after = settled()
         XCTAssertNotEqual(after.snap, before.snap, "the drag wrote nothing: \(after.raw)")
         XCTAssertTrue(after.consistent, after.raw)
-        XCTAssertEqual(after.undo, before.undo + 1, "a single pitch-pad drag should add EXACTLY ONE undo step, not one per detent crossed: \(after.raw)")
+        XCTAssertEqual(after.undo, before.undo + 1, "a single slider drag should add EXACTLY ONE undo step, not one per value crossed: \(after.raw)")
         app.buttons["Undo"].tap(); let u = settled()
         XCTAssertEqual(u.snap, p0.snap, "one ↶ should return to the pre-drag document in a single step: \(u.raw)")
     }
