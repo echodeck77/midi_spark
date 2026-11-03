@@ -4843,6 +4843,7 @@ enum EuclideousPageFloor: Equatable, Hashable {
     case fxRows                      // FX rows < 24
     case ratchRows                   // RATCH tab (2026-10-28): a card under 52 pt (§4.8) — the frame is reported, the cards are drawn at the formula's height
     case laneStrip                   // TAB STRIP (2026-10-29): a strip segment under 96 pt wide — the four glyph clusters hide; labels truncate, nothing shrinks
+    case mixRowsRoll, mixRowsRow, mixRowsBand   // MIX ROWS (2026-11-03): a part row's roll under 96 pt wide · a part row under 40 tall · a lane band under 120 tall (the panel is drawn at the formula's values)
 }
 
 /// Which floors a box of this size falls under. Every flagged item is still drawn at the formula's values.
@@ -4868,6 +4869,11 @@ func euclideousPageFloors(box: CGSize, laneBox: CGSize? = nil, stripWidth: CGFlo
     if euclideousFXRowH(contentHeight: body.height) < EuclideousFXLayout.minRowH { out.append(.fxRows) }
     if emitterRatchetLayout(bodySize: body, portrait: true).belowFloor { out.append(.ratchRows) }   // orientation-free: a landscape card is min(60, the shared height), so it is under 52 exactly when the shared height is
     if let sw = stripWidth, euclideousLaneStripLayout(width: sw).belowFloor { out.append(.laneStrip) }
+    if let sw = stripWidth, let lb = laneBox {   // MIX ROWS: the panel is the lane cards' 2×2 box
+        for f in euclideousMixRowsLayout(size: euclideousMixRowsPanelSize(stripWidth: sw, laneBox: lb)).floors {
+            out.append(f == .roll ? .mixRowsRoll : f == .row ? .mixRowsRow : .mixRowsBand)
+        }
+    }
     return out
 }
 
