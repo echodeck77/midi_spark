@@ -272,6 +272,16 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(value(app.el("Key, lane 1")), "off")
         app.buttons["Undo"].tap()
         XCTAssertEqual(value(app.el("Key, lane 1")), "on", "a source toggle is one undo step")
+        // TWO CHORD GRIDS: CHORD 1 and CHORD 2 are mutually exclusive; the lit one tapped again turns chords off for the lane
+        XCTAssertEqual(value(need(app.el("Chords 1, lane 1"), "lane 1's CHORD 1 toggle")), "on"); XCTAssertEqual(value(need(app.el("Chords 2, lane 1"), "lane 1's CHORD 2 toggle")), "off")
+        app.el("Chords 2, lane 1").tap()
+        XCTAssertEqual(value(app.el("Chords 2, lane 1")), "on"); XCTAssertEqual(value(app.el("Chords 1, lane 1")), "off", "lighting CHORD 2 puts CHORD 1 out")
+        XCTAssertEqual(value(app.el("Chords 1, lane 2")), "on", "…on that lane only")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(value(app.el("Chords 1, lane 1")), "on"); XCTAssertEqual(value(app.el("Chords 2, lane 1")), "off", "the pick is one undo step")
+        app.el("Chords 1, lane 1").tap()
+        XCTAssertEqual(value(app.el("Chords 1, lane 1")), "off"); XCTAssertEqual(value(app.el("Chords 2, lane 1")), "off", "the lit one tapped again: chords off for the lane")
+        app.buttons["Undo"].tap()
         // SUSTAIN: the switch, a mode tap switches the row on, the PEDAL light is a display
         XCTAssertEqual(value(need(app.el("Sustain, lane 2"), "lane 2's SUSTAIN switch")), "off")
         app.el("Sustain stack, lane 2, loses nothing, off").tap()

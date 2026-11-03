@@ -776,11 +776,11 @@ struct EuclideousPage: View {
     // LANE SOLO (2026-10-21): the latched solo mask (saved) and the held one (a finger down; UI only). `soloEffective` is what every dim and the engine use.
     let soloMask: UInt8
     let soloHeld: UInt8
-    // CHORDS GRID ferry (Paul 2026-10-24): 4 independently-stored progressions ("tabs"), replacing the single
-    // grid the CHORDS BUTTON ferry (2026-10-08) first added. `activeChordSet` is BOTH which tab plays AND
-    // which tab this popup edits — Paul: "I only want the chords tab to be switched manually when a user
-    // clicks it" (no queue-to-next-column-boundary). `onEditChordSet` mutates one set by index; `onSwitchChordSet`
-    // changes which one is active, immediately.
+    // CHORDS GRID ferry (Paul 2026-10-24): independently-stored progressions ("tabs"), replacing the single
+    // grid the CHORDS BUTTON ferry (2026-10-08) first added. TWO CHORD GRIDS (2026-11-03): two of them, and each LANE
+    // picks which one it plays (CHORD 1 | CHORD 2 on the POOL tab's SOURCES row) — `activeChordSet` is only the tab this
+    // popup EDITS now (switched manually, at once: no queue-to-next-column-boundary). `onEditChordSet` mutates one set
+    // by index; `onSwitchChordSet` changes which one is being edited.
     let chordSets: [MachineParams]
     let activeChordSet: Int
     let onEditChordSet: (Int, @escaping (inout MachineParams) -> Void) -> Void
@@ -2902,9 +2902,10 @@ struct EuclideousPage: View {
         return (euclideousChordName(tones: tones, rootNote: rootNote, flatSpelling: flat), false)
     }
 
-    /// §4.1-§4.3: four chord-set tabs, the exact riff-tab look (`riffTabRow`'s own sizing/fills/colours).
-    /// §4.2: playing triangle (only the active tab has one, since switching is immediate) · number · chord
-    /// icon · step count. §4.4: tap switches immediately; §4.6: long-press opens COPY/PASTE/CLEAR.
+    /// §4.1-§4.3: the two chord-grid tabs, the exact riff-tab look (`riffTabRow`'s own sizing/fills/colours).
+    /// TWO CHORD GRIDS (2026-11-03): both grids play (each lane picks one on the POOL tab), so the selected tab only says which
+    /// grid this page is EDITING — no play triangle. number · chord icon · step count. §4.4: tap switches the edit tab at once;
+    /// §4.6: long-press opens COPY/PASTE/CLEAR (copy grid 1 over grid 2 and vary it).
     private func chordsTabRow() -> some View {
         HStack(spacing: EuclideousRiffPanelMetrics.tabGap) {
             ForEach(0..<max(1, min(2, chordSets.count)), id: \.self) { i in   // TWO CHORD GRIDS: two tabs
@@ -2912,10 +2913,6 @@ struct EuclideousPage: View {
                 let ink = Color(hex: 0x0D0F14)
                 let set = i < chordSets.count ? chordSets[i] : MachineParams()
                 HStack(spacing: 0) {
-                    if sel {
-                        RiffPlayTriangle().fill(ink).frame(width: 5, height: 6)
-                        Color.clear.frame(width: 3, height: 1)
-                    }
                     Text("\(i + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced))
                         .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
                     Color.clear.frame(width: 4, height: 1)
@@ -2931,7 +2928,7 @@ struct EuclideousPage: View {
                 .onTapGesture { onSwitchChordSet(i) }
                 .onLongPressGesture(minimumDuration: 0.5) { chordsTabMenuIndex = i }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Progression \(i + 1), \(set.chordsStepsResolved) steps\(sel ? ", playing" : "")")
+                .accessibilityLabel("Chords \(i + 1), \(set.chordsStepsResolved) steps\(sel ? ", editing" : "")")
             }
         }
     }
@@ -2959,7 +2956,7 @@ struct EuclideousPage: View {
                 .onTapGesture { if enabled { action() } }
         }
         return VStack(spacing: 8) {
-            Text("PROGRESSION \(idx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            Text("CHORDS \(idx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
             row("COPY") {
                 chordsClipboard = idx < chordSets.count ? chordSets[idx] : nil
                 chordsTabMenuIndex = nil
@@ -5997,19 +5994,20 @@ struct EuclideousPage: View {
         }
         .frame(width: fullWidth, height: height))
     }
-    /// 2.3: SOURCES — four equal toggles (MIDI IN · CHORDS · PICK · KEY, the sources panel's order), 26 tall, the mode buttons' heavy label face. On: the selected look in the lane's colour; off: the unselected look. A source switched off in the
-    /// sources panel draws at 40 % (it still toggles; the lane's choice is kept for when the source comes back). One `edit`, one undo step, per tap.
+    /// 2.3: SOURCES — five equal toggles (MIDI IN · CHORD 1 · CHORD 2 · PICK · KEY: the sources panel's order with its CHORDS split into the two chord grids), 26 tall, the mode buttons' heavy label face. On: the selected look in the lane's colour;
+    /// off: the unselected look. A source switched off in the sources panel draws at 40 % (it still toggles; the lane's choice is kept for when the source comes back — CHORD 1 and CHORD 2 both follow the panel's CHORDS switch). CHORD 1 and
+    /// CHORD 2 are mutually exclusive (`setPoolSrc`): lighting one puts the other out, tapping the lit one turns chords off for the lane. One `edit`, one undo step, per tap.
     private func poolSourcesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
         let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 4
-        let btnW = max(1, (fullWidth - labelW - gap * 4) / 4)
+        let btnW = max(1, (fullWidth - labelW - gap * 5) / 5)
         let panel = euclideousPanelSwitches(sourcePlan)
-        let panelOn = [panel.midi, panel.chords, panel.pick, panel.key]
-        let names = ["MIDI IN", "CHORDS", "PICK", "KEY"]
+        let panelOn = [panel.midi, panel.chords, panel.pick, panel.key, panel.chords]       // by SOURCES bit: bit 4 (CHORD 2) follows the panel's CHORDS switch too
+        let names = ["MIDI IN", "CHORD 1", "PICK", "KEY", "CHORD 2"]                         // by bit; drawn in `euclideousPoolSourceOrder`
         return AnyView(HStack(spacing: gap) {
             Text("SOURCES").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            ForEach(0..<4, id: \.self) { b in
+            ForEach(euclideousPoolSourceOrder, id: \.self) { b in
                 let on = line.poolSrcOn(b)
-                Text(names[b]).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1)
+                Text(names[b]).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.75)
                     .foregroundColor(on ? patternSelectedText : patternUnselectedText)
                     .frame(width: btnW, height: min(EuclideousPoolTabMetrics.toggleH, height))
                     .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))

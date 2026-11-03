@@ -96,7 +96,7 @@ struct FourfoldRootView: View {
     var euclideousHostStopBehavior: EuclideousHostStopBehavior { get { m.euclideousHostStopBehavior } nonmutating set { m.euclideousHostStopBehavior = newValue } }
     var euclideousSameNoteGuard: Bool { get { m.euclideousSameNoteGuard } nonmutating set { m.euclideousSameNoteGuard = newValue } }
     // CHORDS GRID ferry (2026-10-24): 4 independently-stored progressions replace the single `euclideousChords`
-    // grid above. `activeChordSet` is BOTH which tab plays AND which tab the popup edits — Paul, 2026-10-24:
+    // grid above. `activeChordSet` is only which of the two grids the popup edits (TWO CHORD GRIDS, 2026-11-03: each lane picks the grid it plays) — Paul, 2026-10-24:
     // "I only want the chords tab to be switched manually when a user clicks it" (no queue-to-next-boundary).
     var euclideousChordSets: [MachineParams] { get { m.euclideousChordSets } nonmutating set { m.euclideousChordSets = newValue } }
     var euclideousActiveChordSet: Int { get { m.euclideousActiveChordSet } nonmutating set { m.euclideousActiveChordSet = newValue } }

@@ -364,3 +364,149 @@ final class PoolEngineTests: XCTestCase {
         }
     }
 }
+
+// MARK: - TWO CHORD GRIDS (2026-11-03): a lane's SOURCES mask picks the progression its CHORDS layer plays
+extension PoolEngineTests {
+    /// Grid 1: C F G Am, a bar each. Grid 2: two chords (II then III — none of grid 1's) on a half-note clock — a different length AND a different rate, so the lanes can only agree by accident.
+    private func twoGridState(_ lines: [EuclidLine], plan pl: SourcePlan, unit: CanonUnit? = .bars) -> PluginState {
+        var st = state(lines, plan: pl, unit: unit)
+        var g1 = MachineParams(); g1.chordsDegrees = [0, 3, 4, 5]; g1.chordsSteps = 4; g1.chordsRate = .r1_1
+        var g2 = MachineParams(); g2.chordsDegrees = [1, 2]; g2.chordsSteps = 2; g2.chordsRate = .r1_2
+        st.euclideousChordSets = [g1, g2]
+        return st
+    }
+    private func onGrid2(_ l: EuclidLine) -> EuclidLine { var m = l; m.setPoolSrc(4, true); return m }
+    /// The chord a grid plays at `beat`, from the same snapshot the engine renders.
+    private func gridChord(_ st: PluginState, grid: Int, beat: Double) -> [Int] {
+        let p = SnapshotBuilder.build(from: st).cells[0 * Snap.rows + Snap.euclideousRow].procs[0]
+        return chordSeqNotes(beat: beat, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil, grid: grid).sorted()
+    }
+
+    func testTwoLanesOnTwoGridsEachFollowTheirOwnProgression() {
+        let st = twoGridState([lane(sources: [1]), onGrid2(lane(sources: [])), lane(), onGrid2(lane(sources: [3]))], plan: plan(chords: true, key: true))
+        let rig = Rig(st)
+        var sawDifference = false
+        for b in 1...24 {
+            rig.run(to: Double(b) + 0.5)
+            let beat = Double(b) + 1e-9
+            let g1 = gridChord(st, grid: 0, beat: beat), g2 = gridChord(st, grid: 1, beat: beat)
+            XCTAssertEqual(rig.lanePool(0), g1, "lane 1 (CHORDS 1) at beat \(b)")
+            XCTAssertEqual(rig.lanePool(1), g2, "lane 2 (CHORDS 2) at beat \(b)")
+            XCTAssertTrue(Set(g1).isSubset(of: Set(rig.lanePool(2))), "lane 3 (default) plays grid 1 at beat \(b)")
+            XCTAssertTrue(Set(g2).isSubset(of: Set(rig.lanePool(3))), "lane 4 (CHORDS 2 + KEY) plays grid 2 at beat \(b)")
+            XCTAssertTrue(Set(rig.lanePool(3)).isSuperset(of: Set(g2)) && rig.lanePool(3).count > g2.count, "…and its KEY sits beneath")
+            if g1 != g2 { sawDifference = true }
+        }
+        XCTAssertTrue(sawDifference, "the two progressions really differ")
+    }
+    func testGridTwoStepsByItsOwnClock() {
+        // grid 2 changes chord every 2 beats, grid 1 every 4: the lane on grid 2 must change on beats 2, 4, 6… and the lane on grid 1 only on 4, 8…
+        let st = twoGridState([lane(sources: [1]), onGrid2(lane(sources: []))], plan: plan(chords: true))
+        let rig = Rig(st)
+        var l1: [[Int]] = [], l2: [[Int]] = []
+        for b in 0..<16 { rig.run(to: Double(b) + 0.5); l1.append(rig.lanePool(0)); l2.append(rig.lanePool(1)) }
+        for b in 1..<16 {
+            XCTAssertEqual(l1[b] != l1[b - 1], b % 4 == 0, "grid 1 moves only on the bar (beat \(b))")
+            XCTAssertEqual(l2[b] != l2[b - 1], b % 2 == 0, "grid 2 moves every half note (beat \(b))")
+        }
+    }
+    func testTheSourcesPanelsChordsSwitchIsTheMasterForBothGrids() {
+        let off = Rig(twoGridState([onGrid2(lane(sources: [])), lane(sources: [1])], plan: plan(chords: false, key: true)))
+        off.run(to: 4.5)
+        XCTAssertEqual(off.status(0).count, 0, "CHORDS off in the panel: a CHORDS 2 lane has nothing"); XCTAssertEqual(off.status(1).count, 0)
+        XCTAssertEqual(off.status(0).srcBits, 0)
+        let on = Rig(twoGridState([onGrid2(lane(sources: []))], plan: plan(chords: true)))
+        on.run(to: 4.5)
+        XCTAssertGreaterThan(on.status(0).count, 0); XCTAssertEqual(on.status(0).srcBits, 0b0010, "the lane's effective chords bit is lit for CHORDS 2 as for CHORDS 1")
+    }
+    func testTurningAChordsTwoLaneBackToChordsOneReturnsToTheFirstProgression() {
+        var st = twoGridState([onGrid2(lane(sources: []))], plan: plan(chords: true))
+        let rig = Rig(st)
+        rig.run(to: 5.5)
+        XCTAssertEqual(rig.lanePool(0), gridChord(st, grid: 1, beat: 5 + 1e-9))
+        var l = st.euclideousLinesResolved[0]; _ = l
+        st = twoGridState([lane(sources: [1])], plan: plan(chords: true))
+        rig.swap(st); rig.run(to: 9.5)
+        XCTAssertEqual(rig.lanePool(0), gridChord(st, grid: 0, beat: 9 + 1e-9))
+        XCTAssertNotEqual(gridChord(st, grid: 0, beat: 9 + 1e-9), gridChord(st, grid: 1, beat: 9 + 1e-9), "(the test only means something if the grids differ here)")
+    }
+    func testAnIdleLaneOnGridTwoNamesGridTwosChord() {
+        var idle = onGrid2(lane(sources: [])); idle.pulses = 0
+        let st = twoGridState([lane(), idle], plan: plan(chords: true))
+        let rig = Rig(st)
+        rig.run(to: 3.5)
+        XCTAssertEqual(rig.lanePool(1), gridChord(st, grid: 1, beat: 2.5), "an idle lane's NOW row reads its own grid at the window")
+        XCTAssertNotEqual(rig.lanePool(1), rig.lanePool(0))
+    }
+    func testAPlayedNoteStacksOverGridTwoJustAsOverGridOne() {
+        let pl = plan(midi: true, chords: true)
+        let st = twoGridState([lane(sources: [0, 1]), onGrid2(lane(sources: [0]))], plan: pl)
+        let rig = Rig(st)
+        rig.press([40]); rig.run(to: 5.5)
+        let g1 = gridChord(st, grid: 0, beat: 5 + 1e-9), g2 = gridChord(st, grid: 1, beat: 5 + 1e-9)
+        XCTAssertEqual(Set(rig.lanePool(0)), Set(g1 + [40])); XCTAssertEqual(Set(rig.lanePool(1)), Set(g2 + [40]))
+    }
+
+    // MARK: CANON, FREEZE and SUSTAIN on a CHORDS 2 lane
+    func testACanonDelayedLaneOnGridTwoPlaysGridTwoBehindTheHostBeat() {
+        let st = twoGridState([onGrid2(lane(sources: [], delay: 1)), lane(sources: [1], delay: 1)], plan: plan(chords: true))     // 1 bar = 4 beats behind
+        let rig = Rig(st)
+        for b in 8...20 {
+            rig.run(to: Double(b) + 0.5)
+            XCTAssertEqual(rig.lanePool(0), gridChord(st, grid: 1, beat: Double(b) - 4 + 1e-9), "grid 2, one bar back, at beat \(b)")
+            XCTAssertEqual(rig.lanePool(1), gridChord(st, grid: 0, beat: Double(b) - 4 + 1e-9), "grid 1, one bar back, at beat \(b)")
+        }
+    }
+    func testASustainKeepOnGridTwoHoldsTheChordThePedalWentDownOn() {
+        let st = twoGridState([onGrid2(lane(sources: [], sustain: .keep))], plan: plan(chords: true))
+        let rig = Rig(st)
+        rig.run(to: 0.5); rig.pedalDown(); rig.run(to: 1.5)          // the pedal goes down on a running lane (one already down at the start is the switch-on, not an edge)
+        let taken = rig.lanePool(0)
+        XCTAssertEqual(taken, gridChord(st, grid: 1, beat: 1.0 + 1e-9), "KEEP took grid 2's chord")
+        rig.run(to: 3.5)
+        XCTAssertEqual(rig.lanePool(0), taken, "…and holds it while the progression moves on")
+        XCTAssertNotEqual(gridChord(st, grid: 1, beat: 3 + 1e-9), taken, "(the live chord has moved: grid 2's second chord starts on beat 2… and is the other one at beat 3)")
+    }
+    func testAFreezeOnGridTwoHoldsGridTwosChordForItsBars() {
+        let st = twoGridState([onGrid2(lane(sources: [], hold: 2))], plan: plan(chords: true))    // 2 bars = 8 beats
+        let rig = Rig(st)
+        rig.run(to: 3.5)
+        let held = rig.lanePool(0)
+        XCTAssertFalse(held.isEmpty)
+        rig.run(to: 7.5)
+        XCTAssertEqual(rig.lanePool(0), held, "held for the two bars")
+        XCTAssertNotEqual(gridChord(st, grid: 1, beat: 7 + 1e-9), held, "(the live chord has moved on meanwhile)")
+        let grid2Chords = [gridChord(st, grid: 1, beat: 0.5), gridChord(st, grid: 1, beat: 3)]
+        let grid1Chords = (0..<4).map { gridChord(st, grid: 0, beat: Double($0) * 4 + 0.5) }
+        for b in 8..<24 {
+            rig.run(to: Double(b) + 0.5)
+            XCTAssertTrue(grid2Chords.contains(rig.lanePool(0)), "after the hold the lane still reads grid 2 (beat \(b))")
+            XCTAssertFalse(grid1Chords.contains(rig.lanePool(0)), "…never grid 1")
+        }
+    }
+
+    // MARK: shared builds
+    func testLanesOnGridTwoShareOneBuildAndGridTwoCostsOnePerDistinctMask() {
+        let pl = plan(midi: true, chords: true, key: true)
+        func builds(_ lines: [EuclidLine]) -> Int {
+            let r = Rig(twoGridState(lines, plan: pl)); r.press([60])
+            r.run(to: 1.98); let before = r.router.poolBuildCount; r.run(to: 2.0)
+            return r.router.poolBuildCount - before
+        }
+        let base = builds([lane(), lane(), lane(), lane()])
+        let fourOnGrid2 = builds([onGrid2(lane()), onGrid2(lane()), onGrid2(lane()), onGrid2(lane())])
+        let gridsMixed = builds([lane(), lane(), onGrid2(lane()), onGrid2(lane())])
+        XCTAssertEqual(base, 1, "the live pool: one build a window")
+        XCTAssertEqual(fourOnGrid2, base + 1, "four CHORDS 2 lanes with the same other sources share ONE build (plus the live one)")
+        XCTAssertLessThanOrEqual(gridsMixed, 3, "grid 1 lanes keep the live pool; the CHORDS 2 pair adds one build, and the restore")
+        XCTAssertEqual(gridsMixed, base + 1 + 1 - 1 + 1 - 1 + 1 - 1, "(live, then the pair's one build; the order lane 1, 2, 3, 4 needs no restore after it)")
+    }
+    func testADocumentThatNeverUsesGridTwoBuildsExactlyAsBefore() {
+        // the default mask is unchanged (CHORDS 1 on), so every lane takes the default path whatever grid 2 holds
+        let pl = plan(midi: true, chords: true, key: true)
+        let r = Rig(twoGridState([lane(), lane(), lane(), lane()], plan: pl)); r.press([60])
+        r.run(to: 1.98); let before = r.router.poolBuildCount; r.run(to: 2.0)
+        XCTAssertEqual(r.router.poolBuildCount - before, 1)
+        for i in 0..<4 { XCTAssertNil(r.router.euclideousLanePoolStatus()[i].count > 0 ? nil as Int? : 0 as Int?, "every lane has a pool") }
+    }
+}

@@ -384,10 +384,19 @@ extension Host {
 
 /// ANSWER ferry (2026-11-02): the default document's four lanes with rows, CYCLE flags and TRADE set. `variant` picks the shape (see `goldenAnswer`); the lanes keep the default document's own rhythms and riff, so every difference is the ferry's.
 /// POOL ferry (2026-11-02): per-lane SOURCES masks (MIDI IN + CHORDS · CHORDS + KEY · PICK · all) and SUSTAIN on every lane (KEEP, STACK, KEEP, STACK). `plan` writes the page plan too (REPLACE with all four sources on and PICK notes).
-func poolDocument(_ s: inout PluginState, plan: Bool) {
+/// TWO CHORD GRIDS (2026-11-03): `grid2` puts three lanes on CHORDS 2 (MIDI IN + CHORDS 2 · CHORDS 2 + KEY · CHORDS 2 alone) and leaves lane 4 on CHORDS 1, and gives grid 2 its own 16-step progression with colours and borrowed chords on a
+/// different clock — so the per-lane build, the canon read and the SUSTAIN copy all run on the second grid.
+func poolDocument(_ s: inout PluginState, plan: Bool, grid2: Bool = false) {
     if plan { s.euclideousSourcePlan = SourcePlan(midiOn: true, chordsOn: true, pickOn: true, keyOn: true, midiMode: .replace, pickNotes: [72, 76, 79], midiOctaves: .keep) }
     var ls = s.euclideousLinesResolved
-    let masks: [UInt8?] = [0b0011, 0b1010, 0b0100, nil]
+    var masks: [UInt8?] = [0b0011, 0b1010, 0b0100, nil]
+    if grid2 {
+        masks = [0b10001, 0b11000, 0b10000, nil]
+        var g = MachineParams()
+        g.chordsSteps = 16; g.chordsDegrees = [1, 8, 2, 10, 5, 9, 11, 3, 6, 0, 4, 7, 1, 9, 10, 8]
+        g.chordsColours = [2, 3, 1, 4, 6, 5, 0, 2, 3, 4, 1, 5, 6, 0, 2, 1]; g.chordsRate = .r1_4
+        s.setEuclideousChordSet(1, g)
+    }
     for i in 0..<4 { ls[i].poolSrcMask = masks[i]; ls[i].poolSustainOn = true; ls[i].poolSustainMode = [EuclideousSustainMode.keep, .stack, .keep, .stack][i] }
     s.euclideousLines = ls
 }
@@ -465,7 +474,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -525,7 +534,7 @@ extension Host {
                 if name.contains("CANON") {   // CHORD CANON (2026-10-31): every lane delayed and slipping (the per-lane pool re-merge on every chord step, the slip roll), the 5 · 7 · 11 · 16 lap lengths in the second run — on top of the HOCKET fan-out there
                     au.editDocument { canonDocument(&$0, unit: name.contains("shapes") ? .passes : .bars, delays: [1, 2, 3, 8], slips: [0, 10, 25, 50], shapes: name.contains("shapes")) }
                 }
-                if name.contains("POOL") { au.editDocument { poolDocument(&$0, plan: !name.contains("CANON")) } }   // POOL ferry (2026-11-02): per-lane sources + SUSTAIN on every lane; the pedal is driven below (CC64 down at 100, up at 300 of every 400 windows)
+                if name.contains("POOL") { au.editDocument { poolDocument(&$0, plan: !name.contains("CANON"), grid2: name.contains("grid 2")) } }   // POOL ferry (2026-11-02): per-lane sources + SUSTAIN on every lane; the pedal is driven below (CC64 down at 100, up at 300 of every 400 windows)
                 if name.contains("ROUTED") {   // CARD BACKS (2026-10-28): the routing worst case — every riff part on all four outputs, the notes parts on A+C or all four, lane 4's notes routed nowhere (drawn, never sent); the roll ring takes a record per strike
                     au.editDocument { var ls = $0.euclideousLinesResolved; for i in 0..<4 { ls[i].riffOutMask = 0x0F; ls[i].notesOutMask = i == 3 ? 0 : (i % 2 == 0 ? 0b0101 : 0x0F) }; $0.euclideousLines = ls }
                 }

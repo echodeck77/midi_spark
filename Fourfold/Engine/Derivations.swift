@@ -10511,7 +10511,10 @@ func euclideousPoolGlyphLit(_ line: EuclidLine) -> Bool {
 /// 9.1: NOW's value — the eight note names in rank order, or "empty".
 func euclideousPoolNowSpoken(names: [String]) -> String { names.isEmpty ? "empty" : names.joined(separator: ", ") }
 /// 9.2: a SOURCES toggle's name and value.
-let euclideousPoolSourceNames = ["MIDI in", "Chords", "Pick", "Key"]
+/// Indexed by SOURCES bit (0 MIDI IN · 1 CHORDS 1 · 2 PICK · 3 KEY · 4 CHORDS 2); the toggles are DRAWN in `euclideousPoolSourceOrder`.
+let euclideousPoolSourceNames = ["MIDI in", "Chords 1", "Pick", "Key", "Chords 2"]
+/// The left-to-right order of the five SOURCES toggles, as bits: MIDI IN · CHORD 1 · CHORD 2 · PICK · KEY (the sources panel's order, its CHORDS split in two).
+let euclideousPoolSourceOrder = [0, 1, 4, 2, 3]
 func euclideousPoolSourceValue(on: Bool, panelOn: Bool) -> String { (on ? "on" : "off") + (panelOn ? "" : ", off in sources") }
 /// 9.3: a SUSTAIN mode button, "Sustain keep, lane 2, takes nothing new" (", off" when the row is off). The lane is part of the name: four cards carry the same row.
 func euclideousSustainModeSpoken(mode: EuclideousSustainMode, rowOn: Bool, lane: Int) -> String {

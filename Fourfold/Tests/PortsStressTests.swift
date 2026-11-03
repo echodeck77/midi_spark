@@ -229,10 +229,19 @@ final class PortsStressTests: XCTestCase {
     private func repool(_ st: inout PluginState, _ k: inout SM64, off: Bool = false) {
         var ls = st.euclideousLinesResolved
         for i in 0..<ls.count {
-            let mask = UInt8.random(in: 0...15, using: &k), on = Int.random(in: 0...1, using: &k) == 0, stack = Bool.random(using: &k)
-            ls[i].poolSrcMask = off || mask == 0b1111 ? nil : mask
+            var mask = UInt8.random(in: 0...15, using: &k)
+            let on = Int.random(in: 0...1, using: &k) == 0, stack = Bool.random(using: &k)
+            // TWO CHORD GRIDS (2026-11-03): half the CHORDS-on masks read grid 2 (bit 4 instead of bit 1) — the draw comes AFTER the existing ones
+            if Bool.random(using: &k), mask & 0b0010 != 0 { mask = (mask & ~0b0010) | 0b10000 }
+            ls[i].poolSrcMask = off || mask == 0b01111 ? nil : mask
             ls[i].poolSustainOn = off ? nil : on; ls[i].poolSustainMode = stack ? .stack : .keep
         }
+        // …and a second progression of its own (any length 1…16, rate, rests, borrowed degrees), so grid 2 sounds nothing like grid 1
+        var g2 = MachineParams()
+        let g2Steps = Int.random(in: 1...16, using: &k)
+        g2.chordsSteps = g2Steps; g2.chordsDegrees = (0..<g2Steps).map { _ in Int.random(in: -1...11, using: &k) }
+        g2.chordsRate = [StepRate.r1_1, .r1_2, .r1_4, .r1_8].randomElement(using: &k)!
+        if !off { st.setEuclideousChordSet(1, g2) }
         st.euclideousLines = ls
         let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
                                           soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)

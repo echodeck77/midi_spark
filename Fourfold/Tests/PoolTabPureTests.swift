@@ -234,7 +234,8 @@ final class PoolTabPureTests: XCTestCase {
     }
     func testTheSpokenWords() {
         XCTAssertEqual(euclideousPoolNowSpoken(names: []), "empty"); XCTAssertEqual(euclideousPoolNowSpoken(names: ["C 3", "E 3"]), "C 3, E 3")
-        XCTAssertEqual(euclideousPoolSourceNames, ["MIDI in", "Chords", "Pick", "Key"])
+        XCTAssertEqual(euclideousPoolSourceNames, ["MIDI in", "Chords 1", "Pick", "Key", "Chords 2"])
+        XCTAssertEqual(euclideousPoolSourceOrder, [0, 1, 4, 2, 3], "MIDI IN · CHORD 1 · CHORD 2 · PICK · KEY"); XCTAssertEqual(Set(euclideousPoolSourceOrder), Set(0..<5))
         XCTAssertEqual(euclideousPoolSourceValue(on: true, panelOn: true), "on"); XCTAssertEqual(euclideousPoolSourceValue(on: false, panelOn: true), "off")
         XCTAssertEqual(euclideousPoolSourceValue(on: true, panelOn: false), "on, off in sources")
         XCTAssertEqual(euclideousPoolPedalSpoken(down: true), "down"); XCTAssertEqual(euclideousPoolPedalSpoken(down: false), "up")

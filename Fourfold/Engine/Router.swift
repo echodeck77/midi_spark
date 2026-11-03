@@ -2372,7 +2372,7 @@ final class Router {
         for l in 0..<4 where sustainState[l].engaged { sustainAnyEngaged = true; break }
         // POOL ferry SOURCES: under REPLACE a lane with MIDI IN switched off keeps its CHORDS / PICK / KEY while the player plays — through the RELEASE GRACE and with nothing held too, so such a lane keeps the row alive.
         var laneKeepsGenerated = false
-        if let ls = euProc?.euclidLines { for L in ls where !L.poolSrcOn(0) && ((euPlan.chordsOnR && L.poolSrcOn(1)) || (euPlan.keyOnR && L.poolSrcOn(3)) || (euPlan.pickOnR && L.poolSrcOn(2) && !(euPlan.pickNotes?.isEmpty ?? true))) { laneKeepsGenerated = true; break } }
+        if let ls = euProc?.euclidLines { for L in ls where !L.poolSrcOn(0) && ((euPlan.chordsOnR && L.poolChordsOn) || (euPlan.keyOnR && L.poolSrcOn(3)) || (euPlan.pickOnR && L.poolSrcOn(2) && !(euPlan.pickNotes?.isEmpty ?? true))) { laneKeepsGenerated = true; break } }
         // POOL HOLD (FREEZE): a lane holding a taken pool keeps sounding it after the player lets go — with MIDI IN the keys are up long before the hold ends, and nothing is "contributing" any more, so without this the row early-outs and the lane
         // falls silent with its hold still running (CHORDS never showed it: its generated source keeps the row alive). A hold that took an EMPTY pool (the live pool was empty at an expiry) holds nothing and does not count.
         var freezeHolding = false
@@ -2688,6 +2688,9 @@ final class Router {
             var chordPoolStep = Int.min
             var canonBufMask: UInt8 = euclideousPoolSrcAll   // POOL ferry: the SOURCES mask of the lane whose pool the shared buffer holds (per window, like `chordPoolStep`)
             let chordPoolRateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
+            // TWO CHORD GRIDS (2026-11-03): grid 2's progression clock. A lane on CHORDS 2 steps by THIS rate (and reads `p.chords2`); every other lane — the live pool included — is grid 1 and the line above.
+            let chordPoolRateBeats2 = p.chords2.rateBeats > 0 ? p.chords2.rateBeats : 4
+            func chordRateBeats(_ grid: Int) -> Double { grid == 1 ? chordPoolRateBeats2 : chordPoolRateBeats }
             // SOURCES STACK ferry (2026-10-26): MIDI always listens, CHORDS and KEY stack under it. The three layers
             // are built into their own buffers, then `euclideousBuildSourceStack` merges them into globalSrcBuf. The
             // per-window MIDI-PLAYING flag (`euclideousStackMidiPlaying`) was computed in `process()`; recompute the
@@ -2699,9 +2702,9 @@ final class Router {
             // Sources panel v2: re-merge on a chord-step change whenever CHORDS is ON (a redundant merge under
             // REPLACE-while-MIDI is harmless — `euclideousBuildSourceStack` re-evaluates "allowed").
             let euChordsActive = euPlan.chordsOnR
-            func fillChordLayer(atBeat m: Double) {
-                chordPoolStep = Int((m / chordPoolRateBeats).rounded(.down))
-                chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
+            func fillChordLayer(atBeat m: Double, grid: Int = 0) {
+                chordPoolStep = Int((m / chordRateBeats(grid)).rounded(.down))
+                chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil, grid: grid)
                 chordLayerIsRest = chordLayerCount == 0   // §2.6: chordSeqNotesInto returns 0 ONLY for a REST column (PATTERN mode — a real degree always yields ≥1)
             }
             // MIDI IN OCTAVES (2026-11-01) §2.2: under IGNORE (and not ROOT, which admits no played notes) the held notes are FOLDED into `midiFoldBuf` before the builder admits them — before its one-layer short cut — so everything after
@@ -2760,7 +2763,7 @@ final class Router {
             // beat e − d; the player's note-offs and a key change reach the lane `d` late), CHORDS from its closed form at host beat m − d (a rest while the lane is still waiting for its first chord, in which case every layer is
             // empty and the lane is silent). Written into the same `globalSrcBuf` the lane's reads already use; the buffer is re-keyed (chord step, history entry) whenever the lane needs a different pool, and `chordPoolStep` is
             // parked on the dirty key so the live refresh restores the live pool for the next undelayed lane. It never touches the status the live merge publishes to the UI (the SOURCES panel shows the live pool).
-            func mergeCanonStack(_ read: EuclideousCanonRead, entry: Int64, plan lp: SourcePlan) {   // `lp`: the page plan, or (POOL ferry) with this lane's SOURCES written in
+            func mergeCanonStack(_ read: EuclideousCanonRead, entry: Int64, plan lp: SourcePlan, grid: Int) {   // `lp`: the page plan, or (POOL ferry) with this lane's SOURCES written in
                 var midiN = 0, pickN = 0, keyN = 0
                 var playing = false
                 var rootT = 0   // the t in force at the lane's own moment (recorded with the entry), not the live one
@@ -2775,7 +2778,7 @@ final class Router {
                 if read.waiting {
                     chordLayerCount = 0; chordLayerIsRest = true
                 } else if lp.chordsOnR {
-                    chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: euclideousCanonStepBeat(step: read.step, rateBeats: chordPoolRateBeats), p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil)
+                    chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: euclideousCanonStepBeat(step: read.step, rateBeats: chordRateBeats(grid)), p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil, grid: grid)
                     chordLayerIsRest = chordLayerCount == 0
                 } else {
                     chordLayerCount = 0; chordLayerIsRest = false
@@ -2792,7 +2795,8 @@ final class Router {
             }
             func refreshCanonStack(beat m: Double, delayBeats: Double, slip: Int, lane: Int, plan lp: SourcePlan, mask: UInt8) {
                 let e = canonWinElapsed + (m - mWinStart)                       // elapsed beats at this tick
-                let read = euclideousCanonChordRead(beat: m, elapsed: e, rateBeats: chordPoolRateBeats, delayBeats: delayBeats, slipPercent: slip, entry: p.canonEntry, lane: lane)
+                let grid = euclideousLaneChordGrid(mask)                        // TWO CHORD GRIDS: this lane's progression (its clock too)
+                let read = euclideousCanonChordRead(beat: m, elapsed: e, rateBeats: chordRateBeats(grid), delayBeats: delayBeats, slipPercent: slip, entry: p.canonEntry, lane: lane)
                 var entry: Int64 = -1
                 if !read.waiting, let sq = canonHistory.seq(atOrBefore: e - delayBeats) {
                     entry = sq
@@ -2801,14 +2805,14 @@ final class Router {
                 }
                 let chordKey = read.waiting ? euclideousCanonWaitingKey : read.step
                 if chordPoolStep == euclideousCanonDirtyKey && canonBufChord == chordKey && canonBufEntry == entry && canonBufMask == mask { return }   // the buffer already holds exactly this pool
-                mergeCanonStack(read, entry: entry, plan: lp)
+                mergeCanonStack(read, entry: entry, plan: lp, grid: grid)
                 chordPoolStep = euclideousCanonDirtyKey; canonBufChord = chordKey; canonBufEntry = entry; canonBufMask = mask
             }
             // POOL ferry SOURCES (2026-11-02) §3: a lane that switched some of the four sources off builds its pool with the SAME stacked pool function over the LIVE layers (`lp`: the page plan with the lane's switches ANDed in), without
             // touching the status the sources panel shows. Like a delayed lane it re-keys the shared buffer — here by (chord step, mask), which is enough because the live layers cannot change inside a window — and parks the dirty key, so
             // the lanes with the SAME mask share one build and the next default lane restores the live pool. ROOT's transpose and the OCTAVES fold apply inside the build as they do in `mergeStack`.
-            func mergeLaneStack(plan lp: SourcePlan, atBeat m: Double) {
-                fillChordLayer(atBeat: m)
+            func mergeLaneStack(plan lp: SourcePlan, atBeat m: Double, grid: Int) {
+                fillChordLayer(atBeat: m, grid: grid)
                 let t = euclideousRootT
                 let midi = midiForPool(midiLayerBuf[0..<midiLayerCount])
                 poolBuildCount &+= 1
@@ -2823,9 +2827,10 @@ final class Router {
             }
             func refreshLaneStack(plan lp: SourcePlan, mask: UInt8, atBeat m: Double) {
                 let mm = m + 1e-9                                        // a tick a hair under a chord boundary belongs to the new chord
-                let step = Int((mm / chordPoolRateBeats).rounded(.down))
+                let grid = euclideousLaneChordGrid(mask)                 // TWO CHORD GRIDS: CHORDS 2 steps by grid 2's clock and reads grid 2's progression (bit 4 is in `mask`, so the cache key already tells the grids apart)
+                let step = Int((mm / chordRateBeats(grid)).rounded(.down))
                 if chordPoolStep == euclideousCanonDirtyKey && canonBufChord == step && canonBufEntry == Int64.max && canonBufMask == mask { return }   // the buffer already holds exactly this lane-source pool
-                mergeLaneStack(plan: lp, atBeat: mm)
+                mergeLaneStack(plan: lp, atBeat: mm, grid: grid)
                 chordPoolStep = euclideousCanonDirtyKey; canonBufChord = step; canonBufEntry = Int64.max; canonBufMask = mask
             }
             // POOL HOLD (FREEZE, 2026-11-01) §2: after the pool is refreshed for THIS lane (canon or live), hold/take/pass it. Like `mergeCanonStack`, a KEEP overwrites the SHARED `globalSrcBuf` with the lane's held copy and parks the
