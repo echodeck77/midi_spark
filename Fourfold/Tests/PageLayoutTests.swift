@@ -73,11 +73,16 @@ final class PageLayoutTests: XCTestCase {
 
     // GRACEFUL SCALE-TO-FIT (small-window, 2026-10-26): at/above the minimum it's a no-op (the real size, scale 1);
     // below, the page lays out at the reference size and scales down uniformly, centred.
-    func testScaleToFitIsANoOpAtOrAboveTheMinimumAndScalesCentredBelow() {
-        // big enough (landscape + portrait): no scaling, the real size.
-        for s in [CGSize(width: 1190, height: 726), CGSize(width: 814, height: 1102), CGSize(width: 760, height: 480), CGSize(width: 480, height: 760)] {
+    func testScaleToFitIsANoOpAtOrAboveTheReferenceAndScalesCentredBelow() {
+        // AT or ABOVE the reference in both dimensions (landscape + portrait, incl. a larger-than-ref view): no scaling, the real size, never scales UP.
+        for s in [CGSize(width: 1190, height: 726), CGSize(width: 814, height: 1102), CGSize(width: 1400, height: 900), CGSize(width: 1000, height: 1300)] {
             let f = euclideousScaleToFit(s)
-            XCTAssertFalse(f.scaled, "\(s) is at/above the minimum"); XCTAssertEqual(f.scale, 1); XCTAssertEqual(f.renderSize, s); XCTAssertEqual(f.origin, .zero)
+            XCTAssertFalse(f.scaled, "\(s) is at/above the reference"); XCTAssertEqual(f.scale, 1); XCTAssertEqual(f.renderSize, s); XCTAssertEqual(f.origin, .zero)
+        }
+        // Paul (2026-11-03): BELOW the reference — including 760×480 / 480×760, which the old rectangular minimum wrongly let through to the
+        // overlapping fluid layout — the whole page shrinks uniformly to the reference, centred.
+        for s in [CGSize(width: 760, height: 480), CGSize(width: 480, height: 760), CGSize(width: 1100, height: 680)] {
+            XCTAssertTrue(euclideousScaleToFit(s).scaled, "\(s) is below the reference and must scale")
         }
         // too small (landscape): lays out at the 1190×726 reference, scales to fit, centred.
         let small = CGSize(width: 595, height: 363)   // exactly half the landscape reference
@@ -89,6 +94,9 @@ final class PageLayoutTests: XCTestCase {
         let wide = euclideousScaleToFit(CGSize(width: 595, height: 400))
         XCTAssertEqual(wide.scale, 0.5, accuracy: 1e-9, "width binds (595/1190 < 400/726)")
         XCTAssertEqual(wide.origin.y, (400 - 726 * 0.5) / 2, accuracy: 1e-9, "centred in the leftover height")
+        // below the reference in ONE dimension only still scales (uniformly), binding on that dimension.
+        let shortH = euclideousScaleToFit(CGSize(width: 1190, height: 700))
+        XCTAssertTrue(shortH.scaled); XCTAssertEqual(shortH.scale, 700.0 / 726.0, accuracy: 1e-9, "height binds; width letterboxes")
         // a zero/degenerate size never divides by zero.
         XCTAssertFalse(euclideousScaleToFit(.zero).scaled)
     }

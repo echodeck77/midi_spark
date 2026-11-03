@@ -4922,33 +4922,36 @@ func euclideousPageLayout(size: CGSize, bottomInset: CGFloat = 0) -> EuclideousP
     return euclideousPageLayout(size: size, headerKind: kind, bottomInset: bottomInset)
 }
 
-// MARK: - GRACEFUL SCALE-TO-FIT (small-window, 2026-10-26)
-// Below a sensible minimum the page is laid out at a fixed REFERENCE size and the WHOLE thing (page + pop-ups +
-// HUD) is scaled down uniformly to fit, CENTRED — LIVE and interactive (SwiftUI's scaleEffect/offset carry hit
-// testing), with no overlay message. (Supersedes the 2026-10-24 "RESIZE TO CONTINUE" fallback, which scaled only
-// the page body, froze interaction and covered it with a card — Paul 2026-10-26: keep the graceful size-down, drop
-// the message and the freeze.) At or above the minimum this is a no-op (scale 1, the real size) — byte-identical.
+// MARK: - UNIFORM SCALE-TO-FIT (small-window)
+// Paul (2026-11-03): "if the window is reduced in scale then the entire contents should resize to be smaller." Below
+// the orientation's REFERENCE size in EITHER dimension, the page is laid out at that fixed reference and the WHOLE
+// thing (page + pop-ups + HUD) is scaled down uniformly to fit, CENTRED — LIVE and interactive (SwiftUI's
+// scaleEffect/offset carry hit testing), with no overlay message. This replaces the earlier hard 760×480 / 480×760
+// rectangular minimum (2026-10-26), which left a BAND between that minimum and the reference where the fluid layout
+// reflowed and squeezed panels past their floors so they overflowed their boxes (the "overlapping in an ugly way"
+// Paul reported): the reference is in practice the only size at which no panel is floored (any reduction floors
+// `mixCellW` on width / `riffRows` on height), so there is no fluid band below it worth keeping. At or above the
+// reference in BOTH dimensions this is a no-op (scale 1, the real size) — byte-identical; it never scales UP.
 enum EuclideousScaleToFit {
-    static let landscapeMin = CGSize(width: 760, height: 480)
-    static let portraitMin = CGSize(width: 480, height: 760)
-    /// Paul's own two reference sizes — `PageLayoutTests` already pins the page's layout against these two.
+    /// Paul's own two reference sizes — `PageLayoutTests` already pins the page's layout against these two (and they
+    /// are the only sizes `euclideousPageLayout` reports with no floors).
     static let landscapeRef = CGSize(width: 1190, height: 726)
     static let portraitRef = CGSize(width: 814, height: 1102)
 }
 struct EuclideousScaleFit: Equatable {
-    var renderSize: CGSize   // the size the page lays out at (the real size, or — when small — the reference)
-    var scale: CGFloat       // 1 at/above the minimum, else < 1
+    var renderSize: CGSize   // the size the page lays out at (the real size, or — when smaller than the reference — the reference)
+    var scale: CGFloat       // 1 at/above the reference in both dimensions, else < 1
     var origin: CGPoint      // where to place the scaled page (centred when scaled; .zero otherwise)
     var scaled: Bool
 }
 func euclideousScaleToFit(_ size: CGSize) -> EuclideousScaleFit {
     let landscape = size.width > size.height
-    let minS = landscape ? EuclideousScaleToFit.landscapeMin : EuclideousScaleToFit.portraitMin
-    guard size.width > 0, size.height > 0, size.width < minS.width || size.height < minS.height else {
+    let ref = landscape ? EuclideousScaleToFit.landscapeRef : EuclideousScaleToFit.portraitRef
+    // No-op unless the view is strictly smaller than the reference in some dimension (and non-degenerate).
+    guard size.width > 0, size.height > 0, size.width < ref.width || size.height < ref.height else {
         return EuclideousScaleFit(renderSize: size, scale: 1, origin: .zero, scaled: false)
     }
-    let ref = landscape ? EuclideousScaleToFit.landscapeRef : EuclideousScaleToFit.portraitRef
-    let scale = max(0.05, min(size.width / ref.width, size.height / ref.height))
+    let scale = max(0.05, min(1, min(size.width / ref.width, size.height / ref.height)))   // fit the whole reference in; never up
     let origin = CGPoint(x: (size.width - ref.width * scale) / 2, y: (size.height - ref.height * scale) / 2)
     return EuclideousScaleFit(renderSize: ref, scale: scale, origin: origin, scaled: true)
 }
