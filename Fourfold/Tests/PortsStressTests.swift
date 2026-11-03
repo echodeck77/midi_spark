@@ -265,6 +265,16 @@ final class PortsStressTests: XCTestCase {
         }
         return set
     }
+    /// VELOCITY tab (2026-11-03): four random per-output velocity accents — mostly ON, every STEPS / HITS / OFFSET and a signed HIT VEL / MISS VEL — from the caller's OWN stream, so the pinned fingerprints (no accents) stay exactly what they were.
+    private func rVelocities(_ x: inout SM64) -> EmitterVelocitySet {
+        var set = EmitterVelocitySet()
+        for i in 0..<4 {
+            let steps = Int.random(in: 2...16, using: &x)
+            set[i] = EmitterVelocity(on: Int.random(in: 0...3, using: &x) != 0, steps: steps, hits: Int.random(in: 0...steps, using: &x), offset: Int.random(in: 0..<steps, using: &x),
+                                     hitVel: Int.random(in: -63...63, using: &x), missVel: Int.random(in: -63...63, using: &x))
+        }
+        return set
+    }
     /// MUTE TAB (2026-11-02): four random per-output mutes (a random 16-bit pattern + a random 1…8 pass size each) from the caller's OWN stream, so the pinned fingerprints (no output mutes) stay exactly what they were. `off` returns nil (the control: nothing muted).
     private func rMutes(_ g: inout SM64, off: Bool = false) -> EuclideousOutputMutes? {
         if off { return nil }
@@ -421,7 +431,7 @@ final class PortsStressTests: XCTestCase {
     /// Drive one seeded session: many windows with mid-stream mutation, return a failure message or nil.
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0, rollUnranked = 0
-    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false, octaves: Bool = false, octavesOff: Bool = false, answer: Bool = false, answerOff: Bool = false, pool poolFeature: Bool = false, poolOff: Bool = false, mutes: Bool = false, mutesOff: Bool = false) -> String? {
+    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, velocities: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false, octaves: Bool = false, octavesOff: Bool = false, answer: Bool = false, answerOff: Bool = false, pool poolFeature: Bool = false, poolOff: Bool = false, mutes: Bool = false, mutesOff: Bool = false) -> String? {
         var g = SM64(seed)
         var an = SM64(seed ^ 0xA25E_3E40_0000)     // ANSWER ferry: the rows, CYCLE flags, TRADE and EACH / UNIT draw from their OWN stream, so every pinned fingerprint (no ANSWER fields) stays exactly what it was
         var q = SM64(seed ^ 0x0F01_7A11_0000)      // POLY RIFF ferry: the POLY riff draws from its OWN stream too, so the pinned fingerprints (MONO) stay exactly what they were
@@ -431,6 +441,7 @@ final class PortsStressTests: XCTestCase {
         var oc = SM64(seed ^ 0x0C7A_5E00_0000)     // MIDI IN OCTAVES / ROOT ferry: the OCTAVES choice and the MODE (ADD / REPLACE / ROOT) draw from their OWN stream, so every pinned fingerprint (KEEP, the document's own mode) stays exactly what it was
         var pl = SM64(seed ^ 0x0900_1500_7A11)     // POOL ferry: the per-lane sources, SUSTAIN and the pedal draw from their OWN stream, so every pinned fingerprint (no POOL fields, no pedal) stays exactly what it was
         var mu = SM64(seed ^ 0x4D17_E000_0003)     // MUTE TAB ferry: the per-output mutes draw from their OWN stream, so every pinned fingerprint (no output mutes) stays exactly what it was
+        var vx = SM64(seed ^ 0x7E10_C17E_0003)     // VELOCITY tab ferry: the per-output velocity accents draw from their OWN stream, so every pinned fingerprint (no accents) stays exactly what it was
         var pedalDown = false, pedalSeq: UInt32 = 0
         let router = Router()
         var rolls: [NoteRollRecord] = [], winParams: [(beat: Double, ts: Double)] = []
@@ -439,6 +450,7 @@ final class PortsStressTests: XCTestCase {
         var (st, pool) = rDoc(&g, rawGates: rawGates)
         if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }
         if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }
+        if velocities { st.euclideousEmitterVelocities = rVelocities(&vx) }
         if poly { repoly(&st, &q, modeOff: polyModeOff) }
         if canon { recanon(&st, &kc, off: canonOff) }
         if octaves { reoctaves(&st, &oc, off: octavesOff) }
@@ -459,8 +471,9 @@ final class PortsStressTests: XCTestCase {
         for w in 0..<windows {
             e.win = w
             // mutate the document / transport between windows
-            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if poly { repoly(&st, &q, modeOff: polyModeOff) }; if canon { recanon(&st, &kc, off: canonOff) }; if octaves { reoctaves(&st, &oc, off: octavesOff) }; if answer { reanswer(&st, &an, off: answerOff) }; if mutes { st.euclideousOutputMutes = rMutes(&mu, off: mutesOff) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if velocities { st.euclideousEmitterVelocities = rVelocities(&vx) }; if poly { repoly(&st, &q, modeOff: polyModeOff) }; if canon { recanon(&st, &kc, off: canonOff) }; if octaves { reoctaves(&st, &oc, off: octavesOff) }; if answer { reanswer(&st, &an, off: answerOff) }; if mutes { st.euclideousOutputMutes = rMutes(&mu, off: mutesOff) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
             if emitters, x.next() % 3 == 0 { st.euclideousEmitterRatchets = rEmitters(&x); box = SnapshotBuilder.build(from: st) }   // RATCH tab ferry: a toggle / value dragged while notes (and deferred strikes) sound
+            if velocities, vx.next() % 3 == 0 { st.euclideousEmitterVelocities = rVelocities(&vx); box = SnapshotBuilder.build(from: st) }   // VELOCITY tab ferry: an accent dragged while notes (and deferred strikes) sound
             if outTranspose, h.next() % 3 == 0 { retranspose(&st, &h, zeroed: zeroedTranspose); box = SnapshotBuilder.build(from: st) }   // CARD BACKS v2: a PITCH pad dragged while notes sound
             if canon, kc.next() % 3 == 0 { recanon(&st, &kc, off: canonOff); box = SnapshotBuilder.build(from: st) }   // CHORD CANON: a DELAY / SLIP / UNIT edited while notes sound
             if octaves, oc.next() % 3 == 0 { reoctaves(&st, &oc, off: octavesOff); box = SnapshotBuilder.build(from: st) }
@@ -750,6 +763,23 @@ final class PortsStressTests: XCTestCase {
     }
     func testEmitterRatchetSessionsAtGate100() {   // legato runs on every part around the ratcheting outputs
         for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 510_000, windows: 24, rawGates: true, emitters: true) { XCTFail(msg); return } }
+    }
+    // VELOCITY tab ferry (2026-11-03): per-output velocity accents drawn at random AND changing mid-note — a note's velocity shifts but nothing strands, no orphan off, each message on its output's channel, the roll equals the wire, every note-on is 1…127.
+    func testEmitterVelocitySessionsHoldEveryInvariant() {
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 540_000, windows: 24, velocities: true) { XCTFail(msg); return } }
+    }
+    func testEmitterVelocitySessionsAtGate100AndWithRatchets() {   // the accent composes with legato and with the ratchet's own deferred strikes
+        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 550_000, windows: 24, rawGates: true, emitters: true, velocities: true) { XCTFail(msg); return } }
+    }
+    func testEmitterVelocitySessionsReallyChangeTheNotesOnTheWire() {
+        var differing = 0, total = 0
+        for s in 1...240 {
+            let seed = UInt64(s) &+ 560_000
+            XCTAssertNil(runSession(seed: seed, windows: 24, velocities: true)); let accented = lastSessionHash
+            XCTAssertNil(runSession(seed: seed, windows: 24)); let plain = lastSessionHash
+            total += 1; if accented != plain { differing += 1 }
+        }
+        XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with accents on — they are not reaching the wire")
     }
     /// The invariant fuzzes pass whether or not a ratchet ever reaches the wire: compare each session with the SAME session without the ratchets — most must differ.
     func testEmitterRatchetSessionsReallyChangeTheNotesOnTheWire() {

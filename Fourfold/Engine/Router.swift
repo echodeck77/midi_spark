@@ -353,7 +353,14 @@ final class Router {
     private(set) var emitterIndexLive: UInt32 = 0xFFFF_FFFF
     /// §3.10: low nibble = the outputs that RATCHETED this hit, high nibble = the outputs where P(index) was a hit but CHANCE failed; one byte per NOTE VIEW event, parallel to the other `nv…` arrays.
     private var nvEmitMasks = [UInt8](repeating: 0, count: 4 * Router.noteViewRing)
-    private func resetEmitterRatchetOrigin() { emitterCounter.reset(); emitterIndexLive = emitterCounter.indexPacked }
+    // EMITTER VELOCITY (VELOCITY tab, 2026-11-03): the four per-output velocity accents of this window (all OFF ⇒ `emitterVelAny` false ⇒ `emitOneOutput` adds 0, byte-identical), their own per-output hit counter (independent of
+    // the ratchet count), the per-output signed offset for the strike currently being emitted (set per hit before its strikes and from an echo tail when it drains — mirroring `euclideousStrikeMuteBeat`), and the polled index.
+    private var emitterVelocities = EmitterVelocitySnap()
+    private var emitterVelAny = false
+    private var emitterVelCounter = EmitterVelocityCounter()
+    private var euclideousStrikeVelOffset = SIMD4<Int8>(repeating: 0)   // [output] the signed velocity offset applied at `emitOneOutput` for the strike in flight; 0 everywhere = no change
+    private(set) var emitterVelIndexLive: UInt32 = 0xFFFF_FFFF
+    private func resetEmitterRatchetOrigin() { emitterCounter.reset(); emitterIndexLive = emitterCounter.indexPacked; emitterVelCounter.reset(); emitterVelIndexLive = emitterVelCounter.indexPacked }
     /// The reference lanes' rhythms for this window, captured by the clock pre-pass — [lane × 2 + segment] (segment 1 = the part of a lock-split window after the snap line). Built at init so no render-time allocation.
     private var hocketClocks: [HocketLaneClock] = (0..<8).map { _ in HocketLaneClock() }
     private var hocketClockSplit = [Bool](repeating: false, count: 4)
@@ -1175,6 +1182,7 @@ final class Router {
         var pitch: Int = 0           // semitones per successive echo
         var gateBeats: Double = 0.25
         var lane: Int8 = -1          // LANE SOLO (2026-10-21): the Euclideous lane that pushed this tail (−1 = none) — so a solo can drop ITS pending repeats
+        var velOffsets = SIMD4<Int8>(repeating: 0)   // EMITTER VELOCITY (2026-11-03): the per-output velocity offset at the hit that pushed this tail, re-applied in the drain so a deferred strike carries the accent it was born with
     }
     private static let echoTailCap = 256
     private var echoTails = [EchoTail](repeating: EchoTail(), count: Router.echoTailCap)
@@ -1215,7 +1223,7 @@ final class Router {
         echoTails[slot] = EchoTail(active: true, onset: onset, note: note, rank: rank, vel: vel, busMask: busMask, outsOverride: outsOverride ?? 0xFF, outsExclude: outsOverride == nil ? outsExclude : 0, outsOnly: outsOverride == nil ? outsOnly : 0x0F,
                                    timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
                                    decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats,
-                                   lane: euclideousStrikeLane)
+                                   lane: euclideousStrikeLane, velOffsets: euclideousStrikeVelOffset)   // EMITTER VELOCITY: carry this hit's per-output offset into the deferred strike
     }
 
     // reset() arrives on the CONTROL thread (the AU's @objc reset:, e.g. AUM disabling the plugin) — which can race
@@ -1830,6 +1838,13 @@ final class Router {
         if euclideous ? euclideousOnsThisBeat[o] >= Router.euclideousFloodCapPerBeat : noteOnsThisBeat[o] >= Router.floodCapPerBeat { floodDropped &+= 1; return -1 }
         if euclideous { euclideousOnsThisBeat[o] &+= 1 } else { noteOnsThisBeat[o] &+= 1 }
         let ch = (busChannels[o] &- 1) & 15   // the OUTPUT's stamp (1–16 → 0–15 wire)
+        // EMITTER VELOCITY (VELOCITY tab, 2026-11-03): the per-output signed offset for the strike in flight (set per hit in the emitter loop, or per echo tail during the drain — same scratch discipline as `euclideousStrikeMuteBeat`).
+        // Applied to the NOTE-ON only (the off is untouched ⇒ no stuck note), clamped to 1…127 (never silences). `emitterVelAny` false ⇒ `velOn == velocity`, byte-identical.
+        var velOn = velocity
+        if euclideous, emitterVelAny {
+            let off = Int(euclideousStrikeVelOffset[o])
+            if off != 0 { velOn = UInt8(max(1, min(127, Int(velocity) + off))) }
+        }
         // HOCKET §7.3: a strike by a part of a LIT rule joins a sounding key instead of re-articulating it (never a legato hold — those are tracked per slot; unreachable in production, gate max 0.99).
         // A strike joins a sounding key when its PART is in a lit rule, or when a note group is sounding on that very key at that time (an unlit part's note that lands on a lit part's — on ALL, and on any output the two share
         // a channel on — must not become a second note-on of a note that is already sounding). Every other strike keeps the old re-articulation, so a lane no rule touches keeps its outputs exactly as they were.
@@ -1838,11 +1853,11 @@ final class Router {
         let joinOwn = hocketStrike && (litBus || (groupMembers > 0 && hocketGroupSounding(cable: UInt8(o + 1), chan: ch, note: note, at: onSample)))
         let joinAll = hocketStrike && (litBus || (groupMembers > 0 && hocketGroupSounding(cable: 0, chan: ch, note: note, at: onSample)))
         let own = openVoice(note: note, chan: ch, cable: UInt8(o + 1), bus: UInt8(bus),
-                            onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: joinOwn)
+                            onSample: onSample, offSample: offSample, velocity: velOn, out: out, euclideousLegato: euclideousLegato, join: joinOwn)
         if own >= 0 { onVoiceOpened(own); rollStruckOuts |= UInt8(1) << UInt8(o); voices[own].rollOnBeat = rollBeat(onSample); voices[own].rollRank = euclideousStrikeRank }
         if own >= 0 && offSample <= windowEnd { if joinOwn { voices[own].deferClose = true; hocketDeferredCloses = true } else { closeVoice(own, atSample: offSample, out: out) } }
         let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
-                            onSample: onSample, offSample: offSample, velocity: velocity, out: out, euclideousLegato: euclideousLegato, join: joinAll)
+                            onSample: onSample, offSample: offSample, velocity: velOn, out: out, euclideousLegato: euclideousLegato, join: joinAll)
         if all >= 0 { onVoiceOpened(all) }
         if all >= 0 && offSample <= windowEnd { if joinAll { voices[all].deferClose = true; hocketDeferredCloses = true } else { closeVoice(all, atSample: offSample, out: out) } }
         return Int(ch)
@@ -1911,6 +1926,7 @@ final class Router {
                 let onT = sampleOf(musical: tau, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                    windowStart: windowStart, S: S, a: a)
                 euclideousStrikeMuteBeat = tau   // MUTE TAB: a deferred strike is judged at ITS own musical onset (adversarial review 2026-11-02)
+                if emitterVelAny { euclideousStrikeVelOffset = e.velOffsets }   // EMITTER VELOCITY: re-apply the per-output offset this tail was born with (skipped once the accent is turned off — the strike then plays at its own velocity)
                 let offT = sampleOf(musical: tau + e.gateBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                     windowStart: windowStart, S: S, a: a)
                 var tailBus = e.busMask
@@ -4549,6 +4565,8 @@ final class Router {
                                         let hitSample = Int64(sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
                                         // RESTART (2026-11-03): the host bar the hit falls on (same `.rounded(.down)` as `barIndex` elsewhere), so each output can restart its count every N bars. FREE (0) passes Int64.min — the counter then never restarts, so the whole path is byte-identical.
                                         let hitBarBeats = max(1e-9, beatsPerBar)
+                                        // EMITTER VELOCITY (2026-11-03): this hit's per-output signed velocity offset. Zeroed up front so outputs the hit doesn't touch add nothing; filled per output below and read in `emitOneOutput` (immediate strikes) / carried on echo tails (deferred). `emitterVelAny` false ⇒ never touched ⇒ byte-identical.
+                                        if emitterVelAny { euclideousStrikeVelOffset = SIMD4<Int8>(repeating: 0) }
                                         for x in 0..<4 where (hitOuts >> UInt8(x)) & 1 != 0 {
                                             let rb = emitterRatchets[x].restartBars
                                             let rk: Int64 = rb > 0 ? Int64(((mTickBeat + 1e-9) / (Double(rb) * hitBarBeats)).rounded(.down)) : Int64.min
@@ -4559,8 +4577,14 @@ final class Router {
                                                 let n = euclideousFXRatchetCount(requested: d.strikes, sub: sub, tempo: tempo)
                                                 if n >= 2 { emitRatchetOuts |= UInt8(1) << UInt8(x); emitN[x] = UInt8(n) }
                                             }
+                                            if emitterVelAny {
+                                                let vcfg = emitterVelocities[x]
+                                                let vi = emitterVelCounter.hit(steps: vcfg.steps, output: x, window: emitterWindowSerial, sample: hitSample)   // counts the same emitter hit, its own index
+                                                euclideousStrikeVelOffset[x] = vcfg.on ? Int8(clamping: vcfg.offsetAt(vi)) : 0                                  // HIT VEL on a pattern hit, MISS VEL on a rest; an OFF output adds 0
+                                            }
                                         }
                                         emitterIndexLive = emitterCounter.indexPacked
+                                        if emitterVelAny { emitterVelIndexLive = emitterVelCounter.indexPacked }
                                     }
                                 }
                                 // The outputs a pitch still strikes on the ordinary way: its outputs less those the emitter ratchet takes over (§3.3: copies on every other output strike as they would without this feature). With no output ratcheting this is
@@ -5401,6 +5425,8 @@ final class Router {
                 }
             } else { hocketRules = HocketRulesSnap() }
             emitterRatchets = isEuclideousRow ? p.emitterRatchets : EmitterRatchetSnap()   // EMITTER RATCHET: the Euclideous row's four output ratchets (inert default for every other cell)
+            emitterVelocities = isEuclideousRow ? p.emitterVelocities : EmitterVelocitySnap()   // EMITTER VELOCITY: the Euclideous row's four per-output velocity accents (inert default elsewhere)
+            emitterVelAny = emitterVelocities.anyOn
             // LISTEN AVOID (rebuilt 2026-11-01): a lane whose PITCH is AVOID punches a hole in its OWN hit whenever its SOURCE lane strikes at the same instant. That needs the source's window hit-schedule known BEFORE any lane plays
             // (the old echo read saw a later-indexed source's PREVIOUS window), so AVOID source lanes JOIN the HOCKET clock pre-pass. `listenSource`/`listenPitch` are not lane-lock fields, so the snapshot doc is the true set.
             var avoidSourceMask: UInt8 = 0

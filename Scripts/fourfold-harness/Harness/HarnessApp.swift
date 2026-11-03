@@ -474,7 +474,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -549,6 +549,16 @@ extension Host {
                         set[2] = EmitterRatchet(on: true, steps: 7, hits: 4, offset: 2, chance: 100, strikes: 3)
                         set[3] = EmitterRatchet(on: true, steps: 2, hits: 2, offset: 0, chance: 25, strikes: 4)
                         $0.euclideousEmitterRatchets = set
+                    }
+                }
+                if name.contains("EMITTER VELOCITY") {   // VELOCITY tab (2026-11-03): every output accented — varied patterns, signed HIT VEL / MISS VEL — on top of the routing worst case: the count, the decision and the per-output offset at emission must allocate nothing
+                    au.editDocument {
+                        var set = EmitterVelocitySet()
+                        set[0] = EmitterVelocity(on: true, steps: 16, hits: 16, offset: 0, hitVel: 40, missVel: -20)
+                        set[1] = EmitterVelocity(on: true, steps: 5, hits: 3, offset: 1, hitVel: -63, missVel: 63)
+                        set[2] = EmitterVelocity(on: true, steps: 7, hits: 4, offset: 2, hitVel: 25, missVel: -10)
+                        set[3] = EmitterVelocity(on: true, steps: 2, hits: 2, offset: 0, hitVel: 63, missVel: 0)
+                        $0.euclideousEmitterVelocities = set
                     }
                 }
                 if name.contains("ANSWER") {   // ANSWER ferry (2026-11-02): the cycle latch, the window split, the phase rows, and TRADE's push — the record, the re-voiced rebuild and a second emission per hit (with the hocket fan-out and the routing worst case in the last run)

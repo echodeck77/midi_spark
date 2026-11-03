@@ -1798,6 +1798,77 @@ struct EmitterRatchetSet: Equatable, Codable {
     var isAllDefault: Bool { self == EmitterRatchetSet() }
 }
 
+// MARK: - EMITTER VELOCITY (VELOCITY tab, 2026-11-03)
+// Four page-level velocity accents, one per OUTPUT A–D, each with its OWN Euclid pattern (STEPS/HITS/OFFSET, exactly the ratchet's design). A note leaving on an output on a pattern HIT step has HIT VEL added to its velocity, a
+// note on a rest step has MISS VEL added — both SIGNED offsets relative to the note's own velocity, applied last at emission (`emitOneOutput`), clamped to 1…127 (never silenced). Additive-Optional, decode-tolerant: nil / short /
+// long / unreadable ⇒ four accents at the defaults, all off and both offsets 0, so an old session and every factory preset sound exactly as before.
+struct EmitterVelocity: Equatable {
+    var on = false          // default OFF
+    var steps = 8           // 2…16
+    var hits = 3            // 0…steps
+    var offset = 0          // 0…steps − 1
+    var hitVel = 0          // −63…+63, the signed offset on a pattern HIT step
+    var missVel = 0         // −63…+63, the signed offset on a rest step
+
+    static let minSteps = 2, maxSteps = 16, maxVel = 63
+    var isDefault: Bool { self == EmitterVelocity() }
+
+    /// STEPS first, then HITS ≤ STEPS and OFFSET ≤ STEPS − 1 against it (the same one-write clamp the ratchet uses); HIT VEL and MISS VEL clamp to ±63.
+    func normalized() -> EmitterVelocity {
+        var r = self
+        r.steps = max(Self.minSteps, min(Self.maxSteps, steps))
+        r.hits = max(0, min(r.steps, hits))
+        r.offset = max(0, min(r.steps - 1, offset))
+        r.hitVel = max(-Self.maxVel, min(Self.maxVel, hitVel))
+        r.missVel = max(-Self.maxVel, min(Self.maxVel, missVel))
+        return r
+    }
+}
+extension EmitterVelocity: Codable {
+    enum CodingKeys: String, CodingKey { case on, steps, hits, offset, hitVel, missVel }
+    /// Never throws on content: an unreadable key keeps its default, numbers clamp. A pre-VELOCITY document has none of these keys ⇒ off at 0, so it loads and sounds exactly as before.
+    init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        func int(_ k: CodingKeys) -> Int? { ((try? c.decodeIfPresent(EuclideousFXLossyInt.self, forKey: k)) ?? nil)?.value }
+        if let b = (try? c.decodeIfPresent(Bool.self, forKey: .on)) ?? nil { on = b }
+        if let n = int(.steps) { steps = n }
+        if let n = int(.hits) { hits = n }
+        if let n = int(.offset) { offset = n }
+        if let n = int(.hitVel) { hitVel = n }
+        if let n = int(.missVel) { missVel = n }
+        self = normalized()
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(on, forKey: .on); try c.encode(steps, forKey: .steps); try c.encode(hits, forKey: .hits); try c.encode(offset, forKey: .offset)
+        try c.encode(hitVel, forKey: .hitVel); try c.encode(missVel, forKey: .missVel)
+    }
+}
+
+/// The document's four emitter velocities: FIXED-SIZE storage (four named members and a subscript), encoded as a plain array of four. Every write through the subscript is normalised. Same shape as `EmitterRatchetSet`.
+struct EmitterVelocitySet: Equatable, Codable {
+    static let count = 4
+    private var e0 = EmitterVelocity(), e1 = EmitterVelocity(), e2 = EmitterVelocity(), e3 = EmitterVelocity()
+    init() {}
+    init(_ list: [EmitterVelocity]) { for (i, r) in list.prefix(Self.count).enumerated() { self[i] = r } }
+    init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.singleValueContainer(), let raw = try? c.decode([EmitterVelocity].self) else { return }
+        for (i, r) in raw.prefix(Self.count).enumerated() { self[i] = r }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(asArray)
+    }
+    subscript(i: Int) -> EmitterVelocity {
+        get { switch i { case 0: return e0; case 1: return e1; case 2: return e2; default: return e3 } }
+        set { let n = newValue.normalized(); switch i { case 0: e0 = n; case 1: e1 = n; case 2: e2 = n; default: e3 = n } }
+    }
+    var asArray: [EmitterVelocity] { [e0, e1, e2, e3] }
+    var isAllDefault: Bool { self == EmitterVelocitySet() }
+}
+
 struct EuclideousLanesSeq: Equatable {
     var on: Bool = false
     var rate: EuclideousSeqRate = .oneBar
@@ -3304,6 +3375,8 @@ struct PluginState: Codable, Equatable {
     // bit-identically. `…Resolved` is what the render path (via `SnapshotBuilder`), the page and undo all read.
     var euclideousEmitterRatchets: EmitterRatchetSet? = nil
     var euclideousEmitterRatchetsResolved: EmitterRatchetSet { euclideousEmitterRatchets ?? EmitterRatchetSet() }
+    var euclideousEmitterVelocities: EmitterVelocitySet? = nil   // VELOCITY tab (2026-11-03): four per-output velocity accents; nil ⇒ all defaults, all off (byte-identical)
+    var euclideousEmitterVelocitiesResolved: EmitterVelocitySet { euclideousEmitterVelocities ?? EmitterVelocitySet() }
     // MUTE TAB (ferry "LANES → MUTE: each block is an emitter", 2026-11-02): one 16-cell × N-pass mute per OUTPUT A–D, gating EMISSION on that output (even notes routed in from another lane). Additive-Optional and
     // decode-tolerant: nil ⇒ four outputs at the defaults (every cell sounds, 1 pass), so an old document and every factory preset play bit-identically. `…Resolved` is what the render path (via `SnapshotBuilder`),
     // the page and undo all read. Replaces the per-lane `EuclidLine.muteCells16`/`muteUnit` (lane N → output N on load — see Slice 2's migration); each output's grid ticks on its HOME lane's pass (A↔lane 1 … D↔lane 4).
@@ -3892,6 +3965,7 @@ struct EuclideousUndoSnapshot: Equatable {
     var holdLatchMode: EuclideousHoldLatchMode? = nil   // HOLD/LATCH (2026-10-20): undoable like noteSource above, no §7.3-style exclusion
     var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the rules — undoable page-level state (which rule tab is showing, and whether the pop-up is open, are not); [] = none stored
     var emitterRatchets: EmitterRatchetSet = EmitterRatchetSet()   // EMITTER RATCHET (2026-10-28): the four output ratchets — undoable page-level state; all-default restores "nothing stored" (nil)
+    var emitterVelocities: EmitterVelocitySet = EmitterVelocitySet()   // EMITTER VELOCITY (2026-11-03): the four per-output velocity accents — undoable page-level state; all-default restores "nothing stored" (nil)
     var outputMutes: EuclideousOutputMutes = EuclideousOutputMutes()   // MUTE TAB (2026-11-02): the four per-output mutes — undoable page-level state; all-default restores "nothing stored" (nil)
     var riffPoly: Bool = false                   // POLY RIFF (2026-10-29): the MONO | POLY mode — undoable page-level state (a step of its own)
     var polyRiff: EuclideousPolyRiff? = nil      // …and the POLY riff itself (nil = nothing stored); one drag is one step

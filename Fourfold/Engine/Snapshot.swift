@@ -195,6 +195,35 @@ struct EmitterRatchetSnap: Equatable {
     var anyOn: Bool { e0.on || e1.on || e2.on || e3.on }
 }
 
+// MARK: - EMITTER VELOCITY (VELOCITY tab 2026-11-03) — the four per-output velocity accents as the render thread reads them
+// Fixed-size VALUE storage (four members, no array). `patternMask` is built on the MAIN thread by `emitterRatchetPatternMask` (shared with ratchet — it's generic); bit i set ⇔ pattern step i is a hit, so a note on it gets HIT VEL,
+// else MISS VEL. `hitVel` / `missVel` are signed offsets (−63…+63) applied to the note's velocity at emission.
+struct EmitterVelocityCfg: Equatable {
+    var on = false
+    var steps = 8, hits = 3, offset = 0, hitVel = 0, missVel = 0
+    var patternMask: UInt16 = EmitterRatchetCfg.defaultPatternMask   // the default 8/3/0 pattern, same literal as the ratchet's
+    init() {}
+    init(_ v: EmitterVelocity) {
+        let n = v.normalized()
+        on = n.on; steps = n.steps; hits = n.hits; offset = n.offset; hitVel = n.hitVel; missVel = n.missVel
+        patternMask = emitterRatchetPatternMask(steps: steps, hits: hits, offset: offset)
+    }
+    @inline(__always) func isHit(_ i: Int) -> Bool { i >= 0 && i < 16 && (patternMask >> UInt16(i)) & 1 != 0 }
+    /// The signed offset for an emitter hit at pattern index `i`: HIT VEL on a pattern hit, MISS VEL on a rest.
+    @inline(__always) func offsetAt(_ i: Int) -> Int { isHit(i) ? hitVel : missVel }
+}
+struct EmitterVelocitySnap: Equatable {
+    var e0 = EmitterVelocityCfg(), e1 = EmitterVelocityCfg(), e2 = EmitterVelocityCfg(), e3 = EmitterVelocityCfg()
+    init() {}
+    init(_ set: EmitterVelocitySet) { for i in 0..<EmitterVelocitySet.count { self[i] = EmitterVelocityCfg(set[i]) } }
+    subscript(i: Int) -> EmitterVelocityCfg {
+        get { switch i { case 0: return e0; case 1: return e1; case 2: return e2; default: return e3 } }
+        set { switch i { case 0: e0 = newValue; case 1: e1 = newValue; case 2: e2 = newValue; default: e3 = newValue } }
+    }
+    /// At least one accent is ON (the Router's whole velocity path is skipped otherwise, bit for bit).
+    var anyOn: Bool { e0.on || e1.on || e2.on || e3.on }
+}
+
 struct SnapParams {
     var type: ProcessorType = .arp
     var octaves: UInt8 = 1
@@ -273,6 +302,8 @@ struct SnapParams {
     var hocketRules: HocketRulesSnap = HocketRulesSnap()
     // EMITTER RATCHET (2026-10-28): the page-level output ratchets, gated to `Snap.euclideousRow`; all OFF (the default) ⇒ the Router's output is unchanged, bit for bit.
     var emitterRatchets: EmitterRatchetSnap = EmitterRatchetSnap()
+    // EMITTER VELOCITY (2026-11-03): the page-level per-output velocity accents, gated to `Snap.euclideousRow`; all OFF (the default) ⇒ the Router's velocity offset is skipped, bit for bit.
+    var emitterVelocities: EmitterVelocitySnap = EmitterVelocitySnap()
     // MUTE TAB (output mute, 2026-11-02): the page-level per-output mute, gated to `Snap.euclideousRow`; no muted cell anywhere (the default) ⇒ the Router's output-mute gate is skipped, bit for bit. A plain value struct
     // (four UInt16 + four UInt8), so it is allocation-free on the render path.
     var outputMutes: EuclideousOutputMutes = EuclideousOutputMutes()

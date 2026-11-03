@@ -10138,6 +10138,76 @@ enum EmitterRatchetField: Int, CaseIterable {
     func reset(in r: EmitterRatchet) -> EmitterRatchet { setting(defaultValue, in: r) }
 }
 
+// MARK: - EMITTER VELOCITY (VELOCITY tab, 2026-11-03) — the pattern index and the five value cells (pure; the Router and the painter call these, never a second derivation)
+// A per-output velocity accent: each output's own Euclid pattern (STEPS/HITS/OFFSET, built by the shared `emitterRatchetPatternMask`) marks each emitter hit a HIT or a rest, and the two signed offsets HIT VEL / MISS VEL adjust the
+// note's velocity. The pattern index advances once per emitter hit on the output — `EmitterVelocityCounter`, the trimmed sibling of `EmitterRatchetCounter` (no chance, strikes or restart).
+
+/// The five value cells of a velocity card (§ like the ratchet's): STEPS · HITS · OFFSET define the pattern; HIT VEL / MISS VEL are the signed offsets (−63…+63). HITS follows STEPS (0…STEPS), OFFSET follows it (0…STEPS − 1).
+enum EmitterVelocityField: Int, CaseIterable {
+    case steps, hits, offset, hitVel, missVel
+    var label: String { ["STEPS", "HITS", "OFFSET", "HIT VEL", "MISS VEL"][rawValue] }
+    var defaultValue: Int { [8, 3, 0, 0, 0][rawValue] }
+    /// One VoiceOver swipe: velocity moves in fives (a musical granularity over ±63), the pattern fields by one.
+    var step: Int { (self == .hitVel || self == .missVel) ? 5 : 1 }
+    var bipolar: Bool { self == .hitVel || self == .missVel }   // the painter draws these two as centre-anchored sliders
+    func range(in v: EmitterVelocity) -> ClosedRange<Int> {
+        switch self {
+        case .steps: return EmitterVelocity.minSteps...EmitterVelocity.maxSteps
+        case .hits: return 0...v.steps
+        case .offset: return 0...max(0, v.steps - 1)
+        case .hitVel, .missVel: return -EmitterVelocity.maxVel...EmitterVelocity.maxVel
+        }
+    }
+    func value(of v: EmitterVelocity) -> Int {
+        switch self { case .steps: return v.steps; case .hits: return v.hits; case .offset: return v.offset; case .hitVel: return v.hitVel; case .missVel: return v.missVel }
+    }
+    /// `v` with this field set to `x` (clamped to its range); STEPS drags HITS and OFFSET down with it.
+    func setting(_ x: Int, in v: EmitterVelocity) -> EmitterVelocity {
+        var out = v
+        let c = max(range(in: v).lowerBound, min(range(in: v).upperBound, x))
+        switch self { case .steps: out.steps = c; case .hits: out.hits = c; case .offset: out.offset = c; case .hitVel: out.hitVel = c; case .missVel: out.missVel = c }
+        return out.normalized()
+    }
+    func reset(in v: EmitterVelocity) -> EmitterVelocity { setting(defaultValue, in: v) }
+}
+
+/// The four per-output velocity counters — the trimmed sibling of `EmitterRatchetCounter`: a count per output, a per-output same-sample cache (two lanes on one output at one sample get the SAME pattern index and count once), and the
+/// published index per output (the strip's current slot). FIXED-SIZE value storage, so the Router owns one without allocating. No chance / strikes / restart — the velocity accent is deterministic.
+struct EmitterVelocityCounter: Equatable {
+    static let cacheCapacity = 32
+    private(set) var counts = SIMD4<Int64>(repeating: 0)
+    private var cacheWindow: Int64 = -1
+    private var cacheLen = SIMD4<Int32>(repeating: 0)
+    private var s0 = SIMD32<Int64>(repeating: -1), s1 = SIMD32<Int64>(repeating: -1), s2 = SIMD32<Int64>(repeating: -1), s3 = SIMD32<Int64>(repeating: -1)   // the samples decided, per output
+    private var i0 = SIMD32<Int32>(repeating: 0), i1 = SIMD32<Int32>(repeating: 0), i2 = SIMD32<Int32>(repeating: 0), i3 = SIMD32<Int32>(repeating: 0)   // …and the index decided
+    private(set) var indexPacked: UInt32 = 0xFFFF_FFFF
+
+    mutating func reset() { self = EmitterVelocityCounter() }
+
+    /// The pattern index for one emitter hit on output `x` (count mod STEPS). Hits on one output at the SAME sample in the SAME window share the first one's index and count once (as the ratchet does).
+    mutating func hit(steps: Int, output x: Int, window: Int64, sample: Int64) -> Int {
+        guard x >= 0 && x < 4 else { return 0 }
+        if window != cacheWindow { cacheWindow = window; cacheLen = SIMD4<Int32>(repeating: 0) }
+        let have = Int(min(cacheLen[x], Int32(Self.cacheCapacity)))
+        for i in 0..<have where samples(x)[i] == sample { return Int(indices(x)[i]) }
+        let n = Int64(max(1, steps))
+        let index = Int(((counts[x] % n) + n) % n)
+        counts[x] &+= 1
+        let slot = Int(cacheLen[x]) % Self.cacheCapacity
+        cacheLen[x] &+= 1
+        setEntry(x, slot, sample: sample, index: Int32(index))
+        let shift = UInt32(8 * x)
+        indexPacked = (indexPacked & ~(UInt32(0xFF) << shift)) | (UInt32(truncatingIfNeeded: index) << shift)
+        return index
+    }
+    private func samples(_ x: Int) -> SIMD32<Int64> { switch x { case 0: return s0; case 1: return s1; case 2: return s2; default: return s3 } }
+    private func indices(_ x: Int) -> SIMD32<Int32> { switch x { case 0: return i0; case 1: return i1; case 2: return i2; default: return i3 } }
+    private mutating func setEntry(_ x: Int, _ slot: Int, sample: Int64, index: Int32) {
+        switch x { case 0: s0[slot] = sample; i0[slot] = index; case 1: s1[slot] = sample; i1[slot] = index; case 2: s2[slot] = sample; i2[slot] = index; default: s3[slot] = sample; i3[slot] = index }
+    }
+    func currentIndex(_ x: Int) -> Int? { let b = (indexPacked >> UInt32(8 * x)) & 0xFF; return b == 0xFF ? nil : Int(b) }
+}
+
 // MARK: - CHORD CANON (ferry 2026-10-31) — a lane reads the pool behind the host beat
 //
 // A delayed lane hears the pool as it was `d` beats ago. CHORDS is a closed form of the host beat (`chordSeqNotesInto`: the column is `floor(m / rate)` through the progression, wrapped), so the lane simply asks it for

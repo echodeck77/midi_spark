@@ -58,6 +58,7 @@ struct FourfoldRootView: View {
     var euclideousFX: EuclideousFX { get { m.euclideousFX } nonmutating set { m.euclideousFX = newValue } }
     var hocketRules: [HocketRule] { get { m.hocketRules } nonmutating set { m.hocketRules = newValue } }
     var emitterRatchets: EmitterRatchetSet { get { m.emitterRatchets } nonmutating set { m.emitterRatchets = newValue } }   // EMITTER RATCHET (2026-10-28)
+    var emitterVelocities: EmitterVelocitySet { get { m.emitterVelocities } nonmutating set { m.emitterVelocities = newValue } }   // EMITTER VELOCITY (2026-11-03)
     var euclideousOutputMutes: EuclideousOutputMutes { get { m.euclideousOutputMutes } nonmutating set { m.euclideousOutputMutes = newValue } }   // MUTE TAB (2026-11-02)
     var euclideousRiffsSeq: EuclideousRiffsSeq { get { m.euclideousRiffsSeq } nonmutating set { m.euclideousRiffsSeq = newValue } }
     var euclideousRiffPositions: [Int] { get { m.euclideousRiffPositions } nonmutating set { m.euclideousRiffPositions = newValue } }
@@ -614,6 +615,7 @@ struct FourfoldRootView: View {
         euclideousFX = au.uiEuclideousFX()
         hocketRules = au.uiHocketRules()
         emitterRatchets = au.uiEmitterRatchets()
+        emitterVelocities = au.uiEmitterVelocities()   // EMITTER VELOCITY (2026-11-03)
         euclideousOutputMutes = au.uiEuclideousOutputMutes()   // MUTE TAB (2026-11-02)
         euclideousRiffsSeq = au.uiEuclideousRiffsSeq()
     }
@@ -666,6 +668,7 @@ struct FourfoldRootView: View {
                                 riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                 lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
                                 holdLatchMode: euclideousHoldLatchMode, hocketRules: hocketRules, emitterRatchets: emitterRatchets,
+                                emitterVelocities: emitterVelocities,
                                 outputMutes: euclideousOutputMutes,
                                 riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff, canonUnit: euclideousCanonUnit)
     }
@@ -734,6 +737,7 @@ struct FourfoldRootView: View {
         euclideousFX = s.fx
         hocketRules = s.hocketRules
         emitterRatchets = s.emitterRatchets
+        emitterVelocities = s.emitterVelocities
         euclideousOutputMutes = s.outputMutes
         euclideousHoldLatchMode = s.holdLatchMode
         au?.editDocument {
@@ -752,6 +756,7 @@ struct FourfoldRootView: View {
             $0.euclideousFX = s.fx
             $0.hocketRules = s.hocketRules.isEmpty ? nil : HocketRuleSet(s.hocketRules)   // [] restores "nothing stored"
             $0.euclideousEmitterRatchets = s.emitterRatchets.isAllDefault ? nil : s.emitterRatchets   // all-default restores "nothing stored"
+            $0.euclideousEmitterVelocities = s.emitterVelocities.isAllDefault ? nil : s.emitterVelocities   // EMITTER VELOCITY: all-default restores "nothing stored"
             $0.euclideousOutputMutes = s.outputMutes.isAllDefault ? nil : s.outputMutes   // MUTE TAB: all-default restores "nothing stored"
             $0.euclideousHoldLatchMode = s.holdLatchMode
         }
@@ -958,6 +963,7 @@ struct FourfoldRootView: View {
         let efx = au.uiEuclideousFX(); if efx != euclideousFX { euclideousFX = efx; euclideousResynced = true }
         let ehr = au.uiHocketRules(); if ehr != hocketRules { hocketRules = ehr; euclideousResynced = true }   // HOCKET (2026-10-27)
         let eer = au.uiEmitterRatchets(); if eer != emitterRatchets { emitterRatchets = eer; euclideousResynced = true }   // EMITTER RATCHET (2026-10-28)
+        let eev = au.uiEmitterVelocities(); if eev != emitterVelocities { emitterVelocities = eev; euclideousResynced = true }   // EMITTER VELOCITY (2026-11-03)
         let eom = au.uiEuclideousOutputMutes(); if eom != euclideousOutputMutes { euclideousOutputMutes = eom; euclideousResynced = true }   // MUTE TAB (2026-11-02)
         if euclideousResynced { m.probeResyncs &+= 1; historyMoved(clearStack: true); publish() }   // UNDO-3: every funnel writes the page AND the document, so a difference here means the document was replaced behind the page's back (host preset menu, project load): the history described a document that is gone   // (`probeResyncs`: UNDO AUDIT — how often the page found itself out of step with the document)
         let nd = au.kernelDiagnostics()
@@ -1070,6 +1076,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousFX: EuclideousFX = EuclideousFX()
     @Published var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the document's rules, sanitised; [] = none stored
     @Published var emitterRatchets = EmitterRatchetSet()   // EMITTER RATCHET (2026-10-28): the document's four output ratchets; all defaults when nothing is stored
+    @Published var emitterVelocities = EmitterVelocitySet()   // EMITTER VELOCITY (2026-11-03): the document's four per-output velocity accents; all defaults when nothing is stored
     @Published var euclideousOutputMutes = EuclideousOutputMutes()   // MUTE TAB (2026-11-02): the document's four per-output mutes; all defaults when nothing is stored
     @Published var euclideousRiffsSeq: EuclideousRiffsSeq = EuclideousRiffsSeq()
     @Published var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]

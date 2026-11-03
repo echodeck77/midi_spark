@@ -22,6 +22,7 @@ private let pool: [UInt8] = [48, 50, 52, 53, 55, 57, 59, 60]
 private struct Rig {
     var lines: [EuclidLine]
     var emitters = EmitterRatchetSet()
+    var velocities = EmitterVelocitySet()   // VELOCITY tab (2026-11-03): per-output velocity accents
     var fx = EuclideousFX()
     var ranks = [1, 2, 3, 4, 5, 6, 7, 8]
     var solo: UInt8 = 0
@@ -38,6 +39,7 @@ private struct Rig {
         st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep)   // these tests are about ratchets: they hold notes at the octaves they play
         st.euclideousFX = fx
         st.euclideousEmitterRatchets = emitters.isAllDefault ? nil : emitters
+        st.euclideousEmitterVelocities = velocities.isAllDefault ? nil : velocities   // VELOCITY tab (2026-11-03)
         st.euclideousOutputMutes = outputMutes.isAllDefault ? nil : outputMutes   // MUTE TAB (output mute, 2026-11-02): nil ⇒ nothing muted, byte-identical
         st.euclideousFxCounts = fxCounts
         return SnapshotBuilder.build(from: st)
@@ -527,4 +529,56 @@ final class EmitterRatchetRouterTests: XCTestCase {
         XCTAssertEqual(r.tap.ons(3).filter { Double($0.sample) >= 2.0 * 24_000 - 100 && Double($0.sample) < 3.0 * 24_000 - 100 }.count, 1, "C's ordinary copy of the hit is untouched")
         assertNothingLeftSounding(r.tap)
     }
+
+    // MARK: - EMITTER VELOCITY (VELOCITY tab, 2026-11-03) — per-output velocity accent, applied at emission relative to the note's own velocity
+
+    func testHitStepsGetHitVelRestStepsGetMissVelOnTheirOutput() {
+        // the default rig emits one note a beat on output A (cable 1). Output A accent: 8/3/0 → hits at index 0, 3, 6; HIT VEL +20, MISS VEL −10.
+        let base = perVel(play(Rig(lines: [line()]), beats: 8), cable: 1, beats: 8)
+        let acc = perVel(play(Rig(lines: [line()], velocities: vels([(0, vel(hitVel: 20, missVel: -10))])), beats: 8), cable: 1, beats: 8)
+        for k in 0..<8 {
+            guard base[k] > 0 else { continue }
+            let off = [0, 3, 6].contains(k) ? 20 : -10
+            XCTAssertEqual(acc[k], max(1, min(127, base[k] + off)), "beat \(k): a \(off > 0 ? "hit" : "rest") step shifts the velocity by \(off)")
+        }
+    }
+    func testAnAccentAtZeroOffsetsIsByteIdenticalToNoAccent() {
+        let base = play(Rig(lines: [line()]), beats: 8).tap.ons(1)
+        let zero = play(Rig(lines: [line()], velocities: vels([(0, vel(hitVel: 0, missVel: 0))])), beats: 8).tap.ons(1)
+        XCTAssertEqual(zero, base, "an accent ON with both offsets 0 changes nothing — so the default (all off / 0) is byte-identical")
+    }
+    func testTheAccentTouchesOnlyItsOwnOutputAndTheOffsetClampsInto1To127() {
+        // the lane routes to A and B; accent A only, every step a hit (STEPS = HITS), a big +100 that clamps at 127
+        var l = line(); l.riffOutMask = 0b0011   // A + B
+        let base = play(Rig(lines: [l]), beats: 6)
+        let acc = play(Rig(lines: [l], velocities: vels([(0, vel(hits: 8, hitVel: 100))])), beats: 6)
+        let aBase = base.tap.ons(1), aAcc = acc.tap.ons(1)
+        XCTAssertEqual(aAcc.count, aBase.count)
+        for (x, y) in zip(aBase, aAcc) { XCTAssertEqual(y.vel, UInt8(min(127, Int(x.vel) + 100)), "output A is accented and clamps at 127") }
+        XCTAssertEqual(base.tap.ons(2), acc.tap.ons(2), "output B is untouched by A's accent")
+        assertNothingLeftSounding(acc.tap)
+    }
+    func testADeferredRatchetStrikeCarriesTheAccentItWasBornWith() {
+        // output A ratchets (every hit, 3 strikes) AND is accented +40 on every step; every strike — including the deferred repeats — carries +40
+        let em = emitters([(0, on(steps: 2, hits: 2, chance: 100, strikes: 3))])
+        let base = play(Rig(lines: [line()], emitters: em), beats: 6).tap.ons(1)
+        let acc = play(Rig(lines: [line()], emitters: em, velocities: vels([(0, vel(hits: 8, hitVel: 40))])), beats: 6).tap.ons(1)
+        XCTAssertEqual(acc.count, base.count, "the same strikes, including the deferred ratchet repeats")
+        for (x, y) in zip(base, acc) {
+            XCTAssertEqual(y.sample, x.sample); XCTAssertEqual(y.note, x.note)
+            XCTAssertEqual(y.vel, UInt8(min(127, Int(x.vel) + 40)), "a deferred ratchet strike carries the accent")
+        }
+    }
+}
+
+// VELOCITY tab helpers (2026-11-03)
+private func vels(_ list: [(Int, EmitterVelocity)]) -> EmitterVelocitySet { var s = EmitterVelocitySet(); for (i, v) in list { s[i] = v }; return s }
+private func vel(on: Bool = true, steps: Int = 8, hits: Int = 3, offset: Int = 0, hitVel: Int = 0, missVel: Int = 0) -> EmitterVelocity {
+    EmitterVelocity(on: on, steps: steps, hits: hits, offset: offset, hitVel: hitVel, missVel: missVel)
+}
+/// the velocity of the FIRST note-on in each beat bucket on `cable` (0 = no note that beat)
+private func perVel(_ p: Played, cable: UInt8, beats: Int, perBeatSamples: Double = 24_000) -> [Int] {
+    var v = [Int](repeating: 0, count: beats)
+    for ev in p.tap.ons(cable) { let b = Int(Double(ev.sample) / perBeatSamples + 0.001); if b >= 0 && b < beats && v[b] == 0 { v[b] = Int(ev.vel) } }
+    return v
 }
