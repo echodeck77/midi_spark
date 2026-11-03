@@ -1985,3 +1985,8 @@ this file otherwise omits — one line each, see the review for detail:
 
 ---
 _Done this thread (moved off the list): /btw ①②③ · adoption · strips session-faces/LATCH/DUCK/SPACE-FILL/receiver-marks · verbs reverted to pills · CONTROLS single-face · §10 spec fold. **2026-07-29 wave:** /btw ④⑤⑥ · STROKES · MIXED-SET · DELETE-sever · multi-cell routing + SRC/DEST look · desk re-point · sticky routing · verbs-no-latch · routing refactor+tests. See CLAUDE.md status for commit refs._
+
+## TWO CHORD GRIDS follow-ups (2026-11-03)
+- [ ] (declared limit, not changed) The sources panel's POOL block, the header's CHORDS pip, the CHORDS row's chord name and the CHORDS popup's pool strip show the LIVE pool = grid 1; a lane on CHORD 2 is visible only in its own NOW row. Decide whether the popup's pool strip / chord-name title should follow the EDITED tab's grid once a lane uses it.
+- [ ] (judgment call) `activeChordSet` still records an undo step when the edit tab changes although it no longer changes sound — kept as an undo step (it is a saved document field). Drop it from the undo list if it feels noisy.
+- [ ] (golden) No golden document pins CHORD 2's wire bytes (the unit tests pin its pool per beat and the alloc audit exercises it); add a `GOLDEN CHORDS 2` document if a byte-level oracle for grid 2 is wanted.

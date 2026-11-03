@@ -464,7 +464,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         XCTAssertNotEqual(a.snap, base.snap); XCTAssertNotEqual(b.snap, a.snap, "two real chord edits")
         XCTAssertEqual(b.differingParts(from: base), ["chordSets"], "only the chord sets changed: \(b.raw)")
         XCTAssertEqual(b.undo, base.undo + 2, "each column edit made while the popup stays open is its own step (a pause > 0.5 s closes a run): \(b.raw)")
-        app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Chords 2'")).firstMatch.tap(); let c = settled()
+        app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Chord grid 2'")).firstMatch.tap(); let c = settled()
         XCTAssertEqual(c.undo, base.undo + 3, "switching the chord grid being edited is a step: \(c.raw)")
         XCTAssertNotEqual(c.snap, b.snap)
         undo()                                                                 // while the popup is open a tap on the header lands on its scrim and only closes it

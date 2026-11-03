@@ -2928,7 +2928,7 @@ struct EuclideousPage: View {
                 .onTapGesture { onSwitchChordSet(i) }
                 .onLongPressGesture(minimumDuration: 0.5) { chordsTabMenuIndex = i }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Chords \(i + 1), \(set.chordsStepsResolved) steps\(sel ? ", editing" : "")")
+                .accessibilityLabel("Chord grid \(i + 1), \(set.chordsStepsResolved) steps\(sel ? ", editing" : "")")
             }
         }
     }

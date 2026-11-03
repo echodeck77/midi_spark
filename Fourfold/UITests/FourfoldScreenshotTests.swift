@@ -132,6 +132,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             func tap(_ label: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.5) } }
             func tapPrefix(_ p: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", p)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.5) } }
             tapPrefix("Pool, "); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-0-bare")
+            tap("Chords 2, lane 1"); tap("Chords 2, lane 3"); tap("Chords 1, lane 3"); Thread.sleep(forTimeInterval: 0.6); attach("12-pool-\(tag)-0b-chord-grids")   // TWO CHORD GRIDS: lane 1 on CHORD 2; lane 3 to CHORD 2 and back to CHORD 1 (the default)
             tap("Sustain, lane 1"); tap("Key, lane 2"); tap("Sustain stack, lane 3, loses nothing, off"); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-1-switches")
             tapPrefix("Notes, "); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-2-notes-keys")
             tap("Notes shown for"); Thread.sleep(forTimeInterval: 0.8); attach("12-pool-\(tag)-3-grid-lane2")
