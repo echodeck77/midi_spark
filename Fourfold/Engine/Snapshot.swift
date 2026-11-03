@@ -165,6 +165,7 @@ struct HocketRulesSnap: Equatable {
 struct EmitterRatchetCfg: Equatable {
     var on = false
     var steps = 8, hits = 3, offset = 0, chance = 100, strikes = 3
+    var restartBars = 0     // RESTART (2026-11-03): 0 = FREE; else the Router restarts this output's count every N host bars (read on the render thread to compute the restart block)
     /// The default 8 / 3 / 0 pattern as a literal: `init()` runs on the RENDER thread too (the Router's inert default for a cell with no ratchets), and building the mask needs a heap array — `EmitterRatchetTests` pins this
     /// literal to `emitterRatchetPatternMask(steps: 8, hits: 3, offset: 0)`.
     static let defaultPatternMask: UInt16 = 0b0100_1001
@@ -172,7 +173,7 @@ struct EmitterRatchetCfg: Equatable {
     init() {}
     init(_ r: EmitterRatchet) {
         let n = r.normalized()
-        on = n.on; steps = n.steps; hits = n.hits; offset = n.offset; chance = n.chance; strikes = n.strikes
+        on = n.on; steps = n.steps; hits = n.hits; offset = n.offset; chance = n.chance; strikes = n.strikes; restartBars = n.restartBars
         patternMask = emitterRatchetPatternMask(steps: steps, hits: hits, offset: offset)
     }
     @inline(__always) func isHit(_ i: Int) -> Bool { i >= 0 && i < 16 && (patternMask >> UInt16(i)) & 1 != 0 }

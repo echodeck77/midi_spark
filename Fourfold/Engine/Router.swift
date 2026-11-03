@@ -4534,8 +4534,12 @@ final class Router {
                                     for j in 0..<pitchCount where finalPitch(pitches[j], oct: 0) != nil { hitOuts |= emitOutsOf(j) }
                                     if hitOuts != 0 {
                                         let hitSample = Int64(sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
+                                        // RESTART (2026-11-03): the host bar the hit falls on (same `.rounded(.down)` as `barIndex` elsewhere), so each output can restart its count every N bars. FREE (0) passes Int64.min — the counter then never restarts, so the whole path is byte-identical.
+                                        let hitBarBeats = max(1e-9, beatsPerBar)
                                         for x in 0..<4 where (hitOuts >> UInt8(x)) & 1 != 0 {
-                                            let d = emitterCounter.hit(cfg: emitterRatchets[x], output: x, countsSteps: emitterRatchets.countsSteps, laneStep: localT, window: emitterWindowSerial, sample: hitSample)
+                                            let rb = emitterRatchets[x].restartBars
+                                            let rk: Int64 = rb > 0 ? Int64(((mTickBeat + 1e-9) / (Double(rb) * hitBarBeats)).rounded(.down)) : Int64.min
+                                            let d = emitterCounter.hit(cfg: emitterRatchets[x], output: x, countsSteps: emitterRatchets.countsSteps, laneStep: localT, window: emitterWindowSerial, sample: hitSample, restartKey: rk)
                                             if d.missed { emitMissedOuts |= UInt8(1) << UInt8(x) }
                                             if d.ratchets {
                                                 // §3.2: n is lowered by the same beat-width cap FX RATCH uses (no slot under 10 ms at the host tempo); capped below 2 the hit just plays once, and is not reported as ratcheted

@@ -294,6 +294,16 @@ final class EmitterRatchetRouterTests: XCTestCase {
         XCTAssertEqual(eb[8], 3, "…and under the new STEPS 4 the count has carried on: hit 8 is 8 mod 4 = 0")
         XCTAssertEqual(eb[7], 1)
     }
+    func testRestartEveryBarLoopsTheRatchetPatternAndFreeIsUnchanged() {   // RESTART (2026-11-03): the count zeroes on each bar line, so the ratchet pattern loops every bar
+        // one hit a beat; `play` runs at the default 4 beats-per-bar, so RESTART 1 = every 4 beats. STEPS 3 / HITS 1 ratchets at the count's index 0.
+        var a = on(steps: 3, hits: 1, strikes: 3); a.restartBars = 1
+        let r = play(Rig(lines: [line()], emitters: emitters([(0, a)])), beats: 12)
+        XCTAssertEqual(perBeat(r.tap, beats: 12), [3, 1, 1, 3,  3, 1, 1, 3,  3, 1, 1, 3], "every bar line restarts the count: the pattern (ratchet on beat 0 and 3) repeats each bar")
+        assertNothingLeftSounding(r.tap)
+        // FREE (the default, restartBars 0) is unchanged — the count runs on, ratcheting at counts 0, 3, 6, 9 — so with no RESTART set the output is byte-identical to before this feature
+        let free = play(Rig(lines: [line()], emitters: emitters([(0, on(steps: 3, hits: 1, strikes: 3))])), beats: 12)
+        XCTAssertEqual(perBeat(free.tap, beats: 12), [3, 1, 1, 3, 1, 1, 3, 1, 1, 3, 1, 1], "FREE: the count runs on exactly as before")
+    }
 
     // MARK: - §10 test 5 — counting STEPS (FX COUNTS, dev builds)
 

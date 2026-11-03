@@ -1,5 +1,5 @@
 //  EmitterRatchetUI.swift — RATCH tab ferry (2026-10-28) §4–§8: the PURE side of the RATCH tab. Foundation only, so the test target compiles it and the views only paint what these functions return.
-//  The tab shows four cards, one per output A–D: an on/off toggle, a 16-slot strip of the output's Euclid pattern, and five drag cells (STEPS · HITS · OFFSET · CHANCE · STRIKES). The numbers are the ferry's, measured from the
+//  The tab shows four cards, one per output A–D: an on/off toggle, a 16-slot strip of the output's Euclid pattern, and six drag cells (STEPS · HITS · OFFSET · CHANCE · STRIKES · RESTART — RESTART added 2026-11-03). The numbers are the ferry's, measured from the
 //  bottom-right panel's top-left corner at its landscape frame (410 × 303 in the ferry; the real panel is whatever `euclideousPageLayout` gives it — see `emitterRatchetLayout`, which scales the width and keeps every other number).
 
 import Foundation
@@ -50,7 +50,7 @@ struct EmitterRatchetLayout: Equatable {
     var toggle: CGRect              // the 44 × inner-height touch target at the card's left edge (the disc is centred in it)
     var strip: CGRect               // the 16-slot strip, 20 tall
     var slots: [CGRect]             // 16 equal slots
-    var cells: [CGRect]             // the five readout cells
+    var cells: [CGRect]             // the six readout cells (STEPS · HITS · OFFSET · CHANCE · STRIKES · RESTART)
     var cardHeight: CGFloat
     /// §4.8: a card under 52 pt — the frame is reported (and listed in the page's floors) rather than shrunk or left empty.
     var belowFloor: Bool { cardHeight < EmitterRatchetMetrics.minCardHeight - 0.01 }
@@ -73,8 +73,9 @@ func emitterRatchetLayout(bodySize: CGSize, portrait: Bool) -> EmitterRatchetLay
     let slots = (0..<M.slotCount).map { CGRect(x: colX + CGFloat($0) * (slotW + M.slotGap), y: M.padVertical, width: slotW, height: M.stripHeight) }
     let readoutY = M.padVertical + M.stripHeight + M.stripGap
     let readoutH = max(M.minReadoutHeight, innerH - M.stripHeight - M.stripGap)
-    let cellW = colW / 5
-    let cells = (0..<5).map { CGRect(x: colX + CGFloat($0) * cellW, y: readoutY, width: cellW, height: readoutH) }
+    let cellCount = EmitterRatchetField.allCases.count               // RESTART (2026-11-03): six cells now — STEPS · HITS · OFFSET · CHANCE · STRIKES · RESTART
+    let cellW = colW / CGFloat(cellCount)
+    let cells = (0..<cellCount).map { CGRect(x: colX + CGFloat($0) * cellW, y: readoutY, width: cellW, height: readoutH) }
     return EmitterRatchetLayout(cards: cards, toggle: toggle, strip: strip, slots: slots, cells: cells, cardHeight: h)
 }
 
@@ -104,6 +105,7 @@ func emitterRatchetValueText(_ f: EmitterRatchetField, _ r: EmitterRatchet) -> S
     case .offset: return r.offset == 0 ? "0" : "+\(r.offset)"
     case .chance: return "\(r.chance)%"
     case .strikes: return "\u{00D7}\(r.strikes)"
+    case .restart: return r.restartBars == 0 ? "FREE" : "\(r.restartBars)"   // RESTART (2026-11-03): 0 = FREE (no restart), else the bar count; the label and VoiceOver carry the "bars" unit
     }
 }
 /// §4.6: the progress bar's fill — the value's share of its range, (v − min) ÷ (max − min), never under 6 % of the track.
@@ -117,7 +119,7 @@ func emitterRatchetBarShare(_ f: EmitterRatchetField, _ r: EmitterRatchet) -> Do
 let emitterRatchetDragActivation: CGFloat = 6
 /// … then raises the value by one step per this much upward travel (measured from where the touch went down): STEPS, HITS and OFFSET one per 10 pt, CHANCE 5 per 3 pt, STRIKES one per 18 pt.
 func emitterRatchetPointsPerStep(_ f: EmitterRatchetField) -> CGFloat {
-    switch f { case .steps, .hits, .offset: return 10; case .chance: return 3; case .strikes: return 18 }
+    switch f { case .steps, .hits, .offset, .restart: return 10; case .chance: return 3; case .strikes: return 18 }
 }
 /// §6.2: the value a drag has reached — `start` plus a whole number of steps for the travel so far (up positive), clamped at the ends by `setting` (never wrapped).
 func emitterRatchetDragValue(_ f: EmitterRatchetField, start r: EmitterRatchet, travelUp: CGFloat) -> EmitterRatchet {
@@ -144,6 +146,7 @@ func emitterRatchetCellLabel(output x: Int, _ f: EmitterRatchetField, _ r: Emitt
     case .offset: return r.offset == 0 ? "\(who) offset 0" : "\(who) offset plus \(r.offset)"
     case .chance: return "\(who) chance \(r.chance) percent"
     case .strikes: return "\(who) strikes \(r.strikes)"
+    case .restart: return r.restartBars == 0 ? "\(who) restart off" : "\(who) restart every \(r.restartBars == 1 ? "bar" : "\(r.restartBars) bars")"
     }
 }
 

@@ -1733,11 +1733,12 @@ struct EmitterRatchet: Equatable {
     var offset = 0          // 0…steps − 1
     var chance = 100        // 0…100 in steps of 5
     var strikes = 3         // 2…4
+    var restartBars = 0     // RESTART (2026-11-03): 0 = FREE (the count runs on, as before), else restart this emitter's hit count every N host bars (1…16) — re-locking the CHANCE pattern into a loop of that length
 
-    static let minSteps = 2, maxSteps = 16, minStrikes = 2, maxStrikes = 4, chanceStep = 5
+    static let minSteps = 2, maxSteps = 16, minStrikes = 2, maxStrikes = 4, chanceStep = 5, maxRestart = 16
     var isDefault: Bool { self == EmitterRatchet() }
 
-    /// §1.2 / §1.3: STEPS first, then HITS ≤ STEPS and OFFSET ≤ STEPS − 1 against it — so one write that sets STEPS also clamps the other two, in the same undo step. CHANCE snaps to the nearest 5.
+    /// §1.2 / §1.3: STEPS first, then HITS ≤ STEPS and OFFSET ≤ STEPS − 1 against it — so one write that sets STEPS also clamps the other two, in the same undo step. CHANCE snaps to the nearest 5. RESTART clamps to 0…16 (0 = FREE).
     func normalized() -> EmitterRatchet {
         var r = self
         r.steps = max(Self.minSteps, min(Self.maxSteps, steps))
@@ -1745,12 +1746,13 @@ struct EmitterRatchet: Equatable {
         r.offset = max(0, min(r.steps - 1, offset))
         r.chance = Int((Double(max(0, min(100, chance))) / Double(Self.chanceStep)).rounded()) * Self.chanceStep   // clamp BEFORE the arithmetic: a stored Int.max used to trap in `Int(…) * 5` (adversarial review)
         r.strikes = max(Self.minStrikes, min(Self.maxStrikes, strikes))
+        r.restartBars = max(0, min(Self.maxRestart, restartBars))
         return r
     }
 }
 extension EmitterRatchet: Codable {
-    enum CodingKeys: String, CodingKey { case on, steps, hits, offset, chance, strikes }
-    /// Never throws on content: an unreadable key keeps its default, numbers clamp (§1.2).
+    enum CodingKeys: String, CodingKey { case on, steps, hits, offset, chance, strikes, restartBars }
+    /// Never throws on content: an unreadable key keeps its default, numbers clamp (§1.2). A pre-2026-11-03 document has no `restartBars` key ⇒ FREE, so it loads and sounds exactly as before.
     init(from decoder: Decoder) throws {
         self.init()
         guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
@@ -1761,12 +1763,13 @@ extension EmitterRatchet: Codable {
         if let n = int(.offset) { offset = n }
         if let n = int(.chance) { chance = n }
         if let n = int(.strikes) { strikes = n }
+        if let n = int(.restartBars) { restartBars = n }
         self = normalized()
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(on, forKey: .on); try c.encode(steps, forKey: .steps); try c.encode(hits, forKey: .hits); try c.encode(offset, forKey: .offset)
-        try c.encode(chance, forKey: .chance); try c.encode(strikes, forKey: .strikes)
+        try c.encode(chance, forKey: .chance); try c.encode(strikes, forKey: .strikes); try c.encode(restartBars, forKey: .restartBars)
     }
 }
 

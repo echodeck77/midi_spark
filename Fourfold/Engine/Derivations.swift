@@ -10060,17 +10060,22 @@ struct EmitterRatchetCounter: Equatable {
     private var cacheLen = SIMD4<Int32>(repeating: 0)        // entries ever added this window, per output (the ring slot is len mod capacity)
     private var s0 = SIMD32<Int64>(repeating: -1), s1 = SIMD32<Int64>(repeating: -1), s2 = SIMD32<Int64>(repeating: -1), s3 = SIMD32<Int64>(repeating: -1)   // the samples decided, per output
     private var d0 = SIMD32<UInt32>(repeating: 0), d1 = SIMD32<UInt32>(repeating: 0), d2 = SIMD32<UInt32>(repeating: 0), d3 = SIMD32<UInt32>(repeating: 0)   // …and what was decided (packed)
+    /// RESTART (2026-11-03) — the N-bar block each output's count is currently anchored to; `Int64.min` = FREE (no restart). The Router hands in the block the hit falls in; when it changes, the count goes back to 0.
+    private var restartKey = SIMD4<Int64>(repeating: Int64.min)
     /// Byte x = output x's pattern index at its most recent emitter hit, 0xFF = none yet (the strip's current slot). Read by the UI through a main-thread accessor.
     private(set) var indexPacked: UInt32 = 0xFFFF_FFFF
 
-    /// §2.5 — the count origin: every counter back to 0, the same-sample cache and the published indices cleared.
+    /// §2.5 — the count origin: every counter back to 0, the same-sample cache, the restart anchors and the published indices cleared.
     mutating func reset() { self = EmitterRatchetCounter() }
 
-    mutating func hit(cfg: EmitterRatchetCfg, output x: Int, countsSteps: Bool, laneStep: Int64, window: Int64, sample: Int64) -> EmitterRatchetDecision {
+    /// RESTART (2026-11-03): `restartKey` is the index of the N-bar block the hit falls in (`floor(hitBar / N)`), or `Int64.min` for FREE. A FREE emitter counts on exactly as before — so with no RESTART set anywhere the engine is byte-identical.
+    mutating func hit(cfg: EmitterRatchetCfg, output x: Int, countsSteps: Bool, laneStep: Int64, window: Int64, sample: Int64, restartKey rk: Int64 = Int64.min) -> EmitterRatchetDecision {
         guard x >= 0 && x < 4 else { return EmitterRatchetDecision() }
         if window != cacheWindow { cacheWindow = window; cacheLen = SIMD4<Int32>(repeating: 0) }
         let have = Int(min(cacheLen[x], Int32(Self.cacheCapacity)))
         for i in 0..<have where samples(x)[i] == sample { return Self.unpack(decisions(x)[i], strikes: cfg.strikes) }
+        // RESTART: a fresh sample in a new block restarts the count (a same-sample cache hit above already carries the restarted decision). The count — and so the CHANCE roll's seed — repeats every N bars, a loop of that length.
+        if rk != Int64.min && rk != restartKey[x] { counts[x] = 0; restartKey[x] = rk }
         let v = countsSteps ? laneStep : counts[x]
         let d = emitterRatchetDecide(cfg, output: x, v: v)
         counts[x] &+= 1
@@ -10098,9 +10103,9 @@ struct EmitterRatchetCounter: Equatable {
 /// The five value cells of a card, left to right (§4.6): their labels, ranges, defaults and what one VoiceOver step is. HITS' range follows STEPS (0…STEPS), OFFSET's follows it too (0…STEPS − 1); setting a value
 /// clamps at the ends and never wraps, and setting STEPS clamps the other two in the same write (§1.3).
 enum EmitterRatchetField: Int, CaseIterable {
-    case steps, hits, offset, chance, strikes
-    var label: String { ["STEPS", "HITS", "OFFSET", "CHANCE", "STRIKES"][rawValue] }
-    var defaultValue: Int { [8, 3, 0, 100, 3][rawValue] }
+    case steps, hits, offset, chance, strikes, restart
+    var label: String { ["STEPS", "HITS", "OFFSET", "CHANCE", "STRIKES", "RESTART"][rawValue] }
+    var defaultValue: Int { [8, 3, 0, 100, 3, 0][rawValue] }
     /// One step of a drag or a VoiceOver swipe: CHANCE moves in fives, everything else by one.
     var step: Int { self == .chance ? EmitterRatchet.chanceStep : 1 }
     func range(in r: EmitterRatchet) -> ClosedRange<Int> {
@@ -10110,16 +10115,17 @@ enum EmitterRatchetField: Int, CaseIterable {
         case .offset: return 0...max(0, r.steps - 1)
         case .chance: return 0...100
         case .strikes: return EmitterRatchet.minStrikes...EmitterRatchet.maxStrikes
+        case .restart: return 0...EmitterRatchet.maxRestart
         }
     }
     func value(of r: EmitterRatchet) -> Int {
-        switch self { case .steps: return r.steps; case .hits: return r.hits; case .offset: return r.offset; case .chance: return r.chance; case .strikes: return r.strikes }
+        switch self { case .steps: return r.steps; case .hits: return r.hits; case .offset: return r.offset; case .chance: return r.chance; case .strikes: return r.strikes; case .restart: return r.restartBars }
     }
     /// `r` with this field set to `v` (clamped to its range, CHANCE snapped to 5); STEPS drags HITS and OFFSET down with it.
     func setting(_ v: Int, in r: EmitterRatchet) -> EmitterRatchet {
         var out = r
         let c = max(range(in: r).lowerBound, min(range(in: r).upperBound, v))
-        switch self { case .steps: out.steps = c; case .hits: out.hits = c; case .offset: out.offset = c; case .chance: out.chance = c; case .strikes: out.strikes = c }
+        switch self { case .steps: out.steps = c; case .hits: out.hits = c; case .offset: out.offset = c; case .chance: out.chance = c; case .strikes: out.strikes = c; case .restart: out.restartBars = c }
         return out.normalized()
     }
     /// §6.2 — a double tap resets the cell to its default; HITS and OFFSET are clamped by STEPS (§1.3).

@@ -14,6 +14,9 @@ enum EmitterRatchetPalette {
     static let card = Color(hex: 0x1B1D23), cardEdge = Color(hex: 0x23262D), slot = Color(hex: 0x20232A), current = Color(hex: 0x2A2D34)
     static let disc = Color(hex: 0x2A2D34), restDot = Color(hex: 0x3A3E47), offRing = Color(hex: 0x3A3E47), rule = Color(hex: 0x262930)
     static let light = Color(hex: 0xDFE3EA), text = Color(hex: 0xF2F4F7), muted = Color(hex: 0x8A909A), ink = Color(hex: 0x0D0F14), pressedLabel = Color(hex: 0x2A2D34)
+    // STEP-COUNT CLARITY (2026-11-03, device-owed): the "too gray" slots were #20232A, barely above the #1B1D23 card. The active steps now read as countable cells — a brighter two-tone beat shading (groups of four, A / B),
+    // a brighter still current step, a clearer rest mark, and a 1 pt baseline under exactly the active length so you can see at a glance how many steps the pattern has.
+    static let slotA = Color(hex: 0x31353F), slotB = Color(hex: 0x272B33), slotCurrent = Color(hex: 0x4A5262), restMark = Color(hex: 0x5B616D), baseline = Color(hex: 0x474D59)
 }
 private func heavyMono(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .monospaced) }
 
@@ -53,15 +56,24 @@ private struct EmitterRatchetStripBase: View, Equatable {
         Canvas { ctx, _ in
             typealias P = EmitterRatchetPalette
             typealias M = EmitterRatchetMetrics
-            for i in 0..<min(slots.count, M.slotCount) where i < r.steps {
+            let last = min(slots.count, M.slotCount, max(0, r.steps)) - 1       // STEP-COUNT CLARITY: the index of the last active step
+            guard last >= 0 else { return }
+            // the baseline under exactly the active steps — a 1 pt ruler showing the pattern's length at a glance (the "too gray" fix: you can see how many steps there are even before reading the number)
+            let base = CGRect(x: slots[0].minX, y: slots[0].maxY - 1, width: slots[last].maxX - slots[0].minX, height: 1)
+            ctx.fill(RoundedRectangle(cornerRadius: 0.5).path(in: base), with: .color(P.baseline))
+            for i in 0...last {
                 let rect = slots[i]
-                ctx.fill(RoundedRectangle(cornerRadius: M.slotRadius).path(in: rect), with: .color(i == current ? P.current : P.slot))
+                // beat shading in groups of four (A, B, A, B) so the steps are countable cells, not one gray smear; the current step is brighter still
+                let tone = i == current ? P.slotCurrent : ((i / 4) % 2 == 0 ? P.slotA : P.slotB)
+                ctx.fill(RoundedRectangle(cornerRadius: M.slotRadius).path(in: rect), with: .color(tone))
                 if (mask >> UInt16(i)) & 1 != 0 {
                     for b in emitterRatchetBarRects(in: rect, strikes: r.strikes) {
                         ctx.fill(RoundedRectangle(cornerRadius: M.barRadius).path(in: b), with: .color(P.light.opacity(emitterRatchetBarAlpha(chance: r.chance))))
                     }
                 } else {
-                    ctx.fill(RoundedRectangle(cornerRadius: M.barRadius).path(in: emitterRatchetRestDot(in: rect)), with: .color(P.restDot))
+                    // a clearer rest mark than the old 2 × 2 #3A3E47 dot: a 3 pt dot in #5B616D, centred (the pure `emitterRatchetRestDot` stays 2 × 2 — test-pinned — so draw it here)
+                    let d: CGFloat = 3
+                    ctx.fill(Path(ellipseIn: CGRect(x: rect.midX - d / 2, y: rect.midY - d / 2, width: d, height: d)), with: .color(P.restMark))
                 }
             }
         }
@@ -89,7 +101,7 @@ private struct EmitterRatchetStripFlare: View {
 
 // MARK: - one value cell (§4.6, §5.5, §6.2)
 
-/// One of the five readout cells: a label, the value, a bar showing the value's share of its range. Dragging up raises the value and down lowers it (starting once the touch has moved 6 pt); a double tap resets it; a single tap does
+/// One of the six readout cells: a label, the value, a bar showing the value's share of its range. Dragging up raises the value and down lowers it (starting once the touch has moved 6 pt); a double tap resets it; a single tap does
 /// nothing. While a finger is down the cell fills #DFE3EA and draws in ink.
 private struct EmitterRatchetCell: View {
     let output: Int
@@ -114,19 +126,20 @@ private struct EmitterRatchetCell: View {
         typealias P = EmitterRatchetPalette
         typealias M = EmitterRatchetMetrics
         let label = Text(field.label).font(heavyMono(7)).tracking(7 * 0.06).foregroundColor(pressed ? P.pressedLabel : P.muted)
-        let value = Text(emitterRatchetValueText(field, r)).font(heavyMono(11)).monospacedDigit().foregroundColor(pressed ? P.ink : P.text)
+        let value = Text(emitterRatchetValueText(field, r)).font(heavyMono(12)).monospacedDigit().foregroundColor(pressed ? P.ink : P.text)   // STACKED (2026-11-03): a bigger number now that it has its own line
         let trackW = max(0, size.width - 2 * M.progressInset)
         let fillW = trackW * CGFloat(emitterRatchetBarShare(field, r))
         let i = output, f = field
         return ZStack(alignment: .topLeading) {
             if pressed { RoundedRectangle(cornerRadius: M.cellPressedRadius).fill(P.light) }
             if leadingRule && !pressed { Rectangle().fill(P.rule).frame(width: 1, height: size.height) }
-            HStack(alignment: .firstTextBaseline, spacing: M.cellLabelGap) {
-                label.lineLimit(1).layoutPriority(0)                       // in a narrow cell (iPad mini: 55 pt) the LABEL truncates — "CHANCE 100%" must never read "10…" (§4.9: truncate, never shrink)
-                value.lineLimit(1).fixedSize().layoutPriority(1)
+            // STACKED (2026-11-03): label over value, each on its own full-width line — so six cells fit and the number reads big. The LABEL truncates on a narrow cell, never the value ("RESTART" → "RESTA…", never "FRE…"; §4.9: truncate, never shrink).
+            VStack(spacing: 0) {
+                label.lineLimit(1)
+                value.lineLimit(1).fixedSize()
             }
                 .frame(width: size.width, alignment: .center)
-                .padding(.top, M.cellLabelTop)
+                .padding(.top, 2)
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: M.progressHeight / 2).fill(pressed ? P.ink.opacity(0.18) : P.rule).frame(width: trackW, height: M.progressHeight)
                 RoundedRectangle(cornerRadius: M.progressHeight / 2).fill(pressed ? P.ink : P.muted).frame(width: fillW, height: M.progressHeight)
@@ -164,7 +177,7 @@ private struct EmitterRatchetCell: View {
 
 // MARK: - the tab
 
-/// The RATCH tab: four cards A–D (toggle · strip · five cells), laid out by `emitterRatchetLayout`. `playing` keeps the flare layers animating (and for the 1.5 s after a stop).
+/// The RATCH tab: four cards A–D (toggle · strip · six cells), laid out by `emitterRatchetLayout`. `playing` keeps the flare layers animating (and for the 1.5 s after a stop).
 struct EuclideousRatchetPanel: View {
     let layout: EmitterRatchetLayout
     let ratchets: EmitterRatchetSet
@@ -228,8 +241,8 @@ struct EuclideousRatchetPanel: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(emitterRatchetStripLabel(output: x, r, counts: counts))
                 HStack(spacing: 0) {
-                    ForEach(0..<5, id: \.self) { c in
-                        EmitterRatchetCell(output: x, field: EmitterRatchetField.allCases[c], r: r, size: layout.cells[c].size, leadingRule: c > 0, onEdit: onEdit, onDragEnd: onDragEnd)
+                    ForEach(0..<EmitterRatchetField.allCases.count, id: \.self) { c in
+                        EmitterRatchetCell(output: x, field: EmitterRatchetField.allCases[c], r: r, size: layout.cells[min(c, layout.cells.count - 1)].size, leadingRule: c > 0, onEdit: onEdit, onDragEnd: onDragEnd)
                     }
                 }
             }

@@ -6876,7 +6876,7 @@ struct EuclideousPage: View {
     /// Derivations.swift. The columns are the riff grid's own (`euclideousRiffCellW`). This page supplies the data (the document's FX, the written ranks named exactly
     /// as the riff grid's label column names them, the NOTE preview, the flash from the engine's hit events) and the edits — each tap / double-tap pair / stroke /
     /// value drag / lane toggle / stepper tap or drag is ONE undo step (`fxEdit`).
-    /// THE RATCH TAB (ferry 2026-10-28): four cards A–D, each an on/off toggle, a 16-slot strip of that output's Euclid pattern and five drag cells. All numbers come from `emitterRatchetLayout` (EmitterRatchetUI.swift); the painter
+    /// THE RATCH TAB (ferry 2026-10-28; redesign 2026-11-03 — brighter step-count strip, stacked six cells with RESTART): four cards A–D, each an on/off toggle, a 16-slot strip of that output's Euclid pattern and six drag cells. All numbers come from `emitterRatchetLayout` (EmitterRatchetUI.swift); the painter
     /// (RatchPanelPainter.swift) only paints them. Every edit is one document write + one republish through `onEditEmitterRatchet`.
     private func ratchTab(width: CGFloat, height: CGFloat, portrait: Bool) -> some View {
         let layout = emitterRatchetLayout(bodySize: CGSize(width: width, height: height), portrait: portrait)

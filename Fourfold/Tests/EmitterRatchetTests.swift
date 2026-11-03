@@ -49,10 +49,11 @@ final class EmitterRatchetTests: XCTestCase {
     func testTheDefaultsAreTheFerrysAndEveryFieldClamps() {
         let d = EmitterRatchet()
         XCTAssertFalse(d.on); XCTAssertEqual(d.steps, 8); XCTAssertEqual(d.hits, 3); XCTAssertEqual(d.offset, 0); XCTAssertEqual(d.chance, 100); XCTAssertEqual(d.strikes, 3)
-        let wild = EmitterRatchet(on: true, steps: 99, hits: 99, offset: 99, chance: 999, strikes: 99).normalized()
-        XCTAssertEqual([wild.steps, wild.hits, wild.offset, wild.chance, wild.strikes], [16, 16, 15, 100, 4])
-        let low = EmitterRatchet(on: true, steps: -3, hits: -3, offset: -3, chance: -9, strikes: 0).normalized()
-        XCTAssertEqual([low.steps, low.hits, low.offset, low.chance, low.strikes], [2, 0, 0, 0, 2])
+        XCTAssertEqual(d.restartBars, 0, "RESTART defaults to FREE, so an all-default emitter is still the default")
+        let wild = EmitterRatchet(on: true, steps: 99, hits: 99, offset: 99, chance: 999, strikes: 99, restartBars: 99).normalized()
+        XCTAssertEqual([wild.steps, wild.hits, wild.offset, wild.chance, wild.strikes, wild.restartBars], [16, 16, 15, 100, 4, 16])
+        let low = EmitterRatchet(on: true, steps: -3, hits: -3, offset: -3, chance: -9, strikes: 0, restartBars: -5).normalized()
+        XCTAssertEqual([low.steps, low.hits, low.offset, low.chance, low.strikes, low.restartBars], [2, 0, 0, 0, 2, 0])
     }
     func testChanceSnapsToTheNearestFive() {
         for (raw, want) in [(52, 50), (53, 55), (0, 0), (100, 100), (97, 95), (98, 100), (-7, 0), (120, 100), (2, 0), (3, 5)] {
@@ -73,8 +74,12 @@ final class EmitterRatchetTests: XCTestCase {
         XCTAssertEqual(EmitterRatchetField.offset.setting(8, in: r).offset, 7, "OFFSET tops out at STEPS − 1"); XCTAssertEqual(EmitterRatchetField.offset.setting(-1, in: r).offset, 0)
         XCTAssertEqual(EmitterRatchetField.hits.setting(9, in: r).hits, 8, "HITS tops out at STEPS"); XCTAssertEqual(EmitterRatchetField.hits.setting(-1, in: r).hits, 0)
         XCTAssertEqual(EmitterRatchetField.steps.setting(17, in: r).steps, 16); XCTAssertEqual(EmitterRatchetField.steps.setting(1, in: r).steps, 2)
-        XCTAssertEqual(EmitterRatchetField.allCases.map { $0.step }, [1, 1, 1, 5, 1], "one VoiceOver step: CHANCE moves in fives")
-        XCTAssertEqual(EmitterRatchetField.allCases.map { $0.label }, ["STEPS", "HITS", "OFFSET", "CHANCE", "STRIKES"])
+        XCTAssertEqual(EmitterRatchetField.allCases.map { $0.step }, [1, 1, 1, 5, 1, 1], "one VoiceOver step: CHANCE moves in fives")
+        XCTAssertEqual(EmitterRatchetField.allCases.map { $0.label }, ["STEPS", "HITS", "OFFSET", "CHANCE", "STRIKES", "RESTART"])
+        // RESTART (2026-11-03): 0…16 bars, 0 = FREE
+        XCTAssertEqual(EmitterRatchetField.restart.setting(20, in: r).restartBars, 16); XCTAssertEqual(EmitterRatchetField.restart.setting(-3, in: r).restartBars, 0)
+        XCTAssertEqual(EmitterRatchetField.restart.range(in: r), 0...16); XCTAssertEqual(EmitterRatchetField.restart.defaultValue, 0)
+        XCTAssertEqual(EmitterRatchetField.restart.reset(in: EmitterRatchet(restartBars: 7)).restartBars, 0, "double-tap resets RESTART to FREE")
     }
     func testADoubleTapResetsTheCellToItsDefaultClampedBySteps() {
         let r = EmitterRatchet(on: true, steps: 2, hits: 1, offset: 1, chance: 40, strikes: 2)
@@ -108,12 +113,13 @@ final class EmitterRatchetTests: XCTestCase {
     func testAStoredSetRoundTripsAndEncodesAsAFourElementArray() throws {
         var doc = PluginState.makeInit()
         var set = EmitterRatchetSet()
-        set[0] = EmitterRatchet(on: true, steps: 16, hits: 16, offset: 0, chance: 75, strikes: 4)
+        set[0] = EmitterRatchet(on: true, steps: 16, hits: 16, offset: 0, chance: 75, strikes: 4, restartBars: 8)
         set[2] = EmitterRatchet(on: true, steps: 5, hits: 2, offset: 3, chance: 5, strikes: 2)
         doc.euclideousEmitterRatchets = set
         let data = try JSONEncoder().encode(doc)
         let back = try JSONDecoder().decode(PluginState.self, from: data)
         XCTAssertEqual(back.euclideousEmitterRatchetsResolved, set); XCTAssertEqual(back, doc)
+        XCTAssertEqual(back.euclideousEmitterRatchetsResolved[0].restartBars, 8, "RESTART round-trips"); XCTAssertEqual(back.euclideousEmitterRatchetsResolved[2].restartBars, 0)
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual((obj["euclideousEmitterRatchets"] as? [Any])?.count, 4, "fixed size: always four")
     }
@@ -274,6 +280,39 @@ final class EmitterRatchetTests: XCTestCase {
         let again = counter.hit(cfg: cfg(steps: 4, hits: 1), output: 0, countsSteps: false, laneStep: 0, window: 0, sample: 0)
         XCTAssertEqual(again.index, 0, "back to the first hit")
     }
+
+    // MARK: - RESTART (2026-11-03) — the count zeroes every N bars, so the CHANCE pattern loops
+
+    func testRestartZeroesTheCountAtEachNewBlockSoThePatternBeginsAgain() {
+        let a = cfg(steps: 4, hits: 1, chance: 100)   // ratchets at index 0 only (count mod 4 == 0)
+        var counter = EmitterRatchetCounter()
+        var ratchetedInBlock0: [Int] = []
+        for i in 0..<3 { if counter.hit(cfg: a, output: 0, countsSteps: false, laneStep: 0, window: Int64(i), sample: 0, restartKey: 0).ratchets { ratchetedInBlock0.append(i) } }
+        XCTAssertEqual(ratchetedInBlock0, [0], "one ratchet in the block (the first hit, index 0 of 4)"); XCTAssertEqual(counter.counts[0], 3)
+        let d = counter.hit(cfg: a, output: 0, countsSteps: false, laneStep: 0, window: 3, sample: 0, restartKey: 1)   // a new block
+        XCTAssertEqual(d.index, 0, "the count restarted to 0 — the pattern begins again"); XCTAssertTrue(d.ratchets); XCTAssertEqual(counter.counts[0], 1)
+    }
+    func testFreeRestartNeverResetsAndIsByteIdenticalToPassingNoKey() {
+        let a = cfg(steps: 4, hits: 1, chance: 50)   // CHANCE < 100: the only place the count's value shows, so this is the strongest equality check
+        var free = EmitterRatchetCounter(), none = EmitterRatchetCounter()
+        for i in 0..<20 {
+            let f = free.hit(cfg: a, output: 0, countsSteps: false, laneStep: 0, window: Int64(i), sample: 0, restartKey: Int64.min)
+            let n = none.hit(cfg: a, output: 0, countsSteps: false, laneStep: 0, window: Int64(i), sample: 0)   // the default restartKey is Int64.min
+            XCTAssertEqual(f, n, "hit \(i)")
+        }
+        XCTAssertEqual(free, none); XCTAssertEqual(free.counts[0], 20, "FREE counts on exactly as before — so with no RESTART set anywhere the engine is byte-identical")
+    }
+    func testRestartHappensOncePerSampleAndIsPerOutput() {
+        let a = cfg(steps: 4, hits: 1, chance: 100)
+        var counter = EmitterRatchetCounter()
+        for i in 0..<3 { _ = counter.hit(cfg: a, output: 0, countsSteps: false, laneStep: 0, window: Int64(i), sample: 0, restartKey: 0) }
+        // two lanes strike output 0 at one sample in a NEW block — the restart (and the count) happen once, both lanes share the decision
+        let first = counter.hit(cfg: a, output: 0, countsSteps: false, laneStep: 0, window: 3, sample: 512, restartKey: 1)
+        let second = counter.hit(cfg: a, output: 0, countsSteps: false, laneStep: 0, window: 3, sample: 512, restartKey: 1)
+        XCTAssertEqual(first, second); XCTAssertEqual(counter.counts[0], 1, "reset to 0 then one hit, shared by both lanes")
+        _ = counter.hit(cfg: a, output: 1, countsSteps: false, laneStep: 0, window: 3, sample: 512, restartKey: 9)
+        XCTAssertEqual(counter.counts[1], 1, "output 1's restart anchor is its own")
+    }
     func testInStepsModeTheIndexFollowsTheLanesPatternStepAndTheFirstLanesStepWinsASimultaneousHit() {   // §10 test 5
         let a = cfg(steps: 8, hits: 3)
         var counter = EmitterRatchetCounter()
@@ -331,8 +370,8 @@ final class EmitterRatchetTests: XCTestCase {
         XCTAssertEqual(l.cards.last!.maxY + 32, 293, "the last card ends at 293")
         XCTAssertEqual(l.toggle, CGRect(x: 0, y: 4, width: 44, height: 52), "the toggle target: 44 × 52 at the card's left edge")
         XCTAssertEqual(l.strip, CGRect(x: 50, y: 4, width: 336, height: 20), "the right column is 336 wide, the strip 20 tall")
-        XCTAssertEqual(l.cells.count, 5); XCTAssertEqual(l.cells[0].minY, 28, "the readout row starts 4 below the strip"); XCTAssertEqual(l.cells[0].height, 28)
-        XCTAssertEqual(l.cells[0].width, 336.0 / 5, accuracy: 1e-9); XCTAssertEqual(l.cells[4].maxX, 386, accuracy: 1e-9)
+        XCTAssertEqual(l.cells.count, 6); XCTAssertEqual(l.cells[0].minY, 28, "the readout row starts 4 below the strip"); XCTAssertEqual(l.cells[0].height, 28)
+        XCTAssertEqual(l.cells[0].width, 336.0 / 6, accuracy: 1e-9); XCTAssertEqual(l.cells[5].maxX, 386, accuracy: 1e-9)   // RESTART (2026-11-03): six cells now
         XCTAssertEqual(l.slots.count, 16)
         XCTAssertEqual(l.slots[0].width, (336.0 - 30) / 16, accuracy: 1e-9, "about 19.1 wide"); XCTAssertEqual(l.slots[1].minX - l.slots[0].maxX, 2, accuracy: 1e-9)
         XCTAssertEqual(l.slots[15].maxX, 386, accuracy: 1e-9)
@@ -394,8 +433,10 @@ final class EmitterRatchetTests: XCTestCase {
 
     func testTheValueTextBarShareAndDragFollowTheFerry() {
         var r = EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0, chance: 75, strikes: 3)
-        XCTAssertEqual(EmitterRatchetField.allCases.map { emitterRatchetValueText($0, r) }, ["8", "3", "0", "75%", "\u{00D7}3"])
+        XCTAssertEqual(EmitterRatchetField.allCases.map { emitterRatchetValueText($0, r) }, ["8", "3", "0", "75%", "\u{00D7}3", "FREE"])
         r.offset = 2; XCTAssertEqual(emitterRatchetValueText(.offset, r), "+2")
+        XCTAssertEqual(emitterRatchetValueText(.restart, EmitterRatchet(restartBars: 4)), "4"); XCTAssertEqual(emitterRatchetBarShare(.restart, EmitterRatchet(restartBars: 16)), 1)
+        XCTAssertEqual(emitterRatchetDragValue(.restart, start: EmitterRatchet(restartBars: 0), travelUp: 25).restartBars, 2, "RESTART: 1 per 10 pt")
         // the bar: the value's share of its range, never under 6 %
         XCTAssertEqual(emitterRatchetBarShare(.steps, EmitterRatchet(steps: 16)), 1); XCTAssertEqual(emitterRatchetBarShare(.steps, EmitterRatchet(steps: 2)), 0.06, "the minimum")
         XCTAssertEqual(emitterRatchetBarShare(.chance, EmitterRatchet(chance: 50)), 0.5)
@@ -427,9 +468,11 @@ final class EmitterRatchetTests: XCTestCase {
         XCTAssertEqual(emitterRatchetStripLabel(output: 1, r, counts: "hits"), "Emitter B pattern, 3 of 8 hits, offset 0, 3 strikes", "a dev build says what it counts")
         XCTAssertEqual(emitterRatchetStripLabel(output: 2, r, counts: "steps"), "Emitter C pattern, 3 of 8 steps, offset 0, 3 strikes")
         XCTAssertEqual(EmitterRatchetField.allCases.map { emitterRatchetCellLabel(output: 0, $0, r) },
-                       ["Emitter A steps 8", "Emitter A hits 3", "Emitter A offset 0", "Emitter A chance 75 percent", "Emitter A strikes 3"])
+                       ["Emitter A steps 8", "Emitter A hits 3", "Emitter A offset 0", "Emitter A chance 75 percent", "Emitter A strikes 3", "Emitter A restart off"])
         var o = r; o.offset = 2
         XCTAssertEqual(emitterRatchetCellLabel(output: 0, .offset, o), "Emitter A offset plus 2")
+        XCTAssertEqual(emitterRatchetCellLabel(output: 1, .restart, EmitterRatchet(restartBars: 1)), "Emitter B restart every bar")
+        XCTAssertEqual(emitterRatchetCellLabel(output: 1, .restart, EmitterRatchet(restartBars: 4)), "Emitter B restart every 4 bars")
     }
 
     // MARK: - §5.3 / §5.4 — the flare
