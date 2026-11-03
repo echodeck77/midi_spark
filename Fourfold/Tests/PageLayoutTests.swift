@@ -287,12 +287,14 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(euclideousFXRowH(contentHeight: 303 - 40), 29.5, accuracy: 1e-9, "the old 303 frame: 29.5 here (the ferry text's 29 assumes the strip at y 35; source has it at 32)")
     }
     func testLanesBlocksAndCellsAtBothReferences() {
-        for (p, cellW, laneH) in [(land, 18.29, 54.75), (port, 18.69, 54.92)] {
+        // MUTE ZOOM (2026-11-03): each side loses a 22pt arrow + 4pt gap, so cellW drops 10/16 = 0.625 from the old 18.29 / 18.69.
+        for (p, cellW, laneH) in [(land, 17.665, 54.75), (port, 18.065, 54.92)] {
             let body = euclideousSeqTabBodySize(panelWidth: p.box.width, panelHeight: p.box.height)
             let l = euclideousLanesLayout(width: body.width, height: body.height)
             XCTAssertEqual(l.cellW, cellW, accuracy: 0.01); XCTAssertEqual(l.laneH, laneH, accuracy: 0.01)
             XCTAssertEqual(l.legendTop + EuclideousLanesLayout.legendH, body.height, accuracy: 1e-9, "the hint row sits sp8 above the panel's bottom")
-            XCTAssertEqual(l.gridX + 16 * l.cellW + 15 * EuclideousLanesLayout.cellGap, body.width, accuracy: 1e-9, "16 cells + 2pt gaps tile the grid width")
+            XCTAssertEqual(l.gridX + 16 * l.cellW + 15 * EuclideousLanesLayout.cellGap + EuclideousLanesLayout.arrowGap + EuclideousLanesLayout.arrowW,
+                           body.width, accuracy: 1e-9, "the grid + the right zoom arrow tile the width (16 cells + 2pt gaps between the two arrows)")
         }
         XCTAssertEqual(euclideousLanesLayout(width: 394, height: 303 - 40).laneH, 50.75, accuracy: 1e-9, "the old 303 frame (the ferry text's 50 assumes the blocks at y 63; source has them at 60)")
     }

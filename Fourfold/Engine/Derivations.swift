@@ -6486,22 +6486,28 @@ func euclideousLaneStepGeometry(lines: [EuclidLine], lane: Int, defaultRateBeats
 /// budget is the spec's (sub-tab row 24, gap 4, four lane blocks with 4 between, gap 4, legend 16) with the lane blocks taking whatever
 /// height the real panel leaves — 50 at the reference, less on a short portrait panel (floor 34), more on a tall one. Nothing is a font size.
 struct EuclideousLanesLayout: Equatable {
-    static let railW: CGFloat = 38, railGap: CGFloat = 4, cellGap: CGFloat = 2
+    // MUTE ZOOM (2026-11-03): the 16-cell roll is FLANKED by two unlabelled zoom arrows — ◀ (zoom IN, fewer passes → finer)
+    // on the left where the old rail sat, ▶ (zoom OUT, more passes → look further back, 8 max) on the right — each `arrowW` wide
+    // with `arrowGap` to the grid. So the grid loses an arrow + gap on EACH side (vs the old left-only 38pt rail).
+    static let arrowW: CGFloat = 22, arrowGap: CGFloat = 4, cellGap: CGFloat = 2
     static let subTabH: CGFloat = 24, subTabGap: CGFloat = 4, laneGap: CGFloat = 4, legendGap: CGFloat = 4, legendH: CGFloat = 16
     static let restartRowGap: CGFloat = 2
     static let minLaneH: CGFloat = 34
     let width: CGFloat
     let height: CGFloat
     let laneH: CGFloat
-    var gridX: CGFloat { Self.railW + Self.railGap }
-    var gridW: CGFloat { max(0, width - gridX) }
+    var gridX: CGFloat { Self.arrowW + Self.arrowGap }
+    /// The grid (the 16-cell roll) sits between the two arrows: the whole width LESS one arrow + gap on EACH side.
+    var gridW: CGFloat { max(0, width - 2 * (Self.arrowW + Self.arrowGap)) }
     var cellW: CGFloat { max(0.5, (gridW - Self.cellGap * 15) / 16) }
     var pitch: CGFloat { cellW + Self.cellGap }
     var rowH: CGFloat { (laneH - Self.restartRowGap) / 2 }
-    /// The left edge of cell `i` measured from the GRID's own left edge (`cellLeft(i) = i × 22.125` at the reference).
+    /// The left edge of cell `i` measured from the GRID's own left edge (`cellLeft(i) = i × 21.5` at the reference).
     func cellLeft(_ i: Int) -> CGFloat { CGFloat(i) * pitch }
     func laneTop(_ lane: Int) -> CGFloat { Self.subTabH + Self.subTabGap + CGFloat(lane) * (laneH + Self.laneGap) }
     var legendTop: CGFloat { laneTop(3) + laneH + Self.legendGap }
+    /// The left edge of the right-hand (zoom OUT, ▶) arrow column — `arrowGap` past the grid's right edge; it ends at `width`.
+    var rightArrowX: CGFloat { gridX + gridW + Self.arrowGap }
 }
 func euclideousLanesLayout(width: CGFloat, height: CGFloat) -> EuclideousLanesLayout {
     let fixed = EuclideousLanesLayout.subTabH + EuclideousLanesLayout.subTabGap + EuclideousLanesLayout.laneGap * 3

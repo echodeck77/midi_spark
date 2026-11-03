@@ -112,6 +112,11 @@ func euclideousOutputMuteCellLabel(output: Int, cell: Int, sounding: Bool) -> St
 func euclideousOutputMuteRailLabel(output: Int, passes: Int) -> String {
     "Output \(euclideousOutputLetter(output)) showing \(passes) pass\(passes == 1 ? "" : "es")"
 }
+/// MUTE ZOOM (2026-11-03): VoiceOver for one unlabelled zoom arrow (◀ in / ▶ out) — on screen it is only an arrow, so this says which output,
+/// which direction and the span it currently spans. (The bounds are spoken by the button's own disabled state.)
+func euclideousOutputZoomLabel(output: Int, passes: Int, zoomIn: Bool) -> String {
+    "Output \(euclideousOutputLetter(output)) zoom \(zoomIn ? "in" : "out"), showing \(passes) pass\(passes == 1 ? "" : "es")"
+}
 
 // MARK: - The old per-lane mute is NOT migrated
 //

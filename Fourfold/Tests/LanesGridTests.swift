@@ -230,10 +230,13 @@ final class LanesGridTests: XCTestCase {
 
     func testLayoutAtTheReferenceMatchesTheSpecNumbers() {
         let L = euclideousLanesLayout(width: 394, height: 260)          // the spec's 410×303 panel less 8pt padding and the tab strip
-        XCTAssertEqual(L.gridX, 42); XCTAssertEqual(L.gridW, 352)
-        XCTAssertEqual(L.cellW, 20.125, accuracy: 1e-9)
-        XCTAssertEqual(L.pitch, 22.125, accuracy: 1e-9)
-        XCTAssertEqual(L.cellLeft(15), 331.875, accuracy: 1e-9)
+        // MUTE ZOOM (2026-11-03): the roll is flanked by a 22pt arrow + 4pt gap on EACH side, so gridX = 26 and gridW = 394 − 52 = 342.
+        XCTAssertEqual(L.gridX, 26); XCTAssertEqual(L.gridW, 342)
+        XCTAssertEqual(L.cellW, 19.5, accuracy: 1e-9)
+        XCTAssertEqual(L.pitch, 21.5, accuracy: 1e-9)
+        XCTAssertEqual(L.cellLeft(15), 322.5, accuracy: 1e-9)
+        XCTAssertEqual(L.rightArrowX, 26 + 342 + 4, accuracy: 1e-9)   // the ▶ arrow begins a gap past the grid and ends at the full width
+        XCTAssertEqual(L.rightArrowX + EuclideousLanesLayout.arrowW, 394, accuracy: 1e-9)
         XCTAssertEqual(L.laneH, 50)
         XCTAssertEqual(L.laneTop(0), 28); XCTAssertEqual(L.laneTop(3), 190)       // y = 63 and 225 less the sub-tab row's own 35 origin
         XCTAssertEqual(L.legendTop, 244)                                         // y = 279 − 35
@@ -245,7 +248,8 @@ final class LanesGridTests: XCTestCase {
         XCTAssertEqual(euclideousLanesLayout(width: 394, height: 100).laneH, 34, "a floor, so the cells stay tappable")
         let tall = euclideousLanesLayout(width: 394, height: 400)
         XCTAssertEqual(tall.legendTop + EuclideousLanesLayout.legendH, 60 + 4 * tall.laneH, accuracy: 1e-9, "the stack fills the height")
-        XCTAssertEqual(euclideousLanesLayout(width: 320, height: 260).cellW, (320 - 42 - 30) / 16, accuracy: 1e-9)
+        XCTAssertEqual(euclideousLanesLayout(width: 320, height: 260).cellW,
+                       (320 - 2 * (EuclideousLanesLayout.arrowW + EuclideousLanesLayout.arrowGap) - EuclideousLanesLayout.cellGap * 15) / 16, accuracy: 1e-9)
     }
     func testPositionMapJumpsTheGapsAndWrapsTheWindow() {
         let L = euclideousLanesLayout(width: 394, height: 260)
@@ -273,10 +277,10 @@ final class LanesGridTests: XCTestCase {
         let gx = L.gridX
         func hit(_ x: CGFloat, _ y: CGFloat, restart: Bool = false) -> EuclideousLanesHit? { euclideousLanesHit(x: x, y: y, layout: L, restart: restart) }
         XCTAssertEqual(hit(gx + 5, 40), EuclideousLanesHit(lane: 0, cell: 0, row: 0))
-        XCTAssertEqual(hit(gx + 20.5, 40)?.cell, 0, "the first pt of the gap belongs to the cell on its left")
-        XCTAssertEqual(hit(gx + 21.2, 40)?.cell, 1, "…the second to the cell on its right (1pt slop each side)")
+        XCTAssertEqual(hit(gx + L.cellW + 0.5, 40)?.cell, 0, "the first pt of the gap belongs to the cell on its left")
+        XCTAssertEqual(hit(gx + L.cellW + 1.5, 40)?.cell, 1, "…the second to the cell on its right (1pt slop each side)")
         XCTAssertEqual(hit(gx - 0.9, 40)?.cell, 0)
-        XCTAssertNil(hit(gx - 1.1, 40)); XCTAssertNil(hit(L.gridX - 20, 40), "the rail is not a cell")
+        XCTAssertNil(hit(gx - 1.1, 40)); XCTAssertNil(hit(L.gridX - 20, 40), "the left zoom-arrow column is not a cell")
         XCTAssertEqual(hit(gx + L.gridW + 0.5, 40)?.cell, 15)
         XCTAssertNil(hit(gx + L.gridW + 1.1, 40))
         // lanes and the gaps between them

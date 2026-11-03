@@ -6851,12 +6851,15 @@ struct EuclideousPage: View {
             let unit = Double(max(1, passes)) * homePass / 16  // the 16 cells divide a `passes`-long window
             let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
             let windowEnd = win.start + win.length
+            let prevStart = win.start - win.length   // MUTE ZOOM (2026-11-03): the previous equal-size window, ghosted dim behind (onion-skin); at 8 passes this looks back the previous 8 passes
             var roll: [NoteRollNote] = []
+            var rollPrev: [NoteRollNote] = []
             let bit = UInt8(1) << UInt8(output)
             for part in 0..<8 {
                 for n in model.notes(part: part, from: win.start, to: windowEnd, now: beat) where n.outs & bit != 0 { roll.append(n) }
+                for n in model.notes(part: part, from: prevStart, to: win.start, now: beat) where n.outs & bit != 0 { rollPrev.append(n) }
             }
-            return EuclideousLanesPanelLane(cells16: mutes[output].cells16, passes: passes, unitBeats: unit, windowStart: win.start, roll: roll)
+            return EuclideousLanesPanelLane(cells16: mutes[output].cells16, passes: passes, unitBeats: unit, windowStart: win.start, roll: roll, rollPrev: rollPrev)
         }
     }
     /// A MUTE cell's current value ("lane" index = output index). The stroke paints the OPPOSITE of this.

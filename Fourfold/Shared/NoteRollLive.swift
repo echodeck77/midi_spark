@@ -12,7 +12,11 @@ final class NoteRollLive {
         if (playing && !wasPlaying) || beat < lastBeat - 0.5 { model.clear() }
         wasPlaying = playing; lastBeat = beat
         if !records.isEmpty { model.ingest(records) }
-        model.prune(before: beat - 64)               // far older than any window (a few bars at any time signature): never grows
+        // MUTE ZOOM (2026-11-03): the MUTE tab's roll reaches an 8-pass window AND ghosts an equal previous window behind it, so it needs
+        // current + previous retained. 256 beats covers both for typical-to-moderately-slow lanes (a very slow lane at 8 passes is a narrow
+        // residual edge, flagged); the per-part cap (768 notes) is the real memory bound, so this never grows unbounded. Card backs query
+        // their own 2-bar window, so the extra retained history is invisible to them.
+        model.prune(before: beat - 256)
     }
     /// The page was reset (a document load): forget what was drawn.
     func clear() { model.clear() }

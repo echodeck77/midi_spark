@@ -86,6 +86,9 @@ final class OutputMuteTests: XCTestCase {
         XCTAssertEqual(euclideousOutputMuteCellLabel(output: 1, cell: 2, sounding: false), "Output B cell 3, muted")
         XCTAssertEqual(euclideousOutputMuteRailLabel(output: 0, passes: 1), "Output A showing 1 pass")
         XCTAssertEqual(euclideousOutputMuteRailLabel(output: 3, passes: 4), "Output D showing 4 passes")
+        // MUTE ZOOM (2026-11-03): the unlabelled ◀ / ▶ arrows still name themselves to VoiceOver.
+        XCTAssertEqual(euclideousOutputZoomLabel(output: 0, passes: 1, zoomIn: true), "Output A zoom in, showing 1 pass")
+        XCTAssertEqual(euclideousOutputZoomLabel(output: 2, passes: 8, zoomIn: false), "Output C zoom out, showing 8 passes")
     }
 
     // NOTE: the old per-lane mute is deliberately NOT migrated (the 16 cells now divide a 1…8-pass window, not the

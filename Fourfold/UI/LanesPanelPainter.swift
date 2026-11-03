@@ -30,15 +30,17 @@ private func heavyMono(_ size: CGFloat) -> Font { .system(size: size, weight: .h
 struct EuclideousLanesPanelLane: Equatable {
     /// Output o's 16-cell mute (bit i set = cell i SOUNDS). The panel edits this (→ `euclideousOutputMutes[o]`).
     var cells16: UInt16
-    /// The cell size in whole PASSES (1…8) — the rail readout and the ◀ / ▶ bounds.
+    /// The window size in whole PASSES (1…8) — the ◀ / ▶ zoom bounds (how many passes the 16 cells span).
     var passes: Int
     /// The mute cell length in beats (passes × the output's HOME lane's pass), and the start of the window the roll covers.
     var unitBeats: Double
     var windowStart: Double
     /// The REAL notes emitted on this output in the window (the actual MIDI, after routing / mute / ratchet / hocket — not a prediction), drawn pitch-positioned like the card-back rolls.
     var roll: [NoteRollNote]
-    var canDec: Bool { passes > 1 }
-    var canInc: Bool { passes < 8 }
+    /// MUTE ZOOM (2026-11-03): the PREVIOUS equal-size window's emitted notes, ghosted dim behind `roll` (onion-skin) so the last iteration stays visible — at 8 passes it looks back the previous 8 passes.
+    var rollPrev: [NoteRollNote]
+    var canDec: Bool { passes > 1 }   // ◀ zoom IN enabled (can reach 1 pass)
+    var canInc: Bool { passes < 8 }   // ▶ zoom OUT enabled (can reach 8 passes)
 }
 
 /// The static layer: cell fills, run outlines, restart marks / slots, the roll, the read-only marks. No time in here — the playhead is a
@@ -94,14 +96,21 @@ private struct EuclideousLanesStaticLayer: View, Equatable {
             let t = (Double(pitch) - loP) / pSpan
             return top + laneH - 2 - CGFloat(min(1, max(0, t))) * (laneH - 4)   // high pitch near the top
         }
-        for note in data.roll where data.unitBeats > 0 {
-            let u0 = (note.onBeat - data.windowStart) / data.unitBeats
-            let endBeat = note.endBeat ?? (data.windowStart + data.unitBeats * 16)
-            let u1 = (endBeat - data.windowStart) / data.unitBeats
-            guard u1 > 0, u0 < 16 else { continue }
-            let x0 = xOf(max(0, u0)), x1 = xOf(min(16, u1)), y = yOf(note.pitch)
-            ctx.fill(RoundedRectangle(cornerRadius: 1.5).path(in: CGRect(x: x0, y: y - 1.5, width: max(2.5, x1 - x0), height: 3)), with: .color(accent.opacity(1)))
+        // MUTE ZOOM (2026-11-03): draw a window's notes into the 16-cell space, mapping each note's beat through `windowStart`. The previous
+        // iteration is ghosted dim FIRST (onion-skin behind the current), the current window bright on top. A held note fills to the window end.
+        func drawRoll(_ notes: [NoteRollNote], windowStart: Double, opacity: Double) {
+            guard data.unitBeats > 0 else { return }
+            for note in notes {
+                let u0 = (note.onBeat - windowStart) / data.unitBeats
+                let endBeat = note.endBeat ?? (windowStart + data.unitBeats * 16)
+                let u1 = (endBeat - windowStart) / data.unitBeats
+                guard u1 > 0, u0 < 16 else { continue }
+                let x0 = xOf(max(0, u0)), x1 = xOf(min(16, u1)), y = yOf(note.pitch)
+                ctx.fill(RoundedRectangle(cornerRadius: 1.5).path(in: CGRect(x: x0, y: y - 1.5, width: max(2.5, x1 - x0), height: 3)), with: .color(accent.opacity(opacity)))
+            }
         }
+        drawRoll(data.rollPrev, windowStart: data.windowStart - data.unitBeats * 16, opacity: 0.28)   // the previous iteration, dim behind
+        drawRoll(data.roll, windowStart: data.windowStart, opacity: 1)                                // this iteration, full strength
     }
 }
 
@@ -135,15 +144,15 @@ private struct EuclideousLanesPlayheads: View {
     }
 }
 
-/// The whole LANES tab content: a mute-only hint line (RESTART CHAINS ferry §8.1 — replaces the old MUTE |
-/// RESTART sub-tab chips), four lane blocks (rate box + cells), the roll, marks and playheads.
+/// The whole MUTE tab content: a hint line, four output blocks (each the 16-cell mute grid flanked by ◀ zoom-in /
+/// ▶ zoom-out arrows — MUTE ZOOM 2026-11-03), the real emitted roll (current bright, previous dim), and playheads.
 struct EuclideousLanesPanel: View {
     let layout: EuclideousLanesLayout
     let lanes: [EuclideousLanesPanelLane]
     let accents: [Color]
     let playing: Bool
     let beatAt: (Date) -> Double
-    /// One ◀ / ▶ step of an output's pass size (output, up). Bounded 1…8 by the page.
+    /// One zoom step of an output's window size in passes (output, up). `up` = ▶ zoom out (more passes); bounded 1…8 by the page.
     let onStepPass: (Int, Bool) -> Void
     /// The value the cell under the finger has right now (a stroke starts by painting the OPPOSITE).
     let cellValue: (EuclideousLanesHit) -> Bool
@@ -162,7 +171,10 @@ struct EuclideousLanesPanel: View {
             ForEach(0..<min(4, lanes.count), id: \.self) { lane in
                 EuclideousLanesStaticLayer(layout: layout, lane: lane, data: lanes[lane], accents: accents).equatable()
             }
-            ForEach(0..<4, id: \.self) { output in rateRail(output) }
+            ForEach(0..<4, id: \.self) { output in
+                zoomArrow(output, zoomIn: true)    // ◀ left of the roll
+                zoomArrow(output, zoomIn: false)   // ▶ right of the roll
+            }
             gestureLayer
             EuclideousLanesPlayheads(layout: layout, unitBeats: lanes.map { $0.unitBeats }, playing: playing, beatAt: beatAt)
             accessibilityCells
@@ -181,32 +193,28 @@ struct EuclideousLanesPanel: View {
             .allowsHitTesting(false)
     }
 
-    // ── the rail (MUTE TAB 2026-11-02): the output's LETTER over a ◀ N ▶ pass stepper (bounded 1…8). Output colour at 20% with a 1pt border, in the old RATE box's frame. DEVICE-OWED look: ◀/▶ fit in the 38pt rail. ──
-    private func rateRail(_ output: Int) -> some View {
+    // ── MUTE ZOOM (2026-11-03): one unlabelled zoom arrow flanking the roll — ◀ (zoomIn) on the LEFT where the old rail sat steps the output's
+    //    window DOWN toward 1 pass (finer); ▶ (zoomOut) on the RIGHT steps it UP toward 8 (coarser, looking further back). No letter, no number,
+    //    no "PASS": the output's accent colour tells the blocks apart and the roll itself shows the span. Greyed and disabled at the respective
+    //    bound (◀ at 1 pass, ▶ at 8). Full-block height, so the whole arrow column is the hit target — much bigger than the old 38pt rail's
+    //    ~12pt ◀/▶. DEVICE-OWED look: the arrow width (22), the fill/border opacities and the glyph size. ──
+    private func zoomArrow(_ output: Int, zoomIn: Bool) -> some View {
         let accent = accents[output % accents.count]
         let data = output < lanes.count ? lanes[output] : nil
-        let passes = data?.passes ?? 1
-        let arrow = max(10, (EuclideousLanesLayout.railW - 14) / 2)   // ◀ and ▶ hit targets flanking the number
-        return VStack(spacing: 2) {
-            Text(euclideousOutputLetter(output)).font(heavyMono(11)).foregroundColor(accent).lineLimit(1)
-            HStack(spacing: 0) {
-                Button { onStepPass(output, false) } label: {
-                    Text("\u{25C0}").font(heavyMono(9)).foregroundColor(data?.canDec == true ? EuclideousLanesPalette.ink : EuclideousLanesPalette.mutedBar).frame(width: arrow, height: 16)
-                }.buttonStyle(.plain).disabled(data?.canDec != true)
-                Text("\(passes)").font(heavyMono(11)).foregroundColor(EuclideousLanesPalette.ink).frame(minWidth: 10)
-                Button { onStepPass(output, true) } label: {
-                    Text("\u{25B6}").font(heavyMono(9)).foregroundColor(data?.canInc == true ? EuclideousLanesPalette.ink : EuclideousLanesPalette.mutedBar).frame(width: arrow, height: 16)
-                }.buttonStyle(.plain).disabled(data?.canInc != true)
-            }
-            Text("PASS").font(.system(size: 6, weight: .medium, design: .monospaced)).tracking(0.3).foregroundColor(EuclideousLanesPalette.dim).lineLimit(1)
+        let enabled = zoomIn ? (data?.canDec == true) : (data?.canInc == true)
+        return Button { onStepPass(output, !zoomIn) } label: {   // zoomIn ⇒ step DOWN (up:false); zoomOut ⇒ step UP (up:true)
+            Text(zoomIn ? "\u{25C0}" : "\u{25B6}").font(heavyMono(12))
+                .foregroundColor(enabled ? accent : EuclideousLanesPalette.mutedBar)
+                .frame(width: EuclideousLanesLayout.arrowW, height: layout.laneH)
+                .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(enabled ? 0.18 : 0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(enabled ? accent.opacity(0.9) : EuclideousLanesPalette.mutedBar.opacity(0.5), lineWidth: 1))
         }
-        .frame(width: EuclideousLanesLayout.railW, height: layout.laneH)
-        .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.2)))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent, lineWidth: 1))
-        .offset(x: 0, y: layout.laneTop(output))
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .offset(x: zoomIn ? 0 : layout.rightArrowX, y: layout.laneTop(output))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(euclideousOutputMuteRailLabel(output: output, passes: passes))
-        .accessibilityAdjustableAction { dir in onStepPass(output, dir == .increment) }
+        .accessibilityLabel(euclideousOutputZoomLabel(output: output, passes: data?.passes ?? 1, zoomIn: zoomIn))
+        .accessibilityAddTraits(.isButton)
     }
 
     // ── the stroke gesture (§5.2): touch-down sets the stroke value to the OPPOSITE of that cell; every cell the finger then passes in the
@@ -259,7 +267,7 @@ struct EuclideousLanesPanel: View {
 
     // ── the bottom row — MUTE TAB ferry (2026-11-02): the per-lane RHYTHM/MELODY RESTART swatches are gone (outputs have no restart); one caption, DEVICE-OWED wording. ──
     private var legend: some View {
-        Text("\u{25C0}\u{25B6} SETS HOW MANY PASSES THE 16 CELLS SPAN \u{00B7} THE ROLL SHOWS WHAT EACH OUTPUT SENDS")
+        Text("\u{25C0} ZOOM IN \u{00B7} \u{25B6} ZOOM OUT (1\u{2013}8 PASSES) \u{00B7} THE PREVIOUS ITERATION GHOSTS DIM BEHIND")
             .font(heavyMono(8)).tracking(0.4).foregroundColor(EuclideousLanesPalette.dim)
             .lineLimit(1).truncationMode(.tail)
             .frame(width: layout.width, height: EuclideousLanesLayout.legendH, alignment: .leading)
