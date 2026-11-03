@@ -18,11 +18,9 @@ final class ChordsGridMigrationTests: XCTestCase {
 
         XCTAssertNil(p.euclideousChordSets, "never touched -> no eager materialization")
         let sets = p.euclideousChordSetsResolved
-        XCTAssertEqual(sets.count, 4)
+        XCTAssertEqual(sets.count, 2, "TWO CHORD GRIDS: the four progressions became two")
         XCTAssertEqual(sets[0], legacy)
         XCTAssertEqual(sets[1], MachineParams())
-        XCTAssertEqual(sets[2], MachineParams())
-        XCTAssertEqual(sets[3], MachineParams())
         XCTAssertEqual(p.activeChordSetResolved, 0)
     }
 
@@ -40,22 +38,74 @@ final class ChordsGridMigrationTests: XCTestCase {
 
         var edited = MachineParams()
         edited.chordsDegrees = [6, 6, 6]
-        p.setEuclideousChordSet(2, edited)
+        p.setEuclideousChordSet(1, edited)
+        p.setEuclideousChordSet(2, MachineParams()); p.setEuclideousChordSet(-1, MachineParams())   // out of range: ignored
 
         XCTAssertNotNil(p.euclideousChordSets)
         let sets = p.euclideousChordSetsResolved
+        XCTAssertEqual(sets.count, 2)
         XCTAssertEqual(sets[0], legacy, "set 0 still mirrors the pre-migration single grid")
-        XCTAssertEqual(sets[1], MachineParams())
-        XCTAssertEqual(sets[2], edited)
-        XCTAssertEqual(sets[3], MachineParams())
+        XCTAssertEqual(sets[1], edited)
+        XCTAssertEqual(p.euclideousChordSets?.count, 2, "a write beyond grid 2 does not grow the array")
     }
 
-    func testActiveChordSetResolvedClampsToZeroThreeRange() {
+    func testActiveChordSetResolvedClampsToZeroOneRange() {
         var p = PluginState(machines: [], scenes: [SceneState.empty()])
         p.activeChordSet = 7
-        XCTAssertEqual(p.activeChordSetResolved, 3)
+        XCTAssertEqual(p.activeChordSetResolved, 1)
         p.activeChordSet = -2
         XCTAssertEqual(p.activeChordSetResolved, 0)
+    }
+
+    // MARK: - TWO CHORD GRIDS (2026-11-03): an old document's four progressions become two, sound-preserving
+
+    private func progression(_ tag: UInt8) -> MachineParams { var m = MachineParams(); m.chordsDegrees = [Int(tag), Int(tag), 0, 0]; m.chordsSteps = 4; return m }
+
+    func testAFourSetDocumentMovesThePlayingProgressionIntoGridOneForEveryActiveIndex() {
+        let four = (1...4).map { progression(UInt8($0)) }
+        // grid 1 := the progression that was PLAYING (the old active); grid 2 := the lowest-numbered other one.
+        let expected: [Int: [Int]] = [0: [0, 1], 1: [1, 0], 2: [2, 0], 3: [3, 0]]
+        for (active, want) in expected {
+            var p = PluginState(machines: [], scenes: [SceneState.empty()])
+            p.euclideousChordSets = four; p.activeChordSet = active
+            p.normalizeChordSetsAtLoad()
+            XCTAssertEqual(p.euclideousChordSets, [four[want[0]], four[want[1]]], "active \(active)")
+            XCTAssertNil(p.activeChordSet, "the edit tab opens on grid 1")
+            XCTAssertEqual(p.euclideousChordSetsResolved[0], four[active], "what played before plays now (active \(active))")
+        }
+    }
+    func testTheNormaliserIsIdempotentAndLeavesATwoSetDocumentAlone() {
+        var p = PluginState(machines: [], scenes: [SceneState.empty()])
+        p.euclideousChordSets = (1...4).map { progression(UInt8($0)) }; p.activeChordSet = 2
+        p.normalizeChordSetsAtLoad()
+        let once = p
+        p.normalizeChordSetsAtLoad(); XCTAssertEqual(p.euclideousChordSets, once.euclideousChordSets); XCTAssertEqual(p.activeChordSet, once.activeChordSet)
+        var q = PluginState(machines: [], scenes: [SceneState.empty()])
+        q.euclideousChordSets = [progression(7), progression(8)]; q.activeChordSet = 1     // a NEW document's edit tab
+        q.normalizeChordSetsAtLoad()
+        XCTAssertEqual(q.euclideousChordSets, [progression(7), progression(8)]); XCTAssertEqual(q.activeChordSet, 1, "an edit tab is not an old 'plays' index")
+    }
+    func testANeverMaterialisedDocumentWithAnOldActiveIndexKeepsItsSound() {
+        // The sets were never edited (nil) but the player had clicked tab 3: the default progression played, grid 2 is the default too.
+        var p = PluginState(machines: [], scenes: [SceneState.empty()]); p.activeChordSet = 2
+        p.normalizeChordSetsAtLoad()
+        XCTAssertEqual(p.euclideousChordSetsResolved, [MachineParams(), MachineParams()]); XCTAssertNil(p.activeChordSet)
+        // …and with a LEGACY single grid it was set 0 (the legacy grid) that tab 1 played; tab 2-4 were the defaults.
+        var l = PluginState(machines: [], scenes: [SceneState.empty()]); l.euclideousChords = progression(5); l.activeChordSet = 0
+        l.normalizeChordSetsAtLoad()
+        XCTAssertNil(l.euclideousChordSets, "an untouched document stays untouched")
+        XCTAssertEqual(l.euclideousChordSetsResolved[0], progression(5))
+        var m = PluginState(machines: [], scenes: [SceneState.empty()]); m.euclideousChords = progression(5); m.activeChordSet = 1
+        m.normalizeChordSetsAtLoad()
+        XCTAssertEqual(m.euclideousChordSetsResolved, [MachineParams(), progression(5)], "tab 2 played a default; the legacy grid (old tab 1) becomes grid 2")
+    }
+    func testTheNormalisedDocumentDecodesAndRoundTripsAsTwoSets() throws {
+        var p = PluginState(machines: [], scenes: [SceneState.empty()])
+        p.euclideousChordSets = (1...4).map { progression(UInt8($0)) }; p.activeChordSet = 3
+        p.normalizeChordSetsAtLoad()
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(p))
+        XCTAssertEqual(back.euclideousChordSets?.count, 2)
+        XCTAssertEqual(back.euclideousChordSetsResolved[0], progression(4))
     }
 
     func testMigrationSoundsIdenticalThroughSnapshotBuilderResolve() {

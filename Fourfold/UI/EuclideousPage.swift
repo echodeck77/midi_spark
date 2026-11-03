@@ -2350,7 +2350,7 @@ struct EuclideousPage: View {
     /// `euclideousChordsPopupLayout` (Derivations.swift) — nothing here re-derives a size. Tapping a tab
     /// switches it immediately (Paul, 2026-10-24: "I only want the chords tab to be switched manually when a
     /// user clicks it") — no queue-to-next-column-boundary, so "shown" and "playing" are always the same tab.
-    private var chordsActiveSet: Int { max(0, min(3, activeChordSet)) }
+    private var chordsActiveSet: Int { max(0, min(max(0, chordSets.count - 1), activeChordSet)) }
     private var chordsActive: MachineParams { let i = chordsActiveSet; return i < chordSets.count ? chordSets[i] : MachineParams() }
     // Sources panel v2 §6.4: the standalone CHORDS overlay (chordsPopupCard + chordsTitleRow with its close button)
     // is re-hosted as the panel's CHORDS page (sourcesChordsPageCard + sourcesChordsTitleRow) — deleted.
@@ -2907,7 +2907,7 @@ struct EuclideousPage: View {
     /// icon · step count. §4.4: tap switches immediately; §4.6: long-press opens COPY/PASTE/CLEAR.
     private func chordsTabRow() -> some View {
         HStack(spacing: EuclideousRiffPanelMetrics.tabGap) {
-            ForEach(0..<4, id: \.self) { i in
+            ForEach(0..<max(1, min(2, chordSets.count)), id: \.self) { i in   // TWO CHORD GRIDS: two tabs
                 let sel = i == chordsActiveSet
                 let ink = Color(hex: 0x0D0F14)
                 let set = i < chordSets.count ? chordSets[i] : MachineParams()

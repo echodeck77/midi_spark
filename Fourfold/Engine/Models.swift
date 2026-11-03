@@ -765,16 +765,24 @@ struct EuclidLine: Codable, Equatable {
     var answerTradeModeResolved: EuclideousAnswerTradeMode { answerTradeMode ?? .swap }
     var answerCycleEachResolved: Int { max(euclideousAnswerCycleEachMin, min(euclideousAnswerCycleEachMax, answerCycleEach ?? euclideousAnswerCycleEachDefault)) }
     var answerCycleUnitResolved: EuclideousAnswerCycleUnit { answerCycleUnit ?? .bars }
-    var poolSrcMaskResolved: UInt8 { (poolSrcMask ?? euclideousPoolSrcAll) & euclideousPoolSrcAll }
+    var poolSrcMaskResolved: UInt8 { euclideousPoolSrcNormalized(poolSrcMask ?? euclideousPoolSrcAll) }
     var poolSustainOnResolved: Bool { poolSustainOn ?? false }
     var poolSustainModeResolved: EuclideousSustainMode { poolSustainMode ?? .keep }
-    /// Is source `bit` (0 MIDI IN · 1 CHORDS · 2 PICK · 3 KEY) switched on for this lane?
-    func poolSrcOn(_ bit: Int) -> Bool { bit >= 0 && bit < 4 && (poolSrcMaskResolved >> UInt8(bit)) & 1 != 0 }
-    /// Switch one source on or off for this lane; all four on is stored as nil, so a lane back at the default is byte-identical to one that never had the field.
+    /// Is source `bit` (0 MIDI IN · 1 CHORDS 1 · 2 PICK · 3 KEY · 4 CHORDS 2) switched on for this lane?
+    func poolSrcOn(_ bit: Int) -> Bool { bit >= 0 && bit < 5 && (poolSrcMaskResolved >> UInt8(bit)) & 1 != 0 }
+    /// Is a CHORDS grid (either) feeding this lane?
+    var poolChordsOn: Bool { poolSrcMaskResolved & (euclideousPoolSrcChords1 | euclideousPoolSrcChords2) != 0 }
+    /// The chord grid this lane's CHORDS layer reads: 0 = grid 1, 1 = grid 2 (meaningful while `poolChordsOn`).
+    var poolChordGrid: Int { poolSrcMaskResolved & euclideousPoolSrcChords2 != 0 ? 1 : 0 }
+    /// Switch one source on or off for this lane. CHORDS 1 and CHORDS 2 are mutually exclusive: switching one ON switches the other off (switching the lit one off leaves chords off). The default mask is stored as nil, so a lane back at the
+    /// default is byte-identical to one that never had the field.
     mutating func setPoolSrc(_ bit: Int, _ on: Bool) {
-        guard bit >= 0 && bit < 4 else { return }
+        guard bit >= 0 && bit < 5 else { return }
         var m = poolSrcMaskResolved
-        if on { m |= UInt8(1) << UInt8(bit) } else { m &= ~(UInt8(1) << UInt8(bit)) }
+        if on {
+            m |= UInt8(1) << UInt8(bit)
+            if bit == 1 { m &= ~euclideousPoolSrcChords2 } else if bit == 4 { m &= ~euclideousPoolSrcChords1 }
+        } else { m &= ~(UInt8(1) << UInt8(bit)) }
         poolSrcMask = m == euclideousPoolSrcAll ? nil : m
     }
     /// The lane TRADE reads: the stored one when it is one of the other three lanes, else the lowest-numbered other lane (§9.2).
@@ -1183,7 +1191,7 @@ extension EuclidLine {
         answerTradeWith = (try? c.decodeIfPresent(Int.self, forKey: .answerTradeWith)).flatMap { $0 }.map { max(0, min(3, $0)) }
         answerCycleEach = (try? c.decodeIfPresent(Int.self, forKey: .answerCycleEach)).flatMap { $0 }.map { max(euclideousAnswerCycleEachMin, min(euclideousAnswerCycleEachMax, $0)) }
         answerCycleUnit = (try? c.decodeIfPresent(EuclideousAnswerCycleUnit.self, forKey: .answerCycleUnit)).flatMap { $0 }
-        poolSrcMask = (try? c.decodeIfPresent(UInt8.self, forKey: .poolSrcMask)).flatMap { $0 }.map { $0 & euclideousPoolSrcAll }
+        poolSrcMask = (try? c.decodeIfPresent(UInt8.self, forKey: .poolSrcMask)).flatMap { $0 }.map { euclideousPoolSrcNormalized($0) }
         poolSustainOn = (try? c.decodeIfPresent(Bool.self, forKey: .poolSustainOn)).flatMap { $0 }
         poolSustainMode = (try? c.decodeIfPresent(EuclideousSustainMode.self, forKey: .poolSustainMode)).flatMap { $0 }
         if !usesNewAnswer, let m = EuclidLine.migratedAnswer(rhythm: listenRhythm, pitch: listenPitch) {
@@ -1303,8 +1311,18 @@ enum EuclideousSustainMode: String, Codable, CaseIterable {
     case keep = "KEEP", stack = "STACK"
     init(from decoder: Decoder) throws { self = EuclideousSustainMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .keep }
 }
-/// The four SOURCES bits of a lane (0 MIDI IN · 1 CHORDS · 2 PICK · 3 KEY), all on.
-let euclideousPoolSrcAll: UInt8 = 0b1111
+/// A lane's SOURCES mask (five bits: 0 MIDI IN · 1 CHORDS 1 · 2 PICK · 3 KEY · 4 CHORDS 2). `euclideousPoolSrcAll` is the DEFAULT — every source on with CHORDS 1 (the first chord grid) and CHORDS 2 off — so a lane that never touched
+/// the field, and every document saved before there were two grids, is exactly what it was. CHORDS 1 and CHORDS 2 are mutually exclusive (the TWO CHORD GRIDS ferry, 2026-11-03): at most one of bits 1 and 4 is set.
+let euclideousPoolSrcAll: UInt8 = 0b01111
+let euclideousPoolSrcChords1: UInt8 = 0b00010
+let euclideousPoolSrcChords2: UInt8 = 0b10000
+let euclideousPoolSrcBits: UInt8 = 0b11111
+/// The mask as the engine reads it: only the five bits, and never both chord grids (CHORDS 1 wins a hand-edited / merged document that has both).
+func euclideousPoolSrcNormalized(_ m: UInt8) -> UInt8 {
+    var v = m & euclideousPoolSrcBits
+    if v & euclideousPoolSrcChords1 != 0 && v & euclideousPoolSrcChords2 != 0 { v &= ~euclideousPoolSrcChords2 }
+    return v
+}
 // RIFF ON REST (Paul 2026-10-09 ferry): what a lane does when a hit lands on a riff rest. String-raw so it
 // persists by value, matching every other riff-adjacent enum's own convention (RiffDir, EuclidNoteSel, …).
 // REPEAT (RIFF WALK ferry 2026-10-19 §4.2): a hit on a rest plays the nearest earlier non-rest column's
@@ -3403,22 +3421,34 @@ struct PluginState: Codable, Equatable {
     // `euclideousChordsResolved`; the FIRST edit (`setEuclideousChordSet`) is what "migrates" it, in place.
     var euclideousChordSets: [MachineParams]? = nil
     var activeChordSet: Int? = nil
+    // TWO CHORD GRIDS ferry (Paul 2026-11-03): FOUR progressions became TWO — chord grid 1 and chord grid 2 — and each LANE picks which one its CHORDS layer plays (the POOL tab's CHORDS 1 | CHORDS 2, bits 1 and 4 of `poolSrcMask`).
+    // `activeChordSet` therefore no longer says what PLAYS: it is only the tab the sources panel's CHORDS page is editing (0 or 1). `normalizeChordSetsAtLoad` moves an old document's playing progression into grid 1.
     var euclideousChordSetsResolved: [MachineParams] {
-        guard let sets = euclideousChordSets else {
-            return [euclideousChordsResolved, MachineParams(), MachineParams(), MachineParams()]
-        }
+        guard let sets = euclideousChordSets else { return [euclideousChordsResolved, MachineParams()] }
         var s = sets
-        while s.count < 4 { s.append(MachineParams()) }
-        return Array(s.prefix(4))
+        while s.count < 2 { s.append(MachineParams()) }
+        return Array(s.prefix(2))
     }
-    var activeChordSetResolved: Int { max(0, min(3, activeChordSet ?? 0)) }
-    /// Writes `params` into chord-set `idx` (0...3), materializing `euclideousChordSets` on first use if the
+    var activeChordSetResolved: Int { max(0, min(1, activeChordSet ?? 0)) }
+    /// Writes `params` into chord grid `idx` (0 or 1), materializing `euclideousChordSets` on first use if the
     /// document hasn't been touched since the CHORDS GRID ferry — the ONE write path every chord-tab edit uses.
     mutating func setEuclideousChordSet(_ idx: Int, _ params: MachineParams) {
-        guard idx >= 0, idx < 4 else { return }
+        guard idx >= 0, idx < 2 else { return }
         var sets = euclideousChordSetsResolved
         sets[idx] = params
         euclideousChordSets = sets
+    }
+    /// A document saved before the two-grid ferry stored FOUR progressions and played `activeChordSet` of them. SOUND-PRESERVING at load: grid 1 := the progression that was playing, grid 2 := the lowest-numbered other old progression,
+    /// the edit tab := 1; the rest are discarded when the document is next saved. Idempotent (only a document with more than two stored sets, or an old active index with the sets never materialised, is touched; a never-edited document is not).
+    mutating func normalizeChordSetsAtLoad() {
+        let oldCount = euclideousChordSets?.count ?? 0
+        let oldActive = max(0, min(3, activeChordSet ?? 0))
+        guard oldCount > 2 || (euclideousChordSets == nil && oldActive >= 1) else { return }
+        var old = euclideousChordSets ?? [euclideousChordsResolved]
+        while old.count < 4 { old.append(MachineParams()) }
+        let other = oldActive == 0 ? 1 : 0
+        euclideousChordSets = [old[oldActive], old[other]]
+        activeChordSet = nil
     }
     // SOURCE MODE, riff and lanes independently: nil ⇒ MIDI (true), NOT key — a fresh/never-touched doc, and
     // every EXISTING session saved before this rework, must keep sounding exactly as it did (its receiver-fed

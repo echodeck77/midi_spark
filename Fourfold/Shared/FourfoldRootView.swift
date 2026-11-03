@@ -1102,6 +1102,6 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousMidiInChannelMask: UInt16 = 0xFFFF
     @Published var euclideousHostStopBehavior: EuclideousHostStopBehavior = .keepPlaying
     @Published var euclideousSameNoteGuard: Bool = true   // SAME-NOTE GAP GUARD (2026-10-31): default ON
-    @Published var euclideousChordSets: [MachineParams] = [MachineParams(), MachineParams(), MachineParams(), MachineParams()]
+    @Published var euclideousChordSets: [MachineParams] = [MachineParams(), MachineParams()]
     @Published var euclideousActiveChordSet: Int = 0
 }
