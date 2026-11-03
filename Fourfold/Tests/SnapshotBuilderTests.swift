@@ -606,6 +606,33 @@ final class SnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(other.chordsSteps, 8, "a different row's cell keeps the bare SnapParams default, not Euclideous's authored steps")
         XCTAssertEqual(other.chordsDegrees, [0, 0, 5, 5, 3, 3, 4, 4], "and the bare default degrees, not Euclideous's")
     }
+    // TWO CHORD GRIDS (2026-11-03): grid 1 = chord set 0 in `chords*`, grid 2 = chord set 1 in `chords2`; `activeChordSet` is only the edit tab and changes neither.
+    func testTheTwoChordSetsResolveIntoGridOneAndGridTwoWhateverTheEditTabIs() {
+        func build(active: Int?) -> SnapParams {
+            var st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) },
+                                 scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: machineIDs[0], buses: [.a]); return s }()])
+            st.setEuclideousChordSet(0, { var m = MachineParams(); m.chordsDegrees = [3, 4]; m.chordsSteps = 2; m.chordsRate = .r1_2; m.chordsVoicing = .seventh; return m }())
+            st.setEuclideousChordSet(1, { var m = MachineParams(); m.chordsDegrees = [1, 2, 5]; m.chordsSteps = 3; m.chordsRate = .r1_4; m.chordsRotate = 1; m.chordsSpread = .open; return m }())
+            st.activeChordSet = active
+            return SnapshotBuilder.build(from: st).cells[0 * Snap.rows + Snap.euclideousRow].procs[0]
+        }
+        for active in [nil, 0, 1] {
+            let p = build(active: active)
+            XCTAssertEqual(p.chordsDegrees, [3, 4], "grid 1 is chord set 0 (edit tab \(String(describing: active)))")
+            XCTAssertEqual(p.chordsSteps, 2); XCTAssertEqual(p.chordsRateBeats, StepRate.r1_2.beats, accuracy: 0.0001); XCTAssertEqual(p.chordsVoicing, .seventh)
+            XCTAssertEqual(p.chords2.degrees, [1, 2, 5], "grid 2 is chord set 1")
+            XCTAssertEqual(p.chords2.steps, 3); XCTAssertEqual(p.chords2.rateBeats, StepRate.r1_4.beats, accuracy: 0.0001)
+            XCTAssertEqual(p.chords2.rotate, 1); XCTAssertEqual(p.chords2.spread, .open); XCTAssertEqual(p.chords2.voicing, MachineParams().chordsVoicingResolved)
+            XCTAssertEqual(p.chords2.colours.count, 3, "one colour slot per step")
+        }
+    }
+    func testAnUntouchedDocumentsSecondGridIsTheDefaultProgression() {
+        let st = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: machineIDs[0], buses: [.a]); return s }()])
+        let p = SnapshotBuilder.build(from: st).cells[0 * Snap.rows + Snap.euclideousRow].procs[0]
+        XCTAssertEqual(p.chords2.degrees, [0, 0, 5, 5, 3, 3, 4, 4]); XCTAssertEqual(p.chords2.steps, 8)
+        XCTAssertEqual(p.chords2.rateBeats, p.chordsRateBeats, "both grids default to the same one-chord-per-bar clock")
+    }
     // An untouched euclideousChords (nil) must resolve to something AUDIBLE, not silence — MachineParams()'s
     // own chordsDegreesResolved default is the sensible I-I-V-V-IV-IV-V-V loop (matches the regular CHORDS
     // processor's own fresh-card default).

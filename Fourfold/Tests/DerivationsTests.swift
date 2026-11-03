@@ -2654,6 +2654,40 @@ final class DerivationsTests: XCTestCase {
         var w = SnapParams(); w.chordsMode = .walk
         XCTAssertEqual(Array(out[0..<chordSeqNotesInto(&out, beat: 9, w, keyRoot: 0, keyTones: scales[0], followNote: nil)]), chordSeqNotes(beat: 9, w, keyRoot: 0, keyTones: scales[0], followNote: nil), "WALK falls back to the array form")
     }
+    /// TWO CHORD GRIDS (2026-11-03): grid 1 (`chords2`) is read by `grid: 1` in BOTH forms, the same notes either way; grid 0 never looks at it and grid 1 never looks at `chords*`.
+    func testTheSecondChordGridMatchesInBothFormsAndTheGridsAreIndependent() {
+        var g = SystemRandomNumberGenerator()
+        let scales: [[Int]] = ScaleType.allCases.map { $0.intervals }
+        var out = [Int](repeating: 0, count: 8)
+        func randomGrid(_ g: inout SystemRandomNumberGenerator) -> ChordGridSnap {
+            ChordGridSnap(degrees: (0..<Int.random(in: 0...16, using: &g)).map { _ in Int.random(in: -1...11, using: &g) },
+                          voicing: ChordVoicing.allCases.randomElement(using: &g)!, spread: ChordSpread.allCases.randomElement(using: &g)!,
+                          rotate: Int.random(in: -20...20, using: &g), rateBeats: [0, 1, 2, 4, 0.5].randomElement(using: &g)!, steps: Int.random(in: 1...16, using: &g),
+                          colours: Bool.random(using: &g) ? [] : (0..<Int.random(in: 0...16, using: &g)).map { _ in Int.random(in: 0...6, using: &g) })
+        }
+        func asFirst(_ c: ChordGridSnap) -> SnapParams {
+            var p = SnapParams(); p.chordsMode = .pattern; p.chordsSteps = c.steps; p.chordsDegrees = c.degrees; p.chordsColours = c.colours
+            p.chordsVoicing = c.voicing; p.chordsSpread = c.spread; p.chordsRotate = c.rotate; p.chordsRateBeats = c.rateBeats
+            return p
+        }
+        var chords = 0
+        for _ in 0..<12_000 {
+            let a = randomGrid(&g), b = randomGrid(&g)
+            var p = asFirst(a); p.chords2 = b
+            let tones = scales.randomElement(using: &g)!, root = Int.random(in: -12...23, using: &g), beat = Double.random(in: -8...400, using: &g)
+            let second = chordSeqNotes(beat: beat, p, keyRoot: root, keyTones: tones, followNote: nil, grid: 1)
+            let n = chordSeqNotesInto(&out, beat: beat, p, keyRoot: root, keyTones: tones, followNote: nil, grid: 1)
+            XCTAssertEqual(Array(out[0..<n]), second, "grid 1, both forms: beat \(beat)")
+            XCTAssertEqual(second, chordSeqNotes(beat: beat, asFirst(b), keyRoot: root, keyTones: tones, followNote: nil), "grid 1 = the same grid stored as the first")
+            XCTAssertEqual(chordSeqNotes(beat: beat, p, keyRoot: root, keyTones: tones, followNote: nil), chordSeqNotes(beat: beat, asFirst(a), keyRoot: root, keyTones: tones, followNote: nil),
+                           "grid 0 never looks at chords2")
+            XCTAssertEqual(chordSeqNotes(beat: beat, p, keyRoot: root, keyTones: tones, followNote: nil, grid: 0), chordSeqNotes(beat: beat, p, keyRoot: root, keyTones: tones, followNote: nil), "grid 0 is the default")
+            let n0 = chordSeqNotesInto(&out, beat: beat, p, keyRoot: root, keyTones: tones, followNote: nil)
+            XCTAssertEqual(Array(out[0..<n0]), chordSeqNotes(beat: beat, p, keyRoot: root, keyTones: tones, followNote: nil))
+            if !second.isEmpty { chords += 1 }
+        }
+        XCTAssertGreaterThan(chords, 3000)
+    }
     func testEuclidTiltPatternIsANoOpAtZero() {
         var buf = euclidPattern(pulses: 3, steps: 8)
         let before = buf

@@ -335,6 +335,20 @@ struct SnapParams {
     // [] (the default) ⇒ no colour anywhere, so every caller that never resolves this (the regular CHORDS processor,
     // the chord door) pays zero extra cost and is byte-identical to before this ferry.
     var chordsColours: [Int] = []
+    // TWO CHORD GRIDS ferry (Paul 2026-11-03): the Euclideous row's SECOND progression. `chords*` above is grid 1; a lane whose SOURCES mask has CHORDS 2 reads this one (`chordSeqNotes(…, grid: 1)`). Default = the default progression,
+    // so a row that never sets it is unchanged; only `SnapshotBuilder` writes it (from `euclideousChordSetsResolved[1]`).
+    var chords2 = ChordGridSnap()
+}
+
+/// One chord grid as the render thread reads it (the second grid; grid 1 lives in `SnapParams.chords*`). Same meaning as those fields.
+struct ChordGridSnap: Equatable {
+    var degrees: [Int] = [0, 0, 5, 5, 3, 3, 4, 4]
+    var voicing: ChordVoicing = .triad
+    var spread: ChordSpread = .close
+    var rotate: Int = 0
+    var rateBeats: Double = 4
+    var steps: Int = 8
+    var colours: [Int] = []
 }
 
 

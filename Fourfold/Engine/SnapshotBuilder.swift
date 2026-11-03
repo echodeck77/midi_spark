@@ -173,7 +173,8 @@ enum SnapshotBuilder {
                 // picker on this page; the popup only ever authors PATTERN-shaped content). keyRoot/keyTones
                 // come from Euclideous's own page-level KEY, not a receiver door.
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
-                    let chordCfg = doc.euclideousChordSetsResolved[doc.activeChordSetResolved]
+                    let chordSets = doc.euclideousChordSetsResolved       // TWO CHORD GRIDS: grid 1 = [0] (what the lane plays by default), grid 2 = [1]; `activeChordSet` is only the edit tab
+                    let chordCfg = chordSets[0]
                     let steps = chordCfg.chordsStepsResolved
                     sc.procs[0].chordsMode = .pattern
                     sc.procs[0].chordsDegrees = chordCfg.chordsDegreesResolved(steps: steps)
@@ -183,6 +184,11 @@ enum SnapshotBuilder {
                     sc.procs[0].chordsRotate = chordCfg.chordsRotate ?? 0
                     sc.procs[0].chordsVoicing = chordCfg.chordsVoicingResolved
                     sc.procs[0].chordsSpread = chordCfg.chordsSpreadResolved
+                    let chord2 = chordSets[1]
+                    let steps2 = chord2.chordsStepsResolved
+                    sc.procs[0].chords2 = ChordGridSnap(degrees: chord2.chordsDegreesResolved(steps: steps2), voicing: chord2.chordsVoicingResolved, spread: chord2.chordsSpreadResolved,
+                                                        rotate: chord2.chordsRotate ?? 0, rateBeats: max(0.03125, chord2.chordsRateResolved.beats), steps: steps2,
+                                                        colours: Array(chord2.chordsColoursResolved16().prefix(steps2)))
                     sc.procs[0].euclideousChordKeyRoot = doc.euclideousKeyRootResolved
                     sc.procs[0].euclideousChordKeyTones = doc.euclideousKeyTypeResolved.intervals
                 }

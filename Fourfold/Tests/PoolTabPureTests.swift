@@ -8,16 +8,16 @@ final class PoolTabPureTests: XCTestCase {
     func testLaneSourcesIsPanelAndLaneForEveryCombination() {
         for panelBits in 0..<16 {
             let panel = EuclideousSourceSwitches(midi: panelBits & 1 != 0, chords: panelBits & 2 != 0, pick: panelBits & 4 != 0, key: panelBits & 8 != 0)
-            for mask in 0..<16 {
+            for mask in 0..<32 {
                 let e = euclideousLaneSources(panel: panel, mask: UInt8(mask))
                 XCTAssertEqual(e.midi, panel.midi && mask & 1 != 0, "panel \(panelBits) mask \(mask)")
-                XCTAssertEqual(e.chords, panel.chords && mask & 2 != 0)
+                XCTAssertEqual(e.chords, panel.chords && mask & 0b10010 != 0, "CHORDS is on for either grid")
                 XCTAssertEqual(e.pick, panel.pick && mask & 4 != 0)
                 XCTAssertEqual(e.key, panel.key && mask & 8 != 0)
             }
         }
-        // bits above the four are ignored
-        XCTAssertEqual(euclideousLaneSources(panel: EuclideousSourceSwitches(midi: true, chords: true, pick: true, key: true), mask: 0xF0),
+        // bits above the five are ignored
+        XCTAssertEqual(euclideousLaneSources(panel: EuclideousSourceSwitches(midi: true, chords: true, pick: true, key: true), mask: 0xE0),
                        EuclideousSourceSwitches(midi: false, chords: false, pick: false, key: false))
     }
     func testLaneSourcePlanWritesOnlyTheFourSwitchesAndIsTheIdentityWhenAllAreOn() {
@@ -29,6 +29,23 @@ final class PoolTabPureTests: XCTestCase {
         XCTAssertEqual(p.midiModeR, .replace); XCTAssertEqual(p.midiOctavesR, .keep); XCTAssertEqual(p.pickNotesR, [60, 64])
         XCTAssertFalse(euclideousLaneSourcePlan(plan, mask: 0b1000).keyOnR, "a source off in the panel stays off whatever the lane says")
         XCTAssertFalse(euclideousLaneSourcePlan(plan, mask: 0).anyOnR)
+    }
+    // TWO CHORD GRIDS (2026-11-03)
+    func testTheLaneChordGridIsBitFourOfTheMask() {
+        for m in 0..<256 {
+            let want = euclideousPoolSrcNormalized(UInt8(m)) & 0b10000 != 0 ? 1 : 0
+            XCTAssertEqual(euclideousLaneChordGrid(UInt8(m)), want, "mask \(m)")
+        }
+        XCTAssertEqual(euclideousLaneChordGrid(euclideousPoolSrcAll), 0); XCTAssertEqual(euclideousLaneChordGrid(0b11101), 1)
+        XCTAssertEqual(euclideousLaneChordGrid(0b11111), 0, "both bits in a hand-built mask read as CHORDS 1")
+    }
+    func testAGridTwoLaneKeepsTheOtherThreeSwitchesAndTheChordsSwitchOn() {
+        var plan = SourcePlan(); plan.midiOn = true; plan.chordsOn = true; plan.pickOn = true; plan.keyOn = true
+        let p = euclideousLaneSourcePlan(plan, mask: 0b11101)       // MIDI IN · PICK · KEY · CHORDS 2
+        XCTAssertTrue(p.midiOnR && p.chordsOnR && p.pickOnR && p.keyOnR, "CHORDS 2 feeds the lane's chords layer just as CHORDS 1 does")
+        var off = plan; off.chordsOn = false
+        XCTAssertFalse(euclideousLaneSourcePlan(off, mask: 0b11101).chordsOnR, "…and the sources panel's CHORDS switch is the master for both grids")
+        XCTAssertFalse(euclideousLaneSourcePlan(plan, mask: 0b11100).midiOnR); XCTAssertTrue(euclideousLaneSourcePlan(plan, mask: 0b10000).chordsOnR)
     }
     func testASourceOffInThePanelDrawsItsToggleAt40Percent() {
         XCTAssertEqual(euclideousLaneSourceToggleOpacity(panelOn: true), 1); XCTAssertEqual(euclideousLaneSourceToggleOpacity(panelOn: false), 0.4)

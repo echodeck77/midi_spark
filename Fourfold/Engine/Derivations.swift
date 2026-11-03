@@ -717,26 +717,31 @@ func euclideousChordsPlayingColumn(beat m: Double, rateBeats: Double) -> Int {
 /// degree codes (8...11, never written by the regular CHORDS processor/door UI) and `p.chordsColours` may be non-empty
 /// (ditto) — gated so a caller that never resolves either (every pre-ferry caller; `p.chordsColours` defaults to `[]`,
 /// `applyChords` clamps degrees to 0...7) takes the OLD `diatonicChord(voicing:spread:)` path, byte-identical.
-func chordSeqNotes(beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?) -> [Int] {
-    let rateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
+func chordSeqNotes(beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?, grid: Int = 0) -> [Int] {
+    let second = grid == 1       // TWO CHORD GRIDS: grid 1 (the default) reads `p.chords*`, grid 2 reads `p.chords2` — every other line is the same
+    let cDegrees = second ? p.chords2.degrees : p.chordsDegrees, cColours = second ? p.chords2.colours : p.chordsColours
+    let cSteps = second ? p.chords2.steps : p.chordsSteps, cRotate = second ? p.chords2.rotate : p.chordsRotate
+    let cRate = second ? p.chords2.rateBeats : p.chordsRateBeats
+    let cVoicing = second ? p.chords2.voicing : p.chordsVoicing, cSpread = second ? p.chords2.spread : p.chordsSpread
+    let rateBeats = cRate > 0 ? cRate : 4
     let step = euclideousChordsPlayingColumn(beat: m, rateBeats: rateBeats)
     var deg = 0, rest = false, colour = 0
     switch p.chordsMode {
     case .pattern:
-        let steps = max(1, min(16, p.chordsSteps))
-        let degs = (0..<steps).map { $0 < p.chordsDegrees.count ? p.chordsDegrees[$0] : -1 }
-        (deg, rest) = chordsDegreeAt(step: step, degrees: degs, rotate: p.chordsRotate)
-        if !rest, !p.chordsColours.isEmpty, let src = chordsSourceStepAt(step: step, degrees: degs, rotate: p.chordsRotate), src < p.chordsColours.count {
-            colour = p.chordsColours[src]
+        let steps = max(1, min(16, cSteps))
+        let degs = (0..<steps).map { $0 < cDegrees.count ? cDegrees[$0] : -1 }
+        (deg, rest) = chordsDegreeAt(step: step, degrees: degs, rotate: cRotate)
+        if !rest, !cColours.isEmpty, let src = chordsSourceStepAt(step: step, degrees: degs, rotate: cRotate), src < cColours.count {
+            colour = cColours[src]
         }
     case .follow: deg = scaleDegreeOf(followNote ?? root, root: root, scaleTones: scaleTones)
     case .walk:   deg = chordsWalkDegreeAt(step: step, seed: UInt64(bitPattern: Int64(p.chordsWalkSeed)))
     }
     guard !rest else { return [] }
     if deg >= 8 || colour != 0 {
-        return euclideousChordTones(degree: deg, colour: colour, scaleTones: scaleTones, rootNote: 48 + root, minorKey: euclideousScaleIsMinor(scaleTones), spread: p.chordsSpread).filter { $0 >= 0 && $0 <= 127 }
+        return euclideousChordTones(degree: deg, colour: colour, scaleTones: scaleTones, rootNote: 48 + root, minorKey: euclideousScaleIsMinor(scaleTones), spread: cSpread).filter { $0 >= 0 && $0 <= 127 }
     }
-    return diatonicChord(degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: p.chordsVoicing, spread: p.chordsSpread).filter { $0 >= 0 && $0 <= 127 }
+    return diatonicChord(degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: cVoicing, spread: cSpread).filter { $0 >= 0 && $0 <= 127 }
 }
 
 
@@ -807,26 +812,31 @@ func euclideousChordTonesInto(_ out: inout [Int], degree deg: Int, colour: Int, 
 /// `chordSeqNotes` for the render thread: the same notes written into `out` (room for at least 5), the count returned — 0 on a REST. It runs once per render window under the CHORDS note source, and the array form made about six heap
 /// allocations each time. PATTERN mode (the only one Fourfold's CHORDS source ever builds) is allocation-free; WALK / FOLLOW, which it never reaches, go through the array form. MUST follow `chordSeqNotes` line for line (the CHORDS GRID
 /// ferry's borrowed degrees and colours included) — the fuzz in `DerivationsTests` fails if they drift.
-func chordSeqNotesInto(_ out: inout [Int], beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?) -> Int {
+func chordSeqNotesInto(_ out: inout [Int], beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?, grid: Int = 0) -> Int {
     guard p.chordsMode == .pattern else {
-        let a = chordSeqNotes(beat: m, p, keyRoot: root, keyTones: scaleTones, followNote: followNote)
+        let a = chordSeqNotes(beat: m, p, keyRoot: root, keyTones: scaleTones, followNote: followNote, grid: grid)
         let c = min(a.count, out.count); for i in 0..<c { out[i] = a[i] }
         return c
     }
-    let rateBeats = p.chordsRateBeats > 0 ? p.chordsRateBeats : 4
+    let second = grid == 1
+    let cDegrees = second ? p.chords2.degrees : p.chordsDegrees, cColours = second ? p.chords2.colours : p.chordsColours
+    let cSteps = second ? p.chords2.steps : p.chordsSteps, cRotate = second ? p.chords2.rotate : p.chordsRotate
+    let cRate = second ? p.chords2.rateBeats : p.chordsRateBeats
+    let cVoicing = second ? p.chords2.voicing : p.chordsVoicing, cSpread = second ? p.chords2.spread : p.chordsSpread
+    let rateBeats = cRate > 0 ? cRate : 4
     let step = euclideousChordsPlayingColumn(beat: m, rateBeats: rateBeats)
-    let steps = max(1, min(16, p.chordsSteps))
-    let column = { (i: Int) -> Int in i < p.chordsDegrees.count ? p.chordsDegrees[i] : -1 }
-    let (deg, rest) = chordsDegreeAt(step: step, count: steps, rotate: p.chordsRotate, element: column)
+    let steps = max(1, min(16, cSteps))
+    let column = { (i: Int) -> Int in i < cDegrees.count ? cDegrees[i] : -1 }
+    let (deg, rest) = chordsDegreeAt(step: step, count: steps, rotate: cRotate, element: column)
     guard !rest else { return 0 }
     var colour = 0
-    if !p.chordsColours.isEmpty, let src = chordsSourceStepAt(step: step, count: steps, rotate: p.chordsRotate, element: column), src < p.chordsColours.count {
-        colour = p.chordsColours[src]
+    if !cColours.isEmpty, let src = chordsSourceStepAt(step: step, count: steps, rotate: cRotate, element: column), src < cColours.count {
+        colour = cColours[src]
     }
     if deg >= 8 || colour != 0 {
-        return euclideousChordTonesInto(&out, degree: deg, colour: colour, scaleTones: scaleTones, rootNote: 48 + root, minorKey: euclideousScaleIsMinor(scaleTones), spread: p.chordsSpread)
+        return euclideousChordTonesInto(&out, degree: deg, colour: colour, scaleTones: scaleTones, rootNote: 48 + root, minorKey: euclideousScaleIsMinor(scaleTones), spread: cSpread)
     }
-    return diatonicChordInto(&out, degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: p.chordsVoicing, spread: p.chordsSpread)
+    return diatonicChordInto(&out, degree: deg, scaleTones: scaleTones, rootNote: 48 + root, voicing: cVoicing, spread: cSpread)
 }
 
 // MARK: - SOURCES STACK (ferry 2026-10-26: MIDI always listens; CHORDS and KEY stack under it)
@@ -10269,21 +10279,23 @@ func euclideousCanonUnitSpoken(_ unit: CanonUnit) -> String { unit.rawValue.lowe
 // The engine and every display call these; nothing re-derives a second version. The engine-side functions (sources, sustain) are allocation-free over caller-owned buffers.
 
 // ── §8.1 SOURCES ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-/// The four source switches in the sources panel's order (MIDI IN · CHORDS · PICK · KEY).
+/// The four source switches in the sources panel's order (MIDI IN · CHORDS · PICK · KEY) — CHORDS here is "either chord grid".
 struct EuclideousSourceSwitches: Equatable { var midi: Bool; var chords: Bool; var pick: Bool; var key: Bool }
 /// The sources panel's own switches, read off the resolved plan.
 func euclideousPanelSwitches(_ plan: SourcePlan) -> EuclideousSourceSwitches {
     EuclideousSourceSwitches(midi: plan.midiOnR, chords: plan.chordsOnR, pick: plan.pickOnR, key: plan.keyOnR)
 }
-/// §3.1 / §8.1: a lane's EFFECTIVE switches — a source feeds the lane when it is on in the sources panel AND on the lane (`mask`: bit 0 MIDI IN · 1 CHORDS · 2 PICK · 3 KEY).
+/// §3.1 / §8.1: a lane's EFFECTIVE switches — a source feeds the lane when it is on in the sources panel AND on the lane (`mask`: bit 0 MIDI IN · 1 CHORDS 1 · 2 PICK · 3 KEY · 4 CHORDS 2).
 func euclideousLaneSources(panel: EuclideousSourceSwitches, mask: UInt8) -> EuclideousSourceSwitches {
-    EuclideousSourceSwitches(midi: panel.midi && mask & 0b0001 != 0, chords: panel.chords && mask & 0b0010 != 0,
-                             pick: panel.pick && mask & 0b0100 != 0, key: panel.key && mask & 0b1000 != 0)
+    EuclideousSourceSwitches(midi: panel.midi && mask & 0b00001 != 0, chords: panel.chords && mask & (euclideousPoolSrcChords1 | euclideousPoolSrcChords2) != 0,
+                             pick: panel.pick && mask & 0b00100 != 0, key: panel.key && mask & 0b01000 != 0)
 }
+/// TWO CHORD GRIDS: which chord grid a lane's CHORDS layer reads — 1 when its mask has CHORDS 2 (bit 4), else 0 (grid 1, the default). The chords switch itself (`euclideousLaneSources`) is on for either grid.
+func euclideousLaneChordGrid(_ mask: UInt8) -> Int { euclideousPoolSrcNormalized(mask) & euclideousPoolSrcChords2 != 0 ? 1 : 0 }
 /// The plan the stacked pool function runs for a lane: the page plan with the lane's effective switches written in (MIDI mode, OCTAVES, the PICK notes — everything else — untouched, §3.1). A lane with every source on gets the plan
 /// back as it is (the default path, byte-identical). A copy retains the `pickNotes` array; nothing is allocated.
 func euclideousLaneSourcePlan(_ plan: SourcePlan, mask: UInt8) -> SourcePlan {
-    guard mask & euclideousPoolSrcAll != euclideousPoolSrcAll else { return plan }
+    guard euclideousPoolSrcNormalized(mask) != euclideousPoolSrcAll else { return plan }
     var p = plan
     let e = euclideousLaneSources(panel: euclideousPanelSwitches(plan), mask: mask)
     p.midiOn = e.midi; p.chordsOn = e.chords; p.pickOn = e.pick; p.keyOn = e.key
