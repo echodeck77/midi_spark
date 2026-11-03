@@ -199,6 +199,15 @@ final class FourfoldScreenshotTests: XCTestCase {
         if notesToggle.count > 0 { notesToggle.element(boundBy: 0).tap() }
         Thread.sleep(forTimeInterval: 2)
         attach("9-mix-5-routed-shaped-and-off")
+        // a LOCKED lane: lock mode on, lock lane 1, lock mode off — the MIX panel returns with the badge (24 pt) before lane 1's SOLO and its strip shortened
+        let lockSwitch = app.switches["Lock mode"]
+        if lockSwitch.waitForExistence(timeout: 3) {
+            lockSwitch.tap(); Thread.sleep(forTimeInterval: 0.8)
+            let lane1 = app.els(prefix: "Lock lane 1").firstMatch
+            if lane1.waitForExistence(timeout: 3) { lane1.tap(); Thread.sleep(forTimeInterval: 0.5) }
+            lockSwitch.tap(); Thread.sleep(forTimeInterval: 1.2)
+            attach("9-mix-5b-locked-lane")
+        }
         app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 1.5)
         attach("9-mix-6-back-to-the-cards")
     }
