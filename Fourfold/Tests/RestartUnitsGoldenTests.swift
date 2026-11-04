@@ -96,6 +96,22 @@ final class RestartUnitsGoldenTests: XCTestCase {
         for beat in [3, 6, 9] { XCTAssertTrue(times.contains(beat * 16), "a hit at beat \(beat)") }
         for beat in [3.5, 6.5, 9.5] { XCTAssertFalse(times.contains(Int(beat * 16)), "no hit at the natural pass start \(beat)") }
     }
+    /// RESTART UNITS FIX 1 through the REAL Router: E(3,8) at 1/8 (hits at beats 0, 1.5, 3 of each 4-beat pass) with WITH RHYTHM on and the rhythm chain off plays riff notes 1 2 3 every pass; the same lane without it runs on through the riff.
+    func testWithRhythmWithTheRhythmOffThroughTheRouterPlaysOneTwoThreeEveryPass() {
+        let on = lane(hits: 3, steps: 8, withRhythm: true)
+        XCTAssertEqual(ranks(on, beats: 12.2), "0:1 24:2 48:3 64:1 88:2 112:3 128:1 152:2 176:3 192:1")
+        XCTAssertEqual(lastRunStuck, 0)
+        let off = lane(hits: 3, steps: 8)
+        XCTAssertEqual(ranks(off, beats: 12.2), "0:1 24:2 48:3 64:4 88:5 112:6 128:7 152:8 176:1 192:2", "without WITH RHYTHM the riff runs 1 2 3 | 4 5 6 | 7 8 1")
+        // a stored but switched-off rhythm chain changes nothing; with the chain ON (bar [1]) the restarts are the bar lines and, on 7 steps, never the pass starts
+        var linked = lane(hits: 3, steps: 8, rhythm: [1], withRhythm: true); linked.restartRhythmOn = false
+        XCTAssertEqual(ranks(linked, beats: 12.2), ranks(on, beats: 12.2))
+    }
+    func testWithRhythmOnASevenStepLaneRestartsTheRiffEveryThreeAndAHalfBeats() {
+        let l = lane(hits: 4, steps: 7, withRhythm: true)
+        // E(4,7) at 1/8: hits at steps 1 3 5 7 → 0, 1, 2, 3 of each 3.5-beat pass; the riff restarts at 3.5, 7, 10.5 …
+        XCTAssertEqual(ranks(l, beats: 10.6), "0:1 16:2 32:3 48:4 56:1 72:2 88:3 104:4 112:1 128:2 144:3 160:4 168:1")
+    }
     private func line4() -> EuclidLine { lane(hits: 1, steps: 8) }
 
     /// A seeded fuzz of four-lane documents that use every unit, source and WITH RHYTHM: the schedule path through the Router renders twice to the same bytes and never leaves a note sounding.

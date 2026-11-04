@@ -2031,3 +2031,10 @@ Everything CONFIRMED was fixed on `fix/restart-units-review` (see the status log
 - [ ] (perf, unmeasured) The TIE lookahead's ≈ 5 binary searches per scanned tick on a 12 k-record table in Release; a far forward seek on a non-periodic schedule simulates on the main thread.
 - [ ] (tests) A restart scenario in the UNDO audit (one tap = one undo step; undo restores unit + source + links + switch); a UI-level test for "Remove link" needs a custom-action API XCUITest does not have — the pure `testRemoveLinkRemovesExactlyThatLinkAndNothingElse` covers the edit.
 - [ ] (DEVICE) VoiceOver: the timeline reads as ONE element (its axis label is hidden), the unavailable square reads "dimmed", "Remove link" removes exactly that link, focus moves into the editor and back to the tile (the section container may not take focus on iOS 15/16).
+
+## RESTART UNITS FIX 1 — WITH RHYTHM follows the lane's loop (2026-11-04)
+Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md`.
+- [ ] (DEVICE) E(3,8) with WITH RHYTHM on and the rhythm chain off plays riff notes 1 2 3 every pass and the melody tile dashes columns 4–8; a 7-step lane restarts its riff every 3.5 beats in step with its loop; riff-first, bar restarts and cross-lane rhythm restarts sound as before.
+- [ ] (look) The editor's MELODY timeline marks only the chain's restarts, not WITH RHYTHM loops (the spec names tile text and VoiceOver only).
+- [ ] (declared) A lane whose schedule is not attached (ANSWER-engaged, a component holding a lock-substituted lane, host bar mismatch, past a non-periodic window) still reads WITH RHYTHM with an inactive rhythm as FREE.
+- [ ] (data) Any document or user preset saved since RESTART UNITS shipped with WITH RHYTHM on and the rhythm off now restarts its melody every pass (before: nothing). No factory preset is affected.

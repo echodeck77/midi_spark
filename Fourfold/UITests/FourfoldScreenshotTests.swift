@@ -48,6 +48,27 @@ final class FourfoldScreenshotTests: XCTestCase {
         device.orientation = .portrait
     }
 
+    /// RESTART UNITS FIX 1 (2026-11-04): WITH RHYTHM switched on while the RHYTHM restart is off — lane 1's MELODY tile reads RHYTHM with the link glyph, runs its outer fill to the lane's next loop and dashes the riff notes a pass will not reach.
+    func testTheWithRhythmTileWithTheRhythmOff() {
+        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+        XCUIDevice.shared.orientation = .portrait
+        Thread.sleep(forTimeInterval: 2)
+        attach("12-withrhythm-1-before")
+        let tile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm restarts")).element(boundBy: 0)
+        XCTAssertTrue(tile.waitForExistence(timeout: 5), "the restart tile")
+        tile.tap(); Thread.sleep(forTimeInterval: 1)
+        let editor = app.descendants(matching: .any)["Restarts for lane 1"]
+        XCTAssertTrue(editor.exists, "the editor opened")
+        let w = editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart with the rhythm, off")).firstMatch
+        XCTAssertTrue(w.waitForExistence(timeout: 3), "WITH RHYTHM"); w.tap()
+        Thread.sleep(forTimeInterval: 0.8)
+        attach("12-withrhythm-2-editor")
+        editor.buttons["Close restarts"].tap()
+        Thread.sleep(forTimeInterval: 2.5)
+        attach("12-withrhythm-3-tiles")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Melody restarts with the rhythm")).element(boundBy: 0).exists, "the melody tile now reads 'with the rhythm'")
+    }
+
     /// The page, playing, in each orientation (the page lays itself out from its size; every orientation the app declares is exercised).
     func testThePageInEveryOrientation() {
         let app = XCUIApplication()

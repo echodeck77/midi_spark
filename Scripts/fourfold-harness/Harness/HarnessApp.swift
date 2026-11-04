@@ -474,7 +474,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -536,11 +536,16 @@ extension Host {
                 }
                 if name.contains("POOL") { au.editDocument { poolDocument(&$0, plan: !name.contains("CANON"), grid2: name.contains("grid 2")) } }   // POOL ferry (2026-11-02): per-lane sources + SUSTAIN on every lane; the pedal is driven below (CC64 down at 100, up at 300 of every 400 windows)
                 if name.contains("RESTART UNITS") {   // RESTART UNITS (2026-11-04): the schedule's readers on the render path — A: lane 1 rhythm RIFF of itself, lane 2 melody HIT [3] with a RIFF rhythm, lanes 3–4 plain; B: a cross-lane ring (rhythm PASS of the next lane) with WITH RHYTHM and a melody PASS of another lane
-                    let crossLane = name.contains("cross-lane")
+                    let crossLane = name.contains("cross-lane"), loopOnly = name.contains("rhythm off")
                     au.editDocument {
                         var ls = $0.euclideousLinesResolved
                         for i in 0..<4 { ls[i].riffOn = true; ls[i].pulses = [3, 5, 4, 7][i]; ls[i].steps = [8, 8, 7, 12][i]; ls[i].restartRhythmBars = []; ls[i].restartMelodyPasses = [] }
-                        if !crossLane {
+                        if loopOnly {   // RESTART UNITS FIX 1 (2026-11-04): WITH RHYTHM with the rhythm chain off — the melody restarts at every pass start; lane 2 adds a HIT chain, lane 3 a PASS chain, lane 4 a stored but switched-off rhythm chain
+                            for i in 0..<4 { ls[i].restartMelodyWithRhythm = true }
+                            ls[1].restartMelodyPasses = [3]; ls[1].restartMelodyUnit = .hit
+                            ls[2].restartMelodyPasses = [2]; ls[2].restartMelodyUnit = .pass
+                            ls[3].restartRhythmBars = [1]; ls[3].restartRhythmOn = false
+                        } else if !crossLane {
                             ls[0].restartRhythmBars = [1]; ls[0].restartRhythmUnit = .riff; ls[0].restartRhythmSource = 0
                             ls[1].restartRhythmBars = [1]; ls[1].restartRhythmUnit = .riff; ls[1].restartRhythmSource = 1; ls[1].restartMelodyPasses = [3]; ls[1].restartMelodyUnit = .hit
                             ls[2].restartMelodyPasses = [2]; ls[2].restartMelodyUnit = .bar

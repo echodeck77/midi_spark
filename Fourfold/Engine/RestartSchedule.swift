@@ -39,8 +39,8 @@ struct EuclideousScheduleLaneInput: Hashable {
     var melodyChain: EuclideousRestartChain { .from(melodyLinks, hit: melodyUnit == .hit) }
     var rhythmActive: Bool { !rhythmLinks.isEmpty }
     var melodyActive: Bool { !melodyLinks.isEmpty }
-    /// Does this lane's melody ever restart (a chain, or WITH RHYTHM over an active rhythm chain)?
-    var melodyRestarts: Bool { melodyActive || (withRhythm && rhythmActive) }
+    /// Does this lane's melody ever restart (a chain, or WITH RHYTHM — which restarts it at every loop of the lane, whether or not the rhythm chain is active)?
+    var melodyRestarts: Bool { melodyActive || withRhythm }
     /// Can the closed forms express this lane's restarts (RHYTHM BAR, MELODY own PASS, no WITH RHYTHM — every setting that existed before the ferry)? `ownLane` is the lane's own index.
     func closedFormExpressible(ownLane: Int) -> Bool {
         (!rhythmActive || rhythmUnit == .bar) && (!melodyActive || (melodyUnit == .pass && melodySource == ownLane)) && !withRhythm
@@ -87,7 +87,7 @@ func euclideousScheduleLaneInput(lane: Int, lines: [EuclidLine], defaultRateBeat
         let src = lanewise(s.melodySource)
         if src >= 0 && src < min(4, lines.count) { inp.melodyLinks = s.melody.links; inp.melodyUnit = s.melodyUnit; inp.melodySource = src }
     }
-    inp.withRhythm = s.withRhythm && inp.rhythmActive
+    inp.withRhythm = s.withRhythm   // RESTART UNITS FIX 1: WITH RHYTHM follows the lane's LOOP (its rhythm restarts when the chain is active, else its pass starts), so it no longer needs the rhythm chain
     return inp
 }
 func euclideousScheduleInputs(lines: [EuclidLine], barBeats: Double, defaultRateBeats: Double, riffColumns: Int) -> EuclideousScheduleInputs {
@@ -367,6 +367,35 @@ struct EuclideousLaneSchedule: Equatable {
     }
 }
 
+// MARK: - the loop rule (RESTART UNITS FIX 1, 2026-11-04)
+
+/// THE rule for "is `b` (> 0) a loop of lane X", in one place: while X's rhythm chain is active its loops are its rhythm restarts (natural pass starts between restarts are no loop); otherwise they are its natural pass starts (RESTART UNITS 1.5). The simulation's WITH RHYTHM step
+/// calls it with its live flags, and the schedule's readers (`isLoop`, `loopCount`, `loopBeat` below) are built on the same split — so the melody's WITH RHYTHM and the CHORDS PAGE's LOOP unit cannot disagree about what a loop is.
+@inline(__always) func euclideousIsLoop(rhythmActive: Bool, rhythmRestartAtB: Bool, passStartAtB: Bool) -> Bool { rhythmActive ? rhythmRestartAtB : passStartAtB }
+
+extension EuclideousLaneSchedule {
+    /// Is `beat` a loop of this lane (§1.1)? Beat 0 is the start, not a loop. Answers `false` beyond a non-periodic window (the caller falls back as it does for every reader).
+    func isLoop(at beat: Double) -> Bool {
+        guard beat.isFinite, beat > schedEps, covers(beat) else { return false }
+        let restartAtB = data.rhythmRestarts && abs(rhythmRecord(atOrBefore: beat).beat - beat) <= schedEps
+        var passStartAtB = false
+        if !data.rhythmRestarts, data.lapBeats > 0 {
+            let q = passIndex(beat: beat)
+            passStartAtB = abs(passStart(q) - beat) <= schedEps || abs(passStart(q + 1) - beat) <= schedEps   // a start AT `beat` may floor to the pass before it by float noise
+        }
+        return euclideousIsLoop(rhythmActive: data.rhythmRestarts, rhythmRestartAtB: restartAtB, passStartAtB: passStartAtB)
+    }
+    /// How many loops this lane has had in (0, beat] — a loop AT `beat` counts (ε 1e-9). Rhythm restarts (less beat 0's implicit one) while the chain is active, whole laps otherwise.
+    func loopCount(atOrBefore beat: Double) -> Int64 {
+        guard beat.isFinite else { return 0 }
+        if data.rhythmRestarts { return max(0, rhythmRestartCount(atOrBefore: beat) - 1) }
+        guard data.lapBeats > 0 else { return 0 }
+        return max(0, Int64(((beat + schedEps) / data.lapBeats).rounded(.down)))
+    }
+    /// The beat of the `k`-th loop (k ≥ 1): the k-th rhythm restart while the chain is active, pass `k`'s start otherwise.
+    func loopBeat(_ k: Int64) -> Double { data.rhythmRestarts ? rhythmRestartBeat(k) : passStart(k) }
+}
+
 /// The four lanes' schedules plus what the Router needs to decide whether to read them.
 final class EuclideousRestartScheduleSet {
     let lanes: [EuclideousLaneSchedule?]
@@ -557,6 +586,10 @@ final class EuclideousScheduleSim {
                             if isTotal(L[x].rChain, L[x].rhythmCount) { rhythmRestart(x, at) }
                         }
                     }
+                    // WITH RHYTHM (FIX 1 §2.1): every loop of X is also a melody restart of X, at the same beat. With the rhythm chain active `rhythmRestart` fires it (above); with the chain inactive X's loops are its natural pass starts,
+                    // collected in step (1). `melodyRestart` takes a beat once, so a melody chain's own restart at the same beat is not a second one.
+                    if inp.withRhythm, !inp.rhythmActive,
+                       euclideousIsLoop(rhythmActive: false, rhythmRestartAtB: false, passStartAtB: L[x].passEvent) { melodyRestart(x, L[x].passBeat) }
                     // MELODY chain (PASS / BAR)
                     if inp.melodyActive, inp.melodyUnit != .hit, !L[x].mCounted {
                         var present = false

@@ -758,8 +758,7 @@ struct ChordsAdvanceConfig: Equatable {
 /// else pass starts. Both from the schedule. No schedule (or the lane isn't covered) ⇒ 0.
 private func chordsLoopEventCount(lane: Int, atOrBefore beat: Double, schedule: EuclideousRestartScheduleSet?) -> Int64 {
     guard let s = schedule?.lane(lane), s.covers(beat) else { return 0 }
-    if s.rhythmRestarts { return max(0, s.rhythmRestartCount(atOrBefore: beat) - 1) }   // −1: drop beat 0's implicit restart (§1.2 "at beat b > 0")
-    return max(0, s.passIndex(beat: beat))
+    return s.loopCount(atOrBefore: beat)   // RESTART UNITS FIX 1 §1.4: the ONE loop rule (`euclideousIsLoop` — rhythm restarts while the chain is active, else pass starts), shared with the melody's WITH RHYTHM
 }
 /// §1.3: riff completions of `lane` in (0, beat] (both kinds), INCLUSIVE of a completion AT `beat` (§3.8 — a RIFF
 /// advance takes effect at the completion's own beat).
@@ -770,7 +769,7 @@ private func chordsRiffEventCount(lane: Int, atOrBefore beat: Double, schedule: 
 /// The beat of the `k`-th (k ≥ 1) LOOP event of `lane` — the rhythm restart or the pass start, whichever §1.2 picks.
 private func chordsLoopEventBeat(lane: Int, ordinal k: Int64, schedule: EuclideousRestartScheduleSet?) -> Double {
     guard let s = schedule?.lane(lane) else { return 0 }
-    return s.rhythmRestarts ? s.rhythmRestartBeat(k) : s.passStart(k)   // rhythm restart k, or pass k's start (pass k ⇒ the k-th loop event)
+    return s.loopBeat(k)   // RESTART UNITS FIX 1 §1.4: the same shared loop function (the k-th rhythm restart, or pass k's start)
 }
 /// The beat of the `k`-th (k ≥ 1) RIFF completion of `lane`.
 private func chordsRiffEventBeat(lane: Int, ordinal k: Int64, schedule: EuclideousRestartScheduleSet?) -> Double {

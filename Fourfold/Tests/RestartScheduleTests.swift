@@ -471,6 +471,107 @@ final class RestartScheduleTests: XCTestCase {
         XCTAssertEqual(euclideousScheduleTick(.nan, sub: 0.5), 0)
     }
 
+    // MARK: RESTART UNITS FIX 1 (2026-11-04) — WITH RHYTHM follows the lane's loop; tests 20–23 (24 = test 11 above, 25 = tests 1–2 and the goldens)
+
+    /// 20. E(3,8), rhythm inactive, melody inactive, WITH RHYTHM on: the riff restarts at every pass (4, 8, 12, …), the footers run 1 2 3 each pass, the melody tile dashes columns 4–8.
+    func testWithRhythmWithTheRhythmOffRestartsTheRiffEveryPass() {
+        var l = line(hits: 3, steps: 8); melody(&l, [], withRhythm: true)
+        let lines = four(l), set = setFor(lines), c = cfg(lines, set: set), s = set.lane(0)!
+        XCTAssertNotNil(c.chains.schedule, "the schedule is attached: the closed forms cannot express WITH RHYTHM, with the rhythm chain on or off")
+        XCTAssertTrue(s.melodyRestarts); XCTAssertFalse(s.rhythmRestarts); XCTAssertFalse(s.data.closedFormExpressible)
+        close(restarts({ s.nextMelodyRestart(after: $0) }, upTo: 17), [4, 8, 12, 16], "the melody restarts at every pass start")
+        XCTAssertNil(s.nextRhythmRestart(after: 0), "no rhythm restart: the rhythm chain is inactive")
+        XCTAssertEqual(footers(c, passes: 0..<6), Array(repeating: [1, 2, 3], count: 6), "footers: 1 2 3 every pass")
+        XCTAssertEqual(hits(c, beats: 16).map { $0.col }, [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3], "riff notes 1 2 3 every pass")
+        let st = restartTileState(.melody, cfg: c, beat: 2.0, running: true)
+        XCTAssertEqual((0..<8).map { st.cell($0) == 2 }, [false, false, false, true, true, true, true, true], "the tile dashes columns 4–8")
+        XCTAssertEqual(st.progress ?? -1, 0.5, accuracy: 1e-9, "the outer fill runs from the last loop (0) to the next (4): half way at beat 2")
+        XCTAssertFalse(st.isFree)
+        XCTAssertTrue(set.lane(0)!.data.period > 0, "periodic (one pass)")
+    }
+    /// 21. 7 steps of 1/8, rhythm inactive, WITH RHYTHM: 3.5, 7, 10.5, …; the same lane with melody BAR [1] and WITH RHYTHM off: 4, 8, 12, ….
+    func testAnOddLaneRestartsItsRiffInStepWithItsLoopNotTheBar() {
+        var l = line(hits: 3, steps: 7); melody(&l, [], withRhythm: true)
+        let s = setFor(four(l)).lane(0)!
+        close(restarts({ s.nextMelodyRestart(after: $0) }, upTo: 15), [3.5, 7, 10.5, 14], "every 3.5 beats, in step with the loop")
+        var b = line(hits: 3, steps: 7); melody(&b, [1], unit: .bar)
+        let sb = setFor(four(b)).lane(0)!
+        close(restarts({ sb.nextMelodyRestart(after: $0) }, upTo: 17), [4, 8, 12, 16], "melody BAR [1] with WITH RHYTHM off restarts on the bar")
+    }
+    /// 22. A rhythm chain with links but switched off behaves exactly as 21.
+    func testARhythmChainWithLinksButSwitchedOffBehavesAsTheRhythmOff() {
+        var l = line(hits: 3, steps: 7); rhythm(&l, [1]); l.restartRhythmOn = false; melody(&l, [], withRhythm: true)
+        XCTAssertFalse(euclideousRestartSettings(line: l, lane: 0).rhythmActive)
+        var plain = line(hits: 3, steps: 7); melody(&plain, [], withRhythm: true)
+        let a = setFor(four(l)).lane(0)!, b = setFor(four(plain)).lane(0)!
+        close(restarts({ a.nextMelodyRestart(after: $0) }, upTo: 15), [3.5, 7, 10.5, 14])
+        close(restarts({ a.nextMelodyRestart(after: $0) }, upTo: 60), restarts({ b.nextMelodyRestart(after: $0) }, upTo: 60), "the stored links change nothing while the switch is off")
+        XCTAssertNil(a.nextRhythmRestart(after: 0)); XCTAssertFalse(a.rhythmRestarts)
+        let c1 = cfg(four(l), set: setFor(four(l))), c2 = cfg(four(plain), set: setFor(four(plain)))
+        XCTAssertEqual(hits(c1, beats: 30).map { $0.col }, hits(c2, beats: 30).map { $0.col })
+    }
+    /// 23. Rhythm inactive, melody PASS [2] of itself, WITH RHYTHM on: the melody restarts at every pass, each beat once (the chain's own restart at every second pass falls on a beat WITH RHYTHM already took).
+    func testTheMelodyChainAndWithRhythmTogetherRestartOncePerBeat() {
+        var l = line(hits: 3, steps: 8); melody(&l, [2], unit: .pass, withRhythm: true)
+        let s = setFor(four(l)).lane(0)!
+        let rs = restarts({ s.nextMelodyRestart(after: $0) }, upTo: 41)
+        close(rs, [4, 8, 12, 16, 20, 24, 28, 32, 36, 40], "every pass")
+        XCTAssertEqual(Set(rs).count, rs.count, "no beat twice")
+        XCTAssertEqual(s.data.mBeat.count, Set(s.data.mBeat).count, "the table holds each beat once")
+        var chainOnly = line(hits: 3, steps: 8); melody(&chainOnly, [2], unit: .pass)
+        close(restarts({ setFor(four(chainOnly)).lane(0)!.nextMelodyRestart(after: $0) }, upTo: 41), [8, 16, 24, 32, 40], "without WITH RHYTHM: the chain's every second pass")
+    }
+    /// 2.2: a melody restart from this rule is a riff completion exactly where RESTART UNITS 2.7(b) says — unless the riff ordinal is already a whole number of cycles (then the natural completion, struck at the start of the next step after the last hit, is the one that counts).
+    func testALoopRestartCountsAsARiffCompletionLikeAnyOther() {
+        var l = line(hits: 3, steps: 8); melody(&l, [], withRhythm: true)
+        let s = setFor(four(l)).lane(0)!
+        // 3 hits a pass over an 8-note riff: every restart cuts the riff short — each is a (restarted) completion
+        XCTAssertEqual(s.riffCompletions(before: 4.1), 1); XCTAssertEqual(s.riffCompletions(before: 12.1), 3)
+        // a 4-note riff on 4 hits a pass: the riff completes NATURALLY at 3.5 (the step after the 4th hit); the restart at 4 finds the ordinal at a whole cycle and counts nothing more
+        var e = line(hits: 4, steps: 8); e.riffLength = 4; melody(&e, [], withRhythm: true)
+        let se = setFor(four(e)).lane(0)!
+        XCTAssertEqual(se.riffCompletions(before: 4.1), 1, "the natural completion at 3.5 only")
+        XCTAssertEqual(se.riffCompletions(before: 8.1), 2, "…and at 7.5; the restarts at 4 and 8 add none")
+    }
+    /// The ONE loop rule: loops are rhythm restarts while the chain is active, natural pass starts otherwise — `isLoop`, `loopCount` and `loopBeat` agree with a walk, in the periodic region too.
+    func testTheLoopFunctionAgreesWithAWalkForEveryKindOfLane() {
+        XCTAssertTrue(euclideousIsLoop(rhythmActive: true, rhythmRestartAtB: true, passStartAtB: false))
+        XCTAssertFalse(euclideousIsLoop(rhythmActive: true, rhythmRestartAtB: false, passStartAtB: true), "1.3: with the chain active a natural pass start is no loop")
+        XCTAssertTrue(euclideousIsLoop(rhythmActive: false, rhythmRestartAtB: false, passStartAtB: true))
+        XCTAssertFalse(euclideousIsLoop(rhythmActive: false, rhythmRestartAtB: true, passStartAtB: false))
+        var off = line(hits: 3, steps: 7)                                              // rhythm FREE: loops are the 3.5-beat passes
+        var bar = line(hits: 3, steps: 7); rhythm(&bar, [1])                           // rhythm BAR [1]: loops are the bar lines
+        var riff = line(hits: 3, steps: 8); rhythm(&riff, [1], unit: .riff, source: 0)  // riff-first: loops at 10, 20, …
+        var dotted = line(hits: 4, steps: 7, rate: .r1_8d); rhythm(&dotted, [2, 1])     // dotted, two links
+        off.restartMelodyWithRhythm = true
+        for (name, l) in [("rhythm off", off), ("BAR [1]", bar), ("riff-first", riff), ("dotted [2,1]", dotted)] {
+            let set = setFor(four(l)), s = set.lane(0)!
+            var walk: [Double] = [], b = 0.0
+            while let n = (s.rhythmRestarts ? s.nextRhythmRestart(after: b) : (s.passStart(s.passIndex(beat: b) + 1) as Double?)), n < 400 { walk.append(n); b = n }
+            XCTAssertGreaterThan(walk.count, 5, name)
+            for (i, w) in walk.enumerated() {
+                XCTAssertEqual(s.loopBeat(Int64(i + 1)), w, accuracy: 1e-9, "\(name): loop \(i + 1) is at \(w)")
+                XCTAssertTrue(s.isLoop(at: w), "\(name): \(w) is a loop")
+                XCTAssertEqual(s.loopCount(atOrBefore: w), Int64(i + 1), "\(name): a loop AT the beat counts")
+                XCTAssertEqual(s.loopCount(atOrBefore: w - 0.01), Int64(i), "\(name): and not before it")
+                XCTAssertFalse(s.isLoop(at: w + 0.25), "\(name): a quarter beat later is no loop")
+            }
+            XCTAssertFalse(s.isLoop(at: 0), "\(name): beat 0 is the start, not a loop")
+            XCTAssertEqual(s.loopCount(atOrBefore: 0), 0, name)
+        }
+        // the periodic region (beat 1000): the same answers as a straight simulation
+        let rf = setFor(four(riff)).lane(0)!, st = setFor(four(riff), detect: false, maxBars: 420).lane(0)!
+        for beat in [1000.3, 1009.9, 1010.0] { XCTAssertEqual(rf.loopCount(atOrBefore: beat), st.loopCount(atOrBefore: beat), "@\(beat)"); XCTAssertEqual(rf.isLoop(at: beat), st.isLoop(at: beat)) }
+        XCTAssertEqual(rf.loopBeat(100), st.loopBeat(100), accuracy: 1e-9)
+    }
+    /// A WITH RHYTHM lane whose rhythm is off, read from the periodic table at beat 1000, equals the straight simulation (2.3: no new periodic state).
+    func testAWithRhythmLaneWithTheRhythmOffIsPeriodicLikeAStraightSimulation() {
+        var l = line(hits: 3, steps: 7); melody(&l, [], withRhythm: true)
+        periodicVersusStraight(four(l), at: [1000.3, 1003.4, 1007.0, 1010.6])
+        var m = line(hits: 5, steps: 8, rate: .r1_8d); melody(&m, [3], unit: .hit, withRhythm: true)
+        periodicVersusStraight(four(m), at: [1000.3, 1002.9])
+    }
+
 }
 
 private struct SplitMix { var state: UInt64; init(seed: UInt64) { state = seed }
