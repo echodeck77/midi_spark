@@ -707,6 +707,44 @@ func euclideousChordsPlayingColumn(beat m: Double, rateBeats: Double) -> Int {
     return Int((m / r).rounded(.down))
 }
 
+// MARK: - CHORDS PAGE (ferry 2026-11-04): the ADVANCE / RESTART playing column (§3)
+// The full `chordColumn(progression, beat, schedule, barBeats)` (§3.1) reads the RESTART UNITS schedule for the
+// LOOP / RIFF advance and restart counts (§3.3, §3.6), so it lands with that schedule. These are the
+// SCHEDULE-FREE pieces it composes — the column wrap (§3.4), the TIME advance (§3.3) and the BAR restart (§3.2)
+// — buildable and provable now (tests 1, 6). The LOOP / RIFF advance and LOOP / RIFF restart branches are added
+// on top of these once the schedule exposes loops and riff completions as beats with cumulative counts.
+
+/// A small epsilon so float error at a step / bar boundary can't drop the column into the previous one (§1.4;
+/// the same 1e-9 the canon path already uses — reconcile with RESTART UNITS 1.4 when the schedule lands).
+let chordsColumnEps = 1e-9
+
+/// §3.4: an advance count `a` resolved to a column — `(a mod STEPS)` then ROTATE, EXACTLY as the engine's
+/// `chordsDegreeAt` applies rotate today (`((a + rotate) % steps + steps) % steps`), so a TIME column stays
+/// byte-identical to the pre-ferry progression.
+func chordsColumnResolve(count a: Int, steps: Int, rotate: Int) -> Int {
+    let s = max(1, steps)
+    return ((a + rotate) % s + s) % s
+}
+
+/// §3.3 TIME: the advance count at `beat`, measured from the latest grid restart `r` — `floor((beat − r + ε)/rate)`.
+/// `rate <= 0` floors to 4 (matching `chordSeqNotes`). With `r == 0` (restart off) this equals today's
+/// `euclideousChordsPlayingColumn` at every sampled beat — the ε only guards an exact boundary (test 1).
+func chordsTimeAdvanceCount(beat: Double, rateBeats: Double, restartBeat r: Double) -> Int {
+    let rate = rateBeats > 0 ? rateBeats : 4
+    return Int(((beat - r + chordsColumnEps) / rate).rounded(.down))
+}
+
+/// §3.2 BAR: the latest grid restart at or before `beat` when RESTART is ON with unit BAR — beat 0 and every
+/// `restartEvery`-th bar line. RESTART off ⇒ 0 (the only restart is beat 0). LOOP / RIFF restarts need the
+/// schedule and are NOT handled here. `barBeats > 0` required; §3.5's "a restart at `beat` wins" falls out of
+/// the +ε (at an exact restart beat, r == beat, so the TIME count there is 0 — the first column).
+func chordsBarRestartBeat(beat: Double, restartOn: Bool, restartEvery: Int, barBeats: Double) -> Double {
+    guard restartOn, barBeats > 0, restartEvery >= 1 else { return 0 }
+    let period = Double(restartEvery) * barBeats
+    let n = ((beat + chordsColumnEps) / period).rounded(.down)
+    return max(0, n) * period
+}
+
 /// THE CHORD SEQUENCER derivation (Paul 2026-09-04): the diatonic chord at beat `m` for a CHORDS config, in a resolved key.
 /// SHARED by the CHORDS PROCESSOR stage (Router.applyStage) AND the chord DOOR pool-fill (Kernel) so they can NEVER diverge —
 /// this is the "future processor work reflects on the door" contract in one function. `step = floor(m / chordsRateBeats)`;

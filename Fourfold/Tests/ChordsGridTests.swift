@@ -545,3 +545,74 @@ final class ChordsAdvanceModelTests: XCTestCase {
         XCTAssertNotEqual(a, b)
     }
 }
+
+// MARK: - CHORDS PAGE ferry (Paul 2026-11-04) §3: the schedule-free column arithmetic
+// Tests 1 (byte-identity under TIME + restart off) and 6 (RESTART BAR). The LOOP / RIFF branches and the full
+// `chordColumn` land with the RESTART UNITS schedule.
+
+final class ChordColumnArithmeticTests: XCTestCase {
+
+    /// Today's resolved column: the raw step floored, then the engine's `chordsDegreeAt` mod+rotate.
+    private func todaysColumn(beat: Double, rate: Double, steps: Int, rotate: Int) -> Int {
+        chordsColumnResolve(count: euclideousChordsPlayingColumn(beat: beat, rateBeats: rate), steps: steps, rotate: rotate)
+    }
+
+    // §8 test 1 (the pure half): under TIME with restart off, the new `floor((beat+ε)/rate)` column equals today's
+    // `floor(beat/rate)` column at every 1/16 over 32 bars — the ε moves no boundary. (The factory-preset MIDI
+    // byte-identity is the golden harness; this is the column formula itself.)
+    func testTimeColumnIsByteIdenticalToTodayAtEverySixteenthOver32Bars() {
+        let beatsTotal = 32.0 * 4.0                                   // 32 bars at 4 beats/bar
+        for rate in StepRate.allCases.map({ $0.beats }) {
+            for steps in [1, 3, 6, 8, 16] {
+                for rotate in [0, 1, 3, 7] {
+                    var beat = 0.0
+                    while beat <= beatsTotal + 1e-9 {
+                        let now = chordsColumnResolve(count: chordsTimeAdvanceCount(beat: beat, rateBeats: rate, restartBeat: 0),
+                                                      steps: steps, rotate: rotate)
+                        XCTAssertEqual(now, todaysColumn(beat: beat, rate: rate, steps: steps, rotate: rotate),
+                                       "rate=\(rate) steps=\(steps) rotate=\(rotate) beat=\(beat)")
+                        beat += 0.25
+                    }
+                }
+            }
+        }
+    }
+
+    // §8 test 6: TIME 1/1 (rate 4 = one chord per bar), STEPS 6, RESTART BAR every 4 ⇒ columns 1 2 3 4 | 1 2 3 4
+    // (0-indexed 0 1 2 3 | 0 1 2 3): it reaches column 4, then the 4-bar restart sends it back to column 1.
+    func testRestartBarEveryFourOnASixStepGrid() {
+        let rate = 4.0, steps = 6, rotate = 0, every = 4, barBeats = 4.0
+        func col(_ beat: Double) -> Int {
+            let r = chordsBarRestartBeat(beat: beat, restartOn: true, restartEvery: every, barBeats: barBeats)
+            return chordsColumnResolve(count: chordsTimeAdvanceCount(beat: beat, rateBeats: rate, restartBeat: r), steps: steps, rotate: rotate)
+        }
+        let atBar = (0..<8).map { col(Double($0) * barBeats) }        // the column at each bar line
+        XCTAssertEqual(atBar, [0, 1, 2, 3, 0, 1, 2, 3])
+        // restart off: the grid keeps counting past column 4 and wraps at STEPS (6), never at 4
+        func colFree(_ beat: Double) -> Int {
+            let r = chordsBarRestartBeat(beat: beat, restartOn: false, restartEvery: every, barBeats: barBeats)
+            return chordsColumnResolve(count: chordsTimeAdvanceCount(beat: beat, rateBeats: rate, restartBeat: r), steps: steps, rotate: rotate)
+        }
+        XCTAssertEqual((0..<8).map { colFree(Double($0) * barBeats) }, [0, 1, 2, 3, 4, 5, 0, 1])
+    }
+
+    // §3.4: the wrap applies (a mod STEPS) then ROTATE, matching the engine; negative wrap is handled.
+    func testColumnResolveWrapAndRotate() {
+        XCTAssertEqual(chordsColumnResolve(count: 10, steps: 8, rotate: 0), 2)
+        XCTAssertEqual(chordsColumnResolve(count: 10, steps: 8, rotate: 3), 5)
+        XCTAssertEqual(chordsColumnResolve(count: 7, steps: 8, rotate: 3), 2)   // (7+3)%8
+        XCTAssertEqual(chordsColumnResolve(count: 0, steps: 6, rotate: -1), 5)  // negative rotate wraps up
+        XCTAssertEqual(chordsColumnResolve(count: 5, steps: 1, rotate: 0), 0)   // 1-step grid is always column 0
+    }
+
+    // §3.5: a restart at a beat wins — the column there is the first (0 + rotate), and the advance event isn't counted.
+    func testRestartBeatIsTheFirstColumn() {
+        let rate = 4.0, steps = 8, every = 2, barBeats = 4.0        // restart every 2 bars = every 8 beats
+        for restartBeat in [0.0, 8.0, 16.0, 24.0] {
+            let r = chordsBarRestartBeat(beat: restartBeat, restartOn: true, restartEvery: every, barBeats: barBeats)
+            XCTAssertEqual(r, restartBeat, "the restart lands exactly on the bar line")
+            XCTAssertEqual(chordsTimeAdvanceCount(beat: restartBeat, rateBeats: rate, restartBeat: r), 0, "count resets to 0 at the restart")
+            XCTAssertEqual(chordsColumnResolve(count: 0, steps: steps, rotate: 2), 2, "the first column is rotate")
+        }
+    }
+}
