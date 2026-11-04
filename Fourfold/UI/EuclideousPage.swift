@@ -2597,6 +2597,9 @@ struct EuclideousPage: View {
             sourceContentWell(width: L.contentW) { chordsRowContent(state: state) }
                 .contentShape(Rectangle())
                 .onTapGesture { sourcesEditor = .none; sourcesChordsPage = false; sourcesPopupOpen = false; chordsPageOpen = true }   // CHORDS PAGE §4.2: the SOURCES panel closes and the full-screen chords page opens
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Edit chords")
+                .accessibilityAddTraits(.isButton)
             sourceCountView(added: sourceStatus.chordsAdded, colour: EuclideousSourceColour.chords.fill, on: sourcePlan.chordsOnR)
         }
     }
@@ -3244,20 +3247,23 @@ struct EuclideousPage: View {
         Text(glyph).font(.system(size: 13)).foregroundColor(Color(hex: disabled ? 0x4A4E57 : 0xAAB0BA))
             .frame(width: 24, height: 24).background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0x2A2D34)))
             .frame(height: 44).contentShape(Rectangle()).onTapGesture { if !disabled { act() } }
+            .accessibilityElement(children: .ignore).accessibilityLabel(glyph == "+" ? "More steps" : "Fewer steps").accessibilityAddTraits(.isButton)
     }
 
-    // §5.3 / §5.4 shared chips
-    private func chordsUnitChip(_ label: String, selected: Bool, dim: Bool = false, _ act: @escaping () -> Void) -> some View {
+    // §5.3 / §5.4 shared chips (§7.2 VoiceOver: each carries a spoken label; the selected one the selected trait)
+    private func chordsUnitChip(_ label: String, a11y: String, selected: Bool, dim: Bool = false, _ act: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.06 * 8)
             .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
             .frame(width: 36, height: 26).background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
             .opacity(dim ? 0.42 : 1).contentShape(Rectangle()).onTapGesture(perform: act)
+            .accessibilityElement(children: .ignore).accessibilityLabel(a11y).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
     private func chordsRateChip(_ label: String, selected: Bool, _ act: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 7.5, weight: .heavy, design: .monospaced))
             .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
             .frame(width: 25, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(selected ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
             .contentShape(Rectangle()).onTapGesture(perform: act)
+            .accessibilityElement(children: .ignore).accessibilityLabel("Rate \(label)").accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
     private func chordsLaneSelectSquare(_ i: Int, selected: Bool, dim: Bool, _ act: @escaping () -> Void) -> some View {
         ZStack {
@@ -3265,11 +3271,13 @@ struct EuclideousPage: View {
             else { RoundedRectangle(cornerRadius: 2.5).strokeBorder(Color(hex: chordsLaneHex(i)).opacity(0.55), lineWidth: 1.5).frame(width: 12, height: 12) }
         }
         .frame(width: 18, height: 26).opacity(dim ? 0.42 : 1).contentShape(Rectangle()).onTapGesture(perform: act)
+        .accessibilityElement(children: .ignore).accessibilityLabel("Lane \(i + 1)").accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)   // §7.2
     }
-    private func chordsEveryChip(_ value: Int, dim: Bool, _ act: @escaping () -> Void) -> some View {
+    private func chordsEveryChip(_ value: Int, a11y: String, dim: Bool, _ act: @escaping () -> Void) -> some View {
         Text("\(value)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
             .frame(width: 36, height: 26).background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xDFE3EA)))
             .opacity(dim ? 0.42 : 1).contentShape(Rectangle()).onTapGesture(perform: act)
+            .accessibilityElement(children: .ignore).accessibilityLabel(a11y).accessibilityHint("Double-tap for the next value").accessibilityAddTraits(.isButton)   // §7.2
     }
     private func chordsRestartSwitch(on: Bool, _ act: @escaping () -> Void) -> some View {   // §5.4 neutral switch (34×20, hit 34×28)
         ZStack(alignment: on ? .trailing : .leading) {
@@ -3277,6 +3285,7 @@ struct EuclideousPage: View {
             Circle().fill(Color(hex: on ? 0x0D0F14 : 0x5C626C)).frame(width: 16, height: 16).padding(.horizontal, 2)
         }
         .frame(width: 34, height: 28).contentShape(Rectangle()).onTapGesture(perform: act)
+        .accessibilityElement(children: .ignore).accessibilityLabel("Restart").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(.isButton)   // §7.2 "Restart, on"
     }
 
     // §5.3 ADVANCE
@@ -3287,9 +3296,9 @@ struct EuclideousPage: View {
             Text("ADVANCE").font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(0.1 * 7.5).foregroundColor(Color(hex: 0x8A909A)).frame(width: 56, alignment: .leading)
             Spacer().frame(width: 4)
             HStack(spacing: 4) {
-                chordsUnitChip("TIME", selected: unit == .time) { onEditChordSet(set) { $0.advanceUnit = .time } }
-                chordsUnitChip("LOOP", selected: unit == .loop) { onEditChordSet(set) { $0.advanceUnit = .loop } }
-                chordsUnitChip("RIFF", selected: unit == .riff) { onEditChordSet(set) { $0.advanceUnit = .riff } }
+                chordsUnitChip("TIME", a11y: "Advance by time", selected: unit == .time) { onEditChordSet(set) { $0.advanceUnit = .time } }
+                chordsUnitChip("LOOP", a11y: "Advance by loop", selected: unit == .loop) { onEditChordSet(set) { $0.advanceUnit = .loop } }
+                chordsUnitChip("RIFF", a11y: "Advance by riff", selected: unit == .riff) { onEditChordSet(set) { $0.advanceUnit = .riff } }
             }
             Spacer().frame(width: 6)
             if unit == .time {
@@ -3305,7 +3314,7 @@ struct EuclideousPage: View {
                     }
                 }
                 Spacer().frame(width: 4)
-                chordsEveryChip(cfg.advanceEveryResolved, dim: false) {
+                chordsEveryChip(cfg.advanceEveryResolved, a11y: chordsEveryA11y(cfg.advanceEveryResolved, unit == .riff ? "riff" : "loop"), dim: false) {
                     onEditChordSet(set) { $0.advanceEvery = chordsCycleEvery(cfg.advanceEveryResolved, chordsAdvanceEveryValues) }
                 }
             }
@@ -3322,9 +3331,9 @@ struct EuclideousPage: View {
             Text("RESTART").font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(0.1 * 7.5).foregroundColor(Color(hex: 0x8A909A)).frame(width: 56, alignment: .leading)
             Spacer().frame(width: 4)
             HStack(spacing: 4) {   // §5.4: the values dim to 42% while the switch is off, but stay live
-                chordsUnitChip("BAR", selected: unit == .bar, dim: !on) { onEditChordSet(set) { $0.restartUnit = .bar } }
-                chordsUnitChip("LOOP", selected: unit == .loop, dim: !on) { onEditChordSet(set) { $0.restartUnit = .loop } }
-                chordsUnitChip("RIFF", selected: unit == .riff, dim: !on) { onEditChordSet(set) { $0.restartUnit = .riff } }
+                chordsUnitChip("BAR", a11y: "Restart by bar", selected: unit == .bar, dim: !on) { onEditChordSet(set) { $0.restartUnit = .bar } }
+                chordsUnitChip("LOOP", a11y: "Restart by loop", selected: unit == .loop, dim: !on) { onEditChordSet(set) { $0.restartUnit = .loop } }
+                chordsUnitChip("RIFF", a11y: "Restart by riff", selected: unit == .riff, dim: !on) { onEditChordSet(set) { $0.restartUnit = .riff } }
             }
             Spacer().frame(width: 6)
             if unit != .bar {
@@ -3337,7 +3346,7 @@ struct EuclideousPage: View {
                 Spacer().frame(width: 4 * 18 + 3 * 4)   // §5.4: BAR keeps the lane squares' space empty, nothing moves
             }
             Spacer().frame(width: 4)
-            chordsEveryChip(cfg.restartEveryResolved, dim: !on) {
+            chordsEveryChip(cfg.restartEveryResolved, a11y: chordsEveryA11y(cfg.restartEveryResolved, unit == .riff ? "riff" : (unit == .loop ? "loop" : "bar")), dim: !on) {
                 onEditChordSet(set) { $0.restartEvery = chordsCycleEvery(cfg.restartEveryResolved, chordsRestartEveryValues) }
             }
             Spacer(minLength: 0)
@@ -3362,7 +3371,9 @@ struct EuclideousPage: View {
                     .offset(x: L.columnLeft(steps: steps, i))
             }
         }
-        .frame(width: L.colW, height: EuclideousChordsPageMetrics.stepStripH, alignment: .topLeading))
+        .frame(width: L.colW, height: EuclideousChordsPageMetrics.stepStripH, alignment: .topLeading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Column \(min(steps, playing + 1)) of \(steps)\(clock.playing ? ", playing" : "")"))   // §7.2 one static element
     }
 
     // §5.6 the 18-row grid (per set; §5.6 colours; chordColumn wash)
@@ -3462,6 +3473,8 @@ struct EuclideousPage: View {
         guard let idx = values.firstIndex(of: current) else { return values.first ?? 1 }
         return values[(idx + 1) % values.count]
     }
+    /// §7.2 the every chip's spoken label: "Every bar" / "Every 2 loops" / "Every 3 riffs".
+    private func chordsEveryA11y(_ n: Int, _ unitWord: String) -> String { n == 1 ? "Every \(unitWord)" : "Every \(n) \(unitWord)s" }
 
     // Sources panel v2 §6.2: the chord pop-up's own pool strip is replaced by the panel's POOL block
     // (sourcesPoolBlockV2, with the §7.4 "COL n" finger-down preview) — deleted.

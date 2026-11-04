@@ -290,4 +290,27 @@ final class FourfoldScreenshotTests: XCTestCase {
         springboard.swipeLeft(); Thread.sleep(forTimeInterval: 1)
         attach("home-screen-page-2")
     }
+
+    /// CHORDS PAGE (2026-11-04): the full-screen page over the lane cards — opened, then with GRID 1 on ADVANCE LOOP
+    /// and RESTART on — in portrait and landscape, playing, so the two grids, the ADVANCE/RESTART rows, the step strip
+    /// and the lane strip can be LOOKED AT.
+    func testTheChordsPage() {
+        let device = XCUIDevice.shared
+        for (tag, o) in [("portrait", UIDeviceOrientation.portrait), ("landscape", .landscapeLeft)] {
+            let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+            device.orientation = o
+            Thread.sleep(forTimeInterval: 2)
+            let sources = app.el("Sources")
+            guard sources.waitForExistence(timeout: 5) else { continue }
+            sources.tap(); Thread.sleep(forTimeInterval: 0.6)
+            let edit = app.el("Edit chords")
+            guard edit.waitForExistence(timeout: 4) else { attach("12-chords-\(tag)-0-no-chords-row"); continue }
+            edit.tap(); Thread.sleep(forTimeInterval: 1)
+            attach("12-chords-\(tag)-1-opened")                       // GRID 1 / GRID 2, both on TIME, restart off
+            let advLoop = app.el("Advance by loop")                   // first match = GRID 1
+            if advLoop.waitForExistence(timeout: 3) { advLoop.tap(); Thread.sleep(forTimeInterval: 0.6); attach("12-chords-\(tag)-2-advance-loop") }
+            let restart = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart")).firstMatch
+            if restart.exists { restart.tap(); Thread.sleep(forTimeInterval: 0.6); attach("12-chords-\(tag)-3-restart-on") }
+        }
+    }
 }

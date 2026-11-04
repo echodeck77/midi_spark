@@ -127,7 +127,25 @@ final class FourfoldAccessibilityTests: XCTestCase {
         for chip in ["Main: red riff, off", "Alt: blue riff, off"] { let c = app.buttons[chip]; if c.waitForExistence(timeout: 3) { c.tap() } }
     }
     private func open(_ button: String, expect: String) -> (XCUIApplication) -> Void { { app in app.buttons[button].tap(); XCTAssertTrue(app.staticTexts[expect].waitForExistence(timeout: 4), "\(button) did not open") } }
+    /// CHORDS PAGE (2026-11-04): open the page (SOURCES → the CHORDS row) and put GRID 1 on ADVANCE LOOP with RESTART
+    /// on, so every new control (the unit / rate / every chips, the lane squares, the switch, the step strip, the two
+    /// 18-row grids, the lane strip) exists when the audit looks. NOT modal (it covers only the lane cards — the header
+    /// and tab strip stay live), so `modalFrame` stays nil and the whole visible page is audited.
+    private func chordsPage(_ app: XCUIApplication) {
+        app.el("Sources").tap(); Thread.sleep(forTimeInterval: 0.6)
+        let edit = app.el("Edit chords")
+        XCTAssertTrue(edit.waitForExistence(timeout: 4), "the CHORDS row")
+        edit.tap()
+        XCTAssertTrue(app.el("Chords").waitForExistence(timeout: 4), "the chords page did not open")
+        let advLoop = app.el("Advance by loop")
+        if advLoop.waitForExistence(timeout: 3) { advLoop.tap() }
+        let restart = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart")).firstMatch
+        if restart.exists { restart.tap() }
+        Thread.sleep(forTimeInterval: 0.5)
+    }
 
+    func testAuditChordsPagePortrait()  { screen("chords page", landscape: false, chordsPage) }   // CHORDS PAGE (2026-11-04)
+    func testAuditChordsPageLandscape() { screen("chords page", landscape: true, chordsPage) }
     func testAuditMixPanelPortrait()  { screen("mix panel", landscape: false) { $0.buttons["Mix"].tap() } }   // MIX ROWS (2026-11-03): the panel; the card backs are retired
     func testAuditLanesPortrait()    { screen("page LANES", landscape: false) { $0.buttons["Mute"].tap() } }
     func testAuditFxPortrait()       { screen("page FX", landscape: false) { $0.buttons["FX"].tap() } }
