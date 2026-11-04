@@ -4593,8 +4593,8 @@ final class Router {
                                             let d = emitterCounter.hit(cfg: emitterRatchets[x], output: x, countsSteps: emitterRatchets.countsSteps, laneStep: localT, window: emitterWindowSerial, sample: hitSample, restartKey: rk)
                                             if d.missed { emitMissedOuts |= UInt8(1) << UInt8(x) }
                                             if d.ratchets {
-                                                // §3.2: n is lowered by the same beat-width cap FX RATCH uses (no slot under 10 ms at the host tempo); capped below 2 the hit just plays once, and is not reported as ratcheted
-                                                let n = euclideousFXRatchetCount(requested: d.strikes, sub: sub, tempo: tempo)
+                                                // §3.2 / §3.5: FIT splits the step evenly, so the 10 ms floor caps the COUNT, exactly as FX RATCH (today). A fixed GAP keeps the requested count — its 10 ms floor and the CUT drop are applied to the SPACING in `emitterRatchetStrikes`.
+                                                let n = emitterRatchets[x].gap == .fit ? euclideousFXRatchetCount(requested: d.strikes, sub: sub, tempo: tempo) : d.strikes
                                                 if n >= 2 { emitRatchetOuts |= UInt8(1) << UInt8(x); emitN[x] = UInt8(n) }
                                             }
                                             if emitterVelAny {
@@ -4628,8 +4628,12 @@ final class Router {
                                 func emitterRatchetStrikes() {
                                     guard emitRatchetOuts != 0 else { return }
                                     for x in 0..<4 where (emitRatchetOuts >> UInt8(x)) & 1 != 0 {
-                                        let n = Int(emitN[x]), xBit = UInt8(1) << UInt8(x)
-                                        let spacing = sub / Double(n)
+                                        let requested = Int(emitN[x]), xBit = UInt8(1) << UInt8(x)
+                                        // RATCH EXPAND §2.4/§3: the strike SPACING — FIT splits the step (today's `sub/n`), a GAP is its fixed beat value; never under the 10 ms slot floor (§3.5). CUT (SPILL == CUT this build, §0.2) then
+                                        // keeps only the strikes STARTING before the step ends (§3.3) — strike 0 always plays. FIT is exactly today: `spacing = sub/requested`, every strike fits, so `n == requested`.
+                                        let spacing = max(euclideousRatchetMinSlotSeconds * tempo / 60.0, emitterRatchets[x].gap.beats ?? (sub / Double(requested)))
+                                        var n = 1
+                                        while n < requested && Double(n) * spacing < sub - 1e-9 { n += 1 }
                                         for j in 0..<pitchCount where emitOutsOf(j) & xBit != 0 {
                                             guard let fp = finalPitch(pitches[j], oct: 0) else { continue }
                                             let gate = max(minGateBeats5ms, spacing * pitchGate[j])

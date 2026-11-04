@@ -671,3 +671,69 @@ final class RatchExpandModelTests: XCTestCase {
         XCTAssertEqual(EmitterStrikeGap.thirtysecond.beats!, 0.125, accuracy: 1e-9)
     }
 }
+
+// MARK: - RATCH EXPAND ferry §2: emitterRatchetDecide resolves n per mode (pure)
+
+final class RatchExpandDecideTests: XCTestCase {
+    private func cfg(_ build: (inout EmitterRatchet) -> Void) -> EmitterRatchetCfg {
+        var r = EmitterRatchet(); r.on = true; r.steps = 8; r.hits = 3; r.offset = 0; r.chance = 100; build(&r)
+        return EmitterRatchetCfg(r)   // default E(3,8) hits at slots 0, 3, 6
+    }
+
+    // §2.2 RANGE: every count 2…4 appears, same seed replays, MIN = MAX pins.
+    func testRangeDistributionAndReplay() {
+        let c = cfg { $0.mode = .range; $0.rangeMin = 2; $0.rangeMax = 4 }
+        var seen = Set<Int>()
+        for v in Int64(0)..<400 where c.isHit(Int(v % 8)) {
+            let d = emitterRatchetDecide(c, output: 0, v: v)
+            XCTAssertTrue((2...4).contains(d.strikes), "v=\(v) → \(d.strikes)")
+            XCTAssertEqual(emitterRatchetDecide(c, output: 0, v: v).strikes, d.strikes, "replay-exact")
+            seen.insert(d.strikes)
+        }
+        XCTAssertEqual(seen, [2, 3, 4])
+        let pinned = cfg { $0.mode = .range; $0.rangeMin = 3; $0.rangeMax = 3 }
+        for v in Int64(0)..<64 where pinned.isHit(Int(v % 8)) { XCTAssertEqual(emitterRatchetDecide(pinned, output: 0, v: v).strikes, 3) }
+    }
+
+    // §2.3 / §8: RANGE with MIN 1 (MAX ≥ 2 — §1.3) draws 1 on SOME hits; a drawn 1 sounds once, ratchets = false,
+    // not missed; every drawn count ≥ 2 ratchets. (MIN = MAX = 1 isn't representable — `normalized()` lifts MAX to 2.)
+    func testRangeMinOnePlaysOnce() {
+        let c = cfg { $0.mode = .range; $0.rangeMin = 1; $0.rangeMax = 2 }
+        var ones = 0, twos = 0
+        for v in Int64(0)..<400 where c.isHit(Int(v % 8)) {
+            let d = emitterRatchetDecide(c, output: 0, v: v)
+            XCTAssertTrue((1...2).contains(d.strikes))
+            XCTAssertFalse(d.missed, "a passing hit is never missed")
+            if d.strikes == 1 { XCTAssertFalse(d.ratchets, "one strike doesn't ratchet"); ones += 1 }
+            else { XCTAssertTrue(d.ratchets, "two strikes ratchet"); twos += 1 }
+        }
+        XCTAssertGreaterThan(ones, 0, "some hits draw 1"); XCTAssertGreaterThan(twos, 0, "some draw 2")
+    }
+
+    // §9: HIT counts land on their hits, and follow them under OFFSET.
+    func testHitModeCountsAndOffsetCarry() {
+        var r = EmitterRatchet(); r.on = true; r.steps = 8; r.hits = 3; r.chance = 100; r.mode = .hit
+        r = r.settingHitCount(0, 2).settingHitCount(1, 4).settingHitCount(2, 3)
+        let c0 = EmitterRatchetCfg(r)   // offset 0: hits 0,3,6 → ordinals 0,1,2
+        XCTAssertEqual(emitterRatchetDecide(c0, output: 0, v: 0).strikes, 2)
+        XCTAssertEqual(emitterRatchetDecide(c0, output: 0, v: 3).strikes, 4)
+        XCTAssertEqual(emitterRatchetDecide(c0, output: 0, v: 6).strikes, 3)
+        r.offset = 2; let c2 = EmitterRatchetCfg(r)   // hits move to 1,4,6; the counts follow their hits
+        XCTAssertEqual(emitterRatchetDecide(c2, output: 0, v: 1).strikes, 4)
+        XCTAssertEqual(emitterRatchetDecide(c2, output: 0, v: 4).strikes, 3)
+        XCTAssertEqual(emitterRatchetDecide(c2, output: 0, v: 6).strikes, 2)
+    }
+
+    // §2.4 the gap-beats helper.
+    func testGapBeatsHelper() {
+        XCTAssertEqual(emitterRatchetGapBeats(gap: .fit, stepBeats: 0.5, n: 3), 0.5 / 3, accuracy: 1e-9)
+        XCTAssertEqual(emitterRatchetGapBeats(gap: .sixteenth, stepBeats: 0.5, n: 3), 0.25, accuracy: 1e-9)
+        XCTAssertEqual(emitterRatchetGapBeats(gap: .sixteenthT, stepBeats: 0.5, n: 4), 1.0 / 6.0, accuracy: 1e-9)
+    }
+
+    // FIX is today: strikes = STRIKES, ratchets = passes.
+    func testFixUnchanged() {
+        let d = emitterRatchetDecide(cfg { $0.mode = .fix; $0.strikes = 3 }, output: 0, v: 0)
+        XCTAssertEqual(d.strikes, 3); XCTAssertTrue(d.ratchets)
+    }
+}

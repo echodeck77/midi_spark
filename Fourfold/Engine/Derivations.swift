@@ -10362,6 +10362,27 @@ func emitterRatchetRoll(output: Int, v: Int64) -> Int {
     let seed = emitterRatchetSalt ^ (UInt64(truncatingIfNeeded: output &+ 1) &* 0x9E37_79B9_7F4A_7C15) ^ UInt64(bitPattern: v)
     return Int(splitmix64Mix(seed) % 100)
 }
+/// RATCH EXPAND ferry (2026-11-04) §2.2 — the RANGE mode roll, seeded exactly as CHANCE's (output index and the
+/// hit's count `v`) but under its OWN salt ("RATCHRNG"), used by no other roll. Replay-exact.
+let emitterRatchetRangeSalt: UInt64 = 0x5241_5443_4852_4E47
+func emitterRatchetRangeRoll(output: Int, v: Int64) -> UInt64 {
+    splitmix64Mix(emitterRatchetRangeSalt ^ (UInt64(truncatingIfNeeded: output &+ 1) &* 0x9E37_79B9_7F4A_7C15) ^ UInt64(bitPattern: v))
+}
+/// §1.4 — the PRE-OFFSET hit ordinal (0…) for a hitting pattern slot `index`. OFFSET left-rotates the pattern
+/// (`new[i] = noOffset[(i + offset) mod n]`, `euclidRotateBuffer`), so the slot came from pre-offset position
+/// `(index + offset) mod n`; the ordinal is how many of the UN-rotated pattern's hits sit below it. So a per-hit
+/// count follows its hit when OFFSET changes. Allocation-free (bit test over the main-thread-built offset-0 mask).
+func emitterRatchetHitOrdinal(index: Int, cfg: EmitterRatchetCfg) -> Int {
+    let n = max(1, cfg.steps)
+    let u = ((index + cfg.offset) % n + n) % n
+    let below = cfg.patternMaskNoOffset & (UInt16(1 << UInt16(u)) &- 1)
+    return Int(below.nonzeroBitCount)
+}
+/// §2.4 — a strike's spacing in beats for one ratcheting hit: FIT splits the step evenly (today), the others are the
+/// fixed musical gap. The Router and every display read THIS one function.
+@inline(__always) func emitterRatchetGapBeats(gap: EmitterStrikeGap, stepBeats: Double, n: Int) -> Double {
+    gap.beats ?? (stepBeats / Double(max(1, n)))
+}
 
 /// §2.7 — what the emitter decides for one emitter hit: the pattern index it fell on, whether P(index) is a hit, whether it ratchets, and STRIKES (the cap on the beat width is applied where the strikes are laid out).
 /// `missed` = the emitter is ON and P(index) is a hit but CHANCE failed (the hit feed's MISSED bit); an OFF emitter never misses.
@@ -10379,7 +10400,18 @@ func emitterRatchetDecide(_ cfg: EmitterRatchetCfg, output: Int, v: Int64) -> Em
     let hit = cfg.isHit(index)
     var passes = false
     if cfg.on && hit { passes = cfg.chance >= 100 || (cfg.chance > 0 && emitterRatchetRoll(output: output, v: v) < cfg.chance) }
-    return EmitterRatchetDecision(index: index, isHit: hit, ratchets: passes, strikes: cfg.strikes, missed: cfg.on && hit && !passes)
+    // RATCH EXPAND §2.2 — the strike count when the hit ratchets. FIX = STRIKES (today); RANGE = a roll in [MIN, MAX];
+    // HIT = the stored count for this hit's pre-OFFSET ordinal. §2.3: a resolved count of 1 sounds once and does NOT
+    // set RATCHED (it plays as an ordinary hit).
+    var strikes = cfg.strikes
+    if passes {
+        switch cfg.mode {
+        case .fix:   strikes = cfg.strikes
+        case .range: strikes = cfg.rangeMin + Int(emitterRatchetRangeRoll(output: output, v: v) % UInt64(max(1, cfg.rangeMax - cfg.rangeMin + 1)))
+        case .hit:   strikes = cfg.hitCount(emitterRatchetHitOrdinal(index: index, cfg: cfg))
+        }
+    }
+    return EmitterRatchetDecision(index: index, isHit: hit, ratchets: passes && strikes >= 2, strikes: strikes, missed: cfg.on && hit && !passes)
 }
 
 /// §2.2 / §2.3 / §2.5 — the four emitters' counters. FIXED-SIZE value storage (SIMD lanes), so the Router owns one without allocating and a test drives it directly.
@@ -10406,7 +10438,7 @@ struct EmitterRatchetCounter: Equatable {
         guard x >= 0 && x < 4 else { return EmitterRatchetDecision() }
         if window != cacheWindow { cacheWindow = window; cacheLen = SIMD4<Int32>(repeating: 0) }
         let have = Int(min(cacheLen[x], Int32(Self.cacheCapacity)))
-        for i in 0..<have where samples(x)[i] == sample { return Self.unpack(decisions(x)[i], strikes: cfg.strikes) }
+        for i in 0..<have where samples(x)[i] == sample { return Self.unpack(decisions(x)[i]) }   // RATCH EXPAND: the cached decision carries its own strike count (RANGE / HIT vary per hit)
         // RESTART: a fresh sample in a new block restarts the count (a same-sample cache hit above already carries the restarted decision). The count — and so the CHANCE roll's seed — repeats every N bars, a loop of that length.
         if rk != Int64.min && rk != restartKey[x] { counts[x] = 0; restartKey[x] = rk }
         let v = countsSteps ? laneStep : counts[x]
@@ -10424,10 +10456,13 @@ struct EmitterRatchetCounter: Equatable {
     private mutating func setEntry(_ x: Int, _ slot: Int, sample: Int64, packed: UInt32) {
         switch x { case 0: s0[slot] = sample; d0[slot] = packed; case 1: s1[slot] = sample; d1[slot] = packed; case 2: s2[slot] = sample; d2[slot] = packed; default: s3[slot] = sample; d3[slot] = packed }
     }
-    // index (4 bits) · isHit · ratchets · missed — STRIKES is the config's, so a cached answer takes the asking lane's current value (it cannot differ inside one window)
-    private static func pack(_ d: EmitterRatchetDecision) -> UInt32 { UInt32(d.index & 0xF) | (d.isHit ? 0x10 : 0) | (d.ratchets ? 0x20 : 0) | (d.missed ? 0x40 : 0) }
-    private static func unpack(_ p: UInt32, strikes: Int) -> EmitterRatchetDecision {
-        EmitterRatchetDecision(index: Int(p & 0xF), isHit: p & 0x10 != 0, ratchets: p & 0x20 != 0, strikes: strikes, missed: p & 0x40 != 0)
+    // index (4 bits 0…3) · isHit (4) · ratchets (5) · missed (6) · strikes (bits 7…9) — RATCH EXPAND caches the
+    // RESOLVED strike count (RANGE / HIT differ per hit, so it can no longer be taken from the config at unpack).
+    private static func pack(_ d: EmitterRatchetDecision) -> UInt32 {
+        UInt32(d.index & 0xF) | (d.isHit ? 0x10 : 0) | (d.ratchets ? 0x20 : 0) | (d.missed ? 0x40 : 0) | (UInt32(d.strikes & 0x7) << 7)
+    }
+    private static func unpack(_ p: UInt32) -> EmitterRatchetDecision {
+        EmitterRatchetDecision(index: Int(p & 0xF), isHit: p & 0x10 != 0, ratchets: p & 0x20 != 0, strikes: Int((p >> 7) & 0x7), missed: p & 0x40 != 0)
     }
     /// Output x's most recent pattern index, nil before its first emitter hit.
     func currentIndex(_ x: Int) -> Int? { let b = (indexPacked >> UInt32(8 * x)) & 0xFF; return b == 0xFF ? nil : Int(b) }
