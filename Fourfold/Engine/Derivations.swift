@@ -3837,10 +3837,7 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
     // `AudioUnitViewController`'s main-thread migration pins real chains — the SAME safe default the Router falls
     // back to, so the mirror and the engine never disagree even in that window.
     let passBeats = Double(cycleLen) * sub
-    let chains: EuclideousLaneRestartChains = L.usesRestartChains
-        ? EuclideousLaneRestartChains(rhythm: .from(L.restartRhythmBars ?? []), melody: .from(L.restartMelodyPasses ?? []),
-                                      barBeats: beatsPerBar, lapBeats: passBeats)
-        : .off
+    let chains = euclideousLaneRestartChains(line: L, lane: lane, barBeats: beatsPerBar, lapBeats: passBeats)   // RESTART UNITS: the one resolver (`.off` until the chains are pinned)
     return EuclideousWalkLaneConfig(buf: buf, n: n, dir: cfgDir, sub: sub, spanBeats: spanBeats,
                                     grid: grid, chains: chains, muteCells: g.muteCells,
                                     muteUnitBeats: g.muteUnit.beats(stepBeats: sub, passBeats: Double(cycleLen) * sub),

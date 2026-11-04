@@ -689,8 +689,8 @@ struct EuclidLine: Codable, Equatable {
     // those three stay decodable, never written again, same "hide, don't delete" treatment the LANES
     // GRID ferry itself gave resetSteps/restartMask before it). RHYTHM counts in bars, MELODY in passes.
     // nil ⇒ "pre-feature: resolve via the §12 migration" (NOT the same as FREE — an empty array IS FREE).
-    // On decode, drop any link not in {1,2,3,4,6,8} and keep at most the first four (EuclideousRestartChain
-    // enforces this; see Derivations.swift).
+    // On decode, drop any link not valid for the chain's unit (RESTART UNITS: {1,2,3,4,6,8}, or 1…8 for a HIT chain) and keep at most the first four; `EuclideousRestartChain.from` re-validates at every read.
+    // RESTART UNITS (2026-11-04): the links count in the chain's UNIT — bars / passes / riffs for RHYTHM, passes / bars / hits for MELODY (`restartRhythmUnit` / `restartMelodyUnit`, below).
     var restartRhythmBars: [UInt8]? = nil
     var restartMelodyPasses: [UInt8]? = nil
     var usesRestartChains: Bool { restartRhythmBars != nil || restartMelodyPasses != nil }
@@ -755,6 +755,16 @@ struct EuclidLine: Codable, Equatable {
     var poolSrcMask: UInt8? = nil
     var poolSustainOn: Bool? = nil
     var poolSustainMode: EuclideousSustainMode? = nil
+    // RESTART UNITS ferry (Paul 2026-11-04) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant (`RestartUnits.swift`). The two chains above (`restartRhythmBars` / `restartMelodyPasses`) keep their names
+    // and now hold their links IN THE CHAIN'S UNIT: RHYTHM counts BAR | PASS | RIFF, MELODY counts PASS | BAR | HIT. SOURCE is the lane a PASS / RIFF unit counts (0…3; ignored for BAR / HIT), ON the chain's switch (nil ⇒ on exactly
+    // when it holds a link), WITH RHYTHM restarts the melody at every rhythm restart. All nil ⇒ BAR / PASS of the lane itself, on iff it has links, no WITH RHYTHM ⇒ a document that never had them plays exactly as before. Lane-lock fields.
+    var restartRhythmUnit: EuclideousRhythmRestartUnit? = nil
+    var restartRhythmSource: Int? = nil
+    var restartRhythmOn: Bool? = nil
+    var restartMelodyUnit: EuclideousMelodyRestartUnit? = nil
+    var restartMelodySource: Int? = nil
+    var restartMelodyOn: Bool? = nil
+    var restartMelodyWithRhythm: Bool? = nil
     var answerRhythmOnResolved: Bool { answerRhythmOn ?? false }
     var answerRhythmModeResolved: EuclideousAnswerRhythmMode { answerRhythmMode ?? .copy }
     var answerRhythmCycleResolved: Bool { answerRhythmCycle ?? false }
@@ -1194,6 +1204,16 @@ extension EuclidLine {
         poolSrcMask = (try? c.decodeIfPresent(UInt8.self, forKey: .poolSrcMask)).flatMap { $0 }.map { euclideousPoolSrcNormalized($0) }
         poolSustainOn = (try? c.decodeIfPresent(Bool.self, forKey: .poolSustainOn)).flatMap { $0 }
         poolSustainMode = (try? c.decodeIfPresent(EuclideousSustainMode.self, forKey: .poolSustainMode)).flatMap { $0 }
+        // RESTART UNITS: tolerant (`try?`), the source clamped to a lane; the links are validated AFTER the units decode (§3.3): HIT keeps 1…8, every other unit {1,2,3,4,6,8}, at most four.
+        restartRhythmUnit = (try? c.decodeIfPresent(EuclideousRhythmRestartUnit.self, forKey: .restartRhythmUnit)).flatMap { $0 }
+        restartRhythmSource = (try? c.decodeIfPresent(Int.self, forKey: .restartRhythmSource)).flatMap { $0 }.map { max(0, min(3, $0)) }
+        restartRhythmOn = (try? c.decodeIfPresent(Bool.self, forKey: .restartRhythmOn)).flatMap { $0 }
+        restartMelodyUnit = (try? c.decodeIfPresent(EuclideousMelodyRestartUnit.self, forKey: .restartMelodyUnit)).flatMap { $0 }
+        restartMelodySource = (try? c.decodeIfPresent(Int.self, forKey: .restartMelodySource)).flatMap { $0 }.map { max(0, min(3, $0)) }
+        restartMelodyOn = (try? c.decodeIfPresent(Bool.self, forKey: .restartMelodyOn)).flatMap { $0 }
+        restartMelodyWithRhythm = (try? c.decodeIfPresent(Bool.self, forKey: .restartMelodyWithRhythm)).flatMap { $0 }
+        restartRhythmBars = restartRhythmBars.map { euclideousRestartValidLinks($0, hit: false) }
+        restartMelodyPasses = restartMelodyPasses.map { euclideousRestartValidLinks($0, hit: restartMelodyUnit == .hit) }
         if !usesNewAnswer, let m = EuclidLine.migratedAnswer(rhythm: listenRhythm, pitch: listenPitch) {
             answerRhythmOn = m.rhythmOn; answerRhythmMode = m.rhythmMode; answerPitchOn = m.pitchOn; answerPitchMode = m.pitchMode
         }

@@ -250,7 +250,7 @@ final class Router {
                 let steps = max(2, min(16, rl.steps))
                 lap = borrowed ? Double(steps) * ((rl.rate?.beats ?? defaultRateBeats) / pow(2.0, Double(L.listenSpeedResolved)))
                                : Double(euclidCycleLen(L.directionResolved, n: steps)) * (L.rate?.beats ?? defaultRateBeats)
-                chain = rl.usesRestartChains ? EuclideousRestartChain.from(rl.restartRhythmBars ?? []) : EuclideousRestartChain.free
+                chain = euclideousLaneRestartChains(line: rl, lane: borrowed ? src : pl, barBeats: barBeats, lapBeats: lap).rhythm   // RESTART UNITS: the active BAR chain, else FREE
             }
             func passIndex(_ m: Double) -> Int64 { lap > 0 ? euclideousPassIndex(beat: m, lapBeats: lap, barBeats: barBeats, rhythmChain: chain) : 0 }
             let startPass = passIndex(startBeat), startBar = barIndex(startBeat)
@@ -3275,11 +3275,7 @@ final class Router {
                 // chain-cut-short timing to sample the source's strikes at the right moments.)
                 if lineIndex < linesView.count {
                     let line = copyOrFillValid ? linesView[listenSource] : linesView[lineIndex]
-                    if line.usesRestartChains {
-                        chains = EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []),
-                                                             melody: .from(line.restartMelodyPasses ?? []),
-                                                             barBeats: beatsPerBar, lapBeats: Double(cycleLen) * sub)
-                    }
+                    chains = euclideousLaneRestartChains(line: line, lane: copyOrFillValid ? listenSource : lineIndex, barBeats: beatsPerBar, lapBeats: Double(cycleLen) * sub)   // RESTART UNITS: the one resolver (`.off` until pinned)
                 }
                 if isEuclideousRow, lineIndex < linesView.count {
                     let line = linesView[lineIndex]

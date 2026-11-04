@@ -822,6 +822,7 @@ final class EffectiveParamsTests: XCTestCase {
         l.notesGate = 0.45; l.notesVelocity = 66
         l.muteCells16 = 0x0F3C; l.muteUnit = 3; l.restartRhythmMask16 = 0x0121; l.restartMelodyMask16 = 0x8040; l.restartUnit = 4   // LANES GRID
         l.restartRhythmBars = [2, 1]; l.restartMelodyPasses = [1]; l.hitsRequested = 5; l.offsetRequested = 3   // RESTART CHAINS (2026-10-19)
+        l.restartRhythmUnit = .riff; l.restartRhythmSource = 2; l.restartRhythmOn = false; l.restartMelodyUnit = .hit; l.restartMelodySource = 3; l.restartMelodyOn = true; l.restartMelodyWithRhythm = true   // RESTART UNITS (2026-11-04)
         l.riffAdvanceEvery = 3; l.riffShiftRequested = 4   // RIFF WALK (2026-10-19)
         // NOTES TAB (2026-10-19). riffOnRest is `.repeatLast` above, not `.fill`: FILL leaves ON REST and decodes as SKIP by design (§9).
         l.notesWhen = 0b01; l.notesChance = 50; l.notesPlayAs = .split; l.notesReceivedOnly = true

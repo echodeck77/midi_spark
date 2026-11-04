@@ -108,6 +108,9 @@ struct LaneLockFields: Codable {
     var direction: EuclidDir? = nil
     var patternMiss: Bool? = nil
     var restartRhythmBars: [UInt8]? = nil, restartMelodyPasses: [UInt8]? = nil
+    // RESTART UNITS (2026-11-04): the units / sources / switches / WITH RHYTHM the restart editor writes lock with the chains they belong to.
+    var restartRhythmUnit: EuclideousRhythmRestartUnit? = nil, restartRhythmSource: Int? = nil, restartRhythmOn: Bool? = nil
+    var restartMelodyUnit: EuclideousMelodyRestartUnit? = nil, restartMelodySource: Int? = nil, restartMelodyOn: Bool? = nil, restartMelodyWithRhythm: Bool? = nil
     // RIFF
     var riffOn: Bool? = nil
     var riffDir: RiffDir? = nil, riffInvert: Bool? = nil
@@ -141,6 +144,13 @@ struct LaneLockFields: Codable {
         patternMiss = (try? c.decodeIfPresent(Bool.self, forKey: .patternMiss)) ?? nil
         restartRhythmBars = (try? c.decodeIfPresent([UInt8].self, forKey: .restartRhythmBars)) ?? nil
         restartMelodyPasses = (try? c.decodeIfPresent([UInt8].self, forKey: .restartMelodyPasses)) ?? nil
+        restartRhythmUnit = (try? c.decodeIfPresent(EuclideousRhythmRestartUnit.self, forKey: .restartRhythmUnit)) ?? nil
+        restartRhythmSource = (try? c.decodeIfPresent(Int.self, forKey: .restartRhythmSource)) ?? nil
+        restartRhythmOn = (try? c.decodeIfPresent(Bool.self, forKey: .restartRhythmOn)) ?? nil
+        restartMelodyUnit = (try? c.decodeIfPresent(EuclideousMelodyRestartUnit.self, forKey: .restartMelodyUnit)) ?? nil
+        restartMelodySource = (try? c.decodeIfPresent(Int.self, forKey: .restartMelodySource)) ?? nil
+        restartMelodyOn = (try? c.decodeIfPresent(Bool.self, forKey: .restartMelodyOn)) ?? nil
+        restartMelodyWithRhythm = (try? c.decodeIfPresent(Bool.self, forKey: .restartMelodyWithRhythm)) ?? nil
         riffOn = (try? c.decodeIfPresent(Bool.self, forKey: .riffOn)) ?? nil
         riffDir = (try? c.decodeIfPresent(RiffDir.self, forKey: .riffDir)) ?? nil
         riffInvert = (try? c.decodeIfPresent(Bool.self, forKey: .riffInvert)) ?? nil
@@ -169,6 +179,8 @@ struct LaneLockFields: Codable {
         customHits = l.customHits; hitsRequested = l.hitsRequested; offsetRequested = l.offsetRequested
         tilt = l.tilt; offsetFraction = l.offsetFraction; tiltFine = l.tiltFine; rate = l.rate; listenFollowMult = l.listenFollowMult; direction = l.direction; patternMiss = l.patternMiss
         restartRhythmBars = l.restartRhythmBars; restartMelodyPasses = l.restartMelodyPasses
+        restartRhythmUnit = l.restartRhythmUnit; restartRhythmSource = l.restartRhythmSource; restartRhythmOn = l.restartRhythmOn
+        restartMelodyUnit = l.restartMelodyUnit; restartMelodySource = l.restartMelodySource; restartMelodyOn = l.restartMelodyOn; restartMelodyWithRhythm = l.restartMelodyWithRhythm
         riffOn = l.riffOn; riffDir = l.riffDir; riffInvert = l.riffInvert
         riffAdvanceEvery = l.riffAdvanceEvery; riffAdvanceStep = l.riffAdvanceStep; riffOnRest = l.riffOnRest
         riffLength = l.riffLength; riffRotate = l.riffRotate; riffShiftRequested = l.riffShiftRequested
@@ -185,6 +197,8 @@ struct LaneLockFields: Codable {
         l.customHits = customHits; l.hitsRequested = hitsRequested; l.offsetRequested = offsetRequested
         l.tilt = tilt; l.offsetFraction = offsetFraction; l.tiltFine = tiltFine; l.rate = rate; l.listenFollowMult = listenFollowMult; l.direction = direction; l.patternMiss = patternMiss
         l.restartRhythmBars = restartRhythmBars; l.restartMelodyPasses = restartMelodyPasses
+        l.restartRhythmUnit = restartRhythmUnit; l.restartRhythmSource = restartRhythmSource; l.restartRhythmOn = restartRhythmOn
+        l.restartMelodyUnit = restartMelodyUnit; l.restartMelodySource = restartMelodySource; l.restartMelodyOn = restartMelodyOn; l.restartMelodyWithRhythm = restartMelodyWithRhythm
         l.riffOn = riffOn; l.riffDir = riffDir; l.riffInvert = riffInvert
         l.riffAdvanceEvery = riffAdvanceEvery; l.riffAdvanceStep = riffAdvanceStep; l.riffOnRest = riffOnRest
         l.riffLength = riffLength; l.riffRotate = riffRotate; l.riffShiftRequested = riffShiftRequested
@@ -204,6 +218,9 @@ struct LaneLockKey: Equatable {
     var tilt: Double, tiltIsFine: Bool, offsetFraction: Double
     var rate: ArpRate?, followMult: Int, direction: EuclidDir, patternMiss: Bool
     var chainRhythm: [UInt8]?, chainMelody: [UInt8]?
+    /// RESTART UNITS: what the seven new fields resolve to (the source stays as stored — resolving a nil one needs the lane's own index, which a lock key does not carry).
+    var rhythmUnit: EuclideousRhythmRestartUnit, rhythmSource: Int?, rhythmOn: Bool
+    var melodyUnit: EuclideousMelodyRestartUnit, melodySource: Int?, melodyOn: Bool, withRhythm: Bool
     var riffOn: Bool, riffDir: RiffDir, riffInvert: Bool
     var advanceEvery: Int, advanceStep: Bool, onRest: EuclidRiffOnRest
     var length: Int, shift: Int, stride: Int, transpose: Int
@@ -220,6 +237,8 @@ extension LaneLockFields {
                            hitsRequested: l.hitsRequestedResolved, offsetRequested: l.offsetRequestedResolved,
                            tilt: l.tiltResolved, tiltIsFine: l.tiltIsFine, offsetFraction: l.offsetFractionResolved, rate: l.rate, followMult: l.listenFollowMultResolved, direction: l.directionResolved, patternMiss: l.patternMissResolved,
                            chainRhythm: l.restartRhythmBars, chainMelody: l.restartMelodyPasses,
+                           rhythmUnit: l.restartRhythmUnitResolved, rhythmSource: l.restartRhythmSource, rhythmOn: l.restartRhythmOnResolved,
+                           melodyUnit: l.restartMelodyUnitResolved, melodySource: l.restartMelodySource, melodyOn: l.restartMelodyOnResolved, withRhythm: l.restartMelodyWithRhythmResolved,
                            riffOn: l.riffOnResolved, riffDir: l.riffDirResolved, riffInvert: l.riffInvertResolved,
                            advanceEvery: l.riffAdvanceEveryResolved, advanceStep: l.riffAdvanceStepResolved, onRest: l.riffOnRestResolved,
                            length: l.riffLengthResolved, shift: l.riffRotateResolved, stride: l.riffStrideResolved, transpose: l.melodyTransposeResolved,
@@ -341,8 +360,8 @@ func euclideousLockChangedControls(from locked: LaneLockFields, to line: EuclidL
     if a.followMult != b.followMult { s.insert(.followMult) }
     if a.direction != b.direction { s.insert(.direction) }
     if a.patternMiss != b.patternMiss { s.insert(.inv) }
-    if a.chainRhythm != b.chainRhythm { s.insert(.rhythmRestart) }
-    if a.chainMelody != b.chainMelody { s.insert(.melodyRestart) }
+    if a.chainRhythm != b.chainRhythm || a.rhythmUnit != b.rhythmUnit || a.rhythmSource != b.rhythmSource || a.rhythmOn != b.rhythmOn { s.insert(.rhythmRestart) }
+    if a.chainMelody != b.chainMelody || a.melodyUnit != b.melodyUnit || a.melodySource != b.melodySource || a.melodyOn != b.melodyOn || a.withRhythm != b.withRhythm { s.insert(.melodyRestart) }
     if a.riffOn != b.riffOn { s.insert(.riffOn) }
     if a.riffDir != b.riffDir { s.insert(.riffDirection) }
     if a.riffInvert != b.riffInvert { s.insert(.riffInvert) }

@@ -769,7 +769,7 @@ func euclideousRandomCommitPendingRoll(_ roll: EuclideousPendingRoll, into line:
     switch roll.tab {
     case .rhythm:
         if !line.usesRestartChains {
-            euclideousPinRestartChains(&line, .from(line.restartRhythmBars ?? []), .from(line.restartMelodyPasses ?? []))
+            euclideousPinRestartChains(&line, line.restartRhythmChainResolved, line.restartMelodyChainResolved)
         }
         line.steps = roll.steps; line.pulses = roll.pulses; line.rotate = roll.rotate
         line.hitsRequested = nil; line.offsetRequested = nil

@@ -3247,10 +3247,7 @@ struct EuclideousPage: View {
         // RESTART CHAINS (ferry 2026-10-19): `.off` (both FREE) during the brief pre-first-resync window,
         // the same safe default the Router and the walk mirror fall back to — this lane's OWN chains
         // regardless of FOLLOW (mirrors the old grid's lookup, which also read `line` not the partner).
-        let cardChains: EuclideousLaneRestartChains = line.usesRestartChains
-            ? EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []), melody: .from(line.restartMelodyPasses ?? []),
-                                          barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub)
-            : .off
+        let cardChains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub)   // RESTART UNITS: the one resolver (`.off` until the chains are pinned)
         EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
                       // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
                       // border/fill around just this row (the step-bar area) — always `false` now; the
@@ -3369,9 +3366,7 @@ struct EuclideousPage: View {
         let followIdx = euclideousRhythmBorrowPartner(lane: idx, lines: phaseLines)
         let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: phaseLines) : nil
         let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
-        let chains: EuclideousLaneRestartChains = line.usesRestartChains
-            ? EuclideousLaneRestartChains(rhythm: .from(line.restartRhythmBars ?? []), melody: .from(line.restartMelodyPasses ?? []), barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub)
-            : .off
+        let chains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub)
         let sub = max(0.03125, followEff?.rateBeats ?? euclideousStripDivisionRate(lane: idx, lines: lines).beats)
         let muteCells = gridView.grid.muteCells, muteUnit = gridView.muteUnitBeats
         return EuclideousMixStripFeed(legs: plan.legs, n: plan.sweepLength, dir: line.directionResolved, sub: sub, chains: chains.isActive ? chains : nil, lanePlaying: line.enabledResolved,

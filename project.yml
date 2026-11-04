@@ -247,6 +247,7 @@ targets:
       - path: Fourfold/Engine/PolyRiffEdit.swift   # POLY RIFF ferry slice 2: the drag maths and the POLY grid's frames (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/AnswerTab.swift   # ANSWER ferry (2026-11-02): cycle phase, SWAP pairing, borrowed tabs, the ANSWER layout (Foundation only)
       - path: Fourfold/Engine/OutputMute.swift   # MUTE TAB ferry (2026-11-02): the per-output mute model + its pure maths (Foundation only)
+      - path: Fourfold/Engine/RestartUnits.swift   # RESTART UNITS ferry (2026-11-04): the chains' unit / source / switch / WITH RHYTHM and their resolvers (Foundation only)
       - path: Fourfold/Engine/MixPanel.swift   # MIX ROWS ferry (2026-11-03): the MIX panel's layout, sliders, strip, pool, roll, lines and VoiceOver strings (Foundation only)
       - path: Fourfold/Shared/FourfoldTransportClock.swift
     dependencies:
