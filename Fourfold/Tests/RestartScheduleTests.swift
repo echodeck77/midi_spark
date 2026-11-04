@@ -305,7 +305,7 @@ final class RestartScheduleTests: XCTestCase {
     /// Not an assertion: how long the periods get, and how long a simulation takes, over a seeded draw of four-lane documents that use every unit. The numbers go in the ferry's report.
     func testReportTheLongestPeriodsMet() {
         var rng = SplitMix(seed: 0x5EED)
-        var longest = 0.0, worstMs = 0.0, windowedCount = 0, total = 0
+        var longest = 0.0, worstMs = 0.0, windowedCount = 0, total = 0, biggestTable = 0, windowedMs = 0.0
         var worstCase = ""
         for n in 0..<60 {
             var lines: [EuclidLine] = []
@@ -325,11 +325,14 @@ final class RestartScheduleTests: XCTestCase {
             let set = euclideousBuildRestartScheduleSet(inputs)
             let ms = Date().timeIntervalSince(t0) * 1000
             total += 1
-            if set.windowed { windowedCount += 1 }
-            for lane in 0..<4 { if let d = set.lane(lane)?.data, d.period + d.prefixEnd > longest { longest = d.period + d.prefixEnd; worstCase = "draw \(n) lane \(lane)" } }
+            if set.windowed { windowedCount += 1; windowedMs = max(windowedMs, ms) }
+            for lane in 0..<4 { if let d = set.lane(lane)?.data {
+                biggestTable = max(biggestTable, d.rBeat.count + d.mBeat.count + d.fBeat.count)
+                if d.period + d.prefixEnd > longest { longest = d.period + d.prefixEnd; worstCase = "draw \(n) lane \(lane)" }
+            } }
             if ms > worstMs { worstMs = ms }
         }
-        print("RESTART UNITS schedule probe: \(total) draws, \(windowedCount) windowed, longest prefix+period \(longest / 4) bars (\(worstCase)), slowest build \(Int(worstMs)) ms (Debug)")
+        print("RESTART UNITS schedule probe: \(total) draws, \(windowedCount) windowed, longest prefix+period \(longest / 4) bars (\(worstCase)), slowest build \(Int(worstMs)) ms, slowest windowed (no period in 1024 bars) \(Int(windowedMs)) ms (Debug), biggest lane table \(biggestTable) records")
     }
 
     // MARK: test 14 — a melody restart resets what the notes part reads

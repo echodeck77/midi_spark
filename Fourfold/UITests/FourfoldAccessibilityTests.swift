@@ -28,6 +28,10 @@ enum FourfoldAuditAllowList {
         ("textClipped", "100", "MIX ROWS: the VEL slider's value (9 pt heavy) — drawn whole in the pictures; same family as GATE's 90%"),
         ("textClipped", "RIFF", "MIX ROWS: the part toggle's 8 pt caption (the element is 43 × 40) — drawn whole in the pictures; confirm on device"),
         ("textClipped", "SOLO", "the SOLO tile's 10 pt label (the card's own 40 × 40; MIX's 120 × 24) — drawn whole in every picture; the audit has flagged it since the POOL ferry — confirm on device"),
+        ("textClipped", "HIT 1", "RESTART UNITS (2026-11-04): the restart editor's timeline axis label (7 pt heavy, \"HIT 1–16\" / \"BAR 1–16\" / \"PASS 1–16\" / \"RIFF 1–16\", 34 × 7) — drawn whole in the pictures; the same family as the MIX sliders' captions — confirm on device"),
+        ("textClipped", "BAR 1", "RESTART UNITS: the editor's timeline axis label — see HIT 1"),
+        ("textClipped", "PASS 1", "RESTART UNITS: the editor's timeline axis label — see HIT 1"),
+        ("textClipped", "RIFF 1", "RESTART UNITS: the editor's timeline axis label — see HIT 1"),
         ("textClipped", "TAKE NOTHING NEW", "POOL tab SUSTAIN option caption (the spec's own 16 characters ≈ 96 pt in a ≈ 92 pt button: truncated, never shrunk) — read it on a narrow card"),
     ]
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
@@ -39,6 +43,7 @@ enum FourfoldAuditAllowList {
     /// of text, no new label). So a lane-tab screen accepts four cards' worth.
     static func unlocatedElementDetectionCeilingFor(screen: String) -> Int {
         if screen.contains("hocket popup") { return 80 }
+        if screen.contains("restart editor") { return 140 }   // the modal editor hides the page behind it: its unlocated text (measured 90 in portrait) is that page, and findings with an element are judged by frame (`modalFrame`)
         return screen.contains("lane tab") ? unlocatedElementDetectionCeiling * 4 + 4 : unlocatedElementDetectionCeiling   // four cards' worth + 4: the NOTES tab in portrait measured 24 on the iPad Pro 11 and 26 on the iPad mini (adversarial review, 2026-10-29)
     }
 
@@ -53,6 +58,11 @@ final class FourfoldAccessibilityTests: XCTestCase {
                                                                          ("elementDetection", .elementDetection), ("textClipped", .textClipped), ("contrast", .contrast)]
 
     /// Runs the audit on whatever is showing; returns the number of issues that are not on the allow-list.
+    /// While a MODAL dialog is up (the restart editor), VoiceOver and this audit treat the page behind it as not there, so the page's own text is reported as clipped / "potentially inaccessible": a finding whose element lies OUTSIDE the dialog's frame is that
+    /// page, not the dialog, and is accepted; every finding INSIDE the frame is judged as on any other screen.
+    private var modalFrame: CGRect?
+    /// The restart editor covers lane 1's card body: the card's own text under it is still in the audit's snapshot (inside the dialog's frame, so `modalFrame` cannot tell it apart) though the modal trait keeps it from VoiceOver.
+    private static let underTheEditor: Set<String> = ["HITS", "OF 8", "OF 16", "TILT", "OFFSET", "RHYTHM", "RHYTHM RESTART", "MELODY RESTART", "FREE", "STEPS"]
     @discardableResult private func audit(_ app: XCUIApplication, _ screen: String) -> Int {
         var lines: [String] = [], unknown = 0, incomplete: [String] = [], unlocated = 0
         for (name, type) in Self.types {
@@ -64,12 +74,13 @@ final class FourfoldAccessibilityTests: XCTestCase {
                 do {
                     try app.performAccessibilityAudit(for: type) { issue in
                         // `issue.element` re-queries the whole accessibility tree on every access (≈ 0.3 s on this page), so resolve it ONCE, and only for types whose issues we name
-                        var label = "?", f = "-"
+                        var label = "?", f = "-", behindModal = false
                         if let e = issue.element, let snap = try? e.snapshot() {
                             label = snap.label; f = "\(Int(snap.frame.minX)),\(Int(snap.frame.minY)) \(Int(snap.frame.width))×\(Int(snap.frame.height))"
+                            if let mf = self.modalFrame, !mf.contains(CGPoint(x: snap.frame.midX, y: snap.frame.midY)) || Self.underTheEditor.contains(snap.label) { behindModal = true }
                         }
                         if name == "elementDetection" && label == "?" { unlocated += 1 }
-                        let known = FourfoldAuditAllowList.acceptedTypes[name] != nil || FourfoldAuditAllowList.known.contains { $0.type == name && label.hasPrefix($0.label) }
+                        let known = behindModal || FourfoldAuditAllowList.acceptedTypes[name] != nil || FourfoldAuditAllowList.known.contains { $0.type == name && label.hasPrefix($0.label) }
                             || (name == "elementDetection" && label == "?" && unlocated <= FourfoldAuditAllowList.unlocatedElementDetectionCeilingFor(screen: screen))
                         if !known { mineUnknown += 1 }
                         let detail = label == "?" ? " | " + issue.detailedDescription.replacingOccurrences(of: "\n", with: " ") : ""   // an issue with no element (elementDetection) says where only in its detail
@@ -96,6 +107,19 @@ final class FourfoldAccessibilityTests: XCTestCase {
         prepare(app); settle()
         audit(app, "\(landscape ? "landscape" : "portrait") \(name)")
     }
+    /// RESTART UNITS (2026-11-04): the restart editor with a RIFF-counting rhythm chain, a HIT melody chain and WITH RHYTHM lit, so every kind of control (chips, source squares, switches, links, the timelines) exists when the audit looks.
+    private func restartEditor(_ app: XCUIApplication) {
+        let tile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm restarts")).element(boundBy: 0)
+        XCTAssertTrue(tile.waitForExistence(timeout: 5), "the restart tile")
+        tile.tap(); Thread.sleep(forTimeInterval: 1)
+        for label in ["Count riffs", "Rhythm restarts, off", "Count hits", "Restart with the rhythm, off"] {
+            let e = app.el(label); if e.waitForExistence(timeout: 3) { e.tap() }
+        }
+        Thread.sleep(forTimeInterval: 0.6)
+        let dialog = app.descendants(matching: .any)["Restarts for lane 1"]
+        XCTAssertTrue(dialog.waitForExistence(timeout: 3), "the editor dialog")
+        modalFrame = dialog.frame
+    }
     private func laneTab(_ prefix: String) -> (XCUIApplication) -> Void { { $0.els(prefix: prefix).element(boundBy: 0).tap() } }
     /// HOCKET (2026-10-27): the pop-up with a lit rule (a RED RIFF / BLUE RIFF swap), so the chips, the cycle strip, the steppers and the routes all exist when the audit looks.
     private func hocket(_ app: XCUIApplication) {
@@ -119,6 +143,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditSwingPortrait()    { screen("swing", landscape: false, open("Swing, straight", expect: "SWING")) }
     func testAuditSettingsPortrait() { screen("settings", landscape: false) { $0.buttons["Settings"].tap() } }
     func testAuditHocketPortrait()   { screen("hocket popup", landscape: false, hocket) }
+    func testAuditRestartEditorPortrait() { screen("restart editor", landscape: false, restartEditor) }   // RESTART UNITS (2026-11-04)
 
     func testAuditMixPanelLandscape() { screen("mix panel", landscape: true) { $0.buttons["Mix"].tap() } }
     func testAuditLanesLandscape()    { screen("page LANES", landscape: true) { $0.buttons["Mute"].tap() } }
@@ -133,6 +158,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditSwingLandscape()    { screen("swing", landscape: true, open("Swing, straight", expect: "SWING")) }
     func testAuditSettingsLandscape() { screen("settings", landscape: true) { $0.buttons["Settings"].tap() } }
     func testAuditHocketLandscape()   { screen("hocket popup", landscape: true, hocket) }
+    func testAuditRestartEditorLandscape() { screen("restart editor", landscape: true, restartEditor) }
 
     /// The one rule the audit cannot see: a control with NO label at all is invisible to VoiceOver. Every Button / Switch / Slider on every screen must have one.
     func testNoButtonSwitchOrSliderIsUnlabelled() {

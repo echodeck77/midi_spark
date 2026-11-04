@@ -53,6 +53,7 @@ struct EuclideousRestartEditorView: View {
     private func lane20(_ c: Color) -> Color { c.opacity(0.2) }
 
     var body: some View {
+        FourfoldStackProbe.note()
         let frames = euclideousRestartEditorFramesV2(size: input.size)
         let settings = euclideousRestartSettings(line: input.line, lane: input.lane)
         return ZStack(alignment: .topLeading) {

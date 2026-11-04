@@ -34,6 +34,13 @@ final class FourfoldStackBudgetTests: XCTestCase {
         }
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.0)
+        let restartTile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm restarts")).element(boundBy: 0)   // RESTART UNITS (2026-11-04): the editor, with a source square and a timeline showing
+        if restartTile.waitForExistence(timeout: 3) {
+            restartTile.tap()
+            for label in ["Count riffs", "Count hits"] { let c = app.el(label); if c.waitForExistence(timeout: 3) { c.tap() } }
+            Thread.sleep(forTimeInterval: 0.6)
+            let close = app.buttons["Close restarts"]; if close.exists { close.tap() }
+        }
         let hocket = app.els(prefix: "Hocket").firstMatch                    // HOCKET (2026-10-27): the pop-up with a lit rule is the deepest new build chain
         if hocket.waitForExistence(timeout: 3) {
             hocket.tap()
