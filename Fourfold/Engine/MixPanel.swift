@@ -196,24 +196,15 @@ func euclideousMixSliderReset(_ line: inout EuclidLine, kind: EuclideousMixSlide
 
 // MARK: - §3.3 the rhythm strip
 
-/// One step of the strip: a hit or not, and the number a hit wears.
-struct EuclideousMixStripStep: Equatable { var isHit: Bool; var label: Int? }
-/// Where a hit's number comes from: the riff COLUMN it reads (what the lane card's chips show — source wins, 2026-11-03) or plain hit order 1, 2, 3….
-enum EuclideousMixStripLabelMode { case riffColumn, hitOrder }
-func euclideousMixStripSteps(hits: [EuclideousStripHit], labels: EuclideousMixStripLabelMode = .riffColumn) -> [EuclideousMixStripStep] {
-    var order = 0
-    return hits.map { h in
-        guard h.kind != .rhythmRest else { return EuclideousMixStripStep(isHit: false, label: nil) }
-        order += 1
-        switch labels {
-        case .riffColumn: return EuclideousMixStripStep(isHit: true, label: h.chip?.column)
-        case .hitOrder: return EuclideousMixStripStep(isHit: true, label: order)
-        }
-    }
+/// One step of the strip: a hit or not. MIX ROWS AMENDMENT 1 (2026-11-04): a hit wears NO number on MIX (the per-pass riff-column numbers were the busiest thing on the page); the card's own strip keeps its numbers.
+struct EuclideousMixStripStep: Equatable { var isHit: Bool }
+func euclideousMixStripSteps(hits: [EuclideousStripHit]) -> [EuclideousMixStripStep] {
+    hits.map { EuclideousMixStripStep(isHit: $0.kind != .rhythmRest) }
 }
 enum EuclideousMixStripMetrics {
-    static let cellH: CGFloat = 24, gap: CGFloat = 2, radius: CGFloat = 3, bottomLine: CGFloat = 2, labelSize: CGFloat = 8, alignedColumns = 16
-    static let emptyHex: UInt32 = 0x1C1E23, hitAlpha = 0.25, currentEmptyHex: UInt32 = 0x3A3E47, labelHex: UInt32 = 0xD4D6DC, inkHex: UInt32 = 0x0D0F14
+    static let cellH: CGFloat = 24, gap: CGFloat = 2, radius: CGFloat = 3, bottomLine: CGFloat = 2, alignedColumns = 16
+    /// AMENDMENT 1: an empty step #25272D (was #1C1E23), the current step on an empty step #2E3138 (was #3A3E47).
+    static let emptyHex: UInt32 = 0x25272D, hitAlpha = 0.25, currentEmptyHex: UInt32 = 0x2E3138
 }
 /// MIX STRIP (dev Settings toggle, not saved): FIT spreads a lane's steps across the strip; ALIGNED draws every lane on a 16-column grid so steps line up across lanes (a lane over 16 steps falls back to FIT).
 enum EuclideousMixStripMode: String, CaseIterable { case fit = "FIT", aligned = "ALIGNED" }
@@ -229,16 +220,15 @@ func euclideousMixStripCells(strip: CGRect, steps: Int, mode: EuclideousMixStrip
 struct EuclideousMixCellLook: Equatable {
     var fill: EuclideousStripColumnFill      // .lane(alpha:) over the band, or a solid hex
     var bottomLine: Bool                     // a 2 pt lane-colour line along the bottom
-    var labelInkHex: UInt32
 }
-/// §3.3: empty #1C1E23 · hit lane100 at 25 % + the bottom line · the CURRENT step (transport running): a hit fills solid lane100 (number in ink), an empty step #3A3E47. No outline anywhere.
+/// §3.3 as amended (AMENDMENT 1): empty #25272D · hit lane100 at 25 % + the bottom line · the CURRENT step (transport running): a hit fills solid lane100, an empty step #2E3138. No numbers, no outline anywhere.
 func euclideousMixCellLook(isHit: Bool, isCurrent: Bool) -> EuclideousMixCellLook {
     typealias S = EuclideousMixStripMetrics
     switch (isHit, isCurrent) {
-    case (false, false): return EuclideousMixCellLook(fill: .solid(hex: S.emptyHex), bottomLine: false, labelInkHex: S.labelHex)
-    case (false, true): return EuclideousMixCellLook(fill: .solid(hex: S.currentEmptyHex), bottomLine: false, labelInkHex: S.labelHex)
-    case (true, false): return EuclideousMixCellLook(fill: .lane(alpha: S.hitAlpha), bottomLine: true, labelInkHex: S.labelHex)
-    case (true, true): return EuclideousMixCellLook(fill: .lane(alpha: 1), bottomLine: false, labelInkHex: S.inkHex)
+    case (false, false): return EuclideousMixCellLook(fill: .solid(hex: S.emptyHex), bottomLine: false)
+    case (false, true): return EuclideousMixCellLook(fill: .solid(hex: S.currentEmptyHex), bottomLine: false)
+    case (true, false): return EuclideousMixCellLook(fill: .lane(alpha: S.hitAlpha), bottomLine: true)
+    case (true, true): return EuclideousMixCellLook(fill: .lane(alpha: 1), bottomLine: false)
     }
 }
 /// The step the lane is on (a buffer index), from the card's own `raw` position (ticks in its pass): nil while the transport is stopped. PING-PONG's `raw` runs 0…2n−1 and reads back along the buffer, as the card does.
@@ -249,8 +239,6 @@ func euclideousMixStripCurrent(raw: Double, steps n: Int, dir: EuclidDir, runnin
     let k = min(cl - 1, max(0, Int(wrapped.rounded(.down))))
     return min(n - 1, max(0, euclidReadIndex(k, n: n, dir: dir)))
 }
-/// Where a hit's number is centred: above the bottom line.
-func euclideousMixCellLabelCentre(cell: CGRect) -> CGPoint { CGPoint(x: cell.midX, y: cell.maxY - EuclideousMixStripMetrics.bottomLine - 6) }
 func euclideousMixStripSpoken(hits: Int, steps: Int) -> String { "Rhythm, \(hits) \(hits == 1 ? "hit" : "hits") in \(steps) \(steps == 1 ? "step" : "steps")" }
 
 // MARK: - §4 the pool
@@ -330,8 +318,8 @@ func euclideousMixRollPlaying(notes: [NoteRollNote], nowBeat: Double) -> Bool { 
 
 enum EuclideousMixLineMetrics {
     static let idleWidth: CGFloat = 1.25, activeWidth: CGFloat = 2, idleAlpha = 0.4, activeAlpha = 1.0, fadeSeconds = 0.150, originDot: CGFloat = 6
-    static let emitterRing: CGFloat = 3, emitterLetter: CGFloat = 14, light: CGFloat = 8, lightRing: CGFloat = 2
-    static let emitterIdleHex: UInt32 = 0x1F2127, lightActiveHex: UInt32 = 0xF2F4F7, lightIdleHex: UInt32 = 0x2A2C32, inkHex: UInt32 = 0x0D0F14
+    static let emitterRing: CGFloat = 3, emitterLetter: CGFloat = 14   // AMENDMENT 1: no light — the emitter is its ring, fill and letter
+    static let emitterIdleHex: UInt32 = 0x1F2127, inkHex: UInt32 = 0x0D0F14
 }
 struct EuclideousMixLineGeometry: Equatable {
     var part: Int, output: Int, lane: Int
@@ -388,11 +376,10 @@ struct EuclideousMixEmitterLook: Equatable {
     /// 0 = the idle fill #1F2127, 1 = filled in the output's colour (the fade between).
     var fill: Double
     var letterIsInk: Bool
-    var lightActive: Bool
 }
 func euclideousMixEmitterLook(activity: Double) -> EuclideousMixEmitterLook {
     let a = max(0, min(1, activity))
-    return EuclideousMixEmitterLook(fill: a, letterIsInk: a >= 0.5, lightActive: a > 0)
+    return EuclideousMixEmitterLook(fill: a, letterIsInk: a >= 0.5)
 }
 
 // MARK: - §5.4 the A–D toggles

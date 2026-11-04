@@ -202,9 +202,6 @@ struct EuclideousMixBandCanvas: View {
                         var c = ctx; c.clip(to: shape)
                         c.fill(Path(CGRect(x: cell.minX, y: cell.maxY - EuclideousMixStripMetrics.bottomLine, width: cell.width, height: EuclideousMixStripMetrics.bottomLine)), with: .color(accent))
                     }
-                    if let n = steps[i].label, cell.width >= 7 {
-                        ctx.draw(Text("\(n)").font(heavyMono(EuclideousMixStripMetrics.labelSize)).foregroundColor(Color(hex: look.labelInkHex)), at: euclideousMixCellLabelCentre(cell: cell), anchor: .center)
-                    }
                 }
                 // ── below the top row: dimmed to 42 % while the lane is solo-silenced
                 var below = ctx
@@ -488,11 +485,6 @@ struct EuclideousMixLinesLayer: View {
                     if look.fill > 0 { ctx.fill(Path(ellipseIn: f), with: .color(colour.opacity(look.fill))) }
                     ctx.stroke(ring, with: .color(colour), lineWidth: M.emitterRing)
                     ctx.draw(Text(euclideousJackLetters[o]).font(heavyMono(M.emitterLetter)).foregroundColor(look.letterIsInk ? Color(hex: M.inkHex) : colour), at: CGPoint(x: f.midX, y: f.midY), anchor: .center)
-                    // the light at its top-right, with a ring in the page's ground
-                    let lc = CGPoint(x: f.maxX - M.light / 2 - 1, y: f.minY + M.light / 2 + 1)
-                    let lr = M.light / 2 + M.lightRing
-                    ctx.fill(Path(ellipseIn: CGRect(x: lc.x - lr, y: lc.y - lr, width: 2 * lr, height: 2 * lr)), with: .color(Color(hex: M.inkHex)))
-                    ctx.fill(Path(ellipseIn: CGRect(x: lc.x - M.light / 2, y: lc.y - M.light / 2, width: M.light, height: M.light)), with: .color(Color(hex: look.lightActive ? M.lightActiveHex : M.lightIdleHex)))
                 }
             }
             .frame(width: canvasW, height: layout.size.height)

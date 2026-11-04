@@ -190,25 +190,21 @@ final class MixPanelTests: XCTestCase {
 
     // MARK: test 3 — the rhythm strip
 
-    private func hits(_ n: Int, at: Set<Int>, column: Bool = false) -> [EuclideousStripHit] {
-        (0..<n).map { i in
-            var h = EuclideousStripHit()
-            if at.contains(i) { h.kind = .hit; if column { h.chip = EuclideousStripChip(rank: 3, column: i + 5, hollow: false, grey: false) } }
-            return h
-        }
+    private func hits(_ n: Int, at: Set<Int>) -> [EuclideousStripHit] {
+        (0..<n).map { i in var h = EuclideousStripHit(); if at.contains(i) { h.kind = .hit; h.chip = EuclideousStripChip(rank: 3, column: i + 5, hollow: false, grey: false) }; return h }
     }
-    func testEightStepsWithFourHitsGiveEightCellsAndHitsNumberedOneToFour() {
-        let steps = euclideousMixStripSteps(hits: hits(8, at: [0, 2, 4, 6]), labels: .hitOrder)
-        XCTAssertEqual(steps.count, 8); XCTAssertEqual(steps.map { $0.label }, [1, nil, 2, nil, 3, nil, 4, nil]); XCTAssertEqual(steps.filter { $0.isHit }.count, 4)
+    func testEightStepsWithFourHitsGiveEightCellsAndNoNumberOnAnyOfThem() {
+        let steps = euclideousMixStripSteps(hits: hits(8, at: [0, 2, 4, 6]))
+        XCTAssertEqual(steps.count, 8); XCTAssertEqual(steps.map { $0.isHit }, [true, false, true, false, true, false, true, false]); XCTAssertEqual(steps.filter { $0.isHit }.count, 4)
+        // AMENDMENT 1: a hit wears NO number on MIX (the card's riff-column numbers are not shown here), whatever the hit reads
+        XCTAssertEqual(MemoryLayout<EuclideousMixStripStep>.size, 1, "a step is a hit or not — nothing else (no label)")
         let strip = CGRect(x: 76, y: 8, width: 483.333333, height: 24)
         let cells = euclideousMixStripCells(strip: strip, steps: 8, mode: .fit)
         XCTAssertEqual(cells.count, 8); let w = (483.333333 - 7 * 2) / 8
         for (i, c) in cells.enumerated() { close(c.width, CGFloat(w)); close(c.height, 24); close(c.minX, 76 + CGFloat(i) * CGFloat(w + 2)) }
         close(cells.last!.maxX, strip.maxX, "the cells span the strip")
-        // the card's own numbers: the riff column a hit reads, blank where it reads none
-        XCTAssertEqual(euclideousMixStripSteps(hits: hits(8, at: [0, 2], column: true), labels: .riffColumn).map { $0.label }, [5, nil, 7, nil, nil, nil, nil, nil])
-        var mixed = hits(4, at: [1, 3]); mixed[1].chip = EuclideousStripChip(rank: 1, column: 2, hollow: true, grey: false)
-        XCTAssertEqual(euclideousMixStripSteps(hits: mixed, labels: .riffColumn).map { $0.label }, [nil, 2, nil, nil], "a hit that reads no riff note (riff off, a rest) wears no number, as on the card")
+        var gap = hits(4, at: [1, 3]); gap[1].kind = .gap
+        XCTAssertEqual(euclideousMixStripSteps(hits: gap).map { $0.isHit }, [false, true, false, true], "a hit on a riff rest is still a hit")
     }
     func testSixteenStepsFitSixteenCellsAndAlignedPutsAnEightStepLaneOnTheSixteenColumnGrid() {
         let strip = CGRect(x: 0, y: 0, width: 483.333333, height: 24)
@@ -221,12 +217,14 @@ final class MixPanelTests: XCTestCase {
         XCTAssertEqual(euclideousMixStripCells(strip: strip, steps: 1, mode: .fit).count, 1); XCTAssertEqual(EuclideousMixStripMode(rawValue: "ALIGNED"), .aligned)
     }
     func testTheCellLooksAndTheCurrentStep() {
+        // AMENDMENT 1 (§A1, tests 3 / 9): empty #25272D · hit lane100 @ 25 % + the bottom line · the current hit solid lane100 · the current empty step #2E3138 — and no number on any cell
         let empty = euclideousMixCellLook(isHit: false, isCurrent: false), hit = euclideousMixCellLook(isHit: true, isCurrent: false)
-        XCTAssertEqual(empty.fill, .solid(hex: 0x1C1E23)); XCTAssertFalse(empty.bottomLine)
-        XCTAssertEqual(hit.fill, .lane(alpha: 0.25)); XCTAssertTrue(hit.bottomLine); XCTAssertEqual(hit.labelInkHex, 0xD4D6DC)
+        XCTAssertEqual(empty.fill, .solid(hex: 0x25272D)); XCTAssertFalse(empty.bottomLine)
+        XCTAssertEqual(hit.fill, .lane(alpha: 0.25)); XCTAssertTrue(hit.bottomLine)
         let curHit = euclideousMixCellLook(isHit: true, isCurrent: true), curEmpty = euclideousMixCellLook(isHit: false, isCurrent: true)
-        XCTAssertEqual(curHit.fill, .lane(alpha: 1), "the current hit fills solid lane100"); XCTAssertEqual(curHit.labelInkHex, 0x0D0F14, "…its number in ink")
-        XCTAssertEqual(curEmpty.fill, .solid(hex: 0x3A3E47), "the current empty step")
+        XCTAssertEqual(curHit.fill, .lane(alpha: 1), "the current hit fills solid lane100"); XCTAssertFalse(curHit.bottomLine, "…with nothing else on it")
+        XCTAssertEqual(curEmpty.fill, .solid(hex: 0x2E3138), "the current empty step only slightly lightens"); XCTAssertFalse(curEmpty.bottomLine)
+        XCTAssertEqual(EuclideousMixStripMetrics.emptyHex, 0x25272D); XCTAssertEqual(EuclideousMixStripMetrics.currentEmptyHex, 0x2E3138)
         // which step is current: FWD reads the buffer in order, BKW from the end, PING-PONG bounces; the whole number is the step, wrapped; nothing while stopped
         XCTAssertEqual(euclideousMixStripCurrent(raw: 2.7, steps: 8, dir: .fwd, running: true), 2); XCTAssertEqual(euclideousMixStripCurrent(raw: 10.2, steps: 8, dir: .fwd, running: true), 2, "wraps")
         XCTAssertEqual(euclideousMixStripCurrent(raw: 2.7, steps: 8, dir: .bkw, running: true), 5)
@@ -315,8 +313,8 @@ final class MixPanelTests: XCTestCase {
         close(mid.width, 1.625); XCTAssertEqual(mid.alpha, 0.7, accuracy: 1e-9)
         XCTAssertEqual(euclideousMixLineDrawOrder(activities: [1, 0, 0.5, 0]), [1, 3, 2, 0], "active lines draw above idle ones; ties keep their order")
         let e0 = euclideousMixEmitterLook(activity: 0), e1 = euclideousMixEmitterLook(activity: 1), e5 = euclideousMixEmitterLook(activity: 0.4)
-        XCTAssertEqual(e0, EuclideousMixEmitterLook(fill: 0, letterIsInk: false, lightActive: false)); XCTAssertEqual(e1, EuclideousMixEmitterLook(fill: 1, letterIsInk: true, lightActive: true))
-        XCTAssertTrue(e5.lightActive); XCTAssertFalse(e5.letterIsInk)
+        XCTAssertEqual(e0, EuclideousMixEmitterLook(fill: 0, letterIsInk: false)); XCTAssertEqual(e1, EuclideousMixEmitterLook(fill: 1, letterIsInk: true))
+        XCTAssertFalse(e5.letterIsInk); XCTAssertEqual(e5.fill, 0.4, accuracy: 1e-9, "AMENDMENT 1: the emitter's fill is its activity — there is no light")
         XCTAssertEqual((0..<4).map { euclideousMixOutputColour($0).hex }, [0xF25959, 0x59BFF2, 0xF2BF40, 0x8CD973], "A is lane 1's colour … D lane 4's")
     }
 
