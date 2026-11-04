@@ -1450,6 +1450,8 @@ struct EuclideousPage: View {
     // closes the other on that SAME lane (both close on a tab switch too, handled where `laneTab` is set).
     @State private var stepsPickerLane: Int? = nil
     @State private var restartEditorLane: Int? = nil
+    @State private var restartEditorOpenedFromRhythm = true   // RESTART UNITS: which tile opened the editor (VoiceOver focus goes to its section, and back to the tile on close)
+    @AccessibilityFocusState private var restartFocus: EuclideousRestartFocus?
     // FOUR RIFFS — the tab row's own long-press COPY/PASTE/CLEAR menu (2026-10-14 ferry §7). No precedent
     // for a long-press CONTEXT MENU anywhere in this codebase (grepped first) — built as a 5th instance of
     // the scrim+centred-card family this page already uses 4 times (RESET/MASK MODE/CHORDS/KEY), not an
@@ -3840,9 +3842,7 @@ struct EuclideousPage: View {
                         stepsPicker(idx, line, accent, width: fullWidth, height: pickerEditorH)
                     }
                 } else if restartEditorLane == idx {
-                    let geo = euclideousLaneStepGeometry(lines: lines, lane: idx, defaultRateBeats: 0.25)
-                    let lapBeats = Double(geo.cycleLen) * geo.sub
-                    restartEditor(idx, line, accent, width: fullWidth, height: pickerEditorH, lapBeats: lapBeats)
+                    restartEditorV2(idx, line, width: fullWidth, height: pickerEditorH)   // RESTART UNITS (2026-11-04): the rebuilt editor; the old `restartEditor` below is no longer mounted (hidden, not deleted)
                 }
                 if borrowed {
                     listenPausedOverlay(idx, line, label: "RHYTHM", width: fullWidth, height: belowStripH) { $0.answerRhythmOn = false }
@@ -3914,8 +3914,8 @@ struct EuclideousPage: View {
     /// their structure at the transport's beat. RESTART TILES ferry (2026-10-22): the MELODY track is one cell per riff note and each hit that plays a note strikes its cell (`euclideousRestartCellStrikes`, from the pulse feed).
     /// The flash (`restartFlash`, `euclideousRestartFlashLook`, `RestartFlashPainter`) is no longer called from here — its code is kept.
     private func restartTilesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat, fullWidth: CGFloat) -> some View {
-        let rhythm = EuclideousRestartChain.from(line.restartRhythmBars ?? [])
-        let melody = EuclideousRestartChain.from(line.restartMelodyPasses ?? [])
+        let settings = euclideousRestartSettings(line: line, lane: idx)   // RESTART UNITS: the resolved chains, units, sources and switches
+        let rhythmSpec = euclideousRestartTileSpec(rhythm: true, settings: settings, ownLane: idx), melodySpec = euclideousRestartTileSpec(rhythm: false, settings: settings, ownLane: idx)
         let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
         let cfg = riffWalkConfig(idx)
         return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !running || cfg == nil)) { tl in
@@ -3924,9 +3924,9 @@ struct EuclideousPage: View {
             let bank: EuclideousCellStrikeBank? = (running && melodyState != nil)
                 ? euclideousRestartCellStrikes(pulseFeed.strikes(lane: idx), columnCells: melodyState!.columnCells, now: tl.date.timeIntervalSinceReferenceDate) : nil
             VStack(spacing: sp4) {
-                restartTile(idx, chain: rhythm, name: "RHYTHM", unitSingular: "BAR", unitPlural: "bars", accent: accent, width: fullWidth, height: rowH,
+                restartTile(idx, rhythm: true, spec: rhythmSpec, label: euclideousRestartTileLabel(rhythm: true, settings: settings, ownLane: idx), accent: accent, width: fullWidth, height: rowH,
                             state: cfg.map { restartTileState(.rhythm, cfg: $0, beat: beat, running: running) }, strikes: nil)
-                restartTile(idx, chain: melody, name: "MELODY", unitSingular: "PASS", unitPlural: "passes", accent: accent, width: fullWidth, height: rowH,
+                restartTile(idx, rhythm: false, spec: melodySpec, label: euclideousRestartTileLabel(rhythm: false, settings: settings, ownLane: idx), accent: accent, width: fullWidth, height: rowH,
                             state: melodyState, strikes: bank)
             }
         }
@@ -3936,43 +3936,48 @@ struct EuclideousPage: View {
     /// "MELODY RESTART" (8 pt heavy, 0.1 em, #8A909A, truncating first) on the left; the chain (13 pt heavy, #F2F4F7 — FREE #AAB0BA) and its BAR / PASS unit on the right. RESTART TILES §2: the layers are walked in
     /// `euclideousRestartTileLayerOrder` — base (fill + border), sweep, track, text — so the sweep never draws over the text.
     /// Built as an `AnyView` (the page's construction chain has almost no stack to spare in a debug build — see Docs/claude-playbook.md).
-    private func restartTile(_ idx: Int, chain: EuclideousRestartChain, name: String, unitSingular: String, unitPlural: String, accent: Color, width: CGFloat, height: CGFloat,
+    private func restartTile(_ idx: Int, rhythm: Bool, spec: EuclideousRestartTileSpec, label: String, accent: Color, width: CGFloat, height: CGFloat,
                              state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?) -> AnyView {
-        let control: EuclideousLockControl = name == "MELODY" ? .melodyRestart : .rhythmRestart
+        let control: EuclideousLockControl = rhythm ? .rhythmRestart : .melodyRestart
+        let name = rhythm ? "RHYTHM" : "MELODY"
         return AnyView(ZStack(alignment: .topLeading) {
             ForEach(Array(euclideousRestartTileLayerOrder.enumerated()), id: \.offset) { _, layer in
-                restartTileLayer(layer, chain: chain, name: name, unitSingular: unitSingular, accent: accent, width: width, height: height, state: state, strikes: strikes)
+                restartTileLayer(layer, spec: spec, name: name, accent: accent, width: width, height: height, state: state, strikes: strikes)
             }
         }
         .frame(width: width, height: height)
         .contentShape(Rectangle())
         .onTapGesture {
             restartEditorLane = idx
+            restartEditorOpenedFromRhythm = rhythm
             stepsPickerLane = nil   // §1.6: only one of the picker/editor open at a time
         }
         .modifier(lockOutlineMod(idx, control, accent))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(euclideousRestartTileAccessibleLabel(name: name, chain: chain, unitSingular: unitSingular.lowercased(), unitPlural: unitPlural))
+        .accessibilityLabel(label)
         .accessibilityValue(lockSpoken(idx, control, state?.restartsInText ?? ""))
-        .accessibilityHint("Double-tap to edit"))
+        .accessibilityHint(EuclideousRestartEditorAX.tileHint)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityFocused($restartFocus, equals: .tile(lane: idx, rhythm: rhythm)))
     }
-    private func restartTileLayer(_ layer: EuclideousRestartTileLayer, chain: EuclideousRestartChain, name: String, unitSingular: String, accent: Color, width: CGFloat, height: CGFloat,
+    private func restartTileLayer(_ layer: EuclideousRestartTileLayer, spec: EuclideousRestartTileSpec, name: String, accent: Color, width: CGFloat, height: CGFloat,
                                   radius: CGFloat = 8, trackCentred: Bool = false, state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?) -> AnyView {
         switch layer {
         case .base:
-            return AnyView(RoundedRectangle(cornerRadius: radius).fill(chain.isFree ? Color(hex: 0x2A2D34) : Color(hex: 0x22252C))
-                .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(chain.isFree ? Color.clear : lane100(accent), lineWidth: 1))
+            return AnyView(RoundedRectangle(cornerRadius: radius).fill(spec.isSet ? Color(hex: 0x22252C) : Color(hex: 0x2A2D34))
+                .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(spec.isSet ? lane100(accent) : Color.clear, lineWidth: 1))
                 .frame(width: width, height: height))
         case .sweep:
             guard let state else { return AnyView(EmptyView()) }
-            return AnyView(EuclideousRestartTileCanvas(part: .sweep, state: state, accent: accent, width: width, height: height, radius: radius))
+            // RESTART UNITS §6.3: the outer fill takes the SOURCE lane's colour when the chain counts another lane
+            return AnyView(EuclideousRestartTileCanvas(part: .sweep, state: state, accent: laneAccents[spec.fillLane % laneAccents.count], width: width, height: height, radius: radius))
         case .track:
             guard let state else { return AnyView(EmptyView()) }
             return AnyView(EuclideousRestartTileCanvas(part: .track, state: state, accent: accent, width: width, height: height, radius: radius, trackCentred: trackCentred, strikes: strikes,
                                                        pulseScale: euclideousPulseScale(level: pulseLevel), reduceMotion: reduceMotion))
         case .text:
-            let text = euclideousRestartChainText(chain)
-            let showUnit = !chain.isFree && chain.count <= 3
+            // RESTART UNITS §6.2: from leading to trailing, sp3 apart, centred on the name line: the link glyph (WITH RHYTHM), the source square, the value, the unit — the unit drops first when the group does not fit beside the name
+            let fit = euclideousRestartTileFit(spec: spec, name: name, tileWidth: width)
             return AnyView(HStack(alignment: .lastTextBaseline, spacing: 0) {
                 HStack(alignment: .lastTextBaseline, spacing: 3) {
                     Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A))
@@ -3981,11 +3986,17 @@ struct EuclideousPage: View {
                 }
                 Spacer(minLength: 4)
                 HStack(alignment: .lastTextBaseline, spacing: 3) {
-                    Text(text).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(chain.isFree ? Color(hex: 0xAAB0BA) : Color(hex: 0xF2F4F7)).lineLimit(1)
-                    if showUnit {
-                        Text(unitSingular.lowercased() == "bar" ? "BAR" : "PASS")
-                            .font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64)
-                            .foregroundColor(Color(hex: 0x8A909A))
+                    if spec.showsLinkGlyph {
+                        Image(systemName: "link").font(.system(size: 10, weight: .heavy)).foregroundColor(lane100(accent))
+                            .alignmentGuide(.lastTextBaseline) { d in d.height / 2 + 3 }
+                    }
+                    if let s = spec.sourceLane {
+                        RoundedRectangle(cornerRadius: 1.5).fill(lane100(laneAccents[s % laneAccents.count])).frame(width: 7, height: 7)
+                            .alignmentGuide(.lastTextBaseline) { d in d.height / 2 + 3 }
+                    }
+                    Text(spec.valueText).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(spec.isSet ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA)).lineLimit(1)
+                    if fit.showsUnit, let unit = spec.unitText {
+                        Text(unit).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: 0x8A909A))
                     }
                 }
                 .layoutPriority(1)
@@ -3995,6 +4006,28 @@ struct EuclideousPage: View {
         }
     }
 
+    /// RESTART UNITS (2026-11-04) §7: the restart editor — unit chips, source squares, a switch per row, the WITH RHYTHM button, link slots and a 16-cell timeline in the chain's unit, laid out by `euclideousRestartEditorFramesV2`.
+    /// Every tap is its own undo step (`restartEdit`); a lane whose chains were never pinned is pinned in the same step (§3.5).
+    private func restartEditorV2(_ idx: Int, _ line: EuclidLine, width: CGFloat, height: CGFloat) -> AnyView {
+        let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
+        var input = EuclideousRestartEditorInput(lane: idx, line: line, laneColors: laneAccents, size: CGSize(width: width, height: height), scheduleSet: restartScheduleSet, barBeats: clock.beatsPerBar,
+                                                 beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: running)
+        input.openedFromRhythm = restartEditorOpenedFromRhythm
+        return AnyView(EuclideousRestartEditorView(input: input, focus: $restartFocus, onEdit: { restartEdit(idx, $0) },
+                                                   onClose: { restartEditorLane = nil; restartFocus = .tile(lane: idx, rhythm: restartEditorOpenedFromRhythm) }))
+    }
+    private func restartEdit(_ idx: Int, _ e: EuclideousRestartEdit) {
+        let pin = restartPin(idx)
+        editStep(idx, true) { l in euclideousApplyRestartEdit(e, to: &l, lane: idx, pin: pin) }
+    }
+    /// What an unpinned lane's chains resolve to (the migration the 4 Hz poll would apply) — stored in the same step as the first restart edit.
+    private func restartPin(_ idx: Int) -> (rhythm: EuclideousRestartChain, melody: EuclideousRestartChain)? {
+        guard idx >= 0, idx < lines.count, !lines[idx].usesRestartChains else { return nil }
+        let line = lines[idx]
+        let migrated = migrateRestartChains(line: line, lane: idx, legacyOn: lanesSeq.on, legacyRate: lanesSeq.rate, legacyLen: lanesSeq.len, legacyCells: lanesSeq.cells,
+                                            sub: line.rate?.beats ?? 0.5, n: max(2, min(16, line.steps)), dir: line.directionResolved, barBeats: clock.beatsPerBar)
+        return (.from(migrated.rhythm), .from(migrated.melody))
+    }
     /// §6.2 — the restart editor: both chains, each a FREE + 4-link row. RESTART TILES ferry (2026-10-22) §3: under each chain row, in place of the timeline, its axis label and the hint line (all gone), the TILE's own
     /// live graphic — its sweep and its track (and, for MELODY, its strikes) from the same `restartTileState` — without the tile's text. The vertical layout comes from `euclideousRestartEditorLayout`
     /// (the gaps are built from it, not left to flexible spacers), so the view and the tests read the same numbers.
@@ -4098,7 +4131,7 @@ struct EuclideousPage: View {
                 ? euclideousRestartCellStrikes(pulseFeed.strikes(lane: idx), columnCells: state!.columnCells, now: tl.date.timeIntervalSinceReferenceDate) : nil
             ZStack(alignment: .topLeading) {
                 ForEach(Array(euclideousRestartTileLayerOrder.filter { $0 != .text }.enumerated()), id: \.offset) { _, layer in
-                    restartTileLayer(layer, chain: chain, name: name, unitSingular: unitWord, accent: accent, width: width, height: M.stripH, radius: M.stripRadius, trackCentred: true, state: state, strikes: bank)
+                    restartTileLayer(layer, spec: EuclideousRestartTileSpec(isSet: !chain.isFree, valueText: "", unitText: nil, sourceLane: nil, showsLinkGlyph: false, fillLane: idx), name: name, accent: accent, width: width, height: M.stripH, radius: M.stripRadius, trackCentred: true, state: state, strikes: bank)
                 }
             }
         }
@@ -5614,12 +5647,7 @@ struct EuclideousPage: View {
         let tapH = max(44, height), padV = (tapH - height) / 2
         return AnyView(VStack(alignment: .leading, spacing: 3) {
             Text(name).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-            ZStack(alignment: on ? .trailing : .leading) {
-                RoundedRectangle(cornerRadius: 7).fill(on ? lane100(accent).opacity(0.35) : Color(hex: 0x2A2D34))
-                RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color(hex: 0x3A3E47), lineWidth: 1)
-                Circle().fill(on ? lane100(accent) : Color(hex: 0x7C828D)).frame(width: 10, height: 10).padding(.horizontal, 2)
-            }
-            .frame(width: 26, height: 14)
+            EuclideousRowSwitchPill(on: on, accent: lane100(accent), width: 26, height: 14)   // RESTART UNITS: the pill is shared with the restart editor's switches (34 × 20); drawn here exactly as before
         }
         .frame(width: width, height: height, alignment: .leading)
         .contentShape(Rectangle().path(in: CGRect(x: 0, y: -padV, width: width, height: tapH)))

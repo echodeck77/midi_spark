@@ -12,6 +12,41 @@ final class FourfoldScreenshotTests: XCTestCase {
         a.name = name; a.lifetime = .keepAlways; add(a)
     }
 
+    /// RESTART UNITS (2026-11-04): the restart tiles and editor — free, then set with a RIFF rhythm of its own lane, a PASS source of another lane, a melody HIT chain with WITH RHYTHM — in portrait and landscape, playing.
+    func testTheRestartTilesAndEditor() {
+        let device = XCUIDevice.shared
+        func any(_ e: XCUIElement, _ label: String) -> XCUIElement { e.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch }
+        for (tag, o) in [("portrait", UIDeviceOrientation.portrait), ("landscape", .landscapeLeft)] {
+            let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+            device.orientation = o
+            Thread.sleep(forTimeInterval: 2)
+            attach("11-restart-\(tag)-1-tiles-free")
+            let tile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm restarts")).element(boundBy: 0)
+            guard tile.waitForExistence(timeout: 5) else { continue }
+            tile.tap(); Thread.sleep(forTimeInterval: 1)
+            let editor = app.descendants(matching: .any)["Restarts for lane 1"]
+            attach("11-restart-\(tag)-2-editor-free")
+            if editor.exists {
+                any(editor, "Count riffs").tap()
+                any(editor, "Rhythm restarts, off").tap()
+                editor.buttons.matching(NSPredicate(format: "label == %@", "Rhythm link 1, 1 riff")).firstMatch.tap()
+                any(editor, "Count hits").tap()
+                any(editor, "Restart with the rhythm, off").tap()
+                Thread.sleep(forTimeInterval: 1.2)
+                attach("11-restart-\(tag)-3-editor-set")
+                editor.buttons.matching(NSPredicate(format: "label == %@", "Count passes")).element(boundBy: 0).tap()
+                editor.buttons.matching(NSPredicate(format: "label == %@", "Lane 2")).element(boundBy: 0).tap()
+                Thread.sleep(forTimeInterval: 0.8)
+                attach("11-restart-\(tag)-4-editor-pass-of-lane-2")
+                editor.buttons["Close restarts"].tap()
+            }
+            Thread.sleep(forTimeInterval: 1.2)
+            attach("11-restart-\(tag)-5-tiles-set")
+            app.terminate()
+        }
+        device.orientation = .portrait
+    }
+
     /// The page, playing, in each orientation (the page lays itself out from its size; every orientation the app declares is exercised).
     func testThePageInEveryOrientation() {
         let app = XCUIApplication()

@@ -430,6 +430,41 @@ final class FourfoldTapTests: XCTestCase {
         app.buttons["Velocity"].tap(); assertNone("VEL")
     }
 
+    // MARK: RESTART UNITS (2026-11-04)
+
+    /// The restart editor through the real engine: a tile opens it; a unit chip selects (RIFF), the switch turns the chain on and adds a link, PASS shows the source squares with the lane itself unavailable, a square selects, WITH RHYTHM toggles,
+    /// a link steps; the header carries no instruction text; the close button closes it. (Each tap is one undo step — pinned by the pure tests and `UndoAudit`.)
+    func testTheRestartEditorUnitChipsSwitchSourcesAndLinks() {
+        let app = XCUIApplication.fresh()
+        Thread.sleep(forTimeInterval: 1)
+        let tile = app.buttons.matching(NSPredicate(format: "label == %@", "Rhythm restarts, free")).element(boundBy: 0)
+        need(tile, "lane 1's RHYTHM restart tile").tap()
+        let editor = need(app.el("Restarts for lane 1"), "the editor dialog")
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "TAP + TO ADD")).count > 0, "no instruction text in the header")
+        XCTAssertFalse(editor.buttons["Rhythm restarts free"].exists, "no FREE button")
+        let squares = { editor.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Lane ")).count }
+        XCTAssertEqual(squares(), 4, "RHYTHM BAR reads no lane (no squares); MELODY PASS reads its own (four)")
+        let riff = need(editor.buttons["Count riffs"], "the RIFF chip"); riff.tap()
+        XCTAssertTrue(editor.buttons["Count riffs"].isSelected, "tapping a unit chip selects it")
+        XCTAssertEqual(squares(), 8, "RIFF reads a lane — the RHYTHM row now shows its four squares too")
+        XCTAssertTrue(editor.buttons.matching(NSPredicate(format: "label == %@", "Lane 1")).element(boundBy: 0).isSelected, "its own lane by default")
+        let off = need(editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Rhythm restarts, off")).firstMatch, "the RHYTHM switch, off"); off.tap()
+        need(editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Rhythm restarts, on")).firstMatch, "the switch is on now")
+        need(editor.buttons["Rhythm link 1, 1 riff"], "turning on an empty chain appended a link of 1")
+        editor.buttons.matching(NSPredicate(format: "label == %@", "Count passes")).element(boundBy: 0).tap()   // the RHYTHM row's chip (MELODY has its own)
+        need(editor.buttons["Lane 1, unavailable"], "RHYTHM PASS: the lane itself is unavailable")
+        let l3 = need(editor.buttons.matching(NSPredicate(format: "label == %@", "Lane 3")).element(boundBy: 0), "lane 3's square (the RHYTHM row's first)"); l3.tap()
+        XCTAssertTrue(editor.buttons.matching(NSPredicate(format: "label == %@", "Lane 3")).element(boundBy: 0).isSelected, "a source square selects")
+        let withRhythm = need(editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart with the rhythm, off")).firstMatch, "WITH RHYTHM"); withRhythm.tap()
+        need(editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart with the rhythm, on")).firstMatch, "WITH RHYTHM is on")
+        editor.buttons["Rhythm link 1, 1 pass"].tap()
+        need(editor.buttons["Rhythm link 1, 2 passes"], "a link steps to the next length")
+        editor.buttons["Close restarts"].tap()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.el("Restarts for lane 1"))
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 2.5), .completed, "the close button closes the editor")
+        need(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm restarts every 2 passes of lane 3")).element(boundBy: 0), "the tile now reads the new restart")
+    }
+
     // MARK: MIX ROWS (2026-11-03)
 
     /// MIX swaps the four lane cards for the panel (four lane groups and the emitters) and a front tab swaps them back; the panel's controls read their values aloud. (That the swap has no flip is pinned by `euclideousPageTabTap`.)

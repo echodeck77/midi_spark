@@ -22,8 +22,16 @@ struct EuclideousRowSwitchPill: View {
     }
 }
 
+/// VoiceOver focus targets: a section of the editor (focus goes to the tapped tile's section when it opens), or a tile (focus goes back to it when it closes).
+enum EuclideousRestartFocus: Hashable {
+    case section(rhythm: Bool)
+    case tile(lane: Int, rhythm: Bool)
+}
+
 /// What the editor needs from the page.
 struct EuclideousRestartEditorInput {
+    /// Which tile opened the editor (focus returns to it, and goes to its section on open).
+    var openedFromRhythm = true
     var lane: Int
     var line: EuclidLine
     var laneColors: [Color]
@@ -37,6 +45,7 @@ struct EuclideousRestartEditorInput {
 
 struct EuclideousRestartEditorView: View {
     let input: EuclideousRestartEditorInput
+    let focus: AccessibilityFocusState<EuclideousRestartFocus?>.Binding
     let onEdit: (EuclideousRestartEdit) -> Void
     let onClose: () -> Void
 
@@ -48,9 +57,10 @@ struct EuclideousRestartEditorView: View {
         let settings = euclideousRestartSettings(line: input.line, lane: input.lane)
         return ZStack(alignment: .topLeading) {
             header(frames)
-            EuclideousRestartSectionView(input: input, frames: frames.rhythm, rhythm: true, settings: settings, showsTimeline: frames.showsTimelines, onEdit: onEdit)
-            EuclideousRestartSectionView(input: input, frames: frames.melody, rhythm: false, settings: settings, showsTimeline: frames.showsTimelines, onEdit: onEdit)
+            EuclideousRestartSectionView(input: input, focus: focus, frames: frames.rhythm, rhythm: true, settings: settings, showsTimeline: frames.showsTimelines, onEdit: onEdit)
+            EuclideousRestartSectionView(input: input, focus: focus, frames: frames.melody, rhythm: false, settings: settings, showsTimeline: frames.showsTimelines, onEdit: onEdit)
         }
+        .onAppear { let rhythm = input.openedFromRhythm; DispatchQueue.main.async { focus.wrappedValue = .section(rhythm: rhythm) } }
         .frame(width: input.size.width, height: input.size.height, alignment: .topLeading)
         .clipped()
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
@@ -82,6 +92,7 @@ struct EuclideousRestartEditorView: View {
 /// One section (RHYTHM or MELODY): row 1 (name, unit chips, source squares, switch), row 2 (the WITH RHYTHM button, the four link slots), row 3 (the timeline).
 struct EuclideousRestartSectionView: View {
     let input: EuclideousRestartEditorInput
+    let focus: AccessibilityFocusState<EuclideousRestartFocus?>.Binding
     let frames: EuclideousRestartSectionFramesV2
     let rhythm: Bool
     let settings: EuclideousRestartSettings
@@ -111,6 +122,7 @@ struct EuclideousRestartSectionView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(rhythm ? EuclideousRestartEditorAX.rhythmGroup : EuclideousRestartEditorAX.melodyGroup)
+        .accessibilityFocused(focus, equals: .section(rhythm: rhythm))
     }
 
     private var nameLabel: some View {
