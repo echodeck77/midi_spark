@@ -409,6 +409,24 @@ final class FourfoldTapTests: XCTestCase {
         }
     }
 
+    /// MIX ROWS AMENDMENT 1 (§A7): no explanatory caption line on any lower-right tab — MUTE's hint and ZOOM legend, FX's hint row and per-row descriptions (RATCH and VEL never had one). (The words are matched whole: the zoom arrows' own VoiceOver labels say "Zoom in".)
+    func testNoLowerRightTabShowsAnExplanatoryCaption() {
+        let app = XCUIApplication.fresh()
+        let captions = ["TAP CELLS TO SILENCE EACH OUTPUT", "GHOSTS DIM BEHIND", "(1\u{2013}8 PASSES)", "TAP: ON/OFF", "DRAG ALONG: PAINT", "DOUBLE-TAP: RESET",
+                        "PLAYS THE NOTE 2\u{2013}4 TIMES", "REPLACES THE LANE", "CARRIES ON THROUGH"]
+        func assertNone(_ tab: String) {
+            for c in captions {
+                let hits = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", c, c))
+                XCTAssertEqual(hits.count, 0, "\(tab): the caption \"\(c)\" is hidden")
+            }
+        }
+        need(app.buttons["Lanes"], "the MUTE tab"); assertNone("MUTE")
+        app.buttons["FX"].tap(); need(app.buttons["FX row, ratchet, all lanes, selected"], "the FX panel's RATCH row"); assertNone("FX")
+        for row in ["gate", "tie", "velocity"] { app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "FX row, \(row)")).firstMatch.tap(); assertNone("FX \(row)") }
+        app.buttons["Ratchet"].tap(); assertNone("RATCH")
+        app.buttons["Velocity"].tap(); assertNone("VEL")
+    }
+
     // MARK: MIX ROWS (2026-11-03)
 
     /// MIX swaps the four lane cards for the panel (four lane groups and the emitters) and a front tab swaps them back; the panel's controls read their values aloud. (That the swap has no flip is pinned by `euclideousPageTabTap`.)

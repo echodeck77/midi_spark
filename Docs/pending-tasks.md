@@ -1992,9 +1992,15 @@ _Done this thread (moved off the list): /btw ①②③ · adoption · strips ses
 - [ ] (golden) No golden document pins CHORD 2's wire bytes (the unit tests pin its pool per beat and the alloc audit exercises it); add a `GOLDEN CHORDS 2` document if a byte-level oracle for grid 2 is wanted.
 
 ## MIX ROWS follow-ups (2026-11-03)
-- [ ] (spec vs code, decide) The strip numbers a hit by the riff column the card's chip shows; the spec's mockup shows 1, 2, 3 in hit order. One-line switch in `euclideousMixStripSteps(labels:)` (the call in `EuclideousMixBandCanvas`).
+- [x] (RESOLVED by AMENDMENT 1, 2026-11-04) The MIX strip no longer numbers a hit at all (`EuclideousMixStripLabelMode` and the label draw were deleted — my own code, reported); the card's comet strip keeps its numbers.
 - [ ] (declared limit) A hocket-passed note shows in the RECEIVING part's roll and lights the receiving lane's chip at the source's rank; the spec's 7.4 wants the source roll to draw it too — needs a second feed record per pass (`rank` + source part).
 - [ ] (declared limit) The lane-mute (LANES grid, UI retired) dim and the solo dim on the TOP row are not applied; only what is below the top row dims under a solo, as the spec says.
 - [ ] (look) The part glyph's OFF look is the existing #AAB0BA outline; the spec says a lane100 outline — one constant in `TabGlyphPainter`, which the tab strip also draws.
 - [ ] (audit) `textClipped` on the MIX slider captions / part toggle / SOLO is allow-listed as a false positive; confirm on device and drop the entries if the audit stops flagging.
+## MIX ROWS AMENDMENT 1 follow-ups (2026-11-04)
+- [ ] (judgment, say if wrong) "Muted" in §A5 is taken as the lane's PLAY off: a stopped lane now dims below its top row like a no-hit lane. The old LANES-grid mute dim (UI retired) stays unapplied.
+- [ ] (judgment) The FX NOTE row's pass preview line (a readout, not an instruction) is kept; only the hint row and the four row descriptions are hidden.
+- [ ] (look) A rank with no note (empty pool) draws its rank number centred on the chip's line at the small size; with a name present the rank is raised 2 pt. Device to say if the lone rank should sit raised too.
+- [ ] (look) A lane's lines at 42 % of the idle ALPHA only; the width keeps 1.25 pt (a 42 % width would be a hairline). The lit chip's rank is ink at 70 % (the label's rule), not full ink.
+- [ ] (tests) Pins brought up to date with the VELOCITY tab's landing (`DerivationsTests.testSequencerTabsAreLanesThenFXThenRatch`, `FXTabTests.testDimmingAndStripTexts`); `CardBackReviewTests` (header ladder) still failing from before this ferry.
 - [ ] (tests) The retired card-back views, `euclideousCardBackLayout` and their `CardBackTests` stay compiled; delete them in a later cleanup ferry if nobody wants the backs again.
