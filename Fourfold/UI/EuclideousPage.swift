@@ -1465,6 +1465,7 @@ struct EuclideousPage: View {
     @State private var riffKeyTabFrame: CGRect? = nil
     @State private var chordsPopupOpen = false
     @State private var sourcesPopupOpen = false   // SOURCES STACK ferry (2026-10-26): the SOURCES panel (one overlay at a time; §5.1)
+    @State private var chordsPageOpen = false     // CHORDS PAGE ferry (2026-11-04): the full-screen chords page over the lane cards (§4); one overlay at a time
     @State private var sourcesEditor: EuclideousSourceEditor = .none   // Sources panel v2 §5.13: which inline editor is open (one at a time)
     @State private var sourcesChordsPage = false                       // §6: the panel is showing the CHORDS page (vs the SOURCES page); reset when the panel closes (§6.3)
     @State private var octaveDragLanes: Set<Int> = []                  // NOTES-tab octave slider (2026-10-29): lanes with a drag in progress, so a drag is ONE undo burst
@@ -1831,6 +1832,12 @@ struct EuclideousPage: View {
                 EuclideousStackBreak { AnyView(laneCardSided(2, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
                 EuclideousStackBreak { AnyView(laneCardSided(3, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
             }
+            // CHORDS PAGE ferry (2026-11-04) §4.1: a full-screen page over the four lane cards' block — the header, tab strip, riff panel and lower-right panel stay visible and live.
+            if chordsPageOpen {
+                EuclideousStackBreak { AnyView(chordsPageView(size: page.lanes[0].union(page.lanes[3]).size)) }
+                    .offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
+                    .zIndex(6)
+            }
             modeHint(size)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -2038,6 +2045,7 @@ struct EuclideousPage: View {
     /// A tap on a strip segment: nothing when it is already selected; otherwise every card shows the new tab. Between two front tabs the cards change at once; between MIX and a front tab all four turn over (CARD BACKS §3.3: lane n
     /// starts n × 70 ms late; the frame clock runs until the last has finished). A tap that would start a turn while the cards are still turning is ignored (review 2026-10-28: restarting popped a half-turned card to full width).
     private func selectPageTab(_ tapped: EuclideousPageTab) {
+        if chordsPageOpen { chordsPageOpen = false }   // CHORDS PAGE §4.2: a tab-strip tap closes the page, then does what it normally does
         guard let change = euclideousPageTabTap(current: pageTab, tapped: tapped) else { return }
         if change.flips, let start = cardFlipStart, euclideousCardFlipIsLive(since: Date().timeIntervalSince(start), reduceMotion: reduceMotion) { return }
         // the STEPS picker, the restart editor and the NOTES picker belong to a card's tab: they close when the tab changes (the tab row used to close its own lane's; every card shows the one tab now)
@@ -2277,7 +2285,7 @@ struct EuclideousPage: View {
     /// every pop-up on this page toggles fully independently today, confirmed by reading each one first.
     private func closeAllOtherOverlays() {
         keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; swingPopupOpen = false; riffTabMenuLane = nil
-        chordsTabMenuIndex = nil; sourcesPopupOpen = false   // SOURCES STACK ferry (2026-10-26): one overlay at a time (§5.1)
+        chordsTabMenuIndex = nil; sourcesPopupOpen = false; chordsPageOpen = false   // SOURCES STACK / CHORDS PAGE: one overlay at a time (§5.1 / §4.3)
         hocketPopupOpen = false   // HOCKET (2026-10-27): the same
     }
 
@@ -2588,7 +2596,7 @@ struct EuclideousPage: View {
             }
             sourceContentWell(width: L.contentW) { chordsRowContent(state: state) }
                 .contentShape(Rectangle())
-                .onTapGesture { sourcesEditor = .none; sourcesChordsPage = true }   // §6: show the CHORDS page inside the same panel
+                .onTapGesture { sourcesEditor = .none; sourcesChordsPage = false; sourcesPopupOpen = false; chordsPageOpen = true }   // CHORDS PAGE §4.2: the SOURCES panel closes and the full-screen chords page opens
             sourceCountView(added: sourceStatus.chordsAdded, colour: EuclideousSourceColour.chords.fill, on: sourcePlan.chordsOnR)
         }
     }
@@ -3130,6 +3138,329 @@ struct EuclideousPage: View {
                 }
             }
         }
+    }
+
+    // MARK: - CHORDS PAGE ferry (2026-11-04) §4-7: the full-screen page over the four lane cards
+    // Positions from `euclideousChordsPageLayout` (pure). The playing column is the ONE `chordColumn` (so the step
+    // strip, the grid wash and the lane strip can never disagree with the engine). The lane-strip 1/2 buttons share
+    // the POOL tab's own `edit { setPoolSrc }`. Device-owed (no macOS test reach); simplifications flagged inline.
+
+    private func chordsLaneHex(_ i: Int) -> UInt32 { [0xF25959, 0x59BFF2, 0xF2BF40, 0x8CD973][max(0, min(3, i))] }   // §1.1
+    private func chordsPageConfig(_ set: Int) -> ChordsAdvanceConfig { (set == 1 ? chordSets[min(1, chordSets.count - 1)] : chordSets[0]).chordsAdvanceConfig }
+    /// §3/§5.5: the grid's current playing column (chordColumn — the engine's own), or -1 while stopped (then §5.5's
+    /// "the column the next play would start on" is chordColumn at the frozen anchor beat, which is that same answer).
+    private func chordsPagePlayingColumn(set: Int, beat: Double) -> Int {
+        chordColumn(chordsPageConfig(set), beat: beat, schedule: restartScheduleSet, barBeats: clock.beatsPerBar)
+    }
+
+    private func chordsPageView(size: CGSize) -> some View {
+        let L = euclideousChordsPageLayout(block: size)
+        let keyName = euclideousKeyLabel(root: keyRoot, type: keyType)
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1A1C21))                                   // §4.4
+                .overlay(RoundedRectangle(cornerRadius: 12).inset(by: 0.5).stroke(Color(hex: 0x2E3138), lineWidth: 1))
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !clock.playing)) { tl in
+                let beat = walkTagBeat(at: tl.date)
+                ZStack(alignment: .topLeading) {
+                    chordsPageHeader(L, keyName: keyName, beat: beat)
+                    chordsPageColumn(set: 0, L: L, beat: beat).frame(width: L.colW, height: L.column0.height).offset(x: L.column0.minX, y: L.column0.minY)
+                    chordsPageColumn(set: 1, L: L, beat: beat).frame(width: L.colW, height: L.column1.height).offset(x: L.column1.minX, y: L.column1.minY)
+                    chordsPageLaneStrip(L, beat: beat).frame(width: L.laneStrip.width, height: L.laneStrip.height).offset(x: L.laneStrip.minX, y: L.laneStrip.minY)
+                }
+                .frame(width: L.content.width, height: L.content.height, alignment: .topLeading)
+                .offset(x: L.content.minX, y: L.content.minY)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Chords")
+    }
+
+    // §5.1: ‹ SOURCES · switch · "CHORDS · <key>" · close
+    private func chordsPageHeader(_ L: EuclideousChordsPageLayout, keyName: String, beat: Double) -> AnyView {
+        AnyView(HStack(spacing: 8) {
+            Button { chordsPageOpen = false; sourcesChordsPage = false; sourcesPopupOpen = true } label: {   // §4.2 back to SOURCES (its SOURCES page)
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.left").font(.system(size: 9, weight: .bold)).foregroundColor(Color(hex: 0xAAB0BA))
+                    Text("SOURCES").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.1 * 10).foregroundColor(Color(hex: 0xAAB0BA))
+                }
+                .padding(.horizontal, 10).frame(height: 28).background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                .frame(height: 44)
+            }
+            .buttonStyle(.plain).accessibilityLabel("Back to sources")
+            sourcePip(sourcePlan.chordsOnR ? .playing : .off, colour: EuclideousSourceColour.chords.fill)   // the CHORDS switch's pip (the toggle itself is on the SOURCES row); §5.1
+                .onTapGesture { writeSourcePlan { $0.chordsOn = !sourcePlan.chordsOnR } }
+            HStack(spacing: 0) {
+                Text("CHORDS").font(.system(size: 16, weight: .heavy, design: .monospaced)).tracking(0.04 * 16).foregroundColor(Color(hex: 0xF2F4F7))
+                Text(" \u{00B7} ").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x5C626C))
+                Text(keyName).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))   // §5.1 the key's short name ("Cm")
+            }
+            Spacer(minLength: 0)
+            Button { chordsPageOpen = false } label: {                                                       // §5.1 close
+                Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundColor(Color(hex: 0xAAB0BA))
+                    .frame(width: 28, height: 28).background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain).accessibilityLabel("Close chords")
+        }
+        .frame(width: L.content.width, height: EuclideousChordsPageMetrics.headerH, alignment: .leading)
+        .offset(y: 0))
+    }
+
+    // §5.2: one grid column — number + lane squares + STEPS; ADVANCE; RESTART; step strip; grid.
+    private func chordsPageColumn(set: Int, L: EuclideousChordsPageLayout, beat: Double) -> AnyView {
+        let cfg = chordSets[min(set, chordSets.count - 1)]
+        let steps = cfg.chordsStepsResolved
+        let minorKey = euclideousScaleIsMinor(keyType.intervals)
+        return AnyView(ZStack(alignment: .topLeading) {
+            chordsPageTitleRow(set: set, steps: steps, L: L).offset(y: L.titleY)
+            chordsPageAdvanceRow(set: set, L: L).offset(y: L.advanceY)
+            chordsPageRestartRow(set: set, L: L).offset(y: L.restartY)
+            chordsPageStepStrip(set: set, steps: steps, L: L, beat: beat).offset(y: L.stepStripY)
+            chordsPageGrid(set: set, steps: steps, minorKey: minorKey, L: L, beat: beat).offset(y: L.gridY)
+        })
+    }
+
+    // §5.2 title row: "1"/"2" · a square per lane sourced to this grid · STEPS − value +
+    private func chordsPageTitleRow(set: Int, steps: Int, L: EuclideousChordsPageLayout) -> AnyView {
+        AnyView(HStack(spacing: 6) {
+            Text("\(set + 1)").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).frame(width: 20, alignment: .leading)
+            ForEach(0..<4, id: \.self) { i in
+                if i < lines.count, lines[i].poolChordsOn, euclideousLaneChordGrid(lines[i].poolSrcMaskResolved) == set {
+                    RoundedRectangle(cornerRadius: 2).fill(Color(hex: chordsLaneHex(i))).frame(width: 8, height: 8)
+                }
+            }
+            Spacer(minLength: 0)
+            Text("STEPS").font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(0.1 * 7).foregroundColor(Color(hex: 0x8A909A))
+            chordsPageStepper("\u{2212}", disabled: steps <= 1) { onEditChordSet(set) { $0.chordsSteps = max(1, steps - 1) } }
+            Text("\(steps)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).frame(width: 24)
+            chordsPageStepper("+", disabled: steps >= 16) { onEditChordSet(set) { $0.chordsSteps = min(16, steps + 1) } }
+        }
+        .frame(width: L.colW, height: EuclideousChordsPageMetrics.titleRowH, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Grid \(set + 1)"))
+    }
+    private func chordsPageStepper(_ glyph: String, disabled: Bool, _ act: @escaping () -> Void) -> some View {
+        Text(glyph).font(.system(size: 13)).foregroundColor(Color(hex: disabled ? 0x4A4E57 : 0xAAB0BA))
+            .frame(width: 24, height: 24).background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0x2A2D34)))
+            .frame(height: 44).contentShape(Rectangle()).onTapGesture { if !disabled { act() } }
+    }
+
+    // §5.3 / §5.4 shared chips
+    private func chordsUnitChip(_ label: String, selected: Bool, dim: Bool = false, _ act: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.06 * 8)
+            .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+            .frame(width: 36, height: 26).background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+            .opacity(dim ? 0.42 : 1).contentShape(Rectangle()).onTapGesture(perform: act)
+    }
+    private func chordsRateChip(_ label: String, selected: Bool, _ act: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 7.5, weight: .heavy, design: .monospaced))
+            .foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+            .frame(width: 25, height: 26).background(RoundedRectangle(cornerRadius: 5).fill(selected ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+            .contentShape(Rectangle()).onTapGesture(perform: act)
+    }
+    private func chordsLaneSelectSquare(_ i: Int, selected: Bool, dim: Bool, _ act: @escaping () -> Void) -> some View {
+        ZStack {
+            if selected { RoundedRectangle(cornerRadius: 2.5).fill(Color(hex: chordsLaneHex(i))).frame(width: 12, height: 12) }
+            else { RoundedRectangle(cornerRadius: 2.5).strokeBorder(Color(hex: chordsLaneHex(i)).opacity(0.55), lineWidth: 1.5).frame(width: 12, height: 12) }
+        }
+        .frame(width: 18, height: 26).opacity(dim ? 0.42 : 1).contentShape(Rectangle()).onTapGesture(perform: act)
+    }
+    private func chordsEveryChip(_ value: Int, dim: Bool, _ act: @escaping () -> Void) -> some View {
+        Text("\(value)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
+            .frame(width: 36, height: 26).background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xDFE3EA)))
+            .opacity(dim ? 0.42 : 1).contentShape(Rectangle()).onTapGesture(perform: act)
+    }
+    private func chordsRestartSwitch(on: Bool, _ act: @escaping () -> Void) -> some View {   // §5.4 neutral switch (34×20, hit 34×28)
+        ZStack(alignment: on ? .trailing : .leading) {
+            RoundedRectangle(cornerRadius: 10).fill(Color(hex: on ? 0xDFE3EA : 0x2A2D34)).frame(width: 34, height: 20)
+            Circle().fill(Color(hex: on ? 0x0D0F14 : 0x5C626C)).frame(width: 16, height: 16).padding(.horizontal, 2)
+        }
+        .frame(width: 34, height: 28).contentShape(Rectangle()).onTapGesture(perform: act)
+    }
+
+    // §5.3 ADVANCE
+    private func chordsPageAdvanceRow(set: Int, L: EuclideousChordsPageLayout) -> AnyView {
+        let cfg = chordSets[min(set, chordSets.count - 1)]
+        let unit = cfg.advanceUnitResolved
+        return AnyView(HStack(spacing: 0) {
+            Text("ADVANCE").font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(0.1 * 7.5).foregroundColor(Color(hex: 0x8A909A)).frame(width: 56, alignment: .leading)
+            Spacer().frame(width: 4)
+            HStack(spacing: 4) {
+                chordsUnitChip("TIME", selected: unit == .time) { onEditChordSet(set) { $0.advanceUnit = .time } }
+                chordsUnitChip("LOOP", selected: unit == .loop) { onEditChordSet(set) { $0.advanceUnit = .loop } }
+                chordsUnitChip("RIFF", selected: unit == .riff) { onEditChordSet(set) { $0.advanceUnit = .riff } }
+            }
+            Spacer().frame(width: 6)
+            if unit == .time {
+                HStack(spacing: 2) {
+                    ForEach(StepRate.allCases, id: \.self) { r in
+                        chordsRateChip(r.rawValue, selected: cfg.chordsRateResolved == r) { onEditChordSet(set) { $0.chordsRate = r } }
+                    }
+                }
+            } else {
+                HStack(spacing: 4) {
+                    ForEach(0..<4, id: \.self) { i in
+                        chordsLaneSelectSquare(i, selected: cfg.advanceLaneResolved == i, dim: false) { onEditChordSet(set) { $0.advanceLane = i } }
+                    }
+                }
+                Spacer().frame(width: 4)
+                chordsEveryChip(cfg.advanceEveryResolved, dim: false) {
+                    onEditChordSet(set) { $0.advanceEvery = chordsCycleEvery(cfg.advanceEveryResolved, chordsAdvanceEveryValues) }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(width: L.colW, height: EuclideousChordsPageMetrics.advRowH, alignment: .leading))
+    }
+
+    // §5.4 RESTART
+    private func chordsPageRestartRow(set: Int, L: EuclideousChordsPageLayout) -> AnyView {
+        let cfg = chordSets[min(set, chordSets.count - 1)]
+        let on = cfg.restartOnResolved, unit = cfg.restartUnitResolved
+        return AnyView(HStack(spacing: 0) {
+            Text("RESTART").font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(0.1 * 7.5).foregroundColor(Color(hex: 0x8A909A)).frame(width: 56, alignment: .leading)
+            Spacer().frame(width: 4)
+            HStack(spacing: 4) {   // §5.4: the values dim to 42% while the switch is off, but stay live
+                chordsUnitChip("BAR", selected: unit == .bar, dim: !on) { onEditChordSet(set) { $0.restartUnit = .bar } }
+                chordsUnitChip("LOOP", selected: unit == .loop, dim: !on) { onEditChordSet(set) { $0.restartUnit = .loop } }
+                chordsUnitChip("RIFF", selected: unit == .riff, dim: !on) { onEditChordSet(set) { $0.restartUnit = .riff } }
+            }
+            Spacer().frame(width: 6)
+            if unit != .bar {
+                HStack(spacing: 4) {
+                    ForEach(0..<4, id: \.self) { i in
+                        chordsLaneSelectSquare(i, selected: cfg.restartLaneResolved == i, dim: !on) { onEditChordSet(set) { $0.restartLane = i } }
+                    }
+                }
+            } else {
+                Spacer().frame(width: 4 * 18 + 3 * 4)   // §5.4: BAR keeps the lane squares' space empty, nothing moves
+            }
+            Spacer().frame(width: 4)
+            chordsEveryChip(cfg.restartEveryResolved, dim: !on) {
+                onEditChordSet(set) { $0.restartEvery = chordsCycleEvery(cfg.restartEveryResolved, chordsRestartEveryValues) }
+            }
+            Spacer(minLength: 0)
+            chordsRestartSwitch(on: on) { onEditChordSet(set) { $0.restartOn = !on } }
+        }
+        .frame(width: L.colW, height: EuclideousChordsPageMetrics.restartRowH, alignment: .leading))
+    }
+
+    // §5.5 step strip
+    private func chordsPageStepStrip(set: Int, steps: Int, L: EuclideousChordsPageLayout, beat: Double) -> AnyView {
+        let playing = chordsPagePlayingColumn(set: set, beat: beat)   // §5.5: while stopped, chordColumn at the frozen anchor IS "the column the next play would start on"
+        let c = max(8, steps)
+        return AnyView(ZStack(alignment: .topLeading) {
+            ForEach(0..<c, id: \.self) { i in
+                let isPlaying = i == playing
+                let within = i < steps
+                let fill = isPlaying ? Color(hex: 0xDFE3EA) : (within ? Color(hex: 0x2A2D34) : Color(hex: 0x1F2126))
+                let ink = isPlaying ? Color(hex: 0x0D0F14) : (within ? Color(hex: 0x8A909A) : Color(hex: 0x4A4E57))
+                RoundedRectangle(cornerRadius: 2.5).fill(fill)
+                    .overlay(Text("\(i + 1)").font(.system(size: 6.5, weight: .heavy, design: .monospaced)).foregroundColor(ink))
+                    .frame(width: L.cellW(steps: steps), height: EuclideousChordsPageMetrics.stepStripH)
+                    .offset(x: L.columnLeft(steps: steps, i))
+            }
+        }
+        .frame(width: L.colW, height: EuclideousChordsPageMetrics.stepStripH, alignment: .topLeading))
+    }
+
+    // §5.6 the 18-row grid (per set; §5.6 colours; chordColumn wash)
+    private func chordsPageGrid(set: Int, steps: Int, minorKey: Bool, L: EuclideousChordsPageLayout, beat: Double) -> AnyView {
+        let cfg = chordSets[min(set, chordSets.count - 1)]
+        let degrees = cfg.chordsDegreesResolved16(), colours = cfg.chordsColoursResolved16()
+        let c = max(8, steps)
+        let playing = clock.playing ? chordsPagePlayingColumn(set: set, beat: beat) : -1
+        return AnyView(ZStack(alignment: .topLeading) {
+            // the 1pt divider across the cell columns
+            Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: L.colW - EuclideousChordsPageMetrics.gridLabelW - EuclideousChordsPageMetrics.sp4, height: 1)
+                .offset(x: EuclideousChordsPageMetrics.gridLabelW + EuclideousChordsPageMetrics.sp4, y: L.dividerY)
+            ForEach(0..<18, id: \.self) { r in
+                Text(euclideousChordsRowLabel(row: r, scaleTones: keyType.intervals, minorKey: minorKey))
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
+                    .frame(width: EuclideousChordsPageMetrics.gridLabelW, height: L.rowH, alignment: .leading)
+                    .offset(x: 0, y: L.rowTop(r))
+            }
+            ForEach(0..<c, id: \.self) { col in
+                ForEach(0..<18, id: \.self) { r in
+                    chordsPageCell(set: set, row: r, column: col, degrees: degrees, colours: colours, steps: steps, playingColumn: playing)
+                        .frame(width: L.cellW(steps: steps), height: L.rowH)
+                        .offset(x: L.columnLeft(steps: steps, col), y: L.rowTop(r))
+                }
+            }
+        }
+        .frame(width: L.colW, height: L.gridH, alignment: .topLeading))
+    }
+    @ViewBuilder private func chordsPageCell(set: Int, row r: Int, column c: Int, degrees: [Int], colours: [Int], steps: Int, playingColumn: Int) -> some View {
+        let beyond = c >= steps
+        let isPlaying = c == playingColumn
+        let (_, isRest) = chordsDegreeAt(step: c, degrees: Array(degrees.prefix(max(1, steps))), rotate: 0)
+        if r >= 12 {                                                            // §5.6 colour rows
+            let colourVal = r - 11
+            let on = c < colours.count && colours[c] == colourVal
+            let fill = on ? Color(hex: isPlaying ? 0xD6CBFB : 0xB9A8FF) : Color(hex: isPlaying ? 0x2E3138 : 0x24262C)
+            RoundedRectangle(cornerRadius: 3.5).fill(fill).opacity(isRest ? 0.42 : (beyond ? 0.30 : 1))
+                .contentShape(Rectangle())
+                .onTapGesture { onEditChordSet(set) { p in var a = p.chordsColoursResolved16(); if c < a.count { a[c] = (a[c] == colourVal ? 0 : colourVal) }; p.chordsColours = a } }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Column \(c + 1), \(euclideousChordsRowLabel(row: r, scaleTones: keyType.intervals, minorKey: euclideousScaleIsMinor(keyType.intervals))), \(on ? "on" : "off")")
+        } else if let deg = euclideousChordsRowDegree(r) {
+            let cell = chordsMatrixCell(Array(degrees.prefix(16)), step: c, steps: steps)
+            let on = cell.bright == deg
+            let lit = deg == 7 ? Color(hex: 0x5C626C) : Color(hex: isPlaying ? 0xD6CBFB : 0xB9A8FF)   // §5.6 lit srcChords / lit-playing #D6CBFB; a lit REST #5C626C
+            let fill = on ? lit : Color(hex: isPlaying ? 0x2E3138 : 0x24262C)
+            RoundedRectangle(cornerRadius: 3.5).fill(fill).opacity(beyond ? 0.30 : 1)
+                .contentShape(Rectangle())
+                .onTapGesture { onEditChordSet(set) { p in var a = p.chordsDegreesResolved16(); if c < a.count { a[c] = deg }; p.chordsDegrees = a } }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Column \(c + 1), \(euclideousChordsRowLabel(row: r, scaleTones: keyType.intervals, minorKey: euclideousScaleIsMinor(keyType.intervals))), \(on ? "selected" : "not selected")")
+        } else { EmptyView() }
+    }
+
+    // §5.7 lane strip: four cards (lane square · the chord it hears now · 1/2 source buttons)
+    private func chordsPageLaneStrip(_ L: EuclideousChordsPageLayout, beat: Double) -> AnyView {
+        AnyView(HStack(spacing: 8) {
+            ForEach(0..<4, id: \.self) { i in chordsPageLaneCard(i, width: L.laneCardW, beat: beat) }
+        }
+        .frame(width: L.content.width, height: EuclideousChordsPageMetrics.laneStripH, alignment: .leading))
+    }
+    private func chordsPageLaneCard(_ i: Int, width: CGFloat, beat: Double) -> some View {
+        let line = i < lines.count ? lines[i] : EuclidLine(target: 0, pulses: 1, steps: 8)
+        let on1 = line.poolSrcOn(1), on2 = line.poolSrcOn(4)
+        let name = chordsLaneCurrentChordName(i, beat: beat)
+        return HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 2).fill(Color(hex: chordsLaneHex(i))).frame(width: 9, height: 9)
+            Text(name).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: name == "\u{2014}" ? 0x5C626C : 0xF2F4F7)).lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 0)
+            chordsLaneSourceButton("1", on: on1, lane: i) { edit(i) { $0.setPoolSrc(1, !$0.poolSrcOn(1)) } }
+            chordsLaneSourceButton("2", on: on2, lane: i) { edit(i) { $0.setPoolSrc(4, !$0.poolSrcOn(4)) } }
+        }
+        .padding(.horizontal, 8).frame(width: width, height: 35).background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
+        .accessibilityElement(children: .contain)
+    }
+    private func chordsLaneSourceButton(_ label: String, on: Bool, lane: Int, _ act: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced))
+            .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+            .frame(width: 22, height: 19)
+            .background(RoundedRectangle(cornerRadius: 5).fill(on ? Color(hex: chordsLaneHex(lane)).opacity(0.20) : Color(hex: 0x2A2D34)))
+            .overlay(on ? RoundedRectangle(cornerRadius: 5).stroke(Color(hex: chordsLaneHex(lane)), lineWidth: 1) : nil)
+            .frame(width: 28, height: 32).contentShape(Rectangle()).onTapGesture(perform: act)
+            .accessibilityLabel("Lane \(lane + 1) follows grid \(label)").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(.isButton)
+    }
+    /// §5.7: the chord a lane hears now — its grid's current column (chordColumn, the engine's own) named by the
+    /// chord-name function. KNOWN SIMPLIFICATION (device-owed follow-up): pool DELAY is not yet applied to this name.
+    private func chordsLaneCurrentChordName(_ i: Int, beat: Double) -> String {
+        let line = i < lines.count ? lines[i] : EuclidLine(target: 0, pulses: 1, steps: 8)
+        guard line.poolChordsOn else { return "\u{2014}" }
+        let g = euclideousLaneChordGrid(line.poolSrcMaskResolved)
+        let cfg = chordSets[min(g, chordSets.count - 1)]
+        let col = chordColumn(cfg.chordsAdvanceConfig, beat: beat, schedule: restartScheduleSet, barBeats: clock.beatsPerBar)
+        let (nm, _) = chordsNameAndIsRest(column: col, degrees: cfg.chordsDegreesResolved16(), colours: cfg.chordsColoursResolved16(), steps: cfg.chordsStepsResolved, minorKey: euclideousScaleIsMinor(keyType.intervals))
+        return nm
+    }
+    private func chordsCycleEvery(_ current: Int, _ values: [Int]) -> Int {
+        guard let idx = values.firstIndex(of: current) else { return values.first ?? 1 }
+        return values[(idx + 1) % values.count]
     }
 
     // Sources panel v2 §6.2: the chord pop-up's own pool strip is replaced by the panel's POOL block
