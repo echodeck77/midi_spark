@@ -251,8 +251,19 @@ struct EuclideousMixPoolChip: Equatable {
     var faded: Bool
 }
 enum EuclideousMixPoolMetrics {
-    static let radius: CGFloat = 3, sidePad: CGFloat = 5, gap: CGFloat = 2, textSize: CGFloat = 7, rankAlpha = 0.75, fadedAlpha = 0.4
+    static let radius: CGFloat = 3, gap: CGFloat = 2, fadedAlpha = 0.4
     static let idleHex: UInt32 = 0x1F2127, idleTextHex: UInt32 = 0xC9CDD4, litTextHex: UInt32 = 0x0D0F14
+}
+/// §A3: where a chip's two text runs start — the rank (raised), then the name after `rankGap` — left-aligned `style.inset` in. The text style itself (sizes, weights, the rank's 70 %) is `EuclideousRankLabelStyle.mixChip`, the riff grid label's own values at the chip's size.
+/// `rankWidth` is the measured width of the rank run; a chip with no name (an empty pool) draws the rank alone.
+struct EuclideousMixChipTextLayout: Equatable {
+    var rankX: CGFloat
+    var nameX: CGFloat
+    /// How far above the name's baseline the rank's baseline sits.
+    var rankRaise: CGFloat
+}
+func euclideousMixChipTextLayout(frame: CGRect, rankWidth: CGFloat, style: EuclideousRankLabelStyle) -> EuclideousMixChipTextLayout {
+    EuclideousMixChipTextLayout(rankX: frame.minX + style.inset, nameX: frame.minX + style.inset + rankWidth + style.rankGap, rankRaise: style.rankRaise)
 }
 /// Eight chips, rank 8 at the top: chipH = (poolH − 14) ÷ 8, 2 pt apart.
 func euclideousMixPoolFrames(area: CGRect) -> [CGRect] {

@@ -264,6 +264,35 @@ final class MixPanelTests: XCTestCase {
         XCTAssertEqual(euclideousMixPoolSpoken(litNames: []), "Pool, silent"); XCTAssertEqual(euclideousMixPoolSpoken(litNames: ["E3"]), "Pool, sounding E3")
     }
 
+    // MARK: test 10 (§A3) — the chip text is the riff grid label's style, from one source, at two sizes
+
+    func testTheChipTextAndTheGridLabelReadTheirStylesFromOneSourceAtTwoSizes() {
+        typealias S = EuclideousRankLabelStyle
+        let grid = S.grid, ref = S.mixChip(chipHeight: S.mixChipReferenceHeight)
+        XCTAssertEqual([grid.noteSize, grid.octaveSize, grid.rankSize, grid.inset], [15, 10, 8, 3], "the riff grid's side label as it was drawn before the style was named")
+        XCTAssertEqual([ref.noteSize, ref.rankSize, ref.rankRaise, ref.rankGap, ref.inset], [8, 5.5, 2, 2, 5], "the landscape reference: name 8, rank 5.5 raised 2, 2 before the name, 5 pt in")
+        close(ref.octaveSize, 8 * 10 / 15, "the octave keeps the label's 10 : 15 against the note")
+        // two sizes: every length scales together, the inset (left-aligned 5 pt in) and the weights do not
+        let big = S.mixChip(chipHeight: S.mixChipReferenceHeight * 2)
+        close(big.noteSize, 16); close(big.octaveSize, ref.octaveSize * 2); close(big.rankSize, 11); close(big.rankRaise, 4); close(big.rankGap, 4); XCTAssertEqual(big.inset, 5)
+        XCTAssertEqual([S.noteWeight, S.octaveWeight, S.rankWeight], [.heavy, .bold, .bold], "name heavy, its octave bold, the rank bold — the label's weights")
+        XCTAssertEqual(S.rankAlphaFactor, 0.7, "the rank is the name's colour at 70 %")
+        // flats and sharps: the same split wherever the name is drawn — the glyph stays a character of the note part
+        for n in ["B\u{266D}3", "C\u{266F}4", "E\u{266D}-1", "G2"] {
+            XCTAssertEqual(grid.parts(of: n).note, ref.parts(of: n).note); XCTAssertEqual(grid.parts(of: n).octave, big.parts(of: n).octave)
+            XCTAssertEqual(grid.parts(of: n).note, euclideousSplitNoteOctave(n).note)
+        }
+        XCTAssertEqual(ref.parts(of: "B\u{266D}3").note, "B\u{266D}"); XCTAssertEqual(ref.parts(of: "B\u{266D}3").octave, "3")
+        XCTAssertEqual(ref.parts(of: "E\u{266D}-1").octave, "-1")
+        // where the runs start: left-aligned 5 pt in, the rank first, the name 2 pt after its width
+        let f = CGRect(x: 40, y: 10, width: 60, height: S.mixChipReferenceHeight)
+        let at = euclideousMixChipTextLayout(frame: f, rankWidth: 3.3, style: ref)
+        close(at.rankX, 45); close(at.nameX, 45 + 3.3 + 2); close(at.rankRaise, 2)
+        // the chip's colours: idle #1F2127; lit takes the lane colour with ink #0D0F14 for name AND rank (the rank at 70 % of it)
+        XCTAssertEqual(EuclideousMixPoolMetrics.idleHex, 0x1F2127); XCTAssertEqual(EuclideousMixPoolMetrics.litTextHex, 0x0D0F14)
+        XCTAssertEqual(EuclideousMixPoolMetrics.fadedAlpha, 0.4, "a rank with no note: the rank only, at 40 %")
+    }
+
     // MARK: test 5 — the lines
 
     private func fresh() -> (EuclideousMixRowsLayout, [UInt8], [Bool]) {

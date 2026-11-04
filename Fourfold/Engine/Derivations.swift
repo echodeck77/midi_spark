@@ -10484,6 +10484,33 @@ func euclideousRankChips(sortedPool: [Int], litMask: UInt8, name: (Int) -> Strin
         euclideousRankChip(rank: r, name: r <= extended.count ? name(extended[r - 1]) : nil, received: r <= n, lit: (litMask >> UInt8(r - 1)) & 1 != 0, empty: n == 0)
     }
 }
+// ── §A3 (MIX ROWS AMENDMENT 1, 2026-11-04) THE RANK LABEL'S STYLE — ONE source for the riff grid's side labels and the MIX pool chips ─────────────────────────────────────────────
+/// How a rank chip's TEXT is styled, as values: the name is its note part in HEAVY mono plus its octave part in BOLD mono on one baseline (a flat or sharp is the ♭ / ♯ character inside the note part, so it renders the same wherever the
+/// name is drawn), and the rank number is BOLD at 70 % of the name's colour. `grid` is the riff grid's side label (`EuclideousRankChipView`: 15 / 10 pt name, the rank 8 pt in the chip's top-left corner, inset 3); `mixChip` is the MIX pool
+/// chip's, the same style scaled to a chip about 10.56 pt tall (name 8, octave 8 × 10 ⁄ 15, rank 5.5 raised 2 pt and 2 pt before the name, 5 pt in from the left — all multiplied by chipHeight ÷ 10.5625). A SwiftUI view and a Canvas cannot
+/// share one draw call, so both paint from THESE values.
+struct EuclideousRankLabelStyle: Equatable {
+    enum Weight: Equatable { case heavy, bold }
+    static let noteWeight = Weight.heavy, octaveWeight = Weight.bold, rankWeight = Weight.bold
+    /// The rank's colour is the name's colour at this share (the label's own rule).
+    static let rankAlphaFactor = 0.7
+    var noteSize: CGFloat, octaveSize: CGFloat, rankSize: CGFloat
+    /// How far the rank sits above the name's baseline where it shares the line (0 for the grid label, whose rank sits in the corner).
+    var rankRaise: CGFloat
+    /// The gap between the rank and the name where they share the line.
+    var rankGap: CGFloat
+    /// The grid label: the corner inset of the rank. The MIX chip: the left inset of the whole label.
+    var inset: CGFloat
+    static let grid = EuclideousRankLabelStyle(noteSize: 15, octaveSize: 10, rankSize: 8, rankRaise: 0, rankGap: 0, inset: 3)
+    static let mixChipReferenceHeight: CGFloat = 10.5625   // the landscape reference: (poolH 98.5 − 14) ÷ 8
+    static func mixChip(chipHeight: CGFloat) -> EuclideousRankLabelStyle {
+        let s = max(0.1, chipHeight / mixChipReferenceHeight)
+        return EuclideousRankLabelStyle(noteSize: 8 * s, octaveSize: 8 * s * 10 / 15, rankSize: 5.5 * s, rankRaise: 2 * s, rankGap: 2 * s, inset: 5)
+    }
+    /// The name split into its two runs — the one function both painters call.
+    func parts(of name: String) -> (note: String, octave: String) { euclideousSplitNoteOctave(name) }
+}
+
 /// The note at rank `rank` (1-based) of an ascending pool, octave copies beyond it — `euclideousGlobalPoolExtended`'s order, without building the array (the engine's played-rank mask calls this per strike). nil for an empty pool.
 @inline(__always) func euclideousPoolRankNote(_ pool: ArraySlice<(note: Int, vel: UInt8)>, rank: Int) -> Int? {
     let n = pool.count

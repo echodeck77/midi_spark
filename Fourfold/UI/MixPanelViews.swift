@@ -215,11 +215,7 @@ struct EuclideousMixBandCanvas: View {
                     if chip.faded { c.opacity = below.opacity * EuclideousMixPoolMetrics.fadedAlpha }
                     c.fill(Path(roundedRect: f, cornerRadius: EuclideousMixPoolMetrics.radius), with: .color(chip.lit ? accent : Color(hex: EuclideousMixPoolMetrics.idleHex)))
                     let ink = Color(hex: chip.lit ? EuclideousMixPoolMetrics.litTextHex : EuclideousMixPoolMetrics.idleTextHex)
-                    c.draw(Text("\(chip.rank)").font(heavyMono(EuclideousMixPoolMetrics.textSize)).foregroundColor(ink.opacity(EuclideousMixPoolMetrics.rankAlpha)),
-                           at: CGPoint(x: f.minX + EuclideousMixPoolMetrics.sidePad, y: f.midY), anchor: .leading)
-                    if let name = chip.name {
-                        c.draw(Text(name).font(heavyMono(EuclideousMixPoolMetrics.textSize)).foregroundColor(ink), at: CGPoint(x: f.maxX - EuclideousMixPoolMetrics.sidePad, y: f.midY), anchor: .trailing)
-                    }
+                    drawChipText(&c, chip: chip, frame: f, ink: ink)
                 }
                 // the two rolls
                 for (k, row) in rows.enumerated() {
@@ -233,6 +229,31 @@ struct EuclideousMixBandCanvas: View {
             .frame(width: band.frame.width, height: band.frame.height)
         }
         .frame(width: band.frame.width, height: band.frame.height)
+    }
+
+    /// §A3: the riff grid label's styles at the chip's size (`EuclideousRankLabelStyle.mixChip`) — the rank (bold, 70 % of the name's colour, raised) then the name (the note part heavy, its octave bold, one baseline), left-aligned; text past the chip is clipped, never shrunk.
+    private func drawChipText(_ ctx: inout GraphicsContext, chip: EuclideousMixPoolChip, frame f: CGRect, ink: Color) {
+        let style = EuclideousRankLabelStyle.mixChip(chipHeight: f.height)
+        var c = ctx
+        c.clip(to: Path(roundedRect: f, cornerRadius: EuclideousMixPoolMetrics.radius))
+        let rank = c.resolve(Text("\(chip.rank)").font(rankLabelFont(EuclideousRankLabelStyle.rankWeight, style.rankSize)).foregroundColor(ink.opacity(EuclideousRankLabelStyle.rankAlphaFactor)))
+        let rankSize = rank.measure(in: CGSize(width: 200, height: 200))
+        let at = euclideousMixChipTextLayout(frame: f, rankWidth: rankSize.width, style: style)
+        guard let name = chip.name else {
+            // an empty pool: the rank alone, in the same place (the chip already draws at 40 %)
+            c.draw(rank, at: CGPoint(x: at.rankX, y: f.midY - rankSize.height / 2), anchor: .topLeading)
+            return
+        }
+        let parts = style.parts(of: name)
+        let note = c.resolve(Text(parts.note).font(rankLabelFont(EuclideousRankLabelStyle.noteWeight, style.noteSize)).foregroundColor(ink))
+        let octave = c.resolve(Text(parts.octave).font(rankLabelFont(EuclideousRankLabelStyle.octaveWeight, style.octaveSize)).foregroundColor(ink))
+        let noteSize = note.measure(in: CGSize(width: 200, height: 200))
+        // one baseline: the name's line box centred on the chip, the octave and the (raised) rank hung from it
+        let octaveSize = octave.measure(in: CGSize(width: 200, height: 200))
+        let top = f.midY - noteSize.height / 2, baseline = top + note.firstBaseline(in: noteSize)
+        c.draw(note, at: CGPoint(x: at.nameX, y: top), anchor: .topLeading)
+        c.draw(octave, at: CGPoint(x: at.nameX + noteSize.width, y: baseline - octave.firstBaseline(in: octaveSize)), anchor: .topLeading)
+        c.draw(rank, at: CGPoint(x: at.rankX, y: baseline - at.rankRaise - rank.firstBaseline(in: rankSize)), anchor: .topLeading)
     }
 
     private func drawRoll(_ ctx: inout GraphicsContext, frame: CGRect, notes: [NoteRollNote], now: Double, size: CGSize) {

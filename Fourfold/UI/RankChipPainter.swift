@@ -11,6 +11,8 @@ private extension Color {
 }
 private func chipHeavyMono(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .monospaced) }
 private func chipBoldMono(_ size: CGFloat) -> Font { .system(size: size, weight: .bold, design: .monospaced) }
+/// A rank label's font from the shared style (`EuclideousRankLabelStyle`): the grid label here and the MIX chip's text in `MixPanelViews.swift` both ask for their weights by name.
+func rankLabelFont(_ weight: EuclideousRankLabelStyle.Weight, _ size: CGFloat) -> Font { .system(size: size, weight: weight == .heavy ? .heavy : .bold, design: .monospaced) }
 
 struct EuclideousRankChipView: View {
     let spec: EuclideousRankChipSpec
@@ -33,12 +35,13 @@ struct EuclideousRankChipView: View {
                     .frame(height: 10)
             }
         } else if spec.empty {
-            Text(spec.name).font(chipHeavyMono(15)).foregroundColor(labelColour).lineLimit(1)   // 5.4: an empty pool — the rank number, in the label's type
+            Text(spec.name).font(rankLabelFont(EuclideousRankLabelStyle.noteWeight, EuclideousRankLabelStyle.grid.noteSize)).foregroundColor(labelColour).lineLimit(1)   // 5.4: an empty pool — the rank number, in the label's type
         } else {
-            let split = euclideousSplitNoteOctave(spec.name)
+            let style = EuclideousRankLabelStyle.grid
+            let split = style.parts(of: spec.name)
             HStack(alignment: .lastTextBaseline, spacing: 0) {
-                Text(split.note).font(chipHeavyMono(15))
-                Text(split.octave).font(chipBoldMono(10))
+                Text(split.note).font(rankLabelFont(EuclideousRankLabelStyle.noteWeight, style.noteSize))
+                Text(split.octave).font(rankLabelFont(EuclideousRankLabelStyle.octaveWeight, style.octaveSize))
             }
             .foregroundColor(labelColour).lineLimit(1)   // truncate, never shrink
         }
@@ -53,9 +56,9 @@ struct EuclideousRankChipView: View {
             // the label: centred in the chip above a 6 pt bottom inset, clear of the bar and the place number
             label.frame(width: size.width, height: size.height - 6).frame(maxHeight: .infinity, alignment: .top)
             if corner {   // §5.3: the rank number — 8 pt bold at 70 % of the label's colour, inset 3 from the top and leading edges
-                Text("\(spec.rank)").font(chipBoldMono(8)).lineLimit(1)
-                    .foregroundColor(spec.sounding > 0 ? Color(h: 0xF2F4F7).opacity(0.7) : Color.white.opacity(labelOpacity * 0.7))
-                    .padding(.top, 3).padding(.leading, 3)
+                Text("\(spec.rank)").font(rankLabelFont(EuclideousRankLabelStyle.rankWeight, EuclideousRankLabelStyle.grid.rankSize)).lineLimit(1)
+                    .foregroundColor(spec.sounding > 0 ? Color(h: 0xF2F4F7).opacity(EuclideousRankLabelStyle.rankAlphaFactor) : Color.white.opacity(labelOpacity * EuclideousRankLabelStyle.rankAlphaFactor))
+                    .padding(.top, EuclideousRankLabelStyle.grid.inset).padding(.leading, EuclideousRankLabelStyle.grid.inset)
                     .frame(width: size.width, height: size.height, alignment: .topLeading)
             }
             if let place = spec.place {
