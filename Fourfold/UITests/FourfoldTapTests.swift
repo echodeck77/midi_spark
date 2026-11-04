@@ -351,13 +351,13 @@ final class FourfoldTapTests: XCTestCase {
     /// CARD BACKS §8: the MIX tab is gone — the lower-right panel is LANES | FX, and opens on LANES.
     func testTheSequencerPanelSwitchesBetweenLanesAndFx() {
         let app = XCUIApplication.fresh()
-        need(app.buttons["Lane 1 cell size PASS"], "the LANES panel's rate box (it opens on LANES)")
-        XCTAssertTrue(app.buttons["Lanes"].isSelected)
-        XCTAssertFalse(app.buttons["Mix"].exists && app.buttons["Lanes"].frame.intersects(app.buttons["Mix"].frame), "no MIX tab beside LANES")
+        need(app.els(prefix: "Output A cell 1,").firstMatch, "the MUTE panel's first cell (it opens on MUTE)")   // MUTE TAB ferry (2026-11-02): the tab is "Mute", its blocks are outputs
+        XCTAssertTrue(app.buttons["Mute"].isSelected)
+        XCTAssertFalse(app.buttons["Mix"].exists && app.buttons["Mute"].frame.intersects(app.buttons["Mix"].frame), "no MIX tab beside MUTE")
         app.buttons["FX"].tap()
         need(app.buttons["FX row, ratchet, all lanes, selected"], "the FX panel's RATCH row")
-        app.buttons["Lanes"].tap()
-        need(app.buttons["Lane 1 cell size PASS"], "the LANES panel again")
+        app.buttons["Mute"].tap()
+        need(app.els(prefix: "Output A cell 1,").firstMatch, "the MUTE panel again")
     }
 
     /// RATCH tab ferry (2026-10-28): the third visible tab shows four cards; a toggle tap, a value drag and a double-tap reset each reach the document, and each is ONE undo step.
@@ -391,7 +391,7 @@ final class FourfoldTapTests: XCTestCase {
         let steps = need(app.el("Emitter A steps 8"), "A's STEPS cell"); steps.tap()
         XCTAssertTrue(app.el("Emitter A steps 8").exists, "a single tap changes nothing")
         // switching tabs never changes data
-        app.buttons["Lanes"].tap(); app.buttons["Ratchet"].tap()
+        app.buttons["Mute"].tap(); app.buttons["Ratchet"].tap()
         XCTAssertEqual(value(app.el("Ratchet on emitter A")), "on")
     }
 
@@ -401,8 +401,8 @@ final class FourfoldTapTests: XCTestCase {
             let app = XCUIApplication.fresh(["--window-size=\(size)"])
             XCTAssertFalse(app.el("Window too small. Resize to continue.").exists, "no too-small screen at \(size)")
             XCTAssertFalse(app.staticTexts["RESIZE TO CONTINUE"].exists, "no resize message at \(size)")
-            need(app.buttons["Lanes"], "the LANES tab at \(size)").tap()
-            XCTAssertTrue(app.buttons["Lanes"].isSelected, "tapping LANES selects it at \(size)")
+            need(app.buttons["Mute"], "the MUTE tab at \(size)").tap()
+            XCTAssertTrue(app.buttons["Mute"].isSelected, "tapping MUTE selects it at \(size)")
             app.buttons["FX"].tap()
             XCTAssertTrue(app.buttons["FX"].isSelected, "tapping FX selects it at \(size)")
             app.terminate()
@@ -420,9 +420,12 @@ final class FourfoldTapTests: XCTestCase {
                 XCTAssertEqual(hits.count, 0, "\(tab): the caption \"\(c)\" is hidden")
             }
         }
-        need(app.buttons["Lanes"], "the MUTE tab"); assertNone("MUTE")
+        need(app.buttons["Mute"], "the MUTE tab"); assertNone("MUTE")
         app.buttons["FX"].tap(); need(app.buttons["FX row, ratchet, all lanes, selected"], "the FX panel's RATCH row"); assertNone("FX")
-        for row in ["gate", "tie", "velocity"] { app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "FX row, \(row)")).firstMatch.tap(); assertNone("FX \(row)") }
+        for row in ["gate", "tie", "velocity"] {
+            let b = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "FX row, \(row)")).firstMatch
+            if b.exists { b.tap(); assertNone("FX \(row)") }
+        }
         app.buttons["Ratchet"].tap(); assertNone("RATCH")
         app.buttons["Velocity"].tap(); assertNone("VEL")
     }

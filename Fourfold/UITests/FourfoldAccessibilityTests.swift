@@ -106,7 +106,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     private func open(_ button: String, expect: String) -> (XCUIApplication) -> Void { { app in app.buttons[button].tap(); XCTAssertTrue(app.staticTexts[expect].waitForExistence(timeout: 4), "\(button) did not open") } }
 
     func testAuditMixPanelPortrait()  { screen("mix panel", landscape: false) { $0.buttons["Mix"].tap() } }   // MIX ROWS (2026-11-03): the panel; the card backs are retired
-    func testAuditLanesPortrait()    { screen("page LANES", landscape: false) { $0.buttons["Lanes"].tap() } }
+    func testAuditLanesPortrait()    { screen("page LANES", landscape: false) { $0.buttons["Mute"].tap() } }
     func testAuditFxPortrait()       { screen("page FX", landscape: false) { $0.buttons["FX"].tap() } }
     func testAuditRatchPortrait()    { screen("page RATCH", landscape: false) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabPortrait()  { screen("lane tab RIFF", landscape: false, laneTab("Riff, ")) }
@@ -121,7 +121,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditHocketPortrait()   { screen("hocket popup", landscape: false, hocket) }
 
     func testAuditMixPanelLandscape() { screen("mix panel", landscape: true) { $0.buttons["Mix"].tap() } }
-    func testAuditLanesLandscape()    { screen("page LANES", landscape: true) { $0.buttons["Lanes"].tap() } }
+    func testAuditLanesLandscape()    { screen("page LANES", landscape: true) { $0.buttons["Mute"].tap() } }
     func testAuditFxLandscape()       { screen("page FX", landscape: true) { $0.buttons["FX"].tap() } }
     func testAuditRatchLandscape()    { screen("page RATCH", landscape: true) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabLandscape()  { screen("lane tab RIFF", landscape: true, laneTab("Riff, ")) }
