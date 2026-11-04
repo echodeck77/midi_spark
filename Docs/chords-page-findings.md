@@ -1,12 +1,12 @@
-# CHORDS PAGE ferry — §0 findings (map before any change)
+# CHORDS PAGE ferry — §0 findings (the map that was made before the build)
 
-Ratified by Paul 2026-11-04 (the "Fourfold Chords" canvas). **BLOCKED:** this ferry reads the RESTART UNITS
-schedule (its §4–5), and RESTART UNITS has **not landed** — on `main` it is only a findings commit
-(`5ef838e`, +1 status-log line) on `feature/restart-units`; worktree B (`midi_spark-b`) is mid-build
-(uncommitted `RestartUnitsGoldenTests.swift`). Per the ferry's own gate, the engine column function (§3) and
-everything downstream are deferred until the schedule is on main. This doc is the read-only map so the build
-is fast once unblocked. All paths relative to repo root; Fourfold product only unless noted. Verified in source,
-not from prior ferry docs.
+Ratified by Paul 2026-11-04 (the "Fourfold Chords" canvas). **STATUS: LANDED (`605f4c2`) — engine + page UI.**
+This was written while the ferry was BLOCKED on RESTART UNITS (which hadn't landed its schedule yet); it is kept
+as the read-only map (progressions model, the playing-column formula + its readers, the lane-cards block frame,
+the overlay rule, the model-wiring path, the 8×8 boundary) and the record of the contradictions resolved on the
+way (§E below). All paths relative to repo root; Fourfold product only unless noted. Verified in source.
+See `Docs/euclideous-status-log.md`'s CHORDS PAGE entry for what was built, and `Docs/pending-tasks.md` for the
+documented follow-ups (lane-strip DELAY, full VoiceOver, RIFF-on-FREE-lane, chords-page UI tests).
 
 ## A. The CHORDS page as built (inside the SOURCES panel)
 
