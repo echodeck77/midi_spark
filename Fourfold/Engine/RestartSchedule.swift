@@ -696,11 +696,10 @@ private func scheduleComponents(_ lanes: [EuclideousScheduleLaneInput]) -> [[Int
 
 /// The set for the inputs: every lane that has a restart (or is read by a lane that has one) is simulated; the others get empty tables. `maxBars` is the first window (1024 bars); `detectPeriod` false runs a straight simulation (the tests'
 /// reference for the periodic wrap).
-func euclideousBuildRestartScheduleSet(_ inputs: EuclideousScheduleInputs, engagedMask: UInt8 = 0, maxBars: Int = 1024, detectPeriod: Bool = true, skipClosedFormOnly: Bool = false) -> EuclideousRestartScheduleSet {
+func euclideousBuildRestartScheduleSet(_ inputs: EuclideousScheduleInputs, engagedMask: UInt8 = 0, maxBars: Int = 1024, detectPeriod: Bool = true) -> EuclideousRestartScheduleSet {
     var comps: [(lanes: [Int], sim: EuclideousScheduleSim?)] = []
     for comp in scheduleComponents(inputs.lanes) {
-        // `skipClosedFormOnly` (production): a component whose every lane the closed forms can express is never read from the schedule (the Router attaches it only to the others), so it is not simulated — a pre-feature document pays nothing on a publish
-        let any = comp.contains { (inputs.lanes[$0].rhythmActive || inputs.lanes[$0].melodyRestarts) && !(skipClosedFormOnly && comp.allSatisfy { inputs.lanes[$0].closedFormExpressible(ownLane: $0) }) }
+        let any = comp.contains { inputs.lanes[$0].rhythmActive || inputs.lanes[$0].melodyRestarts }   // every lane with a restart is simulated, closed-form-expressible ones too: the CHORDS PAGE reads loop counts of any lane that has a rhythm chain
         if any {
             let sim = EuclideousScheduleSim(globalLanes: comp, inputs: comp.map { inputs.lanes[$0] }, barBeats: inputs.barBeats, detectPeriod: detectPeriod)
             sim.run(untilBars: maxBars)
@@ -748,7 +747,7 @@ final class EuclideousRestartScheduleMemo {
         lock.lock()
         if let e = entries.first(where: { $0.0 == inputs && $0.1 == engagedMask }) { lock.unlock(); return e.2 }
         lock.unlock()
-        let s = euclideousBuildRestartScheduleSet(inputs, engagedMask: engagedMask, skipClosedFormOnly: true)   // simulated outside the lock: a build can take tens of milliseconds
+        let s = euclideousBuildRestartScheduleSet(inputs, engagedMask: engagedMask)   // simulated outside the lock: a build can take tens of milliseconds
         lock.lock(); defer { lock.unlock() }
         if let e = entries.first(where: { $0.0 == inputs && $0.1 == engagedMask }) { return e.2 }
         entries.insert((inputs, engagedMask, s), at: 0)

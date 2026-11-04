@@ -447,18 +447,6 @@ final class RestartScheduleTests: XCTestCase {
         XCTAssertNotNil(euclideousAttachedSchedule(free, lane: 3, barBeats: 4, perturbed: 0b0011), "lane 4 is in another component")
         XCTAssertEqual(free.componentMask(lane: 0), 0b0011); XCTAssertEqual(free.componentMask(lane: 2), 0b0100); XCTAssertEqual(free.componentMask(lane: 3), 0b1000)
     }
-    /// A pre-feature document (every chain a BAR chain / own PASS chain) is not simulated in production — nothing would read it; a component with a lane that needs the schedule is, along with the lanes it reads.
-    func testAPreFeatureComponentIsNotSimulatedButOneThatNeedsTheScheduleIs() {
-        var a = line(hits: 3, steps: 7); rhythm(&a, [2, 1]); melody(&a, [2])
-        let old = euclideousScheduleInputs(lines: four(a), barBeats: 4, defaultRateBeats: 0.25, riffColumns: 8)
-        XCTAssertEqual(euclideousBuildRestartScheduleSet(old, skipClosedFormOnly: true).simulatedMask, 0, "closed forms answer; nothing to simulate")
-        XCTAssertEqual(euclideousBuildRestartScheduleSet(old).simulatedMask, 0b0001, "the tests' forced path still simulates it")
-        var n = line(hits: 3, steps: 7); rhythm(&n, [1], unit: .riff)
-        var src = line(hits: 3, steps: 7); rhythm(&src, [2])
-        var reader = line(hits: 2, steps: 8); rhythm(&reader, [1], unit: .pass, source: 2)
-        let mix = euclideousScheduleInputs(lines: [n, line(hits: 1, steps: 8), src, reader], barBeats: 4, defaultRateBeats: 0.25, riffColumns: 8)
-        XCTAssertEqual(euclideousBuildRestartScheduleSet(mix, skipClosedFormOnly: true).simulatedMask, 0b1101, "lane 1 (riff-first) and the component of lanes 3–4 (the reader reads a BAR-chain lane) are simulated; lane 2 is untouched")
-    }
     /// The page's holder must pick up a set the memo extended (a non-periodic schedule simulated further ahead), or its tiles fall back to the closed forms past the first window while the engine keeps reading the schedule.
     func testTheHolderPicksUpAnExtendedSet() {
         var a = line(hits: 3, steps: 7, rate: .r1_8t); rhythm(&a, [1], unit: .riff, source: 0); a.riffLength = 5
