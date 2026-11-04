@@ -239,7 +239,25 @@ func euclideousMixStripCurrent(raw: Double, steps n: Int, dir: EuclidDir, runnin
     let k = min(cl - 1, max(0, Int(wrapped.rounded(.down))))
     return min(n - 1, max(0, euclidReadIndex(k, n: n, dir: dir)))
 }
-func euclideousMixStripSpoken(hits: Int, steps: Int) -> String { "Rhythm, \(hits) \(hits == 1 ? "hit" : "hits") in \(steps) \(steps == 1 ? "step" : "steps")" }
+func euclideousMixStripSpoken(hits: Int, steps: Int) -> String { "Rhythm, \(hits == 0 ? "no" : String(hits)) \(hits == 1 ? "hit" : "hits") in \(steps) \(steps == 1 ? "step" : "steps")" }
+
+// MARK: - §A5 a lane with no hits, and the ONE dim
+
+/// §A5: a lane has no hits when no leg of the card's own strip plan draws one (a COPY / FILL lane reads the rhythm it borrows; a gap — a hit on a riff rest — is still a hit). Ends the moment the lane has a hit.
+func euclideousMixLaneHasNoHits(legs: [EuclideousStripLeg]) -> Bool { !legs.contains { leg in leg.hits.contains { $0.kind != .rhythmRest } } }
+/// The lane-level dim of everything below the top row: solo-silenced, no hits, or muted (the lane's PLAY off — the lane mute sitting in the band's own top row). ONE flag: the causes do not add up.
+func euclideousMixLaneDimmed(soloSilenced: Bool, noHits: Bool, muted: Bool) -> Bool { soloSilenced || noHits || muted }
+enum EuclideousMixDimTarget: Equatable { case pool, toggle, out, roll, slider }
+/// The net opacity an element draws at. 42 % whatever combination — a lane dimmed for three reasons is 42 %, and so is an OFF part's roll or slider inside a dimmed lane (never 42 % × 42 % = 18 %). The pool, the part toggles and the A–D buttons follow the
+/// lane only; the rolls and sliders also dim when their own part is off. Everything stays live.
+func euclideousMixDimOpacity(laneDimmed: Bool, partOff: Bool, target: EuclideousMixDimTarget) -> Double {
+    let partDims = target == .roll || target == .slider
+    return laneDimmed || (partOff && partDims) ? EuclideousLaneDimStyle.opacity : 1
+}
+/// What an element ADDS inside a group that already applies the lane dim: nothing when the lane is dimmed, otherwise its own net — so the product is always the net above.
+func euclideousMixOwnDimOpacity(laneDimmed: Bool, partOff: Bool, target: EuclideousMixDimTarget) -> Double {
+    laneDimmed ? 1 : euclideousMixDimOpacity(laneDimmed: false, partOff: partOff, target: target)
+}
 
 // MARK: - §4 the pool
 
@@ -380,11 +398,14 @@ func euclideousMixEmitterActivity(parts: [[NoteRollNote]], output: Int, nowBeat:
     parts.reduce(0) { max($0, euclideousMixLineActivity(notes: $1, output: output, nowBeat: nowBeat, tempo: tempo)) }
 }
 /// Idle 1.25 pt at 40 % → active 2 pt at 100 %, by the activity.
-func euclideousMixLineLook(activity: Double) -> (width: CGFloat, alpha: Double) {
+func euclideousMixLineLook(activity: Double, laneNoHits: Bool = false) -> (width: CGFloat, alpha: Double) {
     typealias L = EuclideousMixLineMetrics
     let a = max(0, min(1, activity))
-    return (L.idleWidth + (L.activeWidth - L.idleWidth) * CGFloat(a), L.idleAlpha + (L.activeAlpha - L.idleAlpha) * a)
+    let idleAlpha = laneNoHits ? L.idleAlpha * EuclideousLaneDimStyle.opacity : L.idleAlpha   // §A5: a lane with no hits draws its idle line at 42 % of the idle look
+    return (L.idleWidth + (L.activeWidth - L.idleWidth) * CGFloat(a), idleAlpha + (L.activeAlpha - idleAlpha) * a)
 }
+/// §A5: the origin dot of a lane with no hits draws at 42 % (a dot is only ever idle).
+func euclideousMixOriginDotAlpha(laneNoHits: Bool) -> Double { laneNoHits ? EuclideousLaneDimStyle.opacity : 1 }
 /// Active lines draw above idle ones: the lines' draw order by activity, stable.
 func euclideousMixLineDrawOrder(activities: [Double]) -> [Int] { activities.indices.sorted { activities[$0] != activities[$1] ? activities[$0] < activities[$1] : $0 < $1 } }
 struct EuclideousMixEmitterLook: Equatable {

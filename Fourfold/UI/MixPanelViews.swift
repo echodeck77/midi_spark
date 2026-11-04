@@ -85,6 +85,8 @@ struct EuclideousMixBandView: View {
     private var accent: Color { input.accents[lane % input.accents.count] }
     private func local(_ r: CGRect) -> CGRect { r.offsetBy(dx: -band.frame.minX, dy: -band.frame.minY) }
     private var soloDim: Bool { lane < input.soloDim.count && input.soloDim[lane] }
+    /// §A5: everything below the top row dims ONCE to 42 % — solo-silenced, no hits, or muted (PLAY off); it stays live.
+    private var laneDim: Bool { euclideousMixLaneDimmed(soloSilenced: soloDim, noHits: euclideousMixLaneHasNoHits(legs: input.strips[lane].legs), muted: !input.strips[lane].lanePlaying) }
     private var locked: AnyView? { callbacks.lockBadge(lane) }
 
     var body: some View {
@@ -93,7 +95,7 @@ struct EuclideousMixBandView: View {
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 12).fill(accent.opacity(0.07))
             RoundedRectangle(cornerRadius: 12).strokeBorder(accent.opacity(0.33), lineWidth: 1)
-            EuclideousMixBandCanvas(lane: lane, band: band, strip: strip, input: input, locked: locked != nil)
+            EuclideousMixBandCanvas(lane: lane, band: band, strip: strip, input: input, locked: locked != nil, laneDim: laneDim)
                 .allowsHitTesting(false)
             // the top row: the card's own play and SOLO tiles at these frames, the badge between SOLO and the strip
             callbacks.play(lane, local(band.play).size, EuclideousMixRowsMetrics.playTarget)
@@ -115,12 +117,13 @@ struct EuclideousMixBandView: View {
                 .offset(x: local(band.solo).minX, y: local(band.solo).minY)
                 .accessibilitySortPriority(98)
             EuclideousMixPoolAX(lane: lane, area: local(band.pool), input: input).accessibilitySortPriority(97)
-            // the part rows: everything below the top row dims to 42 % while the lane is solo-silenced
+            // the part rows: everything below the top row dims to 42 % (§A5: one dim whatever the cause)
             Group {
                 partRow(part: .riff, frames: band.riff, base: 96, hasHits: hasHits)
                 partRow(part: .notes, frames: band.notes, base: 86, hasHits: hasHits)
             }
-            .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)
+            .opacity(laneDim ? EuclideousLaneDimStyle.opacity : 1)
+            .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: laneDim)
         }
         .frame(width: band.frame.width, height: band.frame.height, alignment: .topLeading)
         .offset(x: band.frame.minX, y: band.frame.minY)
@@ -139,7 +142,7 @@ struct EuclideousMixBandView: View {
             EuclideousMixRollAX(lane: lane, part: part, on: on && mask & 0x0F != 0 && hasHits, area: local(f.roll), input: input)
                 .accessibilitySortPriority(base - 1)
             ForEach(EuclideousMixSliderKind.allCases, id: \.rawValue) { kind in
-                EuclideousMixSliderTile(kind: kind, part: part, value: euclideousMixSliderValue(of: line, kind: kind, notes: notes), accent: accent, size: f.sliders[kind.rawValue].size, dimmed: !on,
+                EuclideousMixSliderTile(kind: kind, part: part, value: euclideousMixSliderValue(of: line, kind: kind, notes: notes), accent: accent, size: f.sliders[kind.rawValue].size, dimmed: euclideousMixOwnDimOpacity(laneDimmed: laneDim, partOff: !on, target: .slider) < 1,
                                         onEditStep: { newStep, mutate in callbacks.editStep(lane, newStep, mutate) })
                     .offset(x: local(f.sliders[kind.rawValue]).minX, y: local(f.sliders[kind.rawValue]).minY)
                     .accessibilitySortPriority(base - 2 - Double(kind.rawValue))
@@ -161,9 +164,9 @@ struct EuclideousMixBandCanvas: View {
     let strip: CGRect
     let input: EuclideousMixPanelInput
     let locked: Bool
+    let laneDim: Bool
 
     private var accent: Color { input.accents[lane % input.accents.count] }
-    private var soloDim: Bool { lane < input.soloDim.count && input.soloDim[lane] }
 
     var body: some View {
         let origin = band.frame.origin
@@ -173,7 +176,7 @@ struct EuclideousMixBandCanvas: View {
         let rows: [(notes: Bool, frames: EuclideousMixRowFrames)] = [(false, band.riff), (true, band.notes)]
         let partOn = rows.map { !euclideousMixLayerIsOff(line, notes: $0.notes) }
         let model = input.rolls
-        let clock = input.clock, beatAt = input.beatAt, mode = input.stripMode, accent = self.accent, dim = soloDim
+        let clock = input.clock, beatAt = input.beatAt, mode = input.stripMode, accent = self.accent, dim = laneDim
         let poolFrames = euclideousMixPoolFrames(area: band.pool)
         let cells = euclideousMixStripCells(strip: strip, steps: feed.n, mode: mode)
         let poolName = input.poolName
@@ -203,7 +206,7 @@ struct EuclideousMixBandCanvas: View {
                         c.fill(Path(CGRect(x: cell.minX, y: cell.maxY - EuclideousMixStripMetrics.bottomLine, width: cell.width, height: EuclideousMixStripMetrics.bottomLine)), with: .color(accent))
                     }
                 }
-                // ── below the top row: dimmed to 42 % while the lane is solo-silenced
+                // ── below the top row: ONE dim to 42 % (§A5: solo-silenced, no hits or muted)
                 var below = ctx
                 if dim { below.opacity = EuclideousLaneDimStyle.opacity }
                 // the pool: eight rank chips, rank 8 at the top
@@ -222,7 +225,7 @@ struct EuclideousMixBandCanvas: View {
                     let rollFrame = row.frames.roll
                     guard rollFrame.width > 0 else { continue }
                     var c = below
-                    if !partOn[k] { c.opacity = below.opacity * EuclideousLaneDimStyle.opacity }   // an OFF part: its roll draws at 42 % and stays live
+                    c.opacity = below.opacity * euclideousMixOwnDimOpacity(laneDimmed: dim, partOff: !partOn[k], target: .roll)   // an OFF part: its roll draws at 42 % and stays live — never 42 % of 42 %
                     drawRoll(&c, frame: rollFrame, notes: k == 0 ? notesA : notesB, now: now, size: rollFrame.size)
                 }
             }
@@ -480,6 +483,7 @@ struct EuclideousMixLinesLayer: View {
         let lines = euclideousMixLines(layout: layout, masks: masks, partOn: on)
         let dots = euclideousMixOriginDots(lines: lines)
         let accents = input.accents, beatAt = input.beatAt, model = input.rolls, tempo = input.clock.tempo, L = layout
+        let noHits: [Bool] = (0..<4).map { $0 < input.strips.count ? euclideousMixLaneHasNoHits(legs: input.strips[$0].legs) : false }
         let left = layout.bandW - 8
         let canvasW = layout.size.width - left
         return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !input.live)) { tl in
@@ -490,12 +494,12 @@ struct EuclideousMixLinesLayer: View {
                 let parts = model.model.parts
                 let acts = lines.map { euclideousMixLineActivity(notes: parts[$0.part], output: $0.output, nowBeat: now, tempo: tempo) }
                 for i in euclideousMixLineDrawOrder(activities: acts) {
-                    let l = lines[i], look = euclideousMixLineLook(activity: acts[i])
+                    let l = lines[i], look = euclideousMixLineLook(activity: acts[i], laneNoHits: noHits[l.lane])
                     var p = Path(); p.move(to: l.from); p.addCurve(to: l.to, control1: l.c1, control2: l.c2)
                     ctx.stroke(p, with: .color(accents[l.lane % accents.count].opacity(look.alpha)), style: StrokeStyle(lineWidth: look.width, lineCap: .round))
                 }
                 for d in dots {
-                    ctx.fill(Path(ellipseIn: CGRect(x: d.at.x - M.originDot / 2, y: d.at.y - M.originDot / 2, width: M.originDot, height: M.originDot)), with: .color(accents[d.lane % accents.count]))
+                    ctx.fill(Path(ellipseIn: CGRect(x: d.at.x - M.originDot / 2, y: d.at.y - M.originDot / 2, width: M.originDot, height: M.originDot)), with: .color(accents[d.lane % accents.count].opacity(euclideousMixOriginDotAlpha(laneNoHits: noHits[d.lane]))))
                 }
                 for o in 0..<4 {
                     let f = L.emitters[o]

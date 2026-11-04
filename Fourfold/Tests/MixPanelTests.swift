@@ -404,6 +404,43 @@ final class MixPanelTests: XCTestCase {
         XCTAssertEqual(EuclideousMixRollMetrics.soundingRowAlpha, 0.10)
     }
 
+    // MARK: test 11 (§A5–A6) — a lane with no hits, and the one dim
+
+    func testALaneWithNoHitsDimsEverythingBelowTheTopRowToFortyTwoNotEighteenAndEndsWithTheFirstHit() {
+        let dim = EuclideousLaneDimStyle.opacity; XCTAssertEqual(dim, 0.42)
+        func leg(_ at: Set<Int>) -> [EuclideousStripLeg] { [EuclideousStripLeg(hitSteps: [], hits: hits(8, at: at))] }
+        XCTAssertTrue(euclideousMixLaneHasNoHits(legs: leg([])), "eight steps, no hits")
+        XCTAssertFalse(euclideousMixLaneHasNoHits(legs: leg([3])), "adding a hit ends it")
+        XCTAssertTrue(euclideousMixLaneHasNoHits(legs: []))
+        var gap = hits(4, at: [1]); gap[1].kind = .gap
+        XCTAssertFalse(euclideousMixLaneHasNoHits(legs: [EuclideousStripLeg(hitSteps: [], hits: gap)]), "a hit on a riff rest is still a hit")
+        XCTAssertFalse(euclideousMixLaneHasNoHits(legs: [EuclideousStripLeg(hitSteps: [], hits: hits(4, at: [])), EuclideousStripLeg(hitSteps: [], hits: hits(4, at: [2]))]), "either leg of a PING-PONG lane")
+        // one flag whatever the cause
+        XCTAssertTrue(euclideousMixLaneDimmed(soloSilenced: false, noHits: true, muted: false)); XCTAssertTrue(euclideousMixLaneDimmed(soloSilenced: true, noHits: false, muted: false))
+        XCTAssertTrue(euclideousMixLaneDimmed(soloSilenced: false, noHits: false, muted: true)); XCTAssertFalse(euclideousMixLaneDimmed(soloSilenced: false, noHits: false, muted: false))
+        // the net opacity: 42 % for everything below the top row, 42 % — not 18 % — for an OFF part's roll / sliders in a dimmed lane, and a muted or solo-dimmed lane with no hits is still 42 %
+        let all: [EuclideousMixDimTarget] = [.pool, .toggle, .out, .roll, .slider]
+        for t in all { XCTAssertEqual(euclideousMixDimOpacity(laneDimmed: true, partOff: false, target: t), dim, "\(t)"); XCTAssertEqual(euclideousMixDimOpacity(laneDimmed: true, partOff: true, target: t), dim, "\(t): no compounding") }
+        for t in all { XCTAssertEqual(euclideousMixDimOpacity(laneDimmed: false, partOff: false, target: t), 1, "\(t): an ordinary lane is full strength") }
+        XCTAssertEqual(euclideousMixDimOpacity(laneDimmed: false, partOff: true, target: .roll), dim); XCTAssertEqual(euclideousMixDimOpacity(laneDimmed: false, partOff: true, target: .slider), dim)
+        for t in [EuclideousMixDimTarget.pool, .toggle, .out] { XCTAssertEqual(euclideousMixDimOpacity(laneDimmed: false, partOff: true, target: t), 1, "\(t): an off part's own switch and the A–D buttons are not dimmed by it") }
+        // what a view adds INSIDE the lane's group, so the product is the net and never 0.18
+        for lane in [false, true] { for off in [false, true] { for t in all {
+            let inside = lane ? dim : 1
+            XCTAssertEqual(inside * euclideousMixOwnDimOpacity(laneDimmed: lane, partOff: off, target: t), euclideousMixDimOpacity(laneDimmed: lane, partOff: off, target: t), accuracy: 1e-12)
+            XCTAssertGreaterThan(inside * euclideousMixOwnDimOpacity(laneDimmed: lane, partOff: off, target: t), 0.4)
+        } } }
+        // lines and origin dots: 42 % of the idle look; an active line is as bright as ever; adding a hit restores the idle look
+        let idle = euclideousMixLineLook(activity: 0), idleNoHits = euclideousMixLineLook(activity: 0, laneNoHits: true)
+        XCTAssertEqual(idle.alpha, 0.4); XCTAssertEqual(idleNoHits.alpha, 0.4 * 0.42, accuracy: 1e-12); close(idle.width, idleNoHits.width, "the line keeps its width")
+        XCTAssertEqual(euclideousMixLineLook(activity: 1, laneNoHits: true).alpha, 1); XCTAssertEqual(euclideousMixLineLook(activity: 1, laneNoHits: true).width, EuclideousMixLineMetrics.activeWidth)
+        XCTAssertEqual(euclideousMixLineLook(activity: 0, laneNoHits: false).alpha, idle.alpha, "a hit restores it")
+        XCTAssertEqual(euclideousMixOriginDotAlpha(laneNoHits: true), 0.42); XCTAssertEqual(euclideousMixOriginDotAlpha(laneNoHits: false), 1)
+        // VoiceOver
+        XCTAssertEqual(euclideousMixStripSpoken(hits: 0, steps: 8), "Rhythm, no hits in 8 steps")
+        XCTAssertEqual(euclideousMixStripSpoken(hits: 1, steps: 8), "Rhythm, 1 hit in 8 steps"); XCTAssertEqual(euclideousMixStripSpoken(hits: 5, steps: 8), "Rhythm, 5 hits in 8 steps")
+    }
+
     // MARK: the strings
 
     func testVoiceOverStrings() {
