@@ -4887,6 +4887,7 @@ enum EuclideousPageFloor: Equatable, Hashable {
     case fxRows                      // FX rows < 24
     case ratchRows                   // RATCH tab (2026-10-28): a card under 52 pt (§4.8) — the frame is reported, the cards are drawn at the formula's height
     case laneStrip                   // TAB STRIP (2026-10-29): a strip segment under 96 pt wide — the four glyph clusters hide; labels truncate, nothing shrinks
+    case restartEditor               // RESTART UNITS (2026-11-04) §7.6: the restart editor's right block under 262 pt wide (the three chips, four source squares and the switch overlap) or the editor under 172 tall (its bottom edge clips) — drawn at the formula's values, nothing shrinks
     case mixRowsRoll, mixRowsRow, mixRowsBand   // MIX ROWS (2026-11-03): a part row's roll under 96 pt wide · a part row under 40 tall · a lane band under 120 tall (the panel is drawn at the formula's values)
 }
 
@@ -4903,6 +4904,8 @@ func euclideousPageFloors(box: CGSize, laneBox: CGSize? = nil, stripWidth: CGFlo
     if r.directionRowHeight < EuclideousRiffTabFloors.directionRowHeight { out.append(.riffDirectionRow) }
     if r.lowerRowHeight < EuclideousRiffTabFloors.lowerRowHeight { out.append(.riffLowerRows) }
     if r.directionButtonWidth < EuclideousRiffTabFloors.directionButtonWidth { out.append(.riffDirectionButtons) }
+    let editor = euclideousRestartEditorFramesV2(size: CGSize(width: EuclideousLaneCardMetrics.innerWidth(cardWidth: lane.width), height: contentH))
+    if !editor.row1Fits || editor.clipsBottom { out.append(.restartEditor) }
     let area = euclideousMixGridArea(panelWidth: box.width, panelHeight: box.height)
     let g = euclideousMixGrid(width: area.width, height: area.height)
     if g.cellW < EuclideousMixMetrics.minCellW { out.append(.mixCellW) }

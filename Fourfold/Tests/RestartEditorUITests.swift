@@ -232,4 +232,18 @@ final class RestartEditorUITests: XCTestCase {
         let narrow = euclideousRestartEditorFramesV2(size: CGSize(width: 300, height: 229))
         XCTAssertFalse(narrow.row1Fits, "RW below 262 is reported, never shrunk"); XCTAssertEqual(narrow.rhythm.chips[0].width, 40)
     }
+    /// §7.6: the editor's size at every page layout the layout tests pin (the card's body: card height − 72, card width − 20), and what the frames do there. Reported for the ferry's notes; the assertions are the floors the spec states.
+    func testTheEditorSizeAtEveryPageLayout() {
+        var rows: [String] = []
+        for v in [CGSize(width: 1190, height: 726), CGSize(width: 1400, height: 900), CGSize(width: 814, height: 1102), CGSize(width: 1000, height: 1300), CGSize(width: 744, height: 1133), CGSize(width: 1024, height: 768), CGSize(width: 1366, height: 1024)] {
+            let lay = euclideousPageLayout(size: v)
+            let box = lay.laneBox
+            let ed = CGSize(width: EuclideousLaneCardMetrics.innerWidth(cardWidth: box.width), height: EuclideousLaneCardMetrics.contentAreaH(cardHeight: box.height))
+            let f = euclideousRestartEditorFramesV2(size: ed)
+            rows.append("view \(Int(v.width))×\(Int(v.height)) card \(String(format: "%.2f×%.2f", box.width, box.height)) editor \(String(format: "%.2f×%.2f", ed.width, ed.height)) timelines \(f.showsTimelines) row1Fits \(f.row1Fits) clipsBottom \(f.clipsBottom) rightW \(String(format: "%.2f", f.rightWidth))")
+            XCTAssertFalse(f.clipsBottom, "the editor never clips at a layout the page draws: \(rows.last!)")
+            XCTAssertEqual(lay.floors.contains(.restartEditor), !f.row1Fits || f.clipsBottom, "the page's floors report exactly what the editor's frames say: \(rows.last!)")
+        }
+        print("RESTART UNITS editor sizes:\n" + rows.joined(separator: "\n"))
+    }
 }
