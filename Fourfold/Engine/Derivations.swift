@@ -10373,10 +10373,22 @@ func emitterRatchetRangeRoll(output: Int, v: Int64) -> UInt64 {
 /// `(index + offset) mod n`; the ordinal is how many of the UN-rotated pattern's hits sit below it. So a per-hit
 /// count follows its hit when OFFSET changes. Allocation-free (bit test over the main-thread-built offset-0 mask).
 func emitterRatchetHitOrdinal(index: Int, cfg: EmitterRatchetCfg) -> Int {
-    let n = max(1, cfg.steps)
-    let u = ((index + cfg.offset) % n + n) % n
-    let below = cfg.patternMaskNoOffset & (UInt16(1 << UInt16(u)) &- 1)
+    emitterRatchetHitOrdinal(index: index, steps: cfg.steps, offset: cfg.offset, patternMaskNoOffset: cfg.patternMaskNoOffset)
+}
+/// The same, from raw params — so the RATCH strip's HIT-count display (which has an `EmitterRatchet`, not a cfg) reads the SAME ordinal the engine strikes with. `patternMaskNoOffset` = `emitterRatchetPatternMask(steps:hits:offset:0)`.
+func emitterRatchetHitOrdinal(index: Int, steps: Int, offset: Int, patternMaskNoOffset: UInt16) -> Int {
+    let n = max(1, steps)
+    let u = ((index + offset) % n + n) % n
+    let below = patternMaskNoOffset & (UInt16(1 << UInt16(u)) &- 1)
     return Int(below.nonzeroBitCount)
+}
+/// §4.4 (RATCH EXPAND): the strike bars a collapsed strip draws for a HIT slot at pre-OFFSET hit ordinal `ordinal` — `count` bars, of which `faintFrom`…`count` are drawn faint (RANGE shows MAX with the MIN-onward dimmed; HIT shows that slot's own count; FIX shows `strikes`, none faint).
+func emitterRatchetStripBars(_ r: EmitterRatchet, ordinal: Int) -> (count: Int, faintFrom: Int) {
+    switch r.mode {
+    case .fix: return (r.strikes, r.strikes)
+    case .range: return (r.rangeMax, r.rangeMin)
+    case .hit: let c = r.hitCount(ordinal); return (c, c)
+    }
 }
 /// §2.4 — a strike's spacing in beats for one ratcheting hit: FIT splits the step evenly (today), the others are the
 /// fixed musical gap. The Router and every display read THIS one function.

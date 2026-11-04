@@ -5,6 +5,13 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — RATCH EXPAND (2026-11-04; `Docs/euclideous-status-log.md`, branch `feature/ratch-expand`)
+- [x] DONE engine (slices 1–3, landed `0880747`): `EmitterRatchet` mode/range/hitCounts/gap/end, `emitterRatchetDecide` per-mode n, the Router's GAP spacing + CUT; golden byte-identical at defaults; model/decide/engine tests green.
+- [x] DONE UI (slices 4–5): collapsed STEPS·HITS·OFFSET·STRIKES + config button; the expanded per-emitter editor (disc column, big strip, value row, STRIKES FIX·RANGE·HIT, GAP segmented); `EmitterRatchetTests` + screenshots green.
+- [ ] DEVICE: the five "RATCH EXPAND —" lines in `Docs/euclideous-device-verification-debt.md` (collapsed legibility, the expanded editor's touch targets, HIT per-hit counts, the GAP/variable strikes by ear).
+- [ ] DECIDE (Paul): (a) **SPILL** — §0.2 ships SPILL as CUT and HIDES the CUT·SPILL segment (the engine can't choke a pending strike per output without a new per-output `EchoTail` key). Build real per-output SPILL (a larger engine change), or leave CUT-only? (b) HIT per-slot editing is **tap-to-cycle** (1→4); a vertical drag to set the count is a possible refinement — wanted? (c) the expanded shell is SwiftUI stacks, not an absolute pure layout; extract to a pure `emitterRatchetExpandedLayout` once the design is settled?
+- [ ] (noted) the collapsed STRIKES double-tap still resets the hidden FIX count in RANGE/HIT (no visible change); the segmented pills / 26 pt +/− glyphs are under 44 pt (device-owed, allow-list the audit like the chords page if run).
+
 ## ★ FOURFOLD — AU host icon (2026-11-01; `Docs/euclideous-status-log.md`, branch `fix/au-host-icon`)
 - [x] DONE: the FourfoldAU extension carries the Canon AppIcon (shares the app's catalog); `AppIconTests`.
 - [ ] DEVICE: the two "AU host icon" lines in `Docs/euclideous-device-verification-debt.md` — AUM shows the Canon icon; if not, delete any leftover pre-rename "Fourfold" app (`com.paulbarrett.Fourfold`) and relaunch AUM, then tell me what it shows.

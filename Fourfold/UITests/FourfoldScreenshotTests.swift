@@ -290,13 +290,27 @@ final class FourfoldScreenshotTests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Ratchet on emitter B")).element(boundBy: 0).tap()
         drag("Emitter B chance ", by: 15)
         Thread.sleep(forTimeInterval: 2)
-        attach("9-ratch-2-portrait-a-16-16-x4")
+        attach("9-ratch-2-portrait-a-16-16-x4")   // RATCH EXPAND (2026-11-04): the collapsed card now shows STEPS·HITS·OFFSET·STRIKES + a config button
         device.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 3)
         attach("9-ratch-3-landscape-a-16-16-x4")
+        // RATCH EXPAND §5: open emitter A's config and step through the STRIKES modes + GAP, in landscape (the expanded view fills the panel)
+        func tapExact(_ label: String) {
+            let e = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).element(boundBy: 0)
+            if e.waitForExistence(timeout: 2) { e.tap() }
+        }
+        tapExact("Configure emitter A"); Thread.sleep(forTimeInterval: 1.2)
+        attach("9-ratch-5-landscape-expanded-fix")
+        tapExact("Strikes mode RANGE"); Thread.sleep(forTimeInterval: 0.8)
+        attach("9-ratch-6-landscape-expanded-range")
+        tapExact("Strikes mode HIT"); Thread.sleep(forTimeInterval: 0.8)
+        attach("9-ratch-7-landscape-expanded-hit")
+        tapExact("Strike gap 1/16"); Thread.sleep(forTimeInterval: 0.8)
+        attach("9-ratch-8-landscape-expanded-hit-gap16")
+        tapExact("Configure emitter A"); Thread.sleep(forTimeInterval: 1.0)   // the collapse button (open) — back to the four cards
         device.orientation = .portraitUpsideDown
         Thread.sleep(forTimeInterval: 2.5)
-        attach("9-ratch-4-portrait-upside-down")
+        attach("9-ratch-9-portrait-upside-down")
         device.orientation = .portrait
     }
 

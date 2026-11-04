@@ -458,6 +458,64 @@ final class EmitterRatchetTests: XCTestCase {
         XCTAssertEqual(emitterRatchetDragValue(.steps, start: base, travelUp: -100).offset, 1)
     }
 
+    // MARK: - RATCH EXPAND §4 / §7.5 — the collapsed layout, the config button, the mode-aware STRIKES text and master drag, the strip bars
+
+    func testCollapsedLayoutReservesTheConfigButtonAndShrinksTheColumn() {
+        let plain = emitterRatchetLayout(bodySize: CGSize(width: 364.67, height: 279), portrait: false)
+        let cfg = emitterRatchetLayout(bodySize: CGSize(width: 364.67, height: 279), portrait: false, cellCount: emitterRatchetCollapsedFields.count, config: true)
+        XCTAssertNil(plain.config, "no config button when not asked for")
+        XCTAssertEqual(cfg.strip.width, plain.strip.width - 50, accuracy: 1e-9, "the strip+readout column loses 44 + 6")
+        XCTAssertEqual(cfg.cells.count, 4, "STEPS · HITS · OFFSET · STRIKES")
+        let c = try! XCTUnwrap(cfg.config)
+        XCTAssertEqual(c.width, 44); XCTAssertEqual(c.height, cfg.toggle.height, "full inner height, like the toggle")
+        XCTAssertEqual(c.minX, cfg.strip.minX + cfg.strip.width + 6, accuracy: 1e-9, "6 to the right of the column")
+        XCTAssertEqual(c.maxX, 364.67 - 8, accuracy: 1e-6, "its right edge sits at the card's padRight")
+        XCTAssertEqual(emitterRatchetCollapsedFields, [.steps, .hits, .offset, .strikes])
+    }
+    func testStrikesValueTextIsModeAware() {
+        var r = EmitterRatchet(strikes: 3)
+        r.mode = .fix;   XCTAssertEqual(emitterRatchetValueText(.strikes, r), "\u{00D7}3")
+        r.mode = .range; r.rangeMin = 2; r.rangeMax = 4; XCTAssertEqual(emitterRatchetValueText(.strikes, r), "\u{00D7}2\u{2013}4")
+        r.mode = .hit;   XCTAssertEqual(emitterRatchetValueText(.strikes, r), "\u{00D7}VAR")
+    }
+    func testTheStrikesMasterDragFollowsTheMode() {
+        var fix = EmitterRatchet(strikes: 2); fix.mode = .fix
+        XCTAssertEqual(emitterRatchetDragValue(.strikes, start: fix, travelUp: 18).strikes, 3, "FIX moves `strikes`, 1 per 18 pt")
+        var rng = EmitterRatchet(); rng.mode = .range; rng.rangeMin = 1; rng.rangeMax = 3
+        let up = emitterRatchetDragValue(.strikes, start: rng, travelUp: 18)
+        XCTAssertEqual([up.rangeMin, up.rangeMax], [2, 4], "RANGE slides the whole window 1–3 → 2–4")
+        let up2 = emitterRatchetDragValue(.strikes, start: rng, travelUp: 40)
+        XCTAssertEqual([up2.rangeMin, up2.rangeMax], [2, 4], "the top clamps at 4 and MIN holds the width")
+        let dn = emitterRatchetDragValue(.strikes, start: rng, travelUp: -18)
+        XCTAssertEqual([dn.rangeMin, dn.rangeMax], [1, 3], "MIN clamps at 1")
+        var hit = EmitterRatchet(); hit.mode = .hit
+        XCTAssertEqual(emitterRatchetDragValue(.strikes, start: hit, travelUp: 100), hit, "HIT's master drag is inert")
+    }
+    func testTheStripBarsFollowTheMode() {
+        var r = EmitterRatchet(steps: 8, hits: 3, strikes: 3)
+        r.mode = .fix
+        XCTAssertEqual(emitterRatchetStripBars(r, ordinal: 0).count, 3); XCTAssertEqual(emitterRatchetStripBars(r, ordinal: 0).faintFrom, 3, "FIX draws none faint")
+        r.mode = .range; r.rangeMin = 2; r.rangeMax = 4
+        XCTAssertEqual(emitterRatchetStripBars(r, ordinal: 0).count, 4, "RANGE draws MAX"); XCTAssertEqual(emitterRatchetStripBars(r, ordinal: 0).faintFrom, 2, "MIN-onward faint")
+        r.mode = .hit; r = r.settingHitCount(0, 4).settingHitCount(1, 1)
+        XCTAssertEqual(emitterRatchetStripBars(r, ordinal: 0).count, 4); XCTAssertEqual(emitterRatchetStripBars(r, ordinal: 1).count, 1, "HIT draws each ordinal's own count")
+    }
+    func testTheUiHitOrdinalMatchesTheEngineOrdinal() {
+        // the raw-param overload the strip reads must equal the cfg overload the Router strikes with, so the HIT bars line up with what sounds
+        let r = EmitterRatchet(steps: 8, hits: 3, offset: 2, strikes: 3)
+        let mask0 = emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: 0)
+        let cfg = EmitterRatchetCfg(r)
+        for i in 0..<8 {
+            XCTAssertEqual(emitterRatchetHitOrdinal(index: i, steps: r.steps, offset: r.offset, patternMaskNoOffset: mask0),
+                           emitterRatchetHitOrdinal(index: i, cfg: cfg), "slot \(i)")
+        }
+    }
+    func testTheConfigButtonVoiceOver() {
+        XCTAssertEqual(emitterRatchetConfigLabel(output: 0), "Configure emitter A")
+        XCTAssertEqual(emitterRatchetConfigLabel(output: 3), "Configure emitter D")
+        XCTAssertEqual(emitterRatchetConfigValue(open: true), "open"); XCTAssertEqual(emitterRatchetConfigValue(open: false), "closed")
+    }
+
     // MARK: - §8 — VoiceOver
 
     func testVoiceOverWordsAreTheFerrys() {

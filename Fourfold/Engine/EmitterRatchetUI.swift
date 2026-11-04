@@ -42,6 +42,8 @@ enum EmitterRatchetMetrics {
     static let progressHeight: CGFloat = 2, progressBottom: CGFloat = 3, progressInset: CGFloat = 8, progressMinShare = 0.06
     static let cellPressedRadius: CGFloat = 6
     static let discSize: CGFloat = 28
+    /// RATCH EXPAND (§4): the collapsed row's config button — a 44-wide full-height target on the card's RIGHT edge, mirroring the toggle on the left.
+    static let configWidth: CGFloat = 44
 }
 
 struct EmitterRatchetLayout: Equatable {
@@ -51,7 +53,8 @@ struct EmitterRatchetLayout: Equatable {
     var toggle: CGRect              // the 44 × inner-height touch target at the card's left edge (the disc is centred in it)
     var strip: CGRect               // the 16-slot strip, 20 tall
     var slots: [CGRect]             // 16 equal slots
-    var cells: [CGRect]             // the six readout cells (STEPS · HITS · OFFSET · CHANCE · STRIKES · RESTART)
+    var cells: [CGRect]             // the readout cells (RATCH collapsed: STEPS · HITS · OFFSET · STRIKES; VELOCITY: five; the full six when not collapsed)
+    var config: CGRect?             // RATCH EXPAND (§4): the config button on the card's right edge, card-local; nil when the layout reserves none
     var cardHeight: CGFloat
     /// §4.8: a card under 52 pt — the frame is reported (and listed in the page's floors) rather than shrunk or left empty.
     var belowFloor: Bool { cardHeight < EmitterRatchetMetrics.minCardHeight - 0.01 }
@@ -59,8 +62,9 @@ struct EmitterRatchetLayout: Equatable {
 
 /// §4.2–§4.8. `bodySize` is the tab body (the panel less its padding, tab row and gap). Landscape: cards 60 tall, 6 apart, from y 3. Portrait: the four cards share the height equally (6 apart, 35 above in panel terms and the panel's
 /// own 8 below), the readout row taking whatever the 20 pt strip leaves (never under 24). A landscape card that cannot be 60 shares the height the same way.
-/// `cellCount` is the number of readout cells (6 for the RATCH tab; the VELOCITY tab reuses this layout with 5). Everything else — the cards, toggle, strip and slots — is shared.
-func emitterRatchetLayout(bodySize: CGSize, portrait: Bool, cellCount: Int = EmitterRatchetField.allCases.count) -> EmitterRatchetLayout {
+/// `cellCount` is the number of readout cells (RATCH collapsed: 4; the VELOCITY tab reuses this layout with 5). `config` (RATCH EXPAND §4) reserves a 44-wide button on the card's RIGHT edge (the strip and readout shrink by 44 + 6);
+/// the toggle, strip and slots are otherwise shared.
+func emitterRatchetLayout(bodySize: CGSize, portrait: Bool, cellCount: Int = EmitterRatchetField.allCases.count, config: Bool = false) -> EmitterRatchetLayout {
     typealias M = EmitterRatchetMetrics
     let w = max(0, bodySize.width)
     let shared = (bodySize.height - M.top - 3 * M.gap) / 4
@@ -68,18 +72,24 @@ func emitterRatchetLayout(bodySize: CGSize, portrait: Bool, cellCount: Int = Emi
     let cards = (0..<4).map { CGRect(x: 0, y: M.top + CGFloat($0) * (h + M.gap), width: w, height: h) }
     let innerH = max(0, h - 2 * M.padVertical)
     let colX = M.toggleWidth + M.toggleGap
-    let colW = max(0, w - M.padRight - colX)
+    let configReserve: CGFloat = config ? (M.configWidth + M.toggleGap) : 0   // §4: the config button mirrors the toggle on the right, so the strip+readout column loses 44 + 6
+    let colW = max(0, w - M.padRight - colX - configReserve)
     let toggle = CGRect(x: 0, y: M.padVertical, width: M.toggleWidth, height: innerH)
     let strip = CGRect(x: colX, y: M.padVertical, width: colW, height: M.stripHeight)
     let slotW = max(0, (colW - CGFloat(M.slotCount - 1) * M.slotGap) / CGFloat(M.slotCount))
     let slots = (0..<M.slotCount).map { CGRect(x: colX + CGFloat($0) * (slotW + M.slotGap), y: M.padVertical, width: slotW, height: M.stripHeight) }
     let readoutY = M.padVertical + M.stripHeight + M.stripGap
     let readoutH = max(M.minReadoutHeight, innerH - M.stripHeight - M.stripGap)
-    let n = max(1, cellCount)                                        // RATCH: six cells (STEPS · HITS · OFFSET · CHANCE · STRIKES · RESTART); VELOCITY: five (STEPS · HITS · OFFSET · HIT VEL · MISS VEL)
+    let n = max(1, cellCount)                                        // RATCH collapsed: four cells (STEPS · HITS · OFFSET · STRIKES); VELOCITY: five (STEPS · HITS · OFFSET · HIT VEL · MISS VEL)
     let cellW = colW / CGFloat(n)
     let cells = (0..<n).map { CGRect(x: colX + CGFloat($0) * cellW, y: readoutY, width: cellW, height: readoutH) }
-    return EmitterRatchetLayout(cards: cards, toggle: toggle, strip: strip, slots: slots, cells: cells, cardHeight: h)
+    // the config button fills the card's inner height on its right edge, ending at the card's padRight; present only when `config` reserved room for it
+    let cfg: CGRect? = config ? CGRect(x: colX + colW + M.toggleGap, y: M.padVertical, width: M.configWidth, height: innerH) : nil
+    return EmitterRatchetLayout(cards: cards, toggle: toggle, strip: strip, slots: slots, cells: cells, config: cfg, cardHeight: h)
 }
+
+/// RATCH EXPAND (§4): the four readout cells a collapsed RATCH card shows (CHANCE and RESTART move to the expanded view).
+let emitterRatchetCollapsedFields: [EmitterRatchetField] = [.steps, .hits, .offset, .strikes]
 
 /// §4.5: the strike bars of a hit slot — `strikes` bars, centred in the slot, 2 wide, 1 apart, 14 / 12 / 10 / 8 tall in strike order.
 func emitterRatchetBarRects(in slot: CGRect, strikes: Int) -> [CGRect] {
@@ -106,7 +116,12 @@ func emitterRatchetValueText(_ f: EmitterRatchetField, _ r: EmitterRatchet) -> S
     case .hits: return "\(r.hits)"
     case .offset: return r.offset == 0 ? "0" : "+\(r.offset)"
     case .chance: return "\(r.chance)%"
-    case .strikes: return "\u{00D7}\(r.strikes)"
+    case .strikes:   // RATCH EXPAND §4.6: FIX "×3" · RANGE "×2–4" · HIT "×VAR" (the count varies per hit)
+        switch r.mode {
+        case .fix: return "\u{00D7}\(r.strikes)"
+        case .range: return "\u{00D7}\(r.rangeMin)\u{2013}\(r.rangeMax)"
+        case .hit: return "\u{00D7}VAR"
+        }
     case .restart: return r.restartBars == 0 ? "FREE" : "\(r.restartBars)"   // RESTART (2026-11-03): 0 = FREE (no restart), else the bar count; the label and VoiceOver carry the "bars" unit
     }
 }
@@ -124,8 +139,25 @@ func emitterRatchetPointsPerStep(_ f: EmitterRatchetField) -> CGFloat {
     switch f { case .steps, .hits, .offset, .restart: return 10; case .chance: return 3; case .strikes: return 18 }
 }
 /// §6.2: the value a drag has reached — `start` plus a whole number of steps for the travel so far (up positive), clamped at the ends by `setting` (never wrapped).
+/// RATCH EXPAND §7.5: the collapsed STRIKES cell is a MASTER drag — in FIX it moves `strikes`; in RANGE it slides the whole MIN…MAX window by the same amount (keeping the width where the ends allow); in HIT it does nothing (the per-hit counts are edited in the expanded view).
 func emitterRatchetDragValue(_ f: EmitterRatchetField, start r: EmitterRatchet, travelUp: CGFloat) -> EmitterRatchet {
     let steps = Int((travelUp / emitterRatchetPointsPerStep(f)).rounded(.towardZero))
+    if f == .strikes {
+        switch r.mode {
+        case .fix: return f.setting(r.strikes + steps, in: r)
+        case .range:
+            // slide the window: shift both ends, but never past their own bounds, and keep MIN ≤ MAX (normalized() enforces it as a backstop)
+            var m = r
+            let width = r.rangeMax - r.rangeMin
+            var newMin = max(EmitterRatchet.minRangeMin, min(EmitterRatchet.maxRange, r.rangeMin + steps))
+            var newMax = max(EmitterRatchet.minRangeMax, min(EmitterRatchet.maxRange, newMin + width))
+            if newMax == EmitterRatchet.maxRange { newMin = max(EmitterRatchet.minRangeMin, min(newMin, newMax - width)) }   // when the top clamps, pull MIN down so the window keeps its width
+            newMin = min(newMin, newMax)
+            m.rangeMin = newMin; m.rangeMax = newMax
+            return m.normalized()
+        case .hit: return r
+        }
+    }
     return f.setting(f.value(of: r) + steps * f.step, in: r)
 }
 
@@ -133,6 +165,9 @@ func emitterRatchetDragValue(_ f: EmitterRatchetField, start r: EmitterRatchet, 
 
 let emitterRatchetLetters = ["A", "B", "C", "D"]
 func emitterRatchetTabAccessibilityLabel() -> String { "Ratchet" }
+/// RATCH EXPAND §8: the collapsed config button and its open/closed state.
+func emitterRatchetConfigLabel(output x: Int) -> String { "Configure emitter \(emitterRatchetLetters[max(0, min(3, x))])" }
+func emitterRatchetConfigValue(open: Bool) -> String { open ? "open" : "closed" }
 func emitterRatchetToggleLabel(output x: Int) -> String { "Ratchet on emitter \(emitterRatchetLetters[max(0, min(3, x))])" }
 func emitterRatchetToggleValue(on: Bool) -> String { on ? "on" : "off" }
 /// "Emitter A pattern, 3 of 8, offset 0, 3 strikes" — `counts` is "hits" or "steps" in a dev build (as FX COUNTS reads), nil in release. One static element: it is not announced as it plays.

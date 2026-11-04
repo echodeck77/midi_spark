@@ -918,6 +918,8 @@ struct EuclideousPage: View {
     // SEQUENCER PANEL (2026-10-14 ferry §1; MIX ferry 2026-10-18 §1.5): which tab is showing — MIX first and the DEFAULT, LANES second,
     // RIFFS hidden — purely ephemeral, never persisted (so a fresh page always opens on MIX).
     @State private var sequencerTab: EuclideousSeqTab = .default
+    // RATCH EXPAND ferry (§1.9): which emitter's config is open (nil = the four collapsed cards). View-state only — a sibling of `sequencerTab`, so it survives a tab switch but never a relaunch, and it is never in the document, undo or presets.
+    @State private var ratchExpanded: Int? = nil
     // LANES GRID (2026-10-18): the per-lane cache of the roll feed (recomputed only when its inputs or its
     // window change, never per frame). RESTART CHAINS ferry §8: the panel's own MUTE/RESTART sub-tab state
     // (`lanesSubTab`) is retired along with the RESTART view itself — the panel is mute-only now.
@@ -7322,16 +7324,31 @@ struct EuclideousPage: View {
     /// THE RATCH TAB (ferry 2026-10-28; redesign 2026-11-03 — brighter step-count strip, stacked six cells with RESTART): four cards A–D, each an on/off toggle, a 16-slot strip of that output's Euclid pattern and six drag cells. All numbers come from `emitterRatchetLayout` (EmitterRatchetUI.swift); the painter
     /// (RatchPanelPainter.swift) only paints them. Every edit is one document write + one republish through `onEditEmitterRatchet`.
     private func ratchTab(width: CGFloat, height: CGFloat, portrait: Bool) -> some View {
-        let layout = emitterRatchetLayout(bodySize: CGSize(width: width, height: height), portrait: portrait)
         let feed = pulseFeed
         #if DEBUG
         let counts: String? = fxCounts == .steps ? "steps" : "hits"   // §8.3: a dev build says what the count is; a release build always counts hits and says nothing
         #else
         let counts: String? = nil
         #endif
+        let strikesFeed: () -> [[EuclideousPulseStrike]] = { (0..<4).map { feed.strikes(lane: $0) } }
         return EuclideousStackBreak {
-            AnyView(EuclideousRatchetPanel(layout: layout, ratchets: emitterRatchets, accents: laneAccents, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
-                                           strikes: { (0..<4).map { feed.strikes(lane: $0) } }, live: emitterLive, onEdit: onEditEmitterRatchet, onDragEnd: onEmitterRatchetDragEnd)
+            AnyView(
+                ZStack {
+                    if let x = ratchExpanded {
+                        // RATCH EXPAND §5: one emitter fills the panel — the A–D column switches which, the config button (and the strip's own) collapses back
+                        EmitterRatchetExpandedView(output: x, bodySize: CGSize(width: width, height: height), portrait: portrait,
+                                                   ratchets: emitterRatchets, accents: laneAccents, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
+                                                   strikes: strikesFeed, live: emitterLive, onEdit: onEditEmitterRatchet, onDragEnd: onEmitterRatchetDragEnd,
+                                                   onSwitch: { ratchExpanded = $0 }, onCollapse: { withAnimation(.easeInOut(duration: 0.15)) { ratchExpanded = nil } })
+                            .transition(.opacity)
+                    } else {
+                        let layout = emitterRatchetLayout(bodySize: CGSize(width: width, height: height), portrait: portrait, cellCount: emitterRatchetCollapsedFields.count, config: true)
+                        EuclideousRatchetPanel(layout: layout, ratchets: emitterRatchets, accents: laneAccents, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
+                                               strikes: strikesFeed, live: emitterLive, onEdit: onEditEmitterRatchet, onDragEnd: onEmitterRatchetDragEnd,
+                                               expandedOutput: nil, onConfig: { out in withAnimation(.easeInOut(duration: 0.15)) { ratchExpanded = out } })
+                            .transition(.opacity)
+                    }
+                }
                 .frame(width: width, height: height, alignment: .topLeading))
         }
     }
