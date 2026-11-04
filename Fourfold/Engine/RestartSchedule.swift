@@ -292,6 +292,67 @@ struct EuclideousLaneSchedule: Equatable {
     func riffCount(upToTick u: Int64, melodyRecord m: EuclideousRestartRecord) -> Int64 {
         data.advanceStep ? u - m.tick : hitsBefore(tick: u) - m.hits
     }
+
+    // ── CHORDS PAGE ferry (2026-11-04) §3.6: cumulative count + k-th-event beat for RHYTHM RESTARTS and RIFF
+    //    COMPLETIONS, so `chordColumn` can advance/restart a chord grid on a lane's loops or riffs with a binary
+    //    search (no event loop, no allocation). They mirror `riffCompletions` / `passStart`'s own periodic wrap —
+    //    the period part holds one repetition and each whole period adds `count − periodStart` events. Verified
+    //    against a brute-force walk of `nextRhythmRestart` / the completion list in `RestartScheduleTests`.
+
+    /// How many rhythm restarts happened at or before `beat` (beat 0's implicit restart INCLUDED, so the count at
+    /// beat 0 is 1). The number of restart LOOP events in (0, beat] is therefore `rhythmRestartCount(..beat) − 1`.
+    func rhythmRestartCount(atOrBefore beat: Double) -> Int64 {
+        let rb = data.rBeat
+        guard !rb.isEmpty else { return 0 }
+        let p = data.period
+        var kd = 0.0, xr = beat
+        if p > 0, beat > data.prefixEnd + p + schedEps {
+            kd = ((beat - (data.prefixEnd + p) - schedEps) / p).rounded(.up)
+            xr = beat - kd * p
+        }
+        var lo = 0, hi = rb.count
+        while lo < hi { let mid = (lo + hi) / 2; if rb[mid] <= xr + schedEps { lo = mid + 1 } else { hi = mid } }
+        let perPeriod = Int64(rb.count - data.rPeriodStart)
+        return Int64(lo) + Int64(kd) * perPeriod
+    }
+    /// The beat of the `k`-th rhythm restart (0-indexed: restart 0 is beat 0, restart 1 is the first loop event).
+    func rhythmRestartBeat(_ k: Int64) -> Double {
+        let rb = data.rBeat
+        guard !rb.isEmpty, k >= 0 else { return 0 }
+        let rs = Int64(data.rPeriodStart), per = Int64(rb.count - data.rPeriodStart)
+        if data.period > 0, per > 0, k >= rs {
+            let into = k - rs
+            return rb[Int(rs + into % per)] + Double(into / per) * data.period
+        }
+        return rb[Int(min(k, Int64(rb.count - 1)))]
+    }
+    /// How many riff completions happened at or before `beat` (INCLUSIVE — a completion AT `beat` counts, unlike
+    /// `riffCompletions(before:)` which is strictly-before even with a +ε, its internal −schedEps cancelling it).
+    /// §3.8: a RIFF advance takes effect at the completion's own beat, so `chordColumn` needs the inclusive count.
+    func riffCompletionCount(atOrBefore beat: Double) -> Int64 {
+        let f = data.fBeat
+        guard !f.isEmpty else { return 0 }
+        let p = data.period
+        var kd = 0.0, xr = beat
+        if p > 0, beat > data.prefixEnd + p + schedEps {
+            kd = ((beat - (data.prefixEnd + p) - schedEps) / p).rounded(.up)
+            xr = beat - kd * p
+        }
+        var lo = 0, hi = f.count
+        while lo < hi { let mid = (lo + hi) / 2; if f[mid] <= xr + schedEps { lo = mid + 1 } else { hi = mid } }
+        return Int64(lo) + Int64(kd) * data.dRiff
+    }
+    /// The beat of the `k`-th riff completion (0-indexed; completions start after beat 0, so k 0 is the first one).
+    func riffCompletionBeat(_ k: Int64) -> Double {
+        let f = data.fBeat
+        guard !f.isEmpty, k >= 0 else { return 0 }
+        let fs = Int64(data.fPeriodStart)
+        if data.period > 0, data.dRiff > 0, k >= fs {
+            let into = k - fs
+            return f[Int(fs + into % data.dRiff)] + Double(into / data.dRiff) * data.period
+        }
+        return f[Int(min(k, Int64(f.count - 1)))]
+    }
 }
 
 /// The four lanes' schedules plus what the Router needs to decide whether to read them.

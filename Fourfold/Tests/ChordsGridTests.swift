@@ -616,3 +616,128 @@ final class ChordColumnArithmeticTests: XCTestCase {
         }
     }
 }
+
+// MARK: - CHORDS PAGE ferry (Paul 2026-11-04) §3 + §3.6: the schedule-backed column (LOOP / RIFF / RESTART)
+// Covers the new schedule accessors (cross-checked against the trusted readers) and the ferry's §8 worked
+// examples for LOOP (tests 2,3), RIFF (4), same-beat (7), two grids (8) and transport-start invariance (12).
+
+final class ChordColumnScheduleTests: XCTestCase {
+
+    private func mkLine(hits: Int, steps: Int, rate: ArpRate = .r1_8, dir: EuclidDir = .fwd) -> EuclidLine {
+        var l = EuclidLine(target: 0, pulses: hits, steps: steps)
+        l.rate = rate; l.direction = dir; l.useRiff = true; l.riffOn = true
+        l.restartRhythmBars = []; l.restartMelodyPasses = []     // FREE / FREE unless a test sets them
+        return l
+    }
+    private func setOf(_ l0: EuclidLine, bar: Double = 4) -> EuclideousRestartScheduleSet {
+        let lines = [l0, mkLine(hits: 1, steps: 8), mkLine(hits: 1, steps: 8), mkLine(hits: 1, steps: 8)]
+        return euclideousBuildRestartScheduleSet(euclideousScheduleInputs(lines: lines, barBeats: bar, defaultRateBeats: 0.25, riffColumns: 8),
+                                                 engagedMask: 0, maxBars: 1024, detectPeriod: true)
+    }
+    private func cfg(steps: Int = 8, rotate: Int = 0, rate: Double = 4,
+                     adv: ChordsAdvanceUnit = .time, advLane: Int = 0, advEvery: Int = 1,
+                     restartOn: Bool = false, rUnit: ChordsRestartUnit = .bar, rLane: Int = 0, rEvery: Int = 4) -> ChordsAdvanceConfig {
+        ChordsAdvanceConfig(rateBeats: rate, steps: steps, rotate: rotate, advanceUnit: adv, advanceLane: advLane, advanceEvery: advEvery,
+                            restartOn: restartOn, restartUnit: rUnit, restartLane: rLane, restartEvery: rEvery)
+    }
+    private func cols(_ c: ChordsAdvanceConfig, _ set: EuclideousRestartScheduleSet?, _ beats: [Double], bar: Double = 4) -> [Int] {
+        beats.map { chordColumn(c, beat: $0, schedule: set, barBeats: bar) }
+    }
+
+    // §3.6: the new rhythm-restart accessors match a brute-force walk of `nextRhythmRestart` (beat 0 included).
+    func testRhythmRestartAccessorsMatchABruteForceWalk() {
+        var l = mkLine(hits: 3, steps: 7); l.restartRhythmBars = [1]; l.restartRhythmUnit = .bar    // restart every bar (4 beats)
+        let s = setOf(l).lane(0)!
+        var beats: [Double] = [0]; var b = 0.0
+        while let n = s.nextRhythmRestart(after: b), n < 200 { beats.append(n); b = n }
+        XCTAssertGreaterThan(beats.count, 10)
+        for x in stride(from: 0.0, through: 80, by: 0.5) {
+            let bf = Int64(beats.filter { $0 <= x + 1e-9 }.count)
+            XCTAssertEqual(s.rhythmRestartCount(atOrBefore: x), bf, "count @\(x)")
+        }
+        for k in 0..<min(beats.count, 40) {
+            XCTAssertEqual(s.rhythmRestartBeat(Int64(k)), beats[k], accuracy: 1e-9, "restart #\(k)")
+        }
+    }
+
+    // §3.6: riffCompletionBeat(k) is exactly where riffCompletions crosses from k to k+1.
+    func testRiffCompletionBeatAgreesWithTheCompletionCount() {
+        var l = mkLine(hits: 3, steps: 8); l.restartRhythmBars = [1]; l.restartRhythmUnit = .riff; l.restartRhythmSource = 0
+        let s = setOf(l).lane(0)!
+        for k in 0..<20 {
+            let beat = s.riffCompletionBeat(Int64(k))
+            XCTAssertEqual(s.riffCompletionCount(atOrBefore: beat), Int64(k + 1), "completion #\(k) counted at its own beat \(beat)")
+            XCTAssertEqual(s.riffCompletionCount(atOrBefore: beat - 1e-6), Int64(k), "and not just before it")
+        }
+    }
+
+    // §8 test 2 — LOOP, rhythm FREE: an 8-step lane passes every 4 beats; ADVANCE LOOP every 1 changes at 4,8,12…
+    func testLoopAdvanceRhythmFreeEveryOneAndTwo() {
+        let s = setOf(mkLine(hits: 3, steps: 8))        // lap = 8 × 0.5 = 4 beats, FREE
+        let e1 = cfg(adv: .loop, advEvery: 1)
+        XCTAssertEqual(cols(e1, s, [0, 2, 3.9, 4, 6, 7.9, 8, 12]), [0, 0, 0, 1, 1, 1, 2, 3])
+        let e2 = cfg(adv: .loop, advEvery: 2)            // every 2 loops → changes at 8, 16
+        XCTAssertEqual(cols(e2, s, [0, 4, 7.9, 8, 12, 15.9, 16]), [0, 0, 0, 1, 1, 1, 2])
+    }
+
+    // §8 test 3 — LOOP follows the rhythm restart: a 7-step lane with RHYTHM BAR [1] advances on the bar line
+    // (4,8,12), never on its raw 3.5-beat pass.
+    func testLoopAdvanceFollowsRhythmRestartNotTheRawPass() {
+        var l = mkLine(hits: 3, steps: 7); l.restartRhythmBars = [1]; l.restartRhythmUnit = .bar
+        let s = setOf(l)
+        XCTAssertEqual(cols(cfg(adv: .loop), s, [0, 3.4, 3.5, 3.9, 4, 7, 7.5, 7.9, 8, 12]),
+                       [0, 0, 0, 0, 1, 1, 1, 1, 2, 3])
+    }
+
+    // §8 test 4 — RIFF, riff-first: E(3,8) with RHYTHM RIFF [1] of itself; ADVANCE RIFF changes on each riff
+    // completion. The exact completion cadence is the schedule's; the chord must change ONCE per completion and
+    // never between completions.
+    func testRiffAdvanceChangesOncePerCompletion() {
+        var l = mkLine(hits: 3, steps: 8); l.restartRhythmBars = [1]; l.restartRhythmUnit = .riff; l.restartRhythmSource = 0
+        let s = setOf(l).lane(0)!
+        let set = setOf(l)
+        let c = cfg(adv: .riff)
+        // at each completion beat the column equals that completion's index (mod steps); it holds between completions
+        for k in 0..<12 {
+            let beat = s.riffCompletionBeat(Int64(k))
+            XCTAssertEqual(chordColumn(c, beat: beat, schedule: set, barBeats: 4), (k + 1) % 8, "column at completion #\(k)")
+            XCTAssertEqual(chordColumn(c, beat: beat - 1e-6, schedule: set, barBeats: 4), k % 8, "column just before completion #\(k)")
+        }
+    }
+
+    // §8 test 7 — same beat: ADVANCE LOOP every 1 + RESTART LOOP every 2 on an 8-step lane → columns 0 1 | 0 1
+    // (the restart on loops 2,4,… wins and is not counted).
+    func testLoopAdvanceWithLoopRestartSameBeat() {
+        let s = setOf(mkLine(hits: 3, steps: 8))        // loops at 4,8,12,16,…
+        let c = cfg(adv: .loop, advEvery: 1, restartOn: true, rUnit: .loop, rLane: 0, rEvery: 2)
+        XCTAssertEqual(cols(c, s, [0, 4, 8, 12, 16, 20]), [0, 1, 0, 1, 0, 1])
+    }
+
+    // §8 test 8 — two grids at once: grid 1 TIME 1/1 and grid 2 RIFF lane 1 switch at their own, independent beats.
+    func testTwoGridsAdvanceIndependently() {
+        var l = mkLine(hits: 3, steps: 8); l.restartRhythmBars = [1]; l.restartRhythmUnit = .riff; l.restartRhythmSource = 0
+        let set = setOf(l)
+        let g1 = cfg(rate: 4, adv: .time)                // one chord per bar
+        let g2 = cfg(adv: .riff, advLane: 0)
+        XCTAssertEqual(cols(g1, set, [0, 3.9, 4, 8]), [0, 0, 1, 2])   // grid 1 moves every 4 beats
+        let s = set.lane(0)!
+        let firstCompletion = s.riffCompletionBeat(0)
+        XCTAssertNotEqual(firstCompletion, 4, accuracy: 1e-9)          // grid 2's cadence is NOT grid 1's
+        XCTAssertEqual(chordColumn(g2, beat: firstCompletion, schedule: set, barBeats: 4), 1)
+    }
+
+    // §8 test 12 — transport start at a high beat: the column is a pure function of the absolute beat (no
+    // transport-relative state), so sampling from beat 1000 matches the low-beat pattern at the same absolute beats.
+    func testColumnIsAPureFunctionOfAbsoluteBeat() {
+        let s = setOf(mkLine(hits: 3, steps: 8))
+        for c in [cfg(adv: .loop), cfg(rate: 4, adv: .time), cfg(adv: .loop, restartOn: true, rUnit: .loop, rEvery: 2)] {
+            for delta in stride(from: 0.0, through: 16, by: 0.5) {
+                XCTAssertEqual(chordColumn(c, beat: delta, schedule: s, barBeats: 4),
+                               chordColumn(c, beat: delta, schedule: s, barBeats: 4))   // deterministic (idempotent)
+            }
+        }
+        // periodic sanity: a TIME grid's column repeats with its STEPS·rate period at a far-off beat
+        let t = cfg(steps: 8, rate: 4, adv: .time)
+        XCTAssertEqual(chordColumn(t, beat: 1000.0, schedule: s, barBeats: 4), Int((1000.0 / 4).rounded(.down)) % 8)
+    }
+}

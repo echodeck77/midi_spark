@@ -745,6 +745,109 @@ func chordsBarRestartBeat(beat: Double, restartOn: Bool, restartEvery: Int, barB
     return max(0, n) * period
 }
 
+/// A progression's ADVANCE / RESTART, resolved — the "progression" `chordColumn` reads (§3.1). Grid 1 (`SnapParams`),
+/// grid 2 (`ChordGridSnap`) and the editing document (`MachineParams`) each expose one of these so every caller reads
+/// the SAME column function and nothing re-derives it (the recurring-bug-class rule).
+struct ChordsAdvanceConfig: Equatable {
+    var rateBeats: Double, steps: Int, rotate: Int
+    var advanceUnit: ChordsAdvanceUnit, advanceLane: Int, advanceEvery: Int
+    var restartOn: Bool, restartUnit: ChordsRestartUnit, restartLane: Int, restartEvery: Int
+}
+
+/// §1.2: how many LOOP events of `lane` happened in (0, beat] — rhythm restarts if the lane's rhythm chain is active,
+/// else pass starts. Both from the schedule. No schedule (or the lane isn't covered) ⇒ 0.
+private func chordsLoopEventCount(lane: Int, atOrBefore beat: Double, schedule: EuclideousRestartScheduleSet?) -> Int64 {
+    guard let s = schedule?.lane(lane), s.covers(beat) else { return 0 }
+    if s.rhythmRestarts { return max(0, s.rhythmRestartCount(atOrBefore: beat) - 1) }   // −1: drop beat 0's implicit restart (§1.2 "at beat b > 0")
+    return max(0, s.passIndex(beat: beat))
+}
+/// §1.3: riff completions of `lane` in (0, beat] (both kinds), INCLUSIVE of a completion AT `beat` (§3.8 — a RIFF
+/// advance takes effect at the completion's own beat).
+private func chordsRiffEventCount(lane: Int, atOrBefore beat: Double, schedule: EuclideousRestartScheduleSet?) -> Int64 {
+    guard let s = schedule?.lane(lane), s.covers(beat) else { return 0 }
+    return max(0, s.riffCompletionCount(atOrBefore: beat))
+}
+/// The beat of the `k`-th (k ≥ 1) LOOP event of `lane` — the rhythm restart or the pass start, whichever §1.2 picks.
+private func chordsLoopEventBeat(lane: Int, ordinal k: Int64, schedule: EuclideousRestartScheduleSet?) -> Double {
+    guard let s = schedule?.lane(lane) else { return 0 }
+    return s.rhythmRestarts ? s.rhythmRestartBeat(k) : s.passStart(k)   // rhythm restart k, or pass k's start (pass k ⇒ the k-th loop event)
+}
+/// The beat of the `k`-th (k ≥ 1) RIFF completion of `lane`.
+private func chordsRiffEventBeat(lane: Int, ordinal k: Int64, schedule: EuclideousRestartScheduleSet?) -> Double {
+    guard let s = schedule?.lane(lane) else { return 0 }
+    return s.riffCompletionBeat(k - 1)   // the completion list is 0-indexed; event 1 is completion 0
+}
+
+/// §3.2: the latest grid restart at or before `beat`. RESTART off ⇒ 0; BAR ⇒ bar lines (schedule-free); LOOP / RIFF ⇒
+/// the `restartEvery`-th event of `restartLane`, read from the schedule. §3.5's "a restart on an event's beat wins"
+/// falls out: that event lands exactly at `r`, and the advance range (r, beat] excludes it.
+func chordsRestartBeat(_ p: ChordsAdvanceConfig, beat: Double, schedule: EuclideousRestartScheduleSet?, barBeats: Double) -> Double {
+    guard p.restartOn else { return 0 }
+    switch p.restartUnit {
+    case .bar:
+        return chordsBarRestartBeat(beat: beat, restartOn: true, restartEvery: p.restartEvery, barBeats: barBeats)
+    case .loop, .riff:
+        let every = Int64(max(1, p.restartEvery))
+        let count = p.restartUnit == .loop
+            ? chordsLoopEventCount(lane: p.restartLane, atOrBefore: beat, schedule: schedule)
+            : chordsRiffEventCount(lane: p.restartLane, atOrBefore: beat, schedule: schedule)
+        let m = count / every                               // how many grid restarts have fired by `beat`
+        guard m >= 1 else { return 0 }                      // none yet ⇒ beat 0 is the only restart
+        let eventOrdinal = m * every                        // the (m·restartEvery)-th event (1-indexed) is where the latest restart fired
+        return p.restartUnit == .loop
+            ? chordsLoopEventBeat(lane: p.restartLane, ordinal: eventOrdinal, schedule: schedule)
+            : chordsRiffEventBeat(lane: p.restartLane, ordinal: eventOrdinal, schedule: schedule)
+    }
+}
+
+/// §3.1: THE playing column — the ONE function every chord-grid consumer reads (engine resolve, playhead, chord name,
+/// lane strip, step strip), so the UI can never re-derive a different column than the engine plays (the recurring
+/// bug class). §3.3 advance: TIME on the rate, LOOP / RIFF on `advanceLane`'s events in (r, beat] ÷ `advanceEvery`.
+/// §3.2 restart, §3.4 the (count mod STEPS) + ROTATE wrap. With TIME + restart off this is today's `floor(beat/rate)`
+/// progression exactly (byte-identical; `ChordColumnArithmeticTests` test 1). `schedule` is needed only for LOOP /
+/// RIFF (the Router attaches it to the lanes those read); a nil schedule there yields no advance.
+func chordColumn(_ p: ChordsAdvanceConfig, beat: Double, schedule: EuclideousRestartScheduleSet?, barBeats: Double) -> Int {
+    let r = chordsRestartBeat(p, beat: beat, schedule: schedule, barBeats: barBeats)
+    let a: Int64
+    switch p.advanceUnit {
+    case .time:
+        a = Int64(chordsTimeAdvanceCount(beat: beat, rateBeats: p.rateBeats, restartBeat: r))
+    case .loop, .riff:
+        let to = p.advanceUnit == .loop
+            ? chordsLoopEventCount(lane: p.advanceLane, atOrBefore: beat, schedule: schedule)
+            : chordsRiffEventCount(lane: p.advanceLane, atOrBefore: beat, schedule: schedule)
+        let from = p.advanceUnit == .loop
+            ? chordsLoopEventCount(lane: p.advanceLane, atOrBefore: r, schedule: schedule)
+            : chordsRiffEventCount(lane: p.advanceLane, atOrBefore: r, schedule: schedule)
+        a = max(0, to - from) / Int64(max(1, p.advanceEvery))   // §3.3: events in (r, beat] ÷ every, floored
+    }
+    return chordsColumnResolve(count: Int(a), steps: p.steps, rotate: p.rotate)
+}
+
+// The three carriers each expose their progression as a `ChordsAdvanceConfig` so every reader calls the ONE
+// `chordColumn`. `rotate` is passed raw — `chordsColumnResolve` wraps it.
+extension SnapParams {        // grid 1 (the Euclideous row's own chords* fields)
+    var chordsAdvanceConfig: ChordsAdvanceConfig {
+        ChordsAdvanceConfig(rateBeats: chordsRateBeats, steps: chordsSteps, rotate: chordsRotate,
+                            advanceUnit: chordsAdvanceUnit, advanceLane: chordsAdvanceLane, advanceEvery: chordsAdvanceEvery,
+                            restartOn: chordsRestartOn, restartUnit: chordsRestartUnit, restartLane: chordsRestartLane, restartEvery: chordsRestartEvery)
+    }
+}
+extension ChordGridSnap {     // grid 2
+    var advanceConfig: ChordsAdvanceConfig {
+        ChordsAdvanceConfig(rateBeats: rateBeats, steps: steps, rotate: rotate,
+                            advanceUnit: advanceUnit, advanceLane: advanceLane, advanceEvery: advanceEvery,
+                            restartOn: restartOn, restartUnit: restartUnit, restartLane: restartLane, restartEvery: restartEvery)
+    }
+}
+extension MachineParams {     // the editing document (the page's displays)
+    var chordsAdvanceConfig: ChordsAdvanceConfig {
+        ChordsAdvanceConfig(rateBeats: chordsRateResolved.beats, steps: chordsStepsResolved, rotate: chordsRotate ?? 0,
+                            advanceUnit: advanceUnitResolved, advanceLane: advanceLaneResolved, advanceEvery: advanceEveryResolved,
+                            restartOn: restartOnResolved, restartUnit: restartUnitResolved, restartLane: restartLaneResolved, restartEvery: restartEveryResolved)
+    }
+}
+
 /// THE CHORD SEQUENCER derivation (Paul 2026-09-04): the diatonic chord at beat `m` for a CHORDS config, in a resolved key.
 /// SHARED by the CHORDS PROCESSOR stage (Router.applyStage) AND the chord DOOR pool-fill (Kernel) so they can NEVER diverge —
 /// this is the "future processor work reflects on the door" contract in one function. `step = floor(m / chordsRateBeats)`;
