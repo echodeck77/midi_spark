@@ -381,6 +381,108 @@ final class RestartScheduleTests: XCTestCase {
         let hosted = SnapshotBuilder.build(from: PluginState(machines: machineIDs.map { $0 == "gold" ? m : Machine(machineID: $0, type: .arp) }, scenes: [sc]), restartBarBeats: 3.5)
         XCTAssertEqual(hosted.cells[Snap.euclideousRow].procs.first?.restartSchedule?.barBeats, 3.5, "the host's bar length is what the schedule is simulated with")
     }
+
+    // MARK: adversarial review (2026-11-04) — the schedule reviewer's findings
+
+    /// A restart that lands exactly on a tick start must make THAT tick the origin: the restart beat is a float product (`(t + 1) × sub`), and flooring it with no ε can give `t`, which swallows the new pass's downbeat.
+    func testARestartOnATickStartOriginatesAtThatTickEvenWhenTheBeatIsAHairShort() {
+        for rate in [ArpRate.r1_8t, .r1_16t, .r1_8, .r1_16d] {
+            for (hits, steps) in [(3, 7), (5, 7), (4, 5)] {
+                var a = line(hits: hits, steps: steps, rate: rate); rhythm(&a, [1], unit: .riff, source: 0)   // own riff-first
+                var b = line(hits: 2, steps: steps, rate: rate); rhythm(&b, [1], unit: .pass, source: 1 - 0 == 1 ? 0 : 0)
+                _ = b
+                let set = setFor(four(a))
+                let d = set.lane(0)!.data
+                var bad = 0
+                for i in 0..<d.rBeat.count {
+                    let exact = d.rBeat[i] / d.sub
+                    if abs(exact - exact.rounded()) < 1e-6, d.rTick[i] != Int64(exact.rounded()) { bad += 1 }
+                }
+                XCTAssertEqual(bad, 0, "\(rate) \(hits)/\(steps): \(bad) of \(d.rBeat.count) on-grid restarts floor a tick early")
+            }
+        }
+        // cross-lane: lane 0 restarts on lane 1's PASS starts (lane 1 at a triplet step, lane 0 at a straight one)
+        var src = line(hits: 3, steps: 7, rate: .r1_8t)
+        var dst = line(hits: 3, steps: 8, rate: .r1_16); rhythm(&dst, [1], unit: .pass, source: 1)
+        _ = src; src = line(hits: 3, steps: 7, rate: .r1_8t)
+        let set = setFor([dst, src, line(hits: 1, steps: 8), line(hits: 1, steps: 8)])
+        let d = set.lane(0)!.data
+        var bad = 0
+        for i in 0..<d.rBeat.count { let exact = d.rBeat[i] / d.sub; if abs(exact - exact.rounded()) < 1e-6, d.rTick[i] != Int64(exact.rounded()) { bad += 1 } }
+        XCTAssertEqual(bad, 0, "cross-lane PASS restarts: \(bad) of \(d.rBeat.count) floor a tick early")
+    }
+    /// The phase the engine reads must be the table's own origin tick at every beat, in the periodic region too (the shifted beat re-floors a hair differently from the exact shifted integer).
+    func testThePhaseReadsTheTablesOriginTickInThePeriodicRegion() {
+        for rate in [ArpRate.r1_8t, .r1_16t] {
+            var a = line(hits: 3, steps: 7, rate: rate); rhythm(&a, [2, 1], unit: .riff, source: 0); melody(&a, [3], unit: .hit)
+            let set = setFor(four(a))
+            let s = set.lane(0)!, sub = s.data.sub
+            XCTAssertTrue(s.data.period > 0, "periodic")
+            let c = cfg(four(a), set: set)
+            var bad = 0, checked = 0
+            var tick: Int64 = 0
+            while Double(tick) * sub < 4000 {
+                let r = s.rhythmRecord(atOrBefore: Double(tick) * sub)   // the engine reads the schedule at the tick's own beat
+                let ph = euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats)
+                if ph.originTickO != r.tick { bad += 1 }
+                checked += 1; tick += 1
+            }
+            XCTAssertEqual(bad, 0, "\(rate): the phase's origin tick differs from the table's at \(bad) of \(checked) beats")
+        }
+    }
+    /// A lane that counts an engaged (ANSWER cycle / trade) lane's passes would read that lane's static document pattern — it keeps the closed forms too; a lock-perturbed lane detaches its whole component, and only that.
+    func testAnEngagedOrPerturbedLaneDetachesItsWholeComponentAndNothingMore() {
+        var a = line(hits: 3, steps: 7); rhythm(&a, [1], unit: .pass, source: 1)
+        let b = line(hits: 3, steps: 8)
+        var d = line(hits: 3, steps: 7); rhythm(&d, [1], unit: .riff, source: 3)
+        let lines = [a, b, line(hits: 2, steps: 5), d]
+        let inputs = euclideousScheduleInputs(lines: lines, barBeats: 4, defaultRateBeats: 0.25, riffColumns: 8)
+        let set = euclideousBuildRestartScheduleSet(inputs, engagedMask: 0b0010)   // lane 2 (index 1) engaged in a cycle
+        XCTAssertNil(euclideousAttachedSchedule(set, lane: 0, barBeats: 4), "lane 1 counts the engaged lane's passes")
+        XCTAssertNotNil(euclideousAttachedSchedule(set, lane: 3, barBeats: 4), "lane 4's component holds no engaged lane")
+        let free = euclideousBuildRestartScheduleSet(inputs, engagedMask: 0)
+        XCTAssertNotNil(euclideousAttachedSchedule(free, lane: 0, barBeats: 4))
+        XCTAssertNil(euclideousAttachedSchedule(free, lane: 0, barBeats: 4, perturbed: 0b0010), "a lock-substituted lane 2 is in lane 1's component")
+        XCTAssertNil(euclideousAttachedSchedule(free, lane: 1, barBeats: 4, perturbed: 0b0001), "…and the other way round")
+        XCTAssertNotNil(euclideousAttachedSchedule(free, lane: 3, barBeats: 4, perturbed: 0b0011), "lane 4 is in another component")
+        XCTAssertEqual(free.componentMask(lane: 0), 0b0011); XCTAssertEqual(free.componentMask(lane: 2), 0b0100); XCTAssertEqual(free.componentMask(lane: 3), 0b1000)
+    }
+    /// A pre-feature document (every chain a BAR chain / own PASS chain) is not simulated in production — nothing would read it; a component with a lane that needs the schedule is, along with the lanes it reads.
+    func testAPreFeatureComponentIsNotSimulatedButOneThatNeedsTheScheduleIs() {
+        var a = line(hits: 3, steps: 7); rhythm(&a, [2, 1]); melody(&a, [2])
+        let old = euclideousScheduleInputs(lines: four(a), barBeats: 4, defaultRateBeats: 0.25, riffColumns: 8)
+        XCTAssertEqual(euclideousBuildRestartScheduleSet(old, skipClosedFormOnly: true).simulatedMask, 0, "closed forms answer; nothing to simulate")
+        XCTAssertEqual(euclideousBuildRestartScheduleSet(old).simulatedMask, 0b0001, "the tests' forced path still simulates it")
+        var n = line(hits: 3, steps: 7); rhythm(&n, [1], unit: .riff)
+        var src = line(hits: 3, steps: 7); rhythm(&src, [2])
+        var reader = line(hits: 2, steps: 8); rhythm(&reader, [1], unit: .pass, source: 2)
+        let mix = euclideousScheduleInputs(lines: [n, line(hits: 1, steps: 8), src, reader], barBeats: 4, defaultRateBeats: 0.25, riffColumns: 8)
+        XCTAssertEqual(euclideousBuildRestartScheduleSet(mix, skipClosedFormOnly: true).simulatedMask, 0b1101, "lane 1 (riff-first) and the component of lanes 3–4 (the reader reads a BAR-chain lane) are simulated; lane 2 is untouched")
+    }
+    /// The page's holder must pick up a set the memo extended (a non-periodic schedule simulated further ahead), or its tiles fall back to the closed forms past the first window while the engine keeps reading the schedule.
+    func testTheHolderPicksUpAnExtendedSet() {
+        var a = line(hits: 3, steps: 7, rate: .r1_8t); rhythm(&a, [1], unit: .riff, source: 0); a.riffLength = 5
+        var b = line(hits: 5, steps: 11, rate: .r1_16d); rhythm(&b, [1], unit: .pass, source: 0)
+        let lines = [a, b, line(hits: 1, steps: 8), line(hits: 1, steps: 8)]
+        let holder = EuclideousScheduleHolder()
+        let first = holder.set(lines: lines, barBeats: 4, defaultRateBeats: 0.25, riffColumns: 8)
+        XCTAssertTrue(first === holder.set(lines: lines, barBeats: 4, defaultRateBeats: 0.25, riffColumns: 8), "unchanged inputs: the cached set")
+        guard first.windowed else { return }   // this draw found a period; nothing to extend (the extension itself is covered above)
+        XCTAssertTrue(EuclideousRestartScheduleMemo.shared.extend(first, untilBars: 3000))
+        let second = holder.set(lines: lines, barBeats: 4, defaultRateBeats: 0.25, riffColumns: 8)
+        XCTAssertFalse(first === second, "the holder fetched the extended set"); XCTAssertGreaterThan(second.coveredUntil, first.coveredUntil)
+    }
+    /// A NaN or infinite beat (a host glitch) must not trap in a reader.
+    func testTheReadersAnswerANonFiniteBeatWithoutTrapping() {
+        var a = line(hits: 3, steps: 7); rhythm(&a, [1], unit: .riff, source: 0); melody(&a, [3], unit: .hit)
+        let s = setFor(four(a)).lane(0)!
+        for b in [Double.nan, .infinity, -.infinity] {
+            _ = s.rhythmRecord(atOrBefore: b); _ = s.melodyRecord(atOrBefore: b); _ = s.nextRhythmRestart(after: b); _ = s.nextMelodyRestart(after: b)
+            XCTAssertEqual(s.passIndex(beat: b), 0); XCTAssertEqual(s.riffCompletions(before: b), 0)
+        }
+        XCTAssertEqual(euclideousScheduleTick(.nan, sub: 0.5), 0)
+    }
+
 }
 
 private struct SplitMix { var state: UInt64; init(seed: UInt64) { state = seed }

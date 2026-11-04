@@ -167,7 +167,7 @@ struct EuclideousRestartSectionView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(EuclideousRestartEditorAX.source(square: i, unavailable: unavailable))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .opacity(unavailable ? 0.6 : 1)
+        .disabled(unavailable)   // VoiceOver reads "dimmed" (§9.2); the look is §7.4's dashed #3A3E47 stroke itself — no further dimming on top of it
     }
     private var switchControl: some View {
         let t = frames.switchTrack, h = frames.switchHit
@@ -229,12 +229,8 @@ struct EuclideousRestartSectionView: View {
         .opacity(rowDim)
         .offset(x: r.minX, y: r.minY)
     }
-    /// VoiceOver's "Remove link": taps the link until it falls off the ladder (the same edits a sighted tap makes, one step each would be wrong — the removal is ONE action).
-    private func removeLink(_ slot: Int) {
-        let hit = !rhythm && settings.melodyUnit == .hit
-        let steps = euclideousRestartLinkLadder(hit: hit).count
-        for _ in 0..<steps { onEdit(.tapLink(rhythm: rhythm, slot: slot)); if Int(chain.link(slot)) == Int(euclideousRestartLinkLadder(hit: hit).last ?? 8) { break } }
-    }
+    /// VoiceOver's "Remove link": ONE edit (`.removeLink`), one undo step — not a walk of taps (that walk read a stale chain and stepped the NEIGHBOUR link on, adversarial review 2026-11-04).
+    private func removeLink(_ slot: Int) { onEdit(.removeLink(rhythm: rhythm, slot: slot)) }
 
     // MARK: row 3 — the timeline (labels and cells; read-only)
     private var timeline: some View {
@@ -248,6 +244,7 @@ struct EuclideousRestartSectionView: View {
                 if let a = frames.axisLabel {
                     Text(t.axisLabel).font(heavyMono(7)).tracking(0.42).foregroundColor(Color(hex: 0x5C626C)).lineLimit(1).truncationMode(.tail)
                         .padding(.leading, 4).frame(width: a.width, height: a.height, alignment: .leading).offset(x: a.minX, y: a.minY)
+                        .accessibilityHidden(true)   // the timeline is ONE element (§9.2); its spoken label already says the window
                 }
                 ForEach(0..<min(frames.cells.count, t.cells.count), id: \.self) { i in
                     let r = frames.cells[i], cell = t.cells[i]

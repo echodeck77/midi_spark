@@ -777,7 +777,15 @@ public class FourfoldAudioUnit: AUAudioUnit {
         guard tapeDrainTimer == nil else { return }
         let t = DispatchSource.makeTimerSource(queue: .main)
         t.schedule(deadline: .now() + 0.5, repeating: 0.5, leeway: .milliseconds(100))
-        t.setEventHandler { [weak self] in self?.kernel.tape.drain() }
+        t.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.kernel.tape.drain()
+            // RESTART UNITS: the host's bar length and the playhead reach the restart schedule from HERE as well as from the page's poll — a plugin whose UI is closed (the usual state in AUM) must still simulate with the host's meter
+            // and keep a non-periodic schedule ahead of the playhead (adversarial review 2026-11-04).
+            let nd = self.kernelDiagnostics()
+            if nd.beatsPerBar > 0 { self.setRestartBarBeats(nd.beatsPerBar) }
+            self.extendRestartScheduleIfNeeded(playheadBeat: nd.beat)
+        }
         t.resume()
         tapeDrainTimer = t
     }

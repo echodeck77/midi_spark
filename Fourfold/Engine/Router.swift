@@ -129,6 +129,8 @@ final class Router {
     private var lockSplitBeat = 0.0
     private var lockHasSplit = false
     private var lockAnyActive = false
+    /// Bit i: lane i plays a lock-substituted line this window (a landed snap's override, or a snap landing inside it). The restart schedule was simulated from the DOCUMENT, so a lane whose component holds such a lane keeps the closed forms meanwhile.
+    private var lockPerturbedMask: UInt8 = 0
     private var lockLinesBefore: [EuclidLine] = { var a = [EuclidLine](); a.reserveCapacity(8); for _ in 0..<4 { a.append(EuclidLine()) }; return a }()
     private var lockLinesAfter: [EuclidLine] = { var a = [EuclidLine](); a.reserveCapacity(8); for _ in 0..<4 { a.append(EuclidLine()) }; return a }()
 
@@ -174,7 +176,7 @@ final class Router {
     /// The plan for one Euclideous window `(windowStartBeat, windowEndBeat]`: which lanes already run on L (a landed snap the document has not caught up with), which land at a grid line in this window, and the
     /// scratch line arrays the two segments read (`lockLinesBefore` for ticks before the line, `lockLinesAfter` from it).
     private func planLocks(locks: [EuclideousLockSnap], lines: [EuclidLine], revs: UInt32, windowStartBeat: Double, windowEndBeat: Double) {
-        lockAnyActive = false; lockHasSplit = false
+        lockAnyActive = false; lockHasSplit = false; lockPerturbedMask = 0
         let discontinuity = !lockPrevValid || abs(windowStartBeat - lockPrevWindowEnd) > 1e-3   // a start / loop / seek: the first window's own start may sit on a line
         lockPrevValid = true; lockPrevWindowEnd = windowEndBeat
         let spoken = EuclideousLockLive.hasSpoken(lockLiveWord)
@@ -188,7 +190,7 @@ final class Router {
             lockInFlightFor[lane] = flightNow ? lockInFlightFor[lane] + lockWindowSeconds : 0
             if lockOverrideActive[lane] {
                 if snapRev != lockOverrideRev[lane] { lockOverrideActive[lane] = false }   // a snapshot built after the page applied the snap (or after a user edit): it is authoritative again
-                else { lockFromStart[lane] = true; lockAnyActive = true; continue }
+                else { lockFromStart[lane] = true; lockAnyActive = true; lockPerturbedMask |= UInt8(1) << UInt8(lane); continue }
             }
             guard let g = euclideousLockLineIn(grid: locks[lane].grid, barBeats: beatsPerBar, after: windowStartBeat, through: windowEndBeat, inclusiveStart: discontinuity) else { continue }
             let held = (heldBits >> UInt8(lane)) & 1 != 0
@@ -197,7 +199,7 @@ final class Router {
             lockOverrideActive[lane] = true; lockOverrideRev[lane] = snapRev
             lockAtSplit[lane] = true
             if !lockHasSplit || g < lockSplitBeat { lockSplitBeat = g }   // lines sit on whole beats, a window is under a beat: one line per window
-            lockHasSplit = true; lockAnyActive = true
+            lockHasSplit = true; lockAnyActive = true; lockPerturbedMask |= UInt8(1) << UInt8(lane)
             lockSnapSeqPacked = EuclideousLockLive.bumped(lockSnapSeqPacked, lane: lane)
             lockSnapBeatsV[lane] = g
         }
@@ -2078,6 +2080,9 @@ final class Router {
                  sceneFlush: Bool = false,
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
+        // RESTART UNITS: the HOCKET clock keeps a lane's chains between windows, and with them a reference to its restart schedule — which the snapshot box owns. Drop it before this window ends (the box is still alive then), so the render thread can
+        // never be the one to release the last reference (and free the tables) when a republish retires the box.
+        defer { for i in 0..<8 where hocketClocks[i].chains.schedule != nil { hocketClocks[i].chains.schedule = nil } }
         if pendingReset { pendingReset = false; performReset() }   // deferred reset — runs on the render thread (no race with the control-thread reset())
         tickRamps(atSample: Int64(timestampSample))   // §7: advance any in-flight .parameterRamp before this window's over() reads
         sustainPedal = sustainPedalDown; sustainSeq = sustainDownSeq   // POOL SUSTAIN: this window's pedal level and edge count
@@ -3292,8 +3297,8 @@ final class Router {
                     let line = copyOrFillValid ? linesView[listenSource] : linesView[lineIndex]
                     chains = euclideousLaneRestartChains(line: line, lane: copyOrFillValid ? listenSource : lineIndex, barBeats: beatsPerBar, lapBeats: Double(cycleLen) * sub)   // RESTART UNITS: the one resolver (`.off` until pinned)
                     // RESTART UNITS: the lane's simulated schedule — only for a lane the closed forms cannot express (see `euclideousAttachedSchedule`: also not an ANSWER-engaged lane, whose effective line flips at runtime, and only when the schedule was
-                    // simulated with the host's bar), and not in a window a lock snap has substituted the lines for. Otherwise the closed forms (above) answer, as they always did.
-                    if isEuclideousRow, !lockAnyActive { chains.schedule = euclideousAttachedSchedule(p.restartSchedule, lane: lineIndex, barBeats: beatsPerBar) }
+                    // simulated with the host's bar), and not for a lane whose component holds a lane a lock snap has substituted the line of (`lockPerturbedMask`). Otherwise the closed forms (above) answer, as they always did.
+                    if isEuclideousRow { chains.schedule = euclideousAttachedSchedule(p.restartSchedule, lane: lineIndex, barBeats: beatsPerBar, perturbed: lockPerturbedMask) }
                 }
                 if isEuclideousRow, lineIndex < linesView.count {
                     let line = linesView[lineIndex]
@@ -5408,7 +5413,7 @@ final class Router {
             if isEuclideousRow && !p.euclideousLocks.isEmpty {
                 planLocks(locks: p.euclideousLocks, lines: p.euclidLines, revs: p.lockRevs, windowStartBeat: beatPos, windowEndBeat: beatPos + windowBeats)
             } else {
-                lockAnyActive = false; lockHasSplit = false
+                lockAnyActive = false; lockHasSplit = false; lockPerturbedMask = 0
                 if isEuclideousRow { for i in 0..<4 { lockOverrideActive[i] = false } }
             }
             // ANSWER 5.7: end whatever lane `lane` was holding open (a legato note) at `tau` — the lane's phase changes there.

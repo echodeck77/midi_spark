@@ -218,7 +218,7 @@ struct LaneLockKey: Equatable {
     var tilt: Double, tiltIsFine: Bool, offsetFraction: Double
     var rate: ArpRate?, followMult: Int, direction: EuclidDir, patternMiss: Bool
     var chainRhythm: [UInt8]?, chainMelody: [UInt8]?
-    /// RESTART UNITS: what the seven new fields resolve to (the source stays as stored — resolving a nil one needs the lane's own index, which a lock key does not carry).
+    /// RESTART UNITS: what the seven new fields resolve to. A source counts only for a unit that reads one (BAR and HIT ignore it, so a visit to PASS and back is no deviation); it stays as stored — resolving a nil one needs the lane's own index, which a lock key does not carry — so the editor stores nil for the lane's own.
     var rhythmUnit: EuclideousRhythmRestartUnit, rhythmSource: Int?, rhythmOn: Bool
     var melodyUnit: EuclideousMelodyRestartUnit, melodySource: Int?, melodyOn: Bool, withRhythm: Bool
     var riffOn: Bool, riffDir: RiffDir, riffInvert: Bool
@@ -237,8 +237,8 @@ extension LaneLockFields {
                            hitsRequested: l.hitsRequestedResolved, offsetRequested: l.offsetRequestedResolved,
                            tilt: l.tiltResolved, tiltIsFine: l.tiltIsFine, offsetFraction: l.offsetFractionResolved, rate: l.rate, followMult: l.listenFollowMultResolved, direction: l.directionResolved, patternMiss: l.patternMissResolved,
                            chainRhythm: l.restartRhythmBars, chainMelody: l.restartMelodyPasses,
-                           rhythmUnit: l.restartRhythmUnitResolved, rhythmSource: l.restartRhythmSource, rhythmOn: l.restartRhythmOnResolved,
-                           melodyUnit: l.restartMelodyUnitResolved, melodySource: l.restartMelodySource, melodyOn: l.restartMelodyOnResolved, withRhythm: l.restartMelodyWithRhythmResolved,
+                           rhythmUnit: l.restartRhythmUnitResolved, rhythmSource: l.restartRhythmUnitResolved.readsSource ? l.restartRhythmSource : nil, rhythmOn: l.restartRhythmOnResolved,
+                           melodyUnit: l.restartMelodyUnitResolved, melodySource: l.restartMelodyUnitResolved.readsSource ? l.restartMelodySource : nil, melodyOn: l.restartMelodyOnResolved, withRhythm: l.restartMelodyWithRhythmResolved,
                            riffOn: l.riffOnResolved, riffDir: l.riffDirResolved, riffInvert: l.riffInvertResolved,
                            advanceEvery: l.riffAdvanceEveryResolved, advanceStep: l.riffAdvanceStepResolved, onRest: l.riffOnRestResolved,
                            length: l.riffLengthResolved, shift: l.riffRotateResolved, stride: l.riffStrideResolved, transpose: l.melodyTransposeResolved,

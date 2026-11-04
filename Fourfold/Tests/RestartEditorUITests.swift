@@ -246,4 +246,30 @@ final class RestartEditorUITests: XCTestCase {
         }
         print("RESTART UNITS editor sizes:\n" + rows.joined(separator: "\n"))
     }
+
+    // MARK: adversarial review (2026-11-04)
+
+    /// "Remove link" is ONE edit: the neighbouring link keeps its value (the old walk of taps stepped it on: [2, 3] → [4]).
+    func testRemoveLinkRemovesExactlyThatLinkAndNothingElse() {
+        var l = EuclidLine(); l.restartRhythmBars = [2, 3]; l.restartRhythmOn = true
+        XCTAssertTrue(euclideousApplyRestartEdit(.removeLink(rhythm: true, slot: 0), to: &l, lane: 0, pin: nil))
+        XCTAssertEqual(l.restartRhythmBars, [3]); XCTAssertEqual(l.restartRhythmOn, true, "the switch stays on while a link remains")
+        XCTAssertTrue(euclideousApplyRestartEdit(.removeLink(rhythm: true, slot: 0), to: &l, lane: 0, pin: nil))
+        XCTAssertEqual(l.restartRhythmBars, []); XCTAssertEqual(l.restartRhythmOn, false, "removing the last link switches the chain off")
+        XCTAssertFalse(euclideousApplyRestartEdit(.removeLink(rhythm: true, slot: 0), to: &l, lane: 0, pin: nil), "nothing to remove: no edit")
+        var m = EuclidLine(); m.restartMelodyPasses = [5, 7]; m.restartMelodyUnit = .hit; m.restartMelodyOn = true
+        XCTAssertTrue(euclideousApplyRestartEdit(.removeLink(rhythm: false, slot: 1), to: &m, lane: 1, pin: nil))
+        XCTAssertEqual(m.restartMelodyPasses, [5], "a HIT link keeps its value")
+    }
+    /// The lane's own square is stored as nil (the default), so a source set back to the lane's own is the same document as one never set.
+    func testTheLanesOwnSourceIsStoredAsNilAndSoCannotLookLikeALockDeviation() {
+        var l = EuclidLine(); l.restartRhythmBars = [1]; l.restartRhythmUnit = .riff
+        let f = LaneLockFields(line: l)
+        euclideousApplyRestartEdit(.source(rhythm: true, lane: 2), to: &l, lane: 2, pin: nil)   // lane 3's own square: already selected — no edit
+        XCTAssertNil(l.restartRhythmSource)
+        euclideousApplyRestartEdit(.source(rhythm: true, lane: 0), to: &l, lane: 2, pin: nil)
+        XCTAssertEqual(l.restartRhythmSource, 0); XCTAssertTrue(euclideousLockDeviated(line: l, from: f), "lane 1's riff is a different restart")
+        euclideousApplyRestartEdit(.source(rhythm: true, lane: 2), to: &l, lane: 2, pin: nil)   // back to the lane's own
+        XCTAssertNil(l.restartRhythmSource, "stored as nil, not as an explicit own lane"); XCTAssertFalse(euclideousLockDeviated(line: l, from: f))
+    }
 }

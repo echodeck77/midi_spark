@@ -170,36 +170,50 @@ enum EuclideousRestartEdit: Equatable {
     case withRhythm
     case tapLink(rhythm: Bool, slot: Int)
     case addLink(rhythm: Bool)
+    case removeLink(rhythm: Bool, slot: Int)  // VoiceOver's "Remove link": ONE edit, not a walk of taps
 }
 /// Is lane `lane`'s source square unavailable (§7.4: the lane itself on RHYTHM PASS)?
 func euclideousRestartSourceUnavailable(rhythm: Bool, line l: EuclidLine, ownLane: Int, square: Int) -> Bool {
     rhythm && l.restartRhythmUnitResolved == .pass && square == max(0, min(3, ownLane))
 }
-/// Applies one tap to a lane. `pin` is what an unpinned lane's chains resolve to (the migration) — stored first, in the same step (§3.5). Returns whether anything changed (a funnel records no step otherwise).
+/// Applies one tap to a lane. `pin` is what an unpinned lane's chains resolve to (the migration) — stored first, in the same step (§3.5). Returns whether anything changed; a tap that changes nothing leaves the line exactly as it was, pin included,
+/// so the funnel records no step and writes nothing (adversarial review 2026-11-04: the pin alone used to count as an edit).
 @discardableResult
 func euclideousApplyRestartEdit(_ e: EuclideousRestartEdit, to l: inout EuclidLine, lane: Int, pin: (rhythm: EuclideousRestartChain, melody: EuclideousRestartChain)?) -> Bool {
-    let before = l
-    if !l.usesRestartChains, let p = pin { euclideousPinRestartChains(&l, p.rhythm, p.melody) }
+    var pinned = l
+    if !pinned.usesRestartChains, let p = pin { euclideousPinRestartChains(&pinned, p.rhythm, p.melody) }
+    var work = pinned
+    euclideousApplyRestartEditCore(e, to: &work, lane: lane)
+    guard work != pinned else { return false }
+    l = work
+    return true
+}
+/// Spec 7.5: a link edit never turns a switch on, so a switch that was never touched (nil — it reads on exactly when the chain holds a link) is made explicit before the links change under it.
+private func fixSwitch(_ l: inout EuclidLine, rhythm: Bool) {
+    if rhythm { if l.restartRhythmOn == nil { l.restartRhythmOn = l.restartRhythmOnResolved } }
+    else if l.restartMelodyOn == nil { l.restartMelodyOn = l.restartMelodyOnResolved }
+}
+private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: inout EuclidLine, lane: Int) {
     let own = max(0, min(3, lane))
     switch e {
     case .unit(let rhythm, let index):
         if rhythm {
             let units: [EuclideousRhythmRestartUnit] = [.bar, .pass, .riff]
-            guard index >= 0, index < 3, l.restartRhythmUnitResolved != units[index] else { return resolved(before, l) }
+            guard index >= 0, index < 3, l.restartRhythmUnitResolved != units[index] else { return }
             l.restartRhythmUnit = units[index]
             if units[index] == .pass, (l.restartRhythmSource.map { max(0, min(3, $0)) } ?? own) == own { l.restartRhythmSource = (own + 1) % 4 }   // PASS never counts the lane itself: the source moves to the next lane in the same step
         } else {
             let units: [EuclideousMelodyRestartUnit] = [.pass, .bar, .hit]
-            guard index >= 0, index < 3, l.restartMelodyUnitResolved != units[index] else { return resolved(before, l) }
+            guard index >= 0, index < 3, l.restartMelodyUnitResolved != units[index] else { return }
             if l.restartMelodyUnitResolved == .hit {   // leaving HIT: 5 → 6 and 7 → 8 (those values are not valid for the other units)
                 l.restartMelodyPasses = l.restartMelodyPasses.map { $0.map { $0 == 5 ? 6 : ($0 == 7 ? 8 : $0) } }
             }
             l.restartMelodyUnit = units[index]
         }
     case .source(let rhythm, let square):
-        guard square >= 0, square < 4, !euclideousRestartSourceUnavailable(rhythm: rhythm, line: l, ownLane: lane, square: square) else { return resolved(before, l) }
-        if rhythm { guard l.restartRhythmUnitResolved.readsSource, l.restartRhythmSourceResolved(ownLane: lane) != square else { return resolved(before, l) }; l.restartRhythmSource = square }
-        else { guard l.restartMelodyUnitResolved.readsSource, l.restartMelodySourceResolved(ownLane: lane) != square else { return resolved(before, l) }; l.restartMelodySource = square }
+        guard square >= 0, square < 4, !euclideousRestartSourceUnavailable(rhythm: rhythm, line: l, ownLane: lane, square: square) else { return }
+        if rhythm { guard l.restartRhythmUnitResolved.readsSource, l.restartRhythmSourceResolved(ownLane: lane) != square else { return }; l.restartRhythmSource = square == own ? nil : square }
+        else { guard l.restartMelodyUnitResolved.readsSource, l.restartMelodySourceResolved(ownLane: lane) != square else { return }; l.restartMelodySource = square == own ? nil : square }
     case .toggleOn(let rhythm):
         if rhythm {
             let turningOn = !l.restartRhythmOnResolved
@@ -215,7 +229,8 @@ func euclideousApplyRestartEdit(_ e: EuclideousRestartEdit, to l: inout EuclidLi
     case .tapLink(let rhythm, let slot):
         let hit = !rhythm && l.restartMelodyUnitResolved == .hit
         var links = (rhythm ? l.restartRhythmChainResolved : l.restartMelodyChainResolved).links
-        guard slot >= 0, slot < links.count else { return resolved(before, l) }
+        guard slot >= 0, slot < links.count else { return }
+        fixSwitch(&l, rhythm: rhythm)
         let ladder = euclideousRestartLinkLadder(hit: hit)
         if let i = ladder.firstIndex(of: links[slot]), i + 1 < ladder.count { links[slot] = ladder[i + 1] }
         else {
@@ -225,14 +240,19 @@ func euclideousApplyRestartEdit(_ e: EuclideousRestartEdit, to l: inout EuclidLi
         if rhythm { l.restartRhythmBars = links } else { l.restartMelodyPasses = links }
     case .addLink(let rhythm):
         var links = (rhythm ? l.restartRhythmChainResolved : l.restartMelodyChainResolved).links
-        guard links.count < 4 else { return resolved(before, l) }
+        guard links.count < 4 else { return }
+        fixSwitch(&l, rhythm: rhythm)
         links.append(1)
         if rhythm { l.restartRhythmBars = links } else { l.restartMelodyPasses = links }
+    case .removeLink(let rhythm, let slot):
+        var links = (rhythm ? l.restartRhythmChainResolved : l.restartMelodyChainResolved).links
+        guard slot >= 0, slot < links.count else { return }
+        fixSwitch(&l, rhythm: rhythm)
+        links.remove(at: slot)
+        if links.isEmpty { if rhythm { l.restartRhythmOn = false } else { l.restartMelodyOn = false } }   // removing the last link also turns the switch off
+        if rhythm { l.restartRhythmBars = links } else { l.restartMelodyPasses = links }
     }
-    return resolved(before, l)
 }
-/// Did anything the lane RESOLVES to change? (A pin alone — nil → the same chains — is not an edit.)
-private func resolved(_ a: EuclidLine, _ b: EuclidLine) -> Bool { a != b }
 
 // MARK: - the 16-cell timeline (§7.4 row 3)
 

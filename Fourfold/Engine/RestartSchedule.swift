@@ -10,6 +10,13 @@ import Foundation
 
 private let schedEps = 1e-9
 
+/// A schedule beat on the lane's tick grid: floor with ε (in ticks). A restart that falls exactly on a tick start is a float product (`(t + 1) × sub`, `rhythmBeat + j × lap`) that can land a hair BELOW the integer for a triplet step; a plain floor then puts the origin one tick early
+/// and the new pass enters at its second step, swallowing the downbeat (adversarial review 2026-11-04). Used for every beat the schedule hands out; the closed forms (a pre-feature lane) keep their own floor, so old sound is untouched.
+@inline(__always) func euclideousScheduleTick(_ beat: Double, sub: Double) -> Int64 {
+    guard sub > 0, beat.isFinite else { return 0 }
+    return Int64(((beat / sub) + schedEps).rounded(.down))
+}
+
 // MARK: - the inputs (Hashable: the memo key)
 
 struct EuclideousScheduleLaneInput: Hashable {
@@ -34,6 +41,10 @@ struct EuclideousScheduleLaneInput: Hashable {
     var melodyActive: Bool { !melodyLinks.isEmpty }
     /// Does this lane's melody ever restart (a chain, or WITH RHYTHM over an active rhythm chain)?
     var melodyRestarts: Bool { melodyActive || (withRhythm && rhythmActive) }
+    /// Can the closed forms express this lane's restarts (RHYTHM BAR, MELODY own PASS, no WITH RHYTHM — every setting that existed before the ferry)? `ownLane` is the lane's own index.
+    func closedFormExpressible(ownLane: Int) -> Bool {
+        (!rhythmActive || rhythmUnit == .bar) && (!melodyActive || (melodyUnit == .pass && melodySource == ownLane)) && !withRhythm
+    }
     /// The lane this lane reads through its RHYTHM chain / MELODY chain (nil = none).
     var rhythmReads: Int? { rhythmActive && rhythmUnit != .bar ? rhythmSource : nil }
     var melodyReads: Int? { melodyActive && melodyUnit == .pass ? melodySource : nil }
@@ -140,6 +151,7 @@ final class EuclideousLaneScheduleData {
     let id: Int
 
     private static var nextId = 0
+    private static let idLock = NSLock()
     init(sub: Double, cycleLen: Int, barBeats: Double, rawHit: [Bool], riffCycle: Int64, advanceStep: Bool,
          rBeat: [Double], rTick: [Int64], rPass: [Int64], rHits: [Int64], mBeat: [Double], mTick: [Int64], mHits: [Int64], fBeat: [Double],
          prefixEnd: Double, period: Double, dPass: Int64, dHits: Int64, dTick: Int64, dRiff: Int64, rPeriodStart: Int, mPeriodStart: Int, fPeriodStart: Int,
@@ -157,7 +169,7 @@ final class EuclideousLaneScheduleData {
         self.rPeriodStart = rPeriodStart; self.mPeriodStart = mPeriodStart; self.fPeriodStart = fPeriodStart
         self.coveredUntil = coveredUntil
         self.rhythmRestarts = rhythmRestarts; self.melodyRestarts = melodyRestarts; self.melodyEveryPass = melodyEveryPass; self.closedFormExpressible = closedFormExpressible
-        EuclideousLaneScheduleData.nextId += 1; self.id = EuclideousLaneScheduleData.nextId
+        EuclideousLaneScheduleData.idLock.lock(); EuclideousLaneScheduleData.nextId += 1; self.id = EuclideousLaneScheduleData.nextId; EuclideousLaneScheduleData.idLock.unlock()
     }
     /// Pattern hits in the first `m` ticks of the cyclic pattern (any integer `m`).
     @inline(__always) func pat(_ m: Int64) -> Int64 {
@@ -188,7 +200,7 @@ struct EuclideousLaneSchedule: Equatable {
     // ── the periodic tables: the prefix holds every restart with beat ≤ prefixEnd (b_j); the period part (from `periodStart`) holds those in (b_j, b_k] — RIGHT-closed, because the state at b_j is the state AFTER that instant's events, so the
     //    restart AT b_j (beat 0's implicit one included) is the past, and the restart at b_k is the first of the next repetition's mirror image.
     private func pred(_ beats: [Double], periodStart: Int, x: Double, tol: Double) -> (Int, Int64)? {
-        guard !beats.isEmpty else { return nil }
+        guard !beats.isEmpty, x.isFinite else { return nil }
         func last(atOrBelow v: Double, from lo: Int) -> Int? {
             var a = lo, b = beats.count
             while a < b { let mid = (a + b) / 2; if beats[mid] <= v + tol { a = mid + 1 } else { b = mid } }
@@ -203,7 +215,7 @@ struct EuclideousLaneSchedule: Equatable {
         return last(atOrBelow: xr, from: 0).map { ($0, 0) }                             // the period holds none: the prefix's last stays
     }
     private func succ(_ beats: [Double], periodStart: Int, after x: Double, tol: Double) -> Double? {
-        guard !beats.isEmpty else { return nil }
+        guard !beats.isEmpty, x.isFinite else { return nil }
         func first(after v: Double, from lo: Int) -> Int? {
             var a = lo, b = beats.count
             while a < b { let mid = (a + b) / 2; if beats[mid] <= v + tol { a = mid + 1 } else { b = mid } }
@@ -233,7 +245,7 @@ struct EuclideousLaneSchedule: Equatable {
     func nextMelodyRestart(after beat: Double) -> Double? { succ(data.mBeat, periodStart: data.mPeriodStart, after: beat, tol: 1e-9) }
     /// §1.5 / `euclideousPassIndex`: with no rhythm restart the plain `floor(beat / lap)` (no ε — the FREE closed form); otherwise the segment's cumulative passes plus whole laps since its restart.
     func passIndex(beat: Double) -> Int64 {
-        guard data.lapBeats > 0 else { return 0 }
+        guard data.lapBeats > 0, beat.isFinite else { return 0 }
         if !data.rhythmRestarts { return Int64((beat / data.lapBeats).rounded(.down)) }
         let r = rhythmRecord(atOrBefore: beat)
         return r.pass + Int64(((beat - r.beat + schedEps) / data.lapBeats).rounded(.down))
@@ -276,7 +288,7 @@ struct EuclideousLaneSchedule: Equatable {
     /// How many riff completions (natural and restarted) happened strictly before `beat`.
     func riffCompletions(before beat: Double) -> Int64 {
         let f = data.fBeat
-        guard !f.isEmpty else { return 0 }
+        guard !f.isEmpty, beat.isFinite else { return 0 }
         let p = data.period
         var kd = 0.0
         var xr = beat
@@ -361,6 +373,8 @@ final class EuclideousRestartScheduleSet {
     let barBeats: Double
     /// Bit i: lane i is engaged in an ANSWER cycle / trade — the Router keeps the closed forms for it.
     let engagedMask: UInt8
+    /// `engagedMask` widened to whole components: a lane that counts an engaged lane's passes or riffs would read that lane's STATIC document pattern, which the cycle swaps at runtime — so it keeps the closed forms too (adversarial review 2026-11-04).
+    let detachedMask: UInt8
     let key: EuclideousScheduleInputs
     /// Which lanes the simulation had to run for (a component with a restart in it); the rest are trivially "no restarts".
     let simulatedMask: UInt8
@@ -369,8 +383,15 @@ final class EuclideousRestartScheduleSet {
     /// The first beat every simulated lane's tables are complete for (+∞ when every one is periodic).
     let coveredUntil: Double
     fileprivate let components: [(lanes: [Int], sim: EuclideousScheduleSim?)]
+    /// Per lane: the bits of every lane in its connected component (the lanes whose patterns its restarts can depend on).
+    let componentMasks: [UInt8]
+    func componentMask(lane: Int) -> UInt8 { lane >= 0 && lane < componentMasks.count ? componentMasks[lane] : UInt8(1) << UInt8(max(0, min(7, lane))) }
     fileprivate init(lanes: [EuclideousLaneSchedule?], barBeats: Double, engagedMask: UInt8, key: EuclideousScheduleInputs, simulatedMask: UInt8, windowed: Bool, coveredUntil: Double,
                      components: [(lanes: [Int], sim: EuclideousScheduleSim?)]) {
+        var widened = engagedMask
+        for c in components { let m = c.lanes.reduce(UInt8(0)) { $0 | (UInt8(1) << UInt8($1)) }; if m & engagedMask != 0 { widened |= m } }
+        self.detachedMask = widened
+        self.componentMasks = (0..<4).map { lane in components.first { $0.lanes.contains(lane) }.map { $0.lanes.reduce(UInt8(0)) { $0 | (UInt8(1) << UInt8($1)) } } ?? UInt8(1) << UInt8(lane) }
         self.lanes = lanes; self.barBeats = barBeats; self.engagedMask = engagedMask; self.key = key; self.simulatedMask = simulatedMask; self.windowed = windowed; self.coveredUntil = coveredUntil; self.components = components
     }
     func lane(_ i: Int) -> EuclideousLaneSchedule? { i >= 0 && i < lanes.count ? lanes[i] : nil }
@@ -471,7 +492,7 @@ final class EuclideousScheduleSim {
         return false
     }
 
-    private func originTick(_ lane: Int, _ b: Double) -> Int64 { euclideousOriginTick(b, sub: L[lane].inp.sub) }
+    private func originTick(_ lane: Int, _ b: Double) -> Int64 { euclideousScheduleTick(b, sub: L[lane].inp.sub) }
 
     private func melodyRestart(_ x: Int, _ b: Double) {
         guard !L[x].mRestarted else { return }
@@ -652,7 +673,7 @@ final class EuclideousScheduleSim {
                                           rPeriodStart: rStart, mPeriodStart: mStart, fPeriodStart: fStart, coveredUntil: covered,
                                           rhythmRestarts: inp.rhythmActive, melodyRestarts: inp.melodyRestarts,
                                           melodyEveryPass: inp.melodyActive && inp.melodyUnit == .pass && inp.melodySource == globalLanes[local] && inp.melodyLinks == [1],
-                                          closedFormExpressible: (!inp.rhythmActive || inp.rhythmUnit == .bar) && (!inp.melodyActive || (inp.melodyUnit == .pass && inp.melodySource == globalLanes[local])) && !inp.withRhythm,
+                                          closedFormExpressible: inp.closedFormExpressible(ownLane: globalLanes[local]),
                                           hitsViaClosedForm: s.viaClosedForm, closedRhythm: s.closedRhythm)
     }
 }
@@ -675,10 +696,11 @@ private func scheduleComponents(_ lanes: [EuclideousScheduleLaneInput]) -> [[Int
 
 /// The set for the inputs: every lane that has a restart (or is read by a lane that has one) is simulated; the others get empty tables. `maxBars` is the first window (1024 bars); `detectPeriod` false runs a straight simulation (the tests'
 /// reference for the periodic wrap).
-func euclideousBuildRestartScheduleSet(_ inputs: EuclideousScheduleInputs, engagedMask: UInt8 = 0, maxBars: Int = 1024, detectPeriod: Bool = true) -> EuclideousRestartScheduleSet {
+func euclideousBuildRestartScheduleSet(_ inputs: EuclideousScheduleInputs, engagedMask: UInt8 = 0, maxBars: Int = 1024, detectPeriod: Bool = true, skipClosedFormOnly: Bool = false) -> EuclideousRestartScheduleSet {
     var comps: [(lanes: [Int], sim: EuclideousScheduleSim?)] = []
     for comp in scheduleComponents(inputs.lanes) {
-        let any = comp.contains { inputs.lanes[$0].rhythmActive || inputs.lanes[$0].melodyRestarts }
+        // `skipClosedFormOnly` (production): a component whose every lane the closed forms can express is never read from the schedule (the Router attaches it only to the others), so it is not simulated — a pre-feature document pays nothing on a publish
+        let any = comp.contains { (inputs.lanes[$0].rhythmActive || inputs.lanes[$0].melodyRestarts) && !(skipClosedFormOnly && comp.allSatisfy { inputs.lanes[$0].closedFormExpressible(ownLane: $0) }) }
         if any {
             let sim = EuclideousScheduleSim(globalLanes: comp, inputs: comp.map { inputs.lanes[$0] }, barBeats: inputs.barBeats, detectPeriod: detectPeriod)
             sim.run(untilBars: maxBars)
@@ -708,31 +730,43 @@ private func trivialData(_ inp: EuclideousScheduleLaneInput, _ bar: Double) -> E
                                coveredUntil: .infinity, rhythmRestarts: false, melodyRestarts: false, melodyEveryPass: false)
 }
 
-/// A tiny main-thread memo: the last few sets by inputs (the page, the snapshot builder and the tests all ask for the same ones).
+/// A tiny memo: the last few sets by inputs (the page, the snapshot builder and the tests all ask for the same ones). Locked — `SnapshotBuilder.build` also runs in the AU's init, whose thread the host chooses — and never touched by the render thread.
 final class EuclideousRestartScheduleMemo {
     static let shared = EuclideousRestartScheduleMemo()
+    private let lock = NSLock()
     private var entries: [(EuclideousScheduleInputs, UInt8, EuclideousRestartScheduleSet)] = []
+    private var _version = 0
+    /// Bumped whenever an entry is replaced by a longer set, so a holder that cached the shorter one fetches the new one.
+    var version: Int { lock.lock(); defer { lock.unlock() }; return _version }
     func replace(_ inputs: EuclideousScheduleInputs, engagedMask: UInt8, with set: EuclideousRestartScheduleSet) {
+        lock.lock(); defer { lock.unlock() }
         entries.removeAll { $0.0 == inputs && $0.1 == engagedMask }
         entries.insert((inputs, engagedMask, set), at: 0)
+        _version += 1
     }
     func set(_ inputs: EuclideousScheduleInputs, engagedMask: UInt8) -> EuclideousRestartScheduleSet {
+        lock.lock()
+        if let e = entries.first(where: { $0.0 == inputs && $0.1 == engagedMask }) { lock.unlock(); return e.2 }
+        lock.unlock()
+        let s = euclideousBuildRestartScheduleSet(inputs, engagedMask: engagedMask, skipClosedFormOnly: true)   // simulated outside the lock: a build can take tens of milliseconds
+        lock.lock(); defer { lock.unlock() }
         if let e = entries.first(where: { $0.0 == inputs && $0.1 == engagedMask }) { return e.2 }
-        let s = euclideousBuildRestartScheduleSet(inputs, engagedMask: engagedMask)
         entries.insert((inputs, engagedMask, s), at: 0)
         if entries.count > 6 { entries.removeLast() }
         return s
     }
 }
-/// One-slot holder a view keeps (a reference type in `@State`, so filling it never invalidates the view): the page asks for the set many times a body; the lines are compared once, the inputs rebuilt only on a change.
+/// One-slot holder a view keeps (a reference type in `@State`, so filling it never invalidates the view): the page asks for the set many times a body; the lines are compared once, the inputs rebuilt only on a change — or when the memo's entry was extended
+/// (a non-periodic schedule simulated further ahead of the playhead), which the page must read too or its tiles and arrows fall back to the closed forms past the first window while the engine keeps the schedule.
 final class EuclideousScheduleHolder {
     private var lines: [EuclidLine] = []
-    private var bar = 0.0, rate = 0.0, cols = 0
+    private var bar = 0.0, rate = 0.0, cols = 0, memoVersion = -1
     private var cached: EuclideousRestartScheduleSet?
     func set(lines l: [EuclidLine], barBeats: Double, defaultRateBeats: Double, riffColumns: Int) -> EuclideousRestartScheduleSet {
-        if let c = cached, bar == barBeats, rate == defaultRateBeats, cols == riffColumns, lines == l { return c }
+        let v = EuclideousRestartScheduleMemo.shared.version
+        if let c = cached, bar == barBeats, rate == defaultRateBeats, cols == riffColumns, memoVersion == v, lines == l { return c }
         let s = euclideousRestartScheduleSet(lines: l, barBeats: barBeats, defaultRateBeats: defaultRateBeats, riffColumns: riffColumns)
-        lines = l; bar = barBeats; rate = defaultRateBeats; cols = riffColumns; cached = s
+        lines = l; bar = barBeats; rate = defaultRateBeats; cols = riffColumns; memoVersion = EuclideousRestartScheduleMemo.shared.version; cached = s
         return s
     }
 }

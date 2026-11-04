@@ -19,7 +19,7 @@ final class LaneLockTests: XCTestCase {
             ("direction", { $0.direction = .bkw }), ("patternMiss", { $0.patternMiss = true }),
             ("restartRhythmBars", { $0.restartRhythmBars = [2] }), ("restartMelodyPasses", { $0.restartMelodyPasses = [4, 2] }),
             // RESTART UNITS (2026-11-04): the seven unit / source / switch / WITH RHYTHM fields lock with the chains.
-            ("restartRhythmUnit", { $0.restartRhythmUnit = .riff }), ("restartRhythmSource", { $0.restartRhythmSource = 2 }), ("restartRhythmOn", { $0.restartRhythmOn = true }),
+            ("restartRhythmUnit", { $0.restartRhythmUnit = .riff }), ("restartRhythmSource", { $0.restartRhythmUnit = .riff; $0.restartRhythmSource = 2 })   /* a source counts only for a unit that reads one */, ("restartRhythmOn", { $0.restartRhythmOn = true }),
             ("restartMelodyUnit", { $0.restartMelodyUnit = .hit }), ("restartMelodySource", { $0.restartMelodySource = 1 }), ("restartMelodyOn", { $0.restartMelodyOn = true }),
             ("restartMelodyWithRhythm", { $0.restartMelodyWithRhythm = true }),
             ("riffOn", { $0.riffOn = false }), ("riffDir", { $0.riffDir = .pendulum }), ("riffInvert", { $0.riffInvert = true }),

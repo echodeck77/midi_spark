@@ -9,6 +9,8 @@ import XCTest
 /// What the audit is allowed to report. Every entry carries the reason it is accepted; the goal is for both lists to shrink. Measured 2026-10-24 on the base iPad: CONTRAST ≈ 130 distinct elements per screen set, HIT AREA ≈ 90.
 enum FourfoldAuditAllowList {
     /// Whole audit types accepted on purpose. Not zero-tolerance because fixing them changes how the instrument LOOKS or is laid out, which is Paul's call, not a test's:
+    /// RESTART UNITS (2026-11-04): the restart editor's timeline axis label — 7 pt heavy, "BAR 1–16" / "PASS 1–16" / "RIFF 1–16" / "HIT 17–32" (34 × 7): drawn whole in the pictures, flagged like the MIX sliders' captions. Matched by its exact shape (en dash), never by prefix: a prefix would also accept the transport's "BAR 10 · 3" everywhere.
+    static func isRestartAxisLabel(_ label: String) -> Bool { label.range(of: "^(BAR|PASS|RIFF|HIT) [0-9]+\u{2013}[0-9]+$", options: .regularExpression) != nil }
     static let acceptedTypes: [String: String] = [
         "contrast": "DECIDE (Paul): the page draws secondary text (labels, step numbers, dim states, 42 % solo/mute dims) in mid greys on dark tints, 8–11 pt; Apple's audit flags about 130 distinct labels as below its contrast threshold. A look decision, not a defect to patch silently.",
         "hitRegion": "DECIDE (Paul): dense editors (the 16-cell LANES grid, the 8×8 riff grid's rank labels, the key popup's note letters, the rails) have touch targets under Apple's 44 pt. Changing them changes the layout; the known-small ones are what the instrument is.",
@@ -28,10 +30,6 @@ enum FourfoldAuditAllowList {
         ("textClipped", "100", "MIX ROWS: the VEL slider's value (9 pt heavy) — drawn whole in the pictures; same family as GATE's 90%"),
         ("textClipped", "RIFF", "MIX ROWS: the part toggle's 8 pt caption (the element is 43 × 40) — drawn whole in the pictures; confirm on device"),
         ("textClipped", "SOLO", "the SOLO tile's 10 pt label (the card's own 40 × 40; MIX's 120 × 24) — drawn whole in every picture; the audit has flagged it since the POOL ferry — confirm on device"),
-        ("textClipped", "HIT 1", "RESTART UNITS (2026-11-04): the restart editor's timeline axis label (7 pt heavy, \"HIT 1–16\" / \"BAR 1–16\" / \"PASS 1–16\" / \"RIFF 1–16\", 34 × 7) — drawn whole in the pictures; the same family as the MIX sliders' captions — confirm on device"),
-        ("textClipped", "BAR 1", "RESTART UNITS: the editor's timeline axis label — see HIT 1"),
-        ("textClipped", "PASS 1", "RESTART UNITS: the editor's timeline axis label — see HIT 1"),
-        ("textClipped", "RIFF 1", "RESTART UNITS: the editor's timeline axis label — see HIT 1"),
         ("textClipped", "TAKE NOTHING NEW", "POOL tab SUSTAIN option caption (the spec's own 16 characters ≈ 96 pt in a ≈ 92 pt button: truncated, never shrunk) — read it on a narrow card"),
     ]
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
@@ -43,7 +41,7 @@ enum FourfoldAuditAllowList {
     /// of text, no new label). So a lane-tab screen accepts four cards' worth.
     static func unlocatedElementDetectionCeilingFor(screen: String) -> Int {
         if screen.contains("hocket popup") { return 80 }
-        if screen.contains("restart editor") { return 140 }   // the modal editor hides the page behind it: its unlocated text (measured 90 in portrait) is that page, and findings with an element are judged by frame (`modalFrame`)
+        if screen.contains("restart editor") { return screen.hasPrefix("landscape") ? 56 : 66 }   // measured 2026-11-04: 46 landscape, 56 portrait (+10)   // the modal editor hides the page behind it: its unlocated text (measured 90 in portrait) is that page, and findings with an element are judged by frame (`modalFrame`)
         return screen.contains("lane tab") ? unlocatedElementDetectionCeiling * 4 + 4 : unlocatedElementDetectionCeiling   // four cards' worth + 4: the NOTES tab in portrait measured 24 on the iPad Pro 11 and 26 on the iPad mini (adversarial review, 2026-10-29)
     }
 
@@ -80,7 +78,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
                             if let mf = self.modalFrame, !mf.contains(CGPoint(x: snap.frame.midX, y: snap.frame.midY)) || Self.underTheEditor.contains(snap.label) { behindModal = true }
                         }
                         if name == "elementDetection" && label == "?" { unlocated += 1 }
-                        let known = behindModal || FourfoldAuditAllowList.acceptedTypes[name] != nil || FourfoldAuditAllowList.known.contains { $0.type == name && label.hasPrefix($0.label) }
+                        let known = behindModal || (name == "textClipped" && FourfoldAuditAllowList.isRestartAxisLabel(label)) || FourfoldAuditAllowList.acceptedTypes[name] != nil || FourfoldAuditAllowList.known.contains { $0.type == name && label.hasPrefix($0.label) }
                             || (name == "elementDetection" && label == "?" && unlocated <= FourfoldAuditAllowList.unlocatedElementDetectionCeilingFor(screen: screen))
                         if !known { mineUnknown += 1 }
                         let detail = label == "?" ? " | " + issue.detailedDescription.replacingOccurrences(of: "\n", with: " ") : ""   // an issue with no element (elementDetection) says where only in its detail
@@ -107,13 +105,14 @@ final class FourfoldAccessibilityTests: XCTestCase {
         prepare(app); settle()
         audit(app, "\(landscape ? "landscape" : "portrait") \(name)")
     }
-    /// RESTART UNITS (2026-11-04): the restart editor with a RIFF-counting rhythm chain, a HIT melody chain and WITH RHYTHM lit, so every kind of control (chips, source squares, switches, links, the timelines) exists when the audit looks.
+    /// RESTART UNITS (2026-11-04): the restart editor with a PASS-counting rhythm chain (a source square dashed-unavailable), an active HIT melody chain and WITH RHYTHM lit, so every kind of control (chips, source squares, switches, links, the timelines) exists when the audit looks.
     private func restartEditor(_ app: XCUIApplication) {
         let tile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm restarts")).element(boundBy: 0)
         XCTAssertTrue(tile.waitForExistence(timeout: 5), "the restart tile")
         tile.tap(); Thread.sleep(forTimeInterval: 1)
-        for label in ["Count riffs", "Rhythm restarts, off", "Count hits", "Restart with the rhythm, off"] {
-            let e = app.el(label); if e.waitForExistence(timeout: 3) { e.tap() }
+        // RHYTHM on PASS (its source squares, the lane itself dashed-unavailable) with a link; MELODY on HIT, switched on, WITH RHYTHM lit — every kind of control is up when the audit looks
+        for label in ["Count passes", "Rhythm restarts, off", "Count hits", "Melody restarts, off", "Restart with the rhythm, off"] {
+            let e = app.el(label); if e.waitForExistence(timeout: 3) { e.tap() } else { XCTFail("the editor has no \(label)") }
         }
         Thread.sleep(forTimeInterval: 0.6)
         let dialog = app.descendants(matching: .any)["Restarts for lane 1"]

@@ -22,10 +22,11 @@ final class FourfoldScreenshotTests: XCTestCase {
             Thread.sleep(forTimeInterval: 2)
             attach("11-restart-\(tag)-1-tiles-free")
             let tile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm restarts")).element(boundBy: 0)
-            guard tile.waitForExistence(timeout: 5) else { continue }
+            XCTAssertTrue(tile.waitForExistence(timeout: 5), "the restart tile (\(tag))")
             tile.tap(); Thread.sleep(forTimeInterval: 1)
             let editor = app.descendants(matching: .any)["Restarts for lane 1"]
             attach("11-restart-\(tag)-2-editor-free")
+            XCTAssertTrue(editor.exists, "the editor opened (\(tag))")
             if editor.exists {
                 any(editor, "Count riffs").tap()
                 any(editor, "Rhythm restarts, off").tap()

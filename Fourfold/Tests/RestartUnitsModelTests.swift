@@ -153,4 +153,44 @@ final class RestartUnitsModelTests: XCTestCase {
         var onlyMelody = EuclidLine(); onlyMelody.restartMelodyPasses = [1]
         XCTAssertEqual(euclideousLaneRestartChains(line: onlyMelody, lane: 0, barBeats: 4, lapBeats: 2).rhythm, .free, "the nil side reads FREE")
     }
+
+    // MARK: adversarial review (2026-11-04) — three findings of the model reviewer
+
+    /// A lane locked as RHYTHM BAR must not read as deviated because the user visited PASS and came back: BAR ignores the source, so the stored source cannot count.
+    func testALockDoesNotSeeASourceTheUnitIgnores() {
+        var l = EuclidLine(); l.restartRhythmBars = [1]
+        let f = LaneLockFields(line: l)
+        var m = l; m.restartRhythmSource = 1
+        XCTAssertFalse(euclideousLockDeviated(line: m, from: f), "BAR ignores its source")
+        XCTAssertEqual(euclideousLockChangedControls(from: f, to: m), [])
+        var h = l; h.restartMelodyPasses = [1]; h.restartMelodyUnit = .hit
+        let fh = LaneLockFields(line: h)
+        var h2 = h; h2.restartMelodySource = 3
+        XCTAssertFalse(euclideousLockDeviated(line: h2, from: fh), "HIT ignores its source")
+        var r = l; r.restartRhythmUnit = .riff
+        let fr = LaneLockFields(line: r)
+        var r2 = r; r2.restartRhythmSource = 2
+        XCTAssertTrue(euclideousLockDeviated(line: r2, from: fr), "RIFF does read it: another lane's riff is a different restart")
+    }
+    /// Spec §7.5: link edits never turn the switch on. On a lane whose switch was never touched (nil) and whose chain is empty, the switch reads OFF — a "+" must leave it off.
+    func testAddingALinkNeverTurnsTheSwitchOn() {
+        for rhythm in [true, false] {
+            var a = EuclidLine(); a.restartRhythmBars = []; a.restartMelodyPasses = []
+            XCTAssertFalse(rhythm ? a.restartRhythmOnResolved : a.restartMelodyOnResolved)
+            euclideousApplyRestartEdit(.addLink(rhythm: rhythm), to: &a, lane: 0, pin: nil)
+            XCTAssertFalse(rhythm ? a.restartRhythmOnResolved : a.restartMelodyOnResolved, "a link edit does not turn the switch on")
+            XCTAssertEqual(rhythm ? a.restartRhythmChainResolved.links : a.restartMelodyChainResolved.links, [1], "the link is added")
+        }
+    }
+    /// A tap that changes nothing must change nothing — a pin alone is not an edit (it would record an undo step and write the document).
+    func testANoOpTapOnAnUnpinnedLaneLeavesTheLineAlone() {
+        var l = EuclidLine(); l.restartRhythmUnit = .bar
+        let before = l
+        let pin = (rhythm: EuclideousRestartChain.from([2]), melody: EuclideousRestartChain.free)
+        let changed = euclideousApplyRestartEdit(.unit(rhythm: true, index: 0), to: &l, lane: 0, pin: pin)
+        XCTAssertFalse(changed); XCTAssertEqual(l, before, "the line is untouched, pin included")
+        var k = EuclidLine()
+        XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: true, index: 2), to: &k, lane: 0, pin: pin), "a real first edit still pins")
+        XCTAssertEqual(k.restartRhythmBars, [2]); XCTAssertEqual(k.restartRhythmUnit, .riff)
+    }
 }
