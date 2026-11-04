@@ -380,6 +380,30 @@ final class MixPanelTests: XCTestCase {
         XCTAssertTrue(euclideousMixRollPlaying(notes: notes, nowBeat: 2)); XCTAssertFalse(euclideousMixRollPlaying(notes: [note(on: 0, end: 1, rank: 1)], nowBeat: 2))
     }
 
+    func testASoundingRankFillsItsRowInThatPartsRollFromNoteOnToNoteOff() {
+        let size = CGSize(width: 100, height: 44), rowH: CGFloat = 44 / 8
+        func rows(_ n: [NoteRollNote], _ now: Double) -> [CGRect] { euclideousMixRoll(notes: n, nowBeat: now, barBeats: 4, size: size).soundingRows }
+        // a riff note of rank 4 fills row 4 of the RIFF roll only (the notes roll is built from the notes part's own feed, which holds no note)
+        let riff = [note(on: 1, end: 2, rank: 4)]
+        XCTAssertEqual(rows(riff, 0.9).count, 0, "not before the note-on")
+        let r = rows(riff, 1.5)
+        XCTAssertEqual(r.count, 1); close(r[0].minY, CGFloat(8 - 4) * rowH); close(r[0].height, rowH); close(r[0].minX, 0); close(r[0].width, 100, "the whole row")
+        XCTAssertEqual(rows([], 1.5).count, 0, "the notes roll of that lane: nothing sounds there")
+        XCTAssertEqual(rows(riff, 2.0).count, 0, "cleared at the note-off — no fade, nothing left behind")
+        // a chord of ranks 2 and 5 fills both rows of the notes roll
+        let chord = [note(on: 1, end: 3, rank: 2, pitch: 62), note(on: 1, end: 3, rank: 5, pitch: 67)]
+        let c = rows(chord, 2)
+        XCTAssertEqual(c.map { $0.minY }.sorted(), [CGFloat(8 - 5) * rowH, CGFloat(8 - 2) * rowH].sorted(), "ranks 5 and 2")
+        // a silent note (routed nowhere) fills its row too
+        XCTAssertEqual(rows([note(on: 1, end: 3, rank: 7, outs: 0)], 2).count, 1)
+        // each rank ends on its own note-off
+        let staggered = [note(on: 1, end: 2, rank: 2), note(on: 1, end: 3, rank: 5)]
+        XCTAssertEqual(rows(staggered, 2.5).count, 1); close(rows(staggered, 2.5)[0].minY, CGFloat(8 - 5) * rowH)
+        // a held note longer than the bar still fills its row after its dot has been wiped from the roll
+        XCTAssertEqual(rows([note(on: 0, end: nil, rank: 3)], 9).count, 1)
+        XCTAssertEqual(EuclideousMixRollMetrics.soundingRowAlpha, 0.10)
+    }
+
     // MARK: the strings
 
     func testVoiceOverStrings() {

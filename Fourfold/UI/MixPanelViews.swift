@@ -263,6 +263,7 @@ struct EuclideousMixBandCanvas: View {
         let shape = Path(roundedRect: frame, cornerRadius: R.radius)
         layer.fill(shape, with: .color(Color(hex: R.groundHex)))
         layer.clip(to: shape)
+        for r in roll.soundingRows { layer.fill(Path(r.offsetBy(dx: frame.minX, dy: frame.minY)), with: .color(accent.opacity(R.soundingRowAlpha))) }   // §A4: under the rank lines and the notes
         for y in roll.rowLines { layer.fill(Path(CGRect(x: frame.minX, y: frame.minY + y - 0.5, width: frame.width, height: 1)), with: .color(Color(hex: R.lineHex))) }
         for n in roll.notes {
             let rect = n.rect.offsetBy(dx: frame.minX, dy: frame.minY)

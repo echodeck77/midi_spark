@@ -296,11 +296,13 @@ struct EuclideousMixRoll: Equatable {
     var playheadX: CGFloat
     /// The y of the 1 pt lines between the eight rank rows.
     var rowLines: [CGFloat]
+    /// §A4: the full-width rows (in the roll's own coordinates) of every rank a note of this part sounds on right now — note-on to note-off, silent notes included. Filled lane100 @ 10 % under the notes and the rank lines, cleared at note-off with no fade.
+    var soundingRows: [CGRect]
 }
 enum EuclideousMixRollMetrics {
     static let radius: CGFloat = 6, noteRadius: CGFloat = 1.5, noteInset: CGFloat = 1.5, minNoteH: CGFloat = 2.5, minNoteW: CGFloat = 1.5
     static let groundHex: UInt32 = 0x131519, lineHex: UInt32 = 0x262930, playheadHex: UInt32 = 0xF2F4F7, playheadAlpha = 0.55, playheadW: CGFloat = 1.5
-    static let endedAlpha = 0.6, silentBorderAlpha = 0.55
+    static let endedAlpha = 0.6, silentBorderAlpha = 0.55, soundingRowAlpha = 0.10
 }
 /// §5.5: the last bar of the page clock, left to right. A note sits at (its note-on's time within the bar) × width, as long as note-on → note-off (to the playhead while it sounds), clipped at the right edge and never wrapped, drawn until the playhead
 /// comes round to its note-on's position a bar later — then it is wiped.
@@ -320,7 +322,9 @@ func euclideousMixRoll(notes: [NoteRollNote], nowBeat: Double, barBeats: Double,
         let look: EuclideousMixRollLook = n.outs == 0 ? .silent : (euclideousMixNoteSounds(n, at: nowBeat) ? .sounding : .ended)
         out.append(EuclideousMixRollNoteFrame(rect: CGRect(x: x, y: y, width: w, height: h), look: look, rank: rank))
     }
-    return EuclideousMixRoll(notes: out, playheadX: CGFloat(frac(nowBeat)) * size.width, rowLines: (1..<8).map { CGFloat($0) * rowH })
+    let lit = euclideousMixLitRanks(parts: [notes], nowBeat: nowBeat)
+    let rows = (1...8).filter { lit & (UInt8(1) << UInt8($0 - 1)) != 0 }.map { CGRect(x: 0, y: CGFloat(8 - $0) * rowH, width: size.width, height: rowH) }
+    return EuclideousMixRoll(notes: out, playheadX: CGFloat(frac(nowBeat)) * size.width, rowLines: (1..<8).map { CGFloat($0) * rowH }, soundingRows: rows)
 }
 /// "Riff playing" / "Riff silent": playing = a note of this part sounds now.
 func euclideousMixRollPlaying(notes: [NoteRollNote], nowBeat: Double) -> Bool { notes.contains { euclideousMixNoteSounds($0, at: nowBeat) } }
