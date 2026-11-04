@@ -269,6 +269,7 @@
 		A71376B370E076CCB3B3A89E /* Dice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3D05D84CB3BB7FF47E7851 /* Dice.swift */; };
 		A7CAEF8533A3A9FD91130FE8 /* BuildReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35E864C306383ECEE13CDAAD /* BuildReel.swift */; };
 		A7CDEB9BFEA39A8E05477A8E /* FourfoldTransportClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */; };
+		A830095D8E957C50723920F9 /* RestartUnitsGoldenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16EDCC49E0693650723FF086 /* RestartUnitsGoldenTests.swift */; };
 		AAB3C00499C7BA8E65C04A4B /* EmitterVelocityUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60DAA2B9195756E92DD7102 /* EmitterVelocityUI.swift */; };
 		AAC67FED0724903B425D060F /* FourfoldReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E30016BB623E045246A0488 /* FourfoldReel.swift */; };
 		AAEB896150BD00CFD80603FE /* MidiSparkAU.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -480,6 +481,7 @@
 		0C2B1597D4FE5A642D881E53 /* FourfoldUIHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldUIHelpers.swift; sourceTree = "<group>"; };
 		0DFF24D7CF876BB9752F7ABB /* Kernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kernel.swift; sourceTree = "<group>"; };
 		1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetBrowser.swift; sourceTree = "<group>"; };
+		16EDCC49E0693650723FF086 /* RestartUnitsGoldenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartUnitsGoldenTests.swift; sourceTree = "<group>"; };
 		16FA68D0E51F49F8F2A53556 /* LaneLockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneLockTests.swift; sourceTree = "<group>"; };
 		17328D614B4463EECE452DA4 /* BuildModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildModel.swift; sourceTree = "<group>"; };
 		176469F1675E0C309D28B215 /* CanonHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanonHistory.swift; sourceTree = "<group>"; };
@@ -928,6 +930,7 @@
 				5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */,
 				86B78244085974D781CC1A40 /* RestartChainsTests.swift */,
 				5511D6EA0BFF15C0FC45E68A /* RestartFlashTests.swift */,
+				16EDCC49E0693650723FF086 /* RestartUnitsGoldenTests.swift */,
 				9E8567597528341F414DC3D5 /* RhythmPolishTests.swift */,
 				42A11E131366C40F5FB993C3 /* RiffGridArrowFuzzTests.swift */,
 				D67906574F7AC7903958AF3B /* RiffPanelTests.swift */,
@@ -1697,6 +1700,7 @@
 				4FD44873F80293DB68DA9E67 /* ReelTapeAdapterTests.swift in Sources */,
 				F5391EF8DBE567DE296CEB8D /* RestartChainsTests.swift in Sources */,
 				7BE01E23EE11445214726AD3 /* RestartFlashTests.swift in Sources */,
+				A830095D8E957C50723920F9 /* RestartUnitsGoldenTests.swift in Sources */,
 				DDF0A418083AE1978744004D /* RhythmPolishTests.swift in Sources */,
 				F916421D23299C61B01B18B2 /* RiffGridArrowFuzzTests.swift in Sources */,
 				5E970B6C60B8B0AF78C866B7 /* RiffPanelTests.swift in Sources */,
