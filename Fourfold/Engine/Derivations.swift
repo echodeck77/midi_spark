@@ -824,6 +824,11 @@ func chordColumn(_ p: ChordsAdvanceConfig, beat: Double, schedule: EuclideousRes
     return chordsColumnResolve(count: Int(a), steps: p.steps, rotate: p.rotate)
 }
 
+/// A grid with no advance and no restart is the pre-ferry `floor(beat/rate)` progression — the engine keeps its
+/// EXACT old code path for it (so every existing document is byte-identical by construction, never via the ε), and
+/// `chordColumn` is engaged only when a grid actually uses LOOP / RIFF advance or a restart.
+@inline(__always) func chordsAdvanceIsPlainTime(_ p: ChordsAdvanceConfig) -> Bool { p.advanceUnit == .time && !p.restartOn }
+
 // The three carriers each expose their progression as a `ChordsAdvanceConfig` so every reader calls the ONE
 // `chordColumn`. `rotate` is passed raw — `chordsColumnResolve` wraps it.
 extension SnapParams {        // grid 1 (the Euclideous row's own chords* fields)
@@ -858,7 +863,7 @@ extension MachineParams {     // the editing document (the page's displays)
 /// degree codes (8...11, never written by the regular CHORDS processor/door UI) and `p.chordsColours` may be non-empty
 /// (ditto) — gated so a caller that never resolves either (every pre-ferry caller; `p.chordsColours` defaults to `[]`,
 /// `applyChords` clamps degrees to 0...7) takes the OLD `diatonicChord(voicing:spread:)` path, byte-identical.
-func chordSeqNotes(beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?, grid: Int = 0) -> [Int] {
+func chordSeqNotes(beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?, grid: Int = 0, column: Int = -1) -> [Int] {
     let second = grid == 1       // TWO CHORD GRIDS: grid 1 (the default) reads `p.chords*`, grid 2 reads `p.chords2` — every other line is the same
     let cDegrees = second ? p.chords2.degrees : p.chordsDegrees, cColours = second ? p.chords2.colours : p.chordsColours
     let cSteps = second ? p.chords2.steps : p.chordsSteps, cRotate = second ? p.chords2.rotate : p.chordsRotate
@@ -871,8 +876,12 @@ func chordSeqNotes(beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones 
     case .pattern:
         let steps = max(1, min(16, cSteps))
         let degs = (0..<steps).map { $0 < cDegrees.count ? cDegrees[$0] : -1 }
-        (deg, rest) = chordsDegreeAt(step: step, degrees: degs, rotate: cRotate)
-        if !rest, !cColours.isEmpty, let src = chordsSourceStepAt(step: step, degrees: degs, rotate: cRotate), src < cColours.count {
+        // CHORDS PAGE ferry §3: `column ≥ 0` is a pre-resolved playing column (mod STEPS + ROTATE already applied by
+        // `chordColumn`), so read it with rotate 0 — the CARRY walk is identical mod n. `column < 0` is the pre-ferry
+        // path (plain-TIME grids), byte-identical.
+        let pstep = column >= 0 ? column : step, prot = column >= 0 ? 0 : cRotate
+        (deg, rest) = chordsDegreeAt(step: pstep, degrees: degs, rotate: prot)
+        if !rest, !cColours.isEmpty, let src = chordsSourceStepAt(step: pstep, degrees: degs, rotate: prot), src < cColours.count {
             colour = cColours[src]
         }
     case .follow: deg = scaleDegreeOf(followNote ?? root, root: root, scaleTones: scaleTones)
@@ -953,9 +962,9 @@ func euclideousChordTonesInto(_ out: inout [Int], degree deg: Int, colour: Int, 
 /// `chordSeqNotes` for the render thread: the same notes written into `out` (room for at least 5), the count returned — 0 on a REST. It runs once per render window under the CHORDS note source, and the array form made about six heap
 /// allocations each time. PATTERN mode (the only one Fourfold's CHORDS source ever builds) is allocation-free; WALK / FOLLOW, which it never reaches, go through the array form. MUST follow `chordSeqNotes` line for line (the CHORDS GRID
 /// ferry's borrowed degrees and colours included) — the fuzz in `DerivationsTests` fails if they drift.
-func chordSeqNotesInto(_ out: inout [Int], beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?, grid: Int = 0) -> Int {
+func chordSeqNotesInto(_ out: inout [Int], beat m: Double, _ p: SnapParams, keyRoot root: Int, keyTones scaleTones: [Int], followNote: Int?, grid: Int = 0, column: Int = -1) -> Int {
     guard p.chordsMode == .pattern else {
-        let a = chordSeqNotes(beat: m, p, keyRoot: root, keyTones: scaleTones, followNote: followNote, grid: grid)
+        let a = chordSeqNotes(beat: m, p, keyRoot: root, keyTones: scaleTones, followNote: followNote, grid: grid, column: column)
         let c = min(a.count, out.count); for i in 0..<c { out[i] = a[i] }
         return c
     }
@@ -967,11 +976,14 @@ func chordSeqNotesInto(_ out: inout [Int], beat m: Double, _ p: SnapParams, keyR
     let rateBeats = cRate > 0 ? cRate : 4
     let step = euclideousChordsPlayingColumn(beat: m, rateBeats: rateBeats)
     let steps = max(1, min(16, cSteps))
-    let column = { (i: Int) -> Int in i < cDegrees.count ? cDegrees[i] : -1 }
-    let (deg, rest) = chordsDegreeAt(step: step, count: steps, rotate: cRotate, element: column)
+    let elem = { (i: Int) -> Int in i < cDegrees.count ? cDegrees[i] : -1 }
+    // CHORDS PAGE ferry §3: `column ≥ 0` is a pre-resolved playing column (chordColumn applied mod STEPS + ROTATE),
+    // read with rotate 0 (the CARRY walk is identical mod n); `column < 0` is the pre-ferry path, byte-identical.
+    let pstep = column >= 0 ? column : step, prot = column >= 0 ? 0 : cRotate
+    let (deg, rest) = chordsDegreeAt(step: pstep, count: steps, rotate: prot, element: elem)
     guard !rest else { return 0 }
     var colour = 0
-    if !cColours.isEmpty, let src = chordsSourceStepAt(step: step, count: steps, rotate: cRotate, element: column), src < cColours.count {
+    if !cColours.isEmpty, let src = chordsSourceStepAt(step: pstep, count: steps, rotate: prot, element: elem), src < cColours.count {
         colour = cColours[src]
     }
     if deg >= 8 || colour != 0 {

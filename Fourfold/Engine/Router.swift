@@ -2729,9 +2729,17 @@ final class Router {
             // Sources panel v2: re-merge on a chord-step change whenever CHORDS is ON (a redundant merge under
             // REPLACE-while-MIDI is harmless — `euclideousBuildSourceStack` re-evaluates "allowed").
             let euChordsActive = euPlan.chordsOnR
+            // CHORDS PAGE ferry (2026-11-04) §3: a grid's resolved playing column, or −1 for a PLAIN-TIME grid (no
+            // advance, no restart) so the chord resolve takes its EXACT pre-ferry path (byte-identical by
+            // construction — `chordColumn` is engaged only when a grid actually uses LOOP / RIFF or a restart).
+            func chordAdvanceColumn(_ grid: Int, beat: Double) -> Int {
+                let cfg = grid == 1 ? p.chords2.advanceConfig : p.chordsAdvanceConfig
+                return chordsAdvanceIsPlainTime(cfg) ? -1 : chordColumn(cfg, beat: beat, schedule: p.restartSchedule, barBeats: beatsPerBar)
+            }
             func fillChordLayer(atBeat m: Double, grid: Int = 0) {
-                chordPoolStep = Int((m / chordRateBeats(grid)).rounded(.down))
-                chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil, grid: grid)
+                let col = chordAdvanceColumn(grid, beat: m)
+                chordPoolStep = col >= 0 ? col : Int((m / chordRateBeats(grid)).rounded(.down))   // the cache key tracks the ADVANCE column for an advance grid, the TIME step otherwise
+                chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: m, p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil, grid: grid, column: col)
                 chordLayerIsRest = chordLayerCount == 0   // §2.6: chordSeqNotesInto returns 0 ONLY for a REST column (PATTERN mode — a real degree always yields ≥1)
             }
             // MIDI IN OCTAVES (2026-11-01) §2.2: under IGNORE (and not ROOT, which admits no played notes) the held notes are FOLDED into `midiFoldBuf` before the builder admits them — before its one-layer short cut — so everything after
@@ -2783,14 +2791,16 @@ final class Router {
             func refreshStack(atBeat m: Double) {
                 guard isEuclideousRow, euChordsActive else { return }
                 let mm = m + 1e-9                                    // a tick a hair under a chord boundary belongs to the new chord
-                guard Int((mm / chordPoolRateBeats).rounded(.down)) != chordPoolStep else { return }
+                let col = chordAdvanceColumn(0, beat: mm)            // live pool = grid 0 (CHORD 1)
+                let key = col >= 0 ? col : Int((mm / chordPoolRateBeats).rounded(.down))
+                guard key != chordPoolStep else { return }
                 mergeStack(atBeat: mm)
             }
             // CHORD CANON (2026-10-31, all sources): a delayed lane's pool — the SAME merge as `mergeStack`, but of the layers as they were `d` beats ago: MIDI IN / PICK / KEY from the history (`canonHistory`, the entry in force at elapsed
             // beat e − d; the player's note-offs and a key change reach the lane `d` late), CHORDS from its closed form at host beat m − d (a rest while the lane is still waiting for its first chord, in which case every layer is
             // empty and the lane is silent). Written into the same `globalSrcBuf` the lane's reads already use; the buffer is re-keyed (chord step, history entry) whenever the lane needs a different pool, and `chordPoolStep` is
             // parked on the dirty key so the live refresh restores the live pool for the next undelayed lane. It never touches the status the live merge publishes to the UI (the SOURCES panel shows the live pool).
-            func mergeCanonStack(_ read: EuclideousCanonRead, entry: Int64, plan lp: SourcePlan, grid: Int) {   // `lp`: the page plan, or (POOL ferry) with this lane's SOURCES written in
+            func mergeCanonStack(_ read: EuclideousCanonRead, entry: Int64, plan lp: SourcePlan, grid: Int, column: Int = -1) {   // `lp`: the page plan, or (POOL ferry) with this lane's SOURCES written in; `column` ≥ 0 = the delayed ADVANCE column (CHORDS PAGE)
                 var midiN = 0, pickN = 0, keyN = 0
                 var playing = false
                 var rootT = 0   // the t in force at the lane's own moment (recorded with the entry), not the live one
@@ -2805,7 +2815,8 @@ final class Router {
                 if read.waiting {
                     chordLayerCount = 0; chordLayerIsRest = true
                 } else if lp.chordsOnR {
-                    chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: euclideousCanonStepBeat(step: read.step, rateBeats: chordRateBeats(grid)), p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil, grid: grid)
+                    // CHORDS PAGE §3.7: an ADVANCE grid delayed by this lane reads its column at the delayed beat (`column` ≥ 0, beat unused by PATTERN); a plain-TIME grid takes the pre-ferry step-middle path, byte-identical.
+                    chordLayerCount = chordSeqNotesInto(&chordPoolScratch, beat: column >= 0 ? 0 : euclideousCanonStepBeat(step: read.step, rateBeats: chordRateBeats(grid)), p, keyRoot: p.euclideousChordKeyRoot, keyTones: p.euclideousChordKeyTones, followNote: nil, grid: grid, column: column)
                     chordLayerIsRest = chordLayerCount == 0
                 } else {
                     chordLayerCount = 0; chordLayerIsRest = false
@@ -2830,9 +2841,12 @@ final class Router {
                     // SLIP, for the live layers: a change the lane misses leaves it on the previous entry — the same stateless "one behind" as the chord step, rolled on the entry's own sequence number
                     if slip > 0, sq > canonHistory.oldestSeq, euclideousCanonSlipRoll(lane: lane, step: Int(truncatingIfNeeded: sq) ^ 0x5BD1_E995) < slip { entry = sq - 1 }
                 }
-                let chordKey = read.waiting ? euclideousCanonWaitingKey : read.step
+                // CHORDS PAGE §3.7: an advance grid's delayed column is `chordColumn` at (m − delay); plain-TIME keeps read.step (SLIP, a TIME-step roll, applies to plain-TIME only — a documented limit for advance grids).
+                let cfg = grid == 1 ? p.chords2.advanceConfig : p.chordsAdvanceConfig
+                let delayedCol = (!read.waiting && !chordsAdvanceIsPlainTime(cfg)) ? chordColumn(cfg, beat: m - delayBeats, schedule: p.restartSchedule, barBeats: beatsPerBar) : -1
+                let chordKey = read.waiting ? euclideousCanonWaitingKey : (delayedCol >= 0 ? delayedCol : read.step)
                 if chordPoolStep == euclideousCanonDirtyKey && canonBufChord == chordKey && canonBufEntry == entry && canonBufMask == mask { return }   // the buffer already holds exactly this pool
-                mergeCanonStack(read, entry: entry, plan: lp, grid: grid)
+                mergeCanonStack(read, entry: entry, plan: lp, grid: grid, column: delayedCol)
                 chordPoolStep = euclideousCanonDirtyKey; canonBufChord = chordKey; canonBufEntry = entry; canonBufMask = mask
             }
             // POOL ferry SOURCES (2026-11-02) §3: a lane that switched some of the four sources off builds its pool with the SAME stacked pool function over the LIVE layers (`lp`: the page plan with the lane's switches ANDed in), without
@@ -2855,7 +2869,8 @@ final class Router {
             func refreshLaneStack(plan lp: SourcePlan, mask: UInt8, atBeat m: Double) {
                 let mm = m + 1e-9                                        // a tick a hair under a chord boundary belongs to the new chord
                 let grid = euclideousLaneChordGrid(mask)                 // TWO CHORD GRIDS: CHORDS 2 steps by grid 2's clock and reads grid 2's progression (bit 4 is in `mask`, so the cache key already tells the grids apart)
-                let step = Int((mm / chordRateBeats(grid)).rounded(.down))
+                let col = chordAdvanceColumn(grid, beat: mm)
+                let step = col >= 0 ? col : Int((mm / chordRateBeats(grid)).rounded(.down))   // CHORDS PAGE: key on the advance column for an advance grid
                 if chordPoolStep == euclideousCanonDirtyKey && canonBufChord == step && canonBufEntry == Int64.max && canonBufMask == mask { return }   // the buffer already holds exactly this lane-source pool
                 mergeLaneStack(plan: lp, atBeat: mm, grid: grid)
                 chordPoolStep = euclideousCanonDirtyKey; canonBufChord = step; canonBufEntry = Int64.max; canonBufMask = mask

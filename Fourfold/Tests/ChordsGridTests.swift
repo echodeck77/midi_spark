@@ -741,3 +741,65 @@ final class ChordColumnScheduleTests: XCTestCase {
         XCTAssertEqual(chordColumn(t, beat: 1000.0, schedule: s, barBeats: 4), Int((1000.0 / 4).rounded(.down)) % 8)
     }
 }
+
+// MARK: - CHORDS PAGE ferry §3 (wiring): the Router actually emits the ADVANCING chord
+// The pure `chordColumn` is tested above; this proves the engine resolve routes through it and the pool rebuilds —
+// the ferry's §8 test 2 at the EMISSION level (ferry acceptance: "ADVANCE LOOP … chord changes on the lane's loop").
+
+private final class ChordGridEmitter: MIDIEmitter {
+    struct Ev { let sample: Int64; let cable: UInt8; let status: UInt8; let note: UInt8 }
+    private(set) var events: [Ev] = []
+    func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) { events.append(Ev(sample: sampleTime, cable: cable, status: b0 & 0xF0, note: b1)) }
+    var ons: [Ev] { events.filter { $0.status == 0x90 } }
+}
+
+final class ChordColumnEngineTests: XCTestCase {
+    private let beat: Int64 = 24_000                 // 120 BPM at 48 kHz
+    private let degrees = [0, 3, 4, 5]               // I IV V vi of the default C natural minor — distinct roots
+
+    private func expectedRoot(column c: Int) -> Int {
+        diatonicChord(degree: degrees[((c % 4) + 4) % 4], scaleTones: ScaleType.naturalMinor.intervals, rootNote: 48, voicing: .triad, spread: .close).min()!
+    }
+
+    func testTheEmittedChordAdvancesOncePerLaneLoop() {
+        // lane 0: FREE, hits every 1/8 step over 8 steps → a loop (pass) every 4 beats; its riff plays rank 1 only,
+        // so each hit emits exactly the LOWEST pool note = the current chord's root.
+        var l = EuclidLine(target: 0, pulses: 8, steps: 8)
+        l.rate = .r1_8; l.useRiff = true; l.riffOn = true; l.gate = 0.5; l.velocityAbsolute = 90
+        l.restartRhythmBars = []; l.restartMelodyPasses = []
+        var gold = Machine(machineID: "gold", type: .euclid)
+        gold.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 1, 1, 1, 1, 1, 1, 1])
+        gold.paramsA.euclidLines = [l, EuclidLine(target: 0, pulses: 1, steps: 8), EuclidLine(target: 0, pulses: 1, steps: 8), EuclidLine(target: 0, pulses: 1, steps: 8)]
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: [gold], scenes: [sc])
+        var cs = MachineParams(); cs.chordsDegrees = degrees; cs.chordsSteps = 4; cs.chordsRate = .r1_1
+        cs.advanceUnit = .loop; cs.advanceLane = 0; cs.advanceEvery = 1              // ADVANCE LOOP lane 1 (index 0)
+        st.euclideousChordSets = [cs, MachineParams()]
+        st.euclideousSourcePlan = SourcePlan(midiOn: false, chordsOn: true, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
+
+        let box = SnapshotBuilder.build(from: st)
+        let e = ChordGridEmitter(); let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, p = NotePool()
+        var ts = 0.0
+        func beatNow() -> Double { ts * tempo / 60.0 / sr }
+        while beatNow() < 16 {
+            router.process(box: box, pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: 2048, forceColumn: 0, out: e, diag: &diag)
+            ts += 2048
+        }
+        // the ONE note emitted on ALL (cable 0) at each beat = the chord root at that beat
+        var rootAt = [Int](repeating: -1, count: 16)
+        for ev in e.ons where ev.cable == 0 {
+            let b = Int((Double(ev.sample) / Double(beat)).rounded())
+            if b >= 0, b < 16 { rootAt[b] = Int(ev.note) }
+        }
+        // sampled mid-loop: the chord advances once per 4-beat loop → a new column (and root) each loop
+        XCTAssertEqual(rootAt[2],  expectedRoot(column: 0), "loop 0 → column 0 (degree I)")
+        XCTAssertEqual(rootAt[6],  expectedRoot(column: 1), "loop 1 → column 1 (degree IV)")
+        XCTAssertEqual(rootAt[10], expectedRoot(column: 2), "loop 2 → column 2 (degree V)")
+        XCTAssertEqual(rootAt[14], expectedRoot(column: 3), "loop 3 → column 3 (degree vi)")
+        // and it holds WITHIN a loop (beats 1,2,3 share column 0's root) — it advances on the loop, not the rate
+        XCTAssertEqual(rootAt[1], rootAt[2]); XCTAssertEqual(rootAt[3], rootAt[2])
+        XCTAssertNotEqual(rootAt[2], rootAt[6], "the root actually changes on the loop")
+    }
+}
