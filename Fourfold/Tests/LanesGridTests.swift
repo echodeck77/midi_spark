@@ -229,7 +229,7 @@ final class LanesGridTests: XCTestCase {
     // MARK: - layout, position map, hit test, runs, mark beats (§4, §5)
 
     func testLayoutAtTheReferenceMatchesTheSpecNumbers() {
-        let L = euclideousLanesLayout(width: 394, height: 260)          // the spec's 410×303 panel less 8pt padding and the tab strip
+        let L = euclideousLanesLayout(width: 394, height: 260)          // the spec's 410×303 panel less 8pt padding and the tab strip. MIX ROWS AMENDMENT 1 (§A7): the hint line and the legend are hidden — laneH 50 → 62, laneTop(0) 28 → 0, legendTop 244 → 260
         // MUTE ZOOM (2026-11-03): the roll is flanked by a 22pt arrow + 4pt gap on EACH side, so gridX = 26 and gridW = 394 − 52 = 342.
         XCTAssertEqual(L.gridX, 26); XCTAssertEqual(L.gridW, 342)
         XCTAssertEqual(L.cellW, 19.5, accuracy: 1e-9)
@@ -237,17 +237,17 @@ final class LanesGridTests: XCTestCase {
         XCTAssertEqual(L.cellLeft(15), 322.5, accuracy: 1e-9)
         XCTAssertEqual(L.rightArrowX, 26 + 342 + 4, accuracy: 1e-9)   // the ▶ arrow begins a gap past the grid and ends at the full width
         XCTAssertEqual(L.rightArrowX + EuclideousLanesLayout.arrowW, 394, accuracy: 1e-9)
-        XCTAssertEqual(L.laneH, 50)
-        XCTAssertEqual(L.laneTop(0), 28); XCTAssertEqual(L.laneTop(3), 190)       // y = 63 and 225 less the sub-tab row's own 35 origin
-        XCTAssertEqual(L.legendTop, 244)                                         // y = 279 − 35
-        XCTAssertEqual(L.rowH, 24)                                               // two 24pt restart rows with a 2pt gap
+        XCTAssertEqual(L.laneH, 62)
+        XCTAssertEqual(L.laneTop(0), 0); XCTAssertEqual(L.laneTop(3), 198)
+        XCTAssertEqual(L.legendTop, 260)
+        XCTAssertEqual(L.rowH, 30)                                               // two restart rows with a 2pt gap (24 each with the captions; 30 each at the 62pt block, §A7)
     }
     func testLayoutScalesTheLaneBlocksWithTheRealHeightAndNeverBelowTheFloor() {
-        XCTAssertEqual(euclideousLanesLayout(width: 394, height: 272).laneH, 53)
-        XCTAssertEqual(euclideousLanesLayout(width: 394, height: 208).laneH, 37)
+        XCTAssertEqual(euclideousLanesLayout(width: 394, height: 272).laneH, 65)
+        XCTAssertEqual(euclideousLanesLayout(width: 394, height: 208).laneH, 49)
         XCTAssertEqual(euclideousLanesLayout(width: 394, height: 100).laneH, 34, "a floor, so the cells stay tappable")
         let tall = euclideousLanesLayout(width: 394, height: 400)
-        XCTAssertEqual(tall.legendTop + EuclideousLanesLayout.legendH, 60 + 4 * tall.laneH, accuracy: 1e-9, "the stack fills the height")
+        XCTAssertEqual(tall.legendTop + EuclideousLanesLayout.legendH, 12 + 4 * tall.laneH, accuracy: 1e-9, "the stack fills the height")
         XCTAssertEqual(euclideousLanesLayout(width: 320, height: 260).cellW,
                        (320 - 2 * (EuclideousLanesLayout.arrowW + EuclideousLanesLayout.arrowGap) - EuclideousLanesLayout.cellGap * 15) / 16, accuracy: 1e-9)
     }
@@ -286,7 +286,7 @@ final class LanesGridTests: XCTestCase {
         // lanes and the gaps between them
         XCTAssertEqual(hit(gx + 5, L.laneTop(2) + 10)?.lane, 2)
         XCTAssertNil(hit(gx + 5, L.laneTop(0) + L.laneH + 2), "the 4pt gap between blocks is nothing")
-        XCTAssertNil(hit(gx + 5, 10), "the sub-tab row is not a lane")
+        XCTAssertEqual(hit(gx + 5, 10)?.lane, 0, "§A7: with the hint line hidden there is no sub-tab row — the first block starts at the top of the body")
         // RESTART rows: rhythm above, melody below, the 2pt gap split 1pt each
         let t = L.laneTop(1)
         XCTAssertEqual(hit(gx + 5, t + 5, restart: true)?.row, 0)

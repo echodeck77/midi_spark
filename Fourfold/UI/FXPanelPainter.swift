@@ -282,6 +282,7 @@ struct EuclideousFXPanel: View {
         if row == .ratch {
             return AnyView(HStack(spacing: 4) { stepper(.shape) }.frame(width: w, height: EuclideousFXLayout.stripH, alignment: .leading))
         } else if let d = row.stripDescription {
+            guard EuclideousLowerRightCaptions.shown else { return AnyView(Color.clear.frame(width: w, height: EuclideousFXLayout.stripH)) }   // §A7: the one-line description is hidden, not deleted
             return AnyView(Text(d).font(heavyMono(8)).tracking(0.32).foregroundColor(P.caption).lineLimit(1).truncationMode(.tail)
                 .frame(width: w, height: EuclideousFXLayout.stripH, alignment: .leading))
         } else if row == .note {

@@ -270,15 +270,17 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(l.labelW, 48); XCTAssertEqual(p.labelW, 48); XCTAssertEqual(EuclideousRiffPanelMetrics.labelW, euclideousRankChipMinWidth(), "the column is exactly the narrowest chip that holds the widest label beside its corner number")
     }
     func testFXRowsFollowThePanelAndItsColumnsAreTheRiffGrids() {
-        // rows share the height: (content − 86) / 6 with content = box − 40; 29 at the old 260-tall content (a 300pt box); no cap, floor 24
-        XCTAssertEqual(EuclideousFXLayout.fixedHeight, 86)
-        XCTAssertEqual(euclideousFXRowH(contentHeight: 260), 29, accuracy: 1e-9)
-        for (p, rowH) in [(land, 32.17), (port, 32.28)] {
+        // rows share the height: (content − fixed) / 6 with content = box − 40. MIX ROWS AMENDMENT 1 (§A7, 2026-11-04): the hint row is hidden, so fixed is 66 not 86 (the 86 / hint-row numbers: 29 at a 260-tall content, 32.17 / 32.28 at the references) — 20 pt back, 3.33 pt a row.
+        XCTAssertEqual(EuclideousFXLayout.fixedHeight, 86, "the nominal hint-included figure is kept (hide, don't delete)"); XCTAssertEqual(EuclideousFXLayout.fixedHeightNoHint, 66)
+        XCTAssertFalse(EuclideousLowerRightCaptions.shown)
+        XCTAssertEqual(euclideousFXRowH(contentHeight: 260), (260 - 66) / 6, accuracy: 1e-9)
+        for (p, rowH) in [(land, 35.5), (port, 35.61)] {
             let body = euclideousSeqTabBodySize(panelWidth: p.box.width, panelHeight: p.box.height)
             XCTAssertEqual(body.height, p.box.height - 40, accuracy: 1e-9)
             let l = euclideousFXLayout(width: body.width, height: body.height)
             XCTAssertEqual(l.rowH, rowH, accuracy: 0.01)
-            XCTAssertEqual(l.hintTop + EuclideousFXLayout.hintH, body.height, accuracy: 1e-9, "the hint ends sp8 above the panel's bottom, whatever the height")
+            XCTAssertFalse(l.showHintRow, "no hint row on any tab")
+            XCTAssertEqual(l.rowTop(5) + l.rowH, body.height, accuracy: 1e-9, "the sixth row ends sp8 above the panel's bottom, whatever the height — the freed 20 pt are the rows'")
             XCTAssertEqual(l.cellW, euclideousRiffCellW(maxWidth: p.box.width), "the columns are the riff grid's own function")
             // each FX column's offset from ITS panel's leading edge = the riff grid's column's offset from the riff panel's (8 pad + the label column + 4 gap, then cellW + 4)
             for c in 0..<8 {
@@ -289,22 +291,25 @@ final class PageLayoutTests: XCTestCase {
                 if p.isLandscape { XCTAssertEqual(p.seq.minX + fxOffset, p.riff.minX + riffOffset, accuracy: 1e-9) }
             }
         }
-        XCTAssertEqual(euclideousFXLayout(width: 360, height: 245).rowH, 26.5, accuracy: 1e-9, "a shorter panel still shares the missing height")
+        XCTAssertEqual(euclideousFXLayout(width: 360, height: 245).rowH, (245 - 66) / 6, accuracy: 1e-9, "a shorter panel still shares the missing height")
         XCTAssertEqual(euclideousFXLayout(width: 360, height: 100).rowH, 24, "…down to 24, then no further")
-        XCTAssertEqual(euclideousFXLayout(width: 360, height: 400).rowH, (400 - 86) / 6, accuracy: 1e-9, "no upper cap now")
-        XCTAssertEqual(euclideousFXRowH(contentHeight: 303 - 40), 29.5, accuracy: 1e-9, "the old 303 frame: 29.5 here (the ferry text's 29 assumes the strip at y 35; source has it at 32)")
+        XCTAssertEqual(euclideousFXLayout(width: 360, height: 400).rowH, (400 - 66) / 6, accuracy: 1e-9, "no upper cap now")
+        XCTAssertEqual(euclideousFXRowH(contentHeight: 303 - 40), (303 - 40 - 66) / 6, accuracy: 1e-9, "the old 303 frame (29.5 with the hint row)")
     }
     func testLanesBlocksAndCellsAtBothReferences() {
         // MUTE ZOOM (2026-11-03): each side loses a 22pt arrow + 4pt gap, so cellW drops 10/16 = 0.625 from the old 18.29 / 18.69.
-        for (p, cellW, laneH) in [(land, 17.665, 54.75), (port, 18.065, 54.92)] {
+        // MIX ROWS AMENDMENT 1 (§A7): MUTE's hint line and ZOOM legend are hidden, so the 24 + 4 band and the 4 + 16 row go to the blocks — laneH 54.75 → 66.75 and 54.92 → 66.92 (+12).
+        XCTAssertEqual([EuclideousLanesLayout.subTabH, EuclideousLanesLayout.subTabGap, EuclideousLanesLayout.legendGap, EuclideousLanesLayout.legendH], [0, 0, 0, 0])
+        for (p, cellW, laneH) in [(land, 17.665, 66.75), (port, 18.065, 66.92)] {
             let body = euclideousSeqTabBodySize(panelWidth: p.box.width, panelHeight: p.box.height)
             let l = euclideousLanesLayout(width: body.width, height: body.height)
             XCTAssertEqual(l.cellW, cellW, accuracy: 0.01); XCTAssertEqual(l.laneH, laneH, accuracy: 0.01)
-            XCTAssertEqual(l.legendTop + EuclideousLanesLayout.legendH, body.height, accuracy: 1e-9, "the hint row sits sp8 above the panel's bottom")
+            XCTAssertEqual(l.legendTop + EuclideousLanesLayout.legendH, body.height, accuracy: 1e-9, "the fourth block ends sp8 above the panel's bottom")
+            XCTAssertEqual(l.laneTop(0), 0, "the blocks start at the top of the body")
             XCTAssertEqual(l.gridX + 16 * l.cellW + 15 * EuclideousLanesLayout.cellGap + EuclideousLanesLayout.arrowGap + EuclideousLanesLayout.arrowW,
                            body.width, accuracy: 1e-9, "the grid + the right zoom arrow tile the width (16 cells + 2pt gaps between the two arrows)")
         }
-        XCTAssertEqual(euclideousLanesLayout(width: 394, height: 303 - 40).laneH, 50.75, accuracy: 1e-9, "the old 303 frame (the ferry text's 50 assumes the blocks at y 63; source has them at 60)")
+        XCTAssertEqual(euclideousLanesLayout(width: 394, height: 303 - 40).laneH, (303 - 40 - 12) / 4, accuracy: 1e-9, "the old 303 frame (50.75 with the captions)")
     }
 
     // MARK: 8. the header's inputs

@@ -6504,12 +6504,19 @@ func euclideousLaneStepGeometry(lines: [EuclidLine], lane: Int, defaultRateBeats
 /// (rail 38, gap 4, then 16 cells with 2pt gaps across the rest — 20.125pt cells at the 394pt reference content width); the vertical
 /// budget is the spec's (sub-tab row 24, gap 4, four lane blocks with 4 between, gap 4, legend 16) with the lane blocks taking whatever
 /// height the real panel leaves — 50 at the reference, less on a short portrait panel (floor 34), more on a tall one. Nothing is a font size.
+/// §A7 (MIX ROWS AMENDMENT 1, 2026-11-04): the explanatory caption lines of the page's lower-right panel — MUTE's hint line and ZOOM legend, FX's hint row and per-row description — are HIDDEN on every tab (not deleted: flip this back and
+/// the layouts below, the painters and their old pins all return). Each tab's content takes the freed height through its own frame function, which reads this.
+enum EuclideousLowerRightCaptions {
+    static let shown = false
+}
 struct EuclideousLanesLayout: Equatable {
     // MUTE ZOOM (2026-11-03): the 16-cell roll is FLANKED by two unlabelled zoom arrows — ◀ (zoom IN, fewer passes → finer)
     // on the left where the old rail sat, ▶ (zoom OUT, more passes → look further back, 8 max) on the right — each `arrowW` wide
     // with `arrowGap` to the grid. So the grid loses an arrow + gap on EACH side (vs the old left-only 38pt rail).
     static let arrowW: CGFloat = 22, arrowGap: CGFloat = 4, cellGap: CGFloat = 2
-    static let subTabH: CGFloat = 24, subTabGap: CGFloat = 4, laneGap: CGFloat = 4, legendGap: CGFloat = 4, legendH: CGFloat = 16
+    // the band the hint line sat in and the legend's row: 24 + 4 and 4 + 16 with the captions shown, nothing once they are hidden (§A7)
+    static let subTabH: CGFloat = EuclideousLowerRightCaptions.shown ? 24 : 0, subTabGap: CGFloat = EuclideousLowerRightCaptions.shown ? 4 : 0, laneGap: CGFloat = 4
+    static let legendGap: CGFloat = EuclideousLowerRightCaptions.shown ? 4 : 0, legendH: CGFloat = EuclideousLowerRightCaptions.shown ? 16 : 0
     static let restartRowGap: CGFloat = 2
     static let minLaneH: CGFloat = 34
     let width: CGFloat
@@ -7059,7 +7066,7 @@ func euclideousFXLayout(width: CGFloat, height: CGFloat) -> EuclideousFXLayout {
 /// Floors ferry: whether the hint row is showing for a content area of `contentHeight` — exactly the
 /// condition `euclideousFXRowH` uses below to decide whether to give back its reserved height.
 func euclideousFXShowsHintRow(contentHeight: CGFloat) -> Bool {
-    (contentHeight - EuclideousFXLayout.fixedHeight) / 6 >= EuclideousFXLayout.minRowH
+    EuclideousLowerRightCaptions.shown && (contentHeight - EuclideousFXLayout.fixedHeight) / 6 >= EuclideousFXLayout.minRowH   // §A7: hidden on every tab — the rows take the 20 pt
 }
 /// The six rows' shared height for a content area of `contentHeight`, BEFORE the 24pt floor — what the page's floor list compares against 24.
 /// Floors ferry: if the hint-included nominal would already fall under that floor, the hint row drops out

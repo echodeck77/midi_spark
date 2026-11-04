@@ -167,7 +167,7 @@ struct EuclideousLanesPanel: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            subTabHint
+            if EuclideousLowerRightCaptions.shown { subTabHint }   // §A7: hidden, not deleted
             ForEach(0..<min(4, lanes.count), id: \.self) { lane in
                 EuclideousLanesStaticLayer(layout: layout, lane: lane, data: lanes[lane], accents: accents).equatable()
             }
@@ -178,7 +178,7 @@ struct EuclideousLanesPanel: View {
             gestureLayer
             EuclideousLanesPlayheads(layout: layout, unitBeats: lanes.map { $0.unitBeats }, playing: playing, beatAt: beatAt)
             accessibilityCells
-            legend
+            if EuclideousLowerRightCaptions.shown { legend }   // §A7: hidden, not deleted
         }
         .frame(width: layout.width, height: layout.height, alignment: .topLeading)
     }

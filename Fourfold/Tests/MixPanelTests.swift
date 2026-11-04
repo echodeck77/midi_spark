@@ -441,6 +441,36 @@ final class MixPanelTests: XCTestCase {
         XCTAssertEqual(euclideousMixStripSpoken(hits: 1, steps: 8), "Rhythm, 1 hit in 8 steps"); XCTAssertEqual(euclideousMixStripSpoken(hits: 5, steps: 8), "Rhythm, 5 hits in 8 steps")
     }
 
+    // MARK: test 12 (§A7) — the lower-right panel without its captions, and each tab's content grown by the height they took
+
+    func testTheLowerRightPanelHasNoCaptionsAndEachTabsContentTakesTheFreedHeight() {
+        XCTAssertFalse(EuclideousLowerRightCaptions.shown, "the captions are hidden on every tab")
+        for size in [CGSize(width: 1190, height: 726), CGSize(width: 814, height: 1102)] {
+            let page = euclideousPageLayout(size: size)
+            let body = euclideousSeqTabBodySize(panelWidth: page.box.width, panelHeight: page.box.height)
+            // MUTE: the 24 + 4 hint band and the 4 + 16 legend row are gone — the four blocks take the 48, and the first starts at the top
+            let mute = euclideousLanesLayout(width: body.width, height: body.height)
+            let before = (body.height - (24 + 4 + 4 * 3 + 4 + 16)) / 4
+            XCTAssertEqual(mute.laneH, (body.height - 12) / 4, accuracy: 1e-9); XCTAssertEqual(mute.laneH - before, 12, accuracy: 1e-9, "the 48 pt of caption bands shared by four blocks: +12 each")
+            XCTAssertEqual(mute.laneTop(0), 0); XCTAssertEqual(mute.legendTop + EuclideousLanesLayout.legendH, body.height, accuracy: 1e-9)
+            // FX: the hint row (16 + the 4 before it) is gone — the six rows take the 20, and the last ends at the bottom
+            let fx = euclideousFXLayout(width: body.width, height: body.height)
+            XCTAssertFalse(fx.showHintRow); XCTAssertEqual(fx.rowH, (body.height - 66) / 6, accuracy: 1e-9)
+            XCTAssertEqual(fx.rowH - (body.height - 86) / 6, 20.0 / 6, accuracy: 1e-9, "20 pt shared by six rows")
+            XCTAssertEqual(fx.rowTop(5) + fx.rowH, body.height, accuracy: 1e-9)
+        }
+        // the reference frames, before → after (landscape 364.67 × 279, portrait 371 × 279.67)
+        for (size, muteBlock, fxRow) in [(CGSize(width: 1190, height: 726), 66.75, 35.5), (CGSize(width: 814, height: 1102), 66.92, 35.61)] {
+            let b = euclideousSeqTabBodySize(panelWidth: euclideousPageLayout(size: size).box.width, panelHeight: euclideousPageLayout(size: size).box.height)
+            XCTAssertEqual(euclideousLanesLayout(width: b.width, height: b.height).laneH, muteBlock, accuracy: 0.01); XCTAssertEqual(euclideousFXLayout(width: b.width, height: b.height).rowH, fxRow, accuracy: 0.01)
+        }
+        // the strings that were the captions are still in the code (hidden, not deleted)
+        XCTAssertEqual(euclideousFXHintText, "TAP: ON/OFF · DRAG ALONG: PAINT · DRAG UP/DOWN: VALUE · DOUBLE-TAP: RESET")
+        XCTAssertEqual([EuclideousFXRow.ratch, .gate, .tie, .vel].compactMap { $0.stripDescription }.count, 4)
+        // RATCH and VEL never had a caption line: nothing of theirs moved
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).count, 4)
+    }
+
     // MARK: the strings
 
     func testVoiceOverStrings() {

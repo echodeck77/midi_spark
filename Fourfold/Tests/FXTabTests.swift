@@ -297,21 +297,22 @@ final class FXTabTests: XCTestCase {
 
     func testLayoutRowsAndColumnsAreTheSpecsAndTheRiffGridsOwn() {
         let panelW: CGFloat = 416.9, w = panelW - 16
-        let l = euclideousFXLayout(width: w, height: 260)   // PAGE LAYOUT ferry: rows share the height, (260 − 86) / 6 = 29 — the old fixed reference
-        XCTAssertEqual(l.rowH, 29)
-        XCTAssertEqual(l.headerTop, 28); XCTAssertEqual(l.rowTop(0), 46); XCTAssertEqual(l.rowTop(5), 46 + 33 * 5); XCTAssertEqual(l.rowTop(5) + l.rowH, 240)
-        XCTAssertEqual(l.hintTop, 244); XCTAssertEqual(l.hintTop + EuclideousFXLayout.hintH, 260, "the reference stack is 260 tall")
+        // PAGE LAYOUT ferry: rows share the height. MIX ROWS AMENDMENT 1 (§A7, 2026-11-04): the hint row is hidden, so (260 − 66) / 6 = 32.33 — it was (260 − 86) / 6 = 29 with the hint row
+        let l = euclideousFXLayout(width: w, height: 260)
+        XCTAssertEqual(l.rowH, 194.0 / 6, accuracy: 1e-9)
+        XCTAssertEqual(l.headerTop, 28); XCTAssertEqual(l.rowTop(0), 46); XCTAssertEqual(l.rowTop(5), 46 + (194.0 / 6 + 4) * 5, accuracy: 1e-9); XCTAssertEqual(l.rowTop(5) + l.rowH, 260, accuracy: 1e-9, "the reference stack is 260 tall — the sixth row ends at the content's bottom")
         // the columns are the riff grid's: ONE function, the label column (48 since the rank-chip labels, POOL ferry 2026-11-02; was 30) + gap 4, then cellW with a 4pt column gap, ending at the content's right edge
         XCTAssertEqual(l.cellW, euclideousRiffCellW(maxWidth: panelW))
         for c in 0..<8 { XCTAssertEqual(l.colLeft(c), 52 + CGFloat(c) * (l.cellW + 4), accuracy: 1e-9) }
         XCTAssertEqual(l.colLeft(7) + l.cellW, w, accuracy: 1e-9)
-        XCTAssertEqual(l.bandRect(row: 2), CGRect(x: -4, y: l.rowTop(2) - 2, width: w + 8, height: 33))
+        XCTAssertEqual(l.bandRect(row: 2), CGRect(x: -4, y: l.rowTop(2) - 2, width: w + 8, height: l.rowH + 4))
         // a shorter panel shares the missing height across the rows down to 24, then stops shrinking; a TALLER one now grows them (no 29pt cap)
-        XCTAssertEqual(euclideousFXLayout(width: w, height: 230).rowH, 24, accuracy: 1e-9)
-        XCTAssertEqual(euclideousFXLayout(width: w, height: 245).rowH, 29 - 15.0 / 6, accuracy: 1e-9)
+        XCTAssertEqual(euclideousFXLayout(width: w, height: 210).rowH, 24, accuracy: 1e-9, "66 + 6 × 24 = 210: the floor now meets at 210, not 230")
+        XCTAssertEqual(euclideousFXLayout(width: w, height: 245).rowH, (245 - 66) / 6, accuracy: 1e-9)
         XCTAssertEqual(euclideousFXLayout(width: w, height: 100).rowH, 24)
-        XCTAssertEqual(euclideousFXLayout(width: w, height: 272.3).rowH, (272.3 - 86) / 6, accuracy: 1e-9)
-        XCTAssertEqual(euclideousFXLayout(width: w, height: 279).hintTop + EuclideousFXLayout.hintH, 279, accuracy: 1e-9, "the stack always ends at the content's bottom")
+        XCTAssertEqual(euclideousFXLayout(width: w, height: 272.3).rowH, (272.3 - 66) / 6, accuracy: 1e-9)
+        let tall = euclideousFXLayout(width: w, height: 279)
+        XCTAssertEqual(tall.rowTop(5) + tall.rowH, 279, accuracy: 1e-9, "the stack always ends at the content's bottom")
         // the spec's reference panel (410 wide): the strip stack is the same, cellW = (410 − 78) / 8
         XCTAssertEqual(euclideousFXLayout(width: 394, height: 280).cellW, (410 - 96) / 8.0, accuracy: 1e-9)
     }
@@ -320,15 +321,15 @@ final class FXTabTests: XCTestCase {
     // before it) instead of them hitting the hard clamp — and overflowing the panel — any sooner than they
     // have to. The trigger is nominal rowH itself, same one `.fxRows` already flags on.
     func testHintRowDropsExactlyAtItsOwnNominalRowHeightFloor() {
+        // MIX ROWS AMENDMENT 1 (§A7): the hint row is hidden on every tab (`EuclideousLowerRightCaptions.shown` false), so the floors ferry's drop-out is always taken: never a hint row,
+        // and the rows' floor is the hint-less one — 66 + 6 × 24 = 210. (The old shape: shown at 230 with rowH exactly 24; gone at 229.99 with rowH 27.33.)
         let panelW: CGFloat = 416.9, w = panelW - 16
-        let atFloor = euclideousFXLayout(width: w, height: 230)
-        XCTAssertTrue(atFloor.showHintRow); XCTAssertEqual(atFloor.rowH, 24, accuracy: 1e-9, "nominal is exactly 24, not under it — no need to drop the hint")
-        let justUnder = euclideousFXLayout(width: w, height: 229.99)
-        XCTAssertFalse(justUnder.showHintRow)
-        XCTAssertEqual(justUnder.rowH, 27.33166666, accuracy: 1e-6, "without the hint's 20pt, nominal is comfortably back above 24 — no clamp needed either")
-        XCTAssertEqual(euclideousFXRowH(contentHeight: 229.99), 27.33166666, accuracy: 1e-6, "the page's own .fxRows floor check reads this, so it clears too")
-        XCTAssertFalse(euclideousFXShowsHintRow(contentHeight: 229.99))
-        // far enough under that even dropping the hint isn't enough: the hard 24pt clamp still applies, hint still gone
+        for h in [230.0, 229.99, 279.0, 400.0] { XCTAssertFalse(euclideousFXLayout(width: w, height: CGFloat(h)).showHintRow, "\(h)"); XCTAssertFalse(euclideousFXShowsHintRow(contentHeight: CGFloat(h))) }
+        let atFloor = euclideousFXLayout(width: w, height: 210)
+        XCTAssertEqual(atFloor.rowH, 24, accuracy: 1e-9, "nominal is exactly 24, not under it")
+        XCTAssertEqual(euclideousFXLayout(width: w, height: 229.99).rowH, (229.99 - 66) / 6, accuracy: 1e-6)
+        XCTAssertEqual(euclideousFXRowH(contentHeight: 209.99), (209.99 - 66) / 6, accuracy: 1e-6, "just under: the page's own .fxRows floor check reads this and flags it")
+        // far enough under that the hard 24pt clamp applies
         let deepUnder = euclideousFXLayout(width: w, height: 100)
         XCTAssertFalse(deepUnder.showHintRow); XCTAssertEqual(deepUnder.rowH, 24, accuracy: 1e-9)
     }
@@ -511,7 +512,7 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXCellOpacity(restColumn: true, rowHasLanes: false), 0.42 * 0.42, accuracy: 1e-12, "the two dims multiply")
         XCTAssertEqual(EuclideousFXRow.cc.railName(ccNumber: 74), "CC74"); XCTAssertEqual(EuclideousFXRow.ratch.railName(ccNumber: 74), "RATCH")
         XCTAssertEqual(EuclideousFXRow.gate.stripDescription, "REPLACES THE LANE\u{2019}S GATE"); XCTAssertNil(EuclideousFXRow.note.stripDescription); XCTAssertNil(EuclideousFXRow.cc.stripDescription)
-        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .fx, .ratch]); XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: false), [.lanes])
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .fx, .ratch, .velocity]); XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: false), [.lanes])
         XCTAssertEqual(EuclideousSeqTab.fx.label, "FX")
     }
     func testFiringFlashFollowsTheHitEventsColumnAndTheRowsThatApplied() {
