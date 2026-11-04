@@ -437,3 +437,111 @@ final class ChordsGridRowMappingTests: XCTestCase {
         XCTAssertEqual(euclideousChordsRowLabel(row: 0, scaleTones: cMajor, minorKey: false), "I", "diatonic rows still use degreeLabel")
     }
 }
+
+// MARK: - CHORDS PAGE ferry (Paul 2026-11-04) §10: the ADVANCE / RESTART model
+// The engine `chordColumn` function (§3) is gated on the RESTART UNITS schedule and lands later; these cover the
+// model fields only — the slice that is buildable while the schedule is in flight (inert, byte-identical).
+
+final class ChordsAdvanceModelTests: XCTestCase {
+
+    // §2.1: nil resolves to TIME advance, restart off — the pre-ferry progression.
+    func testNilResolvesToTimeAdvanceRestartOff() {
+        let p = MachineParams()
+        XCTAssertNil(p.advanceUnit); XCTAssertNil(p.restartUnit); XCTAssertNil(p.restartOn)
+        XCTAssertEqual(p.advanceUnitResolved, .time)
+        XCTAssertEqual(p.advanceLaneResolved, 0)       // nil ⇒ lane 1 (index 0)
+        XCTAssertEqual(p.advanceEveryResolved, 1)
+        XCTAssertEqual(p.restartOnResolved, false)
+        XCTAssertEqual(p.restartUnitResolved, .bar)
+        XCTAssertEqual(p.restartLaneResolved, 0)
+        XCTAssertEqual(p.restartEveryResolved, 4)
+    }
+
+    // §2.3: an out-of-set numeric value resolves to the default; an in-set one survives.
+    func testOutOfSetNumericValuesResolveToDefault() {
+        var p = MachineParams()
+        p.advanceLane = 7; p.restartLane = -2; p.advanceEvery = 5; p.restartEvery = 7   // 5 / 7 are not in the legal sets
+        XCTAssertEqual(p.advanceLaneResolved, 0)
+        XCTAssertEqual(p.restartLaneResolved, 0)
+        XCTAssertEqual(p.advanceEveryResolved, 1)
+        XCTAssertEqual(p.restartEveryResolved, 4)
+        p.advanceLane = 3; p.advanceEvery = 8; p.restartLane = 1; p.restartEvery = 16
+        XCTAssertEqual(p.advanceLaneResolved, 3)
+        XCTAssertEqual(p.advanceEveryResolved, 8)
+        XCTAssertEqual(p.restartLaneResolved, 1)
+        XCTAssertEqual(p.restartEveryResolved, 16)
+        // the two "every" sets genuinely differ (12/16 are restart-only)
+        XCTAssertEqual(chordsAdvanceEveryValues, [1, 2, 3, 4, 6, 8])
+        XCTAssertEqual(chordsRestartEveryValues, [1, 2, 3, 4, 6, 8, 12, 16])
+    }
+
+    // §2.3: an unknown enum raw value decodes to the default (lenient decoder), never throws.
+    func testUnknownEnumRawDecodesToDefault() throws {
+        let bogus = #""BOGUS""#.data(using: .utf8)!
+        XCTAssertEqual(try JSONDecoder().decode(ChordsAdvanceUnit.self, from: bogus), .time)
+        XCTAssertEqual(try JSONDecoder().decode(ChordsRestartUnit.self, from: bogus), .bar)
+        XCTAssertEqual(try JSONDecoder().decode(ChordsAdvanceUnit.self, from: #""RIFF""#.data(using: .utf8)!), .riff)
+        XCTAssertEqual(try JSONDecoder().decode(ChordsRestartUnit.self, from: #""LOOP""#.data(using: .utf8)!), .loop)
+    }
+
+    // §2.6: round-trip preserves in-set values; a never-touched grid omits every new key (byte-identity §2.4).
+    func testRoundTripPreservesValuesAndOmitsNil() throws {
+        var p = MachineParams()
+        p.advanceUnit = .riff; p.advanceLane = 2; p.advanceEvery = 6
+        p.restartOn = true; p.restartUnit = .loop; p.restartLane = 1; p.restartEvery = 12
+        let back = try JSONDecoder().decode(MachineParams.self, from: JSONEncoder().encode(p))
+        XCTAssertEqual(back.advanceUnit, .riff); XCTAssertEqual(back.advanceLane, 2); XCTAssertEqual(back.advanceEvery, 6)
+        XCTAssertEqual(back.restartOn, true); XCTAssertEqual(back.restartUnit, .loop); XCTAssertEqual(back.restartLane, 1); XCTAssertEqual(back.restartEvery, 12)
+        let s = String(data: try JSONEncoder().encode(MachineParams()), encoding: .utf8)!
+        for k in ["advanceUnit", "advanceLane", "advanceEvery", "restartOn", "restartUnit", "restartLane", "restartEvery"] {
+            XCTAssertFalse(s.contains("\"\(k)\""), "a default MachineParams must not encode \(k) (nil omitted → §2.4)")
+        }
+    }
+
+    // §2.6: the fields reach the snapshot for BOTH grids (the SnapshotBuilder fresh-literal guard — fails if a
+    // field is forgotten in the grid-1 assignments or the grid-2 ChordGridSnap literal).
+    func testSnapshotCarriesAdvanceRestartForBothGrids() {
+        var g1 = MachineParams(); g1.advanceUnit = .riff; g1.advanceLane = 2; g1.advanceEvery = 6
+        g1.restartOn = true; g1.restartUnit = .loop; g1.restartLane = 1; g1.restartEvery = 12
+        var g2 = MachineParams(); g2.advanceUnit = .loop; g2.advanceLane = 3; g2.advanceEvery = 3
+        g2.restartOn = true; g2.restartUnit = .riff; g2.restartLane = 2; g2.restartEvery = 16
+
+        var gold = Machine(machineID: "gold", type: .euclid)
+        gold.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8)]
+        var sc = SceneState.empty()
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: [gold], scenes: [sc])
+        st.euclideousChordSets = [g1, g2]
+
+        let p = SnapshotBuilder.build(from: st).cells[0 * Snap.rows + Snap.euclideousRow].procs[0]
+        XCTAssertEqual(p.chordsAdvanceUnit, .riff); XCTAssertEqual(p.chordsAdvanceLane, 2); XCTAssertEqual(p.chordsAdvanceEvery, 6)
+        XCTAssertEqual(p.chordsRestartOn, true); XCTAssertEqual(p.chordsRestartUnit, .loop)
+        XCTAssertEqual(p.chordsRestartLane, 1); XCTAssertEqual(p.chordsRestartEvery, 12)
+        XCTAssertEqual(p.chords2.advanceUnit, .loop); XCTAssertEqual(p.chords2.advanceLane, 3); XCTAssertEqual(p.chords2.advanceEvery, 3)
+        XCTAssertEqual(p.chords2.restartOn, true); XCTAssertEqual(p.chords2.restartUnit, .riff)
+        XCTAssertEqual(p.chords2.restartLane, 2); XCTAssertEqual(p.chords2.restartEvery, 16)
+    }
+
+    // A default document's snapshot is the pre-ferry progression on both grids (inert → golden byte-identical).
+    func testDefaultSnapshotIsTimeAdvanceRestartOff() {
+        var gold = Machine(machineID: "gold", type: .euclid)
+        gold.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 8)]
+        var sc = SceneState.empty()
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        let st = PluginState(machines: [gold], scenes: [sc])
+        let p = SnapshotBuilder.build(from: st).cells[0 * Snap.rows + Snap.euclideousRow].procs[0]
+        XCTAssertEqual(p.chordsAdvanceUnit, .time); XCTAssertFalse(p.chordsRestartOn)
+        XCTAssertEqual(p.chords2.advanceUnit, .time); XCTAssertFalse(p.chords2.restartOn)
+    }
+
+    // §2.7 / undo: the fields ride a whole-MachineParams copy (Equatable notices a change so undo/resync record it).
+    func testEquatableNoticesAdvanceRestartChange() {
+        var a = MachineParams(); let b = a
+        a.advanceEvery = 4
+        XCTAssertNotEqual(a, b)
+        a.advanceEvery = nil
+        XCTAssertEqual(a, b)
+        a.restartOn = true
+        XCTAssertNotEqual(a, b)
+    }
+}

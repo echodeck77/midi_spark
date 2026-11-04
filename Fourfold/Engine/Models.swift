@@ -2201,6 +2201,25 @@ struct MachineParams: Codable, Equatable {
     // value (7·9·6·ADD9·SUS2·SUS4). Stored as plain `[Int]?` (not `[ChordColour]?`) to mirror `chordsDegrees`'s
     // own raw-int convention. nil ⇒ no colour anywhere, byte-identical to every document before this ferry.
     var chordsColours: [Int]? = nil
+    // CHORDS PAGE ferry (Paul 2026-11-04) §2.1: per-progression ADVANCE (how the grid steps) + RESTART (when it
+    // jumps back to column 1). Additive-Optional, decode-tolerant; INERT until `chordColumn` (Derivations.swift)
+    // reads them. nil everywhere ⇒ TIME advance, restart off = exactly the pre-ferry `floor(beat/rate)`
+    // progression, so every old document/preset is byte-identical (§2.4). §2.2: the rate (`chordsRate`) stays and
+    // is used only by TIME, kept for when TIME comes back.
+    var advanceUnit: ChordsAdvanceUnit? = nil   // TIME · LOOP · RIFF; nil ⇒ TIME
+    var advanceLane: Int? = nil                 // 0…3, the lane LOOP/RIFF counts; nil ⇒ lane 1 (index 0)
+    var advanceEvery: Int? = nil                // ∈ {1,2,3,4,6,8}; nil ⇒ 1
+    var restartOn: Bool? = nil                  // nil ⇒ false (the only restart is beat 0)
+    var restartUnit: ChordsRestartUnit? = nil   // BAR · LOOP · RIFF; nil ⇒ BAR
+    var restartLane: Int? = nil                 // 0…3, the lane LOOP/RIFF restart counts; nil ⇒ lane 1 (index 0)
+    var restartEvery: Int? = nil                // ∈ {1,2,3,4,6,8,12,16}; nil ⇒ 4
+    var advanceUnitResolved: ChordsAdvanceUnit { advanceUnit ?? .time }
+    var advanceLaneResolved: Int { let l = advanceLane ?? 0; return (0...3).contains(l) ? l : 0 }                     // §2.3: out of 0…3 ⇒ default
+    var advanceEveryResolved: Int { let e = advanceEvery ?? 1; return chordsAdvanceEveryValues.contains(e) ? e : 1 }  // §2.3: out of the set ⇒ default
+    var restartOnResolved: Bool { restartOn ?? false }
+    var restartUnitResolved: ChordsRestartUnit { restartUnit ?? .bar }
+    var restartLaneResolved: Int { let l = restartLane ?? 0; return (0...3).contains(l) ? l : 0 }
+    var restartEveryResolved: Int { let e = restartEvery ?? 4; return chordsRestartEveryValues.contains(e) ? e : 4 }
     /// The 8-step degree matrix, resolved — defaults to a I–vi–IV–V loop (0,0,5,5,3,3,4,4) so a fresh CHORDS plays.
     // SIZED TO THE MATRIX WIDTH (Paul 2026-09-16 fix): pad/truncate the degrees to EXACTLY `steps`, so chordsDegreeAt (which
     // loops on degrees.count) plays every authored column of a 9…16-wide matrix — the old fixed-8 truncation dropped columns
@@ -2265,6 +2284,26 @@ struct MachineParams: Codable, Equatable {
 }
 // CHORDS mode (SPEC-chords-stage §1): where the degree comes from.
 enum ChordsMode: String, Codable, CaseIterable { case pattern, follow, walk }
+// CHORDS PAGE ferry (Paul 2026-11-04) §2.1: a progression's ADVANCE unit — TIME steps on the rate (today's
+// clock), LOOP steps on a lane's loops, RIFF on a lane's riff completions. Lenient decode (unknown ⇒ TIME) so
+// an out-of-set stored value RESOLVES to the default (§2.3), the same pattern `EuclideousAnswerRhythmMode` uses.
+enum ChordsAdvanceUnit: String, Codable, CaseIterable {
+    case time = "TIME", loop = "LOOP", riff = "RIFF"
+    init(from decoder: Decoder) throws {
+        self = ChordsAdvanceUnit(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .time
+    }
+}
+// §2.1: a progression's RESTART unit — BAR (host bar lines), LOOP (a lane's loops) or RIFF (a lane's riff completions).
+enum ChordsRestartUnit: String, Codable, CaseIterable {
+    case bar = "BAR", loop = "LOOP", riff = "RIFF"
+    init(from decoder: Decoder) throws {
+        self = ChordsRestartUnit(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .bar
+    }
+}
+// §5.3 / §5.4: the legal "every n" values each chip cycles through (ADVANCE and RESTART differ). An out-of-set
+// stored value resolves to the default (§2.3).
+let chordsAdvanceEveryValues: [Int] = [1, 2, 3, 4, 6, 8]
+let chordsRestartEveryValues: [Int] = [1, 2, 3, 4, 6, 8, 12, 16]
 // TIMING LANE (Paul 2026-08-22 §5): NUDGE's second mode — FIXED = one offset · LANE = a per-column pocket (a centred SLIDER LANE).
 enum NudgeMode: String, Codable, CaseIterable { case fixed = "FIXED", lane = "LANE" }
 /// TAIL SPILL — what happens to an echo's pending repeats when the playhead leaves the cell's column. RING lets

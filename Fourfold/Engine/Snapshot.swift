@@ -367,6 +367,15 @@ struct SnapParams {
     // [] (the default) ⇒ no colour anywhere, so every caller that never resolves this (the regular CHORDS processor,
     // the chord door) pays zero extra cost and is byte-identical to before this ferry.
     var chordsColours: [Int] = []
+    // CHORDS PAGE ferry (2026-11-04): grid 1's ADVANCE / RESTART, resolved. Defaults = the pre-ferry progression
+    // (TIME advance, restart off), so a row that never sets them is byte-identical. `chordColumn` reads these.
+    var chordsAdvanceUnit: ChordsAdvanceUnit = .time
+    var chordsAdvanceLane: Int = 0
+    var chordsAdvanceEvery: Int = 1
+    var chordsRestartOn: Bool = false
+    var chordsRestartUnit: ChordsRestartUnit = .bar
+    var chordsRestartLane: Int = 0
+    var chordsRestartEvery: Int = 4
     // TWO CHORD GRIDS ferry (Paul 2026-11-03): the Euclideous row's SECOND progression. `chords*` above is grid 1; a lane whose SOURCES mask has CHORDS 2 reads this one (`chordSeqNotes(…, grid: 1)`). Default = the default progression,
     // so a row that never sets it is unchanged; only `SnapshotBuilder` writes it (from `euclideousChordSetsResolved[1]`).
     var chords2 = ChordGridSnap()
@@ -381,6 +390,14 @@ struct ChordGridSnap: Equatable {
     var rateBeats: Double = 4
     var steps: Int = 8
     var colours: [Int] = []
+    // CHORDS PAGE ferry (2026-11-04): grid 2's ADVANCE / RESTART, resolved (mirrors SnapParams.chords* above).
+    var advanceUnit: ChordsAdvanceUnit = .time
+    var advanceLane: Int = 0
+    var advanceEvery: Int = 1
+    var restartOn: Bool = false
+    var restartUnit: ChordsRestartUnit = .bar
+    var restartLane: Int = 0
+    var restartEvery: Int = 4
 }
 
 
