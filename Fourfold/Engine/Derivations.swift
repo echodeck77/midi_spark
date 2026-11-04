@@ -853,6 +853,90 @@ extension MachineParams {     // the editing document (the page's displays)
     }
 }
 
+// MARK: - CHORDS PAGE (ferry 2026-11-04 §4-5): the full-screen page over the four lane cards
+// All frames in PAGE (block) coordinates; `block` = the four lane cards' union (769.33×610 landscape /
+// 782×611.33 portrait — the ferry's 756×606 is wrong, source wins). Content is `block` inset by 16 (§4.4).
+// Pure so the §13 geometry test pins it and the views never re-derive a frame.
+
+enum EuclideousChordsPageMetrics {
+    static let padding: CGFloat = 16            // §4.4
+    static let headerH: CGFloat = 32            // §5.1
+    static let titleRowH: CGFloat = 24          // §5.2
+    static let advRowH: CGFloat = 26            // §5.3
+    static let restartRowH: CGFloat = 26        // §5.4
+    static let stepStripH: CGFloat = 10         // §5.5
+    static let laneStripH: CGFloat = 35         // §5.7
+    static let gridLabelW: CGFloat = 32         // §5.6 the degree-label column
+    static let rowLabelW: CGFloat = 56          // §5.3/§5.4 the ADVANCE / RESTART label column
+    static let sp4: CGFloat = 4, sp6: CGFloat = 6, sp8: CGFloat = 8, sp16: CGFloat = 16
+    static let gridRows = 18
+    static let colourRowStart = 12              // §5.6 rows 0–11 (7 diatonic, 4 borrowed, REST) then a divider, then 12–17 (the 6 colour rows)
+    static let dividerGap: CGFloat = 6          // §5.6 the extra gap carrying the divider line
+    static let rowGap: CGFloat = 2              // §5.6 rows 2 apart
+    static let rowHFloor: CGFloat = 14          // §5.6
+    static let colWFloorReport: CGFloat = 0     // (no hard floor on column width; reported in §5.9)
+}
+
+struct EuclideousChordsPageLayout {
+    var content: CGRect                         // block inset by 16
+    var header: CGRect                          // content-relative, y 0
+    var colW: CGFloat
+    var column0: CGRect, column1: CGRect        // GRID 1 (left), GRID 2 (right) — content-relative
+    var laneStrip: CGRect                       // content-relative, the bottom 35
+    var laneCardW: CGFloat                      // §5.7 four cards, 8 apart, equal
+    // per-column row tops (column-relative y; both columns share them)
+    var titleY: CGFloat, advanceY: CGFloat, restartY: CGFloat, stepStripY: CGFloat, gridY: CGFloat
+    var gridH: CGFloat
+    var rowH: CGFloat
+    /// §5.6: a grid's cell width for `steps` columns (c = max(8, STEPS)); 38.83 at 8, 18.42 at 16 landscape.
+    func cellW(steps: Int) -> CGFloat {
+        let c = CGFloat(max(8, min(16, steps)))
+        return (colW - EuclideousChordsPageMetrics.gridLabelW - EuclideousChordsPageMetrics.sp4 - (c - 1) * EuclideousChordsPageMetrics.rowGap) / c
+    }
+    /// The x of grid column `col` (0-based) within a column, after the 32 label + sp4.
+    func columnLeft(steps: Int, _ col: Int) -> CGFloat {
+        EuclideousChordsPageMetrics.gridLabelW + EuclideousChordsPageMetrics.sp4 + CGFloat(col) * (cellW(steps: steps) + EuclideousChordsPageMetrics.rowGap)
+    }
+    /// Row `r`'s top within the grid (0…17); the 6 pt divider gap is added before the colour rows (r ≥ 12).
+    func rowTop(_ r: Int) -> CGFloat {
+        CGFloat(r) * (rowH + EuclideousChordsPageMetrics.rowGap) + (r >= EuclideousChordsPageMetrics.colourRowStart ? EuclideousChordsPageMetrics.dividerGap : 0)
+    }
+    /// The divider line's y within the grid (centred in the gap after row 11).
+    var dividerY: CGFloat {
+        let m = EuclideousChordsPageMetrics.self
+        return CGFloat(m.colourRowStart) * (rowH + m.rowGap) - m.rowGap + m.dividerGap / 2
+    }
+}
+
+/// §5: lay the page out in the lane-cards block. Pure; the views and the §13 test both read it.
+func euclideousChordsPageLayout(block: CGSize) -> EuclideousChordsPageLayout {
+    let m = EuclideousChordsPageMetrics.self
+    let content = CGRect(x: m.padding, y: m.padding, width: max(0, block.width - 2 * m.padding), height: max(0, block.height - 2 * m.padding))
+    let header = CGRect(x: 0, y: 0, width: content.width, height: m.headerH)
+    let colW = (content.width - m.sp16) / 2
+    // columns span from below the header+sp8 down to above the lane strip (which keeps its own sp8 above it)
+    let colTop = m.headerH + m.sp8
+    let laneStripY = content.height - m.laneStripH
+    let colBottom = laneStripY - m.sp8
+    let colH = max(0, colBottom - colTop)
+    let column0 = CGRect(x: 0, y: colTop, width: colW, height: colH)
+    let column1 = CGRect(x: colW + m.sp16, y: colTop, width: colW, height: colH)
+    // column-relative row stack (§5.2): title · sp6 · ADVANCE · sp6 · RESTART · sp8 · step strip · sp4 · grid
+    let titleY: CGFloat = 0
+    let advanceY = titleY + m.titleRowH + m.sp6
+    let restartY = advanceY + m.advRowH + m.sp6
+    let stepStripY = restartY + m.restartRowH + m.sp8
+    let gridY = stepStripY + m.stepStripH + m.sp4
+    let gridH = max(0, colH - gridY)
+    let rowH = max(m.rowHFloor, (gridH - (CGFloat(m.gridRows - 1) * m.rowGap) - m.dividerGap) / CGFloat(m.gridRows))   // §5.6: 17 gaps of 2 + the 6 divider
+    let laneStrip = CGRect(x: 0, y: laneStripY, width: content.width, height: m.laneStripH)
+    let laneCardW = (content.width - 3 * m.sp8) / 4   // §5.7 four cards, 8 apart
+    return EuclideousChordsPageLayout(content: content, header: header, colW: colW, column0: column0, column1: column1,
+                                      laneStrip: laneStrip, laneCardW: laneCardW,
+                                      titleY: titleY, advanceY: advanceY, restartY: restartY, stepStripY: stepStripY, gridY: gridY,
+                                      gridH: gridH, rowH: rowH)
+}
+
 /// THE CHORD SEQUENCER derivation (Paul 2026-09-04): the diatonic chord at beat `m` for a CHORDS config, in a resolved key.
 /// SHARED by the CHORDS PROCESSOR stage (Router.applyStage) AND the chord DOOR pool-fill (Kernel) so they can NEVER diverge —
 /// this is the "future processor work reflects on the door" contract in one function. `step = floor(m / chordsRateBeats)`;

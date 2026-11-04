@@ -803,3 +803,36 @@ final class ChordColumnEngineTests: XCTestCase {
         XCTAssertNotEqual(rootAt[2], rootAt[6], "the root actually changes on the loop")
     }
 }
+
+// MARK: - CHORDS PAGE ferry §13: the page geometry (re-based to the real 769.33×610 / 782×611.33 block)
+
+final class ChordsPageLayoutTests: XCTestCase {
+    func testLandscapeReferenceGeometry() {
+        let L = euclideousChordsPageLayout(block: CGSize(width: 769.33, height: 610))   // = the lane-cards block / euclideousMixRowsPanelSize
+        XCTAssertEqual(L.content.width, 737.33, accuracy: 0.02)
+        XCTAssertEqual(L.content.height, 578, accuracy: 0.02)
+        XCTAssertEqual(L.colW, 360.665, accuracy: 0.02)                 // §5.2 (content − 16)/2 — the ferry's 354 was vs its wrong 724 content
+        XCTAssertEqual(L.column1.minX, L.colW + 16, accuracy: 0.02)
+        XCTAssertEqual(L.cellW(steps: 8), 38.83, accuracy: 0.02)        // §5.6 (ferry 38)
+        XCTAssertEqual(L.cellW(steps: 16), 18.42, accuracy: 0.02)       // (ferry 18)
+        XCTAssertEqual(L.gridY, 110, accuracy: 0.02)
+        XCTAssertEqual(L.gridH, 385, accuracy: 0.02)
+        XCTAssertEqual(L.rowH, 345.0 / 18.0, accuracy: 0.02)            // §5.6 = 19.17 (ferry ~18.9 was vs the wrong content height)
+        XCTAssertGreaterThan(L.rowH, EuclideousChordsPageMetrics.rowHFloor)
+        XCTAssertEqual(L.laneStrip.minY, 543, accuracy: 0.02)
+        XCTAssertEqual(L.laneStrip.height, 35, accuracy: 0.02)
+        XCTAssertEqual(L.laneCardW, (737.33 - 24) / 4, accuracy: 0.02)  // §5.7 four cards, 8 apart
+        // the divider gap (2 normal + 6) sits between row 11 (REST) and row 12 (first colour row)
+        XCTAssertEqual(L.rowTop(12) - (L.rowTop(11) + L.rowH), 8, accuracy: 0.02)
+        // the column row stack (§5.2)
+        XCTAssertEqual(L.advanceY, 30, accuracy: 0.02)
+        XCTAssertEqual(L.restartY, 62, accuracy: 0.02)
+        XCTAssertEqual(L.stepStripY, 96, accuracy: 0.02)
+    }
+    func testPortraitReferenceGeometry() {
+        let L = euclideousChordsPageLayout(block: CGSize(width: 782, height: 611.33))
+        XCTAssertEqual(L.content.width, 750, accuracy: 0.02)
+        XCTAssertEqual(L.colW, 367, accuracy: 0.02)                     // (750 − 16)/2
+        XCTAssertEqual(L.cellW(steps: 8), (367 - 36 - 14) / 8, accuracy: 0.02)
+    }
+}
