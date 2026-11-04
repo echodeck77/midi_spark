@@ -3038,7 +3038,7 @@ func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool,
 struct EuclideousFooterPass: Equatable { var prediction: [Int]; var startOrd: Int64; var lapStartTick: Int64?; var ordinals: [Int64] = [] }
 func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitSteps: [EuclidHitStep], lapSteps: Int, liveOrd: Int64, nowBeat: Double) -> EuclideousFooterPass {
     let isMelodyRestartPass = cfg.map {
-        euclideousIsMelodyChainRestartPass(beat: nowBeat, lapBeats: $0.chains.lapBeats, barBeats: $0.chains.barBeats, rhythmChain: $0.chains.rhythm, melodyChain: $0.chains.melody)
+        $0.chains.isMelodyRestartPass(beat: nowBeat)   // RESTART UNITS: the schedule answers when it has one
     } ?? false
     var baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: lapSteps, isMelodyRestartPass: isMelodyRestartPass,
                                               advanceStep: line.riffAdvanceStepResolved, liveOrd: liveOrd, dir: line.directionResolved)
@@ -3844,7 +3844,8 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                               lanesSeqRate: EuclideousSeqRate, lanesSeqLen: Int, lanesSeqOn: Bool = false, lanesSeqCells: [Bool]? = nil,
                               fx: EuclideousFX = EuclideousFX(),
                               defaultRateBeats: Double = 0.25, swingPercent: Double = 50, stepBeats: Double = 0.5,
-                              beatsPerBar: Double = 4, tempo: Double = 120, riffColumns: Int = 8) -> EuclideousWalkLaneConfig? {
+                              beatsPerBar: Double = 4, tempo: Double = 120, riffColumns: Int = 8,
+                              scheduleSet: EuclideousRestartScheduleSet? = nil) -> EuclideousWalkLaneConfig? {
     guard lane >= 0, lane < lines.count else { return nil }
     let L = lines[lane]
     guard let eff = euclideousEffectiveHitPattern(lane: lane, lines: lines, defaultRateBeats: defaultRateBeats) else { return nil }
@@ -3875,7 +3876,7 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
     // `AudioUnitViewController`'s main-thread migration pins real chains — the SAME safe default the Router falls
     // back to, so the mirror and the engine never disagree even in that window.
     let passBeats = Double(cycleLen) * sub
-    let chains = euclideousLaneRestartChains(line: L, lane: lane, barBeats: beatsPerBar, lapBeats: passBeats)   // RESTART UNITS: the one resolver (`.off` until the chains are pinned)
+    let chains = euclideousLaneRestartChains(line: L, lane: lane, barBeats: beatsPerBar, lapBeats: passBeats, scheduleSet: scheduleSet)   // RESTART UNITS: the one resolver (`.off` until the chains are pinned), with the lane's schedule on the Router's own rule
     return EuclideousWalkLaneConfig(buf: buf, n: n, dir: cfgDir, sub: sub, spanBeats: spanBeats,
                                     grid: grid, chains: chains, muteCells: g.muteCells,
                                     muteUnitBeats: g.muteUnit.beats(stepBeats: sub, passBeats: Double(cycleLen) * sub),
@@ -3886,6 +3887,14 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
                                     riffOn: L.riffOnResolved, gate: L.gateResolved, onRest: L.riffOnRestResolved,
                                     invert: L.riffInvertResolved, transpose: L.melodyTransposeResolved,
                                     fx: fx, lane: lane, playsRiff: euclideousLanePlaysRiff(L), cyc: cyc, timing: timing, tempo: tempo)
+}
+/// RESTART UNITS: the lane's schedule from a set, on the Router's own rule — not for a lane engaged in an ANSWER cycle / trade, only when the set was simulated with this bar length, and only for a lane that NEEDS it: a lane the closed forms
+/// express (RHYTHM BAR, MELODY own PASS, no WITH RHYTHM — every setting that existed before the ferry) keeps reading them, so its sound is bit-identical by construction (the closed forms' own float noise at a tick boundary — a restart beat
+/// that lands a hair either side of `n × sub` — is part of how it has always sounded, and no table can reproduce it across a periodic shift).
+func euclideousAttachedSchedule(_ set: EuclideousRestartScheduleSet?, lane: Int, barBeats: Double) -> EuclideousLaneSchedule? {
+    guard let set, lane >= 0, lane < 4, set.engagedMask & (UInt8(1) << UInt8(lane)) == 0, abs(set.barBeats - barBeats) < 1e-9,
+          let s = set.lane(lane), !s.data.closedFormExpressible else { return nil }
+    return s
 }
 /// A tick's REAL onset beat — what the note-on is scheduled at (swing-warped), the time a tag must arrive.
 func euclideousWalkRealBeat(_ c: EuclideousWalkLaneConfig, tick: Int64) -> Double {
@@ -6060,8 +6069,58 @@ struct EuclideousLaneRestartChains: Equatable {
     var melody: EuclideousRestartChain = .free
     var barBeats: Double = 4
     var lapBeats: Double = 0
+    /// RESTART UNITS (2026-11-04): the lane's simulated schedule — when set (and its window covers the beat), EVERY restart reader below answers from it; `rhythm` / `melody` are then the closed-form reference chains (the units
+    /// they can express), which the readers fall back to when there is no schedule (a test, an ANSWER-engaged lane, a window that has not reached the beat yet).
+    var schedule: EuclideousLaneSchedule? = nil
     static let off = EuclideousLaneRestartChains()
-    var isActive: Bool { !rhythm.isFree || !melody.isFree }
+    var isActive: Bool { schedule.map { $0.rhythmRestarts || $0.melodyRestarts } ?? (!rhythm.isFree || !melody.isFree) }
+}
+// ── §5.1 the readers: ONE formula for every consumer. A schedule answers when it covers the beat; otherwise the closed forms (the reference) do.
+extension EuclideousLaneRestartChains {
+    @inline(__always) private func sched(_ beat: Double) -> EuclideousLaneSchedule? { if let s = schedule, s.covers(beat) { return s }; return nil }
+    var hasRhythmRestarts: Bool { schedule?.rhythmRestarts ?? !rhythm.isFree }
+    /// Does the lane's melody ever restart (a chain, or WITH RHYTHM)? — what a TIE run ends on, and what the POLY scan looks for.
+    var hasMelodyRestarts: Bool { schedule?.melodyRestarts ?? !melody.isFree }
+    /// A MELODY chain of exactly [1] on the lane's own passes — the old LOCK: every pass restarts the riff (FX NOTE counts laps there).
+    var melodyEveryPass: Bool { schedule?.melodyEveryPass ?? melody.isSingleLink1 }
+    func rhythmOriginBeat(_ beat: Double) -> Double {
+        if let s = sched(beat) { return s.rhythmRestarts ? s.rhythmRecord(atOrBefore: beat).beat : 0 }
+        return euclideousRhythmChainOrigin(beat: beat, barBeats: barBeats, chain: rhythm)
+    }
+    func nextRhythmRestart(after beat: Double) -> Double? {
+        if let s = sched(beat) { return s.rhythmRestarts ? s.nextRhythmRestart(after: beat) : nil }
+        return euclideousNextRhythmRestart(after: beat, barBeats: barBeats, chain: rhythm)
+    }
+    func melodyOriginBeat(_ beat: Double) -> Double {
+        if let s = sched(beat) { return s.melodyRestarts ? s.melodyRecord(atOrBefore: beat).beat : 0 }
+        return euclideousMelodyChainOrigin(beat: beat, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythm, melodyChain: melody)
+    }
+    func nextMelodyRestart(after beat: Double) -> Double? {
+        if let s = sched(beat) { return s.melodyRestarts ? s.nextMelodyRestart(after: beat) : nil }
+        return euclideousNextMelodyRestart(after: beat, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythm, melodyChain: melody)
+    }
+    func passIndex(beat: Double) -> Int64 {
+        if let s = sched(beat) { return s.passIndex(beat: beat) }
+        return euclideousPassIndex(beat: beat, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythm)
+    }
+    func passStart(_ q: Int64) -> Double {
+        if let s = schedule { let b = s.passStart(q); if s.covers(b) { return b } }
+        return euclideousPassStart(q, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythm)
+    }
+    /// `euclideousIsMelodyChainRestartPass`: is the pass `beat` is in one the melody restarts AT (its start)?
+    func isMelodyRestartPass(beat: Double) -> Bool {
+        if let s = sched(beat) {
+            guard s.melodyRestarts else { return false }
+            let ps = s.passStart(s.passIndex(beat: beat))
+            return abs(s.melodyRecord(atOrBefore: beat).beat - ps) <= 1e-9
+        }
+        return euclideousIsMelodyChainRestartPass(beat: beat, lapBeats: lapBeats, barBeats: barBeats, rhythmChain: rhythm, melodyChain: melody)
+    }
+    /// `euclideousChainHitsBefore`'s count at absolute tick `m` (the closed form needs the pattern; the schedule carries its own copy).
+    func hitsBefore(_ m: Int64, sub: Double, buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, cycleHits: Int) -> Int64 {
+        if let s = sched(Double(m) * sub) { return s.hitsBefore(tick: m) }
+        return euclideousChainHitsBefore(m, rhythm: rhythm, barBeats: barBeats, sub: sub, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits)
+    }
 }
 /// Where a tick sits in the lane's pattern, chain-era: the tick count since the RHYTHM origin (`localT`), its
 /// position in the cycle (`raw`), whether the pattern has a hit there, and — when a chain is in force — both
@@ -6084,13 +6143,11 @@ func euclideousLaneChainPhase(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int
     let gridOn = chains.isActive
     if gridOn, sub > 0 {
         let beat = Double(tick) * sub
-        if !chains.rhythm.isFree {
-            originTickO = euclideousOriginTick(euclideousRhythmChainOrigin(beat: beat, barBeats: chains.barBeats, chain: chains.rhythm), sub: sub)
+        if chains.hasRhythmRestarts {
+            originTickO = euclideousOriginTick(chains.rhythmOriginBeat(beat), sub: sub)   // RESTART UNITS: the schedule, or the closed form
         }
-        if !chains.melody.isFree {
-            let originBeat = euclideousMelodyChainOrigin(beat: beat, lapBeats: chains.lapBeats, barBeats: chains.barBeats,
-                                                          rhythmChain: chains.rhythm, melodyChain: chains.melody)
-            originTickM = euclideousOriginTick(originBeat, sub: sub)
+        if chains.hasMelodyRestarts {
+            originTickM = euclideousOriginTick(chains.melodyOriginBeat(beat), sub: sub)
         }
         localT = tick - originTickO
     } else {
@@ -6125,10 +6182,8 @@ func euclideousLaneChainTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int,
     } else if advanceStep {
         advOrd = tick - ph.originTickM
     } else {
-        let upTo = euclideousChainHitsBefore(tick + 1, rhythm: chains.rhythm, barBeats: chains.barBeats, sub: sub,
-                                             buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits)
-        let before = euclideousChainHitsBefore(ph.originTickM, rhythm: chains.rhythm, barBeats: chains.barBeats, sub: sub,
-                                               buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits)
+        let upTo = chains.hitsBefore(tick + 1, sub: sub, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits)
+        let before = chains.hitsBefore(ph.originTickM, sub: sub, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits)
         advOrd = upTo - before - 1
     }
     return EuclideousLaneTickInfo(localT: ph.localT, raw: ph.raw, rawIsHit: ph.rawIsHit, cy: cy, hitsUpTo: hitsUpTo, ord: ord, advOrd: advOrd)
@@ -6215,7 +6270,7 @@ func euclideousChainTieExtensionsCore(buf: [Bool], n: Int, dir: EuclidDir, cycle
         // a melody restart always breaks the chain (§4.6: "no hit moves") — mirrors the old `locked &&`
         // guard exactly: only a non-FREE melody chain actually restarts periodically, so only then does
         // advOrd==0 mean "a restart just happened" rather than merely "the very first hit since beat 0."
-        if !chains.melody.isFree, info.advOrd == 0 { break }
+        if chains.hasMelodyRestarts, info.advOrd == 0 { break }
         hitsAhead += 1
         let column = euclideousRiffColumn(ordinal: info.advOrd, every: every, direction: riffDir, length: length, stride: stride, shift: rotate, seed: seed)
         let beatJ = (Double(t) + dJ) * sub
@@ -6314,12 +6369,13 @@ func euclideousRhythmCycleQ(lapBeats: Double, barBeats: Double, rhythmChain: Euc
 /// Bounded by the NEXT pass's own start (not a fixed `cycleLen`-tick window), so a rhythm restart that
 /// cuts THIS pass short is reflected automatically, with no separate "cut short" branch (§14 test 5).
 func euclideousRiffFooterList(pass q: Int64, buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double,
-                              chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
+                              chains chainsIn: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
                               riffDir: RiffDir, stride: Int, length: Int, shift: Int, every: Int, seed: UInt64, columns: Int = 8) -> [(step: Int, column: Int)] {
     guard sub > 0 else { return [] }
     let lapBeats = Double(cycleLen) * sub
-    let passStartTick = euclideousOriginTick(euclideousPassStart(q, lapBeats: lapBeats, barBeats: chains.barBeats, rhythmChain: chains.rhythm), sub: sub)
-    let nextPassStartTick = euclideousOriginTick(euclideousPassStart(q + 1, lapBeats: lapBeats, barBeats: chains.barBeats, rhythmChain: chains.rhythm), sub: sub)
+    var chains = chainsIn; chains.lapBeats = lapBeats   // the pass arithmetic reads the lane's own lap (the caller's chains may not carry it)
+    let passStartTick = euclideousOriginTick(chains.passStart(q), sub: sub)
+    let nextPassStartTick = euclideousOriginTick(chains.passStart(q + 1), sub: sub)
     var out: [(step: Int, column: Int)] = []
     var tick = passStartTick
     while tick < nextPassStartTick {
@@ -6343,9 +6399,18 @@ struct EuclideousRiffReadout {
     var neverPlayWalkSteps: Set<Int>   // 0-based walk steps (mod P) no hit ever reads
 }
 func euclideousRiffReadout(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double,
-                           chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
+                           chains chainsIn: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
                            riffDir: RiffDir, stride: Int, length: Int, shift: Int, every: Int, seed: UInt64, columns: Int = 8) -> EuclideousRiffReadout? {
     guard sub > 0 else { return nil }
+    // RESTART UNITS: a lane the closed forms express reads them exactly as before (the schedule is set aside, so the answer is bit-identical to the pre-ferry readout); a lane with a unit only the schedule knows reads the
+    // schedule — over its period (or the first 256 bars when it has none), the passes being its own `passIndex`.
+    var chains = chainsIn
+    chains.lapBeats = Double(cycleLen) * sub
+    var scheduleJ: Int64? = nil
+    if let s = chainsIn.schedule, !s.data.closedFormExpressible {
+        let end = s.data.period > 0 ? s.data.prefixEnd + s.data.period : min(s.data.coveredUntil, 256 * s.data.barBeats)
+        scheduleJ = max(1, s.passIndex(beat: end))
+    } else { chains.schedule = nil }
     let lapBeats = Double(cycleLen) * sub
     let P = Int64(euclideousFXWalkPeriod(dir: riffDir, length: length, stride: stride))
     let len = max(1, length)
@@ -6355,11 +6420,11 @@ func euclideousRiffReadout(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, s
     var cycleHits = 0
     var s = 0
     while s < cycleLen { if buf[euclidReadIndex(s, n: n, dir: dir)] { cycleHits += 1 }; s += 1 }
-    let H = Int(euclideousChainHitsBefore(cycleTicks, rhythm: chains.rhythm, barBeats: chains.barBeats, sub: sub, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits))
+    let H = scheduleJ != nil ? cycleHits : Int(euclideousChainHitsBefore(cycleTicks, rhythm: chains.rhythm, barBeats: chains.barBeats, sub: sub, buf: buf, n: n, dir: dir, cycleLen: cycleLen, cycleHits: cycleHits))
     guard H > 0 else { return EuclideousRiffReadout(hitsPerCycle: 0, period: 0, neverPlay: [], neverPlayWalkSteps: []) }
     let A: Int64 = advanceStep ? cycleTicks : Int64(H)
     let M = P * Int64(max(1, every))
-    let J: Int64 = chains.melody.isFree ? (Q * M / euclideousGcd64(M, A)) : euclideousLcm64(Q, Int64(chains.melody.total))
+    let J: Int64 = scheduleJ ?? (chains.melody.isFree ? (Q * M / euclideousGcd64(M, A)) : euclideousLcm64(Q, Int64(chains.melody.total)))
     guard J > 0, J <= 4096 else { return nil }   // §7.4: over budget
     var F: [[Int]] = []
     F.reserveCapacity(Int(J))
@@ -6379,8 +6444,8 @@ func euclideousRiffReadout(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, s
     // the strip's own never-play set is in WALK-STEP space (w mod P), not column space — recompute the
     // walk steps actually visited by replaying each pass's own hit ordinals through euclideousRiffWalkStep.
     for q in 0..<J {
-        let passStartTick = euclideousOriginTick(euclideousPassStart(q, lapBeats: lapBeats, barBeats: chains.barBeats, rhythmChain: chains.rhythm), sub: sub)
-        let nextPassStartTick = euclideousOriginTick(euclideousPassStart(q + 1, lapBeats: lapBeats, barBeats: chains.barBeats, rhythmChain: chains.rhythm), sub: sub)
+        let passStartTick = euclideousOriginTick(chains.passStart(q), sub: sub)
+        let nextPassStartTick = euclideousOriginTick(chains.passStart(q + 1), sub: sub)
         var tick = passStartTick
         while tick < nextPassStartTick {
             let info = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
@@ -6763,7 +6828,7 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
                 guard r >= 1 else { continue }
                 let ring = c.advanceStep
                     ? euclideousPolyRingBeatsStep(len: note.len, every: c.every, gate: c.gate, nextHitGapBeats: gap, sub: c.sub, minGateBeats: minGateBeats,
-                                                  scan: note.len > 1 && !c.chains.melody.isFree
+                                                  scan: note.len > 1 && c.chains.hasMelodyRestarts
                                                       ? EuclideousPolyStepRestartScan(buf: c.buf, eN: c.n, dir: c.dir, cycleLen: cycleLen, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats) : nil)
                     : euclideousPolyRingFromTimes(hitsAhead: euclideousPolyHitsAhead(len: note.len, every: c.every), gate: c.gate, nextHitGapBeats: gap, minGateBeats: minGateBeats,
                                                   times: times, found: found, restartIndex: restartIndex)
@@ -6993,7 +7058,7 @@ func euclideousFXNotePassForTick(_ c: EuclideousWalkLaneConfig, tick: Int64, adv
     let cycleLen = euclidCycleLen(c.dir, n: c.n)
     let ph = euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats)
     let laps = floorDiv(ph.localT - Int64(ph.raw), Int64(max(1, cycleLen)))
-    return euclideousFXNotePass(advOrd: advOrd, every: c.every, riffDir: c.riffDir, length: c.length, stride: c.stride, melodyEveryPass: c.chains.melody.isSingleLink1, lapsSinceRhythmOrigin: laps)
+    return euclideousFXNotePass(advOrd: advOrd, every: c.every, riffDir: c.riffDir, length: c.length, stride: c.stride, melodyEveryPass: c.chains.melodyEveryPass, lapsSinceRhythmOrigin: laps)
 }
 
 /// Floors ferry: the note-label column's own fair-share-resolved width — nominal 30, dropping to
@@ -8534,7 +8599,7 @@ func euclideousPulseTileForOnset(rawAtOnset: Double, n: Int, dir: EuclidDir) -> 
 func euclideousPulseGeometryKey(n: Int, dir: EuclidDir, sub: Double, spanBeats: Double, swing: Double, stepBeats: Double, chains: EuclideousLaneRestartChains?) -> Int {
     var h = Hasher()
     h.combine(n); h.combine(dir.rawValue); h.combine(sub.bitPattern); h.combine(spanBeats.bitPattern); h.combine(swing.bitPattern); h.combine(stepBeats.bitPattern)
-    if let c = chains { h.combine(c.rhythm.packed); h.combine(c.melody.packed); h.combine(c.barBeats.bitPattern); h.combine(c.lapBeats.bitPattern) }
+    if let c = chains { h.combine(c.rhythm.packed); h.combine(c.melody.packed); h.combine(c.barBeats.bitPattern); h.combine(c.lapBeats.bitPattern); h.combine(c.schedule?.data.id ?? 0) }
     return h.finalize()
 }
 
@@ -9208,13 +9273,14 @@ func restartTileState(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneCo
     let cycleLen = euclidCycleLen(c.dir, n: c.n)
     let lap = Double(cycleLen) * sub
     let barBeats = c.chains.barBeats
-    let rhythm = c.chains.rhythm
+    var chains = c.chains   // RESTART UNITS: every origin, pass and restart below comes through the chains' readers — the schedule when the lane has one, the closed forms otherwise
+    chains.lapBeats = lap
     switch kind {
     case .rhythm:
-        st.isFree = rhythm.isFree
-        let pass = euclideousPassIndex(beat: beat, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm)
-        let passStart = euclideousPassStart(pass, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm)
-        let next: Double? = rhythm.isFree ? nil : euclideousNextRhythmRestart(after: beat, barBeats: barBeats, chain: rhythm)
+        st.isFree = !chains.hasRhythmRestarts
+        let pass = chains.passIndex(beat: beat)
+        let passStart = chains.passStart(pass)
+        let next: Double? = chains.hasRhythmRestarts ? chains.nextRhythmRestart(after: beat) : nil
         let cur = max(0, min(cycleLen - 1, Int(((beat - passStart) / sub + eps).rounded(.down))))
         st.count = cycleLen
         for i in 0..<min(cycleLen, EuclideousRestartTileState.cellCap) {
@@ -9226,13 +9292,12 @@ func restartTileState(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneCo
             if let nx = next { let f = (nx - passStart) / lap; if f < 1 - eps { st.ghostFromFraction = max(0, f) } }
         }
         if let nx = next, running {
-            let origin = euclideousRhythmChainOrigin(beat: beat, barBeats: barBeats, chain: rhythm)
+            let origin = chains.rhythmOriginBeat(beat)
             st.progress = nx > origin ? max(0, min(1, (beat - origin) / (nx - origin))) : 0
             st.restartsIn = max(1, Int(((nx - beat) / barBeats - eps).rounded(.up)))
         }
     case .melody:
-        let chain = c.chains.melody
-        st.isFree = chain.isFree
+        st.isFree = !chains.hasMelodyRestarts
         let L = max(1, min(c.columns, c.length))
         let order = euclideousRiffCycleOrder(dir: c.riffDir, length: L, stride: c.stride, shift: c.rotate, columns: c.columns)
         let every = max(1, c.every)
@@ -9242,10 +9307,10 @@ func restartTileState(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneCo
         var cycleHits = 0
         for s in 0..<cycleLen where c.buf[euclidReadIndex(s, n: c.n, dir: c.dir)] { cycleHits += 1 }
         func unitsBefore(_ m: Int64) -> Int64 {
-            c.advanceStep ? m : euclideousChainHitsBefore(m, rhythm: rhythm, barBeats: barBeats, sub: sub, buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, cycleHits: cycleHits)
+            c.advanceStep ? m : chains.hitsBefore(m, sub: sub, buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, cycleHits: cycleHits)
         }
         let tickNow = Int64(((beat / sub) + eps).rounded(.down))
-        let originBeat = chain.isFree ? 0 : euclideousMelodyChainOrigin(beat: beat, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm, melodyChain: chain)
+        let originBeat = chains.hasMelodyRestarts ? chains.melodyOriginBeat(beat) : 0
         let oT = euclideousOriginTick(originBeat, sub: sub)
         // The walk's ordinal NOW: the riff position the walk has reached — the current tick's under ADV STEP, the latest hit's (since the melody origin) under ADV HIT. None yet ⇒ nothing lit.
         var ordNow: Int64 = -1
@@ -9266,7 +9331,7 @@ func restartTileState(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneCo
         let wNow = ordNow >= 0 ? Int((ordNow - c0) / Int64(every)) : -1
         let lit = running ? order.distinctThrough(step: min(wNow, order.period - 1)) : 0
         var reachable = order.visited                                       // FREE: everything the walk visits (no ghosts)
-        if !chain.isFree, !order.unpredictable, let nextBeat = euclideousNextMelodyRestart(after: beat, lapBeats: lap, barBeats: barBeats, rhythmChain: rhythm, melodyChain: chain) {
+        if chains.hasMelodyRestarts, !order.unpredictable, let nextBeat = chains.nextMelodyRestart(after: beat) {
             let nT = euclideousOriginTick(nextBeat, sub: sub)
             let units = max(0, unitsBefore(nT) - unitsBefore(oT))           // units from the melody origin to the next melody restart
             let lastOrd = min(c0 + cycleUnits - 1, units - 1)               // the last ordinal this cycle can reach before that restart
@@ -9280,7 +9345,7 @@ func restartTileState(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneCo
         st.reachable = reachable
         for i in 0..<min(L, EuclideousRestartTileState.cellCap) {
             if i < lit { st.setCell(i, 1) }
-            else if !chain.isFree && !order.unpredictable && i >= reachable { st.setCell(i, 2) }   // a note this walk cycle won't reach before the next melody restart
+            else if chains.hasMelodyRestarts && !order.unpredictable && i >= reachable { st.setCell(i, 2) }   // a note this walk cycle won't reach before the next melody restart
         }
     }
     return st

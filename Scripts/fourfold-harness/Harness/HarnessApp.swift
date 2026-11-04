@@ -474,7 +474,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -535,6 +535,22 @@ extension Host {
                     au.editDocument { canonDocument(&$0, unit: name.contains("shapes") ? .passes : .bars, delays: [1, 2, 3, 8], slips: [0, 10, 25, 50], shapes: name.contains("shapes")) }
                 }
                 if name.contains("POOL") { au.editDocument { poolDocument(&$0, plan: !name.contains("CANON"), grid2: name.contains("grid 2")) } }   // POOL ferry (2026-11-02): per-lane sources + SUSTAIN on every lane; the pedal is driven below (CC64 down at 100, up at 300 of every 400 windows)
+                if name.contains("RESTART UNITS") {   // RESTART UNITS (2026-11-04): the schedule's readers on the render path — A: lane 1 rhythm RIFF of itself, lane 2 melody HIT [3] with a RIFF rhythm, lanes 3–4 plain; B: a cross-lane ring (rhythm PASS of the next lane) with WITH RHYTHM and a melody PASS of another lane
+                    let crossLane = name.contains("cross-lane")
+                    au.editDocument {
+                        var ls = $0.euclideousLinesResolved
+                        for i in 0..<4 { ls[i].riffOn = true; ls[i].pulses = [3, 5, 4, 7][i]; ls[i].steps = [8, 8, 7, 12][i]; ls[i].restartRhythmBars = []; ls[i].restartMelodyPasses = [] }
+                        if !crossLane {
+                            ls[0].restartRhythmBars = [1]; ls[0].restartRhythmUnit = .riff; ls[0].restartRhythmSource = 0
+                            ls[1].restartRhythmBars = [1]; ls[1].restartRhythmUnit = .riff; ls[1].restartRhythmSource = 1; ls[1].restartMelodyPasses = [3]; ls[1].restartMelodyUnit = .hit
+                            ls[2].restartMelodyPasses = [2]; ls[2].restartMelodyUnit = .bar
+                        } else {
+                            for i in 0..<4 { ls[i].restartRhythmBars = [2, 1]; ls[i].restartRhythmUnit = .pass; ls[i].restartRhythmSource = (i + 1) % 4; ls[i].restartMelodyWithRhythm = i % 2 == 0 ? true : nil }
+                            ls[1].restartMelodyPasses = [1]; ls[1].restartMelodyUnit = .pass; ls[1].restartMelodySource = 3
+                        }
+                        $0.euclideousLines = ls
+                    }
+                }
                 if name.contains("ROUTED") {   // CARD BACKS (2026-10-28): the routing worst case — every riff part on all four outputs, the notes parts on A+C or all four, lane 4's notes routed nowhere (drawn, never sent); the roll ring takes a record per strike
                     au.editDocument { var ls = $0.euclideousLinesResolved; for i in 0..<4 { ls[i].riffOutMask = 0x0F; ls[i].notesOutMask = i == 3 ? 0 : (i % 2 == 0 ? 0b0101 : 0x0F) }; $0.euclideousLines = ls }
                 }

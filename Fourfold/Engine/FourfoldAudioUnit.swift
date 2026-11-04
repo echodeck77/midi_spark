@@ -41,6 +41,19 @@ public class FourfoldAudioUnit: AUAudioUnit {
     private var document: PluginState   // a fresh instance loads the EMPTY "INIT" (the ARC is a named preset); built ONCE in init (Paul 2026-09-11 startup perf — was makeInit'd twice)
     private let store: SnapshotStore
     private var rebuildPending = false
+    /// RESTART UNITS (2026-11-04): the host's bar length the restart schedule is simulated with (the page's slow poll hands it over; a change republishes). 4 until the host's meter is known.
+    private(set) var restartBarBeats = 4.0
+    /// §4.6: the main thread keeps a windowed (non-periodic) restart schedule at least 16 bars ahead of the playhead — it simulates the next block of 1024 bars and republishes. Called from the page's slow poll while the transport runs.
+    func extendRestartScheduleIfNeeded(playheadBeat: Double) {
+        guard Snap.euclideousRow < store.acquire().cells.count, let set = store.acquire().cells[Snap.euclideousRow].procs.first?.restartSchedule, set.windowed else { return }
+        guard playheadBeat + 64 * set.barBeats > set.coveredUntil else { return }   // start well before the 16-bar floor: a block takes tens of milliseconds
+        let bars = Int((max(0, playheadBeat) / set.barBeats).rounded(.up)) + 1024
+        if EuclideousRestartScheduleMemo.shared.extend(set, untilBars: bars) { scheduleRebuild() }
+    }
+    func setRestartBarBeats(_ v: Double) {
+        guard v > 0, abs(v - restartBarBeats) > 1e-9 else { return }
+        restartBarBeats = v; scheduleRebuild()
+    }
     private var snapshotGeneration: UInt64 = 1
     private var suppressRebuild = false
 
@@ -344,7 +357,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
             if self.suppressRebuild { return }
             self.snapshotGeneration &+= 1
             let doc = self.renderDoc()
-            self.store.publish(SnapshotBuilder.build(from: doc, generation: self.snapshotGeneration, hues: self.snapHues(doc)))
+            self.store.publish(SnapshotBuilder.build(from: doc, generation: self.snapshotGeneration, hues: self.snapHues(doc), restartBarBeats: self.restartBarBeats))
         }
     }
     // The display hue (packed RGB) per machineID — so the render can tag emitted notes with their cell's machine (the

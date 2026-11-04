@@ -938,6 +938,7 @@ struct EuclideousPage: View {
     /// The front tab the cards draw: the page tab, or — while MIX is showing (the backs; random / lock faces; the first half of a turn to MIX) — the tab it came from.
     private var frontLaneTab: EuclideousLaneTab { EuclideousLaneTab(rawValue: (pageTab.front ?? flipFrom?.front ?? .rhythm).rawValue) ?? .rhythm }
     @State private var notesPickerOpen: Set<Int> = []   // NOTES tab ferry §4.5: the lanes whose PLAY AS picker is open — not saved, not an undo step
+    @State private var scheduleHolder = EuclideousScheduleHolder()   // RESTART UNITS: the lanes' restart schedule, rebuilt only when the lines, the host bar or the walk's width change
     @State private var riffReadoutCache = EuclideousRiffReadoutCache()   // the riff readout / never-play set, memoised per lane on its inputs (RIFF WALK §7.2)
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
     // opens, changed only by value drags), the NOTE cell touched last (the strip's preview), the double-tap memory, and whether this touch has opened its undo step.
@@ -3247,7 +3248,7 @@ struct EuclideousPage: View {
         // RESTART CHAINS (ferry 2026-10-19): `.off` (both FREE) during the brief pre-first-resync window,
         // the same safe default the Router and the walk mirror fall back to — this lane's OWN chains
         // regardless of FOLLOW (mirrors the old grid's lookup, which also read `line` not the partner).
-        let cardChains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub)   // RESTART UNITS: the one resolver (`.off` until the chains are pinned)
+        let cardChains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub, scheduleSet: restartScheduleSet)   // RESTART UNITS: the one resolver (`.off` until the chains are pinned), with the lane's schedule
         EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
                       // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
                       // border/fill around just this row (the step-bar area) — always `false` now; the
@@ -3366,7 +3367,7 @@ struct EuclideousPage: View {
         let followIdx = euclideousRhythmBorrowPartner(lane: idx, lines: phaseLines)
         let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: phaseLines) : nil
         let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
-        let chains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub)
+        let chains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub, scheduleSet: restartScheduleSet)
         let sub = max(0.03125, followEff?.rateBeats ?? euclideousStripDivisionRate(lane: idx, lines: lines).beats)
         let muteCells = gridView.grid.muteCells, muteUnit = gridView.muteUnitBeats
         return EuclideousMixStripFeed(legs: plan.legs, n: plan.sweepLength, dir: line.directionResolved, sub: sub, chains: chains.isActive ? chains : nil, lanePlaying: line.enabledResolved,
@@ -6686,7 +6687,11 @@ struct EuclideousPage: View {
         return polyAdjusted(euclideousWalkLaneConfig(lane: idx, lines: phaseLines, cyc: cyc, resetSpanBars: resetSpanBars,
                                         lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: walkFX,
                                         swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo,
-                                        riffColumns: walkColumns))
+                                        riffColumns: walkColumns, scheduleSet: restartScheduleSet))
+    }
+    /// RESTART UNITS (2026-11-04): the lanes' simulated restart schedule, from the document's lines and the host's bar — the SAME set the snapshot builder simulates (both go through the memoised `euclideousRestartScheduleSet`).
+    private var restartScheduleSet: EuclideousRestartScheduleSet {
+        scheduleHolder.set(lines: lines, barBeats: clock.beatsPerBar, defaultRateBeats: 0.25, riffColumns: walkColumns)
     }
     /// POLY RIFF: what a lane's walk config differs in while POLY is on — the grid is 16 wide, the FX rows are off (an empty table, so the mirrors' FX paths stay idle) and ON REST is SKIP.
     private var walkColumns: Int { riffPoly ? EuclideousPolyMetrics.columns : 8 }

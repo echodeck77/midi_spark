@@ -296,6 +296,9 @@ struct SnapParams {
     var activeRiff: Int = 0   // which riff plays when RIFFS seq is off (and which tab the editor shows)
     // FX TAB (2026-10-18): the page-level FX rows, resolved/clamped by `PluginState.euclideousFXResolved`, gated to `Snap.euclideousRow` — fixed-size flat arrays, only ever READ on the render thread.
     var euclideousFX: EuclideousFX = EuclideousFX()
+    // RESTART UNITS (2026-11-04): the four lanes' simulated restart schedules (built on the MAIN thread by `SnapshotBuilder`; the render thread only READS the immutable tables — it never simulates and never allocates), gated to `Snap.euclideousRow`.
+    // nil (every other row, and a snapshot built without one) ⇒ the Router reads the closed-form restart functions, exactly as before.
+    var restartSchedule: EuclideousRestartScheduleSet? = nil
     // POLY RIFF (2026-10-29): the page-level POLY riff and its mode flag, gated to `Snap.euclideousRow` — fixed-size flat arrays, only ever READ on the render thread. `on` false (the default) ⇒ the Router takes its MONO path, bit for bit.
     var polyRiff: PolyRiffSnap = PolyRiffSnap()
     // HOCKET (2026-10-27): the page-level rules, gated to `Snap.euclideousRow`; inert (no lit rule) ⇒ the Router's output is unchanged, bit for bit.

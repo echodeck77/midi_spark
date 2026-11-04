@@ -3276,6 +3276,9 @@ final class Router {
                 if lineIndex < linesView.count {
                     let line = copyOrFillValid ? linesView[listenSource] : linesView[lineIndex]
                     chains = euclideousLaneRestartChains(line: line, lane: copyOrFillValid ? listenSource : lineIndex, barBeats: beatsPerBar, lapBeats: Double(cycleLen) * sub)   // RESTART UNITS: the one resolver (`.off` until pinned)
+                    // RESTART UNITS: the lane's simulated schedule — only for a lane the closed forms cannot express (see `euclideousAttachedSchedule`: also not an ANSWER-engaged lane, whose effective line flips at runtime, and only when the schedule was
+                    // simulated with the host's bar), and not in a window a lock snap has substituted the lines for. Otherwise the closed forms (above) answer, as they always did.
+                    if isEuclideousRow, !lockAnyActive { chains.schedule = euclideousAttachedSchedule(p.restartSchedule, lane: lineIndex, barBeats: beatsPerBar) }
                 }
                 if isEuclideousRow, lineIndex < linesView.count {
                     let line = linesView[lineIndex]
@@ -3980,7 +3983,7 @@ final class Router {
                                             let len = p.polyRiff.triggerLength(col: playedStep, rank: rk, polyTrig)
                                             var ringBeats = riffAdvanceStep
                                                 ? euclideousPolyRingBeatsStep(len: len, every: riffAdvanceEvery, gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, sub: sub, minGateBeats: minGateBeats5ms,
-                                                                              scan: len > 1 && !chains.melody.isFree
+                                                                              scan: len > 1 && chains.hasMelodyRestarts
                                                                                   ? EuclideousPolyStepRestartScan(buf: euclidBuf, eN: eN, dir: eDir, cycleLen: cycleLen, tick: tick, chains: chains, legacySpanBeats: ladderSpanBeats) : nil)
                                                 : euclideousPolyRingFromTimes(hitsAhead: euclideousPolyHitsAhead(len: len, every: riffAdvanceEvery), gate: fxRiffGate(), nextHitGapBeats: nextHitGapBeats, minGateBeats: minGateBeats5ms,
                                                                               times: polyHitTimes, found: scanFound, restartIndex: scanRestart)
@@ -4014,7 +4017,7 @@ final class Router {
                                     // the old LOCK — the lap (`cy`). It no longer reads the retired masked grid or the hidden `riffLock` flag (REVIEW FIX 2026-10-23).
                                     let notePass: Int = fxAll.rowHasCells(4, lane: lineIndex)
                                         ? euclideousFXNotePass(advOrd: advOrd, every: riffAdvanceEvery, riffDir: riffDir, length: riffLength, stride: riffStride,
-                                                               melodyEveryPass: chains.melody.isSingleLink1, lapsSinceRhythmOrigin: cy)
+                                                               melodyEveryPass: chains.melodyEveryPass, lapsSinceRhythmOrigin: cy)
                                         : 0
                                     fx = euclideousFXApply(fxAll, lane: lineIndex, playsRiff: true, column: leapStep, writtenRank: rawRank, pass: notePass)
                                 }

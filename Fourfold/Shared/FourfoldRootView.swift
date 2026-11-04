@@ -1008,7 +1008,8 @@ struct FourfoldRootView: View {
         // invisible stabilisation of what the lane already sounded like, not a user-authored change) —
         // mirrors how `euclideousApplyLaneGridOp`'s own first-touch pin works, just triggered by TIME
         // rather than by a touch.
-        if nd.beatsPerBar > 0 { pinUnpinnedRestartChains(beatsPerBar: nd.beatsPerBar) }
+        if nd.beatsPerBar > 0 { au.setRestartBarBeats(nd.beatsPerBar); pinUnpinnedRestartChains(beatsPerBar: nd.beatsPerBar) }
+        au.extendRestartScheduleIfNeeded(playheadBeat: nd.beat)   // RESTART UNITS §4.6: a non-periodic schedule is simulated ahead of the playhead (the effective beat: host or free-run)   // RESTART UNITS: the schedule is simulated with the host's bar
         // RANDOM MODE ferry §6.3/§6.7: the render thread already switched exactly on time (its own per-tick
         // sample-accurate check, Router.swift); this main-thread commit is pure bookkeeping — write the
         // landed roll into the document so it's the live truth going forward, and clear its slot so Router

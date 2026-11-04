@@ -226,7 +226,7 @@ func euclideousPolyHitTimes(maxHits: Int, times: inout [Double], buf: [Bool], eN
         let dJ = timing.isNone ? 0 : timing.delaySteps(raw: info.raw)
         times[hits] = (Double(j) + (timing.isNone ? 0 : dJ - dThis)) * sub
         hits += 1
-        if !chains.melody.isFree, info.advOrd == 0 { restart = hits; break }
+        if chains.hasMelodyRestarts, info.advOrd == 0 { restart = hits; break }
     }
     return (hits, restart)
 }
@@ -258,7 +258,7 @@ struct EuclideousPolyStepRestartScan {
 /// ends the note at the restart tick (`scan`, nil = no chain to look at).
 func euclideousPolyRingBeatsStep(len: Int, every: Int, gate: Double, nextHitGapBeats: Double, sub: Double, minGateBeats: Double, scan: EuclideousPolyStepRestartScan? = nil) -> Double {
     let plain = max(minGateBeats, Double(max(0, len - 1) * max(1, every)) * sub + gate * nextHitGapBeats)
-    guard len > 1, sub > 0, let sc = scan, !sc.chains.melody.isFree else { return plain }
+    guard len > 1, sub > 0, let sc = scan, sc.chains.hasMelodyRestarts else { return plain }
     let limit = Int(plain / sub) + 2
     var j = 1
     while j <= limit {

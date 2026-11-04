@@ -13,20 +13,24 @@ private final class GoldenEmitter: MIDIEmitter {
 final class RestartUnitsGoldenTests: XCTestCase {
     private let pool: [UInt8] = [48, 50, 52, 53, 55, 57, 59, 60]
     private let beat: Double = 24_000   // samples in a beat at 120 BPM / 48 kHz
+    private var lastRunStuck = 0   // notes whose last event was an ON after the stop edge
 
     /// One lane: `hits` of `steps` at `rate`, walking the 8-column riff, with the given chains (links in bars for RHYTHM, passes for MELODY; [] = FREE).
     private func lane(hits: Int, steps: Int, rate: ArpRate = .r1_8, dir: EuclidDir = .fwd, rhythm: [UInt8] = [], melody: [UInt8] = [], advanceStep: Bool = false,
-                      riffDir: RiffDir = .forward, every: Int = 1, length: Int? = nil, stride: Int = 1) -> EuclidLine {
+                      riffDir: RiffDir = .forward, every: Int = 1, length: Int? = nil, stride: Int = 1,
+                      rhythmUnit: EuclideousRhythmRestartUnit? = nil, rhythmSource: Int? = nil, melodyUnit: EuclideousMelodyRestartUnit? = nil, melodySource: Int? = nil, withRhythm: Bool? = nil) -> EuclidLine {
         var l = EuclidLine(target: 0, pulses: hits, steps: steps)
         l.gate = 0.5; l.velocityAbsolute = 90; l.rate = rate; l.useRiff = true; l.riffOn = true; l.sourceMode = .midi; l.notesOn = true; l.litNotes = 0
         l.direction = dir; l.riffAdvanceStep = advanceStep; l.riffDir = riffDir; l.riffAdvanceEvery = every; l.riffLength = length; l.riffStride = stride
-        euclideousPinRestartChains(&l, .from(rhythm), .from(melody))
+        l.restartRhythmBars = rhythm; l.restartMelodyPasses = melody
+        l.restartRhythmUnit = rhythmUnit; l.restartRhythmSource = rhythmSource; l.restartMelodyUnit = melodyUnit; l.restartMelodySource = melodySource; l.restartMelodyWithRhythm = withRhythm
         return l
     }
-    private func ranks(_ l: EuclidLine, beats: Double, tempo: Double = 120, frames: UInt32 = 2048) -> String {
+    private func ranks(_ l: EuclidLine, beats: Double, tempo: Double = 120, frames: UInt32 = 2048) -> String { ranks(lines: [l], beats: beats, tempo: tempo, frames: frames) }
+    private func ranks(lines: [EuclidLine], beats: Double, tempo: Double = 120, frames: UInt32 = 2048, lane: Int = 0, cable: UInt8 = 1) -> String {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
-        c.paramsA.euclidLines = [l]
+        c.paramsA.euclidLines = lines
         var sc = SceneState.empty(); sc.stepRate = .r1_8
         sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
@@ -43,7 +47,10 @@ final class RestartUnitsGoldenTests: XCTestCase {
             ts += Double(frames)
         }
         router.process(box: box, pool: p, playing: false, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
-        return e.events.filter { $0.cable == 1 && $0.status == 0x90 }.map { ev -> String in
+        var lastStatus: [Int: UInt8] = [:]
+        for ev in e.events where ev.status == 0x90 || ev.status == 0x80 { lastStatus[Int(ev.cable) * 128 + Int(ev.note)] = ev.status }
+        lastRunStuck = lastStatus.values.filter { $0 != 0x80 }.count
+        return e.events.filter { $0.cable == cable && $0.status == 0x90 }.map { ev -> String in
             let col = pool.firstIndex(of: ev.note).map { $0 + 1 } ?? 0
             return "\(Int((Double(ev.sample) / beat * 16).rounded())):\(col)"
         }.joined(separator: " ")
@@ -68,6 +75,47 @@ final class RestartUnitsGoldenTests: XCTestCase {
     }
     func testAdvanceStepPins() {
         check("ADV STEP, 7 steps, rhythm [1] + melody [2]", lane(hits: 4, steps: 7, rhythm: [1], melody: [2], advanceStep: true), beats: 28, goldenAdvStep)
+    }
+    // MARK: the new units through the REAL Router (hand-derived, not captured): the schedule is what sounds here
+
+    func testRiffFirstThroughTheRouterPlaysTheWholeRiffThenWrapsWithAClippedPass() {
+        let l = lane(hits: 3, steps: 8, rhythm: [1], rhythmUnit: .riff, rhythmSource: 0)
+        // beats 0, 1.5, 3 | 4, 5.5, 7 | 8, 9.5 (the 8th note) | restart at 10: 10, 11.5, 13 | 14, 15.5, 17 | 18, 19.5 | restart at 20
+        XCTAssertEqual(ranks(l, beats: 20.2), "0:1 24:2 48:3 64:4 88:5 112:6 128:7 152:8 160:1 184:2 208:3 224:4 248:5 272:6 288:7 312:8 320:1")
+    }
+    func testIsorhythmThroughTheRouterRotatesThreeNotesThroughFiveHits() {
+        let l = lane(hits: 5, steps: 8, melody: [3], melodyUnit: .hit)
+        // E(5,8): hits at beats 0, 1, 2, 2.5, 3.5 of each 4-beat pass; the riff restarts at every 3rd hit
+        XCTAssertEqual(ranks(l, beats: 8.1), "0:1 16:2 32:3 40:1 56:2 64:3 80:1 96:2 104:3 120:1 128:2")
+    }
+    func testACrossLaneRhythmThroughTheRouterRestartsOnTheOtherLanesPass() {
+        let a = lane(hits: 3, steps: 7, rhythm: [1], rhythmUnit: .pass, rhythmSource: 1)
+        let b = lane(hits: 5, steps: 12, rate: .r1_16)
+        // lane 2's passes start every 3 beats, so lane 1 (7 steps of 1/8, a 3.5-beat pass) is cut at 3, 6, 9: a hit sounds AT each of those beats and none at the natural 3.5 / 6.5 / 9.5
+        let times = Set(ranks(lines: [a, b, line4(), line4()], beats: 10.1).split(separator: " ").map { Int($0.split(separator: ":")[0])! })
+        for beat in [3, 6, 9] { XCTAssertTrue(times.contains(beat * 16), "a hit at beat \(beat)") }
+        for beat in [3.5, 6.5, 9.5] { XCTAssertFalse(times.contains(Int(beat * 16)), "no hit at the natural pass start \(beat)") }
+    }
+    private func line4() -> EuclidLine { lane(hits: 1, steps: 8) }
+
+    /// A seeded fuzz of four-lane documents that use every unit, source and WITH RHYTHM: the schedule path through the Router renders twice to the same bytes and never leaves a note sounding.
+    func testRandomDocumentsWithEveryUnitRenderDeterministicallyAndLeaveNothingSounding() {
+        var state: UInt64 = 0xC0FFEE
+        func next() -> Int { state &+= 0x9E3779B97F4A7C15; var z = state; z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9; z = (z ^ (z >> 27)) &* 0x94D049BB133111EB; return Int((z ^ (z >> 31)) % 1_000_003) }
+        for seed in 0..<24 {
+            var lines: [EuclidLine] = []
+            for i in 0..<4 {
+                let ru: EuclideousRhythmRestartUnit = [.bar, .pass, .riff][next() % 3], mu: EuclideousMelodyRestartUnit = [.pass, .bar, .hit][next() % 3]
+                var rs = next() % 4; if ru == .pass && rs == i { rs = (i + 1) % 4 }
+                let links: [[UInt8]] = [[], [1], [2], [1, 2], [3, 1, 1]]
+                lines.append(lane(hits: next() % 6 + 1, steps: next() % 10 + 3, rate: [.r1_16, .r1_8, .r1_8d][next() % 3],
+                                  rhythm: links[next() % 5], melody: mu == .hit ? [[], [3], [2, 1]][next() % 3] : links[next() % 5], advanceStep: next() % 4 == 0, every: next() % 3 + 1,
+                                  rhythmUnit: ru, rhythmSource: rs, melodyUnit: mu, melodySource: next() % 4, withRhythm: next() % 3 == 0 ? true : nil))
+            }
+            let a = ranks(lines: lines, beats: 40, lane: 0), b = ranks(lines: lines, beats: 40, lane: 0)
+            XCTAssertEqual(a, b, "seed \(seed): deterministic")
+            XCTAssertEqual(lastRunStuck, 0, "seed \(seed): nothing is left sounding after the stop")
+        }
     }
     func testATripletRateWithEveryAndAPendulumRiffPins() {
         check("1/8T, 6 steps, rhythm [2], melody [1], riff PING-PONG EVERY 2", lane(hits: 4, steps: 6, rate: .r1_8t, rhythm: [2], melody: [1], riffDir: .pendulum, every: 2), beats: 24, goldenTriplet)

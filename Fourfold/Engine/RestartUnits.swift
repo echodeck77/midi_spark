@@ -96,10 +96,14 @@ func euclideousRestartSettings(line l: EuclidLine, lane: Int) -> EuclideousResta
 
 /// The closed-form reference chains for a line — what every site that used to write `.from(line.restartRhythmBars ?? [])` now calls. A lane whose chains were never pinned is `.off`, as before. A chain the closed forms cannot
 /// express (a RHYTHM unit other than BAR, a MELODY unit other than PASS or counting another lane, WITH RHYTHM) is `.free` here — the schedule is what reads those; this is the reference path and the fallback.
-func euclideousLaneRestartChains(line: EuclidLine, lane: Int, barBeats: Double, lapBeats: Double) -> EuclideousLaneRestartChains {
-    guard line.usesRestartChains else { return .off }
-    let s = euclideousRestartSettings(line: line, lane: lane)
-    return EuclideousLaneRestartChains(rhythm: s.rhythmActive && s.rhythmUnit == .bar ? s.rhythm : .free,
-                                       melody: s.melodyActive && s.melodyUnit == .pass && s.melodySource == max(0, min(3, lane)) ? s.melody : .free,
-                                       barBeats: barBeats, lapBeats: lapBeats)
+func euclideousLaneRestartChains(line: EuclidLine, lane: Int, barBeats: Double, lapBeats: Double, scheduleSet: EuclideousRestartScheduleSet? = nil) -> EuclideousLaneRestartChains {
+    var c = EuclideousLaneRestartChains.off
+    if line.usesRestartChains {
+        let s = euclideousRestartSettings(line: line, lane: lane)
+        c = EuclideousLaneRestartChains(rhythm: s.rhythmActive && s.rhythmUnit == .bar ? s.rhythm : .free,
+                                        melody: s.melodyActive && s.melodyUnit == .pass && s.melodySource == max(0, min(3, lane)) ? s.melody : .free,
+                                        barBeats: barBeats, lapBeats: lapBeats)
+    }
+    c.schedule = euclideousAttachedSchedule(scheduleSet, lane: lane, barBeats: barBeats)
+    return c
 }

@@ -21,7 +21,7 @@ enum SnapshotBuilder {
         out.chordsRateBeats = p.chordsRateResolved.beats
     }
 
-    static func build(from doc: PluginState, generation: UInt64 = 0, hues: [String: UInt32] = [:]) -> SnapshotBox {
+    static func build(from doc: PluginState, generation: UInt64 = 0, hues: [String: UInt32] = [:], restartBarBeats: Double = 4) -> SnapshotBox {
         let scene = doc.activeSceneState   // MULTI-SCENE: bounds-safe active scene (never an out-of-range crash)
 
         // ---- machines: resolve each Machine's single (A) param bag + its ON assignments (the A/B morph layer was
@@ -140,6 +140,9 @@ enum SnapshotBuilder {
                 // Euclideous cell's MachineParams fresh from live @State every time — a row-gated PluginState
                 // read would silently never see what either of those actually populate).
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
+                    // RESTART UNITS (2026-11-04): the lanes' restart schedule — simulated here (memoised on its inputs), read by the Router and the page alike. Built from the lines the Router will read (`sc.procs[0].euclidLines`), the host's bar length and the default step.
+                    sc.procs[0].restartSchedule = euclideousRestartScheduleSet(lines: sc.procs[0].euclidLines, barBeats: restartBarBeats, defaultRateBeats: sc.procs[0].euclidRateBeats,
+                                                                              riffColumns: doc.polyRiffSnapResolved.on ? EuclideousPolyMetrics.columns : 8)
                     sc.procs[0].polyRiff = doc.polyRiffSnapResolved   // POLY RIFF (2026-10-29): page-level, no MachineParams hop — fixed-size value data for the render thread
                     sc.procs[0].euclideousFX = doc.euclideousFXResolved   // FX TAB (2026-10-18): page-level, no MachineParams hop — same shape as the sequencer fields below
                     sc.procs[0].hocketRules = HocketRulesSnap(rules: doc.hocketRulesResolved)   // HOCKET (2026-10-27): page-level, no MachineParams hop — fixed-size value data for the render thread
