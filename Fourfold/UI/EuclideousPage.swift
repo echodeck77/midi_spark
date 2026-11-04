@@ -3177,6 +3177,7 @@ struct EuclideousPage: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Chords")
+        .accessibilityAddTraits(.isModal)   // §7.1 a dialog: VoiceOver stays within the page while it is up (the surroundings are touch-live but not VoiceOver-reachable), like the restart editor
     }
 
     // §5.1: ‹ SOURCES · switch · "CHORDS · <key>" · close

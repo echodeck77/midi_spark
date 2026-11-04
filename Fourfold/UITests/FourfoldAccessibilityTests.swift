@@ -31,6 +31,7 @@ enum FourfoldAuditAllowList {
         ("textClipped", "RIFF", "MIX ROWS: the part toggle's 8 pt caption (the element is 43 × 40) — drawn whole in the pictures; confirm on device"),
         ("textClipped", "SOLO", "the SOLO tile's 10 pt label (the card's own 40 × 40; MIX's 120 × 24) — drawn whole in every picture; the audit has flagged it since the POOL ferry — confirm on device"),
         ("textClipped", "TAKE NOTHING NEW", "POOL tab SUSTAIN option caption (the spec's own 16 characters ≈ 96 pt in a ≈ 92 pt button: truncated, never shrunk) — read it on a narrow card"),
+        ("textClipped", "C MINOR", "CHORDS PAGE (2026-11-04): the page header's key name ('CHORDS · <key>', 14 pt heavy mono) and the app header's own key selector — drawn whole in the pictures; the same heavy tracked mono family as the other accepted captions — confirm on device"),
     ]
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
     /// letters are the "–" placeholders). More than this on any screen is a new unlabelled piece of text.
@@ -41,7 +42,8 @@ enum FourfoldAuditAllowList {
     /// of text, no new label). So a lane-tab screen accepts four cards' worth.
     static func unlocatedElementDetectionCeilingFor(screen: String) -> Int {
         if screen.contains("hocket popup") { return 80 }
-        if screen.contains("restart editor") { return screen.hasPrefix("landscape") ? 56 : 66 }   // measured 2026-11-04: 46 landscape, 56 portrait (+10)   // the modal editor hides the page behind it: its unlocated text (measured 90 in portrait) is that page, and findings with an element are judged by frame (`modalFrame`)
+        if screen.contains("chords page") { return 16 }   // CHORDS PAGE (2026-11-04): a dialog over the lane cards — two STEP STRIPS (each an ignored container whose inner column numbers the audit counts) + the two 18-row grids give ~9 unlocated; the covered lane cards accept via `underTheEditor`
+        if screen.contains("restart editor") { return screen.hasPrefix("landscape") ? 56 : 66 }   // measured 2026-11-04: 46 landscape, 56 portrait (+10) — the modal editor hides the page behind it: its unlocated text is that page, and findings with an element are judged by frame (`modalFrame`)
         return screen.contains("lane tab") ? unlocatedElementDetectionCeiling * 4 + 4 : unlocatedElementDetectionCeiling   // four cards' worth + 4: the NOTES tab in portrait measured 24 on the iPad Pro 11 and 26 on the iPad mini (adversarial review, 2026-10-29)
     }
 
@@ -136,7 +138,9 @@ final class FourfoldAccessibilityTests: XCTestCase {
         let edit = app.el("Edit chords")
         XCTAssertTrue(edit.waitForExistence(timeout: 4), "the CHORDS row")
         edit.tap()
-        XCTAssertTrue(app.el("Chords").waitForExistence(timeout: 4), "the chords page did not open")
+        let page = app.el("Chords")
+        XCTAssertTrue(page.waitForExistence(timeout: 4), "the chords page did not open")
+        modalFrame = page.frame   // the page is a dialog (§7.1): content OUTSIDE its frame is the surrounding app, accepted; the covered RHYTHM-tab lane controls INSIDE it are accepted via `underTheEditor`
         let advLoop = app.el("Advance by loop")
         if advLoop.waitForExistence(timeout: 3) { advLoop.tap() }
         let restart = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart")).firstMatch
