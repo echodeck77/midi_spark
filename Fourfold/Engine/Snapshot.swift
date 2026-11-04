@@ -170,13 +170,26 @@ struct EmitterRatchetCfg: Equatable {
     /// literal to `emitterRatchetPatternMask(steps: 8, hits: 3, offset: 0)`.
     static let defaultPatternMask: UInt16 = 0b0100_1001
     var patternMask: UInt16 = EmitterRatchetCfg.defaultPatternMask
+    // RATCH EXPAND ferry (2026-11-04): the strike MODE / GAP / END and the RANGE and HIT values, read on the render
+    // thread. `patternMaskNoOffset` is the OFFSET-0 Euclid mask, built on the main thread, so the decision can map a
+    // hitting slot to its pre-OFFSET hit ordinal (§1.4) without rebuilding the pattern on the render thread.
+    var mode: EmitterStrikeMode = .fix
+    var rangeMin = 2, rangeMax = 4
+    var hitCountBits: UInt32 = 0xAAAA_AAAA
+    var gap: EmitterStrikeGap = .fit
+    var end: EmitterStrikeEnd = .cut
+    var patternMaskNoOffset: UInt16 = EmitterRatchetCfg.defaultPatternMask
     init() {}
     init(_ r: EmitterRatchet) {
         let n = r.normalized()
         on = n.on; steps = n.steps; hits = n.hits; offset = n.offset; chance = n.chance; strikes = n.strikes; restartBars = n.restartBars
         patternMask = emitterRatchetPatternMask(steps: steps, hits: hits, offset: offset)
+        mode = n.mode; rangeMin = n.rangeMin; rangeMax = n.rangeMax; hitCountBits = n.hitCountBits; gap = n.gap; end = n.end
+        patternMaskNoOffset = emitterRatchetPatternMask(steps: steps, hits: hits, offset: 0)
     }
     @inline(__always) func isHit(_ i: Int) -> Bool { i >= 0 && i < 16 && (patternMask >> UInt16(i)) & 1 != 0 }
+    /// §1.4: the HIT count (1…4) for pre-OFFSET hit ordinal `h`.
+    @inline(__always) func hitCount(_ h: Int) -> Int { guard h >= 0 && h < 16 else { return 3 }; return Int((hitCountBits >> UInt32(2 * h)) & 0b11) + 1 }
 }
 struct EmitterRatchetSnap: Equatable {
     var e0 = EmitterRatchetCfg(), e1 = EmitterRatchetCfg(), e2 = EmitterRatchetCfg(), e3 = EmitterRatchetCfg()

@@ -605,3 +605,69 @@ final class EmitterRatchetTests: XCTestCase {
         XCTAssertEqual(undo.past.count, 1)
     }
 }
+
+// MARK: - RATCH EXPAND ferry (2026-11-04) §1: the model (mode / range / hit counts / gap / end)
+
+final class RatchExpandModelTests: XCTestCase {
+    // §10 test 1 (model half): the defaults are FIX / FIT / CUT / RANGE 2–4 / HIT all 3.
+    func testDefaults() {
+        let r = EmitterRatchet()
+        XCTAssertEqual(r.mode, .fix); XCTAssertEqual(r.gap, .fit); XCTAssertEqual(r.end, .cut)
+        XCTAssertEqual(r.rangeMin, 2); XCTAssertEqual(r.rangeMax, 4)
+        for h in 0..<16 { XCTAssertEqual(r.hitCount(h), 3, "hit \(h)") }
+        XCTAssertTrue(r.isDefault)
+    }
+
+    // §1.4: pack / read a per-hit count; the 2-bit packing round-trips and clamps 1…4.
+    func testHitCountPackRoundTrips() {
+        var r = EmitterRatchet()
+        r = r.settingHitCount(0, 1).settingHitCount(5, 4).settingHitCount(15, 2)
+        XCTAssertEqual(r.hitCount(0), 1); XCTAssertEqual(r.hitCount(5), 4); XCTAssertEqual(r.hitCount(15), 2)
+        XCTAssertEqual(r.hitCount(1), 3, "untouched stays 3")
+        XCTAssertEqual(r.settingHitCount(2, 9).hitCount(2), 4, "clamps high"); XCTAssertEqual(r.settingHitCount(2, 0).hitCount(2), 1, "clamps low")
+    }
+
+    // §1.3: normalized() keeps MIN ≤ MAX (raising MIN past MAX raises MAX) and clamps the ranges.
+    func testRangeClamps() {
+        var r = EmitterRatchet(); r.rangeMin = 4; r.rangeMax = 2
+        let n = r.normalized()
+        XCTAssertEqual(n.rangeMin, 4); XCTAssertEqual(n.rangeMax, 4, "MAX raised to MIN")
+        var s = EmitterRatchet(); s.rangeMin = 9; s.rangeMax = 9
+        XCTAssertEqual(s.normalized().rangeMin, 4); XCTAssertEqual(s.normalized().rangeMax, 4)
+        var t = EmitterRatchet(); t.rangeMin = -5; t.rangeMax = 1
+        XCTAssertEqual(t.normalized().rangeMin, 1); XCTAssertEqual(t.normalized().rangeMax, 2)
+    }
+
+    // §1.7: switching MODE keeps every mode's stored values (they are independent fields).
+    func testModeSwitchKeepsValues() {
+        var r = EmitterRatchet(); r.strikes = 2; r.rangeMin = 1; r.rangeMax = 3; r = r.settingHitCount(0, 4)
+        r.mode = .range; let viaRange = r
+        r.mode = .hit; r.mode = .fix; r.mode = .range
+        XCTAssertEqual(r.strikes, 2); XCTAssertEqual(r.rangeMin, 1); XCTAssertEqual(r.rangeMax, 3); XCTAssertEqual(r.hitCount(0), 4)
+        XCTAssertEqual(r, viaRange)
+    }
+
+    // §1.8: a pre-ferry document (no new keys) decodes to the defaults; a round-trip preserves everything.
+    func testDecodeTolerantAndRoundTrip() throws {
+        let legacy = #"{"on":true,"steps":8,"hits":3,"offset":0,"chance":100,"strikes":3,"restartBars":0}"#.data(using: .utf8)!
+        let r = try JSONDecoder().decode(EmitterRatchet.self, from: legacy)
+        XCTAssertEqual(r.mode, .fix); XCTAssertEqual(r.gap, .fit); XCTAssertEqual(r.end, .cut); XCTAssertEqual(r.hitCount(2), 3)
+        var full = EmitterRatchet(); full.on = true; full.mode = .hit; full.rangeMin = 1; full.rangeMax = 3
+        full.gap = .sixteenth; full.end = .spill; full = full.settingHitCount(3, 2)
+        let back = try JSONDecoder().decode(EmitterRatchet.self, from: JSONEncoder().encode(full))
+        XCTAssertEqual(back, full.normalized())
+        // an unknown enum value decodes to the enum's default
+        let bogus = #"{"mode":"NOPE","gap":"HUH","end":"X"}"#.data(using: .utf8)!
+        let b = try JSONDecoder().decode(EmitterRatchet.self, from: bogus)
+        XCTAssertEqual(b.mode, .fix); XCTAssertEqual(b.gap, .fit); XCTAssertEqual(b.end, .cut)
+    }
+
+    // §1.5: the gap beats.
+    func testGapBeats() {
+        XCTAssertNil(EmitterStrikeGap.fit.beats)
+        XCTAssertEqual(EmitterStrikeGap.eighth.beats!, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(EmitterStrikeGap.sixteenth.beats!, 0.25, accuracy: 1e-9)
+        XCTAssertEqual(EmitterStrikeGap.sixteenthT.beats!, 1.0 / 6.0, accuracy: 1e-9)
+        XCTAssertEqual(EmitterStrikeGap.thirtysecond.beats!, 0.125, accuracy: 1e-9)
+    }
+}

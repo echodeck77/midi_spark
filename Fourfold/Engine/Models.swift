@@ -1746,6 +1746,25 @@ struct HocketRuleSet: Equatable, Codable {
 // MARK: - EMITTER RATCHET (RATCH tab ferry, 2026-10-28)
 // Four page-level ratchets, one per OUTPUT A–D (index 0…3), each driven by its own Euclid pattern. One additive-Optional, decode-tolerant document field (`PluginState.euclideousEmitterRatchets`) holds the four as FIXED-SIZE
 // data (four named members, no array); nil, short, long or unreadable ⇒ four emitters at the defaults, all off (§1.4), so an old session and every factory preset sound exactly as before.
+
+// RATCH EXPAND ferry (2026-11-04) §1: the strike-count MODE, the strike GAP and the past-the-note END. Lenient
+// enums (unknown raw ⇒ the default), so a pre-ferry document with none of these keys loads and sounds exactly as
+// before (FIX / FIT / CUT = today's even split).
+enum EmitterStrikeMode: String, Codable, CaseIterable {   // §1.1 FIX · RANGE (a random MIN…MAX per ratcheted hit) · HIT (a count per hit)
+    case fix = "FIX", range = "RANGE", hit = "HIT"
+    init(from decoder: Decoder) throws { self = EmitterStrikeMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .fix }
+}
+enum EmitterStrikeGap: String, Codable, CaseIterable {     // §1.5 FIT (the even split, today) · 1/8 · 1/16 · 1/16T · 1/32
+    case fit = "FIT", eighth = "1/8", sixteenth = "1/16", sixteenthT = "1/16T", thirtysecond = "1/32"
+    init(from decoder: Decoder) throws { self = EmitterStrikeGap(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .fit }
+    /// §1.5 the gap in beats; FIT has none of its own (the engine uses stepBeats ÷ n) and returns nil.
+    var beats: Double? { switch self { case .fit: return nil; case .eighth: return 0.5; case .sixteenth: return 0.25; case .sixteenthT: return 1.0 / 6.0; case .thirtysecond: return 0.125 } }
+}
+enum EmitterStrikeEnd: String, Codable, CaseIterable {     // §1.6 CUT (drop strikes past the step) · SPILL (run past, choke on the next note) — SPILL falls back to CUT this build (§0.2)
+    case cut = "CUT", spill = "SPILL"
+    init(from decoder: Decoder) throws { self = EmitterStrikeEnd(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .cut }
+}
+
 struct EmitterRatchet: Equatable {
     var on = false          // default OFF
     var steps = 8           // 2…16
@@ -1754,9 +1773,26 @@ struct EmitterRatchet: Equatable {
     var chance = 100        // 0…100 in steps of 5
     var strikes = 3         // 2…4
     var restartBars = 0     // RESTART (2026-11-03): 0 = FREE (the count runs on, as before), else restart this emitter's hit count every N host bars (1…16) — re-locking the CHANCE pattern into a loop of that length
+    // RATCH EXPAND ferry (2026-11-04) §1 — additive, decode-tolerant, fixed-size. All-defaults (FIX/FIT/CUT, the
+    // existing STRIKES) is byte-identical to today; switching MODE keeps every mode's stored values (§1.7).
+    var mode: EmitterStrikeMode = .fix       // §1.1 FIX uses `strikes` (above), unchanged
+    var rangeMin = 2                         // §1.3 RANGE: 1…4 (MIN 1 lets a hit play once)
+    var rangeMax = 4                         // §1.3 RANGE: 2…4; MIN ≤ MAX always
+    var hitCountBits: UInt32 = 0xAAAA_AAAA   // §1.4 HIT: sixteen counts (1…4) packed 2 bits each (value 0…3 ⇒ count 1…4), by PRE-OFFSET hit ordinal; default all = count 3 (0b10)
+    var gap: EmitterStrikeGap = .fit         // §1.5
+    var end: EmitterStrikeEnd = .cut         // §1.6
 
     static let minSteps = 2, maxSteps = 16, minStrikes = 2, maxStrikes = 4, chanceStep = 5, maxRestart = 16
+    static let minRangeMin = 1, maxRange = 4, minRangeMax = 2, hitMin = 1, hitMax = 4   // §1.3 / §1.4
     var isDefault: Bool { self == EmitterRatchet() }
+    /// §1.4 the HIT count (1…4) for pre-OFFSET hit ordinal `h` (0…15).
+    func hitCount(_ h: Int) -> Int { guard h >= 0 && h < 16 else { return 3 }; return Int((hitCountBits >> UInt32(2 * h)) & 0b11) + 1 }
+    /// §1.4 `self` with ordinal `h`'s count set to `v` (clamped 1…4).
+    func settingHitCount(_ h: Int, _ v: Int) -> EmitterRatchet {
+        guard h >= 0 && h < 16 else { return self }
+        var r = self; let c = UInt32(max(Self.hitMin, min(Self.hitMax, v)) - 1)
+        r.hitCountBits = (hitCountBits & ~(UInt32(0b11) << UInt32(2 * h))) | (c << UInt32(2 * h)); return r
+    }
 
     /// §1.2 / §1.3: STEPS first, then HITS ≤ STEPS and OFFSET ≤ STEPS − 1 against it — so one write that sets STEPS also clamps the other two, in the same undo step. CHANCE snaps to the nearest 5. RESTART clamps to 0…16 (0 = FREE).
     func normalized() -> EmitterRatchet {
@@ -1767,11 +1803,16 @@ struct EmitterRatchet: Equatable {
         r.chance = Int((Double(max(0, min(100, chance))) / Double(Self.chanceStep)).rounded()) * Self.chanceStep   // clamp BEFORE the arithmetic: a stored Int.max used to trap in `Int(…) * 5` (adversarial review)
         r.strikes = max(Self.minStrikes, min(Self.maxStrikes, strikes))
         r.restartBars = max(0, min(Self.maxRestart, restartBars))
+        // §1.3 RANGE: MIN 1…4, MAX 2…4, MIN ≤ MAX (a stored MIN past MAX raises MAX with it). hitCountBits needs no
+        // clamp — every 2-bit value already maps to a valid count 1…4. mode / gap / end are enums (lenient decode).
+        r.rangeMin = max(Self.minRangeMin, min(Self.maxRange, rangeMin))
+        r.rangeMax = max(Self.minRangeMax, min(Self.maxRange, rangeMax))
+        r.rangeMax = max(r.rangeMax, r.rangeMin)
         return r
     }
 }
 extension EmitterRatchet: Codable {
-    enum CodingKeys: String, CodingKey { case on, steps, hits, offset, chance, strikes, restartBars }
+    enum CodingKeys: String, CodingKey { case on, steps, hits, offset, chance, strikes, restartBars, mode, rangeMin, rangeMax, hitCountBits, gap, end }
     /// Never throws on content: an unreadable key keeps its default, numbers clamp (§1.2). A pre-2026-11-03 document has no `restartBars` key ⇒ FREE, so it loads and sounds exactly as before.
     init(from decoder: Decoder) throws {
         self.init()
@@ -1784,12 +1825,21 @@ extension EmitterRatchet: Codable {
         if let n = int(.chance) { chance = n }
         if let n = int(.strikes) { strikes = n }
         if let n = int(.restartBars) { restartBars = n }
+        // RATCH EXPAND (2026-11-04): absent key ⇒ the default kept above (a pre-ferry document ⇒ FIX / FIT / CUT); an unknown enum value ⇒ the enum's own default. hitCountBits is a raw bit pattern (any value is valid counts).
+        if let m = (try? c.decodeIfPresent(EmitterStrikeMode.self, forKey: .mode)) ?? nil { mode = m }
+        if let n = int(.rangeMin) { rangeMin = n }
+        if let n = int(.rangeMax) { rangeMax = n }
+        if let b = (try? c.decodeIfPresent(UInt32.self, forKey: .hitCountBits)) ?? nil { hitCountBits = b }
+        if let g = (try? c.decodeIfPresent(EmitterStrikeGap.self, forKey: .gap)) ?? nil { gap = g }
+        if let e = (try? c.decodeIfPresent(EmitterStrikeEnd.self, forKey: .end)) ?? nil { end = e }
         self = normalized()
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(on, forKey: .on); try c.encode(steps, forKey: .steps); try c.encode(hits, forKey: .hits); try c.encode(offset, forKey: .offset)
         try c.encode(chance, forKey: .chance); try c.encode(strikes, forKey: .strikes); try c.encode(restartBars, forKey: .restartBars)
+        try c.encode(mode, forKey: .mode); try c.encode(rangeMin, forKey: .rangeMin); try c.encode(rangeMax, forKey: .rangeMax)
+        try c.encode(hitCountBits, forKey: .hitCountBits); try c.encode(gap, forKey: .gap); try c.encode(end, forKey: .end)
     }
 }
 
