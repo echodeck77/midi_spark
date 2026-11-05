@@ -86,8 +86,9 @@ final class FourfoldTapTests: XCTestCase {
         cell(1, 0).press(forDuration: 0.1, thenDragTo: cell(4, 0))
         cell(3, 1).press(forDuration: 0.1, thenDragTo: cell(4, 1))
         XCTAssertEqual(cell(1, 0).value as? String, "note, length 4"); XCTAssertEqual(cell(3, 1).value as? String, "note, length 2")
+        // RIFF v2 (2026-11-05): the RHYTHM tab now also carries Backward / Ping-pong / Forward buttons, so the page opening on RHYTHM would match the wrong direction — navigate to the RIFF tab FIRST (was a conditional navigate, which no longer fires).
+        app.els(prefix: "Riff, ").firstMatch.tap()
         let button = app.els(prefix: direction).element(boundBy: 0)
-        if !button.exists { app.els(prefix: "Riff, ").firstMatch.tap() }
         need(button, "lane 1's \(direction) button on the RIFF tab"); button.tap()
         app.buttons["Play"].tap()
         let deadline = Date().addingTimeInterval(seconds)
