@@ -5,6 +5,12 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — RIFF tab regrouped "RIFF v2" (2026-11-05; `Docs/euclideous-status-log.md`, `Docs/riff-tab-regroup-findings.md`, branch `feature/riff-tab-regroup`)
+- [x] DONE: the pure layout (4 rows, MOVE/NOTES bands, §1.8 floors) + tests (19 green); the page (wide toggle, drawn arrow directions, framed bands, HIT|STEP segmented, FLIP NOTES). Layout/drawing only — no model/engine/range/undo change (golden/alloc not needed, §7). Builds green at the iOS 15 floor.
+- [ ] DEVICE: the five "RIFF v2 —" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] DECIDE (Paul): FLIP NOTES label type — built to §5.2's explicit 11 pt / 0.1 em / leading-aligned; real FLIP HITS is 8 pt / 0.08 em / centred. Keep §5.2's, or copy FLIP HITS exactly? (discrepancy #5 in the findings).
+- [ ] (noted) `><` is PING/`.pingpong` (not PEND) — the ping-pong icon maps to the glyph, behaviour unchanged; OCT stays a slider (not "five boxes"), as §1.7's "as today"; `melodyValuesRow` + `riffDirHelpPhrase` are kept but unused (§0.2).
+
 ## ★ FOURFOLD — RATCH EXPAND (2026-11-04; `Docs/euclideous-status-log.md`, branch `feature/ratch-expand`)
 - [x] DONE engine (slices 1–3, landed `0880747`): `EmitterRatchet` mode/range/hitCounts/gap/end, `emitterRatchetDecide` per-mode n, the Router's GAP spacing + CUT; golden byte-identical at defaults; model/decide/engine tests green.
 - [x] DONE UI (slices 4–5): collapsed STEPS·HITS·OFFSET·STRIKES + config button; the expanded per-emitter editor (disc column, big strip, value row, STRIKES FIX·RANGE·HIT, GAP segmented); `EmitterRatchetTests` + screenshots green.

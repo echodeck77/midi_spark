@@ -216,6 +216,25 @@ final class FourfoldScreenshotTests: XCTestCase {
         attach("9-strip-8-back-on-rhythm")
     }
 
+    /// RIFF v2 (2026-11-05): the regrouped RIFF tab — the wide riff toggle with the arrow directions under it, the MOVE and NOTES bands, FLIP NOTES — in both orientations, with a direction, HIT|STEP and FLIP NOTES exercised.
+    func testTheRiffTabRegroup() {
+        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+        func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
+        func toRiff() { step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff, '")).firstMatch) }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2)
+        toRiff(); Thread.sleep(forTimeInterval: 1.2)
+        attach("10-riff-1-landscape")
+        // exercise a lane: pick a direction (ping-pong), flip notes, switch HIT -> STEP — so the selected looks show
+        step(app.buttons["Ping-pong"].firstMatch); step(app.buttons["Flip notes"].firstMatch); step(app.buttons["Advance by steps"].firstMatch)
+        Thread.sleep(forTimeInterval: 1)
+        attach("10-riff-2-landscape-selected")
+        XCUIDevice.shared.orientation = .portrait
+        Thread.sleep(forTimeInterval: 2)
+        toRiff(); Thread.sleep(forTimeInterval: 1.2)
+        attach("10-riff-3-portrait")
+    }
+
     /// CHORD CANON (2026-10-31): the LISTEN tab's CANON row in landscape (the card is shorter there than in portrait) and the debug-only CANON ENTRY control on the settings sheet's CLOCK tab.
     func testTheCanonRowAndTheEntrySetting() {
         XCUIDevice.shared.orientation = .landscapeLeft

@@ -5046,11 +5046,11 @@ struct EuclideousPage: View {
     /// to fill whatever's left; any remaining height at the bottom is empty.
     private func riffCard(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat, gridSize: CGFloat) -> some View {
         let isRiff = line.riffOnResolved
-        // RIFF v2 §2.2: a wide, short bar — RIFF leading, the mini-grid trailing, one row centred vertically, 12 pt in from each side.
-        return HStack(spacing: 8) {
+        // RIFF v2 §2.2: a wide, short bar — RIFF leading, the mini-grid trailing, one row centred vertically, 12 pt in from each side. (spacing 0 + a single Spacer gap, so "RIFF" keeps the room the toggle's 100 pt inner − 53 grid leaves, rather than losing 8 pt to a doubled gap and truncating to "RI…".)
+        return HStack(spacing: 0) {
             Text("RIFF").font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(2)
-                .foregroundColor(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)).lineLimit(1)
-            Spacer(minLength: 0)
+                .foregroundColor(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)).lineLimit(1).fixedSize()
+            Spacer(minLength: 8)
             riffMiniGrid(idx, line, accent, size: gridSize).frame(width: gridSize, height: gridSize)
         }
         .padding(.horizontal, 12)
