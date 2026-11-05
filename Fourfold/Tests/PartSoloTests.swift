@@ -61,11 +61,12 @@ final class PartSoloTests: XCTestCase {
         return l
     }
     private func fourLanes(gate: Double = 0.5) -> [EuclidLine] { [lane(rate: .r1_4, gate: gate), lane(rate: .r1_8, gate: gate), lane(rate: .r1_4, steps: 7, gate: gate), lane(rate: .r1_16, gate: gate)] }
-    private func state(_ lines: [EuclidLine], fx: EuclideousFX? = nil, partSnapshot: UInt8? = nil) -> PluginState {
+    private func state(_ lines: [EuclidLine], fx: EuclideousFX? = nil, partSnapshot: UInt8? = nil, laneSnapshot: UInt8? = nil) -> PluginState {
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
         c.paramsA.euclidLines = lines
         c.paramsA.partSoloMask = partSnapshot
+        if let laneSnapshot { c.paramsA.soloMask = laneSnapshot }
         var sc = SceneState.empty(); sc.stepRate = .r1_8
         sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
         var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
@@ -168,6 +169,71 @@ final class PartSoloTests: XCTestCase {
             let st = state(fourLanes(gate: 0.99), fx: fx)
             let r = play(st, beats: 22, live: { b in table.last(where: { $0.0 <= b })?.1 })
             XCTAssertEqual(r.emitter.stuck, 0, "seed \(seed): a note was left sounding after the stop")
+        }
+    }
+
+    // MARK: ONE SOLO (2026-11-05) — the lane SOLO tile and the MIX S buttons are views of the same eight bits
+
+    func testALanesBitsAreItsTwoPartBits() {
+        XCTAssertEqual(euclideousSoloLaneBits(0b0001), 0b0000_0011); XCTAssertEqual(euclideousSoloLaneBits(0b0100), 0b0011_0000); XCTAssertEqual(euclideousSoloLaneBits(0b1010), 0b1100_1100)
+        XCTAssertEqual(euclideousSoloLaneBits(0), 0); XCTAssertEqual(euclideousSoloLaneBits(0x0F), 0xFF)
+        XCTAssertEqual(euclideousSoloFold(laneMask: 0b0010, partMask: 0b0100_0001), 0b0100_1101, "an old lane mask is its two part bits OR the part mask")
+    }
+    func testTheLaneTilesLightFollowsTheTwoPartBits() {
+        XCTAssertEqual(euclideousLaneSoloState(lane: 1, parts: 0), .off)
+        XCTAssertEqual(euclideousLaneSoloState(lane: 1, parts: 0b0000_0100), .riffOnly, "lane 2's riff alone: the light is half-lit")
+        XCTAssertEqual(euclideousLaneSoloState(lane: 1, parts: 0b0000_1000), .notesOnly)
+        XCTAssertEqual(euclideousLaneSoloState(lane: 1, parts: 0b0000_1100), .both)
+        XCTAssertEqual(euclideousLaneSoloState(lane: 0, parts: 0b1111_1100), .off, "another lane's bits light nothing")
+        XCTAssertEqual(euclideousLaneSoloState(lane: 9, parts: 0xFF), .off)
+        XCTAssertEqual(euclideousSoloAccessibilityValue(state: .both), "on"); XCTAssertEqual(euclideousSoloAccessibilityValue(state: .off), "off")
+        XCTAssertEqual(euclideousSoloAccessibilityValue(state: .riffOnly), "riff only"); XCTAssertEqual(euclideousSoloAccessibilityValue(state: .notesOnly), "notes only")
+    }
+    func testATapOnTheLaneTileCompletesAHalfLitLightAndClearsAFullOne() {
+        XCTAssertEqual(euclideousLaneSoloTap(parts: 0, lane: 2), 0b0011_0000, "off → both parts")
+        XCTAssertEqual(euclideousLaneSoloTap(parts: 0b0001_0000, lane: 2), 0b0011_0000, "only the riff → both")
+        XCTAssertEqual(euclideousLaneSoloTap(parts: 0b0010_0000, lane: 2), 0b0011_0000, "only the notes → both")
+        XCTAssertEqual(euclideousLaneSoloTap(parts: 0b0011_0000, lane: 2), 0, "both → cleared")
+        XCTAssertEqual(euclideousLaneSoloTap(parts: 0b0111_0101, lane: 2), 0b0100_0101, "another lane's bits are left alone")
+        XCTAssertEqual(euclideousLaneSoloTap(parts: 0b0101, lane: 7), 0b0101)
+        // the round trip the user asked for: lane SOLO on → both S lit; one S off → the light is half-lit
+        let on = euclideousLaneSoloTap(parts: 0, lane: 0)
+        XCTAssertEqual(euclideousLaneSoloState(lane: 0, parts: on), .both); XCTAssertEqual(on & 1, 1); XCTAssertEqual(on & 2, 2)
+        XCTAssertEqual(euclideousLaneSoloState(lane: 0, parts: on ^ 1), .notesOnly, "the riff's S switched off on MIX")
+    }
+    func testWhatTheButtonsShowFoldsAnOldLaneMaskInAndLeavesAFingerOut() {
+        XCTAssertEqual(euclideousSoloShownParts(laneLatched: 0b0010, partLatched: 0b0000_0001), 0b0000_1101)
+        XCTAssertEqual(euclideousSoloShownParts(laneLatched: 0, partLatched: 0, partHeld: 0b0100), 0b0100, "a held S lights its lane's half light")
+        XCTAssertEqual(euclideousSoloShownParts(laneLatched: 0, partLatched: 0b0001), 0b0001)
+    }
+    func testTheHalfLitLookNeverOverridesAHoldOrAFullLatch() {
+        XCTAssertEqual(euclideousSoloButtonLook(latched: false, heldLook: false, partial: true), .partial)
+        XCTAssertEqual(euclideousSoloButtonLook(latched: true, heldLook: false, partial: true), .latched)
+        XCTAssertEqual(euclideousSoloButtonLook(latched: false, heldLook: true, partial: true), .held)
+        XCTAssertEqual(euclideousSoloButtonLook(latched: false, heldLook: false), .off, "the old two-argument call is unchanged")
+    }
+    func testAnOldDocumentsLaneSoloFoldsIntoThePartBitsAtLoadAndOnlyOnce() throws {
+        var doc = PluginState(machines: machineIDs.map { Machine(machineID: $0, type: .arp) }, scenes: [SceneState.empty()])
+        doc.euclideousSoloMask = 0b0101; doc.euclideousPartSoloMask = 0b1000_0000
+        var d = doc; d.normalizeSoloAtLoad()
+        XCTAssertNil(d.euclideousSoloMask); XCTAssertEqual(d.euclideousPartSoloMask, 0xB3, "lanes 1 and 3 → bits 0,1,4,5, plus lane 4's notes")
+        var again = d; again.normalizeSoloAtLoad(); XCTAssertEqual(again.euclideousPartSoloMask, d.euclideousPartSoloMask); XCTAssertNil(again.euclideousSoloMask)
+        var bare = PluginState(machines: doc.machines, scenes: doc.scenes); bare.normalizeSoloAtLoad()
+        XCTAssertNil(bare.euclideousPartSoloMask); XCTAssertNil(bare.euclideousSoloMask, "a document with no solo is untouched")
+        // through the preset codec (the session setter calls the same function)
+        var saved = doc; saved.euclideousPartSoloMask = nil; saved.euclideousSoloMask = 0b0010
+        let back = try XCTUnwrap(PresetStore.decode(try XCTUnwrap(PresetStore.encode(saved))))
+        XCTAssertNil(back.euclideousSoloMask); XCTAssertEqual(back.euclideousPartSoloMask, 0b0000_1100, "an old preset's lane 2 solo is its two part bits")
+    }
+    func testAnOldLaneMaskAndItsFoldedPartMaskPlayTheSameEventForEvent() {
+        for lane in 0..<4 {
+            let bit = UInt8(1 << lane)
+            let old = play(state(fourLanes(), laneSnapshot: bit), beats: 10)
+            let folded = play(state(fourLanes(), partSnapshot: euclideousSoloLaneBits(bit)), beats: 10)
+            XCTAssertFalse(starts(old.records).isEmpty, "lane \(lane + 1): something sounds")
+            XCTAssertEqual(parts(old.records), [2 * lane, 2 * lane + 1], "lane \(lane + 1) soloed: exactly its two parts sound")
+            XCTAssertEqual(starts(old.records).map { [$0.onBeat, Double($0.part), Double($0.rank)] }, starts(folded.records).map { [$0.onBeat, Double($0.part), Double($0.rank)] }, "lane \(lane + 1): the folded mask sounds exactly as the lane mask did")
+            XCTAssertEqual(old.emitter.ons, folded.emitter.ons); XCTAssertEqual(folded.emitter.stuck, 0)
         }
     }
 

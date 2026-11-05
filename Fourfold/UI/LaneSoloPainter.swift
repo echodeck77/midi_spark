@@ -18,6 +18,7 @@ enum EuclideousSoloPalette {
     static let offLabel = Color(h: 0xAAB0BA)
     static let ink = Color(h: 0x0D0F14)
     static let heldFill = Color(h: 0xDFE3EA)   // the header's held look (`headerHoldLatchChip` active)
+    static let partialLabel = Color(h: 0xDFE3EA)   // ONE SOLO: the label on the dimmed (one part soloed) light
     static let size: CGFloat = 44, radius: CGFloat = 9   // the step-count box's frame and the play button's radius
 }
 
@@ -27,16 +28,18 @@ struct EuclideousSoloButton: View {
     let accent: Color
     let latched: Bool
     let heldLook: Bool
+    /// ONE SOLO (2026-11-05): only one of the lane's two parts is soloed (on MIX) — a dimmed solo light.
+    var partial = false
     /// MIX ROWS (2026-11-03): the tile at another frame (120 × 24 on the MIX panel's top row); the radius scales with its height. The default is the card's own 44 × 44, byte for byte.
     var tile = CGSize(width: EuclideousSoloPalette.size, height: EuclideousSoloPalette.size)
     typealias P = EuclideousSoloPalette
 
     var body: some View {
-        let look = euclideousSoloButtonLook(latched: latched, heldLook: heldLook)
-        let fill: Color = look == .off ? P.offFill : (look == .latched ? accent : P.heldFill)
+        let look = euclideousSoloButtonLook(latched: latched, heldLook: heldLook, partial: partial)
+        let fill: Color = look == .off ? P.offFill : (look == .latched ? accent : (look == .partial ? accent.opacity(0.32) : P.heldFill))
         Text("SOLO")
             .font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
-            .foregroundColor(look == .off ? P.offLabel : P.ink)
+            .foregroundColor(look == .off ? P.offLabel : (look == .partial ? P.partialLabel : P.ink))
             .lineLimit(1).truncationMode(.tail)
             .frame(width: tile.width, height: tile.height)
             .background(RoundedRectangle(cornerRadius: P.radius * tile.height / P.size).fill(fill))
@@ -60,6 +63,9 @@ struct EuclideousSoloPressable: View {
     /// MIX v2 (per-part solo): another look for the same touch machine (latched, held-look) and its spoken name; the default is the lane SOLO tile and "Solo lane n".
     var look: ((Bool, Bool) -> AnyView)? = nil
     var axLabel: String? = nil
+    /// ONE SOLO (2026-11-05): the lane tile's half-lit state (only the riff or only the notes soloed) and the value VoiceOver speaks for it ("riff only" / "notes only"); the defaults are the old on / off.
+    var partial = false
+    var axValue: String? = nil
     let onDown: () -> Void
     /// `true` = a tap (flip the latch); `false` = a hold / cancel (leave it). Either way the held bit is cleared — in the SAME update, so a tap never flickers.
     let onUp: (_ latchToggles: Bool) -> Void
@@ -73,7 +79,7 @@ struct EuclideousSoloPressable: View {
 
     var body: some View {
         Group {
-            if let look { look(latched, heldLook) } else { EuclideousSoloButton(accent: accent, latched: latched, heldLook: heldLook, tile: tile) }
+            if let look { look(latched, heldLook) } else { EuclideousSoloButton(accent: accent, latched: latched, heldLook: heldLook, partial: partial, tile: tile) }
         }
             .frame(width: target?.width ?? tile.width, height: target?.height ?? tile.height, alignment: .top)
             .contentShape(Rectangle())
@@ -102,7 +108,7 @@ struct EuclideousSoloPressable: View {
             .onDisappear { if press.down { finish(cancelled: true) } }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(axLabel ?? euclideousSoloAccessibilityLabel(lane: lane))
-            .accessibilityValue(euclideousSoloAccessibilityValue(latched: latched))
+            .accessibilityValue(axValue ?? euclideousSoloAccessibilityValue(latched: latched))
             .accessibilityHint(euclideousSoloAccessibilityHint)
             .accessibilityAddTraits(.isButton)
             .ringToggleTrait()

@@ -29,6 +29,7 @@ enum PresetStore {
         doc.normalizeRiffsAtLoad()               // POLY RIFF: the four riff boxes are gone — the riff that was active is the one riff
         doc.normalizeTradesAtLoad()              // ANSWER 6.5: a SWAP whose partner does not SWAP back has its TRADE switched off
         doc.normalizeChordSetsAtLoad()           // TWO CHORD GRIDS: an old preset's four progressions become two (the playing one is grid 1)
+        doc.normalizeSoloAtLoad()                // ONE SOLO: an old preset's lane solo becomes its two part bits
         return doc
     }
 

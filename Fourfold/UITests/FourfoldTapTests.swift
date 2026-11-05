@@ -590,6 +590,35 @@ final class FourfoldTapTests: XCTestCase {
         let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff playing'")).firstMatch)
         XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 12), .completed, "lane 1's riff plays again once the solo is released")
     }
+    /// ONE SOLO (2026-11-05): the lane SOLO tile (cards) and the MIX S buttons are views of the same eight bits. A lane soloed on the cards lights BOTH of its S buttons; switching one S off leaves the lane's SOLO half-lit ("notes only"); a tap on a
+    /// half-lit SOLO completes it; a tap on a full one clears both S buttons.
+    func testALaneSoloAndThePartSolosOnMixAreOneThing() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        Thread.sleep(forTimeInterval: 1)
+        func v(_ label: String) -> String? { app.switches[label].value as? String }
+        need(app.switches["Solo lane 2"], "lane 2's SOLO on the cards").tap()
+        XCTAssertEqual(v("Solo lane 2"), "on")
+        app.buttons["Mix"].tap()
+        need(app.switches["Solo riff, lane 2"], "lane 2's riff S")
+        XCTAssertEqual(v("Solo riff, lane 2"), "on", "a lane soloed on the cards lights its riff S"); XCTAssertEqual(v("Solo notes, lane 2"), "on", "…and its notes S")
+        XCTAssertEqual(v("Solo riff, lane 1"), "off", "another lane's S is untouched")
+        app.switches["Solo riff, lane 2"].tap()
+        XCTAssertEqual(v("Solo riff, lane 2"), "off"); XCTAssertEqual(v("Solo notes, lane 2"), "on", "the notes stay soloed")
+        app.buttons["Rhythm"].tap()
+        need(app.switches["Solo lane 2"], "lane 2's SOLO back on the cards")
+        XCTAssertEqual(v("Solo lane 2"), "notes only", "only the notes soloed: the lane's SOLO is half-lit, and says so")
+        app.switches["Solo lane 2"].tap()
+        XCTAssertEqual(v("Solo lane 2"), "on", "a tap completes a half-lit SOLO")
+        app.buttons["Mix"].tap()
+        need(app.switches["Solo riff, lane 2"], "lane 2's riff S")
+        XCTAssertEqual(v("Solo riff, lane 2"), "on"); XCTAssertEqual(v("Solo notes, lane 2"), "on")
+        app.buttons["Rhythm"].tap()
+        need(app.switches["Solo lane 2"], "lane 2's SOLO").tap()
+        XCTAssertEqual(v("Solo lane 2"), "off", "a tap on a full SOLO clears it")
+        app.buttons["Mix"].tap()
+        need(app.switches["Solo riff, lane 2"], "lane 2's riff S")
+        XCTAssertEqual(v("Solo riff, lane 2"), "off"); XCTAssertEqual(v("Solo notes, lane 2"), "off", "both S buttons cleared with it")
+    }
     /// Random mode started from MIX shows the cards (their random faces) and finishing returns to the panel.
     func testRandomModeStartedFromMixShowsTheCardsAndReturnsToThePanel() {
         let app = XCUIApplication.fresh(["--autoplay"])

@@ -9337,6 +9337,38 @@ func euclidEvenBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidStepGr
 
 /// §7.1: the effective part mask — latched | held, eight bits.
 @inline(__always) func euclideousPartSoloEffective(latched: UInt8, held: UInt8) -> UInt8 { latched | held }
+
+// MARK: - ONE SOLO (2026-11-05, Paul): the lane SOLO tile and the MIX S buttons are two views of the SAME eight part bits
+// A lane's SOLO sets and clears BOTH of its parts' bits; an S sets or clears one. So a lane soloed on RHYTHM shows both S lit on MIX, and a riff soloed alone on MIX shows the lane's SOLO half-lit. The engine is untouched: it already treats the lane mask and
+// the part mask as a union, and a lane bit is exactly its two part bits. The lane mask is now only what an OLD document stored — folded into the part mask at load (`normalizeSoloAtLoad`) and on the first solo edit.
+
+/// A lane mask (bit n = lane n) as part bits: both parts of every lane in it.
+@inline(__always) func euclideousSoloLaneBits(_ laneMask: UInt8) -> UInt8 {
+    var out: UInt8 = 0
+    for n in 0..<4 where (laneMask >> UInt8(n)) & 1 != 0 { out |= UInt8(3) << UInt8(2 * n) }
+    return out
+}
+/// The latched part mask with an old document's lane mask folded in.
+@inline(__always) func euclideousSoloFold(laneMask: UInt8, partMask: UInt8) -> UInt8 { partMask | euclideousSoloLaneBits(laneMask) }
+/// What the SOLO tile and the S buttons SHOW as latched: the part bits, an old lane mask folded in. A held finger is not in it — each button shows its own hold itself (its held look), so a touch-down never flickers the tile.
+@inline(__always) func euclideousSoloShownParts(laneLatched: UInt8, partLatched: UInt8, partHeld: UInt8 = 0) -> UInt8 { euclideousSoloFold(laneMask: laneLatched, partMask: partLatched) | partHeld }
+enum EuclideousLaneSoloState: Equatable { case off, riffOnly, notesOnly, both }
+/// A lane's SOLO light from the part bits: OFF (neither part soloed), half-lit (one of them — the riff or the notes alone), full (both).
+func euclideousLaneSoloState(lane: Int, parts: UInt8) -> EuclideousLaneSoloState {
+    guard lane >= 0, lane < 4 else { return .off }
+    switch (parts >> UInt8(2 * lane)) & 3 {
+    case 3: return .both
+    case 1: return .riffOnly
+    case 2: return .notesOnly
+    default: return .off
+    }
+}
+/// The latched part mask after a TAP on lane `lane`'s SOLO: both parts soloed → both cleared; otherwise (none, or only one) → both set — a half-lit light is completed by a tap, as an unlit one is.
+func euclideousLaneSoloTap(parts: UInt8, lane: Int) -> UInt8 {
+    guard lane >= 0, lane < 4 else { return parts }
+    let both = UInt8(3) << UInt8(2 * lane)
+    return parts & both == both ? parts & ~both : parts | both
+}
 /// Is part `part` (0 riff, 1 notes) of lane `lane` solo-silenced? With `partMask` 0 this is exactly `euclideousSoloSilences(lane:)` for both parts.
 @inline(__always) func euclideousPartSoloSilences(lane: Int, part: Int, soloMask: UInt8, partMask: UInt8) -> Bool {
     let lm = soloMask & 0x0F
@@ -9398,11 +9430,16 @@ struct EuclideousSoloPress: Equatable {
 
 // ── the button's look and words (§2.3, §7.1) ────────────────────────────────────────────────────────────
 
-enum EuclideousSoloButtonLook: Equatable { case off, latched, held }
-/// §2.3: OFF (#2A2D34 + 1 pt #3A3E47 inner border, label #AAB0BA), LATCHED (lane100, no border, label #0D0F14), HELD (#DFE3EA, no border, label #0D0F14 — from 300 ms until release, whether or not it was latched).
-func euclideousSoloButtonLook(latched: Bool, heldLook: Bool) -> EuclideousSoloButtonLook { heldLook ? .held : (latched ? .latched : .off) }
+enum EuclideousSoloButtonLook: Equatable { case off, latched, held, partial }
+/// §2.3: OFF (#2A2D34 + 1 pt #3A3E47 inner border, label #AAB0BA), LATCHED (lane100, no border, label #0D0F14), HELD (#DFE3EA, no border, label #0D0F14 — from 300 ms until release, whether or not it was latched). ONE SOLO (2026-11-05): PARTIAL — only one of
+/// the lane's two parts is soloed (on MIX): the lane colour at 32 % behind a light label, no border (a dimmed solo light); it never overrides a hold, and a fully latched lane is LATCHED.
+func euclideousSoloButtonLook(latched: Bool, heldLook: Bool, partial: Bool = false) -> EuclideousSoloButtonLook { heldLook ? .held : (latched ? .latched : (partial ? .partial : .off)) }
 func euclideousSoloAccessibilityLabel(lane: Int) -> String { "Solo lane \(lane + 1)" }
 func euclideousSoloAccessibilityValue(latched: Bool) -> String { latched ? "on" : "off" }
+/// ONE SOLO: the lane tile's value — "on", "off", or which single part is soloed.
+func euclideousSoloAccessibilityValue(state: EuclideousLaneSoloState) -> String {
+    switch state { case .off: return "off"; case .both: return "on"; case .riffOnly: return "riff only"; case .notesOnly: return "notes only" }
+}
 let euclideousSoloAccessibilityHint = "Tap to latch; hold to solo while held"
 /// §7.2: what a solo-silenced lane's value / label adds, as the silent-lane look adds ", silent at this step".
 let euclideousSilencedBySoloPhrase = "silenced by solo"

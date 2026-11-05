@@ -3654,6 +3654,15 @@ struct PluginState: Codable, Equatable {
     // tolerant, no undo, a preset load replaces it); nil ⇒ 0 ⇒ every pre-feature document sounds as before. The held part mask is UI state only and is deliberately not a field of anything saved.
     var euclideousPartSoloMask: UInt8? = nil
     var euclideousPartSoloMaskResolved: UInt8 { euclideousPartSoloMask ?? 0 }
+    /// ONE SOLO (2026-11-05): the lane SOLO tile now writes both of its lane's part bits, so the lane mask is only what an older document stored. SOUND-PRESERVING (a lane bit is exactly its two part bits in the engine's union): fold it into the part mask
+    /// and clear it. Idempotent; run wherever a document is loaded (a session, a user preset) beside `normalizeLocksAtLoad`.
+    mutating func normalizeSoloAtLoad() {
+        let lane = euclideousSoloMaskResolved
+        guard lane != 0 else { return }
+        let folded = euclideousSoloFold(laneMask: lane, partMask: euclideousPartSoloMaskResolved)
+        euclideousPartSoloMask = folded == 0 ? nil : folded
+        euclideousSoloMask = nil
+    }
     // LANE LOCK (ferry 2026-10-21, §3.2): one lock per Euclideous lane — on, snap-back grid (kept while unlocked) and the locked state L. A 4-entry array BESIDE `euclideousLines`, deliberately NOT a field of
     // `EuclidLine` (which is shared by the persisted `MachineParams`, the render `SnapParams` and every "is this the same line" test, and is the struct that nearly filled the extension's 1 MB debug stack).
     // Consequences by construction: a lock is never in an undo snapshot (9.2), carries through no preset (9.3) and no copy/paste (3.4), and a pre-feature document (nil) resolves to four unlocked lanes. A session

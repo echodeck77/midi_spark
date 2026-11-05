@@ -3736,7 +3736,7 @@ struct EuclideousPage: View {
             size: size, lines: lines, accents: laneAccents,
             laneSoloSilenced: (0..<4).map { soloSilenced($0) },
             partSoloSilenced: (0..<8).map { partSoloSilenced($0 / 2, part: $0 % 2) },
-            partSoloLatched: partSoloMask,
+            partSoloLatched: euclideousSoloShownParts(laneLatched: soloMask, partLatched: partSoloMask),   // ONE SOLO: a lane soloed on the cards lights both of its S buttons
             strips: (0..<4).map { mixStripFeed($0) },
             hitsText: (0..<4).map { euclideousRhythmTabCounts(lane: $0, lines: phaseLines).hits },
             stepsText: (0..<4).map { euclideousRhythmTabCounts(lane: $0, lines: phaseLines).steps },
@@ -3908,8 +3908,11 @@ struct EuclideousPage: View {
     private func partSoloSilenced(_ lane: Int, part: Int) -> Bool { euclideousPartSoloSilences(lane: lane, part: part, soloMask: soloEffective, partMask: partSoloEffective) }
     /// The SOLO button of lane `idx` (§2-3), built here as an `AnyView` like every other leaf of the lane card (the page's construction chain has almost no stack to spare in a debug build).
     private func soloButton(_ idx: Int, _ accent: Color) -> AnyView {
-        AnyView(EuclideousSoloPressable(lane: idx, accent: accent, latched: (soloMask >> UInt8(idx)) & 1 != 0,
-                                        onDown: { onSoloDown(idx) }, onUp: { onSoloUp(idx, $0) }))
+        // ONE SOLO (2026-11-05): the tile is lit from the lane's two PART bits — full when both parts are soloed, half-lit when only the riff or only the notes is (soloed on MIX), off when neither
+        let state = euclideousLaneSoloState(lane: idx, parts: euclideousSoloShownParts(laneLatched: soloMask, partLatched: partSoloMask, partHeld: partSoloHeld))
+        return AnyView(EuclideousSoloPressable(lane: idx, accent: accent, latched: state == .both,
+                                               partial: state == .riffOnly || state == .notesOnly, axValue: euclideousSoloAccessibilityValue(state: state),
+                                               onDown: { onSoloDown(idx) }, onUp: { onSoloUp(idx, $0) }))
     }
 
     // MARK: - COLOUR HIERARCHY (this ferry §4): "lane colour is currently used at full strength in about

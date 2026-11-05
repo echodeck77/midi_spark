@@ -451,12 +451,13 @@ struct FourfoldRootView: View {
                                                onSoloUp: { lane, latchToggles in
                                                    guard (0..<4).contains(lane) else { return }
                                                    euclideousSoloHeld &= ~UInt8(1 << lane)
-                                                   if latchToggles { euclideousSoloMask ^= UInt8(1 << lane) }
-                                                   au?.setEuclideousSoloLive(euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld))
+                                                   // ONE SOLO (2026-11-05): a tap sets or clears BOTH of the lane's part bits (an older document's lane mask is folded in first and cleared) — the lane tile and MIX's S buttons are views of the same eight bits
                                                    if latchToggles {
-                                                       let v = euclideousSoloMask
-                                                       au?.editDocument { $0.euclideousSoloMask = v }
+                                                       euclideousPartSoloMask = euclideousLaneSoloTap(parts: euclideousSoloFold(laneMask: euclideousSoloMask, partMask: euclideousPartSoloMask), lane: lane)
+                                                       euclideousSoloMask = 0
                                                    }
+                                                   publishSoloLive()
+                                                   if latchToggles { saveSoloMasks() }
                                                    publish()
                                                },
                                                // PER-PART SOLO (MIX v2, 2026-11-05, §7.6): lane solo's rule on the part mask — touch-down holds the part at once, a lift clears it and, for a tap, flips its latched bit in the SAME update; the live word goes to
@@ -470,12 +471,12 @@ struct FourfoldRootView: View {
                                                onPartSoloUp: { part, latchToggles in
                                                    guard (0..<8).contains(part) else { return }
                                                    euclideousPartSoloHeld &= ~UInt8(1 << part)
-                                                   if latchToggles { euclideousPartSoloMask ^= UInt8(1 << part) }
-                                                   au?.setEuclideousPartSoloLive(euclideousPartSoloEffective(latched: euclideousPartSoloMask, held: euclideousPartSoloHeld))
                                                    if latchToggles {
-                                                       let v = euclideousPartSoloMask
-                                                       au?.editDocument { $0.euclideousPartSoloMask = v == 0 ? nil : v }
+                                                       euclideousPartSoloMask = euclideousSoloFold(laneMask: euclideousSoloMask, partMask: euclideousPartSoloMask) ^ UInt8(1 << part)   // ONE SOLO: fold an older lane mask in first
+                                                       euclideousSoloMask = 0
                                                    }
+                                                   publishSoloLive()
+                                                   if latchToggles { saveSoloMasks() }
                                                    publish()
                                                },
                                                // FOURFOLD SETTINGS (2026-10-15 ferry) — §6.3/§6.4: "no undo steps... changes
@@ -559,6 +560,18 @@ struct FourfoldRootView: View {
                           onSave: savePreset, onLoad: loadPreset, onLoadFactory: loadFactoryPreset,
                           onDelete: deletePreset, onClose: { showPresets = false })
         }
+    }
+
+    // ── ONE SOLO (2026-11-05): the lane SOLO tile and MIX's S buttons write the same eight part bits ──
+    /// Both live words follow latched | held — the PART word first, so a solo turning on never leaves a window with the lane word moved and the part word still the old one (a one-buffer blip of everything sounding).
+    func publishSoloLive() {
+        au?.setEuclideousPartSoloLive(euclideousPartSoloEffective(latched: euclideousPartSoloMask, held: euclideousPartSoloHeld))
+        au?.setEuclideousSoloLive(euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld))
+    }
+    /// The latched masks into the document (no undo, as ever): the lane mask is 0 after any solo edit (folded into the part bits), so a saved document carries the one eight-bit mask.
+    func saveSoloMasks() {
+        let lane = euclideousSoloMask, part = euclideousPartSoloMask
+        au?.editDocument { $0.euclideousSoloMask = lane == 0 ? nil : lane; $0.euclideousPartSoloMask = part == 0 ? nil : part }
     }
 
     // ── publish: the Fourfold replacement for 8x8's buildPublishScene ──

@@ -306,6 +306,25 @@ final class FourfoldScreenshotTests: XCTestCase {
         }
     }
 
+    /// ONE SOLO (2026-11-05): lane 2's riff soloed on MIX alone → on the RHYTHM tab lane 2's SOLO is half-lit; lane 3 fully soloed from the cards beside it for comparison.
+    func testTheHalfLitLaneSolo() {
+        let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2)
+        let mix = app.buttons["Mix"]
+        if mix.waitForExistence(timeout: 5) { mix.tap() }
+        let s = app.switches["Solo riff, lane 2"]
+        if s.waitForExistence(timeout: 3) { s.tap() }
+        Thread.sleep(forTimeInterval: 0.8)
+        app.buttons["Rhythm"].tap()
+        Thread.sleep(forTimeInterval: 1.2)
+        let l3 = app.switches["Solo lane 3"]
+        if l3.waitForExistence(timeout: 3) { l3.tap() }
+        Thread.sleep(forTimeInterval: 1)
+        attach("9-solo-halflit-land-")
+        app.terminate()
+    }
+
     /// RATCH tab ferry (2026-10-28): the tab as it opens (every emitter off), then with A at 16 / 16 / ×4 (every slot four bars) and B at CHANCE 50 — playing, in both orientations — so the strips, bars and cells can be looked at.
     func testTheRatchTab() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
