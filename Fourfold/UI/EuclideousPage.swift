@@ -4998,17 +4998,18 @@ struct EuclideousPage: View {
         return euclideousRiffGlyph(columns: n, poly: poly, stepRanks: stepRanks, polyCovers: { col, rank in pr.note(covering: col, rank: rank) != nil },
                                    invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved, window: Set(window), neverPlay: Set(neverPlay), current: curStep)
     }
-    private func riffMiniGrid(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGFloat) -> some View {
+    /// RIFF v2 §2.2/§2.3: the toggle's 8×8 mini-grid — `gap` apart, MONO cells `monoRadius` rounded. `size` (the square side) comes from the layout (53 at the reference, shrunk when Row A is short); the cells fill it. Reads the shared `riffGlyph` (MIX v2's part toggle reads it too).
+    private func riffMiniGrid(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGFloat, gap: CGFloat = 1.4, monoRadius: CGFloat = 1) -> some View {
         let glyph = riffGlyph(idx, line)
         let poly = riffPoly
         let n = glyph.columns
         let isRiff = line.riffOnResolved
-        let cellW = max(1, (size - CGFloat(n - 1)) / CGFloat(n)), cellH = max(1, (size - 7) / 8)   // n cells + (n − 1) gaps of 1pt across, 8 rows + 7 gaps down
-        return VStack(spacing: 1) {
+        let cellW = max(1, (size - CGFloat(n - 1) * gap) / CGFloat(n)), cellH = max(1, (size - 7 * gap) / 8)   // n cells + (n − 1) gaps across, 8 rows + 7 gaps down
+        return VStack(spacing: gap) {
             ForEach((1...8).reversed(), id: \.self) { rank in
-                HStack(spacing: 1) {
+                HStack(spacing: gap) {
                     ForEach(0..<n, id: \.self) { col in
-                        RoundedRectangle(cornerRadius: poly ? 0.75 : 1.5)
+                        RoundedRectangle(cornerRadius: poly ? 0.75 : monoRadius)
                             .fill(riffMiniGridFill(isRiff: isRiff, isHit: glyph.isHit(col: col, rank: rank), isCur: col == glyph.current))
                             .frame(width: cellW, height: cellH)
                             .opacity(glyph.opacity(col: col))
@@ -5043,17 +5044,16 @@ struct EuclideousPage: View {
     /// an 11pt label line 8pt below the card's top, the 55.3×55.3 grid (8 cells of 5.6pt, 1.5pt apart)
     /// starting 23pt below the card's top — the grid's OWN size is fixed (cell/gap are literal), not scaled
     /// to fill whatever's left; any remaining height at the bottom is empty.
-    private func riffCard(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
+    private func riffCard(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat, gridSize: CGFloat) -> some View {
         let isRiff = line.riffOnResolved
-        return VStack(spacing: 0) {
+        // RIFF v2 §2.2: a wide, short bar — RIFF leading, the mini-grid trailing, one row centred vertically, 12 pt in from each side.
+        return HStack(spacing: 8) {
             Text("RIFF").font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(2)
-                .foregroundColor(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
-                .frame(height: 11)
-                .padding(.top, 8)
-            Spacer(minLength: 0).frame(height: 4)
-            riffMiniGrid(idx, line, accent, size: 55.3)
+                .foregroundColor(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)).lineLimit(1)
             Spacer(minLength: 0)
+            riffMiniGrid(idx, line, accent, size: gridSize).frame(width: gridSize, height: gridSize)
         }
+        .padding(.horizontal, 12)
         .frame(width: width, height: height)
         .background(RoundedRectangle(cornerRadius: 10).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
@@ -5114,10 +5114,10 @@ struct EuclideousPage: View {
                     }
                 }
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxHeight: 26)   // RIFF v2 §1.4: the cell row grows to at most 26 tall
         }
         .padding(4)
-        .frame(width: width, height: height, alignment: .top)
+        .frame(width: width, height: height, alignment: .center)   // RIFF v2 §1.4: the header + cell-row pair is centred vertically in the taller Row A frame
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x262930), lineWidth: 1))
         .euclideousHelp("The columns this lane's walk reads, in order.")
@@ -5193,117 +5193,191 @@ struct EuclideousPage: View {
         if every >= 2 { s += ", each for \(every) \(every == 1 ? "hit" : "hits")" }
         return s
     }
-    /// RIFF WALK ferry §1.3 Row A — the card (left) + a right-hand column holding the WALK strip (top) and
-    /// the direction row with INV (bottom). Supersedes the OCT-trough layout entirely (§1.2): OCT's row is
-    /// gone (MIX's stepper is now riffOctave's only control). The card never dims; the right-hand column
-    /// dims to 42% while the riff is off, matching every other riff-only control on this tab.
-    private func riffTopRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
-        let isRiff = line.riffOnResolved
-        return HStack(spacing: sp4) {
-            riffCard(idx, line, accent, width: 90, height: layout.rowAHeight)
-            VStack(spacing: sp4) {
-                // Floors ferry (2026-10-23): the WALK strip is read-only ("display only, not interactive")
-                // — it drops out first when showing it would leave the direction row (real controls) under
-                // its own floor, per `layout.showWalkStrip`.
-                if layout.showWalkStrip {
-                    // §3.3: the strip dims itself per-cell (folding the riff-off state into its own single
-                    // opacity decision) — NOT wrapped in an outer .opacity() here, which would compound with
-                    // that per-cell dim (a bug an adversarial review caught: 0.42×0.42 ≈ 17.6% on a never-played
-                    // step of an off lane, instead of the spec's own "the dims don't multiply" 42%).
-                    riffWalkStrip(idx, line, accent, width: layout.rightColumnWidth, height: layout.walkStripHeight)
-                }
-                riffDirectionRow(idx, line, accent, height: layout.directionRowHeight)
-                    .frame(height: layout.directionRowHeight)
-                    .opacity(isRiff ? 1.0 : 0.42)
-            }
+    /// RIFF v2 §1.4 Row A — the riff toggle (left, L = 124) + the WALK strip (right, from x136, the full row height). The toggle never dims; the WALK strip folds the riff-off dim into its own per-cell opacity (§3.3: "the dims don't multiply").
+    private func riffRowA(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
+        HStack(spacing: 0) {
+            riffCard(idx, line, accent, width: layout.toggleWidth, height: layout.rowAHeight, gridSize: layout.miniGridSize)
+            Spacer().frame(width: 8)
+            riffWalkStrip(idx, line, accent, width: layout.walkWidth, height: layout.rowAHeight)
         }
+        .padding(.horizontal, layout.contentInset)
         .frame(height: layout.rowAHeight)
     }
-    /// The riff direction row — FWD·REV·PEND·PING·INV, five equal full-label buttons (§2.3: INV moves in
-    /// here as the fifth, in the SAME style, replacing its old spot in the retired modes row). Tapping the
-    /// lit direction turns the riff off (remembering it); tapping any other turns the riff on with that
-    /// direction; INV is a plain toggle, independent of on/off, unchanged from its old behaviour.
-    /// Pendulum removed from this row (Paul, 2026-10-22) — still a real, working `RiffDir` case (an
-    /// already-saved lane keeps walking it; THROW/TWEAK can still pick it), just no longer offered here.
-    /// The remaining three read as chevrons — "<" / "><" / ">" — matching the RHYTHM tab's own direction
-    /// tabs exactly (`directionRow`'s glyphs, sizing and colours: `patternSelectedText`/
-    /// `patternUnselectedText`/`patternUnselectedFill` already equal `melodyButton`'s own "on"/"off"
-    /// colours byte-for-byte, so only the LABEL changes here, not the look it already had).
-    /// `height` (Floors ferry, 2026-10-23): the buttons used to declare their own fixed 40pt regardless of
-    /// the row's real computed height, so shrinking the row did nothing but squeeze/overflow the HStack —
-    /// now they take the real height, so `EuclideousRiffTabFloors.directionRowHeight` means something.
-    private func riffDirectionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, height: CGFloat) -> some View {
-        let dirs: [(RiffDir, String)] = [(.reverse, "<"), (.pingpong, "><"), (.forward, ">")]
-        let curDir = line.euclideousRiffDirResolved
-        let isRiff = line.riffOnResolved
-        return HStack(spacing: 3) {
-            ForEach(dirs, id: \.0) { d, glyph in
-                let lit = curDir == d
-                melodyButton(glyph, on: lit, accent: accent, height: height, fontSize: 13, cornerRadius: 7,
-                             help: "How the riff walks. Tap the lit one to turn the riff off.", lane: idx, outline: lit && lockOn(idx, .riffDirection)) {
-                    edit(idx) { l in
-                        if l.riffOnResolved && l.euclideousRiffDirResolved == d { l.riffOn = false }
-                        else { l.riffOn = true; l.riffDir = d }
-                    }
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(riffDirHelpPhrase(d).capitalized), \(lit ? "selected" : "not selected")" + (lit && isRiff ? ". Tap again to turn the riff off." : ""))
-                .accessibilityValue(euclideousLockAppendSnapWords("", outlined: lit && lockOn(idx, .riffDirection)))
+    /// RIFF v2 §4.1: a band's frame — the WALK strip's fill + 1 pt border, radius 10, 4 pt inner padding; not interactive. §1.10: the whole band (frame + contents) dims to 42 % while the riff is off.
+    private func riffBandFrame<Content: View>(dim: Bool, @ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x131519)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0x262930), lineWidth: 1))
+            .opacity(dim ? 0.42 : 1.0)
+    }
+    /// RIFF v2 §3: which of the three direction arrows this button draws (the icon follows the GLYPH it replaced, not the `RiffDir` name — the middle `><` button is PING/`.pingpong`).
+    enum RiffDirectionKind { case backward, pingpong, forward }
+    func riffDirectionName(_ k: RiffDirectionKind) -> String { switch k { case .backward: return "Backward"; case .pingpong: return "Ping-pong"; case .forward: return "Forward" } }
+    /// §3.2: a stroked arrow, authored in a 30 × 22 box, scaled to fit its frame (20 × 14.67), 1.75 wide, round caps/joins, no fill.
+    struct RiffDirectionIcon: Shape {
+        let kind: RiffDirectionKind
+        func path(in rect: CGRect) -> Path {
+            var p = Path()
+            switch kind {
+            case .backward:   // M26 11 H5 ; M11 4 L4 11 L11 18
+                p.move(to: CGPoint(x: 26, y: 11)); p.addLine(to: CGPoint(x: 5, y: 11))
+                p.move(to: CGPoint(x: 11, y: 4)); p.addLine(to: CGPoint(x: 4, y: 11)); p.addLine(to: CGPoint(x: 11, y: 18))
+            case .pingpong:   // M4 6 H25 ; M20 1.5 L25 6 L20 10.5 ; M26 16 H5 ; M10 11.5 L5 16 L10 20.5
+                p.move(to: CGPoint(x: 4, y: 6)); p.addLine(to: CGPoint(x: 25, y: 6))
+                p.move(to: CGPoint(x: 20, y: 1.5)); p.addLine(to: CGPoint(x: 25, y: 6)); p.addLine(to: CGPoint(x: 20, y: 10.5))
+                p.move(to: CGPoint(x: 26, y: 16)); p.addLine(to: CGPoint(x: 5, y: 16))
+                p.move(to: CGPoint(x: 10, y: 11.5)); p.addLine(to: CGPoint(x: 5, y: 16)); p.addLine(to: CGPoint(x: 10, y: 20.5))
+            case .forward:    // M4 11 H25 ; M19 4 L26 11 L19 18
+                p.move(to: CGPoint(x: 4, y: 11)); p.addLine(to: CGPoint(x: 25, y: 11))
+                p.move(to: CGPoint(x: 19, y: 4)); p.addLine(to: CGPoint(x: 26, y: 11)); p.addLine(to: CGPoint(x: 19, y: 18))
             }
-            // ALT ferry §0.3(a) (Paul, 2026-10-25) SUPERSEDES the 2026-10-22 "Change INV to read Invert melody":
-            // at the emitter-circles-narrowed width (49.125pt buttons) "Invert melody" at 10pt truncated to
-            // "Invert…" in a lighter mixed-case face. Back to "INV" in the chevrons' OWN type (13pt, the face/
-            // weight/case `<` `><` `>` use), as the RIFF ferry's 2.3 meant; VoiceOver stays "Invert the riff"
-            // (RIFF ferry 9.3). The setter/undo/selected state are unchanged.
-            melodyButton("INV", on: line.riffInvertResolved, accent: accent, height: height, fontSize: 13, cornerRadius: 7,
-                         help: "Flip the riff upside down in pitch", lane: idx, outline: lockOn(idx, .riffInvert)) { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Invert the riff")
-                .accessibilityValue(lockSpoken(idx, .riffInvert, ""))
-                .accessibilityAddTraits(line.riffInvertResolved ? [.isButton, .isSelected] : .isButton)
+            return p.applying(CGAffineTransform(scaleX: rect.width / 30, y: rect.height / 22)).applying(CGAffineTransform(translationX: rect.minX, y: rect.minY))
         }
     }
-    /// RIFF WALK ferry §1.3 Row B — "ADVANCE" / "EVERY" label, the EVERY stepper (§8), then HIT/STEP (§2.4:
-    /// read "HIT"/"STEP" at EVERY 1, "HITS"/"STEPS" at 2-8 (raised from 2-4, 2026-10-22), so the row reads
-    /// "ADVANCE EVERY 2 STEPS").
-    private func riffAdvanceRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
+    /// §3.1/§3.2: one direction button — the arrow icon in `melodyButton`'s selected look and lane-lock tap behaviour (tapping the lit one turns the riff off; another sets `riffDir`).
+    private func riffDirectionButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, kind: RiffDirectionKind, dir: RiffDir) -> some View {
+        let lit = line.euclideousRiffDirResolved == dir
+        return RiffDirectionIcon(kind: kind)
+            .stroke(lit ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
+            .frame(width: 20, height: 14.67)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 7).fill(lit ? lane20(accent) : Color(hex: 0x2A2D34)))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(lit ? lane100(accent) : Color.clear, lineWidth: 1))
+            .contentShape(Rectangle())
+            .modifier(EuclideousLockOutline(on: lit && lockOn(idx, .riffDirection), accent: accent))
+            .modifier(EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: { onLockHeld(idx, $0) },
+                                        action: { edit(idx) { l in if l.riffOnResolved && l.euclideousRiffDirResolved == dir { l.riffOn = false } else { l.riffOn = true; l.riffDir = dir } } }))
+            .euclideousHelp("How the riff walks. Tap the lit one to turn the riff off.")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(riffDirectionName(kind) + (lit && line.riffOnResolved ? ". Tap again to turn the riff off." : ""))
+            .accessibilityValue(euclideousLockAppendSnapWords("", outlined: lit && lockOn(idx, .riffDirection)))
+            .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
+    }
+    /// RIFF v2 §1.5 MOVE band: the three direction icon buttons (over the toggle's width), then ADVANCE EVERY (its own key line now — the old "ADVANCE"/"EVERY" label column is gone), HIT | STEP (one segmented control) and STRIDE. Framed (§4.1); the whole band dims while the riff is off (§1.10).
+    private func riffMoveBand(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
         let isRiff = line.riffOnResolved
         let every = line.riffAdvanceEveryResolved
-        let plural = every >= 2
-        return HStack(spacing: sp4) {
-            riffRowLabel("ADVANCE", "EVERY").frame(width: layout.labelColumnWidth)
-            melodyStepper("EVERY", value: every, range: 1...8, width: layout.everyStepperWidth, showLabel: false,
-                         help: "The riff moves once every this many hits (or steps)", lane: idx, outline: lockOn(idx, .advanceEvery)) { v in
-                edit(idx) { $0.riffAdvanceEvery = v }
-            }
-            // §9.4: ONE adjustable element — "1 hit"/"2 hits" or "1 step"/"3 steps" following ADV, swipe up/
-            // down changes it by one, matching how the values-row steppers read.
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Advance every")
-            .accessibilityValue(lockSpoken(idx, .advanceEvery, "\(every) \(line.riffAdvanceStepResolved ? (every == 1 ? "step" : "steps") : (every == 1 ? "hit" : "hits"))"))
-            .accessibilityAdjustableAction { dir in
-                switch dir {
-                case .increment: edit(idx) { $0.riffAdvanceEvery = min(8, every + 1) }
-                case .decrement: edit(idx) { $0.riffAdvanceEvery = max(1, every - 1) }
-                @unknown default: break
+        return riffBandFrame(dim: !isRiff) {
+            HStack(spacing: 0) {
+                HStack(spacing: 4) {   // §1.5: three directions across L, over the toggle
+                    riffDirectionButton(idx, line, accent, kind: .backward, dir: .reverse)
+                    riffDirectionButton(idx, line, accent, kind: .pingpong, dir: .pingpong)
+                    riffDirectionButton(idx, line, accent, kind: .forward, dir: .forward)
                 }
+                .frame(width: layout.toggleWidth)
+                Spacer().frame(width: 8)
+                melodyStepper("ADVANCE EVERY", value: every, range: 1...8, width: layout.advanceEveryWidth, help: "The riff moves once every this many hits (or steps)", lane: idx, outline: lockOn(idx, .advanceEvery)) { v in edit(idx) { $0.riffAdvanceEvery = v } }
+                    .frame(width: layout.advanceEveryWidth)
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Advance every")
+                    .accessibilityValue(lockSpoken(idx, .advanceEvery, "\(every) \(line.riffAdvanceStepResolved ? (every == 1 ? "step" : "steps") : (every == 1 ? "hit" : "hits"))"))
+                    .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { $0.riffAdvanceEvery = min(8, every + 1) }; case .decrement: edit(idx) { $0.riffAdvanceEvery = max(1, every - 1) }; @unknown default: break } }
+                Spacer().frame(width: 4)
+                riffHitStepControl(idx, line, accent, every: every).frame(width: layout.hitStepWidth)
+                Spacer().frame(width: 4)
+                melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: layout.strideWidth, help: "How many riff steps to move per note", lane: idx, outline: lockOn(idx, .stride)) { v in edit(idx) { $0.riffStride = v } }
+                    .frame(width: layout.strideWidth)
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Stride").accessibilityValue(lockSpoken(idx, .stride, "\(line.riffStrideResolved)"))
+                    .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { $0.riffStride = min(7, line.riffStrideResolved + 1) }; case .decrement: edit(idx) { $0.riffStride = max(1, line.riffStrideResolved - 1) }; @unknown default: break } }
             }
-            melodyButton(plural ? "HITS" : "HIT", on: !line.riffAdvanceStepResolved, accent: accent, height: layout.rowBHeight, fontSize: 11, cornerRadius: 7,
-                         help: "Move the riff only on sounding hits", lane: idx, outline: lockOn(idx, .advanceMode) && !line.riffAdvanceStepResolved) { edit(idx) { $0.riffAdvanceStep = false } }
-                .frame(width: layout.hitStepButtonWidth)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Advance by hits")
-                .accessibilityValue(euclideousLockAppendSnapWords("", outlined: lockOn(idx, .advanceMode) && !line.riffAdvanceStepResolved))
-                .accessibilityAddTraits(!line.riffAdvanceStepResolved ? [.isButton, .isSelected] : .isButton)
-            melodyButton(plural ? "STEPS" : "STEP", on: line.riffAdvanceStepResolved, accent: accent, height: layout.rowBHeight, fontSize: 11, cornerRadius: 7,
-                         help: "Move the riff on every step, not just hits", lane: idx, outline: lockOn(idx, .advanceMode) && line.riffAdvanceStepResolved) { edit(idx) { $0.riffAdvanceStep = true } }
-                .frame(width: layout.hitStepButtonWidth)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Advance by steps")
-                .accessibilityValue(euclideousLockAppendSnapWords("", outlined: lockOn(idx, .advanceMode) && line.riffAdvanceStepResolved))
-                .accessibilityAddTraits(line.riffAdvanceStepResolved ? [.isButton, .isSelected] : .isButton)
         }
-        .opacity(isRiff ? 1.0 : 0.42)
+    }
+    /// RIFF v2 §4.3: HIT | STEP as one segmented control — a #2A2D34 container (radius 10, 3 pt inset), two segments 3 apart (radius 8). Selected = lane20/lane100; writes `riffAdvanceStep`; labels HIT/STEP at EVERY 1, HITS/STEPS at 2–8.
+    private func riffHitStepControl(_ idx: Int, _ line: EuclidLine, _ accent: Color, every: Int) -> some View {
+        let step = line.riffAdvanceStepResolved     // false = HIT selected, true = STEP
+        let plural = every >= 2
+        return HStack(spacing: 3) {
+            riffHitStepSegment(idx, label: plural ? "HITS" : "HIT", selected: !step, accent: accent, a11y: "Advance by hits", outline: lockOn(idx, .advanceMode) && !step) { edit(idx) { $0.riffAdvanceStep = false } }
+            riffHitStepSegment(idx, label: plural ? "STEPS" : "STEP", selected: step, accent: accent, a11y: "Advance by steps", outline: lockOn(idx, .advanceMode) && step) { edit(idx) { $0.riffAdvanceStep = true } }
+        }
+        .padding(3)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x2A2D34)))
+    }
+    private func riffHitStepSegment(_ idx: Int, label: String, selected: Bool, accent: Color, a11y: String, outline: Bool, action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced))
+            .foregroundColor(selected ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA)).lineLimit(1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? lane20(accent) : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? lane100(accent) : Color.clear, lineWidth: 1))
+            .modifier(EuclideousLockOutline(on: outline, accent: accent))
+            .contentShape(Rectangle())
+            .modifier(EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: { onLockHeld(idx, $0) }, action: action))
+            .accessibilityElement(children: .ignore).accessibilityLabel(a11y)
+            .accessibilityValue(euclideousLockAppendSnapWords("", outlined: outline))
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+    /// RIFF v2 §1.6 NOTES band: LEN · SHIFT · TRANS · FLIP NOTES (STRIDE has moved to the MOVE band). Framed (§4.1); the whole band dims while the riff is off (§1.10).
+    private func riffNotesBand(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
+        let isRiff = line.riffOnResolved
+        let cols = riffPoly ? EuclideousPolyMetrics.columns : 8
+        let n = riffPoly ? line.riffLengthResolved(columns: cols) : line.riffLengthResolved
+        let shift = riffPoly ? line.riffRotateResolved(columns: cols) : line.riffRotateResolved
+        let w = layout.notesCellWidth
+        return riffBandFrame(dim: !isRiff) {
+            HStack(spacing: 4) {
+                melodyStepper("LEN", value: n, range: 1...cols, width: w, help: "How many riff columns, from SHIFT, the walk loops over", lane: idx, outline: lockOn(idx, .length)) { v in edit(idx) { euclideousSetRiffLength(&$0, v) } }
+                    .frame(width: w)
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Length").accessibilityValue(lockSpoken(idx, .length, "\(n)"))
+                    .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { euclideousSetRiffLength(&$0, min(cols, n + 1)) }; case .decrement: edit(idx) { euclideousSetRiffLength(&$0, max(1, n - 1)) }; @unknown default: break } }
+                melodyStepper("SHIFT", value: shift, range: 0...(cols - 1), width: w, help: "Which riff column the walk starts reading from, wrapping at \(cols)", wraps: true, lane: idx, outline: lockOn(idx, .shift)) { v in edit(idx) { euclideousSetRiffShift(&$0, v, columns: cols) } }
+                    .frame(width: w)
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityHint("Which riff column the walk starts reading from, wrapping at \(cols)").accessibilityValue(lockSpoken(idx, .shift, "\(shift)"))
+                    .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { euclideousSetRiffShift(&$0, (shift + 1) % cols, columns: cols) }; case .decrement: edit(idx) { euclideousSetRiffShift(&$0, (shift + cols - 1) % cols, columns: cols) }; @unknown default: break } }
+                melodyStepper("TRANS", value: line.melodyTransposeResolved, range: -7...7, width: w, help: "Shift every riff note up or down the pool", lane: idx, outline: lockOn(idx, .transpose)) { v in edit(idx) { $0.melodyTranspose = v } }
+                    .frame(width: w)
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Transpose").accessibilityValue(lockSpoken(idx, .transpose, euclideousSigned(line.melodyTransposeResolved)))
+                    .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { $0.melodyTranspose = min(7, line.melodyTransposeResolved + 1) }; case .decrement: edit(idx) { $0.melodyTranspose = max(-7, line.melodyTransposeResolved - 1) }; @unknown default: break } }
+                riffFlipNotesButton(idx, line, accent).frame(width: w)
+            }
+        }
+    }
+    /// RIFF v2 §5: FLIP NOTES — today's INV toggle (`riffInvert`) in the NOTES band's fourth cell: a centred group of the mirror icon and the two-line "FLIP"/"NOTES" label (§5.2: 11 pt, 0.1 em, leading-aligned — the findings note this differs from FLIP HITS's actual 8 pt). Selected = `melodyButton`'s on-look; lane-lock tap behaviour unchanged from INV.
+    private func riffFlipNotesButton(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
+        let on = line.riffInvertResolved
+        let ink = on ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA)
+        return HStack(spacing: 8) {
+            ZStack {
+                RiffFlipNotesContours().stroke(ink, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                RiffFlipNotesAxis().stroke(ink, style: StrokeStyle(lineWidth: 1.4, dash: [2, 2.5]))
+            }
+            .frame(width: 20, height: 22)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("FLIP").tracking(1.1); Text("NOTES").tracking(1.1)   // §5.2: 0.1 em of 11 pt — per-Text (Text.tracking is iOS 15; View.tracking on a container is iOS 16)
+            }
+            .font(.system(size: 11, weight: .heavy, design: .monospaced))
+            .foregroundColor(ink)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : Color(hex: 0x2A2D34)))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+        .modifier(EuclideousLockOutline(on: lockOn(idx, .riffInvert), accent: accent))
+        .contentShape(Rectangle())
+        .modifier(EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: { onLockHeld(idx, $0) }, action: { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }))
+        .euclideousHelp("Flip the riff upside down in pitch")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Flip notes")
+        .accessibilityHint("Mirrors the riff upside down")   // §6.3
+        .accessibilityValue(lockSpoken(idx, .riffInvert, on ? "on" : "off"))
+        .accessibilityAddTraits(.isButton)
+        .ringToggleTrait()   // §6.3 toggle trait (echoing FLIP HITS)
+    }
+    /// §5.2: the two mirrored contours of the FLIP NOTES icon, authored in a 20 × 22 box.
+    struct RiffFlipNotesContours: Shape {
+        func path(in rect: CGRect) -> Path {
+            var p = Path()
+            p.move(to: CGPoint(x: 2, y: 8)); p.addLine(to: CGPoint(x: 7, y: 3)); p.addLine(to: CGPoint(x: 11, y: 6)); p.addLine(to: CGPoint(x: 18, y: 2))
+            p.move(to: CGPoint(x: 2, y: 14)); p.addLine(to: CGPoint(x: 7, y: 19)); p.addLine(to: CGPoint(x: 11, y: 16)); p.addLine(to: CGPoint(x: 18, y: 20))
+            return p.applying(CGAffineTransform(scaleX: rect.width / 20, y: rect.height / 22)).applying(CGAffineTransform(translationX: rect.minX, y: rect.minY))
+        }
+    }
+    /// §5.2: the dashed mirror axis (stroke 1.4, dash 2 on / 2.5 off).
+    struct RiffFlipNotesAxis: Shape {
+        func path(in rect: CGRect) -> Path {
+            var p = Path(); p.move(to: CGPoint(x: 1, y: 11)); p.addLine(to: CGPoint(x: 19, y: 11))
+            return p.applying(CGAffineTransform(scaleX: rect.width / 20, y: rect.height / 22)).applying(CGAffineTransform(translationX: rect.minX, y: rect.minY))
+        }
     }
     /// §2.6's label column: a name over a second line, 3pt below, centred vertically as a pair — replaces
     /// the retired rotated `melodyVerticalLabel("ADV"/"REST", ...)` single-word labels.
@@ -5315,27 +5389,20 @@ struct EuclideousPage: View {
         .padding(.leading, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-    /// The whole RIFF tab, RIFF WALK ferry §1.1-§1.4: the RIFF tab now fills RHYTHM's own two zones exactly
-    /// (`euclideousRiffTabLayout`, §1.5 — reusing RHYTHM's real `patternBlockH`/`upperH` split, not the
-    /// ferry's own literal 124/208 reference figures, which don't match the real `contentAreaH` formula —
-    /// reported, not hand-fitted), so the header row and tab row stop moving between tabs. Upper zone: Row A
-    /// (card + WALK strip + direction row) + Row B (ADVANCE EVERY). Lower zone (2026-10-29, ON REST row removed):
-    /// values row (LEN/SHIFT/STRIDE/TRANS) + the RIFF output toggles & octave row.
+    /// The whole RIFF tab, RIFF v2 ferry (2026-11-05) §1: four rows 6 apart — Row A (the riff toggle + WALK), the MOVE band (directions + ADVANCE EVERY + HIT|STEP + STRIDE), the NOTES band (LEN + SHIFT + TRANS + FLIP NOTES) and the
+    /// output row (A–D + OCT). `euclideousRiffTabLayout` gives every frame; the output row and the output/octave controls are unchanged (§1.7). The whole body except the toggle dims to 42 % while the riff is off (§1.10).
     private func riffTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let layout = euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
         // LISTEN REBUILT (2026-10-23): RIFF pauses whole under SHADOW or ECHO now (§9.9's `borrowedTabs`), not SHADOW alone.
         let paused = euclideousAnswerBorrowedTabs(line, notesReadsRiff: true).riff   // ANSWER §8.4: PITCH on, SHADOW chosen, CYCLE off — AVOID or a cycling PITCH leaves the tab live
         return ZStack {
-            VStack(spacing: sp4) {
-                riffTopRow(idx, line, accent, layout: layout)
-                riffAdvanceRow(idx, line, accent, layout: layout).frame(height: layout.rowBHeight)
-                // RIFF OUTPUT + OCTAVE ferry (2026-10-29): the ON REST row is GONE from this tab; its slot now holds
-                // the values row (moved up) and, below it, the RIFF output toggles + octave control.
-                melodyValuesRow(idx, line, accent, fullWidth: fullWidth, stepperWidth: layout.valueStepperWidth)
-                    .frame(height: layout.lowerRowHeight)
-                    .opacity(line.riffOnResolved ? 1.0 : 0.42)
-                riffOutputOctaveRow(idx, line, accent, fullWidth: fullWidth)
-                    .frame(height: layout.lowerRowHeight)
+            VStack(spacing: layout.rowGap) {   // §1.1: the four rows, 6 apart
+                riffRowA(idx, line, accent, layout: layout)
+                riffMoveBand(idx, line, accent, layout: layout).frame(height: layout.bandHeight)
+                riffNotesBand(idx, line, accent, layout: layout).frame(height: layout.bandHeight)
+                riffOutputOctaveRow(idx, line, accent, fullWidth: fullWidth - 2 * layout.contentInset)   // §1.7: A–D + OCT as today, inset 4 like Row A
+                    .padding(.horizontal, layout.contentInset)
+                    .frame(height: layout.outputRowHeight)
                     .opacity(line.riffOnResolved ? 1.0 : 0.42)
             }
             .opacity(paused ? EuclideousListenPauseMetrics.dimOpacity : 1)
