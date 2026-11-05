@@ -106,6 +106,10 @@ final class Router {
     /// The snapshot's solo mask as of the last Euclideous sweep — the early cut (before the echo ring drains) uses it when there is no live word.
     private var lastSnapshotSoloMask: UInt8 = 0
     private func soloMaskNow(snapshot: UInt8) -> UInt8 { soloLiveWord & 0x100 != 0 ? UInt8(soloLiveWord & 0x0F) : (snapshot & 0x0F) }
+    /// PER-PART SOLO (MIX v2, 2026-11-05): the same live word / snapshot fallback for the PART mask — 0x100 | the effective part mask (bit 2n riff, 2n + 1 notes) once the page has spoken, else 0 = "use the snapshot's".
+    private var partSoloLiveWord: UInt16 = 0
+    private var lastSnapshotPartSoloMask: UInt8 = 0
+    private func partSoloMaskNow(snapshot: UInt8) -> UInt8 { partSoloLiveWord & 0x100 != 0 ? UInt8(partSoloLiveWord & 0xFF) : snapshot }
 
     // MARK: LANE LOCK (ferry 2026-10-21) — the snap back, decided HERE (the render thread), on the lane's own grid line
     // The lock itself (on / grid / the locked state L) rides the snapshot; what only the UI knows instantly — which lanes a finger is on and each lane's document revision — rides `lockLiveWord`
@@ -317,9 +321,25 @@ final class Router {
     /// §5.2 + "the mute kicks in immediately" (Paul 2026-10-21): the moment solo silences a lane its already-sounding notes END NOW (a note-off at this window's first sample) and its pending ratchet / roll repeats are
     /// dropped — a LANES mute lets them ring out, but a solo that left the other lanes sounding for a gate's length read as a delay. Only the solo-silenced lanes' own voices (tagged at the strike) are touched; every
     /// note-on still gets its note-off (`closeVoice` owns the refcount), so nothing is left sounding.
-    private func cutSoloSilencedLanes(soloMask: UInt8, atSample t: Int64, out: MIDIEmitter?) {
-        guard soloMask & 0x0F != 0 else { return }
-        for lane in 0..<4 where euclideousSoloSilences(lane: lane, soloMask: soloMask) { cutLaneVoices(lane, atSample: t, out: out) }
+    private func cutSoloSilencedLanes(soloMask: UInt8, partMask: UInt8 = 0, atSample t: Int64, out: MIDIEmitter?) {
+        guard soloMask & 0x0F != 0 || partMask != 0 else { return }
+        if partMask == 0 {   // lane solo alone: exactly the old sweep
+            for lane in 0..<4 where euclideousSoloSilences(lane: lane, soloMask: soloMask) { cutLaneVoices(lane, atSample: t, out: out) }
+            return
+        }
+        // PER-PART SOLO (MIX v2 §7.3): a lane with neither part audible is cut whole; a silenced part of a lane that still sounds is cut by its part bus (a passed hocket note sounding on it included)
+        let bits = euclideousSoloSilencedPartBits(soloMask: soloMask, partMask: partMask)
+        for lane in 0..<4 where euclideousLaneSilencedBySolo(lane: lane, soloMask: soloMask, partMask: partMask) { cutLaneVoices(lane, atSample: t, out: out) }
+        for bus in 0..<8 where bits & (UInt8(1) << UInt8(bus)) != 0 { cutPartVoices(bus, atSample: t, out: out) }
+    }
+    /// Every sounding voice of Euclideous part bus `bus` (0–7) and its share of every pending deferred strike, ended at `t` (each voice's note-off still goes through `closeVoice`'s refcount).
+    private func cutPartVoices(_ bus: Int, atSample t: Int64, out: MIDIEmitter?) {
+        let bit = UInt8(1) << UInt8(bus)
+        for i in voices.indices where voices[i].active && voices[i].euclideousLane >= 0 && Int(voices[i].bus) == bus { closeVoice(i, atSample: t, out: out) }
+        for i in echoTails.indices where echoTails[i].active && echoTails[i].lane >= 0 && echoTails[i].busMask & bit != 0 {
+            echoTails[i].busMask &= ~bit
+            if echoTails[i].busMask == 0 { echoTails[i].active = false }
+        }
     }
     /// Every sounding voice and pending deferred strike of Euclideous lane `lane`, ended at `t` (each voice's note-off still goes through `closeVoice`'s refcount, so nothing is left sounding).
     private func cutLaneVoices(_ lane: Int, atSample t: Int64, out: MIDIEmitter?) {
@@ -2072,6 +2092,7 @@ final class Router {
                  panic: Bool = false,
                  euclideousAllNotesOff: Bool = false,
                  euclideousSoloLive: UInt16 = 0,
+                 euclideousPartSoloLive: UInt16 = 0,   // PER-PART SOLO (MIX v2): the part mask's live word, same hand-off
                  euclideousPendingRolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                  euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                  euclideousLockLive: UInt64 = 0,
@@ -2160,9 +2181,10 @@ final class Router {
         // LANE SOLO (2026-10-21): the UI's live solo word, and — BEFORE the echo ring drains and any lane strikes — the solo-silenced lanes' sounding notes end now (the live word if the page has spoken, else the snapshot's mask
         // as the last Euclideous sweep saw it). The sweep inside the Euclideous row repeats this with the authoritative mask, so the snapshot-only path (no UI) is covered too.
         soloLiveWord = euclideousSoloLive
+        partSoloLiveWord = euclideousPartSoloLive
         lockLiveWord = euclideousLockLive    // LANE LOCK: the page's held lanes + revisions, read per window (planLocks)
         lockWindowSeconds = sampleRate > 0 ? Double(frameCount) / sampleRate : 0
-        cutSoloSilencedLanes(soloMask: soloMaskNow(snapshot: lastSnapshotSoloMask), atSample: windowStart, out: out)
+        cutSoloSilencedLanes(soloMask: soloMaskNow(snapshot: lastSnapshotSoloMask), partMask: partSoloMaskNow(snapshot: lastSnapshotPartSoloMask), atSample: windowStart, out: out)
         diag.activeVoiceCount = activeVoiceCount()
         diag.distinctSounding = distinctSounding
         diag.floodDropped = floodDropped              // FLOOD GOVERNOR: surface the session drop total to HEALTH
@@ -3092,7 +3114,7 @@ final class Router {
                 let g = euclideousLaneGridResolved(line: dline, lane: dl, legacyOn: p.euclideousLanesSeqOn, legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
                                                    legacyCells: p.euclideousLanesSeqCells, stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub, beatsPerBar: beatsPerBar)
                 let unit = g.muteUnit.beats(stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub)
-                return !euclideousLaneMayStrike(lane: dl, soloMask: soloMaskNow(snapshot: p.soloMask), muteAudible: euclideousLaneAudible(beat: beat, cells16: g.muteCells, unitBeats: unit), enabled: true)
+                return !euclideousLaneMayStrike(lane: dl, soloMask: soloMaskNow(snapshot: p.soloMask), muteAudible: euclideousLaneAudible(beat: beat, cells16: g.muteCells, unitBeats: unit), enabled: true, partMask: partSoloMaskNow(snapshot: p.partSoloMask))
             }
             func runEuclidLine(lineIndex: Int, pulses kIn: Int, steps nIn: Int, rotate: Int, dir: EuclidDir, noteSel: EuclidNoteSel, gate: Double, octave: Int, velocity: Double, velocityAbsolute: Int, rate: Double, busOverride: UInt8?,
                                 // THE NINE PORTS (2026-10-26): the bus (one bit) the lane's RIFF layer leaves on, and the one its NOTES layer leaves on —
@@ -3471,7 +3493,8 @@ final class Router {
                     // LANE SOLO (ferry 2026-10-21, §5.2): a lane the solo mask silences goes through this SAME early return — it keeps walking (pattern, riff position, restarts, passes, DYNAMICS), nothing emits, the
                     // pulse feed sees no strike. `euclideousLaneMayStrike` is the one decision (the lane is already known to be enabled here); mask 0 — and every non-Euclideous row — is exactly the old test.
                     let lanesSeqMuted = !euclideousLaneMayStrike(lane: lineIndex, soloMask: isEuclideousRow ? soloMaskNow(snapshot: p.soloMask) : 0,
-                                                                 muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: muteCells, unitBeats: muteUnitBeats), enabled: true)
+                                                                 muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: muteCells, unitBeats: muteUnitBeats), enabled: true,
+                                                                 partMask: isEuclideousRow ? partSoloMaskNow(snapshot: p.partSoloMask) : 0)   // PER-PART SOLO: the lane is silent only when NEITHER part may sound
                     if isHit {
                         // VELOCITY 0 = EFFECTIVELY OFF (Paul 2026-10-03: "investigate if the lane is effectively
                         // off with zero velocity") — confirmed by testing, not assumed: strikeChord's own
@@ -3838,6 +3861,8 @@ final class Router {
                                 return steps == 0 ? v : euclideousScaleStepMove(note: v, steps: steps, pcMask: outKeyMask)
                             }
                             // ANSWER TRADE: the parts `addPitch` files a pitch under — this lane's own, except while a TRADE partner's set is being rebuilt from this hit's record (`tradeRebuild`), when they are the partner's.
+                            // PER-PART SOLO (MIX v2, 2026-11-05): the part buses (one bit each: 2·lane + part) this window's solo masks silence. 0 with no solo — every `soloPartBits` test below is then false and the hit is built exactly as before.
+                            let soloPartBits: Int = isEuclideousRow ? Int(euclideousSoloSilencedPartBits(soloMask: soloMaskNow(snapshot: p.soloMask), partMask: partSoloMaskNow(snapshot: p.partSoloMask))) : 0
                             var addRiffBus = riffBus, addNotesBus = notesBus
                             func addPitch(_ v: Int, vel: UInt8, gate g: Double, notesLayer: Bool = false, heldByRiff: Bool = false, raw: Int? = nil, rank: UInt8? = nil) {
                                 guard pitchCount < 9 else { return }
@@ -3845,8 +3870,10 @@ final class Router {
                                 for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == bus { return }   // the same pitch on the SAME part: first insertion wins
                                 var outs: UInt8 = 0xFF
                                 if notesLayer {   // §2.5: a notes pitch the riff strikes on this hit too (or is HOLDING through a tied rest) leaves only on the outputs the riff does not use; none left ⇒ the duplicate is dropped, as it always was
-                                    var riffHas = heldByRiff, inSet = false
-                                    if !riffHas { for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == Int(addRiffBus) { riffHas = true; inSet = true; break } }
+                                    // PER-PART SOLO: a riff part the solo silences strikes nothing, so a notes pitch is never deduped against its copy (the silenced copy leaves the set below)
+                                    let riffSoloSilenced = soloPartBits & Int(addRiffBus) != 0
+                                    var riffHas = heldByRiff && !riffSoloSilenced, inSet = false
+                                    if !riffHas && !riffSoloSilenced { for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == Int(addRiffBus) { riffHas = true; inSet = true; break } }
                                     // ENGINE REVIEW (2026-10-28): with a HOCKET rule lit the in-set duplicate is kept through the remap and resolved AFTER it (against the parts the pitches actually end up on) — dropping it here took the notes layer's
                                     // pitch away for good on a turn where the rule swapped the riff off the output. With no rule lit this is the old immediate rule, byte for byte.
                                     if riffHas && !(inSet && hocketRules.litMask != 0) {
@@ -4243,7 +4270,8 @@ final class Router {
                                                                            legacyCells: p.euclideousLanesSeqCells, stepBeats: sGeo.sub, passBeats: Double(sGeo.cycleLen) * sGeo.sub, beatsPerBar: beatsPerBar)
                                     let sUnit = sGrid.muteUnit.beats(stepBeats: sGeo.sub, passBeats: Double(sGeo.cycleLen) * sGeo.sub)
                                     let sSounding = euclideousLaneMayStrike(lane: listenSource, soloMask: soloMaskNow(snapshot: p.soloMask),
-                                                                            muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: sGrid.muteCells, unitBeats: sUnit), enabled: true)
+                                                                            muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: sGrid.muteCells, unitBeats: sUnit), enabled: true,
+                                                                            partMask: partSoloMaskNow(snapshot: p.partSoloMask))
                                     if sSounding {
                                         reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
                                                                tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf)
@@ -4412,6 +4440,35 @@ final class Router {
                                     if shifted >= 0 && shifted <= 127 { pitches[i] = shifted }
                                     pitchVel[i] = UInt8(max(1, min(127, Int(pitchVel[i]) + velDelta)))
                                 }
+                                // PER-PART SOLO (MIX v2 ferry 2026-11-05, §7.3): a part the solo masks silence keeps walking (everything above has run) and emits nothing — its pitches leave the set here, ahead of the HOCKET remap (a silenced
+                                // SOURCE part passes nothing) and again after it (a silenced DESTINATION part swallows a passed line). A lane with NEITHER part audible took the whole-hit early return above; with both masks 0 `soloPartBits` is 0 and
+                                // nothing here runs. Returns true when the hit has no pitch left (it then ends what the lane held, exactly as a muted hit does).
+                                func dropSoloSilencedPitches() -> Bool {
+                                    guard soloPartBits != 0 else { return false }
+                                    var w = 0, dropped = false
+                                    var newPitchMask: UInt16 = 0
+                                    var newSlotBits: UInt64 = ~0
+                                    for j in 0..<pitchCount {
+                                        if pitchBus[j] > 0 && soloPartBits & pitchBus[j] != 0 { dropped = true; continue }
+                                        let nib = (notesSlotBits >> UInt64(4 * j)) & 0xF
+                                        pitches[w] = pitches[j]; pitchGate[w] = pitchGate[j]; polyBeats[w] = polyBeats[j]; pitchRank[w] = pitchRank[j]; pitchVel[w] = pitchVel[j]; pitchRaw[w] = pitchRaw[j]; pitchBus[w] = pitchBus[j]; pitchOuts[w] = pitchOuts[j]
+                                        if (notesPitchMask >> UInt16(j)) & 1 != 0 { newPitchMask |= UInt16(1) << UInt16(w) }
+                                        newSlotBits = (newSlotBits & ~(UInt64(0xF) << UInt64(4 * w))) | (nib << UInt64(4 * w))
+                                        w += 1
+                                    }
+                                    guard dropped else { return false }
+                                    for j in w..<pitchCount { pitchBus[j] = -1; pitchOuts[j] = 0xFF }
+                                    pitchCount = w
+                                    notesPitchMask = newPitchMask; notesSlotBits = newSlotBits
+                                    hadRiffNote = hadRiffNote && (0..<w).contains { (newPitchMask >> UInt16($0)) & 1 == 0 }   // the riff note survives only while a riff-layer pitch does
+                                    if pitchCount == 0 {
+                                        reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
+                                                               tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf, ranks: pitchRank)
+                                        return true
+                                    }
+                                    return false
+                                }
+                                if dropSoloSilencedPitches() { return }
                                 // HOCKET (2026-10-27) §6–§7: each pitch of this hit leaves on the output the lit rule its OUTPUT belongs to says it takes THIS turn — decided once, here, at the hit's first strike, so a ratcheted / rolled /
                                 // run hit keeps every strike on that turn — or on none (silent here and on ALL). Placed after the mute / tie / FX decisions (a hit that does not strike passes nothing) and before the legato reconcile, the
                                 // strikes, the deferred echo tails, the REPEAT cache and the NOTE VIEW event, which all read `busOf(j)` / the compacted arrays, so every one of them follows the new routing. A passed pitch keeps its own
@@ -4441,7 +4498,7 @@ final class Router {
                                         let g = euclideousLaneGridResolved(line: dline, lane: dl, legacyOn: p.euclideousLanesSeqOn, legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
                                                                            legacyCells: p.euclideousLanesSeqCells, stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub, beatsPerBar: beatsPerBar)
                                         let unit = g.muteUnit.beats(stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub)
-                                        return !euclideousLaneMayStrike(lane: dl, soloMask: soloMaskNow(snapshot: p.soloMask), muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: g.muteCells, unitBeats: unit), enabled: true)
+                                        return !euclideousLaneMayStrike(lane: dl, soloMask: soloMaskNow(snapshot: p.soloMask), muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: g.muteCells, unitBeats: unit), enabled: true, partMask: partSoloMaskNow(snapshot: p.partSoloMask))
                                     }
                                     // Phase 1 — expand: each pitch leaves on every output its rule gives it (usually one). The first destination reuses the pitch's own slot; a further one (a PASS fanned out to several ALT outputs)
                                     // appends a copy at the end — same pitch, gate, slot and layer flag, its own destination and the receiving pad's velocity — up to the engine's 9 notes a hit (the extras beyond that are dropped).
@@ -4526,6 +4583,7 @@ final class Router {
                                         }
                                     }
                                 }
+                                if hocketRules.litMask != 0, dropSoloSilencedPitches() { return }   // PER-PART SOLO: a passed line that landed on a silenced DESTINATION part is swallowed
                                 // GATE FOLLOWS THE RHYTHM (2026-10-13 ferry): the below-100%/REPEAT-cache gate is
                                 // now `gate * nextHitGapBeats` (the gap to the lane's OWN next real pattern hit),
                                 // floored at 5ms, plus TIE's own forward extension — replaces the old fixed
@@ -5388,16 +5446,18 @@ final class Router {
                         // LANE SOLO (2026-10-21): a lane the solo mask silences is "not audible" here exactly as a muted cell is — its tracked legato voices close at the window start when solo first silences it, and it is
                         // audible again (for the next edge) when solo lets it back. `euclideousLaneMayStrike` is the one decision, shared with the per-hit test.
                         let soloMaskSweep = soloMaskNow(snapshot: p.soloMask)
+                        let partSoloSweep = partSoloMaskNow(snapshot: p.partSoloMask)   // PER-PART SOLO (MIX v2)
                         lastSnapshotSoloMask = p.soloMask & 0x0F
-                        cutSoloSilencedLanes(soloMask: soloMaskSweep, atSample: windowStart, out: out)
-                        let audibleAtStart = euclideousLaneMayStrike(lane: i, soloMask: soloMaskSweep, muteAudible: euclideousLaneAudible(beat: fBeatPos, cells16: cells, unitBeats: unit), enabled: true)
+                        lastSnapshotPartSoloMask = p.partSoloMask
+                        cutSoloSilencedLanes(soloMask: soloMaskSweep, partMask: partSoloSweep, atSample: windowStart, out: out)
+                        let audibleAtStart = euclideousLaneMayStrike(lane: i, soloMask: soloMaskSweep, muteAudible: euclideousLaneAudible(beat: fBeatPos, cells16: cells, unitBeats: unit), enabled: true, partMask: partSoloSweep)
                         if euclideousLaneWasAudibleThisStep[i] && !audibleAtStart {
                             closeAt = windowStart
                         } else if audibleAtStart,
                                   let b = euclideousLaneMuteStart(fromBeat: fBeatPos, toBeat: windowEndBeat, cells16: cells, unitBeats: unit) {
                             closeAt = windowStart + Int64(max(0, (b - fBeatPos) / beatsPerSample))
                         }
-                        audibleAtEnd = euclideousLaneMayStrike(lane: i, soloMask: soloMaskSweep, muteAudible: euclideousLaneAudible(beat: windowEndBeat - 1e-9, cells16: cells, unitBeats: unit), enabled: true)
+                        audibleAtEnd = euclideousLaneMayStrike(lane: i, soloMask: soloMaskSweep, muteAudible: euclideousLaneAudible(beat: windowEndBeat - 1e-9, cells16: cells, unitBeats: unit), enabled: true, partMask: partSoloSweep)
                     } else if euclideousLaneWasAudibleThisStep[i] {
                         closeAt = windowStart
                     }

@@ -63,6 +63,9 @@ final class Kernel {
     /// `soloMask` stays the fallback for a session where no page has spoken.
     private var euclideousSoloLive: UInt16 = 0
     func setEuclideousSoloLive(_ mask: UInt8) { euclideousSoloLive = 0x100 | UInt16(mask & 0x0F) }
+    /// PER-PART SOLO (MIX v2, 2026-11-05): the same hand-off for the part mask — 0x100 | the effective part mask (8 bits) once the page has spoken, 0 before (the snapshot's `partSoloMask` is the fallback).
+    private var euclideousPartSoloLive: UInt16 = 0
+    func setEuclideousPartSoloLive(_ mask: UInt8) { euclideousPartSoloLive = 0x100 | UInt16(mask) }
     /// RANDOM MODE ferry (§6.1/§6.3): one pending THROW/TWEAK/BACK/hold override per (lane, tab) — §6.1's
     /// "one slot per card tab," so a lane may have up to 3 in flight at once — carrying the beat each takes
     /// effect at. Flat, 12 slots (`euclideousRandomPendingSlot(lane:tab:)` is the one index every reader/
@@ -495,6 +498,7 @@ final class Kernel {
                         panic: panicRequested,
                         euclideousAllNotesOff: euclideousAllNotesOffRequested,
                         euclideousSoloLive: euclideousSoloLive,
+                        euclideousPartSoloLive: euclideousPartSoloLive,
                         euclideousPendingRolls: euclideousPendingRolls,
                         euclideousHoldOverrides: euclideousHoldOverrides,
                         euclideousLockLive: euclideousLockLive,

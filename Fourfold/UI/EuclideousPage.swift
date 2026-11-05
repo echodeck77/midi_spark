@@ -779,6 +779,9 @@ struct EuclideousPage: View {
     // LANE SOLO (2026-10-21): the latched solo mask (saved) and the held one (a finger down; UI only). `soloEffective` is what every dim and the engine use.
     let soloMask: UInt8
     let soloHeld: UInt8
+    // PER-PART SOLO (MIX v2, 2026-11-05): the part masks (bit 2n = lane n's riff, 2n + 1 = its notes) — latched (saved) and held (a finger down; UI only).
+    let partSoloMask: UInt8
+    let partSoloHeld: UInt8
     // CHORDS GRID ferry (Paul 2026-10-24): independently-stored progressions ("tabs"), replacing the single
     // grid the CHORDS BUTTON ferry (2026-10-08) first added. TWO CHORD GRIDS (2026-11-03): two of them, and each LANE
     // picks which one it plays (CHORD 1 | CHORD 2 on the POOL tab's SOURCES row) — `activeChordSet` is only the tab this
@@ -856,6 +859,9 @@ struct EuclideousPage: View {
     /// LANE SOLO §3: a finger lands on lane i's SOLO button / lifts off it (`latchToggles` = it was a tap).
     let onSoloDown: (Int) -> Void
     let onSoloUp: (Int, Bool) -> Void
+    /// PER-PART SOLO (MIX v2): a part's S button (part index 2·lane + 0 riff / 1 notes) — down puts it in the held mask, up clears it and, for a tap, flips the latched bit (lane solo's rule).
+    let onPartSoloDown: (Int) -> Void
+    let onPartSoloUp: (Int, Bool) -> Void
     // FOURFOLD SETTINGS (2026-10-15 ferry) — the sheet's own 4 document fields, threaded in the same plain
     // live-mirror/onSet shape as every field above. `ignoreAllNotesOff`/`busChannels`/`allOutputName` are the
     // EXISTING, already-live fields/constants this ferry's MIDI IN/PORTS tabs give a SECOND UI surface to — not new model, new UI only.
@@ -3888,7 +3894,11 @@ struct EuclideousPage: View {
     /// The effective solo mask: latched | held (§4.3).
     private var soloEffective: UInt8 { euclideousSoloEffective(latched: soloMask, held: soloHeld) }
     /// Is lane `lane` solo-silenced — the effective mask isn't 0 and doesn't contain it (§6)? Every dim below asks this (or `euclideousLaneIsDimmed`, which folds in the LANES mute).
-    private func soloSilenced(_ lane: Int) -> Bool { euclideousSoloSilences(lane: lane, soloMask: soloEffective) }
+    private var partSoloEffective: UInt8 { euclideousPartSoloEffective(latched: partSoloMask, held: partSoloHeld) }
+    /// PER-PART SOLO (MIX v2 §7.4): a lane is solo-silenced when NEITHER of its parts may sound (the lane mask and the part mask both asked).
+    private func soloSilenced(_ lane: Int) -> Bool { euclideousLaneSilencedBySolo(lane: lane, soloMask: soloEffective, partMask: partSoloEffective) }
+    /// …and one part (0 riff, 1 notes) of a lane that may still sound on its sister part: what MIX dims a row by.
+    private func partSoloSilenced(_ lane: Int, part: Int) -> Bool { euclideousPartSoloSilences(lane: lane, part: part, soloMask: soloEffective, partMask: partSoloEffective) }
     /// The SOLO button of lane `idx` (§2-3), built here as an `AnyView` like every other leaf of the lane card (the page's construction chain has almost no stack to spare in a debug build).
     private func soloButton(_ idx: Int, _ accent: Color) -> AnyView {
         AnyView(EuclideousSoloPressable(lane: idx, accent: accent, latched: (soloMask >> UInt8(idx)) & 1 != 0,

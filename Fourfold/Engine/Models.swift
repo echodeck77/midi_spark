@@ -2186,6 +2186,7 @@ struct MachineParams: Codable, Equatable {
     var euclideousLooperPasses: EuclideousLooperPasses? = nil   // N
     var euclideousLooperStartRanks: [Int]? = nil      // 8, frozen at B
     var euclideousLooperEvents: [EuclideousLoopEvent]? = nil    // capped 128/column at the write site (§3.4)
+    var partSoloMask: UInt8? = nil   // PER-PART SOLO (MIX v2, 2026-11-05): the EFFECTIVE part mask (latched | held), composed at publish — only meaningful for Euclideous's cell; nil ⇒ 0
     var soloMask: UInt8? = nil    // LANE SOLO (2026-10-21): the EFFECTIVE solo mask (latched | held), composed at publish — only meaningful for Euclideous's cell; nil ⇒ 0 (no solo, byte-identical for every other chain)
     var euclideousLocks: [EuclideousLaneLock]? = nil   // LANE LOCK (2026-10-21): the four lanes' locks, composed at publish — only meaningful for Euclideous's cell; nil ⇒ nothing locked (byte-identical for every other chain)
     var lockRevs: UInt32? = nil   // LANE LOCK: the per-lane document revisions this snapshot was built from (one byte per lane) — the render thread compares them with the live word to know an edit is on its way (6.4)
@@ -3649,6 +3650,10 @@ struct PluginState: Codable, Equatable {
     // is deliberately not a field of anything saved.
     var euclideousSoloMask: UInt8? = nil
     var euclideousSoloMaskResolved: UInt8 { (euclideousSoloMask ?? 0) & 0x0F }
+    // PER-PART SOLO (MIX v2 ferry 2026-11-05, §7.1): the LATCHED part mask — bit 2n = lane n's riff, bit 2n + 1 = its notes. Stored, saved and handed to the render thread exactly as `euclideousSoloMask` is (additive-Optional, decode-
+    // tolerant, no undo, a preset load replaces it); nil ⇒ 0 ⇒ every pre-feature document sounds as before. The held part mask is UI state only and is deliberately not a field of anything saved.
+    var euclideousPartSoloMask: UInt8? = nil
+    var euclideousPartSoloMaskResolved: UInt8 { euclideousPartSoloMask ?? 0 }
     // LANE LOCK (ferry 2026-10-21, §3.2): one lock per Euclideous lane — on, snap-back grid (kept while unlocked) and the locked state L. A 4-entry array BESIDE `euclideousLines`, deliberately NOT a field of
     // `EuclidLine` (which is shared by the persisted `MachineParams`, the render `SnapParams` and every "is this the same line" test, and is the struct that nearly filled the extension's 1 MB debug stack).
     // Consequences by construction: a lock is never in an undo snapshot (9.2), carries through no preset (9.3) and no copy/paste (3.4), and a pre-feature document (nil) resolves to four unlocked lanes. A session

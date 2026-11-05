@@ -9301,8 +9301,36 @@ func euclidEvenBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidStepGr
 }
 /// §5.1 — may the lane sound at this moment? Its PLAY state allows it, the LANES sequencer's cell doesn't mute it (`muteAudible` = `euclideousLaneAudible`), and the solo mask is 0 or contains the lane.
 /// The Router calls it per hit and in its mute edge sweep; `euclideousLaneIsDimmed` below is the same question for the displays.
-@inline(__always) func euclideousLaneMayStrike(lane: Int, soloMask: UInt8, muteAudible: Bool, enabled: Bool) -> Bool {
-    enabled && muteAudible && !euclideousSoloSilences(lane: lane, soloMask: soloMask)
+@inline(__always) func euclideousLaneMayStrike(lane: Int, soloMask: UInt8, muteAudible: Bool, enabled: Bool, partMask: UInt8 = 0) -> Bool {
+    enabled && muteAudible && !euclideousLaneSilencedBySolo(lane: lane, soloMask: soloMask, partMask: partMask)
+}
+
+// MARK: - PER-PART SOLO (MIX v2 ferry 2026-11-05, §7)
+// A second latched mask beside lane solo's: 8 bits, bit 2n = lane n's RIFF part, bit 2n + 1 = its NOTES part (the same index as `FourfoldPorts.bus(lane:part:)`). A part may sound unless SOME solo is in force and the part is in
+// neither mask: both masks 0 ⇒ nothing is solo-silenced (bit-identical to before this ferry); a lane in the LANE mask keeps both its parts; a part in the PART mask is heard on its own. A lane with neither part audible is "silenced by solo".
+
+/// §7.1: the effective part mask — latched | held, eight bits.
+@inline(__always) func euclideousPartSoloEffective(latched: UInt8, held: UInt8) -> UInt8 { latched | held }
+/// Is part `part` (0 riff, 1 notes) of lane `lane` solo-silenced? With `partMask` 0 this is exactly `euclideousSoloSilences(lane:)` for both parts.
+@inline(__always) func euclideousPartSoloSilences(lane: Int, part: Int, soloMask: UInt8, partMask: UInt8) -> Bool {
+    let lm = soloMask & 0x0F
+    guard lm | partMask != 0, lane >= 0, lane < 4, part >= 0, part < 2 else { return false }
+    return (lm >> UInt8(lane)) & 1 == 0 && (partMask >> UInt8(2 * lane + part)) & 1 == 0
+}
+/// A lane is solo-silenced when NEITHER of its parts may sound — what the lane-level displays, the cut sweep and the Router's whole-hit early return ask.
+@inline(__always) func euclideousLaneSilencedBySolo(lane: Int, soloMask: UInt8, partMask: UInt8) -> Bool {
+    euclideousPartSoloSilences(lane: lane, part: 0, soloMask: soloMask, partMask: partMask) && euclideousPartSoloSilences(lane: lane, part: 1, soloMask: soloMask, partMask: partMask)
+}
+/// §7.2 — may the part sound at this moment? Its lane's PLAY state allows it, the lane's LANES cell does not mute it, and the solo masks (lane, part) allow it. THE decision: the Router and every display call it.
+@inline(__always) func euclideousPartAudible(lane: Int, part: Int, laneMask: UInt8, partMask: UInt8, muteAudible: Bool, enabled: Bool) -> Bool {
+    enabled && muteAudible && !euclideousPartSoloSilences(lane: lane, part: part, soloMask: laneMask, partMask: partMask)
+}
+/// The eight parts' solo-silenced bits (bit 2n + p), for the Router's per-hit filter and the cut sweep.
+@inline(__always) func euclideousSoloSilencedPartBits(soloMask: UInt8, partMask: UInt8) -> UInt8 {
+    guard soloMask & 0x0F | partMask != 0 else { return 0 }
+    var bits: UInt8 = 0
+    for lane in 0..<4 { for part in 0..<2 where euclideousPartSoloSilences(lane: lane, part: part, soloMask: soloMask, partMask: partMask) { bits |= UInt8(1) << UInt8(2 * lane + part) } }
+    return bits
 }
 /// The dimmed lanes' 0.42, in one place (the page's existing OFF-dim value) and the ease every dim uses (§6: 0.15 s both ways).
 enum EuclideousLaneDimStyle {

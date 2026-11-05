@@ -86,6 +86,8 @@ struct FourfoldRootView: View {
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? { get { m.euclideousHoldLatchMode } nonmutating set { m.euclideousHoldLatchMode = newValue } }
     var euclideousSoloMask: UInt8 { get { m.euclideousSoloMask } nonmutating set { m.euclideousSoloMask = newValue } }
     var euclideousSoloHeld: UInt8 { get { m.euclideousSoloHeld } nonmutating set { m.euclideousSoloHeld = newValue } }
+    var euclideousPartSoloMask: UInt8 { get { m.euclideousPartSoloMask } nonmutating set { m.euclideousPartSoloMask = newValue } }   // PER-PART SOLO (MIX v2): latched
+    var euclideousPartSoloHeld: UInt8 { get { m.euclideousPartSoloHeld } nonmutating set { m.euclideousPartSoloHeld = newValue } }   // …and held (a finger down; UI only, never saved)
     var euclideousLocks: [EuclideousLaneLock] { get { m.euclideousLocks } nonmutating set { m.euclideousLocks = newValue } }
     var euclideousLockRevs: UInt32 { get { m.euclideousLockRevs } nonmutating set { m.euclideousLockRevs = newValue } }
     var euclideousLockTouches: [Int] { get { m.euclideousLockTouches } nonmutating set { m.euclideousLockTouches = newValue } }
@@ -133,6 +135,8 @@ struct FourfoldRootView: View {
             // LANE SOLO: a page that goes away takes any finger-held solo with it — the render thread keeps only the LATCHED mask.
             euclideousSoloHeld = 0
             au?.setEuclideousSoloLive(euclideousSoloMask)
+            euclideousPartSoloHeld = 0   // PER-PART SOLO: the same — a page that goes away takes a finger-held part solo with it
+            au?.setEuclideousPartSoloLive(euclideousPartSoloMask)
             euclideousLockTouches = [0, 0, 0, 0]   // LANE LOCK: a finger the page never saw lift must not hold a lane forever
             pushLockLive()
         }
@@ -202,6 +206,7 @@ struct FourfoldRootView: View {
                                                // from this call site — decode-safety for an old saved doc, matching how
                                                // euclideousReceiver was handled when ITS control was dropped.
                                                soloMask: euclideousSoloMask, soloHeld: euclideousSoloHeld,
+                                               partSoloMask: euclideousPartSoloMask, partSoloHeld: euclideousPartSoloHeld,
                                                chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
                                                onEditChordSet: { idx, mutate in
                                                    var sets = euclideousChordSets
@@ -454,6 +459,25 @@ struct FourfoldRootView: View {
                                                    }
                                                    publish()
                                                },
+                                               // PER-PART SOLO (MIX v2, 2026-11-05, §7.6): lane solo's rule on the part mask — touch-down holds the part at once, a lift clears it and, for a tap, flips its latched bit in the SAME update; the live word goes to
+                                               // the render thread first, `publish()` follows. No undo (as lane solo); only the latched mask is saved.
+                                               onPartSoloDown: { part in
+                                                   guard (0..<8).contains(part) else { return }
+                                                   euclideousPartSoloHeld |= UInt8(1 << part)
+                                                   au?.setEuclideousPartSoloLive(euclideousPartSoloEffective(latched: euclideousPartSoloMask, held: euclideousPartSoloHeld))
+                                                   publish()
+                                               },
+                                               onPartSoloUp: { part, latchToggles in
+                                                   guard (0..<8).contains(part) else { return }
+                                                   euclideousPartSoloHeld &= ~UInt8(1 << part)
+                                                   if latchToggles { euclideousPartSoloMask ^= UInt8(1 << part) }
+                                                   au?.setEuclideousPartSoloLive(euclideousPartSoloEffective(latched: euclideousPartSoloMask, held: euclideousPartSoloHeld))
+                                                   if latchToggles {
+                                                       let v = euclideousPartSoloMask
+                                                       au?.editDocument { $0.euclideousPartSoloMask = v == 0 ? nil : v }
+                                                   }
+                                                   publish()
+                                               },
                                                // FOURFOLD SETTINGS (2026-10-15 ferry) — §6.3/§6.4: "no undo steps... changes
                                                // apply at once," same as the solo and source setters above — none of these 4 record onto euclideousUndo.
                                                midiInChannelMask: euclideousMidiInChannelMask,
@@ -542,7 +566,8 @@ struct FourfoldRootView: View {
     func publish() {
         let input = FourfoldCompose.Input(lines: euclideousLines, riff: euclideousRiff, riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                           soloMask: euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld),   // LANE SOLO: latched | held — the render thread sees only the union
-                                          locks: euclideousLocks, lockRevs: euclideousLockRevs)
+                                          locks: euclideousLocks, lockRevs: euclideousLockRevs,
+                                          partSoloMask: euclideousPartSoloEffective(latched: euclideousPartSoloMask, held: euclideousPartSoloHeld))   // PER-PART SOLO (MIX v2): latched | held
         let chain = FourfoldCompose.chain(input)
         // The cell's machine id must resolve against the document's machines + the ephemeral registry (SnapshotBuilder skips a cell whose machine doesn't); re-registered only when the chain changes.
         if registeredChain != chain {
@@ -609,6 +634,8 @@ struct FourfoldRootView: View {
         euclideousHoldLatchMode = au.uiEuclideousHoldLatchMode()
         euclideousSoloMask = au.uiEuclideousSoloMask()
         au.setEuclideousSoloLive(euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld))   // the live word follows the document (a restore / a preset load)
+        euclideousPartSoloMask = au.uiEuclideousPartSoloMask()
+        au.setEuclideousPartSoloLive(euclideousPartSoloEffective(latched: euclideousPartSoloMask, held: euclideousPartSoloHeld))   // PER-PART SOLO: the same follow
         euclideousMidiInChannelMask = au.uiEuclideousMidiInChannelMask()
         euclideousHostStopBehavior = au.uiEuclideousHostStopBehavior()
         euclideousSameNoteGuard = au.uiEuclideousSameNoteGuard()
@@ -956,6 +983,7 @@ struct FourfoldRootView: View {
         let ekr = au.uiEuclideousKeyRoot(); if ekr != euclideousKeyRoot { euclideousKeyRoot = ekr; euclideousResynced = true }
         let ekt = au.uiEuclideousKeyType(); if ekt != euclideousKeyType { euclideousKeyType = ekt; euclideousResynced = true }
         let esol = au.uiEuclideousSoloMask(); if esol != euclideousSoloMask { euclideousSoloMask = esol; au.setEuclideousSoloLive(euclideousSoloEffective(latched: esol, held: euclideousSoloHeld)); euclideousResynced = true }   // LANE SOLO: a preset load / session restore replaces it
+        let epsol = au.uiEuclideousPartSoloMask(); if epsol != euclideousPartSoloMask { euclideousPartSoloMask = epsol; au.setEuclideousPartSoloLive(euclideousPartSoloEffective(latched: epsol, held: euclideousPartSoloHeld)); euclideousResynced = true }   // PER-PART SOLO: a preset load / restore
         let emicm = au.uiEuclideousMidiInChannelMask(); if emicm != euclideousMidiInChannelMask { euclideousMidiInChannelMask = emicm; euclideousResynced = true }
         let ehsb = au.uiEuclideousHostStopBehavior(); if ehsb != euclideousHostStopBehavior { euclideousHostStopBehavior = ehsb; euclideousResynced = true }
         let esng = au.uiEuclideousSameNoteGuard(); if esng != euclideousSameNoteGuard { euclideousSameNoteGuard = esng; euclideousResynced = true }
@@ -1112,6 +1140,8 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil
     @Published var euclideousSoloMask: UInt8 = 0
     @Published var euclideousSoloHeld: UInt8 = 0
+    @Published var euclideousPartSoloMask: UInt8 = 0   // PER-PART SOLO (MIX v2): latched (saved) …
+    @Published var euclideousPartSoloHeld: UInt8 = 0   // … and held (UI only)
     @Published var euclideousLocks: [EuclideousLaneLock] = Array(repeating: EuclideousLaneLock(), count: 4)
     @Published var euclideousLockRevs: UInt32 = 0
     @Published var euclideousLockTouches: [Int] = [0, 0, 0, 0]

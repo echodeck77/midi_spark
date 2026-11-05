@@ -24,6 +24,8 @@ enum FourfoldCompose {
         var locks: [EuclideousLaneLock]
         /// The per-lane document revisions this snapshot is built from (one byte per lane).
         var lockRevs: UInt32
+        /// PER-PART SOLO (MIX v2): the EFFECTIVE part mask (latched | held), bit 2n riff / 2n + 1 notes.
+        var partSoloMask: UInt8 = 0
     }
 
     /// The single-slot EUCLID chain the cell carries.
@@ -33,6 +35,7 @@ enum FourfoldCompose {
         p.euclideousRiff = i.riff
         p.riffs = i.riffs; p.activeRiff = i.activeRiff
         p.soloMask = i.soloMask
+        p.partSoloMask = i.partSoloMask == 0 ? nil : i.partSoloMask
         p.euclideousLocks = i.locks; p.lockRevs = i.lockRevs
         return [ProcessorSlot(type: .euclid, params: p)]
     }

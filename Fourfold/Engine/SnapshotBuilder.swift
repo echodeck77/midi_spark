@@ -527,6 +527,7 @@ enum SnapshotBuilder {
         out.euclideousLooperPasses = (p.euclideousLooperPasses ?? .fourPasses).passes
         if let r = p.euclideousLooperStartRanks { out.euclideousLooperStartRanks = r.count == 8 ? r : (0..<8).map { $0 < r.count ? r[$0] : 0 } }
         out.euclideousLooperEvents = p.euclideousLooperEvents ?? []
+        out.partSoloMask = p.partSoloMask ?? 0                // PER-PART SOLO (MIX v2, 2026-11-05): nil ⇒ none, byte-identical
         out.soloMask = (p.soloMask ?? 0) & 0x0F               // LANE SOLO (2026-10-21): nil ⇒ no solo, byte-identical for every other chain
         if let locks = p.euclideousLocks, locks.contains(where: { $0.isLocked }) {   // LANE LOCK (2026-10-21): nil / nothing locked ⇒ [] ⇒ the Router takes its untouched path
             out.euclideousLocks = locks.prefix(4).map { EuclideousLockSnap(on: $0.isLocked, grid: $0.gridResolved, state: $0.state) }

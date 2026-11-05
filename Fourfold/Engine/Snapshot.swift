@@ -257,6 +257,8 @@ struct SnapParams {
     var euclideousRiff: EuclideousRiff = EuclideousRiff()   // EUCLIDEOUS's own shared riff pattern (Paul 2026-10-06), pre-resolved
     // LANE SOLO (2026-10-21): bit i = Euclideous lane i is soloed (latched | held). 0 (the default, and every non-Euclideous cell) = no solo ⇒ the Router's output is unchanged.
     var soloMask: UInt8 = 0
+    // PER-PART SOLO (MIX v2, 2026-11-05): bit 2n = lane n's riff part, 2n + 1 = its notes part (latched | held). 0 = no part solo ⇒ the Router's output is unchanged.
+    var partSoloMask: UInt8 = 0
     // LANE LOCK (2026-10-21): per Euclideous lane — on, snap-back grid, the locked state L — and the document revisions this snapshot was built from. Empty / 0 (the default, and every non-Euclideous cell) ⇒ the Router's
     // output is unchanged, bit for bit.
     var euclideousLocks: [EuclideousLockSnap] = []

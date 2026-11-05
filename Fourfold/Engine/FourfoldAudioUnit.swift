@@ -260,8 +260,10 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func uiEuclideousSourcePlan() -> SourcePlan? { document.euclideousSourcePlan }   // SOURCES STACK: the raw optional (nil ⇒ UI shows the derived plan)
     func uiEuclideousHoldLatchMode() -> EuclideousHoldLatchMode? { document.euclideousHoldLatchMode }   // HOLD/LATCH (2026-10-20): nil = off, no Resolved coercion needed
     func uiEuclideousSoloMask() -> UInt8 { document.euclideousSoloMaskResolved }
+    func uiEuclideousPartSoloMask() -> UInt8 { document.euclideousPartSoloMaskResolved }   // PER-PART SOLO (MIX v2, 2026-11-05)
     /// LANE SOLO: the effective mask (latched | held) straight to the render thread — no snapshot in the way. Main thread.
-    func setEuclideousSoloLive(_ mask: UInt8) { kernel.setEuclideousSoloLive(mask) }   // LANE SOLO (2026-10-21): the LATCHED mask
+    func setEuclideousSoloLive(_ mask: UInt8) { kernel.setEuclideousSoloLive(mask) }
+    func setEuclideousPartSoloLive(_ mask: UInt8) { kernel.setEuclideousPartSoloLive(mask) }   // PER-PART SOLO (MIX v2): the LATCHED | held part mask   // LANE SOLO (2026-10-21): the LATCHED mask
     /// RANDOM MODE ferry: a per-lane pending THROW/TWEAK/BACK/hold override straight to the render thread — same hand-off as setEuclideousSoloLive above. Main thread.
     func setEuclideousPendingRolls(_ rolls: EuclideousPendingRollSlots) { kernel.setEuclideousPendingRolls(rolls) }
     /// §5.6: the hold's own higher-priority override — same hand-off, separate channel.
