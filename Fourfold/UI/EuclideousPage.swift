@@ -6627,10 +6627,17 @@ struct EuclideousPage: View {
     /// POLY RIFF (2026-10-29): the MONO | POLY control that replaced the four riff boxes in the panel's top row — the segmented-control look of the lane strip at the row's 20 pt (14 compact): a #1F2127 container (r6, 2 inset),
     /// two equal segments (r4), the selected one #DFE3EA with ink. A tap switches the mode (one undo step; the first switch to POLY seeds the grid from the MONO riff); a long press offers CLEAR for the mode showing.
     /// VoiceOver "Mono" / "Poly" — never starting "Riff, " or "Riff 1" (the UI tests match those prefixes).
+    /// DEBUG-ONLY POLY (Paul 2026-11-05): the POLY option is offered on debug builds only. A release build renders the MONO segment alone — there is no way to switch a lane into POLY from the UI (`onSetRiffPoly` has no other
+    /// caller, and random mode / presets never set it) — while MONO's own long-press CLEAR stays. (A POLY document made in a debug build still decodes and plays POLY in release; only the UI toggle is gated.)
     private func riffModeRow(height: CGFloat) -> some View {
         let ink = Color(hex: 0x0D0F14)
+        #if DEBUG
+        let modes: [Bool] = [false, true]   // MONO | POLY
+        #else
+        let modes: [Bool] = [false]         // MONO only
+        #endif
         return HStack(spacing: 2) {
-            ForEach([false, true], id: \.self) { poly in
+            ForEach(modes, id: \.self) { poly in
                 let sel = riffPoly == poly
                 Text(poly ? "POLY" : "MONO").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.1)
                     .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
