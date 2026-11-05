@@ -100,9 +100,9 @@ final class FourfoldTapTests: XCTestCase {
         }
         XCTAssertGreaterThanOrEqual(lane1("Step 4"), 2, "lane 1's two held notes both strike on step 4: \(seen)")
     }
-    func testAReversedLaneSeatsItsChordArrowsOnTheNotesLastColumn() { assertLane1SeatsItsChordArrowsOnTheNotesLastColumn(direction: "Backward Each Time", seconds: 30) }
+    func testAReversedLaneSeatsItsChordArrowsOnTheNotesLastColumn() { assertLane1SeatsItsChordArrowsOnTheNotesLastColumn(direction: "Backward", seconds: 30) }   // RIFF v2 (2026-11-05) renamed the RIFF direction VoiceOver labels to Backward / Ping-pong / Forward
     /// PING-PONG (2026-10-30): the same notes are met at their last column on the way back (the second visit of the end step), not only at their first on the way up.
-    func testAPingPongLaneSeatsItsChordArrowsOnTheNotesLastColumnComingBack() { assertLane1SeatsItsChordArrowsOnTheNotesLastColumn(direction: "Forward, Then Back, Each End Twice", seconds: 60) }
+    func testAPingPongLaneSeatsItsChordArrowsOnTheNotesLastColumnComingBack() { assertLane1SeatsItsChordArrowsOnTheNotesLastColumn(direction: "Ping-pong", seconds: 60) }
 
     /// HOCKET (2026-10-27): the header button opens the pop-up, two chip taps make a lit swap rule, the button then reads "1 rule on", and closing leaves the rule lit.
     func testHocketPopupBuildsARuleAndTheButtonCountsIt() {

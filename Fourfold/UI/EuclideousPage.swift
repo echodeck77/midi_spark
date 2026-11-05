@@ -4231,18 +4231,23 @@ struct EuclideousPage: View {
     /// uses). SELECTED = LANE-20 fill, 1pt LANE-100 border, #f2f4f7 text; UNSELECTED = #2a2d34 fill,
     /// #aab0ba text (ferry §6, applied uniformly across this whole block, not just here).
     private func directionRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, rowH: CGFloat) -> some View {
-        let order: [(EuclidDir, String)] = [(.bkw, "<"), (.pingpong, "><"), (.fwd, ">")]
+        // Paul 2026-11-05: the RHYTHM tab's directions now use RIFF v2's drawn arrow icons (backward / ping-pong / forward), replacing the `<` / `><` / `>` glyphs — same icons, same selected look (its patternSelected/Unselected colours already equal the RIFF icon's).
+        let order: [(EuclidDir, RiffDirectionKind, String)] = [(.bkw, .backward, "Backward"), (.pingpong, .pingpong, "Ping-pong"), (.fwd, .forward, "Forward")]
         return HStack(spacing: sp4) {   // RHYTHM POLISH §1.3: the four buttons across the row (these three + FLIP HITS) are sp4 apart (was 3 pt between the three)
-            ForEach(order, id: \.0) { dir, glyph in
+            ForEach(order, id: \.0) { dir, kind, name in
                 let on = line.directionResolved == dir
-                Text(glyph).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                    .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                RiffDirectionIcon(kind: kind)
+                    .stroke(on ? patternSelectedText : patternUnselectedText, style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
+                    .frame(width: 20, height: 14.67)
                     .frame(maxWidth: .infinity).frame(height: rowH)
                     .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
                     .contentShape(Rectangle())
                     .modifier(laneTapMod(idx) { edit(idx) { $0.direction = dir } })
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(name)   // the icon has no text — give VoiceOver the name (it had the glyph before)
                     .accessibilityValue(lockSpoken(idx, .direction, ""))
+                    .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
             }
         }
         .modifier(lockOutlineMod(idx, .direction, accent))
