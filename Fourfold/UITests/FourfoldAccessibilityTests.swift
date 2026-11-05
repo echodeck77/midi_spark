@@ -159,7 +159,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditPolyRiffPortrait() { screen("poly riff", landscape: false) { $0.buttons["Poly"].tap() } }   // POLY RIFF (2026-10-29): the sixteen-column grid and the MONO | POLY control
     func testAuditNotesTabPortrait() { screen("lane tab NOTES", landscape: false, laneTab("Notes")) }
     func testAuditAnswerTabPortrait() { screen("lane tab ANSWER", landscape: false, laneTab("Answer, ")) }
-    func testAuditPoolTabPortrait() { screen("lane tab POOL", landscape: false, laneTab("Pool, ")) }   // ANSWER ferry (2026-11-02): NOW · CANON · FREEZE
+    func testAuditPoolTabPortrait() { screen("lane tab INPUTS", landscape: false, laneTab("Inputs, ")) }   // POOL renamed INPUTS (2026-11-05); ANSWER ferry (2026-11-02): NOW · CANON · FREEZE
     func testAuditPresetsPortrait()  { screen("presets", landscape: false, open("Presets", expect: "PRESETS")) }
     func testAuditKeyPopupPortrait() { screen("key popup", landscape: false, open("Key, C minor", expect: "KEY")) }
     func testAuditSwingPortrait()    { screen("swing", landscape: false, open("Swing, straight", expect: "SWING")) }
@@ -174,7 +174,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditRiffTabLandscape()  { screen("lane tab RIFF", landscape: true, laneTab("Riff, ")) }
     func testAuditNotesTabLandscape() { screen("lane tab NOTES", landscape: true, laneTab("Notes")) }
     func testAuditAnswerTabLandscape() { screen("lane tab ANSWER", landscape: true, laneTab("Answer, ")) }
-    func testAuditPoolTabLandscape() { screen("lane tab POOL", landscape: true, laneTab("Pool, ")) }
+    func testAuditPoolTabLandscape() { screen("lane tab INPUTS", landscape: true, laneTab("Inputs, ")) }   // POOL renamed INPUTS (2026-11-05)
     func testAuditPresetsLandscape()  { screen("presets", landscape: true, open("Presets", expect: "PRESETS")) }
     func testAuditKeyPopupLandscape() { screen("key popup", landscape: true, open("Key, C minor", expect: "KEY")) }
     func testAuditSwingLandscape()    { screen("swing", landscape: true, open("Swing, straight", expect: "SWING")) }

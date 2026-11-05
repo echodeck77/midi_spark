@@ -222,7 +222,7 @@ final class FourfoldTapTests: XCTestCase {
         need(app.el("Advance every"), "the RIFF tab's ADVANCE EVERY row")   // (the WALK strip above it is dropped on a card too short for it — the iPad mini — so it is not the thing to look for)
         app.els(prefix: "Notes, ").firstMatch.tap()
         need(app.el("Notes layer, off, 0 notes lit"), "the NOTES tab's layer switch")
-        app.els(prefix: "Pool, ").firstMatch.tap()
+        app.els(prefix: "Inputs, ").firstMatch.tap()   // POOL tab renamed INPUTS (Paul 2026-11-05)
         need(app.els(prefix: "Now, lane 1").firstMatch, "the POOL tab's NOW row")
         need(app.el("Canon delay, lane 1"), "the POOL tab's CANON row")
         app.els(prefix: "Answer, ").firstMatch.tap()
@@ -265,7 +265,7 @@ final class FourfoldTapTests: XCTestCase {
     func testThePoolTabSwitchesSourcesSustainAndTheGridPicker() {
         let app = XCUIApplication.fresh(["--autoplay"])   // a stopped engine has no pools to show (as before the ferry: the old shared pool was only refreshed while playing)
         Thread.sleep(forTimeInterval: 1.5)
-        app.els(prefix: "Pool, ").firstMatch.tap()
+        app.els(prefix: "Inputs, ").firstMatch.tap()   // POOL tab renamed INPUTS (Paul 2026-11-05)
         need(app.els(prefix: "Now, lane 1").firstMatch, "the NOW row (a leaf: the status feed does not re-run the page)")
         // SOURCES: a toggle is one undo step, the lane's name is in its label
         XCTAssertEqual(value(need(app.el("Key, lane 1"), "lane 1's KEY toggle")), "on")
@@ -318,7 +318,7 @@ final class FourfoldTapTests: XCTestCase {
     /// every source (the factory document has MIDI IN and KEY on), so it reports no "no effect" reason. The value follows a tap a moment later (the edit goes through the document and back), so each check waits for it.
     func testTheCanonRowStepsDelayAndSlipAndTheSharedUnit() {
         let app = XCUIApplication.fresh()
-        app.els(prefix: "Pool, ").firstMatch.tap()   // ANSWER ferry: CANON and FREEZE moved to the POOL tab
+        app.els(prefix: "Inputs, ").firstMatch.tap()   // POOL tab renamed INPUTS (Paul 2026-11-05)   // ANSWER ferry: CANON and FREEZE moved to the POOL tab
         func waitValue(_ label: String, _ prefix: String, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
             let end = Date().addingTimeInterval(4)
             while !value(app.el(label)).hasPrefix(prefix) && Date() < end { Thread.sleep(forTimeInterval: 0.1) }

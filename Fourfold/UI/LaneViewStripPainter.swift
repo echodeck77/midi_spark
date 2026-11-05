@@ -108,7 +108,7 @@ struct EuclideousLaneViewStrip: View {
     // MARK: one segment of the tab control
 
     private func segment(_ i: Int, _ L: EuclideousLaneStripLayout) -> some View {
-        let t = EuclideousPageTab(rawValue: i) ?? .rhythm
+        let t = i < euclideousPageTabOrder.count ? euclideousPageTabOrder[i] : .rhythm   // the strip's LEFT-TO-RIGHT order (INPUTS first), not the raw-value order
         let sel = tab == t
         let seg = L.segments[i], target = L.segmentTargets[i]
         let glyphs = euclideousLaneStripGlyphs(tab: t, lines: lines)

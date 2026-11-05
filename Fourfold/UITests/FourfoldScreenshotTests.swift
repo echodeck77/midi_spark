@@ -175,7 +175,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             tap("Pitch, lane 1"); tap("Cycle pitch, lane 1"); tap("Trade, lane 1"); tap("Cycle rhythm, lane 1"); Thread.sleep(forTimeInterval: 1.5); attach("11-answer-\(tag)-2-everything")
             app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-3-rhythm-tab-live-body-with-cycle")
             tapPrefix("Answer, "); tap("Cycle rhythm, lane 1"); app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-4-rhythm-tab-borrowed")
-            tapPrefix("Pool, "); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-5-pool")
+            tapPrefix("Inputs, ");   // POOL renamed INPUTS (2026-11-05) Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-5-pool")
         }
         XCUIDevice.shared.orientation = .portrait
     }
@@ -188,7 +188,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             Thread.sleep(forTimeInterval: 2)
             func tap(_ label: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.5) } }
             func tapPrefix(_ p: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", p)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.5) } }
-            tapPrefix("Pool, "); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-0-bare")
+            tapPrefix("Inputs, ");   // POOL renamed INPUTS (2026-11-05) Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-0-bare")
             tap("Chords 2, lane 1"); tap("Chords 2, lane 3"); tap("Chords 1, lane 3"); Thread.sleep(forTimeInterval: 0.6); attach("12-pool-\(tag)-0b-chord-grids")   // TWO CHORD GRIDS: lane 1 on CHORD 2; lane 3 to CHORD 2 and back to CHORD 1 (the default)
             tap("Sustain, lane 1"); tap("Key, lane 2"); tap("Sustain stack, lane 3, loses nothing, off"); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-1-switches")
             tapPrefix("Notes, "); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-2-notes-keys")

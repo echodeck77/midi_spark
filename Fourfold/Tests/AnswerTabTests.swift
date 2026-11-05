@@ -252,8 +252,12 @@ final class AnswerTabTests: XCTestCase {
     // MARK: strip: six tabs
 
     func testTheStripReadsRhythmRiffNotesPoolAnswerMix() {
-        XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["RHYTHM", "RIFF", "NOTES", "POOL", "ANSWER", "MIX"])
+        XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["RHYTHM", "RIFF", "NOTES", "INPUTS", "ANSWER", "MIX"])   // POOL renamed INPUTS (Paul 2026-11-05)
         XCTAssertEqual(EuclideousPageTab.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5])
+        // the strip DRAWS them INPUTS first (the display order is separate from the raw-value coupling)
+        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["INPUTS", "RHYTHM", "RIFF", "NOTES", "ANSWER", "MIX"])
+        XCTAssertEqual(euclideousPageTabOrder.count, EuclideousPageTab.allCases.count)
+        XCTAssertEqual(Set(euclideousPageTabOrder), Set(EuclideousPageTab.allCases), "every tab appears exactly once")
         XCTAssertEqual(EuclideousTabKind.allCases.map(\.rawValue), [0, 1, 2, 3, 4])
         XCTAssertEqual(EuclideousPageTab.pool.front, .pool); XCTAssertEqual(EuclideousPageTab.listen.front, .listen); XCTAssertNil(EuclideousPageTab.mix.front)
     }
@@ -285,8 +289,8 @@ final class AnswerTabTests: XCTestCase {
         var ls = lanes(); ls[2].listenSource = 1; ls[2].answerRhythmOn = true; ls[1].chordDelay = 2
         XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: ls)), "Answer, lane 3 following lane 2")
         XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lanes())), "Answer, all off")
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: ls)), "Pool, lane 2 set")
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: lanes())), "Pool, nothing set")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: ls)), "Inputs, lane 2 set")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: lanes())), "Inputs, nothing set")
     }
 
     // MARK: SHADOW's mover is allocation-free (the Release audit exercises it now) and unchanged

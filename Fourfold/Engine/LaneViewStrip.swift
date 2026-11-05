@@ -19,10 +19,12 @@ enum EuclideousPageTab: Int, CaseIterable, Equatable {
     var front: EuclideousTabKind? { self == .mix ? nil : EuclideousTabKind(rawValue: rawValue) }
     var isMix: Bool { self == .mix }
     var spokenName: String {
-        switch self { case .rhythm: return "Rhythm"; case .riff: return "Riff"; case .notes: return "Notes"; case .pool: return "Pool"; case .listen: return "Answer"; case .mix: return "Mix" }
+        switch self { case .rhythm: return "Rhythm"; case .riff: return "Riff"; case .notes: return "Notes"; case .pool: return "Inputs"; case .listen: return "Answer"; case .mix: return "Mix" }   // POOL renamed INPUTS on screen (Paul 2026-11-05; the case keeps its code name `.pool`, so the rawValue coupling is untouched)
     }
     var label: String { spokenName.uppercased() }
 }
+/// The LEFT-TO-RIGHT order the strip draws its segments (Paul 2026-11-05: INPUTS first, before RHYTHM). This is DELIBERATELY separate from the raw values — `.pool`'s rawValue (3) still drives the `.front` / `EuclideousTabKind` coupling and must not move; only the display position changes.
+let euclideousPageTabOrder: [EuclideousPageTab] = [.pool, .rhythm, .riff, .notes, .listen, .mix]
 
 /// What a tap on the strip does: nothing when the segment is already selected; otherwise the new tab, which ALWAYS
 /// turns the cards over (the flip). Paul, 2026-10-30: MIX lives in the one segmented control now, and every tab

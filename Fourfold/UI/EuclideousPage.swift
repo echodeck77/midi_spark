@@ -668,7 +668,7 @@ enum EuclideousLaneTab: Int, CaseIterable {
     // are all untouched, just never reachable from the UI and never fed a genuinely-enabled mask by the
     // one call site that used to (see Router.swift's own call-site comment).
     case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4   // ANSWER FERRY: POOL joined, LISTEN is ANSWER on screen (the case keeps its code name); coupled by raw value with EuclideousTabKind / EuclideousPageTab
-    var label: String { switch self { case .rhythm: "RHYTHM"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "POOL"; case .listen: "ANSWER" } }
+    var label: String { switch self { case .rhythm: "RHYTHM"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "INPUTS"; case .listen: "ANSWER" } }   // POOL → INPUTS on screen (Paul 2026-11-05)
 }
 
 /// STACK BREAK (2026-10-25, crash `FourfoldAU-2026-10-25-213535.ips`): the extension's main thread has a 1 MB stack and building the page eagerly nests
