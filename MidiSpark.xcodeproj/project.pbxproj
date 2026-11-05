@@ -422,6 +422,7 @@
 		FB90E1D2C6DD0490D543E2CC /* PageLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */; };
 		FD0934CECE8FE814F7E47505 /* AnswerTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A00150F18F6006F1DFA952 /* AnswerTab.swift */; };
 		FDC4CCB5FA83EBBCF5518EFE /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E074C5873A3072DF6841935F /* PresetStore.swift */; };
+		FDCDC1A098E8D7AA5F19DD58 /* PartSoloTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A4FCADE9E792859C25B95C5 /* PartSoloTests.swift */; };
 		FE78E589ED55F31D39E8C4CF /* MixPanelViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1789A8785BE83C4F4C04A00 /* MixPanelViews.swift */; };
 		FEA5BFC3C5181521186804C3 /* NoteRollLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8515C7210E9F11CE0F1D84D6 /* NoteRollLive.swift */; };
 		FFF68A224F94D3D845FC95EB /* PolyRiffEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = C340F6C0DDE17211F0D4E422 /* PolyRiffEdit.swift */; };
@@ -526,6 +527,7 @@
 		3780B20BC035BCBFBD2CCA2B /* RestartEditorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartEditorViews.swift; sourceTree = "<group>"; };
 		38A753F80E70DA093255A1D3 /* RatchPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RatchPanelPainter.swift; sourceTree = "<group>"; };
 		3A0FF4898E2B013BF63E6CE0 /* EuclideousPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPage.swift; sourceTree = "<group>"; };
+		3A4FCADE9E792859C25B95C5 /* PartSoloTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartSoloTests.swift; sourceTree = "<group>"; };
 		3BE087ACC1F36051FD8C707A /* MidiSparkAudioUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiSparkAudioUnit.swift; sourceTree = "<group>"; };
 		3C76013EC892936A85823727 /* RestartScheduleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartScheduleTests.swift; sourceTree = "<group>"; };
 		3E30016BB623E045246A0488 /* FourfoldReel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldReel.swift; sourceTree = "<group>"; };
@@ -935,6 +937,7 @@
 				D8F6B53AC233F6A8E597DA12 /* OutputMuteTests.swift */,
 				03A0A18293719D2C8BD2B9FB /* OutTransposeTests.swift */,
 				5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */,
+				3A4FCADE9E792859C25B95C5 /* PartSoloTests.swift */,
 				88507484ADAB7F34EE66162A /* PlayingSilenceLeakTests.swift */,
 				02BC895877CC2BFAB7C8DF92 /* PolyRiffEditTests.swift */,
 				5DF0A2C1D3809EFFB73B3B50 /* PolyRiffRouterTests.swift */,
@@ -1712,6 +1715,7 @@
 				33AE38BE8F26FCF7D2E79593 /* OutputMute.swift in Sources */,
 				6B0CAF0847316B78FC791973 /* OutputMuteTests.swift in Sources */,
 				FB90E1D2C6DD0490D543E2CC /* PageLayoutTests.swift in Sources */,
+				FDCDC1A098E8D7AA5F19DD58 /* PartSoloTests.swift in Sources */,
 				07ACA50D9121BF8128E28CBA /* PlayingSilenceLeakTests.swift in Sources */,
 				BF2AF2915CBA6D12BE6865C3 /* PolyRiff.swift in Sources */,
 				36AE4BF0F091A6FE37D9ED82 /* PolyRiffEdit.swift in Sources */,
