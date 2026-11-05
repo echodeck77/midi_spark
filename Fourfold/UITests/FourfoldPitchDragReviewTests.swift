@@ -22,10 +22,10 @@ final class FourfoldPitchDragReviewTests: XCTestCase {
     }
     func openBacks() { app.buttons["Mix"].tap(); Thread.sleep(forTimeInterval: 0.6) }
 
-    /// ONE continuous drag across a TRANS slider (crossing many whole steps) must be ONE undo step, and a single ↶ must return to exactly the pre-drag document.
+    /// ONE continuous drag across the OCT boxes (MIX v2: TRANS is a tap control now) must be ONE undo step however many boxes it crosses, and a single ↶ must return to exactly the pre-drag document.
     func testADragAcrossASliderIsExactlyOneUndoStep() {
         let p0 = launch(); openBacks()
-        let trans = need(app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Riff transpose")).firstMatch, "the riff's TRANS slider")
+        let trans = need(app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Riff octave")).firstMatch, "the riff's OCT boxes")
         let before = settled()
         trans.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.1, thenDragTo: trans.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)))
         let after = settled()

@@ -197,7 +197,11 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case 4:
                 desc = "slider \(part) \(slider) lane \(lane + 1)"
                 let from = 0.15 + Double(rng.int(0...70)) / 100, to = 0.15 + Double(rng.int(0...70)) / 100
-                drag(app.els(prefix: "\(part) \(slider)").element(boundBy: lane), from: from, to: to)
+                if slider == "transpose" {   // MIX v2: TRANS is a pair of halves — a tap in the upper (to > 0.5) or lower half
+                    app.els(prefix: "\(part) \(slider)").element(boundBy: lane).coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: to > 0.5 ? 0.2 : 0.8)).tap()
+                } else {
+                    drag(app.els(prefix: "\(part) \(slider)").element(boundBy: lane), from: from, to: to)
+                }
             case 5: desc = "UNDO"; undo()
             default: desc = "REDO"; redo()
             }

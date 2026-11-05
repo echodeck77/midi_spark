@@ -28,6 +28,7 @@ enum FourfoldAuditAllowList {
         ("textClipped", "GATE", "MIX ROWS: the slider caption (7 pt) — same family as TRANS; drawn whole in the pictures"),
         ("textClipped", "90%", "MIX ROWS: the GATE slider's value (9 pt heavy, right-aligned in its tile) — drawn whole in the pictures; the audit flags the value Texts of the sliders like their captions"),
         ("textClipped", "100", "MIX ROWS: the VEL slider's value (9 pt heavy) — drawn whole in the pictures; same family as GATE's 90%"),
+        ("textClipped", "VEL", "MIX v2 (2026-11-05): the VEL slider's caption pill (7–10 pt, 19 × 10) — drawn whole in the pictures, the same family as GATE / TRANS; the prefix also matches the lower-right panel's VEL tab caption"),
         ("textClipped", "RIFF", "MIX ROWS: the part toggle's 8 pt caption (the element is 43 × 40) — drawn whole in the pictures; confirm on device"),
         ("textClipped", "SOLO", "the SOLO tile's 10 pt label (the card's own 40 × 40; MIX's 120 × 24) — drawn whole in every picture; the audit has flagged it since the POOL ferry — confirm on device"),
         ("textClipped", "TAKE NOTHING NEW", "POOL tab SUSTAIN option caption (the spec's own 16 characters ≈ 96 pt in a ≈ 92 pt button: truncated, never shrunk) — read it on a narrow card"),

@@ -39,7 +39,7 @@ final class FourfoldCardBackReviewTests: XCTestCase {
         let lane1 = app.el("Lane 1")
         func tile(_ prefix: String) -> XCUIElement { lane1.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch }
         need(tile("Notes, off"), "lane 1's NOTES part starts off on the factory document")
-        let oct = need(tile("Notes octave"), "the notes OCT tile"); XCTAssertEqual(oct.label, "Notes octave 0")
+        let oct = need(tile("Notes octave"), "the notes OCT boxes"); XCTAssertEqual(oct.label, "Notes octave 0")
         let before = settled()
         oct.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).press(forDuration: 0.05, thenDragTo: oct.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
         let after = settled()
@@ -47,9 +47,9 @@ final class FourfoldCardBackReviewTests: XCTestCase {
         XCTAssertNotEqual(tile("Notes octave").label, "Notes octave 0", "the value moved")
         XCTAssertTrue(tile("Notes, off").exists, "writing the octave left the NOTES part off")
         let trans = need(tile("Notes transpose"), "the notes TRANS tile")
-        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).press(forDuration: 0.05, thenDragTo: trans.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
-        XCTAssertNotEqual(tile("Notes transpose").label, "Notes transpose 0"); XCTAssertTrue(tile("Notes, off").exists, "…and so did the transpose")
-        XCTAssertNotEqual(tile("Notes octave").label, "Notes octave 0", "a drag on one tile did not fall through to another")
+        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.2)).tap()      // MIX v2: TRANS is a pair of halves — the upper half steps up
+        XCTAssertEqual(tile("Notes transpose").label, "Notes transpose +1"); XCTAssertTrue(tile("Notes, off").exists, "…and so did the transpose")
+        XCTAssertNotEqual(tile("Notes octave").label, "Notes octave 0", "a tap on one tile did not fall through to another")
     }
 
     /// A 500 pt wide window (Split View half, a small AUM window; it is centred on the screen, so everything is judged against the gear, which ends at the page's trailing edge): HOLD, LATCH and the strip's MIX stay inside it —

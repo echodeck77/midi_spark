@@ -171,6 +171,51 @@ final class PartSoloTests: XCTestCase {
         }
     }
 
+    // MARK: OCT (MIX v2 §11 test 6, engine half)
+
+    private final class LogEmitter: MIDIEmitter {
+        var events: [(ts: Int64, on: Bool, note: UInt8, cable: UInt8)] = []
+        func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
+            let st = b0 & 0xF0
+            guard st == 0x90 || st == 0x80 else { return }
+            events.append((sampleTime, st == 0x90 && b2 > 0, b1, cable))
+        }
+    }
+    /// Changing a part's OCT while a note sounds: the note ends at the pitch it started on (no stuck note), and the NEXT note-on is an octave up. Both the riff's and the notes part's field, as the five boxes write them.
+    func testChangingTheOctaveMidNoteEndsTheSoundingNoteAtItsStartingPitchAndMovesTheNextNoteOnByAnOctave() {
+        for notesPart in [false, true] {
+            var lines = fourLanes(gate: 0.9).enumerated().map { (i, l) -> EuclidLine in var l = l; l.enabled = i == 0; if notesPart { l.riffOn = false } else { l.notesOn = false }; return l }
+            let st0 = state(lines)
+            if notesPart { lines[0].octave = 1 } else { lines[0].riffOctave = 1 }
+            let st1 = state(lines)
+            let box0 = SnapshotBuilder.build(from: st0), box1 = SnapshotBuilder.build(from: st1)
+            let router = Router(); var diag = KernelDiag(); let e = LogEmitter()
+            let pool = NotePool(); for n in [UInt8]([48, 50, 52, 53, 55, 57, 59, 60]) { pool.noteOn(n, velocity: 100, channel: 0) }
+            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 480
+            var ts = 0.0
+            func beatNow() -> Double { ts * tempo / 60.0 / sr }
+            var switchSample: Int64 = -1
+            while beatNow() < 7 {
+                if switchSample < 0 && beatNow() >= 2.5 { switchSample = Int64(ts) }
+                router.process(box: switchSample < 0 ? box0 : box1, pool: pool, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                ts += Double(frames)
+            }
+            router.process(box: box1, pool: pool, playing: false, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            let ons = e.events.filter { $0.on }, offs = e.events.filter { !$0.on }
+            let oldOctave = Set<UInt8>([48, 50, 52, 53, 55, 57, 59, 60]), up = Set(oldOctave.map { $0 + 12 })
+            let before = ons.filter { $0.ts < switchSample }, after = ons.filter { $0.ts >= switchSample }
+            XCTAssertFalse(before.isEmpty, "notesPart \(notesPart): nothing sounded before the change"); XCTAssertFalse(after.isEmpty, "notesPart \(notesPart): nothing sounded after it")
+            XCTAssertTrue(before.allSatisfy { oldOctave.contains($0.note) }, "notesPart \(notesPart): the notes before the change are the pool's own")
+            XCTAssertTrue(after.allSatisfy { up.contains($0.note) }, "notesPart \(notesPart): every note after the change is an octave up: \(after.map { $0.note })")
+            let carried = ons.last(where: { $0.ts < switchSample })
+            XCTAssertNotNil(carried, "a note was sounding across the change")
+            if let c = carried { XCTAssertTrue(offs.contains { $0.ts >= switchSample && $0.note == c.note && $0.cable == c.cable }, "notesPart \(notesPart): the sounding note ended at the pitch it started on (\(c.note))") }
+            var open: [Int: Int] = [:]
+            for ev in e.events { open[Int(ev.cable) * 128 + Int(ev.note), default: 0] += ev.on ? 1 : -1 }
+            XCTAssertTrue(open.values.allSatisfy { $0 == 0 }, "notesPart \(notesPart): every note-on has its note-off at the same pitch — nothing stuck: \(open.filter { $0.value != 0 })")
+        }
+    }
+
     // MARK: persistence
 
     func testThePartMaskRoundTripsAndNilMeansNone() throws {

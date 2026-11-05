@@ -269,6 +269,24 @@ final class FourfoldScreenshotTests: XCTestCase {
         attach("9-mix-6-back-to-the-cards")
     }
 
+    /// MIX v2 (2026-11-05): a part solo latched (lane 2's riff — every other part dims and goes silent, lane 2's notes dims too), and the dev OUTLINE toggles.
+    func testTheMixV2PartSoloAndOutlineToggles() {
+        for (tag, extra) in [("solo", [String]()), ("outline", ["-fourfold.mixToggleMode", "OUTLINE"])] {
+            let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"] + extra; app.launch()
+            XCUIDevice.shared.orientation = .landscapeLeft
+            Thread.sleep(forTimeInterval: 2)
+            let mix = app.buttons["Mix"]
+            if mix.waitForExistence(timeout: 5) { mix.tap() }
+            if tag == "solo" {
+                let s = app.switches["Solo riff, lane 2"]
+                if s.waitForExistence(timeout: 3) { s.tap() }
+            }
+            Thread.sleep(forTimeInterval: 2.5)
+            attach("9-mixv2-\(tag)-land-")
+            app.terminate()
+        }
+    }
+
     /// RATCH tab ferry (2026-10-28): the tab as it opens (every emitter off), then with A at 16 / 16 / ×4 (every slot four bars) and B at CHANCE 50 — playing, in both orientations — so the strips, bars and cells can be looked at.
     func testTheRatchTab() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()

@@ -309,4 +309,23 @@ final class MixPanelV2Tests: XCTestCase {
         }
         XCTAssertEqual(euclideousOctRowLayout(frame: CGSize(width: 260, height: 38)).boxes.width, 150, "30 wide each when there is room")
     }
+
+    /// REPORT (§5.5): every OCT surface's frame — the old track's, and the five boxes' — at both references. Prints; asserts only that the boxes and the label stay inside the frame.
+    func testReportEveryOctSurfaceFrameBeforeAndAfter() {
+        for (name, card, cardH) in [("landscape", CGFloat(380.67), CGFloat(301)), ("portrait", CGFloat(387), CGFloat(301.67))] {
+            let fullWidth = EuclideousLaneCardMetrics.innerWidth(cardWidth: card)
+            let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: cardH)
+            let riffLay = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: fullWidth)
+            let riffW = fullWidth - (fullWidth - 4) * 0.55 - 4, riffH = riffLay.lowerRowHeight
+            let notes = euclideousNotesTabLayout(contentAreaH: contentH, fullWidth: fullWidth, sp4: 4).notesOctave
+            for (surface, w, h) in [("RIFF tab", riffW, riffH), ("NOTES tab", notes.width, notes.height)] {
+                let lay = euclideousOctRowLayout(frame: CGSize(width: w, height: h))
+                print("OCT-SURFACE \(name) \(surface): old track \(String(format: "%.2f × %.2f", w, h)) (6 pt track, pill max(40, min(w,h)) wide) → boxes \(String(format: "%.0f × %.2f at x %.2f", lay.boxes.width, lay.boxes.height, lay.boxes.minX)), label x \(String(format: "%.2f", lay.label.minX)) w \(lay.label.width), box \(lay.boxes.width / 5) wide, touch ≥ 44 tall")
+                XCTAssertGreaterThanOrEqual(lay.label.minX, 0); XCTAssertLessThanOrEqual(lay.boxes.maxX, w + 0.001)
+            }
+            let L = euclideousMixV2Layout(size: name == "landscape" ? landscape : portrait)
+            let r = L.bands[0].riff
+            print("OCT-SURFACE \(name) MIX: tile \(String(format: "%.0f × %.2f", r.oct.width, r.oct.height)) (the old tile was a V-wide slider, V \(String(format: "%.2f", L.sliderW))) → boxes \(String(format: "%.0f × %.2f", r.octBoxes[0].width, r.octBoxes[0].height)) each, targets \(String(format: "%.0f × %.2f", r.octTargets[0].width, r.octTargets[0].height))")
+        }
+    }
 }

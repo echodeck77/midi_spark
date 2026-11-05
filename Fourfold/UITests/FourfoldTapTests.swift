@@ -510,30 +510,84 @@ final class FourfoldTapTests: XCTestCase {
         need(inLane(3, "Notes, off"), "lane 3's notes start off").tap(); need(inLane(3, "Notes, on"), "…and switch on")
         app.buttons["Undo"].tap(); need(inLane(3, "Notes, off"), "undo")
     }
-    /// The sliders: a horizontal drag moves a value relative to where it started and is ONE undo step; TRANS snaps to whole steps; a vertical drag that starts on a tile moves nothing; a double tap sets the default.
-    func testTheMixPanelsSlidersDragRelativeSnapUndoAsOneStepAndDoubleTapToDefault() {
+    /// MIX v2: VEL and GATE are sliders (a horizontal drag moves a value relative to where it started and is ONE undo step; a vertical drag that starts on a tile moves nothing; a double tap sets the default); TRANS is a pair of halves
+    /// (a tap in the upper half steps up, the lower half down, one undo step each; a double tap on the left part sets 0); OCT is five linked boxes (a tap selects, a drag across them is ONE undo step).
+    func testTheMixPanelsSlidersDragRelativeTransTapsAndOctBoxesUndoAsOneStepAndDoubleTapToDefault() {
         let app = XCUIApplication.fresh(["--autoplay"])
         Thread.sleep(forTimeInterval: 1)
         app.buttons["Mix"].tap()
         func tile(_ prefix: String) -> XCUIElement { app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch }
+        // TRANS: the tile's right part is two halves — the upper steps up, the lower down (each one undo step); a double tap on the left part sets 0
         let trans = need(tile("Riff transpose"), "lane 1's riff TRANS tile")
         XCTAssertEqual(trans.label, "Riff transpose 0")
-        // 0.3 → 0.5 of a 62-pt tile is 12.4 pt of a 50-pt track = 3.5 of 14 steps (the thumb moves in whole steps)
-        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).press(forDuration: 0.05, thenDragTo: trans.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
-        let moved = tile("Riff transpose").label
-        XCTAssertTrue(["Riff transpose +3", "Riff transpose +4"].contains(moved), "a 12 pt drag is 3–4 whole steps, got \(moved)")
+        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.2)).tap()
+        XCTAssertEqual(tile("Riff transpose").label, "Riff transpose +1", "the upper half steps up")
+        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.2)).tap()
+        XCTAssertEqual(tile("Riff transpose").label, "Riff transpose +2")
         app.buttons["Undo"].tap()
-        XCTAssertEqual(tile("Riff transpose").label, "Riff transpose 0", "the whole drag was ONE undo step")
-        // a vertical drag starting on the tile moves nothing
+        XCTAssertEqual(tile("Riff transpose").label, "Riff transpose +1", "each tap was its own undo step")
+        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.8)).tap()
+        XCTAssertEqual(tile("Riff transpose").label, "Riff transpose 0", "the lower half steps down")
+        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.8)).tap()
+        XCTAssertEqual(tile("Riff transpose").label, "Riff transpose \u{2212}1")
+        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).doubleTap()
+        XCTAssertEqual(tile("Riff transpose").label, "Riff transpose 0", "a double tap on the left part sets 0")
+        // a vertical drag starting on the VEL tile moves nothing
         let vel = need(tile("Riff velocity"), "the riff VEL tile"); XCTAssertEqual(vel.label, "Riff velocity 100")
         vel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).press(forDuration: 0.05, thenDragTo: vel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)))
         XCTAssertEqual(tile("Riff velocity").label, "Riff velocity 100", "a vertical drag does not move the value")
-        // a drag to the left lowers it, a double tap puts it back at 100
+        // a drag to the left lowers it (ONE undo step), a double tap puts it back at 100
         vel.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).press(forDuration: 0.05, thenDragTo: vel.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)))
         let lowered = tile("Riff velocity").label
         XCTAssertNotEqual(lowered, "Riff velocity 100", "the drag lowered VEL: \(lowered)")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(tile("Riff velocity").label, "Riff velocity 100", "the whole drag was ONE undo step")
+        app.buttons["Redo"].tap()
         tile("Riff velocity").doubleTap()
         XCTAssertEqual(tile("Riff velocity").label, "Riff velocity 100", "a double tap sets the default")
+        // OCT: five boxes; a tap on the right-hand box selects +2, a drag across them is ONE step, a tap on the selected box does nothing
+        let oct = need(tile("Riff octave"), "lane 1's riff OCT boxes"); XCTAssertEqual(oct.label, "Riff octave 0")
+        oct.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(tile("Riff octave").label, "Riff octave +2", "the fifth box is +2")
+        oct.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(tile("Riff octave").label, "Riff octave 0", "the second tap on the selected box wrote nothing, so one undo returns to 0")
+        oct.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.05, thenDragTo: oct.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)))
+        XCTAssertEqual(tile("Riff octave").label, "Riff octave +1", "the drag ends on the fourth box")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(tile("Riff octave").label, "Riff octave 0", "a drag across the boxes is ONE undo step")
+    }
+    /// MIX v2: a part's stack of eight ranks lights from the note feed — while the page plays, one of lane 2's stacks (16 steps, 5 hits) reads "playing rank n" within a few seconds, and reads "silent" when nothing sounds.
+    func testTheMixPanelsStacksReadTheNoteFeed() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        Thread.sleep(forTimeInterval: 1)
+        app.buttons["Mix"].tap()
+        let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: app.els(prefix: "Riff playing rank").firstMatch)
+        XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 12), .completed, "no riff stack ever read \"playing rank n\" in 12 s of playback")
+        XCTAssertTrue(app.els(prefix: "Notes silent").firstMatch.exists, "the factory document's notes part is off, so its stack stays silent")
+    }
+    /// MIX v2 §7: a part's S latches its solo (value "on"); while lane 2's riff is soloed no other part's stack ever reads "playing" (lane 1's riff, a lane that otherwise plays, goes silent), and a second tap releases it.
+    func testAPartSoloLatchesOnTheMixPanelAndSilencesEveryOtherPart() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        Thread.sleep(forTimeInterval: 1)
+        app.buttons["Mix"].tap()
+        let solo = need(app.switches["Solo riff, lane 2"], "lane 2's riff S")
+        XCTAssertEqual(solo.value as? String, "off")
+        solo.tap()
+        XCTAssertEqual(app.switches["Solo riff, lane 2"].value as? String, "on", "the tap latches the part solo")
+        XCTAssertEqual(app.switches["Solo notes, lane 2"].value as? String, "off", "its sister part's solo is its own")
+        Thread.sleep(forTimeInterval: 1.0)
+        for _ in 0..<10 {
+            Thread.sleep(forTimeInterval: 0.4)
+            for n in [1, 3, 4] {
+                let playing = app.el("Lane \(n)").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff playing' OR label BEGINSWITH 'Notes playing'")).count
+                XCTAssertEqual(playing, 0, "lane \(n) sounds while lane 2's riff is soloed")
+            }
+        }
+        app.switches["Solo riff, lane 2"].tap()
+        XCTAssertEqual(app.switches["Solo riff, lane 2"].value as? String, "off", "a second tap releases it")
+        let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff playing'")).firstMatch)
+        XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 12), .completed, "lane 1's riff plays again once the solo is released")
     }
     /// Random mode started from MIX shows the cards (their random faces) and finishing returns to the panel.
     func testRandomModeStartedFromMixShowsTheCardsAndReturnsToThePanel() {

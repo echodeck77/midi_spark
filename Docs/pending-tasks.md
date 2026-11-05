@@ -2045,3 +2045,14 @@ Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md
 - [ ] (look) The editor's MELODY timeline marks only the chain's restarts, not WITH RHYTHM loops (the spec names tile text and VoiceOver only).
 - [ ] (declared) A lane whose schedule is not attached (ANSWER-engaged, a component holding a lock-substituted lane, host bar mismatch, past a non-periodic window) still reads WITH RHYTHM with an inactive rhythm as FREE.
 - [ ] (data) Any document or user preset saved since RESTART UNITS shipped with WITH RHYTHM on and the rhythm off now restarts its melody every pass (before: nothing). No factory preset is affected.
+
+## MIX v2 follow-ups (2026-11-05)
+- [ ] (DEVICE) The ten §13 lines are in `Docs/euclideous-device-verification-debt.md`.
+- [ ] (judgment, say if wrong) The part toggle's corner radius is 8 (the spec is silent); a lit HOCKET rule draws the existing glyph in the tile's top-right corner over the dot grid.
+- [ ] (judgment) OUTLINE (dev) toggles: a dark tile with a 1.5 pt lane100 border and a lane100 grid; the spec's description is exact for the colours and silent on the corner glyph.
+- [ ] (judgment) TRANS: a double tap on the left part steps twice before it resets (two undo steps); a tap on the left part also steps (the target is the whole half-tile, as the spec says).
+- [ ] (look) The OCT boxes on the RIFF tab are 27–28 wide and on the NOTES tab 19 wide (the spec's 30 would need 173 / 173 pt with the label; the frames are 160 / 120) — touch targets are ≥ 44 tall but narrow. A taller / wider frame is a layout decision.
+- [ ] (look) The OFFSET tile is mirrored, not extracted: `EuclideousMixV2FieldLook` repeats its constants. If OFFSET's looks change, change both (or extract the tile).
+- [ ] (audit) The `textClipped` allow-list is red on labels the page already carried (RHYTHM, ANSWER, HOCKET, HOLD, LATCH, MUTE, RATCH, HIT, STEP, INV, FREE, …) — stale since earlier ferries; the VEL entry is the only one this ferry added.
+- [ ] (tests) Stale UI tests from other ferries: `testTheKeyPopupChangesTheScale`, `testTheSourcesControlAndHoldLatchSelect`, `testTheRatchTabTogglesAnEmitterDragsAValueResetsItAndUndoes` (CHANCE moved into the RATCH expanded editor); `CardBackReviewTests` header ladder.
+- [ ] (cleanup) The MIX rows build's views and rolls (`MixPanelViews.swift`, the roll / lit-rank / slider-geometry functions of `MixPanel.swift`), `partOctaveControl` and `EuclideousMixOctaveStepper` stay compiled and unmounted; delete in a cleanup ferry if nobody wants them back.
