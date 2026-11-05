@@ -11115,5 +11115,11 @@ func euclideousPedalLook(rowOn: Bool, pedalDown: Bool) -> EuclideousPedalLook { 
 func euclideousPoolPedalSpoken(down: Bool) -> String { down ? "down" : "up" }
 /// 9.4: a grid label chip, "Rank n, <note>".
 func euclideousRankChipGridSpoken(rank: Int, note: String) -> String { "Rank \(rank), \(note)" }
+/// The riff grid's label column names the note the PICKED lane's riff will SOUND, so the pool's pitch moves by that part's OCT (12 semitones a box) before it is named — the pool and its root letter are unchanged (a 12-semitone shift keeps every pitch
+/// class), only the octave digit moves. nil when the shifted pitch would leave MIDI's 0…127 (no note would sound: the chip says "–", as a pitch past 127 always has).
+func euclideousRankLabelSoundingPitch(_ pitch: Int, octave: Int) -> Int? {
+    let n = pitch + 12 * max(-2, min(2, octave))
+    return n >= 0 && n <= 127 ? n : nil
+}
 /// 9.4: the grid's picker value.
 func euclideousPickedLaneSpoken(_ lane: Int) -> String { "lane \(lane + 1)" }

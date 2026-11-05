@@ -7104,6 +7104,7 @@ struct EuclideousPage: View {
         RiffGridLabelColumnView(lane: gridLane, tint: lane100(laneAccents[gridLane % laneAccents.count]), cellH: cellH, labelW: labelW, gap: sp4,
                                 name: { n, pool in euclideousDisplayNoteName(n, source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
                                 spokenName: { n, pool in euclideousAccessibleDisplayNoteName(UInt8(max(0, min(127, n))), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
+                                octave: gridLane < lines.count ? euclideousMixOctave(of: lines[gridLane], notes: false) : 0,   // the picked lane's RIFF octave: the column names what the riff will sound
                                 live: answerLive)
     }
     /// POOL ferry 6.3: the riff panel's top row — the lane picker in a leading blank as wide as the label column (the MONO | POLY control starts at the grid's left edge), then the control. A tap anywhere in the blank steps to the next

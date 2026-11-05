@@ -110,18 +110,23 @@ struct RiffGridLabelColumnView: View {
     let gap: CGFloat
     let name: (UInt8, [UInt8]) -> String
     let spokenName: (Int, [UInt8]) -> String
+    /// The picked lane's RIFF octave (−2…+2): the column names what that part will sound, not the pool before OCT (`euclideousRankLabelSoundingPitch`).
+    var octave = 0
     @ObservedObject var live: AnswerLiveModel
 
     var body: some View {
         let st = live.pool(lane: lane)
         let sorted = st.notes.map { Int($0) }
         let extended = euclideousGlobalPoolExtended(sortedRaw: sorted)
-        let chips = euclideousRankChips(sortedPool: sorted, litMask: st.playedRanks) { n in n >= 0 && n <= 127 ? name(UInt8(n), st.notes) : "\u{2013}" }
+        let chips = euclideousRankChips(sortedPool: sorted, litMask: st.playedRanks) { n in euclideousRankLabelSoundingPitch(n, octave: octave).map { name(UInt8($0), st.notes) } ?? "\u{2013}" }
         VStack(spacing: gap) {
             ForEach((1...8).reversed(), id: \.self) { rank in
                 EuclideousRankChipView(spec: chips[rank - 1], accent: tint, size: CGSize(width: labelW, height: cellH))
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(rank <= extended.count && extended[rank - 1] <= 127 ? euclideousRankChipGridSpoken(rank: rank, note: spokenName(extended[rank - 1], st.notes)) : "Rank \(rank), no note")
+                    .accessibilityLabel({ () -> String in
+                        guard rank <= extended.count, let sounding = euclideousRankLabelSoundingPitch(extended[rank - 1], octave: octave) else { return "Rank \(rank), no note" }
+                        return euclideousRankChipGridSpoken(rank: rank, note: spokenName(sounding, st.notes))
+                    }())
             }
         }
         .frame(width: labelW)

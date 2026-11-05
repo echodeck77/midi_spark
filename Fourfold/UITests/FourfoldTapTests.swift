@@ -619,6 +619,36 @@ final class FourfoldTapTests: XCTestCase {
         need(app.switches["Solo riff, lane 2"], "lane 2's riff S")
         XCTAssertEqual(v("Solo riff, lane 2"), "off"); XCTAssertEqual(v("Solo notes, lane 2"), "off", "both S buttons cleared with it")
     }
+    /// The riff grid's label column names what the PICKED lane's riff will SOUND: lane 1's riff OCT −2 moves its first label's octave down by two; another lane's OCT (and the NOTES part's) changes nothing; picking that lane shows its own.
+    func testTheRiffGridsLabelColumnFollowsThePickedLanesRiffOctave() {
+        let app = XCUIApplication.fresh(["--autoplay"])      // the pool (and so the names) exists only while the transport runs
+        Thread.sleep(forTimeInterval: 1)
+        func first() -> (label: String, octave: Int)? {
+            let l = app.els(prefix: "Rank 1, ").firstMatch.label
+            guard let last = l.split(separator: " ").last, let o = Int(last.replacingOccurrences(of: "\u{2212}", with: "-")) else { return nil }
+            return (l, o)
+        }
+        need(app.els(prefix: "Rank 1, ").firstMatch, "the label column's rank 1 chip")
+        for _ in 0..<20 where first() == nil { Thread.sleep(forTimeInterval: 0.3) }
+        guard let start = first() else { return XCTFail("the first label has no octave: \(app.els(prefix: "Rank 1, ").firstMatch.label)") }
+        let o0 = start.octave
+        app.els(prefix: "Riff, ").firstMatch.tap()                               // the RIFF tab: each card has its OCT boxes
+        let octs = app.els(prefix: "Riff octave")
+        need(octs.element(boundBy: 0), "lane 1's riff OCT boxes")
+        octs.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.5)).tap()      // the −2 box
+        XCTAssertEqual(octs.element(boundBy: 0).label, "Riff octave \u{2212}2")
+        XCTAssertEqual(first()?.octave, o0 - 2, "lane 1 is picked: its first label reads two octaves lower (was \(o0), now \(first()?.label ?? "?"))")
+        octs.element(boundBy: 1).coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()      // lane 2's riff +2
+        XCTAssertEqual(first()?.octave, o0 - 2, "another lane's OCT does not move lane 1's labels")
+        app.els(prefix: "Notes, ").firstMatch.tap()                               // the NOTES tab's OCT is the notes part's own
+        let nocts = app.els(prefix: "Notes octave")
+        if nocts.element(boundBy: 0).waitForExistence(timeout: 3) {
+            nocts.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+            XCTAssertEqual(first()?.octave, o0 - 2, "the NOTES part's OCT is not the riff's")
+        }
+        app.el("Notes shown for").tap()                                           // pick lane 2
+        XCTAssertEqual(first()?.octave, o0 + 2, "picking lane 2 shows its own riff OCT (+2)")
+    }
     /// Random mode started from MIX shows the cards (their random faces) and finishing returns to the panel.
     func testRandomModeStartedFromMixShowsTheCardsAndReturnsToThePanel() {
         let app = XCUIApplication.fresh(["--autoplay"])

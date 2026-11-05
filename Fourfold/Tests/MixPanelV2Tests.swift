@@ -328,4 +328,22 @@ final class MixPanelV2Tests: XCTestCase {
             print("OCT-SURFACE \(name) MIX: tile \(String(format: "%.0f × %.2f", r.oct.width, r.oct.height)) (the old tile was a V-wide slider, V \(String(format: "%.2f", L.sliderW))) → boxes \(String(format: "%.0f × %.2f", r.octBoxes[0].width, r.octBoxes[0].height)) each, targets \(String(format: "%.0f × %.2f", r.octTargets[0].width, r.octTargets[0].height))")
         }
     }
+
+    // MARK: the riff grid's label column names what the riff will SOUND (2026-11-05)
+
+    func testTheLabelColumnNamesThePitchAfterTheRiffsOctaveAndOnlyTheOctaveDigitMoves() {
+        XCTAssertEqual(euclideousRankLabelSoundingPitch(48, octave: 0), 48); XCTAssertEqual(euclideousRankLabelSoundingPitch(48, octave: -2), 24); XCTAssertEqual(euclideousRankLabelSoundingPitch(60, octave: 2), 84)
+        XCTAssertEqual(euclideousRankLabelSoundingPitch(48, octave: 3), 72, "the engine applies ±2 at most, so the label does too"); XCTAssertEqual(euclideousRankLabelSoundingPitch(48, octave: -3), 24)
+        XCTAssertNil(euclideousRankLabelSoundingPitch(120, octave: 2), "past 127 nothing sounds: the chip says –"); XCTAssertNil(euclideousRankLabelSoundingPitch(10, octave: -2))
+        let pool: [UInt8] = [48, 50, 51, 53, 55, 56, 58]                       // C minor from C3, the factory document's pool
+        for n in pool {
+            for oct in -2...2 {
+                guard let p = euclideousRankLabelSoundingPitch(Int(n), octave: oct) else { continue }
+                let base = euclideousSplitNoteOctave(euclideousRelativeNoteName(n, pool: pool)), moved = euclideousSplitNoteOctave(euclideousRelativeNoteName(UInt8(p), pool: pool))
+                XCTAssertEqual(moved.note, base.note, "the note's letter is unchanged by an octave shift (pool root unchanged)")
+                XCTAssertEqual(Int(moved.octave), Int(base.octave).map { $0 + oct }, "the octave digit moves by the OCT value")
+            }
+        }
+        XCTAssertEqual(euclideousNoteViewName(UInt8(euclideousRankLabelSoundingPitch(48, octave: -2)!), flatKey: true), "C1", "KEY source: C3 at OCT −2 reads C1")
+    }
 }
