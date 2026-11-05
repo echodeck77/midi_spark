@@ -239,4 +239,74 @@ final class MixPanelV2Tests: XCTestCase {
         XCTAssertEqual(EuclideousMixV2AX.transpose(notes: false, value: 2), "Riff transpose +2"); XCTAssertEqual(EuclideousMixV2AX.octave(notes: true, value: 0), "Notes octave 0"); XCTAssertEqual(EuclideousMixV2AX.octave(notes: false, value: -1), "Riff octave \u{2212}1")
         XCTAssertEqual(euclideousMixStripSpoken(hits: 4, steps: 8), "Rhythm, 4 hits in 8 steps", "the strip's label already reads the hits and steps (B4.1)")
     }
+
+    // MARK: step 4–6 helpers
+
+    func testTransTouchStepsUpInTheUpperHalfDownInTheLowerAndResetsOnADoubleTapOfTheLeftPart() {
+        var press = EuclideousMixV2TransPress()
+        XCTAssertEqual(press.touchDown(at: 0, x: 45, y: 10, targetHeight: 47), .step(up: true), "right part, upper half")
+        XCTAssertEqual(press.touchDown(at: 0.1, x: 45, y: 40, targetHeight: 47), .step(up: false), "right part, lower half — a right-part tap never arms the double tap")
+        XCTAssertEqual(press.touchDown(at: 1, x: 10, y: 10, targetHeight: 47), .step(up: true), "left part: a step")
+        XCTAssertEqual(press.touchDown(at: 1.2, x: 20, y: 40, targetHeight: 47), .reset, "a second left tap inside 0.3 s sets 0")
+        XCTAssertEqual(press.touchDown(at: 1.3, x: 20, y: 40, targetHeight: 47), .step(up: false), "the third is a fresh tap")
+        XCTAssertEqual(press.touchDown(at: 5, x: 10, y: 10, targetHeight: 47), .step(up: true))
+        XCTAssertEqual(press.touchDown(at: 5.4, x: 10, y: 10, targetHeight: 47), .step(up: true), "outside the window: two steps, not a reset")
+    }
+    func testOctaveTouchWritesOnceOnLandingAndKeepsOneUndoStepAcrossADrag() {
+        var t = EuclideousOctaveTouch()
+        XCTAssertNil(t.move(to: 2, current: 0), "a tap on the selected box does nothing")
+        let a = t.move(to: 4, current: 0)
+        XCTAssertEqual(a?.value, 2); XCTAssertEqual(a?.newStep, true, "the first write starts the step")
+        let b = t.move(to: 1, current: 2)
+        XCTAssertEqual(b?.value, -1); XCTAssertEqual(b?.newStep, false, "sliding to another box stays in the same undo step")
+        XCTAssertNil(t.move(to: 1, current: -1))
+        t.end()
+        XCTAssertEqual(t.move(to: 3, current: -1)?.newStep, true, "the next touch is a fresh step")
+        XCTAssertEqual(euclideousOctSelectedValue(3), 2, "a stored 3 shows the end box"); XCTAssertEqual(euclideousOctSelectedValue(-3), -2)
+    }
+    func testTheRiffGlyphIsTheMonoStencilOrAPolyNoteAcrossItsColumns() {
+        let mono = euclideousRiffGlyph(columns: 8, poly: false, stepRanks: [1, 0, 8, 3, 3, 0, 0, 5], polyCovers: { _, _ in false }, invert: false, transpose: 0, window: Set(0..<6), neverPlay: [3], current: 2)
+        XCTAssertTrue(mono.isHit(col: 0, rank: 1)); XCTAssertTrue(mono.isHit(col: 2, rank: 8)); XCTAssertFalse(mono.isHit(col: 1, rank: 1), "a rest has no cell"); XCTAssertFalse(mono.isHit(col: 2, rank: 7))
+        XCTAssertEqual(mono.opacity(col: 2), 1); XCTAssertEqual(mono.opacity(col: 3), 0.32, "a never-played column dims"); XCTAssertEqual(mono.opacity(col: 7), 0.32, "past the window dims"); XCTAssertEqual(mono.current, 2)
+        let poly = euclideousRiffGlyph(columns: 16, poly: true, stepRanks: [], polyCovers: { c, r in r == 4 && (3...6).contains(c) }, invert: false, transpose: 0, window: Set(0..<16), neverPlay: [], current: -1)
+        XCTAssertTrue((3...6).allSatisfy { poly.isHit(col: $0, rank: 4) }); XCTAssertFalse(poly.isHit(col: 7, rank: 4))
+        let turned = euclideousRiffGlyph(columns: 16, poly: true, stepRanks: [], polyCovers: { c, r in r == 4 && (3...6).contains(c) }, invert: true, transpose: 0, window: Set(0..<16), neverPlay: [], current: -1)
+        XCTAssertTrue(turned.isHit(col: 4, rank: 5), "INVERT turns the written rank 4 into row 5 (9 − 4)")
+    }
+    func testTheToggleLooksFollowThePanelsTable() {
+        let on = euclideousMixV2ToggleLook(on: true, mode: .filled)
+        XCTAssertTrue(on.fillIsLane); XCTAssertEqual(on.glyphHex, 0x0D0F14); XCTAssertEqual(on.backdropAlpha, 0.28, accuracy: 1e-9); XCTAssertEqual(on.borderWidth, 0)
+        let off = euclideousMixV2ToggleLook(on: false, mode: .filled)
+        XCTAssertEqual(off.fillHex, 0x1F2127); XCTAssertTrue(off.borderIsLane); XCTAssertEqual(off.borderAlpha, 0.45, accuracy: 1e-9); XCTAssertEqual(off.borderWidth, 1.5); XCTAssertEqual(off.glyphHex, 0x8A909A); XCTAssertEqual(off.backdropHex, 0x3A3E47)
+        XCTAssertEqual(euclideousMixV2ToggleLook(on: false, mode: .outline), off, "OUTLINE changes the on look only (§8.1)")
+        let out = euclideousMixV2ToggleLook(on: true, mode: .outline)
+        XCTAssertEqual(out.fillHex, 0x1F2127); XCTAssertTrue(out.borderIsLane); XCTAssertEqual(out.borderAlpha, 1); XCTAssertEqual(out.borderWidth, 1.5); XCTAssertTrue(out.glyphIsLane); XCTAssertEqual(out.backdropHex, 0xDFE3EA); XCTAssertEqual(out.backdropAlpha, 0.14, accuracy: 1e-9)
+        // the glyph frame and its cells stay inside the 48 × 41 tile
+        let g = euclideousMixV2ToggleGlyphFrame(tile: CGSize(width: 48, height: 41))
+        XCTAssertEqual(g, CGRect(x: 5, y: 5, width: 38, height: 31))
+        for n in [8, 16] {
+            let cells = euclideousMixV2RiffCellFrames(glyph: g, columns: n)
+            XCTAssertEqual(cells.count, n); XCTAssertEqual(cells[0].count, 8)
+            XCTAssertEqual(cells[n - 1][7].maxX, g.maxX, accuracy: 0.001); XCTAssertEqual(cells[n - 1][7].maxY, g.maxY, accuracy: 0.001)
+        }
+        let bars = euclideousMixV2NotesBarFrames(glyph: g)
+        XCTAssertEqual(bars.count, 8); XCTAssertEqual(bars[7].maxY, g.maxY, accuracy: 0.001); XCTAssertEqual(bars[0].minY, g.minY, accuracy: 0.001)
+    }
+    func testTheFieldTilesTextFitsOrFallsBackToTheFerrysSizes() {
+        XCTAssertEqual(euclideousMixV2FieldTextSizes(tileWidth: 101.67, labelChars: 4, valueChars: 3).label, 10, "OFFSET's own sizes where GATE / 90% fit")
+        XCTAssertEqual(euclideousMixV2FieldTextSizes(tileWidth: 72, labelChars: 4, valueChars: 3).label, 7, "the ferry's 7 / 11 where they would not")
+        XCTAssertEqual(euclideousMixV2FieldTextSizes(tileWidth: 72, labelChars: 4, valueChars: 3).value, 11)
+        let g = euclideousMixV2FieldGeometry(size: CGSize(width: 100, height: 41), frac: 0.5)
+        close(g.travel, 88); close(g.edge.midX, 50, "OFFSET's travel inset of 6: the midpoint is the tile's middle"); close(g.fill.width, 50)
+        XCTAssertEqual(euclideousMixV2FieldTickFracs.count, 9)
+    }
+    func testTheTabsOctRowKeepsTheLabelAndFiveBoxesInsideTheFrame() {
+        for w in [160.5, 120, 96, 60] as [CGFloat] {
+            let lay = euclideousOctRowLayout(frame: CGSize(width: w, height: 38))
+            XCTAssertLessThanOrEqual(lay.boxes.width, 150); XCTAssertEqual(lay.boxes.maxX, w, accuracy: 0.001, "right-aligned")
+            XCTAssertGreaterThanOrEqual(lay.label.minX, 0); XCTAssertLessThanOrEqual(lay.label.maxX, lay.boxes.minX + 0.001)
+            XCTAssertEqual(lay.boxes.width.truncatingRemainder(dividingBy: 5), 0, accuracy: 0.001, "five equal boxes")
+        }
+        XCTAssertEqual(euclideousOctRowLayout(frame: CGSize(width: 260, height: 38)).boxes.width, 150, "30 wide each when there is room")
+    }
 }

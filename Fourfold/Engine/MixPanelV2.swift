@@ -359,3 +359,143 @@ enum EuclideousMixV2AX {
 
 /// The eight chips (rank 8 … 1) for a lane's pool — never lit (§3.2: the pool takes no touches and shows no sounding; the STACKS show what plays).
 func euclideousMixV2PoolChips(sortedPool: [Int], name: (Int) -> String) -> [EuclideousMixPoolChip] { euclideousMixPoolChips(sortedPool: sortedPool, lit: 0, name: name) }
+
+// MARK: - §4.7 the TRANS tile's touch machine
+
+/// What a touch-down on the TRANS tile does: step the value (one undo step), or — a second tap on the LEFT part within the double-tap window — set it to 0.
+enum EuclideousMixV2TransAction: Equatable { case step(up: Bool), reset }
+/// §4.7: the tile's whole row height is the target (upper half up, lower half down); the left part (x < 34) is also the double-tap zone for 0. Two touch-downs inside `doubleTapWindow` that both land on the left part reset; a third is a fresh tap.
+struct EuclideousMixV2TransPress: Equatable {
+    static let doubleTapWindow: Double = 0.3
+    private(set) var lastLeftDownAt: Double? = nil
+    mutating func touchDown(at t: Double, x: CGFloat, y: CGFloat, targetHeight: CGFloat) -> EuclideousMixV2TransAction {
+        let left = x < EuclideousMixV2Metrics.transLeftW
+        if left, let last = lastLeftDownAt, t - last <= Self.doubleTapWindow {
+            lastLeftDownAt = nil
+            return .reset
+        }
+        lastLeftDownAt = left ? t : nil
+        return .step(up: euclideousMixV2TransTapIsUp(y: y, targetHeight: targetHeight))
+    }
+}
+
+// MARK: - §5 the OCT boxes' touch: tap or drag
+
+/// A finger on the five boxes: the first box it lands on is selected (one undo step) unless it is already the selection; sliding to another box selects that one inside the SAME step; a tap on the selected box writes nothing.
+struct EuclideousOctaveTouch: Equatable {
+    private(set) var wrote = false
+    /// The write (value, startsNewUndoStep) a finger at `index` asks for while the stored value is `current`; nil = nothing to write.
+    mutating func move(to index: Int, current: Int) -> (value: Int, newStep: Bool)? {
+        let v = euclideousOctValue(index: index)
+        guard v != euclideousOctSelectedValue(current) else { return nil }
+        defer { wrote = true }
+        return (v, !wrote)
+    }
+    mutating func end() { wrote = false }
+}
+/// The stored value as the selected box shows it (clamped to −2…+2).
+func euclideousOctSelectedValue(_ stored: Int) -> Int { max(-2, min(2, stored)) }
+
+// MARK: - §4.4 the part toggle's tile
+
+/// The riff's dot grid, from the ONE function the RIFF tab's thumbnail and MIX's toggle both read: per column the ranks (1…8) it plays, which columns lie in the walk's window, the never-played ones and the live step.
+struct EuclideousRiffGlyph: Equatable {
+    var columns: Int
+    /// `hits[col * 8 + (rank − 1)]`
+    var hits: [Bool]
+    var inWindow: [Bool]
+    var neverPlay: [Bool]
+    var current: Int
+    func isHit(col: Int, rank: Int) -> Bool { col >= 0 && col < columns && rank >= 1 && rank <= 8 && col * 8 + rank - 1 < hits.count && hits[col * 8 + rank - 1] }
+    func opacity(col: Int) -> Double { (col < inWindow.count && !inWindow[col]) || (col < neverPlay.count && neverPlay[col]) ? 0.32 : 1.0 }
+}
+/// MONO: a column's rank is the stencil's; POLY: a note covers every column it spans (`covering`), INVERT / TRANSPOSE turn the written rank into the row it shows on.
+func euclideousRiffGlyph(columns n: Int, poly: Bool, stepRanks: [Int], polyCovers: (_ col: Int, _ writtenRank: Int) -> Bool, invert: Bool, transpose: Int,
+                         window: Set<Int>, neverPlay: Set<Int>, current: Int) -> EuclideousRiffGlyph {
+    var hits = [Bool](repeating: false, count: n * 8)
+    for col in 0..<n {
+        for rank in 1...8 {
+            if poly {
+                let src = invert ? 9 - (rank - transpose) : rank - transpose
+                hits[col * 8 + rank - 1] = src >= 1 && src <= 8 && polyCovers(col, src)
+            } else {
+                let raw = col < stepRanks.count ? stepRanks[col] : 0
+                hits[col * 8 + rank - 1] = raw >= 1 && raw <= 8 && raw == rank
+            }
+        }
+    }
+    return EuclideousRiffGlyph(columns: n, hits: hits, inWindow: (0..<n).map { window.contains($0) }, neverPlay: (0..<n).map { neverPlay.contains($0) }, current: current)
+}
+
+struct EuclideousMixV2ToggleLook: Equatable {
+    /// nil = the plate has no fill (OUTLINE on)
+    var fillHex: UInt32?
+    var fillIsLane: Bool
+    var borderIsLane: Bool
+    var borderAlpha: Double
+    var borderWidth: CGFloat
+    var borderHex: UInt32
+    /// The glyph: its lit-cell colour, its background-cell colour and alpha, and whether the glyph wears the lane colour.
+    var glyphHex: UInt32
+    var glyphIsLane: Bool
+    var backdropHex: UInt32
+    var backdropAlpha: Double
+}
+enum EuclideousMixToggleMode: String, CaseIterable { case filled = "FILLED", outline = "OUTLINE" }
+let euclideousMixToggleModeKey = "fourfold.mixToggleMode"
+/// §4.4 / §8.1. FILLED: on = lane100 fill, glyph ink #0D0F14 (backdrop ink at 28 %); off = #1F2127 with a 1.5 pt lane100 border at 45 %, glyph #8A909A (backdrop #3A3E47). OUTLINE: on = #1F2127 with a 1.5 pt lane100 border and a lane100 glyph (backdrop rgba(223,227,234,0.14)); off as FILLED's off.
+func euclideousMixV2ToggleLook(on: Bool, mode: EuclideousMixToggleMode) -> EuclideousMixV2ToggleLook {
+    if !on {
+        return EuclideousMixV2ToggleLook(fillHex: 0x1F2127, fillIsLane: false, borderIsLane: true, borderAlpha: 0.45, borderWidth: 1.5, borderHex: 0, glyphHex: 0x8A909A, glyphIsLane: false, backdropHex: 0x3A3E47, backdropAlpha: 1)
+    }
+    switch mode {
+    case .filled: return EuclideousMixV2ToggleLook(fillHex: nil, fillIsLane: true, borderIsLane: false, borderAlpha: 0, borderWidth: 0, borderHex: 0, glyphHex: 0x0D0F14, glyphIsLane: false, backdropHex: 0x0D0F14, backdropAlpha: 0.28)
+    case .outline: return EuclideousMixV2ToggleLook(fillHex: 0x1F2127, fillIsLane: false, borderIsLane: true, borderAlpha: 1, borderWidth: 1.5, borderHex: 0, glyphHex: 0, glyphIsLane: true, backdropHex: 0xDFE3EA, backdropAlpha: 0.14)
+    }
+}
+/// The glyph's frame inside the 48 × tileH tile: 5 pt in on every side.
+func euclideousMixV2ToggleGlyphFrame(tile: CGSize) -> CGRect { CGRect(x: 5, y: 5, width: max(0, tile.width - 10), height: max(0, tile.height - 10)) }
+/// The dot grid's cells in a glyph frame: `columns` across with 1 pt gaps, 8 rows (rank 8 at the top).
+func euclideousMixV2RiffCellFrames(glyph: CGRect, columns n: Int) -> [[CGRect]] {
+    let cw = max(0, (glyph.width - CGFloat(n - 1)) / CGFloat(n)), ch = max(0, (glyph.height - 7) / 8)
+    return (0..<n).map { col in (0..<8).map { row in CGRect(x: glyph.minX + CGFloat(col) * (cw + 1), y: glyph.minY + CGFloat(row) * (ch + 1), width: cw, height: ch) } }
+}
+/// The NOTES tile's glyph: eight lit-note bars (rank 8 at the top), lit at full strength, unlit at 25 % — `notesStrip`'s own bars.
+func euclideousMixV2NotesBarFrames(glyph: CGRect) -> [CGRect] {
+    let h = max(0, (glyph.height - 7) / 8)
+    return (0..<8).map { CGRect(x: glyph.minX, y: glyph.minY + CGFloat($0) * (h + 1), width: glyph.width, height: h) }
+}
+
+// MARK: - §4.6 VEL / GATE: the OFFSET tile's looks at the part row's frame
+
+enum EuclideousMixV2FieldLook {
+    static let radius: CGFloat = 8, groundHex: UInt32 = 0x22252C, inset: CGFloat = 6
+    static let fillHex: UInt32 = 0xDFE3EA, fillAlpha = 0.07, edge: CGFloat = 2
+    static let tickW: CGFloat = 1, tickH: CGFloat = 5, tickHex: UInt32 = 0x4A4E57
+    static let valueBackingHex: UInt32 = 0x131519, valueBackingAlpha = 0.78, valueBackingRadius: CGFloat = 3
+    static let labelHex: UInt32 = 0xAAB0BA, valueHex: UInt32 = 0xF2F4F7
+}
+/// The nine ticks at tenths (fractions 0.1 … 0.9) — OFFSET's ticks, at the spec's count.
+let euclideousMixV2FieldTickFracs: [Double] = (1...9).map { Double($0) / 10 }
+/// OFFSET's text sizes (label 10 pt semibold, value 13 pt heavy) where the tile is wide enough for both strings (monospaced: 0.6 em a character, tracking 0.8, 3 pt padding a side, 12 pt of insets, 4 between); otherwise the ferry's 7 / 11.
+func euclideousMixV2FieldTextSizes(tileWidth: CGFloat, labelChars: Int, valueChars: Int) -> (label: CGFloat, value: CGFloat) {
+    let need = CGFloat(labelChars) * (6 + 0.8) + 6 + CGFloat(valueChars) * 7.8 + 6 + 4 + 12
+    return need <= tileWidth ? (10, 13) : (7, 11)
+}
+/// The fill, the marker and the travel for a value fraction in a V-wide tile (the travel inset is OFFSET's 6).
+func euclideousMixV2FieldGeometry(size: CGSize, frac: Double) -> (fill: CGRect, edge: CGRect, travel: CGFloat) {
+    typealias F = EuclideousMixV2FieldLook
+    let travel = max(1, size.width - F.inset * 2)
+    let x = F.inset + CGFloat(max(0, min(1, frac))) * travel
+    return (CGRect(x: 0, y: 0, width: x, height: size.height), CGRect(x: x - F.edge / 2, y: 0, width: F.edge, height: size.height), travel)
+}
+
+// MARK: - §5.5 OCT on the RIFF and NOTES tabs
+
+/// The five boxes right-aligned in the tab's OCT frame — 30 wide each where the frame has room for them and the "OCT" label (7 pt heavy, 0.2 em ≈ 17 pt) sp6 to their left, narrower otherwise — the frame's full height; the label's frame to their left.
+func euclideousOctRowLayout(frame: CGSize) -> (label: CGRect, boxes: CGRect) {
+    let labelW: CGFloat = 17, gap: CGFloat = 6
+    let boxW = max(1, min(30, ((frame.width - labelW - gap) / 5).rounded(.down)))
+    let boxes = CGRect(x: frame.width - 5 * boxW, y: 0, width: 5 * boxW, height: frame.height)
+    return (CGRect(x: max(0, boxes.minX - gap - labelW), y: 0, width: labelW, height: frame.height), boxes)
+}

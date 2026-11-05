@@ -76,6 +76,8 @@ struct EuclideousSettingsSheet: View {
 
     // MIX ROWS (2026-11-03): the dev-only MIX STRIP choice (a rig setting in UserDefaults, read by the page too).
     @AppStorage(euclideousMixStripModeKey) private var mixStripModeRaw: String = EuclideousMixStripMode.fit.rawValue
+    // MIX v2 (2026-11-05) §8.1: the dev-only MIX TOGGLES choice (FILLED | OUTLINE), a rig setting like MIX STRIP.
+    @AppStorage(euclideousMixToggleModeKey) private var mixToggleModeRaw: String = EuclideousMixToggleMode.filled.rawValue
     @State private var portsNaturalHeight: CGFloat = 0
     @State private var midiInNaturalHeight: CGFloat = 0   // §6.3: measured only in DEBUG (the CLASHES block makes MIDI IN the tallest tab)
     @State private var clockNaturalHeight: CGFloat = 0    // RATCH tab §7.4: measured only in DEBUG (the FX COUNTS block grows CLOCK)
@@ -443,6 +445,19 @@ struct EuclideousSettingsSheet: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAdjustableAction { _ in
                 mixStripModeRaw = (mixStripModeRaw == EuclideousMixStripMode.aligned.rawValue ? EuclideousMixStripMode.fit : EuclideousMixStripMode.aligned).rawValue
+            }
+            // MIX v2 §8.1: dev-only MIX TOGGLES — FILLED draws an ON part toggle as a lane-coloured tile; OUTLINE as a dark tile with a lane-coloured border and glyph. A rig setting (UserDefaults), not in a session or preset, no undo.
+            block(name: "MIX TOGGLES") {
+                segmented([("FILLED", 64), ("OUTLINE", 72)], selected: mixToggleModeRaw == EuclideousMixToggleMode.outline.rawValue ? 1 : 0) { i in
+                    mixToggleModeRaw = (i == 0 ? EuclideousMixToggleMode.filled : EuclideousMixToggleMode.outline).rawValue
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Mix toggles")
+            .accessibilityValue(mixToggleModeRaw == EuclideousMixToggleMode.outline.rawValue ? "OUTLINE" : "FILLED")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAdjustableAction { _ in
+                mixToggleModeRaw = (mixToggleModeRaw == EuclideousMixToggleMode.outline.rawValue ? EuclideousMixToggleMode.filled : EuclideousMixToggleMode.outline).rawValue
             }
             #endif
             // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows and MIX pads. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.

@@ -57,6 +57,9 @@ struct EuclideousSoloPressable: View {
     /// MIX ROWS: the tile's frame and its touch frame (from the tile's top); the card's own call passes neither.
     var tile = CGSize(width: EuclideousSoloPalette.size, height: EuclideousSoloPalette.size)
     var target: CGSize? = nil
+    /// MIX v2 (per-part solo): another look for the same touch machine (latched, held-look) and its spoken name; the default is the lane SOLO tile and "Solo lane n".
+    var look: ((Bool, Bool) -> AnyView)? = nil
+    var axLabel: String? = nil
     let onDown: () -> Void
     /// `true` = a tap (flip the latch); `false` = a hold / cancel (leave it). Either way the held bit is cleared — in the SAME update, so a tap never flickers.
     let onUp: (_ latchToggles: Bool) -> Void
@@ -69,7 +72,9 @@ struct EuclideousSoloPressable: View {
     private func now() -> Double { ProcessInfo.processInfo.systemUptime }
 
     var body: some View {
-        EuclideousSoloButton(accent: accent, latched: latched, heldLook: heldLook, tile: tile)
+        Group {
+            if let look { look(latched, heldLook) } else { EuclideousSoloButton(accent: accent, latched: latched, heldLook: heldLook, tile: tile) }
+        }
             .frame(width: target?.width ?? tile.width, height: target?.height ?? tile.height, alignment: .top)
             .contentShape(Rectangle())
             .gesture(
@@ -96,7 +101,7 @@ struct EuclideousSoloPressable: View {
             }
             .onDisappear { if press.down { finish(cancelled: true) } }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(euclideousSoloAccessibilityLabel(lane: lane))
+            .accessibilityLabel(axLabel ?? euclideousSoloAccessibilityLabel(lane: lane))
             .accessibilityValue(euclideousSoloAccessibilityValue(latched: latched))
             .accessibilityHint(euclideousSoloAccessibilityHint)
             .accessibilityAddTraits(.isButton)

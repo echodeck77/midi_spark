@@ -938,6 +938,7 @@ struct EuclideousPage: View {
     @State private var pageTab: EuclideousPageTab = .opening
     /// MIX ROWS (2026-11-03): the dev-build MIX STRIP choice (FIT | ALIGNED, FIT by default) — a rig setting kept in UserDefaults like the PULSE level, never saved in a session or a preset.
     @AppStorage(euclideousMixStripModeKey) private var mixStripModeRaw: String = EuclideousMixStripMode.fit.rawValue
+    @AppStorage(euclideousMixToggleModeKey) private var mixToggleModeRaw: String = EuclideousMixToggleMode.filled.rawValue
     /// POOL ferry 6.3: the lane whose notes the riff grid's label column names (UI state, never saved; starts at lane 1).
     @State private var gridLane = 0
     @State private var flipFrom: EuclideousPageTab? = nil
@@ -3728,24 +3729,28 @@ struct EuclideousPage: View {
         return EuclideousMixStripFeed(legs: plan.legs, n: plan.sweepLength, dir: line.directionResolved, sub: sub, chains: chains.isActive ? chains : nil, lanePlaying: line.enabledResolved,
                                       mutedAt: muteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: muteCells, unitBeats: muteUnit) })
     }
+    private var mixToggleMode: EuclideousMixToggleMode { EuclideousMixToggleMode(rawValue: mixToggleModeRaw) ?? .filled }
+    /// MIX v2 (2026-11-05): the panel. The MIX rows build's `EuclideousMixPanel` (and its rolls, sliders and SOLO tile) stays compiled, unmounted.
     private func mixPanel(size: CGSize) -> AnyView {
-        let input = EuclideousMixPanelInput(
-            size: size, lines: lines, accents: laneAccents, soloDim: (0..<4).map { soloSilenced($0) },
+        let input = EuclideousMixV2Input(
+            size: size, lines: lines, accents: laneAccents,
+            laneSoloSilenced: (0..<4).map { soloSilenced($0) },
+            partSoloSilenced: (0..<8).map { partSoloSilenced($0 / 2, part: $0 % 2) },
+            partSoloLatched: partSoloMask,
             strips: (0..<4).map { mixStripFeed($0) },
+            hitsText: (0..<4).map { euclideousRhythmTabCounts(lane: $0, lines: phaseLines).hits },
+            stepsText: (0..<4).map { euclideousRhythmTabCounts(lane: $0, lines: phaseLines).steps },
             pools: (0..<4).map { $0 < lanePools.count ? lanePools[$0].notes.map { Int($0) } : [] },
             poolName: { n, pool in euclideousDisplayNoteName(UInt8(max(0, min(127, n))), source: noteSource, pool: pool.map { UInt8(max(0, min(127, $0))) }, keyRoot: keyRoot, keyType: keyType) },
-            rolls: rollLive, beatAt: { walkTagBeat(at: $0) }, clock: clock, live: pulseLive, stripMode: mixStripMode, hocketRules: hocketRules, hocketLive: hocketLive)
-        let callbacks = EuclideousMixCallbacks(
+            riffGlyphs: (0..<4).map { riffGlyph($0, $0 < lines.count ? lines[$0] : EuclidLine(noteSel: .all)) },
+            rolls: rollLive, beatAt: { walkTagBeat(at: $0) }, clock: clock, live: pulseLive, stripMode: mixStripMode, toggleMode: mixToggleMode, hocketRules: hocketRules, hocketLive: hocketLive)
+        let callbacks = EuclideousMixV2Callbacks(
             play: { idx, tile, target in
                 let on = idx < lines.count ? lines[idx].enabledResolved : true
                 return AnyView(EuclidCompactPlayButton(on: on, accent: laneAccents[idx % laneAccents.count],
                                                        onToggle: { edit(idx) { $0.enabled = !($0.enabledResolved) } }, tile: tile, target: target)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Play, lane \(idx + 1)").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(.isButton))   // MIX ROWS §10.2: the first element of a lane; the audit found the card's own tile unlabelled
-            },
-            solo: { idx, tile, target in
-                AnyView(EuclideousSoloPressable(lane: idx, accent: laneAccents[idx % laneAccents.count], latched: (soloMask >> UInt8(idx)) & 1 != 0, tile: tile, target: target,
-                                                onDown: { onSoloDown(idx) }, onUp: { onSoloUp(idx, $0) }))
+                    .accessibilityLabel("Play, lane \(idx + 1)").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(.isButton))
             },
             lockBadge: { lockBadgeView($0) },
             editStep: { idx, newStep, mutate in editStep(idx, newStep, mutate) },
@@ -3757,8 +3762,10 @@ struct EuclideousPage: View {
                     if part == .riff { let m = euclideousJackToggle(mask: l.riffOutMaskResolved(lane: idx), output: o); l.riffOutMask = m == own ? nil : m }
                     else { let m = euclideousJackToggle(mask: l.notesOutMaskResolved(lane: idx), output: o); l.notesOutMask = m == own ? nil : m }
                 }
-            })
-        return AnyView(EuclideousMixPanel(input: input, callbacks: callbacks))
+            },
+            partSoloDown: { onPartSoloDown($0) },
+            partSoloUp: { onPartSoloUp($0, $1) })
+        return AnyView(EuclideousMixV2Panel(input: input, callbacks: callbacks))
     }
 
     // MARK: CARD BACKS (2026-10-28) — the card's content and the flip between tabs (flip-on-every-tab-change, 2026-10-30)
@@ -4937,7 +4944,7 @@ struct EuclideousPage: View {
                 l.riffOutMask = m == own ? nil : m
             }
             .frame(width: outW)
-            partOctaveControl(idx, accent: accent, oct: line.riffOctaveResolved, dragLanes: $riffOctaveDragLanes, label: "Riff octave") { l, n in
+            partOctaveBoxes(idx, oct: line.riffOctaveResolved, label: "Riff octave") { l, n in
                 l.riffOctave = n == 0 ? nil : n
             }
             .frame(width: max(1, fullWidth - outW - gap))
@@ -4978,35 +4985,33 @@ struct EuclideousPage: View {
     /// the ferry states literally "if r is outside 1–8, that column shows no lit cell," which this rewrite
     /// now follows instead (a rest is already 0 by construction, so "no lit cell" already covers both cases
     /// uniformly with the same `1...8` bounds check, no separate rest-vs-out-of-range branching needed).
-    private func riffMiniGrid(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGFloat) -> some View {
+    /// The riff's dot grid as data — the ONE function the RIFF tab's thumbnail (`riffMiniGrid`) and MIX v2's part toggle both read.
+    private func riffGlyph(_ idx: Int, _ line: EuclidLine) -> EuclideousRiffGlyph {
         let poly = riffPoly                                                    // POLY RIFF: sixteen narrow columns, a note drawn across the columns it covers
         let n = poly ? EuclideousPolyMetrics.columns : 8
         let stepRanks = euclideousRiffStepRanks(ranks: effectiveGridRanks, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
         let len = poly ? line.riffLengthResolved(columns: n) : line.riffLengthResolved
-        let curStep = (idx < riffPositions.count && euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)) ? riffPositions[idx] : -1   // the live step only while the lane runs (as the WALK strip
-        let isRiff = line.riffOnResolved
+        let curStep = (idx < riffPositions.count && euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)) ? riffPositions[idx] : -1   // the live step only while the lane runs (as the WALK strip does)
         let neverPlay = riffReadout(idx)?.neverPlay ?? []   // RIFF WALK ferry §2.1/§7.6
-        let window = euclideousRiffWindowColumns(length: len, shift: poly ? line.riffRotateResolved(columns: n) : line.riffRotateResolved, columns: n)   // RIFF WINDOW ferry (2026-10-21): the window wraps at the grid's width, not always columns 1...LEN
+        let window = euclideousRiffWindowColumns(length: len, shift: poly ? line.riffRotateResolved(columns: n) : line.riffRotateResolved, columns: n)   // RIFF WINDOW ferry (2026-10-21): the window wraps at the grid's width
+        let pr = polyRiff
+        return euclideousRiffGlyph(columns: n, poly: poly, stepRanks: stepRanks, polyCovers: { col, rank in pr.note(covering: col, rank: rank) != nil },
+                                   invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved, window: Set(window), neverPlay: Set(neverPlay), current: curStep)
+    }
+    private func riffMiniGrid(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGFloat) -> some View {
+        let glyph = riffGlyph(idx, line)
+        let poly = riffPoly
+        let n = glyph.columns
+        let isRiff = line.riffOnResolved
         let cellW = max(1, (size - CGFloat(n - 1)) / CGFloat(n)), cellH = max(1, (size - 7) / 8)   // n cells + (n − 1) gaps of 1pt across, 8 rows + 7 gaps down
-        let tr = line.melodyTransposeResolved, inv = line.riffInvertResolved
         return VStack(spacing: 1) {
             ForEach((1...8).reversed(), id: \.self) { rank in
                 HStack(spacing: 1) {
                     ForEach(0..<n, id: \.self) { col in
-                        let isHit: Bool = {
-                            if poly {
-                                let src = inv ? 9 - (rank - tr) : rank - tr   // the written rank that INVERT and TRANSPOSE turn into this row
-                                return src >= 1 && src <= 8 && polyRiff.note(covering: col, rank: src) != nil
-                            }
-                            let raw = col < stepRanks.count ? stepRanks[col] : 0
-                            return raw >= 1 && raw <= 8 && raw == rank
-                        }()
-                        let inWindow = window.contains(col)
-                        let isCur = col == curStep
                         RoundedRectangle(cornerRadius: poly ? 0.75 : 1.5)
-                            .fill(riffMiniGridFill(isRiff: isRiff, isHit: isHit, isCur: isCur))
+                            .fill(riffMiniGridFill(isRiff: isRiff, isHit: glyph.isHit(col: col, rank: rank), isCur: col == glyph.current))
                             .frame(width: cellW, height: cellH)
-                            .opacity((!inWindow || neverPlay.contains(col)) ? 0.32 : 1.0)
+                            .opacity(glyph.opacity(col: col))
                     }
                 }
             }
@@ -5529,14 +5534,23 @@ struct EuclideousPage: View {
         .frame(maxHeight: .infinity, alignment: .center)
     }
     private func partOutputDisc(_ letter: String, on: Bool, accent: Color, label: String, tap: @escaping () -> Void) -> some View {
-        ZStack {
-            Circle().fill(on ? lane20(accent) : Color.clear)
-                .overlay(Circle().strokeBorder(on ? lane100(accent) : Color(hex: 0x3A3E47), lineWidth: 2))
-            Text(letter).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
+        EuclideousPartOutDiscArt(letter: letter, on: on, accent: accent, diameter: 28)   // MIX v2: the disc's drawing is shared with the MIX panel's A–D
+            .contentShape(Circle()).onTapGesture(perform: tap)
+            .accessibilityElement(children: .ignore).accessibilityLabel("\(label) \(letter)")
+            .accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+    }
+    /// MIX v2 §5: the RIFF / NOTES tab's OCT — five linked boxes (`EuclideousOctaveBoxes`) right-aligned in the frame the old track and pill filled, "OCT" to their left. One undo step per tap or drag; the write is the old control's.
+    private func partOctaveBoxes(_ idx: Int, oct: Int, label: String, write: @escaping (inout EuclidLine, Int) -> Void) -> some View {
+        GeometryReader { g in
+            let lay = euclideousOctRowLayout(frame: g.size)
+            ZStack(alignment: .topLeading) {
+                Text("OCT").font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(0.2 * 7).foregroundColor(Color(hex: 0xAAB0BA))
+                    .frame(width: lay.label.width, height: lay.label.height, alignment: .trailing).offset(x: lay.label.minX).accessibilityHidden(true)
+                EuclideousOctaveBoxes(value: oct, size: lay.boxes.size, targetHeight: lay.boxes.height, visualTop: (max(44, lay.boxes.height) - lay.boxes.height) / 2,
+                                      label: "\(label) \(euclideousOctValueText(oct))", onSelect: { v, newStep in editStep(idx, newStep) { write(&$0, v) } })
+                    .offset(x: lay.boxes.minX, y: -(max(44, lay.boxes.height) - lay.boxes.height) / 2)
+            }
         }
-        .frame(width: 28, height: 28).contentShape(Circle()).onTapGesture(perform: tap)
-        .accessibilityElement(children: .ignore).accessibilityLabel("\(label) \(letter)")
-        .accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }
     private func partOctaveControl(_ idx: Int, accent: Color, oct: Int, dragLanes: Binding<Set<Int>>, label: String, write: @escaping (inout EuclidLine, Int) -> Void) -> some View {
         let octStr = oct == 0 ? "0" : (oct > 0 ? "+\(oct)" : "\(oct)")
@@ -5688,7 +5702,7 @@ struct EuclideousPage: View {
                             }
                         }
                         placed(lay.notesOctave, in: lay.soundRow) {
-                            partOctaveControl(idx, accent: accent, oct: max(-2, min(2, line.octaveResolved)), dragLanes: $octaveDragLanes, label: "Notes octave") { l, n in
+                            partOctaveBoxes(idx, oct: max(-2, min(2, line.octaveResolved)), label: "Notes octave") { l, n in
                                 l.octave = n == 0 ? nil : n
                             }
                         }
