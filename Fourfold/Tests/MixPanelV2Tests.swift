@@ -316,7 +316,7 @@ final class MixPanelV2Tests: XCTestCase {
             let fullWidth = EuclideousLaneCardMetrics.innerWidth(cardWidth: card)
             let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: cardH)
             let riffLay = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: fullWidth)
-            let riffW = fullWidth - (fullWidth - 4) * 0.55 - 4, riffH = riffLay.lowerRowHeight
+            let riffW = fullWidth - (fullWidth - 4) * 0.55 - 4, riffH = riffLay.outputRowHeight   // RIFF v2 (2026-11-05) renamed the RIFF tab's OCT-row height lowerRowHeight → outputRowHeight (both 38)
             let notes = euclideousNotesTabLayout(contentAreaH: contentH, fullWidth: fullWidth, sp4: 4).notesOctave
             for (surface, w, h) in [("RIFF tab", riffW, riffH), ("NOTES tab", notes.width, notes.height)] {
                 let lay = euclideousOctRowLayout(frame: CGSize(width: w, height: h))
