@@ -5080,7 +5080,7 @@ func euclideousSeqTabBodySize(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSi
 /// A floor some box's contents fall under (§5.2). A flag, never a clamp.
 enum EuclideousPageFloor: Equatable, Hashable {
     case rhythmZones                 // card tab content < 192 (RHYTHM's two zones)
-    case riffRowA, riffDirectionRow, riffLowerRows, riffDirectionButtons   // the RIFF tab ferry's floors: 82 · 32 · 32 · 40 wide
+    case riffRowA, riffDirectionButtons, riffBandControl, riffNotesCell   // RIFF v2 ferry (2026-11-05) §1.8 floors: Row A < 60 tall · direction button < 36 wide · band control < 56 wide · NOTES cell < 72 wide
     case mixCellW, mixPadH, mixPadHStop   // MIX: cellW < 84 · padH < 76 · padH < 60
     case riffRows                    // riff grid rows < 24
     case fxRows                      // FX rows < 24
@@ -5100,10 +5100,10 @@ func euclideousPageFloors(box: CGSize, laneBox: CGSize? = nil, stripWidth: CGFlo
     let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: lane.height)
     if contentH < EuclideousLaneCardMetrics.rhythmZonesFloor { out.append(.rhythmZones) }
     let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: lane.width))
-    if r.rowAHeight < EuclideousRiffTabFloors.rowAHeight { out.append(.riffRowA) }
-    if r.directionRowHeight < EuclideousRiffTabFloors.directionRowHeight { out.append(.riffDirectionRow) }
-    if r.lowerRowHeight < EuclideousRiffTabFloors.lowerRowHeight { out.append(.riffLowerRows) }
-    if r.directionButtonWidth < EuclideousRiffTabFloors.directionButtonWidth { out.append(.riffDirectionButtons) }
+    if r.rowAUnderFloor { out.append(.riffRowA) }                       // RIFF v2 §1.8: Row A < 60
+    if r.directionButtonUnderFloor { out.append(.riffDirectionButtons) } // direction button < 36
+    if r.bandControlUnderFloor { out.append(.riffBandControl) }          // a MOVE-band control < 56
+    if r.notesCellUnderFloor { out.append(.riffNotesCell) }             // a NOTES cell < 72
     let editor = euclideousRestartEditorFramesV2(size: CGSize(width: EuclideousLaneCardMetrics.innerWidth(cardWidth: lane.width), height: contentH))
     if !editor.row1Fits || editor.clipsBottom { out.append(.restartEditor) }
     let area = euclideousMixGridArea(panelWidth: box.width, panelHeight: box.height)
@@ -6741,58 +6741,83 @@ func euclideousRiffReadoutText(_ r: EuclideousRiffReadout?, overBudget: Bool) ->
 /// don't match the real `contentAreaH` formula — reported in the final write-up, not silently reconciled.
 /// Floors ferry (2026-10-23): the RIFF tab's own floors, named — were bare literals repeated here and in
 /// `euclideousPageFloors`. `directionButtonWidth`'s floor is also now genuinely reachable (see below).
+/// RIFF v2 ferry (2026-11-05) §1.8: the regrouped tab's floors (flags, never clamps).
 enum EuclideousRiffTabFloors {
-    static let rowAHeight: CGFloat = 82, directionRowHeight: CGFloat = 32, lowerRowHeight: CGFloat = 32, directionButtonWidth: CGFloat = 40
+    static let rowAHeight: CGFloat = 60, directionButtonWidth: CGFloat = 36, bandControlWidth: CGFloat = 56, notesCellWidth: CGFloat = 72
 }
+/// RIFF v2 ferry (2026-11-05) §1: four rows 6 apart — Row A (riff toggle + WALK), the MOVE band, the NOTES band, the output row. Every frame comes from W (body width) and H (body height); every value is reported, nothing shrinks
+/// below the §1.8 floors. x are from the body's leading edge; the bands' frames span x0..W, everything else insets 4 (§1.2). The fixed left column L = 124 holds the riff toggle (Row A) and the three direction buttons (MOVE band) at one width;
+/// the right column starts at `rightColumnStartX` = 4 + L + 8 = 136, so the WALK strip and the ADVANCE EVERY stepper line up (§1.3).
 struct EuclideousRiffTabLayout: Equatable {
-    var rowAHeight: CGFloat
-    var rowBHeight: CGFloat
-    var lowerRowHeight: CGFloat
-    var rightColumnWidth: CGFloat
-    var walkStripHeight: CGFloat
-    /// Floors ferry: false when showing the WALK strip (display only, not interactive — its own doc
-    /// comment) would leave the direction row under its own floor; the strip drops out and the direction
-    /// row (chevrons + Invert melody, all real controls) takes the whole of row A instead.
-    var showWalkStrip: Bool
-    var directionRowHeight: CGFloat
-    var directionButtonWidth: CGFloat
-    var labelColumnWidth: CGFloat
-    var everyStepperWidth: CGFloat
-    var hitStepButtonWidth: CGFloat
-    var onRestButtonWidth: CGFloat
-    var valueStepperWidth: CGFloat
-    var underFloor: Bool   // §1.6's own floors: row A 82, direction row 32 tall, lower rows 32 tall, direction buttons 40 wide
+    var rowAHeight: CGFloat          // §1.1 H − 3·6 − (52 + 52 + 38)
+    var bandHeight: CGFloat          // 52
+    var outputRowHeight: CGFloat     // 38
+    var rowGap: CGFloat              // 6
+    var contentInset: CGFloat        // 4 (§1.2)
+    var toggleWidth: CGFloat         // §1.3 L = 124
+    var rightColumnStartX: CGFloat   // §1.3 136 (body-local) — WALK's and ADVANCE EVERY's left edge
+    var walkWidth: CGFloat           // §1.4 W − 140 (the WALK strip fills Row A's right column, the full row height)
+    var directionButtonWidth: CGFloat   // §1.5 (L − 2·4)/3 = 38.67
+    var advanceEveryWidth: CGFloat      // §1.5 the MOVE band's right controls, split 1.15 : 1.3 : 1
+    var hitStepWidth: CGFloat
+    var strideWidth: CGFloat
+    var notesCellWidth: CGFloat      // §1.6 (innerW − 3·4)/4
+    var miniGridSize: CGFloat        // §2.2 8×8 at 5.4 square, 1.4 apart → 53; shrunk per §2.3 if Row A is short
+    var miniGridCell: CGFloat        // 5.4 (never below 4.6, §2.3)
+    var miniGridGap: CGFloat         // 1.4
+    // band / row tops, body-local (§1.1)
+    var moveBandTop: CGFloat         // rowAH + 6
+    var notesBandTop: CGFloat        // rowAH + 6 + 52 + 6
+    var outputRowTop: CGFloat        // rowAH + 2·(52 + 6)
+    // §1.8 floors
+    var rowAUnderFloor: Bool
+    var directionButtonUnderFloor: Bool
+    var bandControlUnderFloor: Bool
+    var notesCellUnderFloor: Bool
+    var underFloor: Bool
 }
 func euclideousRiffTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGFloat = 4) -> EuclideousRiffTabLayout {
     typealias F = EuclideousRiffTabFloors
-    let patternBlockH: CGFloat = 80   // the SAME fixed constant RHYTHM's own lower block uses
-    let upperH = max(1, contentAreaH - patternBlockH - sp4)
-    let rowBHeight: CGFloat = 38
-    let rowAHeight = max(1, upperH - sp4 - rowBHeight)
-    let lowerRowHeight = max(1, (patternBlockH - sp4) / 2)
-    let cardWidth: CGFloat = 90
-    let rightColumnWidth = max(1, fullWidth - cardWidth - sp4)
-    let walkStripHeight: CGFloat = 38
-    // Floors ferry: the WALK strip is the one non-interactive element on this row — drop it first.
-    let directionRowIfShown = max(1, rowAHeight - sp4 - walkStripHeight)
-    let showWalkStrip = directionRowIfShown >= F.directionRowHeight
-    let directionRowHeight = showWalkStrip ? directionRowIfShown : rowAHeight
-    // 4 buttons since PENDULUM was removed (2026-10-22) — was ÷5 over 4 gaps, stale since that removal.
-    let directionButtonWidth = max(1, (rightColumnWidth - 3 * sp4) / 4)
-    let labelColumnWidth: CGFloat = 60
-    let everyStepperWidth: CGFloat = 76
-    let hitStepButtonWidth = max(1, (fullWidth - labelColumnWidth - everyStepperWidth - 3 * sp4) / 2)
-    // NOTES TAB ferry §9.1: FILL left ON REST — three equal buttons (SKIP, TIE, REPEAT) sp4 apart after the label column and its gap: (fullWidth − 60 − 3·sp4) ÷ 3 = 88.83 at the 338.5 reference, 76 at 300.
-    let onRestButtonWidth = max(1, (fullWidth - labelColumnWidth - 3 * sp4) / 3)
-    let valueStepperWidth = max(1, (fullWidth - 3 * sp4) / 4)
-    let underFloor = rowAHeight < F.rowAHeight || directionRowHeight < F.directionRowHeight
-        || lowerRowHeight < F.lowerRowHeight || directionButtonWidth < F.directionButtonWidth
-    return EuclideousRiffTabLayout(rowAHeight: rowAHeight, rowBHeight: rowBHeight, lowerRowHeight: lowerRowHeight,
-                                   rightColumnWidth: rightColumnWidth, walkStripHeight: walkStripHeight, showWalkStrip: showWalkStrip,
-                                   directionRowHeight: directionRowHeight, directionButtonWidth: directionButtonWidth,
-                                   labelColumnWidth: labelColumnWidth, everyStepperWidth: everyStepperWidth,
-                                   hitStepButtonWidth: hitStepButtonWidth, onRestButtonWidth: onRestButtonWidth,
-                                   valueStepperWidth: valueStepperWidth, underFloor: underFloor)
+    let H = max(1, contentAreaH), W = max(1, fullWidth)
+    let rowGap: CGFloat = 6                                  // §1.1 rows 6 apart
+    let bandHeight: CGFloat = 52
+    let outputRowHeight: CGFloat = 38
+    let rowAHeight = max(1, H - 3 * rowGap - (2 * bandHeight + outputRowHeight))   // §1.1 Row A takes the rest
+    let contentInset: CGFloat = 4                           // §1.2
+    let innerW = max(1, W - 2 * contentInset)               // x4 .. W−4
+    let L: CGFloat = 124                                    // §1.3 the fixed left column
+    let gap8: CGFloat = 8
+    let rightColumnStartX = contentInset + L + gap8         // §1.3 = 136
+    let rightRegionW = max(1, (W - contentInset) - rightColumnStartX)   // x136 .. W−4
+    let walkWidth = rightRegionW                            // §1.4
+    let directionButtonWidth = max(1, (L - 2 * sp4) / 3)    // §1.5 three across L
+    let splittable = max(1, rightRegionW - 2 * sp4)         // §1.5 after the two gaps
+    let wSum: CGFloat = 1.15 + 1.3 + 1.0
+    let advanceEveryWidth = splittable * 1.15 / wSum
+    let hitStepWidth       = splittable * 1.3  / wSum
+    let strideWidth        = splittable * 1.0  / wSum
+    let notesCellWidth = max(1, (innerW - 3 * sp4) / 4)     // §1.6 four equal cells
+    // §2.2 / §2.3: the mini-grid is 8×8 at 5.4 square, 1.4 apart (53), centred in Row A with ≥ 4 pt above and below; if Row A is short it shrinks to fit, never below 4.6 pt cells (then it overflows and is reported).
+    let miniGap: CGFloat = 1.4
+    let fullGrid: CGFloat = 8 * 5.4 + 7 * miniGap          // 53
+    let availForGrid = max(1, rowAHeight - 8)
+    let targetGrid = min(fullGrid, availForGrid)
+    let miniGridCell = max(4.6, (targetGrid - 7 * miniGap) / 8)
+    let miniGridSize = 8 * miniGridCell + 7 * miniGap
+    let rowAUnderFloor = rowAHeight < F.rowAHeight
+    let directionButtonUnderFloor = directionButtonWidth < F.directionButtonWidth
+    let bandControlUnderFloor = min(advanceEveryWidth, min(hitStepWidth, strideWidth)) < F.bandControlWidth
+    let notesCellUnderFloor = notesCellWidth < F.notesCellWidth
+    let underFloor = rowAUnderFloor || directionButtonUnderFloor || bandControlUnderFloor || notesCellUnderFloor
+    return EuclideousRiffTabLayout(rowAHeight: rowAHeight, bandHeight: bandHeight, outputRowHeight: outputRowHeight,
+                                   rowGap: rowGap, contentInset: contentInset, toggleWidth: L, rightColumnStartX: rightColumnStartX,
+                                   walkWidth: walkWidth, directionButtonWidth: directionButtonWidth,
+                                   advanceEveryWidth: advanceEveryWidth, hitStepWidth: hitStepWidth, strideWidth: strideWidth,
+                                   notesCellWidth: notesCellWidth, miniGridSize: miniGridSize, miniGridCell: miniGridCell, miniGridGap: miniGap,
+                                   moveBandTop: rowAHeight + rowGap, notesBandTop: rowAHeight + rowGap + bandHeight + rowGap,
+                                   outputRowTop: rowAHeight + 2 * bandHeight + 3 * rowGap,
+                                   rowAUnderFloor: rowAUnderFloor, directionButtonUnderFloor: directionButtonUnderFloor,
+                                   bandControlUnderFloor: bandControlUnderFloor, notesCellUnderFloor: notesCellUnderFloor, underFloor: underFloor)
 }
 
 /// A Euclideous lane's step length, step count and lap length exactly as `Router.runEuclidLine` derives them — a lane borrowing

@@ -201,39 +201,47 @@ final class PageLayoutTests: XCTestCase {
     func testLaneCardZonesAtBothReferences() {
         // TAB STRIP ferry (2026-10-29) §3.2 / test 3: the card's tab row is gone, the body starts at y 62 and RHYTHM's upper zone is the card height − 156 (it was − 188).
         XCTAssertEqual(EuclideousLaneCardMetrics.bodyTop, 62); XCTAssertEqual(EuclideousLaneCardMetrics.chromeH, 72)
-        for (p, upper, rowA) in [(land, 145.0, 103.0), (port, 145.67, 103.67)] {
+        // RHYTHM's upper zone (unchanged by RIFF v2) + RIFF v2 §1.1 Row A = contentH − 160 (3·6 gaps + 52 + 52 + 38)
+        for (p, upper, rowA) in [(land, 145.0, 69.0), (port, 145.67, 69.67)] {
             let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: p.laneBox.height)
-            XCTAssertEqual(contentH - 80 - 4, upper, accuracy: 0.01, "upper zone = card height − 156")
+            XCTAssertEqual(contentH - 80 - 4, upper, accuracy: 0.01, "RHYTHM upper zone = card height − 156")
             XCTAssertEqual(p.laneBox.height - 156, upper, accuracy: 0.01)
             let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: p.laneBox.width))
-            XCTAssertEqual(r.rowAHeight, rowA, accuracy: 0.01, "RIFF's row A is 103 against its floor of 82")
+            XCTAssertEqual(r.rowAHeight, rowA, accuracy: 0.01, "RIFF v2 Row A")
+            XCTAssertEqual(r.bandHeight, 52); XCTAssertEqual(r.outputRowHeight, 38); XCTAssertEqual(r.rowGap, 6)
             XCTAssertFalse(r.underFloor)
         }
-        // widths: landscape content 360.67, portrait 367
+        // RIFF v2 §8.1 widths — landscape body 360.67, portrait 367
         let rl = euclideousRiffTabLayout(contentAreaH: land.laneBox.height - 72, fullWidth: land.laneBox.width - 20)
-        XCTAssertEqual(rl.rightColumnWidth, 266.67, accuracy: 0.01)
-        // Floors ferry (2026-10-23): 4 buttons over 3 gaps now (PENDULUM removed 2026-10-22; was ÷5 over 4 gaps, stale since then).
-        XCTAssertEqual(rl.directionButtonWidth, 63.67, accuracy: 0.01)
-        XCTAssertEqual(rl.hitStepButtonWidth, 106.33, accuracy: 0.01); XCTAssertEqual(rl.onRestButtonWidth, 96.22, accuracy: 0.01); XCTAssertEqual(rl.valueStepperWidth, 87.17, accuracy: 0.01)
+        XCTAssertEqual(rl.toggleWidth, 124); XCTAssertEqual(rl.rightColumnStartX, 136)
+        XCTAssertEqual(rl.walkWidth, 220.67, accuracy: 0.01)
+        XCTAssertEqual(rl.directionButtonWidth, 38.67, accuracy: 0.01)
+        XCTAssertEqual(rl.advanceEveryWidth, 70.89, accuracy: 0.01); XCTAssertEqual(rl.hitStepWidth, 80.14, accuracy: 0.01); XCTAssertEqual(rl.strideWidth, 61.64, accuracy: 0.01)
+        XCTAssertEqual(rl.notesCellWidth, 85.17, accuracy: 0.01)
         let rp = euclideousRiffTabLayout(contentAreaH: port.laneBox.height - 72, fullWidth: port.laneBox.width - 20)
-        XCTAssertEqual(rp.directionButtonWidth, 65.25, accuracy: 0.01); XCTAssertEqual(rp.hitStepButtonWidth, 109.5, accuracy: 0.01)
-        XCTAssertEqual(rp.onRestButtonWidth, 98.33, accuracy: 0.01); XCTAssertEqual(rp.valueStepperWidth, 88.75, accuracy: 0.01)
+        XCTAssertEqual(rp.walkWidth, 227, accuracy: 0.01)
+        XCTAssertEqual(rp.advanceEveryWidth, 73.00, accuracy: 0.01); XCTAssertEqual(rp.hitStepWidth, 82.52, accuracy: 0.01); XCTAssertEqual(rp.strideWidth, 63.48, accuracy: 0.01)
+        XCTAssertEqual(rp.notesCellWidth, 86.75, accuracy: 0.01); XCTAssertEqual(rp.directionButtonWidth, 38.67, accuracy: 0.01)
     }
-    /// Floors ferry (2026-10-23): the WALK strip (read-only) drops out exactly when showing it would leave
-    /// the direction row (real controls) under its own 32pt floor — never above, never below.
-    func testRiffTabWalkStripDropsExactlyAtTheDirectionRowFloor() {
-        // rowAHeight computed so that (rowAHeight - 4 - 38) lands exactly 1pt either side of the 32pt floor.
-        // rowAHeight = upperH - 4 - 38, upperH = contentAreaH - 80 - 4 → solve contentAreaH for each case.
-        func layout(rowAHeight target: CGFloat) -> EuclideousRiffTabLayout {
-            let upperH = target + 4 + 38
-            let contentAreaH = upperH + 80 + 4
-            return euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: 338.5)
+    /// RIFF v2 §8.2: in every layout the riff toggle sits directly over the three direction buttons (one x range),
+    /// the WALK strip's left edge equals the ADVANCE EVERY stepper's, and every row's contents span x4 … W−4.
+    func testRiffV2BandAlignmentInEveryLayout() {
+        for (ca, w) in [(229.0, 360.67), (229.67, 367.0), (170.0, 335.0), (120.0, 300.0)] {
+            let r = euclideousRiffTabLayout(contentAreaH: ca, fullWidth: w)
+            let inset = r.contentInset   // 4
+            // the toggle (x4, width L) sits exactly over the three direction buttons (x4, 3 across L)
+            XCTAssertEqual(r.toggleWidth, 3 * r.directionButtonWidth + 2 * 4, accuracy: 0.01, "toggle width == 3 directions + 2 gaps, at \(w)")
+            // WALK's left edge == ADVANCE EVERY's left edge == rightColumnStartX
+            XCTAssertEqual(r.rightColumnStartX, inset + r.toggleWidth + 8, accuracy: 1e-9, "right column at 4 + L + 8")
+            // every row's contents end at W − 4
+            XCTAssertEqual(r.rightColumnStartX + r.walkWidth, w - inset, accuracy: 0.01, "Row A (toggle + WALK) ends at W−4")
+            XCTAssertEqual(r.rightColumnStartX + r.advanceEveryWidth + r.hitStepWidth + r.strideWidth + 2 * 4, w - inset, accuracy: 0.01, "MOVE right group ends at W−4")
+            XCTAssertEqual(inset + 4 * r.notesCellWidth + 3 * 4, w - inset, accuracy: 0.01, "NOTES cells end at W−4")
+            XCTAssertEqual(r.moveBandTop, r.rowAHeight + 6, accuracy: 1e-9)
+            XCTAssertEqual(r.notesBandTop, r.rowAHeight + 6 + 52 + 6, accuracy: 1e-9)
+            // the four rows + three 6pt gaps fill the body height — except when Row A is clamped at the §1.8 floor (a body too short to hold the bands + output row), where the formula's values overflow and are reported
+            if r.rowAHeight > 1 { XCTAssertEqual(r.outputRowTop + r.outputRowHeight, ca, accuracy: 0.01, "rows + gaps fill H") }
         }
-        let justAbove = layout(rowAHeight: 32 + 4 + 38 + 1)   // directionRowIfShown = 33
-        XCTAssertTrue(justAbove.showWalkStrip); XCTAssertEqual(justAbove.directionRowHeight, 33, accuracy: 0.01)
-        let justBelow = layout(rowAHeight: 32 + 4 + 38 - 1)   // directionRowIfShown = 31 → strip drops, direction row gets the whole row A
-        XCTAssertFalse(justBelow.showWalkStrip); XCTAssertEqual(justBelow.directionRowHeight, justBelow.rowAHeight, accuracy: 0.01)
-        XCTAssertGreaterThan(justBelow.directionRowHeight, 31, "dropping the strip must leave the direction row BETTER off, not merely unchanged")
     }
     /// Floors ferry (2026-10-23): TILT's EARLY/LATE end-labels — pure annotation, not the control — drop
     /// out below their own floor, independent of (and tighter than) the inert `rhythmZonesFloor`(192).
@@ -346,15 +354,15 @@ final class PageLayoutTests: XCTestCase {
         let miniRiffLayout = euclideousRiffPanelLayout(box: CGSize(width: 355, height: 274))
         XCTAssertEqual(miniRiffLayout.rowH, 20.125, accuracy: 1e-9)
         XCTAssertEqual(miniRiffLayout.tabRowH, 14, accuracy: 1e-9); XCTAssertEqual(miniRiffLayout.labelW, 48, accuracy: 1e-9, "cellW here (32.4) clears minCellW, so the label stays nominal")
-        let r = euclideousRiffTabLayout(contentAreaH: 274 - 104, fullWidth: 335)
-        XCTAssertEqual(r.rowAHeight, 44, accuracy: 1e-9, "RIFF's row A")
-        // Floors ferry (2026-10-23): at this size, showing the WALK strip would leave only 2pt for the
-        // direction row, so it drops out and the direction row takes the whole of row A (44) instead —
-        // .riffDirectionRow no longer flags here, exactly the fallback's intended effect.
-        XCTAssertFalse(r.showWalkStrip); XCTAssertEqual(r.directionRowHeight, 44, accuracy: 1e-9)
+        // RIFF v2: at this small lane card Row A is well under the 60pt floor, so .riffRowA flags. The standalone
+        // layout reads the SAME lane box euclideousPageFloors uses, so its flags and mini.floors agree exactly.
+        let r = euclideousRiffTabLayout(contentAreaH: EuclideousLaneCardMetrics.contentAreaH(cardHeight: mini.laneBox.height), fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: mini.laneBox.width))
+        XCTAssertLessThan(r.rowAHeight, EuclideousRiffTabFloors.rowAHeight); XCTAssertTrue(r.rowAUnderFloor)
         let f = Set(mini.floors)
         XCTAssertTrue(f.isSuperset(of: [.mixCellW, .rhythmZones, .riffRowA]), "\(f)")
-        XCTAssertFalse(f.contains(.riffDirectionRow), "the WALK-strip-drop fallback resolves this at 44pt, clear of the 32pt floor")
+        XCTAssertEqual(f.contains(.riffDirectionButtons), r.directionButtonUnderFloor)
+        XCTAssertEqual(f.contains(.riffBandControl), r.bandControlUnderFloor, "the MOVE-band floor flags iff a band control is under 56")
+        XCTAssertEqual(f.contains(.riffNotesCell), r.notesCellUnderFloor)
         // PER-LAYER ROUTING ferry §5.2: dropping the OUT row lifts this mini pad to 71pt — now clear of BOTH the 64 floor and the 48 stop.
         XCTAssertFalse(f.contains(.mixPadH), "padH 71 ≥ minPadH 64 now the OUT row is gone"); XCTAssertFalse(f.contains(.mixPadHStop))
         XCTAssertTrue(f.contains(.riffRows), "20.1 (even after the tab-row fair-share gives it back 0.75) is still under 24"); XCTAssertFalse(f.contains(.fxRows), "FX rows 24.67 clear 24")
