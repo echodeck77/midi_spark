@@ -572,6 +572,60 @@ final class RestartScheduleTests: XCTestCase {
         periodicVersusStraight(four(m), at: [1000.3, 1002.9])
     }
 
+    // MARK: Restart timing — the rule (a restart on a tick is applied BEFORE that tick plays, so the tick plays STEP 1; never the old step a tick late, never step 2 from advancing after the reset)
+
+    private func chainPhase(_ c: EuclideousWalkLaneConfig, tick: Int64) -> EuclideousLaneChainPhase {
+        euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.spanBeats)
+    }
+
+    /// A 7-step lane with a hit on step 1 and a rhythm restart every bar of 16 sixteenths: step 1 plays on the downbeat of bars 2, 3 and 4. Without the restart tick 16/32/48 would be step 3/5/7 (16%7=2 etc.), so `raw==0` proves the restart was applied before the tick; the next tick is step 2, so it is neither stuck on step 1 nor skipped past it.
+    func testRhythmRestartEveryBarPlaysStepOneOnEveryDownbeat() {
+        var l = line(hits: 7, steps: 7, rate: .r1_16)   // E(7,7): every step is a hit, so step 0 (step 1) is a hit
+        rhythm(&l, [1], unit: .bar)
+        let lines = four(l), set = setFor(lines, bar: 4), c = cfg(lines, lane: 0, set: set, bar: 4)
+        for (bar, tick) in [(2, Int64(16)), (3, 32), (4, 48)] {   // downbeats: beat 4 / 8 / 12 at 1/16
+            let ph = chainPhase(c, tick: tick)
+            XCTAssertEqual(ph.raw, 0, "bar \(bar) downbeat plays step 1, not the natural step \(Int(tick) % 7 + 1)")
+            XCTAssertTrue(ph.rawIsHit, "and it is a hit")
+            XCTAssertEqual(chainPhase(c, tick: tick + 1).raw, 1, "the next tick advances to step 2 — not stuck on step 1, not skipped")
+        }
+    }
+
+    /// A melody restart every 3 hits: the riff ordinal resets to 0 before the restarting hit sounds, so the hits read 0,1,2,0,1,2,… — the 4th hit plays the first melody note.
+    func testMelodyRestartEveryThreeHitsPlaysTheFirstNoteOnTheFourthHit() {
+        var l = line(hits: 3, steps: 8, rate: .r1_8)
+        melody(&l, [3], unit: .hit)
+        let lines = four(l), set = setFor(lines), c = cfg(lines, lane: 0, set: set)
+        let hs = hits(c, beats: 16)
+        XCTAssertGreaterThanOrEqual(hs.count, 7)
+        XCTAssertEqual(hs.prefix(7).map(\.ord), [0, 1, 2, 0, 1, 2, 0], "the 4th and 7th hits restart the riff to its first note")
+    }
+
+    /// A lane restarting from a source lane: lane B (restart unit PASS, source = lane A) restarts on the SAME tick as A's pass, never one later, and at that tick both play step 1. Order-independent: the component is one joint schedule, built once on the main thread.
+    func testASourceLaneRestartLandsOnTheSameTickForBoth() {
+        var a = line(hits: 8, steps: 8, rate: .r1_8); rhythm(&a, [1], unit: .bar)   // A restarts every bar (8 ticks at 1/8); all hits so step 1 is a hit
+        var b = line(hits: 7, steps: 7, rate: .r1_8); rhythm(&b, [1], unit: .pass, source: 0)   // B restarts on A's pass
+        let lines = four(a, b), set = setFor(lines, bar: 4)
+        let ca = cfg(lines, lane: 0, set: set, bar: 4), cb = cfg(lines, lane: 1, set: set, bar: 4)
+        XCTAssertEqual(ca.chains.rhythmOriginTick(4.0, sub: 0.5), 8, "A restarts at tick 8 (bar 2 downbeat)")
+        XCTAssertEqual(cb.chains.rhythmOriginTick(4.0, sub: 0.5), 8, "B restarts on the SAME tick as A, not one later")
+        XCTAssertEqual(chainPhase(ca, tick: 8).raw, 0); XCTAssertEqual(chainPhase(cb, tick: 8).raw, 0, "both play step 1 on that tick")
+    }
+
+    /// A 2,1,1 rhythm count sequence (BAR unit) restarts on bars 3, 4, 5, 7, 8, 9 — beats 8, 12, 16, 24, 28, 32 — beginning at its first count on transport start (beat 0 is the implicit start).
+    func testTheTwoOneOneCountSequenceRestartsOnBars345789() {
+        var l = line(hits: 3, steps: 8, rate: .r1_8); rhythm(&l, [2, 1, 1], unit: .bar)
+        let lines = four(l), set = setFor(lines, bar: 4), c = cfg(lines, lane: 0, set: set, bar: 4)
+        close(restarts({ c.chains.nextRhythmRestart(after: $0) }, upTo: 33), [8, 12, 16, 24, 28, 32])
+    }
+
+    /// Host transport start / a loop back to beat 0: the first tick plays step 1 (beat 0 is an implicit restart origin).
+    func testTransportStartPlaysStepOne() {
+        var l = line(hits: 7, steps: 7, rate: .r1_16); rhythm(&l, [1], unit: .bar)
+        let lines = four(l), set = setFor(lines, bar: 4), c = cfg(lines, lane: 0, set: set, bar: 4)
+        XCTAssertEqual(chainPhase(c, tick: 0).raw, 0, "tick 0 plays step 1")
+    }
+
 }
 
 private struct SplitMix { var state: UInt64; init(seed: UInt64) { state = seed }
