@@ -96,8 +96,7 @@ final class MixPanelTests: XCTestCase {
             check(panel, name)
             XCTAssertGreaterThan(L.bandH, 0, name)
             XCTAssertEqual(L.floors.contains(.roll), L.rollW < 96 - 1e-9, name); XCTAssertEqual(L.floors.contains(.row), L.rowH < 40 - 1e-9, name); XCTAssertEqual(L.floors.contains(.band), L.bandH < 120 - 1e-9, name)
-            let pageFloors = euclideousPageFloors(box: p.box, laneBox: p.laneBox, stripWidth: p.strip.width)
-            XCTAssertEqual(pageFloors.contains(.mixRowsRoll), L.floors.contains(.roll), name); XCTAssertEqual(pageFloors.contains(.mixRowsRow), L.floors.contains(.row), name); XCTAssertEqual(pageFloors.contains(.mixRowsBand), L.floors.contains(.band), name)
+            // MIX v2: the page reports the v2 layout's floors now (`MixPanelV2Tests` pins that); this old layout is kept compiled but is no longer the panel's
             lines.append("MIXROWS-LAYOUT \(name): panel \(String(format: "%.2f×%.2f", Double(panel.width), Double(panel.height))) | band \(String(format: "%.2f", Double(L.bandH))) row \(String(format: "%.2f", Double(L.rowH))) roll \(String(format: "%.2f", Double(L.rollW))) | floors \(L.floors)")
         }
         print(lines.joined(separator: "\n"))
