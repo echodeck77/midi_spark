@@ -4478,10 +4478,10 @@ func euclideousSourceStatuses(plan: SourcePlan, midiPlaying: Bool, chordsLit: Bo
     return (s(plan.midiOnR, midiPlaying), s(plan.chordsOnR, chordsLit), s(plan.pickOnR, pickLit), s(plan.keyOnR, keyLit))
 }
 
-/// §4.7 the header button's VoiceOver value: "<key>, MIDI IN playing, CHORDS waiting, PICK off, KEY playing".
+/// §4.7 / HARMONY 7.7 the header button's VoiceOver value: "<key>, MIDI IN playing, CHORDS waiting, PICK unused, KEY playing".
 func euclideousSourceButtonAccessibilityValue(keyLabel: String, midi: EuclideousSourceLight,
                                               chords: EuclideousSourceLight, pick: EuclideousSourceLight, key: EuclideousSourceLight) -> String {
-    func w(_ s: EuclideousSourceLight) -> String { s == .playing ? "playing" : (s == .waiting ? "waiting" : "off") }
+    func w(_ s: EuclideousSourceLight) -> String { s == .playing ? "playing" : (s == .waiting ? "waiting" : "unused") }   // INPUTS + HARMONY 7.7: a source no lane uses is "unused"
     return "\(keyLabel), MIDI IN \(w(midi)), CHORDS \(w(chords)), PICK \(w(pick)), KEY \(w(key))"
 }
 

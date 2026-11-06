@@ -250,6 +250,7 @@ targets:
       - path: Fourfold/Engine/RestartEditorUI.swift   # RESTART UNITS ferry (2026-11-04): the restart tiles' and editor's text, frames, edits, timeline and VoiceOver (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/RestartSchedule.swift   # RESTART UNITS ferry (2026-11-04): the simulated restart schedule, its periodic tables and readers (Foundation only)
       - path: Fourfold/Engine/RestartUnits.swift   # RESTART UNITS ferry (2026-11-04): the chains' unit / source / switch / WITH RHYTHM and their resolvers (Foundation only)
+      - path: Fourfold/Engine/HarmonyLayout.swift   # INPUTS + HARMONY ferry (2026-11-06): the HARMONY page's frames, rows and popover widths (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/MixPanelV2.swift   # MIX v2 ferry (2026-11-05): the MIX panel's v2 frames, looks and strings (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/MixPanel.swift   # MIX ROWS ferry (2026-11-03): the MIX panel's layout, sliders, strip, pool, roll, lines and VoiceOver strings (Foundation only)
       - path: Fourfold/Shared/FourfoldTransportClock.swift
