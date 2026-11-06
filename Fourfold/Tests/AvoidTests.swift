@@ -1,5 +1,6 @@
-//  AvoidTests.swift — (2026-11-06) investigation "blue plays 16 of 16, red (3 of 8) AVOIDs blue: shouldn't red be silent?" Through the real Router: yes when every red hit coincides with a blue hit, and AVOID's result is exactly the control minus the coincident hits.
-//  AVOID is a TIME hole punch (same onset, within 1e-6 beat), so a red hit that falls BETWEEN blue's hits (TILT, a triplet or dotted rate against a straight one, a slower blue) is not punched — by design.
+//  AvoidTests.swift — LISTEN AVOID is STEP-based (2026-11-06, Paul): a lane that avoids a source is silent whenever the source's current STEP holds a hit — "if blue plays 16 of 16, red is silent" — whatever the two lanes' rates, TILT or ratchets.
+//  (The first rule, "the source strikes at exactly the same instant", let a red hit that fell between blue's steps, or beside blue's ratchet repeat, through: the clip that prompted this change.) Pitch and octave never matter.
+//  Through the real Router: red = lane 0 AVOIDing blue = lane 1; "control" = the same document with AVOID off.
 
 import XCTest
 
@@ -48,30 +49,51 @@ final class AvoidTests: XCTestCase {
             XCTAssertEqual(av[1], ctl[1], "blue is untouched")
         }
     }
-    /// By design AVOID punches a hole only where the source strikes at the SAME instant: a red hit between blue's hits still plays.
-    func testARedHitBetweenBluesHitsStillPlays() {
+    /// Blue plays every step (16 of 16): red is silent whatever its rate, TILT or offset — a triplet red against a straight blue, a dotted one, a blue SLOWER than red, a TILT that moves red's hits between blue's steps. (Under the first rule all of these played.)
+    func testRedIsSilentWhenBlueIsPlayingEveryStepWhateverTheRatesAndTimings() {
         let blue = line(hits: 16, steps: 16, rate: .r1_16)
-        var tilted = line(hits: 3, steps: 8, rate: .r1_8); tilted.tilt = 0.3; tilted.tiltFine = 0.3     // TILT moves red's hits off the grid
-        XCTAssertGreaterThan(run(red: tilted, blue: blue, avoid: true)[0]?.count ?? 0, 0, "red TILT 30 % AVOIDing a straight blue still plays: its hits fall between blue's")
-        XCTAssertGreaterThan(run(red: line(hits: 3, steps: 8, rate: .r1_8t), blue: blue, avoid: true)[0]?.count ?? 0, 0, "a triplet red against a straight blue: most of its hits fall between blue's")
-        XCTAssertGreaterThan(run(red: line(hits: 3, steps: 8, rate: .r1_8), blue: line(hits: 16, steps: 16, rate: .r1_4), avoid: true)[0]?.count ?? 0, 0, "a slower blue (1/4) leaves red's hits at 1.5, 4.5 … unpunched")
+        var tilted = line(hits: 3, steps: 8, rate: .r1_8); tilted.tilt = 0.3; tilted.tiltFine = 0.3
+        var offset = line(hits: 3, steps: 8, rate: .r1_8); offset.offsetFraction = 0.3
+        for (name, red, b) in [("TILT 30 %", tilted, blue), ("OFFSET +0.3 step", offset, blue), ("1/8T red vs 1/16 blue", line(hits: 3, steps: 8, rate: .r1_8t), blue),
+                               ("1/16T red vs 1/16 blue", line(hits: 3, steps: 8, rate: .r1_16t), blue), ("1/8 red vs slower 1/4 blue", line(hits: 3, steps: 8, rate: .r1_8), line(hits: 16, steps: 16, rate: .r1_4)),
+                               ("1/8 red vs 1/8D blue", line(hits: 3, steps: 8, rate: .r1_8), line(hits: 16, steps: 16, rate: .r1_8d))] {
+            XCTAssertGreaterThan(run(red: red, blue: b, avoid: false)[0]?.count ?? 0, 0, "\(name): red plays without AVOID")
+            XCTAssertEqual(run(red: red, blue: b, avoid: true)[0]?.count ?? 0, 0, "\(name): red is silent while blue plays every step")
+        }
+    }
+    /// The reported clip: blue 1/8T 16/16 with FX RATCH ×2 on riff columns 1 and 5, red 1/8 3/8 at riff OCT −2 AVOIDing blue — red's hit at beat 1.5 sits between blue's triplets (and beside blue's ratchet repeat at exactly 1.5): it used to survive, now red is silent.
+    func testTheReportedClipRedIsSilentNow() {
+        var fx = EuclideousFX(); fx.cells[0 * 8 + 0] = 2; fx.cells[0 * 8 + 4] = 2
+        var red = line(hits: 3, steps: 8, rate: .r1_8); red.riffOctave = -2
+        var blue = line(hits: 16, steps: 16, rate: .r1_8t); blue.riffOctave = 1
+        XCTAssertGreaterThan(run(red: red, blue: blue, avoid: false, beats: 14, tempo: 94, tweak: { $0.euclideousFX = fx })[0]?.count ?? 0, 0)
+        XCTAssertEqual(run(red: red, blue: blue, avoid: true, beats: 14, tempo: 94, tweak: { $0.euclideousFX = fx })[0]?.count ?? 0, 0, "red avoids a 16-of-16 blue completely, ratchets included")
+    }
+    /// A transport that starts or seeks at an off-grid beat strikes each lane's step at once; the first rule missed that red strike (different tick beats), the step rule cannot.
+    func testRedIsSilentFromAnOffGridStartToo() {
+        for start in [0.1234, 7.77, 33.0, 7.5] {
+            for (rr, br) in [(ArpRate.r1_4t, ArpRate.r1_4), (.r1_8t, .r1_8t), (.r1_32, .r1_8d), (.r1_8, .r1_16)] {
+                XCTAssertEqual(run(red: line(hits: 3, steps: 8, rate: rr), blue: line(hits: 16, steps: 16, rate: br), avoid: true, beats: 6, start: start)[0]?.count ?? 0, 0, "start \(start), red \(rr.rawValue) vs blue \(br.rawValue)")
+            }
+        }
     }
 
     private struct Rng { var s: UInt64; mutating func next() -> UInt64 { s &+= 0x9E3779B97F4A7C15; var z = s; z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9; z = (z ^ (z >> 27)) &* 0x94D049BB133111EB; return z ^ (z >> 31) }
         mutating func pick<T>(_ a: [T]) -> T { a[Int(next() % UInt64(a.count))] } }
-    /// The same invariant from beat 0 with direction, rotate and step counts varied on BOTH lanes — the settings a player would plausibly have touched.
-    func testAvoidIsExactlyTheControlMinusTheCoincidentHitsWithDirectionRotateAndRatesVaried() {
+    /// AVOID's result is EXACTLY red's control strikes minus those whose strike time lies inside a step where blue has a hit (a blue strike at the step's start, no TILT on blue) — blue's partial patterns too (5 of 16 …), direction, rotate and rates varied on both lanes.
+    func testAvoidIsExactlyTheControlMinusTheHitsInsideTheSourcesHitStepsWithDirectionRotateAndRatesVaried() {
         var rng = Rng(s: 777)
         let rates: [ArpRate] = [.r1_4, .r1_8, .r1_16, .r1_32, .r1_8d, .r1_16d, .r1_8t, .r1_16t]
         let dirs: [EuclidDir] = [.fwd, .bkw, .pingpong]
         var bad: [String] = [], trials = 0
         for _ in 0..<30 {
-            var red = line(hits: 1 + Int(rng.next() % 8), steps: 8, rate: rng.pick(rates)), blue = line(hits: 16, steps: 16, rate: rng.pick(rates))
+            var red = line(hits: 1 + Int(rng.next() % 8), steps: 8, rate: rng.pick(rates)), blue = line(hits: 1 + Int(rng.next() % 16), steps: 16, rate: rng.pick(rates))
             red.direction = rng.pick(dirs); blue.direction = rng.pick(dirs); red.rotate = Int(rng.next() % 8); blue.rotate = Int(rng.next() % 16)
             let frames = rng.pick([64, 480, 1024, 2048]) as Int, tempo = rng.pick([93.9, 120.0, 137.31])
             let ctl = run(red: red, blue: blue, avoid: false, beats: 8, frames: UInt32(frames), tempo: tempo)
             let av = run(red: red, blue: blue, avoid: true, beats: 8, frames: UInt32(frames), tempo: tempo)
-            let expected = (ctl[0] ?? []).filter { r in !(ctl[1] ?? []).contains { abs($0 - r) < 2e-4 } }, got = av[0] ?? []
+            let bs = blue.rate?.beats ?? 0.5
+            let expected = (ctl[0] ?? []).filter { r in !(ctl[1] ?? []).contains { r >= $0 - 2e-4 && r < $0 + bs - 2e-4 } }, got = av[0] ?? []
             trials += 1
             if got.count != expected.count || zip(got, expected).contains(where: { abs($0 - $1) > 2e-4 }) {
                 bad.append("red \(red.pulses)/8 \(red.rate?.rawValue ?? "-") \(red.direction.map { "\($0)" } ?? "-") rot \(red.rotate) · blue \(blue.rate?.rawValue ?? "-") \(blue.direction.map { "\($0)" } ?? "-") rot \(blue.rotate) frames \(frames): expected \(expected.count) got \(got.count)")

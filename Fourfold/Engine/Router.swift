@@ -4254,16 +4254,16 @@ final class Router {
                                 tradeCloseLegato()
                                 return
                             }
-                            // LISTEN AVOID (rebuilt 2026-11-01): a TIME-based hole punch, not a pitch filter. This lane's WHOLE hit is silenced whenever the SOURCE lane
-                            // strikes at the SAME INSTANT (Paul's choice: same onset, within 1e-6 beat — regardless of pitch or octave). The source's window hit-schedule
-                            // was captured BEFORE any lane played (the clock pre-pass → `hocketClocks`, keyed `source*2 [+1 for the after-segment of a lock-split window]`),
-                            // so this is immune to lane PROCESSING ORDER — unlike the old echo read, which saw a later-indexed source's PREVIOUS window. A source hit that is
-                            // LANES-muted or solo-silenced here is not "sounding", so it punches NO hole (the same audibility check HOCKET's destination-swallow uses).
-                            // Known v1 limit: "the source strikes" = it has a RHYTHM hit at that instant; a source hit that lands on a riff REST (SKIP → silent) still
-                            // punches a hole, because the clock carries the rhythm schedule, not the source's riff resolution. The old pitch-class drop is gone.
+                            // LISTEN AVOID (rebuilt 2026-11-01, STEP-based since 2026-11-06): a TIME-based hole punch, not a pitch filter. This lane's WHOLE hit is silenced whenever the SOURCE lane is PLAYING at this hit's strike time — the
+                            // source's STEP that the time falls in holds a rhythm hit (Paul: "if blue plays 16 of 16, red should be silent"; the first rule, "the source strikes at the SAME INSTANT within 1e-6 beat", let a red hit that fell between
+                            // blue's steps through, and one beside blue's ratchet repeat). Pitch and octave never matter. The source's pattern is asked directly (`euclideousLaneClockStepIsHit`, the same per-tick core the source lane runs), through its
+                            // window clock captured BEFORE any lane played (the clock pre-pass → `hocketClocks`, keyed `source*2 [+1 for the after-segment of a lock-split window]`), so this is immune to lane PROCESSING ORDER and to a source step that
+                            // began in an earlier window. A source step that is LANES-muted or solo-silenced here is not "sounding", so it punches NO hole (the same audibility check HOCKET's destination-swallow uses). For two lanes at the same rate
+                            // this is exactly the first rule. Known v1 limit: "the source plays" = it has a RHYTHM hit in the step; a source hit that lands on a riff REST (SKIP → silent) still punches a hole, because the clock carries the rhythm
+                            // schedule, not the source's riff resolution. The old pitch-class drop is gone.
                             if listenPitch == .avoid, listenSource >= 0, listenSource < 4, listenSource != lineIndex, listenSource < linesView.count {
                                 let srcClock = hocketClocks[listenSource * 2 + ((hocketClockSplit[listenSource] && mTickBeat >= hocketClockSplitBeat[listenSource]) ? 1 : 0)]
-                                if srcClock.valid, euclideousLaneClockStrikesAt(srcClock, onsetBeat: mTickBeat) {
+                                if srcClock.valid, euclideousLaneClockStepIsHit(srcClock, atBeat: mTickBeat) {
                                     let sLine = linesView[listenSource]
                                     let sGeo = euclideousLaneStepGeometry(lines: linesView, lane: listenSource, defaultRateBeats: p.euclidRateBeats)
                                     let sGrid = euclideousLaneGridResolved(line: sLine, lane: listenSource, legacyOn: p.euclideousLanesSeqOn, legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
@@ -5511,7 +5511,7 @@ final class Router {
             emitterRatchets = isEuclideousRow ? p.emitterRatchets : EmitterRatchetSnap()   // EMITTER RATCHET: the Euclideous row's four output ratchets (inert default for every other cell)
             emitterVelocities = isEuclideousRow ? p.emitterVelocities : EmitterVelocitySnap()   // EMITTER VELOCITY: the Euclideous row's four per-output velocity accents (inert default elsewhere)
             emitterVelAny = emitterVelocities.anyOn
-            // LISTEN AVOID (rebuilt 2026-11-01): a lane whose PITCH is AVOID punches a hole in its OWN hit whenever its SOURCE lane strikes at the same instant. That needs the source's window hit-schedule known BEFORE any lane plays
+            // LISTEN AVOID (rebuilt 2026-11-01): a lane whose PITCH is AVOID punches a hole in its OWN hit whenever its SOURCE lane is PLAYING (the source's step holds a hit — step-based since 2026-11-06). That needs the source's window hit-schedule known BEFORE any lane plays
             // (the old echo read saw a later-indexed source's PREVIOUS window), so AVOID source lanes JOIN the HOCKET clock pre-pass. `listenSource`/`listenPitch` are not lane-lock fields, so the snapshot doc is the true set.
             var avoidSourceMask: UInt8 = 0
             if isEuclideousRow {

@@ -20,7 +20,7 @@ enum FourfoldAuditAllowList {
         ("textClipped", "FOURFOLD", "the audit flags the header wordmark's tight frame; the pictures show it whole — looks like a false positive, confirm on device"),
         ("textClipped", "NOTES", "the NOTES tab's rotated caption (35 × 212): flagged, not visibly cut in the pictures — confirm on device"),
         ("textClipped", "Invert melody", "RIFF tab control caption: look at it on the mini"),
-        ("textClipped", "MUTE ON SAME HIT", "ANSWER tab option caption (≈ 97 pt wide at the reference card): probably truly cut on a narrow card — look at it"),
+        ("textClipped", "MUTE ON ITS HITS", "ANSWER tab option caption (≈ 97 pt wide at the reference card): probably truly cut on a narrow card — look at it"),
         ("textClipped", "TAKE ITS SETUP", "ANSWER tab option caption (≈ 97 pt wide at the reference card): look at it on a narrow card"),
         ("textClipped", "TAP: ON/OFF", "the FX tab's instruction line is cut at the panel width in portrait — a real truncation (seen in the picture: \"…DOUBLE-TAP:…\")"),
         ("textClipped", "ITS NOTE NOW", "ANSWER tab option caption, landscape"),

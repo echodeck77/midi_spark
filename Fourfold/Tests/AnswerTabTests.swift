@@ -333,7 +333,7 @@ final class AnswerTabTests: XCTestCase {
         XCTAssertEqual(euclideousAnswerModeSpoken(row: .rhythm, mode: "COPY", lane: 1, rowOn: true), "Rhythm: copy, plays where lane 1 plays")
         XCTAssertEqual(euclideousAnswerModeSpoken(row: .rhythm, mode: "FILL", lane: 3, rowOn: false), "Rhythm: fill, plays where lane 3 rests, off")
         XCTAssertEqual(euclideousAnswerModeSpoken(row: .pitch, mode: "SHADOW", lane: 2, rowOn: true), "Pitch: shadow, plays the note lane 2 plays now")
-        XCTAssertEqual(euclideousAnswerModeSpoken(row: .pitch, mode: "AVOID", lane: 2, rowOn: true), "Pitch: avoid, mutes on the same hit as lane 2")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .pitch, mode: "AVOID", lane: 2, rowOn: true), "Pitch: avoid, mutes while lane 2 plays")
         XCTAssertEqual(euclideousAnswerModeSpoken(row: .trade, mode: "SWAP", lane: 4, rowOn: true), "Trade: swap, trades places with lane 4")
         XCTAssertEqual(euclideousAnswerModeSpoken(row: .trade, mode: "BORROW", lane: 2, rowOn: false), "Trade: borrow, takes lane 2's setup, off")
         XCTAssertEqual(euclideousAnswerCycleToggleLabel(row: .rhythm, lane: 0), "Cycle rhythm, lane 1"); XCTAssertEqual(euclideousAnswerCycleToggleLabel(row: .pitch, lane: 2), "Cycle pitch, lane 3")

@@ -9898,7 +9898,18 @@ func hocketCount(unit: HocketUnit, clock: HocketLaneClock?, atMusicalBeat m: Dou
     }
 }
 
-/// LISTEN AVOID (rebuilt 2026-11-01): does the window clock `c` have a rhythm hit whose ONSET falls exactly at musical beat `b`
+/// LISTEN AVOID (2026-11-06, Paul): is the SOURCE lane playing at musical beat `b` — is the STEP (cell) `b` lands in a rhythm hit? The AVOID hole-punch asks this of its SOURCE lane's captured clock with THIS lane's strike time, and silences the
+/// whole hit when the answer is yes: a lane that avoids a 16-of-16 lane is silent, whatever the two lanes' rates, TILT or offsets (the old rule — the source must strike at exactly `b` — let a hit that fell BETWEEN the source's steps, or
+/// beside a ratchet repeat, through). A hit's OFFSET-fraction / fine-TILT delay never leaves its own cell (§5.2), so the step is the unit: the source counts as playing for the whole of a step that holds a hit, wherever in the step the hit is struck.
+/// For two lanes at the same rate this is exactly the old same-instant rule. Reuses the SAME per-tick core (`euclideousLaneChainTick`) `runEuclidLine` and `hocketLaneCounts` call, so it cannot drift from the source's real schedule; it reads
+/// the source's pattern, not a captured hit list, so a step that began in an earlier window still counts. `tol` (1e-6 of a step) only decides which side of a step boundary a float-noisy beat belongs to. Allocation-free.
+func euclideousLaneClockStepIsHit(_ c: HocketLaneClock, atBeat b: Double, tol: Double = 1e-6) -> Bool {
+    guard c.valid, c.sub > 0, b >= -tol else { return false }
+    let tick = Int64((b / c.sub + tol).rounded(.down))
+    return euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: c.cycleLen, sub: c.sub, tick: tick,
+                                   chains: c.chains, legacySpanBeats: c.legacySpanBeats, advanceStep: false).rawIsHit
+}
+/// (KEPT, no longer called — AVOID reads `euclideousLaneClockStepIsHit` since 2026-11-06.) LISTEN AVOID (rebuilt 2026-11-01): does the window clock `c` have a rhythm hit whose ONSET falls exactly at musical beat `b`
 /// (within `tol`)? The AVOID hole-punch asks this of its SOURCE lane's captured clock — this lane's whole hit is silenced when the
 /// source strikes at the SAME INSTANT. A hit's OFFSET-fraction / fine-TILT delay never leaves its own cell (§5.2), so the only
 /// candidate is the cell `b` lands in; we read that tick's hit flag and confirm its delayed onset equals `b`. `tol` is 1e-6 beat

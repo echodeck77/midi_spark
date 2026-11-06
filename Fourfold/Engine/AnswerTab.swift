@@ -354,7 +354,7 @@ func euclideousAnswerModeSpoken(row: EuclideousAnswerRow, mode: String, lane: In
     case (.rhythm, "COPY"): what = "plays where lane \(lane) plays"
     case (.rhythm, "FILL"): what = "plays where lane \(lane) rests"
     case (.pitch, "SHADOW"): what = "plays the note lane \(lane) plays now"
-    case (.pitch, "AVOID"): what = "mutes on the same hit as lane \(lane)"
+    case (.pitch, "AVOID"): what = "mutes while lane \(lane) plays"
     case (.trade, "SWAP"): what = "trades places with lane \(lane)"
     case (.trade, "BORROW"): what = "takes lane \(lane)'s setup"
     default: what = ""

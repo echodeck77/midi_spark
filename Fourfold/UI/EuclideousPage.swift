@@ -6261,7 +6261,7 @@ struct EuclideousPage: View {
         }
         .frame(width: width, height: height, alignment: .top)
     }
-    /// §2.3: PITCH — the switch, then SHADOW / "ITS NOTE NOW", AVOID / "MUTE ON SAME HIT" (the engine's wording since the AVOID rebuild; the ferry text still says "MUTE ON ITS NOTE"), CYCLE.
+    /// §2.3: PITCH — the switch, then SHADOW / "ITS NOTE NOW", AVOID / "MUTE ON ITS HITS" (2026-11-06: the lane is silent while the source's current STEP holds a hit — it said "MUTE ON SAME HIT" when AVOID needed the exact same instant; the ferry text said "MUTE ON ITS NOTE"), CYCLE.
     private func listenPitchRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
         let labelW = EuclideousAnswerTabMetrics.labelColumn, gap: CGFloat = 4
         let btnW = max(1, (fullWidth - labelW - gap * 3) / 3)
@@ -6271,7 +6271,7 @@ struct EuclideousPage: View {
             answerSwitchCell(name: "PITCH", spoken: "Pitch, lane \(idx + 1)", on: on, accent: accent, width: labelW, height: height) { edit(idx) { $0.answerPitchOn = !$0.answerPitchOnResolved } }
             answerModeButton(name: "SHADOW", hint: "ITS NOTE NOW", selected: mode == .shadow, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .pitch, mode: "SHADOW", lane: source, rowOn: on),
                              width: btnW, height: height, accent: accent) { pick(.shadow) }
-            answerModeButton(name: "AVOID", hint: "MUTE ON SAME HIT", selected: mode == .avoid, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .pitch, mode: "AVOID", lane: source, rowOn: on),
+            answerModeButton(name: "AVOID", hint: "MUTE ON ITS HITS", selected: mode == .avoid, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .pitch, mode: "AVOID", lane: source, rowOn: on),
                              width: btnW, height: height, accent: accent) { pick(.avoid) }
             answerCycleButton(cycleOn: line.answerPitchCycleResolved, rowOn: on, spoken: euclideousAnswerCycleToggleLabel(row: .pitch, lane: idx), width: btnW, height: height, accent: accent) {
                 edit(idx) { $0.answerPitchCycle = !$0.answerPitchCycleResolved }

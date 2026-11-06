@@ -3826,8 +3826,8 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(hits.map { $0.note }, [40, 41, 42], "T5 SHADOW+3RD (C major): red's C2/D2/E\u{266D}2 (36/38/39) each move a diatonic 3rd up to E2/F2/F\u{266F}2 (40/41/42)")
     }
     func testListenT6AvoidMutesEveryColliding() {
-        // AVOID (rebuilt 2026-11-01) is a TIME-based hole punch: blue's whole hit is muted whenever its SOURCE strikes
-        // at the SAME INSTANT, regardless of pitch. Give blue red's exact 3-of-8 pattern/rate/offset, so every blue hit
+        // AVOID (rebuilt 2026-11-01; STEP-based since 2026-11-06 — for two lanes at the same rate, as here, identical to "the same instant") is a TIME-based hole punch: blue's whole hit is muted whenever its SOURCE is playing
+        // that step, regardless of pitch. Give blue red's exact 3-of-8 pattern/rate/offset, so every blue hit
         // lands on a red strike → every one is muted. (Same 0-hit result the old pitch-class AVOID gave for this
         // identical-pattern case, but now for a timing reason, not a pitch one — see the phase test below.)
         var blue = listenBlueLine()

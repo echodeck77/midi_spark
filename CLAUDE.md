@@ -326,14 +326,14 @@ the same pipeline as any other row; it is not a special-cased render path.
   "← n" (`euclideousPausedTabHeaderText`/the override in `euclideousRhythmTabCount`) in place of a count. ECHO replays
   the source's own struck line in order (`EuclideousEchoCycle`, a per-lane current/last-cycle capture taken right after
   the riff+notes merge, before HIT-WIDE MASK/mute/solo). **AVOID (rebuilt 2026-11-01, Fourfold only) is now a TIME-based
-  hole punch, not a pitch filter:** a lane whose PITCH is AVOID silences its WHOLE hit whenever its SOURCE lane strikes at
-  the SAME INSTANT (same onset, within 1e-6 beat — pitch/octave ignored). It asks the source's pattern DIRECTLY, not the
+  hole punch, not a pitch filter:** a lane whose PITCH is AVOID silences its WHOLE hit whenever its SOURCE lane is
+  PLAYING — **STEP-based since 2026-11-06 (Paul: "if blue plays 16 of 16, red should be silent")**: the source's STEP the hit's strike time falls in holds a rhythm hit (pitch/octave ignored; for two lanes at the same rate this is the old same-instant rule; the first version needed the exact same instant within 1e-6 beat and let a hit between the source's steps, or beside its ratchet repeat, through). It asks the source's pattern DIRECTLY, not the
   echo: AVOID source lanes join the HOCKET clock pre-pass (`hocketClocks`, so it's immune to lane processing order — the
-  old echo read saw a later-indexed source's PREVIOUS window), and `euclideousLaneClockStrikesAt` (Derivations.swift,
-  reusing `euclideousLaneChainTick`) answers "does the source strike at this onset?" A source hit that is LANES-muted or
+  old echo read saw a later-indexed source's PREVIOUS window), and `euclideousLaneClockStepIsHit` (Derivations.swift,
+  reusing `euclideousLaneChainTick`) answers "is the source's step at this beat a hit?" (`euclideousLaneClockStrikesAt`, the same-instant rule, is kept unused; the button reads "MUTE ON ITS HITS"). A source step that is LANES-muted or
   solo-silenced isn't "sounding", so it punches no hole (the same audibility check HOCKET's destination-swallow uses). The
   old pitch-class drop + compaction and `euclideousListenAvoidDrops`-for-LISTEN are gone (the function stays — the SOURCES
-  STACK still calls it). Known v1 limits: "the source strikes" = a RHYTHM hit (a source hit on a riff REST under SKIP still
+  STACK still calls it). Known v1 limits: "the source plays" = a RHYTHM hit in the step (a source hit on a riff REST under SKIP still
   punches a hole); the LANES roll / lane strip don't predict the holes (a muted hit still draws). Golden byte-identical (no
   factory preset uses AVOID). Tests: `RouterTests.testListenT6…`/`testListenAvoidMutesOnlyHitsSimultaneousWithTheSource`.
   `euclideousRhythmBorrowPartner` (renamed from `euclideousFollowPartner`) is the one "is this lane borrowing RHYTHM"
