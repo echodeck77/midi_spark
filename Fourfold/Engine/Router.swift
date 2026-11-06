@@ -4163,23 +4163,28 @@ final class Router {
                             // began in an earlier window. A source step that is LANES-muted or solo-silenced here is not "sounding", so it punches NO hole (the same audibility check HOCKET's destination-swallow uses). For two lanes at the same rate
                             // this is exactly the first rule. Known v1 limit: "the source plays" = it has a RHYTHM hit in the step; a source hit that lands on a riff REST (SKIP → silent) still punches a hole, because the clock carries the rhythm
                             // schedule, not the source's riff resolution. The old pitch-class drop is gone.
-                            if listenPitch == .avoid, listenSource >= 0, listenSource < 4, listenSource != lineIndex, listenSource < linesView.count {
+                            // ANSWER v2 (2026-11-06): AVOID and MEET are RHYTHM modes that FILTER the lane's own hit against the source's step (the same raw-source-clock test AVOID always used, §5.4). AVOID silences this lane's hit where the source
+                            // PLAYS at the hit's strike time; MEET silences it where the source does NOT play (it keeps only the shared hits). The legacy PITCH `.avoid` is kept firing the AVOID branch until the UI phase removes that button.
+                            let answerRhythmAvoid = (listenRhythm == .avoid) || (listenPitch == .avoid)
+                            let answerRhythmMeet = (listenRhythm == .meet)
+                            if (answerRhythmAvoid || answerRhythmMeet), listenSource >= 0, listenSource < 4, listenSource != lineIndex, listenSource < linesView.count {
                                 let srcClock = hocketClocks[listenSource * 2 + ((hocketClockSplit[listenSource] && mTickBeat >= hocketClockSplitBeat[listenSource]) ? 1 : 0)]
+                                var sourcePlaying = false   // the source has an AUDIBLE rhythm hit in this hit's step; a missing/invalid clock or a muted source counts as not playing (AVOID then plays, MEET then silences — "plays only where the source hits")
                                 if srcClock.valid, euclideousLaneClockStepIsHit(srcClock, atBeat: mTickBeat) {
                                     let sLine = linesView[listenSource]
                                     let sGeo = euclideousLaneStepGeometry(lines: linesView, lane: listenSource, defaultRateBeats: p.euclidRateBeats)
                                     let sGrid = euclideousLaneGridResolved(line: sLine, lane: listenSource, legacyOn: p.euclideousLanesSeqOn, legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
                                                                            legacyCells: p.euclideousLanesSeqCells, stepBeats: sGeo.sub, passBeats: Double(sGeo.cycleLen) * sGeo.sub, beatsPerBar: beatsPerBar)
                                     let sUnit = sGrid.muteUnit.beats(stepBeats: sGeo.sub, passBeats: Double(sGeo.cycleLen) * sGeo.sub)
-                                    let sSounding = euclideousLaneMayStrike(lane: listenSource, soloMask: soloMaskNow(snapshot: p.soloMask),
+                                    sourcePlaying = euclideousLaneMayStrike(lane: listenSource, soloMask: soloMaskNow(snapshot: p.soloMask),
                                                                             muteAudible: euclideousLaneAudible(beat: mTickBeat, cells16: sGrid.muteCells, unitBeats: sUnit), enabled: true,
                                                                             partMask: partSoloMaskNow(snapshot: p.partSoloMask))
-                                    if sSounding {
-                                        reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
-                                                               tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf)
-                                        tradeCloseLegato()
-                                        return
-                                    }
+                                }
+                                if answerRhythmMeet ? !sourcePlaying : sourcePlaying {
+                                    reconcileEuclidLegato(lineIndex: lineIndex, pitches: [], pitchCount: 0, vels: [], gates: [],
+                                                           tau: mTickBeat, isRatchetThisHit: false, overlapBeats: overlapBeats10ms, busOf: busOf, outsOf: outsOf)
+                                    tradeCloseLegato()
+                                    return
                                 }
                             }
                             // LISTEN REBUILT §1.3/§5.2: capture THIS hit's finished strike — every pitch
@@ -5415,10 +5420,13 @@ final class Router {
             emitterVelAny = emitterVelocities.anyOn
             // LISTEN AVOID (rebuilt 2026-11-01): a lane whose PITCH is AVOID punches a hole in its OWN hit whenever its SOURCE lane is PLAYING (the source's step holds a hit — step-based since 2026-11-06). That needs the source's window hit-schedule known BEFORE any lane plays
             // (the old echo read saw a later-indexed source's PREVIOUS window), so AVOID source lanes JOIN the HOCKET clock pre-pass. `listenSource`/`listenPitch` are not lane-lock fields, so the snapshot doc is the true set.
+            // ANSWER v2 (2026-11-06): the RHYTHM modes MEET / AVOID filter the own hit against the source's step too, so they need the source clock in the pre-pass — exactly as the legacy PITCH AVOID does.
             var avoidSourceMask: UInt8 = 0
             if isEuclideousRow {
-                for li in 0..<min(4, p.euclidLines.count) where p.euclidLines[li].listenPitchResolved == .avoid {
-                    let src = p.euclidLines[li].listenSourceResolved(ownLane: li)
+                for li in 0..<min(4, p.euclidLines.count) {
+                    let L = p.euclidLines[li]
+                    guard L.listenPitchResolved == .avoid || L.listenRhythmResolved == .meet || L.listenRhythmResolved == .avoid else { continue }
+                    let src = L.listenSourceResolved(ownLane: li)
                     if src >= 0, src < 4, src != li { avoidSourceMask |= UInt8(1) << UInt8(src) }
                 }
             }
@@ -5469,8 +5477,11 @@ final class Router {
                 // ANSWER: which phase this segment plays in, and so which of the lane's rows act (a cycling row acts as if switched off in phase B, 5.5). With no cycle anywhere this is `L.listenRhythmResolved` / `listenPitchResolved`.
                 let segPhaseB = answerEngaged && lineIndex < 4 && ((tickFrom + 1e-9 >= answerBoundary[lineIndex] ? answerAfterBits : answerBeforeBits) >> UInt8(lineIndex)) & 1 != 0
                 let answerRows = answerEngaged ? euclideousAnswerEffectiveRows(L, phase: segPhaseB ? .b : .a) : EuclideousAnswerRows(rhythm: L.answerRhythmOnResolved, pitch: L.answerPitchOnResolved)
-                let segRhythmMode: EuclideousListenRhythmMode = answerRows.rhythm ? (L.answerRhythmModeResolved == .fill ? .fill : .copy) : .own
-                let segPitchMode: EuclideousListenPitchMode = answerRows.pitch ? (L.answerPitchModeResolved == .avoid ? .avoid : .shadow) : .own
+                // ANSWER v2 (2026-11-06): RHYTHM is COPY · FILL · MEET · AVOID (MEET/AVOID filter the OWN rhythm, below); PITCH is SHADOW · MIRROR · DODGE (`.avoid` can't reach PITCH once the UI drops it, mapped to SHADOW defensively).
+                let segRhythmMode: EuclideousListenRhythmMode
+                if answerRows.rhythm { switch L.answerRhythmModeResolved { case .copy: segRhythmMode = .copy; case .fill: segRhythmMode = .fill; case .meet: segRhythmMode = .meet; case .avoid: segRhythmMode = .avoid } } else { segRhythmMode = .own }
+                let segPitchMode: EuclideousListenPitchMode
+                if answerRows.pitch { switch L.answerPitchModeResolved { case .shadow: segPitchMode = .shadow; case .mirror: segPitchMode = .mirror; case .dodge: segPitchMode = .dodge; case .avoid: segPitchMode = .shadow } } else { segPitchMode = .own }
                 // EUCLIDEOUS (Paul 2026-10-05): per-line RATE (nil ⇒ the machine-wide euclidRateBeats, byte-
                 // identical for every line that's never set its own) and per-line EMITTER override (nil ⇒ the
                 // cell's own bm, via strikeChord's busOverride).

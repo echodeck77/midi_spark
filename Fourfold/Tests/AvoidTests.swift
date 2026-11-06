@@ -11,7 +11,7 @@ final class AvoidTests: XCTestCase {
     /// Red = lane 0 (AVOIDs lane 1 when `avoid`), blue = lane 1. Returns [lane: strike onset beats].
     private func run(red: EuclidLine, blue: EuclidLine, avoid: Bool, beats: Double = 16, frames fr: UInt32 = 480, tempo bpm: Double = 120, start: Double = 0, tweak: ((inout PluginState) -> Void)? = nil) -> [Int: [Double]] {
         var r = red, b = blue
-        if avoid { r.setAnswerPitch(.avoid); r.listenSource = 1 }
+        if avoid { r.setAnswerRhythm(.avoid); r.listenSource = 1 }   // ANSWER v2 (2026-11-06): AVOID is a RHYTHM mode now (same step-based behaviour)
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
         c.paramsA.euclidLines = [r, b, EuclidLine(enabled: false), EuclidLine(enabled: false)]
@@ -100,5 +100,58 @@ final class AvoidTests: XCTestCase {
             }
         }
                 XCTAssertEqual(bad.count, 0)
+    }
+
+    // MARK: ANSWER v2 (2026-11-06) — AVOID / MEET as RHYTHM modes
+
+    /// Red = lane 0 with a RHYTHM mode (AVOID or MEET) following blue = lane 1. Same harness as `run`, but the mode is set on the RHYTHM row.
+    private func runRhythm(red: EuclidLine, blue: EuclidLine, mode: EuclideousAnswerRhythmMode, beats: Double = 16, frames fr: UInt32 = 480, tempo bpm: Double = 120) -> [Int: [Double]] {
+        var r = red; r.setAnswerRhythm(mode == .meet ? .meet : .avoid); r.listenSource = 1
+        return runPrepared(red: r, blue: blue, beats: beats, frames: fr, tempo: bpm)
+    }
+    /// The body of `run` after the mode is set (so a rhythm-mode red can reuse it). Returns [lane: strike onset beats].
+    private func runPrepared(red r: EuclidLine, blue b: EuclidLine, beats: Double, frames fr: UInt32, tempo bpm: Double) -> [Int: [Double]] {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [r, b, EuclidLine(enabled: false), EuclidLine(enabled: false)]
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep)
+        let box = SnapshotBuilder.build(from: st)
+        let router = Router(); var diag = KernelDiag()
+        final class Null: MIDIEmitter { func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {} }
+        let e = Null(); let pool = NotePool(); for n in [UInt8]([48, 50, 52, 53, 55, 57, 59, 60]) { pool.noteOn(n, velocity: 100, channel: 0) }
+        let sr = 48_000.0; var ts = 0.0, out: [NoteRollRecord] = []
+        while (ts * bpm / 60.0 / sr) < beats {
+            router.process(box: box, pool: pool, playing: true, beatPos: ts * bpm / 60.0 / sr, tempo: bpm, sampleRate: sr, timestampSample: ts, frameCount: fr, forceColumn: 0, out: e, diag: &diag)
+            out += router.rollRing.drain(); ts += Double(fr)
+        }
+        var by: [Int: [Double]] = [:]
+        for rec in out where !rec.isEnd { by[Int(rec.part) / 2, default: []].append(rec.onBeat) }
+        return by.mapValues { Array(Set($0)).sorted() }
+    }
+
+    /// §10.2 spirit: against a blue that plays every step (16/16), AVOID silences red completely while MEET plays red exactly as its control (every red hit shares a blue step); against a blue that plays nothing, MEET silences red and AVOID plays it all.
+    func testMeetAndAvoidAgainstAFullAndAnEmptyBlue() {
+        let red = line(hits: 5, steps: 16, rate: .r1_16)
+        let full = line(hits: 16, steps: 16, rate: .r1_16), empty = line(hits: 0, steps: 16, rate: .r1_16)
+        let ctl = runPrepared(red: { var r = red; return r }(), blue: full, beats: 8, frames: 480, tempo: 120)
+        XCTAssertEqual(runRhythm(red: red, blue: full, mode: .avoid, beats: 8)[0]?.count ?? 0, 0, "AVOID: red silent under a full blue")
+        XCTAssertEqual(runRhythm(red: red, blue: full, mode: .meet, beats: 8)[0] ?? [], ctl[0] ?? [], "MEET: red plays every hit (all shared) under a full blue")
+        XCTAssertGreaterThan(runRhythm(red: red, blue: empty, mode: .avoid, beats: 8)[0]?.count ?? 0, 0, "AVOID: red plays fully under an empty blue")
+        XCTAssertEqual(runRhythm(red: red, blue: empty, mode: .meet, beats: 8)[0]?.count ?? 0, 0, "MEET: red silent under an empty blue (no shared hits)")
+    }
+    /// §10.3 partition (Router level): over Euclidean pairs at the same rate, MEET's strikes and AVOID's strikes are DISJOINT and together equal the control (both rows off) — each red hit goes to exactly one of them.
+    func testMeetAndAvoidPartitionTheControlStrikes() {
+        for (rh, bh) in [(5, 8), (3, 11), (7, 13), (9, 16), (2, 5)] {
+            let red = line(hits: rh, steps: 16, rate: .r1_16), blue = line(hits: bh, steps: 16, rate: .r1_16)
+            let ctl = Set((runPrepared(red: red, blue: blue, beats: 8, frames: 480, tempo: 120)[0] ?? []).map { Int(($0 * 1e4).rounded()) })
+            let meet = Set((runRhythm(red: red, blue: blue, mode: .meet, beats: 8)[0] ?? []).map { Int(($0 * 1e4).rounded()) })
+            let avoid = Set((runRhythm(red: red, blue: blue, mode: .avoid, beats: 8)[0] ?? []).map { Int(($0 * 1e4).rounded()) })
+            XCTAssertTrue(meet.isDisjoint(with: avoid), "red \(rh)/16 vs blue \(bh)/16: MEET and AVOID are disjoint")
+            XCTAssertEqual(meet.union(avoid), ctl, "red \(rh)/16 vs blue \(bh)/16: MEET ∪ AVOID = the control strikes")
+            XCTAssertGreaterThan(ctl.count, 0)
+        }
     }
 }
