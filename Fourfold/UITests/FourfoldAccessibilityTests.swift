@@ -32,7 +32,10 @@ enum FourfoldAuditAllowList {
         ("textClipped", "RIFF", "MIX ROWS: the part toggle's 8 pt caption (the element is 43 × 40) — drawn whole in the pictures; confirm on device"),
         ("textClipped", "SOLO", "the SOLO tile's 10 pt label (the card's own 40 × 40; MIX's 120 × 24) — drawn whole in every picture; the audit has flagged it since the POOL ferry — confirm on device"),
         ("textClipped", "C MINOR", "HARMONY (2026-11-06): the page's key title (24 pt heavy mono, truncating) and the app header's own key button — drawn whole in the pictures; the same heavy tracked mono family as the other accepted captions — confirm on device"),
-    ]
+    ] + harmonyClipped.map { (type: "textClipped", label: $0, why: "INPUTS + HARMONY (2026-11-06): a small heavy tracked-mono caption (the scale chips, the grid's row labels, the pill, PICK / MIDI IN / OCTAVES, the INPUTS rows) — drawn whole in the screenshots; the same false-positive family as TRANS / GATE — confirm on device") }
+    /// The labels the audit flags as clipped on the HARMONY page, its popovers and the INPUTS tab (all drawn whole in `testTheHarmonyPage` / `testTheInputsTab`'s pictures), plus the page chrome that every one of those screens also carries (RHYTHM … LATCH, accepted stale since earlier ferries).
+    static let harmonyClipped = ["HARM MIN", "MELODY", "VII", "REST", "ii°", "III", "MAJOR", "LYDIAN", "WHOLE", "MINOR", "DORIAN", "MIN PENT", "MIXO", "COLOUR", "CHORDS", "♭II", "CHROMATIC", "TIME", "BLUES", "MIDI IN", "vii°", "PHRYGIAN",
+                                 "1/1", "BAR", "MEL MIN", "MAJ PENT", "IGNORE", "KEEP", "OCTAVES", "LOOP", "RESTART", "1/8", "ADVANCE", "1/2.", "1/4", "2/1", "1/2", "MIDI", "MUTE", "HOLD", "PASSES", "SOURCES", "RATCH", "ANSWER", "LATCH", "HOCKET", "RHYTHM", "INPUTS"]
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
     /// letters are the "–" placeholders). More than this on any screen is a new unlabelled piece of text.
     static let unlocatedElementDetectionCeiling = 6
