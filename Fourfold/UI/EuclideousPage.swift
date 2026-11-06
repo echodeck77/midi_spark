@@ -4378,7 +4378,7 @@ struct EuclideousPage: View {
         }
     }
 
-    /// RESTART UNITS (2026-11-04) §7: the restart editor — unit chips, source squares, a switch per row, the WITH RHYTHM button, link slots and a 16-cell timeline in the chain's unit, laid out by `euclideousRestartEditorFramesV2`.
+    /// RESTART UNITS (2026-11-04) §7; RESTARTS EDITOR V2 (2026-11-06) §2: the restart editor — a FREE pill, unit chips (PASS·BAR·RIFF / HIT·PASS·BAR), source squares, count chips (+ an add box), a link row carrying WITH RHYTHM, and a 16-cell timeline in the chain's unit, laid out by `euclideousRestartEditorFramesV2`.
     /// Every tap is its own undo step (`restartEdit`); a lane whose chains were never pinned is pinned in the same step (§3.5).
     private func restartEditorV2(_ idx: Int, _ line: EuclidLine, width: CGFloat, height: CGFloat) -> AnyView {
         let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)

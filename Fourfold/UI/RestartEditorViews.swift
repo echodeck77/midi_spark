@@ -1,12 +1,13 @@
-//  RestartEditorViews.swift — RESTART UNITS ferry (2026-11-04), slice D: the restart editor's views. They only PAINT what `RestartEditorUI.swift` computes (frames, texts, shades, VoiceOver strings) and hand each tap to the page
-//  as an `EuclideousRestartEdit` (one undo step each, applied by `euclideousApplyRestartEdit`). Labels and values only — no instruction text anywhere. Positions are the pure frames', in the editor's own coordinates.
+//  RestartEditorViews.swift — RESTART UNITS ferry (2026-11-04), slice D; rebuilt by RESTARTS EDITOR V2 (2026-11-06) §2: the FREE pill replaces the on/off switch, a dedicated LINK ROW between the sections carries the melody's WITH RHYTHM, count
+//  chips (only the real links) replace the four fixed link slots, and the timeline is brighter. The views only PAINT what `RestartEditorUI.swift` computes (frames, texts, shades, VoiceOver strings) and hand each tap to the page as an
+//  `EuclideousRestartEdit` (one undo step each, applied by `euclideousApplyRestartEdit`). Labels and values only — no instruction text anywhere. Positions are the pure frames', in the editor's own coordinates.
 
 import SwiftUI
 
 private func heavyMono(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .monospaced) }
 
 /// The row switch (ANSWER's pill, parameterised): a `width × height` pill, radius height / 2, a knob (height − 4) inset 2 from the end it sits at. On = the lane colour at 35 % with a 1 pt lane stroke and a lane-coloured knob; off = #2A2D34, a
-/// 1 pt #3A3E47 stroke and a #7C828D knob. The ANSWER tab draws it at 26 × 14 (its look, unchanged); the restart editor at 34 × 20.
+/// 1 pt #3A3E47 stroke and a #7C828D knob. The ANSWER tab draws it at 26 × 14. (The restart editor no longer uses it — RESTARTS EDITOR V2 replaced it with the FREE pill below.)
 struct EuclideousRowSwitchPill: View {
     let on: Bool
     let accent: Color
@@ -19,6 +20,17 @@ struct EuclideousRowSwitchPill: View {
             Circle().fill(on ? accent : Color(hex: 0x7C828D)).frame(width: height - 4, height: height - 4).padding(.horizontal, 2)
         }
         .frame(width: width, height: height)
+    }
+}
+
+/// RESTARTS EDITOR V2 §2.2 — the FREE pill: a 40 × 24 pill, radius 12. LIT when the chain is inactive (its text #F2F4F7 on the lane colour at 30 %); dim #2A2D34 with #8A909A text when the chain is active. Tapping it toggles the chain on / off.
+struct EuclideousFreePill: View {
+    let free: Bool            // the chain is inactive (the pill is lit)
+    let accent: Color
+    var body: some View {
+        Text("FREE").font(heavyMono(8)).tracking(0.48).foregroundColor(free ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
+            .frame(width: 40, height: 24)
+            .background(RoundedRectangle(cornerRadius: 12).fill(free ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))
     }
 }
 
@@ -50,7 +62,6 @@ struct EuclideousRestartEditorView: View {
     let onClose: () -> Void
 
     private var accent: Color { input.laneColors[input.lane % max(1, input.laneColors.count)] }
-    private func lane20(_ c: Color) -> Color { c.opacity(0.2) }
 
     var body: some View {
         FourfoldStackProbe.note()
@@ -59,6 +70,7 @@ struct EuclideousRestartEditorView: View {
         return ZStack(alignment: .topLeading) {
             header(frames)
             EuclideousRestartSectionView(input: input, focus: focus, frames: frames.rhythm, rhythm: true, settings: settings, showsTimeline: frames.showsTimelines, onEdit: onEdit)
+            linkRow(frames, settings: settings)
             EuclideousRestartSectionView(input: input, focus: focus, frames: frames.melody, rhythm: false, settings: settings, showsTimeline: frames.showsTimelines, onEdit: onEdit)
         }
         .onAppear { let rhythm = input.openedFromRhythm; DispatchQueue.main.async { focus.wrappedValue = .section(rhythm: rhythm) } }
@@ -88,9 +100,27 @@ struct EuclideousRestartEditorView: View {
             .accessibilityLabel(EuclideousRestartEditorAX.close)
         }
     }
+
+    /// §2.2: the link row tying RHYTHM to MELODY — the WITH RHYTHM button in the label column, and a line across the right block that lights the lane colour when WITH RHYTHM is on. (The melody restarts with every rhythm loop.)
+    private func linkRow(_ f: EuclideousRestartEditorFramesV2, settings: EuclideousRestartSettings) -> some View {
+        let on = settings.withRhythm, b = f.linkButton, line = f.linkLine
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 1).fill(on ? accent : Color(hex: 0x3A3E47)).frame(width: line.width, height: line.height).offset(x: line.minX, y: line.minY)
+                .accessibilityHidden(true)
+            Image(systemName: "link").font(.system(size: 11, weight: .heavy)).foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
+                .frame(width: b.width, height: b.height)
+                .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))
+                .contentShape(Rectangle())
+                .onTapGesture { onEdit(.withRhythm) }
+                .offset(x: b.minX, y: b.minY)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(EuclideousRestartEditorAX.withRhythm(on: on))
+                .accessibilityAddTraits(.isButton).ringToggleTrait()
+        }
+    }
 }
 
-/// One section (RHYTHM or MELODY): row 1 (name, unit chips, source squares, switch), row 2 (the WITH RHYTHM button, the four link slots), row 3 (the timeline).
+/// One section (RHYTHM or MELODY): row 1 (FREE pill, unit chips, source squares), row 2 (the count chips + the add box), row 3 (the timeline).
 struct EuclideousRestartSectionView: View {
     let input: EuclideousRestartEditorInput
     let focus: AccessibilityFocusState<EuclideousRestartFocus?>.Binding
@@ -102,23 +132,22 @@ struct EuclideousRestartSectionView: View {
 
     private var accent: Color { input.laneColors[input.lane % max(1, input.laneColors.count)] }
     private var chain: EuclideousRestartChain { rhythm ? settings.rhythm : settings.melody }
-    private var isOn: Bool { rhythm ? settings.rhythmOn : settings.melodyOn }
-    private var unitIndex: Int { rhythm ? [EuclideousRhythmRestartUnit.bar, .pass, .riff].firstIndex(of: settings.rhythmUnit) ?? 0 : [EuclideousMelodyRestartUnit.pass, .bar, .hit].firstIndex(of: settings.melodyUnit) ?? 0 }
+    private var active: Bool { rhythm ? settings.rhythmActive : settings.melodyActive }
+    private var unitIndex: Int { rhythm ? [EuclideousRhythmRestartUnit.pass, .bar, .riff].firstIndex(of: settings.rhythmUnit) ?? 0 : [EuclideousMelodyRestartUnit.hit, .pass, .bar].firstIndex(of: settings.melodyUnit) ?? 0 }
     private var unitWord: String { rhythm ? settings.rhythmUnit.word : settings.melodyUnit.word }
     private var readsSource: Bool { rhythm ? settings.rhythmUnit.readsSource : settings.melodyUnit.readsSource }
     private var sourceLane: Int { rhythm ? settings.rhythmSource : settings.melodySource }
-    /// §7.5: a switched-off row dims its link slots and timeline cells to the OFF-dim value; the chips, squares, switch and WITH RHYTHM stay full strength.
-    private var rowDim: Double { isOn ? 1 : EuclideousLaneDimStyle.opacity }
-    private func rect(_ r: CGRect) -> some View { Color.clear.frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY) }
+    /// §2.2: an inactive (FREE) chain dims its unit chips, source squares, count chips, + box and timeline to 42 %; the FREE pill and name stay full strength.
+    private var dim: Double { active ? 1 : EuclideousLaneDimStyle.opacity }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             nameLabel
+            freePill
             ForEach(0..<3, id: \.self) { i in chip(i) }
             if readsSource { ForEach(0..<4, id: \.self) { i in sourceSquare(i) } }
-            switchControl
-            if !rhythm { withRhythmButton }
-            ForEach(0..<4, id: \.self) { slot in linkSlot(slot) }
+            ForEach(Array(0..<max(0, chain.count)), id: \.self) { slot in countChip(slot) }
+            if chain.count < 4 { addBox }
             if showsTimeline { timeline }
         }
         .accessibilityElement(children: .contain)
@@ -132,16 +161,28 @@ struct EuclideousRestartSectionView: View {
             .offset(x: frames.labelColumn.minX, y: frames.labelColumn.minY)
             .accessibilityHidden(true)
     }
+    /// The FREE pill — lit when the chain is inactive; a tap toggles the chain on / off (and appends a 1 when it was empty, §3). Full strength regardless of `dim`.
+    private var freePill: some View {
+        let r = frames.freePill
+        return EuclideousFreePill(free: !active, accent: accent)
+            .frame(width: r.width, height: r.height)
+            .contentShape(Rectangle())
+            .onTapGesture { onEdit(.toggleOn(rhythm: rhythm)) }
+            .offset(x: r.minX, y: r.minY)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(EuclideousRestartEditorAX.freePill(rhythm: rhythm, free: !active))
+            .accessibilityAddTraits(.isButton).ringToggleTrait()
+    }
     private func chip(_ i: Int) -> some View {
-        let names = rhythm ? ["BAR", "PASS", "RIFF"] : ["PASS", "BAR", "HIT"]
+        let names = rhythm ? ["PASS", "BAR", "RIFF"] : ["HIT", "PASS", "BAR"]   // §2.2 order
         let selected = unitIndex == i, r = frames.chips[i]
         return Text(names[i]).font(heavyMono(8)).tracking(0.48).foregroundColor(selected ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
             .frame(width: r.width, height: r.height)
-            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? accent.opacity(0.2) : Color(hex: 0x2A2D34)))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(selected ? accent : Color.clear, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))   // §2.2: selected = lane colour @30 %, no outline
             .contentShape(Rectangle())
             .onTapGesture { onEdit(.unit(rhythm: rhythm, index: i)) }
             .offset(x: r.minX, y: r.minY)
+            .opacity(dim)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(EuclideousRestartEditorAX.unitChip(rhythm: rhythm, index: i))
             .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
@@ -164,80 +205,52 @@ struct EuclideousRestartSectionView: View {
         .contentShape(Rectangle())
         .onTapGesture { if !unavailable { onEdit(.source(rhythm: rhythm, lane: i)) } }
         .offset(x: r.minX, y: r.minY)
+        .opacity(dim)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(EuclideousRestartEditorAX.source(square: i, unavailable: unavailable))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .disabled(unavailable)   // VoiceOver reads "dimmed" (§9.2); the look is §7.4's dashed #3A3E47 stroke itself — no further dimming on top of it
+        .disabled(unavailable)   // VoiceOver reads "dimmed" (§9.2); the look is §7.4's dashed #3A3E47 stroke itself
     }
-    private var switchControl: some View {
-        let t = frames.switchTrack, h = frames.switchHit
-        return ZStack { EuclideousRowSwitchPill(on: isOn, accent: accent, width: t.width, height: t.height) }
-            .frame(width: h.width, height: h.height)
-            .contentShape(Rectangle())
-            .onTapGesture { onEdit(.toggleOn(rhythm: rhythm)) }
-            .offset(x: h.minX, y: h.minY)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(EuclideousRestartEditorAX.switchLabel(rhythm: rhythm, on: isOn))
-            .accessibilityAddTraits(.isButton).ringToggleTrait()
-    }
-    private var withRhythmButton: some View {
-        let r = frames.withRhythm ?? .zero, on = settings.withRhythm
-        return VStack(spacing: 3) {
-            Image(systemName: "link").font(.system(size: 11, weight: .heavy))
-            Text("RHYTHM").font(heavyMono(7)).tracking(0.56)
+    /// A count chip — 44 × 28, radius 6, value 15 pt #F2F4F7 on a #343841 face over a 1 pt #121318 drop edge (offset y 1). A tap steps the value (§3's wrap / drag / long-press-remove arrive in the interaction slice).
+    private func countChip(_ slot: Int) -> some View {
+        let r = frames.countChips[slot], v = Int(chain.link(slot))
+        return ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x121318)).offset(y: 1)   // the drop edge peeking below
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x343841))
+            Text("\(v)").font(heavyMono(15)).foregroundColor(Color(hex: 0xF2F4F7))
         }
-        .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
         .frame(width: r.width, height: r.height)
-        .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent.opacity(0.2) : Color(hex: 0x2A2D34)))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(on ? accent : Color.clear, lineWidth: 1))
         .contentShape(Rectangle())
-        .onTapGesture { onEdit(.withRhythm) }
+        .onTapGesture { onEdit(.tapLink(rhythm: rhythm, slot: slot)) }
         .offset(x: r.minX, y: r.minY)
+        .opacity(dim)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(EuclideousRestartEditorAX.withRhythm(on: on))
-        .accessibilityAddTraits(.isButton).ringToggleTrait()
+        .accessibilityLabel(EuclideousRestartEditorAX.link(rhythm: rhythm, slot: slot, value: v, unitWord: unitWord))
+        .accessibilityHint(EuclideousRestartEditorAX.linkHint)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: EuclideousRestartEditorAX.removeLink) { onEdit(.removeLink(rhythm: rhythm, slot: slot)) }
     }
-    private func linkSlot(_ slot: Int) -> some View {
-        let r = frames.slots[slot], count = chain.count
-        return Group {
-            if slot < count {
-                let v = Int(chain.link(slot))
-                Text("\(v)").font(heavyMono(15)).foregroundColor(Color(hex: 0xF2F4F7))
-                    .frame(width: r.width, height: r.height)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.2)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(accent, lineWidth: 1))
-                    .contentShape(Rectangle())
-                    .onTapGesture { onEdit(.tapLink(rhythm: rhythm, slot: slot)) }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(EuclideousRestartEditorAX.link(rhythm: rhythm, slot: slot, value: v, unitWord: unitWord))
-                    .accessibilityHint(EuclideousRestartEditorAX.linkHint)
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction(named: EuclideousRestartEditorAX.removeLink) { removeLink(slot) }
-            } else if slot == count {
-                Text("+").font(heavyMono(15)).foregroundColor(Color(hex: 0xAAB0BA))
-                    .frame(width: r.width, height: r.height)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
-                    .contentShape(Rectangle())
-                    .onTapGesture { onEdit(.addLink(rhythm: rhythm)) }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(EuclideousRestartEditorAX.addLink(rhythm: rhythm))
-                    .accessibilityAddTraits(.isButton)
-            } else {
-                RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)).frame(width: r.width, height: r.height).allowsHitTesting(false).accessibilityHidden(true)
-            }
-        }
-        .opacity(rowDim)
-        .offset(x: r.minX, y: r.minY)
+    /// The add box — 28 × 28, shown only when there are fewer than four links.
+    private var addBox: some View {
+        let r = frames.addBox(count: chain.count) ?? .zero
+        return Text("+").font(heavyMono(15)).foregroundColor(Color(hex: 0xAAB0BA))
+            .frame(width: r.width, height: r.height)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+            .contentShape(Rectangle())
+            .onTapGesture { onEdit(.addLink(rhythm: rhythm)) }
+            .offset(x: r.minX, y: r.minY)
+            .opacity(dim)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(EuclideousRestartEditorAX.addLink(rhythm: rhythm))
+            .accessibilityAddTraits(.isButton)
     }
-    /// VoiceOver's "Remove link": ONE edit (`.removeLink`), one undo step — not a walk of taps (that walk read a stale chain and stepped the NEIGHBOUR link on, adversarial review 2026-11-04).
-    private func removeLink(_ slot: Int) { onEdit(.removeLink(rhythm: rhythm, slot: slot)) }
 
     // MARK: row 3 — the timeline (labels and cells; read-only)
     private var timeline: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 10.0, paused: !input.running)) { tl in
             let beat = input.beatAt(tl.date)
             let current = euclideousRestartCurrentUnit(rhythm: rhythm, settings: settings, ownLane: input.lane, beat: beat, barBeats: input.barBeats, set: input.scheduleSet)
-            let t = euclideousRestartTimeline(chain: chain, active: rhythm ? settings.rhythmActive : settings.melodyActive, unitWord: unitWord, current: current, rhythm: rhythm)
+            let t = euclideousRestartTimeline(chain: chain, active: active, unitWord: unitWord, current: current, rhythm: rhythm)
             let colourLane = (rhythm ? settings.rhythmActive && settings.rhythmUnit.readsSource : settings.melodyActive && settings.melodyUnit.readsSource) ? sourceLane : input.lane
             let c = input.laneColors[colourLane % max(1, input.laneColors.count)]
             ZStack(alignment: .topLeading) {
@@ -249,15 +262,15 @@ struct EuclideousRestartSectionView: View {
                 ForEach(0..<min(frames.cells.count, t.cells.count), id: \.self) { i in
                     let r = frames.cells[i], cell = t.cells[i]
                     ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 3).fill(t.active ? c.opacity(cell.shadeHigh ? 0.26 : 0.12) : Color(hex: 0x2A2D34))
-                        if t.active && cell.isMark { RoundedRectangle(cornerRadius: 1).fill(c).frame(width: 2.5, height: 10).offset(x: 1.5, y: 2) }
-                        if input.running, t.currentCell == i { RoundedRectangle(cornerRadius: 3).strokeBorder(Color(hex: 0xF2F4F7).opacity(0.75), lineWidth: 1) }
+                        RoundedRectangle(cornerRadius: 3).fill(t.active ? c.opacity(cell.shadeHigh ? 0.34 : 0.16) : Color(hex: 0x2A2D34))   // §2.2 brighter
+                        if t.active && cell.isMark { RoundedRectangle(cornerRadius: 1).fill(Color(hex: 0xF2F4F7)).frame(width: 2.5, height: 10).offset(x: 1.5, y: 2) }   // §2.2 white mark
+                        if input.running, t.currentCell == i { RoundedRectangle(cornerRadius: 3).strokeBorder(Color(hex: 0xF2F4F7), lineWidth: 1) }   // §2.2 white 100 % ring
                     }
                     .frame(width: r.width, height: r.height)
                     .offset(x: r.minX, y: r.minY)
                 }
             }
-            .opacity(rowDim)
+            .opacity(dim)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(t.spoken)
         }

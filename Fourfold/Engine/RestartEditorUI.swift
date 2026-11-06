@@ -92,42 +92,58 @@ func euclideousRestartTileLabel(rhythm: Bool, settings s: EuclideousRestartSetti
 
 // MARK: - the editor's frames (§7.4, §7.6)
 
+// RESTARTS EDITOR V2 (2026-11-06) §2.2: the switches are gone — a FREE pill at the head of row 1 shows a chain is inactive, and a dedicated LINK ROW between the sections carries the melody's WITH RHYTHM (a link button in the label column + a line that
+// lights the lane colour). Sections: RHYTHM y32–106, link row y108–128, MELODY y130–204 at the reference (338.5 × 208); rows within a section are row1 y0–24, row2 y28–56, row3 y60–74. Count chips are fixed 44 × 28 and the + box 28 × 28 (no empty slots).
 enum EuclideousRestartEditorMetricsV2 {
     static let pad: CGFloat = 8
-    static let headerTop: CGFloat = 8, headerH: CGFloat = 20
-    static let sectionH: CGFloat = 78, sectionHNoTimeline: CGFloat = 60, sectionGap: CGFloat = 8
+    static let headerTop: CGFloat = 8, headerH: CGFloat = 20, gapAfterHeader: CGFloat = 4
+    static let sectionH: CGFloat = 74, sectionHNoTimeline: CGFloat = 56
+    static let gapRhythmToLink: CGFloat = 2, linkRowH: CGFloat = 20, gapLinkToMelody: CGFloat = 2, bottomPad: CGFloat = 4
     static let referenceHeight: CGFloat = 208, compactHeight: CGFloat = 172
     static let labelX: CGFloat = 8, labelW: CGFloat = 56, blockX: CGFloat = 68
-    static let row1H: CGFloat = 24, row2Top: CGFloat = 28, row2H: CGFloat = 32, row3Top: CGFloat = 64, row3H: CGFloat = 14
+    static let row1H: CGFloat = 24, row2Top: CGFloat = 28, row2H: CGFloat = 28, row3Top: CGFloat = 60, row3H: CGFloat = 14
+    // row 1 — FREE pill · three unit chips · four source squares
+    static let freePillW: CGFloat = 40, freePillH: CGFloat = 24, freeToChipsGap: CGFloat = 8
     static let chipW: CGFloat = 40, chipGap: CGFloat = 4
     static let sourceHitW: CGFloat = 18, sourceHitGap: CGFloat = 4, sourceGlyph: CGFloat = 12
-    static let switchW: CGFloat = 34, switchH: CGFloat = 20, switchHitH: CGFloat = 24
-    static let slotGap: CGFloat = 4, withRhythmW: CGFloat = 52, withRhythmH: CGFloat = 32, withRhythmX: CGFloat = 12
+    // row 2 — count chips (only the real links) + a 28 pt add box (only when < 4 links)
+    static let countChipW: CGFloat = 44, countChipH: CGFloat = 28, countChipGap: CGFloat = 4, addBoxW: CGFloat = 28
+    // the link row's button, in the label column
+    static let linkButtonW: CGFloat = 34, linkButtonH: CGFloat = 20
     static let cellGap: CGFloat = 2, cellH: CGFloat = 14, cellCount = 16
-    /// The gap between the source squares and the switch at the reference (288 → 296.5).
-    static let sourcesToSwitchGap: CGFloat = 8.5
+    /// The x of the first unit chip (after the FREE pill): 116 at the reference.
+    static var chipStartX: CGFloat { blockX + freePillW + freeToChipsGap }
+    /// The four source squares' span (right-aligned to the content's trailing edge): 84 pt.
+    static var sourcesSpan: CGFloat { 4 * sourceHitW + 3 * sourceHitGap }
 }
 struct EuclideousRestartSectionFramesV2: Equatable {
     var top: CGFloat
     var labelColumn: CGRect                 // row 1 label (the name), editor coordinates
-    var chips: [CGRect]                     // 3
-    var sources: [CGRect]                   // 4 hit areas (18 × 24)
-    var switchTrack: CGRect                 // 34 × 20, centred in a 34 × 24 hit area
-    var switchHit: CGRect
-    var withRhythm: CGRect?                 // MELODY only (52 × 32)
-    var slots: [CGRect]                     // 4 link slots
+    var freePill: CGRect                    // 40 × 24, at x 68
+    var chips: [CGRect]                     // 3 unit chips
+    var sources: [CGRect]                   // 4 hit areas (18 × 24), right-aligned
+    var countChips: [CGRect]                // 4 fixed 44 × 28 positions; the view draws `count` of them, then the + box at countChips[count]
     var axisLabel: CGRect?                  // nil when the timeline is dropped
     var cells: [CGRect]                     // 16 timeline cells (empty when dropped)
+    /// The + box (28 × 28) when there are `count` (< 4) links — at count-chip slot `count`, left-aligned, 28 wide.
+    func addBox(count: Int) -> CGRect? {
+        guard count >= 0, count < 4 else { return nil }
+        let r = countChips[count]
+        return CGRect(x: r.minX, y: r.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: r.height)
+    }
 }
 struct EuclideousRestartEditorFramesV2: Equatable {
     var size: CGSize
     var header: CGRect
     var rhythm: EuclideousRestartSectionFramesV2
     var melody: EuclideousRestartSectionFramesV2
+    /// The link row between the two sections (§2.2): the WITH RHYTHM button in the label column and the tie line across the right block.
+    var linkButton: CGRect
+    var linkLine: CGRect
     var showsTimelines: Bool
     /// The right block's width (x 68 to the content's trailing edge): 262.5 at the reference.
     var rightWidth: CGFloat
-    /// §7.6: does row 1 fit (the three chips, the four source squares and the switch need 262 pt)? Reported by the page's floors; nothing shrinks.
+    /// §7.6: does row 1 fit (the FREE pill, three chips and four source squares need 260 pt of right block)? Reported by the page's floors; nothing shrinks.
     var row1Fits: Bool
     /// Does the bottom edge clip (the editor is under 172)?
     var clipsBottom: Bool
@@ -139,26 +155,28 @@ func euclideousRestartEditorFramesV2(size: CGSize) -> EuclideousRestartEditorFra
     let timelines = size.height >= M.referenceHeight
     let sectionH = timelines ? M.sectionH : M.sectionHNoTimeline
     let slack = timelines ? size.height - M.referenceHeight : 0
-    let rhythmTop = M.headerTop + M.headerH + M.sectionGap + slack / 2
-    let melodyTop = rhythmTop + sectionH + M.sectionGap + slack / 2
-    func section(top: CGFloat, melody: Bool) -> EuclideousRestartSectionFramesV2 {
-        let chips = (0..<3).map { CGRect(x: M.blockX + CGFloat($0) * (M.chipW + M.chipGap), y: top, width: M.chipW, height: M.row1H) }
-        let switchX = contentRight - M.switchW
-        let sources = (0..<4).map { i in CGRect(x: switchX - M.sourcesToSwitchGap - (4 * M.sourceHitW + 3 * M.sourceHitGap) + CGFloat(i) * (M.sourceHitW + M.sourceHitGap), y: top, width: M.sourceHitW, height: M.row1H) }
-        let slotW = (rw - 12) / 4
-        let slots = (0..<4).map { CGRect(x: M.blockX + CGFloat($0) * (slotW + M.slotGap), y: top + M.row2Top, width: slotW, height: M.row2H) }
+    let rhythmTop = M.headerTop + M.headerH + M.gapAfterHeader + slack / 2
+    let linkTop = rhythmTop + sectionH + M.gapRhythmToLink
+    let melodyTop = linkTop + M.linkRowH + M.gapLinkToMelody + slack / 2
+    func section(top: CGFloat) -> EuclideousRestartSectionFramesV2 {
+        let freePill = CGRect(x: M.blockX, y: top, width: M.freePillW, height: M.freePillH)
+        let chips = (0..<3).map { CGRect(x: M.chipStartX + CGFloat($0) * (M.chipW + M.chipGap), y: top, width: M.chipW, height: M.row1H) }
+        let srcX = contentRight - M.sourcesSpan
+        let sources = (0..<4).map { i in CGRect(x: srcX + CGFloat(i) * (M.sourceHitW + M.sourceHitGap), y: top, width: M.sourceHitW, height: M.row1H) }
+        let countChips = (0..<4).map { CGRect(x: M.blockX + CGFloat($0) * (M.countChipW + M.countChipGap), y: top + M.row2Top, width: M.countChipW, height: M.countChipH) }
         let cellW = (rw - 30) / 16
         let cells: [CGRect] = timelines ? (0..<M.cellCount).map { CGRect(x: M.blockX + CGFloat($0) * (cellW + M.cellGap), y: top + M.row3Top, width: cellW, height: M.cellH) } : []
         return EuclideousRestartSectionFramesV2(
-            top: top, labelColumn: CGRect(x: M.labelX, y: top, width: M.labelW, height: M.row1H), chips: chips, sources: sources,
-            switchTrack: CGRect(x: switchX, y: top + (M.row1H - M.switchH) / 2, width: M.switchW, height: M.switchH), switchHit: CGRect(x: switchX, y: top + (M.row1H - M.switchHitH) / 2, width: M.switchW, height: M.switchHitH),
-            withRhythm: melody ? CGRect(x: M.withRhythmX, y: top + M.row2Top, width: M.withRhythmW, height: M.withRhythmH) : nil, slots: slots,
+            top: top, labelColumn: CGRect(x: M.labelX, y: top, width: M.labelW, height: M.row1H), freePill: freePill, chips: chips, sources: sources, countChips: countChips,
             axisLabel: timelines ? CGRect(x: M.labelX, y: top + M.row3Top, width: M.labelW, height: M.row3H) : nil, cells: cells)
     }
-    let needed = M.headerTop + M.headerH + 2 * (M.sectionGap + sectionH) + M.pad
+    let needed = M.headerTop + M.headerH + M.gapAfterHeader + sectionH + M.gapRhythmToLink + M.linkRowH + M.gapLinkToMelody + sectionH + M.bottomPad
+    let linkButton = CGRect(x: M.labelX, y: linkTop + (M.linkRowH - M.linkButtonH) / 2, width: M.linkButtonW, height: M.linkButtonH)
+    let linkLine = CGRect(x: M.blockX, y: linkTop + M.linkRowH / 2 - 1, width: rw, height: 2)
     return EuclideousRestartEditorFramesV2(size: size, header: CGRect(x: M.pad, y: M.headerTop, width: max(0, size.width - 2 * M.pad), height: M.headerH),
-                                           rhythm: section(top: rhythmTop, melody: false), melody: section(top: melodyTop, melody: true), showsTimelines: timelines, rightWidth: rw,
-                                           row1Fits: rw >= 262 - 1e-9, clipsBottom: size.height < needed - 1e-9)
+                                           rhythm: section(top: rhythmTop), melody: section(top: melodyTop), linkButton: linkButton, linkLine: linkLine,
+                                           showsTimelines: timelines, rightWidth: rw,
+                                           row1Fits: rw >= 260 - 1e-9, clipsBottom: size.height < needed - 1e-9)
 }
 
 // MARK: - what a tap does (§7.4) — one undo step each
@@ -198,12 +216,12 @@ private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: in
     switch e {
     case .unit(let rhythm, let index):
         if rhythm {
-            let units: [EuclideousRhythmRestartUnit] = [.bar, .pass, .riff]
+            let units: [EuclideousRhythmRestartUnit] = [.pass, .bar, .riff]   // §2.2 order: short → long (PASS · BAR · RIFF)
             guard index >= 0, index < 3, l.restartRhythmUnitResolved != units[index] else { return }
             l.restartRhythmUnit = units[index]
             if units[index] == .pass, (l.restartRhythmSource.map { max(0, min(3, $0)) } ?? own) == own { l.restartRhythmSource = (own + 1) % 4 }   // PASS never counts the lane itself: the source moves to the next lane in the same step
         } else {
-            let units: [EuclideousMelodyRestartUnit] = [.pass, .bar, .hit]
+            let units: [EuclideousMelodyRestartUnit] = [.hit, .pass, .bar]   // §2.2 order: short → long (HIT · PASS · BAR)
             guard index >= 0, index < 3, l.restartMelodyUnitResolved != units[index] else { return }
             if l.restartMelodyUnitResolved == .hit {   // leaving HIT: 5 → 6 and 7 → 8 (those values are not valid for the other units)
                 l.restartMelodyPasses = l.restartMelodyPasses.map { $0.map { $0 == 5 ? 6 : ($0 == 7 ? 8 : $0) } }
@@ -258,12 +276,12 @@ private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: in
 
 struct EuclideousRestartTimelineCell: Equatable {
     var isMark: Bool
-    /// true = the source colour at 26 %, false = 12 % (a run between restarts; the window's first cell starts high, the shade switches at each later mark).
+    /// true = the source colour at 34 %, false = 16 % (a run between restarts; the window's first cell starts high, the shade switches at each later mark). §2.2 brightened these from 26 % / 12 %.
     var shadeHigh: Bool
 }
 struct EuclideousRestartTimeline: Equatable {
     var windowStart: Int                 // the first unit of the 16-unit window, counted from 0
-    var axisLabel: String                // "BAR 1–16", "PASS 17–32", "RIFF 1–16", "HIT 33–48"
+    var axisLabel: String                // §2.2: the UNIT only — "BAR" / "PASS" / "RIFF" / "HIT" (the window range is spoken, not drawn)
     var cells: [EuclideousRestartTimelineCell]
     /// The cell holding the current unit (nil when it is outside the window — it never is, the window is chosen to hold it).
     var currentCell: Int?
@@ -288,7 +306,7 @@ func euclideousRestartTimeline(chain: EuclideousRestartChain, active: Bool, unit
         if isMark { marks.append(u + 1) }
     }
     let unit = unitWord.uppercased()
-    let label = "\(unit) \(w + 1)\u{2013}\(w + 16)"
+    let label = unit                                                // §2.2: the unit only; the window range lives in `spoken`
     var spoken = "No restarts"
     if active, !marks.isEmpty {
         let plural = unitWord == "pass" ? "passes" : unitWord + "s"
@@ -320,12 +338,14 @@ enum EuclideousRestartEditorAX {
     static let rhythmGroup = "Rhythm restarts", melodyGroup = "Melody restarts"
     static let close = "Close restarts"
     static func unitChip(rhythm: Bool, index: Int) -> String {
-        let words = rhythm ? ["bars", "passes", "riffs"] : ["passes", "bars", "hits"]
+        let words = rhythm ? ["passes", "bars", "riffs"] : ["hits", "passes", "bars"]   // §2.2 order
         return "Count \(words[max(0, min(2, index))])"
     }
     static func source(square: Int, unavailable: Bool) -> String { "Lane \(square + 1)" + (unavailable ? ", unavailable" : "") }
-    static func switchLabel(rhythm: Bool, on: Bool) -> String { "\(rhythm ? "Rhythm" : "Melody") restarts, \(on ? "on" : "off")" }
-    static func withRhythm(on: Bool) -> String { "Restart with the rhythm, \(on ? "on" : "off")" }
+    /// §5: the FREE pill — "Rhythm free, on" when the chain is inactive (the pill lit). A toggle: tapping turns the chain on / off.
+    static func freePill(rhythm: Bool, free: Bool) -> String { "\(rhythm ? "Rhythm" : "Melody") free, \(free ? "on" : "off")" }
+    /// §5: the link-row button — "Melody restarts with the rhythm, on".
+    static func withRhythm(on: Bool) -> String { "Melody restarts with the rhythm, \(on ? "on" : "off")" }
     static func link(rhythm: Bool, slot: Int, value: Int, unitWord: String) -> String {
         let plural = value == 1 ? unitWord : (unitWord == "pass" ? "passes" : unitWord + "s")
         return "\(rhythm ? "Rhythm" : "Melody") link \(slot + 1), \(value) \(plural)"

@@ -1,5 +1,5 @@
-//  RestartEditorUITests.swift — RESTART UNITS ferry (2026-11-04), tests 16–19: the editor's edits (unit changes with their side effects, link stepping for both value sets, the switch), the tile's text, the timeline's windows and marks, and
-//  the editor's frames at the reference and at the sizes the page really gives it.
+//  RestartEditorUITests.swift — RESTART UNITS ferry (2026-11-04), tests 16–19, updated by RESTARTS EDITOR V2 (2026-11-06) §2: the editor's edits (unit changes in the new PASS·BAR·RIFF / HIT·PASS·BAR chip order, link stepping, the FREE pill toggle),
+//  the tile's text, the timeline's windows and marks (the axis label is now the unit alone), and the editor's §2.2 frames (FREE pill, link row, count chips, no switch) at the reference and at the sizes the page really gives it.
 
 import XCTest
 
@@ -71,26 +71,27 @@ final class RestartEditorUITests: XCTestCase {
     // MARK: test 16 — the editor's logic
 
     func testAUnitChangeIsOneEditAndFixesWhatItMust() {
-        var l = pinned(); l.restartRhythmBars = [2]
-        XCTAssertFalse(euclideousApplyRestartEdit(.unit(rhythm: true, index: 0), to: &l, lane: 0, pin: nil), "selecting the selected unit does nothing")
-        XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: true, index: 1), to: &l, lane: 0, pin: nil))
+        // RESTARTS EDITOR V2 §2.2 chip order: RHYTHM = PASS(0) · BAR(1) · RIFF(2); MELODY = HIT(0) · PASS(1) · BAR(2)
+        var l = pinned(); l.restartRhythmBars = [2]   // default unit BAR = index 1
+        XCTAssertFalse(euclideousApplyRestartEdit(.unit(rhythm: true, index: 1), to: &l, lane: 0, pin: nil), "selecting the selected unit (BAR) does nothing")
+        XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: true, index: 0), to: &l, lane: 0, pin: nil))
         XCTAssertEqual(l.restartRhythmUnit, .pass); XCTAssertEqual(l.restartRhythmSource, 1, "RHYTHM PASS on the lane itself moves the source to the next lane, in the same step")
         var l4 = pinned(); l4.restartRhythmBars = [1]
-        euclideousApplyRestartEdit(.unit(rhythm: true, index: 1), to: &l4, lane: 3, pin: nil)
+        euclideousApplyRestartEdit(.unit(rhythm: true, index: 0), to: &l4, lane: 3, pin: nil)
         XCTAssertEqual(l4.restartRhythmSource, 0, "lane 4 wraps to lane 1")
         var keep = pinned(); keep.restartRhythmBars = [1]; keep.restartRhythmSource = 2
-        euclideousApplyRestartEdit(.unit(rhythm: true, index: 1), to: &keep, lane: 0, pin: nil)
+        euclideousApplyRestartEdit(.unit(rhythm: true, index: 0), to: &keep, lane: 0, pin: nil)   // → PASS
         XCTAssertEqual(keep.restartRhythmSource, 2, "another lane's source is kept")
-        // leaving HIT maps links 5 → 6 and 7 → 8
+        // leaving HIT (index 1 = PASS) maps links 5 → 6 and 7 → 8
         var m = pinned(); m.restartMelodyUnit = .hit; m.restartMelodyPasses = [5, 7, 3, 8]
-        XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: false, index: 0), to: &m, lane: 0, pin: nil))
+        XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: false, index: 1), to: &m, lane: 0, pin: nil))
         XCTAssertEqual(m.restartMelodyUnit, .pass); XCTAssertEqual(m.restartMelodyPasses, [6, 8, 3, 8])
         var toBar = pinned(); toBar.restartMelodyUnit = .hit; toBar.restartMelodyPasses = [5]
-        euclideousApplyRestartEdit(.unit(rhythm: false, index: 1), to: &toBar, lane: 0, pin: nil)
+        euclideousApplyRestartEdit(.unit(rhythm: false, index: 2), to: &toBar, lane: 0, pin: nil)   // index 2 = BAR
         XCTAssertEqual(toBar.restartMelodyPasses, [6])
-        var toHit = pinned(); toHit.restartMelodyPasses = [6]
-        euclideousApplyRestartEdit(.unit(rhythm: false, index: 2), to: &toHit, lane: 0, pin: nil)
-        XCTAssertEqual(toHit.restartMelodyPasses, [6], "entering HIT keeps its links (all valid there)")
+        var toHit = pinned(); toHit.restartMelodyPasses = [6]   // default unit PASS
+        euclideousApplyRestartEdit(.unit(rhythm: false, index: 0), to: &toHit, lane: 0, pin: nil)   // index 0 = HIT
+        XCTAssertEqual(toHit.restartMelodyUnit, .hit); XCTAssertEqual(toHit.restartMelodyPasses, [6], "entering HIT keeps its links (all valid there)")
     }
     func testTheSourceSquares() {
         var l = pinned(); l.restartRhythmBars = [1]; l.restartRhythmUnit = .pass; l.restartRhythmSource = 2
@@ -161,15 +162,15 @@ final class RestartEditorUITests: XCTestCase {
         for (word, rhythm) in units {
             let chain = EuclideousRestartChain.from([2, 1, 1])
             let t0 = euclideousRestartTimeline(chain: chain, active: true, unitWord: word, current: 0, rhythm: rhythm)
-            XCTAssertEqual(t0.axisLabel, "\(word.uppercased()) 1\u{2013}16"); XCTAssertEqual(t0.windowStart, 0); XCTAssertEqual(t0.currentCell, 0)
+            XCTAssertEqual(t0.axisLabel, word.uppercased(), "§2.2: the axis label is the unit only"); XCTAssertEqual(t0.windowStart, 0); XCTAssertEqual(t0.currentCell, 0)
             // [2,1,1] restarts at units 0, 2, 3, then 4, 6, 7, 8, 10, 11, 12, 14, 15 …
             XCTAssertEqual(t0.cells.enumerated().filter { $0.element.isMark }.map { $0.offset }, [0, 2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15], word)
             // the shade: the window's first cell is high; it switches at each later mark
             XCTAssertEqual(t0.cells.map { $0.shadeHigh }, [true, true, false, true, false, false, true, false, true, true, false, true, false, false, true, false], word)
         }
         let t2 = euclideousRestartTimeline(chain: EuclideousRestartChain.from([2, 1, 1]), active: true, unitWord: "pass", current: 20, rhythm: true)
-        XCTAssertEqual(t2.axisLabel, "PASS 17\u{2013}32"); XCTAssertEqual(t2.windowStart, 16); XCTAssertEqual(t2.currentCell, 4)
-        XCTAssertEqual(euclideousRestartTimeline(chain: .from([3]), active: true, unitWord: "hit", current: 40, rhythm: false).axisLabel, "HIT 33\u{2013}48")
+        XCTAssertEqual(t2.axisLabel, "PASS"); XCTAssertEqual(t2.windowStart, 16, "the window still advances past the first 16"); XCTAssertEqual(t2.currentCell, 4)
+        XCTAssertEqual(euclideousRestartTimeline(chain: .from([3]), active: true, unitWord: "hit", current: 40, rhythm: false).axisLabel, "HIT")
         XCTAssertEqual(euclideousRestartTimeline(chain: .from([1]), active: true, unitWord: "riff", current: 5, rhythm: true).cells.filter { $0.isMark }.count, 16, "[1] marks every cell")
         // inactive: every cell flat, nothing to speak
         let off = euclideousRestartTimeline(chain: EuclideousRestartChain.from([2]), active: false, unitWord: "bar", current: 3, rhythm: true)
@@ -200,37 +201,41 @@ final class RestartEditorUITests: XCTestCase {
         typealias M = EuclideousRestartEditorMetricsV2
         let f = euclideousRestartEditorFramesV2(size: CGSize(width: 338.5, height: 208))
         XCTAssertEqual(f.header, CGRect(x: 8, y: 8, width: 322.5, height: 20)); XCTAssertEqual(f.rightWidth, 262.5, accuracy: 1e-9); XCTAssertTrue(f.showsTimelines); XCTAssertTrue(f.row1Fits)
-        XCTAssertEqual(f.rhythm.top, 36); XCTAssertEqual(f.melody.top, 122); XCTAssertEqual(f.melody.top + M.sectionH, 200, "ends at y 200")
-        for (sec, melody) in [(f.rhythm, false), (f.melody, true)] {
+        // §2.2: RHYTHM y32–106, link row y108–128, MELODY y130–204
+        XCTAssertEqual(f.rhythm.top, 32); XCTAssertEqual(f.melody.top, 130); XCTAssertEqual(f.melody.top + M.sectionH, 204, "ends at y 204")
+        XCTAssertEqual(f.linkButton, CGRect(x: 8, y: 108, width: 34, height: 20), "the WITH RHYTHM button in the label column")
+        XCTAssertEqual(f.linkLine, CGRect(x: 68, y: 117, width: 262.5, height: 2), "the tie line across the right block")
+        for sec in [f.rhythm, f.melody] {
             XCTAssertEqual(sec.labelColumn, CGRect(x: 8, y: sec.top, width: 56, height: 24))
-            XCTAssertEqual(sec.chips.map { $0.minX }, [68, 112, 156]); XCTAssertTrue(sec.chips.allSatisfy { $0.width == 40 && $0.height == 24 })
-            XCTAssertEqual(sec.sources.map { $0.minX }, [204, 226, 248, 270], "the source squares' 18 × 24 hit areas"); XCTAssertTrue(sec.sources.allSatisfy { $0.width == 18 && $0.height == 24 })
-            XCTAssertEqual(sec.switchTrack, CGRect(x: 296.5, y: sec.top + 2, width: 34, height: 20)); XCTAssertEqual(sec.switchHit, CGRect(x: 296.5, y: sec.top, width: 34, height: 24)); XCTAssertEqual(sec.switchTrack.maxX, 330.5)
-            XCTAssertEqual(sec.slots.map { $0.minX }, [68, 134.625, 201.25, 267.875]); XCTAssertEqual(sec.slots[0].width, 62.625, accuracy: 1e-9); XCTAssertTrue(sec.slots.allSatisfy { $0.minY == sec.top + 28 && $0.height == 32 })
-            XCTAssertEqual(sec.axisLabel, CGRect(x: 8, y: sec.top + 64, width: 56, height: 14))
+            XCTAssertEqual(sec.freePill, CGRect(x: 68, y: sec.top, width: 40, height: 24), "the FREE pill at the head of row 1")
+            XCTAssertEqual(sec.chips.map { $0.minX }, [116, 160, 204], "the three unit chips, after the FREE pill"); XCTAssertTrue(sec.chips.allSatisfy { $0.width == 40 && $0.height == 24 })
+            XCTAssertEqual(sec.sources.map { $0.minX }, [246.5, 268.5, 290.5, 312.5], "the source squares, right-aligned"); XCTAssertTrue(sec.sources.allSatisfy { $0.width == 18 && $0.height == 24 }); XCTAssertEqual(sec.sources.last!.maxX, 330.5)
+            XCTAssertEqual(sec.countChips.map { $0.minX }, [68, 116, 164, 212], "the fixed 44 pt count-chip slots"); XCTAssertTrue(sec.countChips.allSatisfy { $0.width == 44 && $0.height == 28 && $0.minY == sec.top + 28 })
+            // the + box sits at count-chip slot `count`, 28 wide
+            XCTAssertEqual(sec.addBox(count: 0), CGRect(x: 68, y: sec.top + 28, width: 28, height: 28)); XCTAssertEqual(sec.addBox(count: 2), CGRect(x: 164, y: sec.top + 28, width: 28, height: 28))
+            XCTAssertNil(sec.addBox(count: 4), "no + box at four links")
+            XCTAssertEqual(sec.axisLabel, CGRect(x: 8, y: sec.top + 60, width: 56, height: 14))
             XCTAssertEqual(sec.cells.count, 16); XCTAssertEqual(sec.cells[0].width, 14.53125, accuracy: 1e-9, "(262.5 − 30) ÷ 16 = 14.53"); XCTAssertEqual(sec.cells[1].minX - sec.cells[0].maxX, 2, accuracy: 1e-9)
-            XCTAssertTrue(sec.cells.allSatisfy { $0.height == 14 && $0.minY == sec.top + 64 }); XCTAssertEqual(sec.cells.last!.maxX, 330.5, accuracy: 1e-9)
-            XCTAssertEqual(sec.withRhythm != nil, melody)
+            XCTAssertTrue(sec.cells.allSatisfy { $0.height == 14 && $0.minY == sec.top + 60 }); XCTAssertEqual(sec.cells.last!.maxX, 330.5, accuracy: 1e-9)
         }
-        XCTAssertEqual(f.melody.withRhythm, CGRect(x: 12, y: 122 + 28, width: 52, height: 32))
         XCTAssertFalse(f.clipsBottom)
     }
     func testTheEditorAtZoneTotals208And172AndTheLiveSizes() {
         let tall = euclideousRestartEditorFramesV2(size: CGSize(width: 338.5, height: 229))
-        XCTAssertTrue(tall.showsTimelines); XCTAssertEqual(tall.rhythm.top, 36 + 10.5, accuracy: 1e-9); XCTAssertEqual(tall.melody.top, 122 + 21, accuracy: 1e-9, "the 21 pt over the reference is shared by the two upper gaps")
-        XCTAssertEqual(tall.melody.top + 78, 229 - 8, accuracy: 1e-9, "the bottom padding stays 8")
+        XCTAssertTrue(tall.showsTimelines); XCTAssertEqual(tall.rhythm.top, 32 + 10.5, accuracy: 1e-9); XCTAssertEqual(tall.melody.top, 130 + 21, accuracy: 1e-9, "the 21 pt over the reference is shared above RHYTHM and before MELODY")
+        XCTAssertEqual(tall.melody.top + 74, 229 - 4, accuracy: 1e-9, "the bottom padding stays 4")
         let under = euclideousRestartEditorFramesV2(size: CGSize(width: 338.5, height: 207))
-        XCTAssertFalse(under.showsTimelines, "under 208: each section's timeline and the 4 before it are dropped"); XCTAssertTrue(under.rhythm.cells.isEmpty); XCTAssertNil(under.rhythm.axisLabel)
-        XCTAssertEqual(under.rhythm.top, 36); XCTAssertEqual(under.melody.top, 36 + 60 + 8)
+        XCTAssertFalse(under.showsTimelines, "under 208: each section's timeline (and the row before it) is dropped"); XCTAssertTrue(under.rhythm.cells.isEmpty); XCTAssertNil(under.rhythm.axisLabel)
+        XCTAssertEqual(under.rhythm.top, 32); XCTAssertEqual(under.melody.top, 32 + 56 + 2 + 20 + 2, "RHYTHM 56 tall, link row 20, 2 pt gaps")
         let compact = euclideousRestartEditorFramesV2(size: CGSize(width: 338.5, height: 172))
-        XCTAssertFalse(compact.clipsBottom, "the editor then needs 172"); XCTAssertEqual(compact.melody.top + 60 + 8, 172, accuracy: 1e-9)
+        XCTAssertFalse(compact.clipsBottom, "the editor then needs 172"); XCTAssertEqual(compact.melody.top + 56 + 4, 172, accuracy: 1e-9)
         XCTAssertTrue(euclideousRestartEditorFramesV2(size: CGSize(width: 338.5, height: 171)).clipsBottom, "below that its bottom edge clips")
         // the sizes the page gives it
         let land = euclideousRestartEditorFramesV2(size: CGSize(width: 360.67, height: 229)), port = euclideousRestartEditorFramesV2(size: CGSize(width: 367, height: 229.67))
-        XCTAssertEqual(land.rightWidth, 360.67 - 16 - 60, accuracy: 1e-9); XCTAssertEqual(land.rhythm.slots[0].width, (land.rightWidth - 12) / 4, accuracy: 1e-9); XCTAssertEqual(land.rhythm.cells[0].width, (land.rightWidth - 30) / 16, accuracy: 1e-9)
-        XCTAssertEqual(land.rhythm.switchTrack.maxX, 360.67 - 8, accuracy: 1e-9, "the switch stays at the trailing edge"); XCTAssertTrue(land.row1Fits); XCTAssertTrue(port.row1Fits)
+        XCTAssertEqual(land.rightWidth, 360.67 - 8 - 68, accuracy: 1e-9); XCTAssertEqual(land.rhythm.cells[0].width, (land.rightWidth - 30) / 16, accuracy: 1e-9)
+        XCTAssertEqual(land.rhythm.sources.last!.maxX, 360.67 - 8, accuracy: 1e-9, "the source squares stay at the trailing edge"); XCTAssertTrue(land.row1Fits); XCTAssertTrue(port.row1Fits)
         let narrow = euclideousRestartEditorFramesV2(size: CGSize(width: 300, height: 229))
-        XCTAssertFalse(narrow.row1Fits, "RW below 262 is reported, never shrunk"); XCTAssertEqual(narrow.rhythm.chips[0].width, 40)
+        XCTAssertFalse(narrow.row1Fits, "RW below 260 is reported, never shrunk"); XCTAssertEqual(narrow.rhythm.chips[0].width, 40)
     }
     /// §7.6: the editor's size at every page layout the layout tests pin (the card's body: card height − 72, card width − 20), and what the frames do there. Reported for the ferry's notes; the assertions are the floors the spec states.
     func testTheEditorSizeAtEveryPageLayout() {
