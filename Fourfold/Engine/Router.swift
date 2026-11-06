@@ -1250,7 +1250,7 @@ final class Router {
     // (teardown), nothing is left to clear anyway.
     private var pendingReset = false
     func reset() { pendingReset = true }
-    /// MIDI IN ROOT (§2.5): the latched transpose is maintained in STOPPED windows too — it is a property of what the player holds, not of the transport (a key pressed and released before PLAY still sets it; INPUTS + HARMONY: tracked whatever any lane's mode, never cleared here — leaving ROOT, while stopped still clears it).
+    /// MIDI IN ROOT (§2.5): the latched transpose is maintained in STOPPED windows too — it is a property of what the player holds, not of the transport (a key pressed and released before PLAY still sets it; INPUTS + HARMONY: tracked whatever any lane's mode, never cleared here; only a load clears it).
     /// The playing path (`process()`'s window-top clear and the per-window update after `fillMidiLayer`) does the same job with the HOLD / LATCH pool; here those modes keep what they hold (they capture only in playing windows).
     private func updateRootWhileStopped(box: SnapshotBox, pool: NotePool) {
         let proc = box.cells[Snap.euclideousRow].procs.first
@@ -2410,7 +2410,7 @@ final class Router {
             euclideousStatusChordsLit = false; euclideousStatusChordsRest = false
             euclideousStatusKeyLit = false; euclideousStatusKeyAdded = 0
             euclideousStatusPickLit = false; euclideousStatusDropped = 0; euclideousStatusPoolCount = 0
-            for i in 0..<4 { laneStat.count[i] = 0 }   // POOL NOW: nothing contributes, so no lane is choosing from anything
+            for i in 0..<4 { laneStat.count[i] = 0; laneStat.contrib[i] = 0 }   // INPUTS NOW: nothing contributes, so no lane is choosing from anything and no source reads "playing" in the header pips
             euclideousStatusMidiAdded = 0; euclideousStatusChordsAdded = 0; euclideousStatusPickAdded = 0
             diag.activeVoiceCount = activeVoiceCount(); diag.distinctSounding = distinctSounding; return
         }
@@ -2750,15 +2750,15 @@ final class Router {
                 return midiFoldBuf[0..<n]
             }
             // §2.9 / INPUTS 3.2: tag the shared buffer's first ≤16 notes with the source that supplied each — the merge's OWN priority (MIDI → CHORDS → PICK, else KEY) over the SAME layer slices the build used, each recognised by its moved value (a
-            // ROOT build admits no played note; t = 0 compares exactly) — and remember which sources the build had lit. Exact; no second pool is built.
-            func tagSources(midi: ArraySlice<(note: Int, vel: UInt8)>, chords: ArraySlice<Int>, pick: ArraySlice<Int>, t: Int, rootMode: Bool, st: EuclideousStackResult) {
+            // ROOT build admits no played note; t = 0 compares exactly) — and remember which sources the build had lit. A layer whose chip / switch is off for the BUILDING plan is never matched (a lane with only KEY must not tag a KEY tone CHORDS because a chord happens to share the pitch). Exact; no second pool is built.
+            func tagSources(midi: ArraySlice<(note: Int, vel: UInt8)>, chords: ArraySlice<Int>, pick: ArraySlice<Int>, t: Int, rootMode: Bool, st: EuclideousStackResult, midiOn: Bool, chordsOn: Bool, pickOn: Bool) {
                 let shown = min(16, globalSrcCount)
                 for i in 0..<shown {
                     let n = globalSrcBuf[i].note
                     var src: UInt8 = 3, hit = false
-                    if !rootMode { for k in midi.indices where (t == 0 ? midi[k].note : euclideousRootMoved(midi[k].note, by: t)) == n { src = 0; hit = true; break } }
-                    if !hit { for k in chords.indices where (t == 0 ? chords[k] : euclideousRootMoved(chords[k], by: t)) == n { src = 1; hit = true; break } }
-                    if !hit { for k in pick.indices where (t == 0 ? pick[k] : euclideousRootMoved(pick[k], by: t)) == n { src = 2; break } }
+                    if !rootMode && midiOn { for k in midi.indices where (t == 0 ? midi[k].note : euclideousRootMoved(midi[k].note, by: t)) == n { src = 0; hit = true; break } }
+                    if !hit && chordsOn { for k in chords.indices where (t == 0 ? chords[k] : euclideousRootMoved(chords[k], by: t)) == n { src = 1; hit = true; break } }
+                    if !hit && pickOn { for k in pick.indices where (t == 0 ? pick[k] : euclideousRootMoved(pick[k], by: t)) == n { src = 2; break } }
                     bufSources[i] = src
                 }
                 bufLitBits = (st.midiPlaying ? 1 : 0) | (st.chordsLit ? 2 : 0) | (st.pickLit ? 4 : 0) | (st.keyLit ? 8 : 0)
@@ -2784,7 +2784,12 @@ final class Router {
                 euclideousStatusPickLit = st.pickLit; euclideousStatusDropped = st.dropped
                 euclideousStatusMidiAdded = st.midiAdded; euclideousStatusChordsAdded = st.chordsAdded; euclideousStatusPickAdded = st.pickAdded
                 // §7.3 (the panel's POOL block, until it goes): lane-1's first ≤8 notes with the source that supplied each — now the shared tagger's output.
-                tagSources(midi: midi, chords: chordPoolScratch[0..<chordLayerCount], pick: pickLayerBuf[0..<pickLayerCount], t: t, rootMode: euPlanIsRoot, st: st)
+                tagSources(midi: midi, chords: chordPoolScratch[0..<chordLayerCount], pick: pickLayerBuf[0..<pickLayerCount], t: t, rootMode: euPlanIsRoot, st: st, midiOn: euPlan.midiOnR, chordsOn: euPlan.chordsOnR, pickOn: euPlan.pickOnR)
+                if euPlanIsRoot {   // a ROOT build admits no played note, but HARMONY's MIDI IN strip still shows what is held (an old document whose PLAN mode is ROOT has every lane following it)
+                    let held = min(euclideousStatusMidiNotes.count, midiLayerCount)
+                    for i in 0..<held { euclideousStatusMidiNotes[i] = UInt8(max(0, min(127, midiLayerBuf[i].note))) }
+                    euclideousStatusMidiCount = held
+                }
                 let poolShown = min(8, globalSrcCount)
                 euclideousStatusPoolCount = poolShown
                 for i in 0..<poolShown {
@@ -2839,7 +2844,7 @@ final class Router {
                     key: canonKeyBuf[0..<keyN],
                     plan: lp, clash: p.euclideousClashPolicy, midiStatusOut: &canonMidiStatusScratch, rootTranspose: canonT)   // …and moves by the t of THAT moment (a ROOT lane with MIDI IN on only)
                 globalSrcCount = st.count
-                tagSources(midi: canonMidi, chords: chordPoolScratch[0..<chordLayerCount], pick: canonPickBuf[0..<pickN], t: canonT, rootMode: canonRoot, st: st)
+                tagSources(midi: canonMidi, chords: chordPoolScratch[0..<chordLayerCount], pick: canonPickBuf[0..<pickN], t: canonT, rootMode: canonRoot, st: st, midiOn: lp.midiOnR, chordsOn: lp.chordsOnR, pickOn: lp.pickOnR)
             }
             func refreshCanonStack(beat m: Double, delayBeats: Double, lane: Int, plan lp: SourcePlan, mask: UInt8) {   // `mask`: the lane KEY (chips | mode << 5); INPUTS + HARMONY: SLIP is gone
                 let e = canonWinElapsed + (m - mWinStart)                       // elapsed beats at this tick
@@ -2874,7 +2879,7 @@ final class Router {
                     key: keyLayerBuf[0..<keyLayerCount],
                     plan: lp, clash: p.euclideousClashPolicy, midiStatusOut: &canonMidiStatusScratch, rootTranspose: t)
                 globalSrcCount = st.count
-                tagSources(midi: midi, chords: chordPoolScratch[0..<chordLayerCount], pick: pickLayerBuf[0..<pickLayerCount], t: t, rootMode: laneRoot, st: st)
+                tagSources(midi: midi, chords: chordPoolScratch[0..<chordLayerCount], pick: pickLayerBuf[0..<pickLayerCount], t: t, rootMode: laneRoot, st: st, midiOn: lp.midiOnR, chordsOn: lp.chordsOnR, pickOn: lp.pickOnR)
             }
             func refreshLaneStack(plan lp: SourcePlan, mask: UInt8, atBeat m: Double) {   // `mask`: the lane KEY (chips | mode << 5)
                 let mm = m + 1e-9                                        // a tick a hair under a chord boundary belongs to the new chord
@@ -2942,7 +2947,7 @@ final class Router {
                 fillKeyLayer()
                 mergeStack(atBeat: mWinStart)
                 // CHORD CANON, all sources: while any lane is delayed, remember the live layers (an unchanged window records nothing) so a delayed lane can read them back.
-                if p.euclidLines.contains(where: { $0.chordDelayResolved > 0 || $0.chordSlipResolved > 0 }) {
+                if p.euclidLines.contains(where: { $0.chordDelayResolved > 0 }) {
                     canonHistory.record(at: canonWinElapsed, midi: midiLayerBuf[0..<midiLayerCount], midiPlaying: euclideousStackMidiPlaying, pick: pickLayerBuf[0..<pickLayerCount],
                                         keyRoot: p.euclideousChordKeyRoot, keyMask: euclideousCanonKeyMask(tones: p.euclideousChordKeyTones), rootT: euclideousRootT)   // ROOT: a change of t is a change of the pool, like a chord change (spec 2.9)
                 }

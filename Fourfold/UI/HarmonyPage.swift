@@ -1,7 +1,7 @@
 //  HarmonyPage.swift — INPUTS + HARMONY ferry (2026-11-06) §4–§7: the HARMONY page, a full-size page over the four lane cards. It replaces the SOURCES panel and the CHORDS page: the key (a large title, twelve root keys, one row of scales),
 //  CHORDS (both grids side by side, each with a summary pill whose popover holds ADVANCE and RESTART) and a bottom band with PICK and MIDI IN. Every frame comes from `euclideousHarmonyLayout` (HarmonyLayout.swift); every setter is the one the
 //  SOURCES panel / CHORDS page used (the page hands them in), so each edit is one undo step exactly as before. Opening or closing the page, a popover and the CHORDS · COLOUR switch are UI state: no undo step.
-//  Several small leaf functions return AnyView (like the rest of the page): the extension's 1 MB main-thread stack.
+//  The page is mounted inside an `EuclideousStackBreak` by `EuclideousPage` (the extension's 1 MB main-thread stack); `FourfoldStackProbe.note()` in the grid cell keeps the stack-budget test honest.
 
 import SwiftUI
 import UIKit
@@ -110,6 +110,7 @@ struct EuclideousHarmonyPage: View {
             Text(euclideousKeyLabel(root: keyRoot, type: keyType)).font(mono(24)).tracking(0.02 * 24)
                 .foregroundColor(Color(h: 0xF2F4F7)).lineLimit(1).truncationMode(.tail)
                 .accessibilityAddTraits(.isHeader).accessibilityLabel("Key, " + euclideousKeySpokenName(root: keyRoot, type: keyType))
+                .accessibilitySortPriority(100)   // 7.1 order: close first (101), then the title
             Spacer(minLength: 8)
             Button(action: onClose) {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundColor(Color(h: 0xAAB0BA))
@@ -117,10 +118,9 @@ struct EuclideousHarmonyPage: View {
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color(h: 0x2A2D34)))
                     .frame(width: EuclideousHarmonyMetrics.closeTarget, height: EuclideousHarmonyMetrics.closeTarget)
             }
-            .buttonStyle(.plain).accessibilityLabel("Close harmony")
+            .buttonStyle(.plain).accessibilityLabel("Close harmony").accessibilitySortPriority(101)
         }
         .frame(width: L.titleRow.width, height: L.titleRow.height).offset(x: L.titleRow.minX, y: L.titleRow.minY)
-        .accessibilitySortPriority(100)
     }
 
     // MARK: 5.2 root keys
@@ -156,7 +156,7 @@ struct EuclideousHarmonyPage: View {
         .frame(width: width, height: EuclideousHarmonyMetrics.rootH)
         .contentShape(Rectangle()).onTapGesture { onSetKeyRoot(pc) }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.noteNames[pc] + (inScale && !selected ? ", in scale" : ""))
+        .accessibilityLabel(Self.noteNames[pc] + (inScale ? ", in scale" : ""))   // 7.2: a scale tone says so, the selected root included
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
@@ -211,7 +211,7 @@ struct EuclideousHarmonyPage: View {
                     .foregroundColor(s.selected ? Color(h: 0x0D0F14) : Color(h: 0xAAB0BA))
                     .padding(.horizontal, 10).frame(height: 20)
                     .background(RoundedRectangle(cornerRadius: 4).fill(s.selected ? Color(h: 0xDFE3EA) : Color.clear))
-                    .contentShape(Rectangle()).onTapGesture { tap(i) }
+                    .contentShape(Rectangle().inset(by: -4)).onTapGesture { tap(i) }   // the segment is 20 pt tall in a 24 pt container: reach 4 pt further each side
                     .accessibilityElement(children: .ignore).accessibilityLabel(s.spoken)
                     .accessibilityAddTraits(s.selected ? [.isButton, .isSelected] : .isButton)
             }
@@ -311,8 +311,8 @@ struct EuclideousHarmonyPage: View {
         .padding(.leading, 10).padding(.trailing, 8).frame(height: 24)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color(h: open ? 0x2A2D34 : 0x24262C)))
         .overlay(open ? RoundedRectangle(cornerRadius: 6).inset(by: 0.5).stroke(Color(h: 0x5C626C), lineWidth: 1) : nil)
-        .harmonyAnchor("pill\(set)", space: Self.space)
         .frame(height: 44).contentShape(Rectangle())
+        .harmonyAnchor("pill\(set)", space: Self.space)   // the 44 pt touch target, not the 24 pt pill: the tap catcher lets a tap anywhere on it through
         .onTapGesture { togglePill(set) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Grid \(set + 1) timing")
@@ -368,7 +368,7 @@ struct EuclideousHarmonyPage: View {
         let _ = FourfoldStackProbe.note()   // the deepest leaf of the page's build chain (FourfoldStackBudgetTests)
         let beyond = c >= steps
         let isPlaying = c == playing
-        let (_, isRest) = chordsDegreeAt(step: c, degrees: Array(degrees.prefix(max(1, steps))), rotate: 0)
+        let (_, isRest) = chordsDegreeAt(step: c, count: max(1, min(steps, degrees.count)), rotate: 0) { degrees[$0] }
         let label = euclideousChordsRowLabel(row: r, scaleTones: keyType.intervals, minorKey: minorKey)
         let unlit = Color(h: isPlaying ? 0x2E3138 : 0x22242A)
         if r >= 12 {                                                     // the colour rows
@@ -381,7 +381,7 @@ struct EuclideousHarmonyPage: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Column \(c + 1), \(label), \(on ? "on" : "off")")
         } else if let deg = euclideousChordsRowDegree(r) {
-            let cellState = chordsMatrixCell(Array(degrees.prefix(16)), step: c, steps: steps)
+            let cellState = chordsMatrixCell(degrees, step: c, steps: steps)
             let on = cellState.bright == deg
             let lit = deg == 7 ? Color(h: 0x5C626C) : Color(h: isPlaying ? 0xD6CBFB : 0xB9A8FF)
             RoundedRectangle(cornerRadius: 4).fill(on ? lit : unlit).opacity(beyond ? 0.30 : 1)
@@ -431,8 +431,8 @@ struct EuclideousHarmonyPage: View {
             Text("EDIT").font(mono(8)).tracking(0.08 * 8).foregroundColor(Color(h: editOpen ? 0x0D0F14 : 0xAAB0BA))
                 .padding(.horizontal, 10).frame(height: 24)
                 .background(RoundedRectangle(cornerRadius: 5).fill(Color(h: editOpen ? 0xDFE3EA : 0x2A2D34)))
-                .harmonyAnchor("edit", space: Self.space)
                 .frame(height: 36).contentShape(Rectangle())
+                .harmonyAnchor("edit", space: Self.space)
                 .onTapGesture { togglePick() }
                 .accessibilityElement(children: .ignore).accessibilityLabel("Edit pick notes").accessibilityValue(editOpen ? "expanded" : "collapsed").accessibilityAddTraits(.isButton)
         }
@@ -484,6 +484,7 @@ struct EuclideousHarmonyPage: View {
         case .pill(let set):
             let f = L.pillPopover(set: set)
             popoverSurface { pillPopoverContent(set, innerW: f.width - 2 * EuclideousHarmonyMetrics.popoverPad) }
+                .id("pillPopover\(set)")   // a distinct identity per grid: switching popovers is a 120 ms fade (the transition), not a slide of one view
                 .frame(width: f.width, height: f.height, alignment: .topLeading)
                 .offset(x: L.content.minX + f.minX, y: L.content.minY + f.minY)
                 .accessibilityElement(children: .contain).accessibilityLabel("Grid \(set + 1) advance and restart").accessibilitySortPriority(110)
@@ -491,6 +492,7 @@ struct EuclideousHarmonyPage: View {
         case .pick:
             let f = L.pickPopover
             popoverSurface { pickPopoverContent(innerW: f.width - 2 * EuclideousHarmonyMetrics.popoverPad) }
+                .id("pickPopover")
                 .frame(width: f.width, height: f.height, alignment: .topLeading)
                 .offset(x: L.content.minX + f.minX, y: L.content.minY + f.minY)
                 .accessibilityElement(children: .contain).accessibilityLabel("Pick editor").accessibilitySortPriority(110)

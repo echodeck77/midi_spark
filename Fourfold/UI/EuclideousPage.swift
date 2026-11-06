@@ -5269,7 +5269,7 @@ struct EuclideousPage: View {
     /// and the readout draw at 40 % and stay tappable. A tap writes the lane's own `midiMode` (one undo step); the lane's mode is its own field, else the document's plan mode.
     private func inputsMidiRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
         let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 4, readoutW: CGFloat = 44
-        let segW = max(1, (fullWidth - labelW - gap * 3 - readoutW) / 3)
+        let segW = max(1, (fullWidth - labelW - gap * 4 - readoutW) / 3)   // four gaps: label · segment · segment · segment · readout
         let segH = min(EuclideousInputsMidiRow.segmentH, height)
         let mode = euclideousLaneMidiMode(line.midiMode, planMode: sourcePlan.midiModeR)
         let midiOn = line.poolSrcOn(0)
@@ -5287,7 +5287,7 @@ struct EuclideousPage: View {
                             .overlay(RoundedRectangle(cornerRadius: 6).stroke(sel ? lane100(accent) : Color.clear, lineWidth: 1))
                             .frame(width: segW, height: height)
                             .contentShape(Rectangle())
-                            .onTapGesture { edit(idx) { $0.midiMode = m } }
+                            .onTapGesture { if mode != m { edit(idx) { $0.midiMode = m } } }   // choosing what is already in force is not an edit (no undo step, and a lane that follows the document keeps following it)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel(euclideousInputsMidiModeSpoken(m) + ", lane \(idx + 1)")
                             .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)

@@ -104,6 +104,37 @@ final class InputsRouterTests: XCTestCase {
         XCTAssertEqual(st.contrib & 0b0011, 0b0011, "MIDI playing and CHORDS lit")
     }
 
+    // MARK: review fixes (adversarial review of the landed ferry, 2026-11-06)
+    /// A lane's NOW pips name the source that REALLY supplied a note: a layer whose chip is off is never matched, even when its pitch equals a note of another layer.
+    func testTheSourceTagsFollowTheLanesOwnChips() {
+        // lane 1: KEY only (the C minor key tones include the bar-2 chord's F3 Ab3 C4); lane 2: CHORDS + KEY with MIDI IN off, D3 held (D3 is also a C minor key tone)
+        let rig = InRig(state([lane(sources: [3]), lane(sources: [1, 3])]))
+        rig.run(to: 5.5)
+        XCTAssertFalse(rig.status(0).notes.isEmpty)
+        XCTAssertTrue(rig.status(0).sources.allSatisfy { $0 == 3 }, "a KEY-only lane's notes are all KEY, not CHORDS: \(rig.status(0).sources)")
+        rig.press([50]); rig.run(to: 6.0)
+        XCTAssertTrue(rig.status(1).notes.contains(50), "D3 is in the key, so the lane has it")
+        XCTAssertFalse(rig.status(1).sources.contains(0), "…but it is not MIDI: the lane's MIDI IN chip is off")
+        let chordsNotes = Set(rig.status(1).notes.enumerated().filter { rig.status(1).sources[$0.offset] == 1 }.map { $0.element })
+        XCTAssertFalse(chordsNotes.isEmpty, "the chord's own notes are still tagged CHORDS")
+    }
+    /// The header pips read the lanes' last build: with the keys up and nothing generating, no source may stay "playing".
+    func testNothingContributingClearsThePips() {
+        let rig = InRig(state([lane(sources: [0]), lane(sources: [0]), lane(sources: [0]), lane(sources: [0])]))
+        rig.press([50]); rig.run(to: 2.5)
+        XCTAssertEqual(rig.status(0).contrib & 1, 1, "MIDI is playing while the note is held")
+        rig.release([50]); rig.run(to: 5.0)
+        for l in 0..<4 { XCTAssertEqual(rig.status(l).contrib, 0, "lane \(l + 1): nothing contributes any more") }
+        XCTAssertEqual(rig.status(0).count, 0)
+    }
+    /// An old document whose PLAN mode is ROOT (every lane follows it): the held notes still reach HARMONY's MIDI IN strip even though ROOT admits none to the pool.
+    func testHeldNotesStillShowUnderAPlanLevelRoot() {
+        let rig = InRig(state([lane(), lane(sources: [1])], plan: plan(mode: .root)))
+        rig.run(to: 1.5); rig.press([50, 57]); rig.run(to: 3.0)
+        XCTAssertEqual(rig.router.euclideousSourceStatus().midiNotes, [50, 57])
+        XCTAssertEqual(rig.status(0).rootT, 2); XCTAssertFalse(rig.status(0).sources.contains(0), "ROOT still admits no played note to the pool: nothing in it is tagged MIDI")
+    }
+
     // MARK: 5 — t
     func testTheLatchedTransposeFollowsTheLaneNotTheDocument() {
         // lane 1 under test, lane 2 (CHORDS only) is the reference chord; a lane's pool is read at its hits (once a beat), so every check sits half a beat after one.

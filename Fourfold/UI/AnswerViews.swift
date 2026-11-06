@@ -89,7 +89,7 @@ struct MidiRootReadoutView: View {
         .frame(width: size.width, height: size.height)
         .accessibilityElement(children: .ignore)
         .accessibilityHidden(r.spoken == nil)
-        .accessibilityLabel(r.spoken ?? "")
+        .accessibilityLabel(r.spoken.map { $0 + ", lane \(lane + 1)" } ?? "")   // four cards carry one: the lane is part of the name
     }
 }
 

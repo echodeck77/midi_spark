@@ -176,7 +176,8 @@ struct FourfoldRootView: View {
                                                    au?.editDocument { $0.euclideousSourcePlan = p }
                                                    publish()
                                                },
-                                               onSetSourcePlan: { p in   // Sources panel v2 §1.6: a switch / MODE / PICK key — one discrete undo step; store the v2 plan
+                                               onSetSourcePlan: { p in   // a PICK key / OCTAVES — one discrete undo step; store the plan
+                                                   guard p != euclideousSourcePlanResolvedUI else { return }   // UNDO-6: a tap that changes nothing (a 17th PICK key) is not an edit
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    euclideousSourcePlan = p
                                                    au?.editDocument { $0.euclideousSourcePlan = p }
