@@ -90,12 +90,16 @@ final class CardBackReviewTests: XCTestCase {
         }
     }
 
-    /// Every header group stays inside its container at every width the page lays out un-scaled (portrait from 480 wide → container 448; landscape from 760), in whichever layout (A, B or C) is chosen. (TAB STRIP 2026-10-29: the three-row D is retired.)
+    /// Every header group stays inside its container at every size the page lays out UN-SCALED — i.e. at or above a reference in both dimensions (`euclideousScaleToFit`, scale-to-fit ferry 2026-10-26: landscape 1190×726, portrait 814×1102;
+    /// below either dimension the whole page SCALES rather than reflowing, so the header is never laid out at a narrower container in production). The only kinds reachable un-scaled are therefore **A** (landscape — the container is always ≥ A's
+    /// need) and **B** (portrait — `euclideousHeaderKind` only returns A when landscape). The compact **C** (and the retired **D**) need a container narrower than any un-scaled size, so they only ever appear when the page is scaled down; the
+    /// ladder's C/D BRANCHES are covered by `testTheLadderNeverChoosesTheRetiredThreeRowLayout`, which drives `euclideousHeaderKind` directly. (The portrait sweep was silently skipped before — its height sat 2 pt under the portrait reference.)
     func testEveryHeaderGroupStaysInsideTheContainerAtEveryUnscaledWidth() {
         var overflow: [String] = [], kinds = Set<String>()
         for view in stride(from: 480, through: 1376, by: 4) {
             for landscape in [false, true] {
-                let size = landscape ? CGSize(width: CGFloat(view), height: 480 + CGFloat(view) / 4) : CGSize(width: CGFloat(view), height: 1100)
+                // portrait: a height above the portrait reference (1102) AND above the widest view, so the whole un-scaled width band stays portrait-shaped (was 1100 — 2 pt under the reference, which scaled EVERY portrait size and skipped them all)
+                let size = landscape ? CGSize(width: CGFloat(view), height: 480 + CGFloat(view) / 4) : CGSize(width: CGFloat(view), height: 1400)
                 if euclideousScaleToFit(size).scaled || landscape != (size.width > size.height) { continue }
                 let p = euclideousPageLayout(size: size)
                 let cw = size.width - 32
@@ -109,7 +113,7 @@ final class CardBackReviewTests: XCTestCase {
             }
         }
         XCTAssertTrue(overflow.isEmpty, "a header group runs past the container: \(overflow.prefix(4))")
-        XCTAssertEqual(kinds, ["a", "b", "c"], "every layout the ladder chooses is exercised")
+        XCTAssertEqual(kinds, ["a", "b"], "un-scaled, the page lays the header out only at A (landscape) and B (portrait); C/D are scaled-only — see testTheLadderNeverChoosesTheRetiredThreeRowLayout")
     }
     /// TAB STRIP (2026-10-29): the three-row D existed to give the PATTERN | MIX switch its own row; the ladder never chooses it now (its layout code and top stay, unreachable).
     func testTheLadderNeverChoosesTheRetiredThreeRowLayout() {
