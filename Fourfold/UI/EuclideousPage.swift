@@ -4385,12 +4385,13 @@ struct EuclideousPage: View {
         var input = EuclideousRestartEditorInput(lane: idx, line: line, laneColors: laneAccents, size: CGSize(width: width, height: height), scheduleSet: restartScheduleSet, barBeats: clock.beatsPerBar,
                                                  beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: running)
         input.openedFromRhythm = restartEditorOpenedFromRhythm
-        return AnyView(EuclideousRestartEditorView(input: input, focus: $restartFocus, onEdit: { restartEdit(idx, $0) },
+        return AnyView(EuclideousRestartEditorView(input: input, focus: $restartFocus, onEdit: { restartEdit(idx, $0, $1) },
                                                    onClose: { restartEditorLane = nil; restartFocus = .tile(lane: idx, rhythm: restartEditorOpenedFromRhythm) }))
     }
-    private func restartEdit(_ idx: Int, _ e: EuclideousRestartEdit) {
+    /// §3: `newStep` true opens a fresh undo checkpoint (a discrete tap, or a drag's first update); false writes into the step already open (a drag's later updates), so a whole count-chip drag is ONE undo step.
+    private func restartEdit(_ idx: Int, _ e: EuclideousRestartEdit, _ newStep: Bool = true) {
         let pin = restartPin(idx)
-        editStep(idx, true) { l in euclideousApplyRestartEdit(e, to: &l, lane: idx, pin: pin) }
+        editStep(idx, newStep) { l in euclideousApplyRestartEdit(e, to: &l, lane: idx, pin: pin) }
     }
     /// What an unpinned lane's chains resolve to (the migration the 4 Hz poll would apply) — stored in the same step as the first restart edit.
     private func restartPin(_ idx: Int) -> (rhythm: EuclideousRestartChain, melody: EuclideousRestartChain)? {

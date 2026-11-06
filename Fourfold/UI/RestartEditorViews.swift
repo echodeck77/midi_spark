@@ -34,6 +34,57 @@ struct EuclideousFreePill: View {
     }
 }
 
+/// RESTARTS EDITOR V2 §3 — a count chip: a tap steps the value (wrapping 8 → 1), a vertical drag sets it live (6 pt to begin, 12 pt a step, one undo step), a long press (≥ 0.5 s, then lift) removes the link. The drag is a `highPriorityGesture` so it wins over
+/// any gesture on a view behind it. The value redraws from the document as the drag writes it. (Gesture FEEL is device-owed — there is no macOS test reach.)
+struct EuclideousCountChipView: View {
+    let value: Int
+    let frame: CGRect
+    let accent: Color
+    let dim: Double
+    let hit: Bool
+    let label: String
+    let onTap: () -> Void
+    let onDrag: (Int, Bool) -> Void      // (new value, firstUpdate — true opens a fresh undo step)
+    let onRemove: () -> Void
+
+    @State private var dragging = false
+    @State private var startValue = 0
+    @State private var pressStart: Date? = nil
+    @State private var lastEmitted = Int.min
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x121318)).offset(y: 1)   // the 1 pt drop edge peeking below
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x343841))
+            Text("\(value)").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+        }
+        .frame(width: frame.width, height: frame.height)
+        .contentShape(Rectangle())
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { v in
+                    if pressStart == nil { pressStart = Date(); startValue = value; dragging = false; lastEmitted = Int.min }
+                    if abs(v.translation.height) >= 6 {
+                        let nv = euclideousRestartCountChipDragValue(startValue: startValue, translationY: v.translation.height, hit: hit)
+                        if nv != lastEmitted { onDrag(nv, !dragging); dragging = true; lastEmitted = nv }
+                    }
+                }
+                .onEnded { v in
+                    let held = (pressStart.map { Date().timeIntervalSince($0) } ?? 0) >= 0.5
+                    if !dragging, abs(v.translation.height) < 6, abs(v.translation.width) < 6 { if held { onRemove() } else { onTap() } }
+                    dragging = false; pressStart = nil; lastEmitted = Int.min
+                }
+        )
+        .offset(x: frame.minX, y: frame.minY)
+        .opacity(dim)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityHint(EuclideousRestartEditorAX.linkHint)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: EuclideousRestartEditorAX.removeLink) { onRemove() }
+    }
+}
+
 /// VoiceOver focus targets: a section of the editor (focus goes to the tapped tile's section when it opens), or a tile (focus goes back to it when it closes).
 enum EuclideousRestartFocus: Hashable {
     case section(rhythm: Bool)
@@ -58,7 +109,8 @@ struct EuclideousRestartEditorInput {
 struct EuclideousRestartEditorView: View {
     let input: EuclideousRestartEditorInput
     let focus: AccessibilityFocusState<EuclideousRestartFocus?>.Binding
-    let onEdit: (EuclideousRestartEdit) -> Void
+    /// `newStep` true = a fresh undo checkpoint (a discrete tap, or the FIRST update of a drag); false = write into the step already open (a drag's later updates), so a whole drag is one undo step.
+    let onEdit: (EuclideousRestartEdit, Bool) -> Void
     let onClose: () -> Void
 
     private var accent: Color { input.laneColors[input.lane % max(1, input.laneColors.count)] }
@@ -111,7 +163,7 @@ struct EuclideousRestartEditorView: View {
                 .frame(width: b.width, height: b.height)
                 .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))
                 .contentShape(Rectangle())
-                .onTapGesture { onEdit(.withRhythm) }
+                .onTapGesture { onEdit(.withRhythm, true) }
                 .offset(x: b.minX, y: b.minY)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(EuclideousRestartEditorAX.withRhythm(on: on))
@@ -128,13 +180,14 @@ struct EuclideousRestartSectionView: View {
     let rhythm: Bool
     let settings: EuclideousRestartSettings
     let showsTimeline: Bool
-    let onEdit: (EuclideousRestartEdit) -> Void
+    let onEdit: (EuclideousRestartEdit, Bool) -> Void
 
     private var accent: Color { input.laneColors[input.lane % max(1, input.laneColors.count)] }
     private var chain: EuclideousRestartChain { rhythm ? settings.rhythm : settings.melody }
     private var active: Bool { rhythm ? settings.rhythmActive : settings.melodyActive }
     private var unitIndex: Int { rhythm ? [EuclideousRhythmRestartUnit.pass, .bar, .riff].firstIndex(of: settings.rhythmUnit) ?? 0 : [EuclideousMelodyRestartUnit.hit, .pass, .bar].firstIndex(of: settings.melodyUnit) ?? 0 }
     private var unitWord: String { rhythm ? settings.rhythmUnit.word : settings.melodyUnit.word }
+    private var isHitUnit: Bool { !rhythm && settings.melodyUnit == .hit }   // the link ladder is 1…8 for HIT, [1,2,3,4,6,8] otherwise
     private var readsSource: Bool { rhythm ? settings.rhythmUnit.readsSource : settings.melodyUnit.readsSource }
     private var sourceLane: Int { rhythm ? settings.rhythmSource : settings.melodySource }
     /// §2.2: an inactive (FREE) chain dims its unit chips, source squares, count chips, + box and timeline to 42 %; the FREE pill and name stay full strength.
@@ -146,7 +199,13 @@ struct EuclideousRestartSectionView: View {
             freePill
             ForEach(0..<3, id: \.self) { i in chip(i) }
             if readsSource { ForEach(0..<4, id: \.self) { i in sourceSquare(i) } }
-            ForEach(Array(0..<max(0, chain.count)), id: \.self) { slot in countChip(slot) }
+            ForEach(Array(0..<max(0, chain.count)), id: \.self) { slot in
+                EuclideousCountChipView(value: Int(chain.link(slot)), frame: frames.countChips[slot], accent: accent, dim: dim, hit: isHitUnit,
+                                        label: EuclideousRestartEditorAX.link(rhythm: rhythm, slot: slot, value: Int(chain.link(slot)), unitWord: unitWord),
+                                        onTap: { onEdit(.tapLink(rhythm: rhythm, slot: slot), true) },
+                                        onDrag: { v, first in onEdit(.setLink(rhythm: rhythm, slot: slot, value: v), first) },
+                                        onRemove: { if chain.count > 1 { onEdit(.removeLink(rhythm: rhythm, slot: slot), true) } })
+            }
             if chain.count < 4 { addBox }
             if showsTimeline { timeline }
         }
@@ -167,7 +226,7 @@ struct EuclideousRestartSectionView: View {
         return EuclideousFreePill(free: !active, accent: accent)
             .frame(width: r.width, height: r.height)
             .contentShape(Rectangle())
-            .onTapGesture { onEdit(.toggleOn(rhythm: rhythm)) }
+            .onTapGesture { onEdit(.toggleOn(rhythm: rhythm), true) }
             .offset(x: r.minX, y: r.minY)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(EuclideousRestartEditorAX.freePill(rhythm: rhythm, free: !active))
@@ -180,7 +239,7 @@ struct EuclideousRestartSectionView: View {
             .frame(width: r.width, height: r.height)
             .background(RoundedRectangle(cornerRadius: 6).fill(selected ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))   // §2.2: selected = lane colour @30 %, no outline
             .contentShape(Rectangle())
-            .onTapGesture { onEdit(.unit(rhythm: rhythm, index: i)) }
+            .onTapGesture { onEdit(.unit(rhythm: rhythm, index: i), true) }
             .offset(x: r.minX, y: r.minY)
             .opacity(dim)
             .accessibilityElement(children: .ignore)
@@ -203,32 +262,13 @@ struct EuclideousRestartSectionView: View {
         }
         .frame(width: r.width, height: r.height)
         .contentShape(Rectangle())
-        .onTapGesture { if !unavailable { onEdit(.source(rhythm: rhythm, lane: i)) } }
+        .onTapGesture { if !unavailable { onEdit(.source(rhythm: rhythm, lane: i), true) } }
         .offset(x: r.minX, y: r.minY)
         .opacity(dim)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(EuclideousRestartEditorAX.source(square: i, unavailable: unavailable))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .disabled(unavailable)   // VoiceOver reads "dimmed" (§9.2); the look is §7.4's dashed #3A3E47 stroke itself
-    }
-    /// A count chip — 44 × 28, radius 6, value 15 pt #F2F4F7 on a #343841 face over a 1 pt #121318 drop edge (offset y 1). A tap steps the value (§3's wrap / drag / long-press-remove arrive in the interaction slice).
-    private func countChip(_ slot: Int) -> some View {
-        let r = frames.countChips[slot], v = Int(chain.link(slot))
-        return ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x121318)).offset(y: 1)   // the drop edge peeking below
-            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x343841))
-            Text("\(v)").font(heavyMono(15)).foregroundColor(Color(hex: 0xF2F4F7))
-        }
-        .frame(width: r.width, height: r.height)
-        .contentShape(Rectangle())
-        .onTapGesture { onEdit(.tapLink(rhythm: rhythm, slot: slot)) }
-        .offset(x: r.minX, y: r.minY)
-        .opacity(dim)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(EuclideousRestartEditorAX.link(rhythm: rhythm, slot: slot, value: v, unitWord: unitWord))
-        .accessibilityHint(EuclideousRestartEditorAX.linkHint)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: EuclideousRestartEditorAX.removeLink) { onEdit(.removeLink(rhythm: rhythm, slot: slot)) }
     }
     /// The add box — 28 × 28, shown only when there are fewer than four links.
     private var addBox: some View {
@@ -237,7 +277,7 @@ struct EuclideousRestartSectionView: View {
             .frame(width: r.width, height: r.height)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
             .contentShape(Rectangle())
-            .onTapGesture { onEdit(.addLink(rhythm: rhythm)) }
+            .onTapGesture { onEdit(.addLink(rhythm: rhythm), true) }
             .offset(x: r.minX, y: r.minY)
             .opacity(dim)
             .accessibilityElement(children: .ignore)

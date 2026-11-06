@@ -172,22 +172,22 @@ final class RestartUnitsModelTests: XCTestCase {
         var r2 = r; r2.restartRhythmSource = 2
         XCTAssertTrue(euclideousLockDeviated(line: r2, from: fr), "RIFF does read it: another lane's riff is a different restart")
     }
-    /// Spec §7.5: link edits never turn the switch on. On a lane whose switch was never touched (nil) and whose chain is empty, the switch reads OFF — a "+" must leave it off.
-    func testAddingALinkNeverTurnsTheSwitchOn() {
+    /// RESTARTS EDITOR V2 §3 (replaces RESTART UNITS §7.5 for additive edits): "+" on a FREE row (switch never touched, chain empty) turns the chain LIVE with a 1.
+    func testAddingALinkOnAFreeRowTurnsItLive() {
         for rhythm in [true, false] {
             var a = EuclidLine(); a.restartRhythmBars = []; a.restartMelodyPasses = []
             XCTAssertFalse(rhythm ? a.restartRhythmOnResolved : a.restartMelodyOnResolved)
             euclideousApplyRestartEdit(.addLink(rhythm: rhythm), to: &a, lane: 0, pin: nil)
-            XCTAssertFalse(rhythm ? a.restartRhythmOnResolved : a.restartMelodyOnResolved, "a link edit does not turn the switch on")
+            XCTAssertTrue(rhythm ? a.restartRhythmOnResolved : a.restartMelodyOnResolved, "§3: + on a FREE row turns it live")
             XCTAssertEqual(rhythm ? a.restartRhythmChainResolved.links : a.restartMelodyChainResolved.links, [1], "the link is added")
         }
     }
-    /// A tap that changes nothing must change nothing — a pin alone is not an edit (it would record an undo step and write the document).
+    /// A tap that changes nothing must change nothing — a pin alone is not an edit (it would record an undo step and write the document). (§2.2 chip order: RHYTHM = PASS 0 · BAR 1 · RIFF 2.)
     func testANoOpTapOnAnUnpinnedLaneLeavesTheLineAlone() {
         var l = EuclidLine(); l.restartRhythmUnit = .bar
         let before = l
         let pin = (rhythm: EuclideousRestartChain.from([2]), melody: EuclideousRestartChain.free)
-        let changed = euclideousApplyRestartEdit(.unit(rhythm: true, index: 0), to: &l, lane: 0, pin: pin)
+        let changed = euclideousApplyRestartEdit(.unit(rhythm: true, index: 1), to: &l, lane: 0, pin: pin)   // index 1 = BAR (already selected) → no-op
         XCTAssertFalse(changed); XCTAssertEqual(l, before, "the line is untouched, pin included")
         var k = EuclidLine()
         XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: true, index: 2), to: &k, lane: 0, pin: pin), "a real first edit still pins")

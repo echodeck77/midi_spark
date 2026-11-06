@@ -107,42 +107,63 @@ final class RestartEditorUITests: XCTestCase {
         XCTAssertFalse(euclideousApplyRestartEdit(.source(rhythm: true, lane: 2), to: &bar, lane: 0, pin: nil), "BAR reads no source: the squares are not shown")
     }
     func testLinkSteppingForBothValueSets() {
+        // RESTARTS EDITOR V2 §3: a tap WRAPS (8 → 1) and never removes
         var l = pinned(); l.restartRhythmBars = [1]
         var seen: [[UInt8]] = []
         for _ in 0..<7 { euclideousApplyRestartEdit(.tapLink(rhythm: true, slot: 0), to: &l, lane: 0, pin: nil); seen.append(l.restartRhythmBars ?? []) }
-        XCTAssertEqual(seen, [[2], [3], [4], [6], [8], [], []], "1 → 2 → 3 → 4 → 6 → 8, one more tap removes the link (a tap on the now-empty slot does nothing)")
+        XCTAssertEqual(seen, [[2], [3], [4], [6], [8], [1], [2]], "1 → 2 → 3 → 4 → 6 → 8 → wraps to 1 → 2 (never removed)")
         var h = pinned(); h.restartMelodyUnit = .hit; h.restartMelodyPasses = [1]
         var hs: [[UInt8]] = []
         for _ in 0..<8 { euclideousApplyRestartEdit(.tapLink(rhythm: false, slot: 0), to: &h, lane: 0, pin: nil); hs.append(h.restartMelodyPasses ?? []) }
-        XCTAssertEqual(hs, [[2], [3], [4], [5], [6], [7], [8], []], "HIT steps 1 … 8")
-        // later links move left; removing the last link turns the switch off
+        XCTAssertEqual(hs, [[2], [3], [4], [5], [6], [7], [8], [1]], "HIT steps 1 … 8 then wraps to 1")
+        // a later link is untouched by a wrap of an earlier one
         var m = pinned(); m.restartRhythmBars = [8, 3]
         euclideousApplyRestartEdit(.tapLink(rhythm: true, slot: 0), to: &m, lane: 0, pin: nil)
-        XCTAssertEqual(m.restartRhythmBars, [3], "[8, 3] → tap link 1 removes it, the next moves left")
-        XCTAssertNotEqual(m.restartRhythmOn, false)
-        euclideousApplyRestartEdit(.tapLink(rhythm: true, slot: 0), to: &m, lane: 0, pin: nil)
-        XCTAssertEqual(m.restartRhythmBars, [4])
+        XCTAssertEqual(m.restartRhythmBars, [1, 3], "[8, 3] → link 1 wraps 8 → 1, link 2 stays"); XCTAssertNotEqual(m.restartRhythmOn, false)
         var last = pinned(); last.restartRhythmBars = [8]
         euclideousApplyRestartEdit(.tapLink(rhythm: true, slot: 0), to: &last, lane: 0, pin: nil)
-        XCTAssertEqual(last.restartRhythmBars, []); XCTAssertEqual(last.restartRhythmOn, false, "removing the last link turns the switch off")
+        XCTAssertEqual(last.restartRhythmBars, [1], "the only link wraps, never removed"); XCTAssertTrue(last.restartRhythmOnResolved, "and stays on")
         // + appends a 1, up to four
         var p = pinned()
         for _ in 0..<5 { euclideousApplyRestartEdit(.addLink(rhythm: false), to: &p, lane: 0, pin: nil) }
         XCTAssertEqual(p.restartMelodyPasses, [1, 1, 1, 1])
     }
-    func testTheSwitchAndWithRhythm() {
+    func testTheFreePillAndWithRhythm() {
         var l = pinned()
         XCTAssertTrue(euclideousApplyRestartEdit(.toggleOn(rhythm: true), to: &l, lane: 0, pin: nil))
         XCTAssertEqual(l.restartRhythmBars, [1], "turning on a chain with no links also appends a 1"); XCTAssertTrue(l.restartRhythmOnResolved)
         XCTAssertTrue(euclideousApplyRestartEdit(.toggleOn(rhythm: true), to: &l, lane: 0, pin: nil))
         XCTAssertEqual(l.restartRhythmBars, [1], "off keeps its links"); XCTAssertFalse(l.restartRhythmOnResolved)
+        // §3: a tap on the FREE (switched-off) row now turns it LIVE (and steps the link)
         euclideousApplyRestartEdit(.tapLink(rhythm: true, slot: 0), to: &l, lane: 0, pin: nil)
-        XCTAssertFalse(l.restartRhythmOnResolved, "an edit to a switched-off row does not turn the switch on"); XCTAssertEqual(l.restartRhythmBars, [2])
-        euclideousApplyRestartEdit(.toggleOn(rhythm: true), to: &l, lane: 0, pin: nil)
-        XCTAssertEqual(l.restartRhythmBars, [2], "back on restores them"); XCTAssertTrue(l.restartRhythmOnResolved)
+        XCTAssertTrue(l.restartRhythmOnResolved, "§3: a FREE-row edit turns it live"); XCTAssertEqual(l.restartRhythmBars, [2])
         var m = pinned()
         XCTAssertTrue(euclideousApplyRestartEdit(.withRhythm, to: &m, lane: 0, pin: nil)); XCTAssertTrue(m.restartMelodyWithRhythmResolved)
         XCTAssertTrue(euclideousApplyRestartEdit(.withRhythm, to: &m, lane: 0, pin: nil)); XCTAssertFalse(m.restartMelodyWithRhythmResolved)
+    }
+    /// §3 interaction: the count-chip drag helper, the wrap, and "any FREE-row edit turns it live".
+    func testTest31TheCountChipDragWrapAndFreeRowWaking() {
+        // the drag helper: 6 pt to begin, 12 pt a step, up increases, clamped to the ladder's ends
+        XCTAssertEqual(euclideousRestartCountChipDragValue(startValue: 2, translationY: 0, hit: false), 2, "under 6 pt: no change")
+        XCTAssertEqual(euclideousRestartCountChipDragValue(startValue: 2, translationY: -6, hit: false), 3, "one step up at 6 pt (2 → 3)")
+        XCTAssertEqual(euclideousRestartCountChipDragValue(startValue: 2, translationY: -18, hit: false), 4, "two steps (2 → 3 → 4)")
+        XCTAssertEqual(euclideousRestartCountChipDragValue(startValue: 4, translationY: -6, hit: false), 6, "the non-HIT ladder skips 5 (4 → 6)")
+        XCTAssertEqual(euclideousRestartCountChipDragValue(startValue: 4, translationY: -6, hit: true), 5, "the HIT ladder includes 5 (4 → 5)")
+        XCTAssertEqual(euclideousRestartCountChipDragValue(startValue: 2, translationY: 6, hit: false), 1, "down one step (2 → 1)")
+        XCTAssertEqual(euclideousRestartCountChipDragValue(startValue: 1, translationY: 200, hit: false), 1, "clamped at the bottom")
+        XCTAssertEqual(euclideousRestartCountChipDragValue(startValue: 8, translationY: -200, hit: true), 8, "clamped at the top")
+        // .setLink snaps to the ladder and wakes a switched-off (FREE) row
+        var d = pinned(); d.restartRhythmBars = [2]; d.restartRhythmOn = false
+        XCTAssertTrue(euclideousApplyRestartEdit(.setLink(rhythm: true, slot: 0, value: 6), to: &d, lane: 0, pin: nil))
+        XCTAssertEqual(d.restartRhythmBars, [6]); XCTAssertTrue(d.restartRhythmOnResolved, "a drag on a FREE row turns it live")
+        XCTAssertFalse(euclideousApplyRestartEdit(.setLink(rhythm: true, slot: 0, value: 6), to: &d, lane: 0, pin: nil), "setting the same value is a no-op (one undo step, no redundant write)")
+        // a unit tap on an empty free chain activates it with a 1
+        var u = pinned()
+        XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: false, index: 0), to: &u, lane: 0, pin: nil))
+        XCTAssertEqual(u.restartMelodyUnit, .hit); XCTAssertEqual(u.restartMelodyPasses, [1]); XCTAssertTrue(u.restartMelodyOnResolved, "a unit tap woke the empty chain")
+        // the only link is never removed by a long-press
+        var one = pinned(); one.restartRhythmBars = [3]; one.restartRhythmOn = true
+        XCTAssertFalse(euclideousApplyRestartEdit(.removeLink(rhythm: true, slot: 0), to: &one, lane: 0, pin: nil), "the only link stays"); XCTAssertEqual(one.restartRhythmBars, [3])
     }
     func testTheFirstEditOfAnUnpinnedLanePinsItsChainsInTheSameStep() {
         var l = EuclidLine()   // a pre-feature lane: both chains nil
@@ -254,14 +275,13 @@ final class RestartEditorUITests: XCTestCase {
 
     // MARK: adversarial review (2026-11-04)
 
-    /// "Remove link" is ONE edit: the neighbouring link keeps its value (the old walk of taps stepped it on: [2, 3] → [4]).
+    /// "Remove link" is ONE edit: the neighbouring link keeps its value (the old walk of taps stepped it on: [2, 3] → [4]). §3: it never removes the ONLY link (the chain is turned off with the FREE pill, not by emptying it).
     func testRemoveLinkRemovesExactlyThatLinkAndNothingElse() {
         var l = EuclidLine(); l.restartRhythmBars = [2, 3]; l.restartRhythmOn = true
         XCTAssertTrue(euclideousApplyRestartEdit(.removeLink(rhythm: true, slot: 0), to: &l, lane: 0, pin: nil))
         XCTAssertEqual(l.restartRhythmBars, [3]); XCTAssertEqual(l.restartRhythmOn, true, "the switch stays on while a link remains")
-        XCTAssertTrue(euclideousApplyRestartEdit(.removeLink(rhythm: true, slot: 0), to: &l, lane: 0, pin: nil))
-        XCTAssertEqual(l.restartRhythmBars, []); XCTAssertEqual(l.restartRhythmOn, false, "removing the last link switches the chain off")
-        XCTAssertFalse(euclideousApplyRestartEdit(.removeLink(rhythm: true, slot: 0), to: &l, lane: 0, pin: nil), "nothing to remove: no edit")
+        XCTAssertFalse(euclideousApplyRestartEdit(.removeLink(rhythm: true, slot: 0), to: &l, lane: 0, pin: nil), "§3: the only link is never removed")
+        XCTAssertEqual(l.restartRhythmBars, [3]); XCTAssertEqual(l.restartRhythmOn, true, "and the chain stays on")
         var m = EuclidLine(); m.restartMelodyPasses = [5, 7]; m.restartMelodyUnit = .hit; m.restartMelodyOn = true
         XCTAssertTrue(euclideousApplyRestartEdit(.removeLink(rhythm: false, slot: 1), to: &m, lane: 1, pin: nil))
         XCTAssertEqual(m.restartMelodyPasses, [5], "a HIT link keeps its value")

@@ -182,13 +182,23 @@ func euclideousRestartEditorFramesV2(size: CGSize) -> EuclideousRestartEditorFra
 // MARK: - what a tap does (§7.4) — one undo step each
 
 enum EuclideousRestartEdit: Equatable {
-    case unit(rhythm: Bool, index: Int)       // RHYTHM chips: BAR, PASS, RIFF · MELODY chips: PASS, BAR, HIT
+    case unit(rhythm: Bool, index: Int)       // §2.2 order — RHYTHM chips: PASS, BAR, RIFF · MELODY chips: HIT, PASS, BAR
     case source(rhythm: Bool, lane: Int)
-    case toggleOn(rhythm: Bool)
+    case toggleOn(rhythm: Bool)               // the FREE pill: on ↔ off (appends a 1 when turning an empty chain on)
     case withRhythm
-    case tapLink(rhythm: Bool, slot: Int)
+    case tapLink(rhythm: Bool, slot: Int)     // §3: steps the value, WRAPPING 8 → 1 (never removes)
+    case setLink(rhythm: Bool, slot: Int, value: Int)  // §3: a vertical drag sets a value directly (snapped to the unit's ladder)
     case addLink(rhythm: Bool)
-    case removeLink(rhythm: Bool, slot: Int)  // VoiceOver's "Remove link": ONE edit, not a walk of taps
+    case removeLink(rhythm: Bool, slot: Int)  // §3: a long press (or VoiceOver's "Remove link") — ONE edit; never the only link
+}
+/// §3: the value a vertical drag of a count chip lands on — `startValue` stepped through the unit's ladder, 6 pt to begin and 12 pt a step (up increases), clamped to the ladder's ends. A pure function so the drag's arithmetic is tested, not the gesture.
+func euclideousRestartCountChipDragValue(startValue: Int, translationY: CGFloat, hit: Bool) -> Int {
+    let ladder = euclideousRestartLinkLadder(hit: hit)
+    let start = ladder.firstIndex(of: UInt8(clamping: max(0, startValue))) ?? 0
+    let d = -translationY                                     // up (negative translation) increases
+    let steps = abs(d) < 6 ? 0 : Int((abs(d) - 6) / 12) + 1
+    let idx = max(0, min(ladder.count - 1, start + (d < 0 ? -steps : steps)))
+    return Int(ladder[idx])
 }
 /// Is lane `lane`'s source square unavailable (§7.4: the lane itself on RHYTHM PASS)?
 func euclideousRestartSourceUnavailable(rhythm: Bool, line l: EuclidLine, ownLane: Int, square: Int) -> Bool {
@@ -206,10 +216,20 @@ func euclideousApplyRestartEdit(_ e: EuclideousRestartEdit, to l: inout EuclidLi
     l = work
     return true
 }
-/// Spec 7.5: a link edit never turns a switch on, so a switch that was never touched (nil — it reads on exactly when the chain holds a link) is made explicit before the links change under it.
+/// `.removeLink` must not reactivate a chain, so a switch that was never touched (nil — it reads on exactly when the chain holds a link) is made explicit before the links change under it.
 private func fixSwitch(_ l: inout EuclidLine, rhythm: Bool) {
     if rhythm { if l.restartRhythmOn == nil { l.restartRhythmOn = l.restartRhythmOnResolved } }
     else if l.restartMelodyOn == nil { l.restartMelodyOn = l.restartMelodyOnResolved }
+}
+/// §3: any FREE-row edit turns the chain LIVE in the same step — the switch on, a 1 appended if it had no links. (Replaces RESTART UNITS §7.5's "a link edit never turns a switch on" for every edit but `.removeLink`.)
+private func turnChainLive(_ l: inout EuclidLine, rhythm: Bool) {
+    if rhythm {
+        l.restartRhythmOn = true
+        if l.restartRhythmChainResolved.isFree { l.restartRhythmBars = [1] }
+    } else {
+        l.restartMelodyOn = true
+        if l.restartMelodyChainResolved.isFree { l.restartMelodyPasses = [1] }
+    }
 }
 private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: inout EuclidLine, lane: Int) {
     let own = max(0, min(3, lane))
@@ -228,10 +248,12 @@ private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: in
             }
             l.restartMelodyUnit = units[index]
         }
+        turnChainLive(&l, rhythm: rhythm)   // §3: choosing a unit on a FREE row wakes it (a 1 is appended if it had no links)
     case .source(let rhythm, let square):
         guard square >= 0, square < 4, !euclideousRestartSourceUnavailable(rhythm: rhythm, line: l, ownLane: lane, square: square) else { return }
         if rhythm { guard l.restartRhythmUnitResolved.readsSource, l.restartRhythmSourceResolved(ownLane: lane) != square else { return }; l.restartRhythmSource = square == own ? nil : square }
         else { guard l.restartMelodyUnitResolved.readsSource, l.restartMelodySourceResolved(ownLane: lane) != square else { return }; l.restartMelodySource = square == own ? nil : square }
+        turnChainLive(&l, rhythm: rhythm)   // §3
     case .toggleOn(let rhythm):
         if rhythm {
             let turningOn = !l.restartRhythmOnResolved
@@ -248,26 +270,31 @@ private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: in
         let hit = !rhythm && l.restartMelodyUnitResolved == .hit
         var links = (rhythm ? l.restartRhythmChainResolved : l.restartMelodyChainResolved).links
         guard slot >= 0, slot < links.count else { return }
-        fixSwitch(&l, rhythm: rhythm)
         let ladder = euclideousRestartLinkLadder(hit: hit)
-        if let i = ladder.firstIndex(of: links[slot]), i + 1 < ladder.count { links[slot] = ladder[i + 1] }
-        else {
-            links.remove(at: slot)
-            if links.isEmpty { if rhythm { l.restartRhythmOn = false } else { l.restartMelodyOn = false } }   // removing the last link also turns the switch off
-        }
+        if let i = ladder.firstIndex(of: links[slot]) { links[slot] = ladder[(i + 1) % ladder.count] }   // §3: wrap 8 → 1, never remove
         if rhythm { l.restartRhythmBars = links } else { l.restartMelodyPasses = links }
+        turnChainLive(&l, rhythm: rhythm)   // §3: a tap on a FREE row's kept link wakes it
+    case .setLink(let rhythm, let slot, let value):
+        let hit = !rhythm && l.restartMelodyUnitResolved == .hit
+        var links = (rhythm ? l.restartRhythmChainResolved : l.restartMelodyChainResolved).links
+        guard slot >= 0, slot < links.count else { return }
+        let ladder = euclideousRestartLinkLadder(hit: hit)
+        let snapped = ladder.contains(UInt8(clamping: max(0, value))) ? UInt8(clamping: value) : (ladder.min(by: { abs(Int($0) - value) < abs(Int($1) - value) }) ?? links[slot])
+        guard snapped != links[slot] else { return }
+        links[slot] = snapped
+        if rhythm { l.restartRhythmBars = links } else { l.restartMelodyPasses = links }
+        turnChainLive(&l, rhythm: rhythm)
     case .addLink(let rhythm):
         var links = (rhythm ? l.restartRhythmChainResolved : l.restartMelodyChainResolved).links
         guard links.count < 4 else { return }
-        fixSwitch(&l, rhythm: rhythm)
         links.append(1)
         if rhythm { l.restartRhythmBars = links } else { l.restartMelodyPasses = links }
+        turnChainLive(&l, rhythm: rhythm)   // §3: + on a FREE row wakes it
     case .removeLink(let rhythm, let slot):
         var links = (rhythm ? l.restartRhythmChainResolved : l.restartMelodyChainResolved).links
-        guard slot >= 0, slot < links.count else { return }
-        fixSwitch(&l, rhythm: rhythm)
-        links.remove(at: slot)
-        if links.isEmpty { if rhythm { l.restartRhythmOn = false } else { l.restartMelodyOn = false } }   // removing the last link also turns the switch off
+        guard slot >= 0, slot < links.count, links.count > 1 else { return }   // §3: never remove the only link
+        fixSwitch(&l, rhythm: rhythm)   // a removal must not reactivate a switched-off chain
+        links.remove(at: slot)          // at least one link always remains (the count > 1 guard)
         if rhythm { l.restartRhythmBars = links } else { l.restartMelodyPasses = links }
     }
 }
