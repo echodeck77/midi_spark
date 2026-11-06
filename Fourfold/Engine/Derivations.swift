@@ -4062,8 +4062,11 @@ func euclideousWalkTagPlan(cfg: EuclideousWalkLaneConfig, ranks: [Int], beat: Do
         let rest = rank == 0
         if rest {
             var found = 0
+            // the nearest note behind/ahead INSIDE the lane's riff window (LEN columns from SHIFT, wrapping at the grid's width) — the window the walk plays, as the running plan's `heldRank` fallback reads it
+            let place = posMod(step - cfg.rotate, cfg.columns)
             for j in 1...len {
-                let r = rankAt(posMod(step + (right ? -j : j), len))
+                let col = place < len ? posMod(posMod(place + (right ? -j : j), len) + cfg.rotate, cfg.columns) : posMod(step + (right ? -j : j), len)
+                let r = rankAt(col)
                 if r >= 1 { found = r; break }
             }
             guard found >= 1 else { return nil }
