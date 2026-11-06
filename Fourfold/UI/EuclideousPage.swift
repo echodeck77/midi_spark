@@ -5287,25 +5287,27 @@ struct EuclideousPage: View {
         return AnyView(HStack(spacing: gap) {
             Text("MIDI").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
             HStack(spacing: gap) {
-                ForEach(0..<3, id: \.self) { i in
-                    let m = modes[i], sel = mode == m
-                    Text(euclideousInputsMidiModeLabel(m)).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.75)
-                        .foregroundColor(sel ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
-                        .frame(width: segW, height: segH)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(sel ? lane20(accent) : Color(hex: 0x2A2D34)))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(sel ? lane100(accent) : Color.clear, lineWidth: 1))
-                        .frame(width: segW, height: height)
-                        .contentShape(Rectangle())
-                        .onTapGesture { edit(idx) { $0.midiMode = m } }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(euclideousInputsMidiModeSpoken(m) + ", lane \(idx + 1)")
-                        .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+                HStack(spacing: gap) {
+                    ForEach(0..<3, id: \.self) { i in
+                        let m = modes[i], sel = mode == m
+                        Text(euclideousInputsMidiModeLabel(m)).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.75)
+                            .foregroundColor(sel ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
+                            .frame(width: segW, height: segH)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(sel ? lane20(accent) : Color(hex: 0x2A2D34)))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(sel ? lane100(accent) : Color.clear, lineWidth: 1))
+                            .frame(width: segW, height: height)
+                            .contentShape(Rectangle())
+                            .onTapGesture { edit(idx) { $0.midiMode = m } }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(euclideousInputsMidiModeSpoken(m) + ", lane \(idx + 1)")
+                            .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+                    }
                 }
+                MidiRootReadoutView(lane: idx, mode: mode, size: CGSize(width: readoutW, height: segH), live: answerLive)
+                    .frame(width: readoutW, height: height)
             }
-            MidiRootReadoutView(lane: idx, mode: mode, size: CGSize(width: readoutW, height: segH), live: answerLive)
-                .frame(width: readoutW, height: height)
+            .opacity(midiOn ? 1 : 0.4)   // 3.4: the segments and the readout, not the label; they stay tappable
         }
-        .opacity(midiOn ? 1 : 0.4)
         .frame(width: fullWidth, height: height))
     }
 

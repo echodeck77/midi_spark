@@ -156,7 +156,6 @@ extension Host {
     }
     func hold(_ notes: [UInt8]) { for n in notes { var m: [UInt8] = [0x90, n, 100]; au.scheduleMIDIEventBlock?(AUEventSampleTimeImmediate, 0, 3, &m) } }
     func release(_ notes: [UInt8]) { for n in notes { var m: [UInt8] = [0x80, n, 0]; au.scheduleMIDIEventBlock?(AUEventSampleTimeImmediate, 0, 3, &m) } }
-    func pedal(_ down: Bool) { var m: [UInt8] = [0xB0, 64, down ? 127 : 0]; au.scheduleMIDIEventBlock?(AUEventSampleTimeImmediate, 0, 3, &m) }   // CC64 on channel 1
 
     /// The regression oracle for engine changes: the default document and every factory preset, each rendered for 32 bars under a held C-major chord, hashing every MIDI byte the AU sends. Same hash = same sound.
     /// A chain of main-queue steps (load → publish → [let the AU rebuild its snapshot] → render), because the AU rebuilds on the main queue and a loop inside one block would starve it.
@@ -257,6 +256,7 @@ extension Host {
 let canonHandChords: [[UInt8]] = [[60, 64, 67], [65, 69, 72], [67, 71, 74], [62, 65, 69]]
 /// CHORD CANON (2026-10-31): a CHORDS progression that changes twice a bar through colours and the four borrowed chords, stacked ABOVE the held MIDI chord (so the delayed CHORDS layer meets the unshifted MIDI layer), and four
 /// lanes with their own DELAY and SLIP. `shapes` gives the lanes the 5 · 7 · 11 · 16 step lengths (and a PING-PONG and a BKW) so the unit's own-lap rule is exercised; otherwise the lanes share 9/16 · 5/12 · 7/16 · 11/16.
+/// (`slips` still sets the lanes' SLIP field — since the INPUTS ferry, 2026-11-06, the engine does not read it, so a document with slips plays as its slip-free twin: the CANON documents that use it changed by design.)
 func canonDocument(_ s: inout PluginState, unit: CanonUnit, delays: [Int], slips: [Int], shapes: Bool = false, plan: SourcePlan? = nil) {
     s.euclideousSourcePlan = plan ?? SourcePlan(midiOn: true, chordsOn: true, pickOn: false, keyOn: false, midiMode: .add, pickNotes: [])
     var cfg = s.euclideousChordSetsResolved[s.activeChordSetResolved]
@@ -383,9 +383,9 @@ extension Host {
 }
 
 /// ANSWER ferry (2026-11-02): the default document's four lanes with rows, CYCLE flags and TRADE set. `variant` picks the shape (see `goldenAnswer`); the lanes keep the default document's own rhythms and riff, so every difference is the ferry's.
-/// POOL ferry (2026-11-02): per-lane SOURCES masks (MIDI IN + CHORDS · CHORDS + KEY · PICK · all) and SUSTAIN on every lane (KEEP, STACK, KEEP, STACK). `plan` writes the page plan too (REPLACE with all four sources on and PICK notes).
+/// POOL ferry (2026-11-02): per-lane SOURCES masks (MIDI IN + CHORDS · CHORDS + KEY · PICK · all) (SUSTAIN on every lane was part of it until the INPUTS ferry, 2026-11-06, removed the stage). `plan` writes the page plan too (REPLACE with all four sources on and PICK notes).
 /// TWO CHORD GRIDS (2026-11-03): `grid2` puts three lanes on CHORDS 2 (MIDI IN + CHORDS 2 · CHORDS 2 + KEY · CHORDS 2 alone) and leaves lane 4 on CHORDS 1, and gives grid 2 its own 16-step progression with colours and borrowed chords on a
-/// different clock — so the per-lane build, the canon read and the SUSTAIN copy all run on the second grid.
+/// different clock — so the per-lane build and the canon read both run on the second grid.
 func poolDocument(_ s: inout PluginState, plan: Bool, grid2: Bool = false) {
     if plan { s.euclideousSourcePlan = SourcePlan(midiOn: true, chordsOn: true, pickOn: true, keyOn: true, midiMode: .replace, pickNotes: [72, 76, 79], midiOctaves: .keep) }
     var ls = s.euclideousLinesResolved
@@ -397,7 +397,7 @@ func poolDocument(_ s: inout PluginState, plan: Bool, grid2: Bool = false) {
         g.chordsColours = [2, 3, 1, 4, 6, 5, 0, 2, 3, 4, 1, 5, 6, 0, 2, 1]; g.chordsRate = .r1_4
         s.setEuclideousChordSet(1, g)
     }
-    for i in 0..<4 { ls[i].poolSrcMask = masks[i]; ls[i].poolSustainOn = true; ls[i].poolSustainMode = [EuclideousSustainMode.keep, .stack, .keep, .stack][i] }
+    for i in 0..<4 { ls[i].poolSrcMask = masks[i] }
     s.euclideousLines = ls
 }
 func answerDocument(_ s: inout PluginState, _ variant: Int) {
@@ -442,7 +442,8 @@ extension Host {
         func step(_ i: Int) {
             if i == docs.count {
                 fputs("GOLDEN ANSWER ALL: documents=\(docs.count) events=\(total) hash=\(String(all, radix: 16))\n", stderr)
-                exit(0)
+                goldenInputs()
+                return
             }
             let (name, edit) = docs[i]
             playing = false; for _ in 0..<8 { render(480) }
@@ -457,6 +458,56 @@ extension Host {
                 playing = false; for _ in 0..<8 { render(480) }
                 release([60, 64, 67])
                 fputs("GOLDEN ANSWER \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
+                all = (all ^ hash) &* 0x100000001b3; total += eventCount
+                DispatchQueue.main.async { step(i + 1) }
+            }
+        }
+        step(0)
+    }
+}
+
+extension Host {
+    /// INPUTS + HARMONY ferry (2026-11-06): each lane's own MIDI mode (ADD · REPLACE · ROOT) under the low-note hand of the OCTAVES documents, appended AFTER `GOLDEN ANSWER ALL` so every line above stays the oracle for "nothing else moved" (the CANON documents
+    /// that set SLIP and the ROOT-with-delayed-lanes document changed by design in this ferry: SLIP is no longer read). The chips are the lanes' own (`poolSrcMask`); the page plan has every switch on, as a migrated document does.
+    func goldenInputs() {
+        func lanes(_ s: inout PluginState, modes: [MidiMode?], masks: [UInt8?] = [nil, nil, nil, nil]) {
+            var ls = s.euclideousLinesResolved
+            for i in 0..<4 { ls[i].midiMode = modes[i]; ls[i].poolSrcMask = masks[i] }
+            s.euclideousLines = ls
+        }
+        func plan(_ mode: MidiMode) -> SourcePlan { SourcePlan(midiOn: true, chordsOn: true, pickOn: true, keyOn: true, midiMode: mode, pickNotes: [72, 76, 79], midiOctaves: .keep) }
+        let docs: [(String, (inout PluginState) -> Void)] = [
+            ("INPUTS ADD, REPLACE, ROOT and a lane without MIDI IN", { s in canonDocument(&s, unit: .bars, delays: [0, 0, 0, 0], slips: [0, 0, 0, 0], plan: plan(.add)); lanes(&s, modes: [.add, .replace, .root, .add], masks: [nil, nil, nil, 0b01110]) }),
+            ("INPUTS every lane ROOT, delayed lanes", { s in canonDocument(&s, unit: .bars, delays: [0, 1, 2, 4], slips: [0, 0, 0, 0], plan: plan(.add)); lanes(&s, modes: [.root, .root, .root, .root]) }),
+            ("INPUTS the document's REPLACE with one lane in ADD", { s in canonDocument(&s, unit: .bars, delays: [0, 0, 0, 0], slips: [0, 0, 0, 0], plan: plan(.replace)); lanes(&s, modes: [nil, .add, nil, nil]) }),
+            ("INPUTS REPLACE and ROOT on the second chord grid", { s in
+                canonDocument(&s, unit: .bars, delays: [0, 0, 1, 0], slips: [0, 0, 0, 0], plan: plan(.add)); poolDocument(&s, plan: false, grid2: true)
+                lanes(&s, modes: [.replace, .root, .add, .root], masks: [0b10001, 0b11000, 0b10001, 0b10011]) }),
+        ]
+        timer?.invalidate()
+        var all: UInt64 = 0xcbf29ce484222325, total = 0
+        func step(_ i: Int) {
+            if i == docs.count {
+                fputs("GOLDEN INPUTS ALL: documents=\(docs.count) events=\(total) hash=\(String(all, radix: 16))\n", stderr)
+                exit(0)
+            }
+            let (name, edit) = docs[i]
+            playing = false; for _ in 0..<8 { render(480) }
+            au.resetToFreshInit(); au.editDocument(edit)
+            publishDocument()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
+                for _ in 0..<8 { render(480) }
+                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                if CommandLine.arguments.contains("--dump") { dumpName = "INPUTS: " + name }
+                var held = 0
+                hold(rootHandNotes[0]); playing = true
+                for r in 0..<6400 {
+                    if r > 0, r % 400 == 0 { release(rootHandNotes[held % rootHandNotes.count]); held += 1; hold(rootHandNotes[held % rootHandNotes.count]) }
+                    render(480)
+                }
+                playing = false; for _ in 0..<8 { render(480) }
+                release(rootHandNotes[held % rootHandNotes.count])
+                fputs("GOLDEN INPUTS \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
                 all = (all ^ hash) &* 0x100000001b3; total += eventCount
                 DispatchQueue.main.async { step(i + 1) }
             }
@@ -600,7 +651,6 @@ extension Host {
                     if name.contains("PART SOLO") {   // PER-PART SOLO (MIX v2, 2026-11-05): the part mask changes every 40 windows through the page's live word — lane 1's riff alone, a lane + a part, a held notes part, then nothing — so the filter, the cut sweep and the dedupe run on the render thread
                         if w % 40 == 0 { au.setEuclideousPartSoloLive([0b0000_0001, 0b1000_0000, 0b0001_0100, 0, 0b0010_0010, 0][(w / 40) % 6]); au.setEuclideousSoloLive([0, 0b0010, 0, 0, 0b0100, 0][(w / 40) % 6]) }
                     }
-                    if name.contains("POOL") { if w % 400 == 100 { pedal(true) } else if w % 400 == 300 { pedal(false) } }   // the sustain pedal (CC64) — KEEP lanes take the pool, STACK lanes extend theirs, the hand keeps changing chord
                     if name.contains("hand"), w > 0, w % 400 == 0 { release(canonHandChords[handIdx % canonHandChords.count]); handIdx += 1; hold(canonHandChords[handIdx % canonHandChords.count]) }   // CANON: the hand changes chord
                     if name.contains("REPLAY") {   // a pass replays from the middle of the run to three-quarters of it: the replay itself, the live engine running silently underneath, and the hand-back
                         if w == 3200, let p = au.reelPassNumbers().last(where: { $0 >= 0 }) { au.reelSelectPass(p) }

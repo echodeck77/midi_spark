@@ -63,7 +63,7 @@ xcrun simctl terminate "$UDID" com.example.FFHarness 2>/dev/null || true
 xcrun simctl install "$UDID" "$APP"
 (xcrun simctl launch --console "$UDID" com.example.FFHarness "$@" > "$OUT/console.log" 2>&1 &)
 if [ "$1" = "--golden" ]; then
-  for i in $(seq 1 900); do grep -aq "GOLDEN ANSWER ALL" "$OUT/console.log" && break; sleep 1; done
+  for i in $(seq 1 900); do grep -aq "GOLDEN INPUTS ALL" "$OUT/console.log" && break; sleep 1; done
   grep -a "^GOLDEN" "$OUT/console.log" | tee "$OUT/golden.txt"
   echo "(compare with Scripts/fourfold-harness/golden.txt — or golden-keep.txt after --octaves-keep: diff Scripts/fourfold-harness/golden.txt $OUT/golden.txt)"
   exit 0

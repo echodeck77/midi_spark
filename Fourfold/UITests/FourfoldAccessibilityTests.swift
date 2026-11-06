@@ -31,8 +31,7 @@ enum FourfoldAuditAllowList {
         ("textClipped", "VEL", "MIX v2 (2026-11-05): the VEL slider's caption pill (7–10 pt, 19 × 10) — drawn whole in the pictures, the same family as GATE / TRANS; the prefix also matches the lower-right panel's VEL tab caption"),
         ("textClipped", "RIFF", "MIX ROWS: the part toggle's 8 pt caption (the element is 43 × 40) — drawn whole in the pictures; confirm on device"),
         ("textClipped", "SOLO", "the SOLO tile's 10 pt label (the card's own 40 × 40; MIX's 120 × 24) — drawn whole in every picture; the audit has flagged it since the POOL ferry — confirm on device"),
-        ("textClipped", "TAKE NOTHING NEW", "POOL tab SUSTAIN option caption (the spec's own 16 characters ≈ 96 pt in a ≈ 92 pt button: truncated, never shrunk) — read it on a narrow card"),
-        ("textClipped", "C MINOR", "CHORDS PAGE (2026-11-04): the page header's key name ('CHORDS · <key>', 14 pt heavy mono) and the app header's own key selector — drawn whole in the pictures; the same heavy tracked mono family as the other accepted captions — confirm on device"),
+        ("textClipped", "C MINOR", "HARMONY (2026-11-06): the page's key title (24 pt heavy mono, truncating) and the app header's own key button — drawn whole in the pictures; the same heavy tracked mono family as the other accepted captions — confirm on device"),
     ]
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
     /// letters are the "–" placeholders). More than this on any screen is a new unlabelled piece of text.
@@ -43,7 +42,7 @@ enum FourfoldAuditAllowList {
     /// of text, no new label). So a lane-tab screen accepts four cards' worth.
     static func unlocatedElementDetectionCeilingFor(screen: String) -> Int {
         if screen.contains("hocket popup") { return 80 }
-        if screen.contains("chords page") { return 16 }   // CHORDS PAGE (2026-11-04): a dialog over the lane cards — two STEP STRIPS (each an ignored container whose inner column numbers the audit counts) + the two 18-row grids give ~9 unlocated; the covered lane cards accept via `underTheEditor`
+        if screen.contains("harmony") { return 16 }   // HARMONY (2026-11-06): a dialog over the lane cards — two STEP STRIPS (each an ignored container whose inner column numbers the audit counts) + the two grids give ~9 unlocated; the covered lane cards accept via `underTheEditor`
         if screen.contains("restart editor") { return screen.hasPrefix("landscape") ? 56 : 66 }   // measured 2026-11-04: 46 landscape, 56 portrait (+10) — the modal editor hides the page behind it: its unlocated text is that page, and findings with an element are judged by frame (`modalFrame`)
         return screen.contains("lane tab") ? unlocatedElementDetectionCeiling * 4 + 4 : unlocatedElementDetectionCeiling   // four cards' worth + 4: the NOTES tab in portrait measured 24 on the iPad Pro 11 and 26 on the iPad mini (adversarial review, 2026-10-29)
     }
@@ -130,27 +129,40 @@ final class FourfoldAccessibilityTests: XCTestCase {
         for chip in ["Main: red riff, off", "Alt: blue riff, off"] { let c = app.buttons[chip]; if c.waitForExistence(timeout: 3) { c.tap() } }
     }
     private func open(_ button: String, expect: String) -> (XCUIApplication) -> Void { { app in app.buttons[button].tap(); XCTAssertTrue(app.staticTexts[expect].waitForExistence(timeout: 4), "\(button) did not open") } }
-    /// CHORDS PAGE (2026-11-04): open the page (SOURCES → the CHORDS row) and put GRID 1 on ADVANCE LOOP with RESTART
-    /// on, so every new control (the unit / rate / every chips, the lane squares, the switch, the step strip, the two
-    /// 18-row grids, the lane strip) exists when the audit looks. NOT modal (it covers only the lane cards — the header
-    /// and tab strip stay live), so `modalFrame` stays nil and the whole visible page is audited.
-    private func chordsPage(_ app: XCUIApplication) {
-        app.el("Sources").tap(); Thread.sleep(forTimeInterval: 0.6)
-        let edit = app.el("Edit chords")
-        XCTAssertTrue(edit.waitForExistence(timeout: 4), "the CHORDS row")
-        edit.tap()
-        let page = app.el("Chords")
-        XCTAssertTrue(page.waitForExistence(timeout: 4), "the chords page did not open")
-        modalFrame = page.frame   // the page is a dialog (§7.1): content OUTSIDE its frame is the surrounding app, accepted; the covered RHYTHM-tab lane controls INSIDE it are accepted via `underTheEditor`
-        let advLoop = app.el("Advance by loop")
-        if advLoop.waitForExistence(timeout: 3) { advLoop.tap() }
-        let restart = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart")).firstMatch
-        if restart.exists { restart.tap() }
+    /// HARMONY (2026-11-06): open the page from the header button and put GRID 1 on ADVANCE LOOP with RESTART on (through its pill's popover), then close the popover, so every new control (the root keys, the scale chips, the pills, the step strips, the
+    /// grids, PICK and MIDI IN) exists when the audit looks. The page is a dialog over the lane cards only (the header and tab strip stay live): `modalFrame` is its frame, so what lies outside it is the surrounding app.
+    private func harmonyPage(_ app: XCUIApplication) {
+        app.buttons["Harmony"].tap()
+        let page = app.descendants(matching: .alert)["Harmony"]
+        XCTAssertTrue(page.waitForExistence(timeout: 4), "the HARMONY page did not open")
+        modalFrame = page.frame
+        let pill = app.el("Grid 1 timing")
+        if pill.waitForExistence(timeout: 3) {
+            pill.tap(); Thread.sleep(forTimeInterval: 0.4)
+            let advLoop = app.el("Advance by loop")
+            if advLoop.waitForExistence(timeout: 3) { advLoop.tap() }
+            let restart = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart")).firstMatch
+            if restart.exists { restart.tap() }
+            Thread.sleep(forTimeInterval: 0.4)
+            pill.tap()                                                  // the popover closes
+        }
         Thread.sleep(forTimeInterval: 0.5)
     }
+    /// …and with grid 1's popover open (ADVANCE and RESTART showing) — the popover is audited on its own screen.
+    private func harmonyPopover(_ app: XCUIApplication) {
+        app.buttons["Harmony"].tap()
+        let page = app.descendants(matching: .alert)["Harmony"]
+        XCTAssertTrue(page.waitForExistence(timeout: 4), "the HARMONY page did not open")
+        modalFrame = page.frame
+        let pill = app.el("Grid 1 timing")
+        XCTAssertTrue(pill.waitForExistence(timeout: 3), "grid 1's pill"); pill.tap()
+        Thread.sleep(forTimeInterval: 0.6)
+    }
 
-    func testAuditChordsPagePortrait()  { screen("chords page", landscape: false, chordsPage) }   // CHORDS PAGE (2026-11-04)
-    func testAuditChordsPageLandscape() { screen("chords page", landscape: true, chordsPage) }
+    func testAuditHarmonyPagePortrait()  { screen("harmony page", landscape: false, harmonyPage) }   // INPUTS + HARMONY (2026-11-06)
+    func testAuditHarmonyPageLandscape() { screen("harmony page", landscape: true, harmonyPage) }
+    func testAuditHarmonyPopoverPortrait()  { screen("harmony popover", landscape: false, harmonyPopover) }
+    func testAuditHarmonyPopoverLandscape() { screen("harmony popover", landscape: true, harmonyPopover) }
     func testAuditMixPanelPortrait()  { screen("mix panel", landscape: false) { $0.buttons["Mix"].tap() } }   // MIX ROWS (2026-11-03): the panel; the card backs are retired
     func testAuditLanesPortrait()    { screen("page LANES", landscape: false) { $0.buttons["Mute"].tap() } }
     func testAuditFxPortrait()       { screen("page FX", landscape: false) { $0.buttons["FX"].tap() } }
@@ -159,9 +171,8 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditPolyRiffPortrait() { screen("poly riff", landscape: false) { $0.buttons["Poly"].tap() } }   // POLY RIFF (2026-10-29): the sixteen-column grid and the MONO | POLY control
     func testAuditNotesTabPortrait() { screen("lane tab NOTES", landscape: false, laneTab("Notes")) }
     func testAuditAnswerTabPortrait() { screen("lane tab ANSWER", landscape: false, laneTab("Answer, ")) }
-    func testAuditPoolTabPortrait() { screen("lane tab INPUTS", landscape: false, laneTab("Inputs, ")) }   // POOL renamed INPUTS (2026-11-05); ANSWER ferry (2026-11-02): NOW · CANON · FREEZE
+    func testAuditPoolTabPortrait() { screen("lane tab INPUTS", landscape: false, laneTab("Inputs, ")) }   // POOL renamed INPUTS (2026-11-05); INPUTS ferry (2026-11-06): NOW · SOURCES · MIDI · CANON
     func testAuditPresetsPortrait()  { screen("presets", landscape: false, open("Presets", expect: "PRESETS")) }
-    func testAuditKeyPopupPortrait() { screen("key popup", landscape: false, open("Key, C minor", expect: "KEY")) }
     func testAuditSwingPortrait()    { screen("swing", landscape: false, open("Swing, straight", expect: "SWING")) }
     func testAuditSettingsPortrait() { screen("settings", landscape: false) { $0.buttons["Settings"].tap() } }
     func testAuditHocketPortrait()   { screen("hocket popup", landscape: false, hocket) }
@@ -176,7 +187,6 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditAnswerTabLandscape() { screen("lane tab ANSWER", landscape: true, laneTab("Answer, ")) }
     func testAuditPoolTabLandscape() { screen("lane tab INPUTS", landscape: true, laneTab("Inputs, ")) }   // POOL renamed INPUTS (2026-11-05)
     func testAuditPresetsLandscape()  { screen("presets", landscape: true, open("Presets", expect: "PRESETS")) }
-    func testAuditKeyPopupLandscape() { screen("key popup", landscape: true, open("Key, C minor", expect: "KEY")) }
     func testAuditSwingLandscape()    { screen("swing", landscape: true, open("Swing, straight", expect: "SWING")) }
     func testAuditSettingsLandscape() { screen("settings", landscape: true) { $0.buttons["Settings"].tap() } }
     func testAuditHocketLandscape()   { screen("hocket popup", landscape: true, hocket) }

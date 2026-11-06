@@ -260,12 +260,12 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(value(app.el("Trade, lane 2")), "off", "the pairing was one undo step for both lanes")
     }
 
-    /// POOL (2026-11-02): the POOL tab's SOURCES toggles and SUSTAIN switch / modes edit through the document and back through undo (one step each); NOW reads the pool; the grid's lane picker steps 1 → 2 → 3 → 4 → 1 and the NOTES keys carry
-    /// their rank numbers in their names.
-    func testThePoolTabSwitchesSourcesSustainAndTheGridPicker() {
+    /// INPUTS (ferry 2026-11-06; the POOL tab renamed): the INPUTS tab's SOURCES toggles and each lane's MIDI mode edit through the document and back through undo (one step each); NOW reads the pool; the grid's lane picker steps
+    /// 1 → 2 → 3 → 4 → 1 and the NOTES keys carry their rank numbers in their names.
+    func testTheInputsTabSwitchesSourcesMidiModeAndTheGridPicker() {
         let app = XCUIApplication.fresh(["--autoplay"])   // a stopped engine has no pools to show (as before the ferry: the old shared pool was only refreshed while playing)
         Thread.sleep(forTimeInterval: 1.5)
-        app.els(prefix: "Inputs, ").firstMatch.tap()   // POOL tab renamed INPUTS (Paul 2026-11-05)
+        app.els(prefix: "Inputs, ").firstMatch.tap()
         need(app.els(prefix: "Now, lane 1").firstMatch, "the NOW row (a leaf: the status feed does not re-run the page)")
         // SOURCES: a toggle is one undo step, the lane's name is in its label
         XCTAssertEqual(value(need(app.el("Key, lane 1"), "lane 1's KEY toggle")), "on")
@@ -274,26 +274,32 @@ final class FourfoldTapTests: XCTestCase {
         app.buttons["Undo"].tap()
         XCTAssertEqual(value(app.el("Key, lane 1")), "on", "a source toggle is one undo step")
         // TWO CHORD GRIDS: CHORD 1 and CHORD 2 are mutually exclusive; the lit one tapped again turns chords off for the lane
-        // (the factory sources panel has CHORDS off, so a lit chord toggle reads "on, off in sources" — only the on / off word matters here)
         func lit(_ name: String) -> Bool { value(app.el(name)).hasPrefix("on") }
         XCTAssertTrue(need(app.el("Chords 1, lane 1"), "lane 1's CHORD 1 toggle").exists); XCTAssertTrue(need(app.el("Chords 2, lane 1"), "lane 1's CHORD 2 toggle").exists)
+        app.el("Chords 1, lane 1").tap(); Thread.sleep(forTimeInterval: 0.7)
+        if !lit("Chords 1, lane 1") { app.el("Chords 1, lane 1").tap(); Thread.sleep(forTimeInterval: 0.7) }   // a fresh document has CHORDS off on every lane (the old panel's switch): light CHORD 1 first
         XCTAssertTrue(lit("Chords 1, lane 1")); XCTAssertFalse(lit("Chords 2, lane 1"))
         app.el("Chords 2, lane 1").tap()
         XCTAssertTrue(lit("Chords 2, lane 1")); XCTAssertFalse(lit("Chords 1, lane 1"), "lighting CHORD 2 puts CHORD 1 out")
-        XCTAssertTrue(lit("Chords 1, lane 2"), "…on that lane only")
         app.buttons["Undo"].tap()
         XCTAssertTrue(lit("Chords 1, lane 1")); XCTAssertFalse(lit("Chords 2, lane 1"), "the pick is one undo step")
         app.el("Chords 1, lane 1").tap()
         XCTAssertFalse(lit("Chords 1, lane 1")); XCTAssertFalse(lit("Chords 2, lane 1"), "the lit one tapped again: chords off for the lane")
         app.buttons["Undo"].tap()
-        // SUSTAIN: the switch, a mode tap switches the row on, the PEDAL light is a display
-        XCTAssertEqual(value(need(app.el("Sustain, lane 2"), "lane 2's SUSTAIN switch")), "off")
-        app.el("Sustain stack, lane 2, loses nothing, off").tap()
-        XCTAssertEqual(value(app.el("Sustain, lane 2")), "on", "selecting a mode of an off row switches it on")
-        need(app.el("Sustain stack, lane 2, loses nothing"), "…and the buttons lose their \", off\"")
-        XCTAssertEqual(value(need(app.el("Pedal, lane 2"), "the PEDAL light")), "up")
+        // MIDI: three segments a lane, a tap selects (one undo step), the readout is hidden outside ROOT
+        func selected(_ name: String) -> Bool { app.el(name).isSelected }
+        XCTAssertTrue(need(app.el("Add, lane 2"), "lane 2's ADD segment").exists); XCTAssertTrue(selected("Add, lane 2"), "a fresh document is in ADD")
+        app.el("Replace, lane 2").tap(); Thread.sleep(forTimeInterval: 0.7)
+        XCTAssertTrue(selected("Replace, lane 2")); XCTAssertFalse(selected("Add, lane 2"))
+        XCTAssertTrue(selected("Add, lane 3"), "…on that lane only")
+        XCTAssertFalse(app.els(prefix: "Root transpose").firstMatch.exists, "no readout outside ROOT")
+        app.el("Root, lane 3").tap(); Thread.sleep(forTimeInterval: 0.7)
+        XCTAssertTrue(selected("Root, lane 3"))
+        need(app.els(prefix: "Root transpose").firstMatch, "ROOT's readout (\"Root transpose, zero\" with nothing latched)")
         app.buttons["Undo"].tap()
-        XCTAssertEqual(value(app.el("Sustain, lane 2")), "off", "one undo step")
+        XCTAssertFalse(selected("Root, lane 3")); XCTAssertTrue(selected("Add, lane 3"), "one undo step"); XCTAssertTrue(selected("Replace, lane 2"), "…the earlier edit stays")
+        app.buttons["Undo"].tap()
+        XCTAssertTrue(selected("Add, lane 2"), "a second step back")
         // the grid's picker
         XCTAssertEqual(value(need(app.el("Notes shown for"), "the lane picker beside the MONO | POLY control")), "lane 1")
         XCTAssertFalse(app.els(prefix: "Rank 1, no note").firstMatch.exists, "lane 1's pool has notes: its chips name them")
@@ -314,11 +320,11 @@ final class FourfoldTapTests: XCTestCase {
         need(app.els(prefix: "Rank 1, ").firstMatch, "the NOTES keys keep their \"Rank n, …\" names")
     }
 
-    /// CHORD CANON (2026-10-31): the CANON row under PITCH on the LISTEN tab — a lane's DELAY and SLIP step through the engine and back through undo; the UNIT is one value shared by all four rows (and undoable). The row works with
+    /// CHORD CANON (2026-10-31; SLIP removed by the INPUTS ferry, 2026-11-06): the CANON row on the INPUTS tab — a lane's DELAY steps through the engine and back through undo; the UNIT is one value shared by all four rows (and undoable). The row works with
     /// every source (the factory document has MIDI IN and KEY on), so it reports no "no effect" reason. The value follows a tap a moment later (the edit goes through the document and back), so each check waits for it.
-    func testTheCanonRowStepsDelayAndSlipAndTheSharedUnit() {
+    func testTheCanonRowStepsDelayAndTheSharedUnit() {
         let app = XCUIApplication.fresh()
-        app.els(prefix: "Inputs, ").firstMatch.tap()   // POOL tab renamed INPUTS (Paul 2026-11-05)   // ANSWER ferry: CANON and FREEZE moved to the POOL tab
+        app.els(prefix: "Inputs, ").firstMatch.tap()   // the POOL tab renamed INPUTS; CANON lives there
         func waitValue(_ label: String, _ prefix: String, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
             let end = Date().addingTimeInterval(4)
             while !value(app.el(label)).hasPrefix(prefix) && Date() < end { Thread.sleep(forTimeInterval: 0.1) }
@@ -330,10 +336,10 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertFalse(value(delay).contains("no effect"), "the factory sources (MIDI IN, KEY) are live for the canon — \(value(delay))")
         tapUp("Canon delay, lane 1"); waitValue("Canon delay, lane 1", "1 pass", "› steps DELAY to 1 pass")
         XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'CANON UNUSED'")).firstMatch.exists, "no \"unused\" footer while a source is on")
-        tapUp("Canon slip, lane 1"); waitValue("Canon slip, lane 1", "5 percent", "› steps SLIP to 5 percent")
-        Thread.sleep(forTimeInterval: 0.7)   // the two edits are two steps (a pause longer than the gesture gap)
-        app.buttons["Undo"].tap(); app.buttons["Undo"].tap()
-        waitValue("Canon delay, lane 1", "off", "two undos put DELAY back")
+        XCTAssertFalse(app.el("Canon slip, lane 1").exists, "SLIP is gone from the row")
+        Thread.sleep(forTimeInterval: 0.7)
+        app.buttons["Undo"].tap()
+        waitValue("Canon delay, lane 1", "off", "an undo puts DELAY back")
         app.buttons["Redo"].tap()
         waitValue("Canon delay, lane 1", "1 pass", "a redo brings it back")
         // the unit is shared: one tap on lane 1's UNIT moves all four rows
@@ -664,9 +670,8 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertTrue(app.buttons["Mix"].isSelected)
     }
 
-    // SOURCES STACK ferry (2026-10-26): the note-source radio became a 3-light SOURCES control opening a pop-up of
-    // CHORDS/KEY toggle cells. HOLD/LATCH are unchanged header chips.
-    func testTheSourcesControlAndHoldLatchSelect() {
+    // INPUTS + HARMONY ferry (2026-11-06): the header's button (four pips, the key) opens and closes the HARMONY page; HOLD/LATCH are unchanged header chips.
+    func testTheHarmonyButtonTogglesThePageAndHoldLatchSelect() {
         let app = XCUIApplication.fresh()
         // HOLD / LATCH header chips — always enabled now (MIDI always listens; they used to need a MIDI source).
         app.buttons["Hold"].tap()
@@ -674,19 +679,28 @@ final class FourfoldTapTests: XCTestCase {
         app.buttons["Latch"].tap()
         XCTAssertTrue(app.buttons["Latch"].isSelected, "LATCH should read as on")
         XCTAssertFalse(app.buttons["Hold"].isSelected, "HOLD and LATCH are mutually exclusive")
-        // the SOURCES control + its pop-up of CHORDS/KEY toggle cells.
-        need(app.buttons["Sources"], "the header SOURCES control").tap()
-        XCTAssertEqual(need(app.buttons["KEY while MIDI plays"], "KEY-while-MIDI cell").value as? String, "plays", "a fresh instance derives KEY ⇒ its cells play")
-        XCTAssertEqual(need(app.buttons["CHORDS while MIDI plays"], "CHORDS-while-MIDI cell").value as? String, "off", "CHORDS off by default")
-        app.buttons["CHORDS while MIDI plays"].tap()
-        XCTAssertEqual(app.buttons["CHORDS while MIDI plays"].value as? String, "plays", "tapping a SOURCES cell turns it on")
+        // the HARMONY button: a tap opens the page over the lane cards, a second tap closes it
+        let button = need(app.buttons["Harmony"], "the header HARMONY button")
+        XCTAssertTrue((button.value as? String ?? "").hasPrefix("C minor, MIDI IN "), "its value starts with the key and the four pips: \(button.value as? String ?? "")")
+        button.tap()
+        need(app.buttons["Close harmony"], "the page's close button")
+        XCTAssertTrue(app.buttons["Harmony"].isSelected || (app.buttons["Harmony"].value as? String ?? "").hasSuffix("expanded"), "the button reads as open")
+        app.buttons["Harmony"].tap()
+        gone(app.buttons["Close harmony"], "the page after a second tap on the button")
+        // reopened: the close button closes it too
+        app.buttons["Harmony"].tap(); need(app.buttons["Close harmony"], "the page again").tap()
+        gone(app.buttons["Close harmony"], "the page after its close button")
     }
 
-    func testTheKeyPopupChangesTheScale() {
+    func testTheHarmonyPageChangesTheKeyAndTheScale() {
         let app = XCUIApplication.fresh()
-        app.buttons["Key, C minor"].tap()
-        need(app.staticTexts["MAJOR"], "the scale list").tap()
-        need(app.buttons["Key, C major"], "the key pill reading C major")
+        app.buttons["Harmony"].tap()
+        need(app.buttons["MAJOR"], "the scale row").tap()
+        XCTAssertTrue((app.buttons["Harmony"].value as? String ?? "").hasPrefix("C major"), "the header button reads C major: \(app.buttons["Harmony"].value as? String ?? "")")
+        need(app.buttons["D"], "the root keys").tap()
+        XCTAssertTrue((app.buttons["Harmony"].value as? String ?? "").hasPrefix("D major"), "…and then D major: \(app.buttons["Harmony"].value as? String ?? "")")
+        app.buttons["Undo"].tap(); Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertTrue((app.buttons["Harmony"].value as? String ?? "").hasPrefix("C major"), "the root was one undo step")
     }
 
     func testTheSwingPopoverMovesTheSwing() {

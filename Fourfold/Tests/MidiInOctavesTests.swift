@@ -151,7 +151,6 @@ final class MidiInOctavesTests: XCTestCase {
         XCTAssertEqual(euclideousKeyBaseC, 48)
         XCTAssertEqual(euclideousRootMoved(125, by: 6), 127, "pinned to the top")
         XCTAssertEqual(euclideousRootMoved(3, by: -17), 0, "pinned to the bottom")
-        XCTAssertEqual([0, 2, -5, 26, -17, 79, -48].map { euclideousRootCountText($0) }, ["0", "+2", "\u{2212}5", "+26", "\u{2212}17", "+79", "\u{2212}48"])
     }
     func testPitchClassAndChipNames() {
         XCTAssertEqual(euclideousPitchClassName(64, flatKey: false), "E")
@@ -421,13 +420,6 @@ final class MidiInOctavesTests: XCTestCase {
         XCTAssertTrue(r.status.poolSources.contains(1) && r.status.poolSources.contains(3))
         XCTAssertFalse(r.status.poolSources.contains(0), "ROOT admits no played note: nothing is tagged MIDI")
     }
-    func testTheHoldPreviewShowsThePoolAsRootMovesIt() {
-        let p = plan(chords: true, key: true, mode: .root)
-        let a = euclideousColumnPreviewPool(midiNotes: [], chordTones: [48, 52, 55], pickNotes: [], keyTones: [48, 50, 52, 53, 55, 57, 59], midiPlaying: false, plan: p)
-        let b = euclideousColumnPreviewPool(midiNotes: [], chordTones: [48, 52, 55], pickNotes: [], keyTones: [48, 50, 52, 53, 55, 57, 59], midiPlaying: false, plan: p, rootTranspose: 2)
-        XCTAssertEqual(b.notes, a.notes.map { $0 + 2 }); XCTAssertEqual(b.sources, a.sources)
-        XCTAssertTrue(a.sources.contains(1) && a.sources.contains(3))
-    }
     func testChordsPlayThroughTheReleaseGraceUnderRoot() {
         // ROOT never steps CHORDS aside, not even in the 50 ms after the last key goes up: a hit ~30 ms after the release still sounds
         let r = Rig(state(plan(chords: true, mode: .root)))
@@ -452,12 +444,6 @@ final class MidiInOctavesTests: XCTestCase {
         r.release([50]); r.run(to: 3.5)
         XCTAssertEqual(r.status.rootTranspose, 7, "G3 is now the lowest held note"); XCTAssertEqual(r.status.rootNote, 55)
     }
-    func testTheSourceLightsUnderRoot() {
-        let on = plan(chords: true, mode: .root), off = plan(midi: false, chords: true, mode: .root)
-        func lights(_ p: SourcePlan, playing: Bool) -> EuclideousSourceLight { euclideousSourceStatuses(plan: p, midiPlaying: playing, chordsLit: true, pickLit: false, keyLit: false).midi }
-        XCTAssertEqual(lights(on, playing: true), .playing); XCTAssertEqual(lights(on, playing: false), .waiting); XCTAssertEqual(lights(off, playing: true), .off)
-    }
-
     // MARK: downstream (§2.6)
 
     func testEveryReaderOfThePoolSeesTheMovedPool() {
@@ -503,53 +489,13 @@ final class MidiInOctavesTests: XCTestCase {
         XCTAssertTrue(balanced(r.out), "every note ends at the pitch it started on")
     }
 
-    // MARK: geometry (§3.1, §4.5)
-
-    func testTheThreeSegmentModeAndTheMidiRowAtEveryLayout() {
-        for cw in [CGFloat(1158), 868, 600, 343] {
-            let L = euclideousSourcesPanelLayout(containerW: cw)
-            XCTAssertEqual(L.modeAddW, 37); XCTAssertEqual(L.modeReplaceW, 60); XCTAssertEqual(L.modeRootW, 43, "ROOT = 4 chars × 5.76 + 20")
-            XCTAssertEqual(L.modeW, 148, "the container widens by the ROOT segment and its 2 pt gap (45)")
-            XCTAssertEqual(L.contentMidiW, L.contentW - 148 - 8)
-            XCTAssertEqual(L.midiChipRoom, max(0, L.contentMidiW - 36), "CONTENT less 10 + 10 padding and the chevron with its sp6")
-        }
-        // the panel is 448 wide at 1158, 868 and 600: CONTENT 136, 100 pt for chips
-        for cw in [CGFloat(1158), 868, 600] {
-            let L = euclideousSourcesPanelLayout(containerW: cw)
-            XCTAssertEqual(L.contentW, 292); XCTAssertEqual(L.contentMidiW, 136); XCTAssertEqual(L.midiChipRoom, 100)
-        }
-        // at 343 the MIDI row's CONTENT is 31 pt: no room for a chip (nor three), only the chevron
-        let n = euclideousSourcesPanelLayout(containerW: 343)
-        XCTAssertEqual(n.contentW, 187); XCTAssertEqual(n.contentMidiW, 31); XCTAssertEqual(n.midiChipRoom, 0)
-    }
-    func testTheMidiChipsFitTheRoomTheyAreGiven() {
-        XCTAssertEqual(euclideousMidiChipFit(room: 100, count: 0).shown, 0)
-        XCTAssertTrue(euclideousMidiChipFit(room: 100, count: 3) == (3, false), "E G C fit the 100 pt at the 448 pt panel")
-        XCTAssertTrue(euclideousMidiChipFit(room: 100, count: 4) == (2, true), "a 4th note: two chips and a +n slot")
-        XCTAssertTrue(euclideousMidiChipFit(room: 40, count: 2) == (1, false), "room for one chip: that chip alone")
-        XCTAssertTrue(euclideousMidiChipFit(room: 29, count: 3) == (0, false), "less than a chip: none")
-        XCTAssertTrue(euclideousMidiChipFit(room: 0, count: 3) == (0, false), "the 343 layout")
-        XCTAssertEqual(euclideousMidiChipW, 30)
-    }
-    func testThePanelHeightWithTheMidiEditorOpen() {
-        for cw in [CGFloat(1158), 868, 600, 343] {
-            let none = euclideousSourcesPanelLayout(containerW: cw), midi = euclideousSourcesPanelLayout(containerW: cw, editor: .midi)
-            let pick = euclideousSourcesPanelLayout(containerW: cw, editor: .pick), key = euclideousSourcesPanelLayout(containerW: cw, editor: .key)
-            XCTAssertEqual(none.sourcesBlockH, 204); XCTAssertEqual(none.contentH, 312)
-            XCTAssertEqual(midi.midiEditorH, 40)
-            XCTAssertEqual(midi.sourcesBlockH, 248, "204 + the editor's sp4 slot + 40"); XCTAssertEqual(midi.contentH, 356)
-            XCTAssertEqual(pick.sourcesBlockH, 268, "(+4 for the editor slot the layout used to leave out)")
-            XCTAssertLessThan(midi.sourcesBlockH, pick.sourcesBlockH); XCTAssertLessThan(pick.sourcesBlockH, key.sourcesBlockH)
-        }
-    }
-
     // MARK: undo (§1.5)
 
     private func fourfoldSource(_ path: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()   // …/Fourfold
         return try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
     }
-    func testAnOctavesChangeAndAModeChangeToRootAreOneUndoStepEachAndTheEditorIsNone() throws {
+    func testAnOctavesChangeAndAModeChangeToRootAreOneUndoStepEach() throws {
         // the plan travels whole in the undo snapshot, so each of these is a different snapshot …
         let a = plan()
         var o = a; o.midiOctaves = .keep; XCTAssertNotEqual(a, o)
@@ -560,10 +506,9 @@ final class MidiInOctavesTests: XCTestCase {
         let from = funnel.range(of: "onSetSourcePlan:")!, to = funnel.range(of: "onSetNoteSource:", range: from.upperBound..<funnel.endIndex)!
         let tail = String(funnel[from.lowerBound..<to.lowerBound])
         XCTAssertEqual(tail.components(separatedBy: "euclideousRecordUndo(").count - 1, 1, "the plan funnel records one undo step per write")
-        // … the OCTAVES segments write only a changed value, and opening / closing the editor writes nothing
-        let page = try fourfoldSource("UI/EuclideousPage.swift")
-        XCTAssertTrue(page.contains("if sourcePlan.midiOctavesR != value { writeSourcePlan { $0.midiOctaves = value } }"))
-        XCTAssertTrue(page.contains(".onTapGesture { sourcesEditor = open ? .none : .midi }"), "the content button only toggles the (unsaved) editor state")
+        // … the OCTAVES segments (HARMONY's bottom band since the INPUTS + HARMONY ferry) write only a changed value
+        let page = try fourfoldSource("UI/HarmonyPage.swift")
+        XCTAssertTrue(page.contains("if plan.midiOctavesR != v { var p = plan; p.midiOctaves = v; onSetPlan(p) }"))
     }
 
     // MARK: the status (§2.8)
@@ -573,8 +518,5 @@ final class MidiInOctavesTests: XCTestCase {
         XCTAssertEqual(r.status.rootNote, -1); XCTAssertFalse(r.status.midiPlaying)
         r.press([50]); r.run(to: 2.5)
         XCTAssertTrue(r.status.midiPlaying); XCTAssertEqual(r.status.midiAdded, 0)
-        let lights = euclideousSourceStatuses(plan: plan(chords: true, key: true, mode: .root), midiPlaying: r.status.midiPlaying,
-                                              chordsLit: r.status.chordsLit, pickLit: r.status.pickLit, keyLit: r.status.keyLit)
-        XCTAssertEqual(lights.midi, .playing)
     }
 }

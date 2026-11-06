@@ -153,30 +153,6 @@ final class PageLayoutTests: XCTestCase {
             XCTAssertEqual(l.kind, euclideousHeaderKind(containerW: CGFloat(cw), isLandscape: landscape), "\(cw) \(landscape)")
         } }
     }
-    // Sources panel v2 §12: the panel geometry at the reference container widths (the CHORDS page frame is tested
-    // with that slice). Key widths are the monospaced-estimate formula — the numbers are pinned so they stay stable.
-    func testSourcesPanelGeometry() {
-        for cw in [CGFloat(1158), 868, 600, 343] {
-            let L = euclideousSourcesPanelLayout(containerW: cw)
-            XCTAssertEqual(L.width, min(448, cw), "width = min(448, cw) at \(cw)")
-            XCTAssertEqual(L.blockInnerW, L.width - 32, accuracy: 1e-9, "block inner at \(cw)")
-            XCTAssertEqual(L.contentW, L.blockInnerW - 124, accuracy: 1e-9, "CONTENT = inner − LABEL 84 − sp8 − sp8 − COUNT 24 at \(cw)")
-            XCTAssertEqual(L.contentMidiW, L.contentW - L.modeW - 8, accuracy: 1e-9, "the MIDI row's CONTENT is narrower by MODE + sp8 at \(cw)")
-            XCTAssertEqual(L.pickKeyW, (L.contentW - 33) / 12, accuracy: 1e-9, "12 PICK keys, 3 apart, over CONTENT at \(cw)")
-            XCTAssertEqual(L.rootKeyW, L.pickKeyW, accuracy: 1e-9, "ROOT buttons share the PICK key width at \(cw)")
-            XCTAssertEqual(L.poolChipW, (L.contentW - 28) / 8, accuracy: 1e-9, "8 POOL chips, sp4 apart, over CONTENT at \(cw)")
-            XCTAssertGreaterThan(L.pickKeyW, 0, "keys stay positive at \(cw)")
-            XCTAssertEqual(L.modeW, 2 + L.modeAddW + 2 + L.modeReplaceW + 2 + L.modeRootW + 2, accuracy: 1e-9, "MODE = inset + ADD + between + REPLACE + between + ROOT + inset at \(cw)")
-        }
-        // 13 scale types wrap into 6 + 6 + 1 (rows of ≤ 6, §5.12).
-        let s = euclideousSourcesPanelLayout(containerW: 448, editor: .key, scaleCount: 13)
-        XCTAssertEqual(s.scaleCols, 6); XCTAssertEqual(s.scaleRows, 3)
-        // the open KEY editor is taller than the open PICK editor, which is taller than no editor.
-        let pick = euclideousSourcesPanelLayout(containerW: 448, editor: .pick)
-        let none = euclideousSourcesPanelLayout(containerW: 448, editor: .none)
-        XCTAssertGreaterThan(s.sourcesBlockH, pick.sourcesBlockH)
-        XCTAssertGreaterThan(pick.sourcesBlockH, none.sourcesBlockH)
-    }
     func testHeaderGroupsNeverOverlapOrLeaveTheContainer() {
         for cw in stride(from: 440, through: 1500, by: 7) { for landscape in [true, false] { for riffX in [CGFloat(0), 300, 777.33, 2000] {
             let l = euclideousHeaderLayout(containerW: CGFloat(cw), isLandscape: landscape, riffLeadingX: riffX)

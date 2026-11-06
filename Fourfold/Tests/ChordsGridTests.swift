@@ -316,93 +316,6 @@ final class ChordsGridChordToneTests: XCTestCase {
     }
 }
 
-final class ChordsGridLayoutTests: XCTestCase {
-
-    // Paul's own two reference screenshots (PageLayoutTests.swift) -- the popup's `size` parameter is the
-    // page's geo.size, so these are the right numbers to test the popup's layout against too.
-    private let landscapeRef = CGSize(width: 1190, height: 726)
-    private let portraitRef = CGSize(width: 814, height: 1102)
-
-    private func contentBox(_ pageSize: CGSize) -> CGSize {
-        let maxW = min(640, pageSize.width - 32)
-        let maxH = pageSize.height - 60
-        return CGSize(width: maxW - 40, height: maxH - 40)   // the card's own 20pt padding, each side
-    }
-
-    // MARK: - §10 test 4: frames at n = 1, 8, 16; floor flags below §2.5/§2.6
-
-    func testLandscapeAtEachStepsCountStaysAboveBothFloors() {
-        let box = contentBox(landscapeRef)
-        for n in [1, 8, 16] {
-            let l = euclideousChordsPopupLayout(box: box, steps: n)
-            XCTAssertFalse(l.belowRowFloor, "n=\(n) landscape rowH=\(l.rowH)")
-            XCTAssertFalse(l.belowCellFloor, "n=\(n) landscape cellW=\(l.cellW)")
-        }
-    }
-
-    func testPortraitAtEachStepsCountStaysAboveBothFloors() {
-        let box = contentBox(portraitRef)
-        for n in [1, 8, 16] {
-            let l = euclideousChordsPopupLayout(box: box, steps: n)
-            XCTAssertFalse(l.belowRowFloor, "n=\(n) portrait rowH=\(l.rowH)")
-            XCTAssertFalse(l.belowCellFloor, "n=\(n) portrait cellW=\(l.cellW)")
-        }
-    }
-
-    func testRowHIsTheSpec25Formula() {
-        let box = contentBox(landscapeRef)
-        let l = euclideousChordsPopupLayout(box: box, steps: 8)
-        let expectedRowH = (l.gridH - (16 * 4 + 10)) / 18
-        XCTAssertEqual(l.rowH, expectedRowH, accuracy: 1e-9)
-    }
-
-    func testCellWIsTheSpec26FormulaAndScalesWithSteps() {
-        let box = contentBox(landscapeRef)
-        for n in [1, 8, 16] {
-            let l = euclideousChordsPopupLayout(box: box, steps: n)
-            let expectedCellW = (box.width - EuclideousChordsPopupMetrics.labelW - 4 - CGFloat(n - 1) * 4) / CGFloat(n)
-            XCTAssertEqual(l.cellW, expectedCellW, accuracy: 1e-9, "n=\(n)")
-        }
-    }
-
-    func testStepsClampsToOneSixteenRangeInsideTheLayoutFunction() {
-        let box = contentBox(landscapeRef)
-        XCTAssertEqual(euclideousChordsPopupLayout(box: box, steps: 0).steps, 1)
-        XCTAssertEqual(euclideousChordsPopupLayout(box: box, steps: 99).steps, 16)
-    }
-
-    // MARK: - Row/column frame geometry
-
-    func testEighteenRowsFitExactlyWithinGridHIncludingTheWiderDividerGap() {
-        let box = contentBox(landscapeRef)
-        let l = euclideousChordsPopupLayout(box: box, steps: 8)
-        // rowTop() is absolute from the CARD's top (matches EuclideousRiffPanelLayout's own precedent), so
-        // the last row's bottom lands at gridTop + gridH, not bare gridH.
-        let lastRowBottom = l.rowTop(17) + l.rowH
-        XCTAssertEqual(lastRowBottom, l.gridTop + l.gridH, accuracy: 1e-9)
-    }
-
-    func testDividerSitsBetweenRowElevenAndRowTwelveWithTheWiderGap() {
-        let box = contentBox(landscapeRef)
-        let l = euclideousChordsPopupLayout(box: box, steps: 8)
-        let gapBefore12 = l.rowTop(12) - (l.rowTop(11) + l.rowH)
-        XCTAssertEqual(gapBefore12, EuclideousChordsPopupMetrics.dividerGap, accuracy: 1e-9)
-        let gapBefore11 = l.rowTop(11) - (l.rowTop(10) + l.rowH)
-        XCTAssertEqual(gapBefore11, EuclideousChordsPopupMetrics.rowGap, accuracy: 1e-9, "every OTHER gap is the normal 4pt")
-        XCTAssertGreaterThan(l.dividerY, l.rowTop(11) + l.rowH)
-        XCTAssertLessThan(l.dividerY, l.rowTop(12))
-    }
-
-    func testColumnsFillExactlyToTheGridsRightEdge() {
-        let box = contentBox(landscapeRef)
-        for n in [1, 8, 16] {
-            let l = euclideousChordsPopupLayout(box: box, steps: n)
-            let lastColumnRight = l.columnLeft(n - 1) + l.cellW
-            XCTAssertEqual(lastColumnRight, l.gridWidth, accuracy: 1e-9, "n=\(n)")
-        }
-    }
-}
-
 final class ChordsGridRowMappingTests: XCTestCase {
 
     func testRowDegreeRoundTripsForAllTwelveChordRows() {
@@ -416,14 +329,12 @@ final class ChordsGridRowMappingTests: XCTestCase {
         for row in 12...17 { XCTAssertNil(euclideousChordsRowDegree(row)) }
     }
 
-    func testTabIconRestRowDiffersFromGridRestRow() {
+    func testRestIsGridRowEleven() {
         XCTAssertEqual(euclideousChordsDegreeRow(7), 11, "the grid itself draws REST as row 11")
-        XCTAssertNil(euclideousChordsTabIconRow(7), "but the tab icon draws nothing for REST (§4.3)")
     }
 
     func testCarryNeverMapsToARow() {
         XCTAssertNil(euclideousChordsDegreeRow(-1))
-        XCTAssertNil(euclideousChordsTabIconRow(-1))
     }
 
     func testRowLabelsMatchTheMinorAndMajorKeyTables() {
@@ -801,38 +712,5 @@ final class ChordColumnEngineTests: XCTestCase {
         // and it holds WITHIN a loop (beats 1,2,3 share column 0's root) — it advances on the loop, not the rate
         XCTAssertEqual(rootAt[1], rootAt[2]); XCTAssertEqual(rootAt[3], rootAt[2])
         XCTAssertNotEqual(rootAt[2], rootAt[6], "the root actually changes on the loop")
-    }
-}
-
-// MARK: - CHORDS PAGE ferry §13: the page geometry (re-based to the real 769.33×610 / 782×611.33 block)
-
-final class ChordsPageLayoutTests: XCTestCase {
-    func testLandscapeReferenceGeometry() {
-        let L = euclideousChordsPageLayout(block: CGSize(width: 769.33, height: 610))   // = the lane-cards block / euclideousMixRowsPanelSize
-        XCTAssertEqual(L.content.width, 737.33, accuracy: 0.02)
-        XCTAssertEqual(L.content.height, 578, accuracy: 0.02)
-        XCTAssertEqual(L.colW, 360.665, accuracy: 0.02)                 // §5.2 (content − 16)/2 — the ferry's 354 was vs its wrong 724 content
-        XCTAssertEqual(L.column1.minX, L.colW + 16, accuracy: 0.02)
-        XCTAssertEqual(L.cellW(steps: 8), 38.83, accuracy: 0.02)        // §5.6 (ferry 38)
-        XCTAssertEqual(L.cellW(steps: 16), 18.42, accuracy: 0.02)       // (ferry 18)
-        XCTAssertEqual(L.gridY, 110, accuracy: 0.02)
-        XCTAssertEqual(L.gridH, 385, accuracy: 0.02)
-        XCTAssertEqual(L.rowH, 345.0 / 18.0, accuracy: 0.02)            // §5.6 = 19.17 (ferry ~18.9 was vs the wrong content height)
-        XCTAssertGreaterThan(L.rowH, EuclideousChordsPageMetrics.rowHFloor)
-        XCTAssertEqual(L.laneStrip.minY, 543, accuracy: 0.02)
-        XCTAssertEqual(L.laneStrip.height, 35, accuracy: 0.02)
-        XCTAssertEqual(L.laneCardW, (737.33 - 24) / 4, accuracy: 0.02)  // §5.7 four cards, 8 apart
-        // the divider gap (2 normal + 6) sits between row 11 (REST) and row 12 (first colour row)
-        XCTAssertEqual(L.rowTop(12) - (L.rowTop(11) + L.rowH), 8, accuracy: 0.02)
-        // the column row stack (§5.2)
-        XCTAssertEqual(L.advanceY, 30, accuracy: 0.02)
-        XCTAssertEqual(L.restartY, 62, accuracy: 0.02)
-        XCTAssertEqual(L.stepStripY, 96, accuracy: 0.02)
-    }
-    func testPortraitReferenceGeometry() {
-        let L = euclideousChordsPageLayout(block: CGSize(width: 782, height: 611.33))
-        XCTAssertEqual(L.content.width, 750, accuracy: 0.02)
-        XCTAssertEqual(L.colW, 367, accuracy: 0.02)                     // (750 − 16)/2
-        XCTAssertEqual(L.cellW(steps: 8), (367 - 36 - 14) / 8, accuracy: 0.02)
     }
 }

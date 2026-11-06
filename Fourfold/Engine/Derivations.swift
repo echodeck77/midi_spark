@@ -852,90 +852,6 @@ extension MachineParams {     // the editing document (the page's displays)
     }
 }
 
-// MARK: - CHORDS PAGE (ferry 2026-11-04 §4-5): the full-screen page over the four lane cards
-// All frames in PAGE (block) coordinates; `block` = the four lane cards' union (769.33×610 landscape /
-// 782×611.33 portrait — the ferry's 756×606 is wrong, source wins). Content is `block` inset by 16 (§4.4).
-// Pure so the §13 geometry test pins it and the views never re-derive a frame.
-
-enum EuclideousChordsPageMetrics {
-    static let padding: CGFloat = 16            // §4.4
-    static let headerH: CGFloat = 32            // §5.1
-    static let titleRowH: CGFloat = 24          // §5.2
-    static let advRowH: CGFloat = 26            // §5.3
-    static let restartRowH: CGFloat = 26        // §5.4
-    static let stepStripH: CGFloat = 10         // §5.5
-    static let laneStripH: CGFloat = 35         // §5.7
-    static let gridLabelW: CGFloat = 32         // §5.6 the degree-label column
-    static let rowLabelW: CGFloat = 56          // §5.3/§5.4 the ADVANCE / RESTART label column
-    static let sp4: CGFloat = 4, sp6: CGFloat = 6, sp8: CGFloat = 8, sp16: CGFloat = 16
-    static let gridRows = 18
-    static let colourRowStart = 12              // §5.6 rows 0–11 (7 diatonic, 4 borrowed, REST) then a divider, then 12–17 (the 6 colour rows)
-    static let dividerGap: CGFloat = 6          // §5.6 the extra gap carrying the divider line
-    static let rowGap: CGFloat = 2              // §5.6 rows 2 apart
-    static let rowHFloor: CGFloat = 14          // §5.6
-    static let colWFloorReport: CGFloat = 0     // (no hard floor on column width; reported in §5.9)
-}
-
-struct EuclideousChordsPageLayout {
-    var content: CGRect                         // block inset by 16
-    var header: CGRect                          // content-relative, y 0
-    var colW: CGFloat
-    var column0: CGRect, column1: CGRect        // GRID 1 (left), GRID 2 (right) — content-relative
-    var laneStrip: CGRect                       // content-relative, the bottom 35
-    var laneCardW: CGFloat                      // §5.7 four cards, 8 apart, equal
-    // per-column row tops (column-relative y; both columns share them)
-    var titleY: CGFloat, advanceY: CGFloat, restartY: CGFloat, stepStripY: CGFloat, gridY: CGFloat
-    var gridH: CGFloat
-    var rowH: CGFloat
-    /// §5.6: a grid's cell width for `steps` columns (c = max(8, STEPS)); 38.83 at 8, 18.42 at 16 landscape.
-    func cellW(steps: Int) -> CGFloat {
-        let c = CGFloat(max(8, min(16, steps)))
-        return (colW - EuclideousChordsPageMetrics.gridLabelW - EuclideousChordsPageMetrics.sp4 - (c - 1) * EuclideousChordsPageMetrics.rowGap) / c
-    }
-    /// The x of grid column `col` (0-based) within a column, after the 32 label + sp4.
-    func columnLeft(steps: Int, _ col: Int) -> CGFloat {
-        EuclideousChordsPageMetrics.gridLabelW + EuclideousChordsPageMetrics.sp4 + CGFloat(col) * (cellW(steps: steps) + EuclideousChordsPageMetrics.rowGap)
-    }
-    /// Row `r`'s top within the grid (0…17); the 6 pt divider gap is added before the colour rows (r ≥ 12).
-    func rowTop(_ r: Int) -> CGFloat {
-        CGFloat(r) * (rowH + EuclideousChordsPageMetrics.rowGap) + (r >= EuclideousChordsPageMetrics.colourRowStart ? EuclideousChordsPageMetrics.dividerGap : 0)
-    }
-    /// The divider line's y within the grid (centred in the gap after row 11).
-    var dividerY: CGFloat {
-        let m = EuclideousChordsPageMetrics.self
-        return CGFloat(m.colourRowStart) * (rowH + m.rowGap) - m.rowGap + m.dividerGap / 2
-    }
-}
-
-/// §5: lay the page out in the lane-cards block. Pure; the views and the §13 test both read it.
-func euclideousChordsPageLayout(block: CGSize) -> EuclideousChordsPageLayout {
-    let m = EuclideousChordsPageMetrics.self
-    let content = CGRect(x: m.padding, y: m.padding, width: max(0, block.width - 2 * m.padding), height: max(0, block.height - 2 * m.padding))
-    let header = CGRect(x: 0, y: 0, width: content.width, height: m.headerH)
-    let colW = (content.width - m.sp16) / 2
-    // columns span from below the header+sp8 down to above the lane strip (which keeps its own sp8 above it)
-    let colTop = m.headerH + m.sp8
-    let laneStripY = content.height - m.laneStripH
-    let colBottom = laneStripY - m.sp8
-    let colH = max(0, colBottom - colTop)
-    let column0 = CGRect(x: 0, y: colTop, width: colW, height: colH)
-    let column1 = CGRect(x: colW + m.sp16, y: colTop, width: colW, height: colH)
-    // column-relative row stack (§5.2): title · sp6 · ADVANCE · sp6 · RESTART · sp8 · step strip · sp4 · grid
-    let titleY: CGFloat = 0
-    let advanceY = titleY + m.titleRowH + m.sp6
-    let restartY = advanceY + m.advRowH + m.sp6
-    let stepStripY = restartY + m.restartRowH + m.sp8
-    let gridY = stepStripY + m.stepStripH + m.sp4
-    let gridH = max(0, colH - gridY)
-    let rowH = max(m.rowHFloor, (gridH - (CGFloat(m.gridRows - 1) * m.rowGap) - m.dividerGap) / CGFloat(m.gridRows))   // §5.6: 17 gaps of 2 + the 6 divider
-    let laneStrip = CGRect(x: 0, y: laneStripY, width: content.width, height: m.laneStripH)
-    let laneCardW = (content.width - 3 * m.sp8) / 4   // §5.7 four cards, 8 apart
-    return EuclideousChordsPageLayout(content: content, header: header, colW: colW, column0: column0, column1: column1,
-                                      laneStrip: laneStrip, laneCardW: laneCardW,
-                                      titleY: titleY, advanceY: advanceY, restartY: restartY, stepStripY: stepStripY, gridY: gridY,
-                                      gridH: gridH, rowH: rowH)
-}
-
 /// THE CHORD SEQUENCER derivation (Paul 2026-09-04): the diatonic chord at beat `m` for a CHORDS config, in a resolved key.
 /// SHARED by the CHORDS PROCESSOR stage (Router.applyStage) AND the chord DOOR pool-fill (Kernel) so they can NEVER diverge —
 /// this is the "future processor work reflects on the door" contract in one function. `step = floor(m / chordsRateBeats)`;
@@ -1130,20 +1046,6 @@ func euclideousPitchClassName(_ note: Int, flatKey: Bool) -> String {
 func euclideousMidiChipName(note: Int, octaves: MidiOctaves, flatKey: Bool) -> String {
     octaves == .ignore ? euclideousPitchClassName(note, flatKey: flatKey) : euclideousNoteViewName(UInt8(max(0, min(127, note))), flatKey: flatKey)
 }
-
-let euclideousMidiEditorH: CGFloat = 2 + 32 + 6
-/// MIDI IN chips: 24 pt minimum + 3 pt either side = 30 drawn (Paul 2026-11-01: narrower than the PICK/KEY chips so three fit the 100 pt the ROOT segment and chevron leave at the 448 pt panel), 4 apart, "+n" in a reserved slot.
-let euclideousMidiChipW: CGFloat = 30
-/// How many of `count` MIDI IN chips fit `room`: all of them if they do; else one slot is kept for "+n" (shown = fit − 1); with room for a single chip, that chip alone; with less than a chip, none (the chevron stays).
-func euclideousMidiChipFit(room: CGFloat, count: Int, chipW: CGFloat = euclideousMidiChipW, gap: CGFloat = 4) -> (shown: Int, showsOverflow: Bool) {
-    guard count > 0, room >= chipW else { return (0, false) }
-    if CGFloat(count) * chipW + CGFloat(count - 1) * gap <= room { return (count, false) }
-    let fit = Int((room + gap) / (chipW + gap))
-    return fit >= 2 ? (fit - 1, true) : (1, false)
-}
-
-/// §3.4 the ROOT transpose as COUNT reads it: signed, "0" at zero (U+2212 for the minus, as the rest of the page).
-func euclideousRootCountText(_ t: Int) -> String { t > 0 ? "+\(t)" : (t < 0 ? "\u{2212}\(-t)" : "0") }
 
 /// §2.9 status, computed as the merge's byproduct (POD: only Int/Bool, so returning it never heap-allocates on
 /// the render thread). The UI derives the chord NAME / REST / WAITING / OFF text from `SourcePlan` + the display
@@ -1541,71 +1443,6 @@ func euclideousChordName(tones: [Int], rootNote: Int, flatSpelling: Bool) -> Str
 
 // MARK: - CHORDS GRID ferry §2: the pop-up's layout — ONE pure function every view in §2-4/§6/§7 reads.
 
-/// Fixed row heights this ferry doesn't resize (§2.1/§2.3, "today's height" — the title row's own content size,
-/// the STEPS/RATE row's tallest sub-control) — reasoned estimates, not measured on a device; flagged in the
-/// ferry report. `labelW` is likewise a REASONED estimate of "♭VII"/"ADD9"/"SUS4" at 10pt heavy monospaced
-/// (Derivations.swift is Foundation-only — no real text measurement here, matching the riff panel's own
-/// `EuclideousRiffPanelMetrics.labelW` precedent of a fixed nominal constant, not a live measurement).
-enum EuclideousChordsPopupMetrics {
-    static let titleRowH: CGFloat = 22
-    static let tabRowH: CGFloat = 20
-    static let stepsRateRowH: CGFloat = 26
-    static let playheadBarH: CGFloat = 3
-    static let poolStripH: CGFloat = 32
-    static let rowGap: CGFloat = 4
-    static let dividerGap: CGFloat = 10
-    static let gridRowCount = 18
-    static let dividerAfterRow = 11       // 0-indexed: rows 0...11 are the 12 chord rows (7 diatonic + 4 borrowed + REST)
-    static let rowFloor: CGFloat = 20
-    static let cellFloor: CGFloat = 14
-    static let labelW: CGFloat = 36       // widest of "♭VII"/"ADD9"/"SUS4" at the row-label face — see doc comment above
-    static let sp4: CGFloat = 4, sp8: CGFloat = 8
-    /// Everything but the grid's own height: title + sp8 + tabs + sp8 + steps/rate + sp8 + [grid] + 3 + playhead + sp8 + pool.
-    static let chromeH: CGFloat = titleRowH + sp8 + tabRowH + sp8 + stepsRateRowH + sp8 + 3 + playheadBarH + sp8 + poolStripH
-    /// §2.5, literal: the 16 normal row-gaps plus the one wider divider gap.
-    static let gridGapTotal: CGFloat = CGFloat(gridRowCount - 1) * rowGap + (dividerGap - rowGap)
-}
-
-/// §2/§6/§7: the CHORDS pop-up's entire inside, from its own content box (inside the card's own padding).
-/// `steps` is the live STEPS count (1...16) — the grid always draws 18 ROWS, but only `steps` COLUMNS.
-struct EuclideousChordsPopupLayout: Equatable {
-    typealias M = EuclideousChordsPopupMetrics
-    var box: CGSize
-    var steps: Int
-    var gridH: CGFloat
-    var rowH: CGFloat
-    var cellW: CGFloat
-
-    var belowRowFloor: Bool { rowH < M.rowFloor }
-    var belowCellFloor: Bool { cellW < M.cellFloor }
-
-    var tabRowTop: CGFloat { M.titleRowH + M.sp8 }
-    var stepsRateRowTop: CGFloat { tabRowTop + M.tabRowH + M.sp8 }
-    var gridTop: CGFloat { stepsRateRowTop + M.stepsRateRowH + M.sp8 }
-    var playheadBarTop: CGFloat { gridTop + gridH + 3 }
-    var poolStripTop: CGFloat { playheadBarTop + M.playheadBarH + M.sp8 }
-
-    /// Row `r` (0...17) counted from the top; rows 12...17 are the 6 colour rows, past the divider.
-    func rowTop(_ r: Int) -> CGFloat {
-        let extra = r > M.dividerAfterRow ? (M.dividerGap - M.rowGap) : 0
-        return gridTop + CGFloat(r) * (rowH + M.rowGap) + extra
-    }
-    /// The 1pt divider line's own y, centred in its 10pt gap, across the cell columns only (not the label column).
-    var dividerY: CGFloat { gridTop + CGFloat(M.dividerAfterRow + 1) * rowH + CGFloat(M.dividerAfterRow) * M.rowGap + M.dividerGap / 2 }
-    func columnLeft(_ c: Int) -> CGFloat { M.labelW + M.sp4 + CGFloat(c) * (cellW + M.sp4) }
-    func cellFrame(row: Int, column: Int) -> CGRect { CGRect(x: columnLeft(column), y: rowTop(row), width: cellW, height: rowH) }
-    var gridWidth: CGFloat { M.labelW + M.sp4 + CGFloat(steps) * cellW + CGFloat(max(0, steps - 1)) * M.sp4 }
-}
-
-func euclideousChordsPopupLayout(box: CGSize, steps: Int) -> EuclideousChordsPopupLayout {
-    typealias M = EuclideousChordsPopupMetrics
-    let n = max(1, min(16, steps))
-    let gridH = max(1, box.height - M.chromeH)
-    let rowH = (gridH - M.gridGapTotal) / CGFloat(M.gridRowCount)
-    let cellW = (box.width - M.labelW - M.sp4 - CGFloat(n - 1) * M.sp4) / CGFloat(n)
-    return EuclideousChordsPopupLayout(box: box, steps: n, gridH: gridH, rowH: rowH, cellW: cellW)
-}
-
 /// §2.4: grid row `r` (0...17)'s DEGREE CODE for the 12 chord rows (0...11: diatonic 0...6, borrowed
 /// codes 8...11 at rows 7...10, REST at row 11), or nil for a colour row (12...17, which has no degree).
 func euclideousChordsRowDegree(_ row: Int) -> Int? {
@@ -1625,11 +1462,6 @@ func euclideousChordsDegreeRow(_ degree: Int) -> Int? {
     case 8...11: return degree - 1
     default: return nil
     }
-}
-/// §4.3: like `euclideousChordsDegreeRow`, but for the TAB ICON specifically, where "REST draws nothing"
-/// (unlike the grid itself, which draws REST as its own lit row) — degree 7 returns nil here only.
-func euclideousChordsTabIconRow(_ degree: Int) -> Int? {
-    degree == 7 ? nil : euclideousChordsDegreeRow(degree)
 }
 /// §2.4/§3.2/§3.3: the row LABEL at grid row `r` — the diatonic quality label (0...6), the fixed borrowed
 /// label (7...10, §5.2), "REST" (11), or the colour name (12...17, §3.3's 7/9/6/ADD9/SUS2/SUS4 order,
@@ -4438,18 +4270,6 @@ func euclideousSettingsSheetWidth(containerW: CGFloat) -> CGFloat { min(448, con
 
 // ── SOURCES header lights (SOURCES STACK ferry 2026-10-26 §4.2/§4.3) ─────────────────────────────────
 enum EuclideousSourceLight: Equatable { case playing, waiting, off }
-/// §4.3 the three header lights from the live status + the plan. MIDI IN is NEVER off (playing while it holds
-/// notes, else waiting). CHORDS/KEY are off when both of their cells are unlit; else playing when the layer is
-/// sounding, else waiting (a CHORDS rest shows as waiting too — §4.3).
-func euclideousSourceLights(midiPlaying: Bool, chordsLit: Bool, keyLit: Bool, plan: SourcePlan)
-    -> (midi: EuclideousSourceLight, chords: EuclideousSourceLight, key: EuclideousSourceLight) {
-    let chordsOn = plan.chordsOnR   // Sources panel v2: read the resolved v2 switch (not the legacy cells)
-    let keyOn = plan.keyOnR
-    return (midiPlaying ? .playing : .waiting,
-            !chordsOn ? .off : (chordsLit ? .playing : .waiting),
-            !keyOn ? .off : (keyLit ? .playing : .waiting))
-}
-
 // MARK: - Sources panel v2 (2026-10-28): four switchable sources, colours, pips, the panel geometry
 
 /// §3 the four source colours, each with an ink for text ON it (hex; the view wraps them in `Color`). srcMidi equals
@@ -4466,16 +4286,6 @@ enum EuclideousSourceColour {
     static func name(source: UInt8) -> String {
         switch source { case 0: return "MIDI"; case 1: return "chords"; case 2: return "pick"; default: return "key" }
     }
-}
-
-/// §2.8/§4.3 each source's light from the plan + the live status: off (switch off) · playing (on & contributing) ·
-/// waiting (on & not contributing). MIDI "contributes" = it is playing (holding, or within RELEASE GRACE); CHORDS /
-/// PICK / KEY use their §2.3 condition flag (KEY can be playing and add 0). The one rule the pips, the row switches
-/// and the COUNT colour all read.
-func euclideousSourceStatuses(plan: SourcePlan, midiPlaying: Bool, chordsLit: Bool, pickLit: Bool, keyLit: Bool)
-    -> (midi: EuclideousSourceLight, chords: EuclideousSourceLight, pick: EuclideousSourceLight, key: EuclideousSourceLight) {
-    func s(_ on: Bool, _ lit: Bool) -> EuclideousSourceLight { !on ? .off : (lit ? .playing : .waiting) }
-    return (s(plan.midiOnR, midiPlaying), s(plan.chordsOnR, chordsLit), s(plan.pickOnR, pickLit), s(plan.keyOnR, keyLit))
 }
 
 /// §4.7 / HARMONY 7.7 the header button's VoiceOver value: "<key>, MIDI IN playing, CHORDS waiting, PICK unused, KEY playing".
@@ -4510,9 +4320,6 @@ func euclideousResolveSourcePlan(stored: SourcePlan?, legacySource: EuclideousLa
     }
 }
 
-/// Which inline editor is open under a source row (§5.13 one at a time).
-enum EuclideousSourceEditor: Equatable { case none, pick, key, midi }
-
 /// §5.11 toggle a PICK note: remove it if present, else add it (ascending, deduped) — but never beyond 16 (a 17th add
 /// is dropped). The ONE PICK-edit rule the editor and the tests share.
 func euclideousPickToggle(_ notes: [UInt8], _ note: UInt8) -> [UInt8] {
@@ -4528,130 +4335,7 @@ func euclideousPickEditorDefaultOctave(_ picks: [UInt8]) -> Int {
     return max(1, min(7, Int(lo) / 12 - 1))
 }
 
-/// §7.4 the POOL preview for a specific CHORDS column (a finger down on a grid cell) — the SAME merge the engine
-/// runs (§7.5), over the live MIDI held notes, THAT column's chord tones, the live PICK notes and the KEY layer.
-/// Main-thread only (the UI's hold preview; it allocates, which is fine off the render thread). Returns the first
-/// ≤8 ranks with each note's source (0 MIDI · 1 CHORDS · 2 PICK · 3 KEY — the merge's own priority).
-func euclideousColumnPreviewPool(midiNotes: [UInt8], chordTones: [Int], pickNotes: [UInt8], keyTones: [Int],
-                                 midiPlaying: Bool, plan: SourcePlan, rootTranspose: Int = 0) -> (notes: [UInt8], sources: [UInt8]) {
-    var dest = [(note: Int, vel: UInt8)](repeating: (0, 0), count: 128)
-    var chips = [UInt8](repeating: 0, count: 8)
-    let midi = midiNotes.map { (note: Int($0), vel: UInt8(100)) }
-    let pick = pickNotes.map { Int($0) }
-    let r = euclideousBuildSourceStack(into: &dest, cap: 128, midi: midi[...], midiPlaying: midiPlaying,
-                                       chords: chordTones[...], chordsIsRest: chordTones.isEmpty,
-                                       pick: pick[...], key: keyTones[...], plan: plan, clash: .allow, midiStatusOut: &chips, rootTranspose: rootTranspose)
-    var notes = [UInt8](), sources = [UInt8]()
-    // The pool is returned MOVED by the root transpose, so each source is recognised by its moved value (ROOT: played notes admit nothing, so never MIDI).
-    func moved(_ x: Int) -> Int { rootTranspose == 0 ? x : euclideousRootMoved(x, by: rootTranspose) }   // t = 0 leaves the pool exactly as the merge built it (the builder only clamps when it moves)
-    let midiTags = plan.midiModeR != .root
-    for i in 0..<min(8, r.count) {
-        let note = dest[i].note, n8 = UInt8(max(0, min(127, note)))
-        notes.append(n8)
-        if midiTags, midiNotes.contains(where: { moved(Int($0)) == note }) { sources.append(0) }
-        else if chordTones.contains(where: { moved($0) == note }) { sources.append(1) }
-        else if pickNotes.contains(where: { moved(Int($0)) == note }) { sources.append(2) }
-        else { sources.append(3) }
-    }
-    return (notes, sources)
-}
-
-/// §5/§7 the SOURCES panel geometry — ONE pure function for every frame (the views re-derive nothing). Text widths
-/// (MODE's two segments; from them the key widths) are monospaced-advance ESTIMATES, device-owed like the CHORDS
-/// pop-up's `labelW`. `scaleCount` = the KEY editor's scale-type count (13 today), wrapped into rows of ≤ 6 (§5.12).
-struct EuclideousSourcesPanelLayout: Equatable {
-    var width: CGFloat              // §5.2 min(448, containerW)
-    var blockInnerW: CGFloat        // a block's content width (surface − sp8×2, block − sp8×2)
-    let labelW: CGFloat = 84        // §5.6 LABEL column (the source switch)
-    let countW: CGFloat = 24        // §5.6/§5.9 COUNT column
-    let rowH: CGFloat = 44          // §5.5
-    let rowGap: CGFloat = 4         // §5.5 sp4
-    var modeAddW: CGFloat           // §5.10 the ADD segment (text + 10 pt each side)
-    var modeReplaceW: CGFloat       // §5.10 the REPLACE segment
-    var modeRootW: CGFloat          // MIDI IN ROOT ferry §3.1 the ROOT segment (same shape: text + 10 pt each side)
-    var modeW: CGFloat              // §5.10 the whole ADD/REPLACE/ROOT container (2 pt inset + segs + 2 pt between)
-    var contentW: CGFloat           // §5.8 CONTENT on a non-MIDI row
-    var contentMidiW: CGFloat       // CONTENT on the MIDI row (narrower by MODE + sp8)
-    var midiChipRoom: CGFloat       // MIDI IN ROOT/OCTAVES ferry §3.2 what the chips get inside CONTENT: its width less 10 pt padding each side and the chevron with its sp6 (0 ⇒ the chips hide, the chevron stays)
-    let midiEditorH: CGFloat = euclideousMidiEditorH   // MIDI IN ROOT/OCTAVES ferry §4.1 the MIDI IN editor: 2 above + one 32 pt row + 6 below
-    var pickKeyW: CGFloat           // §5.11 each of the 12 PICK keys
-    var rootKeyW: CGFloat           // §5.12 each of the 12 ROOT buttons (= pickKeyW)
-    let octaveStepperW: CGFloat = 84 // §5.11
-    let octaveStepperH: CGFloat = 52
-    let pickKeyH: CGFloat = 52       // §5.11
-    let rootH: CGFloat = 40          // §5.12 ROOT buttons
-    let scaleH: CGFloat = 32         // §5.12 SCALE buttons
-    var scaleCols: Int               // §5.12 ≤ 6 per row
-    var scaleRows: Int
-    var scaleW: CGFloat              // each SCALE button (CONTENT ÷ cols, 3 apart)
-    var poolChipW: CGFloat           // §7.2 each of the 8 POOL chips
-    let poolChipH: CGFloat = 36      // §7.3
-    var sourcesBlockH: CGFloat       // §5.5 four rows + gaps + the open editor + the block padding
-    var poolBlockH: CGFloat          // §7.2
-    var contentH: CGFloat            // §5.2 title + sourcesBlock + poolBlock (+ the sp8 gaps) — the scroll check reads this
-}
-func euclideousSourcesPanelLayout(containerW: CGFloat, editor: EuclideousSourceEditor = .none, scaleCount: Int = 13) -> EuclideousSourcesPanelLayout {
-    let sp8: CGFloat = 8, sp4: CGFloat = 4, gap3: CGFloat = 3
-    let width = min(448, containerW)                          // §5.2
-    let blockInnerW = width - sp8 * 2 /* surface pad */ - sp8 * 2 /* block pad */
-    // §5.10 MODE: 9 pt heavy monospaced, 0.04 em — each segment = its text + 10 pt each side; container = 2 pt inset both ends + 2 pt between.
-    let adv: CGFloat = 9 * (0.6 + 0.04)
-    let modeAddW = (3 * adv + 20).rounded()                   // "ADD"
-    let modeReplaceW = (7 * adv + 20).rounded()               // "REPLACE"
-    let modeRootW = (4 * adv + 20).rounded()                  // "ROOT" (MIDI IN ROOT/OCTAVES ferry §3.1)
-    let modeW = 2 + modeAddW + 2 + modeReplaceW + 2 + modeRootW + 2
-    let labelW: CGFloat = 84, countW: CGFloat = 24
-    let contentW = blockInnerW - labelW - sp8 - sp8 - countW  // §5.6 non-MIDI row
-    let contentMidiW = contentW - modeW - sp8                 // §5.6 the MIDI row also carries MODE
-    let midiChipRoom = max(0, contentMidiW - 20 /* padding 10 + 10 */ - 16 /* chevron 10 + sp6 */)   // ferry §3.2
-    let pickKeyW = (contentW - gap3 * 11) / 12                // §5.11 twelve keys, 3 apart, over the CONTENT width
-    let scaleCols = min(6, max(1, scaleCount))                // §5.12 ≤ 6 per row
-    let scaleRows = Int((Double(max(1, scaleCount)) / Double(scaleCols)).rounded(.up))
-    let scaleW = (contentW - gap3 * CGFloat(scaleCols - 1)) / CGFloat(scaleCols)
-    let poolChipW = (contentW - sp4 * 7) / 8                  // §7.2 eight chips, sp4 apart, over the CONTENT width
-    // Heights. §5.11 PICK editor sits 2 above / 6 below; §5.12 KEY editor 2 above / 4 below (ROOT row + the scale rows, 6 apart).
-    let pickEditorH: CGFloat = 2 + 52 /* stepper = keys */ + 6
-    let keyScaleBlockH = CGFloat(scaleRows) * 32 + CGFloat(scaleRows - 1) * gap3
-    let keyEditorH: CGFloat = 2 + (40 /* ROOT */ + 6 + keyScaleBlockH) + 4
-    let editorH: CGFloat = editor == .pick ? pickEditorH : (editor == .key ? keyEditorH : (editor == .midi ? euclideousMidiEditorH : 0))
-    // The four rows sit in a VStack(spacing: sp4): an open editor is a fifth child, so the block gains one more gap (the formula used to leave it out and the rendered block ran 4 pt taller than `sourcesBlockH`).
-    let sourcesBlockH = sp8 + 44 * 4 + sp4 * 3 + (editor == .none ? 0 : sp4) + editorH + sp8
-    let poolBlockH = sp8 + 36 + sp8
-    let contentH = 40 /* title */ + sp8 + sourcesBlockH + sp8 + poolBlockH
-    return EuclideousSourcesPanelLayout(
-        width: width, blockInnerW: blockInnerW,
-        modeAddW: modeAddW, modeReplaceW: modeReplaceW, modeRootW: modeRootW, modeW: modeW,
-        contentW: contentW, contentMidiW: contentMidiW, midiChipRoom: midiChipRoom,
-        pickKeyW: pickKeyW, rootKeyW: pickKeyW,
-        scaleCols: scaleCols, scaleRows: scaleRows, scaleW: scaleW,
-        poolChipW: poolChipW,
-        sourcesBlockH: sourcesBlockH, poolBlockH: poolBlockH, contentH: contentH)
-}
-
 // ── SOURCES pop-up geometry (SOURCES STACK ferry 2026-10-26 §5) ──────────────────────────────────────
-/// The approximate rendered width of "MIDI PLAYING" (9 pt heavy monospaced, 0.14 em tracking) — the threshold
-/// below which a table CELL is too narrow for the header label and it wraps onto two lines (§5.7). Device-owed.
-let euclideousSourcesHeaderLabelWidth: CGFloat = 79
-struct EuclideousSourcesPopupLayout: Equatable {
-    var width: CGFloat          // §5.2 min(412, containerW)
-    var labelW: CGFloat = 76    // §5.5 LABEL column
-    var cellW: CGFloat          // §5.5 (block inner − 76 − 72 − 24) ÷ 2
-    var nowW: CGFloat = 72      // §5.5 NOW column
-    var headerRowH: CGFloat     // §5.7 20, or 28 when a CELL is narrower than "MIDI PLAYING"
-    var blockInnerW: CGFloat    // a block's content width (surface − padding, block − padding)
-}
-/// §5 the SOURCES pop-up's shared geometry: surface #1B1D23 with sp8 padding; each block #22252C with sp8 padding;
-/// both blocks share four columns LABEL 76 · CELL · CELL · NOW 72 with sp8 gaps (3 × 8 = 24). Pure (tested §12).
-func euclideousSourcesPopupLayout(containerW: CGFloat) -> EuclideousSourcesPopupLayout {
-    let sp8: CGFloat = 8
-    let width = min(412, containerW)
-    let blockInnerW = width - sp8 * 2 /* surface padding */ - sp8 * 2 /* block padding */
-    let cellW = (blockInnerW - 76 - 72 - 24) / 2   // 24 = 3 column gaps × sp8
-    return EuclideousSourcesPopupLayout(width: width, cellW: cellW,
-                                        headerRowH: cellW < euclideousSourcesHeaderLabelWidth ? 28 : 20,
-                                        blockInnerW: blockInnerW)
-}
-
 // ── the press state machine (tap vs hold; the lane SOLO button and the lane LOCK padlock use it too) ──────────────────
 
 /// One output ring's tap-vs-hold decision (spec §4.6/§4.7), kept PURE so it can be tested and so each ring owns its own
@@ -11061,25 +10745,6 @@ func euclideousRankChipMinWidth() -> CGFloat {
 }
 
 // ── §4.1 THE PEDAL (CC64 on MIDI IN) ─────────────────────────────────────────────────────────────────────────────────────
-/// A MIDI message's effect on the sustain pedal: CC64 on a channel LISTEN ON admits (and a cable the MIDI IN pool admits) (`chanMask`: bit n = channel n+1), 64 … 127 down, 0 … 63 up. nil = not a pedal message for MIDI IN (another status or controller, or a channel the mask excludes).
-/// The Kernel calls this for every incoming message; CC64 is still forwarded to the outputs as before.
-func euclideousPedalLevel(status: UInt8, controller: UInt8, value: UInt8, chanMask: UInt16, cable: Int = 0) -> Bool? {
-    guard status & 0xF0 == 0xB0, controller == 64, (chanMask >> UInt16(status & 0x0F)) & 1 != 0, cable >= 0, cable < 4 else { return nil }   // the cables the MIDI IN pool admits (`cableMask: 0b1111`)
-    return value >= 64
-}
-/// Several pedals — CC64 on different admitted channels — are ONE pedal: down while ANY channel's is down (a pedal released on channel 2 must not let go of one held on channel 1). `down` is the per-channel bit mask (bit n = channel n+1); returns the
-/// combined level after `channel` moves to `level`.
-func euclideousPedalChannelsUpdate(_ down: inout UInt16, channel: UInt8, to level: Bool) -> Bool {
-    let bit = UInt16(1) << UInt16(channel & 0x0F)
-    if level { down |= bit } else { down &= ~bit }
-    return down != 0
-}
-/// Move the pedal to `new`: a DOWN edge bumps the counter the Router reads (so a press and release inside one window is still an edge); a repeated down, or any up, does not.
-func euclideousPedalAdvance(level: inout Bool, seq: inout UInt32, to new: Bool) {
-    if new && !level { seq &+= 1 }
-    level = new
-}
-
 // ── §8.4 THE GRID'S LANE PICKER ──────────────────────────────────────────────────────────────────────────────────────────
 /// 6.3: the next lane, 1 → 2 → 3 → 4 → 1 (0-based here).
 func euclideousPickedLaneNext(_ current: Int) -> Int { (((current % 4) + 4) % 4 + 1) % 4 }
@@ -11145,11 +10810,6 @@ func euclideousSustainModeSpoken(mode: EuclideousSustainMode, rowOn: Bool, lane:
     let what = mode == .keep ? "takes nothing new" : "loses nothing"
     return "Sustain \(mode.rawValue.lowercased()), lane \(lane + 1), \(what)\(rowOn ? "" : ", off")"
 }
-/// 2.5: how the PEDAL light draws — the row off, or on with the pedal up / down.
-enum EuclideousPedalLook: Equatable { case off, up, down }
-func euclideousPedalLook(rowOn: Bool, pedalDown: Bool) -> EuclideousPedalLook { !rowOn ? .off : (pedalDown ? .down : .up) }
-/// 9.3: the PEDAL light's value.
-func euclideousPoolPedalSpoken(down: Bool) -> String { down ? "down" : "up" }
 /// 9.4: a grid label chip, "Rank n, <note>".
 func euclideousRankChipGridSpoken(rank: Int, note: String) -> String { "Rank \(rank), \(note)" }
 /// The riff grid's label column names the note the PICKED lane's riff will SOUND, so the pool's pitch moves by that part's OCT (12 semitones a box) before it is named — the pool and its root letter are unchanged (a 12-semitone shift keeps every pitch

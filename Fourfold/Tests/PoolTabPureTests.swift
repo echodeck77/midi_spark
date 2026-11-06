@@ -241,17 +241,14 @@ final class PoolTabPureTests: XCTestCase {
         XCTAssertEqual(euclideousPoolSourceNames, ["MIDI in", "Chords 1", "Pick", "Key", "Chords 2"])
         XCTAssertEqual(euclideousPoolSourceOrder, [0, 1, 4, 2, 3], "MIDI IN · CHORD 1 · CHORD 2 · PICK · KEY"); XCTAssertEqual(Set(euclideousPoolSourceOrder), Set(0..<5))
         XCTAssertEqual(euclideousPoolSourceValue(on: true), "on"); XCTAssertEqual(euclideousPoolSourceValue(on: false), "off")
-        XCTAssertEqual(euclideousPoolPedalSpoken(down: true), "down"); XCTAssertEqual(euclideousPoolPedalSpoken(down: false), "up")
         XCTAssertEqual(euclideousRankChipGridSpoken(rank: 3, note: "E flat 3"), "Rank 3, E flat 3"); XCTAssertEqual(euclideousPickedLaneSpoken(1), "lane 2")
     }
 }
 
 final class PoolTabPureExtrasTests: XCTestCase {
-    func testTheSustainModeWordsAndThePedalLook() {
+    func testTheSustainModeWords() {
         XCTAssertEqual(euclideousSustainModeSpoken(mode: .keep, rowOn: true, lane: 1), "Sustain keep, lane 2, takes nothing new")
         XCTAssertEqual(euclideousSustainModeSpoken(mode: .stack, rowOn: false, lane: 3), "Sustain stack, lane 4, loses nothing, off")
-        XCTAssertEqual(euclideousPedalLook(rowOn: false, pedalDown: true), .off, "a row that is off does not light, whatever the pedal does")
-        XCTAssertEqual(euclideousPedalLook(rowOn: true, pedalDown: false), .up); XCTAssertEqual(euclideousPedalLook(rowOn: true, pedalDown: true), .down)
     }
     func testThePageSeesOnlyTheNotesOfALanePool() {
         var s = EuclideousLanePoolStatus(); s.count = 20; s.notes = [48, 50]; s.top2 = 90; s.top = 95; s.playedRanks = 0b101
@@ -259,56 +256,5 @@ final class PoolTabPureExtrasTests: XCTestCase {
         XCTAssertEqual(n.count, 20); XCTAssertEqual(n.notes, [48, 50]); XCTAssertEqual(n.top2, 90); XCTAssertEqual(n.top, 95)
         var t = s; t.playedRanks = 0b010
         XCTAssertEqual(EuclideousLanePoolNotes(t), n, "the played ranks are not part of what the page reads")
-    }
-}
-
-/// POOL ferry §4.1 — the pedal, as the Kernel decides it (the Kernel itself is not unit-tested; its CC64 branch is these two functions).
-final class PoolPedalTests: XCTestCase {
-    func testOnlyCC64OnAnAdmittedChannelIsAPedalMessage() {
-        let all: UInt16 = 0xFFFF
-        XCTAssertEqual(euclideousPedalLevel(status: 0xB0, controller: 64, value: 127, chanMask: all), true)
-        XCTAssertEqual(euclideousPedalLevel(status: 0xB0, controller: 64, value: 0, chanMask: all), false)
-        XCTAssertNil(euclideousPedalLevel(status: 0xB0, controller: 65, value: 127, chanMask: all), "CC65 (portamento) is not the pedal")
-        XCTAssertNil(euclideousPedalLevel(status: 0x90, controller: 64, value: 127, chanMask: all), "a NOTE ON of note 64 is not the pedal")
-        XCTAssertNil(euclideousPedalLevel(status: 0xA0, controller: 64, value: 127, chanMask: all), "neither is aftertouch")
-        XCTAssertNil(euclideousPedalLevel(status: 0xE0, controller: 64, value: 127, chanMask: all))
-    }
-    func testTheThresholdIs64() {
-        XCTAssertEqual(euclideousPedalLevel(status: 0xB0, controller: 64, value: 63, chanMask: 0xFFFF), false)
-        XCTAssertEqual(euclideousPedalLevel(status: 0xB0, controller: 64, value: 64, chanMask: 0xFFFF), true)
-        XCTAssertEqual(euclideousPedalLevel(status: 0xB0, controller: 64, value: 127, chanMask: 0xFFFF), true)
-    }
-    func testTheChannelMaskIsListenOns() {
-        let ch3Only: UInt16 = 1 << 2                                    // channel 3
-        XCTAssertEqual(euclideousPedalLevel(status: 0xB2, controller: 64, value: 127, chanMask: ch3Only), true)
-        XCTAssertNil(euclideousPedalLevel(status: 0xB0, controller: 64, value: 127, chanMask: ch3Only), "channel 1 is not admitted")
-        XCTAssertNil(euclideousPedalLevel(status: 0xBF, controller: 64, value: 127, chanMask: ch3Only))
-        XCTAssertEqual(euclideousPedalLevel(status: 0xBF, controller: 64, value: 0, chanMask: 1 << 15), false, "channel 16")
-    }
-    func testTheCableMustBeOneTheMidiInPoolAdmits() {
-        for cable in 0..<4 { XCTAssertEqual(euclideousPedalLevel(status: 0xB0, controller: 64, value: 127, chanMask: 0xFFFF, cable: cable), true, "cable \(cable)") }
-        XCTAssertNil(euclideousPedalLevel(status: 0xB0, controller: 64, value: 127, chanMask: 0xFFFF, cable: 4), "a cable the pool rejects cannot move the pedal")
-        XCTAssertNil(euclideousPedalLevel(status: 0xB0, controller: 64, value: 127, chanMask: 0xFFFF, cable: -1))
-    }
-    func testSeveralPedalsAreOnePedalDownWhileAnyChannelsIs() {
-        var chans: UInt16 = 0, level = false, seq: UInt32 = 0
-        func move(_ ch: UInt8, _ down: Bool) { let any = euclideousPedalChannelsUpdate(&chans, channel: ch, to: down); euclideousPedalAdvance(level: &level, seq: &seq, to: any) }
-        move(0, true); XCTAssertTrue(level); XCTAssertEqual(seq, 1)
-        move(1, true); XCTAssertTrue(level); XCTAssertEqual(seq, 1, "a second pedal going down while one is down is no new edge")
-        move(1, false); XCTAssertTrue(level, "channel 2 letting go must not release channel 1's pedal")
-        move(0, false); XCTAssertFalse(level)
-        move(15, true); XCTAssertTrue(level); XCTAssertEqual(seq, 2, "channel 16 is a pedal too")
-        move(15, false); XCTAssertFalse(level)
-    }
-    func testOnlyADownEdgeBumpsTheCounter() {
-        var level = false, seq: UInt32 = 0
-        euclideousPedalAdvance(level: &level, seq: &seq, to: true); XCTAssertEqual(seq, 1); XCTAssertTrue(level)
-        euclideousPedalAdvance(level: &level, seq: &seq, to: true); XCTAssertEqual(seq, 1, "a repeated down is no new edge")
-        euclideousPedalAdvance(level: &level, seq: &seq, to: false); XCTAssertEqual(seq, 1); XCTAssertFalse(level)
-        euclideousPedalAdvance(level: &level, seq: &seq, to: false); XCTAssertEqual(seq, 1)
-        euclideousPedalAdvance(level: &level, seq: &seq, to: true); euclideousPedalAdvance(level: &level, seq: &seq, to: false); euclideousPedalAdvance(level: &level, seq: &seq, to: true)
-        XCTAssertEqual(seq, 3, "down, up, down inside one window is two edges")
-        var wrap: UInt32 = .max; var l2 = false
-        euclideousPedalAdvance(level: &l2, seq: &wrap, to: true); XCTAssertEqual(wrap, 0, "the counter wraps, it never traps")
     }
 }

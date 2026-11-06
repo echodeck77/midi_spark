@@ -101,13 +101,13 @@ final class FourfoldUndoAuditTests: XCTestCase {
         o.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).press(forDuration: 0.05, thenDragTo: o.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)))
     }
     func tapLabel(_ label: String) { app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch.tap() }
-    // SOURCES STACK ferry (2026-10-26): the note-source radio became a SOURCES pop-up of CHORDS/KEY toggle cells.
-    // Toggling a cell is ONE undoable step (opening/closing the pop-up is not), so the step accounting is unchanged.
-    // Close by tapping outside the card (the bottom of the screen is the pop-up's full-screen tap-catcher).
+    // INPUTS ferry (2026-11-06): the note sources are a lane's own SOURCES chips on the INPUTS tab (the global switches and the SOURCES panel are gone). Tapping a chip is ONE undoable step (switching the page tab is not); the cell names the fuzz and
+    // the cap test use map onto lane chips: each is a toggle — always a change, always one step. The page goes back to RHYTHM afterwards, where the other operations expect to be.
     func noteSource(_ cell: String) {
-        app.buttons["Sources"].tap(); Thread.sleep(forTimeInterval: 0.3)
-        app.buttons[cell].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap(); Thread.sleep(forTimeInterval: 0.2)
+        let chip = ["CHORDS while MIDI plays": "Chords 1, lane 1", "KEY while MIDI plays": "Key, lane 1", "KEY with no MIDI": "Key, lane 2", "CHORDS with no MIDI": "Chords 1, lane 2"][cell] ?? cell
+        app.els(prefix: "Inputs, ").firstMatch.tap(); Thread.sleep(forTimeInterval: 0.3)
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", chip)).firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
+        app.buttons["Rhythm"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
     }
     /// POLY RIFF (2026-10-29): the four riff boxes became a MONO | POLY control — tapping the segment already showing changes nothing (and pushes no step), tapping the other one is one undo step.
     func riffMode(poly: Bool) { app.buttons[poly ? "Poly" : "Mono"].firstMatch.tap() }
@@ -121,11 +121,9 @@ final class FourfoldUndoAuditTests: XCTestCase {
     /// An FX cell is "Note n, rank r, <row> <value>" — r is the riff's rank at that step, which edits change, so match on the note and the row only.
     func fxCell(note: Int, row: String) { app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Note \(note), rank", ", \(row) ")).firstMatch.tap() }
     func openFX() { app.buttons["FX"].tap(); Thread.sleep(forTimeInterval: 0.4) }
-    // SOURCES STACK ferry (2026-10-26): the chord grid opens from the SOURCES pop-up's CHORDS label (was: select
-    // CHORDS as the note source, then tap the chosen segment).
+    // INPUTS + HARMONY ferry (2026-11-06): the chord grids live on the HARMONY page, opened from the header button.
     func openChordsPopup() {
-        app.buttons["Sources"].tap(); Thread.sleep(forTimeInterval: 0.4)
-        app.buttons["Chords, edit chord grid"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.6)
+        app.buttons["Harmony"].tap(); Thread.sleep(forTimeInterval: 0.6)
     }
     func chordColumn(_ col: Int, _ degree: String) { app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Column \(col), \(degree),")).firstMatch.tap() }
     func undo() { app.buttons["Undo"].tap() }
@@ -466,25 +464,34 @@ final class FourfoldUndoAuditTests: XCTestCase {
         XCTAssertTrue(c.consistent, c.raw); XCTAssertEqual(c.resyncs, 0, c.raw)
     }
 
-    func testChords_EditsAndProgressionSwitchesAreStepsAndUndoRestoresThem() {
-        launch()
-        openChordsPopup()                                                      // choosing CHORDS as the note source is itself a step
+    /// HARMONY (2026-11-06): the page's edits are steps and undo restores them — a grid cell, STEPS, the pill's ADVANCE chips — while opening the page, a popover and the CHORDS · COLOUR switch are none.
+    func testChords_EditsAreStepsAndOpeningThePageAndItsPopoversAreNot() {
+        let p0 = launch()
+        openChordsPopup()
         let base = settled()
+        XCTAssertEqual(base.snap, p0.snap, "opening the page changes no setting"); XCTAssertEqual(base.undo, p0.undo, "and is not a step")
+        app.buttons["Grid 1 timing"].tap(); Thread.sleep(forTimeInterval: 0.4)
+        app.buttons["Colour rows"].tap(); Thread.sleep(forTimeInterval: 0.3)
+        let ui = settled()
+        XCTAssertEqual(ui.snap, base.snap, "a popover and the CHORDS · COLOUR switch are UI state"); XCTAssertEqual(ui.undo, base.undo)
+        app.buttons["Chord rows"].tap(); app.buttons["Grid 1 timing"].tap(); Thread.sleep(forTimeInterval: 0.3)   // the popover closes
         chordColumn(3, "V"); let a = settled()
         chordColumn(4, "iv"); let b = settled()
         XCTAssertNotEqual(a.snap, base.snap); XCTAssertNotEqual(b.snap, a.snap, "two real chord edits")
         XCTAssertEqual(b.differingParts(from: base), ["chordSets"], "only the chord sets changed: \(b.raw)")
-        XCTAssertEqual(b.undo, base.undo + 2, "each column edit made while the popup stays open is its own step (a pause > 0.5 s closes a run): \(b.raw)")
-        app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Chord grid 2'")).firstMatch.tap(); let c = settled()
-        XCTAssertEqual(c.undo, base.undo + 3, "switching the chord grid being edited is a step: \(c.raw)")
-        XCTAssertNotEqual(c.snap, b.snap)
-        undo()                                                                 // while the popup is open a tap on the header lands on its scrim and only closes it
-        var back = settled(); if back.snap == c.snap { undo(); back = settled() }
-        XCTAssertEqual(back.snap, b.snap, "↶ switches back to chord grid 1 with its edits intact")
+        XCTAssertEqual(b.undo, base.undo + 2, "each column edit is its own step (a pause > 0.5 s closes a run): \(b.raw)")
+        app.buttons["More steps"].firstMatch.tap(); let c = settled()
+        XCTAssertEqual(c.undo, base.undo + 3, "STEPS + is a step: \(c.raw)"); XCTAssertNotEqual(c.snap, b.snap)
+        app.buttons["Grid 1 timing"].tap(); Thread.sleep(forTimeInterval: 0.4)
+        app.buttons["Advance by loop"].firstMatch.tap(); let d = settled()
+        XCTAssertEqual(d.undo, base.undo + 4, "an ADVANCE chip in the popover is a step: \(d.raw)"); XCTAssertNotEqual(d.snap, c.snap)
+        app.buttons["Grid 1 timing"].tap(); Thread.sleep(forTimeInterval: 0.4)                // the popover closes; the header's undo is outside the page and live
+        undo(); XCTAssertEqual(settled().snap, c.snap)
+        undo(); XCTAssertEqual(settled().snap, b.snap)
         undo(); XCTAssertEqual(settled().snap, a.snap)
         undo(); XCTAssertEqual(settled().snap, base.snap)
-        redo(); redo(); redo(); let r = settled()
-        XCTAssertEqual(r.snap, c.snap); XCTAssertTrue(r.consistent, r.raw); XCTAssertEqual(r.resyncs, 0, r.raw)
+        redo(); redo(); redo(); redo(); let r = settled()
+        XCTAssertEqual(r.snap, d.snap); XCTAssertTrue(r.consistent, r.raw); XCTAssertEqual(r.resyncs, 0, r.raw)
     }
 
     /// RATCH tab ferry (2026-10-28): every edit on the RATCH tab — a toggle tap, a value drag, a double-tap reset — is ONE step and moves ONLY the `emitterRatchets` part of the snapshot; the page, the document and the render
@@ -695,8 +702,9 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case .riffCell(let st, let r): app.buttons["Step \(st), rank \(r)"].firstMatch.tap()
             case .fxCell(let n, let row): fxCell(note: n, row: row)
             case .keyScale:
-                app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Key, '")).firstMatch.tap()
-                app.staticTexts[keyIsMinor ? "MAJOR" : "MINOR"].tap(); keyIsMinor.toggle()
+                app.buttons["Harmony"].tap(); Thread.sleep(forTimeInterval: 0.4)
+                app.buttons[keyIsMinor ? "MAJOR" : "MINOR"].firstMatch.tap(); keyIsMinor.toggle()
+                app.buttons["Close harmony"].tap()
             case .preset(let p): loadPreset(p)
             case .undo: undo()
             case .redo: redo()
