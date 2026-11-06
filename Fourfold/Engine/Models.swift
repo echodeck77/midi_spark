@@ -765,6 +765,9 @@ struct EuclidLine: Codable, Equatable {
     var restartMelodySource: Int? = nil
     var restartMelodyOn: Bool? = nil
     var restartMelodyWithRhythm: Bool? = nil
+    // INPUTS + HARMONY ferry (Paul 2026-11-06, §1.1) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant: this lane's MIDI IN mode (ADD | REPLACE | ROOT), the page-level `SourcePlan.midiMode` before. nil ⇒ the document's resolved
+    // plan mode (so an old document keeps its mode on every lane); an unknown stored value decodes as ADD (`MidiMode.init(from:)`). Document state: saved, in presets, undoable (`edit(idx)`), not a lane-lock field. Read it through `euclideousLaneMidiMode`.
+    var midiMode: MidiMode? = nil
     var answerRhythmOnResolved: Bool { answerRhythmOn ?? false }
     var answerRhythmModeResolved: EuclideousAnswerRhythmMode { answerRhythmMode ?? .copy }
     var answerRhythmCycleResolved: Bool { answerRhythmCycle ?? false }
@@ -1212,6 +1215,7 @@ extension EuclidLine {
         restartMelodySource = (try? c.decodeIfPresent(Int.self, forKey: .restartMelodySource)).flatMap { $0 }.map { max(0, min(3, $0)) }
         restartMelodyOn = (try? c.decodeIfPresent(Bool.self, forKey: .restartMelodyOn)).flatMap { $0 }
         restartMelodyWithRhythm = (try? c.decodeIfPresent(Bool.self, forKey: .restartMelodyWithRhythm)).flatMap { $0 }
+        midiMode = (try? c.decodeIfPresent(MidiMode.self, forKey: .midiMode)).flatMap { $0 }   // INPUTS + HARMONY: an unknown stored value is ADD (MidiMode's own decoder), a wrong type reads as missing
         restartRhythmBars = restartRhythmBars.map { euclideousRestartValidLinks($0, hit: false) }
         restartMelodyPasses = restartMelodyPasses.map { euclideousRestartValidLinks($0, hit: restartMelodyUnit == .hit) }
         if !usesNewAnswer, let m = EuclidLine.migratedAnswer(rhythm: listenRhythm, pitch: listenPitch) {
@@ -3662,6 +3666,23 @@ struct PluginState: Codable, Equatable {
         let folded = euclideousSoloFold(laneMask: lane, partMask: euclideousPartSoloMaskResolved)
         euclideousPartSoloMask = folded == 0 ? nil : folded
         euclideousSoloMask = nil
+    }
+    /// INPUTS + HARMONY (2026-11-06, §1.3): the four global SOURCE switches (MIDI IN · CHORDS · PICK · KEY) are gone from the UI — a lane's sources are exactly its own SOURCES chips. SOUND-PRESERVING at load: each lane's chip becomes chip AND
+    /// the matching switch of the RESOLVED plan (the old engine ANDed them), then the four switches are written true (the fields stay decodable; nothing writes them again). Not an undo step. Idempotent and `==`-neutral for a document whose switches
+    /// already resolve all true (the function returns without touching it); materialises the four default lines when a switch was off and the document holds none. Run at every document entry: the session setter, `PresetStore.decode`,
+    /// a factory preset's `make()`, the AU's initial document. Returns whether anything changed.
+    @discardableResult mutating func normalizeSourcesAtLoad() -> Bool {
+        let plan = sourcePlanResolved
+        let panel = euclideousPanelSwitches(plan)
+        if panel.midi && panel.chords && panel.pick && panel.key { return false }
+        var lines = euclideousLinesResolved
+        for i in lines.indices {
+            let m = euclideousNormaliseSources(chips: lines[i].poolSrcMaskResolved, panel: panel)
+            lines[i].poolSrcMask = m == euclideousPoolSrcAll ? nil : m
+        }
+        euclideousLines = lines
+        euclideousSourcePlan = SourcePlan(midiOn: true, chordsOn: true, pickOn: true, keyOn: true, midiMode: plan.midiModeR, pickNotes: plan.pickNotesR, midiOctaves: plan.midiOctaves)
+        return true
     }
     // LANE LOCK (ferry 2026-10-21, §3.2): one lock per Euclideous lane — on, snap-back grid (kept while unlocked) and the locked state L. A 4-entry array BESIDE `euclideousLines`, deliberately NOT a field of
     // `EuclidLine` (which is shared by the persisted `MachineParams`, the render `SnapParams` and every "is this the same line" test, and is the struct that nearly filled the extension's 1 MB debug stack).

@@ -316,11 +316,18 @@ final class InputsGoldenTests: XCTestCase {
             for hold in Hold.allCases {
                 for mode in MidiMode.allCases {
                     let key = "\(name)|\(hold.rawValue)|\(mode.rawValue)"
-                    let got = render(make(), mode: mode, hold: hold)
+                    // the document as the app now opens it (lanes carry their own sources, the four switches read true)…
+                    var migrated = make(); migrated.migrateLegacyRoutingIfNeeded(); migrated.normalizeSourcesAtLoad()
+                    let got = render(migrated, mode: mode, hold: hold)
                     guard let want = golden[key] else { XCTFail("CAPTURE \"\(key)\": (\(got.hash), \(got.events), \(got.ons)),"); continue }
                     XCTAssertEqual(got.events, want.1, "\(key): message count")
                     XCTAssertEqual(got.ons, want.2, "\(key): note-on count")
                     XCTAssertEqual(got.hash, want.0, "\(key): the message stream must be bit-identical (FREEZE 0, SUSTAIN off, SLIP 0)")
+                    // …and the un-migrated one (a path that never normalised: the engine still ANDs the switches), on the held KEEP scenario
+                    if hold == .keep {
+                        let raw = render(make(), mode: mode, hold: hold)
+                        XCTAssertEqual(raw.hash, want.0, "\(key): the un-migrated document plays the same")
+                    }
                 }
             }
         }

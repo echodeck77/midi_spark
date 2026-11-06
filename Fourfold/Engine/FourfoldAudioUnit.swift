@@ -388,7 +388,8 @@ public class FourfoldAudioUnit: AUAudioUnit {
 
     public override init(componentDescription: AudioComponentDescription,
                          options: AudioComponentInstantiationOptions = []) throws {
-        let initDoc = PluginState.makeInit()   // ONE build (Paul 2026-09-11): reuse it for both the document and the initial snapshot (was two makeInit calls at instantiation)
+        var initDoc = PluginState.makeInit()   // ONE build (Paul 2026-09-11): reuse it for both the document and the initial snapshot (was two makeInit calls at instantiation)
+        initDoc.normalizeSourcesAtLoad()       // INPUTS + HARMONY §1.3: (not inside `makeInit` — the factory presets build on it and replace the lanes)
         document = initDoc
         store = SnapshotStore(initial: SnapshotBuilder.build(from: initDoc, generation: 1))
         try super.init(componentDescription: componentDescription, options: options)
@@ -544,6 +545,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let keepSameNoteGuard = document.euclideousSameNoteGuard   // SAME-NOTE GAP GUARD (2026-10-31): rig setting, kept across a preset load
         editDocument {
             $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded()   // migrate is a no-op for v4 builders
+            $0.normalizeSourcesAtLoad()                          // INPUTS + HARMONY §1.3: a factory preset opens with its lanes' own sources, the switches true
             $0.euclideousMidiInChannelMask = keepMidiInMask
             $0.ignoreAllNotesOff = keepIgnoreAllNotesOff
             $0.busChannels = keepBusChannels
@@ -751,6 +753,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
                 doc.normalizeTradesAtLoad()          // ANSWER 6.5: a SWAP whose partner does not SWAP back has its TRADE switched off
                 doc.normalizeChordSetsAtLoad()       // TWO CHORD GRIDS: an old document's four progressions become two (the playing one is grid 1)
                 doc.normalizeSoloAtLoad()            // ONE SOLO: an old document's lane solo becomes its two part bits
+                doc.normalizeSourcesAtLoad()         // INPUTS + HARMONY §1.3: lane chips take the old global switches; the switches read true
                 document = doc
                 clearPendingBuild()   // CR-10/K2: the loaded doc carries its OWN BUILD state (via consume*) — drop the outgoing session's stale pending so the next save doesn't re-encode it over the restored doc
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host

@@ -56,6 +56,7 @@
 		204572430D6CE1EBADA36680 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */; };
 		20646456AFE103561CB819CE /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E074C5873A3072DF6841935F /* PresetStore.swift */; };
 		21A237E4460BF2277F6B5A03 /* FourfoldAppView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DFB1A5B358F63E58A93D0CA /* FourfoldAppView.swift */; };
+		228D7898F6AD4B0FC777AD10 /* InputsModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 308A4FADD0BB1FB23898BA06 /* InputsModelTests.swift */; };
 		239884A77276ED1DEA6EE2DB /* PoolEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 410368CA489DB99EF79B2677 /* PoolEngineTests.swift */; };
 		23ADDE8FC723ED3BDE946883 /* EmitterRatchetLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9DD9EE712131F93295E6111 /* EmitterRatchetLive.swift */; };
 		23F778EA380308B2D22F1CE0 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B57AAED2B1C8E75FD6CC8E7 /* Snapshot.swift */; };
@@ -523,6 +524,7 @@
 		2CD1516989D0BE5696EF4FFF /* EmitterVelocityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterVelocityTests.swift; sourceTree = "<group>"; };
 		2F82B632EB1561C42D3E6FEA /* CellBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CellBrowser.swift; sourceTree = "<group>"; };
 		2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Emission.swift; sourceTree = "<group>"; };
+		308A4FADD0BB1FB23898BA06 /* InputsModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputsModelTests.swift; sourceTree = "<group>"; };
 		308B7B55B57D1EAE8DC0952B /* FourfoldPitchDragReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldPitchDragReviewTests.swift; sourceTree = "<group>"; };
 		31975DCDE7466D94FADACC26 /* MacroAuthoring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroAuthoring.swift; sourceTree = "<group>"; };
 		32B0370916996785351E85CE /* FourfoldAU.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FourfoldAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -935,6 +937,7 @@
 				CEF2E58BB01342A017F5AB15 /* HocketRouterTests.swift */,
 				F140AC21A0E9E7E6E094A95C /* HocketTurnTests.swift */,
 				E96F54D4F221EBC6B79FE989 /* InputsGoldenTests.swift */,
+				308A4FADD0BB1FB23898BA06 /* InputsModelTests.swift */,
 				A7DA6ABCB082900BEE40BD4E /* LaneLockTests.swift */,
 				EBD9DBBEEFA1051724E66556 /* LanesGridTests.swift */,
 				225D04471362741A939D49DE /* LaneSoloTests.swift */,
@@ -1714,6 +1717,7 @@
 				9A9E9E569FDF9C89ED21E18D /* HocketRouterTests.swift in Sources */,
 				07A28929FA0D94C33CDACFD6 /* HocketTurnTests.swift in Sources */,
 				983D7E1AE41FB6F16F74D28A /* InputsGoldenTests.swift in Sources */,
+				228D7898F6AD4B0FC777AD10 /* InputsModelTests.swift in Sources */,
 				F05E9AE1A7913956B2AE8C67 /* LaneLockTests.swift in Sources */,
 				C824D765CA367D040CAEB674 /* LaneSoloTests.swift in Sources */,
 				EBC5C46DF44DF3FB225CBABA /* LaneStripFuzzTests.swift in Sources */,

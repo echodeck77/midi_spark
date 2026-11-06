@@ -10945,6 +10945,8 @@ struct EuclideousRankChipSpec: Equatable {
     var place: String? = nil
     var riffDot = false
     var sounding = 0.0
+    /// NOW only (INPUTS + HARMONY 3.2): the source that supplied a RECEIVED note — 0 MIDI · 1 CHORDS · 2 PICK · 3 KEY; nil for an octave copy, an empty pool, and every chip the NOTES keys and the grid's labels draw.
+    var sourcePip: UInt8? = nil
 }
 /// §5.4 / §8.3: one rank chip of a pool. `name` is the note's display name (nil: no note at this rank).
 func euclideousRankChip(rank: Int, name: String?, received: Bool, lit: Bool, empty: Bool) -> EuclideousRankChipSpec {
@@ -11134,3 +11136,89 @@ func euclideousRankLabelSoundingPitch(_ pitch: Int, octave: Int) -> Int? {
 }
 /// 9.4: the grid's picker value.
 func euclideousPickedLaneSpoken(_ lane: Int) -> String { "lane \(lane + 1)" }
+
+// MARK: - INPUTS + HARMONY (ferry 2026-11-06): per-lane MIDI mode, the source migration, per-source status, the pill, the rank chip's source pip
+// Pure and allocation-free; the engine and every display call these — no second derivation anywhere (§9).
+
+/// §9.2 / §1.1: a lane's MIDI IN mode — its own field, else the document's resolved plan mode (so an old document keeps its mode on every lane). An unknown stored value was decoded as ADD, so it resolves ADD whatever the plan says.
+@inline(__always) func euclideousLaneMidiMode(_ field: MidiMode?, planMode: MidiMode) -> MidiMode { field ?? planMode }
+
+/// §9.1 / §1.3: one lane's SOURCES chips AND the four global switches — the lane's chips after the load-time migration (a source the switches had off is off on the lane). CHORD 1 and CHORD 2 both follow the CHORDS switch.
+func euclideousNormaliseSources(chips: UInt8, panel: EuclideousSourceSwitches) -> UInt8 {
+    var m = euclideousPoolSrcNormalized(chips)
+    if !panel.midi { m &= ~UInt8(0b00001) }
+    if !panel.chords { m &= ~(euclideousPoolSrcChords1 | euclideousPoolSrcChords2) }
+    if !panel.pick { m &= ~UInt8(0b00100) }
+    if !panel.key { m &= ~UInt8(0b01000) }
+    return m
+}
+
+/// §9.4 / 2.9 / 6.2: each source's light across the lanes, for the header pips: PLAYING — contributing to at least one lane (a lane whose chip is on and whose last build had the source lit); WAITING — on for at least one lane, contributing to
+/// none; UNUSED (`.off`) — on for no lane. `laneContrib[l]` bit 0 MIDI playing · 1 CHORDS lit · 2 PICK lit · 3 KEY lit (the lane's last pool build); `laneChips[l]` the lane's SOURCES mask (CHORDS = bit 1 or 4).
+func euclideousSourceStatusAcrossLanes(laneContrib: [UInt8], laneChips: [UInt8])
+    -> (midi: EuclideousSourceLight, chords: EuclideousSourceLight, pick: EuclideousSourceLight, key: EuclideousSourceLight) {
+    func light(_ bits: UInt8, _ bit: Int) -> EuclideousSourceLight {
+        var used = false
+        for l in 0..<laneChips.count {
+            let chips = euclideousPoolSrcNormalized(laneChips[l])
+            let on: Bool
+            switch bit {
+            case 0: on = chips & 0b00001 != 0
+            case 1: on = chips & (euclideousPoolSrcChords1 | euclideousPoolSrcChords2) != 0
+            case 2: on = chips & 0b00100 != 0
+            default: on = chips & 0b01000 != 0
+            }
+            guard on else { continue }
+            used = true
+            if l < laneContrib.count, laneContrib[l] & (UInt8(1) << UInt8(bit)) != 0 { return .playing }
+        }
+        return used ? .waiting : .off
+    }
+    return (light(0, 0), light(1, 1), light(2, 2), light(3, 3))
+}
+
+/// §9.5 / 5.6: the summary pill of a chord grid — ADVANCE's unit, its lane square (LOOP / RIFF) and value (TIME: the rate label as built; LOOP / RIFF: "×n"), then — only while RESTART is on — its unit, its lane square (LOOP / RIFF) and "×n".
+/// `spoken` is the VoiceOver value ("Advance by riff, lane 1, every 1; restart off").
+struct HarmonyPill: Equatable {
+    struct Restart: Equatable { var unit: String; var lane: Int?; var value: String }
+    var advanceUnit: String
+    var advanceLane: Int?
+    var advanceValue: String
+    var restart: Restart?
+    var spoken: String
+}
+func harmonyPill(_ set: MachineParams) -> HarmonyPill {
+    let au = set.advanceUnitResolved
+    let advUnit: String, advLane: Int?, advValue: String, advSpoken: String
+    switch au {
+    case .time:
+        advUnit = "TIME"; advLane = nil; advValue = set.chordsRateResolved.rawValue; advSpoken = "Advance by time, every \(advValue)"
+    case .loop, .riff:
+        let n = set.advanceEveryResolved, name = au == .riff ? "riff" : "loop"
+        advUnit = au == .riff ? "RIFF" : "LOOP"; advLane = set.advanceLaneResolved; advValue = "\u{00D7}\(n)"
+        advSpoken = "Advance by \(name), lane \(set.advanceLaneResolved + 1), every \(n)"
+    }
+    var restart: HarmonyPill.Restart? = nil
+    var restartSpoken = "restart off"
+    if set.restartOnResolved {
+        let ru = set.restartUnitResolved, n = set.restartEveryResolved
+        let name: String, lane: Int?
+        switch ru {
+        case .bar: name = "BAR"; lane = nil
+        case .loop: name = "LOOP"; lane = set.restartLaneResolved
+        case .riff: name = "RIFF"; lane = set.restartLaneResolved
+        }
+        restart = HarmonyPill.Restart(unit: name, lane: lane, value: "\u{00D7}\(n)")
+        restartSpoken = "restart by \(name.lowercased())\(lane.map { ", lane \($0 + 1)" } ?? ""), every \(n)"
+    }
+    return HarmonyPill(advanceUnit: advUnit, advanceLane: advLane, advanceValue: advValue, restart: restart, spoken: "\(advSpoken); \(restartSpoken)")
+}
+
+/// §3.2 / §9.6: the NOW row's source colours — a received note's chip carries a pip in the colour of the source that supplied it (0 MIDI · 1 CHORDS (either grid) · 2 PICK · 3 KEY — `EuclideousSourceColour`); an octave copy has none.
+/// Built from the lane's per-note sources (the Router's status feed); the NOTES keys and the grid's labels call the plain `euclideousRankChips` and never see it.
+func euclideousRankChips(sortedPool: [Int], litMask: UInt8, sources: [UInt8], name: (Int) -> String) -> [EuclideousRankChipSpec] {
+    var chips = euclideousRankChips(sortedPool: sortedPool, litMask: litMask, name: name)
+    for i in 0..<chips.count where chips[i].received && i < sources.count { chips[i].sourcePip = sources[i] }
+    return chips
+}
+

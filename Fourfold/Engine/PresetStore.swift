@@ -30,6 +30,7 @@ enum PresetStore {
         doc.normalizeTradesAtLoad()              // ANSWER 6.5: a SWAP whose partner does not SWAP back has its TRADE switched off
         doc.normalizeChordSetsAtLoad()           // TWO CHORD GRIDS: an old preset's four progressions become two (the playing one is grid 1)
         doc.normalizeSoloAtLoad()                // ONE SOLO: an old preset's lane solo becomes its two part bits
+        doc.normalizeSourcesAtLoad()             // INPUTS + HARMONY §1.3: each lane's SOURCES chips take the old global switches (chip AND switch), the switches read true
         return doc
     }
 
