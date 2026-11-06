@@ -254,7 +254,7 @@ final class Router {
                 let borrowed = src >= 0 && src < lines.count && src != pl
                 let rl = borrowed ? lines[src] : L
                 let steps = max(2, min(16, rl.steps))
-                lap = borrowed ? Double(steps) * ((rl.rate?.beats ?? defaultRateBeats) / pow(2.0, Double(L.listenSpeedResolved)))
+                lap = borrowed ? Double(euclideousListenBorrowedLap(n: steps, followerDirection: L.listenDirectionResolved, sourceDirection: rl.directionResolved)) * ((rl.rate?.beats ?? defaultRateBeats) / pow(2.0, Double(L.listenSpeedResolved)))
                                : Double(euclidCycleLen(L.directionResolved, n: steps)) * (L.rate?.beats ?? defaultRateBeats)
                 chain = euclideousLaneRestartChains(line: rl, lane: borrowed ? src : pl, barBeats: barBeats, lapBeats: lap).rhythm   // RESTART UNITS: the active BAR chain, else FREE
             }
@@ -921,7 +921,7 @@ final class Router {
     private var euclidBuf = [Bool](repeating: false, count: 32)   // 32 = a PING-PONG lap (2 × 16 steps): a lane with hit timing is read in TICK space (RHYTHM POLISH, 2026-10-22)
     // RHYTHM POLISH (2026-10-22): the lane's in-step TILT positions (buffer space) and — for a lane with a fractional OFFSET and/or a fine TILT — its tick-space layout (cells + per-cell delay). Fixed-size, never
     // reallocated (invariant 3). A lane with neither never touches the tick-space pair.
-    private var euclidMicro = [Double](repeating: 0, count: 16)
+    private var euclidMicro = [Double](repeating: 0, count: 32)   // 32: a COPY / FILL follower's FEEL marks every hit of its lap, which is 2 × 16 ticks when PING-PONG is involved
     private var euclidListenMicro = [Double](repeating: 0, count: 16)
     private var euclidTickCells = [Bool](repeating: false, count: 32)
     private var euclidTickDelay = [Double](repeating: 0, count: 32)
@@ -3095,18 +3095,20 @@ final class Router {
                 // exactly the confusing half-overridden state this rebuild fixes).
                 let n: Int
                 var offsetFractionTotal = offsetFraction
-                for i in 0..<16 { euclidMicro[i] = 0 }
+                for i in 0..<32 { euclidMicro[i] = 0 }
                 let copyOrFillValid = (listenRhythm == .copy || listenRhythm == .fill) && listenSource >= 0 && listenSource < linesView.count && listenSource != lineIndex
                 var listenRhythmSourceRateBeats = rate
                 if copyOrFillValid {
                     let sourceLine = linesView[listenSource]
                     let sourceN = euclideousBuildHitPatternInto(sourceLine, cells: &euclidListenScratch, micro: &euclidListenMicro)
                     euclideousListenBorrowedHits(sourcePattern: euclidListenScratch, n: sourceN, mode: listenRhythm, into: &euclidListenBorrowed)
-                    for k in 0..<sourceN {
+                    // the follower's whole LAP in tick order: 2 × sourceN when it or its source is PING-PONG (the order goes out and back), else sourceN — walking only the first sourceN ticks played the forward half for ever
+                    let lap = euclideousListenBorrowedLap(n: sourceN, followerDirection: listenDirection, sourceDirection: sourceLine.directionResolved)
+                    for k in 0..<lap {
                         let srcIdx = euclideousListenBorrowedIndex(followerRaw: k, n: sourceN, followerDirection: listenDirection, sourceDirection: sourceLine.directionResolved)
                         euclidBuf[k] = euclidListenBorrowed[srcIdx]
                     }
-                    n = sourceN
+                    n = lap
                     euclidRotateBuffer(&euclidBuf, steps: n, rotation: -listenDelay)
                     // FEEL (§3.7): a uniform micro-delay across every borrowed hit — a disclosed
                     // simplification of "applied exactly as TILT is today": TILT's own algorithm

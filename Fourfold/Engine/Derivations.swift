@@ -3291,6 +3291,12 @@ func euclideousListenBorrowedIndex(followerRaw: Int, n: Int, followerDirection: 
         return euclidReadIndex(raw, n: n, dir: sourceDirection)
     }
 }
+/// The length in ticks of the cycle `euclideousListenBorrowedIndex` walks — the follower's whole LAP over the source's `n`-step pattern: 2n when the follower is PING-PONG or its source is (the order it mirrors goes out and
+/// back), else n. The follower's own stored `direction` never counts (paused while borrowing, §7). Every consumer of a COPY / FILL lane's lap — the Router's buffer, the mirrors, the restart schedule, the lane geometry
+/// the mute sweep and the MUTE tab size a pass with — takes it from here.
+func euclideousListenBorrowedLap(n: Int, followerDirection: EuclidDir, sourceDirection: EuclidDir) -> Int {
+    euclidCycleLen(followerDirection == .pingpong ? .pingpong : sourceDirection, n: n)
+}
 /// §4.2/§9.6: which stored strike ECHO plays for a follower hit of rank `j` (0 for the first hit in its
 /// own pattern's stored order) — the source's CURRENT cycle if it has reached that many strikes yet, else
 /// its LAST completed cycle (wrapped by `j modulo lastCount` if `j` runs past it), else a rest (neither
@@ -3847,8 +3853,11 @@ func euclideousEffectivePattern(lane: Int, lines: [EuclidLine], defaultRateBeats
 /// that role; see `euclideousListenBorrowedIndex`/the engine's own comment on why OFFSET doesn't apply on
 /// top any more). The cells are exactly the ones the Router builds.
 struct EuclideousEffectiveHitPattern {
+    /// `buf` / `micro` are the cells the engine reads: for a COPY / FILL lane in TICK order over its whole `lap` (up to 32 long), else the 16-cell buffer. `n` is the step count the pattern is shown with (the source's, for a follower) and `lap` the
+    /// engine's lap in ticks (`euclideousListenBorrowedLap`: 2 × n when PING-PONG is involved) — `lap == n` for every lane that plays its own pattern, and for a follower when neither direction is PING-PONG.
     var buf: [Bool]; var n: Int; var followsPartner: Bool; var rateBeats: Double
     var micro: [Double]; var fraction: Double
+    var lap: Int
     var hasTiming: Bool { fraction > 0 || micro.contains { $0 != 0 } }
 }
 func euclideousEffectiveHitPattern(lane: Int, lines: [EuclidLine], defaultRateBeats: Double = 0.25) -> EuclideousEffectiveHitPattern? {
@@ -3857,24 +3866,25 @@ func euclideousEffectiveHitPattern(lane: Int, lines: [EuclidLine], defaultRateBe
     var cells = [Bool](repeating: false, count: 16), micro = [Double](repeating: 0, count: 16)
     if let sourceIdx = euclideousRhythmBorrowPartner(lane: lane, lines: lines) {
         // Mirrors Router's new COPY/FILL block exactly: the source's own pattern, COPY/FILL'd, remapped by
-        // DIRECTION (relative to the source's own live order) and shifted by DELAY (a buffer rotation).
+        // DIRECTION (relative to the source's own live order) over the follower's whole lap and shifted by DELAY (a buffer rotation).
         let sourceLine = lines[sourceIdx]
         var scratch = [Bool](repeating: false, count: 16), scratchMicro = [Double](repeating: 0, count: 16)
         let sourceN = euclideousBuildHitPatternInto(sourceLine, cells: &scratch, micro: &scratchMicro)
         var borrowed = [Bool](repeating: false, count: 16)
         euclideousListenBorrowedHits(sourcePattern: scratch, n: sourceN, mode: L.listenRhythmResolved, into: &borrowed)
-        for k in 0..<sourceN {
+        let lap = euclideousListenBorrowedLap(n: sourceN, followerDirection: L.listenDirectionResolved, sourceDirection: sourceLine.directionResolved)
+        if lap > cells.count { cells = [Bool](repeating: false, count: lap); micro = [Double](repeating: 0, count: lap) }
+        for k in 0..<lap {
             let srcIdx = euclideousListenBorrowedIndex(followerRaw: k, n: sourceN, followerDirection: L.listenDirectionResolved, sourceDirection: sourceLine.directionResolved)
             cells[k] = borrowed[srcIdx]
         }
-        let n = sourceN
-        euclidRotateBuffer(&cells, steps: n, rotation: -L.listenDelayResolved)
-        if L.listenFeelResolved != 0 { for i in 0..<n where cells[i] { micro[i] = max(-0.5, min(0.5, L.listenFeelResolved * 0.5)) } }
+        euclidRotateBuffer(&cells, steps: lap, rotation: -L.listenDelayResolved)
+        if L.listenFeelResolved != 0 { for i in 0..<lap where cells[i] { micro[i] = max(-0.5, min(0.5, L.listenFeelResolved * 0.5)) } }
         let rateBeats = (sourceLine.rate?.beats ?? defaultRateBeats) / pow(2.0, Double(L.listenSpeedResolved))
-        return EuclideousEffectiveHitPattern(buf: cells, n: n, followsPartner: true, rateBeats: rateBeats, micro: micro, fraction: 0)
+        return EuclideousEffectiveHitPattern(buf: cells, n: sourceN, followsPartner: true, rateBeats: rateBeats, micro: micro, fraction: 0, lap: lap)
     }
     let n = euclideousBuildHitPatternInto(L, cells: &cells, micro: &micro)
-    return EuclideousEffectiveHitPattern(buf: cells, n: n, followsPartner: false, rateBeats: L.rate?.beats ?? defaultRateBeats, micro: micro, fraction: L.offsetFractionResolved)
+    return EuclideousEffectiveHitPattern(buf: cells, n: n, followsPartner: false, rateBeats: L.rate?.beats ?? defaultRateBeats, micro: micro, fraction: L.offsetFractionResolved, lap: n)
 }
 
 func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, resetSpanBars: Int,
@@ -3887,15 +3897,15 @@ func euclideousWalkLaneConfig(lane: Int, lines: [EuclidLine], cyc: Double, reset
     let L = lines[lane]
     guard let eff = euclideousEffectiveHitPattern(lane: lane, lines: lines, defaultRateBeats: defaultRateBeats) else { return nil }
     // RHYTHM POLISH: a lane with timing (a fraction and/or a fine TILT) is read in TICK space — the layout the Router builds — with its per-tick delays; any other lane keeps the buffer it always had.
-    var buf = eff.buf, n = eff.n
+    var buf = eff.buf, n = eff.lap
     // LISTEN REBUILT §3.4: `eff.buf` for a borrowing lane (COPY/FILL) is ALREADY in its own final tick
-    // order (DIRECTION baked in by `euclideousEffectiveHitPattern`) — the lane's own `direction` must NOT
+    // order over its whole lap (DIRECTION baked in by `euclideousEffectiveHitPattern`) — the lane's own `direction` must NOT
     // read it a second time, matching the engine's own identical fix (Router.swift's `let dir = ...`).
     var cfgDir = eff.followsPartner ? EuclidDir.fwd : L.directionResolved
     var timing = EuclideousHitTiming.none
     if eff.hasTiming {
         var tc = [Bool](repeating: false, count: 32), td = [Double](repeating: 0, count: 32)
-        let cl = euclideousHitLayoutInto(cells: eff.buf, micro: eff.micro, fraction: eff.fraction, n: eff.n, dir: cfgDir, outCells: &tc, outDelay: &td)
+        let cl = euclideousHitLayoutInto(cells: eff.buf, micro: eff.micro, fraction: eff.fraction, n: eff.lap, dir: cfgDir, outCells: &tc, outDelay: &td)
         buf = Array(tc[0..<cl]); n = cl; cfgDir = .fwd
         timing = EuclideousHitTiming(delay: Array(td[0..<cl]))
     }
@@ -6535,17 +6545,16 @@ func euclideousLaneStepGeometry(lines: [EuclidLine], lane: Int, defaultRateBeats
     guard lane >= 0, lane < lines.count else { return (defaultRateBeats, 8, 8) }
     let L = lines[lane]
     let n: Int, sub: Double
-    let dir: EuclidDir
     if let source = euclideousRhythmBorrowPartner(lane: lane, lines: lines) {
         n = max(2, min(16, lines[source].steps))
         sub = (lines[source].rate?.beats ?? defaultRateBeats) / pow(2.0, Double(L.listenSpeedResolved))
-        dir = .fwd   // the Router plays a borrowed pattern FWD whatever the lane's own (paused) DIRECTION says — a stale PING-PONG made this lap 2n and the MUTE cells span two laps (direction hunt 2026-11-06)
+        // the follower's lap is the engine's (`euclideousListenBorrowedLap`) — its own stored `direction` is paused while it borrows
+        return (sub, n, euclideousListenBorrowedLap(n: n, followerDirection: L.listenDirectionResolved, sourceDirection: lines[source].directionResolved))
     } else {
         n = max(2, min(16, L.steps))
         sub = L.rate?.beats ?? defaultRateBeats
-        dir = L.directionResolved
     }
-    return (sub, n, euclidCycleLen(dir, n: n))
+    return (sub, n, euclidCycleLen(L.directionResolved, n: n))
 }
 
 

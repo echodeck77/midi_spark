@@ -59,11 +59,11 @@ struct EuclideousScheduleInputs: Hashable {
 func euclideousScheduleLaneInput(lane: Int, lines: [EuclidLine], defaultRateBeats: Double, riffColumns: Int) -> EuclideousScheduleLaneInput? {
     guard lane >= 0, lane < lines.count, let eff = euclideousEffectiveHitPattern(lane: lane, lines: lines, defaultRateBeats: defaultRateBeats) else { return nil }
     let L = lines[lane]
-    var buf = eff.buf, n = eff.n
+    var buf = eff.buf, n = eff.lap
     var dir = eff.followsPartner ? EuclidDir.fwd : L.directionResolved
     if eff.hasTiming {
         var tc = [Bool](repeating: false, count: 32), td = [Double](repeating: 0, count: 32)
-        let cl = euclideousHitLayoutInto(cells: eff.buf, micro: eff.micro, fraction: eff.fraction, n: eff.n, dir: dir, outCells: &tc, outDelay: &td)
+        let cl = euclideousHitLayoutInto(cells: eff.buf, micro: eff.micro, fraction: eff.fraction, n: eff.lap, dir: dir, outCells: &tc, outDelay: &td)
         buf = Array(tc[0..<cl]); n = cl; dir = .fwd
     }
     let cycleLen = euclidCycleLen(dir, n: n)
