@@ -22,6 +22,45 @@ final class AnswerTabTests: XCTestCase {
         XCTAssertFalse(h(true, false, true, false, false), "rows on without CYCLE do not cycle")
         XCTAssertTrue(h(true, true, false, false, false)); XCTAssertTrue(h(false, false, true, true, false)); XCTAssertTrue(h(false, false, false, false, true), "TRADE always cycles")
     }
+
+    // MARK: ANSWER v2 (2026-11-06) — the note-math pure functions (§8.3, §8.4)
+
+    private func pool(_ notes: [Int]) -> ArraySlice<(note: Int, vel: UInt8)> { notes.map { (note: $0, vel: UInt8(100)) }[...] }
+
+    /// §10.2/§10.3: MEET plays an own hit only where the source hits; AVOID only where it does not; the two are disjoint and together equal the own hits (a partition over every own/source combination).
+    func testRhythmGateMeetAndAvoidPartitionTheOwnHits() {
+        for mode in [EuclideousAnswerRhythmMode.copy, .fill] {
+            XCTAssertTrue(euclideousAnswerRhythmGate(mode: mode, ownHit: true, sourceHit: true)); XCTAssertTrue(euclideousAnswerRhythmGate(mode: mode, ownHit: true, sourceHit: false), "\(mode) passes the own hit through")
+            XCTAssertFalse(euclideousAnswerRhythmGate(mode: mode, ownHit: false, sourceHit: true), "no own hit, nothing plays")
+        }
+        for own in [false, true] { for src in [false, true] {
+            let meet = euclideousAnswerRhythmGate(mode: .meet, ownHit: own, sourceHit: src)
+            let avoid = euclideousAnswerRhythmGate(mode: .avoid, ownHit: own, sourceHit: src)
+            XCTAssertFalse(meet && avoid, "disjoint at own=\(own) src=\(src)")
+            XCTAssertEqual(meet || avoid, own, "their union is exactly the own hits at own=\(own) src=\(src)")
+            if own { XCTAssertEqual(meet, src); XCTAssertEqual(avoid, !src) }
+        } }
+    }
+    /// §10.4: MIRROR turns the SHADOW note upside down in the source pool (rank r → N+1−r). Pool C E G A: E→G, C→A, F♯ (nearest G, rank 3) → E. Empty pool mutes.
+    func testMirrorNoteFlipsTheRankInTheSourcePool() {
+        let p = pool([60, 64, 67, 69])   // C E G A, N = 4
+        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 64, sourcePool: p), 67, "E (rank 2) → rank 3 = G")
+        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 60, sourcePool: p), 69, "C (rank 1) → rank 4 = A")
+        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 66, sourcePool: p), 64, "F♯ nearest G (rank 3) → rank 2 = E")
+        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 67, sourcePool: p), 64, "G (rank 3) → rank 2 = E")
+        XCTAssertNil(euclideousAnswerMirrorNote(sourceNote: 64, sourcePool: pool([])), "empty pool mutes")
+    }
+    /// §10.5: DODGE steps the own note off the source's pitch class (any octave) to the nearest rank above whose class differs, else below, else mute; a different class is unchanged.
+    func testDodgeNoteStepsOffTheSourcesPitchClass() {
+        let p1 = pool([48, 52, 55])   // C3 E3 G3
+        XCTAssertEqual(euclideousAnswerDodgeNote(ownNote: 52, sourceNote: 76, ownPool: p1), 55, "own E3 vs source E5 → G3 (above)")
+        XCTAssertEqual(euclideousAnswerDodgeNote(ownNote: 55, sourceNote: 43, ownPool: p1), 52, "own G3 (top) vs source G2 → E3 (below)")
+        XCTAssertEqual(euclideousAnswerDodgeNote(ownNote: 48, sourceNote: 52, ownPool: p1), 48, "own C3 vs source E3 (different class) → unchanged")
+        let p2 = pool([48, 52, 60])   // C3 E3 C4
+        XCTAssertEqual(euclideousAnswerDodgeNote(ownNote: 60, sourceNote: 36, ownPool: p2), 52, "own C4 (top) vs source C2 → E3 (nearest below, skipping C3)")
+        XCTAssertEqual(euclideousAnswerDodgeNote(ownNote: 48, sourceNote: 72, ownPool: p2), 52, "own C3 vs source C4 → E3 (above)")
+        XCTAssertNil(euclideousAnswerDodgeNote(ownNote: 48, sourceNote: 48, ownPool: pool([48, 60])), "own pool C3 C4 all pitch-class C vs source C → mute")
+    }
     func testCyclePhaseEach4() {
         let phases = (0..<9).map { euclideousCyclePhase(unitsSinceStart: $0, each: 4) }
         XCTAssertEqual(phases, [.a, .a, .a, .a, .b, .b, .b, .b, .a], "EACH 4: units 0–3 A, 4–7 B, 8 A")

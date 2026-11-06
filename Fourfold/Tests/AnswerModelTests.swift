@@ -50,8 +50,13 @@ final class AnswerModelTests: XCTestCase {
         l.setAnswerRhythm(.fill); XCTAssertEqual(l.answerRhythmOn, true); XCTAssertEqual(l.answerRhythmMode, .fill)
         l.setAnswerRhythm(.own); XCTAssertEqual(l.answerRhythmOn, false); XCTAssertEqual(l.answerRhythmMode, .fill, "OWN keeps the remembered mode")
         l.setAnswerPitch(.echo); XCTAssertEqual(l.answerPitchOn, true); XCTAssertEqual(l.answerPitchMode, .shadow, "ECHO is hidden: it writes SHADOW")
-        l.setAnswerPitch(.avoid); XCTAssertEqual(l.answerPitchMode, .avoid)
-        l.setAnswerPitch(.own); XCTAssertEqual(l.answerPitchOn, false); XCTAssertEqual(l.answerPitchMode, .avoid)
+        l.setAnswerPitch(.mirror); XCTAssertEqual(l.answerPitchOn, true); XCTAssertEqual(l.answerPitchMode, .mirror)
+        l.setAnswerPitch(.dodge); XCTAssertEqual(l.answerPitchMode, .dodge)
+        l.setAnswerPitch(.avoid); XCTAssertEqual(l.answerPitchOn, false, "ANSWER v2 §7.2: the old pitch AVOID opens as the default — the row off"); XCTAssertEqual(l.answerPitchMode, .dodge, "the remembered mode is kept")
+        l.setAnswerPitch(.own); XCTAssertEqual(l.answerPitchOn, false)
+        // ANSWER v2: RHYTHM gained MEET / AVOID
+        l.setAnswerRhythm(.meet); XCTAssertEqual(l.answerRhythmOn, true); XCTAssertEqual(l.answerRhythmMode, .meet)
+        l.setAnswerRhythm(.avoid); XCTAssertEqual(l.answerRhythmMode, .avoid)
     }
 
     // MARK: migration (§9.3)
@@ -59,7 +64,8 @@ final class AnswerModelTests: XCTestCase {
     func testMigrationTableEveryOldRhythmAndPitchMode() {
         typealias R = EuclideousListenRhythmMode; typealias P = EuclideousListenPitchMode
         let rhythmCases: [(R?, Bool, EuclideousAnswerRhythmMode)] = [(nil, false, .copy), (.own, false, .copy), (.copy, true, .copy), (.fill, true, .fill)]
-        let pitchCases: [(P?, Bool, EuclideousAnswerPitchMode)] = [(nil, false, .shadow), (.own, false, .shadow), (.shadow, true, .shadow), (.echo, true, .shadow), (.avoid, true, .avoid)]
+        // ANSWER v2 §7.2: a legacy pitch AVOID is NOT migrated — it opens as the default (row off, SHADOW remembered).
+        let pitchCases: [(P?, Bool, EuclideousAnswerPitchMode)] = [(nil, false, .shadow), (.own, false, .shadow), (.shadow, true, .shadow), (.echo, true, .shadow), (.avoid, false, .shadow)]
         for (r, rOn, rMode) in rhythmCases {
             for (p, pOn, pMode) in pitchCases {
                 var l = EuclidLine(); l.listenRhythm = r; l.listenPitch = p

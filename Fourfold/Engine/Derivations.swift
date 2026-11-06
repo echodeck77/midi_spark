@@ -10710,6 +10710,41 @@ struct EuclideousRankLabelStyle: Equatable {
     }
     return UInt8(best)
 }
+
+// MARK: - ANSWER v2 (2026-11-06) PITCH modes MIRROR / DODGE (§6.2, §6.3). Pure, allocation-free; `pool` is a lane's note pool, ascending (rank 1 = lowest = index 0), its true count N — not the 8-rank UI space.
+
+/// §6.2 MIRROR: the SHADOW note (before INTERVAL/OCTAVE) turned upside down in the SOURCE pool — rank r (ascending, 1…N; a note not in the pool takes the nearest rank, the lower on a tie) → the pool note at rank N+1−r. Empty pool ⇒ nil (the strike mutes).
+@inline(__always) func euclideousAnswerMirrorNote(sourceNote: Int, sourcePool pool: ArraySlice<(note: Int, vel: UInt8)>) -> Int? {
+    let n = pool.count
+    guard n > 0 else { return nil }
+    let base = pool.startIndex
+    var r = 1, bestD = Int.max                                   // rank of sourceNote, 1-based; nearest by pitch, lower (lower index) on a tie
+    for i in 0..<n {
+        let d = abs(pool[base + i].note - sourceNote)
+        if d == 0 { r = i + 1; break }
+        if d < bestD { bestD = d; r = i + 1 }
+    }
+    return pool[base + (n - r)].note                             // rank N+1−r → 0-based index (n+1−r)−1 = n−r
+}
+/// §6.3 DODGE: if `ownNote`'s pitch class (any octave) matches the SHADOW note's, step to the nearest rank ABOVE in the OWN pool whose pitch class differs, else the nearest BELOW; if every pool note shares that class ⇒ nil (mute). A different class ⇒ `ownNote` unchanged. Octaves are ignored.
+@inline(__always) func euclideousAnswerDodgeNote(ownNote: Int, sourceNote: Int, ownPool pool: ArraySlice<(note: Int, vel: UInt8)>) -> Int? {
+    let srcPC = ((sourceNote % 12) + 12) % 12
+    guard ((ownNote % 12) + 12) % 12 == srcPC else { return ownNote }   // different pitch class: no change
+    let n = pool.count
+    guard n > 0 else { return nil }
+    let base = pool.startIndex
+    var r = 1, bestD = Int.max                                   // ownNote's rank (1-based)
+    for i in 0..<n {
+        let d = abs(pool[base + i].note - ownNote)
+        if d == 0 { r = i + 1; break }
+        if d < bestD { bestD = d; r = i + 1 }
+    }
+    var i = r                                                    // 0-based index of rank r+1 — nearest above first
+    while i < n { let note = pool[base + i].note; if ((note % 12) + 12) % 12 != srcPC { return note }; i += 1 }
+    i = r - 2                                                    // then nearest below
+    while i >= 0 { let note = pool[base + i].note; if ((note % 12) + 12) % 12 != srcPC { return note }; i -= 1 }
+    return nil                                                   // every pool note shares the class
+}
 /// The ranks 1…8 a hit's raw pitches struck, as a bit mask (bit r−1). `pitches[0..<count]` are the hit's pool-level pitches (before the lane's own octave and out-transpose); a pitch that is no rank of the pool sets nothing.
 func euclideousPlayedRankMask(pitches: [Int], count: Int, pool: ArraySlice<(note: Int, vel: UInt8)>) -> UInt8 {
     var m: UInt8 = 0

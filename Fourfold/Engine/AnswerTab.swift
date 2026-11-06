@@ -14,6 +14,12 @@ enum EuclideousCyclePhase: Equatable { case a, b }
 /// 11.1 — a lane FOLLOWS another lane while RHYTHM or PITCH is on (a cycling row still counts; TRADE never does).
 @inline(__always) func euclideousAnswerIsFollowing(rhythmOn: Bool, pitchOn: Bool) -> Bool { rhythmOn || pitchOn }
 
+/// ANSWER v2 §8.3 (§5): does an own hit PLAY under a RHYTHM mode, given whether the source also hits at that moment? COPY/FILL don't filter the own hit here (they replace the pattern upstream — pass through); MEET plays only where the source hits; AVOID never does. `ownHit` false ⇒ never.
+@inline(__always) func euclideousAnswerRhythmGate(mode: EuclideousAnswerRhythmMode, ownHit: Bool, sourceHit: Bool) -> Bool {
+    guard ownHit else { return false }
+    switch mode { case .copy, .fill: return true; case .meet: return sourceHit; case .avoid: return !sourceHit }
+}
+
 /// 11.2 — does the lane have a cycle (the CYCLE row is shown, the engine alternates phases)? A row with CYCLE on counts only while it is switched on; TRADE always cycles.
 @inline(__always) func euclideousAnswerHasCycle(rhythmOn: Bool, rhythmCycle: Bool, pitchOn: Bool, pitchCycle: Bool, tradeOn: Bool) -> Bool {
     (rhythmOn && rhythmCycle) || (pitchOn && pitchCycle) || tradeOn

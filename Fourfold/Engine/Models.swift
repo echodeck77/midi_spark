@@ -807,17 +807,21 @@ struct EuclidLine: Codable, Equatable {
     /// "USE MY OWN", the loop breaker, tests — goes through this or writes the new fields directly.)
     mutating func setAnswerRhythm(_ m: EuclideousListenRhythmMode) {
         switch m {
-        case .own:  answerRhythmOn = false
-        case .copy: answerRhythmOn = true; answerRhythmMode = .copy
-        case .fill: answerRhythmOn = true; answerRhythmMode = .fill
+        case .own:   answerRhythmOn = false
+        case .copy:  answerRhythmOn = true; answerRhythmMode = .copy
+        case .fill:  answerRhythmOn = true; answerRhythmMode = .fill
+        case .meet:  answerRhythmOn = true; answerRhythmMode = .meet
+        case .avoid: answerRhythmOn = true; answerRhythmMode = .avoid
         }
     }
-    /// PITCH likewise. ECHO is hidden (§7): it writes SHADOW, the mode an old ECHO lane opens as.
+    /// PITCH likewise. ECHO is hidden (§7): it writes SHADOW, the mode an old ECHO lane opens as. ANSWER v2: the engine `.avoid` pitch case no longer belongs to PITCH (AVOID is a RHYTHM mode); it leaves the row off (§7.2 — an old pitch AVOID opens as the default).
     mutating func setAnswerPitch(_ m: EuclideousListenPitchMode) {
         switch m {
-        case .own:             answerPitchOn = false
-        case .shadow, .echo:   answerPitchOn = true; answerPitchMode = .shadow
-        case .avoid:           answerPitchOn = true; answerPitchMode = .avoid
+        case .own:            answerPitchOn = false
+        case .shadow, .echo:  answerPitchOn = true; answerPitchMode = .shadow
+        case .mirror:         answerPitchOn = true; answerPitchMode = .mirror
+        case .dodge:          answerPitchOn = true; answerPitchMode = .dodge
+        case .avoid:          answerPitchOn = false
         }
     }
     /// True once any ANSWER field is written — the lane is then on the ANSWER model and the legacy `listenRhythm`/`listenPitch` no longer feed it (migration runs only while this is false).
@@ -834,12 +838,15 @@ struct EuclidLine: Codable, Equatable {
         switch rhythm {
         case .copy?: rOn = true; rMode = .copy
         case .fill?: rOn = true; rMode = .fill
+        case .meet?: rOn = true; rMode = .meet
+        case .avoid?: rOn = true; rMode = .avoid
         case .own?, nil: break
         }
         switch pitch {
         case .shadow?, .echo?: pOn = true; pMode = .shadow
-        case .avoid?: pOn = true; pMode = .avoid
-        case .own?, nil: break
+        case .mirror?: pOn = true; pMode = .mirror
+        case .dodge?: pOn = true; pMode = .dodge
+        case .avoid?, .own?, nil: break   // ANSWER v2 §7.2: an old pitch AVOID is NOT migrated — it opens as the default (row off)
         }
         guard rOn != nil || pOn != nil else { return nil }
         return (rOn, rMode, pOn, pMode)
@@ -970,7 +977,7 @@ struct EuclidLine: Codable, Equatable {
     /// view is `euclideousAnswerEffectiveRows` (Derivations.swift). Every pre-ANSWER reader keeps working through it.
     var listenRhythmResolved: EuclideousListenRhythmMode {
         guard answerRhythmOnResolved else { return .own }
-        return answerRhythmModeResolved == .fill ? .fill : .copy
+        switch answerRhythmModeResolved { case .copy: return .copy; case .fill: return .fill; case .meet: return .meet; case .avoid: return .avoid }
     }
     var listenDelayResolved: Int { max(0, listenDelay ?? 0) }   // upper-bounded live by the caller against the source's own step count (§3.6) — can't self-clamp without that
     var listenFeelResolved: Double { max(-1, min(1, listenFeel ?? 0)) }
@@ -979,7 +986,7 @@ struct EuclidLine: Codable, Equatable {
     var listenDirectionResolved: EuclidDir { listenDirection ?? .fwd }
     var listenPitchResolved: EuclideousListenPitchMode {
         guard answerPitchOnResolved else { return .own }
-        return answerPitchModeResolved == .avoid ? .avoid : .shadow
+        switch answerPitchModeResolved { case .shadow: return .shadow; case .mirror: return .mirror; case .dodge: return .dodge; case .avoid: return .avoid }
     }
     var listenIntervalResolved: Int { max(-6, min(6, listenInterval ?? 0)) }
     var listenOctaveResolved: Int { max(-3, min(3, listenOctave ?? 0)) }
@@ -1307,16 +1314,18 @@ enum EuclideousAvoidAction: String, Codable, CaseIterable { case mute = "MUTE", 
 // LISTEN REBUILT enums (ferry 2026-10-23) — String-raw, matching every sibling enum on this struct. DIRECTION
 // reuses the existing `EuclidDir` (FWD/BKW/PING-PONG) rather than a new type (§2.3: "using the RHYTHM tab's
 // existing direction glyphs").
-enum EuclideousListenRhythmMode: String, Codable, CaseIterable { case own = "OWN", copy = "COPY", fill = "FILL" }
-enum EuclideousListenPitchMode: String, Codable, CaseIterable { case own = "OWN", shadow = "SHADOW", echo = "ECHO", avoid = "AVOID" }
+// ANSWER v2 (2026-11-06): MEET / AVOID join RHYTHM (filter-own: AVOID moves here from PITCH, MEET is its inverse); MIRROR / DODGE join PITCH. The engine-facing enums gain the new cases; `.avoid` stays in the PITCH enum for legacy decode only.
+enum EuclideousListenRhythmMode: String, Codable, CaseIterable { case own = "OWN", copy = "COPY", fill = "FILL", meet = "MEET", avoid = "AVOID" }
+enum EuclideousListenPitchMode: String, Codable, CaseIterable { case own = "OWN", shadow = "SHADOW", echo = "ECHO", avoid = "AVOID", mirror = "MIRROR", dodge = "DODGE" }
 // ANSWER ferry (2026-11-02): the modes a row REMEMBERS while its switch is off, and the cycle's unit. String-raw like every sibling enum; an unknown stored value decodes as the default (never a whole-session reset).
 // OWN is not a case: "off" is the row's switch (§3). The legacy enums above stay for decoding only (§9.3).
 enum EuclideousAnswerRhythmMode: String, Codable, CaseIterable {
-    case copy = "COPY", fill = "FILL"
+    case copy = "COPY", fill = "FILL", meet = "MEET", avoid = "AVOID"   // ANSWER v2: MEET plays only where the source hits; AVOID (moved from PITCH) never does
     init(from decoder: Decoder) throws { self = EuclideousAnswerRhythmMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .copy }
 }
 enum EuclideousAnswerPitchMode: String, Codable, CaseIterable {
-    case shadow = "SHADOW", avoid = "AVOID"
+    // ANSWER v2: SHADOW · MIRROR · DODGE. `avoid` is retained ONLY so an old stored "AVOID" still decodes (to itself through the UI-removal phase; §7.2 treats it as the default once the PITCH AVOID button is gone).
+    case shadow = "SHADOW", mirror = "MIRROR", dodge = "DODGE", avoid = "AVOID"
     init(from decoder: Decoder) throws { self = EuclideousAnswerPitchMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .shadow }
 }
 enum EuclideousAnswerTradeMode: String, Codable, CaseIterable {
