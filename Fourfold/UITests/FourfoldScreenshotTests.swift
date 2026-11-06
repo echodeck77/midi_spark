@@ -91,7 +91,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             ("5-lane-riff", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff, '")).element(boundBy: 0).tap() }),
             ("5-lane-notes", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes'")).element(boundBy: 0).tap() }),
             ("5-lane-listen", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Answer, '")).element(boundBy: 0).tap() }),
-            ("5-presets", { $0.buttons["Presets"].tap() }), ("5-key", { $0.buttons["Sources"].tap() }), ("5-swing", { $0.buttons["Swing, straight"].tap() }),
+            ("5-presets", { $0.buttons["Presets"].tap() }), ("5-harmony", { $0.buttons["Harmony"].tap() }), ("5-swing", { $0.buttons["Swing, straight"].tap() }),
             ("5-settings-midi-in", { $0.buttons["Settings"].tap() }),
             ("5-settings-ports", { $0.buttons["Settings"].tap(); $0.buttons["PORTS"].tap() }),
             ("5-settings-clock", { $0.buttons["Settings"].tap(); $0.buttons["CLOCK"].tap() }),
@@ -175,24 +175,25 @@ final class FourfoldScreenshotTests: XCTestCase {
             tap("Pitch, lane 1"); tap("Cycle pitch, lane 1"); tap("Trade, lane 1"); tap("Cycle rhythm, lane 1"); Thread.sleep(forTimeInterval: 1.5); attach("11-answer-\(tag)-2-everything")
             app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-3-rhythm-tab-live-body-with-cycle")
             tapPrefix("Answer, "); tap("Cycle rhythm, lane 1"); app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-4-rhythm-tab-borrowed")
-            tapPrefix("Inputs, ");   // POOL renamed INPUTS (2026-11-05) Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-5-pool")
+            tapPrefix("Inputs, "); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-5-inputs")   // POOL renamed INPUTS (2026-11-05)
         }
         XCUIDevice.shared.orientation = .portrait
     }
 
-    /// POOL ferry (2026-11-02): the POOL tab (NOW, SOURCES, CANON, FREEZE, SUSTAIN), its switches, the NOTES keys as rank chips, and the riff grid's label chips with the lane picker — landscape and portrait.
-    func testThePoolTab() {
+    /// INPUTS (ferry 2026-11-06): the INPUTS tab (NOW with its source pips, SOURCES, MIDI, CANON), a lane's MIDI mode switched through ADD · REPLACE · ROOT, a source chip off (the MIDI row dims), the NOTES keys as rank chips and the riff grid's label chips — landscape and portrait.
+    func testTheInputsTab() {
         for (tag, o) in [("land", UIDeviceOrientation.landscapeLeft), ("port", .portrait)] {
             XCUIDevice.shared.orientation = o
             let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
             Thread.sleep(forTimeInterval: 2)
             func tap(_ label: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.5) } }
             func tapPrefix(_ p: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", p)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.5) } }
-            tapPrefix("Inputs, ");   // POOL renamed INPUTS (2026-11-05) Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-0-bare")
-            tap("Chords 2, lane 1"); tap("Chords 2, lane 3"); tap("Chords 1, lane 3"); Thread.sleep(forTimeInterval: 0.6); attach("12-pool-\(tag)-0b-chord-grids")   // TWO CHORD GRIDS: lane 1 on CHORD 2; lane 3 to CHORD 2 and back to CHORD 1 (the default)
-            tap("Sustain, lane 1"); tap("Key, lane 2"); tap("Sustain stack, lane 3, loses nothing, off"); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-1-switches")
-            tapPrefix("Notes, "); Thread.sleep(forTimeInterval: 1); attach("12-pool-\(tag)-2-notes-keys")
-            tap("Notes shown for"); Thread.sleep(forTimeInterval: 0.8); attach("12-pool-\(tag)-3-grid-lane2")
+            tapPrefix("Inputs, "); Thread.sleep(forTimeInterval: 1); attach("12-inputs-\(tag)-0-bare")
+            tap("Chords 2, lane 1"); tap("Chords 2, lane 3"); tap("Chords 1, lane 3"); Thread.sleep(forTimeInterval: 0.6); attach("12-inputs-\(tag)-0b-chord-grids")   // TWO CHORD GRIDS: lane 1 on CHORD 2; lane 3 to CHORD 2 and back to CHORD 1 (the default)
+            tap("Replace, lane 1"); tap("Root, lane 2"); tap("Replace, lane 3"); tap("Root, lane 3"); Thread.sleep(forTimeInterval: 0.8); attach("12-inputs-\(tag)-1-midi-modes")
+            tap("MIDI in, lane 4"); tap("Key, lane 2"); Thread.sleep(forTimeInterval: 1); attach("12-inputs-\(tag)-2-midi-chip-off-dims-the-row")
+            tapPrefix("Notes, "); Thread.sleep(forTimeInterval: 1); attach("12-inputs-\(tag)-3-notes-keys")
+            tap("Notes shown for"); Thread.sleep(forTimeInterval: 0.8); attach("12-inputs-\(tag)-4-grid-lane2")
         }
         XCUIDevice.shared.orientation = .portrait
     }
@@ -241,7 +242,7 @@ final class FourfoldScreenshotTests: XCTestCase {
         let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()
         Thread.sleep(forTimeInterval: 2)
         func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
-        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Pool, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape")   // ANSWER ferry: CANON lives on the POOL tab now
+        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Inputs, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape")   // ANSWER ferry: CANON lives on the INPUTS tab (the POOL tab renamed)
         if let delay = Optional(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Canon delay, lane 1")).firstMatch), delay.waitForExistence(timeout: 3) {
             delay.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap(); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape-delay-set")
         }
@@ -382,26 +383,36 @@ final class FourfoldScreenshotTests: XCTestCase {
         attach("home-screen-page-2")
     }
 
-    /// CHORDS PAGE (2026-11-04): the full-screen page over the lane cards — opened, then with GRID 1 on ADVANCE LOOP
-    /// and RESTART on — in portrait and landscape, playing, so the two grids, the ADVANCE/RESTART rows, the step strip
-    /// and the lane strip can be LOOKED AT.
-    func testTheChordsPage() {
+    /// HARMONY (ferry 2026-11-06): the page over the lane cards, opened from the header button — the key (title, root keys, scales), both grids, a summary pill's popover, the CHORDS · COLOUR switch, the PICK editor — in portrait and
+    /// landscape, playing, so the proportions, the pills and the popovers can be LOOKED AT.
+    func testTheHarmonyPage() {
         let device = XCUIDevice.shared
-        for (tag, o) in [("portrait", UIDeviceOrientation.portrait), ("landscape", .landscapeLeft)] {
+        for (tag, o) in [("port", UIDeviceOrientation.portrait), ("land", .landscapeLeft)] {
             let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
             device.orientation = o
             Thread.sleep(forTimeInterval: 2)
-            let sources = app.el("Sources")
-            guard sources.waitForExistence(timeout: 5) else { continue }
-            sources.tap(); Thread.sleep(forTimeInterval: 0.6)
-            let edit = app.el("Edit chords")
-            guard edit.waitForExistence(timeout: 4) else { attach("12-chords-\(tag)-0-no-chords-row"); continue }
-            edit.tap(); Thread.sleep(forTimeInterval: 1)
-            attach("12-chords-\(tag)-1-opened")                       // GRID 1 / GRID 2, both on TIME, restart off
-            let advLoop = app.el("Advance by loop")                   // first match = GRID 1
-            if advLoop.waitForExistence(timeout: 3) { advLoop.tap(); Thread.sleep(forTimeInterval: 0.6); attach("12-chords-\(tag)-2-advance-loop") }
-            let restart = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart")).firstMatch
-            if restart.exists { restart.tap(); Thread.sleep(forTimeInterval: 0.6); attach("12-chords-\(tag)-3-restart-on") }
+            func tap(_ label: String, in scope: XCUIElement? = nil, wait: TimeInterval = 3) -> Bool {
+                let root = scope ?? app.descendants(matching: .alert)["Harmony"]
+                let e = root.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+                guard e.waitForExistence(timeout: wait) else { return false }
+                e.tap(); Thread.sleep(forTimeInterval: 0.6); return true
+            }
+            let header = app.buttons["Harmony"]
+            guard header.waitForExistence(timeout: 5) else { attach("13-harmony-\(tag)-0-no-header-button"); continue }
+            attach("13-harmony-\(tag)-0-closed")
+            header.tap(); Thread.sleep(forTimeInterval: 1)
+            let page = app.descendants(matching: .alert)["Harmony"]
+            attach("13-harmony-\(tag)-1-opened")                                  // the key, both grids, PICK and MIDI IN
+            if tap("Grid 1 timing") { attach("13-harmony-\(tag)-2-pill-popover") }  // ADVANCE (TIME) and RESTART (off)
+            if tap("Advance by loop") { _ = tap("Restart"); Thread.sleep(forTimeInterval: 0.4); attach("13-harmony-\(tag)-3-advance-loop-restart-on") }
+            if tap("Grid 2 timing") { attach("13-harmony-\(tag)-4-other-pill") }     // opens grid 2's popover instead; grid 1's pill now reads LOOP … RESTART
+            page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap(); Thread.sleep(forTimeInterval: 0.6)   // outside the popover: closes it
+            attach("13-harmony-\(tag)-5-popover-closed-pills")
+            if tap("Colour rows") { attach("13-harmony-\(tag)-6-colour-rows") }
+            _ = tap("Chord rows")
+            if tap("D") { _ = tap("DORIAN"); attach("13-harmony-\(tag)-7-key-d-dorian") }
+            if tap("Edit pick notes") { let editor = page.descendants(matching: .any)["Pick editor"]; _ = tap("E", in: editor); _ = tap("G", in: editor); attach("13-harmony-\(tag)-8-pick-editor") }
+            if tap("Close harmony") { attach("13-harmony-\(tag)-9-closed-again") }
         }
     }
 }

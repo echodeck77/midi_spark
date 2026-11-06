@@ -485,14 +485,14 @@ struct EuclideousHarmonyPage: View {
             popoverSurface { pillPopoverContent(set, innerW: f.width - 2 * EuclideousHarmonyMetrics.popoverPad) }
                 .frame(width: f.width, height: f.height, alignment: .topLeading)
                 .offset(x: L.content.minX + f.minX, y: L.content.minY + f.minY)
-                .accessibilityElement(children: .contain).accessibilityLabel("Grid \(set + 1) timing").accessibilitySortPriority(110)
+                .accessibilityElement(children: .contain).accessibilityLabel("Grid \(set + 1) advance and restart").accessibilitySortPriority(110)
                 .accessibilityAction(.escape) { popover = .none }
         case .pick:
             let f = L.pickPopover
             popoverSurface { pickPopoverContent(innerW: f.width - 2 * EuclideousHarmonyMetrics.popoverPad) }
                 .frame(width: f.width, height: f.height, alignment: .topLeading)
                 .offset(x: L.content.minX + f.minX, y: L.content.minY + f.minY)
-                .accessibilityElement(children: .contain).accessibilityLabel("Pick notes").accessibilitySortPriority(110)
+                .accessibilityElement(children: .contain).accessibilityLabel("Pick editor").accessibilitySortPriority(110)
                 .accessibilityAction(.escape) { popover = .none }
         }
     }
@@ -586,7 +586,7 @@ struct EuclideousHarmonyPage: View {
             Spacer(minLength: 0)
         }
         .frame(width: R.innerW, height: EuclideousHarmonyMetrics.popoverRowH, alignment: .leading)
-        .accessibilityElement(children: .contain).accessibilityLabel("Advance")
+        .accessibilityElement(children: .contain)
     }
     private func restartRow(_ set: Int, _ R: EuclideousHarmonyPopoverRows) -> some View {
         let cfg = chordSets[min(set, max(0, chordSets.count - 1))]
@@ -615,7 +615,7 @@ struct EuclideousHarmonyPage: View {
             restartSwitch(on: on) { onEditChordSet(set) { $0.restartOn = !on } }
         }
         .frame(width: R.innerW, height: EuclideousHarmonyMetrics.popoverRowH, alignment: .leading)
-        .accessibilityElement(children: .contain).accessibilityLabel("Restart")
+        .accessibilityElement(children: .contain)
     }
 
     // MARK: 5.11 the PICK editor (the sources panel's, re-hosted at the popover's width)
