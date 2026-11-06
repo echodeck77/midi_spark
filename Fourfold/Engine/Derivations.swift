@@ -6532,14 +6532,17 @@ func euclideousLaneStepGeometry(lines: [EuclidLine], lane: Int, defaultRateBeats
     guard lane >= 0, lane < lines.count else { return (defaultRateBeats, 8, 8) }
     let L = lines[lane]
     let n: Int, sub: Double
+    let dir: EuclidDir
     if let source = euclideousRhythmBorrowPartner(lane: lane, lines: lines) {
         n = max(2, min(16, lines[source].steps))
         sub = (lines[source].rate?.beats ?? defaultRateBeats) / pow(2.0, Double(L.listenSpeedResolved))
+        dir = .fwd   // the Router plays a borrowed pattern FWD whatever the lane's own (paused) DIRECTION says — a stale PING-PONG made this lap 2n and the MUTE cells span two laps (direction hunt 2026-11-06)
     } else {
         n = max(2, min(16, L.steps))
         sub = L.rate?.beats ?? defaultRateBeats
+        dir = L.directionResolved
     }
-    return (sub, n, euclidCycleLen(L.directionResolved, n: n))
+    return (sub, n, euclidCycleLen(dir, n: n))
 }
 
 
