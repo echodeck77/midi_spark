@@ -3779,8 +3779,20 @@ final class Router {
                             // PER-PART SOLO (MIX v2, 2026-11-05): the part buses (one bit each: 2·lane + part) this window's solo masks silence. 0 with no solo — every `soloPartBits` test below is then false and the hit is built exactly as before.
                             let soloPartBits: Int = isEuclideousRow ? Int(euclideousSoloSilencedPartBits(soloMask: soloMaskNow(snapshot: p.soloMask), partMask: partSoloMaskNow(snapshot: p.partSoloMask))) : 0
                             var addRiffBus = riffBus, addNotesBus = notesBus
-                            func addPitch(_ v: Int, vel: UInt8, gate g: Double, notesLayer: Bool = false, heldByRiff: Bool = false, raw: Int? = nil, rank: UInt8? = nil) {
+                            // ANSWER v2 §6.3 DODGE: the source's latest note (its primary pitch), for stepping an own pitch off that pitch class. nil when PITCH isn't DODGE, no source, or the source has never struck (then DODGE leaves the own note alone). Plain (no closure) — the render path stays allocation-free, and non-DODGE lanes skip it entirely.
+                            var dodgeSourceNote: Int? = nil
+                            if listenPitch == .dodge, listenSource >= 0, listenSource < 4, listenSource != lineIndex {
+                                let c = euclideousEchoCurrent[listenSource].count, lc = euclideousEchoLast[listenSource].count
+                                if c > 0, euclideousEchoCurrent[listenSource].pitchCount[c - 1] > 0 { dodgeSourceNote = euclideousEchoCurrent[listenSource].pitches[(c - 1) * 9] }
+                                else if lc > 0, euclideousEchoLast[listenSource].pitchCount[lc - 1] > 0 { dodgeSourceNote = euclideousEchoLast[listenSource].pitches[(lc - 1) * 9] }
+                            }
+                            func addPitch(_ v0: Int, vel: UInt8, gate g: Double, notesLayer: Bool = false, heldByRiff: Bool = false, raw: Int? = nil, rank: UInt8? = nil, applyDodge: Bool = true) {
                                 guard pitchCount < 9 else { return }
+                                var v = v0
+                                if applyDodge, listenPitch == .dodge, let src = dodgeSourceNote {   // §6.3: an own pitch sharing the source's pitch class steps to a nearby pool rank of a different class; none in the pool ⇒ the pitch mutes
+                                    guard let d = euclideousAnswerDodgeNote(ownNote: v0, sourceNote: src, ownPool: laneNotes(lineIndex)) else { return }
+                                    v = d
+                                }
                                 let bus = Int(notesLayer ? addNotesBus : addRiffBus)
                                 for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == bus { return }   // the same pitch on the SAME part: first insertion wins
                                 var outs: UInt8 = 0xFF
@@ -4835,7 +4847,7 @@ final class Router {
                                         if steps != 0 { v = euclideousScaleStepMove(note: v, steps: steps, pcMask: xOutKey) }
                                         let vel = hocketPassedVelocity(fxVel: fx.vel, destNotes: isNotes, destVelocityAbsolute: xl.velocityAbsoluteResolved, destNotesVelocity: xl.notesVelocityResolved)
                                         let at = pitchCount
-                                        addPitch(v, vel: vel, gate: tradeRecGate[j], notesLayer: isNotes, rank: tradeRecRank[j])   // the traded set keeps the SENDER's pool rank
+                                        addPitch(v, vel: vel, gate: tradeRecGate[j], notesLayer: isNotes, rank: tradeRecRank[j], applyDodge: false)   // the traded set keeps the SENDER's pool rank and its already-resolved pitch (no re-DODGE)
                                         if pitchCount > at {
                                             polyBeats[at] = tradeRecPoly[j]
                                             notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * at))) | (((tradeRecSlotBits >> UInt64(4 * j)) & 0xF) << UInt64(4 * at))

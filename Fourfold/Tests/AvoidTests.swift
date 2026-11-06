@@ -174,6 +174,13 @@ final class AvoidTests: XCTestCase {
         XCTAssertEqual(runPitch(red: red, blue: blue, pitch: .mirror, riff: flat)[0] ?? [], [60], "MIRROR of the lowest pool note (48) is the highest (60)")
         XCTAssertEqual(runPitch(red: red, blue: blue, pitch: .shadow, riff: flat)[0] ?? [], [48], "SHADOW plays the source's own note")
     }
+    /// §6.3 / §11: PITCH DODGE plays the OWN riff, but steps any own note that shares the source's pitch class off to a nearby pool rank of a different class. Flat riff (rank 1 = C/48): red's own C collides with blue's C and steps up to D/50; SHADOW would just take blue's C.
+    func testDodgeStepsTheOwnNoteOffTheSourcesPitchClass() {
+        let flat: [Int] = [1, 1, 1, 1, 1, 1, 1, 1]
+        let blue = line(hits: 8, steps: 8, rate: .r1_8), red = line(hits: 4, steps: 8, rate: .r1_8)
+        XCTAssertEqual(runPitch(red: red, blue: blue, pitch: .dodge, riff: flat)[0] ?? [], [50], "own C (48) shares blue's C → steps up to D (50)")
+        XCTAssertEqual(runPitch(red: red, blue: blue, pitch: .shadow, riff: flat)[0] ?? [], [48], "SHADOW just takes blue's C (48)")
+    }
     /// §10.3 partition (Router level): over Euclidean pairs at the same rate, MEET's strikes and AVOID's strikes are DISJOINT and together equal the control (both rows off) — each red hit goes to exactly one of them.
     func testMeetAndAvoidPartitionTheControlStrikes() {
         for (rh, bh) in [(5, 8), (3, 11), (7, 13), (9, 16), (2, 5)] {
