@@ -24,9 +24,9 @@ final class RestartEditorUITests: XCTestCase {
         let d = melody(settings { $0.restartMelodyPasses = [3]; $0.restartMelodyUnit = .hit })
         XCTAssertEqual(d.text, "3 HIT"); XCTAssertNil(d.sourceLane, "HIT reads no source")
         let e = melody(settings { $0.restartMelodyWithRhythm = true })
-        XCTAssertEqual(e.text, "RHYTHM"); XCTAssertTrue(e.showsLinkGlyph); XCTAssertTrue(e.isSet); XCTAssertNil(e.unitText)
+        XCTAssertEqual(e.text, "RHYTHM"); XCTAssertFalse(e.showsLinkGlyph, "§4.2: no glyph when the melody chain is inactive"); XCTAssertTrue(e.isSet); XCTAssertNil(e.unitText)
         let f = melody(settings { $0.restartMelodyPasses = [2]; $0.restartMelodyUnit = .pass; $0.restartMelodySource = 1; $0.restartMelodyWithRhythm = true })
-        XCTAssertEqual(f.text, "2 PASS"); XCTAssertTrue(f.showsLinkGlyph); XCTAssertEqual(f.sourceLane, 1)
+        XCTAssertEqual(f.text, "2 PASS"); XCTAssertTrue(f.showsLinkGlyph, "§4.2: the glyph shows when the chain is active and WITH RHYTHM is on"); XCTAssertEqual(f.sourceLane, 1)
         let g = rhythm(settings { $0.restartRhythmBars = [2, 1, 1, 1] })
         XCTAssertEqual(g.text, "2·1·1·1", "four links: no unit"); XCTAssertNil(g.unitText)
         let h = rhythm(settings { _ in })
@@ -54,18 +54,28 @@ final class RestartEditorUITests: XCTestCase {
         XCTAssertEqual(m { _ in }, "Melody restarts, free")
     }
     func testTheTileFitDropsTheUnitFirstThenTruncatesTheName() {
+        // §4.1: the name is now "RHYTHM" / "MELODY" alone (no " RESTART"), so the group has more room
         let wide = euclideousRestartTileFit(spec: euclideousRestartTileSpec(rhythm: true, settings: settings { $0.restartRhythmBars = [2] }, ownLane: 0), name: "RHYTHM", tileWidth: 300)
         XCTAssertTrue(wide.showsUnit); XCTAssertFalse(wide.nameTruncates)
-        // "2" PASS with the glyph and lane 2's square just fits beside "MELODY RESTART" at the live landscape width (171.8): the unit stays
+        // "2" PASS with the glyph (active + WITH RHYTHM) and lane 2's square — the "drop the unit first, then truncate the name" ladder at descending widths
         let short = euclideousRestartTileSpec(rhythm: false, settings: settings { $0.restartMelodyPasses = [2]; $0.restartMelodyUnit = .pass; $0.restartMelodySource = 1; $0.restartMelodyWithRhythm = true }, ownLane: 0)
-        let fits = euclideousRestartTileFit(spec: short, name: "MELODY", tileWidth: 171.8)
-        XCTAssertTrue(fits.showsUnit); XCTAssertFalse(fits.nameTruncates)
-        // "2·1·1" PASS with both: the unit goes first — and the name then truncates, even so
-        let long = euclideousRestartTileSpec(rhythm: false, settings: settings { $0.restartMelodyPasses = [2, 1, 1]; $0.restartMelodyUnit = .pass; $0.restartMelodySource = 1; $0.restartMelodyWithRhythm = true }, ownLane: 0)
-        let narrow = euclideousRestartTileFit(spec: long, name: "MELODY", tileWidth: 171.8)
-        XCTAssertFalse(narrow.showsUnit, "the glyph, the square and the value leave no room for the unit at the live landscape width"); XCTAssertTrue(narrow.nameTruncates)
-        let tiny = euclideousRestartTileFit(spec: short, name: "MELODY", tileWidth: 100)
+        XCTAssertTrue(short.showsLinkGlyph, "active + WITH RHYTHM: the glyph is in the group")
+        let fits = euclideousRestartTileFit(spec: short, name: "MELODY", tileWidth: 130)
+        XCTAssertTrue(fits.showsUnit); XCTAssertFalse(fits.nameTruncates, "wide enough for the unit and the whole name")
+        let dropped = euclideousRestartTileFit(spec: short, name: "MELODY", tileWidth: 110)
+        XCTAssertFalse(dropped.showsUnit, "the unit drops first"); XCTAssertFalse(dropped.nameTruncates, "the name still fits")
+        let tiny = euclideousRestartTileFit(spec: short, name: "MELODY", tileWidth: 90)
         XCTAssertFalse(tiny.showsUnit); XCTAssertTrue(tiny.nameTruncates, "…then the name truncates")
+    }
+    /// §4.2 (test 33): the melody tile's link glyph shows only with WITH RHYTHM on AND the chain active; a rhythm tile never shows it.
+    func testTest33TheMelodyTileGlyphFollowsWithRhythmAndActivity() {
+        func m(_ b: @escaping (inout EuclidLine) -> Void) -> EuclideousRestartTileSpec { euclideousRestartTileSpec(rhythm: false, settings: settings(b), ownLane: 0) }
+        let inactive = m { $0.restartMelodyWithRhythm = true }
+        XCTAssertEqual(inactive.valueText, "RHYTHM"); XCTAssertFalse(inactive.showsLinkGlyph, "inactive + WITH RHYTHM: 'RHYTHM', no glyph")
+        let active = m { $0.restartMelodyPasses = [3]; $0.restartMelodyUnit = .hit; $0.restartMelodyWithRhythm = true }
+        XCTAssertEqual(active.valueText, "3"); XCTAssertTrue(active.showsLinkGlyph, "active + WITH RHYTHM: the links with the glyph")
+        XCTAssertFalse(m { $0.restartMelodyPasses = [3]; $0.restartMelodyUnit = .hit }.showsLinkGlyph, "active, no WITH RHYTHM: no glyph")
+        XCTAssertFalse(euclideousRestartTileSpec(rhythm: true, settings: settings { $0.restartRhythmBars = [2] }, ownLane: 0).showsLinkGlyph, "a rhythm tile never shows the glyph")
     }
 
     // MARK: test 16 — the editor's logic

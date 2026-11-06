@@ -4304,8 +4304,8 @@ struct EuclideousPage: View {
         }
         .frame(width: fullWidth, height: rowH * 2 + sp4)
     }
-    /// One restart tile (§6.1/§6.2). A set chain: #22252C fill and a 1 pt lane100 inner border; FREE: #2A2D34, no border. ONE text line, its top 6 pt in, 10 pt either side, baseline-aligned: ↻ (8 pt) and "RHYTHM RESTART" /
-    /// "MELODY RESTART" (8 pt heavy, 0.1 em, #8A909A, truncating first) on the left; the chain (13 pt heavy, #F2F4F7 — FREE #AAB0BA) and its BAR / PASS unit on the right. RESTART TILES §2: the layers are walked in
+    /// One restart tile (§6.1/§6.2; RESTARTS EDITOR V2 §4.1 shortened the name to "RHYTHM" / "MELODY"). A set chain: #22252C fill and a 1 pt lane100 inner border; FREE: #2A2D34, no border. ONE text line, its top 6 pt in, 10 pt either side, baseline-aligned:
+    /// ↻ (8 pt) and "RHYTHM" / "MELODY" (8 pt heavy, 0.1 em, #8A909A, truncating first) on the left; the chain (13 pt heavy, #F2F4F7 — FREE #AAB0BA) and its BAR / PASS unit on the right. RESTART TILES §2: the layers are walked in
     /// `euclideousRestartTileLayerOrder` — base (fill + border), sweep, track, text — so the sweep never draws over the text.
     /// Built as an `AnyView` (the page's construction chain has almost no stack to spare in a debug build — see Docs/claude-playbook.md).
     private func restartTile(_ idx: Int, rhythm: Bool, spec: EuclideousRestartTileSpec, label: String, accent: Color, width: CGFloat, height: CGFloat,
@@ -4353,7 +4353,7 @@ struct EuclideousPage: View {
             return AnyView(HStack(alignment: .lastTextBaseline, spacing: 0) {
                 HStack(alignment: .lastTextBaseline, spacing: 3) {
                     Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A))
-                    Text("\(name) RESTART").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)
+                    Text(name).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)   // §4.1: "RHYTHM" / "MELODY" alone (the " RESTART" is dropped)
                         .foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).truncationMode(.tail)
                 }
                 Spacer(minLength: 4)

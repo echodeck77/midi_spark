@@ -17,7 +17,7 @@ struct EuclideousRestartTileSpec: Equatable {
     var unitText: String?
     /// The lane whose 7 × 7 square the tile wears: an active chain whose unit reads a source other than the lane itself.
     var sourceLane: Int?
-    /// MELODY only: the link glyph (WITH RHYTHM on).
+    /// MELODY only: the link glyph — shown when WITH RHYTHM is on AND the melody chain is active (§4.2). An inactive chain with WITH RHYTHM reads "RHYTHM" with no glyph.
     var showsLinkGlyph: Bool
     /// The lane whose colour the outer fill takes: the source lane when `sourceLane` is set, else the lane's own.
     var fillLane: Int
@@ -35,11 +35,12 @@ func euclideousRestartTileSpec(rhythm: Bool, settings s: EuclideousRestartSettin
     if active { value = chain.links.map { String($0) }.joined(separator: "\u{B7}") } else if withRhythm { value = "RHYTHM" } else { value = "FREE" }
     let unit: String? = active && chain.count <= 3 ? (rhythm ? s.rhythmUnit.rawValue : s.melodyUnit.rawValue) : nil
     let src: Int? = readsSource && source != own ? max(0, min(3, source)) : nil
-    return EuclideousRestartTileSpec(isSet: active || withRhythm, valueText: value, unitText: unit, sourceLane: src, showsLinkGlyph: withRhythm, fillLane: src ?? own)
+    // §4.2: the link glyph shows only when WITH RHYTHM is on AND the melody chain is active (value = the links). An inactive chain with WITH RHYTHM reads "RHYTHM" with no glyph.
+    return EuclideousRestartTileSpec(isSet: active || withRhythm, valueText: value, unitText: unit, sourceLane: src, showsLinkGlyph: withRhythm && active, fillLane: src ?? own)
 }
 
 /// §6.2's fit rule, from the page's own type: monospaced heavy glyphs are ≈ 0.6 em wide plus tracking. The right-hand group is (link glyph 10) + (source square 7) + value (13 pt) + unit (8 pt, tracked 0.08 em), sp3 apart; the name is
-/// the arrow (8) + 3 + "<NAME> RESTART" (8 pt, tracked 0.1 em). Drop the unit first, then truncate the name; never shrink.
+/// the arrow (8) + 3 + "RHYTHM" / "MELODY" (8 pt, tracked 0.1 em — §4.1 dropped the " RESTART"). Drop the unit first, then truncate the name; never shrink.
 struct EuclideousRestartTileFit: Equatable {
     var showsUnit: Bool
     var nameTruncates: Bool
@@ -49,7 +50,7 @@ struct EuclideousRestartTileFit: Equatable {
 func euclideousRestartTileFit(spec: EuclideousRestartTileSpec, name: String, tileWidth: CGFloat) -> EuclideousRestartTileFit {
     func mono(_ s: String, size: CGFloat, tracking: CGFloat) -> CGFloat { CGFloat(s.count) * (0.6 * size + tracking) }
     let avail = max(0, tileWidth - 20)                       // 10 pt either side
-    let nameW = 8 + 3 + mono("\(name) RESTART", size: 8, tracking: 0.8)
+    let nameW = 8 + 3 + mono(name, size: 8, tracking: 0.8)   // §4.1: the name is "RHYTHM" / "MELODY" alone (no " RESTART")
     var items: [CGFloat] = []
     if spec.showsLinkGlyph { items.append(10) }
     if spec.sourceLane != nil { items.append(7) }
