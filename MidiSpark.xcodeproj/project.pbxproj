@@ -252,6 +252,7 @@
 		960ACD49BD8FBEB02D6E8C4F /* ChordCanonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C65CD0797F00553F393868 /* ChordCanonTests.swift */; };
 		965C21A77C376F3057CB4206 /* RestartFlashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C44DDB2035A6F3CE3FA8C /* RestartFlashTests.swift */; };
 		96D95AD2579E7D75BE561066 /* AcceptanceFactoryLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */; };
+		983D7E1AE41FB6F16F74D28A /* InputsGoldenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E96F54D4F221EBC6B79FE989 /* InputsGoldenTests.swift */; };
 		98438A098C9E21AEC8237627 /* FourfoldBluetoothMIDIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D8C6146A8A708D00931B05 /* FourfoldBluetoothMIDIView.swift */; };
 		99988F247FD22A5143E99B8D /* FourfoldAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */; };
 		999F001A6896EB83AB4DF907 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */; };
@@ -755,6 +756,7 @@
 		E60DAA2B9195756E92DD7102 /* EmitterVelocityUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterVelocityUI.swift; sourceTree = "<group>"; };
 		E73F2A52D11932A681050086 /* PolyRiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiff.swift; sourceTree = "<group>"; };
 		E881ACD3CFC301D9E276ED00 /* HocketLooksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketLooksTests.swift; sourceTree = "<group>"; };
+		E96F54D4F221EBC6B79FE989 /* InputsGoldenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputsGoldenTests.swift; sourceTree = "<group>"; };
 		EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStore.swift; sourceTree = "<group>"; };
 		EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelDeckTests.swift; sourceTree = "<group>"; };
 		EAE73B92A4EF42A15B2A9DDF /* FourfoldSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldSelfTest.swift; sourceTree = "<group>"; };
@@ -932,6 +934,7 @@
 				D1EA698A26E0E82CDCE82B8A /* HocketModelTests.swift */,
 				CEF2E58BB01342A017F5AB15 /* HocketRouterTests.swift */,
 				F140AC21A0E9E7E6E094A95C /* HocketTurnTests.swift */,
+				E96F54D4F221EBC6B79FE989 /* InputsGoldenTests.swift */,
 				A7DA6ABCB082900BEE40BD4E /* LaneLockTests.swift */,
 				EBD9DBBEEFA1051724E66556 /* LanesGridTests.swift */,
 				225D04471362741A939D49DE /* LaneSoloTests.swift */,
@@ -1710,6 +1713,7 @@
 				9B837C00B3B0EAA1C05C8BD1 /* HocketModelTests.swift in Sources */,
 				9A9E9E569FDF9C89ED21E18D /* HocketRouterTests.swift in Sources */,
 				07A28929FA0D94C33CDACFD6 /* HocketTurnTests.swift in Sources */,
+				983D7E1AE41FB6F16F74D28A /* InputsGoldenTests.swift in Sources */,
 				F05E9AE1A7913956B2AE8C67 /* LaneLockTests.swift in Sources */,
 				C824D765CA367D040CAEB674 /* LaneSoloTests.swift in Sources */,
 				EBC5C46DF44DF3FB225CBABA /* LaneStripFuzzTests.swift in Sources */,
