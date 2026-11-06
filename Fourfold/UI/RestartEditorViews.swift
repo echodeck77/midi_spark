@@ -51,6 +51,9 @@ struct EuclideousCountChipView: View {
     @State private var startValue = 0
     @State private var pressStart: Date? = nil
     @State private var lastEmitted = Int.min
+    /// §review follow-up: `@GestureState` returns to `false` when the drag ends OR is SYSTEM-CANCELLED (a call, an alert). `.onChange` below clears the transient `@State` on that edge, so a cancelled drag can never leave stale `startValue` /
+    /// `dragging` that would mis-step the NEXT drag or fold it into a prior undo step (`onEnded` alone does not fire on a cancel).
+    @GestureState private var gestureActive = false
 
     var body: some View {
         ZStack {
@@ -62,6 +65,7 @@ struct EuclideousCountChipView: View {
         .contentShape(Rectangle())
         .highPriorityGesture(
             DragGesture(minimumDistance: 0)
+                .updating($gestureActive) { _, state, _ in state = true }
                 .onChanged { v in
                     if pressStart == nil { pressStart = Date(); startValue = value; dragging = false; lastEmitted = Int.min }
                     if abs(v.translation.height) >= 6 {
@@ -75,6 +79,7 @@ struct EuclideousCountChipView: View {
                     dragging = false; pressStart = nil; lastEmitted = Int.min
                 }
         )
+        .onChange(of: gestureActive) { active in if !active { dragging = false; pressStart = nil; lastEmitted = Int.min } }   // reset on end AND on a system cancel
         .offset(x: frame.minX, y: frame.minY)
         .opacity(dim)
         .accessibilityElement(children: .ignore)

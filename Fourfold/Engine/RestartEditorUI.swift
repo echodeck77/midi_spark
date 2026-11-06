@@ -165,7 +165,7 @@ func euclideousRestartEditorFramesV2(size: CGSize) -> EuclideousRestartEditorFra
         let srcX = contentRight - M.sourcesSpan
         let sources = (0..<4).map { i in CGRect(x: srcX + CGFloat(i) * (M.sourceHitW + M.sourceHitGap), y: top, width: M.sourceHitW, height: M.row1H) }
         let countChips = (0..<4).map { CGRect(x: M.blockX + CGFloat($0) * (M.countChipW + M.countChipGap), y: top + M.row2Top, width: M.countChipW, height: M.countChipH) }
-        let cellW = (rw - 30) / 16
+        let cellW = max(0, (rw - 30) / 16)   // defensive: the page floors gate the editor well above the width where this would go negative
         let cells: [CGRect] = timelines ? (0..<M.cellCount).map { CGRect(x: M.blockX + CGFloat($0) * (cellW + M.cellGap), y: top + M.row3Top, width: cellW, height: M.cellH) } : []
         return EuclideousRestartSectionFramesV2(
             top: top, labelColumn: CGRect(x: M.labelX, y: top, width: M.labelW, height: M.row1H), freePill: freePill, chips: chips, sources: sources, countChips: countChips,
