@@ -108,13 +108,13 @@ final class FourfoldAccessibilityTests: XCTestCase {
         prepare(app); settle()
         audit(app, "\(landscape ? "landscape" : "portrait") \(name)")
     }
-    /// RESTART UNITS (2026-11-04): the restart editor with a PASS-counting rhythm chain (a source square dashed-unavailable), an active HIT melody chain and WITH RHYTHM lit, so every kind of control (chips, source squares, switches, links, the timelines) exists when the audit looks.
+    /// RESTART UNITS (2026-11-04); RESTARTS EDITOR V2 (2026-11-06): the restart editor with a PASS-counting rhythm chain (a source square dashed-unavailable), an active HIT melody chain and WITH RHYTHM lit, so every kind of control (FREE pills, chips, source squares, count chips, the link row, the timelines) exists when the audit looks.
     private func restartEditor(_ app: XCUIApplication) {
         let tile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm restarts")).element(boundBy: 0)
         XCTAssertTrue(tile.waitForExistence(timeout: 5), "the restart tile")
         tile.tap(); Thread.sleep(forTimeInterval: 1)
-        // RHYTHM on PASS (its source squares, the lane itself dashed-unavailable) with a link; MELODY on HIT, switched on, WITH RHYTHM lit — every kind of control is up when the audit looks
-        for label in ["Count passes", "Rhythm restarts, off", "Count hits", "Melody restarts, off", "Restart with the rhythm, off"] {
+        // §3: a unit-chip tap wakes its chain — RHYTHM on PASS (its source squares, the lane itself dashed-unavailable), MELODY on HIT; then the link row lights WITH RHYTHM. Every kind of control is up when the audit looks.
+        for label in ["Count passes", "Count hits", "Melody restarts with the rhythm, off"] {
             let e = app.el(label); if e.waitForExistence(timeout: 3) { e.tap() } else { XCTFail("the editor has no \(label)") }
         }
         Thread.sleep(forTimeInterval: 0.6)

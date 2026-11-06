@@ -77,6 +77,20 @@ final class RestartEditorUITests: XCTestCase {
         XCTAssertFalse(m { $0.restartMelodyPasses = [3]; $0.restartMelodyUnit = .hit }.showsLinkGlyph, "active, no WITH RHYTHM: no glyph")
         XCTAssertFalse(euclideousRestartTileSpec(rhythm: true, settings: settings { $0.restartRhythmBars = [2] }, ownLane: 0).showsLinkGlyph, "a rhythm tile never shows the glyph")
     }
+    /// §5 (test 34): the editor's VoiceOver strings — the FREE pill, the link-row WITH RHYTHM, the reordered unit chips and a count chip's adjustable label and hint.
+    func testTest34VoiceOverStrings() {
+        XCTAssertEqual(EuclideousRestartEditorAX.freePill(rhythm: true, free: true), "Rhythm free, on")
+        XCTAssertEqual(EuclideousRestartEditorAX.freePill(rhythm: false, free: false), "Melody free, off")
+        XCTAssertEqual(EuclideousRestartEditorAX.withRhythm(on: true), "Melody restarts with the rhythm, on")
+        // §2.2 chip order: RHYTHM = PASS · BAR · RIFF, MELODY = HIT · PASS · BAR
+        XCTAssertEqual(EuclideousRestartEditorAX.unitChip(rhythm: true, index: 0), "Count passes")
+        XCTAssertEqual(EuclideousRestartEditorAX.unitChip(rhythm: true, index: 2), "Count riffs")
+        XCTAssertEqual(EuclideousRestartEditorAX.unitChip(rhythm: false, index: 0), "Count hits")
+        XCTAssertEqual(EuclideousRestartEditorAX.unitChip(rhythm: false, index: 2), "Count bars")
+        XCTAssertEqual(EuclideousRestartEditorAX.link(rhythm: true, slot: 0, value: 2, unitWord: "bar"), "Rhythm link 1, 2 bars")
+        XCTAssertEqual(EuclideousRestartEditorAX.link(rhythm: false, slot: 1, value: 1, unitWord: "hit"), "Melody link 2, 1 hit")
+        XCTAssertEqual(EuclideousRestartEditorAX.linkHint, "Swipe up or down to change the length")
+    }
 
     // MARK: test 16 — the editor's logic
 

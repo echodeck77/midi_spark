@@ -80,7 +80,11 @@ struct EuclideousCountChipView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
         .accessibilityHint(EuclideousRestartEditorAX.linkHint)
-        .accessibilityAddTraits(.isButton)
+        // §5: the adjustable action confers the adjustable trait in SwiftUI — VoiceOver swipes the value up / down one ladder step (clamped, no wrap)
+        .accessibilityAdjustableAction { direction in
+            let nv = euclideousRestartCountChipDragValue(startValue: value, translationY: direction == .increment ? -12 : 12, hit: hit)
+            if nv != value { onDrag(nv, true) }
+        }
         .accessibilityAction(named: EuclideousRestartEditorAX.removeLink) { onRemove() }
     }
 }

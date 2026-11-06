@@ -378,7 +378,7 @@ enum EuclideousRestartEditorAX {
         let plural = value == 1 ? unitWord : (unitWord == "pass" ? "passes" : unitWord + "s")
         return "\(rhythm ? "Rhythm" : "Melody") link \(slot + 1), \(value) \(plural)"
     }
-    static let linkHint = "Double-tap for the next length"
+    static let linkHint = "Swipe up or down to change the length"   // §5: the count chip is adjustable
     static let removeLink = "Remove link"
     static func addLink(rhythm: Bool) -> String { "Add a \(rhythm ? "rhythm" : "melody") link" }
     static let tileHint = "Double-tap to edit"

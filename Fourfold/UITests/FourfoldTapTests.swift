@@ -433,33 +433,34 @@ final class FourfoldTapTests: XCTestCase {
 
     // MARK: RESTART UNITS (2026-11-04)
 
-    /// The restart editor through the real engine: a tile opens it; a unit chip selects (RIFF), the switch turns the chain on and adds a link, PASS shows the source squares with the lane itself unavailable, a square selects, WITH RHYTHM toggles,
-    /// a link steps; the header carries no instruction text; the close button closes it. (Each tap is one undo step — pinned by the pure tests and `UndoAudit`.)
-    func testTheRestartEditorUnitChipsSwitchSourcesAndLinks() {
+    /// RESTARTS EDITOR V2 (2026-11-06): the restart editor through the real engine — a tile opens it; the FREE pill is lit; a unit chip (RIFF) selects AND wakes the chain (§3, FREE now off, a link of 1 appended) and reveals the source squares; PASS
+    /// shows the squares with the lane itself unavailable, a square selects; the link row toggles WITH RHYTHM; a count-chip tap steps the value; the header carries no instruction text; the close button closes it. (Each tap is one undo step.)
+    /// NOTE: not run this session (no iOS simulator runtime installed) — the labels/flow match the V2 design; device-verify.
+    func testTheRestartEditorFreePillUnitChipsSourcesAndLinks() {
         let app = XCUIApplication.fresh()
         Thread.sleep(forTimeInterval: 1)
         let tile = app.buttons.matching(NSPredicate(format: "label == %@", "Rhythm restarts, free")).element(boundBy: 0)
         need(tile, "lane 1's RHYTHM restart tile").tap()
         let editor = need(app.el("Restarts for lane 1"), "the editor dialog")
         XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "TAP + TO ADD")).count > 0, "no instruction text in the header")
-        XCTAssertFalse(editor.buttons["Rhythm restarts free"].exists, "no FREE button")
+        func any(_ label: String) -> XCUIElement { editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch }
+        need(any("Rhythm free, on"), "the FREE pill, lit (the chain is free)")
         let squares = { editor.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Lane ")).count }
         XCTAssertEqual(squares(), 4, "RHYTHM BAR reads no lane (no squares); MELODY PASS reads its own (four)")
         let riff = need(editor.buttons["Count riffs"], "the RIFF chip"); riff.tap()
         XCTAssertTrue(editor.buttons["Count riffs"].isSelected, "tapping a unit chip selects it")
+        need(any("Rhythm free, off"), "§3: the unit tap woke the chain — FREE is now off")
+        need(any("Rhythm link 1, 1 riff"), "waking the chain appended a link of 1")
         XCTAssertEqual(squares(), 8, "RIFF reads a lane — the RHYTHM row now shows its four squares too")
         XCTAssertTrue(editor.buttons.matching(NSPredicate(format: "label == %@", "Lane 1")).element(boundBy: 0).isSelected, "its own lane by default")
-        let off = need(editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Rhythm restarts, off")).firstMatch, "the RHYTHM switch, off"); off.tap()
-        need(editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Rhythm restarts, on")).firstMatch, "the switch is on now")
-        need(editor.buttons["Rhythm link 1, 1 riff"], "turning on an empty chain appended a link of 1")
         editor.buttons.matching(NSPredicate(format: "label == %@", "Count passes")).element(boundBy: 0).tap()   // the RHYTHM row's chip (MELODY has its own)
         need(editor.buttons["Lane 1, unavailable"], "RHYTHM PASS: the lane itself is unavailable")
         let l3 = need(editor.buttons.matching(NSPredicate(format: "label == %@", "Lane 3")).element(boundBy: 0), "lane 3's square (the RHYTHM row's first)"); l3.tap()
         XCTAssertTrue(editor.buttons.matching(NSPredicate(format: "label == %@", "Lane 3")).element(boundBy: 0).isSelected, "a source square selects")
-        let withRhythm = need(editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart with the rhythm, off")).firstMatch, "WITH RHYTHM"); withRhythm.tap()
-        need(editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart with the rhythm, on")).firstMatch, "WITH RHYTHM is on")
-        editor.buttons["Rhythm link 1, 1 pass"].tap()
-        need(editor.buttons["Rhythm link 1, 2 passes"], "a link steps to the next length")
+        let withRhythm = need(any("Melody restarts with the rhythm, off"), "the link row"); withRhythm.tap()
+        need(any("Melody restarts with the rhythm, on"), "WITH RHYTHM is on")
+        any("Rhythm link 1, 1 pass").tap()
+        need(any("Rhythm link 1, 2 passes"), "a count-chip tap steps the value")
         editor.buttons["Close restarts"].tap()
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.el("Restarts for lane 1"))
         XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 2.5), .completed, "the close button closes the editor")

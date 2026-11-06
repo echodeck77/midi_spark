@@ -12,7 +12,8 @@ final class FourfoldScreenshotTests: XCTestCase {
         a.name = name; a.lifetime = .keepAlways; add(a)
     }
 
-    /// RESTART UNITS (2026-11-04): the restart tiles and editor — free, then set with a RIFF rhythm of its own lane, a PASS source of another lane, a melody HIT chain with WITH RHYTHM — in portrait and landscape, playing.
+    /// RESTART UNITS (2026-11-04); RESTARTS EDITOR V2 (2026-11-06): the restart tiles and editor — free, then set with a RIFF rhythm of its own lane, a PASS source of another lane, a melody HIT chain with WITH RHYTHM — in portrait and landscape,
+    /// playing. (Not run this session — no iOS simulator runtime; the labels/flow match the V2 design.)
     func testTheRestartTilesAndEditor() {
         let device = XCUIDevice.shared
         func any(_ e: XCUIElement, _ label: String) -> XCUIElement { e.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch }
@@ -28,11 +29,10 @@ final class FourfoldScreenshotTests: XCTestCase {
             attach("11-restart-\(tag)-2-editor-free")
             XCTAssertTrue(editor.exists, "the editor opened (\(tag))")
             if editor.exists {
-                any(editor, "Count riffs").tap()
-                any(editor, "Rhythm restarts, off").tap()
-                editor.buttons.matching(NSPredicate(format: "label == %@", "Rhythm link 1, 1 riff")).firstMatch.tap()
-                any(editor, "Count hits").tap()
-                any(editor, "Restart with the rhythm, off").tap()
+                any(editor, "Count riffs").tap()   // §3: wakes the RHYTHM chain (RIFF of its own lane), appending a 1
+                any(editor, "Rhythm link 1, 1 riff").tap()   // steps the count chip
+                any(editor, "Count hits").tap()   // wakes the MELODY chain (HIT)
+                any(editor, "Melody restarts with the rhythm, off").tap()
                 Thread.sleep(forTimeInterval: 1.2)
                 attach("11-restart-\(tag)-3-editor-set")
                 editor.buttons.matching(NSPredicate(format: "label == %@", "Count passes")).element(boundBy: 0).tap()
@@ -59,8 +59,8 @@ final class FourfoldScreenshotTests: XCTestCase {
         tile.tap(); Thread.sleep(forTimeInterval: 1)
         let editor = app.descendants(matching: .any)["Restarts for lane 1"]
         XCTAssertTrue(editor.exists, "the editor opened")
-        let w = editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Restart with the rhythm, off")).firstMatch
-        XCTAssertTrue(w.waitForExistence(timeout: 3), "WITH RHYTHM"); w.tap()
+        let w = editor.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Melody restarts with the rhythm, off")).firstMatch
+        XCTAssertTrue(w.waitForExistence(timeout: 3), "the link row"); w.tap()
         Thread.sleep(forTimeInterval: 0.8)
         attach("12-withrhythm-2-editor")
         editor.buttons["Close restarts"].tap()
