@@ -320,6 +320,45 @@ final class RhythmDirectionHuntTests: XCTestCase {
         XCTAssertTrue(bad.isEmpty, "\(bad.count) AVOID / MEET configurations differ:\n" + bad.prefix(4).joined(separator: "\n"))
     }
 
+    /// The CHORDS grid's LOOP advance counts a lane's laps through the restart schedule: a PING-PONG lane's lap is 2n steps (a COPY follower's, 2n when its source or its DIRECTION is PING-PONG), BKW's n.
+    func testChordsLoopAdvanceCountsTheLanesRealLap() {
+        let steps = 8
+        var bad: [String] = []
+        for (label, lines, lap) in [
+            ("PING-PONG 5 steps 1/8", [lane(hits: 2, steps: 5, rate: .r1_8, dir: .pingpong)], 10),
+            ("BKW 5 steps 1/8", [lane(hits: 2, steps: 5, rate: .r1_8, dir: .bkw)], 5),
+            ("COPY of a PING-PONG 6 steps 1/16", { var f = self.lane(hits: 3, steps: 8, rate: .r1_8); f.setAnswerRhythm(.copy); f.listenSource = 1; return [f, self.lane(hits: 2, steps: 6, rate: .r1_16, dir: .pingpong)] }(), 12),
+        ] as [(String, [EuclidLine], Int)] {
+            let set = euclideousRestartScheduleSet(lines: lines + (lines.count..<4).map { _ in EuclidLine(enabled: false) }, barBeats: 4, defaultRateBeats: 0.5, riffColumns: 8)
+            let sub = label.hasPrefix("COPY") ? 0.25 : 0.5, lapBeats = Double(lap) * sub
+            let cfg = ChordsAdvanceConfig(rateBeats: 1, steps: steps, rotate: 0, advanceUnit: .loop, advanceLane: 0, advanceEvery: 1, restartOn: false, restartUnit: .bar, restartLane: 0, restartEvery: 1)
+            for k in 0..<400 {
+                let beat = Double(k) * 0.37
+                let want = Int(((beat + 1e-9) / lapBeats).rounded(.down)) % steps
+                let got = chordColumn(cfg, beat: beat, schedule: set, barBeats: 4)
+                if got != want { bad.append("\(label) @ beat \(beat): column \(got), the lane's lap (\(lapBeats) beats) says \(want)"); break }
+            }
+        }
+        XCTAssertTrue(bad.isEmpty, "LOOP advance disagrees with the lane's lap:\n" + bad.joined(separator: "\n"))
+    }
+
+    // MARK: 7 — the legacy `reverse` flag
+    /// An old document stores only `reverse` (true = BKW); a new one stores `direction`, which wins. Through the real Router, and through a JSON round trip.
+    func testTheLegacyReverseFlagStillPlaysBackwardsAndDirectionWins() throws {
+        func heard(_ l: EuclidLine) -> [Double] {
+            let box = SnapshotBuilder.build(from: document([l])); return onsets(drive({ _ in box }, beats: 12).recs, lane: 0).filter { $0 < 11.99 }
+        }
+        var old = lane(hits: 3, steps: 8, rate: .r1_8, rotate: 1); old.direction = nil; old.reverse = true
+        let bkw = lane(hits: 3, steps: 8, rate: .r1_8, dir: .bkw, rotate: 1), fwd = lane(hits: 3, steps: 8, rate: .r1_8, dir: .fwd, rotate: 1)
+        XCTAssertEqual(heard(old), heard(bkw), "reverse = true, no direction: plays BKW")
+        XCTAssertNotEqual(heard(old), heard(fwd))
+        var both = old; both.direction = .fwd
+        XCTAssertEqual(heard(both), heard(fwd), "a stored direction wins over the legacy flag")
+        let decoded = try JSONDecoder().decode(EuclidLine.self, from: JSONEncoder().encode(old))
+        XCTAssertEqual(decoded.directionResolved, .bkw)
+        XCTAssertEqual(heard(decoded), heard(bkw))
+    }
+
     /// The lap of a COPY / FILL follower — the source's n steps walked in the follower's DIRECTION (§3.4): 2n when the follower is PING-PONG or its source is, else n; the follower's OWN stored `direction` is paused and never counts. The sound, the
     /// lane geometry the mute sweep / MUTE tab / AVOID's source grid size a pass with, the walk mirror and the restart schedule must all agree on it.
     func testABorrowingLanesLapIsTheSameEverywhere() {
