@@ -134,6 +134,8 @@ struct EuclidLaneBox: View {
     /// lane plays its partner's pattern, so its cells (and the footer drawn inside them) must come from that, not from
     /// `line`. nil (every other lane, every other caller) ⇒ the bar draws from `line` exactly as before.
     var patternOverride: [Bool]? = nil
+    /// The direction the bar sweeps and reads its boxes with, when it is not the lane's own — a lane borrowing RHYTHM plays its source's finished pattern FWD (`euclideousLaneDisplayDirection`); nil = `line.directionResolved`.
+    var dirOverride: EuclidDir? = nil
     /// The partner's colour for the LIT cells (and their flash/glow); nil ⇒ the lane's own `accent`.
     var cellTint: Color? = nil
     /// 1 = full strength; < 1 fades the lit cells' fill (FOLLOW: `euclideousListenCellFade`).
@@ -175,7 +177,7 @@ struct EuclidLaneBox: View {
             EuclidCometBar(pulses: patternOverride.map { $0.filter { $0 }.count } ?? line.pulses,
                            steps: patternOverride?.count ?? line.steps,
                            rotate: patternOverride != nil ? 0 : line.rotate,
-                           invert: patternOverride != nil ? false : line.invert, dir: line.directionResolved,
+                           invert: patternOverride != nil ? false : line.invert, dir: dirOverride ?? line.directionResolved,
                            rate: rate, spanN: spanN, tilt: patternOverride != nil ? 0 : line.tiltResolved,
                            missStyle: patternOverride != nil ? false : line.patternMissResolved,
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),

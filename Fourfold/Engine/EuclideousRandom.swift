@@ -760,6 +760,17 @@ func euclideousRandomRotateFromDisplayed(offset: Int, steps: Int) -> Int {
     return (n - d) % n
 }
 
+/// §4.1 — the circle the random-mode RHYTHM picture's playhead ring sits on at host beat `beat`: the tick (`floor(beat / stepBeats)`) taken round the direction's REAL cycle (n for FWD / BKW, 2n for PING-PONG) and read
+/// through `euclidReadIndex`, the pair the Router reads its pattern with — so BKW runs the ring the other way round and PING-PONG bounces, each end held for two ticks. (The picture used to count `tick mod n`, FWD only;
+/// direction hunt 2026-11-06.) FREE-pattern phase, like the picture's own: no restart chain, no swing.
+func euclideousRandomPicturePlayhead(beat: Double, stepBeats: Double, steps: Int, dir: EuclidDir) -> Int {
+    let n = max(2, min(16, steps))
+    guard stepBeats > 0 else { return 0 }
+    let cl = euclidCycleLen(dir, n: n)
+    let tick = Int((beat / stepBeats + 1e-9).rounded(.down))
+    return euclidReadIndex(((tick % cl) + cl) % cl, n: n, dir: dir)
+}
+
 /// §6.7: the main thread's own write once a roll has landed — direct field writes, mirroring the AUTO-ramp
 /// precedent (`Snapshot.swift`'s own `euclidPulses`/`euclidRot` writer), never `euclideousSliderCommit`
 /// (§6.7: "Not through the STEPS setter") or `euclideousSetRiffShift`. Pins both restart chains first if the

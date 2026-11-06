@@ -1057,6 +1057,9 @@ struct EuclidLine: Codable, Equatable {
     /// The effective direction — `direction` once touched under Stage 3, else derived from the legacy `reverse`
     /// bool (FWD/BKW only — PING-PONG never existed before this, so there's nothing for an old doc to migrate to).
     var directionResolved: EuclidDir { direction ?? (reverseResolved ? .bkw : .fwd) }
+    /// The RHYTHM tab's direction buttons: choosing the direction the lane already RESOLVES to writes nothing. A lane with no stored direction (a fresh or old document) resolves FWD, and the synthesized `==` counts nil ≠ `.fwd`,
+    /// so writing it anyway recorded an undo step and dirtied the document for a tap that changed nothing (direction hunt 2026-11-06).
+    mutating func chooseDirection(_ d: EuclidDir) { if directionResolved != d { direction = d } }
     var notesOnResolved: Bool { notesOn ?? true }
     // UI-CONVENIENCE ONLY (main thread) — pads/clamps to exactly 8 entries, which means it ALLOCATES. The
     // RENDER THREAD must never call this (Router.swift reads the raw `noteOctShifts: [Int]?` instead, via

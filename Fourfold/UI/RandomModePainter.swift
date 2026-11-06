@@ -417,8 +417,8 @@ struct EuclideousRandomRhythmPicture: View {
                         .frame(width: pattern[i] ? 14 : 6, height: pattern[i] ? 14 : 6)
                         .position(p)
                 }
-                // §4.1/§4.4: the live playhead ring — a FREE-pattern phase (`floor(beat / stepBeats) mod
-                // steps`), the same base-case formula `euclideousLanePhase` reduces to with no restart
+                // §4.1/§4.4: the live playhead ring — a FREE-pattern phase (`floor(beat / stepBeats)` round the direction's
+                // cycle, `euclideousRandomPicturePlayhead`), the same base-case formula `euclideousLanePhase` reduces to with no restart
                 // chain/grid active. This picture carries no chain state at all (THROW/TWEAK never touch
                 // the chains), so a chained lane's picture shows this simplified phase, not its real one —
                 // an accepted, documented simplification, not a second "real" derivation.
@@ -446,10 +446,7 @@ struct EuclideousRandomRhythmPicture: View {
     }
 
     private func currentStep(steps: Int) -> Int {
-        let stepBeats = line.rate?.beats ?? 0.5
-        guard stepBeats > 0, steps > 0 else { return 0 }
-        let raw = Int((beat / stepBeats).rounded(.down))
-        return ((raw % steps) + steps) % steps
+        euclideousRandomPicturePlayhead(beat: beat, stepBeats: line.rate?.beats ?? 0.5, steps: steps, dir: line.directionResolved)   // the lane's DIRECTION: BKW runs the ring backwards, PING-PONG bounces
     }
 
     private func point(_ i: Int, steps: Int, cx: CGFloat, cy: CGFloat, r: CGFloat) -> CGPoint {

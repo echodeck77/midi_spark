@@ -2305,18 +2305,19 @@ struct EuclideousPage: View {
         let walkCfg = riffWalkConfig(idx)
         // RHYTHM POLISH: a lane with a fractional OFFSET and/or a fine TILT is predicted from the engine's TICK-SPACE layout (the walk config's), each hit in the box its start time falls in
         let timed = walkCfg.flatMap { $0.timing.isNone ? nil : $0 }
-        let hitSteps = timed.map { euclideousLapHitSteps(layoutCells: $0.buf, n: steps, dir: line.directionResolved) }
-            ?? follow.map { euclideousLapHitSteps(buf: Array($0.buf.prefix($0.n)), dir: line.directionResolved) }
+        let dispDir = euclideousLaneDisplayDirection(lane: idx, lines: phaseLines)   // a lane borrowing RHYTHM plays FWD whatever its own (paused) DIRECTION field holds
+        let hitSteps = timed.map { euclideousLapHitSteps(layoutCells: $0.buf, n: steps, dir: dispDir) }
+            ?? follow.map { euclideousLapHitSteps(buf: Array($0.buf.prefix($0.n)), dir: dispDir) }
             ?? euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate,
                                       tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
-                                      customHits: line.customHitsResolved(steps), dir: line.directionResolved)
+                                      customHits: line.customHitsResolved(steps), dir: dispDir)
         let cfg = (playsRiff || grey || layerOn) ? walkCfg : nil   // the walk's facts: the pass, REPEAT's lookback and the keys' count k need them; a plain lane needs none
         var prediction: [Int]? = nil
         var polyOrdinals: [Int64]? = nil
         var lapStartTick: Int64? = nil
         if playsRiff || grey {
             let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
-            let pass = euclideousFooterPass(line: line, cfg: cfg, hitSteps: hitSteps, lapSteps: steps, liveOrd: ws, nowBeat: lanesMusicalBeat(real: walkTagBeat(at: Date())))
+            let pass = euclideousFooterPass(line: line, cfg: cfg, hitSteps: hitSteps, lapSteps: steps, liveOrd: ws, nowBeat: lanesMusicalBeat(real: walkTagBeat(at: Date())), dir: dispDir)
             prediction = pass.prediction; lapStartTick = pass.lapStartTick; polyOrdinals = pass.ordinals
         } else if layerOn, let cfg {
             lapStartTick = euclideousLapStart(cfg: cfg, beat: lanesMusicalBeat(real: walkTagBeat(at: Date())))?.lapStartTick   // the keys' count k needs the pass's ticks even with the riff off
@@ -2328,7 +2329,7 @@ struct EuclideousPage: View {
         let notes: EuclideousStripNotes? = layerOn
             ? EuclideousStripNotes(layerOn: true, when: line.notesWhenResolved, chance: line.notesChanceResolved, way: line.notesPlayAsResolved, list: notesPlayList(line), lane: idx) : nil
         let legs = euclideousStripLegs(pattern: pattern, hitSteps: hitSteps, prediction: prediction, lapSteps: steps, ranks: ranks, anyLit: layerOn, fxTieColumns: riffPoly ? 0 : euclideousFXTieColumns(fx, line: line, lane: idx),   // POLY: the FX rows are off
-                                       pingPong: line.directionResolved == .pingpong, riffPlays: playsRiff, grey: grey, onRest: riffPoly ? .skip : line.riffOnRestResolved, cfg: cfg, lapStartTick: lapStartTick,   // POLY: ON REST is SKIP — no hollow REPEAT chip on a silent column
+                                       pingPong: dispDir == .pingpong, riffPlays: playsRiff, grey: grey, onRest: riffPoly ? .skip : line.riffOnRestResolved, cfg: cfg, lapStartTick: lapStartTick,   // POLY: ON REST is SKIP — no hollow REPEAT chip on a silent column
                                        notes: notes, poly: polySnap, polyOrdinals: polyOrdinals, name: stripNoteName)
         // VoiceOver (§6): read the sweep the lane is on at this body (PING-PONG has two); the note at a written rank is the riff grid's row name, a pitch is spoken as the NOTES tab's keys speak it
         var nowLeg = 0
@@ -2440,6 +2441,7 @@ struct EuclideousPage: View {
                       // inside them — and the cells themselves — disagree with the engine. They are drawn in the partner's
                       // colour, faded, and the comet sweeps at the partner's rate × the multiplier.
                       patternOverride: laneTimingBoxes(idx, line) ?? followEff.map { Array($0.buf.prefix($0.n)) },
+                      dirOverride: euclideousLaneDisplayDirection(lane: idx, lines: phaseLines),
                       cellTint: listenFollowTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
                       rateBeatsOverride: followEff?.rateBeats,
                       restartChains: cardChains.isActive ? cardChains : nil,
@@ -2511,7 +2513,7 @@ struct EuclideousPage: View {
         let chains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub, scheduleSet: restartScheduleSet)
         let sub = max(0.03125, followEff?.rateBeats ?? euclideousStripDivisionRate(lane: idx, lines: lines).beats)
         let muteCells = gridView.grid.muteCells, muteUnit = gridView.muteUnitBeats
-        return EuclideousMixStripFeed(legs: plan.legs, n: plan.sweepLength, dir: line.directionResolved, sub: sub, chains: chains.isActive ? chains : nil, lanePlaying: line.enabledResolved,
+        return EuclideousMixStripFeed(legs: plan.legs, n: plan.sweepLength, dir: euclideousLaneDisplayDirection(lane: planLane, lines: phaseLines), sub: sub, chains: chains.isActive ? chains : nil, lanePlaying: line.enabledResolved,
                                       mutedAt: muteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: muteCells, unitBeats: muteUnit) })
     }
     private var mixToggleMode: EuclideousMixToggleMode { EuclideousMixToggleMode(rawValue: mixToggleModeRaw) ?? .filled }
@@ -3031,7 +3033,7 @@ struct EuclideousPage: View {
                     .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
                     .contentShape(Rectangle())
-                    .modifier(laneTapMod(idx) { edit(idx) { $0.direction = dir } })
+                    .modifier(laneTapMod(idx) { edit(idx) { $0.chooseDirection(dir) } })
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(name)   // the icon has no text — give VoiceOver the name (it had the glyph before)
                     .accessibilityValue(lockSpoken(idx, .direction, ""))
@@ -5880,7 +5882,7 @@ struct EuclideousPage: View {
     private func laneTimingBoxes(_ idx: Int, _ line: EuclidLine) -> [Bool]? {
         guard let cfg = riffWalkConfig(idx), !cfg.timing.isNone else { return nil }
         let n = euclideousEffectiveHitPattern(lane: idx, lines: lines)?.n ?? max(2, min(16, line.steps))
-        return euclideousHitBoxes(layoutCells: cfg.buf, n: n, dir: line.directionResolved)
+        return euclideousHitBoxes(layoutCells: cfg.buf, n: n, dir: euclideousLaneDisplayDirection(lane: idx, lines: phaseLines))
     }
     /// RIFF WALK ferry §3/§7: one lane's walk config, unconditionally (the WALK strip and the mini-grid's
     /// dim rule need it regardless of `walkTagShows` — they're drawn even while the riff is off, at 42%).

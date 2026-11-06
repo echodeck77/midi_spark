@@ -174,6 +174,69 @@ final class DirectionDisplayTests: XCTestCase {
         XCTAssertGreaterThan(checked, 800)
     }
 
+    /// 5. Random mode's RHYTHM picture: its playhead ring sits on the circle position the Router reads at each strike, and that position is a hit of the picture's own pattern — FWD, BKW and PING-PONG.
+    func testTheRandomPicturesPlayheadIsTheBoxTheRouterReadsForEveryDirection() {
+        var rng = DirRng(s: 0xD1EC_0007)
+        var checked = 0, oldFormulaWrong = 0
+        for trial in 0..<100 {
+            let line = DirHarness.randomLine(&rng, timing: false)
+            let n = line.steps, sub = line.rate!.beats, dir = line.directionResolved
+            let pattern = euclideousRandomPattern(hits: line.pulses, steps: n, offset: euclideousRandomDisplayedOffset(rotate: line.rotate, steps: n), tilt: line.tiltResolved)
+            for b in DirHarness.onsets(DirHarness.render(DirHarness.document([line]), beats: 18)).filter({ $0 < 16 }) {
+                let box = euclideousRandomPicturePlayhead(beat: b + 0.002, stepBeats: sub, steps: n, dir: dir)
+                XCTAssertTrue(pattern[box], "trial \(trial) \(dir) n\(n) k\(line.pulses) rot \(line.rotate): the Router strikes at beat \(b) but the picture's ring sits on box \(box), a rest of its pattern \(pattern.map { $0 ? 1 : 0 })")
+                let old = ((Int(((b + 0.002) / sub).rounded(.down)) % n) + n) % n
+                if !pattern[old] { oldFormulaWrong += 1 }
+                checked += 1
+            }
+        }
+        XCTAssertGreaterThan(checked, 800); XCTAssertGreaterThan(oldFormulaWrong, 100, "the fuzz really exercises BKW / PING-PONG")
+    }
+
+    /// 6. A lane borrowing RHYTHM is DISPLAYED FWD: the lap the strip is predicted from (`euclideousLapHitSteps` with the display direction) is the set of lap-local ticks the Router strikes on, whatever the follower's stale DIRECTION field says.
+    func testABorrowingLaneIsDisplayedFwdAndItsLapHitsAreTheTicksTheRouterStrikesOn() {
+        var rng = DirRng(s: 0xD1EC_0008)
+        var staleWouldDiffer = 0
+        for trial in 0..<60 {
+            let src = DirHarness.randomLine(&rng, timing: false)
+            var f = DirHarness.randomLine(&rng, timing: false, dir: [.bkw, .pingpong][rng.int(0...1)])
+            f.setAnswerRhythm(rng.bool() ? .copy : .fill); f.listenSource = 0
+            let lines = [src, f]
+            XCTAssertEqual(euclideousLaneDisplayDirection(lane: 1, lines: lines), .fwd)
+            XCTAssertEqual(euclideousLaneDisplayDirection(lane: 0, lines: lines), src.directionResolved, "an own-rhythm lane keeps its own direction")
+            guard let eff = euclideousEffectivePattern(lane: 1, lines: lines) else { XCTFail("no pattern"); continue }
+            let n = eff.n
+            let shown = Set(euclideousLapHitSteps(buf: Array(eff.buf.prefix(n)), dir: euclideousLaneDisplayDirection(lane: 1, lines: lines)).map { $0.tick })
+            let stale = Set(euclideousLapHitSteps(buf: Array(eff.buf.prefix(n)), dir: f.directionResolved).map { $0.tick })
+            if shown != stale { staleWouldDiffer += 1 }
+            let sub = eff.rateBeats
+            let heard = Set(DirHarness.onsets(DirHarness.render(DirHarness.document(lines), beats: 18), cable: 2).filter { $0 < 16 }.map { Int(($0 / sub + 0.01).rounded(.down)) % n })
+            XCTAssertEqual(shown, heard, "trial \(trial): follower (own \(f.directionResolved)) of n\(n) — lap ticks drawn \(shown.sorted()) vs struck \(heard.sorted())")
+        }
+        XCTAssertGreaterThan(staleWouldDiffer, 20, "the stale field really would have changed the drawing")
+    }
+
+    /// 7. The RHYTHM tab's direction buttons: choosing the direction a lane already RESOLVES to is not an edit (a fresh lane has no stored direction, and nil ≠ `.fwd` to the funnel's `==`, which recorded a phantom undo step).
+    func testChoosingTheDirectionTheLaneAlreadyHasChangesNothing() {
+        let fresh = EuclidLine()
+        var l = fresh
+        l.chooseDirection(.fwd)
+        XCTAssertEqual(l, fresh, "FWD on a lane that already plays FWD")
+        l.chooseDirection(.pingpong)
+        XCTAssertEqual(l.directionResolved, .pingpong)
+        let ping = l
+        l.chooseDirection(.pingpong)
+        XCTAssertEqual(l, ping, "PING-PONG on a PING-PONG lane")
+        l.chooseDirection(.fwd)
+        XCTAssertEqual(l.directionResolved, .fwd); XCTAssertNotEqual(l, ping)
+        var legacy = EuclidLine(); legacy.reverse = true
+        let legacyBefore = legacy
+        legacy.chooseDirection(.bkw)
+        XCTAssertEqual(legacy, legacyBefore, "BKW on an old document's reversed lane")
+        legacy.chooseDirection(.fwd)
+        XCTAssertEqual(legacy.directionResolved, .fwd, "FWD on an old document's reversed lane still switches it")
+    }
+
     // ── a lane that BORROWS its rhythm (ANSWER COPY / FILL) ─────────────────────────────────────────────────────────────────────────────────────────────────────
     /// The engine plays a borrowed pattern in the follower's own tick order, FWD, whatever the follower's own DIRECTION field says (Router `let dir = copyOrFillValid ? .fwd : dir`; the walk config does the same). The one lap function
     /// the engine's mute maths and the MUTE tab share (`euclideousLaneStepGeometry`) has to say the same lap: n, not 2n.

@@ -3066,12 +3066,12 @@ func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool,
 /// when the footers switch passes), its hits' riff columns (`prediction`, one per hit in time order), the ordinal its first hit reads (`startOrd`) and the ABSOLUTE tick of its first step
 /// (`lapStartTick`; nil when the pattern has no hit or `cfg` is unknown), from which every hit's own tick follows (`lapStartTick + hit.tick`).
 struct EuclideousFooterPass: Equatable { var prediction: [Int]; var startOrd: Int64; var lapStartTick: Int64?; var ordinals: [Int64] = [] }
-func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitSteps: [EuclidHitStep], lapSteps: Int, liveOrd: Int64, nowBeat: Double) -> EuclideousFooterPass {
+func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitSteps: [EuclidHitStep], lapSteps: Int, liveOrd: Int64, nowBeat: Double, dir: EuclidDir? = nil) -> EuclideousFooterPass {   // `dir`: the display direction (`euclideousLaneDisplayDirection`) — nil = the lane's own
     let isMelodyRestartPass = cfg.map {
         $0.chains.isMelodyRestartPass(beat: nowBeat)   // RESTART UNITS: the schedule answers when it has one
     } ?? false
     var baseline = euclideousRiffLapBaseline(hitSteps: hitSteps, lapSteps: lapSteps, isMelodyRestartPass: isMelodyRestartPass,
-                                              advanceStep: line.riffAdvanceStepResolved, liveOrd: liveOrd, dir: line.directionResolved)
+                                              advanceStep: line.riffAdvanceStepResolved, liveOrd: liveOrd, dir: dir ?? line.directionResolved)
     var lapStartTick: Int64? = nil
     // LANES GRID §2.8: the lap's baseline takes BOTH origins — the riff ordinal the CURRENT lap's first hit reads, from the engine's own per-tick core, not reverse-derived from the polled ordinal.
     if let cfg, let lap = euclideousLapStart(cfg: cfg, beat: nowBeat) { baseline.startOrd = lap.ordinal; lapStartTick = lap.lapStartTick }
@@ -3810,6 +3810,13 @@ func euclideousRhythmBorrowPartner(lane: Int, lines: [EuclidLine]) -> Int? {
     guard L.listenRhythmResolved == .copy || L.listenRhythmResolved == .fill else { return nil }
     let p = L.listenSourceResolved(ownLane: lane)
     return p >= 0 && p < lines.count && p != lane ? p : nil
+}
+/// DIRECTION HUNT (2026-11-06): the rhythm direction the DISPLAYS read lane `lane` with. A lane borrowing RHYTHM (COPY / FILL) plays its source's finished pattern in its own tick order, FWD — the Router and the walk
+/// config both ignore the lane's own DIRECTION field (the RHYTHM tab is paused while borrowing, so the field can still hold a stale BKW / PING-PONG from before). Everything drawn from "the lane's direction" —
+/// the comet's sweep, the boxes a timing lane's hits fall in, the strip's legs, the footer's lap — must ignore it the same way, or a borrowing lane sweeps 2n steps over n boxes.
+func euclideousLaneDisplayDirection(lane: Int, lines: [EuclidLine]) -> EuclidDir {
+    guard lane >= 0, lane < lines.count else { return .fwd }
+    return euclideousRhythmBorrowPartner(lane: lane, lines: lines) != nil ? .fwd : lines[lane].directionResolved
 }
 /// The lane whose RHYTHM the lane's own bar gestures (drag up/down = HITS, left/right = OFFSET, pinch = STEPS) should edit: the
 /// partner it's borrowing from, else itself. A borrowing lane plays its source's pattern, so the gesture edits what it's borrowing.
@@ -8530,10 +8537,11 @@ final class EuclideousPulseFeed {
 }
 
 /// The comet tile a strike belongs to: the buffer step the engine read at the onset tick — the same index `footerStates[i]` and the tile loop use. `rawAtOnset` is the comet's raw tick count at the strike's
-/// MUSICAL onset beat (the same function the dot uses); onsets sit on tick boundaries, so it is rounded to the nearest tick.
+/// MUSICAL onset beat (the same function the dot uses). A hit sounds its delay INTO its tick (RHYTHM POLISH: a fractional OFFSET / a fine TILT), so the raw count sits anywhere in `tick ..< tick + 1` and the tick is its
+/// floor — rounding to the nearest sent a hit more than half a step late to the NEXT tick's box (direction hunt 2026-11-06). The 0.01 only absorbs the jitter of an undelayed onset that lands a hair under its boundary (the strike's sample time is rounded to a whole sample — up to ~0.003 of a 1/32 step at 200 BPM).
 func euclideousPulseTileForOnset(rawAtOnset: Double, n: Int, dir: EuclidDir) -> Int {
     let cl = max(1, euclidCycleLen(dir, n: n))
-    var k = Int(rawAtOnset.rounded()) % cl
+    var k = Int((rawAtOnset + 0.01).rounded(.down)) % cl
     if k < 0 { k += cl }
     return max(0, min(max(1, n) - 1, euclidReadIndex(k, n: n, dir: dir)))
 }
