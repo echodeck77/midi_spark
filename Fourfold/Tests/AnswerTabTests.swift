@@ -43,12 +43,12 @@ final class AnswerTabTests: XCTestCase {
     }
     /// §10.4: MIRROR turns the SHADOW note upside down in the source pool (rank r → N+1−r). Pool C E G A: E→G, C→A, F♯ (nearest G, rank 3) → E. Empty pool mutes.
     func testMirrorNoteFlipsTheRankInTheSourcePool() {
-        let p = pool([60, 64, 67, 69])   // C E G A, N = 4
-        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 64, sourcePool: p), 67, "E (rank 2) → rank 3 = G")
-        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 60, sourcePool: p), 69, "C (rank 1) → rank 4 = A")
-        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 66, sourcePool: p), 64, "F♯ nearest G (rank 3) → rank 2 = E")
-        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 67, sourcePool: p), 64, "G (rank 3) → rank 2 = E")
-        XCTAssertNil(euclideousAnswerMirrorNote(sourceNote: 64, sourcePool: pool([])), "empty pool mutes")
+        let p = [60, 64, 67, 69]   // C E G A, N = 4 (ascending)
+        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 64, pool: p, count: 4), 67, "E (rank 2) → rank 3 = G")
+        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 60, pool: p, count: 4), 69, "C (rank 1) → rank 4 = A")
+        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 66, pool: p, count: 4), 64, "F♯ nearest G (rank 3) → rank 2 = E")
+        XCTAssertEqual(euclideousAnswerMirrorNote(sourceNote: 67, pool: p, count: 4), 64, "G (rank 3) → rank 2 = E")
+        XCTAssertNil(euclideousAnswerMirrorNote(sourceNote: 64, pool: [], count: 0), "empty pool mutes")
     }
     /// §10.5: DODGE steps the own note off the source's pitch class (any octave) to the nearest rank above whose class differs, else below, else mute; a different class is unchanged.
     func testDodgeNoteStepsOffTheSourcesPitchClass() {

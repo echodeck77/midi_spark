@@ -142,6 +142,38 @@ final class AvoidTests: XCTestCase {
         XCTAssertGreaterThan(runRhythm(red: red, blue: empty, mode: .avoid, beats: 8)[0]?.count ?? 0, 0, "AVOID: red plays fully under an empty blue")
         XCTAssertEqual(runRhythm(red: red, blue: empty, mode: .meet, beats: 8)[0]?.count ?? 0, 0, "MEET: red silent under an empty blue (no shared hits)")
     }
+    /// Red = lane 0 with a PITCH mode (SHADOW or MIRROR) following blue = lane 1. Returns [lane: the set of pitches it played].
+    private func runPitch(red: EuclidLine, blue: EuclidLine, pitch: EuclideousListenPitchMode, riff: [Int] = [1, 2, 3, 4, 5, 6, 7, 8], beats: Double = 16) -> [Int: Set<Int>] {
+        var r = red; r.setAnswerPitch(pitch); r.listenSource = 1
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: riff)
+        c.paramsA.euclidLines = [r, blue, EuclidLine(enabled: false), EuclidLine(enabled: false)]
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep)
+        let box = SnapshotBuilder.build(from: st)
+        let router = Router(); var diag = KernelDiag()
+        final class Null: MIDIEmitter { func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {} }
+        let e = Null(); let pool = NotePool(); for n in [UInt8]([48, 50, 52, 53, 55, 57, 59, 60]) { pool.noteOn(n, velocity: 100, channel: 0) }
+        let sr = 48_000.0; var ts = 0.0, out: [NoteRollRecord] = []
+        while (ts * 120.0 / 60.0 / sr) < beats {
+            router.process(box: box, pool: pool, playing: true, beatPos: ts * 120.0 / 60.0 / sr, tempo: 120, sampleRate: sr, timestampSample: ts, frameCount: 480, forceColumn: 0, out: e, diag: &diag)
+            out += router.rollRing.drain(); ts += Double(480)
+        }
+        var by: [Int: Set<Int>] = [:]
+        for rec in out where !rec.isEnd { by[Int(rec.part) / 2, default: []].insert(Int(rec.pitch)) }
+        return by
+    }
+    /// §6.2 / §11: PITCH MIRROR flips the source's rank in the shared pool. Blue plays the lowest pool note (48); red MIRROR plays the highest (60) — a rising source falls. SHADOW (the control) plays the source's note itself (48).
+    func testMirrorFlipsTheSourcesRankInThePool() {
+        // a FLAT riff (every column rank 1) so blue plays a constant note (the lowest, pool[0] = 48) whatever its walk does; red MIRROR flips it to the highest (pool[7] = 60).
+        let flat: [Int] = [1, 1, 1, 1, 1, 1, 1, 1]
+        let blue = line(hits: 8, steps: 8, rate: .r1_8), red = line(hits: 4, steps: 8, rate: .r1_8)
+        XCTAssertEqual(runPitch(red: red, blue: blue, pitch: .mirror, riff: flat)[1] ?? [], [48], "blue plays rank 1 = 48 throughout")
+        XCTAssertEqual(runPitch(red: red, blue: blue, pitch: .mirror, riff: flat)[0] ?? [], [60], "MIRROR of the lowest pool note (48) is the highest (60)")
+        XCTAssertEqual(runPitch(red: red, blue: blue, pitch: .shadow, riff: flat)[0] ?? [], [48], "SHADOW plays the source's own note")
+    }
     /// §10.3 partition (Router level): over Euclidean pairs at the same rate, MEET's strikes and AVOID's strikes are DISJOINT and together equal the control (both rows off) — each red hit goes to exactly one of them.
     func testMeetAndAvoidPartitionTheControlStrikes() {
         for (rh, bh) in [(5, 8), (3, 11), (7, 13), (9, 16), (2, 5)] {

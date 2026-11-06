@@ -949,6 +949,14 @@ final class Router {
         var pitches = [Int](repeating: 0, count: 16 * 9)   // strike j's pitches at [j*9 ..< j*9 + pitchCount[j]]
         var ranks = [UInt8](repeating: 0, count: 16 * 9)   // MIX ROWS: each pitch's pool rank in the SOURCE lane's pool (so a SHADOW / ECHO follower draws the note on the rank it came from, whatever its own pool holds)
         var count = 0                                       // how many of the 16 strike slots are filled so far
+        // ANSWER v2 (2026-11-06): the SOURCE lane's own note POOL, ascending, captured once per cycle (the follower's own pool is a different buffer at its strike time), so PITCH MIRROR can read the source pool's note at rank N+1−r. Window-granular (captured at the cycle's first strike).
+        var pool = [Int](repeating: 0, count: 128)
+        var poolCount = 0
+        mutating func capturePool(_ notes: ArraySlice<(note: Int, vel: UInt8)>) {
+            let n = min(128, notes.count); let base = notes.startIndex
+            for i in 0..<n { pool[i] = notes[base + i].note }
+            poolCount = n
+        }
         mutating func reset() { count = 0; for i in 0..<16 { pitchCount[i] = 0 } }
         mutating func append(count pc: Int, from src: [Int], ranks srcRanks: [UInt8]) {
             guard count < 16 else { return }
@@ -3876,17 +3884,23 @@ final class Router {
                             // captured for EVERY lane, every hit, at the identical point in its OWN
                             // pipeline (below) — so a chain (this lane's source following a THIRD lane)
                             // just works, and a muted/solo-silenced source still drives this (§5.2).
-                            let shadowOrEchoValid = (listenPitch == .shadow || listenPitch == .echo) && listenSource >= 0 && listenSource < 4 && listenSource != lineIndex
+                            // ANSWER v2 (2026-11-06): MIRROR joins the SHADOW branch — it takes the SAME source strike SHADOW would, then flips each note's rank in the source pool (N+1−r, §6.2) BEFORE INTERVAL/OCTAVE; an empty source pool mutes that pitch.
+                            let shadowOrEchoValid = (listenPitch == .shadow || listenPitch == .echo || listenPitch == .mirror) && listenSource >= 0 && listenSource < 4 && listenSource != lineIndex
                             if shadowOrEchoValid {
                                 let notesBefore = pitchCount
                                 func strikeFrom(_ cycle: EuclideousEchoCycle, _ idx: Int) {
                                     cycle.forEachPitch(idx) { note, srcRank in
-                                        let moved = euclideousListenMoveByInterval(note: note, interval: listenInterval, octave: listenOctave,
+                                        var src = note, rank: UInt8? = srcRank == 0 ? nil : srcRank   // MIX ROWS: the SOURCE lane's rank (an empty own pool names none)
+                                        if listenPitch == .mirror {
+                                            guard let m = euclideousAnswerMirrorNote(sourceNote: note, pool: cycle.pool, count: cycle.poolCount) else { return }   // §6.2: empty source pool mutes this pitch
+                                            src = m; rank = nil   // the mirrored note is a source-pool note at a different rank; no chip highlight (device-owed)
+                                        }
+                                        let moved = euclideousListenMoveByInterval(note: src, interval: listenInterval, octave: listenOctave,
                                                                                     keyRoot: p.euclideousChordKeyRoot, scaleIntervals: p.euclideousChordKeyTones)
-                                        addPitch(outShift(moved, notes: false), vel: UInt8(velocityAbsolute), gate: gate, raw: moved, rank: srcRank == 0 ? nil : srcRank)   // MIX ROWS: the SOURCE lane's rank (an empty own pool names none)
+                                        addPitch(outShift(moved, notes: false), vel: UInt8(velocityAbsolute), gate: gate, raw: moved, rank: rank)
                                     }
                                 }
-                                if listenPitch == .shadow {
+                                if listenPitch == .shadow || listenPitch == .mirror {
                                     if euclideousEchoCurrent[listenSource].count > 0 { strikeFrom(euclideousEchoCurrent[listenSource], euclideousEchoCurrent[listenSource].count - 1) }
                                     else if euclideousEchoLast[listenSource].count > 0 { strikeFrom(euclideousEchoLast[listenSource], euclideousEchoLast[listenSource].count - 1) }
                                 } else {
@@ -4202,6 +4216,7 @@ final class Router {
                                     // holding is the same; `current`'s stale pitch slots are never read past its `count`.
                                     swap(&euclideousEchoLast[lineIndex], &euclideousEchoCurrent[lineIndex])
                                     euclideousEchoCurrent[lineIndex].reset()
+                                    euclideousEchoCurrent[lineIndex].capturePool(laneNotes(lineIndex))   // ANSWER v2: this lane's own pool, for a MIRROR follower (window-granular — captured at the cycle's first strike)
                                     euclideousEchoCycleNum[lineIndex] = cy
                                 }
                                 euclideousEchoCurrent[lineIndex].append(count: pitchCount, from: pitches, ranks: pitchRank)
