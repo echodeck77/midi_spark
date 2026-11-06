@@ -11,8 +11,8 @@ import Foundation
 
 enum EuclideousCyclePhase: Equatable { case a, b }
 
-/// 11.1 — a lane FOLLOWS another lane while RHYTHM or PITCH is on (a cycling row still counts; TRADE never does).
-@inline(__always) func euclideousAnswerIsFollowing(rhythmOn: Bool, pitchOn: Bool) -> Bool { rhythmOn || pitchOn }
+/// 11.1 / ANSWER v2 §4.3 — a lane FOLLOWS another lane while (RHYTHM or PITCH is on) AND TRADE is OFF (a cycling row still counts; a TRADING lane is NOT following — its rhythm/pitch are excluded, §4.1).
+@inline(__always) func euclideousAnswerIsFollowing(rhythmOn: Bool, pitchOn: Bool, tradeOn: Bool = false) -> Bool { (rhythmOn || pitchOn) && !tradeOn }
 
 /// ANSWER v2 §8.3 (§5): does an own hit PLAY under a RHYTHM mode, given whether the source also hits at that moment? COPY/FILL don't filter the own hit here (they replace the pattern upstream — pass through); MEET plays only where the source hits; AVOID never does. `ownHit` false ⇒ never.
 @inline(__always) func euclideousAnswerRhythmGate(mode: EuclideousAnswerRhythmMode, ownHit: Bool, sourceHit: Bool) -> Bool {
@@ -55,13 +55,15 @@ func euclideousAnswerPhaseLane(lane: Int, lines: [EuclidLine]) -> Int {
 
 /// 11.5 — which rows ACT in a phase. Phase A: the rows that are on. Phase B: a row that is on WITH cycle acts as if switched off (the lane plays its own rhythm / its own riff and NOTES); a row on without cycle keeps acting.
 struct EuclideousAnswerRows: Equatable { var rhythm: Bool; var pitch: Bool }
-@inline(__always) func euclideousAnswerEffectiveRows(phase: EuclideousCyclePhase, rhythmOn: Bool, rhythmCycle: Bool, pitchOn: Bool, pitchCycle: Bool) -> EuclideousAnswerRows {
-    phase == .a ? EuclideousAnswerRows(rhythm: rhythmOn, pitch: pitchOn)
-                : EuclideousAnswerRows(rhythm: rhythmOn && !rhythmCycle, pitch: pitchOn && !pitchCycle)
+/// ANSWER v2 §4.1: while TRADE is on (as asker OR answerer) RHYTHM and PITCH act as OFF in the engine (they keep their settings and act again when TRADE goes off) — so `tradeOn` forces both false whatever the phase.
+@inline(__always) func euclideousAnswerEffectiveRows(phase: EuclideousCyclePhase, rhythmOn: Bool, rhythmCycle: Bool, pitchOn: Bool, pitchCycle: Bool, tradeOn: Bool = false) -> EuclideousAnswerRows {
+    if tradeOn { return EuclideousAnswerRows(rhythm: false, pitch: false) }
+    return phase == .a ? EuclideousAnswerRows(rhythm: rhythmOn, pitch: pitchOn)
+                       : EuclideousAnswerRows(rhythm: rhythmOn && !rhythmCycle, pitch: pitchOn && !pitchCycle)
 }
 @inline(__always) func euclideousAnswerEffectiveRows(_ l: EuclidLine, phase: EuclideousCyclePhase) -> EuclideousAnswerRows {
     euclideousAnswerEffectiveRows(phase: phase, rhythmOn: l.answerRhythmOnResolved, rhythmCycle: l.answerRhythmCycleResolved,
-                                  pitchOn: l.answerPitchOnResolved, pitchCycle: l.answerPitchCycleResolved)
+                                  pitchOn: l.answerPitchOnResolved, pitchCycle: l.answerPitchCycleResolved, tradeOn: l.answerTradeOnResolved)
 }
 /// The lane as it PLAYS in a phase: the same line with `answerRhythmOn` / `answerPitchOn` replaced by the rows that act. The displays (strip, riff marker, FX idle reasons, borrowed cards…) read this so they follow the phase
 /// without a second rule; the engine feeds the same two booleans to `runEuclidLine`.

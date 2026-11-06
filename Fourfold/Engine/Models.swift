@@ -996,8 +996,8 @@ struct EuclidLine: Codable, Equatable {
         listenSource != nil || listenRhythm != nil || listenDelay != nil || listenFeel != nil || listenSpeed != nil
             || listenDirection != nil || listenPitch != nil || listenInterval != nil || listenOctave != nil
     }
-    /// §5.1: RHYTHM on or PITCH on (a cycling row still counts — the loop breaker and the processing order are conservative). TRADE is not following.
-    var isFollowingResolved: Bool { answerRhythmOnResolved || answerPitchOnResolved }
+    /// §5.1 / ANSWER v2 §4.3: (RHYTHM on or PITCH on) AND TRADE off (a cycling row still counts — the loop breaker and the processing order are conservative). A TRADING lane is NOT following: its rhythm/pitch are excluded (§4.1).
+    var isFollowingResolved: Bool { (answerRhythmOnResolved || answerPitchOnResolved) && !answerTradeOnResolved }
     var gateResolved: Double { gate ?? 0.9 }
     // NOT narrowed to ±2 here (Paul 2026-10-13 ferry, "Engine" rule 4) — `EuclidLine` is SHARED with the
     // regular, non-Euclideous BUILD-page EUCLID processor, whose own OCTAVE stepper reaches ±3 today

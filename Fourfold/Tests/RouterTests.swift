@@ -3832,7 +3832,7 @@ final class RouterTests: XCTestCase {
         // identical-pattern case, but now for a timing reason, not a pitch one — see the phase test below.)
         var blue = listenBlueLine()
         blue.pulses = 3   // red's 3-of-8 exactly (cols 0,3,6), same rate, so blue's hits are simultaneous with red's
-        blue.setAnswerPitch(.avoid); blue.listenSource = 0
+        blue.setAnswerRhythm(.avoid); blue.listenSource = 0   // ANSWER v2 (2026-11-06): AVOID is a RHYTHM mode now (same step-based behaviour)
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(hits.count, 0, "T6 AVOID: every blue hit coincides in time with a red strike, so all are muted")
     }
@@ -3843,7 +3843,7 @@ final class RouterTests: XCTestCase {
         // The old pitch-class AVOID could never produce this pattern — it dropped by whether blue's pitch matched red's
         // most-recent class, with no regard to WHEN the two lanes struck.
         var blue = listenBlueLine()   // 4-of-8
-        blue.setAnswerPitch(.avoid); blue.listenSource = 0
+        blue.setAnswerRhythm(.avoid); blue.listenSource = 0   // ANSWER v2 (2026-11-06): AVOID is a RHYTHM mode now (same step-based behaviour)
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(listenRhythmString(hits), "..x.x...", "AVOID keeps the hits that DON'T coincide with a source strike (cols 2, 4); cols 0 and 6 (both on a red hit) are muted")
     }
@@ -3960,7 +3960,7 @@ final class RouterTests: XCTestCase {
         // doesn't somehow let a colliding note through.
         var red = listenRedLine(); red.riffAdvanceEvery = 2
         var blue = red
-        blue.setAnswerPitch(.avoid); blue.listenSource = 0
+        blue.setAnswerRhythm(.avoid); blue.listenSource = 0   // ANSWER v2 (2026-11-06): AVOID is a RHYTHM mode now (same step-based behaviour)
         let (r, b) = listenBothNotes(red, blue, beats: 12)
         XCTAssertGreaterThanOrEqual(r.count, 8)
         XCTAssertEqual(b.count, 0, "every hit collides with red's real note (EVERY 2 included), so all are dropped")

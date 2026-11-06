@@ -5508,7 +5508,8 @@ final class Router {
                 guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { if isEuclideousRow, lineIndex < 4 { idleLanePoolSample(lane: lineIndex, line: L) }; return }
                 // ANSWER: which phase this segment plays in, and so which of the lane's rows act (a cycling row acts as if switched off in phase B, 5.5). With no cycle anywhere this is `L.listenRhythmResolved` / `listenPitchResolved`.
                 let segPhaseB = answerEngaged && lineIndex < 4 && ((tickFrom + 1e-9 >= answerBoundary[lineIndex] ? answerAfterBits : answerBeforeBits) >> UInt8(lineIndex)) & 1 != 0
-                let answerRows = answerEngaged ? euclideousAnswerEffectiveRows(L, phase: segPhaseB ? .b : .a) : EuclideousAnswerRows(rhythm: L.answerRhythmOnResolved, pitch: L.answerPitchOnResolved)
+                // ANSWER v2 §4.1: a TRADING lane's RHYTHM/PITCH act as off (the engaged branch excludes them via the overload; the non-engaged branch does too, belt-and-suspenders for a trading lane that isn't cycle-engaged).
+                let answerRows = answerEngaged ? euclideousAnswerEffectiveRows(L, phase: segPhaseB ? .b : .a) : EuclideousAnswerRows(rhythm: L.answerRhythmOnResolved && !L.answerTradeOnResolved, pitch: L.answerPitchOnResolved && !L.answerTradeOnResolved)
                 // ANSWER v2 (2026-11-06): RHYTHM is COPY · FILL · MEET · AVOID (MEET/AVOID filter the OWN rhythm, below); PITCH is SHADOW · MIRROR · DODGE (`.avoid` can't reach PITCH once the UI drops it, mapped to SHADOW defensively).
                 let segRhythmMode: EuclideousListenRhythmMode
                 if answerRows.rhythm { switch L.answerRhythmModeResolved { case .copy: segRhythmMode = .copy; case .fill: segRhythmMode = .fill; case .meet: segRhythmMode = .meet; case .avoid: segRhythmMode = .avoid } } else { segRhythmMode = .own }

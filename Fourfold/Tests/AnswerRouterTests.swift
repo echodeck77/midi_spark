@@ -248,37 +248,34 @@ final class AnswerRouterTests: XCTestCase {
 
     // MARK: 10 — chains cannot loop
 
-    func testATradeReadsOwnStrikesSoACopyOfATradingLaneSeesItsOwn() {
+    /// ANSWER v2 §4.1 (replaces the old "a trade reads own strikes" combine test): a lane with TRADE on plays as if its RHYTHM and PITCH rows were OFF — they are excluded (they keep their settings). A SWAP pair's lane 2 sounds the SAME with FILL + SHADOW on as with them off.
+    func testTradeExcludesTheRhythmAndPitchRows() {
         var one = lane(pulses: 3, steps: 8, rate: .r1_8, oct: 0)
-        var two = lane(pulses: 5, steps: 8, rate: .r1_8, oct: 1)
-        two.listenSource = 0; two.answerRhythmOn = true; two.answerRhythmMode = .copy
         one.answerTradeOn = true; one.answerTradeMode = .swap; one.answerTradeWith = 1; one.answerCycleEach = 1
-        two.answerTradeOn = true; two.answerTradeMode = .swap; two.answerTradeWith = 0; two.answerCycleEach = 1
-        let e = run(state([one, two]), beats: 16)
-        // Lane 2 COPIES lane 1's rhythm throughout; with SWAP its OUTPUT carries lane 1's strikes in phase B — the same hits, so it sounds lane 1's pattern in both phases.
-        let beats2 = hits(e, lane: 1).map { $0.beat }
-        XCTAssertFalse(beats2.isEmpty)
-        let want: [Double] = [0, 1.5, 3]
-        for bar in 0..<4 { XCTAssertEqual(hitsBetween(e, lane: 1, Double(bar) * 4, Double(bar + 1) * 4).map { $0.beat }, want.map { $0 + Double(bar) * 4 }, "bar \(bar + 1)") }
-        assertNothingLeftSounding(e)
+        var withRows = lane(pulses: 5, steps: 8, rate: .r1_8, oct: 1)
+        withRows.listenSource = 0; withRows.answerRhythmOn = true; withRows.answerRhythmMode = .fill; withRows.answerPitchOn = true; withRows.answerPitchMode = .shadow
+        withRows.answerTradeOn = true; withRows.answerTradeMode = .swap; withRows.answerTradeWith = 0; withRows.answerCycleEach = 1
+        var withoutRows = withRows; withoutRows.answerRhythmOn = false; withoutRows.answerPitchOn = false
+        let a = run(state([one, withRows]), beats: 16), b = run(state([one, withoutRows]), beats: 16)
+        XCTAssertFalse(hits(a, lane: 1).isEmpty)
+        XCTAssertEqual(hits(a, lane: 1).map { [$0.beat, Double($0.note)] }, hits(b, lane: 1).map { [$0.beat, Double($0.note)] }, "TRADE excludes RHYTHM/PITCH: lane 2 plays identically with or without them on")
+        assertNothingLeftSounding(a)
     }
 
-    // MARK: 11 — TRADE and a cycling row on one lane
+    // MARK: 11 (ANSWER v2 §10.7) — TRADE excludes RHYTHM / PITCH
 
-    func testInPhaseBTheTradeWinsAndTheOwnWalkKeepsAdvancing() {
-        let red = lane(rate: .r1_4, oct: 0)
-        var blue = lane(rate: .r1_4, oct: 1)
-        blue.listenSource = 0
-        blue.answerPitchOn = true; blue.answerPitchMode = .shadow; blue.answerPitchCycle = true
-        blue.answerTradeOn = true; blue.answerTradeMode = .borrow; blue.answerTradeWith = 2
-        blue.answerCycleEach = 2
-        let green = lane(rate: .r1_4, oct: -1)
-        let e = run(state([red, blue, green]), beats: 24)
-        let b = hitsBetween(e, lane: 1, 0, 24)
-        for t in 0..<8 { XCTAssertEqual(b[t].note, walk(t), "phase A: PITCH shadows lane 1") }
-        for t in 8..<16 { XCTAssertEqual(b[t].note, walk(t, oct: 1), "phase B: the trade wins — lane 3's strike, through lane 2's octave (lane 3's walk + 12 × (1 − (−1))) — i.e. lane 3's raw walk, an octave up") }
-        for t in 16..<24 { XCTAssertEqual(b[t].note, walk(t), "phase A again — the walk is where the clock says") }
-        assertNothingLeftSounding(e)
+    /// §10.7 (replaces the ANSWER ferry's test 11): lane 2 has RHYTHM FILL AND TRADE. §4.1 excludes FILL while TRADE is on — lane 2 plays as if the row were off; with TRADE switched off, FILL acts and the rhythm changes.
+    func testTradeExcludesFillUntilItIsSwitchedOff() {
+        let one = lane(pulses: 3, steps: 8, rate: .r1_8, oct: 0)   // the partner / source
+        var two = lane(pulses: 5, steps: 8, rate: .r1_8, oct: 1)
+        two.listenSource = 0; two.answerRhythmOn = true; two.answerRhythmMode = .fill
+        two.answerTradeOn = true; two.answerTradeMode = .borrow; two.answerTradeWith = 0; two.answerCycleEach = 8
+        var bare = two; bare.answerRhythmOn = false        // TRADE on, the row explicitly off
+        var fillOnly = two; fillOnly.answerTradeOn = false // FILL on, TRADE off (the row acts)
+        let eTrade = run(state([one, two]), beats: 8), eBare = run(state([one, bare]), beats: 8), eFill = run(state([one, fillOnly]), beats: 8)
+        XCTAssertEqual(hits(eTrade, lane: 1).map { $0.beat }, hits(eBare, lane: 1).map { $0.beat }, "§4.1: FILL is excluded under TRADE — lane 2 plays as if the row were off")
+        XCTAssertNotEqual(hits(eFill, lane: 1).map { $0.beat }, hits(eTrade, lane: 1).map { $0.beat }, "with TRADE off, FILL acts and changes the rhythm")
+        assertNothingLeftSounding(eTrade)
     }
 
     // MARK: 15 — POOL: NOW shows the delayed pool under CANON and the frozen one under FREEZE

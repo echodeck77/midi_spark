@@ -50,8 +50,8 @@ GOLDEN ANSWER ANSWER PITCH + RHYTHM cycles in bars: events=1032 hash=c8f0b0aa3b4
 GOLDEN ANSWER ANSWER cycles in passes: events=1028 hash=4cae605a9d912a5d
 GOLDEN ANSWER ANSWER BORROW: events=1352 hash=585aef3f2913f973
 GOLDEN ANSWER ANSWER SWAP + BORROW: events=1352 hash=6b4e1a6b72c21e45
-GOLDEN ANSWER ANSWER cycling rows + a trade on one lane: events=584 hash=873bf7dfe11d9cb9
-GOLDEN ANSWER ALL: documents=6 events=6380 hash=33fd992e246e3f65
+GOLDEN ANSWER ANSWER cycling rows + a trade on one lane: events=712 hash=c95d86c8d75c1aab
+GOLDEN ANSWER ALL: documents=6 events=6508 hash=ecb7576bbc30a52f
 GOLDEN INPUTS INPUTS ADD, REPLACE, ROOT and a lane without MIDI IN: events=3748 hash=e0034f94b9dea051
 GOLDEN INPUTS INPUTS every lane ROOT, delayed lanes: events=3748 hash=8d1b75c1fd29c1b1
 GOLDEN INPUTS INPUTS the document's REPLACE with one lane in ADD: events=3748 hash=72fb227d5b3e7675
