@@ -451,11 +451,16 @@ final class EuclideousScheduleSim {
         var nextPassBeat: Double
         var pendingRiff = Double.infinity
         var rhythmCount: Int64 = 0, melodyCount: Int64 = 0
+        // RESTARTS EDITOR V2 §1: the melody chain's COUNT sequence is measured since the latest WITH RHYTHM restart, not from beat 0 — a WITH RHYTHM loop sends the chain to link 0, count 0, with its own beat the new origin (replaces RESTART UNITS 2.5 for WITH RHYTHM only; the
+        // chain's own restarts and plain rhythm restarts still don't reset it). `melodyCountOrigin` (PASS/BAR) and `hitsAtCountOrigin` (HIT) hold that origin; the membership tests subtract them (§1.1/§1.2) and the periodicity digest reads the relative count (§1.4).
+        var melodyCountOrigin: Int64 = 0, hitsAtCountOrigin: Int64 = 0
         var rBeat: [Double] = [0], rTick: [Int64] = [0], rPass: [Int64] = [0], rHits: [Int64] = [0]
         var mBeat: [Double] = [0], mTick: [Int64] = [0], mHits: [Int64] = [0]
         var fBeat: [Double] = []
         // per-instant flags
         var passEvent = false, riffEvent = false, rCounted = false, mCounted = false, rRestarted = false, mRestarted = false
+        /// §1.3: a WITH RHYTHM loop of this lane fired this beat (set at the call sites, whether or not `melodyRestart` appended — the chain's own restart may have landed at the same beat first). The origins are re-based from it at END of the beat so the result is order-independent.
+        var mWithRhythmRestarted = false
         /// The EXACT beat of this instant's pass / riff event: a restart a pass or riff event causes happens at THAT beat (the closed forms' `passStart`), not at the grouped instant's earliest beat.
         var passBeat = 0.0, riffBeat = 0.0
         init(_ i: EuclideousScheduleLaneInput) {
@@ -548,7 +553,7 @@ final class EuclideousScheduleSim {
         L[x].O = O2; L[x].cumAtO = cum2; L[x].rhythmBeat = b; L[x].cumPassAtRestart = pass2
         if !L[x].passEvent { L[x].passEvent = true; L[x].passBeat = b }          // a pass of X starts at b (the natural one, if it falls here, is the same pass)
         L[x].passJ = 1; L[x].nextPassBeat = b + lap
-        if L[x].inp.withRhythm { melodyRestart(x, b) }
+        if L[x].inp.withRhythm { L[x].mWithRhythmRestarted = true; melodyRestart(x, b) }   // §1.3: flag at the call site (even if the melody chain already restarted at b) so the origins re-base at end of beat
     }
 
     private func processInstant(_ b: Double) {
@@ -556,7 +561,7 @@ final class EuclideousScheduleSim {
         let barDue = !atStart && abs(b - Double(nextBar) * barBeats) <= schedEps
         let barBeatNow = Double(nextBar) * barBeats
         for i in L.indices {
-            L[i].passEvent = false; L[i].riffEvent = false; L[i].rCounted = false; L[i].mCounted = false; L[i].rRestarted = false; L[i].mRestarted = false
+            L[i].passEvent = false; L[i].riffEvent = false; L[i].rCounted = false; L[i].mCounted = false; L[i].rRestarted = false; L[i].mRestarted = false; L[i].mWithRhythmRestarted = false
             if !atStart, abs(L[i].nextPassBeat - b) <= schedEps {
                 L[i].passEvent = true; L[i].passBeat = L[i].nextPassBeat
                 L[i].passJ += 1; L[i].nextPassBeat = L[i].rhythmBeat + Double(L[i].passJ) * L[i].inp.lapBeats
@@ -589,7 +594,7 @@ final class EuclideousScheduleSim {
                     // WITH RHYTHM (FIX 1 §2.1): every loop of X is also a melody restart of X, at the same beat. With the rhythm chain active `rhythmRestart` fires it (above); with the chain inactive X's loops are its natural pass starts,
                     // collected in step (1). `melodyRestart` takes a beat once, so a melody chain's own restart at the same beat is not a second one.
                     if inp.withRhythm, !inp.rhythmActive,
-                       euclideousIsLoop(rhythmActive: false, rhythmRestartAtB: false, passStartAtB: L[x].passEvent) { melodyRestart(x, L[x].passBeat) }
+                       euclideousIsLoop(rhythmActive: false, rhythmRestartAtB: false, passStartAtB: L[x].passEvent) { L[x].mWithRhythmRestarted = true; melodyRestart(x, L[x].passBeat) }   // §1.3
                     // MELODY chain (PASS / BAR)
                     if inp.melodyActive, inp.melodyUnit != .hit, !L[x].mCounted {
                         var present = false
@@ -601,7 +606,7 @@ final class EuclideousScheduleSim {
                         }
                         if present {
                             L[x].mCounted = true; L[x].melodyCount += 1
-                            if isTotal(L[x].mChain, L[x].melodyCount) { melodyRestart(x, at) }
+                            if isTotal(L[x].mChain, L[x].melodyCount - L[x].melodyCountOrigin) { melodyRestart(x, at) }   // §1.1: the count runs from the latest WITH RHYTHM origin
                         }
                     }
                     // MELODY chain (HIT): the restart falls on a hit of X, before it plays
@@ -609,11 +614,17 @@ final class EuclideousScheduleSim {
                         let t = L[x].nextTick
                         if abs(L[x].tickBeat(t) - b) <= schedEps, L[x].rawHitAt(t) {
                             let h = L[x].hitsBefore(t)
-                            if h > L[x].hitsAtM, isTotal(L[x].mChain, h) { melodyRestart(x, b) }
+                            if h > L[x].hitsAtM, isTotal(L[x].mChain, h - L[x].hitsAtCountOrigin) { melodyRestart(x, b) }   // §1.2: hits played counted from the latest WITH RHYTHM origin
                         }
                     }
                 }
                 if flagsDigest() != before { changed = true }
+            }
+            // §1.3: re-base the melody count origins AFTER the fixpoint (so every membership test this beat used the OLD origin — order-independent) and BEFORE the hits play. `hitsAtM` was set by this beat's one melody restart (the WITH RHYTHM one, or the chain's own at the same beat
+            // and tick — same value), so it is the hits-before-count at b; `melodyCount` has absorbed any coincident PASS/BAR increment, so the relative count is 0 here and resumes at 1 after b (§1 "nothing counted at b").
+            for x in L.indices where L[x].mWithRhythmRestarted {
+                L[x].melodyCountOrigin = L[x].melodyCount
+                L[x].hitsAtCountOrigin = L[x].hitsAtM
             }
         }
         // (3) play the hits at b: each takes the riff ordinal; reaching a whole multiple of the cycle sets the natural completion at the start of the lane's next step
@@ -653,7 +664,8 @@ final class EuclideousScheduleSim {
             v.append(s.pendingRiff.isFinite ? q(s.pendingRiff - b) : Int64.min)
             let rTotal = Int64(s.rChain.total), mTotal = Int64(s.mChain.total)
             v.append(inp.rhythmActive && rTotal > 0 ? ((s.rhythmCount % rTotal) + rTotal) % rTotal : -1)
-            let melodyState: Int64 = inp.melodyUnit == .hit ? s.hitsBefore(s.nextTick) : s.melodyCount
+            // §1.4: the melody chain's phase is its count SINCE the latest WITH RHYTHM origin, mod total — so a periodic withRhythm pattern is detected (the absolute origins grow, but the relative phase repeats).
+            let melodyState: Int64 = inp.melodyUnit == .hit ? (s.hitsBefore(s.nextTick) - s.hitsAtCountOrigin) : (s.melodyCount - s.melodyCountOrigin)
             v.append(inp.melodyActive && mTotal > 0 ? ((melodyState % mTotal) + mTotal) % mTotal : -1)
             let ord = inp.advanceStep ? s.nextTick - s.M : s.hitsBefore(s.nextTick) - s.hitsAtM
             v.append(((ord % max(1, inp.riffCycle)) + max(1, inp.riffCycle)) % max(1, inp.riffCycle))

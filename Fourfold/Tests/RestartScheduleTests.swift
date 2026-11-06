@@ -233,6 +233,52 @@ final class RestartScheduleTests: XCTestCase {
         close(restarts({ set.lane(0)!.nextMelodyRestart(after: $0) }, upTo: 17), [4, 8, 12, 16], "the riff restarts at 4, 8, 12, … and not at the pass starts 3.5, 7.5, …")
         XCTAssertEqual(set.lane(0)!.melodyRestarts, true)
     }
+
+    // MARK: RESTARTS EDITOR V2 §1 — a WITH RHYTHM restart re-aligns the melody chain's COUNT sequence (tests 26–29)
+
+    /// 26 (the worked example): E(5,8), rhythm BAR[2], melody HIT[3], WITH RHYTHM on. The rhythm (and so the melody) loops every 2 bars = at the start of passes 2, 4, … and a loop sends the HIT count back to 0 — so pass 2 reads the SAME as pass 0.
+    /// Without §1 the HIT chain would keep counting absolutely and pass 2 would read `1 2 1 2 3` (the melody restart from the loop having moved only the riff ordinal, not where the next HIT restart falls).
+    func testTest26AWithRhythmLoopReAlignsTheHitCountSoPassTwoRepeatsPassZero() {
+        var l = line(hits: 5, steps: 8); rhythm(&l, [2], unit: .bar); melody(&l, [3], unit: .hit, withRhythm: true)
+        let lines = four(l), set = setFor(lines), c = cfg(lines, set: set)
+        XCTAssertEqual(footers(c, passes: 0..<4), [[1, 2, 3, 1, 2], [3, 1, 2, 3, 1], [1, 2, 3, 1, 2], [3, 1, 2, 3, 1]],
+                       "the loop at bar 2 re-aligns the count: pass 2 == pass 0")
+        // the loops (= the rhythm restarts, bars 2/4/6 = beats 8/16/24) are themselves melody restarts (beat-line checks, rotation-independent)
+        XCTAssertEqual(set.lane(0)!.melodyRecord(atOrBefore: 8.0).beat, 8.0, accuracy: 1e-9, "the loop at bar 2 is a melody restart")
+        XCTAssertEqual(set.lane(0)!.melodyRecord(atOrBefore: 16.0).beat, 16.0, accuracy: 1e-9, "and the loop at bar 4")
+        XCTAssertTrue(set.lane(0)!.isLoop(at: 8.0), "bar 2 is a loop")
+    }
+
+    /// 27: the count reset is the chain's whole position, not just the HIT case. rhythm BAR[3] (loops at bars 3/6/9), melody PASS[2], WITH RHYTHM on, a 1-bar pass. The PASS count restarts the melody every 2 passes, but each loop sends it back to 0,
+    /// so the next PASS restart is 2 passes AFTER the loop — restarts land at 8 (count 2), 12 (loop), 20 (2 after the loop), 24 (loop), 32, 36. Without §1 the 3rd would be at 16 (absolute count 4), not 20.
+    func testTest27AWithRhythmLoopReAlignsAPassCountToo() {
+        var l = line(hits: 3, steps: 8); rhythm(&l, [3], unit: .bar); melody(&l, [2], unit: .pass, withRhythm: true)
+        let set = setFor(four(l))
+        close(restarts({ set.lane(0)!.nextMelodyRestart(after: $0) }, upTo: 40), [8, 12, 20, 24, 32, 36],
+              "the PASS count restarts 2 passes after each loop, not on the absolute even passes")
+    }
+
+    /// 28: §1 is gated on WITH RHYTHM — a plain rhythm restart does NOT reset the melody count. The same lane as 26 with WITH RHYTHM OFF reads the pure isorhythm (a 3-over-5 rotation), identical to test 5, because the rhythm BAR[2] restart replays the
+    /// pattern at a natural pass boundary and leaves the melody chain alone.
+    func testTest28ARhythmRestartAloneLeavesTheMelodyCountUntouched() {
+        var l = line(hits: 5, steps: 8); rhythm(&l, [2], unit: .bar); melody(&l, [3], unit: .hit, withRhythm: false)
+        let lines = four(l), set = setFor(lines), c = cfg(lines, set: set)
+        XCTAssertEqual(footers(c, passes: 0..<4), [[1, 2, 3, 1, 2], [3, 1, 2, 3, 1], [2, 3, 1, 2, 3], [1, 2, 3, 1, 2]],
+                       "no WITH RHYTHM: the melody keeps counting absolutely (the isorhythm of test 5)")
+        XCTAssertNotEqual(set.lane(0)!.melodyRecord(atOrBefore: 8.0).beat, 8.0, "the rhythm restart at bar 2 is NOT a melody restart when WITH RHYTHM is off")
+    }
+
+    /// 29: a WITH RHYTHM + HIT lane and a WITH RHYTHM + PASS lane are both periodic, and the period-detected reader equals a straight simulation far downstream — the §1 count origins grow without bound, but their phase (mod total) repeats, so detection
+    /// and the periodic wrap still agree (§1.4).
+    func testTest29WithRhythmLanesArePeriodicAndTheWrapMatchesAStraightRun() {
+        var h = line(hits: 5, steps: 8); rhythm(&h, [2], unit: .bar); melody(&h, [3], unit: .hit, withRhythm: true)
+        XCTAssertTrue(setFor(four(h)).lane(0)!.data.period > 0, "the HIT + WITH RHYTHM lane is periodic")
+        periodicVersusStraight(four(h), at: [1000.3, 1007.4, 1013.9])
+        var p = line(hits: 3, steps: 8); rhythm(&p, [3], unit: .bar); melody(&p, [2], unit: .pass, withRhythm: true)
+        XCTAssertTrue(setFor(four(p)).lane(0)!.data.period > 0, "the PASS + WITH RHYTHM lane is periodic")
+        periodicVersusStraight(four(p), at: [1000.3, 1021.5])
+    }
+
     func testACrossLaneCycleResolvesDeterministically() {
         var a = line(hits: 3, steps: 7); rhythm(&a, [1], unit: .pass, source: 1)
         var b = line(hits: 5, steps: 12, rate: .r1_16); rhythm(&b, [1], unit: .pass, source: 0)
