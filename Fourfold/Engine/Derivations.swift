@@ -6073,9 +6073,12 @@ func euclideousLaneChainPhase(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int
         }
         localT = tick - originTickO
     } else {
-        let tickBeat = Double(tick) * sub
-        let phaseBeat = legacySpanBeats > 0 ? (tickBeat - columnStart(tickBeat, legacySpanBeats)) : tickBeat
-        localT = Int64((phaseBeat / sub).rounded(.down))
+        if legacySpanBeats > 0 {
+            let tickBeat = Double(tick) * sub
+            localT = Int64((((tickBeat - columnStart(tickBeat, legacySpanBeats)) / sub) + 1e-9).rounded(.down))
+        } else {
+            localT = tick   // `tick × sub ÷ sub` is `tick − 1` for many ticks at a triplet step (7, 14, 25 … at 1/3 beat): the host tick IS the lane's tick
+        }
     }
     let cl = Int64(max(1, cycleLen))
     let raw = Int(((localT % cl) + cl) % cl)
