@@ -42,6 +42,12 @@ final class FourfoldStackBudgetTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.6)
             let close = app.buttons["Close restarts"]; if close.exists { close.tap() }
         }
+        let harmony = app.buttons["Harmony"]                                   // INPUTS + HARMONY (2026-11-06): the page with a pill popover and the PICK editor open is the deepest new build chain
+        if harmony.waitForExistence(timeout: 3) {
+            harmony.tap()
+            for label in ["Grid 1 timing", "Edit pick notes", "Colour rows"] { let c = app.el(label); if c.waitForExistence(timeout: 3) { c.tap(); Thread.sleep(forTimeInterval: 0.4) } }
+            let close = app.buttons["Close harmony"]; if close.waitForExistence(timeout: 3) { close.tap() }
+        }
         let hocket = app.els(prefix: "Hocket").firstMatch                    // HOCKET (2026-10-27): the pop-up with a lit rule is the deepest new build chain
         if hocket.waitForExistence(timeout: 3) {
             hocket.tap()

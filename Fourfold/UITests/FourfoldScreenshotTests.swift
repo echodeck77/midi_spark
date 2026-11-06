@@ -410,7 +410,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             attach("13-harmony-\(tag)-5-popover-closed-pills")
             if tap("Colour rows") { attach("13-harmony-\(tag)-6-colour-rows") }
             _ = tap("Chord rows")
-            if tap("D") { _ = tap("DORIAN"); attach("13-harmony-\(tag)-7-key-d-dorian") }
+            if tap("D, in scale") { _ = tap("DORIAN"); attach("13-harmony-\(tag)-7-key-d-dorian") }
             if tap("Edit pick notes") { let editor = page.descendants(matching: .any)["Pick editor"]; _ = tap("E", in: editor); _ = tap("G", in: editor); attach("13-harmony-\(tag)-8-pick-editor") }
             if tap("Close harmony") { attach("13-harmony-\(tag)-9-closed-again") }
         }

@@ -312,19 +312,19 @@ final class AnswerRouterTests: XCTestCase {
         }
         return out
     }
-    func testNowShowsTheDelayedPoolUnderCanonAndTheFrozenOneUnderFreeze() {
+    func testNowShowsTheDelayedPoolUnderCanon() {
         func chordLane() -> EuclidLine { var l = lane(rate: .r1_4); l.sourceMode = .midi; return l }
         var delayed = chordLane(); delayed.chordDelay = 1                     // one bar behind
-        var frozen = chordLane(); frozen.poolHold = euclideousPoolHoldLock    // takes the first pool and keeps it for ever
-        let st = chordsState([chordLane(), delayed, frozen])
+        var stale = chordLane(); stale.poolHold = euclideousPoolHoldLock    // FREEZE is no longer read (INPUTS ferry): a lane with it set follows the progression like any other
+        let st = chordsState([chordLane(), delayed, stale])
         let p = poolsAt(st, at: [2, 6, 10, 14])
         func notes(_ beat: Double, _ lane: Int) -> [UInt8] { p[beat]![lane].notes }
         XCTAssertFalse(notes(2, 0).isEmpty, "lane 1 is choosing from a chord")
         XCTAssertNotEqual(notes(2, 0), notes(6, 0), "the undelayed lane's pool follows the progression")
         XCTAssertEqual(notes(6, 1), notes(2, 0), "lane 2, one bar behind: its pool at beat 6 is the chord lane 1 chose from at beat 2")
         XCTAssertEqual(notes(10, 1), notes(6, 0), "…and at beat 10 the chord lane 1 had at beat 6")
-        XCTAssertEqual(notes(6, 2), notes(2, 2), "FREEZE LOCK: lane 3 keeps the pool it took")
-        XCTAssertEqual(notes(14, 2), notes(2, 2), "…for ever")
+        XCTAssertEqual(notes(6, 2), notes(6, 0), "a stored FREEZE LOCK does nothing: lane 3 follows the progression with lane 1")
+        XCTAssertNotEqual(notes(14, 2), notes(2, 2), "…it does not keep the first pool")
         XCTAssertEqual(p[6]![0].count, p[6]![0].notes.count, "a pool of this size is reported whole")
     }
     func testNowIsEmptyWhenNothingContributes() {

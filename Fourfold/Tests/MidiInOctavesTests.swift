@@ -286,24 +286,19 @@ final class MidiInOctavesTests: XCTestCase {
         let i = Rig(rootState(octaves: .ignore)); i.run(to: 0.5); i.press([74]); i.run(to: 2.5)
         XCTAssertEqual(i.status.rootTranspose, 26, "… and under IGNORE")
     }
-    func testRootClearsWhenMidiGoesOffOrTheModeLeavesRoot() {
+    func testTheLatchIsNotClearedWhenMidiGoesOffOrTheModeLeavesRoot() {
+        // INPUTS + HARMONY 2.5: there is no global MIDI IN switch to clear the latch and leaving ROOT is per lane — the latched t clears only on a load (`testASceneFlushClearsTheLatch`)
         let r = Rig(rootState())
         r.run(to: 0.5); r.press([50]); r.run(to: 2.5); r.release([50]); r.run(to: 4.5)
         XCTAssertEqual(r.status.rootTranspose, 2, "latched")
-        // MIDI IN off mid-latch → 0 at once; back on → still 0 until a note
         r.swap(state(plan(midi: false, chords: true, key: true, mode: .root))); r.run(to: 5.5)
-        XCTAssertEqual(r.status.rootTranspose, 0); XCTAssertEqual(r.status.rootNote, -1)
+        XCTAssertEqual(r.status.rootTranspose, 2); XCTAssertEqual(r.status.rootNote, 50, "MIDI IN off does not clear it")
         r.swap(rootState()); r.run(to: 6.5)
-        XCTAssertEqual(r.status.rootTranspose, 0, "back on: 0 until a note")
-        r.press([50]); r.run(to: 7.5); XCTAssertEqual(r.status.rootTranspose, 2)
-        // leaving ROOT for ADD → 0, and the held note enters the pool as IGNORE says
-        r.swap(state(plan(chords: true, key: true, mode: .add)))
-        r.run(to: 8.5)
-        XCTAssertEqual(r.status.rootTranspose, 0)
-        XCTAssertEqual(r.status.midiNotes, [50], "D3 folded is D3")
-        r.press([51]); r.run(to: 9.5)   // D♯3 is NOT in the C major KEY, so only the admitted played note can put it in the pool
-        XCTAssertEqual(r.status.midiNotes, [50, 51])
-        XCTAssertTrue(r.poolNotes.contains(51), "leaving ROOT: the held note enters the pool as IGNORE says")
+        XCTAssertEqual(r.status.rootTranspose, 2, "…and back on it is still there")
+        r.swap(state(plan(chords: true, key: true, mode: .add))); r.run(to: 7.5)
+        XCTAssertEqual(r.status.rootTranspose, 2, "leaving ROOT does not clear it either (a lane in ADD simply stops applying it)")
+        r.press([53]); r.run(to: 8.5)
+        XCTAssertEqual(r.status.rootTranspose, 5, "a new lowest note still moves it, whatever the mode")
     }
     func testRootLeavesTheTransportAloneAndAReplaceDocumentSwitchedToRootContributes() {
         let r = Rig(rootState())
@@ -332,15 +327,14 @@ final class MidiInOctavesTests: XCTestCase {
         let base = Rig(rootState()); base.run(to: r.beat)
         XCTAssertEqual(r.status.rootTranspose, 2)
         XCTAssertEqual(r.poolNotes, base.poolNotes.map { $0 + 2 })
-        // MIDI IN switched off, then on, while STOPPED → cleared (§2.5c), and PLAY starts from 0
+        // MIDI IN switched off, then on, while STOPPED → the latch stays (INPUTS + HARMONY 2.5: only a load clears it)
         r.runStopped(2); r.swap(state(plan(midi: false, chords: true, key: true, mode: .root))); r.runStopped(2)
-        XCTAssertEqual(r.status.rootTranspose, 0); XCTAssertEqual(r.status.rootNote, -1)
+        XCTAssertEqual(r.status.rootTranspose, 2); XCTAssertEqual(r.status.rootNote, 50)
         r.swap(rootState()); r.runStopped(2); r.run(to: r.beat + 1.5)
-        XCTAssertEqual(r.status.rootTranspose, 0, "back on: 0 until a note")
-        // leaving ROOT for ADD and returning while stopped clears too (§2.5d)
-        r.press([50]); r.runStopped(2); XCTAssertEqual(r.status.rootTranspose, 2); r.release([50])
+        XCTAssertEqual(r.status.rootTranspose, 2, "back on: still latched")
+        // leaving ROOT for ADD and returning while stopped leaves it too
         r.swap(state(plan(chords: true, key: true, mode: .add))); r.runStopped(2); r.swap(rootState()); r.runStopped(2)
-        XCTAssertEqual(r.status.rootTranspose, 0)
+        XCTAssertEqual(r.status.rootTranspose, 2)
     }
     func testAHostResetDoesNotClearTheLatch() {
         // an AU reset() can arrive at a transport edge, a bypass or a sample-rate change; §2.5e says only a load (and MIDI off / leaving ROOT) clears t
@@ -362,23 +356,6 @@ final class MidiInOctavesTests: XCTestCase {
         for b in 9..<20 { XCTAssertEqual(a0[b], b0[b] + 2, "live lane, beat \(b)") }
         for b in 9..<13 { XCTAssertEqual(a1[b], b1[b], "beat \(b): the delayed lane still hears the pool as it was a bar ago — unmoved") }
         for b in 13..<20 { XCTAssertEqual(a1[b], b1[b] + 2, "beat \(b): …and moved from the bar it was pressed in") }
-    }
-    func testAPoolMovedByTIsAChangedPoolToAFrozenLane() {
-        // POOL HOLD (FREEZE, landed on main alongside this ferry): a pool moved by the root transpose is a changed pool like a chord change (§2.9) — the live lane follows at once, a lane frozen for one bar keeps what it took until its next take
-        var frozen = EuclidLine(target: 0, pulses: 4, steps: 4)
-        frozen.gate = 0.5; frozen.velocityAbsolute = 90; frozen.rate = .r1_4; frozen.useRiff = true; frozen.riffOn = true; frozen.sourceMode = .midi; frozen.notesOn = true; frozen.litNotes = 0
-        frozen.poolHold = 1
-        let st = state(plan(chords: true, mode: .root), extra: [frozen])
-        let base = Rig(st); base.run(to: 24.5)
-        let r = Rig(st); r.run(to: 8.5); r.press([50]); r.run(to: 24.5)
-        let b0 = base.notes(cable: 1, beats: 24), b1 = base.notes(cable: 2, beats: 24), a0 = r.notes(cable: 1, beats: 24), a1 = r.notes(cable: 2, beats: 24)
-        XCTAssertFalse(b1.contains(-1))
-        for b in 9..<24 { XCTAssertEqual(a0[b], b0[b] + 2, "the live lane follows at once (beat \(b))") }
-        XCTAssertEqual(a1[9], b1[9], "the frozen lane has not taken the moved pool yet")
-        let diffs = (9..<24).map { a1[$0] - b1[$0] }
-        XCTAssertTrue(diffs.allSatisfy { $0 == 0 || $0 == 2 }, "a frozen lane plays the old pool or the moved one, never anything else: \(diffs)")
-        XCTAssertEqual(diffs.last, 2, "…and has taken the moved pool by the end")
-        XCTAssertEqual(diffs, diffs.sorted(), "…once: it does not slip back")
     }
     func testTheHistoryRecordsAChangeOfTAsAChangeOfThePool() {
         var h = EuclideousCanonHistory()

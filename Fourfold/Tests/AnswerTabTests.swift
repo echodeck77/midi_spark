@@ -268,12 +268,14 @@ final class AnswerTabTests: XCTestCase {
         XCTAssertFalse(euclideousLaneStripLayout(width: 660).clustersVisible)
         XCTAssertGreaterThanOrEqual(land.segmentWidth, EuclideousLaneStripMetrics.segmentFloor)
     }
-    func testThePoolGlyphLightsOnACanonDelayOrAFreeze() {
+    func testTheInputsGlyphLightsOnACanonDelayASourceOffOrAMidiMode() {
         var l = EuclidLine()
         XCTAssertFalse(euclideousTabGlyph(tab: .pool, line: l, lane: 1).on)
         l.chordDelay = 2; XCTAssertTrue(euclideousTabGlyph(tab: .pool, line: l, lane: 1).on)
-        l.chordDelay = 0; l.poolHold = 9; XCTAssertTrue(euclideousTabGlyph(tab: .pool, line: l, lane: 1).on)
-        l.poolHold = 0; l.chordSlip = 20; XCTAssertFalse(euclideousTabGlyph(tab: .pool, line: l, lane: 1).on, "SLIP alone does not light it (the spec lights it for delay or freeze)")
+        l.chordDelay = 0; l.poolHold = 9; XCTAssertFalse(euclideousTabGlyph(tab: .pool, line: l, lane: 1).on, "FREEZE is gone: it lights nothing")
+        l.poolHold = 0; l.chordSlip = 20; XCTAssertFalse(euclideousTabGlyph(tab: .pool, line: l, lane: 1).on, "…and neither does SLIP")
+        l.chordSlip = 0; l.midiMode = .replace; XCTAssertTrue(euclideousTabGlyph(tab: .pool, line: l, lane: 1).on, "a MIDI mode that is not ADD does")
+        l.midiMode = nil
         XCTAssertEqual(euclideousTabGlyph(tab: .pool, line: l, lane: 2).fill, .lane(2)); XCTAssertEqual(euclideousTabGlyph(tab: .pool, line: l, lane: 2).shape, .circle)
     }
     func testTheAnswerGlyphIsHollowWhenNothingIsFollowedAndFilledInTheSourcesColour() {

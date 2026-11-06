@@ -28,14 +28,14 @@ GOLDEN POLY POLY pendulum and ping-pong: events=2088 hash=1e4bba3044bb8077
 GOLDEN POLY ALL: documents=5 events=7132 hash=106160379077d6fa
 GOLDEN CANON CANON control, no delays: events=3748 hash=4c9c87a4bee9d235
 GOLDEN CANON CANON passes: events=3748 hash=dedbd4baa50eb63d
-GOLDEN CANON CANON bars and slip: events=3748 hash=1dc49599a2848c69
-GOLDEN CANON CANON steps: events=3748 hash=d3d5487bcd31b249
-GOLDEN CANON CANON lanes of 5 7 11 16: events=4064 hash=2c37ec0a8cdcc74d
+GOLDEN CANON CANON bars and slip: events=3748 hash=54266fdbc575fea5
+GOLDEN CANON CANON steps: events=3748 hash=110ec11f6aa90389
+GOLDEN CANON CANON lanes of 5 7 11 16: events=4064 hash=7ae0d974098ff135
 GOLDEN CANON CANON MIDI IN, a hand changing chords: events=3748 hash=167e27ece513b519
-GOLDEN CANON CANON MIDI IN with slip, lanes of 5 7 11 16: events=4064 hash=6c2daa761b4e2d9d
-GOLDEN CANON CANON every source: events=3748 hash=131ad38118fbd321
-GOLDEN CANON CANON MIDI replaces chords: events=3748 hash=4d0dc507ffdf8f09
-GOLDEN CANON ALL: documents=9 events=34364 hash=59872dde7fd75ad4
+GOLDEN CANON CANON MIDI IN with slip, lanes of 5 7 11 16: events=4064 hash=fe8faf362d0dcaad
+GOLDEN CANON CANON every source: events=3748 hash=82713526e8f790d5
+GOLDEN CANON CANON MIDI replaces chords: events=3748 hash=39566a712869bcf5
+GOLDEN CANON ALL: documents=9 events=34364 hash=c1b622d0b3a85a8
 GOLDEN OCTAVES MIDI alone, high inversions: events=1032 hash=7e5232a28b2a86f
 GOLDEN OCTAVES MIDI alone KEEP, high inversions: events=1032 hash=36efefd2bb27706f
 GOLDEN OCTAVES MIDI + KEY, high inversions: events=1032 hash=bd2b15b942d52897
@@ -43,8 +43,8 @@ GOLDEN OCTAVES MIDI + CHORDS, high inversions: events=3748 hash=70dcd74b2df1a895
 GOLDEN OCTAVES REPLACE over CHORDS + KEY, high inversions: events=3748 hash=9684bb3d5ebc7b9
 GOLDEN OCTAVES ROOT over CHORDS + KEY, a low note: events=3500 hash=5c0950914c2ac321
 GOLDEN OCTAVES ROOT over CHORDS + KEY + PICK KEEP, a low note: events=3748 hash=a6fe43600869631
-GOLDEN OCTAVES ROOT with delayed lanes: events=3508 hash=b0dd19f952580f5b
-GOLDEN OCTAVES ALL: documents=8 events=21348 hash=9584d4e4a2602075
+GOLDEN OCTAVES ROOT with delayed lanes: events=3504 hash=522306d3d54571f3
+GOLDEN OCTAVES ALL: documents=8 events=21344 hash=70ec77656974cb2d
 GOLDEN ANSWER ANSWER every row off, fields stored: events=1032 hash=936d68ef3f34a39f
 GOLDEN ANSWER ANSWER PITCH + RHYTHM cycles in bars: events=1032 hash=14fa1a15d166a153
 GOLDEN ANSWER ANSWER cycles in passes: events=1028 hash=69708e30af22393d
@@ -52,3 +52,8 @@ GOLDEN ANSWER ANSWER BORROW: events=1352 hash=85fed7f074ae7efb
 GOLDEN ANSWER ANSWER SWAP + BORROW: events=1352 hash=25e76d940623f8b5
 GOLDEN ANSWER ANSWER cycling rows + a trade on one lane: events=584 hash=c9be3b46d96e3a41
 GOLDEN ANSWER ALL: documents=6 events=6380 hash=97be53a6a1ed7a7d
+GOLDEN INPUTS INPUTS ADD, REPLACE, ROOT and a lane without MIDI IN: events=3748 hash=e0034f94b9dea051
+GOLDEN INPUTS INPUTS every lane ROOT, delayed lanes: events=3748 hash=8d1b75c1fd29c1b1
+GOLDEN INPUTS INPUTS the document's REPLACE with one lane in ADD: events=3748 hash=72fb227d5b3e7675
+GOLDEN INPUTS INPUTS REPLACE and ROOT on the second chord grid: events=3612 hash=64cb4be6e9a433bb
+GOLDEN INPUTS ALL: documents=4 events=14856 hash=f3bcdd00b12ddf07

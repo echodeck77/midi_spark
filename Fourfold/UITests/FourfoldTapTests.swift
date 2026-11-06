@@ -697,7 +697,7 @@ final class FourfoldTapTests: XCTestCase {
         app.buttons["Harmony"].tap()
         need(app.buttons["MAJOR"], "the scale row").tap()
         XCTAssertTrue((app.buttons["Harmony"].value as? String ?? "").hasPrefix("C major"), "the header button reads C major: \(app.buttons["Harmony"].value as? String ?? "")")
-        need(app.buttons["D"], "the root keys").tap()
+        need(app.buttons["D, in scale"], "the root keys (a scale tone reads \"in scale\")").tap()
         XCTAssertTrue((app.buttons["Harmony"].value as? String ?? "").hasPrefix("D major"), "…and then D major: \(app.buttons["Harmony"].value as? String ?? "")")
         app.buttons["Undo"].tap(); Thread.sleep(forTimeInterval: 0.3)
         XCTAssertTrue((app.buttons["Harmony"].value as? String ?? "").hasPrefix("C major"), "the root was one undo step")

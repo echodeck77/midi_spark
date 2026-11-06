@@ -104,10 +104,10 @@ final class ChordCanonTests: XCTestCase {
     func testEveryLaneKeepsItsOwnPoolWhateverTheOrderOfTheLanes() {
         // The shared pool buffer is re-keyed lane by lane: an undelayed lane that runs after a delayed one must sound exactly as it does when nothing is delayed.
         let plain = run(state([lane(), lane(), lane(), lane()]), beats: 20)
-        let mixed = run(state([lane(), lane(delay: 2), lane(), lane(delay: 1, slip: 20)], unit: .bars), beats: 20)
+        let mixed = run(state([lane(), lane(delay: 2), lane(), lane(delay: 1)], unit: .bars), beats: 20)
         for c in [UInt8(1), 3] { XCTAssertEqual(notes(mixed, cable: c, beats: 20), notes(plain, cable: c, beats: 20), "cable \(c)") }
         XCTAssertEqual(notes(mixed, cable: 2, beats: 20), expected(20, delayBeats: 8))
-        XCTAssertEqual(notes(mixed, cable: 4, beats: 20), expected(20, delayBeats: 4, slip: 20, lane: 3))
+        XCTAssertEqual(notes(mixed, cable: 4, beats: 20), expected(20, delayBeats: 4))
     }
     func testNilAndZeroAreTheSameDocument() {
         let a = run(state([lane(), lane(delay: 0, slip: 0)]), beats: 12)
@@ -124,11 +124,9 @@ final class ChordCanonTests: XCTestCase {
         let e = run(state([lane(delay: 1, octave: 1)], unit: .bars), beats: 16)
         XCTAssertEqual(notes(e, cable: 1, beats: 16), expected(16, delayBeats: 4).map { $0 + 12 })
     }
-    func testSlipHoldsThePreviousChordForOneChordStep() {
-        let e = run(state([lane(slip: 50)]), beats: 64)
-        let got = notes(e, cable: 1, beats: 64)
-        XCTAssertEqual(got, expected(64, delayBeats: 0, slip: 50))
-        XCTAssertNotEqual(got, expected(64, delayBeats: 0), "50% slip over 16 chord steps misses at least one change")
+    func testSlipIsNoLongerRead() {
+        // INPUTS + HARMONY 1.4: the field stays, the engine ignores it
+        XCTAssertEqual(run(state([lane(slip: 50)]), beats: 64).events, run(state([lane()]), beats: 64).events)
     }
     func testTheSoundDoesNotDependOnTheBufferSize() {
         let st = state([lane(), lane(delay: 1, slip: 25), lane(delay: 2), lane(pulses: 5, steps: 5, delay: 1, slip: 10)], unit: .passes)

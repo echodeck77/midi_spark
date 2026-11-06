@@ -470,11 +470,12 @@ final class FourfoldUndoAuditTests: XCTestCase {
         openChordsPopup()
         let base = settled()
         XCTAssertEqual(base.snap, p0.snap, "opening the page changes no setting"); XCTAssertEqual(base.undo, p0.undo, "and is not a step")
-        app.buttons["Grid 1 timing"].tap(); Thread.sleep(forTimeInterval: 0.4)
+        app.buttons["Grid 1 timing"].tap(); Thread.sleep(forTimeInterval: 0.4)             // the popover opens …
+        app.buttons["Grid 1 timing"].tap(); Thread.sleep(forTimeInterval: 0.4)             // … and the pill closes it (while it is open any other tap only closes it)
         app.buttons["Colour rows"].tap(); Thread.sleep(forTimeInterval: 0.3)
         let ui = settled()
         XCTAssertEqual(ui.snap, base.snap, "a popover and the CHORDS · COLOUR switch are UI state"); XCTAssertEqual(ui.undo, base.undo)
-        app.buttons["Chord rows"].tap(); app.buttons["Grid 1 timing"].tap(); Thread.sleep(forTimeInterval: 0.3)   // the popover closes
+        app.buttons["Chord rows"].tap(); Thread.sleep(forTimeInterval: 0.3)
         chordColumn(3, "V"); let a = settled()
         chordColumn(4, "iv"); let b = settled()
         XCTAssertNotEqual(a.snap, base.snap); XCTAssertNotEqual(b.snap, a.snap, "two real chord edits")

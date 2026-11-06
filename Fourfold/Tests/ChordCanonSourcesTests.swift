@@ -148,21 +148,17 @@ final class ChordCanonSourcesTests: XCTestCase {
         let e = run(st, beats: 40, Script(ops: [(0, [60, 64], [])]))
         for c in UInt8(1)...3 { XCTAssertEqual(notes(e, cable: c, beats: 40), seq((60, 40)), "cable \(c)") }
     }
-    func testASlipOnIncomingMidiNeverLagsMoreThanOneChange() {
-        // slip 50 % on lane 2 with the player changing the held note every two beats for a minute
+    func testASlipOnIncomingMidiIsNoLongerRead() {
+        // INPUTS + HARMONY 1.4: SLIP's field is kept, the engine does not read it — a slipping lane hears exactly what its slip-free twin hears
         var ops: [(beat: Double, on: [UInt8], off: [UInt8])] = []
         for i in 0..<30 {
             let on: [UInt8] = [UInt8(40 + i)]
             let off: [UInt8] = i == 0 ? [] : [UInt8(40 + i - 1)]
             ops.append((beat: i == 0 ? 0 : Double(i * 2) + 0.5, on: on, off: off))
         }
-        let e = run(state([lane(), lane(delay: 1, slip: 50)], plan: plan(midi: true)), beats: 60, Script(ops: ops))
-        let a = notes(e, cable: 1, beats: 60), b = notes(e, cable: 2, beats: 60)
-        for t in 8..<60 {
-            let live = a[t - 4], behind = a[max(0, t - 4 - 2)]                                       // what lane 1 played a bar ago, and one change before that
-            XCTAssertTrue(b[t] == live || b[t] == behind, "beat \(t): lane 2 played \(b[t]) — not what lane 1 played a bar ago (\(live)) nor the change before it (\(behind))")
-        }
-        XCTAssertNotEqual(b, notes(run(state([lane(), lane(delay: 1)], plan: plan(midi: true)), beats: 60, Script(ops: ops)), cable: 2, beats: 60), "SLIP really changes what the lane hears")
+        let slipped = run(state([lane(), lane(delay: 1, slip: 50)], plan: plan(midi: true)), beats: 60, Script(ops: ops))
+        let plain = run(state([lane(), lane(delay: 1)], plan: plan(midi: true)), beats: 60, Script(ops: ops))
+        XCTAssertEqual(notes(slipped, cable: 2, beats: 60), notes(plain, cable: 2, beats: 60), "SLIP changes nothing")
     }
 
     // MARK: the other layers

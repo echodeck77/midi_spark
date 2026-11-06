@@ -757,7 +757,7 @@ struct EuclideousPage: View {
     let answerLive: AnswerLiveModel                      // ANSWER (2026-11-02): each lane's running cycle (the CYCLE row's phase bar) and its pool as it is choosing from it (the POOL tab's NOW row) — leaf views observe it, the page does not
     let sourcePlan: SourcePlan                         // the RESOLVED v2 plan — drives the SOURCES button's pips + the panel's rows/MODE/PICK/KEY
     let onToggleSourceCell: (WritableKeyPath<SourcePlan, Bool>) -> Void   // (legacy SOURCES STACK cell flip — unused by the v2 panel, kept until the old pop-up is gone)
-    let onSetSourcePlan: (SourcePlan) -> Void          // Sources panel v2: write a whole v2 plan (a switch, MODE, or a PICK key) as ONE undo step (§1.6)
+    let onSetSourcePlan: (SourcePlan) -> Void          // write a whole plan (a PICK key, OCTAVES) as ONE undo step — HARMONY's setter (the switches and MODE left the plan's UI with INPUTS + HARMONY)
     let onSetNoteSource: (EuclideousLaneSource) -> Void
     // HOLD/LATCH (Paul 2026-10-20): two mutually-exclusive header buttons beside the key pill, same live-
     // mirror/onSet convention as `noteSource` above. nil = off (plain live MIDI). SOURCES STACK ferry
@@ -773,7 +773,7 @@ struct EuclideousPage: View {
     let partSoloHeld: UInt8
     // CHORDS GRID ferry (Paul 2026-10-24): independently-stored progressions ("tabs"), replacing the single
     // grid the CHORDS BUTTON ferry (2026-10-08) first added. TWO CHORD GRIDS (2026-11-03): two of them, and each LANE
-    // picks which one it plays (CHORD 1 | CHORD 2 on the POOL tab's SOURCES row) — `activeChordSet` is only the tab this
+    // picks which one it plays (CHORD 1 | CHORD 2 on the INPUTS tab's SOURCES row) — `activeChordSet` is only the tab this
     // popup EDITS now (switched manually, at once: no queue-to-next-column-boundary). `onEditChordSet` mutates one set
     // by index; `onSwitchChordSet` changes which one is being edited.
     let chordSets: [MachineParams]
@@ -2030,7 +2030,7 @@ struct EuclideousPage: View {
         }
     }
 
-    // MARK: NOTES — the SOURCES button (Sources panel v2 §4; replaces the source control + the key pill) + HOLD/LATCH
+    // MARK: NOTES — the HARMONY button (INPUTS + HARMONY §6; it was the SOURCES button) + HOLD/LATCH
     private func headerNotes() -> some View {
         HStack(spacing: HM.sp8) {
             headerSourceButton()
@@ -2076,13 +2076,6 @@ struct EuclideousPage: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityAddTraits(active ? .isSelected : [])
     }
-    /// SOURCES STACK ferry (2026-10-26) §4: the source control is now a 3-LIGHT STATUS display (not a radio). Same
-    /// 184×32 #2A2D34 r8 / sp4-inset footprint, holding three fixed-width lights (66/70/40) that show MIDI IN ·
-    /// CHORDS · KEY as playing / waiting / off. Tapping ANYWHERE opens the SOURCES pop-up; while it's open the
-    /// container gains a 1.5 pt #DFE3EA inner border. No chevron, no selection (§4.5).
-    // Sources panel v2 §6.4: the old 3-light source control (headerSourceControl / headerSourceLight /
-    // euclideousLightWord) and the key pill (headerKeyPill) are replaced by the SOURCES button — deleted.
-
     // MARK: UTILITIES — presets, swing, reel, settings (outline icons, one family with undo/redo)
     private func headerUtilities(_ layout: EuclideousHeaderLayout) -> some View {
         let target = layout.compact ? HM.compactTarget : HM.target
@@ -2262,9 +2255,6 @@ struct EuclideousPage: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
-
-    // Sources panel v2 §5.12 / §6.4: the KEY pop-up (keyPopupCard) is re-hosted inline in the KEY row
-    // (keyEditorInline) — deleted.
 
     // MARK: - HARMONY (INPUTS + HARMONY ferry 2026-11-06): the page replaces the SOURCES panel, the old CHORDS pop-up and the CHORDS page
     // The page itself is `EuclideousHarmonyPage` (HarmonyPage.swift, frames from `euclideousHarmonyLayout`); this is only what it needs from here: the grid's playing column and the open / close wiring.
@@ -4314,7 +4304,7 @@ struct EuclideousPage: View {
         var spoken: [[String]]      // per position: the spoken note names (rank key: one or none; TOP: one; TOP 2: up to two)
     }
     private func notesTabData(_ line: EuclidLine, lane: Int, riffDotRank: Int? = nil, sounding: [Double] = []) -> NotesTabData {
-        // POOL ferry 6.1: the keys name THIS lane's own pool (after CANON, FREEZE and SUSTAIN) — not the one global pool every lane showed before.
+        // POOL ferry 6.1: the keys name THIS lane's own pool (after CANON) — not the one global pool every lane showed before.
         let lp = lane >= 0 && lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
         let pool = lp.notes
         let n = lp.count

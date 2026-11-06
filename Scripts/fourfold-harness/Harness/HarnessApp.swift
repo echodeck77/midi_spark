@@ -525,7 +525,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off", "(default) PART SOLO changing"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) INPUTS lane modes hand", "(default) INPUTS ROOT delayed hand", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off", "(default) PART SOLO changing"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -584,6 +584,16 @@ extension Host {
                 }
                 if name.contains("CANON") {   // CHORD CANON (2026-10-31): every lane delayed and slipping (the per-lane pool re-merge on every chord step, the slip roll), the 5 · 7 · 11 · 16 lap lengths in the second run — on top of the HOCKET fan-out there
                     au.editDocument { canonDocument(&$0, unit: name.contains("shapes") ? .passes : .bars, delays: [1, 2, 3, 8], slips: [0, 10, 25, 50], shapes: name.contains("shapes")) }
+                }
+                if name.contains("INPUTS") {   // INPUTS + HARMONY (2026-11-06): each lane runs the stacked pool with its own chips and MIDI mode (ADD · REPLACE · ROOT + a lane without MIDI IN; every source on, PICK notes, OCTAVES IGNORE); the second run delays the lanes (the canon merge under ROOT / REPLACE)
+                    let delayed = name.contains("delayed")
+                    au.editDocument { s in
+                        canonDocument(&s, unit: .bars, delays: delayed ? [0, 1, 2, 4] : [0, 0, 0, 0], slips: [0, 0, 0, 0], plan: SourcePlan(midiOn: true, chordsOn: true, pickOn: true, keyOn: true, midiMode: .add, pickNotes: [72, 76, 79]))
+                        var ls = s.euclideousLinesResolved
+                        let modes: [MidiMode?] = delayed ? [.root, .root, .replace, .root] : [.add, .replace, .root, .add]
+                        for i in 0..<4 { ls[i].midiMode = modes[i]; ls[i].poolSrcMask = (!delayed && i == 3) ? 0b01110 : nil }
+                        s.euclideousLines = ls
+                    }
                 }
                 if name.contains("POOL") { au.editDocument { poolDocument(&$0, plan: !name.contains("CANON"), grid2: name.contains("grid 2")) } }   // POOL ferry (2026-11-02): per-lane sources + SUSTAIN on every lane; the pedal is driven below (CC64 down at 100, up at 300 of every 400 windows)
                 if name.contains("RESTART UNITS") {   // RESTART UNITS (2026-11-04): the schedule's readers on the render path — A: lane 1 rhythm RIFF of itself, lane 2 melody HIT [3] with a RIFF rhythm, lanes 3–4 plain; B: a cross-lane ring (rhythm PASS of the next lane) with WITH RHYTHM and a melody PASS of another lane
@@ -644,7 +654,7 @@ extension Host {
                 for _ in 0..<8 { render(480) }
                 baseSample = sampleTime
                 hold([60, 64, 67]); playing = true
-                if i == 0 || name.contains("HOCKET") || name.contains("ROUTED") || name.contains("CANON") || name.contains("ANSWER") { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // an unwatched warm-up lap: Swift's one-time generic-metadata instantiation (the first use of each type) is not what this measures; HOCKET's types are first touched by its own scenarios   // the unwatched warm-up lap
+                if i == 0 || name.contains("HOCKET") || name.contains("ROUTED") || name.contains("CANON") || name.contains("ANSWER") || name.contains("INPUTS") { for _ in 0..<800 { render(480) }; playing = false; for _ in 0..<8 { render(480) }; baseSample = sampleTime; playing = true }   // an unwatched warm-up lap: Swift's one-time generic-metadata instantiation (the first use of each type) is not what this measures; HOCKET's types are first touched by its own scenarios   // the unwatched warm-up lap
                 eventCount = 0; AllocWatch.reset(); watching = true
                 var handIdx = 0
                 for w in 0..<6400 {

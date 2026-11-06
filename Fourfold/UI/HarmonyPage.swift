@@ -365,6 +365,7 @@ struct EuclideousHarmonyPage: View {
         .frame(width: L.columnW, height: L.gridH, alignment: .topLeading)
     }
     @ViewBuilder private func cell(_ set: Int, row r: Int, column c: Int, degrees: [Int], colours: [Int], steps: Int, playing: Int) -> some View {
+        let _ = FourfoldStackProbe.note()   // the deepest leaf of the page's build chain (FourfoldStackBudgetTests)
         let beyond = c >= steps
         let isPlaying = c == playing
         let (_, isRest) = chordsDegreeAt(step: c, degrees: Array(degrees.prefix(max(1, steps))), rotate: 0)
