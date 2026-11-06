@@ -85,6 +85,7 @@ struct EuclideousLaneViewStrip: View {
     let width: CGFloat
     let tab: EuclideousPageTab
     let lines: [EuclidLine]
+    var planMode: MidiMode = .add   // INPUTS ferry 3.7: the document's resolved MIDI mode, the fallback of a lane with no mode of its own
     let laneColours: [Color]            // lane100 of lanes 1–4
     let hocketRules: [HocketRule]
     let hocketLive: HocketLiveModel
@@ -111,7 +112,7 @@ struct EuclideousLaneViewStrip: View {
         let t = i < euclideousPageTabOrder.count ? euclideousPageTabOrder[i] : .rhythm   // the strip's LEFT-TO-RIGHT order (INPUTS first), not the raw-value order
         let sel = tab == t
         let seg = L.segments[i], target = L.segmentTargets[i]
-        let glyphs = euclideousLaneStripGlyphs(tab: t, lines: lines)
+        let glyphs = euclideousLaneStripGlyphs(tab: t, lines: lines, planMode: planMode)
         let shape = euclideousLaneStripShape(t)
         let showCluster = L.clustersVisible && shape != .none && glyphs.count == 4
         let ground = Color(sel ? M.selectedFill : M.container)

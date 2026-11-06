@@ -762,7 +762,6 @@ struct EuclideousPage: View {
     // above.
     let noteSource: EuclideousLaneSource
     let sourceStatus: Router.EuclideousSourceStatus   // SOURCES STACK ferry (2026-10-26): lane-1's live source status for the header lights + SOURCES NOW column
-    let poolHoldStatus: [EuclideousPoolHoldLaneStatus]   // POOL HOLD (FREEZE, 2026-11-01): each lane's running hold — the FREEZE cell's dim + draining bar
     let answerPhases: [Bool]                             // ANSWER (2026-11-02): which lanes are in phase B right now — the displays show the lane as it PLAYS (`phaseLines`); changes once a unit
     let lanePools: [EuclideousLanePoolNotes]             // POOL (2026-11-02): each lane's pool (notes + the two highest), for the NOTES keys — changes only when a pool does, so the page is not re-run at the hit rate
     let answerLive: AnswerLiveModel                      // ANSWER (2026-11-02): each lane's running cycle (the CYCLE row's phase bar) and its pool as it is choosing from it (the POOL tab's NOW row) — leaf views observe it, the page does not
@@ -2070,7 +2069,7 @@ struct EuclideousPage: View {
     }
     /// The strip, in the lane area: the tab control, MIX, and the page's own dice and padlock tiles. The glyph clusters read the four lanes' lines (`euclideousLaneStripGlyphs`).
     private func laneViewStrip(width: CGFloat) -> AnyView {
-        AnyView(EuclideousLaneViewStrip(width: width, tab: pageTab, lines: lines, laneColours: laneAccents.map { lane100($0) }, hocketRules: hocketRules, hocketLive: hocketLive,
+        AnyView(EuclideousLaneViewStrip(width: width, tab: pageTab, lines: lines, planMode: sourcePlan.midiModeR, laneColours: laneAccents.map { lane100($0) }, hocketRules: hocketRules, hocketLive: hocketLive,
                                         dice: euclideousRandomDice(), padlock: euclideousLockPadlock(), onSelect: { stripTabTapped($0) }))
     }
     /// §6: while random or lock mode is on the strip's tabs take no input — a touch finishes the mode and is consumed. (Lock mode's full-page tap catcher sits above the strip and finishes it for a finger; this is the same rule for
@@ -6402,10 +6401,10 @@ struct EuclideousPage: View {
     private func listenCanonRow(_ idx: Int, _ line: EuclidLine, fullWidth: CGFloat, height: CGFloat) -> AnyView {   // AnyView leaves, like every other tab leaf: the extension's 1 MB main-thread stack
         let labelW: CGFloat = 50, pad: CGFloat = 4, gap: CGFloat = 4
         let w = max(1, fullWidth - labelW)
-        let stepperW = max(1, (w - pad * 2 - gap * 2) / 3)
+        let stepperW = max(1, (w - pad * 2 - gap) / 2)   // INPUTS ferry 3.5: DELAY and UNIT in two equal columns (SLIP is gone)
         let stepperH = max(1, height - pad * 2)
-        let inert = euclideousCanonInertReason(sourceOn: sourcePlan.anyOnR, pitch: phaseLines[idx].listenPitchResolved)   // the lane as it PLAYS: a cycling PITCH is inert only while it shadows
-        let delay = line.chordDelayResolved, slip = line.chordSlipResolved
+        let inert = euclideousCanonInertReason(sourceOn: euclideousPoolSrcNormalized(line.poolSrcMaskResolved) & euclideousPoolSrcAll5 != 0, pitch: phaseLines[idx].listenPitchResolved)   // the lane as it PLAYS: a cycling PITCH is inert only while it shadows; "no source" is this lane's own chips now
+        let delay = line.chordDelayResolved
         func stepper(_ label: String, value: String, spoken: String, name: String, onDec: @escaping () -> Void, onInc: @escaping () -> Void) -> AnyView {
             canonStepper(label, value: value, spoken: spoken, name: name, width: stepperW, height: stepperH, onDec: onDec, onInc: onInc)
         }
@@ -6415,9 +6414,6 @@ struct EuclideousPage: View {
                 stepper("DELAY", value: euclideousCanonDelayText(delay), spoken: euclideousCanonDelaySpoken(delay: delay, unit: canonUnit, inert: inert), name: "Canon delay, lane \(idx + 1)",
                         onDec: { edit(idx) { let v = euclideousCanonDelayMoved($0.chordDelayResolved, by: -1); $0.chordDelay = v == 0 ? nil : v } },
                         onInc: { edit(idx) { let v = euclideousCanonDelayMoved($0.chordDelayResolved, by: 1); $0.chordDelay = v == 0 ? nil : v } })
-                stepper("SLIP", value: euclideousCanonSlipText(slip), spoken: euclideousCanonSlipSpoken(slip: slip, inert: inert), name: "Canon slip, lane \(idx + 1)",
-                        onDec: { edit(idx) { let v = euclideousCanonSlipMoved($0.chordSlipResolved, by: -1); $0.chordSlip = v == 0 ? nil : v } },
-                        onInc: { edit(idx) { let v = euclideousCanonSlipMoved($0.chordSlipResolved, by: 1); $0.chordSlip = v == 0 ? nil : v } })
                 stepper("UNIT", value: canonUnit.rawValue, spoken: euclideousCanonUnitSpoken(canonUnit), name: "Canon unit, all lanes",
                         onDec: { onSetCanonUnit(euclideousCanonUnitMoved(canonUnit, by: -1)) },
                         onInc: { onSetCanonUnit(euclideousCanonUnitMoved(canonUnit, by: 1)) })
@@ -6429,118 +6425,38 @@ struct EuclideousPage: View {
         }
         .frame(width: fullWidth, height: height))
     }
-    // POOL HOLD (FREEZE, 2026-11-01): the LISTEN tab's bottom caption (`listenFooter`) is REMOVED (Paul dropped it); the FREEZE row takes its place under CANON. `euclideousCanonInertCaption` is kept (still unit-tested) but no longer drawn.
-    /// POOL HOLD (FREEZE, 2026-11-01) §3: the FREEZE row, directly under the CANON row, drawn like it — ONE stepper under
-    /// DELAY (the real DELAY is one per-lane stepper, not a four-cell row; source wins over the ferry's wording). 0…8 bars
-    /// or LOCK (9, drawn as lock.fill). A running hold dims the value to 60 % and drains a lane-coloured bar under it.
-    private func listenFreezeRow(_ idx: Int, _ line: EuclidLine, fullWidth: CGFloat, height: CGFloat) -> AnyView {
-        let labelW: CGFloat = 50, pad: CGFloat = 4, gap: CGFloat = 4
-        let w = max(1, fullWidth - labelW)
-        let stepperW = max(1, (w - pad * 2 - gap * 2) / 3)   // the DELAY stepper's exact width (§3.3)
-        let stepperH = max(1, height - pad * 2)
-        let hold = line.poolHoldResolved
-        let status = idx >= 0 && idx < poolHoldStatus.count ? poolHoldStatus[idx] : EuclideousPoolHoldLaneStatus()
-        let accent = laneAccents[idx % laneAccents.count]
-        return AnyView(HStack(spacing: 0) {
-            Text("FREEZE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            HStack(spacing: gap) {
-                freezeStepper(idx, hold: hold, status: status, accent: accent, width: stepperW, height: stepperH)
-                Spacer(minLength: 0)   // the SLIP / UNIT columns stay empty — FREEZE partners DELAY only
-            }
-            .padding(pad)
-            .frame(width: w, height: height)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x24262C)))
-        }
-        .frame(width: fullWidth, height: height))
-    }
-    /// POOL HOLD (FREEZE) §3.5/§3.6: one gesture per stepper zone — a 0.3 s press sets all four lanes (`long`), a quick tap does the zone's own action (`tap`). EXCLUSIVE, so a long-press NEVER also fires the tap: the earlier
-    /// `.simultaneousGesture` long-press on the whole stepper + per-zone `.onTapGesture` double-fired on a ‹/› zone (set-all AND a step, two undo steps) — adversarial review 2026-11-01.
-    private func freezeZoneGesture(long: @escaping () -> Void, tap: @escaping () -> Void) -> some Gesture {
-        ExclusiveGesture(
-            LongPressGesture(minimumDuration: EuclideousRingPress.holdSeconds).onEnded { _ in long() },
-            TapGesture().onEnded { tap() }
-        )
-    }
-    private func freezeStepper(_ idx: Int, hold: Int, status: EuclideousPoolHoldLaneStatus, accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
-        let zone: CGFloat = 30
-        let locked = hold >= euclideousPoolHoldLock
-        let spoken = euclideousPoolHoldSpoken(hold: hold, running: status.running, fraction: status.fraction)
-        func set(_ v: Int) { edit(idx) { $0.poolHold = v == 0 ? nil : v } }        // 0 stored as nil (additive-Optional default)
-        func setAll(_ v: Int) { onEdit { lines in for i in lines.indices { lines[i].poolHold = v == 0 ? nil : v } } }   // §3.6 long-press: all four lanes, one undo step (laneBits covers all four)
-        return AnyView(ZStack {
-            RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34))
-            VStack(spacing: 2) {
-                Text("FREEZE").font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                Group {
-                    if locked { Image(systemName: "lock.fill").font(.system(size: 12)).foregroundColor(Color(hex: 0xF2F4F7)) }
-                    else { Text(euclideousPoolHoldText(hold)).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1) }
-                }
-                .opacity(status.running ? 0.6 : 1)   // §3.7: a running hold draws the value at 60 %
-            }
-            // §3.7 the draining bar: a 2 pt lane-coloured bar along the bottom, inset 6, width = remaining fraction × inner width. Not drawn for a lock (no bar) or when idle.
-            if status.running && !status.locked {
-                GeometryReader { g in
-                    let inner = max(0, g.size.width - 12)
-                    RoundedRectangle(cornerRadius: 1).fill(accent)
-                        .frame(width: max(0, inner * status.fraction), height: 2)
-                        .position(x: 6 + max(0, inner * status.fraction) / 2, y: g.size.height - 2)
-                }
-            }
-            HStack(spacing: 0) {
-                Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                    .frame(width: zone, height: height).contentShape(Rectangle())
-                    .gesture(freezeZoneGesture(long: { setAll(hold) }, tap: { set(euclideousPoolHoldMoved(hold, by: -1)) }))
-                // §3.5 a tap on the centre sets 0 ONLY while it shows LOCK (a number cell has no centre tap, like DELAY). The centre FILLS the gap between the chevrons (a Spacer would squeeze it to 0 width), so the lock is tappable and a long-press lands anywhere.
-                Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
-                    .gesture(freezeZoneGesture(long: { setAll(hold) }, tap: { if locked { set(0) } }))
-                Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                    .frame(width: zone, height: height).contentShape(Rectangle())
-                    .gesture(freezeZoneGesture(long: { setAll(hold) }, tap: { set(euclideousPoolHoldMoved(hold, by: 1)) }))
-            }
-        }
-        .frame(width: width, height: height)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Freeze, lane \(idx + 1)").accessibilityValue(spoken)
-        .accessibilityAdjustableAction { dir in set(euclideousPoolHoldMoved(hold, by: dir == .increment ? 1 : -1)) }
-        .accessibilityAction(named: "Set all lanes") { setAll(hold) })
-    }
-    /// POOL (ferry 2026-11-02): NOW, SOURCES, CANON, FREEZE, SUSTAIN — which harmony a lane hears and when, never which notes are removed from it. ANSWER's frame and row grammar: the 50 pt label column, sp8 between rows, sp4 between
-    /// controls; heights from `euclideousPoolTabLayout` (44 / 30 / 44 / 44 / 44 giving up height evenly down to a 30 pt floor). When even the floors do not fit (a very short window) the body scrolls: no row is squeezed under 30 pt.
+    /// INPUTS (ferry 2026-11-06; the POOL tab, renamed): NOW, SOURCES, MIDI, CANON — which harmony a lane hears and when, never which notes are removed from it. ANSWER's frame and row grammar: the 50 pt label column, sp4 between
+    /// controls; heights from `euclideousInputsTabLayout` (44 / 30 / 30 / 44, sp14 apart, the gap giving way to 8 and then the rows to a 30 pt floor). When even the floors do not fit (a very short window) the body scrolls: no row is squeezed under 30 pt.
     private func poolTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        let layout = euclideousPoolTabLayout(contentAreaH: contentAreaH)
+        let layout = euclideousInputsTabLayout(contentAreaH: contentAreaH)
         let rows = VStack(spacing: layout.gap) {
             poolNowRow(idx, accent, fullWidth: fullWidth, height: layout.nowH)
             poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
+            inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
             listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH)
-            listenFreezeRow(idx, line, fullWidth: fullWidth, height: layout.freezeH)
-            poolSustainRow(idx, line, accent, fullWidth: fullWidth, height: layout.sustainH)
             Spacer(minLength: 0)
         }
         if layout.fits { return AnyView(rows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
         return AnyView(ScrollView(.vertical, showsIndicators: false) { rows.frame(width: fullWidth, alignment: .top) }
             .frame(width: fullWidth, height: contentAreaH, alignment: .top))
     }
-    /// 2.2: NOW — the label, then eight rank chips of the lane's pool as it is choosing from it (leaf-observed: the page does not re-run for the status feed).
+    /// 3.2: NOW — the label, then eight rank chips of the lane's pool as it is choosing from it, each received note carrying a pip in its source's colour (leaf-observed: the page does not re-run for the status feed).
     private func poolNowRow(_ idx: Int, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
         let labelW = EuclideousPoolTabMetrics.labelColumn
-        let frozen = idx < poolHoldStatus.count && poolHoldStatus[idx].running
         return AnyView(HStack(spacing: 0) {
             Text("NOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            PoolNowChipsView(lane: idx, tint: lane100(accent), size: CGSize(width: max(1, fullWidth - labelW), height: height), frozen: frozen,
+            PoolNowChipsView(lane: idx, tint: lane100(accent), size: CGSize(width: max(1, fullWidth - labelW), height: height),
                              spokenName: { n, pool in euclideousAccessibleDisplayNoteName(UInt8(max(0, min(127, n))), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
                              name: { n, pool in euclideousDisplayNoteName(n, source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
                              live: answerLive)
         }
         .frame(width: fullWidth, height: height))
     }
-    /// 2.3: SOURCES — five equal toggles (MIDI IN · CHORD 1 · CHORD 2 · PICK · KEY: the sources panel's order with its CHORDS split into the two chord grids), 26 tall, the mode buttons' heavy label face. On: the selected look in the lane's colour;
-    /// off: the unselected look. A source switched off in the sources panel draws at 40 % (it still toggles; the lane's choice is kept for when the source comes back — CHORD 1 and CHORD 2 both follow the panel's CHORDS switch). CHORD 1 and
-    /// CHORD 2 are mutually exclusive (`setPoolSrc`): lighting one puts the other out, tapping the lit one turns chords off for the lane. One `edit`, one undo step, per tap.
+    /// 3.3: SOURCES — five equal toggles (MIDI IN · CHORD 1 · CHORD 2 · PICK · KEY), 26 tall, the mode buttons' heavy label face. On: the selected look in the lane's colour; off: the unselected look. A lane's sources are exactly these chips (the
+    /// global switches are gone). CHORD 1 and CHORD 2 are mutually exclusive (`setPoolSrc`): lighting one puts the other out, tapping the lit one turns chords off for the lane. One `edit`, one undo step, per tap.
     private func poolSourcesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
         let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 4
         let btnW = max(1, (fullWidth - labelW - gap * 5) / 5)
-        let panel = euclideousPanelSwitches(sourcePlan)
-        let panelOn = [panel.midi, panel.chords, panel.pick, panel.key, panel.chords]       // by SOURCES bit: bit 4 (CHORD 2) follows the panel's CHORDS switch too
         let names = ["MIDI IN", "CHORD 1", "PICK", "KEY", "CHORD 2"]                         // by bit; drawn in `euclideousPoolSourceOrder`
         return AnyView(HStack(spacing: gap) {
             Text("SOURCES").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
@@ -6551,36 +6467,52 @@ struct EuclideousPage: View {
                     .frame(width: btnW, height: min(EuclideousPoolTabMetrics.toggleH, height))
                     .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-                    .opacity(euclideousLaneSourceToggleOpacity(panelOn: panelOn[b]))
                     .frame(width: btnW, height: height)
                     .contentShape(Rectangle())
                     .onTapGesture { edit(idx) { $0.setPoolSrc(b, !$0.poolSrcOn(b)) } }
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("\(euclideousPoolSourceNames[b]), lane \(idx + 1)")   // the lane is part of the name: four cards carry the same toggles
-                    .accessibilityValue(euclideousPoolSourceValue(on: on, panelOn: panelOn[b]))
+                    .accessibilityValue(euclideousPoolSourceValue(on: on))
                     .accessibilityAddTraits(.isButton)
                     .ringToggleTrait()
             }
         }
         .frame(width: fullWidth, height: height))
     }
-    /// 2.5: SUSTAIN — the label cell is the row's switch (ANSWER's, off looks and remembered mode included), then KEEP / "TAKE NOTHING NEW" and STACK / "LOSE NOTHING" in ANSWER's mode-button look (a tap selects one and switches the row on),
-    /// then the PEDAL light — a display.
-    private func poolSustainRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
-        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 4
-        let btnW = max(1, (fullWidth - labelW - gap * 3) / 3)
-        let on = line.poolSustainOnResolved, mode = line.poolSustainModeResolved
-        func pick(_ m: EuclideousSustainMode) { edit(idx) { $0.poolSustainMode = m; $0.poolSustainOn = true } }   // selecting a mode of an off row switches it on (answer-pool 3.3)
+    /// 3.4: MIDI — the label, three equal segments ADD · REPLACE · ROOT (28 tall, radius 6, the SOURCES chips' type) and a 44 × 28 readout: in ROOT the lane's applied transpose, signed; otherwise "–". While this lane's MIDI IN chip is off the segments
+    /// and the readout draw at 40 % and stay tappable. A tap writes the lane's own `midiMode` (one undo step); the lane's mode is its own field, else the document's plan mode.
+    private func inputsMidiRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 4, readoutW: CGFloat = 44
+        let segW = max(1, (fullWidth - labelW - gap * 3 - readoutW) / 3)
+        let segH = min(EuclideousInputsMidiRow.segmentH, height)
+        let mode = euclideousLaneMidiMode(line.midiMode, planMode: sourcePlan.midiModeR)
+        let midiOn = line.poolSrcOn(0)
+        let modes: [MidiMode] = [.add, .replace, .root]
         return AnyView(HStack(spacing: gap) {
-            answerSwitchCell(name: "SUSTAIN", spoken: "Sustain, lane \(idx + 1)", on: on, accent: accent, width: labelW, height: height) { edit(idx) { $0.poolSustainOn = !$0.poolSustainOnResolved } }
-            answerModeButton(name: "KEEP", hint: "TAKE NOTHING NEW", selected: mode == .keep, rowOn: on, spoken: euclideousSustainModeSpoken(mode: .keep, rowOn: on, lane: idx),
-                             width: btnW, height: height, accent: accent) { pick(.keep) }
-            answerModeButton(name: "STACK", hint: "LOSE NOTHING", selected: mode == .stack, rowOn: on, spoken: euclideousSustainModeSpoken(mode: .stack, rowOn: on, lane: idx),
-                             width: btnW, height: height, accent: accent) { pick(.stack) }
-            PoolPedalLightView(lane: idx, rowOn: on, accent: lane100(accent), size: CGSize(width: btnW, height: height), live: answerLive)
+            Text("MIDI").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            HStack(spacing: gap) {
+                ForEach(0..<3, id: \.self) { i in
+                    let m = modes[i], sel = mode == m
+                    Text(euclideousInputsMidiModeLabel(m)).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.75)
+                        .foregroundColor(sel ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
+                        .frame(width: segW, height: segH)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(sel ? lane20(accent) : Color(hex: 0x2A2D34)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(sel ? lane100(accent) : Color.clear, lineWidth: 1))
+                        .frame(width: segW, height: height)
+                        .contentShape(Rectangle())
+                        .onTapGesture { edit(idx) { $0.midiMode = m } }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(euclideousInputsMidiModeSpoken(m) + ", lane \(idx + 1)")
+                        .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+                }
+            }
+            MidiRootReadoutView(lane: idx, mode: mode, size: CGSize(width: readoutW, height: segH), live: answerLive)
+                .frame(width: readoutW, height: height)
         }
+        .opacity(midiOn ? 1 : 0.4)
         .frame(width: fullWidth, height: height))
     }
+
     /// ANSWER (2026-11-02): FOLLOW, RHYTHM, PITCH, [the PITCH panel while PITCH is on with SHADOW], TRADE, [the CYCLE row while something cycles]. CANON / FREEZE live on POOL, the rhythm panel on RHYTHM, the footer is gone. Heights come from
     /// `euclideousAnswerTabLayout` (rows 44 when they fit, down to a 30 pt floor).
     private func listenTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {

@@ -4459,6 +4459,13 @@ enum EuclideousSourceColour {
     static let chords: (fill: UInt32, ink: UInt32) = (0xB9A8FF, 0x160F33)
     static let pick:   (fill: UInt32, ink: UInt32) = (0xF2A7CF, 0x2B0D1E)
     static let key:    (fill: UInt32, ink: UInt32) = (0x8D95A3, 0x0D0F14)
+    /// INPUTS ferry 3.2: a status source index (0 MIDI · 1 CHORDS, either grid · 2 PICK · 3 KEY) → its fill colour; anything else is KEY's.
+    static func fill(source: UInt8) -> UInt32 {
+        switch source { case 0: return midi.fill; case 1: return chords.fill; case 2: return pick.fill; default: return key.fill }
+    }
+    static func name(source: UInt8) -> String {
+        switch source { case 0: return "MIDI"; case 1: return "chords"; case 2: return "pick"; default: return "key" }
+    }
 }
 
 /// §2.8/§4.3 each source's light from the plan + the live status: off (switch off) · playing (on & contributing) ·
@@ -5338,12 +5345,12 @@ func euclideousListenSource(_ line: EuclidLine, lane: Int) -> EuclideousListenSo
     return .lane(line.listenSourceResolved(ownLane: lane))
 }
 /// §5.3. `lane` is the lane the tab row belongs to (RIFF and NOTES fill in its colour).
-func euclideousTabGlyph(tab: EuclideousTabKind, line: EuclidLine, lane: Int) -> EuclideousTabGlyph {
+func euclideousTabGlyph(tab: EuclideousTabKind, line: EuclidLine, lane: Int, planMode: MidiMode = .add) -> EuclideousTabGlyph {
     switch tab {
     case .rhythm: return EuclideousTabGlyph(shape: .none, on: true, fill: .lane(lane))
     case .riff:   return EuclideousTabGlyph(shape: .square, on: !euclideousMixLayerIsOff(line, notes: false), fill: .lane(lane))
     case .notes:  return EuclideousTabGlyph(shape: .bar, on: !euclideousMixLayerIsOff(line, notes: true), fill: .lane(lane))
-    case .pool:   return EuclideousTabGlyph(shape: .circle, on: euclideousPoolGlyphLit(line), fill: .lane(lane))   // ANSWER ferry 1.4 + POOL ferry 2.6: lit when the lane's CANON delay or FREEZE is not 0, its SUSTAIN is on, or a SOURCES toggle is off
+    case .pool:   return EuclideousTabGlyph(shape: .circle, on: euclideousPoolGlyphLit(line, planMode: planMode), fill: .lane(lane))   // INPUTS ferry 3.7: lit when the lane's CANON delay is not 0, any of its SOURCES chips is off or its MIDI mode (its own, else the document's) is not ADD
     case .listen:
         switch euclideousListenSource(line, lane: lane) {
         case .lane(let p): return EuclideousTabGlyph(shape: .circle, on: true, fill: .lane(p))
@@ -5387,7 +5394,7 @@ func euclideousPausedTabHeaderText(tab: EuclideousTabKind, lane: Int, lines: [Eu
 /// §4.1/§10: "Rhythm, 5 of 16 hits" · "Riff, on" / "Riff, off" · "Notes, on" / "Notes, off" · "Listen, on, following lane 2" / "Listen, off".
 /// LISTEN REBUILT (2026-10-23): a RHYTHM/RIFF/NOTES tab that's PAUSED (borrowed whole, §7) says so out
 /// loud too — "paused, following lane n" — since the header's own "← n" (§7.1) is a sighted-only cue.
-func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, lines: [EuclidLine], lane: Int) -> String {
+func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, lines: [EuclidLine], lane: Int, planMode: MidiMode = .add) -> String {
     let line = lane >= 0 && lane < lines.count ? lines[lane] : EuclidLine()
     let source = line.listenSourceResolved(ownLane: lane)
     switch tab {
@@ -5404,7 +5411,7 @@ func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, lines: [EuclidLine]
         if euclideousPausedTabHeaderText(tab: .notes, lane: lane, lines: lines) != nil { return "Notes, paused, following lane \(source + 1)" }
         return "Notes, " + (euclideousTabGlyph(tab: .notes, line: line, lane: lane).on ? "on" : "off")
     case .pool:
-        return "Inputs, " + (euclideousTabGlyph(tab: .pool, line: line, lane: lane).on ? "set" : "nothing set")   // POOL tab renamed INPUTS (Paul 2026-11-05)
+        return "Inputs, " + (euclideousTabGlyph(tab: .pool, line: line, lane: lane, planMode: planMode).on ? "set" : "nothing set")   // POOL tab renamed INPUTS (Paul 2026-11-05)
     case .listen:
         switch euclideousListenSource(line, lane: lane) {
         case .lane(let p): return "Answer, on, following lane \(p + 1)"
@@ -10852,15 +10859,25 @@ func euclideousLaneSources(panel: EuclideousSourceSwitches, mask: UInt8) -> Eucl
 func euclideousLaneChordGrid(_ mask: UInt8) -> Int { euclideousPoolSrcNormalized(mask) & euclideousPoolSrcChords2 != 0 ? 1 : 0 }
 /// The plan the stacked pool function runs for a lane: the page plan with the lane's effective switches written in (MIDI mode, OCTAVES, the PICK notes — everything else — untouched, §3.1). A lane with every source on gets the plan
 /// back as it is (the default path, byte-identical). A copy retains the `pickNotes` array; nothing is allocated.
-func euclideousLaneSourcePlan(_ plan: SourcePlan, mask: UInt8) -> SourcePlan {
-    guard euclideousPoolSrcNormalized(mask) != euclideousPoolSrcAll else { return plan }
+func euclideousLaneSourcePlan(_ plan: SourcePlan, mask: UInt8, mode: MidiMode? = nil) -> SourcePlan {
+    // INPUTS + HARMONY (2026-11-06) §2.1: the lane's MIDI mode (nil = the plan's) is written in too — the stacked pool function reads `plan.midiModeR`, so a lane's mode needs nothing else.
+    let m = mode ?? plan.midiModeR
+    let allChips = euclideousPoolSrcNormalized(mask) == euclideousPoolSrcAll
+    if allChips && m == plan.midiModeR { return plan }
     var p = plan
-    let e = euclideousLaneSources(panel: euclideousPanelSwitches(plan), mask: mask)
-    p.midiOn = e.midi; p.chordsOn = e.chords; p.pickOn = e.pick; p.keyOn = e.key
+    if !allChips {
+        let e = euclideousLaneSources(panel: euclideousPanelSwitches(plan), mask: mask)
+        p.midiOn = e.midi; p.chordsOn = e.chords; p.pickOn = e.pick; p.keyOn = e.key
+    }
+    p.midiMode = m
     return p
 }
-/// 2.3: a source switched off in the sources panel draws its lane toggle at 40 % (it still toggles; the lane's choice is kept for when the source comes back on).
-func euclideousLaneSourceToggleOpacity(panelOn: Bool) -> Double { panelOn ? 1 : 0.4 }
+/// The five SOURCES bits (0 MIDI IN · 1 CHORDS 1 · 2 PICK · 3 KEY · 4 CHORDS 2).
+let euclideousPoolSrcAll5: UInt8 = 0b11111
+/// INPUTS + HARMONY §2.8: the shared pool buffer's cache key for a lane — its five chip bits and its MIDI mode (bits 5–6: 0 ADD · 1 REPLACE · 2 ROOT). Lanes with the same key share one build per buffer.
+@inline(__always) func euclideousLaneKey(mask: UInt8, mode: MidiMode) -> UInt8 {
+    (euclideousPoolSrcNormalized(mask) & euclideousPoolSrcAll5) | (mode == .add ? 0 : (mode == .replace ? 1 << 5 : 2 << 5))
+}
 
 // ── §8.2 SUSTAIN ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 /// One lane's SUSTAIN bookkeeping (engine state, never saved). `engaged`: the lane took a down edge and is holding (KEEP: serving its copy; STACK: serving the union). `seenDownSeq`: the last down edge the lane has dealt with (taken, or
@@ -11069,23 +11086,30 @@ func euclideousPickedLaneNext(_ current: Int) -> Int { (((current % 4) + 4) % 4 
 
 // ── §2 THE TAB'S LAYOUT ──────────────────────────────────────────────────────────────────────────────────────────────────
 enum EuclideousPoolTabMetrics {
-    static let gap: CGFloat = 8, rowIdeal: CGFloat = 44, rowFloor: CGFloat = 30, sourcesH: CGFloat = 30, toggleH: CGFloat = 26
+    /// INPUTS ferry 3.1: rows sit 14 apart now that two rows are gone; a short card gives that up first, down to today's 8, and only then the rows give up height (down to a 30 pt floor).
+    static let gap: CGFloat = 14, minGap: CGFloat = 8, rowIdeal: CGFloat = 44, rowFloor: CGFloat = 30, sourcesH: CGFloat = 30, midiH: CGFloat = 30, toggleH: CGFloat = 26
     static let labelColumn: CGFloat = 50
-    static let rows = 5
+    static let rows = 4
 }
-struct EuclideousPoolTabLayout: Equatable {
-    var nowH: CGFloat, sourcesH: CGFloat, canonH: CGFloat, freezeH: CGFloat, sustainH: CGFloat
+struct EuclideousInputsTabLayout: Equatable {
+    var nowH: CGFloat, sourcesH: CGFloat, midiH: CGFloat, canonH: CGFloat
     var gap: CGFloat
     /// false when even the floors do not fit (the body then scrolls; no row is squeezed under 30 pt).
     var fits: Bool
-    var heights: [CGFloat] { [nowH, sourcesH, canonH, freezeH, sustainH] }
+    var heights: [CGFloat] { [nowH, sourcesH, midiH, canonH] }
 }
-/// NOW, SOURCES, CANON, FREEZE, SUSTAIN at 44 / 30 / 44 / 44 / 44, sp8 apart, giving up height down to a 30 pt floor evenly when the body is short; whole points left over go to the rows below their ideal, top down.
-func euclideousPoolTabLayout(contentAreaH: CGFloat) -> EuclideousPoolTabLayout {
+/// NOW, SOURCES, MIDI, CANON at 44 / 30 / 30 / 44, sp14 apart; a short body shrinks the gaps to 8 first, then the rows give up height evenly down to a 30 pt floor, whole points left over going to the rows below their ideal, top down.
+func euclideousInputsTabLayout(contentAreaH: CGFloat) -> EuclideousInputsTabLayout {
     typealias M = EuclideousPoolTabMetrics
-    let ideals: [CGFloat] = [M.rowIdeal, M.sourcesH, M.rowIdeal, M.rowIdeal, M.rowIdeal]
-    let floors: [CGFloat] = [M.rowFloor, M.rowFloor, M.rowFloor, M.rowFloor, M.rowFloor]
-    let avail = contentAreaH - CGFloat(M.rows - 1) * M.gap
+    let ideals: [CGFloat] = [M.rowIdeal, M.sourcesH, M.midiH, M.rowIdeal]
+    let floors: [CGFloat] = [M.rowFloor, M.rowFloor, M.rowFloor, M.rowFloor]
+    let gaps = CGFloat(M.rows - 1)
+    let idealSum = ideals.reduce(0, +)
+    if contentAreaH - idealSum >= gaps * M.gap {
+        return EuclideousInputsTabLayout(nowH: ideals[0], sourcesH: ideals[1], midiH: ideals[2], canonH: ideals[3], gap: M.gap, fits: true)
+    }
+    let gap = max(M.minGap, ((contentAreaH - idealSum) / gaps).rounded(.down))
+    let avail = contentAreaH - gaps * gap
     let floorSum = floors.reduce(0, +)
     let room = zip(ideals, floors).map { $0 - $1 }
     let extra = avail - floorSum
@@ -11098,13 +11122,13 @@ func euclideousPoolTabLayout(contentAreaH: CGFloat) -> EuclideousPoolTabLayout {
         var i = 0
         while left > 0 && i < h.count { if h[i] < ideals[i] { h[i] += 1; left -= 1 }; i += 1 }
     }
-    return EuclideousPoolTabLayout(nowH: h[0], sourcesH: h[1], canonH: h[2], freezeH: h[3], sustainH: h[4], gap: M.gap, fits: extra >= 0)
+    return EuclideousInputsTabLayout(nowH: h[0], sourcesH: h[1], midiH: h[2], canonH: h[3], gap: gap, fits: extra >= 0)
 }
 
-// ── 2.6 THE TAB STRIP'S POOL GLYPH ───────────────────────────────────────────────────────────────────────────────────────
-/// A lane's POOL pip is lit when its CANON delay or FREEZE is not 0, its SUSTAIN is on, or any of its SOURCES toggles is off.
-func euclideousPoolGlyphLit(_ line: EuclidLine) -> Bool {
-    line.chordDelayResolved != 0 || line.poolHoldResolved != 0 || line.poolSustainOnResolved || line.poolSrcMaskResolved != euclideousPoolSrcAll
+// ── 3.7 THE TAB STRIP'S INPUTS GLYPH ─────────────────────────────────────────────────────────────────────────────────────
+/// INPUTS ferry 3.7: a lane's INPUTS pip is lit when its CANON delay is not 0, any of its SOURCES chips is off, or its MIDI mode (the lane's own, else the document's resolved plan mode) is not ADD. FREEZE, SUSTAIN and SLIP no longer light it: they are gone.
+func euclideousPoolGlyphLit(_ line: EuclidLine, planMode: MidiMode = .add) -> Bool {
+    line.chordDelayResolved != 0 || line.poolSrcMaskResolved != euclideousPoolSrcAll || euclideousLaneMidiMode(line.midiMode, planMode: planMode) != .add
 }
 
 // ── §9 VOICEOVER WORDS ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -11115,7 +11139,7 @@ func euclideousPoolNowSpoken(names: [String]) -> String { names.isEmpty ? "empty
 let euclideousPoolSourceNames = ["MIDI in", "Chords 1", "Pick", "Key", "Chords 2"]
 /// The left-to-right order of the five SOURCES toggles, as bits: MIDI IN · CHORD 1 · CHORD 2 · PICK · KEY (the sources panel's order, its CHORDS split in two).
 let euclideousPoolSourceOrder = [0, 1, 4, 2, 3]
-func euclideousPoolSourceValue(on: Bool, panelOn: Bool) -> String { (on ? "on" : "off") + (panelOn ? "" : ", off in sources") }
+func euclideousPoolSourceValue(on: Bool) -> String { on ? "on" : "off" }
 /// 9.3: a SUSTAIN mode button, "Sustain keep, lane 2, takes nothing new" (", off" when the row is off). The lane is part of the name: four cards carry the same row.
 func euclideousSustainModeSpoken(mode: EuclideousSustainMode, rowOn: Bool, lane: Int) -> String {
     let what = mode == .keep ? "takes nothing new" : "loses nothing"
@@ -11222,3 +11246,23 @@ func euclideousRankChips(sortedPool: [Int], litMask: UInt8, sources: [UInt8], na
     return chips
 }
 
+
+// MARK: - INPUTS tab: the MIDI row (ferry 2026-11-06 §3.4, §7.6)
+enum EuclideousInputsMidiRow {
+    static let segmentH: CGFloat = 28, readoutW: CGFloat = 44
+}
+/// §3.4: a MIDI segment's text; §7.6: its spoken name.
+func euclideousInputsMidiModeLabel(_ mode: MidiMode) -> String { mode.rawValue }
+func euclideousInputsMidiModeSpoken(_ mode: MidiMode) -> String { mode == .add ? "Add" : (mode == .replace ? "Replace" : "Root") }
+/// §3.4: the readout beside the MIDI segments — in ROOT the lane's applied transpose, signed ("+2", "0", "−5" with a true minus), bright (#F2F4F7) when not 0 and dim (#5C626C) at 0; in ADD and REPLACE a dim "–". `spoken` is nil outside ROOT (hidden from VoiceOver).
+struct EuclideousRootReadout: Equatable {
+    var text: String
+    var bright: Bool
+    var spoken: String?
+}
+func euclideousInputsRootReadout(mode: MidiMode, t: Int) -> EuclideousRootReadout {
+    guard mode == .root else { return EuclideousRootReadout(text: "\u{2013}", bright: false, spoken: nil) }
+    let text = t > 0 ? "+\(t)" : (t < 0 ? "\u{2212}\(-t)" : "0")
+    let spoken = t > 0 ? "Root transpose, plus \(t)" : (t < 0 ? "Root transpose, minus \(-t)" : "Root transpose, zero")
+    return EuclideousRootReadout(text: text, bright: t != 0, spoken: spoken)
+}

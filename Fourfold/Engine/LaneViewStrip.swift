@@ -151,9 +151,9 @@ func euclideousLaneStripShape(_ tab: EuclideousPageTab) -> EuclideousGlyphShape 
     switch tab { case .riff: return .square; case .notes: return .bar; case .pool, .listen: return .circle; case .rhythm, .mix: return .none }
 }
 /// The four lanes' glyph states for a tab — one call of the clarity pass's glyph-state function per lane (`euclideousTabGlyph`, Derivations.swift), never a second derivation. Empty for RHYTHM and MIX.
-func euclideousLaneStripGlyphs(tab: EuclideousPageTab, lines: [EuclidLine]) -> [EuclideousTabGlyph] {
+func euclideousLaneStripGlyphs(tab: EuclideousPageTab, lines: [EuclidLine], planMode: MidiMode = .add) -> [EuclideousTabGlyph] {
     guard let kind = tab.front, euclideousLaneStripShape(tab) != .none else { return [] }
-    return (0..<4).map { lane in euclideousTabGlyph(tab: kind, line: lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all), lane: lane) }
+    return (0..<4).map { lane in euclideousTabGlyph(tab: kind, line: lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all), lane: lane, planMode: planMode) }
 }
 /// How one strip glyph draws: filled in a lane's colour (`filledLane`: its own lane, or — LISTEN following a source — the source's), or a 1 pt inner outline with no fill (#8A909A on the selected segment, #4A4E57 on an unselected one).
 struct EuclideousLaneStripGlyphLook: Equatable {

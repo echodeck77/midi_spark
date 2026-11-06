@@ -65,7 +65,6 @@ struct FourfoldRootView: View {
     var euclideousMaskPositions: [Int] { get { m.euclideousMaskPositions } nonmutating set { m.euclideousMaskPositions = newValue } }
     var euclideousRiffLivePool: [UInt8] { get { m.euclideousRiffLivePool } nonmutating set { m.euclideousRiffLivePool = newValue } }
     var euclideousSourceStatus: Router.EuclideousSourceStatus { get { m.euclideousSourceStatus } nonmutating set { m.euclideousSourceStatus = newValue } }
-    var euclideousPoolHoldStatus: [EuclideousPoolHoldLaneStatus] { get { m.euclideousPoolHoldStatus } nonmutating set { m.euclideousPoolHoldStatus = newValue } }
     var euclideousLanePools: [EuclideousLanePoolNotes] { get { m.euclideousLanePools } nonmutating set { m.euclideousLanePools = newValue } }
     var euclideousAnswerPhases: [Bool] { get { m.euclideousAnswerPhases } nonmutating set { m.euclideousAnswerPhases = newValue } }   // ANSWER (2026-11-02): which lanes are in phase B (changes once a unit — the only part of the status the page itself reads)
     var euclideousLanesSeqStep: Int { get { m.euclideousLanesSeqStep } nonmutating set { m.euclideousLanesSeqStep = newValue } }
@@ -167,7 +166,6 @@ struct FourfoldRootView: View {
                                                // `onSwing` call site exactly).
                                                swing: swing, onSetSwing: { au?.setSwing($0); refreshTiming() },
                                                noteSource: euclideousNoteSource, sourceStatus: euclideousSourceStatus,
-                                               poolHoldStatus: euclideousPoolHoldStatus,
                                                answerPhases: euclideousAnswerPhases, lanePools: euclideousLanePools, answerLive: meters.answer,
                                                sourcePlan: euclideousSourcePlanResolvedUI,
                                                onToggleSourceCell: { kp in   // SOURCES STACK ferry (2026-10-26): flip one cell, undo like a source switch (§1.7); writes the plan, never the legacy source
@@ -937,8 +935,6 @@ struct FourfoldRootView: View {
     meters.emitterVel.update(packed: au.pollEmitterVelIndexPacked(), running: d.effectivePlaying)   // VELOCITY tab (2026-11-03): each output's velocity-pattern index, same poll
     let ss = au.pollEuclideousSourceStatus()   // SOURCES STACK: lane-1 source status on the existing 30 Hz poll (no new timer)
     if ss != euclideousSourceStatus { euclideousSourceStatus = ss }
-    let phs = au.pollEuclideousPoolHoldStatus()   // POOL HOLD (FREEZE): each lane's running hold (dim + draining bar), same 30 Hz poll
-    if phs != euclideousPoolHoldStatus { euclideousPoolHoldStatus = phs }
     let ans = au.pollEuclideousAnswerStatus()   // ANSWER: each lane's running cycle (the CYCLE row's phase bar), same 30 Hz poll
     let lps = au.pollEuclideousLanePoolStatus()   // ANSWER: each lane's pool as it is choosing from it (the POOL tab's NOW row), same 30 Hz poll
     meters.answer.update(status: ans, pools: lps)   // leaf views observe this; the page body does not
@@ -1139,7 +1135,6 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousSourceStatus = Router.EuclideousSourceStatus()
     @Published var euclideousAnswerPhases = [Bool](repeating: false, count: 4)   // ANSWER (2026-11-02): lanes in phase B
     @Published var euclideousLanePools = [EuclideousLanePoolNotes](repeating: EuclideousLanePoolNotes(), count: 4)   // POOL (2026-11-02): each lane's pool for the NOTES keys — changes with a pool, not with every hit
-    @Published var euclideousPoolHoldStatus = [EuclideousPoolHoldLaneStatus](repeating: EuclideousPoolHoldLaneStatus(), count: 4)   // POOL HOLD (FREEZE, 2026-11-01)
     @Published var euclideousLanesSeqStep: Int = -1
     @Published var euclideousRiffsSeqStep: Int = -1
     @Published var euclideousWipeEvent: [Router.EuclideousNoteViewEventSnapshot?] = [nil, nil, nil, nil]

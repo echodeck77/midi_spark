@@ -1,5 +1,5 @@
-//  PoolHoldTests.swift — POOL HOLD ferry (FREEZE, 2026-11-01): a lane keeps its taken note pool for n bars (or LOCK),
-//  ignoring changes, then takes whatever the pool is now (skip, never queue). Mirrors ChordCanonTests' harness: four
+//  PoolHoldTests.swift — POOL HOLD ferry (FREEZE, 2026-11-01), as the INPUTS ferry (2026-11-06) left it: the engine no longer reads FREEZE or SLIP (their fields stay), so the engine tests assert they change nothing;
+//  the pure gate stays tested. Originally: a lane keeps its taken note pool for n bars (or LOCK), ignoring changes, then takes whatever the pool is now (skip, never queue). Mirrors ChordCanonTests' harness: four
 //  chords a bar (I IV V vi of C natural minor), a lane that hits once a beat on rank 1 of a flat riff, so each hit
 //  plays the ROOT of the chord the lane is reading at that beat. The pure gate (`poolHoldGate`) and the real engine.
 
@@ -98,61 +98,24 @@ final class PoolHoldTests: XCTestCase {
         XCTAssertEqual(poolHoldGate(hold: 9, boundariesSinceTake: 5, atBoundary: true, delayedDiffers: true), .keep)
     }
 
-    // MARK: - §5.3 skip, not queue
+    // MARK: - INPUTS ferry 1.4 / test 7 — FREEZE is no longer read by the engine
 
-    func testSkipNotQueue() {
-        let box = SnapshotBuilder.build(from: state([lane(), lane(hold: 2)]))
-        let e = run(beats: 32, boxAt: { _ in box })
-        XCTAssertEqual(notes(e, cable: 1, beats: 32), heldPerBeat(beats: 32, hold: 1), "lane 1 (HOLD 0) follows every bar")
-        XCTAssertEqual(notes(e, cable: 2, beats: 32), heldPerBeat(beats: 32, hold: 2), "lane 2 (HOLD 2) changes chord every OTHER bar, playing whatever is current when it does")
+    /// A lane with FREEZE 2 bars, or LOCK, plays exactly as the same lane with FREEZE 0: the field is kept, nothing reads it.
+    func testFreezeNoLongerHoldsAnything() {
+        let off = SnapshotBuilder.build(from: state([lane(), lane(delay: 1, hold: 0)], unit: .bars))
+        for hold in [2, 9] {
+            let on = SnapshotBuilder.build(from: state([lane(hold: hold), lane(delay: 1, hold: hold)], unit: .bars))
+            XCTAssertEqual(run(beats: 24, boxAt: { _ in on }).events, run(beats: 24, boxAt: { _ in off }).events, "FREEZE \(hold): ignored")
+        }
+        let e = run(beats: 24, boxAt: { _ in off })
+        XCTAssertEqual(notes(e, cable: 1, beats: 24), heldPerBeat(beats: 24, hold: 1), "…and the lane follows every bar, as a lane with no FREEZE always did")
     }
 
-    // MARK: - §5.4 nothing to take
-
-    func testNothingToTake() {
-        // C C C F: lane 2 HOLD 2 takes C at bar 1, the hold ends at bar 3 with no take (still C), takes F at bar 4 as it changes.
-        var cs = MachineParams(); cs.chordsDegrees = [0, 0, 0, 3]; cs.chordsSteps = 4; cs.chordsRate = .r1_1
-        var st = state([lane(), lane(hold: 2)]); st.euclideousChordSets = [cs, MachineParams(), MachineParams(), MachineParams()]
-        let box = SnapshotBuilder.build(from: st)
-        let e = run(beats: 16, boxAt: { _ in box })
-        let l2 = notes(e, cable: 2, beats: 16)
-        let rootC = root(0), rootF = diatonicChord(degree: 3, scaleTones: ScaleType.naturalMinor.intervals, rootNote: 48, voicing: cs.chordsVoicingResolved, spread: cs.chordsSpreadResolved).min()!
-        for b in 0..<12 { XCTAssertEqual(l2[b], rootC, "beat \(b): bars 1–3 are all C (no take at bar 3, nothing changed)") }
-        for b in 12..<16 { XCTAssertEqual(l2[b], rootF, "beat \(b): bar 4 takes F as the chord changes") }
-    }
-
-    // MARK: - §5.5 delay then hold
-
-    func testDelayThenHold() {
-        // Lane with DELAY 1 and HOLD 2: it changes a bar late AND then only every other bar.
-        let box = SnapshotBuilder.build(from: state([lane(delay: 1, hold: 2)], unit: .bars))
-        let e = run(beats: 24, boxAt: { _ in box })
-        XCTAssertEqual(notes(e, cable: 1, beats: 24), heldPerBeat(beats: 24, hold: 2, delayBars: 1))
-    }
-
-    // MARK: - §5.7 LOCK, then release
-
-    func testLockHoldsThenReleasesAtBoundary() {
-        let locked = SnapshotBuilder.build(from: state([lane(hold: 9)]))
-        let released = SnapshotBuilder.build(from: state([lane(hold: 0)]))
-        // Locked throughout, then set to 0 during bar 5 (curBar 4, beat 17): holds C until bar 6 (curBar 5, beat 20), takes the current chord there.
-        let e = run(beats: 32, boxAt: { $0 < 17 ? locked : released })
-        let l = notes(e, cable: 1, beats: 32)
-        for b in 0..<20 { XCTAssertEqual(l[b], root(0), "beat \(b): locked on the first chord through bar 6's start") }
-        XCTAssertEqual(l[20], root(5), "beat 20 (bar 6 start): takes the current chord when the lock is released")
-        XCTAssertEqual(l[24], root(6), "beat 24: HOLD 0 now — follows the progression")
-    }
-
-    // MARK: - §5.9 transport restart clears the hold
-
-    func testTransportRestartClearsHold() {
-        let box = SnapshotBuilder.build(from: state([lane(hold: 9)]))   // locked
-        // Play 0…9 beats (locks onto C), stop for one window near beat 10, restart: the old hold is gone, it re-takes the current pool.
-        let e = run(beats: 24, boxAt: { _ in box }, playingAt: { $0 < 10 || $0 >= 12 })
-        let l = notes(e, cable: 1, beats: 24)
-        XCTAssertEqual(l[0], root(0), "locks onto the first chord")
-        // after the restart the lane is not frozen on the old bar-0 chord forever: by the time it re-locks it is on the live chord of its first post-restart bar
-        XCTAssertNotNil(l[16 ..< 24].first(where: { $0 >= 0 }), "the lane still sounds after a restart")
+    /// The same for SLIP: a document that sets it plays as if it were 0.
+    func testSlipNoLongerShiftsAnything() {
+        var slipped = lane(delay: 1); slipped.chordSlip = 50
+        let on = SnapshotBuilder.build(from: state([slipped], unit: .bars)), off = SnapshotBuilder.build(from: state([lane(delay: 1)], unit: .bars))
+        XCTAssertEqual(run(beats: 24, boxAt: { _ in on }).events, run(beats: 24, boxAt: { _ in off }).events)
     }
 
     // MARK: - §5.1 byte-identity at HOLD 0
@@ -173,36 +136,5 @@ final class PoolHoldTests: XCTestCase {
         let data = try JSONEncoder().encode(l)
         let back = try JSONDecoder().decode(EuclidLine.self, from: data)
         XCTAssertEqual(back.poolHoldResolved, 9, "round-trips")
-    }
-
-    // MARK: - §5.12 status fraction
-
-    func testStatusFractionDrainsOverTheHold() {
-        // A 4-bar hold: at the start ≈ 1, partway down, 0 at the end. We sample the live status via a dedicated Router.
-        let box = SnapshotBuilder.build(from: state([lane(hold: 4)]))
-        let router = Router(); var diag = KernelDiag(); let e = HoldEmitter(); let p = NotePool()
-        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048; var ts = 0.0
-        func beatNow() -> Double { ts * tempo / 60.0 / sr }
-        var fracAtBeat: [Int: Double] = [:]
-        while beatNow() < 16 {
-            router.process(box: box, pool: p, playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
-            fracAtBeat[Int(beatNow().rounded(.down))] = router.euclideousPoolHoldStatus()[0].fraction
-            ts += Double(frames)
-        }
-        XCTAssertTrue(router.euclideousPoolHoldStatus()[0].running || true)   // the final sample
-        // near the start the fraction is high; by bar 3 it is low; it never leaves 0…1.
-        XCTAssertGreaterThan(fracAtBeat[0] ?? 0, 0.6, "near the start the bar is nearly full")
-        XCTAssertLessThan(fracAtBeat[14] ?? 1, 0.3, "near the end it has drained")
-        for (_, f) in fracAtBeat { XCTAssertTrue(f >= 0 && f <= 1, "fraction stays in 0…1") }
-    }
-
-    func testLockStatusReportsLocked() {
-        let box = SnapshotBuilder.build(from: state([lane(hold: 9)]))
-        let router = Router(); var diag = KernelDiag(); let e = HoldEmitter(); let p = NotePool()
-        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048; var ts = 0.0
-        for _ in 0..<20 { router.process(box: box, pool: p, playing: true, beatPos: ts * tempo / 60.0 / sr, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag); ts += Double(frames) }
-        let s = router.euclideousPoolHoldStatus()[0]
-        XCTAssertTrue(s.running && s.locked, "LOCK reports locked")
-        XCTAssertEqual(s.fraction, 0, "a lock shows no draining bar")
     }
 }

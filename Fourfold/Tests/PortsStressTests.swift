@@ -225,16 +225,16 @@ final class PortsStressTests: XCTestCase {
                                           soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]
     }
-    /// POOL ferry (2026-11-02): per-lane SOURCES (any of the 16 masks, none included) and SUSTAIN (on / KEEP / STACK) from their OWN stream. `off`: draw the same values, store neither — the control for "do they reach the wire".
+    /// POOL ferry (2026-11-02): per-lane SOURCES (any of the 16 masks, none included) from their OWN stream, and — INPUTS ferry, 2026-11-06 — each lane's own MIDI mode (ADD / REPLACE / ROOT, or none: the document's). `off`: draw the same values, store neither — the control for "do they reach the wire".
     private func repool(_ st: inout PluginState, _ k: inout SM64, off: Bool = false) {
         var ls = st.euclideousLinesResolved
         for i in 0..<ls.count {
             var mask = UInt8.random(in: 0...15, using: &k)
-            let on = Int.random(in: 0...1, using: &k) == 0, stack = Bool.random(using: &k)
+            let laneMode = [MidiMode?.none, .add, .replace, .root].randomElement(using: &k)!
             // TWO CHORD GRIDS (2026-11-03): half the CHORDS-on masks read grid 2 (bit 4 instead of bit 1) — the draw comes AFTER the existing ones
             if Bool.random(using: &k), mask & 0b0010 != 0 { mask = (mask & ~0b0010) | 0b10000 }
             ls[i].poolSrcMask = off || mask == 0b01111 ? nil : mask
-            ls[i].poolSustainOn = off ? nil : on; ls[i].poolSustainMode = stack ? .stack : .keep
+            ls[i].midiMode = off ? nil : laneMode
         }
         // …and a second progression of its own (any length 1…16, rate, rests, borrowed degrees), so grid 2 sounds nothing like grid 1
         var g2 = MachineParams()
@@ -440,10 +440,9 @@ final class PortsStressTests: XCTestCase {
         var kc = SM64(seed ^ 0xCA70_C4A0_0001)     // CHORD CANON ferry: the delays, slips, unit and entry draw from their OWN stream, so every pinned fingerprint (no canon) stays exactly what it was
         var h = SM64(seed ^ 0x0A7C_0FFE_E000)      // CARD BACKS v2: the out-transposes draw from their OWN stream, so the pinned fingerprints (no out-transpose) stay exactly what they were
         var oc = SM64(seed ^ 0x0C7A_5E00_0000)     // MIDI IN OCTAVES / ROOT ferry: the OCTAVES choice and the MODE (ADD / REPLACE / ROOT) draw from their OWN stream, so every pinned fingerprint (KEEP, the document's own mode) stays exactly what it was
-        var pl = SM64(seed ^ 0x0900_1500_7A11)     // POOL ferry: the per-lane sources, SUSTAIN and the pedal draw from their OWN stream, so every pinned fingerprint (no POOL fields, no pedal) stays exactly what it was
+        var pl = SM64(seed ^ 0x0900_1500_7A11)     // POOL ferry: the per-lane sources and MIDI modes draw from their OWN stream, so every pinned fingerprint (no POOL fields) stays exactly what it was
         var mu = SM64(seed ^ 0x4D17_E000_0003)     // MUTE TAB ferry: the per-output mutes draw from their OWN stream, so every pinned fingerprint (no output mutes) stays exactly what it was
         var vx = SM64(seed ^ 0x7E10_C17E_0003)     // VELOCITY tab ferry: the per-output velocity accents draw from their OWN stream, so every pinned fingerprint (no accents) stays exactly what it was
-        var pedalDown = false, pedalSeq: UInt32 = 0
         let router = Router()
         var rolls: [NoteRollRecord] = [], winParams: [(beat: Double, ts: Double)] = []
         var diag = KernelDiag()
@@ -479,8 +478,7 @@ final class PortsStressTests: XCTestCase {
             if canon, kc.next() % 3 == 0 { recanon(&st, &kc, off: canonOff); box = SnapshotBuilder.build(from: st) }   // CHORD CANON: a DELAY / SLIP / UNIT edited while notes sound
             if octaves, oc.next() % 3 == 0 { reoctaves(&st, &oc, off: octavesOff); box = SnapshotBuilder.build(from: st) }
             if answer, an.next() % 3 == 0 { reanswer(&st, &an, off: answerOff); box = SnapshotBuilder.build(from: st) }   // ANSWER: a switch, a CYCLE, a TRADE or EACH / UNIT edited while notes — and traded notes — sound   // MIDI IN OCTAVES / ROOT: the choice or the mode flipped while notes sound
-            if poolFeature, pl.next() % 3 == 0 { repool(&st, &pl, off: poolOff); box = SnapshotBuilder.build(from: st) }   // POOL: a source toggled or SUSTAIN switched / changed mode while notes sound
-            if poolFeature, pl.next() % 3 == 0 { pedalDown.toggle(); if pedalDown { pedalSeq &+= 1 } }   // the pedal moves between windows
+            if poolFeature, pl.next() % 3 == 0 { repool(&st, &pl, off: poolOff); box = SnapshotBuilder.build(from: st) }   // POOL: a source toggled or a lane's MIDI mode changed while notes sound
             if mutes, mu.next() % 3 == 0 { st.euclideousOutputMutes = rMutes(&mu, off: mutesOff); box = SnapshotBuilder.build(from: st) }   // MUTE TAB: an output's cells or pass size edited (a jack muted/unmuted) while notes — and deferred strikes — sound
             if poly, q.next() % 3 == 0 { repoly(&st, &q, modeOff: polyModeOff); box = SnapshotBuilder.build(from: st) }   // POLY RIFF: the grid edited — notes added, stretched, removed, the mode flipped — while notes (and their long tails) sound
             if Int.random(in: 0...2, using: &g) == 0 {   // busChannels change mid-note
@@ -523,7 +521,6 @@ final class PortsStressTests: XCTestCase {
             router.process(box: box, pool: pool, playing: playing, beatPos: beat, tempo: tempo,
                            sampleRate: sr, timestampSample: ts, frameCount: frames, laneMask: laneMask,
                            panic: panic, euclideousAllNotesOff: allOff, euclideousSoloLive: liveSolo,
-                           sustainPedalDown: pedalDown, sustainDownSeq: pedalSeq,
                            out: e, diag: &diag)
             rolls += router.rollRing.drain()
             maxActive = max(maxActive, diag.activeVoiceCount)
@@ -696,15 +693,15 @@ final class PortsStressTests: XCTestCase {
         }
         XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with ANSWER on — its rows are not reaching the wire")
     }
-    // POOL ferry (2026-11-02): per-lane SOURCES masks, SUSTAIN (KEEP / STACK) and the pedal drawn at random AND moved mid-note, on top of the full random document: nothing strands (a note ends at the pitch it started on whatever a KEEP copy or a STACK
-    // union does to the pool), no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
+    // POOL ferry (2026-11-02) / INPUTS ferry (2026-11-06): per-lane SOURCES masks and per-lane MIDI modes (ADD / REPLACE / ROOT) drawn at random AND changed mid-note, on top of the full random document: nothing strands (a note ends at the pitch it started on whatever a REPLACE or a latched ROOT transpose
+    // does to the pool), no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
     func testPoolSessionsHoldEveryInvariant() {
         for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 1_100_000, windows: 24, pool: true) { XCTFail(msg); return } }
     }
     func testPoolSessionsAtGate100() {
         for s in 1...200 { if let msg = runSession(seed: UInt64(s) &+ 1_110_000, windows: 24, rawGates: true, pool: true) { XCTFail(msg); return } }
     }
-    /// The invariant fuzz passes whether or not the sources or the pedal ever reach the wire: compare each session with the SAME draws stored without any lane SOURCES / SUSTAIN — most must differ.
+    /// The invariant fuzz passes whether or not the sources or the MIDI modes ever reach the wire: compare each session with the SAME draws stored without any lane SOURCES / MIDI mode — most must differ.
     func testPoolSessionsReallyChangeTheNotesOnTheWire() {
         var differing = 0, total = 0
         for s in 1...120 {
@@ -713,7 +710,7 @@ final class PortsStressTests: XCTestCase {
             XCTAssertNil(runSession(seed: seed, windows: 24, pool: true, poolOff: true)); let off = lastSessionHash
             total += 1; if on != off { differing += 1 }
         }
-        XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with per-lane sources / SUSTAIN on — they are not reaching the wire")
+        XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with per-lane sources / MIDI modes on — they are not reaching the wire")
     }
     // MUTE TAB ferry (2026-11-02): four random per-output mutes (random 16-bit patterns + 1…8 pass sizes) drawn at random AND edited mid-note (a jack muted / unmuted, a pass size changed), on top of the full random document: nothing strands
     // (the gate drops note-ONS only; offs always fire), no orphan off, each message on its output's channel, ALL = the union of the UNMUTED outputs, every wire note-on has a roll record. Random routing + random swing + deferred strikes are in the mix.

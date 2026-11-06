@@ -47,10 +47,6 @@ final class PoolTabPureTests: XCTestCase {
         XCTAssertFalse(euclideousLaneSourcePlan(off, mask: 0b11101).chordsOnR, "…and the sources panel's CHORDS switch is the master for both grids")
         XCTAssertFalse(euclideousLaneSourcePlan(plan, mask: 0b11100).midiOnR); XCTAssertTrue(euclideousLaneSourcePlan(plan, mask: 0b10000).chordsOnR)
     }
-    func testASourceOffInThePanelDrawsItsToggleAt40Percent() {
-        XCTAssertEqual(euclideousLaneSourceToggleOpacity(panelOn: true), 1); XCTAssertEqual(euclideousLaneSourceToggleOpacity(panelOn: false), 0.4)
-    }
-
     // MARK: 6–9 — the SUSTAIN gate
     private struct Lane {
         var s = EuclideousSustainLaneState()
@@ -205,39 +201,46 @@ final class PoolTabPureTests: XCTestCase {
         XCTAssertEqual(euclideousPickedLaneNext(3), 0); XCTAssertEqual(euclideousPickedLaneNext(-1), 0); XCTAssertEqual(euclideousPickedLaneNext(9), 2)
     }
 
-    // MARK: 13 — the tab's layout
-    func testPoolTabHeightsAtTheReferenceCardsAndShorterOnes() {
+    // MARK: 13 — the tab's layout (INPUTS ferry 3.1: NOW · SOURCES · MIDI · CANON, sp14 giving way to 8, then the rows to a 30 pt floor)
+    func testInputsTabHeightsAtTheReferenceCardsAndShorterOnes() {
         for h in [229.0, 229.67] {
-            let l = euclideousPoolTabLayout(contentAreaH: CGFloat(h))
+            let l = euclideousInputsTabLayout(contentAreaH: CGFloat(h))
             XCTAssertTrue(l.fits)
-            XCTAssertEqual(l.heights.reduce(0, +) + 4 * l.gap, CGFloat(h).rounded(.down), accuracy: 0.5, "body \(h): the five rows and four gaps fill every whole point of it")
-            XCTAssertTrue(l.heights.allSatisfy { $0 >= 30 }, "no row under 30 pt")
-            XCTAssertEqual(l.sourcesH, 30, "SOURCES is 30 (its toggles 26)")
-            XCTAssertLessThanOrEqual(l.nowH, 44)
+            XCTAssertEqual(l.heights, [44, 30, 30, 44], "body \(h): the four rows are at their ideals")
+            XCTAssertEqual(l.gap, 14, "…sp14 apart (190 of the \(h) pt)")
+            XCTAssertLessThanOrEqual(l.heights.reduce(0, +) + 3 * l.gap, CGFloat(h))
         }
-        XCTAssertEqual(euclideousPoolTabLayout(contentAreaH: 229).heights, [42, 30, 42, 42, 41])
-        let tall = euclideousPoolTabLayout(contentAreaH: 400); XCTAssertEqual(tall.heights, [44, 30, 44, 44, 44], "ideals at most")
-        let mini = euclideousPoolTabLayout(contentAreaH: 193); XCTAssertTrue(mini.fits); XCTAssertTrue(mini.heights.allSatisfy { $0 >= 30 })
-        let short = euclideousPoolTabLayout(contentAreaH: 150); XCTAssertFalse(short.fits); XCTAssertEqual(short.heights, [30, 30, 30, 30, 30], "never squeezed under the floor")
-        XCTAssertTrue(euclideousPoolTabLayout(contentAreaH: 182).fits, "five 30 pt rows and four gaps = 182")
+        let edge = euclideousInputsTabLayout(contentAreaH: 190); XCTAssertEqual(edge.gap, 14); XCTAssertEqual(edge.heights, [44, 30, 30, 44]); XCTAssertTrue(edge.fits)
+        let mini = euclideousInputsTabLayout(contentAreaH: 168)   // the gap gives way first: 148 of rows + 3 × 8 = 172 > 168, so a row gives up height, never the gap below 8
+        XCTAssertTrue(mini.fits); XCTAssertEqual(mini.gap, 8); XCTAssertTrue(mini.heights.allSatisfy { $0 >= 30 })
+        XCTAssertEqual(mini.heights.reduce(0, +) + 3 * mini.gap, 168, accuracy: 0.5)
+        let gapShrinks = euclideousInputsTabLayout(contentAreaH: 175); XCTAssertEqual(gapShrinks.heights, [44, 30, 30, 44]); XCTAssertEqual(gapShrinks.gap, 9, "the gap is the only thing to give: 27 pt of 3 gaps")
+        let eight = euclideousInputsTabLayout(contentAreaH: 172); XCTAssertEqual(eight.gap, 8); XCTAssertEqual(eight.heights, [44, 30, 30, 44])
+        let short = euclideousInputsTabLayout(contentAreaH: 130); XCTAssertFalse(short.fits); XCTAssertEqual(short.heights, [30, 30, 30, 30], "never squeezed under the floor")
+        XCTAssertTrue(euclideousInputsTabLayout(contentAreaH: 144).fits, "four 30 pt rows and three gaps of 8 = 144")
+        XCTAssertFalse(euclideousInputsTabLayout(contentAreaH: 143).fits)
     }
 
-    // MARK: 2.6 / §9
-    func testThePoolGlyphLightsForDelayHoldSustainOrAnySourceOff() {
+    // MARK: 3.7 / §9
+    func testTheInputsGlyphLightsForDelayAnySourceOffOrAMidiModeThatIsNotAdd() {
         var l = EuclidLine(); XCTAssertFalse(euclideousPoolGlyphLit(l))
         l.chordDelay = 1; XCTAssertTrue(euclideousPoolGlyphLit(l)); l.chordDelay = 0
-        l.poolHold = 2; XCTAssertTrue(euclideousPoolGlyphLit(l)); l.poolHold = 0
-        l.poolSustainOn = true; XCTAssertTrue(euclideousPoolGlyphLit(l)); l.poolSustainOn = false
-        XCTAssertFalse(euclideousPoolGlyphLit(l), "a remembered mode alone lights nothing")
+        l.poolHold = 2; l.poolSustainOn = true; l.chordSlip = 30
+        XCTAssertFalse(euclideousPoolGlyphLit(l), "FREEZE, SUSTAIN and SLIP are gone: they light nothing")
+        l.poolHold = 0; l.poolSustainOn = false; l.chordSlip = 0
         l.setPoolSrc(1, false); XCTAssertTrue(euclideousPoolGlyphLit(l)); l.setPoolSrc(1, true); XCTAssertFalse(euclideousPoolGlyphLit(l))
-        XCTAssertTrue(euclideousTabGlyph(tab: .pool, line: { var x = EuclidLine(); x.poolSustainOn = true; return x }(), lane: 0).on)
+        l.midiMode = .replace; XCTAssertTrue(euclideousPoolGlyphLit(l)); l.midiMode = .root; XCTAssertTrue(euclideousPoolGlyphLit(l))
+        l.midiMode = .add; XCTAssertFalse(euclideousPoolGlyphLit(l), "an explicit ADD lights nothing")
+        l.midiMode = nil
+        XCTAssertFalse(euclideousPoolGlyphLit(l, planMode: .add)); XCTAssertTrue(euclideousPoolGlyphLit(l, planMode: .replace), "a lane with no mode of its own follows the document's, so an old REPLACE document lights every lane")
+        XCTAssertTrue(euclideousTabGlyph(tab: .pool, line: { var x = EuclidLine(); x.midiMode = .root; return x }(), lane: 0).on)
+        XCTAssertEqual(euclideousTabGlyph(tab: .pool, line: l, lane: 2, planMode: .root).on, true)
     }
     func testTheSpokenWords() {
         XCTAssertEqual(euclideousPoolNowSpoken(names: []), "empty"); XCTAssertEqual(euclideousPoolNowSpoken(names: ["C 3", "E 3"]), "C 3, E 3")
         XCTAssertEqual(euclideousPoolSourceNames, ["MIDI in", "Chords 1", "Pick", "Key", "Chords 2"])
         XCTAssertEqual(euclideousPoolSourceOrder, [0, 1, 4, 2, 3], "MIDI IN · CHORD 1 · CHORD 2 · PICK · KEY"); XCTAssertEqual(Set(euclideousPoolSourceOrder), Set(0..<5))
-        XCTAssertEqual(euclideousPoolSourceValue(on: true, panelOn: true), "on"); XCTAssertEqual(euclideousPoolSourceValue(on: false, panelOn: true), "off")
-        XCTAssertEqual(euclideousPoolSourceValue(on: true, panelOn: false), "on, off in sources")
+        XCTAssertEqual(euclideousPoolSourceValue(on: true), "on"); XCTAssertEqual(euclideousPoolSourceValue(on: false), "off")
         XCTAssertEqual(euclideousPoolPedalSpoken(down: true), "down"); XCTAssertEqual(euclideousPoolPedalSpoken(down: false), "up")
         XCTAssertEqual(euclideousRankChipGridSpoken(rank: 3, note: "E flat 3"), "Rank 3, E flat 3"); XCTAssertEqual(euclideousPickedLaneSpoken(1), "lane 2")
     }
@@ -251,11 +254,11 @@ final class PoolTabPureExtrasTests: XCTestCase {
         XCTAssertEqual(euclideousPedalLook(rowOn: true, pedalDown: false), .up); XCTAssertEqual(euclideousPedalLook(rowOn: true, pedalDown: true), .down)
     }
     func testThePageSeesOnlyTheNotesOfALanePool() {
-        var s = EuclideousLanePoolStatus(); s.count = 20; s.notes = [48, 50]; s.top2 = 90; s.top = 95; s.playedRanks = 0b101; s.pedalDown = true
+        var s = EuclideousLanePoolStatus(); s.count = 20; s.notes = [48, 50]; s.top2 = 90; s.top = 95; s.playedRanks = 0b101
         let n = EuclideousLanePoolNotes(s)
         XCTAssertEqual(n.count, 20); XCTAssertEqual(n.notes, [48, 50]); XCTAssertEqual(n.top2, 90); XCTAssertEqual(n.top, 95)
-        var t = s; t.playedRanks = 0b010; t.pedalDown = false
-        XCTAssertEqual(EuclideousLanePoolNotes(t), n, "the played ranks and the pedal are not part of what the page reads")
+        var t = s; t.playedRanks = 0b010
+        XCTAssertEqual(EuclideousLanePoolNotes(t), n, "the played ranks are not part of what the page reads")
     }
 }
 

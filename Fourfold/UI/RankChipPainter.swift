@@ -75,6 +75,11 @@ struct EuclideousRankChipView: View {
             if spec.riffDot {
                 Circle().fill(Color(h: 0xDFE3EA)).frame(width: 5, height: 5).frame(maxHeight: .infinity, alignment: .top).padding(.top, 6)
             }
+            if let src = spec.sourcePip, !isTop {   // INPUTS ferry 3.2: a 5 × 5 radius-1.5 pip in the note's source colour, inset 3 from the top and trailing edges (received notes only — an octave copy has none)
+                RoundedRectangle(cornerRadius: 1.5).fill(Color(h: EuclideousSourceColour.fill(source: src))).frame(width: 5, height: 5)
+                    .padding(.top, 3).padding(.trailing, 3)
+                    .frame(width: size.width, height: size.height, alignment: .topTrailing)
+            }
             if spec.sounding > 0 {
                 RoundedRectangle(cornerRadius: 6).strokeBorder(accent, lineWidth: 1.5).opacity(spec.sounding)
             }
