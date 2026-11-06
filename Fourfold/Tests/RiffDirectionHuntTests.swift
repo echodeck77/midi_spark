@@ -64,7 +64,6 @@ private func rankPitch(_ rank: Int, _ h: Hunt) -> UInt8? {
 }
 
 final class RiffDirectionHuntTests: XCTestCase {
-    private var setAside = 0
     private func lane(_ h: Hunt) -> EuclidLine {
         let n = h.hits.count
         var l = EuclidLine(target: 0, pulses: max(1, h.hits.filter { $0 }.count), steps: n)
@@ -180,16 +179,6 @@ final class RiffDirectionHuntTests: XCTestCase {
         if withMelody, r.bool(0.4) { h.melodyPasses = r.int(1...3) }
         return h
     }
-    /// The REPEAT + SHIFT defect (A2): REPEAT's early-out scans columns 0..<LEN, so with a SHIFT and no note in 0..<LEN the lookback answers "nothing to repeat". Trials that hit it are counted and set aside so the other trials can speak.
-    private func hitsRepeatEarlyOutBug(_ h: Hunt) -> Bool {
-        guard h.onRest == .repeatLast else { return false }
-        let len = max(1, min(8, h.length))
-        let unshiftedHasNote = (0..<len).contains { h.ranks[$0] >= 1 }
-        let windowHasNote = (0..<len).contains { h.ranks[(h.shift + $0) % 8] >= 1 }
-        return !unshiftedHasNote && windowHasNote
-    }
-    /// The TIE + ADV STEP + MELODY-restart defect (A3): the TIE lookahead ends a run at a melody restart by testing `advOrd == 0`, which under ADV STEP is only true when a hit lands exactly ON the restart tick.
-    private func hitsStepTieRestartBug(_ h: Hunt) -> Bool { h.onRest == .tie && h.step && h.melodyPasses != nil }
     private func describe(_ h: Hunt) -> String {
         "rdir \(h.rdir) melody \(h.melodyPasses.map(String.init) ?? "free") dir \(h.dir) len \(h.length) stride \(h.stride) shift \(h.shift) every \(h.every) \(h.step ? "STEP" : "HIT") onRest \(h.onRest) ranks \(h.ranks) hits \(h.hits.map { $0 ? "x" : "." }.joined()) invert \(h.invert)"
     }
@@ -198,7 +187,6 @@ final class RiffDirectionHuntTests: XCTestCase {
     /// Compare the engine's note-ons (and, with `lengths`, note-off times) of one trial with the model; returns a failure line or nil.
     private func check(_ tag: String, _ configs: [(fromTick: Int, h: Hunt)], swaps: [(sample: Int64, state: PluginState)] = [], beats: Double, lengths: Bool = false) -> String? {
         let h0 = configs[0].h
-        if configs.contains(where: { hitsRepeatEarlyOutBug($0.h) }) { setAside += 1; return nil }   // the known REPEAT + SHIFT defect (A2) — set aside, counted
         let e = run(state(h0), beats: beats, swaps: swaps)
         let ticks = Int(beats) - 1
         let want = modelOns(configs, ticks: ticks)
@@ -224,7 +212,7 @@ final class RiffDirectionHuntTests: XCTestCase {
         return nil
     }
     private func report(_ name: String, _ failures: [String], of total: Int) {
-        print("HUNT \(name): \(failures.count) of \(total) trials differ (\(setAside) set aside for the known REPEAT + SHIFT defect)")
+        print("HUNT \(name): \(failures.count) of \(total) trials differ")
         for f in failures.prefix(8) { print("HUNT \(name) FAIL " + f) }
     }
 
@@ -287,7 +275,6 @@ final class RiffDirectionHuntTests: XCTestCase {
             h.onRest = .tie
             h.ranks = h.ranks.map { $0 == 0 || r.bool(0.35) ? 0 : $0 }   // plenty of rests so ties happen
             if !h.ranks.contains(where: { $0 >= 1 }) { h.ranks[0] = 1 }
-            if hitsStepTieRestartBug(h) { setAside += 1; continue }   // the known defect, pinned by its own test below
             if let f = check("trial \(trial)", [(0, h)], beats: 46, lengths: true) { failures.append(f) }
         }
         report("C", failures, of: 300)

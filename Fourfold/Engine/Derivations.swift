@@ -6119,7 +6119,7 @@ func euclideousNextChainHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLe
     return Double(cap) * sub
 }
 /// The chain-era counterpart of `euclideousRiffTieExtensionBeats`. §4.6: a melody restart ends a TIE run (no hit
-/// moves) — `info.advOrd == 0` at a restarting pass's own first hit is exactly that, with no `locked:` special case.
+/// moves) — a hit under a later melody origin than the note's own ends the run, with no `locked:` special case.
 func euclideousChainTieExtensionBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
                                       chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
                                       riffDir: RiffDir, stride: Int, length: Int, rotate: Int, seed: UInt64, every: Int = 1, bound: Int? = nil,
@@ -6167,6 +6167,8 @@ func euclideousChainTieExtensionsCore(buf: [Bool], n: Int, dir: EuclidDir, cycle
                                                                                     legacySpanBeats: legacySpanBeats).raw)
     var lastDelay = 0.0, notesLastDelay = 0.0
     var notesStopped = !hasNotesStrikes
+    let originThis: Int64 = chains.hasMelodyRestarts
+        ? euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats).originTickM : 0
     var j = 0
     // RIFF WALK ferry §5.5 (Euclideous row only — the retired/legacy fork passes no `bound`, keeping its
     // own original `length`-based cap byte-identical): the lookahead must reach the end of any run of tied
@@ -6182,10 +6184,9 @@ func euclideousChainTieExtensionsCore(buf: [Bool], n: Int, dir: EuclidDir, cycle
                                            legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
         guard info.rawIsHit else { continue }
         let dJ = timing.isNone ? 0 : timing.delaySteps(raw: info.raw)
-        // a melody restart always breaks the chain (§4.6: "no hit moves") — mirrors the old `locked &&`
-        // guard exactly: only a non-FREE melody chain actually restarts periodically, so only then does
-        // advOrd==0 mean "a restart just happened" rather than merely "the very first hit since beat 0."
-        if chains.hasMelodyRestarts, info.advOrd == 0 { break }
+        // a melody restart always breaks the chain (§4.6: "no hit moves"): the hit belongs to a later melody origin than the note's own. (`advOrd == 0` said the same under ADV HIT, where the first hit
+        // after a restart is ordinal 0; under ADV STEP the ordinal counts ticks, so it is 0 only when a hit lands exactly ON the restart tick and a tied run went on through the new pass.)
+        if chains.hasMelodyRestarts, euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains, legacySpanBeats: legacySpanBeats).originTickM != originThis { break }
         hitsAhead += 1
         let column = euclideousRiffColumn(ordinal: info.advOrd, every: every, direction: riffDir, length: length, stride: stride, shift: rotate, seed: seed)
         let beatJ = (Double(t) + dJ) * sub
@@ -6218,8 +6219,10 @@ func euclideousRiffRepeatLookback(buf: [Bool], n: Int, dir: EuclidDir, cycleLen:
                                   thisBeat: Double, rankAt: (_ column: Int, _ beat: Double) -> Int) -> (column: Int, rank: Int)? {
     let len = max(1, length)
     // §6.2's own early exit: "if no column the walk reaches has a note, the hit is silent at once."
+    // …over the columns the walk really reads: LEN from SHIFT, wrapping at the grid's 8 (`euclideousRiffWindowColumns`, written as a loop — this runs on the render thread). It tested 0..<LEN, so a SHIFTed window
+    // whose notes lay outside columns 0…LEN-1 made REPEAT silent on every rest.
     var anyNote = false
-    for c in 0..<len where rankAt(c, thisBeat) >= 1 { anyNote = true; break }
+    for i in 0..<len where rankAt(riffRotateStep(i, by: rotate, steps: 8), thisBeat) >= 1 { anyNote = true; break }
     guard anyNote else { return nil }
     let here = euclideousLaneChainTick(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
                                        legacySpanBeats: legacySpanBeats, advanceStep: advanceStep)
