@@ -124,4 +124,14 @@ final class EmitterTokenTests: XCTestCase {
     func testTheHoldThresholdIsTheSharedValue() {
         XCTAssertEqual(EuclideousRingPress.holdSeconds, 0.3, "the MIX emitter hold reuses the project's 300 ms hold convention")
     }
+
+    // MARK: test 6 — §6.1: the RATCH toggle's four combinations (ratchet on/off × output muted or not)
+
+    func testRatchToggleFourCombinations() {
+        XCTAssertEqual(euclideousEmitterTokenEmitterState(muted: false, activity: 0, anyRouted: true), .live, "ratchet on, not muted → live")
+        XCTAssertEqual(euclideousEmitterTokenEmitterState(muted: false, activity: 0, anyRouted: false), .unused, "ratchet off, not muted → unused")
+        XCTAssertEqual(euclideousEmitterTokenEmitterState(muted: true, activity: 0, anyRouted: true), .muted, "ratchet on but output muted → muted")
+        XCTAssertEqual(euclideousEmitterTokenEmitterState(muted: true, activity: 0, anyRouted: false), .muted, "ratchet off and output muted → muted")
+        XCTAssertEqual(euclideousEmitterTokenEmitterState(muted: false, activity: 0.7, anyRouted: false), .playing(0.7), "an off ratchet still flares (plays) when a note leaves on it")
+    }
 }

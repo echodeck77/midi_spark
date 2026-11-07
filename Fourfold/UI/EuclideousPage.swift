@@ -4391,7 +4391,7 @@ struct EuclideousPage: View {
     private func partOutputToggles(_ idx: Int, accent: Color, mask: UInt8, label: String, write: @escaping (inout EuclidLine, Int) -> Void) -> some View {
         HStack(spacing: 4) {
             ForEach(0..<4, id: \.self) { o in
-                partOutputDisc(["A", "B", "C", "D"][o], on: (mask >> UInt8(o)) & 1 != 0, accent: accent, label: label) {
+                partOutputDisc(["A", "B", "C", "D"][o], on: (mask >> UInt8(o)) & 1 != 0, accent: accent, label: label, outputMuted: outputMutes[o].hasMute) {
                     editStep(idx, true) { write(&$0, o) }
                 }
             }
@@ -4399,8 +4399,8 @@ struct EuclideousPage: View {
         }
         .frame(maxHeight: .infinity, alignment: .center)
     }
-    private func partOutputDisc(_ letter: String, on: Bool, accent: Color, label: String, tap: @escaping () -> Void) -> some View {
-        EuclideousPartOutDiscArt(letter: letter, on: on, accent: accent, diameter: 28)   // MIX v2: the disc's drawing is shared with the MIX panel's A–D
+    private func partOutputDisc(_ letter: String, on: Bool, accent: Color, label: String, outputMuted: Bool = false, tap: @escaping () -> Void) -> some View {
+        EuclideousPartOutDiscArt(letter: letter, on: on, accent: accent, diameter: 28, outputMuted: outputMuted)   // EMITTER TOKEN: the token's routing look; a routed-to-muted output shows the dashed lane ring (§2.3)
             .contentShape(Circle()).onTapGesture(perform: tap)
             .accessibilityElement(children: .ignore).accessibilityLabel("\(label) \(letter)")
             .accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
@@ -6170,13 +6170,13 @@ struct EuclideousPage: View {
                     if let x = ratchExpanded {
                         // RATCH EXPAND §5: one emitter fills the panel — the A–D column switches which, the config button (and the strip's own) collapses back
                         EmitterRatchetExpandedView(output: x, bodySize: CGSize(width: width, height: height), portrait: portrait,
-                                                   ratchets: emitterRatchets, accents: laneAccents, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
+                                                   ratchets: emitterRatchets, accents: laneAccents, outputMuted: (0..<4).map { outputMutes[$0].hasMute }, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
                                                    strikes: strikesFeed, live: emitterLive, onEdit: onEditEmitterRatchet, onDragEnd: onEmitterRatchetDragEnd,
                                                    onSwitch: { ratchExpanded = $0 }, onCollapse: { withAnimation(.easeInOut(duration: 0.15)) { ratchExpanded = nil } })
                             .transition(.opacity)
                     } else {
                         let layout = emitterRatchetLayout(bodySize: CGSize(width: width, height: height), portrait: portrait, cellCount: emitterRatchetCollapsedFields.count, config: true)
-                        EuclideousRatchetPanel(layout: layout, ratchets: emitterRatchets, accents: laneAccents, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
+                        EuclideousRatchetPanel(layout: layout, ratchets: emitterRatchets, accents: laneAccents, outputMuted: (0..<4).map { outputMutes[$0].hasMute }, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
                                                strikes: strikesFeed, live: emitterLive, onEdit: onEditEmitterRatchet, onDragEnd: onEmitterRatchetDragEnd,
                                                expandedOutput: nil, onConfig: { out in withAnimation(.easeInOut(duration: 0.15)) { ratchExpanded = out } })
                             .transition(.opacity)

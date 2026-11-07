@@ -22,25 +22,18 @@ private func heavyMono(_ size: CGFloat) -> Font { .system(size: size, weight: .h
 
 // MARK: - the toggle's disc (§4.3, §5.1–§5.3)
 
-/// The emitter circle: a 28 pt disc #2A2D34 with a 2 pt ring and the output's letter (11 pt heavy). ON: ring #DFE3EA, letter #F2F4F7. OFF: ring #3A3E47, letter #8A909A. A RATCHED flare (`f` 0…1, the PULSE flash timing) thickens the
-/// ring to 3 pt in the striking lane's colour over a 6 pt lane40 glow and washes the disc to lane20.
+/// EMITTER TOKEN ferry (2026-11-07) §6.1: the RATCH toggle IS the token at 28 — ratchet ON → live, OFF → unused, its RATCHED flare (`f`) → playing (the token's playing look reproduces the old lane40 glow / lane20 wash / lane100 ring+1
+/// this view used to draw by hand), output muted → the muted look whatever the ratchet state. The tap (at the call site) still toggles the ratchet. The old by-hand drawing is replaced by the shared token; `discSize` is still 28.
 struct EmitterRatchetDisc: View {
     let letter: String
     let on: Bool
     let accent: Color
     let f: Double
+    var outputMuted: Bool = false
     var body: some View {
-        let ring = on ? EmitterRatchetPalette.light : EmitterRatchetPalette.offRing
-        let letterColor = on ? EmitterRatchetPalette.text : EmitterRatchetPalette.muted
-        return ZStack {
-            if f > 0 { Circle().inset(by: 1).stroke(accent.opacity(0.4), lineWidth: 6).opacity(f) }       // §5.3 glow: lane40, 6 pt
-            Circle().inset(by: 1).fill(EmitterRatchetPalette.disc)
-            if f > 0 { Circle().inset(by: 1).fill(accent.opacity(0.2)).opacity(f) }                          // §5.3 wash: lane20 over #2A2D34
-            Circle().inset(by: 1).stroke(ring, lineWidth: 2)
-            if f > 0 { Circle().inset(by: 1).stroke(accent, lineWidth: 2 + f).opacity(f) }                   // §5.3: the ring thickens 2 → 3 pt in lane100
-            Text(letter).font(heavyMono(11)).foregroundColor(letterColor)
-        }
-        .frame(width: EmitterRatchetMetrics.discSize, height: EmitterRatchetMetrics.discSize)
+        EuclideousEmitterTokenView(size: .d28, letter: letter,
+                                   state: euclideousEmitterTokenEmitterState(muted: outputMuted, activity: f, anyRouted: on),
+                                   lane: accent)
     }
 }
 
@@ -214,6 +207,8 @@ struct EuclideousRatchetPanel: View {
     let layout: EmitterRatchetLayout
     let ratchets: EmitterRatchetSet
     let accents: [Color]
+    /// EMITTER TOKEN §6.1: is output A–D muted (its MUTE-tab gate has any cell cleared) — the toggle shows the muted look.
+    var outputMuted: [Bool] = [false, false, false, false]
     let counts: String?                          // "hits" / "steps" in a dev build (FX COUNTS), nil in release — read by the strip's VoiceOver label
     let playing: Bool
     let pulseScale: Double
@@ -250,7 +245,7 @@ struct EuclideousRatchetPanel: View {
                 let now = tl.date.timeIntervalSinceReferenceDate
                 let fl = emitterRatchetFlare(output: x, strikes: strikes(), now: now, scale: pulseScale)
                 let ratcheted = fl?.ratcheted == true ? fl : nil
-                EmitterRatchetDisc(letter: emitterRatchetLetters[x], on: r.on, accent: ratcheted.map { accentOf($0.lane) } ?? .clear, f: ratcheted?.f ?? 0)
+                EmitterRatchetDisc(letter: emitterRatchetLetters[x], on: r.on, accent: ratcheted.map { accentOf($0.lane) } ?? .clear, f: ratcheted?.f ?? 0, outputMuted: x < outputMuted.count && outputMuted[x])
             }
             .frame(width: M.toggleWidth, height: innerH)
             .contentShape(Rectangle())
@@ -365,6 +360,7 @@ struct EmitterRatchetExpandedView: View {
     let portrait: Bool
     let ratchets: EmitterRatchetSet
     let accents: [Color]
+    var outputMuted: [Bool] = [false, false, false, false]   // EMITTER TOKEN §6.1
     let counts: String?
     let playing: Bool
     let pulseScale: Double
@@ -396,7 +392,7 @@ struct EmitterRatchetExpandedView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10).fill(sel ? P.current : Color.clear)
                     RoundedRectangle(cornerRadius: 10).strokeBorder(sel ? P.light.opacity(0.6) : Color.clear, lineWidth: 1)
-                    EmitterRatchetDisc(letter: emitterRatchetLetters[i], on: ratchets[i].on, accent: .clear, f: 0)
+                    EmitterRatchetDisc(letter: emitterRatchetLetters[i], on: ratchets[i].on, accent: .clear, f: 0, outputMuted: i < outputMuted.count && outputMuted[i])
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())

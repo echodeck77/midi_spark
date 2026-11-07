@@ -168,7 +168,8 @@ struct EuclideousMixV2BandView: View {
                 .offset(x: f.gate.minX, y: f.gate.minY).accessibilitySortPriority(base - 4)
             octave(notes: notes, f: f, dimmed: own(.oct) < 1).accessibilitySortPriority(base - 5)
             ForEach(0..<4, id: \.self) { o in
-                EuclideousMixV2OutButton(output: o, on: euclideousJackIsPlugged(mask: mask, output: o), notes: notes, accent: accent, target: f.outTargets[o].size, circle: f.outCircles[o].size) { callbacks.toggleOut(lane, part, o) }
+                EuclideousMixV2OutButton(output: o, on: euclideousJackIsPlugged(mask: mask, output: o), notes: notes, accent: accent, target: f.outTargets[o].size, circle: f.outCircles[o].size,
+                                         outputMuted: o < input.outputMuted.count && input.outputMuted[o]) { callbacks.toggleOut(lane, part, o) }
                     .offset(x: f.outTargets[o].minX, y: f.outTargets[o].minY)
                     .accessibilitySortPriority(base - 6 - Double(o) * 0.1)
             }
@@ -590,19 +591,17 @@ struct EuclideousOctaveBoxes: View {
 
 // MARK: - A–D
 
-/// The RIFF / NOTES tab's output disc (lane20 fill and lane100 ring while on, #3A3E47 ring while off, an 11 pt letter on 28) at another diameter — one drawing for both surfaces.
+/// EMITTER TOKEN ferry (2026-11-07) §2.3 / §6.2–6.3: the MIX A–D (22) and RIFF / NOTES OUT (28) routing circle IS the token — a part's choice of output keeps its lane colour (routed = lane ring + lane@20 % disc; not routed = #3A3E47 ring;
+/// routed to a MUTED output = lane ring @ 45 % dashed). `outputMuted` is that output's MUTE-tab state; it only shows while the circle is routed (§2.3). The old by-hand drawing is replaced by the shared token.
 struct EuclideousPartOutDiscArt: View {
     let letter: String
     let on: Bool
     let accent: Color
     var diameter: CGFloat = 28
+    var outputMuted: Bool = false
     var body: some View {
-        ZStack {
-            Circle().fill(on ? accent.opacity(0.2) : Color.clear)
-                .overlay(Circle().strokeBorder(on ? accent : Color(hex: 0x3A3E47), lineWidth: 2))
-            Text(letter).font(heavyMono(11 * diameter / 28)).foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
-        }
-        .frame(width: diameter, height: diameter)
+        EuclideousEmitterTokenView(size: diameter <= 24 ? .d22 : .d28, letter: letter,
+                                   state: euclideousEmitterTokenRoutingState(routed: on, outputMuted: outputMuted), lane: accent)
     }
 }
 struct EuclideousMixV2OutButton: View {
@@ -612,9 +611,10 @@ struct EuclideousMixV2OutButton: View {
     let accent: Color
     let target: CGSize
     let circle: CGSize
+    var outputMuted: Bool = false
     let onTap: () -> Void
     var body: some View {
-        EuclideousPartOutDiscArt(letter: euclideousJackLetters[max(0, min(3, output))], on: on, accent: accent, diameter: circle.width)
+        EuclideousPartOutDiscArt(letter: euclideousJackLetters[max(0, min(3, output))], on: on, accent: accent, diameter: circle.width, outputMuted: outputMuted)
             .frame(width: target.width, height: target.height)
             .contentShape(Rectangle())
             .onTapGesture(perform: onTap)
