@@ -479,7 +479,8 @@ struct EuclidCometBar: View {
                     let playhead: EuclideousStripPlayhead? = running ? euclideousStripPlayhead(raw: cometRaw, n: n, dir: dir, xs: xs, columnW: boxW) : nil
                     drawEuclideousStrip(&ctx, EuclideousStripFrameInput(hits: strip.legs[stripLeg].hits, shadowed: strip.shadowed, frames: euclideousStripLayout(xs: xs, columnW: boxW), groupSize: euclidStepGroupSize(forRate: rate), tint: tint, playhead: playhead,
                                                                          areaMinX: insetL, areaMaxX: insetL + usable, current: stripCurrentStep,
-                                                                         riffStrikes: stripStrikes.riff, noteStrikes: stripStrikes.notes, riffLook: hocketLooks.riff, notesLook: hocketLooks.notes, ownLane: strip.lane, scale: pulseScale, reduceMotion: reduceMotion))
+                                                                         riffStrikes: stripStrikes.riff, noteStrikes: stripStrikes.notes, riffLook: hocketLooks.riff, notesLook: hocketLooks.notes, ownLane: strip.lane, scale: pulseScale, reduceMotion: reduceMotion,
+                                                                         riffShown: strip.riffPartOn, notesShown: strip.notesPartOn))   // Paul 2026-11-06: riff chips only while RIFF is enabled, the key row only while NOTES is enabled
                     return
                 }
                 // BOX CONTENT IS DIRECTION-INDEPENDENT — box `i` always shows `buf[i]`, the raw pattern buffer at

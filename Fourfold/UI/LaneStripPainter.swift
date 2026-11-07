@@ -80,6 +80,9 @@ struct EuclideousStripFrameInput {
     var ownLane = 0
     var scale: Double
     var reduceMotion: Bool
+    /// Paul 2026-11-06: the strip shows the RIFF layer (chips) only while RIFF is enabled and the NOTES layer (key row) only while NOTES is enabled — neither when both are off. The rhythm cells (hits / steps) are always drawn, so they stay legible.
+    var riffShown = true
+    var notesShown = true
 }
 
 /// HOCKET §9.3: the two layers' looks for one frame — nil when nothing is lit, the transport is stopped, or the part is off.
@@ -155,8 +158,8 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
         ctx.fill(RoundedRectangle(cornerRadius: M.floorBarRadius).path(in: bar), with: .color(d.tint))
     }
 
-    // 4. the chips
-    for i in 0..<n where i < d.hits.count {
+    // 4. the chips — the RIFF layer, drawn only while RIFF is enabled (Paul 2026-11-06)
+    for i in 0..<n where d.riffShown && i < d.hits.count {
         guard let chip = d.hits[i].chip else { continue }
         let isCurrent = d.current == i && !chip.hollow && !chip.grey && d.riffLook?.hollow != true
         let riffRests = d.riffLook?.hollow == true                                            // HOCKET §9.3: a resting layer's marks are hollow and don't flash
@@ -202,8 +205,8 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
         }
     }
 
-    // 5. the key row (a SHADOWing lane has none: the partner-colour band over this row stands in)
-    guard !d.shadowed else { return }
+    // 5. the key row — the NOTES layer, drawn only while NOTES is enabled (Paul 2026-11-06); a SHADOWing lane has none (the partner-colour band over this row stands in)
+    guard !d.shadowed, d.notesShown else { return }
     for i in 0..<n where i < d.hits.count && d.hits[i].kind != .rhythmRest {
         let key = d.frames[i].key
         let k = d.hits[i].key
