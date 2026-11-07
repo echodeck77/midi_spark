@@ -5030,6 +5030,43 @@ func euclideousNotesHaveSelection(_ line: EuclidLine) -> Bool {
 /// untouched: with nothing selected it never had a pitch to sound.
 func euclideousNotesLayerIsOn(_ line: EuclidLine) -> Bool { line.notesOnResolved && euclideousNotesHaveSelection(line) }
 
+// ── PLAY RIFF / PLAY STACK ferry (2026-11-07): the pure layer behind the lane card's two part-switch buttons ──────────────
+
+/// §2.4 the button's colours. ON: the lamp is the lane colour (filled + a 1 pt lane stroke), "PLAY" #AAB0BA, the part name #F2F4F7. OFF: the lamp is unfilled with a 1 pt #4A4E57 stroke, "PLAY" #4E525A, the name #5A5E66. The tile fill #202226 + 1 pt #2B2D33 border is the same on and off.
+struct EuclideousPartPlayLook: Equatable {
+    var playHex: UInt32, nameHex: UInt32
+    var lampFilled: Bool          // the triangle is filled (on) or an outline (off)
+    var lampUsesLane: Bool        // on → the lamp is drawn in the lane colour; off → the fixed grey below
+    var lampStrokeHex: UInt32     // used only when !lampUsesLane
+    static let tileFillHex: UInt32 = 0x202226, tileBorderHex: UInt32 = 0x2B2D33, tileRadius: CGFloat = 9   // §2.1 (radius from the source play tile)
+}
+func euclideousPartPlayLook(on: Bool) -> EuclideousPartPlayLook {
+    on ? EuclideousPartPlayLook(playHex: 0xAAB0BA, nameHex: 0xF2F4F7, lampFilled: true, lampUsesLane: true, lampStrokeHex: 0)
+       : EuclideousPartPlayLook(playHex: 0x4E525A, nameHex: 0x5A5E66, lampFilled: false, lampUsesLane: false, lampStrokeHex: 0x4A4E57)
+}
+
+/// §2.3 the lamp: a right-pointing triangle 5.5 × 6, its path `M1 1 L7 4.5 L1 8 Z` given in an 8 × 9 box. These are the path's three points and its own bounding box within that box (x 1…7, y 1…8), so the view (and a test) map them to the 5.5 × 6 frame.
+enum EuclideousPartPlayLamp {
+    static let points: [CGPoint] = [CGPoint(x: 1, y: 1), CGPoint(x: 7, y: 4.5), CGPoint(x: 1, y: 8)]
+    static let pathBounds = CGRect(x: 1, y: 1, width: 6, height: 7)   // the triangle's bounds in the 8×9 box
+    static let size = CGSize(width: 5.5, height: 6)                    // the drawn size
+    static let strokeWidth: CGFloat = 1
+}
+
+/// §2.5 the per-EVENT flash decision: a note-on flashes the lamp only if it reached at least one emitter (`outs != 0`, the NoteRoll feed) AND the part is audible (not silenced by solo / LANES / the lane's play state). Routed nowhere ⇒ no flash.
+func euclideousPartPlayFlashes(outs: UInt8, audible: Bool) -> Bool { outs != 0 && audible }
+
+/// §2.5 the flash activity (the lamp glow's opacity 0…1): full at the newest emitting note-on, fading to nothing over 150 ms; a newer onset restarts it (max). Reduce Motion: full for 100 ms, no fade. 0 when the part is silenced or nothing has emitted. Keyed on the note-ON (not the note's length), so a long sustained note still reads as one flash.
+func euclideousPartPlayFlash(notes: [NoteRollNote], nowBeat: Double, tempo: Double, audible: Bool, reduceMotion: Bool) -> Double {
+    guard audible else { return 0 }
+    var newest = -Double.infinity
+    for n in notes where euclideousPartPlayFlashes(outs: n.outs, audible: true) && n.onBeat <= nowBeat { newest = max(newest, n.onBeat) }
+    guard newest.isFinite else { return 0 }
+    let age = (nowBeat - newest) * 60 / max(1, tempo)   // seconds since the newest emitting note-on
+    if reduceMotion { return age <= 0.1 ? 1 : 0 }
+    return max(0, min(1, 1 - age / 0.15))
+}
+
 // ── CLARITY PASS (2026-10-23) §2/§5.3: the lane card's tab glyphs ────────────────────────────────────────────────────────
 //
 // RIFF gets a square, NOTES an upright bar, LISTEN a circle; RHYTHM none. A glyph is filled in a lane's colour when its tab's thing is ON — exactly the condition that filled the old round dot (RIFF `riffOnResolved`, NOTES
