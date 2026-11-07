@@ -109,4 +109,19 @@ final class EmitterTokenTests: XCTestCase {
         XCTAssertEqual(euclideousEmitterTokenRoutingState(routed: true, outputMuted: false), .routed)
         XCTAssertEqual(euclideousEmitterTokenRoutingState(routed: true, outputMuted: true), .routedMuted)
     }
+
+    // MARK: test 5 — §5.1: the MIX tap full-toggles the mute; the hold uses the shared 300 ms threshold
+
+    func testTheMixTapFullToggle() {
+        XCTAssertEqual(euclideousOutputMuteFullToggle(0xFFFF), 0x0000, "fully sounding → fully muted")
+        XCTAssertEqual(euclideousOutputMuteFullToggle(0x0000), 0xFFFF, "fully muted → fully sounding")
+        XCTAssertEqual(euclideousOutputMuteFullToggle(0b1010_1010_1010_1010), 0xFFFF, "a partial MUTE-tab pattern unmutes to fully sounding")
+        var m = EuclideousOutputMute(cells16: 0b0000_1111_0000_1111, passes: 3)
+        XCTAssertTrue(m.hasMute)
+        m = m.toggledFull(); XCTAssertEqual(m.cells16, 0xFFFF); XCTAssertEqual(m.passes, 3, "the pass ladder is untouched"); XCTAssertFalse(m.hasMute)
+        m = m.toggledFull(); XCTAssertEqual(m.cells16, 0x0000, "a second tap mutes it fully"); XCTAssertTrue(m.hasMute)
+    }
+    func testTheHoldThresholdIsTheSharedValue() {
+        XCTAssertEqual(EuclideousRingPress.holdSeconds, 0.3, "the MIX emitter hold reuses the project's 300 ms hold convention")
+    }
 }

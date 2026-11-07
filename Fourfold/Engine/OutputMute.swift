@@ -49,7 +49,12 @@ struct EuclideousOutputMute: Equatable {
     }
     /// This output has at least one muted cell (the Router's gate is skipped when no output does — byte-identical).
     var hasMute: Bool { cells16 != 0xFFFF }
+    /// EMITTER TOKEN ferry §5.1: a MIX-emitter tap full-toggles the output — fully sounding (0xFFFF) ↔ fully muted (0x0000), leaving PASSES as it is. A partial MUTE-tab pattern reads as muted (`hasMute`) and a tap clears it to fully sounding.
+    func toggledFull() -> EuclideousOutputMute { var m = self; m.cells16 = euclideousOutputMuteFullToggle(cells16); return m }
 }
+
+/// §5.1 (pure, testable): fully sounding ⇄ fully muted. Anything not already fully sounding (partial OR fully muted) unmutes to fully sounding.
+func euclideousOutputMuteFullToggle(_ cells16: UInt16) -> UInt16 { cells16 == 0xFFFF ? 0x0000 : 0xFFFF }
 extension EuclideousOutputMute: Codable {
     enum CodingKeys: String, CodingKey { case cells16, passes }
     /// Never throws on content: an unreadable key keeps its default, PASSES clamps.

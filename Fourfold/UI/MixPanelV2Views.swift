@@ -50,6 +50,8 @@ struct EuclideousMixV2Callbacks {
     /// Per-part solo, by part index 0…7 — the same touch machine as the lane SOLO button.
     var partSoloDown: (Int) -> Void
     var partSoloUp: (Int, Bool) -> Void
+    /// EMITTER TOKEN §5.1: a MIX-emitter tap full-toggles output A–D's mute (one undo step, through the MUTE tab's funnel).
+    var toggleOutputMute: (Int) -> Void
 }
 
 // MARK: - the panel
@@ -68,6 +70,7 @@ struct EuclideousMixV2Panel: View {
                     .accessibilitySortPriority(Double(1000 - lane))
             }
             EuclideousMixV2LinesLayer(layout: L, input: input, heldOutputs: heldOutputs)
+            EuclideousMixV2EmitterGestures(layout: L, callbacks: callbacks, heldOutputs: $heldOutputs)
             EuclideousMixV2EmitterAX(layout: L, input: input)
         }
         .frame(width: input.size.width, height: input.size.height, alignment: .topLeading)
@@ -143,6 +146,8 @@ struct EuclideousMixV2BandView: View {
         let partDim = !on || partSoloDim(notes)
         let mask = notes ? line.notesOutMaskResolved(lane: lane) : line.riffOutMaskResolved(lane: lane)
         let laneDim = self.laneDim
+        // §5.2: while an emitter is held, a part row whose mask holds NONE of the held outputs dims its whole plate (S, toggle and A–D included) to 42 %; the union of several holds counts.
+        let holdDim = !heldOutputs.isEmpty && !heldOutputs.contains { o in mask & (UInt8(1) << UInt8(o)) != 0 }
         func own(_ e: EuclideousMixV2Element) -> Double { euclideousMixV2OwnOpacity(laneDimmed: laneDim, partDimmed: partDim, element: e) }
         return ZStack(alignment: .topLeading) {
             // S — never dims
@@ -171,6 +176,7 @@ struct EuclideousMixV2BandView: View {
         .background(
             RoundedRectangle(cornerRadius: 8).fill(Color(hex: notes ? 0x131418 : 0x1E2025)).frame(width: f.plate.width, height: f.plate.height)
                 .offset(x: f.plate.minX, y: f.plate.minY), alignment: .topLeading)
+        .opacity(holdDim ? EuclideousLaneDimStyle.opacity : 1)   // §5.2 the hold trace dims rows that don't reach the held output; restored at once on release
     }
 
     /// OCT (§4.8): "OCT" centred in the top 9, then the five boxes in the remaining height less 2; the touch frame is each box's width by the row.
@@ -718,6 +724,65 @@ func drawEuclideousMixInlet(_ ctx: GraphicsContext, at: CGPoint, state: Euclideo
     default: break   // routing states never reach an emitter inlet
     }
 }
+
+// MARK: - §5 the emitter touches: tap to mute, hold to trace
+
+/// The four invisible touch targets over the emitter cards (§5.3: the whole card, 52 × (2·rowH+6)). Each owns its own press machine; a tap (< 300 ms) full-toggles the output's mute (§5.1), a hold (≥ 300 ms) adds the output to `heldOutputs` until release (§5.2). Invisible to VoiceOver — the AX layer carries the button.
+struct EuclideousMixV2EmitterGestures: View {
+    let layout: EuclideousMixV2Layout
+    let callbacks: EuclideousMixV2Callbacks
+    @Binding var heldOutputs: Set<Int>
+    var body: some View {
+        ForEach(0..<4, id: \.self) { o in
+            EuclideousMixV2EmitterTouch(card: layout.emitterCards[o],
+                                        onTapMute: { callbacks.toggleOutputMute(o) },
+                                        onHold: { held in if held { heldOutputs.insert(o) } else { heldOutputs.remove(o) } })
+                .offset(x: layout.emitterCards[o].minX, y: layout.emitterCards[o].minY)
+        }
+    }
+}
+struct EuclideousMixV2EmitterTouch: View {
+    let card: CGRect
+    let onTapMute: () -> Void
+    let onHold: (Bool) -> Void
+    @State private var press = EuclideousRingPress()
+    @State private var holdTask: Task<Void, Never>? = nil
+    @GestureState private var touching = false
+    var body: some View {
+        Color.clear
+            .frame(width: card.width, height: card.height)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($touching) { _, t, _ in t = true }
+                    .onChanged { _ in
+                        guard !press.down else { return }   // §5.3: no drag-cancel — a slide-off still counts by its duration
+                        press.touchDown()
+                        holdTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: UInt64(EuclideousRingPress.holdSeconds * 1_000_000_000))
+                            guard !Task.isCancelled else { return }
+                            if case .holdBegan = press.holdTimerFired() { onHold(true) }
+                        }
+                    }
+                    .onEnded { _ in finish(ended: true) }
+            )
+            .onChange(of: touching) { t in
+                guard !t else { return }   // a cancelled touch (no onEnded) ends as a hold would (§5.3)
+                Task { @MainActor in if press.down { finish(ended: false) } }
+            }
+            .onDisappear { if press.down { finish(ended: false) } }
+            .accessibilityHidden(true)
+    }
+    private func finish(ended: Bool) {
+        holdTask?.cancel(); holdTask = nil
+        switch ended ? press.touchEnded() : press.touchCancelled() {
+        case .tap: onTapMute()
+        case .holdEnded, .holdBegan: onHold(false)
+        case .none: break
+        }
+    }
+}
+
 struct EuclideousMixV2EmitterAX: View {
     let layout: EuclideousMixV2Layout
     let input: EuclideousMixV2Input

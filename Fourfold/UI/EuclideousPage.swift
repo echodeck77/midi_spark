@@ -2552,7 +2552,9 @@ struct EuclideousPage: View {
                 }
             },
             partSoloDown: { onPartSoloDown($0) },
-            partSoloUp: { onPartSoloUp($0, $1) })
+            partSoloUp: { onPartSoloUp($0, $1) },
+            // EMITTER TOKEN §5.1: a tap full-toggles the output's mute through the MUTE tab's own funnel (one undo step); the emitter and the MUTE tab stay in agreement
+            toggleOutputMute: { o in onEditOutputMute(true) { $0[o] = $0[o].toggledFull() } })
         return AnyView(EuclideousMixV2Panel(input: input, callbacks: callbacks))
     }
 
