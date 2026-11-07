@@ -71,7 +71,7 @@ struct EuclideousMixV2Panel: View {
             }
             EuclideousMixV2LinesLayer(layout: L, input: input, heldOutputs: heldOutputs)
             EuclideousMixV2EmitterGestures(layout: L, callbacks: callbacks, heldOutputs: $heldOutputs)
-            EuclideousMixV2EmitterAX(layout: L, input: input)
+            EuclideousMixV2EmitterAX(layout: L, input: input, callbacks: callbacks)
         }
         .frame(width: input.size.width, height: input.size.height, alignment: .topLeading)
         .accessibilityElement(children: .contain)
@@ -620,6 +620,7 @@ struct EuclideousMixV2OutButton: View {
             .onTapGesture(perform: onTap)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(EuclideousMixAX.out(notes: notes, output: output, on: on))
+            .accessibilityValue(on && outputMuted ? "output muted" : "")   // §8.2: routed to a muted output
             .accessibilityAddTraits(.isButton)
     }
 }
@@ -783,20 +784,29 @@ struct EuclideousMixV2EmitterTouch: View {
     }
 }
 
+/// §8.1 the MIX emitters for VoiceOver: a toggle button over each card, "Output A, live/unused/muted" (playing is not announced), value "muted"/"not muted", hint "Tap to mute; hold to show its parts", and a double-tap that toggles the mute (§10). The sighted tap/hold is the gesture layer; this carries the a11y and the action.
 struct EuclideousMixV2EmitterAX: View {
     let layout: EuclideousMixV2Layout
     let input: EuclideousMixV2Input
+    let callbacks: EuclideousMixV2Callbacks
     var body: some View {
         ForEach(0..<4, id: \.self) { o in
-            TimelineView(.periodic(from: Date(), by: 0.25)) { tl in
-                let a = euclideousMixEmitterActivity(parts: input.rolls.model.parts, output: o, nowBeat: input.beatAt(tl.date), tempo: input.clock.tempo)
-                Color.clear.frame(width: layout.emitters[o].width, height: layout.emitters[o].height)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(EuclideousMixAX.emitter(output: o, active: a > 0.5))
+            let muted = o < input.outputMuted.count && input.outputMuted[o]
+            let anyRouted = (0..<8).contains { p -> Bool in
+                let l = p / 2 < input.lines.count ? input.lines[p / 2] : EuclidLine(noteSel: .all)
+                let mask = p % 2 == 1 ? l.notesOutMaskResolved(lane: p / 2) : l.riffOutMaskResolved(lane: p / 2)
+                return !euclideousMixLayerIsOff(l, notes: p % 2 == 1) && mask & (UInt8(1) << UInt8(o)) != 0
             }
-            .frame(width: layout.emitters[o].width, height: layout.emitters[o].height)
-            .offset(x: layout.emitters[o].minX, y: layout.emitters[o].minY)
-            .accessibilitySortPriority(Double(500 - o))
+            Color.clear.frame(width: layout.emitterCards[o].width, height: layout.emitterCards[o].height)
+                .offset(x: layout.emitterCards[o].minX, y: layout.emitterCards[o].minY)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(EuclideousMixAX.emitterState(output: o, muted: muted, anyRouted: anyRouted))
+                .accessibilityValue(EuclideousMixAX.emitterStateValue(muted: muted))
+                .accessibilityHint(EuclideousMixAX.emitterHint)
+                .accessibilityAddTraits(.isButton)
+                .ringToggleTrait()
+                .accessibilityAction { callbacks.toggleOutputMute(o) }
+                .accessibilitySortPriority(Double(500 - o))
         }
     }
 }

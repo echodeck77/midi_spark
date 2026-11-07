@@ -459,5 +459,9 @@ enum EuclideousMixAX {
     static func slider(kind: EuclideousMixSliderKind, notes: Bool, value: Int) -> String { "\(part(notes: notes)) \(kind.spokenName) \(euclideousMixSliderText(kind: kind, value: value))" }
     static func out(notes: Bool, output: Int, on: Bool) -> String { "\(part(notes: notes)) to \(euclideousJackLetters[max(0, min(3, output))]), \(on ? "on" : "off")" }
     static func emitter(output: Int, active: Bool) -> String { "Output \(euclideousJackLetters[max(0, min(3, output))]), \(active ? "active" : "idle")" }
+    /// EMITTER TOKEN ferry §8.1: the MIX v2 emitter button — live / unused / muted (playing is NOT announced), the value "muted" / "not muted", and the hint.
+    static func emitterState(output: Int, muted: Bool, anyRouted: Bool) -> String { "Output \(euclideousJackLetters[max(0, min(3, output))]), \(muted ? "muted" : (anyRouted ? "live" : "unused"))" }
+    static func emitterStateValue(muted: Bool) -> String { muted ? "muted" : "not muted" }
+    static let emitterHint = "Tap to mute; hold to show its parts"
     static let reset = "Reset"
 }

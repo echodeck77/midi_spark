@@ -257,6 +257,12 @@ final class MixPanelV2Tests: XCTestCase {
         XCTAssertEqual(EuclideousMixV2AX.stack(notes: true, ranks: [2, 5]), "Notes playing ranks 2 and 5"); XCTAssertEqual(EuclideousMixV2AX.stack(notes: false, ranks: []), "Riff silent")
         XCTAssertEqual(EuclideousMixV2AX.octave(notes: true, value: 0), "Notes octave 0"); XCTAssertEqual(EuclideousMixV2AX.octave(notes: false, value: -1), "Riff octave \u{2212}1")
         XCTAssertEqual(euclideousMixStripSpoken(hits: 4, steps: 8), "Rhythm, 4 hits in 8 steps", "the strip's label already reads the hits and steps (B4.1)")
+        // EMITTER TOKEN §8.1: the emitter button — live / unused / muted (playing not announced), the value, the hint
+        XCTAssertEqual(EuclideousMixAX.emitterState(output: 0, muted: false, anyRouted: true), "Output A, live")
+        XCTAssertEqual(EuclideousMixAX.emitterState(output: 1, muted: false, anyRouted: false), "Output B, unused")
+        XCTAssertEqual(EuclideousMixAX.emitterState(output: 2, muted: true, anyRouted: true), "Output C, muted", "muted wins; playing is never announced")
+        XCTAssertEqual(EuclideousMixAX.emitterStateValue(muted: true), "muted"); XCTAssertEqual(EuclideousMixAX.emitterStateValue(muted: false), "not muted")
+        XCTAssertEqual(EuclideousMixAX.emitterHint, "Tap to mute; hold to show its parts")
     }
 
     // MARK: step 4–6 helpers

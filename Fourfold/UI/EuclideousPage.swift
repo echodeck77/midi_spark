@@ -4403,7 +4403,7 @@ struct EuclideousPage: View {
         EuclideousPartOutDiscArt(letter: letter, on: on, accent: accent, diameter: 28, outputMuted: outputMuted)   // EMITTER TOKEN: the token's routing look; a routed-to-muted output shows the dashed lane ring (§2.3)
             .contentShape(Circle()).onTapGesture(perform: tap)
             .accessibilityElement(children: .ignore).accessibilityLabel("\(label) \(letter)")
-            .accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+            .accessibilityValue(on ? (outputMuted ? "on, output muted" : "on") : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)   // §8.2: routed to a muted output
     }
     /// MIX v2 §5: the RIFF / NOTES tab's OCT — five linked boxes (`EuclideousOctaveBoxes`) right-aligned in the frame the old track and pill filled, "OCT" to their left. One undo step per tap or drag; the write is the old control's.
     private func partOctaveBoxes(_ idx: Int, oct: Int, label: String, write: @escaping (inout EuclidLine, Int) -> Void) -> some View {

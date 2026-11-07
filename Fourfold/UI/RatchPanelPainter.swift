@@ -252,7 +252,7 @@ struct EuclideousRatchetPanel: View {
             .onTapGesture { onEdit(true) { $0[x].on.toggle() } }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(emitterRatchetToggleLabel(output: x))
-            .accessibilityValue(emitterRatchetToggleValue(on: r.on))
+            .accessibilityValue(emitterRatchetToggleValue(on: r.on) + ((x < outputMuted.count && outputMuted[x]) ? ", output muted" : ""))   // EMITTER TOKEN §8.2
             .accessibilityAddTraits(.isButton)
             .ringToggleTrait()
             Spacer().frame(width: M.toggleGap)
