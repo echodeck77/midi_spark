@@ -745,3 +745,4 @@ _(Replaces the old "Sequencer panel" items — the hold-RESET gesture, the prese
 - **INPUTS — NOW pips (2026-11-06):** the 5 × 5 source pips on the rank chips are legible in all four lane colours and distinguishable per source (MIDI, CHORDS, PICK, KEY).
 
 - **MIX — TRANS removed (2026-11-07):** each part row reads S · toggle · stack · VEL · GATE · OCT · A–D with VEL and GATE visibly wider (≈131 pt landscape); the sliders still drag comfortably and their captions/values are not cramped or cut; the row looks balanced rather than empty-ended.
+- **FX tab retired (2026-11-07):** the lower-right panel reads MUTE | RATCH | VEL with MUTE wide and RATCH / VEL their usual 80 pt; the tab row looks intentional (not a gap where FX was) in both orientations on the real iPad.

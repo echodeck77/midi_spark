@@ -30,7 +30,7 @@ final class FourfoldStackBudgetTests: XCTestCase {
                 let t = tab == "Rhythm" ? app.buttons["Rhythm"].firstMatch : app.els(prefix: tab).firstMatch   // (ANSWER's switches are "Rhythm, lane n": the strip's own segment is the exact name)
                 if t.waitForExistence(timeout: 3) { t.tap() }
             }
-            for panel in ["Lanes", "FX", "Ratchet", "Mix", "Rhythm", "Mix", "Rhythm"] where app.buttons[panel].waitForExistence(timeout: 3) { app.buttons[panel].tap() }
+            for panel in ["Lanes", "Ratchet", "Mix", "Rhythm", "Mix", "Rhythm"] where app.buttons[panel].waitForExistence(timeout: 3) { app.buttons[panel].tap() }
         }
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.0)

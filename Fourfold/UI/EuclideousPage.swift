@@ -6019,7 +6019,7 @@ struct EuclideousPage: View {
     private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat, fxAvailable: Bool = false, portrait: Bool = false) -> some View {
         // FX TAB: offered in both orientations since the PAGE LAYOUT ferry (2026-10-19) — in portrait this panel sits BESIDE the riff panel at the same width, so each FX
         // column takes the riff grid's column width and the same offset from its own panel's leading edge (§10.3, by construction); `fxAvailable` stays a parameter.
-        let tab: EuclideousSeqTab = ((sequencerTab == .fx || sequencerTab == .ratch || sequencerTab == .velocity) && !fxAvailable) || sequencerTab == .mix ? .lanes : sequencerTab   // CARD BACKS §8: MIX is retired — a stray .mix shows LANES (RATCH / VELOCITY, like FX, need the wide panel)
+        let tab: EuclideousSeqTab = ((sequencerTab == .ratch || sequencerTab == .velocity) && !fxAvailable) || sequencerTab == .mix || sequencerTab == .fx ? .lanes : sequencerTab   // CARD BACKS §8: MIX is retired — a stray .mix shows LANES (RATCH / VELOCITY, like FX, need the wide panel)
         let innerW = max(1, maxWidth - sp8 * 2)
         let innerH = max(1, maxHeight - sp8 * 2)
         let tabBody = euclideousSeqTabBodySize(panelWidth: maxWidth, panelHeight: maxHeight)   // LANES' and FX's area: one function, shared with the page's floor list
@@ -6089,7 +6089,7 @@ struct EuclideousPage: View {
                     resetPopupLane = nil   // §6: "switching tabs closes it"
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(tab == .fx ? "FX" : (tab == .ratch ? emitterRatchetTabAccessibilityLabel() : (tab == .velocity ? emitterVelocityTabAccessibilityLabel() : tab.label.capitalized)))   // §14.1: the tab is read "FX", not "Fx"; §8.1 (RATCH): "Ratchet"; VELOCITY: "Velocity"
+                .accessibilityLabel(tab == .ratch ? emitterRatchetTabAccessibilityLabel() : (tab == .velocity ? emitterVelocityTabAccessibilityLabel() : tab.label.capitalized))   // §8.1 (RATCH): "Ratchet"; VELOCITY: "Velocity"
                 .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)   // SwiftUI has no tab trait; button + selected, like the lane tabs
             }
         }

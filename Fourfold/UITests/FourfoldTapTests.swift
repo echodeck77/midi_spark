@@ -355,14 +355,15 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(value(units.element(boundBy: 2)), "passes", "…on every row")
     }
 
-    /// CARD BACKS §8: the MIX tab is gone — the lower-right panel is LANES | FX, and opens on LANES.
-    func testTheSequencerPanelSwitchesBetweenLanesAndFx() {
+    /// CARD BACKS §8: the MIX tab is gone, and so is FX (retired 2026-11-07) — the lower-right panel is MUTE | RATCH | VEL, and opens on MUTE.
+    func testTheSequencerPanelSwitchesBetweenMuteAndRatchAndHasNoFxTab() {
         let app = XCUIApplication.fresh()
         need(app.els(prefix: "Output A cell 1,").firstMatch, "the MUTE panel's first cell (it opens on MUTE)")   // MUTE TAB ferry (2026-11-02): the tab is "Mute", its blocks are outputs
         XCTAssertTrue(app.buttons["Mute"].isSelected)
         XCTAssertFalse(app.buttons["Mix"].exists && app.buttons["Mute"].frame.intersects(app.buttons["Mix"].frame), "no MIX tab beside MUTE")
-        app.buttons["FX"].tap()
-        need(app.buttons["FX row, ratchet, all lanes, selected"], "the FX panel's RATCH row")
+        XCTAssertFalse(app.buttons["FX"].exists, "the FX tab is retired")
+        app.buttons["Ratchet"].tap()
+        need(app.el("Ratchet on emitter A"), "the RATCH panel's first card")
         app.buttons["Mute"].tap()
         need(app.els(prefix: "Output A cell 1,").firstMatch, "the MUTE panel again")
     }
@@ -410,13 +411,13 @@ final class FourfoldTapTests: XCTestCase {
             XCTAssertFalse(app.staticTexts["RESIZE TO CONTINUE"].exists, "no resize message at \(size)")
             need(app.buttons["Mute"], "the MUTE tab at \(size)").tap()
             XCTAssertTrue(app.buttons["Mute"].isSelected, "tapping MUTE selects it at \(size)")
-            app.buttons["FX"].tap()
-            XCTAssertTrue(app.buttons["FX"].isSelected, "tapping FX selects it at \(size)")
+            app.buttons["Ratchet"].tap()
+            XCTAssertTrue(app.buttons["Ratchet"].isSelected, "tapping RATCH selects it at \(size)")
             app.terminate()
         }
     }
 
-    /// MIX ROWS AMENDMENT 1 (§A7): no explanatory caption line on any lower-right tab — MUTE's hint and ZOOM legend, FX's hint row and per-row descriptions (RATCH and VEL never had one). (The words are matched whole: the zoom arrows' own VoiceOver labels say "Zoom in".)
+    /// MIX ROWS AMENDMENT 1 (§A7): no explanatory caption line on any lower-right tab — MUTE's hint and ZOOM legend (RATCH and VEL never had one; the FX tab, which had them, is retired). (The words are matched whole: the zoom arrows' own VoiceOver labels say "Zoom in".)
     func testNoLowerRightTabShowsAnExplanatoryCaption() {
         let app = XCUIApplication.fresh()
         let captions = ["TAP CELLS TO SILENCE EACH OUTPUT", "GHOSTS DIM BEHIND", "(1\u{2013}8 PASSES)", "TAP: ON/OFF", "DRAG ALONG: PAINT", "DOUBLE-TAP: RESET",
@@ -428,11 +429,6 @@ final class FourfoldTapTests: XCTestCase {
             }
         }
         need(app.buttons["Mute"], "the MUTE tab"); assertNone("MUTE")
-        app.buttons["FX"].tap(); need(app.buttons["FX row, ratchet, all lanes, selected"], "the FX panel's RATCH row"); assertNone("FX")
-        for row in ["gate", "tie", "velocity"] {
-            let b = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "FX row, \(row)")).firstMatch
-            if b.exists { b.tap(); assertNone("FX \(row)") }
-        }
         app.buttons["Ratchet"].tap(); assertNone("RATCH")
         app.buttons["Velocity"].tap(); assertNone("VEL")
     }

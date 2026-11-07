@@ -2501,13 +2501,12 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual((-2...2).map(euclideousMixOctaveText), ["\u{2212}2", "\u{2212}1", "0", "+1", "+2"])
         XCTAssertEqual((-2...2).map(euclideousMixOctaveSpoken), ["minus 2", "minus 1", "0", "plus 1", "plus 2"])
     }
-    // §1 → CARD BACKS §8: the MIX tab is retired (hidden, not deleted) — the panel's tabs are LANES then FX, LANES the default, equal widths.
-    // RATCH tab ferry (2026-10-28): RATCH is the third VISIBLE tab, after FX (the fourth case of the enum); LANES stays the default.
-    func testSequencerTabsAreLanesThenFXThenRatch() {
+    // §1 → CARD BACKS §8: the MIX tab is retired (hidden, not deleted); FX is retired too (Paul, 2026-11-07) — the panel's tabs are MUTE, RATCH, VEL, MUTE the default.
+    func testSequencerTabsAreMuteThenRatchThenVelocityAndFXIsRetired() {
         XCTAssertEqual(EuclideousSeqTab.visible, [.lanes]); XCTAssertEqual(EuclideousSeqTab.default, .lanes)
-        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .fx, .ratch, .velocity])   // VELOCITY tab (2026-11-03): the fourth — pin brought up to date with the other instance's landing
-        XCTAssertFalse(EuclideousSeqTab.visible(fxAvailable: true).contains(.mix), "no MIX tab any more")
-        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).map { $0.label }, ["MUTE", "FX", "RATCH", "VEL"])   // MUTE TAB ferry (2026-11-02): LANES → MUTE
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .ratch, .velocity])
+        XCTAssertFalse(EuclideousSeqTab.visible(fxAvailable: true).contains(.mix), "no MIX tab any more"); XCTAssertFalse(EuclideousSeqTab.visible(fxAvailable: true).contains(.fx), "no FX tab any more")
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).map { $0.label }, ["MUTE", "RATCH", "VEL"])   // MUTE TAB ferry (2026-11-02): LANES → MUTE
         XCTAssertEqual(euclideousSeqTabWidth(count: 2, contentWidth: 401), 198.5, accuracy: 1e-9, "two tabs at the reference panel")
         XCTAssertEqual(euclideousSeqTabWidth(count: 1, contentWidth: 401), 401)
     }

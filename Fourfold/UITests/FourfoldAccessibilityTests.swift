@@ -22,7 +22,6 @@ enum FourfoldAuditAllowList {
         ("textClipped", "Invert melody", "RIFF tab control caption: look at it on the mini"),
         ("textClipped", "MUTE ON ITS HITS", "ANSWER tab option caption (≈ 97 pt wide at the reference card): probably truly cut on a narrow card — look at it"),
         ("textClipped", "TAKE ITS SETUP", "ANSWER tab option caption (≈ 97 pt wide at the reference card): look at it on a narrow card"),
-        ("textClipped", "TAP: ON/OFF", "the FX tab's instruction line is cut at the panel width in portrait — a real truncation (seen in the picture: \"…DOUBLE-TAP:…\")"),
         ("textClipped", "ITS NOTE NOW", "ANSWER tab option caption, landscape"),
         ("textClipped", "GATE", "MIX ROWS: the slider caption (7 pt) — same family as VEL; drawn whole in the pictures"),
         ("textClipped", "90%", "MIX ROWS: the GATE slider's value (9 pt heavy, right-aligned in its tile) — drawn whole in the pictures; the audit flags the value Texts of the sliders like their captions"),
@@ -167,7 +166,6 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditHarmonyPopoverLandscape() { screen("harmony popover", landscape: true, harmonyPopover) }
     func testAuditMixPanelPortrait()  { screen("mix panel", landscape: false) { $0.buttons["Mix"].tap() } }   // MIX ROWS (2026-11-03): the panel; the card backs are retired
     func testAuditLanesPortrait()    { screen("page LANES", landscape: false) { $0.buttons["Mute"].tap() } }
-    func testAuditFxPortrait()       { screen("page FX", landscape: false) { $0.buttons["FX"].tap() } }
     func testAuditRatchPortrait()    { screen("page RATCH", landscape: false) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabPortrait()  { screen("lane tab RIFF", landscape: false, laneTab("Riff, ")) }
     func testAuditPolyRiffPortrait() { screen("poly riff", landscape: false) { $0.buttons["Poly"].tap() } }   // POLY RIFF (2026-10-29): the sixteen-column grid and the MONO | POLY control
@@ -182,7 +180,6 @@ final class FourfoldAccessibilityTests: XCTestCase {
 
     func testAuditMixPanelLandscape() { screen("mix panel", landscape: true) { $0.buttons["Mix"].tap() } }
     func testAuditLanesLandscape()    { screen("page LANES", landscape: true) { $0.buttons["Mute"].tap() } }
-    func testAuditFxLandscape()       { screen("page FX", landscape: true) { $0.buttons["FX"].tap() } }
     func testAuditRatchLandscape()    { screen("page RATCH", landscape: true) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabLandscape()  { screen("lane tab RIFF", landscape: true, laneTab("Riff, ")) }
     func testAuditNotesTabLandscape() { screen("lane tab NOTES", landscape: true, laneTab("Notes")) }

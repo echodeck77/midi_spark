@@ -118,9 +118,6 @@ final class FourfoldUndoAuditTests: XCTestCase {
         row.tap()
         Thread.sleep(forTimeInterval: 0.3)
     }
-    /// An FX cell is "Note n, rank r, <row> <value>" — r is the riff's rank at that step, which edits change, so match on the note and the row only.
-    func fxCell(note: Int, row: String) { app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Note \(note), rank", ", \(row) ")).firstMatch.tap() }
-    func openFX() { app.buttons["FX"].tap(); Thread.sleep(forTimeInterval: 0.4) }
     // INPUTS + HARMONY ferry (2026-11-06): the chord grids live on the HARMONY page, opened from the header button.
     func openChordsPopup() {
         app.buttons["Harmony"].tap(); Thread.sleep(forTimeInterval: 0.6)
@@ -442,23 +439,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         app.buttons["Stop"].tap()
     }
 
-    // MARK: the areas the first audit never reached — FX, chords, lane lock, user presets, a preset loaded twice
-
-    func testFX_EachCellTapIsItsOwnStepAndAnUndoThenAnEditEndsRedo() {
-        let p0 = launch()
-        openFX()
-        fxCell(note: 1, row: "ratchet"); let a = settled()
-        fxCell(note: 2, row: "gate"); let b = settled()
-        XCTAssertNotEqual(a.snap, p0.snap); XCTAssertNotEqual(b.snap, a.snap, "two real FX edits")
-        XCTAssertEqual(b.undo, 2, "each tap on an FX cell is a step: \(b.raw)")
-        XCTAssertTrue(b.consistent, b.raw)
-        undo(); XCTAssertEqual(settled().snap, a.snap)
-        undo(); XCTAssertEqual(settled().snap, p0.snap)
-        redo(); XCTAssertEqual(settled().snap, a.snap)
-        fxCell(note: 3, row: "tie"); let c = settled()          // a fresh edit after a redo: ends the redo branch
-        XCTAssertNotEqual(c.snap, a.snap); XCTAssertEqual(c.redo, 0, c.raw); XCTAssertEqual(c.undo, 2, c.raw)
-        XCTAssertTrue(c.consistent, c.raw); XCTAssertEqual(c.resyncs, 0, c.raw)
-    }
+    // MARK: the areas the first audit never reached — chords, lane lock, user presets, a preset loaded twice
 
     /// HARMONY (2026-11-06): the page's edits are steps and undo restores them — a grid cell, STEPS, the pill's ADVANCE chips — while opening the page, a popover and the CHORDS · COLOUR switch are none.
     func testChords_EditsAreStepsAndOpeningThePageAndItsPopoversAreNot() {
@@ -653,11 +634,11 @@ final class FourfoldUndoAuditTests: XCTestCase {
     // MARK: the fuzz against the policy as written
 
     private enum Op: CustomStringConvertible {
-        case stepsUp, stepsDown, hits(Bool), offset, source(String), riff(Int), riffCell(Int, Int), keyScale, fxCell(Int, String), preset(String), undo, redo
+        case stepsUp, stepsDown, hits(Bool), offset, source(String), riff(Int), riffCell(Int, Int), keyScale, preset(String), undo, redo
         var description: String {
             switch self {
             case .stepsUp: return "steps+"; case .stepsDown: return "steps−"; case .hits(let u): return "hits\(u ? "↑" : "↓")"; case .offset: return "offset"
-            case .source(let s): return "source:\(s)"; case .riff(let n): return "mode\(n % 2 == 0 ? "poly" : "mono")"; case .riffCell(let st, let r): return "cell(step \(st) rank \(r))"; case .keyScale: return "key-scale"; case .fxCell(let n, let r): return "fx(note \(n) \(r))"
+            case .source(let s): return "source:\(s)"; case .riff(let n): return "mode\(n % 2 == 0 ? "poly" : "mono")"; case .riffCell(let st, let r): return "cell(step \(st) rank \(r))"; case .keyScale: return "key-scale"
             case .preset(let p): return "preset:\(p)"; case .undo: return "UNDO"; case .redo: return "REDO"
             }
         }
@@ -668,7 +649,6 @@ final class FourfoldUndoAuditTests: XCTestCase {
     private func runFuzz(seed: UInt64, length: Int) {
         var rng = SplitMix(seed)
         let first = launch()
-        openFX()                                                                // the sequencer panel shows its FX tab for the whole run (the lane cards and the riff panel stay where they are)
         var oracle = Timeline(start: first.snap)
         var upCount = 0, keyIsMinor = true
         var log: [String] = []
@@ -681,9 +661,8 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case 4, 5: op = .source(["CHORDS while MIDI plays", "CHORDS with no MIDI", "KEY with no MIDI"][rng.int(0...2)])   // each toggle flips one SOURCES cell — always a change, always one step
             case 6: op = .riff(rng.int(2...4))   // 2, 4 → POLY · 3 → MONO (the control that replaced the four riff boxes)
             case 7: op = .preset("FIVE AGAINST EIGHT")
-            case 8, 9: op = .riffCell(rng.int(1...8), rng.int(1...8))
+            case 8, 9, 11, 12: op = .riffCell(rng.int(1...8), rng.int(1...8))   // (11, 12 were FX cell taps before the FX tab was retired, 2026-11-07)
             case 10: op = .keyScale
-            case 11, 12: op = .fxCell(rng.int(1...8), ["ratchet", "tie", "gate", "velocity", "note step"][rng.int(0...4)])
             case 13, 14, 15: op = .undo
             default: op = .redo
             }
@@ -697,7 +676,6 @@ final class FourfoldUndoAuditTests: XCTestCase {
             case .source(let s): noteSource(s)
             case .riff(let n): riffMode(poly: n % 2 == 0)
             case .riffCell(let st, let r): app.buttons["Step \(st), rank \(r)"].firstMatch.tap()
-            case .fxCell(let n, let row): fxCell(note: n, row: row)
             case .keyScale:
                 app.buttons["Harmony"].tap(); Thread.sleep(forTimeInterval: 0.4)
                 app.buttons[keyIsMinor ? "MAJOR" : "MINOR"].firstMatch.tap(); keyIsMinor.toggle()

@@ -467,7 +467,7 @@ final class MixPanelTests: XCTestCase {
         XCTAssertEqual(euclideousFXHintText, "TAP: ON/OFF · DRAG ALONG: PAINT · DRAG UP/DOWN: VALUE · DOUBLE-TAP: RESET")
         XCTAssertEqual([EuclideousFXRow.ratch, .gate, .tie, .vel].compactMap { $0.stripDescription }.count, 4)
         // RATCH and VEL never had a caption line: nothing of theirs moved
-        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).count, 4)
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).count, 3, "MUTE, RATCH, VEL — the FX tab is retired")
     }
 
     // MARK: the strings

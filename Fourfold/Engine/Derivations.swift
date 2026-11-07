@@ -5401,8 +5401,8 @@ enum EuclideousSeqTab: Int, CaseIterable {
     /// so the FX columns match the riff grid's, and it is 319 tall — but the list stays for a caller that wants it.
     /// CARD BACKS (2026-10-28) §8: the MIX tab is RETIRED — what it edited (VEL, GATE, OCT per part) now lives on the lane cards' backs. The case stays (hidden, not deleted), so the panel is LANES | FX and LANES is the default.
     static let visible: [EuclideousSeqTab] = [.lanes]
-    /// FX is the second tab after LANES (the page offers it in both orientations since the PAGE LAYOUT ferry).
-    static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.lanes, .fx, .ratch, .velocity] : visible }   // RATCH tab ferry: RATCH is the third VISIBLE tab (MIX is retired), after FX; VELOCITY tab (2026-11-03): the fourth
+    /// FX is RETIRED (Paul, 2026-11-07): the case stays (hidden, not deleted — its panel code and the document's `euclideousFX` are still compiled), but no tab offers it; a stray `.fx` shows MUTE.
+    static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.lanes, .ratch, .velocity] : visible }   // RATCH tab ferry: RATCH is the third VISIBLE tab (MIX is retired), after FX; VELOCITY tab (2026-11-03): the fourth
     static let `default`: EuclideousSeqTab = .lanes
 }
 /// Tabs only: equal widths across the full content width, sp4 apart (two tabs at the 401pt reference = 198.5 each).

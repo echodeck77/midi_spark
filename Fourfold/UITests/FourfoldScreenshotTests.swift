@@ -87,7 +87,7 @@ final class FourfoldScreenshotTests: XCTestCase {
     func testEveryTabPopupAndSheet() {
         XCUIDevice.shared.orientation = .portrait
         let screens: [(String, (XCUIApplication) -> Void)] = [
-            ("5-mix", { _ in }), ("5-lanes", { $0.buttons["Mute"].tap() }), ("5-fx", { $0.buttons["FX"].tap() }),
+            ("5-mix", { _ in }), ("5-lanes", { $0.buttons["Mute"].tap() }),
             ("5-lane-riff", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff, '")).element(boundBy: 0).tap() }),
             ("5-lane-notes", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes'")).element(boundBy: 0).tap() }),
             ("5-lane-listen", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Answer, '")).element(boundBy: 0).tap() }),
