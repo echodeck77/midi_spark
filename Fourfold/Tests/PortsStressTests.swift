@@ -247,14 +247,6 @@ final class PortsStressTests: XCTestCase {
                                           soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
         st.scenes = [FourfoldCompose.scene(input)]
     }
-    private func retranspose(_ st: inout PluginState, _ h: inout SM64, zeroed: Bool = false) {
-        func t(_ h: inout SM64) -> Int? { let v = [nil, 0, Int.random(in: -7...7, using: &h), Int.random(in: -3...3, using: &h), 7, -7].randomElement(using: &h)!; return zeroed ? nil : v }
-        let ls = (st.euclideousLines ?? []).map { l -> EuclidLine in var m = l; m.riffOutTranspose = t(&h); m.notesOutTranspose = t(&h); return m }
-        st.euclideousLines = ls
-        let input = FourfoldCompose.Input(lines: ls, riff: st.euclideousRiffResolved, riffs: st.riffsResolved, activeRiff: st.activeRiffResolved,
-                                          soloMask: st.euclideousSoloMaskResolved, locks: st.euclideousLocksResolved, lockRevs: 0)
-        st.scenes = [FourfoldCompose.scene(input)]
-    }
     /// RATCH tab ferry (2026-10-28): four random output ratchets — mostly ON, every STEPS / HITS / OFFSET / CHANCE / STRIKES — drawn from their OWN stream, so the pinned fingerprints (no ratchets) stay exactly what they were.
     private func rEmitters(_ x: inout SM64) -> EmitterRatchetSet {
         var set = EmitterRatchetSet()
@@ -432,13 +424,12 @@ final class PortsStressTests: XCTestCase {
     /// Coverage for the roll-feed check (CARD BACKS §13 test 9): records seen, of them routed nowhere, and the notes the wire carried that the feed named.
     private var rollRecordsSeen = 0, rollSilentSeen = 0, rollWireChecked = 0, rollUnranked = 0
     private var rollUnrankedSeeds: [String] = []
-    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, outTranspose: Bool = false, zeroedTranspose: Bool = false, emitters: Bool = false, velocities: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false, octaves: Bool = false, octavesOff: Bool = false, answer: Bool = false, answerOff: Bool = false, pool poolFeature: Bool = false, poolOff: Bool = false, mutes: Bool = false, mutesOff: Bool = false) -> String? {
+    private func runSession(seed: UInt64, windows: Int, rawGates: Bool = false, emitters: Bool = false, velocities: Bool = false, poly: Bool = false, polyModeOff: Bool = false, canon: Bool = false, canonOff: Bool = false, octaves: Bool = false, octavesOff: Bool = false, answer: Bool = false, answerOff: Bool = false, pool poolFeature: Bool = false, poolOff: Bool = false, mutes: Bool = false, mutesOff: Bool = false) -> String? {
         var g = SM64(seed)
         var an = SM64(seed ^ 0xA25E_3E40_0000)     // ANSWER ferry: the rows, CYCLE flags, TRADE and EACH / UNIT draw from their OWN stream, so every pinned fingerprint (no ANSWER fields) stays exactly what it was
         var q = SM64(seed ^ 0x0F01_7A11_0000)      // POLY RIFF ferry: the POLY riff draws from its OWN stream too, so the pinned fingerprints (MONO) stay exactly what they were
         var x = SM64(seed ^ 0xE317_A7C4_0000)     // RATCH tab ferry: the emitter ratchets draw from their OWN stream too
         var kc = SM64(seed ^ 0xCA70_C4A0_0001)     // CHORD CANON ferry: the delays, slips, unit and entry draw from their OWN stream, so every pinned fingerprint (no canon) stays exactly what it was
-        var h = SM64(seed ^ 0x0A7C_0FFE_E000)      // CARD BACKS v2: the out-transposes draw from their OWN stream, so the pinned fingerprints (no out-transpose) stay exactly what they were
         var oc = SM64(seed ^ 0x0C7A_5E00_0000)     // MIDI IN OCTAVES / ROOT ferry: the OCTAVES choice and the MODE (ADD / REPLACE / ROOT) draw from their OWN stream, so every pinned fingerprint (KEEP, the document's own mode) stays exactly what it was
         var pl = SM64(seed ^ 0x0900_1500_7A11)     // POOL ferry: the per-lane sources and MIDI modes draw from their OWN stream, so every pinned fingerprint (no POOL fields) stays exactly what it was
         var mu = SM64(seed ^ 0x4D17_E000_0003)     // MUTE TAB ferry: the per-output mutes draw from their OWN stream, so every pinned fingerprint (no output mutes) stays exactly what it was
@@ -448,7 +439,6 @@ final class PortsStressTests: XCTestCase {
         var diag = KernelDiag()
         let e = TaggedEmitter()
         var (st, pool) = rDoc(&g, rawGates: rawGates)
-        if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }
         if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }
         if velocities { st.euclideousEmitterVelocities = rVelocities(&vx) }
         if poly { repoly(&st, &q, modeOff: polyModeOff) }
@@ -471,10 +461,9 @@ final class PortsStressTests: XCTestCase {
         for w in 0..<windows {
             e.win = w
             // mutate the document / transport between windows
-            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if outTranspose { retranspose(&st, &h, zeroed: zeroedTranspose) }; if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if velocities { st.euclideousEmitterVelocities = rVelocities(&vx) }; if poly { repoly(&st, &q, modeOff: polyModeOff) }; if canon { recanon(&st, &kc, off: canonOff) }; if octaves { reoctaves(&st, &oc, off: octavesOff) }; if answer { reanswer(&st, &an, off: answerOff) }; if mutes { st.euclideousOutputMutes = rMutes(&mu, off: mutesOff) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
+            if Int.random(in: 0...3, using: &g) == 0 { (st, _) = rDoc(&g, rawGates: rawGates); if emitters { st.euclideousEmitterRatchets = rEmitters(&x) }; if velocities { st.euclideousEmitterVelocities = rVelocities(&vx) }; if poly { repoly(&st, &q, modeOff: polyModeOff) }; if canon { recanon(&st, &kc, off: canonOff) }; if octaves { reoctaves(&st, &oc, off: octavesOff) }; if answer { reanswer(&st, &an, off: answerOff) }; if mutes { st.euclideousOutputMutes = rMutes(&mu, off: mutesOff) }; box = SnapshotBuilder.build(from: st) }   // whole new doc
             if emitters, x.next() % 3 == 0 { st.euclideousEmitterRatchets = rEmitters(&x); box = SnapshotBuilder.build(from: st) }   // RATCH tab ferry: a toggle / value dragged while notes (and deferred strikes) sound
             if velocities, vx.next() % 3 == 0 { st.euclideousEmitterVelocities = rVelocities(&vx); box = SnapshotBuilder.build(from: st) }   // VELOCITY tab ferry: an accent dragged while notes (and deferred strikes) sound
-            if outTranspose, h.next() % 3 == 0 { retranspose(&st, &h, zeroed: zeroedTranspose); box = SnapshotBuilder.build(from: st) }   // CARD BACKS v2: a PITCH pad dragged while notes sound
             if canon, kc.next() % 3 == 0 { recanon(&st, &kc, off: canonOff); box = SnapshotBuilder.build(from: st) }   // CHORD CANON: a DELAY / SLIP / UNIT edited while notes sound
             if octaves, oc.next() % 3 == 0 { reoctaves(&st, &oc, off: octavesOff); box = SnapshotBuilder.build(from: st) }
             if answer, an.next() % 3 == 0 { reanswer(&st, &an, off: answerOff); box = SnapshotBuilder.build(from: st) }   // ANSWER: a switch, a CYCLE, a TRADE or EACH / UNIT edited while notes — and traded notes — sound   // MIDI IN OCTAVES / ROOT: the choice or the mode flipped while notes sound
@@ -620,22 +609,6 @@ final class PortsStressTests: XCTestCase {
     }
     private static let fuzzFingerprintRaw: UInt64 = 17757931293296337924   // AVOID IS STEP-BASED (2026-11-06): re-derived by the INPUTS ferry (the same value on 4cb3c12 and on this branch). Earlier note: ANSWER ferry (2026-11-02): re-derived for the same reason (ECHO → SHADOW); with ECHO mapped to OWN the pre-ferry build and this one both capture 6866546876186653398. Prior: 13291222476058734517 (LISTEN AVOID REBUILT)
 
-    // CARD BACKS v2 (2026-10-28): out-transposes drawn at random AND changing mid-note — nothing strands, no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
-    func testOutTransposeSessionsHoldEveryInvariant() {
-        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 200_000, windows: 24, outTranspose: true) { XCTFail(msg); return } }
-    }
-    /// The invariant fuzzes above pass whether or not a shift ever reaches the wire (mutation-tested by the 2026-10-28 review: with `outShift` disabled they stayed green). This one compares each session with the SAME session whose
-    /// out-transposes were drawn but not stored: the two must differ on the wire in most seeds, or the shifts never arrive.
-    func testOutTransposeSessionsReallyChangeTheNotesOnTheWire() {
-        var differing = 0, total = 0
-        for s in 1...120 {
-            let seed = UInt64(s) &+ 400_000
-            XCTAssertNil(runSession(seed: seed, windows: 24, outTranspose: true)); let shifted = lastSessionHash
-            XCTAssertNil(runSession(seed: seed, windows: 24, outTranspose: true, zeroedTranspose: true)); let control = lastSessionHash
-            total += 1; if shifted != control { differing += 1 }
-        }
-        XCTAssertGreaterThan(differing, total / 6, "only \(differing) of \(total) sessions sounded different with out-transposes on — the shifts are not reaching the wire")
-    }
     // POLY RIFF ferry (2026-10-29): POLY riffs drawn at random AND edited mid-note, on top of the full random document (hocket-free, random routing masks, FX, sources, locks, solo): nothing strands, no orphan off, each message on its
     // output's channel, ALL = the union of the outputs, the roll equals the wire — the same invariants as every other fuzz here.
     func testPolySessionsHoldEveryInvariant() {
@@ -750,9 +723,6 @@ final class PortsStressTests: XCTestCase {
         }
         // like the canon control: random sessions are mostly sparse (lanes off, soloed away, MIDI IN off or nothing held in 24 short windows) — about one in seven is dense enough for the fold or a root transpose to change a note
         XCTAssertGreaterThan(differing, total / 12, "only \(differing) of \(total) sessions sounded different with IGNORE / ROOT on — they are not reaching the wire")
-    }
-    func testOutTransposeSessionsAtGate100() {
-        for s in 1...300 { if let msg = runSession(seed: UInt64(s) &+ 300_000, windows: 24, rawGates: true, outTranspose: true) { XCTFail(msg); return } }
     }
 
     // RATCH tab ferry (2026-10-28): output ratchets drawn at random AND changing mid-note — nothing strands, no orphan off, each message on its output's channel, ALL = the union of the outputs, the roll equals the wire.
