@@ -1,5 +1,5 @@
 //  MixPanelV2Tests.swift — MIX v2 ferry (2026-11-05) + amendment 1 (revised): the pure layer (`MixPanelV2.swift`). Test 1 (every frame of §1.3–1.5, the strip frame's contents, the emitters, the floors), the amendment's alignment
-//  tests at every page layout, and — as the ferry's later steps land — the strip, stack, TRANS, OCT and solo-button looks.
+//  tests at every page layout, and — as the ferry's later steps land — the strip, stack, OCT and solo-button looks. TRANS left the panel on 2026-11-07: its 54 + 4 pt went to VEL and GATE (V = (blockW − 350) ÷ 2).
 //  The spec's landscape figures (bandW 677.33, blockW 595.33, V 93.67 …) are the PRE-TAB-STRIP 753.33-wide panel; the source's lane area is 769.33 wide (MIX rows found the same), so the references below are the source's, and one test
 //  evaluates the same formulas at 753.33 to show they reproduce the spec's own numbers.
 
@@ -17,7 +17,7 @@ final class MixPanelV2Tests: XCTestCase {
 
     func testTheLandscapeReferenceInTheSourcesWidth() {
         let L = euclideousMixV2Layout(size: landscape)
-        close(L.bandW, 693.33); close(L.bandH, 148); close(L.innerW, 681.33); close(L.innerH, 136); close(L.blockW, 611.33); close(L.rowH, 47); close(L.tileH, 41); close(L.sliderW, 101.67); close(L.chipH, 10.75)
+        close(L.bandW, 693.33); close(L.bandH, 148); close(L.innerW, 681.33); close(L.innerH, 136); close(L.blockW, 611.33); close(L.rowH, 47); close(L.tileH, 41); close(L.sliderW, 130.67, "(611.33 − 350) ÷ 2 — TRANS's room went to the sliders"); close(L.chipH, 10.75)
         XCTAssertEqual(L.floors, [], "no floor flags at the reference")
         let b = L.bands[0]
         rect(b.frame, 0, 0, 693.33, 148, "band 1"); rect(b.inner, 6, 6, 681.33, 136, "its inset")
@@ -29,15 +29,14 @@ final class MixPanelV2Tests: XCTestCase {
         for r in [b.riff, b.notes] {
             rect(r.solo, 73, r.plate.minY + 3, 22, 41, "S"); rect(r.soloTarget, 70, r.plate.minY, 26, 47, "S target 26 × rowH")
             rect(r.toggle, 99, r.plate.minY + 3, 48, 41, "toggle"); rect(r.stack, 153, r.plate.minY + 3, 30, 41, "stack")
-            rect(r.vel, 189, r.plate.minY + 3, 101.67, 41, "VEL"); rect(r.gate, 189 + 101.67 + 4, r.plate.minY + 3, 101.67, 41, "GATE")
-            rect(r.trans, 189 + 2 * 101.67 + 8, r.plate.minY + 3, 54, 41, "TRANS")
-            rect(r.oct, 189 + 2 * 101.67 + 8 + 54 + 4, r.plate.minY + 3, 110, 41, "OCT")
-            rect(r.outs, 189 + 2 * 101.67 + 8 + 54 + 4 + 110 + 6, r.plate.minY + 3, 104, 41, "A–D")
+            let v: CGFloat = 130.6667
+            rect(r.vel, 189, r.plate.minY + 3, v, 41, "VEL"); rect(r.gate, 189 + v + 4, r.plate.minY + 3, v, 41, "GATE")
+            close(r.oct.minX - r.gate.maxX, 4, "OCT follows GATE 4 pt later — nothing sits between them any more")
+            rect(r.oct, 189 + 2 * v + 8, r.plate.minY + 3, 110, 41, "OCT")
+            rect(r.outs, 189 + 2 * v + 8 + 110 + 6, r.plate.minY + 3, 104, 41, "A–D")
             close(r.outs.maxX, 70 + 611.33 - 3, "A–D ends 3 in from the plate's right edge")
         }
-        // §4.7 / 4.8 / 4.9 inside the tiles
-        rect(b.riff.transLeft, b.riff.trans.minX, 39, 34, 41, "TRANS left"); rect(b.riff.transRight, b.riff.trans.minX + 34, 39, 20, 41, "TRANS right")
-        rect(b.riff.transUpper, b.riff.trans.minX, 36, 54, 23.5, "TRANS upper target (54 × rowH ÷ 2)"); rect(b.riff.transLower, b.riff.trans.minX, 59.5, 54, 23.5, "TRANS lower target")
+        // §4.8 / 4.9 inside the tiles
         XCTAssertEqual(b.riff.octBoxes.count, 5); rect(b.riff.octBoxes[0], b.riff.oct.minX, 39 + 9, 22, 30, "OCT box 1 (22 × 30)"); rect(b.riff.octBoxes[4], b.riff.oct.minX + 88, 48, 22, 30, "OCT box 5")
         for t in b.riff.octTargets { XCTAssertGreaterThanOrEqual(t.height, 44, "an OCT target is never under 44 tall") }
         XCTAssertEqual(b.riff.outTargets.count, 4); rect(b.riff.outTargets[1], b.riff.outs.minX + 26, 36, 26, 47, "B target 26 × rowH"); rect(b.riff.outCircles[0], b.riff.outs.minX + 2, 39 + 9.5, 22, 22, "A's 22 pt circle")
@@ -52,7 +51,7 @@ final class MixPanelV2Tests: XCTestCase {
     }
     func testThePortraitReference() {
         let L = euclideousMixV2Layout(size: portrait)
-        close(L.bandW, 706); close(L.bandH, 148.33); close(L.innerW, 694); close(L.innerH, 136.33); close(L.blockW, 624); close(L.rowH, 47.17); close(L.sliderW, 108, "the spec's 108"); close(L.chipH, 10.79, "the amendment's 10.79")
+        close(L.bandW, 706); close(L.bandH, 148.33); close(L.innerW, 694); close(L.innerH, 136.33); close(L.blockW, 624); close(L.rowH, 47.17); close(L.sliderW, 137, "(624 − 350) ÷ 2; 108 before TRANS left the row"); close(L.chipH, 10.79, "the amendment's 10.79")
         let b = L.bands[0]
         close(b.stripFrame.width, 511, "the amendment's 511"); close(b.hitsBox.minX, 70 + 517, "HITS starts at 517 in the right block"); close(b.stepsBox.maxX, 70 + 621, "STEPS ends at 621")
         XCTAssertEqual(L.floors, [])
@@ -60,7 +59,7 @@ final class MixPanelV2Tests: XCTestCase {
     /// The spec's own reference figures belong to a 753.33-wide panel; the same formulas reproduce them there.
     func testTheFormulasReproduceTheSpecsOwnFigures() {
         let L = euclideousMixV2Layout(size: CGSize(width: 753.333333, height: 610))
-        close(L.bandW, 677.33); close(L.innerW, 665.33); close(L.blockW, 595.33); close(L.sliderW, 93.67); close(L.rowH, 47); close(L.tileH, 41)
+        close(L.bandW, 677.33); close(L.innerW, 665.33); close(L.blockW, 595.33); close(L.sliderW, 122.67, "(595.33 − 350) ÷ 2; the spec's 93.67 was before TRANS left the row"); close(L.rowH, 47); close(L.tileH, 41)
         let b = L.bands[0]
         close(b.stripFrame.width, 482.33, "the amendment's 482.33"); close(b.hitsBox.minX - 70, 488.33, "HITS from 488.33"); close(b.stepsBox.maxX - 70, 592.33, "STEPS to 592.33")
     }
@@ -170,24 +169,6 @@ final class MixPanelV2Tests: XCTestCase {
         XCTAssertEqual(EuclideousMixV2StackMetrics.unlitOnHex, 0x2A2C33); XCTAssertEqual(EuclideousMixV2StackMetrics.unlitOffHex, 0x202227)
     }
 
-    // MARK: test 5 — TRANS (the pure half; the taps and the undo are the view's and the UI tests')
-
-    func testTransposeStepsClampAtSevenAndTheTextUsesAMinusSign() {
-        XCTAssertEqual(euclideousMixV2TransStep(0, up: true), 1); XCTAssertEqual(euclideousMixV2TransStep(0, up: false), -1)
-        XCTAssertEqual(euclideousMixV2TransStep(7, up: true), 7, "clamped at +7"); XCTAssertEqual(euclideousMixV2TransStep(-7, up: false), -7, "clamped at −7")
-        XCTAssertEqual(euclideousMixV2TransText(2), "+2"); XCTAssertEqual(euclideousMixV2TransText(0), "0"); XCTAssertEqual(euclideousMixV2TransText(-1), "\u{2212}1")
-        // the upper half of the target steps up, the lower half down
-        let b = euclideousMixV2Layout(size: landscape).bands[0]
-        XCTAssertTrue(euclideousMixV2TransTapIsUp(y: 5, targetHeight: b.riff.transUpper.height * 2)); XCTAssertFalse(euclideousMixV2TransTapIsUp(y: 30, targetHeight: b.riff.transUpper.height * 2))
-        // the spec's walk: +1 for an upper tap, −1 after two lower taps
-        var v = 0; v = euclideousMixV2TransStep(v, up: true); XCTAssertEqual(v, 1); v = euclideousMixV2TransStep(v, up: false); v = euclideousMixV2TransStep(v, up: false); XCTAssertEqual(v, -1)
-    }
-    func testAHoldRepeatsEvery150MsAfter400() {
-        XCTAssertEqual(euclideousMixV2TransRepeatSteps(heldFor: 0), 0); XCTAssertEqual(euclideousMixV2TransRepeatSteps(heldFor: 0.399), 0, "nothing before 400 ms")
-        XCTAssertEqual(euclideousMixV2TransRepeatSteps(heldFor: 0.4), 1, "the first repeat at 400 ms"); XCTAssertEqual(euclideousMixV2TransRepeatSteps(heldFor: 0.549), 1)
-        XCTAssertEqual(euclideousMixV2TransRepeatSteps(heldFor: 0.55), 2, "the second at 550 ms"); XCTAssertEqual(euclideousMixV2TransRepeatSteps(heldFor: 0.70), 3); XCTAssertEqual(euclideousMixV2TransRepeatSteps(heldFor: 1.0), 5)
-    }
-
     // MARK: test 6 — OCT (the pure half, shared by every surface)
 
     func testFiveBoxesOneSelectedAndADragSelectsTheBoxUnderTheFinger() {
@@ -211,13 +192,13 @@ final class MixPanelV2Tests: XCTestCase {
         XCTAssertEqual(euclideousMixV2SoloLook(latched: false, heldLook: true).fillHex, 0xDFE3EA)
     }
     func testDimsAreOne42PercentAndNeverStack() {
-        let all: [EuclideousMixV2Element] = [.pool, .fork, .solo, .toggle, .stack, .vel, .gate, .trans, .oct, .outs]
+        let all: [EuclideousMixV2Element] = [.pool, .fork, .solo, .toggle, .stack, .vel, .gate, .oct, .outs]
         for e in all {
             XCTAssertEqual(euclideousMixV2Opacity(laneDimmed: true, partDimmed: true, element: e), 0.42, "a dimmed lane: everything below the strip, once (\(e))")
             XCTAssertEqual(euclideousMixV2Opacity(laneDimmed: true, partDimmed: false, element: e), 0.42)
             XCTAssertEqual(euclideousMixV2OwnOpacity(laneDimmed: true, partDimmed: true, element: e), 1, "inside a dimmed lane's group a part's own dim adds nothing (\(e))")
         }
-        for e in [EuclideousMixV2Element.stack, .vel, .gate, .trans, .oct] { XCTAssertEqual(euclideousMixV2Opacity(laneDimmed: false, partDimmed: true, element: e), 0.42, "an off / solo-silenced part dims \(e)"); XCTAssertEqual(euclideousMixV2Opacity(laneDimmed: false, partDimmed: false, element: e), 1) }
+        for e in [EuclideousMixV2Element.stack, .vel, .gate, .oct] { XCTAssertEqual(euclideousMixV2Opacity(laneDimmed: false, partDimmed: true, element: e), 0.42, "an off / solo-silenced part dims \(e)"); XCTAssertEqual(euclideousMixV2Opacity(laneDimmed: false, partDimmed: false, element: e), 1) }
         for e in [EuclideousMixV2Element.solo, .toggle, .outs, .pool, .fork] { XCTAssertEqual(euclideousMixV2Opacity(laneDimmed: false, partDimmed: true, element: e), 1, "S, the toggle and A–D keep full strength (\(e))") }
     }
     func testTheLinesRunFromEachRowsCentreToItsEmittersCentre() {
@@ -236,22 +217,12 @@ final class MixPanelV2Tests: XCTestCase {
         XCTAssertEqual(EuclideousMixV2AX.pool(lowest: "C3", highest: "E\u{266D}5"), "Pool, C3 to E\u{266D}5"); XCTAssertEqual(EuclideousMixV2AX.pool(lowest: nil, highest: nil), "Pool, empty")
         XCTAssertEqual(EuclideousMixV2AX.stack(notes: false, ranks: [4]), "Riff playing rank 4"); XCTAssertEqual(EuclideousMixV2AX.stack(notes: false, ranks: [2, 4, 6]), "Riff playing ranks 2, 4 and 6")
         XCTAssertEqual(EuclideousMixV2AX.stack(notes: true, ranks: [2, 5]), "Notes playing ranks 2 and 5"); XCTAssertEqual(EuclideousMixV2AX.stack(notes: false, ranks: []), "Riff silent")
-        XCTAssertEqual(EuclideousMixV2AX.transpose(notes: false, value: 2), "Riff transpose +2"); XCTAssertEqual(EuclideousMixV2AX.octave(notes: true, value: 0), "Notes octave 0"); XCTAssertEqual(EuclideousMixV2AX.octave(notes: false, value: -1), "Riff octave \u{2212}1")
+        XCTAssertEqual(EuclideousMixV2AX.octave(notes: true, value: 0), "Notes octave 0"); XCTAssertEqual(EuclideousMixV2AX.octave(notes: false, value: -1), "Riff octave \u{2212}1")
         XCTAssertEqual(euclideousMixStripSpoken(hits: 4, steps: 8), "Rhythm, 4 hits in 8 steps", "the strip's label already reads the hits and steps (B4.1)")
     }
 
     // MARK: step 4–6 helpers
 
-    func testTransTouchStepsUpInTheUpperHalfDownInTheLowerAndResetsOnADoubleTapOfTheLeftPart() {
-        var press = EuclideousMixV2TransPress()
-        XCTAssertEqual(press.touchDown(at: 0, x: 45, y: 10, targetHeight: 47), .step(up: true), "right part, upper half")
-        XCTAssertEqual(press.touchDown(at: 0.1, x: 45, y: 40, targetHeight: 47), .step(up: false), "right part, lower half — a right-part tap never arms the double tap")
-        XCTAssertEqual(press.touchDown(at: 1, x: 10, y: 10, targetHeight: 47), .step(up: true), "left part: a step")
-        XCTAssertEqual(press.touchDown(at: 1.2, x: 20, y: 40, targetHeight: 47), .reset, "a second left tap inside 0.3 s sets 0")
-        XCTAssertEqual(press.touchDown(at: 1.3, x: 20, y: 40, targetHeight: 47), .step(up: false), "the third is a fresh tap")
-        XCTAssertEqual(press.touchDown(at: 5, x: 10, y: 10, targetHeight: 47), .step(up: true))
-        XCTAssertEqual(press.touchDown(at: 5.4, x: 10, y: 10, targetHeight: 47), .step(up: true), "outside the window: two steps, not a reset")
-    }
     func testOctaveTouchWritesOnceOnLandingAndKeepsOneUndoStepAcrossADrag() {
         var t = EuclideousOctaveTouch()
         XCTAssertNil(t.move(to: 2, current: 0), "a tap on the selected box does nothing")

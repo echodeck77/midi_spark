@@ -1,5 +1,5 @@
 //  MixPanelV2Views.swift — MIX v2 (2026-11-05): the views of the redesigned MIX panel. They only PAINT what `MixPanelV2.swift` computes (frames, looks, values, strings — one function for the draw code and the tests) and wire a finger to the
-//  page's funnels. Cost: each lane band draws its strip, pool, fork, plates and stacks in ONE Canvas under ONE 60 fps TimelineView (paused while nothing runs); the controls (S, toggle, VEL, GATE, TRANS, OCT, A–D) are plain SwiftUI views
+//  page's funnels. Cost: each lane band draws its strip, pool, fork, plates and stacks in ONE Canvas under ONE 60 fps TimelineView (paused while nothing runs); the controls (S, toggle, VEL, GATE, OCT, A–D) are plain SwiftUI views
 //  OUTSIDE any TimelineView, so a frame never re-runs them. The panel sits in an `EuclideousStackBreak` at its call site (the extension's 1 MB main stack). The MIX rows build's views (`MixPanelViews.swift`) stay compiled, unmounted.
 
 import SwiftUI
@@ -18,7 +18,7 @@ struct EuclideousMixV2Input {
     var accents: [Color]
     /// A lane that NEITHER of its parts may sound through (lane or part solo) — dims its band (§2.1).
     var laneSoloSilenced: [Bool]
-    /// Eight: a part solo silences while its sister may still sound — dims that row's stack, VEL, GATE, TRANS, OCT (§4.2).
+    /// Eight: a part solo silences while its sister may still sound — dims that row's stack, VEL, GATE, OCT (§4.2).
     var partSoloSilenced: [Bool]
     /// The latched part-solo mask (bit 2n riff, 2n+1 notes of lane n).
     var partSoloLatched: UInt8
@@ -155,14 +155,11 @@ struct EuclideousMixV2BandView: View {
             EuclideousMixV2FieldTile(kind: .gate, notes: notes, value: euclideousMixSliderValue(of: line, kind: .gate, notes: notes), accent: accent, size: f.gate.size, dimmed: own(.gate) < 1,
                                      onEditStep: { newStep, mutate in callbacks.editStep(lane, newStep, mutate) })
                 .offset(x: f.gate.minX, y: f.gate.minY).accessibilitySortPriority(base - 4)
-            EuclideousMixV2TransTile(notes: notes, value: euclideousMixSliderValue(of: line, kind: .transpose, notes: notes), tile: f.trans.size, rowH: f.plate.height, tileTop: f.trans.minY - f.plate.minY,
-                                     dimmed: own(.trans) < 1, onEditStep: { newStep, mutate in callbacks.editStep(lane, newStep, mutate) })
-                .offset(x: f.trans.minX, y: f.plate.minY).accessibilitySortPriority(base - 5)
-            octave(notes: notes, f: f, dimmed: own(.oct) < 1).accessibilitySortPriority(base - 6)
+            octave(notes: notes, f: f, dimmed: own(.oct) < 1).accessibilitySortPriority(base - 5)
             ForEach(0..<4, id: \.self) { o in
                 EuclideousMixV2OutButton(output: o, on: euclideousJackIsPlugged(mask: mask, output: o), notes: notes, accent: accent, target: f.outTargets[o].size, circle: f.outCircles[o].size) { callbacks.toggleOut(lane, part, o) }
                     .offset(x: f.outTargets[o].minX, y: f.outTargets[o].minY)
-                    .accessibilitySortPriority(base - 7 - Double(o) * 0.1)
+                    .accessibilitySortPriority(base - 6 - Double(o) * 0.1)
             }
         }
         .background(
@@ -522,95 +519,6 @@ struct EuclideousMixV2FieldTile: View {
     private func reset() {
         let n = notes, k = kind
         onEditStep(true) { l in euclideousMixSliderReset(&l, kind: k, notes: n) }
-    }
-}
-
-// MARK: - TRANS
-
-struct EuclideousMixV2TransTile: View {
-    let notes: Bool
-    let value: Int
-    let tile: CGSize
-    let rowH: CGFloat
-    let tileTop: CGFloat
-    let dimmed: Bool
-    let onEditStep: (Bool, @escaping (inout EuclidLine) -> Void) -> Void
-
-    @State private var press = EuclideousMixV2TransPress()
-    @State private var repeatTask: Task<Void, Never>? = nil
-    @State private var down = false
-    @GestureState private var gestureLive = false
-
-    var body: some View {
-        typealias M = EuclideousMixV2Metrics
-        let leftW = M.transLeftW
-        return ZStack(alignment: .topLeading) {
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x1F2127))
-                VStack(spacing: 2) {
-                    Text("TRANS").font(heavyMono(6)).tracking(0.1 * 6).foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
-                    Text(euclideousMixV2TransText(value)).font(heavyMono(11)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
-                }
-                .frame(width: leftW, height: tile.height)
-                Canvas { ctx, sz in
-                    let x0 = leftW
-                    ctx.fill(Path(CGRect(x: x0, y: 0, width: 1, height: sz.height)), with: .color(Color(hex: 0x2A2C32)))
-                    ctx.fill(Path(CGRect(x: x0, y: sz.height / 2 - 0.5, width: sz.width - x0, height: 1)), with: .color(Color(hex: 0x2A2C32)))
-                    let cx = x0 + (sz.width - x0) / 2
-                    for (cy, up) in [(sz.height / 4, true), (sz.height * 3 / 4, false)] {
-                        var p = Path()
-                        let dy: CGFloat = up ? 2.5 : -2.5
-                        p.move(to: CGPoint(x: cx - 4, y: cy + dy)); p.addLine(to: CGPoint(x: cx, y: cy - dy)); p.addLine(to: CGPoint(x: cx + 4, y: cy + dy))
-                        ctx.stroke(p, with: .color(Color(hex: 0xAAB0BA)), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-                    }
-                }
-            }
-            .frame(width: tile.width, height: tile.height)
-            .opacity(dimmed ? EuclideousLaneDimStyle.opacity : 1)
-            .offset(y: tileTop)
-        }
-        .frame(width: tile.width, height: rowH, alignment: .topLeading)
-        .contentShape(Rectangle())
-        .gesture(DragGesture(minimumDistance: 0)
-            .updating($gestureLive) { _, live, _ in live = true }
-            .onChanged { d in
-                guard !down else { return }
-                down = true
-                switch press.touchDown(at: now(), x: d.startLocation.x, y: d.startLocation.y, targetHeight: rowH) {
-                case .reset: reset()
-                case .step(let up):
-                    step(up: up, newStep: true)
-                    repeatTask = Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 400_000_000)
-                        while !Task.isCancelled {
-                            step(up: up, newStep: false)
-                            try? await Task.sleep(nanoseconds: 150_000_000)
-                        }
-                    }
-                }
-            }
-            .onEnded { _ in finish() })
-        .onChange(of: gestureLive) { live in if !live { finish() } }
-        .onDisappear { finish() }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(EuclideousMixV2AX.transpose(notes: notes, value: value))
-        .accessibilityAdjustableAction { direction in step(up: direction == .increment, newStep: true) }
-        .accessibilityAction(named: EuclideousMixV2AX.reset) { reset() }
-    }
-    private func finish() {
-        repeatTask?.cancel(); repeatTask = nil
-        down = false
-    }
-    private func step(up: Bool, newStep: Bool) {
-        let n = notes
-        onEditStep(newStep) { l in
-            let cur = euclideousMixSliderValue(of: l, kind: .transpose, notes: n)
-            euclideousMixSliderWrite(&l, kind: .transpose, notes: n, value: euclideousMixV2TransStep(cur, up: up))
-        }
-    }
-    private func reset() {
-        let n = notes
-        onEditStep(true) { l in euclideousMixSliderWrite(&l, kind: .transpose, notes: n, value: 0) }
     }
 }
 

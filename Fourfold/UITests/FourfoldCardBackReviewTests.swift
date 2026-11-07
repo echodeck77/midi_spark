@@ -33,7 +33,7 @@ final class FourfoldCardBackReviewTests: XCTestCase {
         XCTAssertEqual(u.snap, p0.snap, "undo returns to the factory document")
     }
 
-    /// A part's sliders stay live while the part is off — a touch writes (OCT, TRANS) — but a slider NEVER switches the part on, and a touch on one tile reaches no other control (MIX ROWS: the card backs' pads, as sliders).
+    /// A part's sliders stay live while the part is off — a touch writes (OCT) — but a slider NEVER switches the part on, and a touch on one tile reaches no other control (MIX ROWS: the card backs' pads, as sliders).
     func testAnOffPartsSlidersWriteButNeverSwitchThePartOn() {
         launch(); openBacks()
         let lane1 = app.el("Lane 1")
@@ -46,9 +46,9 @@ final class FourfoldCardBackReviewTests: XCTestCase {
         XCTAssertNotEqual(after.snap, before.snap, "an OFF part's OCT slider took a drag and wrote nothing"); XCTAssertTrue(after.consistent, after.raw)
         XCTAssertNotEqual(tile("Notes octave").label, "Notes octave 0", "the value moved")
         XCTAssertTrue(tile("Notes, off").exists, "writing the octave left the NOTES part off")
-        let trans = need(tile("Notes transpose"), "the notes TRANS tile")
-        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.2)).tap()      // MIX v2: TRANS is a pair of halves — the upper half steps up
-        XCTAssertEqual(tile("Notes transpose").label, "Notes transpose +1"); XCTAssertTrue(tile("Notes, off").exists, "…and so did the transpose")
+        let vel = need(tile("Notes velocity"), "the notes VEL tile"); let velBefore = vel.label
+        vel.tap()
+        XCTAssertEqual(tile("Notes velocity").label, velBefore, "a plain tap on a slider moves nothing"); XCTAssertTrue(tile("Notes, off").exists, "…and touching it left the NOTES part off")
         XCTAssertNotEqual(tile("Notes octave").label, "Notes octave 0", "a tap on one tile did not fall through to another")
     }
 

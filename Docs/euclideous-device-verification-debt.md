@@ -744,3 +744,4 @@ _(Replaces the old "Sequencer panel" items — the hold-RESET gesture, the prese
 - **INPUTS — per-lane MIDI by ear (2026-11-06):** with a keyboard over a running progression: lane in ADD takes the held notes, lane in REPLACE plays only them and its chord returns after the release grace, lane in ROOT moves up by the lowest held note ("+2" in its readout) and stays moved after release; no clicks at mode changes; a lane with MIDI IN switched off is untouched.
 - **INPUTS — NOW pips (2026-11-06):** the 5 × 5 source pips on the rank chips are legible in all four lane colours and distinguishable per source (MIDI, CHORDS, PICK, KEY).
 
+- **MIX — TRANS removed (2026-11-07):** each part row reads S · toggle · stack · VEL · GATE · OCT · A–D with VEL and GATE visibly wider (≈131 pt landscape); the sliders still drag comfortably and their captions/values are not cramped or cut; the row looks balanced rather than empty-ended.

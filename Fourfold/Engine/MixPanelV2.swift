@@ -16,10 +16,10 @@ enum EuclideousMixV2Metrics {
     static let chipGap: CGFloat = 2
     // §1.4 — a part row
     static let plateInset: CGFloat = 3
-    static let soloW: CGFloat = 22, toggleW: CGFloat = 48, stackW: CGFloat = 30, transW: CGFloat = 54, octW: CGFloat = 110, outW: CGFloat = 26, outsW: CGFloat = 104
-    static let gapSoloToggle: CGFloat = 4, gapToggleStack: CGFloat = 6, gapStackVel: CGFloat = 6, gapSlider: CGFloat = 4, gapGateTrans: CGFloat = 4, gapTransOct: CGFloat = 4, gapOctOuts: CGFloat = 6
-    /// Everything in a part row but the two sliders, plate insets included: 6 + 22 + 4 + 48 + 6 + 30 + 6 + 4 + 4 + 54 + 4 + 110 + 6 + 104 — V = (blockW − 6 − 402) ÷ 2.
-    static let rowFixed: CGFloat = 402
+    static let soloW: CGFloat = 22, toggleW: CGFloat = 48, stackW: CGFloat = 30, octW: CGFloat = 110, outW: CGFloat = 26, outsW: CGFloat = 104
+    static let gapSoloToggle: CGFloat = 4, gapToggleStack: CGFloat = 6, gapStackVel: CGFloat = 6, gapSlider: CGFloat = 4, gapGateOct: CGFloat = 4, gapOctOuts: CGFloat = 6
+    /// Everything in a part row but the two sliders, plate insets included: 6 + 22 + 4 + 48 + 6 + 30 + 6 + 4 + 4 + 110 + 6 + 104 — V = (blockW − 6 − 344) ÷ 2 (TRANS left the row 2026-11-07: its 54 + 4 went to VEL and GATE).
+    static let rowFixed: CGFloat = 344
     // amendment B1 — the top line
     static let stripFrameRightInset: CGFloat = 113, hitsBoxesRightInset: CGFloat = 107, boxW: CGFloat = 50, boxGap: CGFloat = 4, stripInset: CGFloat = 2.5
     static let playTarget = CGSize(width: 56, height: 36)
@@ -31,8 +31,6 @@ enum EuclideousMixV2Metrics {
     static let forkC1: CGFloat = 63.8, forkC2: CGFloat = 62.2
     // §1.6 floors
     static let floorV: CGFloat = 72, floorRowH: CGFloat = 44, floorBandH: CGFloat = 140
-    // §4.7 TRANS
-    static let transLeftW: CGFloat = 34
     // §4.8 OCT
     static let octLabelH: CGFloat = 9, octBottomGap: CGFloat = 2
 }
@@ -48,7 +46,6 @@ struct EuclideousMixV2RowFrames: Equatable {
     var toggle: CGRect
     var stack: CGRect
     var vel: CGRect, gate: CGRect
-    var trans: CGRect, transLeft: CGRect, transRight: CGRect, transUpper: CGRect, transLower: CGRect
     var oct: CGRect, octLabel: CGRect
     var octBoxes: [CGRect]
     var octTargets: [CGRect]
@@ -103,13 +100,7 @@ func euclideousMixV2Layout(size: CGSize) -> EuclideousMixV2Layout {
         let toggle = CGRect(x: x, y: y, width: M.toggleW, height: tileH); x += M.toggleW + M.gapToggleStack
         let stack = CGRect(x: x, y: y, width: M.stackW, height: tileH); x += M.stackW + M.gapStackVel
         let vel = CGRect(x: x, y: y, width: v, height: tileH); x += v + M.gapSlider
-        let gate = CGRect(x: x, y: y, width: v, height: tileH); x += v + M.gapGateTrans
-        let trans = CGRect(x: x, y: y, width: M.transW, height: tileH); x += M.transW + M.gapTransOct
-        let transLeft = CGRect(x: trans.minX, y: y, width: M.transLeftW, height: tileH)
-        let transRight = CGRect(x: trans.minX + M.transLeftW, y: y, width: M.transW - M.transLeftW, height: tileH)
-        // §4.7 targets: the row's upper half across the whole tile steps up, its lower half steps down (54 × rowH ÷ 2 each)
-        let transUpper = CGRect(x: trans.minX, y: top, width: M.transW, height: rowH / 2)
-        let transLower = CGRect(x: trans.minX, y: top + rowH / 2, width: M.transW, height: rowH / 2)
+        let gate = CGRect(x: x, y: y, width: v, height: tileH); x += v + M.gapGateOct
         let oct = CGRect(x: x, y: y, width: M.octW, height: tileH); x += M.octW + M.gapOctOuts
         let octLabel = CGRect(x: oct.minX, y: y, width: M.octW, height: M.octLabelH)
         let boxH = max(0, tileH - M.octLabelH - M.octBottomGap)
@@ -122,7 +113,6 @@ func euclideousMixV2Layout(size: CGSize) -> EuclideousMixV2Layout {
         let outTargets = (0..<4).map { CGRect(x: outs.minX + CGFloat($0) * M.outW, y: top, width: M.outW, height: rowH) }
         let outCircles = (0..<4).map { CGRect(x: outs.minX + CGFloat($0) * M.outW + (M.outW - 22) / 2, y: y + (tileH - 22) / 2, width: 22, height: 22) }
         return EuclideousMixV2RowFrames(plate: plate, tileH: tileH, solo: solo, soloTarget: soloTarget, toggle: toggle, stack: stack, vel: vel, gate: gate,
-                                        trans: trans, transLeft: transLeft, transRight: transRight, transUpper: transUpper, transLower: transLower,
                                         oct: oct, octLabel: octLabel, octBoxes: boxes, octTargets: octTargets, outs: outs, outTargets: outTargets, outCircles: outCircles)
     }
 
@@ -208,13 +198,13 @@ let euclideousMixV2HitsLabel = "HITS", euclideousMixV2StepsLabel = "STEPS"
 
 // MARK: - §4.2 dims — one 42 %, never stacked
 
-enum EuclideousMixV2Element: Equatable { case pool, fork, solo, toggle, stack, vel, gate, trans, oct, outs }
-/// §2.1 / §4.2: a dimmed LANE (muted, solo-silenced, no hits) dims everything below the strip frame to 42 %; otherwise a part that is off or solo-silenced dims only its stack, VEL, GATE, TRANS and OCT. S, the toggle and A–D keep
+enum EuclideousMixV2Element: Equatable { case pool, fork, solo, toggle, stack, vel, gate, oct, outs }
+/// §2.1 / §4.2: a dimmed LANE (muted, solo-silenced, no hits) dims everything below the strip frame to 42 %; otherwise a part that is off or solo-silenced dims only its stack, VEL, GATE and OCT. S, the toggle and A–D keep
 /// full strength (unless the lane dims). Everything stays live. Never 42 % × 42 %.
 func euclideousMixV2Opacity(laneDimmed: Bool, partDimmed: Bool, element: EuclideousMixV2Element) -> Double {
     if laneDimmed { return EuclideousLaneDimStyle.opacity }
     switch element {
-    case .stack, .vel, .gate, .trans, .oct: return partDimmed ? EuclideousLaneDimStyle.opacity : 1
+    case .stack, .vel, .gate, .oct: return partDimmed ? EuclideousLaneDimStyle.opacity : 1
     case .pool, .fork, .solo, .toggle, .outs: return 1
     }
 }
@@ -279,18 +269,6 @@ func euclideousMixV2SoloLook(latched: Bool, heldLook: Bool) -> EuclideousMixV2So
     return EuclideousMixV2SoloLook(fillHex: nil, inkHex: S.offInkHex, border: true)
 }
 
-// MARK: - §4.7 TRANS
-
-let euclideousMixV2TransRange = -7...7
-/// "+2", "0", "−1" (U+2212 for minus).
-func euclideousMixV2TransText(_ v: Int) -> String { v == 0 ? "0" : (v > 0 ? "+\(v)" : "\u{2212}\(-v)") }
-/// One tap: a step up or down, clamped to −7…+7.
-func euclideousMixV2TransStep(_ v: Int, up: Bool) -> Int { max(euclideousMixV2TransRange.lowerBound, min(euclideousMixV2TransRange.upperBound, v + (up ? 1 : -1))) }
-/// A hold repeats every 150 ms after 400 ms: how many REPEAT steps have fired after the finger has been down `heldFor` seconds (0 before 0.4 s; 1 at 0.4; 2 at 0.55; …).
-func euclideousMixV2TransRepeatSteps(heldFor: Double) -> Int { heldFor < 0.4 - 1e-9 ? 0 : 1 + Int((heldFor - 0.4 + 1e-9) / 0.15) }
-/// A tap in the tile's UPPER half (the half-tile target) steps up, the LOWER half down.
-func euclideousMixV2TransTapIsUp(y: CGFloat, targetHeight: CGFloat) -> Bool { y < targetHeight / 2 }
-
 // MARK: - §5 OCT: five linked boxes (one function for every surface)
 
 let euclideousOctRange = -2...2
@@ -350,7 +328,6 @@ enum EuclideousMixV2AX {
         default: return "\(p) playing ranks " + ranks.dropLast().map(String.init).joined(separator: ", ") + " and \(ranks.last!)"
         }
     }
-    static func transpose(notes: Bool, value: Int) -> String { "\(part(notes: notes)) transpose \(euclideousMixV2TransText(value))" }
     static func octave(notes: Bool, value: Int) -> String { "\(part(notes: notes)) octave \(euclideousOctValueText(value))" }
     static let reset = "Reset"
 }
@@ -359,25 +336,6 @@ enum EuclideousMixV2AX {
 
 /// The eight chips (rank 8 … 1) for a lane's pool — never lit (§3.2: the pool takes no touches and shows no sounding; the STACKS show what plays).
 func euclideousMixV2PoolChips(sortedPool: [Int], name: (Int) -> String) -> [EuclideousMixPoolChip] { euclideousMixPoolChips(sortedPool: sortedPool, lit: 0, name: name) }
-
-// MARK: - §4.7 the TRANS tile's touch machine
-
-/// What a touch-down on the TRANS tile does: step the value (one undo step), or — a second tap on the LEFT part within the double-tap window — set it to 0.
-enum EuclideousMixV2TransAction: Equatable { case step(up: Bool), reset }
-/// §4.7: the tile's whole row height is the target (upper half up, lower half down); the left part (x < 34) is also the double-tap zone for 0. Two touch-downs inside `doubleTapWindow` that both land on the left part reset; a third is a fresh tap.
-struct EuclideousMixV2TransPress: Equatable {
-    static let doubleTapWindow: Double = 0.3
-    private(set) var lastLeftDownAt: Double? = nil
-    mutating func touchDown(at t: Double, x: CGFloat, y: CGFloat, targetHeight: CGFloat) -> EuclideousMixV2TransAction {
-        let left = x < EuclideousMixV2Metrics.transLeftW
-        if left, let last = lastLeftDownAt, t - last <= Self.doubleTapWindow {
-            lastLeftDownAt = nil
-            return .reset
-        }
-        lastLeftDownAt = left ? t : nil
-        return .step(up: euclideousMixV2TransTapIsUp(y: y, targetHeight: targetHeight))
-    }
-}
 
 // MARK: - §5 the OCT boxes' touch: tap or drag
 

@@ -251,7 +251,7 @@ final class FourfoldScreenshotTests: XCTestCase {
     }
 
     /// MIX ROWS (2026-11-03): the MIX panel (the strip's MIX segment — four lane bands and the A–D emitters), playing, in every orientation — the picture the ferry's §13 acceptance is judged against — then with lane 1's riff also routed
-    /// to C, its TRANS and OCT moved and lane 1's notes off, then back on the cards.
+    /// to C, its OCT moved and lane 1's notes off, then back on the cards.
     func testTheMixPanel() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
         let device = XCUIDevice.shared
@@ -268,8 +268,6 @@ final class FourfoldScreenshotTests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.5)
         let outs = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Riff to C, off'"))      // route lane 1's riff to C as well: a second line to C
         if outs.count > 0 { outs.element(boundBy: 0).tap() }
-        let trans = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff transpose'"))   // TRANS +2, OCT +1 on lane 1's riff
-        if trans.count > 0 { trans.element(boundBy: 0).swipeUp(); trans.element(boundBy: 0).swipeUp() }
         let oct = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff octave'"))
         if oct.count > 0 { oct.element(boundBy: 0).swipeUp() }
         let notesToggle = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes, on'"))

@@ -1,5 +1,5 @@
 //  FourfoldPitchDragReviewTests.swift — CARD BACKS v2 adversarial review (2026-10-28, reviewer-added), kept for the MIX panel (2026-11-03): a slider drag is ONE undo step however many values it crosses (the pad's burst, now on the sliders).
-//  The reviewer's point stands: a tap is trivially one step; only a continuous DRAG proves the burst. This drags a TRANS slider across most of its range in ONE gesture.
+//  The reviewer's point stands: a tap is trivially one step; only a continuous DRAG proves the burst. This drags the OCT boxes across most of their range in ONE gesture.
 //    sh Scripts/fourfold-harness/ui-tests.sh "iPad mini" FourfoldUITests/FourfoldPitchDragReviewTests
 
 import XCTest
@@ -22,12 +22,12 @@ final class FourfoldPitchDragReviewTests: XCTestCase {
     }
     func openBacks() { app.buttons["Mix"].tap(); Thread.sleep(forTimeInterval: 0.6) }
 
-    /// ONE continuous drag across the OCT boxes (MIX v2: TRANS is a tap control now) must be ONE undo step however many boxes it crosses, and a single ↶ must return to exactly the pre-drag document.
+    /// ONE continuous drag across the OCT boxes must be ONE undo step however many boxes it crosses, and a single ↶ must return to exactly the pre-drag document.
     func testADragAcrossASliderIsExactlyOneUndoStep() {
         let p0 = launch(); openBacks()
-        let trans = need(app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Riff octave")).firstMatch, "the riff's OCT boxes")
+        let oct = need(app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Riff octave")).firstMatch, "the riff's OCT boxes")
         let before = settled()
-        trans.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.1, thenDragTo: trans.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)))
+        oct.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.1, thenDragTo: oct.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)))
         let after = settled()
         XCTAssertNotEqual(after.snap, before.snap, "the drag wrote nothing: \(after.raw)")
         XCTAssertTrue(after.consistent, after.raw)
