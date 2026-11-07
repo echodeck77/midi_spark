@@ -2090,3 +2090,9 @@ Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md
 - [ ] (DECIDE, source-wins kept) The token's routing look follows the EXISTING `EuclideousPartOutDiscArt` values, not the ferry's §2.3 memory of them: routed disc fill is lane@20% (ferry said 18%) and the not-routed ring/key is #3A3E47 (ferry said #4A4E57, one grey shade lighter than the emitter-unused #3A3E47). Say if you want the ferry's exact values instead (a 2 % disc / one-shade ring tweak, no behaviour change).
 - [ ] (DECIDE) The VELOCITY tab's A–D toggles inherited the token's notch (they reuse `EmitterRatchetDisc`) but gained NO muted look — the ferry named only RATCH. Say if VEL's toggles should also show the output's mute.
 - [ ] (look) §1.3's "a dashed ring (1.5)" — read as a cross-reference, not a 1.5 pt width; the muted/routed-muted rings use the explicit §2.1/§2.3 widths (2 pt emitter, the geom width routing). Flag if "1.5" meant the dash width.
+
+## PLAY RIFF / PLAY STACK ferry (2026-11-07) — follow-ups
+- [ ] (DEVICE) Every look/gesture/legibility — the five lines in `Docs/euclideous-device-verification-debt.md` (legibility at 44×44 incl. "STACK", the lamp on/off in all four colours, the flash reading at fast tempos, the calmer cards, the VoiceOver order). No iOS simulator this session.
+- [ ] (REPORTED, §3.2) The HOCKET playing/resting/away/carrying states are NOT drawn on the PLAY lamp (they don't fit a 5.5×6 triangle) — they stay on the tab-strip glyphs + MIX. Say if a carried/away cue is wanted on the card's lamp.
+- [ ] (out of scope, a possible follow-up the ferry names) The RIFF and NOTES tabs' own on/off controls + bodies may be retired now that the cards carry the switches.
+- [ ] (cleanup) `Fourfold/UI/EuclideousPage.swift`'s `soloButton(idx,accent)` helper (and the lane-solo press handlers) are now unused on the cards (hidden-not-deleted per §0.2) — a "never used" warning. Remove with the RIFF/NOTES-tab retirement if that lands.

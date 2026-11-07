@@ -753,3 +753,9 @@ _(Replaces the old "Sequencer panel" items — the hold-RESET gesture, the prese
 - **EMITTER TOKEN — the wires read right (2026-11-07):** a wire into a muted emitter reads as "wired, not sounding" (dashed, faint lane colour, stopping 8 pt short of the inlet) and distinct from a live wire; a token flares in the playing lane's colour with its inlet, no white fills.
 - **EMITTER TOKEN — tap vs hold on a 52 pt card (2026-11-07):** in performance, a tap reliably mutes/unmutes an emitter and a hold reliably traces (dims the other cards, the un-routed rows and the other wires, restoring at once on release) without the hold catching a nearby row or a scroll; a slide-off still resolves by its duration.
 - **EMITTER TOKEN — the narrower bands (2026-11-07):** with the emitter column at 92 pt (bandW 16 shorter, V ≈ 122.67 landscape / 129 portrait), VEL and GATE are still comfortable to drag and the band does not read as cramped.
+
+- **PLAY RIFF / PLAY STACK — legibility (2026-11-07):** PLAY RIFF and PLAY STACK read at a glance at 44 × 44; "STACK" fits without truncating.
+- **PLAY RIFF / PLAY STACK — the lamp (2026-11-07):** the triangle lamp reads as on and off in all four lane colours, and the off state reads as off, not disabled.
+- **PLAY RIFF / PLAY STACK — the flash (2026-11-07):** the lamp flash reads as "this part is playing" without getting busy at fast tempos; a part whose notes go nowhere stays lit without flashing.
+- **PLAY RIFF / PLAY STACK — calm (2026-11-07):** with neutral buttons and lane colour mostly on the comet strip, the cards feel calmer than with the play and SOLO tiles; losing lane SOLO and lane stop on the cards isn't missed in performance.
+- **PLAY RIFF / PLAY STACK — VoiceOver order (2026-11-07):** VoiceOver reads and operates both buttons, in the order Play riff · comet · lock badge · Play stack · tab body.
