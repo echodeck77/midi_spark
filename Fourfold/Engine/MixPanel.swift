@@ -418,6 +418,31 @@ func euclideousMixEmitterLook(activity: Double) -> EuclideousMixEmitterLook {
     return EuclideousMixEmitterLook(fill: a, letterIsInk: a >= 0.5)
 }
 
+// MARK: - EMITTER TOKEN ferry (2026-11-07): the emitter's lane-coloured flare, and the muted / held line look
+
+/// §2.1: the emitter's flare — the overall activity (the max over all 8 parts, the 150 ms fade) and the LOWEST-numbered lane with a note currently leaving through `output` (lane = −1 if none). Reuses the existing note-roll activity feed — no new polling.
+func euclideousMixEmitterFlare(parts: [[NoteRollNote]], output: Int, nowBeat: Double, tempo: Double) -> (activity: Double, lane: Int) {
+    var maxA = 0.0, lane = -1
+    for p in parts.indices {   // parts ascend by index ⇒ lane = p / 2 ascends ⇒ the first active part is the lowest lane
+        let a = euclideousMixLineActivity(notes: parts[p], output: output, nowBeat: nowBeat, tempo: tempo)
+        if a > 0 { if lane < 0 { lane = p / 2 }; maxA = max(maxA, a) }
+    }
+    return (maxA, lane)
+}
+
+struct EuclideousMixLineAppearance: Equatable { var width: CGFloat; var alpha: Double; var dashed: Bool }
+/// §4.2 a line into a MUTED emitter: 1.25 pt, lane @ 30 %, dashed 3-on-3-off, never active (drawn under the live lines, clipped 8 pt short of the inlet by the view). §4.4 a non-held line while an emitter is HELD: 15 % of its look. Else the idle→active look.
+func euclideousMixV2LineAppearance(activity: Double, laneNoHits: Bool, outputMuted: Bool, holdDim: Bool) -> EuclideousMixLineAppearance {
+    var width: CGFloat, alpha: Double, dashed: Bool
+    if outputMuted {
+        width = EuclideousMixLineMetrics.idleWidth; alpha = 0.30; dashed = true   // §4.2: never active
+    } else {
+        let l = euclideousMixLineLook(activity: activity, laneNoHits: laneNoHits); width = l.width; alpha = l.alpha; dashed = false
+    }
+    if holdDim { alpha *= 0.15 }   // §4.4
+    return EuclideousMixLineAppearance(width: width, alpha: alpha, dashed: dashed)
+}
+
 // MARK: - §5.4 the A–D toggles
 
 /// The output colour of A…D: lane 1's colour for A, lane 2's for B … (the emitter circles' convention).

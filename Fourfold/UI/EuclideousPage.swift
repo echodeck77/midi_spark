@@ -2530,7 +2530,8 @@ struct EuclideousPage: View {
             pools: (0..<4).map { $0 < lanePools.count ? lanePools[$0].notes.map { Int($0) } : [] },
             poolName: { n, pool in euclideousDisplayNoteName(UInt8(max(0, min(127, n))), source: noteSource, pool: pool.map { UInt8(max(0, min(127, $0))) }, keyRoot: keyRoot, keyType: keyType) },
             riffGlyphs: (0..<4).map { riffGlyph($0, $0 < lines.count ? lines[$0] : EuclidLine(noteSel: .all)) },
-            rolls: rollLive, beatAt: { walkTagBeat(at: $0) }, clock: clock, live: pulseLive, stripMode: mixStripMode, toggleMode: mixToggleMode, hocketRules: hocketRules, hocketLive: hocketLive)
+            rolls: rollLive, beatAt: { walkTagBeat(at: $0) }, clock: clock, live: pulseLive, stripMode: mixStripMode, toggleMode: mixToggleMode, hocketRules: hocketRules, hocketLive: hocketLive,
+            outputMuted: (0..<4).map { outputMutes[$0].hasMute })   // EMITTER TOKEN (2026-11-07): is output A–D muted (the MUTE tab has gated any of it)
         let callbacks = EuclideousMixV2Callbacks(
             play: { idx, tile, target in
                 let on = idx < lines.count ? lines[idx].enabledResolved : true

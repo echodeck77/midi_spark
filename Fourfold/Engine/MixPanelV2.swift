@@ -8,8 +8,8 @@ import Foundation
 import CoreGraphics
 
 enum EuclideousMixV2Metrics {
-    // §1.1–1.3
-    static let emitterColumnW: CGFloat = 76, bandGap: CGFloat = 6, bandInset: CGFloat = 6
+    // §1.1–1.3 — EMITTER TOKEN ferry (2026-11-07): the column widened 76 → 92 for the emitter CARDS (ferry §3.1); everything off bandW follows.
+    static let emitterColumnW: CGFloat = 92, bandGap: CGFloat = 6, bandInset: CGFloat = 6
     static let topLineH: CGFloat = 30
     static let poolW: CGFloat = 56, forkEndX: CGFloat = 70, blockX: CGFloat = 70
     static let poolTop: CGFloat = 36, riffRowTop: CGFloat = 36, partRowGap: CGFloat = 6
@@ -24,8 +24,10 @@ enum EuclideousMixV2Metrics {
     static let stripFrameRightInset: CGFloat = 113, hitsBoxesRightInset: CGFloat = 107, boxW: CGFloat = 50, boxGap: CGFloat = 4, stripInset: CGFloat = 2.5
     static let playTarget = CGSize(width: 56, height: 36)
     static let badge: CGFloat = 25
-    // §6 — emitters
+    // §6 — emitters; EMITTER TOKEN ferry §3.2–3.5: a RATCH-style card per band (x 40–92 of the column, 52 wide, top band+42, height 2·rowH+6) with the 36 pt token centred in it and an 8 pt inlet on the card's left edge (column x 40 = the line endpoint).
     static let emitterD: CGFloat = 36, emitterX: CGFloat = 40
+    static let emitterCardW: CGFloat = 52, emitterCardTopGap: CGFloat = 42, emitterCardRadius: CGFloat = 10, inletDot: CGFloat = 8
+    static let emitterCardFillHex: UInt32 = 0x1B1D23, emitterCardBorderHex: UInt32 = 0x23262D
     static let lineBend1: CGFloat = 23, lineBend2: CGFloat = 18.5
     // §3.3 — the fork's control-point x's
     static let forkC1: CGFloat = 63.8, forkC2: CGFloat = 62.2
@@ -72,8 +74,11 @@ struct EuclideousMixV2Layout: Equatable {
     var bandW: CGFloat, bandH: CGFloat, innerW: CGFloat, innerH: CGFloat, blockW: CGFloat, rowH: CGFloat, tileH: CGFloat, sliderW: CGFloat, chipH: CGFloat
     var bands: [EuclideousMixV2BandFrames]
     var emitterColumn: CGRect
-    /// The four emitter circles, panel coordinates.
+    /// The four 36 pt emitter tokens, panel coordinates (centred in their cards).
     var emitters: [CGRect]
+    /// EMITTER TOKEN §3.2: the four emitter cards; §3.5: the inlet centre on each card's left edge (= the line endpoint).
+    var emitterCards: [CGRect]
+    var inlets: [CGPoint]
     var floors: [EuclideousMixV2Floor]
 }
 
@@ -142,17 +147,23 @@ func euclideousMixV2Layout(size: CGSize) -> EuclideousMixV2Layout {
                                                forkRiffEnd: CGPoint(x: M.forkEndX, y: riff.centreY), forkNotesEnd: CGPoint(x: M.forkEndX, y: notes.centreY), riff: riff, notes: notes))
     }
     let column = CGRect(x: bandW, y: 0, width: M.emitterColumnW, height: size.height)
-    let emitters = (0..<4).map { n -> CGRect in
+    var emitters: [CGRect] = [], emitterCards: [CGRect] = [], inlets: [CGPoint] = []
+    for n in 0..<4 {
         let top = CGFloat(n) * (bandH + M.bandGap)
-        let cy = top + M.bandInset + 36 + rowH + 3   // §6.1: band n's top + 6 + 36 + rowH + 3
-        return CGRect(x: bandW + M.emitterX, y: cy - M.emitterD / 2, width: M.emitterD, height: M.emitterD)
+        let cy = top + M.bandInset + 36 + rowH + 3   // §6.1 / §3.3: the token's centre is unchanged — band n's top + 6 + 36 + rowH + 3 (= the card's centre)
+        // §3.2 the card spans column x 40–92 (bandW+40 … bandW+92 = the panel's right edge), band n's top + 42, height 2·rowH + 6 (so it covers the band's two part rows)
+        emitterCards.append(CGRect(x: bandW + M.emitterX, y: top + M.emitterCardTopGap, width: M.emitterCardW, height: 2 * rowH + 6))
+        // §3.3 the 36 pt token centred in the card → its left is bandW + 40 + (52 − 36)/2 = bandW + 48, centre x bandW + 66
+        emitters.append(CGRect(x: bandW + M.emitterX + (M.emitterCardW - M.emitterD) / 2, y: cy - M.emitterD / 2, width: M.emitterD, height: M.emitterD))
+        // §3.5 the inlet on the card's left edge (column x 40), at the token's centre height — this is also where the line ends (§4.1)
+        inlets.append(CGPoint(x: bandW + M.emitterX, y: cy))
     }
     var floors: [EuclideousMixV2Floor] = []
     if v < M.floorV { floors.append(.slider) }
     if rowH < M.floorRowH { floors.append(.row) }
     if bandH < M.floorBandH { floors.append(.band) }
     return EuclideousMixV2Layout(size: size, bandW: bandW, bandH: bandH, innerW: innerW, innerH: innerH, blockW: blockW, rowH: rowH, tileH: tileH, sliderW: v, chipH: chipH,
-                                 bands: bands, emitterColumn: column, emitters: emitters, floors: floors)
+                                 bands: bands, emitterColumn: column, emitters: emitters, emitterCards: emitterCards, inlets: inlets, floors: floors)
 }
 
 /// §3.3: the fork's two cubic curves — from the pool's mid-height to each row's centre, control points (63.8, y0) and (62.2, y1).

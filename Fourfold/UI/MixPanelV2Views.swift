@@ -36,6 +36,8 @@ struct EuclideousMixV2Input {
     var toggleMode: EuclideousMixToggleMode
     var hocketRules: [HocketRule]
     var hocketLive: HocketLiveModel
+    /// EMITTER TOKEN ferry (2026-11-07): is output A–D muted (its MUTE-tab gate has any cell cleared, `hasMute`)? Drives the emitter's muted look (§3.4), the wires' dashed/clipped look (§4.2) and the routing circles' routed-muted look (§2.3).
+    var outputMuted: [Bool] = [false, false, false, false]
 }
 struct EuclideousMixV2Callbacks {
     /// The card's own play tile at a frame (tile size, touch target).
@@ -55,15 +57,17 @@ struct EuclideousMixV2Callbacks {
 struct EuclideousMixV2Panel: View {
     let input: EuclideousMixV2Input
     let callbacks: EuclideousMixV2Callbacks
+    /// EMITTER TOKEN §5.2: the set of outputs currently HELD (tracing). UI state only; the gesture layer fills it.
+    @State private var heldOutputs: Set<Int> = []
 
     var body: some View {
         let L = euclideousMixV2Layout(size: input.size)
         return ZStack(alignment: .topLeading) {
             ForEach(0..<4, id: \.self) { lane in
-                EuclideousMixV2BandView(lane: lane, layout: L, input: input, callbacks: callbacks)
+                EuclideousMixV2BandView(lane: lane, layout: L, input: input, callbacks: callbacks, heldOutputs: heldOutputs)
                     .accessibilitySortPriority(Double(1000 - lane))
             }
-            EuclideousMixV2LinesLayer(layout: L, input: input)
+            EuclideousMixV2LinesLayer(layout: L, input: input, heldOutputs: heldOutputs)
             EuclideousMixV2EmitterAX(layout: L, input: input)
         }
         .frame(width: input.size.width, height: input.size.height, alignment: .topLeading)
@@ -79,6 +83,8 @@ struct EuclideousMixV2BandView: View {
     let layout: EuclideousMixV2Layout
     let input: EuclideousMixV2Input
     let callbacks: EuclideousMixV2Callbacks
+    /// EMITTER TOKEN §5.2: outputs being held (traced). A part row whose mask does NOT hold a held output dims its plate's contents to 42 %. Empty until the hold gesture (slice 4) fills it.
+    var heldOutputs: Set<Int> = []
 
     private var band: EuclideousMixV2BandFrames { layout.bands[lane] }
     private var line: EuclidLine { lane < input.lines.count ? input.lines[lane] : EuclidLine(noteSel: .all) }
@@ -617,6 +623,8 @@ struct EuclideousMixV2OutButton: View {
 struct EuclideousMixV2LinesLayer: View {
     let layout: EuclideousMixV2Layout
     let input: EuclideousMixV2Input
+    /// EMITTER TOKEN §4.4 / §5.2: outputs being held. A line not ending at a held output draws at 15 %; the non-held emitters' contents (token + inlet) draw at 42 %.
+    var heldOutputs: Set<Int> = []
 
     var body: some View {
         let masks: [UInt8] = (0..<8).map { p in
@@ -631,32 +639,57 @@ struct EuclideousMixV2LinesLayer: View {
         let dots = euclideousMixOriginDots(lines: lines)
         let accents = input.accents, beatAt = input.beatAt, model = input.rolls, tempo = input.clock.tempo, L = layout
         let noHits: [Bool] = (0..<4).map { $0 < input.strips.count ? euclideousMixLaneHasNoHits(legs: input.strips[$0].legs) : false }
+        let muted: [Bool] = (0..<4).map { $0 < input.outputMuted.count ? input.outputMuted[$0] : false }
+        let anyRouted: [Bool] = (0..<4).map { o in (0..<8).contains { p in on[p] && masks[p] & (UInt8(1) << UInt8(o)) != 0 } }
+        let held = heldOutputs, anyHeld = !heldOutputs.isEmpty
         let left = layout.bandW - 8
         let canvasW = layout.size.width - left
+        let clipLocalMaxX = (layout.bandW + 32) - left   // §4.2: a muted line stops 8 pt short of the inlet at bandW + 40
         return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !input.live)) { tl in
             Canvas { ctx, size in
                 ctx.translateBy(x: -left, y: 0)
                 typealias M = EuclideousMixLineMetrics
-                typealias E = EuclideousMixV2EmitterMetrics
+                typealias V = EuclideousMixV2Metrics
                 let now = beatAt(tl.date)
                 let parts = model.model.parts
-                let acts = lines.map { euclideousMixLineActivity(notes: parts[$0.part], output: $0.output, nowBeat: now, tempo: tempo) }
-                for i in euclideousMixLineDrawOrder(activities: acts) {
-                    let l = lines[i], look = euclideousMixLineLook(activity: acts[i], laneNoHits: noHits[l.lane])
-                    var p = Path(); p.move(to: l.from); p.addCurve(to: l.to, control1: l.c1, control2: l.c2)
-                    ctx.stroke(p, with: .color(accents[l.lane % accents.count].opacity(look.alpha)), style: StrokeStyle(lineWidth: look.width, lineCap: .round))
+                // §3.2 the cards (behind the wires; §3.6 they never dim or change colour)
+                for o in 0..<4 {
+                    let card = L.emitterCards[o]
+                    ctx.fill(Path(roundedRect: card, cornerRadius: V.emitterCardRadius), with: .color(Color(hex: V.emitterCardFillHex)))
+                    ctx.stroke(Path(roundedRect: card.insetBy(dx: 0.5, dy: 0.5), cornerRadius: V.emitterCardRadius - 0.5), with: .color(Color(hex: V.emitterCardBorderHex)), lineWidth: 1)
                 }
+                // the wires: §4.2 muted lines (dashed, clipped short) under the live ones; §4.4 a non-held line at 15 %
+                let acts = lines.map { euclideousMixLineActivity(notes: parts[$0.part], output: $0.output, nowBeat: now, tempo: tempo) }
+                func strokeLine(_ i: Int) {
+                    let l = lines[i]
+                    let ap = euclideousMixV2LineAppearance(activity: acts[i], laneNoHits: noHits[l.lane], outputMuted: muted[l.output], holdDim: anyHeld && !held.contains(l.output))
+                    var p = Path(); p.move(to: l.from); p.addCurve(to: l.to, control1: l.c1, control2: l.c2)
+                    let style = StrokeStyle(lineWidth: ap.width, lineCap: ap.dashed ? .butt : .round, dash: ap.dashed ? [3, 3] : [])
+                    let colour = accents[l.lane % accents.count].opacity(ap.alpha)
+                    if muted[l.output] {
+                        ctx.drawLayer { layer in layer.clip(to: Path(CGRect(x: 0, y: 0, width: clipLocalMaxX, height: size.height))); layer.stroke(p, with: .color(colour), style: style) }
+                    } else {
+                        ctx.stroke(p, with: .color(colour), style: style)
+                    }
+                }
+                for i in lines.indices where muted[lines[i].output] { strokeLine(i) }
+                for i in euclideousMixLineDrawOrder(activities: acts) where !muted[lines[i].output] { strokeLine(i) }
+                // the origin dots
                 for d in dots {
                     ctx.fill(Path(ellipseIn: CGRect(x: d.at.x - M.originDot / 2, y: d.at.y - M.originDot / 2, width: M.originDot, height: M.originDot)), with: .color(accents[d.lane % accents.count].opacity(euclideousMixOriginDotAlpha(laneNoHits: noHits[d.lane]))))
                 }
-                // §6.2: neutral emitters — a 3 pt white ring, idle fill #1F2127, active fill #DFE3EA with an ink letter
+                // §3.3–3.5 the four emitter tokens (36) in their cards, each with its inlet — neutral, a lane-coloured flare while a lane plays through
                 for o in 0..<4 {
-                    let f = L.emitters[o]
-                    let look = euclideousMixEmitterLook(activity: euclideousMixEmitterActivity(parts: parts, output: o, nowBeat: now, tempo: tempo))
-                    ctx.fill(Path(ellipseIn: f), with: .color(Color(hex: E.idleFillHex)))
-                    if look.fill > 0 { ctx.fill(Path(ellipseIn: f), with: .color(Color(hex: E.activeFillHex).opacity(look.fill))) }
-                    ctx.stroke(Path(ellipseIn: f.insetBy(dx: E.ring / 2, dy: E.ring / 2)), with: .color(Color(hex: E.ringHex)), lineWidth: E.ring)
-                    ctx.draw(Text(euclideousJackLetters[o]).font(heavyMono(E.letterSize)).foregroundColor(Color(hex: look.letterIsInk ? E.activeLetterHex : E.idleLetterHex)), at: CGPoint(x: f.midX, y: f.midY), anchor: .center)
+                    let flare = euclideousMixEmitterFlare(parts: parts, output: o, nowBeat: now, tempo: tempo)
+                    let laneColor = flare.lane >= 0 && flare.lane < accents.count ? accents[flare.lane] : Color.clear
+                    let state = euclideousEmitterTokenEmitterState(muted: muted[o], activity: flare.activity, anyRouted: anyRouted[o])
+                    let dim = anyHeld && !held.contains(o) ? EuclideousLaneDimStyle.opacity : 1   // §5.2 the other cards' contents at 42 %
+                    ctx.drawLayer { layer in
+                        layer.opacity = dim
+                        drawEuclideousEmitterToken(layer, rect: L.emitters[o], size: .d36, letter: euclideousJackLetters[o],
+                                                   paint: euclideousEmitterTokenPaint(state, size: .d36), lane: laneColor, held: held.contains(o))
+                        drawEuclideousMixInlet(layer, at: L.inlets[o], state: state, lane: laneColor)
+                    }
                 }
             }
             .frame(width: canvasW, height: layout.size.height)
@@ -665,6 +698,24 @@ struct EuclideousMixV2LinesLayer: View {
         .offset(x: left, y: 0)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// §3.5 the inlet dot on a card's left edge, its look following the emitter's state: live #4A4E57, playing the lane (fading with the token), unused #2A2D34, muted a 1.5 pt #5C626C ring with no fill.
+func drawEuclideousMixInlet(_ ctx: GraphicsContext, at: CGPoint, state: EuclideousEmitterTokenState, lane: Color) {
+    let r = EuclideousMixV2Metrics.inletDot
+    let rect = CGRect(x: at.x - r / 2, y: at.y - r / 2, width: r, height: r)
+    switch state {
+    case .muted:
+        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: 0.75, dy: 0.75)), with: .color(Color(hex: 0x5C626C)), lineWidth: 1.5)
+    case .unused:
+        ctx.fill(Path(ellipseIn: rect), with: .color(Color(hex: 0x2A2D34)))
+    case .live:
+        ctx.fill(Path(ellipseIn: rect), with: .color(Color(hex: 0x4A4E57)))
+    case .playing(let a):
+        ctx.fill(Path(ellipseIn: rect), with: .color(Color(hex: 0x4A4E57)))
+        ctx.fill(Path(ellipseIn: rect), with: .color(lane.opacity(a)))
+    default: break   // routing states never reach an emitter inlet
     }
 }
 struct EuclideousMixV2EmitterAX: View {

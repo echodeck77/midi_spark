@@ -17,24 +17,25 @@ final class MixPanelV2Tests: XCTestCase {
 
     func testTheLandscapeReferenceInTheSourcesWidth() {
         let L = euclideousMixV2Layout(size: landscape)
-        close(L.bandW, 693.33); close(L.bandH, 148); close(L.innerW, 681.33); close(L.innerH, 136); close(L.blockW, 611.33); close(L.rowH, 47); close(L.tileH, 41); close(L.sliderW, 130.67, "(611.33 − 350) ÷ 2 — TRANS's room went to the sliders"); close(L.chipH, 10.75)
+        // EMITTER TOKEN ferry (2026-11-07): the emitter column widened 76 → 92, so bandW/innerW/blockW shrink by 16 and V by 8 from the MIX v2 values.
+        close(L.bandW, 677.33); close(L.bandH, 148); close(L.innerW, 665.33); close(L.innerH, 136); close(L.blockW, 595.33); close(L.rowH, 47); close(L.tileH, 41); close(L.sliderW, 122.67, "(595.33 − 350) ÷ 2 — the 92 pt column took 16 off the block"); close(L.chipH, 10.75)
         XCTAssertEqual(L.floors, [], "no floor flags at the reference")
         let b = L.bands[0]
-        rect(b.frame, 0, 0, 693.33, 148, "band 1"); rect(b.inner, 6, 6, 681.33, 136, "its inset")
+        rect(b.frame, 0, 0, 677.33, 148, "band 1"); rect(b.inner, 6, 6, 665.33, 136, "its inset")
         // §1.3: the pool, the fork, the right block, the strip frame, the two rows
         rect(b.pool, 0, 36, 56, 100, "pool"); close(b.forkStart.x, 56); close(b.forkStart.y, 86, "the fork leaves the pool's mid-height (amendment B2.2)")
-        rect(b.stripFrame, 70, 0, 611.33 - 113, 30, "strip frame (498.33 wide)")
-        rect(b.riff.plate, 70, 36, 611.33, 47, "riff row"); rect(b.notes.plate, 70, 89, 611.33, 47, "notes row"); close(b.notes.plate.maxY, L.innerH, "the notes row ends at the inner bottom")
+        rect(b.stripFrame, 70, 0, 595.33 - 113, 30, "strip frame (482.33 wide)")
+        rect(b.riff.plate, 70, 36, 595.33, 47, "riff row"); rect(b.notes.plate, 70, 89, 595.33, 47, "notes row"); close(b.notes.plate.maxY, L.innerH, "the notes row ends at the inner bottom")
         // §1.4: a part row left to right (the riff row; the notes row's x's are the same)
         for r in [b.riff, b.notes] {
             rect(r.solo, 73, r.plate.minY + 3, 22, 41, "S"); rect(r.soloTarget, 70, r.plate.minY, 26, 47, "S target 26 × rowH")
             rect(r.toggle, 99, r.plate.minY + 3, 48, 41, "toggle"); rect(r.stack, 153, r.plate.minY + 3, 30, 41, "stack")
-            let v: CGFloat = 130.6667
+            let v: CGFloat = 122.6667
             rect(r.vel, 189, r.plate.minY + 3, v, 41, "VEL"); rect(r.gate, 189 + v + 4, r.plate.minY + 3, v, 41, "GATE")
             close(r.oct.minX - r.gate.maxX, 4, "OCT follows GATE 4 pt later — nothing sits between them any more")
             rect(r.oct, 189 + 2 * v + 8, r.plate.minY + 3, 110, 41, "OCT")
             rect(r.outs, 189 + 2 * v + 8 + 110 + 6, r.plate.minY + 3, 104, 41, "A–D")
-            close(r.outs.maxX, 70 + 611.33 - 3, "A–D ends 3 in from the plate's right edge")
+            close(r.outs.maxX, 70 + 595.33 - 3, "A–D ends 3 in from the plate's right edge")
         }
         // §4.8 / 4.9 inside the tiles
         XCTAssertEqual(b.riff.octBoxes.count, 5); rect(b.riff.octBoxes[0], b.riff.oct.minX, 39 + 9, 22, 30, "OCT box 1 (22 × 30)"); rect(b.riff.octBoxes[4], b.riff.oct.minX + 88, 48, 22, 30, "OCT box 5")
@@ -42,27 +43,64 @@ final class MixPanelV2Tests: XCTestCase {
         XCTAssertEqual(b.riff.outTargets.count, 4); rect(b.riff.outTargets[1], b.riff.outs.minX + 26, 36, 26, 47, "B target 26 × rowH"); rect(b.riff.outCircles[0], b.riff.outs.minX + 2, 39 + 9.5, 22, 22, "A's 22 pt circle")
         // amendment B1: the top line
         rect(b.play, 0, 0, 56, 30, "play (the pool's column)"); rect(b.playTarget, 0, 0, 56, 36, "play target 56 × 36")
-        rect(b.hitsBox, 70 + 611.33 - 107, 0, 50, 30, "HITS"); rect(b.stepsBox, 70 + 611.33 - 107 + 54, 0, 50, 30, "STEPS")
-        rect(b.stripSteps, 72.5, 2.5, 498.33 - 5, 25, "the steps (the strip frame less its 2.5 inset)"); rect(b.badge, 70 + 498.33 - 2.5 - 25, 2.5, 25, 25, "the lock badge, 25 × 25 at the strip's right end")
+        rect(b.hitsBox, 70 + 595.33 - 107, 0, 50, 30, "HITS"); rect(b.stepsBox, 70 + 595.33 - 107 + 54, 0, 50, 30, "STEPS")
+        rect(b.stripSteps, 72.5, 2.5, 482.33 - 5, 25, "the steps (the strip frame less its 2.5 inset)"); rect(b.badge, 70 + 482.33 - 2.5 - 25, 2.5, 25, 25, "the lock badge, 25 × 25 at the strip's right end")
         close(b.stripStepsWithBadge.maxX, b.badge.minX - 4, "the steps end sp4 before the badge")
-        // §6.1 the emitters: 36 pt at x 40…76 of the column, centred at band top + 6 + 36 + rowH + 3
-        for n in 0..<4 { let top = CGFloat(n) * (148 + 6); rect(L.emitters[n], 693.33 + 40, top + 45 + 47 - 18, 36, 36, "emitter \(n + 1)") }
-        close(L.emitters[0].midY, 92, "the spec's 92")
+        // EMITTER TOKEN §3.1–3.5: the 92 pt column, a card per band (x bandW+40, 52 wide, band+42, 2·rowH+6), the 36 pt token centred in it (x bandW+48, cy band+92), the inlet on the card's left edge (bandW+40)
+        rect(L.emitterColumn, 677.33, 0, 92, 610, "the 92 pt emitter column")
+        for n in 0..<4 {
+            let top = CGFloat(n) * (148 + 6)
+            rect(L.emitterCards[n], 677.33 + 40, top + 42, 52, 2 * 47 + 6, "emitter card \(n + 1)")
+            rect(L.emitters[n], 677.33 + 48, top + 45 + 47 - 18, 36, 36, "emitter token \(n + 1) (centred in the card)")
+            close(L.inlets[n].x, 677.33 + 40, "inlet on the card's left edge"); close(L.inlets[n].y, top + 92, "inlet at the token's centre height")
+            close(L.emitters[n].midX, 677.33 + 66, "§3.3 the token's centre is at the column's x 66"); close(L.emitterCards[n].midY, L.emitters[n].midY, "the card and the token share a centre")
+        }
+        close(L.emitters[0].midY, 92, "band 1's token centre")
     }
     func testThePortraitReference() {
         let L = euclideousMixV2Layout(size: portrait)
-        close(L.bandW, 706); close(L.bandH, 148.33); close(L.innerW, 694); close(L.innerH, 136.33); close(L.blockW, 624); close(L.rowH, 47.17); close(L.sliderW, 137, "(624 − 350) ÷ 2; 108 before TRANS left the row"); close(L.chipH, 10.79, "the amendment's 10.79")
+        close(L.bandW, 690); close(L.bandH, 148.33); close(L.innerW, 678); close(L.innerH, 136.33); close(L.blockW, 608); close(L.rowH, 47.17); close(L.sliderW, 129, "(608 − 350) ÷ 2; 137 before the 92 pt column"); close(L.chipH, 10.79, "the amendment's 10.79")
         let b = L.bands[0]
-        close(b.stripFrame.width, 511, "the amendment's 511"); close(b.hitsBox.minX, 70 + 517, "HITS starts at 517 in the right block"); close(b.stepsBox.maxX, 70 + 621, "STEPS ends at 621")
+        close(b.stripFrame.width, 495, "608 − 113"); close(b.hitsBox.minX, 70 + 501, "HITS starts at 501 in the right block"); close(b.stepsBox.maxX, 70 + 605, "STEPS ends at 605")
+        rect(L.emitterCards[0], 690 + 40, 42, 52, 2 * 47.1663 + 6, "emitter card, portrait"); close(L.inlets[0].x, 730, "inlet at bandW + 40")
         XCTAssertEqual(L.floors, [])
     }
-    /// The spec's own reference figures belong to a 753.33-wide panel; the same formulas reproduce them there.
-    func testTheFormulasReproduceTheSpecsOwnFigures() {
+    /// The EMITTER TOKEN ferry quotes a 753.33-wide landscape panel; the same formulas (92 pt column) reproduce its §3.1 figures there — V 114.67 (not the ferry's stale 85.67, which assumed the pre-TRANS row).
+    func testTheFormulasReproduceTheFerrysQuoted753Panel() {
         let L = euclideousMixV2Layout(size: CGSize(width: 753.333333, height: 610))
-        close(L.bandW, 677.33); close(L.innerW, 665.33); close(L.blockW, 595.33); close(L.sliderW, 122.67, "(595.33 − 350) ÷ 2; the spec's 93.67 was before TRANS left the row"); close(L.rowH, 47); close(L.tileH, 41)
+        close(L.bandW, 661.33); close(L.innerW, 649.33); close(L.blockW, 579.33); close(L.sliderW, 114.67, "(579.33 − 350) ÷ 2 — the ferry's 85.67 assumed TRANS was still in the row"); close(L.rowH, 47); close(L.tileH, 41)
         let b = L.bands[0]
-        close(b.stripFrame.width, 482.33, "the amendment's 482.33"); close(b.hitsBox.minX - 70, 488.33, "HITS from 488.33"); close(b.stepsBox.maxX - 70, 592.33, "STEPS to 592.33")
+        close(b.stripFrame.width, 466.33, "the ferry's §3.1 466.33"); close(b.hitsBox.minX - 70, 472.33, "HITS"); close(b.stepsBox.maxX - 70, 576.33, "STEPS")
+        XCTAssertEqual(L.floors, [], "no floor flags even at the ferry's narrower quoted panel (V 114.67 > 72)")
     }
+    // MARK: EMITTER TOKEN ferry (2026-11-07) — the flare and the wires (§2.1, §4.1–4.4)
+
+    func testTheEmitterFlarePicksTheLowestPlayingLane() {
+        var parts = Array(repeating: [NoteRollNote](), count: 8)
+        parts[4] = [NoteRollNote(onBeat: 0, endBeat: nil, pitch: 60, velocity: 100, outs: 0b0001)]   // part 4 = lane index 2, held → active on output A
+        parts[2] = [NoteRollNote(onBeat: 0, endBeat: nil, pitch: 48, velocity: 100, outs: 0b0001)]   // part 2 = lane index 1, held → active on output A (the lower part)
+        let f = euclideousMixEmitterFlare(parts: parts, output: 0, nowBeat: 1, tempo: 120)
+        XCTAssertEqual(f.lane, 1, "part 2 (lane index 1) is the lowest active part on A"); XCTAssertEqual(f.activity, 1, accuracy: 0.0001)
+        let g = euclideousMixEmitterFlare(parts: parts, output: 1, nowBeat: 1, tempo: 120)
+        XCTAssertEqual(g.lane, -1, "nothing leaves on B"); XCTAssertEqual(g.activity, 0, accuracy: 0.0001)
+    }
+    func testTheMutedWireIsDashedThirtyPercentAndNeverActive() {
+        let m = euclideousMixV2LineAppearance(activity: 1, laneNoHits: false, outputMuted: true, holdDim: false)
+        close(m.width, 1.25, "idle width — never the active 2"); XCTAssertEqual(m.alpha, 0.30, accuracy: 0.0001); XCTAssertTrue(m.dashed)
+    }
+    func testAHeldTraceDimsTheOtherWiresToFifteenPercent() {
+        let full = euclideousMixV2LineAppearance(activity: 1, laneNoHits: false, outputMuted: false, holdDim: false)
+        let dim = euclideousMixV2LineAppearance(activity: 1, laneNoHits: false, outputMuted: false, holdDim: true)
+        XCTAssertEqual(dim.alpha, full.alpha * 0.15, accuracy: 0.0001); XCTAssertFalse(dim.dashed)
+    }
+    func testTheWireEndsAtTheInlet() {
+        let L = euclideousMixV2Layout(size: landscape)
+        let lines = euclideousMixV2Lines(layout: L, masks: [1, 0, 0, 0, 0, 0, 0, 0], partOn: [true, false, false, false, false, false, false, false])
+        XCTAssertEqual(lines.count, 1)
+        close(lines[0].to.x, L.inlets[0].x, "the wire ends at the inlet x"); close(lines[0].to.x, L.bandW + 40)
+        close(lines[0].c1.x, L.bandW + 23); close(lines[0].c2.x, L.bandW + 18.5)
+    }
+
     func testThePoolAndTheFork() {
         let L = euclideousMixV2Layout(size: landscape), b = L.bands[0]
         XCTAssertEqual(b.chips.count, 8)
