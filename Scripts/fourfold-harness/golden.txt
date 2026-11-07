@@ -1,7 +1,7 @@
 GOLDEN (default): events=1032 hash=3c472a5feeabddd7
 GOLDEN STRIDE WALK: events=1164 hash=8e05af7d0561c7ed
 GOLDEN MIRROR WALK: events=1544 hash=d72b80e59f9cf271
-GOLDEN PENDULUM: events=1032 hash=d2e13b283ec848c3
+GOLDEN BOUNCE: events=1032 hash=df91b441a8e7b11f
 GOLDEN PING-PONG LEAD: events=1576 hash=a769efd24c0147e1
 GOLDEN DRUNKEN WALK: events=1160 hash=2e097d29b88bbad3
 GOLDEN RANDOM GARDEN: events=1804 hash=f14e9f0c1bf5ff1
@@ -19,7 +19,7 @@ GOLDEN EARLY BLOOM: events=536 hash=b1a58ea7b70e4d11
 GOLDEN SCALE WALK: events=1288 hash=46e422341716a7d3
 GOLDEN ARPEGGIO LADDER: events=4104 hash=c082c538e5678149
 GOLDEN BACKWARDS GLANCE: events=1284 hash=677651ee7e62be05
-GOLDEN ALL: documents=21 events=30480 hash=f54b822b77b39f56
+GOLDEN ALL: documents=21 events=30480 hash=742acb235ebdb522
 GOLDEN POLY POLY seeded: events=1032 hash=6059412ca4543d7
 GOLDEN POLY POLY chords and long notes: events=1800 hash=a1ac1b843d4c4de5
 GOLDEN POLY POLY walks: events=648 hash=b473dfd12c47f997

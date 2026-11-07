@@ -4314,7 +4314,8 @@ final class RouterTests: XCTestCase {
     private let mixPresetGolden: [String: (UInt64, Int)] = [
         "STRIDE WALK": (341952785676720481, 150),
         "MIRROR WALK": (1597510148518029593, 196),
-        "PENDULUM": (11445219270851763729, 132),
+        "PENDULUM": (11445219270851763729, 132),   // the legacy document (a stored `.pendulum`), see `legacyPendulumPreset`
+        "BOUNCE": (9119479166071837649, 132),   // the preset that replaced it (PING-PONG walk), 2026-11-07
         "PING-PONG LEAD": (6869989594075687121, 200),
         "DRUNKEN WALK": (326770787454424249, 148),
         "RANDOM GARDEN": (15794260843530849809, 230),
@@ -4333,9 +4334,16 @@ final class RouterTests: XCTestCase {
         "ARPEGGIO LADDER": (10557149476074600761, 516),
         "BACKWARDS GLANCE": (14704761779603375773, 162),
     ]
+    /// The preset that was called PENDULUM until 2026-11-07 (it is BOUNCE now: a PING-PONG walk) — kept as a test-local document so the historical pins below still prove that a STORED `.pendulum` walk plays exactly as it always did.
+    static func legacyPendulumPreset() -> PluginState {
+        var s = EuclideousPresets.bounce(); var l = s.euclideousLines ?? []
+        l[0].riffDir = .pendulum; s.euclideousLines = l
+        return s
+    }
+    static var presetsAndLegacyPendulum: [(name: String, make: () -> PluginState)] { EuclideousPresets.all + [(name: "PENDULUM", make: legacyPendulumPreset)] }
     func testEveryFactoryPresetRendersTheSameNoteStreamAsBeforeThePerPitchGateEngine() {
         XCTAssertEqual(EuclideousPresets.all.count, 20)
-        for (name, make) in EuclideousPresets.all {
+        for (name, make) in Self.presetsAndLegacyPendulum {
             let got = mixPresetStreamHash(make())
             guard let want = mixPresetGolden[name] else { XCTFail("CAPTURE \"\(name)\": (\(got.hash), \(got.ons)),"); continue }
             XCTAssertEqual(got.ons, want.1, "\(name): note-on count")
@@ -4357,7 +4365,8 @@ final class RouterTests: XCTestCase {
     private let mixPresetGolden32Bar: [String: (UInt64, Int)] = [
         "STRIDE WALK": (18174285335117503129, 582),
         "MIRROR WALK": (7797166178712829577, 772),
-        "PENDULUM": (17443580359017780105, 516),
+        "PENDULUM": (17443580359017780105, 516),   // the legacy document (a stored `.pendulum`), see `legacyPendulumPreset`
+        "BOUNCE": (14744888904717196161, 516),   // the preset that replaced it (PING-PONG walk), 2026-11-07
         "PING-PONG LEAD": (13033331455076727945, 788),
         "DRUNKEN WALK": (2526824670316815249, 580),
         "RANDOM GARDEN": (15071802690514374961, 902),
@@ -4378,7 +4387,7 @@ final class RouterTests: XCTestCase {
     ]
     func testEveryFactoryPresetRendersTheSameNoteStreamOver32BarsBeforeRestartChains() {
         XCTAssertEqual(EuclideousPresets.all.count, 20)
-        for (name, make) in EuclideousPresets.all {
+        for (name, make) in Self.presetsAndLegacyPendulum {
             let got = mixPresetStreamHash(make(), bars: 32)
             guard let want = mixPresetGolden32Bar[name] else { XCTFail("CAPTURE \"\(name)\": (\(got.hash), \(got.ons)),"); continue }
             XCTAssertEqual(got.ons, want.1, "\(name): note-on count over 32 bars")
@@ -6300,7 +6309,7 @@ final class RouterTests: XCTestCase {
     func testDefaultRoutingReproducesTheFourOutputEngineEventForEvent() {
         var full: [String: String] = [:], onsOnly: [String: String] = [:]
         func put(_ k: String, _ e: RecordingEmitter) { full[k] = routingHash(e) + " | " + routingHash(e, onsOnly: true) }
-        for (name, make) in EuclideousPresets.all {
+        for (name, make) in Self.presetsAndLegacyPendulum where name != "BOUNCE" {   // BOUNCE has no pre-nine-ports engine run to be pinned against; the legacy PENDULUM document has
             put("preset8 \(name)", routingPresetRun(make(), bars: 8))
             put("preset32 \(name)", routingPresetRun(make(), bars: 32))
         }

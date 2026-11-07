@@ -419,6 +419,9 @@ func answerDocument(_ s: inout PluginState, _ variant: Int) {
     case 4:   // SWAP lanes 1 and 3 (4 bars), BORROW lane 4 ← lane 2 in PASSES
         for (i, w) in [(0, 2), (2, 0)] { ls[i].answerTradeOn = true; ls[i].answerTradeMode = .swap; ls[i].answerTradeWith = w; cycle(i, each: 4, .bars) }
         ls[3].answerTradeOn = true; ls[3].answerTradeMode = .borrow; ls[3].answerTradeWith = 1; cycle(3, each: 2, .passes)
+    case 6:   // COPY / FILL followers that play a whole 2n lap (2026-11-07: a follower plays what its source plays): lane 1 COPY and lane 2 FILL of a PING-PONG lane 0, lane 3 FILL of lane 1 (a follower of a follower is not a source: it plays its own pattern)
+        ls[0].direction = .pingpong; ls[0].pulses = 5; ls[0].steps = 8
+        rhythm(1, .copy, cycle: false); rhythm(2, .fill, cycle: false); ls[2].listenDirection = .bkw
     default:  // every row on, cycling rows and a trade on the same lane
         rhythm(1, .copy, cycle: true); pitch(1, .shadow, cycle: true); ls[1].answerTradeOn = true; ls[1].answerTradeMode = .borrow; ls[1].answerTradeWith = 3; cycle(1, each: 2, .bars)
         pitch(2, .avoid, cycle: false); rhythm(3, .fill, cycle: false)
@@ -525,7 +528,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) INPUTS lane modes hand", "(default) INPUTS ROOT delayed hand", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off", "(default) PART SOLO changing"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) INPUTS lane modes hand", "(default) INPUTS ROOT delayed hand", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER COPY of a PING-PONG source", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off", "(default) PART SOLO changing"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -644,7 +647,7 @@ extension Host {
                     }
                 }
                 if name.contains("ANSWER") {   // ANSWER ferry (2026-11-02): the cycle latch, the window split, the phase rows, and TRADE's push — the record, the re-voiced rebuild and a second emission per hit (with the hocket fan-out and the routing worst case in the last run)
-                    au.editDocument { answerDocument(&$0, name.contains("cycles") ? 1 : (name.contains("SWAP") ? 4 : 5)) }
+                    au.editDocument { answerDocument(&$0, name.contains("cycles") ? 1 : (name.contains("SWAP") ? 4 : (name.contains("PING-PONG") ? 6 : 5))) }
                 }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }
                 if name.contains("LATCH") { au.editDocument { $0.euclideousHoldLatchMode = .latch } }
