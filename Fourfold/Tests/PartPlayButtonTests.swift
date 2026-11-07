@@ -66,4 +66,29 @@ final class PartPlayButtonTests: XCTestCase {
         close(euclideousPartPlayFlash(notes: [note(1 - 0.1, outs: 0b0001)], nowBeat: 1, tempo: 120, audible: true, reduceMotion: true), 1, "full within 100 ms")
         close(euclideousPartPlayFlash(notes: [note(1 - 0.3, outs: 0b0001)], nowBeat: 1, tempo: 120, audible: true, reduceMotion: true), 0, "off after 100 ms, no fade")
     }
+
+    // MARK: test 1 — the tiles keep the play / SOLO frames; the comet strip is unchanged (§1, §7.1)
+    func testTheTilesKeepThePlayAndSoloFrames() {
+        XCTAssertEqual(EuclideousLockBadge.playW, 44, "PLAY RIFF takes the 44 pt play-tile slot")
+        XCTAssertEqual(EuclideousLockBadge.soloW, 44, "PLAY STACK takes the 44 pt SOLO-tile slot")
+        let inner: CGFloat = 360.67   // landscape card 380.67 − 20 inset
+        close(Double(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: false)), 260.67, "comet unchanged (lead 50, trail 50)")
+        close(Double(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: true)), 224.67, "with a lock badge the strip ends sp4 before PLAY STACK (trail 4+34+4+44)")
+    }
+
+    // MARK: test 2 — a tap writes the field the lamp reads (§3; cardBackToggle's mutation)
+    func testPlayRiffWritesRiffOnAndTheLampReadsIt() {
+        var l = EuclidLine(noteSel: .all); l.riffOn = false
+        XCTAssertTrue(euclideousMixLayerIsOff(l, notes: false), "lamp off")
+        l.riffOn = !l.riffOnResolved   // the tap = cardBackToggle(.riff)
+        XCTAssertTrue(l.riffOnResolved); XCTAssertFalse(euclideousMixLayerIsOff(l, notes: false), "lamp on, reads the field the tap wrote")
+    }
+    func testPlayStackTurnsTheNotesLayerOnWithAutoLightAndTheLampReadsIt() {
+        var l = EuclidLine(noteSel: .all); l.notesOn = false; l.setLitOrder(EuclideousLitOrder())   // notes off, nothing selected
+        XCTAssertTrue(euclideousMixLayerIsOff(l, notes: true), "lamp off")
+        // the tap = cardBackToggle(.notes): turn on, and auto-light rank 1 if nothing is selected (so the layer actually reads on)
+        if euclideousNotesLayerIsOn(l) { l.notesOn = false } else { l.notesOn = true; if !euclideousNotesHaveSelection(l) { var o = EuclideousLitOrder(); o.append(0); l.setLitOrder(o) } }
+        XCTAssertTrue(euclideousNotesLayerIsOn(l), "the notes layer reads on (switch AND a selection)")
+        XCTAssertFalse(euclideousMixLayerIsOff(l, notes: true), "lamp on")
+    }
 }

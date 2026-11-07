@@ -2427,7 +2427,8 @@ struct EuclideousPage: View {
                       pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
                       // LANE SOLO (2026-10-21, §1): the step-count box's slot — same 44 × 44 frame, so the strip doesn't move — now holds the SOLO button. `stepCountBadge` (and its parameter) stay, unused here (§1.3): the
                       // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
-                      soloButton: soloButton(idx, accent), soloButtonWidth: stepCountBadgeTotalWidth, soloDim: soloDimContent,
+                      // PLAY RIFF / PLAY STACK ferry (2026-11-07): the play tile → PLAY RIFF (lead), the SOLO tile's slot → PLAY STACK — same 44 × 44 frames, so the comet strip and lock badge don't move. Lane PLAY / lane SOLO leave the card (MIX keeps the strip play + per-part solo).
+                      soloButton: partPlayButton(idx, isNotes: true), soloButtonWidth: stepCountBadgeTotalWidth, soloDim: soloDimContent, leadTile: partPlayButton(idx, isNotes: false),
                       // EXACT DIMENSIONS (2026-10-13 ferry): zero self-padding, 6pt spacing, the CHIP+
                       // triangle play button, flat LANE-100/#2c2f36 cell colours, the hand-placed notch.
                       compact: true,
@@ -2696,6 +2697,21 @@ struct EuclideousPage: View {
     private func soloSilenced(_ lane: Int) -> Bool { euclideousLaneSilencedBySolo(lane: lane, soloMask: soloEffective, partMask: partSoloEffective) }
     /// …and one part (0 riff, 1 notes) of a lane that may still sound on its sister part: what MIX dims a row by.
     private func partSoloSilenced(_ lane: Int, part: Int) -> Bool { euclideousPartSoloSilences(lane: lane, part: part, soloMask: soloEffective, partMask: partSoloEffective) }
+    /// PLAY RIFF / PLAY STACK ferry (2026-11-07): one lane-card part-switch button, an `AnyView` leaf like the SOLO tile (the page's build chain has almost no stack to spare). A tap funnels through `cardBackToggle` (one undo step; NOTES
+    /// auto-lights so the layer reads on); the lamp flashes on each note-on the part sends to ≥1 emitter (the NoteRoll `outs` feed, 150 ms fade) while running. The ON state reads the DOCUMENT line (`lines[idx]`) — the field the toggle writes.
+    private func partPlayButton(_ idx: Int, isNotes: Bool) -> AnyView {
+        let accent = laneAccents[idx % laneAccents.count]
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        let on = !euclideousMixLayerIsOff(line, notes: isNotes)
+        let part = 2 * idx + (isNotes ? 1 : 0)
+        let audible = !partSoloSilenced(idx, part: isNotes ? 1 : 0)
+        let label = "Play \(isNotes ? "stack" : "riff"), lane \(idx + 1)"
+        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+            let notes = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
+            let flash = on ? euclideousPartPlayFlash(notes: notes, nowBeat: walkTagBeat(at: tl.date), tempo: clock.tempo, audible: audible, reduceMotion: reduceMotion) : 0
+            EuclideousPartPlayButton(isNotes: isNotes, accent: accent, on: on, flash: flash, axLabel: label) { cardBackToggle(idx, isNotes ? .notes : .riff) }
+        })
+    }
     /// The SOLO button of lane `idx` (§2-3), built here as an `AnyView` like every other leaf of the lane card (the page's construction chain has almost no stack to spare in a debug build).
     private func soloButton(_ idx: Int, _ accent: Color) -> AnyView {
         // ONE SOLO (2026-11-05): the tile is lit from the lane's two PART bits — full when both parts are soloed, half-lit when only the riff or only the notes is (soloed on MIX), off when neither
@@ -2951,10 +2967,9 @@ struct EuclideousPage: View {
                                   landingBeat: slot < pendingRolls.count ? pendingRolls[slot]?.landingBeat : nil,
                                   pulseFeed: pulseFeed, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
                                   laneLocked: lockLocked(idx),
-                                  // Lane-box buttons ferry: the SAME callback/view the normal-mode card uses —
-                                  // not a second derivation of play/SOLO.
-                                  onToggleEnabled: { edit(idx) { $0.enabled = !($0.enabledResolved) } },
-                                  soloButtonView: soloButton(idx, accent))
+                                  // PLAY RIFF / PLAY STACK ferry (2026-11-07) §1.4: the SAME PLAY buttons the normal lane card uses — not a second derivation.
+                                  playRiffView: partPlayButton(idx, isNotes: false),
+                                  playStackView: partPlayButton(idx, isNotes: true))
     }
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)

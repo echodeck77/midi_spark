@@ -114,6 +114,8 @@ struct EuclidLaneBox: View {
     var soloButton: AnyView? = nil
     var soloButtonWidth: CGFloat = 0
     var soloDim: Bool = false
+    /// PLAY RIFF / PLAY STACK ferry (2026-11-07): when set, this replaces the internal play tile in the LEAD slot (the lane card passes PLAY RIFF). It NEVER dims (§4.2) — the way back is always visible. nil (MIX's strip, the BUILD editor) ⇒ the play tile as before.
+    var leadTile: AnyView? = nil
     /// Is this lane solo-silenced (for the strip's VoiceOver value: ", silenced by solo")? Not the same flag as `soloDim` when an output-ring trace already dims the card.
     var soloSilenced: Bool = false
     // EXACT DIMENSIONS (2026-10-13, "lane card, exact dimensions" ferry) — Euclideous's own styling: zero
@@ -157,9 +159,13 @@ struct EuclidLaneBox: View {
     var body: some View {
         let on = line.enabledResolved
         HStack(spacing: compact ? 6 : 8) {
-            playButton(on: on)
-                .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)
-                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDim)
+            if let leadTile {
+                leadTile   // §4.2: PLAY RIFF never dims
+            } else {
+                playButton(on: on)
+                    .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)
+                    .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDim)
+            }
             // WIDTH: the comet bar's own real rendered width, derived exactly from this box's layout —
             // compact: 0pt self-padding + the 44pt play button + 6pt spacing = 50pt before the comet bar,
             // PLUS — if a badge is present — its own width and the matching 6pt gap before it; non-compact

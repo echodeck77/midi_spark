@@ -55,8 +55,9 @@ struct EuclideousRandomCardView: View {
     /// left/right, matching normal mode's size and style exactly — `onToggleEnabled` reuses `EuclidLane
     /// Box`'s own callback shape; `soloButtonView` IS the exact `AnyView` the normal card builds (same
     /// `EuclideousSoloButton`/`EuclideousSoloPressable`, not a re-derived one).
-    let onToggleEnabled: () -> Void
-    let soloButtonView: AnyView
+    /// PLAY RIFF / PLAY STACK ferry (2026-11-07) §1.4: the card's own PLAY RIFF (left) / PLAY STACK (right) — the SAME views (`partPlayButton`) the normal lane card uses, not a re-derivation; they replaced the play tile + SOLO tile.
+    let playRiffView: AnyView
+    let playStackView: AnyView
 
 
     private func currentBeat(at date: Date) -> Double {
@@ -86,9 +87,9 @@ struct EuclideousRandomCardView: View {
                 // Lane-box buttons ferry: PLAY top-left / SOLO top-right, the card's own 44pt row —
                 // same height/style as the normal lane card's step row, so the two modes read as one family.
                 HStack(spacing: 0) {
-                    EuclidCompactPlayButton(on: line.enabledResolved, accent: accent, onToggle: onToggleEnabled)
+                    playRiffView
                     Spacer(minLength: 0)
-                    soloButtonView
+                    playStackView
                 }
                 .frame(height: 44)
                 .padding(.top, 10)
