@@ -2429,6 +2429,8 @@ struct EuclideousPage: View {
                       // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
                       // PLAY RIFF / PLAY STACK ferry (2026-11-07): the play tile → PLAY RIFF (lead), the SOLO tile's slot → PLAY STACK — same 44 × 44 frames, so the comet strip and lock badge don't move. Lane PLAY / lane SOLO leave the card (MIX keeps the strip play + per-part solo).
                       soloButton: partPlayButton(idx, isNotes: true), soloButtonWidth: stepCountBadgeTotalWidth, soloDim: soloDimContent, leadTile: partPlayButton(idx, isNotes: false),
+                      // §4.1: both parts off → the comet strip greys (42 %) and keeps walking; one part on → no dim
+                      partsOffDim: euclideousMixLayerIsOff(line, notes: false) && euclideousMixLayerIsOff(line, notes: true),
                       // EXACT DIMENSIONS (2026-10-13 ferry): zero self-padding, 6pt spacing, the CHIP+
                       // triangle play button, flat LANE-100/#2c2f36 cell colours, the hand-placed notch.
                       compact: true,

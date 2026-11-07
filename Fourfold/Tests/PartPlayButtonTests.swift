@@ -91,4 +91,18 @@ final class PartPlayButtonTests: XCTestCase {
         XCTAssertTrue(euclideousNotesLayerIsOn(l), "the notes layer reads on (switch AND a selection)")
         XCTAssertFalse(euclideousMixLayerIsOff(l, notes: true), "lamp on")
     }
+
+    // MARK: test 4 — §4.1 both parts off dims the strip (one part on → no dim); the dim is one 42 %
+    func testBothPartsOffDimsTheStrip() {
+        var l = EuclidLine(noteSel: .all)
+        func bothOff(_ x: EuclidLine) -> Bool { euclideousMixLayerIsOff(x, notes: false) && euclideousMixLayerIsOff(x, notes: true) }
+        var o = EuclideousLitOrder(); o.append(0); l.setLitOrder(o)
+        l.riffOn = true; l.notesOn = true
+        XCTAssertFalse(bothOff(l), "both on → no dim")
+        l.notesOn = false
+        XCTAssertFalse(bothOff(l), "riff on, notes off → no dim (§4.1 one part on)")
+        l.riffOn = false
+        XCTAssertTrue(bothOff(l), "both off → the strip greys")
+        XCTAssertEqual(EuclideousLaneDimStyle.opacity, 0.42, accuracy: 0.001, "one 42 %, never stacked (the strip dim is soloDim OR partsOffDim)")
+    }
 }

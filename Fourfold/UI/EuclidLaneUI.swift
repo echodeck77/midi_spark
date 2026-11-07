@@ -116,6 +116,8 @@ struct EuclidLaneBox: View {
     var soloDim: Bool = false
     /// PLAY RIFF / PLAY STACK ferry (2026-11-07): when set, this replaces the internal play tile in the LEAD slot (the lane card passes PLAY RIFF). It NEVER dims (§4.2) — the way back is always visible. nil (MIX's strip, the BUILD editor) ⇒ the play tile as before.
     var leadTile: AnyView? = nil
+    /// §4.1: both parts off → the comet strip draws at 42 % (still walking), OR-ed with `soloDim` into ONE 42 % (§4.3, never stacked). false (every other caller) ⇒ unchanged.
+    var partsOffDim: Bool = false
     /// Is this lane solo-silenced (for the strip's VoiceOver value: ", silenced by solo")? Not the same flag as `soloDim` when an output-ring trace already dims the card.
     var soloSilenced: Bool = false
     // EXACT DIMENSIONS (2026-10-13, "lane card, exact dimensions" ferry) — Euclideous's own styling: zero
@@ -158,6 +160,7 @@ struct EuclidLaneBox: View {
 
     var body: some View {
         let on = line.enabledResolved
+        let stripDim = soloDim || partsOffDim   // §4.1/§4.3: solo-silenced OR both parts off → ONE 42 % on the strip
         HStack(spacing: compact ? 6 : 8) {
             if let leadTile {
                 leadTile   // §4.2: PLAY RIFF never dims
@@ -189,7 +192,7 @@ struct EuclidLaneBox: View {
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
                            strip: strip, stripCurrent: stripCurrent, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, exactStyle: compact, grouped: grouped,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
-                           restartChains: restartChains, mutedAt: mutedAt, suppressMuteDim: soloDim, soloSilencedWords: soloSilenced,
+                           restartChains: restartChains, mutedAt: mutedAt, suppressMuteDim: stripDim, soloSilencedWords: soloSilenced,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
@@ -199,8 +202,8 @@ struct EuclidLaneBox: View {
                 .frame(height: compact ? max(20, height) : max(20, height - 12))
                 .lockOutline(lockOutline, accent: accent, radius: 8)
                 .overlay(alignment: .bottom) { if let t = listenShadowTint { Rectangle().fill(t).frame(height: 14).allowsHitTesting(false) } }
-                .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.1: the whole strip (cells, riff track, key row, playhead, the SHADOW band) once at 42 %
-                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDim)
+                .opacity(stripDim ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.1 + PLAY STACK §4.1: the whole strip once at 42 % (solo-silenced OR both parts off), still walking
+                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: stripDim)
             if let soloButton {
                 if let lockBadge { lockBadge.frame(width: EuclideousLockBadge.size, height: height).padding(.horizontal, -(gap - EuclideousLockBadge.gap)) }
                 soloButton
