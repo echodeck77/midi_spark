@@ -3822,7 +3822,12 @@ func euclideousRhythmBorrowPartner(lane: Int, lines: [EuclidLine]) -> Int? {
 /// the comet's sweep, the boxes a timing lane's hits fall in, the strip's legs, the footer's lap — must ignore it the same way, or a borrowing lane sweeps 2n steps over n boxes.
 func euclideousLaneDisplayDirection(lane: Int, lines: [EuclidLine]) -> EuclidDir {
     guard lane >= 0, lane < lines.count else { return .fwd }
-    return euclideousRhythmBorrowPartner(lane: lane, lines: lines) != nil ? .fwd : lines[lane].directionResolved
+    guard let source = euclideousRhythmBorrowPartner(lane: lane, lines: lines) else { return lines[lane].directionResolved }
+    // A COPY / FILL lane plays what its source plays (its own paused `direction` never counts): its pattern is already in tick order, drawn FWD over the source's n boxes while its lap is n — and when the lap is 2n (PING-PONG is
+    // involved) the first n ticks of the lap ARE the boxes in order, so it bounces over the same n boxes exactly as its source does. (A DELAY rotates the 2n lap in tick space, which no n-box picture can show: the bar draws it without.)
+    let n = max(2, min(16, lines[source].steps))
+    let lap = euclideousListenBorrowedLap(n: n, followerDirection: lines[lane].listenDirectionResolved, sourceDirection: lines[source].directionResolved)
+    return lap > n ? .pingpong : .fwd
 }
 /// The lane whose RHYTHM the lane's own bar gestures (drag up/down = HITS, left/right = OFFSET, pinch = STEPS) should edit: the
 /// partner it's borrowing from, else itself. A borrowing lane plays its source's pattern, so the gesture edits what it's borrowing.

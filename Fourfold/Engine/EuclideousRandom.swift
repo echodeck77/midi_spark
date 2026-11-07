@@ -262,7 +262,7 @@ struct EuclideousRandomRiffResult: Equatable {
     var tag: String
 }
 
-let euclideousRandomRiffDirections: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
+let euclideousRandomRiffDirections: [RiffDir] = [.forward, .reverse, .pingpong]   // PENDULUM is dropped (2026-11-07): the RIFF row's three buttons are the whole set, so a throw never lands on a direction no button can show
 
 func euclideousRandomRiffDirShort(_ d: RiffDir) -> String {   // internal since the LANE LOCK ferry: the lock card's RIFF row reuses the tag text (no second formatting)
     switch d {

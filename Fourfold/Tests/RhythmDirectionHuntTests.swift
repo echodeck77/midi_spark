@@ -153,8 +153,7 @@ final class RhythmDirectionHuntTests: XCTestCase {
         return [0: onsets(r.recs, lane: 0), 1: onsets(r.recs, lane: 1)]
     }
     /// COPY at DIRECTION FWD / SPEED 0 / DELAY 0 plays EXACTLY what the source plays ("the order the source is playing its OWN pattern right now", §3.4): the follower's hits are the source's hits, tick for tick, whatever the source's direction.
-    func testCopyOfAPingPongOrBkwSourceFollowsTheSourcesLiveOrder() throws {
-        try XCTSkipIf(true, "PENDING DECISION (direction hunt 2026-11-06): what a COPY / FILL follower of a PING-PONG or BKW source plays. The engine plays the borrowed pattern FWD over n ticks; the hunt argues it should follow the source\'s live order over its real lap (branch worktree-agent-aed5de3863ef53960, commit 4bcd928 `euclideousListenBorrowedLap`). It overlaps ANSWER v2, so it is not landed with this slice — see Docs/pending-tasks.md.")
+    func testCopyOfAPingPongOrBkwSourceFollowsTheSourcesLiveOrder() {
         var bad: [String] = []
         for dir in [EuclidDir.fwd, .bkw, .pingpong] {
             for (k, n, rot) in [(3, 8, 0), (3, 8, 2), (5, 8, 1), (2, 5, 0), (4, 7, 3), (1, 4, 0)] {
@@ -168,8 +167,7 @@ final class RhythmDirectionHuntTests: XCTestCase {
     }
 
     /// A follower whose own DIRECTION is PING-PONG plays the source's stored pattern bouncing (period 2n), like a PING-PONG lane of the same pattern — not just the forward half.
-    func testACopyFollowerInPingPongBouncesTheSourcesStoredPattern() throws {
-        try XCTSkipIf(true, "PENDING DECISION (direction hunt 2026-11-06): what a COPY / FILL follower of a PING-PONG or BKW source plays. The engine plays the borrowed pattern FWD over n ticks; the hunt argues it should follow the source\'s live order over its real lap (branch worktree-agent-aed5de3863ef53960, commit 4bcd928 `euclideousListenBorrowedLap`). It overlaps ANSWER v2, so it is not landed with this slice — see Docs/pending-tasks.md.")
+    func testACopyFollowerInPingPongBouncesTheSourcesStoredPattern() {
         var bad: [String] = []
         for (k, n, rot) in [(3, 8, 0), (3, 8, 2), (5, 8, 1), (2, 5, 0), (4, 7, 3)] {
             let src = lane(hits: k, steps: n, rate: .r1_8, dir: .fwd, rotate: rot)
@@ -323,8 +321,7 @@ final class RhythmDirectionHuntTests: XCTestCase {
     }
 
     /// The CHORDS grid's LOOP advance counts a lane's laps through the restart schedule: a PING-PONG lane's lap is 2n steps (a COPY follower's, 2n when its source or its DIRECTION is PING-PONG), BKW's n.
-    func testChordsLoopAdvanceCountsTheLanesRealLap() throws {
-        try XCTSkipIf(true, "PENDING DECISION (direction hunt 2026-11-06): what a COPY / FILL follower of a PING-PONG or BKW source plays. The engine plays the borrowed pattern FWD over n ticks; the hunt argues it should follow the source\'s live order over its real lap (branch worktree-agent-aed5de3863ef53960, commit 4bcd928 `euclideousListenBorrowedLap`). It overlaps ANSWER v2, so it is not landed with this slice — see Docs/pending-tasks.md.")
+    func testChordsLoopAdvanceCountsTheLanesRealLap() {
         let steps = 8
         var bad: [String] = []
         for (label, lines, lap) in [
@@ -364,8 +361,7 @@ final class RhythmDirectionHuntTests: XCTestCase {
 
     /// The lap of a COPY / FILL follower — the source's n steps walked in the follower's DIRECTION (§3.4): 2n when the follower is PING-PONG or its source is, else n; the follower's OWN stored `direction` is paused and never counts. The sound, the
     /// lane geometry the mute sweep / MUTE tab / AVOID's source grid size a pass with, the walk mirror and the restart schedule must all agree on it.
-    func testABorrowingLanesLapIsTheSameEverywhere() throws {
-        try XCTSkipIf(true, "PENDING DECISION (direction hunt 2026-11-06): what a COPY / FILL follower of a PING-PONG or BKW source plays. The engine plays the borrowed pattern FWD over n ticks; the hunt argues it should follow the source\'s live order over its real lap (branch worktree-agent-aed5de3863ef53960, commit 4bcd928 `euclideousListenBorrowedLap`). It overlaps ANSWER v2, so it is not landed with this slice — see Docs/pending-tasks.md.")
+    func testABorrowingLanesLapIsTheSameEverywhere() {
         var bad: [String: [String]] = [:]
         let dirs: [EuclidDir] = [.fwd, .bkw, .pingpong]
         for (k, n, rot) in [(2, 5, 0), (3, 7, 0), (1, 4, 0)] {

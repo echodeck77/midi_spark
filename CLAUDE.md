@@ -266,7 +266,7 @@ the same pipeline as any other row; it is not a special-cased render path.
   `offsetRequested` remember what HITS/OFFSET were last actually asked for, so shrinking STEPS and
   growing it back restores the exact pattern left behind); a 16-cell MUTE grid (`muteCells16`/
   `muteUnit`, LANES GRID ferry 2026-10-18, UNCHANGED by the restart-chains ferry — mute stays on the
-  LANES tab), RIFF (a walk — FWD/REV/PENDULUM/PING-PONG — over the
+  LANES tab), RIFF (a walk — FWD/REV/PING-PONG (PENDULUM was dropped 2026-11-07: no preset or random throw makes it; a document that already stores it still sounds as saved) — over the
   shared 8-step rank matrix; DRUNK/RANDOM were removed from this walk 2026-10-13 and now coerce to
   FWD; FREE, INVERT, ON-REST SKIP/TIE/REPEAT (FILL left ON REST in the NOTES TAB ferry 2026-10-19 — RESTS does what it was for; REPEAT added RIFF WALK ferry 2026-10-19: a hit on
   a rest plays the nearest earlier non-rest column's note again, found by `euclideousRiffRepeatLookback`),

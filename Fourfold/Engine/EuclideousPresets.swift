@@ -32,7 +32,7 @@ enum EuclideousPresets {
     private static let descendShape = [8, 7, 6, 5, 4, 3, 2, 1]   // R8 DESCEND: a plain descending run
 
     static let all: [(name: String, make: () -> PluginState)] = [
-        ("STRIDE WALK", strideWalk), ("MIRROR WALK", mirrorWalk), ("PENDULUM", pendulum),
+        ("STRIDE WALK", strideWalk), ("MIRROR WALK", mirrorWalk), ("BOUNCE", bounce),
         ("PING-PONG LEAD", pingPongLead), ("DRUNKEN WALK", drunkenWalk), ("RANDOM GARDEN", randomGarden),
         ("OCTAVE COLUMN", octaveColumn), ("KOTEKAN", kotekan), ("FIVE AGAINST EIGHT", fiveAgainstEight),
         ("MIRRORED PITCH", mirroredPitch), ("FIFTH ABOVE", fifthAbove), ("HELD BREATH", heldBreath),
@@ -68,11 +68,12 @@ enum EuclideousPresets {
         s.euclideousRiff = EuclideousRiff(steps: 8, ranks: zigzagShape)
     } }
 
-    // 3. PENDULUM — the riff walk bounces once off each end of the shared pattern (RiffDir.pendulum) over a
-    // steady 1/8 pulse; a sparse low lane marks every other bounce.
-    static func pendulum() -> PluginState { base { s in
+    // 3. BOUNCE — the riff walk bounces off each end of the shared pattern (RiffDir.pingpong: each end sounds twice) over a
+    // steady 1/8 pulse; a sparse low lane marks every other bounce. (It was PENDULUM — bounce once at each end — until PENDULUM was dropped
+    // as a direction, 2026-11-07: the RIFF row never offered it, and a preset that no button could show or reselect was a trap.)
+    static func bounce() -> PluginState { base { s in
         var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
-        l[0].sourceMode = .key; l[0].useRiff = true; l[0].riffDir = .pendulum; l[0].pulses = 7; l[0].steps = 8; l[0].rate = .r1_8
+        l[0].sourceMode = .key; l[0].useRiff = true; l[0].riffDir = .pingpong; l[0].pulses = 7; l[0].steps = 8; l[0].rate = .r1_8
         l[1].sourceMode = .key; l[1].noteSel = .low; l[1].pulses = 2; l[1].steps = 8; l[1].octave = -1; l[1].rate = .r1_4
         l[2].enabled = false; l[3].enabled = false
         s.euclideousLines = l

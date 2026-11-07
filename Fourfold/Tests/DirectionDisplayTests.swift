@@ -193,7 +193,7 @@ final class DirectionDisplayTests: XCTestCase {
         XCTAssertGreaterThan(checked, 800); XCTAssertGreaterThan(oldFormulaWrong, 100, "the fuzz really exercises BKW / PING-PONG")
     }
 
-    /// 6. A lane borrowing RHYTHM is DISPLAYED FWD: the lap the strip is predicted from (`euclideousLapHitSteps` with the display direction) is the set of lap-local ticks the Router strikes on, whatever the follower's stale DIRECTION field says.
+    /// 6. A lane borrowing RHYTHM is DISPLAYED as it plays — FWD over the source's n boxes while its lap is n, and bouncing over the same n boxes (PING-PONG) when its lap is 2n (a PING-PONG source, or a follower with DIRECTION `><`): the lap the strip is predicted from (`euclideousLapHitSteps` with the display direction) is the set of lap-local ticks the Router strikes on, whatever the follower's stale DIRECTION field says.
     func testABorrowingLaneIsDisplayedFwdAndItsLapHitsAreTheTicksTheRouterStrikesOn() {
         var rng = DirRng(s: 0xD1EC_0008)
         var staleWouldDiffer = 0
@@ -202,15 +202,15 @@ final class DirectionDisplayTests: XCTestCase {
             var f = DirHarness.randomLine(&rng, timing: false, dir: [.bkw, .pingpong][rng.int(0...1)])
             f.setAnswerRhythm(rng.bool() ? .copy : .fill); f.listenSource = 0
             let lines = [src, f]
-            XCTAssertEqual(euclideousLaneDisplayDirection(lane: 1, lines: lines), .fwd)
+            guard let eff = euclideousEffectiveHitPattern(lane: 1, lines: lines) else { XCTFail("no pattern"); continue }
+            let n = eff.n, lap = eff.lap
+            XCTAssertEqual(euclideousLaneDisplayDirection(lane: 1, lines: lines), lap > n ? .pingpong : .fwd, "trial \(trial): drawn by the lap it plays")
             XCTAssertEqual(euclideousLaneDisplayDirection(lane: 0, lines: lines), src.directionResolved, "an own-rhythm lane keeps its own direction")
-            guard let eff = euclideousEffectivePattern(lane: 1, lines: lines) else { XCTFail("no pattern"); continue }
-            let n = eff.n
             let shown = Set(euclideousLapHitSteps(buf: Array(eff.buf.prefix(n)), dir: euclideousLaneDisplayDirection(lane: 1, lines: lines)).map { $0.tick })
             let stale = Set(euclideousLapHitSteps(buf: Array(eff.buf.prefix(n)), dir: f.directionResolved).map { $0.tick })
             if shown != stale { staleWouldDiffer += 1 }
             let sub = eff.rateBeats
-            let heard = Set(DirHarness.onsets(DirHarness.render(DirHarness.document(lines), beats: 18), cable: 2).filter { $0 < 16 }.map { Int(($0 / sub + 0.01).rounded(.down)) % n })
+            let heard = Set(DirHarness.onsets(DirHarness.render(DirHarness.document(lines), beats: 40), cable: 2).filter { $0 < 36 }.map { Int(($0 / sub + 0.01).rounded(.down)) % lap })
             XCTAssertEqual(shown, heard, "trial \(trial): follower (own \(f.directionResolved)) of n\(n) — lap ticks drawn \(shown.sorted()) vs struck \(heard.sorted())")
         }
         XCTAssertGreaterThan(staleWouldDiffer, 20, "the stale field really would have changed the drawing")
