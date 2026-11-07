@@ -77,7 +77,7 @@ final class FXTabTests: XCTestCase {
         var doc = PluginState(machines: [], scenes: [SceneState.empty()])
         doc.euclideousFX = fx
         let doc2 = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(doc))
-        XCTAssertEqual(doc2.euclideousFX, fx); XCTAssertEqual(doc2.euclideousFXResolved, fx)
+        XCTAssertEqual(doc2.euclideousFX, fx, "a stored FX table still round-trips unchanged"); XCTAssertTrue(doc2.euclideousFXResolved.isInert, "…but FX is RETIRED (2026-11-07): nothing resolves it")
     }
     /// LEGATO RETIRED from the GATE row (Paul 2026-10-20: "remove 100=legato"): a session saved while a cell held 100 loads it as 95, so the UI and the engine (both fed from the
     /// decoded document) agree and a repeated pitch re-strikes.
@@ -89,8 +89,9 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(back.cell(row: 1, column: 5), 90); XCTAssertEqual(back.cell(row: 3, column: 1), 100, "VEL 100 is a real velocity")
         var doc = PluginState(machines: [], scenes: [SceneState.empty()]); doc.euclideousFX = fx
         let doc2 = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(doc))
-        XCTAssertEqual(doc2.euclideousFXResolved.cell(row: 1, column: 2), 95)
-        XCTAssertFalse(euclideousGateIsLegato(Double(doc2.euclideousFXResolved.cell(row: 1, column: 2)!) / 100), "…so no value a document can hold reaches the engine's legato predicate")
+        XCTAssertEqual(doc2.euclideousFX?.cell(row: 1, column: 2), 95)
+        XCTAssertFalse(euclideousGateIsLegato(Double(doc2.euclideousFX!.cell(row: 1, column: 2)!) / 100), "…so no value a document can hold reaches the engine's legato predicate")
+        XCTAssertTrue(doc2.euclideousFXResolved.isInert, "FX is retired: the engine reads nothing of it")
     }
     func testAPreFeatureDocumentDecodesWithEmptyFXAndNoFactoryReset() throws {
         let doc = PluginState(machines: [], scenes: [SceneState.empty()])
@@ -130,16 +131,12 @@ final class FXTabTests: XCTestCase {
             s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
         st.euclideousFX = fx
         let box = SnapshotBuilder.build(from: st)
-        let row = box.cells.first { $0.machineIndex >= 0 && $0.procs.first?.euclideousFX.isInert == false }
-        XCTAssertNotNil(row, "the Euclideous row's SnapParams carries the FX")
-        XCTAssertEqual(row?.procs.first?.euclideousFX.cell(row: 3, column: 2), 110)
-        XCTAssertEqual(row?.procs.first?.euclideousFX.lanes[3], 0b0011)
-        // an out-of-range stored value is clamped on its way into the snapshot
+        // FX RETIRED (2026-11-07): the document keeps the table, the snapshot never carries it
+        XCTAssertNil(box.cells.first { $0.machineIndex >= 0 && $0.procs.first?.euclideousFX.isInert == false }, "no row's SnapParams carries a stored FX table")
         var bad = EuclideousFX(); bad.cells[3 * 8] = 120; bad.notePasses = 40
         st.euclideousFX = bad
         let box2 = SnapshotBuilder.build(from: st)
-        let row2 = box2.cells.first { $0.machineIndex >= 0 && $0.procs.first?.euclideousFX.isInert == false }
-        XCTAssertEqual(row2?.procs.first?.euclideousFX.notePasses, 8)
+        XCTAssertNil(box2.cells.first { $0.machineIndex >= 0 && $0.procs.first?.euclideousFX.isInert == false })
     }
 
     // MARK: - the one per-hit decision (§2.2 / §2.3)

@@ -183,20 +183,6 @@ final class EmitterRatchetMutationTests: XCTestCase {
 
     // MARK: - §3.2 the deferred strikes carry the FINAL pitch
 
-    /// A part's OUT-TRANSPOSE shifts every note of the part; the deferred strikes of a ratchet must sound the same (shifted) pitch as strike 0.
-    /// (Out-transpose is applied where each pitch is CHOSEN, so `pitches[j]` is already the shifted pitch: this guards that contract; the mutant 'tail pushes `pitches[j]`' is killed by the ROW-transpose test below.)
-    func testEveryStrikeOfARatchetedNoteSoundsTheTransposedPitch() {
-        var lane = mLine(); lane.riffOutTranspose = 2
-        let e = mPlay(MRig(lines: [lane], emitters: mEmitters([(0, mOn(steps: 2, hits: 2, strikes: 3))])), beats: 8)
-        let plain = mPlay(MRig(lines: [lane]), beats: 8)
-        mAssertNothingLeftSounding(e.tap)
-        for b in 0..<8 {
-            let inBeat = e.tap.ons(1).filter { Int(Double($0.sample) / 24_000 + 0.001) == b }
-            let want = plain.tap.ons(1).first { Int(Double($0.sample) / 24_000 + 0.001) == b }!.note
-            XCTAssertEqual(inBeat.map { $0.note }, [want, want, want], "beat \(b): three strikes of the SAME (transposed) pitch")
-            XCTAssertNotEqual(want, mPool[b % 8], "the fixture really transposes")
-        }
-    }
 
     // MARK: - §3.2 the deferred strikes carry the ROW transpose too
 
@@ -298,24 +284,6 @@ final class EmitterRatchetMutationTests: XCTestCase {
 
     // MARK: - an output's ratchet replaces the hit's own FX RATCH on that output, in every variant of the FX RATCH path
 
-    /// The riff note leaves on A and B; column 3 carries FX RATCH ×2 (flat, then ACCENT-shaped so the deferred strikes are one tail each) and column 4 a TIE, so the ratcheted hit at beat 3 is tied through beat 4. A ratchets ×4
-    /// everywhere: its own strikes replace the FX ratchet's strike 0, its in-window strikes, its plain / shaped tails and its tie tail. B keeps the FX ratchet.
-    /// Kills: `outsOf` instead of `outsStrike` in the FX-RATCH path's strike 0 / in-window / tail / shaped tail / tie tail, and the `strikesPlain` guard there.
-    func testAnOutputsRatchetReplacesTheHitsFxRatchOnThatOutputInEveryVariant() {
-        for shape: UInt8 in [0, 1] {
-            for tie in [false, true] {
-                for frames: UInt32 in [2048, 16_384] {
-                    var fx = EuclideousFX(); fx.cells[0 * 8 + 3] = 2; fx.ratchShape = shape
-                    if tie { fx.cells[2 * 8 + 4] = 1 }
-                    let e = mPlay(MRig(lines: [mLine(riffOut: 0b0011, notesOut: 0b0011)], emitters: mEmitters([(0, mOn(steps: 2, hits: 2, strikes: 4))]), fx: fx), beats: 16, frames: frames)
-                    mAssertNothingLeftSounding(e.tap)
-                    let tied: (Int) -> Bool = { tie && $0 % 8 == 4 }
-                    XCTAssertEqual(mPerBeat(e.tap, cable: 1, beats: 16), (0..<16).map { tied($0) ? 0 : 4 }, "shape \(shape) tie \(tie) frames \(frames): A strikes ×4 on every sounding hit, FX RATCH or not")
-                    XCTAssertEqual(mPerBeat(e.tap, cable: 2, beats: 16), (0..<16).map { tied($0) ? 0 : ($0 % 8 == 3 ? 2 : 1) }, "shape \(shape) tie \(tie) frames \(frames): B keeps the hit's own FX RATCH ×2")
-                }
-            }
-        }
-    }
 
     // MARK: - nothing is handed an empty output set
 

@@ -227,10 +227,10 @@ final class EmitterRatchetRouterTests: XCTestCase {
         XCTAssertEqual(perBeat(e.tap, beats: 12).enumerated().filter { $0.element >= 4 }.map { $0.offset }, [0, 4, 8], "the ratchets stay on hits 0, 4, 8: ALL NOTES OFF restarts nothing")
     }
     func testATiedHitSendsNothingSoItNeverCountsAndNeverRatchets() {
-        // TIE on column 1 (row 2): the hit at beats 1, 9, 17… ties the note before it. STEPS 4 / HITS 1: every fourth SOUNDING hit ratchets.
-        var fx = EuclideousFX(); fx.cells[2 * 8 + 1] = 1
+        // Column 1 is a written rest with ON REST = TIE (the FX TIE row this test used was retired 2026-11-07): the hit at beats 1, 9, 17… ties the note before it. STEPS 4 / HITS 1: every fourth SOUNDING hit ratchets.
+        var tieLane = line(); tieLane.riffOnRest = .tie
         let beats = 24
-        let e = play(Rig(lines: [line()], emitters: emitters([(0, on(steps: 4, hits: 1, strikes: 3))]), fx: fx), beats: Double(beats))
+        let e = play(Rig(lines: [tieLane], emitters: emitters([(0, on(steps: 4, hits: 1, strikes: 3))]), ranks: [1, 0, 1, 1, 1, 1, 1, 1]), beats: Double(beats))
         assertNothingLeftSounding(e.tap)
         let tiedBeats = Set((0..<beats).filter { $0 % 8 == 1 })
         var counted = 0, want = [Int](repeating: 0, count: beats)
@@ -397,14 +397,6 @@ final class EmitterRatchetRouterTests: XCTestCase {
 
     // MARK: - §10 test 9 — FX RATCH on the hit, and an output's own ratchet
 
-    func testAnOutputsRatchetReplacesTheHitsOwnCountOnThatOutputOnly() {
-        // riff on A and B; column 3 carries FX RATCH ×2 (beat 3, 11…); A always ratchets ×4.
-        var fx = EuclideousFX(); fx.cells[0 * 8 + 3] = 2
-        let e = play(Rig(lines: [line(riffOut: 0b0011, notesOut: 0b0011)], emitters: emitters([(0, on(steps: 2, hits: 2, strikes: 4))]), fx: fx), beats: 8)
-        assertNothingLeftSounding(e.tap)
-        XCTAssertEqual(perBeat(e.tap, cable: 1, beats: 8), [4, 4, 4, 4, 4, 4, 4, 4], "A: four strikes everywhere — its own n replaces the hit's")
-        XCTAssertEqual(perBeat(e.tap, cable: 2, beats: 8), [1, 1, 1, 2, 1, 1, 1, 1], "B: the hit's own FX RATCH ×2 still applies on every other output")
-    }
 
     // MARK: - §10 test 10 — legato
 
@@ -448,8 +440,8 @@ final class EmitterRatchetRouterTests: XCTestCase {
     // MARK: - §3.7 / §3.9 — a tie after a ratcheted hit, and cancelling
 
     func testATieAfterARatchetedHitExtendsTheLastStrikeAndNothingIsLeftSounding() {
-        var fx = EuclideousFX(); fx.cells[2 * 8 + 1] = 1                      // TIE on column 1: the hit at beat 1 is tied to beat 0's note
-        let e = play(Rig(lines: [line()], emitters: emitters([(0, on(steps: 2, hits: 2, strikes: 3))]), fx: fx), beats: 3)
+        var tieLane = line(); tieLane.riffOnRest = .tie                        // column 1 is a written rest with ON REST = TIE: the hit at beat 1 is tied to beat 0's note
+        let e = play(Rig(lines: [tieLane], emitters: emitters([(0, on(steps: 2, hits: 2, strikes: 3))]), ranks: [1, 0, 1, 1, 1, 1, 1, 1]), beats: 3)
         assertNothingLeftSounding(e.tap)
         XCTAssertEqual(perBeat(e.tap, beats: 3).prefix(2).map { $0 }, [3, 0], "hit 0 ratchets ×3; the tied hit at beat 1 strikes nothing and is not struck again")
         let lastOff = e.tap.offs(1).filter { $0.sample < 48_000 }.map { $0.sample }.max() ?? 0

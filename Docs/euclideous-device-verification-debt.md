@@ -759,3 +759,5 @@ _(Replaces the old "Sequencer panel" items — the hold-RESET gesture, the prese
 - **PLAY RIFF / PLAY STACK — the flash (2026-11-07):** the lamp flash reads as "this part is playing" without getting busy at fast tempos; a part whose notes go nowhere stays lit without flashing.
 - **PLAY RIFF / PLAY STACK — calm (2026-11-07):** with neutral buttons and lane colour mostly on the comet strip, the cards feel calmer than with the play and SOLO tiles; losing lane SOLO and lane stop on the cards isn't missed in performance.
 - **PLAY RIFF / PLAY STACK — VoiceOver order (2026-11-07):** VoiceOver reads and operates both buttons, in the order Play riff · comet · lock badge · Play stack · tab body.
+
+- **FX / out-transpose / PENDULUM retired in the engine (2026-11-07):** a saved session that had FX cells, an out-transpose or a PENDULUM walk now plays without the first two and as a PING-PONG walk for the third — load one if you have it and confirm nothing sounds wrong (stuck notes, missing notes) and that the riff panel's direction row lights PING-PONG for the old pendulum lane.

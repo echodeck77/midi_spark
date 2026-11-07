@@ -330,22 +330,6 @@ final class HocketRouterTests: XCTestCase {
         XCTAssertEqual(e.ons(0).filter { $0.beat >= 4 && $0.beat < 8 && $0.chan == chanNibble(blueNotes) }.count, e.ons(blueNotes).filter { $0.beat >= 4 && $0.beat < 8 }.count, "bar 2: ALL carries the passed line on BLUE NOTES' channel too")
         assertBalanced(e)
     }
-    /// CARD BACKS v2 §6.6: a passed note keeps its SOURCE's pitch — the source part's octave and out-transpose included; the receiving part's own out-transpose does not touch it.
-    func testAPassedNoteKeepsItsSourcesPitchOutTransposeIncluded() {
-        var lanes = (0..<4).map { laneLine($0, notes: false) }
-        lanes[0].riffOutTranspose = 2; lanes[1].riffOutTranspose = -3                 // RED RIFF +2 steps, BLUE RIFF (the receiver) −3
-        let rules = [rule(main: [RR], alt: [BR]) { $0.mode = .pass; $0.mainLen = 1; $0.altLen = 1 }]
-        let e = render(doc(lanes: lanes, rules: rules), beats: 4), base = render(doc(lanes: lanes), beats: 4)
-        for b in [0.5, 1.5, 2.5, 3.5] {                                               // the ALT turns
-            let red = base.ons(redRiff).filter { $0.beat == b }.map { $0.note }
-            XCTAssertFalse(red.isEmpty)
-            XCTAssertEqual(e.ons(blueRiff).filter { $0.beat == b }.map { $0.note }, red, "hit at \(b): BLUE RIFF carries RED RIFF's note at RED's final pitch")
-        }
-        var plain = lanes; plain[0].riffOutTranspose = nil; plain[1].riffOutTranspose = nil
-        let flat = render(doc(lanes: plain, rules: rules), beats: 4)
-        XCTAssertNotEqual(e.ons(blueRiff).map { $0.note }, flat.ons(blueRiff).map { $0.note }, "the out-transpose is audible in the passed line")
-        assertBalanced(e)
-    }
     /// Paul, 2026-10-27: ONE MAIN output passed to TWO ALT outputs (a riff and a notes output), TOGETHER: the line comes out of BOTH, each at the receiving pad's MIX VEL — at any window size; BLUE's NOTES layer is off and it still sounds.
     func testOneLinePassedToARiffAndANotesOutputComesOutOfBoth() {
         var lanes = (0..<4).map { laneLine($0, notes: false) }
@@ -397,7 +381,7 @@ final class HocketRouterTests: XCTestCase {
 
     // MARK: - test 18 — velocity and gate
 
-    func testAPassedNoteTakesTheReceivingPadsVelocityAndItsOwnGateAndAnAccentTravels() {
+    func testAPassedNoteTakesTheReceivingPadsVelocityAndItsOwnGate() {
         var lanes = (0..<4).map { laneLine($0, riff: false) }
         lanes[0].notesVelocity = 100; lanes[1].notesVelocity = 50
         lanes[0].notesGate = 0.25; lanes[1].notesGate = 0.9
@@ -411,16 +395,6 @@ final class HocketRouterTests: XCTestCase {
         // RED's own gate travels: 0.25 of the 0.5-beat gap
         let off = e.offs(blueNotes).filter { $0.beat > 0.5 && $0.beat < 1.0 }.map { $0.beat }.min()!
         XCTAssertEqual(off, 0.5 + 0.125, accuracy: 0.001, "…and with RED's gate, not BLUE's")
-        // an FX VEL accent on RED's second hit (column 2) travels as its own value
-        var withAccent = doc(lanes: (0..<4).map { laneLine($0) }.enumerated().map { var l = $0.element; if $0.offset < 2 { l.notesVelocity = lanes[$0.offset].notesVelocity; l.notesGate = lanes[$0.offset].notesGate }; return l }, rules: rules)   // riff ON, so an FX VEL cell has a hit to act on
-        var fx = EuclideousFX(); fx.cells[3 * 8 + 1] = 120; fx.lanes[3] = 0b0001      // VEL row, column 2, RED only
-        withAccent.euclideousFX = fx
-        let a = render(withAccent, beats: 4)
-        let accented = a.ons(blueNotes).filter { $0.beat == 0.5 }, plain = a.ons(blueNotes).filter { $0.beat == 1.5 }
-        XCTAssertFalse(accented.isEmpty)
-        XCTAssertTrue(plain.allSatisfy { $0.vel == 50 })
-        // FX VEL on a NOTES layer is `cell + clamp(notes pad − riff pad)` (the engine's own convention, `euclideousFXLitVelocity`): under BLUE's pads (notes 50, riff 100) the accent 120 leaves as 120 − 50 = 70
-        XCTAssertEqual(Set(accented.map { Int($0.vel) }), [70], "the accent travels with the note, re-based on the receiving pads: velocity \(accented.map { $0.vel }) vs the plain \(plain.map { $0.vel })")
     }
 
     // MARK: - test 11, the other order — the off lands at the LONGER holder's end whichever voice is swept last
@@ -539,20 +513,6 @@ final class HocketRouterTests: XCTestCase {
         assertBalanced(gone.changed, "after deleting the rule at gate 100%")
     }
 
-    func testARatchetedOrRolledHitKeepsTheRoutingItBeganWithWhenTheRuleChangesMidHit() {
-        // RED's first hit is a 4× ratchet (FX RATCH on column 1): its strikes at 0, 0.0625, 0.125, 0.1875 beat (a 1/16 step ÷ 4). The rule passes RED NOTES to BLUE NOTES (bar 1 is an ALT turn). The edit lands at beat 0.1, between the 2nd and 3rd strike.
-        let lanes = (0..<4).map { laneLine($0) }
-        let pass = rule(main: [RN], alt: [BN]) { $0.mode = .pass; $0.unit = .bars; $0.offset = 1; $0.own = .replace }
-        var fx = EuclideousFX(); fx.cells[0] = 4; fx.lanes[0] = 0b0001                       // RATCH row, column 1, RED only
-        let r = changeMidRun(first: [pass], then: [], lanes: lanes, rawGates: false, changeBeat: 0.1, beats: 2) { $0.euclideousFX = fx }
-        let cut = Int64(0.45 * 24_000)                                                        // before the lane's second hit (beat 0.5)
-        let ratchets = r.steady.ons(blueNotes).filter { $0.sample < cut }
-        XCTAssertEqual(ratchets.count, 4, "the passed ratchet strikes four times on BLUE NOTES (\(beats(ratchets)))")
-        XCTAssertEqual(r.changed.events.filter { $0.sample < cut }, r.steady.events.filter { $0.sample < cut }, "deleting the rule between two strikes of one hit changes nothing about that hit: every strike keeps the routing the hit began with")
-        XCTAssertFalse(r.changed.ons(redNotes).contains { $0.sample < cut && $0.beat > 0.1 }, "…and none of its later strikes falls back to RED NOTES")
-        assertBalanced(r.changed)
-        XCTAssertTrue(r.changed.ons(redNotes).contains { $0.beat >= 0.45 }, "hits after the edit follow the new rules (none): RED NOTES sounds on its own output again")
-    }
 
     func testALaterStrikeNeverJoinsANoteThatHasAlreadyEndedEvenWithinOneBigWindow() {
         // PASS + MERGE puts RED's line and BLUE's own part on BLUE NOTES on ALT turns; with every hit of a 2-beat lap in ONE window, a deferred holder from hit 2 must not swallow the strikes of hits 3 and 4.
@@ -868,14 +828,5 @@ final class HocketRouterTests: XCTestCase {
         }
         XCTAssertTrue(doubled.isEmpty, "a note-on for a key already sounding: \(doubled)")
         XCTAssertTrue(sounding.values.allSatisfy { $0 == 0 }, "every note ended: \(sounding.filter { $0.value != 0 })")
-    }
-    /// A RATCHET's repeats all take the turn of the hit's FIRST strike, even when a later repeat falls in the next STEPS count.
-    func testRatchetRepeatsKeepTheFirstStrikesTurnAcrossAStepBoundary() {
-        var lanes = (0..<4).map { laneLine($0) }
-        lanes[0].rate = .r1_8                                                  // RED hits every 0.5 beat
-        var fx = EuclideousFX(); fx.cells[0] = 4; fx.lanes[0] = 0b0001           // RATCH ×4 on column 1, RED only: strikes at 0, .125, .25, .375 — the 2nd sixteenth starts at .25
-        let e = render(doc(lanes: lanes, rules: [rule(main: [RR], alt: [BR]) { $0.unit = .steps }]) { $0.euclideousFX = fx }, beats: 1)
-        XCTAssertEqual(beats(e.ons(redRiff)).filter { $0 < 0.5 }, [0, 0.125, 0.25, 0.375], "all four ratchet strikes take the first strike's turn (MAIN, x = 0)")
-        XCTAssertTrue(beats(e.ons(blueRiff)).filter { $0 < 0.5 }.isEmpty)
     }
 }

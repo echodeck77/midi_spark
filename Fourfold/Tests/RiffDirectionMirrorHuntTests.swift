@@ -4,7 +4,7 @@
 import XCTest
 
 final class RiffDirectionMirrorHuntTests: XCTestCase {
-    private let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
+    private let dirs: [RiffDir] = [.forward, .reverse, .pingpong]   // PENDULUM is retired (2026-11-07)
     private func pos(_ dir: RiffDir, _ L: Int, _ stride: Int, _ w: Int) -> Int {
         let seq = bounceSequence(dir, L)
         return seq[(((w * stride) % seq.count) + seq.count) % seq.count]
@@ -80,7 +80,7 @@ final class RiffDirectionMirrorHuntTests: XCTestCase {
         var bad: [String] = []
         var rng = HuntRng(s: 99)
         for trial in 0..<1500 {
-            let dir = dirs[rng.int(0...3)], L = rng.int(1...8), st = rng.int(1...7), shift = rng.int(0...7), every = rng.int(1...3), step = rng.bool()
+            let dir = dirs[rng.int(0...2)], L = rng.int(1...8), st = rng.int(1...7), shift = rng.int(0...7), every = rng.int(1...3), step = rng.bool()
             var hits = (0..<rng.int(2...8)).map { _ in rng.bool(0.6) }
             if !hits.contains(true) { hits[0] = true }
             let c = config(dir, L, st, shift, every, step, hits: hits)
@@ -124,7 +124,7 @@ final class RiffDirectionMirrorHuntTests: XCTestCase {
         var bad: [String] = []
         var rng = HuntRng(s: 4242)
         for trial in 0..<600 {
-            let dir = dirs[rng.int(0...3)], L = rng.int(1...8), st = rng.int(1...7), shift = rng.int(0...7), every = rng.int(1...3), step = rng.bool()
+            let dir = dirs[rng.int(0...2)], L = rng.int(1...8), st = rng.int(1...7), shift = rng.int(0...7), every = rng.int(1...3), step = rng.bool()
             var hits = (0..<rng.int(2...8)).map { _ in rng.bool(0.5) }
             if !hits.contains(true) { hits[rng.int(0...(hits.count - 1))] = true }
             let n = hits.count

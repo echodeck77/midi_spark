@@ -436,17 +436,6 @@ final class MidiInOctavesTests: XCTestCase {
         for b in 1..<8 { XCTAssertEqual(a1[b], a0[b] + 2, "the riff reads the moved pool (beat \(b))") }
         for b in 1..<8 { XCTAssertEqual(s1[b], a1[b], "a unison SHADOW follower doubles the moved note (beat \(b))") }
     }
-    func testAnOutTransposeStepsThroughTheMovedPool() {
-        // the part's out-transpose is a scale step of the KEY pill (unchanged): +1 step in C major on the moved pool
-        let doc = state(plan(chords: true, mode: .root))
-        let key = euclideousKeyPitchClassMask(root: doc.euclideousKeyRootResolved, intervals: doc.euclideousKeyTypeResolved.intervals)
-        let st = state(plan(chords: true, mode: .root), lanePatch: { $0.riffOutTranspose = 1 })
-        let plain = state(plan(chords: true, mode: .root))
-        let base = Rig(plain); base.run(to: 8.5)
-        let r = Rig(st); r.run(to: 0.5); r.press([50]); r.run(to: 8.5)
-        let a0 = base.notes(cable: 1, beats: 8), a1 = r.notes(cable: 1, beats: 8)
-        for b in 1..<8 { XCTAssertEqual(a1[b], euclideousScaleStepMove(note: a0[b] + 2, steps: 1, pcMask: key), "beat \(b)") }
-    }
     func testANoteSoundingAcrossAFoldOrAChangeOfTEndsAtItsStartingPitch() {
         // a long gate crosses the mode / octaves / t changes; every note-on must be closed by a note-off of the SAME pitch
         func balanced(_ out: RigEmitter) -> Bool {

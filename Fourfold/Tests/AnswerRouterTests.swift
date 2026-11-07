@@ -347,20 +347,4 @@ final class AnswerRouterTests: XCTestCase {
         let e2 = run(onState, beats: 40, swapAt: [(6.1, offState), (14.9, onState)])
         assertNothingLeftSounding(e2)
     }
-    func testRatchetsAndTiesTravelWithTheTradedHit() {
-        // lane 1 ratchets 3× through an FX row; lane 2 BORROWs it: lane 2 must sound the 3 strikes per hit in phase B.
-        var one = lane(rate: .r1_4, oct: 0, gate: 0.5)
-        var two = lane(rate: .r1_4, oct: 1, gate: 0.5)
-        one.listenSource = 0; two.listenSource = 0
-        two.answerTradeOn = true; two.answerTradeMode = .borrow; two.answerTradeWith = 0; two.answerCycleEach = 1
-        var st = state([one, two])
-        var fx = EuclideousFX(); fx.cells[4] = 3   // RATCH row (0), column 5 — the hit on beat 4: three strikes
-        st.euclideousFX = fx
-        let e = run(st, beats: 12)
-        let base = hitsBetween(e, lane: 0, 0, 12)
-        let two12 = hitsBetween(e, lane: 1, 4, 8)
-        XCTAssertEqual(base.count, 12 + 2, "lane 1 ratchets its column-5 hit (the one on beat 4): three strikes for one")
-        XCTAssertEqual(two12.count, 4 + 2, "lane 2 plays lane 1's ratcheted hit in bar 2: the three strikes travel with it")
-        assertNothingLeftSounding(e)
-    }
 }

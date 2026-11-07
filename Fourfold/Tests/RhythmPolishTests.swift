@@ -355,14 +355,13 @@ final class RhythmPolishTests: XCTestCase {
         XCTAssertEqual((0..<8).filter { wrapped.cell($0) == 2 }, [2, 3, 4, 5, 6, 7], "in the second cycle cells 3–8 are ghosts (only hits 17–20 remain: two notes)")
         XCTAssertEqual(wrapped.reachable, 2)
     }
-    func testPendulumShowsEachNoteOnceAndTheWayBackLightsExistingCells() {
-        let cfg = tileCfg(5, 8, riffLength: 4, riffDir: .pendulum)
-        let order = euclideousRiffCycleOrder(dir: .pendulum, length: 4, stride: 1, shift: 0)
-        XCTAssertEqual(order.period, 6, "0 1 2 3 2 1, then back to its start"); XCTAssertEqual(order.visited, 4)
-        XCTAssertEqual((0..<4).map { order.column(ofCell: $0) }, [0, 1, 2, 3])
-        // hits at beats 0, 1, 2, 2.5, 3.5, 4, 5: 1, 2, 3, 4 cells, then 4, 4 (the way back), then a new cycle: 1
-        XCTAssertEqual([0.0, 1, 2, 2.5, 3.5, 4, 5].map { restartTileState(.melody, cfg: cfg, beat: $0 + 0.1, running: true).litCount }, [1, 2, 3, 4, 4, 4, 1])
+    func testPingPongShowsEachNoteOnceAndTheWayBackLightsExistingCells() {
+        let cfg = tileCfg(5, 8, riffLength: 4, riffDir: .pingpong)
         XCTAssertEqual(restartTileState(.melody, cfg: cfg, beat: 0.1, running: true).count, 4)
+        // PENDULUM is retired (2026-11-07): a stored one draws as PING-PONG
+        let stored = tileCfg(5, 8, riffLength: 4, riffDir: .pendulum)
+        XCTAssertEqual([0.0, 1, 2, 2.5, 3.5, 4, 5].map { restartTileState(.melody, cfg: stored, beat: $0 + 0.1, running: true).litCount },
+                       [0.0, 1, 2, 2.5, 3.5, 4, 5].map { restartTileState(.melody, cfg: cfg, beat: $0 + 0.1, running: true).litCount })
         // PING-PONG repeats each end: 0 1 2 3 3 2 1 0 — a cycle of 8 walk steps, still 4 cells
         let ping = euclideousRiffCycleOrder(dir: .pingpong, length: 4, stride: 1, shift: 0)
         XCTAssertEqual(ping.period, 8); XCTAssertEqual(ping.visited, 4); XCTAssertEqual((0..<8).map { ping.distinctThrough(step: $0) }, [1, 2, 3, 4, 4, 4, 4, 4])

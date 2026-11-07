@@ -164,7 +164,7 @@ final class RiffDirectionHuntTests: XCTestCase {
         return out
     }
 
-    private func randomHunt(_ r: inout HuntRng, dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong], withRhythmDirs: Bool = false, withMelody: Bool = false) -> Hunt {
+    private func randomHunt(_ r: inout HuntRng, dirs: [RiffDir] = [.forward, .reverse, .pingpong], withRhythmDirs: Bool = false, withMelody: Bool = false) -> Hunt {
         var h = Hunt()
         h.dir = dirs[r.int(0...(dirs.count - 1))]
         h.length = r.int(1...8); h.stride = r.int(1...7); h.shift = r.int(0...7); h.every = r.int(1...4)
@@ -311,13 +311,13 @@ final class RiffDirectionHuntTests: XCTestCase {
     // MARK: D — a MID-PLAY DIRECTION SWITCH: the walk position is derived from the ordinal, so it re-derives; nothing may double-strike, hang or skip
     func testSwitchingTheDirectionMidPlayFollowsTheModelAndLeavesNothingSounding() {
         var failures: [String] = []
-        let dirs: [RiffDir] = [.forward, .reverse, .pendulum, .pingpong]
+        let dirs: [RiffDir] = [.forward, .reverse, .pingpong]   // PENDULUM is retired (2026-11-07): a stored one plays as PING-PONG, so the oracle no longer models it
         for trial in 0..<300 {
             var r = HuntRng(s: UInt64(trial) &* 32_452_843 &+ 7)
             var h1 = randomHunt(&r, withRhythmDirs: trial % 3 == 0)
             h1.melodyPasses = nil
             var h2 = h1
-            h2.dir = dirs[(dirs.firstIndex(of: h1.dir)! + r.int(1...3)) % 4]
+            h2.dir = dirs[(dirs.firstIndex(of: h1.dir)! + r.int(1...2)) % 3]
             if r.bool(0.3) { h2.length = r.int(1...8) }
             let swapWindow = r.int(40...200)            // a window index: 2048-frame windows, swap before window `swapWindow`
             let swapSample = Int64(swapWindow) * 2048

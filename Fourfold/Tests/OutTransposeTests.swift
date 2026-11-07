@@ -123,23 +123,17 @@ final class OutTransposeTests: XCTestCase {
         XCTAssertNil(old.riffOutTranspose); XCTAssertNil(old.notesOutTranspose); XCTAssertEqual(old.riffOutTransposeResolved, 0)
         XCTAssertNotEqual(l, { var o = l; o.notesOutTranspose = 4; return o }(), "a different out-transpose is a different line, so a pad drag is an undo step")
     }
-    /// SnapshotBuilder rebuilds each lane as a FRESH literal: a field it forgets silently resets every render.
-    func testTheSnapshotBuilderKeepsBothFields() throws {
+    /// OUT-TRANSPOSE RETIRED (Paul, 2026-11-07): the document keeps both fields, but the snapshot's lanes never carry one — the engine is handed 0 whatever a document stores.
+    func testTheSnapshotBuilderNoLongerCarriesEitherField() throws {
         var l = EuclidLine(pulses: 3, steps: 8)
         l.riffOutTranspose = -3; l.notesOutTranspose = 5
-        func rebuilt(_ line: EuclidLine) throws -> EuclidLine {
-            var c = Machine(machineID: "gold", type: .euclid)
-            c.paramsA.euclidLines = [line]
-            var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
-            let built = SnapshotBuilder.build(from: PluginState(machines: [c], scenes: [sc]))
-            return try XCTUnwrap(built.machines.first { $0.a.euclidLines.count == 4 }?.a.euclidLines.first)
-        }
-        let r = try rebuilt(l)
-        XCTAssertEqual(r.riffOutTranspose, -3); XCTAssertEqual(r.notesOutTranspose, 5)
-        l.riffOutTranspose = 9; l.notesOutTranspose = -9
-        let c = try rebuilt(l)
-        XCTAssertEqual(c.riffOutTranspose, 7, "the rebuild's own bound matches the resolver's"); XCTAssertEqual(c.notesOutTranspose, -7)
-        XCTAssertNil(try rebuilt(EuclidLine(pulses: 3, steps: 8)).riffOutTranspose, "nil stays nil — a lane that never set it is not given a value")
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [l]
+        var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+        let built = SnapshotBuilder.build(from: PluginState(machines: [c], scenes: [sc]))
+        let r = try XCTUnwrap(built.machines.first { $0.a.euclidLines.count == 4 }?.a.euclidLines.first)
+        XCTAssertNil(r.riffOutTranspose); XCTAssertNil(r.notesOutTranspose)
+        XCTAssertEqual(l.riffOutTranspose, -3, "…and the document's own line is untouched")
     }
     /// The KEY pill's scale reaches the render thread as a root + root-relative intervals; the mask is exactly its pitch classes.
     func testTheKeyMask() {

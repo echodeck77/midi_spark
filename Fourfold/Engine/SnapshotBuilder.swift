@@ -471,7 +471,7 @@ enum SnapshotBuilder {
                                                                       // RHYTHM POLISH (2026-10-22): the continuous OFFSET fraction and TILT's fine value — raw passthrough, the same fresh-literal reason as every field above.
                                                                       offsetFraction: $0.offsetFraction, tiltFine: $0.tiltFine.map { clamp($0, -1, 1) },
                                                                       // CARD BACKS v2 (2026-10-28): each part's out-transpose, declared last in Models.swift — this memberwise literal's argument order must match.
-                                                                      riffOutTranspose: $0.riffOutTranspose.map { clamp($0, -7, 7) }, notesOutTranspose: $0.notesOutTranspose.map { clamp($0, -7, 7) },
+                                                                      riffOutTranspose: nil, notesOutTranspose: nil,   // OUT-TRANSPOSE RETIRED (Paul, 2026-11-07): the stored values still round-trip in the document, but the engine is never handed one
                                                                       // CHORD CANON (2026-10-31): each lane's chord DELAY and SLIP, declared last in Models.swift — this memberwise literal's argument order must match.
                                                                       chordDelay: $0.chordDelay.map { clamp($0, 0, euclideousCanonMaxDelay) }, chordSlip: $0.chordSlip.map { EuclidLine.legalCanonSlip($0) },
                                                                       // POOL HOLD (FREEZE, 2026-11-01): each lane's hold, declared last in Models.swift — this memberwise literal's argument order must match. Clamped 0…9 (9 = LOCK); 0/nil skips the engine's hold path.

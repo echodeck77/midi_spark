@@ -22,10 +22,10 @@ GOLDEN BACKWARDS GLANCE: events=1284 hash=cef4d365e11e5a25
 GOLDEN ALL: documents=21 events=30480 hash=757264d82ea6226a
 GOLDEN POLY POLY seeded: events=1032 hash=ca4d3bfa80b8479f
 GOLDEN POLY POLY chords and long notes: events=1800 hash=4aed7121141a65ad
-GOLDEN POLY POLY walks: events=648 hash=90d47a3deb0efc77
+GOLDEN POLY POLY walks: events=640 hash=83ff034b92642793
 GOLDEN POLY POLY reverse: events=1564 hash=d81d905961a1d539
-GOLDEN POLY POLY pendulum and ping-pong: events=2088 hash=1e4bba3044bb8077
-GOLDEN POLY ALL: documents=5 events=7132 hash=106160379077d6fa
+GOLDEN POLY POLY pendulum and ping-pong: events=2052 hash=df861442e8667f33
+GOLDEN POLY ALL: documents=5 events=7088 hash=d5f4e989a8a3da82
 GOLDEN CANON CANON control, no delays: events=3748 hash=4c9c87a4bee9d235
 GOLDEN CANON CANON passes: events=3748 hash=dedbd4baa50eb63d
 GOLDEN CANON CANON bars and slip: events=3748 hash=54266fdbc575fea5

@@ -1033,9 +1033,10 @@ struct EuclidLine: Codable, Equatable {
     // `octaveResolved`'s own doc comment already establishes (a Euclideous-only range narrowing applied at
     // the call site, never at the shared accessor). RANDOM was already excluded from Euclideous's own WALK
     // row by an earlier ferry; included here too so a hand-edited doc can't reach it either.
+    // PENDULUM RETIRED (Paul, 2026-11-07): a stored `.pendulum` (raw "PING-PONG") now plays and draws as `.pingpong` — endpoints sounding twice instead of once each (period 2n, not 2n − 2); no factory preset or random roll makes it.
     var euclideousRiffDirResolved: RiffDir {
         let d = riffDirResolved
-        return (d == .drunk || d == .random) ? .forward : d
+        return (d == .drunk || d == .random) ? .forward : (d == .pendulum ? .pingpong : d)
     }
     var riffDirSeedResolved: Int { riffDirSeed ?? 0 }
     var riffDirBiasResolved: Double { max(-1, min(1, riffDirBias ?? 0)) }
@@ -3492,7 +3493,8 @@ struct PluginState: Codable, Equatable {
     /// RETIRED (card backs, 2026-10-28): the page's MAIN OUT mask — every output is always on now, so nothing shows, sets or reads it. Kept so a document that stored one decodes and writes it back unchanged.
     var euclideousMainOutMask: UInt8? = nil
     var euclideousFX: EuclideousFX? = nil
-    var euclideousFXResolved: EuclideousFX { (euclideousFX ?? EuclideousFX()).normalized() }
+    /// FX RETIRED (Paul, 2026-11-07): the stored `euclideousFX` still decodes and writes back unchanged, but nothing reads it — the engine, the snapshot, the page and the undo probe all see the empty (inert) table.
+    var euclideousFXResolved: EuclideousFX { EuclideousFX() }
     // HOCKET (ferry 2026-10-27): up to four rules trading or passing lines between the eight lane outputs — one additive-Optional field; nil or empty ⇒ no rules (the pop-up then shows one empty R1 that is stored only once
     // something in it is edited). Sanitised by `HocketRuleSet` whenever it is built or decoded, so `hocketRulesResolved` is what the render path, the page and undo all read.
     var hocketRules: HocketRuleSet? = nil
