@@ -253,6 +253,7 @@ targets:
       - path: Fourfold/Engine/HarmonyLayout.swift   # INPUTS + HARMONY ferry (2026-11-06): the HARMONY page's frames, rows and popover widths (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/MixPanelV2.swift   # MIX v2 ferry (2026-11-05): the MIX panel's v2 frames, looks and strings (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/MixPanel.swift   # MIX ROWS ferry (2026-11-03): the MIX panel's layout, sliders, strip, pool, roll, lines and VoiceOver strings (Foundation only)
+      - path: Fourfold/Engine/EmitterToken.swift   # EMITTER TOKEN ferry (2026-11-07): the one emitter drawing's geometry + look (Foundation + CoreGraphics only)
       - path: Fourfold/Shared/FourfoldTransportClock.swift
     dependencies:
       - package: Atomics
