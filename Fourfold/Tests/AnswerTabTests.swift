@@ -386,10 +386,14 @@ final class AnswerTabTests: XCTestCase {
     // MARK: 12 — VoiceOver words
 
     func testModeButtonsSpeakTheirMeaningAndAnOffRowSaysOff() {
-        XCTAssertEqual(euclideousAnswerModeSpoken(row: .rhythm, mode: "COPY", lane: 1, rowOn: true), "Rhythm: copy, plays where lane 1 plays")
-        XCTAssertEqual(euclideousAnswerModeSpoken(row: .rhythm, mode: "FILL", lane: 3, rowOn: false), "Rhythm: fill, plays where lane 3 rests, off")
+        // AMENDMENT 1 §5.2 (take/keep wording) + ANSWER v2 §9.1 (MEET / AVOID on RHYTHM, MIRROR / DODGE on PITCH)
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .rhythm, mode: "COPY", lane: 1, rowOn: true), "Rhythm: copy, takes lane 1's hits")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .rhythm, mode: "FILL", lane: 3, rowOn: false), "Rhythm: fill, takes lane 3's gaps, off")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .rhythm, mode: "MEET", lane: 1, rowOn: true), "Rhythm: meet, keeps hits shared with lane 1")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .rhythm, mode: "AVOID", lane: 1, rowOn: true), "Rhythm: avoid, keeps hits apart from lane 1")
         XCTAssertEqual(euclideousAnswerModeSpoken(row: .pitch, mode: "SHADOW", lane: 2, rowOn: true), "Pitch: shadow, plays the note lane 2 plays now")
-        XCTAssertEqual(euclideousAnswerModeSpoken(row: .pitch, mode: "AVOID", lane: 2, rowOn: true), "Pitch: avoid, mutes while lane 2 plays")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .pitch, mode: "MIRROR", lane: 1, rowOn: true), "Pitch: mirror, lane 1's note flipped")
+        XCTAssertEqual(euclideousAnswerModeSpoken(row: .pitch, mode: "DODGE", lane: 1, rowOn: true), "Pitch: dodge, steps off lane 1's note")
         XCTAssertEqual(euclideousAnswerModeSpoken(row: .trade, mode: "SWAP", lane: 4, rowOn: true), "Trade: swap, trades places with lane 4")
         XCTAssertEqual(euclideousAnswerModeSpoken(row: .trade, mode: "BORROW", lane: 2, rowOn: false), "Trade: borrow, takes lane 2's setup, off")
         XCTAssertEqual(euclideousAnswerCycleToggleLabel(row: .rhythm, lane: 0), "Cycle rhythm, lane 1"); XCTAssertEqual(euclideousAnswerCycleToggleLabel(row: .pitch, lane: 2), "Cycle pitch, lane 3")

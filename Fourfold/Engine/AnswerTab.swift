@@ -374,10 +374,14 @@ enum EuclideousAnswerRow: Int, CaseIterable { case rhythm = 0, pitch = 1, trade 
 func euclideousAnswerModeSpoken(row: EuclideousAnswerRow, mode: String, lane: Int, rowOn: Bool) -> String {
     let what: String
     switch (row, mode.uppercased()) {
-    case (.rhythm, "COPY"): what = "plays where lane \(lane) plays"
-    case (.rhythm, "FILL"): what = "plays where lane \(lane) rests"
+    case (.rhythm, "COPY"): what = "takes lane \(lane)'s hits"           // AMENDMENT 1: take/keep wording
+    case (.rhythm, "FILL"): what = "takes lane \(lane)'s gaps"
+    case (.rhythm, "MEET"): what = "keeps hits shared with lane \(lane)"  // §5.2
+    case (.rhythm, "AVOID"): what = "keeps hits apart from lane \(lane)"
     case (.pitch, "SHADOW"): what = "plays the note lane \(lane) plays now"
-    case (.pitch, "AVOID"): what = "mutes while lane \(lane) plays"
+    case (.pitch, "MIRROR"): what = "lane \(lane)'s note flipped"
+    case (.pitch, "DODGE"): what = "steps off lane \(lane)'s note"
+    case (.pitch, "AVOID"): what = "mutes while lane \(lane) plays"       // legacy (the PITCH AVOID button is gone; kept harmless)
     case (.trade, "SWAP"): what = "trades places with lane \(lane)"
     case (.trade, "BORROW"): what = "takes lane \(lane)'s setup"
     default: what = ""
