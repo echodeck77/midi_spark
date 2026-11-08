@@ -5,6 +5,12 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — INPUTS: SOURCES row, CHORDS split, NOW two rows, TEST (2026-11-08; `Docs/euclideous-status-log.md`; commits `f921e38` / `544a236` / `48a6ca4`)
+- [x] DONE: TEST pool audition (live word → `Router.euclideousRunAudition`, byte-identical off, alloc 0, `InputsTestAuditionTests`); NOW two rows (rank over note, `stackRank`); SOURCES = MIDI IN · CHORDS · [1|2] · PICK · KEY · TEST (model unchanged, old docs fine).
+- [ ] DEVICE: the three "INPUTS TEST —" lines in `Docs/euclideous-device-verification-debt.md`.
+- [ ] DECIDE (Paul): (a) **TEST while STOP-when-host-stops is set** — the audition sounds while stopped only in the default KEEP PLAYING mode (free-run keeps `playing` true); supporting it under "STOP when host stops" needs the lane's pool computed in `process`'s `!playing` early-return. Wanted, or is free-run enough? (b) TEST **rate / gate** (~150 ms / ~120 ms) and ascending (NOW) order — tune by ear? (c) the 1|2 **chooser when CHORDS is off** is dimmed but still tappable (a tap turns chords on with that grid) — keep, or make it inert until CHORDS is on?
+- [ ] (noted) `FourfoldTapTests` has no TEST / NOW / CHORDS-chooser coverage yet (UI tap tests need the simulator — add when one is available, like the other INPUTS/HARMONY tap tests).
+
 ## ★ FOURFOLD — RIFF tab regrouped "RIFF v2" (2026-11-05; `Docs/euclideous-status-log.md`, `Docs/riff-tab-regroup-findings.md`, branch `feature/riff-tab-regroup`)
 - [x] DONE: the pure layout (4 rows, MOVE/NOTES bands, §1.8 floors) + tests (19 green); the page (wide toggle, drawn arrow directions, framed bands, HIT|STEP segmented, FLIP NOTES). Layout/drawing only — no model/engine/range/undo change (golden/alloc not needed, §7). Builds green at the iOS 15 floor.
 - [ ] DEVICE: the five "RIFF v2 —" lines in `Docs/euclideous-device-verification-debt.md`.
