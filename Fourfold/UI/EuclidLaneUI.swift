@@ -80,6 +80,8 @@ struct EuclidLaneBox: View {
     let onAllRotateDelta: (Int) -> Void
     let onAllHitsDelta: (Int) -> Void
     let onDragState: (CGPoint?, Bool) -> Void
+    /// A single tap on a step of the strip (0-based) — nil: the strip takes no taps.
+    var onTapStep: ((Int) -> Void)? = nil
     let onSelect: () -> Void
     let onToggleEnabled: () -> Void
     // THE STRIP (LANE STRIP ferry, 2026-10-21 — replaces the footer bands, the NOTES-tab pips and the comet's pulse layers): the lane's riff contour over its notes keys, planned per body by the caller
@@ -195,7 +197,7 @@ struct EuclidLaneBox: View {
                            restartChains: restartChains, mutedAt: mutedAt, suppressMuteDim: stripDim, soloSilencedWords: soloSilenced,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
-                           onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState)
+                           onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState, onTapStep: onTapStep)
                 // THE STEP ROW IS 44pt TALL (2026-10-13 ferry): compact has zero self-padding, so the comet
                 // bar gets the FULL `height` directly; non-compact keeps its original 6pt top+bottom padding
                 // derivation (56−12=44, unchanged for the regular BUILD-page editor).
@@ -361,6 +363,8 @@ struct EuclidCometBar: View {
     let onAllRotateDelta: (Int) -> Void
     let onAllHitsDelta: (Int) -> Void
     let onDragState: (CGPoint?, Bool) -> Void
+    /// A tap on step `i` (0-based, the strip's column) — nil: the bar takes no taps.
+    var onTapStep: ((Int) -> Void)? = nil
 
     /// A getter of its own so the optional plan (a big value) is only ever copied in this tiny frame, not in the deep draw closures (DEBUG stack, 1 MB).
     private var hasStrip: Bool { strip != nil }
@@ -622,10 +626,13 @@ struct EuclidCometBar: View {
         // GESTURES: 1-finger drag left/right = Δrotate, up/down = Δhits (this lane); 2-finger drag does the same
         // but to EVERY lane (the caller's own `onAllRotateDelta`/`onAllHitsDelta`). PINCH = ΔSTEPS is the only way
         // to change STEPS from this bar. `rotateStepPt` (box-pitch-matched) governs the horizontal axis only.
+        let padInset: CGFloat = 14
+        let columnXs: [CGFloat] = stepXs.map { insetL + $0 }, columnW: CGFloat = groupGeo?.stepW ?? boxGeo.boxW
         EuclidGesturePad(onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                          onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState,
-                         rotateStepPt: rotateStepPt)
-            .padding(.horizontal, 14)
+                         rotateStepPt: rotateStepPt,
+                         onTap: onTapStep.map { tapStep in { p in if let i = euclideousStripStepAtX(p.x + padInset, columnMinXs: columnXs, columnW: columnW) { tapStep(i) } } })
+            .padding(.horizontal, padInset)
         // THE STRIP'S VOICEOVER (LANE STRIP ferry §6, replacing the per-step footer labels and the NOTES tab's "the notes play on hits…" value): ONE element, its value each hit in step order from the pass the
         // footers show (built per body by the caller), then — read at this body's evaluation — "on step N" while the lane plays and "silent at this step" while the LANES grid mutes it.
         if let strip {
@@ -704,6 +711,8 @@ struct EuclidGesturePad: UIViewRepresentable {
     // lane's real box pitch (`euclidBoxGeometry`), so a drag of exactly one box's width moves rotate by
     // exactly one step. The VERTICAL (hits) axis is unaffected — it keeps the fixed `euclidDragStepPt`.
     let rotateStepPt: CGFloat
+    /// A single tap (one finger, no drag): the touch point in this view's own coordinates. nil (every caller but the lane strips) installs no tap recognizer.
+    var onTap: ((CGPoint) -> Void)? = nil
     func makeUIView(context: Context) -> UIView {
         // RAW TOUCH TRACKING — UIPanGestureRecognizer/UIPinchGestureRecognizer only transition to .began once a
         // touch has moved past UIKit's own recognition slop, so driving the HUD from them alone leaves a dead
@@ -720,6 +729,15 @@ struct EuclidGesturePad: UIViewRepresentable {
         pinch.delegate = context.coordinator
         pinch.cancelsTouchesInView = false
         v.addGestureRecognizer(pinch)
+        if onTap != nil {
+            // waits for the pan to fail, so a drag that ends where it started never also counts as a tap
+            let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+            tap.numberOfTapsRequired = 1; tap.numberOfTouchesRequired = 1
+            tap.delegate = context.coordinator
+            tap.cancelsTouchesInView = false
+            tap.require(toFail: pan)
+            v.addGestureRecognizer(tap)
+        }
         return v
     }
     func updateUIView(_ uiView: UIView, context: Context) { context.coordinator.owner = self }
@@ -787,6 +805,10 @@ struct EuclidGesturePad: UIViewRepresentable {
                 owner.onDragState(nil, twoFinger)
             default: break
             }
+        }
+        @objc func handleTap(_ g: UITapGestureRecognizer) {
+            guard g.state == .ended else { return }
+            owner.onTap?(g.location(in: g.view))
         }
         @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
             switch g.state {

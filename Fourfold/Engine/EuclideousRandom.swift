@@ -783,6 +783,7 @@ func euclideousRandomCommitPendingRoll(_ roll: EuclideousPendingRoll, into line:
             euclideousPinRestartChains(&line, line.restartRhythmChainResolved, line.restartMelodyChainResolved)
         }
         line.steps = roll.steps; line.pulses = roll.pulses; line.rotate = roll.rotate
+        line.customHits = nil   // a randomised rhythm is a fresh Euclid pattern: a hand-edited one (tap a step) would otherwise keep playing under the new HITS count
         line.hitsRequested = nil; line.offsetRequested = nil
         line.offsetFraction = nil   // RHYTHM POLISH §4.1: a randomise sets rotate another way, so the fraction goes with it
     case .riff:

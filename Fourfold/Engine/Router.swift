@@ -5492,7 +5492,7 @@ final class Router {
                               // longer one for free, with no separate resized copy needed. Passing the RAW
                               // `L.customHits` directly removes the allocation possibility structurally, not just
                               // leaves it dormant.
-                              customHits: L.customHits,
+                              customHits: rhythmRoll == nil ? L.customHits : nil,   // a landed random rhythm is a fresh Euclid pattern (see `euclideousRandomCommitPendingRoll`)
                               // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry): harmless
                               // no-ops for every non-Euclideous row (the new `isEuclideousRow`-gated branch
                               // inside `runEuclidLine` never reads these otherwise) — `riffOnResolved`/

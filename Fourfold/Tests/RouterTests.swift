@@ -6917,9 +6917,11 @@ final class RouterTests: XCTestCase {
     // mechanism switches at the right beat at the granularity it actually operates at, not claiming
     // sample-exactness this architecture doesn't have.
 
-    private func euclideousRandomLandingFixture() -> (box: SnapshotBox, pool: NotePool) {
+    private func euclideousRandomLandingFixture(customHits: [Bool]? = nil) -> (box: SnapshotBox, pool: NotePool) {
         var c = Machine(machineID: "gold", type: .euclid)
-        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 4, rotate: 0, noteSel: .low, rate: .r1_4, sourceMode: .midi)]
+        var landingLine = EuclidLine(target: 0, pulses: 1, steps: 4, rotate: 0, noteSel: .low, rate: .r1_4, sourceMode: .midi)
+        landingLine.customHits = customHits
+        c.paramsA.euclidLines = [landingLine]
         let st: PluginState = {
             var s = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
                                  scenes: [{ var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return sc }()])
@@ -6933,8 +6935,8 @@ final class RouterTests: XCTestCase {
     /// Runs the fixture from beat 0 to `toBeats` with a single pending RHYTHM roll (4-of-4, i.e. every step
     /// hits) landing at `landingBeat`, at the given buffer size — no `run()`/`runKeepingRouter()` reuse
     /// (neither takes `euclideousPendingRolls`).
-    private func runWithPendingRhythmRoll(landingBeat: Double, toBeats: Double, frames: UInt32) -> RecordingEmitter {
-        let (box, pool) = euclideousRandomLandingFixture()
+    private func runWithPendingRhythmRoll(landingBeat: Double, toBeats: Double, frames: UInt32, customHits: [Bool]? = nil) -> RecordingEmitter {
+        let (box, pool) = euclideousRandomLandingFixture(customHits: customHits)
         let roll = EuclideousPendingRoll(tab: .rhythm, landingBeat: landingBeat, steps: 4, pulses: 4, rotate: 0)
         var rolls = EuclideousPendingRollSlots()
         rolls[euclideousRandomPendingSlot(lane: 0, tab: .rhythm)] = roll
@@ -6962,6 +6964,46 @@ final class RouterTests: XCTestCase {
             let e = runWithPendingRhythmRoll(landingBeat: 8, toBeats: 11.9, frames: frames)
             let ons = laneOns(e).count
             XCTAssertEqual(ons, 6, "buffer \(frames): expected 1(bar1)+1(bar2)+4(bar3, landed) = 6 hits, got \(ons)")
+        }
+    }
+
+    /// TAP A STEP (2026-11-08): a lane whose pattern was hand-edited (customHits) plays a landed random rhythm like any other — the roll's Euclid pattern replaces the hand edit from its beat.
+    func testRandomModeRhythmLandingReplacesAHandEditedPattern() {
+        // the hand-edited lane hits only step 1 (the downbeat of each bar, as the landing beat itself must be a hit in both patterns — see above) until the roll lands at beat 8: 1 + 1, then every step (4) in bar 3; with the hand edit still winning, bar 3 would give 1
+        for frames: UInt32 in [64, 1024] {
+            let e = runWithPendingRhythmRoll(landingBeat: 8, toBeats: 11.9, frames: frames, customHits: [true, false, false, false])
+            XCTAssertEqual(laneOns(e).count, 6, "buffer \(frames): 1(bar1)+1(bar2)+4(bar3, landed over the hand edit) = 6, got \(laneOns(e).count)")
+        }
+    }
+
+    /// TAP A STEP (2026-11-08): a lane edited with `euclideousToggleStepHit` sounds exactly the steps the strip lights — 3-of-8 at 1/8 (hits on steps 1, 4, 7) with step 2 tapped on and step 1 tapped off, with and without an OFFSET and a FLIP.
+    func testATappedStepSoundsExactlyWhereTheStripShowsIt() {
+        for (rotate, flip) in [(0, false), (3, false), (0, true), (5, true)] {
+            var line = EuclidLine(target: 0, pulses: 3, steps: 8, rotate: rotate, noteSel: .low, rate: .r1_8, sourceMode: .midi)
+            line.patternMiss = flip
+            var shown = [Bool](repeating: false, count: 8), micro = [Double](repeating: 0, count: 8)
+            euclideousBuildHitPatternInto(line, cells: &shown, micro: &micro)
+            shown[1].toggle(); shown[0].toggle()
+            euclideousToggleStepHit(&line, box: 1); euclideousToggleStepHit(&line, box: 0)
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [line]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                 scenes: [{ var sc = SceneState.empty(); sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return sc }()])
+            st.euclideousNoteSource = .midi
+            let box = SnapshotBuilder.build(keeping: st)
+            let pool = NotePool(); pool.noteOn(60, velocity: 100, channel: 0)
+            let e = RecordingEmitter(), router = Router()
+            var diag = KernelDiag()
+            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 256
+            let windowBeats = Double(frames) * tempo / 60.0 / sr
+            var beat = 0.0, ts = 0.0
+            while beat < 3.9 {   // one lap: 8 steps × 0.5 beat
+                router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, beatsPerBar: 4, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            let steps = laneOns(e).map { Int(((Double($0.sample) / sr) * tempo / 60.0 / 0.5).rounded()) }
+            XCTAssertEqual(steps, (0..<8).filter { shown[$0] }, "offset \(rotate) flip \(flip): the strip showed \(shown), the lane sounded steps \(steps)")
+            XCTAssertEqual(line.pulses, line.customHits!.filter { $0 }.count)
         }
     }
 

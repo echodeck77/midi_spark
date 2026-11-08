@@ -2517,6 +2517,42 @@ func euclideousSliderCommit(_ field: EuclideousSliderField, _ line: inout Euclid
     }
 }
 
+// MARK: - TAP A STEP (2026-11-08) — a single tap on a lane's rhythm strip toggles that step's hit
+//
+// The strip's column `box` shows the pattern as the engine builds it (`euclideousHitPatternInto`: HITS/TILT/hand edits → OFFSET → FLIP). A tap flips that cell in the FINISHED buffer and writes the result back as the lane's
+// hand-edited pattern (`customHits`, stored BEFORE offset and flip, as the engine reads it), so the lane then plays exactly what the strip shows. `pulses` (and `hitsRequested`) follow the true count of the stored
+// pattern — the invariant `customHits` has always carried — so the HITS slider, the tab's HITS/STEPS count, the MIX HITS box and every other reader of `pulses` need no change. TILT stops biasing once a pattern is hand-edited.
+
+/// The buffer cell whose hit the strip draws in column `box`: the same cell unless the lane plays BKW with a fractional OFFSET, where a hit's start time falls one box on (`euclideousHitBoxes`).
+func euclideousStripBoxCell(box: Int, n: Int, dir: EuclidDir, fractionalOffset: Bool) -> Int {
+    guard n > 0 else { return 0 }
+    let b = ((box % n) + n) % n
+    return (dir == .bkw && fractionalOffset) ? (b - 1 + n) % n : b
+}
+/// Toggles the hit the strip shows in column `box` (0-based) and stores the lane's pattern as hand-edited. Out-of-range columns do nothing.
+func euclideousToggleStepHit(_ line: inout EuclidLine, box: Int) {
+    let n = max(2, min(16, line.steps))
+    guard box >= 0, box < n else { return }
+    var cells = [Bool](repeating: false, count: n), micro = [Double](repeating: 0, count: n)
+    euclideousBuildHitPatternInto(line, cells: &cells, micro: &micro)
+    let cell = euclideousStripBoxCell(box: box, n: n, dir: line.directionResolved, fractionalOffset: line.offsetFractionResolved > 1e-9)
+    cells[cell].toggle()
+    if line.patternMissResolved { for i in 0..<n { cells[i].toggle() } }   // back through FLIP …
+    euclidRotateBuffer(&cells, steps: n, rotation: -line.rotate)           // … and OFFSET, to the pattern the engine starts from
+    line.customHits = cells
+    line.pulses = cells.filter { $0 }.count
+    line.hitsRequested = line.pulses
+}
+/// The strip column nearest to a touch at `x` (any of the columns' left edges `columnMinXs`, each `columnW` wide) — the 2–3 pt gaps and the strip's end margins belong to their neighbours, so a tap never lands in a dead zone.
+func euclideousStripStepAtX(_ x: CGFloat, columnMinXs: [CGFloat], columnW: CGFloat) -> Int? {
+    var best: Int? = nil, bestDist = CGFloat.greatestFiniteMagnitude
+    for (i, minX) in columnMinXs.enumerated() {
+        let d = abs(x - (minX + columnW / 2))
+        if d < bestDist { bestDist = d; best = i }
+    }
+    return best
+}
+
 /// Reverts the field(s) THIS slider owns back to their touch-down snapshot values (long-press help,
 /// ferry Touch behaviour §10: "restore the value from the touch-down snapshot, then show the help
 /// bubble") — undoes whatever `euclideousSliderCommit` already wrote at touch-down, before the bubble

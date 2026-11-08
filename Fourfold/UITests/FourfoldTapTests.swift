@@ -197,6 +197,40 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertNotEqual(value(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch), "3", "dragging the HITS fader up should add hits")
     }
 
+    /// TAP A STEP (2026-11-08): one tap on a lane card's strip toggles that step's hit and the HITS number follows (lane 1 starts 3 of 8, hits on steps 1, 4, 7); each tap is its own undo step.
+    func testATapOnAStepOfTheCardStripTogglesItsHit() {
+        let app = XCUIApplication.fresh()
+        func hits() -> String { value(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch) }
+        need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the HITS fader")
+        XCTAssertEqual(hits(), "3")
+        let strip = need(app.el("Lane 1 step strip"), "lane 1's step strip")
+        strip.coordinate(withNormalizedOffset: CGVector(dx: 0.1875, dy: 0.5)).tap()   // step 2, a rest
+        XCTAssertEqual(hits(), "4", "tapping a rest added a hit")
+        strip.coordinate(withNormalizedOffset: CGVector(dx: 0.0625, dy: 0.5)).tap()   // step 1, a hit
+        XCTAssertEqual(hits(), "3", "tapping a hit removed it")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(hits(), "4", "one tap is one undo step")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(hits(), "3")
+    }
+    /// The same tap on the MIX band's strip: its spoken hit count and the card's HITS follow.
+    func testATapOnAStepOfTheMixStripTogglesItsHit() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        Thread.sleep(forTimeInterval: 1)
+        app.buttons["Mix"].tap()
+        func strip() -> XCUIElement { app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm, ")).firstMatch }
+        let s = need(strip(), "lane 1's rhythm strip"); XCTAssertEqual(s.label, "Rhythm, 3 hits in 8 steps")
+        s.coordinate(withNormalizedOffset: CGVector(dx: 0.1875, dy: 0.5)).tap()
+        XCTAssertEqual(strip().label, "Rhythm, 4 hits in 8 steps", "a tap on a rest added a hit")
+        strip().coordinate(withNormalizedOffset: CGVector(dx: 0.0625, dy: 0.5)).tap()
+        XCTAssertEqual(strip().label, "Rhythm, 3 hits in 8 steps", "a tap on a hit removed it")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(strip().label, "Rhythm, 4 hits in 8 steps", "one tap is one undo step")
+        app.buttons["Rhythm"].tap()
+        let hits = need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the HITS fader back on the cards")
+        XCTAssertEqual(value(hits), "4", "the card's HITS shows the same count")
+    }
+
     func testDraggingOffsetMovesThePattern() {
         let app = XCUIApplication.fresh()
         let offset = need(app.otherElements.matching(NSPredicate(format: "label == %@", "OFFSET")).firstMatch, "the OFFSET slider")

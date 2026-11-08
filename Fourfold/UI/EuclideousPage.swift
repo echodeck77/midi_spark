@@ -2393,6 +2393,8 @@ struct EuclideousPage: View {
                           lockCometTouch(idx, lane: gestureLane, down: point != nil, all: allRows)   // LANE LOCK 6.2: a finger on the comet bar writes lock fields too
                           euclideousRhythmDragState(gestureLane, point)
                       },
+                      // TAP A STEP (2026-11-08): one tap toggles that step's hit. A lane borrowing RHYTHM (COPY / FILL) has no pattern of its own to edit by position, so its taps do nothing.
+                      onTapStep: { i in if gestureLane == idx { tapStep(idx, i) } },
                       // WHOLE-CARD SELECTION HIGHLIGHT REMOVED (Paul: "remove the highlight that
                       // sometimes appears around the euclid lane boxes") — `onSelect` has no remaining
                       // effect anywhere on this page (confirmed by grep before removing the state it
@@ -2505,11 +2507,16 @@ struct EuclideousPage: View {
             steps: { idx, d in edit(euclideousRhythmGestureTarget(lane: idx, lines: lines)) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(max(2, min(16, l.steps + d)))) } },
             allRotate: { d in euclideousApplyAllRhythmX(d) },
             allHits: { d in euclideousApplyAllRhythmY(d) },
+            tapStep: { idx, box in if euclideousRhythmGestureTarget(lane: idx, lines: lines) == idx { tapStep(idx, box) } },
             dragState: { idx, point, allRows in
                 let target = euclideousRhythmGestureTarget(lane: idx, lines: lines)
                 lockCometTouch(idx, lane: target, down: point != nil, all: allRows)
                 euclideousRhythmDragState(target, point)
             })
+    }
+    /// A tap on step `box` of lane `idx`'s strip: toggles the hit (one undo step), the same on the lane cards and the MIX bands.
+    private func tapStep(_ idx: Int, _ box: Int) {
+        editStep(idx, true) { l in euclideousToggleStepHit(&l, box: box) }
     }
     private var mixToggleMode: EuclideousMixToggleMode { EuclideousMixToggleMode(rawValue: mixToggleModeRaw) ?? .filled }
     /// MIX v2 (2026-11-05): the panel. The MIX rows build's `EuclideousMixPanel` (and its rolls, sliders and SOLO tile) stays compiled, unmounted.
@@ -4652,7 +4659,10 @@ struct EuclideousPage: View {
     private func euclideousApplyAllRhythmY(_ d: Int) {
         // §2.5: the all-lanes drag is also a HITS writer — stores what was actually asked for too.
         onEdit { lines in for i in lines.indices {
-            let n = max(2, min(16, lines[i].steps)); lines[i].pulses = max(0, min(n, lines[i].pulses + d))
+            let n = max(2, min(16, lines[i].steps)); let target = max(0, min(n, lines[i].pulses + d))
+            // a hand-edited pattern (tap a step) keeps its shape: hits are added in the widest gap / taken from the most crowded spot, like the HITS slider's rebuild
+            if let custom = lines[i].customHitsResolved(n) { lines[i].customHits = euclidRebuildPattern(custom, targetCount: target) }
+            lines[i].pulses = target
             lines[i].hitsRequested = lines[i].pulses
         } }
     }

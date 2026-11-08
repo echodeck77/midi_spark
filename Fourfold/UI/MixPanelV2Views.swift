@@ -62,8 +62,10 @@ struct EuclideousMixV2StripGestures {
     var steps: (Int, Int) -> Void
     var allRotate: (Int) -> Void
     var allHits: (Int) -> Void
+    /// A single tap on step (lane, 0-based column).
+    var tapStep: (Int, Int) -> Void
     var dragState: (Int, CGPoint?, Bool) -> Void
-    static let none = EuclideousMixV2StripGestures(rotate: { _, _ in }, hits: { _, _ in }, steps: { _, _ in }, allRotate: { _ in }, allHits: { _ in }, dragState: { _, _, _ in })
+    static let none = EuclideousMixV2StripGestures(rotate: { _, _ in }, hits: { _, _ in }, steps: { _, _ in }, allRotate: { _ in }, allHits: { _ in }, tapStep: { _, _ in }, dragState: { _, _, _ in })
 }
 
 // MARK: - the panel
@@ -159,9 +161,11 @@ struct EuclideousMixV2BandView: View {
         let w = hasLock ? max(0, band.stripStepsWithBadge.maxX + EuclideousMixV2Metrics.stripInset - frame.minX) : frame.width
         let cells = euclideousMixStripCells(strip: hasLock ? band.stripStepsWithBadge : band.stripSteps, steps: input.strips[lane].n, mode: input.stripMode)
         let g = callbacks.stripGestures, lane = self.lane
+        let padX = frame.minX   // the pad's own x origin in band coordinates; the cells are in band coordinates too
         return EuclidGesturePad(onRotateDelta: { g.rotate(lane, $0) }, onHitsDelta: { g.hits(lane, $0) }, onStepsDelta: { g.steps(lane, $0) },
                                 onAllRotateDelta: { g.allRotate($0) }, onAllHitsDelta: { g.allHits($0) }, onDragState: { g.dragState(lane, $0, $1) },
-                                rotateStepPt: euclideousMixStripRotateStepPt(cells: cells))
+                                rotateStepPt: euclideousMixStripRotateStepPt(cells: cells),
+                                onTap: { p in if let i = euclideousStripStepAtX(p.x + padX, columnMinXs: cells.map { $0.minX }, columnW: cells.first?.width ?? 0) { g.tapStep(lane, i) } })
             .frame(width: w, height: frame.height)
             .offset(x: frame.minX, y: frame.minY)
     }

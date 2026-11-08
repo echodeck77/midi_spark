@@ -385,6 +385,13 @@ private struct EuclideousRandomHoldModifier: ViewModifier {
 
 // MARK: - §4.1 RHYTHM picture
 
+
+/// The RHYTHM picture's hit set: the lane's hand-edited pattern (tap a step) rotated by its OFFSET, else the Euclid spread the throw/tweak machinery draws.
+private func randomPictureRhythm(_ line: EuclidLine, steps: Int, hits: Int, offset: Int) -> [Bool] {
+    if var custom = line.customHitsResolved(steps) { euclidRotateBuffer(&custom, steps: steps, rotation: line.rotate); return custom }
+    return euclideousRandomPattern(hits: hits, steps: steps, offset: offset, tilt: line.tiltResolved)
+}
+
 struct EuclideousRandomRhythmPicture: View {
     let line: EuclidLine
     let original: EuclidLine?
@@ -401,12 +408,11 @@ struct EuclideousRandomRhythmPicture: View {
             let steps = max(2, min(16, line.steps))
             let hits = line.pulses
             let offset = euclideousRandomDisplayedOffset(rotate: line.rotate, steps: steps)
-            let pattern = euclideousRandomPattern(hits: hits, steps: steps, offset: offset, tilt: line.tiltResolved)
+            let pattern = randomPictureRhythm(line, steps: steps, hits: hits, offset: offset)
             ZStack {
                 if let o = original {
                     let oSteps = max(2, min(16, o.steps))
-                    let oPattern = euclideousRandomPattern(hits: o.pulses, steps: oSteps,
-                                                            offset: euclideousRandomDisplayedOffset(rotate: o.rotate, steps: oSteps), tilt: o.tiltResolved)
+                    let oPattern = randomPictureRhythm(o, steps: oSteps, hits: o.pulses, offset: euclideousRandomDisplayedOffset(rotate: o.rotate, steps: oSteps))
                     ringPath(oPattern, steps: oSteps, cx: cx, cy: cy, r: r)
                         .stroke(Color(hex: 0x4A4E57).opacity(0.7), lineWidth: 1.5)
                 }
