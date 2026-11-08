@@ -8335,45 +8335,34 @@ struct EuclideousNotesTabLayout: Equatable {
     static let keyFloorW: CGFloat = 24, keyRowFloorH: CGFloat = 64, rowFloorH: CGFloat = 32
     var content: CGRect
     var strip: CGRect
-    var keys: [CGRect]                 // ranks 1-8, then TOP 2, then TOP
-    var keyRow: CGRect, whenRow: CGRect, playAsRow: CGRect, soundRow: CGRect
-    var whenLabel: CGRect, playAsLabel: CGRect, soundLabel: CGRect
+    var whenRow: CGRect, playAsRow: CGRect, soundRow: CGRect
+    var whenLabel: CGRect, playAsLabel: CGRect
     var plays: CGRect, rests: CGRect, chance: CGRect, playAs: CGRect, notesOut: CGRect, notesOctave: CGRect
-    var picker: CGRect, pickerHeader: CGRect, pickerClose: CGRect
-    var pickerCells: [CGRect]          // CHORD, ROLL, RUN, then CYCLE, BOUNCE, SPLIT, BUILD
+    var picker: CGRect, pickerHeader: CGRect, pickerClose: CGRect    // retired in-tab picker geometry (the live PLAY AS pop-up is page-level now); kept so the old painter view stays compilable
+    var pickerCells: [CGRect]
     var underFloor: Bool
     var floorFlags: [String]
 }
+/// PLAY AS SEQUENCE ferry (2026-11-08): the rank selector is gone (note selection lives on the STACK grid), so the tab is three EQUAL rows — WHEN RIFF · PLAY AS · EMIT + OCT — that fill the whole content height, with the
+/// vertical NOTES strip down the left. WHEN's and EMIT/OCT's sub-frames are the pre-ferry ones (the controls are unchanged), re-based onto the new rows; PLAY AS fills its (taller) row with the chip sequence. No empty area is left.
 func euclideousNotesTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGFloat = 4) -> EuclideousNotesTabLayout {
     typealias L = EuclideousNotesTabLayout
-    let patternBlockH: CGFloat = 80
-    let upperH = max(1, contentAreaH - patternBlockH - sp4)
-    let lowerRowH = max(1, (patternBlockH - sp4) / 2)
-    let keyRowH = max(1, upperH - sp4 - L.rowH)
     let colX = L.stripW + L.stripGap
     let colW = max(1, fullWidth - colX)
-    let keyW = max(1, (colW - (7 * L.keyGap + (L.keyGap + L.topTwoExtraGap) + L.keyGap)) / 10)
-    var keys: [CGRect] = []
-    var x = colX
-    for i in 0..<10 {
-        keys.append(CGRect(x: x, y: 0, width: keyW, height: keyRowH))
-        x += keyW + L.keyGap + (i == 7 ? L.topTwoExtraGap : 0)
-    }
-    let whenY = keyRowH + sp4, playAsY = upperH + sp4, soundY = playAsY + lowerRowH + sp4
+    let rowH = max(1, (contentAreaH - 2 * sp4) / 3)
+    let whenY: CGFloat = 0, playAsY = rowH + sp4, soundY = 2 * (rowH + sp4)
     let ctrlX = colX + L.labelW + sp4                 // where a row's controls start, after its label column
     let toggleW = max(1, (fullWidth - ctrlX - L.chanceW - sp4 - sp4) / 2)
-    let plays = CGRect(x: ctrlX, y: whenY, width: toggleW, height: L.rowH)
-    let rests = CGRect(x: plays.maxX + sp4, y: whenY, width: toggleW, height: L.rowH)
-    let chance = CGRect(x: fullWidth - L.chanceW, y: whenY, width: L.chanceW, height: L.rowH)
+    let plays = CGRect(x: ctrlX, y: whenY, width: toggleW, height: rowH)
+    let rests = CGRect(x: plays.maxX + sp4, y: whenY, width: toggleW, height: rowH)
+    let chance = CGRect(x: fullWidth - L.chanceW, y: whenY, width: L.chanceW, height: rowH)
     let wide = max(1, fullWidth - ctrlX)
-    let playAs = CGRect(x: ctrlX, y: playAsY, width: wide, height: lowerRowH)
-    // Sources/NOTES rework (2026-10-29): the old RECEIVED toggle's row now holds the four NOTES output toggles on
-    // the left and a horizontal OCTAVE control on the right.
+    let playAs = CGRect(x: ctrlX, y: playAsY, width: wide, height: rowH)
     let soundGap = sp4
     let outW = max(1, (wide - soundGap) * 0.55)
-    let notesOut = CGRect(x: ctrlX, y: soundY, width: outW, height: lowerRowH)
-    let notesOctave = CGRect(x: notesOut.maxX + soundGap, y: soundY, width: max(1, wide - outW - soundGap), height: lowerRowH)
-    // the picker: both zones and the gap, 6 pt padding, a header row, then two rows of ways splitting the rest
+    let notesOut = CGRect(x: ctrlX, y: soundY, width: outW, height: rowH)
+    let notesOctave = CGRect(x: notesOut.maxX + soundGap, y: soundY, width: max(1, wide - outW - soundGap), height: rowH)
+    // retired in-tab picker geometry (still computed so `EuclideousNotesPickerView` compiles; the live picker is the page-level pop-up)
     let pad = L.pickerPad
     let innerW = max(1, fullWidth - 2 * pad)
     let waysH = max(1, (contentAreaH - 2 * pad - L.pickerHeaderH - 2 * sp4) / 2)
@@ -8383,20 +8372,15 @@ func euclideousNotesTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CG
     for i in 0..<3 { cells.append(CGRect(x: pad + CGFloat(i) * (top3W + sp4), y: row1Y, width: top3W, height: waysH)) }
     for i in 0..<4 { cells.append(CGRect(x: pad + CGFloat(i) * (bottom4W + sp4), y: row2Y, width: bottom4W, height: waysH)) }
     var flags: [String] = []
-    if keyW < L.keyFloorW { flags.append("keys \(keyW)") }
-    if keyRowH < L.keyRowFloorH { flags.append("key row \(keyRowH)") }
-    if L.rowH < L.rowFloorH || lowerRowH < L.rowFloorH { flags.append("rows \(min(L.rowH, lowerRowH))") }
+    if rowH < L.rowFloorH { flags.append("rows \(rowH)") }
     return EuclideousNotesTabLayout(
         content: CGRect(x: 0, y: 0, width: fullWidth, height: contentAreaH),
         strip: CGRect(x: 0, y: 0, width: L.stripW, height: contentAreaH),
-        keys: keys,
-        keyRow: CGRect(x: colX, y: 0, width: colW, height: keyRowH),
-        whenRow: CGRect(x: colX, y: whenY, width: colW, height: L.rowH),
-        playAsRow: CGRect(x: colX, y: playAsY, width: colW, height: lowerRowH),
-        soundRow: CGRect(x: colX, y: soundY, width: colW, height: lowerRowH),
-        whenLabel: CGRect(x: colX, y: whenY, width: L.labelW, height: L.rowH),
-        playAsLabel: CGRect(x: colX, y: playAsY, width: L.labelW, height: lowerRowH),
-        soundLabel: CGRect(x: colX, y: soundY, width: L.labelW, height: lowerRowH),
+        whenRow: CGRect(x: colX, y: whenY, width: colW, height: rowH),
+        playAsRow: CGRect(x: colX, y: playAsY, width: colW, height: rowH),
+        soundRow: CGRect(x: colX, y: soundY, width: colW, height: rowH),
+        whenLabel: CGRect(x: colX, y: whenY, width: L.labelW, height: rowH),
+        playAsLabel: CGRect(x: colX, y: playAsY, width: L.labelW, height: rowH),
         plays: plays, rests: rests, chance: chance, playAs: playAs, notesOut: notesOut, notesOctave: notesOctave,
         picker: CGRect(x: 0, y: 0, width: fullWidth, height: contentAreaH),
         pickerHeader: CGRect(x: pad, y: pad, width: innerW, height: L.pickerHeaderH),

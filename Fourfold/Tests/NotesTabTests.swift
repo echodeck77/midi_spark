@@ -196,31 +196,28 @@ final class NotesTabTests: XCTestCase {
         XCTAssertEqual(r.width, w, accuracy: 0.01, "\(msg) w", file: file, line: line); XCTAssertEqual(r.height, h, accuracy: 0.01, "\(msg) h", file: file, line: line)
     }
     func testTheLayoutAtTheReferenceMatchesTheFerrysFrames() {
-        // the reference card 358.5 × 312: content x 10-348.5 (338.5 wide), y 94-302 (208 tall) — card coordinates below subtract (10, 94)
+        // PLAY AS SEQUENCE ferry (2026-11-08): the rank selector is gone (note selection lives on the STACK grid); three EQUAL rows — WHEN · PLAY AS · EMIT+OCT — fill the 208 pt content, the vertical strip down the left.
         let l = euclideousNotesTabLayout(contentAreaH: 208, fullWidth: 338.5)
+        let rowH = 200.0 / 3   // (208 − 2×sp4) / 3
         near(l.strip, 0, 0, 35, 208, "strip")
-        near(l.keyRow, 38, 0, 300.5, 82, "key row"); near(l.whenRow, 38, 86, 300.5, 38, "WHEN row"); near(l.playAsRow, 38, 128, 300.5, 38, "PLAY AS row"); near(l.soundRow, 38, 170, 300.5, 38, "SOUND ONLY row")
-        let ranksX: [(CGFloat, CGFloat)] = [(48, 75.85), (77.85, 105.7), (107.7, 135.55), (137.55, 165.4), (167.4, 195.25), (197.25, 225.1), (227.1, 254.95), (256.95, 284.8), (290.8, 318.65), (320.65, 348.5)]
-        for (i, k) in l.keys.enumerated() { near(k, ranksX[i].0 - 10, 0, ranksX[i].1 - ranksX[i].0, 82, "key \(i)") }
-        near(l.whenLabel, 38, 86, 48, 38, "WHEN label"); near(l.plays, 90, 86, 76.25, 38, "PLAYS"); near(l.rests, 170.25, 86, 76.25, 38, "RESTS"); near(l.chance, 250.5, 86, 88, 38, "CHANCE")
-        near(l.playAsLabel, 38, 128, 48, 38, "PLAY AS label"); near(l.playAs, 90, 128, 248.5, 38, "PLAY AS button")
-        // the RECEIVED toggle's row now holds the four NOTES output toggles (left, 55% of the control width) + the octave control (right)
-        near(l.notesOut, 90, 170, 134.475, 38, "notes output toggles"); near(l.notesOctave, 228.475, 170, 110.025, 38, "notes octave")
-        near(l.picker, 0, 0, 338.5, 208, "picker"); near(l.pickerHeader, 6, 6, 326.5, 18, "picker header"); near(l.pickerClose, 302.5, 6, 30, 18, "close")
-        let top: [(CGFloat, CGFloat)] = [(16, 122.17), (126.17, 232.33), (236.33, 342.5)], bottom: [(CGFloat, CGFloat)] = [(16, 94.625), (98.625, 177.25), (181.25, 259.875), (263.875, 342.5)]
-        for (i, c) in top.enumerated() { near(l.pickerCells[i], c.0 - 10, 122 - 94, c.1 - c.0, 85, "top cell \(i)") }
-        for (i, c) in bottom.enumerated() { near(l.pickerCells[3 + i], c.0 - 10, 211 - 94, c.1 - c.0, 85, "bottom cell \(i)") }
+        near(l.whenRow, 38, 0, 300.5, rowH, "WHEN row")
+        near(l.playAsRow, 38, rowH + 4, 300.5, rowH, "PLAY AS row")
+        near(l.soundRow, 38, 2 * (rowH + 4), 300.5, rowH, "SOUND row")
+        near(l.whenLabel, 38, 0, 48, rowH, "WHEN label")
+        near(l.plays, 90, 0, 76.25, rowH, "PLAYS"); near(l.rests, 170.25, 0, 76.25, rowH, "RESTS"); near(l.chance, 250.5, 0, 88, rowH, "CHANCE")
+        near(l.playAsLabel, 38, rowH + 4, 48, rowH, "PLAY AS label"); near(l.playAs, 90, rowH + 4, 248.5, rowH, "PLAY AS sequence")
+        // the EMIT (A–D) toggles (left, 55% of the control width) + the octave control (right) — the pre-ferry sub-frames, re-based onto the new row
+        near(l.notesOut, 90, 2 * (rowH + 4), 134.475, rowH, "notes output toggles"); near(l.notesOctave, 228.475, 2 * (rowH + 4), 110.025, rowH, "notes octave")
         XCTAssertFalse(l.underFloor)
     }
-    func testTheLayoutAtNarrowerContentWidthsFlagsOnlyWhatFallsUnderTheFloors() {
+    func testTheLayoutAtNarrowerAndShorterSizesFlagsOnlyWhatFallsUnderTheFloors() {
+        // width: WHEN's toggles and the PLAY AS row shrink with the card (the pre-ferry arithmetic is unchanged)
         let at300 = euclideousNotesTabLayout(contentAreaH: 208, fullWidth: 300)
-        XCTAssertEqual(at300.keys[0].width, 24, accuracy: 0.01); XCTAssertEqual(at300.plays.width, 57, accuracy: 0.01); XCTAssertEqual(at300.rests.width, 57, accuracy: 0.01)
-        XCTAssertEqual(at300.playAs.width, 210, accuracy: 0.01); XCTAssertFalse(at300.underFloor, "keys exactly at the 24 floor: no flag")
-        let at290 = euclideousNotesTabLayout(contentAreaH: 208, fullWidth: 290)
-        XCTAssertEqual(at290.keys[0].width, 23, accuracy: 0.01); XCTAssertTrue(at290.underFloor); XCTAssertEqual(at290.floorFlags.count, 1)
-        // heights: the WHEN row stays 38 and the key row takes the rest of the upper zone; a short card flags the key row
-        let short = euclideousNotesTabLayout(contentAreaH: 180, fullWidth: 338.5)
-        XCTAssertEqual(short.whenRow.height, 38); XCTAssertEqual(short.keyRow.height, 54, accuracy: 0.01); XCTAssertTrue(short.underFloor)
+        XCTAssertEqual(at300.plays.width, 57, accuracy: 0.01); XCTAssertEqual(at300.rests.width, 57, accuracy: 0.01); XCTAssertEqual(at300.playAs.width, 210, accuracy: 0.01)
+        XCTAssertFalse(at300.underFloor)
+        // height: the three rows share it; a short card drops them under the 32 pt floor and flags once
+        let short = euclideousNotesTabLayout(contentAreaH: 90, fullWidth: 338.5)
+        XCTAssertEqual(short.whenRow.height, (90.0 - 8) / 3, accuracy: 0.01); XCTAssertTrue(short.underFloor); XCTAssertEqual(short.floorFlags.count, 1)
     }
     func testPreviewBarsAndPlaceNumbersFollowThePlayList() {
         let l = list([7, 4, 5], pool: exPool)   // C4 (rank 8), G3 (rank 5), A♭3 (rank 6)

@@ -938,7 +938,9 @@ struct EuclideousPage: View {
     @State private var cardFlipTick = 0
     /// The front tab the cards draw: the page tab, or — while MIX is showing (the backs; random / lock faces; the first half of a turn to MIX) — the tab it came from.
     private var frontLaneTab: EuclideousLaneTab { EuclideousLaneTab(rawValue: (pageTab.front ?? flipFrom?.front ?? .rhythm).rawValue) ?? .rhythm }
-    @State private var notesPickerOpen: Set<Int> = []   // NOTES tab ferry §4.5: the lanes whose PLAY AS picker is open — not saved, not an undo step
+    @State private var notesPickerOpen: Set<Int> = []   // NOTES tab ferry §4.5: the lanes whose PLAY AS picker is open — not saved, not an undo step (retired; the live picker is the page-level pop-up below)
+    struct PlayAsPopupTarget: Equatable { var lane: Int; var chip: Int }
+    @State private var playAsPopup: PlayAsPopupTarget? = nil   // PLAY AS SEQUENCE (2026-11-08): the open mode pop-up's (lane, chip) — not saved, not an undo step
     @State private var scheduleHolder = EuclideousScheduleHolder()   // RESTART UNITS: the lanes' restart schedule, rebuilt only when the lines, the host bar or the walk's width change
     @State private var riffReadoutCache = EuclideousRiffReadoutCache()   // the riff readout / never-play set, memoised per lane on its inputs (RIFF WALK §7.2)
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
@@ -1677,6 +1679,11 @@ struct EuclideousPage: View {
                         .padding(.horizontal, sp16)
                         .zIndex(5)
                 }
+                // PLAY AS SEQUENCE (2026-11-08) §3: the 13-mode pop-up, opened by a chip. The scrim closes it; choosing a tile sets the chip's mode and closes.
+                if let t = playAsPopup {
+                    Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { playAsPopup = nil }.zIndex(4)
+                    playAsPopupCard(t, box: box).zIndex(5)
+                }
             }
             .coordinateSpace(name: "euclideousXY")
             .frame(width: box.width, height: box.height, alignment: .topLeading)
@@ -2175,6 +2182,7 @@ struct EuclideousPage: View {
         keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; swingPopupOpen = false; riffTabMenuLane = nil
         harmonyOpen = false; harmonyPopover = .none   // HARMONY: one overlay at a time (§4.1)
         hocketPopupOpen = false   // HOCKET (2026-10-27): the same
+        playAsPopup = nil         // PLAY AS SEQUENCE (2026-11-08): the same
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -4473,8 +4481,6 @@ struct EuclideousPage: View {
         // reads the riff far beyond one pitch, so it always pauses alongside RIFF — confirmed, not assumed).
         let shadowing = euclideousAnswerBorrowedTabs(line, notesReadsRiff: true).notes
         let lay = euclideousNotesTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
-        let data = notesTabData(line, lane: idx)
-        let way = line.notesPlayAsResolved
         let plays = line.notesPlaysResolved, rests = line.notesRestsResolved
         let chance = line.notesChanceResolved
         let chanceStops = [25, 50, 75, 100]
@@ -4495,38 +4501,7 @@ struct EuclideousPage: View {
             ZStack(alignment: .topLeading) {
                 placed(lay.strip) { notesStrip(idx, line, accent, height: lay.strip.height) }
                 Group {
-                    // the keys (§2): a tap lights or unlights through the lit order — one undo step
-                    group(lay.keyRow, label: euclideousNotesKeyRowGroupLabel) {
-                        // the glow and the riff dot follow the hit events (10.1, 10.2) — the only per-frame work on the tab, and only while the transport runs
-                        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
-                            let flash = notesKeyFlash(idx, line, list: data.list, now: tl.date.timeIntervalSinceReferenceDate)
-                            ZStack(alignment: .topLeading) {
-                                ForEach(0..<10, id: \.self) { p in
-                                    let spec: EuclideousRankChipSpec = {
-                                        var sp = data.specs[p]
-                                        sp.sounding = flash.sounding[p]
-                                        sp.riffDot = p < 8 && flash.riffDotRank == p + 1 && flash.riffDotStrength > 0
-                                        return sp
-                                    }()
-                                    // The shape, the tap and the accessibility element go BEFORE the offset: a `.contentShape` applied after `.offset` stays at the un-offset position, which stacked all
-                                    // ten keys' hit areas at the row's top-left (over the strip) and left the keys, TOP 2, TOP and the strip's left edge untappable.
-                                    EuclideousRankChipView(spec: spec, accent: lane100(accent), size: lay.keys[p].size)
-                                        .contentShape(Rectangle())
-                                        .modifier(laneTapMod(idx) { edit(idx) { euclideousToggleLitPosition(&$0, position: p) } })
-                                        .modifier(lockOutlineMod(idx, .noteKey(p), accent))
-                                        .accessibilityElement(children: .ignore)
-                                        .accessibilityLabel(p < 8
-                                            ? euclideousNotesRankKeyAccessibilityLabel(rank: p + 1, spokenNote: data.spoken[p].first, received: spec.received, lit: spec.lit, heldBack: spec.heldBack, place: spec.place)
-                                            : euclideousNotesTopKeyAccessibilityLabel(isTopTwo: p == EuclideousLitOrder.topTwoPosition, spokenNotes: data.spoken[p], lit: spec.lit, place: spec.place))
-                                        .accessibilityValue(lockSpoken(idx, .noteKey(p), ""))
-                                        .accessibilityHint("Lights or unlights this note")
-                                        .accessibilityAddTraits(.isButton)
-                                        .ringToggleTrait()
-                                        .offset(x: lay.keys[p].minX, y: lay.keys[p].minY - lay.keyRow.minY)
-                                }
-                            }
-                        }
-                    }
+                    // PLAY AS SEQUENCE ferry (2026-11-08): the rank selector is gone — note selection lives on the STACK grid (its tap edits the SAME lit order). The three surviving rows fill the card.
                     // WHEN (§3.1, §3.2): PLAYS and RESTS — one of the two always stays on; CHANCE steps 25 / 50 / 75 / 100
                     group(lay.whenRow, label: euclideousNotesWhenGroupLabel) {
                         placed(lay.whenLabel, in: lay.whenRow) { riffRowLabel("WHEN", "RIFF") }.accessibilityHidden(true)
@@ -4562,21 +4537,12 @@ struct EuclideousPage: View {
                             }
                         }
                     }
-                    // PLAY AS (§3.3): the current way with a live preview; a tap opens the picker (not an undo step)
+                    // PLAY AS SEQUENCE (§2, 2026-11-08): a row of mode chips, each with its own HIT count; a chip opens the pop-up, the arrows step the count, [+] appends a mode. No modes ⇒ a single "+ ADD MODE".
                     group(lay.playAsRow, label: euclideousNotesPlayAsGroupLabel) {
                         placed(lay.playAsLabel, in: lay.playAsRow) { riffRowLabel("PLAY", "AS") }.accessibilityHidden(true)
                         placed(lay.playAs, in: lay.playAsRow) {
-                            EuclideousNotesPlayAsButtonView(way: way, list: data.list, accent: lane100(accent))
-                                .equatable()
-                                .contentShape(Rectangle())
+                            playAsSequenceRow(idx, line, accent: accent, size: lay.playAs.size)
                                 .modifier(lockOutlineMod(idx, .notesPlayAs, accent))
-                                .onTapGesture { notesPickerOpen.insert(idx) }
-                                .euclideousHelp("How the lit notes play on each hit it chooses.")
-                                .accessibilityElement(children: .ignore)
-                                .accessibilityLabel(euclideousNotesPlayAsButtonLabel(way))
-                                .accessibilityValue(lockSpoken(idx, .notesPlayAs, euclideousNotesPlayAsButtonValue(way)))
-                                .accessibilityHint(euclideousNotesPlayAsHint)
-                                .accessibilityAddTraits(.isButton)
                         }
                     }
                     // NOTES OUTPUT + OCTAVE (2026-10-29): the four NOTES output toggles (left) and a horizontal octave
@@ -4602,23 +4568,131 @@ struct EuclideousPage: View {
             .allowsHitTesting(!shadowing)
             .accessibilityHidden(shadowing)
             if shadowing { listenPausedOverlay(idx, line, label: "NOTES", width: fullWidth, height: contentAreaH) { $0.answerPitchOn = false } }
-            if notesPickerOpen.contains(idx) {
-                EuclideousNotesPickerView(layout: lay, current: way, list: data.list, accent: lane100(accent),
-                                          onChoose: { w in
-                                              if w != way { edit(idx) { $0.notesPlayAs = w } }
-                                              notesPickerOpen.remove(idx)
-                                          },
-                                          onClose: { notesPickerOpen.remove(idx) })
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel(euclideousNotesPickerGroupLabel)
-                    .accessibilityAddTraits(.isModal)
-            }
+            // PLAY AS SEQUENCE: the 13-tile mode pop-up is page-level now (mounted in `pageBody`), opened by a chip; the old in-tab picker is retired.
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
-        // §4.5: switching the tab, a layout change or the card going away closes the picker
-        .onDisappear { notesPickerOpen.remove(idx) }
-        .onChange(of: contentAreaH) { _ in notesPickerOpen.remove(idx) }
-        .onChange(of: fullWidth) { _ in notesPickerOpen.remove(idx) }
+    }
+
+    // MARK: - PLAY AS SEQUENCE (ferry 2026-11-08) — a row of (mode, hit-count) chips opening the page-level mode pop-up
+    /// §2: the chip sequence — a horizontally-scrolling row of mode chips with "THEN" between them and a [+] at the end; a chip's mode opens the pop-up, its ‹ › arrows step the count. An empty sequence shows "+ ADD MODE".
+    private func playAsSequenceRow(_ idx: Int, _ line: EuclidLine, accent: Color, size: CGSize) -> some View {
+        let empty = line.notesPlaySeq?.isEmpty == true
+        let seq = line.notesPlaySeqResolved
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                if empty {
+                    playAsAddButton(idx, accent: accent, wide: true)
+                } else {
+                    ForEach(Array(seq.enumerated()), id: \.offset) { i, step in
+                        if i > 0 { Text("THEN").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x6E737C)).accessibilityHidden(true) }
+                        playAsChip(idx, chip: i, step: step, accent: accent)
+                    }
+                    playAsAddButton(idx, accent: accent, wide: false)
+                }
+            }
+            .frame(height: size.height, alignment: .center)
+            .padding(.horizontal, 2)
+        }
+        .frame(width: size.width, height: size.height, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+    /// One chip: [MODE] (a tap opens the pop-up) [‹ N ›] (the count in HITS, the CHANCE / CANON DELAY arrows).
+    private func playAsChip(_ idx: Int, chip i: Int, step: EuclideousPlayStep, accent: Color) -> some View {
+        HStack(spacing: 4) {
+            Text(step.mode.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1)
+                .foregroundColor(patternSelectedText)
+                .contentShape(Rectangle())
+                .onTapGesture { playAsPopup = PlayAsPopupTarget(lane: idx, chip: i) }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Play as \(step.mode.rawValue.lowercased()), chip \(i + 1), lane \(idx + 1)")
+                .accessibilityValue(euclideousNotesWayDescriptions[step.mode] ?? "")
+                .accessibilityHint("Opens the modes")
+                .accessibilityAddTraits(.isButton)
+            playAsCountStepper(value: step.hits) { delta in
+                edit(idx) { var s = $0.notesPlaySeqResolved; guard i < s.count else { return }
+                    s[i].hits = max(EuclideousPlayStep.minHits, min(EuclideousPlayStep.maxHits, s[i].hits + delta)); $0.notesPlaySeq = s }
+            }
+        }
+        .padding(.horizontal, 8).frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: 7).fill(lane20(accent)))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(accent), lineWidth: 1))
+    }
+    /// ‹ value › HITS — the CHANCE / CANON DELAY glyphs (U+2039 / U+203A, 13 pt heavy mono, #8A909A), each in an 18 pt tap zone.
+    private func playAsCountStepper(value: Int, onStep: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 3) {
+            Text("\u{2039}").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                .frame(width: 18, height: 30).contentShape(Rectangle()).onTapGesture { onStep(-1) }
+            Text("\(value)").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText).frame(minWidth: 14)
+            Text("\u{203A}").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                .frame(width: 18, height: 30).contentShape(Rectangle()).onTapGesture { onStep(1) }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Hits").accessibilityValue("\(value)")
+        .accessibilityAdjustableAction { d in onStep(d == .increment ? 1 : -1) }
+    }
+    /// §2: [+] appends a mode (default CHORD) to the end and opens the pop-up on it; with no modes it is a single "+ ADD MODE".
+    private func playAsAddButton(_ idx: Int, accent: Color, wide: Bool) -> some View {
+        Text(wide ? "+ ADD MODE" : "+").font(.system(size: wide ? 11 : 15, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1)
+            .foregroundColor(patternUnselectedText)
+            .padding(.horizontal, wide ? 12 : 0).frame(width: wide ? nil : 30, height: 30)
+            .background(RoundedRectangle(cornerRadius: 7).fill(patternUnselectedFill))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                var newIndex = 0
+                edit(idx) { var s = ($0.notesPlaySeq?.isEmpty == true) ? [] : $0.notesPlaySeqResolved
+                    s.append(EuclideousPlayStep()); newIndex = s.count - 1; $0.notesPlaySeq = s }
+                playAsPopup = PlayAsPopupTarget(lane: idx, chip: newIndex)
+            }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Add a mode, lane \(idx + 1)").accessibilityAddTraits(.isButton)
+    }
+    /// §3: the mode pop-up — title PLAY AS, subtitle, close ✕, and the 13 modes in four columns (`euclideousNotesWayOrder`), each with its name and capital subtitle. The chip's current mode is outlined in the lane colour;
+    /// a tap sets that chip's mode (one undo step, keeping the count) and closes. Centred over the lane block; the scrim behind it closes without changing anything.
+    @ViewBuilder private func playAsPopupCard(_ target: PlayAsPopupTarget, box: CGSize) -> some View {
+        let accent = lane100(laneAccents[target.lane % max(1, laneAccents.count)])
+        let current: EuclidNotesPlayAs = {
+            guard target.lane < lines.count else { return .chord }
+            let s = lines[target.lane].notesPlaySeqResolved
+            return target.chip < s.count ? s[target.chip].mode : .chord
+        }()
+        let cardW = min(box.width - 2 * sp16, 460)
+        let cols = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
+        VStack(spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PLAY AS").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(Color(hex: 0xF2F4F7))
+                    Text("YOUR LIT NOTES, HIT BY HIT").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(Color(hex: 0x8A909A))
+                }
+                Spacer()
+                Text("\u{2715}").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    .frame(width: 30, height: 30).contentShape(Rectangle()).onTapGesture { playAsPopup = nil }
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Close").accessibilityAddTraits(.isButton)
+            }
+            LazyVGrid(columns: cols, spacing: 8) {
+                ForEach(euclideousNotesWayOrder, id: \.self) { way in
+                    let sel = way == current
+                    VStack(spacing: 3) {
+                        Text(way.rawValue).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.65).foregroundColor(Color(hex: 0xF2F4F7))
+                        Text(euclideousNotesWayDescriptions[way] ?? "").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.3).lineLimit(1).minimumScaleFactor(0.55).foregroundColor(Color(hex: 0x8A909A))
+                    }
+                    .frame(maxWidth: .infinity).frame(height: 46)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x24262C)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(sel ? accent : Color(hex: 0x33363D), lineWidth: sel ? 2 : 1))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        edit(target.lane) { var s = $0.notesPlaySeqResolved; guard target.chip < s.count else { return }; s[target.chip].mode = way; $0.notesPlaySeq = s }
+                        playAsPopup = nil
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(euclideousNotesWayAccessibilityLabel(way))
+                    .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+                }
+            }
+        }
+        .padding(16).frame(width: cardW)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(hex: 0x17191E)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0x33363D), lineWidth: 1))
+        .frame(width: box.width, height: box.height)   // centre the card over the lane block
+        .accessibilityElement(children: .contain).accessibilityLabel("Play as").accessibilityAddTraits(.isModal)
     }
 
     // MARK: - Per-lane EUCLID MASK (Paul 2026-10-07, §2.7 — pattern/transport; real effect added 2026-10-10
