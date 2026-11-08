@@ -2096,3 +2096,10 @@ Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md
 - [ ] (REPORTED, §3.2) The HOCKET playing/resting/away/carrying states are NOT drawn on the PLAY lamp (they don't fit a 5.5×6 triangle) — they stay on the tab-strip glyphs + MIX. Say if a carried/away cue is wanted on the card's lamp.
 - [ ] (out of scope, a possible follow-up the ferry names) The RIFF and NOTES tabs' own on/off controls + bodies may be retired now that the cards carry the switches.
 - [ ] (cleanup) `Fourfold/UI/EuclideousPage.swift`'s `soloButton(idx,accent)` helper (and the lane-solo press handlers) are now unused on the cards (hidden-not-deleted per §0.2) — a "never used" warning. Remove with the RIFF/NOTES-tab retirement if that lands.
+
+## ANSWER v2 — remaining work + AMENDMENT 1 (2026-11-08, LANDED feature/answer-v2-finish)
+- [x] §3 one-partner TRADE, the §1–§4 card UI, §9 VoiceOver, and AMENDMENT 1's renames — all built (commits d618935, b642d2c). Engine byte-identical (golden + octaves-keep + alloc 0). ANSWER v2 is now UI-complete.
+- [x] The 3 "red" AVOID `RouterTests` the note below warned about (`testListenT6AvoidMutesEveryColliding`, `testListenAvoidMutesOnlyHitsSimultaneousWithTheSource`, `testAvoidSeesThePartnersRealNoteWhenItHasAdvanceEvery`) are GREEN — already repointed to `setAnswerRhythm`; the earlier note was stale.
+- [ ] (DEVICE) The ANSWER card's look/gesture/VoiceOver — the six lines in `Docs/euclideous-device-verification-debt.md` (the four RHYTHM columns, the CYCLE-button hit split, the dashed answerer cell, the 32 % TRADE dim, MEET/MIRROR/DODGE by ear, the "sentence" reading). No iOS simulator this session.
+- [ ] (DECIDE, source-wins) The pitch `EuclideousAnswerPitchMode.avoid` case is KEPT (decode-tolerant per §7.2) rather than removed as the findings suggested; the UI never offers it. Say if you want it ripped out (a larger engine-enum change).
+- [ ] (cleanup, if still red) The `PortsStressTests` fuzz-pin note (ANSWER v2 phase-3a) — my change is golden-identical so it neither fixed nor caused it; re-capture independently if still red on main.
