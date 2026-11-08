@@ -761,3 +761,5 @@ _(Replaces the old "Sequencer panel" items — the hold-RESET gesture, the prese
 - **PLAY RIFF / PLAY STACK — VoiceOver order (2026-11-07):** VoiceOver reads and operates both buttons, in the order Play riff · comet · lock badge · Play stack · tab body.
 
 - **FX / out-transpose / PENDULUM retired in the engine (2026-11-07):** a saved session that had FX cells, an out-transpose or a PENDULUM walk now plays without the first two and as a PING-PONG walk for the third — load one if you have it and confirm nothing sounds wrong (stuck notes, missing notes) and that the riff panel's direction row lights PING-PONG for the old pendulum lane.
+
+- **MIX strip gestures + HUD removed (2026-11-08):** on the MIX tab a one-finger drag on a lane's rhythm strip adds/removes hits (up/down) and moves the offset (left/right, one cell's width per step), two fingers do it on every lane, pinch changes STEPS — the same feel as the lane cards' strip — and no readout floats under the finger on either page. Check the horizontal step distance feels right on the thinner MIX strip (it follows the MIX cells' pitch), and that a locked lane's badge still takes its own tap/hold.

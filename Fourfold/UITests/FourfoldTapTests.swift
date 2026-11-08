@@ -514,6 +514,23 @@ final class FourfoldTapTests: XCTestCase {
         need(inLane(3, "Notes, off"), "lane 3's notes start off").tap(); need(inLane(3, "Notes, on"), "…and switch on")
         app.buttons["Undo"].tap(); need(inLane(3, "Notes, off"), "undo")
     }
+    /// The MIX band's rhythm strip takes the lane card strip's gestures: a drag UP adds hits (here lane 1 goes from 3 hits in 8 steps), the whole drag is ONE undo step, and a drag DOWN takes them away again.
+    func testTheMixStripTakesTheCardStripsHitsDragAndItsUndo() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        Thread.sleep(forTimeInterval: 1)
+        app.buttons["Mix"].tap()
+        func strip() -> XCUIElement { app.el("Lane 1").descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm, ")).firstMatch }
+        let s = need(strip(), "lane 1's rhythm strip"); XCTAssertEqual(s.label, "Rhythm, 3 hits in 8 steps")
+        s.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).press(forDuration: 0.05, thenDragTo: s.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: -1.5)))
+        XCTAssertNotEqual(strip().label, "Rhythm, 3 hits in 8 steps", "dragging up on the strip added hits: \(strip().label)")
+        XCTAssertTrue(strip().label.contains("in 8 steps"), "the step count did not change")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(strip().label, "Rhythm, 3 hits in 8 steps", "the whole drag was ONE undo step")
+        app.buttons["Redo"].tap()
+        let added = strip().label
+        strip().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).press(forDuration: 0.05, thenDragTo: strip().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 2.5)))
+        XCTAssertNotEqual(strip().label, added, "dragging down took hits away: \(strip().label)")
+    }
     /// MIX v2: VEL and GATE are sliders (a horizontal drag moves a value relative to where it started and is ONE undo step; a vertical drag that starts on a tile moves nothing; a double tap sets the default); OCT is five linked boxes
     /// (a tap selects, a drag across them is ONE undo step). There is no TRANS control on the MIX panel (removed 2026-11-07).
     func testTheMixPanelsSlidersDragRelativeAndOctBoxesUndoAsOneStepAndDoubleTapToDefault() {

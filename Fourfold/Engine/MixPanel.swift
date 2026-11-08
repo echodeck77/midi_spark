@@ -217,6 +217,12 @@ func euclideousMixStripCells(strip: CGRect, steps: Int, mode: EuclideousMixStrip
     let w = (strip.width - CGFloat(columns - 1) * S.gap) / CGFloat(columns)
     return (0..<n).map { CGRect(x: strip.minX + CGFloat($0) * (w + S.gap), y: strip.minY, width: w, height: strip.height) }
 }
+/// Points of horizontal finger travel per step for a strip's OFFSET drag — the cells' own pitch, so one cell's width of drag moves the rhythm one step (the card's strip does the same).
+func euclideousMixStripRotateStepPt(cells: [CGRect]) -> CGFloat {
+    guard let first = cells.first, let last = cells.last else { return 1 }
+    let pitch = cells.count > 1 ? (last.minX - first.minX) / CGFloat(cells.count - 1) : first.width + EuclideousMixStripMetrics.gap
+    return max(1, pitch)
+}
 struct EuclideousMixCellLook: Equatable {
     var fill: EuclideousStripColumnFill      // .lane(alpha:) over the band, or a solid hex
     var bottomLine: Bool                     // a 2 pt lane-colour line along the bottom

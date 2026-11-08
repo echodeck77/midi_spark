@@ -955,7 +955,6 @@ struct EuclideousPage: View {
     // a migration.
     @State private var singleTouchedLanes: Set<Int> = []
     @State private var allRowsTouched = false
-    @State private var dragHUDInfo: EuclidDragHUDInfo? = nil
     // RHYTHM GESTURE CONTROLS (Paul 2026-10-14: "pulling up add hits, down removes hits, left and right are
     // offset — these existing controls exist in euclid mask") — re-enables the main step-box row's own
     // `EuclidGesturePad` (NEUTERED back on 2026-10-09 when the 4 square pads, later the 6 sliders, took over
@@ -1580,27 +1579,6 @@ struct EuclideousPage: View {
                     // keeping whatever's currently playing — the same path the dice-off tap uses.
                     .onDisappear { if euclideousRandomMode { euclideousRandomFinish() } }
                 pageBody(box)
-                // THE DRAG HUD — same floating-card pattern as the existing EUCLID editor's own HUD
-                // (BuildPage.swift's buildEuclidDragHUD/AudioUnitViewController.swift's root-ZStack
-                // rendering): a top-level sibling so it can float anywhere over the lanes, converting
-                // the UIKit window-space touch point via this view's own `geo.frame(in: .global)`.
-                if let info = dragHUDInfo {
-                    let origin = geo.frame(in: .global).origin
-                    let hudW: CGFloat = 230
-                    let rawX = info.point.x - origin.x
-                    let halfW = hudW / 2 + 8
-                    let x = min(max(rawX, halfW), max(halfW, box.width - halfW))
-                    // TOP-EDGE FLOOR sized to the card's own HALF-HEIGHT, not an arbitrary smaller number
-                    // (found during a legibility review, 2026-10-09): `euclideousDragHUD`'s own content —
-                    // 3 stacked lines (10/22/12pt, ~5pt gaps) + 16pt vertical padding each side — comes to
-                    // roughly 95pt tall by the same line-height estimate this file uses elsewhere (~1.2×
-                    // point size), so half of that is ~47-48pt. The previous floor of 40 left a few points
-                    // of the card's own top edge able to render past y=0 when a touch lands very near the
-                    // top of the page — harmless (nothing SwiftUI-clips it, and nothing sits behind it up
-                    // there), but not a real guarantee either. 50 covers the estimate with margin.
-                    let y = max(50, info.point.y - origin.y - 130)
-                    euclideousDragHUD(info).frame(width: hudW).position(x: x, y: y).allowsHitTesting(false).zIndex(2)
-                }
                 // THE RATE POP-UP is RETIRED (ratified PATTERN-tab-layout ferry, 2026-10-12) — RATE now
                 // lives directly in the tab as a division×feel grid, no overlay card needed.
                 // MASK MODE POP-UP (Paul 2026-10-10 ferry §4) — same scrim+centred-card shape popups
@@ -2413,7 +2391,7 @@ struct EuclideousPage: View {
                       onAllHitsDelta: { d in euclideousApplyAllRhythmY(d) },
                       onDragState: { point, allRows in
                           lockCometTouch(idx, lane: gestureLane, down: point != nil, all: allRows)   // LANE LOCK 6.2: a finger on the comet bar writes lock fields too
-                          euclideousRhythmDragState(gestureLane, via: idx, point, allRows)
+                          euclideousRhythmDragState(gestureLane, point)
                       },
                       // WHOLE-CARD SELECTION HIGHLIGHT REMOVED (Paul: "remove the highlight that
                       // sometimes appears around the euclid lane boxes") — `onSelect` has no remaining
@@ -2519,6 +2497,20 @@ struct EuclideousPage: View {
         return EuclideousMixStripFeed(legs: plan.legs, n: plan.sweepLength, dir: euclideousLaneDisplayDirection(lane: planLane, lines: phaseLines), sub: sub, chains: chains.isActive ? chains : nil, lanePlaying: line.enabledResolved,
                                       mutedAt: muteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: muteCells, unitBeats: muteUnit) })
     }
+    /// The MIX strip's drag / pinch — the lane card strip's own handlers (`laneCometRowBody`), so a lane's strip edits the same way on every page. A FOLLOWing lane's gestures edit the lane it follows.
+    private func mixStripGestures() -> EuclideousMixV2StripGestures {
+        EuclideousMixV2StripGestures(
+            rotate: { idx, d in euclideousApplyRhythmX(euclideousRhythmGestureTarget(lane: idx, lines: lines), d) },
+            hits: { idx, d in euclideousApplyRhythmY(euclideousRhythmGestureTarget(lane: idx, lines: lines), d) },
+            steps: { idx, d in edit(euclideousRhythmGestureTarget(lane: idx, lines: lines)) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(max(2, min(16, l.steps + d)))) } },
+            allRotate: { d in euclideousApplyAllRhythmX(d) },
+            allHits: { d in euclideousApplyAllRhythmY(d) },
+            dragState: { idx, point, allRows in
+                let target = euclideousRhythmGestureTarget(lane: idx, lines: lines)
+                lockCometTouch(idx, lane: target, down: point != nil, all: allRows)
+                euclideousRhythmDragState(target, point)
+            })
+    }
     private var mixToggleMode: EuclideousMixToggleMode { EuclideousMixToggleMode(rawValue: mixToggleModeRaw) ?? .filled }
     /// MIX v2 (2026-11-05): the panel. The MIX rows build's `EuclideousMixPanel` (and its rolls, sliders and SOLO tile) stays compiled, unmounted.
     private func mixPanel(size: CGSize) -> AnyView {
@@ -2557,7 +2549,8 @@ struct EuclideousPage: View {
             partSoloDown: { onPartSoloDown($0) },
             partSoloUp: { onPartSoloUp($0, $1) },
             // EMITTER TOKEN §5.1: a tap full-toggles the output's mute through the MUTE tab's own funnel (one undo step); the emitter and the MUTE tab stay in agreement
-            toggleOutputMute: { o in onEditOutputMute(true) { $0[o] = $0[o].toggledFull() } })
+            toggleOutputMute: { o in onEditOutputMute(true) { $0[o] = $0[o].toggledFull() } },
+            stripGestures: mixStripGestures())
         return AnyView(EuclideousMixV2Panel(input: input, callbacks: callbacks))
     }
 
@@ -4667,11 +4660,8 @@ struct EuclideousPage: View {
     /// reports a non-nil point on every `.changed` tick, so a naive "always capture" would silently re-
     /// freeze the snapshot every tick, breaking the round-trip-to-start guarantee `euclideousSliderCommit`'s
     /// own HITS rebuild depends on) and clears all gesture state at gesture-end (nil point).
-    /// `idx` is the lane being EDITED; `via` is the lane the finger is on when that is a FOLLOWer redirecting to its partner (the
-    /// readout then says so, so it is clear whose numbers these are).
-    private func euclideousRhythmDragState(_ idx: Int, via: Int? = nil, _ point: CGPoint?, _ allRows: Bool) {
-        guard let point else {
-            dragHUDInfo = nil
+    private func euclideousRhythmDragState(_ idx: Int, _ point: CGPoint?) {
+        guard point != nil else {
             rhythmGestureSnapshot[idx] = nil
             rhythmHitsAccum[idx] = 0; rhythmOffsetAccum[idx] = 0
             return
@@ -4680,12 +4670,6 @@ struct EuclideousPage: View {
             rhythmGestureSnapshot[idx] = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
             rhythmHitsAccum[idx] = 0; rhythmOffsetAccum[idx] = 0
         }
-        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
-        let n = max(2, min(16, line.steps))
-        let displayedOffset = Int(euclideousSliderRange(.offset, line).value)
-        let redirected = via != nil && via != idx
-        dragHUDInfo = EuclidDragHUDInfo(label: allRows ? "ALL LANES" : (redirected ? "LANE \(idx + 1) · FOLLOWED" : "LANE \(idx + 1)"),
-                                         primary: "\(line.pulses) OF \(n)", secondary: "OFFSET \(displayedOffset)", point: point)
     }
 
     /// The real backing view for `maskNumericChip` — a dedicated struct so the drag gesture can hold its own
@@ -6563,22 +6547,6 @@ struct EuclideousPage: View {
             for d in g.dots { ctx.fill(Path(d), with: .color(dotColor)) }
         }
         .frame(width: g.size.width, height: g.size.height)
-    }
-
-    private func euclideousDragHUD(_ info: EuclidDragHUDInfo) -> some View {
-        VStack(spacing: 5) {
-            Text(info.label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.5))
-            Text(info.primary)
-                .font(.system(size: 22, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.6)
-            Text(info.secondary)
-                .font(.system(size: 12, weight: .heavy, design: .monospaced))
-                .foregroundColor(.white.opacity(0.6)).lineLimit(1)   // matches `primary`'s own treatment above
-        }
-        .padding(.horizontal, 22).padding(.vertical, 16)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.92)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.22), lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
     }
 }
 

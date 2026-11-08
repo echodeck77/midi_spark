@@ -215,6 +215,16 @@ final class MixPanelTests: XCTestCase {
         XCTAssertEqual(over.count, 20); close(over[0].width, (483.333333 - 19 * 2) / 20, "a lane longer than 16 falls back to FIT"); close(over.last!.maxX, strip.maxX)
         XCTAssertEqual(euclideousMixStripCells(strip: strip, steps: 1, mode: .fit).count, 1); XCTAssertEqual(EuclideousMixStripMode(rawValue: "ALIGNED"), .aligned)
     }
+    func testTheStripsOffsetDragTravelsOneCellPitchPerStep() {
+        let strip = CGRect(x: 76, y: 8, width: 483.333333, height: 24)
+        for (n, mode) in [(8, EuclideousMixStripMode.fit), (16, .fit), (8, .aligned), (5, .fit)] {
+            let cells = euclideousMixStripCells(strip: strip, steps: n, mode: mode)
+            close(euclideousMixStripRotateStepPt(cells: cells), cells[0].width + EuclideousMixStripMetrics.gap, "\(n) \(mode)")
+        }
+        let one = euclideousMixStripCells(strip: strip, steps: 1, mode: .fit)
+        close(euclideousMixStripRotateStepPt(cells: one), one[0].width + EuclideousMixStripMetrics.gap)
+        close(euclideousMixStripRotateStepPt(cells: []), 1, "no cells: a safe 1 pt, never zero")
+    }
     func testTheCellLooksAndTheCurrentStep() {
         // AMENDMENT 1 (§A1, tests 3 / 9): empty #25272D · hit lane100 @ 25 % + the bottom line · the current hit solid lane100 · the current empty step #2E3138 — and no number on any cell
         let empty = euclideousMixCellLook(isHit: false, isCurrent: false), hit = euclideousMixCellLook(isHit: true, isCurrent: false)

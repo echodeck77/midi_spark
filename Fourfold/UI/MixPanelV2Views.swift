@@ -52,6 +52,18 @@ struct EuclideousMixV2Callbacks {
     var partSoloUp: (Int, Bool) -> Void
     /// EMITTER TOKEN §5.1: a MIX-emitter tap full-toggles output A–D's mute (one undo step, through the MUTE tab's funnel).
     var toggleOutputMute: (Int) -> Void
+    /// The rhythm strip's drag / pinch — the same gestures as the lane card's strip.
+    var stripGestures: EuclideousMixV2StripGestures = .none
+}
+/// What a finger on a band's rhythm strip does (the lane card's strip, verbatim): one finger left/right = OFFSET, up/down = HITS (this lane), two fingers the same on every lane, pinch = STEPS. `dragState` is (lane, window point or nil, two fingers).
+struct EuclideousMixV2StripGestures {
+    var rotate: (Int, Int) -> Void
+    var hits: (Int, Int) -> Void
+    var steps: (Int, Int) -> Void
+    var allRotate: (Int) -> Void
+    var allHits: (Int) -> Void
+    var dragState: (Int, CGPoint?, Bool) -> Void
+    static let none = EuclideousMixV2StripGestures(rotate: { _, _ in }, hits: { _, _ in }, steps: { _, _ in }, allRotate: { _ in }, allHits: { _ in }, dragState: { _, _, _ in })
 }
 
 // MARK: - the panel
@@ -112,9 +124,11 @@ struct EuclideousMixV2BandView: View {
                     .offset(x: band.play.minX, y: band.play.minY)
                     .accessibilitySortPriority(100)
                 Color.clear.frame(width: band.stripFrame.width, height: band.stripFrame.height).offset(x: band.stripFrame.minX, y: band.stripFrame.minY)
+                    .allowsHitTesting(false)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(EuclideousMixStripSpokenView.label(for: input.strips[lane]))
                     .accessibilitySortPriority(99)
+                stripGesturePad(hasLock: hasLock)
                 if let badge = locked {
                     badge.frame(width: EuclideousLockBadge.size, height: EuclideousLockBadge.size).scaleEffect(EuclideousMixV2Metrics.badge / EuclideousLockBadge.size)
                         .frame(width: EuclideousMixV2Metrics.badge, height: EuclideousMixV2Metrics.badge)
@@ -137,6 +151,19 @@ struct EuclideousMixV2BandView: View {
         .offset(x: band.frame.minX, y: band.frame.minY)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(EuclideousMixAX.lane(lane))
+    }
+
+    /// The strip's touch layer: the card strip's `EuclidGesturePad`, over the strip frame (ending before the lock badge, which keeps its own touches). The rotate drag travels one cell pitch per step, as the canvas draws them.
+    private func stripGesturePad(hasLock: Bool) -> some View {
+        let frame = band.stripFrame
+        let w = hasLock ? max(0, band.stripStepsWithBadge.maxX + EuclideousMixV2Metrics.stripInset - frame.minX) : frame.width
+        let cells = euclideousMixStripCells(strip: hasLock ? band.stripStepsWithBadge : band.stripSteps, steps: input.strips[lane].n, mode: input.stripMode)
+        let g = callbacks.stripGestures, lane = self.lane
+        return EuclidGesturePad(onRotateDelta: { g.rotate(lane, $0) }, onHitsDelta: { g.hits(lane, $0) }, onStepsDelta: { g.steps(lane, $0) },
+                                onAllRotateDelta: { g.allRotate($0) }, onAllHitsDelta: { g.allHits($0) }, onDragState: { g.dragState(lane, $0, $1) },
+                                rotateStepPt: euclideousMixStripRotateStepPt(cells: cells))
+            .frame(width: w, height: frame.height)
+            .offset(x: frame.minX, y: frame.minY)
     }
 
     private func partRow(notes: Bool, f: EuclideousMixV2RowFrames, base: Double) -> some View {
