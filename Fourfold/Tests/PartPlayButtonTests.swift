@@ -72,8 +72,8 @@ final class PartPlayButtonTests: XCTestCase {
         XCTAssertEqual(EuclideousLockBadge.playW, 44, "PLAY RIFF takes the 44 pt play-tile slot")
         XCTAssertEqual(EuclideousLockBadge.soloW, 44, "PLAY STACK takes the 44 pt SOLO-tile slot")
         let inner: CGFloat = 360.67   // landscape card 380.67 − 20 inset
-        close(Double(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: false)), 260.67, "comet unchanged (lead 50, trail 50)")
-        close(Double(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: true)), 224.67, "with a lock badge the strip ends sp4 before PLAY STACK (trail 4+34+4+44)")
+        close(Double(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: false)), 264.67, "AMENDMENT 1: g = 4 either side of the strip (lead 48, trail 48)")
+        close(Double(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: true)), 226.67, "with a lock badge the strip ends g before it, and the badge sits g before PLAY STACK (trail 4+34+4+44)")
     }
 
     // MARK: test 2 — a tap writes the field the lamp reads (§3; cardBackToggle's mutation)

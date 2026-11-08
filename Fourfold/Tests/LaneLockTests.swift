@@ -314,18 +314,18 @@ final class LaneLockTests: XCTestCase {
     }
     /// TAB STRIP ferry (2026-10-29) §6.2 / test 7: the badge is in the card's TOP ROW — 34 × 34 centred on the 44-high row, sp4 before SOLO — and the comet strip ends sp4 before it. Strip widths with and without it.
     func testBadgeAndTopRowStripWidths() {
-        for (card, without, with) in [(380.67, 260.67, 224.67), (387.0, 267.0, 231.0)] {
+        for (card, without, with) in [(380.67, 264.67, 226.67), (387.0, 271.0, 233.0)] {   // PLAY BUTTONS AMENDMENT 1: g = 4 around the strip (was 6 beside the buttons)
             let inner = card - 20
             XCTAssertEqual(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: false), without, accuracy: 0.01)
             XCTAssertEqual(EuclideousLockBadge.cometStripWidth(innerWidth: inner, withBadge: true), with, accuracy: 0.01)
-            XCTAssertEqual(without - with, 36, accuracy: 1e-9, "the badge takes 34 + sp4 (the gap before SOLO already was sp6, now sp4 + the badge + sp4: 6 → 4 + 34 + 4)")
+            XCTAssertEqual(without - with, 38, accuracy: 1e-9, "the badge takes 34 + g (the strip's trailing g is shared: g + badge + g)")
             let b = EuclideousLockBadge.frame(cardWidth: card)
             XCTAssertEqual(b, CGRect(x: card - 10 - 44 - 4 - 34, y: 15, width: 34, height: 34), "centred on the row (y 10…54): 5 pt above and below")
             XCTAssertEqual(b.maxX + 4 + 44 + 10, card, accuracy: 1e-9, "sp4, then the 44 pt SOLO tile, then the card's 10 pt inset")
             let t = EuclideousLockBadge.touchFrame(cardWidth: card)
             XCTAssertEqual(t.height, 44); XCTAssertEqual(t.width, 34); XCTAssertEqual(t.midY, b.midY, accuracy: 1e-9); XCTAssertEqual(t.minY, 10)
             // the strip ends sp4 before the badge
-            XCTAssertEqual(10 + 44 + 6 + with + 4, b.minX, accuracy: 0.01, "play tile, sp6, the strip, then sp4 to the badge")
+            XCTAssertEqual(10 + 44 + 4 + with + 4, b.minX, accuracy: 0.01, "play tile, g, the strip, then g to the badge")
         }
     }
     func testHeaderThresholds() {

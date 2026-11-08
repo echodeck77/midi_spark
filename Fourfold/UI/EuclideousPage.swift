@@ -2689,7 +2689,7 @@ struct EuclideousPage: View {
     // lane routing readout is now the RHYTHM tab's own dedicated Emitters row (A·B·C·D, part of this SAME
     // ferry's own RHYTHM table), making the count box's old secondary content redundant; dropped here rather
     // than kept alongside it. `accent`/`mask` params are gone — this box no longer needs either.
-    private var stepCountBadgeTotalWidth: CGFloat { 44 }
+    private var stepCountBadgeTotalWidth: CGFloat { EuclideousLaneCardMetrics.playButtonW }
     // MARK: LANE SOLO (ferry 2026-10-21)
     /// The effective solo mask: latched | held (§4.3).
     private var soloEffective: UInt8 { euclideousSoloEffective(latched: soloMask, held: soloHeld) }

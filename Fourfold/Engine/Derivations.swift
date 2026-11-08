@@ -4629,20 +4629,57 @@ enum EuclideousPageMetrics {
     static func bottomMargin(inset: CGFloat) -> CGFloat { max(margin, inset) }
 }
 
-/// A lane card's fixed rows, hoisted out of the view so the page's floor list and the card draw from the same numbers: the comet row (44), the 10pt inset on every side and ONE 8pt gap leave
-/// `contentAreaH = card height − 72` for the lane tab (RHYTHM: lower zone 80, upper zone the rest = card height − 156). TAB STRIP ferry (2026-10-29): the card's own tab row (28, with its 6pt gaps) is gone — the page's one strip
-/// chooses the tab — so the body starts sp8 below the top row (y 62) and every tab gained 32pt (it was card height − 104).
+/// A lane card's fixed rows, hoisted out of the view so the page's floor list and the card draw from the same numbers: the top row (T = 44, the comet strip's full height), the 10 pt inset on every side and ONE gap g (4) under the
+/// row leave `contentAreaH = card height − 68` for the lane tab (RHYTHM: lower zone 80, upper zone the rest = card height − 152). TAB STRIP ferry (2026-10-29): the card's own tab row is gone — the page's one strip chooses the tab.
+/// PLAY BUTTONS AMENDMENT 1 (2026-11-08) §A1: the gap under the row, between each PLAY button and the strip and around the lock badge is the tab bodies' own column gap g (sp4; was 8 / 6 / 4), so the body starts at y 58 (was 62)
+/// and every tab gained 4 pt; `euclideousLaneCardFrames` below is the ONE frame function for the whole top row.
 enum EuclideousLaneCardMetrics {
-    static let inset: CGFloat = 10, rowGap: CGFloat = 6, cometRowH: CGFloat = 44
-    /// The gap between the top row and the body (the tab row's 28 + 2 × 6 became this one gap).
-    static let bodyGap: CGFloat = 8
+    static let inset: CGFloat = 10, cometRowH: CGFloat = 44
+    /// The tab bodies' column gap (RHYTHM, RIFF and NOTES all use sp4 — `EuclideousRhythmGeometry.gap`). The retired `rowGap` (6) was the old gap between the top row's items.
+    static let columnGap: CGFloat = 4
+    /// The width of each PLAY button (PLAY RIFF and PLAY STACK), as built since the PLAY RIFF / PLAY STACK ferry.
+    static let playButtonW: CGFloat = 44
+    /// The gap between the top row and the body — g.
+    static let bodyGap: CGFloat = columnGap
     /// RHYTHM's STEPS picker covers both zones and is built only when they reach this (`tabContent`).
     static let rhythmZonesFloor: CGFloat = 192
-    /// The body's top, in card coordinates: inset + the top row + the gap = 62.
+    /// The body's top, in card coordinates: inset + the top row + the gap = 58.
     static var bodyTop: CGFloat { inset + cometRowH + bodyGap }
     static var chromeH: CGFloat { bodyTop + inset }
     static func innerWidth(cardWidth: CGFloat) -> CGFloat { max(1, cardWidth - inset * 2) }
     static func contentAreaH(cardHeight: CGFloat) -> CGFloat { max(1, cardHeight - chromeH) }
+}
+/// PLAY BUTTONS AMENDMENT 1 §A1: every frame of a lane card's top row and the body's box, in CARD coordinates, from the card's size alone (so it holds in every page layout). One inset on all four sides of the content box; PLAY RIFF on its
+/// leading edge and PLAY STACK on its trailing edge (the tab bodies' outer edges); g between each button and the strip, between the strip and a lock badge, and between the badge and PLAY STACK; both buttons and the strip T tall.
+struct EuclideousLaneCardFrames: Equatable {
+    var content: CGRect, topRow: CGRect
+    var lead: CGRect        // PLAY RIFF
+    var strip: CGRect       // the comet strip: T tall, the width that is left
+    var badge: CGRect?      // the lock badge (34 × 34, centred on the row); nil without one
+    var badgeTouch: CGRect? // its 34 × T touch target
+    var trail: CGRect       // PLAY STACK
+    var body: CGRect        // the tab body's box: from g under the row to the content box's bottom
+    var g: CGFloat, T: CGFloat
+}
+func euclideousLaneCardFrames(card: CGSize, withBadge: Bool) -> EuclideousLaneCardFrames {
+    typealias M = EuclideousLaneCardMetrics
+    let inset = M.inset, g = M.columnGap, T = M.cometRowH, bw = M.playButtonW
+    let content = CGRect(x: inset, y: inset, width: max(1, card.width - 2 * inset), height: max(1, card.height - 2 * inset))
+    let topRow = CGRect(x: content.minX, y: content.minY, width: content.width, height: T)
+    let lead = CGRect(x: content.minX, y: content.minY, width: bw, height: T)
+    let trail = CGRect(x: content.maxX - bw, y: content.minY, width: bw, height: T)
+    var badge: CGRect? = nil, touch: CGRect? = nil
+    if withBadge {
+        let s = EuclideousLockBadge.size
+        badge = CGRect(x: trail.minX - g - s, y: content.minY + (T - s) / 2, width: s, height: s)
+        touch = CGRect(x: trail.minX - g - s, y: content.minY, width: s, height: T)
+    }
+    let stripMaxX = (badge?.minX ?? trail.minX) - g
+    let stripMinX = lead.maxX + g
+    let strip = CGRect(x: stripMinX, y: content.minY, width: max(1, stripMaxX - stripMinX), height: T)
+    let bodyTop = topRow.maxY + g
+    let body = CGRect(x: content.minX, y: bodyTop, width: content.width, height: max(1, content.maxY - bodyTop))
+    return EuclideousLaneCardFrames(content: content, topRow: topRow, lead: lead, strip: strip, badge: badge, badgeTouch: touch, trail: trail, body: body, g: g, T: T)
 }
 /// RHYTHM POLISH §2.3 — FLIP HITS (INV renamed): the two printed lines and the VoiceOver label, one definition for the button and the tests.
 enum EuclideousFlipHits {
@@ -8664,6 +8701,8 @@ func euclideousPulseGeometryKey(n: Int, dir: EuclidDir, sub: Double, spanBeats: 
 
 enum EuclideousStripMetrics {
     static let trackH: CGFloat = 27, keyRowH: CGFloat = 14, rowGap: CGFloat = 3
+    /// The strip's full height with every band reserved (cells 27, gap 3, note key row 14) = the card's top row T. PLAY BUTTONS AMENDMENT 1 §A2.
+    static var stripH: CGFloat { trackH + rowGap + keyRowH }
     static let columnRadius: CGFloat = 4, keyRadius: CGFloat = 3
     static let chipH: CGFloat = 9, chipInset: CGFloat = 2, chipRadius: CGFloat = 2
     static let keyLabelLine: CGFloat = 8

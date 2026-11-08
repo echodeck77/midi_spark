@@ -175,13 +175,14 @@ final class PageLayoutTests: XCTestCase {
     // MARK: 4–7. what each box does with its frame
 
     func testLaneCardZonesAtBothReferences() {
-        // TAB STRIP ferry (2026-10-29) §3.2 / test 3: the card's tab row is gone, the body starts at y 62 and RHYTHM's upper zone is the card height − 156 (it was − 188).
-        XCTAssertEqual(EuclideousLaneCardMetrics.bodyTop, 62); XCTAssertEqual(EuclideousLaneCardMetrics.chromeH, 72)
+        // TAB STRIP ferry (2026-10-29) §3.2 / test 3: the card's tab row is gone and RHYTHM's upper zone is the card height − 156 (it was − 188); PLAY BUTTONS AMENDMENT 1 (2026-11-08) §A1.3: the gap under the top row is g = 4 (was 8),
+        // so the body starts at y 58 and the upper zone is the card height − 152 (145 / 145.67 → 149 / 149.67).
+        XCTAssertEqual(EuclideousLaneCardMetrics.bodyTop, 58); XCTAssertEqual(EuclideousLaneCardMetrics.chromeH, 68)
         // RHYTHM's upper zone (unchanged by RIFF v2) + RIFF v2 §1.1 Row A = contentH − 160 (3·6 gaps + 52 + 52 + 38)
-        for (p, upper, rowA) in [(land, 145.0, 69.0), (port, 145.67, 69.67)] {
+        for (p, upper, rowA) in [(land, 149.0, 73.0), (port, 149.67, 73.67)] {
             let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: p.laneBox.height)
-            XCTAssertEqual(contentH - 80 - 4, upper, accuracy: 0.01, "RHYTHM upper zone = card height − 156")
-            XCTAssertEqual(p.laneBox.height - 156, upper, accuracy: 0.01)
+            XCTAssertEqual(contentH - 80 - 4, upper, accuracy: 0.01, "RHYTHM upper zone = card height − 152")
+            XCTAssertEqual(p.laneBox.height - 152, upper, accuracy: 0.01)
             let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: p.laneBox.width))
             XCTAssertEqual(r.rowAHeight, rowA, accuracy: 0.01, "RIFF v2 Row A")
             XCTAssertEqual(r.bandHeight, 52); XCTAssertEqual(r.outputRowHeight, 38); XCTAssertEqual(r.rowGap, 6)
@@ -353,10 +354,10 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(wp.headerKind, .b); XCTAssertEqual(wp.box.width, 330, accuracy: 1e-9); XCTAssertEqual(wp.box.height, (900 - 111 - 32) / 3, accuracy: 1e-9)
         XCTAssertFalse(wp.floors.isEmpty)
         // each flag is exactly its threshold
-        // (the card's chrome is 72 now: a card 263 tall has contentAreaH 191, 264 has 192 — it was 295 / 296 with the tab row)
-        XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 319), laneBox: CGSize(width: 380, height: 263)).contains(.rhythmZones), "contentAreaH 191 < 192")
-        XCTAssertFalse(euclideousPageFloors(box: CGSize(width: 380, height: 319), laneBox: CGSize(width: 380, height: 264)).contains(.rhythmZones), "contentAreaH 192")
-        XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 263)).contains(.rhythmZones), "one size given: the lane card is that size")
+        // (the card's chrome is 68 now — PLAY BUTTONS AMENDMENT 1, g = 4 under the top row: a card 259 tall has contentAreaH 191, 260 has 192 — it was 263 / 264 at chrome 72, 295 / 296 with the tab row)
+        XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 319), laneBox: CGSize(width: 380, height: 259)).contains(.rhythmZones), "contentAreaH 191 < 192")
+        XCTAssertFalse(euclideousPageFloors(box: CGSize(width: 380, height: 319), laneBox: CGSize(width: 380, height: 260)).contains(.rhythmZones), "contentAreaH 192")
+        XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 259)).contains(.rhythmZones), "one size given: the lane card is that size")
     }
 
     // MARK: the bottom safe-area inset (Paul's ruling, 2026-10-19)

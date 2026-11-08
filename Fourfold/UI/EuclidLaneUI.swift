@@ -163,7 +163,7 @@ struct EuclidLaneBox: View {
     var body: some View {
         let on = line.enabledResolved
         let stripDim = soloDim || partsOffDim   // §4.1/§4.3: solo-silenced OR both parts off → ONE 42 % on the strip
-        HStack(spacing: compact ? 6 : 8) {
+        HStack(spacing: compact ? EuclideousLaneCardMetrics.columnGap : 8) {   // PLAY BUTTONS AMENDMENT 1 §A1.3: g between every item of the top row
             if let leadTile {
                 leadTile   // §4.2: PLAY RIFF never dims
             } else {
@@ -177,12 +177,12 @@ struct EuclidLaneBox: View {
             // (the regular BUILD-page editor, unchanged): 6pt padding ×2 + 44pt play + 8pt spacing = 64,
             // badge gap 8pt. NOT measured via GeometryReader — so `EuclidCometBar` can compute its box pitch
             // (for the rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
-            let gap: CGFloat = compact ? 6 : 8
+            let gap: CGFloat = compact ? EuclideousLaneCardMetrics.columnGap : 8
             // The badge's layout slot is its 34 minus what the negative padding pulls in on each side (the row's 6 pt gap becomes the ferry's sp4): 30.
             let lockPull = gap - EuclideousLockBadge.gap
             let lockReserve: CGFloat = (soloButton != nil && lockBadge != nil) ? (gap + EuclideousLockBadge.size - 2 * lockPull) : 0
             let badgeReserve: CGFloat = soloButton != nil ? (gap + soloButtonWidth + lockReserve) : (stepCountBadge == nil ? 0 : (gap + stepCountBadgeWidth))
-            let leadReserve: CGFloat = compact ? 50 : 64
+            let leadReserve: CGFloat = compact ? EuclideousLaneCardMetrics.playButtonW + EuclideousLaneCardMetrics.columnGap : 64   // PLAY RIFF and g
             // `patternOverride` is already FINISHED (partner's pattern, this lane's own OFFSET + INV baked in), so it goes in as a
             // hand-edited pattern with nothing left to rotate, tilt or invert — the bar's own customHits path replaces generation.
             EuclidCometBar(pulses: patternOverride.map { $0.filter { $0 }.count } ?? line.pulses,

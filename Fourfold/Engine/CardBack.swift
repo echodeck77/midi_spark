@@ -126,6 +126,8 @@ enum EuclideousCardPart: Int, Equatable { case riff = 0, notes = 1
 enum EuclideousCardBackMetrics {
     static let inset: CGFloat = EuclideousLaneCardMetrics.inset                            // 10: the content box's side and bottom inset
     static let sp4: CGFloat = 4, sp8: CGFloat = 8
+    /// The retired back's own body top (62: sp8 under the top row). The live card's is 58 since PLAY BUTTONS AMENDMENT 1 (g = 4 under the row); this hidden, unreachable layout keeps its old figure.
+    static let bodyTop: CGFloat = 62
     /// §4.2: the BACK's own fill and a 1 pt lane100 border at 28 % — on the CARD (CARD BACKS v2 puts them there; the first build drew them round the roll panel instead and left the card in the front's #1B1D23).
     static let fillColor = HocketColor(0x17191E), borderAlpha = 0.28, borderWidth: CGFloat = 1, cardRadius: CGFloat = 12
     // inside a row (§4.4, CARD BACKS v2): [VEL/GATE pad][sp4][PITCH pad][sp8][roll panel]; the pads keep 72 pt each until the roll panel would drop under 176, then give way down to their 44 pt floor
@@ -173,7 +175,7 @@ func euclideousCardBackPadWidth(contentWidth w: CGFloat) -> CGFloat {
 /// §4.3–4.5 and §7.2: every frame on the back from the card's size. The content box is the card inset by 10; the body starts at `bodyTop` (62: sp8 below the top row — TAB STRIP ferry 2026-10-29: the back's own "MIX" strip is gone, the
 /// page's strip chooses the tab) and the two rows split what is left, sp8 apart: rowH = (contentBottom − bodyTop − sp8) ÷ 2. In a row: the VEL/GATE pad, sp4, the PITCH pad, sp8, then the roll panel — the roll (rowH − 32 tall) on
 /// top of the 32-tall jack strip, whose four 44-tall touch targets reach 12 pt up over the roll's bottom edge.
-func euclideousCardBackLayout(card: CGSize, bodyTop: CGFloat = EuclideousLaneCardMetrics.bodyTop) -> EuclideousCardBackLayout {
+func euclideousCardBackLayout(card: CGSize, bodyTop: CGFloat = EuclideousCardBackMetrics.bodyTop) -> EuclideousCardBackLayout {
     typealias M = EuclideousCardBackMetrics
     let x0 = M.inset, w = max(1, card.width - 2 * M.inset)
     let bottom = card.height - M.inset

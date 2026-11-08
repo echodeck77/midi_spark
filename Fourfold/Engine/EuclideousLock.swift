@@ -471,27 +471,23 @@ struct EuclideousLockCardLayout: Equatable {
 }
 func euclideousLockCardLayout(size: CGSize) -> EuclideousLockCardLayout { EuclideousLockCardLayout(size: size) }
 
-/// 5.1 — the lock badge. TAB STRIP ferry (2026-10-29) §6.2: it moved from the card's (now gone) tab row into the TOP ROW — play tile, comet strip, [badge], SOLO tile — 34 × 34, centred on the row's 44 height, sp4 before SOLO,
-/// with the comet strip ending sp4 before it; a 34 × 44 touch target. An unlocked lane's top row is unchanged.
+/// 5.1 — the lock badge. TAB STRIP ferry (2026-10-29) §6.2: it moved from the card's (now gone) tab row into the TOP ROW — PLAY RIFF, comet strip, [badge], PLAY STACK — 34 × 34, centred on the row's 44 height, with a 34 × 44 touch target.
+/// PLAY BUTTONS AMENDMENT 1 (2026-11-08) §A1.4: g (4) before PLAY STACK and g between the strip's end and the badge — every number is `euclideousLaneCardFrames`'s. An unlocked lane's top row has no badge.
 enum EuclideousLockBadge {
-    static let size: CGFloat = 34, gap: CGFloat = 4
-    static let rowH: CGFloat = 44, playW: CGFloat = 44, soloW: CGFloat = 44, rowGap: CGFloat = 6
+    static let size: CGFloat = 34, gap: CGFloat = EuclideousLaneCardMetrics.columnGap
+    static let rowH: CGFloat = EuclideousLaneCardMetrics.cometRowH, playW: CGFloat = EuclideousLaneCardMetrics.playButtonW, soloW: CGFloat = EuclideousLaneCardMetrics.playButtonW, rowGap: CGFloat = EuclideousLaneCardMetrics.columnGap
     /// The badge's drawn frame in CARD coordinates (the row starts at x 10, y 10).
     static func frame(cardWidth: CGFloat) -> CGRect {
-        let inset = EuclideousLaneCardMetrics.inset
-        return CGRect(x: cardWidth - inset - soloW - gap - size, y: inset + (rowH - size) / 2, width: size, height: size)
+        euclideousLaneCardFrames(card: CGSize(width: cardWidth, height: 0), withBadge: true).badge ?? .zero
     }
     /// The touch target: the same width, the row's full 44 height.
     static func touchFrame(cardWidth: CGFloat) -> CGRect {
-        let f = frame(cardWidth: cardWidth)
-        return CGRect(x: f.minX, y: EuclideousLaneCardMetrics.inset, width: size, height: rowH)
+        euclideousLaneCardFrames(card: CGSize(width: cardWidth, height: 0), withBadge: true).badgeTouch ?? .zero
     }
-    /// The comet strip's width in a top row `innerWidth` wide: the play tile and a 6 pt gap before it, SOLO and a 6 pt gap after — or, with the badge, sp4 + badge + sp4 + SOLO after it.
-    /// 360.67 → 260.67 without the badge, 224.67 with it; 367 → 267 / 231.
+    /// The comet strip's width in a top row `innerWidth` wide: PLAY RIFF and g before it, g and PLAY STACK after it — or, with the badge, g + badge + g + PLAY STACK after it.
+    /// 360.67 → 264.67 without the badge, 226.67 with it; 367 → 271 / 233.
     static func cometStripWidth(innerWidth: CGFloat, withBadge: Bool) -> CGFloat {
-        let lead = playW + rowGap
-        let trail = withBadge ? gap + size + gap + soloW : rowGap + soloW
-        return max(1, innerWidth - lead - trail)
+        euclideousLaneCardFrames(card: CGSize(width: innerWidth + 2 * EuclideousLaneCardMetrics.inset, height: 0), withBadge: withBadge).strip.width
     }
 }
 
