@@ -402,11 +402,12 @@ final class Router {
     private var ccMuteSentMask: UInt8 = 0  // bit x = `muteValue` already sent while muted (sent once)
     private var ccPrevOnMask: UInt8 = 0    // bit x = output x's CC was on last window (to spot the off→on edge)
     private var ccMutedMask: UInt8 = 0     // bit x = output x's MUTE-tab gate is off this window (a hit sends nothing; the ramp pass sends `muteValue` once)
+    private(set) var ccValueLive: UInt32 = 0xFFFF_FFFF   // one byte per output = the current CC value (0xFF = none yet), for the UI trace (polled at 30 Hz, same shape as `emitterIndexLive`)
     private func resetEmitterCC() {
         ccSegFrom = SIMD4<Float>(repeating: 0); ccSegTo = SIMD4<Float>(repeating: 0); ccSegHold = SIMD4<Float>(repeating: 0)
         ccSegFromSample = SIMD4<Int64>(repeating: Int64.max); ccSegToSample = SIMD4<Int64>(repeating: Int64.max)
         ccLastSentVal = SIMD4<Int32>(repeating: -1); ccLastSentSample = SIMD4<Int64>(repeating: Int64.min)
-        ccArmedMask = 0; ccMuteSentMask = 0
+        ccArmedMask = 0; ccMuteSentMask = 0; ccValueLive = 0xFFFF_FFFF
     }
     private func resetEmitterRatchetOrigin() { emitterCounter.reset(); emitterIndexLive = emitterCounter.indexPacked; emitterVelCounter.reset(); emitterVelIndexLive = emitterVelCounter.indexPacked; resetEmitterCC() }
 
@@ -425,6 +426,7 @@ final class Router {
     @inline(__always) private func ccSend(_ x: Int, cc: Int, value v: Int, atSample s: Int64, out: MIDIEmitter?) {
         let vv = max(0, min(127, v)), ch = (busChannels[x] &- 1) & 15
         ccLastSentVal[x] = Int32(vv); ccLastSentSample[x] = s
+        ccValueLive = (ccValueLive & ~(UInt32(0xFF) << UInt32(8 * x))) | (UInt32(vv) << UInt32(8 * x))   // publish the live value for the UI trace
         guard let out = out else { return }
         emitModCCWire(cable: UInt8(x + 1), ch: ch, cc: cc, value: vv, atSample: s, out: out, force: false)
         emitModCCWire(cable: 0, ch: ch, cc: cc, value: vv, atSample: s, out: out, force: false)

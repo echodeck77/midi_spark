@@ -15,6 +15,7 @@ final class FourfoldTelemetry {
     let emitters = EmitterRatchetLive()
     /// VELOCITY tab (2026-11-03): each output's velocity-pattern index (the VELOCITY tab strip's current slot) — reuses the ratchet's live class, a second instance, observed by that tab only.
     let emitterVel = EmitterRatchetLive()
+    let cc = EmitterRatchetLive()   // CC tab (Nov 2026): each output's current CC value (reuses the packed one-byte-per-output live model)
     // The BEAT anchor (4 Hz): the playheads extrapolate the beat from (anchor, anchorAt) at 30 fps, so it only needs re-anchoring periodically.
     var beatAnchor = 0.0
     var beatAnchorAt = Date()

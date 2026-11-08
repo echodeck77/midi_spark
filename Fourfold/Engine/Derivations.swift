@@ -5527,14 +5527,14 @@ struct EuclideousPadUndoBurst: Equatable {
 /// lived inside this tab strip at all, in any revision — it lives in the standalone `riffGridView` panel,
 /// shown directly in the page layout, restored there 2026-10-18.
 enum EuclideousSeqTab: Int, CaseIterable {
-    case mix = 0, lanes = 1, riffs = 2, fx = 3, ratch = 4, velocity = 5   // RATCH tab ferry (2026-10-28): the fourth case; VELOCITY tab (2026-11-03): the fifth — a per-output velocity accent (`EmitterVelocityUI.swift`)
-    var label: String { switch self { case .mix: return "MIX"; case .lanes: return "MUTE"; case .riffs: return "RIFFS"; case .fx: return "FX"; case .ratch: return "RATCH"; case .velocity: return "VEL" } }   // MUTE TAB ferry (2026-11-02): the old LANES tab is now MUTE (per-output mute); the case name `.lanes` stays (stable raw value, coupled across the page)
+    case mix = 0, lanes = 1, riffs = 2, fx = 3, ratch = 4, velocity = 5, cc = 6   // RATCH tab ferry (2026-10-28): the fourth case; VELOCITY tab (2026-11-03): the fifth; CC tab (Nov 2026): the sixth — a per-output CC emitter (`EmitterCC`)
+    var label: String { switch self { case .mix: return "MIX"; case .lanes: return "MUTE"; case .riffs: return "RIFFS"; case .fx: return "FX"; case .ratch: return "RATCH"; case .velocity: return "VEL"; case .cc: return "CC" } }   // MUTE TAB ferry (2026-11-02): the old LANES tab is now MUTE (per-output mute); the case name `.lanes` stays (stable raw value, coupled across the page)
     /// The tabs a layout without FX shows. PAGE LAYOUT ferry (2026-10-19): no layout is without FX any more — portrait's panel is the riff panel's own width,
     /// so the FX columns match the riff grid's, and it is 319 tall — but the list stays for a caller that wants it.
     /// CARD BACKS (2026-10-28) §8: the MIX tab is RETIRED — what it edited (VEL, GATE, OCT per part) now lives on the lane cards' backs. The case stays (hidden, not deleted), so the panel is LANES | FX and LANES is the default.
     static let visible: [EuclideousSeqTab] = [.lanes]
     /// FX is RETIRED (Paul, 2026-11-07): the case stays (hidden, not deleted — its panel code and the document's `euclideousFX` are still compiled), but no tab offers it; a stray `.fx` shows MUTE.
-    static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.lanes, .ratch, .velocity] : visible }   // RATCH tab ferry: RATCH is the third VISIBLE tab (MIX is retired), after FX; VELOCITY tab (2026-11-03): the fourth
+    static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.lanes, .ratch, .velocity, .cc] : visible }   // RATCH tab ferry: RATCH is the third VISIBLE tab (MIX is retired), after FX; VELOCITY tab (2026-11-03): the fourth; CC tab (Nov 2026): the fifth, after VEL
     static let `default`: EuclideousSeqTab = .lanes
 }
 /// Tabs only: equal widths across the full content width, sp4 apart (two tabs at the 401pt reference = 198.5 each).

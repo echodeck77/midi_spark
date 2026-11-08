@@ -716,12 +716,14 @@ struct EuclideousPage: View {
     let emitterRatchets: EmitterRatchetSet
     // VELOCITY tab (2026-11-03): the document's four per-output velocity accents (edited via `onEditEmitterVelocity`). Declared beside the ratchets so the init's call order matches.
     let emitterVelocities: EmitterVelocitySet
+    let emitterCCs: EmitterCCSet   // CC tab (Nov 2026): the document's four per-output CC emitters (edited via `onEditEmitterCC`)
     // MUTE TAB (2026-11-02): the document's four per-output mutes (the MUTE tab edits these via `onEditOutputMute`). All defaults = nothing muted.
     let outputMutes: EuclideousOutputMutes
     let hocketLive: HocketLiveModel      // HOCKET §8: the count of each lit rule as the Router last published it — read ONLY by leaf views that observe it
     let rollLive: NoteRollLive           // CARD BACKS §5: each part's recent notes and when each output last took one — read ONLY inside the card backs' own frame clocks
     let emitterLive: EmitterRatchetLive  // RATCH tab §3.10: each output's current pattern index — observed ONLY by the RATCH tab's own leaf views
     let emitterVelLive: EmitterRatchetLive  // VELOCITY tab (2026-11-03): each output's velocity-pattern index — observed ONLY by the VELOCITY tab's leaf views (declared here so the call order matches `emitterVelocities` beside it)
+    let ccLive: EmitterRatchetLive  // CC tab (Nov 2026): each output's current CC value — observed ONLY by the CC tab's leaf views
     let lanesSeqStep: Int
     let riffsSeqStep: Int
     // RIFF-CELL WIPES (Paul 2026-10-10 ferry) — each lane's latest wipe-eligible event (column/rank >= 0).
@@ -833,6 +835,7 @@ struct EuclideousPage: View {
     let onEmitterRatchetDragEnd: () -> Void
     // VELOCITY tab (2026-11-03): the edit / drag-end funnels (same shape as the RATCH tab's). The data (`emitterVelocities`) and live (`emitterVelLive`) props are declared beside their ratchet siblings above, so the init's call order matches.
     let onEditEmitterVelocity: (Bool, @escaping (inout EmitterVelocitySet) -> Void) -> Void
+    let onEditEmitterCC: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void   // CC tab (Nov 2026): one write + one republish, one undo step per burst
     let onEmitterVelocityDragEnd: () -> Void
     /// MUTE TAB (2026-11-02): one write + one republish — `newStep: true` opens an undo step (a pass ◀/▶ tap, the touch-down cell of a stroke), `false` writes into the step already open (the rest of the stroke).
     let onEditOutputMute: (Bool, @escaping (inout EuclideousOutputMutes) -> Void) -> Void
@@ -918,6 +921,7 @@ struct EuclideousPage: View {
     @State private var sequencerTab: EuclideousSeqTab = .default
     // RATCH EXPAND ferry (§1.9): which emitter's config is open (nil = the four collapsed cards). View-state only — a sibling of `sequencerTab`, so it survives a tab switch but never a relaunch, and it is never in the document, undo or presets.
     @State private var ratchExpanded: Int? = nil
+    @State private var ccExpanded: Int? = nil   // CC tab (Nov 2026): which emitter's full page is open (nil = the four collapsed rows)
     // LANES GRID (2026-10-18): the per-lane cache of the roll feed (recomputed only when its inputs or its
     // window change, never per frame). RESTART CHAINS ferry §8: the panel's own MUTE/RESTART sub-tab state
     // (`lanesSubTab`) is retired along with the RESTART view itself — the panel is mute-only now.
@@ -6285,7 +6289,7 @@ struct EuclideousPage: View {
     private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat, fxAvailable: Bool = false, portrait: Bool = false) -> some View {
         // FX TAB: offered in both orientations since the PAGE LAYOUT ferry (2026-10-19) — in portrait this panel sits BESIDE the riff panel at the same width, so each FX
         // column takes the riff grid's column width and the same offset from its own panel's leading edge (§10.3, by construction); `fxAvailable` stays a parameter.
-        let tab: EuclideousSeqTab = ((sequencerTab == .ratch || sequencerTab == .velocity) && !fxAvailable) || sequencerTab == .mix || sequencerTab == .fx ? .lanes : sequencerTab   // CARD BACKS §8: MIX is retired — a stray .mix shows LANES (RATCH / VELOCITY, like FX, need the wide panel)
+        let tab: EuclideousSeqTab = ((sequencerTab == .ratch || sequencerTab == .velocity || sequencerTab == .cc) && !fxAvailable) || sequencerTab == .mix || sequencerTab == .fx ? .lanes : sequencerTab   // CARD BACKS §8: MIX is retired — a stray .mix shows LANES (RATCH / VELOCITY / CC, like FX, need the wide panel)
         let innerW = max(1, maxWidth - sp8 * 2)
         let innerH = max(1, maxHeight - sp8 * 2)
         let tabBody = euclideousSeqTabBodySize(panelWidth: maxWidth, panelHeight: maxHeight)   // LANES' and FX's area: one function, shared with the page's floor list
@@ -6313,6 +6317,8 @@ struct EuclideousPage: View {
                 ratchTab(width: tabBody.width, height: tabBody.height, portrait: portrait)
             case .velocity:   // VELOCITY tab (2026-11-03): a per-output velocity accent — four cards A–D
                 velocityTab(width: tabBody.width, height: tabBody.height, portrait: portrait)
+            case .cc:   // CC tab (Nov 2026): a per-output CC emitter — four collapsed rows, tap to expand
+                ccTab(width: tabBody.width, height: tabBody.height, portrait: portrait)
             case .riffs:   // hidden (unreachable from the tab row) — kept so its code stays compiled
                 VStack(spacing: sp4) {
                     sequencerRiffsGrid(width: innerW, height: gridH).frame(width: innerW, height: gridH)
@@ -6355,7 +6361,7 @@ struct EuclideousPage: View {
                     resetPopupLane = nil   // §6: "switching tabs closes it"
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(tab == .ratch ? emitterRatchetTabAccessibilityLabel() : (tab == .velocity ? emitterVelocityTabAccessibilityLabel() : tab.label.capitalized))   // §8.1 (RATCH): "Ratchet"; VELOCITY: "Velocity"
+                .accessibilityLabel(tab == .ratch ? emitterRatchetTabAccessibilityLabel() : (tab == .velocity ? emitterVelocityTabAccessibilityLabel() : (tab == .cc ? "C C emitters" : tab.label.capitalized)))   // §8.1 (RATCH): "Ratchet"; VELOCITY: "Velocity"; CC: spoken "C C"
                 .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)   // SwiftUI has no tab trait; button + selected, like the lane tabs
             }
         }
@@ -6454,6 +6460,24 @@ struct EuclideousPage: View {
         let layout = emitterRatchetLayout(bodySize: CGSize(width: width, height: height), portrait: portrait, cellCount: EmitterVelocityField.allCases.count)
         return EuclideousStackBreak {
             AnyView(EuclideousVelocityPanel(layout: layout, velocities: emitterVelocities, accents: laneAccents, live: emitterVelLive, onEdit: onEditEmitterVelocity, onDragEnd: onEmitterVelocityDragEnd)
+                .frame(width: width, height: height, alignment: .topLeading))
+        }
+    }
+    /// THE CC TAB (Nov 2026): four collapsed emitter rows A–D; touching a row opens that emitter's full page (header · trace · VALUE/TRAVEL · five bar sliders). One document write + one republish per edit through `onEditEmitterCC`.
+    private func ccTab(width: CGFloat, height: CGFloat, portrait: Bool) -> some View {
+        EuclideousStackBreak {
+            AnyView(
+                ZStack {
+                    if let x = ccExpanded {
+                        EuclideousCCExpandedView(output: x, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, live: ccLive, playing: pulseLive,
+                                                 onEdit: onEditEmitterCC, onCollapse: { withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = nil } })
+                            .transition(.opacity)
+                    } else {
+                        EuclideousCCPanel(bodySize: CGSize(width: width, height: height), ccs: emitterCCs, live: ccLive, playing: pulseLive,
+                                          onEdit: onEditEmitterCC, onExpand: { out in withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = out } })
+                            .transition(.opacity)
+                    }
+                }
                 .frame(width: width, height: height, alignment: .topLeading))
         }
     }

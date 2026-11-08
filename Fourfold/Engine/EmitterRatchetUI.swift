@@ -10,7 +10,7 @@ import CoreGraphics
 /// The tab strip's widths: RATCH and VELOCITY are a fixed 80 each; the other tabs (MUTE, FX) share what is left equally, sp4 apart. (The old `euclideousSeqTabWidth` — an equal split — is kept for the callers and tests that still use it.)
 func euclideousSeqTabWidths(tabs: [EuclideousSeqTab], contentWidth: CGFloat) -> [CGFloat] {
     guard !tabs.isEmpty else { return [] }
-    func isFixed(_ t: EuclideousSeqTab) -> Bool { t == .ratch || t == .velocity }   // VELOCITY tab (2026-11-03): a fixed-width tab beside RATCH
+    func isFixed(_ t: EuclideousSeqTab) -> Bool { t == .ratch || t == .velocity || t == .cc }   // VELOCITY tab (2026-11-03): a fixed-width tab beside RATCH; CC tab (Nov 2026): the same
     let gaps = CGFloat(tabs.count - 1) * 4
     let fixed = tabs.filter { isFixed($0) }.count
     let fixedW: CGFloat = 80

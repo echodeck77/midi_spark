@@ -276,6 +276,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func pollEuclideousLockSnapSeq() -> UInt32 { kernel.euclideousLockSnapSeq() }
     func pollEmitterIndexPacked() -> UInt32 { kernel.emitterIndexPacked() }   // EMITTER RATCHET §3.10: rides the existing 30 Hz fast poll (no array copy — nothing for the render thread to copy-on-write)
     func pollEmitterVelIndexPacked() -> UInt32 { kernel.emitterVelIndexPacked() }   // VELOCITY tab (2026-11-03): same 30 Hz poll
+    func pollEmitterCCValuePacked() -> UInt32 { kernel.emitterCCValuePacked() }   // CC tab (Nov 2026): same 30 Hz poll
     func uiEuclideousLocks() -> [EuclideousLaneLock] { document.euclideousLocksResolved }
     // FOURFOLD SETTINGS (2026-10-15 ferry): MIDI IN tab's channel mask + CLOCK tab's host-stop behaviour.
     func uiEuclideousMidiInChannelMask() -> UInt16 { document.euclideousMidiInChannelMaskResolved }

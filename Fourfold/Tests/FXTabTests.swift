@@ -509,7 +509,7 @@ final class FXTabTests: XCTestCase {
         XCTAssertEqual(euclideousFXCellOpacity(restColumn: true, rowHasLanes: false), 0.42 * 0.42, accuracy: 1e-12, "the two dims multiply")
         XCTAssertEqual(EuclideousFXRow.cc.railName(ccNumber: 74), "CC74"); XCTAssertEqual(EuclideousFXRow.ratch.railName(ccNumber: 74), "RATCH")
         XCTAssertEqual(EuclideousFXRow.gate.stripDescription, "REPLACES THE LANE\u{2019}S GATE"); XCTAssertNil(EuclideousFXRow.note.stripDescription); XCTAssertNil(EuclideousFXRow.cc.stripDescription)
-        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .ratch, .velocity], "the FX tab is retired (2026-11-07): no tab offers it"); XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: false), [.lanes])
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .ratch, .velocity, .cc], "the FX tab is retired; CC added (Nov 2026)"); XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: false), [.lanes])
         XCTAssertEqual(EuclideousSeqTab.fx.label, "FX")
     }
     func testFiringFlashFollowsTheHitEventsColumnAndTheRowsThatApplied() {
