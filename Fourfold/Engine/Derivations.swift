@@ -9815,6 +9815,31 @@ func euclideousLaneClockStrikesAt(_ c: HocketLaneClock, onsetBeat b: Double, tol
     return abs((Double(tick) + delaySteps) * c.sub - b) < tol
 }
 
+/// EMITTER CC (CC tab, slice D 2026-11-08): the lane's next AUDIBLE hit strictly after musical beat `t`, read from its captured window clock. The CC tab's gap (for GLIDE / FALL) is the time to the next hit ON THE EMITTER, merged across every lane
+/// routed to it — each lane answers for itself and the Router takes the earliest. Where a hit falls is the SAME arithmetic the engine strikes by (the tick's start plus the hit's OFFSET / fine-TILT delay, `HocketLaneClock.delay`), `advOrd` is the
+/// riff walk's ordinal at that hit (`advanceStep` is the lane's ADV STEP flag, so the predicted riff column is the real one, ADV STEP included), and a hit the lane's own LANES-mute cells silence is skipped (a silent hit is not a hit on the emitter).
+/// `muteCells` 0xFFFF / any `muteUnitBeats` = never muted. Scans at most `capTicks` ticks (nil past them). `tol` (1e-6 beat) keeps a hit AT `t` — the one that is firing now, or another lane's simultaneous one — from counting as "next". Allocation-free.
+struct EuclideousClockNextHit: Equatable { var beat: Double; var advOrd: Int64 }
+func euclideousClockNextAudibleHit(_ c: HocketLaneClock, afterBeat t: Double, advanceStep: Bool, muteCells: UInt16, muteUnitBeats: Double, capTicks: Int, tol: Double = 1e-6) -> EuclideousClockNextHit? {
+    guard c.valid, c.sub > 0, capTicks > 0, t >= -tol else { return nil }
+    let t0 = Int64((t / c.sub + 1e-9).rounded(.down))
+    var k: Int64 = 0
+    while k <= Int64(capTicks) {
+        let tick = t0 &+ k
+        let ph = euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: c.cycleLen, sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.legacySpanBeats)
+        if ph.rawIsHit {
+            let d = (c.hasTiming && ph.raw >= 0 && ph.raw < c.delay.count) ? c.delay[ph.raw] : 0
+            let hb = (Double(tick) + d) * c.sub
+            if hb > t + tol, euclideousLaneAudible(beat: hb, cells16: muteCells, unitBeats: muteUnitBeats) {
+                let info = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: c.cycleLen, sub: c.sub, tick: tick, chains: c.chains, legacySpanBeats: c.legacySpanBeats, advanceStep: advanceStep)
+                return EuclideousClockNextHit(beat: hb, advOrd: info.advOrd)
+            }
+        }
+        k &+= 1
+    }
+    return nil
+}
+
 // MARK: - HOCKET (ferry 2026-10-27) §1–§4 — the pop-up's looks, texts and frames (pure; the views only paint these)
 // Every colour is an sRGB hex + an opacity; every size is in pt. The views (`HocketPopup.swift`, the header button) read these functions and nothing else, so a look is decided in ONE place and tested (tests 13, 14).
 
