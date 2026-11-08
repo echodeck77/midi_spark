@@ -66,6 +66,9 @@ final class Kernel {
     /// PER-PART SOLO (MIX v2, 2026-11-05): the same hand-off for the part mask — 0x100 | the effective part mask (8 bits) once the page has spoken, 0 before (the snapshot's `partSoloMask` is the fallback).
     private var euclideousPartSoloLive: UInt16 = 0
     func setEuclideousPartSoloLive(_ mask: UInt8) { euclideousPartSoloLive = 0x100 | UInt16(mask) }
+    /// INPUTS TEST (2026-11-08): which lane is auditioning its pool (0 = none; 0x100 | lane, 0-3), the same plain main-writes/render-reads hand-off. While set, the Router suppresses that lane's normal output and walks its pool across its emitters on a free-running SAMPLE clock. It sounds while the host is stopped in the default KEEP PLAYING mode (the free-run clock keeps `playing` true); with "STOP when host stops" set it waits for the transport, like every other voice. The PLAYING heal-net below is exempted for it (an audition over an empty live pool is legitimate); the stopped net is not (see there).
+    private var euclideousTestLive: UInt16 = 0
+    func setEuclideousTestLive(_ lane: Int?) { euclideousTestLive = lane.map { 0x100 | UInt16($0 & 3) } ?? 0 }
     /// RANDOM MODE ferry (§6.1/§6.3): one pending THROW/TWEAK/BACK/hold override per (lane, tab) — §6.1's
     /// "one slot per card tab," so a lane may have up to 3 in flight at once — carrying the beat each takes
     /// effect at. Flat, 12 slots (`euclideousRandomPendingSlot(lane:tab:)` is the one index every reader/
@@ -494,6 +497,7 @@ final class Kernel {
                         euclideousPendingRolls: euclideousPendingRolls,
                         euclideousHoldOverrides: euclideousHoldOverrides,
                         euclideousLockLive: euclideousLockLive,
+                        euclideousTestLive: euclideousTestLive,
                         sceneFlush: flushRequested,
                         out: replayingLoop ? reelSilentTap : reelTap, diag: &diag)   // → reelTap (reel + session tape) → liveEmitter; or, while a pass replays, the silent tap (session tape only)
         }
@@ -514,6 +518,9 @@ final class Kernel {
         // is replaying (which REPLACES the output and SKIPS router.process → activeVoiceCount goes stale; the soft net
         // already exempts it, so the hard net must too).
         let producing = rPlaying || reel.state == .replaying
+        // INPUTS TEST: the stopped-net is NOT exempted for the audition. `Router.process` emits audition notes only while `playing` (free-run keeps that true while the host is stopped, which is the default); whenever this hard net can
+        // fire (`!producing`), the audition path did not run, so any lingering audition voice IS a stuck note and must be healed. (In free-run `producing` is true and this net is a no-op anyway.) The sibling PLAYING net below keeps the
+        // exemption — there the audition legitimately sounds over an empty live pool.
         if silenceInvariantViolated(playing: producing, heldInput: pool.count, auditioning: false,
                                     activeVoices: diag.activeVoiceCount, passthroughHeld: diag.passthroughHeld) {
             healStuckNotes(now: now, hardTrap: true, reasonCode: 1, diag: &diag)   // 1 = silence invariant (stopped); DEBUG traps into the corpse
@@ -537,7 +544,7 @@ final class Kernel {
             let columnSamples = Int64(max(1.0, box.stepBeats * 60.0 / max(1.0, tempo) * sampleRate))
             let debounce = max(Int64(sampleRate), 4 &* columnSamples)   // ≥ 1 s AND ≥ 4 columns — never cuts a legit tail
             if playingSilenceLeak(playing: playing, liveInput: pool.count, latchArmed: false,
-                                  auditioning: false, emptyInputSamples: emptyInputSamples,
+                                  auditioning: euclideousTestLive != 0, emptyInputSamples: emptyInputSamples,
                                   debounceSamples: debounce, activeVoices: diag.activeVoiceCount,
                                   passthroughHeld: diag.passthroughHeld) {
                 healStuckNotes(now: now, hardTrap: false, reasonCode: 2, diag: &diag)   // 2 = playing silence leak (soft — no trap)

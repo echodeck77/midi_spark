@@ -98,6 +98,11 @@ final class Router {
     // LANE SOLO (2026-10-21): which Euclideous lane struck a voice / an echo tail (−1 = none, every other row). `euclideousStrikeLane` is set for the duration of one lane's `runEuclidLine` and, per tail, while the
     // echo ring drains, and stamped by `openVoice` / `pushEchoTail` — so a solo that silences a lane can end exactly ITS sounding notes and pending repeats at once (`cutSoloSilencedLanes`).
     private var euclideousStrikeLane: Int8 = -1
+    // INPUTS TEST (2026-11-08): the audition. `…Now` is this window's testing lane (−1 = none, decoded from the live word); `…Active` tracks it so a change restarts the walk; the cursor + next-sample are a free-running clock (absolute samples, independent of the transport, so it runs while STOPPED).
+    private var euclideousTestLaneNow: Int = -1
+    private var euclideousTestLaneActive: Int = -1
+    private var euclideousTestNextSample: Int64 = 0
+    private var euclideousTestCursor: Int = 0
     /// MIX ROWS (2026-11-03): the POOL rank (1…8, 0 = none) of the strike being emitted — set by `strikeChord` / the echo-tail drain, read by `emitOneBus` for the roll record and stamped on the voice for its END record.
     private var euclideousStrikeRank: UInt8 = 0
     /// The UI's LIVE solo word (`Kernel.euclideousSoloLive`: 0x100 | the effective mask once the page has spoken, else 0 = "use the snapshot's"). Written by the main thread the instant a SOLO button is touched,
@@ -1273,6 +1278,7 @@ final class Router {
         wasPlaying = false
         resetEmitterRatchetOrigin()   // EMITTER RATCHET §2.5: a reset is a count origin
         resetCanonClock()             // CHORD CANON: the elapsed clock and the history start over
+        euclideousTestLaneActive = -1; euclideousTestCursor = 0; euclideousTestNextSample = 0   // INPUTS TEST: the audition walk restarts cleanly (the next window re-seats it at the window start)
         resetAllTickDedup(); for r in strumProgress.indices { strumProgress[r] = 0 }
         prevEffColumn = -1
         prevBusEnabledMask = 0xFF
@@ -1879,6 +1885,36 @@ final class Router {
     }
 
 
+    /// INPUTS TEST (2026-11-08): the lane's pool auditioned — one note every ~150 ms, cut after ~120 ms, across the lane's emitters (riff mask | notes mask), tagged as the lane, on a free-running SAMPLE clock so it works while the transport is STOPPED. Rides `emitOneOutput` (the tested emission path: own + ALL cable, the output's channel, the flood governor, the refcounted off → no stuck note). The pool comes from the per-lane status store, refreshed in `runSegment` by `idleLanePoolSample`. No allocation (fixed loop, preallocated buffers).
+    private func euclideousRunAudition(lane: Int, lines: [EuclidLine], windowStart: Int64, windowEnd: Int64, out: MIDIEmitter?) {
+        guard lane >= 0, lane < 4, lane < lines.count else { return }
+        let mask = (lines[lane].riffOutMaskResolved(lane: lane) | lines[lane].notesOutMaskResolved(lane: lane)) & 0x0F
+        let count = laneStat.count[lane]
+        guard mask != 0, count > 0 else { return }   // no emitter (UI also disables TEST) or an empty pool ⇒ nothing
+        let step = max(Int64(1), Int64(fSampleRate * 0.15)), gate = max(Int64(1), Int64(fSampleRate * 0.12))
+        if euclideousTestNextSample < windowStart { euclideousTestNextSample = windowStart }   // never strike in the past (first window / after a gap)
+        // The flood budget resets only when the musical beat advances; a STOPPED host freezes it, so give the auditioned outputs a fresh budget here. The audition runs LAST in the window (nothing emits after it), so this never steals budget from a normal lane.
+        var mReset = mask
+        while mReset != 0 { let o = Int(mReset.trailingZeroBitCount); mReset &= mReset &- 1; euclideousOnsThisBeat[o] = 0 }
+        let saveLane = euclideousStrikeLane
+        euclideousStrikeLane = Int8(lane)
+        euclideousStrikeMuteBeat = fBeatPos   // the output-mute gate reads a musical beat; use the (frozen) beat — a muted output simply does not audition
+        euclideousStrikeRank = 0
+        var guardN = 0
+        while euclideousTestNextSample < windowEnd && guardN < 64 {
+            guardN &+= 1
+            let note = Int(laneStat.notes[lane * 16 + (euclideousTestCursor % count)])
+            let onS = euclideousTestNextSample, offS = onS &+ gate
+            var m = mask
+            while m != 0 { let o = Int(m.trailingZeroBitCount); m &= m &- 1
+                _ = emitOneOutput(o, part: 2 * lane, note: UInt8(max(0, min(127, note))), velocity: 100, onSample: onS, offSample: offS, windowEnd: windowEnd, out: out, onVoiceOpened: { _ in }, euclideousLegato: false)
+            }
+            euclideousTestCursor &+= 1
+            euclideousTestNextSample &+= step
+        }
+        euclideousStrikeLane = saveLane
+    }
+
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,
                              beatsPerSample: Double, a: Double, tempo: Double,
@@ -2088,6 +2124,7 @@ final class Router {
                  euclideousPendingRolls: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                  euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                  euclideousLockLive: UInt64 = 0,
+                 euclideousTestLive: UInt16 = 0,   // INPUTS TEST (2026-11-08): 0 = none; 0x100 | lane auditioning its pool
                  sceneFlush: Bool = false,
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
@@ -2171,6 +2208,13 @@ final class Router {
         // as the last Euclideous sweep saw it). The sweep inside the Euclideous row repeats this with the authoritative mask, so the snapshot-only path (no UI) is covered too.
         soloLiveWord = euclideousSoloLive
         partSoloLiveWord = euclideousPartSoloLive
+        // INPUTS TEST (2026-11-08): which lane auditions this window (−1 = none). A change in the testing lane restarts the walk at the window's first sample; it is otherwise free-running (the cursor + next-sample persist across windows).
+        euclideousTestLaneNow = (euclideousTestLive & 0x100 != 0) ? Int(euclideousTestLive & 3) : -1
+        if euclideousTestLaneNow != euclideousTestLaneActive {
+            euclideousTestLaneActive = euclideousTestLaneNow
+            euclideousTestCursor = 0
+            euclideousTestNextSample = windowStart
+        }
         lockLiveWord = euclideousLockLive    // LANE LOCK: the page's held lanes + revisions, read per window (planLocks)
         lockWindowSeconds = sampleRate > 0 ? Double(frameCount) / sampleRate : 0
         cutSoloSilencedLanes(soloMask: soloMaskNow(snapshot: lastSnapshotSoloMask), partMask: partSoloMaskNow(snapshot: lastSnapshotPartSoloMask), atSample: windowStart, out: out)
@@ -5431,6 +5475,8 @@ final class Router {
                 // LANE LOCK: the lane plays its window in one segment, or — when a lock snap lands inside it — in two: the old line for the ticks before the line, L applied from it.
                 func runSegment(tickFrom: Double, tickBefore: Double) {
                 let L = linesView[lineIndex]
+                // INPUTS TEST (2026-11-08): the testing lane produces NO normal output (the audition below walks its pool instead); keep its pool fresh for the audition + the NOW display.
+                if isEuclideousRow && lineIndex == euclideousTestLaneNow { if !hocketClockPass { idleLanePoolSample(lane: lineIndex, line: L) }; return }
                 guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { if isEuclideousRow, lineIndex < 4 { idleLanePoolSample(lane: lineIndex, line: L) }; return }
                 // ANSWER: which phase this segment plays in, and so which of the lane's rows act (a cycling row acts as if switched off in phase B, 5.5). With no cycle anywhere this is `L.listenRhythmResolved` / `listenPitchResolved`.
                 let segPhaseB = answerEngaged && lineIndex < 4 && ((tickFrom + 1e-9 >= answerBoundary[lineIndex] ? answerAfterBits : answerBeforeBits) >> UInt8(lineIndex)) & 1 != 0
@@ -5530,6 +5576,10 @@ final class Router {
             }
             }   // HOCKET: the clock pre-pass / play pass loop
             hocketClockPass = false
+            // INPUTS TEST (2026-11-08): the testing lane walks its pool across its emitters, once per window, on the free-running audition clock (its normal output was suppressed in runSegment).
+            if isEuclideousRow, euclideousTestLaneNow >= 0 {
+                euclideousRunAudition(lane: euclideousTestLaneNow, lines: p.euclidLines, windowStart: windowStart, windowEnd: windowEnd, out: out)
+            }
             // HOCKET §8: the count of each lit rule at this window's start, from the SAME `hocketCount` the notes are routed by (the clocks above are this window's).
             if isEuclideousRow {
                 var live = SIMD4<Int64>(repeating: 0)
