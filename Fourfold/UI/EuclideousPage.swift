@@ -4602,7 +4602,7 @@ struct EuclideousPage: View {
             Text(step.mode.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1)
                 .foregroundColor(patternSelectedText)
                 .contentShape(Rectangle())
-                .onTapGesture { playAsPopup = PlayAsPopupTarget(lane: idx, chip: i) }
+                .onTapGesture { closeAllOtherOverlays(); playAsPopup = PlayAsPopupTarget(lane: idx, chip: i) }   // one overlay at a time (§ like every other open path)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Play as \(step.mode.rawValue.lowercased()), chip \(i + 1), lane \(idx + 1)")
                 .accessibilityValue(euclideousNotesWayDescriptions[step.mode] ?? "")
@@ -4641,7 +4641,7 @@ struct EuclideousPage: View {
                 var newIndex = 0
                 edit(idx) { var s = ($0.notesPlaySeq?.isEmpty == true) ? [] : $0.notesPlaySeqResolved
                     s.append(EuclideousPlayStep()); newIndex = s.count - 1; $0.notesPlaySeq = s }
-                playAsPopup = PlayAsPopupTarget(lane: idx, chip: newIndex)
+                closeAllOtherOverlays(); playAsPopup = PlayAsPopupTarget(lane: idx, chip: newIndex)   // one overlay at a time
             }
             .accessibilityElement(children: .ignore).accessibilityLabel("Add a mode, lane \(idx + 1)").accessibilityAddTraits(.isButton)
     }
@@ -4679,7 +4679,9 @@ struct EuclideousPage: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(sel ? accent : Color(hex: 0x33363D), lineWidth: sel ? 2 : 1))
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        edit(target.lane) { var s = $0.notesPlaySeqResolved; guard target.chip < s.count else { return }; s[target.chip].mode = way; $0.notesPlaySeq = s }
+                        if way != current {   // re-selecting the current mode is not an edit (a migrated nil lane would otherwise materialise an identical-sounding array and record a dead undo step — the retired picker guarded the same way)
+                            edit(target.lane) { var s = $0.notesPlaySeqResolved; guard target.chip < s.count else { return }; s[target.chip].mode = way; $0.notesPlaySeq = s }
+                        }
                         playAsPopup = nil
                     }
                     .accessibilityElement(children: .ignore)

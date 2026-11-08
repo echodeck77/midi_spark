@@ -528,7 +528,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) INPUTS lane modes hand", "(default) INPUTS ROOT delayed hand", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER COPY of a PING-PONG source", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off", "(default) PART SOLO changing"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) INPUTS lane modes hand", "(default) INPUTS ROOT delayed hand", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER COPY of a PING-PONG source", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off", "(default) PART SOLO changing", "(default) PLAY AS SEQUENCE"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -648,6 +648,23 @@ extension Host {
                 }
                 if name.contains("ANSWER") {   // ANSWER ferry (2026-11-02): the cycle latch, the window split, the phase rows, and TRADE's push — the record, the re-voiced rebuild and a second emission per hit (with the hocket fan-out and the routing worst case in the last run)
                     au.editDocument { answerDocument(&$0, name.contains("cycles") ? 1 : (name.contains("SWAP") ? 4 : (name.contains("PING-PONG") ? 6 : 5))) }
+                }
+                if name.contains("PLAY AS SEQ") {   // PLAY AS SEQUENCE (2026-11-08): every lane plays a MULTI-chip sequence covering all six new modes over lit notes, with TIE on — so the active-chip walk (`euclideousPlaySeqActive`), the per-hit mode pick and the TIE lookahead (which recomputes the active mode at each scanned hit) all run on the render thread each hit and must allocate nothing (the factory presets are all single-chip, so this is the only multi-chip coverage)
+                    au.editDocument {
+                        var ls = $0.euclideousLinesResolved
+                        for i in 0..<4 {
+                            ls[i].notesOn = true
+                            ls[i].notesLitOrder = [0, 2, 4, 5, 7, 8, 9]   // several ranks + TOP 2 + TOP, so every mode has notes to arrange
+                            ls[i].notesWhen = 0b11
+                            ls[i].riffOnRest = .tie                        // exercise the TIE lookahead across chip boundaries
+                            ls[i].notesPlaySeq = [
+                                EuclideousPlayStep(mode: .cycle, hits: 2), EuclideousPlayStep(mode: .reverse, hits: 3),
+                                EuclideousPlayStep(mode: .pairs, hits: 2), EuclideousPlayStep(mode: .random, hits: 1),
+                                EuclideousPlayStep(mode: .alternate, hits: 3), EuclideousPlayStep(mode: .outline, hits: 2),
+                                EuclideousPlayStep(mode: .drone, hits: 1), EuclideousPlayStep(mode: .build, hits: 2)]
+                        }
+                        $0.euclideousLines = ls
+                    }
                 }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }
                 if name.contains("LATCH") { au.editDocument { $0.euclideousHoldLatchMode = .latch } }

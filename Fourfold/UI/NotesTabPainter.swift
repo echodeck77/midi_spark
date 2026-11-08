@@ -108,7 +108,8 @@ struct EuclideousNotesPickerView: View {
                 .frame(width: max(0, layout.pickerHeader.width - layout.pickerClose.width - 8), height: layout.pickerHeader.height, alignment: .leading)
                 .offset(x: layout.pickerHeader.minX, y: layout.pickerHeader.minY)
             closeButton.offset(x: layout.pickerClose.minX, y: layout.pickerClose.minY)
-            ForEach(0..<euclideousNotesWayOrder.count, id: \.self) { i in
+            // RETIRED (PLAY AS SEQUENCE ferry 2026-11-08): the live picker is the page-level pop-up now; this view is unmounted. `euclideousNotesWayOrder` grew to 13 but `layout.pickerCells` still has 7, so bound the loop — a re-mount degrades, never crashes.
+            ForEach(0..<min(euclideousNotesWayOrder.count, layout.pickerCells.count), id: \.self) { i in
                 let way = euclideousNotesWayOrder[i]
                 cell(way, frame: layout.pickerCells[i]).offset(x: layout.pickerCells[i].minX, y: layout.pickerCells[i].minY)
             }

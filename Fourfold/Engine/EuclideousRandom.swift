@@ -794,6 +794,9 @@ func euclideousRandomCommitPendingRoll(_ roll: EuclideousPendingRoll, into line:
     case .notes:
         line.notesLitOrder = roll.notesLitOrder.array
         line.notesWhen = roll.notesWhen; line.notesChance = roll.notesChance; line.notesPlayAs = roll.notesPlayAs
+        // PLAY AS SEQUENCE (2026-11-08): `notesPlaySeq` is LEFT UNTOUCHED. A single-mode lane (the common case, nil seq) plays the rolled `notesPlayAs` through `notesPlaySeqResolved` — unchanged from before. A multi-chip lane KEEPS its
+        // sequence (the dice can't carry one — `EuclideousPendingRoll` is a fixed-size render-thread struct, no array — and clearing it would both lose the user's deliberate work on a THROW and be unrestorable on BACK). So the dice
+        // randomises a sequenced lane's rhythm / riff / lit order / WHEN / CHANCE but leaves its PLAY AS sequence alone — a bounded, non-destructive limit. (`euclideousRandomApplyTabFields` still restores `notesPlaySeq` on undo, a no-op here.)
     }
 }
 
@@ -854,6 +857,7 @@ func euclideousRandomApplyTabFields(from original: EuclidLine, tab: EuclideousRa
     case .notes:
         line.notesLitOrder = original.notesLitOrder; line.notesWhen = original.notesWhen
         line.notesChance = original.notesChance; line.notesPlayAs = original.notesPlayAs
+        line.notesPlaySeq = original.notesPlaySeq   // PLAY AS SEQUENCE (2026-11-08): BACK / undo restores the chip sequence the commit replaced
     }
 }
 
