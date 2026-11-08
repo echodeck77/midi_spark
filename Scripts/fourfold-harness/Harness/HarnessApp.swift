@@ -528,7 +528,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) INPUTS lane modes hand", "(default) INPUTS ROOT delayed hand", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER COPY of a PING-PONG source", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off", "(default) PART SOLO changing", "(default) PLAY AS SEQUENCE"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) INPUTS lane modes hand", "(default) INPUTS ROOT delayed hand", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER COPY of a PING-PONG source", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off", "(default) PART SOLO changing", "(default) PLAY AS SEQUENCE", "(default) EMITTER CC"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -664,6 +664,16 @@ extension Host {
                                 EuclideousPlayStep(mode: .drone, hits: 1), EuclideousPlayStep(mode: .build, hits: 2)]
                         }
                         $0.euclideousLines = ls
+                    }
+                }
+                if name.contains("EMITTER CC") {   // CC tab (Nov 2026): every output sends a CC — FIXED + RIFF value modes, STEP / GLIDE / FALL travel, an inverted LOW > HIGH map — so the per-hit value, the GLIDE next-rank prediction, the ramp walk and the mute gate all run on the render thread and must allocate nothing
+                    au.editDocument {
+                        var set = EmitterCCSet()
+                        set[0] = EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: .glide, time: 60, muteValue: 10)
+                        set[1] = EmitterCC(on: true, ccNumber: 71, valueMode: .fixed, level: 90, travel: .step)
+                        set[2] = EmitterCC(on: true, ccNumber: 1, valueMode: .riff, high: 20, low: 110, travel: .fall, time: 40)   // LOW > HIGH (inverted mapping)
+                        set[3] = EmitterCC(on: true, ccNumber: 11, valueMode: .riff, high: 127, low: 0, travel: .glide, time: 100)
+                        $0.euclideousEmitterCCs = set
                     }
                 }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }

@@ -148,6 +148,7 @@ enum SnapshotBuilder {
                     sc.procs[0].hocketRules = HocketRulesSnap(rules: doc.hocketRulesResolved)   // HOCKET (2026-10-27): page-level, no MachineParams hop — fixed-size value data for the render thread
                     sc.procs[0].emitterRatchets = EmitterRatchetSnap(doc.euclideousEmitterRatchetsResolved, countsSteps: doc.fxCountsResolved == .steps)   // EMITTER RATCHET (2026-10-28): page-level, no MachineParams hop; the Euclid masks are built here, on the main thread
                     sc.procs[0].emitterVelocities = EmitterVelocitySnap(doc.euclideousEmitterVelocitiesResolved)   // EMITTER VELOCITY (2026-11-03): page-level per-output velocity accents; the Euclid masks are built here, on the main thread
+                    sc.procs[0].emitterCCs = EmitterCCSnap(doc.euclideousEmitterCCsResolved)   // EMITTER CC (CC tab, Nov 2026): page-level per-output CC emitters (no Euclid pattern of their own)
                     sc.procs[0].outputMutes = doc.euclideousOutputMutesResolved   // MUTE TAB (output mute, 2026-11-02): page-level, no MachineParams hop — a plain value struct for the render thread; nil ⇒ nothing muted, byte-identical
                     sc.procs[0].euclideousLanesSeqOn = doc.euclideousLanesSeqOnResolved
                     sc.procs[0].euclideousLanesSeqRate = doc.euclideousLanesSeqRateResolved

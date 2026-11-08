@@ -243,6 +243,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func uiHocketRules() -> [HocketRule] { document.hocketRulesResolved }   // HOCKET (2026-10-27): sanitised, ≤ 4 rules; [] = none stored
     func uiEmitterRatchets() -> EmitterRatchetSet { document.euclideousEmitterRatchetsResolved }   // EMITTER RATCHET (2026-10-28): the four output ratchets; nil in the document = all defaults
     func uiEmitterVelocities() -> EmitterVelocitySet { document.euclideousEmitterVelocitiesResolved }   // EMITTER VELOCITY (2026-11-03): the four per-output velocity accents; nil = all defaults
+    func uiEmitterCCs() -> EmitterCCSet { document.euclideousEmitterCCsResolved }   // EMITTER CC (CC tab, Nov 2026): the four per-output CC emitters; nil = all defaults
     func uiEuclideousOutputMutes() -> EuclideousOutputMutes { document.euclideousOutputMutesResolved }   // MUTE TAB (2026-11-02): the four per-output mutes; nil in the document = all defaults
     func uiEuclideousLanesSeq() -> EuclideousLanesSeq {
         EuclideousLanesSeq(on: document.euclideousLanesSeqOnResolved, rate: document.euclideousLanesSeqRateResolved,

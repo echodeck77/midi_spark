@@ -1983,6 +1983,86 @@ struct EmitterVelocitySet: Equatable, Codable {
     var isAllDefault: Bool { self == EmitterVelocitySet() }
 }
 
+// MARK: - EMITTER CC (CC tab, ratified Nov 2026)
+// Four page-level CC emitters, one per OUTPUT A–D. Each sends ONE MIDI CC driven by the Euclid hits of the lanes routed to it (no Euclid controls of its own — it rides the existing lane routing): a CC fires on every hit, its value from
+// FIXED (a level) or RIFF (the riff grid rank at the hit, mapped LOW…HIGH), and TRAVEL (STEP / GLIDE / FALL) shapes what happens between this hit and the next (rate-limited). Additive-Optional, decode-tolerant: nil / short / long /
+// unreadable ⇒ four emitters at the defaults, all OFF, so an old session and every factory preset are byte-identical. LOW may be set ABOVE HIGH (inverts the mapping — never clamped or swapped). CC numbers 120–127 (channel-mode) are excluded.
+enum EmitterCCValueMode: String, Codable, CaseIterable {
+    case fixed = "FIXED", riff = "RIFF"
+    init(from decoder: Decoder) throws { self = EmitterCCValueMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .riff }
+}
+enum EmitterCCTravel: String, Codable, CaseIterable {
+    case step = "STEP", glide = "GLIDE", fall = "FALL"
+    init(from decoder: Decoder) throws { self = EmitterCCTravel(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .step }
+}
+struct EmitterCC: Equatable {
+    var on = false
+    var ccNumber = 74                               // 0…119
+    var valueMode: EmitterCCValueMode = .riff
+    var level = 100                                 // 0…127 (FIXED)
+    var high = 127                                  // 0…127
+    var low = 0                                     // 0…127 (may exceed HIGH — inverts, never clamped/swapped)
+    var travel: EmitterCCTravel = .step
+    var time = 50                                   // 1…100 (% of the gap to the next hit)
+    var muteValue = 0                               // 0…127
+    static let maxCC = 119, minTime = 1, maxTime = 100
+    init() {}
+    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .riff, level: Int = 100, high: Int = 127, low: Int = 0, travel: EmitterCCTravel = .step, time: Int = 50, muteValue: Int = 0) {
+        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.level = level; self.high = high; self.low = low; self.travel = travel; self.time = time; self.muteValue = muteValue
+    }
+    func normalized() -> EmitterCC {
+        var r = self
+        r.ccNumber = max(0, min(Self.maxCC, ccNumber))
+        r.level = max(0, min(127, level)); r.high = max(0, min(127, high)); r.low = max(0, min(127, low)); r.muteValue = max(0, min(127, muteValue))
+        r.time = max(Self.minTime, min(Self.maxTime, time))
+        return r
+    }
+}
+extension EmitterCC: Codable {
+    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, level, high, low, travel, time, muteValue }
+    init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        func int(_ k: CodingKeys) -> Int? { ((try? c.decodeIfPresent(EuclideousFXLossyInt.self, forKey: k)) ?? nil)?.value }
+        if let b = (try? c.decodeIfPresent(Bool.self, forKey: .on)) ?? nil { on = b }
+        if let n = int(.ccNumber) { ccNumber = n }
+        if let v = (try? c.decodeIfPresent(EmitterCCValueMode.self, forKey: .valueMode)) ?? nil { valueMode = v }
+        if let n = int(.level) { level = n }
+        if let n = int(.high) { high = n }
+        if let n = int(.low) { low = n }
+        if let v = (try? c.decodeIfPresent(EmitterCCTravel.self, forKey: .travel)) ?? nil { travel = v }
+        if let n = int(.time) { time = n }
+        if let n = int(.muteValue) { muteValue = n }
+        self = normalized()
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(on, forKey: .on); try c.encode(ccNumber, forKey: .ccNumber); try c.encode(valueMode, forKey: .valueMode)
+        try c.encode(level, forKey: .level); try c.encode(high, forKey: .high); try c.encode(low, forKey: .low)
+        try c.encode(travel, forKey: .travel); try c.encode(time, forKey: .time); try c.encode(muteValue, forKey: .muteValue)
+    }
+}
+/// The document's four CC emitters: FIXED-SIZE storage, encoded as a plain array of four. The four default CC numbers differ (A 74 · B 71 · C 1 · D 11); every write through the subscript normalises. Same shape as `EmitterVelocitySet`.
+struct EmitterCCSet: Equatable, Codable {
+    static let count = 4
+    static let defaultCCNumbers = [74, 71, 1, 11]
+    private var e0 = EmitterCC(ccNumber: 74), e1 = EmitterCC(ccNumber: 71), e2 = EmitterCC(ccNumber: 1), e3 = EmitterCC(ccNumber: 11)
+    init() {}
+    init(_ list: [EmitterCC]) { for (i, r) in list.prefix(Self.count).enumerated() { self[i] = r } }
+    init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.singleValueContainer(), let raw = try? c.decode([EmitterCC].self) else { return }
+        for (i, r) in raw.prefix(Self.count).enumerated() { self[i] = r }
+    }
+    func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(asArray) }
+    subscript(i: Int) -> EmitterCC {
+        get { switch i { case 0: return e0; case 1: return e1; case 2: return e2; default: return e3 } }
+        set { let n = newValue.normalized(); switch i { case 0: e0 = n; case 1: e1 = n; case 2: e2 = n; default: e3 = n } }
+    }
+    var asArray: [EmitterCC] { [e0, e1, e2, e3] }
+    var isAllDefault: Bool { self == EmitterCCSet() }
+}
+
 struct EuclideousLanesSeq: Equatable {
     var on: Bool = false
     var rate: EuclideousSeqRate = .oneBar
@@ -3532,6 +3612,8 @@ struct PluginState: Codable, Equatable {
     var euclideousEmitterRatchetsResolved: EmitterRatchetSet { euclideousEmitterRatchets ?? EmitterRatchetSet() }
     var euclideousEmitterVelocities: EmitterVelocitySet? = nil   // VELOCITY tab (2026-11-03): four per-output velocity accents; nil ⇒ all defaults, all off (byte-identical)
     var euclideousEmitterVelocitiesResolved: EmitterVelocitySet { euclideousEmitterVelocities ?? EmitterVelocitySet() }
+    var euclideousEmitterCCs: EmitterCCSet? = nil   // CC tab (Nov 2026): four per-output CC emitters; nil ⇒ all defaults, all off (byte-identical)
+    var euclideousEmitterCCsResolved: EmitterCCSet { euclideousEmitterCCs ?? EmitterCCSet() }
     // MUTE TAB (ferry "LANES → MUTE: each block is an emitter", 2026-11-02): one 16-cell × N-pass mute per OUTPUT A–D, gating EMISSION on that output (even notes routed in from another lane). Additive-Optional and
     // decode-tolerant: nil ⇒ four outputs at the defaults (every cell sounds, 1 pass), so an old document and every factory preset play bit-identically. `…Resolved` is what the render path (via `SnapshotBuilder`),
     // the page and undo all read. Replaces the per-lane `EuclidLine.muteCells16`/`muteUnit` (lane N → output N on load — see Slice 2's migration); each output's grid ticks on its HOME lane's pass (A↔lane 1 … D↔lane 4).
@@ -4151,6 +4233,7 @@ struct EuclideousUndoSnapshot: Equatable {
     var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the rules — undoable page-level state (which rule tab is showing, and whether the pop-up is open, are not); [] = none stored
     var emitterRatchets: EmitterRatchetSet = EmitterRatchetSet()   // EMITTER RATCHET (2026-10-28): the four output ratchets — undoable page-level state; all-default restores "nothing stored" (nil)
     var emitterVelocities: EmitterVelocitySet = EmitterVelocitySet()   // EMITTER VELOCITY (2026-11-03): the four per-output velocity accents — undoable page-level state; all-default restores "nothing stored" (nil)
+    var emitterCCs: EmitterCCSet = EmitterCCSet()   // EMITTER CC (CC tab, Nov 2026): the four per-output CC emitters — undoable page-level state; all-default restores "nothing stored" (nil)
     var outputMutes: EuclideousOutputMutes = EuclideousOutputMutes()   // MUTE TAB (2026-11-02): the four per-output mutes — undoable page-level state; all-default restores "nothing stored" (nil)
     var riffPoly: Bool = false                   // POLY RIFF (2026-10-29): the MONO | POLY mode — undoable page-level state (a step of its own)
     var polyRiff: EuclideousPolyRiff? = nil      // …and the POLY riff itself (nil = nothing stored); one drag is one step

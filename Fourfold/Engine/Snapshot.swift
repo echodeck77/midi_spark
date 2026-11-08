@@ -237,6 +237,30 @@ struct EmitterVelocitySnap: Equatable {
     var anyOn: Bool { e0.on || e1.on || e2.on || e3.on }
 }
 
+// MARK: - EMITTER CC (CC tab, Nov 2026) — the four per-output CC emitters as the render thread reads them. No Euclid pattern of its own (it rides the lanes' hits), so no mask — just the fields.
+struct EmitterCCCfg: Equatable {
+    var on = false
+    var ccNumber = 74
+    var valueMode: EmitterCCValueMode = .riff
+    var level = 100, high = 127, low = 0, time = 50, muteValue = 0
+    var travel: EmitterCCTravel = .step
+    init() {}
+    init(_ e: EmitterCC) { let n = e.normalized(); on = n.on; ccNumber = n.ccNumber; valueMode = n.valueMode; level = n.level; high = n.high; low = n.low; travel = n.travel; time = n.time; muteValue = n.muteValue }
+    /// The hit value for a riff rank r (1…8): LOW + (r−1)/7 × (HIGH − LOW), rounded, clamped 0…127. LOW may exceed HIGH (inverts). FIXED mode uses `level` instead.
+    @inline(__always) func riffValue(rank r: Int) -> Int { max(0, min(127, Int((Double(low) + Double(r - 1) / 7.0 * Double(high - low)).rounded()))) }
+    @inline(__always) var fixedValue: Int { max(0, min(127, level)) }
+}
+struct EmitterCCSnap: Equatable {
+    var e0 = EmitterCCCfg(), e1 = EmitterCCCfg(), e2 = EmitterCCCfg(), e3 = EmitterCCCfg()
+    init() {}
+    init(_ set: EmitterCCSet) { for i in 0..<EmitterCCSet.count { self[i] = EmitterCCCfg(set[i]) } }
+    subscript(i: Int) -> EmitterCCCfg {
+        get { switch i { case 0: return e0; case 1: return e1; case 2: return e2; default: return e3 } }
+        set { switch i { case 0: e0 = newValue; case 1: e1 = newValue; case 2: e2 = newValue; default: e3 = newValue } }
+    }
+    var anyOn: Bool { e0.on || e1.on || e2.on || e3.on }
+}
+
 struct SnapParams {
     var type: ProcessorType = .arp
     var octaves: UInt8 = 1
@@ -322,6 +346,8 @@ struct SnapParams {
     var emitterRatchets: EmitterRatchetSnap = EmitterRatchetSnap()
     // EMITTER VELOCITY (2026-11-03): the page-level per-output velocity accents, gated to `Snap.euclideousRow`; all OFF (the default) ⇒ the Router's velocity offset is skipped, bit for bit.
     var emitterVelocities: EmitterVelocitySnap = EmitterVelocitySnap()
+    // EMITTER CC (CC tab, Nov 2026): the page-level per-output CC emitters, gated to `Snap.euclideousRow`; all OFF (the default) ⇒ the Router's CC path is skipped, bit for bit.
+    var emitterCCs: EmitterCCSnap = EmitterCCSnap()
     // MUTE TAB (output mute, 2026-11-02): the page-level per-output mute, gated to `Snap.euclideousRow`; no muted cell anywhere (the default) ⇒ the Router's output-mute gate is skipped, bit for bit. A plain value struct
     // (four UInt16 + four UInt8), so it is allocation-free on the render path.
     var outputMutes: EuclideousOutputMutes = EuclideousOutputMutes()
