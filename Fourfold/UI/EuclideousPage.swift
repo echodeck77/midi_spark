@@ -771,6 +771,9 @@ struct EuclideousPage: View {
     // PER-PART SOLO (MIX v2, 2026-11-05): the part masks (bit 2n = lane n's riff, 2n + 1 = its notes) — latched (saved) and held (a finger down; UI only).
     let partSoloMask: UInt8
     let partSoloHeld: UInt8
+    // INPUTS TEST (2026-11-08): which lane is auditioning its pool (nil = none — the TEST button's running state), and the toggle. Ephemeral UI only (a live word to the kernel); never saved, never undone.
+    var testLane: Int? = nil
+    var onToggleTest: (Int) -> Void = { _ in }
     // CHORDS GRID ferry (Paul 2026-10-24): independently-stored progressions ("tabs"), replacing the single
     // grid the CHORDS BUTTON ferry (2026-10-08) first added. TWO CHORD GRIDS (2026-11-03): two of them, and each LANE
     // picks which one it plays (CHORD 1 | CHORD 2 on the INPUTS tab's SOURCES row) — `activeChordSet` is only the tab this
@@ -5289,32 +5292,83 @@ struct EuclideousPage: View {
         }
         .frame(width: fullWidth, height: height))
     }
-    /// 3.3: SOURCES — five equal toggles (MIDI IN · CHORD 1 · CHORD 2 · PICK · KEY), 26 tall, the mode buttons' heavy label face. On: the selected look in the lane's colour; off: the unselected look. A lane's sources are exactly these chips (the
-    /// global switches are gone). CHORD 1 and CHORD 2 are mutually exclusive (`setPoolSrc`): lighting one puts the other out, tapping the lit one turns chords off for the lane. One `edit`, one undo step, per tap.
+    /// 3.3 (SOURCES row ferry, 2026-11-08): MIDI IN · CHORDS (+ a 1|2 grid chooser) · PICK · KEY, then a separated TEST button. The two chord bits (CHORD 1 / CHORD 2, mutually exclusive) are consolidated into ONE CHORDS toggle plus a small
+    /// 1|2 segmented chooser that picks the grid (dimmed while CHORDS is off, still tappable — picking a grid turns chords on). The model is unchanged (`poolSrcMask` bits 1 / 4). One `edit`, one undo step, per tap (`onEdit`'s UNDO-6 guard drops a no-op re-tap).
     private func poolSourcesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
         let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 4
-        let btnW = max(1, (fullWidth - labelW - gap * 5) / 5)
-        let names = ["MIDI IN", "CHORD 1", "PICK", "KEY", "CHORD 2"]                         // by bit; drawn in `euclideousPoolSourceOrder`
+        let testW: CGFloat = 52, chooserW: CGFloat = 38
+        let chipW = max(1, (fullWidth - labelW - chooserW - testW - gap * 6) / 4)   // six gaps: label · MIDI · CHORDS · chooser · PICK · KEY · TEST
+        let chordsOn = line.poolSrcOn(1) || line.poolSrcOn(4)
+        let grid = line.poolSrcOn(4) ? 1 : 0                                         // 0 = CHORD 1 (bit 1), 1 = CHORD 2 (bit 4)
         return AnyView(HStack(spacing: gap) {
             Text("SOURCES").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            ForEach(euclideousPoolSourceOrder, id: \.self) { b in
-                let on = line.poolSrcOn(b)
-                Text(names[b]).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.75)
-                    .foregroundColor(on ? patternSelectedText : patternUnselectedText)
-                    .frame(width: btnW, height: min(EuclideousPoolTabMetrics.toggleH, height))
-                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
-                    .frame(width: btnW, height: height)
-                    .contentShape(Rectangle())
-                    .onTapGesture { edit(idx) { $0.setPoolSrc(b, !$0.poolSrcOn(b)) } }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(euclideousPoolSourceNames[b]), lane \(idx + 1)")   // the lane is part of the name: four cards carry the same toggles
-                    .accessibilityValue(euclideousPoolSourceValue(on: on))
-                    .accessibilityAddTraits(.isButton)
-                    .ringToggleTrait()
+            poolSourceChip("MIDI IN", on: line.poolSrcOn(0), w: chipW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[0]), lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: line.poolSrcOn(0))) { edit(idx) { $0.setPoolSrc(0, !$0.poolSrcOn(0)) } }
+            poolSourceChip("CHORDS", on: chordsOn, w: chipW, height: height, accent: accent, ax: "Chords, lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: chordsOn)) {
+                edit(idx) { l in if l.poolSrcOn(1) || l.poolSrcOn(4) { l.setPoolSrc(1, false); l.setPoolSrc(4, false) } else { l.setPoolSrc(1, true) } }   // off ⇒ both bits clear; on ⇒ grid 1 (the chooser moves it to grid 2)
             }
+            poolChordChooser(idx, grid: grid, chordsOn: chordsOn, w: chooserW, height: height, accent: accent)
+            poolSourceChip("PICK", on: line.poolSrcOn(2), w: chipW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[2]), lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: line.poolSrcOn(2))) { edit(idx) { $0.setPoolSrc(2, !$0.poolSrcOn(2)) } }
+            poolSourceChip("KEY", on: line.poolSrcOn(3), w: chipW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[3]), lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: line.poolSrcOn(3))) { edit(idx) { $0.setPoolSrc(3, !$0.poolSrcOn(3)) } }
+            poolTestButton(idx, line, w: testW, height: height, accent: accent)
         }
         .frame(width: fullWidth, height: height))
+    }
+    /// One SOURCES toggle chip (MIDI IN / CHORDS / PICK / KEY): the mode buttons' heavy label face, the lane-colour selected look on, the unselected look off.
+    private func poolSourceChip(_ name: String, on: Bool, w: CGFloat, height: CGFloat, accent: Color, ax: String, axValue: String, tap: @escaping () -> Void) -> some View {
+        Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
+            .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+            .frame(width: w, height: min(EuclideousPoolTabMetrics.toggleH, height))
+            .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+            .frame(width: w, height: height)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: tap)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(ax)
+            .accessibilityValue(axValue)
+            .accessibilityAddTraits(.isButton)
+            .ringToggleTrait()
+    }
+    /// The CHORDS grid chooser — two small segments "1" / "2" picking which of the two progressions this lane's CHORDS layer plays. Dimmed while CHORDS is off (still tappable: a tap turns chords on with that grid). One undo step per tap.
+    private func poolChordChooser(_ idx: Int, grid: Int, chordsOn: Bool, w: CGFloat, height: CGFloat, accent: Color) -> some View {
+        let h = min(EuclideousPoolTabMetrics.toggleH, height), segW = max(1, (w - 2) / 2)
+        return HStack(spacing: 2) {
+            ForEach(0..<2, id: \.self) { g in
+                let sel = chordsOn && grid == g
+                Text(g == 0 ? "1" : "2").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1)
+                    .foregroundColor(sel ? patternSelectedText : patternUnselectedText)
+                    .frame(width: segW, height: h)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(sel ? lane20(accent) : patternUnselectedFill))
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(sel ? lane100(accent) : Color.clear, lineWidth: 1))
+                    .contentShape(Rectangle())
+                    .onTapGesture { edit(idx) { $0.setPoolSrc(g == 0 ? 1 : 4, true) } }   // sets this chord bit (mutual exclusion clears the other; UNDO-6 drops a no-op re-tap)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Chord grid \(g + 1), lane \(idx + 1)")
+                    .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+        .frame(width: w, height: height)
+        .opacity(chordsOn ? 1 : 0.4)
+    }
+    /// 3.5 (SOURCES row ferry, 2026-11-08): the TEST button — taps toggle the lane's pool audition (plays every pool note in turn across the lane's emitters, overriding their output, looping stopped or playing; tap again stops). Running = the lane-colour
+    /// look; disabled (40 %, no tap) when the lane routes to no emitter. Ephemeral — a live word to the kernel, never saved, never undone.
+    private func poolTestButton(_ idx: Int, _ line: EuclidLine, w: CGFloat, height: CGFloat, accent: Color) -> some View {
+        let enabled = (line.riffOutMaskResolved(lane: idx) | line.notesOutMaskResolved(lane: idx)) & 0x0F != 0
+        let running = testLane == idx
+        return Text("TEST").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
+            .foregroundColor(running ? patternSelectedText : patternUnselectedText)
+            .frame(width: w, height: min(EuclideousPoolTabMetrics.toggleH, height))
+            .background(RoundedRectangle(cornerRadius: 7).fill(running ? lane20(accent) : patternUnselectedFill))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(running ? lane100(accent) : Color.clear, lineWidth: 1))
+            .frame(width: w, height: height)
+            .opacity(enabled ? 1 : 0.35)
+            .contentShape(Rectangle())
+            .onTapGesture { if enabled { onToggleTest(idx) } }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Test, lane \(idx + 1)")
+            .accessibilityValue(running ? "playing" : (enabled ? "ready" : "no output"))
+            .accessibilityAddTraits(.isButton)
+            .ringToggleTrait()
     }
     /// 3.4: MIDI — the label, three equal segments ADD · REPLACE · ROOT (28 tall, radius 6, the SOURCES chips' type) and a 44 × 28 readout: in ROOT the lane's applied transpose, signed; otherwise "–". While this lane's MIDI IN chip is off the segments
     /// and the readout draw at 40 % and stay tappable. A tap writes the lane's own `midiMode` (one undo step); the lane's mode is its own field, else the document's plan mode.

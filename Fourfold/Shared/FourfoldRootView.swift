@@ -87,6 +87,7 @@ struct FourfoldRootView: View {
     var euclideousSoloHeld: UInt8 { get { m.euclideousSoloHeld } nonmutating set { m.euclideousSoloHeld = newValue } }
     var euclideousPartSoloMask: UInt8 { get { m.euclideousPartSoloMask } nonmutating set { m.euclideousPartSoloMask = newValue } }   // PER-PART SOLO (MIX v2): latched
     var euclideousPartSoloHeld: UInt8 { get { m.euclideousPartSoloHeld } nonmutating set { m.euclideousPartSoloHeld = newValue } }   // …and held (a finger down; UI only, never saved)
+    var euclideousTestLane: Int? { get { m.euclideousTestLane } nonmutating set { m.euclideousTestLane = newValue } }   // INPUTS TEST (2026-11-08): the auditioning lane (UI only)
     var euclideousLocks: [EuclideousLaneLock] { get { m.euclideousLocks } nonmutating set { m.euclideousLocks = newValue } }
     var euclideousLockRevs: UInt32 { get { m.euclideousLockRevs } nonmutating set { m.euclideousLockRevs = newValue } }
     var euclideousLockTouches: [Int] { get { m.euclideousLockTouches } nonmutating set { m.euclideousLockTouches = newValue } }
@@ -138,6 +139,7 @@ struct FourfoldRootView: View {
             au?.setEuclideousPartSoloLive(euclideousPartSoloMask)
             euclideousLockTouches = [0, 0, 0, 0]   // LANE LOCK: a finger the page never saw lift must not hold a lane forever
             pushLockLive()
+            if euclideousTestLane != nil { euclideousTestLane = nil; au?.setEuclideousTestLive(nil) }   // INPUTS TEST: a page that goes away stops its audition — the kernel must not keep auditioning with no UI to stop it
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
@@ -206,6 +208,12 @@ struct FourfoldRootView: View {
                                                // euclideousReceiver was handled when ITS control was dropped.
                                                soloMask: euclideousSoloMask, soloHeld: euclideousSoloHeld,
                                                partSoloMask: euclideousPartSoloMask, partSoloHeld: euclideousPartSoloHeld,
+                                               testLane: euclideousTestLane,
+                                               onToggleTest: { lane in   // INPUTS TEST (2026-11-08): one lane auditions at a time; tapping the running lane stops it. Ephemeral (no undo, no document) — just the kernel's live word.
+                                                   let next: Int? = (euclideousTestLane == lane) ? nil : lane
+                                                   euclideousTestLane = next
+                                                   au?.setEuclideousTestLive(next)
+                                               },
                                                chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
                                                onEditChordSet: { idx, mutate in
                                                    var sets = euclideousChordSets
@@ -1151,6 +1159,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousSoloHeld: UInt8 = 0
     @Published var euclideousPartSoloMask: UInt8 = 0   // PER-PART SOLO (MIX v2): latched (saved) …
     @Published var euclideousPartSoloHeld: UInt8 = 0   // … and held (UI only)
+    @Published var euclideousTestLane: Int? = nil      // INPUTS TEST (2026-11-08): the lane auditioning its pool (UI only, never saved) → a live word to the kernel
     @Published var euclideousLocks: [EuclideousLaneLock] = Array(repeating: EuclideousLaneLock(), count: 4)
     @Published var euclideousLockRevs: UInt32 = 0
     @Published var euclideousLockTouches: [Int] = [0, 0, 0, 0]
