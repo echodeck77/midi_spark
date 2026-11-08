@@ -124,6 +124,7 @@ struct LaneLockFields: Codable {
     var notesOn: Bool? = nil
     var notesWhen: UInt8? = nil, notesChance: Int? = nil
     var notesPlayAs: EuclidNotesPlayAs? = nil
+    var notesPlaySeq: [EuclideousPlayStep]? = nil   // PLAY AS SEQUENCE (2026-11-08)
     var notesReceivedOnly: Bool? = nil
 
     init() {}
@@ -170,6 +171,7 @@ struct LaneLockFields: Codable {
         notesWhen = (try? c.decodeIfPresent(UInt8.self, forKey: .notesWhen)) ?? nil
         notesChance = (try? c.decodeIfPresent(Int.self, forKey: .notesChance)) ?? nil
         notesPlayAs = (try? c.decodeIfPresent(EuclidNotesPlayAs.self, forKey: .notesPlayAs)) ?? nil
+        notesPlaySeq = (try? c.decodeIfPresent([EuclideousPlayStep].self, forKey: .notesPlaySeq)) ?? nil
         notesReceivedOnly = (try? c.decodeIfPresent(Bool.self, forKey: .notesReceivedOnly)) ?? nil
     }
 
@@ -187,7 +189,7 @@ struct LaneLockFields: Codable {
         riffStride = l.riffStride; melodyTranspose = l.melodyTranspose
         notesLitOrder = l.notesLitOrder; litNotes = l.litNotes; topLit = l.topLit; top2Lit = l.top2Lit
         notesOn = l.notesOn; notesWhen = l.notesWhen; notesChance = l.notesChance
-        notesPlayAs = l.notesPlayAs; notesReceivedOnly = l.notesReceivedOnly
+        notesPlayAs = l.notesPlayAs; notesPlaySeq = l.notesPlaySeq; notesReceivedOnly = l.notesReceivedOnly
     }
 
     /// 3.3 — the ONE write: every lock field onto `line` as a single change. Direct field writes — no setter's side effects (no `hitsRequested` nil-ing, no chain pinning, no STEPS memory), so restart chains, hitsRequested,
@@ -206,7 +208,7 @@ struct LaneLockFields: Codable {
         l.notesLitOrder = notesLitOrder
         l.litNotes = litNotes; l.topLit = topLit; l.top2Lit = top2Lit
         l.notesOn = notesOn; l.notesWhen = notesWhen; l.notesChance = notesChance
-        l.notesPlayAs = notesPlayAs; l.notesReceivedOnly = notesReceivedOnly
+        l.notesPlayAs = notesPlayAs; l.notesPlaySeq = notesPlaySeq; l.notesReceivedOnly = notesReceivedOnly
     }
 }
 
@@ -228,6 +230,7 @@ struct LaneLockKey: Equatable {
     var lengthPoly: Int, shiftPoly: Int
     var litOrder: EuclideousLitOrder
     var notesOn: Bool, notesWhen: UInt8, notesChance: Int, notesPlayAs: EuclidNotesPlayAs, notesReceived: Bool
+    var notesPlaySeq: [EuclideousPlayStep]   // PLAY AS SEQUENCE (2026-11-08): the resolved chips, so a sequence edit on a locked lane snaps back
 }
 extension LaneLockFields {
     func key(base: EuclidLine = EuclidLine()) -> LaneLockKey {
@@ -244,7 +247,8 @@ extension LaneLockFields {
                            length: l.riffLengthResolved, shift: l.riffRotateResolved, stride: l.riffStrideResolved, transpose: l.melodyTransposeResolved,
                            lengthPoly: l.riffLengthResolved(columns: EuclideousPolyMetrics.columns), shiftPoly: l.riffRotateResolved(columns: EuclideousPolyMetrics.columns),
                            litOrder: l.litOrderResolved,
-                           notesOn: l.notesOnResolved, notesWhen: l.notesWhenResolved, notesChance: l.notesChanceResolved, notesPlayAs: l.notesPlayAsResolved, notesReceived: l.notesReceivedOnlyResolved)
+                           notesOn: l.notesOnResolved, notesWhen: l.notesWhenResolved, notesChance: l.notesChanceResolved, notesPlayAs: l.notesPlayAsResolved, notesReceived: l.notesReceivedOnlyResolved,
+                           notesPlaySeq: l.notesPlaySeqResolved)
     }
 }
 extension LaneLockFields: Equatable {
@@ -381,7 +385,7 @@ func euclideousLockChangedControls(from locked: LaneLockFields, to line: EuclidL
     if a.notesOn != b.notesOn { s.insert(.notesStrip) }
     if a.notesWhen != b.notesWhen { s.insert(.notesWhen) }
     if a.notesChance != b.notesChance { s.insert(.notesChance) }
-    if a.notesPlayAs != b.notesPlayAs { s.insert(.notesPlayAs) }
+    if a.notesPlayAs != b.notesPlayAs || a.notesPlaySeq != b.notesPlaySeq { s.insert(.notesPlayAs) }   // PLAY AS SEQUENCE: the sequence rides the same PLAY AS control
     if a.notesReceived != b.notesReceived { s.insert(.notesReceived) }
     s.insert(.cometStrip)
     return s

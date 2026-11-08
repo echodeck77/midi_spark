@@ -3103,7 +3103,9 @@ final class Router {
                                 // NOTES TAB ferry (2026-10-19): what is lit is ONE fixed-size ordered list (`litOrder`: positions 0-7 = ranks 1-8, 8 = TOP 2, 9 = TOP), and the lit notes play
                                 // on the hits `notesWhen` / `notesChance` choose, as `notesPlayAs` says. (The per-note octave shifts no longer sound — the parameter is gone.)
                                 litOrder: EuclideousLitOrder = EuclideousLitOrder(), notesWhen: UInt8 = 0b11, notesChance: Int = 100,
-                                notesPlayAs: EuclidNotesPlayAs = .chord, notesReceivedOnly: Bool = false,
+                                // PLAY AS SEQUENCE (2026-11-08): `notesPlaySeq` is the lane's RAW stored optional (COW — reading/passing it never allocates, unlike `notesPlaySeqResolved`, which the render thread must not call); the active mode per hit
+                                // is derived from it, with `notesPlayAs` the fallback single mode (nil sequence = the migrated single value, or a random roll's one mode). An empty sequence plays CHORD; a single chip is that mode always.
+                                notesPlaySeq: [EuclideousPlayStep]? = nil, notesPlayAs: EuclidNotesPlayAs = .chord, notesReceivedOnly: Bool = false,
                                 notesOn: Bool = true, notesVelocity: Int = 100, notesGate: Double = 0.9,
                                 // LANES GRID (2026-10-18): the per-lane restart / mute grid is resolved INSIDE this function (it needs the
                                 // lane's own step length and lap, known only after the pattern is built) from `linesView[lineIndex]` —
@@ -4116,6 +4118,15 @@ final class Router {
                             var notesList = EuclideousNotesList()  // the play list (6.5)
                             var notesK = 0
                             var notesH: Int64 = 0
+                            // PLAY AS SEQUENCE (2026-11-08): the active chip's mode for THIS hit. A multi-chip lane needs the hit ordinal (hits since the melody origin, which resets at a melody restart) now, so the sequence advances
+                            // by hits and loops; otherwise the mode needs no ordinal, so `notesH` stays lazy (computed below only if the mode needs it) and a single-chip / migrated lane is byte-identical to the pre-sequence engine.
+                            let seqMulti = (notesPlaySeq?.count ?? 0) > 1
+                            let notesPlayAsActive: EuclidNotesPlayAs
+                            if let seq = notesPlaySeq {
+                                if seq.isEmpty { notesPlayAsActive = .chord }            // no modes ⇒ CHORD (the engine fallback; the UI shows "+ ADD MODE")
+                                else if seq.count == 1 { notesPlayAsActive = seq[0].mode }
+                                else { notesH = euclideousNotesHitOrdinal(buf: euclidBuf, w: nw, tick: tick); notesPlayAsActive = euclideousPlaySeqActive(seq: seq, hitOrdinal: notesH).mode }
+                            } else { notesPlayAsActive = notesPlayAs }                    // nil ⇒ the migrated single value / a random roll's one mode
                             var notesSlotBits: UInt64 = ~0         // nibble j = strike slot of pitch j (0xF = not a spread pitch); AVOID moves it with the pitch
                             // LISTEN REBUILT §9.9 (confirmed by this ferry's own §0 research): NOTES pauses
                             // alongside RIFF whenever RIFF is borrowed — i.e. under SHADOW OR ECHO, not
@@ -4124,8 +4135,8 @@ final class Router {
                             // "the hit's single struck riff pitch."
                             if !shadowOrEchoValid, notesOn, thisLaneCount > 0, litOrder.count > 0,
                                euclideousNotesWhenChooses(when: notesWhen, isRestHit: ranks[playedStep] < 1) {
-                                let usesCount = euclideousNotesWayUsesCount(notesPlayAs)
-                                if usesCount || notesChance < 100 { notesH = euclideousNotesHitOrdinal(buf: euclidBuf, w: nw, tick: tick) }
+                                let usesCount = euclideousNotesWayUsesCount(notesPlayAsActive)
+                                if (usesCount || notesChance < 100) && !seqMulti { notesH = euclideousNotesHitOrdinal(buf: euclidBuf, w: nw, tick: tick) }   // a multi-chip lane already has notesH (from the active-mode pick above)
                                 if euclideousNotesChanceAllows(chance: notesChance, lane: lineIndex, h: notesH) {
                                     notesCounted = true
                                     notesList = euclideousNotesPlayList(order: litOrder, poolCount: thisLaneCount, receivedOnly: notesReceivedOnly) { rank in
@@ -4136,7 +4147,7 @@ final class Router {
                                             notesK = euclideousNotesCountBefore(buf: euclidBuf, w: nw, tick: tick, h: notesH, when: notesWhen, chance: notesChance, lane: lineIndex,
                                                                                 thisBeat: mTickBeat, rankAt: writtenRankAt, poly: polyOn ? p.polyRiff : nil)
                                         }
-                                        let pick = euclideousNotesWayPick(list: notesList, way: notesPlayAs, k: notesK)
+                                        let pick = euclideousNotesWayPick(list: notesList, way: notesPlayAsActive, k: notesK)
                                         for i in 0..<pick.count {
                                             let pch = notesList.pitch(pick[i])
                                             let at = pitchCount
@@ -4176,7 +4187,8 @@ final class Router {
                                         var strikes = false
                                         if euclideousNotesWhenChooses(when: notesWhen, isRestHit: isRest), euclideousNotesChanceAllows(chance: notesChance, lane: lineIndex, h: scanH) {
                                             if isRest {
-                                                let pk = euclideousNotesWayPick(list: notesList, way: notesPlayAs, k: scanK)
+                                                let scanWay = seqMulti ? euclideousPlaySeqActive(seq: notesPlaySeq!, hitOrdinal: scanH).mode : notesPlayAsActive   // PLAY AS SEQUENCE: a scanned hit may fall on a later chip
+                                                let pk = euclideousNotesWayPick(list: notesList, way: scanWay, k: scanK)
                                                 for i in 0..<pk.count where notesList.pitch(pk[i]) != heldForTie || notesOnlyOuts != 0 { strikes = true; break }   // a pitch the riff holds still strikes on the outputs only the notes use
                                             }
                                             scanK += 1
@@ -4666,7 +4678,7 @@ final class Router {
                                 var nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, tempo: tempo)
                                 // RUN (§7.4): its notes are never carried on legato and never stay open into the next hit — they take part in the reconcile as ordinary (below-100%) notes, so what the
                                 // notes layer was holding legato ends here exactly as at a hit that doesn't continue it.
-                                if notesPlayAs == .run, notesStruck > 0 {
+                                if notesPlayAsActive == .run, notesStruck > 0 {
                                     for j in 0..<pitchCount where (notesSlotBits >> UInt64(4 * j)) & 0xF != 0xF { pitchGate[j] = min(pitchGate[j], 0.99) }
                                 }
                                 let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vels: pitchVel, gates: pitchGate,
@@ -4746,8 +4758,8 @@ final class Router {
                                 // whatever the buffer size. A ratcheted hit never reaches here (§7.6): its strikes carry all the chosen notes together.
                                 var spreadM = 0
                                 for j in 0..<pitchCount where (notesSlotBits >> UInt64(4 * j)) & 0xF != 0xF { spreadM += 1 }
-                                let isRun = spreadM >= 1 && notesPlayAs == .run
-                                let isRoll = spreadM >= 2 && notesPlayAs == .roll
+                                let isRun = spreadM >= 1 && notesPlayAsActive == .run
+                                let isRoll = spreadM >= 2 && notesPlayAsActive == .roll
                                 func slotNibble(_ j: Int) -> UInt64 { (notesSlotBits >> UInt64(4 * j)) & 0xF }
                                 func strikePosition(_ j: Int) -> Int { var c = 0; let sj = slotNibble(j); for i in 0..<pitchCount where slotNibble(i) != 0xF && slotNibble(i) < sj { c += 1 }; return c }
                                 var rollSpacing = 0.0, runSlot = 0.0
@@ -5549,7 +5561,7 @@ final class Router {
                               // NOTES TAB (2026-10-19): the lit order is fixed-size data (ten bytes and a count), built from the lane's stored order without allocating; WHEN / CHANCE / PLAY AS /
                               // RECEIVED are plain scalars. `noteOctShifts` is no longer passed at all — the per-note octave shifts stopped sounding (§6.7).
                               litOrder: notesRoll?.notesLitOrder ?? L.litOrderResolved, notesWhen: notesRoll?.notesWhen ?? L.notesWhenResolved, notesChance: notesRoll?.notesChance ?? L.notesChanceResolved,
-                              notesPlayAs: notesRoll?.notesPlayAs ?? L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,
+                              notesPlaySeq: notesRoll != nil ? nil : L.notesPlaySeq, notesPlayAs: notesRoll?.notesPlayAs ?? L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,   // PLAY AS SEQUENCE: a random roll forces its one mode (nil seq ⇒ the fallback); else the lane's RAW chip sequence (no allocation, unlike …Resolved)
                               notesOn: L.notesOnResolved, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved,
                               // LISTEN REBUILT (ferry 2026-10-23) — only Euclideous's own row ever has a
                               // non-OWN mode here (every other `.euclid` cell's `EuclidLine` never sets

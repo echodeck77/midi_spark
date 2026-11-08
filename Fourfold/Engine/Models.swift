@@ -768,6 +768,10 @@ struct EuclidLine: Codable, Equatable {
     // INPUTS + HARMONY ferry (Paul 2026-11-06, §1.1) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant: this lane's MIDI IN mode (ADD | REPLACE | ROOT), the page-level `SourcePlan.midiMode` before. nil ⇒ the document's resolved
     // plan mode (so an old document keeps its mode on every lane); an unknown stored value decodes as ADD (`MidiMode.init(from:)`). Document state: saved, in presets, undoable (`edit(idx)`), not a lane-lock field. Read it through `euclideousLaneMidiMode`.
     var midiMode: MidiMode? = nil
+    // PLAY AS SEQUENCE ferry (Paul 2026-11-08) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. The lit notes play through a SEQUENCE of (mode, hit-count) chips instead of one mode. nil ⇒ the legacy
+    // single `notesPlayAs` as one chip (`notesPlaySeqResolved`), so an old document and a single-mode lane sound exactly as before. An explicit empty sequence means no modes (the UI shows "+ ADD MODE"); the engine plays CHORD.
+    // Document state: saved, in presets, undoable (`edit(idx)`), a lane-lock field. The active chip is derived from the hit count since the melody origin, so it resets on melody restart for free — no new restart machinery.
+    var notesPlaySeq: [EuclideousPlayStep]? = nil
     var answerRhythmOnResolved: Bool { answerRhythmOn ?? false }
     var answerRhythmModeResolved: EuclideousAnswerRhythmMode { answerRhythmMode ?? .copy }
     var answerRhythmCycleResolved: Bool { answerRhythmCycle ?? false }
@@ -872,6 +876,12 @@ struct EuclidLine: Codable, Equatable {
     var notesRestsResolved: Bool { notesWhenResolved & 0b10 != 0 }
     var notesChanceResolved: Int { EuclidLine.nearestLegalNotesChance(notesChance ?? 100) }
     var notesPlayAsResolved: EuclidNotesPlayAs { notesPlayAs ?? .chord }
+    /// PLAY AS SEQUENCE: the lane's chips, always at least one. nil (never edited) ⇒ the legacy single value as ONE chip (sound-preserving); an explicit empty sequence ⇒ one CHORD chip (the engine's fallback — "no modes" plays chords).
+    /// The engine and the Router read this; the UI reads the RAW `notesPlaySeq` to tell a migrated single chip (nil) from a user-emptied sequence (`[]`, which shows "+ ADD MODE").
+    var notesPlaySeqResolved: [EuclideousPlayStep] {
+        guard let s = notesPlaySeq else { return [EuclideousPlayStep(mode: notesPlayAsResolved, hits: EuclideousPlayStep.defaultHits)] }
+        return s.isEmpty ? [EuclideousPlayStep(mode: .chord, hits: EuclideousPlayStep.defaultHits)] : s
+    }
     var notesReceivedOnlyResolved: Bool { notesReceivedOnly ?? false }
     /// The lit order: the stored one when valid, else (5.2) the lit ranks from low to high, then TOP 2, then TOP.
     var litOrderResolved: EuclideousLitOrder {
@@ -1236,6 +1246,7 @@ extension EuclidLine {
         let rawWhen = (try? c.decodeIfPresent(UInt8.self, forKey: .notesWhen)).flatMap { $0 }
         notesChance = (try? c.decodeIfPresent(Int.self, forKey: .notesChance)).flatMap { $0 }.map(EuclidLine.nearestLegalNotesChance)
         notesPlayAs = (try? c.decodeIfPresent(EuclidNotesPlayAs.self, forKey: .notesPlayAs)).flatMap { $0 }
+        notesPlaySeq = (try? c.decodeIfPresent([EuclideousPlayStep].self, forKey: .notesPlaySeq)).flatMap { $0 }   // PLAY AS SEQUENCE: nil (old document) ⇒ the single notesPlayAs as one chip (`notesPlaySeqResolved`)
         notesReceivedOnly = (try? c.decodeIfPresent(Bool.self, forKey: .notesReceivedOnly)).flatMap { $0 }
         // 5.2: a valid order wins and the legacy trio is rewritten from it; otherwise (missing OR invalid) the order stays nil and `litOrderResolved` derives it.
         notesLitOrder = nil
@@ -1253,13 +1264,29 @@ extension EuclidLine {
         if riffOnRest == .fill { riffOnRest = .skip }
     }
 }
-// NOTES TAB ferry (2026-10-19, §5.1): the seven ways the lit notes play on a hit they are chosen for. String-raw like every sibling enum; an unknown stored value
-// decodes as CHORD (never a whole-session reset).
+// NOTES TAB ferry (2026-10-19, §5.1): the ways the lit notes play on a hit they are chosen for. String-raw like every sibling enum; an unknown stored value
+// decodes as CHORD (never a whole-session reset). PLAY AS SEQUENCE ferry (2026-11-08) added REVERSE / RANDOM / ALTERNATE / DRONE / OUTLINE / PAIRS.
 enum EuclidNotesPlayAs: String, Codable, CaseIterable {
     case chord = "CHORD", roll = "ROLL", run = "RUN", cycle = "CYCLE", bounce = "BOUNCE", split = "SPLIT", build = "BUILD"
+    case reverse = "REVERSE", random = "RANDOM", alternate = "ALTERNATE", drone = "DRONE", outline = "OUTLINE", pairs = "PAIRS"
     init(from decoder: Decoder) throws {
         let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
         self = EuclidNotesPlayAs(rawValue: raw) ?? .chord
+    }
+}
+/// PLAY AS SEQUENCE ferry (2026-11-08): one chip of a lane's PLAY AS sequence — a mode and how many HITS it lasts before the next chip. The sequence loops after the last chip and resets at the lane's melody restart
+/// (the active chip is a pure function of the hit count since the melody origin, no accumulator). A single chip plays its mode always (the count is irrelevant), so the migrated single value is byte-identical.
+struct EuclideousPlayStep: Equatable, Codable {
+    static let defaultHits = 4            // a NEW chip's count (the count only matters with 2+ chips)
+    static let minHits = 1, maxHits = 64
+    var mode: EuclidNotesPlayAs = .chord
+    var hits: Int = defaultHits
+    init(mode: EuclidNotesPlayAs = .chord, hits: Int = defaultHits) { self.mode = mode; self.hits = max(EuclideousPlayStep.minHits, min(EuclideousPlayStep.maxHits, hits)) }
+    init(from decoder: Decoder) throws {   // decode-tolerant: a missing/garbled field never nils the whole sequence
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        let m = (try? c?.decodeIfPresent(EuclidNotesPlayAs.self, forKey: .mode)).flatMap { $0 } ?? .chord
+        let h = (try? c?.decodeIfPresent(Int.self, forKey: .hits)).flatMap { $0 } ?? EuclideousPlayStep.defaultHits
+        self.init(mode: m, hits: h)
     }
 }
 /// The lit positions in the order they were lit, as FIXED-SIZE data (ten bytes and a count — the render thread reads it, so no array): 0-7 are ranks 1-8, 8 is

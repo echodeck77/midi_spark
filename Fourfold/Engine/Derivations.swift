@@ -8278,11 +8278,41 @@ func euclideousNotesWayPick(list: EuclideousNotesList, way: EuclidNotesPlayAs, k
         if n == 1 || k % 2 == 0 { out.append(s[0]) } else { for i in 1..<n { out.append(s[i]) } }
     case .build:
         for i in 0...(k % n) { out.append(i) }
+    // PLAY AS SEQUENCE ferry (2026-11-08): the six new modes, each faithful to its pop-up subtitle. All pick from the pitch-sorted list `s`.
+    case .reverse:   // TOP DOWN — one lit note a hit, highest to lowest, cycling
+        let s = sortedLowToHigh(); out.append(s[(n - 1) - (k % n)])
+    case .random:    // ANY ORDER — one lit note a hit, a replay-exact pseudo-random pick keyed on the count
+        let s = sortedLowToHigh(); out.append(s[Int(splitmix64Mix(UInt64(k)) % UInt64(n))])
+    case .alternate: // HIGH LOW — highest, lowest, 2nd-highest, 2nd-lowest … one a hit, working inward
+        let s = sortedLowToHigh(); let j = k % n; out.append(s[j % 2 == 0 ? (n - 1) - j / 2 : (j - 1) / 2])
+    case .drone:     // LOWEST HELD — the lowest lit note, every hit
+        out.append(sortedLowToHigh()[0])
+    case .outline:   // EDGES FIRST — lowest, highest, 2nd-lowest, 2nd-highest … one a hit, working inward
+        let s = sortedLowToHigh(); let j = k % n; out.append(s[j % 2 == 0 ? j / 2 : (n - 1) - (j - 1) / 2])
+    case .pairs:     // TWO AT A TIME — two adjacent lit notes a hit, stepping through them (low to high)
+        let s = sortedLowToHigh(); let base = (2 * (k % n)) % n; out.append(s[base]); if n > 1 { out.append(s[(base + 1) % n]) }
     }
     return out
 }
-/// Does this way index the count k at all? (CHORD and RUN never do — the Router and the lookahead skip the count for them.)
-@inline(__always) func euclideousNotesWayUsesCount(_ way: EuclidNotesPlayAs) -> Bool { !(way == .chord || way == .run) }
+/// Does this way index the count k at all? (CHORD, RUN and DRONE never do — the Router and the lookahead skip the count for them.)
+@inline(__always) func euclideousNotesWayUsesCount(_ way: EuclidNotesPlayAs) -> Bool { !(way == .chord || way == .run || way == .drone) }
+
+/// PLAY AS SEQUENCE ferry (2026-11-08): the ACTIVE chip for a hit that falls `h` hits after the lane's melody origin (`h` = `euclideousNotesHitOrdinal`, which already resets to 0 at each melody restart — so the sequence
+/// resets on melody restart with no accumulator). Walk the chips by their cumulative hit counts, looping after the last; returns the chip index and its mode. A single chip is active for every hit (its count is irrelevant),
+/// which is exactly the pre-sequence behaviour — so a migrated single-chip lane is byte-identical. `seq` is always non-empty (`notesPlaySeqResolved`).
+@inline(__always) func euclideousPlaySeqActive(seq: [EuclideousPlayStep], hitOrdinal h: Int64) -> (index: Int, mode: EuclidNotesPlayAs) {
+    if seq.count <= 1 { return (0, seq.first?.mode ?? .chord) }
+    var total: Int64 = 0
+    for s in seq { total += Int64(max(EuclideousPlayStep.minHits, s.hits)) }
+    guard total > 0 else { return (0, seq[0].mode) }
+    var pos = ((h % total) + total) % total          // hit position within one pass of the sequence (loops after the last chip)
+    for (i, s) in seq.enumerated() {
+        let c = Int64(max(EuclideousPlayStep.minHits, s.hits))
+        if pos < c { return (i, s.mode) }
+        pos -= c
+    }
+    return (seq.count - 1, seq[seq.count - 1].mode)
+}
 
 /// 7.3: ROLL's spacing in beats, for m ≥ 2 notes: s = min(25 ms, R ÷ (m − 1)), R the lesser of half the gap to the lane's next pattern hit and half the notes' length on this hit (the
 /// length is ignored when the notes are legato). Note j (counting from 0, in strike order) starts j × s after the hit; every note still ends where it would without the roll.
@@ -8431,6 +8461,12 @@ func euclideousNotesWayDescription(_ way: EuclidNotesPlayAs) -> String {
     case .bounce: return "one lit note a hit, through the order you lit them and back"
     case .split: return "the lowest lit note on one hit, the rest together on the next"
     case .build: return "one more lit note each hit, in the order you lit them, then start again"
+    case .reverse: return "one lit note a hit, highest down to lowest, then start again"
+    case .random: return "one lit note a hit, in a shuffled order"
+    case .alternate: return "one lit note a hit, highest then lowest, working inward"
+    case .drone: return "the lowest lit note, every hit"
+    case .outline: return "one lit note a hit, the edges first, working inward"
+    case .pairs: return "two lit notes a hit, stepping through them in pairs"
     }
 }
 private func euclideousNotesCapitalised(_ s: String) -> String { s.prefix(1).uppercased() + s.dropFirst() }
@@ -8541,8 +8577,10 @@ func euclideousNotesGreyFooters(riffOn: Bool, notesLayerOn: Bool, when: UInt8) -
 // The picker's cell order (§4.3: the top row plays every lit note on each hit, the bottom row a changing set) and each way's one-line description (§4.4).
 let euclideousNotesWayDescriptions: [EuclidNotesPlayAs: String] = [
     .chord: "ALL AT ONCE", .roll: "A QUICK STRUM", .run: "ACROSS THE STEP", .cycle: "ONE AT A TIME", .bounce: "TO AND FRO", .split: "LOW THEN REST", .build: "STACKS UP",
+    .reverse: "TOP DOWN", .random: "ANY ORDER", .alternate: "HIGH LOW", .drone: "LOWEST HELD", .outline: "EDGES FIRST", .pairs: "TWO AT A TIME",   // PLAY AS SEQUENCE ferry (2026-11-08)
 ]
-let euclideousNotesWayOrder: [EuclidNotesPlayAs] = [.chord, .roll, .run, .cycle, .bounce, .split, .build]
+/// The PLAY AS pop-up's tile order (PLAY AS SEQUENCE ferry §3): the seven original ways, then the six new ones.
+let euclideousNotesWayOrder: [EuclidNotesPlayAs] = [.chord, .roll, .run, .cycle, .bounce, .split, .build, .reverse, .random, .alternate, .drone, .outline, .pairs]
 
 
 // MARK: - PULSE (ferry 2026-10-20 "strikes that show velocity …") — the one strike envelope, the gap decision, the level mark, the tail, the ripple, the ring
