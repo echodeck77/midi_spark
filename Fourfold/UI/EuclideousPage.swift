@@ -6293,7 +6293,7 @@ struct EuclideousPage: View {
     private func lanesTab(width: CGFloat, height: CGFloat) -> some View {
         let layout = euclideousLanesLayout(width: width, height: height)
         return TimelineView(.periodic(from: .now, by: 0.25)) { tl in
-            EuclideousLanesPanel(layout: layout, lanes: lanesPanelLanes(beat: lanesMusicalBeat(real: walkTagBeat(at: tl.date))), accents: laneAccents,
+            EuclideousLanesPanel(layout: layout, lanes: lanesPanelLanes(beat: lanesMusicalBeat(real: walkTagBeat(at: tl.date))), accents: Array(repeating: EuclideousLanesPalette.output, count: 4),   // outputs, not lanes: no lane colour (2026-11-08)
                                  playing: clock.playing, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) },
                                  onStepPass: { output, up in lanesStepPass(output, up: up) },
                                  cellValue: { hit in lanesCellValue(hit) },

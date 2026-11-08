@@ -21,6 +21,8 @@ enum EuclideousLanesPalette {
     static let ink = Color(h: 0xF2F4F7)
     static let dim = Color(h: 0xAAB0BA)
     static let mutedBar = Color(h: 0x6A7079)
+    /// The MUTE tab's blocks are OUTPUTS, not lanes, so they never wear a lane's colour: all four draw in the neutral #DFE3EA the MIX emitters' ring and the MIX output buttons use (2026-11-08). The blocks are told apart by their order, A to D from the top.
+    static let output = Color(h: 0xDFE3EA)
 }
 
 private func heavyMono(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .monospaced) }
