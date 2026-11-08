@@ -19,19 +19,46 @@ final class FourfoldTapTests: XCTestCase {
         need(app.staticTexts["STOPPED"], "the stopped readout again")
     }
 
-    /// POLY RIFF (2026-10-29): the riff panel's four boxes are gone; a MONO | POLY control sits in their row, MONO selected on a fresh launch, and switching is a tap each way.
-    func testTheRiffPanelHasAMonoPolyControlAndNoRiffBoxes() {
+    /// STACK GRID (2026-11-08): the riff panel's header switch shows RIFF and STACK, RIFF selected on a fresh launch; there is no POLY option (the debug `--poly-control` flag brings the old segment back for the POLY tests below) and no riff boxes.
+    func testTheRiffPanelHasARiffStackSwitchAndNoPoly() {
         let app = XCUIApplication.fresh()
-        let mono = app.buttons["Mono"], poly = app.buttons["Poly"]
-        need(mono, "the MONO segment"); need(poly, "the POLY segment")
-        XCTAssertTrue(mono.isSelected, "MONO is the default"); XCTAssertFalse(poly.isSelected)
+        let riff = app.buttons["Riff"], stack = app.buttons["Stack"]
+        need(riff, "the RIFF segment"); need(stack, "the STACK segment")
+        XCTAssertTrue(riff.isSelected, "RIFF is the default"); XCTAssertFalse(stack.isSelected)
+        XCTAssertFalse(app.buttons["Poly"].exists, "there is no POLY option"); XCTAssertFalse(app.buttons["Mono"].exists, "MONO is RIFF now")
         XCTAssertEqual(app.els(prefix: "Riff 1").count, 0, "the four riff boxes are gone")
-        poly.tap(); XCTAssertTrue(app.buttons["Poly"].isSelected); XCTAssertFalse(app.buttons["Mono"].isSelected)
-        app.buttons["Mono"].tap(); XCTAssertTrue(app.buttons["Mono"].isSelected)
+        stack.tap(); XCTAssertTrue(app.buttons["Stack"].isSelected); XCTAssertFalse(app.buttons["Riff"].isSelected)
+        app.buttons["Riff"].tap(); XCTAssertTrue(app.buttons["Riff"].isSelected)
+    }
+    /// STACK GRID (2026-11-08): the grid's cells are the NOTES selection — a tap on lane 1's rank 3 cell turns it on (and the NOTES keys show it lit), a tap on that NOTES key turns it off and the cell shows off; one tap each way is one undo step.
+    func testAStackGridCellAndTheNotesKeyAreOneSelection() {
+        let app = XCUIApplication.fresh()
+        app.buttons["Stack"].firstMatch.tap()
+        func cell() -> XCUIElement { app.els(prefix: "Lane 1, rank 3,").firstMatch }
+        need(cell(), "lane 1's rank 3 cell on the STACK grid"); XCTAssertEqual(value(cell()), "off")
+        for lane in 1...4 { need(app.els(prefix: "Lane \(lane), top,").firstMatch, "lane \(lane)'s TOP cell") }
+        cell().tap()
+        XCTAssertEqual(value(cell()), "on", "the tap lit the cell")
+        app.els(prefix: "Stack, ").firstMatch.tap()   // the strip's STACK tab (the NOTES keys)
+        let key = need(app.els(prefix: "Rank 3, ").element(boundBy: 0), "lane 1's NOTES key 3")
+        XCTAssertTrue(key.label.contains(", lit"), "the NOTES key shows what the grid wrote: \(key.label)")
+        key.tap()
+        XCTAssertEqual(value(cell()), "off", "a NOTES toggle shows on the grid at once")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(value(cell()), "on", "one undo step brings the NOTES toggle back")
+    }
+    /// With the debug flag the header is RIFF · POLY · STACK and RIFF / POLY switch the lane's riff mode as MONO / POLY did.
+    func testThePolyControlFlagBringsBackThePolySegment() {
+        let app = XCUIApplication.fresh(["--poly-control"])
+        let riff = app.buttons["Riff"], poly = app.buttons["Poly"]
+        need(riff, "the RIFF segment"); need(poly, "the POLY segment")
+        XCTAssertTrue(riff.isSelected); XCTAssertFalse(poly.isSelected)
+        poly.tap(); XCTAssertTrue(app.buttons["Poly"].isSelected); XCTAssertFalse(app.buttons["Riff"].isSelected)
+        app.buttons["Riff"].tap(); XCTAssertTrue(app.buttons["Riff"].isSelected)
     }
     /// POLY: a tap on an empty cell makes a length-1 note, a second tap on it takes it away, and pressing a cell then dragging sideways stretches the note — the head cell reads "note, length 5", the cells it covers "held from step 4".
     func testPolyGridTapsAddAndRemoveAndADragStretchesANote() {
-        let app = XCUIApplication.fresh()
+        let app = XCUIApplication.fresh(["--poly-control"])
         app.buttons["Poly"].tap()
         func cell(_ step: Int, rowFromTop: Int) -> XCUIElement { app.els(prefix: "Step \(step),").element(boundBy: rowFromTop) }
         need(cell(3, rowFromTop: 0), "the POLY grid's cell, step 3 on the top row")
@@ -61,7 +88,7 @@ final class FourfoldTapTests: XCTestCase {
     /// POLY (2026-10-30): a hit that strikes a chord draws an arrow on EACH of its notes. Notes on the top two rows of every column make every hit a chord (with the seeded note); while the lanes play, some step shows two or more
     /// arrow cells at once.
     func testAChordShowsAnArrowOnEachOfItsNotes() {
-        let app = XCUIApplication.fresh()
+        let app = XCUIApplication.fresh(["--poly-control"])
         app.buttons["Poly"].tap()
         func cell(_ step: Int, _ row: Int) -> XCUIElement { app.els(prefix: "Step \(step),").element(boundBy: row) }
         need(cell(1, 0), "the POLY grid")
@@ -79,7 +106,7 @@ final class FourfoldTapTests: XCTestCase {
     /// POLY REVERSE (2026-10-30): lane 1 walking in `direction` (a direction button's label) meets a held note at its LAST column on the way back — rank 8 held over steps 1…4 and rank 7 held over steps 3…4 both end on step 4, so
     /// while lane 1 is there ITS arrows sit on step 4's top two cells (plus the seeded single-column note there). A forward walk would have put them on steps 1 and 3, one at a time.
     private func assertLane1SeatsItsChordArrowsOnTheNotesLastColumn(direction: String, seconds: TimeInterval) {
-        let app = XCUIApplication.fresh()
+        let app = XCUIApplication.fresh(["--poly-control"])
         app.buttons["Poly"].tap()
         func cell(_ step: Int, _ row: Int) -> XCUIElement { app.els(prefix: "Step \(step),").element(boundBy: row) }
         need(cell(1, 0), "the POLY grid")
@@ -270,7 +297,7 @@ final class FourfoldTapTests: XCTestCase {
         // TAB STRIP (2026-10-29): one strip chooses the tab for all four cards
         app.els(prefix: "Riff, ").firstMatch.tap()
         need(app.el("Advance every"), "the RIFF tab's ADVANCE EVERY row")   // (the WALK strip above it is dropped on a card too short for it — the iPad mini — so it is not the thing to look for)
-        app.els(prefix: "Notes, ").firstMatch.tap()
+        app.els(prefix: "Stack, ").firstMatch.tap()
         need(app.el("Notes layer, off, 0 notes lit"), "the NOTES tab's layer switch")
         app.els(prefix: "Inputs, ").firstMatch.tap()   // POOL tab renamed INPUTS (Paul 2026-11-05)
         need(app.els(prefix: "Now, lane 1").firstMatch, "the POOL tab's NOW row")
@@ -366,7 +393,7 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(value(app.el("Notes shown for")), "lane 1", "1 → 2 → 3 → 4 → 1")
         need(app.els(prefix: "Rank 1, ").firstMatch, "the grid's label chips read \"Rank n, <note>\"")
         // the NOTES keys
-        app.els(prefix: "Notes, ").firstMatch.tap()
+        app.els(prefix: "Stack, ").firstMatch.tap()
         need(app.els(prefix: "Rank 1, ").firstMatch, "the NOTES keys keep their \"Rank n, …\" names")
     }
 
@@ -695,7 +722,7 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(first()?.octave, o0 - 2, "lane 1 is picked: its first label reads two octaves lower (was \(o0), now \(first()?.label ?? "?"))")
         octs.element(boundBy: 1).coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()      // lane 2's riff +2
         XCTAssertEqual(first()?.octave, o0 - 2, "another lane's OCT does not move lane 1's labels")
-        app.els(prefix: "Notes, ").firstMatch.tap()                               // the NOTES tab's OCT is the notes part's own
+        app.els(prefix: "Stack, ").firstMatch.tap()                               // the NOTES tab's OCT is the notes part's own
         let nocts = app.els(prefix: "Notes octave")
         if nocts.element(boundBy: 0).waitForExistence(timeout: 3) {
             nocts.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()

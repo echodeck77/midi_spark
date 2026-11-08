@@ -20,6 +20,8 @@ struct EuclideousRankChipView: View {
     let size: CGSize
 
     private var isTop: Bool { spec.topKind != 0 }
+    /// The small text after "TOP": "2" (the pair key), "−1" / "−2" (the stack grid's rows); none for TOP itself.
+    private var topSuffix: String? { switch spec.topKind { case 1: return "2"; case 3: return "\u{2212}1"; case 4: return "\u{2212}2"; default: return nil } }
     private var labelOpacity: Double { spec.sounding > 0 ? 1 : (spec.received ? 0.75 : 0.35) }
     private var labelColour: Color { spec.sounding > 0 ? Color(h: 0xF2F4F7) : Color.white.opacity(labelOpacity) }
     @ViewBuilder private var label: some View {
@@ -27,12 +29,14 @@ struct EuclideousRankChipView: View {
             VStack(spacing: 2) {
                 HStack(alignment: .lastTextBaseline, spacing: 1) {
                     Text("TOP").font(chipHeavyMono(10))
-                    if spec.topKind == 1 { Text("2").font(chipHeavyMono(8)) }
+                    if let suffix = topSuffix { Text(suffix).font(chipHeavyMono(8)) }
                 }
                 .foregroundColor(labelColour).lineLimit(1)
                 .frame(height: 13)
-                Text(spec.name).font(chipBoldMono(8)).foregroundColor(spec.sounding > 0 ? Color(h: 0xF2F4F7) : Color(h: 0x8A909A)).lineLimit(1)
-                    .frame(height: 10)
+                if !spec.name.isEmpty {   // the stack grid's axis labels carry no second line
+                    Text(spec.name).font(chipBoldMono(8)).foregroundColor(spec.sounding > 0 ? Color(h: 0xF2F4F7) : Color(h: 0x8A909A)).lineLimit(1)
+                        .frame(height: 10)
+                }
             }
         } else if spec.empty {
             Text(spec.name).font(rankLabelFont(EuclideousRankLabelStyle.noteWeight, EuclideousRankLabelStyle.grid.noteSize)).foregroundColor(labelColour).lineLimit(1)   // 5.4: an empty pool — the rank number, in the label's type

@@ -254,6 +254,7 @@ targets:
       - path: Fourfold/Engine/MixPanelV2.swift   # MIX v2 ferry (2026-11-05): the MIX panel's v2 frames, looks and strings (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/MixPanel.swift   # MIX ROWS ferry (2026-11-03): the MIX panel's layout, sliders, strip, pool, roll, lines and VoiceOver strings (Foundation only)
       - path: Fourfold/Engine/EmitterToken.swift   # EMITTER TOKEN ferry (2026-11-07): the one emitter drawing's geometry + look (Foundation + CoreGraphics only)
+      - path: Fourfold/Engine/StackGrid.swift   # STACK GRID ferry (2026-11-08): the riff panel's STACK tab — rows, the position each cell stands for, its toggle, the frames (Foundation + CoreGraphics only)
       - path: Fourfold/Shared/FourfoldTransportClock.swift
     dependencies:
       - package: Atomics

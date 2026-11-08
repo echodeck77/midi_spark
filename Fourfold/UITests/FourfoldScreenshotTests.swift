@@ -192,7 +192,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             tap("Chords 2, lane 1"); tap("Chords 2, lane 3"); tap("Chords 1, lane 3"); Thread.sleep(forTimeInterval: 0.6); attach("12-inputs-\(tag)-0b-chord-grids")   // TWO CHORD GRIDS: lane 1 on CHORD 2; lane 3 to CHORD 2 and back to CHORD 1 (the default)
             tap("Replace, lane 1"); tap("Root, lane 2"); tap("Replace, lane 3"); tap("Root, lane 3"); Thread.sleep(forTimeInterval: 0.8); attach("12-inputs-\(tag)-1-midi-modes")
             tap("MIDI in, lane 4"); tap("Key, lane 2"); Thread.sleep(forTimeInterval: 1); attach("12-inputs-\(tag)-2-midi-chip-off-dims-the-row")
-            tapPrefix("Notes, "); Thread.sleep(forTimeInterval: 1); attach("12-inputs-\(tag)-3-notes-keys")
+            tapPrefix("Stack, "); Thread.sleep(forTimeInterval: 1); attach("12-inputs-\(tag)-3-notes-keys")
             tap("Notes shown for"); Thread.sleep(forTimeInterval: 0.8); attach("12-inputs-\(tag)-4-grid-lane2")
         }
         XCUIDevice.shared.orientation = .portrait
@@ -383,6 +383,17 @@ final class FourfoldScreenshotTests: XCTestCase {
 
     /// HARMONY (ferry 2026-11-06): the page over the lane cards, opened from the header button — the key (title, root keys, scales), both grids, a summary pill's popover, the CHORDS · COLOUR switch, the PICK editor — in portrait and
     /// landscape, playing, so the proportions, the pills and the popovers can be LOOKED AT.
+    /// STACK GRID (2026-11-08): the riff panel's STACK view — a few cells lit on different lanes, then the NOTES tab ("STACK" in the strip) showing the same keys lit.
+    func testTheStackGrid() {
+        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+        Thread.sleep(forTimeInterval: 1)
+        app.buttons["Stack"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.8)
+        attach("13-stack-grid-1-off")
+        for label in ["Lane 1, rank 3,", "Lane 1, top,", "Lane 2, rank 5,", "Lane 3, rank 1,", "Lane 4, rank 8,"] { app.els(prefix: label).firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2) }
+        Thread.sleep(forTimeInterval: 0.6); attach("13-stack-grid-2-lit")
+        app.els(prefix: "Stack, ").firstMatch.tap(); Thread.sleep(forTimeInterval: 1); attach("13-stack-grid-3-notes-tab")
+    }
+
     func testTheHarmonyPage() {
         let device = XCUIDevice.shared
         for (tag, o) in [("port", UIDeviceOrientation.portrait), ("land", .landscapeLeft)] {

@@ -26,7 +26,7 @@ final class FourfoldStackBudgetTests: XCTestCase {
             XCUIDevice.shared.orientation = orientation
             Thread.sleep(forTimeInterval: 1.0)
             // TAB STRIP (2026-10-29): one tab for all four cards — each tab is built on every lane at once
-            for tab in ["Riff, ", "Notes, ", "Inputs, ", "Answer, ", "Rhythm"] {   // POOL renamed INPUTS (Paul 2026-11-05)
+            for tab in ["Riff, ", "Stack, ", "Inputs, ", "Answer, ", "Rhythm"] {   // POOL renamed INPUTS (Paul 2026-11-05)
                 let t = tab == "Rhythm" ? app.buttons["Rhythm"].firstMatch : app.els(prefix: tab).firstMatch   // (ANSWER's switches are "Rhythm, lane n": the strip's own segment is the exact name)
                 if t.waitForExistence(timeout: 3) { t.tap() }
             }

@@ -10805,7 +10805,7 @@ func euclideousSustainKeepIsHolding(_ s: EuclideousSustainLaneState, on: Bool, m
 struct EuclideousRankChipSpec: Equatable {
     /// 1…8 for a rank chip; 0 for the NOTES keys' TOP 2 / TOP (`topKind` says which).
     var rank: Int
-    /// 0 = a rank chip, 1 = TOP 2, 2 = TOP (they carry no rank number).
+    /// 0 = a rank chip, 1 = TOP 2, 2 = TOP (they carry no rank number). STACK GRID ferry (2026-11-08): 3 = TOP−1 and 4 = TOP−2, the stack grid's axis labels — same box, "TOP" with a small suffix; an empty `name` draws the label alone.
     var topKind: Int = 0
     /// The received look (fill #30343C); false = an octave copy — and every chip while nothing is held.
     var received: Bool

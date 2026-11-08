@@ -1426,6 +1426,8 @@ struct EuclideousPage: View {
     // FOUR RIFFS (restored 2026-10-18): a long press on a riff tab opens COPY/PASTE/CLEAR for that tab;
     // `riffClipboard` is the one-slot clipboard it shares across all four tabs.
     @State private var riffTabMenuLane: Int? = nil
+    /// STACK GRID ferry (2026-11-08): which of the riff panel's two views shows — RIFF by default, never saved, never an undo step.
+    @State private var riffPanelTab: EuclideousRiffPanelTab = .opening
     @State private var polyDrag: EuclideousPolyDrag? = nil      // POLY RIFF: the touch shaping a note right now
     @State private var polyDragLastCol: Int = -1
     @GestureState private var polyTouching = false   // true while a finger is down on the POLY grid; it resets on a CANCELLED touch too (`onEnded` does not fire then) — see `polyGridGesture`
@@ -5474,7 +5476,7 @@ struct EuclideousPage: View {
                 .accessibilityAddTraits(.isButton)
         }
         return VStack(spacing: 8) {
-            Text(riffPoly ? "POLY RIFF" : "MONO RIFF").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+            Text(riffPoly ? "POLY RIFF" : "RIFF").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
             row("CLEAR") {
                 if riffPoly { onEditPolyRiff { $0 = EuclideousPolyRiff() } }
                 else { let active = max(0, min(3, activeRiff)); onEditRiffs { r in guard active < r.count else { return }; r[active] = .empty } }
@@ -5486,30 +5488,46 @@ struct EuclideousPage: View {
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.18), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
     }
-    /// POLY RIFF (2026-10-29): the MONO | POLY control that replaced the four riff boxes in the panel's top row — the segmented-control look of the lane strip at the row's 20 pt (14 compact): a #1F2127 container (r6, 2 inset),
-    /// two equal segments (r4), the selected one #DFE3EA with ink. A tap switches the mode (one undo step; the first switch to POLY seeds the grid from the MONO riff); a long press offers CLEAR for the mode showing.
-    /// VoiceOver "Mono" / "Poly" — never starting "Riff, " or "Riff 1" (the UI tests match those prefixes).
-    /// DEBUG-ONLY POLY (Paul 2026-11-05): the POLY option is offered on debug builds only. A release build renders the MONO segment alone — there is no way to switch a lane into POLY from the UI (`onSetRiffPoly` has no other
-    /// caller, and random mode / presets never set it) — while MONO's own long-press CLEAR stays. (A POLY document made in a debug build still decodes and plays POLY in release; only the UI toggle is gated.)
+    /// STACK GRID ferry (2026-11-08): the riff panel's header switch — RIFF · STACK (it was MONO · POLY, POLY debug-only). The segmented-control look of the lane strip at the row's 20 pt (14 compact): a #1F2127 container (r6, 2 inset), equal segments (r4),
+    /// the selected one #DFE3EA with ink. A tap selects the view (UI state: never saved, no undo step). A long press on RIFF offers CLEAR for the riff showing. VoiceOver "Riff" / "Stack" — never starting "Riff, " or "Riff 1" (the UI tests match those prefixes).
+    /// POLY is no longer offered: the segment is gone, `onSetRiffPoly` and the model stay, and a stored POLY document keeps its POLY grid under RIFF (nothing in the UI switches a lane in or out of POLY). A DEBUG build launched with `--poly-control`
+    /// (the UI tests' hook for the POLY grid) draws the old POLY segment between RIFF and STACK, and RIFF then switches the lane back to MONO as the MONO segment did.
+    private enum RiffHeaderSegment: Hashable { case riff, poly, stack }
+    private var riffPolyControl: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("--poly-control")
+        #else
+        return false
+        #endif
+    }
     private func riffModeRow(height: CGFloat) -> some View {
         let ink = Color(hex: 0x0D0F14)
-        #if DEBUG
-        let modes: [Bool] = [false, true]   // MONO | POLY
-        #else
-        let modes: [Bool] = [false]         // MONO only
-        #endif
+        let polyControl = riffPolyControl
+        let segments: [RiffHeaderSegment] = polyControl ? [.riff, .poly, .stack] : [.riff, .stack]
         return HStack(spacing: 2) {
-            ForEach(modes, id: \.self) { poly in
-                let sel = riffPoly == poly
-                Text(poly ? "POLY" : "MONO").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.1)
+            ForEach(segments, id: \.self) { seg in
+                let sel: Bool = {
+                    switch seg {
+                    case .riff:  return riffPanelTab == .riff && (!polyControl || !riffPoly)
+                    case .poly:  return riffPanelTab == .riff && riffPoly
+                    case .stack: return riffPanelTab == .stack
+                    }
+                }()
+                Text(seg == .riff ? "RIFF" : (seg == .poly ? "POLY" : "STACK")).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.1)
                     .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
                     .frame(maxWidth: .infinity).frame(height: max(1, height - 4))
                     .background(RoundedRectangle(cornerRadius: 4).fill(sel ? Color(hex: 0xDFE3EA) : Color.clear))
                     .contentShape(Rectangle())
-                    .onTapGesture { onSetRiffPoly(poly) }
-                    .onLongPressGesture(minimumDuration: 0.5) { riffTabMenuLane = 0 }
+                    .onTapGesture {
+                        switch seg {
+                        case .riff:  riffPanelTab = .riff; if polyControl { onSetRiffPoly(false) }
+                        case .poly:  riffPanelTab = .riff; onSetRiffPoly(true)
+                        case .stack: riffPanelTab = .stack; riffDragLastCell = nil
+                        }
+                    }
+                    .onLongPressGesture(minimumDuration: 0.5) { if seg != .stack { riffTabMenuLane = 0 } }
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(poly ? "Poly" : "Mono")
+                    .accessibilityLabel(seg == .riff ? "Riff" : (seg == .poly ? "Poly" : "Stack"))
                     .accessibilityAddTraits(sel ? [.isButton, .isSelected] : [.isButton])
             }
         }
@@ -5517,9 +5535,10 @@ struct EuclideousPage: View {
         .frame(height: height)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1F2127)))
     }
-    /// The riff panel: the MONO grid exactly as it was, or — in POLY — the sixteen-column grid.
+    /// The riff panel: the RIFF grid exactly as it was (MONO, or — for a stored POLY document — the sixteen-column grid), or the STACK grid.
     private func riffGridView(box: CGSize) -> AnyView {
-        riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box))
+        if riffPanelTab == .stack { return AnyView(stackGridView(box: box)) }
+        return riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box))
     }
     private func monoRiffGridView(box: CGSize) -> some View {
         let n = 8
@@ -5891,6 +5910,73 @@ struct EuclideousPage: View {
         }
         .frame(height: layout.tabRowH + EuclideousRiffPanelMetrics.tabToGrid, alignment: .top)   // the row's own height plus the gap under it: the picker's whole blank is its touch target
     }
+    // MARK: - STACK GRID (2026-11-08): the riff panel's second view
+    //
+    // Four columns (the four lanes, in lane-card order, headed in their colours) by eleven rows — TOP, TOP−1, TOP−2, then ranks 8 … 1 — of toggle cells, beside the app's own rank chips as the axis. A cell reads and writes the lane's NOTES selection
+    // (`euclideousStackCellIsOn` / `euclideousStackCellToggle`, which call the NOTES tab's `euclideousToggleLitPosition` on the position the cell stands for): nothing is kept here, so a change on either side shows on the other at once.
+    /// One cell, as an `AnyView` leaf (the page's build chain has little stack to spare). The tap goes through `laneTapMod` — the lock-aware tap the NOTES keys use — and the cell wears the keys' "will snap back" outline on a locked lane.
+    private func stackCell(_ row: EuclideousStackRow, lane: Int, size: CGSize, fontSize: CGFloat) -> AnyView {
+        let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+        let lp = lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
+        let pool = lp.notes
+        let accent = laneAccents[lane % laneAccents.count]
+        let on = euclideousStackCellIsOn(line, row: row, poolCount: lp.count)
+        let position = row.position(poolCount: lp.count)
+        let note = row.note(pool: lp)
+        let name = note.map { m -> String in
+            guard m >= 0, m <= 127 else { return "\u{2013}" }
+            return euclideousDisplayNoteName(UInt8(m), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType)
+        } ?? "\u{2013}"
+        let spoken = note.map { euclideousAccessibleDisplayNoteName(UInt8(max(0, min(127, $0))), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "no note"
+        let poolCount = lp.count
+        return AnyView(
+            EuclideousStackCellView(name: name, on: on, live: position != nil, accent: lane100(accent), size: size, fontSize: fontSize)
+                .contentShape(Rectangle())
+                .modifier(laneTapMod(lane) { if position != nil { edit(lane) { _ = euclideousStackCellToggle(&$0, row: row, poolCount: poolCount) } } })
+                .modifier(lockOutlineMod(lane, .noteKey(position ?? 0), accent))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Lane \(lane + 1), \(row.spoken), \(spoken)")
+                .accessibilityValue(on ? "on" : "off")
+                .accessibilityAddTraits(.isButton)
+                .ringToggleTrait())
+    }
+    private func stackAxisChip(_ row: EuclideousStackRow, size: CGSize) -> AnyView {
+        AnyView(EuclideousRankChipView(spec: euclideousStackAxisSpec(row), accent: .clear, size: size).accessibilityHidden(true))
+    }
+    private func stackGridView(box: CGSize) -> some View {
+        let L = euclideousStackGridLayout(box: box)
+        let rows = euclideousStackGridRows
+        return VStack(alignment: .leading, spacing: 0) {
+            // the switch keeps the place it has over the riff grid: a blank as wide as the label column (where the lane picker sits), then the control
+            HStack(alignment: .top, spacing: sp4) {
+                Color.clear.frame(width: L.labelW, height: L.tabRowH + EuclideousRiffPanelMetrics.tabToGrid)
+                riffModeRow(height: L.tabRowH)
+            }
+            .frame(height: L.tabRowH + EuclideousRiffPanelMetrics.tabToGrid, alignment: .top)
+            HStack(spacing: sp4) {
+                Color.clear.frame(width: L.labelW, height: L.headerH)
+                ForEach(0..<4, id: \.self) { lane in
+                    EuclideousStackHeaderView(lane: lane, accent: lane100(laneAccents[lane % laneAccents.count]), size: CGSize(width: L.colW, height: L.headerH), fontSize: L.headerFontSize)
+                        .accessibilityElement(children: .ignore).accessibilityLabel("Lane \(lane + 1)").accessibilityAddTraits(.isHeader)
+                }
+            }
+            Color.clear.frame(height: L.headerGap)
+            VStack(spacing: L.rowGap) {
+                ForEach(0..<rows.count, id: \.self) { r in
+                    HStack(spacing: sp4) {
+                        stackAxisChip(rows[r], size: CGSize(width: L.labelW, height: L.rowH))
+                        ForEach(0..<4, id: \.self) { lane in
+                            stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(sp8)
+        .frame(width: box.width, height: box.height, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+    }
+
     // riffSourceTabs REMOVED ENTIRE (Paul 2026-10-14: "move the midi in/chords/key control to the top
     // header bar and restyle") — superseded by `headerSourceGroup()` above; confirmed zero remaining call
     // sites before deleting. The shared `EuclideousRiffTabFramePreferenceKey` anchor mechanism survives,

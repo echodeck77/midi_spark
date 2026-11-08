@@ -306,10 +306,10 @@ final class AnswerTabTests: XCTestCase {
     // MARK: strip: six tabs
 
     func testTheStripReadsRhythmRiffNotesPoolAnswerMix() {
-        XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["RHYTHM", "RIFF", "NOTES", "INPUTS", "ANSWER", "MIX"])   // POOL renamed INPUTS (Paul 2026-11-05)
+        XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["RHYTHM", "RIFF", "STACK", "INPUTS", "ANSWER", "MIX"])   // POOL renamed INPUTS (Paul 2026-11-05); NOTES renamed STACK (STACK GRID ferry, 2026-11-08)
         XCTAssertEqual(EuclideousPageTab.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5])
         // the strip DRAWS them INPUTS first (the display order is separate from the raw-value coupling)
-        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["INPUTS", "RHYTHM", "RIFF", "NOTES", "ANSWER", "MIX"])
+        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["INPUTS", "RHYTHM", "RIFF", "STACK", "ANSWER", "MIX"])
         XCTAssertEqual(euclideousPageTabOrder.count, EuclideousPageTab.allCases.count)
         XCTAssertEqual(Set(euclideousPageTabOrder), Set(EuclideousPageTab.allCases), "every tab appears exactly once")
         XCTAssertEqual(EuclideousTabKind.allCases.map(\.rawValue), [0, 1, 2, 3, 4])

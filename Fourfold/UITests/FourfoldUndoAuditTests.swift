@@ -64,7 +64,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
     override func setUp() { continueAfterFailure = true }
 
     @discardableResult func launch(fresh: Bool = true) -> UndoProbeReading {
-        app = XCUIApplication(); app.launchArguments = (fresh ? ["--fresh"] : []) + ["--undo-probe"]; app.launch()
+        app = XCUIApplication(); app.launchArguments = (fresh ? ["--fresh"] : []) + ["--undo-probe", "--poly-control"]; app.launch()   // STACK GRID ferry (2026-11-08): the POLY segment is gone from the header; this debug flag brings it back for the scenarios that switch a lane into POLY
         XCUIDevice.shared.orientation = .landscapeLeft
         return settled()
     }
@@ -110,7 +110,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         app.buttons["Rhythm"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
     }
     /// POLY RIFF (2026-10-29): the four riff boxes became a MONO | POLY control — tapping the segment already showing changes nothing (and pushes no step), tapping the other one is one undo step.
-    func riffMode(poly: Bool) { app.buttons[poly ? "Poly" : "Mono"].firstMatch.tap() }
+    func riffMode(poly: Bool) { app.buttons[poly ? "Poly" : "Riff"].firstMatch.tap() }   // the MONO segment is RIFF now (STACK GRID 2026-11-08); POLY needs the `--poly-control` launch flag
     func loadPreset(_ name: String) {
         app.buttons["Presets"].tap()
         let row = app.buttons["\(name), factory preset"]

@@ -17,6 +17,7 @@ enum FourfoldAuditAllowList {
     ]
     /// Single known issues: audit type + the element's label (matched by prefix).
     static let known: [(type: String, label: String, why: String)] = [
+        ("textClipped", "TOP", "the rank chip's TOP label (10 pt heavy in a 13 pt line, 17 × 10 text frame) — the NOTES keys' TOP / TOP 2 and, since the STACK GRID ferry (2026-11-08), the grid's TOP, TOP−1, TOP−2 axis chips: flagged, drawn whole in the pictures"),
         ("textClipped", "STACK", "PLAY STACK button name (2026-11-08, amendment 1: 9.5 pt heavy in a 44 pt tile, ≈ 31 pt of ink in a 29 × 10 text frame): flagged, drawn whole in the pictures (a 4× crop of the mini shows all five letters) — same family as the header wordmark"),
         ("textClipped", "FOURFOLD", "the audit flags the header wordmark's tight frame; the pictures show it whole — looks like a false positive, confirm on device"),
         ("textClipped", "NOTES", "the NOTES tab's rotated caption (35 × 212): flagged, not visibly cut in the pictures — confirm on device"),
@@ -169,8 +170,9 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditLanesPortrait()    { screen("page LANES", landscape: false) { $0.buttons["Mute"].tap() } }
     func testAuditRatchPortrait()    { screen("page RATCH", landscape: false) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabPortrait()  { screen("lane tab RIFF", landscape: false, laneTab("Riff, ")) }
-    func testAuditPolyRiffPortrait() { screen("poly riff", landscape: false) { $0.buttons["Poly"].tap() } }   // POLY RIFF (2026-10-29): the sixteen-column grid and the MONO | POLY control
-    func testAuditNotesTabPortrait() { screen("lane tab NOTES", landscape: false, laneTab("Notes")) }
+    func testAuditStackGridPortrait() { screen("stack grid", landscape: false) { $0.buttons["Stack"].firstMatch.tap() } }   // STACK GRID (2026-11-08): the riff panel's RIFF | STACK switch and the four-lane grid
+    func testAuditStackGridLandscape() { screen("stack grid", landscape: true) { $0.buttons["Stack"].firstMatch.tap() } }
+    func testAuditNotesTabPortrait() { screen("lane tab NOTES", landscape: false, laneTab("Stack, ")) }
     func testAuditAnswerTabPortrait() { screen("lane tab ANSWER", landscape: false, laneTab("Answer, ")) }
     func testAuditPoolTabPortrait() { screen("lane tab INPUTS", landscape: false, laneTab("Inputs, ")) }   // POOL renamed INPUTS (2026-11-05); INPUTS ferry (2026-11-06): NOW · SOURCES · MIDI · CANON
     func testAuditPresetsPortrait()  { screen("presets", landscape: false, open("Presets", expect: "PRESETS")) }
@@ -183,7 +185,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditLanesLandscape()    { screen("page LANES", landscape: true) { $0.buttons["Mute"].tap() } }
     func testAuditRatchLandscape()    { screen("page RATCH", landscape: true) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabLandscape()  { screen("lane tab RIFF", landscape: true, laneTab("Riff, ")) }
-    func testAuditNotesTabLandscape() { screen("lane tab NOTES", landscape: true, laneTab("Notes")) }
+    func testAuditNotesTabLandscape() { screen("lane tab NOTES", landscape: true, laneTab("Stack, ")) }
     func testAuditAnswerTabLandscape() { screen("lane tab ANSWER", landscape: true, laneTab("Answer, ")) }
     func testAuditPoolTabLandscape() { screen("lane tab INPUTS", landscape: true, laneTab("Inputs, ")) }   // POOL renamed INPUTS (2026-11-05)
     func testAuditPresetsLandscape()  { screen("presets", landscape: true, open("Presets", expect: "PRESETS")) }
