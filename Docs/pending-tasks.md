@@ -5,6 +5,12 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — CC tab (Nov 2026; `Docs/euclideous-status-log.md`; commits `631b07e` engine / `e301356` UI)
+- [x] DONE: per-emitter CC (FIXED/RIFF value, STEP/GLIDE/FALL ramps, rate-limited, mute-once); byte-identical off (golden + alloc 0); the tab, four collapsed rows, the expanded page. `EmitterCCTests`.
+- [ ] OPEN (follow-up): the **full live TRACE** — currently just a current-value line; the one-bar curve + step grid + per-hit ticks (and the optional playhead) from the spec are not built (would need a `NoteRollRing`-style event stream for the time-series).
+- [ ] DEVICE: the four "CC tab —" lines in `Docs/euclideous-device-verification-debt.md` (the CC by ear incl. the ramps, the collapsed rows, the expanded page, the simple trace).
+- [ ] DECIDE (Paul): (a) **"1/96 note"** read as a 96th-note = 1/24 beat (≈48 CC/sec) — or 96 PPQN = 1/96 beat (≈192/sec)?; (b) the **merged next-hit** uses the firing lane's gap (self-corrects on the next hit) — exact multi-lane merge wanted?; (c) **"muted"** = the MUTE-tab output gate only (a PLAY-off lane keeps carrying the CC) — should a lane-level mute also send muteValue?; (d) the collapsed **token IS the on switch** (tap it toggles) vs a separate switch glyph; (e) the simple current-value trace acceptable for v1?
+
 ## ★ FOURFOLD — PLAY AS SEQUENCE + NOTES lane-card cleanup (2026-11-08; `Docs/euclideous-status-log.md`; commits `a2b37be` engine / `cb1bc35` UI)
 - [x] DONE: PLAY AS is a sequence of (mode, hit-count) chips (advance by hits, loop, reset on melody restart — pure closed form, no accumulator); six new modes (REVERSE/RANDOM/ALTERNATE/DRONE/OUTLINE/PAIRS); byte-identical for old docs (golden + alloc 0); the NOTES card drops the rank selector and reflows to 3 rows; the 13-tile pop-up. `PlayAsSequenceTests` + the layout/test updates green.
 - [ ] OPEN (not this ferry, Paul's scope): **removing a chip** and **reordering chips** — the chip row has no delete/drag yet (an empty sequence shows "+ ADD MODE" but is only reachable once removal exists).
