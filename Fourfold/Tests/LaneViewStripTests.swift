@@ -222,7 +222,7 @@ final class LaneViewStripTests: XCTestCase {
 
     func testSegmentLabels() {
         let all = lines(notesOn: [0, 1, 2, 3])
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .rhythm, glyphs: []), "Rhythm"); XCTAssertEqual(euclideousLaneStripLabel(tab: .mix, glyphs: []), "Mix")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .rhythm, glyphs: []), "Euclid"); XCTAssertEqual(euclideousLaneStripLabel(tab: .mix, glyphs: []), "Mix")
         XCTAssertEqual(euclideousLaneStripLabel(tab: .riff, glyphs: euclideousLaneStripGlyphs(tab: .riff, lines: all)), "Riff, all on")
         XCTAssertEqual(euclideousLaneStripLabel(tab: .riff, glyphs: euclideousLaneStripGlyphs(tab: .riff, lines: lines(riffOff: [2]))), "Riff, lanes 1, 2 and 4 on")
         XCTAssertEqual(euclideousLaneStripLabel(tab: .riff, glyphs: euclideousLaneStripGlyphs(tab: .riff, lines: lines(riffOff: [0, 1, 2, 3]))), "Riff, all off")

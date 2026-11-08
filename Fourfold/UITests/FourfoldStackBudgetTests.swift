@@ -26,11 +26,11 @@ final class FourfoldStackBudgetTests: XCTestCase {
             XCUIDevice.shared.orientation = orientation
             Thread.sleep(forTimeInterval: 1.0)
             // TAB STRIP (2026-10-29): one tab for all four cards — each tab is built on every lane at once
-            for tab in ["Riff, ", "Stack, ", "Inputs, ", "Answer, ", "Rhythm"] {   // POOL renamed INPUTS (Paul 2026-11-05)
-                let t = tab == "Rhythm" ? app.buttons["Rhythm"].firstMatch : app.els(prefix: tab).firstMatch   // (ANSWER's switches are "Rhythm, lane n": the strip's own segment is the exact name)
+            for tab in ["Riff, ", "Stack, ", "Inputs, ", "Answer, ", "Euclid"] {   // POOL renamed INPUTS / RHYTHM renamed EUCLID (Paul 2026-11-05 / 2026-11-08)
+                let t = tab == "Euclid" ? app.buttons["Euclid"].firstMatch : app.els(prefix: tab).firstMatch   // (the EUCLID segment has no glyph cluster, so its exact label is "Euclid"; ANSWER's own switches are "Rhythm, lane n")
                 if t.waitForExistence(timeout: 3) { t.tap() }
             }
-            for panel in ["Lanes", "Ratchet", "Mix", "Rhythm", "Mix", "Rhythm"] where app.buttons[panel].waitForExistence(timeout: 3) { app.buttons[panel].tap() }
+            for panel in ["Lanes", "Ratchet", "Mix", "Euclid", "Mix", "Euclid"] where app.buttons[panel].waitForExistence(timeout: 3) { app.buttons[panel].tap() }
         }
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.0)

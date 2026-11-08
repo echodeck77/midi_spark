@@ -173,8 +173,8 @@ final class FourfoldScreenshotTests: XCTestCase {
             tapPrefix("Answer, "); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-0-bare")
             tap("Rhythm, lane 1"); attach("11-answer-\(tag)-1-rhythm-on")
             tap("Pitch, lane 1"); tap("Cycle pitch, lane 1"); tap("Trade, lane 1"); tap("Cycle rhythm, lane 1"); Thread.sleep(forTimeInterval: 1.5); attach("11-answer-\(tag)-2-everything")
-            app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-3-rhythm-tab-live-body-with-cycle")
-            tapPrefix("Answer, "); tap("Cycle rhythm, lane 1"); app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-4-rhythm-tab-borrowed")
+            app.buttons["Euclid"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-3-rhythm-tab-live-body-with-cycle")
+            tapPrefix("Answer, "); tap("Cycle rhythm, lane 1"); app.buttons["Euclid"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-4-rhythm-tab-borrowed")
             tapPrefix("Inputs, "); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-5-inputs")   // POOL renamed INPUTS (2026-11-05)
         }
         XCUIDevice.shared.orientation = .portrait
@@ -209,7 +209,7 @@ final class FourfoldScreenshotTests: XCTestCase {
         step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-3-notes")
         step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Answer, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-4-listen")
         step(app.buttons["Mix"]); Thread.sleep(forTimeInterval: 1.2); attach("9-strip-5-mix")
-        step(app.buttons["Rhythm"]); Thread.sleep(forTimeInterval: 1.2)
+        step(app.buttons["Euclid"]); Thread.sleep(forTimeInterval: 1.2)
         step(app.buttons["Random mode"]); Thread.sleep(forTimeInterval: 1); attach("9-strip-6-random-mode")
         step(app.buttons["Random mode"]); Thread.sleep(forTimeInterval: 0.6)
         step(app.switches["Lock mode"]); Thread.sleep(forTimeInterval: 1); attach("9-strip-7-lock-mode")
@@ -283,7 +283,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             lockSwitch.tap(); Thread.sleep(forTimeInterval: 1.2)
             attach("9-mix-5b-locked-lane")
         }
-        app.buttons["Rhythm"].tap(); Thread.sleep(forTimeInterval: 1.5)
+        app.buttons["Euclid"].tap(); Thread.sleep(forTimeInterval: 1.5)
         attach("9-mix-6-back-to-the-cards")
     }
 
@@ -315,7 +315,7 @@ final class FourfoldScreenshotTests: XCTestCase {
         let s = app.switches["Solo riff, lane 2"]
         if s.waitForExistence(timeout: 3) { s.tap() }
         Thread.sleep(forTimeInterval: 0.8)
-        app.buttons["Rhythm"].tap()
+        app.buttons["Euclid"].tap()
         Thread.sleep(forTimeInterval: 1.2)
         let l3 = app.switches["Solo lane 3"]
         if l3.waitForExistence(timeout: 3) { l3.tap() }

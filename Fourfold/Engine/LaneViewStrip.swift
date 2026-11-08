@@ -19,7 +19,7 @@ enum EuclideousPageTab: Int, CaseIterable, Equatable {
     var front: EuclideousTabKind? { self == .mix ? nil : EuclideousTabKind(rawValue: rawValue) }
     var isMix: Bool { self == .mix }
     var spokenName: String {
-        switch self { case .rhythm: return "Rhythm"; case .riff: return "Riff"; case .notes: return "Stack"; case .pool: return "Inputs"; case .listen: return "Answer"; case .mix: return "Mix" }   // POOL renamed INPUTS on screen (Paul 2026-11-05; the case keeps its code name `.pool`, so the rawValue coupling is untouched)
+        switch self { case .rhythm: return "Euclid"; case .riff: return "Riff"; case .notes: return "Stack"; case .pool: return "Inputs"; case .listen: return "Answer"; case .mix: return "Mix" }   // RHYTHM renamed EUCLID / POOL renamed INPUTS on screen (Paul 2026-11-08 / 2026-11-05; both cases keep their code names `.rhythm` / `.pool`, so the rawValue coupling is untouched)
     }
     var label: String { spokenName.uppercased() }
 }

@@ -253,7 +253,7 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(strip().label, "Rhythm, 3 hits in 8 steps", "a tap on a hit removed it")
         app.buttons["Undo"].tap()
         XCTAssertEqual(strip().label, "Rhythm, 4 hits in 8 steps", "one tap is one undo step")
-        app.buttons["Rhythm"].tap()
+        app.buttons["Euclid"].tap()
         let hits = need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the HITS fader back on the cards")
         XCTAssertEqual(value(hits), "4", "the card's HITS shows the same count")
     }
@@ -305,7 +305,7 @@ final class FourfoldTapTests: XCTestCase {
         app.els(prefix: "Answer, ").firstMatch.tap()
         need(app.el("Follow lane 2"), "the ANSWER tab's partner picker")
         need(app.el("Rhythm, lane 1"), "the ANSWER tab's RHYTHM switch")
-        app.buttons["Rhythm"].tap()
+        app.buttons["Euclid"].tap()
         need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the RHYTHM tab again")
     }
 
@@ -324,7 +324,7 @@ final class FourfoldTapTests: XCTestCase {
         need(app.el("Each, lane 2"), "the CYCLE row appears while a row is on with CYCLE")
         need(app.el("Phase, lane 2"), "the phase bar")
         // the RHYTHM tab shows the strip while RHYTHM is on
-        app.buttons["Rhythm"].tap()
+        app.buttons["Euclid"].tap()
         need(app.el("Delay, lane 2"), "the rhythm strip's DELAY")
         app.els(prefix: "Answer, ").firstMatch.tap()
         // TRADE: SWAP with the default WITH pairs the other lane too, in one undo step
@@ -558,7 +558,7 @@ final class FourfoldTapTests: XCTestCase {
         for n in 1...4 { need(app.el("Lane \(n)"), "lane \(n)'s band") }
         for o in ["A", "B", "C", "D"] { need(app.els(prefix: "Output \(o), ").firstMatch, "emitter \(o)") }
         XCTAssertTrue(app.buttons["Mix"].isSelected)
-        app.buttons["Rhythm"].tap()
+        app.buttons["Euclid"].tap()
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.els(prefix: "Riff velocity").firstMatch)
         XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 2.5), .completed, "the cards return and the panel is gone")
     }
@@ -686,7 +686,7 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(v("Solo riff, lane 1"), "off", "another lane's S is untouched")
         app.switches["Solo riff, lane 2"].tap()
         XCTAssertEqual(v("Solo riff, lane 2"), "off"); XCTAssertEqual(v("Solo notes, lane 2"), "on", "the notes stay soloed")
-        app.buttons["Rhythm"].tap()
+        app.buttons["Euclid"].tap()
         need(app.switches["Solo lane 2"], "lane 2's SOLO back on the cards")
         XCTAssertEqual(v("Solo lane 2"), "notes only", "only the notes soloed: the lane's SOLO is half-lit, and says so")
         app.switches["Solo lane 2"].tap()
@@ -694,7 +694,7 @@ final class FourfoldTapTests: XCTestCase {
         app.buttons["Mix"].tap()
         need(app.switches["Solo riff, lane 2"], "lane 2's riff S")
         XCTAssertEqual(v("Solo riff, lane 2"), "on"); XCTAssertEqual(v("Solo notes, lane 2"), "on")
-        app.buttons["Rhythm"].tap()
+        app.buttons["Euclid"].tap()
         need(app.switches["Solo lane 2"], "lane 2's SOLO").tap()
         XCTAssertEqual(v("Solo lane 2"), "off", "a tap on a full SOLO clears it")
         app.buttons["Mix"].tap()

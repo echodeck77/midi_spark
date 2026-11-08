@@ -107,7 +107,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
         let chip = ["CHORDS while MIDI plays": "Chords 1, lane 1", "KEY while MIDI plays": "Key, lane 1", "KEY with no MIDI": "Key, lane 2", "CHORDS with no MIDI": "Chords 1, lane 2"][cell] ?? cell
         app.els(prefix: "Inputs, ").firstMatch.tap(); Thread.sleep(forTimeInterval: 0.3)
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", chip)).firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
-        app.buttons["Rhythm"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
+        app.buttons["Euclid"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
     }
     /// POLY RIFF (2026-10-29): the four riff boxes became a MONO | POLY control — tapping the segment already showing changes nothing (and pushes no step), tapping the other one is one undo step.
     func riffMode(poly: Bool) { app.buttons[poly ? "Poly" : "Riff"].firstMatch.tap() }   // the MONO segment is RIFF now (STACK GRID 2026-11-08); POLY needs the `--poly-control` launch flag
