@@ -1,7 +1,7 @@
 //  CCPanelViews.swift — CC tab (ratified Nov 2026): the bottom-right panel's fourth tab.
 //
 //  Four collapsed emitter rows A–D; touching a row opens that emitter's full page (header · trace · VALUE/TRAVEL · five bar sliders), which fills the panel. Emitters use the neutral emitter token, never lane colours; no explanatory
-//  text anywhere — labels and values only. Every edit is one document write + one republish through `onEditEmitterCC` (one undo step per gesture). The live TRACE is a simple current-value line for now (the full curve/grid/ticks are
+//  text anywhere — labels and values only. Every edit is one document write + one republish through `onEditEmitterCC` (one undo step per gesture). The TRACE is one bar of the emitter's output (the curve, grid, ticks, hit dots and a playhead; its looks are
 //  device-owed, flagged). The model and the engine are in `Models.swift` / `Router.swift` (the CC tab ferry's slice A); this file is only the UI.
 
 import SwiftUI
@@ -47,20 +47,43 @@ struct CCBarSlider: View {
     }
 }
 
-/// A simple live trace: a dark tile with a light horizontal line at the current CC value. The full-bar curve, step grid and per-hit ticks are device-owed (flagged).
+/// One bar of an emitter's output: a dark tile, the step grid's lines, small ticks under each hit (`detailed` only), a light line for the curve, a dot on each hit's value (`detailed` only) and — while the transport runs — a playhead
+/// with a ring on the engine's live value. Drawn from the pure `emitterCCTrace`; nothing here keeps time except the playhead, which asks the page's clock.
 struct CCTraceView: View {
-    let value: Int   // 0…127, or < 0 for "none yet"
+    let trace: EmitterCCTrace
+    var live = -1                                // the engine's current value (0…127), < 0 for "none yet"
+    var playhead: ((Date) -> Double?)? = nil     // the bar position 0…1 at a date, nil while stopped
+    var detailed = false
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .bottomLeading) {
-                RoundedRectangle(cornerRadius: 6).fill(P.slot)
-                if value >= 0 {
-                    let y = geo.size.height * (1 - CGFloat(value) / 127)
-                    P.light.frame(height: 1.5).offset(y: y - geo.size.height + 0.75)
-                }
-            }
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: playhead == nil)) { tl in
+            Canvas { ctx, sz in draw(&ctx, sz, head: playhead?(tl.date)) }
         }
         .accessibilityHidden(true)
+    }
+    private func draw(_ ctx: inout GraphicsContext, _ sz: CGSize, head: Double?) {
+        ctx.fill(RoundedRectangle(cornerRadius: 6).path(in: CGRect(origin: .zero, size: sz)), with: .color(P.slot))
+        let inset: CGFloat = detailed ? 6 : 4
+        let w = sz.width - 2 * inset
+        func x(_ beat: Double) -> CGFloat { inset + CGFloat(beat / max(1e-9, trace.barBeats)) * w }
+        for b in trace.gridBeats { ctx.fill(Path(CGRect(x: x(b) - 0.5, y: 0, width: 1, height: sz.height)), with: .color(P.rule)) }
+        if detailed { for b in trace.ticks { ctx.fill(Path(CGRect(x: x(b) - 0.5, y: sz.height - 6, width: 1, height: 5)), with: .color(P.muted)) } }
+        if trace.points.count > 1 {
+            var path = Path()
+            for (i, pt) in trace.points.enumerated() {
+                let q = emitterCCTracePoint(pt, barBeats: trace.barBeats, size: sz, inset: inset)
+                if i == 0 { path.move(to: q) } else { path.addLine(to: q) }
+            }
+            ctx.stroke(path, with: .color(P.light), style: StrokeStyle(lineWidth: detailed ? 1.75 : 1.5, lineCap: .round, lineJoin: .round))
+        }
+        if detailed { for d in trace.dots { let q = emitterCCTracePoint(d, barBeats: trace.barBeats, size: sz, inset: inset); ctx.fill(Path(ellipseIn: CGRect(x: q.x - 3, y: q.y - 3, width: 6, height: 6)), with: .color(P.light)) } }
+        if let h = head {
+            let hx = inset + CGFloat(max(0, min(1, h))) * w
+            ctx.fill(Path(CGRect(x: hx - 0.75, y: 0, width: 1.5, height: sz.height)), with: .color(P.text.opacity(0.85)))
+            if live >= 0 {
+                let y = inset + (1 - CGFloat(live) / 127) * (sz.height - 2 * inset)
+                ctx.stroke(Path(ellipseIn: CGRect(x: hx - 3.5, y: y - 3.5, width: 7, height: 7)), with: .color(P.text), lineWidth: 1.5)
+            }
+        }
     }
 }
 
@@ -70,6 +93,8 @@ struct CCTraceView: View {
 struct EuclideousCCPanel: View {
     let bodySize: CGSize
     let ccs: EmitterCCSet
+    let traces: [EmitterCCTrace]
+    let playhead: (Date) -> Double?
     @ObservedObject var live: EmitterRatchetLive
     let playing: Bool
     let onEdit: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void
@@ -91,7 +116,7 @@ struct EuclideousCCPanel: View {
                 .onTapGesture { onEdit(true) { $0[x].on.toggle() } }
                 .accessibilityElement(children: .ignore).accessibilityLabel("Emitter \(letters[x])").accessibilityValue(cc.on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
             Text("\(cc.ccNumber)").font(heavyMonoCC(22)).foregroundColor(P.text).frame(width: 46, alignment: .leading)
-            CCTraceView(value: cc.on ? (live.index(x) ?? -1) : -1).frame(maxWidth: .infinity)
+            CCTraceView(trace: traces[x], live: cc.on ? (live.index(x) ?? -1) : -1, playhead: cc.on ? playhead : nil).frame(maxWidth: .infinity)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(cc.valueMode.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
                 Text(cc.travel.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
@@ -116,6 +141,8 @@ struct EuclideousCCExpandedView: View {
     let output: Int
     let bodySize: CGSize
     let ccs: EmitterCCSet
+    let traces: [EmitterCCTrace]
+    let playhead: (Date) -> Double?
     @ObservedObject var live: EmitterRatchetLive
     let playing: Bool
     let onEdit: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void
@@ -126,7 +153,7 @@ struct EuclideousCCExpandedView: View {
         let cc = ccs[output]
         VStack(spacing: 8) {
             header(cc)
-            CCTraceView(value: cc.on ? (live.index(output) ?? -1) : -1).frame(height: 84)
+            CCTraceView(trace: traces[output], live: cc.on ? (live.index(output) ?? -1) : -1, playhead: cc.on ? playhead : nil, detailed: true).frame(height: 84)
             HStack(alignment: .top, spacing: 10) {
                 leftColumn(cc).frame(width: min(186, bodySize.width * 0.42))
                 rightColumn(cc).frame(maxWidth: .infinity)

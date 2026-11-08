@@ -6463,17 +6463,72 @@ struct EuclideousPage: View {
                 .frame(width: width, height: height, alignment: .topLeading))
         }
     }
-    /// THE CC TAB (Nov 2026): four collapsed emitter rows A–D; touching a row opens that emitter's full page (header · trace · VALUE/TRAVEL · five bar sliders). One document write + one republish per edit through `onEditEmitterCC`.
+    /// THE CC TAB (Nov 2026): four collapsed emitter rows A–D; touching a row opens that emitter's full page (header · trace · VALUE/TRAVEL · five bar sliders). One document write + one republish per edit through `onEditEmitterCC`. Each
+    /// row's TRACE is one bar of what the emitter sends — the curve the engine's STEP / GLIDE / FALL segments make from the merged hits of every lane routed to it — with a playhead while the transport runs.
+    /// The hits lane `idx` makes in one bar (`barBeats`), each with the riff grid's WRITTEN rank at the riff playhead (0 = a column with no note): the lap's hits in time order (`euclideousLapHitSteps`, the same list the strip draws), the riff
+    /// columns they read this pass (`euclideousFooterPass` — computed whatever PLAY RIFF is, because the CC reads the rank either way), repeated lap after lap across the bar. A projection from the current pass: a later lap repeats it.
+    private func ccLaneHits(_ idx: Int, barBeats: Double) -> [EmitterCCTraceHit] {
+        guard idx < lines.count, idx < phaseLines.count else { return [] }
+        let line = lines[idx]
+        let follow = euclideousEffectivePattern(lane: idx, lines: phaseLines).flatMap { $0.followsPartner ? $0 : nil }
+        let steps = follow?.n ?? max(2, min(16, line.steps))
+        let walkCfg = riffWalkConfig(idx)
+        let timed = walkCfg.flatMap { $0.timing.isNone ? nil : $0 }
+        let dispDir = euclideousLaneDisplayDirection(lane: idx, lines: phaseLines)
+        let hitSteps = timed.map { euclideousLapHitSteps(layoutCells: $0.buf, n: steps, dir: dispDir) }
+            ?? follow.map { euclideousLapHitSteps(buf: Array($0.buf.prefix($0.n)), dir: dispDir) }
+            ?? euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate, tilt: line.tiltResolved, patternMiss: line.patternMissResolved, customHits: line.customHitsResolved(steps), dir: dispDir)
+        guard !hitSteps.isEmpty else { return [] }
+        let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
+        let pass = euclideousFooterPass(line: line, cfg: walkCfg, hitSteps: hitSteps, lapSteps: steps, liveOrd: ws, nowBeat: lanesMusicalBeat(real: walkTagBeat(at: Date())), dir: dispDir)
+        let ranks = effectiveGridRanks
+        let sub = max(0.03125, follow?.rateBeats ?? euclideousStripDivisionRate(lane: idx, lines: lines).beats)
+        let lapBeats = Double(euclidCycleLen(dispDir, n: steps)) * sub
+        guard lapBeats > 0 else { return [] }
+        var out: [EmitterCCTraceHit] = []
+        var lap = 0.0
+        while lap < barBeats - 1e-9 {
+            for (k, hs) in hitSteps.enumerated() {
+                let b = lap + Double(hs.tick) * sub
+                guard b < barBeats - 1e-9 else { continue }
+                let col = k < pass.prediction.count ? pass.prediction[k] : -1
+                out.append(EmitterCCTraceHit(beat: b, rank: col >= 0 && col < ranks.count ? max(0, min(8, ranks[col])) : 0))
+            }
+            lap += lapBeats
+        }
+        return out
+    }
+    /// Every lane routed to output `output` (either of its parts' masks holds the bit — the engine's own routing predicate) merged into one time-ordered list of the emitter's hits in a bar.
+    private func ccTraceHits(output: Int, laneHits: [[EmitterCCTraceHit]]) -> [EmitterCCTraceHit] {
+        var all: [EmitterCCTraceHit] = []
+        for i in 0..<min(4, lines.count, laneHits.count) {
+            let mask = lines[i].riffOutMaskResolved(lane: i) | lines[i].notesOutMaskResolved(lane: i)
+            if mask & (UInt8(1) << UInt8(output)) != 0 { all += laneHits[i] }
+        }
+        return all.sorted { $0.beat < $1.beat }
+    }
     private func ccTab(width: CGFloat, height: CGFloat, portrait: Bool) -> some View {
-        EuclideousStackBreak {
+        let barBeats = max(1, clock.beatsPerBar)
+        let wanted: [Int] = ccExpanded.map { [$0] } ?? [0, 1, 2, 3]
+        let laneHits: [[EmitterCCTraceHit]] = (0..<4).map { ccLaneHits($0, barBeats: barBeats) }
+        var traces = [EmitterCCTrace](repeating: EmitterCCTrace(points: [], dots: [], ticks: [], gridBeats: [], barBeats: barBeats), count: 4)
+        for o in wanted { traces[o] = emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[o]), hits: ccTraceHits(output: o, laneHits: laneHits), barBeats: barBeats) }
+        // the bar position (0…1) of the playhead at `date`, nil while the transport is stopped (a live indicator only while running)
+        let playhead: (Date) -> Double? = { date in
+            guard clock.playing else { return nil }
+            let b = lanesMusicalBeat(real: walkTagBeat(at: date))
+            let r = b.truncatingRemainder(dividingBy: barBeats)
+            return (r < 0 ? r + barBeats : r) / barBeats
+        }
+        return EuclideousStackBreak {
             AnyView(
                 ZStack {
                     if let x = ccExpanded {
-                        EuclideousCCExpandedView(output: x, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, live: ccLive, playing: pulseLive,
+                        EuclideousCCExpandedView(output: x, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, live: ccLive, playing: pulseLive,
                                                  onEdit: onEditEmitterCC, onCollapse: { withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = nil } })
                             .transition(.opacity)
                     } else {
-                        EuclideousCCPanel(bodySize: CGSize(width: width, height: height), ccs: emitterCCs, live: ccLive, playing: pulseLive,
+                        EuclideousCCPanel(bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, live: ccLive, playing: pulseLive,
                                           onEdit: onEditEmitterCC, onExpand: { out in withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = out } })
                             .transition(.opacity)
                     }

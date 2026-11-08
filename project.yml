@@ -241,6 +241,7 @@ targets:
       - path: Fourfold/Engine/NoteRollRing.swift
       - path: Fourfold/Engine/EmitterRatchetUI.swift
       - path: Fourfold/Engine/EmitterVelocityUI.swift   # VELOCITY tab (2026-11-03): value text, drag, bipolar bar share and VoiceOver (Foundation + CoreGraphics only)
+      - path: Fourfold/Engine/EmitterCCTrace.swift   # CC tab: the one-bar trace of an emitter's output, mirroring the Router's segments (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/LaneViewStrip.swift   # TAB STRIP ferry (2026-10-29): the page's one tab, the strip's frames, glyph looks and VoiceOver strings (Foundation-only)
       - path: Fourfold/Engine/PolyRiff.swift   # POLY RIFF ferry (2026-10-29): the POLY riff model, its render-thread copy and the ring-length maths (Foundation-only)
       - path: Fourfold/Engine/CanonHistory.swift   # CHORD CANON, all sources (2026-10-31): the history of the pool's live layers a delayed lane reads back (Foundation only)

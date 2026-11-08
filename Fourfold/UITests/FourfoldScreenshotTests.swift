@@ -394,6 +394,21 @@ final class FourfoldScreenshotTests: XCTestCase {
         app.els(prefix: "Stack, ").firstMatch.tap(); Thread.sleep(forTimeInterval: 1); attach("13-stack-grid-3-notes-tab")
     }
 
+    /// CC tab trace (2026-11-08): the collapsed rows with two emitters on and the transport playing (curve + playhead), then emitter A's page under RIFF/STEP, RIFF/GLIDE, RIFF/FALL and FIXED/FALL so the wave can be LOOKED AT.
+    func testTheCCTrace() {
+        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+        Thread.sleep(forTimeInterval: 1)
+        app.buttons["C C emitters"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.8)
+        attach("15-cc-trace-1-collapsed-off")
+        app.el("Emitter A").tap(); app.el("Emitter B").tap(); Thread.sleep(forTimeInterval: 1.2)
+        attach("15-cc-trace-2-collapsed-two-on")
+        app.els(prefix: "Emitter A CC").firstMatch.tap(); Thread.sleep(forTimeInterval: 1)
+        attach("15-cc-trace-3-expanded-riff-step")
+        app.el("Travel GLIDE").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-4-expanded-riff-glide")
+        app.el("Travel FALL").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-5-expanded-riff-fall")
+        app.el("Value FIXED").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-6-expanded-fixed-fall")
+    }
+
     func testTheHarmonyPage() {
         let device = XCUIDevice.shared
         for (tag, o) in [("port", UIDeviceOrientation.portrait), ("land", .landscapeLeft)] {

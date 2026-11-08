@@ -8,8 +8,10 @@ import XCTest
 private final class CCEmitter: MIDIEmitter {
     struct Ev: Equatable { let sample: Int64; let cable: UInt8; let cc: UInt8; let value: UInt8 }
     private(set) var cc: [Ev] = []
+    private(set) var other: [String] = []   // every non-CC message (notes, bend…), for the "CC never changes the notes" comparison
     func emit(sampleTime: Int64, cable: UInt8, _ b0: UInt8, _ b1: UInt8, _ b2: UInt8) {
         if b0 & 0xF0 == 0xB0 { cc.append(Ev(sample: sampleTime, cable: cable, cc: b1, value: b2)) }
+        else { other.append("\(sampleTime) c\(cable) \(String(b0, radix: 16)) \(b1) \(b2)") }
     }
     func values(cable: UInt8, cc n: UInt8) -> [UInt8] { cc.filter { $0.cable == cable && $0.cc == n }.map { $0.value } }
 }
@@ -214,5 +216,60 @@ final class EmitterCCTests: XCTestCase {
         let tl = rig.out.timeline(cable: 1, cc: 74)
         XCTAssertEqual(tl.map { $0.sample }, tl.map { $0.sample }.sorted(), "the emitter's messages are in time order: \(tl)")
         XCTAssertEqual(tl.last?.value, 18, "the later hit (lane 1 at beat 2, rank 2 → 18) is the value the emitter ends on: \(tl)")
+    }
+
+    // MARK: a CC is a CC — it never touches the notes
+    /// The same documents with CC off and with every VALUE × TRAVEL on all four emitters must produce the identical NOTE stream (every non-CC message, event for event), across host buffer sizes.
+    func testCCNeverRestrikesOrReshapesTheNotes() {
+        func docs(_ cc: EmitterCC?) -> [PluginState] {
+            var out: [PluginState] = []
+            func put(_ st: PluginState) { var t = st; if let cc { var set = EmitterCCSet(); for i in 0..<4 { var c = cc; c.ccNumber = [74, 71, 1, 11][i]; set[i] = c }; t.euclideousEmitterCCs = set } else { t.euclideousEmitterCCs = nil }; out.append(t) }
+            put(state(cc: EmitterCC(), riffRanks: [1, 8, 3, 6, 2, 7, 4, 5]))                                         // one lane, a hit on every step
+            put(state(cc: EmitterCC(), riffRanks: [1, 1, 1, 1, 1, 1, 1, 1], playRiffOff: false))                    // the same rank every hit (the same-note guard's case)
+            put(twoLaneState(cc: EmitterCC(), ranks: [1, 8, 3, 6, 2, 7, 4, 5]))                                      // two lanes on one output
+            put(twoLaneState(cc: EmitterCC(), ranks: [1, 8, 3, 6, 2, 7, 4, 5], lane1: { $0.gate = 0.99; $0.pulses = 3 }, lane2: { $0.gate = 0.99; $0.pulses = 2; $0.riffOnRest = .tie }, fourthLane: true))   // long gates, TIE
+            return out
+        }
+        let variants: [(String, EmitterCC)] = [
+            ("fixed step", EmitterCC(on: true, valueMode: .fixed, level: 90, travel: .step)), ("fixed glide", EmitterCC(on: true, valueMode: .fixed, level: 90, travel: .glide, time: 100)),
+            ("fixed fall", EmitterCC(on: true, valueMode: .fixed, level: 90, low: 10, travel: .fall, time: 80)),
+            ("riff step", EmitterCC(on: true, valueMode: .riff, travel: .step)), ("riff glide", EmitterCC(on: true, valueMode: .riff, travel: .glide, time: 100)),
+            ("riff fall", EmitterCC(on: true, valueMode: .riff, travel: .fall, time: 60)),
+        ]
+        for frames: UInt32 in [128, 4096] {
+            let base = docs(nil)
+            for (name, cc) in variants {
+                for (i, st) in docs(cc).enumerated() {
+                    let off = CCRig(base[i], frames: frames), on = CCRig(st, frames: frames)
+                    off.run(to: 8.0); on.run(to: 8.0)
+                    XCTAssertFalse(on.out.cc.isEmpty, "\(name) doc \(i): the CC variant must actually be sending")
+                    XCTAssertTrue(off.out.cc.isEmpty)
+                    XCTAssertFalse(off.out.other.isEmpty, "doc \(i) plays notes")
+                    XCTAssertEqual(on.out.other, off.out.other, "\(name) doc \(i) @\(frames) frames: CC on must not change a single note message")
+                }
+            }
+        }
+    }
+
+    // MARK: the drawn curve is the one the Router sends
+    /// One lane, a hit on every beat of a 4-beat bar, ranks 1 8 3 6 repeating: the pure `emitterCCTrace` of those hits must follow the CC messages the Router actually sends over the second bar — exactly for STEP, within one rate-limited ramp
+    /// step (the engine sends at most once per 1/24 beat, on a change) for GLIDE and FALL — so the picture can never describe a different engine.
+    func testTheTraceFollowsWhatTheRouterSends() {
+        let ranks = [1, 8, 3, 6, 1, 8, 3, 6]
+        for (name, travel, time, tol) in [("step", EmitterCCTravel.step, 50, 0), ("glide 100", .glide, 100, 6), ("glide 50", .glide, 50, 6), ("fall 50", .fall, 50, 6), ("fall 100", .fall, 100, 6)] {
+            let c = EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: travel, time: time)
+            let rig = CCRig(state(cc: c, riffRanks: ranks))
+            rig.run(to: 8.0)
+            let sent = rig.out.timeline(cable: 1, cc: 74)
+            let trace = emitterCCTrace(cfg: EmitterCCCfg(c), hits: [(0.0, 1), (1.0, 8), (2.0, 3), (3.0, 6)].map { EmitterCCTraceHit(beat: $0.0, rank: $0.1) }, barBeats: 4)
+            var worst = 0
+            for i in 1..<96 {   // bar 2, off the exact hit samples (a hit and the ramp's last step share a sample)
+                let b = Double(i) / 24
+                let sample = Int64(((4.0 + b) * beatSamples).rounded())
+                guard i % 24 != 0, let engine = sent.last(where: { $0.sample <= sample })?.value, let drawn = trace.points.first(where: { abs(Double($0.x) - b) < 1e-6 }).map({ Int($0.y) }) else { continue }
+                worst = max(worst, abs(engine - drawn))
+            }
+            XCTAssertLessThanOrEqual(worst, tol, "\(name): the drawn curve and the CC stream differ by \(worst)")
+        }
     }
 }
