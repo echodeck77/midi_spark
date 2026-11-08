@@ -5,6 +5,12 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ FOURFOLD — PLAY AS SEQUENCE + NOTES lane-card cleanup (2026-11-08; `Docs/euclideous-status-log.md`; commits `a2b37be` engine / `cb1bc35` UI)
+- [x] DONE: PLAY AS is a sequence of (mode, hit-count) chips (advance by hits, loop, reset on melody restart — pure closed form, no accumulator); six new modes (REVERSE/RANDOM/ALTERNATE/DRONE/OUTLINE/PAIRS); byte-identical for old docs (golden + alloc 0); the NOTES card drops the rank selector and reflows to 3 rows; the 13-tile pop-up. `PlayAsSequenceTests` + the layout/test updates green.
+- [ ] OPEN (not this ferry, Paul's scope): **removing a chip** and **reordering chips** — the chip row has no delete/drag yet (an empty sequence shows "+ ADD MODE" but is only reachable once removal exists).
+- [ ] DEVICE: the four "PLAY AS SEQUENCE —" lines in `Docs/euclideous-device-verification-debt.md` (the six new modes by ear; advance/loop/reset; the chip row + pop-up; stack budget).
+- [ ] DECIDE (Paul): (a) the six new modes' exact note arrangements (built faithful to the subtitles — adjust by ear); (b) a NEW chip defaults to **4 HITS**; (c) within a chip the mode's note-stepping uses the GLOBAL count (CYCLE etc. keep stepping across chips) rather than restarting per chip-entry — keep, or restart each chip?; (d) the lane strip / NOTES-key preview still show the FIRST chip's mode (not sequence-aware) — make them follow the active chip?
+
 ## ★ FOURFOLD — INPUTS: SOURCES row, CHORDS split, NOW two rows, TEST (2026-11-08; `Docs/euclideous-status-log.md`; commits `f921e38` / `544a236` / `48a6ca4`)
 - [x] DONE: TEST pool audition (live word → `Router.euclideousRunAudition`, byte-identical off, alloc 0, `InputsTestAuditionTests`); NOW two rows (rank over note, `stackRank`); SOURCES = MIDI IN · CHORDS · [1|2] · PICK · KEY · TEST (model unchanged, old docs fine).
 - [ ] DEVICE: the three "INPUTS TEST —" lines in `Docs/euclideous-device-verification-debt.md`.
