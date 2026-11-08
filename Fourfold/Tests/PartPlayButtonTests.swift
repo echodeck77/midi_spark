@@ -12,7 +12,7 @@ final class PartPlayButtonTests: XCTestCase {
         let on = euclideousPartPlayLook(on: true)
         XCTAssertEqual(on.playHex, 0xAAB0BA); XCTAssertEqual(on.nameHex, 0xF2F4F7); XCTAssertTrue(on.lampFilled); XCTAssertTrue(on.lampUsesLane)
         let off = euclideousPartPlayLook(on: false)
-        XCTAssertEqual(off.playHex, 0x4E525A); XCTAssertEqual(off.nameHex, 0x5A5E66); XCTAssertFalse(off.lampFilled); XCTAssertFalse(off.lampUsesLane); XCTAssertEqual(off.lampStrokeHex, 0x4A4E57)
+        XCTAssertEqual(off.playHex, 0x6E737C); XCTAssertEqual(off.nameHex, 0x8A909A); XCTAssertFalse(off.lampFilled); XCTAssertFalse(off.lampUsesLane); XCTAssertEqual(off.lampStrokeHex, 0x6E737C)   // AMENDMENT 1 §A4.3
         XCTAssertEqual(EuclideousPartPlayLook.tileFillHex, 0x202226); XCTAssertEqual(EuclideousPartPlayLook.tileBorderHex, 0x2B2D33); close(EuclideousPartPlayLook.tileRadius, 9, "the source play tile's radius")
     }
 

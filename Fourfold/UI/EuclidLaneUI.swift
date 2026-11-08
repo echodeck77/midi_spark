@@ -203,7 +203,7 @@ struct EuclidLaneBox: View {
                 // derivation (56−12=44, unchanged for the regular BUILD-page editor).
                 .frame(height: compact ? max(20, height) : max(20, height - 12))
                 .lockOutline(lockOutline, accent: accent, radius: 8)
-                .overlay(alignment: .bottom) { if let t = listenShadowTint { Rectangle().fill(t).frame(height: 14).allowsHitTesting(false) } }
+                .overlay(alignment: .bottom) { if let t = listenShadowTint { RoundedRectangle(cornerRadius: EuclideousStripMetrics.answerLineRadius).fill(t.opacity(EuclideousStripMetrics.answerLineAlpha)).frame(height: EuclideousStripMetrics.answerLineH).allowsHitTesting(false) } }   // PLAY BUTTONS AMENDMENT 1 §A5: a 2 pt line along the bottom of the note band (was a 14 pt solid band)
                 .opacity(stripDim ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.1 + PLAY STACK §4.1: the whole strip once at 42 % (solo-silenced OR both parts off), still walking
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: stripDim)
             if let soloButton {

@@ -5105,17 +5105,39 @@ func euclideousNotesLayerIsOn(_ line: EuclidLine) -> Bool { line.notesOnResolved
 
 // ── PLAY RIFF / PLAY STACK ferry (2026-11-07): the pure layer behind the lane card's two part-switch buttons ──────────────
 
-/// §2.4 the button's colours. ON: the lamp is the lane colour (filled + a 1 pt lane stroke), "PLAY" #AAB0BA, the part name #F2F4F7. OFF: the lamp is unfilled with a 1 pt #4A4E57 stroke, "PLAY" #4E525A, the name #5A5E66. The tile fill #202226 + 1 pt #2B2D33 border is the same on and off.
+/// §2.4 the button's colours — PLAY BUTTONS AMENDMENT 1 (2026-11-08) §A4 (option A). The tile never changes between on and off: #202226 fill, 1 pt #2B2D33 inner border, full opacity, radius 9. ON: the lamp is the lane colour (filled + a lane100
+/// stroke), "PLAY" #AAB0BA, the part name #F2F4F7. OFF: the lamp is unfilled with a #6E737C stroke, "PLAY" #6E737C, the part name #8A909A (was #4A4E57 / #4E525A / #5A5E66, which read as disabled). Looks change at once, with no ease.
 struct EuclideousPartPlayLook: Equatable {
     var playHex: UInt32, nameHex: UInt32
     var lampFilled: Bool          // the triangle is filled (on) or an outline (off)
     var lampUsesLane: Bool        // on → the lamp is drawn in the lane colour; off → the fixed grey below
     var lampStrokeHex: UInt32     // used only when !lampUsesLane
-    static let tileFillHex: UInt32 = 0x202226, tileBorderHex: UInt32 = 0x2B2D33, tileRadius: CGFloat = 9   // §2.1 (radius from the source play tile)
+    static let tileFillHex: UInt32 = 0x202226, tileBorderHex: UInt32 = 0x2B2D33, tileRadius: CGFloat = 9, tileOpacity: Double = 1   // §A4.1 (radius from the source play tile)
 }
 func euclideousPartPlayLook(on: Bool) -> EuclideousPartPlayLook {
     on ? EuclideousPartPlayLook(playHex: 0xAAB0BA, nameHex: 0xF2F4F7, lampFilled: true, lampUsesLane: true, lampStrokeHex: 0)
-       : EuclideousPartPlayLook(playHex: 0x4E525A, nameHex: 0x5A5E66, lampFilled: false, lampUsesLane: false, lampStrokeHex: 0x4A4E57)
+       : EuclideousPartPlayLook(playHex: 0x6E737C, nameHex: 0x8A909A, lampFilled: false, lampUsesLane: false, lampStrokeHex: 0x6E737C)
+}
+
+/// PLAY BUTTONS AMENDMENT 1 §A3 (option A · BIGGER): every size on the button, from its height h alone, each rounded to the nearest 0.5 pt. The part name ("RIFF", "STACK") is h × 0.22 clamped 9…18, heavy, tracking 0.05 em, line height 1.06 × its size;
+/// "PLAY" is h × 0.13 clamped 6…11, heavy, tracking 0.16 em, line height 1.1 × its size; the lamp is PLAY's size × 1.1 tall and 0.91 × its height wide (the §2.3 path) with PLAY's size × 0.6 between it and "PLAY"; the two lines are h × 0.065 apart,
+/// clamped 3…6. The lamp's stroke is its height ÷ 8 clamped 1…1.6 (to 0.1) and the flash glow's blur its height × 0.45, never under 4. At h 78: name 17, PLAY 10, lamp 11 × 10, lamp gap 6, line gap 5, stroke 1.4, blur 5; at 44: 9.5 / 6 / 6.5 × 6 / 3.5 / 3.
+struct EuclideousPartPlayType: Equatable {
+    var nameSize: CGFloat, nameTracking: CGFloat, nameLineH: CGFloat
+    var playSize: CGFloat, playTracking: CGFloat, playLineH: CGFloat
+    var lampH: CGFloat, lampW: CGFloat, lampGap: CGFloat
+    var lineGap: CGFloat, lampStroke: CGFloat, glowBlur: CGFloat
+}
+func euclideousPartPlayType(height h: CGFloat) -> EuclideousPartPlayType {
+    func half(_ x: CGFloat) -> CGFloat { (x * 2).rounded() / 2 }
+    func clamp(_ x: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { max(lo, min(hi, x)) }
+    let name = half(clamp(h * 0.22, 9, 18)), play = half(clamp(h * 0.13, 6, 11))
+    let lampH = half(play * 1.1)
+    return EuclideousPartPlayType(nameSize: name, nameTracking: 0.05 * name, nameLineH: 1.06 * name,
+                                  playSize: play, playTracking: 0.16 * play, playLineH: 1.1 * play,
+                                  lampH: lampH, lampW: half(lampH * 0.91), lampGap: half(play * 0.6),
+                                  lineGap: half(clamp(h * 0.065, 3, 6)),
+                                  lampStroke: (clamp(lampH / 8, 1, 1.6) * 10).rounded() / 10, glowBlur: max(4, half(lampH * 0.45)))
 }
 
 /// §2.3 the lamp: a right-pointing triangle 5.5 × 6, its path `M1 1 L7 4.5 L1 8 Z` given in an 8 × 9 box. These are the path's three points and its own bounding box within that box (x 1…7, y 1…8), so the view (and a test) map them to the 5.5 × 6 frame.
@@ -8703,6 +8725,8 @@ enum EuclideousStripMetrics {
     static let trackH: CGFloat = 27, keyRowH: CGFloat = 14, rowGap: CGFloat = 3
     /// The strip's full height with every band reserved (cells 27, gap 3, note key row 14) = the card's top row T. PLAY BUTTONS AMENDMENT 1 §A2.
     static var stripH: CGFloat { trackH + rowGap + keyRowH }
+    /// PLAY BUTTONS AMENDMENT 1 §A5: a lane answering another lane's pitch (ANSWER PITCH · SHADOW) draws a 2 pt line along the bottom of the note-key band, the strip's full width, in the source lane's colour at 70 %, radius 1 — it does not change the strip's height. (It was a 14 pt solid band.)
+    static let answerLineH: CGFloat = 2, answerLineAlpha = 0.7, answerLineRadius: CGFloat = 1
     static let columnRadius: CGFloat = 4, keyRadius: CGFloat = 3
     static let chipH: CGFloat = 9, chipInset: CGFloat = 2, chipRadius: CGFloat = 2
     static let keyLabelLine: CGFloat = 8
@@ -8762,6 +8786,11 @@ func euclideousStripLayout(xs: [CGFloat], columnW: CGFloat) -> [EuclideousStripF
         EuclideousStripFrame(column: CGRect(x: x, y: 0, width: columnW, height: M.trackH),
                              key: CGRect(x: x, y: M.trackH + M.rowGap, width: columnW, height: M.keyRowH))
     }
+}
+/// PLAY BUTTONS AMENDMENT 1 §A5.1: the ANSWER line's frame in the strip's own coordinates — the strip's full width, 2 tall, along the bottom of the note-key band (y T − 2 … T).
+func euclideousStripAnswerLineFrame(stripWidth: CGFloat) -> CGRect {
+    typealias M = EuclideousStripMetrics
+    return CGRect(x: 0, y: M.stripH - M.answerLineH, width: max(0, stripWidth), height: M.answerLineH)
 }
 /// A chip's frame inside its column: inset 2 from each side, 9 tall, its top set by the rank.
 func euclideousStripChipFrame(column: CGRect, rank: Int) -> CGRect {

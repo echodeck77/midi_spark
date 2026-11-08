@@ -231,6 +231,22 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(value(hits), "4", "the card's HITS shows the same count")
     }
 
+    /// PLAY RIFF / PLAY STACK (amendment 1, 2026-11-08): the two top-row buttons switch the lane's riff and notes parts, a tap is one undo step, and the bigger type / new frames leave them tappable on the card.
+    func testThePlayRiffAndPlayStackButtonsSwitchTheirPartsAndUndo() {
+        let app = XCUIApplication.fresh()
+        let riff = need(app.el("Play riff, lane 1"), "lane 1's PLAY RIFF button"), stack = need(app.el("Play stack, lane 1"), "lane 1's PLAY STACK button")
+        XCTAssertEqual(value(riff), "on"); XCTAssertEqual(value(stack), "off")
+        XCTAssertEqual(riff.frame.height, stack.frame.height, accuracy: 0.5, "both buttons are the same height")
+        riff.tap()
+        XCTAssertEqual(value(app.el("Play riff, lane 1")), "off", "a tap switched the riff off")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(value(app.el("Play riff, lane 1")), "on", "one undo step")
+        app.el("Play stack, lane 1").tap()
+        XCTAssertEqual(value(app.el("Play stack, lane 1")), "on", "PLAY STACK turned the notes part on")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(value(app.el("Play stack, lane 1")), "off", "one undo step")
+    }
+
     func testDraggingOffsetMovesThePattern() {
         let app = XCUIApplication.fresh()
         let offset = need(app.otherElements.matching(NSPredicate(format: "label == %@", "OFFSET")).firstMatch, "the OFFSET slider")

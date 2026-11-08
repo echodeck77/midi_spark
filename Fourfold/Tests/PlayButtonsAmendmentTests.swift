@@ -103,4 +103,68 @@ final class PlayButtonsAmendmentTests: XCTestCase {
         for _ in 0..<8 { seen.insert(euclideousLaneCardFrames(card: card, withBadge: false).strip.height) }
         XCTAssertEqual(seen, [44])
     }
+
+    // MARK: test 3 — the type (§A3)
+
+    /// The ratified sizes. h 78 (the design canvas's / screenshot's size): name 17, PLAY 10, lamp 11 tall × 10, lamp gap 6, line gap 5; h 44 (the references): 9.5 / 6 / 3; h 70: 15.5 / 9 / 4.5; inside the clamps at 30 and 100.
+    func testTheTypeSizes() {
+        let t78 = euclideousPartPlayType(height: 78)
+        close(t78.nameSize, 17); close(t78.playSize, 10); close(t78.lampH, 11); close(t78.lampW, 10); close(t78.lampGap, 6); close(t78.lineGap, 5)
+        XCTAssertEqual(Double(t78.lampStroke), 1.4, accuracy: 0.0005, "A4.4: the lamp stroke is 1.4 at h 78"); close(t78.glowBlur, 5, "A4.5: 5 pt at h 78")
+        closeD(Double(t78.nameTracking), 0.05 * 17); closeD(Double(t78.playTracking), 0.16 * 10); closeD(Double(t78.nameLineH), 1.06 * 17); closeD(Double(t78.playLineH), 1.1 * 10)
+        let t44 = euclideousPartPlayType(height: 44)
+        close(t44.nameSize, 9.5); close(t44.playSize, 6); close(t44.lineGap, 3)
+        close(t44.lampH, 6.5); close(t44.lampW, 6); close(t44.lampGap, 3.5); close(t44.lampStroke, 1, "never under 1 pt"); close(t44.glowBlur, 4, "never under 4")
+        let t70 = euclideousPartPlayType(height: 70)
+        close(t70.nameSize, 15.5); close(t70.playSize, 9); close(t70.lineGap, 4.5)
+        for h: CGFloat in [30, 100] {
+            let t = euclideousPartPlayType(height: h)
+            XCTAssertTrue((9...18).contains(t.nameSize), "name \(t.nameSize) at h \(h)"); XCTAssertTrue((6...11).contains(t.playSize)); XCTAssertTrue((3...6).contains(t.lineGap))
+            XCTAssertTrue((1...1.6).contains(t.lampStroke + 1e-9)); XCTAssertGreaterThanOrEqual(t.glowBlur, 4)
+        }
+        close(euclideousPartPlayType(height: 30).nameSize, 9, "clamped up"); close(euclideousPartPlayType(height: 100).nameSize, 18, "clamped down")
+        close(euclideousPartPlayType(height: 100).playSize, 11); close(euclideousPartPlayType(height: 30).playSize, 6)
+        // every size is a multiple of 0.5 (the stroke of 0.1)
+        for h in stride(from: 20.0, through: 120.0, by: 0.7) {
+            let t = euclideousPartPlayType(height: CGFloat(h))
+            for v in [t.nameSize, t.playSize, t.lampH, t.lampW, t.lampGap, t.lineGap, t.glowBlur] { XCTAssertEqual(Double(v * 2).rounded(), Double(v * 2), accuracy: 1e-9, "h \(h)") }
+            XCTAssertGreaterThan(t.nameSize, t.playSize, "A3.3: the part name is the largest text on the button (h \(h))")
+        }
+    }
+    /// A3.2's size at every layout: the button is 44 tall everywhere (the top row is T = 44 at every card size), so every layout takes the h 44 sizes. And the name's width in the 44-wide tile (A3.4): "STACK" at 9.5 pt needs ≈ 31 pt; at h 78 the
+    /// same 44-wide tile would need ≈ 55 (it would truncate) — reported by this estimate, a monospaced advance of 0.6 em plus the tracking.
+    func testTheTypeAtEveryLayoutAndTheNameWidth() {
+        for (_, size) in pageSizes {
+            let card = euclideousPageLayout(size: size).laneBox
+            let F = euclideousLaneCardFrames(card: card, withBadge: false)
+            XCTAssertEqual(euclideousPartPlayType(height: F.lead.height), euclideousPartPlayType(height: 44))
+        }
+        func stackWidth(_ t: EuclideousPartPlayType) -> Double { 5 * Double(0.6 * t.nameSize + t.nameTracking) }
+        XCTAssertLessThan(stackWidth(euclideousPartPlayType(height: 44)), 42, "STACK fits the 44 pt tile (inside its 1 pt borders) at the real height")
+        print("PLAYAMEND-TYPE STACK needs ≈ \(String(format: "%.1f", stackWidth(euclideousPartPlayType(height: 44)))) pt at h 44 (tile 44), ≈ \(String(format: "%.1f", stackWidth(euclideousPartPlayType(height: 78)))) pt at h 78, ≈ \(String(format: "%.1f", stackWidth(euclideousPartPlayType(height: 70)))) pt at h 70")
+    }
+
+    // MARK: test 4 — the looks (§A4)
+
+    func testTheTileNeverChangesAndTheOffLooksAreTheRatifiedGreys() {
+        let on = euclideousPartPlayLook(on: true), off = euclideousPartPlayLook(on: false)
+        XCTAssertEqual(EuclideousPartPlayLook.tileFillHex, 0x202226); XCTAssertEqual(EuclideousPartPlayLook.tileBorderHex, 0x2B2D33); closeD(EuclideousPartPlayLook.tileOpacity, 1, "no fade on the tile, on or off")
+        close(EuclideousPartPlayLook.tileRadius, 9, "the play tile's radius")
+        // on: lamp lane100 filled (+ a lane stroke), PLAY #AAB0BA, name #F2F4F7
+        XCTAssertTrue(on.lampFilled); XCTAssertTrue(on.lampUsesLane); XCTAssertEqual(on.playHex, 0xAAB0BA); XCTAssertEqual(on.nameHex, 0xF2F4F7)
+        // off: lamp unfilled with a #6E737C stroke, PLAY #6E737C, name #8A909A
+        XCTAssertFalse(off.lampFilled); XCTAssertFalse(off.lampUsesLane); XCTAssertEqual(off.lampStrokeHex, 0x6E737C); XCTAssertEqual(off.playHex, 0x6E737C); XCTAssertEqual(off.nameHex, 0x8A909A)
+        XCTAssertEqual(Double(euclideousPartPlayType(height: 78).lampStroke), 1.4, accuracy: 0.0005, "the lamp stroke is 1.4 at h 78")
+    }
+
+    // MARK: §A5 — the ANSWER line
+
+    func testTheAnswerLineIsATwoPointLineAlongTheBottomOfTheNoteBand() {
+        let r = euclideousStripAnswerLineFrame(stripWidth: 264.67)
+        close(r.minX, 0); close(r.width, 264.67, "the strip's full width"); close(r.height, 2); close(r.maxY, EuclideousLaneCardMetrics.cometRowH, "along the bottom: it ends where the strip does")
+        close(r.minY, EuclideousStripMetrics.trackH + EuclideousStripMetrics.rowGap + EuclideousStripMetrics.keyRowH - 2, "inside the note-key band (y 30…44)")
+        XCTAssertGreaterThanOrEqual(r.minY, EuclideousStripMetrics.trackH + EuclideousStripMetrics.rowGap)
+        closeD(EuclideousStripMetrics.answerLineAlpha, 0.7); close(EuclideousStripMetrics.answerLineRadius, 1)
+        close(euclideousLaneCardFrames(card: CGSize(width: 380.67, height: 301), withBadge: false).strip.height, 44, "it doesn't change the strip's height")
+    }
 }

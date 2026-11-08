@@ -24,20 +24,22 @@ struct EuclideousPartPlayButton: View {
     let accent: Color
     let on: Bool
     var flash: Double = 0
-    var tile = CGSize(width: 44, height: 44)
+    var tile = CGSize(width: EuclideousLaneCardMetrics.playButtonW, height: EuclideousLaneCardMetrics.cometRowH)
     var target: CGSize? = nil
     var axLabel: String = ""
     let onTap: () -> Void
 
     private var look: EuclideousPartPlayLook { euclideousPartPlayLook(on: on) }
+    private var type: EuclideousPartPlayType { euclideousPartPlayType(height: tile.height) }   // §A3: every size from the button's height
 
     var body: some View {
         content
             .frame(width: tile.width, height: tile.height)
-            .background(tileBackground)   // §2.1 the tile, on and off alike
+            .background(tileBackground)   // §A4.1 the tile, on and off alike
             .frame(width: target?.width ?? tile.width, height: target?.height ?? tile.height, alignment: .top)
             .contentShape(Rectangle())
             .onTapGesture { onTap() }      // §2.6 no hold, no double-tap
+            .transaction { $0.animation = nil }   // §A4.6 looks change at once, with no ease
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(axLabel)
             .accessibilityValue(on ? "on" : "off")   // §6.2
@@ -46,36 +48,39 @@ struct EuclideousPartPlayButton: View {
     }
 
     private var content: some View {
-        VStack(spacing: 3) {
-            HStack(spacing: 4) { lamp; playText }   // §2.2 line 1: the lamp, sp4, then PLAY — centred as a group
+        VStack(spacing: type.lineGap) {
+            HStack(spacing: type.lampGap) { lamp; playText }   // §A3.1 line 1: the lamp, then PLAY — centred as a group
             nameText
         }
     }
     private var playText: some View {
-        Text("PLAY").font(.system(size: 6, weight: .heavy, design: .monospaced)).tracking(0.16 * 6).foregroundColor(Color(hex: look.playHex))
+        Text("PLAY").font(.system(size: type.playSize, weight: .heavy, design: .monospaced)).tracking(type.playTracking).foregroundColor(Color(hex: look.playHex))
+            .lineLimit(1).frame(height: type.playLineH)
     }
     private var nameText: some View {
-        Text(isNotes ? "STACK" : "RIFF").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.08 * 9)
-            .foregroundColor(Color(hex: look.nameHex)).lineLimit(1).fixedSize(horizontal: true, vertical: false).frame(height: 10)   // §2.2 truncate, never shrink
+        Text(isNotes ? "STACK" : "RIFF").font(.system(size: type.nameSize, weight: .heavy, design: .monospaced)).tracking(type.nameTracking)
+            .foregroundColor(Color(hex: look.nameHex)).lineLimit(1).truncationMode(.tail)   // §A3.4 truncate, never shrink
+            .fixedSize(horizontal: false, vertical: true).frame(height: type.nameLineH)   // the line box is 1.06 × the size; the glyphs keep their natural height inside it
     }
     private var tileBackground: some View {
         RoundedRectangle(cornerRadius: EuclideousPartPlayLook.tileRadius).fill(Color(hex: EuclideousPartPlayLook.tileFillHex))
             .overlay(RoundedRectangle(cornerRadius: EuclideousPartPlayLook.tileRadius).strokeBorder(Color(hex: EuclideousPartPlayLook.tileBorderHex), lineWidth: 1))
+            .opacity(EuclideousPartPlayLook.tileOpacity)
     }
 
-    /// §2.3–2.5 the lamp: a 5.5 × 6 triangle, filled lane (on) or a 1 pt grey outline (off), with round joins; a lane100 4 pt-blur glow at the flash activity.
+    /// §A3.1 / §A4 the lamp: the §2.3 triangle at PLAY's size × 1.1 tall, filled lane (on) or an outline (off), with round joins; a lane100 glow of the lamp's height × 0.45 at the flash activity.
     private var lamp: some View {
-        let sz = EuclideousPartPlayLamp.size
+        let sz = CGSize(width: type.lampW, height: type.lampH)
         return ZStack {
-            if flash > 0 {   // §2.5 the glow around the lamp
-                EuclideousPartPlayLampShape().fill(accent).frame(width: sz.width, height: sz.height).blur(radius: 4).opacity(flash)
+            if flash > 0 {   // §A4.5 the glow around the lamp
+                EuclideousPartPlayLampShape().fill(accent).frame(width: sz.width, height: sz.height).blur(radius: type.glowBlur).opacity(flash)
             }
             if look.lampFilled {
                 EuclideousPartPlayLampShape().fill(accent)
-                    .overlay(EuclideousPartPlayLampShape().stroke(accent, style: StrokeStyle(lineWidth: EuclideousPartPlayLamp.strokeWidth, lineJoin: .round)))
+                    .overlay(EuclideousPartPlayLampShape().stroke(accent, style: StrokeStyle(lineWidth: type.lampStroke, lineJoin: .round)))
                     .frame(width: sz.width, height: sz.height)
             } else {
-                EuclideousPartPlayLampShape().stroke(Color(hex: look.lampStrokeHex), style: StrokeStyle(lineWidth: EuclideousPartPlayLamp.strokeWidth, lineJoin: .round))
+                EuclideousPartPlayLampShape().stroke(Color(hex: look.lampStrokeHex), style: StrokeStyle(lineWidth: type.lampStroke, lineJoin: .round))
                     .frame(width: sz.width, height: sz.height)
             }
         }
