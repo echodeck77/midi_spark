@@ -47,6 +47,16 @@ func euclideousAnswerPairPartner(lane: Int, lines: [EuclidLine]) -> Int? {
     guard p.answerTradeOnResolved, p.answerTradeModeResolved == .swap, p.answerTradeWithResolved(ownLane: w) == lane else { return nil }
     return w
 }
+/// ANSWER v2 §3.5 — the ASKER of a SWAP pair: the lane whose FOLLOW source IS its partner. If both point at each other, or neither does, the LOWER-numbered lane. (Derived, never saved; the answerer shows "LANE asker / SWAPS WITH YOU" and takes the asker's EACH/UNIT.)
+func euclideousAnswerTradeAsker(_ lines: [EuclidLine], pair: (Int, Int)) -> Int {
+    let a = min(pair.0, pair.1), b = max(pair.0, pair.1)
+    guard a >= 0, b < lines.count else { return a }
+    let aAsks = lines[a].listenSourceResolved(ownLane: a) == b
+    let bAsks = lines[b].listenSourceResolved(ownLane: b) == a
+    if aAsks && !bAsks { return a }
+    if bAsks && !aAsks { return b }
+    return a   // both or neither → the lower-numbered lane
+}
 /// 11.4 — the lane whose units count this lane's phase: itself, or the LOWER-numbered lane of its SWAP pair (both lanes of a pair share one phase).
 func euclideousAnswerPhaseLane(lane: Int, lines: [EuclidLine]) -> Int {
     if let p = euclideousAnswerPairPartner(lane: lane, lines: lines) { return min(lane, p) }

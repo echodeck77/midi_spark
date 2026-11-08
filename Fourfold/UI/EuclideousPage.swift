@@ -4852,7 +4852,15 @@ struct EuclideousPage: View {
             .strokeBorder(selected ? lane100(targetAccent) : (disabled ? Color(hex: 0x3A3E47) : Color.clear),
                           style: StrokeStyle(lineWidth: 1, dash: disabled ? [3, 2] : [])))
         .contentShape(Rectangle())
-        .onTapGesture { if !disabled { edit(idx) { $0.listenSource = target } } }
+        .onTapGesture {
+            guard !disabled else { return }
+            onEdit { lines in
+                guard idx < lines.count else { return }
+                lines[idx].listenSource = target
+                // ANSWER v2 §3.1/§3.4: FOLLOW drives TRADE — a trading lane retargets to its new source (SWAP: old answerer off, new source paired; BORROW: borrow from the new source). `.with` is the retarget primitive.
+                if lines[idx].answerTradeOnResolved { lines = euclideousApplyTradeEdit(lines, lane: idx, edit: .with(target)) }
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(disabled ? "Lane \(target + 1), follows this lane, unavailable" : "Follow lane \(target + 1)")
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -5074,51 +5082,21 @@ struct EuclideousPage: View {
     /// undo are one step. Selecting a mode of an off row switches it on (the same call: mode, then on).
     private func answerTradeRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
         let labelW = EuclideousAnswerTabMetrics.labelColumn, gap: CGFloat = 4
-        let btnW = max(1, (fullWidth - labelW - gap * 3) / 3)
+        // ANSWER v2 §1.5: TRADE is TWO equal columns (SWAP · BORROW) across the width the three columns spanned; the WITH stepper is removed (the partner is the FOLLOW source, §3.1).
+        let btnW = max(1, (fullWidth - labelW - gap * 2) / 2)
         let on = line.answerTradeOnResolved, mode = line.answerTradeModeResolved, with = line.answerTradeWithResolved(ownLane: idx) + 1
+        let src = line.listenSourceResolved(ownLane: idx)   // §3.1: the partner is the FOLLOW source; every on/mode edit (re)asserts it with a leading `.with(src)`
         func trade(_ edits: [EuclideousTradeEdit]) { onEdit { lines in for e in edits { lines = euclideousApplyTradeEdit(lines, lane: idx, edit: e) } } }
         return AnyView(HStack(spacing: gap) {
-            answerSwitchCell(name: "TRADE", spoken: "Trade, lane \(idx + 1)", on: on, accent: accent, width: labelW, height: height) { trade([.on(!on)]) }
+            answerSwitchCell(name: "TRADE", spoken: "Trade, lane \(idx + 1)", on: on, accent: accent, width: labelW, height: height) { on ? trade([.on(false)]) : trade([.with(src), .on(true)]) }
             answerModeButton(name: "SWAP", hint: "TRADE PLACES", selected: mode == .swap, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .trade, mode: "SWAP", lane: with, rowOn: on),
-                             width: btnW, height: height, accent: accent) { trade(on ? [.mode(.swap)] : [.mode(.swap), .on(true)]) }
+                             width: btnW, height: height, accent: accent) { trade(on ? [.with(src), .mode(.swap)] : [.with(src), .mode(.swap), .on(true)]) }
             answerModeButton(name: "BORROW", hint: "TAKE ITS SETUP", selected: mode == .borrow, rowOn: on, spoken: euclideousAnswerModeSpoken(row: .trade, mode: "BORROW", lane: with, rowOn: on),
-                             width: btnW, height: height, accent: accent) { trade(on ? [.mode(.borrow)] : [.mode(.borrow), .on(true)]) }
-            answerWithStepper(idx, line, width: btnW, height: height) { w in trade([.with(w)]) }
+                             width: btnW, height: height, accent: accent) { trade(on ? [.with(src), .mode(.borrow)] : [.with(src), .mode(.borrow), .on(true)]) }
         }
         .frame(width: fullWidth, height: height))
     }
-    /// §3.5: WITH — the stepper look (a 10 pt label over the value), the value a 9 pt circle in the WITH lane's colour, sp3, then "↔ LANE n" (SWAP) or "← LANE n" (BORROW). ‹ and › step through the three other lanes in number order, wrapping.
-    /// With TRADE off the whole stepper draws at 70 % and the circle at 40 %. DIFFERENCE (reported): the tap zones are 28 pt wide × the row's height, inside the stepper — at 44 wide the pair would take 88 of the column's ≈ 97 pt and push the
-    /// value out (and a zone reaching past the column would sit on BORROW).
-    private func answerWithStepper(_ idx: Int, _ line: EuclidLine, width: CGFloat, height: CGFloat, set: @escaping (Int) -> Void) -> AnyView {
-        let on = line.answerTradeOnResolved, mode = line.answerTradeModeResolved
-        let with = line.answerTradeWithResolved(ownLane: idx)
-        let others = (0..<4).filter { $0 != idx }
-        func moved(_ d: Int) -> Int { let k = others.firstIndex(of: with) ?? 0; return others[((k + d) % others.count + others.count) % others.count] }
-        let zone: CGFloat = 28
-        return AnyView(ZStack {
-            RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34))
-            VStack(spacing: 2) {
-                Text("WITH").font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                HStack(spacing: 3) {
-                    Circle().fill(lane100(laneAccents[with % laneAccents.count])).frame(width: 9, height: 9).opacity(on ? 1 : 0.4)
-                    Text("\(mode == .swap ? "↔" : "←") LANE \(with + 1)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
-                }
-            }
-            HStack(spacing: 0) {
-                Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                    .frame(width: zone, height: height).contentShape(Rectangle()).onTapGesture { set(moved(-1)) }
-                Spacer(minLength: 0)
-                Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                    .frame(width: zone, height: height).contentShape(Rectangle()).onTapGesture { set(moved(1)) }
-            }
-        }
-        .frame(width: width, height: height)
-        .opacity(on ? 1 : 0.7)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Trade with, lane \(idx + 1)").accessibilityValue(euclideousAnswerWithSpoken(lane: with, mode: mode))
-        .accessibilityAdjustableAction { dir in set(moved(dir == .increment ? 1 : -1)) })
-    }
+    // ANSWER v2 §1.5 / §9.5: the WITH stepper (`answerWithStepper`) is removed — TRADE's partner is the FOLLOW source. `euclideousAnswerWithSpoken` stays (pure, now unused by the UI).
     /// §4: the CYCLE row — the plain label "CYCLE" (not a switch), then three equal columns: EACH (1 … 16), UNIT (BARS · PASSES) — the CANON row's steppers, whose tap zones stay inside their own bounds — and the phase bar. EACH and UNIT go through
     /// `euclideousApplyTradeEdit`, so on either lane of a SWAP pair they write both (4.4, 6.4d).
     private func answerCycleRow(_ idx: Int, _ line: EuclidLine, fullWidth: CGFloat, height: CGFloat) -> AnyView {

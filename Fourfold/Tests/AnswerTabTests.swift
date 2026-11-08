@@ -104,6 +104,21 @@ final class AnswerTabTests: XCTestCase {
         XCTAssertEqual(euclideousAnswerEmitSource(lane: 3, phase: .b, tradeOn: false, tradeWith: 1), 3)
     }
 
+    // MARK: ANSWER v2 §3.5 — the asker is derived from FOLLOW
+
+    func testTradeAskerIsTheLaneWhoseFollowSourceIsItsPartner() {
+        var L = (0..<4).map { _ in EuclidLine() }
+        L[0].listenSource = 2; L[2].listenSource = 3              // 0 follows 2 (its partner), 2 follows 3 (not 0)
+        XCTAssertEqual(euclideousAnswerTradeAsker(L, pair: (0, 2)), 0)
+        XCTAssertEqual(euclideousAnswerTradeAsker(L, pair: (2, 0)), 0, "order-independent")
+        L[0].listenSource = 1; L[2].listenSource = 0              // now 2 follows 0 (its partner), 0 follows 1
+        XCTAssertEqual(euclideousAnswerTradeAsker(L, pair: (0, 2)), 2)
+        L[0].listenSource = 2; L[2].listenSource = 0              // both point at each other → lower
+        XCTAssertEqual(euclideousAnswerTradeAsker(L, pair: (0, 2)), 0, "both → lower-numbered")
+        L[0].listenSource = 1; L[2].listenSource = 3              // neither points at the other → lower
+        XCTAssertEqual(euclideousAnswerTradeAsker(L, pair: (0, 2)), 0, "neither → lower-numbered")
+    }
+
     // MARK: 11.7 — SWAP pairing (6.4)
 
     func testPairingA_SwapOnPairsTheOtherLaneAndCopiesEachAndUnit() {
