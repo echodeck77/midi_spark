@@ -18,6 +18,8 @@ struct EuclideousRankChipView: View {
     let spec: EuclideousRankChipSpec
     let accent: Color
     let size: CGSize
+    /// NOW row only (INPUTS "SOURCES row / NOW notes" ferry, 2026-11-08): two rows — the rank number over the current assigned note — instead of the corner number + centred note. The NOTES keys, the grid labels and the MIX chips keep the single-row look.
+    var stackRank: Bool = false
 
     private var isTop: Bool { spec.topKind != 0 }
     /// The small text after "TOP": "2" (the pair key), "−1" / "−2" (the stack grid's rows); none for TOP itself.
@@ -50,15 +52,34 @@ struct EuclideousRankChipView: View {
             .foregroundColor(labelColour).lineLimit(1)   // truncate, never shrink
         }
     }
+    /// NOW two-row: the rank number (row 1) over the current assigned note (row 2, "–" when the pool has none), centred in the chip above the lit bar. The rank keeps the corner's 70 %-of-the-label colour; the note keeps the grid's note/octave split.
+    @ViewBuilder private var stackedLabel: some View {
+        let style = EuclideousRankLabelStyle.grid
+        let split = style.parts(of: spec.empty ? "\u{2013}" : spec.name)
+        VStack(spacing: 1) {
+            Text("\(spec.rank)").font(rankLabelFont(EuclideousRankLabelStyle.rankWeight, 10)).lineLimit(1)
+                .foregroundColor(spec.sounding > 0 ? Color(h: 0xF2F4F7).opacity(EuclideousRankLabelStyle.rankAlphaFactor) : Color.white.opacity(labelOpacity * EuclideousRankLabelStyle.rankAlphaFactor))
+            HStack(alignment: .lastTextBaseline, spacing: 0) {
+                Text(split.note).font(rankLabelFont(EuclideousRankLabelStyle.noteWeight, 12))
+                Text(split.octave).font(rankLabelFont(EuclideousRankLabelStyle.octaveWeight, 8))
+            }
+            .foregroundColor(labelColour).lineLimit(1)
+        }
+    }
+    private var useStack: Bool { stackRank && !isTop }
     var body: some View {
         let fill = spec.received ? Color(h: 0x30343C) : Color(h: 0x17191E)
         let border = spec.received ? Color(h: 0x454A54) : Color(h: 0x202329)
-        let corner = spec.cornerNumber && !isTop && !spec.empty && euclideousRankChipFitsCorner(width: size.width, height: size.height, name: spec.name)
+        let corner = spec.cornerNumber && !isTop && !spec.empty && !useStack && euclideousRankChipFitsCorner(width: size.width, height: size.height, name: spec.name)
         ZStack(alignment: .bottom) {
             RoundedRectangle(cornerRadius: 6).fill(fill)
             RoundedRectangle(cornerRadius: 6).strokeBorder(border, lineWidth: 1)
-            // the label: centred in the chip above a 6 pt bottom inset, clear of the bar and the place number
-            label.frame(width: size.width, height: size.height - 6).frame(maxHeight: .infinity, alignment: .top)
+            // the label: centred in the chip above a 6 pt bottom inset, clear of the bar and the place number (two rows on NOW, one everywhere else)
+            if useStack {
+                stackedLabel.frame(width: size.width, height: size.height - 6).frame(maxHeight: .infinity, alignment: .center)
+            } else {
+                label.frame(width: size.width, height: size.height - 6).frame(maxHeight: .infinity, alignment: .top)
+            }
             if corner {   // §5.3: the rank number — 8 pt bold at 70 % of the label's colour, inset 3 from the top and leading edges
                 Text("\(spec.rank)").font(rankLabelFont(EuclideousRankLabelStyle.rankWeight, EuclideousRankLabelStyle.grid.rankSize)).lineLimit(1)
                     .foregroundColor(spec.sounding > 0 ? Color(h: 0xF2F4F7).opacity(EuclideousRankLabelStyle.rankAlphaFactor) : Color.white.opacity(labelOpacity * EuclideousRankLabelStyle.rankAlphaFactor))

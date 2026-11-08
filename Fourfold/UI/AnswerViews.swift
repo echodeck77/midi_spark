@@ -58,7 +58,7 @@ struct PoolNowChipsView: View {
         let gap: CGFloat = 3
         let w = max(1, (size.width - gap * 7) / 8)
         HStack(spacing: gap) {
-            ForEach(0..<8, id: \.self) { i in EuclideousRankChipView(spec: chips[i], accent: tint, size: CGSize(width: w, height: size.height)) }
+            ForEach(0..<8, id: \.self) { i in EuclideousRankChipView(spec: chips[i], accent: tint, size: CGSize(width: w, height: size.height), stackRank: true) }   // NOW: two rows — rank number over the assigned note (2026-11-08)
         }
         .frame(width: size.width, height: size.height, alignment: .leading)
         .accessibilityElement(children: .ignore)
