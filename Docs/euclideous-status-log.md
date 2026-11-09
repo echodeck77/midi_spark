@@ -11207,3 +11207,18 @@ Paul sent a screen recording from the iPad (AUM, 94 BPM, emitter B: RIFF · GLID
 - **Proofs.** `EmitterCCTests`: a GLIDE follows a new HIGH at once (never overshoots to the old one; ¾ up the new ramp at beat 2.75), a held value follows a new LEVEL within a window (not at the next hit), a FALL bottoms out at the new LOW, switching to SINE and back re-sends nothing from the forgotten hit — mutation-checked (removing the re-plan fails them); `EmitterCCTraceTests.testTheRingLandsExactlyOnEachDotWhenThePlayheadReachesIt` (every mode) and the interpolation rules.
 - **Limits / device-owed.** The ring is the curve's value at the page's clock, so it carries the same UI-clock offset as every playhead on the page (a fraction of a beat late or early against the audible CC is possible and unmeasured); it no longer shows an engine that disagrees with the picture — if you ever suspect that, the wire is what to check. Looks device-owed.
 
+## 2026-11-09 — Fourfold's host parameters: the 8x8 State set is removed (Fourfold only)
+
+Paul: review the parameters exposed to the host (they originated in the 8x8 State code), remove the old ones and propose a new list. The review of `FourfoldAudioUnit`'s tree (35 parameters):
+
+| address | name | in Fourfold |
+|---|---|---|
+| 0 | Step Rate | no UI control (the page only mirrored it); NO effect on a lane's rate (checked: a lane with no rate of its own runs at the same speed whatever the scene rate); its one effect is the GRID SWING delays (1/8 → pairs of 1/8s). |
+| 1 | Swing 50–75 | LIVE — but only because the page's SWING popover wrote it through the tree. |
+| 100–115 | Transpose <palette machine> ×16 | DEAD for the real document: the Euclid cell's machine is `"euclideous"` (an ephemeral machine), so no palette machine's transpose reaches it (`machineTranspose` ignores overrides past index 15). (A palette machine's transpose does shift notes — a hand-built cell on "gold" moved +12 — which is why they looked alive; Fourfold never builds one.) |
+| 400–407 | Macro 1–8 | DEAD: macros are not in Fourfold's engine; the writes went to `document.macros`, which nothing reads. |
+
+**Removed:** the parameter tree (now `AUParameterTree.createTree(withChildren: [])`), `ParamAddress`, `buildParameterTree`, `wireParameterTree` (observer / provider), `applyParamValue`, `syncParameterTreeToDocument` (and its five call sites — every document load now just `scheduleRebuild()`), `ParamValueCache` and `suppressRebuild`. **Kept, off the tree:** `uiStepRateIndex()` / `uiSwing()` (document readers the page uses) and `setSwing(_:)`, now a plain `editDocument` write — the page's SWING popover is unchanged (`testTheSwingPopoverMovesTheSwing`). The scene's `stepRate` and `swing` stay document fields (a saved session keeps them). **Not touched:** the Router / Kernel render-side `.parameter` / `.parameterRamp` route and its override table — now inert (nothing targets it; golden identical); delete it with the new list unless a new parameter wants sample-accurate automation. `AUExtension/` (8x8 State) is frozen and keeps its set. The deadlock lesson of `ParamValueCache`'s old comment (an off-main `implementorValueProvider` waiting on main against a main-thread `AUParameter.setValue` got the extension SIGKILLed, 2026-10-11) is condensed into the comment on `parameterTree`.
+
+**The new list is a proposal, not built** — see the DECIDE in `Docs/pending-tasks.md`. An AUM session saved with the old parameters (automation lanes, MIDI-learn on Swing / Transpose / a Macro) has nothing to bind to now; nothing had shipped.
+

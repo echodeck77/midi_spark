@@ -1,7 +1,7 @@
 //  FourfoldAudioUnit.swift  — FOURFOLD's copy of the AU class (Step 4, 2026-10-23: copied from AUExtension/MidiSparkAudioUnit.swift and renamed; the 8x8 original is frozen). The standalone app builds it directly; the extension
 //  returns it from its factory.
 //  AUv3 MIDI processor (aumi). Spec v2.8.
-//  Declares nine MIDI outputs (All + Emit Riff/Notes A–D, `FourfoldPorts`), the 35-parameter table with stable addresses (§8/§13.5),
+//  Declares the MIDI outputs (All + Out_A…Out_D, `FourfoldPorts`) and an EMPTY host parameter tree (the 8x8 State parameters — Step Rate, Swing, 16 transposes, 8 macros — were removed 2026-11-09; see `parameterTree` below),
 //  fullState as the host-level Preset (§1/§9), and wires the render kernel.
 
 import Foundation
@@ -9,31 +9,8 @@ import AudioToolbox
 import AVFoundation
 import CoreAudioKit
 
-// THREAD-SAFE PARAMETER VALUE CACHE (Paul 2026-10-11 — fixing a confirmed SIGKILL crash; see the .ips report:
-// the main thread was blocked inside `AUParameter.setValue` (`syncParameterTreeToDocument`, itself called
-// synchronously from a preset-load tap — `loadFactoryPreset` → `applyFactoryDocument`) at the EXACT same
-// moment a background `AUParameterTree.valueAccessQueue` thread was blocked inside this unit's OWN
-// `implementorValueProvider`, waiting via `DispatchQueue.main.sync` for that same main thread to answer a
-// host `getParameter` XPC call. AudioToolboxCore apparently serializes AUParameter get/set traffic through
-// one internal mechanism, so a main-thread SET and an off-main GET can deadlock each other — main waits on
-// AudioToolbox's queue, AudioToolbox's queue (or the thread holding it) waits on main. Neither can proceed;
-// FrontBoard's 10-second scene-create watchdog then SIGKILLs the whole extension. This is exactly why
-// factory/user presets looked like they "didn't load" — the crash discards the in-flight document replace
-// before anything is visible, and the host silently relaunches the extension fresh afterward.
-// FIX: `implementorValueProvider` now NEVER blocks waiting on main — it reads this small lock-protected cache
-// instead. Every main-thread writer of a parameter-tree value (the host-automation observer AND
-// `syncParameterTreeToDocument`, the only two places a tracked value can change) keeps it current, so an
-// off-main read is never more than one main-thread write behind, with zero cross-thread blocking either way.
-private final class ParamValueCache {
-    private let lock = NSLock()
-    private var values: [AUParameterAddress: AUValue] = [:]
-    func set(_ address: AUParameterAddress, _ value: AUValue) { lock.lock(); values[address] = value; lock.unlock() }
-    func get(_ address: AUParameterAddress) -> AUValue { lock.lock(); defer { lock.unlock() }; return values[address] ?? 0 }
-}
-
 public class FourfoldAudioUnit: AUAudioUnit {
 
-    private let paramCache = ParamValueCache()
     private let kernel = Kernel()
     private var _inputBusses: AUAudioUnitBusArray!
     private var _outputBusses: AUAudioUnitBusArray!
@@ -55,7 +32,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
         restartBarBeats = v; scheduleRebuild()
     }
     private var snapshotGeneration: UInt64 = 1
-    private var suppressRebuild = false
 
     /// Currently loaded test session id ("—" until one is loaded). Diagnostics only.
 
@@ -338,12 +314,14 @@ public class FourfoldAudioUnit: AUAudioUnit {
 
 
 
-    /// Global STEP rate (AUParameter 0) and SWING (AUParameter 1) — the scene-level timing. Set via
-    /// the tree so host automation stays in sync (§4). Read-back for the header display.
+    /// The scene-level timing the page reads back: the STEP rate (the grid SWING delays — it has no control of its own on the page) and SWING (50…75 %). Document values; neither is a host parameter any more.
     func uiStepRateIndex() -> Int { StepRate.allCases.firstIndex(of: document.activeSceneState.stepRate) ?? 2 }
     func uiSwing() -> Int { document.activeSceneState.swing }
     func setSwing(_ v: Int) {
-        _parameterTree.parameter(withAddress: ParamAddress.swing)?.value = AUValue(max(50, min(75, v)))
+        editDocument { doc in
+            guard !doc.scenes.isEmpty else { return }   // K3: never subscript an empty scenes array
+            doc.scenes[doc.activeSceneResolved].swing = max(50, min(75, v))
+        }
     }
 
     /// Document mutated → build a fresh snapshot and publish (main thread; coalesced).
@@ -353,12 +331,11 @@ public class FourfoldAudioUnit: AUAudioUnit {
     // updates one runloop tick later (≈ a few audio blocks — imperceptible; only the render thread reads it). Was:
     // a synchronous build on every main-thread edit.
     private func scheduleRebuild() {
-        if suppressRebuild || rebuildPending { return }
+        if rebuildPending { return }
         rebuildPending = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.rebuildPending = false
-            if self.suppressRebuild { return }
             self.snapshotGeneration &+= 1
             let doc = self.renderDoc()
             self.store.publish(SnapshotBuilder.build(from: doc, generation: self.snapshotGeneration, hues: self.snapHues(doc), restartBarBeats: self.restartBarBeats))
@@ -403,108 +380,18 @@ public class FourfoldAudioUnit: AUAudioUnit {
         _inputBusses = AUAudioUnitBusArray(audioUnit: self, busType: .input, busses: [inBus])
         _outputBusses = AUAudioUnitBusArray(audioUnit: self, busType: .output, busses: [outBus])
 
-        _parameterTree = Self.buildParameterTree()
-        wireParameterTree()
+        _parameterTree = AUParameterTree.createTree(withChildren: [])   // no host parameters for now (see `parameterTree`)
     }
 
     public override var inputBusses: AUAudioUnitBusArray { _inputBusses }
     public override var outputBusses: AUAudioUnitBusArray { _outputBusses }
+    /// Fourfold exposes NO host parameters for now. The 8x8 State set it was born with (Step Rate, Swing, 16 palette-machine transposes, 8 macros) was removed 2026-11-09: the transposes address palette machines the Euclid cell
+    /// ("euclideous", an ephemeral machine) is not, the macros do not exist in this engine, Step Rate is only the swing grid, and Swing is the page's own control (a document value, `setSwing`). The replacement list is a decision
+    /// in `Docs/pending-tasks.md`. WHEN PARAMETERS RETURN: `implementorValueProvider` must never wait on the main thread (a 2026-10-11 deadlock between an off-main provider and a main-thread `AUParameter.setValue` got the
+    /// extension SIGKILLed — read a lock-protected cache instead, kept current from main), and a host write marshals onto main before it touches the document (invariant 1).
     public override var parameterTree: AUParameterTree? {
         get { _parameterTree }
         set { /* immutable in this unit */ }
-    }
-
-    // MARK: - Parameters — addresses are the STABLE IDs (§8: never renumber).
-    //   0            stepRate (index into StepRate.allCases)
-    //   1            swing (50…75)
-    //   100 + i      transpose per machine i (−24…+24)
-    //   200 + i      FREE (was morph per machine) — render-dead params removed 2026-09-16; addresses reusable
-    //   300          FREE (was MORPH MASTER) — ditto
-    //   400 + i      MACRO i (0…1)                     ← the macro block, 400…423 reserved (24); only the 8
-    //                                                     SLIDERS (400…407) are host-automatable now (macro-panel
-    //                                                     spec §5). A future transposeB must pick a base ≥ 500.
-    enum ParamAddress {
-        static let stepRate: AUParameterAddress = 0
-        static let swing: AUParameterAddress = 1
-        static func transpose(_ i: Int) -> AUParameterAddress { 100 + AUParameterAddress(i) }
-        // 200+i morph / 300 morphMaster REMOVED 2026-09-16 (render-dead params). Addresses 200–215/300 are free to reuse.
-        static func macro(_ i: Int) -> AUParameterAddress { 400 + AUParameterAddress(i) }
-        static let macroSliderCount = 8   // the automatable bank (0–7); buttons/timelines aren't single-value AU params
-    }
-
-    private static func buildParameterTree() -> AUParameterTree {
-        let stepped: AudioUnitParameterOptions = [.flag_IsReadable, .flag_IsWritable]
-        let smooth: AudioUnitParameterOptions = [.flag_IsReadable, .flag_IsWritable, .flag_CanRamp]
-
-        var params: [AUParameter] = []
-        params.append(AUParameterTree.createParameter(
-            withIdentifier: "stepRate", name: "Step Rate", address: ParamAddress.stepRate,
-            min: 0, max: AUValue(StepRate.allCases.count - 1), unit: .indexed, unitName: nil,
-            flags: stepped, valueStrings: StepRate.allCases.map(\.rawValue), dependentParameters: nil))
-        params.append(AUParameterTree.createParameter(
-            withIdentifier: "swing", name: "Swing", address: ParamAddress.swing,
-            min: 50, max: 75, unit: .percent, unitName: nil,
-            flags: smooth, valueStrings: nil, dependentParameters: nil))
-        for (i, id) in machineIDs.enumerated() {
-            params.append(AUParameterTree.createParameter(
-                withIdentifier: "transpose_\(id)", name: "Transpose \(id.capitalized)",
-                address: ParamAddress.transpose(i),
-                min: -24, max: 24, unit: .indexed, unitName: "st",
-                flags: stepped, valueStrings: nil, dependentParameters: nil))
-        }
-        // MORPH params (200+i) + MORPH MASTER (300) REMOVED 2026-09-16 — A/B morph was removed from the render, so
-        // these were render-dead host params cluttering every DAW's automation list. Addresses 200–215 + 300 are now
-        // FREE to reuse (nothing shipped to preserve). The document's morph/morphMaster fields remain as decode-only zombies.
-        // MACRO SLIDERS (macro-panel spec §5): the 8 slider macros as host-automatable params — the reborn
-        // automation story (AUM lanes · host MIDI-learn · the CC rail all ride these; no MIDI-learn code of ours).
-        for i in 0..<ParamAddress.macroSliderCount {
-            params.append(AUParameterTree.createParameter(
-                withIdentifier: "macro_\(i + 1)", name: "Macro \(i + 1)",
-                address: ParamAddress.macro(i),
-                min: 0, max: 1, unit: .generic, unitName: nil,
-                flags: smooth, valueStrings: nil, dependentParameters: nil))
-        }
-        return AUParameterTree.createTree(withChildren: params)
-    }
-
-    // THREAD SAFETY (Paul 2026-10-05, REVISED 2026-10-11 — see `ParamValueCache`'s own header comment above for
-    // the confirmed deadlock this revision fixes): `implementorValueObserver`/`Provider` are AUParameterTree
-    // callbacks — Apple documents these as callable from ANY thread, including a realtime one, for host
-    // automation. Architecture invariant #1 (document mutation is MAIN-THREAD-ONLY) still holds: the observer
-    // still marshals its `document` write onto main exactly as before (hops via `.async` when off-main, runs
-    // inline when already on it). The PROVIDER no longer touches `document` or the main thread AT ALL — it
-    // reads `paramCache` directly, which is safe from any thread and can never block, eliminating the deadlock
-    // the old `DispatchQueue.main.sync` fallback was exposed to.
-    private func wireParameterTree() {
-        _parameterTree.implementorValueObserver = { [weak self] param, value in
-            guard let self else { return }
-            self.paramCache.set(param.address, value)   // update the cache first, from whatever thread the host called on — cheap, lock-protected, no document touch
-            if Thread.isMainThread { self.applyParamValue(param, value) }
-            else { DispatchQueue.main.async { self.applyParamValue(param, value) } }
-        }
-        _parameterTree.implementorValueProvider = { [weak self] param in
-            self?.paramCache.get(param.address) ?? 0
-        }
-    }
-    private func applyParamValue(_ param: AUParameter, _ value: AUValue) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        defer { scheduleRebuild() }
-        switch param.address {
-        case ParamAddress.stepRate:
-            guard !document.scenes.isEmpty else { break }   // K3: never subscript an empty scenes array (host automation before a scene exists)
-            let all = StepRate.allCases
-            document.scenes[document.activeSceneResolved].stepRate = all[min(all.count - 1, max(0, Int(value)))]
-        case ParamAddress.swing:
-            guard !document.scenes.isEmpty else { break }   // K3
-            document.scenes[document.activeSceneResolved].swing = Int(value)
-        case let a where a >= 100 && a < 100 + AUParameterAddress(machineIDs.count):
-            let idx = Int(a - 100); if idx < document.machines.count { document.machines[idx].transpose = Int(value) }
-        case let a where a >= 400 && a < 400 + AUParameterAddress(ParamAddress.macroSliderCount):
-            // MACRO SLIDER (host automation / CC rail / in-app fader): OFFSET only — bases untouched.
-            if document.macros == nil { document.macros = document.macrosResolved }
-            document.macros?[Int(a - 400)].value = max(0, min(1, Double(value)))
-        default: break
-        }
     }
 
     /// Load a factory scene (Docs/factory-scenes.md) — same replace-and-resync path as a test session.
@@ -559,7 +446,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         }
         clearPendingBuild()   // K2: the new doc carries its own BUILD state — drop the outgoing session's stale pending
         currentPresetName = name
-        suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree (else host automation snaps a fresh note back to the OLD morph/transpose/macros)
+        scheduleRebuild()
     }
     /// The fresh-instance default document (`PluginState.makeInit()`); the harness's "(default)" golden entry loads it.
     func resetToFreshInit() {
@@ -568,7 +455,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         editDocument { $0 = PluginState.makeInit() }
         clearPendingBuild()
         currentPresetName = ""
-        suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()
+        scheduleRebuild()
     }
     /// LOAD a factory preset (our browser). Applies it AND updates the host's current-preset selection.
     func loadFactoryPreset(named name: String) {
@@ -625,7 +512,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         }
         clearPendingBuild()                  // K2: drop the outgoing session's stale BUILD pending (the preset carries its own)
         currentPresetName = PresetStore.sanitize(name)
-        suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false; scheduleRebuild()   // CR-7: mirror the loaded doc into the param tree
+        scheduleRebuild()
     }
     private func presetNumber(for name: String) -> Int {
         (PresetStore.list().firstIndex(of: name).map { -($0 + 1) }) ?? -1   // user presets use negative numbers
@@ -698,24 +585,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
         return state
     }
 
-    /// Push document values out to the AUParameterTree so host-visible state matches reality.
-    private func syncParameterTreeToDocument() {
-        func push(_ address: AUParameterAddress, _ value: AUValue) {
-            paramCache.set(address, value)   // keep the off-main-safe read cache current alongside the real push — see ParamValueCache's own header comment
-            _parameterTree.parameter(withAddress: address)?.value = value
-        }
-        let scene = document.activeSceneState
-        push(ParamAddress.stepRate, AUValue(StepRate.allCases.firstIndex(of: scene.stepRate) ?? 2))
-        push(ParamAddress.swing, AUValue(scene.swing))
-        for i in machineIDs.indices where i < document.machines.count {   // CR-13b: a decoded doc may carry <16 machines
-            push(ParamAddress.transpose(i), AUValue(document.machines[i].transpose))
-        }
-        let macros = document.macrosResolved
-        for i in 0..<ParamAddress.macroSliderCount {
-            push(ParamAddress.macro(i), AUValue(macros[i].value))
-        }
-    }
-
     // MARK: - fullState = the host-level Preset (§1: the only thing called a preset)
     private static let stateKey = "com.outliermidi.fourfold.document"   // a NEW product: its sessions are its own (the 8x8 key stays in the frozen original)
 
@@ -760,7 +629,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
                 clearPendingBuild()   // CR-10/K2: the loaded doc carries its OWN BUILD state (via consume*) — drop the outgoing session's stale pending so the next save doesn't re-encode it over the restored doc
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host
                                                      // session restore must not strand the outgoing document's voices
-                suppressRebuild = true; syncParameterTreeToDocument(); suppressRebuild = false   // CR-7: mirror the restored doc into the param tree
                 scheduleRebuild()
             }
         }

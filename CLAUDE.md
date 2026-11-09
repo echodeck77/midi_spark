@@ -180,12 +180,16 @@ the same pipeline as any other row; it is not a special-cased render path.
    closes sounding notes; note-offs are reference-counted per EMITTED
    (cable, channel, note) — five cables once ALL lands (spec §7 collision
    policy + delta §7b).
-5. **Parameter addresses are STABLE forever:** 0 stepRate · 1 swing · 100+i transpose ·
+5. **Parameter addresses are STABLE forever:** 8x8 State (`AUExtension/`): 0 stepRate · 1 swing · 100+i transpose ·
    200+i morph · 300 morphMaster · 400+i macro (the 8-slider automatable bank).
-   Add new addresses; never renumber or reuse.
-6. Host parameter changes arrive via TWO routes: tree setValue (observer → snapshot) and
+   Add new addresses; never renumber or reuse. **Fourfold exposes NO host parameters since 2026-11-09** (it was born with
+   8x8's set — Step Rate, Swing, 16 palette transposes, 8 macros — which were dead or the page's own; the replacement list is a
+   DECIDE in `Docs/pending-tasks.md`): when it returns, the same rule holds from its first release.
+6. 8x8 State: host parameter changes arrive via TWO routes: tree setValue (observer → snapshot) and
    render-side `.parameter/.parameterRamp` events (kernel override table, cleared on each
-   new snapshot generation). Keep both paths working.
+   new snapshot generation). Keep both paths working. (Fourfold's copy of the render-side route is inert — no parameter
+   targets it — and is to be deleted or reused with the new list; a Fourfold host write must marshal onto main before it
+   touches the document, and its value provider must never wait on main — the 2026-10-11 deadlock.)
 
 ## Build system gotchas (learned the hard way)
 - The `.xcodeproj` is a BUILD ARTEFACT. `xcodegen generate` after ANY file add/remove or
