@@ -6823,6 +6823,60 @@ func euclideousEmitterRollRange(_ notes: [EmitterRollNote]) -> (lo: Int, hi: Int
     return (max(0, lo), min(127, hi))
 }
 
+// ── the per-emitter MUTE rows layout (§4) ──────────────────────────────────────────────────────────────────────────────
+/// §4 — four emitter rows top to bottom (A…D); each is an emitter-token TILE (the cell-size label) and a divided mute STRIP the roll
+/// draws over. Rows FILL the box (rowH derived, not the reference's fixed 64 — the real panel box differs from the 332 reference, and
+/// the page fills its boxes; floor 44). All frames in the panel's own coordinates. Pure; the view and `MutePanelTests` both read it.
+struct EuclideousMuteRowsLayout: Equatable {
+    var width: CGFloat, height: CGFloat
+    var rowH: CGFloat
+    let topPad: CGFloat = 10, rowGap: CGFloat = 6, sidePad: CGFloat = 12, tileW: CGFloat = 36, tileGap: CGFloat = 6
+    let notePad: CGFloat = 6, noteH: CGFloat = 4            // §4.6: 6 pt clear top + bottom, a 4 pt note
+    var stripX: CGFloat { sidePad + tileW + tileGap }
+    var stripW: CGFloat { max(0, width - sidePad - stripX) }
+    var cellW: CGFloat { stripW / 16 }
+    func rowTop(_ r: Int) -> CGFloat { topPad + CGFloat(r) * (rowH + rowGap) }
+    func tileRect(_ r: Int) -> CGRect { CGRect(x: sidePad, y: rowTop(r), width: tileW, height: rowH) }
+    func stripRect(_ r: Int) -> CGRect { CGRect(x: stripX, y: rowTop(r), width: stripW, height: rowH) }
+    func cellLeft(_ i: Int) -> CGFloat { stripX + CGFloat(i) * cellW }
+    /// §5.3 — the cell a touch x falls in (same formula the drawing uses), clamped 0…15.
+    func cellIndex(x: CGFloat) -> Int { cellW > 0 ? max(0, min(15, Int((x - stripX) / cellW))) : 0 }
+    /// The row (output 0…3) a touch y falls in, or nil (in a gap / outside).
+    func rowAt(y: CGFloat) -> Int? { for r in 0..<4 { let t = rowTop(r); if y >= t && y <= t + rowH { return r } }; return nil }
+    /// §5.2/§5.3 — the (output, cell) a touch hits within a STRIP, or nil (the tile or a gap keeps its own tap).
+    func hit(x: CGFloat, y: CGFloat) -> (output: Int, cell: Int)? {
+        guard x >= stripX, x <= stripX + stripW, let r = rowAt(y: y) else { return nil }
+        return (r, cellIndex(x: x))
+    }
+    /// §4.6 — a note/ghost's rect in row `r`: x/width from the beat window (clamped to the strip), y from the pitch within lo…hi
+    /// (highest near the top), a ghost (pitch nil) on the row's middle line (§3.3).
+    func noteRect(row r: Int, pitch: Int?, lo: Int, hi: Int, onset: Double, length: Double, windowStart: Double, window: Double) -> CGRect {
+        guard window > 0 else { return .zero }
+        let x0 = stripX + CGFloat((onset - windowStart) / window) * stripW
+        let x1 = min(stripX + stripW, stripX + CGFloat((onset + max(0, length) - windowStart) / window) * stripW)
+        let span = Double(max(1, hi - lo))
+        let frac = pitch == nil ? 0.5 : max(0, min(1, Double(hi - pitch!) / span))
+        let y = rowTop(r) + notePad + CGFloat(frac) * (rowH - notePad * 2 - noteH)
+        return CGRect(x: x0, y: y, width: max(1.5, x1 - x0), height: noteH)
+    }
+    /// §4.7 — the playhead's x for a beat within the window (clamped to the strip).
+    func playheadX(beat: Double, windowStart: Double, window: Double) -> CGFloat {
+        guard window > 0 else { return stripX }
+        return stripX + CGFloat(max(0, min(1, (beat - windowStart) / window))) * stripW
+    }
+    /// §4.5 — the x of a C (pitch ≡ 0 mod 12) within lo…hi, or nil if it is outside the row's range.
+    func cGuideY(pitch: Int, lo: Int, hi: Int, row r: Int) -> CGFloat? {
+        guard pitch >= lo, pitch <= hi else { return nil }
+        let frac = Double(hi - pitch) / Double(max(1, hi - lo))
+        return rowTop(r) + notePad + CGFloat(frac) * (rowH - notePad * 2 - noteH) + noteH / 2
+    }
+}
+func euclideousMuteRowsLayout(width: CGFloat, height: CGFloat) -> EuclideousMuteRowsLayout {
+    var L = EuclideousMuteRowsLayout(width: width, height: height, rowH: 64)
+    L.rowH = max(44, (height - L.topPad - 3 * L.rowGap) / 4)   // fill the box; floor 44 so the roll stays legible on a short panel
+    return L
+}
+
 /// What a touch is over. `row` is 0 on MUTE (the whole block) and 0 = RHYTHM / 1 = MELODY on RESTART.
 struct EuclideousLanesHit: Equatable { var lane: Int; var cell: Int; var row: Int }
 /// §5.3 — the hit test, with the same cell-width and gap formula the grid draws with. Each cell's area extends 1pt into the gaps on each

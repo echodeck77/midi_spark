@@ -96,6 +96,7 @@
 		340E1D68D57C83C9BE66E996 /* EmitterRatchetUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FDFAC49DE1FD6F45236A30 /* EmitterRatchetUI.swift */; };
 		3437F7ABE70D5C93E7A4D0C0 /* LaneSoloTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4BE4C9BF1C8E4D1C7A915E /* LaneSoloTests.swift */; };
 		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
+		35427A57A03F8DABD474C3F4 /* MutePanelViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6DBAE3058BADDEA8F3F8260 /* MutePanelViews.swift */; };
 		359665078124DA148FE39039 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */; };
 		35CB6DD7FC7A5B6F80092961 /* BuildSelfTestMetaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA2995A69E999F923F55E28 /* BuildSelfTestMetaTests.swift */; };
 		3652E4A4D81C862B2FB7720E /* MixPanelV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA330BA092C36F9FDE1ACBE8 /* MixPanelV2.swift */; };
@@ -318,6 +319,7 @@
 		AC95A67DE057A11667D1321C /* RandomModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AC546F65D94F67DC988CA8 /* RandomModePainter.swift */; };
 		AD2E17E7050BDD6D42D29B55 /* PolyRiffGridPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2D58238A1D4FF553EC1FAF /* PolyRiffGridPainter.swift */; };
 		AD33A6CBFA12490CF78C5CF3 /* PartPlayButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3CB81D778F201241799C1D0 /* PartPlayButtonTests.swift */; };
+		AD3F515DFC7175E19542334F /* MutePanelViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6DBAE3058BADDEA8F3F8260 /* MutePanelViews.swift */; };
 		ADBAEFB6E37A6D1D54D35E3A /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009F351D5DC24E7BAC8DFB3A /* EuclideousRandom.swift */; };
 		AF046C17F37F7B19A79025F9 /* EmitterCCTraceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9CE70864BC305F0A2B79F94 /* EmitterCCTraceTests.swift */; };
 		AF4E2CA23FC45AD9DA3B4468 /* FourfoldComposeParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFD6FDF0C7C204768524124D /* FourfoldComposeParityTests.swift */; };
@@ -724,6 +726,7 @@
 		A3FB716944E87E6D0BE2C364 /* RestartEditorUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartEditorUI.swift; sourceTree = "<group>"; };
 		A4CAB42385A6596470BEA324 /* ReelHeaderIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelHeaderIcon.swift; sourceTree = "<group>"; };
 		A54B806162177B626AC22A5D /* WalkTagPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkTagPainter.swift; sourceTree = "<group>"; };
+		A6DBAE3058BADDEA8F3F8260 /* MutePanelViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutePanelViews.swift; sourceTree = "<group>"; };
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		A7DA6ABCB082900BEE40BD4E /* LaneLockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneLockTests.swift; sourceTree = "<group>"; };
 		A7EED3540DD5920A264F6F08 /* NotesTabPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTabPainter.swift; sourceTree = "<group>"; };
@@ -1112,6 +1115,7 @@
 				C449E1F7354712D6A3AE2AF8 /* MixPadPainter.swift */,
 				9FC5F675561EF5B87BB75724 /* MixPanelV2Views.swift */,
 				F1789A8785BE83C4F4C04A00 /* MixPanelViews.swift */,
+				A6DBAE3058BADDEA8F3F8260 /* MutePanelViews.swift */,
 				1E82635E86506C99FF107FC8 /* NotesTabPainter.swift */,
 				BB8E0318D250070707593C53 /* PartPlayButton.swift */,
 				8E2D58238A1D4FF553EC1FAF /* PolyRiffGridPainter.swift */,
@@ -1647,6 +1651,7 @@
 				B30ECE6BFD05861A8EC48FB5 /* MixPanelV2Views.swift in Sources */,
 				FE78E589ED55F31D39E8C4CF /* MixPanelViews.swift in Sources */,
 				9BAF886FF9516AB5F1598E24 /* Models.swift in Sources */,
+				35427A57A03F8DABD474C3F4 /* MutePanelViews.swift in Sources */,
 				030EF26A6C9B745121BAC89E /* NoteRollLive.swift in Sources */,
 				2B20C428089E72458CB25B3C /* NoteRollRing.swift in Sources */,
 				1AD97DB35C6C3B45B70171A9 /* NotesTabPainter.swift in Sources */,
@@ -1969,6 +1974,7 @@
 				3DD61804369E108DE2689925 /* MixPanelV2Views.swift in Sources */,
 				DBB20E40237446256E6E190E /* MixPanelViews.swift in Sources */,
 				542020F81F4F52D34C16DF18 /* Models.swift in Sources */,
+				AD3F515DFC7175E19542334F /* MutePanelViews.swift in Sources */,
 				FEA5BFC3C5181521186804C3 /* NoteRollLive.swift in Sources */,
 				B4B265FC5D368CFCE12A1F3C /* NoteRollRing.swift in Sources */,
 				D4CAF6ED943F404ECB85F9AE /* NotesTabPainter.swift in Sources */,

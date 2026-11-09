@@ -6367,14 +6367,17 @@ struct EuclideousPage: View {
     /// engine resolves it, the cached roll feed) and the edits (one undo step per stroke or rate-box tap). A `TimelineView` at 4 Hz only
     /// re-evaluates the window the roll covers; the playheads animate in their own layer.
     private func lanesTab(width: CGFloat, height: CGFloat) -> some View {
-        let layout = euclideousLanesLayout(width: width, height: height)
+        let layout = euclideousMuteRowsLayout(width: width, height: height)
         return TimelineView(.periodic(from: .now, by: 0.25)) { tl in
-            EuclideousLanesPanel(layout: layout, lanes: lanesPanelLanes(beat: lanesMusicalBeat(real: walkTagBeat(at: tl.date))), accents: Array(repeating: EuclideousLanesPalette.output, count: 4),   // outputs, not lanes: no lane colour (2026-11-08)
-                                 playing: clock.playing, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) },
-                                 onStepPass: { output, up in lanesStepPass(output, up: up) },
-                                 cellValue: { hit in lanesCellValue(hit) },
-                                 onApply: { hit, value, first in lanesApply(hit, value, first: first) },
-                                 onToggle: { hit in lanesApply(hit, !lanesCellValue(hit), first: true) })
+            let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
+            EuclideousStackBreak { AnyView(
+                EuclideousMutePanel(layout: layout, rows: muteRows(beat: beat), accents: laneAccents,   // notes wear the SENDING lane's colour; the rows/tokens are neutral
+                                    playing: clock.playing, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) },
+                                    onCycleUnit: { o in onEditOutputMute(true) { $0[o] = $0[o].cyclingUnit() } },
+                                    cellValue: { o, cell in outputMutes[o].sounds(cell) },
+                                    onApply: { o, cell, value, first in onEditOutputMute(first) { $0[o] = $0[o].settingCell(cell, sounds: value) } },
+                                    onToggle: { o, cell in let now = outputMutes[o].sounds(cell); onEditOutputMute(true) { $0[o] = $0[o].settingCell(cell, sounds: !now) } })
+            ) }
         }
         .frame(width: width, height: height, alignment: .topLeading)
     }
@@ -6407,9 +6410,54 @@ struct EuclideousPage: View {
     private func lanesApply(_ hit: EuclideousLanesHit, _ value: Bool, first: Bool) {
         onEditOutputMute(first) { $0[hit.lane] = $0[hit.lane].settingCell(hit.cell, sounds: value) }
     }
-    /// The ◀ / ▶ rail: one bounded step (1…8) of an output's cell size in PASSES — one undo step.
+    /// The ◀ / ▶ rail: one bounded step (1…8) of an output's cell size in PASSES — one undo step. RETIRED (the ◀/▶ rail is gone, EMITTER ROLL ferry 2026-11-09); kept for the unmounted old panel.
     private func lanesStepPass(_ output: Int, up: Bool) {
         onEditOutputMute(true) { $0[output] = $0[output].steppingPasses(up: up) }
+    }
+
+    // ── MUTE TAB EMITTER ROLL ferry (2026-11-09): per-emitter rows + a clean roll ──────────────────────────────────
+    /// §3 — one `EuclideousMuteRow` per output: PLAYED notes from the real send-log split per output (at their REAL pitch, in the
+    /// sending lane's colour) + UPCOMING timing ghosts, the row's pitch axis, and the token flare (the lane sounding through it now).
+    private func muteRows(beat: Double) -> [EuclideousMuteRow] {
+        let mutes = outputMutes
+        let model = rollLive.model
+        let ranks = effectiveGridRanks
+        return (0..<4).map { o in
+            let unit = euclideousMuteUnitBeats(mutes[o].muteUnit, beatsPerBar: clock.beatsPerBar)
+            let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
+            let windowEnd = win.start + win.length
+            let ghosts = muteGhosts(output: o, windowStart: win.start, windowEnd: windowEnd, playhead: beat, ranks: ranks)
+            let notes = euclideousEmitterRoll(output: o, windowStart: win.start, windowEnd: windowEnd, playhead: beat,
+                                              model: model, cells16: mutes[o].cells16, unitBeats: unit, ghosts: ghosts)
+            let range = euclideousEmitterRollRange(notes)
+            var anyRouted = false
+            for lane in 0..<min(4, lines.count) where (lines[lane].riffOutMaskResolved(lane: lane) | lines[lane].notesOutMaskResolved(lane: lane)) & (1 << UInt8(o)) != 0 { anyRouted = true }
+            // §4.8 — the token flares in the colour of the lane whose note is sounding through the output right NOW (the latest-onset one).
+            var flareLane = -1, flareAt = -Double.infinity
+            for n in notes where !n.ghost && n.onset <= beat && n.onset + n.length > beat && n.onset > flareAt { flareAt = n.onset; flareLane = n.lane }
+            return EuclideousMuteRow(cells16: mutes[o].cells16, muteUnit: mutes[o].muteUnit, unitBeats: unit,
+                                     windowStart: win.start, window: win.length, notes: notes, lo: range.lo, hi: range.hi,
+                                     anyRouted: anyRouted, flareLane: flareLane, flareActivity: flareLane >= 0 ? 1 : 0)
+        }
+    }
+    /// §3.2 — the upcoming TIMING ghosts for an output: each lane routed to it, its predicted riff hits in `(playhead, windowEnd)` from the
+    /// shared walk mirror (`euclideousLaneRollHits`). Pitch is NOT claimed this ferry (the follow-up gives ghosts their real pitch); a riff
+    /// rest (rank 0) sounds nothing on the riff, so it is a ghost only when the lane's NOTES part also routes here. Device-owed by eye.
+    private func muteGhosts(output: Int, windowStart: Double, windowEnd: Double, playhead: Double, ranks: [Int]) -> [EmitterGhostHit] {
+        guard windowEnd > playhead else { return [] }
+        let from = max(windowStart, playhead)
+        var out: [EmitterGhostHit] = []
+        let poly = polySnap
+        for lane in 0..<min(4, lines.count) {
+            let l = lines[lane]
+            let riffOn = l.riffOutMaskResolved(lane: lane) & (1 << UInt8(output)) != 0
+            let notesOn = l.notesOutMaskResolved(lane: lane) & (1 << UInt8(output)) != 0
+            guard riffOn || notesOn, let cfg = riffWalkConfig(lane) else { continue }
+            let hits = euclideousLaneRollHits(cfg: cfg, windowStart: from, windowBeats: windowEnd - from, minGateBeats: 0.01, poly: poly,
+                                              rankAt: { col, _ in col >= 0 && col < ranks.count ? ranks[col] : 0 })
+            for h in hits where (riffOn && h.rank > 0) || notesOn { out.append(EmitterGhostHit(lane: lane, riff: riffOn, onset: h.beat, length: h.gateBeats)) }
+        }
+        return out
     }
 
     // MARK: - THE FX TAB (FX ferry, 2026-10-18)

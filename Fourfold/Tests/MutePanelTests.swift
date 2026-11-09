@@ -82,4 +82,34 @@ final class MutePanelTests: XCTestCase {
         let g = [EmitterRollNote(onset: 0, length: 1, pitch: nil, lane: 0, riff: true, audible: true, ghost: true)]
         XCTAssertEqual(euclideousEmitterRollRange(g).lo, 54, "a ghost-only row is the empty 60 ± 6")
     }
+
+    // §4 — four rows fill the box; the 16 cells tile the strip exactly; the cell hit-test is the inverse of the draw.
+    func testLayoutRowsAndCellsTileTheStrip() {
+        let L = euclideousMuteRowsLayout(width: 380, height: 319)
+        XCTAssertEqual(L.rowTop(0), 10, accuracy: 1e-9, "first row 10 below the top")
+        XCTAssertEqual(L.rowTop(1) - L.rowTop(0), L.rowH + 6, accuracy: 1e-9, "rows are rowH apart + a 6 pt gap")
+        XCTAssertGreaterThanOrEqual(L.rowH, 44, "rowH never below the floor")
+        XCTAssertEqual(L.cellLeft(0), L.stripX, accuracy: 1e-9, "cell 0 starts at the strip")
+        XCTAssertEqual(L.cellLeft(16), L.stripX + L.stripW, accuracy: 1e-6, "16 cells cover the strip exactly")
+        for i in 0..<16 { XCTAssertEqual(L.cellIndex(x: L.cellLeft(i) + L.cellW / 2), i, "cell \(i) hit-test is the inverse of the draw") }
+        XCTAssertEqual(L.cellIndex(x: L.stripX - 50), 0, "a touch left of the strip clamps to cell 0")
+        XCTAssertEqual(L.cellIndex(x: L.stripX + L.stripW + 50), 15, "a touch past the strip clamps to cell 15")
+    }
+
+    // §4.6/§3.3 — the pitch axis: the highest pitch sits near the row top, the lowest near the bottom, a ghost (no pitch) on the middle line; x follows the beat window.
+    func testNoteYByPitchAndGhostMiddleLine() {
+        let L = euclideousMuteRowsLayout(width: 380, height: 319)
+        let hiRect = L.noteRect(row: 0, pitch: 72, lo: 60, hi: 72, onset: 0, length: 1, windowStart: 0, window: 4)
+        let loRect = L.noteRect(row: 0, pitch: 60, lo: 60, hi: 72, onset: 0, length: 1, windowStart: 0, window: 4)
+        let midGhost = L.noteRect(row: 0, pitch: nil, lo: 60, hi: 72, onset: 0, length: 1, windowStart: 0, window: 4)
+        XCTAssertLessThan(hiRect.minY, loRect.minY, "the higher pitch is drawn nearer the top")
+        XCTAssertEqual(hiRect.minY, L.rowTop(0) + L.notePad, accuracy: 1e-9, "the top pitch sits at the top pad")
+        XCTAssertEqual(midGhost.midY, (hiRect.midY + loRect.midY) / 2, accuracy: 0.6, "a ghost is on the row's middle line")
+        // x from the beat window
+        let late = L.noteRect(row: 0, pitch: 66, lo: 60, hi: 72, onset: 2, length: 1, windowStart: 0, window: 4)
+        XCTAssertEqual(late.minX, L.stripX + L.stripW / 2, accuracy: 1e-6, "onset at the half-window sits at the strip's midpoint")
+        // a note running past the window end is clamped to the strip's right edge (the clip)
+        let over = L.noteRect(row: 0, pitch: 66, lo: 60, hi: 72, onset: 3.5, length: 2, windowStart: 0, window: 4)
+        XCTAssertLessThanOrEqual(over.maxX, L.stripX + L.stripW + 1e-6, "a note is never drawn past cell 16")
+    }
 }
