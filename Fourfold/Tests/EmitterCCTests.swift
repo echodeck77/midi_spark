@@ -422,4 +422,58 @@ final class EmitterCCTests: XCTestCase {
             XCTAssertLessThanOrEqual(worst, bars == 2 ? 28 : 6, "bars index \(bars): the drawn sine and the CC stream differ by \(worst)")
         }
     }
+
+    // MARK: RIFF spans the riff's own range (2026-11-09) — "the CC value that's output only goes up to 50 %"
+    /// The factory riff is 1 2 3 5 4 3 2 1: its highest note is rank 5, so a rank-over-1…8 map peaked at 73 (57 % of HIGH) and could never reach it. The output must now run LOW (the riff's lowest note) to HIGH (its highest).
+    func testTheFactoryRiffReachesHighAndLowOnTheWire() {
+        let rig = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: .step), riffRanks: [1, 2, 3, 5, 4, 3, 2, 1]))
+        rig.run(to: 8.0)
+        let vals = rig.out.values(cable: 1, cc: 74).map { Int($0) }
+        XCTAssertEqual(vals.max(), 127, "the riff's highest note is HIGH: \(vals)"); XCTAssertEqual(vals.min(), 0, "its lowest is LOW")
+        XCTAssertEqual(Set(vals), Set([1, 2, 3, 5, 4].map { Int((Double($0 - 1) / 4.0 * 127).rounded()) }), "rank 1 2 3 4 5 → 0 32 64 95 127: \(Set(vals))")
+        // a narrower window and an inverted one scale the same way
+        let narrow = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 100, low: 40, travel: .step), riffRanks: [3, 4, 3, 4, 3, 4, 3, 4]))
+        narrow.run(to: 6.0)
+        XCTAssertEqual(Set(narrow.out.values(cable: 1, cc: 74).map { Int($0) }), [40, 100], "a riff of two notes spans the whole window")
+        let inv = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 0, low: 127, travel: .step), riffRanks: [2, 6, 2, 6, 2, 6, 2, 6]))
+        inv.run(to: 6.0)
+        XCTAssertEqual(Set(inv.out.values(cable: 1, cc: 74).map { Int($0) }), [127, 0], "LOW above HIGH still inverts: the lowest note is LOW (127)")
+        // a riff with ONE distinct note has no range to span: it keeps the literal rank map (rank 3 → 2/7 of the way)
+        let one = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: .step), riffRanks: [3, 3, 3, 3, 3, 3, 3, 3]))
+        one.run(to: 4.0)
+        XCTAssertEqual(one.out.values(cable: 1, cc: 74), [Int((2.0 / 7.0 * 127).rounded())].map { UInt8($0) })
+    }
+    func testTheRiffSpanIsTheLowestAndHighestNoteTheRiffUses() {
+        XCTAssertEqual(emitterCCRiffSpan(ranks: [1, 2, 3, 5, 4, 3, 2, 1], count: 8), EmitterCCRiffSpan(lo: 1, hi: 5))
+        XCTAssertEqual(emitterCCRiffSpan(ranks: [0, 4, 0, 6, 0, 0, 7, 0], count: 8), EmitterCCRiffSpan(lo: 4, hi: 7), "rests are ignored")
+        XCTAssertEqual(emitterCCRiffSpan(ranks: [0, 0, 0, 0, 0, 0, 0, 0], count: 8), .full, "no note at all: the literal map")
+        XCTAssertEqual(emitterCCRiffSpan(ranks: [2, 2, 2, 2, 2, 2, 2, 2], count: 8), EmitterCCRiffSpan(lo: 2, hi: 2))
+        XCTAssertEqual(emitterCCRiffSpan(ranks: [3, 3, 3, 3, 3, 3, 3, 3, 8, 8, 8, 8, 8, 8, 8, 8], count: 8), EmitterCCRiffSpan(lo: 3, hi: 3), "only the columns the engine reads (8 in MONO)")
+        XCTAssertEqual(emitterCCRiffSpan(ranks: [3, 3, 3, 3, 3, 3, 3, 3, 8, 8, 8, 8, 8, 8, 8, 8], count: 16), EmitterCCRiffSpan(lo: 3, hi: 8), "…16 in POLY")
+        let c = EmitterCCCfg(EmitterCC(valueMode: .riff, high: 127, low: 0))
+        let span = EmitterCCRiffSpan(lo: 1, hi: 5)
+        XCTAssertEqual([1, 2, 3, 4, 5].map { c.riffValue(rank: $0, span: span) }, [0, 32, 64, 95, 127])
+        XCTAssertEqual(c.riffValue(rank: 8), 127, "the literal map is still there for rank 8"); XCTAssertEqual(c.value(rank: 5, ordinal: 0, span: span), 127)
+        XCTAssertEqual(c.riffValue(rank: 3, span: EmitterCCRiffSpan(lo: 3, hi: 3)), Int((2.0 / 7.0 * 127).rounded()), "one distinct note: its literal height")
+        XCTAssertEqual(EmitterCCCfg(EmitterCC(valueMode: .fixed, level: 99)).value(rank: 1, ordinal: 0, span: span), 99, "FIXED ignores the span")
+    }
+    func testTheTraceUsesTheSameSpanTheRouterDoes() {
+        let ranks = [1, 2, 3, 5, 1, 2, 3, 5]   // four hits a bar, the riff spanning ranks 1…5
+        for (name, travel) in [("step", EmitterCCTravel.step), ("glide", .glide), ("fall", .fall)] {
+            let c = EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: travel, time: 100)
+            let rig = CCRig(state(cc: c, riffRanks: ranks))
+            rig.run(to: 8.0)
+            let sent = rig.out.timeline(cable: 1, cc: 74)
+            let trace = emitterCCTrace(cfg: EmitterCCCfg(c), hits: [(0.0, 1), (1.0, 2), (2.0, 3), (3.0, 5)].enumerated().map { EmitterCCTraceHit(beat: $0.element.0, rank: $0.element.1, lane: 0, ordinal: Int64(4 + $0.offset)) },
+                                    barBeats: 4, span: emitterCCRiffSpan(ranks: ranks, count: 8))
+            XCTAssertEqual(trace.dots.map { Int($0.y) }, [0, 32, 64, 127], "\(name): the drawn dots span LOW…HIGH")
+            var worst = 0
+            for i in 1..<96 where i % 24 != 0 {
+                let b = Double(i) / 24, sample = Int64(((4.0 + b) * beatSamples).rounded())
+                guard let engine = sent.last(where: { $0.sample <= sample })?.value, let drawn = trace.points.first(where: { abs(Double($0.x) - b) < 1e-6 }).map({ Int($0.y) }) else { continue }
+                worst = max(worst, abs(engine - drawn))
+            }
+            XCTAssertLessThanOrEqual(worst, travel == .step ? 0 : 6, "\(name): the drawn bar and the CC stream differ by \(worst)")
+        }
+    }
 }

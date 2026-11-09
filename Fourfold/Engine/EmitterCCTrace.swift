@@ -26,11 +26,11 @@ struct EmitterCCTrace: Equatable {
     var barBeats: Double
 }
 /// The CC value a hit carries — the engine's own `EmitterCCCfg.value(rank:ordinal:)`: FIXED `level`; RIFF LOW + (rank − 1)/7 × (HIGH − LOW), nil for a rest (rank 0); PING-PONG HIGH on an even ordinal, LOW on an odd one.
-func emitterCCHitValue(_ cfg: EmitterCCCfg, rank: Int, ordinal: Int64 = 0) -> Int? { cfg.value(rank: rank, ordinal: ordinal) }
+func emitterCCHitValue(_ cfg: EmitterCCCfg, rank: Int, ordinal: Int64 = 0, span: EmitterCCRiffSpan = .full) -> Int? { cfg.value(rank: rank, ordinal: ordinal, span: span) }
 /// The emitter's output over one bar from the merged, time-ordered hits, mirroring the Router's segments: STEP holds the hit value; GLIDE holds for gap × (1 − t) then ramps to the NEXT hit's value (the hit's own value when the next hit is
 /// a rest), arriving on it; FALL ramps to LOW over gap × t and holds. gap = the time to the next hit (the first hit of the next bar after the last). The bar repeats, so a position before the first hit reads the last hit's segment of the
 /// previous bar.
-func emitterCCTrace(cfg: EmitterCCCfg, hits rawHits: [EmitterCCTraceHit], barBeats: Double, gridBeats step: Double = 1) -> EmitterCCTrace {
+func emitterCCTrace(cfg: EmitterCCCfg, hits rawHits: [EmitterCCTraceHit], barBeats: Double, gridBeats step: Double = 1, span: EmitterCCRiffSpan = .full) -> EmitterCCTrace {
     let bar = max(0.25, barBeats)
     let hits = rawHits.filter { $0.beat >= 0 && $0.beat < bar }.sorted { $0.beat < $1.beat }
     var grid: [Double] = []
@@ -45,7 +45,7 @@ func emitterCCTrace(cfg: EmitterCCCfg, hits rawHits: [EmitterCCTraceHit], barBea
     // the next bar aims at the OTHER value, and the one before the first hit was left by the previous bar's opposite parity).
     var perBar: [Int: Int64] = [:]
     for h in hits { perBar[h.lane, default: 0] += 1 }
-    func value(_ k: Int) -> Int? { let lap = Int((Double(k) / Double(n)).rounded(.down)); let h = hits[k - lap * n]; return emitterCCHitValue(cfg, rank: h.rank, ordinal: h.ordinal &+ Int64(lap) &* (perBar[h.lane] ?? 0)) }
+    func value(_ k: Int) -> Int? { let lap = Int((Double(k) / Double(n)).rounded(.down)); let h = hits[k - lap * n]; return emitterCCHitValue(cfg, rank: h.rank, ordinal: h.ordinal &+ Int64(lap) &* (perBar[h.lane] ?? 0), span: span) }
     func laneOf(_ k: Int) -> Int { let lap = Int((Double(k) / Double(n)).rounded(.down)); return hits[k - lap * n].lane }
     // the latest hit that carries a value at or before beat b (searching backwards across bars), or nil when none carries one
     func lastEvent(atOrBefore b: Double) -> Int? {
@@ -88,7 +88,7 @@ func emitterCCTrace(cfg: EmitterCCCfg, hits rawHits: [EmitterCCTraceHit], barBea
         pts.append(CGPoint(x: b, y: Double(max(0, min(127, o.value))))); ptLanes.append(o.lane)
     }
     var dots: [CGPoint] = [], dotLanes: [Int] = []
-    for h in hits { if let v = emitterCCHitValue(cfg, rank: h.rank, ordinal: h.ordinal) { dots.append(CGPoint(x: h.beat, y: Double(v))); dotLanes.append(h.lane) } }
+    for h in hits { if let v = emitterCCHitValue(cfg, rank: h.rank, ordinal: h.ordinal, span: span) { dots.append(CGPoint(x: h.beat, y: Double(v))); dotLanes.append(h.lane) } }
     return EmitterCCTrace(points: pts, pointLanes: ptLanes, dots: dots, dotLanes: dotLanes, ticks: hits.map { $0.beat }, gridBeats: grid, barBeats: bar)
 }
 /// The lane whose hit is in effect at bar position `beat` (the nearest drawn point at or before it), nil when the trace is empty.

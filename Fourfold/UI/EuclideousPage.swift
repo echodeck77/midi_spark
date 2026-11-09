@@ -6506,7 +6506,7 @@ struct EuclideousPage: View {
         let barBeats = max(1, clock.beatsPerBar)
         let wanted: [Int] = (ccExpanded.map { [$0] } ?? [0, 1, 2, 3]).filter { emitterCCs[$0].valueMode != .sine }   // a SINE emitter has no hits to gather: its view draws the sine itself
         let laneHits: [[EmitterCCTraceHit]] = (0..<4).map { ccLaneHits($0, barBeats: barBeats) }
-        let traces: [EmitterCCTrace] = (0..<4).map { o in emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[o]), hits: wanted.contains(o) ? ccTraceHits(output: o, laneHits: laneHits) : [], barBeats: barBeats) }   // an unwanted one (the others while one is open, a SINE) is the bare grid
+        let traces: [EmitterCCTrace] = (0..<4).map { o in emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[o]), hits: wanted.contains(o) ? ccTraceHits(output: o, laneHits: laneHits) : [], barBeats: barBeats, span: emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8)) }   // the engine reads 8 columns in MONO, 16 in POLY   // an unwanted one (the others while one is open, a SINE) is the bare grid
         // the bar position (0…1) of the playhead at `date`, nil while the transport is stopped (a live indicator only while running)
         let playhead: (Date) -> CCPlayheadState? = { date in
             guard clock.playing else { return nil }

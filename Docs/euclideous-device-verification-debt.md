@@ -803,3 +803,5 @@ _(Replaces the old "Sequencer panel" items — the hold-RESET gesture, the prese
 
 - **STACK grid — TOP rows gone (2026-11-09):** the STACK grid shows 8 rows (ranks 8 … 1), no TOP / TOP−1 / TOP−2; the taller rows read cleanly at every page size. (An old document that had a TOP note lit still plays it — there is just no cell for it.)
 - **Riff grid — rank-number axis (2026-11-09):** the riff grid's left axis shows only the rank numbers 8 … 1 (no note names, no lane picker); the MONO | POLY control still sits aligned over the grid where the picker's blank was.
+- **CC tab — RIFF spans the riff's range (2026-11-09):** with RIFF mode, HIGH 127 and LOW 0, the CC on the receiving synth should now reach 127 on the riff's HIGHEST note and 0 on its LOWEST whatever ranks the riff sits on (the factory riff `1 2 3 5 4 3 2 1` peaks on rank 5 → 127; before, 73). A riff of two notes should swing the whole window. Editing the riff grid while it plays re-scales the CC at the next hit; check that jump is acceptable, and that a riff with a single distinct note (no range) still sits at its literal height.
+

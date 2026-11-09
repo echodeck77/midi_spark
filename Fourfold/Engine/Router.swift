@@ -449,10 +449,10 @@ final class Router {
     }
     /// A hit on output x (the firing lane's rank `curRank`; `nextRank` and `nextGapBeats` are the NEXT hit ON THE EMITTER — merged across every lane routed to it, see `ccMergedNextHit`): emit the ramp up to the hit, jump to the
     /// hit value, set the new STEP / GLIDE / FALL segment. A RIFF rest (rank 0) holds the previous value — no message, no new segment. The caller has already dropped a hit the output's MUTE-tab gate or the lane's own mute / solo silences.
-    private func ccOnHit(_ x: Int, cfg: EmitterCCCfg, hitSample s: Int64, curRank: Int, curOrd: Int64, nextRank: Int, nextOrd: Int64, nextGapBeats: Double, beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
+    private func ccOnHit(_ x: Int, cfg: EmitterCCCfg, hitSample s: Int64, curRank: Int, curOrd: Int64, nextRank: Int, nextOrd: Int64, span: EmitterCCRiffSpan, nextGapBeats: Double, beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
         let bit = UInt8(1) << UInt8(x)
         guard s >= ccLastHitSample[x] else { return }   // a hit another lane already passed in time (this lane ran later in the window): its value would have been overwritten, so it is dropped rather than sent out of order
-        guard let v = cfg.value(rank: curRank, ordinal: curOrd) else { return }   // a RIFF rest holds the previous value
+        guard let v = cfg.value(rank: curRank, ordinal: curOrd, span: span) else { return }   // a RIFF rest holds the previous value
         ccLastHitSample[x] = s
         let rate = ccRateLimitSamples(beatsPerSample)
         if ccArmedMask & bit != 0 { ccWalk(x, cc: cfg.ccNumber, toSample: s, windowStart: windowStart, rateSamples: rate, out: out) }   // the ramp since the last emission, up to this hit
@@ -464,7 +464,7 @@ final class Router {
             ccSegFromSample[x] = s; ccSegToSample[x] = s; ccSegFrom[x] = Float(v); ccSegTo[x] = Float(v); ccSegHold[x] = Float(v)
         case .glide:
             let holdUntil = s &+ Int64(Double(gapSamples) * (1.0 - t))
-            let nextV = cfg.value(rank: nextRank, ordinal: nextOrd) ?? v   // predicted; a mismatch is corrected by the next hit's jump
+            let nextV = cfg.value(rank: nextRank, ordinal: nextOrd, span: span) ?? v   // predicted; a mismatch is corrected by the next hit's jump
             ccSegFromSample[x] = holdUntil; ccSegToSample[x] = nextSample; ccSegFrom[x] = Float(v); ccSegTo[x] = Float(nextV); ccSegHold[x] = Float(nextV)
         case .fall:
             let endSample = s &+ Int64(Double(gapSamples) * t)
@@ -3926,6 +3926,7 @@ final class Router {
                                 let ccOuts = (partOut[riffBus.trailingZeroBitCount] | partOut[notesBus.trailingZeroBitCount]) & 0x0F
                                 if ccOuts != 0 {
                                     let ccCur = (playedStep >= 0 && playedStep < ranks.count) ? ranks[playedStep] : 0
+                                    let ccSpan = emitterCCRiffSpan(ranks: ranks, count: riffColumns)   // the riff's own lowest…highest note is LOW…HIGH
                                     let ccHitSample = Int64(sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
                                     for x in 0..<4 where (ccOuts >> UInt8(x)) & 1 != 0 && emitterCCs[x].on && emitterCCs[x].valueMode != .sine && ccOutputGateOpen(x, atBeat: mTickBeat) {   // a SINE emitter is not hit-driven
                                         var ccGap = nextHitGapBeats, ccNext = 0, ccNextOrd = advOrd &+ 1
@@ -3933,7 +3934,7 @@ final class Router {
                                             let m = ccMergedNextHit(x, afterBeat: mTickBeat, lines: linesView, ranks: ranks, columns: riffColumns, polyOn: polyOn, fallbackGap: nextHitGapBeats, fallbackOrd: advOrd &+ 1)
                                             ccGap = m.gapBeats; ccNext = m.rank; ccNextOrd = m.ord
                                         }
-                                        ccOnHit(x, cfg: emitterCCs[x], hitSample: ccHitSample, curRank: ccCur, curOrd: advOrd, nextRank: ccNext, nextOrd: ccNextOrd, nextGapBeats: ccGap, beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+                                        ccOnHit(x, cfg: emitterCCs[x], hitSample: ccHitSample, curRank: ccCur, curOrd: advOrd, nextRank: ccNext, nextOrd: ccNextOrd, span: ccSpan, nextGapBeats: ccGap, beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
                                     }
                                 }
                             }
