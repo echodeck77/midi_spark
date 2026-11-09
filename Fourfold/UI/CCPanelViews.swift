@@ -49,12 +49,11 @@ struct CCBarSlider: View {
 }
 
 /// One bar of an emitter's output: a dark tile, the step grid's lines, small ticks under each hit (`detailed` only), a light line for the curve, a dot on each hit's value in the colour of the LANE whose hit it is and — while the transport runs — a
-/// playhead and a ring on the engine's live value, both in the colour of the lane whose hit is in effect at that position. There is ONE bar clock, so there is one playhead; with several lanes on the emitter it changes colour as the lane
+/// playhead and a ring riding the drawn curve at the playhead, both in the colour of the lane whose hit is in effect at that position. There is ONE bar clock, so there is one playhead; with several lanes on the emitter it changes colour as the lane
 /// driving the value changes. Drawn from the pure `emitterCCTrace`; nothing here keeps time except the playhead, which asks the page's clock.
 struct CCTraceView: View {
     let trace: EmitterCCTrace
     var laneColours: [Color] = []
-    var live = -1                                // the engine's current value (0…127), < 0 for "none yet"
     var playhead: ((Date) -> CCPlayheadState?)? = nil   // where the page's clock is at a date, nil while stopped
     var sine: EmitterCCCfg? = nil                // a SINE emitter has no hits: the view draws the sine itself, for the bar the playhead is in (the first bar while stopped)
     var detailed = false
@@ -91,8 +90,10 @@ struct CCTraceView: View {
             let c = colour(emitterCCTraceLane(trace, atBeat: f * trace.barBeats))
             let hx = inset + CGFloat(f) * w
             ctx.fill(Path(CGRect(x: hx - 0.75, y: 0, width: 1.5, height: sz.height)), with: .color(c.opacity(0.9)))
-            if live >= 0 {
-                let y = inset + (1 - CGFloat(live) / 127) * (sz.height - 2 * inset)
+            // The ring rides the DRAWN curve at the playhead, so it lands exactly on each static dot as the playhead reaches it (the engine's own last-sent value arrives a poll behind the page's clock and, after a slider change, used to finish
+            // the old ramp until the next hit; the engine now re-plans at once and its stream is proved against this curve by the unit tests).
+            if let v = emitterCCTraceValue(points, atBeat: f * trace.barBeats) {
+                let y = inset + (1 - CGFloat(v) / 127) * (sz.height - 2 * inset)
                 ctx.stroke(Path(ellipseIn: CGRect(x: hx - 3.5, y: y - 3.5, width: 7, height: 7)), with: .color(c), lineWidth: 1.75)
             }
         }
@@ -108,7 +109,6 @@ struct EuclideousCCPanel: View {
     let traces: [EmitterCCTrace]
     let playhead: (Date) -> CCPlayheadState?
     let laneColours: [Color]
-    @ObservedObject var live: EmitterRatchetLive
     let playing: Bool
     let onEdit: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void
     let onExpand: (Int) -> Void
@@ -129,7 +129,7 @@ struct EuclideousCCPanel: View {
                 .onTapGesture { onEdit(true) { $0[x].on.toggle() } }
                 .accessibilityElement(children: .ignore).accessibilityLabel("Emitter \(letters[x])").accessibilityValue(cc.on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
             Text("\(cc.ccNumber)").font(heavyMonoCC(22)).foregroundColor(P.text).frame(width: 46, alignment: .leading)
-            CCTraceView(trace: traces[x], laneColours: laneColours, live: cc.on ? (live.index(x) ?? -1) : -1, playhead: cc.on ? playhead : nil, sine: cc.valueMode == .sine ? EmitterCCCfg(cc) : nil).frame(maxWidth: .infinity)
+            CCTraceView(trace: traces[x], laneColours: laneColours, playhead: cc.on ? playhead : nil, sine: cc.valueMode == .sine ? EmitterCCCfg(cc) : nil).frame(maxWidth: .infinity)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(cc.valueMode == .pingPong ? "PING" : cc.valueMode.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
                 Text(cc.valueMode == .sine ? EmitterCC.sinePeriodRow[cc.sineBars] : cc.travel.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
@@ -157,7 +157,6 @@ struct EuclideousCCExpandedView: View {
     let traces: [EmitterCCTrace]
     let playhead: (Date) -> CCPlayheadState?
     let laneColours: [Color]
-    @ObservedObject var live: EmitterRatchetLive
     let playing: Bool
     let onEdit: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void
     let onCollapse: () -> Void
@@ -168,7 +167,7 @@ struct EuclideousCCExpandedView: View {
         let cc = ccs[output]
         VStack(spacing: 8) {
             header(cc)
-            CCTraceView(trace: traces[output], laneColours: laneColours, live: cc.on ? (live.index(output) ?? -1) : -1, playhead: cc.on ? playhead : nil, sine: cc.valueMode == .sine ? EmitterCCCfg(cc) : nil, detailed: true).frame(height: 84)
+            CCTraceView(trace: traces[output], laneColours: laneColours, playhead: cc.on ? playhead : nil, sine: cc.valueMode == .sine ? EmitterCCCfg(cc) : nil, detailed: true).frame(height: 84)
             HStack(alignment: .top, spacing: 10) {
                 leftColumn(cc).frame(width: min(186, bodySize.width * 0.42))
                 rightColumn(cc).frame(maxWidth: .infinity)

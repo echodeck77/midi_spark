@@ -6519,11 +6519,11 @@ struct EuclideousPage: View {
             AnyView(
                 ZStack {
                     if let x = ccExpanded {
-                        EuclideousCCExpandedView(output: x, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, laneColours: laneAccents.map { lane100($0) }, live: ccLive, playing: pulseLive,
+                        EuclideousCCExpandedView(output: x, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, laneColours: laneAccents.map { lane100($0) }, playing: pulseLive,
                                                  onEdit: onEditEmitterCC, onCollapse: { withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = nil } })
                             .transition(.opacity)
                     } else {
-                        EuclideousCCPanel(bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, laneColours: laneAccents.map { lane100($0) }, live: ccLive, playing: pulseLive,
+                        EuclideousCCPanel(bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, laneColours: laneAccents.map { lane100($0) }, playing: pulseLive,
                                           onEdit: onEditEmitterCC, onExpand: { out in withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = out } })
                             .transition(.opacity)
                     }

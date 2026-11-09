@@ -476,4 +476,45 @@ final class EmitterCCTests: XCTestCase {
             XCTAssertLessThanOrEqual(worst, travel == .step ? 0 : 6, "\(name): the drawn bar and the CC stream differ by \(worst)")
         }
     }
+
+    // MARK: a setting changed under a running segment is followed AT ONCE (the page's ring and the synth no longer finish the old ramp)
+    private func replanRig(_ before: EmitterCC, _ after: EmitterCC, swapAt: Double, to end: Double, ranks: [Int] = [1, 8, 1, 8, 1, 8, 1, 8]) -> [(sample: Int64, value: Int)] {
+        let rig = CCRig(state(cc: before, riffRanks: ranks))
+        rig.run(to: swapAt)
+        rig.box = SnapshotBuilder.build(from: state(cc: after, riffRanks: ranks))   // the slider dragged: a new snapshot, same hits
+        rig.run(to: end)
+        return rig.out.timeline(cable: 1, cc: 74)
+    }
+    func testAGlideFollowsANewHighAtOnceInsteadOfFinishingTheOldRamp() {
+        // hits a beat apart, ranks 1 8 1 8: the hit at beat 2 (rank 1 → 0) glides toward the beat-3 hit (rank 8 → HIGH) over the whole gap. HIGH is dragged from 127 to 60 at beat 2.5: the ramp must now arrive at 60, never overshoot to 127.
+        let tl = replanRig(EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: .glide, time: 100), EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 60, low: 0, travel: .glide, time: 100), swapAt: 2.5, to: 3.0)
+        let after = tl.filter { Double($0.sample) >= 2.5 * beatSamples }
+        XCTAssertFalse(after.isEmpty)
+        XCTAssertLessThanOrEqual(after.map { $0.value }.max() ?? 999, 61, "the ramp heads for the NEW high: \(after.map { $0.value })")
+        let at275 = tl.last(where: { Double($0.sample) <= 2.75 * beatSamples })?.value ?? -1
+        XCTAssertEqual(at275, 45, accuracy: 3, "¾ of the way up the ramp 0 → 60 at beat 2.75")
+    }
+    func testAHeldValueFollowsANewLevelAtOnceNotAtTheNextHit() {
+        let tl = replanRig(EmitterCC(on: true, ccNumber: 74, valueMode: .fixed, level: 90, travel: .step), EmitterCC(on: true, ccNumber: 74, valueMode: .fixed, level: 40, travel: .step), swapAt: 2.5, to: 2.9)
+        XCTAssertEqual(tl.map { $0.value }, [90, 40], "the new level goes out within a window of the change, before the beat-3 hit")
+        let t40 = tl.first(where: { $0.value == 40 })?.sample ?? 0
+        XCTAssertLessThan(Double(t40), 2.6 * beatSamples, "…not at the next hit")
+    }
+    func testAFallFollowsANewLowAtOnce() {
+        let tl = replanRig(EmitterCC(on: true, ccNumber: 74, valueMode: .fixed, level: 100, low: 0, travel: .fall, time: 100), EmitterCC(on: true, ccNumber: 74, valueMode: .fixed, level: 100, low: 60, travel: .fall, time: 100), swapAt: 0.5, to: 0.95)
+        let after = tl.filter { Double($0.sample) >= 0.5 * beatSamples }
+        XCTAssertGreaterThanOrEqual(after.map { $0.value }.min() ?? 0, 59, "the fall now bottoms out at the new LOW (60), not 0: \(after.map { $0.value })")
+    }
+    func testSwitchingToSineAndBackWaitsForTheNextHit() {
+        let rig = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: .step), riffRanks: [1, 8, 1, 8, 1, 8, 1, 8]))
+        rig.run(to: 2.5)
+        rig.box = SnapshotBuilder.build(from: state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .sine, high: 127, low: 0, sineBars: 3), riffRanks: [1, 8, 1, 8, 1, 8, 1, 8]))
+        rig.run(to: 3.0)
+        let mark = rig.out.timeline(cable: 1, cc: 74).count
+        rig.box = SnapshotBuilder.build(from: state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: .step), riffRanks: [1, 8, 1, 8, 1, 8, 1, 8]))
+        rig.run(to: 4.5)
+        let resumed = Array(rig.out.timeline(cable: 1, cc: 74).dropFirst(mark))
+        XCTAssertEqual(resumed.map { $0.value }, [0], "back on RIFF nothing is re-sent from the forgotten hit: the first message is the next hit (the beat-4 hit, rank 1 → LOW)")
+        XCTAssertEqual(Double(resumed.first?.sample ?? 0) / beatSamples, 4.0, accuracy: 0.01)
+    }
 }

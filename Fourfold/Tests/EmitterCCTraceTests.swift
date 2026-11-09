@@ -128,4 +128,20 @@ final class EmitterCCTraceTests: XCTestCase {
         // before the first hit the previous bar's last hit (ordinal 2, HIGH) is still gliding to this bar's first (LOW): it is wrapped values, here the very top of the bar
         XCTAssertEqual(value(t, at: 0), 0)
     }
+    func testTheRingLandsExactlyOnEachDotWhenThePlayheadReachesIt() {
+        for (travel, mode) in [(EmitterCCTravel.step, EmitterCCValueMode.riff), (.glide, .riff), (.fall, .fixed), (.glide, .pingPong), (.step, .sine)] {
+            let c = EmitterCCCfg(EmitterCC(on: true, valueMode: mode, high: 120, low: 10, travel: travel, time: 60))
+            let hits = [(0.0, 1), (1.0, 5), (2.5, 3), (3.25, 8)].enumerated().map { EmitterCCTraceHit(beat: $0.element.0, rank: $0.element.1, lane: 0, ordinal: Int64($0.offset)) }
+            let t = emitterCCTrace(cfg: c, hits: hits, barBeats: 4)
+            for d in t.dots where mode != .sine {
+                let ring = emitterCCTraceValue(t.points, atBeat: Double(d.x))
+                XCTAssertEqual(ring ?? -1, Double(d.y), accuracy: 0.5, "\(travel)/\(mode): the ring is on the dot at beat \(d.x)")
+            }
+        }
+        // between two samples it interpolates along the drawn line; outside the bar it clamps; nothing to ride ⇒ nil
+        let line = [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 100), CGPoint(x: 2, y: 50)]
+        XCTAssertEqual(emitterCCTraceValue(line, atBeat: 0.5) ?? -1, 50, accuracy: 1e-9); XCTAssertEqual(emitterCCTraceValue(line, atBeat: 1.5) ?? -1, 75, accuracy: 1e-9)
+        XCTAssertEqual(emitterCCTraceValue(line, atBeat: -1) ?? -1, 0, accuracy: 1e-9); XCTAssertEqual(emitterCCTraceValue(line, atBeat: 9) ?? -1, 50, accuracy: 1e-9)
+        XCTAssertNil(emitterCCTraceValue([], atBeat: 1)); XCTAssertNil(emitterCCTraceValue([CGPoint(x: 0, y: 1)], atBeat: 0))
+    }
 }

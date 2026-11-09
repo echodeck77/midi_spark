@@ -129,6 +129,18 @@ func emitterCCSineTrace(cfg: EmitterCCCfg, barStartBeat: Double, barBeats: Doubl
     }
 }
 
+/// The drawn curve's value (0…127) at bar position `beat`, interpolated along the same polyline the page strokes — so a marker riding it lands exactly on the static dots when the playhead reaches them. nil with fewer than two points.
+func emitterCCTraceValue(_ points: [CGPoint], atBeat beat: Double) -> Double? {
+    guard points.count > 1 else { return nil }
+    if beat <= Double(points[0].x) { return Double(points[0].y) }
+    var i = 1
+    while i < points.count && Double(points[i].x) < beat { i += 1 }
+    if i >= points.count { return Double(points[points.count - 1].y) }
+    let a = points[i - 1], b = points[i]
+    let w = Double(b.x - a.x)
+    return w > 1e-12 ? Double(a.y) + (Double(b.y) - Double(a.y)) * (beat - Double(a.x)) / w : Double(b.y)
+}
+
 /// A trace point in a tile `size` (value 127 at the top, 0 at the bottom; beat 0 at the left, the bar's end at the right).
 func emitterCCTracePoint(_ p: CGPoint, barBeats: Double, size: CGSize, inset: CGFloat = 0) -> CGPoint {
     CGPoint(x: inset + CGFloat(p.x / max(1e-9, barBeats)) * (size.width - 2 * inset), y: inset + (1 - CGFloat(p.y) / 127) * (size.height - 2 * inset))

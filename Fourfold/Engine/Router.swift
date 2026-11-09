@@ -399,6 +399,11 @@ final class Router {
     private var ccLastSentVal = SIMD4<Int32>(repeating: -1)       // last integer value sent on the output (−1 = none)
     private var ccLastSentSample = SIMD4<Int64>(repeating: Int64.min)  // the sample of the last CC considered (rate-limit clock + the ramp walk's start)
     private var ccLastHitSample = SIMD4<Int64>(repeating: Int64.min)   // the sample of the latest hit taken on the output: lanes run in lane order inside a window, so a LATER lane can hold an EARLIER hit — it is superseded, not sent out of time order
+    // The latest hit's INPUTS per output, and the config the running segment was built under: when a setting changes the segment is re-planned from these at once (the ring on the page and the synth follow a slider immediately), not at the next hit.
+    private var ccSegCfg = EmitterCCSnap()
+    private var ccRecValid: UInt8 = 0
+    private var ccRecSample = SIMD4<Int64>(repeating: 0), ccRecOrd = SIMD4<Int64>(repeating: 0), ccRecNextOrd = SIMD4<Int64>(repeating: 0), ccRecGap = SIMD4<Int64>(repeating: 1)
+    private var ccRecRank = SIMD4<Int32>(repeating: 0), ccRecNextRank = SIMD4<Int32>(repeating: 0), ccRecSpanLo = SIMD4<Int32>(repeating: 1), ccRecSpanHi = SIMD4<Int32>(repeating: 8)
     private var ccArmedMask: UInt8 = 0     // bit x = a hit has fired on output x since it went on / unmuted (turning on sends nothing until the next hit)
     private var ccMuteSentMask: UInt8 = 0  // bit x = `muteValue` already sent while muted (sent once)
     private var ccPrevOnMask: UInt8 = 0    // bit x = output x's CC was on last window (to spot the off→on edge)
@@ -412,7 +417,7 @@ final class Router {
         ccSegFrom = SIMD4<Float>(repeating: 0); ccSegTo = SIMD4<Float>(repeating: 0); ccSegHold = SIMD4<Float>(repeating: 0)
         ccSegFromSample = SIMD4<Int64>(repeating: Int64.max); ccSegToSample = SIMD4<Int64>(repeating: Int64.max)
         ccLastSentVal = SIMD4<Int32>(repeating: -1); ccLastSentSample = SIMD4<Int64>(repeating: Int64.min); ccLastHitSample = SIMD4<Int64>(repeating: Int64.min)
-        ccArmedMask = 0; ccMuteSentMask = 0; ccValueLive = 0xFFFF_FFFF
+        ccArmedMask = 0; ccMuteSentMask = 0; ccValueLive = 0xFFFF_FFFF; ccRecValid = 0
     }
     private func resetEmitterRatchetOrigin() { emitterCounter.reset(); emitterIndexLive = emitterCounter.indexPacked; emitterVelCounter.reset(); emitterVelIndexLive = emitterVelCounter.indexPacked; resetEmitterCC() }
 
@@ -457,20 +462,30 @@ final class Router {
         let rate = ccRateLimitSamples(beatsPerSample)
         if ccArmedMask & bit != 0 { ccWalk(x, cc: cfg.ccNumber, toSample: s, windowStart: windowStart, rateSamples: rate, out: out) }   // the ramp since the last emission, up to this hit
         if Int32(v) != ccLastSentVal[x] { ccSend(x, cc: cfg.ccNumber, value: v, atSample: s, out: out) } else { ccLastSentSample[x] = s }   // the hit's jump (on a change)
-        let gapSamples = max(Int64(1), Int64((nextGapBeats / max(1e-12, beatsPerSample)).rounded()))
+        ccRecSample[x] = s; ccRecRank[x] = Int32(curRank); ccRecOrd[x] = curOrd; ccRecNextRank[x] = Int32(nextRank); ccRecNextOrd[x] = nextOrd
+        ccRecGap[x] = max(Int64(1), Int64((nextGapBeats / max(1e-12, beatsPerSample)).rounded())); ccRecSpanLo[x] = Int32(span.lo); ccRecSpanHi[x] = Int32(span.hi)
+        ccRecValid |= bit
+        ccBuildSegment(x, cfg: cfg)
+        ccArmedMask |= bit; ccMuteSentMask &= ~bit
+    }
+    /// Plan output x's STEP / GLIDE / FALL segment from the latest hit's recorded inputs under `cfg`. Called at the hit, and again at the top of a window when a setting changed, so the running ramp follows the new setting at once.
+    private func ccBuildSegment(_ x: Int, cfg: EmitterCCCfg) {
+        ccSegCfg[x] = cfg
+        let span = EmitterCCRiffSpan(lo: Int(ccRecSpanLo[x]), hi: Int(ccRecSpanHi[x]))
+        guard let v = cfg.value(rank: Int(ccRecRank[x]), ordinal: ccRecOrd[x], span: span) else { return }
+        let s = ccRecSample[x], gapSamples = ccRecGap[x]
         let nextSample = s &+ gapSamples, t = Double(cfg.time) / 100.0
         switch cfg.travel {
         case .step:
             ccSegFromSample[x] = s; ccSegToSample[x] = s; ccSegFrom[x] = Float(v); ccSegTo[x] = Float(v); ccSegHold[x] = Float(v)
         case .glide:
             let holdUntil = s &+ Int64(Double(gapSamples) * (1.0 - t))
-            let nextV = cfg.value(rank: nextRank, ordinal: nextOrd, span: span) ?? v   // predicted; a mismatch is corrected by the next hit's jump
+            let nextV = cfg.value(rank: Int(ccRecNextRank[x]), ordinal: ccRecNextOrd[x], span: span) ?? v   // predicted; a mismatch is corrected by the next hit's jump
             ccSegFromSample[x] = holdUntil; ccSegToSample[x] = nextSample; ccSegFrom[x] = Float(v); ccSegTo[x] = Float(nextV); ccSegHold[x] = Float(nextV)
         case .fall:
             let endSample = s &+ Int64(Double(gapSamples) * t)
             ccSegFromSample[x] = s; ccSegToSample[x] = max(s &+ 1, endSample); ccSegFrom[x] = Float(v); ccSegTo[x] = Float(cfg.low); ccSegHold[x] = Float(cfg.low)
         }
-        ccArmedMask |= bit; ccMuteSentMask &= ~bit
     }
     /// Walk the SINE over `[ccLastSentSample + rate, windowEnd)` at the rate limit, sending a CC each time the integer value changes. The value is a pure function of the host beat at each sample, so a seek or a loop needs no care.
     private func ccSineWalk(_ x: Int, cfg: EmitterCCCfg, windowStart: Int64, windowEnd: Int64, windowBeat: Double, beatsPerSample: Double, rateSamples: Int64, out: MIDIEmitter?) {
@@ -5620,8 +5635,13 @@ final class Router {
                 var onMask: UInt8 = 0
                 for x in 0..<4 where emitterCCs[x].on { onMask |= UInt8(1) << UInt8(x) }
                 let turnedOn = onMask & ~ccPrevOnMask
-                if turnedOn != 0 { ccArmedMask &= ~turnedOn; for x in 0..<4 where turnedOn & (UInt8(1) << UInt8(x)) != 0 { ccLastSentVal[x] = -1 } }
+                if turnedOn != 0 { ccArmedMask &= ~turnedOn; ccRecValid &= ~turnedOn; for x in 0..<4 where turnedOn & (UInt8(1) << UInt8(x)) != 0 { ccLastSentVal[x] = -1 } }
                 ccPrevOnMask = onMask
+                // A setting changed under a running segment (a slider dragged while it plays): re-plan it from the latest hit's inputs NOW, so the CC — and the page's ring — follow the setting at once instead of finishing the old ramp until the next
+                // hit. A SINE keeps no segment (it is a pure function of the beat); switching INTO it forgets the hit, so switching back waits for the next hit like turning on does.
+                for x in 0..<4 where emitterCCs[x].on && ccRecValid & (UInt8(1) << UInt8(x)) != 0 && emitterCCs[x] != ccSegCfg[x] {
+                    if emitterCCs[x].valueMode == .sine { ccRecValid &= ~(UInt8(1) << UInt8(x)); ccArmedMask &= ~(UInt8(1) << UInt8(x)) } else { ccBuildSegment(x, cfg: emitterCCs[x]) }
+                }
                 // The per-lane facts for the merged next-hit gap and the "every routed lane is stopped / muted" mute: each lane's LANES-mute cells, whether it may strike at all this window (PLAY on, not solo-silenced) and where it is routed.
                 if emitterCCAny {
                     let soloM = soloMaskNow(snapshot: p.soloMask), partM = partSoloMaskNow(snapshot: p.partSoloMask)
