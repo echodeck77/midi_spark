@@ -17,10 +17,10 @@ final class StackGridTests: XCTestCase {
 
     // MARK: the rows
 
-    func testTheRowsAreTopTopMinus1TopMinus2ThenEightDownToOne() {
-        XCTAssertEqual(euclideousStackGridRows.map { $0.label }, ["TOP", "TOP\u{2212}1", "TOP\u{2212}2", "8", "7", "6", "5", "4", "3", "2", "1"])
-        XCTAssertEqual(euclideousStackGridRows.count, 11)
-        XCTAssertEqual(euclideousStackGridRows.map { $0.spoken }.first, "top"); XCTAssertEqual(euclideousStackGridRows.last?.spoken, "rank 1")
+    func testTheRowsAreEightDownToOne() {   // TOP / TOP−1 / TOP−2 removed 2026-11-09 (Paul) — the stack shows only ranks
+        XCTAssertEqual(euclideousStackGridRows.map { $0.label }, ["8", "7", "6", "5", "4", "3", "2", "1"])
+        XCTAssertEqual(euclideousStackGridRows.count, 8)
+        XCTAssertEqual(euclideousStackGridRows.map { $0.spoken }.first, "rank 8"); XCTAssertEqual(euclideousStackGridRows.last?.spoken, "rank 1")
     }
 
     // MARK: the position a cell stands for
@@ -101,13 +101,13 @@ final class StackGridTests: XCTestCase {
 
     // MARK: the frames
 
-    func testTheLayoutHasFourColumnsElevenRowsAndTheRiffGridsAxis() {
+    func testTheLayoutHasFourColumnsEightRowsAndTheRiffGridsAxis() {   // 8 rows since TOP/TOP−1/TOP−2 were removed (2026-11-09)
         for box in [CGSize(width: 380.67, height: 301), CGSize(width: 387, height: 301.67), CGSize(width: 439.33, height: 450), CGSize(width: 284, height: 232.5)] {
             let L = euclideousStackGridLayout(box: box), base = euclideousRiffPanelLayout(box: box)
-            XCTAssertEqual(L.rowCount, 11)
+            XCTAssertEqual(L.rowCount, 8)
             XCTAssertEqual(L.labelW, base.labelW, "the axis is the riff grid's label column"); XCTAssertEqual(L.axis(0).minX, 8)
             XCTAssertEqual(L.header(0).minY, 8 + base.tabRowH + 6, accuracy: 1e-9, "the headers start where the riff grid does")
-            for r in 0..<11 {
+            for r in 0..<8 {
                 XCTAssertEqual(L.axis(r).height, L.rowH, accuracy: 1e-9)
                 for lane in 0..<4 {
                     let c = L.cell(row: r, lane: lane)
@@ -117,8 +117,8 @@ final class StackGridTests: XCTestCase {
                 }
             }
             XCTAssertEqual(L.cell(row: 0, lane: 0).minX - L.axis(0).maxX, 4, accuracy: 1e-9, "the axis gap is the riff grid's")
-            XCTAssertEqual(L.cell(row: 10, lane: 3).maxX, box.width - 8, accuracy: 1e-9, "the last column ends on the panel's padding")
-            XCTAssertEqual(L.cell(row: 10, lane: 0).maxY, box.height - 8, accuracy: 1e-9, "the last row ends on the panel's padding")
+            XCTAssertEqual(L.cell(row: 7, lane: 3).maxX, box.width - 8, accuracy: 1e-9, "the last column ends on the panel's padding")
+            XCTAssertEqual(L.cell(row: 7, lane: 0).maxY, box.height - 8, accuracy: 1e-9, "the last row ends on the panel's padding")
         }
         let ref = euclideousStackGridLayout(box: CGSize(width: 380.67, height: 301))
         print("STACKGRID rowH at the landscape reference \(ref.rowH) colW \(ref.colW) font \(ref.cellFontSize)")

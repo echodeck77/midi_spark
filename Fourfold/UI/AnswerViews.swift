@@ -126,8 +126,25 @@ struct RiffGridLabelColumnView: View {
     }
 }
 
+/// The riff grid's left axis (2026-11-09, Paul): ONLY the rank numbers 8 (top) … 1 (bottom), each `cellH` tall and `labelW` wide. Static — no lane, no pool, no note names, no picker (the four-lane colour picker was removed the same day).
+struct RiffGridRankAxisView: View {
+    let cellH: CGFloat
+    let labelW: CGFloat
+    let gap: CGFloat
+    var body: some View {
+        VStack(spacing: gap) {
+            ForEach((1...8).reversed(), id: \.self) { rank in
+                EuclideousRankChipView(spec: EuclideousRankChipSpec(rank: rank, topKind: 0, received: true, lit: false, empty: true, name: String(rank), cornerNumber: false),
+                                       accent: Color(.sRGB, white: 0.7, opacity: 1), size: CGSize(width: labelW, height: cellH))
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Rank \(rank)")
+            }
+        }
+        .frame(width: labelW)
+    }
+}
+
 /// POOL ferry 6.3: the lane picker — four 7 pt circles in a 2 × 2 grid (lanes 1 2 over 3 4), centred in its blank: the picked lane's in its lane100 with a 1 pt lane100 ring 2 out from it, the others at 45 %. A tap anywhere in the blank steps to the
-/// next lane; VoiceOver: adjustable, "Notes shown for", value "lane n".
+/// next lane; VoiceOver: adjustable, "Notes shown for", value "lane n". RETIRED 2026-11-09 (Paul): the riff grid's axis shows only rank numbers now — this view is no longer mounted (kept compiled).
 struct RiffGridPickerView: View {
     let picked: Int
     let accents: [Color]

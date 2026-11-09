@@ -25,8 +25,8 @@ enum EuclideousStackRow: Equatable {
         switch self { case .top: return "top"; case .topMinus1: return "top minus 1"; case .topMinus2: return "top minus 2"; case .rank(let r): return "rank \(r)" }
     }
 }
-/// Top to bottom: TOP, TOP−1, TOP−2, then 8 down to 1.
-let euclideousStackGridRows: [EuclideousStackRow] = [.top, .topMinus1, .topMinus2] + (1...8).reversed().map { EuclideousStackRow.rank($0) }
+/// Top to bottom: ranks 8 down to 1. (TOP / TOP−1 / TOP−2 were removed 2026-11-09 — Paul: the stack shows only ranks; the `.top` / `.topMinus1` / `.topMinus2` cases and their helpers stay compiled but are no longer in the grid.)
+let euclideousStackGridRows: [EuclideousStackRow] = (1...8).reversed().map { EuclideousStackRow.rank($0) }
 
 // MARK: - what a cell stands for
 

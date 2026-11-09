@@ -6027,22 +6027,16 @@ struct EuclideousPage: View {
     /// POOL ferry 6.2: the note-label column is a column of eight rank chips (rank 1 at the bottom, each in its row's frame) naming the PICKED lane's pool, with the lit bar on the ranks that lane struck on its last hit. A leaf: it observes the status
     /// feed itself, so the page is not re-run for it. (The label's old per-strike glow from any lane is gone — the lit bar is the picked lane's.)
     private func riffNoteLabelColumn(cellH: CGFloat, labelW: CGFloat) -> some View {
-        RiffGridLabelColumnView(lane: gridLane, tint: lane100(laneAccents[gridLane % laneAccents.count]), cellH: cellH, labelW: labelW, gap: sp4,
-                                name: { n, pool in euclideousDisplayNoteName(n, source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
-                                spokenName: { n, pool in euclideousAccessibleDisplayNoteName(UInt8(max(0, min(127, n))), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
-                                octave: gridLane < lines.count ? euclideousMixOctave(of: lines[gridLane], notes: false) : 0,   // the picked lane's RIFF octave: the column names what the riff will sound
-                                live: answerLive)
+        RiffGridRankAxisView(cellH: cellH, labelW: labelW, gap: sp4)   // 2026-11-09 (Paul): the axis shows ONLY the rank numbers now — the picked-lane note names + the lane picker are gone
     }
     /// POOL ferry 6.3: the riff panel's top row — the lane picker in a leading blank as wide as the label column (the MONO | POLY control starts at the grid's left edge), then the control. A tap anywhere in the blank steps to the next
     /// lane (1 → 2 → 3 → 4 → 1); the blank reaches down over the gap under the row, where the 2 × 2 dots sit.
     private func riffTopRow(_ layout: EuclideousRiffPanelLayout) -> some View {
         HStack(alignment: .top, spacing: sp4) {
-            RiffGridPickerView(picked: gridLane, accents: laneAccents.map { lane100($0) }, size: CGSize(width: layout.labelW, height: layout.tabRowH + EuclideousRiffPanelMetrics.tabToGrid)) { delta in
-                var l = gridLane; for _ in 0..<(delta >= 0 ? 1 : 3) { l = euclideousPickedLaneNext(l) }; gridLane = l
-            }
+            Color.clear.frame(width: layout.labelW, height: layout.tabRowH + EuclideousRiffPanelMetrics.tabToGrid)   // 2026-11-09 (Paul): the lane picker is gone — a blank as wide as the axis keeps the MONO | POLY control aligned over the grid
             riffModeRow(height: layout.tabRowH)
         }
-        .frame(height: layout.tabRowH + EuclideousRiffPanelMetrics.tabToGrid, alignment: .top)   // the row's own height plus the gap under it: the picker's whole blank is its touch target
+        .frame(height: layout.tabRowH + EuclideousRiffPanelMetrics.tabToGrid, alignment: .top)
     }
     // MARK: - STACK GRID (2026-11-08): the riff panel's second view
     //
