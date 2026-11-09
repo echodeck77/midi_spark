@@ -15,19 +15,24 @@
 
 import Foundation
 
-/// One output's MUTE grid: a 16-cell pattern and the cell size in whole PASSES (1…8).
+/// One output's MUTE grid: a 16-cell pattern and the cell size as a host-relative UNIT (1/16 · 1/8 · 1/4 · BAR).
 struct EuclideousOutputMute: Equatable {
     var cells16: UInt16 = 0xFFFF   // bit i set = cell i SOUNDS; cleared = muted
-    var passes: UInt8 = 1          // 1…8 passes per cell (the bounded arrow ladder; default = the lowest, 1 pass)
+    var passes: UInt8 = 1          // RETIRED (MUTE TAB EMITTER ROLL ferry 2026-11-09): the old ◀/▶ pass-span ladder; kept decodable+round-tripping, no longer read by the engine or the (new) UI — `muteUnit` replaces it
+    var muteUnit: UInt8 = 0         // §1.2: cell size, 0 = 1/16 · 1 = 1/8 · 2 = 1/4 · 3 = BAR (default 1/16). A host-relative musical unit, not the home lane's pass — so every row at a given unit sweeps at the SAME speed
 
     static let minPasses: UInt8 = 1, maxPasses: UInt8 = 8
+    static let unitCount: UInt8 = 4
     var isDefault: Bool { self == EuclideousOutputMute() }
-    /// Clamp PASSES to 1…8; the cell mask is already a full 16 bits, nothing to clamp there.
+    /// Clamp PASSES to 1…8 and the UNIT to 0…3; the cell mask is already a full 16 bits, nothing to clamp there.
     func normalized() -> EuclideousOutputMute {
         var m = self
         m.passes = max(Self.minPasses, min(Self.maxPasses, passes))
+        if m.muteUnit >= Self.unitCount { m.muteUnit = 0 }   // an unknown stored unit (a future value) reads as 1/16
         return m
     }
+    /// §5.1: one tap of the unit tile — cycle 1/16 → 1/8 → 1/4 → BAR → 1/16, returning a new value.
+    func cyclingUnit() -> EuclideousOutputMute { var m = self; m.muteUnit = (muteUnit &+ 1) % Self.unitCount; return m }
     /// The ◀ / ▶ bounds (no wrap): ◀ is disabled at 1 pass, ▶ at 8.
     var canDec: Bool { passes > Self.minPasses }
     var canInc: Bool { passes < Self.maxPasses }
@@ -56,18 +61,20 @@ struct EuclideousOutputMute: Equatable {
 /// §5.1 (pure, testable): fully sounding ⇄ fully muted. Anything not already fully sounding (partial OR fully muted) unmutes to fully sounding.
 func euclideousOutputMuteFullToggle(_ cells16: UInt16) -> UInt16 { cells16 == 0xFFFF ? 0x0000 : 0xFFFF }
 extension EuclideousOutputMute: Codable {
-    enum CodingKeys: String, CodingKey { case cells16, passes }
-    /// Never throws on content: an unreadable key keeps its default, PASSES clamps.
+    enum CodingKeys: String, CodingKey { case cells16, passes, muteUnit }
+    /// Never throws on content: an unreadable key keeps its default, PASSES and the UNIT clamp. A pre-feature document has no
+    /// `muteUnit` key → it loads at 1/16 (§1.3), keeping its `cells16` pattern (the old pass-span is dropped — `passes` round-trips but is inert).
     init(from decoder: Decoder) throws {
         self.init()
         guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
         if let v = (try? c.decodeIfPresent(UInt16.self, forKey: .cells16)) ?? nil { cells16 = v }
         if let v = (try? c.decodeIfPresent(UInt8.self, forKey: .passes)) ?? nil { passes = v }
+        if let v = (try? c.decodeIfPresent(UInt8.self, forKey: .muteUnit)) ?? nil { muteUnit = v }
         self = normalized()
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(cells16, forKey: .cells16); try c.encode(passes, forKey: .passes)
+        try c.encode(cells16, forKey: .cells16); try c.encode(passes, forKey: .passes); try c.encode(muteUnit, forKey: .muteUnit)
     }
 }
 
@@ -107,8 +114,25 @@ func euclideousOutputLetter(_ output: Int) -> String {
     let letters = ["A", "B", "C", "D"]
     return output >= 0 && output < letters.count ? letters[output] : "?"
 }
-/// The pass-count readout on the rail, e.g. "1 PASS" … "8 PASS" — how many passes the 16 cells span (lowest = 1).
+/// The pass-count readout on the rail, e.g. "1 PASS" … "8 PASS" — how many passes the 16 cells span (lowest = 1). RETIRED (the ◀/▶ rail is gone); kept for the unmounted old panel.
 func euclideousOutputMutePassLabel(_ passes: Int) -> String { "\(passes) PASS" }
+/// §1.2 — the cell size in BEATS (the engine's quarter-note unit) for a mute unit 0…3. A sixteenth = ¼ beat, an eighth = ½, a quarter = 1, BAR = the host's beats-per-bar. A 16-cell window spans 16× this.
+func euclideousMuteUnitBeats(_ unit: UInt8, beatsPerBar: Double) -> Double {
+    switch unit {
+    case 1: return 0.5                      // 1/8
+    case 2: return 1.0                      // 1/4
+    case 3: return max(1e-9, beatsPerBar)   // BAR
+    default: return 0.25                    // 1/16
+    }
+}
+/// §5.1 — the cell-size label shown on the row's tile ("1/16" · "1/8" · "1/4" · "BAR").
+func euclideousMuteUnitLabel(_ unit: UInt8) -> String {
+    switch unit { case 1: return "1/8"; case 2: return "1/4"; case 3: return "BAR"; default: return "1/16" }
+}
+/// §7 — VoiceOver for the unit tile: which output and its current cell size (a button that cycles the size).
+func euclideousOutputMuteUnitTileLabel(output: Int, unit: UInt8) -> String {
+    "Output \(euclideousOutputLetter(output)) cell size \(euclideousMuteUnitLabel(unit))"
+}
 /// VoiceOver for one MUTE cell.
 func euclideousOutputMuteCellLabel(output: Int, cell: Int, sounding: Bool) -> String {
     "Output \(euclideousOutputLetter(output)) cell \(cell + 1), \(sounding ? "sounding" : "muted")"

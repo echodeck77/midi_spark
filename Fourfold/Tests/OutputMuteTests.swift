@@ -94,4 +94,54 @@ final class OutputMuteTests: XCTestCase {
     // NOTE: the old per-lane mute is deliberately NOT migrated (the 16 cells now divide a 1…8-pass window, not the
     // per-lane cell size). An old session's per-lane mute keeps sounding via the Router's still-live per-lane gate; it
     // is just not shown in the new per-output MUTE tab. See OutputMute.swift's "The old per-lane mute is NOT migrated".
+
+    // MARK: - MUTE TAB EMITTER ROLL ferry (2026-11-09): the cell size is now a host-relative UNIT (§1.2)
+
+    func testMuteUnitDefaultCycleAndClamp() {
+        XCTAssertEqual(EuclideousOutputMute().muteUnit, 0, "default unit = 1/16")
+        var m = EuclideousOutputMute()
+        for expected: UInt8 in [1, 2, 3, 0, 1] { m = m.cyclingUnit(); XCTAssertEqual(m.muteUnit, expected) }   // 1/16→1/8→1/4→BAR→1/16→1/8
+        XCTAssertEqual(EuclideousOutputMute(cells16: 0, passes: 1, muteUnit: 9).normalized().muteUnit, 0, "an unknown stored unit reads as 1/16")
+    }
+
+    func testMuteUnitBeats() {   // §1.2: the cell size in quarter-note beats; BAR follows the host time signature
+        XCTAssertEqual(euclideousMuteUnitBeats(0, beatsPerBar: 4), 0.25, accuracy: 1e-12)   // 1/16 = a sixteenth
+        XCTAssertEqual(euclideousMuteUnitBeats(1, beatsPerBar: 4), 0.5,  accuracy: 1e-12)   // 1/8
+        XCTAssertEqual(euclideousMuteUnitBeats(2, beatsPerBar: 4), 1.0,  accuracy: 1e-12)   // 1/4
+        XCTAssertEqual(euclideousMuteUnitBeats(3, beatsPerBar: 4), 4.0,  accuracy: 1e-12)   // BAR in 4/4
+        XCTAssertEqual(euclideousMuteUnitBeats(3, beatsPerBar: 3), 3.0,  accuracy: 1e-12)   // BAR in 3/4
+        XCTAssertEqual(euclideousMuteUnitBeats(99, beatsPerBar: 4), 0.25, accuracy: 1e-12)  // an unknown unit = 1/16
+    }
+
+    func testMuteUnitAudibleWindowIsAbsoluteAndNotReAnchored() {   // §2.1: 16 cells × the unit, floored off the absolute host beat
+        // At 1/16 (¼ beat), cell 0 muted, the rest sounding: beats 0…0.25 silent, then audible until the 16-cell window wraps (4 beats) and cell 0 comes round again.
+        let cells: UInt16 = 0xFFFE   // bit 0 cleared = cell 0 muted
+        let u = euclideousMuteUnitBeats(0, beatsPerBar: 4)
+        XCTAssertFalse(euclideousLaneAudible(beat: 0.0,  cells16: cells, unitBeats: u))
+        XCTAssertFalse(euclideousLaneAudible(beat: 0.1,  cells16: cells, unitBeats: u))
+        XCTAssertTrue (euclideousLaneAudible(beat: 0.25, cells16: cells, unitBeats: u), "cell 1 sounds")
+        XCTAssertTrue (euclideousLaneAudible(beat: 3.99, cells16: cells, unitBeats: u), "cell 15 sounds")
+        XCTAssertFalse(euclideousLaneAudible(beat: 4.0,  cells16: cells, unitBeats: u), "the window wraps every 4 beats — cell 0 again, still muted (absolute beat, not re-anchored)")
+        XCTAssertTrue (euclideousLaneAudible(beat: 4.25, cells16: cells, unitBeats: u))
+        XCTAssertTrue(euclideousLaneAudible(beat: 123.4, cells16: 0xFFFF, unitBeats: u), "all-sounding is always audible")
+    }
+
+    func testMuteUnitLabelsAndTileVoiceOver() {
+        XCTAssertEqual((0..<4).map { euclideousMuteUnitLabel(UInt8($0)) }, ["1/16", "1/8", "1/4", "BAR"])
+        XCTAssertEqual(euclideousOutputMuteUnitTileLabel(output: 0, unit: 0), "Output A cell size 1/16")
+        XCTAssertEqual(euclideousOutputMuteUnitTileLabel(output: 3, unit: 3), "Output D cell size BAR")
+    }
+
+    func testMuteUnitCodableRoundTripAndPreFeatureDefault() throws {   // §1.3: an old document (no muteUnit key) loads at 1/16, keeping its cells
+        var set = EuclideousOutputMutes()
+        set[0] = EuclideousOutputMute(cells16: 0xAA55, passes: 5, muteUnit: 2)
+        set[2] = EuclideousOutputMute(cells16: 0x0001, passes: 1, muteUnit: 3)
+        let data = try JSONEncoder().encode(set)
+        XCTAssertEqual(try JSONDecoder().decode(EuclideousOutputMutes.self, from: data), set, "muteUnit round-trips")
+        // a pre-feature stored mute carried only cells16 + passes — no muteUnit key ⇒ it loads at 1/16, the pattern preserved
+        let old = Data("[{\"cells16\":65518,\"passes\":4}]".utf8)
+        let decoded = try JSONDecoder().decode(EuclideousOutputMutes.self, from: old)
+        XCTAssertEqual(decoded[0].cells16, 0xFFEE, "the old mute pattern is kept")
+        XCTAssertEqual(decoded[0].muteUnit, 0, "no stored unit ⇒ 1/16")
+    }
 }

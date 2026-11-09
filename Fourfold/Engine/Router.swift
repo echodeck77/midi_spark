@@ -2047,14 +2047,25 @@ final class Router {
         let litBus = hocketLitBusMask & (UInt8(1) << UInt8(bus & 7)) != 0
         let joinOwn = hocketStrike && (litBus || (groupMembers > 0 && hocketGroupSounding(cable: UInt8(o + 1), chan: ch, note: note, at: onSample)))
         let joinAll = hocketStrike && (litBus || (groupMembers > 0 && hocketGroupSounding(cable: 0, chan: ch, note: note, at: onSample)))
+        // MUTE TAB §2.3 (EMITTER ROLL ferry 2026-11-09): a struck note that starts in an AUDIBLE cell but sustains into a MUTED cell on THIS output ends exactly at that cell boundary. Clamp the off to the first SET→CLEAR boundary
+        // after the strike's musical onset (`euclideousLaneMuteStart`, the same pure fn the per-lane mute uses), converted to a sample off the window anchor like the per-lane sweep (§2.2). The clamp lands whether the boundary is in
+        // this window (closed below) or a later one (`drainDue` closes the voice at its clamped off). Immortal legato holds (offSample .max — none in production, gate ≤ 99 %) are left alone. No-op when no output is muted (byte-identical).
+        var effOff = offSample
+        if euclideous, euclideousOutputMuteAny, euclideousOutputMuteCells[o] != 0xFFFF, offSample != .max, fBeatsPerSample > 0 {
+            let lenBeats = Double(offSample - onSample) * fBeatsPerSample
+            if lenBeats > 0, let b = euclideousLaneMuteStart(fromBeat: euclideousStrikeMuteBeat, toBeat: euclideousStrikeMuteBeat + lenBeats, cells16: euclideousOutputMuteCells[o], unitBeats: euclideousOutputMuteUnitBeats[o]) {
+                let bSample = fWindowStart + Int64(max(0, (b - fBeatPos) / fBeatsPerSample))
+                if bSample > onSample, bSample < effOff { effOff = bSample }
+            }
+        }
         let own = openVoice(note: note, chan: ch, cable: UInt8(o + 1), bus: UInt8(bus),
-                            onSample: onSample, offSample: offSample, velocity: velOn, out: out, euclideousLegato: euclideousLegato, join: joinOwn)
+                            onSample: onSample, offSample: effOff, velocity: velOn, out: out, euclideousLegato: euclideousLegato, join: joinOwn)
         if own >= 0 { onVoiceOpened(own); rollStruckOuts |= UInt8(1) << UInt8(o); voices[own].rollOnBeat = rollBeat(onSample); voices[own].rollRank = euclideousStrikeRank }
-        if own >= 0 && offSample <= windowEnd { if joinOwn { voices[own].deferClose = true; hocketDeferredCloses = true } else { closeVoice(own, atSample: offSample, out: out) } }
+        if own >= 0 && effOff <= windowEnd { if joinOwn { voices[own].deferClose = true; hocketDeferredCloses = true } else { closeVoice(own, atSample: effOff, out: out) } }
         let all = openVoice(note: note, chan: ch, cable: 0, bus: UInt8(bus),
-                            onSample: onSample, offSample: offSample, velocity: velOn, out: out, euclideousLegato: euclideousLegato, join: joinAll)
+                            onSample: onSample, offSample: effOff, velocity: velOn, out: out, euclideousLegato: euclideousLegato, join: joinAll)
         if all >= 0 { onVoiceOpened(all) }
-        if all >= 0 && offSample <= windowEnd { if joinAll { voices[all].deferClose = true; hocketDeferredCloses = true } else { closeVoice(all, atSample: offSample, out: out) } }
+        if all >= 0 && effOff <= windowEnd { if joinAll { voices[all].deferClose = true; hocketDeferredCloses = true } else { closeVoice(all, atSample: effOff, out: out) } }
         return Int(ch)
     }
 
@@ -2323,18 +2334,16 @@ final class Router {
             }
             partOut = pm
         }
-        // MUTE TAB (output mute, 2026-11-02; Paul 2026-11-02: the 16 cells DIVIDE a 1…8-PASS window): the 16-cell grid spans `passes` of the output's HOME lane's pass (A↔lane 1 … D↔lane 4), so each cell lasts `passes × homePass / 16`
-        // beats. Read once per window; `anyMuted` false (the default) ⇒ `euclideousOutputMuteAny` stays false and `emitOneOutput` never runs the gate (byte-identical). Element-mutated, so no render-path allocation.
+        // MUTE TAB (output mute; cell size reworked to a host-relative UNIT, MUTE TAB EMITTER ROLL ferry 2026-11-09): the 16-cell grid spans 16 × `muteUnit` (1/16 · 1/8 · 1/4 · BAR = ¼ · ½ · 1 beat · one bar),
+        // so every output at a given unit sweeps at the SAME speed — unlike the old `passes × homePass / 16`, which was each output's HOME lane's pass and made faster lanes' rows race. Read once per window;
+        // `anyMuted` false (the default) ⇒ `euclideousOutputMuteAny` stays false and `emitOneOutput` never runs the gate or the §2.3 off-clamp (byte-identical). Element-mutated, so no render-path allocation.
         do {
             let eu = box.cells[Snap.euclideousRow].procs.first
             if let om = eu?.outputMutes, om.anyMuted {
                 euclideousOutputMuteAny = true
-                let lines = eu?.euclidLines ?? []
-                let rate = eu?.euclidRateBeats ?? 0.25
                 for o in 0..<FourfoldPorts.outputCount {
                     euclideousOutputMuteCells[o] = om[o].cells16
-                    let geo = euclideousLaneStepGeometry(lines: lines, lane: o, defaultRateBeats: rate)   // home lane o's step + lap
-                    euclideousOutputMuteUnitBeats[o] = Double(om[o].passes) * Double(geo.cycleLen) * geo.sub / 16   // a cell = passes-of-a-pass window ÷ 16 cells
+                    euclideousOutputMuteUnitBeats[o] = euclideousMuteUnitBeats(om[o].muteUnit, beatsPerBar: beatsPerBar)
                 }
             } else {
                 euclideousOutputMuteAny = false

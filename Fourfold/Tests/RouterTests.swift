@@ -141,6 +141,42 @@ final class RouterTests: XCTestCase {
 
     // MARK: tests
 
+    // MUTE TAB §2.3 (EMITTER ROLL ferry 2026-11-09): a note that STARTS in an audible cell but sustains into a MUTED
+    // cell on its own output ends at that cell boundary (the off is clamped at emission). With the new host-relative
+    // UNIT, a lane at a 1-beat step (gate 0.9 ⇒ a ~0.9-beat note) and output A muted at cell 2 with a 1/16 (¼-beat)
+    // unit: the first SET→CLEAR boundary after beat 0 is cell 1→2 at beat 0.5, so the note ends there, not at 0.9.
+    func testOutputMuteClampsAHeldNoteAtTheCellBoundary() {
+        func firstNoteDuration(muteCellsA: UInt16) -> Double {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 1, steps: 2, noteSel: .low, rate: .r1_8, sourceMode: .midi)]   // hit on step 0 (beat 0), rest on step 1 — a DISCRETE note (not re-held): gate 0.9 × a ½-beat step ⇒ ~0.45-beat note
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                 scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            st.euclideousNoteSource = .midi
+            if muteCellsA != 0xFFFF { st.euclideousOutputMutes = EuclideousOutputMutes([EuclideousOutputMute(cells16: muteCellsA, passes: 1, muteUnit: 0)]) }
+            let box = SnapshotBuilder.build(keeping: st)
+            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+            let windowBeats = Double(frames) * tempo / 60.0 / sr
+            var beat = 0.0, ts = 0.0
+            for _ in 0..<11 {   // ~0.94 beat: the beat-0 hit rings out; stop before the beat-1 hit
+                router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo,
+                               sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            router.process(box: box, pool: chord([60]), playing: false, beatPos: beat, tempo: tempo,   // stop edge → flush
+                           sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            assertNothingLeftSounding(e)
+            guard let on = e.ons.first(where: { $0.cable == 1 }) else { XCTFail("no note on output A"); return 0 }
+            guard let off = e.offs.first(where: { $0.cable == 1 && $0.note == on.note && $0.sample >= on.sample }) else { XCTFail("no off on output A"); return 0 }
+            return Double(off.sample - on.sample) * (tempo / 60.0 / sr)   // → beats
+        }
+        let natural = firstNoteDuration(muteCellsA: 0xFFFF)
+        XCTAssertEqual(natural, 0.9, accuracy: 0.03, "unmuted: the note rings its full gate (0.9 × the 1-beat gap to the next hit, through the rest)")
+        let clamped = firstNoteDuration(muteCellsA: 0xFFFD)   // cell 1 cleared (muted)
+        XCTAssertEqual(clamped, 0.25, accuracy: 0.03, "output A cell 1 muted at 1/16: the note is cut at the beat-0.25 boundary")
+        XCTAssertLessThan(clamped, natural, "the mute shortens the note; the strike still begins (it starts in an audible cell)")
+    }
+
     // PART GRID × GENERATOR interaction bug, ROUND 2 (Paul 2026-10-05): the same hardcoded-8-column defect found
     // in the EUCLID fix above turned out to be systemic — STRIKE PER SPAN, CHORDS-hold, TUTTI PATTERN, LENGTH,
     // STRUM, and MOD all independently hardcoded Double(Snap.cols)*S instead of the row's real pass length. Each
