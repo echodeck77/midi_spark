@@ -6760,6 +6760,69 @@ func euclideousLanesWindow(beat: Double, unitBeats: Double) -> (start: Double, l
     return ((beat / window).rounded(.down) * window, window)
 }
 
+// ── the per-emitter roll feed (MUTE TAB EMITTER ROLL ferry, 2026-11-09 — §3) ────────────────────────────────────────────
+//
+// A clean roll of what ONE emitter (output A–D) actually sends over its current 16-cell mute window. PLAYED notes (onset at
+// or before the playhead) come from the real send-log `NoteRollModel` — every part whose `outs` includes this output, at its
+// REAL outgoing pitch, tagged with the lane that sent it — so the row reflects the mute, routing, ratchets and hocket, never a
+// prediction. UPCOMING notes (onset after the playhead) are TIMING-ONLY ghosts: accurate onset + gate + mute-state, pitch not
+// claimed (this ferry — see the plan's follow-up; §3.3 draws them on the row's middle line). ONE window (no onion-skin), clipped
+// to the window end. Pure + fixed-work; the page caches it per (inputs, window) and never recomputes per frame.
+
+/// One note the emitter sends, as the roll draws it.
+struct EmitterRollNote: Equatable {
+    var onset: Double          // absolute host beat
+    var length: Double         // beats, already clipped to the window end
+    var pitch: UInt8?          // the REAL outgoing MIDI pitch; nil = not known (a ghost) → the row's middle line (§3.3)
+    var lane: Int              // 0…3, the SOURCE lane (the note is drawn in that lane's colour; a row fed by two lanes shows both)
+    var riff: Bool             // the sending PART: riff (true) or stack / notes (false)
+    var audible: Bool          // the output's mute cell at this onset sounds (false = muted → a grey outline, not a filled bar)
+    var ghost: Bool            // predicted upcoming (true, dim) vs played from the log (false, solid)
+}
+
+/// A pre-predicted upcoming hit of one lane routed to the output — rhythm + gate only (the page builds these from the shared
+/// walk mirror `euclideousLaneRollHits`; the sounding pitch is the deferred follow-up ferry, so it is omitted here).
+struct EmitterGhostHit: Equatable { var lane: Int; var riff: Bool; var onset: Double; var length: Double }
+
+/// §3 — the roll for output `output` over `[windowStart, windowEnd)` with the playhead at `playhead`. PLAYED from `model`, UPCOMING
+/// from the pre-predicted `ghosts`. `cells16` / `unitBeats` give each note its mute-state at its own onset (§2.1). Fixed-work, pure.
+func euclideousEmitterRoll(output: Int, windowStart: Double, windowEnd: Double, playhead: Double,
+                           model: NoteRollModel, cells16: UInt16, unitBeats: Double,
+                           ghosts: [EmitterGhostHit] = []) -> [EmitterRollNote] {
+    guard output >= 0, output < 4, windowEnd > windowStart else { return [] }
+    let bit = UInt8(1) << UInt8(output)
+    let headInWindow = min(playhead, windowEnd)
+    var out: [EmitterRollNote] = []
+    // PLAYED: every part's note that LEFT on this output, onset in [windowStart, playhead]. One window ⇒ no onion-skin double.
+    for part in 0..<8 {
+        for n in model.notes(part: part, from: windowStart, to: headInWindow, now: playhead)
+            where n.outs & bit != 0 && n.onBeat >= windowStart - 1e-9 && n.onBeat <= playhead + 1e-9 {
+            let end = min(n.endBeat ?? playhead, windowEnd)
+            out.append(EmitterRollNote(onset: n.onBeat, length: max(0, end - n.onBeat), pitch: n.pitch,
+                                       lane: part >> 1, riff: part & 1 == 0,
+                                       audible: euclideousLaneAudible(beat: n.onBeat, cells16: cells16, unitBeats: unitBeats), ghost: false))
+        }
+    }
+    // UPCOMING ghosts: onset strictly after the playhead, inside the window. Pitch unknown ⇒ nil.
+    for g in ghosts where g.onset > playhead + 1e-9 && g.onset < windowEnd - 1e-9 {
+        let end = min(g.onset + max(0, g.length), windowEnd)
+        out.append(EmitterRollNote(onset: g.onset, length: max(0, end - g.onset), pitch: nil,
+                                   lane: g.lane, riff: g.riff,
+                                   audible: euclideousLaneAudible(beat: g.onset, cells16: cells16, unitBeats: unitBeats), ghost: true))
+    }
+    return out
+}
+
+/// §3.6 — a row's pitch axis: the lo…hi of the PLAYED pitches (ghosts have none), at least 12 semitones wide, clamped 0…127; an
+/// empty row is 60 ± 6. The view eases toward this over ~0.2 s. Pure; recomputed only when the played set changes, never per frame.
+func euclideousEmitterRollRange(_ notes: [EmitterRollNote]) -> (lo: Int, hi: Int) {
+    let pitches = notes.compactMap { $0.pitch }.map { Int($0) }
+    guard let mn = pitches.min(), let mx = pitches.max() else { return (54, 66) }   // empty → 60 ± 6
+    var lo = mn, hi = mx
+    if hi - lo < 12 { let pad = 12 - (hi - lo); lo -= pad / 2; hi += pad - pad / 2 }   // widen symmetrically to ≥ an octave
+    return (max(0, lo), min(127, hi))
+}
+
 /// What a touch is over. `row` is 0 on MUTE (the whole block) and 0 = RHYTHM / 1 = MELODY on RESTART.
 struct EuclideousLanesHit: Equatable { var lane: Int; var cell: Int; var row: Int }
 /// §5.3 — the hit test, with the same cell-width and gap formula the grid draws with. Each cell's area extends 1pt into the gaps on each

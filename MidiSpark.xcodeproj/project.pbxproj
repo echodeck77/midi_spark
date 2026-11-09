@@ -228,6 +228,7 @@
 		7BC45590A45ECF62AD2F08A1 /* AcceptanceRatchetStrumTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8221885E2107EBA3F721C051 /* AcceptanceRatchetStrumTests.swift */; };
 		7BD70412B03E98F53058D7B1 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */; };
 		7BE01E23EE11445214726AD3 /* RestartFlashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5511D6EA0BFF15C0FC45E68A /* RestartFlashTests.swift */; };
+		7C743346A512910094D68F9F /* MutePanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD83DE78379336DCA2C151FF /* MutePanelTests.swift */; };
 		7CBFA50E60A5106C2832841E /* HocketGlyphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB4E013DDA3B122F0BEEBFB8 /* HocketGlyphView.swift */; };
 		7D18DC173F7A5A158D2BFBE0 /* FourfoldScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEA593FF5849CFB5ADE3B53 /* FourfoldScreenshotTests.swift */; };
 		7D4F68EA5FCFB518C422FDAA /* BuildSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */; };
@@ -778,6 +779,7 @@
 		CC286E9A2B9A27DABF7CEBFA /* RestartChainsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartChainsTests.swift; sourceTree = "<group>"; };
 		CC9DEB1303F7D7F0CA7EB1A1 /* Row8Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Row8Tests.swift; sourceTree = "<group>"; };
 		CD57513582FB79CA7D0105B1 /* ReelDeckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelDeckTests.swift; sourceTree = "<group>"; };
+		CD83DE78379336DCA2C151FF /* MutePanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutePanelTests.swift; sourceTree = "<group>"; };
 		CD9084051F44A6CAA1CFDFA9 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXPanelPainter.swift; sourceTree = "<group>"; };
 		CE4A9F61B5C96E28C70286A0 /* RestartSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartSchedule.swift; sourceTree = "<group>"; };
@@ -1021,6 +1023,7 @@
 				372CA48448A531F0C9C47D25 /* MigrationTests.swift */,
 				5AD500F94EC4D567F8FB244C /* MixPanelTests.swift */,
 				5C169CE907BA9CDA80D21519 /* MixPanelV2Tests.swift */,
+				CD83DE78379336DCA2C151FF /* MutePanelTests.swift */,
 				44E192CF53C0406F41E56492 /* NoteRollRankTests.swift */,
 				EE63B3EA2A58FDDCB52C7C9D /* NoteRollTests.swift */,
 				354DBFBF5F37251A2C53939E /* NotesTabTests.swift */,
@@ -1843,6 +1846,7 @@
 				F59BA16461447F290F0778CB /* MixPanelV2.swift in Sources */,
 				931CCC7F9A8C3258AF1EAA1F /* MixPanelV2Tests.swift in Sources */,
 				4BFF997B67F572F08E8EBF7D /* Models.swift in Sources */,
+				7C743346A512910094D68F9F /* MutePanelTests.swift in Sources */,
 				67F01C5019FD92A5537610C6 /* NoteRollRankTests.swift in Sources */,
 				7F7C8B318D46429B3492F2C4 /* NoteRollRing.swift in Sources */,
 				F55BED8580E387C57A9357FD /* NoteRollTests.swift in Sources */,
