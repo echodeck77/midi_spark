@@ -1990,6 +1990,7 @@ struct EmitterVelocitySet: Equatable, Codable {
 enum EmitterCCValueMode: String, Codable, CaseIterable {
     case riff = "RIFF"
     case pingPong = "PING-PONG"   // CC tab (2026-11-09, starts on LOW): LOW on the lane's first hit and every even one after it, HIGH on the odd ones — both ends matter, the riff rank does not
+    case ramp = "RAMP"            // CC tab (2026-11-09): LOW on a lane's first hit climbing evenly to HIGH on the last hit of the span — one pass of its rhythm, or `passes` of them
     // FIXED (a constant LEVEL) and SINE (a free-running, bar-locked sine, not hit-driven) were REMOVED 2026-11-09: FIXED sent one number once, SINE had nothing to do with the Euclid hits. A stored "FIXED" is migrated by
     // `EmitterCC.init(from:)` (PING-PONG with HIGH = LOW = its old level — the same constant); a stored "SINE" (or anything unknown) decodes as RIFF.
     init(from decoder: Decoder) throws { self = EmitterCCValueMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .riff }
@@ -2007,21 +2008,23 @@ struct EmitterCC: Equatable {
     var travel: EmitterCCTravel = .step
     var time = 50                                   // 1…100 (% of the gap to the next hit)
     var muteValue = 0                               // 0…127
-    static let maxCC = 119, minTime = 1, maxTime = 100
+    var passes = 1                                  // 1…16 (RAMP): how many passes of the lane's rhythm the climb from LOW to HIGH takes
+    static let maxCC = 119, minTime = 1, maxTime = 100, maxPasses = 16
     init() {}
-    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .riff, high: Int = 127, low: Int = 0, travel: EmitterCCTravel = .step, time: Int = 50, muteValue: Int = 0) {
-        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.high = high; self.low = low; self.travel = travel; self.time = time; self.muteValue = muteValue
+    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .riff, high: Int = 127, low: Int = 0, travel: EmitterCCTravel = .step, time: Int = 50, muteValue: Int = 0, passes: Int = 1) {
+        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.high = high; self.low = low; self.travel = travel; self.time = time; self.muteValue = muteValue; self.passes = passes
     }
     func normalized() -> EmitterCC {
         var r = self
         r.ccNumber = max(0, min(Self.maxCC, ccNumber))
         r.high = max(0, min(127, high)); r.low = max(0, min(127, low)); r.muteValue = max(0, min(127, muteValue))
         r.time = max(Self.minTime, min(Self.maxTime, time))
+        r.passes = max(1, min(Self.maxPasses, passes))
         return r
     }
 }
 extension EmitterCC: Codable {
-    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, level, high, low, travel, time, muteValue }   // `level` is only READ, to migrate a FIXED document; it is never written
+    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, level, high, low, travel, time, muteValue, passes }   // `level` is only READ, to migrate a FIXED document; it is never written
     init(from decoder: Decoder) throws {
         self.init()
         guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
@@ -2036,13 +2039,14 @@ extension EmitterCC: Codable {
         if let v = (try? c.decodeIfPresent(EmitterCCTravel.self, forKey: .travel)) ?? nil { travel = v }
         if let n = int(.time) { time = n }
         if let n = int(.muteValue) { muteValue = n }
+        if let n = int(.passes) { passes = n }
         self = normalized()
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(on, forKey: .on); try c.encode(ccNumber, forKey: .ccNumber); try c.encode(valueMode, forKey: .valueMode)
         try c.encode(high, forKey: .high); try c.encode(low, forKey: .low)
-        try c.encode(travel, forKey: .travel); try c.encode(time, forKey: .time); try c.encode(muteValue, forKey: .muteValue)
+        try c.encode(travel, forKey: .travel); try c.encode(time, forKey: .time); try c.encode(muteValue, forKey: .muteValue); try c.encode(passes, forKey: .passes)
     }
 }
 /// The document's four CC emitters: FIXED-SIZE storage, encoded as a plain array of four. The four default CC numbers differ (A 74 · B 71 · C 1 · D 11); every write through the subscript normalises. Same shape as `EmitterVelocitySet`.

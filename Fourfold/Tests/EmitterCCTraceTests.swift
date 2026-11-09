@@ -92,10 +92,22 @@ final class EmitterCCTraceTests: XCTestCase {
         XCTAssertEqual(value(g, at: 0), 0); XCTAssertEqual(value(g, at: 0.5), 60); XCTAssertEqual(value(g, at: 1), 120); XCTAssertEqual(value(g, at: 1.5), 60, "a triangle rising from LOW")
     }
     func testASliderIsDimmedExactlyWhenItChangesNothing() {
-        XCTAssertTrue(emitterCCFieldIsInert(.time, travel: .step), "TIME is the ramp's share of the gap: a STEP has no ramp")
-        XCTAssertFalse(emitterCCFieldIsInert(.time, travel: .glide)); XCTAssertFalse(emitterCCFieldIsInert(.time, travel: .fall))
-        for t in EmitterCCTravel.allCases { for f in [EmitterCCField.high, .low, .mute] { XCTAssertFalse(emitterCCFieldIsInert(f, travel: t), "\(f) is read in every travel (RIFF and PING-PONG both read HIGH and LOW; LOW is FALL's target)") } }
-        XCTAssertEqual(EmitterCCField.allCases.count, 4, "HIGH · LOW · TIME · MUTE: no LEVEL, no BARS")
+        for m in EmitterCCValueMode.allCases { for t in EmitterCCTravel.allCases {
+            XCTAssertEqual(emitterCCFieldIsInert(.passes, mode: m, travel: t), m != .ramp, "PASSES is RAMP's span: inert in every other mode")
+            XCTAssertEqual(emitterCCFieldIsInert(.time, mode: m, travel: t), t == .step, "TIME is the ramp's share of the gap: a STEP has no ramp")
+            for f in [EmitterCCField.high, .low, .mute] { XCTAssertFalse(emitterCCFieldIsInert(f, mode: m, travel: t), "\(f) is read in every mode and travel (LOW is FALL's target)") }
+        } }
+        XCTAssertEqual(EmitterCCField.allCases.count, 5, "HIGH · LOW · PASSES · TIME · MUTE")
+    }
+    func testARampTraceClimbsFromLowToHighAcrossTheSpan() {
+        let c = EmitterCCCfg(EmitterCC(on: true, valueMode: .ramp, high: 120, low: 0, travel: .step, passes: 1))
+        let t = emitterCCTrace(cfg: c, hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 0, lane: 0, ordinal: Int64($0), passHits: 4) }, barBeats: 4)
+        XCTAssertEqual(t.dots.map { Int($0.y) }, [0, 40, 80, 120], "LOW on the first hit, HIGH on the last, evenly between")
+        // over two passes the SAME bar shows the first or the second half of the climb, by the hits' ordinals
+        let c2 = EmitterCCCfg(EmitterCC(on: true, valueMode: .ramp, high: 120, low: 0, travel: .step, passes: 2))
+        let first = emitterCCTrace(cfg: c2, hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 0, lane: 0, ordinal: Int64($0), passHits: 4) }, barBeats: 4)
+        let second = emitterCCTrace(cfg: c2, hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 0, lane: 0, ordinal: Int64(4 + $0), passHits: 4) }, barBeats: 4)
+        XCTAssertEqual(first.dots.map { Int($0.y) }, [0, 17, 34, 51]); XCTAssertEqual(second.dots.map { Int($0.y) }, [69, 86, 103, 120], "the second pass ends on HIGH")
     }
     func testAPingPongBarWithAnOddNumberOfHitsFlipsItsParityAcrossTheSeam() {
         // 3 hits a bar, ordinals 3 4 5 (odd, even, odd = HIGH, LOW, HIGH): the next bar's first hit is ordinal 6 (even: LOW) and the previous bar's last is 2 (even: LOW)
@@ -107,9 +119,9 @@ final class EmitterCCTraceTests: XCTestCase {
         XCTAssertEqual(value(t, at: 0), 120, "this bar's first hit (ordinal 3, odd) is HIGH")
     }
     func testTheRingLandsExactlyOnEachDotWhenThePlayheadReachesIt() {
-        for (travel, mode) in [(EmitterCCTravel.step, EmitterCCValueMode.riff), (.glide, .riff), (.fall, .riff), (.glide, .pingPong), (.fall, .pingPong)] {
+        for (travel, mode) in [(EmitterCCTravel.step, EmitterCCValueMode.riff), (.glide, .riff), (.fall, .riff), (.glide, .pingPong), (.fall, .pingPong), (.step, .ramp), (.glide, .ramp), (.fall, .ramp)] {
             let c = EmitterCCCfg(EmitterCC(on: true, valueMode: mode, high: 120, low: 10, travel: travel, time: 60))
-            let hits = [(0.0, 1), (1.0, 5), (2.5, 3), (3.25, 8)].enumerated().map { EmitterCCTraceHit(beat: $0.element.0, rank: $0.element.1, lane: 0, ordinal: Int64($0.offset)) }
+            let hits = [(0.0, 1), (1.0, 5), (2.5, 3), (3.25, 8)].enumerated().map { EmitterCCTraceHit(beat: $0.element.0, rank: $0.element.1, lane: 0, ordinal: Int64($0.offset), passHits: 4) }
             let t = emitterCCTrace(cfg: c, hits: hits, barBeats: 4)
             for d in t.dots {
                 let ring = emitterCCTraceValue(t.points, atBeat: Double(d.x))

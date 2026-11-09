@@ -666,12 +666,12 @@ extension Host {
                         $0.euclideousLines = ls
                     }
                 }
-                if name.contains("EMITTER CC") {   // CC tab (Nov 2026): every output sends a CC — RIFF + PING-PONG value modes, STEP / GLIDE / FALL travel, an inverted LOW > HIGH map — so the per-hit value, the GLIDE next-rank prediction, the ramp walk and the mute gate all run on the render thread and must allocate nothing
+                if name.contains("EMITTER CC") {   // CC tab (Nov 2026): every output sends a CC — RIFF + PING-PONG + RAMP value modes, STEP / GLIDE / FALL travel, an inverted LOW > HIGH map — so the per-hit value, the GLIDE next-rank prediction, the ramp walk and the mute gate all run on the render thread and must allocate nothing
                     au.editDocument {
                         var set = EmitterCCSet()
                         set[0] = EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: .glide, time: 60, muteValue: 10)
                         set[1] = EmitterCC(on: true, ccNumber: 71, valueMode: .riff, high: 90, low: 20, travel: .step)
-                        set[2] = EmitterCC(on: true, ccNumber: 1, valueMode: .riff, high: 20, low: 110, travel: .fall, time: 40)   // LOW > HIGH (inverted mapping)
+                        set[2] = EmitterCC(on: true, ccNumber: 1, valueMode: .ramp, high: 20, low: 110, travel: .glide, time: 70, passes: 2)   // RAMP over two passes, LOW > HIGH (descending); the inverted RIFF map is covered by the unit tests
                         set[3] = EmitterCC(on: true, ccNumber: 11, valueMode: .pingPong, high: 127, low: 0, travel: .glide, time: 100)
                         $0.euclideousEmitterCCs = set
                         var ls = $0.euclideousLinesResolved   // the default document's lanes 3 and 4 have no hits, so C and D would never fire: give every emitter a lane (and lane 2 onto A as well, so one emitter merges two lanes)

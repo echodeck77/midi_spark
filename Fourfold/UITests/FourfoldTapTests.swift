@@ -934,7 +934,7 @@ final class FourfoldTapTests: XCTestCase {
         need(app.els(prefix: "Emitter A CC").firstMatch, "emitter A's row").tap()
         let origin = app.coordinate(withNormalizedOffset: .zero)
         // each slider: (label, min, max) — the element is the whole row (label · bar · number), so the bar runs from minX + 46 to maxX − 36
-        for (label, lo, hi) in [("HIGH", 0, 127), ("LOW", 0, 127), ("TIME", 1, 100), ("MUTE", 0, 127)] {
+        for (label, lo, hi) in [("HIGH", 0, 127), ("LOW", 0, 127), ("PASSES", 1, 16), ("TIME", 1, 100), ("MUTE", 0, 127)] {
             let row = need(app.el(label), "the \(label) slider"), f = row.frame
             let x0 = f.minX + 46, x1 = f.maxX - 36, y = f.midY
             // SLOW drags (a real finger sends many updates, each one a document write and a re-render mid-gesture) as well as a quick one

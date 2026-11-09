@@ -160,7 +160,7 @@ struct EuclideousCCExpandedView: View {
     let onCollapse: () -> Void
 
     private var letter: String { ["A", "B", "C", "D"][output] }
-    private static let valueModes: [EmitterCCValueMode] = [.riff, .pingPong]
+    private static let valueModes: [EmitterCCValueMode] = [.riff, .pingPong, .ramp]
     var body: some View {
         let cc = ccs[output]
         VStack(spacing: 8) {
@@ -200,7 +200,7 @@ struct EuclideousCCExpandedView: View {
     @ViewBuilder private func leftColumn(_ cc: EmitterCC) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("VALUE").font(heavyMonoCC(9)).foregroundColor(P.muted)
-            EmitterRatchetSegmented(options: ["RIFF", "PING"], selected: Self.valueModes.firstIndex(of: cc.valueMode) ?? 0, height: 26, groupLabel: "Value") { i in onEdit(true) { $0[output].valueMode = Self.valueModes[i] } }
+            EmitterRatchetSegmented(options: ["RIFF", "PING", "RAMP"], selected: Self.valueModes.firstIndex(of: cc.valueMode) ?? 0, height: 26, groupLabel: "Value") { i in onEdit(true) { $0[output].valueMode = Self.valueModes[i] } }
             Text("TRAVEL").font(heavyMonoCC(9)).foregroundColor(P.muted)
             EmitterRatchetSegmented(options: ["STEP", "GLIDE", "FALL"], selected: cc.travel == .step ? 0 : (cc.travel == .glide ? 1 : 2), height: 26, groupLabel: "Travel") { i in onEdit(true) { $0[output].travel = i == 0 ? .step : (i == 1 ? .glide : .fall) } }
             Spacer(minLength: 0)
@@ -210,7 +210,8 @@ struct EuclideousCCExpandedView: View {
         VStack(spacing: 6) {
             CCBarSlider(label: "HIGH", value: cc.high) { v, s in onEdit(s) { $0[output].high = v } }
             CCBarSlider(label: "LOW", value: cc.low) { v, s in onEdit(s) { $0[output].low = v } }
-            CCBarSlider(label: "TIME", value: cc.time, lo: EmitterCC.minTime, hi: EmitterCC.maxTime, dimmed: emitterCCFieldIsInert(.time, travel: cc.travel)) { v, s in onEdit(s) { $0[output].time = v } }
+            CCBarSlider(label: "PASSES", value: cc.passes, lo: 1, hi: EmitterCC.maxPasses, dimmed: emitterCCFieldIsInert(.passes, mode: cc.valueMode, travel: cc.travel)) { v, s in onEdit(s) { $0[output].passes = v } }
+            CCBarSlider(label: "TIME", value: cc.time, lo: EmitterCC.minTime, hi: EmitterCC.maxTime, dimmed: emitterCCFieldIsInert(.time, mode: cc.valueMode, travel: cc.travel)) { v, s in onEdit(s) { $0[output].time = v } }
             CCBarSlider(label: "MUTE", value: cc.muteValue) { v, s in onEdit(s) { $0[output].muteValue = v } }
             Spacer(minLength: 0)
         }

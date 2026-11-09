@@ -9775,6 +9775,13 @@ func hocketLaneCounts(_ c: HocketLaneClock, atMusicalBeat m: Double) -> (hit: In
     if info.rawIsHit, c.hasTiming, info.raw >= 0, info.raw < c.delay.count, c.delay[info.raw] > f - Double(tick) + 1e-9 { ord -= 1 }
     return (max(0, ord), max(0, info.cy))
 }
+/// CC tab RAMP (2026-11-09): how many rhythm hits the clock's lane has in one pass (lap) — the same count `runEuclidLine` calls `cycleHits`, read from the captured window clock so another lane's pass length can be asked of it.
+func hocketLaneCycleHits(_ c: HocketLaneClock) -> Int {
+    guard c.valid, c.n > 0 else { return 1 }
+    var hits = 0, s = 0
+    while s < c.cycleLen { if c.buf[euclidReadIndex(s, n: c.n, dir: c.dir)] { hits += 1 }; s += 1 }
+    return max(1, hits)
+}
 /// §6.2 — a rule's count at the musical beat `m`. STEPS and BARS read the page clock from beat 0 (a sixteenth = 0.25 beat; a bar = the host's `beatsPerBar`); HITS and PASSES read the reference lane's clock (`nil` — a lane that
 /// isn't running this window — holds the count at 0).
 func hocketCount(unit: HocketUnit, clock: HocketLaneClock?, atMusicalBeat m: Double, beatsPerBar: Double) -> Int64 {

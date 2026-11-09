@@ -242,10 +242,10 @@ struct EmitterCCCfg: Equatable {
     var on = false
     var ccNumber = 74
     var valueMode: EmitterCCValueMode = .riff
-    var high = 127, low = 0, time = 50, muteValue = 0
+    var high = 127, low = 0, time = 50, muteValue = 0, passes = 1
     var travel: EmitterCCTravel = .step
     init() {}
-    init(_ e: EmitterCC) { let n = e.normalized(); on = n.on; ccNumber = n.ccNumber; valueMode = n.valueMode; high = n.high; low = n.low; travel = n.travel; time = n.time; muteValue = n.muteValue }
+    init(_ e: EmitterCC) { let n = e.normalized(); on = n.on; ccNumber = n.ccNumber; valueMode = n.valueMode; high = n.high; low = n.low; travel = n.travel; time = n.time; muteValue = n.muteValue; passes = n.passes }
     /// The hit value for a riff rank r (1…8): LOW + (r−1)/7 × (HIGH − LOW), rounded, clamped 0…127. LOW may exceed HIGH (inverts). This is the literal rank map over 1…8 (`span` `.full`).
     @inline(__always) func riffValue(rank r: Int) -> Int { riffValue(rank: r, span: .full) }
     /// The hit value for a riff rank within the riff's own `span`: the riff's lowest note is LOW and its highest is HIGH (CC tab, 2026-11-09: a riff 1 2 3 5 4 3 2 1 peaked at 57 % of HIGH under the literal map and could never reach it).
@@ -253,12 +253,18 @@ struct EmitterCCCfg: Equatable {
         let f = span.hi > span.lo ? Double(r - span.lo) / Double(span.hi - span.lo) : Double(r - 1) / 7.0   // one distinct note: nothing to span, so its literal height
         return max(0, min(127, Int((Double(low) + max(0, min(1, f)) * Double(high - low)).rounded())))
     }
-    /// The ONE decision of what a hit sends — the Router and the trace both call it. RIFF: the rank's value within the riff's `span`, nil on a rest (rank 0 / out of range: the previous value holds). PING-PONG: LOW on an even riff ordinal (the FIRST hit), HIGH on an odd one
-    /// (the ordinal is the riff walk's own, `advOrd`, so it restarts with the melody; any rank, rest included, sends).
-    @inline(__always) func value(rank: Int, ordinal: Int64, span: EmitterCCRiffSpan = .full) -> Int? {
+    /// The ONE decision of what a hit sends — the Router and the trace both call it. RIFF: the rank's value within the riff's `span`, nil on a rest (rank 0 / out of range: the previous value holds). PING-PONG: LOW on an even riff ordinal (the FIRST hit), HIGH on an odd one.
+    /// RAMP: the hit's place in a span of `passes × passHits` hits — LOW on the first, HIGH on the last, evenly between, then it starts again (`passHits` is the lane's hits per pass; a one-hit span is just LOW). The ordinal is the riff walk's own, `advOrd`, so
+    /// PING-PONG and RAMP restart with the lane's melody; any rank, rest included, sends.
+    @inline(__always) func value(rank: Int, ordinal: Int64, span: EmitterCCRiffSpan = .full, passHits: Int = 1) -> Int? {
         switch valueMode {
         case .riff: return rank >= 1 && rank <= 8 ? riffValue(rank: rank, span: span) : nil
         case .pingPong: return max(0, min(127, ordinal & 1 == 0 ? low : high))
+        case .ramp:
+            let total = Int64(max(1, passHits)) * Int64(max(1, passes))
+            guard total > 1 else { return max(0, min(127, low)) }
+            let idx = ((ordinal % total) + total) % total
+            return max(0, min(127, Int((Double(low) + Double(idx) / Double(total - 1) * Double(high - low)).rounded())))
         }
     }
 }

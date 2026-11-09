@@ -6487,7 +6487,7 @@ struct EuclideousPage: View {
                 guard b < barBeats - 1e-9 else { continue }
                 let col = k < pass.prediction.count ? pass.prediction[k] : -1
                 let ord = (k < pass.ordinals.count ? pass.ordinals[k] : Int64(k)) &+ lapIndex &* Int64(hitSteps.count)   // PING-PONG's parity: the riff ordinal, advancing by the lap's hit count each lap
-                out.append(EmitterCCTraceHit(beat: b, rank: col >= 0 && col < ranks.count ? max(0, min(8, ranks[col])) : 0, lane: idx, ordinal: ord))
+                out.append(EmitterCCTraceHit(beat: b, rank: col >= 0 && col < ranks.count ? max(0, min(8, ranks[col])) : 0, lane: idx, ordinal: ord, passHits: hitSteps.count))
             }
             lap += lapBeats; lapIndex += 1
         }

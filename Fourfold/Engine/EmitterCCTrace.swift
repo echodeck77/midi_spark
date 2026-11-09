@@ -10,7 +10,7 @@ import CoreGraphics
 
 /// A hit of a lane routed to the emitter, at a beat inside the bar; `rank` is the riff grid's WRITTEN rank (1…8) at the riff playhead of the lane whose hit it is, 0 for a column with no note (a RIFF rest holds the previous value).
 /// `lane` is the lane (0…3) whose hit it is (the dots and the playhead wear its colour); `ordinal` is that lane's riff ordinal at the hit (PING-PONG reads its parity — the Router's `advOrd`).
-struct EmitterCCTraceHit: Equatable { var beat: Double; var rank: Int; var lane: Int = 0; var ordinal: Int64 = 0 }
+struct EmitterCCTraceHit: Equatable { var beat: Double; var rank: Int; var lane: Int = 0; var ordinal: Int64 = 0; var passHits: Int = 1 }   // `passHits`: the lane's hits per pass (RAMP's span unit)
 struct EmitterCCTrace: Equatable {
     /// The output sampled on the 1/96-note grid across the bar: `(beat, value)`, value 0…127 (what the engine would send, rounded). Empty when no hit lands in the bar (the emitter would be silent).
     var points: [CGPoint]
@@ -26,7 +26,7 @@ struct EmitterCCTrace: Equatable {
     var barBeats: Double
 }
 /// The CC value a hit carries — the engine's own `EmitterCCCfg.value(rank:ordinal:)`: FIXED `level`; RIFF LOW + (rank − 1)/7 × (HIGH − LOW), nil for a rest (rank 0); PING-PONG HIGH on an even ordinal, LOW on an odd one.
-func emitterCCHitValue(_ cfg: EmitterCCCfg, rank: Int, ordinal: Int64 = 0, span: EmitterCCRiffSpan = .full) -> Int? { cfg.value(rank: rank, ordinal: ordinal, span: span) }
+func emitterCCHitValue(_ cfg: EmitterCCCfg, rank: Int, ordinal: Int64 = 0, span: EmitterCCRiffSpan = .full, passHits: Int = 1) -> Int? { cfg.value(rank: rank, ordinal: ordinal, span: span, passHits: passHits) }
 /// The emitter's output over one bar from the merged, time-ordered hits, mirroring the Router's segments: STEP holds the hit value; GLIDE holds for gap × (1 − t) then ramps to the NEXT hit's value (the hit's own value when the next hit is
 /// a rest), arriving on it; FALL ramps to LOW over gap × t and holds. gap = the time to the next hit (the first hit of the next bar after the last). The bar repeats, so a position before the first hit reads the last hit's segment of the
 /// previous bar.
@@ -45,7 +45,7 @@ func emitterCCTrace(cfg: EmitterCCCfg, hits rawHits: [EmitterCCTraceHit], barBea
     // the next bar aims at the OTHER value, and the one before the first hit was left by the previous bar's opposite parity).
     var perBar: [Int: Int64] = [:]
     for h in hits { perBar[h.lane, default: 0] += 1 }
-    func value(_ k: Int) -> Int? { let lap = Int((Double(k) / Double(n)).rounded(.down)); let h = hits[k - lap * n]; return emitterCCHitValue(cfg, rank: h.rank, ordinal: h.ordinal &+ Int64(lap) &* (perBar[h.lane] ?? 0), span: span) }
+    func value(_ k: Int) -> Int? { let lap = Int((Double(k) / Double(n)).rounded(.down)); let h = hits[k - lap * n]; return emitterCCHitValue(cfg, rank: h.rank, ordinal: h.ordinal &+ Int64(lap) &* (perBar[h.lane] ?? 0), span: span, passHits: h.passHits) }
     func laneOf(_ k: Int) -> Int { let lap = Int((Double(k) / Double(n)).rounded(.down)); return hits[k - lap * n].lane }
     // the latest hit that carries a value at or before beat b (searching backwards across bars), or nil when none carries one
     func lastEvent(atOrBefore b: Double) -> Int? {
@@ -88,7 +88,7 @@ func emitterCCTrace(cfg: EmitterCCCfg, hits rawHits: [EmitterCCTraceHit], barBea
         pts.append(CGPoint(x: b, y: Double(max(0, min(127, o.value))))); ptLanes.append(o.lane)
     }
     var dots: [CGPoint] = [], dotLanes: [Int] = []
-    for h in hits { if let v = emitterCCHitValue(cfg, rank: h.rank, ordinal: h.ordinal, span: span) { dots.append(CGPoint(x: h.beat, y: Double(v))); dotLanes.append(h.lane) } }
+    for h in hits { if let v = emitterCCHitValue(cfg, rank: h.rank, ordinal: h.ordinal, span: span, passHits: h.passHits) { dots.append(CGPoint(x: h.beat, y: Double(v))); dotLanes.append(h.lane) } }
     return EmitterCCTrace(points: pts, pointLanes: ptLanes, dots: dots, dotLanes: dotLanes, ticks: hits.map { $0.beat }, gridBeats: grid, barBeats: bar)
 }
 /// The lane whose hit is in effect at bar position `beat` (the nearest drawn point at or before it), nil when the trace is empty.
@@ -100,11 +100,17 @@ func emitterCCTraceLane(_ t: EmitterCCTrace, atBeat beat: Double) -> Int? {
 
 // MARK: - which controls matter
 
-/// The four bar sliders of an emitter's page.
-enum EmitterCCField: Int, CaseIterable { case high, low, time, mute }
-/// True when a slider changes nothing in the emitter's current TRAVEL — the page dims exactly these, so a live slider is always one that does something. HIGH and LOW are the RIFF map's ends and PING-PONG's two values (and LOW is
-/// FALL's target); TIME is the ramp's share of the gap to the next hit, which only GLIDE and FALL have; MUTE is always read.
-func emitterCCFieldIsInert(_ f: EmitterCCField, travel: EmitterCCTravel) -> Bool { f == .time && travel == .step }
+/// The five bar sliders of an emitter's page.
+enum EmitterCCField: Int, CaseIterable { case high, low, passes, time, mute }
+/// True when a slider changes nothing in the emitter's current VALUE and TRAVEL — the page dims exactly these, so a live slider is always one that does something. HIGH and LOW are the RIFF map's ends, PING-PONG's two values and RAMP's two ends (and LOW is
+/// FALL's target); PASSES is RAMP's span; TIME is the ramp's share of the gap to the next hit, which only GLIDE and FALL have; MUTE is always read.
+func emitterCCFieldIsInert(_ f: EmitterCCField, mode: EmitterCCValueMode, travel: EmitterCCTravel) -> Bool {
+    switch f {
+    case .passes: return mode != .ramp
+    case .time: return travel == .step
+    case .high, .low, .mute: return false
+    }
+}
 
 /// The drawn curve's value (0…127) at bar position `beat`, interpolated along the same polyline the page strokes — so a marker riding it lands exactly on the static dots when the playhead reaches them. nil with fewer than two points.
 func emitterCCTraceValue(_ points: [CGPoint], atBeat beat: Double) -> Double? {

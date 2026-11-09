@@ -231,6 +231,7 @@ final class EmitterCCTests: XCTestCase {
         }
         let variants: [(String, EmitterCC)] = [
             ("ping-pong fall", EmitterCC(on: true, valueMode: .pingPong, high: 90, low: 10, travel: .fall, time: 80)),
+            ("ramp glide", EmitterCC(on: true, valueMode: .ramp, high: 100, low: 5, travel: .glide, time: 100, passes: 1)), ("ramp 3 passes step", EmitterCC(on: true, valueMode: .ramp, high: 100, low: 5, travel: .step, passes: 3)),
             ("riff step", EmitterCC(on: true, valueMode: .riff, travel: .step)), ("riff glide", EmitterCC(on: true, valueMode: .riff, travel: .glide, time: 100)),
             ("riff fall", EmitterCC(on: true, valueMode: .riff, travel: .fall, time: 60)),
             ("ping-pong step", EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 10, travel: .step)), ("ping-pong glide", EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 10, travel: .glide, time: 100)),
@@ -425,13 +426,84 @@ final class EmitterCCTests: XCTestCase {
         XCTAssertEqual(decode(#"{"valueMode":"FIXED"}"#).high, 100, "a FIXED with no stored level used the default 100")
         let sine = decode(#"{"valueMode":"SINE","high":90,"low":30,"sineBars":5}"#)
         XCTAssertEqual(sine.valueMode, .riff); XCTAssertEqual(sine.high, 90); XCTAssertEqual(sine.low, 30)
-        XCTAssertEqual(EmitterCCValueMode.allCases, [.riff, .pingPong])
+        XCTAssertEqual(EmitterCCValueMode.allCases, [.riff, .pingPong, .ramp])
         let data = String(data: try! JSONEncoder().encode(fixed), encoding: .utf8)!
         XCTAssertFalse(data.contains("level") || data.contains("sineBars"), "the removed fields are never written again: \(data)")
         // an engine fed the migrated document sends the old constant on every hit and holds it
         let rig = CCRig(state(cc: fixed.normalized().with(on: true, ccNumber: 74, travel: .step)))
         rig.run(to: 4.5)
         XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [64])
+    }
+
+    // MARK: RAMP (2026-11-09) — LOW on a lane's first hit climbing evenly to HIGH on the last hit of the span (one pass, or `passes` of them)
+    func testRampValueRuleAndDecode() {
+        let c = EmitterCCCfg(EmitterCC(valueMode: .ramp, high: 120, low: 0, passes: 1))
+        XCTAssertEqual((0..<4).map { c.value(rank: 0, ordinal: Int64($0), passHits: 4) }, [0, 40, 80, 120], "4 hits a pass: LOW, ⅓, ⅔, HIGH — the rank (rests included) is not read")
+        XCTAssertEqual(c.value(rank: 3, ordinal: 4, passHits: 4), 0, "the next span starts again at LOW"); XCTAssertEqual(c.value(rank: 3, ordinal: -1, passHits: 4), 120, "a negative ordinal wraps the same way")
+        XCTAssertEqual(c.value(rank: 3, ordinal: 5, passHits: 1), 0, "a one-hit span is just LOW"); XCTAssertEqual(c.value(rank: 3, ordinal: 0, passHits: 0), 0, "a lane with no hits still answers")
+        let two = EmitterCCCfg(EmitterCC(valueMode: .ramp, high: 120, low: 0, passes: 2))
+        XCTAssertEqual((0..<8).map { two.value(rank: 0, ordinal: Int64($0), passHits: 4) }, [0, 17, 34, 51, 69, 86, 103, 120], "two passes: one climb across all 8 hits, HIGH on the last hit of the 2nd pass")
+        let inv = EmitterCCCfg(EmitterCC(valueMode: .ramp, high: 0, low: 100, passes: 1))
+        XCTAssertEqual([0, 3].map { inv.value(rank: 0, ordinal: Int64($0), passHits: 4) }, [100, 0], "LOW above HIGH inverts: it descends")
+        // PASSES: default 1, clamps 1…16, round-trips, and an old document with no passes loads as 1
+        func decode(_ json: String) -> EmitterCC { try! JSONDecoder().decode(EmitterCC.self, from: json.data(using: .utf8)!) }
+        XCTAssertEqual(decode(#"{"valueMode":"RAMP"}"#).passes, 1); XCTAssertEqual(decode(#"{"valueMode":"RAMP"}"#).valueMode, .ramp)
+        XCTAssertEqual(decode(#"{"passes":99}"#).passes, 16); XCTAssertEqual(decode(#"{"passes":-3}"#).passes, 1)
+        var set = EmitterCCSet(); set[3] = EmitterCC(on: true, ccNumber: 20, valueMode: .ramp, high: 90, low: 30, travel: .glide, passes: 5)
+        XCTAssertEqual(try! JSONDecoder().decode(EmitterCCSet.self, from: try! JSONEncoder().encode(set)), set, "RAMP and PASSES round-trip")
+    }
+    func testARampOnTheWireClimbsLowToHighOverOnePassAndStartsAgain() {
+        // 4 hits a pass (a hit a beat): 0, 40, 80, 120 then 0 again
+        let rig = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .ramp, high: 120, low: 0, travel: .step, passes: 1)))
+        rig.run(to: 8.5)
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74).map { Int($0) }, [0, 40, 80, 120, 0, 40, 80, 120, 0], "LOW → HIGH across each pass, then it starts again")
+    }
+    func testARampOverSeveralPassesIsOneClimbAcrossAllOfThem() {
+        let rig = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .ramp, high: 120, low: 0, travel: .step, passes: 2)))
+        rig.run(to: 8.5)
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74).map { Int($0) }, [0, 17, 34, 51, 69, 86, 103, 120, 0], "one climb over two passes: HIGH lands on the last hit of the second pass")
+    }
+    func testAGlideRampHeadsForTheNextHitsRungAndDropsBackAtTheEndOfTheSpan() {
+        let rig = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .ramp, high: 120, low: 0, travel: .glide, time: 100, passes: 1)))
+        rig.run(to: 5.0)
+        let tl = rig.out.timeline(cable: 1, cc: 74)
+        func at(_ beat: Double) -> Int { tl.last(where: { Double($0.sample) <= beat * beatSamples })?.value ?? -1 }
+        XCTAssertEqual(at(0.5), 20, accuracy: 2, "half way from LOW up to the second rung (40)"); XCTAssertEqual(at(1.0), 40, accuracy: 1)
+        XCTAssertEqual(at(2.0), 80, accuracy: 1); XCTAssertEqual(at(3.0), 120, accuracy: 1, "HIGH on the last hit")
+        XCTAssertEqual(at(3.5), 60, accuracy: 3, "then it glides back down toward the next span's first hit (LOW)")
+    }
+    func testChangingPassesReplansTheRunningRampAtOnce() {
+        let before = EmitterCC(on: true, ccNumber: 74, valueMode: .ramp, high: 120, low: 0, travel: .step, passes: 1)
+        var after = before; after.passes = 2
+        let tl = replanRig(before, after, swapAt: 1.5, to: 1.9)   // the beat-1 hit sent rung 2 of 4 (40); with two passes it is rung 2 of 8 (17)
+        XCTAssertEqual(tl.map { $0.value }, [0, 40, 17], "the new span takes over within a window, before the beat-2 hit")
+        XCTAssertLessThan(Double(tl.last?.sample ?? 0), 1.6 * beatSamples)
+    }
+    func testARampSpanFollowsTheOtherLanesPassLengthForTheGlideTarget() {
+        // lane 1: one hit a pass, at beat 2 (its span is just LOW); lane 2: two hits a pass, at beats 1 and 3. From lane 1's beat-2 hit the glide aims at the emitter's NEXT hit — lane 2's beat-3 hit, its SECOND of two: HIGH when read against lane 2's
+        // OWN pass of 2 hits (read against lane 1's one-hit pass it would be LOW and the CC would stay down).
+        let rig = CCRig(twoLaneState(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .ramp, high: 120, low: 0, travel: .glide, time: 100, passes: 1), lane1: { $0.rotate = 2 }, lane2: { $0.pulses = 2; $0.rotate = 1 }))
+        rig.run(to: 3.0)
+        let tl = rig.out.timeline(cable: 1, cc: 74).filter { Double($0.sample) >= 2.0 * beatSamples - 1 && Double($0.sample) < 3.0 * beatSamples - 1 }
+        XCTAssertGreaterThanOrEqual(tl.last?.value ?? 0, 112, "from lane 1's LOW the glide heads for lane 2's HIGH rung by beat 3: \(tl.map { $0.value })")
+    }
+    func testTheRampTraceFollowsTheRouterOverSeveralPasses() {
+        for passes in [1, 3] {
+            for (name, travel, tol) in [("step", EmitterCCTravel.step, 0), ("glide", .glide, 6), ("fall", .fall, 6)] {
+                let c = EmitterCC(on: true, ccNumber: 74, valueMode: .ramp, high: 120, low: 0, travel: travel, time: 100, passes: passes)
+                let rig = CCRig(state(cc: c))   // a hit a beat, 4 hits a pass
+                rig.run(to: 8.0)
+                let sent = rig.out.timeline(cable: 1, cc: 74)
+                let trace = emitterCCTrace(cfg: EmitterCCCfg(c), hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 1, lane: 0, ordinal: Int64(4 + $0), passHits: 4) }, barBeats: 4)   // the second bar: ordinals 4…7
+                var worst = 0
+                for i in 1..<96 where i % 24 != 0 {
+                    let b = Double(i) / 24, sample = Int64(((4.0 + b) * beatSamples).rounded())
+                    guard let engine = sent.last(where: { $0.sample <= sample })?.value, let drawn = trace.points.first(where: { abs(Double($0.x) - b) < 1e-6 }).map({ Int($0.y) }) else { continue }
+                    worst = max(worst, abs(engine - drawn))
+                }
+                XCTAssertLessThanOrEqual(worst, tol, "passes \(passes) \(name): the drawn bar and the CC stream differ by \(worst)")
+            }
+        }
     }
 }
 extension EmitterCC {
