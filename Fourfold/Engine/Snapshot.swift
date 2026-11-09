@@ -242,10 +242,10 @@ struct EmitterCCCfg: Equatable {
     var on = false
     var ccNumber = 74
     var valueMode: EmitterCCValueMode = .riff
-    var level = 100, high = 127, low = 0, time = 50, muteValue = 0
+    var level = 100, high = 127, low = 0, time = 50, muteValue = 0, sineBars = 3
     var travel: EmitterCCTravel = .step
     init() {}
-    init(_ e: EmitterCC) { let n = e.normalized(); on = n.on; ccNumber = n.ccNumber; valueMode = n.valueMode; level = n.level; high = n.high; low = n.low; travel = n.travel; time = n.time; muteValue = n.muteValue }
+    init(_ e: EmitterCC) { let n = e.normalized(); on = n.on; ccNumber = n.ccNumber; valueMode = n.valueMode; level = n.level; high = n.high; low = n.low; travel = n.travel; time = n.time; muteValue = n.muteValue; sineBars = n.sineBars }
     /// The hit value for a riff rank r (1…8): LOW + (r−1)/7 × (HIGH − LOW), rounded, clamped 0…127. LOW may exceed HIGH (inverts). FIXED mode uses `level` instead.
     @inline(__always) func riffValue(rank r: Int) -> Int { max(0, min(127, Int((Double(low) + Double(r - 1) / 7.0 * Double(high - low)).rounded()))) }
     @inline(__always) var fixedValue: Int { max(0, min(127, level)) }
@@ -256,7 +256,17 @@ struct EmitterCCCfg: Equatable {
         case .fixed: return fixedValue
         case .riff: return rank >= 1 && rank <= 8 ? riffValue(rank: rank) : nil
         case .pingPong: return max(0, min(127, ordinal & 1 == 0 ? high : low))
+        case .sine: return nil   // not hit-driven: a hit sends nothing in SINE (the ramp pass walks the sine)
         }
+    }
+    /// SINE: the value at host beat `beat` — a cosine from LOW (at the start of every cycle, so on a bar line when the period is a whole number of bars) up to HIGH half a cycle later and back, rounded, clamped 0…127. LOW above HIGH inverts it.
+    /// A pure function of the beat (nothing accumulates), period = `sineBars` × the host's bar length.
+    @inline(__always) func sineValue(beat: Double, beatsPerBar: Double) -> Int {
+        let period = max(1e-6, max(1e-6, beatsPerBar) * EmitterCC.sinePeriodBars[max(0, min(EmitterCC.sinePeriodBars.count - 1, sineBars))])
+        let cycles = beat / period
+        let f = cycles - cycles.rounded(.down)
+        let v = Double(low) + Double(high - low) * (1.0 - cos(2.0 * Double.pi * f)) / 2.0
+        return max(0, min(127, Int(v.rounded())))
     }
 }
 struct EmitterCCSnap: Equatable {

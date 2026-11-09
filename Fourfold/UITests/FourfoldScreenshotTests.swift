@@ -410,9 +410,11 @@ final class FourfoldScreenshotTests: XCTestCase {
         app.els(prefix: "Emitter A CC").firstMatch.tap(); Thread.sleep(forTimeInterval: 1)
         attach("15-cc-trace-4-expanded-riff-step-two-lanes")
         app.el("Travel GLIDE").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-5-expanded-riff-glide")
-        app.el("Value PING-PONG").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-6-expanded-pingpong-glide")
+        app.el("Value PING").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-6-expanded-pingpong-glide")
         app.el("Travel STEP").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-7-expanded-pingpong-step")
         app.el("Value FIXED").tap(); app.el("Travel FALL").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-8-expanded-fixed-fall")
+        app.el("Value SINE").tap(); Thread.sleep(forTimeInterval: 1.5); attach("15-cc-trace-9-expanded-sine-1-bar")
+        app.el("Close").tap(); Thread.sleep(forTimeInterval: 1.2); attach("15-cc-trace-10-collapsed-sine")
     }
 
     func testTheHarmonyPage() {

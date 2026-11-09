@@ -472,6 +472,22 @@ final class Router {
         }
         ccArmedMask |= bit; ccMuteSentMask &= ~bit
     }
+    /// Walk the SINE over `[ccLastSentSample + rate, windowEnd)` at the rate limit, sending a CC each time the integer value changes. The value is a pure function of the host beat at each sample, so a seek or a loop needs no care.
+    private func ccSineWalk(_ x: Int, cfg: EmitterCCCfg, windowStart: Int64, windowEnd: Int64, windowBeat: Double, beatsPerSample: Double, rateSamples: Int64, out: MIDIEmitter?) {
+        var s = max(ccLastSentSample[x] &+ rateSamples, windowStart)
+        var guardN = 0
+        while s < windowEnd && guardN < 512 {
+            guardN &+= 1
+            let v = cfg.sineValue(beat: windowBeat + Double(s - windowStart) * beatsPerSample, beatsPerBar: beatsPerBar)
+            if Int32(v) != ccLastSentVal[x] { ccSend(x, cc: cfg.ccNumber, value: v, atSample: s, out: out) } else { ccLastSentSample[x] = s }   // keep the rate-limit clock moving when the value held
+            s &+= rateSamples
+        }
+    }
+    /// Does any lane route to emitter x (either part's mask holds its bit)?
+    @inline(__always) private func ccEmitterHasRoute(_ x: Int) -> Bool {
+        for li in 0..<4 where (ccLaneRoutes[li] >> UInt8(x)) & 1 != 0 { return true }
+        return false
+    }
     /// The hit's check: is output x's MUTE-tab gate (its own 16 cells) open at musical beat `b`?
     @inline(__always) private func ccOutputGateOpen(_ x: Int, atBeat b: Double) -> Bool {
         guard euclideousOutputMuteAny, euclideousOutputMuteCells[x] != 0xFFFF else { return true }
@@ -510,11 +526,21 @@ final class Router {
     }
     /// Once per window, after the lane loop: for each ON emitter, either send `muteValue` once (it is silent — its MUTE-tab gate is closed, or every lane routed to it is stopped / muted — at the window's end beat `endBeat`) or walk the
     /// ramp from the last emission to the window end. The mute value goes out no earlier than the last message sent, so the emitter's messages stay in time order.
-    private func ccRampPass(windowStart: Int64, windowEnd: Int64, endBeat: Double, beatsPerSample: Double, out: MIDIEmitter?) {
+    private func ccRampPass(windowStart: Int64, windowEnd: Int64, windowBeat: Double, endBeat: Double, beatsPerSample: Double, out: MIDIEmitter?) {
         guard emitterCCAny else { return }
         let rate = ccRateLimitSamples(beatsPerSample)
         for x in 0..<4 where emitterCCs[x].on {
             let cfg = emitterCCs[x], bit = UInt8(1) << UInt8(x)
+            if cfg.valueMode == .sine {   // SINE: free-running, so it needs no hit — but it needs a lane to carry it: nothing routed ⇒ nothing sent (nor muted); every routed lane (or the output gate) silent ⇒ muteValue once; else walk the sine
+                guard ccEmitterHasRoute(x) else { continue }
+                if ccEmitterSilenced(x, atBeat: endBeat) {
+                    if ccMuteSentMask & bit == 0 { ccSend(x, cc: cfg.ccNumber, value: cfg.muteValue, atSample: max(windowStart, ccLastSentSample[x]), out: out); ccMuteSentMask |= bit }
+                    continue
+                }
+                ccMuteSentMask &= ~bit   // un-silenced: the sine resumes at once (the next differing value goes out)
+                ccSineWalk(x, cfg: cfg, windowStart: windowStart, windowEnd: windowEnd, windowBeat: windowBeat, beatsPerSample: beatsPerSample, rateSamples: rate, out: out)
+                continue
+            }
             if ccEmitterSilenced(x, atBeat: endBeat) {   // silent: send muteValue once, then nothing
                 if ccMuteSentMask & bit == 0 { ccSend(x, cc: cfg.ccNumber, value: cfg.muteValue, atSample: max(windowStart, ccLastSentSample[x]), out: out); ccMuteSentMask |= bit }
                 continue
@@ -3901,7 +3927,7 @@ final class Router {
                                 if ccOuts != 0 {
                                     let ccCur = (playedStep >= 0 && playedStep < ranks.count) ? ranks[playedStep] : 0
                                     let ccHitSample = Int64(sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
-                                    for x in 0..<4 where (ccOuts >> UInt8(x)) & 1 != 0 && emitterCCs[x].on && ccOutputGateOpen(x, atBeat: mTickBeat) {
+                                    for x in 0..<4 where (ccOuts >> UInt8(x)) & 1 != 0 && emitterCCs[x].on && emitterCCs[x].valueMode != .sine && ccOutputGateOpen(x, atBeat: mTickBeat) {   // a SINE emitter is not hit-driven
                                         var ccGap = nextHitGapBeats, ccNext = 0, ccNextOrd = advOrd &+ 1
                                         if emitterCCs[x].travel != .step {
                                             let m = ccMergedNextHit(x, afterBeat: mTickBeat, lines: linesView, ranks: ranks, columns: riffColumns, polyOn: polyOn, fallbackGap: nextHitGapBeats, fallbackOrd: advOrd &+ 1)
@@ -5628,7 +5654,7 @@ final class Router {
             var ccClockMask: UInt8 = 0
             if isEuclideousRow && emitterCCAny {
                 var routedToGliding: UInt8 = 0
-                for x in 0..<4 where emitterCCs[x].on && emitterCCs[x].travel != .step { routedToGliding |= UInt8(1) << UInt8(x) }
+                for x in 0..<4 where emitterCCs[x].on && emitterCCs[x].valueMode != .sine && emitterCCs[x].travel != .step { routedToGliding |= UInt8(1) << UInt8(x) }
                 if routedToGliding != 0 { for li in 0..<4 where ccLaneRoutes[li] & routedToGliding != 0 { ccClockMask |= UInt8(1) << UInt8(li) } }
             }
             let clockMask = hocketRefMask | avoidSourceMask | ccClockMask   // lanes needing a pre-pass clock: HOCKET reference lanes ∪ AVOID source lanes ∪ the lanes routed to a gliding CC emitter
@@ -5791,7 +5817,7 @@ final class Router {
                 }
                 hocketLiveCounts = live
                 // EMITTER CC (CC tab, Nov 2026): the per-output CC ramp pass — the ramp from the last emission to the window end, plus the mute gate (`muteValue` once). Inert (no ON emitter) ⇒ byte-identical, no messages.
-                ccRampPass(windowStart: windowStart, windowEnd: windowEnd, endBeat: fBeatPos + windowBeats - 1e-9, beatsPerSample: beatsPerSample, out: out)
+                ccRampPass(windowStart: windowStart, windowEnd: windowEnd, windowBeat: fBeatPos, endBeat: fBeatPos + windowBeats - 1e-9, beatsPerSample: beatsPerSample, out: out)
             }
             linesView = p.euclidLines   // release the scratch lines (so the next window rewrites them in place)
         default:

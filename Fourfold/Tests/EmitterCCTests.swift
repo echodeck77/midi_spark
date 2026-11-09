@@ -236,6 +236,7 @@ final class EmitterCCTests: XCTestCase {
             ("riff step", EmitterCC(on: true, valueMode: .riff, travel: .step)), ("riff glide", EmitterCC(on: true, valueMode: .riff, travel: .glide, time: 100)),
             ("riff fall", EmitterCC(on: true, valueMode: .riff, travel: .fall, time: 60)),
             ("ping-pong step", EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 10, travel: .step)), ("ping-pong glide", EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 10, travel: .glide, time: 100)),
+            ("sine 1 bar", EmitterCC(on: true, valueMode: .sine, high: 120, low: 10, sineBars: 3)), ("sine 1/8 bar", EmitterCC(on: true, valueMode: .sine, high: 120, low: 10, sineBars: 0)),
         ]
         for frames: UInt32 in [128, 4096] {
             let base = docs(nil)
@@ -287,7 +288,7 @@ final class EmitterCCTests: XCTestCase {
         var set = EmitterCCSet(); set[2] = EmitterCC(on: true, ccNumber: 20, valueMode: .pingPong, high: 90, low: 30, travel: .glide)
         let data = try! JSONEncoder().encode(set)
         XCTAssertEqual(try! JSONDecoder().decode(EmitterCCSet.self, from: data), set, "PING-PONG round-trips")
-        let junk = #"{"valueMode":"SINE"}"#.data(using: .utf8)!
+        let junk = #"{"valueMode":"TRIANGLE"}"#.data(using: .utf8)!
         XCTAssertEqual(try! JSONDecoder().decode(EmitterCC.self, from: junk).valueMode, .riff, "an unknown value mode decodes as RIFF")
     }
     func testPingPongAlternatesHighAndLowOnEveryHit() {
@@ -332,6 +333,93 @@ final class EmitterCCTests: XCTestCase {
                 worst = max(worst, abs(engine - drawn))
             }
             XCTAssertLessThanOrEqual(worst, tol, "\(name): the drawn bar and the CC stream differ by \(worst)")
+        }
+    }
+
+    // MARK: SINE (2026-11-09) — free-running between LOW and HIGH, locked to the host bar, not driven by hits
+    func testSineValueRuleAndDecode() {
+        let c = EmitterCCCfg(EmitterCC(valueMode: .sine, high: 120, low: 20, sineBars: 3))   // 1 bar a cycle, 4 beats
+        XCTAssertEqual(c.sineValue(beat: 0, beatsPerBar: 4), 20, "a cycle starts at LOW"); XCTAssertEqual(c.sineValue(beat: 2, beatsPerBar: 4), 120, "half way it crests at HIGH")
+        XCTAssertEqual(c.sineValue(beat: 1, beatsPerBar: 4), 70, "a quarter in: half way up"); XCTAssertEqual(c.sineValue(beat: 4, beatsPerBar: 4), 20, "and the next bar line starts the next cycle")
+        XCTAssertEqual(c.sineValue(beat: -1, beatsPerBar: 4), 70, "a negative beat is the same phase a cycle later")
+        XCTAssertEqual(c.sineValue(beat: 3, beatsPerBar: 3), 20, "the bar is the HOST's: in 3/4 a bar line is beat 3")
+        let slow = EmitterCCCfg(EmitterCC(valueMode: .sine, high: 120, low: 20, sineBars: 5))   // 4 bars
+        XCTAssertEqual(slow.sineValue(beat: 8, beatsPerBar: 4), 120, "crest after 2 bars"); XCTAssertEqual(slow.sineValue(beat: 16, beatsPerBar: 4), 20)
+        let inv = EmitterCCCfg(EmitterCC(valueMode: .sine, high: 10, low: 100, sineBars: 3))
+        XCTAssertEqual(inv.sineValue(beat: 0, beatsPerBar: 4), 100); XCTAssertEqual(inv.sineValue(beat: 2, beatsPerBar: 4), 10, "LOW above HIGH inverts it")
+        XCTAssertNil(c.value(rank: 5, ordinal: 2), "a hit carries no value in SINE")
+        // codable: BARS round-trips, clamps, defaults to 1 bar; "SINE" decodes
+        var set = EmitterCCSet(); set[1] = EmitterCC(on: true, ccNumber: 20, valueMode: .sine, high: 90, low: 30, sineBars: 6)
+        XCTAssertEqual(try! JSONDecoder().decode(EmitterCCSet.self, from: try! JSONEncoder().encode(set)), set)
+        let bare = try! JSONDecoder().decode(EmitterCC.self, from: #"{"valueMode":"SINE"}"#.data(using: .utf8)!)
+        XCTAssertEqual(bare.valueMode, .sine); XCTAssertEqual(bare.sineBars, 3, "an older document has no BARS: 1 bar")
+        XCTAssertEqual(try! JSONDecoder().decode(EmitterCC.self, from: #"{"sineBars":99}"#.data(using: .utf8)!).sineBars, 7); XCTAssertEqual(try! JSONDecoder().decode(EmitterCC.self, from: #"{"sineBars":-4}"#.data(using: .utf8)!).sineBars, 0)
+        XCTAssertEqual(EmitterCC.sinePeriodSlider.count, EmitterCC.sinePeriodBars.count); XCTAssertEqual(EmitterCC.sinePeriodRow.count, EmitterCC.sinePeriodBars.count)
+    }
+    func testASineSendsTheFormulaWithNoHitsAtAll() {
+        let sine = EmitterCC(on: true, ccNumber: 74, valueMode: .sine, high: 120, low: 0, sineBars: 3)
+        let rig = CCRig(state(cc: sine, pulses: 0))   // the lane is routed to A and has NO hits
+        rig.run(to: 8.0)
+        let tl = rig.out.timeline(cable: 1, cc: 74)
+        XCTAssertGreaterThan(tl.count, 40, "a sine sends continuously: \(tl.count) messages in two bars")
+        XCTAssertEqual(tl.first?.value, 0, "it starts at LOW on the first bar line"); XCTAssertEqual(rig.out.values(cable: 0, cc: 74), tl.map { UInt8($0.value) }, "mirrored on ALL")
+        let c = EmitterCCCfg(sine)
+        for e in tl { XCTAssertEqual(e.value, c.sineValue(beat: Double(e.sample) / beatSamples, beatsPerBar: 4), accuracy: 1, "sample \(e.sample)") }
+        XCTAssertEqual(tl.map { $0.sample }, tl.map { $0.sample }.sorted(), "in time order")
+        for (a, b) in zip(tl, tl.dropFirst()) { XCTAssertGreaterThanOrEqual(Double(b.sample - a.sample), beatSamples / 24 - 1, "never faster than the 1/96-note rate limit") }
+        XCTAssertTrue(tl.contains { $0.value >= 118 } && tl.contains { $0.value <= 2 }, "it covers LOW…HIGH")
+    }
+    func testHitsDriveNothingInSine() {
+        let sine = EmitterCC(on: true, ccNumber: 74, valueMode: .sine, high: 120, low: 0, sineBars: 3)
+        let none = CCRig(state(cc: sine, pulses: 0)), busy = CCRig(state(cc: sine, pulses: 4))
+        none.run(to: 6.0); busy.run(to: 6.0)
+        XCTAssertEqual(busy.out.timeline(cable: 1, cc: 74).map { "\($0.sample)/\($0.value)" }, none.out.timeline(cable: 1, cc: 74).map { "\($0.sample)/\($0.value)" }, "a lane with a hit on every beat changes nothing: the sine is not hit-driven")
+    }
+    func testASineFollowsTheSameMuteRulesAsEverythingElse() {
+        let sine = EmitterCC(on: true, ccNumber: 74, valueMode: .sine, high: 120, low: 0, muteValue: 7, sineBars: 3)
+        // every routed lane stopped ⇒ muteValue once, no sine
+        var rig = CCRig(twoLaneState(cc: sine, lane1: { $0.enabled = false }, lane2: { $0.enabled = false }))
+        rig.run(to: 6.0)
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [7], "every routed lane stopped ⇒ muteValue once, then nothing")
+        // one lane still plays ⇒ the sine runs
+        rig = CCRig(twoLaneState(cc: sine, lane1: { $0.enabled = false }))
+        rig.run(to: 6.0)
+        XCTAssertGreaterThan(rig.out.values(cable: 1, cc: 74).count, 40); XCTAssertFalse(rig.out.values(cable: 1, cc: 74).contains(7) && rig.out.values(cable: 1, cc: 74).first == 7, "a live lane carries it")
+        // nothing routed ⇒ nothing at all
+        rig = CCRig(twoLaneState(cc: sine, lane1: { $0.riffOutMask = 0b0010; $0.notesOutMask = 0b0010 }, lane2: { $0.riffOutMask = 0b0100; $0.notesOutMask = 0b0100 }))
+        rig.run(to: 6.0)
+        XCTAssertTrue(rig.out.values(cable: 1, cc: 74).isEmpty, "no lane routed to A ⇒ nothing sent, not even the mute value")
+        // the MUTE tab's output gate fully closed ⇒ muteValue once
+        rig = CCRig(state(cc: sine, muteA: true, pulses: 0))
+        rig.run(to: 6.0)
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [7], "a closed output gate silences the emitter")
+    }
+    func testASineResumesAtOnceWhenALaneComesBack() {
+        let sine = EmitterCC(on: true, ccNumber: 74, valueMode: .sine, high: 120, low: 0, muteValue: 7, sineBars: 3)
+        let rig = CCRig(twoLaneState(cc: sine, lane1: { $0.enabled = false }, lane2: { $0.enabled = false }))
+        rig.run(to: 2.0)
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [7])
+        rig.box = SnapshotBuilder.build(from: twoLaneState(cc: sine))   // PLAY back on
+        rig.run(to: 3.0)
+        let after = rig.out.timeline(cable: 1, cc: 74).filter { Double($0.sample) >= 2.0 * beatSamples }
+        XCTAssertFalse(after.isEmpty, "the sine is sending again right away (no hit needed)")
+        XCTAssertEqual(Double(after[0].sample), 2.0 * beatSamples, accuracy: 2.0 * beatSamples / 24 + 480, "within one rate-limit step of the lane coming back")
+        XCTAssertEqual(after[0].value, EmitterCCCfg(sine).sineValue(beat: Double(after[0].sample) / beatSamples, beatsPerBar: 4), accuracy: 1)
+    }
+    func testTheSineTraceFollowsWhatTheRouterSends() {
+        for bars in [3, 5, 2] {   // 1 bar, 4 bars, ½ bar a cycle
+            let c = EmitterCC(on: true, ccNumber: 74, valueMode: .sine, high: 120, low: 10, sineBars: bars)
+            let rig = CCRig(state(cc: c, pulses: 0))
+            rig.run(to: 12.0)
+            let sent = rig.out.timeline(cable: 1, cc: 74)
+            let trace = emitterCCSineTrace(cfg: EmitterCCCfg(c), barStartBeat: 4, barBeats: 4)   // the second bar
+            var worst = 0
+            for p in trace.dropFirst() {
+                let sample = Int64(((4.0 + Double(p.x)) * beatSamples).rounded())
+                guard let engine = sent.last(where: { $0.sample <= sample })?.value else { continue }
+                worst = max(worst, abs(engine - Int(p.y)))
+            }
+            XCTAssertLessThanOrEqual(worst, bars == 2 ? 28 : 6, "bars index \(bars): the drawn sine and the CC stream differ by \(worst)")
         }
     }
 }

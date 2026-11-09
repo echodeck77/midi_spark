@@ -94,12 +94,29 @@ final class EmitterCCTraceTests: XCTestCase {
     func testASliderIsDimmedExactlyWhenItChangesNothing() {
         typealias F = EmitterCCField
         func inert(_ mode: EmitterCCValueMode, _ travel: EmitterCCTravel) -> Set<Int> { Set(F.allCases.filter { emitterCCFieldIsInert($0, mode: mode, travel: travel) }.map { $0.rawValue }) }
-        XCTAssertEqual(inert(.fixed, .step), [F.high.rawValue, F.low.rawValue, F.time.rawValue])
-        XCTAssertEqual(inert(.fixed, .glide), [F.high.rawValue, F.low.rawValue], "GLIDE reads TIME; FIXED reads neither HIGH nor LOW")
-        XCTAssertEqual(inert(.fixed, .fall), [F.high.rawValue], "FALL's target is LOW")
-        XCTAssertEqual(inert(.riff, .step), [F.level.rawValue, F.time.rawValue]); XCTAssertEqual(inert(.riff, .fall), [F.level.rawValue])
-        XCTAssertEqual(inert(.pingPong, .glide), [F.level.rawValue]); XCTAssertEqual(inert(.pingPong, .step), [F.level.rawValue, F.time.rawValue])
+        let bars = F.bars.rawValue
+        XCTAssertEqual(inert(.fixed, .step), [F.high.rawValue, F.low.rawValue, bars, F.time.rawValue])
+        XCTAssertEqual(inert(.fixed, .glide), [F.high.rawValue, F.low.rawValue, bars], "GLIDE reads TIME; FIXED reads neither HIGH nor LOW")
+        XCTAssertEqual(inert(.fixed, .fall), [F.high.rawValue, bars], "FALL's target is LOW")
+        XCTAssertEqual(inert(.riff, .step), [F.level.rawValue, bars, F.time.rawValue]); XCTAssertEqual(inert(.riff, .fall), [F.level.rawValue, bars])
+        XCTAssertEqual(inert(.pingPong, .glide), [F.level.rawValue, bars]); XCTAssertEqual(inert(.pingPong, .step), [F.level.rawValue, bars, F.time.rawValue])
+        for t in EmitterCCTravel.allCases { XCTAssertEqual(inert(.sine, t), [F.level.rawValue, F.time.rawValue], "SINE reads HIGH, LOW and BARS only (no hits, so no TIME, whatever the travel)") }
         for m in EmitterCCValueMode.allCases { for t in EmitterCCTravel.allCases { XCTAssertFalse(emitterCCFieldIsInert(.mute, mode: m, travel: t), "MUTE is always read") } }
+        XCTAssertTrue(emitterCCTravelIsInert(mode: .sine)); XCTAssertFalse(emitterCCTravelIsInert(mode: .riff)); XCTAssertFalse(emitterCCTravelIsInert(mode: .pingPong)); XCTAssertFalse(emitterCCTravelIsInert(mode: .fixed))
+    }
+    func testTheSineTraceIsTheEnginesSineOverTheBarItIsIn() {
+        var c = EmitterCCCfg(EmitterCC(on: true, valueMode: .sine, high: 120, low: 0, sineBars: 3))   // 1 bar a cycle
+        let t = emitterCCSineTrace(cfg: c, barStartBeat: 0, barBeats: 4)
+        XCTAssertEqual(t.count, 97); XCTAssertEqual(Int(t[0].y), 0, "a cycle starts at LOW"); XCTAssertEqual(Int(t[48].y), 120, "…crests half way"); XCTAssertEqual(Int(t[96].y), 0, "…and is back at the bar line")
+        XCTAssertEqual(Int(t[24].y), 60, "a quarter in it is half way up")
+        // a 4-bar cycle: bar 2 (beats 4…8) is the slice from a quarter to a half of the cycle — it rises from half way to the crest
+        c = EmitterCCCfg(EmitterCC(on: true, valueMode: .sine, high: 120, low: 0, sineBars: 5))
+        let b2 = emitterCCSineTrace(cfg: c, barStartBeat: 4, barBeats: 4)
+        XCTAssertEqual(Int(b2[0].y), 60); XCTAssertEqual(Int(b2[96].y), 120)
+        XCTAssertEqual(Int(emitterCCSineTrace(cfg: c, barStartBeat: 12, barBeats: 4)[96].y), 0, "the fourth bar ends the cycle back at LOW")
+        // LOW above HIGH inverts it
+        let inv = emitterCCSineTrace(cfg: EmitterCCCfg(EmitterCC(on: true, valueMode: .sine, high: 0, low: 100)), barStartBeat: 0, barBeats: 4)
+        XCTAssertEqual(Int(inv[0].y), 100); XCTAssertEqual(Int(inv[48].y), 0)
     }
     func testAPingPongBarWithAnOddNumberOfHitsFlipsItsParityAcrossTheSeam() {
         // 3 hits a bar, ordinals 3 4 5 (HIGH-LOW-HIGH reading 120 / 0 / 120 is for even / odd / even... here 3 is odd, so LOW-HIGH-LOW): the next bar's first hit is ordinal 6 (even: HIGH) and the previous bar's last is 2 (even: HIGH)
