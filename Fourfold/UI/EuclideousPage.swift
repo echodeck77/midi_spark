@@ -6496,11 +6496,14 @@ struct EuclideousPage: View {
     /// Every lane routed to output `output` (either of its parts' masks holds the bit — the engine's own routing predicate) merged into one time-ordered list of the emitter's hits in a bar.
     private func ccTraceHits(output: Int, laneHits: [[EmitterCCTraceHit]]) -> [EmitterCCTraceHit] {
         var all: [EmitterCCTraceHit] = []
+        var routed = 0
         for i in 0..<min(4, lines.count, laneHits.count) {
             let mask = lines[i].riffOutMaskResolved(lane: i) | lines[i].notesOutMaskResolved(lane: i)
-            if mask & (UInt8(1) << UInt8(output)) != 0 { all += laneHits[i] }
+            guard mask & (UInt8(1) << UInt8(output)) != 0 else { continue }
+            if lines[i].enabledResolved { routed += 1 }   // "routed" = routed here and not stopped (the lane's LANES-mute cells are not looked at, as everywhere in this picture)
+            all += laneHits[i].map { var h = $0; h.barHits = laneHits[i].count; return h }
         }
-        return all.sorted { $0.beat < $1.beat }
+        return emitterCCMergeHits(all, routed: routed)   // the lanes routed here hit as ONE stream: a step several of them hit is one event
     }
     private func ccTab(width: CGFloat, height: CGFloat, portrait: Bool) -> some View {
         let barBeats = max(1, clock.beatsPerBar)

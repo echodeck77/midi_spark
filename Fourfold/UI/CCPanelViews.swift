@@ -130,7 +130,7 @@ struct EuclideousCCPanel: View {
             CCTraceView(trace: traces[x], laneColours: laneColours, playhead: cc.on ? playhead : nil).frame(maxWidth: .infinity)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(cc.valueMode == .pingPong ? "PING" : cc.valueMode.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
-                Text(cc.travel.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
+                Text(cc.to.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
             }
             Text("\u{203A}").font(heavyMonoCC(16)).foregroundColor(P.muted).frame(width: 14)   // chevron
         }
@@ -141,7 +141,7 @@ struct EuclideousCCPanel: View {
         .contentShape(Rectangle())
         .onTapGesture { onExpand(x) }   // the token above has its own tap (toggle); the rest of the row opens the page
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Emitter \(letters[x]) CC \(cc.ccNumber), \(cc.valueMode.rawValue.lowercased()), \(cc.travel.rawValue.lowercased())")
+        .accessibilityLabel("Emitter \(letters[x]) CC \(cc.ccNumber), \(cc.valueMode.rawValue.lowercased()), \(cc.to.rawValue.lowercased())")
     }
 }
 
@@ -160,7 +160,7 @@ struct EuclideousCCExpandedView: View {
     let onCollapse: () -> Void
 
     private var letter: String { ["A", "B", "C", "D"][output] }
-    private static let valueModes: [EmitterCCValueMode] = [.riff, .pingPong, .ramp]
+    private static let valueModes: [EmitterCCValueMode] = [.hits, .riff, .pingPong, .climb]
     var body: some View {
         let cc = ccs[output]
         VStack(spacing: 8) {
@@ -198,11 +198,21 @@ struct EuclideousCCExpandedView: View {
         .accessibilityAdjustableAction { d in onEdit(true) { $0[output].ccNumber = max(0, min(EmitterCC.maxCC, $0[output].ccNumber + (d == .increment ? 1 : -1))) } }
     }
     @ViewBuilder private func leftColumn(_ cc: EmitterCC) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("VALUE").font(heavyMonoCC(9)).foregroundColor(P.muted)
-            EmitterRatchetSegmented(options: ["RIFF", "PING", "RAMP"], selected: Self.valueModes.firstIndex(of: cc.valueMode) ?? 0, height: 26, groupLabel: "Value") { i in onEdit(true) { $0[output].valueMode = Self.valueModes[i] } }
-            Text("TRAVEL").font(heavyMonoCC(9)).foregroundColor(P.muted)
-            EmitterRatchetSegmented(options: ["STEP", "GLIDE", "FALL"], selected: cc.travel == .step ? 0 : (cc.travel == .glide ? 1 : 2), height: 26, groupLabel: "Travel") { i in onEdit(true) { $0[output].travel = i == 0 ? .step : (i == 1 ? .glide : .fall) } }
+        let toInert = emitterCCToIsInert(cc)        // a HOLD of 100 % keeps the hit's value for the whole gap: there is nothing to ramp TO (dimmed, still tappable)
+        let curveInert = emitterCCCurveIsInert(cc)  // the curve shapes a ramp that is 0 when HOLD is 100 or RAMP is 0
+        VStack(alignment: .leading, spacing: 8) {   // three label-over-segments groups, as tall as the six sliders beside them
+            VStack(alignment: .leading, spacing: 3) {
+                Text("VALUE").font(heavyMonoCC(9)).foregroundColor(P.muted)
+                EmitterRatchetSegmented(options: ["HITS", "RIFF", "PING", "CLIMB"], selected: Self.valueModes.firstIndex(of: cc.valueMode) ?? 0, height: 24, groupLabel: "Value") { i in onEdit(true) { $0[output].valueMode = Self.valueModes[i] } }
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("TO").font(heavyMonoCC(9)).foregroundColor(P.muted)
+                EmitterRatchetSegmented(options: ["REST", "NEXT"], selected: cc.to == .rest ? 0 : 1, height: 24, groupLabel: "To") { i in onEdit(true) { $0[output].to = i == 0 ? .rest : .next } }
+            }.opacity(toInert ? 0.35 : 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("CURVE").font(heavyMonoCC(9)).foregroundColor(P.muted)
+                EmitterRatchetSegmented(options: ["LIN", "EXP"], selected: cc.curve == .lin ? 0 : 1, height: 24, groupLabel: "Curve") { i in onEdit(true) { $0[output].curve = i == 0 ? .lin : .exp } }
+            }.opacity(curveInert ? 0.35 : 1)
             Spacer(minLength: 0)
         }
     }
@@ -210,8 +220,10 @@ struct EuclideousCCExpandedView: View {
         VStack(spacing: 6) {
             CCBarSlider(label: "HIGH", value: cc.high) { v, s in onEdit(s) { $0[output].high = v } }
             CCBarSlider(label: "LOW", value: cc.low) { v, s in onEdit(s) { $0[output].low = v } }
-            CCBarSlider(label: "PASSES", value: cc.passes, lo: 1, hi: EmitterCC.maxPasses, dimmed: emitterCCFieldIsInert(.passes, mode: cc.valueMode, travel: cc.travel)) { v, s in onEdit(s) { $0[output].passes = v } }
-            CCBarSlider(label: "TIME", value: cc.time, lo: EmitterCC.minTime, hi: EmitterCC.maxTime, dimmed: emitterCCFieldIsInert(.time, mode: cc.valueMode, travel: cc.travel)) { v, s in onEdit(s) { $0[output].time = v } }
+            CCBarSlider(label: "HOLD", value: cc.hold, lo: 0, hi: 100) { v, s in onEdit(s) { $0[output].hold = v } }
+            // RAMP reads the EFFECTIVE ramp (what HOLD leaves of the gap); the stored value is kept, so lowering HOLD restores it
+            CCBarSlider(label: "RAMP", value: cc.effectiveRamp, lo: 0, hi: 100, dimmed: emitterCCFieldIsInert(.ramp, cc)) { v, s in onEdit(s) { $0[output].ramp = v } }
+            CCBarSlider(label: "PASSES", value: cc.passes, lo: 1, hi: EmitterCC.maxPasses, dimmed: emitterCCFieldIsInert(.passes, cc)) { v, s in onEdit(s) { $0[output].passes = v } }
             CCBarSlider(label: "MUTE", value: cc.muteValue) { v, s in onEdit(s) { $0[output].muteValue = v } }
             Spacer(minLength: 0)
         }

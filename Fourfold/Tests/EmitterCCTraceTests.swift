@@ -4,7 +4,7 @@ import XCTest
 
 final class EmitterCCTraceTests: XCTestCase {
     private func cfg(_ mode: EmitterCCValueMode = .riff, high: Int = 127, low: Int = 0, travel: EmitterCCTravel = .step, time: Int = 50) -> EmitterCCCfg {
-        EmitterCCCfg(EmitterCC(on: true, ccNumber: 74, valueMode: mode, high: high, low: low, travel: travel, time: time, muteValue: 0))
+        EmitterCCCfg(EmitterCC.legacy(on: true, ccNumber: 74, mode: mode, high: high, low: low, travel: travel, time: time, muteValue: 0))
     }
     private func hits(_ pairs: [(Double, Int)]) -> [EmitterCCTraceHit] { pairs.map { EmitterCCTraceHit(beat: $0.0, rank: $0.1) } }
     private func value(_ t: EmitterCCTrace, at beat: Double) -> Int? { t.points.first { abs(Double($0.x) - beat) < 1e-6 }.map { Int($0.y) } }
@@ -85,33 +85,38 @@ final class EmitterCCTraceTests: XCTestCase {
         XCTAssertEqual(r.dotLanes, [1]); XCTAssertEqual(emitterCCTraceLane(r, atBeat: 3), 1, "a rest holds the previous value — and its lane")
     }
     func testAPingPongTraceStartsOnLowAndAlternatesWhateverTheRanks() {
-        let c = EmitterCCCfg(EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 10, travel: .step))
+        let c = EmitterCCCfg(EmitterCC.legacy(on: true, mode: .pingPong, high: 120, low: 10, travel: .step))
         let t = emitterCCTrace(cfg: c, hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 0, lane: 0, ordinal: Int64($0)) }, barBeats: 4)
         XCTAssertEqual(t.dots.map { Int($0.y) }, [10, 120, 10, 120], "the first hit is LOW; ranks (rests included) are not read")
-        let g = emitterCCTrace(cfg: EmitterCCCfg(EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 0, travel: .glide, time: 100)), hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 1, lane: 0, ordinal: Int64($0)) }, barBeats: 4)
+        let g = emitterCCTrace(cfg: EmitterCCCfg(EmitterCC.legacy(on: true, mode: .pingPong, high: 120, low: 0, travel: .glide, time: 100)), hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 1, lane: 0, ordinal: Int64($0)) }, barBeats: 4)
         XCTAssertEqual(value(g, at: 0), 0); XCTAssertEqual(value(g, at: 0.5), 60); XCTAssertEqual(value(g, at: 1), 120); XCTAssertEqual(value(g, at: 1.5), 60, "a triangle rising from LOW")
     }
-    func testASliderIsDimmedExactlyWhenItChangesNothing() {
-        for m in EmitterCCValueMode.allCases { for t in EmitterCCTravel.allCases {
-            XCTAssertEqual(emitterCCFieldIsInert(.passes, mode: m, travel: t), m != .ramp, "PASSES is RAMP's span: inert in every other mode")
-            XCTAssertEqual(emitterCCFieldIsInert(.time, mode: m, travel: t), t == .step, "TIME is the ramp's share of the gap: a STEP has no ramp")
-            for f in [EmitterCCField.high, .low, .mute] { XCTAssertFalse(emitterCCFieldIsInert(f, mode: m, travel: t), "\(f) is read in every mode and travel (LOW is FALL's target)") }
-        } }
-        XCTAssertEqual(EmitterCCField.allCases.count, 5, "HIGH · LOW · PASSES · TIME · MUTE")
+    func testAControlIsDimmedExactlyWhenItChangesNothing() {
+        var cc = EmitterCC()   // HITS · hold 25 · ramp 50 · REST · EXP
+        XCTAssertFalse(emitterCCFieldIsInert(.ramp, cc)); XCTAssertFalse(emitterCCToIsInert(cc)); XCTAssertFalse(emitterCCCurveIsInert(cc)); XCTAssertEqual(cc.effectiveRamp, 50)
+        cc.hold = 100   // the hit's value is held for the whole gap
+        XCTAssertTrue(emitterCCFieldIsInert(.ramp, cc), "RAMP has nothing to work with when HOLD is 100"); XCTAssertTrue(emitterCCToIsInert(cc), "…and neither has TO"); XCTAssertTrue(emitterCCCurveIsInert(cc), "…nor CURVE"); XCTAssertEqual(cc.effectiveRamp, 0)
+        cc.hold = 60
+        XCTAssertEqual(cc.effectiveRamp, 40, "the ramp can only use what the hold leaves: min(50, 100 − 60)"); XCTAssertFalse(emitterCCFieldIsInert(.ramp, cc)); XCTAssertEqual(cc.ramp, 50, "the stored ramp is kept, so lowering HOLD restores it")
+        cc.hold = 25; cc.ramp = 0
+        XCTAssertTrue(emitterCCCurveIsInert(cc), "a RAMP of 0 has no curve"); XCTAssertFalse(emitterCCToIsInert(cc), "…but TO still names where the end of the hold jumps to")
+        for m in EmitterCCValueMode.allCases { var c = EmitterCC(); c.valueMode = m; XCTAssertEqual(emitterCCFieldIsInert(.passes, c), m != .climb, "PASSES is CLIMB's span: inert in every other mode") }
+        for f in [EmitterCCField.high, .low, .hold, .mute] { XCTAssertFalse(emitterCCFieldIsInert(f, EmitterCC(hold: 100)), "\(f) is always read") }
+        XCTAssertEqual(EmitterCCField.allCases.count, 6, "HIGH · LOW · HOLD · RAMP · PASSES · MUTE")
     }
     func testARampTraceClimbsFromLowToHighAcrossTheSpan() {
-        let c = EmitterCCCfg(EmitterCC(on: true, valueMode: .ramp, high: 120, low: 0, travel: .step, passes: 1))
+        let c = EmitterCCCfg(EmitterCC.legacy(on: true, mode: .climb, high: 120, low: 0, travel: .step, passes: 1))
         let t = emitterCCTrace(cfg: c, hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 0, lane: 0, ordinal: Int64($0), passHits: 4) }, barBeats: 4)
         XCTAssertEqual(t.dots.map { Int($0.y) }, [0, 40, 80, 120], "LOW on the first hit, HIGH on the last, evenly between")
         // over two passes the SAME bar shows the first or the second half of the climb, by the hits' ordinals
-        let c2 = EmitterCCCfg(EmitterCC(on: true, valueMode: .ramp, high: 120, low: 0, travel: .step, passes: 2))
+        let c2 = EmitterCCCfg(EmitterCC.legacy(on: true, mode: .climb, high: 120, low: 0, travel: .step, passes: 2))
         let first = emitterCCTrace(cfg: c2, hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 0, lane: 0, ordinal: Int64($0), passHits: 4) }, barBeats: 4)
         let second = emitterCCTrace(cfg: c2, hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 0, lane: 0, ordinal: Int64(4 + $0), passHits: 4) }, barBeats: 4)
         XCTAssertEqual(first.dots.map { Int($0.y) }, [0, 17, 34, 51]); XCTAssertEqual(second.dots.map { Int($0.y) }, [69, 86, 103, 120], "the second pass ends on HIGH")
     }
     func testAPingPongBarWithAnOddNumberOfHitsFlipsItsParityAcrossTheSeam() {
         // 3 hits a bar, ordinals 3 4 5 (odd, even, odd = HIGH, LOW, HIGH): the next bar's first hit is ordinal 6 (even: LOW) and the previous bar's last is 2 (even: LOW)
-        let c = EmitterCCCfg(EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 0, travel: .glide, time: 100))
+        let c = EmitterCCCfg(EmitterCC.legacy(on: true, mode: .pingPong, high: 120, low: 0, travel: .glide, time: 100))
         let t = emitterCCTrace(cfg: c, hits: [(0.0, 3), (1.0, 4), (2.0, 5)].map { EmitterCCTraceHit(beat: $0.0, rank: 0, lane: 0, ordinal: $0.1) }, barBeats: 4)
         XCTAssertEqual(t.dots.map { Int($0.y) }, [120, 0, 120])
         XCTAssertEqual(value(t, at: 2), 120); XCTAssertEqual(value(t, at: 3), 60, "the last hit (HIGH) glides on toward the next bar's first hit, which is LOW (ordinal 6), over the 2-beat gap")
@@ -119,8 +124,8 @@ final class EmitterCCTraceTests: XCTestCase {
         XCTAssertEqual(value(t, at: 0), 120, "this bar's first hit (ordinal 3, odd) is HIGH")
     }
     func testTheRingLandsExactlyOnEachDotWhenThePlayheadReachesIt() {
-        for (travel, mode) in [(EmitterCCTravel.step, EmitterCCValueMode.riff), (.glide, .riff), (.fall, .riff), (.glide, .pingPong), (.fall, .pingPong), (.step, .ramp), (.glide, .ramp), (.fall, .ramp)] {
-            let c = EmitterCCCfg(EmitterCC(on: true, valueMode: mode, high: 120, low: 10, travel: travel, time: 60))
+        for (travel, mode) in [(EmitterCCTravel.step, EmitterCCValueMode.riff), (.glide, .riff), (.fall, .riff), (.glide, .pingPong), (.fall, .pingPong), (.step, .climb), (.glide, .climb), (.fall, .climb)] {
+            let c = EmitterCCCfg(EmitterCC.legacy(on: true, mode: mode, high: 120, low: 10, travel: travel, time: 60))
             let hits = [(0.0, 1), (1.0, 5), (2.5, 3), (3.25, 8)].enumerated().map { EmitterCCTraceHit(beat: $0.element.0, rank: $0.element.1, lane: 0, ordinal: Int64($0.offset), passHits: 4) }
             let t = emitterCCTrace(cfg: c, hits: hits, barBeats: 4)
             for d in t.dots {

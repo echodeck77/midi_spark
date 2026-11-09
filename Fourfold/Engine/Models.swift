@@ -1988,56 +1988,68 @@ struct EmitterVelocitySet: Equatable, Codable {
 // FIXED (a level) or RIFF (the riff grid rank at the hit, mapped LOW…HIGH), and TRAVEL (STEP / GLIDE / FALL) shapes what happens between this hit and the next (rate-limited). Additive-Optional, decode-tolerant: nil / short / long /
 // unreadable ⇒ four emitters at the defaults, all OFF, so an old session and every factory preset are byte-identical. LOW may be set ABOVE HIGH (inverts the mapping — never clamped or swapped). CC numbers 120–127 (channel-mode) are excluded.
 enum EmitterCCValueMode: String, Codable, CaseIterable {
-    case riff = "RIFF"
-    case pingPong = "PING-PONG"   // CC tab (2026-11-09, starts on LOW): LOW on the lane's first hit and every even one after it, HIGH on the odd ones — both ends matter, the riff rank does not
-    case ramp = "RAMP"            // CC tab (2026-11-09): LOW on a lane's first hit climbing evenly to HIGH on the last hit of the span — one pass of its rhythm, or `passes` of them
-    // FIXED (a constant LEVEL) and SINE (a free-running, bar-locked sine, not hit-driven) were REMOVED 2026-11-09: FIXED sent one number once, SINE had nothing to do with the Euclid hits. A stored "FIXED" is migrated by
-    // `EmitterCC.init(from:)` (PING-PONG with HIGH = LOW = its old level — the same constant); a stored "SINE" (or anything unknown) decodes as RIFF.
-    init(from decoder: Decoder) throws { self = EmitterCCValueMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .riff }
+    case hits = "HITS"            // CC tab amendment 1 (2026-11-09): the hit's strength = how many of the routed lanes hit on this step, as a share of the range (one routed lane: every hit is HIGH)
+    case riff = "RIFF"            // the riff rank at the hitting lane's playhead, mapped over the riff's own lowest…highest note
+    case pingPong = "PING-PONG"   // LOW on the lane's first hit and every even one after it, HIGH on the odd ones
+    case climb = "CLIMB"          // LOW on a lane's first hit climbing in equal steps to HIGH on the last hit of the span (`passes` passes of its rhythm); named RAMP until the amendment's RAMP slider took the word
+    // Removed: FIXED (HITS replaced it), SINE. No migration (the amendment): a stored "FIXED" / "SINE" / anything unknown decodes as the default, HITS; the first day's "RAMP" is the same mode as CLIMB.
+    init(from decoder: Decoder) throws {
+        let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
+        self = raw == "RAMP" ? .climb : (EmitterCCValueMode(rawValue: raw) ?? .hits)
+    }
 }
-enum EmitterCCTravel: String, Codable, CaseIterable {
-    case step = "STEP", glide = "GLIDE", fall = "FALL"
-    init(from decoder: Decoder) throws { self = EmitterCCTravel(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .step }
+/// Where a hit's shape ramps TO (amendment 1): REST = LOW (the rest value), NEXT = the next hit's value (predicted from its step and the riff step it will read; the hit corrects it if it differs).
+enum EmitterCCTo: String, Codable, CaseIterable {
+    case rest = "REST", next = "NEXT"
+    init(from decoder: Decoder) throws { self = EmitterCCTo(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .rest }
+}
+enum EmitterCCCurve: String, Codable, CaseIterable {
+    case lin = "LIN", exp = "EXP"
+    init(from decoder: Decoder) throws { self = EmitterCCCurve(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .exp }
 }
 struct EmitterCC: Equatable {
     var on = false
     var ccNumber = 74                               // 0…119
-    var valueMode: EmitterCCValueMode = .riff
+    var valueMode: EmitterCCValueMode = .hits
     var high = 127                                  // 0…127
-    var low = 0                                     // 0…127 (may exceed HIGH — inverts, never clamped/swapped)
-    var travel: EmitterCCTravel = .step
-    var time = 50                                   // 1…100 (% of the gap to the next hit)
+    var low = 0                                     // 0…127 (the REST value in every mode; may exceed HIGH — inverts, never clamped/swapped)
+    var hold = 25                                   // 0…100 % of the gap to the next hit: how long the hit's value is held
+    var ramp = 50                                   // 0…100 % of the gap: the ramp from the hit's value to the target (the EFFECTIVE ramp is `min(ramp, 100 − hold)`; the stored value is kept so lowering HOLD restores it)
+    var to: EmitterCCTo = .rest
+    var curve: EmitterCCCurve = .exp
     var muteValue = 0                               // 0…127
-    var passes = 1                                  // 1…16 (RAMP): how many passes of the lane's rhythm the climb from LOW to HIGH takes
-    static let maxCC = 119, minTime = 1, maxTime = 100, maxPasses = 16
+    var passes = 1                                  // 1…16 (CLIMB): how many passes of the lane's rhythm the climb from LOW to HIGH takes
+    static let maxCC = 119, maxPasses = 16
+    /// The ramp that actually plays: the ramp can only use what the hold leaves of the gap.
+    var effectiveRamp: Int { max(0, min(ramp, 100 - hold)) }
     init() {}
-    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .riff, high: Int = 127, low: Int = 0, travel: EmitterCCTravel = .step, time: Int = 50, muteValue: Int = 0, passes: Int = 1) {
-        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.high = high; self.low = low; self.travel = travel; self.time = time; self.muteValue = muteValue; self.passes = passes
+    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .hits, high: Int = 127, low: Int = 0, hold: Int = 25, ramp: Int = 50, to: EmitterCCTo = .rest, curve: EmitterCCCurve = .exp, muteValue: Int = 0, passes: Int = 1) {
+        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.high = high; self.low = low; self.hold = hold; self.ramp = ramp; self.to = to; self.curve = curve; self.muteValue = muteValue; self.passes = passes
     }
     func normalized() -> EmitterCC {
         var r = self
         r.ccNumber = max(0, min(Self.maxCC, ccNumber))
         r.high = max(0, min(127, high)); r.low = max(0, min(127, low)); r.muteValue = max(0, min(127, muteValue))
-        r.time = max(Self.minTime, min(Self.maxTime, time))
+        r.hold = max(0, min(100, hold)); r.ramp = max(0, min(100, ramp))
         r.passes = max(1, min(Self.maxPasses, passes))
         return r
     }
 }
 extension EmitterCC: Codable {
-    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, level, high, low, travel, time, muteValue, passes }   // `level` is only READ, to migrate a FIXED document; it is never written
+    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, high, low, hold, ramp, to, curve, muteValue, passes }   // the removed level / travel / time keys are ignored on decode and never written
     init(from decoder: Decoder) throws {
         self.init()
         guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
         func int(_ k: CodingKeys) -> Int? { ((try? c.decodeIfPresent(EuclideousFXLossyInt.self, forKey: k)) ?? nil)?.value }
         if let b = (try? c.decodeIfPresent(Bool.self, forKey: .on)) ?? nil { on = b }
         if let n = int(.ccNumber) { ccNumber = n }
-        let rawMode = (try? c.decodeIfPresent(String.self, forKey: .valueMode)) ?? nil
-        if let r = rawMode, let v = EmitterCCValueMode(rawValue: r) { valueMode = v }
+        if let v = (try? c.decodeIfPresent(EmitterCCValueMode.self, forKey: .valueMode)) ?? nil { valueMode = v }
         if let n = int(.high) { high = n }
         if let n = int(.low) { low = n }
-        if rawMode == "FIXED" { let lv = int(.level) ?? 100; valueMode = .pingPong; high = lv; low = lv }   // the removed FIXED mode: the same constant as a PING-PONG whose two ends are its level
-        if let v = (try? c.decodeIfPresent(EmitterCCTravel.self, forKey: .travel)) ?? nil { travel = v }
-        if let n = int(.time) { time = n }
+        if let n = int(.hold) { hold = n }
+        if let n = int(.ramp) { ramp = n }
+        if let v = (try? c.decodeIfPresent(EmitterCCTo.self, forKey: .to)) ?? nil { to = v }
+        if let v = (try? c.decodeIfPresent(EmitterCCCurve.self, forKey: .curve)) ?? nil { curve = v }
         if let n = int(.muteValue) { muteValue = n }
         if let n = int(.passes) { passes = n }
         self = normalized()
@@ -2045,8 +2057,8 @@ extension EmitterCC: Codable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(on, forKey: .on); try c.encode(ccNumber, forKey: .ccNumber); try c.encode(valueMode, forKey: .valueMode)
-        try c.encode(high, forKey: .high); try c.encode(low, forKey: .low)
-        try c.encode(travel, forKey: .travel); try c.encode(time, forKey: .time); try c.encode(muteValue, forKey: .muteValue); try c.encode(passes, forKey: .passes)
+        try c.encode(high, forKey: .high); try c.encode(low, forKey: .low); try c.encode(hold, forKey: .hold); try c.encode(ramp, forKey: .ramp)
+        try c.encode(self.to, forKey: .to); try c.encode(curve, forKey: .curve); try c.encode(muteValue, forKey: .muteValue); try c.encode(passes, forKey: .passes)
     }
 }
 /// The document's four CC emitters: FIXED-SIZE storage, encoded as a plain array of four. The four default CC numbers differ (A 74 · B 71 · C 1 · D 11); every write through the subscript normalises. Same shape as `EmitterVelocitySet`.

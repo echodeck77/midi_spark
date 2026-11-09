@@ -394,8 +394,8 @@ final class FourfoldScreenshotTests: XCTestCase {
         app.els(prefix: "Stack, ").firstMatch.tap(); Thread.sleep(forTimeInterval: 1); attach("13-stack-grid-3-notes-tab")
     }
 
-    /// CC tab trace (2026-11-08, lane colours + PING-PONG 2026-11-09): the collapsed rows with two emitters on and the transport playing (curve, lane-coloured dots, playhead), lane 2 routed onto emitter A as well (two colours on one trace),
-    /// then emitter A's page under RIFF/STEP, RIFF/GLIDE and PING-PONG with GLIDE, STEP and FALL, so the wave can be LOOKED AT.
+    /// CC tab (2026-11-08; amendment 1 — VALUE / TO / CURVE and HOLD / RAMP — 2026-11-09): the collapsed rows with two emitters on and the transport playing (curve, lane-coloured dots, playhead), lane 2 routed onto emitter A as well (merged hits),
+    /// then emitter A's page under HITS with the default shape, a gate, RIFF with TO NEXT, PING and CLIMB, so the shapes can be LOOKED AT.
     func testTheCCTrace() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
         Thread.sleep(forTimeInterval: 1)
@@ -408,12 +408,18 @@ final class FourfoldScreenshotTests: XCTestCase {
         app.buttons["Euclid"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.8)
         attach("15-cc-trace-3-collapsed-lane-2-on-A")
         app.els(prefix: "Emitter A CC").firstMatch.tap(); Thread.sleep(forTimeInterval: 1)
-        attach("15-cc-trace-4-expanded-riff-step-two-lanes")
-        app.el("Travel GLIDE").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-5-expanded-riff-glide")
-        app.el("Value PING").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-6-expanded-pingpong-glide")
-        app.el("Travel STEP").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-7-expanded-pingpong-step")
-        app.el("Travel FALL").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-8-expanded-pingpong-fall")
-        app.el("Value RAMP").tap(); app.el("Travel STEP").tap(); Thread.sleep(forTimeInterval: 1.2); attach("15-cc-trace-9-expanded-ramp-1-pass")
+        attach("15-cc-trace-4-expanded-hits-default")
+        // drag a bar slider to a fraction of its bar (the element is the whole row: label · bar · number)
+        func slide(_ label: String, to fraction: CGFloat) {
+            let row = app.el(label), f = row.frame, origin = app.coordinate(withNormalizedOffset: .zero)
+            let x0 = f.minX + 46, x1 = f.maxX - 36, y = f.midY
+            origin.withOffset(CGVector(dx: x0 + (x1 - x0) * 0.5, dy: y)).press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: x0 + (x1 - x0) * fraction, dy: y)))
+        }
+        slide("HOLD", to: 0.5); slide("RAMP", to: 0.0); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-5-expanded-hits-gate")
+        slide("HOLD", to: 0.5); slide("RAMP", to: 0.5); app.el("Value RIFF").tap(); app.el("To NEXT").tap(); app.el("Curve LIN").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-6-expanded-riff-next-lin")
+        app.el("Value PING").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-7-expanded-ping")
+        app.el("Value CLIMB").tap(); Thread.sleep(forTimeInterval: 1.2); attach("15-cc-trace-8-expanded-climb")
+        slide("HOLD", to: 1.0); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-9-expanded-climb-hold-100-dimmed")
         app.el("Close").tap(); Thread.sleep(forTimeInterval: 1.2); attach("15-cc-trace-10-collapsed")
     }
 

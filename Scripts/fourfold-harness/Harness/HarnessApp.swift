@@ -666,13 +666,13 @@ extension Host {
                         $0.euclideousLines = ls
                     }
                 }
-                if name.contains("EMITTER CC") {   // CC tab (Nov 2026): every output sends a CC — RIFF + PING-PONG + RAMP value modes, STEP / GLIDE / FALL travel, an inverted LOW > HIGH map — so the per-hit value, the GLIDE next-rank prediction, the ramp walk and the mute gate all run on the render thread and must allocate nothing
+                if name.contains("EMITTER CC") {   // CC tab (Nov 2026): every output sends a CC — HITS + RIFF + PING-PONG + CLIMB value modes, hold-then-ramp shapes (TO REST / NEXT, LIN / EXP), an inverted LOW > HIGH map — so the per-hit value, the GLIDE next-rank prediction, the ramp walk and the mute gate all run on the render thread and must allocate nothing
                     au.editDocument {
                         var set = EmitterCCSet()
-                        set[0] = EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: .glide, time: 60, muteValue: 10)
-                        set[1] = EmitterCC(on: true, ccNumber: 71, valueMode: .riff, high: 90, low: 20, travel: .step)
-                        set[2] = EmitterCC(on: true, ccNumber: 1, valueMode: .ramp, high: 20, low: 110, travel: .glide, time: 70, passes: 2)   // RAMP over two passes, LOW > HIGH (descending); the inverted RIFF map is covered by the unit tests
-                        set[3] = EmitterCC(on: true, ccNumber: 11, valueMode: .pingPong, high: 127, low: 0, travel: .glide, time: 100)
+                        set[0] = EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, hold: 50, ramp: 50, to: .next, curve: .lin, muteValue: 10)             // RIFF glide: hold, then ramp to the NEXT hit's value
+                        set[1] = EmitterCC(on: true, ccNumber: 71, valueMode: .hits, high: 90, low: 20)                                                                              // HITS (merged coincident hits, count / routed) with the default shape: hold 25, ramp 50, REST, EXP
+                        set[2] = EmitterCC(on: true, ccNumber: 1, valueMode: .climb, high: 20, low: 110, hold: 30, ramp: 70, to: .next, curve: .exp, passes: 2)                        // CLIMB over two passes, LOW > HIGH (descending), EXP to NEXT
+                        set[3] = EmitterCC(on: true, ccNumber: 11, valueMode: .pingPong, high: 127, low: 0, hold: 0, ramp: 100, to: .rest, curve: .lin)                              // PING-PONG, a full-gap linear ramp to REST
                         $0.euclideousEmitterCCs = set
                         var ls = $0.euclideousLinesResolved   // the default document's lanes 3 and 4 have no hits, so C and D would never fire: give every emitter a lane (and lane 2 onto A as well, so one emitter merges two lanes)
                         for i in 2..<4 { ls[i].pulses = 3 + i; ls[i].steps = 8; ls[i].enabled = true }
