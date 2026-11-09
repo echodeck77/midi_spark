@@ -1989,7 +1989,7 @@ struct EmitterVelocitySet: Equatable, Codable {
 // unreadable ⇒ four emitters at the defaults, all OFF, so an old session and every factory preset are byte-identical. LOW may be set ABOVE HIGH (inverts the mapping — never clamped or swapped). CC numbers 120–127 (channel-mode) are excluded.
 enum EmitterCCValueMode: String, Codable, CaseIterable {
     case riff = "RIFF"
-    case pingPong = "PING-PONG"   // CC tab (2026-11-09): HIGH on the lane's even riff hits, LOW on its odd ones — both ends matter, the riff rank does not
+    case pingPong = "PING-PONG"   // CC tab (2026-11-09, starts on LOW): LOW on the lane's first hit and every even one after it, HIGH on the odd ones — both ends matter, the riff rank does not
     // FIXED (a constant LEVEL) and SINE (a free-running, bar-locked sine, not hit-driven) were REMOVED 2026-11-09: FIXED sent one number once, SINE had nothing to do with the Euclid hits. A stored "FIXED" is migrated by
     // `EmitterCC.init(from:)` (PING-PONG with HIGH = LOW = its old level — the same constant); a stored "SINE" (or anything unknown) decodes as RIFF.
     init(from decoder: Decoder) throws { self = EmitterCCValueMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .riff }

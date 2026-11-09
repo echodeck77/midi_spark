@@ -134,7 +134,7 @@ final class EmitterCCTests: XCTestCase {
 
     func testFallEndsAtTheNextHitOnTheEmitterNotTheLanesOwn() {
         // Lane 1 hits at beats 0, 4, 8…; lane 2 at 2, 6…, both on A. FALL over 100 % of the gap from the beat-0 hit must reach LOW by beat 2 (lane 2's hit), not by beat 4.
-        let rig = CCRig(twoLaneState(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 100, low: 0, travel: .fall, time: 100)))
+        let rig = CCRig(twoLaneState(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 100, low: 0, travel: .fall, time: 100), ranks: [8, 8, 8, 8, 8, 8, 8, 8]))   // every hit on the top rank ⇒ HIGH, then it falls
         rig.run(to: 2.0)
         let tl = rig.out.timeline(cable: 1, cc: 74)
         let beforeBeat2 = tl.filter { Double($0.sample) < 2.0 * beatSamples - 1 }
@@ -153,7 +153,7 @@ final class EmitterCCTests: XCTestCase {
     }
     func testAnEmitterWithOneLaneOnlyStillUsesItsOwnGap() {
         // With nothing else routed to A the merged gap is the lane's own 4 beats: at beat 2 the FALL is half way (≈50).
-        let rig = CCRig(twoLaneState(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 100, low: 0, travel: .fall, time: 100),
+        let rig = CCRig(twoLaneState(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 100, low: 0, travel: .fall, time: 100), ranks: [8, 8, 8, 8, 8, 8, 8, 8],
                                      lane2: { $0.riffOutMask = 0b0010; $0.notesOutMask = 0b0010 }))   // lane 2 → B again
         rig.run(to: 2.0)
         let beforeBeat2 = rig.out.timeline(cable: 1, cc: 74).filter { Double($0.sample) < 2.0 * beatSamples - 1 }
@@ -162,7 +162,7 @@ final class EmitterCCTests: XCTestCase {
     }
     func testAMutedLanesHitIsNotAHitOnTheEmitter() {
         // Lane 2 is LANES-muted (all 16 cells clear): its beat-2 hit is silent, so lane 1's gap stays 4 beats (half way at beat 2), and lane 2's hit does not jump the CC.
-        let rig = CCRig(twoLaneState(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 100, low: 0, travel: .fall, time: 100), lane2: { $0.muteCells16 = 0 }))
+        let rig = CCRig(twoLaneState(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 100, low: 0, travel: .fall, time: 100), ranks: [8, 8, 8, 8, 8, 8, 8, 8], lane2: { $0.muteCells16 = 0 }))
         rig.run(to: 3.0)
         let tl = rig.out.timeline(cable: 1, cc: 74)
         let atBeat2 = tl.filter { Double($0.sample) < 2.0 * beatSamples - 1 }.last?.value ?? -1
@@ -273,14 +273,14 @@ final class EmitterCCTests: XCTestCase {
         }
     }
 
-    // MARK: PING-PONG (2026-11-09) — HIGH on the lane's even riff hits, LOW on its odd ones
+    // MARK: PING-PONG (2026-11-09) — LOW on the lane's first hit and every even one after it, HIGH on the odd ones
     func testPingPongValueRuleAndDecode() {
         var c = EmitterCCCfg(EmitterCC(valueMode: .pingPong, high: 120, low: 10))
-        XCTAssertEqual(c.value(rank: 3, ordinal: 0), 120, "an even hit is HIGH"); XCTAssertEqual(c.value(rank: 3, ordinal: 1), 10, "an odd hit is LOW")
-        XCTAssertEqual(c.value(rank: 0, ordinal: 2), 120, "a riff rest still sends: the rank is not read"); XCTAssertEqual(c.value(rank: 8, ordinal: 7), 10)
-        XCTAssertEqual(c.value(rank: 1, ordinal: -1), 10, "parity holds for a negative ordinal too")
+        XCTAssertEqual(c.value(rank: 3, ordinal: 0), 10, "the FIRST hit (ordinal 0) is LOW"); XCTAssertEqual(c.value(rank: 3, ordinal: 1), 120, "the second is HIGH")
+        XCTAssertEqual(c.value(rank: 0, ordinal: 2), 10, "a riff rest still sends: the rank is not read"); XCTAssertEqual(c.value(rank: 8, ordinal: 7), 120)
+        XCTAssertEqual(c.value(rank: 1, ordinal: -1), 120, "parity holds for a negative ordinal too")
         c = EmitterCCCfg(EmitterCC(valueMode: .pingPong, high: 5, low: 100))
-        XCTAssertEqual(c.value(rank: 1, ordinal: 0), 5); XCTAssertEqual(c.value(rank: 1, ordinal: 1), 100, "LOW above HIGH is not swapped or clamped")
+        XCTAssertEqual(c.value(rank: 1, ordinal: 0), 100, "LOW above HIGH is not swapped or clamped: the first hit is still LOW (100) — that is how to start on the high note"); XCTAssertEqual(c.value(rank: 1, ordinal: 1), 5)
         XCTAssertEqual(EmitterCCCfg(EmitterCC(valueMode: .pingPong, high: 33, low: 33)).value(rank: 0, ordinal: 1), 33); XCTAssertNil(EmitterCCCfg(EmitterCC(valueMode: .riff)).value(rank: 0, ordinal: 0))
         var set = EmitterCCSet(); set[2] = EmitterCC(on: true, ccNumber: 20, valueMode: .pingPong, high: 90, low: 30, travel: .glide)
         let data = try! JSONEncoder().encode(set)
@@ -288,28 +288,28 @@ final class EmitterCCTests: XCTestCase {
         let junk = #"{"valueMode":"TRIANGLE"}"#.data(using: .utf8)!
         XCTAssertEqual(try! JSONDecoder().decode(EmitterCC.self, from: junk).valueMode, .riff, "an unknown value mode decodes as RIFF")
     }
-    func testPingPongAlternatesHighAndLowOnEveryHit() {
+    func testPingPongStartsOnLowThenHighThenLowOnEveryHit() {
         let rig = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 120, low: 10, travel: .step), riffRanks: [1, 8, 3, 6, 1, 8, 3, 6]))
         rig.run(to: 5.5)
         let tl = rig.out.timeline(cable: 1, cc: 74)
-        XCTAssertEqual(tl.map { $0.value }, [120, 10, 120, 10, 120, 10], "a hit a beat: HIGH, LOW, HIGH… whatever the riff ranks are")
+        XCTAssertEqual(tl.map { $0.value }, [10, 120, 10, 120, 10, 120], "a hit a beat: LOW, HIGH, LOW… whatever the riff ranks are")
         for (i, e) in tl.enumerated() { XCTAssertEqual(Double(e.sample), Double(i) * beatSamples, accuracy: 2, "each on its own hit") }
     }
-    func testPingPongGlideIsATriangleBetweenHighAndLow() {
+    func testPingPongGlideIsATriangleStartingOnLow() {
         let rig = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 120, low: 0, travel: .glide, time: 100)))
         rig.run(to: 3.0)
         let tl = rig.out.timeline(cable: 1, cc: 74)
         func at(_ beat: Double) -> Int { tl.last(where: { Double($0.sample) <= beat * beatSamples })?.value ?? -1 }
-        XCTAssertEqual(at(0.0), 120); XCTAssertEqual(at(0.5), 60, "half way down the ramp to LOW"); XCTAssertEqual(at(1.0), 0, "arrives on the odd hit")
-        XCTAssertEqual(at(1.5), 60, "and back up"); XCTAssertEqual(at(2.0), 120)
+        XCTAssertEqual(at(0.0), 0, "the first hit is LOW"); XCTAssertEqual(at(0.5), 60, "half way up the ramp to HIGH"); XCTAssertEqual(at(1.0), 120, "arrives on the second hit")
+        XCTAssertEqual(at(1.5), 60, "and back down"); XCTAssertEqual(at(2.0), 0)
     }
     func testPingPongGlideAimsAtTheOrdinalOfTheNextHitOnTheEmitterNotTheLanesOwn() {
-        // Two lanes on A, hits at beat 0 (lane 1, its first: even → HIGH 120) and beat 2 (lane 2, ITS first: even → HIGH 120); lane 1's own next hit (beat 4) is odd → LOW. GLIDE 100 % from beat 0 aims at lane 2's HIGH, so it stays up through beat 2.
+        // Two lanes on A, hits at beat 0 (lane 1, its first: even → LOW 0) and beat 2 (lane 2, ITS first: even → LOW 0); lane 1's own next hit (beat 4) is odd → HIGH. GLIDE 100 % from beat 0 aims at lane 2's LOW, so it stays down through beat 2.
         let rig = CCRig(twoLaneState(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 120, low: 0, travel: .glide, time: 100)))
         rig.run(to: 2.0)
         let tl = rig.out.timeline(cable: 1, cc: 74).filter { Double($0.sample) < 2.0 * beatSamples - 1 }
-        XCTAssertEqual(tl.first?.value, 120)
-        XCTAssertGreaterThanOrEqual(tl.last?.value ?? 0, 115, "heading for lane 2's HIGH (own-lane aim would have fallen to ≈60 by beat 2): \(tl.map { $0.value })")
+        XCTAssertEqual(tl.first?.value, 0)
+        XCTAssertLessThanOrEqual(tl.last?.value ?? 999, 5, "heading for lane 2's LOW, so it stays down (own-lane aim, lane 1's next hit = HIGH, would have risen to ≈60 by beat 2): \(tl.map { $0.value })")
     }
 
     /// A 3-hit bar flips PING-PONG's parity every bar; the drawn curve (bar 2 here, ordinals 3…5, the seam read from bars 1 and 3) must still be the one the Router sends — including the glide on into the next bar.
@@ -412,7 +412,7 @@ final class EmitterCCTests: XCTestCase {
         XCTAssertLessThan(Double(t40), 2.6 * beatSamples, "…not at the next hit")
     }
     func testAFallFollowsANewLowAtOnce() {
-        let tl = replanRig(EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 100, low: 0, travel: .fall, time: 100), EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 100, low: 60, travel: .fall, time: 100), swapAt: 0.5, to: 0.95)
+        let tl = replanRig(EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 100, low: 0, travel: .fall, time: 100), EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 100, low: 60, travel: .fall, time: 100), swapAt: 0.5, to: 0.95, ranks: [8, 8, 8, 8, 8, 8, 8, 8])
         let after = tl.filter { Double($0.sample) >= 0.5 * beatSamples }
         XCTAssertGreaterThanOrEqual(after.map { $0.value }.min() ?? 0, 59, "the fall now bottoms out at the new LOW (60), not 0: \(after.map { $0.value })")
     }

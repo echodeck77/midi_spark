@@ -253,12 +253,12 @@ struct EmitterCCCfg: Equatable {
         let f = span.hi > span.lo ? Double(r - span.lo) / Double(span.hi - span.lo) : Double(r - 1) / 7.0   // one distinct note: nothing to span, so its literal height
         return max(0, min(127, Int((Double(low) + max(0, min(1, f)) * Double(high - low)).rounded())))
     }
-    /// The ONE decision of what a hit sends — the Router and the trace both call it. RIFF: the rank's value within the riff's `span`, nil on a rest (rank 0 / out of range: the previous value holds). PING-PONG: HIGH on an even riff ordinal, LOW on an odd one
+    /// The ONE decision of what a hit sends — the Router and the trace both call it. RIFF: the rank's value within the riff's `span`, nil on a rest (rank 0 / out of range: the previous value holds). PING-PONG: LOW on an even riff ordinal (the FIRST hit), HIGH on an odd one
     /// (the ordinal is the riff walk's own, `advOrd`, so it restarts with the melody; any rank, rest included, sends).
     @inline(__always) func value(rank: Int, ordinal: Int64, span: EmitterCCRiffSpan = .full) -> Int? {
         switch valueMode {
         case .riff: return rank >= 1 && rank <= 8 ? riffValue(rank: rank, span: span) : nil
-        case .pingPong: return max(0, min(127, ordinal & 1 == 0 ? high : low))
+        case .pingPong: return max(0, min(127, ordinal & 1 == 0 ? low : high))
         }
     }
 }
