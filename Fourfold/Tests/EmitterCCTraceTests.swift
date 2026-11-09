@@ -3,16 +3,16 @@
 import XCTest
 
 final class EmitterCCTraceTests: XCTestCase {
-    private func cfg(_ mode: EmitterCCValueMode = .riff, level: Int = 100, high: Int = 127, low: Int = 0, travel: EmitterCCTravel = .step, time: Int = 50) -> EmitterCCCfg {
-        EmitterCCCfg(EmitterCC(on: true, ccNumber: 74, valueMode: mode, level: level, high: high, low: low, travel: travel, time: time, muteValue: 0))
+    private func cfg(_ mode: EmitterCCValueMode = .riff, high: Int = 127, low: Int = 0, travel: EmitterCCTravel = .step, time: Int = 50) -> EmitterCCCfg {
+        EmitterCCCfg(EmitterCC(on: true, ccNumber: 74, valueMode: mode, high: high, low: low, travel: travel, time: time, muteValue: 0))
     }
     private func hits(_ pairs: [(Double, Int)]) -> [EmitterCCTraceHit] { pairs.map { EmitterCCTraceHit(beat: $0.0, rank: $0.1) } }
     private func value(_ t: EmitterCCTrace, at beat: Double) -> Int? { t.points.first { abs(Double($0.x) - beat) < 1e-6 }.map { Int($0.y) } }
 
     // MARK: the trace
 
-    func testAFixedStepTraceIsAFlatLineAtTheLevelWithADotAndATickOnEveryHit() {
-        let t = emitterCCTrace(cfg: cfg(.fixed, level: 100), hits: hits([(0, 1), (1, 1), (2.5, 1)]), barBeats: 4)
+    func testAnEqualEndedPingPongTraceIsAFlatLineWithADotAndATickOnEveryHit() {
+        let t = emitterCCTrace(cfg: cfg(.pingPong, high: 100, low: 100), hits: hits([(0, 1), (1, 1), (2.5, 1)]), barBeats: 4)
         XCTAssertEqual(t.ticks, [0, 1, 2.5]); XCTAssertEqual(t.dots.map { $0.x }, [0, 1, 2.5]); XCTAssertTrue(t.dots.allSatisfy { $0.y == 100 })
         XCTAssertTrue(t.points.allSatisfy { $0.y == 100 }); XCTAssertEqual(t.points.count, 4 * 24 + 1)
         XCTAssertEqual(t.gridBeats, [0, 1, 2, 3]); XCTAssertEqual(t.barBeats, 4)
@@ -34,7 +34,7 @@ final class EmitterCCTraceTests: XCTestCase {
         XCTAssertEqual(t.dots.count, 2, "the rest column makes no dot"); XCTAssertEqual(t.ticks, [0, 1, 2], "…but it is still a hit: it ticks")
         XCTAssertEqual(value(t, at: 1), 127, "held through the rest"); XCTAssertEqual(value(t, at: 2), 0)
         XCTAssertTrue(emitterCCTrace(cfg: cfg(.riff), hits: hits([(0, 0), (1, 0)]), barBeats: 4).points.isEmpty, "all rests: nothing is sent")
-        XCTAssertNil(emitterCCHitValue(cfg(.riff), rank: 0)); XCTAssertEqual(emitterCCHitValue(cfg(.fixed, level: 33), rank: 0), 33, "FIXED ignores the rank")
+        XCTAssertNil(emitterCCHitValue(cfg(.riff), rank: 0)); XCTAssertEqual(emitterCCHitValue(cfg(.pingPong, high: 33, low: 33), rank: 0), 33, "PING-PONG ignores the rank")
     }
     func testAGlideHoldsThenRampsToTheNextHitsValueArrivingOnIt() {
         // hits at 0 (value 0) and 2 (value 127), TIME 50: gap 2 → hold to beat 1, then ramp to 127 arriving at beat 2
@@ -62,7 +62,7 @@ final class EmitterCCTraceTests: XCTestCase {
     }
     func testNoHitsMeansNoTraceAndHitsOutsideTheBarAreIgnored() {
         XCTAssertTrue(emitterCCTrace(cfg: cfg(), hits: [], barBeats: 4).points.isEmpty)
-        let t = emitterCCTrace(cfg: cfg(.fixed), hits: hits([(-1, 1), (4, 1), (5, 1), (1, 1)]), barBeats: 4)
+        let t = emitterCCTrace(cfg: cfg(.pingPong), hits: hits([(-1, 1), (4, 1), (5, 1), (1, 1)]), barBeats: 4)
         XCTAssertEqual(t.ticks, [1])
     }
     func testATracePointMapsIntoTheTile() {
@@ -92,31 +92,10 @@ final class EmitterCCTraceTests: XCTestCase {
         XCTAssertEqual(value(g, at: 0.5), 60); XCTAssertEqual(value(g, at: 1), 0); XCTAssertEqual(value(g, at: 1.5), 60, "a triangle")
     }
     func testASliderIsDimmedExactlyWhenItChangesNothing() {
-        typealias F = EmitterCCField
-        func inert(_ mode: EmitterCCValueMode, _ travel: EmitterCCTravel) -> Set<Int> { Set(F.allCases.filter { emitterCCFieldIsInert($0, mode: mode, travel: travel) }.map { $0.rawValue }) }
-        let bars = F.bars.rawValue
-        XCTAssertEqual(inert(.fixed, .step), [F.high.rawValue, F.low.rawValue, bars, F.time.rawValue])
-        XCTAssertEqual(inert(.fixed, .glide), [F.high.rawValue, F.low.rawValue, bars], "GLIDE reads TIME; FIXED reads neither HIGH nor LOW")
-        XCTAssertEqual(inert(.fixed, .fall), [F.high.rawValue, bars], "FALL's target is LOW")
-        XCTAssertEqual(inert(.riff, .step), [F.level.rawValue, bars, F.time.rawValue]); XCTAssertEqual(inert(.riff, .fall), [F.level.rawValue, bars])
-        XCTAssertEqual(inert(.pingPong, .glide), [F.level.rawValue, bars]); XCTAssertEqual(inert(.pingPong, .step), [F.level.rawValue, bars, F.time.rawValue])
-        for t in EmitterCCTravel.allCases { XCTAssertEqual(inert(.sine, t), [F.level.rawValue, F.time.rawValue], "SINE reads HIGH, LOW and BARS only (no hits, so no TIME, whatever the travel)") }
-        for m in EmitterCCValueMode.allCases { for t in EmitterCCTravel.allCases { XCTAssertFalse(emitterCCFieldIsInert(.mute, mode: m, travel: t), "MUTE is always read") } }
-        XCTAssertTrue(emitterCCTravelIsInert(mode: .sine)); XCTAssertFalse(emitterCCTravelIsInert(mode: .riff)); XCTAssertFalse(emitterCCTravelIsInert(mode: .pingPong)); XCTAssertFalse(emitterCCTravelIsInert(mode: .fixed))
-    }
-    func testTheSineTraceIsTheEnginesSineOverTheBarItIsIn() {
-        var c = EmitterCCCfg(EmitterCC(on: true, valueMode: .sine, high: 120, low: 0, sineBars: 3))   // 1 bar a cycle
-        let t = emitterCCSineTrace(cfg: c, barStartBeat: 0, barBeats: 4)
-        XCTAssertEqual(t.count, 97); XCTAssertEqual(Int(t[0].y), 0, "a cycle starts at LOW"); XCTAssertEqual(Int(t[48].y), 120, "…crests half way"); XCTAssertEqual(Int(t[96].y), 0, "…and is back at the bar line")
-        XCTAssertEqual(Int(t[24].y), 60, "a quarter in it is half way up")
-        // a 4-bar cycle: bar 2 (beats 4…8) is the slice from a quarter to a half of the cycle — it rises from half way to the crest
-        c = EmitterCCCfg(EmitterCC(on: true, valueMode: .sine, high: 120, low: 0, sineBars: 5))
-        let b2 = emitterCCSineTrace(cfg: c, barStartBeat: 4, barBeats: 4)
-        XCTAssertEqual(Int(b2[0].y), 60); XCTAssertEqual(Int(b2[96].y), 120)
-        XCTAssertEqual(Int(emitterCCSineTrace(cfg: c, barStartBeat: 12, barBeats: 4)[96].y), 0, "the fourth bar ends the cycle back at LOW")
-        // LOW above HIGH inverts it
-        let inv = emitterCCSineTrace(cfg: EmitterCCCfg(EmitterCC(on: true, valueMode: .sine, high: 0, low: 100)), barStartBeat: 0, barBeats: 4)
-        XCTAssertEqual(Int(inv[0].y), 100); XCTAssertEqual(Int(inv[48].y), 0)
+        XCTAssertTrue(emitterCCFieldIsInert(.time, travel: .step), "TIME is the ramp's share of the gap: a STEP has no ramp")
+        XCTAssertFalse(emitterCCFieldIsInert(.time, travel: .glide)); XCTAssertFalse(emitterCCFieldIsInert(.time, travel: .fall))
+        for t in EmitterCCTravel.allCases { for f in [EmitterCCField.high, .low, .mute] { XCTAssertFalse(emitterCCFieldIsInert(f, travel: t), "\(f) is read in every travel (RIFF and PING-PONG both read HIGH and LOW; LOW is FALL's target)") } }
+        XCTAssertEqual(EmitterCCField.allCases.count, 4, "HIGH · LOW · TIME · MUTE: no LEVEL, no BARS")
     }
     func testAPingPongBarWithAnOddNumberOfHitsFlipsItsParityAcrossTheSeam() {
         // 3 hits a bar, ordinals 3 4 5 (HIGH-LOW-HIGH reading 120 / 0 / 120 is for even / odd / even... here 3 is odd, so LOW-HIGH-LOW): the next bar's first hit is ordinal 6 (even: HIGH) and the previous bar's last is 2 (even: HIGH)
@@ -129,11 +108,11 @@ final class EmitterCCTraceTests: XCTestCase {
         XCTAssertEqual(value(t, at: 0), 0)
     }
     func testTheRingLandsExactlyOnEachDotWhenThePlayheadReachesIt() {
-        for (travel, mode) in [(EmitterCCTravel.step, EmitterCCValueMode.riff), (.glide, .riff), (.fall, .fixed), (.glide, .pingPong), (.step, .sine)] {
+        for (travel, mode) in [(EmitterCCTravel.step, EmitterCCValueMode.riff), (.glide, .riff), (.fall, .riff), (.glide, .pingPong), (.fall, .pingPong)] {
             let c = EmitterCCCfg(EmitterCC(on: true, valueMode: mode, high: 120, low: 10, travel: travel, time: 60))
             let hits = [(0.0, 1), (1.0, 5), (2.5, 3), (3.25, 8)].enumerated().map { EmitterCCTraceHit(beat: $0.element.0, rank: $0.element.1, lane: 0, ordinal: Int64($0.offset)) }
             let t = emitterCCTrace(cfg: c, hits: hits, barBeats: 4)
-            for d in t.dots where mode != .sine {
+            for d in t.dots {
                 let ring = emitterCCTraceValue(t.points, atBeat: Double(d.x))
                 XCTAssertEqual(ring ?? -1, Double(d.y), accuracy: 0.5, "\(travel)/\(mode): the ring is on the dot at beat \(d.x)")
             }

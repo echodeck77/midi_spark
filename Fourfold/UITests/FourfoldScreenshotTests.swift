@@ -395,7 +395,7 @@ final class FourfoldScreenshotTests: XCTestCase {
     }
 
     /// CC tab trace (2026-11-08, lane colours + PING-PONG 2026-11-09): the collapsed rows with two emitters on and the transport playing (curve, lane-coloured dots, playhead), lane 2 routed onto emitter A as well (two colours on one trace),
-    /// then emitter A's page under RIFF/STEP, GLIDE, FALL, FIXED/FALL and PING-PONG with STEP and GLIDE, so the wave can be LOOKED AT.
+    /// then emitter A's page under RIFF/STEP, RIFF/GLIDE and PING-PONG with GLIDE, STEP and FALL, so the wave can be LOOKED AT.
     func testTheCCTrace() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
         Thread.sleep(forTimeInterval: 1)
@@ -412,9 +412,8 @@ final class FourfoldScreenshotTests: XCTestCase {
         app.el("Travel GLIDE").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-5-expanded-riff-glide")
         app.el("Value PING").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-6-expanded-pingpong-glide")
         app.el("Travel STEP").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-7-expanded-pingpong-step")
-        app.el("Value FIXED").tap(); app.el("Travel FALL").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-8-expanded-fixed-fall")
-        app.el("Value SINE").tap(); Thread.sleep(forTimeInterval: 1.5); attach("15-cc-trace-9-expanded-sine-1-bar")
-        app.el("Close").tap(); Thread.sleep(forTimeInterval: 1.2); attach("15-cc-trace-10-collapsed-sine")
+        app.el("Travel FALL").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-8-expanded-pingpong-fall")
+        app.el("Close").tap(); Thread.sleep(forTimeInterval: 1.2); attach("15-cc-trace-9-collapsed")
     }
 
     func testTheHarmonyPage() {

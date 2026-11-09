@@ -100,34 +100,11 @@ func emitterCCTraceLane(_ t: EmitterCCTrace, atBeat beat: Double) -> Int? {
 
 // MARK: - which controls matter
 
-/// The six bar sliders of an emitter's page.
-enum EmitterCCField: Int, CaseIterable { case level, high, low, bars, time, mute }
-/// True when a slider changes nothing in the emitter's current VALUE and TRAVEL — the page dims exactly these, so a live slider is always one that does something. LEVEL is FIXED's value; HIGH and LOW are the RIFF map's ends, PING-PONG's two values and
-/// the SINE's trough and crest (FIXED reads neither, except LOW as FALL's target); BARS is the SINE's period; TIME is the ramp's share of the gap to the next hit, which only a hit-driven GLIDE or FALL has; MUTE is always read.
-func emitterCCFieldIsInert(_ f: EmitterCCField, mode: EmitterCCValueMode, travel: EmitterCCTravel) -> Bool {
-    switch f {
-    case .level: return mode != .fixed
-    case .high: return mode == .fixed
-    case .low: return mode == .fixed && travel != .fall
-    case .bars: return mode != .sine
-    case .time: return mode == .sine || travel == .step
-    case .mute: return false
-    }
-}
-/// TRAVEL shapes what happens between hits, and a SINE has none: the control is inert there.
-func emitterCCTravelIsInert(mode: EmitterCCValueMode) -> Bool { mode == .sine }
-
-/// Where the page's clock is: the position in the bar (0…1) and the beat the bar starts at (so a SINE slower than a bar draws the slice it is really in).
-struct CCPlayheadState: Equatable { var fraction: Double; var barStart: Double }
-/// The SINE over one bar starting at host beat `barStartBeat`, on the same 1/24-beat grid as the hit trace: `(beat within the bar, value)` — the engine's own `EmitterCCCfg.sineValue`.
-func emitterCCSineTrace(cfg: EmitterCCCfg, barStartBeat: Double, barBeats: Double) -> [CGPoint] {
-    let bar = max(0.25, barBeats)
-    let steps = Int((bar * 24).rounded())
-    return (0...steps).map { i in
-        let b = Double(i) / 24
-        return CGPoint(x: b, y: Double(cfg.sineValue(beat: barStartBeat + b, beatsPerBar: bar)))
-    }
-}
+/// The four bar sliders of an emitter's page.
+enum EmitterCCField: Int, CaseIterable { case high, low, time, mute }
+/// True when a slider changes nothing in the emitter's current TRAVEL — the page dims exactly these, so a live slider is always one that does something. HIGH and LOW are the RIFF map's ends and PING-PONG's two values (and LOW is
+/// FALL's target); TIME is the ramp's share of the gap to the next hit, which only GLIDE and FALL have; MUTE is always read.
+func emitterCCFieldIsInert(_ f: EmitterCCField, travel: EmitterCCTravel) -> Bool { f == .time && travel == .step }
 
 /// The drawn curve's value (0…127) at bar position `beat`, interpolated along the same polyline the page strokes — so a marker riding it lands exactly on the static dots when the playhead reaches them. nil with fewer than two points.
 func emitterCCTraceValue(_ points: [CGPoint], atBeat beat: Double) -> Double? {

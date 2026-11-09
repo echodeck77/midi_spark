@@ -1988,9 +1988,10 @@ struct EmitterVelocitySet: Equatable, Codable {
 // FIXED (a level) or RIFF (the riff grid rank at the hit, mapped LOW…HIGH), and TRAVEL (STEP / GLIDE / FALL) shapes what happens between this hit and the next (rate-limited). Additive-Optional, decode-tolerant: nil / short / long /
 // unreadable ⇒ four emitters at the defaults, all OFF, so an old session and every factory preset are byte-identical. LOW may be set ABOVE HIGH (inverts the mapping — never clamped or swapped). CC numbers 120–127 (channel-mode) are excluded.
 enum EmitterCCValueMode: String, Codable, CaseIterable {
-    case fixed = "FIXED", riff = "RIFF"
-    case pingPong = "PING-PONG"   // CC tab (2026-11-09): HIGH on the lane's even riff hits, LOW on its odd ones — both ends matter, the riff rank and LEVEL do not
-    case sine = "SINE"            // CC tab (2026-11-09): not hit-driven — a free-running sine between LOW and HIGH, locked to the host bar, one cycle every `sineBars` period
+    case riff = "RIFF"
+    case pingPong = "PING-PONG"   // CC tab (2026-11-09): HIGH on the lane's even riff hits, LOW on its odd ones — both ends matter, the riff rank does not
+    // FIXED (a constant LEVEL) and SINE (a free-running, bar-locked sine, not hit-driven) were REMOVED 2026-11-09: FIXED sent one number once, SINE had nothing to do with the Euclid hits. A stored "FIXED" is migrated by
+    // `EmitterCC.init(from:)` (PING-PONG with HIGH = LOW = its old level — the same constant); a stored "SINE" (or anything unknown) decodes as RIFF.
     init(from decoder: Decoder) throws { self = EmitterCCValueMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .riff }
 }
 enum EmitterCCTravel: String, Codable, CaseIterable {
@@ -2001,54 +2002,47 @@ struct EmitterCC: Equatable {
     var on = false
     var ccNumber = 74                               // 0…119
     var valueMode: EmitterCCValueMode = .riff
-    var level = 100                                 // 0…127 (FIXED)
     var high = 127                                  // 0…127
     var low = 0                                     // 0…127 (may exceed HIGH — inverts, never clamped/swapped)
     var travel: EmitterCCTravel = .step
     var time = 50                                   // 1…100 (% of the gap to the next hit)
     var muteValue = 0                               // 0…127
-    var sineBars = 3                                // 0…7 → the SINE's period in bars (index into `sinePeriodBars`; default 3 = 1 bar)
     static let maxCC = 119, minTime = 1, maxTime = 100
-    /// The SINE's period in bars, shortest to longest — the BARS slider's eight stops.
-    static let sinePeriodBars: [Double] = [0.125, 0.25, 0.5, 1, 2, 4, 8, 16]
-    static let sinePeriodSlider = ["\u{215B}", "\u{00BC}", "\u{00BD}", "1", "2", "4", "8", "16"]            // ⅛ ¼ ½ 1 2 4 8 16 — the slider's value text
-    static let sinePeriodRow = ["\u{215B} BAR", "\u{00BC} BAR", "\u{00BD} BAR", "1 BAR", "2 BARS", "4 BARS", "8 BARS", "16 BARS"]   // the collapsed row's second line
     init() {}
-    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .riff, level: Int = 100, high: Int = 127, low: Int = 0, travel: EmitterCCTravel = .step, time: Int = 50, muteValue: Int = 0, sineBars: Int = 3) {
-        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.level = level; self.high = high; self.low = low; self.travel = travel; self.time = time; self.muteValue = muteValue; self.sineBars = sineBars
+    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .riff, high: Int = 127, low: Int = 0, travel: EmitterCCTravel = .step, time: Int = 50, muteValue: Int = 0) {
+        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.high = high; self.low = low; self.travel = travel; self.time = time; self.muteValue = muteValue
     }
     func normalized() -> EmitterCC {
         var r = self
         r.ccNumber = max(0, min(Self.maxCC, ccNumber))
-        r.level = max(0, min(127, level)); r.high = max(0, min(127, high)); r.low = max(0, min(127, low)); r.muteValue = max(0, min(127, muteValue))
+        r.high = max(0, min(127, high)); r.low = max(0, min(127, low)); r.muteValue = max(0, min(127, muteValue))
         r.time = max(Self.minTime, min(Self.maxTime, time))
-        r.sineBars = max(0, min(Self.sinePeriodBars.count - 1, sineBars))
         return r
     }
 }
 extension EmitterCC: Codable {
-    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, level, high, low, travel, time, muteValue, sineBars }
+    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, level, high, low, travel, time, muteValue }   // `level` is only READ, to migrate a FIXED document; it is never written
     init(from decoder: Decoder) throws {
         self.init()
         guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
         func int(_ k: CodingKeys) -> Int? { ((try? c.decodeIfPresent(EuclideousFXLossyInt.self, forKey: k)) ?? nil)?.value }
         if let b = (try? c.decodeIfPresent(Bool.self, forKey: .on)) ?? nil { on = b }
         if let n = int(.ccNumber) { ccNumber = n }
-        if let v = (try? c.decodeIfPresent(EmitterCCValueMode.self, forKey: .valueMode)) ?? nil { valueMode = v }
-        if let n = int(.level) { level = n }
+        let rawMode = (try? c.decodeIfPresent(String.self, forKey: .valueMode)) ?? nil
+        if let r = rawMode, let v = EmitterCCValueMode(rawValue: r) { valueMode = v }
         if let n = int(.high) { high = n }
         if let n = int(.low) { low = n }
+        if rawMode == "FIXED" { let lv = int(.level) ?? 100; valueMode = .pingPong; high = lv; low = lv }   // the removed FIXED mode: the same constant as a PING-PONG whose two ends are its level
         if let v = (try? c.decodeIfPresent(EmitterCCTravel.self, forKey: .travel)) ?? nil { travel = v }
         if let n = int(.time) { time = n }
         if let n = int(.muteValue) { muteValue = n }
-        if let n = int(.sineBars) { sineBars = n }
         self = normalized()
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(on, forKey: .on); try c.encode(ccNumber, forKey: .ccNumber); try c.encode(valueMode, forKey: .valueMode)
-        try c.encode(level, forKey: .level); try c.encode(high, forKey: .high); try c.encode(low, forKey: .low)
-        try c.encode(travel, forKey: .travel); try c.encode(time, forKey: .time); try c.encode(muteValue, forKey: .muteValue); try c.encode(sineBars, forKey: .sineBars)
+        try c.encode(high, forKey: .high); try c.encode(low, forKey: .low)
+        try c.encode(travel, forKey: .travel); try c.encode(time, forKey: .time); try c.encode(muteValue, forKey: .muteValue)
     }
 }
 /// The document's four CC emitters: FIXED-SIZE storage, encoded as a plain array of four. The four default CC numbers differ (A 74 · B 71 · C 1 · D 11); every write through the subscript normalises. Same shape as `EmitterVelocitySet`.
