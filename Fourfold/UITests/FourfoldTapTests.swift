@@ -925,4 +925,28 @@ final class FourfoldTapTests: XCTestCase {
             XCTAssertTrue(app.buttons["Play"].exists)
         }
     }
+
+    /// CC tab (2026-11-09): every bar slider on an emitter's page reaches both ends of its range from a drag along the bar, and the middle of the bar is the middle of the range (Paul: "does the value only go up to 50 %?").
+    func testEveryCCSliderReachesItsWholeRange() {
+        let app = XCUIApplication.fresh(["--autoplay"])
+        need(app.buttons["C C emitters"], "the CC tab").tap()
+        need(app.el("Emitter A"), "emitter A's token").tap()
+        need(app.els(prefix: "Emitter A CC").firstMatch, "emitter A's row").tap()
+        need(app.el("Value FIXED"), "the VALUE control").tap()
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        // each slider: (label, min, max) — the element is the whole row (label · bar · number), so the bar runs from minX + 46 to maxX − 36
+        for (label, lo, hi) in [("LEVEL", 0, 127), ("HIGH", 0, 127), ("LOW", 0, 127), ("TIME", 1, 100), ("MUTE", 0, 127)] {
+            let row = need(app.el(label), "the \(label) slider"), f = row.frame
+            let x0 = f.minX + 46, x1 = f.maxX - 36, y = f.midY
+            // SLOW drags (a real finger sends many updates, each one a document write and a re-render mid-gesture) as well as a quick one
+            func drag(_ from: CGFloat, _ to: CGFloat) { origin.withOffset(CGVector(dx: from, dy: y)).press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: to, dy: y)), withVelocity: .slow, thenHoldForDuration: 0.2) }
+            drag(x0 + (x1 - x0) * 0.5, x1 + 6)   // from the middle out past the right end
+            XCTAssertEqual(value(row), "\(hi)", "\(label): a drag to the right end should reach \(hi)")
+            drag(x1 - (x1 - x0) * 0.5, x0 - 6)   // and back out past the left end
+            XCTAssertEqual(value(row), "\(lo)", "\(label): a drag to the left end should reach \(lo)")
+            drag(x0 + (x1 - x0) * 0.25, x0 + (x1 - x0) * 0.5)   // a drag that ENDS in the middle
+            let mid = Int(value(row)) ?? -1, want = (lo + hi) / 2
+            XCTAssertLessThanOrEqual(abs(mid - want), (hi - lo) / 12, "\(label): the middle of the bar should be about \(want), got \(mid)")
+        }
+    }
 }
