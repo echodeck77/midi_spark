@@ -101,32 +101,55 @@ private struct EuclideousMuteStripView: View, Equatable {
     }
 }
 
-/// The playheads: one per row, a 1 pt ink line with a short trailing gradient, from the TRANSPORT beat (wraps smoothly through
-/// the cell unit, independent of the cached window), frozen while stopped.
-private struct EuclideousMutePlayheads: View {
+/// §6 — the LIVE layer (60 fps while playing): the sounding-note GLOW + a white note-on FLASH, then one playhead per row (a 1 pt
+/// ink line + a short trailing gradient + its glow), all from the TRANSPORT beat (the playhead wraps smoothly through the cell unit,
+/// independent of the cached window). iOS-15 floor ⇒ glows are GraphicsContext `.shadow` filters, not a Metal `.layerEffect` (§6.3).
+/// Stopped: the TimelineView pauses, the body re-renders with `playing == false`, so no glow / trail draws and the playhead freezes.
+private struct EuclideousMuteLiveLayer: View {
     let layout: EuclideousMuteRowsLayout
     let rows: [EuclideousMuteRow]
+    let accents: [Color]
     let playing: Bool
     let beatAt: (Date) -> Double
+
+    private static let flashBeats = 0.12   // the white note-on flash fades over ~an eighth of a beat (DEVICE-OWED by eye)
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !playing)) { tl in
             let beat = beatAt(tl.date)
             Canvas { ctx, _ in
                 for o in 0..<min(4, rows.count) {
-                    let unit = rows[o].unitBeats
-                    guard unit > 0 else { continue }
+                    let data = rows[o]
                     let sr = layout.stripRect(o)
-                    let u = beat / unit
+                    guard data.unitBeats > 0 else { continue }
+                    // §6 — glow + flash on every note SOUNDING right now (played, audible). Clipped to the strip so nothing bleeds past.
+                    if playing {
+                        ctx.drawLayer { clipped in
+                            clipped.clip(to: RoundedRectangle(cornerRadius: 8).path(in: sr))
+                            for n in data.notes where !n.ghost && n.audible && n.pitch != nil && n.onset <= beat && n.onset + n.length > beat {
+                                let r = layout.noteRect(row: o, pitch: n.pitch.map { Int($0) }, lo: data.lo, hi: data.hi,
+                                                        onset: n.onset, length: n.length, windowStart: data.windowStart, window: data.window)
+                                let c = n.lane >= 0 && n.lane < accents.count ? accents[n.lane] : EuclideousMutePalette.neutral
+                                let shape = RoundedRectangle(cornerRadius: 2).path(in: r)
+                                clipped.drawLayer { g in g.addFilter(.shadow(color: c.opacity(0.7), radius: 8)); g.fill(shape, with: .color(c)) }   // §6 — the bloom
+                                let age = beat - n.onset
+                                if age < Self.flashBeats { clipped.fill(shape, with: .color(.white.opacity(0.9 * (1 - age / Self.flashBeats)))) }   // §6 — the note-on flash
+                            }
+                        }
+                    }
+                    // the playhead: 1 pt ink + a short trailing gradient + a glow, all suppressed while stopped (only the frozen line stays).
+                    let u = beat / data.unitBeats
                     let frac = (u - 16 * (u / 16).rounded(.down)) / 16      // (beat mod 16·unit) / (16·unit) — smooth wrap
                     let x = sr.minX + CGFloat(max(0, min(1, frac))) * sr.width
                     let trailW = min(48, x - sr.minX)
-                    if trailW > 1 {
+                    if playing, trailW > 1 {
                         let t = CGRect(x: x - trailW, y: sr.minY, width: trailW, height: sr.height)
                         ctx.fill(Path(t), with: .linearGradient(Gradient(colors: [EuclideousMutePalette.ink.opacity(0), EuclideousMutePalette.ink.opacity(0.16)]),
                                                                 startPoint: t.origin, endPoint: CGPoint(x: t.maxX, y: t.minY)))
                     }
-                    ctx.fill(Path(CGRect(x: x - 0.5, y: sr.minY, width: 1, height: sr.height)), with: .color(EuclideousMutePalette.ink))
+                    let line = CGRect(x: x - 0.5, y: sr.minY, width: 1, height: sr.height)
+                    if playing { ctx.drawLayer { g in g.addFilter(.shadow(color: EuclideousMutePalette.ink.opacity(0.55), radius: 5)); g.fill(Path(line), with: .color(EuclideousMutePalette.ink)) } }
+                    else { ctx.fill(Path(line), with: .color(EuclideousMutePalette.ink.opacity(0.8))) }   // stopped: a plain frozen line, no glow/trail
                 }
             }
             .frame(width: layout.width, height: layout.height)
@@ -162,7 +185,7 @@ struct EuclideousMutePanel: View {
             }
             ForEach(0..<min(4, rows.count), id: \.self) { o in tile(o) }
             gestureLayer
-            EuclideousMutePlayheads(layout: layout, rows: rows, playing: playing, beatAt: beatAt)
+            EuclideousMuteLiveLayer(layout: layout, rows: rows, accents: accents, playing: playing, beatAt: beatAt)
             accessibilityCells
         }
         .frame(width: layout.width, height: layout.height, alignment: .topLeading)
