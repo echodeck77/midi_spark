@@ -72,4 +72,43 @@ final class EmitterCCTraceTests: XCTestCase {
         let p = emitterCCTracePoint(CGPoint(x: 2, y: 63.5), barBeats: 4, size: size, inset: 4)
         XCTAssertEqual(Double(p.x), 50, accuracy: 1e-9); XCTAssertEqual(Double(p.y), 20, accuracy: 1e-9)
     }
+
+    // MARK: lanes, PING-PONG and the inert sliders (2026-11-09)
+    func testEachDotAndEachPointWearsTheLaneWhoseHitItIs() {
+        let hs = [EmitterCCTraceHit(beat: 0, rank: 1, lane: 0), EmitterCCTraceHit(beat: 2, rank: 8, lane: 2)]
+        let t = emitterCCTrace(cfg: cfg(.riff), hits: hs, barBeats: 4)
+        XCTAssertEqual(t.dotLanes, [0, 2]); XCTAssertEqual(t.pointLanes.count, t.points.count)
+        XCTAssertEqual(emitterCCTraceLane(t, atBeat: 1.0), 0, "before lane 3's hit the value is lane 1's"); XCTAssertEqual(emitterCCTraceLane(t, atBeat: 2.5), 2, "after it, lane 3's")
+        XCTAssertEqual(emitterCCTraceLane(t, atBeat: 3.99), 2, "…until the bar wraps"); XCTAssertNil(emitterCCTraceLane(emitterCCTrace(cfg: cfg(.riff), hits: [], barBeats: 4), atBeat: 1))
+        // a RIFF rest makes no dot, but the lane in effect stays the previous one's
+        let r = emitterCCTrace(cfg: cfg(.riff), hits: [EmitterCCTraceHit(beat: 0, rank: 8, lane: 1), EmitterCCTraceHit(beat: 2, rank: 0, lane: 3)], barBeats: 4)
+        XCTAssertEqual(r.dotLanes, [1]); XCTAssertEqual(emitterCCTraceLane(r, atBeat: 3), 1, "a rest holds the previous value — and its lane")
+    }
+    func testAPingPongTraceAlternatesHighAndLowWhateverTheRanks() {
+        let c = EmitterCCCfg(EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 10, travel: .step))
+        let t = emitterCCTrace(cfg: c, hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 0, lane: 0, ordinal: Int64($0)) }, barBeats: 4)
+        XCTAssertEqual(t.dots.map { Int($0.y) }, [120, 10, 120, 10], "ranks (rests included) are not read")
+        let g = emitterCCTrace(cfg: EmitterCCCfg(EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 0, travel: .glide, time: 100)), hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 1, lane: 0, ordinal: Int64($0)) }, barBeats: 4)
+        XCTAssertEqual(value(g, at: 0.5), 60); XCTAssertEqual(value(g, at: 1), 0); XCTAssertEqual(value(g, at: 1.5), 60, "a triangle")
+    }
+    func testASliderIsDimmedExactlyWhenItChangesNothing() {
+        typealias F = EmitterCCField
+        func inert(_ mode: EmitterCCValueMode, _ travel: EmitterCCTravel) -> Set<Int> { Set(F.allCases.filter { emitterCCFieldIsInert($0, mode: mode, travel: travel) }.map { $0.rawValue }) }
+        XCTAssertEqual(inert(.fixed, .step), [F.high.rawValue, F.low.rawValue, F.time.rawValue])
+        XCTAssertEqual(inert(.fixed, .glide), [F.high.rawValue, F.low.rawValue], "GLIDE reads TIME; FIXED reads neither HIGH nor LOW")
+        XCTAssertEqual(inert(.fixed, .fall), [F.high.rawValue], "FALL's target is LOW")
+        XCTAssertEqual(inert(.riff, .step), [F.level.rawValue, F.time.rawValue]); XCTAssertEqual(inert(.riff, .fall), [F.level.rawValue])
+        XCTAssertEqual(inert(.pingPong, .glide), [F.level.rawValue]); XCTAssertEqual(inert(.pingPong, .step), [F.level.rawValue, F.time.rawValue])
+        for m in EmitterCCValueMode.allCases { for t in EmitterCCTravel.allCases { XCTAssertFalse(emitterCCFieldIsInert(.mute, mode: m, travel: t), "MUTE is always read") } }
+    }
+    func testAPingPongBarWithAnOddNumberOfHitsFlipsItsParityAcrossTheSeam() {
+        // 3 hits a bar, ordinals 3 4 5 (HIGH-LOW-HIGH reading 120 / 0 / 120 is for even / odd / even... here 3 is odd, so LOW-HIGH-LOW): the next bar's first hit is ordinal 6 (even: HIGH) and the previous bar's last is 2 (even: HIGH)
+        let c = EmitterCCCfg(EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 0, travel: .glide, time: 100))
+        let t = emitterCCTrace(cfg: c, hits: [(0.0, 3), (1.0, 4), (2.0, 5)].map { EmitterCCTraceHit(beat: $0.0, rank: 0, lane: 0, ordinal: $0.1) }, barBeats: 4)
+        XCTAssertEqual(t.dots.map { Int($0.y) }, [0, 120, 0])
+        XCTAssertEqual(value(t, at: 2), 0); XCTAssertEqual(value(t, at: 3), 60, "the last hit (LOW) glides on toward the next bar's first hit, which is HIGH (ordinal 6), over the 2-beat gap")
+        XCTAssertEqual(value(t, at: 94.0 / 24), 115, "…and is nearly there at the bar's end")
+        // before the first hit the previous bar's last hit (ordinal 2, HIGH) is still gliding to this bar's first (LOW): it is wrapped values, here the very top of the bar
+        XCTAssertEqual(value(t, at: 0), 0)
+    }
 }

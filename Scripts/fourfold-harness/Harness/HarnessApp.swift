@@ -672,8 +672,12 @@ extension Host {
                         set[0] = EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: .glide, time: 60, muteValue: 10)
                         set[1] = EmitterCC(on: true, ccNumber: 71, valueMode: .fixed, level: 90, travel: .step)
                         set[2] = EmitterCC(on: true, ccNumber: 1, valueMode: .riff, high: 20, low: 110, travel: .fall, time: 40)   // LOW > HIGH (inverted mapping)
-                        set[3] = EmitterCC(on: true, ccNumber: 11, valueMode: .riff, high: 127, low: 0, travel: .glide, time: 100)
+                        set[3] = EmitterCC(on: true, ccNumber: 11, valueMode: .pingPong, high: 127, low: 0, travel: .glide, time: 100)   // PING-PONG (2026-11-09): the ordinal parity + the merged next hit's ordinal run on the audited path
                         $0.euclideousEmitterCCs = set
+                        var ls = $0.euclideousLinesResolved   // the default document's lanes 3 and 4 have no hits, so C and D would never fire: give every emitter a lane (and lane 2 onto A as well, so one emitter merges two lanes)
+                        for i in 2..<4 { ls[i].pulses = 3 + i; ls[i].steps = 8; ls[i].enabled = true }
+                        ls[1].riffOutMask = 0b0011; ls[1].notesOutMask = 0b0011
+                        $0.euclideousLines = ls
                     }
                 }
                 if name.contains("HOLD") { au.editDocument { $0.euclideousHoldLatchMode = .hold } }

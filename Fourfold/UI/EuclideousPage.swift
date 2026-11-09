@@ -6486,15 +6486,16 @@ struct EuclideousPage: View {
         let lapBeats = Double(euclidCycleLen(dispDir, n: steps)) * sub
         guard lapBeats > 0 else { return [] }
         var out: [EmitterCCTraceHit] = []
-        var lap = 0.0
+        var lap = 0.0, lapIndex: Int64 = 0
         while lap < barBeats - 1e-9 {
             for (k, hs) in hitSteps.enumerated() {
                 let b = lap + Double(hs.tick) * sub
                 guard b < barBeats - 1e-9 else { continue }
                 let col = k < pass.prediction.count ? pass.prediction[k] : -1
-                out.append(EmitterCCTraceHit(beat: b, rank: col >= 0 && col < ranks.count ? max(0, min(8, ranks[col])) : 0))
+                let ord = (k < pass.ordinals.count ? pass.ordinals[k] : Int64(k)) &+ lapIndex &* Int64(hitSteps.count)   // PING-PONG's parity: the riff ordinal, advancing by the lap's hit count each lap
+                out.append(EmitterCCTraceHit(beat: b, rank: col >= 0 && col < ranks.count ? max(0, min(8, ranks[col])) : 0, lane: idx, ordinal: ord))
             }
-            lap += lapBeats
+            lap += lapBeats; lapIndex += 1
         }
         return out
     }
@@ -6524,11 +6525,11 @@ struct EuclideousPage: View {
             AnyView(
                 ZStack {
                     if let x = ccExpanded {
-                        EuclideousCCExpandedView(output: x, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, live: ccLive, playing: pulseLive,
+                        EuclideousCCExpandedView(output: x, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, laneColours: laneAccents.map { lane100($0) }, live: ccLive, playing: pulseLive,
                                                  onEdit: onEditEmitterCC, onCollapse: { withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = nil } })
                             .transition(.opacity)
                     } else {
-                        EuclideousCCPanel(bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, live: ccLive, playing: pulseLive,
+                        EuclideousCCPanel(bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, laneColours: laneAccents.map { lane100($0) }, live: ccLive, playing: pulseLive,
                                           onEdit: onEditEmitterCC, onExpand: { out in withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = out } })
                             .transition(.opacity)
                     }

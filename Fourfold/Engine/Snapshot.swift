@@ -249,6 +249,15 @@ struct EmitterCCCfg: Equatable {
     /// The hit value for a riff rank r (1…8): LOW + (r−1)/7 × (HIGH − LOW), rounded, clamped 0…127. LOW may exceed HIGH (inverts). FIXED mode uses `level` instead.
     @inline(__always) func riffValue(rank r: Int) -> Int { max(0, min(127, Int((Double(low) + Double(r - 1) / 7.0 * Double(high - low)).rounded()))) }
     @inline(__always) var fixedValue: Int { max(0, min(127, level)) }
+    /// The ONE decision of what a hit sends — the Router and the trace both call it. FIXED: `level`. RIFF: the rank's value, nil on a rest (rank 0 / out of range: the previous value holds). PING-PONG: HIGH on an even riff ordinal, LOW on an odd one
+    /// (the ordinal is the riff walk's own, `advOrd`, so it restarts with the melody; any rank, rest included, sends).
+    @inline(__always) func value(rank: Int, ordinal: Int64) -> Int? {
+        switch valueMode {
+        case .fixed: return fixedValue
+        case .riff: return rank >= 1 && rank <= 8 ? riffValue(rank: rank) : nil
+        case .pingPong: return max(0, min(127, ordinal & 1 == 0 ? high : low))
+        }
+    }
 }
 struct EmitterCCSnap: Equatable {
     var e0 = EmitterCCCfg(), e1 = EmitterCCCfg(), e2 = EmitterCCCfg(), e3 = EmitterCCCfg()

@@ -394,7 +394,8 @@ final class FourfoldScreenshotTests: XCTestCase {
         app.els(prefix: "Stack, ").firstMatch.tap(); Thread.sleep(forTimeInterval: 1); attach("13-stack-grid-3-notes-tab")
     }
 
-    /// CC tab trace (2026-11-08): the collapsed rows with two emitters on and the transport playing (curve + playhead), then emitter A's page under RIFF/STEP, RIFF/GLIDE, RIFF/FALL and FIXED/FALL so the wave can be LOOKED AT.
+    /// CC tab trace (2026-11-08, lane colours + PING-PONG 2026-11-09): the collapsed rows with two emitters on and the transport playing (curve, lane-coloured dots, playhead), lane 2 routed onto emitter A as well (two colours on one trace),
+    /// then emitter A's page under RIFF/STEP, GLIDE, FALL, FIXED/FALL and PING-PONG with STEP and GLIDE, so the wave can be LOOKED AT.
     func testTheCCTrace() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
         Thread.sleep(forTimeInterval: 1)
@@ -402,11 +403,16 @@ final class FourfoldScreenshotTests: XCTestCase {
         attach("15-cc-trace-1-collapsed-off")
         app.el("Emitter A").tap(); app.el("Emitter B").tap(); Thread.sleep(forTimeInterval: 1.2)
         attach("15-cc-trace-2-collapsed-two-on")
+        app.buttons["Mix"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.8)
+        app.els(prefix: "Riff to A, off").firstMatch.tap(); Thread.sleep(forTimeInterval: 0.6)   // lane 2's riff also goes to A
+        app.buttons["Euclid"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.8)
+        attach("15-cc-trace-3-collapsed-lane-2-on-A")
         app.els(prefix: "Emitter A CC").firstMatch.tap(); Thread.sleep(forTimeInterval: 1)
-        attach("15-cc-trace-3-expanded-riff-step")
-        app.el("Travel GLIDE").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-4-expanded-riff-glide")
-        app.el("Travel FALL").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-5-expanded-riff-fall")
-        app.el("Value FIXED").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-6-expanded-fixed-fall")
+        attach("15-cc-trace-4-expanded-riff-step-two-lanes")
+        app.el("Travel GLIDE").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-5-expanded-riff-glide")
+        app.el("Value PING-PONG").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-6-expanded-pingpong-glide")
+        app.el("Travel STEP").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-7-expanded-pingpong-step")
+        app.el("Value FIXED").tap(); app.el("Travel FALL").tap(); Thread.sleep(forTimeInterval: 1); attach("15-cc-trace-8-expanded-fixed-fall")
     }
 
     func testTheHarmonyPage() {

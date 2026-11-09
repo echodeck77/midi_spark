@@ -67,10 +67,10 @@ final class EmitterCCTests: XCTestCase {
 
     // MARK: the engine
     /// A lane routing to output A with a CC emitter A: FIXED STEP sends `level` on every hit; RIFF tracks the rank (rank 1 → LOW, rank 8 → HIGH). A muted output sends `muteValue` once. CC off sends nothing.
-    private func state(cc: EmitterCC, riffRanks: [Int] = [1, 1, 1, 1, 1, 1, 1, 1], muteA: Bool = false, playRiffOff: Bool = false) -> PluginState {
+    private func state(cc: EmitterCC, riffRanks: [Int] = [1, 1, 1, 1, 1, 1, 1, 1], muteA: Bool = false, playRiffOff: Bool = false, pulses: Int = 4) -> PluginState {
         var m = Machine(machineID: "gold", type: .euclid)
         m.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: riffRanks)
-        var l = EuclidLine(target: 0, pulses: 4, steps: 4)   // a hit on every step
+        var l = EuclidLine(target: 0, pulses: pulses, steps: 4)   // a hit on every step (pulses 4)
         l.gate = 0.5; l.velocityAbsolute = 90; l.rate = .r1_4; l.useRiff = true; l.riffOn = !playRiffOff; l.sourceMode = .key
         m.paramsA.euclidLines = [l] + (1..<4).map { _ in EuclidLine(enabled: false) }
         var sc = SceneState.empty(); sc.stepRate = .r1_8
@@ -235,6 +235,7 @@ final class EmitterCCTests: XCTestCase {
             ("fixed fall", EmitterCC(on: true, valueMode: .fixed, level: 90, low: 10, travel: .fall, time: 80)),
             ("riff step", EmitterCC(on: true, valueMode: .riff, travel: .step)), ("riff glide", EmitterCC(on: true, valueMode: .riff, travel: .glide, time: 100)),
             ("riff fall", EmitterCC(on: true, valueMode: .riff, travel: .fall, time: 60)),
+            ("ping-pong step", EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 10, travel: .step)), ("ping-pong glide", EmitterCC(on: true, valueMode: .pingPong, high: 120, low: 10, travel: .glide, time: 100)),
         ]
         for frames: UInt32 in [128, 4096] {
             let base = docs(nil)
@@ -256,12 +257,13 @@ final class EmitterCCTests: XCTestCase {
     /// step (the engine sends at most once per 1/24 beat, on a change) for GLIDE and FALL — so the picture can never describe a different engine.
     func testTheTraceFollowsWhatTheRouterSends() {
         let ranks = [1, 8, 3, 6, 1, 8, 3, 6]
-        for (name, travel, time, tol) in [("step", EmitterCCTravel.step, 50, 0), ("glide 100", .glide, 100, 6), ("glide 50", .glide, 50, 6), ("fall 50", .fall, 50, 6), ("fall 100", .fall, 100, 6)] {
-            let c = EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, travel: travel, time: time)
+        for (name, mode, travel, time, tol) in [("step", EmitterCCValueMode.riff, EmitterCCTravel.step, 50, 0), ("glide 100", .riff, .glide, 100, 6), ("glide 50", .riff, .glide, 50, 6), ("fall 50", .riff, .fall, 50, 6), ("fall 100", .riff, .fall, 100, 6),
+                                                ("ping-pong step", .pingPong, .step, 50, 0), ("ping-pong glide", .pingPong, .glide, 100, 6), ("ping-pong glide 50", .pingPong, .glide, 50, 6), ("ping-pong fall", .pingPong, .fall, 50, 6)] {
+            let c = EmitterCC(on: true, ccNumber: 74, valueMode: mode, high: 127, low: 0, travel: travel, time: time)
             let rig = CCRig(state(cc: c, riffRanks: ranks))
             rig.run(to: 8.0)
             let sent = rig.out.timeline(cable: 1, cc: 74)
-            let trace = emitterCCTrace(cfg: EmitterCCCfg(c), hits: [(0.0, 1), (1.0, 8), (2.0, 3), (3.0, 6)].map { EmitterCCTraceHit(beat: $0.0, rank: $0.1) }, barBeats: 4)
+            let trace = emitterCCTrace(cfg: EmitterCCCfg(c), hits: [(0.0, 1), (1.0, 8), (2.0, 3), (3.0, 6)].enumerated().map { EmitterCCTraceHit(beat: $0.element.0, rank: $0.element.1, lane: 0, ordinal: Int64($0.offset)) }, barBeats: 4)
             var worst = 0
             for i in 1..<96 {   // bar 2, off the exact hit samples (a hit and the ramp's last step share a sample)
                 let b = Double(i) / 24
@@ -270,6 +272,66 @@ final class EmitterCCTests: XCTestCase {
                 worst = max(worst, abs(engine - drawn))
             }
             XCTAssertLessThanOrEqual(worst, tol, "\(name): the drawn curve and the CC stream differ by \(worst)")
+        }
+    }
+
+    // MARK: PING-PONG (2026-11-09) — HIGH on the lane's even riff hits, LOW on its odd ones
+    func testPingPongValueRuleAndDecode() {
+        var c = EmitterCCCfg(EmitterCC(valueMode: .pingPong, level: 33, high: 120, low: 10))
+        XCTAssertEqual(c.value(rank: 3, ordinal: 0), 120, "an even hit is HIGH"); XCTAssertEqual(c.value(rank: 3, ordinal: 1), 10, "an odd hit is LOW")
+        XCTAssertEqual(c.value(rank: 0, ordinal: 2), 120, "a riff rest still sends: the rank is not read"); XCTAssertEqual(c.value(rank: 8, ordinal: 7), 10)
+        XCTAssertEqual(c.value(rank: 1, ordinal: -1), 10, "parity holds for a negative ordinal too")
+        c = EmitterCCCfg(EmitterCC(valueMode: .pingPong, high: 5, low: 100))
+        XCTAssertEqual(c.value(rank: 1, ordinal: 0), 5); XCTAssertEqual(c.value(rank: 1, ordinal: 1), 100, "LOW above HIGH is not swapped or clamped")
+        XCTAssertEqual(EmitterCCCfg(EmitterCC(valueMode: .fixed, level: 33)).value(rank: 0, ordinal: 1), 33); XCTAssertNil(EmitterCCCfg(EmitterCC(valueMode: .riff)).value(rank: 0, ordinal: 0))
+        var set = EmitterCCSet(); set[2] = EmitterCC(on: true, ccNumber: 20, valueMode: .pingPong, high: 90, low: 30, travel: .glide)
+        let data = try! JSONEncoder().encode(set)
+        XCTAssertEqual(try! JSONDecoder().decode(EmitterCCSet.self, from: data), set, "PING-PONG round-trips")
+        let junk = #"{"valueMode":"SINE"}"#.data(using: .utf8)!
+        XCTAssertEqual(try! JSONDecoder().decode(EmitterCC.self, from: junk).valueMode, .riff, "an unknown value mode decodes as RIFF")
+    }
+    func testPingPongAlternatesHighAndLowOnEveryHit() {
+        let rig = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 120, low: 10, travel: .step), riffRanks: [1, 8, 3, 6, 1, 8, 3, 6]))
+        rig.run(to: 5.5)
+        let tl = rig.out.timeline(cable: 1, cc: 74)
+        XCTAssertEqual(tl.map { $0.value }, [120, 10, 120, 10, 120, 10], "a hit a beat: HIGH, LOW, HIGH… whatever the riff ranks are")
+        for (i, e) in tl.enumerated() { XCTAssertEqual(Double(e.sample), Double(i) * beatSamples, accuracy: 2, "each on its own hit") }
+    }
+    func testPingPongGlideIsATriangleBetweenHighAndLow() {
+        let rig = CCRig(state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 120, low: 0, travel: .glide, time: 100)))
+        rig.run(to: 3.0)
+        let tl = rig.out.timeline(cable: 1, cc: 74)
+        func at(_ beat: Double) -> Int { tl.last(where: { Double($0.sample) <= beat * beatSamples })?.value ?? -1 }
+        XCTAssertEqual(at(0.0), 120); XCTAssertEqual(at(0.5), 60, "half way down the ramp to LOW"); XCTAssertEqual(at(1.0), 0, "arrives on the odd hit")
+        XCTAssertEqual(at(1.5), 60, "and back up"); XCTAssertEqual(at(2.0), 120)
+    }
+    func testPingPongGlideAimsAtTheOrdinalOfTheNextHitOnTheEmitterNotTheLanesOwn() {
+        // Two lanes on A, hits at beat 0 (lane 1, its first: even → HIGH 120) and beat 2 (lane 2, ITS first: even → HIGH 120); lane 1's own next hit (beat 4) is odd → LOW. GLIDE 100 % from beat 0 aims at lane 2's HIGH, so it stays up through beat 2.
+        let rig = CCRig(twoLaneState(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 120, low: 0, travel: .glide, time: 100)))
+        rig.run(to: 2.0)
+        let tl = rig.out.timeline(cable: 1, cc: 74).filter { Double($0.sample) < 2.0 * beatSamples - 1 }
+        XCTAssertEqual(tl.first?.value, 120)
+        XCTAssertGreaterThanOrEqual(tl.last?.value ?? 0, 115, "heading for lane 2's HIGH (own-lane aim would have fallen to ≈60 by beat 2): \(tl.map { $0.value })")
+    }
+
+    /// A 3-hit bar flips PING-PONG's parity every bar; the drawn curve (bar 2 here, ordinals 3…5, the seam read from bars 1 and 3) must still be the one the Router sends — including the glide on into the next bar.
+    func testThePingPongTraceFollowsTheRouterAcrossAnOddBarSeam() {
+        let steps = euclideousLapHitSteps(pulses: 3, steps: 4, rotate: 0, tilt: 0, patternMiss: false, customHits: nil)
+        XCTAssertEqual(steps.count, 3)
+        for (name, travel, tol) in [("step", EmitterCCTravel.step, 0), ("glide", .glide, 6), ("fall", .fall, 6)] {
+            let c = EmitterCC(on: true, ccNumber: 74, valueMode: .pingPong, high: 120, low: 0, travel: travel, time: 100)
+            let rig = CCRig(state(cc: c, pulses: 3))
+            rig.run(to: 12.0)
+            let sent = rig.out.timeline(cable: 1, cc: 74)
+            let trace = emitterCCTrace(cfg: EmitterCCCfg(c), hits: steps.enumerated().map { EmitterCCTraceHit(beat: Double($0.element.tick), rank: 1, lane: 0, ordinal: Int64(3 + $0.offset)) }, barBeats: 4)
+            var worst = 0
+            for i in 1..<96 where i % 24 != 0 {
+                let b = Double(i) / 24
+                let sample = Int64(((4.0 + b) * beatSamples).rounded())
+                guard !steps.contains(where: { abs(Double($0.tick) - b) < 0.05 }), let engine = sent.last(where: { $0.sample <= sample })?.value, let drawn = trace.points.first(where: { abs(Double($0.x) - b) < 1e-6 }).map({ Int($0.y) }) else { continue }
+                worst = max(worst, abs(engine - drawn))
+            }
+            XCTAssertLessThanOrEqual(worst, tol, "\(name): the drawn bar and the CC stream differ by \(worst)")
         }
     }
 }

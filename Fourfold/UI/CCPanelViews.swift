@@ -47,10 +47,12 @@ struct CCBarSlider: View {
     }
 }
 
-/// One bar of an emitter's output: a dark tile, the step grid's lines, small ticks under each hit (`detailed` only), a light line for the curve, a dot on each hit's value (`detailed` only) and — while the transport runs — a playhead
-/// with a ring on the engine's live value. Drawn from the pure `emitterCCTrace`; nothing here keeps time except the playhead, which asks the page's clock.
+/// One bar of an emitter's output: a dark tile, the step grid's lines, small ticks under each hit (`detailed` only), a light line for the curve, a dot on each hit's value in the colour of the LANE whose hit it is and — while the transport runs — a
+/// playhead and a ring on the engine's live value, both in the colour of the lane whose hit is in effect at that position. There is ONE bar clock, so there is one playhead; with several lanes on the emitter it changes colour as the lane
+/// driving the value changes. Drawn from the pure `emitterCCTrace`; nothing here keeps time except the playhead, which asks the page's clock.
 struct CCTraceView: View {
     let trace: EmitterCCTrace
+    var laneColours: [Color] = []
     var live = -1                                // the engine's current value (0…127), < 0 for "none yet"
     var playhead: ((Date) -> Double?)? = nil     // the bar position 0…1 at a date, nil while stopped
     var detailed = false
@@ -60,9 +62,10 @@ struct CCTraceView: View {
         }
         .accessibilityHidden(true)
     }
+    private func colour(_ lane: Int?) -> Color { guard let l = lane, !laneColours.isEmpty else { return P.light }; return laneColours[max(0, min(laneColours.count - 1, l))] }
     private func draw(_ ctx: inout GraphicsContext, _ sz: CGSize, head: Double?) {
         ctx.fill(RoundedRectangle(cornerRadius: 6).path(in: CGRect(origin: .zero, size: sz)), with: .color(P.slot))
-        let inset: CGFloat = detailed ? 6 : 4
+        let inset: CGFloat = detailed ? 6 : 5
         let w = sz.width - 2 * inset
         func x(_ beat: Double) -> CGFloat { inset + CGFloat(beat / max(1e-9, trace.barBeats)) * w }
         for b in trace.gridBeats { ctx.fill(Path(CGRect(x: x(b) - 0.5, y: 0, width: 1, height: sz.height)), with: .color(P.rule)) }
@@ -75,13 +78,19 @@ struct CCTraceView: View {
             }
             ctx.stroke(path, with: .color(P.light), style: StrokeStyle(lineWidth: detailed ? 1.75 : 1.5, lineCap: .round, lineJoin: .round))
         }
-        if detailed { for d in trace.dots { let q = emitterCCTracePoint(d, barBeats: trace.barBeats, size: sz, inset: inset); ctx.fill(Path(ellipseIn: CGRect(x: q.x - 3, y: q.y - 3, width: 6, height: 6)), with: .color(P.light)) } }
+        let r: CGFloat = detailed ? 3.5 : 2.75
+        for (i, d) in trace.dots.enumerated() {
+            let q = emitterCCTracePoint(d, barBeats: trace.barBeats, size: sz, inset: inset)
+            ctx.fill(Path(ellipseIn: CGRect(x: q.x - r, y: q.y - r, width: 2 * r, height: 2 * r)), with: .color(colour(i < trace.dotLanes.count ? trace.dotLanes[i] : nil)))
+        }
         if let h = head {
-            let hx = inset + CGFloat(max(0, min(1, h))) * w
-            ctx.fill(Path(CGRect(x: hx - 0.75, y: 0, width: 1.5, height: sz.height)), with: .color(P.text.opacity(0.85)))
+            let f = max(0, min(1, h))
+            let c = colour(emitterCCTraceLane(trace, atBeat: f * trace.barBeats))
+            let hx = inset + CGFloat(f) * w
+            ctx.fill(Path(CGRect(x: hx - 0.75, y: 0, width: 1.5, height: sz.height)), with: .color(c.opacity(0.9)))
             if live >= 0 {
                 let y = inset + (1 - CGFloat(live) / 127) * (sz.height - 2 * inset)
-                ctx.stroke(Path(ellipseIn: CGRect(x: hx - 3.5, y: y - 3.5, width: 7, height: 7)), with: .color(P.text), lineWidth: 1.5)
+                ctx.stroke(Path(ellipseIn: CGRect(x: hx - 3.5, y: y - 3.5, width: 7, height: 7)), with: .color(c), lineWidth: 1.75)
             }
         }
     }
@@ -95,6 +104,7 @@ struct EuclideousCCPanel: View {
     let ccs: EmitterCCSet
     let traces: [EmitterCCTrace]
     let playhead: (Date) -> Double?
+    let laneColours: [Color]
     @ObservedObject var live: EmitterRatchetLive
     let playing: Bool
     let onEdit: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void
@@ -116,9 +126,9 @@ struct EuclideousCCPanel: View {
                 .onTapGesture { onEdit(true) { $0[x].on.toggle() } }
                 .accessibilityElement(children: .ignore).accessibilityLabel("Emitter \(letters[x])").accessibilityValue(cc.on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
             Text("\(cc.ccNumber)").font(heavyMonoCC(22)).foregroundColor(P.text).frame(width: 46, alignment: .leading)
-            CCTraceView(trace: traces[x], live: cc.on ? (live.index(x) ?? -1) : -1, playhead: cc.on ? playhead : nil).frame(maxWidth: .infinity)
+            CCTraceView(trace: traces[x], laneColours: laneColours, live: cc.on ? (live.index(x) ?? -1) : -1, playhead: cc.on ? playhead : nil).frame(maxWidth: .infinity)
             VStack(alignment: .trailing, spacing: 2) {
-                Text(cc.valueMode.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
+                Text(cc.valueMode == .pingPong ? "PING" : cc.valueMode.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
                 Text(cc.travel.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
             }
             Text("\u{203A}").font(heavyMonoCC(16)).foregroundColor(P.muted).frame(width: 14)   // chevron
@@ -143,6 +153,7 @@ struct EuclideousCCExpandedView: View {
     let ccs: EmitterCCSet
     let traces: [EmitterCCTrace]
     let playhead: (Date) -> Double?
+    let laneColours: [Color]
     @ObservedObject var live: EmitterRatchetLive
     let playing: Bool
     let onEdit: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void
@@ -153,7 +164,7 @@ struct EuclideousCCExpandedView: View {
         let cc = ccs[output]
         VStack(spacing: 8) {
             header(cc)
-            CCTraceView(trace: traces[output], live: cc.on ? (live.index(output) ?? -1) : -1, playhead: cc.on ? playhead : nil, detailed: true).frame(height: 84)
+            CCTraceView(trace: traces[output], laneColours: laneColours, live: cc.on ? (live.index(output) ?? -1) : -1, playhead: cc.on ? playhead : nil, detailed: true).frame(height: 84)
             HStack(alignment: .top, spacing: 10) {
                 leftColumn(cc).frame(width: min(186, bodySize.width * 0.42))
                 rightColumn(cc).frame(maxWidth: .infinity)
@@ -188,7 +199,7 @@ struct EuclideousCCExpandedView: View {
     @ViewBuilder private func leftColumn(_ cc: EmitterCC) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("VALUE").font(heavyMonoCC(9)).foregroundColor(P.muted)
-            EmitterRatchetSegmented(options: ["FIXED", "RIFF"], selected: cc.valueMode == .riff ? 1 : 0, height: 26, groupLabel: "Value") { i in onEdit(true) { $0[output].valueMode = i == 1 ? .riff : .fixed } }
+            EmitterRatchetSegmented(options: ["FIXED", "RIFF", "PING-PONG"], selected: cc.valueMode == .fixed ? 0 : (cc.valueMode == .riff ? 1 : 2), height: 26, groupLabel: "Value") { i in onEdit(true) { $0[output].valueMode = i == 0 ? .fixed : (i == 1 ? .riff : .pingPong) } }
             Text("TRAVEL").font(heavyMonoCC(9)).foregroundColor(P.muted)
             EmitterRatchetSegmented(options: ["STEP", "GLIDE", "FALL"], selected: cc.travel == .step ? 0 : (cc.travel == .glide ? 1 : 2), height: 26, groupLabel: "Travel") { i in onEdit(true) { $0[output].travel = i == 0 ? .step : (i == 1 ? .glide : .fall) } }
             Spacer(minLength: 0)
@@ -196,10 +207,10 @@ struct EuclideousCCExpandedView: View {
     }
     @ViewBuilder private func rightColumn(_ cc: EmitterCC) -> some View {
         VStack(spacing: 6) {
-            CCBarSlider(label: "LEVEL", value: cc.level, dimmed: cc.valueMode == .riff) { v, s in onEdit(s) { $0[output].level = v } }
-            CCBarSlider(label: "HIGH", value: cc.high) { v, s in onEdit(s) { $0[output].high = v } }
-            CCBarSlider(label: "LOW", value: cc.low) { v, s in onEdit(s) { $0[output].low = v } }
-            CCBarSlider(label: "TIME", value: cc.time, lo: EmitterCC.minTime, hi: EmitterCC.maxTime) { v, s in onEdit(s) { $0[output].time = v } }
+            CCBarSlider(label: "LEVEL", value: cc.level, dimmed: emitterCCFieldIsInert(.level, mode: cc.valueMode, travel: cc.travel)) { v, s in onEdit(s) { $0[output].level = v } }
+            CCBarSlider(label: "HIGH", value: cc.high, dimmed: emitterCCFieldIsInert(.high, mode: cc.valueMode, travel: cc.travel)) { v, s in onEdit(s) { $0[output].high = v } }
+            CCBarSlider(label: "LOW", value: cc.low, dimmed: emitterCCFieldIsInert(.low, mode: cc.valueMode, travel: cc.travel)) { v, s in onEdit(s) { $0[output].low = v } }
+            CCBarSlider(label: "TIME", value: cc.time, lo: EmitterCC.minTime, hi: EmitterCC.maxTime, dimmed: emitterCCFieldIsInert(.time, mode: cc.valueMode, travel: cc.travel)) { v, s in onEdit(s) { $0[output].time = v } }
             CCBarSlider(label: "MUTE", value: cc.muteValue) { v, s in onEdit(s) { $0[output].muteValue = v } }
             Spacer(minLength: 0)
         }

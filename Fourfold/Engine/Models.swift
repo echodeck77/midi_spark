@@ -1989,6 +1989,7 @@ struct EmitterVelocitySet: Equatable, Codable {
 // unreadable ⇒ four emitters at the defaults, all OFF, so an old session and every factory preset are byte-identical. LOW may be set ABOVE HIGH (inverts the mapping — never clamped or swapped). CC numbers 120–127 (channel-mode) are excluded.
 enum EmitterCCValueMode: String, Codable, CaseIterable {
     case fixed = "FIXED", riff = "RIFF"
+    case pingPong = "PING-PONG"   // CC tab (2026-11-09): HIGH on the lane's even riff hits, LOW on its odd ones — both ends matter, the riff rank and LEVEL do not
     init(from decoder: Decoder) throws { self = EmitterCCValueMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .riff }
 }
 enum EmitterCCTravel: String, Codable, CaseIterable {
