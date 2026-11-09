@@ -6823,6 +6823,20 @@ func euclideousEmitterRollRange(_ notes: [EmitterRollNote]) -> (lo: Int, hi: Int
     return (max(0, lo), min(127, hi))
 }
 
+/// §7 — a row's VoiceOver value: how many notes the emitter sends in the window and which lanes they come from (the PLAYED notes;
+/// a ghost has no confirmed lane yet). The roll, guides and playhead themselves are not focusable — this one value stands for them.
+func euclideousMuteStripSummary(output: Int, notes: [EmitterRollNote]) -> String {
+    let played = notes.filter { !$0.ghost }
+    let lanes = Set(played.map { $0.lane }).sorted()
+    let who: String
+    if lanes.isEmpty { who = "no lanes" }
+    else {
+        let names = lanes.map { "lane \($0 + 1)" }
+        who = names.count == 1 ? names[0] : names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+    }
+    return "Output \(euclideousOutputLetter(output)) roll, \(played.count) note\(played.count == 1 ? "" : "s") from \(who)"
+}
+
 // ── the per-emitter MUTE rows layout (§4) ──────────────────────────────────────────────────────────────────────────────
 /// §4 — four emitter rows top to bottom (A…D); each is an emitter-token TILE (the cell-size label) and a divided mute STRIP the roll
 /// draws over. Rows FILL the box (rowH derived, not the reference's fixed 64 — the real panel box differs from the 332 reference, and

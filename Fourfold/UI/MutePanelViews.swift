@@ -183,6 +183,7 @@ struct EuclideousMutePanel: View {
             ForEach(0..<min(4, rows.count), id: \.self) { o in
                 EuclideousMuteStripView(layout: layout, output: o, data: rows[o], accents: accents).equatable()
             }
+            rollSummaries
             ForEach(0..<min(4, rows.count), id: \.self) { o in tile(o) }
             gestureLayer
             EuclideousMuteLiveLayer(layout: layout, rows: rows, accents: accents, playing: playing, beatAt: beatAt)
@@ -236,6 +237,20 @@ struct EuclideousMutePanel: View {
                     }
                 }
                 .onEnded { _ in strokeOutput = nil; lastCell = nil; strokeStart = nil })
+    }
+
+    // §7 — one summary element per row (what the emitter sends: note count + source lanes). The roll / guides / playhead are not
+    //   focusable; this stands for them. Positioned over the strip, read before the cells.
+    private var rollSummaries: some View {
+        ForEach(0..<min(4, rows.count), id: \.self) { o in
+            let sr = layout.stripRect(o)
+            Color.clear
+                .frame(width: max(1, sr.width), height: sr.height)
+                .offset(x: sr.minX, y: sr.minY)
+                .allowsHitTesting(false)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(euclideousMuteStripSummary(output: o, notes: rows[o].notes))
+        }
     }
 
     // §7 — every cell is a real button for VoiceOver (the drag layer does the touching, so these carry no hit area).

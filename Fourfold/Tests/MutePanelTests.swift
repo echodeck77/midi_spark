@@ -112,4 +112,13 @@ final class MutePanelTests: XCTestCase {
         let over = L.noteRect(row: 0, pitch: 66, lo: 60, hi: 72, onset: 3.5, length: 2, windowStart: 0, window: 4)
         XCTAssertLessThanOrEqual(over.maxX, L.stripX + L.stripW + 1e-6, "a note is never drawn past cell 16")
     }
+
+    // §7 — the row's VoiceOver value: note count + the source lanes of the PLAYED notes (ghosts excluded).
+    func testStripSummaryNamesCountAndLanes() {
+        let n: (Int, Bool) -> EmitterRollNote = { lane, ghost in EmitterRollNote(onset: 0, length: 1, pitch: ghost ? nil : 60, lane: lane, riff: true, audible: true, ghost: ghost) }
+        XCTAssertEqual(euclideousMuteStripSummary(output: 0, notes: []), "Output A roll, 0 notes from no lanes")
+        XCTAssertEqual(euclideousMuteStripSummary(output: 1, notes: [n(0, false)]), "Output B roll, 1 note from lane 1")
+        XCTAssertEqual(euclideousMuteStripSummary(output: 0, notes: [n(0, false), n(1, false), n(0, false)]), "Output A roll, 3 notes from lane 1 and lane 2")
+        XCTAssertEqual(euclideousMuteStripSummary(output: 0, notes: [n(0, false), n(3, true)]), "Output A roll, 1 note from lane 1", "a ghost carries no confirmed lane and is not counted")
+    }
 }
