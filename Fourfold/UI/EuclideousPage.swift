@@ -6227,11 +6227,12 @@ struct EuclideousPage: View {
     /// whose tag currently sits here. The tags themselves are NOT drawn per cell any more — they travel between
     /// cells, so they live in `riffWalkTagOverlay`.
     private func riffGridCell(col: Int, rank: Int, ranks: [Int], cellW: CGFloat, cellH: CGFloat, n: Int, arrows: [EuclideousArrowCell] = []) -> some View {
-        let on = col < ranks.count && ranks[col] == rank
+        let on = riffMapGridCellIsNote(column: col + 1, rank: rank, ranks: ranks)
         let here = arrows.first { $0.column == col && $0.rank == rank }
         return ZStack {
             RoundedRectangle(cornerRadius: 3)
-                .fill(on ? Color.white.opacity(0.85) : Color.white.opacity(0.08))
+                // RIFF MAP (2026-11-10): a written note wears the map colour of its column and rank; every other cell the same colour at 20 % over the empty cell (`riffMapGridCell`). Opaque fills now — they were white 85 % / 8 % over the panel, the same flat values by another route.
+                .fill(on ? RiffMapPalette.colour(column: col + 1, rank: rank) : RiffMapPalette.faintColour(column: col + 1, rank: rank))
                 // rule 5: "keeps its light selection border" — an ambient 1pt light border on every cell,
                 // unconditionally.
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.12), lineWidth: 1))

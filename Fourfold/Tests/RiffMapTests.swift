@@ -110,4 +110,32 @@ final class RiffMapTests: XCTestCase {
         for i in 0..<20_000 { _ = riffMapColour(column: i % 12 + 1, rank: i % 8 + 1); _ = riffMapFaint(column: i % 9 + 1, rank: i % 8 + 1) }
         XCTAssertEqual(riffMapConversionCount, built, "a lookup never converts")
     }
+
+    // MARK: test 10 — the grid
+
+    func testAWrittenNoteFillsItsCellAndTheRestOfItsColumnIsFaint() {
+        var ranks = [Int](repeating: 0, count: 8); ranks[1] = 3   // column 2 holds rank 3
+        for r in 1...8 {
+            let cell = riffMapGridCell(column: 2, rank: r, ranks: ranks)
+            if r == 3 { XCTAssertEqual(hex(cell), "#C98D5A"); XCTAssertTrue(riffMapGridCellIsNote(column: 2, rank: r, ranks: ranks)) }
+            else { XCTAssertEqual(cell, riffMapFaint(column: 2, rank: r), "rank \(r)"); XCTAssertFalse(riffMapGridCellIsNote(column: 2, rank: r, ranks: ranks)) }
+        }
+    }
+    func testMovingTheNoteFillsTheNewCellAtOnceAndReturnsTheOldOneToFaint() {
+        var ranks = [Int](repeating: 0, count: 8); ranks[1] = 3
+        XCTAssertEqual(hex(riffMapGridCell(column: 2, rank: 3, ranks: ranks)), "#C98D5A")
+        ranks[1] = 6   // the drag-a-line gesture writes the column's rank as the finger crosses it
+        XCTAssertEqual(hex(riffMapGridCell(column: 2, rank: 6, ranks: ranks)), "#F7B884")
+        XCTAssertEqual(riffMapGridCell(column: 2, rank: 3, ranks: ranks), riffMapFaint(column: 2, rank: 3))
+    }
+    func testARestColumnIsFaintInAllEightCells() {
+        let ranks = [0, 0, 5, 0, 0, 0, 0, 0]
+        for r in 1...8 { XCTAssertEqual(riffMapGridCell(column: 1, rank: r, ranks: ranks), riffMapFaint(column: 1, rank: r)); XCTAssertFalse(riffMapGridCellIsNote(column: 1, rank: r, ranks: ranks)) }
+        XCTAssertTrue(riffMapGridCellIsNote(column: 3, rank: 5, ranks: ranks))
+    }
+    func testAColumnPastTheRanksIsFaintAndNeverCrashes() {
+        XCTAssertFalse(riffMapGridCellIsNote(column: 9, rank: 4, ranks: [1, 2, 3]))
+        XCTAssertFalse(riffMapGridCellIsNote(column: 0, rank: 4, ranks: [4]))
+        XCTAssertEqual(riffMapGridCell(column: 4, rank: 2, ranks: [1, 2, 3]), riffMapFaint(column: 4, rank: 2))
+    }
 }

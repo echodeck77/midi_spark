@@ -7918,11 +7918,18 @@ private let riffMapTables: (map: [EuclideousRGB], faint: [EuclideousRGB]) = {
     } }
     return (map, faint)
 }()
-@inline(__always) private func riffMapIndex(column: Int, rank: Int) -> Int { ((max(1, column) - 1) % 8) * 8 + (max(1, min(8, rank)) - 1) }
+/// The table slot of a cell (column wraps at 8, rank clamps to 1…8) — the UI builds its own `Color` tables with it, once.
+@inline(__always) func riffMapIndex(column: Int, rank: Int) -> Int { ((max(1, column) - 1) % 8) * 8 + (max(1, min(8, rank)) - 1) }
 /// §1: the cell's colour — a written note's fill in the grid, and a chip's fill in the lane strip.
 func riffMapColour(column: Int, rank: Int) -> EuclideousRGB { riffMapTables.map[riffMapIndex(column: column, rank: rank)] }
 /// §1: an EMPTY cell's colour — the same map colour at 20 % over the grid's empty cell.
 func riffMapFaint(column: Int, rank: Int) -> EuclideousRGB { riffMapTables.faint[riffMapIndex(column: column, rank: rank)] }
+/// §3: whether the grid's cell at `column` (1-based) and `rank` holds the written note — `ranks[column − 1] == rank`. A rest column (rank 0) holds none, so all eight of its cells are empty.
+func riffMapGridCellIsNote(column: Int, rank: Int, ranks: [Int]) -> Bool { column >= 1 && column <= ranks.count && rank >= 1 && ranks[column - 1] == rank }
+/// §3: the colour the grid fills that cell with — the map colour for the written note, the faint form for every other cell.
+func riffMapGridCell(column: Int, rank: Int, ranks: [Int]) -> EuclideousRGB {
+    riffMapGridCellIsNote(column: column, rank: rank, ranks: ranks) ? riffMapColour(column: column, rank: rank) : riffMapFaint(column: column, rank: rank)
+}
 
 struct EuclideousBlendStop: Equatable { var position: Double; var colour: EuclideousRGB; var alpha: Double }
 /// §5.4: the fill for lanes c1 … cn (n ≥ 2), left to right: lane i's colour sits at position i ÷ (n − 1). Between neighbours at p0 and p1, with hold = 0.14 ÷ (n − 1),
