@@ -6793,10 +6793,12 @@ func euclideousEmitterRoll(output: Int, windowStart: Double, windowEnd: Double, 
     let bit = UInt8(1) << UInt8(output)
     let headInWindow = min(playhead, windowEnd)
     var out: [EmitterRollNote] = []
-    // PLAYED: every part's note that LEFT on this output, onset in [windowStart, playhead]. One window ⇒ no onion-skin double.
+    // PLAYED: every part's note that LEFT on this output and is still at or before the playhead. A note that STARTED in the
+    // previous window but is still ringing into this one is kept (its onset x is left of the strip; the strip's clip hides that
+    // head and shows the in-window tail) — so a sounding note never pops off at the window flip. One window ⇒ no onion-skin.
     for part in 0..<8 {
         for n in model.notes(part: part, from: windowStart, to: headInWindow, now: playhead)
-            where n.outs & bit != 0 && n.onBeat >= windowStart - 1e-9 && n.onBeat <= playhead + 1e-9 {
+            where n.outs & bit != 0 && n.onBeat <= playhead + 1e-9 {
             let end = min(n.endBeat ?? playhead, windowEnd)
             out.append(EmitterRollNote(onset: n.onBeat, length: max(0, end - n.onBeat), pitch: n.pitch,
                                        lane: part >> 1, riff: part & 1 == 0,
@@ -6819,7 +6821,9 @@ func euclideousEmitterRollRange(_ notes: [EmitterRollNote]) -> (lo: Int, hi: Int
     let pitches = notes.compactMap { $0.pitch }.map { Int($0) }
     guard let mn = pitches.min(), let mx = pitches.max() else { return (54, 66) }   // empty → 60 ± 6
     var lo = mn, hi = mx
-    if hi - lo < 12 { let pad = 12 - (hi - lo); lo -= pad / 2; hi += pad - pad / 2 }   // widen symmetrically to ≥ an octave
+    if hi - lo < 12 { let c = (lo + hi) / 2; lo = c - 6; hi = c + 6 }   // ≥ an octave, centred on the notes
+    if lo < 0 { hi -= lo; lo = 0 }               // near a MIDI rail, SHIFT the window into range (don't shrink it below an octave)
+    if hi > 127 { lo -= (hi - 127); hi = 127 }
     return (max(0, lo), min(127, hi))
 }
 

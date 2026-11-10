@@ -228,7 +228,8 @@ struct EuclideousMutePanel: View {
                 .onChanged { v in
                     if strokeStart != v.startLocation { strokeOutput = nil; lastCell = nil; strokeStart = v.startLocation }
                     if strokeOutput == nil {
-                        guard let h = layout.hit(x: v.startLocation.x, y: v.startLocation.y) else { return }
+                        // hit-test the LIVE location (not startLocation): a stroke that begins in a 6 pt inter-row gap then drags onto a strip still starts painting there.
+                        guard let h = layout.hit(x: v.location.x, y: v.location.y) else { return }
                         strokeOutput = h.output; strokeValue = !cellValue(h.output, h.cell); lastCell = h.cell
                         onApply(h.output, h.cell, strokeValue, true)
                     } else if let o = strokeOutput {

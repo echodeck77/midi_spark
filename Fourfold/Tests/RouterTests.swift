@@ -177,6 +177,43 @@ final class RouterTests: XCTestCase {
         XCTAssertLessThan(clamped, natural, "the mute shortens the note; the strike still begins (it starts in an audible cell)")
     }
 
+    // MUTE TAB §2.3, the refcount × ALL corner (adversarial review 2026-11-10): ONE note routed to a muted output AND an unmuted
+    // one — it is cut at the muted output's boundary but rings full on the other, and the ALL cable carries BOTH stamped copies
+    // (A's ending early, B's ringing on), with no stuck note. Exercises the per-output clamp against the per-(cable,ch,note) refcount.
+    func testOutputMuteClampCutsOneOutputWhileAnotherRingsFull() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        var line = EuclidLine(target: 0, pulses: 1, steps: 2, noteSel: .low, rate: .r1_8, useRiff: true, sourceMode: .midi)
+        line.riffOutMask = 0b0011   // the riff routes to BOTH output A and output B
+        c.paramsA.euclidLines = [line]
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        st.euclideousOutputMutes = EuclideousOutputMutes([EuclideousOutputMute(cells16: 0xFFFD, passes: 1, muteUnit: 0)])   // output A only: cell 1 muted
+        let box = SnapshotBuilder.build(keeping: st)
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        var beat = 0.0, ts = 0.0
+        for _ in 0..<11 {
+            router.process(box: box, pool: chord([60]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            beat += windowBeats; ts += Double(frames)
+        }
+        router.process(box: box, pool: chord([60]), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)   // the refcounted ALL off must not strand on either channel
+        let bps = tempo / 60.0 / sr
+        func dur(cable: UInt8) -> Double {
+            guard let on = e.ons.first(where: { $0.cable == cable }),
+                  let off = e.offs.first(where: { $0.cable == cable && $0.note == on.note && $0.sample >= on.sample }) else { XCTFail("no note on cable \(cable)"); return 0 }
+            return Double(off.sample - on.sample) * bps
+        }
+        XCTAssertEqual(dur(cable: 1), 0.25, accuracy: 0.03, "output A (cell 1 muted): cut at the beat-0.25 boundary")
+        XCTAssertEqual(dur(cable: 2), 0.9,  accuracy: 0.03, "output B (unmuted): the same note rings its full gate")
+        // ALL carries A's copy (the output's channel 1 → wire 0) and B's (channel 2 → wire 1); A's ends early, B's rings on.
+        let aAll = e.offs.first { $0.cable == 0 && $0.chan == 0 }, bAll = e.offs.first { $0.cable == 0 && $0.chan == 1 }
+        XCTAssertNotNil(aAll, "A's ALL copy closes"); XCTAssertNotNil(bAll, "B's ALL copy closes")
+        if let a = aAll, let b = bAll { XCTAssertLessThan(a.sample, b.sample, "on ALL, A's contribution ends before B's") }
+    }
+
     // PART GRID × GENERATOR interaction bug, ROUND 2 (Paul 2026-10-05): the same hardcoded-8-column defect found
     // in the EUCLID fix above turned out to be systemic — STRIKE PER SPAN, CHORDS-hold, TUTTI PATTERN, LENGTH,
     // STRUM, and MOD all independently hardcoded Double(Snap.cols)*S instead of the row's real pass length. Each

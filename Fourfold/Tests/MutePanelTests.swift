@@ -33,6 +33,23 @@ final class MutePanelTests: XCTestCase {
         XCTAssertEqual(b.first?.lane, 1)
     }
 
+    // review fix #1 — a note that STARTED in the previous window but is still sounding into this one stays drawn (it does not pop off at the window flip).
+    func testPlayedNoteStartedBeforeWindowStillShows() {
+        let m = model([rec(3.9, len: 0.9, pitch: 60, part: 0, outs: 0b0001)])   // struck beat 3.9, ends 4.8
+        let a = euclideousEmitterRoll(output: 0, windowStart: 4, windowEnd: 8, playhead: 4.1, model: m, cells16: 0xFFFF, unitBeats: u)
+        XCTAssertEqual(a.count, 1, "a note still ringing from the previous window is kept, not dropped at the flip")
+        XCTAssertEqual(a[0].pitch, 60)
+        XCTAssertLessThan(a[0].onset, 4, "its onset is before the window — the strip clips the head and shows the in-window tail")
+    }
+
+    // review fix #2 — the pitch axis stays ≥ an octave even at the MIDI rails (the window SHIFTS into range, it is not shrunk).
+    func testPitchRangeNearRailsStaysAnOctaveWide() {
+        let low = euclideousEmitterRollRange([EmitterRollNote(onset: 0, length: 1, pitch: 2, lane: 0, riff: true, audible: true, ghost: false)])
+        XCTAssertGreaterThanOrEqual(low.hi - low.lo, 12); XCTAssertEqual(low.lo, 0); XCTAssertEqual(low.hi, 12)
+        let high = euclideousEmitterRollRange([EmitterRollNote(onset: 0, length: 1, pitch: 125, lane: 0, riff: true, audible: true, ghost: false)])
+        XCTAssertGreaterThanOrEqual(high.hi - high.lo, 12); XCTAssertEqual(high.hi, 127); XCTAssertEqual(high.lo, 115)
+    }
+
     // §3.5 — a note running past the window end is CLIPPED to it (the recording's "bars past cell 16").
     func testPlayedNoteIsClippedToTheWindowEnd() {
         let m = model([rec(3, len: 2, pitch: 60, part: 0, outs: 0b0001)])   // onset beat 3, would end beat 5
