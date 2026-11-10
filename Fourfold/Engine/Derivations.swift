@@ -5151,6 +5151,12 @@ enum EuclideousPartPlayLamp {
 /// §2.5 the per-EVENT flash decision: a note-on flashes the lamp only if it reached at least one emitter (`outs != 0`, the NoteRoll feed) AND the part is audible (not silenced by solo / LANES / the lane's play state). Routed nowhere ⇒ no flash.
 func euclideousPartPlayFlashes(outs: UInt8, audible: Bool) -> Bool { outs != 0 && audible }
 
+/// The note-on glow envelope shared by the PLAY RIFF/STACK lamp and the STACK grid's cell glow (STACK GRID LIVE §8): full at the onset, fading to 0 over `fadeSeconds`; Reduce Motion = full for `reduceMotionSeconds`, no fade.
+enum EuclideousGlow { static let fadeSeconds = 0.15, reduceMotionSeconds = 0.1 }
+func euclideousGlowEnvelope(ageSeconds: Double, reduceMotion: Bool) -> Double {
+    if reduceMotion { return ageSeconds <= EuclideousGlow.reduceMotionSeconds ? 1 : 0 }
+    return max(0, min(1, 1 - ageSeconds / EuclideousGlow.fadeSeconds))
+}
 /// §2.5 the flash activity (the lamp glow's opacity 0…1): full at the newest emitting note-on, fading to nothing over 150 ms; a newer onset restarts it (max). Reduce Motion: full for 100 ms, no fade. 0 when the part is silenced or nothing has emitted. Keyed on the note-ON (not the note's length), so a long sustained note still reads as one flash.
 func euclideousPartPlayFlash(notes: [NoteRollNote], nowBeat: Double, tempo: Double, audible: Bool, reduceMotion: Bool) -> Double {
     guard audible else { return 0 }
@@ -5158,8 +5164,7 @@ func euclideousPartPlayFlash(notes: [NoteRollNote], nowBeat: Double, tempo: Doub
     for n in notes where euclideousPartPlayFlashes(outs: n.outs, audible: true) && n.onBeat <= nowBeat { newest = max(newest, n.onBeat) }
     guard newest.isFinite else { return 0 }
     let age = (nowBeat - newest) * 60 / max(1, tempo)   // seconds since the newest emitting note-on
-    if reduceMotion { return age <= 0.1 ? 1 : 0 }
-    return max(0, min(1, 1 - age / 0.15))
+    return euclideousGlowEnvelope(ageSeconds: age, reduceMotion: reduceMotion)
 }
 
 // ── CLARITY PASS (2026-10-23) §2/§5.3: the lane card's tab glyphs ────────────────────────────────────────────────────────
@@ -9074,7 +9079,8 @@ struct EuclideousStripChipPaint: Equatable {
 func euclideousStripChipPaint(chip: EuclideousStripChip, isCurrent: Bool, riffRests: Bool) -> EuclideousStripChipPaint {
     let base: EuclideousStripChipColour = chip.grey ? .grey : .map(riffMapColour(column: chip.column, rank: chip.rank))
     if riffRests { return EuclideousStripChipPaint(shape: .resting, colour: base, label: base, currentRing: false) }
-    if chip.hollow { return EuclideousStripChipPaint(shape: .dashed, colour: base, label: base, currentRing: false) }
+    // STACK GRID LIVE §3.2 (Paul 2026-11-10): a REPEAT's hollow chip CAN be the current chip and carries the ring — the strip and the STACK grid stay one state. (A SKIP rest has no chip; a grey riff-off chip never rings.)
+    if chip.hollow { return EuclideousStripChipPaint(shape: .dashed, colour: base, label: base, currentRing: isCurrent && !chip.grey) }
     return EuclideousStripChipPaint(shape: .filled, colour: base, label: .ink, currentRing: isCurrent && !chip.grey)
 }
 /// `plays` = the notes will play on this hit; `chanceRing` = CHANCE below 100 (it may skip the hit); `label` = what the way plays here, nil when there is nothing to name; `picked` = the pitches the way picks.
@@ -9224,9 +9230,10 @@ func euclideousStripCurrentStep(cfg c: EuclideousWalkLaneConfig, landedTick: Int
     let info = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: landed, chains: c.chains, legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep)
     guard landed - Int64(info.raw) == lapStart else { return nil }
     guard let li = legs.firstIndex(where: { $0.hitSteps.contains { $0.tick == info.raw } }), let j = legs[li].hitSteps.firstIndex(where: { $0.tick == info.raw }) else { return nil }
+    // STACK GRID LIVE §3.2: a REPEAT's HOLLOW chip is ringable (the ring sits on it) — only a grey riff-off chip and a step with no chip (SKIP rest / gap) are not.
     func filledChip(_ leg: Int, _ step: Int) -> Bool {
         let hits = legs[leg].hits
-        return step >= 0 && step < hits.count && (hits[step].chip.map { !$0.hollow && !$0.grey } ?? false)
+        return step >= 0 && step < hits.count && (hits[step].chip.map { !$0.grey } ?? false)
     }
     if filledChip(li, legs[li].hitSteps[j].bufIdx) { return EuclideousStripCurrent(leg: li, step: legs[li].hitSteps[j].bufIdx) }
     guard arrowStaysOnTiedNote else { return nil }
@@ -9237,6 +9244,13 @@ func euclideousStripCurrentStep(cfg c: EuclideousWalkLaneConfig, landedTick: Int
         if leg >= 0 { jj = legs[leg].hitSteps.count - 1 }
     }
     return nil
+}
+/// STACK GRID LIVE §5.4 — `riffGhostRank`: the WRITTEN rank of the lane's current chip (the ring's rank), a projection of `euclideousStripCurrentStep` so the lane strip and the STACK grid read ONE state (§3.3). nil
+/// exactly when there is no current chip (stopped, riff off, a SKIP rest, another pass). A REPEAT's hollow chip is current (§3.2), so this returns its repeated rank.
+func euclideousStripCurrentRank(cfg c: EuclideousWalkLaneConfig, landedTick: Int64?, passLapStartTick: Int64?, arrowStaysOnTiedNote: Bool, legs: [EuclideousStripLeg]) -> Int? {
+    guard let cur = euclideousStripCurrentStep(cfg: c, landedTick: landedTick, passLapStartTick: passLapStartTick, arrowStaysOnTiedNote: arrowStaysOnTiedNote, legs: legs),
+          cur.leg >= 0, cur.leg < legs.count, cur.step >= 0, cur.step < legs[cur.leg].hits.count else { return nil }
+    return legs[cur.leg].hits[cur.step].chip?.rank
 }
 
 // ── the playhead (2.x / 7.4) ─────────────────────────────────────────────────────────────────────────────────────────────

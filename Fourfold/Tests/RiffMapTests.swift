@@ -165,10 +165,11 @@ final class RiffMapTests: XCTestCase {
         XCTAssertTrue(cur.currentRing); XCTAssertFalse(plain.currentRing)
         XCTAssertEqual(cur.colour, plain.colour); XCTAssertEqual(fill(cur), "#5EA4D4")
         XCTAssertEqual(RiffMapTuning.ringWidth, 1.5)
-        // a grey, hollow or resting chip never wears the ring
+        // a grey or resting chip never wears the ring
         XCTAssertFalse(euclideousStripChipPaint(chip: chip(6, 3, grey: true), isCurrent: true, riffRests: false).currentRing)
-        XCTAssertFalse(euclideousStripChipPaint(chip: chip(6, 3, hollow: true), isCurrent: true, riffRests: false).currentRing)
         XCTAssertFalse(euclideousStripChipPaint(chip: chip(6, 3), isCurrent: true, riffRests: true).currentRing)
+        // STACK GRID LIVE §3.2 (2026-11-10): a REPEAT's HOLLOW chip DOES wear the ring when current (the strip and the STACK grid stay one state)
+        XCTAssertTrue(euclideousStripChipPaint(chip: chip(6, 3, hollow: true), isCurrent: true, riffRests: false).currentRing)
     }
     /// test 8 — REPEAT: hollow, dashed, labelled 6, drawn at rank 3 → stroke and label #5EA4D4
     func testARepeatChipIsHollowAndItsStrokeAndLabelTakeTheMapColour() {

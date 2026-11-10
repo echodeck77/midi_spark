@@ -70,6 +70,54 @@ func euclideousStackCellToggle(_ line: inout EuclidLine, row: EuclideousStackRow
     return true
 }
 
+// MARK: - STACK GRID LIVE (ferry 2026-11-10): true note names, which ranks sound, each cell's look
+
+/// §8 tunables (named so device can change them; none changed in this ferry). The ring WIDTH is shared with the lane strip (`RiffMapTuning.ringWidth` 1.5) and the glow FADE with the PLAY STACK lamp (`EuclideousGlow.fadeSeconds` 0.15).
+enum EuclideousStackTuning {
+    static let restFillAlpha = 0.5         // §2.1 a selected cell at rest
+    static let glowBlur: CGFloat = 4       // §2.2 the note-on glow blur (the lamp's floor)
+    static let ringGap: CGFloat = 1        // §3.1 the ghost ring's inner edge, 1 pt outside the cell frame
+}
+
+/// §4 / §5.3 — the MIDI note a lane's NOTES part would send for `row` right now: the pool note (already carrying the lane's MIDI-IN-ROOT / KEY / CANON, applied upstream in the pool) shifted by the NOTES OCT, via the engine's own
+/// `riffResolve` map (the exact call `runEuclidLine`'s notes layer makes). nil when the pool has no such rank OR the result leaves 0…127 — the engine DROPS an out-of-range notes-layer note (strikeOne's guard), so the cell shows "–" (§4.3).
+/// Applies ONLY the NOTES OCT (`EuclidLine.octave`); the riff OCT, TRANS (`melodyTranspose`) and the retired out-transpose never touch the notes part.
+func euclideousStackCellNote(row: EuclideousStackRow, pool: EuclideousLanePoolNotes, notesOct: Int) -> Int? {
+    let oct = max(-2, min(2, notesOct))
+    let n: Int?
+    switch row {
+    case .rank(let r):
+        let sorted = pool.notes.sorted().map { Int($0) }
+        n = riffResolve(rank: r, oct: oct, n: sorted.count, wrap: .fold, asc: { sorted[$0] })
+    default:                                 // the TOP rows (not gridded today): the received note + the NOTES OCT
+        n = row.note(pool: pool).map { $0 + 12 * oct }
+    }
+    guard let v = n, (0...127).contains(v) else { return nil }
+    return v
+}
+
+/// §1.1 / §2 — is the NOTES part's rank `r` sounding now, and the beat of its newest routed note-on (for the glow). A note counts only if it reached ≥1 emitter (`outs != 0` — it passed routing / mute / solo, exactly what the lamp flashes on).
+/// The held set + overlaps ARE the NoteRollModel's own `notes` (its ingest is the event→held accumulator, §5.1); this is a per-frame query reusing `euclideousMixNoteSounds` — no second derivation. Only the NOTES part is passed in (§2.6).
+struct EuclideousStackSounding: Equatable { var sounding: Bool; var glowOnset: Double? }
+func euclideousStackSounding(notesPart: [NoteRollNote], rank: Int, nowBeat: Double) -> EuclideousStackSounding {
+    var sounding = false, newestOn = -Double.infinity
+    for n in notesPart where Int(n.rank) == rank && n.outs != 0 && n.onBeat <= nowBeat {
+        if euclideousMixNoteSounds(n, at: nowBeat) { sounding = true }
+        newestOn = max(newestOn, n.onBeat)
+    }
+    return EuclideousStackSounding(sounding: sounding, glowOnset: newestOn.isFinite ? newestOn : nil)
+}
+
+/// §2.1 / §5.2 — the cell's look from selection + sounding + the glow age (seconds since the newest routed note-on; nil = none). `fillAlpha` over lane100: sounding = 1 (today's on look, ink label); selected-at-rest = 50 % (#F2F4F7 label);
+/// else 0 (the view draws the OFF look). `glowAlpha` from the shared lamp envelope. No ease on the fill — only the glow fades (the view animates it).
+struct EuclideousStackCellLook: Equatable { var fillAlpha: Double; var labelInk: Bool; var glowAlpha: Double }
+func euclideousStackCellLook(selected: Bool, sounding: Bool, glowAgeSeconds: Double?, reduceMotion: Bool) -> EuclideousStackCellLook {
+    let glow = glowAgeSeconds.map { euclideousGlowEnvelope(ageSeconds: $0, reduceMotion: reduceMotion) } ?? 0
+    if sounding { return EuclideousStackCellLook(fillAlpha: 1, labelInk: true, glowAlpha: glow) }
+    if selected { return EuclideousStackCellLook(fillAlpha: EuclideousStackTuning.restFillAlpha, labelInk: false, glowAlpha: glow) }
+    return EuclideousStackCellLook(fillAlpha: 0, labelInk: false, glowAlpha: glow)
+}
+
 // MARK: - the frames
 
 /// The grid inside the riff panel's box (`euclideousRiffPanelLayout`'s own chrome — the 8 pt padding, the switch row, the 6 pt under it): the lane column headers, the axis, 11 rows of 4 cells. Panel coordinates, (0,0) the panel's top-left.

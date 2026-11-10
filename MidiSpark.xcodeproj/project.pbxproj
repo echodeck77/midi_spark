@@ -263,6 +263,7 @@
 		8B711DFECF2BE4E0473A0396 /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */; };
 		8BE64CF7DD07214318F1CA08 /* RhythmPolishTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408AF07FF1C6D11373D00D64 /* RhythmPolishTests.swift */; };
 		8C0A79D7C15CDA8D43AC7760 /* LanesGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A732F956AC8A9961E6F346F /* LanesGridTests.swift */; };
+		8C2C89B835B3507C4ABAF06B /* StackGridLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E227C46A23C7B9BF9E36CE /* StackGridLiveTests.swift */; };
 		8CC40A50AE903C00870E629A /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
 		8DC3AA73114BE6ECD1E1D9BC /* SessionTape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F916631CD0B4974C26CB893 /* SessionTape.swift */; };
 		8E5DFF82368B8CD0F33315AD /* EmitterCCLegacy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C6E676F1410031DD753DD2B /* EmitterCCLegacy.swift */; };
@@ -688,6 +689,7 @@
 		88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diag.swift; sourceTree = "<group>"; };
 		88CB15CBF16CD2853E91702B /* FourfoldLinkSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldLinkSettingsView.swift; sourceTree = "<group>"; };
 		895B3CF80D62A9017460EF53 /* SourceStackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceStackTests.swift; sourceTree = "<group>"; };
+		89E227C46A23C7B9BF9E36CE /* StackGridLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackGridLiveTests.swift; sourceTree = "<group>"; };
 		8A9C65A7A6B7ACAE4F4E8194 /* RestartTilePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartTilePainter.swift; sourceTree = "<group>"; };
 		8BB6A38FE32EA7DF0350FFDB /* AcceptanceArpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceArpTests.swift; sourceTree = "<group>"; };
 		8BD8A7AD9DA57CA503786525 /* MixPadPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixPadPainter.swift; sourceTree = "<group>"; };
@@ -1074,6 +1076,7 @@
 				D4725DDA30BD137A2E7F2623 /* SessionTapeTests.swift */,
 				CB72B97F862EE82E9F92BEE8 /* SnapshotBuilderTests.swift */,
 				895B3CF80D62A9017460EF53 /* SourceStackTests.swift */,
+				89E227C46A23C7B9BF9E36CE /* StackGridLiveTests.swift */,
 				FF7A8325F865AF22AAF72663 /* StackGridTests.swift */,
 				AACBF8AB7F0AEC84050F092D /* TapeStoreTests.swift */,
 				5BBAF9EAD91D06A80F0E92A8 /* TapStepTests.swift */,
@@ -1916,6 +1919,7 @@
 				E7784ECA8F44A813DF1AB6BE /* SnapshotBuilderTests.swift in Sources */,
 				B30A6F494B84A1E0BD7FA8E3 /* SourceStackTests.swift in Sources */,
 				C61C5D495A11A7B47C2E6E78 /* StackGrid.swift in Sources */,
+				8C2C89B835B3507C4ABAF06B /* StackGridLiveTests.swift in Sources */,
 				0045AB2F6FFEDC732215D060 /* StackGridTests.swift in Sources */,
 				3A595E200483D566EADBB617 /* TapStepTests.swift in Sources */,
 				7F36E18A0AD3001DDB97F6C4 /* TapeStore.swift in Sources */,

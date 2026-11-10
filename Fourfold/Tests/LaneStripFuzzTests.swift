@@ -98,14 +98,23 @@ final class LaneStripFuzzTests: XCTestCase {
                     let beat = (Double(t) + 0.1) * cfg.sub
                     guard let plan = euclideousWalkTagPlan(cfg: cfg, ranks: ranks, beat: beat, secondsPerBeat: 0.5, polledStep: w.playedStep, running: true, polledOrdinal: w.advOrd), plan.landedTick == t else { continue }
                     let arrow = euclideousLaneArrowState(lane: 0, cfg: cfg, plan: plan, polledOrdinal: w.advOrd)
-                    let cur = euclideousStripCurrentStep(cfg: cfg, landedTick: plan.landedTick, passLapStartTick: lapStart, arrowStaysOnTiedNote: plan.seatIsRest && !arrow.hollow, legs: legs)
+                    let stays = plan.seatIsRest && !arrow.hollow
+                    let cur = euclideousStripCurrentStep(cfg: cfg, landedTick: plan.landedTick, passLapStartTick: lapStart, arrowStaysOnTiedNote: stays, legs: legs)
                     if let cur {
                         checkedCurrent += 1
                         let chip = legs[cur.leg].hits[cur.step].chip
-                        XCTAssertEqual(chip.map { $0.column - 1 }, arrow.column, "trial \(trial) leg \(li) hit \(j): the current chip is in the arrow's column")
-                        XCTAssertEqual(chip?.rank, arrow.rank, "trial \(trial) leg \(li) hit \(j): …and row")
-                        XCTAssertFalse(arrow.hollow, "trial \(trial) hit \(j): a hollow arrow has no filled current chip")
-                        if !plan.seatIsRest { XCTAssertEqual(cur.leg, li, "trial \(trial) hit \(j): a played hit's chip is in its own sweep") }
+                        XCTAssertNotNil(chip); XCTAssertEqual(chip?.grey, false, "trial \(trial): the current chip is never a grey riff-off chip")
+                        if chip?.hollow == true {
+                            // STACK GRID LIVE §3.2: a REPEAT's HOLLOW chip is current — it rings on the REPEATED rank (the lookback), not the arrow's rest seat
+                            repeatsChecked += 1
+                            XCTAssertEqual(chip?.rank, euclideousStripRepeatRank(cfg: cfg, ranks: ranks, tick: lapStart + Int64(leg.hitSteps[j].tick)), "trial \(trial) hit \(j): the current REPEAT chip rings on the repeated rank")
+                        } else {
+                            XCTAssertEqual(chip.map { $0.column - 1 }, arrow.column, "trial \(trial) leg \(li) hit \(j): the current chip is in the arrow's column")
+                            XCTAssertEqual(chip?.rank, arrow.rank, "trial \(trial) leg \(li) hit \(j): …and row")
+                            if !plan.seatIsRest { XCTAssertEqual(cur.leg, li, "trial \(trial) hit \(j): a played hit's chip is in its own sweep") }
+                        }
+                        // STACK GRID LIVE §5.4: riffGhostRank is the projection of the current chip's rank — the ONE state the STACK grid shares
+                        XCTAssertEqual(euclideousStripCurrentRank(cfg: cfg, landedTick: plan.landedTick, passLapStartTick: lapStart, arrowStaysOnTiedNote: stays, legs: legs), chip?.rank, "trial \(trial) hit \(j): riffGhostRank == the current chip's rank")
                     } else if !arrow.hollow {
                         XCTAssertTrue(plan.seatIsRest, "trial \(trial) leg \(li) hit \(j): a solid arrow on a played hit must have a current chip (col \(arrow.column + 1) rank \(arrow.rank), onRest \(l.riffOnRestResolved))")
                     }
