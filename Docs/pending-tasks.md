@@ -2144,3 +2144,11 @@ Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md
 - [ ] (note) A stored POLY document can no longer be switched back to MONO from the UI (MONO's old tap did that). Say if RIFF should, or if POLY documents should migrate.
 - [ ] (cleanup) the debug `--poly-control` flag and the POLY grid code stay until the POLY engine is retired.
 - [ ] (cleanup, later ferry) once note selection leaves NOTES, the STACK tab (the old NOTES body) and its caption can go; the STACK grid then needs its own stored selection.
+
+## RIFF MAP ferry (2026-11-10) — follow-ups
+- [x] Findings → pure colours + tables → grid → chips → states (status log, "RIFF MAP ferry").
+- [ ] (DECIDE) **REPEAT's chip colour names a rest column's cell, not the note it replays.** The strip labels a REPEAT chip with the hit's own (rest) column and draws it at the repeated note's rank; the ferry says use the label's column, so its colour is `riffMapColour(label column, drawn rank)` — a cell that is empty in the grid. The repeated note's column is available (`euclideousRiffRepeatLookback` returns it; the strip drops it). Say if the chip should wear the repeated note's cell colour (and/or be labelled with that column).
+- [ ] (DECIDE) the HOCKET-resting outline now takes the chip's map colour (was the light-chip grey-white); POLY extra chips use the hit's column. Both are my reading of "every lane chip wears the colour of the cell it plays".
+- [ ] (cleanup) the POLY grid (`EuclideousPolyGridView`) is not recoloured; revisit only if POLY returns to the UI.
+- [ ] (cleanup) `Docs/fourstep-design-tokens.md` still lists the old grid cell colours; fold the map in when the palette is next consolidated.
+- [ ] (pre-existing red test) `ClarityPassTests.testListenSourceResolvesToAStoredOrDefaultLaneWhileFollowing` — fails without this ferry's changes.
