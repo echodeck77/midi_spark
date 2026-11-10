@@ -2152,3 +2152,4 @@ Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md
 - [ ] (cleanup) the POLY grid (`EuclideousPolyGridView`) is not recoloured; revisit only if POLY returns to the UI.
 - [ ] (cleanup) `Docs/fourstep-design-tokens.md` still lists the old grid cell colours; fold the map in when the palette is next consolidated.
 - [ ] (pre-existing red test) `ClarityPassTests.testListenSourceResolvesToAStoredOrDefaultLaneWhileFollowing` — fails without this ferry's changes.
+- [ ] (pre-existing red test) `EffectiveParamsTests.testEveryStoredEuclidLineFieldSurvivesAnEncodeDecodeRoundTrip` — `notesPlaySeq` (PLAY AS SEQUENCE) is not populated in the round-trip test; add it there.
