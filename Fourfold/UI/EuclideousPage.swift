@@ -6077,8 +6077,12 @@ struct EuclideousPage: View {
         let look = euclideousStackCellLook(selected: on, sounding: sounding, glowAgeSeconds: glowAge, reduceMotion: reduceMotion)
         var ringed = false
         if case .rank(let r) = row, ghostRank == r { ringed = true }   // §3: lane `lane`'s riff reads this rank now
+        // §6.1: a lane whose NOTES part is silenced (per-part / lane solo — the lamp's own `audible` gate) draws its rest cells, ring and names at 42 %, once; nothing sounds then (the feed carries no outs for it).
+        let dimmed = partSoloSilenced(lane, part: 1)
         return AnyView(
             EuclideousStackCellView(name: name, look: look, ringed: ringed, live: position != nil, accent: lane100(accent), size: size, fontSize: fontSize)
+                .opacity(dimmed ? EuclideousLaneDimStyle.opacity : 1)
+                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: dimmed)
                 .contentShape(Rectangle())
                 .modifier(laneTapMod(lane) { if position != nil { edit(lane) { _ = euclideousStackCellToggle(&$0, row: row, poolCount: poolCount) } } })
                 .modifier(lockOutlineMod(lane, .noteKey(position ?? 0), accent))
