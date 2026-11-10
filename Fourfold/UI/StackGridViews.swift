@@ -10,6 +10,7 @@ private func stackHeavyMono(_ size: CGFloat) -> Font { .system(size: size, weigh
 struct EuclideousStackCellView: View {
     let name: String
     let look: EuclideousStackCellLook
+    var ringed: Bool = false
     let live: Bool
     let accent: Color
     let size: CGSize
@@ -24,6 +25,10 @@ struct EuclideousStackCellView: View {
             RoundedRectangle(cornerRadius: 5).fill(lit ? accent.opacity(look.fillAlpha) : Color(hex: 0x1F2127))
             if !lit { RoundedRectangle(cornerRadius: 5).strokeBorder(accent.opacity(live ? 0.3 : 0.12), lineWidth: 1) }
             Text(name).font(stackHeavyMono(fontSize)).foregroundColor(label(lit)).lineLimit(1)   // truncate, never shrink
+            if ringed {   // §3: the riff ghost ring — 1.5 pt lane colour, inner edge 1 pt outside the cell (concentric, radius 5 + 1 + 0.75 = 6.75); draws over the glow, whatever the cell's state
+                RoundedRectangle(cornerRadius: 6.75).stroke(accent, lineWidth: RiffMapTuning.ringWidth)
+                    .padding(-(EuclideousStackTuning.ringGap + RiffMapTuning.ringWidth / 2))
+            }
         }
         .frame(width: size.width, height: size.height)
     }
