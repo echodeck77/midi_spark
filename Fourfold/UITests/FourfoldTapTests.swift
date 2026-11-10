@@ -480,6 +480,26 @@ final class FourfoldTapTests: XCTestCase {
         XCTAssertEqual(value(app.el("Ratchet on emitter A")), "on")
     }
 
+    /// CC tab (2026-11-10): the number on an emitter's page slides — up raises it, down lowers it, a whole slide is one undo step — and leaving the tab and coming back shows the four rows, not the page that was open.
+    func testTheCCNumberSlidesAndTheTabReopensOnItsRows() {
+        let app = XCUIApplication.fresh()
+        app.buttons["C C emitters"].firstMatch.tap()
+        need(app.els(prefix: "Emitter A CC").firstMatch, "emitter A's row").tap()
+        let number = need(app.el("CC number"), "the CC number on emitter A's page")
+        XCTAssertEqual(value(number), "74", "emitter A starts on CC 74")
+        let from = number.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))   // the group is CC ‹ number › — its middle is the number's plate
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -45)))
+        let raised = Int(value(app.el("CC number"))) ?? -1
+        XCTAssertGreaterThan(raised, 74 + 5, "sliding up raised the number (45 pt ≈ 15 steps)")
+        app.buttons["Undo"].tap()
+        XCTAssertEqual(value(app.el("CC number")), "74", "the whole slide was one undo step")
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: 45)))
+        XCTAssertLessThan(Int(value(app.el("CC number"))) ?? 999, 74 - 5, "sliding down lowered it")
+        app.buttons["Mute"].tap(); app.buttons["C C emitters"].firstMatch.tap()
+        need(app.els(prefix: "Emitter A CC").firstMatch, "the four rows again after leaving and returning")
+        XCTAssertFalse(app.el("CC number").exists, "the editing page is not what comes back")
+    }
+
     /// A small window (AUM's minimized plugin window, Stage Manager, Split View) must stay the live, interactive page — there is no "resize to continue" screen any more.
     func testASmallWindowStaysLiveAndInteractive() {
         for size in ["480x320", "440x700"] {

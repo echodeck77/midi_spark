@@ -125,6 +125,13 @@ func emitterCCFieldIsInert(_ f: EmitterCCField, _ cc: EmitterCC) -> Bool {
 func emitterCCToIsInert(_ cc: EmitterCC) -> Bool { cc.hold >= 100 }
 func emitterCCCurveIsInert(_ cc: EmitterCC) -> Bool { cc.effectiveRamp == 0 }
 
+/// Sliding the CC NUMBER on an emitter's page: up raises it, `emitterCCNumberDragPointsPerStep` points a step, pinned to 0…`EmitterCC.maxCC`. Relative to where the touch began, so the first touch never jumps the value.
+let emitterCCNumberDragPointsPerStep: CGFloat = 3
+func emitterCCNumberDrag(start: Int, travelUp: CGFloat) -> Int {
+    let steps = Int((travelUp / emitterCCNumberDragPointsPerStep).rounded())
+    return max(0, min(EmitterCC.maxCC, start + steps))
+}
+
 /// The drawn curve's value (0…127) at bar position `beat`, interpolated along the same polyline the page strokes — so a marker riding it lands exactly on the static dots when the playhead reaches them. nil with fewer than two points.
 func emitterCCTraceValue(_ points: [CGPoint], atBeat beat: Double) -> Double? {
     guard points.count > 1 else { return nil }

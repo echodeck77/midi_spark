@@ -47,6 +47,38 @@ struct CCBarSlider: View {
     }
 }
 
+/// The CC number as a plate you slide: drag up to raise it, down to lower it (`emitterCCNumberDrag`, relative to where the touch began), the chevrons beside it stay for single steps. One undo step per drag.
+struct CCNumberSlider: View {
+    let value: Int
+    let onChange: (Int, Bool) -> Void   // (new value, newStep)
+    @State private var start: Int? = nil
+    @State private var burstOpen = false
+    @GestureState private var gestureLive = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .heavy)).foregroundColor(P.muted)
+            Text("\(value)").font(heavyMonoCC(16)).foregroundColor(P.text).frame(minWidth: 28)
+        }
+        .frame(width: 64, height: 30)
+        .background(RoundedRectangle(cornerRadius: 8).fill(P.slot))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(P.rule, lineWidth: 1))
+        .contentShape(Rectangle().inset(by: -4))
+        .gesture(DragGesture(minimumDistance: 3)
+            .updating($gestureLive) { _, live, _ in live = true }
+            .onChanged { g in
+                if start == nil { start = value }
+                let v = emitterCCNumberDrag(start: start ?? value, travelUp: -g.translation.height)
+                guard v != value else { return }
+                onChange(v, !burstOpen)   // the first write of a drag opens its undo step; the rest join it
+                burstOpen = true
+            }
+            .onEnded { _ in finish() })
+        .onChange(of: gestureLive) { live in if !live { finish() } }   // the system cancelled the touch: the next drag starts fresh
+    }   // (VoiceOver: the stepper group around it is the one adjustable "CC number" element)
+    private func finish() { start = nil; burstOpen = false }
+}
+
 /// One bar of an emitter's output: a dark tile, the step grid's lines, small ticks under each hit (`detailed` only), a light line for the curve, a dot on each hit's value in the colour of the LANE whose hit it is and — while the transport runs — a
 /// playhead and a ring riding the drawn curve at the playhead, both in the colour of the lane whose hit is in effect at that position. There is ONE bar clock, so there is one playhead; with several lanes on the emitter it changes colour as the lane
 /// driving the value changes. Drawn from the pure `emitterCCTrace`; nothing here keeps time except the playhead, which asks the page's clock.
@@ -181,18 +213,21 @@ struct EuclideousCCExpandedView: View {
                 .accessibilityElement(children: .ignore).accessibilityLabel("Emitter \(letter)").accessibilityValue(cc.on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
             Spacer(minLength: 0)
             ccStepper(cc)
-            Text("\u{2715}").font(heavyMonoCC(14)).foregroundColor(P.muted).frame(width: 30, height: 30)
-                .contentShape(Rectangle()).onTapGesture(perform: onCollapse)
+            // CLOSE: a filled light pill (the selected-segment look) instead of a bare grey ✕, 52 × 30 with the touch reaching 4 pt past it
+            Image(systemName: "xmark").font(.system(size: 14, weight: .heavy)).foregroundColor(P.ink)
+                .frame(width: 52, height: 30)
+                .background(RoundedRectangle(cornerRadius: 8).fill(P.light))
+                .contentShape(Rectangle().inset(by: -4)).onTapGesture(perform: onCollapse)
                 .accessibilityElement(children: .ignore).accessibilityLabel("Close").accessibilityAddTraits(.isButton)
         }
         .frame(height: 30)
     }
     @ViewBuilder private func ccStepper(_ cc: EmitterCC) -> some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
             Text("CC").font(heavyMonoCC(10)).foregroundColor(P.muted)
-            Text("\u{2039}").font(heavyMonoCC(13)).foregroundColor(P.muted).frame(width: 20, height: 30).contentShape(Rectangle()).onTapGesture { onEdit(true) { $0[output].ccNumber = max(0, $0[output].ccNumber - 1) } }
-            Text("\(cc.ccNumber)").font(heavyMonoCC(13)).foregroundColor(P.text).frame(minWidth: 26)
-            Text("\u{203A}").font(heavyMonoCC(13)).foregroundColor(P.muted).frame(width: 20, height: 30).contentShape(Rectangle()).onTapGesture { onEdit(true) { $0[output].ccNumber = min(EmitterCC.maxCC, $0[output].ccNumber + 1) } }
+            Text("\u{2039}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[output].ccNumber = max(0, $0[output].ccNumber - 1) } }
+            CCNumberSlider(value: cc.ccNumber) { v, newStep in onEdit(newStep) { $0[output].ccNumber = v } }
+            Text("\u{203A}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[output].ccNumber = min(EmitterCC.maxCC, $0[output].ccNumber + 1) } }
         }
         .accessibilityElement(children: .ignore).accessibilityLabel("CC number").accessibilityValue("\(cc.ccNumber)")
         .accessibilityAdjustableAction { d in onEdit(true) { $0[output].ccNumber = max(0, min(EmitterCC.maxCC, $0[output].ccNumber + (d == .increment ? 1 : -1))) } }

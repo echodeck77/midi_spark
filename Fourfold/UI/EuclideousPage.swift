@@ -6353,6 +6353,7 @@ struct EuclideousPage: View {
         .padding(sp8)
         .frame(width: maxWidth, height: maxHeight)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+        .onChange(of: tab) { t in if t != .cc { ccExpanded = nil } }   // leaving the CC tab closes an emitter's page: coming back shows the four rows
     }
     /// Tab row — TABS ONLY (MIX ferry 2026-10-18 §1): MIX, then LANES (RIFFS stays hidden), equal widths across the content width sp4 apart
     /// (198.5 each at the reference panel). Each tab is 20 tall: a 12pt heavy label centred in the top 16, a 2pt bar along the bottom edge

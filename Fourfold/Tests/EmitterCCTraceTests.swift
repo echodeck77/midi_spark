@@ -104,6 +104,15 @@ final class EmitterCCTraceTests: XCTestCase {
         for f in [EmitterCCField.high, .low, .hold, .mute] { XCTAssertFalse(emitterCCFieldIsInert(f, EmitterCC(hold: 100)), "\(f) is always read") }
         XCTAssertEqual(EmitterCCField.allCases.count, 6, "HIGH · LOW · HOLD · RAMP · PASSES · MUTE")
     }
+    func testSlidingTheCCNumberIsRelativeUpRaisesAndPinsToTheRange() {
+        let p = emitterCCNumberDragPointsPerStep
+        XCTAssertEqual(emitterCCNumberDrag(start: 74, travelUp: 0), 74, "a touch that has not moved never changes the value")
+        XCTAssertEqual(emitterCCNumberDrag(start: 74, travelUp: p * 5), 79, "up raises, one step per \(p) pt")
+        XCTAssertEqual(emitterCCNumberDrag(start: 74, travelUp: -p * 5), 69, "down lowers")
+        XCTAssertEqual(emitterCCNumberDrag(start: 74, travelUp: p * 0.4), 74, "under half a step rounds back")
+        XCTAssertEqual(emitterCCNumberDrag(start: 74, travelUp: 10_000), EmitterCC.maxCC); XCTAssertEqual(emitterCCNumberDrag(start: 74, travelUp: -10_000), 0)
+        XCTAssertLessThanOrEqual(p * CGFloat(EmitterCC.maxCC), 400, "the whole range is reachable in one sweep of the screen")
+    }
     func testARampTraceClimbsFromLowToHighAcrossTheSpan() {
         let c = EmitterCCCfg(EmitterCC.legacy(on: true, mode: .climb, high: 120, low: 0, travel: .step, passes: 1))
         let t = emitterCCTrace(cfg: c, hits: (0..<4).map { EmitterCCTraceHit(beat: Double($0), rank: 0, lane: 0, ordinal: Int64($0), passHits: 4) }, barBeats: 4)
