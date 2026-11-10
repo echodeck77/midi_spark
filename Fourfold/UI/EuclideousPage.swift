@@ -6043,7 +6043,7 @@ struct EuclideousPage: View {
     // Four columns (the four lanes, in lane-card order, headed in their colours) by eleven rows — TOP, TOP−1, TOP−2, then ranks 8 … 1 — of toggle cells, beside the app's own rank chips as the axis. A cell reads and writes the lane's NOTES selection
     // (`euclideousStackCellIsOn` / `euclideousStackCellToggle`, which call the NOTES tab's `euclideousToggleLitPosition` on the position the cell stands for): nothing is kept here, so a change on either side shows on the other at once.
     /// One cell, as an `AnyView` leaf (the page's build chain has little stack to spare). The tap goes through `laneTapMod` — the lock-aware tap the NOTES keys use — and the cell wears the keys' "will snap back" outline on a locked lane.
-    private func stackCell(_ row: EuclideousStackRow, lane: Int, size: CGSize, fontSize: CGFloat) -> AnyView {
+    private func stackCell(_ row: EuclideousStackRow, lane: Int, size: CGSize, fontSize: CGFloat, beat: Double, playing: Bool) -> AnyView {
         let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
         let lp = lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
         let pool = lp.notes
@@ -6055,8 +6055,17 @@ struct EuclideousPage: View {
         let name = note.map { euclideousDisplayNoteName(UInt8($0), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "\u{2013}"
         let spoken = note.map { euclideousAccessibleDisplayNoteName(UInt8($0), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "no note"
         let poolCount = lp.count
+        // STACK GRID LIVE §2: the NOTES part lights the cell while its rank sounds; a note-on glows it. Only while playing (stopped = rest + names, §6.2); only the NOTES part (§2.6).
+        var sounding = false, glowAge: Double? = nil
+        if playing, case .rank(let r) = row {
+            let part = 2 * lane + 1
+            let s = euclideousStackSounding(notesPart: part < rollLive.model.parts.count ? rollLive.model.parts[part] : [], rank: r, nowBeat: beat)
+            sounding = s.sounding
+            glowAge = s.glowOnset.map { (beat - $0) * 60 / max(1, clock.tempo) }
+        }
+        let look = euclideousStackCellLook(selected: on, sounding: sounding, glowAgeSeconds: glowAge, reduceMotion: reduceMotion)
         return AnyView(
-            EuclideousStackCellView(name: name, on: on, live: position != nil, accent: lane100(accent), size: size, fontSize: fontSize)
+            EuclideousStackCellView(name: name, look: look, live: position != nil, accent: lane100(accent), size: size, fontSize: fontSize)
                 .contentShape(Rectangle())
                 .modifier(laneTapMod(lane) { if position != nil { edit(lane) { _ = euclideousStackCellToggle(&$0, row: row, poolCount: poolCount) } } })
                 .modifier(lockOutlineMod(lane, .noteKey(position ?? 0), accent))
@@ -6087,12 +6096,16 @@ struct EuclideousPage: View {
                 }
             }
             Color.clear.frame(height: L.headerGap)
-            VStack(spacing: L.rowGap) {
-                ForEach(0..<rows.count, id: \.self) { r in
-                    HStack(spacing: sp4) {
-                        stackAxisChip(rows[r], size: CGSize(width: L.labelW, height: L.rowH))
-                        ForEach(0..<4, id: \.self) { lane in
-                            stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize)
+            // STACK GRID LIVE §2/§3: a 60 fps layer so the cells light + glow while notes sound and the riff ghost ring tracks; paused when the page isn't live (stopped = the frozen rest looks, §6.2).
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+                let beat = walkTagBeat(at: tl.date)
+                VStack(spacing: L.rowGap) {
+                    ForEach(0..<rows.count, id: \.self) { r in
+                        HStack(spacing: sp4) {
+                            stackAxisChip(rows[r], size: CGSize(width: L.labelW, height: L.rowH))
+                            ForEach(0..<4, id: \.self) { lane in
+                                stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize, beat: beat, playing: clock.playing)
+                            }
                         }
                     }
                 }
