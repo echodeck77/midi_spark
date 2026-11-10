@@ -6050,12 +6050,10 @@ struct EuclideousPage: View {
         let accent = laneAccents[lane % laneAccents.count]
         let on = euclideousStackCellIsOn(line, row: row, poolCount: lp.count)
         let position = row.position(poolCount: lp.count)
-        let note = row.note(pool: lp)
-        let name = note.map { m -> String in
-            guard m >= 0, m <= 127 else { return "\u{2013}" }
-            return euclideousDisplayNoteName(UInt8(m), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType)
-        } ?? "\u{2013}"
-        let spoken = note.map { euclideousAccessibleDisplayNoteName(UInt8(max(0, min(127, $0))), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "no note"
+        // STACK GRID LIVE §4: the note the lane's NOTES part would send for this rank — the pool note shifted by the NOTES OCT (the engine's riffResolve). nil (→ "–") when the engine would drop it out of 0…127 (§4.3).
+        let note = euclideousStackCellNote(row: row, pool: lp, notesOct: line.octaveResolved)
+        let name = note.map { euclideousDisplayNoteName(UInt8($0), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "\u{2013}"
+        let spoken = note.map { euclideousAccessibleDisplayNoteName(UInt8($0), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "no note"
         let poolCount = lp.count
         return AnyView(
             EuclideousStackCellView(name: name, on: on, live: position != nil, accent: lane100(accent), size: size, fontSize: fontSize)
