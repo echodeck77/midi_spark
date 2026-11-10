@@ -140,6 +140,7 @@
 		4C89582608B59EDD88A57E3D /* ArrangementBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84394E2F5C88D0DA7A2CDA58 /* ArrangementBar.swift */; };
 		4D1ED5A783E864704FEFF3A6 /* ListenTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC6819599CED217146F91C04 /* ListenTabTests.swift */; };
 		4E09544FFD854AA9ECA2EC42 /* HarmonyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24C15BDAB89DD4B8DEF42338 /* HarmonyLayout.swift */; };
+		4F04521A14DEF63FE241A295 /* RiffMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD095B8B6B4600B7D9AEFDC4 /* RiffMapTests.swift */; };
 		4F1866D5173CD9DDB623E9A8 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */; };
 		4F3EF380971684557D2BA782 /* RiffDirectionMirrorHuntTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839B87525F479BAE343B637A /* RiffDirectionMirrorHuntTests.swift */; };
 		4F7BB6013CA868EE5B545EEE /* NotesTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368C260460EAF19255196447 /* NotesTabTests.swift */; };
@@ -738,6 +739,7 @@
 		AB063E2496497A1B3757D426 /* CardBackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardBackTests.swift; sourceTree = "<group>"; };
 		AB4E013DDA3B122F0BEEBFB8 /* HocketGlyphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketGlyphView.swift; sourceTree = "<group>"; };
 		ABB85C75FDBCD12F45FAB3DC /* CardBack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardBack.swift; sourceTree = "<group>"; };
+		AD095B8B6B4600B7D9AEFDC4 /* RiffMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffMapTests.swift; sourceTree = "<group>"; };
 		AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPresets.swift; sourceTree = "<group>"; };
 		AE216B742656753132B6BF90 /* RestartFlashPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashPainter.swift; sourceTree = "<group>"; };
 		AEB03CC002F55E0712BACE13 /* HocketPopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketPopup.swift; sourceTree = "<group>"; };
@@ -1062,6 +1064,7 @@
 				BB94EF7295FC02210D4E1DDD /* RiffDirectionHuntTests.swift */,
 				839B87525F479BAE343B637A /* RiffDirectionMirrorHuntTests.swift */,
 				42A11E131366C40F5FB993C3 /* RiffGridArrowFuzzTests.swift */,
+				AD095B8B6B4600B7D9AEFDC4 /* RiffMapTests.swift */,
 				D67906574F7AC7903958AF3B /* RiffPanelTests.swift */,
 				678E167D4A16C39447DC29C1 /* RouterTests.swift */,
 				3F6C43BE043B3253C35B961E /* SameNoteGuardTests.swift */,
@@ -1896,6 +1899,7 @@
 				52F5DCC716C93C7604A01595 /* RiffDirectionHuntTests.swift in Sources */,
 				4F3EF380971684557D2BA782 /* RiffDirectionMirrorHuntTests.swift in Sources */,
 				F916421D23299C61B01B18B2 /* RiffGridArrowFuzzTests.swift in Sources */,
+				4F04521A14DEF63FE241A295 /* RiffMapTests.swift in Sources */,
 				5E970B6C60B8B0AF78C866B7 /* RiffPanelTests.swift in Sources */,
 				CBBC295B11E91C7833E213C7 /* Router.swift in Sources */,
 				7A38F150DFE99F651004F657 /* RouterTests.swift in Sources */,

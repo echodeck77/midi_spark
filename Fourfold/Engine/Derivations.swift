@@ -7868,6 +7868,62 @@ func euclideousEvenBlend(_ colours: [EuclideousRGB]) -> EuclideousRGB {
     return euclideousRGBFromOKLab(L: L / n, a: a / n, b: b / n)
 }
 
+// MARK: - RIFF MAP (ferry 2026-11-10, option C "Map")
+//
+// Every riff-grid cell has a colour from its COLUMN (hue) and its RANK (lightness); a lane-strip chip wears the colour of the cell it plays. Display only — nothing here is saved, sounded or sent.
+// 64 colours (8 columns × 8 ranks), built ONCE into tables on first use; a draw reads a table entry, it never converts. Columns 9 … 16 (POLY, a debug-only grid now) repeat columns 1 … 8: the hue step is 45°, eight of them is a full turn.
+
+/// The tunables, named so they can be changed in one place later. This ferry changes none of them (Paul: expose, don't change). Everything below reads them when the tables are built.
+enum RiffMapTuning {
+    /// OKLCH lightness of rank 1; rank 8 is `lightnessFloor + lightnessRange`.
+    static let lightnessFloor = 0.60
+    static let lightnessRange = 0.32
+    static let chroma = 0.10
+    /// Hue of column 1, and the step to the next column, in degrees.
+    static let startHueDegrees = 15.0
+    static let hueStepDegrees = 45.0
+    /// An EMPTY cell is the cell's map colour at this share over the grid's empty-cell fill.
+    static let faintMix = 0.20
+    /// The current chip's lane-colour ring, drawn outside the chip's frame.
+    static let ringWidth: CGFloat = 1.5
+    /// The grid's real EMPTY cell, flat: white 8 % over the panel's white 3.5 % over the page ground (0.05, 0.055, 0.07) = (39.93, 41.06, 44.46) → #28292C. (The ferry's canvas used #232428; the source wins.)
+    static let emptyFill = EuclideousRGB(r: 0x28, g: 0x29, b: 0x2C)
+}
+/// How many OKLCH → sRGB conversions the tables have cost. 64 once the map colours exist (the faint mix is arithmetic, not a conversion); it must never grow after that — a test reads it.
+private(set) var riffMapConversionCount = 0
+
+/// §1: the colour of a written note at `column` (1…, any column above 8 wraps) and `rank` (1…8): OKLCH with L = floor + (rank − 1) × range ÷ 7, C = chroma, h = start + (column − 1) × step, each sRGB channel clamped on its own
+/// (twelve cells at ranks 6 – 8 clip, deliberately) and rounded to 8 bits. Computed, not looked up — `riffMapColour` is the table.
+func riffMapComputeColour(column: Int, rank: Int) -> EuclideousRGB {
+    typealias T = RiffMapTuning
+    riffMapConversionCount += 1
+    let r = max(1, min(8, rank)), c = max(1, column)
+    let L = T.lightnessFloor + Double(r - 1) * T.lightnessRange / 7
+    let h = (T.startHueDegrees + Double(c - 1) * T.hueStepDegrees) * Double.pi / 180
+    return euclideousRGBFromOKLab(L: L, a: T.chroma * cos(h), b: T.chroma * sin(h))
+}
+/// The faint form of a map colour: `faintMix` of it over `empty`, per channel, rounded.
+func riffMapFaintMix(_ map: EuclideousRGB, over empty: EuclideousRGB) -> EuclideousRGB {
+    let k = RiffMapTuning.faintMix
+    func mix(_ m: Int, _ e: Int) -> Int { Int((k * Double(m) + (1 - k) * Double(e)).rounded()) }
+    return EuclideousRGB(r: mix(map.r, empty.r), g: mix(map.g, empty.g), b: mix(map.b, empty.b))
+}
+/// Both 64-entry tables, rank-major within column: index = (column − 1) % 8 × 8 + (rank − 1). A global `let`: built once, thread-safe, on first use.
+private let riffMapTables: (map: [EuclideousRGB], faint: [EuclideousRGB]) = {
+    var map: [EuclideousRGB] = [], faint: [EuclideousRGB] = []
+    map.reserveCapacity(64); faint.reserveCapacity(64)
+    for column in 1...8 { for rank in 1...8 {
+        let m = riffMapComputeColour(column: column, rank: rank)
+        map.append(m); faint.append(riffMapFaintMix(m, over: RiffMapTuning.emptyFill))
+    } }
+    return (map, faint)
+}()
+@inline(__always) private func riffMapIndex(column: Int, rank: Int) -> Int { ((max(1, column) - 1) % 8) * 8 + (max(1, min(8, rank)) - 1) }
+/// §1: the cell's colour — a written note's fill in the grid, and a chip's fill in the lane strip.
+func riffMapColour(column: Int, rank: Int) -> EuclideousRGB { riffMapTables.map[riffMapIndex(column: column, rank: rank)] }
+/// §1: an EMPTY cell's colour — the same map colour at 20 % over the grid's empty cell.
+func riffMapFaint(column: Int, rank: Int) -> EuclideousRGB { riffMapTables.faint[riffMapIndex(column: column, rank: rank)] }
+
 struct EuclideousBlendStop: Equatable { var position: Double; var colour: EuclideousRGB; var alpha: Double }
 /// §5.4: the fill for lanes c1 … cn (n ≥ 2), left to right: lane i's colour sits at position i ÷ (n − 1). Between neighbours at p0 and p1, with hold = 0.14 ÷ (n − 1),
 /// seven stops at u = 0, 1/6 … 1 take the mix at e = u²(3 − 2u), placed at p0 + hold + (p1 − p0 − 2 × hold) × u — except u = 0 and u = 1, which sit exactly at p0 and p1. So each
