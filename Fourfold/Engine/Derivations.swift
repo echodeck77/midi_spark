@@ -9060,6 +9060,23 @@ func euclideousStripColumnLook(kind: EuclideousStripColumnKind, tone: Euclideous
 /// `rank` 1…8 is the WRITTEN rank the arrow's row rule uses (INV and TRANS never touch it); `column` is the riff column (1-based) the footer shows; `hollow` = a REPEAT hit (the repeated note's
 /// height, a dashed lane outline); `grey` = the riff is off and only one of PLAYS / RESTS is on (the chips show which hits the riff's columns decide).
 struct EuclideousStripChip: Equatable { var rank: Int; var column: Int; var hollow: Bool; var grey: Bool }
+/// RIFF MAP §2: what a colour slot of a chip holds — the map colour of the cell it names, the riff-off grey, or the strip's ink.
+enum EuclideousStripChipColour: Equatable { case map(EuclideousRGB), grey, ink }
+/// RIFF MAP §2: how a chip is drawn and in what colours. `filled` = a solid chip (label in ink); `dashed` = REPEAT's hollow chip (a 1 pt dashed stroke, 3 on 2 off); `resting` = a HOCKET-resting layer's outline. The colour is the cell the chip plays —
+/// `riffMapColour(column: the column the label shows, rank: the rank the height is drawn at)`, one rule for all of them — except a riff-off chip, which stays grey. `currentRing` = the lane-colour ring round the lane's current chip.
+struct EuclideousStripChipPaint: Equatable {
+    enum Shape: Equatable { case filled, dashed, resting }
+    var shape: Shape
+    var colour: EuclideousStripChipColour   // the fill (filled) or the stroke (dashed / resting)
+    var label: EuclideousStripChipColour
+    var currentRing: Bool
+}
+func euclideousStripChipPaint(chip: EuclideousStripChip, isCurrent: Bool, riffRests: Bool) -> EuclideousStripChipPaint {
+    let base: EuclideousStripChipColour = chip.grey ? .grey : .map(riffMapColour(column: chip.column, rank: chip.rank))
+    if riffRests { return EuclideousStripChipPaint(shape: .resting, colour: base, label: base, currentRing: false) }
+    if chip.hollow { return EuclideousStripChipPaint(shape: .dashed, colour: base, label: base, currentRing: false) }
+    return EuclideousStripChipPaint(shape: .filled, colour: base, label: .ink, currentRing: isCurrent && !chip.grey)
+}
 /// `plays` = the notes will play on this hit; `chanceRing` = CHANCE below 100 (it may skip the hit); `label` = what the way plays here, nil when there is nothing to name; `picked` = the pitches the way picks.
 struct EuclideousStripKey: Equatable { var plays: Bool; var chanceRing: Bool; var label: String?; var picked: [Int] }
 struct EuclideousStripHit: Equatable {

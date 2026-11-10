@@ -138,4 +138,82 @@ final class RiffMapTests: XCTestCase {
         XCTAssertFalse(riffMapGridCellIsNote(column: 0, rank: 4, ranks: [4]))
         XCTAssertEqual(riffMapGridCell(column: 4, rank: 2, ranks: [1, 2, 3]), riffMapFaint(column: 4, rank: 2))
     }
+
+    // MARK: §2 — the strip's chips
+
+    private func chip(_ column: Int, _ rank: Int, hollow: Bool = false, grey: Bool = false) -> EuclideousStripChip { EuclideousStripChip(rank: rank, column: column, hollow: hollow, grey: grey) }
+    private func fill(_ p: EuclideousStripChipPaint) -> String { if case .map(let c) = p.colour { return hex(c) }; return "\(p.colour)" }
+
+    /// test 6
+    func testChipsInColumnsTwoThreeFourAtRanksTwoThreeFiveWearTheirCellsColours() {
+        XCTAssertEqual(fill(euclideousStripChipPaint(chip: chip(2, 2), isCurrent: false, riffRests: false)), "#BA7F4C")
+        XCTAssertEqual(fill(euclideousStripChipPaint(chip: chip(3, 3), isCurrent: false, riffRests: false)), "#A59F52")
+        XCTAssertEqual(fill(euclideousStripChipPaint(chip: chip(4, 5), isCurrent: false, riffRests: false)), "#89CB96")
+        for p in [euclideousStripChipPaint(chip: chip(2, 2), isCurrent: false, riffRests: false)] { XCTAssertEqual(p.shape, .filled); XCTAssertEqual(p.label, .ink) }
+    }
+    /// A chip is exactly the grid cell it replays: the same colour as the grid fills that (column, rank) with.
+    func testAChipIsTheColourOfItsGridCell() {
+        for c in 1...8 { for r in 1...8 {
+            var ranks = [Int](repeating: 0, count: 8); ranks[c - 1] = r
+            XCTAssertEqual(euclideousStripChipPaint(chip: chip(c, r), isCurrent: false, riffRests: false).colour, .map(riffMapGridCell(column: c, rank: r, ranks: ranks)))
+        } }
+    }
+    /// test 7 — the current chip keeps the map fill and gains the ring; no chip is ever filled with the lane colour (the paint holds no lane at all)
+    func testTheCurrentChipHasTheMapFillAndTheRingAndOnlyIt() {
+        let cur = euclideousStripChipPaint(chip: chip(6, 3), isCurrent: true, riffRests: false)
+        let plain = euclideousStripChipPaint(chip: chip(6, 3), isCurrent: false, riffRests: false)
+        XCTAssertTrue(cur.currentRing); XCTAssertFalse(plain.currentRing)
+        XCTAssertEqual(cur.colour, plain.colour); XCTAssertEqual(fill(cur), "#5EA4D4")
+        XCTAssertEqual(RiffMapTuning.ringWidth, 1.5)
+        // a grey, hollow or resting chip never wears the ring
+        XCTAssertFalse(euclideousStripChipPaint(chip: chip(6, 3, grey: true), isCurrent: true, riffRests: false).currentRing)
+        XCTAssertFalse(euclideousStripChipPaint(chip: chip(6, 3, hollow: true), isCurrent: true, riffRests: false).currentRing)
+        XCTAssertFalse(euclideousStripChipPaint(chip: chip(6, 3), isCurrent: true, riffRests: true).currentRing)
+    }
+    /// test 8 — REPEAT: hollow, dashed, labelled 6, drawn at rank 3 → stroke and label #5EA4D4
+    func testARepeatChipIsHollowAndItsStrokeAndLabelTakeTheMapColour() {
+        let p = euclideousStripChipPaint(chip: chip(6, 3, hollow: true), isCurrent: false, riffRests: false)
+        XCTAssertEqual(p.shape, .dashed)
+        XCTAssertEqual(p.colour, .map(rgb("#5EA4D4"))); XCTAssertEqual(p.label, .map(rgb("#5EA4D4")))
+    }
+    /// test 9 — riff off + WHEN one-sided: grey chips stay grey (ink label, filled), never the map
+    func testGreyChipsStayGrey() {
+        let p = euclideousStripChipPaint(chip: chip(6, 3, grey: true), isCurrent: false, riffRests: false)
+        XCTAssertEqual(p.shape, .filled); XCTAssertEqual(p.colour, .grey); XCTAssertEqual(p.label, .ink)
+    }
+    /// A HOCKET-resting layer's hollow outline and label wear the chip's colour (grey stays grey).
+    func testARestingLayersOutlineWearsTheChipsColour() {
+        let p = euclideousStripChipPaint(chip: chip(2, 6), isCurrent: true, riffRests: true)
+        XCTAssertEqual(p.shape, .resting); XCTAssertEqual(p.colour, .map(rgb("#F7B884"))); XCTAssertEqual(p.label, p.colour)
+        XCTAssertEqual(euclideousStripChipPaint(chip: chip(2, 6, grey: true), isCurrent: false, riffRests: true).colour, .grey)
+    }
+    /// The chip's height and label come from the same two numbers the colour does: the strip builds chips with the WRITTEN rank and the footer's column.
+    func testTheStripBuildsChipsWithTheWrittenRankAndTheFootersColumn() {
+        let pattern = [true, true, false, true]
+        let hits = euclideousStripHits(pattern: pattern, hitSteps: [], states: [.hit(riffStep: 3), .hit(riffStep: 1), .miss, .hit(riffStep: 2)], ranks: [4, 0, 6, 0, 0, 0, 0, 0], riffPlays: true, grey: false, onRest: .skip,
+                                       cfg: nil, lapStartTick: nil, notes: nil, name: { _ in "" })
+        XCTAssertEqual(hits[0].chip, EuclideousStripChip(rank: 6, column: 3, hollow: false, grey: false))
+        XCTAssertEqual(hits[1].chip, EuclideousStripChip(rank: 4, column: 1, hollow: false, grey: false))
+        XCTAssertNil(hits[3].chip, "column 2 is a rest")
+        XCTAssertEqual(fill(euclideousStripChipPaint(chip: hits[0].chip!, isCurrent: false, riffRests: false)), hex(riffMapColour(column: 3, rank: 6)))
+    }
+
+    // MARK: §4 test 11 — the 42 % dim is the strip's one group dim, and the chips add none
+
+    private func source(_ name: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return try String(contentsOf: root.appendingPathComponent(name), encoding: .utf8)
+    }
+    func testAMutedLaneDimsOnceAndTheChipPaintAddsNoOpacity() throws {
+        let painter = try source("Fourfold/UI/LaneStripPainter.swift")
+        let start = try XCTUnwrap(painter.range(of: "// 4. the chips")), end = try XCTUnwrap(painter.range(of: "// 5. the key row"))
+        let chips = String(painter[start.lowerBound..<end.lowerBound])
+        XCTAssertFalse(chips.contains("mutedAlpha") || chips.contains("EuclideousLaneDim"), "the chip loop must not dim on its own: the Canvas carries the one 42 % group dim")
+        XCTAssertFalse(chips.contains("noteChip"), "no light-chip fill is left")
+        let host = try source("Fourfold/UI/EuclidLaneUI.swift")
+        XCTAssertEqual(host.components(separatedBy: ".opacity(stripDim ? EuclideousLaneDimStyle.opacity : 1)").count - 1, 1, "the strip's one group dim (solo-silenced OR both parts off) is still the only one on the strip")
+        XCTAssertEqual(EuclideousLaneDimStyle.opacity, 0.42)
+        // the painter draws every map fill opaque: no fill or stroke in the chip loop takes an alpha except the glow and the AWAY flash it always had
+        XCTAssertFalse(chips.contains("chipColour.opacity") || chips.contains("labelColour.opacity"))
+    }
 }

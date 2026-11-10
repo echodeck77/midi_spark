@@ -18,8 +18,15 @@ private extension Color {
 }
 
 enum EuclideousStripPalette {
-    /// The riff grid's note cell (white @ 85% over that panel): ≈ #DCDCDD. The ferry says #DFE3EA; source wins.
-    static let noteChip = Color(h: 0xDCDCDD)
+    // (The light chip fill #DCDCDD — a hand copy of the grid's old white-85 % note cell — is gone: a chip wears the colour of the cell it plays, `riffMapColour`, RIFF MAP 2026-11-10.)
+    /// RIFF MAP: a chip's colour slot as a SwiftUI colour — the map cell's table colour (three divisions, no OKLCH conversion), the riff-off grey or the ink.
+    static func colour(_ c: EuclideousStripChipColour) -> Color {
+        switch c {
+        case .map(let rgb): return RiffMapPalette.swiftUIColour(rgb)
+        case .grey: return greyChip
+        case .ink: return ink
+        }
+    }
     /// The dashed rest look of the RESTART TILES ferry — no longer drawn since the CLARITY PASS (a rest is a solid grey from `euclideousStripColumnLook`); kept, hide-don't-delete.
     static let rhythmRest = Color(h: 0x1A1C21), restDash = Color(h: 0x3A3E47)
     static let greyChip = Color(h: 0x6B707A)
@@ -169,38 +176,41 @@ func drawEuclideousStrip(_ ctx: inout GraphicsContext, _ d: EuclideousStripFrame
         let look = euclideousStripChipLook(env, scale: d.scale, reduceMotion: d.reduceMotion)
         let frame = euclideousStripChipFrame(column: d.frames[i].column, rank: chip.rank).offsetBy(dx: 0, dy: look.dip)
         let shape = RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame)
+        // RIFF MAP (2026-11-10): every chip wears the colour of the grid cell it plays — `riffMapColour(label column, drawn rank)`; the riff-off grey stays; the lane colour is the current chip's ring only
+        let paint = euclideousStripChipPaint(chip: chip, isCurrent: isCurrent, riffRests: riffRests)
+        let chipColour = P.colour(paint.colour), labelColour = P.colour(paint.label)
         if riffRests {
-            ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius - 0.75).path(in: frame.insetBy(dx: 0.75, dy: 0.75)), with: .color(chip.grey ? P.greyChip : P.noteChip), lineWidth: HocketStripLayerLook.hollowWidth)
+            ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius - 0.75).path(in: frame.insetBy(dx: 0.75, dy: 0.75)), with: .color(chipColour), lineWidth: HocketStripLayerLook.hollowWidth)
         } else if chip.hollow {
             let outline = RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5))
             if look.glowAlpha > 0.01 {
                 ctx.drawLayer { layer in
                     layer.addFilter(.shadow(color: flash.opacity(look.glowAlpha), radius: look.glowBlur / 2))
-                    layer.stroke(outline, with: .color(d.tint), style: dash)
+                    layer.stroke(outline, with: .color(chipColour), style: dash)
                 }
             }
-            ctx.stroke(outline, with: .color(d.tint), style: dash)
+            ctx.stroke(outline, with: .color(chipColour), style: dash)
         } else {
             if look.glowAlpha > 0.01 {
                 ctx.drawLayer { layer in
                     layer.addFilter(.shadow(color: flash.opacity(look.glowAlpha), radius: look.glowBlur / 2))   // a SwiftUI radius is about half a CSS blur
-                    layer.fill(shape, with: .color(chip.grey ? P.greyChip : P.noteChip))
+                    layer.fill(shape, with: .color(chipColour))
                 }
             }
-            ctx.fill(shape, with: .color(chip.grey ? P.greyChip : P.noteChip))
+            ctx.fill(shape, with: .color(chipColour))
             if look.glowAlpha > 0.01 && strike != nil && flash != d.tint { ctx.fill(shape, with: .color(flash.opacity(look.glowAlpha))) }   // an AWAY flash: the chip takes the colour of the lane it went to (§9.3)
-            if isCurrent {
-                // the arrow's own one-lane fill over the light chip — the arrow-on-its-cell look (the lane colour at 95% falling to 55%)
-                ctx.fill(shape, with: .linearGradient(Gradient(colors: [d.tint.opacity(EuclideousArrowStyle.topAlpha), d.tint.opacity(EuclideousArrowStyle.bottomAlpha)]),
-                                                      startPoint: CGPoint(x: frame.midX, y: frame.minY), endPoint: CGPoint(x: frame.midX, y: frame.maxY)))
+            if paint.currentRing {
+                // RIFF MAP §2: the current chip keeps its map fill and wears the lane colour as a ring drawn OUTSIDE its frame (the stroke is centred on a path grown by half its width, so it covers exactly 0 … ringWidth outside)
+                let w = RiffMapTuning.ringWidth
+                ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius + w / 2).path(in: frame.insetBy(dx: -w / 2, dy: -w / 2)), with: .color(d.tint), lineWidth: w)
             }
         }
         // POLY RIFF: the other notes starting on this column — a plain chip at each one's height (no label, no flash: the main chip carries them)
         for extra in d.hits[i].extraRanks {
-            ctx.fill(RoundedRectangle(cornerRadius: M.chipRadius).path(in: euclideousStripChipFrame(column: d.frames[i].column, rank: extra).offsetBy(dx: 0, dy: look.dip)), with: .color(riffRests ? Color.clear : P.noteChip))
+            ctx.fill(RoundedRectangle(cornerRadius: M.chipRadius).path(in: euclideousStripChipFrame(column: d.frames[i].column, rank: extra).offsetBy(dx: 0, dy: look.dip)), with: .color(riffRests ? Color.clear : P.colour(.map(riffMapColour(column: chip.column, rank: extra)))))
         }
         if euclideousStripShowsChipLabel(columnWidth: d.frames[i].column.width) {
-            let text = Text("\(chip.column)").font(stripFont(M.chipLabelSize)).foregroundColor(riffRests ? (chip.grey ? P.greyChip : P.noteChip) : (chip.hollow ? d.tint : P.ink))
+            let text = Text("\(chip.column)").font(stripFont(M.chipLabelSize)).foregroundColor(labelColour)
             ctx.draw(ctx.resolve(text), at: CGPoint(x: frame.midX, y: frame.midY), anchor: .center)
         }
     }
