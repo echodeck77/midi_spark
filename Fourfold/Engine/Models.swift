@@ -772,6 +772,21 @@ struct EuclidLine: Codable, Equatable {
     // single `notesPlayAs` as one chip (`notesPlaySeqResolved`), so an old document and a single-mode lane sound exactly as before. An explicit empty sequence means no modes (the UI shows "+ ADD MODE"); the engine plays CHORD.
     // Document state: saved, in presets, undoable (`edit(idx)`), a lane-lock field. The active chip is derived from the hit count since the melody origin, so it resets on melody restart for free — no new restart machinery.
     var notesPlaySeq: [EuclideousPlayStep]? = nil
+    // PLAY AS ROWS ferry (Paul 2026-11-11) — APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. The lit notes play through three independent CHAINS — ORDER (how the lit ranks are walked), VOICES (how many sound
+    // per hit) and SPREAD (how they're spread in time), 1…4 chips each — plus per-rank repeat COUNTS (1…3 with AGAIN/LATER timing), a BASS row (HOLD | FIRST) and SHIFT/DRIFT (where a pass starts, and a walk of that start per pass). This
+    // REPLACES the PLAY AS sequence as the live model (§1.10 — `notesPlaySeq`/`notesPlayAs` stay decodable but no longer drive playback; §0.2 hide-don't-delete). NO migration: every nil ⇒ the §1.9 default (ORDER [UP] / VOICES [1] /
+    // SPREAD [TOGETHER], every chip 4 hits; each rank count 1, AGAIN, AGAIN; bass off, HOLD; start 0, drift off, step +1). `addedOrder` (§1.7) is `litOrderResolved` itself — no new field. Lane-lock fields.
+    var notesOrderChain: [EuclideousOrderChip]? = nil
+    var notesVoicesChain: [EuclideousVoicesChip]? = nil
+    var notesSpreadChain: [EuclideousSpreadChip]? = nil
+    var notesRankCounts: UInt16? = nil        // §1.6: 2 bits per rank (0 ⇒ count 1, 1 ⇒ 2, 2 ⇒ 3); nil / 0 ⇒ every rank count 1
+    var notesRankSecondLater: UInt8? = nil    // §1.6: bit r set ⇒ rank r's 2nd copy is LATER; nil / 0 ⇒ AGAIN
+    var notesRankThirdLater: UInt8? = nil     // §1.6: bit r set ⇒ rank r's 3rd copy is LATER
+    var notesBassOn: Bool? = nil
+    var notesBassMode: EuclideousBassMode? = nil
+    var notesShiftStart: Int? = nil           // §1.8: 0…15
+    var notesDriftOn: Bool? = nil
+    var notesDriftStep: Int? = nil            // §1.8: −8…+8, never 0
     var answerRhythmOnResolved: Bool { answerRhythmOn ?? false }
     var answerRhythmModeResolved: EuclideousAnswerRhythmMode { answerRhythmMode ?? .copy }
     var answerRhythmCycleResolved: Bool { answerRhythmCycle ?? false }
@@ -883,6 +898,37 @@ struct EuclidLine: Codable, Equatable {
         return s.isEmpty ? [EuclideousPlayStep(mode: .chord, hits: EuclideousPlayStep.defaultHits)] : s
     }
     var notesReceivedOnlyResolved: Bool { notesReceivedOnly ?? false }
+    // PLAY AS ROWS (§1.9): every resolver returns the default when the field is nil/empty, so an old document plays the §1.9 default lane (an UP arpeggio). Chains clamp to 1…4 chips.
+    var notesOrderChainResolved: [EuclideousOrderChip] { let c = notesOrderChain ?? []; let t = c.isEmpty ? [EuclideousOrderChip()] : c; return t.count > 4 ? Array(t.prefix(4)) : t }
+    var notesVoicesChainResolved: [EuclideousVoicesChip] { let c = notesVoicesChain ?? []; let t = c.isEmpty ? [EuclideousVoicesChip()] : c; return t.count > 4 ? Array(t.prefix(4)) : t }
+    var notesSpreadChainResolved: [EuclideousSpreadChip] { let c = notesSpreadChain ?? []; let t = c.isEmpty ? [EuclideousSpreadChip()] : c; return t.count > 4 ? Array(t.prefix(4)) : t }
+    var notesBassOnResolved: Bool { notesBassOn ?? false }
+    var notesBassModeResolved: EuclideousBassMode { notesBassMode ?? .hold }
+    var notesShiftStartResolved: Int { max(0, min(15, notesShiftStart ?? 0)) }
+    var notesDriftOnResolved: Bool { notesDriftOn ?? false }
+    var notesDriftStepResolved: Int { let c = max(-8, min(8, notesDriftStep ?? 1)); return c == 0 ? 1 : c }
+    /// §1.6 rank r (0…7): its repeat COUNT (1…3), and whether its 2nd / 3rd copy is AGAIN or LATER. Render-safe (bit reads, no allocation).
+    func notesRankCount(_ r: Int) -> Int { guard r >= 0, r < 8 else { return 1 }; return min(3, Int((notesRankCounts ?? 0) >> UInt16(2 * r) & 0b11) + 1) }
+    func notesRankSecond(_ r: Int) -> EuclideousCopyTiming { guard r >= 0, r < 8 else { return .again }; return (notesRankSecondLater ?? 0) >> UInt8(r) & 1 != 0 ? .later : .again }
+    func notesRankThird(_ r: Int) -> EuclideousCopyTiming { guard r >= 0, r < 8 else { return .again }; return (notesRankThirdLater ?? 0) >> UInt8(r) & 1 != 0 ? .later : .again }
+    /// §6.5 writers: step a rank's count 1→2→3→1, or set a copy's timing. The default (count 1 / AGAIN everywhere) stores nil, so a lane at the default is byte-identical to one that never had the field.
+    mutating func setNotesRankCount(_ r: Int, _ v: Int) {
+        guard r >= 0, r < 8 else { return }
+        let cv = UInt16(max(1, min(3, v)) - 1)
+        var m = notesRankCounts ?? 0; m &= ~(UInt16(0b11) << UInt16(2 * r)); m |= cv << UInt16(2 * r)
+        notesRankCounts = m == 0 ? nil : m
+    }
+    mutating func cycleNotesRankCount(_ r: Int) { setNotesRankCount(r, notesRankCount(r) % 3 + 1) }
+    mutating func setNotesRankSecond(_ r: Int, _ t: EuclideousCopyTiming) {
+        guard r >= 0, r < 8 else { return }
+        var m = notesRankSecondLater ?? 0; if t == .later { m |= 1 << UInt8(r) } else { m &= ~(UInt8(1) << UInt8(r)) }
+        notesRankSecondLater = m == 0 ? nil : m
+    }
+    mutating func setNotesRankThird(_ r: Int, _ t: EuclideousCopyTiming) {
+        guard r >= 0, r < 8 else { return }
+        var m = notesRankThirdLater ?? 0; if t == .later { m |= 1 << UInt8(r) } else { m &= ~(UInt8(1) << UInt8(r)) }
+        notesRankThirdLater = m == 0 ? nil : m
+    }
     /// The lit order: the stored one when valid, else (5.2) the lit ranks from low to high, then TOP 2, then TOP.
     var litOrderResolved: EuclideousLitOrder {
         if let a = notesLitOrder, let o = EuclideousLitOrder(valid: a) { return o }
@@ -1247,6 +1293,18 @@ extension EuclidLine {
         notesChance = (try? c.decodeIfPresent(Int.self, forKey: .notesChance)).flatMap { $0 }.map(EuclidLine.nearestLegalNotesChance)
         notesPlayAs = (try? c.decodeIfPresent(EuclidNotesPlayAs.self, forKey: .notesPlayAs)).flatMap { $0 }
         notesPlaySeq = (try? c.decodeIfPresent([EuclideousPlayStep].self, forKey: .notesPlaySeq)).flatMap { $0 }   // PLAY AS SEQUENCE: nil (old document) ⇒ the single notesPlayAs as one chip (`notesPlaySeqResolved`)
+        // PLAY AS ROWS (2026-11-11): tolerant by construction (`try?`) — a wrong-typed value reads as missing (the §1.9 default), never a whole-session reset. No migration from PLAY AS (§1.10).
+        notesOrderChain = (try? c.decodeIfPresent([EuclideousOrderChip].self, forKey: .notesOrderChain)).flatMap { $0 }
+        notesVoicesChain = (try? c.decodeIfPresent([EuclideousVoicesChip].self, forKey: .notesVoicesChain)).flatMap { $0 }
+        notesSpreadChain = (try? c.decodeIfPresent([EuclideousSpreadChip].self, forKey: .notesSpreadChain)).flatMap { $0 }
+        notesRankCounts = (try? c.decodeIfPresent(UInt16.self, forKey: .notesRankCounts)).flatMap { $0 }
+        notesRankSecondLater = (try? c.decodeIfPresent(UInt8.self, forKey: .notesRankSecondLater)).flatMap { $0 }
+        notesRankThirdLater = (try? c.decodeIfPresent(UInt8.self, forKey: .notesRankThirdLater)).flatMap { $0 }
+        notesBassOn = (try? c.decodeIfPresent(Bool.self, forKey: .notesBassOn)).flatMap { $0 }
+        notesBassMode = (try? c.decodeIfPresent(EuclideousBassMode.self, forKey: .notesBassMode)).flatMap { $0 }
+        notesShiftStart = (try? c.decodeIfPresent(Int.self, forKey: .notesShiftStart)).flatMap { $0 }
+        notesDriftOn = (try? c.decodeIfPresent(Bool.self, forKey: .notesDriftOn)).flatMap { $0 }
+        notesDriftStep = (try? c.decodeIfPresent(Int.self, forKey: .notesDriftStep)).flatMap { $0 }
         notesReceivedOnly = (try? c.decodeIfPresent(Bool.self, forKey: .notesReceivedOnly)).flatMap { $0 }
         // 5.2: a valid order wins and the legacy trio is rewritten from it; otherwise (missing OR invalid) the order stays nil and `litOrderResolved` derives it.
         notesLitOrder = nil
@@ -1287,6 +1345,66 @@ struct EuclideousPlayStep: Equatable, Codable {
         let m = (try? c?.decodeIfPresent(EuclidNotesPlayAs.self, forKey: .mode)).flatMap { $0 } ?? .chord
         let h = (try? c?.decodeIfPresent(Int.self, forKey: .hits)).flatMap { $0 } ?? EuclideousPlayStep.defaultHits
         self.init(mode: m, hits: h)
+    }
+}
+// PLAY AS ROWS ferry (Paul 2026-11-11, §1): the three per-chain value enums + BASS mode + a copy TIMING. String-raw, decode-tolerant (an unknown stored value decodes to the §1.9 default), matching every sibling enum on EuclidLine.
+enum EuclideousOrderMode: String, Codable, CaseIterable {
+    case up = "UP", down = "DOWN", bounce = "BOUNCE", shuffle = "SHUFFLE", outsideIn = "OUTSIDE IN", insideOut = "INSIDE OUT", asAdded = "AS ADDED"
+    init(from decoder: Decoder) throws { self = EuclideousOrderMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .up }
+}
+enum EuclideousVoicesMode: String, Codable, CaseIterable {
+    case one = "1", two = "2", three = "3", all = "ALL", grow = "GROW"
+    init(from decoder: Decoder) throws { self = EuclideousVoicesMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .one }
+}
+enum EuclideousSpreadMode: String, Codable, CaseIterable {
+    case together = "TOGETHER", strum = "STRUM", run = "RUN"
+    init(from decoder: Decoder) throws { self = EuclideousSpreadMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .together }
+}
+enum EuclideousBassMode: String, Codable, CaseIterable {
+    case hold = "HOLD", first = "FIRST"
+    init(from decoder: Decoder) throws { self = EuclideousBassMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .hold }
+}
+/// §1.6: when a rank's repeated copy comes — AGAIN (straight after, A B B C) or LATER (next time round, A B C B).
+enum EuclideousCopyTiming: String, Codable, CaseIterable {
+    case again = "AGAIN", later = "LATER"
+    init(from decoder: Decoder) throws { self = EuclideousCopyTiming(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .again }
+}
+/// PLAY AS ROWS (§1.1-§1.3): one chip of a chain — a value and how many HITS it lasts before the next chip (1…32). The chain loops after the last chip and resets at the lane's melody restart (the active chip is a pure function of the
+/// hit count since the melody origin, no accumulator). A single chip plays its value always (its count is irrelevant, §3.1). Three concrete chip types (one per value enum), each decode-tolerant like `EuclideousPlayStep`.
+struct EuclideousOrderChip: Equatable, Codable {
+    static let defaultHits = 4, minHits = 1, maxHits = 32
+    var value: EuclideousOrderMode = .up
+    var hits: Int = defaultHits
+    init(value: EuclideousOrderMode = .up, hits: Int = defaultHits) { self.value = value; self.hits = max(Self.minHits, min(Self.maxHits, hits)) }
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        let v = (try? c?.decodeIfPresent(EuclideousOrderMode.self, forKey: .value)).flatMap { $0 } ?? .up
+        let h = (try? c?.decodeIfPresent(Int.self, forKey: .hits)).flatMap { $0 } ?? Self.defaultHits
+        self.init(value: v, hits: h)
+    }
+}
+struct EuclideousVoicesChip: Equatable, Codable {
+    static let defaultHits = 4, minHits = 1, maxHits = 32
+    var value: EuclideousVoicesMode = .one
+    var hits: Int = defaultHits
+    init(value: EuclideousVoicesMode = .one, hits: Int = defaultHits) { self.value = value; self.hits = max(Self.minHits, min(Self.maxHits, hits)) }
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        let v = (try? c?.decodeIfPresent(EuclideousVoicesMode.self, forKey: .value)).flatMap { $0 } ?? .one
+        let h = (try? c?.decodeIfPresent(Int.self, forKey: .hits)).flatMap { $0 } ?? Self.defaultHits
+        self.init(value: v, hits: h)
+    }
+}
+struct EuclideousSpreadChip: Equatable, Codable {
+    static let defaultHits = 4, minHits = 1, maxHits = 32
+    var value: EuclideousSpreadMode = .together
+    var hits: Int = defaultHits
+    init(value: EuclideousSpreadMode = .together, hits: Int = defaultHits) { self.value = value; self.hits = max(Self.minHits, min(Self.maxHits, hits)) }
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        let v = (try? c?.decodeIfPresent(EuclideousSpreadMode.self, forKey: .value)).flatMap { $0 } ?? .together
+        let h = (try? c?.decodeIfPresent(Int.self, forKey: .hits)).flatMap { $0 } ?? Self.defaultHits
+        self.init(value: v, hits: h)
     }
 }
 /// The lit positions in the order they were lit, as FIXED-SIZE data (ten bytes and a count — the render thread reads it, so no array): 0-7 are ranks 1-8, 8 is
