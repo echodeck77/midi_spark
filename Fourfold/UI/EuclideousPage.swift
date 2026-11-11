@@ -6453,11 +6453,20 @@ struct EuclideousPage: View {
         let mutes = outputMutes
         let model = rollLive.model
         let ranks = effectiveGridRanks
+        // §3.2 — the per-lane upcoming prediction depends only on the window, which depends only on the cell UNIT; outputs that share a unit share the
+        // prediction, so resolve it ONCE per distinct unit (≤ 4, usually 1) rather than once per output. `euclideousGhostsForOutput` then splits it + dedups.
+        var plansByUnit: [UInt8: [EuclideousLaneGhostPlan]] = [:]
+        for u in Set((0..<4).map { mutes[$0].muteUnit }) {
+            let ub = euclideousMuteUnitBeats(u, beatsPerBar: clock.beatsPerBar)
+            let win = euclideousLanesWindow(beat: beat, unitBeats: ub)
+            plansByUnit[u] = laneGhostPlans(windowStart: win.start, windowEnd: win.start + win.length, playhead: beat, ranks: ranks)
+        }
         return (0..<4).map { o in
             let unit = euclideousMuteUnitBeats(mutes[o].muteUnit, beatsPerBar: clock.beatsPerBar)
             let win = euclideousLanesWindow(beat: beat, unitBeats: unit)
             let windowEnd = win.start + win.length
-            let ghosts = muteGhosts(output: o, windowStart: win.start, windowEnd: windowEnd, playhead: beat, ranks: ranks)
+            var ghosts: [EmitterGhostHit] = []
+            for p in plansByUnit[mutes[o].muteUnit] ?? [] { ghosts.append(contentsOf: euclideousGhostsForOutput(p, output: o)) }
             let notes = euclideousEmitterRoll(output: o, windowStart: win.start, windowEnd: windowEnd, playhead: beat,
                                               model: model, cells16: mutes[o].cells16, unitBeats: unit, ghosts: ghosts)
             let range = euclideousEmitterRollRange(notes)
@@ -6471,43 +6480,66 @@ struct EuclideousPage: View {
                                      anyRouted: anyRouted, flareLane: flareLane, flareActivity: flareLane >= 0 ? 1 : 0)
         }
     }
-    /// §3.2 — the upcoming TIMING ghosts for an output: each lane routed to it, its predicted hits in `(playhead, windowEnd)` from the shared walk
-    /// mirror (`euclideousLaneRollHits`), with their RESOLVED pitches (2026-11-11). The RIFF part: the walk's rank through INVERT → TRANS →
-    /// `riffResolve` at the riff OCT over the lane's live pool. The NOTES part: `euclideousNotesHitPitches` — the engine's own closed form (lit order ×
-    /// PLAY AS × WHEN / CHANCE × the NOTES OCT, fuzz-proven), minus any pitch the riff also strikes on this shared output (the engine's riff/notes
-    /// dedup). nil stays the §3.3 middle line (an empty pool, a SHADOW / ECHO lane whose layer is paused, AVOID time-holes — device-owed).
-    private func muteGhosts(output: Int, windowStart: Double, windowEnd: Double, playhead: Double, ranks: [Int]) -> [EmitterGhostHit] {
+    /// §3.2 — every lane's OUTPUT-INDEPENDENT upcoming prediction for one window: the riff's struck pitches (one for MONO, several for POLY), the notes layer's
+    /// picked pitches, each length, and the riff pitch held across a tied rest. Resolved ONCE per window here; `muteRows` reuses it for every output that shares the
+    /// window and `euclideousGhostsForOutput` splits it + applies the engine's riff/notes dedup. The RIFF pitch uses `h.rank` DIRECTLY — the walk mirror already
+    /// applied INVERT/TRANS, so re-applying them double-counts — through `riffResolve` at the riff OCT over the lane's live pool. The NOTES pitches are
+    /// `euclideousNotesHitPitches` (the engine's own closed form, fuzz-proven); their length scales from the riff gate to `notesGateResolved`. SHADOW / ECHO lanes
+    /// (layer paused) and AVOID time-holes are not predicted (device-owed); an empty pool keeps the §3.3 middle line.
+    private func laneGhostPlans(windowStart: Double, windowEnd: Double, playhead: Double, ranks: [Int]) -> [EuclideousLaneGhostPlan] {
         guard windowEnd > playhead else { return [] }
         let from = max(windowStart, playhead)
-        var out: [EmitterGhostHit] = []
         let poly = polySnap
+        var plans: [EuclideousLaneGhostPlan] = []
         for lane in 0..<min(4, lines.count) {
             let l = lines[lane]
-            let riffOn = l.riffOutMaskResolved(lane: lane) & (1 << UInt8(output)) != 0
-            let notesOn = l.notesOutMaskResolved(lane: lane) & (1 << UInt8(output)) != 0
-            guard riffOn || notesOn, let cfg = riffWalkConfig(lane) else { continue }
+            let riffOuts = l.riffOutMaskResolved(lane: lane) & 0x0F
+            let notesOuts = l.notesOutMaskResolved(lane: lane) & 0x0F
+            guard (riffOuts | notesOuts) != 0, let cfg = riffWalkConfig(lane) else { continue }
             let pool = lane < lanePools.count ? lanePools[lane].notes.sorted().map { Int($0) } : []   // the lane's live pool (root / key / canon already folded in)
-            let riffOct = l.riffOctaveResolved, inv = l.riffInvertResolved, trans = l.melodyTransposeResolved
+            let riffOct = l.riffOctaveResolved
             let notesOct = max(-2, min(2, l.octaveResolved))
-            let notesLive = notesOn && euclideousNotesLayerIsOn(l) && l.listenPitchResolved != .shadow && l.listenPitchResolved != .echo   // a SHADOW / ECHO lane's notes layer is paused
+            let notesLive = euclideousNotesLayerIsOn(l) && l.listenPitchResolved != .shadow && l.listenPitchResolved != .echo   // a SHADOW / ECHO lane's notes layer is paused
+            let tie = poly == nil && l.riffOnRestResolved == .tie   // only MONO TIE carries the riff pitch across a rest (POLY uses length, ON REST is SKIP)
+            let gateRatio = cfg.gate > 0.001 ? l.notesGateResolved / cfg.gate : 1   // the notes length scales from the riff gate the roll mirror used to the notes gate
             let hits = euclideousLaneRollHits(cfg: cfg, windowStart: from, windowBeats: windowEnd - from, minGateBeats: 0.01, poly: poly,
                                               rankAt: { col, _ in col >= 0 && col < ranks.count ? ranks[col] : 0 })
-            for h in hits {
-                var riffPitch: UInt8? = nil
-                if riffOn, h.rank > 0, !pool.isEmpty {   // the RIFF part: the engine's INVERT → TRANS → riffResolve(riff OCT, pool)
-                    let eff = euclideousRiffStepRanks(ranks: [h.rank], invert: inv, transpose: trans).first ?? h.rank
-                    if eff >= 1, let n = riffResolve(rank: eff, oct: riffOct, n: pool.count, wrap: .fold, asc: { pool[$0] }), (0...127).contains(n) { riffPitch = UInt8(n) }
+            var ghostHits: [EuclideousGhostHit] = []
+            var held: UInt8? = nil   // the riff pitch currently held across tied rests, tracked forward (nil at the window edge — the one boundary we cannot see)
+            var i = 0
+            while i < hits.count {   // POLY yields one roll hit per struck note at a beat; group them so the notes layer is predicted ONCE per onset
+                let onset = hits[i].beat
+                var j = i, riffPitches: [UInt8] = [], riffLens: [Double] = []
+                var blind = false, blindLen = 0.0, hasRank = false, repLen = 0.0
+                while j < hits.count && abs(hits[j].beat - onset) < 1e-9 {
+                    let h = hits[j]
+                    if repLen == 0 { repLen = h.gateBeats }
+                    if h.rank >= 1 {
+                        hasRank = true
+                        if pool.isEmpty { blind = true; blindLen = h.gateBeats }   // the riff strikes but there is no pool ⇒ a middle-line ghost
+                        else if let n = riffResolve(rank: h.rank, oct: riffOct, n: pool.count, wrap: .fold, asc: { pool[$0] }), (0...127).contains(n) {
+                            riffPitches.append(UInt8(n)); riffLens.append(h.gateBeats)
+                        }
+                    }
+                    j += 1
                 }
-                if riffOn, h.rank > 0 { out.append(EmitterGhostHit(lane: lane, riff: true, onset: h.beat, length: h.gateBeats, pitch: riffPitch)) }
-                if notesLive, !pool.isEmpty {   // the NOTES part: the layer's picked pitches this hit, minus any the riff also strikes on this output
-                    let tick = Int64((h.beat / cfg.sub + 1e-6).rounded(.down))
-                    for p in euclideousNotesHitPitches(line: l, pool: pool, cfg: cfg, tick: tick, lane: lane, oct: notesOct, ranks: ranks, poly: poly) where !(riffOn && riffPitch.map { Int($0) == p } == true) {
-                        out.append(EmitterGhostHit(lane: lane, riff: false, onset: h.beat, length: h.gateBeats, pitch: UInt8(p)))
+                let isRest = !hasRank
+                let groupHeld: UInt8? = (tie && isRest) ? held : nil   // the engine dedups the notes against the held riff pitch only on a TIED rest (`heldByRiff`)
+                var notesPitches: [UInt8] = []
+                if notesLive, !pool.isEmpty {
+                    let tick = Int64((onset / cfg.sub + 1e-6).rounded(.down))
+                    for p in euclideousNotesHitPitches(line: l, pool: pool, cfg: cfg, tick: tick, lane: lane, oct: notesOct, isRestHit: isRest, ranks: ranks, poly: poly) {
+                        notesPitches.append(UInt8(p))
                     }
                 }
+                ghostHits.append(EuclideousGhostHit(onset: onset, riffPitches: riffPitches, riffLens: riffLens, riffBlind: blind, riffBlindLen: blindLen,
+                                                    heldRiffPitch: groupHeld, notesPitches: notesPitches, notesLen: repLen * gateRatio))
+                if tie && !isRest { held = riffPitches.first } else if !tie { held = nil }   // a struck note is the new held pitch; a tied rest keeps it; SKIP/REPEAT/POLY hold nothing
+                i = j
             }
+            plans.append(EuclideousLaneGhostPlan(lane: lane, riffOuts: riffOuts, notesOuts: notesOuts, hits: ghostHits))
         }
-        return out
+        return plans
     }
 
     // MARK: - THE FX TAB (FX ferry, 2026-10-18)

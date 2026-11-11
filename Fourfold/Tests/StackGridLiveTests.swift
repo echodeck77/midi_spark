@@ -144,11 +144,40 @@ final class StackGridLiveTests: XCTestCase {
                 let byBeat = Dictionary(grouping: notesStarts, by: { ($0.onBeat / cfg.sub).rounded() })
                 for (_, group) in byBeat {
                     let tick = Int64((group[0].onBeat / cfg.sub).rounded())
-                    let predicted = Set(euclideousNotesHitPitches(line: l, pool: pool, cfg: cfg, tick: tick, lane: 0, oct: max(-2, min(2, oct)), ranks: riffRanks))
+                    let predicted = Set(euclideousNotesHitPitches(line: l, pool: pool, cfg: cfg, tick: tick, lane: 0, oct: max(-2, min(2, oct)), isRestHit: false, ranks: riffRanks))   // every riff rank ≥ 1 ⇒ no rest hit
                     XCTAssertEqual(predicted, Set(group.map { Int($0.pitch) }), "\(mode) oct \(oct) tick \(tick): the predicted notes-layer pitches match the engine")
                 }
             }
         }
+    }
+
+    // MUTE ghost dedup (2026-11-11): euclideousGhostsForOutput splits a lane's prediction per output and drops a notes pitch the riff also plays on that output —
+    // the engine's addPitch §2.5 rule (a notes pitch leaves only on outputs the riff does NOT reach / hold), restricted to one output.
+    func testGhostsForOutputMatchTheEngineDedup() {
+        // a struck hit: the riff plays 60 on outputs A+B, the notes play {60, 64} on outputs A+C
+        let hit = EuclideousGhostHit(onset: 0, riffPitches: [60], riffLens: [0.4], riffBlind: false, riffBlindLen: 0,
+                                     heldRiffPitch: nil, notesPitches: [60, 64], notesLen: 0.3)
+        let plan = EuclideousLaneGhostPlan(lane: 0, riffOuts: 0b0011, notesOuts: 0b0101, hits: [hit])
+        let a = euclideousGhostsForOutput(plan, output: 0)   // both parts reach A: riff 60, notes 64 (60 deduped — the riff plays it here)
+        XCTAssertEqual(Set(a.filter { $0.riff }.compactMap { $0.pitch }), [60])
+        XCTAssertEqual(Set(a.filter { !$0.riff }.compactMap { $0.pitch }), [64])
+        let b = euclideousGhostsForOutput(plan, output: 1)   // riff only: riff 60, no notes
+        XCTAssertEqual(Set(b.compactMap { $0.pitch }), [60]); XCTAssertTrue(b.allSatisfy { $0.riff })
+        let cc = euclideousGhostsForOutput(plan, output: 2)  // notes only: both notes, no dedup (the riff does not reach C)
+        XCTAssertEqual(Set(cc.compactMap { $0.pitch }), [60, 64]); XCTAssertTrue(cc.allSatisfy { !$0.riff })
+        XCTAssertTrue(euclideousGhostsForOutput(plan, output: 3).isEmpty)   // neither part reaches D
+
+        // a TIED rest: the riff HOLDS 62 (nothing struck), the notes play {62, 65} — 62 drops on an output the riff reaches (`heldByRiff`), no riff ghost
+        let tied = EuclideousGhostHit(onset: 1, riffPitches: [], riffLens: [], riffBlind: false, riffBlindLen: 0,
+                                      heldRiffPitch: 62, notesPitches: [62, 65], notesLen: 0.3)
+        let tiedA = euclideousGhostsForOutput(EuclideousLaneGhostPlan(lane: 1, riffOuts: 0b0001, notesOuts: 0b0001, hits: [tied]), output: 0)
+        XCTAssertEqual(Set(tiedA.compactMap { $0.pitch }), [65]); XCTAssertTrue(tiedA.allSatisfy { !$0.riff })
+
+        // an empty-pool riff hit ⇒ ONE middle-line (nil-pitch) riff ghost at its own length
+        let blind = EuclideousGhostHit(onset: 2, riffPitches: [], riffLens: [], riffBlind: true, riffBlindLen: 0.5,
+                                       heldRiffPitch: nil, notesPitches: [], notesLen: 0)
+        let bl = euclideousGhostsForOutput(EuclideousLaneGhostPlan(lane: 2, riffOuts: 0b0001, notesOuts: 0, hits: [blind]), output: 0)
+        XCTAssertEqual(bl.count, 1); XCTAssertNil(bl[0].pitch); XCTAssertTrue(bl[0].riff); XCTAssertEqual(bl[0].length, 0.5)
     }
 
     // 9b — the load-bearer: stackCellNote == the note the Router's NOTES layer actually emits, for 8 ranks × OCT −2…+2 (and the riff OCT / TRANS don't move it).

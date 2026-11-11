@@ -6787,8 +6787,47 @@ struct EmitterRollNote: Equatable {
 
 /// A pre-predicted upcoming hit of one lane routed to the output (the page builds these from the shared walk mirror `euclideousLaneRollHits`).
 /// `pitch` is the RESOLVED upcoming pitch when it can be known deterministically (the riff walk's rank → the lane's pool, 2026-11-11); nil keeps
-/// the §3.3 middle-line fallback for what can't be predicted (the notes-layer chord, live MIDI that changes before the hit).
+/// the §3.3 middle-line fallback for what can't be predicted (an empty pool, live MIDI that changes before the hit).
 struct EmitterGhostHit: Equatable { var lane: Int; var riff: Bool; var onset: Double; var length: Double; var pitch: UInt8? = nil }
+
+/// §3.2 — one upcoming hit of a lane, OUTPUT-INDEPENDENT: the riff's struck pitches (one for MONO, several for POLY) with their own lengths, the notes layer's
+/// picked pitches with their (shared) length, and the riff pitch HELD across a tied rest. Resolved once per lane per window, then split per output by
+/// `euclideousGhostsForOutput`, so the heavy walk + notes prediction never runs per output. Built on the main thread (UI-read), never on the render path.
+struct EuclideousGhostHit: Equatable {
+    var onset: Double
+    var riffPitches: [UInt8]   // the riff's struck notes this hit (MONO 0/1, POLY 0…n); their own lengths are `riffLens` (parallel)
+    var riffLens: [Double]
+    var riffBlind: Bool        // the riff strikes (rank ≥ 1) but the pool is empty ⇒ one middle-line riff ghost of length `riffBlindLen`
+    var riffBlindLen: Double
+    var heldRiffPitch: UInt8?  // a riff pitch held through a tied rest (MONO TIE) — the engine dedups the notes against it too (`heldByRiff`)
+    var notesPitches: [UInt8]
+    var notesLen: Double
+}
+/// §3.2 — one lane's upcoming ghost hits plus its two part routings. The pure `euclideousGhostsForOutput` turns this into the ghosts for a single output.
+struct EuclideousLaneGhostPlan: Equatable { var lane: Int; var riffOuts: UInt8; var notesOuts: UInt8; var hits: [EuclideousGhostHit] }
+
+/// §3.2 — the ghosts a lane contributes to ONE output: the riff's struck pitches that route here, plus the notes layer's pitches that route here MINUS any the
+/// riff also plays here. This is the engine's `addPitch` dedup (§2.5) restricted to one output: a notes pitch is dropped on an output the riff reaches iff the riff
+/// strikes that pitch this hit OR holds it through a tied rest (`heldByRiff`). An empty-pool riff hit becomes one middle-line (nil-pitch) ghost. Pure, fixed-work.
+func euclideousGhostsForOutput(_ plan: EuclideousLaneGhostPlan, output: Int) -> [EmitterGhostHit] {
+    let bit = UInt8(1) << UInt8(output)
+    let riffHere = plan.riffOuts & bit != 0, notesHere = plan.notesOuts & bit != 0
+    guard riffHere || notesHere else { return [] }
+    var out: [EmitterGhostHit] = []
+    for h in plan.hits {
+        if riffHere {
+            if h.riffBlind { out.append(EmitterGhostHit(lane: plan.lane, riff: true, onset: h.onset, length: h.riffBlindLen, pitch: nil)) }
+            for i in h.riffPitches.indices { out.append(EmitterGhostHit(lane: plan.lane, riff: true, onset: h.onset, length: h.riffLens[i], pitch: h.riffPitches[i])) }
+        }
+        if notesHere {
+            for p in h.notesPitches {
+                if riffHere && (h.riffPitches.contains(p) || h.heldRiffPitch == p) { continue }   // the riff already plays this pitch on this shared output
+                out.append(EmitterGhostHit(lane: plan.lane, riff: false, onset: h.onset, length: h.notesLen, pitch: p))
+            }
+        }
+    }
+    return out
+}
 
 /// §3 — the roll for output `output` over `[windowStart, windowEnd)` with the playhead at `playhead`. PLAYED from `model`, UPCOMING
 /// from the pre-predicted `ghosts`. `cells16` / `unitBeats` give each note its mute-state at its own onset (§2.1). Fixed-work, pure.
@@ -8522,14 +8561,13 @@ func euclideousNotesWayPick(list: EuclideousNotesList, way: EuclidNotesPlayAs, k
 /// (Router.swift) and the strip's key row both compute (fuzz-proven against the engine). Empty when the layer is off, WHEN rejects the hit (a riff rest vs a played
 /// hit), CHANCE drops it, or the pool is empty. The pitches carry the NOTES octave `oct` (pass `line.octaveResolved` clamped −2…+2 — NOT the riff OCT). ROLL / RUN
 /// emit this SAME pitch set (their onsets spread in time; not modelled here). Caller must exclude a SHADOW / ECHO pitch-borrowing lane (the layer is paused) and
-/// AVOID's time-holes (device-owed). `ranks` are the WRITTEN riff ranks (`effectiveGridRanks`); MONO uses `ranks[playedStep]` for the rest test (POLY's own rest
-/// test is device-owed here). Pure + deterministic — there is no hidden seed (`.random` is a closed form of the hit count, CHANCE a splitmix of lane+ordinal).
-func euclideousNotesHitPitches(line: EuclidLine, pool: [Int], cfg: EuclideousWalkLaneConfig, tick: Int64, lane: Int, oct: Int, ranks: [Int], poly: PolyRiffSnap? = nil) -> [Int] {
+/// AVOID's time-holes (device-owed). `isRestHit` is the hit's riff-column rest state, decided by the caller so it is POLY-aware and the walk is not re-evaluated here
+/// (MONO: `ranks[playedStep] < 1`; POLY: no note starts the column). `ranks` are the WRITTEN riff ranks (`effectiveGridRanks`), used only by the k count. Pure +
+/// deterministic — there is no hidden seed (`.random` is a closed form of the hit count, CHANCE a splitmix of lane+ordinal).
+func euclideousNotesHitPitches(line: EuclidLine, pool: [Int], cfg: EuclideousWalkLaneConfig, tick: Int64, lane: Int, oct: Int, isRestHit: Bool, ranks: [Int], poly: PolyRiffSnap? = nil) -> [Int] {
     guard euclideousNotesLayerIsOn(line), !pool.isEmpty else { return [] }
     let nw = euclideousNotesWalk(from: cfg)
-    let w = euclideousWalkTick(cfg, tick: tick)
-    let written = (0..<ranks.count).contains(w.playedStep) ? ranks[w.playedStep] : 0
-    guard euclideousNotesWhenChooses(when: line.notesWhenResolved, isRestHit: written < 1) else { return [] }   // the engine's own `ranks[playedStep] < 1`
+    guard euclideousNotesWhenChooses(when: line.notesWhenResolved, isRestHit: isRestHit) else { return [] }   // §6.1: the hit's riff column is a rest — decided POLY-aware by the caller
     let hOrd = euclideousNotesHitOrdinal(buf: cfg.buf, w: nw, tick: tick)
     guard euclideousNotesChanceAllows(chance: line.notesChanceResolved, lane: lane, h: hOrd) else { return [] }
     let way = euclideousPlaySeqActive(seq: line.notesPlaySeqResolved, hitOrdinal: hOrd).mode
