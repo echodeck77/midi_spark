@@ -5704,27 +5704,22 @@ struct EuclideousPage: View {
     /// INPUTS (ferry 2026-11-06; the POOL tab, renamed): NOW, SOURCES, MIDI, CANON — which harmony a lane hears and when, never which notes are removed from it. ANSWER's frame and row grammar: the 50 pt label column, sp4 between
     /// controls; heights from `euclideousInputsTabLayout` (44 / 30 / 30 / 44, sp14 apart, the gap giving way to 8 and then the rows to a 30 pt floor). When even the floors do not fit (a very short window) the body scrolls: no row is squeezed under 30 pt.
     private func poolTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        // APPLY TO ALL (Paul 2026-11-11): a button pinned at the very bottom of each lane's INPUTS; the four rows fit / scroll in the area above it.
-        let buttonH: CGFloat = 28, buttonGap: CGFloat = 8
-        let rowsAreaH = max(0, contentAreaH - buttonH - buttonGap)
-        let layout = euclideousInputsTabLayout(contentAreaH: rowsAreaH)
+        // APPLY TO ALL (Paul 2026-11-11): a button in the row flow ABOVE CANON; the button's height (+ one gap) is reserved from the area so the four rows + button fit / scroll together.
+        let buttonH: CGFloat = 28
+        let layout = euclideousInputsTabLayout(contentAreaH: max(0, contentAreaH - buttonH - 14))
         let rows = VStack(spacing: layout.gap) {
             poolNowRow(idx, accent, fullWidth: fullWidth, height: layout.nowH)
             poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
             inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
+            inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)   // above CANON
             listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH)
             Spacer(minLength: 0)
         }
-        let rowsView: AnyView = layout.fits
-            ? AnyView(rows.frame(width: fullWidth, height: rowsAreaH, alignment: .top))
-            : AnyView(ScrollView(.vertical, showsIndicators: false) { rows.frame(width: fullWidth, alignment: .top) }.frame(width: fullWidth, height: rowsAreaH, alignment: .top))
-        return VStack(spacing: buttonGap) {
-            rowsView
-            inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
-        }
-        .frame(width: fullWidth, height: contentAreaH, alignment: .top)
+        if layout.fits { return AnyView(rows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
+        return AnyView(ScrollView(.vertical, showsIndicators: false) { rows.frame(width: fullWidth, alignment: .top) }
+            .frame(width: fullWidth, height: contentAreaH, alignment: .top))
     }
-    /// APPLY TO ALL (Paul 2026-11-11): copies THIS lane's INPUTS — SOURCES (`poolSrcMask`, incl. the CHORD 1/2 grid), MIDI mode (`midiMode`) and CANON DELAY (`chordDelay`) — onto the other three lanes, as ONE undo step. The CANON UNIT is page-level, so already shared; NOW is display-only.
+    /// APPLY TO ALL (Paul 2026-11-11): copies THIS lane's INPUTS — SOURCES (`poolSrcMask`, incl. the CHORD 1/2 grid) and MIDI mode (`midiMode`) — onto the other three lanes, as ONE undo step. CANON is deliberately NOT copied (Paul 2026-11-11); NOW is display-only.
     private func inputsApplyToAll(_ idx: Int) {
         onEdit { lines in
             guard idx >= 0, idx < lines.count else { return }
@@ -5732,7 +5727,6 @@ struct EuclideousPage: View {
             for i in lines.indices where i != idx {
                 lines[i].poolSrcMask = s.poolSrcMask
                 lines[i].midiMode = s.midiMode
-                lines[i].chordDelay = s.chordDelay
             }
         }
     }
