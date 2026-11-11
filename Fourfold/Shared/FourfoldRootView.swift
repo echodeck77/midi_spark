@@ -141,6 +141,7 @@ struct FourfoldRootView: View {
             euclideousLockTouches = [0, 0, 0, 0]   // LANE LOCK: a finger the page never saw lift must not hold a lane forever
             pushLockLive()
             if euclideousTestLane != nil { euclideousTestLane = nil; au?.setEuclideousTestLive(nil) }   // INPUTS TEST: a page that goes away stops its audition — the kernel must not keep auditioning with no UI to stop it
+            au?.setEuclideousNotesAuditionLive(nil)   // NOTES AUDITION: a page that goes away releases any held-cell audition
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
@@ -210,10 +211,15 @@ struct FourfoldRootView: View {
                                                soloMask: euclideousSoloMask, soloHeld: euclideousSoloHeld,
                                                partSoloMask: euclideousPartSoloMask, partSoloHeld: euclideousPartSoloHeld,
                                                testLane: euclideousTestLane,
-                                               onToggleTest: { lane in   // INPUTS TEST (2026-11-08): one lane auditions at a time; tapping the running lane stops it. Ephemeral (no undo, no document) — just the kernel's live word.
-                                                   let next: Int? = (euclideousTestLane == lane) ? nil : lane
-                                                   euclideousTestLane = next
-                                                   au?.setEuclideousTestLive(next)
+                                               onTestDown: { lane in   // INPUTS TEST: MOMENTARY (2026-11-11) — the pool auditions only while the headphones button is held. Ephemeral (no undo, no document) — just the kernel's live word.
+                                                   euclideousTestLane = lane
+                                                   au?.setEuclideousTestLive(lane)
+                                               },
+                                               onTestUp: { lane in
+                                                   if euclideousTestLane == lane { euclideousTestLane = nil; au?.setEuclideousTestLive(nil) }
+                                               },
+                                               onStackAudition: { lane, pos in   // NOTES AUDITION (2026-11-11): a held STACK cell makes its rank the lane's only lit note while held. Ephemeral live word; nil on release.
+                                                   au?.setEuclideousNotesAuditionLive(pos.map { (lane, $0) })
                                                },
                                                chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
                                                onEditChordSet: { idx, mutate in

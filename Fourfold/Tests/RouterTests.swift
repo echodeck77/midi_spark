@@ -982,6 +982,38 @@ final class RouterTests: XCTestCase {
         assertNothingLeftSounding(e)
         XCTAssertEqual(Set(laneOns(e).map { Int($0.note) }), [48, 55], "both lit ranks (1→C3/48, 2→G3/55) sound every hit; the un-lit rank 3 (60) never strikes")
     }
+    func testEuclideousNotesAuditionPlaysOnlyTheHeldRankAndLeavesNoStuckNote() {
+        // NOTES AUDITION (2026-11-11): holding a STACK cell makes that one rank the lane's only lit note while held — the live word 0x100 | (lane<<4) | position; word 0 restores the full lit set. No stuck note across engage/release.
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclidLines = [EuclidLine(target: 0, pulses: 4, steps: 4, useRiff: false, litNotes: 0b0000_0111, riffOn: false, sourceMode: .midi)]   // ranks 1,2,3 lit = positions 0,1,2
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                              scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+        st.euclideousNoteSource = .midi
+        let box = SnapshotBuilder.build(keeping: st)
+        let pool = chord([48, 55, 60])   // rank 1 = 48 (C3), rank 2 = 55 (G3), rank 3 = 60 (C4)
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let windowBeats = Double(frames) * tempo / 60.0 / sr
+        func auditionOns(_ word: UInt16) -> Set<Int> {
+            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+            var beat = 0.0, ts = 0.0
+            for _ in 0..<8 { router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, euclideousNotesAuditionLive: word, out: e, diag: &diag); beat += windowBeats; ts += Double(frames) }
+            router.process(box: box, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            assertNothingLeftSounding(e)
+            return Set(e.ons.filter { $0.cable == 1 }.map { Int($0.note) })
+        }
+        XCTAssertEqual(auditionOns(0), [48, 55, 60], "no audition: all three lit ranks sound")
+        XCTAssertEqual(auditionOns(0x100 | 0), [48], "hold position 0 (rank 1 = C3/48): only it")
+        XCTAssertEqual(auditionOns(0x100 | 1), [55], "hold position 1 (rank 2 = G3/55): only it")
+        XCTAssertEqual(auditionOns(0x100 | 2), [60], "hold position 2 (rank 3 = C4/60): only it")
+
+        // engage → release on ONE router, so both audition edges fire the per-lane voice cut: no stuck note at the stop
+        let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+        var beat = 0.0, ts = 0.0
+        func windows(_ n: Int, _ word: UInt16) { for _ in 0..<n { router.process(box: box, pool: pool, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, euclideousNotesAuditionLive: word, out: e, diag: &diag); beat += windowBeats; ts += Double(frames) } }
+        windows(4, 0); windows(4, 0x100 | 1); windows(4, 0)
+        router.process(box: box, pool: NotePool(), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
     func testEuclideousRiffAndLitNoteDedupToOneStrikeWhenPitchesCoincide() {
         // Acceptance 2: "Riff added: tap FWD. Every hit plays C3, G3 and the riff note. Where the riff
         // note is C3 or G3, that pitch sounds once."

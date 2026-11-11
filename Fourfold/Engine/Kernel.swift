@@ -69,6 +69,9 @@ final class Kernel {
     /// INPUTS TEST (2026-11-08): which lane is auditioning its pool (0 = none; 0x100 | lane, 0-3), the same plain main-writes/render-reads hand-off. While set, the Router suppresses that lane's normal output and walks its pool across its emitters on a free-running SAMPLE clock. It sounds while the host is stopped in the default KEEP PLAYING mode (the free-run clock keeps `playing` true); with "STOP when host stops" set it waits for the transport, like every other voice. The PLAYING heal-net below is exempted for it (an audition over an empty live pool is legitimate); the stopped net is not (see there).
     private var euclideousTestLive: UInt16 = 0
     func setEuclideousTestLive(_ lane: Int?) { euclideousTestLive = lane.map { 0x100 | UInt16($0 & 3) } ?? 0 }
+    /// NOTES AUDITION (2026-11-11): while a STACK-grid cell is HELD, that lane's NOTES layer plays ONLY that one rank — the same plain main-writes/render-reads hand-off. 0 = none; 0x100 | (lane << 4) | position (position 0-9 = the `EuclideousLitOrder` index: 0-7 ranks 1-8, 8 TOP 2, 9 TOP). Released the instant the finger lifts; the Router cuts the lane's sounding notes on every change so the audition is clean.
+    private var euclideousNotesAuditionLive: UInt16 = 0
+    func setEuclideousNotesAuditionLive(_ v: (lane: Int, position: Int)?) { euclideousNotesAuditionLive = v.map { 0x100 | UInt16(($0.lane & 3) << 4) | UInt16($0.position & 0x0F) } ?? 0 }
     /// RANDOM MODE ferry (§6.1/§6.3): one pending THROW/TWEAK/BACK/hold override per (lane, tab) — §6.1's
     /// "one slot per card tab," so a lane may have up to 3 in flight at once — carrying the beat each takes
     /// effect at. Flat, 12 slots (`euclideousRandomPendingSlot(lane:tab:)` is the one index every reader/
@@ -499,6 +502,7 @@ final class Kernel {
                         euclideousHoldOverrides: euclideousHoldOverrides,
                         euclideousLockLive: euclideousLockLive,
                         euclideousTestLive: euclideousTestLive,
+                        euclideousNotesAuditionLive: euclideousNotesAuditionLive,
                         sceneFlush: flushRequested,
                         out: replayingLoop ? reelSilentTap : reelTap, diag: &diag)   // → reelTap (reel + session tape) → liveEmitter; or, while a pass replays, the silent tap (session tape only)
         }

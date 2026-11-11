@@ -242,6 +242,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func setEuclideousSoloLive(_ mask: UInt8) { kernel.setEuclideousSoloLive(mask) }
     func setEuclideousPartSoloLive(_ mask: UInt8) { kernel.setEuclideousPartSoloLive(mask) }   // PER-PART SOLO (MIX v2): the LATCHED | held part mask   // LANE SOLO (2026-10-21): the LATCHED mask
     func setEuclideousTestLive(_ lane: Int?) { kernel.setEuclideousTestLive(lane) }   // INPUTS TEST (2026-11-08): the lane auditioning its pool (nil = off)
+    func setEuclideousNotesAuditionLive(_ v: (lane: Int, position: Int)?) { kernel.setEuclideousNotesAuditionLive(v) }   // NOTES AUDITION (2026-11-11): the held STACK cell (nil = off)
     /// RANDOM MODE ferry: a per-lane pending THROW/TWEAK/BACK/hold override straight to the render thread — same hand-off as setEuclideousSoloLive above. Main thread.
     func setEuclideousPendingRolls(_ rolls: EuclideousPendingRollSlots) { kernel.setEuclideousPendingRolls(rolls) }
     /// §5.6: the hold's own higher-priority override — same hand-off, separate channel.

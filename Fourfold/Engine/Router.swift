@@ -103,6 +103,11 @@ final class Router {
     private var euclideousTestLaneActive: Int = -1
     private var euclideousTestNextSample: Int64 = 0
     private var euclideousTestCursor: Int = 0
+    /// NOTES AUDITION (2026-11-11): the held STACK cell's lane (−1 = none) + its rank position, decoded per window; `…Order` is the single-position lit order the held lane's NOTES layer uses while held; `…WordPrev` edge-detects engage/move/release so the lane's sounding notes are cut cleanly.
+    private var euclideousNotesAuditionLaneNow: Int = -1
+    private var euclideousNotesAuditionPosNow: Int = 0
+    private var euclideousNotesAuditionWordPrev: UInt16 = 0
+    private var euclideousNotesAuditionOrder = EuclideousLitOrder()
     /// MIX ROWS (2026-11-03): the POOL rank (1…8, 0 = none) of the strike being emitted — set by `strikeChord` / the echo-tail drain, read by `emitOneBus` for the roll record and stamped on the voice for its END record.
     private var euclideousStrikeRank: UInt8 = 0
     /// The UI's LIVE solo word (`Kernel.euclideousSoloLive`: 0x100 | the effective mask once the page has spoken, else 0 = "use the snapshot's"). Written by the main thread the instant a SOLO button is touched,
@@ -2312,6 +2317,7 @@ final class Router {
                  euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                  euclideousLockLive: UInt64 = 0,
                  euclideousTestLive: UInt16 = 0,   // INPUTS TEST (2026-11-08): 0 = none; 0x100 | lane auditioning its pool
+                 euclideousNotesAuditionLive: UInt16 = 0,   // NOTES AUDITION (2026-11-11): 0 = none; 0x100 | (lane<<4) | position — the held STACK cell, the lane's only lit note while held
                  sceneFlush: Bool = false,
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
@@ -2399,6 +2405,16 @@ final class Router {
             euclideousTestLaneActive = euclideousTestLaneNow
             euclideousTestCursor = 0
             euclideousTestNextSample = windowStart
+        }
+        // NOTES AUDITION (2026-11-11): a held STACK cell makes its rank the lane's ONLY lit note while held (the litOrder override below, in `runSegment`). On any change — engage, move to another cell/lane, or release — end the affected lane's
+        // sounding notes now (before the echo ring drains / any lane strikes) so the audition is clean and the held note is released on lift (no stuck note). Byte-identical when the word is 0 (no cut, litOrder unchanged).
+        euclideousNotesAuditionLaneNow = (euclideousNotesAuditionLive & 0x100 != 0) ? Int((euclideousNotesAuditionLive >> 4) & 3) : -1
+        euclideousNotesAuditionPosNow = Int(euclideousNotesAuditionLive & 0x0F)
+        if euclideousNotesAuditionLaneNow >= 0 { euclideousNotesAuditionOrder = EuclideousLitOrder(); euclideousNotesAuditionOrder.append(euclideousNotesAuditionPosNow) }
+        if euclideousNotesAuditionLive != euclideousNotesAuditionWordPrev {
+            if euclideousNotesAuditionWordPrev & 0x100 != 0 { cutLaneVoices(Int((euclideousNotesAuditionWordPrev >> 4) & 3), atSample: windowStart, out: out) }
+            if euclideousNotesAuditionLaneNow >= 0 { cutLaneVoices(euclideousNotesAuditionLaneNow, atSample: windowStart, out: out) }
+            euclideousNotesAuditionWordPrev = euclideousNotesAuditionLive
         }
         lockLiveWord = euclideousLockLive    // LANE LOCK: the page's held lanes + revisions, read per window (planLocks)
         lockWindowSeconds = sampleRate > 0 ? Double(frameCount) / sampleRate : 0
@@ -5808,7 +5824,8 @@ final class Router {
                               riffOn: L.riffOnResolved,
                               // NOTES TAB (2026-10-19): the lit order is fixed-size data (ten bytes and a count), built from the lane's stored order without allocating; WHEN / CHANCE / PLAY AS /
                               // RECEIVED are plain scalars. `noteOctShifts` is no longer passed at all — the per-note octave shifts stopped sounding (§6.7).
-                              litOrder: notesRoll?.notesLitOrder ?? L.litOrderResolved, notesWhen: notesRoll?.notesWhen ?? L.notesWhenResolved, notesChance: notesRoll?.notesChance ?? L.notesChanceResolved,
+                              // NOTES AUDITION (2026-11-11): while a STACK cell is held, this lane's NOTES layer plays ONLY the held rank — override the lit order with the single-position order decoded above (every other input, incl. WHEN/CHANCE, is unchanged, so the audition rides the lane's own rhythm/play-as).
+                              litOrder: (isEuclideousRow && lineIndex == euclideousNotesAuditionLaneNow) ? euclideousNotesAuditionOrder : (notesRoll?.notesLitOrder ?? L.litOrderResolved), notesWhen: notesRoll?.notesWhen ?? L.notesWhenResolved, notesChance: notesRoll?.notesChance ?? L.notesChanceResolved,
                               notesPlaySeq: notesRoll != nil ? nil : L.notesPlaySeq, notesPlayAs: notesRoll?.notesPlayAs ?? L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,   // PLAY AS SEQUENCE: a random roll forces its one mode (nil seq ⇒ the fallback); else the lane's RAW chip sequence (no allocation, unlike …Resolved)
                               notesOn: L.notesOnResolved, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved,
                               // PLAY AS ROWS (2026-11-11): the three chains (RAW optionals, no allocation) + per-rank counts + bass + shift/drift. A random roll does not touch them (it sets only the lit notes / WHEN / CHANCE).

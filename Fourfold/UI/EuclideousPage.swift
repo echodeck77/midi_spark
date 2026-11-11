@@ -773,9 +773,12 @@ struct EuclideousPage: View {
     // PER-PART SOLO (MIX v2, 2026-11-05): the part masks (bit 2n = lane n's riff, 2n + 1 = its notes) — latched (saved) and held (a finger down; UI only).
     let partSoloMask: UInt8
     let partSoloHeld: UInt8
-    // INPUTS TEST (2026-11-08): which lane is auditioning its pool (nil = none — the TEST button's running state), and the toggle. Ephemeral UI only (a live word to the kernel); never saved, never undone.
+    // INPUTS TEST (2026-11-08; MOMENTARY 2026-11-11): which lane is auditioning its pool (nil = none — the headphones button's running state), down/up for the press. Ephemeral UI only (a live word to the kernel); never saved, never undone.
     var testLane: Int? = nil
-    var onToggleTest: (Int) -> Void = { _ in }
+    var onTestDown: (Int) -> Void = { _ in }
+    var onTestUp: (Int) -> Void = { _ in }
+    // NOTES AUDITION (2026-11-11): a held STACK cell auditions its rank alone — (lane, position) on engage, (lane, nil) on release. Ephemeral live word.
+    var onStackAudition: (Int, Int?) -> Void = { _, _ in }
     // CHORDS GRID ferry (Paul 2026-10-24): independently-stored progressions ("tabs"), replacing the single
     // grid the CHORDS BUTTON ferry (2026-10-08) first added. TWO CHORD GRIDS (2026-11-03): two of them, and each LANE
     // picks which one it plays (CHORD 1 | CHORD 2 on the INPUTS tab's SOURCES row) — `activeChordSet` is only the tab this
@@ -937,6 +940,9 @@ struct EuclideousPage: View {
     @AppStorage(euclideousMixToggleModeKey) private var mixToggleModeRaw: String = EuclideousMixToggleMode.filled.rawValue
     /// POOL ferry 6.3: the lane whose notes the riff grid's label column names (UI state, never saved; starts at lane 1).
     @State private var gridLane = 0
+    // NOTES AUDITION (2026-11-11): the STACK cell held right now (lane / rank position, −1 = none) — drives the held cell's light and greys the lane's other lit cells. Ephemeral; mirrors the live word pushed to the engine.
+    @State private var stackAuditionLane = -1
+    @State private var stackAuditionPos = -1
     @State private var flipFrom: EuclideousPageTab? = nil
     @State private var cardFlipStart: Date? = nil
     @State private var cardFlipTick = 0
@@ -2935,8 +2941,8 @@ struct EuclideousPage: View {
     private var lockOverlayMask: Int {
         (0..<4).reduce(0) { m, i in m | (((stepsPickerLane == i || restartEditorLane == i || notesPickerOpen.contains(i)) ? 1 : 0) << i) }
     }
-    private func laneTapMod(_ idx: Int, tapMaxSeconds: Double? = nil, _ action: @escaping () -> Void) -> EuclideousLaneTap {
-        EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: lockTouch(idx), action: action, tapMaxSeconds: tapMaxSeconds)
+    private func laneTapMod(_ idx: Int, tapMaxSeconds: Double? = nil, onHold: ((Bool) -> Void)? = nil, _ action: @escaping () -> Void) -> EuclideousLaneTap {
+        EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: lockTouch(idx), action: action, tapMaxSeconds: tapMaxSeconds, onHold: onHold)
     }
     private func lockOutlineMod(_ idx: Int, _ c: EuclideousLockControl, _ accent: Color) -> EuclideousLockOutline {
         EuclideousLockOutline(on: lockOn(idx, c), accent: accent)
@@ -5445,8 +5451,8 @@ struct EuclideousPage: View {
     /// look; disabled (40 %, no tap) when the lane routes to no emitter. Ephemeral — a live word to the kernel, never saved, never undone.
     private func poolTestButton(_ idx: Int, _ line: EuclidLine, w: CGFloat, height: CGFloat, accent: Color) -> some View {
         let enabled = (line.riffOutMaskResolved(lane: idx) | line.notesOutMaskResolved(lane: idx)) & 0x0F != 0
-        let running = testLane == idx
-        return Text("TEST").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
+        let running = testLane == idx   // MOMENTARY (2026-11-11): running only while the headphones button is held
+        return Image(systemName: "headphones").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
             .foregroundColor(running ? patternSelectedText : patternUnselectedText)
             .frame(width: w, height: min(EuclideousPoolTabMetrics.toggleH, height))
             .background(RoundedRectangle(cornerRadius: 7).fill(running ? lane20(accent) : patternUnselectedFill))
@@ -5454,12 +5460,12 @@ struct EuclideousPage: View {
             .frame(width: w, height: height)
             .opacity(enabled ? 1 : 0.35)
             .contentShape(Rectangle())
-            .onTapGesture { if enabled { onToggleTest(idx) } }
+            // hold to audition, release to stop (the pool only plays while you touch it); `onDisappear` inside the modifier stops it if the tab goes away mid-press
+            .modifier(EuclideousLaneTap(locked: false, momentary: true, onTouch: { down in if down { if enabled { onTestDown(idx) } } else { onTestUp(idx) } }, action: {}))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Test, lane \(idx + 1)")
-            .accessibilityValue(running ? "playing" : (enabled ? "ready" : "no output"))
+            .accessibilityLabel("Audition pool, lane \(idx + 1)")
+            .accessibilityValue(running ? "playing" : (enabled ? "hold to audition" : "no output"))
             .accessibilityAddTraits(.isButton)
-            .ringToggleTrait()
     }
     /// 3.4: MIDI — the label, three equal segments ADD · REPLACE · ROOT (28 tall, radius 6, the SOURCES chips' type) and a 44 × 28 readout: in ROOT the lane's applied transpose, signed; otherwise "–". While this lane's MIDI IN chip is off the segments
     /// and the readout draw at 40 % and stay tappable. A tap writes the lane's own `midiMode` (one undo step); the lane's mode is its own field, else the document's plan mode.
@@ -6074,17 +6080,26 @@ struct EuclideousPage: View {
             sounding = s.sounding
             glowAge = s.glowOnset.map { (beat - $0) * 60 / max(1, clock.tempo) }
         }
-        let look = euclideousStackCellLook(selected: on, sounding: sounding, glowAgeSeconds: glowAge, reduceMotion: reduceMotion)
+        // NOTES AUDITION (2026-11-11): while a cell of this lane is held, the HELD cell lights (even if it was off) and this lane's OTHER lit cells grey — mirroring the engine override that plays only the held rank.
+        let auditioning = stackAuditionLane == lane
+        let heldCell = auditioning && position != nil && position == stackAuditionPos
+        let greyed = auditioning && !heldCell && on
+        let look = euclideousStackCellLook(selected: on, sounding: sounding || heldCell, glowAgeSeconds: glowAge, reduceMotion: reduceMotion)
         var ringed = false
         if case .rank(let r) = row, ghostRank == r { ringed = true }   // §3: lane `lane`'s riff reads this rank now
         // §6.1: a lane whose NOTES part is silenced (per-part / lane solo — the lamp's own `audible` gate) draws its rest cells, ring and names at 42 %, once; nothing sounds then (the feed carries no outs for it).
         let dimmed = partSoloSilenced(lane, part: 1)
+        let cellOpacity: Double = greyed ? 0.28 : (dimmed ? EuclideousLaneDimStyle.opacity : 1)
         return AnyView(
             EuclideousStackCellView(name: name, look: look, ringed: ringed, live: position != nil, accent: lane100(accent), size: size, fontSize: fontSize)
-                .opacity(dimmed ? EuclideousLaneDimStyle.opacity : 1)
-                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: dimmed)
+                .opacity(cellOpacity)
+                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: cellOpacity)
                 .contentShape(Rectangle())
-                .modifier(laneTapMod(lane, tapMaxSeconds: EuclideousRingPress.holdSeconds) { if position != nil { edit(lane) { _ = euclideousStackCellToggle(&$0, row: row, poolCount: poolCount) } } })   // a HOLD must not toggle a cell (Paul 2026-11-11) — only a tap
+                .modifier(laneTapMod(lane, tapMaxSeconds: EuclideousRingPress.holdSeconds,
+                                     onHold: position.map { pos in { (down: Bool) in   // HOLD (≥ holdSeconds): audition this rank alone — light it, grey the lane's others, and tell the engine; release restores. A quick tap still toggles (the hold suppresses the toggle).
+                                         if down { stackAuditionLane = lane; stackAuditionPos = pos; onStackAudition(lane, pos) }
+                                         else if stackAuditionLane == lane && stackAuditionPos == pos { stackAuditionLane = -1; stackAuditionPos = -1; onStackAudition(lane, nil) }
+                                     } }) { if position != nil { edit(lane) { _ = euclideousStackCellToggle(&$0, row: row, poolCount: poolCount) } } })
                 .modifier(lockOutlineMod(lane, .noteKey(position ?? 0), accent))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Lane \(lane + 1), \(row.spoken), \(spoken)")
