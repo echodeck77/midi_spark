@@ -112,18 +112,12 @@ struct EuclideousLaneViewStrip: View {
         let t = i < euclideousPageTabOrder.count ? euclideousPageTabOrder[i] : .rhythm   // the strip's LEFT-TO-RIGHT order (INPUTS first), not the raw-value order
         let sel = tab == t
         let seg = L.segments[i], target = L.segmentTargets[i]
-        let glyphs = euclideousLaneStripGlyphs(tab: t, lines: lines, planMode: planMode)
-        let shape = euclideousLaneStripShape(t)
-        let showCluster = L.clustersVisible && shape != .none && glyphs.count == 4
-        let ground = Color(sel ? M.selectedFill : M.container)
+        let glyphs = euclideousLaneStripGlyphs(tab: t, lines: lines, planMode: planMode)   // kept only for the VoiceOver label — the visual enabled-state cluster is removed (Paul 2026-11-11); `cluster`/the glyph views stay compiled, unmounted
         return ZStack(alignment: .topLeading) {
             if sel { RoundedRectangle(cornerRadius: M.segmentRadius).fill(Color(M.selectedFill)).frame(width: seg.width, height: seg.height).offset(x: seg.minX, y: seg.minY) }
-            HStack(spacing: M.labelClusterGap) {
-                label(t.label, selected: sel)
-                if showCluster { cluster(t, shape: shape, glyphs: glyphs, selected: sel, ground: ground) }
-            }
-            .frame(width: seg.width, height: seg.height).offset(x: seg.minX, y: seg.minY)
-            .allowsHitTesting(false).accessibilityHidden(true)
+            label(t.label, selected: sel)
+                .frame(width: seg.width, height: seg.height).offset(x: seg.minX, y: seg.minY)
+                .allowsHitTesting(false).accessibilityHidden(true)
             Color.clear.frame(width: target.width, height: target.height).contentShape(Rectangle())
                 .onTapGesture { onSelect(t) }
                 .accessibilityElement(children: .ignore)
