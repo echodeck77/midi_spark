@@ -673,6 +673,8 @@ final class Router {
     // MIX TAB (2026-10-18): the per-pitch GATE sibling to `euclideousLastSoundedVels` — each cached pitch replays at its OWN layer's
     // gate (riff pitch = GATE, lit notes/TOP/TOP2 = the notes gate), gated by `euclideousLastSoundedCount[i]` like its siblings.
     private var euclideousLastSoundedGates = [Double](repeating: 0, count: 4 * 9)
+    // PLAY AS ROWS (2026-11-11): the per-pitch pool RANK sibling, gated by `euclideousLastSoundedCount` like the others — so a mask REPEAT replay carries the ORIGINAL rank to the roll instead of 0 (every strike must name a rank; the notes layer's arpeggio surfaced this latent gap). Not in MIDI, so the golden / fingerprints are unchanged.
+    private var euclideousLastSoundedRanks = [UInt8](repeating: 0, count: 4 * 9)
     /// TEST-ONLY seam (default false, one Bool read at the `runEuclidLine` call site, no allocation): the Euclideous row force-
     /// disables its EUCLID MASK (LISTEN ferry §1), which makes the mask-driven paths — CHORD extras, RATCHET, REPEAT — unreachable end to
     /// end. Tests set this to drive them so their per-pitch gate rules can actually be asserted.
@@ -3290,6 +3292,12 @@ final class Router {
                                 // is derived from it, with `notesPlayAs` the fallback single mode (nil sequence = the migrated single value, or a random roll's one mode). An empty sequence plays CHORD; a single chip is that mode always.
                                 notesPlaySeq: [EuclideousPlayStep]? = nil, notesPlayAs: EuclidNotesPlayAs = .chord, notesReceivedOnly: Bool = false,
                                 notesOn: Bool = true, notesVelocity: Int = 100, notesGate: Double = 0.9,
+                                // PLAY AS ROWS (2026-11-11): the three NOTES chains (RAW optionals — COW, never the *Resolved array accessors on the render thread) + per-rank counts + bass + shift/drift. The lit notes play through these now
+                                // (`euclideousRowsResolve`), not `notesPlayAs`/`notesPlaySeq` (kept for the random roll's fallback mode and compiled-but-dead PLAY AS playback — §0.2). Defaulted to the §1.9 defaults so the one call site is the only change.
+                                notesOrderChain: [EuclideousOrderChip]? = nil, notesVoicesChain: [EuclideousVoicesChip]? = nil, notesSpreadChain: [EuclideousSpreadChip]? = nil,
+                                notesRankCounts: UInt16 = 0, notesRankSecondLater: UInt8 = 0, notesRankThirdLater: UInt8 = 0,
+                                notesBassOn: Bool = false, notesBassMode: EuclideousBassMode = .hold,
+                                notesShiftStart: Int = 0, notesDriftOn: Bool = false, notesDriftStep: Int = 1,
                                 // LANES GRID (2026-10-18): the per-lane restart / mute grid is resolved INSIDE this function (it needs the
                                 // lane's own step length and lap, known only after the pattern is built) from `linesView[lineIndex]` —
                                 // so nothing grid-related is passed in any more.
@@ -4057,7 +4065,8 @@ final class Router {
                                     }
                                 }
                                 pitches[pitchCount] = v; pitchVel[pitchCount] = vel; pitchGate[pitchCount] = g; pitchRaw[pitchCount] = raw ?? v
-                                pitchRank[pitchCount] = rank ?? euclideousPoolRankOf(laneNotes(lineIndex), note: raw ?? v)   // MIX ROWS: the pool rank this pitch was chosen from (a TRADE rebuild passes the sender's)
+                                let autoRank = rank ?? euclideousPoolRankOf(laneNotes(lineIndex), note: raw ?? v)   // MIX ROWS: the pool rank this pitch was chosen from (a TRADE rebuild passes the sender's)
+                                pitchRank[pitchCount] = autoRank > 0 ? autoRank : UInt8(max(1, min(8, thisLaneCount)))   // every strike names a rank (1…8); a note struck from a now-released pool (empty) would otherwise name none — fall back to the pool size. Roll-only, so MIDI / golden / fingerprints are unchanged.
                                 if notesLayer { notesPitchMask |= UInt16(1) << UInt16(pitchCount) }
                                 pitchBus[pitchCount] = bus
                                 pitchOuts[pitchCount] = outs
@@ -4323,19 +4332,8 @@ final class Router {
                             var notesStruck = 0                    // pitches the notes layer actually added this hit (m, after 7.2)
                             // 7.2 / 8.3: the riff pitch a tied rest carries on is never struck again (on an output the riff holds it on).
                             let heldRiffPitch = restEnd == 2 ? euclideousHeldRiffPitch[lineIndex] : -1
-                            var notesCounted = false               // chosen and let through by CHANCE — counts toward k for later hits
-                            var notesList = EuclideousNotesList()  // the play list (6.5)
-                            var notesK = 0
                             var notesH: Int64 = 0
-                            // PLAY AS SEQUENCE (2026-11-08): the active chip's mode for THIS hit. A multi-chip lane needs the hit ordinal (hits since the melody origin, which resets at a melody restart) now, so the sequence advances
-                            // by hits and loops; otherwise the mode needs no ordinal, so `notesH` stays lazy (computed below only if the mode needs it) and a single-chip / migrated lane is byte-identical to the pre-sequence engine.
-                            let seqMulti = (notesPlaySeq?.count ?? 0) > 1
-                            let notesPlayAsActive: EuclidNotesPlayAs
-                            if let seq = notesPlaySeq {
-                                if seq.isEmpty { notesPlayAsActive = .chord }            // no modes ⇒ CHORD (the engine fallback; the UI shows "+ ADD MODE")
-                                else if seq.count == 1 { notesPlayAsActive = seq[0].mode }
-                                else { notesH = euclideousNotesHitOrdinal(buf: euclidBuf, w: nw, tick: tick); notesPlayAsActive = euclideousPlaySeqActive(seq: seq, hitOrdinal: notesH).mode }
-                            } else { notesPlayAsActive = notesPlayAs }                    // nil ⇒ the migrated single value / a random roll's one mode
+                            var notesSpreadActive: EuclideousSpreadMode = .together   // PLAY AS ROWS: the SPREAD chip active this hit (TOGETHER / STRUM / RUN); the spread block below keys on it
                             var notesSlotBits: UInt64 = ~0         // nibble j = strike slot of pitch j (0xF = not a spread pitch); AVOID moves it with the pitch
                             // LISTEN REBUILT §9.9 (confirmed by this ferry's own §0 research): NOTES pauses
                             // alongside RIFF whenever RIFF is borrowed — i.e. under SHADOW OR ECHO, not
@@ -4344,29 +4342,29 @@ final class Router {
                             // "the hit's single struck riff pitch."
                             if !shadowOrEchoValid, notesOn, thisLaneCount > 0, litOrder.count > 0,
                                euclideousNotesWhenChooses(when: notesWhen, isRestHit: ranks[playedStep] < 1) {
-                                let usesCount = euclideousNotesWayUsesCount(notesPlayAsActive)
-                                if (usesCount || notesChance < 100) && !seqMulti { notesH = euclideousNotesHitOrdinal(buf: euclidBuf, w: nw, tick: tick) }   // a multi-chip lane already has notesH (from the active-mode pick above)
+                                notesH = euclideousNotesHitOrdinal(buf: euclidBuf, w: nw, tick: tick)
                                 if euclideousNotesChanceAllows(chance: notesChance, lane: lineIndex, h: notesH) {
-                                    notesCounted = true
-                                    notesList = euclideousNotesPlayList(order: litOrder, poolCount: thisLaneCount, receivedOnly: notesReceivedOnly) { rank in
-                                        riffResolve(rank: rank, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note })
-                                    }
-                                    if notesList.count > 0 {
-                                        if usesCount {
-                                            notesK = euclideousNotesCountBefore(buf: euclidBuf, w: nw, tick: tick, h: notesH, when: notesWhen, chance: notesChance, lane: lineIndex,
-                                                                                thisBeat: mTickBeat, rankAt: writtenRankAt, poly: polyOn ? p.polyRiff : nil)
+                                    // PLAY AS ROWS (2026-11-11): the chord for this hit — RANKS from the three chains + per-rank counts + BASS (`euclideousRowsResolve`), resolved to pitches at note-on (pool changes heard at once). The bass
+                                    // strikes AT the hit (not spread); the chord notes spread per SPREAD (STRUM = ROLL's spacing, RUN = RUN's; §4.4) — the spread block below reads the slots exactly as it did for PLAY AS ROLL / RUN.
+                                    let rowsHit = euclideousRowsResolve(orderChain: notesOrderChain, voicesChain: notesVoicesChain, spreadChain: notesSpreadChain,
+                                                                        litOrder: litOrder, counts: notesRankCounts, secondLater: notesRankSecondLater, thirdLater: notesRankThirdLater,
+                                                                        bassOn: notesBassOn, bassMode: notesBassMode, shiftStart: notesShiftStart, driftOn: notesDriftOn, driftStep: notesDriftStep,
+                                                                        lane: lineIndex, hitOrdinal: notesH)
+                                    notesSpreadActive = rowsHit.spread
+                                    let doSpread = rowsHit.spread != .together
+                                    func strikeRowsRank(_ r: Int, spread: Bool) {
+                                        guard let pch = riffResolve(rank: r, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
+                                        let at = pitchCount
+                                        // Pass the LIT rank (1…8) so the roll / STACK-grid-live feed names it exactly (a folded note no longer falls back to nearest-by-pitch, which could leave an octave copy unranked).
+                                        addPitch(pch, vel: notesVel, gate: notesGate, notesLayer: true, heldByRiff: pch == heldRiffPitch, raw: pch - 12 * octave, rank: UInt8(r))
+                                        if pitchCount > at {
+                                            let slot: UInt64 = spread ? UInt64(notesStruck) : 0xF
+                                            notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * at))) | (slot << UInt64(4 * at))
+                                            if spread { notesStruck += 1 }
                                         }
-                                        let pick = euclideousNotesWayPick(list: notesList, way: notesPlayAsActive, k: notesK)
-                                        for i in 0..<pick.count {
-                                            let pch = notesList.pitch(pick[i])
-                                            let at = pitchCount
-                                            addPitch(pch, vel: notesVel, gate: notesGate, notesLayer: true, heldByRiff: pch == heldRiffPitch, raw: notesList.pitch(pick[i]) - 12 * octave)
-                                            if pitchCount > at {
-                                                notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * at))) | (UInt64(notesStruck) << UInt64(4 * at))
-                                                notesStruck += 1
-                                            }
-                                        }
                                     }
+                                    if rowsHit.bassRank > 0 { strikeRowsRank(rowsHit.bassRank, spread: false) }   // §4.5: the bass is struck at the hit
+                                    for i in 0..<rowsHit.count { strikeRowsRank(rowsHit[i], spread: doSpread) }
                                 }
                             }
                             // A rest hit whose notes layer played nothing ends exactly as it used to (§8.1, §8.3): a SKIP-like rest closes any legato note and posts the silent-rest NOTE VIEW
@@ -4388,7 +4386,6 @@ final class Router {
                             if !polyOn, riffOn, pitchCount > 0, riffOnRest == .tie {   // POLY: length replaces TIE
                                 let heldForTie = hadRiffNote ? riffNote : heldRiffPitch
                                 let notesOnlyOuts = (partOut[notesBus.trailingZeroBitCount] & ~partOut[riffBus.trailingZeroBitCount]) & 0x0F   // outputs the notes reach that the riff does not
-                                var scanK = notesK + (notesCounted ? 1 : 0)
                                 var scanH = notesH + 1
                                 let ext: (riff: Double, notes: Double)
                                 if notesStruck > 0 {
@@ -4396,11 +4393,15 @@ final class Router {
                                         var strikes = false
                                         if euclideousNotesWhenChooses(when: notesWhen, isRestHit: isRest), euclideousNotesChanceAllows(chance: notesChance, lane: lineIndex, h: scanH) {
                                             if isRest {
-                                                let scanWay = seqMulti ? euclideousPlaySeqActive(seq: notesPlaySeq!, hitOrdinal: scanH).mode : notesPlayAsActive   // PLAY AS SEQUENCE: a scanned hit may fall on a later chip
-                                                let pk = euclideousNotesWayPick(list: notesList, way: scanWay, k: scanK)
-                                                for i in 0..<pk.count where notesList.pitch(pk[i]) != heldForTie || notesOnlyOuts != 0 { strikes = true; break }   // a pitch the riff holds still strikes on the outputs only the notes use
+                                                // PLAY AS ROWS: what the notes layer would strike on this future hit (the same pure resolver); a pitch the riff holds still strikes on the outputs only the notes use.
+                                                let fut = euclideousRowsResolve(orderChain: notesOrderChain, voicesChain: notesVoicesChain, spreadChain: notesSpreadChain,
+                                                                                litOrder: litOrder, counts: notesRankCounts, secondLater: notesRankSecondLater, thirdLater: notesRankThirdLater,
+                                                                                bassOn: notesBassOn, bassMode: notesBassMode, shiftStart: notesShiftStart, driftOn: notesDriftOn, driftStep: notesDriftStep,
+                                                                                lane: lineIndex, hitOrdinal: scanH)
+                                                func pitchOf(_ r: Int) -> Int? { riffResolve(rank: r, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) }
+                                                if fut.bassRank > 0, let p = pitchOf(fut.bassRank), p != heldForTie || notesOnlyOuts != 0 { strikes = true }
+                                                if !strikes { for i in 0..<fut.count { if let p = pitchOf(fut[i]), p != heldForTie || notesOnlyOuts != 0 { strikes = true; break } } }
                                             }
-                                            scanK += 1
                                         }
                                         scanH += 1
                                         return strikes
@@ -4507,7 +4508,7 @@ final class Router {
                                         for i in 0..<pitchCount {
                                             pitches[i] = Int(euclideousLastSoundedNotes[lineIndex * 9 + i])
                                             pitchVel[i] = euclideousLastSoundedVels[lineIndex * 9 + i]
-                                            pitchGate[i] = euclideousLastSoundedGates[lineIndex * 9 + i]; polyBeats[i] = 0; pitchRank[i] = 0
+                                            pitchGate[i] = euclideousLastSoundedGates[lineIndex * 9 + i]; polyBeats[i] = 0; pitchRank[i] = euclideousLastSoundedRanks[lineIndex * 9 + i]   // PLAY AS ROWS: the replayed strike carries its original pool rank
                                             let cb = Int(euclideousLastSoundedBus[lineIndex * 9 + i])
                                             pitchOuts[i] = 0xFF; pitchBus[i] = cb >= 0 ? cb : Int(riffBus)   // THE NINE PORTS: back out on the port each pitch first struck on (a notes-layer pitch stays on the notes port)
                                             if pitchBus[i] == Int(notesBus) { notesPitchMask |= UInt16(1) << UInt16(i) }   // …and keeps the notes layer's TIE extension
@@ -4530,6 +4531,7 @@ final class Router {
                                         euclideousLastSoundedVels[lineIndex * 9 + i] = pitchVel[i]
                                         euclideousLastSoundedGates[lineIndex * 9 + i] = pitchGate[i]
                                         euclideousLastSoundedBus[lineIndex * 9 + i] = Int16(truncatingIfNeeded: pitchBus[i])
+                                        euclideousLastSoundedRanks[lineIndex * 9 + i] = pitchRank[i]
                                     }
                                     if nvSent {
                                         var nc = 0
@@ -4562,8 +4564,9 @@ final class Router {
                                 if !hadRiffNote {
                                     repNote = pitches[0..<pitchCount].max() ?? pitches[0]
                                     repRank = thisLaneCount   // best-effort fallback: CHORD's own resolveRank below only needs A pool rank for its interval offsets, not which specific toggle produced this exact pitch
-                                    // NOTES TAB: the representative's pool rank is the rank of the play-list entry that struck this pitch (the list is the one thing that resolved it).
-                                    for i in 0..<notesList.count where notesList.pitch(i) == repNote { repRank = notesList.rank(i); break }
+                                    // PLAY AS ROWS: the representative's pool rank, nearest by pitch (the play list the old lookup read is gone). Never 0 — fall back to the pool size (the old code's own fallback) so a mask strike always names a rank, even when the note came from a now-released pool; the mask is inert in production anyway.
+                                    let repRankNearest = euclideousPoolRankOf(laneNotes(lineIndex), note: repNote)
+                                    repRank = repRankNearest > 0 ? Int(repRankNearest) : max(1, thisLaneCount)
                                 }
                                 let maskOct = hadRiffNote ? riffOctave : octave
                                 // RIFF/NOTES SPLIT: the representative's own base velocity, layer-aware — mirrors
@@ -4773,6 +4776,7 @@ final class Router {
                                         euclideousLastSoundedVels[lineIndex * 9 + i] = pitchVel[i]
                                         euclideousLastSoundedGates[lineIndex * 9 + i] = pitchGate[i]
                                         euclideousLastSoundedBus[lineIndex * 9 + i] = Int16(truncatingIfNeeded: pitchBus[i])
+                                        euclideousLastSoundedRanks[lineIndex * 9 + i] = pitchRank[i]
                                     }
                                     // NOTES TAB (§7.2): remember the pitch the riff note sounded as, so a tied rest after this hit never re-strikes it from the notes layer. A hit without a riff note clears it — except a tied rest, which carries the riff note from before.
                                     if hadRiffNote { euclideousHeldRiffPitch[lineIndex] = riffNote + noteDelta } else if restEnd != 2 { euclideousHeldRiffPitch[lineIndex] = -1 }
@@ -4887,7 +4891,7 @@ final class Router {
                                 var nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, tempo: tempo)
                                 // RUN (§7.4): its notes are never carried on legato and never stay open into the next hit — they take part in the reconcile as ordinary (below-100%) notes, so what the
                                 // notes layer was holding legato ends here exactly as at a hit that doesn't continue it.
-                                if notesPlayAsActive == .run, notesStruck > 0 {
+                                if notesSpreadActive == .run, notesStruck > 0 {
                                     for j in 0..<pitchCount where (notesSlotBits >> UInt64(4 * j)) & 0xF != 0xF { pitchGate[j] = min(pitchGate[j], 0.99) }
                                 }
                                 let handled = reconcileEuclidLegato(lineIndex: lineIndex, pitches: pitches, pitchCount: pitchCount, vels: pitchVel, gates: pitchGate,
@@ -4967,8 +4971,8 @@ final class Router {
                                 // whatever the buffer size. A ratcheted hit never reaches here (§7.6): its strikes carry all the chosen notes together.
                                 var spreadM = 0
                                 for j in 0..<pitchCount where (notesSlotBits >> UInt64(4 * j)) & 0xF != 0xF { spreadM += 1 }
-                                let isRun = spreadM >= 1 && notesPlayAsActive == .run
-                                let isRoll = spreadM >= 2 && notesPlayAsActive == .roll
+                                let isRun = spreadM >= 1 && notesSpreadActive == .run
+                                let isRoll = spreadM >= 2 && notesSpreadActive == .strum   // PLAY AS ROWS: STRUM uses the old ROLL spacing (§4.4)
                                 func slotNibble(_ j: Int) -> UInt64 { (notesSlotBits >> UInt64(4 * j)) & 0xF }
                                 func strikePosition(_ j: Int) -> Int { var c = 0; let sj = slotNibble(j); for i in 0..<pitchCount where slotNibble(i) != 0xF && slotNibble(i) < sj { c += 1 }; return c }
                                 var rollSpacing = 0.0, runSlot = 0.0
@@ -5807,6 +5811,11 @@ final class Router {
                               litOrder: notesRoll?.notesLitOrder ?? L.litOrderResolved, notesWhen: notesRoll?.notesWhen ?? L.notesWhenResolved, notesChance: notesRoll?.notesChance ?? L.notesChanceResolved,
                               notesPlaySeq: notesRoll != nil ? nil : L.notesPlaySeq, notesPlayAs: notesRoll?.notesPlayAs ?? L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,   // PLAY AS SEQUENCE: a random roll forces its one mode (nil seq ⇒ the fallback); else the lane's RAW chip sequence (no allocation, unlike …Resolved)
                               notesOn: L.notesOnResolved, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved,
+                              // PLAY AS ROWS (2026-11-11): the three chains (RAW optionals, no allocation) + per-rank counts + bass + shift/drift. A random roll does not touch them (it sets only the lit notes / WHEN / CHANCE).
+                              notesOrderChain: L.notesOrderChain, notesVoicesChain: L.notesVoicesChain, notesSpreadChain: L.notesSpreadChain,
+                              notesRankCounts: L.notesRankCounts ?? 0, notesRankSecondLater: L.notesRankSecondLater ?? 0, notesRankThirdLater: L.notesRankThirdLater ?? 0,
+                              notesBassOn: L.notesBassOnResolved, notesBassMode: L.notesBassModeResolved,
+                              notesShiftStart: L.notesShiftStartResolved, notesDriftOn: L.notesDriftOnResolved, notesDriftStep: L.notesDriftStepResolved,
                               // LISTEN REBUILT (ferry 2026-10-23) — only Euclideous's own row ever has a
                               // non-OWN mode here (every other `.euclid` cell's `EuclidLine` never sets
                               // these fields, so they resolve to the byte-identical "off" defaults below).

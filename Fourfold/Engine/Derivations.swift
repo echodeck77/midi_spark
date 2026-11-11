@@ -8570,19 +8570,16 @@ func euclideousNotesHitPitches(line: EuclidLine, pool: [Int], cfg: EuclideousWal
     guard euclideousNotesWhenChooses(when: line.notesWhenResolved, isRestHit: isRestHit) else { return [] }   // §6.1: the hit's riff column is a rest — decided POLY-aware by the caller
     let hOrd = euclideousNotesHitOrdinal(buf: cfg.buf, w: nw, tick: tick)
     guard euclideousNotesChanceAllows(chance: line.notesChanceResolved, lane: lane, h: hOrd) else { return [] }
-    let way = euclideousPlaySeqActive(seq: line.notesPlaySeqResolved, hitOrdinal: hOrd).mode
-    let list = euclideousNotesPlayList(order: line.litOrderResolved, poolCount: pool.count, receivedOnly: line.notesReceivedOnlyResolved) { rank in
-        riffResolve(rank: rank, oct: oct, n: pool.count, wrap: .fold, asc: { pool[$0] })
-    }
-    guard list.count > 0 else { return [] }
-    var k = 0
-    if euclideousNotesWayUsesCount(way) {
-        k = euclideousNotesCountBefore(buf: cfg.buf, w: nw, tick: tick, h: hOrd, when: line.notesWhenResolved, chance: line.notesChanceResolved,
-                                       lane: lane, thisBeat: Double(tick) * cfg.sub, rankAt: { col, _ in (0..<ranks.count).contains(col) ? ranks[col] : 0 }, poly: poly)
-    }
-    let pick = euclideousNotesWayPick(list: list, way: way, k: k)
+    // PLAY AS ROWS (2026-11-11): the same pure resolver the Router's notes body runs — the three chains + per-rank counts + bass. (`isRestHit`, `ranks` and `poly` stay in the signature for the callers; the new model needs no count.)
+    _ = ranks; _ = poly
+    let rowsHit = euclideousRowsResolve(orderChain: line.notesOrderChain, voicesChain: line.notesVoicesChain, spreadChain: line.notesSpreadChain,
+                                        litOrder: line.litOrderResolved, counts: line.notesRankCounts ?? 0, secondLater: line.notesRankSecondLater ?? 0, thirdLater: line.notesRankThirdLater ?? 0,
+                                        bassOn: line.notesBassOnResolved, bassMode: line.notesBassModeResolved, shiftStart: line.notesShiftStartResolved, driftOn: line.notesDriftOnResolved, driftStep: line.notesDriftStepResolved,
+                                        lane: lane, hitOrdinal: hOrd)
+    func pitchOf(_ r: Int) -> Int? { riffResolve(rank: r, oct: oct, n: pool.count, wrap: .fold, asc: { pool[$0] }) }
     var out: [Int] = []
-    for j in 0..<pick.count { let p = list.pitch(pick[j]); if (0...127).contains(p) { out.append(p) } }
+    if rowsHit.bassRank > 0, let p = pitchOf(rowsHit.bassRank), (0...127).contains(p) { out.append(p) }
+    for i in 0..<rowsHit.count { if let p = pitchOf(rowsHit[i]), (0...127).contains(p) { out.append(p) } }
     return out
 }
 
