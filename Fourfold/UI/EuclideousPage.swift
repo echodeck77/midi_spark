@@ -5704,7 +5704,10 @@ struct EuclideousPage: View {
     /// INPUTS (ferry 2026-11-06; the POOL tab, renamed): NOW, SOURCES, MIDI, CANON — which harmony a lane hears and when, never which notes are removed from it. ANSWER's frame and row grammar: the 50 pt label column, sp4 between
     /// controls; heights from `euclideousInputsTabLayout` (44 / 30 / 30 / 44, sp14 apart, the gap giving way to 8 and then the rows to a 30 pt floor). When even the floors do not fit (a very short window) the body scrolls: no row is squeezed under 30 pt.
     private func poolTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        let layout = euclideousInputsTabLayout(contentAreaH: contentAreaH)
+        // APPLY TO ALL (Paul 2026-11-11): a button pinned at the very bottom of each lane's INPUTS; the four rows fit / scroll in the area above it.
+        let buttonH: CGFloat = 28, buttonGap: CGFloat = 8
+        let rowsAreaH = max(0, contentAreaH - buttonH - buttonGap)
+        let layout = euclideousInputsTabLayout(contentAreaH: rowsAreaH)
         let rows = VStack(spacing: layout.gap) {
             poolNowRow(idx, accent, fullWidth: fullWidth, height: layout.nowH)
             poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
@@ -5712,9 +5715,39 @@ struct EuclideousPage: View {
             listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH)
             Spacer(minLength: 0)
         }
-        if layout.fits { return AnyView(rows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
-        return AnyView(ScrollView(.vertical, showsIndicators: false) { rows.frame(width: fullWidth, alignment: .top) }
-            .frame(width: fullWidth, height: contentAreaH, alignment: .top))
+        let rowsView: AnyView = layout.fits
+            ? AnyView(rows.frame(width: fullWidth, height: rowsAreaH, alignment: .top))
+            : AnyView(ScrollView(.vertical, showsIndicators: false) { rows.frame(width: fullWidth, alignment: .top) }.frame(width: fullWidth, height: rowsAreaH, alignment: .top))
+        return VStack(spacing: buttonGap) {
+            rowsView
+            inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
+        }
+        .frame(width: fullWidth, height: contentAreaH, alignment: .top)
+    }
+    /// APPLY TO ALL (Paul 2026-11-11): copies THIS lane's INPUTS — SOURCES (`poolSrcMask`, incl. the CHORD 1/2 grid), MIDI mode (`midiMode`) and CANON DELAY (`chordDelay`) — onto the other three lanes, as ONE undo step. The CANON UNIT is page-level, so already shared; NOW is display-only.
+    private func inputsApplyToAll(_ idx: Int) {
+        onEdit { lines in
+            guard idx >= 0, idx < lines.count else { return }
+            let s = lines[idx]
+            for i in lines.indices where i != idx {
+                lines[i].poolSrcMask = s.poolSrcMask
+                lines[i].midiMode = s.midiMode
+                lines[i].chordDelay = s.chordDelay
+            }
+        }
+    }
+    /// The APPLY TO ALL button: full-width, the INPUTS buttons' heavy monospaced face, a lane-colour outline. A tap applies this lane's inputs to every lane.
+    private func inputsApplyAllButton(_ idx: Int, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> some View {
+        Text("APPLY TO ALL").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
+            .foregroundColor(patternUnselectedText)
+            .frame(width: fullWidth, height: height)
+            .background(RoundedRectangle(cornerRadius: 7).fill(patternUnselectedFill))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(accent).opacity(0.6), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture { inputsApplyToAll(idx) }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Apply lane \(idx + 1) inputs to all lanes")
+            .accessibilityAddTraits(.isButton)
     }
     /// 3.2: NOW — the label, then eight rank chips of the lane's pool as it is choosing from it, each received note carrying a pip in its source's colour (leaf-observed: the page does not re-run for the status feed).
     private func poolNowRow(_ idx: Int, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
