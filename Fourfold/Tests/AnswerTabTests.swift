@@ -306,18 +306,18 @@ final class AnswerTabTests: XCTestCase {
     // MARK: strip: six tabs
 
     func testTheStripReadsRhythmRiffNotesPoolAnswerMix() {
-        XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["EUCLID", "RIFF", "STACK", "INPUTS", "ANSWER", "MIX"])   // POOL renamed INPUTS (Paul 2026-11-05); NOTES renamed STACK (STACK GRID ferry, 2026-11-08)
-        XCTAssertEqual(EuclideousPageTab.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5])
-        // the strip DRAWS them INPUTS first (the display order is separate from the raw-value coupling)
-        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["INPUTS", "EUCLID", "RIFF", "STACK", "ANSWER", "MIX"])
+        XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["EUCLID", "RIFF", "STACK", "INPUTS", "ANSWER", "RESETS", "MIX"])   // POOL renamed INPUTS (Paul 2026-11-05); NOTES renamed STACK (STACK GRID ferry, 2026-11-08); RESETS added (2026-11-11)
+        XCTAssertEqual(EuclideousPageTab.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5, 6])
+        // the strip DRAWS them INPUTS first, RESETS right after EUCLID (the display order is separate from the raw-value coupling)
+        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["INPUTS", "EUCLID", "RESETS", "RIFF", "STACK", "ANSWER", "MIX"])
         XCTAssertEqual(euclideousPageTabOrder.count, EuclideousPageTab.allCases.count)
         XCTAssertEqual(Set(euclideousPageTabOrder), Set(EuclideousPageTab.allCases), "every tab appears exactly once")
-        XCTAssertEqual(EuclideousTabKind.allCases.map(\.rawValue), [0, 1, 2, 3, 4])
-        XCTAssertEqual(EuclideousPageTab.pool.front, .pool); XCTAssertEqual(EuclideousPageTab.listen.front, .listen); XCTAssertNil(EuclideousPageTab.mix.front)
+        XCTAssertEqual(EuclideousTabKind.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(EuclideousPageTab.pool.front, .pool); XCTAssertEqual(EuclideousPageTab.listen.front, .listen); XCTAssertNil(EuclideousPageTab.mix.front); XCTAssertEqual(EuclideousPageTab.resets.front, .resets)
     }
     func testTheSixSegmentsAtTheReferenceWidths() {
         let land = euclideousLaneStripLayout(width: 769.33), port = euclideousLaneStripLayout(width: 782)
-        XCTAssertEqual(land.segments.count, 6); XCTAssertEqual(land.segmentWidth, 113.39, accuracy: 0.01); XCTAssertEqual(port.segmentWidth, 115.5, accuracy: 0.01)
+        XCTAssertEqual(land.segments.count, 7); XCTAssertEqual(land.segmentWidth, 96.76, accuracy: 0.01); XCTAssertEqual(port.segmentWidth, 98.57, accuracy: 0.01)
         XCTAssertTrue(land.clustersVisible); XCTAssertTrue(port.clustersVisible)
         XCTAssertFalse(euclideousLaneStripLayout(width: 660).clustersVisible)
         XCTAssertGreaterThanOrEqual(land.segmentWidth, EuclideousLaneStripMetrics.segmentFloor)

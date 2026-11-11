@@ -657,8 +657,8 @@ enum EuclideousLaneTab: Int, CaseIterable {
     // not added alongside); `EuclidLine.mask`/`EuclidLineMask`/`runEuclidLine`'s own mask-application code
     // are all untouched, just never reachable from the UI and never fed a genuinely-enabled mask by the
     // one call site that used to (see Router.swift's own call-site comment).
-    case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4   // ANSWER FERRY: POOL joined, LISTEN is ANSWER on screen (the case keeps its code name); coupled by raw value with EuclideousTabKind / EuclideousPageTab
-    var label: String { switch self { case .rhythm: "EUCLID"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "INPUTS"; case .listen: "ANSWER" } }   // RHYTHM → EUCLID / POOL → INPUTS on screen (Paul 2026-11-08 / 2026-11-05)
+    case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, resets = 5   // ANSWER FERRY: POOL joined, LISTEN is ANSWER on screen (the case keeps its code name); RESETS added 2026-11-11; coupled by raw value with EuclideousTabKind / EuclideousPageTab
+    var label: String { switch self { case .rhythm: "EUCLID"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "INPUTS"; case .listen: "ANSWER"; case .resets: "RESETS" } }   // RHYTHM → EUCLID / POOL → INPUTS on screen (Paul 2026-11-08 / 2026-11-05)
 }
 
 /// STACK BREAK (2026-10-25, crash `FourfoldAU-2026-10-25-213535.ips`): the extension's main thread has a 1 MB stack and building the page eagerly nests
@@ -3060,13 +3060,9 @@ struct EuclideousPage: View {
                     .allowsHitTesting(!borrowed)
                     .accessibilityHidden(borrowed)   // §10: VoiceOver skips the paused, non-interactive content entirely
                 }
-                // §1.5/§1.7: the picker and the restart editor cover the whole body from the top — only one of the two open at a time (§1.6). The STEPS picker keeps its own 192pt floor; the restart editor builds at ANY height and degrades itself.
-                if stepsPickerLane == idx {
-                    if pickerEditorH >= 192 {
-                        stepsPicker(idx, line, accent, width: fullWidth, height: pickerEditorH)
-                    }
-                } else if restartEditorLane == idx {
-                    restartEditorV2(idx, line, width: fullWidth, height: pickerEditorH)   // RESTART UNITS (2026-11-04): the rebuilt editor; the old `restartEditor` below is no longer mounted (hidden, not deleted)
+                // §1.5/§1.7: the STEPS picker covers the whole body from the top (its own 192pt floor). RESETS ferry (2026-11-11): the restart EDITOR moved to the RESETS tab with its tiles — it is no longer mounted here.
+                if stepsPickerLane == idx, pickerEditorH >= 192 {
+                    stepsPicker(idx, line, accent, width: fullWidth, height: pickerEditorH)
                 }
                 if borrowed {
                     listenPausedOverlay(idx, line, label: "RHYTHM", width: fullWidth, height: belowStripH) { $0.answerRhythmOn = false }
@@ -3082,6 +3078,17 @@ struct EuclideousPage: View {
             EuclideousStackBreak { AnyView(poolTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)) }
         case .listen:
             listenTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
+        case .resets:
+            // RESETS tab (Paul 2026-11-11): the two restart tiles (RHYTHM RESTART / MELODY RESTART) moved off the EUCLID tab, plus the restart-editor overlay they open — which covers the whole card, exactly as it did on EUCLID.
+            let tileH: CGFloat = 44
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: sp4) {
+                    restartTilesRow(idx, line, accent, rowH: tileH, fullWidth: fullWidth)
+                    Spacer(minLength: 0)
+                }
+                .frame(width: fullWidth, height: contentAreaH, alignment: .top)
+                if restartEditorLane == idx { restartEditorV2(idx, line, width: fullWidth, height: contentAreaH) }
+            }
         }
     }
 
@@ -3545,17 +3552,12 @@ struct EuclideousPage: View {
         // matching the 118(sliders)+4(gap)+80(this block)=202 tab-content height exactly); halfW's
         // divider footprint corrected from 8 (a bare 1pt rule + 3.5pt either side) to 17 (1pt rule +
         // 8pt padding either side) — both halves land at the spec's own 154.5pt.
-        let rowH: CGFloat = 38, gap: CGFloat = 4, blockH = rowH * 2 + gap
-        let halfW = max(1, (fullWidth - 17) / 2)
-        return AnyView(HStack(spacing: 0) {
-            patternRateHalf(idx, line, accent, halfW: halfW, blockH: blockH, gap: gap)
-                // LISTEN REBUILT (2026-10-23): the old `.followMult` lock control is retired along with FOLLOW
-                // itself — this grid is always the lane's own plain RATE now.
-                .modifier(lockOutlineMod(idx, .rate, accent))   // on the AnyView, so the big HStack's type is never copied under a wrapper
-            Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 8)
-            patternOutHalf(idx, line, accent, halfW: halfW, rowH: rowH, gap: gap, blockH: blockH)
-        }
-        .frame(width: fullWidth, height: blockH))
+        let gap: CGFloat = 4, blockH = 38 * 2 + gap
+        // RESETS ferry (2026-11-11): the restart tiles (the old right half) moved to the RESETS tab — the RATE grid now spans the whole block (no divider, no `patternOutHalf`). `patternOutHalf` stays compiled, unmounted.
+        return AnyView(patternRateHalf(idx, line, accent, halfW: fullWidth, blockH: blockH, gap: gap)
+            // LISTEN REBUILT (2026-10-23): the old `.followMult` lock control is retired along with FOLLOW itself — this grid is always the lane's own plain RATE now.
+            .modifier(lockOutlineMod(idx, .rate, accent))
+            .frame(width: fullWidth, height: blockH))
     }
     private func patternRateHalf(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, blockH: CGFloat, gap: CGFloat) -> AnyView {
         let feelColW: CGFloat = 36
