@@ -6471,11 +6471,11 @@ struct EuclideousPage: View {
                                      anyRouted: anyRouted, flareLane: flareLane, flareActivity: flareLane >= 0 ? 1 : 0)
         }
     }
-    /// §3.2 — the upcoming TIMING ghosts for an output: each lane routed to it, its predicted riff hits in `(playhead, windowEnd)` from the
-    /// shared walk mirror (`euclideousLaneRollHits`). A RIFF ghost now carries its RESOLVED pitch (the walk's rank through INVERT → TRANS →
-    /// `riffResolve` at the riff OCT over the lane's live pool — the same path the engine emits, proven by NoteRollRankTests), so the upcoming
-    /// bars track the melody instead of flattening to the middle line (2026-11-11). A notes-only ghost / an empty pool keeps pitch nil (the §3.3
-    /// middle line — the notes-layer chord is the deferred part). Device-owed by eye.
+    /// §3.2 — the upcoming TIMING ghosts for an output: each lane routed to it, its predicted hits in `(playhead, windowEnd)` from the shared walk
+    /// mirror (`euclideousLaneRollHits`), with their RESOLVED pitches (2026-11-11). The RIFF part: the walk's rank through INVERT → TRANS →
+    /// `riffResolve` at the riff OCT over the lane's live pool. The NOTES part: `euclideousNotesHitPitches` — the engine's own closed form (lit order ×
+    /// PLAY AS × WHEN / CHANCE × the NOTES OCT, fuzz-proven), minus any pitch the riff also strikes on this shared output (the engine's riff/notes
+    /// dedup). nil stays the §3.3 middle line (an empty pool, a SHADOW / ECHO lane whose layer is paused, AVOID time-holes — device-owed).
     private func muteGhosts(output: Int, windowStart: Double, windowEnd: Double, playhead: Double, ranks: [Int]) -> [EmitterGhostHit] {
         guard windowEnd > playhead else { return [] }
         let from = max(windowStart, playhead)
@@ -6488,15 +6488,23 @@ struct EuclideousPage: View {
             guard riffOn || notesOn, let cfg = riffWalkConfig(lane) else { continue }
             let pool = lane < lanePools.count ? lanePools[lane].notes.sorted().map { Int($0) } : []   // the lane's live pool (root / key / canon already folded in)
             let riffOct = l.riffOctaveResolved, inv = l.riffInvertResolved, trans = l.melodyTransposeResolved
+            let notesOct = max(-2, min(2, l.octaveResolved))
+            let notesLive = notesOn && euclideousNotesLayerIsOn(l) && l.listenPitchResolved != .shadow && l.listenPitchResolved != .echo   // a SHADOW / ECHO lane's notes layer is paused
             let hits = euclideousLaneRollHits(cfg: cfg, windowStart: from, windowBeats: windowEnd - from, minGateBeats: 0.01, poly: poly,
                                               rankAt: { col, _ in col >= 0 && col < ranks.count ? ranks[col] : 0 })
-            for h in hits where (riffOn && h.rank > 0) || notesOn {
-                var pitch: UInt8? = nil
-                if riffOn, h.rank > 0, !pool.isEmpty {   // the riff walk's resolved note — the engine's own INVERT → TRANS → riffResolve(riff OCT, pool)
+            for h in hits {
+                var riffPitch: UInt8? = nil
+                if riffOn, h.rank > 0, !pool.isEmpty {   // the RIFF part: the engine's INVERT → TRANS → riffResolve(riff OCT, pool)
                     let eff = euclideousRiffStepRanks(ranks: [h.rank], invert: inv, transpose: trans).first ?? h.rank
-                    if eff >= 1, let n = riffResolve(rank: eff, oct: riffOct, n: pool.count, wrap: .fold, asc: { pool[$0] }), (0...127).contains(n) { pitch = UInt8(n) }
+                    if eff >= 1, let n = riffResolve(rank: eff, oct: riffOct, n: pool.count, wrap: .fold, asc: { pool[$0] }), (0...127).contains(n) { riffPitch = UInt8(n) }
                 }
-                out.append(EmitterGhostHit(lane: lane, riff: riffOn, onset: h.beat, length: h.gateBeats, pitch: pitch))
+                if riffOn, h.rank > 0 { out.append(EmitterGhostHit(lane: lane, riff: true, onset: h.beat, length: h.gateBeats, pitch: riffPitch)) }
+                if notesLive, !pool.isEmpty {   // the NOTES part: the layer's picked pitches this hit, minus any the riff also strikes on this output
+                    let tick = Int64((h.beat / cfg.sub + 1e-6).rounded(.down))
+                    for p in euclideousNotesHitPitches(line: l, pool: pool, cfg: cfg, tick: tick, lane: lane, oct: notesOct, ranks: ranks, poly: poly) where !(riffOn && riffPitch.map { Int($0) == p } == true) {
+                        out.append(EmitterGhostHit(lane: lane, riff: false, onset: h.beat, length: h.gateBeats, pitch: UInt8(p)))
+                    }
+                }
             }
         }
         return out

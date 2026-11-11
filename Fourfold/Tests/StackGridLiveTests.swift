@@ -111,6 +111,46 @@ final class StackGridLiveTests: XCTestCase {
         XCTAssertNil(euclideousStackCellNote(row: .rank(1), pool: pool([2]), notesOct: -2), "rank 1 at OCT −2 of a very low pool leaves 0…127 → dropped")
     }
 
+    // MUTE notes-ghost prediction (2026-11-11): euclideousNotesHitPitches == the NOTES layer the Router actually emits, per hit, across PLAY AS modes × octaves.
+    func testNotesHitPitchesEqualTheEngine() {
+        let held: [UInt8] = [48, 50, 52, 53, 55, 57, 59]   // 7 received notes, so octave folds + TOP are exercised
+        let pool = held.map { Int($0) }
+        let riffRanks = [1, 2, 3, 4, 5, 6, 7, 8]            // the riff grid's ranks — all ≥ 1 ⇒ no rest hits, so WHEN(both) plays every hit
+        for mode in [EuclidNotesPlayAs.chord, .cycle, .bounce, .build, .split, .reverse, .random, .alternate, .outline, .pairs, .drone] {
+            for oct in [-1, 0, 1] {
+                // the riff layer is OFF so the notes layer plays alone (no riff/notes same-pitch dedup) — this fuzzes euclideousNotesHitPitches in isolation; the dedup is handled + tested in muteGhosts separately
+                var l = EuclidLine(target: 0, pulses: 5, steps: 8, velocityAbsolute: 100, rate: .r1_4, useRiff: true, riffOn: false, sourceMode: .midi)
+                l.notesOn = true; l.litNotes = 0b1011_0110; l.notesPlayAs = mode; l.notesWhen = 0b11; l.notesGate = 0.4; l.octave = oct
+                var c = Machine(machineID: "gold", type: .euclid)
+                c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: riffRanks)
+                c.paramsA.euclidLines = [l] + (1..<4).map { _ in EuclidLine(enabled: false) }
+                var sc = SceneState.empty(); sc.stepRate = .r1_8; sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a])
+                var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+                st.euclideousNoteSource = .midi; st.euclideousSourcePlan = SourcePlan(midiOctaves: .keep)
+                let box = SnapshotBuilder.build(from: st)
+                let router = Router(); var diag = KernelDiag(); let e = SilentEmitter()
+                let np = NotePool(); for n in held { np.noteOn(n, velocity: 100, channel: 0) }
+                let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+                let windowBeats = Double(frames) * tempo / 60.0 / sr
+                var beat = 0.0, ts = 0.0, recs: [NoteRollRecord] = []
+                while beat < 8.0 {
+                    router.process(box: box, pool: np, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+                    recs += router.rollRing.drain(); beat += windowBeats; ts += Double(frames)
+                }
+                guard let cfg = euclideousWalkLaneConfig(lane: 0, lines: [l], cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8) else { return XCTFail("no cfg") }
+                // the notes layer strikes every picked pitch at the HIT onset (CHORD + single-note modes; ROLL/RUN would spread) — group the emitted notes-part records by onset
+                let notesStarts = recs.filter { !$0.isEnd && $0.part == 1 && $0.onBeat < 7.0 }
+                XCTAssertFalse(notesStarts.isEmpty, "\(mode) oct \(oct): the notes layer struck")
+                let byBeat = Dictionary(grouping: notesStarts, by: { ($0.onBeat / cfg.sub).rounded() })
+                for (_, group) in byBeat {
+                    let tick = Int64((group[0].onBeat / cfg.sub).rounded())
+                    let predicted = Set(euclideousNotesHitPitches(line: l, pool: pool, cfg: cfg, tick: tick, lane: 0, oct: max(-2, min(2, oct)), ranks: riffRanks))
+                    XCTAssertEqual(predicted, Set(group.map { Int($0.pitch) }), "\(mode) oct \(oct) tick \(tick): the predicted notes-layer pitches match the engine")
+                }
+            }
+        }
+    }
+
     // 9b — the load-bearer: stackCellNote == the note the Router's NOTES layer actually emits, for 8 ranks × OCT −2…+2 (and the riff OCT / TRANS don't move it).
     func testStackCellNoteEqualsTheEngineEmittedNote() {
         let held: [UInt8] = [60, 64, 67]

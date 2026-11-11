@@ -8518,6 +8518,36 @@ func euclideousNotesWayPick(list: EuclideousNotesList, way: EuclidNotesPlayAs, k
     return (seq.count - 1, seq[seq.count - 1].mode)
 }
 
+/// STACK / MUTE prediction (2026-11-11): the MIDI pitches the NOTES layer emits at the hit on absolute `tick` — the ONE closed form `runEuclidLine`'s notes body
+/// (Router.swift) and the strip's key row both compute (fuzz-proven against the engine). Empty when the layer is off, WHEN rejects the hit (a riff rest vs a played
+/// hit), CHANCE drops it, or the pool is empty. The pitches carry the NOTES octave `oct` (pass `line.octaveResolved` clamped −2…+2 — NOT the riff OCT). ROLL / RUN
+/// emit this SAME pitch set (their onsets spread in time; not modelled here). Caller must exclude a SHADOW / ECHO pitch-borrowing lane (the layer is paused) and
+/// AVOID's time-holes (device-owed). `ranks` are the WRITTEN riff ranks (`effectiveGridRanks`); MONO uses `ranks[playedStep]` for the rest test (POLY's own rest
+/// test is device-owed here). Pure + deterministic — there is no hidden seed (`.random` is a closed form of the hit count, CHANCE a splitmix of lane+ordinal).
+func euclideousNotesHitPitches(line: EuclidLine, pool: [Int], cfg: EuclideousWalkLaneConfig, tick: Int64, lane: Int, oct: Int, ranks: [Int], poly: PolyRiffSnap? = nil) -> [Int] {
+    guard euclideousNotesLayerIsOn(line), !pool.isEmpty else { return [] }
+    let nw = euclideousNotesWalk(from: cfg)
+    let w = euclideousWalkTick(cfg, tick: tick)
+    let written = (0..<ranks.count).contains(w.playedStep) ? ranks[w.playedStep] : 0
+    guard euclideousNotesWhenChooses(when: line.notesWhenResolved, isRestHit: written < 1) else { return [] }   // the engine's own `ranks[playedStep] < 1`
+    let hOrd = euclideousNotesHitOrdinal(buf: cfg.buf, w: nw, tick: tick)
+    guard euclideousNotesChanceAllows(chance: line.notesChanceResolved, lane: lane, h: hOrd) else { return [] }
+    let way = euclideousPlaySeqActive(seq: line.notesPlaySeqResolved, hitOrdinal: hOrd).mode
+    let list = euclideousNotesPlayList(order: line.litOrderResolved, poolCount: pool.count, receivedOnly: line.notesReceivedOnlyResolved) { rank in
+        riffResolve(rank: rank, oct: oct, n: pool.count, wrap: .fold, asc: { pool[$0] })
+    }
+    guard list.count > 0 else { return [] }
+    var k = 0
+    if euclideousNotesWayUsesCount(way) {
+        k = euclideousNotesCountBefore(buf: cfg.buf, w: nw, tick: tick, h: hOrd, when: line.notesWhenResolved, chance: line.notesChanceResolved,
+                                       lane: lane, thisBeat: Double(tick) * cfg.sub, rankAt: { col, _ in (0..<ranks.count).contains(col) ? ranks[col] : 0 }, poly: poly)
+    }
+    let pick = euclideousNotesWayPick(list: list, way: way, k: k)
+    var out: [Int] = []
+    for j in 0..<pick.count { let p = list.pitch(pick[j]); if (0...127).contains(p) { out.append(p) } }
+    return out
+}
+
 /// 7.3: ROLL's spacing in beats, for m ≥ 2 notes: s = min(25 ms, R ÷ (m − 1)), R the lesser of half the gap to the lane's next pattern hit and half the notes' length on this hit (the
 /// length is ignored when the notes are legato). Note j (counting from 0, in strike order) starts j × s after the hit; every note still ends where it would without the roll.
 func euclideousNotesRollSpacingBeats(m: Int, gapBeats: Double, lenBeats: Double, legato: Bool, tempo: Double) -> Double {
