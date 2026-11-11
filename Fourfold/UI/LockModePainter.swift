@@ -305,13 +305,26 @@ struct EuclideousLaneTap: ViewModifier {
     let momentary: Bool
     let onTouch: (Bool) -> Void
     let action: () -> Void
+    var tapMaxSeconds: Double? = nil   // STACK grid (2026-11-11): when set, a press HELD longer than this does NOT fire `action` — a hold must not toggle a cell; a quick tap still does (the lock snap-back `onTouch` fires either way). nil = the old behaviour, so every other caller is unchanged.
     @State private var down = false
+    @State private var downAt = Date()
     func body(content: Content) -> some View {
         if momentary {
             content
                 .gesture(DragGesture(minimumDistance: 0)
                     .onChanged { _ in if !down { down = true; onTouch(true); action() } }
                     .onEnded { _ in if down { down = false; onTouch(false) } })
+                .onDisappear { if down { down = false; onTouch(false) } }
+        } else if let maxS = tapMaxSeconds {
+            // a tap a HOLD does not trigger: toggle only when the press is released before the page's hold threshold and the finger did not slide off; `onTouch` still marks a locked lane "held" for the whole press
+            content
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { _ in if !down { down = true; downAt = Date(); onTouch(true) } }
+                    .onEnded { v in
+                        guard down else { return }
+                        down = false; onTouch(false)
+                        if Date().timeIntervalSince(downAt) < maxS, abs(v.translation.width) < 12, abs(v.translation.height) < 12 { action() }
+                    })
                 .onDisappear { if down { down = false; onTouch(false) } }
         } else if locked {
             content

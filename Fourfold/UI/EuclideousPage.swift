@@ -2935,8 +2935,8 @@ struct EuclideousPage: View {
     private var lockOverlayMask: Int {
         (0..<4).reduce(0) { m, i in m | (((stepsPickerLane == i || restartEditorLane == i || notesPickerOpen.contains(i)) ? 1 : 0) << i) }
     }
-    private func laneTapMod(_ idx: Int, _ action: @escaping () -> Void) -> EuclideousLaneTap {
-        EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: lockTouch(idx), action: action)
+    private func laneTapMod(_ idx: Int, tapMaxSeconds: Double? = nil, _ action: @escaping () -> Void) -> EuclideousLaneTap {
+        EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: lockTouch(idx), action: action, tapMaxSeconds: tapMaxSeconds)
     }
     private func lockOutlineMod(_ idx: Int, _ c: EuclideousLockControl, _ accent: Color) -> EuclideousLockOutline {
         EuclideousLockOutline(on: lockOn(idx, c), accent: accent)
@@ -6053,7 +6053,7 @@ struct EuclideousPage: View {
     //
     // Four columns (the four lanes, in lane-card order, headed in their colours) by eleven rows — TOP, TOP−1, TOP−2, then ranks 8 … 1 — of toggle cells, beside the app's own rank chips as the axis. A cell reads and writes the lane's NOTES selection
     // (`euclideousStackCellIsOn` / `euclideousStackCellToggle`, which call the NOTES tab's `euclideousToggleLitPosition` on the position the cell stands for): nothing is kept here, so a change on either side shows on the other at once.
-    /// One cell, as an `AnyView` leaf (the page's build chain has little stack to spare). The tap goes through `laneTapMod` — the lock-aware tap the NOTES keys use — and the cell wears the keys' "will snap back" outline on a locked lane.
+    /// One cell, as an `AnyView` leaf (the page's build chain has little stack to spare). The tap goes through `laneTapMod` — the lock-aware tap the NOTES keys use — with a HOLD gate (`tapMaxSeconds`): a press held past the page's hold threshold does NOT toggle the cell, only a quick tap (Paul 2026-11-11). The cell wears the keys' "will snap back" outline on a locked lane.
     private func stackCell(_ row: EuclideousStackRow, lane: Int, size: CGSize, fontSize: CGFloat, beat: Double, playing: Bool, ghostRank: Int?) -> AnyView {
         let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
         let lp = lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
@@ -6084,7 +6084,7 @@ struct EuclideousPage: View {
                 .opacity(dimmed ? EuclideousLaneDimStyle.opacity : 1)
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: dimmed)
                 .contentShape(Rectangle())
-                .modifier(laneTapMod(lane) { if position != nil { edit(lane) { _ = euclideousStackCellToggle(&$0, row: row, poolCount: poolCount) } } })
+                .modifier(laneTapMod(lane, tapMaxSeconds: EuclideousRingPress.holdSeconds) { if position != nil { edit(lane) { _ = euclideousStackCellToggle(&$0, row: row, poolCount: poolCount) } } })   // a HOLD must not toggle a cell (Paul 2026-11-11) — only a tap
                 .modifier(lockOutlineMod(lane, .noteKey(position ?? 0), accent))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Lane \(lane + 1), \(row.spoken), \(spoken)")
