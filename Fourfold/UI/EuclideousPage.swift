@@ -951,6 +951,12 @@ struct EuclideousPage: View {
     @State private var notesPickerOpen: Set<Int> = []   // NOTES tab ferry §4.5: the lanes whose PLAY AS picker is open — not saved, not an undo step (retired; the live picker is the page-level pop-up below)
     struct PlayAsPopupTarget: Equatable { var lane: Int; var chip: Int }
     @State private var playAsPopup: PlayAsPopupTarget? = nil   // PLAY AS SEQUENCE (2026-11-08): the open mode pop-up's (lane, chip) — not saved, not an undo step
+    // PLAY AS ROWS ferry (2026-11-11): the NOTES tab's own ephemeral UI state — never saved, never an undo step.
+    enum EuclideousChainKind: Equatable { case order, voices, spread }
+    struct NotesChainPopupTarget: Equatable { var lane: Int; var kind: EuclideousChainKind; var chip: Int }
+    @State private var notesXLane: Int? = nil                           // §6.5: the lane whose RANKS row is in × (count-edit) mode
+    @State private var notesChainPopup: NotesChainPopupTarget? = nil    // §7: the open ORDER / VOICES / SPREAD pop-up
+    @State private var notesShiftPopup: Int? = nil                      // §8: the open SHIFT pop-up's lane
     @State private var scheduleHolder = EuclideousScheduleHolder()   // RESTART UNITS: the lanes' restart schedule, rebuilt only when the lines, the host bar or the walk's width change
     @State private var riffReadoutCache = EuclideousRiffReadoutCache()   // the riff readout / never-play set, memoised per lane on its inputs (RIFF WALK §7.2)
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
@@ -1694,6 +1700,15 @@ struct EuclideousPage: View {
                     Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { playAsPopup = nil }.zIndex(4)
                     playAsPopupCard(t, box: box).zIndex(5)
                 }
+                // PLAY AS ROWS (2026-11-11) §7, §8: the ORDER/VOICES/SPREAD and SHIFT pop-ups, opened from a chip / the SHIFT button. The scrim closes them.
+                if let t = notesChainPopup {
+                    Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { notesChainPopup = nil }.zIndex(4)
+                    notesChainPopupCard(t, box: box).zIndex(5)
+                }
+                if let lane = notesShiftPopup {
+                    Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { notesShiftPopup = nil }.zIndex(4)
+                    notesShiftPopupCard(lane, box: box).zIndex(5)
+                }
             }
             .coordinateSpace(name: "euclideousXY")
             .frame(width: box.width, height: box.height, alignment: .topLeading)
@@ -2193,6 +2208,7 @@ struct EuclideousPage: View {
         harmonyOpen = false; harmonyPopover = .none   // HARMONY: one overlay at a time (§4.1)
         hocketPopupOpen = false   // HOCKET (2026-10-27): the same
         playAsPopup = nil         // PLAY AS SEQUENCE (2026-11-08): the same
+        notesChainPopup = nil; notesShiftPopup = nil   // PLAY AS ROWS (2026-11-11): the ORDER/VOICES/SPREAD and SHIFT pop-ups
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -4496,102 +4512,425 @@ struct EuclideousPage: View {
             }
         }
     }
+    // PLAY AS ROWS ferry (2026-11-11, §5): seven rows — RANKS · WHEN RIFF · ORDER · VOICES · SPREAD · BASS · EMIT+OCT — 28 tall, sp6 apart (they fit the 233 content area). The RANKS row's × mode grows it and hides the rows below (§6.5).
     private func notesTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let isOn = line.notesOnResolved
-        // LISTEN REBUILT (2026-10-23): NOTES pauses whole under SHADOW or ECHO (§9.9's `borrowedTabs`, NOTES
-        // reads the riff far beyond one pitch, so it always pauses alongside RIFF — confirmed, not assumed).
         let shadowing = euclideousAnswerBorrowedTabs(line, notesReadsRiff: true).notes
-        let lay = euclideousNotesTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
-        let plays = line.notesPlaysResolved, rests = line.notesRestsResolved
-        let chance = line.notesChanceResolved
-        let chanceStops = [25, 50, 75, 100]
-        let chanceIdx = chanceStops.firstIndex(of: chance) ?? 3
-        // a control placed by its layout frame; `row` is the row group it lives in (the group's origin is subtracted so the control sits where the layout says)
-        func placed<V: View>(_ r: CGRect, in row: CGRect? = nil, @ViewBuilder _ v: () -> V) -> some View {
-            v().frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY - (row?.minY ?? 0))
-        }
-        // one VoiceOver group per row (§11.2): the group spans the content width at the row's own y, its children keep their layout x
-        func group<V: View>(_ row: CGRect, label: String, @ViewBuilder _ v: () -> V) -> some View {
-            ZStack(alignment: .topLeading) { v() }
-                .frame(width: fullWidth, height: row.height, alignment: .topLeading)
-                .offset(x: 0, y: row.minY)
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel(label)
-        }
+        let cross = (notesXLane == idx)
+        let lay = euclideousPlayAsRowsLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, cross: cross)
         return ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
-                placed(lay.strip) { notesStrip(idx, line, accent, height: lay.strip.height) }
-                Group {
-                    // PLAY AS SEQUENCE ferry (2026-11-08): the rank selector is gone — note selection lives on the STACK grid (its tap edits the SAME lit order). The three surviving rows fill the card.
-                    // WHEN (§3.1, §3.2): PLAYS and RESTS — one of the two always stays on; CHANCE steps 25 / 50 / 75 / 100
-                    group(lay.whenRow, label: euclideousNotesWhenGroupLabel) {
-                        placed(lay.whenLabel, in: lay.whenRow) { riffRowLabel("WHEN", "RIFF") }.accessibilityHidden(true)
-                        placed(lay.plays, in: lay.whenRow) {
-                            notesToggle("PLAYS", on: plays, accent: accent, accessibility: euclideousNotesPlaysLabel,
-                                        hint: euclideousNotesWhenHint(isOnlyOneOn: plays && !rests, riffOn: line.riffOnResolved),
-                                        help: "Play the lit notes on hits where the riff plays a note.", lane: idx, outline: lockOn(idx, .notesWhen)) {
-                                guard !(plays && !rests) else { return }
-                                edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 }
-                            }
-                        }
-                        placed(lay.rests, in: lay.whenRow) {
-                            notesToggle("RESTS", on: rests, accent: accent, accessibility: euclideousNotesRestsLabel,
-                                        hint: euclideousNotesWhenHint(isOnlyOneOn: rests && !plays, riffOn: line.riffOnResolved),
-                                        help: "Play the lit notes on hits where the riff rests.", lane: idx, outline: lockOn(idx, .notesWhen)) {
-                                guard !(rests && !plays) else { return }
-                                edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 }
-                            }
-                        }
-                        placed(lay.chance, in: lay.whenRow) {
-                            melodyStepper("CHANCE", value: chanceIdx, range: 0...3, width: lay.chance.width, help: "How many of the chosen hits the lit notes play.",
-                                          height: lay.chance.height, valueText: "\(chance)%", lowDisabled: chanceIdx == 0, highDisabled: chanceIdx == 3, lane: idx, outline: lockOn(idx, .notesChance)) { v in
-                                guard v != chanceIdx else { return }
-                                edit(idx) { $0.notesChance = chanceStops[v] }
-                            }
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel("Chance")
-                            .accessibilityValue(lockSpoken(idx, .notesChance, euclideousNotesChanceValue(chance)))
-                            .accessibilityAdjustableAction { direction in
-                                let next = direction == .increment ? min(3, chanceIdx + 1) : max(0, chanceIdx - 1)
-                                guard next != chanceIdx else { return }
-                                edit(idx) { $0.notesChance = chanceStops[next] }
-                            }
-                        }
-                    }
-                    // PLAY AS SEQUENCE (§2, 2026-11-08): a row of mode chips, each with its own HIT count; a chip opens the pop-up, the arrows step the count, [+] appends a mode. No modes ⇒ a single "+ ADD MODE".
-                    group(lay.playAsRow, label: euclideousNotesPlayAsGroupLabel) {
-                        placed(lay.playAsLabel, in: lay.playAsRow) { riffRowLabel("PLAY", "AS") }.accessibilityHidden(true)
-                        placed(lay.playAs, in: lay.playAsRow) {
-                            playAsSequenceRow(idx, line, accent: accent, size: lay.playAs.size)
-                                .modifier(lockOutlineMod(idx, .notesPlayAs, accent))
-                        }
-                    }
-                    // NOTES OUTPUT + OCTAVE (2026-10-29): the four NOTES output toggles (left) and a horizontal octave
-                    // control (right) replace RECEIVED. The octave shifts the notes part AFTER the pool is read (`line.octave`).
-                    group(lay.soundRow, label: "Notes output and octave") {
-                        placed(lay.notesOut, in: lay.soundRow) {
-                            partOutputToggles(idx, accent: accent, mask: line.notesOutMaskResolved(lane: idx), label: "Notes output") { l, o in
-                                let own = UInt8(1) << UInt8(max(0, min(3, idx)))
-                                let m = euclideousJackToggle(mask: l.notesOutMaskResolved(lane: idx), output: o)
-                                l.notesOutMask = m == own ? nil : m
-                            }
-                        }
-                        placed(lay.notesOctave, in: lay.soundRow) {
-                            partOctaveBoxes(idx, oct: max(-2, min(2, line.octaveResolved)), label: "Notes octave") { l, n in
-                                l.octave = n == 0 ? nil : n
-                            }
-                        }
-                    }
-                }
-                .opacity(isOn ? 1.0 : 0.42)
+                ranksTilesRow(idx, line, accent, lay: lay)                                   // §6: the eight tiles + × button
+                if cross, let s = lay.secondRow { notesRankCopyRow(idx, line, accent, cells: lay.secondCells, labelFrame: lay.secondLabel, copy: 2).frame(width: fullWidth, height: s.height, alignment: .topLeading).offset(y: s.minY) }
+                if cross, let t = lay.thirdRow { notesRankCopyRow(idx, line, accent, cells: lay.thirdCells, labelFrame: lay.thirdLabel, copy: 3).frame(width: fullWidth, height: t.height, alignment: .topLeading).offset(y: t.minY) }
+                notesRowAt(lay.whenRow, fullWidth) { whenRiffRow(idx, line, accent, width: fullWidth) }
+                notesRowAt(lay.orderRow, fullWidth) { notesChainRow(idx, line, kind: .order, accent: accent, width: fullWidth) }
+                notesRowAt(lay.voicesRow, fullWidth) { notesChainRow(idx, line, kind: .voices, accent: accent, width: fullWidth) }
+                notesRowAt(lay.spreadRow, fullWidth) { notesChainRow(idx, line, kind: .spread, accent: accent, width: fullWidth) }
+                notesRowAt(lay.bassRow, fullWidth) { bassRow(idx, line, accent, width: fullWidth) }
+                notesRowAt(lay.emitRow, fullWidth) { emitOctRow(idx, line, accent, width: fullWidth) }
             }
+            .opacity(isOn ? 1.0 : 0.42)
             .opacity(shadowing ? EuclideousListenPauseMetrics.dimOpacity : 1)
             .allowsHitTesting(!shadowing)
             .accessibilityHidden(shadowing)
             if shadowing { listenPausedOverlay(idx, line, label: "NOTES", width: fullWidth, height: contentAreaH) { $0.answerPitchOn = false } }
-            // PLAY AS SEQUENCE: the 13-tile mode pop-up is page-level now (mounted in `pageBody`), opened by a chip; the old in-tab picker is retired.
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
+        .clipped()   // §6.5: in × mode the rows pushed past the bottom are clipped (hidden), not compressed
+    }
+    /// A row placed at its frame; a nil frame (a row hidden in × mode) draws nothing.
+    @ViewBuilder private func notesRowAt<V: View>(_ frame: CGRect?, _ width: CGFloat, @ViewBuilder _ v: () -> V) -> some View {
+        if let f = frame { v().frame(width: width, height: f.height, alignment: .topLeading).offset(x: f.minX, y: f.minY) }
+    }
+
+    // MARK: - PLAY AS ROWS §6 — the RANKS row
+
+    /// §6.1-§6.4: the eight 1…8 tiles and the × button. A lit tile fills in the lane colour with its rank number and one pip per count; an unlit tile is neutral. With × off a tap toggles the STACK selection (the SAME lit-order store /
+    /// one undo step as a grid tap). With × on, a lit tile steps its count 1→2→3→1 and the unlit tiles dim; the × button is outlined.
+    private func ranksTilesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, lay: EuclideousPlayAsRowsLayout) -> some View {
+        let cross = (notesXLane == idx)
+        let order = line.litOrderResolved
+        return ZStack(alignment: .topLeading) {
+            ForEach(0..<8, id: \.self) { r in
+                let frame = lay.rankTiles[r]
+                let lit = order.contains(r)
+                notesRankTile(idx, rank: r + 1, lit: lit, count: line.notesRankCount(r + 1), accent: accent, cross: cross)
+                    .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
+            }
+            // the × button
+            Text("\u{00D7}").font(.system(size: 18, weight: .heavy, design: .monospaced)).foregroundColor(cross ? lane100(accent) : Color(hex: 0x8A909A))
+                .frame(width: lay.xButton.width, height: lay.xButton.height)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x24262C)))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(cross ? lane100(accent) : Color(hex: 0x33363D), lineWidth: cross ? 2 : 1))
+                .contentShape(Rectangle())
+                .onTapGesture { notesXLane = cross ? nil : idx }   // §6.6: a second tap closes × mode
+                .offset(x: lay.xButton.minX, y: lay.xButton.minY)
+                .accessibilityLabel("Edit rank counts, lane \(idx + 1)").accessibilityAddTraits(cross ? [.isButton, .isSelected] : .isButton)
+        }
+        .frame(width: lay.content.width, height: lay.ranks.height, alignment: .topLeading)
+        .accessibilityElement(children: .contain).accessibilityLabel("Ranks")
+    }
+    /// One 1…8 tile.
+    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, count: Int, accent: Color, cross: Bool) -> some View {
+        let dim = cross && !lit
+        return ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(lit ? lane100(accent) : Color(hex: 0x24262C))
+            VStack(spacing: 2) {
+                Text("\(rank)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(lit ? Color(hex: 0x0D0F14) : Color(hex: 0x8A909A))
+                if lit {   // §6.2: one pip per count (1…3)
+                    HStack(spacing: 2) { ForEach(0..<max(1, count), id: \.self) { _ in Circle().fill(Color(hex: 0x0D0F14)).frame(width: 2.5, height: 2.5) } }
+                }
+            }
+        }
+        .opacity(dim ? 0.42 : 1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if cross { guard lit else { return }; edit(idx) { $0.cycleNotesRankCount(rank) } }   // §6.5: step the count
+            else { edit(idx) { _ = euclideousToggleLitPosition(&$0, position: rank - 1) } }        // §6.4: toggle the rank (same store / undo as a grid tap)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Rank \(rank)")
+        .accessibilityValue(lit ? "on, \(count) time\(count == 1 ? "" : "s")" : "off")
+        .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
+    }
+    /// §6.5: a 2ND / 3RD row — eight cells lined up with the tiles plus the row's label in the × column. A live cell (its rank lit and count ≥ this copy) shows two dots: touching = AGAIN, apart = LATER; a dead cell is dark and ignores taps.
+    private func notesRankCopyRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cells: [CGRect], labelFrame: CGRect, copy: Int) -> some View {
+        let order = line.litOrderResolved
+        return ZStack(alignment: .topLeading) {
+            ForEach(0..<8, id: \.self) { r in
+                let frame = cells[r]
+                let live = order.contains(r) && line.notesRankCount(r + 1) >= copy
+                let later = (copy == 2 ? line.notesRankSecond(r + 1) : line.notesRankThird(r + 1)) == .later
+                notesCopyCell(idx, rank: r + 1, copy: copy, live: live, later: later, accent: accent)
+                    .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
+            }
+            Text(copy == 2 ? "2ND" : "3RD").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                .frame(width: labelFrame.width, height: labelFrame.height, alignment: .leading).offset(x: labelFrame.minX, y: labelFrame.minY).accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .contain).accessibilityLabel(copy == 2 ? "Second copies" : "Third copies")
+    }
+    private func notesCopyCell(_ idx: Int, rank: Int, copy: Int, live: Bool, later: Bool, accent: Color) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(live ? Color(hex: 0x24262C) : Color(hex: 0x16181C))
+            if live {   // two dots: touching (AGAIN) or apart (LATER)
+                HStack(spacing: later ? 8 : 2) { Circle().fill(lane100(accent)).frame(width: 5, height: 5); Circle().fill(lane100(accent)).frame(width: 5, height: 5) }
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { guard live else { return }; edit(idx) { copy == 2 ? $0.setNotesRankSecond(rank, later ? .again : .later) : $0.setNotesRankThird(rank, later ? .again : .later) } }
+        .accessibilityElement(children: .ignore)
+        .accessibilityHidden(!live)
+        .accessibilityLabel("Rank \(rank), \(copy == 2 ? "second" : "third") copy").accessibilityValue(later ? "later" : "again")
+    }
+
+    // MARK: - PLAY AS ROWS — WHEN RIFF (reused controls), BASS, EMIT+OCT
+
+    private func whenRiffRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
+        let plays = line.notesPlaysResolved, rests = line.notesRestsResolved
+        let chance = line.notesChanceResolved, chanceStops = [25, 50, 75, 100]
+        let chanceIdx = chanceStops.firstIndex(of: chance) ?? 3
+        return HStack(spacing: 4) {
+            riffRowLabel("WHEN", "RIFF").frame(width: 48).accessibilityHidden(true)
+            notesToggle("PLAYS", on: plays, accent: accent, accessibility: euclideousNotesPlaysLabel, hint: euclideousNotesWhenHint(isOnlyOneOn: plays && !rests, riffOn: line.riffOnResolved),
+                        help: "Play the lit notes on hits where the riff plays a note.", lane: idx, outline: lockOn(idx, .notesWhen)) { guard !(plays && !rests) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 } }
+            notesToggle("RESTS", on: rests, accent: accent, accessibility: euclideousNotesRestsLabel, hint: euclideousNotesWhenHint(isOnlyOneOn: rests && !plays, riffOn: line.riffOnResolved),
+                        help: "Play the lit notes on hits where the riff rests.", lane: idx, outline: lockOn(idx, .notesWhen)) { guard !(rests && !plays) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 } }
+            Spacer(minLength: 0)
+            melodyStepper("CHANCE", value: chanceIdx, range: 0...3, width: 88, help: "How many of the chosen hits the lit notes play.", height: 28, valueText: "\(chance)%",
+                          lowDisabled: chanceIdx == 0, highDisabled: chanceIdx == 3, lane: idx, outline: lockOn(idx, .notesChance)) { v in guard v != chanceIdx else { return }; edit(idx) { $0.notesChance = chanceStops[v] } }
+        }
+        .frame(width: width, height: 28, alignment: .leading)
+        .accessibilityElement(children: .contain).accessibilityLabel(euclideousNotesWhenGroupLabel)
+    }
+    /// §5.5: BASS — the label, ANSWER's row switch, then HOLD | FIRST pills (the selected one in the lane colour). While the switch is off, the pills draw at 42 % and still take taps.
+    private func bassRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
+        let on = line.notesBassOnResolved, mode = line.notesBassModeResolved
+        return HStack(spacing: 6) {
+            Text("BASS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 48, alignment: .leading).accessibilityHidden(true)
+            EuclideousRowSwitchPill(on: on, accent: lane100(accent))
+                .contentShape(Rectangle()).frame(width: 44, height: 28).onTapGesture { edit(idx) { $0.notesBassOn = on ? nil : true } }
+                .accessibilityLabel("Bass").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+            notesBassPill("HOLD", selected: mode == .hold, enabled: on, accent: accent) { edit(idx) { $0.notesBassMode = .hold; if !on { $0.notesBassOn = true } } }
+            notesBassPill("FIRST", selected: mode == .first, enabled: on, accent: accent) { edit(idx) { $0.notesBassMode = .first; if !on { $0.notesBassOn = true } } }
+            Spacer(minLength: 0)
+        }
+        .frame(width: width, height: 28, alignment: .leading)
+        .accessibilityElement(children: .contain).accessibilityLabel("Bass")
+    }
+    private func notesBassPill(_ label: String, selected: Bool, enabled: Bool, accent: Color, action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xC2C7CF))
+            .padding(.horizontal, 10).frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? lane100(accent) : Color(hex: 0x24262C)))
+            .opacity(enabled ? 1 : 0.42)
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+            .accessibilityLabel(label).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+    /// EMIT + OCT: the four NOTES output toggles (left) and the octave boxes (right) — the pre-ferry controls, unchanged.
+    private func emitOctRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            partOutputToggles(idx, accent: accent, mask: line.notesOutMaskResolved(lane: idx), label: "Notes output") { l, o in
+                let own = UInt8(1) << UInt8(max(0, min(3, idx))); let m = euclideousJackToggle(mask: l.notesOutMaskResolved(lane: idx), output: o); l.notesOutMask = m == own ? nil : m
+            }
+            Spacer(minLength: 0)
+            partOctaveBoxes(idx, oct: max(-2, min(2, line.octaveResolved)), label: "Notes octave") { l, n in l.octave = n == 0 ? nil : n }
+        }
+        .frame(width: width, height: 28, alignment: .leading)
+        .accessibilityElement(children: .contain).accessibilityLabel("Notes output and octave")
+    }
+
+    // MARK: - PLAY AS ROWS §5.3-§5.4 — the ORDER / VOICES / SPREAD chip rows
+
+    /// A chip row: the label, the chips with THEN between (a tap on a chip's value opens the row's pop-up; its ‹ n › hits stepper shows only with 2+ chips), then a + button (while < 4 chips). ORDER carries the SHIFT button at its right.
+    private func notesChainRow(_ idx: Int, _ line: EuclidLine, kind: EuclideousChainKind, accent: Color, width: CGFloat) -> some View {
+        let label = kind == .order ? "ORDER" : kind == .voices ? "VOICES" : "SPREAD"
+        let chips = notesChainChips(line, kind)
+        let multi = chips.count >= 2
+        return HStack(spacing: 4) {
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 48, alignment: .leading).accessibilityHidden(true)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(chips.enumerated()), id: \.offset) { i, chip in
+                        if i > 0 { Text("THEN").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x6E737C)).accessibilityHidden(true) }
+                        notesChainChipView(idx, kind: kind, chip: i, name: chip.name, hits: chip.hits, multi: multi, accent: accent)
+                    }
+                    if chips.count < 4 { notesChainAddButton(idx, kind: kind, accent: accent) }
+                }
+                .frame(height: 28).padding(.horizontal, 2)
+            }
+            if kind == .order { notesShiftButton(idx, line, accent: accent) }
+        }
+        .frame(width: width, height: 28, alignment: .leading)
+        .accessibilityElement(children: .contain).accessibilityLabel(label)
+    }
+    private func notesChainChipView(_ idx: Int, kind: EuclideousChainKind, chip i: Int, name: String, hits: Int, multi: Bool, accent: Color) -> some View {
+        HStack(spacing: 4) {
+            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).foregroundColor(patternSelectedText)
+                .contentShape(Rectangle()).onTapGesture { closeAllOtherOverlays(); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: i) }
+                .accessibilityElement(children: .ignore).accessibilityLabel("\(chainSpoken(kind)), \(i + 1), \(name)").accessibilityAddTraits(.isButton)
+            if multi { playAsCountStepper(value: hits) { delta in notesChainStepHits(idx, kind, chip: i, delta: delta) } }
+        }
+        .padding(.horizontal, 8).frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: 7).fill(lane20(accent)))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(accent), lineWidth: 1))
+    }
+    private func notesChainAddButton(_ idx: Int, kind: EuclideousChainKind, accent: Color) -> some View {
+        Text("+").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(patternUnselectedText)
+            .frame(width: 28, height: 26).background(RoundedRectangle(cornerRadius: 7).fill(patternUnselectedFill))
+            .contentShape(Rectangle()).onTapGesture { let n = notesChainAdd(idx, kind); closeAllOtherOverlays(); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: n) }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Add to \(chainSpoken(kind))").accessibilityAddTraits(.isButton)
+    }
+    /// §5.4: the SHIFT value button at the ORDER row's right; dim (and inert) while the first ORDER chip is SHUFFLE.
+    private func notesShiftButton(_ idx: Int, _ line: EuclidLine, accent: Color) -> some View {
+        let shuffle = line.notesOrderChainResolved.first?.value == .shuffle
+        let text = euclideousShiftValueText(start: line.notesShiftStartResolved, driftOn: line.notesDriftOnResolved, step: line.notesDriftStepResolved)
+        return HStack(spacing: 3) {
+            Text("SHIFT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            Text(text).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText)
+        }
+        .padding(.horizontal, 6).frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
+        .opacity(shuffle ? 0.42 : 1)
+        .contentShape(Rectangle()).onTapGesture { guard !shuffle else { return }; closeAllOtherOverlays(); notesShiftPopup = idx }
+        .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityValue(text).accessibilityAddTraits(.isButton)
+    }
+    // the chain accessors + edit funnels (one undo step each via `edit`)
+    private func chainSpoken(_ kind: EuclideousChainKind) -> String { kind == .order ? "Order" : kind == .voices ? "Voices" : "Spread" }
+    private func notesChainChips(_ line: EuclidLine, _ kind: EuclideousChainKind) -> [(name: String, hits: Int)] {
+        switch kind {
+        case .order:  return line.notesOrderChainResolved.map { (euclideousOrderModeName($0.value), $0.hits) }
+        case .voices: return line.notesVoicesChainResolved.map { (euclideousVoicesModeName($0.value), $0.hits) }
+        case .spread: return line.notesSpreadChainResolved.map { (euclideousSpreadModeName($0.value), $0.hits) }
+        }
+    }
+    private func clampChipHits(_ x: Int) -> Int { max(1, min(32, x)) }
+    private func notesChainStepHits(_ idx: Int, _ kind: EuclideousChainKind, chip i: Int, delta: Int) {
+        edit(idx) { l in
+            switch kind {
+            case .order:  var c = l.notesOrderChainResolved;  guard i < c.count else { return }; c[i].hits = clampChipHits(c[i].hits + delta); l.notesOrderChain = c
+            case .voices: var c = l.notesVoicesChainResolved; guard i < c.count else { return }; c[i].hits = clampChipHits(c[i].hits + delta); l.notesVoicesChain = c
+            case .spread: var c = l.notesSpreadChainResolved; guard i < c.count else { return }; c[i].hits = clampChipHits(c[i].hits + delta); l.notesSpreadChain = c
+            }
+        }
+    }
+    @discardableResult private func notesChainAdd(_ idx: Int, _ kind: EuclideousChainKind) -> Int {
+        var n = 0
+        edit(idx) { l in
+            switch kind {
+            case .order:  var c = l.notesOrderChainResolved;  if c.count < 4 { c.append(EuclideousOrderChip(value: c.last?.value ?? .up, hits: 4)) }; n = c.count - 1; l.notesOrderChain = c
+            case .voices: var c = l.notesVoicesChainResolved; if c.count < 4 { c.append(EuclideousVoicesChip(value: c.last?.value ?? .one, hits: 4)) }; n = c.count - 1; l.notesVoicesChain = c
+            case .spread: var c = l.notesSpreadChainResolved; if c.count < 4 { c.append(EuclideousSpreadChip(value: c.last?.value ?? .together, hits: 4)) }; n = c.count - 1; l.notesSpreadChain = c
+            }
+        }
+        return n
+    }
+    private func notesChainRemove(_ idx: Int, _ kind: EuclideousChainKind, chip i: Int) {
+        edit(idx) { l in
+            switch kind {
+            case .order:  var c = l.notesOrderChainResolved;  guard c.count > 1, i < c.count else { return }; c.remove(at: i); l.notesOrderChain = c
+            case .voices: var c = l.notesVoicesChainResolved; guard c.count > 1, i < c.count else { return }; c.remove(at: i); l.notesVoicesChain = c
+            case .spread: var c = l.notesSpreadChainResolved; guard c.count > 1, i < c.count else { return }; c.remove(at: i); l.notesSpreadChain = c
+            }
+        }
+    }
+    private func notesChainMove(_ idx: Int, _ kind: EuclideousChainKind, chip i: Int, by d: Int) {
+        let j = i + d
+        edit(idx) { l in
+            switch kind {
+            case .order:  var c = l.notesOrderChainResolved;  guard i < c.count, j >= 0, j < c.count else { return }; c.swapAt(i, j); l.notesOrderChain = c
+            case .voices: var c = l.notesVoicesChainResolved; guard i < c.count, j >= 0, j < c.count else { return }; c.swapAt(i, j); l.notesVoicesChain = c
+            case .spread: var c = l.notesSpreadChainResolved; guard i < c.count, j >= 0, j < c.count else { return }; c.swapAt(i, j); l.notesSpreadChain = c
+            }
+        }
+    }
+    private func notesChainSetValue(_ idx: Int, _ kind: EuclideousChainKind, chip i: Int, order: EuclideousOrderMode? = nil, voices: EuclideousVoicesMode? = nil, spread: EuclideousSpreadMode? = nil) {
+        edit(idx) { l in
+            switch kind {
+            case .order:  guard let v = order else { return }; var c = l.notesOrderChainResolved;  guard i < c.count else { return }; c[i].value = v; l.notesOrderChain = c
+            case .voices: guard let v = voices else { return }; var c = l.notesVoicesChainResolved; guard i < c.count else { return }; c[i].value = v; l.notesVoicesChain = c
+            case .spread: guard let v = spread else { return }; var c = l.notesSpreadChainResolved; guard i < c.count else { return }; c[i].value = v; l.notesSpreadChain = c
+            }
+        }
+    }
+
+    // MARK: - PLAY AS ROWS §7, §8 — the row pop-ups (the PLAY AS pop-up's container: title, close ✕, the selected tile outlined in the lane colour; a tile sets the chip's value, keeps its hits and closes)
+
+    @ViewBuilder private func notesChainPopupCard(_ target: NotesChainPopupTarget, box: CGSize) -> some View {
+        let idx = target.lane, kind = target.kind
+        let accent = lane100(laneAccents[idx % max(1, laneAccents.count)])
+        let line = lines[idx]
+        let count = notesChainChips(line, kind).count
+        let title = kind == .order ? "ORDER" : kind == .voices ? "VOICES" : "SPREAD"
+        let cardW = min(box.width - 2 * sp16, 460)
+        let glyph: CGFloat = 13
+        VStack(spacing: 12) {
+            HStack {
+                Text(title).font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                Spacer()
+                Text("\u{2715}").font(.system(size: 15, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 30, height: 30).contentShape(Rectangle())
+                    .onTapGesture { notesChainPopup = nil }.accessibilityLabel("Close").accessibilityAddTraits(.isButton)
+            }
+            notesChainTileGrid(idx, kind: kind, chip: target.chip, line: line, accent: accent)
+            if count >= 2 {   // §7.4: the footer — ‹ › move the chip, REMOVE deletes it (never the last). Shown only with 2+ chips.
+                HStack(spacing: 10) {
+                    Text("\u{2039}").font(.system(size: glyph, weight: .heavy, design: .monospaced)).foregroundColor(target.chip == 0 ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A)).frame(width: 44, height: 34).contentShape(Rectangle())
+                        .onTapGesture { guard target.chip > 0 else { return }; notesChainMove(idx, kind, chip: target.chip, by: -1); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: target.chip - 1) }
+                        .accessibilityLabel("Move earlier").accessibilityAddTraits(.isButton)
+                    Text("\u{203A}").font(.system(size: glyph, weight: .heavy, design: .monospaced)).foregroundColor(target.chip == count - 1 ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A)).frame(width: 44, height: 34).contentShape(Rectangle())
+                        .onTapGesture { guard target.chip < count - 1 else { return }; notesChainMove(idx, kind, chip: target.chip, by: 1); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: target.chip + 1) }
+                        .accessibilityLabel("Move later").accessibilityAddTraits(.isButton)
+                    Spacer()
+                    Text("REMOVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(accent).padding(.horizontal, 12).frame(height: 32)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent.opacity(0.5), lineWidth: 1)).contentShape(Rectangle())
+                        .onTapGesture { notesChainRemove(idx, kind, chip: target.chip); notesChainPopup = nil }.accessibilityLabel("Remove").accessibilityAddTraits(.isButton)
+                }
+            }
+        }
+        .padding(16).frame(width: cardW)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(hex: 0x17191E)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0x33363D), lineWidth: 1))
+        .frame(width: box.width, height: box.height)
+        .accessibilityAddTraits(.isModal)
+    }
+    @ViewBuilder private func notesChainTileGrid(_ idx: Int, kind: EuclideousChainKind, chip i: Int, line: EuclidLine, accent: Color) -> some View {
+        let cols = Array(repeating: GridItem(.flexible(), spacing: 8), count: kind == .spread ? 3 : 4)
+        LazyVGrid(columns: cols, spacing: 8) {
+            if kind == .order {
+                let cur = (i < line.notesOrderChainResolved.count) ? line.notesOrderChainResolved[i].value : .up
+                ForEach(euclideousOrderTileOrder, id: \.self) { m in
+                    notesChainTile(name: euclideousOrderModeName(m), selected: m == cur, accent: accent, picture: { AnyView(orderTilePicture(m)) }) { notesChainSetValue(idx, .order, chip: i, order: m); notesChainPopup = nil }
+                }
+            } else if kind == .voices {
+                let cur = (i < line.notesVoicesChainResolved.count) ? line.notesVoicesChainResolved[i].value : .one
+                ForEach(euclideousVoicesTileOrder, id: \.self) { m in
+                    notesChainTile(name: euclideousVoicesModeName(m), selected: m == cur, accent: accent, picture: { AnyView(voicesTilePicture(m)) }) { notesChainSetValue(idx, .voices, chip: i, voices: m); notesChainPopup = nil }
+                }
+            } else {
+                let cur = (i < line.notesSpreadChainResolved.count) ? line.notesSpreadChainResolved[i].value : .together
+                ForEach(euclideousSpreadTileOrder, id: \.self) { m in
+                    notesChainTile(name: euclideousSpreadModeName(m), selected: m == cur, accent: accent, picture: { AnyView(spreadTilePicture(m)) }) { notesChainSetValue(idx, .spread, chip: i, spread: m); notesChainPopup = nil }
+                }
+            }
+        }
+    }
+    private func notesChainTile(name: String, selected: Bool, accent: Color, picture: () -> AnyView, tap: @escaping () -> Void) -> some View {
+        VStack(spacing: 4) {
+            picture().frame(height: 26)
+            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).minimumScaleFactor(0.6).lineLimit(1).foregroundColor(Color(hex: 0xF2F4F7))
+        }
+        .frame(maxWidth: .infinity).frame(height: 54).padding(.horizontal, 4)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x24262C)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? accent : Color(hex: 0x33363D), lineWidth: selected ? 2 : 1))
+        .contentShape(Rectangle()).onTapGesture(perform: tap)
+        .accessibilityElement(children: .ignore).accessibilityLabel(name).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+    // §7.1-§7.3 the tile pictures (dots on faint lines / columns / a time spread). No numbers.
+    private func orderTilePicture(_ m: EuclideousOrderMode) -> some View {
+        let levels = euclideousOrderTileLevels(m)
+        return Canvas { ctx, size in
+            for l in 1...4 { let y = size.height * (1 - (CGFloat(l) - 0.5) / 4); var p = Path(); p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: size.width, y: y)); ctx.stroke(p, with: .color(Color(hex: 0x3A3E47)), lineWidth: 0.5) }
+            for (i, lv) in levels.enumerated() {
+                let x = size.width * (CGFloat(i) + 0.5) / CGFloat(max(1, levels.count)), y = size.height * (1 - (CGFloat(lv) - 0.5) / 4)
+                ctx.fill(Path(ellipseIn: CGRect(x: x - 2, y: y - 2, width: 4, height: 4)), with: .color(Color(hex: 0xC2C7CF)))
+            }
+        }
+    }
+    private func voicesTilePicture(_ m: EuclideousVoicesMode) -> some View {
+        let cols = euclideousVoicesTileColumns(m)
+        return Canvas { ctx, size in
+            for (ci, lit) in cols.enumerated() {
+                let x = size.width * (CGFloat(ci) + 0.5) / CGFloat(max(1, cols.count))
+                for r in 0..<4 { let y = size.height * (1 - (CGFloat(r) + 0.5) / 4)
+                    ctx.fill(Path(ellipseIn: CGRect(x: x - 2, y: y - 2, width: 4, height: 4)), with: .color(r < lit ? Color(hex: 0xC2C7CF) : Color(hex: 0x3A3E47))) }
+            }
+        }
+    }
+    private func spreadTilePicture(_ m: EuclideousSpreadMode) -> some View {
+        let dots = euclideousSpreadTileDots(m)
+        return Canvas { ctx, size in
+            for d in dots { ctx.fill(Path(ellipseIn: CGRect(x: size.width * d.x - 2, y: size.height * d.y - 2, width: 4, height: 4)), with: .color(Color(hex: 0xC2C7CF))) }
+        }
+    }
+    /// §8: the SHIFT pop-up — START (0…15) and DRIFT (a row switch, a signed step −8…+8 skipping 0, EVERY PASS).
+    @ViewBuilder private func notesShiftPopupCard(_ lane: Int, box: CGSize) -> some View {
+        let accent = lane100(laneAccents[lane % max(1, laneAccents.count)])
+        let line = lines[lane]
+        let start = line.notesShiftStartResolved, driftOn = line.notesDriftOnResolved, step = line.notesDriftStepResolved
+        let cardW = min(box.width - 2 * sp16, 460)
+        VStack(spacing: 14) {
+            HStack {
+                Text("SHIFT").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                Spacer()
+                Text("\u{2715}").font(.system(size: 15, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 30, height: 30).contentShape(Rectangle()).onTapGesture { notesShiftPopup = nil }.accessibilityLabel("Close")
+            }
+            HStack {
+                Text("START").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Spacer()
+                shiftStepper(value: start, low: start == 0, high: start == 15, text: "\(start)", spoken: "Start") { d in edit(lane) { $0.notesShiftStart = max(0, min(15, start + d)) == 0 ? nil : max(0, min(15, start + d)) } }
+            }
+            HStack(spacing: 8) {
+                Text("DRIFT").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                EuclideousRowSwitchPill(on: driftOn, accent: accent).contentShape(Rectangle()).frame(width: 44, height: 28).onTapGesture { edit(lane) { $0.notesDriftOn = driftOn ? nil : true } }
+                    .accessibilityLabel("Drift").accessibilityValue(driftOn ? "on" : "off")
+                Spacer()
+                shiftStepper(value: step, low: step <= -8, high: step >= 8, text: "\(step >= 0 ? "+" : "")\(step)", spoken: "Drift step") { d in
+                    edit(lane) { var s = step + d; if s == 0 { s = d > 0 ? 1 : -1 }; $0.notesDriftStep = max(-8, min(8, s)) }
+                }
+                Text("EVERY PASS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x6E737C)).opacity(driftOn ? 1 : 0.5)
+            }
+        }
+        .padding(16).frame(width: cardW)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(hex: 0x17191E)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0x33363D), lineWidth: 1))
+        .frame(width: box.width, height: box.height).accessibilityAddTraits(.isModal)
+    }
+    private func shiftStepper(value: Int, low: Bool, high: Bool, text: String, spoken: String, onStep: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text("\u{2039}").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(low ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A)).frame(width: 30, height: 34).contentShape(Rectangle()).onTapGesture { onStep(-1) }
+            Text(text).font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).frame(minWidth: 30)
+            Text("\u{203A}").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(high ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A)).frame(width: 30, height: 34).contentShape(Rectangle()).onTapGesture { onStep(1) }
+        }
+        .accessibilityElement(children: .ignore).accessibilityLabel(spoken).accessibilityValue(text).accessibilityAdjustableAction { d in onStep(d == .increment ? 1 : -1) }
     }
 
     // MARK: - PLAY AS SEQUENCE (ferry 2026-11-08) — a row of (mode, hit-count) chips opening the page-level mode pop-up

@@ -257,6 +257,7 @@ targets:
       - path: Fourfold/Engine/EmitterToken.swift   # EMITTER TOKEN ferry (2026-11-07): the one emitter drawing's geometry + look (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/StackGrid.swift   # STACK GRID ferry (2026-11-08): the riff panel's STACK tab — rows, the position each cell stands for, its toggle, the frames (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/PlayAsRows.swift   # PLAY AS ROWS ferry (2026-11-11): the pass builder + per-hit resolver for the three NOTES chains, counts, bass and shift/drift (Foundation only)
+      - path: Fourfold/Engine/PlayAsRowsUI.swift   # PLAY AS ROWS ferry (2026-11-11): the NOTES tab's row layout + the pop-up tile pictures + VoiceOver strings (Foundation + CoreGraphics only)
       - path: Fourfold/Shared/FourfoldTransportClock.swift
     dependencies:
       - package: Atomics
