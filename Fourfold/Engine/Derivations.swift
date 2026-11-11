@@ -6785,9 +6785,10 @@ struct EmitterRollNote: Equatable {
     var ghost: Bool            // predicted upcoming (true, dim) vs played from the log (false, solid)
 }
 
-/// A pre-predicted upcoming hit of one lane routed to the output — rhythm + gate only (the page builds these from the shared
-/// walk mirror `euclideousLaneRollHits`; the sounding pitch is the deferred follow-up ferry, so it is omitted here).
-struct EmitterGhostHit: Equatable { var lane: Int; var riff: Bool; var onset: Double; var length: Double }
+/// A pre-predicted upcoming hit of one lane routed to the output (the page builds these from the shared walk mirror `euclideousLaneRollHits`).
+/// `pitch` is the RESOLVED upcoming pitch when it can be known deterministically (the riff walk's rank → the lane's pool, 2026-11-11); nil keeps
+/// the §3.3 middle-line fallback for what can't be predicted (the notes-layer chord, live MIDI that changes before the hit).
+struct EmitterGhostHit: Equatable { var lane: Int; var riff: Bool; var onset: Double; var length: Double; var pitch: UInt8? = nil }
 
 /// §3 — the roll for output `output` over `[windowStart, windowEnd)` with the playhead at `playhead`. PLAYED from `model`, UPCOMING
 /// from the pre-predicted `ghosts`. `cells16` / `unitBeats` give each note its mute-state at its own onset (§2.1). Fixed-work, pure.
@@ -6810,10 +6811,10 @@ func euclideousEmitterRoll(output: Int, windowStart: Double, windowEnd: Double, 
                                        audible: euclideousLaneAudible(beat: n.onBeat, cells16: cells16, unitBeats: unitBeats), ghost: false))
         }
     }
-    // UPCOMING ghosts: onset strictly after the playhead, inside the window. Pitch unknown ⇒ nil.
+    // UPCOMING ghosts: onset strictly after the playhead, inside the window. `pitch` when it is known (the riff walk's resolved note), else nil ⇒ the §3.3 middle line.
     for g in ghosts where g.onset > playhead + 1e-9 && g.onset < windowEnd - 1e-9 {
         let end = min(g.onset + max(0, g.length), windowEnd)
-        out.append(EmitterRollNote(onset: g.onset, length: max(0, end - g.onset), pitch: nil,
+        out.append(EmitterRollNote(onset: g.onset, length: max(0, end - g.onset), pitch: g.pitch,
                                    lane: g.lane, riff: g.riff,
                                    audible: euclideousLaneAudible(beat: g.onset, cells16: cells16, unitBeats: unitBeats), ghost: true))
     }

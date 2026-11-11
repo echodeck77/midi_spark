@@ -82,8 +82,12 @@ final class MutePanelTests: XCTestCase {
         let played = a.filter { !$0.ghost }, ghostsOut = a.filter { $0.ghost }
         XCTAssertEqual(played.map { Int($0.pitch ?? 0) }, [60], "only the pre-playhead note is played; the beat-3 note is not yet struck")
         XCTAssertEqual(ghostsOut.count, 1, "only the upcoming ghost")
-        XCTAssertNil(ghostsOut[0].pitch, "a ghost claims no pitch (drawn on the middle line)")
+        XCTAssertNil(ghostsOut[0].pitch, "a pitchless ghost claims no pitch (drawn on the middle line)")
         XCTAssertEqual(ghostsOut[0].onset, 3, accuracy: 1e-9)
+        // review follow-up (2026-11-11): a ghost that CARRIES a resolved pitch passes it through, so the upcoming bar draws at that pitch (no middle-line flattening)
+        let pitched = euclideousEmitterRoll(output: 0, windowStart: 0, windowEnd: 4, playhead: 2, model: model([]), cells16: 0xFFFF, unitBeats: u,
+                                            ghosts: [EmitterGhostHit(lane: 0, riff: true, onset: 3, length: 0.5, pitch: 67)])
+        XCTAssertEqual(pitched.first { $0.ghost }?.pitch, 67, "a resolved ghost keeps its pitch")
     }
 
     // §3.6 — the per-row pitch axis: lo…hi of the PLAYED pitches, ≥ an octave, empty = 60 ± 6.

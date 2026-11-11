@@ -88,7 +88,8 @@ private struct EuclideousMuteStripView: View, Equatable {
             }; p += 1 }
         }
         // §4.6 — the roll: each note a bar at its real pitch, in its source lane's colour. Played solid, upcoming dim (38 %), a
-        // ghost in a muted cell a grey outline. (The sounding white-flash / glow are the next slice.)
+        // ghost in a muted cell a grey outline. A brighter note-ON cap on each played note's leading edge so repeated notes and long
+        // held chords show their strike rhythm (2026-11-11).
         for n in data.notes {
             let r = layout.noteRect(row: output, pitch: n.pitch.map { Int($0) }, lo: data.lo, hi: data.hi,
                                     onset: n.onset, length: n.length, windowStart: data.windowStart, window: data.window)
@@ -96,7 +97,13 @@ private struct EuclideousMuteStripView: View, Equatable {
             let c = n.lane >= 0 && n.lane < accents.count ? accents[n.lane] : EuclideousMutePalette.neutral
             if !n.audible { ctx.stroke(shape, with: .color(EuclideousMutePalette.outline), lineWidth: 1) }   // a predicted hit that this cell silences
             else if n.ghost { ctx.fill(shape, with: .color(c.opacity(0.38))) }                               // upcoming
-            else { ctx.fill(shape, with: .color(c)) }                                                        // played
+            else {                                                                                           // played
+                ctx.fill(shape, with: .color(c))
+                // the note-on cap: a bright 2.5 pt leading edge, only when the onset is inside the strip (a tail from the previous window has no cap)
+                if r.minX >= sr.minX - 0.5, r.width > 1 {
+                    ctx.fill(RoundedRectangle(cornerRadius: 1).path(in: CGRect(x: r.minX, y: r.minY, width: min(2.5, r.width), height: r.height)), with: .color(.white.opacity(0.5)))
+                }
+            }
         }
     }
 }
