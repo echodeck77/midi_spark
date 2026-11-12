@@ -787,6 +787,18 @@ struct EuclidLine: Codable, Equatable {
     var notesShiftStart: Int? = nil           // §1.8: 0…15
     var notesDriftOn: Bool? = nil
     var notesDriftStep: Int? = nil            // §1.8: −8…+8, never 0
+    // RATE ferry (Paul 2026-11-11) — APPENDED LAST, additive-Optional, decode-tolerant. An 8-bar per-lane SPEED-override strip: box (host bar n → box n mod 8) is OFF or a multiplier of the lane's OWN rate. Consecutive same-multiplier boxes form a RUN
+    // the lane plays fast/slow through, then REJOINS its ×1 position (no carry-on). `rateBars`: 8 entries, **0 = off, 1…4 = ×½ · ×1½ · ×2 · ×4** (the multiplier CODE). `rateFree`: the FREE pill (silences the whole feature). `rateBrush`: the paint code 1…4
+    // (UI ONLY — saved with the lane, NEVER read by the Router). NOT a lane-lock field (the feature's own control, outside the lock snapshot). nil everywhere ⇒ sounds exactly as today.
+    var rateBars: [UInt8]? = nil
+    var rateFree: Bool? = nil
+    var rateBrush: UInt8? = nil
+    /// Always 8 entries, each 0 (off) or 1…4; a malformed stored value folds to off.
+    var rateBarsResolved: [UInt8] { guard let b = rateBars, b.count == 8 else { return [UInt8](repeating: 0, count: 8) }; return b.map { $0 > 4 ? 0 : $0 } }
+    var rateFreeResolved: Bool { rateFree ?? false }
+    var rateBrushResolved: UInt8 { let v = rateBrush ?? 3; return (1...4).contains(v) ? v : 3 }   // default 3 = ×2
+    /// §1.5: the override is active when FREE is off and at least one box is set.
+    var usesRateOverride: Bool { !rateFreeResolved && (rateBars?.contains { $0 >= 1 && $0 <= 4 } ?? false) }
     var answerRhythmOnResolved: Bool { answerRhythmOn ?? false }
     var answerRhythmModeResolved: EuclideousAnswerRhythmMode { answerRhythmMode ?? .copy }
     var answerRhythmCycleResolved: Bool { answerRhythmCycle ?? false }
@@ -1305,6 +1317,9 @@ extension EuclidLine {
         notesShiftStart = (try? c.decodeIfPresent(Int.self, forKey: .notesShiftStart)).flatMap { $0 }
         notesDriftOn = (try? c.decodeIfPresent(Bool.self, forKey: .notesDriftOn)).flatMap { $0 }
         notesDriftStep = (try? c.decodeIfPresent(Int.self, forKey: .notesDriftStep)).flatMap { $0 }
+        rateBars = (try? c.decodeIfPresent([UInt8].self, forKey: .rateBars)).flatMap { $0 }   // RATE ferry — the decoder drops any field it does not read (the velocityAbsolute bug), so these three are explicit
+        rateFree = (try? c.decodeIfPresent(Bool.self, forKey: .rateFree)).flatMap { $0 }
+        rateBrush = (try? c.decodeIfPresent(UInt8.self, forKey: .rateBrush)).flatMap { $0 }
         notesReceivedOnly = (try? c.decodeIfPresent(Bool.self, forKey: .notesReceivedOnly)).flatMap { $0 }
         // 5.2: a valid order wins and the legacy trio is rewritten from it; otherwise (missing OR invalid) the order stays nil and `litOrderResolved` derives it.
         notesLitOrder = nil

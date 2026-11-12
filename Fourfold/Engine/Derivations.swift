@@ -6701,6 +6701,38 @@ func euclideousLaneStepGeometry(lines: [EuclidLine], lane: Int, defaultRateBeats
     return (sub, n, euclidCycleLen(L.directionResolved, n: n))
 }
 
+// MARK: - RATE (per-lane speed override — ferry 2026-11-12)
+
+/// The speed a box CODE (1…4) means: ×½ · ×1½ · ×2 · ×4. 0 (off) or out of range ⇒ ×1. §1.2.
+@inline(__always) func euclideousRateMultiplier(code: UInt8) -> Double {
+    switch code { case 1: return 0.5; case 2: return 1.5; case 3: return 2; case 4: return 4; default: return 1 }
+}
+
+/// §2.2 — a lane's 8-box strip resolved: the multiplier code per box and, per box, the FIRST box of its maximal equal-code RUN.
+/// Runs never cross the 8→1 seam (box 0 always starts a run); an OFF box (code 0) is its own singleton (never "in a run"). `active`
+/// is §1.5 (FREE off AND ≥ 1 box set). Fixed-size, no allocation; the precompute the Router does once per lane per render.
+struct EuclideousRateStrip: Equatable {
+    var code = SIMD8<UInt8>(repeating: 0)                 // 0 = off, 1…4 = ×½ · ×1½ · ×2 · ×4
+    var runStart = SIMD8<UInt8>(0, 1, 2, 3, 4, 5, 6, 7)   // box i → first box of its run
+    var active = false
+    @inline(__always) func multiplier(box i: Int) -> Double { euclideousRateMultiplier(code: code[i & 7]) }
+}
+
+/// §2.2 — resolve a lane's strip (pure, O(1), no alloc). Inactive (FREE or nothing set) ⇒ `active == false`, every box its own run.
+func euclideousLaneRateStrip(line: EuclidLine) -> EuclideousRateStrip {
+    var s = EuclideousRateStrip()
+    guard line.usesRateOverride else { return s }
+    let bars = line.rateBarsResolved
+    s.active = true
+    for i in 0..<8 {
+        s.code[i] = bars[i]
+        // box 0 always starts a run (the 8→1 seam); an off box is a singleton; otherwise continue the run while the code is the same.
+        if i == 0 || bars[i] == 0 || bars[i] != bars[i - 1] { s.runStart[i] = UInt8(i) }
+        else { s.runStart[i] = s.runStart[i - 1] }
+    }
+    return s
+}
+
 
 // ── the LANES panel's pure maths (LANES GRID §3, §4, §5, §7) ─────────────────────────────────────────────────────────
 //

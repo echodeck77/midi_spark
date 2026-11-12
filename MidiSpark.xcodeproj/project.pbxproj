@@ -360,6 +360,7 @@
 		BF40B383B4FA9AD7F2BDA41B /* PlayAsRowsUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54B8D73A12DAFC4099A8C75A /* PlayAsRowsUI.swift */; };
 		BFADB19C396460B7B42F4BC2 /* MidiFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A20C66088682B1B60A45B7C /* MidiFileTests.swift */; };
 		BFE4869E17DEFCAF14D9E1DF /* FourfoldStackBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFED50679781AA2244482FB5 /* FourfoldStackBudgetTests.swift */; };
+		C0535F9A57D935E39EC42A7E /* RateStripModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2389DC9C33A4961918B034 /* RateStripModelTests.swift */; };
 		C09B7A16E54595BA2D6D5A3D /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF568CF69A6423C9DCB4B2DD /* SnapshotBuilder.swift */; };
 		C1046A4F98893FE82DF94B09 /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */; };
 		C166DF5660C355F1056946B2 /* Row8Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC9DEB1303F7D7F0CA7EB1A1 /* Row8Tests.swift */; };
@@ -620,6 +621,7 @@
 		487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceFactoryLibraryTests.swift; sourceTree = "<group>"; };
 		48C49577E130C1DEE1509E5C /* AnswerRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerRouterTests.swift; sourceTree = "<group>"; };
 		4B5AB77F620263EEC9BCFE6A /* RiffPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffPanelTests.swift; sourceTree = "<group>"; };
+		4C2389DC9C33A4961918B034 /* RateStripModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateStripModelTests.swift; sourceTree = "<group>"; };
 		4C3D05D84CB3BB7FF47E7851 /* Dice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dice.swift; sourceTree = "<group>"; };
 		4CBF035AD049143522CAD057 /* GridSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridSkin.swift; sourceTree = "<group>"; };
 		4F27CCA1D229CE4863430480 /* FourfoldTapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTapTests.swift; sourceTree = "<group>"; };
@@ -1072,6 +1074,7 @@
 				4448C88CC517582DAFC89326 /* PortsStressTests.swift */,
 				99F625F72C3FD2D49A4440D5 /* PresetStoreTests.swift */,
 				5B1FE1781AE0C4878A7935FE /* PulseTests.swift */,
+				4C2389DC9C33A4961918B034 /* RateStripModelTests.swift */,
 				CD57513582FB79CA7D0105B1 /* ReelDeckTests.swift */,
 				FEEB3F91B098254B25E5B502 /* ReelExportTests.swift */,
 				5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */,
@@ -1915,6 +1918,7 @@
 				C79BA16AFBFFB6C53F200E37 /* PresetStore.swift in Sources */,
 				5CE639FE1C31C52CF9452B0C /* PresetStoreTests.swift in Sources */,
 				692A1708CCCE988100850092 /* PulseTests.swift in Sources */,
+				C0535F9A57D935E39EC42A7E /* RateStripModelTests.swift in Sources */,
 				4B21837C9071EE11D566D760 /* ReelDeckTests.swift in Sources */,
 				C4B21D64133FF65C1D73F27A /* ReelExportTests.swift in Sources */,
 				36A6BA14474235FA1AA36E3B /* ReelTapeAdapter.swift in Sources */,
