@@ -6733,6 +6733,70 @@ func euclideousLaneRateStrip(line: EuclidLine) -> EuclideousRateStrip {
     return s
 }
 
+/// §2.2/§2.3 — the RUN covering a host beat: its first bar line (`startBeat` R), the bar line where it ends and the lane REJOINS
+/// (`endBeat`, exclusive), the speed `m`, and the absolute host-bar index of R (`runBarIndex`, the stable run id for the §3.1 dedup).
+/// `active == false` for an inactive strip or an OFF box ⇒ the lane is not in a run (elapsed = b − o).
+struct EuclideousRateRun: Equatable {
+    var active = false
+    var startBeat = 0.0
+    var endBeat = 0.0
+    var multiplier = 1.0
+    var runBarIndex: Int64 = 0
+}
+
+/// §2.2 — which run host beat `b` sits in. O(1): bar index → box (mod 8) → `runStart` → R / end / m. Runs never cross the 8→1 seam.
+func euclideousRateRun(strip: EuclideousRateStrip, hostBeat b: Double, beatsPerBar L: Double) -> EuclideousRateRun {
+    var r = EuclideousRateRun()
+    guard strip.active, L > 0 else { return r }
+    let barIndex = Int64((b / L).rounded(.down))
+    let box = Int(((barIndex % 8) + 8) % 8)
+    guard strip.code[box] != 0 else { return r }              // an OFF box is not a run
+    let rs = Int(strip.runStart[box])
+    var re = box
+    while re < 7 && strip.code[re + 1] == strip.code[box] { re += 1 }   // extend to the run's last box (never past the seam)
+    r.active = true
+    r.runBarIndex = barIndex - Int64(box - rs)                 // absolute bar of the run's first box
+    r.startBeat = Double(r.runBarIndex) * L
+    r.endBeat = Double(barIndex - Int64(box) + Int64(re) + 1) * L   // the bar after the run's last box (the rejoin line)
+    r.multiplier = euclideousRateMultiplier(code: strip.code[box])
+    return r
+}
+
+/// §2.3, literal — lane elapsed beats since the rhythm origin `o`, at host beat `b`. Inactive / FREE / b before the run ⇒ b − o
+/// (today). In a run from R at speed m ⇒ max(0, R−o) + (b − max(o,R))·m. (An origin INSIDE the run ⇒ max(o,R)=o, max(0,R−o)=0 ⇒
+/// (b−o)·m — §2.5/§7.8.) O(1), no alloc.
+@inline(__always)
+func euclideousLaneElapsed(hostBeat b: Double, origin o: Double, run: EuclideousRateRun) -> Double {
+    guard run.active else { return b - o }
+    return max(0, run.startBeat - o) + (b - max(o, run.startBeat)) * run.multiplier
+}
+
+/// The inverse of §2.3 WITHIN one run: the host beat at which lane-elapsed-since-`o` first reaches `e`. Below the run start it is
+/// linear at ×1 (`o + e`); from the run start it runs at ×m. Used to PLACE a lane-step boundary (a boundary on a bar line fires).
+@inline(__always)
+func euclideousLaneHostBeat(elapsedSinceOrigin e: Double, origin o: Double, run: EuclideousRateRun) -> Double {
+    guard run.active else { return o + e }
+    let eAtR = max(0, run.startBeat - o)                        // elapsed consumed up to the run's first bar line
+    return e <= eAtR ? o + e : max(o, run.startBeat) + (e - eAtR) / run.multiplier
+}
+
+/// §2.9 — the per-lane host↔elapsed bridge, built once per lane per render window from the strip, the rhythm origin, the lane's
+/// step length and the host bar length. `active == false` ⇒ every call reduces to today. Fixed-size value, no alloc.
+struct EuclideousRateMap: Equatable {
+    var active = false
+    var strip = EuclideousRateStrip()
+    var originBeat = 0.0        // o: the rhythm origin in host beats
+    var sub = 0.25
+    var beatsPerBar = 4.0
+    @inline(__always) func run(hostBeat b: Double) -> EuclideousRateRun { active ? euclideousRateRun(strip: strip, hostBeat: b, beatsPerBar: beatsPerBar) : EuclideousRateRun() }
+    /// Lane elapsed beats since the rhythm origin at host beat b.
+    @inline(__always) func elapsed(hostBeat b: Double) -> Double { euclideousLaneElapsed(hostBeat: b, origin: originBeat, run: run(hostBeat: b)) }
+    /// The lane step index (floor(elapsed/sub)) at host beat b.
+    @inline(__always) func laneStep(hostBeat b: Double) -> Int64 { sub > 0 ? Int64((elapsed(hostBeat: b) / sub - 1e-9).rounded(.down)) : 0 }
+    /// Host beats per lane step at b (= sub/m inside a run, sub otherwise) — the length gate / ratchet spacing / gaps use at a hit (§2.6).
+    @inline(__always) func stepHostLength(hostBeat b: Double) -> Double { let r = run(hostBeat: b); return r.active ? sub / r.multiplier : sub }
+}
+
 
 // ── the LANES panel's pure maths (LANES GRID §3, §4, §5, §7) ─────────────────────────────────────────────────────────
 //

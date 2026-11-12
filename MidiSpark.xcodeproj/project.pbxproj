@@ -468,6 +468,7 @@
 		F0B13B4DB2556D694F05A5F3 /* BuildSceneLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A51673FFDFE583B72F5DAE /* BuildSceneLogic.swift */; };
 		F18A47A3B59F238F864F570D /* SnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08530382AAA337959EA7983D /* SnapshotBuilder.swift */; };
 		F1B8743F87BCC3FA21CDD1B7 /* AutoPilot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F760F9EC70B6E5E30769292C /* AutoPilot.swift */; };
+		F206B3539A602B22B12F6CF5 /* RateTimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1946456A5B99A0460A26CA77 /* RateTimingTests.swift */; };
 		F2C5186182E0B0B2967B784A /* VelocityPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7443373ED8F27244D5D3CDCC /* VelocityPanelPainter.swift */; };
 		F44C0AA5D24B8529A62DBB10 /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA758F0453138D242FAEF87 /* LaneSoloPainter.swift */; };
 		F4F9BFC240490952985029E3 /* ColourTypeSwitchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB3E9C0462983BB004D57666 /* ColourTypeSwitchTests.swift */; };
@@ -565,6 +566,7 @@
 		17328D614B4463EECE452DA4 /* BuildModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildModel.swift; sourceTree = "<group>"; };
 		176469F1675E0C309D28B215 /* CanonHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanonHistory.swift; sourceTree = "<group>"; };
 		17864B5ACB5F8D44C78497C4 /* FXTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXTabTests.swift; sourceTree = "<group>"; };
+		1946456A5B99A0460A26CA77 /* RateTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateTimingTests.swift; sourceTree = "<group>"; };
 		1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidiSpark.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildModel.swift; sourceTree = "<group>"; };
 		1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripPainter.swift; sourceTree = "<group>"; };
@@ -1075,6 +1077,7 @@
 				99F625F72C3FD2D49A4440D5 /* PresetStoreTests.swift */,
 				5B1FE1781AE0C4878A7935FE /* PulseTests.swift */,
 				4C2389DC9C33A4961918B034 /* RateStripModelTests.swift */,
+				1946456A5B99A0460A26CA77 /* RateTimingTests.swift */,
 				CD57513582FB79CA7D0105B1 /* ReelDeckTests.swift */,
 				FEEB3F91B098254B25E5B502 /* ReelExportTests.swift */,
 				5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */,
@@ -1919,6 +1922,7 @@
 				5CE639FE1C31C52CF9452B0C /* PresetStoreTests.swift in Sources */,
 				692A1708CCCE988100850092 /* PulseTests.swift in Sources */,
 				C0535F9A57D935E39EC42A7E /* RateStripModelTests.swift in Sources */,
+				F206B3539A602B22B12F6CF5 /* RateTimingTests.swift in Sources */,
 				4B21837C9071EE11D566D760 /* ReelDeckTests.swift in Sources */,
 				C4B21D64133FF65C1D73F27A /* ReelExportTests.swift in Sources */,
 				36A6BA14474235FA1AA36E3B /* ReelTapeAdapter.swift in Sources */,
