@@ -2469,6 +2469,8 @@ struct EuclideousPage: View {
                       // THE STRIP (LANE STRIP ferry 2026-10-21): a pure plan, not a view — `EuclidCometBar` paints the riff track and the key row from it; `stripCurrent` is asked per display frame which step's
                       // chip is the current one (the arrow's hit).
                       strip: stripPlan, stripCurrent: { beat, _ in stripCurrentStep(tradedWithLane(idx), plan: stripPlan, beat: beat) },
+                      // LANE STRIP BANDS ferry (2026-11-12): the plan lane's two parts' held notes — the strip's header/footer rings and cell rank outlines read them (note-on to note-off), mapping each onset to its step.
+                      riffHeld: laneHeldNotes(tradedWithLane(idx), notes: false), stackHeld: laneHeldNotes(tradedWithLane(idx), notes: true),
                       pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
                       // LANE SOLO (2026-10-21, §1): the step-count box's slot — same 44 × 44 frame, so the strip doesn't move — now holds the SOLO button. `stepCountBadge` (and its parameter) stay, unused here (§1.3): the
                       // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
@@ -2496,6 +2498,12 @@ struct EuclideousPage: View {
                       mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) },
                       lockOutline: lockOn(idx, .cometStrip),
                       lockBadge: lockBadgeView(idx))   // TAB STRIP §6.2: a locked lane's badge sits before SOLO, the strip ending sp4 before it
+    }
+
+    /// LANE STRIP BANDS ferry (2026-11-12): a lane's held notes for a part (riff = even part, stack = odd), from the live roll — the strip's header/footer rings and cell rank outlines read them.
+    private func laneHeldNotes(_ lane: Int, notes: Bool) -> [NoteRollNote] {
+        let p = 2 * max(0, min(3, lane)) + (notes ? 1 : 0)
+        return p < rollLive.model.parts.count ? rollLive.model.parts[p] : []
     }
 
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat, tabOverride: EuclideousLaneTab? = nil) -> some View {

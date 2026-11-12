@@ -102,6 +102,26 @@ final class LaneStripBandsTests: XCTestCase {
         } }
     }
 
+    // §3.3/§3.4/§4.4/§4.6 — the sounding held sets: rings/outlines map a note's onset to its step; outs==0 is excluded.
+    func testSounding() {
+        func note(_ on: Double, end: Double?, rank: Int, outs: UInt8 = 1) -> NoteRollNote {
+            NoteRollNote(onBeat: on, endBeat: end, pitch: 60, velocity: 100, outs: outs, rank: UInt8(rank))
+        }
+        let step: (Double) -> Int = { Int($0) }                                   // onset beat == step index, for the test
+        let riff = [note(2, end: nil, rank: 4), note(9, end: 9.1, rank: 1)]        // step 2 held (sounds); step 9 ended before now
+        let stack = [note(3, end: nil, rank: 5), note(3, end: nil, rank: 2),       // step 3: a two-voice chord, both sounding
+                     note(1, end: 1.5, rank: 7),                                   // step 1: played earlier this pass, now silent
+                     note(5, end: nil, rank: 6, outs: 0)]                          // step 5: routed nowhere → ignored
+        let s = laneStripSounding(riffHeld: riff, stackHeld: stack, n: 8, now: 4.0, passBeats: 8.0, stepOf: step)
+        XCTAssertTrue(s.riffRing[2])
+        XCTAssertEqual(s.riffRing.filter { $0 }.count, 1, "only the held riff note at step 2 rings (the one at beat 9 is in the future)")
+        XCTAssertEqual(s.stackChip[3], 2, "the footer chip is the LOWEST rank played on the step")
+        XCTAssertTrue(s.stackRing[3]); XCTAssertEqual(Set(s.stackOutline[3]), [2, 5], "one outline per sounding voice")
+        XCTAssertEqual(s.stackChip[1], 7, "a hit played this pass keeps its chip after its note-off")
+        XCTAssertFalse(s.stackRing[1]); XCTAssertTrue(s.stackOutline[1].isEmpty, "but no ring or outline once silent")
+        XCTAssertNil(s.stackChip[5], "a note routed nowhere (outs 0) is ignored")
+    }
+
     // §5.1 — the CC source: first routed-and-CC-on in A–D order; none → nil.
     func testCCSourceEmitter() {
         XCTAssertEqual(laneCCSourceEmitter(routed: 0b0110, ccOn: 0b0100), 2)                 // routes to B,C; CC on C → C

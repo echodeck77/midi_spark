@@ -223,3 +223,39 @@ func laneCCSourceEmitter(routed: UInt8, ccOn: UInt8) -> Int? {
     for o in 0..<4 where (routed >> UInt8(o)) & 1 != 0 && (ccOn >> UInt8(o)) & 1 != 0 { return o }
     return nil
 }
+
+// MARK: - §3.3 / §3.4 / §4.4 / §4.6: the sounding held sets (fed from the note feed, mapped to steps by onset)
+
+/// What sounds in one frame, per step. §4.6: a note "enters the set of the hit cell where it started" — `stepOf`
+/// maps a note's onset beat to its step (the same sweep that places the playhead, so a display can't disagree with the
+/// engine). The riff part rings/outlines at the step's own written rank (`riffRing`); the stack part carries its
+/// authored rank (`stackChip` = the lowest played here for the footer label; `stackOutline` = the ranks sounding now,
+/// one per voice). A note counts only once it reached an emitter (`outs != 0`, the lamp's gate).
+struct LaneStripSounding: Equatable {
+    var riffRing: [Bool]        // per step: a riff note that started here is sounding (header ring + the cell's riff outline)
+    var stackChip: [Int?]       // per step: the lowest stack rank played here in the current pass (the footer chip), nil = none
+    var stackRing: [Bool]       // per step: a stack note that started here is sounding (footer ring)
+    var stackOutline: [[Int]]   // per step: the stack ranks sounding now (the cell's stack outlines, one per voice)
+}
+func laneStripSounding(riffHeld: [NoteRollNote], stackHeld: [NoteRollNote], n: Int, now: Double, passBeats: Double, stepOf: (Double) -> Int) -> LaneStripSounding {
+    var riffRing = [Bool](repeating: false, count: max(0, n))
+    var stackChip = [Int?](repeating: nil, count: max(0, n))
+    var stackRing = [Bool](repeating: false, count: max(0, n))
+    var stackOutline = [[Int]](repeating: [], count: max(0, n))
+    for note in riffHeld where note.outs != 0 && note.onBeat <= now && euclideousMixNoteSounds(note, at: now) {
+        let s = stepOf(note.onBeat)
+        if s >= 0 && s < n { riffRing[s] = true }
+    }
+    for note in stackHeld where note.outs != 0 && note.onBeat <= now {
+        let sounding = euclideousMixNoteSounds(note, at: now)
+        guard sounding || note.onBeat >= now - passBeats else { continue }   // §3.3: a played hit keeps its chip for the rest of the pass
+        let s = stepOf(note.onBeat); let r = Int(note.rank)
+        guard s >= 0 && s < n, r >= 1 && r <= 8 else { continue }
+        if stackChip[s] == nil || r < stackChip[s]! { stackChip[s] = r }
+        if sounding {
+            stackRing[s] = true
+            if !stackOutline[s].contains(r) { stackOutline[s].append(r) }
+        }
+    }
+    return LaneStripSounding(riffRing: riffRing, stackChip: stackChip, stackRing: stackRing, stackOutline: stackOutline)
+}
