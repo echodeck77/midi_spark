@@ -2403,16 +2403,16 @@ struct EuclideousPage: View {
         let arrow = euclideousLaneArrowState(lane: idx, cfg: cfg, plan: tp, polledOrdinal: ord ?? 0)
         return euclideousStripCurrentStep(cfg: cfg, landedTick: tp.landedTick, passLapStartTick: plan.lapStartTick, arrowStaysOnTiedNote: tp.seatIsRest && !arrow.hollow, legs: plan.legs)
     }
-    /// STACK GRID LIVE §3 / §5.4 — the written rank lane `idx`'s riff is reading NOW (the current chip's rank), for the STACK grid's ghost ring. Built from the SAME strip plan + `euclideousStripCurrentStep` the lane strip rings
-    /// (via `euclideousStripCurrentRank`), so the grid ring and the strip ring are ONE state (§3.3). nil when there is no current chip (stopped, riff off, a SKIP rest, another pass); a REPEAT's hollow chip returns its repeated rank (§3.2).
-    private func riffGhostRank(_ idx: Int, beat: Double) -> Int? {
+    /// STACK GRID RIFF ARROW ferry (2026-11-12) §1 — the whole CURRENT CHIP lane `idx`'s riff is reading NOW (its column, written rank, REPEAT), for the STACK grid's arrow. Built from the SAME strip plan + `euclideousStripCurrentStep`
+    /// the lane strip reads (via `euclideousStripCurrentChip`), so the grid arrow and the strip's current chip are ONE state (§1.3). nil when there is no current chip (stopped, riff off, a SKIP rest, another pass). REPLACES `riffGhostRank`.
+    private func riffGhost(_ idx: Int, beat: Double) -> EuclideousStripChip? {
         guard idx >= 0, idx < lines.count else { return nil }
         let plan = laneStripPlan(idx, idx < phaseLines.count ? phaseLines[idx] : lines[idx])
         guard plan.riffPlays, let cfg = plan.cfg, idx < riffPositions.count, clock.playing, lines[idx].enabledResolved else { return nil }
         let ord: Int64? = idx < riffWalkState.count ? riffWalkState[idx] : nil
         guard let tp = euclideousWalkTagPlan(cfg: cfg, ranks: effectiveGridRanks, beat: beat, secondsPerBeat: 60.0 / max(1.0, clock.tempo), polledStep: riffPositions[idx], running: true, polledOrdinal: ord, poly: polySnap) else { return nil }
         let arrow = euclideousLaneArrowState(lane: idx, cfg: cfg, plan: tp, polledOrdinal: ord ?? 0)
-        return euclideousStripCurrentRank(cfg: cfg, landedTick: tp.landedTick, passLapStartTick: plan.lapStartTick, arrowStaysOnTiedNote: tp.seatIsRest && !arrow.hollow, legs: plan.legs)
+        return euclideousStripCurrentChip(cfg: cfg, landedTick: tp.landedTick, passLapStartTick: plan.lapStartTick, arrowStaysOnTiedNote: tp.seatIsRest && !arrow.hollow, legs: plan.legs)
     }
 
     /// The card's TOP ROW — the play tile, the comet strip and the SOLO tile — shared by the front (PATTERN) and the back (MIX): the same view in the same place, so a flip never moves it.
@@ -6586,7 +6586,7 @@ struct EuclideousPage: View {
     // Four columns (the four lanes, in lane-card order, headed in their colours) by eleven rows — TOP, TOP−1, TOP−2, then ranks 8 … 1 — of toggle cells, beside the app's own rank chips as the axis. A cell reads and writes the lane's NOTES selection
     // (`euclideousStackCellIsOn` / `euclideousStackCellToggle`, which call the NOTES tab's `euclideousToggleLitPosition` on the position the cell stands for): nothing is kept here, so a change on either side shows on the other at once.
     /// One cell, as an `AnyView` leaf (the page's build chain has little stack to spare). The tap goes through `laneTapMod` — the lock-aware tap the NOTES keys use — with a HOLD gate (`tapMaxSeconds`): a press held past the page's hold threshold does NOT toggle the cell, only a quick tap (Paul 2026-11-11). The cell wears the keys' "will snap back" outline on a locked lane.
-    private func stackCell(_ row: EuclideousStackRow, lane: Int, size: CGSize, fontSize: CGFloat, beat: Double, playing: Bool, ghostRank: Int?) -> AnyView {
+    private func stackCell(_ row: EuclideousStackRow, lane: Int, size: CGSize, fontSize: CGFloat, beat: Double, playing: Bool, ghost: EuclideousStripChip?) -> AnyView {
         let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
         let lp = lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
         let pool = lp.notes
@@ -6611,13 +6611,14 @@ struct EuclideousPage: View {
         let heldCell = auditioning && position != nil && position == stackAuditionPos
         let greyed = auditioning && !heldCell && on
         let look = euclideousStackCellLook(selected: on, sounding: sounding || heldCell, glowAgeSeconds: glowAge, reduceMotion: reduceMotion)
-        var ringed = false
-        if case .rank(let r) = row, ghostRank == r { ringed = true }   // §3: lane `lane`'s riff reads this rank now
-        // §6.1: a lane whose NOTES part is silenced (per-part / lane solo — the lamp's own `audible` gate) draws its rest cells, ring and names at 42 %, once; nothing sounds then (the feed carries no outs for it).
+        // STACK GRID RIFF ARROW §2: lane `lane`'s riff reads this rank now → the arrow (its column + the REPEAT flag). Only a rank row whose rank is the ghost chip's gets one.
+        var arrowChip: (column: Int, rank: Int, isRepeat: Bool)? = nil
+        if case .rank(let r) = row, let g = ghost, g.rank == r { arrowChip = (g.column, r, g.hollow) }
+        // §4.2: a lane whose NOTES part is silenced (per-part / lane solo) draws its rest cells, names and arrow at 42 %, once; nothing sounds then (the feed carries no outs for it).
         let dimmed = partSoloSilenced(lane, part: 1)
         let cellOpacity: Double = greyed ? 0.28 : (dimmed ? EuclideousLaneDimStyle.opacity : 1)
         return AnyView(
-            EuclideousStackCellView(name: name, look: look, ringed: ringed, live: position != nil, accent: lane100(accent), size: size, fontSize: fontSize)
+            EuclideousStackCellView(name: name, look: look, arrowChip: arrowChip, live: position != nil, accent: lane100(accent), size: size, fontSize: fontSize)
                 .opacity(cellOpacity)
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: cellOpacity)
                 .contentShape(Rectangle())
@@ -6657,13 +6658,13 @@ struct EuclideousPage: View {
             // STACK GRID LIVE §2/§3: a 60 fps layer so the cells light + glow while notes sound and the riff ghost ring tracks; paused when the page isn't live (stopped = the frozen rest looks, §6.2).
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
                 let beat = walkTagBeat(at: tl.date)
-                let ghost = (0..<4).map { riffGhostRank($0, beat: beat) }   // §3: the rank each lane's riff reads now (the ring), one plan per lane per frame
+                let ghost = (0..<4).map { riffGhost($0, beat: beat) }   // STACK GRID RIFF ARROW §1: the current chip each lane's riff reads now (the arrow), one plan per lane per frame
                 VStack(spacing: L.rowGap) {
                     ForEach(0..<rows.count, id: \.self) { r in
                         HStack(spacing: sp4) {
                             stackAxisChip(rows[r], size: CGSize(width: L.labelW, height: L.rowH))
                             ForEach(0..<4, id: \.self) { lane in
-                                stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize, beat: beat, playing: clock.playing, ghostRank: ghost[lane])
+                                stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize, beat: beat, playing: clock.playing, ghost: ghost[lane])
                             }
                         }
                     }
