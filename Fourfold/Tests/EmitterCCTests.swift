@@ -111,6 +111,18 @@ final class EmitterCCTests: XCTestCase {
         rig.run(to: 6.0)
         XCTAssertTrue(rig.out.cc.isEmpty, "an off emitter sends no CC")
     }
+    func testTurningAnEmitterOffParksItsCCAtTheMuteValueOnceThenSilent() {
+        // The leak Paul reported: turning an emitter OFF left the CC stuck at its last value on the synth. It must park at muteValue once, then send nothing.
+        var st = state(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .pingPong, high: 90, low: 90, travel: .step, muteValue: 7))
+        let rig = CCRig(st)
+        rig.run(to: 4.0)
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [90], "CC flows while the emitter is on")
+        st.euclideousEmitterCCs![0].on = false      // the CC tab's emitter toggle, republished
+        rig.box = SnapshotBuilder.build(from: st)
+        rig.run(to: 8.0)
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [90, 7], "off-edge parks the CC at muteValue (7) exactly once, then silent")
+        XCTAssertEqual(rig.out.values(cable: 0, cc: 74), [90, 7], "and on ALL (cable 0) too")
+    }
 
     // MARK: slice D (2026-11-08) — the gap and the predicted value are the NEXT HIT ON THE EMITTER, merged across the lanes routed to it; an emitter whose routed lanes are ALL stopped / muted is silent
     /// Two lanes both routed to output A (lane 2 moved off B). Lane 1 hits once a 4-beat pass at beat 0; lane 2 hits once a pass, two beats later (pattern + riff rotated by 2). Per-lane overrides via `lane1` / `lane2`.

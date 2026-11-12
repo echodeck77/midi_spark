@@ -415,6 +415,7 @@ final class Router {
     private var ccArmedMask: UInt8 = 0     // bit x = a hit has fired on output x since it went on / unmuted (turning on sends nothing until the next hit)
     private var ccMuteSentMask: UInt8 = 0  // bit x = `muteValue` already sent while muted (sent once)
     private var ccPrevOnMask: UInt8 = 0    // bit x = output x's CC was on last window (to spot the off→on edge)
+    private var ccPendingReset: UInt8 = 0  // bit x = output x's CC was just switched OFF with a value standing — park it at `muteValue` ONCE so the synth isn't left stuck at the last value (the off→on edge resets `ccPrevOnMask`; this resets the WIRE)
     // Slice D (2026-11-08): the per-LANE facts the merged next-hit gap and the "every routed lane is stopped / muted" mute read — rewritten once a window (only while an emitter's CC is on), element-mutated so no render-time allocation.
     private var ccLaneMuteCells = SIMD4<UInt16>(repeating: 0xFFFF)   // each lane's own LANES-mute cells (the lane may be silent in some of them)
     private var ccLaneMuteUnit = SIMD4<Double>(repeating: 0)         // …and the length of one cell, in beats
@@ -425,7 +426,7 @@ final class Router {
         ccSegFrom = SIMD4<Float>(repeating: 0); ccSegTo = SIMD4<Float>(repeating: 0); ccSegHold = SIMD4<Float>(repeating: 0)
         ccSegFromSample = SIMD4<Int64>(repeating: Int64.max); ccSegToSample = SIMD4<Int64>(repeating: Int64.max)
         ccLastSentVal = SIMD4<Int32>(repeating: -1); ccLastSentSample = SIMD4<Int64>(repeating: Int64.min); ccLastHitSample = SIMD4<Int64>(repeating: Int64.min)
-        ccArmedMask = 0; ccMuteSentMask = 0; ccValueLive = 0xFFFF_FFFF; ccRecValid = 0
+        ccArmedMask = 0; ccMuteSentMask = 0; ccValueLive = 0xFFFF_FFFF; ccRecValid = 0; ccPendingReset = 0
     }
     private func resetEmitterRatchetOrigin() { emitterCounter.reset(); emitterIndexLive = emitterCounter.indexPacked; emitterVelCounter.reset(); emitterVelIndexLive = emitterVelCounter.indexPacked; resetEmitterCC() }
 
@@ -554,6 +555,13 @@ final class Router {
     /// Once per window, after the lane loop: for each ON emitter, either send `muteValue` once (it is silent — its MUTE-tab gate is closed, or every lane routed to it is stopped / muted — at the window's end beat `endBeat`) or walk the
     /// ramp from the last emission to the window end. The mute value goes out no earlier than the last message sent, so the emitter's messages stay in time order.
     private func ccRampPass(windowStart: Int64, windowEnd: Int64, endBeat: Double, beatsPerSample: Double, out: MIDIEmitter?) {
+        if ccPendingReset != 0 {   // an emitter was just switched OFF: park its CC at `muteValue` once, then it stays silent. Before the `emitterCCAny` guard so the LAST emitter turning off still parks.
+            for x in 0..<4 where ccPendingReset & (UInt8(1) << UInt8(x)) != 0 {
+                ccSend(x, cc: emitterCCs[x].ccNumber, value: emitterCCs[x].muteValue, atSample: max(windowStart, ccLastSentSample[x]), out: out)   // no earlier than the last message, so the wire stays in time order
+                let bit = UInt8(1) << UInt8(x); ccArmedMask &= ~bit; ccRecValid &= ~bit; ccMuteSentMask &= ~bit
+            }
+            ccPendingReset = 0
+        }
         guard emitterCCAny else { return }
         let rate = ccRateLimitSamples(beatsPerSample)
         for x in 0..<4 where emitterCCs[x].on {
@@ -5717,6 +5725,9 @@ final class Router {
                 for x in 0..<4 where emitterCCs[x].on { onMask |= UInt8(1) << UInt8(x) }
                 let turnedOn = onMask & ~ccPrevOnMask
                 if turnedOn != 0 { ccArmedMask &= ~turnedOn; ccRecValid &= ~turnedOn; for x in 0..<4 where turnedOn & (UInt8(1) << UInt8(x)) != 0 { ccLastSentVal[x] = -1 } }
+                // The off→on edge: an emitter switched OFF with a value standing on the wire would otherwise leave the synth stuck at the last CC. Park it at its `muteValue` once (ccRampPass sends it, even with no emitter left on).
+                let turnedOff = ccPrevOnMask & ~onMask
+                for x in 0..<4 where turnedOff & (UInt8(1) << UInt8(x)) != 0 && ccLastSentVal[x] >= 0 { ccPendingReset |= UInt8(1) << UInt8(x) }
                 ccPrevOnMask = onMask
                 // A setting changed under a running segment (a slider dragged while it plays): re-plan it from the latest hit's inputs NOW, so the CC — and the page's ring — follow the setting at once instead of finishing the old ramp until the next
                 // hit.
