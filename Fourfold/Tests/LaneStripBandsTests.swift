@@ -112,7 +112,7 @@ final class LaneStripBandsTests: XCTestCase {
         let stack = [note(3, end: nil, rank: 5), note(3, end: nil, rank: 2),       // step 3: a two-voice chord, both sounding
                      note(1, end: 1.5, rank: 7),                                   // step 1: played earlier this pass, now silent
                      note(5, end: nil, rank: 6, outs: 0)]                          // step 5: routed nowhere → ignored
-        let s = laneStripSounding(riffHeld: riff, stackHeld: stack, n: 8, now: 4.0, passBeats: 8.0, stepOf: step)
+        let s = laneStripSounding(riffHeld: riff, stackHeld: stack, n: 8, now: 4.0, passBeats: 8.0, stepOf: step, hitSteps: [1, 2, 3, 5])
         XCTAssertTrue(s.riffRing[2])
         XCTAssertEqual(s.riffRing.filter { $0 }.count, 1, "only the held riff note at step 2 rings (the one at beat 9 is in the future)")
         XCTAssertEqual(s.stackChip[3], 2, "the footer chip is the LOWEST rank played on the step")
@@ -120,6 +120,22 @@ final class LaneStripBandsTests: XCTestCase {
         XCTAssertEqual(s.stackChip[1], 7, "a hit played this pass keeps its chip after its note-off")
         XCTAssertFalse(s.stackRing[1]); XCTAssertTrue(s.stackOutline[1].isEmpty, "but no ring or outline once silent")
         XCTAssertNil(s.stackChip[5], "a note routed nowhere (outs 0) is ignored")
+    }
+
+    // §B7.1 / §B1 — every footer chip and rank mark sits on its OWN hit's step, snapped from one shared fn — even
+    // when the onset maps one step early (the old floor bug) or lands late (a long gate, TIE, ratchet, delayed pool).
+    func testSlotsSitOnTheirHitStep() {
+        func note(_ on: Double, rank: Int) -> NoteRollNote { NoteRollNote(onBeat: on, endBeat: nil, pitch: 60, velocity: 100, outs: 1, rank: UInt8(rank)) }
+        let hits = [0, 4, 8, 12, 15]                                   // a 16-step lane hitting (1-based) 1, 5, 9, 13, 16
+        let oneEarly: (Double) -> Int = { max(0, Int($0) - 1) }        // reproduce the floored-comet "one step early"
+        let stack = hits.map { note(Double($0), rank: 3) }
+        let s = laneStripSounding(riffHeld: [], stackHeld: stack, n: 16, now: 20.0, passBeats: 16.0, stepOf: oneEarly, hitSteps: hits)
+        for h in hits { XCTAssertEqual(s.stackChip[h], 3, "footer chip snaps onto hit \(h), not one early") }
+        for i in 0..<16 where !hits.contains(i) { XCTAssertNil(s.stackChip[i], "no chip on the non-hit step \(i)") }
+        // §B1.3: a late note (onset drifts toward step 5) still belongs to its hit's step (4).
+        let late = laneStripSounding(riffHeld: [], stackHeld: [note(4.6, rank: 2)], n: 16, now: 20.0, passBeats: 16.0, stepOf: { Int($0.rounded()) }, hitSteps: hits)
+        XCTAssertEqual(late.stackChip[4], 2, "a late/ratcheted/delayed note stays in its hit's (4) slot")
+        XCTAssertNil(late.stackChip[5], "not on the step its onset drifted to")
     }
 
     // §5.3/§5.4 — the CC trace maps the emitter's bar curve onto the steps: value→y (127 top, 0 above the bar), beat→x.

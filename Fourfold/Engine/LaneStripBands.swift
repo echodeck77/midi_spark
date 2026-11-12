@@ -275,19 +275,41 @@ struct LaneStripSounding: Equatable {
     var stackRing: [Bool]       // per step: a stack note that started here is sounding (footer ring)
     var stackOutline: [[Int]]   // per step: the stack ranks sounding now (the cell's stack outlines, one per voice)
 }
-func laneStripSounding(riffHeld: [NoteRollNote], stackHeld: [NoteRollNote], n: Int, now: Double, passBeats: Double, stepOf: (Double) -> Int) -> LaneStripSounding {
+/// §B1.1: the step a NOTE whose sweep position is `raw` belongs to — the NEAREST step (round), not the floored
+/// playhead cell, so a note struck at a step's leading edge lands on that step and not the one before it (the
+/// amendment-1 slot bug: the footer used `euclideousStripPlayheadStep`'s `.rounded(.down)`, one step early).
+func euclideousStripNoteStep(raw: Double, n: Int, dir: EuclidDir) -> Int? {
+    guard n > 0 else { return nil }
+    var s = Int(euclidCometPos(raw, n: n, dir: dir).rounded())
+    if s < 0 { s = 0 }; if s >= n { s = n - 1 }
+    return s
+}
+
+/// §B1.1 / §B1.3: snap a note's step to the authored HIT step whose cell lights for it — the nearest hit step,
+/// ties to the earlier one. A late note (long gate, TIE, a ratchet strike, a delayed / held pool) reaches a step
+/// after its hit's; snapping keeps its chip and rank mark in the hit's own slot. `hitSteps` must be ascending.
+func laneStripSnapToHitStep(_ raw: Int, hitSteps: [Int]) -> Int {
+    guard let first = hitSteps.first else { return raw }
+    var best = first, bestD = abs(first - raw)
+    for s in hitSteps.dropFirst() { let d = abs(s - raw); if d < bestD { best = s; bestD = d } }   // strict `<` keeps the earlier hit on a tie
+    return best
+}
+
+func laneStripSounding(riffHeld: [NoteRollNote], stackHeld: [NoteRollNote], n: Int, now: Double, passBeats: Double, stepOf: (Double) -> Int, hitSteps: [Int]) -> LaneStripSounding {
     var riffRing = [Bool](repeating: false, count: max(0, n))
     var stackChip = [Int?](repeating: nil, count: max(0, n))
     var stackRing = [Bool](repeating: false, count: max(0, n))
     var stackOutline = [[Int]](repeating: [], count: max(0, n))
+    // §B1: everything is indexed by the hit's own step — the rounded sweep step snapped to the nearest authored hit.
+    func hitStep(_ onBeat: Double) -> Int { laneStripSnapToHitStep(stepOf(onBeat), hitSteps: hitSteps) }
     for note in riffHeld where note.outs != 0 && note.onBeat <= now && euclideousMixNoteSounds(note, at: now) {
-        let s = stepOf(note.onBeat)
+        let s = hitStep(note.onBeat)
         if s >= 0 && s < n { riffRing[s] = true }
     }
     for note in stackHeld where note.outs != 0 && note.onBeat <= now {
         let sounding = euclideousMixNoteSounds(note, at: now)
         guard sounding || note.onBeat >= now - passBeats else { continue }   // §3.3: a played hit keeps its chip for the rest of the pass
-        let s = stepOf(note.onBeat); let r = Int(note.rank)
+        let s = hitStep(note.onBeat); let r = Int(note.rank)
         guard s >= 0 && s < n, r >= 1 && r <= 8 else { continue }
         if stackChip[s] == nil || r < stackChip[s]! { stackChip[s] = r }
         if sounding {
