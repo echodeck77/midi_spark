@@ -2152,4 +2152,11 @@ Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md
 - [ ] (cleanup) the POLY grid (`EuclideousPolyGridView`) is not recoloured; revisit only if POLY returns to the UI.
 - [ ] (cleanup) `Docs/fourstep-design-tokens.md` still lists the old grid cell colours; fold the map in when the palette is next consolidated.
 - [ ] (pre-existing red test) `ClarityPassTests.testListenSourceResolvesToAStoredOrDefaultLaneWhileFollowing` — fails without this ferry's changes.
-- [ ] (pre-existing red test) `EffectiveParamsTests.testEveryStoredEuclidLineFieldSurvivesAnEncodeDecodeRoundTrip` — `notesPlaySeq` (PLAY AS SEQUENCE) is not populated in the round-trip test; add it there.
+- [x] (FIXED 2026-11-11, PLAY AS ROWS) `EffectiveParamsTests.testEveryStoredEuclidLineFieldSurvivesAnEncodeDecodeRoundTrip` — the fixture now populates `notesPlaySeq` AND the eleven PLAY AS ROWS fields (`notesOrderChain`…`notesDriftStep`); the test is green. (It had been red on main since the 2026-11-08 PLAY AS SEQUENCE ferry.)
+
+## PLAY AS ROWS ferry follow-ups (2026-11-11) — the core landed (slices 1-5); these are deferred polish / open items
+- [ ] (live feedback, device-owed) §5.3 — outline the PLAY-AS-ROWS **playing chip** (ORDER/VOICES/SPREAD) in the lane colour while the transport runs (needs the live hit ordinal: `euclideousRowsActiveChip` on the UI clock). Not built.
+- [ ] (live feedback, device-owed) §6.3 — the RANKS tiles' **played-copy pip-brighten**: the pips for copies already played this pass draw brighter and reset when a pass starts. The sounding RING is built; the pip-brighten is not.
+- [ ] (DECIDE, by ear) the **TIE** notes-extension change — under TIE the notes now carry to the next tied rest they strike (longer ring than the old untied gate; `testNotesTie` pins 24000 not 12000). Confirm it's musical or revert the notes-side TIE extension.
+- [ ] (DECIDE, by ear) the **chord→arpeggio** change on the 5 notes-layer factory presets (KOTEKAN, FIVE AGAINST EIGHT, HELD BREATH, GAPPED GROOVE) — re-author their chains (e.g. VOICES ALL) if a chord was the intent.
+- [ ] (verification) run the simulator UI suites once a Fourfold iPad simulator exists: `FourfoldStackBudgetTests` (the RANKS row's 60 fps layer), the NOTES-tab tap / accessibility audits, screenshots.

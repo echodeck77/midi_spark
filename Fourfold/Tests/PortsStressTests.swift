@@ -1012,7 +1012,7 @@ final class PortsStressTests: XCTestCase {
 
     func testHocketRulesChangingMidRunNeverStrandANoteOrLeakAcrossLanes() {
         for s in 1...300 { if let msg = runHocketSession(seed: UInt64(s) &+ 500_000, windows: 120, rawGates: false) { XCTFail(msg); return } }
-        XCTAssertGreaterThan(hocketPassedNotes, 200, "the fuzz must actually pass lines between lanes (\(hocketPassedNotes) passed notes)")
+        XCTAssertGreaterThan(hocketPassedNotes, 100, "the fuzz must actually pass lines between lanes (\(hocketPassedNotes) passed notes)")   // PLAY AS ROWS (2026-11-11): the notes layer plays an arpeggio (fewer notes) so fewer are passed between lanes; this coverage floor was already too high (pre-existing: 175 at base, see the MUTE-roll note). The no-stranded-note invariants above are the real check.
         XCTAssertGreaterThan(hocketLitWindows, 1000, "…with rules lit (\(hocketLitWindows) windows)")
         XCTAssertGreaterThan(hocketSharedChannelRuns, 50, "…and some sessions share channels across outputs")
     }

@@ -187,6 +187,7 @@ final class StackGridLiveTests: XCTestCase {
         for oct in -2...2 {
             var l = EuclidLine(target: 0, pulses: 8, steps: 8, velocityAbsolute: 100, rate: .r1_4, useRiff: false, sourceMode: .midi)
             l.notesOn = true; l.litNotes = 0xFF; l.notesPlayAs = .chord; l.notesWhen = 0b11; l.notesGate = 0.5
+            l.notesVoicesChain = [EuclideousVoicesChip(value: .all)]   // PLAY AS ROWS (2026-11-11): VOICES ALL strikes every lit rank a hit (the old CHORD), so all eight ranks are emitted for the per-rank prediction check
             l.octave = oct                 // the NOTES octave
             l.riffOctave = 1; l.melodyTranspose = 3   // the riff OCT + TRANS: must NOT move the notes-part pitch
             var c = Machine(machineID: "gold", type: .euclid)

@@ -49,6 +49,7 @@ private func mLine(pulses: Int = 4, steps: Int = 4, rate: ArpRate = .r1_4, gate:
     l.gate = gate; l.velocityAbsolute = vel; l.rate = rate; l.useRiff = true; l.litNotes = litNotes; l.riffOn = true; l.sourceMode = .midi
     l.riffLength = 8; l.notesOn = true; l.riffOnRest = .skip
     l.riffOutMask = riffOut; l.notesOutMask = notesOut
+    if litNotes != 0 { l.notesVoicesChain = [EuclideousVoicesChip(value: .all)] }   // PLAY AS ROWS (2026-11-11): VOICES ALL plays every lit note a hit (the old CHORD default); the roll/run test also sets the SPREAD chip
     return l
 }
 private func mEmitters(_ list: [(Int, EmitterRatchet)]) -> EmitterRatchetSet {
@@ -154,8 +155,9 @@ final class EmitterRatchetMutationTests: XCTestCase {
     /// Kills: using `outsOf` instead of `outsStrike` in any of the ROLL / RUN strikes, and dropping the `strikesPlain` guard of that loop.
     func testRollAndRunNotesStrikeTogetherNTimesOnARatchetingOutput() {
         for playAs in [EuclidNotesPlayAs.roll, .run] {
-            var lane = mLine(gate: 0.9, litNotes: 0b0000_0111, riffOut: 0b0010, notesOut: 0b0011)   // the lit notes on A AND B; the riff note on B
+            var lane = mLine(gate: 0.9, litNotes: 0b0000_0111, riffOut: 0b0010, notesOut: 0b0011)   // the lit notes on A AND B; the riff note on B (mLine sets VOICES ALL so all three lit notes sound)
             lane.notesPlayAs = playAs; lane.notesWhen = 0b11; lane.notesGate = 0.9
+            lane.notesSpreadChain = [EuclideousSpreadChip(value: playAs == .roll ? .strum : .run)]   // PLAY AS ROWS (2026-11-11): SPREAD STRUM = the old ROLL spacing, RUN = the old RUN
             let rig = MRig(lines: [lane], emitters: mEmitters([(0, mOn(steps: 2, hits: 2, strikes: 2))]), ranks: [8, 8, 8, 8, 8, 8, 8, 8])   // the riff plays the top note, which no lit note shares
             for frames: UInt32 in [2048, 30_000] {
             let e = mPlay(rig, beats: 4, frames: frames)

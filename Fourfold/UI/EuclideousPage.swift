@@ -4553,11 +4553,19 @@ struct EuclideousPage: View {
     private func ranksTilesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, lay: EuclideousPlayAsRowsLayout) -> some View {
         let cross = (notesXLane == idx)
         let order = line.litOrderResolved
-        return ZStack(alignment: .topLeading) {
+        let part = 2 * idx + 1
+        // §6.3: a 60 fps layer so a tile rings + glows while its rank sounds (the STACK-grid-live feed and rule); paused when the page isn't live.
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+          let beat = walkTagBeat(at: tl.date)
+          let notesPart = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
+          ZStack(alignment: .topLeading) {
             ForEach(0..<8, id: \.self) { r in
                 let frame = lay.rankTiles[r]
                 let lit = order.contains(r)
-                notesRankTile(idx, rank: r + 1, lit: lit, count: line.notesRankCount(r + 1), accent: accent, cross: cross)
+                let s = euclideousStackSounding(notesPart: notesPart, rank: r + 1, nowBeat: beat)
+                let sounding = clock.playing && s.sounding
+                let glowAge = s.glowOnset.map { (beat - $0) * 60 / max(1, clock.tempo) }
+                notesRankTile(idx, rank: r + 1, lit: lit, count: line.notesRankCount(r + 1), accent: accent, cross: cross, sounding: sounding, glowAge: glowAge)
                     .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
             }
             // the × button
@@ -4570,12 +4578,14 @@ struct EuclideousPage: View {
                 .offset(x: lay.xButton.minX, y: lay.xButton.minY)
                 .accessibilityLabel("Edit rank counts, lane \(idx + 1)").accessibilityAddTraits(cross ? [.isButton, .isSelected] : .isButton)
         }
-        .frame(width: lay.content.width, height: lay.ranks.height, alignment: .topLeading)
-        .accessibilityElement(children: .contain).accessibilityLabel("Ranks")
+          .frame(width: lay.content.width, height: lay.ranks.height, alignment: .topLeading)
+          .accessibilityElement(children: .contain).accessibilityLabel("Ranks")
+        }
     }
-    /// One 1…8 tile.
-    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, count: Int, accent: Color, cross: Bool) -> some View {
+    /// One 1…8 tile. §6.3: a 2 pt lane-colour ring and a glow while its rank sounds.
+    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, count: Int, accent: Color, cross: Bool, sounding: Bool, glowAge: Double?) -> some View {
         let dim = cross && !lit
+        let glow = (sounding && !reduceMotion) ? max(0, 1 - (glowAge ?? 1) / 0.35) : 0   // a note-on glow that fades over 0.35 s
         return ZStack {
             RoundedRectangle(cornerRadius: 6).fill(lit ? lane100(accent) : Color(hex: 0x24262C))
             VStack(spacing: 2) {
@@ -4585,6 +4595,8 @@ struct EuclideousPage: View {
                 }
             }
         }
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(lane100(accent), lineWidth: sounding ? 2 : 0))   // §6.3: the sounding ring
+        .shadow(color: lane100(accent).opacity(glow * 0.8), radius: glow * 6)
         .opacity(dim ? 0.42 : 1)
         .contentShape(Rectangle())
         .onTapGesture {

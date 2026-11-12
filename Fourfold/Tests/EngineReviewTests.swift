@@ -30,7 +30,9 @@ final class EngineReviewTests: XCTestCase {
 
     /// A lane of `pulses`-of-`pulses` at 1/4 (one hit a beat at 120 BPM = 24 000 samples): riff on (rank 1), the notes layer lights rank 1 (so riff pitch == lit pitch — the collision case).
     private func line(riff: Bool = true, notes: Bool = true, gate: Double = 0.5, notesGate: Double? = nil, mask: EuclidLineMask? = nil, rate: ArpRate = .r1_4, pulses: Int = 4, steps: Int = 4, lit: UInt8 = 0b1) -> EuclidLine {
-        EuclidLine(target: 0, pulses: pulses, steps: steps, gate: gate, velocityAbsolute: 90, rate: rate, useRiff: true, litNotes: notes ? lit : 0, riffOn: riff, mask: mask, sourceMode: .midi, riffLength: 1, notesOn: notes, notesGate: notesGate ?? gate, notesVelocity: nil)
+        var l = EuclidLine(target: 0, pulses: pulses, steps: steps, gate: gate, velocityAbsolute: 90, rate: rate, useRiff: true, litNotes: notes ? lit : 0, riffOn: riff, mask: mask, sourceMode: .midi, riffLength: 1, notesOn: notes, notesGate: notesGate ?? gate, notesVelocity: nil)
+        if notes, lit != 0 { l.notesVoicesChain = [EuclideousVoicesChip(value: .all)] }   // PLAY AS ROWS (2026-11-11): VOICES ALL plays every lit note a hit (the old CHORD default), so these flood / voice-table scenarios keep the note count they pin (the new default is a one-note arpeggio)
+        return l
     }
     private func state(_ lines: [EuclidLine], rules: [HocketRule] = [], channels: [Int]? = nil, ranks: [Int] = Array(repeating: 1, count: 8)) -> PluginState {
         var st = PluginState.makeInit()
