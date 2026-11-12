@@ -4636,8 +4636,9 @@ struct EuclideousPage: View {
         return ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 ranksTilesRow(idx, line, accent, lay: lay)                                   // §6: the eight tiles + × button
-                if cross, let s = lay.secondRow { notesRankCopyRow(idx, line, accent, cells: lay.secondCells, labelFrame: lay.secondLabel, copy: 2).frame(width: fullWidth, height: s.height, alignment: .topLeading).offset(y: s.minY) }
-                if cross, let t = lay.thirdRow { notesRankCopyRow(idx, line, accent, cells: lay.thirdCells, labelFrame: lay.thirdLabel, copy: 3).frame(width: fullWidth, height: t.height, alignment: .topLeading).offset(y: t.minY) }
+                // §6.5: the 2ND / 3RD copy rows position their own cells + label ABSOLUTELY (lay.secondCells/secondLabel carry y2/y3), exactly like ranksTilesRow — so they are placed bare, with NO outer offset. (An outer `.offset(y:)` here double-offset them: the 3RD row landed on top of the ORDER row — device bug, 2026-11-12.)
+                if cross, lay.secondRow != nil { notesRankCopyRow(idx, line, accent, cells: lay.secondCells, labelFrame: lay.secondLabel, copy: 2) }
+                if cross, lay.thirdRow != nil { notesRankCopyRow(idx, line, accent, cells: lay.thirdCells, labelFrame: lay.thirdLabel, copy: 3) }
                 notesRowAt(lay.whenRow, fullWidth) { whenRiffRow(idx, line, accent, width: fullWidth) }
                 notesRowAt(lay.orderRow, fullWidth) { notesChainRow(idx, line, kind: .order, accent: accent, width: fullWidth) }
                 notesRowAt(lay.voicesRow, fullWidth) { notesChainRow(idx, line, kind: .voices, accent: accent, width: fullWidth) }
