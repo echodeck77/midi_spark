@@ -159,6 +159,10 @@ func euclideousRowsBuildPass(asc: EuclideousRowsRankList, added: EuclideousRowsR
 /// The simulation bound: a lane that plays this many notes-hits without a melody restart has its pass/cursor phase reduced modulo the chains' combined period (a bounded, documented seam, like the canon ring's depth limit). The chain
 /// phase is preserved exactly; only the far-out pass seam moves. In practice a melody restart keeps `h` small (`euclideousNotesHitOrdinal` resets there), so this never triggers for a restarting lane.
 let euclideousRowsSimCap: Int64 = 4096
+/// The RUN BLOCK (code-review 2026-11-12): a non-restarting lane's hit ordinal grows without bound, so the walk is reduced to `h mod block`, where `block` is the smallest whole number of chain periods that reaches this target. The PASS
+/// restarts every `block` hits — the same deliberate loop the old `euclideousNotesCountBefore` made in 1024-hit blocks, not a glitch — which bounds the per-hit render cost (the walk is O(block), not O(h)) and never freezes (the earlier
+/// `(cap − p)` floor pinned a small-period lane on one note forever). `block` is a multiple of the chains' period so the chain phase stays continuous across the seam. 2048 ⇒ a 32-bar harness (≤ ~2048 hits) never reduces, so no golden moves.
+let euclideousRowsRunBlock: Int64 = 2048
 
 @inline(__always) private func euclideousRowsChainTotal<C>(_ chain: [C]?, hits: (C) -> Int) -> Int64 {
     guard let c = chain, c.count > 1 else { return 1 }
@@ -186,13 +190,15 @@ func euclideousRowsResolve(orderChain: [EuclideousOrderChip]?, voicesChain: [Euc
     out.spread = euclideousRowsSpreadValue(spreadChain, euclideousRowsActiveChip(spreadChain, hits: { $0.hits }, hitOrdinal: h))
     guard m > 0 else { return out }
 
-    // Bound the walk (see euclideousRowsSimCap). The chain phase is preserved exactly.
+    // Bound the walk to a RUN BLOCK of whole chain periods (see euclideousRowsRunBlock): the pass LOOPS at the block,
+    // it never freezes, and the per-hit render cost is O(block) instead of O(h). The chain phase is preserved exactly.
     var hEff = h
-    if h > euclideousRowsSimCap {
-        var p = euclideousRowsLCM(euclideousRowsChainTotal(orderChain, hits: { $0.hits }), euclideousRowsChainTotal(voicesChain, hits: { $0.hits }))
-        p = euclideousRowsLCM(p, euclideousRowsChainTotal(spreadChain, hits: { $0.hits }))
-        p = max(1, min(euclideousRowsSimCap, p))
-        hEff = (euclideousRowsSimCap - p) + ((h - euclideousRowsSimCap) % p)
+    if h >= euclideousRowsRunBlock {
+        var cp = euclideousRowsLCM(euclideousRowsChainTotal(orderChain, hits: { $0.hits }), euclideousRowsChainTotal(voicesChain, hits: { $0.hits }))
+        cp = euclideousRowsLCM(cp, euclideousRowsChainTotal(spreadChain, hits: { $0.hits }))
+        cp = max(1, min(euclideousRowsSimCap, cp))
+        let block = cp >= euclideousRowsRunBlock ? cp : ((euclideousRowsRunBlock + cp - 1) / cp) * cp   // smallest whole number of chain periods ≥ the run block
+        hEff = h % block
     }
 
     var pass = EuclideousRowsPass()

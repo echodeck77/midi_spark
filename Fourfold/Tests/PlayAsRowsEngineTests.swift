@@ -58,6 +58,24 @@ final class PlayAsRowsEngineTests: XCTestCase {
         XCTAssertEqual(buildPass([1, 2, 3], order: .up, counts: line.notesRankCounts ?? 0, second: line.notesRankSecondLater ?? 0), [1, 2, 3, 2])
     }
 
+    // code-review 2026-11-12 — a lane whose hit ordinal grows past the RUN BLOCK must keep walking (the old
+    // `(cap − p)` floor froze a single-chip arpeggio on one note forever past 4096), and the pass must LOOP at the
+    // block (so the far-out walk is bounded, O(block) not O(h)).
+    func testRunBlockLoopsAndNeverFreezes() {
+        func pick(_ h: Int64) -> [Int] {   // ranks 1,2,3 lit; default chains = an UP arpeggio, VOICES 1
+            let r = euclideousRowsResolve(orderChain: nil, voicesChain: nil, spreadChain: nil,
+                                          litOrder: lit([1, 2, 3]), counts: 0, secondLater: 0, thirdLater: 0,
+                                          bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1,
+                                          lane: 0, hitOrdinal: h)
+            return (0..<r.count).map { Int(r[$0]) }
+        }
+        // past the block the arpeggio still ADVANCES — three consecutive far-out hits are not all the same note.
+        let a = pick(5000), b = pick(5001), c = pick(5002)
+        XCTAssertFalse(a == b && b == c, "past the block the arpeggio still advances (not frozen on one note)")
+        // the walk LOOPS with period = the run block: h and h + block pick the identical note, in and past the block.
+        for h: Int64 in [0, 1, 2, 7, 100, 3000, 4100] { XCTAssertEqual(pick(h), pick(h + euclideousRowsRunBlock), "hit \(h) == hit \(h) + block") }
+    }
+
     // §10.1 — the other key orders.
     func testKeyOrders() {
         XCTAssertEqual(buildPass([2, 5, 6, 8], order: .up), [2, 5, 6, 8])
