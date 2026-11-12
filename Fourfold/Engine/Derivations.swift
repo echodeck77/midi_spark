@@ -3102,7 +3102,7 @@ func euclideousRiffCyclePrediction(hitSteps: [EuclidHitStep], advanceStep: Bool,
 /// when the footers switch passes), its hits' riff columns (`prediction`, one per hit in time order), the ordinal its first hit reads (`startOrd`) and the ABSOLUTE tick of its first step
 /// (`lapStartTick`; nil when the pattern has no hit or `cfg` is unknown), from which every hit's own tick follows (`lapStartTick + hit.tick`).
 struct EuclideousFooterPass: Equatable { var prediction: [Int]; var startOrd: Int64; var lapStartTick: Int64?; var ordinals: [Int64] = [] }
-func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitSteps: [EuclidHitStep], lapSteps: Int, liveOrd: Int64, nowBeat: Double, dir: EuclidDir? = nil) -> EuclideousFooterPass {   // `dir`: the display direction (`euclideousLaneDisplayDirection`) — nil = the lane's own
+func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitSteps: [EuclidHitStep], lapSteps: Int, liveOrd: Int64, nowBeat: Double, dir: EuclidDir? = nil, rate: EuclideousRateMap? = nil) -> EuclideousFooterPass {   // `dir`: the display direction (`euclideousLaneDisplayDirection`) — nil = the lane's own; `rate`: the RATE override (nil = ×1)
     let isMelodyRestartPass = cfg.map {
         $0.chains.isMelodyRestartPass(beat: nowBeat)   // RESTART UNITS: the schedule answers when it has one
     } ?? false
@@ -3110,7 +3110,7 @@ func euclideousFooterPass(line: EuclidLine, cfg: EuclideousWalkLaneConfig?, hitS
                                               advanceStep: line.riffAdvanceStepResolved, liveOrd: liveOrd, dir: dir ?? line.directionResolved)
     var lapStartTick: Int64? = nil
     // LANES GRID §2.8: the lap's baseline takes BOTH origins — the riff ordinal the CURRENT lap's first hit reads, from the engine's own per-tick core, not reverse-derived from the polled ordinal.
-    if let cfg, let lap = euclideousLapStart(cfg: cfg, beat: nowBeat) { baseline.startOrd = lap.ordinal; lapStartTick = lap.lapStartTick }
+    if let cfg, let lap = euclideousLapStart(cfg: cfg, beat: nowBeat, rate: rate) { baseline.startOrd = lap.ordinal; lapStartTick = lap.lapStartTick }
     let cols = cfg?.columns ?? 8   // POLY RIFF: the walk's grid width (16 in POLY)
     let prediction = euclideousRiffCyclePrediction(hitSteps: hitSteps, advanceStep: line.riffAdvanceStepResolved, dir: line.euclideousRiffDirResolved,
                                                     stride: line.riffStrideResolved, length: cols == 8 ? line.riffLengthResolved : line.riffLengthResolved(columns: cols),
@@ -7263,16 +7263,18 @@ func euclideousRollBarY(rank: Int, laneH: CGFloat) -> CGFloat {
 
 /// LANE STRIP ferry: the same lap, with the ABSOLUTE tick of its first step (raw 0) as well — a hit of the shown pass sits at `lapStartTick + hit.tick`, which is how the strip asks the notes
 /// functions (k, the hit ordinal) and REPEAT's lookback about that hit.
-func euclideousLapStart(cfg c: EuclideousWalkLaneConfig, beat: Double) -> (lapStartTick: Int64, ordinal: Int64)? {
+func euclideousLapStart(cfg c: EuclideousWalkLaneConfig, beat: Double, rate: EuclideousRateMap? = nil) -> (lapStartTick: Int64, ordinal: Int64)? {
     guard c.sub > 0, c.n > 0 else { return nil }
     let cycleLen = euclidCycleLen(c.dir, n: c.n)
-    let tick = Int64((beat / c.sub).rounded(.down))
+    // RATE ferry (2026-11-12): under an override the lane's tick is its elapsed step (the synthetic tick the engine uses), read at the real host beat; nil ⇒ floor(beat/sub), byte-identical.
+    let hb: Double? = (rate?.active ?? false) ? beat : nil
+    let tick = (rate?.active ?? false) ? rate!.laneStep(hostBeat: beat) + Int64((rate!.originBeat / c.sub).rounded(.down)) : Int64((beat / c.sub).rounded(.down))
     let now = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick, chains: c.chains,
-                                      legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep)
+                                      legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep, hostBeat: hb)
     let lapStart = tick - Int64(now.raw)
     for r in 0..<cycleLen where c.buf[euclidReadIndex(r, n: c.n, dir: c.dir)] {
         let ord = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: lapStart + Int64(r), chains: c.chains,
-                                          legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep).advOrd
+                                          legacySpanBeats: c.spanBeats, advanceStep: c.advanceStep, hostBeat: hb).advOrd
         return (lapStart, ord)
     }
     return nil
@@ -7280,9 +7282,16 @@ func euclideousLapStart(cfg c: EuclideousWalkLaneConfig, beat: Double) -> (lapSt
 /// RESTART CHAINS (ferry 2026-10-19): the chain-era counterpart of `euclideousLaneCometRaw` above — the ONLY real call
 /// site (the lane card's comet sweep, `EuclidLaneUI.swift`) now reads this instead; the old grid-based function stays
 /// untouched for `LanesGridTests.swift`'s own byte-identical coverage of the grid model.
-func euclideousLaneCometChainRaw(beat: Double, n: Int, dir: EuclidDir, sub: Double, chains: EuclideousLaneRestartChains, legacySpanBeats: Double) -> Double {
+func euclideousLaneCometChainRaw(beat: Double, n: Int, dir: EuclidDir, sub: Double, chains: EuclideousLaneRestartChains, legacySpanBeats: Double,
+                                 rate: EuclideousRateMap? = nil) -> Double {
     guard sub > 0, n > 0 else { return 0 }
     let cycleLen = euclidCycleLen(dir, n: n)
+    // RATE ferry (2026-11-12): inside a run the comet sweeps at the lane's elapsed speed (continuous lane ticks since the origin), so it follows the audio and rejoins. nil / inactive ⇒ today.
+    if let rate = rate, rate.active {
+        let raw = rate.elapsed(hostBeat: beat) / sub
+        let cl = Double(cycleLen)
+        return raw - cl * (raw / cl).rounded(.down)
+    }
     let ticks = beat / sub
     let tick = Int64(ticks.rounded(.down))
     let buf = [Bool](repeating: false, count: max(1, n))

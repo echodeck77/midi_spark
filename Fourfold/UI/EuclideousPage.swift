@@ -2310,6 +2310,19 @@ struct EuclideousPage: View {
     /// row). Worked out per body: the rhythm's hits and the pass the footers show (`euclideousFooterPass` — the lap that contains the UI clock at this body's evaluation, whose riff columns come from the
     /// engine's own walk), the footers' states for it (`euclideousFooterStates`), then `euclideousStripHits` turns them into chips, gaps and keys. A FOLLOW lane plays its PARTNER's pattern and step count,
     /// so everything is predicted from that — the same finished buffer the engine and the step bar use (`euclideousEffectivePattern`).
+    /// RATE ferry (2026-11-12): the lane's speed-override map for the DISPLAY mirrors (comet / strip / footer), built from the lane's strip + the cfg's rate + the rhythm origin at `beat`. nil ⇒ no override ⇒ the readers are byte-identical. The same shape the Router builds per window.
+    private func euclideousDisplayRateMap(_ idx: Int, cfg: EuclideousWalkLaneConfig?, beat: Double) -> EuclideousRateMap? {
+        guard let cfg, idx >= 0, idx < lines.count, cfg.sub > 0 else { return nil }
+        let strip = euclideousLaneRateStrip(line: lines[idx])
+        guard strip.active else { return nil }
+        let origin = cfg.chains.hasRhythmRestarts ? cfg.chains.rhythmOriginBeat(beat) : 0
+        return EuclideousRateMap(active: true, strip: strip, originBeat: origin, sub: cfg.sub, beatsPerBar: clock.beatsPerBar)
+    }
+    /// The lane's display tick at `beat` — its elapsed step under an override (the synthetic tick the engine uses), else floor(beat/sub).
+    private func euclideousDisplayLaneTick(_ map: EuclideousRateMap?, beat: Double, sub: Double) -> Int64 {
+        if let map, map.active { return map.laneStep(hostBeat: beat) + Int64((map.originBeat / sub).rounded(.down)) }
+        return Int64((beat / sub).rounded(.down))
+    }
     private func laneStripPlan(_ idx: Int, _ line: EuclidLine) -> EuclideousStripPlan {
         // LISTEN REBUILT (2026-10-23): SHADOW and ECHO both pause RIFF+NOTES whole (§7, §9.9's `borrowedTabs`) —
         // so the strip's own riff/notes track is ignored under either, not SHADOW alone.
@@ -2329,15 +2342,17 @@ struct EuclideousPage: View {
                                       tilt: line.tiltResolved, patternMiss: line.patternMissResolved,
                                       customHits: line.customHitsResolved(steps), dir: dispDir)
         let cfg = (playsRiff || grey || layerOn) ? walkCfg : nil   // the walk's facts: the pass, REPEAT's lookback and the keys' count k need them; a plain lane needs none
+        let stripBeat = lanesMusicalBeat(real: walkTagBeat(at: Date()))
+        let stripRate = euclideousDisplayRateMap(idx, cfg: cfg, beat: stripBeat)   // RATE: the comet strip / footer follow the sped-up lane during a run
         var prediction: [Int]? = nil
         var polyOrdinals: [Int64]? = nil
         var lapStartTick: Int64? = nil
         if playsRiff || grey {
             let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
-            let pass = euclideousFooterPass(line: line, cfg: cfg, hitSteps: hitSteps, lapSteps: steps, liveOrd: ws, nowBeat: lanesMusicalBeat(real: walkTagBeat(at: Date())), dir: dispDir)
+            let pass = euclideousFooterPass(line: line, cfg: cfg, hitSteps: hitSteps, lapSteps: steps, liveOrd: ws, nowBeat: stripBeat, dir: dispDir, rate: stripRate)
             prediction = pass.prediction; lapStartTick = pass.lapStartTick; polyOrdinals = pass.ordinals
         } else if layerOn, let cfg {
-            lapStartTick = euclideousLapStart(cfg: cfg, beat: lanesMusicalBeat(real: walkTagBeat(at: Date())))?.lapStartTick   // the keys' count k needs the pass's ticks even with the riff off
+            lapStartTick = euclideousLapStart(cfg: cfg, beat: stripBeat, rate: stripRate)?.lapStartTick   // the keys' count k needs the pass's ticks even with the riff off
         }
         // riff off with nothing lit: every step is a `.miss` ("nothing will sound"); a hit an FX TIE cell applies to reads as a hit on a tied rest
         let ranks = effectiveGridRanks
@@ -2350,7 +2365,7 @@ struct EuclideousPage: View {
                                        notes: notes, poly: polySnap, polyOrdinals: polyOrdinals, name: stripNoteName)
         // VoiceOver (§6): read the sweep the lane is on at this body (PING-PONG has two); the note at a written rank is the riff grid's row name, a pitch is spoken as the NOTES tab's keys speak it
         var nowLeg = 0
-        if legs.count > 1, let cfg, let lapStartTick { nowLeg = euclideousStripLegIndex(raw: Double(Int64((lanesMusicalBeat(real: walkTagBeat(at: Date())) / cfg.sub).rounded(.down)) - lapStartTick), n: steps, legCount: legs.count) }
+        if legs.count > 1, let cfg, let lapStartTick { nowLeg = euclideousStripLegIndex(raw: Double(euclideousDisplayLaneTick(stripRate, beat: stripBeat, sub: cfg.sub) - lapStartTick), n: steps, legCount: legs.count) }
         let pool = riffLivePool
         let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
         let phrase = euclideousStripHitsPhrase(hits: legs[min(nowLeg, legs.count - 1)].hits,
@@ -2546,8 +2561,10 @@ struct EuclideousPage: View {
         let chains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub, scheduleSet: restartScheduleSet)
         let sub = max(0.03125, followEff?.rateBeats ?? euclideousStripDivisionRate(lane: idx, lines: lines).beats)
         let muteCells = gridView.grid.muteCells, muteUnit = gridView.muteUnitBeats
+        let rateStrip = planLane < lines.count ? euclideousLaneRateStrip(line: lines[planLane]) : EuclideousRateStrip()
+        let rateMap: EuclideousRateMap? = rateStrip.active ? EuclideousRateMap(active: true, strip: rateStrip, originBeat: 0, sub: sub, beatsPerBar: clock.beatsPerBar) : nil   // origin 0 (restart+override MIX comet is approximate)
         return EuclideousMixStripFeed(legs: plan.legs, n: plan.sweepLength, dir: euclideousLaneDisplayDirection(lane: planLane, lines: phaseLines), sub: sub, chains: chains.isActive ? chains : nil, lanePlaying: line.enabledResolved,
-                                      mutedAt: muteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: muteCells, unitBeats: muteUnit) })
+                                      mutedAt: muteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: muteCells, unitBeats: muteUnit) }, rate: rateMap)
     }
     /// The MIX strip's drag / pinch — the lane card strip's own handlers (`laneCometRowBody`), so a lane's strip edits the same way on every page. A FOLLOWing lane's gestures edit the lane it follows.
     private func mixStripGestures() -> EuclideousMixV2StripGestures {
@@ -7095,7 +7112,8 @@ struct EuclideousPage: View {
             ?? euclideousLapHitSteps(pulses: line.pulses, steps: steps, rotate: line.rotate, tilt: line.tiltResolved, patternMiss: line.patternMissResolved, customHits: line.customHitsResolved(steps), dir: dispDir)
         guard !hitSteps.isEmpty else { return [] }
         let ws = idx < riffWalkState.count ? riffWalkState[idx] : Int64(0)
-        let pass = euclideousFooterPass(line: line, cfg: walkCfg, hitSteps: hitSteps, lapSteps: steps, liveOrd: ws, nowBeat: lanesMusicalBeat(real: walkTagBeat(at: Date())), dir: dispDir)
+        let ccBeat = lanesMusicalBeat(real: walkTagBeat(at: Date()))
+        let pass = euclideousFooterPass(line: line, cfg: walkCfg, hitSteps: hitSteps, lapSteps: steps, liveOrd: ws, nowBeat: ccBeat, dir: dispDir, rate: euclideousDisplayRateMap(idx, cfg: walkCfg, beat: ccBeat))
         let ranks = effectiveGridRanks
         let sub = max(0.03125, follow?.rateBeats ?? euclideousStripDivisionRate(lane: idx, lines: lines).beats)
         let lapBeats = Double(euclidCycleLen(dispDir, n: steps)) * sub

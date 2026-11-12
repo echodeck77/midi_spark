@@ -267,8 +267,10 @@ struct EuclideousMixV2BandCanvas: View {
                 ctx.stroke(Path(roundedRect: band.stripFrame.insetBy(dx: 0.5, dy: 0.5), cornerRadius: S.frameRadius - 0.5), with: .color(accent.opacity(S.frameBorderAlpha)), lineWidth: 1)
                 let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
                 let running = clock.playing && feed.lanePlaying && !(feed.mutedAt?(liveBeat) ?? false)
-                let raw = feed.chains.map { euclideousLaneCometChainRaw(beat: liveBeat, n: feed.n, dir: feed.dir, sub: feed.sub, chains: $0, legacySpanBeats: 0) }
-                    ?? euclidCometRaw(mTickBeat: liveBeat, sub: feed.sub, spanBeats: 0, n: feed.n, dir: feed.dir)
+                let raw = (feed.rate?.active ?? false)   // RATE: the override sweeps at the lane's elapsed speed regardless of restart chains
+                    ? euclideousLaneCometChainRaw(beat: liveBeat, n: feed.n, dir: feed.dir, sub: feed.sub, chains: feed.chains ?? .off, legacySpanBeats: 0, rate: feed.rate)
+                    : (feed.chains.map { euclideousLaneCometChainRaw(beat: liveBeat, n: feed.n, dir: feed.dir, sub: feed.sub, chains: $0, legacySpanBeats: 0) }
+                        ?? euclidCometRaw(mTickBeat: liveBeat, sub: feed.sub, spanBeats: 0, n: feed.n, dir: feed.dir))
                 let legIdx = min(max(0, feed.legs.count - 1), euclideousStripLegIndex(raw: running ? raw : 0, n: feed.n, legCount: feed.legs.count))
                 let stepList = feed.legs.isEmpty ? [] : euclideousMixStripSteps(hits: feed.legs[legIdx].hits)
                 let current = euclideousMixStripCurrent(raw: raw, steps: feed.n, dir: feed.dir, running: running)
