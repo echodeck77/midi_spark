@@ -2218,6 +2218,7 @@ final class Router {
                               // RHYTHM POLISH (2026-10-22): how many STEPS into its tick cell this tick's hit sounds (0 for no hit / no timing ⇒ byte-identical). A delay is always < 1 step, so a hit stays inside its own cell; the
                               // tick is DUE when its strike beat — not its cell start — has reached the window's end, and the body is handed the strike beat.
                               strikeDelaySteps: (Int64) -> Double = { _ in 0 },
+                              rate: EuclideousRateMap? = nil,   // RATE ferry (2026-11-12): a per-lane speed override; nil / inactive ⇒ the loop below is byte-identical to today
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
         let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
@@ -2226,42 +2227,80 @@ final class Router {
         // `originRef: mStartReal` throughout this call — a single stable span-anchor reference for the whole
         // window, so every tick discovered below agrees on the same origin regardless of how many are found.
         let mStart = mStartReal, mEnd = mEndReal
-        // floor, not ceil: a tick AT a column boundary sits between render windows — the previous
-        // column's window rejects it (wrong column) and ceil would round past it, dropping the
-        // column's first note. floor + the == dedup catches it once (fired slightly late, clamped).
-        let firstTick = Int64((mStart / sub).rounded(.down))
-        let lastT = Int64((mEnd / sub).rounded(.down))
-        guard firstTick <= lastT else { return }
 
-        for tick in firstTick...lastT {
-            let mTickBeat = Double(tick) * sub   // LOCAL beat — feeds body() for note-selection only, never scheduling
-            let mTickBeatReal = mTickBeat
-            if mTickBeatReal + 1e-9 < tickFrom || mTickBeatReal + 1e-9 >= tickBefore { continue }   // LANE LOCK: before the dedup, so the other segment still gets this tick
-            // Which column is EFFECTIVE at this tick's step (lap-aware, §5b) — REAL time, since columns stay
-            // upstream of CLOCK — so a held column's ticks fire during the current window even though the tick's
-            // TRUE column differs. With no lap, lapColumn returns the tick's true column and this is the original
-            // `tickCol == effColumn`.
-            let delayBeats = strikeDelaySteps(tick) * sub
-            if delayBeats > 0 && mTickBeatReal + delayBeats > mEnd + 1e-9 { continue }   // RHYTHM POLISH: its strike falls in a later window — leave `lastTick` alone so that window fires it
-            let tickStep = Int((mTickBeatReal / S).rounded(.down))
-            let tickTrueCol = ((tickStep % columns) + columns) % columns   // wrap over the ROW's loop length (Lr < 8 → the short loop re-fires each pass)
-            // PLAY: THIS CELL holds one column → its ticks fire EVERY window (decoupled from the timeline); normally
-            // a tick fires only in its own effective column.
-            if !forceColumnHold && lapColumn(laneMask: rowHeld[row], absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }   // PER-ROW LAP
-            if tick == lastTick[dedupSlot] { continue }
-            lastTick[dedupSlot] = tick
+        guard let rate = rate, rate.active else {
+            // ---- NON-OVERRIDE: the existing loop, byte-identical ----
+            // floor, not ceil: a tick AT a column boundary sits between render windows — the previous
+            // column's window rejects it (wrong column) and ceil would round past it, dropping the
+            // column's first note. floor + the == dedup catches it once (fired slightly late, clamped).
+            let firstTick = Int64((mStart / sub).rounded(.down))
+            let lastT = Int64((mEnd / sub).rounded(.down))
+            guard firstTick <= lastT else { return }
+            for tick in firstTick...lastT {
+                let mTickBeat = Double(tick) * sub   // LOCAL beat — feeds body() for note-selection only, never scheduling
+                let mTickBeatReal = mTickBeat
+                if mTickBeatReal + 1e-9 < tickFrom || mTickBeatReal + 1e-9 >= tickBefore { continue }   // LANE LOCK: before the dedup, so the other segment still gets this tick
+                let delayBeats = strikeDelaySteps(tick) * sub
+                if delayBeats > 0 && mTickBeatReal + delayBeats > mEnd + 1e-9 { continue }   // RHYTHM POLISH: its strike falls in a later window — leave `lastTick` alone so that window fires it
+                let tickStep = Int((mTickBeatReal / S).rounded(.down))
+                let tickTrueCol = ((tickStep % columns) + columns) % columns   // wrap over the ROW's loop length (Lr < 8 → the short loop re-fires each pass)
+                if !forceColumnHold && lapColumn(laneMask: rowHeld[row], absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }   // PER-ROW LAP
+                if tick == lastTick[dedupSlot] { continue }
+                lastTick[dedupSlot] = tick
+                let onTime = sampleOf(musical: mTickBeatReal + delayBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                      windowStart: windowStart, S: S, a: a)
+                let colEnd = columnStart(mTickBeatReal, S) + S
+                let mOff = min(mTickBeat + sub * gateFraction, colEnd)
+                let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                       windowStart: windowStart, S: S, a: a)
+                body(tick, mTickBeat + delayBeats, onTime, offTime)
+            }
+            return
+        }
 
-            let onTime = sampleOf(musical: mTickBeatReal + delayBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                  windowStart: windowStart, S: S, a: a)
-            // The GATE LENGTH is a LOCAL-time quantity (sub·gateFraction, the driver's own rhythm) but the clamp
-            // that stops a note ringing past its column is a REAL-time boundary (columns stay upstream of CLOCK) —
-            // so the local off-beat is computed, inverted back to real time, THEN clamped to the real column end.
-            let colEnd = columnStart(mTickBeatReal, S) + S
-            let mOffLocal = mTickBeat + sub * gateFraction
-            let mOff = min(mOffLocal, colEnd)
-            let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
-                                   windowStart: windowStart, S: S, a: a)
-            body(tick, mTickBeat + delayBeats, onTime, offTime)
+        // ---- RATE OVERRIDE: walk the window's bar segments; within each, the lane runs at sub/m from its own run start ----
+        // The lane-step boundary for step k (lane steps since the rhythm origin) lands at host beat `euclideousLaneHostBeat`; a
+        // boundary on a bar line fires (§2.4). `body` is handed the synthetic tick `k + originHostTick` so the chain phase's
+        // `localT = tick − originTickO` still equals k (the origin is read at the real host beat), and `mTickBeat` is the REAL host beat.
+        let L = max(1e-6, rate.beatsPerBar)
+        let o = rate.originBeat
+        let originHostTick = Int64((o / sub).rounded(.down))   // the rhythm origin in host-tick units
+        var segStart = mStart
+        var segGuard = 0
+        while segStart < mEnd - 1e-9, segGuard < 512 {
+            segGuard += 1
+            let run = rate.run(hostBeat: segStart + 1e-9)
+            let barLineNext = ((segStart / L).rounded(.down) + 1) * L
+            var segEnd = min(mEnd, run.active ? run.endBeat : barLineNext)
+            if o > segStart + 1e-9 { segEnd = min(segEnd, o) }   // split at the origin: the restart schedule reads the real beat there
+            let subEff = run.active ? sub / run.multiplier : sub
+            let runId = run.active ? run.runBarIndex : Int64((segStart / L).rounded(.down))
+            var k = Int64((euclideousLaneElapsed(hostBeat: segStart, origin: o, run: run) / sub - 1e-9).rounded(.up))   // first lane step at/after segStart; '==' fires
+            var stepGuard = 0
+            while stepGuard < 100_000 {
+                stepGuard += 1
+                let hostBeat = euclideousLaneHostBeat(elapsedSinceOrigin: Double(k) * sub, origin: o, run: run)
+                if hostBeat >= segEnd - 1e-9 { break }
+                defer { k += 1 }
+                let tick = k + originHostTick
+                if hostBeat + 1e-9 < tickFrom || hostBeat + 1e-9 >= tickBefore { continue }   // LANE LOCK split segment
+                let delayBeats = strikeDelaySteps(tick) * subEff
+                if delayBeats > 0 && hostBeat + delayBeats > mEnd + 1e-9 { continue }
+                let tickStep = Int((hostBeat / S).rounded(.down))
+                let tickTrueCol = ((tickStep % columns) + columns) % columns
+                if !forceColumnHold && lapColumn(laneMask: rowHeld[row], absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }
+                let key = euclideousRateDedupKey(laneStep: k, runId: runId)
+                if key == lastTick[dedupSlot] { continue }
+                lastTick[dedupSlot] = key
+                let onTime = sampleOf(musical: hostBeat + delayBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                      windowStart: windowStart, S: S, a: a)
+                let colEnd = columnStart(hostBeat, S) + S
+                let mOff = min(hostBeat + subEff * gateFraction, colEnd)
+                let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
+                                       windowStart: windowStart, S: S, a: a)
+                body(tick, hostBeat + delayBeats, onTime, offTime)
+            }
+            segStart = segEnd
         }
     }
 
@@ -3331,6 +3370,7 @@ final class Router {
                                 listenPitch: EuclideousListenPitchMode = .own, listenInterval: Int = 0, listenOctave: Int = 0,
                                 // RHYTHM POLISH (2026-10-22): OFFSET's fractional part and whether this lane's TILT plays unrounded (`tiltFine`).
                                 offsetFraction: Double = 0, tiltFine: Bool = false,
+                                rateStrip: EuclideousRateStrip = EuclideousRateStrip(),   // RATE ferry (2026-11-12): the lane's 8-box speed strip (inactive default ⇒ byte-identical)
                                 tickFrom: Double = -Double.infinity, tickBefore: Double = Double.infinity) {   // LANE LOCK: the segment of the window this call plays (the default is all of it)
                 // LANE SOLO: every voice and echo tail this lane's hits open is stamped with the lane (Euclideous's own row only), so a solo can end exactly its notes.
                 euclideousStrikeLane = isEuclideousRow ? Int8(lineIndex) : -1
@@ -3503,6 +3543,12 @@ final class Router {
                     // simulated with the host's bar), and not for a lane whose component holds a lane a lock snap has substituted the line of (`lockPerturbedMask`). Otherwise the closed forms (above) answer, as they always did.
                     if isEuclideousRow { chains.schedule = euclideousAttachedSchedule(p.restartSchedule, lane: lineIndex, barBeats: beatsPerBar, perturbed: lockPerturbedMask) }
                 }
+                // RATE ferry (2026-11-12): the lane's speed-override map — the strip + the rhythm origin at this window's musical start + the step length + the host bar length. Inactive ⇒ nil ⇒ `iterateTicks` and the phase calls below are byte-identical.
+                var rateMap: EuclideousRateMap? = nil
+                if rateStrip.active, isEuclideousRow, sub > 0 {
+                    let originBeat = chains.hasRhythmRestarts ? chains.rhythmOriginBeat(musicalOf(beatPos, stepBeats: S, a: a)) : 0
+                    rateMap = EuclideousRateMap(active: true, strip: rateStrip, originBeat: originBeat, sub: sub, beatsPerBar: beatsPerBar)
+                }
                 if isEuclideousRow, lineIndex < linesView.count {
                     let line = linesView[lineIndex]
                     let passBeats = Double(cycleLen) * sub
@@ -3548,7 +3594,7 @@ final class Router {
                                  guard timingActive else { return 0 }
                                  let ph = euclideousLaneChainPhase(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains, legacySpanBeats: ladderSpanBeats)
                                  return ph.rawIsHit ? euclidTickDelay[ph.raw] : 0
-                             }) { tick, mTickBeat, _, _ in
+                             }, rate: rateMap) { tick, mTickBeat, _, _ in
                     if canonLane { refreshCanonStack(beat: mTickBeat, delayBeats: canonDelayBeats, lane: lineIndex, plan: lanePlan, mask: laneKey) }   // CHORD CANON: this lane's own pool, `d` beats back
                     else if !laneIsDefault { refreshLaneStack(plan: lanePlan, mask: laneKey, atBeat: mTickBeat) }   // INPUTS: this lane's own chips and mode
                     else {
@@ -3572,7 +3618,7 @@ final class Router {
                     // one chain-era per-tick core (`euclideousLaneChainPhase`), the same call the next-hit gap, the TIE lookahead, the roll and
                     // the walk-tag mirror make. A tick is `tick × sub` beats; `mTickBeat` below is that same value.
                     let ph = euclideousLaneChainPhase(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick,
-                                                      chains: chains, legacySpanBeats: ladderSpanBeats)
+                                                      chains: chains, legacySpanBeats: ladderSpanBeats, hostBeat: rateMap != nil ? mTickBeat : nil)
                     let localT = ph.localT
                     let raw = ph.raw
                     let rawIsHit = ph.rawIsHit
@@ -3652,8 +3698,11 @@ final class Router {
                     // tieExt` (scaling BOTH segments together) would wrongly shrink the first segment too.
                     // MIX TAB (2026-10-18): per PITCH — each sounding pitch's length reads ITS OWN gate `g` (the riff pitch the lane's GATE, lit
                     // notes/TOP/TOP2 the notes gate), through the one pure `euclideousPitchGateBeats`; the 5 ms floor is unchanged.
+                    // RATE ferry (2026-11-12): inside a run the step length is sub/m, so the gap (lane beats) and the TIE extension become HOST beats by ×(subAtHit/sub) = ×1/m — the gate then halves under ×2, as §2.6. 1.0 when inactive ⇒ byte-identical.
+                    let rateStepScale = rateMap.map { $0.stepHostLength(hostBeat: mTickBeat) / sub } ?? 1.0
+                    let subAtHit = sub * rateStepScale   // RATE: the step length AT this hit in host beats (= sub/m in a run) — the ratchet spacing + cap read it (§2.6)
                     func gateBeatsWithTie(_ g: Double, _ tieExt: Double) -> Double {
-                        euclideousPitchGateBeats(gate: g, nextHitGapBeats: nextHitGapBeats, tieExt: tieExt, minGateBeats: minGateBeats5ms)
+                        euclideousPitchGateBeats(gate: g, nextHitGapBeats: nextHitGapBeats * rateStepScale, tieExt: tieExt * rateStepScale, minGateBeats: minGateBeats5ms)
                     }
                     // LANES GRID §2.1/§2.2: the lane's MUTE is resolved PER HIT, at the hit's own beat — a hit on the first tick of a new cell takes
                     // the NEW cell's state (the old once-per-render-window decision took the previous step's). A muted hit still advances the walk
@@ -3744,7 +3793,7 @@ final class Router {
                         // pick keeps following the rhythm) AND `advOrd`, the riff walk's ordinal, counted from the MELODY origin. No `locked:`
                         // parameter — a melody chain of exactly [1] reproduces old LOCK's own re-anchoring with no special-casing (§4.7).
                         let tickInfo = euclideousLaneChainTick(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
-                                                               legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep)
+                                                               legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep, hostBeat: rateMap != nil ? mTickBeat : nil)
                         let hitsUpTo = tickInfo.hitsUpTo
                         let ord = tickInfo.ord
                         // EUCLID MASK (Paul 2026-10-10 ferry) — §2.1: "advances one step per SOUNDING step of
@@ -4939,8 +4988,8 @@ final class Router {
                                     // now applies PER-REPEAT too, replacing the hardcoded `*0.5` with `*gate`, so
                                     // at 100% a repeat fills its own full subdivision width (ending right where
                                     // the next one begins) instead of always sitting at a fixed half-width snap.
-                                    // MIX TAB: each pitch's repeats use ITS OWN gate — `(sub / nRep) × pitchGate[j]`.
-                                    let repSpacing = sub / Double(nRep)
+                                    // MIX TAB: each pitch's repeats use ITS OWN gate — `(sub / nRep) × pitchGate[j]`. RATE: the spacing is in host beats at this hit (sub/m inside a run), so a ×2 run halves it too (§2.6/§7.10).
+                                    let repSpacing = subAtHit / Double(nRep)
                                     for j in 0..<pitchCount {
                                         guard strikesPlain(j) else { continue }   // EMITTER RATCHET: every output of this pitch ratchets on its own — it strikes nothing the ordinary way
                                         // ferry §4.1: a ratchet's repeats follow the note they repeat — pitch j's own layer mask (the already-resolved busMask the deferred echo tail carries).
@@ -5841,6 +5890,8 @@ final class Router {
                               listenPitch: segPitchMode, listenInterval: L.listenIntervalResolved, listenOctave: L.listenOctaveResolved,
                               // RHYTHM POLISH (2026-10-22): a landed rhythm roll replaces the lane's pattern (a randomise clears the fraction), TILT's unrounded marker rides the lane itself.
                               offsetFraction: rhythmRoll == nil ? L.offsetFractionResolved : 0, tiltFine: L.tiltIsFine,
+                              // RATE ferry (2026-11-12): the lane's 8-bar speed strip (inactive ⇒ byte-identical). A landed random rhythm roll leaves it alone — RATE is not a randomised field.
+                              rateStrip: isEuclideousRow ? euclideousLaneRateStrip(line: L) : EuclideousRateStrip(),
                               tickFrom: tickFrom, tickBefore: tickBefore)
                 }
                 let aSplit = answerEngaged && lineIndex < 4 && !lockHasSplit ? answerBoundary[lineIndex] : Double.infinity

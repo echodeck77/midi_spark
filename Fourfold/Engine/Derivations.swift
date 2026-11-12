@@ -6213,12 +6213,15 @@ struct EuclideousLaneChainPhase: Equatable {
 /// The chain-era counterpart of `euclideousLanePhase` — same shape, origins from §5.1/§5.3 instead of a masked
 /// cell lookup.
 func euclideousLaneChainPhase(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
-                              chains: EuclideousLaneRestartChains, legacySpanBeats: Double) -> EuclideousLaneChainPhase {
+                              chains: EuclideousLaneRestartChains, legacySpanBeats: Double,
+                              hostBeat: Double? = nil) -> EuclideousLaneChainPhase {
+    // RATE ferry (2026-11-12): `tick` is the lane-step index (elapsed, not host, under an override); `hostBeat` is the REAL host beat of this tick,
+    // used ONLY for the restart-schedule / legacy-span origin lookup (the schedule counts in host time). nil ⇒ `tick·sub` ⇒ byte-identical to today.
     var localT: Int64
     var originTickO: Int64 = 0, originTickM: Int64 = 0
     let gridOn = chains.isActive
     if gridOn, sub > 0 {
-        let beat = Double(tick) * sub
+        let beat = hostBeat ?? Double(tick) * sub
         if chains.hasRhythmRestarts {
             originTickO = chains.rhythmOriginTick(beat, sub: sub)   // RESTART UNITS: the schedule's own tick, or the closed form's floor
         }
@@ -6228,7 +6231,7 @@ func euclideousLaneChainPhase(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int
         localT = tick - originTickO
     } else {
         if legacySpanBeats > 0 {
-            let tickBeat = Double(tick) * sub
+            let tickBeat = Double(tick) * sub   // the legacy-span restart model is deprecated — RATE does not retime it (byte-identical to today)
             localT = Int64((((tickBeat - columnStart(tickBeat, legacySpanBeats)) / sub) + 1e-9).rounded(.down))
         } else {
             localT = tick   // `tick × sub ÷ sub` is `tick − 1` for many ticks at a triplet step (7, 14, 25 … at 1/3 beat): the host tick IS the lane's tick
@@ -6244,8 +6247,9 @@ func euclideousLaneChainPhase(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int
 /// with no special-casing (every pass boundary is itself a melody restart, so the melody origin is always the
 /// current pass's own start) — there is no `locked:` parameter here at all.
 func euclideousLaneChainTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,
-                             chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool) -> EuclideousLaneTickInfo {
-    let ph = euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats)
+                             chains: EuclideousLaneRestartChains, legacySpanBeats: Double, advanceStep: Bool,
+                             hostBeat: Double? = nil) -> EuclideousLaneTickInfo {   // RATE ferry: the real host beat for the origin lookup (nil ⇒ tick·sub, byte-identical)
+    let ph = euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains, legacySpanBeats: legacySpanBeats, hostBeat: hostBeat)
     let cl = Int64(max(1, cycleLen))
     let cy = (ph.localT - Int64(ph.raw)) / cl
     var hitsUpTo = 0
@@ -6795,6 +6799,12 @@ struct EuclideousRateMap: Equatable {
     @inline(__always) func laneStep(hostBeat b: Double) -> Int64 { sub > 0 ? Int64((elapsed(hostBeat: b) / sub - 1e-9).rounded(.down)) : 0 }
     /// Host beats per lane step at b (= sub/m inside a run, sub otherwise) — the length gate / ratchet spacing / gaps use at a hit (§2.6).
     @inline(__always) func stepHostLength(hostBeat b: Double) -> Double { let r = run(hostBeat: b); return r.active ? sub / r.multiplier : sub }
+}
+
+/// §3.1 — the override's cross-window dedup key: the run (its first-bar index) high, the lane step low. A §2.4 REPLAY after a rejoin
+/// is a different run ⇒ a distinct key ⇒ it fires; the same strike seen in two render windows has the same key ⇒ deduped once.
+@inline(__always) func euclideousRateDedupKey(laneStep: Int64, runId: Int64) -> Int64 {
+    (runId &<< 40) | (laneStep & 0x0000_00FF_FFFF_FFFF)
 }
 
 
