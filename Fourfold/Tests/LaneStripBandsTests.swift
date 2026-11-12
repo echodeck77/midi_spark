@@ -99,21 +99,23 @@ final class LaneStripBandsTests: XCTestCase {
         XCTAssertEqual(stackChipConversionCount, 32, "the 4×8 table converts once")
     }
 
-    // §10.6 — rank outlines/bars: inset riff 3 / stack 6; the stack bar sits inside the riff's on a shared rank; rank 8 above rank 1.
+    // §B4 / §B7.4 — rank BARS: inset riff 2 / stack 4 (narrow 1 / 3); bar h = max(1, slot−0.5); stack inside the riff; rank 8 above 1; outline only at slot ≥ 4.
     func testRankMarksInsetsAndOrder() {
-        let cell = CGRect(x: 20, y: 0, width: 24, height: 20)                                // hC 20 (T 44) → slot 1.375 < 3 → fallback bars
-        let riff6 = rankSlotRect(cell: cell, hC: 20, rank: 6, part: .riff)
-        let stack6 = rankSlotRect(cell: cell, hC: 20, rank: 6, part: .stack)
-        XCTAssertTrue(riff6.filled, "at hC 20 the slot is 1.375 < 3 → the §4.5 filled-bar fallback")
-        XCTAssertEqual(riff6.rect.minX, cell.minX + 3); XCTAssertEqual(stack6.rect.minX, cell.minX + 6)   // §4.4 insets
-        XCTAssertGreaterThan(stack6.rect.minX, riff6.rect.minX, "the stack bar is inside the riff's")
+        let cell = CGRect(x: 20, y: 0, width: 24, height: 22)                                // hC 22 (T 44) → slot 2.125 < 4 → filled bars
+        let riff6 = rankSlotRect(cell: cell, hC: 22, rank: 6, part: .riff)
+        let stack6 = rankSlotRect(cell: cell, hC: 22, rank: 6, part: .stack)
+        XCTAssertTrue(riff6.filled, "at hC 22 the slot is 2.125 < 4 → a filled bar")
+        XCTAssertEqual(riff6.rect.minX, cell.minX + 2); XCTAssertEqual(stack6.rect.minX, cell.minX + 4)   // §B4.2 insets
+        XCTAssertEqual(riff6.rect.height, max(1, 2.125 - 0.5), accuracy: 0.001, "§B4.2 bar h = max(1, slot − 0.5) = 1.625")
+        XCTAssertGreaterThan(stack6.rect.minX, riff6.rect.minX, "the stack bar is inside the riff's (drawn over it, riff shows at both ends)")
         XCTAssertLessThan(stack6.rect.maxX, riff6.rect.maxX)
-        // rank 8 is above (smaller y than) rank 1
-        let r8 = rankSlotRect(cell: cell, hC: 20, rank: 8, part: .riff).rect.midY
-        let r1 = rankSlotRect(cell: cell, hC: 20, rank: 1, part: .riff).rect.midY
-        XCTAssertLessThan(r8, r1)
-        // at hC 38 (T 78) the slot is 3.625 ≥ 3 → a stroked outline, not a bar
-        XCTAssertFalse(rankSlotRect(cell: CGRect(x: 0, y: 0, width: 24, height: 38), hC: 38, rank: 6, part: .riff).filled)
+        XCTAssertLessThan(rankSlotRect(cell: cell, hC: 22, rank: 8, part: .riff).rect.midY, rankSlotRect(cell: cell, hC: 22, rank: 1, part: .riff).rect.midY)   // rank 8 above rank 1
+        // §B4.3: a cell under 12 wide tightens the insets to riff 1 / stack 3
+        let narrow = CGRect(x: 0, y: 0, width: 10, height: 22)
+        XCTAssertEqual(rankSlotRect(cell: narrow, hC: 22, rank: 6, part: .riff).rect.minX, narrow.minX + 1)
+        XCTAssertEqual(rankSlotRect(cell: narrow, hC: 22, rank: 6, part: .stack).rect.minX, narrow.minX + 3)
+        // §B4.4: only where the slot is ≥ 4 (the spec's T 78, hC 42 → slot 4.625) is it a stroked OUTLINE, not a bar
+        XCTAssertFalse(rankSlotRect(cell: CGRect(x: 0, y: 0, width: 24, height: 42), hC: 42, rank: 6, part: .riff).filled)
     }
 
     // §10.9 — a hit cell is lane100 @ 30 % (45 % at the playhead) with the bar; no cell is ever 100 % or glows.

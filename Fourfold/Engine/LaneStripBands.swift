@@ -40,12 +40,12 @@ enum LaneStripBandMetrics {
     static let playheadStepFill = EuclideousRGB(r: 0x3A, g: 0x3D, b: 0x44)
     static let hitAlpha = 0.30, hitPlayheadAlpha = 0.45
     static let bottomBarH: CGFloat = 3, cellRadius: CGFloat = 6
-    /// §4.3–4.5: the rank slots — pad 3 at the cell's top and (3 + the bar) at its bottom, split 8 ways; a lit rank is a
-    /// 1 pt stroked outline (inset riff 3 / stack 6 from the cell's sides, radius 1.5, inset 0.4 top+bottom in its slot),
-    /// or — where a slot is under `slotFallback` — a `fallbackBarH`-tall filled bar centred in the slot, same insets.
-    static let slotPad: CGFloat = 3, outlineStroke: CGFloat = 1, outlineRadius: CGFloat = 1.5, slotInsetTB: CGFloat = 0.4
-    static let riffInset: CGFloat = 3, stackInset: CGFloat = 6
-    static let slotFallback: CGFloat = 3, fallbackBarH: CGFloat = 1
+    /// §B4.1: the rank slots — 1 below the cell's top to 1 above its 3 pt bottom bar, split 8 ways (slot = (hC−5)/8). §B4.2:
+    /// a sounding rank is a FILLED bar, height max(1, slot−0.5), radius 0.5, centred in its slot — riff inset 2 / stack inset 4
+    /// (§B4.3 under a 12 pt cell: riff 1 / stack 3). §B4.4: only where the slot is ≥ 4 is it the old 1 pt stroked outline instead.
+    static let slotPad: CGFloat = 1, outlineStroke: CGFloat = 1, outlineRadius: CGFloat = 1.5, slotInsetTB: CGFloat = 0.4
+    static let riffInset: CGFloat = 2, stackInset: CGFloat = 4, riffInsetNarrow: CGFloat = 1, stackInsetNarrow: CGFloat = 3, narrowCell: CGFloat = 12
+    static let slotFallback: CGFloat = 4, barMinH: CGFloat = 1, barRadius: CGFloat = 0.5
 
     /// §5.4 / §13: the CC trace — line/hit-dot/playhead-dot alphas over white, dot sizes, samples per step.
     static let ccLineAlpha = 0.20, ccHitDotAlpha = 0.35, ccPlayheadDotAlpha = 0.55
@@ -186,12 +186,14 @@ struct LaneRankMark: Equatable { var rect: CGRect; var filled: Bool }
 func rankSlotRect(cell: CGRect, hC: CGFloat, rank: Int, part: LaneStripPart) -> LaneRankMark {
     typealias M = LaneStripBandMetrics
     let r = max(1, min(8, rank))
-    let slot = (hC - M.slotPad - (M.slotPad + M.bottomBarH)) / 8        // §4.3: (hC − 3 − 6) ÷ 8
+    let slot = (hC - M.slotPad - (M.slotPad + M.bottomBarH)) / 8        // §B4.1: (hC − 1 − 4) ÷ 8
     let slotTop = cell.minY + M.slotPad + CGFloat(8 - r) * slot          // rank 1 at the bottom, rank 8 at the top
-    let sideInset = part == .riff ? M.riffInset : M.stackInset
+    let narrow = cell.width < M.narrowCell                               // §B4.3
+    let sideInset = part == .riff ? (narrow ? M.riffInsetNarrow : M.riffInset) : (narrow ? M.stackInsetNarrow : M.stackInset)
     let x = cell.minX + sideInset, width = max(0, cell.width - 2 * sideInset)
-    if slot < M.slotFallback {                                           // §4.5: a 1-tall filled bar centred in the slot
-        return LaneRankMark(rect: CGRect(x: x, y: slotTop + (slot - M.fallbackBarH) / 2, width: width, height: M.fallbackBarH), filled: true)
+    if slot < M.slotFallback {                                           // §B4.2/§B4.4: a filled bar (the outline is only for slot ≥ 4)
+        let barH = max(M.barMinH, slot - 0.5)
+        return LaneRankMark(rect: CGRect(x: x, y: slotTop + (slot - barH) / 2, width: width, height: barH), filled: true)
     }
     return LaneRankMark(rect: CGRect(x: x, y: slotTop + M.slotInsetTB, width: width, height: max(0, slot - 2 * M.slotInsetTB)), filled: false)
 }

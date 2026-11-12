@@ -59,7 +59,7 @@ private func laneStripDrawCC(_ ctx: inout GraphicsContext, _ cc: LaneCCStripTrac
 private func laneStripDrawRankMark(_ ctx: inout GraphicsContext, cell: CGRect, hC: CGFloat, rank: Int, part: LaneStripPart, colour: Color) {
     let m = rankSlotRect(cell: cell, hC: hC, rank: rank, part: part)
     guard m.rect.width > 0.5, m.rect.height > 0.3 else { return }
-    if m.filled { ctx.fill(RoundedRectangle(cornerRadius: LaneStripBandMetrics.outlineRadius).path(in: m.rect), with: .color(colour)) }
+    if m.filled { ctx.fill(RoundedRectangle(cornerRadius: LaneStripBandMetrics.barRadius).path(in: m.rect), with: .color(colour)) }   // §B4.2 bar radius 0.5
     else { ctx.stroke(RoundedRectangle(cornerRadius: LaneStripBandMetrics.outlineRadius).path(in: m.rect), with: .color(colour), lineWidth: LaneStripBandMetrics.outlineStroke) }
 }
 
