@@ -93,6 +93,8 @@ struct EuclidLaneBox: View {
     // LANE STRIP BANDS ferry (2026-11-12): this lane's two parts' held notes (riff = even part, stack = odd), for the header/footer sounding rings and the cell rank outlines (note-on to note-off). Empty (the BUILD page) ⇒ no rings/outlines.
     var riffHeld: [NoteRollNote] = []
     var stackHeld: [NoteRollNote] = []
+    // LANE STRIP BANDS ferry (2026-11-12) §5: the lane's CC source curve (the first emitter it routes to with CC on), for the faint trace across the cells. nil ⇒ no trace.
+    var ccInput: EuclideousStripCCInput? = nil
     // PULSE ferry (2026-10-20): the strike feed the strip's chips and keys flash from. `pulseFeed` nil (the BUILD-page editor) ⇒ no strikes. `pulseScale` is P (0 OFF / 0.6 SUBTLE / 1 FULL),
     // `pulseLive` is "the page is playing or settling after a stop" (the TimelineView's un-paused condition) and `pulseLane` is the lane's index in the feed.
     var pulseFeed: EuclideousPulseFeed? = nil
@@ -195,7 +197,7 @@ struct EuclidLaneBox: View {
                            rate: rate, spanN: spanN, tilt: patternOverride != nil ? 0 : line.tiltResolved,
                            missStyle: patternOverride != nil ? false : line.patternMissResolved,
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
-                           strip: strip, stripCurrent: stripCurrent, riffHeld: riffHeld, stackHeld: stackHeld, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, exactStyle: compact, grouped: grouped,
+                           strip: strip, stripCurrent: stripCurrent, riffHeld: riffHeld, stackHeld: stackHeld, ccInput: ccInput, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, exactStyle: compact, grouped: grouped,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
                            restartChains: restartChains, rateStrip: euclideousLaneRateStrip(line: line), mutedAt: mutedAt, suppressMuteDim: stripDim, soloSilencedWords: soloSilenced,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
@@ -322,6 +324,8 @@ struct EuclidCometBar: View {
     // LANE STRIP BANDS ferry (2026-11-12): this lane's two parts' held notes (riff = even part, stack = odd), for the header/footer sounding rings and the cell rank outlines (note-on to note-off). Empty (the BUILD page) ⇒ no rings/outlines.
     var riffHeld: [NoteRollNote] = []
     var stackHeld: [NoteRollNote] = []
+    // LANE STRIP BANDS ferry (2026-11-12) §5: the lane's CC source curve (the first emitter it routes to with CC on), for the faint trace across the cells. nil ⇒ no trace.
+    var ccInput: EuclideousStripCCInput? = nil
     // PULSE ferry (2026-10-20): the strike feed (nil ⇒ no strikes), P, whether the page is playing or settling after a stop, and the lane's index in the feed.
     var pulseFeed: EuclideousPulseFeed? = nil
     var pulseLane: Int = 0
@@ -512,8 +516,17 @@ struct EuclidCometBar: View {
                     let sounding = (riffHeld.isEmpty && stackHeld.isEmpty) ? LaneStripSounding(riffRing: [], stackChip: [], stackRing: [], stackOutline: [])
                         : laneStripSounding(riffHeld: riffHeld, stackHeld: stackHeld, n: n, now: liveBeat, passBeats: Double(n) * sub,
                                             stepOf: { b in euclideousStripPlayheadStep(raw: cometRawAt(b), n: n, dir: dir) ?? -1 })
+                    // §5: the faint CC trace mapped onto the steps (the emitter's own one-bar curve; the pass is taken to start on a bar line — a flagged approximation). The playhead dot rides the current sweep + value while running.
+                    var ccTrace: LaneCCStripTrace? = nil
+                    if let ccIn = ccInput {
+                        let cellsRect = CGRect(x: 0, y: bandFrames.bands.hH + bandFrames.bands.gap, width: size.width, height: bandFrames.bands.hC)
+                        let phPhase: Double? = running ? { let b = max(1, ccIn.barBeats); let r = liveBeat.truncatingRemainder(dividingBy: b); return r < 0 ? r + b : r }() : nil
+                        ccTrace = laneCCStripTrace(dots: ccIn.dots, sub: sub, barBeats: ccIn.barBeats, cellXs: xs, columnW: boxW, cellsRect: cellsRect, bottomBarH: LaneStripBandMetrics.bottomBarH, samplesPerStep: LaneStripBandMetrics.ccSamplesPerStep,
+                                                   playheadStepFloat: running ? euclidCometPos(cometRaw, n: n, dir: dir) : nil, playheadValue: phPhase.flatMap { emitterCCTraceValue(ccIn.points, atBeat: $0) },
+                                                   value: { emitterCCTraceValue(ccIn.points, atBeat: $0) })
+                    }
                     drawLaneStripBands(&ctx, EuclideousStripBandInput(frames: bandFrames, hits: strip.legs[stripLeg].hits, steps: n, laneIndex: strip.lane, tint: tint, playheadStep: playheadStep,
-                                                                       sounding: sounding, riffShown: strip.riffPartOn, notesShown: strip.notesPartOn))
+                                                                       sounding: sounding, cc: ccTrace, riffShown: strip.riffPartOn, notesShown: strip.notesPartOn))
                     return
                 }
                 // BOX CONTENT IS DIRECTION-INDEPENDENT — box `i` always shows `buf[i]`, the raw pattern buffer at

@@ -13,8 +13,12 @@ private extension Color {
     init(_ c: EuclideousRGB) { self.init(.sRGB, red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255, opacity: 1) }
 }
 
-/// Everything one frame of the banded strip needs (strip-local coordinates). Built once per frame in `EuclidCometBar`;
-/// the CC trace arrives in the next slice.
+/// §5: the page-computed CC source for a lane's strip — the one-bar curve from the CC tab's own `emitterCCTrace`
+/// (points + dots over the bar), to be mapped onto the strip's steps by `laneCCStripTrace`. nil ⇒ the lane feeds no
+/// CC emitter (§5.1), or STRIP CC (§5.7) is off.
+struct EuclideousStripCCInput: Equatable { var points: [CGPoint]; var dots: [CGPoint]; var barBeats: Double }
+
+/// Everything one frame of the banded strip needs (strip-local coordinates). Built once per frame in `EuclidCometBar`.
 struct EuclideousStripBandInput {
     var frames: LaneStripBandFrames
     var hits: [EuclideousStripHit]
@@ -25,9 +29,28 @@ struct EuclideousStripBandInput {
     var playheadStep: Int?
     /// §3.3 / §3.4 / §4.4: what sounds now, per step (from the note feed, mapped to steps by onset).
     var sounding = LaneStripSounding(riffRing: [], stackChip: [], stackRing: [], stackOutline: [])
+    /// §5: the faint CC trace (line + hit dots + the playhead dot) in strip coordinates; nil ⇒ no trace.
+    var cc: LaneCCStripTrace? = nil
     /// §3.6: the riff / notes part is on (an off part draws its chips as grey outlines).
     var riffShown: Bool = true
     var notesShown: Bool = true
+}
+
+/// §5.4: the faint CC trace — a 1 pt line, a 3 pt dot at each hit's value, a 4 pt dot at the playhead. Over the cells,
+/// under the outlines; never a touch, never any height of its own.
+private func laneStripDrawCC(_ ctx: inout GraphicsContext, _ cc: LaneCCStripTrace, playhead: CGPoint?) {
+    typealias M = LaneStripBandMetrics
+    let ink = Color(M.ccInk)
+    if cc.line.count > 1 {
+        var path = Path(); path.addLines(cc.line)
+        ctx.stroke(path, with: .color(ink.opacity(M.ccLineAlpha)), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
+    }
+    for dot in cc.dots {
+        ctx.fill(Path(ellipseIn: CGRect(x: dot.x - M.ccHitDot / 2, y: dot.y - M.ccHitDot / 2, width: M.ccHitDot, height: M.ccHitDot)), with: .color(ink.opacity(M.ccHitDotAlpha)))
+    }
+    if let ph = playhead {
+        ctx.fill(Path(ellipseIn: CGRect(x: ph.x - M.ccPlayheadDot / 2, y: ph.y - M.ccPlayheadDot / 2, width: M.ccPlayheadDot, height: M.ccPlayheadDot)), with: .color(ink.opacity(M.ccPlayheadDotAlpha)))
+    }
 }
 
 /// §3.4: a sounding chip's lane100 ring — 1.5 pt, a 1.5 pt gap outside the chip (the track fill shows through the gap).
@@ -68,6 +91,9 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
             ctx.fill(RoundedRectangle(cornerRadius: M.bottomBarH / 2).path(in: bar), with: .color(d.tint))
         }
     }
+
+    // §5: the faint CC trace — over the cells, under the rank outlines.
+    if let cc = d.cc { laneStripDrawCC(&ctx, cc, playhead: cc.playhead) }
 
     let s = d.sounding
     func riffRing(_ i: Int) -> Bool { i < s.riffRing.count && s.riffRing[i] }

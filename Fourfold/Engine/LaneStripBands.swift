@@ -224,6 +224,44 @@ func laneCCSourceEmitter(routed: UInt8, ccOn: UInt8) -> Int? {
     return nil
 }
 
+// MARK: - §8.5 / §5: the CC trace across the cells
+
+/// §5.3: the emitter's CC output (from the SAME `emitterCCTrace` the CC tab draws — no second derivation) mapped onto the
+/// strip's step axis. x: step k at cell k's left edge, `samplesPerStep` samples a step; y: value 127 at the cells' top,
+/// 0 just above the bottom bar. The emitter's output is bar-periodic (`points`/`dots` over `barBeats`); a step's time is
+/// read at its phase in the bar (the pass is taken to start on a bar line — exact when it does; a flagged approximation
+/// otherwise). `value(atBeat:)` is `emitterCCTraceValue` passed in, so the mapping stays Foundation-only and testable.
+struct LaneCCStripTrace: Equatable { var line: [CGPoint]; var dots: [CGPoint]; var playhead: CGPoint? }
+func laneCCStripTrace(dots rawDots: [CGPoint], sub: Double, barBeats: Double, cellXs: [CGFloat], columnW: CGFloat,
+                      cellsRect: CGRect, bottomBarH: CGFloat, samplesPerStep: Int,
+                      playheadStepFloat: Double? = nil, playheadValue: Double? = nil, value: (Double) -> Double?) -> LaneCCStripTrace {
+    let n = cellXs.count
+    guard n > 0, sub > 0, barBeats > 0 else { return LaneCCStripTrace(line: [], dots: [], playhead: nil) }
+    let pitch: CGFloat = n > 1 ? cellXs[1] - cellXs[0] : columnW
+    func x(_ stepFloat: Double) -> CGFloat {
+        let k = max(0, min(n - 1, Int(stepFloat.rounded(.down))))
+        let x0 = cellXs[k], x1 = k + 1 < n ? cellXs[k + 1] : cellXs[k] + pitch
+        return x0 + CGFloat(stepFloat - Double(k)) * (x1 - x0)
+    }
+    func y(_ v: Double) -> CGFloat { cellsRect.minY + (1 - CGFloat(max(0, min(127, v)) / 127)) * max(0, cellsRect.height - bottomBarH) }
+    func phase(_ bp: Double) -> Double { let r = bp.truncatingRemainder(dividingBy: barBeats); return r < 0 ? r + barBeats : r }
+    var line: [CGPoint] = []
+    let total = n * max(1, samplesPerStep)
+    for i in 0...total {
+        let bp = Double(i) * sub / Double(max(1, samplesPerStep))
+        if let v = value(phase(bp)) { line.append(CGPoint(x: x(Double(i) / Double(max(1, samplesPerStep))), y: y(v))) }
+    }
+    var dots: [CGPoint] = []
+    for d in rawDots {
+        let bp = Double(d.x)
+        guard bp >= 0, bp < Double(n) * sub + 1e-9 else { continue }   // a hit inside the shown pass
+        dots.append(CGPoint(x: x(bp / sub), y: y(Double(d.y))))
+    }
+    var playhead: CGPoint? = nil
+    if let sf = playheadStepFloat, let pv = playheadValue { playhead = CGPoint(x: x(max(0, min(Double(n), sf))), y: y(pv)) }   // §5.4: the current sweep x and value
+    return LaneCCStripTrace(line: line, dots: dots, playhead: playhead)
+}
+
 // MARK: - §3.3 / §3.4 / §4.4 / §4.6: the sounding held sets (fed from the note feed, mapped to steps by onset)
 
 /// What sounds in one frame, per step. §4.6: a note "enters the set of the hit cell where it started" — `stepOf`

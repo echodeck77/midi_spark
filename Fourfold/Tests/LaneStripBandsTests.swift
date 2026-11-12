@@ -122,6 +122,23 @@ final class LaneStripBandsTests: XCTestCase {
         XCTAssertNil(s.stackChip[5], "a note routed nowhere (outs 0) is ignored")
     }
 
+    // §5.3/§5.4 — the CC trace maps the emitter's bar curve onto the steps: value→y (127 top, 0 above the bar), beat→x.
+    func testCCStripTrace() {
+        let cellXs: [CGFloat] = [0, 20, 40, 60]                                    // 4 steps, pitch 20
+        let cells = CGRect(x: 0, y: 10, width: 80, height: 20)                     // value 0 → y 27 (maxY − bar 3), value 127 → y 10 (top)
+        let t = laneCCStripTrace(dots: [CGPoint(x: 1.0, y: 127), CGPoint(x: 3.0, y: 0)], sub: 1.0, barBeats: 4.0,
+                                 cellXs: cellXs, columnW: 18, cellsRect: cells, bottomBarH: 3, samplesPerStep: 4,
+                                 playheadStepFloat: 2.0, playheadValue: 64, value: { _ in 64.0 })
+        XCTAssertFalse(t.line.isEmpty)
+        let yFor64 = cells.minY + (1 - 64.0 / 127) * (cells.height - 3)
+        for p in t.line { XCTAssertEqual(p.y, yFor64, accuracy: 0.5) }             // a constant value is a flat line
+        XCTAssertEqual(t.line.first!.x, 0, accuracy: 0.01)
+        XCTAssertEqual(t.dots.first!.x, 20, accuracy: 0.5); XCTAssertEqual(t.dots.first!.y, cells.minY, accuracy: 0.5)   // hit at step 1, value 127 → top
+        XCTAssertEqual(t.dots.last!.x, 60, accuracy: 0.5); XCTAssertEqual(t.dots.last!.y, cells.maxY - 3, accuracy: 0.5) // hit at step 3, value 0 → above the bar
+        XCTAssertEqual(t.playhead!.x, 40, accuracy: 0.5)                           // stepFloat 2 → cell 2's left edge
+        XCTAssertNil(laneCCStripTrace(dots: [], sub: 1, barBeats: 4, cellXs: cellXs, columnW: 18, cellsRect: cells, bottomBarH: 3, samplesPerStep: 4, value: { _ in nil }).playhead)
+    }
+
     // §5.1 — the CC source: first routed-and-CC-on in A–D order; none → nil.
     func testCCSourceEmitter() {
         XCTAssertEqual(laneCCSourceEmitter(routed: 0b0110, ccOn: 0b0100), 2)                 // routes to B,C; CC on C → C

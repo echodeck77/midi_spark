@@ -938,6 +938,8 @@ struct EuclideousPage: View {
     /// MIX ROWS (2026-11-03): the dev-build MIX STRIP choice (FIT | ALIGNED, FIT by default) — a rig setting kept in UserDefaults like the PULSE level, never saved in a session or a preset.
     @AppStorage(euclideousMixStripModeKey) private var mixStripModeRaw: String = EuclideousMixStripMode.fit.rawValue
     @AppStorage(euclideousMixToggleModeKey) private var mixToggleModeRaw: String = EuclideousMixToggleMode.filled.rawValue
+    /// LANE STRIP BANDS (2026-11-12) §5.7: the dev-build STRIP CC toggle (the faint CC trace on each lane strip, on by default); release builds always draw it.
+    @AppStorage("fourfold.stripCC") private var stripCCOn: Bool = true
     /// POOL ferry 6.3: the lane whose notes the riff grid's label column names (UI state, never saved; starts at lane 1).
     @State private var gridLane = 0
     // NOTES AUDITION (2026-11-11): the STACK cell held right now (lane / rank position, −1 = none) — drives the held cell's light and greys the lane's other lit cells. Ephemeral; mirrors the live word pushed to the engine.
@@ -2434,6 +2436,18 @@ struct EuclideousPage: View {
         // the same safe default the Router and the walk mirror fall back to — this lane's OWN chains
         // regardless of FOLLOW (mirrors the old grid's lookup, which also read `line` not the partner).
         let cardChains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub, scheduleSet: restartScheduleSet)   // RESTART UNITS: the one resolver (`.off` until the chains are pinned), with the lane's schedule
+        // LANE STRIP BANDS §5: the lane's faint CC trace — the first emitter it routes to with CC on (§5.1), the one-bar curve from the CC tab's own emitterCCTrace (no second derivation). ccLaneHits×4 runs only when a source exists.
+        let ccInput: EuclideousStripCCInput? = {
+            guard stripCCOn else { return nil }   // §5.7
+            let mask = line.riffOutMaskResolved(lane: idx) | line.notesOutMaskResolved(lane: idx)
+            var ccMask: UInt8 = 0; for o in 0..<4 where emitterCCs[o].on { ccMask |= UInt8(1) << UInt8(o) }
+            guard let src = laneCCSourceEmitter(routed: mask, ccOn: ccMask) else { return nil }
+            let bar = max(1, clock.beatsPerBar)
+            let laneHits = (0..<4).map { ccLaneHits($0, barBeats: bar) }
+            let tr = emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[src]), hits: ccTraceHits(output: src, laneHits: laneHits), barBeats: bar, span: emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8))
+            guard !tr.points.isEmpty || !tr.dots.isEmpty else { return nil }
+            return EuclideousStripCCInput(points: tr.points, dots: tr.dots, barBeats: bar)
+        }()
         EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
                       // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
                       // border/fill around just this row (the step-bar area) — always `false` now; the
@@ -2470,7 +2484,7 @@ struct EuclideousPage: View {
                       // chip is the current one (the arrow's hit).
                       strip: stripPlan, stripCurrent: { beat, _ in stripCurrentStep(tradedWithLane(idx), plan: stripPlan, beat: beat) },
                       // LANE STRIP BANDS ferry (2026-11-12): the plan lane's two parts' held notes — the strip's header/footer rings and cell rank outlines read them (note-on to note-off), mapping each onset to its step.
-                      riffHeld: laneHeldNotes(tradedWithLane(idx), notes: false), stackHeld: laneHeldNotes(tradedWithLane(idx), notes: true),
+                      riffHeld: laneHeldNotes(tradedWithLane(idx), notes: false), stackHeld: laneHeldNotes(tradedWithLane(idx), notes: true), ccInput: ccInput,
                       pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
                       // LANE SOLO (2026-10-21, §1): the step-count box's slot — same 44 × 44 frame, so the strip doesn't move — now holds the SOLO button. `stepCountBadge` (and its parameter) stay, unused here (§1.3): the
                       // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
