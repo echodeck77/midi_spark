@@ -59,6 +59,7 @@
 		1AD97DB35C6C3B45B70171A9 /* NotesTabPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E82635E86506C99FF107FC8 /* NotesTabPainter.swift */; };
 		1C777E174406EFA338E6221C /* RestartScheduleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C76013EC892936A85823727 /* RestartScheduleTests.swift */; };
 		1CD11205DFE28DBF0E1C4396 /* PageLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF035CA65CFDFF5CAA7ED84D /* PageLayoutTests.swift */; };
+		1E56C30F5283E673DEF30B41 /* RateTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171FC42B5CE2A794E3C3B194 /* RateTile.swift */; };
 		1E9FABB2A0905ABA064EF049 /* ChaosDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948330B3CAB0A1C3E1E4CDB3 /* ChaosDriver.swift */; };
 		1EE2A1AEE5092A07851CD9FE /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2CE4922DDE31C0061FDC98 /* LanesPanelPainter.swift */; };
 		1F8E4BB041AD7E520007A887 /* InputsRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 215CC43E9C5A2250AB3EC766 /* InputsRouterTests.swift */; };
@@ -86,6 +87,7 @@
 		2B20C428089E72458CB25B3C /* NoteRollRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B90A0E5E3C7A378FB0B7952 /* NoteRollRing.swift */; };
 		2BAEF4D3E47461AD1EE5B328 /* FourfoldMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6397AA28EB42C5965E4A7761 /* FourfoldMark.swift */; };
 		2BC8ECB8FDF6B10688AC8D78 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
+		2D5176E97D60FBE184BABB0A /* RateTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171FC42B5CE2A794E3C3B194 /* RateTile.swift */; };
 		2DB0FD1A6F363FF7810DD7C8 /* FourfoldRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */; };
 		310545FAC5863CD3DAD77CC4 /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F4BE86660C760F3CD73866 /* Kernel.swift */; };
 		316F660F3C3ECC9F56AA905B /* RestartEditorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3780B20BC035BCBFBD2CCA2B /* RestartEditorViews.swift */; };
@@ -95,6 +97,7 @@
 		32B8D6FE8D4377FD8E1F45B3 /* HarmonyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24C15BDAB89DD4B8DEF42338 /* HarmonyLayout.swift */; };
 		33085BD85D007CFA610CC934 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9093C469F102E1F2CCC6DF7D /* MidiFile.swift */; };
 		33257FF396680B09DBDBE620 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */; };
+		3377D6CBFA663342F51107D9 /* RateTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171FC42B5CE2A794E3C3B194 /* RateTile.swift */; };
 		33AE38BE8F26FCF7D2E79593 /* OutputMute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BFF4ABC895D8875ACBC3CA2 /* OutputMute.swift */; };
 		340E1D68D57C83C9BE66E996 /* EmitterRatchetUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FDFAC49DE1FD6F45236A30 /* EmitterRatchetUI.swift */; };
 		3437F7ABE70D5C93E7A4D0C0 /* LaneSoloTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4BE4C9BF1C8E4D1C7A915E /* LaneSoloTests.swift */; };
@@ -292,6 +295,7 @@
 		9823091D20B2F0B914889A3F /* HarmonyPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DCB3F95776A8BE51B7E0584 /* HarmonyPage.swift */; };
 		983D7E1AE41FB6F16F74D28A /* InputsGoldenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E96F54D4F221EBC6B79FE989 /* InputsGoldenTests.swift */; };
 		98438A098C9E21AEC8237627 /* FourfoldBluetoothMIDIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D8C6146A8A708D00931B05 /* FourfoldBluetoothMIDIView.swift */; };
+		98B88E222AD58D08D018376B /* RateTileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B38E5A55AE0D534C7B3AEE /* RateTileTests.swift */; };
 		99988F247FD22A5143E99B8D /* FourfoldAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */; };
 		999F001A6896EB83AB4DF907 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */; };
 		9A832AC171E5542BAD35793F /* NotesTabPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EED3540DD5920A264F6F08 /* NotesTabPainter.swift */; };
@@ -564,6 +568,7 @@
 		1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetBrowser.swift; sourceTree = "<group>"; };
 		16EDCC49E0693650723FF086 /* RestartUnitsGoldenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartUnitsGoldenTests.swift; sourceTree = "<group>"; };
 		16FA68D0E51F49F8F2A53556 /* LaneLockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneLockTests.swift; sourceTree = "<group>"; };
+		171FC42B5CE2A794E3C3B194 /* RateTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateTile.swift; sourceTree = "<group>"; };
 		17328D614B4463EECE452DA4 /* BuildModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildModel.swift; sourceTree = "<group>"; };
 		176469F1675E0C309D28B215 /* CanonHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanonHistory.swift; sourceTree = "<group>"; };
 		17864B5ACB5F8D44C78497C4 /* FXTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXTabTests.swift; sourceTree = "<group>"; };
@@ -842,6 +847,7 @@
 		DF568CF69A6423C9DCB4B2DD /* SnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilder.swift; sourceTree = "<group>"; };
 		DF9C44DDB2035A6F3CE3FA8C /* RestartFlashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashTests.swift; sourceTree = "<group>"; };
 		E074C5873A3072DF6841935F /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
+		E0B38E5A55AE0D534C7B3AEE /* RateTileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateTileTests.swift; sourceTree = "<group>"; };
 		E398927CED84CAC2C67B9CF0 /* PulseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTests.swift; sourceTree = "<group>"; };
 		E3ED784D8D44D8DED77F121C /* RoomsLatticeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomsLatticeTests.swift; sourceTree = "<group>"; };
 		E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldAudioUnit.swift; sourceTree = "<group>"; };
@@ -1080,6 +1086,7 @@
 				5B1FE1781AE0C4878A7935FE /* PulseTests.swift */,
 				33A53A91E0AE9F10D98A31E2 /* RateRouterTests.swift */,
 				4C2389DC9C33A4961918B034 /* RateStripModelTests.swift */,
+				E0B38E5A55AE0D534C7B3AEE /* RateTileTests.swift */,
 				1946456A5B99A0460A26CA77 /* RateTimingTests.swift */,
 				CD57513582FB79CA7D0105B1 /* ReelDeckTests.swift */,
 				FEEB3F91B098254B25E5B502 /* ReelExportTests.swift */,
@@ -1317,6 +1324,7 @@
 				E73F2A52D11932A681050086 /* PolyRiff.swift */,
 				C340F6C0DDE17211F0D4E422 /* PolyRiffEdit.swift */,
 				E074C5873A3072DF6841935F /* PresetStore.swift */,
+				171FC42B5CE2A794E3C3B194 /* RateTile.swift */,
 				68F897CA5367D074206AFCA5 /* ReelTapeAdapter.swift */,
 				A3FB716944E87E6D0BE2C364 /* RestartEditorUI.swift */,
 				CE4A9F61B5C96E28C70286A0 /* RestartSchedule.swift */,
@@ -1705,6 +1713,7 @@
 				0C924EDD62DA8F1C8070ADC3 /* RandomModePainter.swift in Sources */,
 				C2E06CA6204355A767BE5042 /* RankChipPainter.swift in Sources */,
 				A4EC056C4A7923FC2228FD2C /* RatchPanelPainter.swift in Sources */,
+				1E56C30F5283E673DEF30B41 /* RateTile.swift in Sources */,
 				7DB4F2646E77BBDA02216FB1 /* ReelHeaderIcon.swift in Sources */,
 				5B0BECCA9EE233272181562B /* ReelTapeAdapter.swift in Sources */,
 				D2F120D67C6722E60591D9C2 /* RestartEditorUI.swift in Sources */,
@@ -1926,6 +1935,8 @@
 				692A1708CCCE988100850092 /* PulseTests.swift in Sources */,
 				AECEB5115EA19C37A4358CAF /* RateRouterTests.swift in Sources */,
 				C0535F9A57D935E39EC42A7E /* RateStripModelTests.swift in Sources */,
+				2D5176E97D60FBE184BABB0A /* RateTile.swift in Sources */,
+				98B88E222AD58D08D018376B /* RateTileTests.swift in Sources */,
 				F206B3539A602B22B12F6CF5 /* RateTimingTests.swift in Sources */,
 				4B21837C9071EE11D566D760 /* ReelDeckTests.swift in Sources */,
 				C4B21D64133FF65C1D73F27A /* ReelExportTests.swift in Sources */,
@@ -2041,6 +2052,7 @@
 				8208BB44A8037D26B215F5F0 /* RandomModePainter.swift in Sources */,
 				53F7721609C58EFAB32AE72D /* RankChipPainter.swift in Sources */,
 				B1E615052A448F59878B0215 /* RatchPanelPainter.swift in Sources */,
+				3377D6CBFA663342F51107D9 /* RateTile.swift in Sources */,
 				6F87BEE1EB3257DD5CC2B374 /* ReelHeaderIcon.swift in Sources */,
 				5ABD56A8428921E9D40CD132 /* ReelTapeAdapter.swift in Sources */,
 				F5CA87432FB6A9E50D3521D8 /* RestartEditorUI.swift in Sources */,

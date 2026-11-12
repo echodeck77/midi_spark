@@ -3553,11 +3553,103 @@ struct EuclideousPage: View {
         // divider footprint corrected from 8 (a bare 1pt rule + 3.5pt either side) to 17 (1pt rule +
         // 8pt padding either side) — both halves land at the spec's own 154.5pt.
         let gap: CGFloat = 4, blockH = 38 * 2 + gap
-        // RESETS ferry (2026-11-11): the restart tiles (the old right half) moved to the RESETS tab — the RATE grid now spans the whole block (no divider, no `patternOutHalf`). `patternOutHalf` stays compiled, unmounted.
-        return AnyView(patternRateHalf(idx, line, accent, halfW: fullWidth, blockH: blockH, gap: gap)
-            // LISTEN REBUILT (2026-10-23): the old `.followMult` lock control is retired along with FOLLOW itself — this grid is always the lane's own plain RATE now.
-            .modifier(lockOutlineMod(idx, .rate, accent))
-            .frame(width: fullWidth, height: blockH))
+        let halfW = max(1, (fullWidth - 17) / 2)
+        // RATE ferry (2026-11-12): the RATE grid is back on the LEFT half; the new RATE speed-override tile fills the RIGHT half (where the restart tiles were before the RESETS ferry freed it).
+        return AnyView(HStack(spacing: 0) {
+            patternRateHalf(idx, line, accent, halfW: halfW, blockH: blockH, gap: gap)
+                .modifier(lockOutlineMod(idx, .rate, accent))
+            Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 8)
+            rateTile(idx, line, accent, halfW: halfW, blockH: blockH)
+        }
+        .frame(width: fullWidth, height: blockH))
+    }
+    // MARK: - RATE tile (ferry 2026-11-12) — the 8-bar speed-override strip in the EUCLID block's freed right half
+    private func rateTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, blockH: CGFloat) -> AnyView {
+        let L = euclideousRateTileLayout(box: CGSize(width: halfW, height: blockH))
+        let active = line.usesRateOverride, freeOn = line.rateFreeResolved, brush = line.rateBrushResolved, bars = line.rateBarsResolved
+        let dim: Double = freeOn ? 0.42 : 1.0
+        func pos(_ r: CGRect, _ v: AnyView) -> AnyView { AnyView(v.frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)) }
+        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+            let beat: Double? = clock.playing ? lanesMusicalBeat(real: walkTagBeat(at: tl.date)) : nil
+            let cur = euclideousRateCurrentBox(hostBeat: beat, beatsPerBar: clock.beatsPerBar)
+            let prog = beat.map { euclideousRateBarProgress(hostBeat: $0, beatsPerBar: clock.beatsPerBar) } ?? 0
+            let readLabel = euclideousRateReadoutLabel(line: line, currentBox: active ? cur : nil)
+            let readColour: Color = (active && cur != nil && bars[cur!] != 0) ? lane100(accent) : Color(hex: 0x8A909A)
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 8).fill(Color(hex: active ? 0x22252C : 0x2A2D34))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(active ? lane100(accent) : Color.clear, lineWidth: 1))   // §4.1
+                    .frame(width: halfW, height: blockH)
+                if L.showHeader {
+                    pos(L.chevron, AnyView(Image(systemName: "chevron.forward.2").font(.system(size: 6.5, weight: .bold)).foregroundColor(readColour)))
+                    pos(L.label, AnyView(Text("RATE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(8 * 0.12).foregroundColor(Color(hex: 0x8A909A)).frame(maxWidth: .infinity, alignment: .leading)))
+                    pos(L.readout, AnyView(Text(readLabel).font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1).foregroundColor(readColour).frame(maxWidth: .infinity, alignment: .trailing)))
+                }
+                // FREE pill (§4.3) — never dims (§4.7)
+                pos(L.freePill, AnyView(ZStack {
+                    RoundedRectangle(cornerRadius: 9).fill(freeOn ? Color(hex: 0xF2F4F7) : Color.clear)
+                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(freeOn ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
+                    Text("FREE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(8 * 0.12).foregroundColor(freeOn ? Color(hex: 0x121318) : Color(hex: 0x8A909A))
+                }.contentShape(Rectangle()).onTapGesture { rateFreeTap(idx) }))
+                // brush chips (§4.4) — dim under FREE (§4.7)
+                ForEach(0..<4, id: \.self) { i in
+                    let code = UInt8(i + 1), sel = brush == code
+                    pos(L.chips[i], AnyView(ZStack {
+                        RoundedRectangle(cornerRadius: 3).fill(sel ? lane100(accent).opacity(0.3) : Color(hex: 0x343841))
+                        Text(euclideousRateMultiplierLabel(code: code)).font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(sel ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+                    }.opacity(dim).contentShape(Rectangle()).onTapGesture { rateChipTap(idx, code: code) }))
+                }
+                // the 8 boxes (§4.5/§4.6)
+                ForEach(0..<8, id: \.self) { i in
+                    let isCur = beat != nil && cur == i
+                    pos(L.boxes[i], AnyView(rateBoxView(code: bars[i], n: i, accent: accent, isCurrent: isCur, active: active, progress: prog, dim: dim, size: L.boxes[i].size)
+                        .contentShape(Rectangle()).onTapGesture { rateBoxTap(idx, box: i) }))
+                }
+            }
+            .frame(width: halfW, height: blockH, alignment: .topLeading)
+        })
+    }
+    /// One box (§4.5): off / set looks, the current-box ring + number + progress line, and the active+set+current glow. FREE dims the box but not the current ring/number/progress (§4.7).
+    private func rateBoxView(code: UInt8, n: Int, accent: Color, isCurrent: Bool, active: Bool, progress: Double, dim: Double, size: CGSize) -> AnyView {
+        let set = code != 0
+        let currentSet = isCurrent && set && active
+        let fill: Color = currentSet ? lane100(accent) : (set ? lane100(accent).opacity(0.42) : Color(hex: 0x343841))
+        let numColour: Color = isCurrent ? Color(hex: 0xF2F4F7) : (set ? Color(hex: 0xF2F4F7).opacity(0.7) : Color(hex: 0x8A909A))
+        return AnyView(ZStack {
+            RoundedRectangle(cornerRadius: 3).fill(fill)
+                .shadow(color: currentSet ? lane100(accent).opacity(0.65) : Color.clear, radius: currentSet ? 7 : 0)   // §4.5 glow
+                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(isCurrent ? Color(hex: 0xF2F4F7) : Color.clear, lineWidth: 1))   // §4.5 current ring
+                .opacity(set ? dim : dim)   // §4.7 FREE dim (the box fill dims)
+            VStack(spacing: 0) {
+                if set { Text(euclideousRateMultiplierLabel(code: code)).font(.system(size: 7.5, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5).foregroundColor(Color(hex: 0xF2F4F7)).opacity(isCurrent ? 1 : dim).padding(.top, 4.5 - size.height / 2 + 7) }
+                Spacer(minLength: 0)
+                Text("\(n + 1)").font(.system(size: 6, weight: .heavy)).foregroundColor(numColour).padding(.bottom, 5)   // §3.3 bar number — stays full under FREE
+            }.frame(width: size.width, height: size.height)
+            if isCurrent {   // §4.6 progress line — full strength under FREE
+                let w = max(0, (size.width - 4) * CGFloat(progress))
+                HStack { RoundedRectangle(cornerRadius: 0.75).fill(Color(hex: 0xF2F4F7).opacity(0.85)).frame(width: w, height: 1.5); Spacer(minLength: 0) }
+                    .frame(width: size.width - 4, height: size.height).offset(y: size.height / 2 - 2 - 0.75)
+            }
+        })
+    }
+    /// §6.1 — a box tap sets it to the brush, or clears it if it already holds the brush; FREE turns off in the same step. One undo step.
+    private func rateBoxTap(_ idx: Int, box: Int) {
+        edit(idx) { l in
+            var bars = l.rateBarsResolved; let brush = l.rateBrushResolved
+            bars[box] = bars[box] == brush ? 0 : brush
+            l.rateBars = bars; l.rateFree = false
+        }
+    }
+    /// §6.2 — a chip sets the brush (and turns FREE off); it never changes a box.
+    private func rateChipTap(_ idx: Int, code: UInt8) {
+        edit(idx) { l in l.rateBrush = code; l.rateFree = false }
+    }
+    /// §6.3 — FREE toggles; turning it off with no box set also sets box 8 to the brush. One undo step.
+    private func rateFreeTap(_ idx: Int) {
+        edit(idx) { l in
+            let newFree = !l.rateFreeResolved
+            l.rateFree = newFree
+            if !newFree, !(l.rateBars?.contains { $0 != 0 } ?? false) { var bars = l.rateBarsResolved; bars[7] = l.rateBrushResolved; l.rateBars = bars }
+        }
     }
     private func patternRateHalf(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, blockH: CGFloat, gap: CGFloat) -> AnyView {
         let feelColW: CGFloat = 36
