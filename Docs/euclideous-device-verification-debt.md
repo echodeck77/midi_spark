@@ -840,3 +840,10 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - 1.5-ish pt filled rank bars (max(1, slot−0.5) ≈ 1.6 at T=44) read as height, and riff (inset 2) vs stack (inset 4) bars are told apart with the stack over the riff.
 - A lane with its riff OFF shows grey outline chips above every hit (lane 2 was empty before); an upcoming footer hit shows an outline until it fills.
 - (§B5, deferred) the joined PLAY-button + bridge + track shape — to verify when the on-device one-shape pass is done.
+
+## STACK GRID RIFF ARROW ferry (2026-11-12) — all visual, device-owed (§10)
+- The arrow reads as the riff, not as a stack state, at a glance (the whole point of the ferry).
+- An arrow can be matched to its strip chip and its riff grid cell by colour + number without hunting.
+- On a sounding cell of the same lane colour, the lane100 edge merges with the fill — check the map-colour body still separates the arrow from the cell in all four lane colours (first fallback: an ink gap inside the edge).
+- The 7 pt column number is legible on the darkest (rank 1) and lightest (rank 8) map colours at 23 × 17 pt.
+- The 22 pt name inset doesn't make names look off-centre in cells with no arrow; and the arrow (cell x 3…26) vs the name region (x 22…) 4 pt overlap never clips a centred name. The fixed 23 × 17 arrow fits every cell height (rowH ≈ 18–27 at the references). Render tests §7 5-8 have no view-test reach.
