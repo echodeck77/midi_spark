@@ -65,3 +65,19 @@ func euclideousRateReadoutLabel(line: EuclidLine, currentBox: Int?) -> String {
 func euclideousRateMultiplierLabel(code: UInt8) -> String {
     switch code { case 1: return "\u{00D7}\u{00BD}"; case 2: return "\u{00D7}1\u{00BD}"; case 3: return "\u{00D7}2"; case 4: return "\u{00D7}4"; default: return "\u{00D7}1" }
 }
+
+// MARK: - §8 VoiceOver (spoken multipliers: "half", "one and a half", "two", "four")
+func euclideousRateSpokenMultiplier(code: UInt8) -> String {
+    switch code { case 1: return "half"; case 2: return "one and a half"; case 3: return "two"; case 4: return "four"; default: return "one" }
+}
+/// §8.1 — a box: "Rate bar 4, times two" / "Rate bar 4, off"; the current box adds ", playing".
+func euclideousRateBoxAXLabel(n: Int, code: UInt8, current: Bool) -> String {
+    let base = code == 0 ? "Rate bar \(n + 1), off" : "Rate bar \(n + 1), times \(euclideousRateSpokenMultiplier(code: code))"
+    return current ? base + ", playing" : base
+}
+/// §8.2 — a chip: "Rate times two". §8.3 — FREE: "Rate free, on/off". §8.4 — the readout: "Rate now times two/one".
+func euclideousRateChipAXLabel(code: UInt8) -> String { "Rate times \(euclideousRateSpokenMultiplier(code: code))" }
+func euclideousRateReadoutAXLabel(line: EuclidLine, currentBox: Int?) -> String {
+    let code: UInt8 = (line.usesRateOverride ? currentBox.map { line.rateBarsResolved[$0] } : nil) ?? 0
+    return "Rate now times \(euclideousRateSpokenMultiplier(code: code))"
+}

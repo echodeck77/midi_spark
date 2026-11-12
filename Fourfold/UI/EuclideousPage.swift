@@ -3582,27 +3582,31 @@ struct EuclideousPage: View {
                 if L.showHeader {
                     pos(L.chevron, AnyView(Image(systemName: "chevron.forward.2").font(.system(size: 6.5, weight: .bold)).foregroundColor(readColour)))
                     pos(L.label, AnyView(Text("RATE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(8 * 0.12).foregroundColor(Color(hex: 0x8A909A)).frame(maxWidth: .infinity, alignment: .leading)))
-                    pos(L.readout, AnyView(Text(readLabel).font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1).foregroundColor(readColour).frame(maxWidth: .infinity, alignment: .trailing)))
+                    pos(L.readout, AnyView(Text(readLabel).font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1).foregroundColor(readColour).frame(maxWidth: .infinity, alignment: .trailing)
+                        .accessibilityLabel(euclideousRateReadoutAXLabel(line: line, currentBox: active ? cur : nil))))
                 }
                 // FREE pill (§4.3) — never dims (§4.7)
                 pos(L.freePill, AnyView(ZStack {
                     RoundedRectangle(cornerRadius: 9).fill(freeOn ? Color(hex: 0xF2F4F7) : Color.clear)
                         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(freeOn ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
                     Text("FREE").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(8 * 0.12).foregroundColor(freeOn ? Color(hex: 0x121318) : Color(hex: 0x8A909A))
-                }.contentShape(Rectangle()).onTapGesture { rateFreeTap(idx) }))
+                }.contentShape(Rectangle()).onTapGesture { rateFreeTap(idx) }
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Rate free, \(freeOn ? "on" : "off")").accessibilityAddTraits(.isButton)))
                 // brush chips (§4.4) — dim under FREE (§4.7)
                 ForEach(0..<4, id: \.self) { i in
                     let code = UInt8(i + 1), sel = brush == code
                     pos(L.chips[i], AnyView(ZStack {
                         RoundedRectangle(cornerRadius: 3).fill(sel ? lane100(accent).opacity(0.3) : Color(hex: 0x343841))
                         Text(euclideousRateMultiplierLabel(code: code)).font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(sel ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
-                    }.opacity(dim).contentShape(Rectangle()).onTapGesture { rateChipTap(idx, code: code) }))
+                    }.opacity(dim).contentShape(Rectangle()).onTapGesture { rateChipTap(idx, code: code) }
+                        .accessibilityElement(children: .ignore).accessibilityLabel(euclideousRateChipAXLabel(code: code)).accessibilityAddTraits(sel ? [.isButton, .isSelected] : [.isButton])))
                 }
                 // the 8 boxes (§4.5/§4.6)
                 ForEach(0..<8, id: \.self) { i in
                     let isCur = beat != nil && cur == i
                     pos(L.boxes[i], AnyView(rateBoxView(code: bars[i], n: i, accent: accent, isCurrent: isCur, active: active, progress: prog, dim: dim, size: L.boxes[i].size)
-                        .contentShape(Rectangle()).onTapGesture { rateBoxTap(idx, box: i) }))
+                        .contentShape(Rectangle()).onTapGesture { rateBoxTap(idx, box: i) }
+                        .accessibilityElement(children: .ignore).accessibilityLabel(euclideousRateBoxAXLabel(n: i, code: bars[i], current: isCur)).accessibilityAddTraits(.isButton)))
                 }
             }
             .frame(width: halfW, height: blockH, alignment: .topLeading)
