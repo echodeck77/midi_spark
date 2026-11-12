@@ -832,3 +832,11 @@ _(Replaces the old "Sequencer panel" items — the hold-RESET gesture, the prese
 - The faint CC trace is visible when looked for and unnoticed otherwise; its bar↔pass phase looks right when a lane's pass starts on a bar line.
 - "STACK" fits the computed button width w at every layout without crowding, and the lock badge still sits clear.
 - Frame cost is acceptable with four cards running at 16 steps with CC traces (measure on device; the strip retired its 60 fps pulse resolve, so it should be lighter than before).
+
+LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
+- Every chip sits directly above/below its own hit on every lane at 8, 12 and 16 steps (§B1 slot fix) — including a long-gate / TIE / ratchet / delayed-pool note staying in its hit's slot.
+- 7 pt labels are legible inside the 10 pt (hH at T=44) chips at 16 steps, and the chips fill their bands with nothing spilling.
+- A sounding chip reads at 100 % with its 1 pt #F2F4F7 inner stroke (no outside ring) in all four lane colours and every riff-map colour; resting chips at 78 % read as resting.
+- 1.5-ish pt filled rank bars (max(1, slot−0.5) ≈ 1.6 at T=44) read as height, and riff (inset 2) vs stack (inset 4) bars are told apart with the stack over the riff.
+- A lane with its riff OFF shows grey outline chips above every hit (lane 2 was empty before); an upcoming footer hit shows an outline until it fills.
+- (§B5, deferred) the joined PLAY-button + bridge + track shape — to verify when the on-device one-shape pass is done.
