@@ -149,10 +149,15 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     // REPEAT is hollow/dashed in that colour; an off riff part draws every chip as a grey outline (§3.6). A chip wears the
     // lane ring from its note-on to its note-off (§3.4).
     for i in 0..<n where i < d.hits.count {
-        guard let chip = d.hits[i].chip else { continue }
-        laneStripDrawChip(&ctx, slot: d.frames.header[i], steps: d.steps,
-                          fill: d.riffShown ? .map(riffMapColour(column: chip.column, rank: chip.rank)) : nil,
-                          label: "\(chip.column)", hollow: chip.hollow, sounding: d.riffShown && riffRing(i))
+        let isHit = d.hits[i].kind != .rhythmRest
+        if d.riffShown {
+            guard let chip = d.hits[i].chip else { continue }
+            laneStripDrawChip(&ctx, slot: d.frames.header[i], steps: d.steps,
+                              fill: .map(riffMapColour(column: chip.column, rank: chip.rank)),
+                              label: "\(chip.column)", hollow: chip.hollow, sounding: riffRing(i))
+        } else if isHit {   // §B6: an OFF riff part draws a grey outline chip on every hit (its column where known), never sounding
+            laneStripDrawChip(&ctx, slot: d.frames.header[i], steps: d.steps, fill: nil, label: d.hits[i].chip.map { "\($0.column)" } ?? "", hollow: false, sounding: false)
+        }
     }
 
     // §3.3: the stack FOOTER — a chip at each hit step a stack note has played in this pass, filled
@@ -160,10 +165,9 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     // outline chips at the hit steps (§3.6). (Upcoming-hit prediction is a flagged follow-up — see the status log.)
     for i in 0..<n where i < d.hits.count {
         let isHit = d.hits[i].kind != .rhythmRest
-        if d.notesShown {
-            guard i < s.stackChip.count, let rank = s.stackChip[i] else { continue }
+        if d.notesShown, i < s.stackChip.count, let rank = s.stackChip[i] {
             laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: .rgb(stackChipColour(lane: d.laneIndex, rank: rank)), label: "\(rank)", hollow: false, sounding: stackRing(i))
-        } else if isHit {
+        } else if isHit {   // §B6.1: an OFF notes part, OR an upcoming hit not yet played / predicted, draws a grey outline chip (no label)
             laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: nil, label: "", hollow: false, sounding: false)
         }
     }
