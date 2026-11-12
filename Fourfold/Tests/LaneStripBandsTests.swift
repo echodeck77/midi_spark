@@ -7,17 +7,42 @@ import CoreGraphics
 
 final class LaneStripBandsTests: XCTestCase {
 
-    // §10.1 — band heights at both heights; the spec's parentheticals (hH 18 / hC 38 at T 78) and the real T 44.
+    // §B2.1 / §B7.2 — band heights (amendment 1: ratio 0.22, gap 1): the real T 44 and the spec's reference T 78.
     func testBandHeights() {
         let a = laneStripBandHeights(T: 78)
-        XCTAssertEqual(a.hH, 18); XCTAssertEqual(a.hC, 38); XCTAssertEqual(a.gap, 2)         // round(78·0.23)=18, 78−36−4=38
+        XCTAssertEqual(a.hH, 17); XCTAssertEqual(a.hC, 42); XCTAssertEqual(a.gap, 1)         // round(78·0.22)=17, 78−34−2=42
         let b = laneStripBandHeights(T: 44)
-        XCTAssertEqual(b.hH, 10); XCTAssertEqual(b.hC, 20); XCTAssertEqual(b.gap, 2)         // round(44·0.23)=10, 44−20−4=20
-        // the three bands + two gaps always fill T exactly
+        XCTAssertEqual(b.hH, 10); XCTAssertEqual(b.hC, 22); XCTAssertEqual(b.gap, 1)         // round(44·0.22)=10, 44−20−2=22
+        // the three bands + two gaps always fill T exactly, and hH never drops below the 8 pt floor
         for T in stride(from: CGFloat(30), through: 90, by: 1) {
             let h = laneStripBandHeights(T: T)
             XCTAssertEqual(h.hH + h.gap + h.hC + h.gap + h.hH, T, accuracy: 0.001, "bands fill T at \(T)")
+            XCTAssertGreaterThanOrEqual(h.hH, 8, "§B2.1 floor at \(T)")
         }
+    }
+
+    // §B7.2 — the chip fills its cell's x/width at the band's full height (no shrink, no 30-cap); the 7 pt label fit.
+    func testChipFillsItsBand() {
+        let b = laneStripBandHeights(T: 44)
+        let slot = CGRect(x: 12, y: 0, width: 18, height: b.hH)
+        XCTAssertEqual(laneStripChipFrame(slot: slot), slot, "§B2.2: the chip IS its slot — fills the band")
+        XCTAssertEqual(laneStripChipFrame(slot: CGRect(x: 0, y: 0, width: 50, height: b.hH)).width, 50, "§B2.2: no 30-cap")
+        XCTAssertEqual(laneStripChipLabelSize(steps: 16), 7, "§B2.3: a flat 7 pt label")
+        XCTAssertTrue(laneStripChipLabelFits("16", chipWidth: 16, size: 7))                  // 16 ≥ 2·0.6·7 + 2 = 10.4
+        XCTAssertFalse(laneStripChipLabelFits("16", chipWidth: 8, size: 7), "hidden under the label width + 2")
+    }
+
+    // §B7.3 — a sounding chip is 100 % with an inner #F2F4F7 stroke; resting 78 %; the old outside ring is gone.
+    func testSoundingChipMetrics() {
+        XCTAssertEqual(LaneStripBandMetrics.chipRestOpacity, 0.78)
+        XCTAssertEqual(LaneStripBandMetrics.soundStroke, EuclideousRGB(r: 0xF2, g: 0xF4, b: 0xF7))
+        XCTAssertEqual(LaneStripBandMetrics.chipRadius, 2)
+    }
+
+    // §B7.7 — the button type at the REAL T 44 (the amendment's "name 9" holds only at its scaled 41).
+    func testButtonTypeAtT44() {
+        let t = euclideousPartPlayType(height: 44)
+        XCTAssertEqual(t.nameSize, 9.5); XCTAssertEqual(t.playSize, 6); XCTAssertEqual(t.lineGap, 3)
     }
 
     // §10.1 — the top-row frames: w, tiles span T, the bridges sit in their own row only, the chip slots equal the cells.

@@ -55,12 +55,6 @@ private func laneStripDrawCC(_ ctx: inout GraphicsContext, _ cc: LaneCCStripTrac
     }
 }
 
-/// §3.4: a sounding chip's lane100 ring — 1.5 pt, a 1.5 pt gap outside the chip (the track fill shows through the gap).
-private func laneStripDrawRing(_ ctx: inout GraphicsContext, chip: CGRect, tint: Color) {
-    typealias M = LaneStripBandMetrics
-    let out = M.ringGap + M.ringWidth / 2
-    ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius + out).path(in: chip.insetBy(dx: -out, dy: -out)), with: .color(tint), lineWidth: M.ringWidth)
-}
 /// §4.4 / §4.5: a sounding rank in a hit cell — a stroked outline (or the filled-bar fallback where the slot is tiny).
 private func laneStripDrawRankMark(_ ctx: inout GraphicsContext, cell: CGRect, hC: CGFloat, rank: Int, part: LaneStripPart, colour: Color) {
     let m = rankSlotRect(cell: cell, hC: hC, rank: rank, part: part)
@@ -158,8 +152,7 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
         guard let chip = d.hits[i].chip else { continue }
         laneStripDrawChip(&ctx, slot: d.frames.header[i], steps: d.steps,
                           fill: d.riffShown ? .map(riffMapColour(column: chip.column, rank: chip.rank)) : nil,
-                          label: "\(chip.column)", hollow: chip.hollow)
-        if d.riffShown, riffRing(i) { laneStripDrawRing(&ctx, chip: laneStripChipFrame(slot: d.frames.header[i]), tint: d.tint) }
+                          label: "\(chip.column)", hollow: chip.hollow, sounding: d.riffShown && riffRing(i))
     }
 
     // §3.3: the stack FOOTER — a chip at each hit step a stack note has played in this pass, filled
@@ -169,10 +162,9 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
         let isHit = d.hits[i].kind != .rhythmRest
         if d.notesShown {
             guard i < s.stackChip.count, let rank = s.stackChip[i] else { continue }
-            laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: .rgb(stackChipColour(lane: d.laneIndex, rank: rank)), label: "\(rank)", hollow: false)
-            if stackRing(i) { laneStripDrawRing(&ctx, chip: laneStripChipFrame(slot: d.frames.footer[i]), tint: d.tint) }
+            laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: .rgb(stackChipColour(lane: d.laneIndex, rank: rank)), label: "\(rank)", hollow: false, sounding: stackRing(i))
         } else if isHit {
-            laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: nil, label: "", hollow: false)
+            laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: nil, label: "", hollow: false, sounding: false)
         }
     }
 }
@@ -180,27 +172,31 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
 /// §3.1 / §3.6: one header or footer chip. `fill` nil ⇒ the off-part outline look (grey stroke, grey label, no fill);
 /// `.map`/`.rgb` ⇒ a filled chip with ink label (or, when `hollow`, a dashed stroke + label in the fill colour).
 enum LaneStripChipFill { case map(EuclideousRGB); case rgb(EuclideousRGB) }
-func laneStripDrawChip(_ ctx: inout GraphicsContext, slot: CGRect, steps: Int, fill: LaneStripChipFill?, label: String, hollow: Bool) {
+func laneStripDrawChip(_ ctx: inout GraphicsContext, slot: CGRect, steps: Int, fill: LaneStripChipFill?, label: String, hollow: Bool, sounding: Bool) {
     typealias M = LaneStripBandMetrics
     let frame = laneStripChipFrame(slot: slot)
     guard frame.width > 1, frame.height > 1 else { return }
     let shape = RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame)
     let size = laneStripChipLabelSize(steps: steps)
     let labelColour: Color
+    let a = sounding ? 1.0 : M.chipRestOpacity   // §B2.4: a sounding chip at 100 %, resting at 78 %
     if let fill {
         let c = Color(fillRGB(fill))
         if hollow {
-            ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(c), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+            ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(c.opacity(a)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
             labelColour = c
         } else {
-            ctx.fill(shape, with: .color(c))
+            ctx.fill(shape, with: .color(c.opacity(a)))
             labelColour = Color(M.chipInk)
+        }
+        if sounding {   // §B2.4: a 1 pt #F2F4F7 stroke INSIDE the frame marks a sounding chip (no outside ring)
+            ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(Color(M.soundStroke)), lineWidth: 1)
         }
     } else {
         ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(Color(M.offChipStroke)), lineWidth: 1)
         labelColour = Color(M.offChipLabel)
     }
-    if frame.width >= 9 {   // a chip too narrow for a glyph shows no label (truncate, never shrink)
+    if laneStripChipLabelFits(label, chipWidth: frame.width, size: size) {   // §B2.3: no label when the chip is narrower than the label + 2
         ctx.draw(ctx.resolve(Text(label).font(laneStripChipFont(size)).foregroundColor(labelColour)), at: CGPoint(x: frame.midX, y: frame.midY), anchor: .center)
     }
 }

@@ -16,21 +16,23 @@ import CoreGraphics
 // MARK: - §1 / §13: the band metrics (named so device can tune them; this ferry changes none)
 
 enum LaneStripBandMetrics {
-    /// §1.4: header/footer height = round(T × this); the cells band is what's left less the two row gaps.
-    static let headerRatio = 0.23
-    static let rowGap: CGFloat = 2
-    /// §3.1: a chip is `hH − chipShrink` tall, at most `chipMaxW` wide, radius `chipRadius`, label `chipLabel` heavy
-    /// (`chipLabelMany` over `manySteps` steps), ink `chipInk`, no tracking; rest opacity `chipRestOpacity`, sounding 1.
-    static let chipShrink: CGFloat = 4, chipMaxW: CGFloat = 30, chipRadius: CGFloat = 4
-    static let chipLabel: CGFloat = 10, chipLabelMany: CGFloat = 9, manySteps = 12
+    /// §B2.1: header/footer height = max(8, round(T × this)); the cells band is what's left less the two row gaps.
+    static let headerRatio = 0.22                       // amendment 1: was 0.23
+    static let rowGap: CGFloat = 1                       // amendment 1: was 2
+    /// §B2.2 / §B2.3: a chip is EXACTLY its cell's x/width at the band's full height (no shrink, no width cap), radius
+    /// `chipRadius`, label `chipLabel` pt heavy, ink `chipInk`, no tracking; resting opacity `chipRestOpacity`, sounding 1
+    /// with an inner `soundStroke` stroke (§B2.4). A label hides when the chip is narrower than count·`chipLabelAdvance`·size + 2.
+    static let chipRadius: CGFloat = 2                   // amendment 1: was 4
+    static let chipLabel: CGFloat = 7                    // amendment 1: was 10 (and 9 over 12 steps) — now a flat 7
+    static let chipLabelAdvance: CGFloat = 0.6           // heavy-monospaced digit advance ÷ point size (§B2.3 label-fit)
     static let chipRestOpacity = 0.78
     static let chipInk = EuclideousRGB(r: 0x0D, g: 0x0F, b: 0x14)
-    /// §3.4: a sounding chip's lane100 ring — 1.5 pt, a 1.5 pt #202226 gap between ring and chip, drawn outside the chip.
-    static let ringWidth: CGFloat = 1.5, ringGap: CGFloat = 1.5
+    /// §B2.4: a sounding chip draws at 100 % with a 1 pt #F2F4F7 stroke INSIDE its frame (replaces the old outside ring).
+    static let soundStroke = EuclideousRGB(r: 0xF2, g: 0xF4, b: 0xF7)
     /// §3.6: an off part's chips — outline only (1 pt #3A3D44 inner stroke), label #5A5E66, no ring.
     static let offChipStroke = EuclideousRGB(r: 0x3A, g: 0x3D, b: 0x44), offChipLabel = EuclideousRGB(r: 0x5A, g: 0x5E, b: 0x66)
-    /// §3.7: the ANSWER line along the footer track's inside-bottom edge — 2 pt, source lane100 @ 70 %, radius 1.
-    static let answerLineH: CGFloat = 2, answerLineAlpha = 0.7, answerLineRadius: CGFloat = 1
+    /// §B2.6: the ANSWER line along the footer track's inside-bottom edge — 1.5 pt, source lane100 @ 70 %, radius 1.
+    static let answerLineH: CGFloat = 1.5, answerLineAlpha = 0.7, answerLineRadius: CGFloat = 1
 
     /// §4.2: cell fills — a step not under / under the playhead; a hit not under / under the playhead takes lane100 at
     /// `hitAlpha`/`hitPlayheadAlpha` with the 3 pt lane100 bottom bar. No strike flash, glow or ease.
@@ -58,9 +60,9 @@ enum LaneStripBandMetrics {
 // MARK: - §1.4: the three band heights
 
 struct LaneStripBandHeights: Equatable { var hH: CGFloat; var hC: CGFloat; var gap: CGFloat }
-/// §1.4: header/footer `hH = round(T × 0.23)`; the cells band `hC = T − 2·hH − 2·gap`. (T 44 → hH 10, hC 20; T 78 → hH 18, hC 38.)
+/// §B2.1: header/footer `hH = max(8, round(T × 0.22))`; the cells band `hC = T − 2·hH − 2·gap`, gap 1. (T 44 → hH 10, hC 22; T 78 → hH 17, hC 42.)
 func laneStripBandHeights(T: CGFloat) -> LaneStripBandHeights {
-    let hH = (T * LaneStripBandMetrics.headerRatio).rounded()
+    let hH = max(8, (T * LaneStripBandMetrics.headerRatio).rounded())
     let gap = LaneStripBandMetrics.rowGap
     return LaneStripBandHeights(hH: hH, hC: max(0, T - 2 * hH - 2 * gap), gap: gap)
 }
@@ -141,14 +143,14 @@ func laneStripBandFrames(xs: [CGFloat], columnW: CGFloat, T: CGFloat) -> LaneStr
         footer: xs.map { CGRect(x: $0, y: footerY, width: columnW, height: b.hH) })
 }
 
-/// §3.1: a chip centred in its band slot — `hH − 4` tall, `min(slotWidth, 30)` wide.
-func laneStripChipFrame(slot: CGRect) -> CGRect {
-    typealias M = LaneStripBandMetrics
-    let h = max(0, slot.height - M.chipShrink), w = min(slot.width, M.chipMaxW)
-    return CGRect(x: slot.midX - w / 2, y: slot.midY - h / 2, width: w, height: h)
+/// §B2.2: the chip is EXACTLY its cell's x/width at the band's full height — no shrink, no 30-cap.
+func laneStripChipFrame(slot: CGRect) -> CGRect { slot }
+/// §B2.3: the chip label's point size — a flat 7 pt heavy (was 10, and 9 over 12 steps).
+func laneStripChipLabelSize(steps: Int) -> CGFloat { LaneStripBandMetrics.chipLabel }
+/// §B2.3: a label's drawn width (heavy monospaced: count · advance · size); hidden when the chip is narrower than this + 2.
+func laneStripChipLabelFits(_ label: String, chipWidth: CGFloat, size: CGFloat) -> Bool {
+    chipWidth >= CGFloat(label.count) * LaneStripBandMetrics.chipLabelAdvance * size + 2
 }
-/// §3.1: the chip label's point size — 10 pt heavy, 9 pt when the lane has more than 12 steps.
-func laneStripChipLabelSize(steps: Int) -> CGFloat { steps > LaneStripBandMetrics.manySteps ? LaneStripBandMetrics.chipLabelMany : LaneStripBandMetrics.chipLabel }
 
 // MARK: - §8.2: the stack chip colour (OKLCH, the lane's own hue)
 
