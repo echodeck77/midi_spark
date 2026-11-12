@@ -436,25 +436,10 @@ struct EuclidCometBar: View {
             let runningNow = running && !mutedNow
             let cometPos = euclidCometPos(cometRaw, n: n, dir: dir)
             let nD = Double(n)
-            // PULSE (ferry 2026-10-20): every strike effect comes from the feed's strikes and the pure functions in Derivations.swift. A strike's tile is the step the engine read at its onset tick (the comet raw
-            // at the MUSICAL onset beat, the same function the dot uses); its age is wall time since the onset stamped on the display clock when the event arrived (1.2).
-            let pulseOn = pulseFeed != nil
-            let nowRef = tl.date.timeIntervalSinceReferenceDate
-            let swingA = min(75, max(50, clock.swing)) / 50.0
-            let pulseKey = euclideousPulseGeometryKey(n: n, dir: dir, sub: sub, spanBeats: spanBeats, swing: swingA, stepBeats: clock.stepBeats, chains: restartChains)
-            let pulseStrikes = pulseFeed?.resolveTiles(lane: pulseLane, key: pulseKey, tileOf: { onset in
-                let mb = swingA == 1 ? onset : musicalOf(onset, stepBeats: max(0.03125, clock.stepBeats), a: swingA)
-                let raw = restartChains.map { euclideousLaneCometChainRaw(beat: mb, n: n, dir: dir, sub: sub, chains: $0, legacySpanBeats: spanBeats) }
-                    ?? euclidCometRaw(mTickBeat: mb, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
-                return euclideousPulseTileForOnset(rawAtOnset: raw, n: n, dir: dir)
-            }) ?? []
-            // LANE STRIP (ferry 2026-10-21): each layer's latest strike per step (the riff's for the chip, the notes' for the key), and the lane's current chip (the hit its riff arrow shows). A muted lane makes no strikes.
-            let stripStrikes = (strip != nil && pulseOn && !mutedNow) ? euclideousStripTileStrikes(pulseStrikes, tiles: n, now: nowRef)
-                : (riff: [EuclideousStripTileStrike?](repeating: nil, count: n), notes: [EuclideousStripTileStrike?](repeating: nil, count: n))
-            // PING-PONG visits each step twice with different notes: the strip shows the sweep the lane is on (the first while it is stopped)
+            // PULSE (ferry 2026-10-20): the comet box flare below is age-based (from `cometRaw`); the strip's own former per-strike flare is retired by the LANE STRIP BANDS ferry (nothing in the strip glows, §6.4), so the pulse-feed tile resolve that only fed it is gone.
+            // PING-PONG visits each step twice with different notes: the strip shows the sweep the lane is on (the first while it is stopped).
+            // LANE STRIP BANDS ferry (2026-11-12): the old per-strike chip dip/glow (`stripStrikes`) and the current-chip ring (`stripCurrent`) are gone from the strip — nothing in it glows (§6.4); sounding is the held-set ring (§3.4). `stripCurrent` is kept as a param, unused here (the STACK grid's ghost reads the page's own `riffGhostRank`).
             let stripLeg = strip.map { $0.legIndex(raw: running ? cometRaw : 0) } ?? 0
-            let stripCurrentNow: EuclideousStripCurrent? = (strip?.riffPlays == true && running) ? stripCurrent?(liveBeat, tl.date) : nil
-            let stripCurrentStep: Int? = stripCurrentNow.flatMap { $0.leg == stripLeg ? $0.step : nil }
             Canvas { ctx, size in
                 var buf = [Bool](repeating: false, count: n)
                 let cellColour = cellTint ?? tint   // the LIT cells' colour (the comet head below keeps `tint`)
@@ -525,7 +510,7 @@ struct EuclidCometBar: View {
                                                    playheadStepFloat: running ? euclidCometPos(cometRaw, n: n, dir: dir) : nil, playheadValue: phPhase.flatMap { emitterCCTraceValue(ccIn.points, atBeat: $0) },
                                                    value: { emitterCCTraceValue(ccIn.points, atBeat: $0) })
                     }
-                    drawLaneStripBands(&ctx, EuclideousStripBandInput(frames: bandFrames, hits: strip.legs[stripLeg].hits, steps: n, laneIndex: strip.lane, tint: tint, playheadStep: playheadStep,
+                    drawLaneStripBands(&ctx, EuclideousStripBandInput(frames: bandFrames, hits: strip.legs[stripLeg].hits, steps: n, laneIndex: strip.lane, tint: tint, stripWidth: size.width, playheadStep: playheadStep,
                                                                        sounding: sounding, cc: ccTrace, riffShown: strip.riffPartOn, notesShown: strip.notesPartOn))
                     return
                 }

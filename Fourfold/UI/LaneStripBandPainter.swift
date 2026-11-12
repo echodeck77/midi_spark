@@ -25,6 +25,8 @@ struct EuclideousStripBandInput {
     var steps: Int
     var laneIndex: Int
     var tint: Color
+    /// The strip's full width — the header/footer track plates span it.
+    var stripWidth: CGFloat
     /// The step the rhythm sweep is on now (the §4.2 playhead cell); nil while stopped.
     var playheadStep: Int?
     /// §3.3 / §3.4 / §4.4: what sounds now, per step (from the note feed, mapped to steps by onset).
@@ -69,9 +71,42 @@ private func laneStripDrawRankMark(_ ctx: inout GraphicsContext, cell: CGRect, h
 
 private func laneStripChipFont(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .monospaced) }
 
+/// A rect with independent left-corner / right-corner radii (both top and bottom on a side share the radius) — the
+/// §2 track plates are square on the joint side (toward their button) and rounded (r6) on the far side.
+private func laneStripTrackPath(_ r: CGRect, leftR: CGFloat, rightR: CGFloat) -> Path {
+    var p = Path()
+    p.move(to: CGPoint(x: r.minX + leftR, y: r.minY))
+    p.addLine(to: CGPoint(x: r.maxX - rightR, y: r.minY))
+    if rightR > 0 { p.addArc(center: CGPoint(x: r.maxX - rightR, y: r.minY + rightR), radius: rightR, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false) }
+    p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - rightR))
+    if rightR > 0 { p.addArc(center: CGPoint(x: r.maxX - rightR, y: r.maxY - rightR), radius: rightR, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false) }
+    p.addLine(to: CGPoint(x: r.minX + leftR, y: r.maxY))
+    if leftR > 0 { p.addArc(center: CGPoint(x: r.minX + leftR, y: r.maxY - leftR), radius: leftR, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false) }
+    p.addLine(to: CGPoint(x: r.minX, y: r.minY + leftR))
+    if leftR > 0 { p.addArc(center: CGPoint(x: r.minX + leftR, y: r.minY + leftR), radius: leftR, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false) }
+    p.closeSubpath()
+    return p
+}
+
 func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandInput) {
     typealias M = LaneStripBandMetrics
     let n = d.frames.cells.count
+    let b = d.frames.bands
+
+    // §2.3: the HEADER / FOOTER track PLATES — the tile fill #202226 with a 1 pt #2B2D33 border, square on the joint
+    // side (the header toward PLAY RIFF on the left, the footer toward PLAY STACK on the right) and rounded r6 on the
+    // far side, so each reads as the extension of its button. (The literal bridge FILLING the g gap to the button, and
+    // the perfectly seamless shared outline, are device-owed — see the status log.)
+    if d.stripWidth > 1, b.hH > 1 {
+        let fill = Color(M.tileFill), border = Color(M.tileBorder), r = M.trackCornerRadius
+        let header = CGRect(x: 0, y: 0, width: d.stripWidth, height: b.hH)
+        let footer = CGRect(x: 0, y: b.hH + b.gap + b.hC + b.gap, width: d.stripWidth, height: b.hH)
+        for (plate, leftR, rightR) in [(header, CGFloat(0), r), (footer, r, CGFloat(0))] {
+            let path = laneStripTrackPath(plate, leftR: leftR, rightR: rightR)
+            ctx.fill(path, with: .color(fill))
+            ctx.stroke(path, with: .color(border), lineWidth: 1)
+        }
+    }
 
     // §4.1 / §4.2: the cells — steps and hits, no strike flash. A hit is lane100 (30 %, 45 % at the playhead) with a 3 pt
     // lane100 bar inside its bottom edge; a step is a flat grey (brighter at the playhead). (The beat-group shading, the
