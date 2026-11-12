@@ -919,26 +919,27 @@ struct EuclidLine: Codable, Equatable {
     var notesShiftStartResolved: Int { max(0, min(15, notesShiftStart ?? 0)) }
     var notesDriftOnResolved: Bool { notesDriftOn ?? false }
     var notesDriftStepResolved: Int { let c = max(-8, min(8, notesDriftStep ?? 1)); return c == 0 ? 1 : c }
-    /// §1.6 rank r (0…7): its repeat COUNT (1…3), and whether its 2nd / 3rd copy is AGAIN or LATER. Render-safe (bit reads, no allocation).
-    func notesRankCount(_ r: Int) -> Int { guard r >= 0, r < 8 else { return 1 }; return min(3, Int((notesRankCounts ?? 0) >> UInt16(2 * r) & 0b11) + 1) }
-    func notesRankSecond(_ r: Int) -> EuclideousCopyTiming { guard r >= 0, r < 8 else { return .again }; return (notesRankSecondLater ?? 0) >> UInt8(r) & 1 != 0 ? .later : .again }
-    func notesRankThird(_ r: Int) -> EuclideousCopyTiming { guard r >= 0, r < 8 else { return .again }; return (notesRankThirdLater ?? 0) >> UInt8(r) & 1 != 0 ? .later : .again }
+    /// §1.6 RANK r (1…8): its repeat COUNT (1…3), and whether its 2nd / 3rd copy is AGAIN or LATER. Render-safe (bit reads, no allocation).
+    /// r is the rank (1…8), bit-indexed `r-1` — the SAME convention the engine (`euclideousRowsBuildPass`'s cnt/roundOfCopy) and the UI (which passes `rank`) use, so a count edit reaches the engine on the rank it was set on (code-review 2026-11-12: these read `2*r` before, off by one vs the engine's `2*(r-1)`, and rank 8 was unsettable).
+    func notesRankCount(_ r: Int) -> Int { guard r >= 1, r <= 8 else { return 1 }; return min(3, Int((notesRankCounts ?? 0) >> UInt16(2 * (r - 1)) & 0b11) + 1) }
+    func notesRankSecond(_ r: Int) -> EuclideousCopyTiming { guard r >= 1, r <= 8 else { return .again }; return (notesRankSecondLater ?? 0) >> UInt8(r - 1) & 1 != 0 ? .later : .again }
+    func notesRankThird(_ r: Int) -> EuclideousCopyTiming { guard r >= 1, r <= 8 else { return .again }; return (notesRankThirdLater ?? 0) >> UInt8(r - 1) & 1 != 0 ? .later : .again }
     /// §6.5 writers: step a rank's count 1→2→3→1, or set a copy's timing. The default (count 1 / AGAIN everywhere) stores nil, so a lane at the default is byte-identical to one that never had the field.
     mutating func setNotesRankCount(_ r: Int, _ v: Int) {
-        guard r >= 0, r < 8 else { return }
+        guard r >= 1, r <= 8 else { return }
         let cv = UInt16(max(1, min(3, v)) - 1)
-        var m = notesRankCounts ?? 0; m &= ~(UInt16(0b11) << UInt16(2 * r)); m |= cv << UInt16(2 * r)
+        var m = notesRankCounts ?? 0; m &= ~(UInt16(0b11) << UInt16(2 * (r - 1))); m |= cv << UInt16(2 * (r - 1))
         notesRankCounts = m == 0 ? nil : m
     }
     mutating func cycleNotesRankCount(_ r: Int) { setNotesRankCount(r, notesRankCount(r) % 3 + 1) }
     mutating func setNotesRankSecond(_ r: Int, _ t: EuclideousCopyTiming) {
-        guard r >= 0, r < 8 else { return }
-        var m = notesRankSecondLater ?? 0; if t == .later { m |= 1 << UInt8(r) } else { m &= ~(UInt8(1) << UInt8(r)) }
+        guard r >= 1, r <= 8 else { return }
+        var m = notesRankSecondLater ?? 0; if t == .later { m |= 1 << UInt8(r - 1) } else { m &= ~(UInt8(1) << UInt8(r - 1)) }
         notesRankSecondLater = m == 0 ? nil : m
     }
     mutating func setNotesRankThird(_ r: Int, _ t: EuclideousCopyTiming) {
-        guard r >= 0, r < 8 else { return }
-        var m = notesRankThirdLater ?? 0; if t == .later { m |= 1 << UInt8(r) } else { m &= ~(UInt8(1) << UInt8(r)) }
+        guard r >= 1, r <= 8 else { return }
+        var m = notesRankThirdLater ?? 0; if t == .later { m |= 1 << UInt8(r - 1) } else { m &= ~(UInt8(1) << UInt8(r - 1)) }
         notesRankThirdLater = m == 0 ? nil : m
     }
     /// The lit order: the stored one when valid, else (5.2) the lit ranks from low to high, then TOP 2, then TOP.

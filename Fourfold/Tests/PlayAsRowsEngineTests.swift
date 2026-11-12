@@ -40,6 +40,24 @@ final class PlayAsRowsEngineTests: XCTestCase {
         XCTAssertEqual(buildPass([1, 2, 3, 4], order: .bounce), [1, 2, 3, 4, 3, 2])
     }
 
+    // code-review 2026-11-12 — end-to-end: the MODEL's own writer (rank 1…8) must land on the bit the engine
+    // reads. A one-slot skew (the model wrote 2*r while the engine reads 2*(r-1)) made every count edit hit the
+    // wrong rank and left rank 8 unsettable; this pins the two conventions together through a real EuclidLine.
+    func testModelRankCountReachesTheEngineOnTheSameRank() {
+        for rank in 1...8 {
+            var line = EuclidLine()
+            line.setNotesRankCount(rank, 2)                 // this rank twice, via the model's own setter
+            let pass = buildPass([1, 2, 3, 4, 5, 6, 7, 8], order: .up, counts: line.notesRankCounts ?? 0)
+            XCTAssertEqual(pass.filter { $0 == rank }.count, 2, "rank \(rank) set to 2 appears twice in the engine pass")
+            for other in 1...8 where other != rank {
+                XCTAssertEqual(pass.filter { $0 == other }.count, 1, "rank \(other) stays once when only \(rank) is bumped")
+            }
+        }
+        // the 2ND timing writer reaches the engine too (LATER places the second copy at the pass end).
+        var line = EuclidLine(); line.setNotesRankCount(2, 2); line.setNotesRankSecond(2, .later)
+        XCTAssertEqual(buildPass([1, 2, 3], order: .up, counts: line.notesRankCounts ?? 0, second: line.notesRankSecondLater ?? 0), [1, 2, 3, 2])
+    }
+
     // §10.1 — the other key orders.
     func testKeyOrders() {
         XCTAssertEqual(buildPass([2, 5, 6, 8], order: .up), [2, 5, 6, 8])

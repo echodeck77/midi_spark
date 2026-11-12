@@ -14,7 +14,7 @@ final class PlayAsRowsModelTests: XCTestCase {
         XCTAssertEqual(l.notesOrderChainResolved, [EuclideousOrderChip(value: .up, hits: 4)])
         XCTAssertEqual(l.notesVoicesChainResolved, [EuclideousVoicesChip(value: .one, hits: 4)])
         XCTAssertEqual(l.notesSpreadChainResolved, [EuclideousSpreadChip(value: .together, hits: 4)])
-        for r in 0..<8 {
+        for r in 1...8 {   // ranks are 1…8 (code-review 2026-11-12: the count/timing accessors index rank, not a 0-based slot)
             XCTAssertEqual(l.notesRankCount(r), 1, "rank \(r) count")
             XCTAssertEqual(l.notesRankSecond(r), .again); XCTAssertEqual(l.notesRankThird(r), .again)
         }
