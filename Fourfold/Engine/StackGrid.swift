@@ -76,7 +76,40 @@ func euclideousStackCellToggle(_ line: inout EuclidLine, row: EuclideousStackRow
 enum EuclideousStackTuning {
     static let restFillAlpha = 0.5         // §2.1 a selected cell at rest
     static let glowBlur: CGFloat = 4       // §2.2 the note-on glow blur (the lamp's floor)
-    static let ringGap: CGFloat = 1        // §3.1 the ghost ring's inner edge, 1 pt outside the cell frame
+    static let ringGap: CGFloat = 1        // §3.1 the ghost ring's inner edge, 1 pt outside the cell frame (STACK GRID RIFF ARROW 2026-11-12: the ring is gone; kept for the compiled-out view code)
+}
+
+// MARK: - STACK GRID RIFF ARROW (ferry 2026-11-12): the riff's position drawn as the riff grid's arrow, in riff-map colour, labelled with the column
+
+/// §8 tunables (named so device can change them; none changed in this ferry). The EDGE width is the lane strip's current-chip ring width (`RiffMapTuning.ringWidth` 1.5), shared on purpose.
+enum EuclideousStackArrowTuning {
+    static let width: CGFloat = 23, height: CGFloat = 17      // §2.2 the arrow, 23 × 17
+    static let leftInset: CGFloat = 3                          // §2.1 the left edge 3 pt in from the cell's inner left edge
+    static let edgeWidth: CGFloat = RiffMapTuning.ringWidth    // §2.3 the 1.5 pt lane100 edge
+    static let labelInset: CGFloat = 4.5                       // §2.5 the label 4.5 pt in from the fill's left edge
+    static let labelSize: CGFloat = 7                          // §2.5 7 pt heavy (the strip chip's label font)
+    static let nameInset: CGFloat = 22                         // §3.1 every name centres in the cell width minus this left inset
+    static let offFill = EuclideousRGB(r: 0x1F, g: 0x21, b: 0x27)   // §2.6 REPEAT's body — the grid's off-cell fill
+    static let ink = EuclideousRGB(r: 0x0D, g: 0x0F, b: 0x14)       // §2.5 the label ink
+}
+
+/// §2 the arrow for a lane's current chip, in the cell at its rank: its FRAME (23 × 17 at the cell's left inset, vertically centred), its BODY fill (the riff map colour, or the off-cell fill for a REPEAT), its LABEL (the riff
+/// column) and the label colour (ink, or the map colour for a REPEAT). The lane100 EDGE and the arrow SHAPE are the view's (the reused riff-grid `EuclideousArrowShape`). Only built for a real current chip, so `column`/`rank` are valid.
+struct EuclideousStackRiffArrow: Equatable {
+    var frame: CGRect
+    var fill: EuclideousRGB
+    var label: String
+    var labelColour: EuclideousRGB
+    var isRepeat: Bool
+}
+func euclideousStackRiffArrow(cell: CGRect, column: Int, rank: Int, isRepeat: Bool) -> EuclideousStackRiffArrow {
+    typealias T = EuclideousStackArrowTuning
+    let map = riffMapColour(column: column, rank: rank)            // §2.4 the colour of the riff grid cell the lane reads
+    return EuclideousStackRiffArrow(frame: CGRect(x: cell.minX + T.leftInset, y: cell.midY - T.height / 2, width: T.width, height: T.height),
+                                    fill: isRepeat ? T.offFill : map,        // §2.6 REPEAT: the off-cell ground
+                                    label: "\(column)",                       // §2.5 the column number
+                                    labelColour: isRepeat ? map : T.ink,      // §2.6 REPEAT: the map-colour label
+                                    isRepeat: isRepeat)
 }
 
 /// §4 / §5.3 — the MIDI note a lane's NOTES part would send for `row` right now: the pool note (already carrying the lane's MIDI-IN-ROOT / KEY / CANON, applied upstream in the pool) shifted by the NOTES OCT, via the engine's own

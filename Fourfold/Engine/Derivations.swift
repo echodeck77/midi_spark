@@ -9428,12 +9428,17 @@ func euclideousStripCurrentStep(cfg c: EuclideousWalkLaneConfig, landedTick: Int
     }
     return nil
 }
-/// STACK GRID LIVE §5.4 — `riffGhostRank`: the WRITTEN rank of the lane's current chip (the ring's rank), a projection of `euclideousStripCurrentStep` so the lane strip and the STACK grid read ONE state (§3.3). nil
-/// exactly when there is no current chip (stopped, riff off, a SKIP rest, another pass). A REPEAT's hollow chip is current (§3.2), so this returns its repeated rank.
-func euclideousStripCurrentRank(cfg c: EuclideousWalkLaneConfig, landedTick: Int64?, passLapStartTick: Int64?, arrowStaysOnTiedNote: Bool, legs: [EuclideousStripLeg]) -> Int? {
+/// STACK GRID RIFF ARROW ferry (2026-11-12) §1 — the whole CURRENT CHIP of the lane (its WRITTEN rank, the riff COLUMN its label shows, and `hollow` = REPEAT), a projection of `euclideousStripCurrentStep` so the
+/// lane strip and the STACK grid read ONE state (§1.3). nil exactly when there is no current chip (stopped, riff off, a SKIP rest, another pass). A REPEAT's hollow chip is current (§3.2) — its repeated rank + column.
+/// This supersedes the rank-only `riffGhostRank`: the STACK grid's arrow needs the column and the REPEAT flag too.
+func euclideousStripCurrentChip(cfg c: EuclideousWalkLaneConfig, landedTick: Int64?, passLapStartTick: Int64?, arrowStaysOnTiedNote: Bool, legs: [EuclideousStripLeg]) -> EuclideousStripChip? {
     guard let cur = euclideousStripCurrentStep(cfg: c, landedTick: landedTick, passLapStartTick: passLapStartTick, arrowStaysOnTiedNote: arrowStaysOnTiedNote, legs: legs),
           cur.leg >= 0, cur.leg < legs.count, cur.step >= 0, cur.step < legs[cur.leg].hits.count else { return nil }
-    return legs[cur.leg].hits[cur.step].chip?.rank
+    return legs[cur.leg].hits[cur.step].chip
+}
+/// STACK GRID LIVE §5.4 — the WRITTEN rank of the lane's current chip (the ring's rank). Now `euclideousStripCurrentChip(...)?.rank`, so the rank reader and the arrow reader can't disagree (§1.3).
+func euclideousStripCurrentRank(cfg c: EuclideousWalkLaneConfig, landedTick: Int64?, passLapStartTick: Int64?, arrowStaysOnTiedNote: Bool, legs: [EuclideousStripLeg]) -> Int? {
+    euclideousStripCurrentChip(cfg: c, landedTick: landedTick, passLapStartTick: passLapStartTick, arrowStaysOnTiedNote: arrowStaysOnTiedNote, legs: legs)?.rank
 }
 
 // ── the playhead (2.x / 7.4) ─────────────────────────────────────────────────────────────────────────────────────────────

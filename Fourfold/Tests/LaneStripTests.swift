@@ -181,6 +181,24 @@ final class LaneStripTests: XCTestCase {
             if let s = c.step, let chip = h[s].chip { XCTAssertEqual(chip.column - 1, c.arrow.column, "the chip's column is the arrow's"); XCTAssertEqual(chip.rank, c.arrow.rank, "…and its row") }
         }
     }
+    // STACK GRID RIFF ARROW §7.1: the current CHIP (column, drawn rank, REPEAT flag) — equals the chip at the current step; its rank == euclideousStripCurrentRank; nil when nothing landed.
+    func testTheCurrentChipCarriesTheWholeChipNotJustTheRank() {
+        let f = fix(exLine()); let h = hits(f)
+        for t in f.hitSteps.map({ $0.tick }) {
+            let abs = lapStart + Int64(t)
+            let w = euclideousWalkTick(f.cfg, tick: abs)
+            let beat = (Double(abs) + 0.1) * f.cfg.sub
+            guard let plan = euclideousWalkTagPlan(cfg: f.cfg, ranks: exRanks, beat: beat, secondsPerBeat: 0.5, polledStep: w.playedStep, running: true, polledOrdinal: w.advOrd) else { continue }
+            let arrow = euclideousLaneArrowState(lane: 0, cfg: f.cfg, plan: plan, polledOrdinal: w.advOrd)
+            let stays = plan.seatIsRest && !arrow.hollow
+            let legs = [EuclideousStripLeg(hitSteps: f.hitSteps, hits: h)]
+            let step = euclideousStripCurrentStep(cfg: f.cfg, landedTick: plan.landedTick, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: stays, legs: legs)?.step
+            let chip = euclideousStripCurrentChip(cfg: f.cfg, landedTick: plan.landedTick, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: stays, legs: legs)
+            XCTAssertEqual(chip, step.flatMap { h[$0].chip }, "the current chip is the chip at the current step (column, rank, hollow)")
+            XCTAssertEqual(chip?.rank, euclideousStripCurrentRank(cfg: f.cfg, landedTick: plan.landedTick, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: stays, legs: legs), "rank == the rank-only reader")
+        }
+        XCTAssertNil(euclideousStripCurrentChip(cfg: f.cfg, landedTick: nil, passLapStartTick: f.pass.lapStartTick, arrowStaysOnTiedNote: false, legs: [EuclideousStripLeg(hitSteps: f.hitSteps, hits: h)]), "nil when nothing landed (stopped, riff off, before the first hit)")
+    }
     func testTieKeepsTheCurrentChipOnTheHeldNote() {
         let f = fix(exLine(onRest: .tie))
         let h = hits(f)
