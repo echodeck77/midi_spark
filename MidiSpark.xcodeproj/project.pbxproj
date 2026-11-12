@@ -185,6 +185,7 @@
 		5B182C150ACB6B3B81425BB0 /* SceneFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D364D224C3D245B4D5AE548 /* SceneFactory.swift */; };
 		5C3C8640822A3DE65E4F3211 /* EmitterTokenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92D029601A9975595D0C74BD /* EmitterTokenTests.swift */; };
 		5C648CAB6448DD80453069B0 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
+		5CB31F8F6C0BFA7B58C8A419 /* LaneStripBandPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA05F70850B5402E7877106 /* LaneStripBandPainter.swift */; };
 		5CC2E7BFF602338C725BE990 /* MixPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509B7DDC7021AB0416D8EBF9 /* MixPanel.swift */; };
 		5CD10BE7CE98FDD633F57ACB /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */; };
 		5CE639FE1C31C52CF9452B0C /* PresetStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F625F72C3FD2D49A4440D5 /* PresetStoreTests.swift */; };
@@ -275,6 +276,7 @@
 		8C0A79D7C15CDA8D43AC7760 /* LanesGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A732F956AC8A9961E6F346F /* LanesGridTests.swift */; };
 		8C2C89B835B3507C4ABAF06B /* StackGridLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E227C46A23C7B9BF9E36CE /* StackGridLiveTests.swift */; };
 		8CC40A50AE903C00870E629A /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
+		8D5B9D35929B24CDA1B41C1D /* LaneStripBandPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA05F70850B5402E7877106 /* LaneStripBandPainter.swift */; };
 		8DC3AA73114BE6ECD1E1D9BC /* SessionTape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F916631CD0B4974C26CB893 /* SessionTape.swift */; };
 		8E5DFF82368B8CD0F33315AD /* EmitterCCLegacy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C6E676F1410031DD753DD2B /* EmitterCCLegacy.swift */; };
 		8EA5916921B008EDE1CA3DFA /* PlayAsRowsModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ABE000F33B083E91E686CD8 /* PlayAsRowsModelTests.swift */; };
@@ -873,6 +875,7 @@
 		EEA758F0453138D242FAEF87 /* LaneSoloPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloPainter.swift; sourceTree = "<group>"; };
 		EED14AFBC380ACC035A573D3 /* EmitterTokenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterTokenView.swift; sourceTree = "<group>"; };
 		EF45F04EACF0BD829D28D308 /* RankChipPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankChipPainter.swift; sourceTree = "<group>"; };
+		EFA05F70850B5402E7877106 /* LaneStripBandPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripBandPainter.swift; sourceTree = "<group>"; };
 		EFD6FDF0C7C204768524124D /* FourfoldComposeParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldComposeParityTests.swift; sourceTree = "<group>"; };
 		F11A47312E5B36EA267536F5 /* LockModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockModePainter.swift; sourceTree = "<group>"; };
 		F140AC21A0E9E7E6E094A95C /* HocketTurnTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketTurnTests.swift; sourceTree = "<group>"; };
@@ -1158,6 +1161,7 @@
 				AEB03CC002F55E0712BACE13 /* HocketPopup.swift */,
 				FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */,
 				AA2CE4922DDE31C0061FDC98 /* LanesPanelPainter.swift */,
+				EFA05F70850B5402E7877106 /* LaneStripBandPainter.swift */,
 				978929AD94B53C409F7F63AA /* LaneStripPainter.swift */,
 				47EFEFD20A4BE99C391A7781 /* LaneViewStripPainter.swift */,
 				F11A47312E5B36EA267536F5 /* LockModePainter.swift */,
@@ -1693,6 +1697,7 @@
 				3A2A785935974B530833355F /* HocketPopup.swift in Sources */,
 				6B98CD09D9D422991069BB57 /* Kernel.swift in Sources */,
 				C4FC8D3D987668BF1C537345 /* LaneSoloPainter.swift in Sources */,
+				5CB31F8F6C0BFA7B58C8A419 /* LaneStripBandPainter.swift in Sources */,
 				64D15BEC504AF3DF1CD41F3E /* LaneStripBands.swift in Sources */,
 				E8E25A44F9A7319F6683F04F /* LaneStripPainter.swift in Sources */,
 				1A78E35F86A81ACCB38CAA7F /* LaneViewStrip.swift in Sources */,
@@ -2035,6 +2040,7 @@
 				E66DAEB014A43E4E83288E12 /* HocketPopup.swift in Sources */,
 				310545FAC5863CD3DAD77CC4 /* Kernel.swift in Sources */,
 				31D850833DB23E88DEC4FE99 /* LaneSoloPainter.swift in Sources */,
+				8D5B9D35929B24CDA1B41C1D /* LaneStripBandPainter.swift in Sources */,
 				C43DFF9334E196B60F237673 /* LaneStripBands.swift in Sources */,
 				6A80FF3C35E374A0CDF78CB1 /* LaneStripPainter.swift in Sources */,
 				09E7B614451586A1EF09FF2B /* LaneViewStrip.swift in Sources */,

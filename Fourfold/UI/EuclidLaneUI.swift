@@ -497,13 +497,13 @@ struct EuclidCometBar: View {
                 // LANE STRIP (ferry 2026-10-21): the Euclideous lane card's strip — a riff track over a key row on these same step columns, the playhead in place of the comet. Everything it draws is a
                 // pure function of the plan the page built (`EuclideousStripPlan`) and the clock; see `drawEuclideousStrip`.
                 if let strip, stripLeg < strip.legs.count {
-                    let hocketLooks = hocketStripLooks(strip, playing: running)   // HOCKET §9.3 (nil/nil when no rule is lit)
+                    // LANE STRIP BANDS ferry (2026-11-12): the Fourfold lane card's strip is re-banded into a riff HEADER (riff chips), the CELLS (steps/hits + per-rank sounding outlines) and a stack FOOTER (stack chips).
+                    // The playhead is the current CELL (§1.7), not a sliding line; nothing in the strip glows (§6.4). The held sets + CC trace arrive in later slices. The old `drawEuclideousStrip` stays compiled for the BUILD page.
                     let xs: [CGFloat] = (0..<n).map { insetL + boxXs[$0] }
-                    let playhead: EuclideousStripPlayhead? = running ? euclideousStripPlayhead(raw: cometRaw, n: n, dir: dir, xs: xs, columnW: boxW) : nil
-                    drawEuclideousStrip(&ctx, EuclideousStripFrameInput(hits: strip.legs[stripLeg].hits, shadowed: strip.shadowed, frames: euclideousStripLayout(xs: xs, columnW: boxW), groupSize: euclidStepGroupSize(forRate: rate), tint: tint, playhead: playhead,
-                                                                         areaMinX: insetL, areaMaxX: insetL + usable, current: stripCurrentStep,
-                                                                         riffStrikes: stripStrikes.riff, noteStrikes: stripStrikes.notes, riffLook: hocketLooks.riff, notesLook: hocketLooks.notes, ownLane: strip.lane, scale: pulseScale, reduceMotion: reduceMotion,
-                                                                         riffShown: strip.riffPartOn, notesShown: strip.notesPartOn))   // Paul 2026-11-06: riff chips only while RIFF is enabled, the key row only while NOTES is enabled
+                    let bandFrames = laneStripBandFrames(xs: xs, columnW: boxW, T: size.height)
+                    let playheadStep: Int? = running ? euclideousStripPlayheadStep(raw: cometRaw, n: n, dir: dir) : nil
+                    drawLaneStripBands(&ctx, EuclideousStripBandInput(frames: bandFrames, hits: strip.legs[stripLeg].hits, steps: n, laneIndex: strip.lane, tint: tint, playheadStep: playheadStep,
+                                                                       riffShown: strip.riffPartOn, notesShown: strip.notesPartOn))
                     return
                 }
                 // BOX CONTENT IS DIRECTION-INDEPENDENT — box `i` always shows `buf[i]`, the raw pattern buffer at

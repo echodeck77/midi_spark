@@ -121,6 +121,35 @@ func laneTopRowFrames(T: CGFloat, content: CGSize, g: CGFloat, stackNameWidth: C
                            columnXs: geo.xs, columnW: geo.stepW, w: w, g: g, T: T, hH: b.hH, hC: b.hC, gap: b.gap)
 }
 
+// MARK: - §1.6: the per-step band slots (built once per frame from the columns the strip already lays out)
+
+/// The three bands' per-step frames in strip-local coordinates (origin at the strip's top-left), from the SAME column
+/// xs/width the strip's cells use (so a header or footer slot sits exactly above/below its cell). `xs[i]` is step i's left
+/// edge; `columnW` its width; `T` the strip height.
+struct LaneStripBandFrames: Equatable {
+    var bands: LaneStripBandHeights
+    var cells: [CGRect]        // the cells band (y hH+gap, height hC)
+    var header: [CGRect]       // the header chip slots (y 0, height hH)
+    var footer: [CGRect]       // the footer chip slots (y T−hH, height hH)
+}
+func laneStripBandFrames(xs: [CGFloat], columnW: CGFloat, T: CGFloat) -> LaneStripBandFrames {
+    let b = laneStripBandHeights(T: T)
+    let cellsY = b.hH + b.gap, footerY = T - b.hH
+    return LaneStripBandFrames(bands: b,
+        cells: xs.map { CGRect(x: $0, y: cellsY, width: columnW, height: b.hC) },
+        header: xs.map { CGRect(x: $0, y: 0, width: columnW, height: b.hH) },
+        footer: xs.map { CGRect(x: $0, y: footerY, width: columnW, height: b.hH) })
+}
+
+/// §3.1: a chip centred in its band slot — `hH − 4` tall, `min(slotWidth, 30)` wide.
+func laneStripChipFrame(slot: CGRect) -> CGRect {
+    typealias M = LaneStripBandMetrics
+    let h = max(0, slot.height - M.chipShrink), w = min(slot.width, M.chipMaxW)
+    return CGRect(x: slot.midX - w / 2, y: slot.midY - h / 2, width: w, height: h)
+}
+/// §3.1: the chip label's point size — 10 pt heavy, 9 pt when the lane has more than 12 steps.
+func laneStripChipLabelSize(steps: Int) -> CGFloat { steps > LaneStripBandMetrics.manySteps ? LaneStripBandMetrics.chipLabelMany : LaneStripBandMetrics.chipLabel }
+
 // MARK: - §8.2: the stack chip colour (OKLCH, the lane's own hue)
 
 /// How many OKLCH → sRGB conversions the stack-chip table cost — 32, once; a test reads it (it must never grow).
@@ -175,6 +204,14 @@ func stripCellLook(isHit: Bool, isPlayhead: Bool) -> LaneCellLook {
     typealias M = LaneStripBandMetrics
     if isHit { return LaneCellLook(fill: .hit(alpha: isPlayhead ? M.hitPlayheadAlpha : M.hitAlpha), bar: true) }
     return LaneCellLook(fill: isPlayhead ? .playheadStep : .step, bar: false)
+}
+
+/// §1.7 / §4.2: the step the rhythm sweep is on now (the playhead cell), from the strip's raw tick; nil while stopped.
+func euclideousStripPlayheadStep(raw: Double, n: Int, dir: EuclidDir) -> Int? {
+    guard n > 0 else { return nil }
+    var s = Int(euclidCometPos(raw, n: n, dir: dir).rounded(.down))   // the continuous 0…n screen position, floored to a step
+    if s < 0 { s = 0 }; if s >= n { s = n - 1 }
+    return s
 }
 
 // MARK: - §8 / §5.1: the CC source emitter
