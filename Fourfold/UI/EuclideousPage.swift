@@ -2438,12 +2438,22 @@ struct EuclideousPage: View {
         let cardChains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub, scheduleSet: restartScheduleSet)   // RESTART UNITS: the one resolver (`.off` until the chains are pinned), with the lane's schedule
         // LANE STRIP BANDS §5: the lane's faint CC trace — the first emitter it routes to with CC on (§5.1), the one-bar curve from the CC tab's own emitterCCTrace (no second derivation). ccLaneHits×4 runs only when a source exists.
         let ccInput: EuclideousStripCCInput? = {
-            guard stripCCOn else { return nil }   // §5.7
-            let mask = line.riffOutMaskResolved(lane: idx) | line.notesOutMaskResolved(lane: idx)
+            // §5.7 + leak fix (2026-11-12): a lane that cannot emit shows no CC. The engine sends CC only from a lane that MAY
+            // STRIKE (enabled, not solo-silenced) on a part that is ON (Router `ccLaneStaticMask` / `ccLaneRoutes`), so the strip
+            // must gate the same way — an off part "routes nowhere" (§5.1), and a disabled or solo-silenced lane routes nowhere at all.
+            guard stripCCOn, line.enabledResolved, !soloDimContent else { return nil }
+            let mask = (euclideousMixLayerIsOff(line, notes: false) ? 0 : line.riffOutMaskResolved(lane: idx))
+                     | (euclideousMixLayerIsOff(line, notes: true) ? 0 : line.notesOutMaskResolved(lane: idx))
             var ccMask: UInt8 = 0; for o in 0..<4 where emitterCCs[o].on { ccMask |= UInt8(1) << UInt8(o) }
             guard let src = laneCCSourceEmitter(routed: mask, ccOn: ccMask) else { return nil }
             let bar = max(1, clock.beatsPerBar)
-            let laneHits = (0..<4).map { ccLaneHits($0, barBeats: bar) }
+            // Only a lane that MAY STRIKE contributes to the emitter's CC (the engine's `ccLaneStaticMask`): a disabled, solo-silenced
+            // or fully-off lane routed to the same emitter must not leak its hits into another lane's trace. (The CC tab keeps its own path.)
+            let laneHits = (0..<4).map { li -> [EmitterCCTraceHit] in
+                let l = li < lines.count ? lines[li] : EuclidLine(noteSel: .all)
+                let canEmit = l.enabledResolved && !soloSilenced(li) && (!euclideousMixLayerIsOff(l, notes: false) || !euclideousMixLayerIsOff(l, notes: true))
+                return canEmit ? ccLaneHits(li, barBeats: bar) : []
+            }
             let tr = emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[src]), hits: ccTraceHits(output: src, laneHits: laneHits), barBeats: bar, span: emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8))
             guard !tr.points.isEmpty || !tr.dots.isEmpty else { return nil }
             return EuclideousStripCCInput(points: tr.points, dots: tr.dots, barBeats: bar)
