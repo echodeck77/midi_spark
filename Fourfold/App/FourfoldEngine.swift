@@ -103,6 +103,7 @@ final class FourfoldEngine {
     deinit {
         for o in observers { NotificationCenter.default.removeObserver(o) }
         engine.stop()
+        Self.deactivateSession()   // don't leave the shared session active after the engine is gone
         if au.renderResourcesAllocated { au.deallocateRenderResources() }
         scratchData.forEach { $0.deallocate() }
         free(scratch.unsafeMutablePointer)
@@ -154,8 +155,17 @@ final class FourfoldEngine {
     private static func configureSession() throws {
         let s = AVAudioSession.sharedInstance()
         try s.setCategory(.playback, mode: .default, options: [.mixWithOthers])   // silent output, never ducks or stops another app's audio
-        try? s.setPreferredIOBufferDuration(0.005)
+        // NO preferred IO buffer: Fourfold is MIDI-only and its output is silence, so it has no latency need of its own — and forcing the
+        // SHARED hardware buffer (it was 0.005 s) reconfigured the device's audio route, degrading every other app's audio (YouTube etc.)
+        // until a restart. MIDI stays sample-accurate regardless: events carry their own host time (see `installHostBlocks` / `pump`), so the
+        // render-buffer granularity never affects MIDI timing. Accept whatever buffer the system / the foreground audio app already set.
         try s.setActive(true)
+    }
+    /// Release the shared session on the way out, so a backgrounded-then-terminated instance never leaves a silent `.playback` session
+    /// holding the audio route. `.notifyOthersOnDeactivation` lets a paused app resume. (Background MIDI still works while the app lives —
+    /// `UIBackgroundModes: audio` keeps the session active until the app actually goes away.)
+    private static func deactivateSession() {
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
     private static func sessionSampleRate() -> Double {
         let r = AVAudioSession.sharedInstance().sampleRate
@@ -224,6 +234,13 @@ final class FourfoldEngine {
         })
         observers.append(nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             if let self, !self.engine.isRunning { self.restart() }
+        })
+        // On termination, stop the silent engine and RELEASE the shared session — so the audio route is handed back cleanly instead of being
+        // held by a dying instance (deinit is not guaranteed on an OS-initiated kill; this covers the graceful-exit path). Background MIDI is
+        // untouched: this fires only on willTerminate, not on entering the background.
+        observers.append(nc.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.engine.stop()
+            Self.deactivateSession()
         })
     }
 
