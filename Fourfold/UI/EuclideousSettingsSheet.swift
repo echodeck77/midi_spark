@@ -78,6 +78,8 @@ struct EuclideousSettingsSheet: View {
     @AppStorage(euclideousMixStripModeKey) private var mixStripModeRaw: String = EuclideousMixStripMode.fit.rawValue
     // MIX v2 (2026-11-05) §8.1: the dev-only MIX TOGGLES choice (FILLED | OUTLINE), a rig setting like MIX STRIP.
     @AppStorage(euclideousMixToggleModeKey) private var mixToggleModeRaw: String = EuclideousMixToggleMode.filled.rawValue
+    // LANE STRIP BANDS (2026-11-12) §5.7: the dev-only STRIP CC toggle (the faint CC trace on each lane strip), a rig setting like MIX STRIP; release builds always draw it.
+    @AppStorage("fourfold.stripCC") private var stripCCOn: Bool = true
     @State private var portsNaturalHeight: CGFloat = 0
     @State private var midiInNaturalHeight: CGFloat = 0   // §6.3: measured only in DEBUG (the CLASHES block makes MIDI IN the tallest tab)
     @State private var clockNaturalHeight: CGFloat = 0    // RATCH tab §7.4: measured only in DEBUG (the FX COUNTS block grows CLOCK)
@@ -459,6 +461,15 @@ struct EuclideousSettingsSheet: View {
             .accessibilityAdjustableAction { _ in
                 mixToggleModeRaw = (mixToggleModeRaw == EuclideousMixToggleMode.outline.rawValue ? EuclideousMixToggleMode.filled : EuclideousMixToggleMode.outline).rawValue
             }
+            // LANE STRIP BANDS §5.7: dev-only STRIP CC — the faint CC trace on each lane strip. ON by default; release builds always draw it. A rig setting (UserDefaults), not in a session or preset, no undo.
+            block(name: "STRIP CC") {
+                segmented([("ON", 40), ("OFF", 48)], selected: stripCCOn ? 0 : 1) { i in stripCCOn = (i == 0) }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Strip CC")
+            .accessibilityValue(stripCCOn ? "ON" : "OFF")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAdjustableAction { _ in stripCCOn.toggle() }
             #endif
             // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows and MIX pads. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.
             block(name: "STRIKE PULSE",
