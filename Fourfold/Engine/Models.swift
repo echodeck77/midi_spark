@@ -793,12 +793,40 @@ struct EuclidLine: Codable, Equatable {
     var rateBars: [UInt8]? = nil
     var rateFree: Bool? = nil
     var rateBrush: UInt8? = nil
+    // FILL ferry (Paul 2026-11-13) — APPENDED LAST (after the RATE fields), additive-Optional, decode-tolerant. ONE fill per lane, played on the lit bars of an 8-bar strip (bar n → bar n mod 8). The fill plays the lane's last LENGTH of an armed
+    // bar at SPEED ×m, ending on the next bar line, then REJOINS the ×1 position; REVERSE mirrors the fired order, RANKS climbs, SWELL ramps the velocity, BREAK silences the last quarter. This REPLACES RATE's run timing (the RATE fields stay
+    // decodable so an old test session loads, but the Router no longer reads them). NOT a lane-lock field (the feature's own control, outside the lock snapshot — matches RATE). nil everywhere ⇒ sounds exactly as today. §1.1.
+    var fillOn: Bool? = nil            // §1.1 [true]
+    var fillBars: [Bool]? = nil        // §1.1 8 entries [all false]; a lit bar arms the fill
+    var fillSpeed: UInt8? = nil        // §1.1 index 0…4 → ×½ ×1 ×1½ ×2 ×4 [3 = ×2]
+    var fillLength: UInt8? = nil       // §1.1 index 0…2 → BAR ½ ¼ [1 = ½]
+    var fillReverse: Bool? = nil       // §1.1 [false]
+    var fillRanks: Int8? = nil         // §1.1 −7…+7, a climb [0]
+    var fillSwell: Int8? = nil         // §1.1 −3…+3, a velocity ramp [0]
+    var fillBreak: Bool? = nil         // §1.1 [false] — the fill's last quarter is silent
     /// Always 8 entries, each 0 (off) or 1…4; a malformed stored value folds to off.
     var rateBarsResolved: [UInt8] { guard let b = rateBars, b.count == 8 else { return [UInt8](repeating: 0, count: 8) }; return b.map { $0 > 4 ? 0 : $0 } }
     var rateFreeResolved: Bool { rateFree ?? false }
     var rateBrushResolved: UInt8 { let v = rateBrush ?? 3; return (1...4).contains(v) ? v : 3 }   // default 3 = ×2
     /// §1.5: the override is active when FREE is off and at least one box is set.
     var usesRateOverride: Bool { !rateFreeResolved && (rateBars?.contains { $0 >= 1 && $0 <= 4 } ?? false) }
+    // FILL resolvers (§1.1/§1.2 defaults; a malformed stored value folds to the default).
+    var fillOnResolved: Bool { fillOn ?? true }
+    var fillBarsResolved: [Bool] { guard let b = fillBars, b.count == 8 else { return [Bool](repeating: false, count: 8) }; return b }
+    var fillSpeedResolved: Int { let v = Int(fillSpeed ?? 3); return (0...4).contains(v) ? v : 3 }
+    var fillSpeedMultiplier: Double { [0.5, 1, 1.5, 2, 4][fillSpeedResolved] }   // §1.1 m
+    var fillLengthResolved: Int { let v = Int(fillLength ?? 1); return (0...2).contains(v) ? v : 1 }
+    var fillLengthFraction: Double { [1, 0.5, 0.25][fillLengthResolved] }        // §1.1 L (BAR · ½ · ¼)
+    var fillReverseResolved: Bool { fillReverse ?? false }
+    var fillRanksResolved: Int { max(-7, min(7, Int(fillRanks ?? 0))) }
+    var fillSwellResolved: Int { max(-3, min(3, Int(fillSwell ?? 0))) }
+    var fillBreakResolved: Bool { fillBreak ?? false }
+    /// §summary/§9: a fill with ×1 speed, no reverse, no rank climb, no swell and no break does nothing (LENGTH is irrelevant at ×1).
+    var fillNeutral: Bool { fillSpeedMultiplier == 1 && !fillReverseResolved && fillRanksResolved == 0 && fillSwellResolved == 0 && !fillBreakResolved }
+    /// §1.4/§1.5: the lane uses the fill path only when FILL is on, at least one bar is lit, and the settings are not neutral — so a default / neutral / unlit lane is byte-identical to today.
+    var usesFill: Bool { fillOnResolved && fillBarsResolved.contains(true) && !fillNeutral }
+    /// §1.4: is the fill armed on (0-based, host-bar-1 = bar 0) bar n?
+    func fillArmed(bar n: Int) -> Bool { fillOnResolved && fillBarsResolved[((n % 8) + 8) % 8] }
     var answerRhythmOnResolved: Bool { answerRhythmOn ?? false }
     var answerRhythmModeResolved: EuclideousAnswerRhythmMode { answerRhythmMode ?? .copy }
     var answerRhythmCycleResolved: Bool { answerRhythmCycle ?? false }
@@ -1321,6 +1349,14 @@ extension EuclidLine {
         rateBars = (try? c.decodeIfPresent([UInt8].self, forKey: .rateBars)).flatMap { $0 }   // RATE ferry — the decoder drops any field it does not read (the velocityAbsolute bug), so these three are explicit
         rateFree = (try? c.decodeIfPresent(Bool.self, forKey: .rateFree)).flatMap { $0 }
         rateBrush = (try? c.decodeIfPresent(UInt8.self, forKey: .rateBrush)).flatMap { $0 }
+        fillOn = (try? c.decodeIfPresent(Bool.self, forKey: .fillOn)).flatMap { $0 }           // FILL ferry — explicit for the same reason (§1.2 decode-tolerant)
+        fillBars = (try? c.decodeIfPresent([Bool].self, forKey: .fillBars)).flatMap { $0 }
+        fillSpeed = (try? c.decodeIfPresent(UInt8.self, forKey: .fillSpeed)).flatMap { $0 }
+        fillLength = (try? c.decodeIfPresent(UInt8.self, forKey: .fillLength)).flatMap { $0 }
+        fillReverse = (try? c.decodeIfPresent(Bool.self, forKey: .fillReverse)).flatMap { $0 }
+        fillRanks = (try? c.decodeIfPresent(Int8.self, forKey: .fillRanks)).flatMap { $0 }
+        fillSwell = (try? c.decodeIfPresent(Int8.self, forKey: .fillSwell)).flatMap { $0 }
+        fillBreak = (try? c.decodeIfPresent(Bool.self, forKey: .fillBreak)).flatMap { $0 }
         notesReceivedOnly = (try? c.decodeIfPresent(Bool.self, forKey: .notesReceivedOnly)).flatMap { $0 }
         // 5.2: a valid order wins and the legacy trio is rewritten from it; otherwise (missing OR invalid) the order stays nil and `litOrderResolved` derives it.
         notesLitOrder = nil
