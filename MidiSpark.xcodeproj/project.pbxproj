@@ -119,6 +119,7 @@
 		3A2F3B82A370A99A045A1502 /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */; };
 		3A52898CC0364C8405809177 /* OutputMute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BFF4ABC895D8875ACBC3CA2 /* OutputMute.swift */; };
 		3A595E200483D566EADBB617 /* TapStepTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BBAF9EAD91D06A80F0E92A8 /* TapStepTests.swift */; };
+		3B501541B5A48771C11A2D4B /* FillTimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D19AE4FB122F125CE9C31EA /* FillTimingTests.swift */; };
 		3B87266EA4A929D67995CA66 /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */; };
 		3DD61804369E108DE2689925 /* MixPanelV2Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC5F675561EF5B87BB75724 /* MixPanelV2Views.swift */; };
 		3E91D49AE613E8D551D8B040 /* EmitterToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = E575B1D5376C5D667A10621E /* EmitterToken.swift */; };
@@ -128,6 +129,7 @@
 		41875BF40905DAC179B9C3EF /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF54D865F988739612526D4 /* EuclideousSettingsSheet.swift */; };
 		41A2CB83CC4492FD4F601599 /* SessionTape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F916631CD0B4974C26CB893 /* SessionTape.swift */; };
 		4261A727230CC73522219D98 /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A5668DDC237E7254223E5F /* TabGlyphPainter.swift */; };
+		437ACFB4211DDEA15A115CC2 /* FillRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BA41AD77C8490B0DE3D73D5 /* FillRegion.swift */; };
 		45EA80F454F84483E68A9DC2 /* EuclideousRandom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */; };
 		46188E27B5361F88A146AA53 /* MixPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509B7DDC7021AB0416D8EBF9 /* MixPanel.swift */; };
 		461FEB25F66378A168BACD53 /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A5668DDC237E7254223E5F /* TabGlyphPainter.swift */; };
@@ -157,6 +159,7 @@
 		51142768E24F20693A5BFF40 /* FourfoldTransportClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
 		51A37B1488B09240E4BC081F /* EmitterCCTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEFD2AB47B6CFF23BF8A2769 /* EmitterCCTests.swift */; };
+		51C730004A1AC324DDB4C4B9 /* FillRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BA41AD77C8490B0DE3D73D5 /* FillRegion.swift */; };
 		52285FEB6BDCD4E6215D40FA /* SharedUIHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F380ACB5AA7EF62B0F677A8A /* SharedUIHelpers.swift */; };
 		52F5DCC716C93C7604A01595 /* RiffDirectionHuntTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB94EF7295FC02210D4E1DDD /* RiffDirectionHuntTests.swift */; };
 		53591EC4B814157906A84E55 /* TapeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B187EF1F183D7FB9E3E25FE /* TapeStore.swift */; };
@@ -451,6 +454,7 @@
 		E2328DE8513AA01051578B12 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21FBCA687DA3D7C57F31B353 /* Derivations.swift */; };
 		E3D9B4775C4DFD830B44E49F /* FourfoldMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6397AA28EB42C5965E4A7761 /* FourfoldMark.swift */; };
 		E47ADB076660841D3EF573BD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523B1AEB32CCEF31AA60CCA9 /* Router.swift */; };
+		E48D772CBB8B427490BF4B8C /* FillRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BA41AD77C8490B0DE3D73D5 /* FillRegion.swift */; };
 		E4A4FB320ACDA110C13DC8B5 /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */; };
 		E532C12BE0004C37412F9559 /* LaneStripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2312CDF903FBE2ABB3E824E /* LaneStripTests.swift */; };
 		E5A524B633CE1924BADCA2FB /* PartPlayButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB8E0318D250070707593C53 /* PartPlayButton.swift */; };
@@ -583,6 +587,7 @@
 		1946456A5B99A0460A26CA77 /* RateTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateTimingTests.swift; sourceTree = "<group>"; };
 		1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidiSpark.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildModel.swift; sourceTree = "<group>"; };
+		1BA41AD77C8490B0DE3D73D5 /* FillRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillRegion.swift; sourceTree = "<group>"; };
 		1C6B53D635C7C1CDC81828D3 /* LaneStripPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripPainter.swift; sourceTree = "<group>"; };
 		1D009C1D66BB6894CB4DC3CC /* SceneFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneFactoryTests.swift; sourceTree = "<group>"; };
 		1E7276323AD09B685069F520 /* LaneStripBandsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripBandsTests.swift; sourceTree = "<group>"; };
@@ -642,6 +647,7 @@
 		4C2389DC9C33A4961918B034 /* RateStripModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateStripModelTests.swift; sourceTree = "<group>"; };
 		4C3D05D84CB3BB7FF47E7851 /* Dice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dice.swift; sourceTree = "<group>"; };
 		4CBF035AD049143522CAD057 /* GridSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridSkin.swift; sourceTree = "<group>"; };
+		4D19AE4FB122F125CE9C31EA /* FillTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillTimingTests.swift; sourceTree = "<group>"; };
 		4F27CCA1D229CE4863430480 /* FourfoldTapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTapTests.swift; sourceTree = "<group>"; };
 		4F3AA481367944D3FFA6FECD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		500BF1C84A48860BBCA8AED1 /* PresetBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetBrowser.swift; sourceTree = "<group>"; };
@@ -1046,6 +1052,7 @@
 				79CAD1A32B1C9FC9B5BEAF2E /* EngineReviewTests.swift */,
 				F8F30766AEE34AB998FBBAED /* EuclideousFillModelTests.swift */,
 				9D5FD8318A130F2A8C70369A /* EuclideousRandomTests.swift */,
+				4D19AE4FB122F125CE9C31EA /* FillTimingTests.swift */,
 				7AA52E42396BC32A4B5BA39F /* FourfoldComposeTests.swift */,
 				F67ED63B8C6514D20364DCFB /* FourfoldPortsTests.swift */,
 				C08CEAAFF57F496AB60992D7 /* FourfoldTransportTests.swift */,
@@ -1325,6 +1332,7 @@
 				59DF6CD888C95040E34660D5 /* EuclideousLock.swift */,
 				AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */,
 				6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */,
+				1BA41AD77C8490B0DE3D73D5 /* FillRegion.swift */,
 				E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */,
 				B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */,
 				24C15BDAB89DD4B8DEF42338 /* HarmonyLayout.swift */,
@@ -1678,6 +1686,7 @@
 				9EA52987FF34C515C43D3DA8 /* EuclideousRandom.swift in Sources */,
 				288852EBB8ACE59F90F4E572 /* EuclideousSettingsSheet.swift in Sources */,
 				CE23C2F9BB42137FF4AE0EE5 /* FXPanelPainter.swift in Sources */,
+				51C730004A1AC324DDB4C4B9 /* FillRegion.swift in Sources */,
 				5A1ECD0A184CC6B215ED8EFD /* FourfoldApp.swift in Sources */,
 				0CA5387EFCABC08168C68BC7 /* FourfoldAppModel.swift in Sources */,
 				21A237E4460BF2277F6B5A03 /* FourfoldAppView.swift in Sources */,
@@ -1888,6 +1897,8 @@
 				ED4ACDE921858A747C42FAD4 /* EuclideousRandom.swift in Sources */,
 				90976F2400C14A53375B151D /* EuclideousRandomTests.swift in Sources */,
 				17EAAB1A648218E348603562 /* FXTabTests.swift in Sources */,
+				437ACFB4211DDEA15A115CC2 /* FillRegion.swift in Sources */,
+				3B501541B5A48771C11A2D4B /* FillTimingTests.swift in Sources */,
 				8B711DFECF2BE4E0473A0396 /* FourfoldCompose.swift in Sources */,
 				F6F02935BDFC696966E97817 /* FourfoldComposeTests.swift in Sources */,
 				C875D48D800180B8838CE151 /* FourfoldPortsTests.swift in Sources */,
@@ -2031,6 +2042,7 @@
 				45EA80F454F84483E68A9DC2 /* EuclideousRandom.swift in Sources */,
 				41875BF40905DAC179B9C3EF /* EuclideousSettingsSheet.swift in Sources */,
 				F98AB3C003834E203E8A2A09 /* FXPanelPainter.swift in Sources */,
+				E48D772CBB8B427490BF4B8C /* FillRegion.swift in Sources */,
 				3FEBDAA999631F93DD5B17E7 /* FourfoldAudioUnit.swift in Sources */,
 				9ECB09C3718DCEDA6647C48C /* FourfoldCompose.swift in Sources */,
 				E3D9B4775C4DFD830B44E49F /* FourfoldMark.swift in Sources */,
