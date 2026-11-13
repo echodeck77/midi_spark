@@ -2186,3 +2186,9 @@ Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md
 - [ ] (FILL — engine, documented limit) a ratchet strike DEFERRED past the render window (echo tail) uses SWELL factor 1, not its parent slot's (§2.6 wants the parent's). Bake the factor into the echo tail's stored velocity if a device recording shows it. Rare: the per-lane mask RATCHET is inert in production and the FX tab is retired, so a fill rarely has a deferred ratchet.
 - [ ] (FILL — cross-lane reference readers, as RATE declared) a FILL'd lane used as a REFERENCE by HOCKET's clock / CC `ccMergedNextHit` / ANSWER cycle PASSES / CHORDS ADVANCE LOOP/RIFF still counts at ×1. Not a bug for a lane with no fill; needed when a FILL'd lane is the reference.
 - [ ] (FILL — stress coverage) `PortsStressTests` never draws a fill. Add fill fields (random bars/speed/length/reverse/ranks/swell/break) to the fuzz so the stuck-note / orphan-off invariants cover the fill path (reverse + break especially).
+
+## CC SLOTS ferry (2026-11-12) — follow-ups
+- [ ] (CC SLOTS §3.5) same-moment messages go out in DRIVER-LANE processing order, not strictly slot a/b/c. Buffer same-sample slot emissions and flush in slot order if a device recording shows it matters (inaudible at one timestamp otherwise).
+- [ ] (CC SLOTS §5.5) the picker rows draw each lane's hits as marks on a bar; the spec's "one cell per step" (strict step grid) is a refinement — feed the picker each lane's step count + hit pattern.
+- [ ] (CC SLOTS, POLY) the driver's next-hit RANK prediction (TO NEXT / glide) uses the mono-resolved walk params; a POLY driver's prediction is approximate (self-corrects at the actual next hit).
+- [ ] (CC SLOTS, edge) a velocity-0 driver lane does not fire its slots' CC (the strike's velocity>0 guard returns before the CC hook). Move the hook before the guard if a velocity-0 CC driver is wanted.

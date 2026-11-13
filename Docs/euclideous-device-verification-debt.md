@@ -866,3 +866,9 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 ## Standalone-app crackle fix — IDLE RELEASE (2026-11-13) — device-owed
 - The system-wide crackle is GONE: with Fourfold open but STOPPED, other apps (YouTube) play cleanly; pressing PLAY in Fourfold takes the hardware; STOP hands it back after ~2 s. (The off-device app-test + soak only prove no stuck notes / that MIDI still flows — they cannot reproduce the shared-hardware degradation, which needs a real device + a second audio app.)
 - First PLAY after launch (or after a >2 s stop) has a small engine-start cost — confirm the downbeat isn't audibly late.
+
+## CC SLOTS ferry (2026-11-12) — §9 device-owed
+- CC numbers read at a glance on the 20 pt bands, in performance, across the four lane colours.
+- Three traces per row read as three distinct CCs (not noise), in red/blue/yellow/green.
+- The 20 pt bands are comfortable to tap without catching a neighbour.
+- The lane-picker rows (~19.5 pt) are comfortable to tap; the fade in/out reads cleanly.
