@@ -119,6 +119,19 @@ final class PlayAsRowsAmendment1Tests: XCTestCase {
         XCTAssertFalse(euclideousRepeatCellLive(litOrder: lo2, counts: 0, rank: 3, row: 3))
     }
 
+    // MARK: §A12 test 3 — only the playing chip has an outline; stopped → none
+
+    func testOnlyThePlayingChipIsOutlined() {
+        XCTAssertTrue(euclideousNotesChipOutlined(chipIndex: 2, activeChip: 2, playing: true))
+        XCTAssertFalse(euclideousNotesChipOutlined(chipIndex: 1, activeChip: 2, playing: true))
+        for i in 0..<4 { XCTAssertFalse(euclideousNotesChipOutlined(chipIndex: i, activeChip: i, playing: false), "stopped → chip \(i) no outline") }
+        // the active chip comes from the engine's own cursor — it moves with the hit ordinal
+        let chain = [EuclideousOrderChip(value: .up, hits: 2), EuclideousOrderChip(value: .down, hits: 2)]
+        XCTAssertEqual(euclideousRowsActiveChip(chain, hits: { $0.hits }, hitOrdinal: 0), 0)
+        XCTAssertEqual(euclideousRowsActiveChip(chain, hits: { $0.hits }, hitOrdinal: 2), 1)
+        XCTAssertEqual(euclideousRowsActiveChip(chain, hits: { $0.hits }, hitOrdinal: 4), 0)   // loops
+    }
+
     // MARK: §A12 test 6 — the SHIFT badge
 
     func testShiftBadgeVisibilityAndText() {

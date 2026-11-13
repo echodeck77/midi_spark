@@ -1707,11 +1707,12 @@ struct EuclideousPage: View {
                     Color.clear.contentShape(Rectangle()).ignoresSafeArea().onTapGesture { notesRepeatPopup = nil }.zIndex(4)
                     notesRepeatPopupCard(lane, page: pageGeometry(box).page).zIndex(5)
                 }
-                // PLAY AS ROWS (2026-11-11) §7, §8: the ORDER/VOICES/SPREAD and SHIFT pop-ups, opened from a chip / the SHIFT button. The scrim closes them.
+                // PLAY AS ROWS (2026-11-11 / amend 1 §A5): the ORDER/VOICES/SPREAD pop-up, now card-body scoped (no dark scrim; a tap outside closes it).
                 if let t = notesChainPopup {
-                    Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { notesChainPopup = nil }.zIndex(4)
-                    notesChainPopupCard(t, box: box).zIndex(5)
+                    Color.clear.contentShape(Rectangle()).ignoresSafeArea().onTapGesture { notesChainPopup = nil }.zIndex(4)
+                    notesChainPopupCard(t, page: pageGeometry(box).page).zIndex(5)
                 }
+                // §A5.4: the separate SHIFT pop-up is no longer opened from anywhere (folded into the ORDER pop-up). The mount stays compiled (§0.2 hide-don't-delete) — `notesShiftPopup` is never set.
                 if let lane = notesShiftPopup {
                     Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { notesShiftPopup = nil }.zIndex(4)
                     notesShiftPopupCard(lane, box: box).zIndex(5)
@@ -5007,60 +5008,76 @@ struct EuclideousPage: View {
         .accessibilityElement(children: .contain).accessibilityLabel("Notes output and octave")
     }
 
-    // MARK: - PLAY AS ROWS §5.3-§5.4 — the ORDER / VOICES / SPREAD chip rows
+    // MARK: - PLAY AS ROWS §A4 / §A6 — the ORDER / VOICES / SPREAD chip rows (Amendment 1)
 
-    /// A chip row: the label, the chips with THEN between (a tap on a chip's value opens the row's pop-up; its ‹ n › hits stepper shows only with 2+ chips), then a + button (while < 4 chips). ORDER carries the SHIFT button at its right.
+    /// §A4.1-§A4.4: the active chip of a chain NOW (for the playing-chip outline) — via the polled walk ordinal (the riff ordinal; an accepted approximation, exact for the common WHEN=BOTH default). −1 when stopped.
+    private func activeChainChip(_ idx: Int, _ line: EuclidLine, _ kind: EuclideousChainKind) -> Int {
+        guard clock.playing, idx < riffWalkState.count else { return -1 }
+        let h = riffWalkState[idx]
+        switch kind {
+        case .order:  return euclideousRowsActiveChip(line.notesOrderChainResolved, hits: { $0.hits }, hitOrdinal: h)
+        case .voices: return euclideousRowsActiveChip(line.notesVoicesChainResolved, hits: { $0.hits }, hitOrdinal: h)
+        case .spread: return euclideousRowsActiveChip(line.notesSpreadChainResolved, hits: { $0.hits }, hitOrdinal: h)
+        }
+    }
+
+    /// §A4: the label, the chips (value + hits, "›" between) with the + button, then (ORDER only) the SHIFT badge at the right. Chips share the free width with tail-truncation so they never overspill (§A4.2); the + and badge are fixed,
+    /// always inside the card (§A4.4). Only the chip playing now wears a lane outline (§A4.1).
     private func notesChainRow(_ idx: Int, _ line: EuclidLine, kind: EuclideousChainKind, accent: Color, width: CGFloat) -> some View {
         let label = kind == .order ? "ORDER" : kind == .voices ? "VOICES" : "SPREAD"
         let chips = notesChainChips(line, kind)
-        let multi = chips.count >= 2
+        let n = chips.count, multi = n >= 2
+        let showPlus = n < 4                                   // §A4.4 / §A4.5: the add limit is 4
+        let active = activeChainChip(idx, line, kind)
+        let shiftShown = kind == .order && euclideousShiftBadgeShown(start: line.notesShiftStartResolved, driftOn: line.notesDriftOnResolved)
+        let shiftW: CGFloat = 70
+        // the width the chips + separators share, after the label, the + and the badge (§A4.2 never overspill).
+        let fixedRight = (showPlus ? 27 : 0) + (shiftShown ? shiftW + 4 : 0)
+        let chipAreaW = max(40, width - EuclideousPlayAsRowsLayout.labelW - 4 - fixedRight - 4)
+        let perChip = max(44, (chipAreaW - CGFloat(max(0, n - 1)) * 12) / CGFloat(max(1, n)))
         return HStack(spacing: 4) {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: EuclideousPlayAsRowsLayout.labelW, alignment: .leading).accessibilityHidden(true)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(Array(chips.enumerated()), id: \.offset) { i, chip in
-                        if i > 0 { Text("THEN").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x6E737C)).accessibilityHidden(true) }
-                        notesChainChipView(idx, kind: kind, chip: i, name: chip.name, hits: chip.hits, multi: multi, accent: accent)
-                    }
-                    if chips.count < 4 { notesChainAddButton(idx, kind: kind, accent: accent) }
-                }
-                .frame(height: 28).padding(.horizontal, 2)
+            ForEach(Array(chips.enumerated()), id: \.offset) { i, chip in
+                if i > 0 { Text("\u{203A}").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x4A4E57)).accessibilityHidden(true) }   // §A4.2 "›" (THEN dropped)
+                notesChainChipView(idx, kind: kind, chip: i, name: chip.name, hits: chip.hits, multi: multi, playing: euclideousNotesChipOutlined(chipIndex: i, activeChip: active, playing: clock.playing), maxWidth: perChip, accent: accent)
             }
-            if kind == .order { notesShiftButton(idx, line, accent: accent) }
+            if showPlus { notesChainAddButton(idx, kind: kind, accent: accent) }
+            Spacer(minLength: 4)
+            if shiftShown { notesShiftBadge(idx, line, active: active, accent: accent).frame(width: shiftW) }
         }
         .frame(width: width, height: 28, alignment: .leading)
         .accessibilityElement(children: .contain).accessibilityLabel(label)
     }
-    private func notesChainChipView(_ idx: Int, kind: EuclideousChainKind, chip i: Int, name: String, hits: Int, multi: Bool, accent: Color) -> some View {
+    /// §A4.1: a chip — value + (with 2+ chips) hits, no stepper, A1.2 fill, #E6E8EC value; a lane outline only while playing. A tap opens its pop-up.
+    private func notesChainChipView(_ idx: Int, kind: EuclideousChainKind, chip i: Int, name: String, hits: Int, multi: Bool, playing: Bool, maxWidth: CGFloat, accent: Color) -> some View {
         HStack(spacing: 4) {
-            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).foregroundColor(patternSelectedText)
-                .contentShape(Rectangle()).onTapGesture { closeAllOtherOverlays(); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: i) }
-                .accessibilityElement(children: .ignore).accessibilityLabel("\(chainSpoken(kind)), \(i + 1), \(name)").accessibilityAddTraits(.isButton)
-            if multi { playAsCountStepper(value: hits) { delta in notesChainStepHits(idx, kind, chip: i, delta: delta) } }
+            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7).truncationMode(.tail).foregroundColor(Color(hex: 0xE6E8EC))
+            if multi { Text("\(hits)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x7D828B)) }   // §A4.1 hits only with 2+ chips
         }
-        .padding(.horizontal, 8).frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: 7).fill(lane20(accent)))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(accent), lineWidth: 1))
+        .padding(.horizontal, 7).frame(height: 23).frame(maxWidth: maxWidth)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x24262C)))                                   // §A4.1 A1.2 fill
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(lane100(accent), lineWidth: playing ? 1 : 0))             // §A1.3/§A4.1 outline only while playing
+        .contentShape(Rectangle()).onTapGesture { closeAllOtherOverlays(); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: i) }
+        .accessibilityElement(children: .ignore).accessibilityLabel("\(chainSpoken(kind)), \(i + 1), \(name)" + (multi ? ", \(hits) hits" : "")).accessibilityAddTraits(.isButton)
     }
     private func notesChainAddButton(_ idx: Int, kind: EuclideousChainKind, accent: Color) -> some View {
-        Text("+").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(patternUnselectedText)
-            .frame(width: 28, height: 26).background(RoundedRectangle(cornerRadius: 7).fill(patternUnselectedFill))
+        Text("+").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8D939D))
+            .frame(width: 23, height: 23)
+            .background(RoundedRectangle(cornerRadius: 4).strokeBorder(Color(hex: 0x3A3D44), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))   // §A4.4 dashed
             .contentShape(Rectangle()).onTapGesture { let n = notesChainAdd(idx, kind); closeAllOtherOverlays(); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: n) }
             .accessibilityElement(children: .ignore).accessibilityLabel("Add to \(chainSpoken(kind))").accessibilityAddTraits(.isButton)
     }
-    /// §5.4: the SHIFT value button at the ORDER row's right; dim (and inert) while the first ORDER chip is SHUFFLE.
-    private func notesShiftButton(_ idx: Int, _ line: EuclidLine, accent: Color) -> some View {
-        let shuffle = line.notesOrderChainResolved.first?.value == .shuffle
+    /// §A6: the SHIFT badge at the ORDER row's right — shown only while start ≠ 0 or drift is on; "SHIFT n" (+ "· +d"). A tap opens the ORDER pop-up for the playing chip (the first while stopped). 42 % while the current ORDER chip is SHUFFLE.
+    private func notesShiftBadge(_ idx: Int, _ line: EuclidLine, active: Int, accent: Color) -> some View {
+        let curChip = active >= 0 ? active : 0
+        let shuffle = euclideousRowsOrderValue(line.notesOrderChain, curChip) == .shuffle
         let text = euclideousShiftValueText(start: line.notesShiftStartResolved, driftOn: line.notesDriftOnResolved, step: line.notesDriftStepResolved)
-        return HStack(spacing: 3) {
-            Text("SHIFT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-            Text(text).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText)
-        }
-        .padding(.horizontal, 6).frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
-        .opacity(shuffle ? 0.42 : 1)
-        .contentShape(Rectangle()).onTapGesture { guard !shuffle else { return }; closeAllOtherOverlays(); notesShiftPopup = idx }
-        .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityValue(text).accessibilityAddTraits(.isButton)
+        return Text("SHIFT \(text)").font(.system(size: 9, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7).truncationMode(.tail).foregroundColor(Color(hex: 0xAAB0BA))
+            .frame(maxWidth: .infinity).frame(height: 23)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x24262C)))   // §A6.1 A1.2 fill
+            .opacity(shuffle ? 0.42 : 1)
+            .contentShape(Rectangle()).onTapGesture { closeAllOtherOverlays(); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: .order, chip: curChip) }   // §A6.3 opens the ORDER pop-up
+            .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityValue(text).accessibilityAddTraits(.isButton)
     }
     // the chain accessors + edit funnels (one undo step each via `edit`)
     private func chainSpoken(_ kind: EuclideousChainKind) -> String { kind == .order ? "Order" : kind == .voices ? "Voices" : "Spread" }
@@ -5123,42 +5140,80 @@ struct EuclideousPage: View {
 
     // MARK: - PLAY AS ROWS §7, §8 — the row pop-ups (the PLAY AS pop-up's container: title, close ✕, the selected tile outlined in the lane colour; a tile sets the chip's value, keeps its hits and closes)
 
-    @ViewBuilder private func notesChainPopupCard(_ target: NotesChainPopupTarget, box: CGSize) -> some View {
+    @ViewBuilder private func notesChainPopupCard(_ target: NotesChainPopupTarget, page: EuclideousPageLayout) -> some View {
         let idx = target.lane, kind = target.kind
         let accent = lane100(laneAccents[idx % max(1, laneAccents.count)])
         let line = lines[idx]
-        let count = notesChainChips(line, kind).count
+        let chips = notesChainChips(line, kind), count = chips.count
         let title = kind == .order ? "ORDER" : kind == .voices ? "VOICES" : "SPREAD"
-        let cardW = min(box.width - 2 * sp16, 460)
-        let glyph: CGFloat = 13
-        VStack(spacing: 12) {
-            HStack {
-                Text(title).font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+        let card = page.lanes[idx], lb = page.laneBox
+        let bodyX = card.minX + EuclideousLaneCardMetrics.inset
+        let bodyY = card.minY + EuclideousLaneCardMetrics.bodyTop
+        let bodyW = EuclideousLaneCardMetrics.innerWidth(cardWidth: lb.width)
+        let bodyH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: lb.height)
+        let hits = target.chip < chips.count ? chips[target.chip].hits : 4
+        let shuffleOpen = kind == .order && euclideousRowsOrderValue(line.notesOrderChain, target.chip) == .shuffle
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {   // §A5.1: row name + dimmer position + close
+                Text(title).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                Text("\(target.chip + 1) / \(count)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x6E737C))
                 Spacer()
-                Text("\u{2715}").font(.system(size: 15, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 30, height: 30).contentShape(Rectangle())
+                Text("\u{2715}").font(.system(size: 14, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 44, height: 30).contentShape(Rectangle())
                     .onTapGesture { notesChainPopup = nil }.accessibilityLabel("Close").accessibilityAddTraits(.isButton)
             }
-            notesChainTileGrid(idx, kind: kind, chip: target.chip, line: line, accent: accent)
-            if count >= 2 {   // §7.4: the footer — ‹ › move the chip, REMOVE deletes it (never the last). Shown only with 2+ chips.
-                HStack(spacing: 10) {
-                    Text("\u{2039}").font(.system(size: glyph, weight: .heavy, design: .monospaced)).foregroundColor(target.chip == 0 ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A)).frame(width: 44, height: 34).contentShape(Rectangle())
-                        .onTapGesture { guard target.chip > 0 else { return }; notesChainMove(idx, kind, chip: target.chip, by: -1); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: target.chip - 1) }
-                        .accessibilityLabel("Move earlier").accessibilityAddTraits(.isButton)
-                    Text("\u{203A}").font(.system(size: glyph, weight: .heavy, design: .monospaced)).foregroundColor(target.chip == count - 1 ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A)).frame(width: 44, height: 34).contentShape(Rectangle())
-                        .onTapGesture { guard target.chip < count - 1 else { return }; notesChainMove(idx, kind, chip: target.chip, by: 1); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: target.chip + 1) }
-                        .accessibilityLabel("Move later").accessibilityAddTraits(.isButton)
-                    Spacer()
-                    Text("REMOVE").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(accent).padding(.horizontal, 12).frame(height: 32)
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent.opacity(0.5), lineWidth: 1)).contentShape(Rectangle())
-                        .onTapGesture { notesChainRemove(idx, kind, chip: target.chip); notesChainPopup = nil }.accessibilityLabel("Remove").accessibilityAddTraits(.isButton)
+            .frame(height: 30)
+            ScrollView(.vertical, showsIndicators: false) {   // §A5.5: ORDER's tiles + footer + SHIFT/DRIFT overflow the small card body, so the content scrolls rather than the tiles shrinking
+                VStack(spacing: 10) {
+                    notesChainTileGrid(idx, kind: kind, chip: target.chip, line: line, accent: accent)
+                    if count >= 2 { notesChainPopupFooter(idx, kind: kind, chip: target.chip, hits: hits, count: count, accent: accent) }   // §A5.3
+                    if kind == .order { notesChainShiftDrift(idx, line, shuffle: shuffleOpen) }   // §A5.4
                 }
+                .padding(.top, 4)
             }
         }
-        .padding(16).frame(width: cardW)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(hex: 0x17191E)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0x33363D), lineWidth: 1))
-        .frame(width: box.width, height: box.height)
-        .accessibilityAddTraits(.isModal)
+        .padding(6)
+        .frame(width: bodyW, height: bodyH, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x17191E)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0x33363D), lineWidth: 1))
+        .offset(x: bodyX, y: bodyY)
+        .accessibilityElement(children: .contain).accessibilityLabel("\(title), chip \(target.chip + 1) of \(count)").accessibilityAddTraits(.isModal)
+    }
+    /// §A5.3: the footer — HITS ‹ n › (off the chip, only with 2+ chips), ‹ › move, REMOVE (never the last).
+    private func notesChainPopupFooter(_ idx: Int, kind: EuclideousChainKind, chip: Int, hits: Int, count: Int, accent: Color) -> some View {
+        HStack(spacing: 8) {
+            Text("HITS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            playAsCountStepper(value: hits) { d in notesChainStepHits(idx, kind, chip: chip, delta: d) }
+            Spacer(minLength: 6)
+            Text("\u{2039}").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(chip == 0 ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A)).frame(width: 34, height: 32).contentShape(Rectangle())
+                .onTapGesture { guard chip > 0 else { return }; notesChainMove(idx, kind, chip: chip, by: -1); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: chip - 1) }.accessibilityLabel("Move earlier").accessibilityAddTraits(.isButton)
+            Text("\u{203A}").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(chip == count - 1 ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A)).frame(width: 34, height: 32).contentShape(Rectangle())
+                .onTapGesture { guard chip < count - 1 else { return }; notesChainMove(idx, kind, chip: chip, by: 1); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: chip + 1) }.accessibilityLabel("Move later").accessibilityAddTraits(.isButton)
+            Text("REMOVE").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(accent).padding(.horizontal, 10).frame(height: 30)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent.opacity(0.5), lineWidth: 1)).contentShape(Rectangle())
+                .onTapGesture { notesChainRemove(idx, kind, chip: chip); notesChainPopup = nil }.accessibilityLabel("Remove").accessibilityAddTraits(.isButton)
+        }
+    }
+    /// §A5.4: the ORDER pop-up's SHIFT + DRIFT rows (folded in from the old SHIFT pop-up) under a divider; 42 % and inert while the open chip is SHUFFLE.
+    private func notesChainShiftDrift(_ idx: Int, _ line: EuclidLine, shuffle: Bool) -> some View {
+        let start = line.notesShiftStartResolved, driftOn = line.notesDriftOnResolved, step = line.notesDriftStepResolved
+        let accent = lane100(laneAccents[idx % max(1, laneAccents.count)])
+        return VStack(spacing: 10) {
+            Rectangle().fill(Color(hex: 0x24262C)).frame(height: 1)
+            HStack {
+                Text("SHIFT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Spacer()
+                shiftStepper(value: start, low: start == 0, high: start == 15, text: "\(start)", spoken: "Start") { d in edit(idx) { let v = max(0, min(15, start + d)); $0.notesShiftStart = v == 0 ? nil : v } }
+            }
+            HStack(spacing: 8) {
+                Text("DRIFT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                EuclideousRowSwitchPill(on: driftOn, accent: accent).contentShape(Rectangle()).frame(width: 44, height: 28).onTapGesture { edit(idx) { $0.notesDriftOn = driftOn ? nil : true } }
+                    .accessibilityLabel("Drift").accessibilityValue(driftOn ? "on" : "off")
+                Spacer()
+                shiftStepper(value: step, low: step <= -8, high: step >= 8, text: "\(step >= 0 ? "+" : "")\(step)", spoken: "Drift step") { d in edit(idx) { var s = step + d; if s == 0 { s = d > 0 ? 1 : -1 }; $0.notesDriftStep = max(-8, min(8, s)) } }
+                Text("EVERY PASS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x6E737C)).opacity(driftOn ? 1 : 0.5)
+            }
+        }
+        .opacity(shuffle ? 0.42 : 1).allowsHitTesting(!shuffle)
     }
     @ViewBuilder private func notesChainTileGrid(_ idx: Int, kind: EuclideousChainKind, chip i: Int, line: EuclidLine, accent: Color) -> some View {
         let cols = Array(repeating: GridItem(.flexible(), spacing: 8), count: kind == .spread ? 3 : 4)
@@ -5166,57 +5221,58 @@ struct EuclideousPage: View {
             if kind == .order {
                 let cur = (i < line.notesOrderChainResolved.count) ? line.notesOrderChainResolved[i].value : .up
                 ForEach(euclideousOrderTileOrder, id: \.self) { m in
-                    notesChainTile(name: euclideousOrderModeName(m), selected: m == cur, accent: accent, picture: { AnyView(orderTilePicture(m)) }) { notesChainSetValue(idx, .order, chip: i, order: m); notesChainPopup = nil }
+                    notesChainTile(name: euclideousOrderModeName(m), selected: m == cur, accent: accent, picture: { ink in AnyView(orderTilePicture(m, ink: ink)) }) { notesChainSetValue(idx, .order, chip: i, order: m); notesChainPopup = nil }
                 }
             } else if kind == .voices {
                 let cur = (i < line.notesVoicesChainResolved.count) ? line.notesVoicesChainResolved[i].value : .one
                 ForEach(euclideousVoicesTileOrder, id: \.self) { m in
-                    notesChainTile(name: euclideousVoicesModeName(m), selected: m == cur, accent: accent, picture: { AnyView(voicesTilePicture(m)) }) { notesChainSetValue(idx, .voices, chip: i, voices: m); notesChainPopup = nil }
+                    notesChainTile(name: euclideousVoicesModeName(m), selected: m == cur, accent: accent, picture: { ink in AnyView(voicesTilePicture(m, ink: ink)) }) { notesChainSetValue(idx, .voices, chip: i, voices: m); notesChainPopup = nil }
                 }
             } else {
                 let cur = (i < line.notesSpreadChainResolved.count) ? line.notesSpreadChainResolved[i].value : .together
                 ForEach(euclideousSpreadTileOrder, id: \.self) { m in
-                    notesChainTile(name: euclideousSpreadModeName(m), selected: m == cur, accent: accent, picture: { AnyView(spreadTilePicture(m)) }) { notesChainSetValue(idx, .spread, chip: i, spread: m); notesChainPopup = nil }
+                    notesChainTile(name: euclideousSpreadModeName(m), selected: m == cur, accent: accent, picture: { ink in AnyView(spreadTilePicture(m, ink: ink)) }) { notesChainSetValue(idx, .spread, chip: i, spread: m); notesChainPopup = nil }
                 }
             }
         }
     }
-    private func notesChainTile(name: String, selected: Bool, accent: Color, picture: () -> AnyView, tap: @escaping () -> Void) -> some View {
-        VStack(spacing: 4) {
-            picture().frame(height: 26)
-            Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).minimumScaleFactor(0.6).lineLimit(1).foregroundColor(Color(hex: 0xF2F4F7))
+    /// §A5.2: a tile — selected = A1.1 (lane fill, name + picture #1B1D22), unselected = A1.2 (#24262C, #8D939D); no outline; 42 tall.
+    private func notesChainTile(name: String, selected: Bool, accent: Color, picture: (Color) -> AnyView, tap: @escaping () -> Void) -> some View {
+        let look = euclideousNotesSelLook(selected: selected, switchedOn: true, playing: false)
+        return VStack(spacing: 3) {
+            picture(Color(hex: look.labelHex)).frame(height: 18)
+            Text(name).font(.system(size: 10, weight: .heavy, design: .monospaced)).minimumScaleFactor(0.6).lineLimit(1).foregroundColor(Color(hex: look.labelHex))
         }
-        .frame(maxWidth: .infinity).frame(height: 54).padding(.horizontal, 4)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x24262C)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? accent : Color(hex: 0x33363D), lineWidth: selected ? 2 : 1))
+        .frame(maxWidth: .infinity).frame(height: 42).padding(.horizontal, 4)
+        .background(RoundedRectangle(cornerRadius: 6).fill(selFill(look, accent)))
         .contentShape(Rectangle()).onTapGesture(perform: tap)
         .accessibilityElement(children: .ignore).accessibilityLabel(name).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
-    // §7.1-§7.3 the tile pictures (dots on faint lines / columns / a time spread). No numbers.
-    private func orderTilePicture(_ m: EuclideousOrderMode) -> some View {
+    // §7.1-§7.3 the tile pictures (dots on faint lines / columns / a time spread), drawn in `ink` (§A5.2 — #1B1D22 on a selected lane tile, #8D939D otherwise). No numbers.
+    private func orderTilePicture(_ m: EuclideousOrderMode, ink: Color) -> some View {
         let levels = euclideousOrderTileLevels(m)
         return Canvas { ctx, size in
-            for l in 1...4 { let y = size.height * (1 - (CGFloat(l) - 0.5) / 4); var p = Path(); p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: size.width, y: y)); ctx.stroke(p, with: .color(Color(hex: 0x3A3E47)), lineWidth: 0.5) }
+            for l in 1...4 { let y = size.height * (1 - (CGFloat(l) - 0.5) / 4); var p = Path(); p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: size.width, y: y)); ctx.stroke(p, with: .color(ink.opacity(0.3)), lineWidth: 0.5) }
             for (i, lv) in levels.enumerated() {
                 let x = size.width * (CGFloat(i) + 0.5) / CGFloat(max(1, levels.count)), y = size.height * (1 - (CGFloat(lv) - 0.5) / 4)
-                ctx.fill(Path(ellipseIn: CGRect(x: x - 2, y: y - 2, width: 4, height: 4)), with: .color(Color(hex: 0xC2C7CF)))
+                ctx.fill(Path(ellipseIn: CGRect(x: x - 2, y: y - 2, width: 4, height: 4)), with: .color(ink))
             }
         }
     }
-    private func voicesTilePicture(_ m: EuclideousVoicesMode) -> some View {
+    private func voicesTilePicture(_ m: EuclideousVoicesMode, ink: Color) -> some View {
         let cols = euclideousVoicesTileColumns(m)
         return Canvas { ctx, size in
             for (ci, lit) in cols.enumerated() {
                 let x = size.width * (CGFloat(ci) + 0.5) / CGFloat(max(1, cols.count))
                 for r in 0..<4 { let y = size.height * (1 - (CGFloat(r) + 0.5) / 4)
-                    ctx.fill(Path(ellipseIn: CGRect(x: x - 2, y: y - 2, width: 4, height: 4)), with: .color(r < lit ? Color(hex: 0xC2C7CF) : Color(hex: 0x3A3E47))) }
+                    ctx.fill(Path(ellipseIn: CGRect(x: x - 2, y: y - 2, width: 4, height: 4)), with: .color(r < lit ? ink : ink.opacity(0.3))) }
             }
         }
     }
-    private func spreadTilePicture(_ m: EuclideousSpreadMode) -> some View {
+    private func spreadTilePicture(_ m: EuclideousSpreadMode, ink: Color) -> some View {
         let dots = euclideousSpreadTileDots(m)
         return Canvas { ctx, size in
-            for d in dots { ctx.fill(Path(ellipseIn: CGRect(x: size.width * d.x - 2, y: size.height * d.y - 2, width: 4, height: 4)), with: .color(Color(hex: 0xC2C7CF))) }
+            for d in dots { ctx.fill(Path(ellipseIn: CGRect(x: size.width * d.x - 2, y: size.height * d.y - 2, width: 4, height: 4)), with: .color(ink)) }
         }
     }
     /// §8: the SHIFT pop-up — START (0…15) and DRIFT (a row switch, a signed step −8…+8 skipping 0, EVERY PASS).

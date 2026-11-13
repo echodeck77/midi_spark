@@ -216,3 +216,6 @@ func euclideousRowsRoundBreaks(litOrder: EuclideousLitOrder, bassOn: Bool, order
 
 /// §A6.2: the SHIFT badge shows only while start ≠ 0 or drift is on; otherwise the ORDER row's right end is empty. Its text is "SHIFT " + `euclideousShiftValueText`.
 func euclideousShiftBadgeShown(start: Int, driftOn: Bool) -> Bool { start != 0 || driftOn }
+
+/// §A4.1 / §A1.3: a chip wears the 1 pt lane outline only when it is the chip playing now (and the transport runs). `activeChip` comes from `euclideousRowsActiveChip` on the live hit ordinal.
+func euclideousNotesChipOutlined(chipIndex: Int, activeChip: Int, playing: Bool) -> Bool { playing && chipIndex == activeChip }
