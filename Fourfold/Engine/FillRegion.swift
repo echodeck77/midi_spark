@@ -25,21 +25,42 @@ struct EuclideousFillRegion: Equatable {
 /// (LENGTH BAR, ×4, a 1/32 lane) is 32 steps × 4 = 128, so 128 is the bound.
 let euclideousFillReverseCap = 128
 
+/// §2 — a lane's fill settings resolved into a self-contained, allocation-free value the Router (via `iterateTicks`)
+/// and the display mirrors carry, so the pictures and the sound agree. `region(bar:)` gives the §2.1 region of any bar.
+struct EuclideousFillPlan: Equatable {
+    var active = false            // = line.usesFill (FILL on, a bar lit, non-neutral)
+    var armed: UInt8 = 0          // bit n = bar (n mod 8) lit
+    var m = 1.0                   // SPEED
+    var lengthFraction = 0.5      // LENGTH L
+    var reverse = false
+    var ranks = 0, swell = 0, breakOn = false
+    var originBeat = 0.0          // the lane's rhythm restart origin (host beats)
+    var beatsPerBar = 4.0
+    var sub = 0.25                // the lane step length (host beats)
+    init() {}
+    init(line: EuclidLine, originBeat: Double, beatsPerBar: Double, sub: Double) {
+        guard line.usesFill else { return }
+        active = true
+        if let bars = line.fillBars, bars.count == 8 { for i in 0..<8 where bars[i] { armed |= (1 << UInt8(i)) } }   // read in place — no allocation on the render thread
+        m = line.fillSpeedMultiplier; lengthFraction = line.fillLengthFraction
+        reverse = line.fillReverseResolved; ranks = line.fillRanksResolved; swell = line.fillSwellResolved; breakOn = line.fillBreakResolved
+        self.originBeat = originBeat; self.beatsPerBar = beatsPerBar; self.sub = sub
+    }
+    /// §2.1 — the fill region of (0-based) bar `n`, or nil if the lane does not fill that bar.
+    func region(bar n: Int) -> EuclideousFillRegion? {
+        guard active, beatsPerBar > 0, (armed >> UInt8(((n % 8) + 8) % 8)) & 1 != 0 else { return nil }
+        var r = EuclideousFillRegion()
+        r.barIndex = n; r.m = m
+        r.D = lengthFraction * beatsPerBar; r.E = Double(n + 1) * beatsPerBar; r.F = r.E - r.D
+        r.reverse = reverse; r.ranks = ranks; r.swell = swell; r.breakOn = breakOn
+        return r
+    }
+}
+
 /// §2.1 — the fill region of (0-based) bar `n` for this lane, or nil if the lane does not fill that bar.
 /// nil whenever the lane is neutral/unarmed (§1.4/§1.5) ⇒ the Router takes its ordinary ×1 path (byte-identical).
 func euclideousFillRegion(line: EuclidLine, bar n: Int, beatsPerBar B: Double) -> EuclideousFillRegion? {
-    guard B > 0, line.usesFill, line.fillArmed(bar: n) else { return nil }
-    var r = EuclideousFillRegion()
-    r.barIndex = n
-    r.m = line.fillSpeedMultiplier
-    r.D = line.fillLengthFraction * B
-    r.E = Double(n + 1) * B
-    r.F = r.E - r.D
-    r.reverse = line.fillReverseResolved
-    r.ranks = line.fillRanksResolved
-    r.swell = line.fillSwellResolved
-    r.breakOn = line.fillBreakResolved
-    return r
+    EuclideousFillPlan(line: line, originBeat: 0, beatsPerBar: B, sub: 0).region(bar: n)
 }
 
 /// §2.3 — the lane's ×1 elapsed time at F: e(F) = F − o (before F the lane runs at ×1). `o` is the lane's

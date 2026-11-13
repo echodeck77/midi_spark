@@ -717,6 +717,8 @@ final class Router {
     // constant hit-to-hit, so the extra predicate is always true and the match is byte-identical.
     private var euclideousLegatoBus = [Int16](repeating: -1, count: 4 * 9)   // a bus MASK (one bit, up to 128 = lane D's notes port) — Int8 would trap on it
     private var euclideousLegatoCount = [Int](repeating: 0, count: 4)
+    // FILL ferry (2026-11-13) §2.4: the step-length scale at the hit the body is currently emitting — 1/m inside a fill region, 1 on a ×1 segment / non-fill lane. Set per slot by `iterateTicks`' fill loop (1 otherwise), read by the body's gate + ratchet spacing. A plain scalar hand-off, like the other render-thread scratch (no alloc).
+    private var euclideousFillStepScaleNow: Double = 1
     // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
     // immediately") — checked in its OWN unconditional loop (NOT nested inside the per-line dispatch
     // loop's own `enabledResolved`-gated `where` clause, which structurally never executes once a lane is
@@ -2226,9 +2228,10 @@ final class Router {
                               // RHYTHM POLISH (2026-10-22): how many STEPS into its tick cell this tick's hit sounds (0 for no hit / no timing ⇒ byte-identical). A delay is always < 1 step, so a hit stays inside its own cell; the
                               // tick is DUE when its strike beat — not its cell start — has reached the window's end, and the body is handed the strike beat.
                               strikeDelaySteps: (Int64) -> Double = { _ in 0 },
-                              rate: EuclideousRateMap? = nil,   // RATE ferry (2026-11-12): a per-lane speed override; nil / inactive ⇒ the loop below is byte-identical to today
+                              fill: EuclideousFillPlan? = nil,   // FILL ferry (2026-11-13): a per-lane fill; nil / inactive ⇒ the loop below is byte-identical to today
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
+        euclideousFillStepScaleNow = 1   // FILL: 1 for the ×1 / non-fill path; the fill loop sets it per slot (= 1/m in a region) for the gate + ratchet spacing (§2.4)
         let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
         let mStartReal = musicalOf(beatPos, stepBeats: S, a: a)
         let mEndReal = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -2236,7 +2239,7 @@ final class Router {
         // window, so every tick discovered below agrees on the same origin regardless of how many are found.
         let mStart = mStartReal, mEnd = mEndReal
 
-        guard let rate = rate, rate.active else {
+        guard let fill = fill, fill.active else {
             // ---- NON-OVERRIDE: the existing loop, byte-identical ----
             // floor, not ceil: a tick AT a column boundary sits between render windows — the previous
             // column's window rejects it (wrong column) and ceil would round past it, dropping the
@@ -2266,23 +2269,36 @@ final class Router {
             return
         }
 
-        // ---- RATE OVERRIDE: walk the window's bar segments; within each, the lane runs at sub/m from its own run start ----
-        // The lane-step boundary for step k (lane steps since the rhythm origin) lands at host beat `euclideousLaneHostBeat`; a
-        // boundary on a bar line fires (§2.4). `body` is handed the synthetic tick `k + originHostTick` so the chain phase's
-        // `localT = tick − originTickO` still equals k (the origin is read at the real host beat), and `mTickBeat` is the REAL host beat.
-        let L = max(1e-6, rate.beatsPerBar)
-        let o = rate.originBeat
+        // ---- FILL OVERRIDE: walk the window's segments; within an armed bar's region [F,E) the lane runs at sub/m, else ×1 ----
+        // §2.2/§2.3 (Paul 2026-11-13: CONTINUE THE WALK FORWARD, not a loop): a region is a run at speed m from F to E; outside it
+        // the lane is ×1 and the step at E rejoins. A boundary fires on crossing (`==` fires); the step at E belongs to ×1.
+        // FORWARD: the lane step whose host time is t_s plays step (j0+s). REVERSE: it plays the mirror (j0+N−1−s) — the host TIME is
+        // unchanged, only the CONTENT tick remaps (§2.3). §2.7 BREAK skips a slot's body (the slot still counts, k advances).
+        // `body` gets the synthetic tick `contentK + originHostTick` (so the chain phase's localT = contentK) and the REAL host beat.
+        let L = max(1e-6, fill.beatsPerBar)
+        let o = fill.originBeat
         let originHostTick = Int64((o / sub).rounded(.down))   // the rhythm origin in host-tick units
         var segStart = mStart
         var segGuard = 0
         while segStart < mEnd - 1e-9, segGuard < 512 {
             segGuard += 1
-            let run = rate.run(hostBeat: segStart + 1e-9)
-            let barLineNext = ((segStart / L).rounded(.down) + 1) * L
+            let barN = Int((segStart / L + 1e-9).rounded(.down))
+            let barLineNext = Double(barN + 1) * L
+            let region = fill.region(bar: barN)
+            let inFill = region.map { segStart >= $0.F - 1e-9 && segStart < $0.E - 1e-9 } ?? false
+            var run = EuclideousRateRun()
+            var j0: Int64 = 0, N = 0
+            if inFill, let rg = region {
+                run.active = true; run.startBeat = rg.F; run.endBeat = rg.E; run.multiplier = rg.m; run.runBarIndex = Int64(rg.barIndex)
+                j0 = euclideousFillFirstStep(rg, origin: o, sub: sub)
+                N = euclideousFillCount(rg, origin: o, sub: sub)
+            }
             var segEnd = min(mEnd, run.active ? run.endBeat : barLineNext)
+            if !inFill, let rg = region, rg.F > segStart + 1e-9, rg.F < segEnd { segEnd = rg.F }   // a ×1 segment stops at the fill's start
             if o > segStart + 1e-9 { segEnd = min(segEnd, o) }   // split at the origin: the restart schedule reads the real beat there
             let subEff = run.active ? sub / run.multiplier : sub
-            let runId = run.active ? run.runBarIndex : Int64((segStart / L).rounded(.down))
+            let runId = run.active ? run.runBarIndex : Int64(barN)
+            let reverseActive = run.active && (region?.reverse ?? false) && N <= euclideousFillReverseCap
             var k = Int64((euclideousLaneElapsed(hostBeat: segStart, origin: o, run: run) / sub - 1e-9).rounded(.up))   // first lane step at/after segStart; '==' fires
             var stepGuard = 0
             while stepGuard < 100_000 {
@@ -2290,16 +2306,20 @@ final class Router {
                 let hostBeat = euclideousLaneHostBeat(elapsedSinceOrigin: Double(k) * sub, origin: o, run: run)
                 if hostBeat >= segEnd - 1e-9 { break }
                 defer { k += 1 }
-                let tick = k + originHostTick
+                // §2.7 BREAK: a slot whose host start is in the region's last quarter strikes nothing, but still counts (k advances).
+                if run.active, let rg = region, euclideousFillBreakDrops(rg, hostBeat: hostBeat) { continue }
+                let contentK = reverseActive ? (2 * j0 + Int64(N) - 1 - k) : k   // §2.3 the CONTENT step (forward k; reverse the mirror)
+                let tick = contentK + originHostTick
                 if hostBeat + 1e-9 < tickFrom || hostBeat + 1e-9 >= tickBefore { continue }   // LANE LOCK split segment
                 let delayBeats = strikeDelaySteps(tick) * subEff
                 if delayBeats > 0 && hostBeat + delayBeats > mEnd + 1e-9 { continue }
                 let tickStep = Int((hostBeat / S).rounded(.down))
                 let tickTrueCol = ((tickStep % columns) + columns) % columns
                 if !forceColumnHold && lapColumn(laneMask: rowHeld[row], absoluteStep: tickStep, trueColumn: tickTrueCol) != effColumn { continue }
-                let key = euclideousRateDedupKey(laneStep: k, runId: runId)
+                let key = euclideousRateDedupKey(laneStep: k, runId: runId)   // per SLOT (k), so each slot fires once; reverse never double-fires
                 if key == lastTick[dedupSlot] { continue }
                 lastTick[dedupSlot] = key
+                euclideousFillStepScaleNow = subEff / sub   // §2.4: 1/m in a region, 1 on a ×1 segment — the body's gate + ratchet spacing read it
                 let onTime = sampleOf(musical: hostBeat + delayBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                       windowStart: windowStart, S: S, a: a)
                 let colEnd = columnStart(hostBeat, S) + S
@@ -3378,7 +3398,6 @@ final class Router {
                                 listenPitch: EuclideousListenPitchMode = .own, listenInterval: Int = 0, listenOctave: Int = 0,
                                 // RHYTHM POLISH (2026-10-22): OFFSET's fractional part and whether this lane's TILT plays unrounded (`tiltFine`).
                                 offsetFraction: Double = 0, tiltFine: Bool = false,
-                                rateStrip: EuclideousRateStrip = EuclideousRateStrip(),   // RATE ferry (2026-11-12): the lane's 8-box speed strip (inactive default ⇒ byte-identical)
                                 tickFrom: Double = -Double.infinity, tickBefore: Double = Double.infinity) {   // LANE LOCK: the segment of the window this call plays (the default is all of it)
                 // LANE SOLO: every voice and echo tail this lane's hits open is stamped with the lane (Euclideous's own row only), so a solo can end exactly its notes.
                 euclideousStrikeLane = isEuclideousRow ? Int8(lineIndex) : -1
@@ -3551,11 +3570,11 @@ final class Router {
                     // simulated with the host's bar), and not for a lane whose component holds a lane a lock snap has substituted the line of (`lockPerturbedMask`). Otherwise the closed forms (above) answer, as they always did.
                     if isEuclideousRow { chains.schedule = euclideousAttachedSchedule(p.restartSchedule, lane: lineIndex, barBeats: beatsPerBar, perturbed: lockPerturbedMask) }
                 }
-                // RATE ferry (2026-11-12): the lane's speed-override map — the strip + the rhythm origin at this window's musical start + the step length + the host bar length. Inactive ⇒ nil ⇒ `iterateTicks` and the phase calls below are byte-identical.
-                var rateMap: EuclideousRateMap? = nil
-                if rateStrip.active, isEuclideousRow, sub > 0 {
+                // FILL ferry (2026-11-13): the lane's fill plan — its fill fields + the rhythm origin at this window's musical start + the step length + the host bar length. Not a fill lane ⇒ nil ⇒ `iterateTicks` and the phase calls below are byte-identical.
+                var fillPlan: EuclideousFillPlan? = nil
+                if isEuclideousRow, sub > 0, lineIndex < linesView.count, linesView[lineIndex].usesFill {
                     let originBeat = chains.hasRhythmRestarts ? chains.rhythmOriginBeat(musicalOf(beatPos, stepBeats: S, a: a)) : 0
-                    rateMap = EuclideousRateMap(active: true, strip: rateStrip, originBeat: originBeat, sub: sub, beatsPerBar: beatsPerBar)
+                    fillPlan = EuclideousFillPlan(line: linesView[lineIndex], originBeat: originBeat, beatsPerBar: beatsPerBar, sub: sub)
                 }
                 if isEuclideousRow, lineIndex < linesView.count {
                     let line = linesView[lineIndex]
@@ -3602,7 +3621,7 @@ final class Router {
                                  guard timingActive else { return 0 }
                                  let ph = euclideousLaneChainPhase(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains, legacySpanBeats: ladderSpanBeats)
                                  return ph.rawIsHit ? euclidTickDelay[ph.raw] : 0
-                             }, rate: rateMap) { tick, mTickBeat, _, _ in
+                             }, fill: fillPlan) { tick, mTickBeat, _, _ in
                     if canonLane { refreshCanonStack(beat: mTickBeat, delayBeats: canonDelayBeats, lane: lineIndex, plan: lanePlan, mask: laneKey) }   // CHORD CANON: this lane's own pool, `d` beats back
                     else if !laneIsDefault { refreshLaneStack(plan: lanePlan, mask: laneKey, atBeat: mTickBeat) }   // INPUTS: this lane's own chips and mode
                     else {
@@ -3626,7 +3645,7 @@ final class Router {
                     // one chain-era per-tick core (`euclideousLaneChainPhase`), the same call the next-hit gap, the TIE lookahead, the roll and
                     // the walk-tag mirror make. A tick is `tick × sub` beats; `mTickBeat` below is that same value.
                     let ph = euclideousLaneChainPhase(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick,
-                                                      chains: chains, legacySpanBeats: ladderSpanBeats, hostBeat: rateMap != nil ? mTickBeat : nil)
+                                                      chains: chains, legacySpanBeats: ladderSpanBeats, hostBeat: fillPlan != nil ? mTickBeat : nil)
                     let localT = ph.localT
                     let raw = ph.raw
                     let rawIsHit = ph.rawIsHit
@@ -3706,9 +3725,9 @@ final class Router {
                     // tieExt` (scaling BOTH segments together) would wrongly shrink the first segment too.
                     // MIX TAB (2026-10-18): per PITCH — each sounding pitch's length reads ITS OWN gate `g` (the riff pitch the lane's GATE, lit
                     // notes/TOP/TOP2 the notes gate), through the one pure `euclideousPitchGateBeats`; the 5 ms floor is unchanged.
-                    // RATE ferry (2026-11-12): inside a run the step length is sub/m, so the gap (lane beats) and the TIE extension become HOST beats by ×(subAtHit/sub) = ×1/m — the gate then halves under ×2, as §2.6. 1.0 when inactive ⇒ byte-identical.
-                    let rateStepScale = rateMap.map { $0.stepHostLength(hostBeat: mTickBeat) / sub } ?? 1.0
-                    let subAtHit = sub * rateStepScale   // RATE: the step length AT this hit in host beats (= sub/m in a run) — the ratchet spacing + cap read it (§2.6)
+                    // FILL ferry (2026-11-13): inside a region the step length is sub/m, so the gap (lane beats) and the TIE extension become HOST beats by ×(subAtHit/sub) = ×1/m — the gate + ratchet spacing then halve under ×2 (§2.4). 1.0 off a fill ⇒ byte-identical. `euclideousFillStepScaleNow` is set per slot by iterateTicks (1 on the non-fill path).
+                    let rateStepScale = euclideousFillStepScaleNow
+                    let subAtHit = sub * rateStepScale   // FILL: the step length AT this hit in host beats (= sub/m in a region) — the ratchet spacing + cap read it (§2.4)
                     func gateBeatsWithTie(_ g: Double, _ tieExt: Double) -> Double {
                         euclideousPitchGateBeats(gate: g, nextHitGapBeats: nextHitGapBeats * rateStepScale, tieExt: tieExt * rateStepScale, minGateBeats: minGateBeats5ms)
                     }
@@ -3801,7 +3820,7 @@ final class Router {
                         // pick keeps following the rhythm) AND `advOrd`, the riff walk's ordinal, counted from the MELODY origin. No `locked:`
                         // parameter — a melody chain of exactly [1] reproduces old LOCK's own re-anchoring with no special-casing (§4.7).
                         let tickInfo = euclideousLaneChainTick(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
-                                                               legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep, hostBeat: rateMap != nil ? mTickBeat : nil)
+                                                               legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep, hostBeat: fillPlan != nil ? mTickBeat : nil)
                         let hitsUpTo = tickInfo.hitsUpTo
                         let ord = tickInfo.ord
                         // EUCLID MASK (Paul 2026-10-10 ferry) — §2.1: "advances one step per SOUNDING step of
@@ -5902,7 +5921,6 @@ final class Router {
                               // RHYTHM POLISH (2026-10-22): a landed rhythm roll replaces the lane's pattern (a randomise clears the fraction), TILT's unrounded marker rides the lane itself.
                               offsetFraction: rhythmRoll == nil ? L.offsetFractionResolved : 0, tiltFine: L.tiltIsFine,
                               // RATE ferry (2026-11-12): the lane's 8-bar speed strip (inactive ⇒ byte-identical). A landed random rhythm roll leaves it alone — RATE is not a randomised field.
-                              rateStrip: isEuclideousRow ? euclideousLaneRateStrip(line: L) : EuclideousRateStrip(),
                               tickFrom: tickFrom, tickBefore: tickBefore)
                 }
                 let aSplit = answerEngaged && lineIndex < 4 && !lockHasSplit ? answerBoundary[lineIndex] : Double.infinity

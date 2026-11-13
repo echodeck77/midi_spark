@@ -812,21 +812,28 @@ struct EuclidLine: Codable, Equatable {
     var usesRateOverride: Bool { !rateFreeResolved && (rateBars?.contains { $0 >= 1 && $0 <= 4 } ?? false) }
     // FILL resolvers (§1.1/§1.2 defaults; a malformed stored value folds to the default).
     var fillOnResolved: Bool { fillOn ?? true }
+    /// The UI's 8-entry view (the render path never calls this — it would allocate; see `usesFill` / `fillArmed` / `EuclideousFillPlan`).
     var fillBarsResolved: [Bool] { guard let b = fillBars, b.count == 8 else { return [Bool](repeating: false, count: 8) }; return b }
+    /// Is ANY bar lit? Reads the stored array in place — no allocation (the render path's test).
+    var fillAnyBarLit: Bool { fillBars?.contains(true) ?? false }
     var fillSpeedResolved: Int { let v = Int(fillSpeed ?? 3); return (0...4).contains(v) ? v : 3 }
-    var fillSpeedMultiplier: Double { [0.5, 1, 1.5, 2, 4][fillSpeedResolved] }   // §1.1 m
+    var fillSpeedMultiplier: Double {   // §1.1 m — a switch, NOT an array literal (which would heap-allocate on the render thread)
+        switch fillSpeedResolved { case 0: return 0.5; case 2: return 1.5; case 3: return 2; case 4: return 4; default: return 1 }
+    }
     var fillLengthResolved: Int { let v = Int(fillLength ?? 1); return (0...2).contains(v) ? v : 1 }
-    var fillLengthFraction: Double { [1, 0.5, 0.25][fillLengthResolved] }        // §1.1 L (BAR · ½ · ¼)
+    var fillLengthFraction: Double {    // §1.1 L (BAR · ½ · ¼)
+        switch fillLengthResolved { case 0: return 1; case 2: return 0.25; default: return 0.5 }
+    }
     var fillReverseResolved: Bool { fillReverse ?? false }
     var fillRanksResolved: Int { max(-7, min(7, Int(fillRanks ?? 0))) }
     var fillSwellResolved: Int { max(-3, min(3, Int(fillSwell ?? 0))) }
     var fillBreakResolved: Bool { fillBreak ?? false }
     /// §summary/§9: a fill with ×1 speed, no reverse, no rank climb, no swell and no break does nothing (LENGTH is irrelevant at ×1).
     var fillNeutral: Bool { fillSpeedMultiplier == 1 && !fillReverseResolved && fillRanksResolved == 0 && fillSwellResolved == 0 && !fillBreakResolved }
-    /// §1.4/§1.5: the lane uses the fill path only when FILL is on, at least one bar is lit, and the settings are not neutral — so a default / neutral / unlit lane is byte-identical to today.
-    var usesFill: Bool { fillOnResolved && fillBarsResolved.contains(true) && !fillNeutral }
-    /// §1.4: is the fill armed on (0-based, host-bar-1 = bar 0) bar n?
-    func fillArmed(bar n: Int) -> Bool { fillOnResolved && fillBarsResolved[((n % 8) + 8) % 8] }
+    /// §1.4/§1.5: the lane uses the fill path only when FILL is on, at least one bar is lit, and the settings are not neutral — so a default / neutral / unlit lane is byte-identical to today. Allocation-free (render-thread safe).
+    var usesFill: Bool { fillOnResolved && fillAnyBarLit && !fillNeutral }
+    /// §1.4: is the fill armed on (0-based, host-bar-1 = bar 0) bar n? Reads the stored array in place — no allocation.
+    func fillArmed(bar n: Int) -> Bool { guard fillOnResolved, let b = fillBars, b.count == 8 else { return false }; return b[((n % 8) + 8) % 8] }
     var answerRhythmOnResolved: Bool { answerRhythmOn ?? false }
     var answerRhythmModeResolved: EuclideousAnswerRhythmMode { answerRhythmMode ?? .copy }
     var answerRhythmCycleResolved: Bool { answerRhythmCycle ?? false }
