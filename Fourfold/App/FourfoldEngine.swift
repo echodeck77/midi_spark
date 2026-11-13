@@ -235,6 +235,16 @@ final class FourfoldEngine {
         observers.append(nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             if let self, !self.engine.isRunning { self.restart() }
         })
+        // A MIDI-only app must not keep the shared audio route when it isn't in use. When Fourfold goes to the BACKGROUND
+        // while STOPPED, stop the silent engine and RELEASE the session so another foreground app (YouTube etc.) gets the
+        // hardware cleanly — the fix for "after a reinstall all iPad audio goes wrong until restart" when you open Fourfold
+        // and switch away without playing. While PLAYING it keeps the session (background MIDI keeps sequencing out);
+        // `willEnterForeground` above restarts it on return. (The buffer-forcing cause was already removed in 66cd939.)
+        observers.append(nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, !self.mailbox.playing else { return }
+            self.engine.stop()
+            Self.deactivateSession()
+        })
         // On termination, stop the silent engine and RELEASE the shared session — so the audio route is handed back cleanly instead of being
         // held by a dying instance (deinit is not guaranteed on an OS-initiated kill; this covers the graceful-exit path). Background MIDI is
         // untouched: this fires only on willTerminate, not on entering the background.
