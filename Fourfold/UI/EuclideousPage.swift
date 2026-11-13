@@ -2450,7 +2450,7 @@ struct EuclideousPage: View {
             guard stripCCOn, line.enabledResolved, !soloDimContent else { return nil }
             let mask = (euclideousMixLayerIsOff(line, notes: false) ? 0 : line.riffOutMaskResolved(lane: idx))
                      | (euclideousMixLayerIsOff(line, notes: true) ? 0 : line.notesOutMaskResolved(lane: idx))
-            var ccMask: UInt8 = 0; for o in 0..<4 where emitterCCs[o].on { ccMask |= UInt8(1) << UInt8(o) }
+            var ccMask: UInt8 = 0; for o in 0..<4 where emitterCCs[output: o, slot: 0].on { ccMask |= UInt8(1) << UInt8(o) }
             guard let src = laneCCSourceEmitter(routed: mask, ccOn: ccMask) else { return nil }
             let bar = max(1, clock.beatsPerBar)
             // Only a lane that MAY STRIKE contributes to the emitter's CC (the engine's `ccLaneStaticMask`): a disabled, solo-silenced
@@ -2460,7 +2460,7 @@ struct EuclideousPage: View {
                 let canEmit = l.enabledResolved && !soloSilenced(li) && (!euclideousMixLayerIsOff(l, notes: false) || !euclideousMixLayerIsOff(l, notes: true))
                 return canEmit ? ccLaneHits(li, barBeats: bar) : []
             }
-            let tr = emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[src]), hits: ccTraceHits(output: src, laneHits: laneHits), barBeats: bar, span: emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8))
+            let tr = emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[output: src, slot: 0]), hits: ccTraceHits(output: src, laneHits: laneHits), barBeats: bar, span: emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8))
             guard !tr.points.isEmpty || !tr.dots.isEmpty else { return nil }
             return EuclideousStripCCInput(points: tr.points, dots: tr.dots, barBeats: bar)
         }()
@@ -7419,7 +7419,7 @@ struct EuclideousPage: View {
         let barBeats = max(1, clock.beatsPerBar)
         let wanted: [Int] = ccExpanded.map { [$0] } ?? [0, 1, 2, 3]
         let laneHits: [[EmitterCCTraceHit]] = (0..<4).map { ccLaneHits($0, barBeats: barBeats) }
-        let traces: [EmitterCCTrace] = (0..<4).map { o in emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[o]), hits: wanted.contains(o) ? ccTraceHits(output: o, laneHits: laneHits) : [], barBeats: barBeats, span: emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8)) }   // the engine reads 8 columns in MONO, 16 in POLY   // an unwanted one (the others while one is open) is the bare grid
+        let traces: [EmitterCCTrace] = (0..<4).map { o in emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[output: o, slot: 0]), hits: wanted.contains(o) ? ccTraceHits(output: o, laneHits: laneHits) : [], barBeats: barBeats, span: emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8)) }   // the engine reads 8 columns in MONO, 16 in POLY   // an unwanted one (the others while one is open) is the bare grid
         // the bar position (0…1) of the playhead at `date`, nil while the transport is stopped (a live indicator only while running)
         let playhead: (Date) -> Double? = { date in
             guard clock.playing else { return nil }

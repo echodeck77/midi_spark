@@ -151,12 +151,12 @@ struct EuclideousCCPanel: View {
             .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
     }
     @ViewBuilder private func row(_ x: Int, rowH: CGFloat) -> some View {
-        let cc = ccs[x]
+        let cc = ccs[output: x, slot: 0]
         HStack(spacing: 8) {
             EmitterRatchetDisc(letter: letters[x], on: cc.on, accent: ccNeutral, f: playing ? 0 : 0)
                 .frame(width: 44, height: rowH)
                 .contentShape(Rectangle())
-                .onTapGesture { onEdit(true) { $0[x].on.toggle() } }
+                .onTapGesture { onEdit(true) { $0[output: x, slot: 0].on.toggle() } }
                 .accessibilityElement(children: .ignore).accessibilityLabel("Emitter \(letters[x])").accessibilityValue(cc.on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
             Text("\(cc.ccNumber)").font(heavyMonoCC(22)).foregroundColor(P.text).frame(width: 46, alignment: .leading)
             CCTraceView(trace: traces[x], laneColours: laneColours, playhead: cc.on ? playhead : nil).frame(maxWidth: .infinity)
@@ -194,7 +194,7 @@ struct EuclideousCCExpandedView: View {
     private var letter: String { ["A", "B", "C", "D"][output] }
     private static let valueModes: [EmitterCCValueMode] = [.hits, .riff, .pingPong, .climb]
     var body: some View {
-        let cc = ccs[output]
+        let cc = ccs[output: output, slot: 0]
         VStack(spacing: 8) {
             header(cc)
             CCTraceView(trace: traces[output], laneColours: laneColours, playhead: cc.on ? playhead : nil, detailed: true).frame(height: 84)
@@ -209,7 +209,7 @@ struct EuclideousCCExpandedView: View {
         HStack(spacing: 8) {
             EmitterRatchetDisc(letter: letter, on: cc.on, accent: ccNeutral, f: 0)
                 .frame(width: 36, height: 30)
-                .contentShape(Rectangle()).onTapGesture { onEdit(true) { $0[output].on.toggle() } }
+                .contentShape(Rectangle()).onTapGesture { onEdit(true) { $0[output: output, slot: 0].on.toggle() } }
                 .accessibilityElement(children: .ignore).accessibilityLabel("Emitter \(letter)").accessibilityValue(cc.on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
             Spacer(minLength: 0)
             ccStepper(cc)
@@ -225,12 +225,12 @@ struct EuclideousCCExpandedView: View {
     @ViewBuilder private func ccStepper(_ cc: EmitterCC) -> some View {
         HStack(spacing: 4) {
             Text("CC").font(heavyMonoCC(10)).foregroundColor(P.muted)
-            Text("\u{2039}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[output].ccNumber = max(0, $0[output].ccNumber - 1) } }
-            CCNumberSlider(value: cc.ccNumber) { v, newStep in onEdit(newStep) { $0[output].ccNumber = v } }
-            Text("\u{203A}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[output].ccNumber = min(EmitterCC.maxCC, $0[output].ccNumber + 1) } }
+            Text("\u{2039}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[output: output, slot: 0].ccNumber = max(0, $0[output: output, slot: 0].ccNumber - 1) } }
+            CCNumberSlider(value: cc.ccNumber) { v, newStep in onEdit(newStep) { $0[output: output, slot: 0].ccNumber = v } }
+            Text("\u{203A}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[output: output, slot: 0].ccNumber = min(EmitterCC.maxCC, $0[output: output, slot: 0].ccNumber + 1) } }
         }
         .accessibilityElement(children: .ignore).accessibilityLabel("CC number").accessibilityValue("\(cc.ccNumber)")
-        .accessibilityAdjustableAction { d in onEdit(true) { $0[output].ccNumber = max(0, min(EmitterCC.maxCC, $0[output].ccNumber + (d == .increment ? 1 : -1))) } }
+        .accessibilityAdjustableAction { d in onEdit(true) { $0[output: output, slot: 0].ccNumber = max(0, min(EmitterCC.maxCC, $0[output: output, slot: 0].ccNumber + (d == .increment ? 1 : -1))) } }
     }
     @ViewBuilder private func leftColumn(_ cc: EmitterCC) -> some View {
         let toInert = emitterCCToIsInert(cc)        // a HOLD of 100 % keeps the hit's value for the whole gap: there is nothing to ramp TO (dimmed, still tappable)
@@ -238,28 +238,28 @@ struct EuclideousCCExpandedView: View {
         VStack(alignment: .leading, spacing: 8) {   // three label-over-segments groups, as tall as the six sliders beside them
             VStack(alignment: .leading, spacing: 3) {
                 Text("VALUE").font(heavyMonoCC(9)).foregroundColor(P.muted)
-                EmitterRatchetSegmented(options: ["HITS", "RIFF", "PING", "CLIMB"], selected: Self.valueModes.firstIndex(of: cc.valueMode) ?? 0, height: 24, groupLabel: "Value") { i in onEdit(true) { $0[output].valueMode = Self.valueModes[i] } }
+                EmitterRatchetSegmented(options: ["HITS", "RIFF", "PING", "CLIMB"], selected: Self.valueModes.firstIndex(of: cc.valueMode) ?? 0, height: 24, groupLabel: "Value") { i in onEdit(true) { $0[output: output, slot: 0].valueMode = Self.valueModes[i] } }
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text("TO").font(heavyMonoCC(9)).foregroundColor(P.muted)
-                EmitterRatchetSegmented(options: ["REST", "NEXT"], selected: cc.to == .rest ? 0 : 1, height: 24, groupLabel: "To") { i in onEdit(true) { $0[output].to = i == 0 ? .rest : .next } }
+                EmitterRatchetSegmented(options: ["REST", "NEXT"], selected: cc.to == .rest ? 0 : 1, height: 24, groupLabel: "To") { i in onEdit(true) { $0[output: output, slot: 0].to = i == 0 ? .rest : .next } }
             }.opacity(toInert ? 0.35 : 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text("CURVE").font(heavyMonoCC(9)).foregroundColor(P.muted)
-                EmitterRatchetSegmented(options: ["LIN", "EXP"], selected: cc.curve == .lin ? 0 : 1, height: 24, groupLabel: "Curve") { i in onEdit(true) { $0[output].curve = i == 0 ? .lin : .exp } }
+                EmitterRatchetSegmented(options: ["LIN", "EXP"], selected: cc.curve == .lin ? 0 : 1, height: 24, groupLabel: "Curve") { i in onEdit(true) { $0[output: output, slot: 0].curve = i == 0 ? .lin : .exp } }
             }.opacity(curveInert ? 0.35 : 1)
             Spacer(minLength: 0)
         }
     }
     @ViewBuilder private func rightColumn(_ cc: EmitterCC) -> some View {
         VStack(spacing: 6) {
-            CCBarSlider(label: "HIGH", value: cc.high) { v, s in onEdit(s) { $0[output].high = v } }
-            CCBarSlider(label: "LOW", value: cc.low) { v, s in onEdit(s) { $0[output].low = v } }
-            CCBarSlider(label: "HOLD", value: cc.hold, lo: 0, hi: 100) { v, s in onEdit(s) { $0[output].hold = v } }
+            CCBarSlider(label: "HIGH", value: cc.high) { v, s in onEdit(s) { $0[output: output, slot: 0].high = v } }
+            CCBarSlider(label: "LOW", value: cc.low) { v, s in onEdit(s) { $0[output: output, slot: 0].low = v } }
+            CCBarSlider(label: "HOLD", value: cc.hold, lo: 0, hi: 100) { v, s in onEdit(s) { $0[output: output, slot: 0].hold = v } }
             // RAMP reads the EFFECTIVE ramp (what HOLD leaves of the gap); the stored value is kept, so lowering HOLD restores it
-            CCBarSlider(label: "RAMP", value: cc.effectiveRamp, lo: 0, hi: 100, dimmed: emitterCCFieldIsInert(.ramp, cc)) { v, s in onEdit(s) { $0[output].ramp = v } }
-            CCBarSlider(label: "PASSES", value: cc.passes, lo: 1, hi: EmitterCC.maxPasses, dimmed: emitterCCFieldIsInert(.passes, cc)) { v, s in onEdit(s) { $0[output].passes = v } }
-            CCBarSlider(label: "MUTE", value: cc.muteValue) { v, s in onEdit(s) { $0[output].muteValue = v } }
+            CCBarSlider(label: "RAMP", value: cc.effectiveRamp, lo: 0, hi: 100, dimmed: emitterCCFieldIsInert(.ramp, cc)) { v, s in onEdit(s) { $0[output: output, slot: 0].ramp = v } }
+            CCBarSlider(label: "PASSES", value: cc.passes, lo: 1, hi: EmitterCC.maxPasses, dimmed: emitterCCFieldIsInert(.passes, cc)) { v, s in onEdit(s) { $0[output: output, slot: 0].passes = v } }
+            CCBarSlider(label: "MUTE", value: cc.muteValue) { v, s in onEdit(s) { $0[output: output, slot: 0].muteValue = v } }
             Spacer(minLength: 0)
         }
     }

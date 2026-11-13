@@ -2196,12 +2196,13 @@ struct EmitterCC: Equatable {
     var curve: EmitterCCCurve = .exp
     var muteValue = 0                               // 0…127
     var passes = 1                                  // 1…16 (CLIMB): how many passes of the lane's rhythm the climb from LOW to HIGH takes
+    var driverLane: Int? = nil                      // CC SLOTS (2026-11-12) §1.1: the lane (1…4) whose Euclid hits + riff drive this slot; nil = AUTO (follows routing, §2)
     static let maxCC = 119, maxPasses = 16
     /// The ramp that actually plays: the ramp can only use what the hold leaves of the gap.
     var effectiveRamp: Int { max(0, min(ramp, 100 - hold)) }
     init() {}
-    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .hits, high: Int = 127, low: Int = 0, hold: Int = 25, ramp: Int = 50, to: EmitterCCTo = .rest, curve: EmitterCCCurve = .exp, muteValue: Int = 0, passes: Int = 1) {
-        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.high = high; self.low = low; self.hold = hold; self.ramp = ramp; self.to = to; self.curve = curve; self.muteValue = muteValue; self.passes = passes
+    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .hits, high: Int = 127, low: Int = 0, hold: Int = 25, ramp: Int = 50, to: EmitterCCTo = .rest, curve: EmitterCCCurve = .exp, muteValue: Int = 0, passes: Int = 1, driverLane: Int? = nil) {
+        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.high = high; self.low = low; self.hold = hold; self.ramp = ramp; self.to = to; self.curve = curve; self.muteValue = muteValue; self.passes = passes; self.driverLane = driverLane
     }
     func normalized() -> EmitterCC {
         var r = self
@@ -2209,11 +2210,12 @@ struct EmitterCC: Equatable {
         r.high = max(0, min(127, high)); r.low = max(0, min(127, low)); r.muteValue = max(0, min(127, muteValue))
         r.hold = max(0, min(100, hold)); r.ramp = max(0, min(100, ramp))
         r.passes = max(1, min(Self.maxPasses, passes))
+        r.driverLane = driverLane.map { max(1, min(4, $0)) }
         return r
     }
 }
 extension EmitterCC: Codable {
-    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, high, low, hold, ramp, to, curve, muteValue, passes }   // the removed level / travel / time keys are ignored on decode and never written
+    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, high, low, hold, ramp, to, curve, muteValue, passes, driverLane }   // the removed level / travel / time keys are ignored on decode and never written
     init(from decoder: Decoder) throws {
         self.init()
         guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
@@ -2229,6 +2231,7 @@ extension EmitterCC: Codable {
         if let v = (try? c.decodeIfPresent(EmitterCCCurve.self, forKey: .curve)) ?? nil { curve = v }
         if let n = int(.muteValue) { muteValue = n }
         if let n = int(.passes) { passes = n }
+        driverLane = int(.driverLane)   // absent ⇒ nil = AUTO (§2)
         self = normalized()
     }
     func encode(to encoder: Encoder) throws {
@@ -2236,27 +2239,48 @@ extension EmitterCC: Codable {
         try c.encode(on, forKey: .on); try c.encode(ccNumber, forKey: .ccNumber); try c.encode(valueMode, forKey: .valueMode)
         try c.encode(high, forKey: .high); try c.encode(low, forKey: .low); try c.encode(hold, forKey: .hold); try c.encode(ramp, forKey: .ramp)
         try c.encode(self.to, forKey: .to); try c.encode(curve, forKey: .curve); try c.encode(muteValue, forKey: .muteValue); try c.encode(passes, forKey: .passes)
+        try c.encodeIfPresent(driverLane, forKey: .driverLane)
     }
 }
-/// The document's four CC emitters: FIXED-SIZE storage, encoded as a plain array of four. The four default CC numbers differ (A 74 · B 71 · C 1 · D 11); every write through the subscript normalises. Same shape as `EmitterVelocitySet`.
+/// CC SLOTS (2026-11-12): the document's CC emitters — FOUR outputs × THREE slots (a/b/c), encoded as a flat array of 12.
+/// Every output's slot defaults are a 74 · b 71 · c 1 (§1.2 — the old per-output A/B/C/D numbers are gone); every write
+/// through a subscript normalises. `subscript(output:slot:)` is the primary access; the flat `subscript(i:)` (i = output×3 + slot)
+/// carries it through the plumbing. The document lives on the main thread; the render thread reads `EmitterCCSnap` (fixed-size value).
 struct EmitterCCSet: Equatable, Codable {
-    static let count = 4
-    static let defaultCCNumbers = [74, 71, 1, 11]
-    private var e0 = EmitterCC(ccNumber: 74), e1 = EmitterCC(ccNumber: 71), e2 = EmitterCC(ccNumber: 1), e3 = EmitterCC(ccNumber: 11)
-    init() {}
-    init(_ list: [EmitterCC]) { for (i, r) in list.prefix(Self.count).enumerated() { self[i] = r } }
+    static let outputCount = 4, slotsPerEmitter = 3
+    static let count = outputCount * slotsPerEmitter        // 12
+    static let slotDefaultCCNumbers = [74, 71, 1]           // slot a · b · c, on EVERY output
+    private var slots: [EmitterCC]
+    init() { slots = (0..<Self.count).map { EmitterCC(ccNumber: Self.slotDefaultCCNumbers[$0 % Self.slotsPerEmitter]) } }
+    init(_ list: [EmitterCC]) { self.init(); for (i, r) in list.prefix(Self.count).enumerated() { self[i] = r } }
     init(from decoder: Decoder) throws {
         self.init()
-        guard let c = try? decoder.singleValueContainer(), let raw = try? c.decode([EmitterCC].self) else { return }
-        for (i, r) in raw.prefix(Self.count).enumerated() { self[i] = r }
+        // §1.3 NO MIGRATION: only a flat array of exactly 12 loads; anything else (an old 4-wide document) keeps the defaults.
+        guard let c = try? decoder.singleValueContainer(), let raw = try? c.decode([EmitterCC].self), raw.count == Self.count else { return }
+        for (i, r) in raw.enumerated() { self[i] = r }
     }
-    func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(asArray) }
+    func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(slots) }
     subscript(i: Int) -> EmitterCC {
-        get { switch i { case 0: return e0; case 1: return e1; case 2: return e2; default: return e3 } }
-        set { let n = newValue.normalized(); switch i { case 0: e0 = n; case 1: e1 = n; case 2: e2 = n; default: e3 = n } }
+        get { slots[max(0, min(Self.count - 1, i))] }
+        set { slots[max(0, min(Self.count - 1, i))] = newValue.normalized() }
     }
-    var asArray: [EmitterCC] { [e0, e1, e2, e3] }
+    subscript(output o: Int, slot s: Int) -> EmitterCC {
+        get { self[o * Self.slotsPerEmitter + s] }
+        set { self[o * Self.slotsPerEmitter + s] = newValue }
+    }
+    var asArray: [EmitterCC] { slots }
     var isAllDefault: Bool { self == EmitterCCSet() }
+    /// §1.4: the next CC number stepping from `n` for (output, slot), skipping the OTHER two slots of that output, wrapping 0…119.
+    func nextCCNumber(from n: Int, output o: Int, slot s: Int, up: Bool) -> Int {
+        var taken = Set<Int>()
+        for j in 0..<Self.slotsPerEmitter where j != s { taken.insert(self[output: o, slot: j].ccNumber) }
+        var v = n
+        for _ in 0...(EmitterCC.maxCC + 1) {
+            v = up ? (v >= EmitterCC.maxCC ? 0 : v + 1) : (v <= 0 ? EmitterCC.maxCC : v - 1)
+            if !taken.contains(v) { return v }
+        }
+        return n
+    }
 }
 
 struct EuclideousLanesSeq: Equatable {

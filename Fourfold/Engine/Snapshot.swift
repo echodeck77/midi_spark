@@ -245,8 +245,9 @@ struct EmitterCCCfg: Equatable {
     var high = 127, low = 0, hold = 25, ramp = 50, muteValue = 0, passes = 1
     var to: EmitterCCTo = .rest
     var curve: EmitterCCCurve = .exp
+    var driverLane: Int? = nil   // CC SLOTS (2026-11-12): the slot's driver lane (1…4), nil = AUTO (§2)
     init() {}
-    init(_ e: EmitterCC) { let n = e.normalized(); on = n.on; ccNumber = n.ccNumber; valueMode = n.valueMode; high = n.high; low = n.low; hold = n.hold; ramp = n.ramp; to = n.to; curve = n.curve; muteValue = n.muteValue; passes = n.passes }
+    init(_ e: EmitterCC) { let n = e.normalized(); on = n.on; ccNumber = n.ccNumber; valueMode = n.valueMode; high = n.high; low = n.low; hold = n.hold; ramp = n.ramp; to = n.to; curve = n.curve; muteValue = n.muteValue; passes = n.passes; driverLane = n.driverLane }
     /// The ramp that plays: the stored RAMP, limited to what HOLD leaves of the gap.
     var effectiveRamp: Int { max(0, min(ramp, 100 - hold)) }
     /// The hit value for a riff rank r (1…8): LOW + (r−1)/7 × (HIGH − LOW), rounded, clamped 0…127. LOW may exceed HIGH (inverts). This is the literal rank map over 1…8 (`span` `.full`).
@@ -293,15 +294,21 @@ func emitterCCRiffSpan(ranks: [Int], count: Int) -> EmitterCCRiffSpan {
     while i < n { let r = ranks[i]; if r >= 1 && r <= 8 { if r < lo { lo = r }; if r > hi { hi = r } }; i += 1 }
     return hi >= lo ? EmitterCCRiffSpan(lo: lo, hi: hi) : .full
 }
+/// CC SLOTS (2026-11-12): the render-thread copy — 12 fixed cfgs (4 outputs × 3 slots), no heap. `subscript(output:slot:)` is the primary access; the flat `subscript(i:)` (i = output×3 + slot) matches `EmitterCCSet`.
 struct EmitterCCSnap: Equatable {
-    var e0 = EmitterCCCfg(), e1 = EmitterCCCfg(), e2 = EmitterCCCfg(), e3 = EmitterCCCfg()
+    var e0 = EmitterCCCfg(), e1 = EmitterCCCfg(), e2 = EmitterCCCfg(), e3 = EmitterCCCfg(), e4 = EmitterCCCfg(), e5 = EmitterCCCfg()
+    var e6 = EmitterCCCfg(), e7 = EmitterCCCfg(), e8 = EmitterCCCfg(), e9 = EmitterCCCfg(), e10 = EmitterCCCfg(), e11 = EmitterCCCfg()
     init() {}
     init(_ set: EmitterCCSet) { for i in 0..<EmitterCCSet.count { self[i] = EmitterCCCfg(set[i]) } }
     subscript(i: Int) -> EmitterCCCfg {
-        get { switch i { case 0: return e0; case 1: return e1; case 2: return e2; default: return e3 } }
-        set { switch i { case 0: e0 = newValue; case 1: e1 = newValue; case 2: e2 = newValue; default: e3 = newValue } }
+        get { switch i { case 0: return e0; case 1: return e1; case 2: return e2; case 3: return e3; case 4: return e4; case 5: return e5; case 6: return e6; case 7: return e7; case 8: return e8; case 9: return e9; case 10: return e10; default: return e11 } }
+        set { switch i { case 0: e0 = newValue; case 1: e1 = newValue; case 2: e2 = newValue; case 3: e3 = newValue; case 4: e4 = newValue; case 5: e5 = newValue; case 6: e6 = newValue; case 7: e7 = newValue; case 8: e8 = newValue; case 9: e9 = newValue; case 10: e10 = newValue; default: e11 = newValue } }
     }
-    var anyOn: Bool { e0.on || e1.on || e2.on || e3.on }
+    subscript(output o: Int, slot s: Int) -> EmitterCCCfg {
+        get { self[o * EmitterCCSet.slotsPerEmitter + s] }
+        set { self[o * EmitterCCSet.slotsPerEmitter + s] = newValue }
+    }
+    var anyOn: Bool { for i in 0..<EmitterCCSet.count where self[i].on { return true }; return false }
 }
 
 struct SnapParams {
