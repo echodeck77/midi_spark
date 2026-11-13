@@ -123,3 +123,68 @@ func euclideousVoicesModeName(_ m: EuclideousVoicesMode) -> String { m == .one ?
 func euclideousSpreadModeName(_ m: EuclideousSpreadMode) -> String { m.rawValue }
 /// §5.4: the SHIFT button's value text — the start, or (with drift on) start and step ("1 · +1").
 func euclideousShiftValueText(start: Int, driftOn: Bool, step: Int) -> String { driftOn ? "\(start) · \(step >= 0 ? "+" : "")\(step)" : "\(start)" }
+
+// MARK: - Amendment 1 (2026-11-13) §A1 — the ONE selection colour rule (the whole NOTES tab + its pop-ups)
+
+/// §A1: a selected control's FILL — either the lane accent (A1.1) or a fixed hex (A1.2/A1.4). The lane colour is applied at draw time; the pure rule only says WHICH.
+enum EuclideousNotesSelFill: Equatable { case lane; case hex(UInt32) }
+
+/// §A1: fill + label colour + the lane-colour outline for any control on the NOTES tab, from (selected, switched on, playing). The one rule §A1.5 demands every control use.
+struct EuclideousNotesSelLook: Equatable {
+    var fill: EuclideousNotesSelFill
+    var labelHex: UInt32
+    var laneOutline: Bool   // §A1.3: the 1 pt lane-colour outline — only the control playing now (callers pass playing only for that one)
+}
+
+/// §A1.1-§A1.5: ONE function. Selected + on ⇒ lane fill, #1B1D22 ink (A1.1). Selected + off ⇒ #33363D, #AAB0BA (A1.4, "idle-selected" — e.g. BASS's chosen mode while its switch is off). Unselected ⇒ #24262C, #8D939D (A1.2);
+/// a segment control draws "no fill" over its #24262C container, which is identical. The lane outline is drawn only when `playing` (A1.3).
+func euclideousNotesSelLook(selected: Bool, switchedOn: Bool, playing: Bool) -> EuclideousNotesSelLook {
+    let look: EuclideousNotesSelLook
+    if selected && switchedOn {
+        look = EuclideousNotesSelLook(fill: .lane, labelHex: 0x1B1D22, laneOutline: playing)          // A1.1
+    } else if selected {
+        look = EuclideousNotesSelLook(fill: .hex(0x33363D), labelHex: 0xAAB0BA, laneOutline: playing) // A1.4 idle-selected
+    } else {
+        look = EuclideousNotesSelLook(fill: .hex(0x24262C), labelHex: 0x8D939D, laneOutline: playing) // A1.2
+    }
+    return look
+}
+
+// MARK: - Amendment 1 §A3.3 — the REPEAT pop-up's PASS row (what the current ORDER chip will play)
+
+/// §A3.3: the pass of ranks the current ORDER chip plays, BEFORE SHIFT — exactly the §2 builder (`euclideousRowsBuildPass`) with shift/drift off. The PASS row draws one chip per entry, with a centred dot at each round break
+/// (`euclideousRowsRoundBreaks`). `passIndex` only matters for SHUFFLE (a fresh per-pass permutation); non-SHUFFLE is static, so the caller passes 0 while stopped and the live pass index while playing a SHUFFLE chip.
+func euclideousRowsDisplayPass(litOrder: EuclideousLitOrder, bassOn: Bool, order: EuclideousOrderMode,
+                               counts: UInt16, secondLater: UInt8, thirdLater: UInt8, lane: Int, passIndex: Int) -> EuclideousRowsPass {
+    let rip = euclideousRowsRanksInPlay(litOrder: litOrder, bassOn: bassOn)
+    return euclideousRowsBuildPass(asc: rip.asc, added: rip.added, order: order, counts: counts, secondLater: secondLater, thirdLater: thirdLater,
+                                   passIndex: passIndex, lane: lane, shiftStart: 0, driftOn: false, driftStep: 0)
+}
+
+/// §A3.3: the indices into the display pass where a round boundary falls (a centred dot goes there). Round sizes follow the §2.3 layout (copy 1 → round 1; copy 2/3 → round 1/2/3 per the AGAIN/LATER bits), independent of SHIFT and
+/// of the ORDER key (so no `passIndex`). BOUNCE mirrors the whole pass (§2.4), which makes "rounds" meaningless, so it returns no breaks.
+func euclideousRowsRoundBreaks(litOrder: EuclideousLitOrder, bassOn: Bool, order: EuclideousOrderMode,
+                               counts: UInt16, secondLater: UInt8, thirdLater: UInt8) -> [Int] {
+    guard order != .bounce else { return [] }
+    let rip = euclideousRowsRanksInPlay(litOrder: litOrder, bassOn: bassOn)
+    func cnt(_ r: Int) -> Int { min(3, Int((counts >> UInt16(2 * (r - 1))) & 0b11) + 1) }
+    func roundOfCopy2(_ r: Int) -> Int { (secondLater >> UInt8(r - 1)) & 1 != 0 ? 2 : 1 }
+    func roundOfCopy3(_ r: Int) -> Int { roundOfCopy2(r) + ((thirdLater >> UInt8(r - 1)) & 1 != 0 ? 1 : 0) }
+    var sizes = [0, 0, 0]
+    // the ranks in play are asc ∪ added (both drop the bass rank); iterate asc (it holds every one, each once).
+    for i in 0..<rip.asc.count {
+        let r = rip.asc[i]; let c = cnt(r)
+        sizes[0] += 1
+        if c >= 2 { sizes[roundOfCopy2(r) - 1] += 1 }
+        if c >= 3 { sizes[roundOfCopy3(r) - 1] += 1 }
+    }
+    var breaks: [Int] = []
+    if sizes[1] > 0 { breaks.append(sizes[0]) }
+    if sizes[2] > 0 { breaks.append(sizes[0] + sizes[1]) }
+    return breaks
+}
+
+// MARK: - Amendment 1 §A6 — the SHIFT badge
+
+/// §A6.2: the SHIFT badge shows only while start ≠ 0 or drift is on; otherwise the ORDER row's right end is empty. Its text is "SHIFT " + `euclideousShiftValueText`.
+func euclideousShiftBadgeShown(start: Int, driftOn: Bool) -> Bool { start != 0 || driftOn }
