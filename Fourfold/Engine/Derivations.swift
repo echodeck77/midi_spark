@@ -7283,9 +7283,26 @@ func euclideousLapStart(cfg c: EuclideousWalkLaneConfig, beat: Double, rate: Euc
 /// site (the lane card's comet sweep, `EuclidLaneUI.swift`) now reads this instead; the old grid-based function stays
 /// untouched for `LanesGridTests.swift`'s own byte-identical coverage of the grid model.
 func euclideousLaneCometChainRaw(beat: Double, n: Int, dir: EuclidDir, sub: Double, chains: EuclideousLaneRestartChains, legacySpanBeats: Double,
-                                 rate: EuclideousRateMap? = nil) -> Double {
+                                 rate: EuclideousRateMap? = nil, fill: EuclideousFillPlan? = nil) -> Double {
     guard sub > 0, n > 0 else { return 0 }
     let cycleLen = euclidCycleLen(dir, n: n)
+    // FILL ferry (2026-11-13) §2.10: inside a fill region the comet highlights the FIRED step (forward j0+s sweeping within
+    // the step; reverse the mirror j0+(N−1−s), snapping as the content jumps). Not in a region / not a fill lane ⇒ falls through.
+    if let fill, fill.active {
+        let bn = Int((beat / max(1e-6, fill.beatsPerBar)).rounded(.down))
+        if let rg = fill.region(bar: bn), beat >= rg.F - 1e-9, beat < rg.E {
+            let o = fill.originBeat
+            let j0 = euclideousFillFirstStep(rg, origin: o, sub: sub)
+            let N = euclideousFillCount(rg, origin: o, sub: sub)
+            let stepLen = max(1e-9, euclideousFillStepHostLength(rg, sub: sub))
+            let sFloat = (beat - rg.F) / stepLen
+            let s = min(max(0, N - 1), max(0, Int(sFloat.rounded(.down))))
+            let rev = euclideousFillReverseActive(rg, count: N)
+            let content = Double(Int(j0) + (rev ? (N - 1 - s) : s)) + (rev ? 0 : (sFloat - Double(s)))
+            let cl = Double(cycleLen)
+            return content - cl * (content / cl).rounded(.down)
+        }
+    }
     // RATE ferry (2026-11-12): inside a run the comet sweeps at the lane's elapsed speed (continuous lane ticks since the origin), so it follows the audio and rejoins. nil / inactive ⇒ today.
     if let rate = rate, rate.active {
         let raw = rate.elapsed(hostBeat: beat) / sub

@@ -2599,10 +2599,11 @@ struct EuclideousPage: View {
         let chains = euclideousLaneRestartChains(line: line, lane: idx, barBeats: clock.beatsPerBar, lapBeats: Double(gridView.cycleLen) * gridView.sub, scheduleSet: restartScheduleSet)
         let sub = max(0.03125, followEff?.rateBeats ?? euclideousStripDivisionRate(lane: idx, lines: lines).beats)
         let muteCells = gridView.grid.muteCells, muteUnit = gridView.muteUnitBeats
-        let rateStrip = planLane < lines.count ? euclideousLaneRateStrip(line: lines[planLane]) : EuclideousRateStrip()
-        let rateMap: EuclideousRateMap? = rateStrip.active ? EuclideousRateMap(active: true, strip: rateStrip, originBeat: 0, sub: sub, beatsPerBar: clock.beatsPerBar) : nil   // origin 0 (restart+override MIX comet is approximate)
+        // FILL ferry (2026-11-13): the MIX comet follows the fill of the lane it draws (origin 0 — a restart+fill MIX comet is approximate, documented). Not a fill lane ⇒ nil ⇒ the plain sweep.
+        let fillLine = planLane < lines.count ? lines[planLane] : line
+        let fillPlan: EuclideousFillPlan? = fillLine.usesFill ? EuclideousFillPlan(line: fillLine, originBeat: 0, beatsPerBar: clock.beatsPerBar, sub: sub) : nil
         return EuclideousMixStripFeed(legs: plan.legs, n: plan.sweepLength, dir: euclideousLaneDisplayDirection(lane: planLane, lines: phaseLines), sub: sub, chains: chains.isActive ? chains : nil, lanePlaying: line.enabledResolved,
-                                      mutedAt: muteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: muteCells, unitBeats: muteUnit) }, rate: rateMap)
+                                      mutedAt: muteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: muteCells, unitBeats: muteUnit) }, fill: fillPlan)
     }
     /// The MIX strip's drag / pinch — the lane card strip's own handlers (`laneCometRowBody`), so a lane's strip edits the same way on every page. A FOLLOWing lane's gestures edit the lane it follows.
     private func mixStripGestures() -> EuclideousMixV2StripGestures {

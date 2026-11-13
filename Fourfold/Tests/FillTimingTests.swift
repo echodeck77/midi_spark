@@ -130,6 +130,25 @@ final class FillTimingTests: XCTestCase {
         XCTAssertEqual(euclideousFillSourceStep(r, origin: o, sub: sub, count: 129, slot: 5), j0 + 5)
     }
 
+    // MARK: §2.10 the comet raw follows the fired step (test 13) — the display reader through `euclideousLaneCometChainRaw`
+
+    private func plan(_ l: EuclidLine) -> EuclideousFillPlan { EuclideousFillPlan(line: l, originBeat: o, beatsPerBar: B, sub: sub) }
+    private func cometRaw(_ l: EuclidLine, beat: Double) -> Double {
+        euclideousLaneCometChainRaw(beat: beat, n: 8, dir: .fwd, sub: sub, chains: .off, legacySpanBeats: 0, fill: plan(l))
+    }
+    func testCometFollowsTheFiredStep_test13() {
+        // ×2 ½ bar 4: j0 = 28, N = 8, stepLen = 0.25. Forward slot 0 @ beat 14 ⇒ step 28 mod 8 = 4; slot 1 @ 14.25 ⇒ 29 mod 8 = 5.
+        let fwd = armedLine(speed: 3, length: 1)
+        XCTAssertEqual(cometRaw(fwd, beat: 14).rounded(), 4, "forward: the fired step 5 (index 4)")
+        XCTAssertEqual(cometRaw(fwd, beat: 14.25).rounded(), 5)
+        // Reverse: slot 0 ⇒ step (28 + 7) mod 8 = 3; slot 1 ⇒ (28 + 6) mod 8 = 2 (the mirror, §2.10).
+        let rev = armedLine(speed: 3, length: 1, reverse: true)
+        XCTAssertEqual(cometRaw(rev, beat: 14), 3, accuracy: 1e-6, "reverse highlights the mirrored step, snapping (no intra-step sweep)")
+        XCTAssertEqual(cometRaw(rev, beat: 14.25), 2, accuracy: 1e-6)
+        // Outside the region (bar 3 is not lit), the comet is the plain ×1 sweep — beat 10 (bar 3) ⇒ step 20 mod 8 = 4.
+        XCTAssertEqual(cometRaw(fwd, beat: 10).rounded(.down), 4, "outside a region ⇒ the plain sweep")
+    }
+
     // MARK: §2.11 locate = play-through (the mapping is a pure function of the slot)
 
     func testLocateEqualsPlaythrough_test14() {

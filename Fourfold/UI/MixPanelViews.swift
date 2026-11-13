@@ -21,7 +21,8 @@ struct EuclideousMixStripFeed {
     var chains: EuclideousLaneRestartChains?
     var lanePlaying: Bool
     var mutedAt: ((Double) -> Bool)?
-    var rate: EuclideousRateMap? = nil   // RATE ferry (2026-11-12): the MIX strip comet sweeps at the lane's override speed during a run
+    var rate: EuclideousRateMap? = nil   // RATE ferry (2026-11-12): retired (the engine no longer reads the strip); kept for source compatibility, always nil now
+    var fill: EuclideousFillPlan? = nil   // FILL ferry (2026-11-13): the MIX strip comet follows the fill during a region (§2.10)
 }
 
 struct EuclideousMixPanelInput {
@@ -190,8 +191,8 @@ struct EuclideousMixBandCanvas: View {
                 // ── the rhythm strip (the top row: never dimmed)
                 let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
                 let running = clock.playing && feed.lanePlaying && !(feed.mutedAt?(liveBeat) ?? false)
-                let raw = (feed.rate?.active ?? false)   // RATE: the override's rate branch ignores chains, so route it through regardless of whether the lane has restart chains
-                    ? euclideousLaneCometChainRaw(beat: liveBeat, n: feed.n, dir: feed.dir, sub: feed.sub, chains: feed.chains ?? .off, legacySpanBeats: 0, rate: feed.rate)
+                let raw = (feed.fill?.active ?? false)   // FILL: the fill branch highlights the fired step (§2.10), routed through regardless of restart chains
+                    ? euclideousLaneCometChainRaw(beat: liveBeat, n: feed.n, dir: feed.dir, sub: feed.sub, chains: feed.chains ?? .off, legacySpanBeats: 0, fill: feed.fill)
                     : (feed.chains.map { euclideousLaneCometChainRaw(beat: liveBeat, n: feed.n, dir: feed.dir, sub: feed.sub, chains: $0, legacySpanBeats: 0) }
                         ?? euclidCometRaw(mTickBeat: liveBeat, sub: feed.sub, spanBeats: 0, n: feed.n, dir: feed.dir))
                 let legIdx = min(max(0, feed.legs.count - 1), euclideousStripLegIndex(raw: running ? raw : 0, n: feed.n, legCount: feed.legs.count))

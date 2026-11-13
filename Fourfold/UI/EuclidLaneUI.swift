@@ -199,7 +199,7 @@ struct EuclidLaneBox: View {
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
                            strip: strip, stripCurrent: stripCurrent, riffHeld: riffHeld, stackHeld: stackHeld, ccInput: ccInput, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, exactStyle: compact, grouped: grouped,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
-                           restartChains: restartChains, rateStrip: euclideousLaneRateStrip(line: line), mutedAt: mutedAt, suppressMuteDim: stripDim, soloSilencedWords: soloSilenced,
+                           restartChains: restartChains, fillLine: line, mutedAt: mutedAt, suppressMuteDim: stripDim, soloSilencedWords: soloSilenced,
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState, onTapStep: onTapStep)
@@ -354,7 +354,7 @@ struct EuclidCometBar: View {
     var cellFade: Double = 1
     // RESTART CHAINS (ferry 2026-10-19) — see `EuclidLaneBox`. nil/nil (every other caller) ⇒ byte-identical.
     var restartChains: EuclideousLaneRestartChains? = nil
-    var rateStrip: EuclideousRateStrip = EuclideousRateStrip()   // RATE ferry (2026-11-12): the lane's 8-bar speed strip — the playhead sweeps at the override speed during a run (inactive ⇒ unchanged)
+    var fillLine: EuclidLine? = nil   // FILL ferry (2026-11-13): the lane's fill fields — the playhead follows the fill during a region (§2.10; not a fill lane ⇒ unchanged). Replaces the retired RATE strip.
     var mutedAt: ((Double) -> Bool)? = nil
     /// LANE SOLO: the box already dims this whole bar (the lane is solo-silenced), so the bar's own LANES-mute dim stands down — one 42 %, never two multiplied.
     var suppressMuteDim: Bool = false
@@ -409,13 +409,13 @@ struct EuclidCometBar: View {
         let stepXs: [CGFloat] = groupGeo?.xs ?? (0..<n).map { CGFloat($0) * boxGeo.pitch }
         let rotateStepPt: CGFloat = n > 1 ? (stepXs[n - 1] - stepXs[0]) / CGFloat(n - 1) : boxGeo.pitch
         // the lane's position in its pass at a UI beat: with an active restart chain it is measured from the RHYTHM origin (the engine's own core); with both chains FREE it is the legacy span formula
-        let rateStrip = self.rateStrip
+        let fillLine = self.fillLine
         let cometRawAt: (Double) -> Double = { b in
-            // RATE ferry (2026-11-12): inside a run the playhead sweeps at the lane's elapsed speed. The origin is read at this beat (correct across a restart), so a no-restart lane uses origin 0.
-            if rateStrip.active {
+            // FILL ferry (2026-11-13) §2.10: inside a fill region the playhead sweeps at the fill speed and highlights the fired step (reverse mirrored). The origin is read at this beat (correct across a restart). Outside a region / not a fill lane ⇒ the plain chain sweep.
+            if let fl = fillLine, fl.usesFill {
                 let origin = (restartChains?.hasRhythmRestarts ?? false) ? restartChains!.rhythmOriginBeat(b) : 0
-                let map = EuclideousRateMap(active: true, strip: rateStrip, originBeat: origin, sub: sub, beatsPerBar: clock.beatsPerBar)
-                return euclideousLaneCometChainRaw(beat: b, n: n, dir: dir, sub: sub, chains: restartChains ?? .off, legacySpanBeats: spanBeats, rate: map)
+                let plan = EuclideousFillPlan(line: fl, originBeat: origin, beatsPerBar: clock.beatsPerBar, sub: sub)
+                return euclideousLaneCometChainRaw(beat: b, n: n, dir: dir, sub: sub, chains: restartChains ?? .off, legacySpanBeats: spanBeats, fill: plan)
             }
             return restartChains.map { euclideousLaneCometChainRaw(beat: b, n: n, dir: dir, sub: sub, chains: $0, legacySpanBeats: spanBeats) }
                 ?? euclidCometRaw(mTickBeat: b, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
