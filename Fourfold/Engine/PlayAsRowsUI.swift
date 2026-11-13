@@ -4,23 +4,22 @@
 
 import CoreGraphics
 
+// Amendment 1 (2026-11-13) §A10: seven rows — RANKS · WHEN RIFF · ORDER · VOICES · SPREAD · BASS · EMIT+OCT — 28 tall, 5 apart (7×28 + 6×5 = 226 ≤ the ≈229 content area), label column 55. The × mode is gone (§A2.4): the RANKS row is
+// just the eight tiles + a REPEAT button, and counts/timings are edited in the REPEAT pop-up (§A3), so no row ever grows the card or is hidden. Frames are in the tab's content coordinates.
 struct EuclideousPlayAsRowsLayout: Equatable {
-    static let rowH: CGFloat = 28, gap: CGFloat = 6, subGap: CGFloat = 4
-    static let labelW: CGFloat = 48, chanceW: CGFloat = 88
-    static let tile: CGFloat = 28, tileGap: CGFloat = 4, xGap: CGFloat = 8
-    static let shiftW: CGFloat = 64, bassSwitchW: CGFloat = 30, bassPillW: CGFloat = 44
+    static let rowH: CGFloat = 28, gap: CGFloat = 5, subGap: CGFloat = 4
+    static let labelW: CGFloat = 55, chanceW: CGFloat = 88
+    static let tile: CGFloat = 26, tileGap: CGFloat = 3          // §A2.2: 26 pt tiles, 3 apart
+    static let repeatW: CGFloat = 56                             // §A2.5: the RANKS row's REPEAT button (right-aligned)
+    static let bassSwitchW: CGFloat = 30, bassPillW: CGFloat = 44
 
     var content: CGRect = .zero
-    var ranks: CGRect = .zero                       // the RANKS tiles row (not counting 2ND/3RD)
-    var rankTiles: [CGRect] = []                    // the eight 1…8 tiles (content coords)
-    var xButton: CGRect = .zero
-    var secondRow: CGRect?, thirdRow: CGRect?       // the 2ND / 3RD rows, present only while × is on
-    var secondCells: [CGRect] = [], thirdCells: [CGRect] = []
-    var secondLabel: CGRect = .zero, thirdLabel: CGRect = .zero
-    // the six rows below RANKS; nil if hidden (pushed past the card's bottom in × mode)
-    var whenRow: CGRect?, orderRow: CGRect?, voicesRow: CGRect?, spreadRow: CGRect?, bassRow: CGRect?, emitRow: CGRect?
+    var ranks: CGRect = .zero                       // the RANKS row
+    var rankLabel: CGRect = .zero                   // §A2.1: the RANKS label in the label column
+    var rankTiles: [CGRect] = []                    // the eight 1…8 tiles (after the label)
+    var repeatButton: CGRect = .zero                // §A2.5
+    var whenRow: CGRect = .zero, orderRow: CGRect = .zero, voicesRow: CGRect = .zero, spreadRow: CGRect = .zero, bassRow: CGRect = .zero, emitRow: CGRect = .zero
     var fits: Bool = true
-    var hidden: [String] = []                       // the names of the rows hidden in × mode (§6.5 reporting)
 
     /// A row's label column (the leading `labelW`) in its own coordinates offset by the row's origin.
     static func labelFrame(_ row: CGRect) -> CGRect { CGRect(x: row.minX, y: row.minY, width: labelW, height: row.height) }
@@ -30,51 +29,80 @@ struct EuclideousPlayAsRowsLayout: Equatable {
     }
 }
 
-/// §5.2 / §6: the NOTES tab's row frames. `cross` is the RANKS row's × (count-edit) mode. A row pushed past `contentAreaH` is dropped (its frame is nil) and named in `hidden` (§6.5). `fits` is false when the normal (× off) rows
-/// overflow — the caller then scrolls them (the INPUTS fallback); in × mode the overflow is clipped by design, so `fits` ignores the 2ND/3RD expansion.
-func euclideousPlayAsRowsLayout(contentAreaH: CGFloat, fullWidth: CGFloat, cross: Bool) -> EuclideousPlayAsRowsLayout {
+/// §A10: the NOTES tab's seven row frames. No × mode (Amendment 1 §A2.4), so nothing is hidden and every row is present. `fits` is false only if the seven rows overflow `contentAreaH` (the page scales rather than reflows, so at
+/// the reference they fit; the flag is for reporting).
+func euclideousPlayAsRowsLayout(contentAreaH: CGFloat, fullWidth: CGFloat) -> EuclideousPlayAsRowsLayout {
     typealias L = EuclideousPlayAsRowsLayout
     let w = max(1, fullWidth)
     var out = EuclideousPlayAsRowsLayout(content: CGRect(x: 0, y: 0, width: w, height: contentAreaH))
 
-    // RANKS row: eight tiles from x0, then the × button sp8 after them.
+    // RANKS row: the label, eight 26 pt tiles, then REPEAT right-aligned. The tiles (and REPEAT) are centred in the 28 pt row.
     out.ranks = CGRect(x: 0, y: 0, width: w, height: L.rowH)
+    out.rankLabel = CGRect(x: 0, y: 0, width: L.labelW, height: L.rowH)
+    let tilesX = L.labelW + L.subGap
+    let tileY = (L.rowH - L.tile) / 2
     var tiles: [CGRect] = []
-    for i in 0..<8 { tiles.append(CGRect(x: CGFloat(i) * (L.tile + L.tileGap), y: 0, width: L.tile, height: L.tile)) }
+    for i in 0..<8 { tiles.append(CGRect(x: tilesX + CGFloat(i) * (L.tile + L.tileGap), y: tileY, width: L.tile, height: L.tile)) }
     out.rankTiles = tiles
-    let tilesRight = 8 * L.tile + 7 * L.tileGap
-    out.xButton = CGRect(x: tilesRight + L.xGap, y: 0, width: L.tile, height: L.tile)
+    out.repeatButton = CGRect(x: w - L.repeatW, y: tileY, width: L.repeatW, height: L.tile)
 
-    var y: CGFloat = L.rowH   // the bottom of the RANKS tiles
-
-    if cross {
-        // §6.5: 2ND then 3RD, eight cells each, lined up with the tiles; the label sits in the × column.
-        let y2 = y + L.subGap
-        out.secondRow = CGRect(x: 0, y: y2, width: w, height: L.rowH)
-        out.secondCells = tiles.map { CGRect(x: $0.minX, y: y2, width: L.tile, height: L.tile) }
-        out.secondLabel = CGRect(x: out.xButton.minX, y: y2, width: L.tile + 8, height: L.rowH)
-        let y3 = y2 + L.rowH + L.subGap
-        out.thirdRow = CGRect(x: 0, y: y3, width: w, height: L.rowH)
-        out.thirdCells = tiles.map { CGRect(x: $0.minX, y: y3, width: L.tile, height: L.tile) }
-        out.thirdLabel = CGRect(x: out.xButton.minX, y: y3, width: L.tile + 8, height: L.rowH)
-        y = y3 + L.rowH
-    }
-
-    // The six rows below, in order. In × mode they start after the (taller) RANKS block; a row whose top is at or past the content bottom is hidden.
-    let names = ["WHEN RIFF", "ORDER", "VOICES", "SPREAD", "BASS", "EMIT"]
-    var frames: [CGRect?] = []
-    for n in names {
-        y += L.gap
-        if y >= contentAreaH { frames.append(nil); out.hidden.append(n); y += L.rowH; continue }
-        frames.append(CGRect(x: 0, y: y, width: w, height: L.rowH))
-        y += L.rowH
-    }
-    out.whenRow = frames[0]; out.orderRow = frames[1]; out.voicesRow = frames[2]
-    out.spreadRow = frames[3]; out.bassRow = frames[4]; out.emitRow = frames[5]
-    // fits is about the NORMAL layout (× off): the seven rows' total vs the content area.
-    let normalTotal = 7 * L.rowH + 6 * L.gap
-    out.fits = normalTotal <= contentAreaH + 0.5
+    // The six rows below, 28 tall, 5 apart.
+    var y: CGFloat = L.rowH
+    func nextRow() -> CGRect { y += L.gap; let r = CGRect(x: 0, y: y, width: w, height: L.rowH); y += L.rowH; return r }
+    out.whenRow = nextRow(); out.orderRow = nextRow(); out.voicesRow = nextRow()
+    out.spreadRow = nextRow(); out.bassRow = nextRow(); out.emitRow = nextRow()
+    out.fits = (7 * L.rowH + 6 * L.gap) <= contentAreaH + 0.5
     return out
+}
+
+// MARK: - Amendment 1 §A3 — the REPEAT pop-up's grid (card-body scoped)
+
+/// §A3.2: the REPEAT pop-up grid — a label column (`labelW`) then eight equal rank columns 4 apart, each cell `cellH` tall. The pop-up body is `bodyW × bodyH` (the card's tab-body size less the pop-up's own 6 pt inset + title + PASS
+/// band). Rows top→bottom: header (rank numbers), ×, 2ND, 3RD. The frames are in the grid's own coordinates (the view offsets the whole grid below the title). `pass`/`passLabel` is the §A3.3 PASS band under a divider.
+struct EuclideousRepeatPopupLayout: Equatable {
+    static let labelW: CGFloat = 48, colGap: CGFloat = 4, cellH: CGFloat = 32, rowGap: CGFloat = 4
+    static let titleH: CGFloat = 30, passH: CGFloat = 26, dividerGap: CGFloat = 8
+    var gridLabel: [CGRect] = []       // the four row labels (header has none → index 0 unused/zero)
+    var cells: [[CGRect]] = []         // [row 0…3][rank 0…7]; row 0 header, 1 ×, 2 second, 3 third
+    var passLabel: CGRect = .zero
+    var passArea: CGRect = .zero
+    var divider: CGRect = .zero
+}
+
+func euclideousRepeatPopupLayout(bodyW: CGFloat, bodyH: CGFloat) -> EuclideousRepeatPopupLayout {
+    typealias R = EuclideousRepeatPopupLayout
+    var out = EuclideousRepeatPopupLayout()
+    let w = max(1, bodyW)
+    let colsX = R.labelW + R.colGap
+    let colW = max(1, (w - colsX - 7 * R.colGap) / 8)
+    var y = R.titleH
+    for row in 0..<4 {
+        var rowCells: [CGRect] = []
+        for c in 0..<8 { rowCells.append(CGRect(x: colsX + CGFloat(c) * (colW + R.colGap), y: y, width: colW, height: R.cellH)) }
+        out.cells.append(rowCells)
+        out.gridLabel.append(CGRect(x: 0, y: y, width: R.labelW, height: R.cellH))
+        y += R.cellH + R.rowGap
+    }
+    out.divider = CGRect(x: 0, y: y + R.dividerGap / 2, width: w, height: 1)
+    let passY = y + R.dividerGap
+    out.passLabel = CGRect(x: 0, y: passY, width: R.labelW, height: R.passH)
+    out.passArea = CGRect(x: colsX, y: passY, width: max(1, w - colsX), height: R.passH)
+    return out
+}
+
+/// §A3.2: which REPEAT-grid cells are LIVE (editable). The header is always shown; a × cell is live iff its rank is lit; a 2ND/3RD cell is live iff the rank is lit AND its count is at least 2 / 3. A dead cell draws #131518 and ignores
+/// taps (test 4). `row`: 0 header, 1 ×, 2 second, 3 third.
+func euclideousRepeatCellLive(litOrder: EuclideousLitOrder, counts: UInt16, rank: Int, row: Int) -> Bool {
+    guard rank >= 1, rank <= 8 else { return false }
+    if row == 0 { return true }                                   // the header (rank number) is shown for every rank; lit/unlit is only its colour
+    guard litOrder.contains(rank - 1) else { return false }       // the ×/2ND/3RD cells are dead for an unlit rank
+    let cnt = min(3, Int((counts >> UInt16(2 * (rank - 1))) & 0b11) + 1)
+    switch row {
+    case 1: return true          // × (count) — any lit rank
+    case 2: return cnt >= 2
+    case 3: return cnt >= 3
+    default: return false
+    }
 }
 
 // MARK: - §7 the row pop-ups' tile pictures (no numbers on any picture)

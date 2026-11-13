@@ -4,27 +4,41 @@ import XCTest
 import CoreGraphics
 
 final class PlayAsRowsUITests: XCTestCase {
-    // §5.2: the seven rows fit the 233 / 233.67 content area (7×28 + 6×6 = 232).
+    // Amendment 1 §A10: seven rows (RANKS + six), 28 tall, 5 apart — 7×28 + 6×5 = 226, inside the real content area at both references.
     func testTheSevenRowsFitBothReferences() {
-        for h in [233.0 as CGFloat, 233.67] {
-            let lay = euclideousPlayAsRowsLayout(contentAreaH: h, fullWidth: 360.67, cross: false)
-            XCTAssertTrue(lay.fits, "7 rows fit at \(h)")
-            XCTAssertNotNil(lay.emitRow); XCTAssertNotNil(lay.bassRow)
-            XCTAssertEqual(lay.emitRow!.maxY, 232, accuracy: 0.01, "EMIT+OCT bottom at 232")
-            XCTAssertTrue(lay.hidden.isEmpty)
-            XCTAssertEqual(lay.rankTiles.count, 8); XCTAssertNil(lay.secondRow)
+        for cardH in [301.0 as CGFloat, 301.67] {   // landscape / portrait lane card heights
+            let h = EuclideousLaneCardMetrics.contentAreaH(cardHeight: cardH)
+            let lay = euclideousPlayAsRowsLayout(contentAreaH: h, fullWidth: 360.67)
+            XCTAssertTrue(lay.fits, "7 rows fit at contentAreaH \(h)")
+            XCTAssertEqual(lay.emitRow.maxY, 226, accuracy: 0.01, "EMIT+OCT bottom at 226")
+            XCTAssertEqual(lay.rankTiles.count, 8)
+            XCTAssertEqual(lay.rankLabel.width, 55, "§A10 label column 55")
+            XCTAssertEqual(lay.rankTiles[0].width, 26, accuracy: 0.01, "§A2.2 26 pt tiles")
+            XCTAssertEqual(lay.rankTiles[0].minX, 59, accuracy: 0.01, "tiles after the 55 label + 4 subGap")
         }
     }
-    // §6.5: × mode grows RANKS to 92 and hides BASS, EMIT (and anything below SPREAD).
-    func testCrossModeHidesTheBottomRows() {
-        let lay = euclideousPlayAsRowsLayout(contentAreaH: 233, fullWidth: 360.67, cross: true)
-        XCTAssertNotNil(lay.secondRow); XCTAssertNotNil(lay.thirdRow)
-        XCTAssertNotNil(lay.spreadRow, "SPREAD still shows")
-        XCTAssertNil(lay.bassRow, "BASS hidden"); XCTAssertNil(lay.emitRow, "EMIT hidden")
-        XCTAssertEqual(Set(lay.hidden), ["BASS", "EMIT"])
-        XCTAssertEqual(lay.secondCells.count, 8); XCTAssertEqual(lay.thirdCells.count, 8)
-        // the 2ND/3RD cells line up under the tiles
-        for i in 0..<8 { XCTAssertEqual(lay.secondCells[i].minX, lay.rankTiles[i].minX); XCTAssertEqual(lay.thirdCells[i].minX, lay.rankTiles[i].minX) }
+    // §A10.2 / test 7: at both references every control's frame lies inside the card, and REPEAT is inside the card clear of the tiles.
+    func testEveryFrameIsInsideTheCard() {
+        for w in [360.67 as CGFloat, 367.0] {   // landscape / portrait inner widths
+            let lay = euclideousPlayAsRowsLayout(contentAreaH: 229, fullWidth: w)
+            for t in lay.rankTiles {
+                XCTAssertGreaterThanOrEqual(t.minX, lay.rankLabel.maxX)
+                XCTAssertLessThanOrEqual(t.maxX, lay.repeatButton.minX, "tiles clear of REPEAT at \(w)")
+            }
+            XCTAssertEqual(lay.repeatButton.width, 56)
+            XCTAssertLessThanOrEqual(lay.repeatButton.maxX, w + 0.01, "REPEAT inside the card")
+            for r in [lay.whenRow, lay.orderRow, lay.voicesRow, lay.spreadRow, lay.bassRow, lay.emitRow] {
+                XCTAssertEqual(r.width, w); XCTAssertGreaterThan(r.minY, 0); XCTAssertLessThanOrEqual(r.maxY, 226.01)
+            }
+        }
+    }
+    // §A3.2: the REPEAT pop-up grid — four rows of eight cells + a PASS band, all inside the body.
+    func testRepeatPopupLayout() {
+        let lay = euclideousRepeatPopupLayout(bodyW: 340, bodyH: 217)
+        XCTAssertEqual(lay.cells.count, 4); XCTAssertEqual(lay.cells[0].count, 8)
+        for row in lay.cells { for c in row { XCTAssertLessThanOrEqual(c.maxX, 340.01); XCTAssertEqual(c.height, 32) } }
+        XCTAssertGreaterThan(lay.passArea.minY, lay.cells[3][0].maxY, "PASS below the 3RD row")
+        XCTAssertGreaterThan(lay.divider.minY, lay.cells[3][0].maxY)
     }
     // §7: the tile pictures are well-formed (levels in 1…4, the right counts).
     func testTilePictures() {

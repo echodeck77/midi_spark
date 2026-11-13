@@ -956,9 +956,9 @@ struct EuclideousPage: View {
     // PLAY AS ROWS ferry (2026-11-11): the NOTES tab's own ephemeral UI state — never saved, never an undo step.
     enum EuclideousChainKind: Equatable { case order, voices, spread }
     struct NotesChainPopupTarget: Equatable { var lane: Int; var kind: EuclideousChainKind; var chip: Int }
-    @State private var notesXLane: Int? = nil                           // §6.5: the lane whose RANKS row is in × (count-edit) mode
+    @State private var notesRepeatPopup: Int? = nil                     // §A3: the open REPEAT pop-up's lane (Amendment 1 — replaces the × mode's `notesXLane`)
     @State private var notesChainPopup: NotesChainPopupTarget? = nil    // §7: the open ORDER / VOICES / SPREAD pop-up
-    @State private var notesShiftPopup: Int? = nil                      // §8: the open SHIFT pop-up's lane
+    @State private var notesShiftPopup: Int? = nil                      // §8: the open SHIFT pop-up's lane (retired by §A5.4 — folded into the ORDER pop-up; the mount stays for §0.2)
     @State private var scheduleHolder = EuclideousScheduleHolder()   // RESTART UNITS: the lanes' restart schedule, rebuilt only when the lines, the host bar or the walk's width change
     @State private var riffReadoutCache = EuclideousRiffReadoutCache()   // the riff readout / never-play set, memoised per lane on its inputs (RIFF WALK §7.2)
     // FX TAB (2026-10-18 §12.1/§12.5/§12.9): exactly one row selected (RATCH first; switching tabs never changes it), each row's brush (its default when the page
@@ -1702,6 +1702,11 @@ struct EuclideousPage: View {
                     Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { playAsPopup = nil }.zIndex(4)
                     playAsPopupCard(t, box: box).zIndex(5)
                 }
+                // PLAY AS ROWS amend 1 (2026-11-13) §A3: the REPEAT pop-up — card-body scoped over the tapped lane, no dark scrim (nothing under it moves); a tap outside closes it.
+                if let lane = notesRepeatPopup {
+                    Color.clear.contentShape(Rectangle()).ignoresSafeArea().onTapGesture { notesRepeatPopup = nil }.zIndex(4)
+                    notesRepeatPopupCard(lane, page: pageGeometry(box).page).zIndex(5)
+                }
                 // PLAY AS ROWS (2026-11-11) §7, §8: the ORDER/VOICES/SPREAD and SHIFT pop-ups, opened from a chip / the SHIFT button. The scrim closes them.
                 if let t = notesChainPopup {
                     Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { notesChainPopup = nil }.zIndex(4)
@@ -2210,7 +2215,7 @@ struct EuclideousPage: View {
         harmonyOpen = false; harmonyPopover = .none   // HARMONY: one overlay at a time (§4.1)
         hocketPopupOpen = false   // HOCKET (2026-10-27): the same
         playAsPopup = nil         // PLAY AS SEQUENCE (2026-11-08): the same
-        notesChainPopup = nil; notesShiftPopup = nil   // PLAY AS ROWS (2026-11-11): the ORDER/VOICES/SPREAD and SHIFT pop-ups
+        notesChainPopup = nil; notesShiftPopup = nil; notesRepeatPopup = nil   // PLAY AS ROWS (2026-11-11 / amend 1): the ORDER/VOICES/SPREAD, SHIFT and REPEAT pop-ups
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -4663,14 +4668,10 @@ struct EuclideousPage: View {
     private func notesTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         let isOn = line.notesOnResolved
         let shadowing = euclideousAnswerBorrowedTabs(line, notesReadsRiff: true).notes
-        let cross = (notesXLane == idx)
-        let lay = euclideousPlayAsRowsLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, cross: cross)
+        let lay = euclideousPlayAsRowsLayout(contentAreaH: contentAreaH, fullWidth: fullWidth)   // §A10: no × mode; seven fixed rows
         return ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
-                ranksTilesRow(idx, line, accent, lay: lay)                                   // §6: the eight tiles + × button
-                // §6.5: the 2ND / 3RD copy rows position their own cells + label ABSOLUTELY (lay.secondCells/secondLabel carry y2/y3), exactly like ranksTilesRow — so they are placed bare, with NO outer offset. (An outer `.offset(y:)` here double-offset them: the 3RD row landed on top of the ORDER row — device bug, 2026-11-12.)
-                if cross, lay.secondRow != nil { notesRankCopyRow(idx, line, accent, cells: lay.secondCells, labelFrame: lay.secondLabel, copy: 2) }
-                if cross, lay.thirdRow != nil { notesRankCopyRow(idx, line, accent, cells: lay.thirdCells, labelFrame: lay.thirdLabel, copy: 3) }
+                ranksTilesRow(idx, line, accent, lay: lay)                                   // §A2: the eight tiles + the REPEAT button
                 notesRowAt(lay.whenRow, fullWidth) { whenRiffRow(idx, line, accent, width: fullWidth) }
                 notesRowAt(lay.orderRow, fullWidth) { notesChainRow(idx, line, kind: .order, accent: accent, width: fullWidth) }
                 notesRowAt(lay.voicesRow, fullWidth) { notesChainRow(idx, line, kind: .voices, accent: accent, width: fullWidth) }
@@ -4692,87 +4693,75 @@ struct EuclideousPage: View {
         if let f = frame { v().frame(width: width, height: f.height, alignment: .topLeading).offset(x: f.minX, y: f.minY) }
     }
 
-    // MARK: - PLAY AS ROWS §6 — the RANKS row
+    // MARK: - PLAY AS ROWS §A2 — the RANKS row (Amendment 1, 2026-11-13)
 
-    /// §6.1-§6.4: the eight 1…8 tiles and the × button. A lit tile fills in the lane colour with its rank number and one pip per count; an unlit tile is neutral. With × off a tap toggles the STACK selection (the SAME lit-order store /
-    /// one undo step as a grid tap). With × on, a lit tile steps its count 1→2→3→1 and the unlit tiles dim; the × button is outlined.
+    /// §A1: the lane-aware fill colour from the one selection look.
+    private func selFill(_ look: EuclideousNotesSelLook, _ accent: Color) -> Color {
+        switch look.fill { case .lane: return lane100(accent); case .hex(let h): return Color(hex: h) }
+    }
+
+    /// §A2: a RANKS label, the eight 26 pt 1…8 tiles, and a right-aligned REPEAT button. A tap on a tile always toggles the rank (the × mode is gone — §A2.4); counts and AGAIN/LATER move into the REPEAT pop-up (§A3).
     private func ranksTilesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, lay: EuclideousPlayAsRowsLayout) -> some View {
-        let cross = (notesXLane == idx)
         let order = line.litOrderResolved
         let part = 2 * idx + 1
-        // §6.3: a 60 fps layer so a tile rings + glows while its rank sounds (the STACK-grid-live feed and rule); paused when the page isn't live.
+        // §A2.6: a 60 fps layer so a tile rings + glows while its rank sounds (the STACK-grid-live feed and rule); paused when the page isn't live.
         return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
           let beat = walkTagBeat(at: tl.date)
           let notesPart = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
           ZStack(alignment: .topLeading) {
+            Text("RANKS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))   // §A2.1
+                .frame(width: lay.rankLabel.width, height: lay.rankLabel.height, alignment: .leading).offset(x: lay.rankLabel.minX, y: lay.rankLabel.minY).accessibilityHidden(true)
             ForEach(0..<8, id: \.self) { r in
                 let frame = lay.rankTiles[r]
                 let lit = order.contains(r)
                 let s = euclideousStackSounding(notesPart: notesPart, rank: r + 1, nowBeat: beat)
                 let sounding = clock.playing && s.sounding
                 let glowAge = s.glowOnset.map { (beat - $0) * 60 / max(1, clock.tempo) }
-                notesRankTile(idx, rank: r + 1, lit: lit, count: line.notesRankCount(r + 1), accent: accent, cross: cross, sounding: sounding, glowAge: glowAge)
+                notesRankTile(idx, rank: r + 1, lit: lit, count: line.notesRankCount(r + 1), accent: accent, sounding: sounding, glowAge: glowAge)
                     .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
             }
-            // the × button
-            Text("\u{00D7}").font(.system(size: 18, weight: .heavy, design: .monospaced)).foregroundColor(cross ? lane100(accent) : Color(hex: 0x8A909A))
-                .frame(width: lay.xButton.width, height: lay.xButton.height)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x24262C)))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(cross ? lane100(accent) : Color(hex: 0x33363D), lineWidth: cross ? 2 : 1))
-                .contentShape(Rectangle())
-                .onTapGesture { notesXLane = cross ? nil : idx }   // §6.6: a second tap closes × mode
-                .offset(x: lay.xButton.minX, y: lay.xButton.minY)
-                .accessibilityLabel("Edit rank counts, lane \(idx + 1)").accessibilityAddTraits(cross ? [.isButton, .isSelected] : .isButton)
+            notesRepeatButton(idx, accent: accent)   // §A2.5
+                .frame(width: lay.repeatButton.width, height: lay.repeatButton.height).offset(x: lay.repeatButton.minX, y: lay.repeatButton.minY)
         }
           .frame(width: lay.content.width, height: lay.ranks.height, alignment: .topLeading)
           .accessibilityElement(children: .contain).accessibilityLabel("Ranks")
         }
     }
-    /// One 1…8 tile. §6.3: a 2 pt lane-colour ring and a glow while its rank sounds.
-    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, count: Int, accent: Color, cross: Bool, sounding: Bool, glowAge: Double?) -> some View {
-        let dim = cross && !lit
-        let glow = (sounding && !reduceMotion) ? max(0, 1 - (glowAge ?? 1) / 0.35) : 0   // a note-on glow that fades over 0.35 s
+    /// §A2.2-§A2.6: one 1…8 tile — the grid rank style (bold) in the one-selection colour, pips only at 2× / 3× (§A2.3), the 2 pt lane ring + glow while its rank sounds (§A2.6). A tap toggles the rank (§A2.4).
+    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, count: Int, accent: Color, sounding: Bool, glowAge: Double?) -> some View {
+        let look = euclideousNotesSelLook(selected: lit, switchedOn: true, playing: false)   // §A1/§A2.2 (the sounding ring is A2.6's own, kept explicit)
+        let glow = (sounding && !reduceMotion) ? max(0, 1 - (glowAge ?? 1) / 0.35) : 0        // a note-on glow that fades over 0.35 s
         return ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(lit ? lane100(accent) : Color(hex: 0x24262C))
+            RoundedRectangle(cornerRadius: 4).fill(selFill(look, accent))   // §A2.2 r4
             VStack(spacing: 2) {
-                Text("\(rank)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(lit ? Color(hex: 0x0D0F14) : Color(hex: 0x8A909A))
-                if lit {   // §6.2: one pip per count (1…3)
-                    HStack(spacing: 2) { ForEach(0..<max(1, count), id: \.self) { _ in Circle().fill(Color(hex: 0x0D0F14)).frame(width: 2.5, height: 2.5) } }
+                Text("\(rank)").font(.system(size: 14, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: look.labelHex))   // §A2.2 the grid rank style, scaled
+                if lit && count >= 2 {   // §A2.3: pips only at 2× / 3×
+                    HStack(spacing: 1.5) { ForEach(0..<count, id: \.self) { _ in Circle().fill(Color(hex: 0x1B1D22)).frame(width: 2.5, height: 2.5) } }
                 }
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(lane100(accent), lineWidth: sounding ? 2 : 0))   // §6.3: the sounding ring
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(lane100(accent), lineWidth: sounding ? 2 : 0))   // §A2.6 the sounding ring
         .shadow(color: lane100(accent).opacity(glow * 0.8), radius: glow * 6)
-        .opacity(dim ? 0.42 : 1)
         .contentShape(Rectangle())
-        .onTapGesture {
-            if cross { guard lit else { return }; edit(idx) { $0.cycleNotesRankCount(rank) } }   // §6.5: step the count
-            else { edit(idx) { _ = euclideousToggleLitPosition(&$0, position: rank - 1) } }        // §6.4: toggle the rank (same store / undo as a grid tap)
-        }
+        .onTapGesture { edit(idx) { _ = euclideousToggleLitPosition(&$0, position: rank - 1) } }   // §A2.4 always toggles the rank (same store / undo as a grid tap)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Rank \(rank)")
         .accessibilityValue(lit ? "on, \(count) time\(count == 1 ? "" : "s")" : "off")
         .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
     }
-    /// §6.5: a 2ND / 3RD row — eight cells lined up with the tiles plus the row's label in the × column. A live cell (its rank lit and count ≥ this copy) shows two dots: touching = AGAIN, apart = LATER; a dead cell is dark and ignores taps.
-    private func notesRankCopyRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, cells: [CGRect], labelFrame: CGRect, copy: Int) -> some View {
-        let order = line.litOrderResolved
-        return ZStack(alignment: .topLeading) {
-            ForEach(0..<8, id: \.self) { r in
-                let frame = cells[r]
-                let live = order.contains(r) && line.notesRankCount(r + 1) >= copy
-                let later = (copy == 2 ? line.notesRankSecond(r + 1) : line.notesRankThird(r + 1)) == .later
-                notesCopyCell(idx, rank: r + 1, copy: copy, live: live, later: later, accent: accent)
-                    .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
-            }
-            Text(copy == 2 ? "2ND" : "3RD").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                .frame(width: labelFrame.width, height: labelFrame.height, alignment: .leading).offset(x: labelFrame.minX, y: labelFrame.minY).accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .contain).accessibilityLabel(copy == 2 ? "Second copies" : "Third copies")
+    /// §A2.5: the REPEAT button at the RANKS row's right — opens the REPEAT pop-up (A1.2 colours).
+    private func notesRepeatButton(_ idx: Int, accent: Color) -> some View {
+        Text("REPEAT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8D939D))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x24262C)))
+            .contentShape(Rectangle())
+            .onTapGesture { closeAllOtherOverlays(); notesRepeatPopup = idx }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Repeat").accessibilityAddTraits(.isButton)
     }
+    /// §A3.2: one 2ND / 3RD cell (reused by the REPEAT pop-up). A live cell shows two dots: touching = AGAIN, apart = LATER; a dead cell is dark and ignores taps.
     private func notesCopyCell(_ idx: Int, rank: Int, copy: Int, live: Bool, later: Bool, accent: Color) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(live ? Color(hex: 0x24262C) : Color(hex: 0x16181C))
+            RoundedRectangle(cornerRadius: 4).fill(live ? Color(hex: 0x24262C) : Color(hex: 0x131518))   // §A3.2: dead cell #131518, r4
             if live {   // two dots: touching (AGAIN) or apart (LATER)
                 HStack(spacing: later ? 8 : 2) { Circle().fill(lane100(accent)).frame(width: 5, height: 5); Circle().fill(lane100(accent)).frame(width: 5, height: 5) }
             }
@@ -4784,6 +4773,110 @@ struct EuclideousPage: View {
         .accessibilityLabel("Rank \(rank), \(copy == 2 ? "second" : "third") copy").accessibilityValue(later ? "later" : "again")
     }
 
+    // MARK: - PLAY AS ROWS §A3 — the REPEAT pop-up (Amendment 1, card-body scoped)
+
+    /// §A3: a pop-up covering the tapped lane's tab body (below the 44 pt top row), inset 6; nothing under it moves. A label column + eight rank columns, four rows (rank numbers, ×, 2ND, 3RD) and a PASS band. The only place counts /
+    /// timings are edited (§A3.4).
+    @ViewBuilder private func notesRepeatPopupCard(_ lane: Int, page: EuclideousPageLayout) -> some View {
+        let card = page.lanes[lane], lb = page.laneBox
+        let accent = laneAccents[lane % max(1, laneAccents.count)]
+        let line = lines[lane]
+        let bodyX = card.minX + EuclideousLaneCardMetrics.inset
+        let bodyY = card.minY + EuclideousLaneCardMetrics.bodyTop
+        let bodyW = EuclideousLaneCardMetrics.innerWidth(cardWidth: lb.width)
+        let bodyH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: lb.height)
+        let pad: CGFloat = 6                                   // §A3.1: inset 6
+        let cw = max(1, bodyW - pad * 2), ch = max(1, bodyH - pad * 2)
+        let lay = euclideousRepeatPopupLayout(bodyW: cw, bodyH: ch)
+        let order = line.litOrderResolved
+        let counts = line.notesRankCounts ?? 0
+        ZStack(alignment: .topLeading) {
+            // title + close
+            HStack(spacing: 0) {
+                Text("REPEAT").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                Spacer()
+                Text("\u{2715}").font(.system(size: 14, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 44, height: 30).contentShape(Rectangle())
+                    .onTapGesture { notesRepeatPopup = nil }.accessibilityLabel("Close").accessibilityAddTraits(.isButton)
+            }
+            .frame(width: cw, height: EuclideousRepeatPopupLayout.titleH, alignment: .leading)
+            // the four rows
+            ForEach(0..<4, id: \.self) { row in
+                if row > 0 {   // the × / 2ND / 3RD row label
+                    Text(row == 1 ? "\u{00D7}" : row == 2 ? "2ND" : "3RD").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                        .frame(width: lay.gridLabel[row].width, height: lay.gridLabel[row].height, alignment: .leading).offset(x: lay.gridLabel[row].minX, y: lay.gridLabel[row].minY).accessibilityHidden(true)
+                }
+                ForEach(0..<8, id: \.self) { c in
+                    let rank = c + 1, lit = order.contains(c), cnt = line.notesRankCount(rank), cell = lay.cells[row][c]
+                    repeatGridCell(lane, rank: rank, row: row, lit: lit, count: cnt, accent: accent)
+                        .frame(width: cell.width, height: cell.height).offset(x: cell.minX, y: cell.minY)
+                }
+            }
+            // divider + PASS (§A3.3)
+            Rectangle().fill(Color(hex: 0x24262C)).frame(width: lay.divider.width, height: 1).offset(x: lay.divider.minX, y: lay.divider.minY)
+            Text("PASS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                .frame(width: lay.passLabel.width, height: lay.passLabel.height, alignment: .leading).offset(x: lay.passLabel.minX, y: lay.passLabel.minY).accessibilityHidden(true)
+            notesRepeatPassRow(lane, line, accent: accent).frame(width: lay.passArea.width, height: lay.passArea.height, alignment: .leading).offset(x: lay.passArea.minX, y: lay.passArea.minY)
+        }
+        .padding(pad)
+        .frame(width: bodyW, height: bodyH, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x17191E)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0x33363D), lineWidth: 1))
+        .offset(x: bodyX, y: bodyY)
+        .accessibilityElement(children: .contain).accessibilityLabel("Repeat, lane \(lane + 1)").accessibilityAddTraits(.isModal)
+    }
+
+    /// §A3.2: one REPEAT-grid cell. Row 0 = the rank number (lane100 lit / #5A5E66 unlit, no tap). Row 1 = ×/count (dead #131518 when unlit; 1× A1.2 + #E6E8EC digit; 2×/3× lane fill + #1B1D22 digit + pips; tap 1→2→3→1). Rows 2/3 reuse notesCopyCell.
+    @ViewBuilder private func repeatGridCell(_ lane: Int, rank: Int, row: Int, lit: Bool, count: Int, accent: Color) -> some View {
+        if row == 0 {
+            Text("\(rank)").font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(lit ? lane100(accent) : Color(hex: 0x5A5E66))
+                .frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityHidden(true)
+        } else if row == 1 {
+            ZStack {
+                RoundedRectangle(cornerRadius: 4).fill(!lit ? Color(hex: 0x131518) : (count >= 2 ? lane100(accent) : Color(hex: 0x24262C)))
+                if lit {
+                    VStack(spacing: 2) {
+                        Text("\(count)").font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(count >= 2 ? Color(hex: 0x1B1D22) : Color(hex: 0xE6E8EC))
+                        if count >= 2 { HStack(spacing: 1.5) { ForEach(0..<count, id: \.self) { _ in Circle().fill(Color(hex: 0x1B1D22)).frame(width: 2.5, height: 2.5) } } }
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { guard lit else { return }; edit(lane) { $0.cycleNotesRankCount(rank) } }   // §A3.2: step 1→2→3→1, one undo step
+            .accessibilityElement(children: .ignore).accessibilityHidden(!lit).accessibilityLabel("Rank \(rank), count").accessibilityValue("\(count) time\(count == 1 ? "" : "s")")
+        } else {
+            let live = lit && count >= (row == 2 ? 2 : 3)
+            let later = (row == 2 ? lines[lane].notesRankSecond(rank) : lines[lane].notesRankThird(rank)) == .later
+            notesCopyCell(lane, rank: rank, copy: row, live: live, later: later, accent: accent)
+        }
+    }
+
+    /// §A3.3: the PASS band — one chip per entry of the current ORDER chip's pass BEFORE SHIFT, a centred dot at each round break. SHUFFLE shows nothing (the live per-pass permutation has no feed yet — a deferred nicety). Shrinks to fit → 12, then scrolls.
+    @ViewBuilder private func notesRepeatPassRow(_ lane: Int, _ line: EuclidLine, accent: Color) -> some View {
+        // the current ORDER chip: the one playing now (via the polled walk ordinal — the riff ordinal, an accepted approximation like the UI-clock offset) while running, else the first.
+        let ord = (clock.playing && lane < riffWalkState.count) ? riffWalkState[lane] : Int64(0)
+        let oIdx = clock.playing ? euclideousRowsActiveChip(line.notesOrderChainResolved, hits: { $0.hits }, hitOrdinal: ord) : 0
+        let order = euclideousRowsOrderValue(line.notesOrderChain, oIdx)
+        if order == .shuffle {
+            Color.clear.accessibilityLabel("Pass").accessibilityValue("shuffles each pass")
+        } else {
+            let pass = euclideousRowsDisplayPass(litOrder: line.litOrderResolved, bassOn: line.notesBassOnResolved, order: order,
+                                                 counts: line.notesRankCounts ?? 0, secondLater: line.notesRankSecondLater ?? 0, thirdLater: line.notesRankThirdLater ?? 0, lane: lane, passIndex: 0)
+            let breaks = Set(euclideousRowsRoundBreaks(litOrder: line.litOrderResolved, bassOn: line.notesBassOnResolved, order: order,
+                                                       counts: line.notesRankCounts ?? 0, secondLater: line.notesRankSecondLater ?? 0, thirdLater: line.notesRankThirdLater ?? 0))
+            let ranks = pass.array
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 3) {
+                    ForEach(Array(ranks.enumerated()), id: \.offset) { i, r in
+                        if breaks.contains(i) { Circle().fill(Color(hex: 0x4A4E57)).frame(width: 3, height: 3) }   // a centred dot between rounds
+                        Text("\(r)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(lane100(accent).opacity(0.85))
+                            .frame(width: 20, height: 20).background(RoundedRectangle(cornerRadius: 3).fill(lane100(accent).opacity(0.2)))
+                    }
+                }
+            }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Pass").accessibilityValue(ranks.isEmpty ? "empty" : ranks.map { "\($0)" }.joined(separator: ", "))
+        }
+    }
+
     // MARK: - PLAY AS ROWS — WHEN RIFF (reused controls), BASS, EMIT+OCT
 
     private func whenRiffRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
@@ -4791,7 +4884,7 @@ struct EuclideousPage: View {
         let chance = line.notesChanceResolved, chanceStops = [25, 50, 75, 100]
         let chanceIdx = chanceStops.firstIndex(of: chance) ?? 3
         return HStack(spacing: 4) {
-            riffRowLabel("WHEN", "RIFF").frame(width: 48).accessibilityHidden(true)
+            riffRowLabel("WHEN", "RIFF").frame(width: EuclideousPlayAsRowsLayout.labelW).accessibilityHidden(true)
             notesToggle("PLAYS", on: plays, accent: accent, accessibility: euclideousNotesPlaysLabel, hint: euclideousNotesWhenHint(isOnlyOneOn: plays && !rests, riffOn: line.riffOnResolved),
                         help: "Play the lit notes on hits where the riff plays a note.", lane: idx, outline: lockOn(idx, .notesWhen)) { guard !(plays && !rests) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 } }
             notesToggle("RESTS", on: rests, accent: accent, accessibility: euclideousNotesRestsLabel, hint: euclideousNotesWhenHint(isOnlyOneOn: rests && !plays, riffOn: line.riffOnResolved),
@@ -4807,7 +4900,7 @@ struct EuclideousPage: View {
     private func bassRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
         let on = line.notesBassOnResolved, mode = line.notesBassModeResolved
         return HStack(spacing: 6) {
-            Text("BASS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 48, alignment: .leading).accessibilityHidden(true)
+            Text("BASS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: EuclideousPlayAsRowsLayout.labelW, alignment: .leading).accessibilityHidden(true)
             EuclideousRowSwitchPill(on: on, accent: lane100(accent))
                 .contentShape(Rectangle()).frame(width: 44, height: 28).onTapGesture { edit(idx) { $0.notesBassOn = on ? nil : true } }
                 .accessibilityLabel("Bass").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
@@ -4847,7 +4940,7 @@ struct EuclideousPage: View {
         let chips = notesChainChips(line, kind)
         let multi = chips.count >= 2
         return HStack(spacing: 4) {
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 48, alignment: .leading).accessibilityHidden(true)
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: EuclideousPlayAsRowsLayout.labelW, alignment: .leading).accessibilityHidden(true)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(Array(chips.enumerated()), id: \.offset) { i, chip in

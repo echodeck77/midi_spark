@@ -95,6 +95,30 @@ final class PlayAsRowsAmendment1Tests: XCTestCase {
         XCTAssertEqual(euclideousRowsRoundBreaks(litOrder: lo, bassOn: false, order: .bounce, counts: counts([(3, 2)]), secondLater: later([3]), thirdLater: 0), [])
     }
 
+    // MARK: §A12 test 4 — the REPEAT pop-up's live/dead cells (dead cells ignore taps)
+
+    func testRepeatCellLiveness() {
+        let lo = litOrder([2, 5])   // ranks 2 and 5 lit
+        let c = counts([(2, 3), (5, 2)])   // rank 2 ×3, rank 5 ×2
+        // the header (row 0) is present for every rank, lit or not
+        for r in 1...8 { XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: r, row: 0)) }
+        // an unlit rank: every editable row is dead
+        for row in 1...3 { XCTAssertFalse(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 1, row: row), "unlit rank 1 row \(row)") }
+        // rank 2 (×3): ×, 2ND, 3RD all live
+        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 2, row: 1))
+        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 2, row: 2))
+        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 2, row: 3))
+        // rank 5 (×2): ×, 2ND live; 3RD dead
+        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 5, row: 1))
+        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 5, row: 2))
+        XCTAssertFalse(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 5, row: 3))
+        // a lit rank at ×1: × live, 2ND/3RD dead
+        let lo2 = litOrder([3])
+        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo2, counts: 0, rank: 3, row: 1))
+        XCTAssertFalse(euclideousRepeatCellLive(litOrder: lo2, counts: 0, rank: 3, row: 2))
+        XCTAssertFalse(euclideousRepeatCellLive(litOrder: lo2, counts: 0, rank: 3, row: 3))
+    }
+
     // MARK: §A12 test 6 — the SHIFT badge
 
     func testShiftBadgeVisibilityAndText() {
