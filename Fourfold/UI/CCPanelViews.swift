@@ -221,8 +221,8 @@ struct EuclideousCCExpandedView: View {
     let trace: EmitterCCTrace
     let driverLane: Int                   // 0-based
     let laneColours: [Color]
-    let laneHits: [[EmitterCCTraceHit]]   // per lane (4), for the picker rows
-    let routes: SIMD4<UInt8>
+    let laneLines: [EuclidLine]           // the four Euclid lanes, for the picker's real rhythm pictures
+    let laneBeat: (Date) -> Double        // the lanes' musical beat at a date (drives the pictures' playheads)
     let playhead: (Date) -> Double?
     let playing: Bool
     let onEdit: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void
@@ -238,28 +238,29 @@ struct EuclideousCCExpandedView: View {
         let cc = ccs[slot]
         VStack(spacing: 8) {
             header(cc)
-            traceArea(cc).frame(height: 84)
-            HStack(alignment: .top, spacing: 10) {
-                leftColumn(cc).frame(width: min(186, bodySize.width * 0.42))
-                rightColumn(cc).frame(maxWidth: .infinity)
+            if pickerOpen {   // §5.5 (rebuilt 2026-11-13): the lane picker fills the whole body below the header
+                pickerBody.frame(maxWidth: .infinity, maxHeight: .infinity).transition(.opacity)
+            } else {
+                traceArea(cc).frame(height: 84)
+                HStack(alignment: .top, spacing: 10) {
+                    leftColumn(cc).frame(width: min(186, bodySize.width * 0.42))
+                    rightColumn(cc).frame(maxWidth: .infinity)
+                }
+                .transition(.opacity)
             }
         }
         .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
     }
-    /// §5.4/§5.5: the trace in the driver lane's colour with a lane tab at the top-left; tapping it fades to the lane picker.
+    /// §5.4: the trace in the driver lane's colour with a lane tag at the top-left; tapping it opens the full lane picker.
     @ViewBuilder private func traceArea(_ cc: EmitterCC) -> some View {
         let dc = laneColour(driverLane)
         ZStack(alignment: .topLeading) {
-            if pickerOpen {
-                picker().transition(.opacity)
-            } else {
-                CCTraceView(trace: trace, laneColours: laneColours, playhead: cc.on ? playhead : nil, detailed: true, lineColour: cc.on ? dc : nil)
-                    .contentShape(Rectangle())
-                    .onTapGesture { withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = true } }
-                    .accessibilityElement(children: .ignore).accessibilityLabel(euclideousCCDriverAX(lane: driverLane + 1))
-                    .accessibilityAddTraits(.isButton).accessibilityAction(named: Text("Choose lane")) { withAnimation { pickerOpen = true } }
-                laneTab(driverLane, dc: dc).padding(EuclideousCCPickerMetrics.laneTabInset)   // §5.4 top-left
-            }
+            CCTraceView(trace: trace, laneColours: laneColours, playhead: cc.on ? playhead : nil, detailed: true, lineColour: cc.on ? dc : nil)
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = true } }
+                .accessibilityElement(children: .ignore).accessibilityLabel(euclideousCCDriverAX(lane: driverLane + 1))
+                .accessibilityAddTraits(.isButton).accessibilityAction(named: Text("Choose lane")) { withAnimation { pickerOpen = true } }
+            laneTab(driverLane, dc: dc).padding(EuclideousCCPickerMetrics.laneTabInset)   // §5.4 top-left
         }
     }
     @ViewBuilder private func laneTab(_ d: Int, dc: Color) -> some View {
@@ -267,37 +268,32 @@ struct EuclideousCCExpandedView: View {
             .frame(width: EuclideousCCPickerMetrics.laneTabW, height: EuclideousCCPickerMetrics.laneTabH)
             .background(RoundedRectangle(cornerRadius: EuclideousCCPickerMetrics.laneTabRadius).fill(dc))
     }
-    /// §5.5: four rows (lanes 1…4), the current driver lit; each shows the lane's hits over a bar; tap one ⇒ it drives this slot.
-    @ViewBuilder private func picker() -> some View {
+    /// §5.5 (rebuilt 2026-11-13): the four Euclid lanes as REAL rhythm pictures in a 2×2 grid filling the body. The current driver is
+    /// full-strength with its colour wash + a thick lane-colour border + a filled lane tag; the others are dimmed with a thin border. Tap one ⇒ it drives this slot (one undo step); the header × closes the picker.
+    private var pickerBody: some View {
         GeometryReader { geo in
-            let rects = euclideousCCPickerRowRects(traceSize: geo.size)
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 6).fill(P.slot)
-                ForEach(0..<4, id: \.self) { lane in
-                    pickerRow(lane, rect: rects[lane])
+            let rects = euclideousCCPickerGrid(size: geo.size)
+            TimelineView(.animation(paused: !playing)) { tl in
+                let beat = playing ? laneBeat(tl.date) : 0
+                ZStack(alignment: .topLeading) {
+                    ForEach(0..<4, id: \.self) { lane in laneCell(lane, rect: rects[lane], beat: beat) }
                 }
             }
-            .contentShape(Rectangle())
-            // a tap anywhere else closes the picker with no change (§5.5) — the rows above consume their own taps
         }
     }
-    @ViewBuilder private func pickerRow(_ lane: Int, rect: CGRect) -> some View {
+    @ViewBuilder private func laneCell(_ lane: Int, rect: CGRect, beat: Double) -> some View {
         let dc = laneColour(lane), current = lane == driverLane
-        let hits = lane < laneHits.count ? laneHits[lane] : []
-        ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 3).fill(current ? dc.opacity(0.18) : Color(.sRGB, red: 0x1B / 255, green: 0x1D / 255, blue: 0x22 / 255, opacity: 1))
-                .overlay(current ? RoundedRectangle(cornerRadius: 3).strokeBorder(dc, lineWidth: 1.5) : nil)
-            Canvas { ctx, sz in   // §5.5 the lane's hits over one bar (marks at the hit beats, in lane@70%)
-                let barBeats = max(1e-9, trace.barBeats), inset: CGFloat = EuclideousCCPickerMetrics.laneTabW + 2 * EuclideousCCPickerMetrics.laneTabInset
-                let w = sz.width - inset - 4
-                for h in hits {
-                    let hx = inset + CGFloat(h.beat / barBeats) * w
-                    ctx.fill(Path(CGRect(x: hx - 1.5, y: 2, width: 3, height: sz.height - 4)), with: .color(dc.opacity(0.7)))
-                }
-            }
-            laneTab(lane, dc: dc).padding(.leading, EuclideousCCPickerMetrics.laneTabInset)
+        let line = lane < laneLines.count ? laneLines[lane] : EuclidLine()
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: EuclideousCCPickerMetrics.cellRadius).fill(current ? dc.opacity(0.14) : P.slot)
+            EuclideousRandomRhythmPicture(line: line, original: nil, accent: dc, beat: beat)
+                .opacity(current ? 1 : 0.4)
+                .padding(8)
+            laneTab(lane, dc: dc).padding(EuclideousCCPickerMetrics.laneTabInset)
         }
         .frame(width: rect.width, height: rect.height)
+        .clipShape(RoundedRectangle(cornerRadius: EuclideousCCPickerMetrics.cellRadius))
+        .overlay(RoundedRectangle(cornerRadius: EuclideousCCPickerMetrics.cellRadius).strokeBorder(current ? dc : P.rule, lineWidth: current ? 3 : 1))
         .position(x: rect.midX, y: rect.midY)
         .contentShape(Rectangle())
         .onTapGesture { onEdit(true) { $0[slot].driverLane = lane + 1 }; withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = false } }

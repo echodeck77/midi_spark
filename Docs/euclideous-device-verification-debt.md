@@ -878,3 +878,9 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - The big numbers never collide or truncate on the iPad-mini-width panel (the font floor is 14 pt).
 - Four traces per row still read as four distinct CCs, not noise.
 - The cells (now ~¼-row-width each) are comfortable to tap without catching a neighbour.
+
+## CC SLOTS — lane picker rebuilt (2026-11-13) §device-owed
+- The 2×2 grid of Euclid-ring lane pictures fills the panel and reads clearly at ~¼-body size each.
+- The currently-selected lane is unmistakable (colour wash + thick border + full strength vs the dimmed others).
+- The circular RHYTHM picture is the right "real representation" here (vs the horizontal lane strip) — Paul's call.
+- The live playhead rings on the four pictures animate and stop with the transport.

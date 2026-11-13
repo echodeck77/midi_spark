@@ -71,6 +71,16 @@ final class EuclideousCCSlotsTests: XCTestCase {
         XCTAssertEqual(euclideousCCBandAX(output: 0, cc: 74, driverLane: 1, on: true), "Output A, CC 74, lane 1, on")
     }
 
+    // §5.5 (rebuilt 2026-11-13) — the lane picker is a 2×2 grid filling the body: lane 1 top-left … lane 4 bottom-right, 10 pt gaps, filling the frame.
+    func testPickerGrid() {
+        let rects = euclideousCCPickerGrid(size: CGSize(width: 390, height: 290))
+        XCTAssertEqual(rects.count, 4)
+        XCTAssertEqual(rects[0], CGRect(x: 0, y: 0, width: 190, height: 140))
+        XCTAssertEqual(rects[1].minX - rects[0].maxX, 10, accuracy: 1e-6, "columns 10 apart")
+        XCTAssertEqual(rects[2].minY - rects[0].maxY, 10, accuracy: 1e-6, "rows 10 apart")
+        XCTAssertEqual(rects[3].maxX, 390, accuracy: 1e-6); XCTAssertEqual(rects[3].maxY, 290, accuracy: 1e-6, "the grid fills the body")
+    }
+
     // §2.1 / test 3 — the driver: nil follows routing (one routed lane ⇒ it; none or several ⇒ slot+1); a set lane wins.
     func testDriverResolution() {
         let none = SIMD4<UInt8>(repeating: 0)

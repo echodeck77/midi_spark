@@ -7443,7 +7443,8 @@ struct EuclideousPage: View {
             AnyView(
                 ZStack {
                     if let k = ccExpanded {
-                        EuclideousCCExpandedView(slot: k, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, trace: traces[k], driverLane: drivers[k], laneColours: laneCols, laneHits: laneHits, routes: routes, playhead: playhead, playing: pulseLive,
+                        EuclideousCCExpandedView(slot: k, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, trace: traces[k], driverLane: drivers[k], laneColours: laneCols,
+                                                 laneLines: (0..<4).map { $0 < lines.count ? lines[$0] : EuclidLine() }, laneBeat: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, playhead: playhead, playing: pulseLive,
                                                  onEdit: onEditEmitterCC, onCollapse: { withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = nil } })
                             .transition(.opacity)
                     } else {

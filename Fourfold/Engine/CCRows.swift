@@ -60,15 +60,19 @@ func euclideousCCNumberFontSize(cellSize sz: CGSize) -> CGFloat {
 // MARK: - §5.4/§5.5 the edit page's lane tab + picker
 
 enum EuclideousCCPickerMetrics {
-    static let laneTabW: CGFloat = 16, laneTabH: CGFloat = 14, laneTabRadius: CGFloat = 3, laneTabInset: CGFloat = 4, laneTabFontSize: CGFloat = 9
-    static let rowGap: CGFloat = 2
+    static let laneTabW: CGFloat = 22, laneTabH: CGFloat = 18, laneTabRadius: CGFloat = 4, laneTabInset: CGFloat = 6, laneTabFontSize: CGFloat = 12
+    static let gap: CGFloat = 10, cellRadius: CGFloat = 12
 }
 
-/// §5.5 — the four lane-picker rows filling the trace frame (lanes 1…4 top to bottom, 2 pt gaps).
-func euclideousCCPickerRowRects(traceSize: CGSize) -> [CGRect] {
+/// §5.5 (rebuilt 2026-11-13) — the lane picker now FILLS the panel body: a 2×2 grid of the four Euclid lanes (lane 1 top-left …
+/// lane 4 bottom-right), each a real rhythm picture, with gaps between them. Returns the four cell rects in `size`.
+func euclideousCCPickerGrid(size: CGSize) -> [CGRect] {
     typealias M = EuclideousCCPickerMetrics
-    let h = max(1, (traceSize.height - M.rowGap * 3) / 4)
-    return (0..<4).map { CGRect(x: 0, y: CGFloat($0) * (h + M.rowGap), width: traceSize.width, height: h) }
+    let cellW = max(1, (size.width - M.gap) / 2), cellH = max(1, (size.height - M.gap) / 2)
+    return (0..<4).map { i in
+        let col = i % 2, row = i / 2
+        return CGRect(x: CGFloat(col) * (cellW + M.gap), y: CGFloat(row) * (cellH + M.gap), width: cellW, height: cellH)
+    }
 }
 
 // MARK: - §6 VoiceOver
