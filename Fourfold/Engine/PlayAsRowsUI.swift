@@ -219,3 +219,10 @@ func euclideousShiftBadgeShown(start: Int, driftOn: Bool) -> Bool { start != 0 |
 
 /// §A4.1 / §A1.3: a chip wears the 1 pt lane outline only when it is the chip playing now (and the transport runs). `activeChip` comes from `euclideousRowsActiveChip` on the live hit ordinal.
 func euclideousNotesChipOutlined(chipIndex: Int, activeChip: Int, playing: Bool) -> Bool { playing && chipIndex == activeChip }
+
+/// §A9: the ONE opacity of the NOTES tab body — PLAY STACK off is 42 % and never stacks with another dim (§A9.2); if only ANSWER-pause applies it keeps its own `shadowDim`; otherwise full. The PLAY buttons live outside the body and never dim.
+func euclideousNotesTabBodyOpacity(notesOn: Bool, shadowing: Bool, shadowDim: Double) -> Double {
+    if !notesOn { return 0.42 }
+    if shadowing { return shadowDim }
+    return 1.0
+}

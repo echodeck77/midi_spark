@@ -4746,6 +4746,8 @@ struct EuclideousPage: View {
         let isOn = line.notesOnResolved
         let shadowing = euclideousAnswerBorrowedTabs(line, notesReadsRiff: true).notes
         let lay = euclideousPlayAsRowsLayout(contentAreaH: contentAreaH, fullWidth: fullWidth)   // §A10: no × mode; seven fixed rows
+        // §A9: ONE dim on the tab body — PLAY STACK off ⇒ 42 % (never stacked); only ANSWER-pause keeps its own 18 % (with its overlay). Eased 0.15 s. Notes-off still takes taps; ANSWER-pause blocks them.
+        let bodyOpacity = euclideousNotesTabBodyOpacity(notesOn: isOn, shadowing: shadowing, shadowDim: EuclideousListenPauseMetrics.dimOpacity)
         return ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 ranksTilesRow(idx, line, accent, lay: lay)                                   // §A2: the eight tiles + the REPEAT button
@@ -4756,14 +4758,14 @@ struct EuclideousPage: View {
                 notesRowAt(lay.bassRow, fullWidth) { bassRow(idx, line, accent, width: fullWidth) }
                 notesRowAt(lay.emitRow, fullWidth) { emitOctRow(idx, line, accent, width: fullWidth) }
             }
-            .opacity(isOn ? 1.0 : 0.42)
-            .opacity(shadowing ? EuclideousListenPauseMetrics.dimOpacity : 1)
-            .allowsHitTesting(!shadowing)
+            .opacity(bodyOpacity)
+            .animation(.easeInOut(duration: 0.15), value: bodyOpacity)   // §A9.1 eased both ways
+            .allowsHitTesting(!shadowing)                                // §A9.1 notes-off still takes taps; ANSWER-pause blocks them
             .accessibilityHidden(shadowing)
             if shadowing { listenPausedOverlay(idx, line, label: "NOTES", width: fullWidth, height: contentAreaH) { $0.answerPitchOn = false } }
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
-        .clipped()   // §6.5: in × mode the rows pushed past the bottom are clipped (hidden), not compressed
+        .clipped()
     }
     /// A row placed at its frame; a nil frame (a row hidden in × mode) draws nothing.
     @ViewBuilder private func notesRowAt<V: View>(_ frame: CGRect?, _ width: CGFloat, @ViewBuilder _ v: () -> V) -> some View {
@@ -4956,16 +4958,20 @@ struct EuclideousPage: View {
 
     // MARK: - PLAY AS ROWS — WHEN RIFF (reused controls), BASS, EMIT+OCT
 
+    /// §A7: WHEN RIFF — PLAYS | RESTS as one segmented control (both lit allowed — BOTH keeps today's sound, Paul 2026-11-13), then CHANCE right-aligned. The lane-lock dashed indicator is kept (orthogonal to §A1.3's selection outline).
     private func whenRiffRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
         let plays = line.notesPlaysResolved, rests = line.notesRestsResolved
         let chance = line.notesChanceResolved, chanceStops = [25, 50, 75, 100]
         let chanceIdx = chanceStops.firstIndex(of: chance) ?? 3
         return HStack(spacing: 4) {
             riffRowLabel("WHEN", "RIFF").frame(width: EuclideousPlayAsRowsLayout.labelW).accessibilityHidden(true)
-            notesToggle("PLAYS", on: plays, accent: accent, accessibility: euclideousNotesPlaysLabel, hint: euclideousNotesWhenHint(isOnlyOneOn: plays && !rests, riffOn: line.riffOnResolved),
-                        help: "Play the lit notes on hits where the riff plays a note.", lane: idx, outline: lockOn(idx, .notesWhen)) { guard !(plays && !rests) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 } }
-            notesToggle("RESTS", on: rests, accent: accent, accessibility: euclideousNotesRestsLabel, hint: euclideousNotesWhenHint(isOnlyOneOn: rests && !plays, riffOn: line.riffOnResolved),
-                        help: "Play the lit notes on hits where the riff rests.", lane: idx, outline: lockOn(idx, .notesWhen)) { guard !(rests && !plays) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 } }
+            HStack(spacing: 1.5) {   // §A7.1 the segmented control
+                notesSegment("PLAYS", selected: plays, switchedOn: true, accent: accent, spoken: euclideousNotesPlaysLabel) { guard !(plays && !rests) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 } }
+                notesSegment("RESTS", selected: rests, switchedOn: true, accent: accent, spoken: euclideousNotesRestsLabel) { guard !(rests && !plays) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 } }
+            }
+            .padding(1.5).frame(width: 148, height: 26)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x24262C)))
+            .modifier(EuclideousLockOutline(on: lockOn(idx, .notesWhen), accent: accent))
             Spacer(minLength: 0)
             melodyStepper("CHANCE", value: chanceIdx, range: 0...3, width: 88, help: "How many of the chosen hits the lit notes play.", height: 28, valueText: "\(chance)%",
                           lowDisabled: chanceIdx == 0, highDisabled: chanceIdx == 3, lane: idx, outline: lockOn(idx, .notesChance)) { v in guard v != chanceIdx else { return }; edit(idx) { $0.notesChance = chanceStops[v] } }
@@ -4973,7 +4979,7 @@ struct EuclideousPage: View {
         .frame(width: width, height: 28, alignment: .leading)
         .accessibilityElement(children: .contain).accessibilityLabel(euclideousNotesWhenGroupLabel)
     }
-    /// §5.5: BASS — the label, ANSWER's row switch, then HOLD | FIRST pills (the selected one in the lane colour). While the switch is off, the pills draw at 42 % and still take taps.
+    /// §A8: BASS — the row switch, then HOLD | FIRST as a segmented control. Switch on ⇒ the chosen choice is A1.1; switch off ⇒ A1.4 (no 42 % dim), the other unfilled; taps on the choices set the mode whether on or off.
     private func bassRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
         let on = line.notesBassOnResolved, mode = line.notesBassModeResolved
         return HStack(spacing: 6) {
@@ -4981,20 +4987,26 @@ struct EuclideousPage: View {
             EuclideousRowSwitchPill(on: on, accent: lane100(accent))
                 .contentShape(Rectangle()).frame(width: 44, height: 28).onTapGesture { edit(idx) { $0.notesBassOn = on ? nil : true } }
                 .accessibilityLabel("Bass").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
-            notesBassPill("HOLD", selected: mode == .hold, enabled: on, accent: accent) { edit(idx) { $0.notesBassMode = .hold; if !on { $0.notesBassOn = true } } }
-            notesBassPill("FIRST", selected: mode == .first, enabled: on, accent: accent) { edit(idx) { $0.notesBassMode = .first; if !on { $0.notesBassOn = true } } }
+            HStack(spacing: 1.5) {
+                notesSegment("HOLD", selected: mode == .hold, switchedOn: on, accent: accent, spoken: "Hold") { edit(idx) { $0.notesBassMode = .hold } }
+                notesSegment("FIRST", selected: mode == .first, switchedOn: on, accent: accent, spoken: "First") { edit(idx) { $0.notesBassMode = .first } }
+            }
+            .padding(1.5).frame(width: 130, height: 26)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x24262C)))
             Spacer(minLength: 0)
         }
         .frame(width: width, height: 28, alignment: .leading)
         .accessibilityElement(children: .contain).accessibilityLabel("Bass")
     }
-    private func notesBassPill(_ label: String, selected: Bool, enabled: Bool, accent: Color, action: @escaping () -> Void) -> some View {
-        Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(selected ? Color(hex: 0x0D0F14) : Color(hex: 0xC2C7CF))
-            .padding(.horizontal, 10).frame(height: 24)
-            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? lane100(accent) : Color(hex: 0x24262C)))
-            .opacity(enabled ? 1 : 0.42)
+    /// §A7/§A8: one segment of a PLAYS|RESTS or HOLD|FIRST control — coloured by the one rule (A1.1 selected+on, A1.4 selected+off, no fill + #8D939D unselected).
+    private func notesSegment(_ label: String, selected: Bool, switchedOn: Bool, accent: Color, spoken: String, action: @escaping () -> Void) -> some View {
+        let look = euclideousNotesSelLook(selected: selected, switchedOn: switchedOn, playing: false)
+        return Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+            .foregroundColor(selected ? Color(hex: look.labelHex) : Color(hex: 0x8D939D))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 3).fill(selected ? selFill(look, accent) : Color.clear))
             .contentShape(Rectangle()).onTapGesture(perform: action)
-            .accessibilityLabel(label).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityElement(children: .ignore).accessibilityLabel(spoken).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
     /// EMIT + OCT: the four NOTES output toggles (left) and the octave boxes (right) — the pre-ferry controls, unchanged.
     private func emitOctRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {

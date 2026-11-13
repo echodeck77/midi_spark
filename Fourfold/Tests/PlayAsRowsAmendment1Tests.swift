@@ -119,6 +119,29 @@ final class PlayAsRowsAmendment1Tests: XCTestCase {
         XCTAssertFalse(euclideousRepeatCellLive(litOrder: lo2, counts: 0, rank: 3, row: 3))
     }
 
+    // MARK: §A12 test 2 — WHEN / BASS selection colours (a lit segment A1.1; BASS off → neither A1.1)
+
+    func testWhenBassSegmentColours() {
+        // a WHEN segment (always "on") that is selected draws A1.1; unselected draws A1.2 (the view paints no fill over #24262C)
+        XCTAssertEqual(euclideousNotesSelLook(selected: true, switchedOn: true, playing: false).fill, .lane)
+        XCTAssertEqual(euclideousNotesSelLook(selected: false, switchedOn: true, playing: false).labelHex, 0x8D939D)
+        // BASS off: the chosen choice is A1.4 (#33363D), NOT A1.1
+        let bassOffChosen = euclideousNotesSelLook(selected: true, switchedOn: false, playing: false)
+        XCTAssertEqual(bassOffChosen.fill, .hex(0x33363D))
+        XCTAssertNotEqual(bassOffChosen.fill, .lane)
+        // BASS on: the chosen choice is A1.1
+        XCTAssertEqual(euclideousNotesSelLook(selected: true, switchedOn: true, playing: false).fill, .lane)
+    }
+
+    // MARK: §A12 test 8 — the tab-body dim (42 % once, never stacked)
+
+    func testTabBodyDimNeverStacks() {
+        XCTAssertEqual(euclideousNotesTabBodyOpacity(notesOn: false, shadowing: false, shadowDim: 0.18), 0.42)   // notes off → 42 %
+        XCTAssertEqual(euclideousNotesTabBodyOpacity(notesOn: false, shadowing: true, shadowDim: 0.18), 0.42)    // both → still one 42 % (no stack)
+        XCTAssertEqual(euclideousNotesTabBodyOpacity(notesOn: true, shadowing: true, shadowDim: 0.18), 0.18)     // only ANSWER-pause → its own
+        XCTAssertEqual(euclideousNotesTabBodyOpacity(notesOn: true, shadowing: false, shadowDim: 0.18), 1.0)     // neither
+    }
+
     // MARK: §A12 test 3 — only the playing chip has an outline; stopped → none
 
     func testOnlyThePlayingChipIsOutlined() {
