@@ -2155,6 +2155,13 @@ Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md
 - [x] (FIXED 2026-11-11, PLAY AS ROWS) `EffectiveParamsTests.testEveryStoredEuclidLineFieldSurvivesAnEncodeDecodeRoundTrip` — the fixture now populates `notesPlaySeq` AND the eleven PLAY AS ROWS fields (`notesOrderChain`…`notesDriftStep`); the test is green. (It had been red on main since the 2026-11-08 PLAY AS SEQUENCE ferry.)
 
 ## PLAY AS ROWS ferry follow-ups (2026-11-11) — the core landed (slices 1-5); these are deferred polish / open items
+
+### Amendment 1 (2026-11-13, LANDED in 5 slices — `Docs/euclideous-status-log.md`)
+- [x] DONE: the NOTES tab tidy — one selection colour rule, RANKS row + REPEAT pop-up (× mode gone), slim chips that never overspill, WHEN/BASS segmented controls, the PLAY-STACK-off tab dim. Tests 1-8 green; golden byte-identical.
+- [ ] DEFERRED: the REPEAT pop-up's PASS row is empty for a SHUFFLE ORDER chip — the live per-pass permutation needs a pass-index feed (none exists). Add the feed to show the SHUFFLE pass while playing.
+- [ ] DEFERRED/APPROX: the "playing chip" outline + the PASS's "current ORDER chip" read the polled RIFF walk ordinal (exact for WHEN=BOTH; off for a WHEN-filtered lane). If it matters, derive the true NOTES hit ordinal.
+- [ ] DECIDE (Paul): §A4.5 — the add limit is kept at 4 with equal-share tail-truncation (never overspills); the longest ORDER values truncate. If you prefer a hard 3-cap instead, say so.
+- [ ] DEVICE: the three "PLAY AS ROWS Amendment 1" lines in `Docs/euclideous-device-verification-debt.md`.
 - [ ] (live feedback, device-owed) §5.3 — outline the PLAY-AS-ROWS **playing chip** (ORDER/VOICES/SPREAD) in the lane colour while the transport runs (needs the live hit ordinal: `euclideousRowsActiveChip` on the UI clock). Not built.
 - [ ] (live feedback, device-owed) §6.3 — the RANKS tiles' **played-copy pip-brighten**: the pips for copies already played this pass draw brighter and reset when a pass starts. The sounding RING is built; the pip-brighten is not.
 - [ ] (DECIDE, by ear) the **TIE** notes-extension change — under TIE the notes now carry to the next tied rest they strike (longer ring than the old untied gate; `testNotesTie` pins 24000 not 12000). Confirm it's musical or revert the notes-side TIE extension.

@@ -5052,7 +5052,7 @@ struct EuclideousPage: View {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: EuclideousPlayAsRowsLayout.labelW, alignment: .leading).accessibilityHidden(true)
             ForEach(Array(chips.enumerated()), id: \.offset) { i, chip in
                 if i > 0 { Text("\u{203A}").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x4A4E57)).accessibilityHidden(true) }   // §A4.2 "›" (THEN dropped)
-                notesChainChipView(idx, kind: kind, chip: i, name: chip.name, hits: chip.hits, multi: multi, playing: euclideousNotesChipOutlined(chipIndex: i, activeChip: active, playing: clock.playing), maxWidth: perChip, accent: accent)
+                notesChainChipView(idx, kind: kind, chip: i, count: n, name: chip.name, hits: chip.hits, multi: multi, playing: euclideousNotesChipOutlined(chipIndex: i, activeChip: active, playing: clock.playing), maxWidth: perChip, accent: accent)
             }
             if showPlus { notesChainAddButton(idx, kind: kind, accent: accent) }
             Spacer(minLength: 4)
@@ -5062,7 +5062,7 @@ struct EuclideousPage: View {
         .accessibilityElement(children: .contain).accessibilityLabel(label)
     }
     /// §A4.1: a chip — value + (with 2+ chips) hits, no stepper, A1.2 fill, #E6E8EC value; a lane outline only while playing. A tap opens its pop-up.
-    private func notesChainChipView(_ idx: Int, kind: EuclideousChainKind, chip i: Int, name: String, hits: Int, multi: Bool, playing: Bool, maxWidth: CGFloat, accent: Color) -> some View {
+    private func notesChainChipView(_ idx: Int, kind: EuclideousChainKind, chip i: Int, count: Int, name: String, hits: Int, multi: Bool, playing: Bool, maxWidth: CGFloat, accent: Color) -> some View {
         HStack(spacing: 4) {
             Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7).truncationMode(.tail).foregroundColor(Color(hex: 0xE6E8EC))
             if multi { Text("\(hits)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x7D828B)) }   // §A4.1 hits only with 2+ chips
@@ -5071,7 +5071,7 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x24262C)))                                   // §A4.1 A1.2 fill
         .overlay(RoundedRectangle(cornerRadius: 4).stroke(lane100(accent), lineWidth: playing ? 1 : 0))             // §A1.3/§A4.1 outline only while playing
         .contentShape(Rectangle()).onTapGesture { closeAllOtherOverlays(); notesChainPopup = NotesChainPopupTarget(lane: idx, kind: kind, chip: i) }
-        .accessibilityElement(children: .ignore).accessibilityLabel("\(chainSpoken(kind)), \(i + 1), \(name)" + (multi ? ", \(hits) hits" : "")).accessibilityAddTraits(.isButton)
+        .accessibilityElement(children: .ignore).accessibilityLabel("\(chainSpoken(kind)), \(i + 1) of \(count), \(name)" + (multi ? ", \(hits) hits" : "")).accessibilityAddTraits(.isButton)   // §A11.2
     }
     private func notesChainAddButton(_ idx: Int, kind: EuclideousChainKind, accent: Color) -> some View {
         Text("+").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8D939D))

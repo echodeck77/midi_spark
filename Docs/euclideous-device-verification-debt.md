@@ -854,3 +854,11 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - The current bar's progress line (1.5 pt, #F2F4F7) reads clearly in all four lane colours, lit and unlit.
 - The FILL block reads as part of the card (loose tiles, no box/ring), aligned with the ♩ ♩. ♩3 rows — not a separate panel.
 - A ×2, ½, REVERSE, RANKS +3, SWELL +2 fill sounds like a fill building into the downbeat, not a glitch — note any click or doubled note at F or E.
+
+## PLAY AS ROWS Amendment 1 (2026-11-13) — §A14 device-owed
+- The REPEAT pop-up's cells (32 tall) are easy to hit on glass, and the PASS row reads at a glance; the pop-up sits
+  cleanly over the tapped lane's tab body (below the top row) with nothing under it shifting.
+- Four NOTES tabs side by side read calmer than before (one selection colour, slim chips), and the playing chip is easy
+  to spot (its lane outline); the WHEN and BASS segmented controls read as one choice each.
+- The 26 pt rank tiles and the 23 pt chips are comfortable to tap; a long ORDER value ("OUTSIDE IN") truncates rather than
+  overspilling, and the + and SHIFT badge stay reachable; confirm the truncation is legible enough or tell me to hard-cap at 3.

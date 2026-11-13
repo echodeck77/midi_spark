@@ -11448,3 +11448,57 @@ Ratified by Paul from the "Fourfold Rate" canvas (artboard "FILL v2"). REPLACES 
 **SOURCE-WINS deviations (all reported):** note-value rows 24.67 tall / 3 pt gaps (not the spec's ~29/4.5); division column gap 3 (not 4.5); block 171.84×80 / 175×80 (not 177×81); `#363A42` absent in source (used as a new literal). FILL is NOT a lane-lock field (matches RATE).
 
 **Known limits / deferred (follow-ups in pending-tasks):** the footers' per-step pass states, the CC trace, and a restart+fill lane's exact display origin show the ×1 position during a fill (the comet + arrows + ghost show the truth); a ratchet strike deferred past the window (echo tail) uses SWELL factor 1 not its parent slot's (ratchet-in-fill is rare — the mask RATCHET is inert, FX retired); `PortsStressTests` has no fill coverage yet (fill is never drawn by the stress fuzz). All tile looks / the fill feel / the progress line's legibility are DEVICE-OWED.
+
+## PLAY AS ROWS Amendment 1 (2026-11-13; Fourfold only; LANDED on main in 5 slices) — the NOTES tab tidy
+
+Ratified by Paul 2026-11-13 from his device review of the PLAY AS rows build. **Display + UI only — no engine,
+snapshot or stored-field change** (golden byte-identical; the pure PLAY-AS-rows functions and model accessors are
+untouched). Built on top of the PLAY AS ROWS ferry (2026-11-11). The spec is the ferry text's §A1-§A14.
+
+**The one decision (Paul).** §A7 WHEN is a 3-state field (`notesWhen` PLAYS/RESTS/BOTH, default BOTH = play on every
+hit) and the ferry forbids behaviour changes, so a single-choice control can't show BOTH. **Paul chose: keep BOTH, no
+sound change** — WHEN renders as a two-segment control where each lit bit is A1.1 and BOTH lights both; the engine/default
+is untouched. Test 2's first clause was relaxed accordingly ("a lit segment draws A1.1; unlit no-fill #8D939D").
+
+**What changed, by slice:**
+- **Slice 1 (pure, `PlayAsRowsUI.swift`):** `euclideousNotesSelLook(selected:switchedOn:playing:)` — the ONE selection
+  colour rule §A1 (A1.1 lane fill / A1.2 #24262C / A1.4 #33363D idle-selected; lane outline iff playing). The PASS helpers
+  `euclideousRowsDisplayPass` / `euclideousRowsRoundBreaks` (the §2 builder before SHIFT, for the REPEAT pop-up's PASS row).
+  `euclideousShiftBadgeShown`, `euclideousNotesChipOutlined`, `euclideousNotesTabBodyOpacity`. (The ferry named Derivations;
+  the established PLAY-AS-rows pure home is `PlayAsRowsUI.swift`, equally in `FourfoldTests` — noted.)
+- **Slice 2 (`EuclideousPage.swift` + layout):** §A10 layout rework (labelW 55, 26 pt tiles 3 apart, rows 5 apart, the ×
+  mode dropped — `cross` param gone, no 2ND/3RD on the card, nothing hidden/grown). §A2 RANKS row (RANKS label, 26 pt tiles
+  in the one-selection colour with pips ONLY at 2×/3×, the grid rank style = bold, a right-aligned REPEAT button; a tile tap
+  toggles). §A3 REPEAT pop-up (`notesRepeatPopupCard`): card-body scoped over the tapped lane (no dark scrim, a transparent
+  tap-catcher), a label column + 8 rank columns × (rank# · × · 2ND · 3RD) + a PASS band; dead cells #131518 ignore taps;
+  reuses `notesCopyCell`. **`notesRankCopyRow` deleted** (superseded by the pop-up grid); `notesXLane` replaced by
+  `notesRepeatPopup`.
+- **Slice 3:** §A4 chips (value + hits #7D828B with 2+ chips, no on-chip stepper, 23 tall r4 #24262C fill #E6E8EC value,
+  "›" separator — THEN dropped —, an equal-share cap + tail-truncation so they NEVER overspill, the `+` dashed and the SHIFT
+  badge fixed/external so both are always inside the card — fix b; add limit 4). §A4.1 the lane outline shows ONLY on the
+  chip playing now (`euclideousNotesChipOutlined` + `euclideousRowsActiveChip` on the polled walk ordinal — an accepted
+  approximation, the riff ordinal, exact for the common WHEN=BOTH). §A5 chip pop-up reframed card-body scoped (tiles
+  one-selection, no outline, 42 tall, tinted pictures; footer HITS ‹n›/move/REMOVE for 2+ chips; ORDER-only SHIFT+DRIFT
+  under a divider, 42% inert while SHUFFLE; the content scrolls where it overflows the small card body — §A5.5). §A6 SHIFT
+  badge replaces the SHIFT button (shown only when set, opens the ORDER pop-up). §A5.4 the standalone SHIFT pop-up is no
+  longer opened (`notesShiftPopup` never set; the mount kept compiled, §0.2).
+- **Slice 4:** §A7 WHEN segmented control (keep BOTH), §A8 BASS segmented control (switch on ⇒ A1.1, off ⇒ A1.4, no 42%
+  dim, a mode tap only sets the mode), §A9 tab-body dim (ONE `euclideousNotesTabBodyOpacity`: notes-off 42% never stacked,
+  ANSWER-pause keeps 0.18; eased 0.15 s; notes-off still takes taps; the PLAY buttons — top row — never dim).
+- **Slice 5:** §A11 VoiceOver (chip "N of M", REPEAT/PASS/cells/HITS/SHIFT labels), docs, the full suite, §A13/§A14.
+
+**Reported differences (source vs the amendment's restated values):** the lit-tile ink and the chip value text are the
+amendment's NEW unifying colours (#1B1D22 / #E6E8EC), replacing source's #0D0F14 / #F2F4F7 (the one-selection rule, §A1).
+
+**§A4.5 measurement (reported):** at the references, VOICES/SPREAD fit four short chips; ORDER's longest values
+("OUTSIDE IN"/"INSIDE OUT") plus the SHIFT badge exceed the row even at ~3 chips, so a hard 3/4 cap cannot alone prevent
+overspill. The chips are given an equal-share cap + tail-truncation (never overspill, acceptance §A13), the add limit kept
+at 4. If Paul prefers a hard 3-cap, trivial to change.
+
+**Deferred / known limits:** the REPEAT pop-up's PASS row shows nothing for a SHUFFLE ORDER chip (the live per-pass
+permutation needs a pass-index feed that doesn't exist yet — spec-compliant when stopped; the playing case is deferred).
+The "playing chip" outline + the PASS's "current ORDER chip" read the polled RIFF walk ordinal (exact for WHEN=BOTH; off
+for a WHEN-filtered lane) — the accepted UI-clock-offset precedent. All look / gesture-feel is DEVICE-OWED (§A14).
+
+**Proofs:** `PlayAsRowsAmendment1Tests` (§A12 1-8), `PlayAsRowsUITests` (layout + REPEAT grid), the PLAY AS model/engine
+tests; `run.sh --golden` byte-identical (no engine touch); the MIX/undo/accessibility UI tests on device.
