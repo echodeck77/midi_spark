@@ -50,6 +50,9 @@ final class FourfoldEngine {
     private var sourceNode: AVAudioSourceNode?
     private var renderBlock: AURenderBlock?
     private var observers: [NSObjectProtocol] = []
+    // IDLE RELEASE (2026-11-13): the engine + shared session are held ONLY while playing. A short grace keeps them warm across a rapid stop→start so we don't re-setup on every transport nudge.
+    private var releaseWork: DispatchWorkItem?
+    private static let stopGrace: TimeInterval = 2.0
 
     // ── audio-thread state (written only inside `pump`; the host blocks read it from within the AU's render call on the same thread) ──
     private var clock: FourfoldTransportClock
@@ -77,7 +80,7 @@ final class FourfoldEngine {
     init() throws {
         var tb = mach_timebase_info_data_t(); mach_timebase_info(&tb)
         timebase = (tb.numer, tb.denom)
-        try Self.configureSession()
+        // IDLE RELEASE: launch builds the graph (so the kernel is live for the UI) but does NOT activate the session or start the engine — an open-but-stopped Fourfold must not anchor/degrade other apps' audio (the system-wide crackle). `ensureRunning()` claims the hardware on the first play; `scheduleRelease()` hands it back when stopped.
         let rate = Self.sessionSampleRate()
         sampleRate = rate
         clock = FourfoldTransportClock(sampleRate: rate)
@@ -94,9 +97,9 @@ final class FourfoldEngine {
         }
         for i in 0..<2 { scratch[i] = AudioBuffer(mNumberChannels: 1, mDataByteSize: Self.maxFrames * 4, mData: scratchData[i]) }
         installHostBlocks()
-        midi.onInput = { [weak au] bytes, length in au?.scheduleMIDIEventBlock?(AUEventSampleTimeImmediate, 0, length, bytes) }
-        try buildGraph()
-        try engine.start()
+        // Incoming MIDI is processed only while PLAYING (the engine renders only then — idle release). Dropping it when stopped also stops stale events queueing up and firing as stuck notes on the next play.
+        midi.onInput = { [weak self] bytes, length in guard let self, self.mailbox.playing else { return }; self.au.scheduleMIDIEventBlock?(AUEventSampleTimeImmediate, 0, length, bytes) }
+        try buildGraph()   // allocate the AU's render resources + the source node, but DON'T start the engine — the hardware is claimed lazily on the first play
         observe()
     }
 
@@ -112,7 +115,10 @@ final class FourfoldEngine {
         #endif
     }
 
-    func setPlaying(_ on: Bool) { mailbox.playing = on }
+    func setPlaying(_ on: Bool) {
+        mailbox.playing = on
+        if on { ensureRunning() } else { scheduleRelease() }   // IDLE RELEASE: hold the hardware only while playing
+    }
     func setTempo(_ bpm: Double) { mailbox.tempo = FourfoldTransportClock.clamped(bpm) }
     #if FOURFOLD_LINK
     /// ABLETON LINK: `ABLLinkSetActive` is a configuration call (advertise/connect), not a realtime
@@ -228,45 +234,75 @@ final class FourfoldEngine {
 
     private func observe() {
         let nc = NotificationCenter.default
-        observers.append(nc.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in self?.restart() })
+        // A config change (route/rate) matters only while we actually hold the hardware (playing). When released (idle) the engine isn't running, so there is nothing to rebuild — and we must NOT re-claim the route.
+        observers.append(nc.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            guard let self, self.engine.isRunning else { return }
+            self.rebuildAndRestart()
+        })
         observers.append(nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
-            if let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt, AVAudioSession.InterruptionType(rawValue: raw) == .ended { self?.restart() }
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt, AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+            if let self, self.mailbox.playing { self.ensureRunning() }   // reclaim the session only if we're still meant to be playing
         })
         observers.append(nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
-            if let self, !self.engine.isRunning { self.restart() }
+            if let self, self.mailbox.playing, !self.engine.isRunning { self.ensureRunning() }   // playing-in-background then returning: make sure the engine is up; a stopped Fourfold stays released
         })
-        // A MIDI-only app must not keep the shared audio route when it isn't in use. When Fourfold goes to the BACKGROUND
-        // while STOPPED, stop the silent engine and RELEASE the session so another foreground app (YouTube etc.) gets the
-        // hardware cleanly — the fix for "after a reinstall all iPad audio goes wrong until restart" when you open Fourfold
-        // and switch away without playing. While PLAYING it keeps the session (background MIDI keeps sequencing out);
-        // `willEnterForeground` above restarts it on return. (The buffer-forcing cause was already removed in 66cd939.)
+        // IDLE RELEASE: backgrounded while stopped → hand the shared route back AT ONCE (no grace), so another foreground app (YouTube etc.) gets the hardware cleanly. While playing we keep it (background MIDI keeps sequencing out).
         observers.append(nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self, !self.mailbox.playing else { return }
-            self.engine.stop()
-            Self.deactivateSession()
+            self.releaseNow()
         })
-        // On termination, stop the silent engine and RELEASE the shared session — so the audio route is handed back cleanly instead of being
-        // held by a dying instance (deinit is not guaranteed on an OS-initiated kill; this covers the graceful-exit path). Background MIDI is
-        // untouched: this fires only on willTerminate, not on entering the background.
-        observers.append(nc.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.engine.stop()
-            Self.deactivateSession()
-        })
+        // On termination, release the shared session so a dying instance doesn't hold the route (deinit isn't guaranteed on an OS kill; this covers the graceful-exit path).
+        observers.append(nc.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in self?.releaseNow() })
     }
 
-    /// The engine stopped (route change, another app's interruption, a sample-rate change): rebuild at the session's rate and carry the beat over.
-    func restart() {
-        engine.stop()
+    // MARK: - IDLE RELEASE (2026-11-13): hold the shared audio hardware only while playing
+
+    /// MAIN THREAD, on PLAY: claim the session + start the engine if they aren't already up. Rebuilds the graph only if the hardware rate changed (or it was never built) — so a normal play after a stop is just `start()`.
+    private func ensureRunning() {
+        releaseWork?.cancel(); releaseWork = nil
+        guard !engine.isRunning else { return }
         do {
             try Self.configureSession()
+            let rate = Self.sessionSampleRate()
+            if rate != sampleRate || sourceNode == nil {
+                clock.timelineWillRestart(lastSampleTime: lastSampleTime, newSampleRate: rate)
+                sampleRate = rate
+                try buildGraph()
+            }
+            try engine.start()
+            startError = nil
+        } catch { startError = "AUDIO ENGINE: \(error.localizedDescription)" }
+    }
+
+    /// A config change (route/rate) WHILE PLAYING: rebuild at the new rate and carry the beat over. The session stays active throughout (a route change doesn't deactivate it), so we don't re-`setActive` — which would churn the shared route.
+    private func rebuildAndRestart() {
+        engine.stop()
+        do {
             let rate = Self.sessionSampleRate()
             clock.timelineWillRestart(lastSampleTime: lastSampleTime, newSampleRate: rate)
             sampleRate = rate
             try buildGraph()
             try engine.start()
             startError = nil
-        } catch {
-            startError = "AUDIO ENGINE: \(error.localizedDescription)"
+        } catch { startError = "AUDIO ENGINE: \(error.localizedDescription)" }
+    }
+
+    /// On STOP: release after a short grace, so a rapid stop→start stays warm. A play during the grace cancels it (`ensureRunning`).
+    private func scheduleRelease() {
+        releaseWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            guard let self, !self.mailbox.playing else { return }
+            self.engine.stop()
+            Self.deactivateSession()
         }
+        releaseWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.stopGrace, execute: w)
+    }
+
+    /// Release the hardware immediately (backgrounded-idle / termination).
+    private func releaseNow() {
+        releaseWork?.cancel(); releaseWork = nil
+        engine.stop()
+        Self.deactivateSession()
     }
 }

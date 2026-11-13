@@ -11502,3 +11502,21 @@ for a WHEN-filtered lane) — the accepted UI-clock-offset precedent. All look /
 
 **Proofs:** `PlayAsRowsAmendment1Tests` (§A12 1-8), `PlayAsRowsUITests` (layout + REPEAT grid), the PLAY AS model/engine
 tests; `run.sh --golden` byte-identical (no engine touch); the MIX/undo/accessibility UI tests on device.
+
+## Standalone-app crackle fix — IDLE RELEASE (2026-11-13; Fourfold APP only; the AU is untouched)
+
+**Symptom (Paul, device):** opening the standalone Fourfold app degrades iPad audio SYSTEM-WIDE — other apps (YouTube) "slow down and stutter" — and only a device restart clears it. It persisted on a current build (so it was NOT the old forced-buffer cause, which was removed in `66cd939`). Paul narrowed it (AskUserQuestion): it starts **as soon as Fourfold opens / alongside other audio** — NOT after a route change, NOT tied to Low Power Mode.
+
+**Cause:** the standalone app ran its silent `.playback` `AVAudioEngine` **continuously** (for background MIDI + the render clock), so Fourfold was a permanent participant in the SHARED audio IO graph even when open-but-stopped — anchoring/holding the shared hardware and degrading every other app. A MIDI-only app with silent output has no reason to hold the hardware when it isn't playing.
+
+**Diagnosis ruled out first:** the render path (`pump → render → Router/Kernel/Tape/NoteRoll/Emission`, `FourfoldMIDI.send`) has no `os_log`/lock/file-I/O/allocation (alloc audit 0; the old audio-thread `os_log` hazard was already moved off), and `configureSession` forces no buffer/rate. So not a render-thread stall, not a forced buffer, and (per Paul) not a config-change/`restart()` storm.
+
+**Fix (`Fourfold/App/FourfoldEngine.swift`):** hold the session + engine ONLY while playing.
+- `init` builds the graph (so the kernel is live for the UI) but no longer `configureSession()`s or `engine.start()`s — a launched-but-stopped Fourfold holds NO audio hardware.
+- `setPlaying(true)` → `ensureRunning()` (configure session + rebuild only if the rate changed + start). `setPlaying(false)` → `scheduleRelease()` (stop engine + `deactivateSession()` after a 2 s grace so a rapid stop→start stays warm; a play within the grace cancels it).
+- `didEnterBackground` while stopped / `willTerminate` → `releaseNow()` (immediate). `.AVAudioEngineConfigurationChange` → rebuild only while running (playing), never re-claim the route when idle. Interruption-ended / foreground → `ensureRunning()` only if still meant to be playing.
+- Incoming MIDI is now gated on `mailbox.playing` (processed only while playing — Paul accepted the loss of live-MIDI-into-the-pool-while-stopped; it also prevents stale queued events firing as stuck notes on the next play).
+
+**The AU is untouched** — the Router/Kernel/Snapshot and the AUv3 extension are unchanged, so the golden oracle is byte-identical and this does not affect Fourfold in AUM (only the standalone app's host owned the always-on engine). Accepted tradeoff: a tiny engine-start cost on the first play; no incoming-MIDI capture while stopped.
+
+**Verified (simulator):** `app-test.sh` — IN `while-held=1`, OUT notes flow, **TRANSPORT: after STOP all notes closed + no new notes, after PLAY resumed** (the new start/release path, no stuck notes), STATE round-trips, ROUTE masks correct; the no-autoplay state-test path (engine built, never started) also works. `soak.sh` stuck-note stress over random PLAY/STOP. **Device-owed:** Paul confirms the system-wide crackle is gone (open Fourfold stopped → YouTube stays clean; play → Fourfold takes the hardware; stop → ~2 s later it's handed back).
