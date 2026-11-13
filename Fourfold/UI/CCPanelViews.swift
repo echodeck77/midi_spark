@@ -87,6 +87,12 @@ struct CCTraceView: View {
     var laneColours: [Color] = []
     var playhead: ((Date) -> Double?)? = nil     // the bar position 0…1 at a date, nil while stopped
     var detailed = false
+    // CC SLOTS §4.4 — the rows' band trace: the LINE in the driver lane's colour + a faint area under it, faint beat dividers, no dots/ticks. nil ⇒ the edit page's look (white line, lane-coloured dots).
+    var lineColour: Color? = nil
+    var areaColour: Color? = nil
+    var hideDots = false
+    var faintDividers = false
+    var bgRadius: CGFloat = 6
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: playhead == nil)) { tl in
             Canvas { ctx, sz in draw(&ctx, sz, head: playhead?(tl.date)) }
@@ -95,11 +101,12 @@ struct CCTraceView: View {
     }
     private func colour(_ lane: Int?) -> Color { guard let l = lane, !laneColours.isEmpty else { return P.light }; return laneColours[max(0, min(laneColours.count - 1, l))] }
     private func draw(_ ctx: inout GraphicsContext, _ sz: CGSize, head: Double?) {
-        ctx.fill(RoundedRectangle(cornerRadius: 6).path(in: CGRect(origin: .zero, size: sz)), with: .color(P.slot))
-        let inset: CGFloat = detailed ? 6 : 5
+        ctx.fill(RoundedRectangle(cornerRadius: bgRadius).path(in: CGRect(origin: .zero, size: sz)), with: .color(P.slot))
+        let inset: CGFloat = detailed ? 6 : (lineColour != nil ? 3 : 5)   // §4.4: 3 pt top/bottom for a band
         let w = sz.width - 2 * inset
         func x(_ beat: Double) -> CGFloat { inset + CGFloat(beat / max(1e-9, trace.barBeats)) * w }
-        for b in trace.gridBeats { ctx.fill(Path(CGRect(x: x(b) - 0.5, y: 0, width: 1, height: sz.height)), with: .color(P.rule)) }
+        let dividerC: Color = faintDividers ? Color.white.opacity(0.05) : P.rule
+        for b in trace.gridBeats { ctx.fill(Path(CGRect(x: x(b) - 0.25, y: 0, width: faintDividers ? 0.5 : 1, height: sz.height)), with: .color(dividerC)) }
         if detailed { for b in trace.ticks { ctx.fill(Path(CGRect(x: x(b) - 0.5, y: sz.height - 6, width: 1, height: 5)), with: .color(P.muted)) } }
         let points = trace.points
         if points.count > 1 {
@@ -108,12 +115,21 @@ struct CCTraceView: View {
                 let q = emitterCCTracePoint(pt, barBeats: trace.barBeats, size: sz, inset: inset)
                 if i == 0 { path.move(to: q) } else { path.addLine(to: q) }
             }
-            ctx.stroke(path, with: .color(P.light), style: StrokeStyle(lineWidth: detailed ? 1.75 : 1.5, lineCap: .round, lineJoin: .round))
+            if let area = areaColour {   // §4.4: fill the area under the curve
+                var fill = path
+                fill.addLine(to: CGPoint(x: emitterCCTracePoint(points[points.count - 1], barBeats: trace.barBeats, size: sz, inset: inset).x, y: sz.height))
+                fill.addLine(to: CGPoint(x: emitterCCTracePoint(points[0], barBeats: trace.barBeats, size: sz, inset: inset).x, y: sz.height))
+                fill.closeSubpath()
+                ctx.fill(fill, with: .color(area))
+            }
+            ctx.stroke(path, with: .color(lineColour ?? P.light), style: StrokeStyle(lineWidth: lineColour != nil ? 1.25 : (detailed ? 1.75 : 1.5), lineCap: .round, lineJoin: .round))
         }
+        if !hideDots {
         let r: CGFloat = detailed ? 3.5 : 2.75
         for (i, d) in trace.dots.enumerated() {
             let q = emitterCCTracePoint(d, barBeats: trace.barBeats, size: sz, inset: inset)
             ctx.fill(Path(ellipseIn: CGRect(x: q.x - r, y: q.y - r, width: 2 * r, height: 2 * r)), with: .color(colour(i < trace.dotLanes.count ? trace.dotLanes[i] : nil)))
+        }
         }
         if let h = head {
             let f = max(0, min(1, h))
@@ -130,74 +146,98 @@ struct CCTraceView: View {
     }
 }
 
-// MARK: - collapsed rows
+// MARK: - the three-band rows (CC SLOTS §4)
 
-/// The four collapsed emitter rows filling the panel. Each row: the token (tap = the on switch), the CC number (large), the trace, two stacked labels (value mode · travel), a chevron. Off rows dim to ~45 %. Tapping anywhere but the token opens the page.
-struct EuclideousCCPanel: View {
+/// §4: four output rows A–D; each row is a token tile + THREE bands (slots a/b/c), each band a CC-number chip laid over the slot's trace in its DRIVER lane's colour. Tap a band ⇒ that slot's edit page. No on switch, no large number, no chevron (§4.7).
+struct EuclideousCCRowsPanel: View {
     let bodySize: CGSize
     let ccs: EmitterCCSet
-    let traces: [EmitterCCTrace]
-    let playhead: (Date) -> Double?
+    let traces: [EmitterCCTrace]        // 12, per slot (output×3 + slot)
+    let drivers: [Int]                  // 12, 0-based driver lane per slot
     let laneColours: [Color]
+    let outputFullyMuted: [Bool]        // 4
+    let playhead: (Date) -> Double?
     let playing: Bool
-    let onEdit: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void
     let onExpand: (Int) -> Void
 
-    private let letters = ["A", "B", "C", "D"]
+    private func driverColour(_ k: Int) -> Color { let d = k < drivers.count ? drivers[k] : 0; return laneColours[max(0, min(laneColours.count - 1, d))] }
     var body: some View {
-        let gap: CGFloat = 6
-        let rowH = max(1, (bodySize.height - gap * 3) / 4)
-        VStack(spacing: gap) { ForEach(0..<4, id: \.self) { x in row(x, rowH: rowH) } }
-            .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
-    }
-    @ViewBuilder private func row(_ x: Int, rowH: CGFloat) -> some View {
-        let cc = ccs[output: x, slot: 0]
-        HStack(spacing: 8) {
-            EmitterRatchetDisc(letter: letters[x], on: cc.on, accent: ccNeutral, f: playing ? 0 : 0)
-                .frame(width: 44, height: rowH)
-                .contentShape(Rectangle())
-                .onTapGesture { onEdit(true) { $0[output: x, slot: 0].on.toggle() } }
-                .accessibilityElement(children: .ignore).accessibilityLabel("Emitter \(letters[x])").accessibilityValue(cc.on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
-            Text("\(cc.ccNumber)").font(heavyMonoCC(22)).foregroundColor(P.text).frame(width: 46, alignment: .leading)
-            CCTraceView(trace: traces[x], laneColours: laneColours, playhead: cc.on ? playhead : nil).frame(maxWidth: .infinity)
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(cc.valueMode == .pingPong ? "PING" : cc.valueMode.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
-                Text(cc.to.rawValue).font(heavyMonoCC(9)).foregroundColor(P.muted)
+        ZStack(alignment: .topLeading) {
+            ForEach(0..<EuclideousCCRowsMetrics.rows, id: \.self) { o in
+                let r = euclideousCCRowRect(o, panel: bodySize)
+                row(o).frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)
             }
-            Text("\u{203A}").font(heavyMonoCC(16)).foregroundColor(P.muted).frame(width: 14)   // chevron
+        }.frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
+    }
+    @ViewBuilder private func row(_ o: Int) -> some View {
+        let w = euclideousCCRowRect(o, panel: bodySize).width
+        let L = euclideousCCRowLayout(rowWidth: w)
+        let anyOn = (0..<3).contains { ccs[output: o, slot: $0].on }
+        let muted = o < outputFullyMuted.count && outputFullyMuted[o]
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.tileRadius).fill(Color(.sRGB, red: 0x1D / 255, green: 0x1F / 255, blue: 0x24 / 255, opacity: 1))
+                .frame(width: L.tile.width, height: L.tile.height)
+                .overlay(EuclideousEmitterTokenView(size: .d28, letter: euclideousOutputLetter(o), state: euclideousEmitterTokenEmitterState(muted: muted, activity: 0, anyRouted: anyOn), lane: Color.clear))
+                .position(x: L.tile.midX, y: L.tile.midY)
+                .accessibilityHidden(true)
+            ForEach(0..<3, id: \.self) { s in band(o: o, s: s, rect: L.bands[s]) }
         }
-        .padding(.horizontal, 8)
-        .frame(height: rowH)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(.sRGB, red: 0x1B / 255, green: 0x1D / 255, blue: 0x23 / 255, opacity: 1)))
-        .opacity(cc.on ? 1 : 0.45)
+    }
+    @ViewBuilder private func band(o: Int, s: Int, rect: CGRect) -> some View {
+        let k = o * 3 + s, cc = ccs[k], dc = driverColour(k)
+        ZStack(alignment: .topLeading) {
+            CCTraceView(trace: traces[k], laneColours: laneColours, playhead: cc.on ? playhead : nil,
+                        lineColour: cc.on ? dc.opacity(0.85) : nil, areaColour: cc.on ? dc.opacity(0.14) : nil, hideDots: true, faintDividers: true, bgRadius: EuclideousCCRowsMetrics.bandRadius)
+            chip(cc: cc, dc: dc, bandSize: rect.size)
+        }
+        .frame(width: rect.width, height: rect.height)
+        .clipShape(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.bandRadius))
+        .position(x: rect.midX, y: rect.midY)
         .contentShape(Rectangle())
-        .onTapGesture { onExpand(x) }   // the token above has its own tap (toggle); the rest of the row opens the page
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Emitter \(letters[x]) CC \(cc.ccNumber), \(cc.valueMode.rawValue.lowercased()), \(cc.to.rawValue.lowercased())")
+        .onTapGesture { onExpand(k) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(euclideousCCBandAX(output: o, cc: cc.ccNumber, driverLane: (k < drivers.count ? drivers[k] : 0) + 1, on: cc.on))
+        .accessibilityAddTraits(.isButton)
+    }
+    @ViewBuilder private func chip(cc: EmitterCC, dc: Color, bandSize: CGSize) -> some View {
+        let r = euclideousCCChipRect(bandSize: bandSize)
+        Text("\(cc.ccNumber)").font(heavyMonoCC(EuclideousCCRowsMetrics.chipFontSize))
+            .foregroundColor(cc.on ? Color(.sRGB, red: 0xF2 / 255, green: 0xF4 / 255, blue: 0xF7 / 255, opacity: 1) : P.muted)
+            .frame(width: r.width, height: r.height)
+            .background(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.chipRadius).fill(Color(.sRGB, red: 0x12 / 255, green: 0x14 / 255, blue: 0x18 / 255, opacity: 0.85)))
+            .overlay(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.chipRadius).strokeBorder(cc.on ? dc.opacity(0.6) : P.rule, lineWidth: 1))
+            .position(x: r.midX, y: r.midY)
     }
 }
 
-// MARK: - the expanded page
+// MARK: - the edit page (one slot) + the lane picker (CC SLOTS §5)
 
-/// One emitter's full page: a header (token · on switch · CC stepper · close), the trace, and two columns — VALUE/TRAVEL segmented on the left, five bar sliders on the right.
+/// One SLOT's full page: a header (token · ON switch · CC stepper · close), the trace in the driver lane's colour (tap ⇒ the lane picker), and two columns — VALUE/TO/CURVE on the left, the six bar sliders on the right. All read/write THIS slot.
 struct EuclideousCCExpandedView: View {
-    let output: Int
+    let slot: Int                         // the flat slot index k = output×3 + slot
     let bodySize: CGSize
     let ccs: EmitterCCSet
-    let traces: [EmitterCCTrace]
-    let playhead: (Date) -> Double?
+    let trace: EmitterCCTrace
+    let driverLane: Int                   // 0-based
     let laneColours: [Color]
+    let laneHits: [[EmitterCCTraceHit]]   // per lane (4), for the picker rows
+    let routes: SIMD4<UInt8>
+    let playhead: (Date) -> Double?
     let playing: Bool
     let onEdit: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void
     let onCollapse: () -> Void
+    @State private var pickerOpen = false
 
-    private var letter: String { ["A", "B", "C", "D"][output] }
+    private var output: Int { slot / 3 }
+    private var slotIndex: Int { slot % 3 }
+    private var letter: String { euclideousOutputLetter(output) }
+    private func laneColour(_ d: Int) -> Color { laneColours[max(0, min(laneColours.count - 1, d))] }
     private static let valueModes: [EmitterCCValueMode] = [.hits, .riff, .pingPong, .climb]
     var body: some View {
-        let cc = ccs[output: output, slot: 0]
+        let cc = ccs[slot]
         VStack(spacing: 8) {
             header(cc)
-            CCTraceView(trace: traces[output], laneColours: laneColours, playhead: cc.on ? playhead : nil, detailed: true).frame(height: 84)
+            traceArea(cc).frame(height: 84)
             HStack(alignment: .top, spacing: 10) {
                 leftColumn(cc).frame(width: min(186, bodySize.width * 0.42))
                 rightColumn(cc).frame(maxWidth: .infinity)
@@ -205,32 +245,98 @@ struct EuclideousCCExpandedView: View {
         }
         .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
     }
+    /// §5.4/§5.5: the trace in the driver lane's colour with a lane tab at the top-left; tapping it fades to the lane picker.
+    @ViewBuilder private func traceArea(_ cc: EmitterCC) -> some View {
+        let dc = laneColour(driverLane)
+        ZStack(alignment: .topLeading) {
+            if pickerOpen {
+                picker().transition(.opacity)
+            } else {
+                CCTraceView(trace: trace, laneColours: laneColours, playhead: cc.on ? playhead : nil, detailed: true, lineColour: cc.on ? dc : nil)
+                    .contentShape(Rectangle())
+                    .onTapGesture { withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = true } }
+                    .accessibilityElement(children: .ignore).accessibilityLabel(euclideousCCDriverAX(lane: driverLane + 1))
+                    .accessibilityAddTraits(.isButton).accessibilityAction(named: Text("Choose lane")) { withAnimation { pickerOpen = true } }
+                laneTab(driverLane, dc: dc).padding(EuclideousCCPickerMetrics.laneTabInset)   // §5.4 top-left
+            }
+        }
+    }
+    @ViewBuilder private func laneTab(_ d: Int, dc: Color) -> some View {
+        Text("\(d + 1)").font(heavyMonoCC(EuclideousCCPickerMetrics.laneTabFontSize)).foregroundColor(P.ink)
+            .frame(width: EuclideousCCPickerMetrics.laneTabW, height: EuclideousCCPickerMetrics.laneTabH)
+            .background(RoundedRectangle(cornerRadius: EuclideousCCPickerMetrics.laneTabRadius).fill(dc))
+    }
+    /// §5.5: four rows (lanes 1…4), the current driver lit; each shows the lane's hits over a bar; tap one ⇒ it drives this slot.
+    @ViewBuilder private func picker() -> some View {
+        GeometryReader { geo in
+            let rects = euclideousCCPickerRowRects(traceSize: geo.size)
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 6).fill(P.slot)
+                ForEach(0..<4, id: \.self) { lane in
+                    pickerRow(lane, rect: rects[lane])
+                }
+            }
+            .contentShape(Rectangle())
+            // a tap anywhere else closes the picker with no change (§5.5) — the rows above consume their own taps
+        }
+    }
+    @ViewBuilder private func pickerRow(_ lane: Int, rect: CGRect) -> some View {
+        let dc = laneColour(lane), current = lane == driverLane
+        let hits = lane < laneHits.count ? laneHits[lane] : []
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 3).fill(current ? dc.opacity(0.18) : Color(.sRGB, red: 0x1B / 255, green: 0x1D / 255, blue: 0x22 / 255, opacity: 1))
+                .overlay(current ? RoundedRectangle(cornerRadius: 3).strokeBorder(dc, lineWidth: 1.5) : nil)
+            Canvas { ctx, sz in   // §5.5 the lane's hits over one bar (marks at the hit beats, in lane@70%)
+                let barBeats = max(1e-9, trace.barBeats), inset: CGFloat = EuclideousCCPickerMetrics.laneTabW + 2 * EuclideousCCPickerMetrics.laneTabInset
+                let w = sz.width - inset - 4
+                for h in hits {
+                    let hx = inset + CGFloat(h.beat / barBeats) * w
+                    ctx.fill(Path(CGRect(x: hx - 1.5, y: 2, width: 3, height: sz.height - 4)), with: .color(dc.opacity(0.7)))
+                }
+            }
+            laneTab(lane, dc: dc).padding(.leading, EuclideousCCPickerMetrics.laneTabInset)
+        }
+        .frame(width: rect.width, height: rect.height)
+        .position(x: rect.midX, y: rect.midY)
+        .contentShape(Rectangle())
+        .onTapGesture { onEdit(true) { $0[slot].driverLane = lane + 1 }; withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = false } }
+        .accessibilityElement(children: .ignore).accessibilityLabel("Lane \(lane + 1)").accessibilityAddTraits(current ? [.isButton, .isSelected] : [.isButton])
+    }
     @ViewBuilder private func header(_ cc: EmitterCC) -> some View {
         HStack(spacing: 8) {
-            EmitterRatchetDisc(letter: letter, on: cc.on, accent: ccNeutral, f: 0)
-                .frame(width: 36, height: 30)
-                .contentShape(Rectangle()).onTapGesture { onEdit(true) { $0[output: output, slot: 0].on.toggle() } }
-                .accessibilityElement(children: .ignore).accessibilityLabel("Emitter \(letter)").accessibilityValue(cc.on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
+            // §5.1 the token (display only — the emitter this slot sends on) + §5.2 the per-slot ON switch after it.
+            EuclideousEmitterTokenView(size: .d28, letter: letter, state: euclideousEmitterTokenEmitterState(muted: false, activity: 0, anyRouted: cc.on), lane: Color.clear)
+                .frame(width: 30, height: 30).accessibilityHidden(true)
+            onSwitch(cc.on)
             Spacer(minLength: 0)
             ccStepper(cc)
-            // CLOSE: a filled light pill (the selected-segment look) instead of a bare grey ✕, 52 × 30 with the touch reaching 4 pt past it
+            // CLOSE (§5.5): with the picker open it closes only the picker; otherwise back to the rows.
             Image(systemName: "xmark").font(.system(size: 14, weight: .heavy)).foregroundColor(P.ink)
                 .frame(width: 52, height: 30)
                 .background(RoundedRectangle(cornerRadius: 8).fill(P.light))
-                .contentShape(Rectangle().inset(by: -4)).onTapGesture(perform: onCollapse)
+                .contentShape(Rectangle().inset(by: -4)).onTapGesture { if pickerOpen { withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = false } } else { onCollapse() } }
                 .accessibilityElement(children: .ignore).accessibilityLabel("Close").accessibilityAddTraits(.isButton)
         }
         .frame(height: 30)
     }
+    /// §5.2 the slot's ON switch (the app's standard on/off pill).
+    @ViewBuilder private func onSwitch(_ on: Bool) -> some View {
+        Text(on ? "ON" : "OFF").font(heavyMonoCC(9)).tracking(0.8).foregroundColor(on ? P.ink : P.muted)
+            .frame(width: 40, height: 24)
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? P.light : P.slot))
+            .overlay(on ? nil : RoundedRectangle(cornerRadius: 6).strokeBorder(P.rule, lineWidth: 1))
+            .contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[slot].on.toggle() } }
+            .accessibilityElement(children: .ignore).accessibilityLabel("On").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
+    }
     @ViewBuilder private func ccStepper(_ cc: EmitterCC) -> some View {
         HStack(spacing: 4) {
             Text("CC").font(heavyMonoCC(10)).foregroundColor(P.muted)
-            Text("\u{2039}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[output: output, slot: 0].ccNumber = max(0, $0[output: output, slot: 0].ccNumber - 1) } }
-            CCNumberSlider(value: cc.ccNumber) { v, newStep in onEdit(newStep) { $0[output: output, slot: 0].ccNumber = v } }
-            Text("\u{203A}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[output: output, slot: 0].ccNumber = min(EmitterCC.maxCC, $0[output: output, slot: 0].ccNumber + 1) } }
+            Text("\u{2039}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[slot].ccNumber = $0.nextCCNumber(from: $0[slot].ccNumber, output: output, slot: slotIndex, up: false) } }   // §1.4 skip
+            CCNumberSlider(value: cc.ccNumber) { v, newStep in onEdit(newStep) { s in var v2 = v; if [0, 1, 2].contains(where: { $0 != slotIndex && s[output: output, slot: $0].ccNumber == v }) { v2 = s.nextCCNumber(from: v, output: output, slot: slotIndex, up: true) }; s[slot].ccNumber = v2 } }   // §1.4: a drag onto a taken number skips to the next free
+            Text("\u{203A}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[slot].ccNumber = $0.nextCCNumber(from: $0[slot].ccNumber, output: output, slot: slotIndex, up: true) } }   // §1.4 skip
         }
         .accessibilityElement(children: .ignore).accessibilityLabel("CC number").accessibilityValue("\(cc.ccNumber)")
-        .accessibilityAdjustableAction { d in onEdit(true) { $0[output: output, slot: 0].ccNumber = max(0, min(EmitterCC.maxCC, $0[output: output, slot: 0].ccNumber + (d == .increment ? 1 : -1))) } }
+        .accessibilityAdjustableAction { d in onEdit(true) { $0[slot].ccNumber = max(0, min(EmitterCC.maxCC, $0[slot].ccNumber + (d == .increment ? 1 : -1))) } }
     }
     @ViewBuilder private func leftColumn(_ cc: EmitterCC) -> some View {
         let toInert = emitterCCToIsInert(cc)        // a HOLD of 100 % keeps the hit's value for the whole gap: there is nothing to ramp TO (dimmed, still tappable)
@@ -238,28 +344,28 @@ struct EuclideousCCExpandedView: View {
         VStack(alignment: .leading, spacing: 8) {   // three label-over-segments groups, as tall as the six sliders beside them
             VStack(alignment: .leading, spacing: 3) {
                 Text("VALUE").font(heavyMonoCC(9)).foregroundColor(P.muted)
-                EmitterRatchetSegmented(options: ["HITS", "RIFF", "PING", "CLIMB"], selected: Self.valueModes.firstIndex(of: cc.valueMode) ?? 0, height: 24, groupLabel: "Value") { i in onEdit(true) { $0[output: output, slot: 0].valueMode = Self.valueModes[i] } }
+                EmitterRatchetSegmented(options: ["HITS", "RIFF", "PING", "CLIMB"], selected: Self.valueModes.firstIndex(of: cc.valueMode) ?? 0, height: 24, groupLabel: "Value") { i in onEdit(true) { $0[slot].valueMode = Self.valueModes[i] } }
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text("TO").font(heavyMonoCC(9)).foregroundColor(P.muted)
-                EmitterRatchetSegmented(options: ["REST", "NEXT"], selected: cc.to == .rest ? 0 : 1, height: 24, groupLabel: "To") { i in onEdit(true) { $0[output: output, slot: 0].to = i == 0 ? .rest : .next } }
+                EmitterRatchetSegmented(options: ["REST", "NEXT"], selected: cc.to == .rest ? 0 : 1, height: 24, groupLabel: "To") { i in onEdit(true) { $0[slot].to = i == 0 ? .rest : .next } }
             }.opacity(toInert ? 0.35 : 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text("CURVE").font(heavyMonoCC(9)).foregroundColor(P.muted)
-                EmitterRatchetSegmented(options: ["LIN", "EXP"], selected: cc.curve == .lin ? 0 : 1, height: 24, groupLabel: "Curve") { i in onEdit(true) { $0[output: output, slot: 0].curve = i == 0 ? .lin : .exp } }
+                EmitterRatchetSegmented(options: ["LIN", "EXP"], selected: cc.curve == .lin ? 0 : 1, height: 24, groupLabel: "Curve") { i in onEdit(true) { $0[slot].curve = i == 0 ? .lin : .exp } }
             }.opacity(curveInert ? 0.35 : 1)
             Spacer(minLength: 0)
         }
     }
     @ViewBuilder private func rightColumn(_ cc: EmitterCC) -> some View {
         VStack(spacing: 6) {
-            CCBarSlider(label: "HIGH", value: cc.high) { v, s in onEdit(s) { $0[output: output, slot: 0].high = v } }
-            CCBarSlider(label: "LOW", value: cc.low) { v, s in onEdit(s) { $0[output: output, slot: 0].low = v } }
-            CCBarSlider(label: "HOLD", value: cc.hold, lo: 0, hi: 100) { v, s in onEdit(s) { $0[output: output, slot: 0].hold = v } }
+            CCBarSlider(label: "HIGH", value: cc.high) { v, s in onEdit(s) { $0[slot].high = v } }
+            CCBarSlider(label: "LOW", value: cc.low) { v, s in onEdit(s) { $0[slot].low = v } }
+            CCBarSlider(label: "HOLD", value: cc.hold, lo: 0, hi: 100) { v, s in onEdit(s) { $0[slot].hold = v } }
             // RAMP reads the EFFECTIVE ramp (what HOLD leaves of the gap); the stored value is kept, so lowering HOLD restores it
-            CCBarSlider(label: "RAMP", value: cc.effectiveRamp, lo: 0, hi: 100, dimmed: emitterCCFieldIsInert(.ramp, cc)) { v, s in onEdit(s) { $0[output: output, slot: 0].ramp = v } }
-            CCBarSlider(label: "PASSES", value: cc.passes, lo: 1, hi: EmitterCC.maxPasses, dimmed: emitterCCFieldIsInert(.passes, cc)) { v, s in onEdit(s) { $0[output: output, slot: 0].passes = v } }
-            CCBarSlider(label: "MUTE", value: cc.muteValue) { v, s in onEdit(s) { $0[output: output, slot: 0].muteValue = v } }
+            CCBarSlider(label: "RAMP", value: cc.effectiveRamp, lo: 0, hi: 100, dimmed: emitterCCFieldIsInert(.ramp, cc)) { v, s in onEdit(s) { $0[slot].ramp = v } }
+            CCBarSlider(label: "PASSES", value: cc.passes, lo: 1, hi: EmitterCC.maxPasses, dimmed: emitterCCFieldIsInert(.passes, cc)) { v, s in onEdit(s) { $0[slot].passes = v } }
+            CCBarSlider(label: "MUTE", value: cc.muteValue) { v, s in onEdit(s) { $0[slot].muteValue = v } }
             Spacer(minLength: 0)
         }
     }

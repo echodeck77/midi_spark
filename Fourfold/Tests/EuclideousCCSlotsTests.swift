@@ -40,6 +40,26 @@ final class EuclideousCCSlotsTests: XCTestCase {
         XCTAssertTrue(back.isAllDefault, "a 4-entry blob is not 12 ⇒ defaults (no migration)")
     }
 
+    // §4 / test 7 — the rows layout: 4 rows 64 tall / 6 apart / 10 top / 12 pad; tile 36 + 6 gap + 3 bands 20 tall / 2 apart; chip 30×16.
+    func testRowsLayout() {
+        let panel = CGSize(width: 390, height: 332)
+        let r0 = euclideousCCRowRect(0, panel: panel), r1 = euclideousCCRowRect(1, panel: panel)
+        XCTAssertEqual(r0.minX, 12); XCTAssertEqual(r0.minY, 10); XCTAssertEqual(r0.width, 390 - 24); XCTAssertEqual(r0.height, 64)
+        XCTAssertEqual(r1.minY - r0.maxY, 6, "rows 6 apart")
+        let L = euclideousCCRowLayout(rowWidth: r0.width)
+        XCTAssertEqual(L.tile, CGRect(x: 0, y: 0, width: 36, height: 64))
+        XCTAssertEqual(L.bands.count, 3)
+        XCTAssertEqual(L.bands[0].minX, 36 + 6, "bands start after the tile + 6 gap")
+        XCTAssertEqual(L.bands[0].height, 20); XCTAssertEqual(L.bands[1].minY - L.bands[0].maxY, 2, "bands 2 apart")
+        XCTAssertEqual(L.bands[2].maxY, 64, accuracy: 1e-6, "three 20-tall bands + two 2-gaps fill the 64 row")
+        let chip = euclideousCCChipRect(bandSize: L.bands[0].size)
+        XCTAssertEqual(chip, CGRect(x: 3, y: (20 - 16) / 2, width: 30, height: 16))
+        // a narrower panel: the bands shrink, the tile + chip keep their sizes.
+        let narrow = euclideousCCRowLayout(rowWidth: 240)
+        XCTAssertEqual(narrow.tile.width, 36); XCTAssertEqual(narrow.bands[0].width, 240 - 42)
+        XCTAssertEqual(euclideousCCBandAX(output: 0, cc: 74, driverLane: 1, on: true), "Output A, CC 74, lane 1, on")
+    }
+
     // §2.1 / test 3 — the driver: nil follows routing (one routed lane ⇒ it; none or several ⇒ slot+1); a set lane wins.
     func testDriverResolution() {
         let none = SIMD4<UInt8>(repeating: 0)

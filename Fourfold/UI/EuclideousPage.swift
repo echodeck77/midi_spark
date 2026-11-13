@@ -7415,11 +7415,24 @@ struct EuclideousPage: View {
         }
         return emitterCCMergeHits(all, routed: routed)   // the lanes routed here hit as ONE stream: a step several of them hit is one event
     }
+    /// CC SLOTS: each lane's output routing (its riff|notes parts' outputs) — the one fact the driver (§2.1) reads.
+    private var ccLaneRoutesUI: SIMD4<UInt8> {
+        var r = SIMD4<UInt8>(repeating: 0)
+        for i in 0..<min(4, lines.count) { r[i] = (lines[i].riffOutMaskResolved(lane: i) | lines[i].notesOutMaskResolved(lane: i)) & 0x0F }
+        return r
+    }
     private func ccTab(width: CGFloat, height: CGFloat, portrait: Bool) -> some View {
         let barBeats = max(1, clock.beatsPerBar)
-        let wanted: [Int] = ccExpanded.map { [$0] } ?? [0, 1, 2, 3]
         let laneHits: [[EmitterCCTraceHit]] = (0..<4).map { ccLaneHits($0, barBeats: barBeats) }
-        let traces: [EmitterCCTrace] = (0..<4).map { o in emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[output: o, slot: 0]), hits: wanted.contains(o) ? ccTraceHits(output: o, laneHits: laneHits) : [], barBeats: barBeats, span: emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8)) }   // the engine reads 8 columns in MONO, 16 in POLY   // an unwanted one (the others while one is open) is the bare grid
+        let routes = ccLaneRoutesUI
+        // CC SLOTS §2.1: each of the 12 slots (output×3 + slot) resolves its DRIVER lane (0-based); its trace is the driver lane's hits.
+        let drivers: [Int] = (0..<EmitterCCSet.count).map { k in euclideousCCDriver(emitter: k / 3, slot: k % 3, driverLane: emitterCCs[k].driverLane, laneRoutes: routes) - 1 }
+        let span = emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8)
+        let traces: [EmitterCCTrace] = (0..<EmitterCCSet.count).map { k in
+            let d = max(0, min(3, drivers[k]))
+            return emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[k]), hits: emitterCCs[k].on ? laneHits[d] : [], barBeats: barBeats, span: span)
+        }
+        let laneCols = laneAccents.map { lane100($0) }
         // the bar position (0…1) of the playhead at `date`, nil while the transport is stopped (a live indicator only while running)
         let playhead: (Date) -> Double? = { date in
             guard clock.playing else { return nil }
@@ -7429,13 +7442,13 @@ struct EuclideousPage: View {
         return EuclideousStackBreak {
             AnyView(
                 ZStack {
-                    if let x = ccExpanded {
-                        EuclideousCCExpandedView(output: x, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, laneColours: laneAccents.map { lane100($0) }, playing: pulseLive,
+                    if let k = ccExpanded {
+                        EuclideousCCExpandedView(slot: k, bodySize: CGSize(width: width, height: height), ccs: emitterCCs, trace: traces[k], driverLane: drivers[k], laneColours: laneCols, laneHits: laneHits, routes: routes, playhead: playhead, playing: pulseLive,
                                                  onEdit: onEditEmitterCC, onCollapse: { withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = nil } })
                             .transition(.opacity)
                     } else {
-                        EuclideousCCPanel(bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, playhead: playhead, laneColours: laneAccents.map { lane100($0) }, playing: pulseLive,
-                                          onEdit: onEditEmitterCC, onExpand: { out in withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = out } })
+                        EuclideousCCRowsPanel(bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, drivers: drivers, laneColours: laneCols, outputFullyMuted: (0..<4).map { outputMutes[$0].cells16 == 0 }, playhead: playhead, playing: pulseLive,
+                                              onExpand: { k in withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = k } })
                             .transition(.opacity)
                     }
                 }

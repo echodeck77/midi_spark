@@ -261,6 +261,7 @@ targets:
       - path: Fourfold/Engine/RateTile.swift   # RATE ferry (2026-11-12): the RATE tile's layout + current-box / progress / readout maths (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/FillRegion.swift   # FILL ferry (2026-11-13): the per-lane fill region + §2 timing (region, fired steps, reverse, rank/swell/break) (Foundation only)
       - path: Fourfold/Engine/FillBlock.swift   # FILL ferry (2026-11-13): the FILL block's layout, field text/positions/drag and VoiceOver (Foundation + CoreGraphics only)
+      - path: Fourfold/Engine/CCRows.swift   # CC SLOTS ferry (2026-11-12): the CC tab's three-band row layout + the lane-picker frames (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/LaneStripBands.swift   # LANE STRIP BANDS ferry (2026-11-12): the top strip's band heights, top-row frames, stack-chip colour, rank outlines, cell look + CC source (Foundation + CoreGraphics only)
       - path: Fourfold/Shared/FourfoldTransportClock.swift
     dependencies:

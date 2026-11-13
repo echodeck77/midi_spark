@@ -89,6 +89,7 @@
 		2BC8ECB8FDF6B10688AC8D78 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
 		2D5176E97D60FBE184BABB0A /* RateTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171FC42B5CE2A794E3C3B194 /* RateTile.swift */; };
 		2DB0FD1A6F363FF7810DD7C8 /* FourfoldRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */; };
+		3064B7E1818CD8CA7714A3F9 /* CCRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC16C1FCF618F1F29BFE95E2 /* CCRows.swift */; };
 		310545FAC5863CD3DAD77CC4 /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F4BE86660C760F3CD73866 /* Kernel.swift */; };
 		316F660F3C3ECC9F56AA905B /* RestartEditorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3780B20BC035BCBFBD2CCA2B /* RestartEditorViews.swift */; };
 		31D850833DB23E88DEC4FE99 /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */; };
@@ -212,6 +213,7 @@
 		67F01C5019FD92A5537610C6 /* NoteRollRankTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E192CF53C0406F41E56492 /* NoteRollRankTests.swift */; };
 		6857BAD7A3831FD984E990C8 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 5B3B1E8D15FD3E391FF50D3E /* Atomics */; };
 		692A1708CCCE988100850092 /* PulseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1FE1781AE0C4878A7935FE /* PulseTests.swift */; };
+		6A17D4234BFF5B8D175F6401 /* CCRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC16C1FCF618F1F29BFE95E2 /* CCRows.swift */; };
 		6A375C221E5AD79912A93116 /* CardBackViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F426003B0AC179AD87C598 /* CardBackViews.swift */; };
 		6A7DF1EC0AE5A263F34A6587 /* HocketLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8CBCD5A831F4919B9B9C46 /* HocketLive.swift */; };
 		6A80FF3C35E374A0CDF78CB1 /* LaneStripPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 978929AD94B53C409F7F63AA /* LaneStripPainter.swift */; };
@@ -333,6 +335,7 @@
 		A4EC056C4A7923FC2228FD2C /* RatchPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A753F80E70DA093255A1D3 /* RatchPanelPainter.swift */; };
 		A545E578B3DEE9F4F8FBB5FD /* EmitterToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = E575B1D5376C5D667A10621E /* EmitterToken.swift */; };
 		A562F349805997D49225F58F /* RoomsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CD05B6D166BF878367A888 /* RoomsPage.swift */; };
+		A57032C55AA307C1E2ED0041 /* CCRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC16C1FCF618F1F29BFE95E2 /* CCRows.swift */; };
 		A5CDA0DEF652E37DAD464472 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B57AAED2B1C8E75FD6CC8E7 /* Snapshot.swift */; };
 		A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
 		A606DB40A2135BB2DAB67042 /* RestartTilePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33ADAC80653CA2A15DC3535E /* RestartTilePainter.swift */; };
@@ -890,6 +893,7 @@
 		EA5DC7EFEB4471221D0D8474 /* ReelDeckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelDeckTests.swift; sourceTree = "<group>"; };
 		EAE73B92A4EF42A15B2A9DDF /* FourfoldSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldSelfTest.swift; sourceTree = "<group>"; };
 		EBD9DBBEEFA1051724E66556 /* LanesGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanesGridTests.swift; sourceTree = "<group>"; };
+		EC16C1FCF618F1F29BFE95E2 /* CCRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CCRows.swift; sourceTree = "<group>"; };
 		ECFE8D7BE003B21267B1EE96 /* FourfoldTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FourfoldTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED2CEDBDF7CEB5F62DCB41DA /* PlayButtonsAmendmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayButtonsAmendmentTests.swift; sourceTree = "<group>"; };
 		EE63B3EA2A58FDDCB52C7C9D /* NoteRollTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRollTests.swift; sourceTree = "<group>"; };
@@ -1339,6 +1343,7 @@
 				1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */,
 				176469F1675E0C309D28B215 /* CanonHistory.swift */,
 				ABB85C75FDBCD12F45FAB3DC /* CardBack.swift */,
+				EC16C1FCF618F1F29BFE95E2 /* CCRows.swift */,
 				21FBCA687DA3D7C57F31B353 /* Derivations.swift */,
 				56A2346CB2C876A900961902 /* Diag.swift */,
 				9400D76881E4F5F6EFFF6BF3 /* Emission.swift */,
@@ -1684,6 +1689,7 @@
 				88605E8D0B96DCDABFDD706E /* AnswerViews.swift in Sources */,
 				7BD70412B03E98F53058D7B1 /* BuildModel.swift in Sources */,
 				BE55C811F79D347F24176056 /* CCPanelViews.swift in Sources */,
+				6A17D4234BFF5B8D175F6401 /* CCRows.swift in Sources */,
 				565A178ED04D52344FB8C914 /* CanonHistory.swift in Sources */,
 				C92C119B5BC121BBC214A873 /* CardBack.swift in Sources */,
 				87752A6A7A157E26863E3776 /* CardBackViews.swift in Sources */,
@@ -1884,6 +1890,7 @@
 				2594ED671865D7F71B005204 /* AppIconTests.swift in Sources */,
 				B366BC763D2FD14CC1C3E557 /* AvoidTests.swift in Sources */,
 				25B419195913DB1102E1FD61 /* BuildModel.swift in Sources */,
+				3064B7E1818CD8CA7714A3F9 /* CCRows.swift in Sources */,
 				EDCE7FC362CBDE98EF5C09C3 /* CanonHistory.swift in Sources */,
 				84A446E1688A40EAD3762C2D /* CardBack.swift in Sources */,
 				D6A1757F18E186A687B7B0D2 /* CardBackReviewTests.swift in Sources */,
@@ -2046,6 +2053,7 @@
 				81AE3C7395B6682619270227 /* AnswerViews.swift in Sources */,
 				204572430D6CE1EBADA36680 /* BuildModel.swift in Sources */,
 				6F44544C38A22965E55BAD04 /* CCPanelViews.swift in Sources */,
+				A57032C55AA307C1E2ED0041 /* CCRows.swift in Sources */,
 				14D864B0AC3A64F8976F82DF /* CanonHistory.swift in Sources */,
 				AB93D45851A70F9C05234F29 /* CardBack.swift in Sources */,
 				6A375C221E5AD79912A93116 /* CardBackViews.swift in Sources */,
