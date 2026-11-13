@@ -834,6 +834,7 @@ final class EffectiveParamsTests: XCTestCase {
         l.poolHold = 9   // POOL HOLD (FREEZE, 2026-11-01): the lane's hold (9 = LOCK)
         l.poolSrcMask = 0b0101; l.poolSustainOn = true; l.poolSustainMode = .stack   // POOL (2026-11-02): per-lane SOURCES and SUSTAIN
         l.rateBars = [0, 3, 3, 1, 0, 0, 4, 0]; l.rateFree = true; l.rateBrush = 2   // RATE (2026-11-12): the 8-box speed strip, the FREE pill and the brush
+        l.fillOn = false; l.fillBars = [false, true, true, false, false, false, true, false]; l.fillSpeed = 4; l.fillLength = 2; l.fillReverse = true; l.fillRanks = -5; l.fillSwell = 2; l.fillBreak = true   // FILL (2026-11-13): the eight per-lane fill fields
         var order = EuclideousLitOrder(); for p in [0, 2, 4, 6, 8, 9] { order.append(p) }; l.setLitOrder(order)   // = the litNotes / topLit / top2Lit set above
         l.notesPlaySeq = [EuclideousPlayStep(mode: .roll, hits: 3)]   // PLAY AS SEQUENCE (2026-11-08)
         // PLAY AS ROWS (2026-11-11): the three chains + per-rank counts + bass + shift/drift
