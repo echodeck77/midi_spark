@@ -6623,7 +6623,7 @@ struct EuclideousPage: View {
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: cellOpacity)
                 .contentShape(Rectangle())
                 .modifier(laneTapMod(lane, tapMaxSeconds: EuclideousRingPress.holdSeconds,
-                                     onHold: position.map { pos in { (down: Bool) in   // HOLD (≥ holdSeconds): audition this rank alone — light it, grey the lane's others, and tell the engine; release restores. A quick tap still toggles (the hold suppresses the toggle).
+                                     onHold: position.map { pos in { (down: Bool) in   // Touch-down: audition this rank alone — light it, grey the lane's others, and tell the engine, immediately (no hold-threshold wait). Release restores; a quick tap also toggles (decided on release by elapsed time).
                                          if down { stackAuditionLane = lane; stackAuditionPos = pos; onStackAudition(lane, pos) }
                                          else if stackAuditionLane == lane && stackAuditionPos == pos { stackAuditionLane = -1; stackAuditionPos = -1; onStackAudition(lane, nil) }
                                      } }) { if position != nil { edit(lane) { _ = euclideousStackCellToggle(&$0, row: row, poolCount: poolCount) } } })

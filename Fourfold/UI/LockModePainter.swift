@@ -305,12 +305,10 @@ struct EuclideousLaneTap: ViewModifier {
     let momentary: Bool
     let onTouch: (Bool) -> Void
     let action: () -> Void
-    var tapMaxSeconds: Double? = nil   // STACK grid (2026-11-11): when set, a press HELD longer than this does NOT fire `action` — a hold must not toggle a cell; a quick tap still does (the lock snap-back `onTouch` fires either way). nil = the old behaviour, so every other caller is unchanged.
-    var onHold: ((Bool) -> Void)? = nil   // STACK grid (2026-11-11): fires (true) once the press passes `tapMaxSeconds` (a genuine HOLD) and (false) on release; while a hold is live the tap `action` is suppressed. The STACK cell uses it to audition the held rank.
+    var tapMaxSeconds: Double? = nil   // STACK grid: when set, a press HELD longer than this does NOT fire `action` — a hold must not toggle a cell; a quick tap still does (the lock snap-back `onTouch` fires either way). nil = the old behaviour, so every other caller is unchanged.
+    var onHold: ((Bool) -> Void)? = nil   // STACK grid (2026-11-13, Paul): fires (true) the INSTANT the finger lands — no waiting out `tapMaxSeconds` — so the audition lights + sounds immediately; fires (false) on release. Whether the press was a tap or a hold is judged on release (by elapsed time), not on touch.
     @State private var down = false
     @State private var downAt = Date()
-    @State private var holdFired = false
-    @State private var holdTask: Task<Void, Never>? = nil
     func body(content: Content) -> some View {
         if momentary {
             content
@@ -319,28 +317,22 @@ struct EuclideousLaneTap: ViewModifier {
                     .onEnded { _ in if down { down = false; onTouch(false) } })
                 .onDisappear { if down { down = false; onTouch(false) } }
         } else if let maxS = tapMaxSeconds {
-            // a tap a HOLD does not trigger: toggle only when the press is released before the page's hold threshold and the finger did not slide off; `onTouch` still marks a locked lane "held" for the whole press. If `onHold` is set, a press past the threshold fires it (engages the audition) and suppresses the toggle.
+            // STACK grid (2026-11-13, Paul): the HOLD is engaged the INSTANT the finger lands — `onHold?(true)` on touch-down, so the audition lights + sounds with no wait. Whether it was a TAP or a HOLD is decided on RELEASE, not on touch: released before `maxS` with the finger not slid off ⇒ a tap ⇒ `action` runs (the toggle); held past `maxS` (or slid) ⇒ no toggle. `onHold?(false)` always fires on release so the audition is torn down either way; `onTouch` still marks a locked lane "held" for the whole press.
             content
                 .gesture(DragGesture(minimumDistance: 0)
                     .onChanged { _ in
                         if !down {
-                            down = true; downAt = Date(); holdFired = false; onTouch(true)
-                            if onHold != nil {
-                                holdTask?.cancel()
-                                holdTask = Task { @MainActor in
-                                    try? await Task.sleep(nanoseconds: UInt64(maxS * 1_000_000_000))
-                                    if down, !holdFired { holdFired = true; onHold?(true) }
-                                }
-                            }
+                            down = true; downAt = Date(); onTouch(true)
+                            onHold?(true)
                         }
                     }
                     .onEnded { v in
                         guard down else { return }
-                        down = false; holdTask?.cancel(); onTouch(false)
-                        if holdFired { holdFired = false; onHold?(false) }
-                        else if Date().timeIntervalSince(downAt) < maxS, abs(v.translation.width) < 12, abs(v.translation.height) < 12 { action() }
+                        down = false; onTouch(false)
+                        onHold?(false)
+                        if Date().timeIntervalSince(downAt) < maxS, abs(v.translation.width) < 12, abs(v.translation.height) < 12 { action() }
                     })
-                .onDisappear { if down { down = false; holdTask?.cancel(); if holdFired { holdFired = false; onHold?(false) }; onTouch(false) } }
+                .onDisappear { if down { down = false; onHold?(false); onTouch(false) } }
         } else if locked {
             content
                 .onTapGesture(perform: action)
