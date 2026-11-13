@@ -616,7 +616,14 @@ public class FourfoldAudioUnit: AUAudioUnit {
             return state
         }
         set {
-            super.fullState = newValue
+            // SESSION RESTORE ROBUSTNESS (2026-11-13): while the host parameter tree is EMPTY (the 8x8 params were removed in
+            // 1200b6a, 2026-11-09), a session SAVED by an older build still carries that build's parameter payload. Apple's
+            // -[AUAudioUnit setFullState:] then raises in -[AUParameterGroup _deserialize:fromSetFullState:] — an uncatchable
+            // ObjC NSException ⇒ abort. The standalone app restores on launch and only re-saves a clean session AFTER a clean
+            // launch, so that is a crash LOOP (seen on device 2026-11-13). With no parameters there is nothing for the base to
+            // restore, so skip its setter entirely (it cannot then deserialize a legacy payload, whatever key held it); our own
+            // document rides `stateKey`, restored below, independent of the base. Drop this guard the moment real parameters return.
+            if !(_parameterTree?.allParameters.isEmpty ?? true) { super.fullState = newValue }
             if let data = newValue?[Self.stateKey] as? Data,
                var doc = try? JSONDecoder().decode(PluginState.self, from: data) {
                 doc.migrateLegacyRoutingIfNeeded()   // old saved AUM sessions → v3 schema on load (mandatory)
