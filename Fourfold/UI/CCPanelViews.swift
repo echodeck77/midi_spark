@@ -268,11 +268,12 @@ struct EuclideousCCExpandedView: View {
             .frame(width: EuclideousCCPickerMetrics.laneTabW, height: EuclideousCCPickerMetrics.laneTabH)
             .background(RoundedRectangle(cornerRadius: EuclideousCCPickerMetrics.laneTabRadius).fill(dc))
     }
-    /// §5.5 (rebuilt 2026-11-13): the four Euclid lanes as REAL rhythm pictures in a 2×2 grid filling the body. The current driver is
-    /// full-strength with its colour wash + a thick lane-colour border + a filled lane tag; the others are dimmed with a thin border. Tap one ⇒ it drives this slot (one undo step); the header × closes the picker.
+    /// §5.5 (rebuilt 2026-11-13): the four Euclid lanes drawn as the user already knows them — horizontal step strips — stacked full-width,
+    /// filling the body. The current driver is full-strength with its colour wash + a thick lane-colour border + a filled lane tag; the
+    /// others are dimmed with a thin border. Tap one ⇒ it drives this slot (one undo step); the header × closes the picker.
     private var pickerBody: some View {
         GeometryReader { geo in
-            let rects = euclideousCCPickerGrid(size: geo.size)
+            let rects = euclideousCCPickerRows(size: geo.size)
             TimelineView(.animation(paused: !playing)) { tl in
                 let beat = playing ? laneBeat(tl.date) : 0
                 ZStack(alignment: .topLeading) {
@@ -286,9 +287,7 @@ struct EuclideousCCExpandedView: View {
         let line = lane < laneLines.count ? laneLines[lane] : EuclidLine()
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: EuclideousCCPickerMetrics.cellRadius).fill(current ? dc.opacity(0.14) : P.slot)
-            EuclideousRandomRhythmPicture(line: line, original: nil, accent: dc, beat: beat)
-                .opacity(current ? 1 : 0.4)
-                .padding(8)
+            laneStripCanvas(line: line, dc: dc, current: current, beat: beat)
             laneTab(lane, dc: dc).padding(EuclideousCCPickerMetrics.laneTabInset)
         }
         .frame(width: rect.width, height: rect.height)
@@ -298,6 +297,29 @@ struct EuclideousCCExpandedView: View {
         .contentShape(Rectangle())
         .onTapGesture { onEdit(true) { $0[slot].driverLane = lane + 1 }; withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = false } }
         .accessibilityElement(children: .ignore).accessibilityLabel("Lane \(lane + 1)").accessibilityAddTraits(current ? [.isButton, .isSelected] : [.isButton])
+    }
+    /// The lane as the familiar horizontal Euclid step strip — the SAME pattern (`randomPictureRhythm`) and even cell geometry
+    /// (`euclidEvenBoxGeometry`) the lane cards use: hits in the lane colour, rests dark, a playhead cell while running. Dimmed when not the current driver.
+    private func laneStripCanvas(line: EuclidLine, dc: Color, current: Bool, beat: Double) -> some View {
+        let dim = current ? 1.0 : 0.45
+        let play = playing
+        return Canvas { ctx, sz in
+            let steps = max(2, min(16, line.steps))
+            let offset = euclideousRandomDisplayedOffset(rotate: line.rotate, steps: steps)
+            let pattern = randomPictureRhythm(line, steps: steps, hits: line.pulses, offset: offset)
+            let leftInset = EuclideousCCPickerMetrics.laneTabW + EuclideousCCPickerMetrics.laneTabInset * 2
+            let usableW = max(1, sz.width - leftInset - 10)
+            let geo = euclidEvenBoxGeometry(n: steps, g: 4, usableWidth: usableW)
+            let cellH = min(sz.height - 16, EuclideousCCPickerMetrics.stripMaxH)
+            let y = (sz.height - cellH) / 2
+            let ph = play ? euclideousRandomPicturePlayhead(beat: beat, stepBeats: line.rate?.beats ?? 0.5, steps: steps, dir: line.directionResolved) : -1
+            for i in 0..<steps where i < geo.xs.count {
+                let cell = CGRect(x: leftInset + geo.xs[i], y: y, width: geo.stepW, height: cellH)
+                let fill = pattern[i] ? dc.opacity(dim) : Color(hex: 0x2C2F36).opacity(current ? 1 : 0.6)
+                ctx.fill(RoundedRectangle(cornerRadius: 2).path(in: cell), with: .color(fill))
+                if i == ph { ctx.fill(RoundedRectangle(cornerRadius: 2).path(in: cell), with: .color(Color(hex: 0xF2F4F7).opacity(0.22))) }
+            }
+        }
     }
     @ViewBuilder private func header(_ cc: EmitterCC) -> some View {
         HStack(spacing: 8) {

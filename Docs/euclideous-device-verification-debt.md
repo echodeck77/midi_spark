@@ -884,3 +884,7 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - The currently-selected lane is unmistakable (colour wash + thick border + full strength vs the dimmed others).
 - The circular RHYTHM picture is the right "real representation" here (vs the horizontal lane strip) — Paul's call.
 - The live playhead rings on the four pictures animate and stop with the transport.
+
+## CC SLOTS — picker now horizontal step strips (2026-11-13; supersedes the circular-picture line above)
+- The four stacked horizontal Euclid step strips read as "the existing lanes" and the selected one is unmistakable.
+- The step cells + playhead match the lane cards closely enough to feel familiar at the picker's row height.

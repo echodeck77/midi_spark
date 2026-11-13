@@ -387,7 +387,8 @@ private struct EuclideousRandomHoldModifier: ViewModifier {
 
 
 /// The RHYTHM picture's hit set: the lane's hand-edited pattern (tap a step) rotated by its OFFSET, else the Euclid spread the throw/tweak machinery draws.
-private func randomPictureRhythm(_ line: EuclidLine, steps: Int, hits: Int, offset: Int) -> [Bool] {
+/// Internal (not private) since 2026-11-13 so the CC edit page's lane picker draws the SAME lane rhythm, not a second derivation.
+func randomPictureRhythm(_ line: EuclidLine, steps: Int, hits: Int, offset: Int) -> [Bool] {
     if var custom = line.customHitsResolved(steps) { euclidRotateBuffer(&custom, steps: steps, rotation: line.rotate); return custom }
     return euclideousRandomPattern(hits: hits, steps: steps, offset: offset, tilt: line.tiltResolved)
 }
