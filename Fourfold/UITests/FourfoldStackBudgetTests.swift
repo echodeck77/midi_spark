@@ -34,6 +34,7 @@ final class FourfoldStackBudgetTests: XCTestCase {
         }
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.0)
+        let resetsTab = app.buttons["Resets"]; if resetsTab.waitForExistence(timeout: 3) { resetsTab.tap(); Thread.sleep(forTimeInterval: 0.6) }   // RESETS (2026-11-11): the restart tiles moved off EUCLID onto the RESETS tab — show it so the editor builds + exists here
         let restartTile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Rhythm restarts")).element(boundBy: 0)   // RESTART UNITS (2026-11-04): the editor, with a source square and a timeline showing
         XCTAssertTrue(restartTile.waitForExistence(timeout: 3), "the restart tile (the editor is part of the walk)")
         if restartTile.exists {
