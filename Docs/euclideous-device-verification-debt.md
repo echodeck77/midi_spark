@@ -848,3 +848,9 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - On a sounding cell of the same lane colour, the lane100 edge merges with the fill — check the map-colour body still separates the arrow from the cell in all four lane colours (first fallback: an ink gap inside the edge).
 - The 7 pt column number is legible on the darkest (rank 1) and lightest (rank 8) map colours at 23 × 17 pt.
 - The 22 pt name inset doesn't make names look off-centre in cells with no arrow; and the arrow (cell x 3…26) vs the name region (x 22…) 4 pt overlap never clips a centred name. The fixed 23 × 17 arrow fits every cell height (rowH ≈ 18–27 at the references). Render tests §7 5-8 have no view-test reach.
+
+## FILL ferry (2026-11-13) — §10 device-owed
+- The 20 × 25 bar tiles and 41 × 25 value tiles are comfortable to tap; the value tiles' tap-halves are findable; a drag on a ~41 pt tile is controllable.
+- The current bar's progress line (1.5 pt, #F2F4F7) reads clearly in all four lane colours, lit and unlit.
+- The FILL block reads as part of the card (loose tiles, no box/ring), aligned with the ♩ ♩. ♩3 rows — not a separate panel.
+- A ×2, ½, REVERSE, RANKS +3, SWELL +2 fill sounds like a fill building into the downbeat, not a glitch — note any click or doubled note at F or E.
