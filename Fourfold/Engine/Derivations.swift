@@ -10211,14 +10211,14 @@ func hocketLaneCounts(_ c: HocketLaneClock, atMusicalBeat m: Double) -> (hit: In
     if info.rawIsHit, c.hasTiming, info.raw >= 0, info.raw < c.delay.count, c.delay[info.raw] > f - Double(tick) + 1e-9 { ord -= 1 }
     return (max(0, ord), max(0, info.cy))
 }
-/// CC SLOTS (2026-11-12) §2.1: the lane (1…4) driving emitter `x`'s slot `s`. A set `driverLane` wins; otherwise AUTO —
-/// the only lane routed to the emitter if exactly one is, else slot+1 (a→1, b→2, c→3). `laneRoutes[lane]` bit x = that
+/// CC SLOTS (2026-11-12; 4 slots 2026-11-13) §2.1: the lane (1…4) driving emitter `x`'s slot `s`. A set `driverLane` wins; otherwise AUTO —
+/// the only lane routed to the emitter if exactly one is, else slot+1 (a→1, b→2, c→3, d→4). `laneRoutes[lane]` bit x = that
 /// lane's riff|notes parts reach output x (whether or not it is playing). Pure, allocation-free. Returns a 1-based lane.
 func euclideousCCDriver(emitter x: Int, slot s: Int, driverLane: Int?, laneRoutes: SIMD4<UInt8>) -> Int {
     if let d = driverLane { return max(1, min(4, d)) }
     var only = -1, count = 0
     for li in 0..<4 where (laneRoutes[li] >> UInt8(x)) & 1 != 0 { count += 1; only = li }
-    return count == 1 ? only + 1 : s + 1
+    return count == 1 ? only + 1 : max(1, min(4, s + 1))
 }
 
 /// CC tab RAMP (2026-11-09): how many rhythm hits the clock's lane has in one pass (lap) — the same count `runEuclidLine` calls `cycleHits`, read from the captured window clock so another lane's pass length can be asked of it.

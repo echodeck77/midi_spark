@@ -146,33 +146,34 @@ struct CCTraceView: View {
     }
 }
 
-// MARK: - the three-band rows (CC SLOTS §4)
+// MARK: - the four-cell rows (CC SLOTS §4; widened + spread 2026-11-13)
 
-/// §4: four output rows A–D; each row is a token tile + THREE bands (slots a/b/c), each band a CC-number chip laid over the slot's trace in its DRIVER lane's colour. Tap a band ⇒ that slot's edit page. No on switch, no large number, no chevron (§4.7).
+/// §4: four output rows A–D; each row is a token tile + FOUR cells (slots a/b/c/d) SIDE BY SIDE across the row, each a BIG CC number over
+/// its own trace in the slot's DRIVER lane's colour. Tap a cell ⇒ that slot's edit page. No on switch, no chevron (§4.7); the on/off edit is on the page.
 struct EuclideousCCRowsPanel: View {
     let bodySize: CGSize
     let ccs: EmitterCCSet
-    let traces: [EmitterCCTrace]        // 12, per slot (output×3 + slot)
-    let drivers: [Int]                  // 12, 0-based driver lane per slot
+    let traces: [EmitterCCTrace]        // 16, per slot (output×4 + slot)
+    let drivers: [Int]                  // 16, 0-based driver lane per slot
     let laneColours: [Color]
     let outputFullyMuted: [Bool]        // 4
     let playhead: (Date) -> Double?
     let playing: Bool
     let onExpand: (Int) -> Void
 
+    private static let nearWhite = Color(.sRGB, red: 0xF2 / 255, green: 0xF4 / 255, blue: 0xF7 / 255, opacity: 1)
     private func driverColour(_ k: Int) -> Color { let d = k < drivers.count ? drivers[k] : 0; return laneColours[max(0, min(laneColours.count - 1, d))] }
     var body: some View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<EuclideousCCRowsMetrics.rows, id: \.self) { o in
                 let r = euclideousCCRowRect(o, panel: bodySize)
-                row(o).frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)
+                row(o, rect: r).frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)
             }
         }.frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
     }
-    @ViewBuilder private func row(_ o: Int) -> some View {
-        let w = euclideousCCRowRect(o, panel: bodySize).width
-        let L = euclideousCCRowLayout(rowWidth: w)
-        let anyOn = (0..<3).contains { ccs[output: o, slot: $0].on }
+    @ViewBuilder private func row(_ o: Int, rect: CGRect) -> some View {
+        let L = euclideousCCRowLayout(rowWidth: rect.width, rowHeight: rect.height)
+        let anyOn = (0..<EuclideousCCRowsMetrics.slots).contains { ccs[output: o, slot: $0].on }
         let muted = o < outputFullyMuted.count && outputFullyMuted[o]
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.tileRadius).fill(Color(.sRGB, red: 0x1D / 255, green: 0x1F / 255, blue: 0x24 / 255, opacity: 1))
@@ -180,18 +181,27 @@ struct EuclideousCCRowsPanel: View {
                 .overlay(EuclideousEmitterTokenView(size: .d28, letter: euclideousOutputLetter(o), state: euclideousEmitterTokenEmitterState(muted: muted, activity: 0, anyRouted: anyOn), lane: Color.clear))
                 .position(x: L.tile.midX, y: L.tile.midY)
                 .accessibilityHidden(true)
-            ForEach(0..<3, id: \.self) { s in band(o: o, s: s, rect: L.bands[s]) }
+            ForEach(0..<EuclideousCCRowsMetrics.slots, id: \.self) { s in cell(o: o, s: s, rect: L.cells[s]) }
         }
     }
-    @ViewBuilder private func band(o: Int, s: Int, rect: CGRect) -> some View {
-        let k = o * 3 + s, cc = ccs[k], dc = driverColour(k)
+    @ViewBuilder private func cell(o: Int, s: Int, rect: CGRect) -> some View {
+        let k = o * EmitterCCSet.slotsPerEmitter + s, cc = ccs[k], dc = driverColour(k)
+        let split = euclideousCCCellSplit(cellSize: rect.size)
+        let fs = euclideousCCNumberFontSize(cellSize: rect.size)
         ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.cellRadius).fill(P.slot)
             CCTraceView(trace: traces[k], laneColours: laneColours, playhead: cc.on ? playhead : nil,
-                        lineColour: cc.on ? dc.opacity(0.85) : nil, areaColour: cc.on ? dc.opacity(0.14) : nil, hideDots: true, faintDividers: true, bgRadius: EuclideousCCRowsMetrics.bandRadius)
-            chip(cc: cc, dc: dc, bandSize: rect.size)
+                        lineColour: cc.on ? dc.opacity(0.85) : nil, areaColour: cc.on ? dc.opacity(0.14) : nil, hideDots: true, faintDividers: true, bgRadius: 0)
+                .frame(width: split.trace.width, height: split.trace.height)
+                .position(x: split.trace.midX, y: split.trace.midY)
+            Text("\(cc.ccNumber)").font(heavyMonoCC(fs)).minimumScaleFactor(0.6).lineLimit(1)
+                .foregroundColor(cc.on ? Self.nearWhite : P.muted)
+                .frame(width: split.number.width, height: split.number.height)
+                .position(x: split.number.midX, y: split.number.midY)
         }
         .frame(width: rect.width, height: rect.height)
-        .clipShape(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.bandRadius))
+        .clipShape(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.cellRadius))
+        .overlay(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.cellRadius).strokeBorder(cc.on ? dc.opacity(0.6) : P.rule, lineWidth: 1))
         .position(x: rect.midX, y: rect.midY)
         .contentShape(Rectangle())
         .onTapGesture { onExpand(k) }
@@ -199,22 +209,13 @@ struct EuclideousCCRowsPanel: View {
         .accessibilityLabel(euclideousCCBandAX(output: o, cc: cc.ccNumber, driverLane: (k < drivers.count ? drivers[k] : 0) + 1, on: cc.on))
         .accessibilityAddTraits(.isButton)
     }
-    @ViewBuilder private func chip(cc: EmitterCC, dc: Color, bandSize: CGSize) -> some View {
-        let r = euclideousCCChipRect(bandSize: bandSize)
-        Text("\(cc.ccNumber)").font(heavyMonoCC(EuclideousCCRowsMetrics.chipFontSize))
-            .foregroundColor(cc.on ? Color(.sRGB, red: 0xF2 / 255, green: 0xF4 / 255, blue: 0xF7 / 255, opacity: 1) : P.muted)
-            .frame(width: r.width, height: r.height)
-            .background(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.chipRadius).fill(Color(.sRGB, red: 0x12 / 255, green: 0x14 / 255, blue: 0x18 / 255, opacity: 0.85)))
-            .overlay(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.chipRadius).strokeBorder(cc.on ? dc.opacity(0.6) : P.rule, lineWidth: 1))
-            .position(x: r.midX, y: r.midY)
-    }
 }
 
 // MARK: - the edit page (one slot) + the lane picker (CC SLOTS §5)
 
 /// One SLOT's full page: a header (token · ON switch · CC stepper · close), the trace in the driver lane's colour (tap ⇒ the lane picker), and two columns — VALUE/TO/CURVE on the left, the six bar sliders on the right. All read/write THIS slot.
 struct EuclideousCCExpandedView: View {
-    let slot: Int                         // the flat slot index k = output×3 + slot
+    let slot: Int                         // the flat slot index k = output×4 + slot
     let bodySize: CGSize
     let ccs: EmitterCCSet
     let trace: EmitterCCTrace
@@ -228,8 +229,8 @@ struct EuclideousCCExpandedView: View {
     let onCollapse: () -> Void
     @State private var pickerOpen = false
 
-    private var output: Int { slot / 3 }
-    private var slotIndex: Int { slot % 3 }
+    private var output: Int { slot / EmitterCCSet.slotsPerEmitter }
+    private var slotIndex: Int { slot % EmitterCCSet.slotsPerEmitter }
     private var letter: String { euclideousOutputLetter(output) }
     private func laneColour(_ d: Int) -> Color { laneColours[max(0, min(laneColours.count - 1, d))] }
     private static let valueModes: [EmitterCCValueMode] = [.hits, .riff, .pingPong, .climb]
@@ -332,7 +333,7 @@ struct EuclideousCCExpandedView: View {
         HStack(spacing: 4) {
             Text("CC").font(heavyMonoCC(10)).foregroundColor(P.muted)
             Text("\u{2039}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[slot].ccNumber = $0.nextCCNumber(from: $0[slot].ccNumber, output: output, slot: slotIndex, up: false) } }   // §1.4 skip
-            CCNumberSlider(value: cc.ccNumber) { v, newStep in onEdit(newStep) { s in var v2 = v; if [0, 1, 2].contains(where: { $0 != slotIndex && s[output: output, slot: $0].ccNumber == v }) { v2 = s.nextCCNumber(from: v, output: output, slot: slotIndex, up: true) }; s[slot].ccNumber = v2 } }   // §1.4: a drag onto a taken number skips to the next free
+            CCNumberSlider(value: cc.ccNumber) { v, newStep in onEdit(newStep) { s in var v2 = v; if (0..<EmitterCCSet.slotsPerEmitter).contains(where: { $0 != slotIndex && s[output: output, slot: $0].ccNumber == v }) { v2 = s.nextCCNumber(from: v, output: output, slot: slotIndex, up: true) }; s[slot].ccNumber = v2 } }   // §1.4: a drag onto a taken number skips to the next free
             Text("\u{203A}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[slot].ccNumber = $0.nextCCNumber(from: $0[slot].ccNumber, output: output, slot: slotIndex, up: true) } }   // §1.4 skip
         }
         .accessibilityElement(children: .ignore).accessibilityLabel("CC number").accessibilityValue("\(cc.ccNumber)")

@@ -52,8 +52,8 @@ final class EmitterCCTests: XCTestCase {
     }
     func testDefaultsAndDecodeTolerance() {
         let set = EmitterCCSet()
-        // CC SLOTS (2026-11-12) §1.2: three slots per output, a/b/c = 74/71/1 on EVERY output (the old per-output D=11 is gone).
-        for o in 0..<4 { XCTAssertEqual([set[output: o, slot: 0].ccNumber, set[output: o, slot: 1].ccNumber, set[output: o, slot: 2].ccNumber], [74, 71, 1], "output \(o) slot defaults a/b/c = 74/71/1") }
+        // CC SLOTS (2026-11-12; 4 slots 2026-11-13) §1.2: four slots per output, a/b/c/d = 74/71/1/11 on EVERY output.
+        for o in 0..<4 { XCTAssertEqual((0..<4).map { set[output: o, slot: $0].ccNumber }, [74, 71, 1, 11], "output \(o) slot defaults a/b/c/d = 74/71/1/11") }
         // amendment 1's defaults: off · HITS · HIGH 127 · LOW 0 · HOLD 25 · RAMP 50 · REST · EXP · MUTE 0
         for i in 0..<4 {
             let e = set[i]

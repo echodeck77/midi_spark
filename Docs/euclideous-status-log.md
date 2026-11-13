@@ -11571,3 +11571,15 @@ unchanged; the tab enums are ephemeral UI state, never persisted). Tests: LaneVi
 the reference now flags `.laneStrip`). Pre-existing red unrelated to this: `ClarityPassTests.testListenSource…` (ANSWER/listen).
 **Device-owed:** the FILL tab's spacious feel (74 pt rows may read tall), the big FLIP HITS button in the freed EUCLID space,
 and the hidden strip clusters.
+
+---
+
+## CC SLOTS — widened to FOUR slots + spread layout (2026-11-13; Fourfold only; amends the CC SLOTS ferry above)
+
+Paul: "change this to support 4 cc values per emitter. Instead of stacking the cc numbers per emitter lane, I want them spread across the lane and much bigger." Two changes, no spec document — his words are the contract.
+
+**(1) FOUR slots per emitter (was three).** `EmitterCCSet.slotsPerEmitter` 3 → 4, `count` 12 → 16; `slotDefaultCCNumbers` = **[74, 71, 1, 11]** (the 4th restores the old per-output D = 11, Paul uncommitted — flagged; `EmitterCCTests` already seeded 11 as the 4th). No migration (a non-16 blob — including a 12-wide doc saved 2026-11-12 — loads defaults). `EmitterCCSnap` widened to 16 (e0…e15). The Router CC engine is indexed by SLOT k (0…15) through `ccSlots = EmitterCCSet.count` / `ccSlotsPer = EmitterCCSet.slotsPerEmitter` (output o = k/ccSlotsPer); the UInt16 masks hold 16 bits exactly. `euclideousCCDriver`'s AUTO `slot+1` now gives a/b/c/d = 1/2/3/4. The page's `ccTab` builds 16 drivers + 16 traces off `EmitterCCSet.count`. **Golden byte-identical** (no golden doc turns CC on) and **alloc 0/61** (the EMITTER CC scenario, 17,372 events, allocates nothing) — all state arrays grow at init, never per-window.
+
+**(2) Spread + bigger (collapsed rows).** Each emitter row was a token tile + THREE bands STACKED (each full-width, 20 tall, with a small 11 pt chip). It is now a token tile + **FOUR cells SIDE BY SIDE** across the row — each cell a **big CC number** (top half of the cell, `euclideousCCNumberFontSize` sizes it to fit "119", 14…30 pt — ~29–30 at the reference, vs the old 11) over the slot's trace (the lower part), in the driver lane's colour with a driver-colour border. The four rows now FILL the panel height (`euclideousCCRowRect` derives rowH from the panel, ÷4, floor 54) so the numbers get the most room. `euclideousCCRowLayout(rowWidth:rowHeight:)` returns the tile + four cell rects; `euclideousCCCellSplit` returns the number/trace rects; the old band/chip metrics are gone. The edit page (`EuclideousCCExpandedView`) is unchanged beyond the /4 index arithmetic — it already showed one big number. `EuclideousCCSlotsTests` / `EmitterCCTests` updated (defaults, flat index output×4+slot, driver a/b/c/d, stepper skipping three others, the new cell layout).
+
+**Device-owed:** the four big numbers spread across a row read at a glance and don't collide on a narrow (mini) panel; four traces per row still read as four distinct CCs; the cells are comfortable to tap.

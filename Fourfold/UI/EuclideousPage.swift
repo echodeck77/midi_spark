@@ -7424,8 +7424,9 @@ struct EuclideousPage: View {
         let barBeats = max(1, clock.beatsPerBar)
         let laneHits: [[EmitterCCTraceHit]] = (0..<4).map { ccLaneHits($0, barBeats: barBeats) }
         let routes = ccLaneRoutesUI
-        // CC SLOTS §2.1: each of the 12 slots (output×3 + slot) resolves its DRIVER lane (0-based); its trace is the driver lane's hits.
-        let drivers: [Int] = (0..<EmitterCCSet.count).map { k in euclideousCCDriver(emitter: k / 3, slot: k % 3, driverLane: emitterCCs[k].driverLane, laneRoutes: routes) - 1 }
+        // CC SLOTS §2.1: each of the 16 slots (output×4 + slot) resolves its DRIVER lane (0-based); its trace is the driver lane's hits.
+        let sp = EmitterCCSet.slotsPerEmitter
+        let drivers: [Int] = (0..<EmitterCCSet.count).map { k in euclideousCCDriver(emitter: k / sp, slot: k % sp, driverLane: emitterCCs[k].driverLane, laneRoutes: routes) - 1 }
         let span = emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8)
         let traces: [EmitterCCTrace] = (0..<EmitterCCSet.count).map { k in
             let d = max(0, min(3, drivers[k]))

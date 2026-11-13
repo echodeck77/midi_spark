@@ -396,8 +396,9 @@ final class Router {
     // hits + riff (§3), whatever the lane's routing / PLAY / mute. All OFF ⇒ `emitterCCAny` false ⇒ the whole CC path is skipped
     // (byte-identical). The ramp is a sanctioned accumulator (CLAUDE.md invariant 2): per-SLOT segment + last-sent state, FIXED-SIZE
     // (12-element arrays allocated ONCE, mutated in place — no render alloc), reset at a transport edge / scene flush / reset. The
-    // state is indexed by SLOT k = output×3 + slot; the wire (cable / channel / `ccValueLive`) uses the output o = k / 3.
-    private static let ccSlots = 12
+    // state is indexed by SLOT k = output×ccSlotsPer + slot; the wire (cable / channel / `ccValueLive`) uses the output o = k / ccSlotsPer.
+    private static let ccSlotsPer = EmitterCCSet.slotsPerEmitter   // 4 (CC SLOTS, widened 2026-11-13)
+    private static let ccSlots = EmitterCCSet.count                // 16 — fits the UInt16 masks exactly
     private var emitterCCs = EmitterCCSnap()
     private var emitterCCAny = false
     private var ccSegFrom = [Float](repeating: 0, count: ccSlots)        // the hold value before the ramp (and the value at/after a STEP hit)
@@ -431,7 +432,7 @@ final class Router {
     }
     private func resetEmitterRatchetOrigin() { emitterCounter.reset(); emitterIndexLive = emitterCounter.indexPacked; emitterVelCounter.reset(); emitterVelIndexLive = emitterVelCounter.indexPacked; resetEmitterCC() }
 
-    // MARK: - EMITTER CC (CC SLOTS) — per-SLOT value, ramp and rate-limited emission. The state index is the SLOT k = output×3 + slot; the wire (cable / channel / `ccValueLive`) uses the output o = k / 3.
+    // MARK: - EMITTER CC (CC SLOTS) — per-SLOT value, ramp and rate-limited emission. The state index is the SLOT k = output×ccSlotsPer + slot; the wire (cable / channel / `ccValueLive`) uses the output o = k / ccSlotsPer.
     /// One message per 1/96 note (a 96th note = 1/24 beat), in samples; ≥ 1. (An internal flood cap, not a user setting.)
     @inline(__always) private func ccRateLimitSamples(_ beatsPerSample: Double) -> Int64 { max(1, Int64(((1.0 / 24.0) / max(1e-12, beatsPerSample)).rounded())) }
     /// Slot k's segment value at `sample`: the hit's value held, the ramp (LIN or EXP) to the target, then the target held.
@@ -501,7 +502,7 @@ final class Router {
     private func ccRampPass(windowStart: Int64, windowEnd: Int64, endBeat: Double, beatsPerSample: Double, out: MIDIEmitter?) {
         if ccPendingReset != 0 {   // a slot was just switched OFF: park its CC at `muteValue` once. Before the `emitterCCAny` guard so the LAST slot turning off still parks.
             for k in 0..<Self.ccSlots where ccPendingReset & (UInt16(1) << UInt16(k)) != 0 {
-                ccSend(k, output: k / 3, cc: emitterCCs[k].ccNumber, value: emitterCCs[k].muteValue, atSample: max(windowStart, ccLastSentSample[k]), out: out)
+                ccSend(k, output: k / Self.ccSlotsPer, cc: emitterCCs[k].ccNumber, value: emitterCCs[k].muteValue, atSample: max(windowStart, ccLastSentSample[k]), out: out)
                 let bit = UInt16(1) << UInt16(k); ccArmedMask &= ~bit; ccRecValid &= ~bit; ccMuteSentMask &= ~bit
             }
             ccPendingReset = 0
@@ -509,7 +510,7 @@ final class Router {
         guard emitterCCAny else { return }
         let rate = ccRateLimitSamples(beatsPerSample)
         for k in 0..<Self.ccSlots where emitterCCs[k].on {
-            let cfg = emitterCCs[k], o = k / 3, bit = UInt16(1) << UInt16(k)
+            let cfg = emitterCCs[k], o = k / Self.ccSlotsPer, bit = UInt16(1) << UInt16(k)
             if ccOutputFullyMuted(o) {   // §3.6 full output mute: send muteValue once, then nothing
                 if ccMuteSentMask & bit == 0 { ccSend(k, output: o, cc: cfg.ccNumber, value: cfg.muteValue, atSample: max(windowStart, ccLastSentSample[k]), out: out); ccMuteSentMask |= bit }
                 continue
@@ -4002,8 +4003,8 @@ final class Router {
                                 let ccHitSample = Int64(sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
                                 let ccNextStep = euclideousRiffColumn(ordinal: advOrd &+ 1, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
                                 let ccNextRank = (ccNextStep >= 0 && ccNextStep < ranks.count) ? ranks[ccNextStep] : 0
-                                for o in 0..<4 { for s in 0..<3 {
-                                    let k = o * 3 + s, cfg = emitterCCs[k]
+                                for o in 0..<4 { for s in 0..<Self.ccSlotsPer {
+                                    let k = o * Self.ccSlotsPer + s, cfg = emitterCCs[k]
                                     guard cfg.on, euclideousCCDriver(emitter: o, slot: s, driverLane: cfg.driverLane, laneRoutes: ccLaneRoutes) == lineIndex + 1 else { continue }
                                     let cur = CCHitIn(rank: ccCur, passHits: cycleHits, count: 1, routed: 1, ord: advOrd)
                                     let next = CCHitIn(rank: ccNextRank, passHits: cycleHits, count: 1, routed: 1, ord: advOrd &+ 1)

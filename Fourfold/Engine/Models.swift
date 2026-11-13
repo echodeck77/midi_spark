@@ -2242,20 +2242,20 @@ extension EmitterCC: Codable {
         try c.encodeIfPresent(driverLane, forKey: .driverLane)
     }
 }
-/// CC SLOTS (2026-11-12): the document's CC emitters — FOUR outputs × THREE slots (a/b/c), encoded as a flat array of 12.
-/// Every output's slot defaults are a 74 · b 71 · c 1 (§1.2 — the old per-output A/B/C/D numbers are gone); every write
-/// through a subscript normalises. `subscript(output:slot:)` is the primary access; the flat `subscript(i:)` (i = output×3 + slot)
+/// CC SLOTS (2026-11-12; widened to FOUR slots 2026-11-13): the document's CC emitters — FOUR outputs × FOUR slots (a/b/c/d), encoded
+/// as a flat array of 16. Every output's slot defaults are a 74 · b 71 · c 1 · d 11 (§1.2 — the old per-output A/B/C/D numbers are gone);
+/// every write through a subscript normalises. `subscript(output:slot:)` is the primary access; the flat `subscript(i:)` (i = output×4 + slot)
 /// carries it through the plumbing. The document lives on the main thread; the render thread reads `EmitterCCSnap` (fixed-size value).
 struct EmitterCCSet: Equatable, Codable {
-    static let outputCount = 4, slotsPerEmitter = 3
-    static let count = outputCount * slotsPerEmitter        // 12
-    static let slotDefaultCCNumbers = [74, 71, 1]           // slot a · b · c, on EVERY output
+    static let outputCount = 4, slotsPerEmitter = 4
+    static let count = outputCount * slotsPerEmitter        // 16
+    static let slotDefaultCCNumbers = [74, 71, 1, 11]       // slot a · b · c · d, on EVERY output
     private var slots: [EmitterCC]
     init() { slots = (0..<Self.count).map { EmitterCC(ccNumber: Self.slotDefaultCCNumbers[$0 % Self.slotsPerEmitter]) } }
     init(_ list: [EmitterCC]) { self.init(); for (i, r) in list.prefix(Self.count).enumerated() { self[i] = r } }
     init(from decoder: Decoder) throws {
         self.init()
-        // §1.3 NO MIGRATION: only a flat array of exactly 12 loads; anything else (an old 4-wide document) keeps the defaults.
+        // §1.3 NO MIGRATION: only a flat array of exactly 16 loads; anything else (an old 4-wide or 12-wide document) keeps the defaults.
         guard let c = try? decoder.singleValueContainer(), let raw = try? c.decode([EmitterCC].self), raw.count == Self.count else { return }
         for (i, r) in raw.enumerated() { self[i] = r }
     }
@@ -2270,7 +2270,7 @@ struct EmitterCCSet: Equatable, Codable {
     }
     var asArray: [EmitterCC] { slots }
     var isAllDefault: Bool { self == EmitterCCSet() }
-    /// §1.4: the next CC number stepping from `n` for (output, slot), skipping the OTHER two slots of that output, wrapping 0…119.
+    /// §1.4: the next CC number stepping from `n` for (output, slot), skipping the OTHER three slots of that output, wrapping 0…119.
     func nextCCNumber(from n: Int, output o: Int, slot s: Int, up: Bool) -> Int {
         var taken = Set<Int>()
         for j in 0..<Self.slotsPerEmitter where j != s { taken.insert(self[output: o, slot: j].ccNumber) }

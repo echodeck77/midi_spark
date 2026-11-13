@@ -872,3 +872,9 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - Three traces per row read as three distinct CCs (not noise), in red/blue/yellow/green.
 - The 20 pt bands are comfortable to tap without catching a neighbour.
 - The lane-picker rows (~19.5 pt) are comfortable to tap; the fade in/out reads cleanly.
+
+## CC SLOTS — FOUR slots + spread (2026-11-13) §device-owed
+- The FOUR big CC numbers spread across one emitter row read at a glance in performance, in each lane colour.
+- The big numbers never collide or truncate on the iPad-mini-width panel (the font floor is 14 pt).
+- Four traces per row still read as four distinct CCs, not noise.
+- The cells (now ~¼-row-width each) are comfortable to tap without catching a neighbour.
