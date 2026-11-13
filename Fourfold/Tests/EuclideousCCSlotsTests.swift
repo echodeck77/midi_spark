@@ -40,6 +40,24 @@ final class EuclideousCCSlotsTests: XCTestCase {
         XCTAssertTrue(back.isAllDefault, "a 4-entry blob is not 12 ⇒ defaults (no migration)")
     }
 
+    // §2.1 / test 3 — the driver: nil follows routing (one routed lane ⇒ it; none or several ⇒ slot+1); a set lane wins.
+    func testDriverResolution() {
+        let none = SIMD4<UInt8>(repeating: 0)
+        // nil, nothing routed to output 0 ⇒ slot+1 (a→1, b→2, c→3).
+        XCTAssertEqual((0..<3).map { euclideousCCDriver(emitter: 0, slot: $0, driverLane: nil, laneRoutes: none) }, [1, 2, 3])
+        // only lane 3 (index 2) routed to output 0 ⇒ every slot drives lane 3.
+        var one = none; one[2] = 0b0001
+        XCTAssertEqual((0..<3).map { euclideousCCDriver(emitter: 0, slot: $0, driverLane: nil, laneRoutes: one) }, [3, 3, 3])
+        // lanes 2 and 4 (indices 1, 3) routed ⇒ several ⇒ slot+1.
+        var two = none; two[1] = 0b0001; two[3] = 0b0001
+        XCTAssertEqual((0..<3).map { euclideousCCDriver(emitter: 0, slot: $0, driverLane: nil, laneRoutes: two) }, [1, 2, 3])
+        // a SET driver ignores routing.
+        XCTAssertEqual(euclideousCCDriver(emitter: 0, slot: 0, driverLane: 4, laneRoutes: one), 4)
+        // routing to a DIFFERENT output doesn't count: lane 1 routed to output 1 only ⇒ output 0 still slot+1.
+        var other = none; other[0] = 0b0010
+        XCTAssertEqual((0..<3).map { euclideousCCDriver(emitter: 0, slot: $0, driverLane: nil, laneRoutes: other) }, [1, 2, 3])
+    }
+
     // §1.4 / test 2 — the stepper skips the output's other two slots' numbers, wrapping at 0 and 119.
     func testStepperSkipsOtherSlots() {
         var set = EmitterCCSet()   // output A: a=74, b=71, c=1

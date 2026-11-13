@@ -392,98 +392,97 @@ final class Router {
     private var emitterVelCounter = EmitterVelocityCounter()
     private var euclideousStrikeVelOffset = SIMD4<Int8>(repeating: 0)   // [output] the signed velocity offset applied at `emitOneOutput` for the strike in flight; 0 everywhere = no change
     private(set) var emitterVelIndexLive: UInt32 = 0xFFFF_FFFF
-    // EMITTER CC (CC tab, Nov 2026): the four per-output CC emitters of this window (all OFF ⇒ `emitterCCAny` false ⇒ the whole CC path is skipped, byte-identical). Each sends ONE CC driven by the routed lanes' hits, with STEP / GLIDE /
-    // FALL ramps between hits (rate-limited). The ramp is a NEW sanctioned accumulator (CLAUDE.md invariant 2, like the counters): per-output segment + last-sent state, FIXED-SIZE (SIMD4), reset at a transport edge / scene flush / reset.
+    // EMITTER CC — CC SLOTS (2026-11-12): FOUR outputs × THREE slots = 12 CCs. Each SLOT follows its DRIVER lane's Euclid
+    // hits + riff (§3), whatever the lane's routing / PLAY / mute. All OFF ⇒ `emitterCCAny` false ⇒ the whole CC path is skipped
+    // (byte-identical). The ramp is a sanctioned accumulator (CLAUDE.md invariant 2): per-SLOT segment + last-sent state, FIXED-SIZE
+    // (12-element arrays allocated ONCE, mutated in place — no render alloc), reset at a transport edge / scene flush / reset. The
+    // state is indexed by SLOT k = output×3 + slot; the wire (cable / channel / `ccValueLive`) uses the output o = k / 3.
+    private static let ccSlots = 12
     private var emitterCCs = EmitterCCSnap()
     private var emitterCCAny = false
-    private var ccSegFrom = SIMD4<Float>(repeating: 0)        // the hold value before the ramp (and the value at/after a STEP hit)
-    private var ccSegTo = SIMD4<Float>(repeating: 0)          // the value the ramp arrives at
-    private var ccSegHold = SIMD4<Float>(repeating: 0)        // the value held after the ramp (FALL: LOW; else the arrival)
-    private var ccSegFromSample = SIMD4<Int64>(repeating: Int64.max)   // when the ramp begins
-    private var ccSegToSample = SIMD4<Int64>(repeating: Int64.max)     // when it arrives
-    private var ccLastSentVal = SIMD4<Int32>(repeating: -1)       // last integer value sent on the output (−1 = none)
-    private var ccLastSentSample = SIMD4<Int64>(repeating: Int64.min)  // the sample of the last CC considered (rate-limit clock + the ramp walk's start)
-    private var ccLastHitSample = SIMD4<Int64>(repeating: Int64.min)   // the sample of the latest hit taken on the output: lanes run in lane order inside a window, so a LATER lane can hold an EARLIER hit — it is superseded, not sent out of time order
-    // The latest hit's INPUTS per output, and the config the running segment was built under: when a setting changes the segment is re-planned from these at once (the ring on the page and the synth follow a slider immediately), not at the next hit.
+    private var ccSegFrom = [Float](repeating: 0, count: ccSlots)        // the hold value before the ramp (and the value at/after a STEP hit)
+    private var ccSegTo = [Float](repeating: 0, count: ccSlots)          // the value the ramp arrives at
+    private var ccSegHold = [Float](repeating: 0, count: ccSlots)        // the value held after the ramp
+    private var ccSegFromSample = [Int64](repeating: Int64.max, count: ccSlots)   // when the ramp begins
+    private var ccSegToSample = [Int64](repeating: Int64.max, count: ccSlots)     // when it arrives
+    private var ccLastSentVal = [Int32](repeating: -1, count: ccSlots)       // last integer value sent on the slot (−1 = none)
+    private var ccLastSentSample = [Int64](repeating: Int64.min, count: ccSlots)  // the sample of the last CC considered (rate-limit clock + the ramp walk's start)
+    private var ccLastHitSample = [Int64](repeating: Int64.min, count: ccSlots)   // the sample of the latest hit taken on the slot (its one driver's hits arrive in order)
+    // The latest hit's INPUTS per slot, and the config the running segment was built under: a setting change re-plans the segment from these at once (the ring on the page and the synth follow a slider immediately), not at the next hit.
     private var ccSegCfg = EmitterCCSnap()
-    private var ccSegCurve = SIMD4<Int32>(repeating: 1)           // the ramp's curve: 0 LIN, 1 EXP
-    private var ccRecValid: UInt8 = 0
-    /// What a hit's value is made of: the riff rank, the riff ordinal and hits per pass (PING-PONG / CLIMB) and the merged event's lane count (HITS: `count` of `routed` lanes hit on this step).
+    private var ccSegCurve = [Int32](repeating: 1, count: ccSlots)           // the ramp's curve: 0 LIN, 1 EXP
+    private var ccRecValid: UInt16 = 0
+    /// What a hit's value is made of: the riff rank, the riff ordinal and hits per pass (PING-PONG / CLIMB). `count` / `routed` are retired (CC SLOTS: HITS is HIGH on every hit) — kept at 1/1 for the shared `value(…)`.
     private struct CCHitIn { var rank = 0, passHits = 1, count = 1, routed = 1; var ord: Int64 = 0 }
     private struct CCRec { var sample: Int64 = 0, gap: Int64 = 1; var spanLo = 1, spanHi = 8; var cur = CCHitIn(), next = CCHitIn() }
-    private var ccRec = [CCRec](repeating: CCRec(), count: 4)     // fixed 4 elements, mutated in place: no render-time allocation
-    private var ccArmedMask: UInt8 = 0     // bit x = a hit has fired on output x since it went on / unmuted (turning on sends nothing until the next hit)
-    private var ccMuteSentMask: UInt8 = 0  // bit x = `muteValue` already sent while muted (sent once)
-    private var ccPrevOnMask: UInt8 = 0    // bit x = output x's CC was on last window (to spot the off→on edge)
-    private var ccPendingReset: UInt8 = 0  // bit x = output x's CC was just switched OFF with a value standing — park it at `muteValue` ONCE so the synth isn't left stuck at the last value (the off→on edge resets `ccPrevOnMask`; this resets the WIRE)
-    // Slice D (2026-11-08): the per-LANE facts the merged next-hit gap and the "every routed lane is stopped / muted" mute read — rewritten once a window (only while an emitter's CC is on), element-mutated so no render-time allocation.
-    private var ccLaneMuteCells = SIMD4<UInt16>(repeating: 0xFFFF)   // each lane's own LANES-mute cells (the lane may be silent in some of them)
-    private var ccLaneMuteUnit = SIMD4<Double>(repeating: 0)         // …and the length of one cell, in beats
-    private var ccLaneStaticMask: UInt8 = 0                          // bit lane = PLAY on and not solo-silenced (the parts of "may strike" that do not change inside a window)
-    private var ccLaneRoutes = SIMD4<UInt8>(repeating: 0)            // per lane: the outputs (bits 0…3 = A…D) its riff and notes parts are routed to
-    private(set) var ccValueLive: UInt32 = 0xFFFF_FFFF   // one byte per output = the current CC value (0xFF = none yet), for the UI trace (polled at 30 Hz, same shape as `emitterIndexLive`)
+    private var ccRec = [CCRec](repeating: CCRec(), count: ccSlots)     // fixed 12 elements, mutated in place: no render-time allocation
+    private var ccArmedMask: UInt16 = 0     // bit k = a hit has fired on slot k since it went on / unmuted (turning on sends nothing until the next hit)
+    private var ccMuteSentMask: UInt16 = 0  // bit k = `muteValue` already sent while the output is muted (sent once)
+    private var ccPrevOnMask: UInt16 = 0    // bit k = slot k's CC was on last window (to spot the off→on edge)
+    private var ccPendingReset: UInt16 = 0  // bit k = slot k's CC was just switched OFF with a value standing — park it at `muteValue` ONCE so the synth isn't left stuck at the last value
+    private var ccLaneRoutes = SIMD4<UInt8>(repeating: 0)            // per lane: the outputs (bits 0…3 = A…D) its riff and notes parts are routed to — the only per-lane fact the DRIVER (§2.1) reads
+    private(set) var ccValueLive: UInt32 = 0xFFFF_FFFF   // one byte per OUTPUT = the current CC value last sent on it (0xFF = none yet), for the UI trace (polled at 30 Hz)
     private func resetEmitterCC() {
-        ccSegFrom = SIMD4<Float>(repeating: 0); ccSegTo = SIMD4<Float>(repeating: 0); ccSegHold = SIMD4<Float>(repeating: 0)
-        ccSegFromSample = SIMD4<Int64>(repeating: Int64.max); ccSegToSample = SIMD4<Int64>(repeating: Int64.max)
-        ccLastSentVal = SIMD4<Int32>(repeating: -1); ccLastSentSample = SIMD4<Int64>(repeating: Int64.min); ccLastHitSample = SIMD4<Int64>(repeating: Int64.min)
+        for i in 0..<Self.ccSlots {
+            ccSegFrom[i] = 0; ccSegTo[i] = 0; ccSegHold[i] = 0; ccSegFromSample[i] = Int64.max; ccSegToSample[i] = Int64.max
+            ccLastSentVal[i] = -1; ccLastSentSample[i] = Int64.min; ccLastHitSample[i] = Int64.min; ccSegCurve[i] = 1
+        }
         ccArmedMask = 0; ccMuteSentMask = 0; ccValueLive = 0xFFFF_FFFF; ccRecValid = 0; ccPendingReset = 0
     }
     private func resetEmitterRatchetOrigin() { emitterCounter.reset(); emitterIndexLive = emitterCounter.indexPacked; emitterVelCounter.reset(); emitterVelIndexLive = emitterVelCounter.indexPacked; resetEmitterCC() }
 
-    // MARK: - EMITTER CC (CC tab) — the per-output CC value, its ramp, and its rate-limited emission
+    // MARK: - EMITTER CC (CC SLOTS) — per-SLOT value, ramp and rate-limited emission. The state index is the SLOT k = output×3 + slot; the wire (cable / channel / `ccValueLive`) uses the output o = k / 3.
     /// One message per 1/96 note (a 96th note = 1/24 beat), in samples; ≥ 1. (An internal flood cap, not a user setting.)
     @inline(__always) private func ccRateLimitSamples(_ beatsPerSample: Double) -> Int64 { max(1, Int64(((1.0 / 24.0) / max(1e-12, beatsPerSample)).rounded())) }
-    /// Output x's segment value at `sample`: the hit's value held, the ramp (LIN or EXP) to the target, then the target held.
-    @inline(__always) private func ccSegValue(_ x: Int, _ sample: Int64) -> Float {
-        if sample < ccSegFromSample[x] { return ccSegFrom[x] }
-        if sample >= ccSegToSample[x] { return ccSegHold[x] }
-        let span = ccSegToSample[x] - ccSegFromSample[x]
-        guard span > 0 else { return ccSegHold[x] }
-        let f = Double(sample - ccSegFromSample[x]) / Double(span)
-        return ccSegFrom[x] + (ccSegTo[x] - ccSegFrom[x]) * Float(emitterCCShape(f, curve: ccSegCurve[x] == 0 ? .lin : .exp))
+    /// Slot k's segment value at `sample`: the hit's value held, the ramp (LIN or EXP) to the target, then the target held.
+    @inline(__always) private func ccSegValue(_ k: Int, _ sample: Int64) -> Float {
+        if sample < ccSegFromSample[k] { return ccSegFrom[k] }
+        if sample >= ccSegToSample[k] { return ccSegHold[k] }
+        let span = ccSegToSample[k] - ccSegFromSample[k]
+        guard span > 0 else { return ccSegHold[k] }
+        let f = Double(sample - ccSegFromSample[k]) / Double(span)
+        return ccSegFrom[k] + (ccSegTo[k] - ccSegFrom[k]) * Float(emitterCCShape(f, curve: ccSegCurve[k] == 0 ? .lin : .exp))
     }
-    /// Send CC `cc` value `v` on output x's own cable (x+1) and the ALL cable (0), each on the output's channel; `emitModCCWire`'s `modLastVal` dedups identical consecutive values per (cable, channel, cc).
-    @inline(__always) private func ccSend(_ x: Int, cc: Int, value v: Int, atSample s: Int64, out: MIDIEmitter?) {
-        let vv = max(0, min(127, v)), ch = (busChannels[x] &- 1) & 15
-        ccLastSentVal[x] = Int32(vv); ccLastSentSample[x] = s
-        ccValueLive = (ccValueLive & ~(UInt32(0xFF) << UInt32(8 * x))) | (UInt32(vv) << UInt32(8 * x))   // publish the live value for the UI trace
+    /// Send slot k's CC `cc` value `v` on its OUTPUT `o`'s own cable (o+1) and the ALL cable (0), each on the output's channel.
+    @inline(__always) private func ccSend(_ k: Int, output o: Int, cc: Int, value v: Int, atSample s: Int64, out: MIDIEmitter?) {
+        let vv = max(0, min(127, v)), ch = (busChannels[o] &- 1) & 15
+        ccLastSentVal[k] = Int32(vv); ccLastSentSample[k] = s
+        ccValueLive = (ccValueLive & ~(UInt32(0xFF) << UInt32(8 * o))) | (UInt32(vv) << UInt32(8 * o))   // publish the output's live value for the UI trace
         guard let out = out else { return }
-        emitModCCWire(cable: UInt8(x + 1), ch: ch, cc: cc, value: vv, atSample: s, out: out, force: false)
+        emitModCCWire(cable: UInt8(o + 1), ch: ch, cc: cc, value: vv, atSample: s, out: out, force: false)
         emitModCCWire(cable: 0, ch: ch, cc: cc, value: vv, atSample: s, out: out, force: false)
     }
-    /// Walk output x's segment from the last-considered sample up to `toSample` (exclusive) at the rate limit, emitting a CC each time the integer value changes. Captures the ramp between hits / to the window end.
-    private func ccWalk(_ x: Int, cc: Int, toSample: Int64, windowStart: Int64, rateSamples: Int64, out: MIDIEmitter?) {
-        var s = max(ccLastSentSample[x] &+ rateSamples, windowStart)
+    /// Walk slot k's segment from the last-considered sample up to `toSample` (exclusive) at the rate limit, emitting a CC each time the integer value changes.
+    private func ccWalk(_ k: Int, output o: Int, cc: Int, toSample: Int64, windowStart: Int64, rateSamples: Int64, out: MIDIEmitter?) {
+        var s = max(ccLastSentSample[k] &+ rateSamples, windowStart)
         var guardN = 0
         while s < toSample && guardN < 512 {
             guardN &+= 1
-            let v = Int(ccSegValue(x, s).rounded())
-            if Int32(v) != ccLastSentVal[x] { ccSend(x, cc: cc, value: v, atSample: s, out: out) } else { ccLastSentSample[x] = s }   // keep the rate-limit clock moving even when the value held
+            let v = Int(ccSegValue(k, s).rounded())
+            if Int32(v) != ccLastSentVal[k] { ccSend(k, output: o, cc: cc, value: v, atSample: s, out: out) } else { ccLastSentSample[k] = s }   // keep the rate-limit clock moving even when the value held
             s &+= rateSamples
         }
     }
-    /// A hit on output x — the merged event of every routed lane that hits on this step (`cur`: the handling lane's rank / ordinal / pass length and the event's `count` of `routed` lanes; `next`: the same for the NEXT hit ON THE EMITTER, merged across every
-    /// lane routed to it, see `ccMergedNextHit`): emit the ramp up to the hit, jump to the hit value, plan the shape. A RIFF rest (no rank) sends nothing and plans nothing — the current shape continues. The caller has already dropped a hit the output's
-    /// MUTE-tab gate or the lane's own mute / solo silences.
-    private func ccOnHit(_ x: Int, cfg: EmitterCCCfg, hitSample s: Int64, cur: CCHitIn, next: CCHitIn, span: EmitterCCRiffSpan, nextGapBeats: Double, beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
-        let bit = UInt8(1) << UInt8(x)
-        guard s >= ccLastHitSample[x] else { return }   // a hit another lane already passed in time (this lane ran later in the window): its value would have been overwritten, so it is dropped rather than sent out of order
+    /// A hit of slot k's DRIVER lane (§3): emit the ramp up to the hit, jump to the hit value, plan the shape. A RIFF rest (no rank) sends nothing and plans nothing — the current shape continues. `cur`/`next` are the driver's own hit and its next hit.
+    private func ccOnHit(_ k: Int, output o: Int, cfg: EmitterCCCfg, hitSample s: Int64, cur: CCHitIn, next: CCHitIn, span: EmitterCCRiffSpan, nextGapBeats: Double, beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
+        let bit = UInt16(1) << UInt16(k)
+        guard !ccOutputFullyMuted(o) else { return }   // §3.6: a fully-muted output sends only `muteValue`, once (the ramp pass does it) — not the hits
+        guard s >= ccLastHitSample[k] else { return }
         guard let v = cfg.value(rank: cur.rank, ordinal: cur.ord, span: span, passHits: cur.passHits, count: cur.count, routed: cur.routed) else { return }   // a RIFF rest: no new value
-        ccLastHitSample[x] = s
+        ccLastHitSample[k] = s
         let rate = ccRateLimitSamples(beatsPerSample)
-        if ccArmedMask & bit != 0 { ccWalk(x, cc: cfg.ccNumber, toSample: s, windowStart: windowStart, rateSamples: rate, out: out) }   // the shape since the last emission, up to this hit
-        if Int32(v) != ccLastSentVal[x] { ccSend(x, cc: cfg.ccNumber, value: v, atSample: s, out: out) } else { ccLastSentSample[x] = s }   // the hit's jump (on a change)
-        ccRec[x] = CCRec(sample: s, gap: max(Int64(1), Int64((nextGapBeats / max(1e-12, beatsPerSample)).rounded())), spanLo: span.lo, spanHi: span.hi, cur: cur, next: next)
+        if ccArmedMask & bit != 0 { ccWalk(k, output: o, cc: cfg.ccNumber, toSample: s, windowStart: windowStart, rateSamples: rate, out: out) }   // the shape since the last emission, up to this hit
+        if Int32(v) != ccLastSentVal[k] { ccSend(k, output: o, cc: cfg.ccNumber, value: v, atSample: s, out: out) } else { ccLastSentSample[k] = s }   // the hit's jump (on a change)
+        ccRec[k] = CCRec(sample: s, gap: max(Int64(1), Int64((nextGapBeats / max(1e-12, beatsPerSample)).rounded())), spanLo: span.lo, spanHi: span.hi, cur: cur, next: next)
         ccRecValid |= bit
-        ccBuildSegment(x, cfg: cfg)
+        ccBuildSegment(k, cfg: cfg)
         ccArmedMask |= bit; ccMuteSentMask &= ~bit
     }
-    /// Plan output x's shape from the latest hit's recorded inputs under `cfg` (amendment 1): jump to the hit value (already sent), HOLD it for `hold` % of the gap, RAMP to the target over the effective ramp (`min(ramp, 100 − hold)` % of the gap; 0 ⇒ jump
-    /// to the target at the end of the hold), then sit at the target until the next hit. The target is LOW (REST) or the next hit's predicted value (NEXT; a mismatch is corrected by that hit's jump). Called at the hit, and again at the top of a window when a
-    /// setting changed, so the running shape follows the new setting at once.
-    private func ccBuildSegment(_ x: Int, cfg: EmitterCCCfg) {
-        ccSegCfg[x] = cfg
-        let r = ccRec[x]
+    /// Plan slot k's shape from the latest hit's recorded inputs under `cfg` (amendment 1): jump to the hit value (already sent), HOLD it for `hold` % of the gap, RAMP to the target over the effective ramp, then sit at the target until the next hit. The
+    /// target is LOW (REST) or the next hit's predicted value (NEXT). Called at the hit, and again at the top of a window when a setting changed, so the running shape follows the new setting at once.
+    private func ccBuildSegment(_ k: Int, cfg: EmitterCCCfg) {
+        ccSegCfg[k] = cfg
+        let r = ccRec[k]
         let span = EmitterCCRiffSpan(lo: r.spanLo, hi: r.spanHi)
         guard let v = cfg.value(rank: r.cur.rank, ordinal: r.cur.ord, span: span, passHits: r.cur.passHits, count: r.cur.count, routed: r.cur.routed) else { return }
         let s = r.sample, gap = Double(r.gap)
@@ -493,86 +492,31 @@ final class Router {
         if cfg.hold >= 100 { target = Float(v) }   // HOLD 100 % = steps: the hit's value stays until a new value arrives (through a RIFF rest, whose hit brings none)
         else if cfg.to == .rest { target = Float(cfg.low) }
         else { target = Float(cfg.value(rank: r.next.rank, ordinal: r.next.ord, span: span, passHits: r.next.passHits, count: r.next.count, routed: r.next.routed) ?? v) }
-        ccSegFromSample[x] = holdEnd; ccSegToSample[x] = rampEnd; ccSegFrom[x] = Float(v); ccSegTo[x] = target; ccSegHold[x] = target
-        ccSegCurve[x] = cfg.curve == .lin ? 0 : 1
+        ccSegFromSample[k] = holdEnd; ccSegToSample[k] = rampEnd; ccSegFrom[k] = Float(v); ccSegTo[k] = target; ccSegHold[k] = target
+        ccSegCurve[k] = cfg.curve == .lin ? 0 : 1
     }
-    /// The hit's check: is output x's MUTE-tab gate (its own 16 cells) open at musical beat `b`?
-    @inline(__always) private func ccOutputGateOpen(_ x: Int, atBeat b: Double) -> Bool {
-        guard euclideousOutputMuteAny, euclideousOutputMuteCells[x] != 0xFFFF else { return true }
-        return euclideousLaneAudible(beat: b, cells16: euclideousOutputMuteCells[x], unitBeats: euclideousOutputMuteUnitBeats[x])
-    }
-    /// Is emitter x silent at musical beat `b`: its MUTE-tab gate is closed, OR it has routed lanes and EVERY one of them is stopped (PLAY off), solo-silenced or LANES-muted there? (An emitter nothing is routed to is not "silent": there is
-    /// nothing to be muted, so it sends nothing at all.)
-    private func ccEmitterSilenced(_ x: Int, atBeat b: Double) -> Bool {
-        if !ccOutputGateOpen(x, atBeat: b) { return true }
-        var routed = false
-        for li in 0..<4 where (ccLaneRoutes[li] >> UInt8(x)) & 1 != 0 {
-            routed = true
-            if (ccLaneStaticMask >> UInt8(li)) & 1 != 0 && euclideousLaneAudible(beat: b, cells16: ccLaneMuteCells[li], unitBeats: ccLaneMuteUnit[li]) { return false }
-        }
-        return routed
-    }
-    /// Who hits emitter x at musical beat `b` (amendment 1: several lanes routed to one emitter merge into ONE hit stream — one event per step on which any routed lane hits): `routed` = the lanes routed to it that are not stopped or muted at `b`; `count` = how
-    /// many of those hit at `b` (`knownHitLane` is known to; the others are asked of their clock-pre-pass capture, same-instant rule); `lowest` = the first hitting lane in lane order, the one that handles the event (-1 when none is known).
-    private func ccCoincidence(_ x: Int, beat b: Double, knownHitLane: Int) -> (count: Int, routed: Int, lowest: Int) {
-        var count = 0, routed = 0, lowest = -1
-        for li in 0..<4 where (ccLaneRoutes[li] >> UInt8(x)) & 1 != 0 && (ccLaneStaticMask >> UInt8(li)) & 1 != 0
-            && euclideousLaneAudible(beat: b, cells16: ccLaneMuteCells[li], unitBeats: ccLaneMuteUnit[li]) {
-            routed += 1
-            var hits = li == knownHitLane
-            if !hits {
-                let slot = li * 2 + ((hocketClockSplit[li] && b >= hocketClockSplitBeat[li]) ? 1 : 0)
-                hits = hocketClocks[slot].valid && euclideousLaneClockStrikesAt(hocketClocks[slot], onsetBeat: b)
-            }
-            if hits { count += 1; if lowest < 0 { lowest = li } }
-        }
-        return (count, routed, lowest)
-    }
-    /// The NEXT hit on emitter x after the hit now firing at musical beat `t`: the earliest AUDIBLE hit of any lane routed to it (the firing lane's own next hit included), from each lane's clock-pre-pass capture; coincident hits are one event (the first lane
-    /// in lane order is read: its riff rank — through `ranks`, the riff grid as it stands now, the same approximation the same-note guard makes —, its ordinal and pass length), and the event's lane count is asked of `ccCoincidence`. `fallbackGap` (the firing lane's
-    /// own pattern gap) stands in when no routed lane has a hit within its look-ahead.
-    private func ccMergedNextHit(_ x: Int, afterBeat t: Double, lines: [EuclidLine], ranks: [Int], columns: Int, polyOn: Bool, fallbackGap: Double, fallback: CCHitIn) -> (gapBeats: Double, next: CCHitIn) {
-        var bestBeat = Double.infinity, bestLane = -1
-        var next = fallback
-        for li in 0..<min(4, lines.count) where (ccLaneRoutes[li] >> UInt8(x)) & 1 != 0 && (ccLaneStaticMask >> UInt8(li)) & 1 != 0 {
-            let slot = li * 2 + ((hocketClockSplit[li] && t >= hocketClockSplitBeat[li]) ? 1 : 0)
-            guard hocketClocks[slot].valid else { continue }
-            let L = lines[li]
-            guard let hit = euclideousClockNextAudibleHit(hocketClocks[slot], afterBeat: t, advanceStep: L.riffAdvanceStepResolved, muteCells: ccLaneMuteCells[li], muteUnitBeats: ccLaneMuteUnit[li],
-                                                          capTicks: hocketClocks[slot].cycleLen * 4), hit.beat < bestBeat - 1e-6 else { continue }
-            bestBeat = hit.beat; bestLane = li
-            next.ord = hit.advOrd; next.passHits = hocketLaneCycleHits(hocketClocks[slot])
-            let col = euclideousRiffColumn(ordinal: hit.advOrd, every: L.riffAdvanceEveryResolved, direction: L.euclideousRiffDirResolved,
-                                           length: polyOn ? L.riffLengthResolved(columns: columns) : L.riffLengthResolved, stride: L.riffStrideResolved,
-                                           shift: polyOn ? L.riffRotateResolved(columns: columns) : L.riffRotateResolved, seed: UInt64(bitPattern: Int64(L.riffDirSeedResolved)), columns: columns)
-            next.rank = (col >= 0 && col < ranks.count) ? ranks[col] : 0
-        }
-        guard bestBeat.isFinite, bestLane >= 0 else { return (fallbackGap, fallback) }
-        let co = ccCoincidence(x, beat: bestBeat, knownHitLane: bestLane)
-        next.count = max(1, co.count); next.routed = max(1, co.routed)
-        return (max(0, bestBeat - t), next)
-    }
-    /// Once per window, after the lane loop: for each ON emitter, either send `muteValue` once (it is silent — its MUTE-tab gate is closed, or every lane routed to it is stopped / muted — at the window's end beat `endBeat`) or walk the
-    /// ramp from the last emission to the window end. The mute value goes out no earlier than the last message sent, so the emitter's messages stay in time order.
+    /// §3.6: is output `o` FULLY muted (every cell cleared — the MIX emitter mute / token)? A PARTIAL MUTE-tab pattern does NOT gate CC.
+    @inline(__always) private func ccOutputFullyMuted(_ o: Int) -> Bool { euclideousOutputMuteAny && euclideousOutputMuteCells[o] == 0 }
+    /// Once per window, after the lane loop: for each ON slot, either send `muteValue` once (its output is fully muted, §3.6) or walk the ramp from the last emission to the window end. The mute value goes out no earlier than the last message sent.
     private func ccRampPass(windowStart: Int64, windowEnd: Int64, endBeat: Double, beatsPerSample: Double, out: MIDIEmitter?) {
-        if ccPendingReset != 0 {   // an emitter was just switched OFF: park its CC at `muteValue` once, then it stays silent. Before the `emitterCCAny` guard so the LAST emitter turning off still parks.
-            for x in 0..<4 where ccPendingReset & (UInt8(1) << UInt8(x)) != 0 {
-                ccSend(x, cc: emitterCCs[output: x, slot: 0].ccNumber, value: emitterCCs[output: x, slot: 0].muteValue, atSample: max(windowStart, ccLastSentSample[x]), out: out)   // no earlier than the last message, so the wire stays in time order
-                let bit = UInt8(1) << UInt8(x); ccArmedMask &= ~bit; ccRecValid &= ~bit; ccMuteSentMask &= ~bit
+        if ccPendingReset != 0 {   // a slot was just switched OFF: park its CC at `muteValue` once. Before the `emitterCCAny` guard so the LAST slot turning off still parks.
+            for k in 0..<Self.ccSlots where ccPendingReset & (UInt16(1) << UInt16(k)) != 0 {
+                ccSend(k, output: k / 3, cc: emitterCCs[k].ccNumber, value: emitterCCs[k].muteValue, atSample: max(windowStart, ccLastSentSample[k]), out: out)
+                let bit = UInt16(1) << UInt16(k); ccArmedMask &= ~bit; ccRecValid &= ~bit; ccMuteSentMask &= ~bit
             }
             ccPendingReset = 0
         }
         guard emitterCCAny else { return }
         let rate = ccRateLimitSamples(beatsPerSample)
-        for x in 0..<4 where emitterCCs[output: x, slot: 0].on {
-            let cfg = emitterCCs[output: x, slot: 0], bit = UInt8(1) << UInt8(x)
-            if ccEmitterSilenced(x, atBeat: endBeat) {   // silent: send muteValue once, then nothing
-                if ccMuteSentMask & bit == 0 { ccSend(x, cc: cfg.ccNumber, value: cfg.muteValue, atSample: max(windowStart, ccLastSentSample[x]), out: out); ccMuteSentMask |= bit }
+        for k in 0..<Self.ccSlots where emitterCCs[k].on {
+            let cfg = emitterCCs[k], o = k / 3, bit = UInt16(1) << UInt16(k)
+            if ccOutputFullyMuted(o) {   // §3.6 full output mute: send muteValue once, then nothing
+                if ccMuteSentMask & bit == 0 { ccSend(k, output: o, cc: cfg.ccNumber, value: cfg.muteValue, atSample: max(windowStart, ccLastSentSample[k]), out: out); ccMuteSentMask |= bit }
                 continue
             }
-            if ccMuteSentMask & bit != 0 { ccMuteSentMask &= ~bit; ccArmedMask &= ~bit }   // just un-silenced: wait for the next hit (§ "on unmute, resume at the next hit")
+            if ccMuteSentMask & bit != 0 { ccMuteSentMask &= ~bit; ccArmedMask &= ~bit }   // just un-muted: wait for the next hit (§3.6 "on unmute, resume at its next hit")
             if ccArmedMask & bit == 0 { continue }   // on but no hit yet → nothing
-            ccWalk(x, cc: cfg.ccNumber, toSample: windowEnd, windowStart: windowStart, rateSamples: rate, out: out)
+            ccWalk(k, output: o, cc: cfg.ccNumber, toSample: windowEnd, windowStart: windowStart, rateSamples: rate, out: out)
         }
     }
     /// The reference lanes' rhythms for this window, captured by the clock pre-pass — [lane × 2 + segment] (segment 1 = the part of a lock-split window after the snap line). Built at init so no render-time allocation.
@@ -4047,31 +3991,24 @@ final class Router {
                                     }
                                 }
                             }
-                            // EMITTER CC (CC tab, Nov 2026): a CC fires on EVERY hit of a lane routed to the emitter — through the lane's OWN emitter mask (`partOut[riff] | partOut[notes]`), NOT the sounding pitches — so it carries the riff even when PLAY RIFF is off and the notes are
-                            // silent. The value is made by the VALUE mode (HITS: how many routed lanes hit; RIFF: the riff rank; PING-PONG / CLIMB: the riff ordinal). Gated on `emitterCCAny` ⇒ an off page does no extra work and is byte-identical. A hit the lane's own LANES mute / solo silences, or an output whose MUTE-tab gate is
-                            // closed at the hit's beat, drives nothing (the ramp pass sends muteValue once when the emitter as a whole is silent). The shape's gap — and TO NEXT's predicted next value — come from the NEXT hit ON THE EMITTER, the
-                            // earliest audible hit of any lane routed to it (`ccMergedNextHit`); a pure HOLD (100 %) needs neither.
-                            if isEuclideousRow, emitterCCAny, isHit, !lanesSeqMuted {
-                                let ccOuts = (partOut[riffBus.trailingZeroBitCount] | partOut[notesBus.trailingZeroBitCount]) & 0x0F
-                                if ccOuts != 0 {
-                                    let ccCur = (playedStep >= 0 && playedStep < ranks.count) ? ranks[playedStep] : 0
-                                    let ccSpan = emitterCCRiffSpan(ranks: ranks, count: riffColumns)   // the riff's own lowest…highest note is LOW…HIGH
-                                    let ccHitSample = Int64(sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
-                                    for x in 0..<4 where (ccOuts >> UInt8(x)) & 1 != 0 && emitterCCs[output: x, slot: 0].on && ccOutputGateOpen(x, atBeat: mTickBeat) {
-                                        // Amendment 1: the lanes routed to this emitter hit as ONE stream — a step on which several of them hit is one event, handled by the first of them in lane order (its riff step, ordinal and pass length), whose hit value
-                                        // is made of how many of the routed lanes hit (HITS).
-                                        let co = ccCoincidence(x, beat: mTickBeat, knownHitLane: lineIndex)
-                                        guard co.lowest < 0 || co.lowest == lineIndex else { continue }
-                                        let cur = CCHitIn(rank: ccCur, passHits: cycleHits, count: max(1, co.count), routed: max(1, co.routed), ord: advOrd)
-                                        var next = CCHitIn(rank: 0, passHits: cycleHits, count: 1, routed: cur.routed, ord: advOrd &+ 1)
-                                        var ccGap = nextHitGapBeats
-                                        if emitterCCs[output: x, slot: 0].hold < 100 {   // every shape but pure HOLD is a share of the gap to the next hit in the merged stream
-                                            let m = ccMergedNextHit(x, afterBeat: mTickBeat, lines: linesView, ranks: ranks, columns: riffColumns, polyOn: polyOn, fallbackGap: nextHitGapBeats, fallback: next)
-                                            ccGap = m.gapBeats; next = m.next
-                                        }
-                                        ccOnHit(x, cfg: emitterCCs[output: x, slot: 0], hitSample: ccHitSample, cur: cur, next: next, span: ccSpan, nextGapBeats: ccGap, beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
-                                    }
-                                }
+                            // EMITTER CC — CC SLOTS (2026-11-12): fire every SLOT whose DRIVER lane is THIS one (§2.1), on this lane's Euclid hit,
+                            // regardless of the lane's routing / PLAY RIFF / PLAY STACK / LANES-mute / solo (§3.1). The value reads THIS lane's riff
+                            // (RIFF) / ordinal (PING-PONG / CLIMB); HITS is HIGH on every hit (count = routed = 1). The shape's gap + TO NEXT come from
+                            // this lane's OWN next hit (§3.2/§3.3) — the walk's rank at advOrd+1, the SAME lookahead the same-note guard uses — not a
+                            // merged stream. A full output mute sends muteValue once (the ramp pass, §3.6). Gated on `emitterCCAny` ⇒ byte-identical when off.
+                            if isEuclideousRow, emitterCCAny, isHit {
+                                let ccCur = (playedStep >= 0 && playedStep < ranks.count) ? ranks[playedStep] : 0
+                                let ccSpan = emitterCCRiffSpan(ranks: ranks, count: riffColumns)   // the riff's own lowest…highest note is LOW…HIGH
+                                let ccHitSample = Int64(sampleOf(musical: mTickBeat, beatPos: beatPos, beatsPerSample: beatsPerSample, windowStart: windowStart, S: S, a: a))
+                                let ccNextStep = euclideousRiffColumn(ordinal: advOrd &+ 1, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
+                                let ccNextRank = (ccNextStep >= 0 && ccNextStep < ranks.count) ? ranks[ccNextStep] : 0
+                                for o in 0..<4 { for s in 0..<3 {
+                                    let k = o * 3 + s, cfg = emitterCCs[k]
+                                    guard cfg.on, euclideousCCDriver(emitter: o, slot: s, driverLane: cfg.driverLane, laneRoutes: ccLaneRoutes) == lineIndex + 1 else { continue }
+                                    let cur = CCHitIn(rank: ccCur, passHits: cycleHits, count: 1, routed: 1, ord: advOrd)
+                                    let next = CCHitIn(rank: ccNextRank, passHits: cycleHits, count: 1, routed: 1, ord: advOrd &+ 1)
+                                    ccOnHit(k, output: o, cfg: cfg, hitSample: ccHitSample, cur: cur, next: next, span: ccSpan, nextGapBeats: nextHitGapBeats, beatsPerSample: beatsPerSample, windowStart: windowStart, out: out)
+                                } }
                             }
                             // NOTES TAB (2026-10-19, §6.7): a lit note's per-rank octave shift no longer sounds — the closure that read it is gone. `notesVel` below is the notes layer's own
                             // base velocity; the riff note keeps the lane's plain `velocityAbsolute` untouched.
@@ -5745,35 +5682,23 @@ final class Router {
             emitterRatchets = isEuclideousRow ? p.emitterRatchets : EmitterRatchetSnap()   // EMITTER RATCHET: the Euclideous row's four output ratchets (inert default for every other cell)
             emitterVelocities = isEuclideousRow ? p.emitterVelocities : EmitterVelocitySnap()   // EMITTER VELOCITY: the Euclideous row's four per-output velocity accents (inert default elsewhere)
             emitterVelAny = emitterVelocities.anyOn
-            emitterCCs = isEuclideousRow ? p.emitterCCs : EmitterCCSnap()   // EMITTER CC: the Euclideous row's four per-output CC emitters (inert default elsewhere)
+            emitterCCs = isEuclideousRow ? p.emitterCCs : EmitterCCSnap()   // EMITTER CC — CC SLOTS: the Euclideous row's 4×3 CC slots (inert default elsewhere)
             emitterCCAny = emitterCCs.anyOn
-            do {   // EMITTER CC: the off→on edge — a freshly-on emitter waits for the next hit and starts from a clean "no value sent"
-                var onMask: UInt8 = 0
-                for x in 0..<4 where emitterCCs[output: x, slot: 0].on { onMask |= UInt8(1) << UInt8(x) }
+            do {   // CC SLOTS: the off→on edge per SLOT — a freshly-on slot waits for the next hit and starts from a clean "no value sent"
+                var onMask: UInt16 = 0
+                for k in 0..<Self.ccSlots where emitterCCs[k].on { onMask |= UInt16(1) << UInt16(k) }
                 let turnedOn = onMask & ~ccPrevOnMask
-                if turnedOn != 0 { ccArmedMask &= ~turnedOn; ccRecValid &= ~turnedOn; for x in 0..<4 where turnedOn & (UInt8(1) << UInt8(x)) != 0 { ccLastSentVal[x] = -1 } }
-                // The off→on edge: an emitter switched OFF with a value standing on the wire would otherwise leave the synth stuck at the last CC. Park it at its `muteValue` once (ccRampPass sends it, even with no emitter left on).
+                if turnedOn != 0 { ccArmedMask &= ~turnedOn; ccRecValid &= ~turnedOn; for k in 0..<Self.ccSlots where turnedOn & (UInt16(1) << UInt16(k)) != 0 { ccLastSentVal[k] = -1 } }
+                // A slot switched OFF with a value standing on the wire would leave the synth stuck at the last CC. Park it at its `muteValue` once (ccRampPass sends it, even with no slot left on).
                 let turnedOff = ccPrevOnMask & ~onMask
-                for x in 0..<4 where turnedOff & (UInt8(1) << UInt8(x)) != 0 && ccLastSentVal[x] >= 0 { ccPendingReset |= UInt8(1) << UInt8(x) }
+                for k in 0..<Self.ccSlots where turnedOff & (UInt16(1) << UInt16(k)) != 0 && ccLastSentVal[k] >= 0 { ccPendingReset |= UInt16(1) << UInt16(k) }
                 ccPrevOnMask = onMask
                 // A setting changed under a running segment (a slider dragged while it plays): re-plan it from the latest hit's inputs NOW, so the CC — and the page's ring — follow the setting at once instead of finishing the old ramp until the next
                 // hit.
-                for x in 0..<4 where emitterCCs[output: x, slot: 0].on && ccRecValid & (UInt8(1) << UInt8(x)) != 0 && emitterCCs[output: x, slot: 0] != ccSegCfg[x] { ccBuildSegment(x, cfg: emitterCCs[output: x, slot: 0]) }
-                // The per-lane facts for the merged next-hit gap and the "every routed lane is stopped / muted" mute: each lane's LANES-mute cells, whether it may strike at all this window (PLAY on, not solo-silenced) and where it is routed.
+                for k in 0..<Self.ccSlots where emitterCCs[k].on && ccRecValid & (UInt16(1) << UInt16(k)) != 0 && emitterCCs[k] != ccSegCfg[k] { ccBuildSegment(k, cfg: emitterCCs[k]) }
+                // CC SLOTS: the only per-lane fact the DRIVER (§2.1) reads is each lane's output routing (its riff|notes parts' outputs). Built once a window while any slot is on.
                 if emitterCCAny {
-                    let soloM = soloMaskNow(snapshot: p.soloMask), partM = partSoloMaskNow(snapshot: p.partSoloMask)
-                    var staticMask: UInt8 = 0
-                    for li in 0..<4 {
-                        guard li < p.euclidLines.count else { ccLaneRoutes[li] = 0; continue }
-                        let geo = euclideousLaneStepGeometry(lines: p.euclidLines, lane: li, defaultRateBeats: p.euclidRateBeats)
-                        let g = euclideousLaneGridResolved(line: p.euclidLines[li], lane: li, legacyOn: p.euclideousLanesSeqOn, legacyRate: p.euclideousLanesSeqRate, legacyLen: p.euclideousLanesSeqLen,
-                                                           legacyCells: p.euclideousLanesSeqCells, stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub, beatsPerBar: beatsPerBar)
-                        ccLaneMuteCells[li] = g.muteCells
-                        ccLaneMuteUnit[li] = g.muteUnit.beats(stepBeats: geo.sub, passBeats: Double(geo.cycleLen) * geo.sub)
-                        ccLaneRoutes[li] = (partOut[li * 2] | partOut[li * 2 + 1]) & 0x0F
-                        if euclideousLaneMayStrike(lane: li, soloMask: soloM, muteAudible: true, enabled: p.euclidLines[li].enabledResolved, partMask: partM) { staticMask |= UInt8(1) << UInt8(li) }
-                    }
-                    ccLaneStaticMask = staticMask
+                    for li in 0..<4 { ccLaneRoutes[li] = li < p.euclidLines.count ? (partOut[li * 2] | partOut[li * 2 + 1]) & 0x0F : 0 }
                 }
             }
             // LISTEN AVOID (rebuilt 2026-11-01): a lane whose PITCH is AVOID punches a hole in its OWN hit whenever its SOURCE lane is PLAYING (the source's step holds a hit — step-based since 2026-11-06). That needs the source's window hit-schedule known BEFORE any lane plays
@@ -5788,14 +5713,8 @@ final class Router {
                     if src >= 0, src < 4, src != li { avoidSourceMask |= UInt8(1) << UInt8(src) }
                 }
             }
-            // EMITTER CC (amendment 1): a CC emitter's hits are ONE merged stream across the lanes routed to it — who hits on this step, how many, and when the next hit is — so those lanes' rhythms are needed before any lane plays, and join the pre-pass.
-            var ccClockMask: UInt8 = 0
-            if isEuclideousRow && emitterCCAny {
-                var onOutputs: UInt8 = 0
-                for x in 0..<4 where emitterCCs[output: x, slot: 0].on { onOutputs |= UInt8(1) << UInt8(x) }
-                if onOutputs != 0 { for li in 0..<4 where ccLaneRoutes[li] & onOutputs != 0 { ccClockMask |= UInt8(1) << UInt8(li) } }
-            }
-            let clockMask = hocketRefMask | avoidSourceMask | ccClockMask   // lanes needing a pre-pass clock: HOCKET reference lanes ∪ AVOID source lanes ∪ the lanes routed to a CC emitter
+            // CC SLOTS: a slot's shape reads its DRIVER lane's OWN next hit, computed inline from the walk at advOrd+1 as the hit fires — so CC no longer needs any lane in the clock pre-pass (the merged-stream pre-pass is retired).
+            let clockMask = hocketRefMask | avoidSourceMask   // lanes needing a pre-pass clock: HOCKET reference lanes ∪ AVOID source lanes
             if clockMask != 0 {
                 for i in 0..<8 { hocketClocks[i].valid = false }
                 for i in 0..<4 { hocketClockSplit[i] = false }

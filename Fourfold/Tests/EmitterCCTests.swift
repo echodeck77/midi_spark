@@ -150,25 +150,6 @@ final class EmitterCCTests: XCTestCase {
     }
     private let beatSamples = 24_000.0   // 120 BPM at 48 kHz
 
-    func testFallEndsAtTheNextHitOnTheEmitterNotTheLanesOwn() {
-        // Lane 1 hits at beats 0, 4, 8…; lane 2 at 2, 6…, both on A. FALL over 100 % of the gap from the beat-0 hit must reach LOW by beat 2 (lane 2's hit), not by beat 4.
-        let rig = CCRig(twoLaneState(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .riff, high: 100, low: 0, travel: .fall, time: 100), ranks: [8, 8, 8, 8, 8, 8, 8, 8]))   // every hit on the top rank ⇒ HIGH, then it falls
-        rig.run(to: 2.0)
-        let tl = rig.out.timeline(cable: 1, cc: 74)
-        let beforeBeat2 = tl.filter { Double($0.sample) < 2.0 * beatSamples - 1 }
-        XCTAssertEqual(beforeBeat2.first?.value, 100, "the beat-0 hit jumps to HIGH")
-        XCTAssertLessThanOrEqual(beforeBeat2.last?.value ?? 100, 3, "merged gap = 2 beats, so the ramp is down to ~LOW just before lane 2's hit (own-lane gap would leave it near 50): \(beforeBeat2.last.map { String($0.value) } ?? "none")")
-    }
-    func testGlideAimsAtTheValueTheNextHitOnTheEmitterWillRead() {
-        // Ranks [1, 8, 2, …]: lane 1's hit at beat 0 reads column 0 (rank 1 → 0); lane 2's hit at beat 2 reads column 2 (rank 2 → 18); lane 1's own next hit (beat 4) would read column 1 (rank 8 → 127).
-        let rig = CCRig(twoLaneState(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .riff, high: 127, low: 0, travel: .glide, time: 100), ranks: [1, 8, 2, 2, 2, 2, 2, 2]))
-        rig.run(to: 2.0)
-        let tl = rig.out.timeline(cable: 1, cc: 74)
-        let beforeBeat2 = tl.filter { Double($0.sample) < 2.0 * beatSamples - 1 }
-        XCTAssertEqual(beforeBeat2.first?.value, 0, "the beat-0 hit reads rank 1 → LOW")
-        let last = beforeBeat2.last?.value ?? -1
-        XCTAssertTrue((16...18).contains(last), "GLIDE heads for lane 2's rank-2 value (18) by beat 2, not for lane 1's own next rank-8 value (127, which would read ~63 here): \(last)")
-    }
     func testAnEmitterWithOneLaneOnlyStillUsesItsOwnGap() {
         // With nothing else routed to A the merged gap is the lane's own 4 beats: at beat 2 the FALL is half way (≈50).
         let rig = CCRig(twoLaneState(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .riff, high: 100, low: 0, travel: .fall, time: 100), ranks: [8, 8, 8, 8, 8, 8, 8, 8],
@@ -177,53 +158,6 @@ final class EmitterCCTests: XCTestCase {
         let beforeBeat2 = rig.out.timeline(cable: 1, cc: 74).filter { Double($0.sample) < 2.0 * beatSamples - 1 }
         let last = beforeBeat2.last?.value ?? -1
         XCTAssertTrue((46...52).contains(last), "own gap of 4 beats ⇒ about half way at beat 2: \(last)")
-    }
-    func testAMutedLanesHitIsNotAHitOnTheEmitter() {
-        // Lane 2 is LANES-muted (all 16 cells clear): its beat-2 hit is silent, so lane 1's gap stays 4 beats (half way at beat 2), and lane 2's hit does not jump the CC.
-        let rig = CCRig(twoLaneState(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .riff, high: 100, low: 0, travel: .fall, time: 100), ranks: [8, 8, 8, 8, 8, 8, 8, 8], lane2: { $0.muteCells16 = 0 }))
-        rig.run(to: 3.0)
-        let tl = rig.out.timeline(cable: 1, cc: 74)
-        let atBeat2 = tl.filter { Double($0.sample) < 2.0 * beatSamples - 1 }.last?.value ?? -1
-        XCTAssertTrue((46...52).contains(atBeat2), "a muted lane's hit is not the emitter's next hit: \(atBeat2)")
-        XCTAssertFalse(tl.contains { $0.value == 100 && Double($0.sample) > 1.0 * beatSamples }, "and it does not fire the CC")
-    }
-    func testWhenEveryRoutedLaneIsStoppedTheEmitterSendsMuteValueOnce() {
-        let cc = EmitterCC.legacy(on: true, ccNumber: 74, mode: .pingPong, high: 90, low: 90, travel: .step, muteValue: 7)
-        // both lanes PLAY off
-        var rig = CCRig(twoLaneState(cc: cc, lane1: { $0.enabled = false }, lane2: { $0.enabled = false }))
-        rig.run(to: 6.0)
-        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [7], "every routed lane stopped ⇒ muteValue once, then nothing")
-        // both lanes LANES-muted
-        rig = CCRig(twoLaneState(cc: cc, lane1: { $0.muteCells16 = 0 }, lane2: { $0.muteCells16 = 0 }))
-        rig.run(to: 6.0)
-        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [7], "every routed lane LANES-muted ⇒ muteValue once")
-        // only ONE of the two stopped ⇒ the other still drives the emitter and nothing is "muted"
-        rig = CCRig(twoLaneState(cc: cc, lane1: { $0.enabled = false }))
-        rig.run(to: 6.0)
-        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [90], "lane 2 still plays, so the emitter is live: its hit sends its value, no muteValue")
-    }
-    func testASoloSilencedEmitterSendsMuteValue() {
-        // Lanes 1 and 2 both feed A; lane 4 (output D) is soloed, which silences them both ⇒ muteValue once.
-        let rig = CCRig(twoLaneState(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .pingPong, high: 90, low: 90, travel: .step, muteValue: 7), fourthLane: true, soloMask: 0b1000))   // lane 4 (output D) solo
-        rig.run(to: 6.0)
-        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [7], "solo elsewhere silences every lane routed to A ⇒ muteValue once")
-    }
-    func testAnEmitterNothingIsRoutedToSendsNothing() {
-        // Both lanes routed away from A: no lane feeds it, so there is nothing to be muted — it stays quiet (no stray muteValue).
-        let rig = CCRig(twoLaneState(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .pingPong, high: 90, low: 90, travel: .step, muteValue: 7),
-                                     lane1: { $0.riffOutMask = 0b0010; $0.notesOutMask = 0b0010 }, lane2: { $0.riffOutMask = 0b0100; $0.notesOutMask = 0b0100 }))
-        rig.run(to: 6.0)
-        XCTAssertTrue(rig.out.values(cable: 1, cc: 74).isEmpty, "no lane routed to A ⇒ nothing sent")
-    }
-    func testTheOutputGateIsJudgedAtTheHitsOwnBeatNotTheWindowStart() {
-        // Output A's gate is open only for cells 4…7 (beats 1…2 of lane 1's 4-beat pass). With a 512-frame window the beat-1 hit lands MID-window: the window started in the closed cell 3, but the hit itself is in an open cell and must fire at its own sample.
-        var st = state(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .pingPong, high: 90, low: 90, travel: .step, muteValue: 7))
-        var mutes = EuclideousOutputMutes(); mutes[0] = EuclideousOutputMute(cells16: 0b0000_0000_1111_0000, passes: 1); st.euclideousOutputMutes = mutes
-        let rig = CCRig(st, frames: 512)
-        rig.run(to: 3.0)
-        let tl = rig.out.timeline(cable: 1, cc: 74)
-        XCTAssertEqual(tl.first(where: { $0.value == 90 })?.sample, Int64(1.0 * beatSamples), "the hit at beat 1 sits in an open cell and fires at its own sample: \(tl)")
-        XCTAssertEqual(tl.first?.value, 7, "the gate is closed before it, so muteValue goes out first")
     }
     func testAnEarlierHitHeldByALaterLaneIsNotSentOutOfOrder() {
         // One 2.5-beat window. Lane 1 (processed first) hits at beat 2, lane 2 at beat 0, both on A, FIXED-by-rank values 18 and 0. Lane 2's beat-0 hit is superseded in time by lane 1's beat-2 hit, so the messages stay in time order and the emitter ends on 18.
@@ -322,16 +256,6 @@ final class EmitterCCTests: XCTestCase {
         XCTAssertEqual(at(0.0), 0, "the first hit is LOW"); XCTAssertEqual(at(0.5), 60, "half way up the ramp to HIGH"); XCTAssertEqual(at(1.0), 120, "arrives on the second hit")
         XCTAssertEqual(at(1.5), 60, "and back down"); XCTAssertEqual(at(2.0), 0)
     }
-    func testPingPongGlideAimsAtTheOrdinalOfTheNextHitOnTheEmitterNotTheLanesOwn() {
-        // Two lanes on A, hits at beat 0 (lane 1, its first: even → LOW 0) and beat 2 (lane 2, ITS first: even → LOW 0); lane 1's own next hit (beat 4) is odd → HIGH. GLIDE 100 % from beat 0 aims at lane 2's LOW, so it stays down through beat 2.
-        let rig = CCRig(twoLaneState(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .pingPong, high: 120, low: 0, travel: .glide, time: 100)))
-        rig.run(to: 2.0)
-        let tl = rig.out.timeline(cable: 1, cc: 74).filter { Double($0.sample) < 2.0 * beatSamples - 1 }
-        XCTAssertEqual(tl.first?.value, 0)
-        XCTAssertLessThanOrEqual(tl.last?.value ?? 999, 5, "heading for lane 2's LOW, so it stays down (own-lane aim, lane 1's next hit = HIGH, would have risen to ≈60 by beat 2): \(tl.map { $0.value })")
-    }
-
-    /// A 3-hit bar flips PING-PONG's parity every bar; the drawn curve (bar 2 here, ordinals 3…5, the seam read from bars 1 and 3) must still be the one the Router sends — including the glide on into the next bar.
     func testThePingPongTraceFollowsTheRouterAcrossAnOddBarSeam() {
         let steps = euclideousLapHitSteps(pulses: 3, steps: 4, rotate: 0, tilt: 0, patternMiss: false, customHits: nil)
         XCTAssertEqual(steps.count, 3)
@@ -495,14 +419,6 @@ final class EmitterCCTests: XCTestCase {
         XCTAssertEqual(tl.map { $0.value }, [0, 40, 17], "the new span takes over within a window, before the beat-2 hit")
         XCTAssertLessThan(Double(tl.last?.sample ?? 0), 1.6 * beatSamples)
     }
-    func testARampSpanFollowsTheOtherLanesPassLengthForTheGlideTarget() {
-        // lane 1: one hit a pass, at beat 2 (its span is just LOW); lane 2: two hits a pass, at beats 1 and 3. From lane 1's beat-2 hit the glide aims at the emitter's NEXT hit — lane 2's beat-3 hit, its SECOND of two: HIGH when read against lane 2's
-        // OWN pass of 2 hits (read against lane 1's one-hit pass it would be LOW and the CC would stay down).
-        let rig = CCRig(twoLaneState(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .climb, high: 120, low: 0, travel: .glide, time: 100, passes: 1), lane1: { $0.rotate = 2 }, lane2: { $0.pulses = 2; $0.rotate = 1 }))
-        rig.run(to: 3.0)
-        let tl = rig.out.timeline(cable: 1, cc: 74).filter { Double($0.sample) >= 2.0 * beatSamples - 1 && Double($0.sample) < 3.0 * beatSamples - 1 }
-        XCTAssertGreaterThanOrEqual(tl.last?.value ?? 0, 112, "from lane 1's LOW the glide heads for lane 2's HIGH rung by beat 3: \(tl.map { $0.value })")
-    }
     func testTheRampTraceFollowsTheRouterOverSeveralPasses() {
         for passes in [1, 3] {
             for (name, travel, tol) in [("step", EmitterCCTravel.step, 0), ("glide", .glide, 6), ("fall", .fall, 6)] {
@@ -532,14 +448,6 @@ final class EmitterCCTests: XCTestCase {
         let rig = CCRig(state(cc: hitsEmitter(high: 100, low: 20)))   // lane 1 alone is routed to A (the others are stopped), hits every beat
         rig.run(to: 4.5)
         XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [100], "one routed lane: every hit is HIGH (and a repeated value is not re-sent)")
-    }
-    func testHitsIsTheShareOfTheRoutedLanesThatHitOnTheStep() {
-        // lane 1 hits at beats 0, 4, 8…; lane 2 (pulses 2) at 0, 2, 4, 6…: at 0 and 4 BOTH hit (2 of 2 = HIGH), at 2 and 6 only lane 2 does (1 of 2 = 50 %)
-        let rig = CCRig(twoLaneState(cc: hitsEmitter(), lane2: { $0.pulses = 2; $0.rotate = 0 }))
-        rig.run(to: 6.5)
-        let tl = rig.out.timeline(cable: 1, cc: 74)
-        XCTAssertEqual(tl.map { $0.value }, [127, 64, 127, 64], "2 of 2, 1 of 2, 2 of 2, 1 of 2")
-        XCTAssertEqual(tl.filter { $0.sample == 0 }.count, 1, "the step both lanes hit is ONE event: one message, not two")
     }
     func testAStoppedLaneIsNotRouted() {
         let rig = CCRig(twoLaneState(cc: hitsEmitter(), lane1: { _ in }, lane2: { $0.enabled = false }))
@@ -578,13 +486,6 @@ final class EmitterCCTests: XCTestCase {
         let tl = rig.out.timeline(cable: 1, cc: 74)
         XCTAssertEqual(at(tl, 0.74), 127, "still holding"); XCTAssertEqual(Double(at(tl, 0.875)), 63.5, accuracy: 6, "half way down the effective ramp"); XCTAssertEqual(Double(at(tl, 0.96)), 127 * (1 - (23.0 / 24 - 0.75) / 0.25), accuracy: 4, "83 % down the effective ramp at the last 1/96-note step before the next hit")
     }
-    func testToNextInHitsAimsAtTheNextEventsLaneShare() {
-        // lane 2 (pulses 2) hits at beats 0 and 2, lane 1 only at beat 2: the beat-0 event is lane 2 alone (1 of 2 = 64) and the NEXT event, at beat 2, is both lanes (2 of 2 = 127). HOLD 0, RAMP 100, NEXT, LIN ramps 64 → 127 over the 2-beat gap
-        let rig = CCRig(twoLaneState(cc: hitsEmitter(hold: 0, ramp: 100, to: .next, curve: .lin), lane1: { $0.rotate = 2 }, lane2: { $0.pulses = 2; $0.rotate = 0 }))
-        rig.run(to: 2.0)
-        let tl = rig.out.timeline(cable: 1, cc: 74)
-        XCTAssertEqual(at(tl, 0.0), 64); XCTAssertEqual(Double(at(tl, 1.0)), 95.5, accuracy: 5, "half way from 64 up to the next event's 127 (both lanes)"); XCTAssertEqual(Double(at(tl, 1.95)), 127, accuracy: 6)
-    }
     func testTheCurvesLinAndExp() {
         XCTAssertEqual(emitterCCShape(0, curve: .lin), 0); XCTAssertEqual(emitterCCShape(1, curve: .lin), 1); XCTAssertEqual(emitterCCShape(0.25, curve: .lin), 0.25)
         XCTAssertEqual(emitterCCShape(0, curve: .exp), 0, accuracy: 1e-12); XCTAssertEqual(emitterCCShape(1, curve: .exp), 1, accuracy: 1e-12)
@@ -621,30 +522,46 @@ final class EmitterCCTests: XCTestCase {
             XCTAssertLessThanOrEqual(worst, name == "gate" ? 0 : 8, "\(name): the drawn bar and the CC stream differ by \(worst)")
         }
     }
-    func testTheHitsTraceMergesCoincidentHitsLikeTheRouter() {
-        // lane 1: beat 0 (of its 4-beat bar); lane 2: beats 0 and 2 — events at 0 (both) and 2 (lane 2): the engine's second bar (4…8)
-        let cc = hitsEmitter(hold: 25, ramp: 50, curve: .exp)
-        let rig = CCRig(twoLaneState(cc: cc, lane2: { $0.pulses = 2; $0.rotate = 0 }))
-        rig.run(to: 8.0)
-        let sent = rig.out.timeline(cable: 1, cc: 74)
-        let raw = [EmitterCCTraceHit(beat: 0, rank: 0, lane: 0, ordinal: 1, passHits: 1, barHits: 1), EmitterCCTraceHit(beat: 0, rank: 0, lane: 1, ordinal: 2, passHits: 2, barHits: 2), EmitterCCTraceHit(beat: 2, rank: 0, lane: 1, ordinal: 3, passHits: 2, barHits: 2)]
-        let events = emitterCCMergeHits(raw, routed: 2)
-        XCTAssertEqual(events.map { $0.count }, [2, 1]); XCTAssertEqual(events.map { $0.lane }, [0, 1], "the first hitting lane in lane order owns the event"); XCTAssertEqual(events.map { $0.beat }, [0, 2])
-        let trace = emitterCCTrace(cfg: EmitterCCCfg(cc), hits: events, barBeats: 4)
-        XCTAssertEqual(trace.dots.map { Int($0.y) }, [127, 64], "2 of 2, then 1 of 2")
-        var worst = 0
-        for i in 1..<96 where i % 24 != 0 {
-            let b = Double(i) / 24, sample = Int64(((4.0 + b) * beatSamples).rounded())
-            guard let engine = sent.last(where: { $0.sample <= sample })?.value, let drawn = trace.points.first(where: { abs(Double($0.x) - b) < 1e-6 }).map({ Int($0.y) }) else { continue }
-            worst = max(worst, abs(engine - drawn))
-        }
-        XCTAssertLessThanOrEqual(worst, 8, "the drawn bar and the CC stream differ by \(worst)")
-    }
     func testHoldHundredKeepsTheValueThroughARiffRest() {
         // ranks 8, rest, 8, rest…: every second hit is a RIFF rest, which brings no new value — with HOLD 100 (steps) the previous value stays; it does not fall to LOW when the gap ends
         let rig = CCRig(state(cc: hitsEmitter(mode: .riff), riffRanks: [8, 0, 8, 0, 8, 0, 8, 0]))
         rig.run(to: 4.5)
         XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [127], "one value, held through the rests")
+    }
+
+    // MARK: CC SLOTS (2026-11-12) — a slot follows its DRIVER lane's hits + riff, whatever its routing / PLAY
+    /// Test 4 (§3.1): output A slot a driven by LANE 2 (driverLane 2, HITS). Lane 2 is routed to B (not A) and has PLAY RIFF + STACK off; it still drives A's CC on lane 2's own hit (beat 2), HIGH. Lane 1's beat-0 hit does NOT fire it.
+    func testASlotFollowsItsDriverLaneUnroutedAndPlayOff() {
+        let cc = EmitterCC(on: true, ccNumber: 74, valueMode: .hits, high: 127, low: 0, hold: 100, driverLane: 2)
+        let rig = CCRig(twoLaneState(cc: cc, lane2: { $0.riffOutMask = 0b0010; $0.notesOutMask = 0b0010; $0.riffOn = false; $0.notesOn = false }))
+        rig.run(to: 4.0)
+        let tl = rig.out.timeline(cable: 1, cc: 74)
+        XCTAssertFalse(tl.contains { Double($0.sample) < beatSamples * 0.5 }, "no CC at beat 0 (lane 1's hit — not the driver): \(tl)")
+        XCTAssertTrue(tl.contains { abs(Double($0.sample) - 2 * beatSamples) < 2 && $0.value == 127 }, "lane 2's beat-2 hit fires HIGH: \(tl)")
+    }
+    /// Test 5 (§3.3): RIFF reads the DRIVER lane's riff column, even with PLAY RIFF off. Lane 2 sits on a rank-8 column at its hit ⇒ the full value (the riff's own span).
+    func testRiffReadsTheDriverLanesColumn() {
+        let cc = EmitterCC(on: true, ccNumber: 74, valueMode: .riff, high: 127, low: 0, hold: 100, driverLane: 2)
+        let rig = CCRig(twoLaneState(cc: cc, ranks: [1, 1, 8, 1, 1, 1, 1, 1], lane2: { $0.riffOutMask = 0b0010; $0.notesOutMask = 0b0010; $0.riffOn = false }))
+        rig.run(to: 4.0)
+        let tl = rig.out.timeline(cable: 1, cc: 74)
+        XCTAssertTrue(tl.contains { abs(Double($0.sample) - 2 * beatSamples) < 2 && $0.value == 127 }, "driver lane 2's rank-8 column at beat 2 ⇒ HIGH: \(tl)")
+    }
+    /// §3.6: a FULLY-muted output (all cells clear) sends muteValue once; a PARTIAL MUTE-tab pattern does NOT gate CC (every hit still fires).
+    func testPartialMuteDoesNotGateCCFullMuteSendsMuteValueOnce() {
+        // partial: cells 4…7 only — the CC fires on every hit regardless (not gated by the pattern).
+        var st = state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .hits, high: 90, low: 0, hold: 100, muteValue: 7))
+        var mutes = EuclideousOutputMutes(); mutes[0] = EuclideousOutputMute(cells16: 0b0000_0000_1111_0000, passes: 1); st.euclideousOutputMutes = mutes
+        var rig = CCRig(st)
+        rig.run(to: 4.0)
+        XCTAssertFalse(rig.out.values(cable: 1, cc: 74).contains(7), "a partial MUTE-tab pattern does not send muteValue")
+        XCTAssertTrue(rig.out.values(cable: 1, cc: 74).contains(90), "and the CC fires on the hits")
+        // full: every cell clear ⇒ muteValue once, then nothing.
+        var st2 = state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .hits, high: 90, low: 0, hold: 100, muteValue: 7))
+        var mutes2 = EuclideousOutputMutes(); mutes2[0] = EuclideousOutputMute(cells16: 0, passes: 1); st2.euclideousOutputMutes = mutes2
+        rig = CCRig(st2)
+        rig.run(to: 6.0)
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [7], "a full output mute sends muteValue once")
     }
 }
 
