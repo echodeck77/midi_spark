@@ -3608,16 +3608,91 @@ struct EuclideousPage: View {
         // 8pt padding either side) — both halves land at the spec's own 154.5pt.
         let gap: CGFloat = 4, blockH = 38 * 2 + gap
         let halfW = max(1, (fullWidth - 17) / 2)
-        // RATE ferry (2026-11-12): the RATE grid is back on the LEFT half; the new RATE speed-override tile fills the RIGHT half (where the restart tiles were before the RESETS ferry freed it).
+        // FILL ferry (2026-11-13): the division grid + note-value column stay on the LEFT half; the FILL block (eight loose tiles, no box) fills the RIGHT half the RATE tile had.
         return AnyView(HStack(spacing: 0) {
             patternRateHalf(idx, line, accent, halfW: halfW, blockH: blockH, gap: gap)
                 .modifier(lockOutlineMod(idx, .rate, accent))
             Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 8)
-            rateTile(idx, line, accent, halfW: halfW, blockH: blockH)
+            fillBlock(idx, line, accent, box: CGSize(width: halfW, height: blockH))
         }
         .frame(width: fullWidth, height: blockH))
     }
-    // MARK: - RATE tile (ferry 2026-11-12) — the 8-bar speed-override strip in the EUCLID block's freed right half
+    // MARK: - FILL block (ferry 2026-11-13) — eight loose tiles (no box/ring) in the RATE tile's old frame; §3/§4/§5/§6
+    private func fillBlock(_ idx: Int, _ line: EuclidLine, _ accent: Color, box: CGSize) -> AnyView {
+        let L = euclideousFillBlockLayout(box: box)
+        let armedAny = line.fillAnyBarLit, fillOn = line.fillOnResolved
+        let barsLit = line.fillBarsResolved
+        func pos(_ r: CGRect, _ v: AnyView) -> AnyView { AnyView(v.frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)) }
+        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+            let beat: Double? = clock.playing ? lanesMusicalBeat(real: walkTagBeat(at: tl.date)) : nil   // §4.6: nothing current/sounding when stopped
+            let cur = euclideousRateCurrentBox(hostBeat: beat, beatsPerBar: clock.beatsPerBar)            // §5.1: (bar mod 8); reuses the generic current-box helper
+            let prog = beat.map { euclideousRateBarProgress(hostBeat: $0, beatsPerBar: clock.beatsPerBar) } ?? 0
+            // §4.1 "sounding": FILL is on, the current bar is lit, and the host beat is inside that bar's fill region [F, E).
+            var sounding = false
+            if let b = beat {
+                let bn = Int((b / max(1e-6, clock.beatsPerBar)).rounded(.down))
+                if let rg = euclideousFillRegion(line: line, bar: bn, beatsPerBar: clock.beatsPerBar) { sounding = b >= rg.F - 1e-9 && b < rg.E }
+            }
+            return ZStack(alignment: .topLeading) {
+                ForEach(0..<8, id: \.self) { n in
+                    pos(L.barTiles[n], fillBarTile(n: n, lit: barsLit[n], fillOn: fillOn, current: beat != nil && cur == n, sounding: sounding && cur == n, progress: prog, accent: accent, size: L.barTiles[n].size, idx: idx))
+                }
+                pos(L.fill, fillToggleTile(on: fillOn, accent: accent, size: L.fill.size, idx: idx))
+                pos(L.speed, AnyView(EuclideousFillFieldTile(field: .speed, line: line, accent: accent, size: L.speed.size, radius: L.radius, onStep: { s, m in self.editStep(idx, s, m) }, onTap: { m in self.edit(idx, m) })))
+                pos(L.length, AnyView(EuclideousFillFieldTile(field: .length, line: line, accent: accent, size: L.length.size, radius: L.radius, onStep: { s, m in self.editStep(idx, s, m) }, onTap: { m in self.edit(idx, m) })))
+                pos(L.reverse, fillBoolTile(label: "REVERSE", which: "reverse", on: line.fillReverseResolved, accent: accent, size: L.reverse.size, radius: L.radius, idx: idx) { $0.fillReverse = !line.fillReverseResolved })
+                pos(L.ranks, AnyView(EuclideousFillFieldTile(field: .ranks, line: line, accent: accent, size: L.ranks.size, radius: L.radius, onStep: { s, m in self.editStep(idx, s, m) }, onTap: { m in self.edit(idx, m) })))
+                pos(L.swell, AnyView(EuclideousFillFieldTile(field: .swell, line: line, accent: accent, size: L.swell.size, radius: L.radius, onStep: { s, m in self.editStep(idx, s, m) }, onTap: { m in self.edit(idx, m) })))
+                pos(L.brk, fillBoolTile(label: "BREAK", which: "break", on: line.fillBreakResolved, accent: accent, size: L.brk.size, radius: L.radius, idx: idx) { $0.fillBreak = !line.fillBreakResolved })
+            }
+            .frame(width: box.width, height: box.height, alignment: .topLeading)
+        })
+    }
+    /// §4.1 one bar tile — the rate grid's selected/unselected look + the current number & progress line + the sounding fill.
+    private func fillBarTile(n: Int, lit: Bool, fillOn: Bool, current: Bool, sounding: Bool, progress: Double, accent: Color, size: CGSize, idx: Int) -> AnyView {
+        let fillColour: Color = sounding ? lane100(accent).opacity(0.62)
+            : (lit && fillOn ? lane20(accent) : (current && !lit ? Color(hex: 0x363A42) : patternUnselectedFill))   // lit+FILL off = border only; unlit current lifts to #363A42
+        let border: Color = (lit || sounding) ? lane100(accent) : .clear
+        let number: Color = current ? Color(hex: 0xF2F4F7) : (lit ? Color(hex: 0xF2F4F7).opacity(0.8) : Color(hex: 0x8A909A))
+        return AnyView(ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(fillColour)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(border, lineWidth: 1))
+            Text("\(n + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(number)
+            if current {   // §4.1 the progress line: 1.5 tall, from 2.5 inside the leading edge, width (tileW − 5) × progress
+                Capsule().fill(Color(hex: 0xF2F4F7)).frame(width: max(0, (size.width - 5) * progress), height: 1.5)
+                    .position(x: 2.5 + max(0, (size.width - 5) * progress) / 2, y: size.height - 3)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .contentShape(Rectangle()).onTapGesture { edit(idx) { $0.fillBars = fillBarsToggled($0, n) } }
+        .accessibilityElement(children: .ignore).accessibilityLabel(euclideousFillBarAX(n, on: lit, current: current)).accessibilityAddTraits(.isButton))
+    }
+    /// §6.1 toggle bar n (materializing the 8-array the first time).
+    private func fillBarsToggled(_ l: EuclidLine, _ n: Int) -> [Bool] { var b = l.fillBarsResolved; b[n].toggle(); return b }
+    /// §4.2 FILL — drawn as PLAY RIFF: the lamp (on/off look) + one "FILL" line beside it; no flash.
+    private func fillToggleTile(on: Bool, accent: Color, size: CGSize, idx: Int) -> AnyView {
+        let look = euclideousPartPlayLook(on: on)
+        return AnyView(HStack(spacing: 3) {
+            EuclideousPartPlayLampShape().fill(on ? lane100(accent) : Color.clear)
+                .overlay(on ? nil : EuclideousPartPlayLampShape().stroke(Color(hex: look.lampStrokeHex), lineWidth: 1.2))
+                .frame(width: 11, height: 11)
+            Text("FILL").font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(7 * 0.1).foregroundColor(Color(hex: look.nameHex))
+        }
+        .frame(width: size.width, height: size.height)
+        .contentShape(Rectangle()).onTapGesture { edit(idx) { $0.fillOn = !on } }
+        .accessibilityElement(children: .ignore).accessibilityLabel(euclideousFillToggleAX(on)).accessibilityAddTraits(on ? [.isButton, .isSelected] : [.isButton]))
+    }
+    /// §4.5 REVERSE / BREAK — drawn as FLIP HITS (selected/unselected), one centred label.
+    private func fillBoolTile(label: String, which: String, on: Bool, accent: Color, size: CGSize, radius: CGFloat, idx: Int, _ mutate: @escaping (inout EuclidLine) -> Void) -> AnyView {
+        AnyView(Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(7 * 0.1).lineLimit(1)
+            .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+            .frame(width: size.width, height: size.height)
+            .background(RoundedRectangle(cornerRadius: radius).fill(on ? lane20(accent) : patternUnselectedFill))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(on ? lane100(accent) : .clear, lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { edit(idx, mutate) }
+            .accessibilityElement(children: .ignore).accessibilityLabel(euclideousFillBoolAX(which, on: on)).accessibilityAddTraits(on ? [.isButton, .isSelected] : [.isButton]))
+    }
+    // MARK: - RATE tile (ferry 2026-11-12, RETIRED by FILL 2026-11-13 — kept compiled, no longer mounted) — the 8-bar speed-override strip
     private func rateTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, blockH: CGFloat) -> AnyView {
         let L = euclideousRateTileLayout(box: CGSize(width: halfW, height: blockH))
         let active = line.usesRateOverride, freeOn = line.rateFreeResolved, brush = line.rateBrushResolved, bars = line.rateBarsResolved
