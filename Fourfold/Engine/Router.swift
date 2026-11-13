@@ -719,6 +719,9 @@ final class Router {
     private var euclideousLegatoCount = [Int](repeating: 0, count: 4)
     // FILL ferry (2026-11-13) §2.4: the step-length scale at the hit the body is currently emitting — 1/m inside a fill region, 1 on a ×1 segment / non-fill lane. Set per slot by `iterateTicks`' fill loop (1 otherwise), read by the body's gate + ratchet spacing. A plain scalar hand-off, like the other render-thread scratch (no alloc).
     private var euclideousFillStepScaleNow: Double = 1
+    // FILL ferry (2026-11-13) §2.5/§2.6: the RANKS climb offset and the SWELL velocity factor for the slot the body is emitting — set per slot by the fill loop (0 / 1 otherwise ⇒ byte-identical). The rank offset is added before rank→pitch (riff + stack); the factor multiplies the final velocity in `strikeChord`.
+    private var euclideousFillRankOffsetNow: Int = 0
+    private var euclideousFillVelFactorNow: Double = 1
     // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
     // immediately") — checked in its OWN unconditional loop (NOT nested inside the per-line dispatch
     // loop's own `enabledResolved`-gated `where` clause, which structurally never executes once a lane is
@@ -2231,7 +2234,7 @@ final class Router {
                               fill: EuclideousFillPlan? = nil,   // FILL ferry (2026-11-13): a per-lane fill; nil / inactive ⇒ the loop below is byte-identical to today
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
-        euclideousFillStepScaleNow = 1   // FILL: 1 for the ×1 / non-fill path; the fill loop sets it per slot (= 1/m in a region) for the gate + ratchet spacing (§2.4)
+        euclideousFillStepScaleNow = 1; euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1   // FILL: neutral for the ×1 / non-fill path; the fill loop sets them per slot (§2.4 step scale, §2.5 rank climb, §2.6 swell)
         let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
         let mStartReal = musicalOf(beatPos, stepBeats: S, a: a)
         let mEndReal = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -2320,6 +2323,11 @@ final class Router {
                 if key == lastTick[dedupSlot] { continue }
                 lastTick[dedupSlot] = key
                 euclideousFillStepScaleNow = subEff / sub   // §2.4: 1/m in a region, 1 on a ×1 segment — the body's gate + ratchet spacing read it
+                if run.active {   // §2.5/§2.6: the RANKS climb + SWELL factor for this time-slot (s = k − j0); the body reads them at rank→pitch and in strikeChord
+                    let s = Int(k - j0)
+                    euclideousFillRankOffsetNow = euclideousFillRankOffset(ranks: region?.ranks ?? 0, slot: s, count: N)
+                    euclideousFillVelFactorNow = euclideousFillSwellFactor(swell: region?.swell ?? 0, slot: s, count: N)
+                } else { euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1 }
                 let onTime = sampleOf(musical: hostBeat + delayBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                       windowStart: windowStart, S: S, a: a)
                 let colEnd = columnStart(hostBeat, S) + S
@@ -2869,7 +2877,7 @@ final class Router {
             func strikeOne(_ rawNote: Int, _ rawVel: UInt8) {
                 let n = rawNote + transpose + 12 * octave
                 guard n >= 0 && n <= 127 else { return }
-                let vel = clampVel(Int((Double(max(1, rawVel)) * velScale).rounded()))   // inherited velocity × envelope
+                let vel = clampVel(Int((Double(max(1, rawVel)) * velScale * euclideousFillVelFactorNow).rounded()))   // inherited velocity × envelope × FILL swell (§2.6; factor 1 off a fill ⇒ byte-identical; round + clamp 1…127)
                 storeArtic(row: r, on: onT, off: offT, note: UInt8(n), beat: tau)
                 if !emits { return }
                 if tbm != 0 {
@@ -4297,7 +4305,7 @@ final class Router {
                                     if polyMask & (UInt8(1) << UInt8(rk - 1)) != 0 {
                                         let invRank = riffInvert ? 9 - rk : rk
                                         let rank = invRank + melodyTranspose
-                                        if rank >= 1, let note0Raw = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
+                                        if rank >= 1, let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill)
                                             let note0 = note0Raw
                                             let len = p.polyRiff.triggerLength(col: playedStep, rank: rk, polyTrig)
                                             var ringBeats = riffAdvanceStep
@@ -4394,7 +4402,7 @@ final class Router {
                                             repeatedColumn = Int8(found.column)
                                             return strikeRiffRawRank(found.rank, repeating: true)
                                         }
-                                    } else if let note0Raw = riffResolve(rank: rank, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
+                                    } else if let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill)
                                         let note0 = note0Raw
                                         hadRiffNote = true
                                         riffRank = rank; riffNote = note0
@@ -4445,7 +4453,7 @@ final class Router {
                                     notesSpreadActive = rowsHit.spread
                                     let doSpread = rowsHit.spread != .together
                                     func strikeRowsRank(_ r: Int, spread: Bool) {
-                                        guard let pch = riffResolve(rank: r, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }
+                                        guard let pch = riffResolve(rank: r + euclideousFillRankOffsetNow, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }   // FILL §2.5: the rank climb applies to stack notes too (0 off a fill)
                                         let at = pitchCount
                                         // Pass the LIT rank (1…8) so the roll / STACK-grid-live feed names it exactly (a folded note no longer falls back to nearest-by-pitch, which could leave an octave copy unranked).
                                         addPitch(pch, vel: notesVel, gate: notesGate, notesLayer: true, heldByRiff: pch == heldRiffPitch, raw: pch - 12 * octave, rank: UInt8(r))
@@ -4490,7 +4498,7 @@ final class Router {
                                                                                 litOrder: litOrder, counts: notesRankCounts, secondLater: notesRankSecondLater, thirdLater: notesRankThirdLater,
                                                                                 bassOn: notesBassOn, bassMode: notesBassMode, shiftStart: notesShiftStart, driftOn: notesDriftOn, driftStep: notesDriftStep,
                                                                                 lane: lineIndex, hitOrdinal: scanH)
-                                                func pitchOf(_ r: Int) -> Int? { riffResolve(rank: r, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) }
+                                                func pitchOf(_ r: Int) -> Int? { riffResolve(rank: r + euclideousFillRankOffsetNow, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) }   // FILL §2.5 (deferred stack notes of the same slot share its climb; 0 off a fill)
                                                 if fut.bassRank > 0, let p = pitchOf(fut.bassRank), p != heldForTie || notesOnlyOuts != 0 { strikes = true }
                                                 if !strikes { for i in 0..<fut.count { if let p = pitchOf(fut[i]), p != heldForTie || notesOnlyOuts != 0 { strikes = true; break } } }
                                             }

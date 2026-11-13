@@ -105,6 +105,32 @@ final class FillRouterTests: XCTestCase {
         XCTAssertEqual(fillNotes(e), [53, 52, 50, 48, 60, 59, 57, 55], "the exact time-mirror of the forward list")
     }
 
+    // MARK: §2.5 RANKS climb (test 5)
+
+    private func fillVels(_ e: FillEmitter) -> [UInt8] {
+        let rows: [(beat: Double, vel: UInt8)] = e.ons.filter { $0.cable == 1 }.map { ev in
+            let beat = ((Double(ev.sample) / 24_000.0) * 1000).rounded() / 1000
+            return (beat, ev.vel)
+        }
+        return rows.filter { $0.beat >= 14 - 1e-6 && $0.beat < 16 - 1e-6 }.sorted { $0.beat < $1.beat }.map { $0.vel }
+    }
+    func testRanksClimbsTheWalk() {
+        // A FLAT rank-1 riff, RANKS +7 over N=8 ⇒ offsets 0…7 ⇒ ranks 1…8 ⇒ an ascending run cmaj[0…7] − 12.
+        let e = run(fill: FillSpec(bars: bar(3), speed: 3, length: 1, ranks: 7), riffRanks: [1, 1, 1, 1, 1, 1, 1, 1], pool: cmaj)
+        XCTAssertEqual(fillNotes(e), [48, 50, 52, 53, 55, 57, 59, 60], "the rank climb turns a flat riff into a rising run")
+    }
+
+    // MARK: §2.6 SWELL ramp (test 6)
+
+    func testSwellRaisesVelocityIntoTheDownbeat() {
+        // SWELL +3 over N=8, base velocity 90 ⇒ factors 0.35…1.0 ⇒ velocities rise to 90 on the downbeat (0.35 is 0.3499… in float ⇒ 31).
+        let e = run(fill: FillSpec(bars: bar(3), speed: 3, length: 1, swell: 3))
+        XCTAssertEqual(fillVels(e), [31, 40, 48, 57, 65, 73, 82, 90], "the swell ramps velocity up to the note on the bar line")
+        // −3 falls from the full velocity (the mirror of +3).
+        let down = fillVels(run(fill: FillSpec(bars: bar(3), speed: 3, length: 1, swell: -3)))
+        XCTAssertEqual(down.first, 90); XCTAssertEqual(down.last, 31); XCTAssertEqual(down, down.sorted(by: >), "−3 falls monotonically")
+    }
+
     // MARK: §2.7 BREAK (test 7)
 
     func testBreakDropsTheLastQuarter() {
