@@ -6275,15 +6275,19 @@ func euclideousLaneChainTick(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int,
 }
 /// The chain-era counterpart of `euclideousNextHitGapBeats`.
 func euclideousNextChainHitGapBeats(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64, cap: Int,
-                                    chains: EuclideousLaneRestartChains, legacySpanBeats: Double, timing: EuclideousHitTiming = .none) -> Double {
-    guard !buf.isEmpty, n > 0, sub > 0, cap > 0 else { return sub }
+                                    chains: EuclideousLaneRestartChains, legacySpanBeats: Double, timing: EuclideousHitTiming = .none, hitsAhead: Int = 1) -> Double {
+    guard !buf.isEmpty, n > 0, sub > 0, cap > 0, hitsAhead >= 1 else { return sub }
     // RHYTHM POLISH §5.2: the gap runs between the two hits' ACTUAL times — whole ticks plus the difference of their delays (a uniform fraction cancels).
     let dThis = timing.isNone ? 0 : timing.delaySteps(raw: euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
                                                                                     legacySpanBeats: legacySpanBeats).raw)
-    var k = 1
+    // RING (2026-11-13): `hitsAhead` > 1 returns the gap to the Nth future hit (the first hit of the next walk cycle), not the next one — byte-identical at the default 1 (every existing caller).
+    var k = 1, found = 0
     while k <= cap {
         let ph = euclideousLaneChainPhase(buf: buf, n: n, dir: dir, cycleLen: cycleLen, sub: sub, tick: tick + Int64(k), chains: chains, legacySpanBeats: legacySpanBeats)
-        if ph.rawIsHit { return (Double(k) + (timing.isNone ? 0 : timing.delaySteps(raw: ph.raw) - dThis)) * sub }
+        if ph.rawIsHit {
+            found += 1
+            if found >= hitsAhead { return (Double(k) + (timing.isNone ? 0 : timing.delaySteps(raw: ph.raw) - dThis)) * sub }
+        }
         k += 1
     }
     return Double(cap) * sub

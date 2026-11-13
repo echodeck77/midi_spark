@@ -455,6 +455,7 @@ enum SnapshotBuilder {
                                                                       // notesGate clamps EXACTLY like `gate` (5%…100%) so the two layers agree at the low end.
                                                                       notesGate: $0.notesGate.map { clamp($0, 0.05, 1.0) },
                                                                       notesVelocity: $0.notesVelocity.map { clamp($0, 1, 127) },
+                                                                      notesRing: $0.notesRing,   // RING (2026-11-13): carried into the snapshot's fresh EuclidLine literal (else a fresh literal resets it to off)
                                                                       // LANES GRID (2026-10-18): the five per-lane grid fields — raw passthrough (the resolvers
                                                                       // range-check wherever they are read), threaded here for the same fresh-literal reason as above.
                                                                       muteCells16: $0.muteCells16, muteUnit: $0.muteUnit,

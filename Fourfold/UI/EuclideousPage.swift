@@ -3196,6 +3196,22 @@ struct EuclideousPage: View {
         .accessibilityValue(lockSpoken(idx, .inv, on ? "on" : "off"))
         .ringToggleTrait())
     }
+    /// RING (Paul 2026-11-13): next to FLIP HITS — the stack (NOTES) layer's notes keep sounding through rests to the end of the pass (the riff walk cycle), building up like a sustain pedal, then clear. A full override of the notes GATE while on. Not a lock field.
+    private func ringButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
+        let on = line.notesRingResolved
+        return AnyView(Text("RING").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.64)
+            .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+            .frame(width: width, height: height)
+            .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+            .contentShape(Rectangle())
+            .modifier(laneTapMod(idx) { edit(idx) { $0.notesRing = on ? nil : true } })
+            .euclideousHelp("Stack notes ring to the end of the pass, then clear — like a sustain pedal")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Ring")
+            .accessibilityValue(on ? "on" : "off")
+            .ringToggleTrait())
+    }
 
     // MARK: - RESTART CHAINS (ferry 2026-10-19) — §6 tiles + editor, §3 STEPS picker
 
@@ -3614,7 +3630,12 @@ struct EuclideousPage: View {
             patternRateHalf(idx, line, accent, halfW: halfW, blockH: blockH, gap: gap)
                 .modifier(lockOutlineMod(idx, .rate, accent))
             Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 8)
-            flipHitsButton(idx, line, accent, width: halfW, height: blockH)
+            // FILL TAB + RING (Paul 2026-11-13): the freed right half holds FLIP HITS and, beside it, RING.
+            HStack(spacing: sp4) {
+                flipHitsButton(idx, line, accent, width: max(1, (halfW - sp4) / 2), height: blockH)
+                ringButton(idx, line, accent, width: max(1, (halfW - sp4) / 2), height: blockH)
+            }
+            .frame(width: halfW, height: blockH)
         }
         .frame(width: fullWidth, height: blockH))
     }

@@ -888,3 +888,6 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 ## CC SLOTS — picker now horizontal step strips (2026-11-13; supersedes the circular-picture line above)
 - The four stacked horizontal Euclid step strips read as "the existing lanes" and the selected one is unmistakable.
 - The step cells + playhead match the lane cards closely enough to feel familiar at the picker's row height.
+## RING (2026-11-13) — device-owed
+- A RING lane's stack notes build up through the pass (sustain-pedal) and all release cleanly at the walk-cycle boundary — no lingering/stuck notes, no click at the clear. Confirm by ear on device.
+- The FLIP HITS + RING buttons side by side in the EUCLID tab's lower-right are comfortable to tap and read; RING's on/off state is obvious.

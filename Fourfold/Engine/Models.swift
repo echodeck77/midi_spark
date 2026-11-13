@@ -663,6 +663,7 @@ struct EuclidLine: Codable, Equatable {
     // The RIFF layer's gate/velocity are the lane's existing `gate`/`velocityAbsolute` (what the RHYTHM tab shows).
     var notesGate: Double? = nil
     var notesVelocity: Int? = nil
+    var notesRing: Bool? = nil   // RING (2026-11-13): the stack (NOTES) layer's notes keep sounding through rests to the walk-cycle boundary, then clear — a full override of the notes GATE while on (riff layer untouched)
     // LANES GRID (ferry 2026-10-18, §1): each lane gets a 16-cell MUTE grid and two 16-cell RESTART masks (rhythm = the Euclid
     // pattern starts again from its first step, melody = the riff goes back to its first position), each on the lane's OWN cell
     // size. APPENDED LAST (memberwise-init order), additive-Optional, decode-tolerant. Bit i of a mask is cell i. nil ⇒ the §1
@@ -1182,6 +1183,8 @@ struct EuclidLine: Codable, Equatable {
     var notesVelOffsetResolved: Int { max(-64, min(64, notesVelOffset ?? 0)) }
     /// The NOTES layer's gate: its own once stored, else the lane's GATE. Same 1%…100% domain the GATE slider uses.
     var notesGateResolved: Double { max(0.01, min(1, notesGate ?? gateResolved)) }
+    /// RING (2026-11-13): the stack layer rings to the walk-cycle boundary. Default off ⇒ byte-identical.
+    var notesRingResolved: Bool { notesRing ?? false }
     /// The NOTES layer's velocity: its own once stored (1…127), else VEL + the legacy offset — exactly today's notes velocity
     /// (`notesVelOffsetResolved` is already ±64-clamped, so this is byte-identical to the engine's old `velocityAbsolute + offset`).
     var notesVelocityResolved: Int {
@@ -1284,6 +1287,8 @@ extension EuclidLine {
         // the notes velocity pinned from it — survive a session or preset round trip.
         velocityAbsolute = try c.decodeIfPresent(Int.self, forKey: .velocityAbsolute)
         notesGate = try c.decodeIfPresent(Double.self, forKey: .notesGate)
+        notesRing = try c.decodeIfPresent(Bool.self, forKey: .notesRing)   // RING (2026-11-13): the custom decoder must read it, or a saved RING is lost on load
+
         riffOutMask = (try c.decodeIfPresent(UInt8.self, forKey: .riffOutMask)).map { $0 & 0x0F }
         notesOutMask = (try c.decodeIfPresent(UInt8.self, forKey: .notesOutMask)).map { $0 & 0x0F }
         notesVelocity = try c.decodeIfPresent(Int.self, forKey: .notesVelocity)

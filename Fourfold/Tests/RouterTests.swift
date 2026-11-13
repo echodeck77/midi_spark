@@ -214,6 +214,41 @@ final class RouterTests: XCTestCase {
         if let a = aAll, let b = bAll { XCTAssertLessThan(a.sample, b.sample, "on ALL, A's contribution ends before B's") }
     }
 
+    // RING (Paul 2026-11-13): the stack (NOTES) layer's notes sustain to the end of the walk cycle, then clear — a full override of the notes GATE. Four distinct pool notes (one per hit via the default ORDER walk) so each note's
+    // duration is clean (no same-pitch refcount merge). A 4-step r1/8 lane with riffLength 4 has a 1.0-beat walk cycle; the first stack note (struck at beat 0) must ring the whole cycle with RING on, but only its short gate with RING off.
+    func testRingHoldsStackNotesToTheWalkCycleBoundaryThenClears() {
+        func run(ring: Bool) -> RecordingEmitter {
+            var c = Machine(machineID: "gold", type: .euclid)
+            var line = EuclidLine(target: 0, pulses: 4, steps: 4, rate: .r1_16, useRiff: false, sourceMode: .midi, riffLength: 4)   // riff OFF so only the STACK plays (RING is the stack layer); r1/16 = 0.25-beat steps ⇒ a 1.0-beat, 4-hit walk cycle
+            line.notesOn = true; line.setLitOrder(.derived(litNotes: 0b0000_1111, top: false, top2: false)); line.notesGate = 0.3; line.notesRing = ring ? true : nil
+            c.paramsA.euclidLines = [line]
+            var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                                 scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a]); return s }()])
+            st.euclideousNoteSource = .midi
+            let box = SnapshotBuilder.build(keeping: st)
+            let router = Router(); var diag = KernelDiag(); let e = RecordingEmitter()
+            let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+            let windowBeats = Double(frames) * tempo / 60.0 / sr
+            var beat = 0.0, ts = 0.0
+            for _ in 0..<26 {   // ~2.2 beats = two full 1.0-beat walk cycles and into a third
+                router.process(box: box, pool: chord([60, 64, 67, 72]), playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+                beat += windowBeats; ts += Double(frames)
+            }
+            router.process(box: box, pool: chord([60, 64, 67, 72]), playing: false, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+            return e
+        }
+        let bps = 120.0 / 60.0 / 48_000.0
+        func firstDur(_ e: RecordingEmitter, note: UInt8) -> Double {
+            guard let on = e.ons.first(where: { $0.cable == 1 && $0.note == note }),
+                  let off = e.offs.first(where: { $0.cable == 1 && $0.note == note && $0.sample >= on.sample }) else { XCTFail("no note \(note) on output A"); return 0 }
+            return Double(off.sample - on.sample) * bps
+        }
+        let onE = run(ring: true), offE = run(ring: false)
+        assertNothingLeftSounding(onE); assertNothingLeftSounding(offE)   // RING self-schedules a finite off per note — nothing may strand
+        XCTAssertEqual(firstDur(offE, note: 60), 0.075, accuracy: 0.03, "RING off: rank-1 note plays its short gate (0.3 × 0.25)")
+        XCTAssertEqual(firstDur(onE, note: 60), 1.0, accuracy: 0.07, "RING on: rank-1 note (struck at beat 0) rings to the walk-cycle boundary at beat 1.0")
+    }
+
     // PART GRID × GENERATOR interaction bug, ROUND 2 (Paul 2026-10-05): the same hardcoded-8-column defect found
     // in the EUCLID fix above turned out to be systemic — STRIKE PER SPAN, CHORDS-hold, TUTTI PATTERN, LENGTH,
     // STRUM, and MOD all independently hardcoded Double(Snap.cols)*S instead of the row's real pass length. Each

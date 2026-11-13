@@ -3327,7 +3327,7 @@ final class Router {
                                 // PLAY AS SEQUENCE (2026-11-08): `notesPlaySeq` is the lane's RAW stored optional (COW — reading/passing it never allocates, unlike `notesPlaySeqResolved`, which the render thread must not call); the active mode per hit
                                 // is derived from it, with `notesPlayAs` the fallback single mode (nil sequence = the migrated single value, or a random roll's one mode). An empty sequence plays CHORD; a single chip is that mode always.
                                 notesPlaySeq: [EuclideousPlayStep]? = nil, notesPlayAs: EuclidNotesPlayAs = .chord, notesReceivedOnly: Bool = false,
-                                notesOn: Bool = true, notesVelocity: Int = 100, notesGate: Double = 0.9,
+                                notesOn: Bool = true, notesVelocity: Int = 100, notesGate: Double = 0.9, notesRing: Bool = false,
                                 // PLAY AS ROWS (2026-11-11): the three NOTES chains (RAW optionals — COW, never the *Resolved array accessors on the render thread) + per-rank counts + bass + shift/drift. The lit notes play through these now
                                 // (`euclideousRowsResolve`), not `notesPlayAs`/`notesPlaySeq` (kept for the random roll's fallback mode and compiled-but-dead PLAY AS playback — §0.2). Defaulted to the §1.9 defaults so the one call site is the only change.
                                 notesOrderChain: [EuclideousOrderChip]? = nil, notesVoicesChain: [EuclideousVoicesChip]? = nil, notesSpreadChain: [EuclideousSpreadChip]? = nil,
@@ -4127,7 +4127,18 @@ final class Router {
                             var restEnd = 0
                             func tieOf(_ j: Int) -> Double { (notesPitchMask >> UInt16(j)) & 1 != 0 ? tieNotesExt : tieExt }
                             func nvRiffLead() -> Int { var n = 0; while hadRiffNote && n < pitchCount && (notesPitchMask >> UInt16(n)) & 1 == 0 { n += 1 }; return n }   // the leading riff pitches of the hit (NOTE VIEW's convention: the riff's first)
-                            func gateBeatsOf(_ j: Int) -> Double { polyBeats[j] > 0 ? polyBeats[j] : gateBeatsWithTie(pitchGate[j], tieOf(j)) }   // a poly note's own length, else the gate-and-TIE rule
+                            // RING (2026-11-13): the stack layer's note length = the beat gap to the first hit of the NEXT walk cycle, so every stack note struck in this pass clears together there (a sustain pedal held for the pass). A FULL override of the notes GATE / TIE (Paul). Computed once per hit; 0 ⇒ off ⇒ byte-identical. The walk cycle is `walkPeriod × EVERY` riff hits; `advOrd` advances every hit, so the boundary always exists.
+                            var ringLenBeats: Double = 0
+                            if notesRing && isEuclideousRow {
+                                let cyclePeriod = max(1, euclideousFXWalkPeriod(dir: riffDir, length: riffLength, stride: riffStride) * max(1, riffAdvanceEvery))
+                                let hitsToGo = cyclePeriod - Int(advOrd % Int64(cyclePeriod))   // 1…cyclePeriod riff hits to the next cycle start
+                                ringLenBeats = euclideousNextChainHitGapBeats(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick,
+                                                                              cap: min(4096, cycleLen * (cyclePeriod + 2)), chains: chains, legacySpanBeats: ladderSpanBeats, timing: hitTiming, hitsAhead: hitsToGo)
+                            }
+                            func gateBeatsOf(_ j: Int) -> Double {
+                                if ringLenBeats > 0, (notesPitchMask >> UInt16(j)) & 1 != 0 { return ringLenBeats }   // RING: the stack note rings to the next walk-cycle boundary
+                                return polyBeats[j] > 0 ? polyBeats[j] : gateBeatsWithTie(pitchGate[j], tieOf(j))   // a poly note's own length, else the gate-and-TIE rule
+                            }
                             var wipeColumn: Int8 = -1, wipeRankOut: Int8 = -1
                             var wipeCellColumn: Int8 = -1, repeatedColumn: Int8 = -1   // RESTART TILES: the column whose NOTE struck (the REPEAT lookback's column on a REPEAT hit, else the hit's own)
                             // FX RETIRED (Paul, 2026-11-07): none of the FX tab's rows reaches a hit — VEL / GATE / NOTE / TIE / RATCH / CC are gone from the render path.
@@ -5834,7 +5845,7 @@ final class Router {
                               // NOTES AUDITION (2026-11-11): while a STACK cell is held, this lane's NOTES layer plays ONLY the held rank — override the lit order with the single-position order decoded above (every other input, incl. WHEN/CHANCE, is unchanged, so the audition rides the lane's own rhythm/play-as).
                               litOrder: (isEuclideousRow && lineIndex == euclideousNotesAuditionLaneNow) ? euclideousNotesAuditionOrder : (notesRoll?.notesLitOrder ?? L.litOrderResolved), notesWhen: notesRoll?.notesWhen ?? L.notesWhenResolved, notesChance: notesRoll?.notesChance ?? L.notesChanceResolved,
                               notesPlaySeq: notesRoll != nil ? nil : L.notesPlaySeq, notesPlayAs: notesRoll?.notesPlayAs ?? L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,   // PLAY AS SEQUENCE: a random roll forces its one mode (nil seq ⇒ the fallback); else the lane's RAW chip sequence (no allocation, unlike …Resolved)
-                              notesOn: L.notesOnResolved, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved,
+                              notesOn: L.notesOnResolved, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved, notesRing: L.notesRingResolved,
                               // PLAY AS ROWS (2026-11-11): the three chains (RAW optionals, no allocation) + per-rank counts + bass + shift/drift. A random roll does not touch them (it sets only the lit notes / WHEN / CHANCE).
                               notesOrderChain: L.notesOrderChain, notesVoicesChain: L.notesVoicesChain, notesSpreadChain: L.notesSpreadChain,
                               notesRankCounts: L.notesRankCounts ?? 0, notesRankSecondLater: L.notesRankSecondLater ?? 0, notesRankThirdLater: L.notesRankThirdLater ?? 0,
