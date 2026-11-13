@@ -840,6 +840,7 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - 1.5-ish pt filled rank bars (max(1, slot−0.5) ≈ 1.6 at T=44) read as height, and riff (inset 2) vs stack (inset 4) bars are told apart with the stack over the riff.
 - A lane with its riff OFF shows grey outline chips above every hit (lane 2 was empty before); an upcoming footer hit shows an outline until it fills.
 - (§B5, deferred) the joined PLAY-button + bridge + track shape — to verify when the on-device one-shape pass is done.
+- CC direction (2026-11-12): on a BKW and a ping-pong lane, the strip overlay's faint CC curve now runs WITH the direction-aware playhead (reversed for BKW, bouncing over the full 2n cycle for ping-pong) and the hit dots sit where the playhead strikes them. (The CC tab stays the time-based output view — Paul's call — where the trajectory already reverses for a backwards lane.)
 
 ## STACK GRID RIFF ARROW ferry (2026-11-12) — all visual, device-owed (§10)
 - The arrow reads as the riff, not as a stack state, at a glance (the whole point of the ferry).

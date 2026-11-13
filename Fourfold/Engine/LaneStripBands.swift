@@ -237,7 +237,7 @@ func laneCCSourceEmitter(routed: UInt8, ccOn: UInt8) -> Int? {
 /// otherwise). `value(atBeat:)` is `emitterCCTraceValue` passed in, so the mapping stays Foundation-only and testable.
 struct LaneCCStripTrace: Equatable { var line: [CGPoint]; var dots: [CGPoint]; var playhead: CGPoint? }
 func laneCCStripTrace(dots rawDots: [CGPoint], sub: Double, barBeats: Double, cellXs: [CGFloat], columnW: CGFloat,
-                      cellsRect: CGRect, bottomBarH: CGFloat, samplesPerStep: Int,
+                      cellsRect: CGRect, bottomBarH: CGFloat, samplesPerStep: Int, dir: EuclidDir = .fwd,
                       playheadStepFloat: Double? = nil, playheadValue: Double? = nil, value: (Double) -> Double?) -> LaneCCStripTrace {
     let n = cellXs.count
     guard n > 0, sub > 0, barBeats > 0 else { return LaneCCStripTrace(line: [], dots: [], playhead: nil) }
@@ -249,17 +249,21 @@ func laneCCStripTrace(dots rawDots: [CGPoint], sub: Double, barBeats: Double, ce
     }
     func y(_ v: Double) -> CGFloat { cellsRect.minY + (1 - CGFloat(max(0, min(127, v)) / 127)) * max(0, cellsRect.height - bottomBarH) }
     func phase(_ bp: Double) -> Double { let r = bp.truncatingRemainder(dividingBy: barBeats); return r < 0 ? r + barBeats : r }
+    // CC DIRECTION (2026-11-12): the value at raw walk position r is plotted at the CELL the playhead is at there
+    // (`euclidCometPos`), so the curve runs WITH the direction-aware playhead — reversed for BKW, bouncing for ping-pong
+    // over the full `cycleLen`. FWD (euclidCometPos(r,.fwd)=r, cycleLen=n) is byte-identical to the old forward map.
+    let cycleLen = euclidCycleLen(dir, n: n)
     var line: [CGPoint] = []
-    let total = n * max(1, samplesPerStep)
+    let total = cycleLen * max(1, samplesPerStep)
     for i in 0...total {
-        let bp = Double(i) * sub / Double(max(1, samplesPerStep))
-        if let v = value(phase(bp)) { line.append(CGPoint(x: x(Double(i) / Double(max(1, samplesPerStep))), y: y(v))) }
+        let r = Double(i) / Double(max(1, samplesPerStep))
+        if let v = value(phase(r * sub)) { line.append(CGPoint(x: x(euclidCometPos(r, n: n, dir: dir)), y: y(v))) }
     }
     var dots: [CGPoint] = []
     for d in rawDots {
         let bp = Double(d.x)
-        guard bp >= 0, bp < Double(n) * sub + 1e-9 else { continue }   // a hit inside the shown pass
-        dots.append(CGPoint(x: x(bp / sub), y: y(Double(d.y))))
+        guard bp >= 0, bp < Double(cycleLen) * sub + 1e-9 else { continue }   // a hit inside the shown pass (both legs for ping-pong)
+        dots.append(CGPoint(x: x(euclidCometPos(bp / sub, n: n, dir: dir)), y: y(Double(d.y))))
     }
     var playhead: CGPoint? = nil
     if let sf = playheadStepFloat, let pv = playheadValue { playhead = CGPoint(x: x(max(0, min(Double(n), sf))), y: y(pv)) }   // §5.4: the current sweep x and value

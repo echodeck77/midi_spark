@@ -508,7 +508,7 @@ struct EuclidCometBar: View {
                     if let ccIn = ccInput {
                         let cellsRect = CGRect(x: 0, y: bandFrames.bands.hH + bandFrames.bands.gap, width: size.width, height: bandFrames.bands.hC)
                         let phPhase: Double? = running ? { let b = max(1, ccIn.barBeats); let r = liveBeat.truncatingRemainder(dividingBy: b); return r < 0 ? r + b : r }() : nil
-                        ccTrace = laneCCStripTrace(dots: ccIn.dots, sub: sub, barBeats: ccIn.barBeats, cellXs: xs, columnW: boxW, cellsRect: cellsRect, bottomBarH: LaneStripBandMetrics.bottomBarH, samplesPerStep: LaneStripBandMetrics.ccSamplesPerStep,
+                        ccTrace = laneCCStripTrace(dots: ccIn.dots, sub: sub, barBeats: ccIn.barBeats, cellXs: xs, columnW: boxW, cellsRect: cellsRect, bottomBarH: LaneStripBandMetrics.bottomBarH, samplesPerStep: LaneStripBandMetrics.ccSamplesPerStep, dir: dir,   // CC runs with the direction-aware playhead
                                                    playheadStepFloat: running ? euclidCometPos(cometRaw, n: n, dir: dir) : nil, playheadValue: phPhase.flatMap { emitterCCTraceValue(ccIn.points, atBeat: $0) },
                                                    value: { emitterCCTraceValue(ccIn.points, atBeat: $0) })
                     }

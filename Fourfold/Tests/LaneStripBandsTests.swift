@@ -182,6 +182,30 @@ final class LaneStripBandsTests: XCTestCase {
         XCTAssertNil(laneCCStripTrace(dots: [], sub: 1, barBeats: 4, cellXs: cellXs, columnW: 18, cellsRect: cells, bottomBarH: 3, samplesPerStep: 4, value: { _ in nil }).playhead)
     }
 
+    // CC DIRECTION (2026-11-12) — the trace + dots run through euclidCometPos, so they follow the direction-aware playhead:
+    // FWD byte-identical; BKW mirrored; ping-pong over the full 2n cycle.
+    func testCCStripTraceRespectsDirection() {
+        let cellXs: [CGFloat] = [0, 20, 40, 60]                                    // 4 steps, pitch 20, width 80
+        let cells = CGRect(x: 0, y: 10, width: 80, height: 20)
+        func tr(_ dir: EuclidDir, dots: [CGPoint] = []) -> LaneCCStripTrace {
+            laneCCStripTrace(dots: dots, sub: 1.0, barBeats: 4.0, cellXs: cellXs, columnW: 20, cellsRect: cells, bottomBarH: 3, samplesPerStep: 4, dir: dir, value: { $0 * 10 })
+        }
+        // a hit at beat 1: FWD sits at cell 1 (x 20); BKW where the playhead is at beat 1 — euclidCometPos(1,.bkw)=3 → x 60
+        XCTAssertEqual(tr(.fwd, dots: [CGPoint(x: 1, y: 100)]).dots.first!.x, 20, accuracy: 0.5)
+        XCTAssertEqual(tr(.bkw, dots: [CGPoint(x: 1, y: 100)]).dots.first!.x, 60, accuracy: 0.5)
+        // FWD is byte-identical to the default (no dir)
+        let def = laneCCStripTrace(dots: [], sub: 1.0, barBeats: 4.0, cellXs: cellXs, columnW: 20, cellsRect: cells, bottomBarH: 3, samplesPerStep: 4, value: { $0 * 10 })
+        XCTAssertEqual(tr(.fwd).line, def.line)
+        // BKW: the same per-sample y as FWD, mirrored in x (the FWD and BKW x's sum to the full width)
+        let fwd = tr(.fwd).line, bkw = tr(.bkw).line
+        XCTAssertEqual(fwd.count, bkw.count)
+        for j in 0..<fwd.count {
+            XCTAssertEqual(fwd[j].y, bkw[j].y, accuracy: 0.01)
+            XCTAssertEqual(fwd[j].x + bkw[j].x, 80, accuracy: 0.5, "the BKW curve is the FWD curve mirrored in x")
+        }
+        XCTAssertGreaterThan(tr(.pingpong).line.count, fwd.count, "ping-pong samples the full 2n cycle")
+    }
+
     // §5.1 — the CC source: first routed-and-CC-on in A–D order; none → nil.
     func testCCSourceEmitter() {
         XCTAssertEqual(laneCCSourceEmitter(routed: 0b0110, ccOn: 0b0100), 2)                 // routes to B,C; CC on C → C
