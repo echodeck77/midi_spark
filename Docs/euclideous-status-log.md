@@ -11536,3 +11536,38 @@ Paul's ask: one CC per emitter isn't enough — each emitter A–D gets THREE CC
 **REPORTED differences (source won):** CC fired on routed lanes' hits → the driver lane's; the merged hit stream → the driver's own next hit; the per-cell MUTE-tab gate on CC → only a FULL mute; the amendment-1 count/routed HITS → HIGH every hit; the "first hitting lane" RIFF provisional → the driver's riff; default CC numbers A74/B71/C1/D11 → a/b/c = 74/71/1 on every output; the row + page on-switches (token tap) → removed from rows, a per-slot ON switch on the edit page. The "header ring" mute of §3.6 does not exist (retired) — the full-output mute is `cells16 == 0`.
 
 **Known limits / device-owed:** §3.5 same-moment a/b/c order is the driver-lane processing order (a/b/c when the slots' drivers are in lane order; a different wire order otherwise — inaudible at one timestamp); the POLY CC next-rank prediction uses the mono-resolved walk params (self-correcting at the next hit); the picker rows draw each lane's hits as marks on a bar, not strict step cells (§5.5); a velocity-0 driver lane doesn't fire CC (the strike's velocity guard returns before the hook). All band/chip/picker looks + the tap comfort are DEVICE-OWED.
+
+## FILL TAB (2026-11-13; Fourfold only; UI only) — FILL gets its own tab; FLIP HITS moves to the freed EUCLID space
+
+Paul: "Create a new tab after stack called FILL. Move the controls for the fill section from the Euclid tab to fill and make it much more spacious. In the remaining space on the euclid page, move the FLIP HITS button there."
+
+**A new front tab, FILL, after STACK.** The 3-enum raw-value coupling (the RESETS recipe): `EuclideousPageTab` / `EuclideousTabKind`
+(Derivations) / `EuclideousLaneTab` (EuclideousPage) each gain `fill = 7` (past MIX's 6, which has no front); the DISPLAY
+order `euclideousPageTabOrder` inserts `.fill` between `.notes` (STACK) and `.listen` (ANSWER). The exhaustive-switch "safety
+net" caught the sites that needed it (`euclideousTabGlyph` → `.none` cluster like RESETS, `euclideousTabAccessibilityLabel`
+→ "Fill", `euclideousLaneStripShape` → `.none`, `euclideousRandomStartTab` → `.rhythm`, `spokenName`/`label` → "Fill"/"FILL").
+The card dispatch `tabContent` gains `case .fill: fillTabContent(…)`.
+
+**The FILL block moved off the EUCLID tab onto the FILL tab, spacious.** `fillTabContent` renders the existing `fillBlock`
+over the WHOLE lane-card content area (≈380 × 229) instead of the cramped lower-right half (≈185 × 80) it had on EUCLID —
+`euclideousFillBlockLayout(box:)` is box-relative, so the eight tiles (the 8 bar tiles + FILL · SPEED · LENGTH · REVERSE ·
+RANKS · SWELL · BREAK) scale up to fill it. The FILL *engine* (`FillRegion`, §2 timing) is untouched.
+
+**FLIP HITS moved to the EUCLID tab's freed space.** The lower zone's right half (the FILL block's old frame,
+`patternControlBlock`) now holds the FLIP HITS button; the upper-zone direction row drops to the three directions only
+(`rhythmRightHalf` calls `directionRow` directly; the `directionFlipRow` wrapper is deleted). `patternMiss` setter/undo
+unchanged.
+
+**The 8th strip tab — the one real cost (device-owed).** Eight segments at the landscape/portrait references are **84.3 /
+85.9 pt** wide — below the 96 pt cluster floor — so the per-lane cluster dots on RIFF / STACK / ANSWER **hide** (the labels
+still fit: 6 chars ≈ 47 pt ≪ 84). This rides the strip's existing graceful degradation (`belowFloor` / `clustersVisible`),
+and the `.laneStrip` page floor now fires at the reference (clusters-hidden is the normal 8-tab state). To bring the clusters
+back would need the cluster floor lowered below 84 — but label + sp8 + the 4-dot cluster is ≈85 pt for the 6-letter tabs, so
+they genuinely don't fit at 84; hiding them is correct. Flagged for Paul: accept hidden clusters, or rethink the 8-tab strip.
+
+**UI only — golden byte-identical** (no engine/Router/Snapshot/Models change; the FILL engine and `patternMiss` are
+unchanged; the tab enums are ephemeral UI state, never persisted). Tests: LaneViewStripTests / PageLayoutTests / AnswerTabTests
+/ StackGridTests pins updated 7→8 tabs (counts, segment widths 96.76→84.29 land / 98.57→85.88 port, the floor width 764→863,
+the reference now flags `.laneStrip`). Pre-existing red unrelated to this: `ClarityPassTests.testListenSource…` (ANSWER/listen).
+**Device-owed:** the FILL tab's spacious feel (74 pt rows may read tall), the big FLIP HITS button in the freed EUCLID space,
+and the hidden strip clusters.

@@ -5173,7 +5173,7 @@ func euclideousPartPlayFlash(notes: [NoteRollNote], nowBeat: Double, tempo: Doub
 // `euclideousNotesLayerIsOn`, LISTEN a lit row) — and a 1.5 pt outline when off. The MIX pad's label wears the same glyph in the same state, and `euclideousMixLayerIsOff` is the ONE on/off both read.
 
 /// The five lane-card tabs, in tab order (the page's `EuclideousLaneTab` has the same raw values). ANSWER ferry: POOL joined between NOTES and ANSWER (`.listen`, renamed in the UI only).
-enum EuclideousTabKind: Int, CaseIterable { case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, resets = 5 }   // RESETS (2026-11-11): a front tab with no cluster glyph (shape .none), coupled by rawValue to EuclideousPageTab / EuclideousLaneTab
+enum EuclideousTabKind: Int, CaseIterable { case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, resets = 5, fill = 7 }   // RESETS (2026-11-11) / FILL (2026-11-13): front tabs with no cluster glyph (shape .none), coupled by rawValue to EuclideousPageTab / EuclideousLaneTab (7 skips MIX's 6, which has no front)
 enum EuclideousGlyphShape: Equatable { case none, square, bar, circle }
 // LISTEN REBUILT (2026-10-23): the old `.anyLane` case (the AVOID-ANY quartered circle) is retired — the
 // new model has exactly one source lane, never "any lane".
@@ -5193,7 +5193,7 @@ func euclideousListenSource(_ line: EuclidLine, lane: Int) -> EuclideousListenSo
 /// §5.3. `lane` is the lane the tab row belongs to (RIFF and NOTES fill in its colour).
 func euclideousTabGlyph(tab: EuclideousTabKind, line: EuclidLine, lane: Int, planMode: MidiMode = .add) -> EuclideousTabGlyph {
     switch tab {
-    case .rhythm, .resets: return EuclideousTabGlyph(shape: .none, on: true, fill: .lane(lane))   // RESETS: shape .none, so the strip never draws a cluster for it (like RHYTHM)
+    case .rhythm, .resets, .fill: return EuclideousTabGlyph(shape: .none, on: true, fill: .lane(lane))   // RESETS / FILL: shape .none, so the strip never draws a cluster for it (like RHYTHM)
     case .riff:   return EuclideousTabGlyph(shape: .square, on: !euclideousMixLayerIsOff(line, notes: false), fill: .lane(lane))
     case .notes:  return EuclideousTabGlyph(shape: .bar, on: !euclideousMixLayerIsOff(line, notes: true), fill: .lane(lane))
     case .pool:   return EuclideousTabGlyph(shape: .circle, on: euclideousPoolGlyphLit(line, planMode: planMode), fill: .lane(lane))   // INPUTS ferry 3.7: lit when the lane's CANON delay is not 0, any of its SOURCES chips is off or its MIDI mode (its own, else the document's) is not ADD
@@ -5265,6 +5265,8 @@ func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, lines: [EuclidLine]
         }
     case .resets:
         return "Resets"
+    case .fill:
+        return "Fill"
     }
 }
 

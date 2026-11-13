@@ -18,35 +18,35 @@ final class LaneViewStripTests: XCTestCase {
         near(L.tabControl, 0, 0, 701.33, 28, "the tab control: what the tiles and the gaps leave")
         near(L.dice, 709.33, 0, 28, 28, "the dice"); near(L.padlock, 741.33, 0, 28, 28, "the padlock")
         near(L.padlock.maxX, 769.33, "the padlock ends on the strip's edge"); near(L.dice.maxX + 4, L.padlock.minX, "sp4 between the tiles"); near(L.tabControl.maxX + 8, L.dice.minX, "sp8 before the dice")
-        XCTAssertEqual(L.segments.count, 7)   // RESETS added (2026-11-11)
-        for r in L.segments { near(r.width, 96.76, "segment width"); near(r.height, 22, "segment height"); near(r.minY, 3, "3 pt inset") }
-        near(L.segments[0].minX, 3, "3 pt inset"); near(L.segments[1].minX - L.segments[0].maxX, 3, "segments 3 apart"); near(L.tabControl.maxX - L.segments[6].maxX, 3, "3 pt inset at the end (MIX is the seventh)")
+        XCTAssertEqual(L.segments.count, 8)   // RESETS (2026-11-11) + FILL (2026-11-13)
+        for r in L.segments { near(r.width, 84.29, "segment width"); near(r.height, 22, "segment height"); near(r.minY, 3, "3 pt inset") }
+        near(L.segments[0].minX, 3, "3 pt inset"); near(L.segments[1].minX - L.segments[0].maxX, 3, "segments 3 apart"); near(L.tabControl.maxX - L.segments[7].maxX, 3, "3 pt inset at the end (MIX is the eighth)")
         for (r, t) in zip(L.segments, L.segmentTargets) { near(t.width, r.width, "target as wide as the segment"); near(t.height, 44, "target 44 tall"); near(t.midY, r.midY, "centred on the segment"); near(t.midX, r.midX, "centred") }
         near(L.diceTarget.width, 36, "tile targets 36 wide"); near(L.diceTarget.height, 44, "…and 44 tall"); near(L.diceTarget.midX, L.dice.midX, "centred on the tile"); near(L.padlockTarget.midY, L.padlock.midY, "centred")
-        XCTAssertTrue(L.clustersVisible); XCTAssertFalse(L.belowFloor)
+        XCTAssertFalse(L.clustersVisible); XCTAssertTrue(L.belowFloor)   // FILL (2026-11-13): the 8th tab drops segments to 84 pt (< the 96 cluster floor), so the per-lane cluster dots hide at the reference; the labels still fit (6 chars ≈ 47 pt)
     }
     func testPortraitReferenceFrames() {
         let L = euclideousLaneStripLayout(width: port.strip.width)
         near(port.strip.width, 782)
         near(L.tabControl, 0, 0, 714, 28, "the tab control"); near(L.dice, 722, 0, 28, 28, "dice"); near(L.padlock, 754, 0, 28, 28, "padlock")
-        XCTAssertEqual(L.segments.count, 7); for r in L.segments { near(r.width, 98.57, "segment width") }
-        XCTAssertTrue(L.clustersVisible)
+        XCTAssertEqual(L.segments.count, 8); for r in L.segments { near(r.width, 85.88, "segment width") }
+        XCTAssertFalse(L.clustersVisible)   // 8 tabs → 85.88 pt < the 96 floor: clusters hidden, labels fit
     }
     /// §2.6: under 96 pt a segment hides the clusters — on all six together — and nothing shrinks: the tiles stay 28, the segments keep 22 tall and the labels are the views' to truncate.
     func testNarrowStripHidesTheClustersOnAllFourAndShrinksNothing() {
-        // a segment is 96 wide when the strip is 7 × 96 + 6 (inset) + 18 (gaps) + 8 + 28 + 4 + 28 = 764 (RESETS makes it 7)
-        let atFloor = euclideousLaneStripLayout(width: 764), under = euclideousLaneStripLayout(width: 763.9)
+        // a segment is 96 wide when the strip is 8 × 96 + 6 (inset) + 21 (gaps) + 8 + 28 + 4 + 28 = 863 (RESETS + FILL make it 8)
+        let atFloor = euclideousLaneStripLayout(width: 863), under = euclideousLaneStripLayout(width: 862.9)
         XCTAssertTrue(atFloor.clustersVisible); XCTAssertFalse(atFloor.belowFloor); near(atFloor.segmentWidth, 96)
         XCTAssertFalse(under.clustersVisible); XCTAssertTrue(under.belowFloor)
         let narrow = euclideousLaneStripLayout(width: 268)   // a 300-wide portrait window: two 130-wide cards and their gap
         XCTAssertFalse(narrow.clustersVisible)
         near(narrow.dice.width, 28); near(narrow.padlock.width, 28); for r in narrow.segments { near(r.height, 22) }
-        XCTAssertEqual(narrow.segments.count, 7); XCTAssertEqual(Set(narrow.segments.map { $0.width }).count, 1, "seven equal segments")
+        XCTAssertEqual(narrow.segments.count, 8); XCTAssertEqual(Set(narrow.segments.map { $0.width }).count, 1, "eight equal segments")
         for tab in EuclideousPageTab.allCases {
             XCTAssertNil(euclideousLaneStripSegmentContent(segment: narrow.segments[1], tab: tab, clustersVisible: false).cluster, "no cluster on any segment when they are hidden")
         }
         XCTAssertEqual(euclideousPageFloors(box: CGSize(width: 130, height: 300), stripWidth: 268).contains(.laneStrip), true)
-        XCTAssertFalse(euclideousPageFloors(box: CGSize(width: 380, height: 319), stripWidth: 769.33).contains(.laneStrip))
+        XCTAssertTrue(euclideousPageFloors(box: CGSize(width: 380, height: 319), stripWidth: 769.33).contains(.laneStrip))   // FILL: at 8 tabs the reference strip (769.33 → 84 pt segs) is below the cluster floor, so .laneStrip now fires at the normal width (clusters hidden is the normal 8-tab state)
     }
     /// The label and the cluster centre in the segment as ONE group, sp8 apart; RHYTHM (no cluster) centres its label alone.
     func testLabelAndClusterCentreAsOneGroup() {
@@ -101,7 +101,7 @@ final class LaneViewStripTests: XCTestCase {
     func testTheTabIsOneValueAndTappingTheSelectedSegmentChangesNothing() {
         XCTAssertEqual(EuclideousPageTab.opening, .rhythm, "the page opens on RHYTHM and never on MIX"); XCTAssertNotEqual(EuclideousPageTab.opening, .mix)
         for t in EuclideousPageTab.allCases { XCTAssertNil(euclideousPageTabTap(current: t, tapped: t), "\(t): tapping the selected segment does nothing") }
-        XCTAssertEqual(EuclideousPageTab.allCases.count, 7)
+        XCTAssertEqual(EuclideousPageTab.allCases.count, 8)
         XCTAssertEqual(EuclideousPageTab.riff.front, .riff); XCTAssertNil(EuclideousPageTab.mix.front); XCTAssertEqual(EuclideousPageTab.resets.front, .resets)
     }
     func testEveryChangeBetweenFrontTabsFlipsAndAChangeToOrFromMixIsInstant() {
@@ -149,9 +149,9 @@ final class LaneViewStripTests: XCTestCase {
             XCTAssertEqual(p.strip.maxX, p.lanes[1].maxX, accuracy: 1e-9, name); XCTAssertEqual(p.strip.minY + 28 + 8, p.lanes[0].minY, accuracy: 1e-9, name)
             XCTAssertEqual(p.lanes[3].maxY, p.isLandscape ? p.seq.maxY : p.riff.minY - 8, accuracy: 1e-6, "\(name): the cards end where the old equal boxes did")
             XCTAssertGreaterThan(p.laneBox.height, 0); XCTAssertGreaterThan(content, 0)
-            XCTAssertEqual(S.segments.count, 7); XCTAssertEqual(S.dice.width, 28); XCTAssertEqual(S.padlock.width, 28)
-            // independent of the layout function: the control is the strip less the dice 28, padlock 28 and their gaps 8 / 4 (= 68); a segment is (control − 2 × 3 inset − 6 × 3 gap) ÷ 7, so it is under 96 exactly below 764 (RESETS makes it 7 segments)
-            XCTAssertEqual(p.floors.contains(.laneStrip), p.strip.width < 764 - 1e-9, name)
+            XCTAssertEqual(S.segments.count, 8); XCTAssertEqual(S.dice.width, 28); XCTAssertEqual(S.padlock.width, 28)
+            // independent of the layout function: the control is the strip less the dice 28, padlock 28 and their gaps 8 / 4 (= 68); a segment is (control − 2 × 3 inset − 7 × 3 gap) ÷ 8, so it is under 96 exactly below 863 (RESETS + FILL make it 8 segments)
+            XCTAssertEqual(p.floors.contains(.laneStrip), p.strip.width < 863 - 1e-9, name)
         }
         print(table.joined(separator: "\n"))
     }
@@ -184,8 +184,8 @@ final class LaneViewStripTests: XCTestCase {
         for tab in EuclideousPageTab.allCases where tab != .mix {
             XCTAssertEqual(tab.front.map { "\($0)" }, "\(tab)", "\(tab) must show the card tab of the same name")
         }
-        XCTAssertEqual(EuclideousPageTab.allCases.map { $0.rawValue }, [0, 1, 2, 3, 4, 5, 6])   // RESETS = 5, MIX moved to 6 (2026-11-11)
-        XCTAssertEqual(EuclideousTabKind.allCases.map { "\($0)" }, ["rhythm", "riff", "notes", "pool", "listen", "resets"])
+        XCTAssertEqual(EuclideousPageTab.allCases.map { $0.rawValue }, [0, 1, 2, 3, 4, 5, 6, 7])   // RESETS = 5, MIX = 6, FILL = 7 (2026-11-13)
+        XCTAssertEqual(EuclideousTabKind.allCases.map { "\($0)" }, ["rhythm", "riff", "notes", "pool", "listen", "resets", "fill"])
     }
     /// Spec 2.5 puts the padlock sp4 after the dice with 36-wide targets: the two targets share 4 pt, and the padlock (later in the stack) owns it. Pinned so the overlap is a known number, not an accident.
     func testTheDiceAndPadlockTargetsShareFourPointsAndNothingElse() {
@@ -200,7 +200,7 @@ final class LaneViewStripTests: XCTestCase {
     }
     /// At exactly the 96 pt floor every tab's label and cluster fit inside the segment (ANSWER is the widest: 6 letters + sp8 + four 6 pt circles).
     func testLabelAndClusterFitInASegmentAtTheFloor() {
-        let S = euclideousLaneStripLayout(width: 764)   // seven segments at the 96 pt floor (RESETS added)
+        let S = euclideousLaneStripLayout(width: 863)   // eight segments at the 96 pt floor (RESETS + FILL): 8 × 96 + chrome
         XCTAssertTrue(S.clustersVisible); near(S.segmentWidth, 96)
         for tab in EuclideousPageTab.allCases where tab != .mix {
             let c = euclideousLaneStripSegmentContent(segment: S.segments[2], tab: tab, clustersVisible: true)

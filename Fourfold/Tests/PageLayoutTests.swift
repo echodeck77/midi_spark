@@ -37,7 +37,7 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(p.gutterX, 400.67, accuracy: 0.01, "was 378.5")
         XCTAssertEqual(p.seq.maxX, 1174, accuracy: 1e-9, "nothing past x 1174"); XCTAssertEqual(p.seq.maxY, 710, accuracy: 1e-9, "nothing past y 710")
         XCTAssertEqual(p.riffLeadingX, 777.33, accuracy: 0.01); XCTAssertEqual(p.laneCentreX, 384.67, accuracy: 0.01)
-        XCTAssertTrue(p.floors.isEmpty, "the reference flags nothing: \(p.floors)")
+        XCTAssertEqual(p.floors, [.laneStrip], "FILL (2026-11-13): the 8th strip tab drops segments below the 96 pt cluster floor, so .laneStrip flags at the reference (clusters hidden, labels fit); nothing else: \(p.floors)")
     }
     func testPortraitReferenceIsTwoColumnsByThreeRowsAndFitsTheView() {
         let p = port
@@ -53,7 +53,7 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(p.seq.maxX, 798, accuracy: 1e-9, "the second column ends 16pt inside the 814 view (it ran to 869 before)")
         XCTAssertEqual(p.seq.maxY, 1086, accuracy: 0.01)
         XCTAssertEqual(p.laneCentreX, 391, accuracy: 1e-9, "= the container's centre, as portrait's header always used")
-        XCTAssertTrue(p.floors.isEmpty, "the reference flags nothing: \(p.floors)")
+        XCTAssertEqual(p.floors, [.laneStrip], "FILL: 8 tabs → clusters hidden at the reference (labels fit); nothing else: \(p.floors)")
     }
     func testChooserIsTheViewsOwnWiderThanTall() {
         XCTAssertTrue(euclideousPageLayout(size: CGSize(width: 1190, height: 726)).isLandscape)

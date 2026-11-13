@@ -657,8 +657,8 @@ enum EuclideousLaneTab: Int, CaseIterable {
     // not added alongside); `EuclidLine.mask`/`EuclidLineMask`/`runEuclidLine`'s own mask-application code
     // are all untouched, just never reachable from the UI and never fed a genuinely-enabled mask by the
     // one call site that used to (see Router.swift's own call-site comment).
-    case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, resets = 5   // ANSWER FERRY: POOL joined, LISTEN is ANSWER on screen (the case keeps its code name); RESETS added 2026-11-11; coupled by raw value with EuclideousTabKind / EuclideousPageTab
-    var label: String { switch self { case .rhythm: "EUCLID"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "INPUTS"; case .listen: "ANSWER"; case .resets: "RESETS" } }   // RHYTHM → EUCLID / POOL → INPUTS on screen (Paul 2026-11-08 / 2026-11-05)
+    case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, resets = 5, fill = 7   // ANSWER FERRY: POOL joined, LISTEN is ANSWER on screen (the case keeps its code name); RESETS added 2026-11-11, FILL 2026-11-13 (rawValue 7, past MIX's 6); coupled by raw value with EuclideousTabKind / EuclideousPageTab
+    var label: String { switch self { case .rhythm: "EUCLID"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "INPUTS"; case .listen: "ANSWER"; case .resets: "RESETS"; case .fill: "FILL" } }   // RHYTHM → EUCLID / POOL → INPUTS on screen (Paul 2026-11-08 / 2026-11-05)
 }
 
 /// STACK BREAK (2026-10-25, crash `FourfoldAU-2026-10-25-213535.ips`): the extension's main thread has a 1 MB stack and building the page eagerly nests
@@ -2923,18 +2923,10 @@ struct EuclideousPage: View {
         return AnyView(VStack(spacing: sp4) {
             rhythmOffsetRow(idx, line, accent, width: halfW, height: rowH)
             rhythmTiltRow(idx, line, accent, width: halfW, height: rowH)
-            directionFlipRow(idx, line, accent, width: halfW, height: rowH)
+            // FILL TAB ferry (Paul 2026-11-13): the direction row is just the three directions now — FLIP HITS moved to the lower zone's freed right half (the old `directionFlipRow` wrapper is gone).
+            directionRow(idx, line, accent, rowH: rowH).frame(width: halfW, height: rowH)
         }
         .frame(width: halfW, height: rowHeight))
-    }
-    /// §1.3: four equal buttons, sp4 apart — `<`, `><`, `>` (same styles, setters and selected state as ever) and FLIP HITS (§2.3).
-    private func directionFlipRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
-        let w = EuclideousRhythmGeometry.directionButtonW(rightHalfW: width)
-        return AnyView(HStack(spacing: sp4) {
-            directionRow(idx, line, accent, rowH: height).frame(width: w * 3 + sp4 * 2)
-            flipHitsButton(idx, line, accent, width: w, height: height)
-        }
-        .frame(width: width, height: height))
     }
     // LISTEN REBUILT (2026-10-23): HITS/TILT no longer show a partner's value at reduced opacity while
     // individually "following" — §7's "a tab is either fully the lane's own or fully paused" replaces that
@@ -3145,7 +3137,14 @@ struct EuclideousPage: View {
                 .frame(width: fullWidth, height: contentAreaH, alignment: .top)
                 if restartEditorLane == idx { restartEditorV2(idx, line, width: fullWidth, height: contentAreaH) }
             }
+        case .fill:
+            fillTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         }
+    }
+    /// FILL tab (Paul 2026-11-13): the FILL block — moved off the EUCLID tab's cramped lower-right half — now gets the whole lane-card content area, much more spacious. `euclideousFillBlockLayout` is box-relative, so the tiles scale up to fill it.
+    private func fillTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
+        fillBlock(idx, line, accent, box: CGSize(width: fullWidth, height: contentAreaH))
+            .frame(width: fullWidth, height: contentAreaH, alignment: .top)
     }
 
     /// The 3 DIRECTION buttons, equal width (PATTERN-tab-layout ferry §4: "the three direction buttons
@@ -3610,12 +3609,12 @@ struct EuclideousPage: View {
         // 8pt padding either side) — both halves land at the spec's own 154.5pt.
         let gap: CGFloat = 4, blockH = 38 * 2 + gap
         let halfW = max(1, (fullWidth - 17) / 2)
-        // FILL ferry (2026-11-13): the division grid + note-value column stay on the LEFT half; the FILL block (eight loose tiles, no box) fills the RIGHT half the RATE tile had.
+        // FILL TAB ferry (Paul 2026-11-13): the FILL block moved to its own tab, so the LEFT half keeps the division grid + note-value column and the RIGHT half (the RATE tile's old frame) now holds the FLIP HITS button, moved off the direction row.
         return AnyView(HStack(spacing: 0) {
             patternRateHalf(idx, line, accent, halfW: halfW, blockH: blockH, gap: gap)
                 .modifier(lockOutlineMod(idx, .rate, accent))
             Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 8)
-            fillBlock(idx, line, accent, box: CGSize(width: halfW, height: blockH))
+            flipHitsButton(idx, line, accent, width: halfW, height: blockH)
         }
         .frame(width: fullWidth, height: blockH))
     }

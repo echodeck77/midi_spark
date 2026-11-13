@@ -317,8 +317,8 @@ final class AnswerTabTests: XCTestCase {
     }
     func testTheSixSegmentsAtTheReferenceWidths() {
         let land = euclideousLaneStripLayout(width: 769.33), port = euclideousLaneStripLayout(width: 782)
-        XCTAssertEqual(land.segments.count, 7); XCTAssertEqual(land.segmentWidth, 96.76, accuracy: 0.01); XCTAssertEqual(port.segmentWidth, 98.57, accuracy: 0.01)
-        XCTAssertTrue(land.clustersVisible); XCTAssertTrue(port.clustersVisible)
+        XCTAssertEqual(land.segments.count, 8); XCTAssertEqual(land.segmentWidth, 84.29, accuracy: 0.01); XCTAssertEqual(port.segmentWidth, 85.88, accuracy: 0.01)
+        XCTAssertFalse(land.clustersVisible); XCTAssertFalse(port.clustersVisible)   // FILL (2026-11-13): 8 tabs → segments below the 96 cluster floor at the reference
         XCTAssertFalse(euclideousLaneStripLayout(width: 660).clustersVisible)
         XCTAssertGreaterThanOrEqual(land.segmentWidth, EuclideousLaneStripMetrics.segmentFloor)
     }
