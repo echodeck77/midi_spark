@@ -34,6 +34,40 @@ struct EuclideousFreePill: View {
     }
 }
 
+/// RESETS TAB §1.5 — the WITH RHYTHM link row that divides a card's RHYTHM and MELODY halves: the link button (editor v2's own look — the `link` glyph, off #8A909A on #2A2D34 / on #F2F4F7 on lane@30 %; "source wins" over the spec's
+/// "arrow.down" wording — the editor only drew `link`) in a wider x 0–40 hit area, and a tie line from x 42 to TW that lights when WITH RHYTHM is on. Never dims (§1.6). The line's off/on colours (#2F333B / lane100 at 60 %) are the card's own —
+/// the page passes them in computed, so this view needs no colour helpers. The drawn pill sits leading in the hit frame; the whole thing is offset AFTER its tap target is formed (so the hit area moves with it — a recurring page bug if reversed).
+struct EuclideousRestartLinkRow: View {
+    let on: Bool
+    let accent: Color          // the button's on-background (accent at 30 %)
+    let lineOn: Color          // §1.5: lane100 at 60 %
+    let lineOff: Color         // §1.5: #2F333B
+    let button: CGRect         // the drawn pill (34 × 20, or 34 × 16 in case c)
+    let hit: CGRect            // the hit area (x 0–40 by linkH)
+    let line: CGRect           // x 42 → TW, 1.5 pt, centred
+    let glyphSize: CGFloat     // 11 (full) or 9 (case c)
+    let axLabel: String
+    let onToggle: () -> Void
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: line.height / 2).fill(on ? lineOn : lineOff)
+                .frame(width: line.width, height: line.height).offset(x: line.minX, y: line.minY)
+                .accessibilityHidden(true)
+            Image(systemName: "link").font(.system(size: glyphSize, weight: .heavy))
+                .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
+                .frame(width: button.width, height: button.height)
+                .background(RoundedRectangle(cornerRadius: button.height <= 16 ? 8 : 6).fill(on ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))
+                .frame(width: hit.width, height: hit.height, alignment: .leading)   // widen to the §1.5 hit area, pill leading + vertically centred
+                .contentShape(Rectangle())
+                .onTapGesture { onToggle() }
+                .offset(x: hit.minX, y: hit.minY)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(axLabel)
+                .accessibilityAddTraits(.isButton).ringToggleTrait()
+        }
+    }
+}
+
 /// RESTARTS EDITOR V2 §3 — a count chip: a tap steps the value (wrapping 8 → 1), a vertical drag sets it live (6 pt to begin, 12 pt a step, one undo step), a long press (≥ 0.5 s, then lift) removes the link. The drag is a `highPriorityGesture` so it wins over
 /// any gesture on a view behind it. The value redraws from the document as the drag writes it. (Gesture FEEL is device-owed — there is no macOS test reach.)
 struct EuclideousCountChipView: View {
@@ -189,6 +223,8 @@ struct EuclideousRestartSectionView: View {
     let rhythm: Bool
     let settings: EuclideousRestartSettings
     let showsTimeline: Bool
+    /// RESETS TAB §1.4: the card doesn't draw the RHYTHM / MELODY name — the tile above names the half. Defaults true (the overlay editor still draws it).
+    var showsName: Bool = true
     let onEdit: (EuclideousRestartEdit, Bool) -> Void
 
     private var accent: Color { input.laneColors[input.lane % max(1, input.laneColors.count)] }
@@ -204,7 +240,7 @@ struct EuclideousRestartSectionView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            nameLabel
+            if showsName { nameLabel }   // §1.4: the card names each half with its tile, not a label
             freePill
             ForEach(0..<3, id: \.self) { i in chip(i) }
             if readsSource { ForEach(0..<4, id: \.self) { i in sourceSquare(i) } }

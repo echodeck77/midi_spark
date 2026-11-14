@@ -4875,7 +4875,7 @@ enum EuclideousPageFloor: Equatable, Hashable {
     case fxRows                      // FX rows < 24
     case ratchRows                   // RATCH tab (2026-10-28): a card under 52 pt (§4.8) — the frame is reported, the cards are drawn at the formula's height
     case laneStrip                   // TAB STRIP (2026-10-29): a strip segment under 96 pt wide — the four glyph clusters hide; labels truncate, nothing shrinks
-    case restartEditor               // RESTART UNITS (2026-11-04) §7.6; RESTARTS EDITOR V2 (2026-11-06) §2.2: the restart editor's right block under 260 pt wide (the FREE pill, three chips and four source squares overlap) or the editor under 172 tall (its bottom edge clips) — drawn at the formula's values, nothing shrinks
+    case restartEditor               // RESETS TAB (2026-11-13) §1.7/§1.8: the restart controls on the lane card don't fit — row 1 needs TW ≥ 262 (FREE pill, three chips, four source squares), or the body is too short for even §1.7's shortest case — drawn at the formula's values, nothing shrinks (was the overlay editor's own fit before the controls moved onto the card)
     case mixV2Slider, mixV2Row, mixV2Band   // MIX v2 (2026-11-05, §1.6): a VEL / GATE tile under 72 pt wide · a part row under 44 tall · a lane band under 140 tall — drawn at the formula's values, never shrunk
     case mixRowsRoll, mixRowsRow, mixRowsBand   // MIX ROWS (2026-11-03): a part row's roll under 96 pt wide · a part row under 40 tall · a lane band under 120 tall (the panel is drawn at the formula's values)
 }
@@ -4893,8 +4893,9 @@ func euclideousPageFloors(box: CGSize, laneBox: CGSize? = nil, stripWidth: CGFlo
     if r.directionButtonUnderFloor { out.append(.riffDirectionButtons) } // direction button < 36
     if r.bandControlUnderFloor { out.append(.riffBandControl) }          // a MOVE-band control < 56
     if r.notesCellUnderFloor { out.append(.riffNotesCell) }             // a NOTES cell < 72
-    let editor = euclideousRestartEditorFramesV2(size: CGSize(width: EuclideousLaneCardMetrics.innerWidth(cardWidth: lane.width), height: contentH))
-    if !editor.row1Fits || editor.clipsBottom { out.append(.restartEditor) }
+    // RESETS TAB §1.7/§1.8: the restart controls now live on the card, not the overlay editor — report when row 1 doesn't fit (TW < 262) or even §1.7's shortest case can't (the body is too short); nothing shrinks.
+    let resets = euclideousResetsCardLayout(size: CGSize(width: EuclideousLaneCardMetrics.innerWidth(cardWidth: lane.width), height: contentH))
+    if !resets.row1Fits || resets.appliedCase == .cantFit { out.append(.restartEditor) }
     let area = euclideousMixGridArea(panelWidth: box.width, panelHeight: box.height)
     let g = euclideousMixGrid(width: area.width, height: area.height)
     if g.cellW < EuclideousMixMetrics.minCellW { out.append(.mixCellW) }

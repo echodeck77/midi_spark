@@ -180,6 +180,65 @@ func euclideousRestartEditorFramesV2(size: CGSize) -> EuclideousRestartEditorFra
                                            row1Fits: rw >= 260 - 1e-9, clipsBottom: size.height < needed - 1e-9)
 }
 
+// MARK: - RESETS TAB (2026-11-13): the controls on the lane card, no pop-up
+
+/// RESETS TAB §1 — the card layout. The restart controls move out of the overlay editor onto the lane card's body: the body splits into a RHYTHM half (top) and a MELODY half (bottom), each led by its existing progress tile, with the WITH
+/// RHYTHM link row as the divider. `size` is the card's content area (TW × B, §1.1; TW = the tiles' width as built, B = the RHYTHM tile's top to the card's content bottom). These are the editor's OWN views, moved — so the per-half control
+/// geometry reuses `EuclideousRestartSectionFramesV2` (freePill / chips / sources / countChips / addBox), only with the card's x-anchors (FREE at x 0, no label column) and no timeline (the tile is the progress bar, §3.3). Pure + Foundation-only
+/// so `ResetsCardLayoutTests` reads the exact frames.
+struct EuclideousResetsCardLayout: Equatable {
+    /// §1.7's shrink ladder: the FULL layout, then (a) the gap under each tile 4 → 2, (b) also count chips 24 tall, (c) also the link row 16 tall; `cantFit` if even (c) is too short (report; nothing shrinks further).
+    enum Case: Equatable { case full, a, b, c, cantFit }
+    var size: CGSize
+    var tileH: CGFloat                           // T, as built (44)
+    var h: CGFloat                               // H — a half's height; §1.2 H = (B − linkH) / 2
+    var linkH: CGFloat                           // the link row's height (20, or 16 in case c)
+    var rhythmTile: CGRect                       // x 0, y 0, TW × T
+    var melodyTile: CGRect                       // x 0, y H + linkH, TW × T
+    var rhythm: EuclideousRestartSectionFramesV2 // card frames (absolute, card coordinates), no timeline
+    var melody: EuclideousRestartSectionFramesV2
+    var linkButton: CGRect                       // the WITH RHYTHM button's DRAWN frame (34 × linkButtonH), x 0
+    var linkButtonHit: CGRect                    // §1.5: the hit area, x 0–40 by linkH
+    var linkLine: CGRect                         // x 42 → TW, 1.5 pt tall, centred in the link row
+    var appliedCase: Case
+    var row1Fits: Bool                           // §1.8: row 1 needs TW ≥ 262 (FREE, units, sp8, squares)
+}
+func euclideousResetsCardLayout(size: CGSize) -> EuclideousResetsCardLayout {
+    let T: CGFloat = 44                          // §1.3: the tile's height as built
+    let TW = max(1, size.width), B = size.height
+    // §1.3 row 1 (24 tall) · the gap below it (4) · row 2 (count chips). The half's content is `T + gapUnderTile + 24 + 4 + row2H`; FULL = T + 60.
+    // §1.7, in order, first that fits: FULL needs H ≥ T+60; (a) gap 4→2 needs H ≥ T+58; (b) also row2 24 tall needs H ≥ T+54; (c) also link 20→16 (so H grows) needs H ≥ T+54.
+    func hFor(_ linkH: CGFloat) -> CGFloat { (B - linkH) / 2 }
+    let chosen: (c: EuclideousResetsCardLayout.Case, gapUnderTile: CGFloat, row2H: CGFloat, linkH: CGFloat)
+    if hFor(20) >= T + 60 - 1e-9 {        chosen = (.full, 4, 28, 20) }
+    else if hFor(20) >= T + 58 - 1e-9 {   chosen = (.a,    2, 28, 20) }
+    else if hFor(20) >= T + 54 - 1e-9 {   chosen = (.b,    2, 24, 20) }
+    else if hFor(16) >= T + 54 - 1e-9 {   chosen = (.c,    2, 24, 16) }
+    else {                                chosen = (.cantFit, 2, 24, 16) }   // §1.7: stop and report; don't shrink text or the tiles
+    let linkH = chosen.linkH, H = hFor(linkH)
+    // §1.3, per half: the tile at the half's top; row 1 at `tileTop + T + gapUnderTile`; row 2 (count chips) `row2Rel` below row 1's top — always 28 (row 1 is 24 tall + a 4 pt gap), matching the editor's `row2Top`.
+    let row2Rel: CGFloat = 28
+    func section(tileTop: CGFloat) -> EuclideousRestartSectionFramesV2 {
+        let r1 = tileTop + T + chosen.gapUnderTile
+        let freePill = CGRect(x: 0, y: r1, width: 40, height: 24)                                   // §1.3: FREE pill x 0, 40 × 24
+        let chips = [CGFloat(48), 92, 136].map { CGRect(x: $0, y: r1, width: 40, height: 24) }      // §1.3: unit chips x 48, 92, 136 (40 × 24, sp4)
+        let sources = (0..<4).map { i in CGRect(x: TW - 78 + CGFloat(i) * 20, y: r1, width: 18, height: 24) }   // §1.3: hit areas 18 × 24 at TW − 78/−58/−38/−18 (sp2); the 12 × 12 square draws inside
+        let countChips = (0..<4).map { i in CGRect(x: CGFloat(i) * 48, y: r1 + row2Rel, width: 44, height: chosen.row2H) }   // §1.3: count chips from x 0 (44 × row2H, sp4) — four end at x 188
+        return EuclideousRestartSectionFramesV2(top: r1, labelColumn: .zero, freePill: freePill, chips: chips, sources: sources, countChips: countChips, axisLabel: nil, cells: [])   // §1.4 no label column · §3.3 no timeline
+    }
+    let btnH: CGFloat = linkH == 16 ? 16 : 20
+    let linkTop = H
+    let linkButton = CGRect(x: 0, y: linkTop + (linkH - btnH) / 2, width: 34, height: btnH)          // §1.5: 34 × 20 (or 34 × 16 in case c), x 0
+    let linkButtonHit = CGRect(x: 0, y: linkTop, width: 40, height: linkH)                           // §1.5: hit area x 0–40 by linkH
+    let linkLine = CGRect(x: 42, y: linkTop + linkH / 2 - 0.75, width: max(0, TW - 42), height: 1.5) // §1.5: x 42 → TW, 1.5 pt, radius 0.75, centred
+    return EuclideousResetsCardLayout(size: size, tileH: T, h: H, linkH: linkH,
+                                      rhythmTile: CGRect(x: 0, y: 0, width: TW, height: T),
+                                      melodyTile: CGRect(x: 0, y: H + linkH, width: TW, height: T),
+                                      rhythm: section(tileTop: 0), melody: section(tileTop: H + linkH),
+                                      linkButton: linkButton, linkButtonHit: linkButtonHit, linkLine: linkLine,
+                                      appliedCase: chosen.c, row1Fits: TW >= 262 - 1e-9)
+}
+
 // MARK: - what a tap does (§7.4) — one undo step each
 
 enum EuclideousRestartEdit: Equatable {
@@ -363,6 +422,8 @@ func euclideousRestartCurrentUnit(rhythm: Bool, settings s: EuclideousRestartSet
 
 enum EuclideousRestartEditorAX {
     static func dialog(lane: Int) -> String { "Restarts for lane \(lane + 1)" }
+    /// RESETS TAB §4.1: the card's a11y group — "Lane 1 restarts" (holds the RHYTHM half, the link row and the MELODY half in order).
+    static func resetsCard(lane: Int) -> String { "Lane \(lane + 1) restarts" }
     static let rhythmGroup = "Rhythm restarts", melodyGroup = "Melody restarts"
     static let close = "Close restarts"
     static func unitChip(rhythm: Bool, index: Int) -> String {

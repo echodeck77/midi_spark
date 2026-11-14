@@ -3127,16 +3127,8 @@ struct EuclideousPage: View {
         case .listen:
             listenTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         case .resets:
-            // RESETS tab (Paul 2026-11-11): the two restart tiles (RHYTHM RESTART / MELODY RESTART) moved off the EUCLID tab, plus the restart-editor overlay they open — which covers the whole card, exactly as it did on EUCLID.
-            let tileH: CGFloat = 44
-            ZStack(alignment: .topLeading) {
-                VStack(spacing: sp4) {
-                    restartTilesRow(idx, line, accent, rowH: tileH, fullWidth: fullWidth)
-                    Spacer(minLength: 0)
-                }
-                .frame(width: fullWidth, height: contentAreaH, alignment: .top)
-                if restartEditorLane == idx { restartEditorV2(idx, line, width: fullWidth, height: contentAreaH) }
-            }
+            // RESETS TAB ferry (2026-11-13): the restart controls moved off the pop-up onto the card — a RHYTHM half (tile + controls) over a MELODY half, the WITH RHYTHM link row the divider. The pop-up is gone; the tiles open nothing.
+            EuclideousStackBreak { AnyView(resetsTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)) }
         case .fill:
             fillTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         }
@@ -3215,6 +3207,49 @@ struct EuclideousPage: View {
 
     // MARK: - RESTART CHAINS (ferry 2026-10-19) — §6 tiles + editor, §3 STEPS picker
 
+    /// RESETS TAB ferry (2026-11-13): the tab's card body — the restart controls moved off the pop-up onto the card. `euclideousResetsCardLayout` splits the body into a RHYTHM half (its progress tile + FREE / units / counts) over a MELODY
+    /// half, the WITH RHYTHM link row the divider (§1). The controls are editor v2's OWN views reused — `EuclideousRestartSectionView` with no timeline (§3.3, the tile is the bar) and no name (§1.4, the tile names the half) — and the tiles are
+    /// the same `restartTile`, non-interactive now (§3.1). One `TimelineView` animates both tiles' sweeps + the MELODY strike bank; the controls are static. Every edit is the editor's `restartEdit` funnel, one undo step (§2.1); all four cards live at once (§2.2).
+    private func resetsTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
+        let L = euclideousResetsCardLayout(size: CGSize(width: fullWidth, height: contentAreaH))
+        let settings = euclideousRestartSettings(line: line, lane: idx)
+        let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
+        let cfg = riffWalkConfig(idx)
+        let rhythmSpec = euclideousRestartTileSpec(rhythm: true, settings: settings, ownLane: idx)
+        let melodySpec = euclideousRestartTileSpec(rhythm: false, settings: settings, ownLane: idx)
+        let input = EuclideousRestartEditorInput(lane: idx, line: line, laneColors: laneAccents, size: CGSize(width: fullWidth, height: contentAreaH), scheduleSet: restartScheduleSet,
+                                                 barBeats: clock.beatsPerBar, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: running)
+        return ZStack(alignment: .topLeading) {
+            // The two progress tiles at y 0 of each half (§1.3) — ONE TimelineView drives both sweeps + the MELODY cell-strike bank, exactly as the old `restartTilesRow` did.
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !running || cfg == nil)) { tl in
+                let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
+                let melodyState = cfg.map { restartTileState(.melody, cfg: $0, beat: beat, running: running) }
+                let bank: EuclideousCellStrikeBank? = (running && melodyState != nil)
+                    ? euclideousRestartCellStrikes(pulseFeed.strikes(lane: idx), columnCells: melodyState!.columnCells, now: tl.date.timeIntervalSinceReferenceDate) : nil
+                ZStack(alignment: .topLeading) {
+                    restartTile(idx, rhythm: true, spec: rhythmSpec, label: euclideousRestartTileLabel(rhythm: true, settings: settings, ownLane: idx), accent: accent,
+                                width: L.rhythmTile.width, height: L.rhythmTile.height, state: cfg.map { restartTileState(.rhythm, cfg: $0, beat: beat, running: running) }, strikes: nil, tappable: false)
+                        .offset(x: L.rhythmTile.minX, y: L.rhythmTile.minY)
+                    restartTile(idx, rhythm: false, spec: melodySpec, label: euclideousRestartTileLabel(rhythm: false, settings: settings, ownLane: idx), accent: accent,
+                                width: L.melodyTile.width, height: L.melodyTile.height, state: melodyState, strikes: bank, tappable: false)
+                        .offset(x: L.melodyTile.minX, y: L.melodyTile.minY)
+                }
+            }
+            .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
+            // RHYTHM controls (no name, no timeline) · the link row · MELODY controls — declared RHYTHM → link → MELODY so VoiceOver reads them in that order (§4.1). Each section view is full-size with absolute card-coordinate offsets.
+            EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: L.rhythm, rhythm: true, settings: settings, showsTimeline: false, showsName: false, onEdit: { restartEdit(idx, $0, $1) })
+                .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
+            EuclideousRestartLinkRow(on: settings.withRhythm, accent: accent, lineOn: lane100(accent).opacity(0.6), lineOff: Color(hex: 0x2F333B),
+                                     button: L.linkButton, hit: L.linkButtonHit, line: L.linkLine, glyphSize: L.linkH <= 16 ? 9 : 11,
+                                     axLabel: EuclideousRestartEditorAX.withRhythm(on: settings.withRhythm), onToggle: { restartEdit(idx, .withRhythm, true) })
+            EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: L.melody, rhythm: false, settings: settings, showsTimeline: false, showsName: false, onEdit: { restartEdit(idx, $0, $1) })
+                .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
+        }
+        .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(EuclideousRestartEditorAX.resetsCard(lane: idx))   // §4.1
+    }
+
     /// §6.1 — the two restart tiles (RHYTHM, MELODY), replacing the OUT A–D circles in the RHYTHM tab's lower-right row (§9 moves OUT to MIX). Each opens the shared restart editor (§6.2, holds both chains).
     /// RHYTHM POLISH ferry (2026-10-22) §1.4 / §6: one tile per row (the rate grid's two rows), each a sweep + progress track drawn from the pure `restartTileState` at the UI beat of ONE `TimelineView` for the pair (the
     /// restart flash's timer, reused — the comet strip's own is private to `EuclidCometBar`; same 60 fps, same `anchor + elapsed × tempo` beat). Only a RUNNING lane sweeps, lights cells or strikes; stopped, the tracks keep
@@ -3243,29 +3278,32 @@ struct EuclideousPage: View {
     /// ↻ (8 pt) and "RHYTHM" / "MELODY" (8 pt heavy, 0.1 em, #8A909A, truncating first) on the left; the chain (13 pt heavy, #F2F4F7 — FREE #AAB0BA) and its BAR / PASS unit on the right. RESTART TILES §2: the layers are walked in
     /// `euclideousRestartTileLayerOrder` — base (fill + border), sweep, track, text — so the sweep never draws over the text.
     /// Built as an `AnyView` (the page's construction chain has almost no stack to spare in a debug build — see Docs/claude-playbook.md).
+    /// RESETS TAB §3.1/§4.2: `tappable` false makes a tile a non-interactive progress bar — no tap (it opens nothing), no button trait, no hint, static text — which is how the RESETS card draws it now that the controls live on the card.
     private func restartTile(_ idx: Int, rhythm: Bool, spec: EuclideousRestartTileSpec, label: String, accent: Color, width: CGFloat, height: CGFloat,
-                             state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?) -> AnyView {
+                             state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?, tappable: Bool = true) -> AnyView {
         let control: EuclideousLockControl = rhythm ? .rhythmRestart : .melodyRestart
         let name = rhythm ? "RHYTHM" : "MELODY"
-        return AnyView(ZStack(alignment: .topLeading) {
+        let base = ZStack(alignment: .topLeading) {
             ForEach(Array(euclideousRestartTileLayerOrder.enumerated()), id: \.offset) { _, layer in
                 restartTileLayer(layer, spec: spec, name: name, accent: accent, width: width, height: height, state: state, strikes: strikes)
             }
         }
         .frame(width: width, height: height)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            restartEditorLane = idx
-            restartEditorOpenedFromRhythm = rhythm
-            stepsPickerLane = nil   // §1.6: only one of the picker/editor open at a time
-        }
         .modifier(lockOutlineMod(idx, control, accent))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
         .accessibilityValue(lockSpoken(idx, control, state?.restartsInText ?? ""))
-        .accessibilityHint(EuclideousRestartEditorAX.tileHint)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityFocused($restartFocus, equals: .tile(lane: idx, rhythm: rhythm)))
+        guard tappable else { return AnyView(base) }   // §3.1/§4.2: a RESETS-card tile — static text only
+        return AnyView(base
+            .contentShape(Rectangle())
+            .onTapGesture {
+                restartEditorLane = idx
+                restartEditorOpenedFromRhythm = rhythm
+                stepsPickerLane = nil   // §1.6: only one of the picker/editor open at a time
+            }
+            .accessibilityHint(EuclideousRestartEditorAX.tileHint)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityFocused($restartFocus, equals: .tile(lane: idx, rhythm: rhythm)))
     }
     private func restartTileLayer(_ layer: EuclideousRestartTileLayer, spec: EuclideousRestartTileSpec, name: String, accent: Color, width: CGFloat, height: CGFloat,
                                   radius: CGFloat = 8, trackCentred: Bool = false, state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?) -> AnyView {

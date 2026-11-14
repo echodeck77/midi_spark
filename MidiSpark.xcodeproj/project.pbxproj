@@ -466,6 +466,7 @@
 		E47ADB076660841D3EF573BD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523B1AEB32CCEF31AA60CCA9 /* Router.swift */; };
 		E48D772CBB8B427490BF4B8C /* FillRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BA41AD77C8490B0DE3D73D5 /* FillRegion.swift */; };
 		E4A4FB320ACDA110C13DC8B5 /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */; };
+		E4E02EFE50BA1769941A5768 /* ResetsCardLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFBB3F2B6B8ABB8DB24CB0E /* ResetsCardLayoutTests.swift */; };
 		E532C12BE0004C37412F9559 /* LaneStripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2312CDF903FBE2ABB3E824E /* LaneStripTests.swift */; };
 		E5A524B633CE1924BADCA2FB /* PartPlayButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB8E0318D250070707593C53 /* PartPlayButton.swift */; };
 		E66DAEB014A43E4E83288E12 /* HocketPopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB03CC002F55E0712BACE13 /* HocketPopup.swift */; };
@@ -745,6 +746,7 @@
 		895B3CF80D62A9017460EF53 /* SourceStackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceStackTests.swift; sourceTree = "<group>"; };
 		89E227C46A23C7B9BF9E36CE /* StackGridLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackGridLiveTests.swift; sourceTree = "<group>"; };
 		8A9C65A7A6B7ACAE4F4E8194 /* RestartTilePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartTilePainter.swift; sourceTree = "<group>"; };
+		8AFBB3F2B6B8ABB8DB24CB0E /* ResetsCardLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetsCardLayoutTests.swift; sourceTree = "<group>"; };
 		8BB6A38FE32EA7DF0350FFDB /* AcceptanceArpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceArpTests.swift; sourceTree = "<group>"; };
 		8BD8A7AD9DA57CA503786525 /* MixPadPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixPadPainter.swift; sourceTree = "<group>"; };
 		8E2D58238A1D4FF553EC1FAF /* PolyRiffGridPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiffGridPainter.swift; sourceTree = "<group>"; };
@@ -1133,6 +1135,7 @@
 				CD57513582FB79CA7D0105B1 /* ReelDeckTests.swift */,
 				FEEB3F91B098254B25E5B502 /* ReelExportTests.swift */,
 				5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */,
+				8AFBB3F2B6B8ABB8DB24CB0E /* ResetsCardLayoutTests.swift */,
 				86B78244085974D781CC1A40 /* RestartChainsTests.swift */,
 				5DEF38D08252CA627E3AAFBF /* RestartEditorUITests.swift */,
 				5511D6EA0BFF15C0FC45E68A /* RestartFlashTests.swift */,
@@ -2007,6 +2010,7 @@
 				C4B21D64133FF65C1D73F27A /* ReelExportTests.swift in Sources */,
 				36A6BA14474235FA1AA36E3B /* ReelTapeAdapter.swift in Sources */,
 				4FD44873F80293DB68DA9E67 /* ReelTapeAdapterTests.swift in Sources */,
+				E4E02EFE50BA1769941A5768 /* ResetsCardLayoutTests.swift in Sources */,
 				F5391EF8DBE567DE296CEB8D /* RestartChainsTests.swift in Sources */,
 				6CAD2EC6243F59DEF78E94C6 /* RestartEditorUI.swift in Sources */,
 				DA3A4C226D7C45A8CAE854A0 /* RestartEditorUITests.swift in Sources */,
