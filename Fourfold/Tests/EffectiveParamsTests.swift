@@ -838,6 +838,8 @@ final class EffectiveParamsTests: XCTestCase {
         l.altUnit = .bar; l.altMainCount = 5; l.altAltCount = 2   // ALT (2026-11-14): the cycle fields
         l.altRiff = EuclideousAltPart(outOn: true, out: 0b1010, octOn: true, oct: 2, velOn: true, vel: 120, gateOn: true, gate: 40)   // the RIFF part's four overrides
         l.altNotes = EuclideousAltPart(outOn: true, out: 0, octOn: false, oct: nil, velOn: true, vel: 33, gateOn: false, gate: nil)    // the STACK part — a rest (out 0) + a VEL override
+        // FILL TAB (2026-11-14): the whole-card fields — fillBars widened to 16, the new loop/curve/order/shape/hits/roll/chance/land
+        l.fillBars = (0..<16).map { $0 % 3 == 0 }; l.fillLoop = 16; l.fillCurve = .rush; l.fillOrder = .bounce; l.fillShape = .arch; l.fillHits = .flip; l.fillRoll = 3; l.fillChance = 50; l.fillLand = true
         var order = EuclideousLitOrder(); for p in [0, 2, 4, 6, 8, 9] { order.append(p) }; l.setLitOrder(order)   // = the litNotes / topLit / top2Lit set above
         l.notesPlaySeq = [EuclideousPlayStep(mode: .roll, hits: 3)]   // PLAY AS SEQUENCE (2026-11-08)
         // PLAY AS ROWS (2026-11-11): the three chains + per-rank counts + bass + shift/drift

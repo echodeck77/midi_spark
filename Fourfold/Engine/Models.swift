@@ -813,6 +813,26 @@ struct EuclidLine: Codable, Equatable {
     var altAltCount: UInt8? = nil           // §1.1 1…16 [1]
     var altRiff: EuclideousAltPart? = nil   // §1.1 the RIFF part's four overrides (nil ⇒ all off)
     var altNotes: EuclideousAltPart? = nil  // §1.1 the STACK part's four overrides (nil ⇒ all off)
+    // FILL TAB ferry (Paul 2026-11-14) — APPENDED LAST (after ALT), additive-Optional, decode-tolerant. The whole-card FILL tab: a 4/8/16-bar loop, a speed curve, ORDER (replacing REVERSE), a RANKS shape, HITS, ROLL, CHANCE and LAND.
+    // Neutral (×1 STEADY FWD RANKS0 SWELL0 KEEP ROLL0 no BREAK no LAND) ⇒ byte-identical, whatever LENGTH / SHAPE / CHANCE. §1.1.
+    var fillLoop: UInt8? = nil              // §1.1 4 / 8 / 16 bars [8]; bar n uses fillBars[n mod fillLoop]
+    var fillCurve: EuclideousFillCurve? = nil   // §1.1 [STEADY]
+    var fillOrder: EuclideousFillOrder? = nil   // §1.1 [FWD]; replaces fillReverse (decode-only now)
+    var fillShape: EuclideousFillShape? = nil   // §1.1 [CLIMB]
+    var fillHits: EuclideousFillHits? = nil     // §1.1 [KEEP]
+    var fillRoll: UInt8? = nil             // §1.1 0…4 [0]
+    var fillChance: UInt8? = nil           // §1.1 25 / 50 / 75 / 100 % [100]
+    var fillLand: Bool? = nil              // §1.1 [false]
+    // FILL TAB resolvers (§1.1 defaults; a malformed stored value folds to the default).
+    var fillLoopResolved: Int { let v = Int(fillLoop ?? 8); return (v == 4 || v == 8 || v == 16) ? v : 8 }
+    var fillCurveResolved: EuclideousFillCurve { fillCurve ?? .steady }
+    /// §1.1: ORDER replaces REVERSE — a stored fillReverse == true decodes as REV, false / missing as FWD (fillReverse is no longer written).
+    var fillOrderResolved: EuclideousFillOrder { if let o = fillOrder { return o }; return (fillReverse == true) ? .rev : .fwd }
+    var fillShapeResolved: EuclideousFillShape { fillShape ?? .climb }
+    var fillHitsResolved: EuclideousFillHits { fillHits ?? .keep }
+    var fillRollResolved: Int { max(0, min(4, Int(fillRoll ?? 0))) }
+    var fillChanceResolved: Int { let v = Int(fillChance ?? 100); return (v == 25 || v == 50 || v == 75 || v == 100) ? v : 100 }
+    var fillLandResolved: Bool { fillLand ?? false }
     // ALT resolvers (§1.1/§1.3 defaults; a malformed stored value folds to the default).
     var altUnitResolved: EuclideousAltUnit { altUnit ?? .hit }
     var altMainCountResolved: Int { max(1, min(16, Int(altMainCount ?? 3))) }
@@ -829,8 +849,8 @@ struct EuclidLine: Codable, Equatable {
     var usesRateOverride: Bool { !rateFreeResolved && (rateBars?.contains { $0 >= 1 && $0 <= 4 } ?? false) }
     // FILL resolvers (§1.1/§1.2 defaults; a malformed stored value folds to the default).
     var fillOnResolved: Bool { fillOn ?? true }
-    /// The UI's 8-entry view (the render path never calls this — it would allocate; see `usesFill` / `fillArmed` / `EuclideousFillPlan`).
-    var fillBarsResolved: [Bool] { guard let b = fillBars, b.count == 8 else { return [Bool](repeating: false, count: 8) }; return b }
+    /// The UI's 16-entry view (§1.1: widened from 8 — an 8-entry stored array decodes into the first 8, the rest off). The render path never calls this (it would allocate; see `usesFill` / `fillArmed` / `EuclideousFillPlan`).
+    var fillBarsResolved: [Bool] { guard let b = fillBars, !b.isEmpty else { return [Bool](repeating: false, count: 16) }; if b.count >= 16 { return Array(b.prefix(16)) }; return b + [Bool](repeating: false, count: 16 - b.count) }
     /// Is ANY bar lit? Reads the stored array in place — no allocation (the render path's test).
     var fillAnyBarLit: Bool { fillBars?.contains(true) ?? false }
     var fillSpeedResolved: Int { let v = Int(fillSpeed ?? 3); return (0...4).contains(v) ? v : 3 }
@@ -845,12 +865,12 @@ struct EuclidLine: Codable, Equatable {
     var fillRanksResolved: Int { max(-7, min(7, Int(fillRanks ?? 0))) }
     var fillSwellResolved: Int { max(-3, min(3, Int(fillSwell ?? 0))) }
     var fillBreakResolved: Bool { fillBreak ?? false }
-    /// §summary/§9: a fill with ×1 speed, no reverse, no rank climb, no swell and no break does nothing (LENGTH is irrelevant at ×1).
-    var fillNeutral: Bool { fillSpeedMultiplier == 1 && !fillReverseResolved && fillRanksResolved == 0 && fillSwellResolved == 0 && !fillBreakResolved }
+    /// §1.4: a neutral fill does nothing — ×1 STEADY, FWD, RANKS 0, SWELL 0, KEEP, ROLL 0, no BREAK, no LAND — whatever LENGTH, SHAPE and CHANCE are (SHAPE of a 0 climb is 0; a CHANCE play-or-skip of a neutral fill is no fill either way).
+    var fillNeutral: Bool { fillSpeedMultiplier == 1 && fillCurveResolved == .steady && fillOrderResolved == .fwd && fillRanksResolved == 0 && fillSwellResolved == 0 && fillHitsResolved == .keep && fillRollResolved == 0 && !fillBreakResolved && !fillLandResolved }
     /// §1.4/§1.5: the lane uses the fill path only when FILL is on, at least one bar is lit, and the settings are not neutral — so a default / neutral / unlit lane is byte-identical to today. Allocation-free (render-thread safe).
     var usesFill: Bool { fillOnResolved && fillAnyBarLit && !fillNeutral }
-    /// §1.4: is the fill armed on (0-based, host-bar-1 = bar 0) bar n? Reads the stored array in place — no allocation.
-    func fillArmed(bar n: Int) -> Bool { guard fillOnResolved, let b = fillBars, b.count == 8 else { return false }; return b[((n % 8) + 8) % 8] }
+    /// §1.1/§1.4: is the fill armed on (0-based, host-bar-1 = bar 0) bar n? `bar n uses fillBars[n mod fillLoop]`. Reads the stored array in place — no allocation (an 8-entry stored array answers false for bars 8…15).
+    func fillArmed(bar n: Int) -> Bool { guard fillOnResolved, let b = fillBars, !b.isEmpty else { return false }; let loop = fillLoopResolved; let i = ((n % loop) + loop) % loop; return i < b.count ? b[i] : false }
     var answerRhythmOnResolved: Bool { answerRhythmOn ?? false }
     var answerRhythmModeResolved: EuclideousAnswerRhythmMode { answerRhythmMode ?? .copy }
     var answerRhythmCycleResolved: Bool { answerRhythmCycle ?? false }
@@ -1391,6 +1411,15 @@ extension EuclidLine {
         altAltCount = (try? c.decodeIfPresent(UInt8.self, forKey: .altAltCount)).flatMap { $0 }
         altRiff = (try? c.decodeIfPresent(EuclideousAltPart.self, forKey: .altRiff)).flatMap { $0 }
         altNotes = (try? c.decodeIfPresent(EuclideousAltPart.self, forKey: .altNotes)).flatMap { $0 }
+        // FILL TAB ferry — the hand-written decoder must read these or a saved FILL-tab state is lost (the encoder is synthesized). fillBars (above) already decodes an 8- or 16-entry array; fillBarsResolved widens 8→16.
+        fillLoop = (try? c.decodeIfPresent(UInt8.self, forKey: .fillLoop)).flatMap { $0 }
+        fillCurve = (try? c.decodeIfPresent(EuclideousFillCurve.self, forKey: .fillCurve)).flatMap { $0 }
+        fillOrder = (try? c.decodeIfPresent(EuclideousFillOrder.self, forKey: .fillOrder)).flatMap { $0 }
+        fillShape = (try? c.decodeIfPresent(EuclideousFillShape.self, forKey: .fillShape)).flatMap { $0 }
+        fillHits = (try? c.decodeIfPresent(EuclideousFillHits.self, forKey: .fillHits)).flatMap { $0 }
+        fillRoll = (try? c.decodeIfPresent(UInt8.self, forKey: .fillRoll)).flatMap { $0 }
+        fillChance = (try? c.decodeIfPresent(UInt8.self, forKey: .fillChance)).flatMap { $0 }
+        fillLand = (try? c.decodeIfPresent(Bool.self, forKey: .fillLand)).flatMap { $0 }
         notesReceivedOnly = (try? c.decodeIfPresent(Bool.self, forKey: .notesReceivedOnly)).flatMap { $0 }
         // 5.2: a valid order wins and the legacy trio is rewritten from it; otherwise (missing OR invalid) the order stays nil and `litOrderResolved` derives it.
         notesLitOrder = nil
@@ -1556,6 +1585,12 @@ enum EuclideousListenPitchMode: String, Codable, CaseIterable { case own = "OWN"
 // OWN is not a case: "off" is the row's switch (§3). The legacy enums above stay for decoding only (§9.3).
 /// ALT ferry (2026-11-14) §1.1: the cycle's UNIT. STEP · HIT · BAR · PASS. String-Codable so an unknown stored value fails decode and `decodeIfPresent` folds it to nil ⇒ the default (HIT).
 enum EuclideousAltUnit: String, Codable, CaseIterable { case step, hit, bar, pass }
+
+// FILL TAB ferry (2026-11-14) §1.1: the four new FILL enums. String-Codable so an unknown stored value fails decode and `decodeIfPresent` folds it to nil ⇒ the default.
+enum EuclideousFillCurve: String, Codable, CaseIterable { case steady, rush }
+enum EuclideousFillOrder: String, Codable, CaseIterable { case fwd, rev, bounce, shuffle }   // replaces fillReverse
+enum EuclideousFillShape: String, Codable, CaseIterable { case climb, arch, shift }
+enum EuclideousFillHits: String, Codable, CaseIterable { case keep, all, flip }
 
 /// ALT ferry (2026-11-14) §1.1: one part's four overrides, each an on-flag (its pill) + an optional stored value kept across a toggle (§1.2). Additive-Optional, decode-tolerant, Equatable (rides undo / preset / snapshot inside `EuclidLine`).
 /// Values are in the controls' own units: OUT a 4-bit A–D mask (0 = a rest), OCT −2…+2, VEL 1…127 (MIX VEL), GATE 1…99 % (MIX GATE). The `*Active` flags default OFF ⇒ a nil struct is "all off" ⇒ the lane sounds as before.
