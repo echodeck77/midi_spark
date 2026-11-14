@@ -198,9 +198,14 @@ struct EuclideousMixV2BandView: View {
                                      onEditStep: { newStep, mutate in callbacks.editStep(lane, newStep, mutate) })
                 .offset(x: f.gate.minX, y: f.gate.minY).accessibilitySortPriority(base - 4)
             octave(notes: notes, f: f, dimmed: own(.oct) < 1).accessibilitySortPriority(base - 5)
+            // ALT (2026-11-14): a part whose ALT OUT override is armed also lights the alt outputs on the toggles, DIMMED (the main output stays full).
+            let altPart = notes ? line.altNotes : line.altRiff
+            let altMask: UInt8 = (altPart?.outActive == true) ? (altPart?.outValue ?? 0) : 0
             ForEach(0..<4, id: \.self) { o in
-                EuclideousMixV2OutButton(output: o, on: euclideousJackIsPlugged(mask: mask, output: o), notes: notes, accent: accent, target: f.outTargets[o].size, circle: f.outCircles[o].size,
-                                         outputMuted: o < input.outputMuted.count && input.outputMuted[o]) { callbacks.toggleOut(lane, part, o) }
+                let mainPlug = euclideousJackIsPlugged(mask: mask, output: o)
+                EuclideousMixV2OutButton(output: o, on: mainPlug, notes: notes, accent: accent, target: f.outTargets[o].size, circle: f.outCircles[o].size,
+                                         outputMuted: o < input.outputMuted.count && input.outputMuted[o],
+                                         altRouted: !mainPlug && euclideousJackIsPlugged(mask: altMask, output: o)) { callbacks.toggleOut(lane, part, o) }
                     .offset(x: f.outTargets[o].minX, y: f.outTargets[o].minY)
                     .accessibilitySortPriority(base - 6 - Double(o) * 0.1)
             }
@@ -645,14 +650,16 @@ struct EuclideousMixV2OutButton: View {
     let target: CGSize
     let circle: CGSize
     var outputMuted: Bool = false
+    var altRouted: Bool = false   // ALT (2026-11-14): the output is in this part's ALT OUT mask but NOT its main mask — show the routed look lit but DIMMED (the alt state sends here on its turns). The tap still toggles the MAIN mask.
     let onTap: () -> Void
     var body: some View {
-        EuclideousPartOutDiscArt(letter: euclideousJackLetters[max(0, min(3, output))], on: on, accent: accent, diameter: circle.width, outputMuted: outputMuted)
+        EuclideousPartOutDiscArt(letter: euclideousJackLetters[max(0, min(3, output))], on: on || altRouted, accent: accent, diameter: circle.width, outputMuted: outputMuted)
+            .opacity(!on && altRouted ? 0.42 : 1)   // alt-only → dimmed routed; main → full; off → the disc's own off look
             .frame(width: target.width, height: target.height)
             .contentShape(Rectangle())
             .onTapGesture(perform: onTap)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(EuclideousMixAX.out(notes: notes, output: output, on: on))
+            .accessibilityLabel(EuclideousMixAX.out(notes: notes, output: output, on: on) + (!on && altRouted ? ", alt" : ""))
             .accessibilityValue(on && outputMuted ? "output muted" : "")   // §8.2: routed to a muted output
             .accessibilityAddTraits(.isButton)
     }
