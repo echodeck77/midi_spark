@@ -897,3 +897,12 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - A count-chip vertical drag in a card doesn't fight the page or the tab strip (the drag is a highPriorityGesture, but confirm by touch).
 - The WITH RHYTHM link row reads as the joint between the RHYTHM and MELODY halves (the tie line lights lane100 @ 60% when on).
 - `FourfoldStackBudgetTests` (simulator UI test) — the new resets content is wrapped in `EuclideousStackBreak`, but the budget wasn't run here (only the iOS 26.5 sim runtime is available); run it before the device install. §1.7's smaller controls never apply at the reference body, so they're untested.
+
+## ALT TAB — a per-lane alternate state (2026-11-14) §device-owed
+- The 31 × 22 override pills are easy to hit, and on vs off read at a glance in all four lane colours.
+- Pips and the slider tick read as the main value, and stay legible on dimmed controls and on a white OCT box.
+- An unset control (dim) is clearly different from an empty emitter set (bright, none lit) — the §5.8 distinction.
+- The cycle strip's cells (main vs alt vs the live current cell) read clearly; the two count steppers and the UNIT segments are comfortable at the shrunk 9-tab card.
+- HIT 3/1 with alt VEL and an octave jump sounds like an accented bassline; BAR 3/1 with another emitter sounds like a call and response (by ear).
+- SLICE 6 OWED: the §5.9 white outline on alt-state hit cells of the lane strip, and the §5.3 LIVE current cycle cell (both drawn as not-live for now) — verify once built; §1.7's smaller-band fallback (B < 236) applies at the reference (bands 81.5 / 82.4), confirm it doesn't feel cramped.
+- Sim `FourfoldStackBudgetTests` (the new ALT tab body is wrapped in EuclideousStackBreak; not run off-device here).

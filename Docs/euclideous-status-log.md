@@ -11663,3 +11663,57 @@ green; `run.sh --golden` byte-identical (UI only, engine/snapshot/schedule untou
 the simulator `FourfoldStackBudgetTests` (only the iOS 26.5 sim runtime; the content is wrapped in
 `EuclideousStackBreak`, and the sub-views are separate structs — a better stack posture than the old
 raw-ZStack case). Looks/crowding/the link-as-joint/§1.7-smaller-controls are device-owed (debt file).
+
+---
+
+## ALT — a per-lane alternate state on a MAIN/ALT cycle (2026-11-14, Fourfold only; slices 2–5,7 LANDED, slice 6 the live marks to follow)
+
+Paul: one more tab, ALT, between ANSWER and MIX, where each lane flips into an alternate state for some STEPs /
+HITs / BARs / PASSes of a repeating cycle (MAIN units, then ALT units), then back. In the alt state a part (RIFF or
+STACK) can use other emitters (any set A–D, incl. none = a rest), another octave, another velocity and another gate
+— fixed alt values that REPLACE the main. Each override has its own pill (its label), off by default; off ⇒ the
+setting follows its single main value. ALT and FILL layer. Every pill off (the default) ⇒ byte-identical.
+
+**Model (§1, `Models.swift`):** per-lane additive-Optional — `altUnit` (`EuclideousAltUnit` step/hit/bar/pass),
+`altMainCount`/`altAltCount` (UInt8, 1…16), and per part a small Codable struct `EuclideousAltPart`
+(outOn/out · octOn/oct · velOn/vel · gateOn/gate) as `altRiff`/`altNotes`. Threaded exactly FILL's sites — the
+hand-written `init(from:)` decoder (the must-not-forget), the `SnapshotBuilder` fresh literal, `EffectiveParamsTests`.
+NOT a lane-lock field (matches FILL). TRADE doesn't carry it (it only writes `answerTrade*`).
+
+**The alt state (§2, `Derivations.swift`):** `euclideousAltState(main:alt:x:)` is the ONE decision — `L=m+a`,
+`p = x mod L`, `isAlt = p ≥ m`; `euclideousAltX(unit:hit:step:pass:bar:)` selects the §2.2 count. The Router and every
+display call these; the counts are the Router's own per-hit values (HIT=`ord`, STEP=`localT`, PASS=`cy`, BAR=the
+absolute host bar), so a located cycle equals playing through. A rhythm restart resets STEP/HIT/PASS (they key off
+the rhythm origin); a melody restart resets none; BAR is absolute.
+
+**Engine (§3, `Router.runEuclidLine`):** a lane with any pill on derives the hit's alt-state once (§2.4 — every note
++ ratchet strike of the hit share it) and replaces each part's main value at its own stage: OUT via `addPitch`'s new
+`altOuts` (0 = a rest — no note-on / no ALL, the walk still advances; NOT folded into `riffOutMaskResolved`, so CC
+drivers + the MIX routing disc keep the main mask, §7.2); OCT at the `riffResolve oct:` arg (raw subtracts the same
+octave); VEL/GATE at the `addPitch` base, so the mask accents + FILL SWELL still layer (§3.3). No pill on ⇒ untouched
+⇒ byte-identical. **Verified:** `run.sh --golden` byte-identical with pills off, `CONFIG=Release --alloc` PASS 0,
+`AltRouterTests` (OUT/rest/VEL/GATE/OCT/pills-off/STEP/no-stuck-notes).
+
+**The tab + card (§4–5):** a 9th strip tab (rawValue 8 across `EuclideousPageTab`/`TabKind`/`LaneTab` +
+`euclideousPageTabOrder` between ANSWER and MIX; shape `.none`; the 9-tab strip drops segments to 74.59 land / 76
+port, clusters already hidden). `euclideousAltCardLayout` (`AltCard.swift`, pure) gives every §5 frame + §5.3 cycle
+cells + the §5.1 band-shrink fallback — **B = 233 landscape / 233.67 portrait is UNDER the 236 full total, so the two
+bands shrink to 81.5 / 82.4 at the reference** (the ferry's "about 240" is ~7 high — reported). The views
+(`AltCardViews.swift` + `altTabContent`/`altBandView` in `EuclideousPage`) reuse the emitter token
+(`EuclideousPartOutDiscArt`, 28 pt — there is NO 27 pt token, source wins), the five-box OCT selector, and a NEW
+§5.7 ALT slider (its own look: r6 #2A2D34, a separate 3 pt track, a main-value tick, a "main › alt" label — not the
+MIX field tile; it reuses only MIX's relative drag + "%" text). Pills #1F2127/#343840 off, lane-tint selected on.
+
+**Interaction (§6) + VoiceOver (§8)** folded into slice 4: a pill toggle stores the current main value on enable
+(§6.3), the control is read-only while off (§6.4), token/OCT/slider/UNIT/count edits are each one undo step; every
+control carries its §8 label and the card is a "Lane N alt" group.
+
+**Known / to-do:** slice 6 — the §5.3 live current cycle cell (drawn static for now) and the §5.9 white alt-hit
+outline on the lane strip — both live indicators, to follow (the §5.9 outline may land ALT-tab-only per the ferry's
+own fallback). The SHADOW/ECHO follower gets VEL/GATE/OUT but not OCT (its pitch uses listenOctave, not the part
+octave); the mask-CHORD extras + the TRADE re-voice keep the main values (the mask/TRADE stay unchanged, §7). The
+pill hit area is the pill's own 31×22 (not the full grid cell) — device-owed.
+
+**Spec↔code (§12.7):** B is 233, not ~240 → §5.1 fallback applies at the reference; no 27 pt emitter token (28);
+the §5.7 slider is a new look; `LaneLockFields` excludes ALT (matches FILL); there is no whole-lane copy/paste
+clipboard (§6.7 moot — ALT rides undo/preset/session via the struct). **Sound change: none** with pills off.
