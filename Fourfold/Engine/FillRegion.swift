@@ -127,6 +127,15 @@ func euclideousFillSlotHostBeat(_ r: EuclideousFillRegion, origin o: Double, sub
     return r.F + (startJ - eF) / r.m
 }
 
+/// §2.1 — RUSH's lane-elapsed-since-origin at host beat `b` inside the region [F, E): e(F) + D·(x + (m−1)x²/2), x = (b−F)/D.
+/// The EXACT inverse of `euclideousFillSlotHostBeat`'s RUSH branch (y(x(y)) = y), so a render window that STARTS mid-region
+/// seeds its first slot at exactly the step the previous window stopped before — no re-fire, no skip (the §3.1 dedup relies on it).
+@inline(__always) func euclideousFillRushElapsed(_ r: EuclideousFillRegion, origin o: Double, hostBeat b: Double) -> Double {
+    guard r.D > 0 else { return b - o }
+    let x = max(0, min(1, (b - r.F) / r.D))
+    return (r.F - o) + r.D * (x + (r.m - 1) * x * x / 2)
+}
+
 /// §2.2 — does this region's ORDER need the time→index remap buffer (ORDER ≠ FWD AND N within the cap)? Above the cap it falls back to FWD.
 @inline(__always) func euclideousFillOrderBuffered(_ r: EuclideousFillRegion, count N: Int) -> Bool { r.order != .fwd && N <= euclideousFillReverseCap }
 

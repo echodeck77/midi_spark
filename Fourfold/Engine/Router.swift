@@ -2248,21 +2248,28 @@ final class Router {
             if !inFill, let rg = region, rg.F > segStart + 1e-9, rg.F < segEnd { segEnd = rg.F }   // a ×1 segment stops at the fill's start
             if o > segStart + 1e-9 { segEnd = min(segEnd, o) }   // split at the origin: the restart schedule reads the real beat there
             let subEff = run.active ? sub / run.multiplier : sub
+            let rush = run.active && region?.curve == .rush   // §2.1: RUSH's rate rises F→E; the slot↔host mapping is the curve, not the linear ×m
             let runId = run.active ? run.runBarIndex : Int64(barN)
-            var k = Int64((euclideousLaneElapsed(hostBeat: segStart, origin: o, run: run) / sub - 1e-9).rounded(.up))   // first lane step at/after segStart; '==' fires
+            // §2.1/§2.3: seed the first lane step at/after segStart. RUSH seeds through its own elapsed (the exact inverse of
+            // euclideousFillSlotHostBeat) so a window starting mid-region resumes at the right slot; STEADY/×1 use the linear elapsed (byte-identical).
+            let elapsedSeed = rush ? euclideousFillRushElapsed(region!, origin: o, hostBeat: segStart) : euclideousLaneElapsed(hostBeat: segStart, origin: o, run: run)
+            var k = Int64((elapsedSeed / sub - 1e-9).rounded(.up))   // '==' fires
             var stepGuard = 0
             while stepGuard < 100_000 {
                 stepGuard += 1
-                let hostBeat = euclideousLaneHostBeat(elapsedSinceOrigin: Double(k) * sub, origin: o, run: run)
+                let hostBeat = rush ? euclideousFillSlotHostBeat(region!, origin: o, sub: sub, slot: Int(k - j0))
+                                    : euclideousLaneHostBeat(elapsedSinceOrigin: Double(k) * sub, origin: o, run: run)
                 if hostBeat >= segEnd - 1e-9 { break }
                 defer { k += 1 }
+                // §2.1: the slot's own host length — RUSH shortens it as the rate rises; STEADY/×1 = subEff (byte-identical).
+                let slotLen = rush ? euclideousFillStepHostLength(region!, origin: o, sub: sub, slot: Int(k - j0)) : subEff
                 // §2.7 BREAK: a slot whose host start is in the region's last quarter strikes nothing, but still counts (k advances).
                 if run.active, let rg = region, euclideousFillBreakDrops(rg, hostBeat: hostBeat) { continue }
                 // §2.2 ORDER: the CONTENT step the time-slot plays — FWD k, else the REV/BOUNCE/SHUFFLE remap (euclideousFillSourceStep returns the absolute lane step j0+index; FWD / >cap ⇒ k, byte-identical).
                 let contentK = run.active ? euclideousFillSourceStep(region!, origin: o, sub: sub, count: N, slot: Int(k - j0), shuffle: region!.order == .shuffle ? euclideousFillShufBuf : nil) : k
                 let tick = contentK + originHostTick
                 if hostBeat + 1e-9 < tickFrom || hostBeat + 1e-9 >= tickBefore { continue }   // LANE LOCK split segment
-                let delayBeats = strikeDelaySteps(tick) * subEff
+                let delayBeats = strikeDelaySteps(tick) * slotLen
                 if delayBeats > 0 && hostBeat + delayBeats > mEnd + 1e-9 { continue }
                 let tickStep = Int((hostBeat / S).rounded(.down))
                 let tickTrueCol = ((tickStep % columns) + columns) % columns
@@ -2270,7 +2277,7 @@ final class Router {
                 let key = euclideousRateDedupKey(laneStep: k, runId: runId)   // per SLOT (k), so each slot fires once; reverse never double-fires
                 if key == lastTick[dedupSlot] { continue }
                 lastTick[dedupSlot] = key
-                euclideousFillStepScaleNow = subEff / sub   // §2.4: 1/m in a region, 1 on a ×1 segment — the body's gate + ratchet spacing read it
+                euclideousFillStepScaleNow = slotLen / sub   // §2.4: 1/m in a STEADY region, RUSH's per-slot ratio, 1 on a ×1 segment — the body's gate + ratchet spacing read it
                 if run.active {   // §2.5/§2.6: the RANKS climb + SWELL factor for this time-slot (s = k − j0); the body reads them at rank→pitch and in strikeChord
                     let s = Int(k - j0)
                     euclideousFillRankOffsetNow = euclideousFillRankOffset(ranks: region?.ranks ?? 0, slot: s, count: N, shape: region?.shape ?? .climb)   // §2.4 SHAPE (CLIMB = the old formula ⇒ byte-identical)
@@ -2279,7 +2286,7 @@ final class Router {
                 let onTime = sampleOf(musical: hostBeat + delayBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                       windowStart: windowStart, S: S, a: a)
                 let colEnd = columnStart(hostBeat, S) + S
-                let mOff = min(hostBeat + subEff * gateFraction, colEnd)
+                let mOff = min(hostBeat + slotLen * gateFraction, colEnd)
                 let offTime = sampleOf(musical: mOff, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                        windowStart: windowStart, S: S, a: a)
                 body(tick, hostBeat + delayBeats, onTime, offTime)
