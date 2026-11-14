@@ -306,21 +306,22 @@ final class AnswerTabTests: XCTestCase {
     // MARK: strip: six tabs
 
     func testTheStripReadsRhythmRiffNotesPoolAnswerMix() {
-        XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["EUCLID", "RIFF", "STACK", "INPUTS", "ANSWER", "RESETS", "MIX"])   // POOL renamed INPUTS (Paul 2026-11-05); NOTES renamed STACK (STACK GRID ferry, 2026-11-08); RESETS added (2026-11-11)
-        XCTAssertEqual(EuclideousPageTab.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5, 6])
-        // the strip DRAWS them INPUTS first, RESETS right after EUCLID (the display order is separate from the raw-value coupling)
-        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["INPUTS", "EUCLID", "RESETS", "RIFF", "STACK", "ANSWER", "MIX"])
+        XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["EUCLID", "RIFF", "STACK", "INPUTS", "ANSWER", "RESETS", "MIX", "FILL"])   // POOL renamed INPUTS (Paul 2026-11-05); NOTES renamed STACK (STACK GRID, 2026-11-08); RESETS added (2026-11-11); FILL added (2026-11-13, rawValue 7 — skips MIX's 6)
+        XCTAssertEqual(EuclideousPageTab.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5, 6, 7])
+        // the strip DRAWS them INPUTS first, RESETS right after EUCLID, FILL after STACK (the display order is separate from the raw-value coupling)
+        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["INPUTS", "EUCLID", "RESETS", "RIFF", "STACK", "FILL", "ANSWER", "MIX"])
         XCTAssertEqual(euclideousPageTabOrder.count, EuclideousPageTab.allCases.count)
         XCTAssertEqual(Set(euclideousPageTabOrder), Set(EuclideousPageTab.allCases), "every tab appears exactly once")
-        XCTAssertEqual(EuclideousTabKind.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5])
-        XCTAssertEqual(EuclideousPageTab.pool.front, .pool); XCTAssertEqual(EuclideousPageTab.listen.front, .listen); XCTAssertNil(EuclideousPageTab.mix.front); XCTAssertEqual(EuclideousPageTab.resets.front, .resets)
+        XCTAssertEqual(EuclideousTabKind.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5, 7])   // FILL = 7 (skips MIX's 6, which has no front tab)
+        XCTAssertEqual(EuclideousPageTab.pool.front, .pool); XCTAssertEqual(EuclideousPageTab.listen.front, .listen); XCTAssertNil(EuclideousPageTab.mix.front); XCTAssertEqual(EuclideousPageTab.resets.front, .resets); XCTAssertEqual(EuclideousPageTab.fill.front, .fill)
     }
     func testTheSixSegmentsAtTheReferenceWidths() {
         let land = euclideousLaneStripLayout(width: 769.33), port = euclideousLaneStripLayout(width: 782)
         XCTAssertEqual(land.segments.count, 8); XCTAssertEqual(land.segmentWidth, 84.29, accuracy: 0.01); XCTAssertEqual(port.segmentWidth, 85.88, accuracy: 0.01)
         XCTAssertFalse(land.clustersVisible); XCTAssertFalse(port.clustersVisible)   // FILL (2026-11-13): 8 tabs → segments below the 96 cluster floor at the reference
         XCTAssertFalse(euclideousLaneStripLayout(width: 660).clustersVisible)
-        XCTAssertGreaterThanOrEqual(land.segmentWidth, EuclideousLaneStripMetrics.segmentFloor)
+        // FILL (2026-11-13): at 8 tabs the reference segment (84.29) is BELOW the 96 cluster floor by design — the clusters hide and `.laneStrip` fires (LaneViewStripTests / PageLayoutTests pin this); the labels still fit (6 chars ≈ 47 pt).
+        XCTAssertLessThan(land.segmentWidth, EuclideousLaneStripMetrics.segmentFloor); XCTAssertTrue(land.belowFloor)
     }
     func testTheInputsGlyphLightsOnACanonDelayASourceOffOrAMidiMode() {
         var l = EuclidLine()
