@@ -6213,6 +6213,26 @@ struct EuclideousLaneChainPhase: Equatable {
     var originTickO: Int64
     var originTickM: Int64
 }
+// MARK: - ALT (ferry 2026-11-14): the per-lane alternate state on a MAIN/ALT cycle (§2)
+
+/// ALT §2.1: the state at a count `x`. With m = MAIN, a = ALT, L = m + a: the position in the cycle is `p = x mod L`, and the lane is in the ALT state when `p >= m`, else MAIN. `m`/`a` clamp to ≥ 1; a negative `x` (never reached by the §2.2
+/// counts, which are 0-based from the rhythm origin) wraps safely. The ONE place the state is decided — the Router and every display call this on the x they derive, so a located cycle (§2.5) is identical to playing through.
+func euclideousAltState(main: Int, alt: Int, x: Int) -> (isAlt: Bool, pos: Int) {
+    let m = max(1, main), a = max(1, alt), L = m + a
+    let p = ((x % L) + L) % L
+    return (p >= m, p)
+}
+/// ALT §2.2: the cycle count `x` for a lane, from the Router's own per-hit values (all already 0-based from the rhythm origin — HIT `ord`, STEP fired-step index, PASS `cy`, BAR the absolute host bar). A single selector so the engine and the
+/// displays never derive it twice. §2.2's "minus one (0 at the first)" is already baked into `ord`/`step`/`cy` being 0-based; BAR is absolute host time (reset by no restart).
+func euclideousAltX(unit: EuclideousAltUnit, hit: Int, step: Int, pass: Int, bar: Int) -> Int {
+    switch unit {
+    case .step: return step
+    case .hit:  return hit
+    case .bar:  return bar
+    case .pass: return pass
+    }
+}
+
 /// The chain-era counterpart of `euclideousLanePhase` — same shape, origins from §5.1/§5.3 instead of a masked
 /// cell lookup.
 func euclideousLaneChainPhase(buf: [Bool], n: Int, dir: EuclidDir, cycleLen: Int, sub: Double, tick: Int64,

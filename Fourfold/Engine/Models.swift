@@ -805,6 +805,22 @@ struct EuclidLine: Codable, Equatable {
     var fillRanks: Int8? = nil         // §1.1 −7…+7, a climb [0]
     var fillSwell: Int8? = nil         // §1.1 −3…+3, a velocity ramp [0]
     var fillBreak: Bool? = nil         // §1.1 [false] — the fill's last quarter is silent
+    // ALT ferry (Paul 2026-11-14) — APPENDED LAST (after FILL), additive-Optional, decode-tolerant. A per-lane alternate state on a cycle of MAIN then ALT units (STEP · HIT · BAR · PASS); while in the alt state each part's overridden
+    // settings (OUT · OCT · VEL · GATE) REPLACE their main values (fixed values, not offsets). Each override has its own on-flag (its pill); off ⇒ the setting follows its single main value. ALT and FILL layer. NOT a lane-lock field
+    // (matches FILL / RATE). Every override off (the default) ⇒ byte-identical. §1.1.
+    var altUnit: EuclideousAltUnit? = nil   // §1.1 [HIT]
+    var altMainCount: UInt8? = nil          // §1.1 1…16 [3]
+    var altAltCount: UInt8? = nil           // §1.1 1…16 [1]
+    var altRiff: EuclideousAltPart? = nil   // §1.1 the RIFF part's four overrides (nil ⇒ all off)
+    var altNotes: EuclideousAltPart? = nil  // §1.1 the STACK part's four overrides (nil ⇒ all off)
+    // ALT resolvers (§1.1/§1.3 defaults; a malformed stored value folds to the default).
+    var altUnitResolved: EuclideousAltUnit { altUnit ?? .hit }
+    var altMainCountResolved: Int { max(1, min(16, Int(altMainCount ?? 3))) }
+    var altAltCountResolved: Int { max(1, min(16, Int(altAltCount ?? 1))) }
+    /// §3.7/§summary: the lane uses the alt path only when at least one part override is ON — a default lane is byte-identical to today (the Router skips the whole alt branch). Allocation-free (render-thread safe).
+    var usesAlt: Bool { (altRiff?.anyOn ?? false) || (altNotes?.anyOn ?? false) }
+    /// The part's overrides for a part (nil struct ⇒ all off).
+    func altPart(notes: Bool) -> EuclideousAltPart { (notes ? altNotes : altRiff) ?? EuclideousAltPart() }
     /// Always 8 entries, each 0 (off) or 1…4; a malformed stored value folds to off.
     var rateBarsResolved: [UInt8] { guard let b = rateBars, b.count == 8 else { return [UInt8](repeating: 0, count: 8) }; return b.map { $0 > 4 ? 0 : $0 } }
     var rateFreeResolved: Bool { rateFree ?? false }
@@ -1369,6 +1385,12 @@ extension EuclidLine {
         fillRanks = (try? c.decodeIfPresent(Int8.self, forKey: .fillRanks)).flatMap { $0 }
         fillSwell = (try? c.decodeIfPresent(Int8.self, forKey: .fillSwell)).flatMap { $0 }
         fillBreak = (try? c.decodeIfPresent(Bool.self, forKey: .fillBreak)).flatMap { $0 }
+        // ALT ferry — the hand-written decoder must read these or a saved ALT state is lost on load (the encoder is synthesized; §1.3 decode-tolerant: an unknown altUnit string folds to nil ⇒ the default).
+        altUnit = (try? c.decodeIfPresent(EuclideousAltUnit.self, forKey: .altUnit)).flatMap { $0 }
+        altMainCount = (try? c.decodeIfPresent(UInt8.self, forKey: .altMainCount)).flatMap { $0 }
+        altAltCount = (try? c.decodeIfPresent(UInt8.self, forKey: .altAltCount)).flatMap { $0 }
+        altRiff = (try? c.decodeIfPresent(EuclideousAltPart.self, forKey: .altRiff)).flatMap { $0 }
+        altNotes = (try? c.decodeIfPresent(EuclideousAltPart.self, forKey: .altNotes)).flatMap { $0 }
         notesReceivedOnly = (try? c.decodeIfPresent(Bool.self, forKey: .notesReceivedOnly)).flatMap { $0 }
         // 5.2: a valid order wins and the legacy trio is rewritten from it; otherwise (missing OR invalid) the order stays nil and `litOrderResolved` derives it.
         notesLitOrder = nil
@@ -1532,6 +1554,28 @@ enum EuclideousListenRhythmMode: String, Codable, CaseIterable { case own = "OWN
 enum EuclideousListenPitchMode: String, Codable, CaseIterable { case own = "OWN", shadow = "SHADOW", echo = "ECHO", avoid = "AVOID", mirror = "MIRROR", dodge = "DODGE" }
 // ANSWER ferry (2026-11-02): the modes a row REMEMBERS while its switch is off, and the cycle's unit. String-raw like every sibling enum; an unknown stored value decodes as the default (never a whole-session reset).
 // OWN is not a case: "off" is the row's switch (§3). The legacy enums above stay for decoding only (§9.3).
+/// ALT ferry (2026-11-14) §1.1: the cycle's UNIT. STEP · HIT · BAR · PASS. String-Codable so an unknown stored value fails decode and `decodeIfPresent` folds it to nil ⇒ the default (HIT).
+enum EuclideousAltUnit: String, Codable, CaseIterable { case step, hit, bar, pass }
+
+/// ALT ferry (2026-11-14) §1.1: one part's four overrides, each an on-flag (its pill) + an optional stored value kept across a toggle (§1.2). Additive-Optional, decode-tolerant, Equatable (rides undo / preset / snapshot inside `EuclidLine`).
+/// Values are in the controls' own units: OUT a 4-bit A–D mask (0 = a rest), OCT −2…+2, VEL 1…127 (MIX VEL), GATE 1…99 % (MIX GATE). The `*Active` flags default OFF ⇒ a nil struct is "all off" ⇒ the lane sounds as before.
+struct EuclideousAltPart: Codable, Equatable {
+    var outOn: Bool? = nil;  var out: UInt8? = nil
+    var octOn: Bool? = nil;  var oct: Int? = nil
+    var velOn: Bool? = nil;  var vel: Int? = nil
+    var gateOn: Bool? = nil; var gate: Int? = nil
+    var outActive: Bool { outOn ?? false }
+    var octActive: Bool { octOn ?? false }
+    var velActive: Bool { velOn ?? false }
+    var gateActive: Bool { gateOn ?? false }
+    var anyOn: Bool { outActive || octActive || velActive || gateActive }
+    /// Clamped stored values (a malformed value folds into range; OUT keeps its 4 bits, 0 allowed).
+    var outValue: UInt8? { out.map { $0 & 0x0F } }
+    var octValue: Int? { oct.map { max(-2, min(2, $0)) } }
+    var velValue: Int? { vel.map { max(1, min(127, $0)) } }
+    var gateValue: Int? { gate.map { max(1, min(99, $0)) } }
+}
+
 enum EuclideousAnswerRhythmMode: String, Codable, CaseIterable {
     case copy = "COPY", fill = "FILL", meet = "MEET", avoid = "AVOID"   // ANSWER v2: MEET plays only where the source hits; AVOID (moved from PITCH) never does
     init(from decoder: Decoder) throws { self = EuclideousAnswerRhythmMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .copy }

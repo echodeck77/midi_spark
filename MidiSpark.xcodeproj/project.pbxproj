@@ -407,6 +407,7 @@
 		C824D765CA367D040CAEB674 /* LaneSoloTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 225D04471362741A939D49DE /* LaneSoloTests.swift */; };
 		C84ECA1444F94F0037501C69 /* RiffMapPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5FFD3DBE69F844BA383682 /* RiffMapPalette.swift */; };
 		C875D48D800180B8838CE151 /* FourfoldPortsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F67ED63B8C6514D20364DCFB /* FourfoldPortsTests.swift */; };
+		C8CFE11D3DB3409414F297EC /* AltStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79EB9BDF2D2556C8069447A2 /* AltStateTests.swift */; };
 		C92C119B5BC121BBC214A873 /* CardBack.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB85C75FDBCD12F45FAB3DC /* CardBack.swift */; };
 		CAA879F70D5F5AE14AB5D30D /* EuclideousCCSlotsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12A516DBE825D6D37069CE2F /* EuclideousCCSlotsTests.swift */; };
 		CAD5208AFAFD119B887A0322 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */; };
@@ -721,6 +722,7 @@
 		77749334275AD68C87E2E707 /* PoolTabModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoolTabModelTests.swift; sourceTree = "<group>"; };
 		782849D7F5C6A7AF7F06EB13 /* AnswerModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerModelTests.swift; sourceTree = "<group>"; };
 		79CAD1A32B1C9FC9B5BEAF2E /* EngineReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineReviewTests.swift; sourceTree = "<group>"; };
+		79EB9BDF2D2556C8069447A2 /* AltStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AltStateTests.swift; sourceTree = "<group>"; };
 		7A14036510EE49EB0BD7CE1E /* TestSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSessions.swift; sourceTree = "<group>"; };
 		7A20C66088682B1B60A45B7C /* MidiFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiFileTests.swift; sourceTree = "<group>"; };
 		7AA52E42396BC32A4B5BA39F /* FourfoldComposeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldComposeTests.swift; sourceTree = "<group>"; };
@@ -1045,6 +1047,7 @@
 		2974FA1F2F9619847B1BC9C0 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				79EB9BDF2D2556C8069447A2 /* AltStateTests.swift */,
 				782849D7F5C6A7AF7F06EB13 /* AnswerModelTests.swift */,
 				48C49577E130C1DEE1509E5C /* AnswerRouterTests.swift */,
 				B2A551E6A367EC4C88F35764 /* AnswerTabTests.swift */,
@@ -1885,6 +1888,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C8CFE11D3DB3409414F297EC /* AltStateTests.swift in Sources */,
 				D39C6A71C9CDE1509351FBB8 /* AnswerModelTests.swift in Sources */,
 				B0AC6C30213747FD1163ADFC /* AnswerRouterTests.swift in Sources */,
 				17C817502F5E7067285E28A9 /* AnswerTab.swift in Sources */,
