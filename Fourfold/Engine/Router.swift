@@ -3529,6 +3529,15 @@ final class Router {
                     let originBeat = chains.hasRhythmRestarts ? chains.rhythmOriginBeat(musicalOf(beatPos, stepBeats: S, a: a)) : 0
                     fillPlan = EuclideousFillPlan(line: linesView[lineIndex], originBeat: originBeat, beatsPerBar: beatsPerBar, sub: sub)
                 }
+                // ALT ferry (2026-11-14): the lane's alt config, read once. Not an alt lane (no pill on) ⇒ `altUses` false ⇒ the hit body skips the whole alt branch ⇒ byte-identical (§3.7). The per-hit alt STATE is derived in the body from the counts.
+                let altUses = isEuclideousRow && lineIndex >= 0 && lineIndex < 4 && lineIndex < linesView.count && linesView[lineIndex].usesAlt
+                let altUnitRes: EuclideousAltUnit, altMainRes: Int, altAltRes: Int
+                let altRiffPart: EuclideousAltPart, altNotesPart: EuclideousAltPart
+                if altUses {
+                    let al = linesView[lineIndex]
+                    altUnitRes = al.altUnitResolved; altMainRes = al.altMainCountResolved; altAltRes = al.altAltCountResolved
+                    altRiffPart = al.altPart(notes: false); altNotesPart = al.altPart(notes: true)
+                } else { altUnitRes = .hit; altMainRes = 3; altAltRes = 1; altRiffPart = EuclideousAltPart(); altNotesPart = EuclideousAltPart() }
                 if isEuclideousRow, lineIndex < linesView.count {
                     let line = linesView[lineIndex]
                     let passBeats = Double(cycleLen) * sub
@@ -3776,6 +3785,25 @@ final class Router {
                                                                legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep, hostBeat: fillPlan != nil ? mTickBeat : nil)
                         let hitsUpTo = tickInfo.hitsUpTo
                         let ord = tickInfo.ord
+                        // ALT ferry (§2/§3): this hit's per-part effective OCT / VEL / GATE / OUT. Decided ONCE here (§2.4 — every note of the hit and every ratchet strike share the state), from the unit's count (all 0-based from the rhythm origin:
+                        // HIT `ord`, STEP `localT`, PASS `cy`, BAR the absolute host bar). Defaults = the main values, so a lane with no pill on (altUses false) leaves every value untouched ⇒ byte-identical.
+                        var altRiffOct = riffOctave, altNotesOct = octave, altRiffVel = velocityAbsolute, altNotesVel = notesVelocity
+                        var altRiffGate: Double? = nil, altNotesGate: Double? = nil   // nil ⇒ the strike site's own gate
+                        var altRiffOut: UInt8? = nil, altNotesOut: UInt8? = nil       // nil ⇒ 0xFF (the part's own mask); a 0 mask is a rest (no note-on / no ALL)
+                        if altUses {
+                            let altBar = Int(((mTickBeat / max(1e-6, beatsPerBar)) + 1e-9).rounded(.down))   // §2.2 BAR: the absolute host bar (FILL 1.4's source), reset by no restart
+                            let altX = euclideousAltX(unit: altUnitRes, hit: Int(ord), step: Int(localT), pass: Int(cy), bar: altBar)
+                            if euclideousAltState(main: altMainRes, alt: altAltRes, x: altX).isAlt {
+                                if altRiffPart.octActive, let v = altRiffPart.octValue { altRiffOct = v }
+                                if altRiffPart.velActive, let v = altRiffPart.velValue { altRiffVel = v }
+                                if altRiffPart.gateActive, let v = altRiffPart.gateValue { altRiffGate = Double(v) / 100 }
+                                if altRiffPart.outActive { altRiffOut = altRiffPart.outValue }   // §3.1: 0 allowed (a rest); the walk still advances
+                                if altNotesPart.octActive, let v = altNotesPart.octValue { altNotesOct = v }
+                                if altNotesPart.velActive, let v = altNotesPart.velValue { altNotesVel = v }
+                                if altNotesPart.gateActive, let v = altNotesPart.gateValue { altNotesGate = Double(v) / 100 }
+                                if altNotesPart.outActive { altNotesOut = altNotesPart.outValue }
+                            }
+                        }
                         // EUCLID MASK (Paul 2026-10-10 ferry) — §2.1: "advances one step per SOUNDING step of
                         // its lane, i.e. after the lane's HIT/MISS invert is applied." `isHit` above is already
                         // POST-invert (ferry C's own `patternMiss` toggle happens before `cycleHits`/`isHitAt`
@@ -4080,7 +4108,7 @@ final class Router {
                                 if c > 0, euclideousEchoCurrent[listenSource].pitchCount[c - 1] > 0 { dodgeSourceNote = euclideousEchoCurrent[listenSource].pitches[(c - 1) * 9] }
                                 else if lc > 0, euclideousEchoLast[listenSource].pitchCount[lc - 1] > 0 { dodgeSourceNote = euclideousEchoLast[listenSource].pitches[(lc - 1) * 9] }
                             }
-                            func addPitch(_ v0: Int, vel: UInt8, gate g: Double, notesLayer: Bool = false, heldByRiff: Bool = false, raw: Int? = nil, rank: UInt8? = nil, applyDodge: Bool = true) {
+                            func addPitch(_ v0: Int, vel: UInt8, gate g: Double, notesLayer: Bool = false, heldByRiff: Bool = false, raw: Int? = nil, rank: UInt8? = nil, applyDodge: Bool = true, altOuts: UInt8? = nil) {
                                 guard pitchCount < 9 else { return }
                                 var v = v0
                                 if applyDodge, listenPitch == .dodge, let src = dodgeSourceNote {   // §6.3: an own pitch sharing the source's pitch class steps to a nearby pool rank of a different class; none in the pool ⇒ the pitch mutes
@@ -4090,7 +4118,9 @@ final class Router {
                                 let bus = Int(notesLayer ? addNotesBus : addRiffBus)
                                 for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == bus { return }   // the same pitch on the SAME part: first insertion wins
                                 var outs: UInt8 = 0xFF
-                                if notesLayer {   // §2.5: a notes pitch the riff strikes on this hit too (or is HOLDING through a tied rest) leaves only on the outputs the riff does not use; none left ⇒ the duplicate is dropped, as it always was
+                                if let ao = altOuts {   // ALT §3.1: the alt emitter mask REPLACES the part's mask for this hit (0 = a rest: no note-on on any output or ALL; the pitch is still added, so the walk advances §3.1). The narrowing/dedup below is a main-routing nicety the explicit alt set supersedes.
+                                    outs = ao & 0x0F
+                                } else if notesLayer {   // §2.5: a notes pitch the riff strikes on this hit too (or is HOLDING through a tied rest) leaves only on the outputs the riff does not use; none left ⇒ the duplicate is dropped, as it always was
                                     // PER-PART SOLO: a riff part the solo silences strikes nothing, so a notes pitch is never deduped against its copy (the silenced copy leaves the set below)
                                     let riffSoloSilenced = soloPartBits & Int(addRiffBus) != 0
                                     var riffHas = heldByRiff && !riffSoloSilenced, inSet = false
@@ -4210,7 +4240,7 @@ final class Router {
                                         }
                                         let moved = euclideousListenMoveByInterval(note: src, interval: listenInterval, octave: listenOctave,
                                                                                     keyRoot: p.euclideousChordKeyRoot, scaleIntervals: p.euclideousChordKeyTones)
-                                        addPitch(moved, vel: UInt8(velocityAbsolute), gate: gate, raw: moved, rank: rank)
+                                        addPitch(moved, vel: UInt8(altRiffVel), gate: altRiffGate ?? gate, raw: moved, rank: rank, altOuts: altRiffOut)   // ALT: a SHADOW/ECHO follower is the riff part — VEL/GATE/OUT apply; OCT does not (its pitch is already moved by listenOctave, not the part octave)
                                     }
                                 }
                                 if listenPitch == .shadow || listenPitch == .mirror {
@@ -4254,7 +4284,7 @@ final class Router {
                                     if polyMask & (UInt8(1) << UInt8(rk - 1)) != 0 {
                                         let invRank = riffInvert ? 9 - rk : rk
                                         let rank = invRank + melodyTranspose
-                                        if rank >= 1, let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill)
+                                        if rank >= 1, let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: altRiffOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill) · ALT §3.1: altRiffOct = riffOctave unless the OCT pill overrides this hit
                                             let note0 = note0Raw
                                             let len = p.polyRiff.triggerLength(col: playedStep, rank: rk, polyTrig)
                                             var ringBeats = riffAdvanceStep
@@ -4265,7 +4295,7 @@ final class Router {
                                                                               times: polyHitTimes, found: scanFound, restartIndex: scanRestart)
                                             // SAME-NOTE GAP GUARD is MONO-only (v1): POLY's own length model (`polyBeats` / the roll's prediction) is a separate derivation, so shortening a poly ring here would diverge from the LANES roll. POLY same-pitch repeats are left to the host-buffer fix; the seeded-POLY ≡ MONO invariant is tested with the guard OFF.
                                             let at = pitchCount
-                                            addPitch(note0, vel: UInt8(velocityAbsolute), gate: gate, raw: note0Raw - 12 * riffOctave)
+                                            addPitch(note0, vel: UInt8(altRiffVel), gate: altRiffGate ?? gate, raw: note0Raw - 12 * altRiffOct, altOuts: altRiffOut)   // ALT §3.1: alt VEL/GATE/OCT/OUT (defaults = main); `raw` subtracts the SAME octave the pitch was resolved with
                                             if pitchCount == at {   // folded onto a pitch this hit already strikes (a pool smaller than the ranks): the LONGER of the two rings stands
                                                 for j in 0..<pitchCount where pitches[j] == note0 && pitchBus[j] == Int(riffBus) { polyBeats[j] = max(polyBeats[j], ringBeats) }
                                             }
@@ -4351,13 +4381,13 @@ final class Router {
                                             repeatedColumn = Int8(found.column)
                                             return strikeRiffRawRank(found.rank, repeating: true)
                                         }
-                                    } else if let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: riffOctave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill)
+                                    } else if let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: altRiffOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill) · ALT §3.1: altRiffOct = riffOctave unless the OCT pill overrides this hit
                                         let note0 = note0Raw
                                         hadRiffNote = true
                                         riffRank = rank; riffNote = note0
                                         // SAME-NOTE GAP GUARD: cap the gate so the off clears the identical next on — but ONLY for a real re-strike. At gate 1.0 the same pitch is held as one immortal legato voice (no off between repeats, so nothing for a host to merge); capping it below 1.0 would wrongly turn the hold into a re-strike.
-                                        let rg0 = gate
-                                        addPitch(note0, vel: UInt8(velocityAbsolute), gate: rg0 < 1.0 ? min(rg0, sameNoteRiffGateCap) : rg0, raw: note0Raw - 12 * riffOctave)   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
+                                        let rg0 = altRiffGate ?? gate   // ALT §3.1: alt GATE replaces MIX GATE (the same-note cap still applies on top)
+                                        addPitch(note0, vel: UInt8(altRiffVel), gate: rg0 < 1.0 ? min(rg0, sameNoteRiffGateCap) : rg0, raw: note0Raw - 12 * altRiffOct, altOuts: altRiffOut)   // FIRST, so index 0 is reliably "the riff note" for NOTE VIEW's primary/+n convention
                                         // WIPE TELEMETRY (ferry "riff-cell wipes" §2.2): mirrors the retired fork's
                                         // own wipeRank computation exactly — MIRROR re-applied to `invRank` (the
                                         // pre-TRANSPOSE value), "after INVERT, MIRROR and LEAP but before
@@ -4402,10 +4432,10 @@ final class Router {
                                     notesSpreadActive = rowsHit.spread
                                     let doSpread = rowsHit.spread != .together
                                     func strikeRowsRank(_ r: Int, spread: Bool) {
-                                        guard let pch = riffResolve(rank: r + euclideousFillRankOffsetNow, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }   // FILL §2.5: the rank climb applies to stack notes too (0 off a fill)
+                                        guard let pch = riffResolve(rank: r + euclideousFillRankOffsetNow, oct: altNotesOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }   // FILL §2.5: the rank climb applies to stack notes too (0 off a fill) · ALT §3.1: altNotesOct = octave unless the stack OCT pill overrides this hit
                                         let at = pitchCount
                                         // Pass the LIT rank (1…8) so the roll / STACK-grid-live feed names it exactly (a folded note no longer falls back to nearest-by-pitch, which could leave an octave copy unranked).
-                                        addPitch(pch, vel: notesVel, gate: notesGate, notesLayer: true, heldByRiff: pch == heldRiffPitch, raw: pch - 12 * octave, rank: UInt8(r))
+                                        addPitch(pch, vel: UInt8(max(1, min(127, altNotesVel))), gate: altNotesGate ?? notesGate, notesLayer: true, heldByRiff: pch == heldRiffPitch, raw: pch - 12 * altNotesOct, rank: UInt8(r), altOuts: altNotesOut)   // ALT §3.1: alt VEL/GATE/OCT/OUT (defaults = main); byte-identical when no pill is on
                                         if pitchCount > at {
                                             let slot: UInt64 = spread ? UInt64(notesStruck) : 0xF
                                             notesSlotBits = (notesSlotBits & ~(UInt64(0xF) << UInt64(4 * at))) | (slot << UInt64(4 * at))

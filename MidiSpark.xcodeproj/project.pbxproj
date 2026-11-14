@@ -272,6 +272,7 @@
 		85B05DFBAF8498492C4BCF67 /* PartPlayButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB8E0318D250070707593C53 /* PartPlayButton.swift */; };
 		85C23AA269DD6D994DA6FF81 /* EditPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2C4528E7A184FABB7EF270 /* EditPage.swift */; };
 		86DBDA072FBE5381278BC901 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BB5FA9C3D609A0CDE3DC8A /* Diag.swift */; };
+		871F814F76B149C81DC985A0 /* AltRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D55A85A75D05FE74FC00D73B /* AltRouterTests.swift */; };
 		87752A6A7A157E26863E3776 /* CardBackViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F426003B0AC179AD87C598 /* CardBackViews.swift */; };
 		878E978643E602455F6FE1DC /* RiffMapPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5FFD3DBE69F844BA383682 /* RiffMapPalette.swift */; };
 		88605E8D0B96DCDABFDD706E /* AnswerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA624E3B8BFEE80AECD9F1D /* AnswerViews.swift */; };
@@ -867,6 +868,7 @@
 		D4725DDA30BD137A2E7F2623 /* SessionTapeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTapeTests.swift; sourceTree = "<group>"; };
 		D4730170C71768BFA49DCB6C /* ChordCanonSourcesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordCanonSourcesTests.swift; sourceTree = "<group>"; };
 		D4B004FB0FED39A5E1961BD8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D55A85A75D05FE74FC00D73B /* AltRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AltRouterTests.swift; sourceTree = "<group>"; };
 		D67906574F7AC7903958AF3B /* RiffPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffPanelTests.swift; sourceTree = "<group>"; };
 		D7FF4747235BE7D3D8815C2A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MidiSparkAU.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1047,6 +1049,7 @@
 		2974FA1F2F9619847B1BC9C0 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				D55A85A75D05FE74FC00D73B /* AltRouterTests.swift */,
 				79EB9BDF2D2556C8069447A2 /* AltStateTests.swift */,
 				782849D7F5C6A7AF7F06EB13 /* AnswerModelTests.swift */,
 				48C49577E130C1DEE1509E5C /* AnswerRouterTests.swift */,
@@ -1888,6 +1891,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				871F814F76B149C81DC985A0 /* AltRouterTests.swift in Sources */,
 				C8CFE11D3DB3409414F297EC /* AltStateTests.swift in Sources */,
 				D39C6A71C9CDE1509351FBB8 /* AnswerModelTests.swift in Sources */,
 				B0AC6C30213747FD1163ADFC /* AnswerRouterTests.swift in Sources */,
