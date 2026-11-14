@@ -891,3 +891,9 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 ## RING (2026-11-13) — device-owed
 - A RING lane's stack notes build up through the pass (sustain-pedal) and all release cleanly at the walk-cycle boundary — no lingering/stuck notes, no click at the clear. Confirm by ear on device.
 - The FLIP HITS + RING buttons side by side in the EUCLID tab's lower-right are comfortable to tap and read; RING's on/off state is obvious.
+
+## RESETS TAB — controls onto the lane cards (2026-11-13) §device-owed
+- Four cards of restart controls read clearly at a glance and don't feel crowded (RHYTHM half over MELODY half, each tile + FREE/units/counts).
+- A count-chip vertical drag in a card doesn't fight the page or the tab strip (the drag is a highPriorityGesture, but confirm by touch).
+- The WITH RHYTHM link row reads as the joint between the RHYTHM and MELODY halves (the tie line lights lane100 @ 60% when on).
+- `FourfoldStackBudgetTests` (simulator UI test) — the new resets content is wrapped in `EuclideousStackBreak`, but the budget wasn't run here (only the iOS 26.5 sim runtime is available); run it before the device install. §1.7's smaller controls never apply at the reference body, so they're untested.

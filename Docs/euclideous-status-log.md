@@ -11613,3 +11613,53 @@ Paul: "Next to FLIP HITS … RING — stack notes keep sounding through rests un
 **UI:** a RING toggle beside FLIP HITS in the EUCLID tab's freed lower-right half (`ringButton`, `notesRing` setter, the page's toggle trait + help "Stack notes ring to the end of the pass, then clear").
 
 **Verified:** `run.sh --golden` byte-identical (RING default off); `CONFIG=Release … --alloc` PASS 0; `RouterTests.testRingHoldsStackNotesToTheWalkCycleBoundaryThenClears` (riff off so only the stack plays, four distinct pool notes to dodge the same-pitch refcount merge: RING on rings the rank-1 note the full 1.0-beat cycle, RING off plays its 0.075-beat gate, nothing left sounding); `EffectiveParamsTests` round-trip (notesRing persists); the notes-layer engine/snapshot classes. **Known limits:** a melody CHAIN restart landing before the natural walk-cycle boundary is not re-detected mid-scan — a chained lane's stack note rings to the natural boundary (a minor over-ring; Paul emphasised the natural cycle). **Device-owed:** the ring-and-clear by ear; the big FLIP HITS + RING buttons side by side in the freed EUCLID space.
+
+---
+
+## RESETS TAB — the restart controls move onto the lane cards (2026-11-13, Fourfold only; LANDED)
+
+Paul had already moved the two restart progress tiles onto their own RESETS tab (2026-11-11), but there
+the tiles were still buttons that opened the RESTARTS pop-up editor. This ferry puts **every restart
+control on the tab itself, no pop-up**. The ferry text is the spec; "source wins" on restated values.
+
+**Layout (§1).** Each lane card's body (the space under the lane strip, B = card height − chromeH 68)
+splits into a RHYTHM half over a MELODY half, H = (B − linkH)/2, the WITH RHYTHM link row the divider.
+Each half: its existing progress tile at y 0 (T = 44), then row 1 at y T+4 (FREE pill x 0, 40×24; unit
+chips x 48/92/136, 40×24; source squares 18×24 at TW−78/−58/−38/−18 sp2, only while the unit reads a
+source), then row 2 at y T+32 (count chips from x 0, 44×28 sp4, + box at slot `count`). No label column
+(§1.4, the tile names the half); no timeline (§3.3, the tile is the progress bar). B/T/TW: landscape
+233 / 44 / 360.67, portrait 233.67 / 44 / 367 — the FULL layout fits in both (H = 106.5 / 106.835 ≥ the
+104 a half's content needs), so §1.7's shrink ladder (a: gap 4→2; b: counts 24 tall; c: link 16 tall)
+and §1.8's narrow report (row 1 needs TW ≥ 262) never apply at the reference, but are implemented and
+reported through the page floor.
+
+**One pure layout** `euclideousResetsCardLayout(size:)` (`RestartEditorUI.swift`, Foundation+CoreGraphics,
+in the test target) gives every frame — the two tiles, the per-half `EuclideousRestartSectionFramesV2`
+(card x-anchors, no label column, no timeline), the link button + hit area + tie line, the applied
+§1.7 case and §1.8 `row1Fits`. `ResetsCardLayoutTests` pins it.
+
+**The controls are editor v2's OWN views, moved — not rebuilt (§2).** `EuclideousRestartSectionView`
+gained `showsName` (dropped on the card, §1.4) and runs with `showsTimeline: false`; new
+`EuclideousRestartLinkRow` draws the card's §1.5 link (its off/on line colours #2F333B / lane100 @ 60%
+are passed in computed by the page). The tiles are the same `restartTile`, now with `tappable: false` —
+static text, no tap, no button trait, no hint (§3.1/§4.2). Every edit is the editor's existing
+`restartEdit` funnel, one undo step (§2.1, unchanged — RESTART UNITS 3.5 pinning included); all four
+cards are live at once (§2.2); the count chip's vertical drag is already a `highPriorityGesture` so it
+wins over any ancestor (§2.3 — nothing competes on the fixed lane layout / tap-selected strip).
+
+**The pop-up is gone (§3).** The `.resets` tabContent case drops `restartTilesRow` and the
+`restartEditorV2` overlay mount; `restartTilesRow` + `restartEditorV2` + `EuclideousRestartEditorView`
+stay compiled but unmounted (hide-don't-delete). The only editor-open site was the tile tap, now gone.
+The `.restartEditor` page floor now tracks the CARD layout, not the (undrawn) overlay editor's fit. The
+editor's timeline functions are kept (§3.3).
+
+**VoiceOver (§4).** Each card's resets content is one group "Lane N restarts" holding the RHYTHM half,
+the link row and the MELODY half in reading order; the controls keep editor v2's labels/traits/actions;
+the tiles are static text; the unmounted editor's dialog/header/close leave the tree.
+
+**Verified:** `ResetsCardLayoutTests` (frames, §1.7 ladder at synthetic short bodies, §1.8); updated
+`RestartEditorUITests` floor assertion (now vs the card layout); `PageLayoutTests`, `RestartUnitsGolden`
+green; `run.sh --golden` byte-identical (UI only, engine/snapshot/schedule untouched). **Not run here:**
+the simulator `FourfoldStackBudgetTests` (only the iOS 26.5 sim runtime; the content is wrapped in
+`EuclideousStackBreak`, and the sub-views are separate structs — a better stack posture than the old
+raw-ZStack case). Looks/crowding/the link-as-joint/§1.7-smaller-controls are device-owed (debt file).
