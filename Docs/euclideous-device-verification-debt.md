@@ -906,3 +906,10 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - HIT 3/1 with alt VEL and an octave jump sounds like an accented bassline; BAR 3/1 with another emitter sounds like a call and response (by ear).
 - SLICE 6 OWED: the §5.9 white outline on alt-state hit cells of the lane strip, and the §5.3 LIVE current cycle cell (both drawn as not-live for now) — verify once built; §1.7's smaller-band fallback (B < 236) applies at the reference (bands 81.5 / 82.4), confirm it doesn't feel cramped.
 - Sim `FourfoldStackBudgetTests` (the new ALT tab body is wrapped in EuclideousStackBreak; not run off-device here).
+## RIFF TAB v3 ferry (2026-11-14) §11 device-owed
+- The 5.6 pt cells read as the riff at a glance in all four lane colours, on and off, and the white playing cell is obvious.
+- The walk's 8 rows read as continuing the tile's rows (identical row-y).
+- At 16 steps the ~14 pt columns and 9 pt numbers are legible.
+- Played, upcoming and skipped can be told apart in all four lane colours, including yellow and green.
+- The reset tick is noticed without being distracting at fast tempos; an aliased fast wrap isn't mis-flashed as a reset.
+- The 49-tall bands still give comfortable touch targets, and the key-over-value steppers never truncate on device.

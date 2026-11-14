@@ -8,6 +8,9 @@
 //  FX rowH = (box − 126) / 6, LANES laneH = (box − 100) / 4 (the spec's 31.67 / 31.78 and 54 / 54.17 are each 0.5–0.75pt smaller).
 
 import XCTest
+#if canImport(AppKit)
+import AppKit
+#endif
 
 final class PageLayoutTests: XCTestCase {
 
@@ -227,6 +230,25 @@ final class PageLayoutTests: XCTestCase {
             XCTAssertEqual(r.gridTop, 4); XCTAssertEqual(r.labelTop, r.gridTop + r.gridSize + 2, accuracy: 1e-9); XCTAssertEqual(r.labelHeight, 10)
             if r.rowAHeight > 1 { XCTAssertEqual(r.outputRowTop + r.outputRowHeight, ca, accuracy: 0.01, "rows + gaps fill H") }
         }
+    }
+    /// RIFF v3 §8.13 / §1.9: no key or label on the tab truncates at either reference — every key now sits on its OWN full-width line
+    /// (key-over-value), so the longest keys fit without shrinking. Measures the rendered width (heavy monospaced) against the key line.
+    func testRiffV3KeysDoNotTruncate() {
+        #if canImport(AppKit)
+        func w(_ s: String, _ size: CGFloat) -> CGFloat {
+            (s as NSString).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: size, weight: .heavy)]).width
+        }
+        for (ca, fw) in [(233.0, 360.67), (233.67, 367.0)] {
+            let r = euclideousRiffTabLayout(contentAreaH: ca, fullWidth: fw)
+            // ADVANCE EVERY's key line = the 168 tile less its 4 pt padding each side; STRIDE / LEN / SHIFT / TRANS key lines = their cell less the 2 pt key padding each side.
+            XCTAssertLessThanOrEqual(w("ADVANCE EVERY", 10), r.advanceEveryWidth - 8, "ADVANCE EVERY fits the merged tile's key line")
+            XCTAssertLessThanOrEqual(w("STRIDE", 10), r.strideWidth - 4, "STRIDE fits")
+            for key in ["LEN", "SHIFT", "TRANS"] { XCTAssertLessThanOrEqual(w(key, 10), r.notesCellWidth - 4, "\(key) fits a NOTES cell") }
+            // the walk column numbers (MONO columns are a single digit 1…8) and the tile's RIFF (9 pt, 0.16 em) fit their frames
+            XCTAssertLessThanOrEqual(w("8", 9), euclideousRiffWalkGrid(n: 16, innerWidth: r.walkWidth).columnWidth, "a column number fits even the n=16 column")
+            XCTAssertLessThanOrEqual(w("RIFF", 9) + 4 * 0.16 * 3, r.tileWidth - 4, "RIFF fits the tile")
+        }
+        #endif
     }
     /// Floors ferry (2026-10-23): TILT's EARLY/LATE end-labels — pure annotation, not the control — drop
     /// out below their own floor, independent of (and tighter than) the inert `rhythmZonesFloor`(192).
