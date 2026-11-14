@@ -6234,6 +6234,18 @@ func euclideousAltX(unit: EuclideousAltUnit, hit: Int, step: Int, pass: Int, bar
     case .pass: return pass
     }
 }
+/// ALT display (§5.3 / §5.9): the alt state a lane is in at a musical `tick` of its walk, from the SAME per-tick counts the Router derives (HIT `ord`, STEP `localT`, PASS `cy`, BAR the host bar) — so a located cell equals what plays (§2.5).
+/// The counts come straight from the chain-era core the walk mirror uses (`euclideousLaneChainTick`/`Phase`), never a second derivation. `beat` is only used for the BAR unit (the host bar the tick falls in). FILL's extra in-region firings
+/// are not modelled here — a live display cell is a device-owed indicator, not the sounding path.
+func euclideousAltStateAtTick(line: EuclidLine, cfg: EuclideousWalkLaneConfig, tick: Int64, beat: Double, barBeats: Double) -> (isAlt: Bool, pos: Int) {
+    let cl = euclidCycleLen(cfg.dir, n: cfg.n)
+    let info = euclideousLaneChainTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cl, sub: cfg.sub, tick: tick, chains: cfg.chains, legacySpanBeats: cfg.spanBeats, advanceStep: cfg.advanceStep)
+    let ph = euclideousLaneChainPhase(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cl, sub: cfg.sub, tick: tick, chains: cfg.chains, legacySpanBeats: cfg.spanBeats, hostBeat: nil)
+    let cy = (ph.localT - Int64(ph.raw)) / Int64(max(1, cl))
+    let bar = Int((beat / max(1e-6, barBeats) + 1e-9).rounded(.down))
+    let x = euclideousAltX(unit: line.altUnitResolved, hit: Int(info.ord), step: Int(ph.localT), pass: Int(cy), bar: bar)
+    return euclideousAltState(main: line.altMainCountResolved, alt: line.altAltCountResolved, x: x)
+}
 
 /// The chain-era counterpart of `euclideousLanePhase` — same shape, origins from §5.1/§5.3 instead of a masked
 /// cell lookup.

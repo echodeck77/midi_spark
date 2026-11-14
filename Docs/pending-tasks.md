@@ -2199,7 +2199,7 @@ Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md
 
 ## ALT TAB — a per-lane alternate state on a MAIN/ALT cycle (2026-11-14)
 - [x] LANDED (slices 2–5,7): the model (EuclideousAltUnit/altMainCount/altAltCount + EuclideousAltPart altRiff/altNotes), the alt-state pure fn (euclideousAltState/euclideousAltX), the engine (per-hit OUT/OCT/VEL/GATE in runEuclidLine, byte-identical off + alloc 0), the ALT tab + card (euclideousAltCardLayout + AltCardViews + altTabContent), §6 interaction and §8 VoiceOver. AltStateTests/AltRouterTests/AltCardLayoutTests green; the 9-tab strip pins updated.
-- [ ] SLICE 6 (to follow): the §5.3 LIVE current cycle cell (drawn static now) + the §5.9 white alt-hit outline on the lane strip (needs a display helper for the alt-state at a UI beat/step; may land ALT-tab-only per the ferry's fallback) + §9.16.
+- [x] SLICE 6 LANDED: the §5.3 live current cycle cell (altCycleStripLive + euclideousAltStateAtTick) + the §5.9 white alt-hit outline on the lane strip (EuclideousStripPlan.altHitSteps → painter; empty elsewhere ⇒ byte-identical). AltStateTests locate test + golden byte-identical.
 - [ ] FOLLOW-UP: add ALT cycling to PortsStress (§9.12's full stress — the focused AltRouterTests stuck-note test covers the basic case). DEVICE/SIM-owed: the §11 looks + FourfoldStackBudgetTests.
 ## RIFF TAB v3 ferry (2026-11-14) — follow-ups
 - [ ] (RIFF v3 §3.6) the trail's reset/wrap classification is display-side from the polled walk ordinal + live step; if device testing shows poll aliasing (a fast wrap mis-flashed as a reset, or a missed reset), add the read-only per-lane early-reset counter beside `euclideousRiffWalkState()` (drained on the same 30 Hz poll) and classify from it.

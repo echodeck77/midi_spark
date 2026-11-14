@@ -36,6 +36,8 @@ struct EuclideousStripBandInput {
     /// §3.6: the riff / notes part is on (an off part draws its chips as grey outlines).
     var riffShown: Bool = true
     var notesShown: Bool = true
+    /// ALT §5.9: the buf-index steps whose hit plays in the alt state — a white inner outline on the body cell (empty for every non-ALT lane / stopped ⇒ identical).
+    var altHitSteps: Set<Int> = []
 }
 
 /// §5.4: the faint CC trace — a 1 pt line, a 3 pt dot at each hit's value, a 4 pt dot at the playhead. Over the cells,
@@ -118,6 +120,14 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
         if look.bar {
             let bar = CGRect(x: cell.minX, y: cell.maxY - M.bottomBarH, width: cell.width, height: M.bottomBarH)
             ctx.fill(RoundedRectangle(cornerRadius: M.bottomBarH / 2).path(in: bar), with: .color(d.tint))
+        }
+    }
+
+    // ALT §5.9: a 1.5 pt #F2F4F7 inner outline on the body cell of each hit that plays in the alt state (empty set on every other lane / tab / while stopped ⇒ nothing drawn).
+    if !d.altHitSteps.isEmpty {
+        for i in 0..<n where d.altHitSteps.contains(i) && i < d.hits.count && d.hits[i].kind != .rhythmRest {
+            let r = d.frames.cells[i].insetBy(dx: 0.75, dy: 0.75)
+            ctx.stroke(RoundedRectangle(cornerRadius: M.cellRadius).path(in: r), with: .color(Color(hex: 0xF2F4F7)), lineWidth: 1.5)
         }
     }
 

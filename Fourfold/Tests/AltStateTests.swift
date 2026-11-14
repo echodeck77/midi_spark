@@ -63,6 +63,17 @@ final class AltStateTests: XCTestCase {
         var l = EuclidLine(); l.altNotes = EuclideousAltPart(velOn: true, vel: 100); XCTAssertTrue(l.usesAlt)
     }
 
+    // §9.17 — locating at a tick gives the same cycle states as playing through (the display helper the cycle strip + §5.9 marks use).
+    func testLocateMatchesTheCycle() {
+        let cfg = EuclideousWalkLaneConfig(buf: [Bool](repeating: true, count: 8), n: 8, dir: .fwd, sub: 0.5)   // every step a hit ⇒ tick i is hit ordinal i
+        var line = EuclidLine(); line.altUnit = .hit; line.altMainCount = 3; line.altAltCount = 1
+        for i in 0..<8 { XCTAssertEqual(euclideousAltStateAtTick(line: line, cfg: cfg, tick: Int64(i), beat: Double(i) * 0.5, barBeats: 4).isAlt, i % 4 == 3, "HIT 3/1 at hit \(i)") }
+        line.altUnit = .step; line.altMainCount = 2; line.altAltCount = 2   // STEP 2/2 ⇒ alt at step indices 2,3,6,7
+        for i in 0..<8 { XCTAssertEqual(euclideousAltStateAtTick(line: line, cfg: cfg, tick: Int64(i), beat: Double(i) * 0.5, barBeats: 4).isAlt, (i % 4) >= 2, "STEP 2/2 at step \(i)") }
+        line.altUnit = .bar; line.altMainCount = 1; line.altAltCount = 1   // BAR 1/1 ⇒ alt on odd host bars
+        for bar in 0..<4 { XCTAssertEqual(euclideousAltStateAtTick(line: line, cfg: cfg, tick: Int64(bar * 8), beat: Double(bar) * 4, barBeats: 4).isAlt, bar % 2 == 1, "BAR 1/1 at bar \(bar)") }
+    }
+
     func testRoundTripAndMissingFieldsDecodeToDefaults() throws {
         // a document WITHOUT the fields decodes to the defaults
         let bare = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(EuclidLine()))

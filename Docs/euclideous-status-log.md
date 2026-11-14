@@ -11666,7 +11666,7 @@ raw-ZStack case). Looks/crowding/the link-as-joint/§1.7-smaller-controls are de
 
 ---
 
-## ALT — a per-lane alternate state on a MAIN/ALT cycle (2026-11-14, Fourfold only; slices 2–5,7 LANDED, slice 6 the live marks to follow)
+## ALT — a per-lane alternate state on a MAIN/ALT cycle (2026-11-14, Fourfold only; LANDED)
 
 Paul: one more tab, ALT, between ANSWER and MIX, where each lane flips into an alternate state for some STEPs /
 HITs / BARs / PASSes of a repeating cycle (MAIN units, then ALT units), then back. In the alt state a part (RIFF or
@@ -11708,9 +11708,15 @@ MIX field tile; it reuses only MIX's relative drag + "%" text). Pills #1F2127/#3
 (§6.3), the control is read-only while off (§6.4), token/OCT/slider/UNIT/count edits are each one undo step; every
 control carries its §8 label and the card is a "Lane N alt" group.
 
-**Known / to-do:** slice 6 — the §5.3 live current cycle cell (drawn static for now) and the §5.9 white alt-hit
-outline on the lane strip — both live indicators, to follow (the §5.9 outline may land ALT-tab-only per the ferry's
-own fallback). The SHADOW/ECHO follower gets VEL/GATE/OUT but not OCT (its pitch uses listenOctave, not the part
+**Slice 6 (LANDED):** the §5.3 live current cycle cell (`altCycleStripLive` + `euclideousAltStateAtTick`, a 30 fps
+TimelineView locating the cycle position from the same chain counts the engine uses) and the §5.9 white alt-hit
+outline on the lane strip (`EuclideousStripPlan.altHitSteps` → the band painter; the per-step tick is the lap start
++ the buf index; computed only for a lane with an active override while running, so the set is empty on every other
+lane / tab / while stopped ⇒ the strip is byte-identical there). Golden byte-identical (both are display-only — the
+Router never calls the new pure helper). Known: the marks show on every tab (not ALT-only), gated on `usesAlt`
+(no override ⇒ no marks, so a default lane isn't noisy — a disclosed reading of §5.9's "in the alt state"); FILL's
+extra in-region firings aren't modelled in the live cell / marks (device-owed indicators, not the sounding path).
+**Other known:** the SHADOW/ECHO follower gets VEL/GATE/OUT but not OCT (its pitch uses listenOctave, not the part
 octave); the mask-CHORD extras + the TRADE re-voice keep the main values (the mask/TRADE stay unchanged, §7). The
 pill hit area is the pill's own 31×22 (not the full grid cell) — device-owed.
 

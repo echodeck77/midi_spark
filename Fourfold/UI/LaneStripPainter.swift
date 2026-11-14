@@ -60,6 +60,8 @@ struct EuclideousStripPlan {
     /// The riff / notes TAB is on (an off part shows only the clarity pass's off look; hocket states don't apply, 9.1).
     var riffPartOn = true
     var notesPartOn = true
+    /// ALT §5.9: the buf-index steps of the current pass whose hit plays in the ALT state — drawn with a white inner outline. Empty unless the lane has an active override and is running (so every other lane / tab is byte-identical).
+    var altHitSteps: Set<Int> = []
 
     func legIndex(raw: Double) -> Int { euclideousStripLegIndex(raw: raw, n: sweepLength, legCount: legs.count) }
 }

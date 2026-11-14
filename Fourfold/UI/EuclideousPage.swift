@@ -2389,8 +2389,16 @@ struct EuclideousPage: View {
                                                spokenPitch: { p in
                                                    (0...127).contains(p) ? euclideousAccessibleDisplayNoteName(UInt8(p), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) : "no note"
                                                })
+        // ALT §5.9: while running, a lane with an active override outlines the current pass's hit cells that play in the alt state (white). Empty otherwise ⇒ the strip is byte-identical on every other lane and tab. The per-step tick is the lap start + the buf index (a device-owed indicator; FILL's extra in-region firings aren't modelled).
+        var altHitSteps: Set<Int> = []
+        if line.usesAlt, let cfg, let lapStartTick, euclideousLaneIsRunning(transportPlaying: clock.playing, line: line) {
+            for hs in hitSteps where hs.bufIdx >= 0 && hs.bufIdx < steps {
+                let tick = lapStartTick + Int64(hs.bufIdx)
+                if euclideousAltStateAtTick(line: line, cfg: cfg, tick: tick, beat: Double(tick) * cfg.sub, barBeats: clock.beatsPerBar).isAlt { altHitSteps.insert(hs.bufIdx) }
+            }
+        }
         return EuclideousStripPlan(legs: legs, sweepLength: steps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase, hocketRules: hocketRules, hocketLive: hocketLive, lane: idx,
-                                   riffPartOn: !euclideousMixLayerIsOff(line, notes: false), notesPartOn: !euclideousMixLayerIsOff(line, notes: true))
+                                   riffPartOn: !euclideousMixLayerIsOff(line, notes: false), notesPartOn: !euclideousMixLayerIsOff(line, notes: true), altHitSteps: altHitSteps)
     }
     /// A pitch named the way the riff grid names its rows (`riffNoteLabelColumn`): C4, A♭3 — spelled relative to what is held for MIDI IN / CHORDS, from the key for KEY.
     private func stripNoteName(_ p: Int) -> String {
@@ -3155,13 +3163,28 @@ struct EuclideousPage: View {
         let L = euclideousAltCardLayout(size: CGSize(width: fullWidth, height: contentAreaH))
         return ZStack(alignment: .topLeading) {
             altUnitRow(idx, line, accent, L: L)
-            EuclideousAltCycleStrip(main: line.altMainCountResolved, alt: line.altAltCountResolved, current: -1, accent: accent, frame: L.cycleStrip)
+            altCycleStripLive(idx, line, accent, frame: L.cycleStrip)
             altBandView(idx, line, accent, notes: false, f: L.riff)
             altBandView(idx, line, accent, notes: true, f: L.stack)
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Lane \(idx + 1) alt")   // §8.1
+    }
+
+    /// §5.3 — the cycle strip with its LIVE current cell: a 30 fps `TimelineView` locates the lane's cycle position from the walk config at the UI beat (`euclideousAltStateAtTick`, the same counts the engine uses). Stopped / no walk ⇒ no current cell.
+    private func altCycleStripLive(_ idx: Int, _ line: EuclidLine, _ accent: Color, frame: CGRect) -> some View {
+        let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
+        let cfg = riffWalkConfig(idx)
+        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running || cfg == nil)) { tl in
+            let cur: Int = {
+                guard running, let cfg else { return -1 }
+                let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
+                let tick = Int64((beat / max(1e-6, cfg.sub)).rounded(.down))
+                return euclideousAltStateAtTick(line: line, cfg: cfg, tick: tick, beat: beat, barBeats: clock.beatsPerBar).pos
+            }()
+            EuclideousAltCycleStrip(main: line.altMainCountResolved, alt: line.altAltCountResolved, current: cur, accent: accent, frame: frame)
+        }
     }
 
     /// §5.2 — the UNIT row: a grouped panel holding the 4-segment UNIT control (STEP · HIT · BAR · PASS) and the MAIN / ALT count steppers.

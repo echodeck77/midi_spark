@@ -904,7 +904,7 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - An unset control (dim) is clearly different from an empty emitter set (bright, none lit) — the §5.8 distinction.
 - The cycle strip's cells (main vs alt vs the live current cell) read clearly; the two count steppers and the UNIT segments are comfortable at the shrunk 9-tab card.
 - HIT 3/1 with alt VEL and an octave jump sounds like an accented bassline; BAR 3/1 with another emitter sounds like a call and response (by ear).
-- SLICE 6 OWED: the §5.9 white outline on alt-state hit cells of the lane strip, and the §5.3 LIVE current cycle cell (both drawn as not-live for now) — verify once built; §1.7's smaller-band fallback (B < 236) applies at the reference (bands 81.5 / 82.4), confirm it doesn't feel cramped.
+- SLICE 6 (built): the §5.9 white outline on alt-state hit cells + the §5.3 LIVE current cycle cell — confirm on device they read clearly and track the beat; §5.1's band-shrink (B 233 < 236) means bands 81.5 / 82.4 at the reference, confirm it doesn't feel cramped.
 - Sim `FourfoldStackBudgetTests` (the new ALT tab body is wrapped in EuclideousStackBreak; not run off-device here).
 ## RIFF TAB v3 ferry (2026-11-14) §11 device-owed
 - The 5.6 pt cells read as the riff at a glance in all four lane colours, on and off, and the white playing cell is obvious.
