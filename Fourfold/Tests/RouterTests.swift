@@ -4909,23 +4909,23 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(lenFiveText, "")
     }
 
-    /// RIFF v2 ferry (2026-11-05) §8.1/§1.8: the regrouped pure layout at a small content area and a narrower width.
+    /// RIFF v3 ferry (2026-11-14) §8.1/§1.8: the regrouped pure layout at a small content area and a narrower width.
     func testRiffTabLayoutAtReferenceAndNarrower() {
         let ref = euclideousRiffTabLayout(contentAreaH: 202, fullWidth: 338.5)
-        XCTAssertEqual(ref.rowAHeight, 42, accuracy: 0.01, "§1.1 H − 18 − 142")
-        XCTAssertEqual(ref.toggleWidth, 124); XCTAssertEqual(ref.rightColumnStartX, 136)
-        XCTAssertEqual(ref.walkWidth, 198.5, accuracy: 0.01)
-        XCTAssertEqual(ref.directionButtonWidth, 38.67, accuracy: 0.01, "(L − 8)/3, width-independent")
-        XCTAssertEqual(ref.advanceEveryWidth, 63.5, accuracy: 0.01); XCTAssertEqual(ref.hitStepWidth, 71.78, accuracy: 0.01); XCTAssertEqual(ref.strideWidth, 55.22, accuracy: 0.01)
+        XCTAssertEqual(ref.rowAHeight, 48, accuracy: 0.01, "§1.1 H − 154")
+        XCTAssertEqual(ref.tileWidth, 67); XCTAssertEqual(ref.walkX, 79)
+        XCTAssertEqual(ref.walkWidth, 255.5, accuracy: 0.01)
+        XCTAssertEqual(ref.directionButtonWidth, 34, "width-independent")
+        XCTAssertEqual(ref.advanceEveryX, 120); XCTAssertEqual(ref.advanceEveryWidth, 168); XCTAssertEqual(ref.strideX, 296); XCTAssertEqual(ref.strideWidth, 38.5, accuracy: 0.01)
         XCTAssertEqual(ref.notesCellWidth, 79.625, accuracy: 0.01)
-        XCTAssertTrue(ref.rowAUnderFloor, "row A 42 < 60 at this content area")
-        XCTAssertTrue(ref.bandControlUnderFloor, "stride 55.22 < 56"); XCTAssertTrue(ref.underFloor)
+        XCTAssertTrue(ref.rowAUnderFloor, "row A 48 < 71 at this content area")
+        XCTAssertTrue(ref.strideUnderFloor, "stride 38.5 < 56"); XCTAssertTrue(ref.underFloor)
 
         let narrow = euclideousRiffTabLayout(contentAreaH: 202, fullWidth: 300)
-        XCTAssertEqual(narrow.directionButtonWidth, 38.67, accuracy: 0.01)
-        XCTAssertEqual(narrow.walkWidth, 160, accuracy: 0.01)
+        XCTAssertEqual(narrow.directionButtonWidth, 34)
+        XCTAssertEqual(narrow.walkWidth, 217, accuracy: 0.01)
         XCTAssertEqual(narrow.notesCellWidth, 70, accuracy: 0.01)
-        XCTAssertTrue(narrow.notesCellUnderFloor, "70 < 72 at 300 wide"); XCTAssertTrue(narrow.bandControlUnderFloor); XCTAssertTrue(narrow.underFloor)
+        XCTAssertTrue(narrow.notesCellUnderFloor, "70 < 72 at 300 wide"); XCTAssertTrue(narrow.strideUnderFloor); XCTAssertTrue(narrow.walkColumnUnderFloor); XCTAssertTrue(narrow.underFloor)
     }
 
     // MARK: - MIX TAB (ferry 2026-10-18) §9.6/§9.7 — every pitch carries its OWN gate; legato is per LAYER

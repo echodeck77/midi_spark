@@ -4133,29 +4133,36 @@ struct EuclideousPage: View {
     /// `showLabel: false` (RIFF WALK ferry §8.1, the EVERY stepper): drops the key line, showing only the
     /// value, centred — every other call site keeps its label unchanged (the default is `true`).
     private func melodyStepper(_ label: String, value: Int, range: ClosedRange<Int>, unit: String? = nil, width: CGFloat = 69.5, showLabel: Bool = true, help: String? = nil,
-                                             height: CGFloat = 34, valueText shown: String? = nil, lowDisabled: Bool = false, highDisabled: Bool = false, wraps: Bool = false, lane: Int? = nil, outline: Bool = false, onChange: @escaping (Int) -> Void) -> AnyView {   // AnyView: see melodyButton
+                                             height: CGFloat = 34, valueText shown: String? = nil, lowDisabled: Bool = false, highDisabled: Bool = false, wraps: Bool = false, lane: Int? = nil, outline: Bool = false, keyOverValue: Bool = false, onChange: @escaping (Int) -> Void) -> AnyView {   // AnyView: see melodyButton
         // NOTES TAB ferry (CHANCE): `height`, a text-valued stepper (25% / 50% / 75% / 100%) and a disabled look at either end — every default leaves the other callers exactly as they were.
         let w: CGFloat = width, h: CGFloat = height, arrowZone: CGFloat = 18
         let valueText = Text(shown ?? (unit != nil ? "\(euclideousSigned(value)) \(unit!)" : "\(value)"))
             .font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)   // §4.6: truncate, never shrink — no .minimumScaleFactor
+        let lChev = Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: lowDisabled ? 0x4A4E57 : 0x8A909A))
+        let rChev = Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: highDisabled ? 0x4A4E57 : 0x8A909A))
+        let keyLabel = Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
         let base = ZStack {
             RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
-            HStack(spacing: 0) {
-                Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: lowDisabled ? 0x4A4E57 : 0x8A909A))
-                    .frame(width: arrowZone, height: h)
-                Group {
-                    if showLabel {
-                        VStack(spacing: 2) {
-                            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                            valueText
-                        }
-                    } else {
-                        valueText
+            if keyOverValue && showLabel {
+                // RIFF v3 §4.1: the key on its OWN full-width line on top (so it never truncates), the chevrons beside the VALUE only, below it.
+                VStack(spacing: 2) {
+                    keyLabel.lineLimit(1).frame(maxWidth: .infinity)
+                    HStack(spacing: 0) {
+                        lChev.frame(width: arrowZone)
+                        valueText.frame(maxWidth: .infinity)
+                        rChev.frame(width: arrowZone)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: highDisabled ? 0x4A4E57 : 0x8A909A))
-                    .frame(width: arrowZone, height: h)
+                .padding(.horizontal, 2)
+            } else {
+                HStack(spacing: 0) {
+                    lChev.frame(width: arrowZone, height: h)
+                    Group {
+                        if showLabel { VStack(spacing: 2) { keyLabel; valueText } } else { valueText }
+                    }
+                    .frame(maxWidth: .infinity)
+                    rChev.frame(width: arrowZone, height: h)
+                }
             }
         }
         .frame(width: w, height: h)
@@ -4514,7 +4521,7 @@ struct EuclideousPage: View {
     /// RIFF v2 §1.4 Row A — the riff toggle (left, L = 124) + the WALK strip (right, from x136, the full row height). The toggle never dims; the WALK strip folds the riff-off dim into its own per-cell opacity (§3.3: "the dims don't multiply").
     private func riffRowA(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
         HStack(spacing: 0) {
-            riffCard(idx, line, accent, width: layout.toggleWidth, height: layout.rowAHeight, gridSize: layout.miniGridSize)
+            riffCard(idx, line, accent, width: layout.tileWidth, height: layout.rowAHeight, gridSize: layout.gridSize)
             Spacer().frame(width: 8)
             riffWalkStrip(idx, line, accent, width: layout.walkWidth, height: layout.rowAHeight)
         }
@@ -4579,27 +4586,40 @@ struct EuclideousPage: View {
         let every = line.riffAdvanceEveryResolved
         return riffBandFrame(dim: !isRiff) {
             HStack(spacing: 0) {
-                HStack(spacing: 4) {   // §1.5: three directions across L, over the toggle
+                HStack(spacing: 3) {   // §1.5: three directions 34 wide, 3 apart (x4..112)
                     riffDirectionButton(idx, line, accent, kind: .backward, dir: .reverse)
                     riffDirectionButton(idx, line, accent, kind: .pingpong, dir: .pingpong)
                     riffDirectionButton(idx, line, accent, kind: .forward, dir: .forward)
                 }
-                .frame(width: layout.toggleWidth)
+                .frame(width: 3 * layout.directionButtonWidth + 2 * 3)
                 Spacer().frame(width: 8)
-                melodyStepper("ADVANCE EVERY", value: every, range: 1...8, width: layout.advanceEveryWidth, help: "The riff moves once every this many hits (or steps)", lane: idx, outline: lockOn(idx, .advanceEvery)) { v in edit(idx) { $0.riffAdvanceEvery = v } }
-                    .frame(width: layout.advanceEveryWidth)
-                    .accessibilityElement(children: .ignore).accessibilityLabel("Advance every")
-                    .accessibilityValue(lockSpoken(idx, .advanceEvery, "\(every) \(line.riffAdvanceStepResolved ? (every == 1 ? "step" : "steps") : (every == 1 ? "hit" : "hits"))"))
-                    .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { $0.riffAdvanceEvery = min(8, every + 1) }; case .decrement: edit(idx) { $0.riffAdvanceEvery = max(1, every - 1) }; @unknown default: break } }
-                Spacer().frame(width: 4)
-                riffHitStepControl(idx, line, accent, every: every).frame(width: layout.hitStepWidth)
-                Spacer().frame(width: 4)
-                melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: layout.strideWidth, help: "How many riff steps to move per note", lane: idx, outline: lockOn(idx, .stride)) { v in edit(idx) { $0.riffStride = v } }
+                riffAdvanceEveryTile(idx, line, accent, every: every).frame(width: layout.advanceEveryWidth)   // §4.2 EVERY + HIT|STEP under one key
+                Spacer().frame(width: 8)
+                melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: layout.strideWidth, help: "How many riff steps to move per note", lane: idx, outline: lockOn(idx, .stride), keyOverValue: true) { v in edit(idx) { $0.riffStride = v } }
                     .frame(width: layout.strideWidth)
                     .accessibilityElement(children: .ignore).accessibilityLabel("Stride").accessibilityValue(lockSpoken(idx, .stride, "\(line.riffStrideResolved)"))
                     .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { $0.riffStride = min(7, line.riffStrideResolved + 1) }; case .decrement: edit(idx) { $0.riffStride = max(1, line.riffStrideResolved - 1) }; @unknown default: break } }
             }
         }
+    }
+    /// RIFF v3 §4.2: ADVANCE EVERY as one tile (steppers' fill, radius 10, 4 pt pad) — the key line "ADVANCE EVERY" full width on top, then the EVERY chevron-value-chevron group (54 wide, no key) + HIT|STEP (its own darker container) filling the rest.
+    private func riffAdvanceEveryTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, every: Int) -> some View {
+        return VStack(spacing: 2) {
+            Text("ADVANCE EVERY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1)
+                .frame(maxWidth: .infinity).accessibilityHidden(true)
+            HStack(spacing: 4) {
+                melodyStepper("ADVANCE EVERY", value: every, range: 1...8, width: 54, showLabel: false, lane: idx, outline: lockOn(idx, .advanceEvery)) { v in edit(idx) { $0.riffAdvanceEvery = v } }
+                    .frame(width: 54)
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Advance every")
+                    .accessibilityValue(lockSpoken(idx, .advanceEvery, "\(every) \(line.riffAdvanceStepResolved ? (every == 1 ? "step" : "steps") : (every == 1 ? "hit" : "hits"))"))
+                    .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { $0.riffAdvanceEvery = min(8, every + 1) }; case .decrement: edit(idx) { $0.riffAdvanceEvery = max(1, every - 1) }; @unknown default: break } }
+                riffHitStepControl(idx, line, accent, every: every)
+            }
+        }
+        .padding(4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x2A2D34)))
+        .euclideousHelp("The riff moves once every this many hits (or steps)")
     }
     /// RIFF v2 §4.3: HIT | STEP as one segmented control — a #2A2D34 container (radius 10, 3 pt inset), two segments 3 apart (radius 8). Selected = lane20/lane100; writes `riffAdvanceStep`; labels HIT/STEP at EVERY 1, HITS/STEPS at 2–8.
     private func riffHitStepControl(_ idx: Int, _ line: EuclidLine, _ accent: Color, every: Int) -> some View {
@@ -4611,7 +4631,7 @@ struct EuclideousPage: View {
         }
         .padding(3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x2A2D34)))
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1B1C21)))   // §4.2: a shade darker than the tile
     }
     private func riffHitStepSegment(_ idx: Int, label: String, selected: Bool, accent: Color, a11y: String, outline: Bool, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced))
@@ -4635,15 +4655,15 @@ struct EuclideousPage: View {
         let w = layout.notesCellWidth
         return riffBandFrame(dim: !isRiff) {
             HStack(spacing: 4) {
-                melodyStepper("LEN", value: n, range: 1...cols, width: w, help: "How many riff columns, from SHIFT, the walk loops over", lane: idx, outline: lockOn(idx, .length)) { v in edit(idx) { euclideousSetRiffLength(&$0, v) } }
+                melodyStepper("LEN", value: n, range: 1...cols, width: w, help: "How many riff columns, from SHIFT, the walk loops over", lane: idx, outline: lockOn(idx, .length), keyOverValue: true) { v in edit(idx) { euclideousSetRiffLength(&$0, v) } }
                     .frame(width: w)
                     .accessibilityElement(children: .ignore).accessibilityLabel("Length").accessibilityValue(lockSpoken(idx, .length, "\(n)"))
                     .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { euclideousSetRiffLength(&$0, min(cols, n + 1)) }; case .decrement: edit(idx) { euclideousSetRiffLength(&$0, max(1, n - 1)) }; @unknown default: break } }
-                melodyStepper("SHIFT", value: shift, range: 0...(cols - 1), width: w, help: "Which riff column the walk starts reading from, wrapping at \(cols)", wraps: true, lane: idx, outline: lockOn(idx, .shift)) { v in edit(idx) { euclideousSetRiffShift(&$0, v, columns: cols) } }
+                melodyStepper("SHIFT", value: shift, range: 0...(cols - 1), width: w, help: "Which riff column the walk starts reading from, wrapping at \(cols)", wraps: true, lane: idx, outline: lockOn(idx, .shift), keyOverValue: true) { v in edit(idx) { euclideousSetRiffShift(&$0, v, columns: cols) } }
                     .frame(width: w)
                     .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityHint("Which riff column the walk starts reading from, wrapping at \(cols)").accessibilityValue(lockSpoken(idx, .shift, "\(shift)"))
                     .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { euclideousSetRiffShift(&$0, (shift + 1) % cols, columns: cols) }; case .decrement: edit(idx) { euclideousSetRiffShift(&$0, (shift + cols - 1) % cols, columns: cols) }; @unknown default: break } }
-                melodyStepper("TRANS", value: line.melodyTransposeResolved, range: -7...7, width: w, help: "Shift every riff note up or down the pool", lane: idx, outline: lockOn(idx, .transpose)) { v in edit(idx) { $0.melodyTranspose = v } }
+                melodyStepper("TRANS", value: line.melodyTransposeResolved, range: -7...7, width: w, help: "Shift every riff note up or down the pool", lane: idx, outline: lockOn(idx, .transpose), keyOverValue: true) { v in edit(idx) { $0.melodyTranspose = v } }
                     .frame(width: w)
                     .accessibilityElement(children: .ignore).accessibilityLabel("Transpose").accessibilityValue(lockSpoken(idx, .transpose, euclideousSigned(line.melodyTransposeResolved)))
                     .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { $0.melodyTranspose = min(7, line.melodyTransposeResolved + 1) }; case .decrement: edit(idx) { $0.melodyTranspose = max(-7, line.melodyTransposeResolved - 1) }; @unknown default: break } }

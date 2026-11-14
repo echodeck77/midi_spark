@@ -4889,9 +4889,9 @@ func euclideousPageFloors(box: CGSize, laneBox: CGSize? = nil, stripWidth: CGFlo
     let contentH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: lane.height)
     if contentH < EuclideousLaneCardMetrics.rhythmZonesFloor { out.append(.rhythmZones) }
     let r = euclideousRiffTabLayout(contentAreaH: contentH, fullWidth: EuclideousLaneCardMetrics.innerWidth(cardWidth: lane.width))
-    if r.rowAUnderFloor { out.append(.riffRowA) }                       // RIFF v2 §1.8: Row A < 60
-    if r.directionButtonUnderFloor { out.append(.riffDirectionButtons) } // direction button < 36
-    if r.bandControlUnderFloor { out.append(.riffBandControl) }          // a MOVE-band control < 56
+    if r.rowAUnderFloor || r.tileUnderFloor { out.append(.riffRowA) }    // RIFF v3 §1.8: Row A < 71 or tile < 60
+    if r.directionButtonUnderFloor { out.append(.riffDirectionButtons) } // direction button < 32
+    if r.advanceEveryUnderFloor || r.strideUnderFloor || r.walkColumnUnderFloor { out.append(.riffBandControl) }  // ADVANCE EVERY < 160, STRIDE < 56, or walk col @16 < 12
     if r.notesCellUnderFloor { out.append(.riffNotesCell) }             // a NOTES cell < 72
     // RESETS TAB §1.7/§1.8: the restart controls now live on the card, not the overlay editor — report when row 1 doesn't fit (TW < 262) or even §1.7's shortest case can't (the body is too short); nothing shrinks.
     let resets = euclideousResetsCardLayout(size: CGSize(width: EuclideousLaneCardMetrics.innerWidth(cardWidth: lane.width), height: contentH))
@@ -6637,81 +6637,116 @@ func euclideousRiffReadoutText(_ r: EuclideousRiffReadout?, overBudget: Bool) ->
 /// `euclideousPageFloors`. `directionButtonWidth`'s floor is also now genuinely reachable (see below).
 /// RIFF v2 ferry (2026-11-05) §1.8: the regrouped tab's floors (flags, never clamps).
 enum EuclideousRiffTabFloors {
-    static let rowAHeight: CGFloat = 60, directionButtonWidth: CGFloat = 36, bandControlWidth: CGFloat = 56, notesCellWidth: CGFloat = 72
+    // RIFF v3 ferry (2026-11-14) §1.8: the regrouped floors (flags, never clamp).
+    static let rowAHeight: CGFloat = 71, tileWidth: CGFloat = 60, directionButtonWidth: CGFloat = 32
+    static let advanceEveryWidth: CGFloat = 160, strideWidth: CGFloat = 56, notesCellWidth: CGFloat = 72, walkColumnWidth: CGFloat = 12
 }
 /// RIFF v2 ferry (2026-11-05) §1: four rows 6 apart — Row A (riff toggle + WALK), the MOVE band, the NOTES band, the output row. Every frame comes from W (body width) and H (body height); every value is reported, nothing shrinks
 /// below the §1.8 floors. x are from the body's leading edge; the bands' frames span x0..W, everything else insets 4 (§1.2). The fixed left column L = 124 holds the riff toggle (Row A) and the three direction buttons (MOVE band) at one width;
 /// the right column starts at `rightColumnStartX` = 4 + L + 8 = 136, so the WALK strip and the ADVANCE EVERY stepper line up (§1.3).
+/// RIFF v3 ferry (2026-11-14): Row A = a small tile (the riff toggle, §2) + the WALK rank grid (§3); the MOVE band = three
+/// direction buttons + one merged ADVANCE EVERY tile (§4.2) + STRIDE; the NOTES band + output row unchanged in shape. The tile's
+/// mini-grid and the walk grid SHARE the vertical geometry (§1.4) so their 8 rows sit at identical y. x are body-local (leading edge).
 struct EuclideousRiffTabLayout: Equatable {
-    var rowAHeight: CGFloat          // §1.1 H − 3·6 − (52 + 52 + 38)
-    var bandHeight: CGFloat          // 52
+    var rowAHeight: CGFloat          // §1.1 H − 3·6 − (2·49 + 38) = H − 154
+    var bandHeight: CGFloat          // §1.1 49 (from 52)
     var outputRowHeight: CGFloat     // 38
     var rowGap: CGFloat              // 6
     var contentInset: CGFloat        // 4 (§1.2)
-    var toggleWidth: CGFloat         // §1.3 L = 124
-    var rightColumnStartX: CGFloat   // §1.3 136 (body-local) — WALK's and ADVANCE EVERY's left edge
-    var walkWidth: CGFloat           // §1.4 W − 140 (the WALK strip fills Row A's right column, the full row height)
-    var directionButtonWidth: CGFloat   // §1.5 (L − 2·4)/3 = 38.67
-    var advanceEveryWidth: CGFloat      // §1.5 the MOVE band's right controls, split 1.15 : 1.3 : 1
-    var hitStepWidth: CGFloat
-    var strideWidth: CGFloat
+    var tileWidth: CGFloat           // §1.3 T = 67
+    var walkX: CGFloat               // §1.3 4 + T + 8 = 79 (body-local) — the WALK strip's left edge
+    var walkWidth: CGFloat           // §1.3 (W − 4) − 79 = W − 83
+    var directionButtonWidth: CGFloat   // §1.5 34
+    var advanceEveryX: CGFloat       // §1.5 120
+    var advanceEveryWidth: CGFloat   // §1.5 168 (one merged tile: EVERY + HIT|STEP under one key)
+    var strideX: CGFloat             // §1.5 296
+    var strideWidth: CGFloat         // §1.5 (W − 4) − 296 = W − 300
     var notesCellWidth: CGFloat      // §1.6 (innerW − 3·4)/4
-    var miniGridSize: CGFloat        // §2.2 8×8 at 5.4 square, 1.4 apart → 53; shrunk per §2.3 if Row A is short
-    var miniGridCell: CGFloat        // 5.4 (never below 4.6, §2.3)
-    var miniGridGap: CGFloat         // 1.4
+    // §1.4 the grid geometry shared by the tile (§2.2) and the walk (§3.2): 8 cells 5.6 square, 1.4 apart (54.6); grid top 4 below Row A's top; a 10 pt label line 2 below the grid.
+    var gridCell: CGFloat            // 5.6
+    var gridGap: CGFloat             // 1.4
+    var gridSize: CGFloat            // 54.6
+    var gridTop: CGFloat             // 4
+    var labelTop: CGFloat            // gridTop + gridSize + 2 = 60.6
+    var labelHeight: CGFloat         // 10
+    var walkColumnWidthAt16: CGFloat // §1.8 the walk column width at n = 16 (for the floor flag)
     // band / row tops, body-local (§1.1)
     var moveBandTop: CGFloat         // rowAH + 6
-    var notesBandTop: CGFloat        // rowAH + 6 + 52 + 6
-    var outputRowTop: CGFloat        // rowAH + 2·(52 + 6)
-    // §1.8 floors
+    var notesBandTop: CGFloat        // rowAH + 6 + 49 + 6
+    var outputRowTop: CGFloat        // rowAH + 2·49 + 3·6
+    // §1.8 floors (flags only)
     var rowAUnderFloor: Bool
+    var tileUnderFloor: Bool
     var directionButtonUnderFloor: Bool
-    var bandControlUnderFloor: Bool
+    var advanceEveryUnderFloor: Bool
+    var strideUnderFloor: Bool
     var notesCellUnderFloor: Bool
+    var walkColumnUnderFloor: Bool
     var underFloor: Bool
 }
 func euclideousRiffTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGFloat = 4) -> EuclideousRiffTabLayout {
     typealias F = EuclideousRiffTabFloors
     let H = max(1, contentAreaH), W = max(1, fullWidth)
     let rowGap: CGFloat = 6                                  // §1.1 rows 6 apart
-    let bandHeight: CGFloat = 52
+    let bandHeight: CGFloat = 49                             // §1.1 (from 52)
     let outputRowHeight: CGFloat = 38
-    let rowAHeight = max(1, H - 3 * rowGap - (2 * bandHeight + outputRowHeight))   // §1.1 Row A takes the rest
+    let rowAHeight = max(1, H - 3 * rowGap - (2 * bandHeight + outputRowHeight))   // §1.1 Row A = H − 154
     let contentInset: CGFloat = 4                           // §1.2
     let innerW = max(1, W - 2 * contentInset)               // x4 .. W−4
-    let L: CGFloat = 124                                    // §1.3 the fixed left column
     let gap8: CGFloat = 8
-    let rightColumnStartX = contentInset + L + gap8         // §1.3 = 136
-    let rightRegionW = max(1, (W - contentInset) - rightColumnStartX)   // x136 .. W−4
-    let walkWidth = rightRegionW                            // §1.4
-    let directionButtonWidth = max(1, (L - 2 * sp4) / 3)    // §1.5 three across L
-    let splittable = max(1, rightRegionW - 2 * sp4)         // §1.5 after the two gaps
-    let wSum: CGFloat = 1.15 + 1.3 + 1.0
-    let advanceEveryWidth = splittable * 1.15 / wSum
-    let hitStepWidth       = splittable * 1.3  / wSum
-    let strideWidth        = splittable * 1.0  / wSum
-    let notesCellWidth = max(1, (innerW - 3 * sp4) / 4)     // §1.6 four equal cells
-    // §2.2 / §2.3: the mini-grid is 8×8 at 5.4 square, 1.4 apart (53), centred in Row A with ≥ 4 pt above and below; if Row A is short it shrinks to fit, never below 4.6 pt cells (then it overflows and is reported).
-    let miniGap: CGFloat = 1.4
-    let fullGrid: CGFloat = 8 * 5.4 + 7 * miniGap          // 53
-    let availForGrid = max(1, rowAHeight - 8)
-    let targetGrid = min(fullGrid, availForGrid)
-    let miniGridCell = max(4.6, (targetGrid - 7 * miniGap) / 8)
-    let miniGridSize = 8 * miniGridCell + 7 * miniGap
+    let T: CGFloat = 67                                     // §1.3 the tile width
+    let walkX = contentInset + T + gap8                    // §1.3 = 79
+    let walkWidth = max(1, (W - contentInset) - walkX)     // §1.3 = W − 83
+    let directionButtonWidth: CGFloat = 34                 // §1.5
+    let directionsEnd = contentInset + 3 * directionButtonWidth + 2 * 3   // §1.5 x4 .. 112
+    let advanceEveryX = directionsEnd + gap8               // §1.5 = 120
+    let advanceEveryWidth: CGFloat = 168                   // §1.5 one merged tile
+    let strideX = advanceEveryX + advanceEveryWidth + gap8 // §1.5 = 296
+    let strideWidth = max(1, (W - contentInset) - strideX) // §1.5 = W − 300
+    let notesCellWidth = max(1, (innerW - 3 * sp4) / 4)    // §1.6 four equal cells
+    // §1.4 shared grid geometry (tile + walk): 8 cells 5.6 square, 1.4 apart; grid top 4 below Row A; 10 pt label line 2 below.
+    let gridCell: CGFloat = 5.6, gridGap: CGFloat = 1.4
+    let gridSize = 8 * gridCell + 7 * gridGap              // 54.6
+    let gridTop: CGFloat = 4
+    let labelTop = gridTop + gridSize + 2                  // 60.6
+    let labelHeight: CGFloat = 10
+    // §1.8 the walk's column width at n = 16 (6 pt in each side, 2.5 apart, capped at 34) — for the floor flag only.
+    let walkInnerW = max(1, walkWidth - 12)
+    let walkColumnWidthAt16 = min(34, max(0.5, (walkInnerW - 15 * 2.5) / 16))
     let rowAUnderFloor = rowAHeight < F.rowAHeight
+    let tileUnderFloor = T < F.tileWidth
     let directionButtonUnderFloor = directionButtonWidth < F.directionButtonWidth
-    let bandControlUnderFloor = min(advanceEveryWidth, min(hitStepWidth, strideWidth)) < F.bandControlWidth
+    let advanceEveryUnderFloor = advanceEveryWidth < F.advanceEveryWidth
+    let strideUnderFloor = strideWidth < F.strideWidth
     let notesCellUnderFloor = notesCellWidth < F.notesCellWidth
-    let underFloor = rowAUnderFloor || directionButtonUnderFloor || bandControlUnderFloor || notesCellUnderFloor
+    let walkColumnUnderFloor = walkColumnWidthAt16 < F.walkColumnWidth
+    let underFloor = rowAUnderFloor || tileUnderFloor || directionButtonUnderFloor || advanceEveryUnderFloor || strideUnderFloor || notesCellUnderFloor || walkColumnUnderFloor
     return EuclideousRiffTabLayout(rowAHeight: rowAHeight, bandHeight: bandHeight, outputRowHeight: outputRowHeight,
-                                   rowGap: rowGap, contentInset: contentInset, toggleWidth: L, rightColumnStartX: rightColumnStartX,
-                                   walkWidth: walkWidth, directionButtonWidth: directionButtonWidth,
-                                   advanceEveryWidth: advanceEveryWidth, hitStepWidth: hitStepWidth, strideWidth: strideWidth,
-                                   notesCellWidth: notesCellWidth, miniGridSize: miniGridSize, miniGridCell: miniGridCell, miniGridGap: miniGap,
+                                   rowGap: rowGap, contentInset: contentInset, tileWidth: T, walkX: walkX, walkWidth: walkWidth,
+                                   directionButtonWidth: directionButtonWidth, advanceEveryX: advanceEveryX, advanceEveryWidth: advanceEveryWidth,
+                                   strideX: strideX, strideWidth: strideWidth, notesCellWidth: notesCellWidth,
+                                   gridCell: gridCell, gridGap: gridGap, gridSize: gridSize, gridTop: gridTop, labelTop: labelTop, labelHeight: labelHeight,
+                                   walkColumnWidthAt16: walkColumnWidthAt16,
                                    moveBandTop: rowAHeight + rowGap, notesBandTop: rowAHeight + rowGap + bandHeight + rowGap,
                                    outputRowTop: rowAHeight + 2 * bandHeight + 3 * rowGap,
-                                   rowAUnderFloor: rowAUnderFloor, directionButtonUnderFloor: directionButtonUnderFloor,
-                                   bandControlUnderFloor: bandControlUnderFloor, notesCellUnderFloor: notesCellUnderFloor, underFloor: underFloor)
+                                   rowAUnderFloor: rowAUnderFloor, tileUnderFloor: tileUnderFloor, directionButtonUnderFloor: directionButtonUnderFloor,
+                                   advanceEveryUnderFloor: advanceEveryUnderFloor, strideUnderFloor: strideUnderFloor,
+                                   notesCellUnderFloor: notesCellUnderFloor, walkColumnUnderFloor: walkColumnUnderFloor, underFloor: underFloor)
+}
+
+/// RIFF v3 ferry (2026-11-14) §3.2: the walk grid's horizontal geometry — one column per walk entry, 6 pt in from each side of the strip, `w = min((inner − (n−1)·2.5)/n, 34)` wide, 2.5 apart, left-aligned; any spare stays empty at the trailing end.
+struct EuclideousRiffWalkGrid: Equatable {
+    var columnWidth: CGFloat
+    var xs: [CGFloat]          // n leading-edge x, from the strip's leading edge (already past the 6 pt pad)
+    var pad: CGFloat           // 6 — the inset from each side of the strip
+}
+func euclideousRiffWalkGrid(n: Int, innerWidth: CGFloat) -> EuclideousRiffWalkGrid {
+    let pad: CGFloat = 6, gap: CGFloat = 2.5
+    let count = max(1, n)
+    let usable = max(1, innerWidth - 2 * pad)
+    let w = min(34, max(0.5, (usable - CGFloat(count - 1) * gap) / CGFloat(count)))
+    let xs = (0..<count).map { pad + CGFloat($0) * (w + gap) }
+    return EuclideousRiffWalkGrid(columnWidth: w, xs: xs, pad: pad)
 }
 
 /// A Euclideous lane's step length, step count and lap length exactly as `Router.runEuclidLine` derives them — a lane borrowing
