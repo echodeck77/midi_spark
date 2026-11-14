@@ -657,8 +657,8 @@ enum EuclideousLaneTab: Int, CaseIterable {
     // not added alongside); `EuclidLine.mask`/`EuclidLineMask`/`runEuclidLine`'s own mask-application code
     // are all untouched, just never reachable from the UI and never fed a genuinely-enabled mask by the
     // one call site that used to (see Router.swift's own call-site comment).
-    case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, resets = 5, fill = 7   // ANSWER FERRY: POOL joined, LISTEN is ANSWER on screen (the case keeps its code name); RESETS added 2026-11-11, FILL 2026-11-13 (rawValue 7, past MIX's 6); coupled by raw value with EuclideousTabKind / EuclideousPageTab
-    var label: String { switch self { case .rhythm: "EUCLID"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "INPUTS"; case .listen: "ANSWER"; case .resets: "RESETS"; case .fill: "FILL" } }   // RHYTHM → EUCLID / POOL → INPUTS on screen (Paul 2026-11-08 / 2026-11-05)
+    case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, resets = 5, fill = 7, alt = 8   // ANSWER FERRY: POOL joined, LISTEN is ANSWER on screen (the case keeps its code name); RESETS added 2026-11-11, FILL 2026-11-13, ALT 2026-11-14 (rawValues 7, 8 past MIX's 6); coupled by raw value with EuclideousTabKind / EuclideousPageTab
+    var label: String { switch self { case .rhythm: "EUCLID"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "INPUTS"; case .listen: "ANSWER"; case .resets: "RESETS"; case .fill: "FILL"; case .alt: "ALT" } }   // RHYTHM → EUCLID / POOL → INPUTS on screen (Paul 2026-11-08 / 2026-11-05)
 }
 
 /// STACK BREAK (2026-10-25, crash `FourfoldAU-2026-10-25-213535.ips`): the extension's main thread has a 1 MB stack and building the page eagerly nests
@@ -3131,12 +3131,177 @@ struct EuclideousPage: View {
             EuclideousStackBreak { AnyView(resetsTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)) }
         case .fill:
             fillTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
+        case .alt:
+            // ALT tab (2026-11-14): UNIT row, cycle strip, then a RIFF band and a STACK band, each with four override pills (OUT/OCT/VEL/GATE). Wrapped in EuclideousStackBreak (new views on the 1 MB extension stack).
+            EuclideousStackBreak { AnyView(altTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)) }
         }
     }
     /// FILL tab (Paul 2026-11-13): the FILL block — moved off the EUCLID tab's cramped lower-right half — now gets the whole lane-card content area, much more spacious. `euclideousFillBlockLayout` is box-relative, so the tiles scale up to fill it.
     private func fillTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         fillBlock(idx, line, accent, box: CGSize(width: fullWidth, height: contentAreaH))
             .frame(width: fullWidth, height: contentAreaH, alignment: .top)
+    }
+
+    // MARK: - ALT tab (ferry 2026-11-14) §4–6
+
+    /// ALT §4.2/§5: the tab's card body — UNIT row, cycle strip, then a RIFF band and a STACK band, each with four override pills (OUT/OCT/VEL/GATE). `euclideousAltCardLayout` gives every frame (body coordinates); the controls are editor-style
+    /// views, each edit one undo step (§6). The cycle strip's live current cell + the lane-strip alt marks (§5.9) ride a later slice. VoiceOver groups the card as "Lane N alt" (§8.1).
+    private func altTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
+        let L = euclideousAltCardLayout(size: CGSize(width: fullWidth, height: contentAreaH))
+        return ZStack(alignment: .topLeading) {
+            altUnitRow(idx, line, accent, L: L)
+            EuclideousAltCycleStrip(main: line.altMainCountResolved, alt: line.altAltCountResolved, current: -1, accent: accent, frame: L.cycleStrip)
+            altBandView(idx, line, accent, notes: false, f: L.riff)
+            altBandView(idx, line, accent, notes: true, f: L.stack)
+        }
+        .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Lane \(idx + 1) alt")   // §8.1
+    }
+
+    /// §5.2 — the UNIT row: a grouped panel holding the 4-segment UNIT control (STEP · HIT · BAR · PASS) and the MAIN / ALT count steppers.
+    private func altUnitRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, L: EuclideousAltCardLayout) -> some View {
+        let units: [(EuclideousAltUnit, String)] = [(.step, "STEP"), (.hit, "HIT"), (.bar, "BAR"), (.pass, "PASS")]
+        let sel = line.altUnitResolved
+        return ZStack(alignment: .topLeading) {
+            riffBandFrame(dim: false) { Color.clear }.frame(width: L.unitPanel.width, height: L.unitPanel.height).offset(x: L.unitPanel.minX, y: L.unitPanel.minY)
+            ForEach(Array(units.enumerated()), id: \.offset) { i, u in
+                altUnitSegment(u.1, selected: sel == u.0, accent: accent, frame: L.unitSegments[i]) { edit(idx) { $0.altUnit = u.0 } }   // §6.1
+            }
+            altCountStepper("MAIN", value: line.altMainCountResolved, accent: accent, frame: L.mainStepper) { v in edit(idx) { $0.altMainCount = UInt8(max(1, min(16, v))) } }   // §6.2
+            altCountStepper("ALT", value: line.altAltCountResolved, accent: accent, frame: L.altStepper) { v in edit(idx) { $0.altAltCount = UInt8(max(1, min(16, v))) } }
+        }
+    }
+    private func altUnitSegment(_ label: String, selected: Bool, accent: Color, frame: CGRect, _ tap: @escaping () -> Void) -> some View {
+        let ink: Color = selected ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)
+        let fill: Color = selected ? lane20(accent) : Color.clear
+        let border: Color = selected ? lane100(accent) : Color.clear
+        return Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(ink)
+            .frame(width: frame.width, height: frame.height)
+            .background(RoundedRectangle(cornerRadius: 8).fill(fill)).overlay(RoundedRectangle(cornerRadius: 8).stroke(border, lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { tap() }.offset(x: frame.minX, y: frame.minY)
+            .accessibilityElement(children: .ignore).accessibilityLabel(label.capitalized).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)   // §8.2
+    }
+    /// §5.2 — a MAIN / ALT stepper (ADVANCE-style): a 7.5 pt label over a 14 pt value, ‹ / › at the edges, left half −1 / right half +1, clamped 1…16.
+    private func altCountStepper(_ label: String, value: Int, accent: Color, frame: CGRect, _ onChange: @escaping (Int) -> Void) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
+            HStack(spacing: 0) {
+                Text("‹").font(.system(size: 13, weight: .heavy)).foregroundColor(Color(hex: value > 1 ? 0x8A909A : 0x4A4E57)).frame(width: 18)
+                VStack(spacing: 2) {
+                    Text(label).font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(Color(hex: 0x8A909A))
+                    Text("\(value)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                }.frame(maxWidth: .infinity)
+                Text("›").font(.system(size: 13, weight: .heavy)).foregroundColor(Color(hex: value < 16 ? 0x8A909A : 0x4A4E57)).frame(width: 18)
+            }
+        }
+        .frame(width: frame.width, height: frame.height).contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0).onEnded { g in if g.location.x < frame.width / 2 { onChange(value - 1) } else { onChange(value + 1) } })   // iOS 15: read the tap's half via a 0-distance drag (onTapGesture's location form is iOS 17)
+        .offset(x: frame.minX, y: frame.minY)
+        .accessibilityElement(children: .ignore).accessibilityLabel("\(label.capitalized) count").accessibilityValue("\(value)")
+        .accessibilityAdjustableAction { onChange(value + ($0 == .increment ? 1 : -1)) }   // §8.3
+    }
+
+    /// §5.4 — one band (RIFF or STACK). The grouped panel, the part tile, then OUT · tokens · OCT · OCT-boxes over VEL · VEL-slider · GATE · GATE-slider. Each pill is its setting's label + switch (§6.3); the controls are read-only while the pill is off (§6.4).
+    private func altBandView(_ idx: Int, _ line: EuclidLine, _ accent: Color, notes: Bool, f: EuclideousAltBandFrames) -> some View {
+        let part = line.altPart(notes: notes)
+        let partName = notes ? "STACK" : "RIFF", spoken = notes ? "Stack" : "Riff"
+        let mainOct = notes ? line.octaveResolved : line.riffOctaveResolved
+        let mainVel = notes ? line.notesVelocityResolved : line.velocityAbsoluteResolved
+        let mainGate = euclideousMixSliderValue(of: line, kind: .gate, notes: notes)
+        return ZStack(alignment: .topLeading) {
+            riffBandFrame(dim: false) { Color.clear }.frame(width: f.panel.width, height: f.panel.height).offset(x: f.panel.minX, y: f.panel.minY)
+            // the part tile (PLAY-tile look, no lamp)
+            ZStack {
+                RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)).overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
+                Text(partName).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(Color(hex: 0xF2F4F7))
+            }.frame(width: f.partTile.width, height: f.partTile.height).offset(x: f.partTile.minX, y: f.partTile.minY)
+            // row 1 — OUT pill · tokens · OCT pill · OCT boxes
+            EuclideousAltPill(label: "OUT", on: part.outActive, accent: accent, frame: f.outPill, axLabel: "\(spoken) out override, \(part.outActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .out) }
+            altTokenRow(idx, notes: notes, altMask: part.outValue ?? 0, mainMask: notes ? line.notesOutMaskResolved(lane: idx) : line.riffOutMaskResolved(lane: idx), on: part.outActive, accent: accent, frame: f.tokens)
+            EuclideousAltPill(label: "OCT", on: part.octActive, accent: accent, frame: f.octPill, axLabel: "\(spoken) octave override, \(part.octActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .oct) }
+            altOctControl(idx, notes: notes, alt: part.octValue ?? mainOct, main: mainOct, on: part.octActive, accent: accent, frame: f.octBoxes)
+            // row 2 — VEL pill · VEL slider · GATE pill · GATE slider
+            EuclideousAltPill(label: "VEL", on: part.velActive, accent: accent, frame: f.velPill, axLabel: "\(spoken) velocity override, \(part.velActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .vel) }
+            EuclideousAltSliderTile(main: mainVel, value: part.velValue ?? mainVel, range: 1...127, gate: false, on: part.velActive, accent: accent, frame: f.velSlider,
+                                    axLabel: part.velActive ? "\(spoken) alt velocity, \(part.velValue ?? mainVel), main \(mainVel)" : "\(spoken) velocity, main \(mainVel)",
+                                    onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { $0.vel = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.vel = mainVel } })
+            EuclideousAltPill(label: "GATE", on: part.gateActive, accent: accent, frame: f.gatePill, axLabel: "\(spoken) gate override, \(part.gateActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .gate) }
+            EuclideousAltSliderTile(main: mainGate, value: part.gateValue ?? mainGate, range: 1...99, gate: true, on: part.gateActive, accent: accent, frame: f.gateSlider,
+                                    axLabel: part.gateActive ? "\(spoken) alt gate, \(part.gateValue ?? mainGate) percent, main \(mainGate)" : "\(spoken) gate, main \(mainGate) percent",
+                                    onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { $0.gate = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.gate = mainGate } })
+        }
+    }
+    /// §5.7 — the four emitter tokens A–D; a token in the alt set takes the lit look; each MAIN-mask emitter carries a pip below it. All unlit at 38 % while the pill is off (§5.8); a tap toggles the bit while on (§6.5).
+    private func altTokenRow(_ idx: Int, notes: Bool, altMask: UInt8, mainMask: UInt8, on: Bool, accent: Color, frame: CGRect) -> some View {
+        let n = 4, gap: CGFloat = 3, d: CGFloat = 28
+        let step = (frame.width - CGFloat(n - 1) * gap) / CGFloat(n)
+        return ZStack(alignment: .topLeading) {
+            ForEach(0..<n, id: \.self) { i in
+                let bit = UInt8(1) << UInt8(i)
+                let lit = on && (altMask & bit != 0)
+                let x = CGFloat(i) * (step + gap) + (step - d) / 2
+                ZStack {
+                    EuclideousPartOutDiscArt(letter: euclideousJackLetters[i], on: lit, accent: accent, diameter: d).opacity(on ? 1 : 0.38)
+                    if mainMask & bit != 0 { EuclideousAltPip().offset(y: d / 2 + 4) }   // §5.6 the main mark, 2 below the token (centred)
+                }
+                .frame(width: d, height: frame.height, alignment: .top)
+                .contentShape(Rectangle())
+                .onTapGesture { if on { altPartEdit(idx, notes: notes) { $0.out = (($0.out ?? 0) ^ bit) & 0x0F } } }   // §6.5: toggle the emitter in the alt set (may empty)
+                .offset(x: frame.minX + x, y: frame.minY)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(notes ? "Stack" : "Riff") alt emitter \(euclideousJackLetters[i]), \(lit ? "on" : "off")")
+            }
+        }
+    }
+    /// §5.7 — the five-box OCT selector; the alt value's box is selected (white) while the pill is on, with a pip on the main value's box. Dimmed, non-interactive and unselected while the pill is off (§5.8).
+    @ViewBuilder private func altOctControl(_ idx: Int, notes: Bool, alt: Int, main: Int, on: Bool, accent: Color, frame: CGRect) -> some View {
+        let boxW = frame.width / 5, mainIdx = max(-2, min(2, main)) + 2
+        ZStack(alignment: .topLeading) {
+            if on {
+                EuclideousOctaveBoxes(value: alt, size: CGSize(width: frame.width, height: frame.height), targetHeight: frame.height, visualTop: 0, label: "\(notes ? "Stack" : "Riff") alt octave") { v, _ in altPartEdit(idx, notes: notes) { $0.oct = v } }   // §6.5
+            } else {
+                altOctBoxesOff(frame: frame)   // §5.8: dim, no selection
+            }
+            // §5.6 the main mark, on its box, 3 above the bottom edge (ink darker on the white selected box)
+            EuclideousAltPip(onWhite: on && alt == max(-2, min(2, main))).offset(x: CGFloat(mainIdx) * boxW + boxW / 2 - 2, y: frame.height - 3 - 4)
+        }
+        .frame(width: frame.width, height: frame.height, alignment: .topLeading).offset(x: frame.minX, y: frame.minY)
+    }
+    private func altOctBoxesOff(frame: CGRect) -> some View {
+        let boxW = frame.width / 5
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x30333A).opacity(0.6), lineWidth: 1)
+            ForEach(0..<5, id: \.self) { i in
+                Text(euclideousOctLabels[i]).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA).opacity(0.45))
+                    .frame(width: boxW, height: frame.height).offset(x: CGFloat(i) * boxW)
+            }
+        }.frame(width: frame.width, height: frame.height)
+    }
+
+    // MARK: ALT edits (§6) — each one undo step
+
+    private enum AltField { case out, oct, vel, gate }
+    /// §6.3 — toggle an override's pill. Turning it on with no stored value copies the part's CURRENT main value first, so nothing sounds different until the alt is edited; turning it off keeps the value.
+    private func altTogglePill(_ idx: Int, notes: Bool, _ which: AltField) {
+        guard idx >= 0, idx < lines.count else { return }
+        let line = lines[idx]
+        altPartEdit(idx, notes: notes) { p in
+            switch which {
+            case .out:  let on = !(p.outOn ?? false);  p.outOn = on;  if on && p.out == nil { p.out = notes ? line.notesOutMaskResolved(lane: idx) : line.riffOutMaskResolved(lane: idx) }
+            case .oct:  let on = !(p.octOn ?? false);  p.octOn = on;  if on && p.oct == nil { p.oct = notes ? line.octaveResolved : line.riffOctaveResolved }
+            case .vel:  let on = !(p.velOn ?? false);  p.velOn = on;  if on && p.vel == nil { p.vel = notes ? line.notesVelocityResolved : line.velocityAbsoluteResolved }
+            case .gate: let on = !(p.gateOn ?? false); p.gateOn = on; if on && p.gate == nil { p.gate = euclideousMixSliderValue(of: line, kind: .gate, notes: notes) }
+            }
+        }
+    }
+    /// Mutate a part's alt overrides (`altRiff` / `altNotes`) as one undo step (`newStep` false coalesces a drag).
+    private func altPartEdit(_ idx: Int, notes: Bool, newStep: Bool = true, _ mutate: @escaping (inout EuclideousAltPart) -> Void) {
+        editStep(idx, newStep) { l in
+            var p = (notes ? l.altNotes : l.altRiff) ?? EuclideousAltPart()
+            mutate(&p)
+            if notes { l.altNotes = p } else { l.altRiff = p }
+        }
     }
 
     /// The 3 DIRECTION buttons, equal width (PATTERN-tab-layout ferry §4: "the three direction buttons
