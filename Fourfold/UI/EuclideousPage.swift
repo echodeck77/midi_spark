@@ -925,6 +925,11 @@ struct EuclideousPage: View {
     // RATCH EXPAND ferry (§1.9): which emitter's config is open (nil = the four collapsed cards). View-state only — a sibling of `sequencerTab`, so it survives a tab switch but never a relaunch, and it is never in the document, undo or presets.
     @State private var ratchExpanded: Int? = nil
     @State private var ccExpanded: Int? = nil   // CC tab (Nov 2026): which emitter's full page is open (nil = the four collapsed rows)
+    // RIFF v3 ferry (2026-11-14) §3.7: the per-lane walk trail (played/skipped/current), its last-seen walk step, and the reset-tick stamp. Display-only view state, driven from the 30 Hz walk poll; never saved, never undone.
+    @State private var walkTrails = [EuclideousRiffWalkTrail](repeating: EuclideousRiffWalkTrail(), count: 4)
+    @State private var walkPrevStep = [Int](repeating: -1, count: 4)
+    @State private var walkTickAt = [Date?](repeating: nil, count: 4)
+    @State private var walkPrevBeat: Double = -1
     // LANES GRID (2026-10-18): the per-lane cache of the roll feed (recomputed only when its inputs or its
     // window change, never per frame). RESTART CHAINS ferry §8: the panel's own MUTE/RESTART sub-tab state
     // (`lanesSubTab`) is retired along with the RESTART view itself — the panel is mute-only now.
@@ -4369,19 +4374,19 @@ struct EuclideousPage: View {
     /// an 11pt label line 8pt below the card's top, the 55.3×55.3 grid (8 cells of 5.6pt, 1.5pt apart)
     /// starting 23pt below the card's top — the grid's OWN size is fixed (cell/gap are literal), not scaled
     /// to fill whatever's left; any remaining height at the bottom is empty.
-    private func riffCard(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat, gridSize: CGFloat) -> some View {
+    private func riffCard(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
         let isRiff = line.riffOnResolved
-        // RIFF v2 §2.2: a wide, short bar — RIFF leading, the mini-grid trailing, one row centred vertically, 12 pt in from each side. (spacing 0 + a single Spacer gap, so "RIFF" keeps the room the toggle's 100 pt inner − 53 grid leaves, rather than losing 8 pt to a doubled gap and truncating to "RI…".)
-        return HStack(spacing: 0) {
-            Text("RIFF").font(.system(size: 10, weight: .heavy, design: .monospaced)).kerning(2)
+        // RIFF v3 §2.2: a small SQUARE tile — the mini-grid on top (its grid top 4 below Row A's top, so its 8 rows line up with the WALK's, §1.4), "RIFF" in the label line below, centred horizontally. No border (§2.1). The tile never dims on riff-off (§2.5).
+        return VStack(spacing: 0) {
+            riffMiniGrid(idx, line, accent, size: layout.gridSize).frame(width: layout.gridSize, height: layout.gridSize)
+                .padding(.top, layout.gridTop)
+            Text("RIFF").font(.system(size: 9, weight: .heavy, design: .monospaced)).kerning(9 * 0.16)   // §2.3: 9 pt heavy, 0.16 em
                 .foregroundColor(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)).lineLimit(1).fixedSize()
-            Spacer(minLength: 8)
-            riffMiniGrid(idx, line, accent, size: gridSize).frame(width: gridSize, height: gridSize)
+                .frame(height: layout.labelHeight).padding(.top, 2)
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 10).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
+        .frame(width: layout.tileWidth, height: layout.rowAHeight)
+        .background(RoundedRectangle(cornerRadius: 10).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))   // §2.1 no border; §2.3 off fill keeps source #2A2D34 (canvas annotated #24262C)
         .contentShape(Rectangle())
         .modifier(laneTapMod(idx) { edit(idx) { $0.riffOn = !($0.riffOnResolved) } })
         .modifier(lockOutlineMod(idx, .riffOn, accent))
@@ -4398,80 +4403,132 @@ struct EuclideousPage: View {
     /// readout, §7.5) over a row of up to 16 cells, one per walk step 0..<P, each showing the column it
     /// reads (or a rest dash), the current step ringed, EVERY pips under the number when EVERY >= 2, and a
     /// column/step this lane never plays dimmed to 42% (§7.6).
-    private func riffWalkStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> some View {
+    /// RIFF v3 §3: the WALK as a rank grid parallel to the tile — n columns (n = the walk length, ≤ 16), each 8 cells (rank 8 top)
+    /// at the tile's own row-y (§1.4), the lit cell at the entry's drawn rank, its column number below. While playing it shows the
+    /// played (lane) / current (white) / upcoming (dim) / skipped (hollow) trail and flashes a tick in the left pad on an early reset (§3.8).
+    private func riffWalkStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
         let cfg = riffWalkConfig(idx)
-        let readout = riffReadout(idx)
         let stepRanks = euclideousRiffStepRanks(ranks: effectiveGridRanks, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
-        let len = riffPoly ? line.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : line.riffLengthResolved   // POLY RIFF: LEN runs to 16
+        let len = riffPoly ? line.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : line.riffLengthResolved
         let every = line.riffAdvanceEveryResolved
-        let P = euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)
-        let readoutText = euclideousRiffReadoutText(readout, overBudget: readout == nil)
+        let P = min(16, max(1, euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)))   // MONO: ≤ 16 (POLY is dropped for v1)
         let isRiff = line.riffOnResolved
-        return VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text("WALK").font(.system(size: 8, weight: .heavy, design: .monospaced)).kerning(0.8).foregroundColor(Color(hex: 0xAAB0BA))
-                Spacer(minLength: 2)
-                euclideousWalkReadoutText(readoutText)
+        let ringEligible = clock.playing && line.enabledResolved && isRiff
+        let trail = idx < walkTrails.count ? walkTrails[idx] : EuclideousRiffWalkTrail()
+        return TimelineView(.animation(minimumInterval: 1.0 / 15, paused: !ringEligible)) { tl in
+            let liveCur = (ringEligible ? cfg : nil).flatMap { riffWalkCurrentStep($0, beat: walkTagBeat(at: tl.date), P: P) } ?? -1
+            let tick = ringEligible && riffWalkTickActive(idx, cfg: cfg, now: tl.date)
+            Canvas { ctx, size in
+                riffDrawWalk(&ctx, size: size, layout: layout, n: P, cfg: cfg, len: len, stepRanks: stepRanks, accent: accent,
+                             isRiff: isRiff, playing: ringEligible, trail: trail, liveCurrent: liveCur, tick: tick)
             }
-            .padding(.horizontal, 2)
-            .opacity(isRiff ? 1.0 : 0.42)   // §1.8: dims while the riff is off — the cell row below folds this into its own per-cell opacity instead (§3.3: "the dims don't multiply")
-            // §3.4: the ring shows only while the transport runs, the lane plays and the riff is on — one
-            // TimelineView for the whole row (never one per cell), paused while stopped, matching this
-            // page's own established idiom (`riffWalkTagOverlay`).
-            let ringEligible = clock.playing && line.enabledResolved && isRiff
-            TimelineView(.animation(minimumInterval: 1.0 / 15, paused: !ringEligible)) { tl in
-                let current: Int? = (ringEligible ? cfg : nil).flatMap { riffWalkCurrentStep($0, beat: walkTagBeat(at: tl.date), P: P) }
-                HStack(spacing: 1.5) {
-                    ForEach(0..<16, id: \.self) { i in
-                        if i < P, let cfg {
-                            let col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg.riffDir, length: len, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed, columns: cfg.columns)
-                            let rank = col < stepRanks.count ? stepRanks[col] : 0
-                            let isRest = rank < 1
-                            let neverPlays = readout?.neverPlayWalkSteps.contains(i) ?? false
-                            // §3.3: "the dims don't multiply" — a never-played step on a riff-off lane stays
-                            // at 42%, not 0.42×0.42 ≈ 17.6% — so this is ONE opacity decision, not two nested
-                            // modifiers (the bug an adversarial review caught: the old code let this cell's
-                            // own 42% compound with riffTopRow's outer 42% wrapper).
-                            riffWalkStripCell(col: col, isRest: isRest, every: every, isCurrent: i == current, accent: accent, dim: neverPlays || !isRiff)
-                        } else {
-                            RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x181A1F)).frame(maxWidth: .infinity)
-                        }
-                    }
-                }
-            }
-            .frame(maxHeight: 26)   // RIFF v2 §1.4: the cell row grows to at most 26 tall
         }
-        .padding(4)
-        .frame(width: width, height: height, alignment: .center)   // RIFF v2 §1.4: the header + cell-row pair is centred vertically in the taller Row A frame
+        .frame(width: layout.walkWidth, height: layout.rowAHeight)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x262930), lineWidth: 1))
+        .opacity(isRiff ? 1.0 : 0.42)   // §1.10: the whole walk dims to 42 % while the riff is off
         .euclideousHelp("The columns this lane's walk reads, in order.")
-        // §9.2: one static element — doesn't read the current step (the ring is a sighted-only cue).
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Walk")
-        .accessibilityValue(euclideousWalkVoiceOverValue(cfg: cfg, len: len, every: every, P: P, stepRanks: stepRanks, readoutText: readoutText))
+        .accessibilityValue(euclideousRiffWalkVoiceOver(n: P, playing: ringEligible, current: trail.current))
+        .onChange(of: riffWalkState) { _ in updateWalkTrails() }
     }
-    /// One WALK-strip cell: the column number or a rest dash, EVERY pips underneath when EVERY >= 2, lane20
-    /// fill + a lane100 inner ring on the current step (§3.3). `dim` is already the FULLY-RESOLVED decision
-    /// (never-played OR riff-off) — exactly one opacity level, never stacked with an ancestor's own dim.
-    private func riffWalkStripCell(col: Int, isRest: Bool, every: Int, isCurrent: Bool, accent: Color, dim: Bool) -> some View {
-        VStack(spacing: 1.5) {
-            Text(isRest ? "\u{2013}" : "\(col + 1)")
-                .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .foregroundColor(isRest ? Color(hex: 0x5C626C) : Color(hex: 0xF2F4F7))
-                .frame(height: 11)
-            if every >= 2 {
-                HStack(spacing: 1) {
-                    ForEach(0..<every, id: \.self) { j in
-                        Circle().fill(isCurrent ? lane100(accent) : (isRest ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A))).frame(width: 2, height: 2)
+    /// §3.8: is the reset tick still showing for lane `idx`? (max(one hit at the lane's rate, 150 ms) since the reset.)
+    private func riffWalkTickActive(_ idx: Int, cfg: EuclideousWalkLaneConfig?, now: Date) -> Bool {
+        guard idx < walkTickAt.count, let at = walkTickAt[idx] else { return false }
+        let hit = (cfg?.sub ?? 0.5) * 60.0 / max(1, clock.tempo)
+        return now.timeIntervalSince(at) < max(0.15, hit)
+    }
+    /// §3: draw the walk rank grid into the strip. Columns from `euclideousRiffWalkGrid`, rows from the shared §1.4 geometry.
+    private func riffDrawWalk(_ ctx: inout GraphicsContext, size: CGSize, layout: EuclideousRiffTabLayout, n: Int, cfg: EuclideousWalkLaneConfig?, len: Int,
+                              stepRanks: [Int], accent: Color, isRiff: Bool, playing: Bool, trail: EuclideousRiffWalkTrail, liveCurrent: Int, tick: Bool) {
+        let grid = euclideousRiffWalkGrid(n: n, innerWidth: size.width)
+        let cell = layout.gridCell, gap = layout.gridGap, w = grid.columnWidth
+        let unlit = Color(hex: 0x22232A)
+        let lane = lane100(accent)
+        for i in 0..<n {
+            let x = grid.xs[i]
+            let col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg?.riffDir ?? .forward, length: len,
+                                           stride: cfg?.stride ?? 1, shift: cfg?.rotate ?? 0, seed: cfg?.seed ?? 0, columns: cfg?.columns ?? 8)
+            let rank = (col >= 0 && col < stepRanks.count) ? stepRanks[col] : 0
+            let isRest = rank < 1
+            let litRow = isRest ? -1 : min(8, max(1, rank))   // §3.3: the lit cell's rank, clamped 1…8 for placement like the lane-strip chip
+            let st: EuclideousRiffWalkEntryState = playing ? trail.state(of: i, liveCurrent: liveCurrent) : .upcoming
+            for r in 1...8 {
+                let rect = CGRect(x: x, y: layout.gridTop + CGFloat(8 - r) * (cell + gap), width: w, height: cell)
+                let p = RoundedRectangle(cornerRadius: 1).path(in: rect)
+                if r == litRow {
+                    if playing && st == .skipped {
+                        ctx.stroke(RoundedRectangle(cornerRadius: 1).path(in: rect.insetBy(dx: 0.75, dy: 0.75)), with: .color(lane.opacity(0.7)), lineWidth: 1.5)   // §3.5 skipped: hollow
+                    } else {
+                        ctx.fill(p, with: .color(riffWalkLitColour(st, isRiff: isRiff, playing: playing, lane: lane)))
                     }
+                } else {
+                    ctx.fill(p, with: .color(unlit))
                 }
             }
+            // §3.2/§3.5: the column number in the label line (a lane100 border box on the current entry)
+            let labelRect = CGRect(x: x, y: layout.labelTop, width: w, height: layout.labelHeight)
+            if playing && st == .current {
+                ctx.stroke(RoundedRectangle(cornerRadius: 3).path(in: labelRect), with: .color(lane), lineWidth: 1)
+            }
+            let numColour = riffWalkNumberColour(st, isRiff: isRiff, playing: playing)
+            let txt = ctx.resolve(Text("\(col + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(numColour))
+            ctx.draw(txt, at: CGPoint(x: labelRect.midX, y: labelRect.midY))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 3).fill(isCurrent ? lane20(accent) : (isRest ? Color(hex: 0x1F2228) : Color(hex: 0x2A2D34))))
-        .overlay(RoundedRectangle(cornerRadius: 3).stroke(isCurrent ? lane100(accent) : Color.clear, lineWidth: 1))
-        .opacity(dim ? 0.42 : 1.0)
+        // §3.8: the reset tick — a 2 pt lane bar in the strip's left padding (x2), the grid's height, so no column moves.
+        if tick {
+            let bar = CGRect(x: 2, y: layout.gridTop, width: 2, height: layout.gridSize)
+            ctx.fill(RoundedRectangle(cornerRadius: 1).path(in: bar), with: .color(lane))
+        }
+    }
+    /// §3.4/§3.5: a lit cell's fill by state.
+    private func riffWalkLitColour(_ st: EuclideousRiffWalkEntryState, isRiff: Bool, playing: Bool, lane: Color) -> Color {
+        guard playing else { return isRiff ? lane : Color(hex: 0xC9CBD1) }   // §3.4 on-stopped all lane100; off (§3.4) #C9CBD1
+        switch st {
+        case .current:  return Color(hex: 0xFFFFFF)
+        case .played:   return lane
+        case .upcoming: return lane.opacity(0.38)
+        case .skipped:  return .clear   // drawn as a hollow stroke by the caller
+        }
+    }
+    /// §3.4/§3.5: a column number's colour by state.
+    private func riffWalkNumberColour(_ st: EuclideousRiffWalkEntryState, isRiff: Bool, playing: Bool) -> Color {
+        guard playing else { return Color(hex: 0x9A9CA3) }   // §3.4 unselected label colour
+        switch st {
+        case .current:  return Color(hex: 0xF1F2F4)
+        case .played:   return Color(hex: 0xC9CBD1)
+        case .upcoming, .skipped: return Color(hex: 0x80838C)
+        }
+    }
+    /// §3.6/§3.7: fold the 30 Hz walk poll into each lane's trail. A backward jump TO entry 0 from a non-last step is an early reset
+    /// (flashes the tick); from the last step, or on a host loop/seek, it is a natural wrap (no tick); a backward move to a mid step
+    /// (a fill running the index backward, §3.9) just follows the index. Display-only; no engine change (reads the published walk words).
+    private func updateWalkTrails() {
+        let beat = walkTagBeat(at: Date())
+        let looped = walkPrevBeat >= 0 && beat < walkPrevBeat - 0.5
+        walkPrevBeat = beat
+        for idx in 0..<min(4, lines.count) {
+            let line = lines[idx]
+            guard clock.playing, line.enabledResolved, line.riffOnResolved, let cfg = riffWalkConfig(idx) else { walkPrevStep[idx] = -1; continue }
+            let len = riffPoly ? line.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : line.riffLengthResolved
+            let P = min(16, max(1, euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)))
+            guard let cur = riffWalkCurrentStep(cfg, beat: beat, P: P) else { continue }
+            let prev = walkPrevStep[idx]
+            if prev < 0 {
+                walkTrails[idx].advance(to: cur, count: P)
+            } else if cur > prev {
+                walkTrails[idx].advance(to: cur, count: P)
+            } else if cur < prev {
+                if cur == 0 {
+                    if !looped && prev < P - 1 { walkTrails[idx].reset(count: P); walkTickAt[idx] = Date() }   // §3.6 early reset → tick
+                    else { walkTrails[idx].wrap() }                                                           // §3.7 natural wrap / loop: no tick
+                } else {
+                    walkTrails[idx].advance(to: cur, count: P)   // §3.9 fill running the index backward: follow it
+                }
+            }
+            walkPrevStep[idx] = cur
+        }
     }
     /// §3.4: the current walk step = floor(o ÷ EVERY) mod P — ADV HIT reads the latest hit at or before
     /// `beat` (nil until the lane's first hit since the melody origin); ADV STEP reads the step playing now.
@@ -4521,9 +4578,9 @@ struct EuclideousPage: View {
     /// RIFF v2 §1.4 Row A — the riff toggle (left, L = 124) + the WALK strip (right, from x136, the full row height). The toggle never dims; the WALK strip folds the riff-off dim into its own per-cell opacity (§3.3: "the dims don't multiply").
     private func riffRowA(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
         HStack(spacing: 0) {
-            riffCard(idx, line, accent, width: layout.tileWidth, height: layout.rowAHeight, gridSize: layout.gridSize)
+            riffCard(idx, line, accent, layout: layout)
             Spacer().frame(width: 8)
-            riffWalkStrip(idx, line, accent, width: layout.walkWidth, height: layout.rowAHeight)
+            riffWalkStrip(idx, line, accent, layout: layout)
         }
         .padding(.horizontal, layout.contentInset)
         .frame(height: layout.rowAHeight)

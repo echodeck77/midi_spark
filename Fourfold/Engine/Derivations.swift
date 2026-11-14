@@ -6734,6 +6734,45 @@ func euclideousRiffTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGF
                                    notesCellUnderFloor: notesCellUnderFloor, walkColumnUnderFloor: walkColumnUnderFloor, underFloor: underFloor)
 }
 
+/// RIFF v3 ferry (2026-11-14) §3.5/§3.7: how one walk entry draws while playing.
+enum EuclideousRiffWalkEntryState: Equatable { case current, played, upcoming, skipped }
+/// §3.7: the per-lane walk trail — a pure reducer, display only, driven by advance/wrap/reset. `current` is the entry now sounding
+/// (−1 = not started); `played` the entries visited earlier THIS cycle; `skipped` the entries a reset cut off, until they are next played.
+struct EuclideousRiffWalkTrail: Equatable {
+    var current: Int = -1
+    var played: Set<Int> = []
+    var skipped: Set<Int> = []
+    /// advance(i): the current entry becomes i; every entry before i this cycle is played; a skipped entry un-skips once it is reached.
+    mutating func advance(to i: Int, count n: Int) {
+        let n = max(1, n), j = max(0, min(n - 1, i))
+        if j > 0 { played.formUnion(0..<j) }
+        skipped.subtract(Set(0...j))
+        current = j
+    }
+    /// wrap: the cycle reached its end naturally and starts again at 0 — played and skipped clear, nothing is marked.
+    mutating func wrap() { played.removeAll(); skipped.removeAll(); current = 0 }
+    /// reset: the walk was sent back to 0 early — every entry after the current one not played this cycle becomes skipped, played clears, current becomes 0.
+    mutating func reset(count n: Int) {
+        let n = max(1, n), c = max(0, current)
+        if c + 1 < n { for e in (c + 1)..<n where !played.contains(e) { skipped.insert(e) } }
+        played.removeAll()
+        current = 0
+    }
+    func state(of i: Int, liveCurrent: Int) -> EuclideousRiffWalkEntryState {
+        if i == liveCurrent { return .current }
+        if skipped.contains(i) { return .skipped }
+        if played.contains(i) { return .played }
+        return .upcoming
+    }
+}
+
+/// RIFF v3 ferry (2026-11-14) §6.3: the WALK's VoiceOver value — "n steps" while not playing, "step k of n" while it runs.
+func euclideousRiffWalkVoiceOver(n: Int, playing: Bool, current: Int) -> String {
+    let n = max(1, n)
+    if playing, current >= 0, current < n { return "step \(current + 1) of \(n)" }
+    return "\(n) steps"
+}
+
 /// RIFF v3 ferry (2026-11-14) §3.2: the walk grid's horizontal geometry — one column per walk entry, 6 pt in from each side of the strip, `w = min((inner − (n−1)·2.5)/n, 34)` wide, 2.5 apart, left-aligned; any spare stays empty at the trailing end.
 struct EuclideousRiffWalkGrid: Equatable {
     var columnWidth: CGFloat
