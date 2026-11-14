@@ -7412,7 +7412,7 @@ func euclideousLaneCometChainRaw(beat: Double, n: Int, dir: EuclidDir, sub: Doub
             let stepLen = max(1e-9, euclideousFillStepHostLength(rg, sub: sub))
             let sFloat = (beat - rg.F) / stepLen
             let s = min(max(0, N - 1), max(0, Int(sFloat.rounded(.down))))
-            let rev = euclideousFillReverseActive(rg, count: N)
+            let rev = euclideousFillOrderBuffered(rg, count: N) && rg.order == .rev   // §2.2: the comet mirrors under REV; BOUNCE/SHUFFLE sweep forward (a device-owed visual approximation — the sounding content still follows ORDER)
             let content = Double(Int(j0) + (rev ? (N - 1 - s) : s)) + (rev ? 0 : (sFloat - Double(s)))
             let cl = Double(cycleLen)
             return content - cl * (content / cl).rounded(.down)

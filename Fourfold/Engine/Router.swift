@@ -667,6 +667,8 @@ final class Router {
     // FILL ferry (2026-11-13) §2.5/§2.6: the RANKS climb offset and the SWELL velocity factor for the slot the body is emitting — set per slot by the fill loop (0 / 1 otherwise ⇒ byte-identical). The rank offset is added before rank→pitch (riff + stack); the factor multiplies the final velocity in `strikeChord`.
     private var euclideousFillRankOffsetNow: Int = 0
     private var euclideousFillVelFactorNow: Double = 1
+    // FILL TAB ferry (2026-11-14) §2.2: a reused fixed scratch for ORDER=SHUFFLE's permutation (built once per region, never per slot, never per window) — no render-thread allocation. Sized to the 128 reverse cap.
+    private var euclideousFillShufBuf = [Int](repeating: 0, count: euclideousFillReverseCap)
     // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
     // immediately") — checked in its OWN unconditional loop (NOT nested inside the per-line dispatch
     // loop's own `enabledResolved`-gated `where` clause, which structurally never executes once a lane is
@@ -2240,13 +2242,13 @@ final class Router {
                 run.active = true; run.startBeat = rg.F; run.endBeat = rg.E; run.multiplier = rg.m; run.runBarIndex = Int64(rg.barIndex)
                 j0 = euclideousFillFirstStep(rg, origin: o, sub: sub)
                 N = euclideousFillCount(rg, origin: o, sub: sub)
+                if rg.order == .shuffle, euclideousFillOrderBuffered(rg, count: N) { euclideousFillShuffle(lane: rg.lane, bar: rg.barIndex, count: N, into: &euclideousFillShufBuf) }   // §2.2: build this region's permutation ONCE into the reused scratch
             }
             var segEnd = min(mEnd, run.active ? run.endBeat : barLineNext)
             if !inFill, let rg = region, rg.F > segStart + 1e-9, rg.F < segEnd { segEnd = rg.F }   // a ×1 segment stops at the fill's start
             if o > segStart + 1e-9 { segEnd = min(segEnd, o) }   // split at the origin: the restart schedule reads the real beat there
             let subEff = run.active ? sub / run.multiplier : sub
             let runId = run.active ? run.runBarIndex : Int64(barN)
-            let reverseActive = run.active && (region?.reverse ?? false) && N <= euclideousFillReverseCap
             var k = Int64((euclideousLaneElapsed(hostBeat: segStart, origin: o, run: run) / sub - 1e-9).rounded(.up))   // first lane step at/after segStart; '==' fires
             var stepGuard = 0
             while stepGuard < 100_000 {
@@ -2256,7 +2258,8 @@ final class Router {
                 defer { k += 1 }
                 // §2.7 BREAK: a slot whose host start is in the region's last quarter strikes nothing, but still counts (k advances).
                 if run.active, let rg = region, euclideousFillBreakDrops(rg, hostBeat: hostBeat) { continue }
-                let contentK = reverseActive ? (2 * j0 + Int64(N) - 1 - k) : k   // §2.3 the CONTENT step (forward k; reverse the mirror)
+                // §2.2 ORDER: the CONTENT step the time-slot plays — FWD k, else the REV/BOUNCE/SHUFFLE remap (euclideousFillSourceStep returns the absolute lane step j0+index; FWD / >cap ⇒ k, byte-identical).
+                let contentK = run.active ? euclideousFillSourceStep(region!, origin: o, sub: sub, count: N, slot: Int(k - j0), shuffle: region!.order == .shuffle ? euclideousFillShufBuf : nil) : k
                 let tick = contentK + originHostTick
                 if hostBeat + 1e-9 < tickFrom || hostBeat + 1e-9 >= tickBefore { continue }   // LANE LOCK split segment
                 let delayBeats = strikeDelaySteps(tick) * subEff
@@ -2270,7 +2273,7 @@ final class Router {
                 euclideousFillStepScaleNow = subEff / sub   // §2.4: 1/m in a region, 1 on a ×1 segment — the body's gate + ratchet spacing read it
                 if run.active {   // §2.5/§2.6: the RANKS climb + SWELL factor for this time-slot (s = k − j0); the body reads them at rank→pitch and in strikeChord
                     let s = Int(k - j0)
-                    euclideousFillRankOffsetNow = euclideousFillRankOffset(ranks: region?.ranks ?? 0, slot: s, count: N)
+                    euclideousFillRankOffsetNow = euclideousFillRankOffset(ranks: region?.ranks ?? 0, slot: s, count: N, shape: region?.shape ?? .climb)   // §2.4 SHAPE (CLIMB = the old formula ⇒ byte-identical)
                     euclideousFillVelFactorNow = euclideousFillSwellFactor(swell: region?.swell ?? 0, slot: s, count: N)
                 } else { euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1 }
                 let onTime = sampleOf(musical: hostBeat + delayBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
@@ -3527,7 +3530,7 @@ final class Router {
                 var fillPlan: EuclideousFillPlan? = nil
                 if isEuclideousRow, sub > 0, lineIndex < linesView.count, linesView[lineIndex].usesFill {
                     let originBeat = chains.hasRhythmRestarts ? chains.rhythmOriginBeat(musicalOf(beatPos, stepBeats: S, a: a)) : 0
-                    fillPlan = EuclideousFillPlan(line: linesView[lineIndex], originBeat: originBeat, beatsPerBar: beatsPerBar, sub: sub)
+                    fillPlan = EuclideousFillPlan(line: linesView[lineIndex], lane: lineIndex, originBeat: originBeat, beatsPerBar: beatsPerBar, sub: sub)
                 }
                 // ALT ferry (2026-11-14): the lane's alt config, read once. Not an alt lane (no pill on) ⇒ `altUses` false ⇒ the hit body skips the whole alt branch ⇒ byte-identical (§3.7). The per-hit alt STATE is derived in the body from the counts.
                 let altUses = isEuclideousRow && lineIndex >= 0 && lineIndex < 4 && lineIndex < linesView.count && linesView[lineIndex].usesAlt

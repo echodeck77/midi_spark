@@ -11,14 +11,20 @@
 /// lane's own fill shape (REVERSE/RANKS/SWELL/BREAK). Built per (lane, bar) from the lane and the host bar length.
 struct EuclideousFillRegion: Equatable {
     var barIndex: Int = 0        // the 0-based host bar (host bar 1 = bar 0)
+    var lane: Int = 0            // FILL TAB §2.2/§2.7: the lane, for the (lane, bar) SHUFFLE / CHANCE seeds
     var F: Double = 0            // region start (host beats)
     var E: Double = 0            // region end / the rejoin line (host beats, exclusive)
     var D: Double = 0            // region length = L·B (host beats)
     var m: Double = 1            // speed multiplier
-    var reverse = false
-    var ranks = 0                // −7…+7 climb
+    var curve: EuclideousFillCurve = .steady   // FILL TAB §2.1
+    var order: EuclideousFillOrder = .fwd      // FILL TAB §2.2 (replaces `reverse`: .fwd/.rev are the old forward/reverse)
+    var shape: EuclideousFillShape = .climb    // FILL TAB §2.4
+    var hits: EuclideousFillHits = .keep       // FILL TAB §2.3
+    var ranks = 0                // −7…+7 climb amount R
     var swell = 0                // −3…+3 velocity ramp
+    var roll = 0                 // FILL TAB §2.5 0…4
     var breakOn = false
+    var land = false             // FILL TAB §2.6
 }
 
 /// §2.3 — reverse honours a fixed per-lane buffer; above it the region plays forward (reported). §2.3 worst case
@@ -29,38 +35,61 @@ let euclideousFillReverseCap = 128
 /// and the display mirrors carry, so the pictures and the sound agree. `region(bar:)` gives the §2.1 region of any bar.
 struct EuclideousFillPlan: Equatable {
     var active = false            // = line.usesFill (FILL on, a bar lit, non-neutral)
-    var armed: UInt8 = 0          // bit n = bar (n mod 8) lit
+    var armed: UInt16 = 0         // FILL TAB §1.1: bit n = bar (n mod loop) lit (16 bars)
+    var loop = 8                  // FILL TAB §1.1 the loop length (4/8/16)
+    var lane = 0
     var m = 1.0                   // SPEED
     var lengthFraction = 0.5      // LENGTH L
-    var reverse = false
-    var ranks = 0, swell = 0, breakOn = false
+    var curve: EuclideousFillCurve = .steady
+    var order: EuclideousFillOrder = .fwd
+    var shape: EuclideousFillShape = .climb
+    var hits: EuclideousFillHits = .keep
+    var ranks = 0, swell = 0, roll = 0, breakOn = false, land = false, chance = 100
     var originBeat = 0.0          // the lane's rhythm restart origin (host beats)
     var beatsPerBar = 4.0
     var sub = 0.25                // the lane step length (host beats)
     init() {}
-    init(line: EuclidLine, originBeat: Double, beatsPerBar: Double, sub: Double) {
+    init(line: EuclidLine, lane: Int = 0, originBeat: Double, beatsPerBar: Double, sub: Double) {
         guard line.usesFill else { return }
-        active = true
-        if let bars = line.fillBars, bars.count == 8 { for i in 0..<8 where bars[i] { armed |= (1 << UInt8(i)) } }   // read in place — no allocation on the render thread
+        active = true; self.lane = lane; loop = line.fillLoopResolved
+        if let bars = line.fillBars { for i in 0..<min(16, bars.count) where bars[i] { armed |= (1 << UInt16(i)) } }   // read in place — no allocation on the render thread
         m = line.fillSpeedMultiplier; lengthFraction = line.fillLengthFraction
-        reverse = line.fillReverseResolved; ranks = line.fillRanksResolved; swell = line.fillSwellResolved; breakOn = line.fillBreakResolved
+        curve = line.fillCurveResolved; order = line.fillOrderResolved; shape = line.fillShapeResolved; hits = line.fillHitsResolved
+        ranks = line.fillRanksResolved; swell = line.fillSwellResolved; roll = line.fillRollResolved; breakOn = line.fillBreakResolved; land = line.fillLandResolved; chance = line.fillChanceResolved
         self.originBeat = originBeat; self.beatsPerBar = beatsPerBar; self.sub = sub
     }
-    /// §2.1 — the fill region of (0-based) bar `n`, or nil if the lane does not fill that bar.
+    /// §2.1/§2.7 — the fill region of (0-based) bar `n`, or nil if the lane does not fill it (unarmed, or the CHANCE draw skipped it — a skipped bar plays exactly as no fill, §2.7).
     func region(bar n: Int) -> EuclideousFillRegion? {
-        guard active, beatsPerBar > 0, (armed >> UInt8(((n % 8) + 8) % 8)) & 1 != 0 else { return nil }
+        guard active, beatsPerBar > 0, (armed >> UInt16(((n % loop) + loop) % loop)) & 1 != 0 else { return nil }
+        guard euclideousFillChancePlays(lane: lane, bar: n, chance: chance) else { return nil }
         var r = EuclideousFillRegion()
-        r.barIndex = n; r.m = m
+        r.barIndex = n; r.lane = lane; r.m = m
         r.D = lengthFraction * beatsPerBar; r.E = Double(n + 1) * beatsPerBar; r.F = r.E - r.D
-        r.reverse = reverse; r.ranks = ranks; r.swell = swell; r.breakOn = breakOn
+        r.curve = curve; r.order = order; r.shape = shape; r.hits = hits
+        r.ranks = ranks; r.swell = swell; r.roll = roll; r.breakOn = breakOn; r.land = land
         return r
     }
 }
 
+/// FILL TAB §2.7 — does the (lane, bar) CHANCE draw play the region? 100 % always plays; else a deterministic splitmix draw of (lane, bar) < chance. A pure function of (lane, bar), so a located bar decides the same as playing through.
+func euclideousFillChancePlays(lane: Int, bar n: Int, chance: Int) -> Bool {
+    guard chance < 100 else { return true }
+    let seed = 0x9E3779B97F4A7C15 &* UInt64(bitPattern: Int64(lane &+ 1)) &+ (0xD1B54A32D192ED03 &* UInt64(bitPattern: Int64(n)))   // FILL-CHANCE salt
+    return Int(splitmix64Mix(seed) % 100) < max(0, min(100, chance))
+}
+/// FILL TAB §2.2 — SHUFFLE's permutation of 0…N−1, a Fisher–Yates driven by a splitmix generator seeded from (lane, bar), written into `out` (the caller's fixed buffer — no allocation on the render thread). `out.count` must be ≥ N.
+func euclideousFillShuffle(lane: Int, bar n: Int, count N: Int, into out: inout [Int]) {
+    for i in 0..<N { out[i] = i }
+    guard N > 1 else { return }
+    var s = 0xC2B2AE3D27D4EB4F &* UInt64(bitPattern: Int64(lane &+ 1)) &+ (0x165667B19E3779F9 &* UInt64(bitPattern: Int64(n))) &+ 0x27D4EB2F165667C5   // FILL-SHUFFLE salt
+    var i = N - 1
+    while i > 0 { s = splitmix64Mix(s); let j = Int(s % UInt64(i + 1)); out.swapAt(i, j); i -= 1 }
+}
+
 /// §2.1 — the fill region of (0-based) bar `n` for this lane, or nil if the lane does not fill that bar.
 /// nil whenever the lane is neutral/unarmed (§1.4/§1.5) ⇒ the Router takes its ordinary ×1 path (byte-identical).
-func euclideousFillRegion(line: EuclidLine, bar n: Int, beatsPerBar B: Double) -> EuclideousFillRegion? {
-    EuclideousFillPlan(line: line, originBeat: 0, beatsPerBar: B, sub: 0).region(bar: n)
+func euclideousFillRegion(line: EuclidLine, bar n: Int, beatsPerBar B: Double, lane: Int = 0) -> EuclideousFillRegion? {
+    EuclideousFillPlan(line: line, lane: lane, originBeat: 0, beatsPerBar: B, sub: 0).region(bar: n)
 }
 
 /// §2.3 — the lane's ×1 elapsed time at F: e(F) = F − o (before F the lane runs at ×1). `o` is the lane's
@@ -73,37 +102,57 @@ func euclideousFillRegion(line: EuclidLine, bar n: Int, beatsPerBar B: Double) -
     return Int64(((r.F - o) / sub - 1e-9).rounded(.up))
 }
 
-/// §2.3 — N, the number of fired steps (steps whose start in lane time lies in [e(F), e(F)+D·m)); may be 0.
+/// §2.1/§2.3 — N, the number of fired steps. STEADY covers D·m of lane time; RUSH covers D·(1+m)/2 (the area under the linearly-rising rate). May be 0.
 func euclideousFillCount(_ r: EuclideousFillRegion, origin o: Double, sub: Double) -> Int {
     guard sub > 0 else { return 0 }
     let eF = r.F - o
+    let span = r.curve == .rush ? r.D * (1 + r.m) / 2 : r.D * r.m
     let j0 = Int64((eF / sub - 1e-9).rounded(.up))
-    let jEnd = Int64(((eF + r.D * r.m) / sub - 1e-9).rounded(.up))   // first step at or past the region end (exclusive)
+    let jEnd = Int64(((eF + span) / sub - 1e-9).rounded(.up))   // first step at or past the region end (exclusive)
     return max(0, Int(jEnd - j0))
 }
 
-/// §2.3 — the host beat of time-slot k: t_k = F + (start(j_0+k) − e(F)) / m.
+/// §2.1 — RUSH's normalised region position x(y): a step starting y lane-beats after e(F) fires at host beat F + D·x. x = y/D for m=1, else the positive root of (m−1)/2·x² + x − y/D = 0.
+@inline(__always) func euclideousFillRushX(_ r: EuclideousFillRegion, yLaneBeats y: Double) -> Double {
+    guard r.D > 0 else { return 0 }
+    if abs(r.m - 1) < 1e-12 { return y / r.D }
+    return (-1 + (1 + 2 * (r.m - 1) * (y / r.D)).squareRoot()) / (r.m - 1)
+}
+
+/// §2.1/§2.3 — the host beat of time-slot k. STEADY: t_k = F + (start(j_0+k) − e(F)) / m. RUSH: F + D·x(y).
 func euclideousFillSlotHostBeat(_ r: EuclideousFillRegion, origin o: Double, sub: Double, slot k: Int) -> Double {
     let eF = r.F - o
     let startJ = Double(euclideousFillFirstStep(r, origin: o, sub: sub) + Int64(k)) * sub
+    if r.curve == .rush { return r.F + r.D * euclideousFillRushX(r, yLaneBeats: startJ - eF) }
     return r.F + (startJ - eF) / r.m
 }
 
-/// §2.3 — is REVERSE in force for this region (reverse set AND within the buffer cap)? Above the cap it falls back to forward.
-@inline(__always) func euclideousFillReverseActive(_ r: EuclideousFillRegion, count N: Int) -> Bool { r.reverse && N <= euclideousFillReverseCap }
+/// §2.2 — does this region's ORDER need the time→index remap buffer (ORDER ≠ FWD AND N within the cap)? Above the cap it falls back to FWD.
+@inline(__always) func euclideousFillOrderBuffered(_ r: EuclideousFillRegion, count N: Int) -> Bool { r.order != .fwd && N <= euclideousFillReverseCap }
 
-/// §2.3 — the lane STEP index that plays at time-slot k: forward j_0+k; reverse j_0+(N−1−k). The step's own
-/// content (hit/rest, riff ordinal, stack, random draws) is resolved FORWARD at that index (the engine's randomness
-/// is position-keyed, so an on-demand reverse read equals a forward buffer read mirrored — §2.11).
-func euclideousFillSourceStep(_ r: EuclideousFillRegion, origin o: Double, sub: Double, count N: Int, slot k: Int) -> Int64 {
+/// §2.2 — the lane STEP index playing at time-slot k, mapped by ORDER: FWD i=k · REV i=N−1−k · BOUNCE i=k<⌈N/2⌉?k:N−1−k · SHUFFLE i=π(k) (from the caller's precomputed permutation; above the cap or no buffer ⇒ FWD). Content is resolved FORWARD at that index (randomness is position-keyed, §2.11).
+func euclideousFillSourceStep(_ r: EuclideousFillRegion, origin o: Double, sub: Double, count N: Int, slot k: Int, shuffle: [Int]? = nil) -> Int64 {
     let j0 = euclideousFillFirstStep(r, origin: o, sub: sub)
-    return j0 + Int64(euclideousFillReverseActive(r, count: N) ? (N - 1 - k) : k)
+    guard euclideousFillOrderBuffered(r, count: N), N > 0 else { return j0 + Int64(k) }
+    let i: Int
+    switch r.order {
+    case .fwd:     i = k
+    case .rev:     i = N - 1 - k
+    case .bounce:  let h = (N + 1) / 2; i = k < h ? k : (N - 1 - k)   // out then back: 0…h−1, then N−1−k
+    case .shuffle: i = (shuffle != nil && k < shuffle!.count) ? shuffle![k] : k
+    }
+    return j0 + Int64(max(0, min(N - 1, i)))
 }
 
-/// §2.5 — the rank climb offset for time-slot k (k = 0…N−1 in TIME order). First slot 0, last R; N=1 ⇒ R.
-func euclideousFillRankOffset(ranks R: Int, slot k: Int, count N: Int) -> Int {
+/// §2.4 — the RANKS offset for time-slot k (k = 0…N−1 in TIME order), by SHAPE. CLIMB round(R·u) · ARCH round(R·(1−|2u−1|)) · SHIFT R. First/last 0 under CLIMB/ARCH; N=1 ⇒ R.
+func euclideousFillRankOffset(ranks R: Int, slot k: Int, count N: Int, shape: EuclideousFillShape = .climb) -> Int {
     guard N > 1 else { return R }
-    return Int((Double(R) * Double(k) / Double(N - 1)).rounded())
+    let u = Double(k) / Double(N - 1)
+    switch shape {
+    case .climb: return Int((Double(R) * u).rounded())
+    case .arch:  return Int((Double(R) * (1 - abs(2 * u - 1))).rounded())
+    case .shift: return R
+    }
 }
 
 /// §2.6 — the velocity factor for time-slot k. S>0 rises to 1 at the downbeat; S<0 falls from 1; S=0 ⇒ 1.
@@ -119,5 +168,11 @@ func euclideousFillSwellFactor(swell S: Int, slot k: Int, count N: Int) -> Doubl
     r.breakOn && t >= r.E - r.D / 4 - 1e-9 && t < r.E
 }
 
-/// §2.4 — a fired step's duration in host beats (= the lane step length / m). Gate and ratchet spacing use it, so ×2 halves them.
-@inline(__always) func euclideousFillStepHostLength(_ r: EuclideousFillRegion, sub: Double) -> Double { r.m > 0 ? sub / r.m : sub }
+/// §2.1/§2.4 — a fired step's duration in host beats. STEADY: the lane step length / m (so ×2 halves it). RUSH: sub / (1 + (m−1)·x) at the slot's own x, so a RUSH step shortens as the rate rises. Gate and ratchet spacing use it. STEADY ignores origin/slot ⇒ the old call is byte-identical.
+@inline(__always) func euclideousFillStepHostLength(_ r: EuclideousFillRegion, origin o: Double = 0, sub: Double, slot k: Int = 0) -> Double {
+    guard r.m > 0 else { return sub }
+    guard r.curve == .rush else { return sub / r.m }
+    let startJ = Double(euclideousFillFirstStep(r, origin: o, sub: sub) + Int64(k)) * sub
+    let speed = 1 + (r.m - 1) * euclideousFillRushX(r, yLaneBeats: startJ - (r.F - o))
+    return speed > 0 ? sub / speed : sub
+}

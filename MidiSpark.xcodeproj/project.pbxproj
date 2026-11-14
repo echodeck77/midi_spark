@@ -125,6 +125,7 @@
 		3A595E200483D566EADBB617 /* TapStepTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BBAF9EAD91D06A80F0E92A8 /* TapStepTests.swift */; };
 		3B501541B5A48771C11A2D4B /* FillTimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D19AE4FB122F125CE9C31EA /* FillTimingTests.swift */; };
 		3B87266EA4A929D67995CA66 /* OutputRingPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0CC5C67EF3C0BB929728B19 /* OutputRingPainter.swift */; };
+		3D69F2AE2E4E4FAD31E29C37 /* FillEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CBBE0C6BCCAB378B92C134A /* FillEngineTests.swift */; };
 		3DD61804369E108DE2689925 /* MixPanelV2Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC5F675561EF5B87BB75724 /* MixPanelV2Views.swift */; };
 		3E3E07320E78189A744572F4 /* FillBlockViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9099B82BA8CD4AC2F0908130 /* FillBlockViews.swift */; };
 		3E91D49AE613E8D551D8B040 /* EmitterToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = E575B1D5376C5D667A10621E /* EmitterToken.swift */; };
@@ -627,6 +628,7 @@
 		29E016452526AE786D501E59 /* FourfoldAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldAppModel.swift; sourceTree = "<group>"; };
 		2A5CDA9228755C13703AA880 /* PlayAsSequenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsSequenceTests.swift; sourceTree = "<group>"; };
 		2C6E676F1410031DD753DD2B /* EmitterCCLegacy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterCCLegacy.swift; sourceTree = "<group>"; };
+		2CBBE0C6BCCAB378B92C134A /* FillEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillEngineTests.swift; sourceTree = "<group>"; };
 		2CD1516989D0BE5696EF4FFF /* EmitterVelocityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterVelocityTests.swift; sourceTree = "<group>"; };
 		2DCB3F95776A8BE51B7E0584 /* HarmonyPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarmonyPage.swift; sourceTree = "<group>"; };
 		2F82B632EB1561C42D3E6FEA /* CellBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CellBrowser.swift; sourceTree = "<group>"; };
@@ -1093,6 +1095,7 @@
 				F8F30766AEE34AB998FBBAED /* EuclideousFillModelTests.swift */,
 				9D5FD8318A130F2A8C70369A /* EuclideousRandomTests.swift */,
 				E60CB6DE9B3C049B124DC771 /* FillBlockTests.swift */,
+				2CBBE0C6BCCAB378B92C134A /* FillEngineTests.swift */,
 				0E0F668B86AC559602B8B4B5 /* FillRouterTests.swift */,
 				8800FADE3475DE968A8029EB /* FillTabModelTests.swift */,
 				4D19AE4FB122F125CE9C31EA /* FillTimingTests.swift */,
@@ -1960,6 +1963,7 @@
 				17EAAB1A648218E348603562 /* FXTabTests.swift in Sources */,
 				A16E18269EFED495B4EE7FCA /* FillBlock.swift in Sources */,
 				F3BE1F383F1751428036C807 /* FillBlockTests.swift in Sources */,
+				3D69F2AE2E4E4FAD31E29C37 /* FillEngineTests.swift in Sources */,
 				437ACFB4211DDEA15A115CC2 /* FillRegion.swift in Sources */,
 				742FF8658C2BA6896C704B9C /* FillRouterTests.swift in Sources */,
 				C05AFA92C0C0ECDF936D170B /* FillTabModelTests.swift in Sources */,

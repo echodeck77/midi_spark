@@ -123,8 +123,8 @@ final class FillTimingTests: XCTestCase {
     func testReverseCapAndFallback_test12() {
         // N = 128 keeps reverse; above it, reverse falls back to forward.
         let r = euclideousFillRegion(line: armedLine(speed: 4, length: 0, reverse: true), bar: 3, beatsPerBar: B)!
-        XCTAssertTrue(euclideousFillReverseActive(r, count: 128))
-        XCTAssertFalse(euclideousFillReverseActive(r, count: 129), "above the 128 cap ⇒ forward")
+        XCTAssertTrue(euclideousFillOrderBuffered(r, count: 128))   // §2.2: REVERSE (ORDER ≠ FWD) needs the buffer within the cap
+        XCTAssertFalse(euclideousFillOrderBuffered(r, count: 129), "above the 128 cap ⇒ forward")
         // the fallback plays forward: slot k ⇒ step j_0 + k.
         let j0 = euclideousFillFirstStep(r, origin: o, sub: sub)
         XCTAssertEqual(euclideousFillSourceStep(r, origin: o, sub: sub, count: 129, slot: 5), j0 + 5)
