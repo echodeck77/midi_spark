@@ -179,6 +179,13 @@ struct EmitterRatchetCfg: Equatable {
     var gap: EmitterStrikeGap = .fit
     var end: EmitterStrikeEnd = .cut
     var patternMaskNoOffset: UInt16 = EmitterRatchetCfg.defaultPatternMask
+    // RATCH v2 ferry (2026-11-15): the RESOLVED strike-count set / per-hit / SPREAD / VEL, read on the render thread (nil-deriving done on the main thread in `init`). Defaults = {3} / off / 1 / 0 / FLAT / 50 ⇒ the FIX ×3 FIT path, byte-identical.
+    var countsBits: UInt8 = 0b010          // §1.1 {3}
+    var perHit = false                     // §1.2
+    var length: EmitterStrikeLength = .one // §1.3
+    var bend = 0                           // §1.4
+    var vel: EmitterStrikeVel = .flat      // §1.5
+    var depth = 50                         // §1.5
     init() {}
     init(_ r: EmitterRatchet) {
         let n = r.normalized()
@@ -186,6 +193,7 @@ struct EmitterRatchetCfg: Equatable {
         patternMask = emitterRatchetPatternMask(steps: steps, hits: hits, offset: offset)
         mode = n.mode; rangeMin = n.rangeMin; rangeMax = n.rangeMax; hitCountBits = n.hitCountBits; gap = n.gap; end = n.end
         patternMaskNoOffset = emitterRatchetPatternMask(steps: steps, hits: hits, offset: 0)
+        countsBits = n.countsBitsResolved; perHit = n.perHitResolved; length = n.lengthResolved; bend = n.bendResolved; vel = n.velResolved; depth = n.depthResolved   // RATCH v2 §1.7 resolve
     }
     @inline(__always) func isHit(_ i: Int) -> Bool { i >= 0 && i < 16 && (patternMask >> UInt16(i)) & 1 != 0 }
     /// §1.4: the HIT count (1…4) for pre-OFFSET hit ordinal `h`.

@@ -11159,6 +11159,62 @@ func emitterRatchetStripBars(_ r: EmitterRatchet, ordinal: Int) -> (count: Int, 
     gap.beats ?? (stepBeats / Double(max(1, n)))
 }
 
+// MARK: - RATCH v2 ferry (2026-11-15) §2 — COUNTS members, the SPREAD curve/timing, the VEL ramp, the beat-width cap. All pure, allocation-free; the Router AND the strip read them (never a second derivation).
+
+/// §1.1 — how many COUNTS members ({2,3,4} subset) the 3-bit mask has.
+@inline(__always) func emitterCountMemberCount(_ mask: UInt8) -> Int { Int((mask & 0b111).nonzeroBitCount) }
+/// §1.1 — the i-th COUNTS member ascending (2,3,4); an empty mask ⇒ 3. Allocation-free.
+@inline(__always) func emitterCountMember(_ mask: UInt8, index: Int) -> Int {
+    let m = mask & 0b111
+    guard m != 0 else { return 3 }
+    var seen = 0
+    for c in 2...4 where (m & (UInt8(1) << UInt8(c - 2))) != 0 { if seen == index { return c }; seen += 1 }
+    return 3
+}
+/// §2.3 — the bend curve f on 0…1. BEND 0 = linear; >0 RUSH (gaps shrink toward the end, as a bouncing ball); <0 DRAG (gaps grow). p = 1 + |BEND|/50.
+@inline(__always) func emitterStrikeBendF(_ u: Double, bend: Int) -> Double {
+    if bend == 0 { return u }
+    let p = 1.0 + Double(abs(bend)) / 50.0
+    return bend > 0 ? 1 - pow(1 - u, p) : pow(u, p)
+}
+/// §2.3 — spanBeats = LENGTH × stepBeats (stepBeats = the FILL-scaled step the Router uses for this hit).
+@inline(__always) func emitterStrikeSpanBeats(length: EmitterStrikeLength, stepBeats: Double) -> Double { length.steps * stepBeats }
+/// §2.3 — strike k's START offset from the hit, in beats (k = 0…n−1).
+@inline(__always) func emitterStrikeStartOffset(k: Int, n: Int, length: EmitterStrikeLength, bend: Int, stepBeats: Double) -> Double {
+    guard n > 0 else { return 0 }
+    return emitterStrikeBendF(Double(k) / Double(n), bend: bend) * emitterStrikeSpanBeats(length: length, stepBeats: stepBeats)
+}
+/// §2.3 — strike k's SLOT (the beats until the next strike).
+@inline(__always) func emitterStrikeSlotBeats(k: Int, n: Int, length: EmitterStrikeLength, bend: Int, stepBeats: Double) -> Double {
+    guard n > 0 else { return 0 }
+    let span = emitterStrikeSpanBeats(length: length, stepBeats: stepBeats)
+    return (emitterStrikeBendF(Double(k + 1) / Double(n), bend: bend) - emitterStrikeBendF(Double(k) / Double(n), bend: bend)) * span
+}
+/// §2.5 — the velocity SHARE for strike k (0…n−1): FLAT / n≤1 → 1; FADE → 1 − d·k/(n−1); SWELL → 1 − d·(n−1−k)/(n−1), d = DEPTH/100.
+@inline(__always) func emitterStrikeVelShare(vel: EmitterStrikeVel, depth: Int, k: Int, n: Int) -> Double {
+    guard n > 1, vel != .flat else { return 1 }
+    let d = Double(max(0, min(100, depth))) / 100.0
+    switch vel {
+    case .flat:  return 1
+    case .fade:  return 1 - d * Double(k) / Double(n - 1)
+    case .swell: return 1 - d * Double(n - 1 - k) / Double(n - 1)
+    }
+}
+/// §3.5 — the beat-width cap applied to the hit's SHORTEST strike slot: the largest m ≤ n whose shortest slot is ≥ the 10 ms floor at tempo. ≥1.
+/// LENGTH 1 / BEND 0 ⇒ every slot is `stepBeats/m`, so this equals `euclideousRatchetCap` (byte-identical to today's FIT).
+func emitterStrikeCappedCount(n: Int, length: EmitterStrikeLength, bend: Int, stepBeats: Double, tempo: Double) -> Int {
+    guard n > 1 else { return max(1, n) }
+    let minSlot = euclideousRatchetMinSlotSeconds * (tempo >= 1 ? tempo : 120) / 60.0
+    var m = n
+    while m > 1 {
+        var shortest = Double.infinity
+        for k in 0..<m { shortest = min(shortest, emitterStrikeSlotBeats(k: k, n: m, length: length, bend: bend, stepBeats: stepBeats)) }
+        if shortest >= minSlot - 1e-12 { break }
+        m -= 1
+    }
+    return m
+}
+
 /// §2.7 — what the emitter decides for one emitter hit: the pattern index it fell on, whether P(index) is a hit, whether it ratchets, and STRIKES (the cap on the beat width is applied where the strikes are laid out).
 /// `missed` = the emitter is ON and P(index) is a hit but CHANCE failed (the hit feed's MISSED bit); an OFF emitter never misses.
 struct EmitterRatchetDecision: Equatable {
@@ -11175,15 +11231,19 @@ func emitterRatchetDecide(_ cfg: EmitterRatchetCfg, output: Int, v: Int64) -> Em
     let hit = cfg.isHit(index)
     var passes = false
     if cfg.on && hit { passes = cfg.chance >= 100 || (cfg.chance > 0 && emitterRatchetRoll(output: output, v: v) < cfg.chance) }
-    // RATCH EXPAND §2.2 — the strike count when the hit ratchets. FIX = STRIKES (today); RANGE = a roll in [MIN, MAX];
-    // HIT = the stored count for this hit's pre-OFFSET ordinal. §2.3: a resolved count of 1 sounds once and does NOT
-    // set RATCHED (it plays as an ordinary hit).
+    // RATCH v2 §2.2 — the strike count when the hit ratchets, from the resolved COUNTS / PER HIT (the cfg carries them,
+    // derived on the main thread from MODE/STRIKES/RANGE — §1.7). PER HIT → the stored per-hit count; COUNTS with one
+    // member → it; several → the members ascending, indexed by the RANGE roll mod the member count (reuses "RATCHRNG").
+    // Byte-identical to the old FIX {STRIKES}: a single-member COUNTS gives that member. §2.3: a resolved count of 1
+    // (possible only under PER HIT) sounds once and does NOT set RATCHED.
     var strikes = cfg.strikes
     if passes {
-        switch cfg.mode {
-        case .fix:   strikes = cfg.strikes
-        case .range: strikes = cfg.rangeMin + Int(emitterRatchetRangeRoll(output: output, v: v) % UInt64(max(1, cfg.rangeMax - cfg.rangeMin + 1)))
-        case .hit:   strikes = cfg.hitCount(emitterRatchetHitOrdinal(index: index, cfg: cfg))
+        if cfg.perHit {
+            strikes = cfg.hitCount(emitterRatchetHitOrdinal(index: index, cfg: cfg))
+        } else {
+            let mc = emitterCountMemberCount(cfg.countsBits)
+            strikes = mc <= 1 ? emitterCountMember(cfg.countsBits, index: 0)
+                              : emitterCountMember(cfg.countsBits, index: Int(emitterRatchetRangeRoll(output: output, v: v) % UInt64(mc)))
         }
     }
     return EmitterRatchetDecision(index: index, isHit: hit, ratchets: passes && strikes >= 2, strikes: strikes, missed: cfg.on && hit && !passes)
