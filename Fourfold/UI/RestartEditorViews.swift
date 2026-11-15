@@ -53,7 +53,8 @@ struct EuclideousRestartLinkRow: View {
             RoundedRectangle(cornerRadius: line.height / 2).fill(on ? lineOn : lineOff)
                 .frame(width: line.width, height: line.height).offset(x: line.minX, y: line.minY)
                 .accessibilityHidden(true)
-            Image(systemName: "link").font(.system(size: glyphSize, weight: .heavy))
+            HStack(spacing: 1) { Image(systemName: "link"); Image(systemName: "arrow.down") }   // RESETS V2 §3.7: editor v2 §2.7's two glyphs — link then arrow.down
+                .font(.system(size: glyphSize, weight: .heavy))
                 .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
                 .frame(width: button.width, height: button.height)
                 .background(RoundedRectangle(cornerRadius: button.height <= 16 ? 8 : 6).fill(on ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))
@@ -80,6 +81,7 @@ struct EuclideousCountChipView: View {
     let onTap: () -> Void
     let onDrag: (Int, Bool) -> Void      // (new value, firstUpdate — true opens a fresh undo step)
     let onRemove: () -> Void
+    var progressFraction: Double? = nil  // RESETS V2 §3.6: the running link's chip draws a lane-colour progress bar (nil = not the running link / stopped / FREE)
 
     @State private var dragging = false
     @State private var startValue = 0
@@ -96,6 +98,11 @@ struct EuclideousCountChipView: View {
             Text("\(value)").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
         }
         .frame(width: frame.width, height: frame.height)
+        .overlay(alignment: .bottomLeading) {   // §3.6: the running link's progress bar — 2 tall, r1, from x 4, 3 above the bottom, width 0→36 by the span fraction
+            if let f = progressFraction {
+                RoundedRectangle(cornerRadius: 1).fill(accent).frame(width: CGFloat(max(0, min(1, f))) * 36, height: 2).padding(.leading, 4).padding(.bottom, 3)
+            }
+        }
         .contentShape(Rectangle())
         .highPriorityGesture(
             DragGesture(minimumDistance: 0)
@@ -202,7 +209,8 @@ struct EuclideousRestartEditorView: View {
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 1).fill(on ? accent : Color(hex: 0x3A3E47)).frame(width: line.width, height: line.height).offset(x: line.minX, y: line.minY)
                 .accessibilityHidden(true)
-            Image(systemName: "link").font(.system(size: 11, weight: .heavy)).foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
+            HStack(spacing: 1) { Image(systemName: "link"); Image(systemName: "arrow.down") }   // RESETS V2 §3.7: link then arrow.down
+                .font(.system(size: 11, weight: .heavy)).foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
                 .frame(width: b.width, height: b.height)
                 .background(RoundedRectangle(cornerRadius: 6).fill(on ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))
                 .contentShape(Rectangle())
@@ -226,17 +234,21 @@ struct EuclideousRestartSectionView: View {
     /// RESETS TAB §1.4: the card doesn't draw the RHYTHM / MELODY name — the tile above names the half. Defaults true (the overlay editor still draws it).
     var showsName: Bool = true
     let onEdit: (EuclideousRestartEdit, Bool) -> Void
+    /// RESETS V2 §3.6: given a date, the chain's running link + the span fraction (nil = no bar: stopped / FREE / not this chain). nil closure ⇒ the count chips never animate (the overlay editor, the RHYTHM-tab surface).
+    var runningBar: ((Date) -> (link: Int, fraction: Double)?)? = nil
 
     private var accent: Color { input.laneColors[input.lane % max(1, input.laneColors.count)] }
     private var chain: EuclideousRestartChain { rhythm ? settings.rhythm : settings.melody }
     private var active: Bool { rhythm ? settings.rhythmActive : settings.melodyActive }
-    private var unitIndex: Int { rhythm ? [EuclideousRhythmRestartUnit.pass, .bar, .riff].firstIndex(of: settings.rhythmUnit) ?? 0 : [EuclideousMelodyRestartUnit.hit, .pass, .bar].firstIndex(of: settings.melodyUnit) ?? 0 }
+    private var unitIndex: Int { rhythm ? [EuclideousRhythmRestartUnit.pass, .bar, .riff].firstIndex(of: settings.rhythmUnit) ?? 0 : [EuclideousMelodyRestartUnit.pass, .bar, .hit].firstIndex(of: settings.melodyUnit) ?? 0 }   // RESETS V2 §3.1: MELODY PASS·BAR·HIT
     private var unitWord: String { rhythm ? settings.rhythmUnit.word : settings.melodyUnit.word }
     private var isHitUnit: Bool { !rhythm && settings.melodyUnit == .hit }   // the link ladder is 1…8 for HIT, [1,2,3,4,6,8] otherwise
     private var readsSource: Bool { rhythm ? settings.rhythmUnit.readsSource : settings.melodyUnit.readsSource }
     private var sourceLane: Int { rhythm ? settings.rhythmSource : settings.melodySource }
-    /// §2.2: an inactive (FREE) chain dims its unit chips, source squares, count chips, + box and timeline to 42 %; the FREE pill and name stay full strength.
-    private var dim: Double { active ? 1 : EuclideousLaneDimStyle.opacity }
+    /// RESETS V2 §3.3: an inactive (FREE) chain dims its unit chips, source squares, count chips, + box and timeline to 60 % (a RESETS-local constant, NOT the shared lane-dim); the name stays full strength.
+    private var dim: Double { active ? 1 : euclideousResetsFreeDim }
+    /// §3.4: a linked MELODY with its chain inactive dims its FREE pill too (otherwise the pill is full strength). RHYTHM and an active melody keep the pill full.
+    private var freePillDim: Double { (!rhythm && settings.withRhythm && !active) ? euclideousResetsFreeDim : 1 }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -244,12 +256,13 @@ struct EuclideousRestartSectionView: View {
             freePill
             ForEach(0..<3, id: \.self) { i in chip(i) }
             if readsSource { ForEach(0..<4, id: \.self) { i in sourceSquare(i) } }
-            ForEach(Array(0..<max(0, chain.count)), id: \.self) { slot in
-                EuclideousCountChipView(value: Int(chain.link(slot)), frame: frames.countChips[slot], accent: accent, dim: dim, hit: isHitUnit,
-                                        label: EuclideousRestartEditorAX.link(rhythm: rhythm, slot: slot, value: Int(chain.link(slot)), unitWord: unitWord),
-                                        onTap: { onEdit(.tapLink(rhythm: rhythm, slot: slot), true) },
-                                        onDrag: { v, first in onEdit(.setLink(rhythm: rhythm, slot: slot, value: v), first) },
-                                        onRemove: { if chain.count > 1 { onEdit(.removeLink(rhythm: rhythm, slot: slot), true) } })
+            if let runningBar {   // §3.6: the running link's bar animates at 60 fps while the transport runs
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !input.running)) { tl in
+                    let rb = runningBar(tl.date)
+                    countChips(progressLink: rb?.link, fraction: rb?.fraction ?? 0)
+                }
+            } else {
+                countChips(progressLink: nil, fraction: 0)
             }
             if chain.count < 4 { addBox }
             if showsTimeline { timeline }
@@ -270,6 +283,7 @@ struct EuclideousRestartSectionView: View {
         let r = frames.freePill
         return EuclideousFreePill(free: !active, accent: accent)
             .frame(width: r.width, height: r.height)
+            .opacity(freePillDim)   // §3.4: a linked MELODY with an inactive chain dims its FREE pill too (stays live)
             .contentShape(Rectangle())
             .onTapGesture { onEdit(.toggleOn(rhythm: rhythm), true) }
             .offset(x: r.minX, y: r.minY)
@@ -277,12 +291,27 @@ struct EuclideousRestartSectionView: View {
             .accessibilityLabel(EuclideousRestartEditorAX.freePill(rhythm: rhythm, free: !active))
             .accessibilityAddTraits(.isButton).ringToggleTrait()
     }
+    /// The count chips (one per link); `progressLink` is the running link that carries the §3.6 bar (nil = none).
+    private func countChips(progressLink: Int?, fraction: Double) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(Array(0..<max(0, chain.count)), id: \.self) { slot in
+                EuclideousCountChipView(value: Int(chain.link(slot)), frame: frames.countChips[slot], accent: accent, dim: dim, hit: isHitUnit,
+                                        label: EuclideousRestartEditorAX.link(rhythm: rhythm, slot: slot, value: Int(chain.link(slot)), unitWord: unitWord),
+                                        onTap: { onEdit(.tapLink(rhythm: rhythm, slot: slot), true) },
+                                        onDrag: { v, first in onEdit(.setLink(rhythm: rhythm, slot: slot, value: v), first) },
+                                        onRemove: { if chain.count > 1 { onEdit(.removeLink(rhythm: rhythm, slot: slot), true) } },
+                                        progressFraction: slot == progressLink ? fraction : nil)
+            }
+        }
+    }
     private func chip(_ i: Int) -> some View {
-        let names = rhythm ? ["PASS", "BAR", "RIFF"] : ["HIT", "PASS", "BAR"]   // §2.2 order
+        let names = rhythm ? ["PASS", "BAR", "RIFF"] : ["PASS", "BAR", "HIT"]   // RESETS V2 §3.1: MELODY PASS·BAR·HIT, so PASS and BAR line up in both halves
         let selected = unitIndex == i, r = frames.chips[i]
-        return Text(names[i]).font(heavyMono(8)).tracking(0.48).foregroundColor(selected ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+        let setSelected = selected && active   // §3.2: a SET row's selection keeps the lane tint; a FREE row's selection is OUTLINED, not tinted (no second-selection look)
+        return Text(names[i]).font(heavyMono(8)).tracking(0.48).foregroundColor(setSelected ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
             .frame(width: r.width, height: r.height)
-            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))   // §2.2: selected = lane colour @30 %, no outline
+            .background(RoundedRectangle(cornerRadius: 6).fill(setSelected ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))
+            .overlay { if selected && !active { RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x6A707A), lineWidth: 1) } }   // §3.2: FREE selected = #2A2D34 fill, #AAB0BA text, 1 pt #6A707A inner stroke
             .contentShape(Rectangle())
             .onTapGesture { onEdit(.unit(rhythm: rhythm, index: i), true) }
             .offset(x: r.minX, y: r.minY)
@@ -291,29 +320,29 @@ struct EuclideousRestartSectionView: View {
             .accessibilityLabel(EuclideousRestartEditorAX.unitChip(rhythm: rhythm, index: i))
             .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
-    private func sourceSquare(_ i: Int) -> some View {
+    @ViewBuilder private func sourceSquare(_ i: Int) -> some View {
         let r = frames.sources[i]
         let unavailable = euclideousRestartSourceUnavailable(rhythm: rhythm, line: input.line, ownLane: input.lane, square: i)
-        let selected = !unavailable && sourceLane == i
-        let c = input.laneColors[i % max(1, input.laneColors.count)]
-        return ZStack {
-            if unavailable {
-                RoundedRectangle(cornerRadius: 2.5).strokeBorder(Color(hex: 0x3A3E47), style: StrokeStyle(lineWidth: 1, dash: [2, 2])).frame(width: 12, height: 12)
-            } else if selected {
-                RoundedRectangle(cornerRadius: 2.5).fill(c).frame(width: 12, height: 12)
-            } else {
-                RoundedRectangle(cornerRadius: 2.5).strokeBorder(c.opacity(0.55), lineWidth: 1.5).frame(width: 12, height: 12)
+        if unavailable {
+            // §3.5: the unavailable own-lane square (RHYTHM PASS) isn't drawn — its slot stays empty and takes no taps.
+            Color.clear.frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY).accessibilityHidden(true)
+        } else {
+            let selected = sourceLane == i
+            let c = input.laneColors[i % max(1, input.laneColors.count)]
+            ZStack {
+                if selected { RoundedRectangle(cornerRadius: 2.5).fill(c).frame(width: 12, height: 12) }
+                else { RoundedRectangle(cornerRadius: 2.5).strokeBorder(c.opacity(0.55), lineWidth: 1.5).frame(width: 12, height: 12) }
+                Text("\(i + 1)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(selected ? Color(hex: 0x0D0F14) : c)   // §3.5: the lane number, #0D0F14 on a selected square, lane100 on an unselected one
             }
+            .frame(width: r.width, height: r.height)
+            .contentShape(Rectangle())
+            .onTapGesture { onEdit(.source(rhythm: rhythm, lane: i), true) }
+            .offset(x: r.minX, y: r.minY)
+            .opacity(dim)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(EuclideousRestartEditorAX.source(square: i, unavailable: false))
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         }
-        .frame(width: r.width, height: r.height)
-        .contentShape(Rectangle())
-        .onTapGesture { if !unavailable { onEdit(.source(rhythm: rhythm, lane: i), true) } }
-        .offset(x: r.minX, y: r.minY)
-        .opacity(dim)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(EuclideousRestartEditorAX.source(square: i, unavailable: unavailable))
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .disabled(unavailable)   // VoiceOver reads "dimmed" (§9.2); the look is §7.4's dashed #3A3E47 stroke itself
     }
     /// The add box — 28 × 28, shown only when there are fewer than four links.
     private var addBox: some View {

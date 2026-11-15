@@ -5,6 +5,9 @@
 import Foundation
 import CoreGraphics
 
+/// RESETS V2 §3.3 — the opacity an INACTIVE (FREE) restart row draws at on the RESETS card. A RESETS-local constant on purpose: the old 42 % was the SHARED `EuclideousLaneDimStyle.opacity` (muted/solo lane dimming), which must not change.
+let euclideousResetsFreeDim: Double = 0.6
+
 // MARK: - the tile (§6, §9.1)
 
 /// What a restart tile shows for one part of one lane. `kind` rhythm / melody; `ownLane` 0…3.
@@ -242,7 +245,7 @@ func euclideousResetsCardLayout(size: CGSize) -> EuclideousResetsCardLayout {
 // MARK: - what a tap does (§7.4) — one undo step each
 
 enum EuclideousRestartEdit: Equatable {
-    case unit(rhythm: Bool, index: Int)       // §2.2 order — RHYTHM chips: PASS, BAR, RIFF · MELODY chips: HIT, PASS, BAR
+    case unit(rhythm: Bool, index: Int)       // RESETS V2 §3.1 order — RHYTHM chips: PASS, BAR, RIFF · MELODY chips: PASS, BAR, HIT
     case source(rhythm: Bool, lane: Int)
     case toggleOn(rhythm: Bool)               // the FREE pill: on ↔ off (appends a 1 when turning an empty chain on)
     case withRhythm
@@ -301,7 +304,7 @@ private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: in
             l.restartRhythmUnit = units[index]
             if units[index] == .pass, (l.restartRhythmSource.map { max(0, min(3, $0)) } ?? own) == own { l.restartRhythmSource = (own + 1) % 4 }   // PASS never counts the lane itself: the source moves to the next lane in the same step
         } else {
-            let units: [EuclideousMelodyRestartUnit] = [.hit, .pass, .bar]   // §2.2 order: short → long (HIT · PASS · BAR)
+            let units: [EuclideousMelodyRestartUnit] = [.pass, .bar, .hit]   // RESETS V2 §3.1: MELODY chip order PASS · BAR · HIT
             guard index >= 0, index < 3, l.restartMelodyUnitResolved != units[index] else { return }
             if l.restartMelodyUnitResolved == .hit {   // leaving HIT: 5 → 6 and 7 → 8 (those values are not valid for the other units)
                 l.restartMelodyPasses = l.restartMelodyPasses.map { $0.map { $0 == 5 ? 6 : ($0 == 7 ? 8 : $0) } }
@@ -427,7 +430,7 @@ enum EuclideousRestartEditorAX {
     static let rhythmGroup = "Rhythm restarts", melodyGroup = "Melody restarts"
     static let close = "Close restarts"
     static func unitChip(rhythm: Bool, index: Int) -> String {
-        let words = rhythm ? ["passes", "bars", "riffs"] : ["hits", "passes", "bars"]   // §2.2 order
+        let words = rhythm ? ["passes", "bars", "riffs"] : ["passes", "bars", "hits"]   // RESETS V2 §3.1: MELODY PASS·BAR·HIT
         return "Count \(words[max(0, min(2, index))])"
     }
     static func source(square: Int, unavailable: Bool) -> String { "Lane \(square + 1)" + (unavailable ? ", unavailable" : "") }

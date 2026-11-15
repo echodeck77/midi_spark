@@ -3707,17 +3707,35 @@ struct EuclideousPage: View {
             }
             .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
             // RHYTHM controls (no name, no timeline) · the link row · MELODY controls — declared RHYTHM → link → MELODY so VoiceOver reads them in that order (§4.1). Each section view is full-size with absolute card-coordinate offsets.
-            EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: L.rhythm, rhythm: true, settings: settings, showsTimeline: false, showsName: false, onEdit: { restartEdit(idx, $0, $1) })
+            EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: L.rhythm, rhythm: true, settings: settings, showsTimeline: false, showsName: false, onEdit: { restartEdit(idx, $0, $1) },
+                                         runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .rhythm, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet))
                 .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
             EuclideousRestartLinkRow(on: settings.withRhythm, accent: accent, lineOn: lane100(accent).opacity(0.6), lineOff: Color(hex: 0x2F333B),
                                      button: L.linkButton, hit: L.linkButtonHit, line: L.linkLine, glyphSize: L.linkH <= 16 ? 9 : 11,
                                      axLabel: EuclideousRestartEditorAX.withRhythm(on: settings.withRhythm), onToggle: { restartEdit(idx, .withRhythm, true) })
-            EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: L.melody, rhythm: false, settings: settings, showsTimeline: false, showsName: false, onEdit: { restartEdit(idx, $0, $1) })
+            EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: L.melody, rhythm: false, settings: settings, showsTimeline: false, showsName: false, onEdit: { restartEdit(idx, $0, $1) },
+                                         runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .melody, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet))
                 .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(EuclideousRestartEditorAX.resetsCard(lane: idx))   // §4.1
+    }
+
+    /// RESETS V2 §3.6 — the per-frame closure feeding a half's running-link bar: the running link + the span fraction at a date (the SAME fraction as the ruler's playhead). nil (no closure) when stopped or the lane has no config, so the chips stay static. Captures only values + `beatAt` (no View `self`).
+    private func resetsRunningBar(_ cfg: EuclideousWalkLaneConfig?, settings: EuclideousRestartSettings, lane: Int, running: Bool, kind: EuclideousRestartKind,
+                                  beatAt: @escaping (Date) -> Double, barBeats: Double, scheduleSet: EuclideousRestartScheduleSet) -> ((Date) -> (link: Int, fraction: Double)?)? {
+        guard running, let c = cfg else { return nil }
+        let rhythm = kind == .rhythm
+        let chain = rhythm ? settings.rhythm : settings.melody
+        return { date in
+            let beat = beatAt(date)
+            let r = euclideousRestartRuler(kind, cfg: c, beat: beat, running: true)
+            guard !r.isFree, r.spanLen > 1e-9 else { return nil }   // §3.6: none while FREE
+            let cur = euclideousRestartCurrentUnit(rhythm: rhythm, settings: settings, ownLane: lane, beat: beat, barBeats: barBeats, set: scheduleSet)
+            guard let link = euclideousRestartRunningLink(chain: chain, current: cur) else { return nil }
+            return (link, max(0, min(1, (beat - r.spanStart) / r.spanLen)))
+        }
     }
 
     /// RESETS V2 §1/§2 — the ruler input (span + blocks + the lane's hits in the span) and the ratio text for one RESETS tile, at the UI beat. A regular method (not a ViewBuilder) so it can hold the hit-scan loop.

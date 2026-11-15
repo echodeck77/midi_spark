@@ -82,11 +82,11 @@ final class RestartEditorUITests: XCTestCase {
         XCTAssertEqual(EuclideousRestartEditorAX.freePill(rhythm: true, free: true), "Rhythm free, on")
         XCTAssertEqual(EuclideousRestartEditorAX.freePill(rhythm: false, free: false), "Melody free, off")
         XCTAssertEqual(EuclideousRestartEditorAX.withRhythm(on: true), "Melody restarts with the rhythm, on")
-        // §2.2 chip order: RHYTHM = PASS · BAR · RIFF, MELODY = HIT · PASS · BAR
+        // RESETS V2 §3.1 chip order: RHYTHM = PASS · BAR · RIFF, MELODY = PASS · BAR · HIT
         XCTAssertEqual(EuclideousRestartEditorAX.unitChip(rhythm: true, index: 0), "Count passes")
         XCTAssertEqual(EuclideousRestartEditorAX.unitChip(rhythm: true, index: 2), "Count riffs")
-        XCTAssertEqual(EuclideousRestartEditorAX.unitChip(rhythm: false, index: 0), "Count hits")
-        XCTAssertEqual(EuclideousRestartEditorAX.unitChip(rhythm: false, index: 2), "Count bars")
+        XCTAssertEqual(EuclideousRestartEditorAX.unitChip(rhythm: false, index: 0), "Count passes")
+        XCTAssertEqual(EuclideousRestartEditorAX.unitChip(rhythm: false, index: 2), "Count hits")
         XCTAssertEqual(EuclideousRestartEditorAX.link(rhythm: true, slot: 0, value: 2, unitWord: "bar"), "Rhythm link 1, 2 bars")
         XCTAssertEqual(EuclideousRestartEditorAX.link(rhythm: false, slot: 1, value: 1, unitWord: "hit"), "Melody link 2, 1 hit")
         XCTAssertEqual(EuclideousRestartEditorAX.linkHint, "Swipe up or down to change the length")
@@ -95,7 +95,7 @@ final class RestartEditorUITests: XCTestCase {
     // MARK: test 16 — the editor's logic
 
     func testAUnitChangeIsOneEditAndFixesWhatItMust() {
-        // RESTARTS EDITOR V2 §2.2 chip order: RHYTHM = PASS(0) · BAR(1) · RIFF(2); MELODY = HIT(0) · PASS(1) · BAR(2)
+        // RESETS V2 §3.1 chip order: RHYTHM = PASS(0) · BAR(1) · RIFF(2); MELODY = PASS(0) · BAR(1) · HIT(2)
         var l = pinned(); l.restartRhythmBars = [2]   // default unit BAR = index 1
         XCTAssertFalse(euclideousApplyRestartEdit(.unit(rhythm: true, index: 1), to: &l, lane: 0, pin: nil), "selecting the selected unit (BAR) does nothing")
         XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: true, index: 0), to: &l, lane: 0, pin: nil))
@@ -106,15 +106,15 @@ final class RestartEditorUITests: XCTestCase {
         var keep = pinned(); keep.restartRhythmBars = [1]; keep.restartRhythmSource = 2
         euclideousApplyRestartEdit(.unit(rhythm: true, index: 0), to: &keep, lane: 0, pin: nil)   // → PASS
         XCTAssertEqual(keep.restartRhythmSource, 2, "another lane's source is kept")
-        // leaving HIT (index 1 = PASS) maps links 5 → 6 and 7 → 8
+        // leaving HIT (index 0 = PASS) maps links 5 → 6 and 7 → 8
         var m = pinned(); m.restartMelodyUnit = .hit; m.restartMelodyPasses = [5, 7, 3, 8]
-        XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: false, index: 1), to: &m, lane: 0, pin: nil))
+        XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: false, index: 0), to: &m, lane: 0, pin: nil))
         XCTAssertEqual(m.restartMelodyUnit, .pass); XCTAssertEqual(m.restartMelodyPasses, [6, 8, 3, 8])
         var toBar = pinned(); toBar.restartMelodyUnit = .hit; toBar.restartMelodyPasses = [5]
-        euclideousApplyRestartEdit(.unit(rhythm: false, index: 2), to: &toBar, lane: 0, pin: nil)   // index 2 = BAR
+        euclideousApplyRestartEdit(.unit(rhythm: false, index: 1), to: &toBar, lane: 0, pin: nil)   // index 1 = BAR
         XCTAssertEqual(toBar.restartMelodyPasses, [6])
         var toHit = pinned(); toHit.restartMelodyPasses = [6]   // default unit PASS
-        euclideousApplyRestartEdit(.unit(rhythm: false, index: 0), to: &toHit, lane: 0, pin: nil)   // index 0 = HIT
+        euclideousApplyRestartEdit(.unit(rhythm: false, index: 2), to: &toHit, lane: 0, pin: nil)   // index 2 = HIT
         XCTAssertEqual(toHit.restartMelodyUnit, .hit); XCTAssertEqual(toHit.restartMelodyPasses, [6], "entering HIT keeps its links (all valid there)")
     }
     func testTheSourceSquares() {
@@ -181,9 +181,9 @@ final class RestartEditorUITests: XCTestCase {
         XCTAssertTrue(euclideousApplyRestartEdit(.setLink(rhythm: true, slot: 0, value: 6), to: &d, lane: 0, pin: nil))
         XCTAssertEqual(d.restartRhythmBars, [6]); XCTAssertTrue(d.restartRhythmOnResolved, "a drag on a FREE row turns it live")
         XCTAssertFalse(euclideousApplyRestartEdit(.setLink(rhythm: true, slot: 0, value: 6), to: &d, lane: 0, pin: nil), "setting the same value is a no-op (one undo step, no redundant write)")
-        // a unit tap on an empty free chain activates it with a 1
+        // a unit tap on an empty free chain activates it with a 1 (index 2 = HIT, differs from the PASS default so it wakes)
         var u = pinned()
-        XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: false, index: 0), to: &u, lane: 0, pin: nil))
+        XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: false, index: 2), to: &u, lane: 0, pin: nil))
         XCTAssertEqual(u.restartMelodyUnit, .hit); XCTAssertEqual(u.restartMelodyPasses, [1]); XCTAssertTrue(u.restartMelodyOnResolved, "a unit tap woke the empty chain")
         // the only link is never removed by a long-press
         var one = pinned(); one.restartRhythmBars = [3]; one.restartRhythmOn = true
