@@ -599,31 +599,51 @@ final class RatchExpandEngineTests: XCTestCase {
         eq(firstHitStrikes(gap(.fit), laneRate: .r1_8, subSamples: 12_000), [0, 4_000, 8_000])   // ×24000 samples/beat
     }
 
-    // §10 test 3 — GAP 1/16, CUT: one strike on a 1/16 step, two on a 1/8, all three on a 1/4.
-    func testGapSixteenthCut() {
-        eq(firstHitStrikes(gap(.sixteenth), laneRate: .r1_16, subSamples: 6_000), [0])
-        eq(firstHitStrikes(gap(.sixteenth), laneRate: .r1_8, subSamples: 12_000), [0, 6_000])    // 0 and 0.25 beat
-        eq(firstHitStrikes(gap(.sixteenth), laneRate: .r1_4, subSamples: 24_000), [0, 6_000, 12_000])
+    // RATCH v2 §1.7 — GAP is RETIRED: a stored GAP is ignored and the ratchet plays at LENGTH 1 (the FIT even split). A non-FIT session changes timing (reported). ×3 on a 1/8 lane: every GAP now plays as FIT (0, 4000, 8000).
+    func testStoredGapIsIgnoredAndPlaysAsLengthOne() {
+        let fit = firstHitStrikes(gap(.fit), laneRate: .r1_8, subSamples: 12_000)
+        eq(fit, [0, 4_000, 8_000], "FIT ×3 on 1/8 = LENGTH 1 even split")
+        eq(firstHitStrikes(gap(.sixteenth), laneRate: .r1_8, subSamples: 12_000), fit, "GAP 1/16 now plays as LENGTH 1")
+        eq(firstHitStrikes(gap(.sixteenthT), laneRate: .r1_8, subSamples: 12_000), fit, "GAP 1/16T too")
+        eq(firstHitStrikes(gap(.thirtysecond), laneRate: .r1_8, subSamples: 12_000), fit, "GAP 1/32 too")
     }
 
-    // §10 test 5 — GAP 1/16T and 1/32 start strikes at k × 1/6 and k × 0.125 beats.
-    func testGapTripletAndThirtysecond() {
-        eq(firstHitStrikes(gap(.sixteenthT), laneRate: .r1_8, subSamples: 12_000), [0, 4_000, 8_000])   // 1/6 beat
-        eq(firstHitStrikes(gap(.thirtysecond), laneRate: .r1_8, subSamples: 12_000), [0, 3_000, 6_000]) // 0.125 beat
-    }
-
-    // §10 test 6 — gate per strike: GATE 50 at GAP 1/16 lasts 0.125 beat (spacing 0.25 × 0.5). The strikes (6000 apart)
-    // don't overlap, so each note-off is ≈ 3000 samples after its on.
+    // RATCH v2 §2.4 — gate per strike at LENGTH 1: GATE 50, ×3 on a 1/4 lane (step 1 beat) ⇒ strikes at 0, 1/3, 2/3 beat; each lasts GATE × slot = 0.5 × 1/3 beat = 4000 samples.
     func testGatePerStrike() {
         let p = play(Rig(lines: [line(pulses: 8, steps: 8, rate: .r1_4, gate: 0.5)],
-                         emitters: emitters([(0, gap(.sixteenth))]), ranks: [1, 1, 1, 1, 1, 1, 1, 1]), beats: 2)
-        eq(p.tap.ons(1).filter { $0.sample < 23_800 }.map { $0.sample }.sorted(), [0, 6_000, 12_000])
-        eq(p.tap.offs(1).filter { $0.sample < 23_800 }.map { $0.sample }.sorted(), [3_000, 9_000, 15_000], "each strike lasts 0.125 beat")
+                         emitters: emitters([(0, gap(.fit))]), ranks: [1, 1, 1, 1, 1, 1, 1, 1]), beats: 2)
+        // beat 0's three strikes (the later beats' notes close at the abrupt STOP, out of scope here).
+        eq(p.tap.ons(1).filter { $0.sample >= 0 && $0.sample < 23_800 }.map { $0.sample }.sorted(), [0, 8_000, 16_000])
+        eq(p.tap.offs(1).filter { $0.sample >= 0 && $0.sample < 23_800 }.map { $0.sample }.sorted(), [4_000, 12_000, 20_000], "each strike lasts GATE × slot = 1/6 beat")
+        assertNothingLeftSounding(p.tap)
     }
 
-    // §0.2: SPILL falls back to CUT this build — the strikes are identical.
-    func testSpillEqualsCut() {
-        eq(firstHitStrikes(gap(.sixteenth, strikes: 4, end: .cut), laneRate: .r1_8, subSamples: 12_000),
-           firstHitStrikes(gap(.sixteenth, strikes: 4, end: .spill), laneRate: .r1_8, subSamples: 12_000))
+    // RATCH v2: `end` (CUT · SPILL) is retired — the engine never reads it, so the two are identical (both play LENGTH 1).
+    func testEndIsIgnored() {
+        eq(firstHitStrikes(gap(.fit, strikes: 4, end: .cut), laneRate: .r1_8, subSamples: 12_000),
+           firstHitStrikes(gap(.fit, strikes: 4, end: .spill), laneRate: .r1_8, subSamples: 12_000))
+    }
+
+    // RATCH v2 §2.3/§2.5 — the SPREAD bend curve + VEL ramp, through the real Router (the bent per-strike echo-tail path).
+    func testSpreadRushAndFadeRamp() {
+        // A on, STEPS 4 HITS 1 (one ratcheting hit at beat 0), COUNTS {3}, LENGTH 1, BEND +50 (RUSH, p 2), VEL FADE depth 50, on a 1/4 lane (stepBeats 1 beat).
+        var r = on(steps: 4, hits: 1, strikes: 3); r.countsBits = EmitterRatchet.countBit(3); r.length = .one; r.bend = 50; r.vel = .fade; r.depth = 50
+        let e = play(Rig(lines: [line()], emitters: emitters([(0, r)])), beats: 4)
+        let first = Array(e.tap.ons(1).sorted { $0.sample < $1.sample }.prefix(3))
+        let beats = first.map { (Double($0.sample) / 24_000.0 * 1000).rounded() / 1000 }
+        XCTAssertEqual(beats, [0.0, 0.556, 0.889], "RUSH p2: f(k/3) = 0, 0.5556, 0.8889 × 1 beat")
+        XCTAssertEqual(first.map { Int($0.vel) }, [90, 68, 45], "FADE 50 shares 1, 0.75, 0.5 × base 90 (round)")
+    }
+
+    func testSpreadLengthHalfStaysInStep() {
+        // LENGTH ½, ×4, BEND 0 on a 1/4 lane (step 1 beat): 4 strikes at 0, 0.125, 0.25, 0.375 — all in the first half of the step.
+        var r = on(steps: 4, hits: 1, strikes: 4); r.countsBits = EmitterRatchet.countBit(4); r.length = .half; r.bend = 0; r.vel = .flat
+        let e = play(Rig(lines: [line()], emitters: emitters([(0, r)])), beats: 4)
+        let first = Array(e.tap.ons(1).sorted { $0.sample < $1.sample }.prefix(4))
+        let beats = first.map { (Double($0.sample) / 24_000.0 * 1000).rounded() / 1000 }
+        XCTAssertEqual(beats, [0.0, 0.125, 0.25, 0.375], "LENGTH ½: span 0.5 beat, even ×4")
+        XCTAssertTrue(beats.allSatisfy { $0 < 0.5 }, "every strike in the first half of the step")
+        XCTAssertEqual(Set(first.map { Int($0.vel) }), [90], "VEL FLAT ⇒ every strike at the base velocity")
+        assertNothingLeftSounding(e.tap)
     }
 }

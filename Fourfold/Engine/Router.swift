@@ -4933,8 +4933,8 @@ final class Router {
                                             let d = emitterCounter.hit(cfg: emitterRatchets[x], output: x, countsSteps: emitterRatchets.countsSteps, laneStep: localT, window: emitterWindowSerial, sample: hitSample, restartKey: rk)
                                             if d.missed { emitMissedOuts |= UInt8(1) << UInt8(x) }
                                             if d.ratchets {
-                                                // §3.2 / §3.5: FIT splits the step evenly, so the 10 ms floor caps the COUNT, exactly as FX RATCH (today). A fixed GAP keeps the requested count — its 10 ms floor and the CUT drop are applied to the SPACING in `emitterRatchetStrikes`.
-                                                let n = emitterRatchets[x].gap == .fit ? euclideousFXRatchetCount(requested: d.strikes, sub: sub, tempo: tempo) : d.strikes
+                                                // RATCH v2 §3.5: the beat-width cap on the hit's SHORTEST strike slot (BEND makes them uneven); FILL-scaled step `subAtHit`. LENGTH 1 / BEND 0 == today's FIT cap exactly. If it lowers n below 2 the hit plays once (the `n >= 2` gate).
+                                                let n = emitterStrikeCappedCount(n: d.strikes, length: emitterRatchets[x].length, bend: emitterRatchets[x].bend, stepBeats: subAtHit, tempo: tempo)
                                                 if n >= 2 { emitRatchetOuts |= UInt8(1) << UInt8(x); emitN[x] = UInt8(n) }
                                             }
                                             if emitterVelAny {
@@ -4962,39 +4962,57 @@ final class Router {
                                 func tailExclude(_ j: Int) -> UInt8 { emitRatchetOuts != 0 && outsOf(j) == nil && emitOutsOf(j) & emitRatchetOuts != 0 ? emitRatchetOuts : 0 }
                                 func tailOuts(_ j: Int) -> UInt8? { tailExclude(j) != 0 ? nil : outsStrike(j) }
                                 func strikesPlain(_ j: Int) -> Bool { (emitOnlyBits >> UInt16(j)) & 1 == 0 }
-                                // §3.2: every note the hit sends on a ratcheting output sounds n times there — strike k at the hit + k × step ÷ n, laid out like FX RATCH's (strike 0 now; one inside this window struck where it belongs; the rest deferred
-                                // on the echo ring), each lasting the pitch's effective gate as a share of its slot (never under 5 ms), at the hit's velocity (FLAT), on that output only. ROLL / RUN never apply here (§3.5): the notes strike together.
-                                // §3.7: a tie after the hit extends the LAST strike, as FX §5.4 does. The deferred strikes carry the FINAL pitch (transpose included), like the ROLL tail.
+                                // RATCH v2 §2.3/§2.5 (2026-11-15): every note the hit sends on a ratcheting output sounds n times there — strike k at hitBeat + f(k/n)·spanBeats (SPREAD: spanBeats = LENGTH × the FILL-scaled step `subAtHit`;
+                                // f the BEND curve), lasting its effective gate as a share of its own slot, at the hit's velocity × the VEL ramp's share (§2.5). Strike 0 fires now; an in-window strike where it belongs; the rest deferred on the echo
+                                // ring. §0.2: LENGTH is ½ or 1 only, so every strike starts inside the step — nothing spills, no choke. The DEFAULT (LENGTH 1, BEND 0, VEL FLAT) is the even FIT path below, byte-identical to today. §3.7: a tie extends the last strike.
                                 func emitterRatchetStrikes() {
                                     guard emitRatchetOuts != 0 else { return }
                                     for x in 0..<4 where (emitRatchetOuts >> UInt8(x)) & 1 != 0 {
-                                        let requested = Int(emitN[x]), xBit = UInt8(1) << UInt8(x)
-                                        // RATCH EXPAND §2.4/§3: the strike SPACING — FIT splits the step (today's `sub/n`), a GAP is its fixed beat value; never under the 10 ms slot floor (§3.5). CUT (SPILL == CUT this build, §0.2) then
-                                        // keeps only the strikes STARTING before the step ends (§3.3) — strike 0 always plays. FIT is exactly today: `spacing = sub/requested`, every strike fits, so `n == requested`.
-                                        let spacing = max(euclideousRatchetMinSlotSeconds * tempo / 60.0, emitterRatchets[x].gap.beats ?? (sub / Double(requested)))
-                                        var n = 1
-                                        while n < requested && Double(n) * spacing < sub - 1e-9 { n += 1 }
+                                        let n = Int(emitN[x]), xBit = UInt8(1) << UInt8(x)   // already SPREAD-capped at the decision site (§3.5)
+                                        let rc = emitterRatchets[x]
+                                        let evenFlat = rc.bend == 0 && rc.vel == .flat     // BEND 0 + FLAT ⇒ even spacing + one velocity ⇒ today's single-tail path (byte-identical)
+                                        let span = emitterStrikeSpanBeats(length: rc.length, stepBeats: subAtHit)
                                         for j in 0..<pitchCount where emitOutsOf(j) & xBit != 0 {
                                             guard let fp = finalPitch(pitches[j], oct: 0) else { continue }
-                                            let gate = max(minGateBeats5ms, spacing * pitchGate[j])
                                             let tieLast = tieOf(j) > 0
-                                            let lastGate = tieLast ? max(gate, (nextHitGapBeats - Double(n - 1) * spacing) + pitchGate[j] * tieOf(j)) : gate
                                             let repBusMask = chopMask(cell, m: mTickBeat, S: S, base: busOf(j) ?? bm)
-                                            strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gate, octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: xBit)
-                                            var k = 1
-                                            while k < n && mTickBeat + Double(k) * spacing < mWinEnd {
-                                                strikeChord(tau: mTickBeat + Double(k) * spacing, velScale: 1.0, gateBeats: tieLast && k == n - 1 ? lastGate : gate, octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: xBit)
-                                                k += 1
-                                            }
-                                            guard k < n else { continue }
-                                            let lastRegular = tieLast ? n - 2 : n - 1
-                                            if k <= lastRegular {
-                                                pushEchoTail(onset: mTickBeat + Double(k - 1) * spacing, note: fp, vel: pitchVel[j], rank: pitchRank[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
-                                                             timeBeats: spacing, repeats: lastRegular - k + 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: gate)
-                                            }
-                                            if tieLast && k <= n - 1 {
-                                                pushEchoTail(onset: mTickBeat + Double(n - 2) * spacing, note: fp, vel: pitchVel[j], rank: pitchRank[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
-                                                             timeBeats: spacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: lastGate)
+                                            if evenFlat {
+                                                let spacing = span / Double(max(1, n))   // = subAtHit/n for LENGTH 1 (today's FIT spacing)
+                                                let gate = max(minGateBeats5ms, spacing * pitchGate[j])
+                                                let lastGate = tieLast ? max(gate, (nextHitGapBeats - Double(n - 1) * spacing) + pitchGate[j] * tieOf(j)) : gate
+                                                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gate, octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: xBit)
+                                                var k = 1
+                                                while k < n && mTickBeat + Double(k) * spacing < mWinEnd {
+                                                    strikeChord(tau: mTickBeat + Double(k) * spacing, velScale: 1.0, gateBeats: tieLast && k == n - 1 ? lastGate : gate, octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: pitchVel[j], busOverride: busOf(j), outsOverride: xBit)
+                                                    k += 1
+                                                }
+                                                guard k < n else { continue }
+                                                let lastRegular = tieLast ? n - 2 : n - 1
+                                                if k <= lastRegular {
+                                                    pushEchoTail(onset: mTickBeat + Double(k - 1) * spacing, note: fp, vel: pitchVel[j], rank: pitchRank[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
+                                                                 timeBeats: spacing, repeats: lastRegular - k + 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: gate)
+                                                }
+                                                if tieLast && k <= n - 1 {
+                                                    pushEchoTail(onset: mTickBeat + Double(n - 2) * spacing, note: fp, vel: pitchVel[j], rank: pitchRank[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
+                                                                 timeBeats: spacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: lastGate)
+                                                }
+                                            } else {
+                                                // §2.3 bent spacing / §2.5 per-strike velocity ⇒ ONE deferred tail per strike (a bent run can't share a fixed timeBeats).
+                                                for k in 0..<n {
+                                                    let start = emitterStrikeStartOffset(k: k, n: n, length: rc.length, bend: rc.bend, stepBeats: subAtHit)
+                                                    let slot = emitterStrikeSlotBeats(k: k, n: n, length: rc.length, bend: rc.bend, stepBeats: subAtHit)
+                                                    var gate = max(minGateBeats5ms, slot * pitchGate[j])
+                                                    if tieLast && k == n - 1 { gate = max(gate, (nextHitGapBeats - start) + pitchGate[j] * tieOf(j)) }   // §3.7
+                                                    let vel = UInt8(max(1, min(127, Int((Double(pitchVel[j]) * emitterStrikeVelShare(vel: rc.vel, depth: rc.depth, k: k, n: n)).rounded()))))   // §2.5 ramp, ≥1
+                                                    let tau = mTickBeat + start
+                                                    if k == 0 || tau < mWinEnd {
+                                                        strikeChord(tau: tau, velScale: 1.0, gateBeats: gate, octave: 0, explicitNote: pitches[j], rank: pitchRank[j], explicitVel: vel, busOverride: busOf(j), outsOverride: xBit)
+                                                    } else {
+                                                        let tb = max(1e-6, slot)   // the drain fires at onset + timeBeats ⇒ onset = tau − tb
+                                                        pushEchoTail(onset: tau - tb, note: fp, vel: vel, rank: pitchRank[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
+                                                                     timeBeats: tb, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: gate)
+                                                    }
+                                                }
                                             }
                                         }
                                     }
