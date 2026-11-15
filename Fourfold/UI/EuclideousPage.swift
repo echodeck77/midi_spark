@@ -3910,7 +3910,7 @@ struct EuclideousPage: View {
             layers.append(pos(L.barTiles[n], fillBarTile(n: n, lit: barsLit[n], fillOn: fillOn, current: beat != nil && cur == n, sounding: sounding && cur == n, progress: prog, accent: accent, size: L.barTiles[n].size, idx: idx)))
         }
         layers.append(pos(L.loopChip, AnyView(EuclideousFillLoopChip(loop: loop, accent: accent, size: L.loopChip.size) { self.edit(idx) { $0.fillLoop = UInt8(loop == 4 ? 8 : (loop == 8 ? 16 : 4)) } })))
-        if L.preview.height > 0 { layers.append(pos(L.preview, fillPreviewStrip(line, accent: accent, size: L.preview.size, loop: loop, beat: beat))) }
+        if L.preview.height > 0 { layers.append(pos(L.preview, fillPreviewStrip(idx, line, accent: accent, size: L.preview.size, loop: loop, beat: beat))) }
         // §3.4 row 1: FILL · SPEED (+curve chip) · LENGTH · ORDER
         layers.append(pos(L.fill, fillToggleTile(on: fillOn, accent: accent, size: L.fill.size, radius: L.radius, idx: idx)))
         layers.append(value(.speed, L.speed, exclude: true))
@@ -3936,32 +3936,59 @@ struct EuclideousPage: View {
         guard let rg = euclideousFillRegion(line: line, bar: bn, beatsPerBar: clock.beatsPerBar) else { return false }
         return b >= rg.F - 1e-9 && b < rg.E
     }
-    /// §5 (slice 5a): a region-timeline preview — the loop's bars, each armed bar's fill region [F, E) washed in the lane
-    /// colour, a playhead on the current bar. Predictor-free (the note-level preview is the next slice). Device-owed look.
-    private func fillPreviewStrip(_ line: EuclidLine, accent: Color, size: CGSize, loop: Int, beat: Double?) -> AnyView {
+    /// §5: the rich note-level preview — the loop's bars with each armed bar's fill region washed in the lane colour, the
+    /// predicted fill NOTES drawn as rectangles (x = onset across the loop, y = pitch, opacity = velocity; BREAK-dropped
+    /// hatched, the LAND accent brighter), and a playhead. The notes come from `euclideousFillPreviewNotes` — the pure
+    /// mirror of the Router's fill loop (pinned by FillRouterTests), so the picture equals what the AU emits. Device-owed look.
+    private func fillPreviewStrip(_ idx: Int, _ line: EuclidLine, accent: Color, size: CGSize, loop: Int, beat: Double?) -> AnyView {
         let lenFrac = [1.0, 0.5, 0.25][min(2, line.fillLengthResolved)]   // BAR / ½ / ¼ of a bar
         let barsLit = line.fillBarsResolved
         let fillOn = line.fillOnResolved
+        let bpb = max(1e-6, clock.beatsPerBar)
+        let n = max(1, loop)
+        // the predicted notes across the whole loop (origin 0 — the preview is the lane's own loop, independent of the live transport phase)
+        var notes: [EuclideousFillPreviewNote] = []
+        if fillOn, idx < lines.count, let cfg = riffWalkConfig(idx) {
+            let pool = idx < lanePools.count ? lanePools[idx].notes.sorted().map { Int($0) } : []
+            notes = euclideousFillPreviewNotes(cfg: cfg, line: line, lane: idx, pool: pool, riffOct: line.riffOctaveResolved,
+                                               baseVel: line.velocityAbsoluteResolved, ranks: effectiveGridRanks,
+                                               fromBar: 0, toBar: n, beatsPerBar: bpb, originBeat: 0)
+        }
+        let loBeat = 0.0, hiBeat = Double(n) * bpb
+        let pitches = notes.map { $0.pitch }
+        let lo = (pitches.min() ?? 60) - 1, hi = (pitches.max() ?? 72) + 1
+        let span = max(1, hi - lo)
         return AnyView(Canvas { ctx, sz in
             ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: sz), cornerRadius: 6), with: .color(Color(hex: 0x17191E)))
-            let n = max(1, loop)
             let barW = sz.width / CGFloat(n)
-            for i in 0..<n {
+            let inset: CGFloat = 4
+            func xOf(_ b: Double) -> CGFloat { CGFloat((b - loBeat) / max(1e-6, hiBeat - loBeat)) * sz.width }
+            func yOf(_ p: Int) -> CGFloat { inset + (1 - CGFloat(p - lo) / CGFloat(span)) * (sz.height - 2 * inset) }
+            for i in 0..<n {   // bar dividers + the fill-region wash
                 let x = CGFloat(i) * barW
-                if i > 0 { ctx.fill(Path(CGRect(x: x, y: 2, width: 0.5, height: sz.height - 4)), with: .color(Color(hex: 0x2A2D34))) }   // bar divider
-                if fillOn && i < barsLit.count && barsLit[i] {   // the fill region: the last `lenFrac` of the bar
+                if i > 0 { ctx.fill(Path(CGRect(x: x, y: 2, width: 0.5, height: sz.height - 4)), with: .color(Color(hex: 0x2A2D34))) }
+                if fillOn && i < barsLit.count && barsLit[i] {
                     let rw = barW * CGFloat(lenFrac)
-                    ctx.fill(Path(roundedRect: CGRect(x: x + barW - rw + 1, y: 3, width: max(1, rw - 2), height: sz.height - 6), cornerRadius: 2), with: .color(lane100(accent).opacity(0.28)))
+                    ctx.fill(Path(roundedRect: CGRect(x: x + barW - rw + 1, y: 3, width: max(1, rw - 2), height: sz.height - 6), cornerRadius: 2), with: .color(accent.opacity(0.14)))
                 }
             }
-            if let b = beat, loop > 0 {   // §5 the playhead across the loop
-                let within = (b / max(1e-6, clock.beatsPerBar)).truncatingRemainder(dividingBy: Double(n))
-                let px = CGFloat(within) * barW
-                ctx.fill(Path(CGRect(x: px, y: 0, width: 1.5, height: sz.height)), with: .color(Color(hex: 0xF2F4F7).opacity(0.8)))
+            for note in notes {   // §5 the predicted notes
+                let x0 = xOf(note.onset), x1 = xOf(note.onset + note.length)
+                let rect = CGRect(x: x0, y: yOf(note.pitch) - 1.5, width: max(1.5, x1 - x0 - 0.5), height: 3)
+                if note.broken {
+                    ctx.stroke(Path(roundedRect: rect, cornerRadius: 1), with: .color(accent.opacity(0.45)), style: StrokeStyle(lineWidth: 0.75, dash: [1.5, 1.5]))
+                } else {
+                    let op = 0.4 + 0.6 * Double(note.vel) / 127.0
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(note.land ? Color(hex: 0xF2F4F7) : accent.opacity(op)))
+                }
+            }
+            if let b = beat, loop > 0 {   // the playhead across the loop
+                let within = (b / bpb).truncatingRemainder(dividingBy: Double(n))
+                ctx.fill(Path(CGRect(x: CGFloat(within) * barW, y: 0, width: 1.5, height: sz.height)), with: .color(Color(hex: 0xF2F4F7).opacity(0.8)))
             }
         }
         .frame(width: size.width, height: size.height)
-        .accessibilityElement(children: .ignore).accessibilityLabel("Fill preview"))
+        .accessibilityElement(children: .ignore).accessibilityLabel("Fill preview, \(notes.count) notes"))
     }
     /// §4.1 one bar tile — the rate grid's selected/unselected look + the current number & progress line + the sounding fill.
     private func fillBarTile(n: Int, lit: Bool, fillOn: Bool, current: Bool, sounding: Bool, progress: Double, accent: Color, size: CGSize, idx: Int) -> AnyView {

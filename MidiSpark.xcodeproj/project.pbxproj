@@ -41,6 +41,7 @@
 		0FE7446438ED46D7FC87AFC8 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17328D614B4463EECE452DA4 /* BuildModel.swift */; };
 		113044D12C85756D9F258C57 /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
 		11389DE07A052AF31C5B1535 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
+		1201E348FC95B54F90EE8A18 /* FillPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBFF5E26F62376802BC80AC /* FillPreview.swift */; };
 		12439134E8AE1F2CBAFD42A0 /* LaneViewStripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0207165FA77A08D14FDF6B09 /* LaneViewStripTests.swift */; };
 		126EFE2CA5202E0E11739F95 /* FourfoldMonkeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A2360C33B73BDF7D5D05DD /* FourfoldMonkeyTests.swift */; };
 		135B4FF5720F270A0CA55572 /* AnswerLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207CC51539EB0A8FC6E6C8A /* AnswerLive.swift */; };
@@ -197,6 +198,7 @@
 		5B182C150ACB6B3B81425BB0 /* SceneFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D364D224C3D245B4D5AE548 /* SceneFactory.swift */; };
 		5C3C8640822A3DE65E4F3211 /* EmitterTokenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92D029601A9975595D0C74BD /* EmitterTokenTests.swift */; };
 		5C648CAB6448DD80453069B0 /* Emission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */; };
+		5C8ED0515D6A8A34C438306A /* FillPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBFF5E26F62376802BC80AC /* FillPreview.swift */; };
 		5CB31F8F6C0BFA7B58C8A419 /* LaneStripBandPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA05F70850B5402E7877106 /* LaneStripBandPainter.swift */; };
 		5CC2E7BFF602338C725BE990 /* MixPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509B7DDC7021AB0416D8EBF9 /* MixPanel.swift */; };
 		5CD10BE7CE98FDD633F57ACB /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBEC1F7B72193F1CEA1119EC /* EuclideousPresets.swift */; };
@@ -467,6 +469,7 @@
 		DD2F6CC4F4A55ED066C41E47 /* EmitterVelocityUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60DAA2B9195756E92DD7102 /* EmitterVelocityUI.swift */; };
 		DDF0A418083AE1978744004D /* RhythmPolishTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8567597528341F414DC3D5 /* RhythmPolishTests.swift */; };
 		DE89E4C93FDCA0C7DA420525 /* LockModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EEEDB7EA84061D398367F9 /* LockModePainter.swift */; };
+		DEEC9CB63D868B715650497D /* FillPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBFF5E26F62376802BC80AC /* FillPreview.swift */; };
 		DF6F521FB0B85195A7A5317F /* HarmonyPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DCB3F95776A8BE51B7E0584 /* HarmonyPage.swift */; };
 		DFCB6B6D89E818DFDD3FEF71 /* EuclidLaneUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */; };
 		E057A4E35EB36C4AB1005812 /* PulseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E398927CED84CAC2C67B9CF0 /* PulseTests.swift */; };
@@ -675,6 +678,7 @@
 		4C3D05D84CB3BB7FF47E7851 /* Dice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dice.swift; sourceTree = "<group>"; };
 		4CBF035AD049143522CAD057 /* GridSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridSkin.swift; sourceTree = "<group>"; };
 		4D19AE4FB122F125CE9C31EA /* FillTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillTimingTests.swift; sourceTree = "<group>"; };
+		4DBFF5E26F62376802BC80AC /* FillPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillPreview.swift; sourceTree = "<group>"; };
 		4F27CCA1D229CE4863430480 /* FourfoldTapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldTapTests.swift; sourceTree = "<group>"; };
 		4F3AA481367944D3FFA6FECD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		500BF1C84A48860BBCA8AED1 /* PresetBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetBrowser.swift; sourceTree = "<group>"; };
@@ -1385,6 +1389,7 @@
 				AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */,
 				6EF40284845F3E33748CC1CE /* EuclideousRandom.swift */,
 				407FD14520B913CDE86C5503 /* FillBlock.swift */,
+				4DBFF5E26F62376802BC80AC /* FillPreview.swift */,
 				1BA41AD77C8490B0DE3D73D5 /* FillRegion.swift */,
 				E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */,
 				B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */,
@@ -1744,6 +1749,7 @@
 				CE23C2F9BB42137FF4AE0EE5 /* FXPanelPainter.swift in Sources */,
 				3836DB5444419EF950474B6B /* FillBlock.swift in Sources */,
 				3E3E07320E78189A744572F4 /* FillBlockViews.swift in Sources */,
+				5C8ED0515D6A8A34C438306A /* FillPreview.swift in Sources */,
 				51C730004A1AC324DDB4C4B9 /* FillRegion.swift in Sources */,
 				5A1ECD0A184CC6B215ED8EFD /* FourfoldApp.swift in Sources */,
 				0CA5387EFCABC08168C68BC7 /* FourfoldAppModel.swift in Sources */,
@@ -1964,6 +1970,7 @@
 				A16E18269EFED495B4EE7FCA /* FillBlock.swift in Sources */,
 				F3BE1F383F1751428036C807 /* FillBlockTests.swift in Sources */,
 				3D69F2AE2E4E4FAD31E29C37 /* FillEngineTests.swift in Sources */,
+				1201E348FC95B54F90EE8A18 /* FillPreview.swift in Sources */,
 				437ACFB4211DDEA15A115CC2 /* FillRegion.swift in Sources */,
 				742FF8658C2BA6896C704B9C /* FillRouterTests.swift in Sources */,
 				C05AFA92C0C0ECDF936D170B /* FillTabModelTests.swift in Sources */,
@@ -2118,6 +2125,7 @@
 				F98AB3C003834E203E8A2A09 /* FXPanelPainter.swift in Sources */,
 				8D675D90A9FE50F0246FDB8C /* FillBlock.swift in Sources */,
 				59E1642A2B064821C0A9E241 /* FillBlockViews.swift in Sources */,
+				DEEC9CB63D868B715650497D /* FillPreview.swift in Sources */,
 				E48D772CBB8B427490BF4B8C /* FillRegion.swift in Sources */,
 				3FEBDAA999631F93DD5B17E7 /* FourfoldAudioUnit.swift in Sources */,
 				9ECB09C3718DCEDA6647C48C /* FourfoldCompose.swift in Sources */,

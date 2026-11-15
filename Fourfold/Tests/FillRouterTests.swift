@@ -174,6 +174,31 @@ final class FillRouterTests: XCTestCase {
         XCTAssertTrue(land.contains { abs($0 - 16) < 1e-3 }, "LAND: a definite note on the rejoin downbeat")
     }
 
+    // MARK: §7.11 — the rich preview predictor mirrors the Router
+
+    func testPreviewMirrorsTheRouter() {
+        // The SAME ×2 ½ fill on an 8-rank riff the forward-values test uses. The preview (euclideousFillPreviewNotes) calls
+        // the engine's own fill + walk + resolve functions, so its notes must equal the Router's fill-bar emission in TIMING
+        // and CONTOUR (the absolute octave is whatever the lane's riffOct is — here a constant whole-octave offset).
+        var cfg = EuclideousWalkLaneConfig(buf: [Bool](repeating: true, count: 8), n: 8, dir: .fwd, sub: 0.5)
+        cfg.riffDir = .forward; cfg.length = 8; cfg.stride = 1; cfg.rotate = 0; cfg.every = 1; cfg.columns = 8; cfg.gate = 0.5
+        var l = EuclidLine(target: 0, pulses: 8, steps: 8, useRiff: true, riffOn: true, sourceMode: .midi)
+        l.rate = .r1_8; l.gate = 0.5; l.velocityAbsolute = 90
+        l.fillBars = bar(3); l.fillSpeed = 3; l.fillLength = 1   // ×2 ½
+        let preview = euclideousFillPreviewNotes(cfg: cfg, line: l, lane: 0, pool: cmaj.map { Int($0) }, riffOct: 0, baseVel: 90,
+                                                 ranks: [1, 2, 3, 4, 5, 6, 7, 8], fromBar: 3, toBar: 4, beatsPerBar: 4, originBeat: 0)
+            .sorted { $0.onset < $1.onset }
+        let router = onPairs(run(fill: FillSpec(bars: bar(3), speed: 3, length: 1), riffRanks: [1, 2, 3, 4, 5, 6, 7, 8], pool: cmaj))
+            .filter { $0.beat >= 14 - 1e-6 && $0.beat < 16 - 1e-6 }
+        XCTAssertEqual(preview.count, router.count, "same number of fill notes")
+        XCTAssertEqual(preview.map { (($0.onset * 1000).rounded() / 1000) }, router.map { $0.beat }, "same onsets (RUSH / ORDER timing)")
+        let ps = preview.map { $0.pitch }, rs = router.map { Int($0.note) }
+        guard let p0 = ps.first, let r0 = rs.first else { return XCTFail("no fill notes") }
+        let off = r0 - p0
+        XCTAssertEqual(off % 12, 0, "only a whole-octave offset between the preview and the Router")
+        XCTAssertEqual(ps.map { $0 + off }, rs, "same pitch contour (ORDER + RANKS) — steps 5,6,7,8,1,2,3,4")
+    }
+
     // MARK: §2.8 rejoin (test 8) — the bar after a region matches no fill
 
     func testRejoinMatchesNoFill() {
