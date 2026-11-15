@@ -214,6 +214,8 @@ struct EmitterRatchetSnap: Equatable {
     }
     /// At least one emitter is ON (the Router's whole ratchet path is skipped otherwise, bit for bit).
     var anyOn: Bool { e0.on || e1.on || e2.on || e3.on }
+    /// RATCH LENGTH ferry (2026-11-15): at least one ON emitter has a LENGTH that can spill past its own step (2/3/4 or AUTO) — the ONLY case the per-output choke runs. False for every ½/1 (and pre-ferry nil⇒1) document, so the choke never fires and the engine is byte-identical.
+    var spillAny: Bool { (e0.on && e0.length.spills) || (e1.on && e1.length.spills) || (e2.on && e2.length.spills) || (e3.on && e3.length.spills) }
 }
 
 // MARK: - EMITTER VELOCITY (VELOCITY tab 2026-11-03) — the four per-output velocity accents as the render thread reads them

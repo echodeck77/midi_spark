@@ -646,4 +646,37 @@ final class RatchExpandEngineTests: XCTestCase {
         XCTAssertEqual(Set(first.map { Int($0.vel) }), [90], "VEL FLAT ⇒ every strike at the base velocity")
         assertNothingLeftSounding(e.tap)
     }
+
+    // RATCH LENGTH ferry (2026-11-15) §3.3 — the PER-OUTPUT CHOKE. LENGTH 3 ×2 on a 1/4 lane (1 beat/step) spreads strikes at 0 and +1.5 beat.
+    // Dense lane (a hit every step): each hit's +1.5 spill is choked by the next hit on the same output, 1 beat later — so output A keeps only the per-step downbeats.
+    private func lengthEmitter() -> EmitterRatchet {
+        var r = EmitterRatchet(on: true, steps: 2, hits: 2, chance: 100, strikes: 2)
+        r.countsBits = EmitterRatchet.countBit(2); r.length = .three; r.bend = 0; r.vel = .flat   // span 3 steps, 2 strikes ⇒ gap 1.5 steps
+        return r
+    }
+    func testLengthSpillIsChokedByTheNextHitOnThatOutput() {
+        let p = play(Rig(lines: [line(pulses: 8, steps: 8, rate: .r1_4)],
+                         emitters: emitters([(0, lengthEmitter())]), ranks: [1, 1, 1, 1, 1, 1, 1, 1]), beats: 6)
+        // hits 0…4 are each choked by the hit one beat later (hit 5's spill has no follower, so check below 5 beats)
+        let onsA = p.tap.ons(1).map { $0.sample }.filter { $0 >= 0 && $0 < 119_000 }.sorted()
+        for s in onsA {
+            let off = min(Int(s) % 24_000, 24_000 - Int(s) % 24_000)
+            XCTAssertLessThanOrEqual(off, 80, "output A note-on at \(s) is off the step grid → an un-choked +1.5-beat spill; all onsA \(onsA)")
+        }
+        XCTAssertGreaterThanOrEqual(onsA.count, 5, "at least one downbeat strike per step survives")
+        assertNothingLeftSounding(p.tap)
+    }
+    // Sparse lane (Euclid 2-of-8 ⇒ hits at steps 0 and 4): hit 0's +1.5-beat strike has no later A-hit before it, so the choke LEAVES it — the spill sounds (the choke never over-cancels).
+    func testLengthSpillSurvivesWhenTheOutputIsNotReTriggered() {
+        let p = play(Rig(lines: [line(pulses: 2, steps: 8, rate: .r1_4)],
+                         emitters: emitters([(0, lengthEmitter())]), ranks: [1, 1, 1, 1, 1, 1, 1, 1]), beats: 4)
+        let onsA = p.tap.ons(1).map { $0.sample }.sorted()
+        XCTAssertTrue(onsA.contains { abs(Int($0) - 36_000) <= 150 }, "hit 0's +1.5-beat spill strike should survive (next A-hit is 4 beats away): \(onsA)")
+        assertNothingLeftSounding(p.tap)
+    }
+    // Byte-identity guard: an emitter at LENGTH 1 never spills, so `emitterSpillAny` is false and the choke never runs — the strikes are exactly the FIT even split.
+    func testLengthOneNeverChokes() {
+        var r = EmitterRatchet(on: true, steps: 2, hits: 2, chance: 100, strikes: 2); r.countsBits = EmitterRatchet.countBit(2); r.length = .one
+        eq(firstHitStrikes(r, laneRate: .r1_8, subSamples: 12_000), [0, 6_000], "LENGTH 1 ×2 on a 1/8 lane = even split, unchoked")
+    }
 }

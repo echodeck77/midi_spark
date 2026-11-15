@@ -380,6 +380,7 @@ final class Router {
     // allocation), a serial for the window (two lanes hitting one output at the SAME sample in the SAME window share one decision), and the per-output pattern index the UI polls (one byte per output, 0xFF = none yet).
     // The counters are a new, sanctioned exception to "derived, never accumulated": c_X counts what the whole silence pipeline let through, so it has no closed form (CLAUDE.md invariant 2).
     private var emitterRatchets = EmitterRatchetSnap()
+    private var emitterSpillAny = false            // RATCH LENGTH ferry (2026-11-15): an ON emitter has LENGTH 2/3/4 or AUTO — the ONLY case `chokeEmitterTails` runs. False (every ½/1 / pre-ferry doc) ⇒ no choke ⇒ byte-identical.
     private var emitterCounter = EmitterRatchetCounter()
     private var emitterWindowSerial: Int64 = 0
     private(set) var emitterIndexLive: UInt32 = 0xFFFF_FFFF
@@ -1356,6 +1357,9 @@ final class Router {
         var gateBeats: Double = 0.25
         var lane: Int8 = -1          // LANE SOLO (2026-10-21): the Euclideous lane that pushed this tail (−1 = none) — so a solo can drop ITS pending repeats
         var velOffsets = SIMD4<Int8>(repeating: 0)   // EMITTER VELOCITY (2026-11-03): the per-output velocity offset at the hit that pushed this tail, re-applied in the drain so a deferred strike carries the accent it was born with
+        // RATCH LENGTH ferry (2026-11-15): an emitter-ratchet strike tail is tagged with its OUTPUT and its HIT beat, so a later emitter hit on that output can CHOKE this tail's still-pending strikes (the LENGTH 2/3/4 spill) — per output, without touching any other output's tails. −1 = not an emitter-ratchet tail (an ordinary ROLL/RUN deferred strike): never choked.
+        var emitterOut: Int8 = -1
+        var emitterHitBeat: Double = 0   // the beat of the HIT that pushed it — the choke cancels only tails from an EARLIER hit, so two lanes hitting one output at the same beat never cancel each other's strikes
     }
     private static let echoTailCap = 256
     private var echoTails = [EchoTail](repeating: EchoTail(), count: Router.echoTailCap)
@@ -1384,7 +1388,7 @@ final class Router {
     private var echoTailsActive: Bool { echoTails.contains { $0.active } }
     private func clearEchoTails() { for i in echoTails.indices { echoTails[i].active = false }; echoPrevMEnd = .nan }
     private func pushEchoTail(onset: Double, note: UInt8, vel: UInt8, rank: UInt8 = 0, busMask: UInt8, outsOverride: UInt8? = nil, outsExclude: UInt8 = 0, outsOnly: UInt8 = 0x0F, timeBeats: Double, repeats: Int,
-                              feedDelay: Double, decay: Double, offset: Double, pitch: Int, gateBeats: Double) {
+                              feedDelay: Double, decay: Double, offset: Double, pitch: Int, gateBeats: Double, emitterOut: Int8 = -1, emitterHitBeat: Double = 0) {
         guard repeats > 0, timeBeats > 0, busMask != 0 else { return }
         var slot = -1
         for i in echoTails.indices where !echoTails[i].active { slot = i; break }
@@ -1396,7 +1400,22 @@ final class Router {
         echoTails[slot] = EchoTail(active: true, onset: onset, note: note, rank: rank, vel: vel, busMask: busMask, outsOverride: outsOverride ?? 0xFF, outsExclude: outsOverride == nil ? outsExclude : 0, outsOnly: outsOverride == nil ? outsOnly : 0x0F,
                                    timeBeats: timeBeats, repeats: min(16, repeats), feedDelay: feedDelay,
                                    decay: decay, offset: offset, pitch: pitch, gateBeats: gateBeats,
-                                   lane: euclideousStrikeLane, velOffsets: euclideousStrikeVelOffset)   // EMITTER VELOCITY: carry this hit's per-output offset into the deferred strike
+                                   lane: euclideousStrikeLane, velOffsets: euclideousStrikeVelOffset,
+                                   emitterOut: emitterOut, emitterHitBeat: emitterHitBeat)   // RATCH LENGTH: tag an emitter-ratchet strike tail with its output + hit beat (for the per-output choke)
+    }
+    /// RATCH LENGTH ferry (2026-11-15) §3.3 — the per-output CHOKE: a new emitter hit on output `x` (at musical beat `b`) cancels the still-pending ratchet strikes that an EARLIER hit left on `x` (the LENGTH 2/3/4 spill), on that output ONLY.
+    /// A tail is truncated to the strikes that fall strictly before `b`; if none do, it is retired. Tails from the SAME hit beat (two lanes on one output at one beat) are left alone, and every other output's tails are untouched.
+    /// Only ever called when `emitterSpillAny` (a ½/1 document never reaches here, so the engine stays byte-identical); the drain has already fired this window's due strikes, so this truncates FUTURE-window strikes (sub-window spill is accepted, like the rest of this engine).
+    private func chokeEmitterTails(output x: Int, hitBeat b: Double) {
+        let xs = Int8(x)
+        for i in echoTails.indices where echoTails[i].active && echoTails[i].emitterOut == xs && echoTails[i].emitterHitBeat < b - 1e-6 {
+            let e = echoTails[i]
+            var keep = 0
+            for k in 1...e.repeats {
+                if e.onset + (Double(k) + e.offset) * e.timeBeats < b - 1e-9 { keep = k } else { break }   // strike k fires at onset + (k+offset)·timeBeats
+            }
+            if keep == 0 { echoTails[i].active = false } else { echoTails[i].repeats = keep }
+        }
     }
 
     // reset() arrives on the CONTROL thread (the AU's @objc reset:, e.g. AUM disabling the plugin) — which can race
@@ -4928,6 +4947,8 @@ final class Router {
                                         // EMITTER VELOCITY (2026-11-03): this hit's per-output signed velocity offset. Zeroed up front so outputs the hit doesn't touch add nothing; filled per output below and read in `emitOneOutput` (immediate strikes) / carried on echo tails (deferred). `emitterVelAny` false ⇒ never touched ⇒ byte-identical.
                                         if emitterVelAny { euclideousStrikeVelOffset = SIMD4<Int8>(repeating: 0) }
                                         for x in 0..<4 where (hitOuts >> UInt8(x)) & 1 != 0 {
+                                            // RATCH LENGTH §3.3: this hit takes over output x — choke the LENGTH 2/3/4 spill an EARLIER hit left pending on x (that output only), before this hit lays its own strikes. Skipped entirely unless some emitter can spill (byte-identical for every ½/1 document).
+                                            if emitterSpillAny { chokeEmitterTails(output: x, hitBeat: mTickBeat) }
                                             let rb = emitterRatchets[x].restartBars
                                             let rk: Int64 = rb > 0 ? Int64(((mTickBeat + 1e-9) / (Double(rb) * hitBarBeats)).rounded(.down)) : Int64.min
                                             let d = emitterCounter.hit(cfg: emitterRatchets[x], output: x, countsSteps: emitterRatchets.countsSteps, laneStep: localT, window: emitterWindowSerial, sample: hitSample, restartKey: rk)
@@ -4990,11 +5011,11 @@ final class Router {
                                                 let lastRegular = tieLast ? n - 2 : n - 1
                                                 if k <= lastRegular {
                                                     pushEchoTail(onset: mTickBeat + Double(k - 1) * spacing, note: fp, vel: pitchVel[j], rank: pitchRank[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
-                                                                 timeBeats: spacing, repeats: lastRegular - k + 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: gate)
+                                                                 timeBeats: spacing, repeats: lastRegular - k + 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: gate, emitterOut: Int8(x), emitterHitBeat: mTickBeat)
                                                 }
                                                 if tieLast && k <= n - 1 {
                                                     pushEchoTail(onset: mTickBeat + Double(n - 2) * spacing, note: fp, vel: pitchVel[j], rank: pitchRank[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
-                                                                 timeBeats: spacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: lastGate)
+                                                                 timeBeats: spacing, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: lastGate, emitterOut: Int8(x), emitterHitBeat: mTickBeat)
                                                 }
                                             } else {
                                                 // §2.3 bent spacing / §2.5 per-strike velocity ⇒ ONE deferred tail per strike (a bent run can't share a fixed timeBeats).
@@ -5010,7 +5031,7 @@ final class Router {
                                                     } else {
                                                         let tb = max(1e-6, slot)   // the drain fires at onset + timeBeats ⇒ onset = tau − tb
                                                         pushEchoTail(onset: tau - tb, note: fp, vel: vel, rank: pitchRank[j], busMask: repBusMask, outsOverride: outsOf(j) == nil ? nil : xBit, outsOnly: xBit,
-                                                                     timeBeats: tb, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: gate)
+                                                                     timeBeats: tb, repeats: 1, feedDelay: 1.0, decay: 1.0, offset: 0, pitch: 0, gateBeats: gate, emitterOut: Int8(x), emitterHitBeat: mTickBeat)
                                                     }
                                                 }
                                             }
@@ -5775,6 +5796,7 @@ final class Router {
                 }
             } else { hocketRules = HocketRulesSnap() }
             emitterRatchets = isEuclideousRow ? p.emitterRatchets : EmitterRatchetSnap()   // EMITTER RATCHET: the Euclideous row's four output ratchets (inert default for every other cell)
+            emitterSpillAny = emitterRatchets.spillAny   // RATCH LENGTH: gate the per-output choke (false ⇒ never runs ⇒ byte-identical)
             emitterVelocities = isEuclideousRow ? p.emitterVelocities : EmitterVelocitySnap()   // EMITTER VELOCITY: the Euclideous row's four per-output velocity accents (inert default elsewhere)
             emitterVelAny = emitterVelocities.anyOn
             emitterCCs = isEuclideousRow ? p.emitterCCs : EmitterCCSnap()   // EMITTER CC — CC SLOTS: the Euclideous row's 4×3 CC slots (inert default elsewhere)

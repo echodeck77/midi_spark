@@ -2107,10 +2107,13 @@ enum EmitterStrikeEnd: String, Codable, CaseIterable {     // §1.6 CUT (drop st
     init(from decoder: Decoder) throws { self = EmitterStrikeEnd(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .cut }
 }
 // RATCH v2 ferry (2026-11-15). §1.3 LENGTH: how many steps the strikes fill (the UI exposes ½ and 1 only — §0.2 — but the enum keeps 2/3/4 decodable). §1.5 VEL: the strike velocity ramp.
-enum EmitterStrikeLength: String, Codable, CaseIterable {   // §1.3 ½ · 1 · 2 · 3 · 4 steps
-    case half = "1/2", one = "1", two = "2", three = "3", four = "4"
+enum EmitterStrikeLength: String, Codable, CaseIterable {   // §1.3 AUTO · ½ · 1 · 2 · 3 · 4 steps
+    // RATCH LENGTH ferry (2026-11-15): AUTO (the always-sounds default) resolves per lane rate on the render thread to the smallest concrete length whose strike gap clears the audible floor — see `emitterStrikeResolveLength`. `.steps` for AUTO is a harmless 1 (never read after resolution). 2/3/4 are now exposed (the per-output choke makes them safe).
+    case auto = "AUTO", half = "1/2", one = "1", two = "2", three = "3", four = "4"
     init(from decoder: Decoder) throws { self = EmitterStrikeLength(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .one }
-    var steps: Double { switch self { case .half: return 0.5; case .one: return 1; case .two: return 2; case .three: return 3; case .four: return 4 } }
+    var steps: Double { switch self { case .auto: return 1; case .half: return 0.5; case .one: return 1; case .two: return 2; case .three: return 3; case .four: return 4 } }
+    /// A length whose strikes can spill PAST their own step (so the per-output choke must run). AUTO is included because it may resolve to 2/3/4 on a fast lane. ½ / 1 never spill — a doc with only those stays byte-identical (the choke never runs).
+    var spills: Bool { switch self { case .auto, .two, .three, .four: return true; case .half, .one: return false } }
 }
 enum EmitterStrikeVel: String, Codable, CaseIterable {     // §1.5 FLAT · FADE · SWELL
     case flat = "FLAT", fade = "FADE", swell = "SWELL"
