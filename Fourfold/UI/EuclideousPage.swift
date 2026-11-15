@@ -3695,12 +3695,12 @@ struct EuclideousPage: View {
                 let rRhythm = resetsRulerAndRatio(cfg, beat: beat, running: running, line: line, kind: .rhythm)
                 let rMelody = resetsRulerAndRatio(cfg, beat: beat, running: running, line: line, kind: .melody)
                 ZStack(alignment: .topLeading) {
-                    restartTile(idx, rhythm: true, spec: rhythmSpec, label: euclideousRestartTileLabel(rhythm: true, settings: settings, ownLane: idx), accent: accent,
-                                width: L.rhythmTile.width, height: L.rhythmTile.height, state: nil, strikes: nil, tappable: false,
+                    restartTile(idx, rhythm: true, spec: rhythmSpec, label: rRhythm.2 ?? euclideousRestartTileLabel(rhythm: true, settings: settings, ownLane: idx), accent: accent,
+                                width: L.rhythmTile.width, height: L.rhythmTile.height, state: rRhythm.3, strikes: nil, tappable: false,
                                 ruler: rRhythm.0, ratioText: rRhythm.1, layerOrder: euclideousRestartRulerLayerOrder)
                         .offset(x: L.rhythmTile.minX, y: L.rhythmTile.minY)
-                    restartTile(idx, rhythm: false, spec: melodySpec, label: euclideousRestartTileLabel(rhythm: false, settings: settings, ownLane: idx), accent: accent,
-                                width: L.melodyTile.width, height: L.melodyTile.height, state: nil, strikes: nil, tappable: false,
+                    restartTile(idx, rhythm: false, spec: melodySpec, label: rMelody.2 ?? euclideousRestartTileLabel(rhythm: false, settings: settings, ownLane: idx), accent: accent,
+                                width: L.melodyTile.width, height: L.melodyTile.height, state: rMelody.3, strikes: nil, tappable: false,
                                 ruler: rMelody.0, ratioText: rMelody.1, layerOrder: euclideousRestartRulerLayerOrder)
                         .offset(x: L.melodyTile.minX, y: L.melodyTile.minY)
                 }
@@ -3739,8 +3739,8 @@ struct EuclideousPage: View {
     }
 
     /// RESETS V2 §1/§2 — the ruler input (span + blocks + the lane's hits in the span) and the ratio text for one RESETS tile, at the UI beat. A regular method (not a ViewBuilder) so it can hold the hit-scan loop.
-    private func resetsRulerAndRatio(_ cfg: EuclideousWalkLaneConfig?, beat: Double, running: Bool, line: EuclidLine, kind: EuclideousRestartKind) -> (EuclideousRestartRulerInput?, String?) {
-        guard let c = cfg else { return (nil, nil) }
+    private func resetsRulerAndRatio(_ cfg: EuclideousWalkLaneConfig?, beat: Double, running: Bool, line: EuclidLine, kind: EuclideousRestartKind) -> (EuclideousRestartRulerInput?, String?, String?, EuclideousRestartTileState?) {
+        guard let c = cfg else { return (nil, nil, nil, nil) }
         let r = euclideousRestartRuler(kind, cfg: c, beat: beat, running: running)
         var hits: [Double] = []
         if c.sub > 0, r.spanLen > 1e-9 {
@@ -3752,7 +3752,11 @@ struct EuclideousPage: View {
         }
         let input = EuclideousRestartRulerInput(ruler: r, barBeats: clock.beatsPerBar, hits: hits, now: beat, running: running)
         let rr = euclideousRestartRatioSteps(kind, cfg: c, beat: beat, steps: min(16, max(2, line.steps)), barBeats: clock.beatsPerBar)   // STEPS clamps to 16 in the model (findings: §5 test 3)
-        return (input, euclideousRestartRatioText(part: rr.part, bar: rr.bar))
+        // §4.1: ", cut short" while the block under the playhead is cut
+        let cutNow = running && r.blocks.contains { beat >= $0.start - 1e-9 && beat < $0.end - 1e-9 && $0.cut }
+        let vo = euclideousRestartTileVoiceOver(kind: kind, part: rr.part, bar: rr.bar, isFree: r.isFree, cutNow: cutNow)
+        let state = restartTileState(kind, cfg: c, beat: beat, running: running)   // §4.1: kept only for the a11y VALUE (RESTART UNITS 9.1's "next restart in N"); the ruler layer order doesn't draw its sweep/track
+        return (input, euclideousRestartRatioText(part: rr.part, bar: rr.bar), vo, state)
     }
 
     /// §6.1 — the two restart tiles (RHYTHM, MELODY), replacing the OUT A–D circles in the RHYTHM tab's lower-right row (§9 moves OUT to MIX). Each opens the shared restart editor (§6.2, holds both chains).

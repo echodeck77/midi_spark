@@ -10223,13 +10223,22 @@ let euclideousRestartTileLayerOrder: [EuclideousRestartTileLayer] = [.base, .swe
 let euclideousRestartRulerLayerOrder: [EuclideousRestartTileLayer] = [.base, .ruler, .text]
 
 /// RESETS V2 §2 — the ratio text "part:bar" (the two numbers from `euclideousRestartRatioSteps`): the part is a whole step count; the bar drops a trailing ".0" and otherwise shows one decimal ("8", "16", "5.3").
+func euclideousRestartRatioStepFmt(_ v: Double) -> String {
+    let r = (v * 10).rounded() / 10
+    if abs(r - r.rounded()) < 1e-9 { return String(Int(r.rounded())) }   // whole ⇒ no decimal (drops the trailing .0)
+    return String(format: "%.1f", r)
+}
 func euclideousRestartRatioText(part: Double, bar: Double) -> String {
-    func fmt(_ v: Double) -> String {
-        let r = (v * 10).rounded() / 10
-        if abs(r - r.rounded()) < 1e-9 { return String(Int(r.rounded())) }   // whole ⇒ no decimal (drops the trailing .0)
-        return String(format: "%.1f", r)
-    }
-    return "\(fmt(part)):\(fmt(bar))"
+    "\(euclideousRestartRatioStepFmt(part)):\(euclideousRestartRatioStepFmt(bar))"
+}
+
+/// RESETS V2 §4.1 — the tile's VoiceOver label (static text): "Rhythm, 7-step pass, 8-step bar" / "Melody, 17-step riff, 8-step bar", then ", free" for a FREE part and ", cut short" while the block under the playhead is cut.
+func euclideousRestartTileVoiceOver(kind: EuclideousRestartKind, part: Double, bar: Double, isFree: Bool, cutNow: Bool) -> String {
+    let what = kind == .rhythm ? "Rhythm, \(euclideousRestartRatioStepFmt(part))-step pass" : "Melody, \(euclideousRestartRatioStepFmt(part))-step riff"
+    var s = "\(what), \(euclideousRestartRatioStepFmt(bar))-step bar"
+    if isFree { s += ", free" }
+    if cutNow { s += ", cut short" }
+    return s
 }
 
 /// The beat of the next MELODY restart strictly after `beat` — the start of the next pass that begins one of the chain's links; nil when FREE.

@@ -961,3 +961,12 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - OFFSET/TILT at 42 % (inert) read as "does nothing right now" (e.g. HITS 0 or 8, or a hand-edited lane), not as broken/disabled;
   - EDITED is gone: a hand-edited lane shows TILT's value (dimmed), and a STEPS change still returns it to pure Euclid (the in-place double-tap revert is gone by design);
   - the 32 pt HITS/STEPS heroes fit their value box at the REAL body height (~233, not the 229 reference) without clipping, and the whole tab fits when the ANSWER strip is shown (A drops below the 132 floor — it's drawn at the formula's values, listed, never squeezed).
+
+- **RESETS V2 ferry (2026-11-15) — the ruler tiles + controls (Fourfold, RESETS tab; display-only):**
+  - the ruler reads at a glance: passes / riff cycles as blocks against the host bar lines, the 135° hatching on a cut block visible in all four lane colours;
+  - FREE drift (block edges moving against the bar lines bar to bar) is easy to see and doesn't distract;
+  - the ratios ("7:8", "12:16") are legible and their meaning (part vs one bar, in steps) is clear without any label;
+  - the 60% FREE dim reads as available, not disabled; a linked MELODY's dimmed FREE pill reads as "borrowing", still live;
+  - the lane numbers (1–4) in the 12 pt source squares are legible;
+  - the running-link progress bar tracks the playhead and sits on the right chip as the chain advances (BAR [2,1,1]: chip 1 for bars 1–2, chip 2 for bar 3, chip 3 for bar 4);
+  - `FourfoldStackBudgetTests` (simulator-only) still passes — the RESETS SectionView gained one TimelineView (the running-bar); confirm the page's debug main-thread stack hasn't regressed.

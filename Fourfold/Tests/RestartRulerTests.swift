@@ -142,4 +142,12 @@ final class RestartRulerTests: XCTestCase {
         XCTAssertEqual(euclideousRestartRatioText(part: 16, bar: 4.0), "16:4", "a whole bar drops the .0")
         XCTAssertEqual(euclideousRestartRatioText(part: 12, bar: 4.0 / 0.75), "12:5.3", "dotted 1/8: 4 ÷ 0.75 = 5.333 → 5.3 (§5 test 7)")
     }
+
+    // RESETS V2 §4.1 — the tile's VoiceOver label.
+    func testTileVoiceOver() {
+        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .rhythm, part: 7, bar: 8, isFree: false, cutNow: false), "Rhythm, 7-step pass, 8-step bar")
+        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .melody, part: 17, bar: 8, isFree: false, cutNow: false), "Melody, 17-step riff, 8-step bar")
+        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .rhythm, part: 12, bar: 16, isFree: true, cutNow: false), "Rhythm, 12-step pass, 16-step bar, free")
+        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .melody, part: 13, bar: 8, isFree: false, cutNow: true), "Melody, 13-step riff, 8-step bar, cut short")
+    }
 }

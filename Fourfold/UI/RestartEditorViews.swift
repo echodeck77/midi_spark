@@ -124,7 +124,7 @@ struct EuclideousCountChipView: View {
         .offset(x: frame.minX, y: frame.minY)
         .opacity(dim)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(label)
+        .accessibilityLabel(label + (progressFraction != nil ? ", playing" : ""))   // RESETS V2 §4.2: the running link's chip says it is playing
         .accessibilityHint(EuclideousRestartEditorAX.linkHint)
         // §5: the adjustable action confers the adjustable trait in SwiftUI — VoiceOver swipes the value up / down one ladder step (clamped, no wrap)
         .accessibilityAdjustableAction { direction in
