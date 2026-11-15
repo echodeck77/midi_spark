@@ -667,6 +667,8 @@ final class Router {
     // FILL ferry (2026-11-13) §2.5/§2.6: the RANKS climb offset and the SWELL velocity factor for the slot the body is emitting — set per slot by the fill loop (0 / 1 otherwise ⇒ byte-identical). The rank offset is added before rank→pitch (riff + stack); the factor multiplies the final velocity in `strikeChord`.
     private var euclideousFillRankOffsetNow: Int = 0
     private var euclideousFillVelFactorNow: Double = 1
+    // FILL TAB ferry (2026-11-14) §2.5 ROLL: the slot's strike count (1 + round(ROLL·u)) the body is emitting — set per slot by the fill loop (1 otherwise ⇒ byte-identical). The body maxes it into the ratchet `nRep`, so a fill ROLL rides the shared RATCH mechanism.
+    private var euclideousFillRollNow: Int = 1
     // FILL TAB ferry (2026-11-14) §2.2: a reused fixed scratch for ORDER=SHUFFLE's permutation (built once per region, never per slot, never per window) — no render-thread allocation. Sized to the 128 reverse cap.
     private var euclideousFillShufBuf = [Int](repeating: 0, count: euclideousFillReverseCap)
     // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
@@ -2181,7 +2183,7 @@ final class Router {
                               fill: EuclideousFillPlan? = nil,   // FILL ferry (2026-11-13): a per-lane fill; nil / inactive ⇒ the loop below is byte-identical to today
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
-        euclideousFillStepScaleNow = 1; euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1   // FILL: neutral for the ×1 / non-fill path; the fill loop sets them per slot (§2.4 step scale, §2.5 rank climb, §2.6 swell)
+        euclideousFillStepScaleNow = 1; euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1; euclideousFillRollNow = 1   // FILL: neutral for the ×1 / non-fill path; the fill loop sets them per slot (§2.4 step scale, §2.5 rank climb + roll, §2.6 swell)
         let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
         let mStartReal = musicalOf(beatPos, stepBeats: S, a: a)
         let mEndReal = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -2278,11 +2280,12 @@ final class Router {
                 if key == lastTick[dedupSlot] { continue }
                 lastTick[dedupSlot] = key
                 euclideousFillStepScaleNow = slotLen / sub   // §2.4: 1/m in a STEADY region, RUSH's per-slot ratio, 1 on a ×1 segment — the body's gate + ratchet spacing read it
-                if run.active {   // §2.5/§2.6: the RANKS climb + SWELL factor for this time-slot (s = k − j0); the body reads them at rank→pitch and in strikeChord
+                if run.active {   // §2.4/§2.5/§2.6: the RANKS climb + ROLL count + SWELL factor for this time-slot (s = k − j0); the body reads them at rank→pitch, at the ratchet nRep and in strikeChord
                     let s = Int(k - j0)
                     euclideousFillRankOffsetNow = euclideousFillRankOffset(ranks: region?.ranks ?? 0, slot: s, count: N, shape: region?.shape ?? .climb)   // §2.4 SHAPE (CLIMB = the old formula ⇒ byte-identical)
+                    euclideousFillRollNow = euclideousFillRollCount(roll: region?.roll ?? 0, slot: s, count: N)   // §2.5 ROLL (0 ⇒ 1 ⇒ byte-identical)
                     euclideousFillVelFactorNow = euclideousFillSwellFactor(swell: region?.swell ?? 0, slot: s, count: N)
-                } else { euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1 }
+                } else { euclideousFillRankOffsetNow = 0; euclideousFillRollNow = 1; euclideousFillVelFactorNow = 1 }
                 let onTime = sampleOf(musical: hostBeat + delayBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                       windowStart: windowStart, S: S, a: a)
                 let colEnd = columnStart(hostBeat, S) + S
@@ -4978,6 +4981,8 @@ final class Router {
                                 }
                                 let emitMasks: UInt8 = (emitMissedOuts << 4) | emitRatchetOuts
                                 var nRep = maskRatchetReps(lineIndex: lineIndex, rank: repRank, mm: mm, maskedChancePassed: maskedChancePassed, sub: sub, tempo: tempo)
+                                // FILL §2.5 ROLL: a fired hit inside a region strikes 1+round(ROLL·u) times — max with any mask ratchet, riding the shared RATCH path below (repSpacing = subAtHit/nRep, so a RUSH slot's roll rides its own shrinking step). 1 off a fill ⇒ nRep unchanged ⇒ byte-identical.
+                                if euclideousFillRollNow > 1 { nRep = max(nRep ?? 1, euclideousFillRollNow) }
                                 // RUN (§7.4): its notes are never carried on legato and never stay open into the next hit — they take part in the reconcile as ordinary (below-100%) notes, so what the
                                 // notes layer was holding legato ends here exactly as at a hit that doesn't continue it.
                                 if notesSpreadActive == .run, notesStruck > 0 {

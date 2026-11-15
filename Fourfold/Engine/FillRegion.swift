@@ -164,6 +164,13 @@ func euclideousFillRankOffset(ranks R: Int, slot k: Int, count N: Int, shape: Eu
     }
 }
 
+/// §2.5 — ROLL's strike count for time-slot k: 1 + round(ROLL·u), u = k/(N−1) (so the roll thickens toward the downbeat). ROLL 0 ⇒ 1 (no roll ⇒ the slot strikes once, byte-identical). Capped at 16 (the echo-tail bound the ratchet mechanism keeps).
+@inline(__always) func euclideousFillRollCount(roll R: Int, slot k: Int, count N: Int) -> Int {
+    guard R > 0 else { return 1 }
+    let u = N > 1 ? Double(k) / Double(N - 1) : 1
+    return min(16, 1 + Int((Double(R) * u).rounded()))
+}
+
 /// §2.6 — the velocity factor for time-slot k. S>0 rises to 1 at the downbeat; S<0 falls from 1; S=0 ⇒ 1.
 func euclideousFillSwellFactor(swell S: Int, slot k: Int, count N: Int) -> Double {
     guard S != 0 else { return 1 }

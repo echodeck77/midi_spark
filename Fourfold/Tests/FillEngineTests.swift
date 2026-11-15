@@ -41,6 +41,16 @@ final class FillEngineTests: XCTestCase {
         XCTAssertEqual(euclideousFillRankOffset(ranks: 4, slot: 0, count: 1, shape: .arch), 4, "N=1 ⇒ R")
     }
 
+    // §7.6 — ROLL: 1 + round(ROLL·u) strikes per slot, thickening toward the downbeat; ROLL 0 ⇒ 1 everywhere; capped at 16.
+    func testRollCount() {
+        func counts(_ R: Int, N: Int) -> [Int] { (0..<N).map { euclideousFillRollCount(roll: R, slot: $0, count: N) } }
+        XCTAssertEqual(counts(0, N: 8), [Int](repeating: 1, count: 8), "ROLL 0 ⇒ never more than one strike (byte-identical)")
+        XCTAssertEqual(counts(4, N: 9), [1, 2, 2, 3, 3, 4, 4, 5, 5], "u = k/8 ⇒ 1+round(4u), round half away from zero")
+        XCTAssertEqual(counts(4, N: 5), [1, 2, 3, 4, 5], "u = 0,¼,½,¾,1 ⇒ 1+round(4u)")
+        XCTAssertEqual(euclideousFillRollCount(roll: 4, slot: 0, count: 1), 5, "N=1 ⇒ u=1 ⇒ 1+R")
+        XCTAssertEqual(euclideousFillRollCount(roll: 20, slot: 9, count: 10), 16, "capped at 16")
+    }
+
     // §7.9 — CHANCE 50: ~half of 1,000 armed bars play; deterministic per (lane, bar).
     func testChance() {
         XCTAssertTrue(euclideousFillChancePlays(lane: 0, bar: 0, chance: 100), "100% always plays")
