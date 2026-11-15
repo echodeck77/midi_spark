@@ -5550,6 +5550,43 @@ func euclideousToggleLitPosition(_ line: inout EuclidLine, position: Int) {
     line.setLitOrder(o)
 }
 
+/// PLAY AS ROWS amend 3 (2026-11-15) §C3 — the grey rank bar's SHAPE shows the role (replaces amend 2 §B4's role marks). The view fills each segment `stackRankColour(rank)`, 3 tall, under the number; an UNLIT tile draws the ONCE shape (§C3.2).
+/// §C3.6 the fractions / the DOUBLE gap are named, tunable on device (stack ranks grey §9's list): ONCE 40 %, DOUBLE two 18 % bars 1.5 pt apart, RETURN two 14 % bars 12 %-of-width apart, PEDAL one 70 % bar — all centred, as % of the tile's WIDTH.
+enum EuclideousRankBarShape {
+    static let onceFrac = 0.40, pedalFrac = 0.70, doubleFrac = 0.18, doubleGapPt = 1.5, returnFrac = 0.14, returnGapFrac = 0.12
+}
+struct EuclideousRankBarSeg: Equatable { var x: Double; var w: Double }   // (x, width) in pt within [0, width]
+func euclideousRankBarSegments(role: EuclideousRankRole, lit: Bool, width: Double) -> [EuclideousRankBarSeg] {
+    typealias S = EuclideousRankBarShape
+    let W = max(0, width)
+    let r = lit ? role : .once   // §C3.2
+    func one(_ f: Double) -> [EuclideousRankBarSeg] { let w = f * W; return [.init(x: (W - w) / 2, w: w)] }
+    switch r {
+    case .once:  return one(S.onceFrac)
+    case .pedal: return one(S.pedalFrac)
+    case .double:
+        let w = S.doubleFrac * W, total = 2 * w + S.doubleGapPt, x0 = (W - total) / 2
+        return [.init(x: x0, w: w), .init(x: x0 + w + S.doubleGapPt, w: w)]
+    case .returns:
+        let w = S.returnFrac * W, gap = S.returnGapFrac * W, total = 2 * w + gap, x0 = (W - total) / 2
+        return [.init(x: x0, w: w), .init(x: x0 + w + gap, w: w)]
+    }
+}
+
+/// amend 3 §C2.3–§C2.6 — a tap on a RANKS pop-up cell (rank 1…8, `role` = the cell's role). UNLIT ⇒ light the rank (through `euclideousToggleLitPosition`, so addedOrder + the STACK grid update) and set the role (§C2.3; PEDAL moves the pedal via `setNotesRankRole`, §C2.6). LIT and this is the selected role ⇒ turn the rank OFF, keeping the role (§C2.5). LIT and a different role ⇒ set the role (§C2.4). ONE undo step (one `line` mutation).
+func euclideousRanksPopupCellTap(_ line: inout EuclidLine, rank: Int, role: EuclideousRankRole) {
+    guard (1...8).contains(rank) else { return }
+    let lit = line.litOrderResolved.contains(rank - 1)
+    if !lit {
+        euclideousToggleLitPosition(&line, position: rank - 1)
+        line.setNotesRankRole(rank, role)
+    } else if line.notesRankRole(rank) == role {
+        euclideousToggleLitPosition(&line, position: rank - 1)   // §C2.5: the role field is untouched, so it is kept
+    } else {
+        line.setNotesRankRole(rank, role)
+    }
+}
+
 // ── the VELOCITY strip label (Paul 2026-10-18: "VEL" → "velocity") ─────────────────────────────────────────────────────
 
 /// The name turned along the pad's VEL strip. Upper-case like every other label on the page (GATE, LEGATO, OCT).

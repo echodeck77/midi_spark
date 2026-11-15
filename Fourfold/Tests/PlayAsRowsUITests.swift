@@ -32,13 +32,13 @@ final class PlayAsRowsUITests: XCTestCase {
             }
         }
     }
-    // §A3.2: the REPEAT pop-up grid — four rows of eight cells + a PASS band, all inside the body.
+    // §B3.1 (amend 2): the pop-up grid — FIVE rows (header + ONCE/DOUBLE/RETURN/PEDAL) of eight 26-tall cells + a PASS band, all inside the body. (Updated from amend 1's 4-row / 32 shape, which this test had not tracked.)
     func testRepeatPopupLayout() {
         let lay = euclideousRepeatPopupLayout(bodyW: 340, bodyH: 217)
-        XCTAssertEqual(lay.cells.count, 4); XCTAssertEqual(lay.cells[0].count, 8)
-        for row in lay.cells { for c in row { XCTAssertLessThanOrEqual(c.maxX, 340.01); XCTAssertEqual(c.height, 32) } }
-        XCTAssertGreaterThan(lay.passArea.minY, lay.cells[3][0].maxY, "PASS below the 3RD row")
-        XCTAssertGreaterThan(lay.divider.minY, lay.cells[3][0].maxY)
+        XCTAssertEqual(lay.cells.count, 5); XCTAssertEqual(lay.cells[0].count, 8)
+        for row in lay.cells { for c in row { XCTAssertLessThanOrEqual(c.maxX, 340.01); XCTAssertEqual(c.height, EuclideousRepeatPopupLayout.cellH) } }
+        XCTAssertGreaterThan(lay.passArea.minY, lay.cells[4][0].maxY, "PASS below the PEDAL row")
+        XCTAssertGreaterThan(lay.divider.minY, lay.cells[4][0].maxY)
     }
     // §7: the tile pictures are well-formed (levels in 1…4, the right counts).
     func testTilePictures() {

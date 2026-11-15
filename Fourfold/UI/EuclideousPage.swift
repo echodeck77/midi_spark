@@ -5537,7 +5537,7 @@ struct EuclideousPage: View {
                 let lit = order.contains(r)
                 let s = euclideousStackSounding(notesPart: notesPart, rank: r + 1, nowBeat: beat)
                 let sounding = clock.playing && s.sounding   // §4.2: the held set / lamp gate — note-on to the last note-off
-                notesRankTile(idx, rank: r + 1, lit: lit, role: line.notesRankRole(r + 1), accent: accent, sounding: sounding)
+                notesRankTile(idx, rank: r + 1, lit: lit, role: line.notesRankRole(r + 1), accent: accent, sounding: sounding, tileWidth: frame.width)
                     .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
             }
             notesRepeatButton(idx, accent: accent)   // §A2.5
@@ -5552,15 +5552,13 @@ struct EuclideousPage: View {
     /// DOUBLE two dots 1 apart · RETURN two dots 5 apart · PEDAL a 10×1.5 bar, all #1B1D22, lit tiles only), and — while its rank
     /// sounds — the WHITE inside sounding mark (STACK GREY §4.3: tiles 3 pt apart < 7, so inside: 1.5 pt #F2F4F7 + 1 pt #0D0F14;
     /// no glow). A tap toggles the rank (§A2.4). (The grey bar + role mark both under the number make a lit non-ONCE tile tight — device-owed, §B8.)
-    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, role: EuclideousRankRole, accent: Color, sounding: Bool) -> some View {
+    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, role: EuclideousRankRole, accent: Color, sounding: Bool, tileWidth: CGFloat) -> some View {
         let look = euclideousNotesSelLook(selected: lit, switchedOn: true, playing: false)   // §A1/§A2.2 (the sounding mark is §4's own, kept explicit)
         return ZStack {
             RoundedRectangle(cornerRadius: 4).fill(selFill(look, accent))   // §A2.2 r4
             VStack(spacing: 3) {   // §4.1: 3 pt between the number's baseline and the grey bar; the pair stays centred
                 Text("\(rank)").font(.system(size: 14, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: look.labelHex))   // §A2.2 the grid rank style, scaled
-                RoundedRectangle(cornerRadius: 1.5).fill(StackRankPalette.colour(rank: rank))   // §4.1: the rank's grey, every button, selected or not
-                    .frame(width: EuclideousPlayAsRowsLayout.tile * 0.4, height: 3)
-                if lit { notesRoleMark(role) }   // §B4.1: the repeat role mark (nothing for ONCE)
+                notesRankBar(role: role, lit: lit, rank: rank, width: tileWidth)   // amend 3 §C3: ONE grey bar whose SHAPE shows the role (replaces §B4's separate role mark)
             }
         }
         .overlay {   // §4.2/§4.3: the white sounding mark, inside the button (no glow, no ease) — the 2 pt lane ring + glow are retired
@@ -5578,15 +5576,14 @@ struct EuclideousPage: View {
         .accessibilityValue(lit ? "on, \(role.spoken)" : "off")   // §B5.1
         .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
     }
-    /// §B4.1: the repeat role mark drawn under a lit tile's number, in #1B1D22. ONCE = nothing; DOUBLE = two 2.5 pt dots 1 apart; RETURN = two 2.5 pt dots 5 apart; PEDAL = a 10 × 1.5 bar (r1).
-    @ViewBuilder private func notesRoleMark(_ role: EuclideousRankRole) -> some View {
-        let ink = Color(hex: 0x1B1D22)
-        switch role {
-        case .once: EmptyView()
-        case .double: HStack(spacing: 1) { Circle().fill(ink).frame(width: 2.5, height: 2.5); Circle().fill(ink).frame(width: 2.5, height: 2.5) }
-        case .returns: HStack(spacing: 5) { Circle().fill(ink).frame(width: 2.5, height: 2.5); Circle().fill(ink).frame(width: 2.5, height: 2.5) }
-        case .pedal: RoundedRectangle(cornerRadius: 1).fill(ink).frame(width: 10, height: 1.5)
+    /// amend 3 §C3.1: the grey rank bar, 3 tall, filled `stackRankColour(rank)`, whose SHAPE shows the role (ONCE one 40 % bar · DOUBLE two 18 % bars 1.5 apart · RETURN two 14 % bars 12 %-of-width apart · PEDAL one 70 % bar); an unlit tile draws ONCE (§C3.2). Segments from the pure `euclideousRankBarSegments`. (Amend 2 §B4's #1B1D22 dots/bar are removed, §C3.3.)
+    private func notesRankBar(role: EuclideousRankRole, lit: Bool, rank: Int, width: CGFloat) -> some View {
+        let segs = euclideousRankBarSegments(role: role, lit: lit, width: Double(width))
+        let c = StackRankPalette.colour(rank: rank)
+        return Canvas { ctx, _ in
+            for s in segs { ctx.fill(Path(roundedRect: CGRect(x: s.x, y: 0, width: s.w, height: 3), cornerRadius: 1.5), with: .color(c)) }
         }
+        .frame(width: width, height: 3)
     }
     /// §A2.5: the REPEAT button at the RANKS row's right — opens the REPEAT pop-up (A1.2 colours).
     private func notesRepeatButton(_ idx: Int, accent: Color) -> some View {
@@ -5703,19 +5700,17 @@ struct EuclideousPage: View {
 
     // MARK: - PLAY AS ROWS — WHEN RIFF (reused controls), BASS, EMIT+OCT
 
-    /// §A7: WHEN RIFF — PLAYS | RESTS as one segmented control (both lit allowed — BOTH keeps today's sound, Paul 2026-11-13), then CHANCE right-aligned. The lane-lock dashed indicator is kept (orthogonal to §A1.3's selection outline).
+    /// §A7 / amend 3 §C4.2: WHEN RIFF — PLAYS and RESTS are TWO INDEPENDENT toggles (not a segmented control: they are two flags, `notesWhen` bits 0/1, and both-on is the default, so a segmented control read as a broken either/or). Each a 23-tall tile, 4 apart, lit from its own flag; a tap toggles its own bit (keeping ≥1 on — the model forces 0 ⇒ both). Then CHANCE right-aligned. The lane-lock dashed indicator is kept.
     private func whenRiffRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
         let plays = line.notesPlaysResolved, rests = line.notesRestsResolved
         let chance = line.notesChanceResolved, chanceStops = [25, 50, 75, 100]
         let chanceIdx = chanceStops.firstIndex(of: chance) ?? 3
         return HStack(spacing: 4) {
             riffRowLabel("WHEN", "RIFF").frame(width: EuclideousPlayAsRowsLayout.labelW).accessibilityHidden(true)
-            HStack(spacing: 1.5) {   // §A7.1 the segmented control
-                notesSegment("PLAYS", selected: plays, switchedOn: true, accent: accent, spoken: euclideousNotesPlaysLabel) { guard !(plays && !rests) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 } }
-                notesSegment("RESTS", selected: rests, switchedOn: true, accent: accent, spoken: euclideousNotesRestsLabel) { guard !(rests && !plays) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 } }
+            HStack(spacing: 4) {   // §C4.2: two separate toggle tiles, 4 apart
+                whenToggle("PLAYS", on: plays, accent: accent, spoken: euclideousNotesPlaysLabel) { guard !(plays && !rests) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 } }
+                whenToggle("RESTS", on: rests, accent: accent, spoken: euclideousNotesRestsLabel) { guard !(rests && !plays) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 } }
             }
-            .padding(1.5).frame(width: 148, height: 26)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x24262C)))
             .modifier(EuclideousLockOutline(on: lockOn(idx, .notesWhen), accent: accent))
             Spacer(minLength: 0)
             melodyStepper("CHANCE", value: chanceIdx, range: 0...3, width: 88, help: "How many of the chosen hits the lit notes play.", height: 28, valueText: "\(chance)%",
@@ -5723,6 +5718,15 @@ struct EuclideousPage: View {
         }
         .frame(width: width, height: 28, alignment: .leading)
         .accessibilityElement(children: .contain).accessibilityLabel(euclideousNotesWhenGroupLabel)
+    }
+    /// §C4.2: one WHEN toggle — on = A1.1 (lane100 fill, #1B1D22 label), off = A1.2 (#24262C fill, #8D939D label); radius 4, 72 × 23.
+    private func whenToggle(_ label: String, on: Bool, accent: Color, spoken: String, action: @escaping () -> Void) -> some View {
+        Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
+            .foregroundColor(Color(hex: on ? 0x1B1D22 : 0x8D939D))
+            .frame(width: 72, height: 23)
+            .background(RoundedRectangle(cornerRadius: 4).fill(on ? lane100(accent) : Color(hex: 0x24262C)))
+            .contentShape(Rectangle()).onTapGesture(perform: action)
+            .accessibilityElement(children: .ignore).accessibilityLabel(spoken).accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }
     /// §A8: BASS — the row switch, then HOLD | FIRST as a segmented control. Switch on ⇒ the chosen choice is A1.1; switch off ⇒ A1.4 (no 42 % dim), the other unfilled; taps on the choices set the mode whether on or off.
     private func bassRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
