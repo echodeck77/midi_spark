@@ -10829,6 +10829,44 @@ func euclideousCCVisibleControls(mode: EmitterCCValueMode, hold: Int, ramp: Int)
     return out
 }
 
+/// §1: the CC edit page's frames in its body box — header (30) · trace (70, or 52 when four grid rows wouldn't fit — §1.3) · VALUE row (26) · a two-column control grid (rows 26, 6 apart). 12 pt side padding, 8 pt gaps above the grid. The
+/// grid flows the VISIBLE controls left-to-right, top-to-bottom (`gridCell(i)` by visible index). `fits` is false (and `.ccGridRows` flagged) when not even a 52 pt trace leaves room for four rows — then the page is drawn anyway (§1.3: stop + report, no scroll).
+struct EuclideousCCPageLayout: Equatable {
+    var pad: CGFloat = 12
+    var header: CGRect = .zero
+    var trace: CGRect = .zero
+    var valueRow: CGRect = .zero
+    var gridTop: CGFloat = 0
+    var gridRowH: CGFloat = 26
+    var gridGap: CGFloat = 6
+    var colW: CGFloat = 0
+    var colGap: CGFloat = 12
+    var fits = true
+    var floors: [String] = []
+    /// The frame of the i-th VISIBLE control (0-based), two per row.
+    func gridCell(_ i: Int) -> CGRect {
+        let row = i / 2, col = i % 2
+        return CGRect(x: pad + CGFloat(col) * (colW + colGap), y: gridTop + CGFloat(row) * (gridRowH + gridGap), width: colW, height: gridRowH)
+    }
+}
+func euclideousCCPageLayout(box: CGSize) -> EuclideousCCPageLayout {
+    var L = EuclideousCCPageLayout()
+    let headerH: CGFloat = 30, gap: CGFloat = 8, valueH: CGFloat = 26, valueGap: CGFloat = 6
+    func gridTop(_ traceH: CGFloat) -> CGFloat { headerH + gap + traceH + gap + valueH + valueGap }
+    func fourRowsFit(_ traceH: CGFloat) -> Bool { gridTop(traceH) + 4 * L.gridRowH + 3 * L.gridGap <= box.height - 4 }   // §1.2: four rows end a little above the bottom edge
+    var traceH: CGFloat = 70
+    if !fourRowsFit(70) { traceH = 52; if !fourRowsFit(52) { L.floors = [EuclideousCCPageLayout.gridRowsFloor] } }   // §1.3: shrink the trace, then stop + report
+    L.fits = L.floors.isEmpty
+    let w = max(1, box.width - 2 * L.pad)
+    L.colW = max(1, (w - L.colGap) / 2)
+    L.header = CGRect(x: L.pad, y: 0, width: w, height: headerH)
+    L.trace = CGRect(x: L.pad, y: headerH + gap, width: w, height: traceH)
+    L.valueRow = CGRect(x: L.pad, y: headerH + gap + traceH + gap, width: w, height: valueH)
+    L.gridTop = gridTop(traceH)
+    return L
+}
+extension EuclideousCCPageLayout { static let gridRowsFloor = "ccGridRows" }
+
 /// CC tab RAMP (2026-11-09): how many rhythm hits the clock's lane has in one pass (lap) — the same count `runEuclidLine` calls `cycleHits`, read from the captured window clock so another lane's pass length can be asked of it.
 func hocketLaneCycleHits(_ c: HocketLaneClock) -> Int {
     guard c.valid, c.n > 0 else { return 1 }

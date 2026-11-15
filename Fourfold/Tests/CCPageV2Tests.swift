@@ -60,6 +60,40 @@ final class CCPageV2Tests: XCTestCase {
         XCTAssertEqual(trace(a), trace(b), "PASSES changes nothing outside CLIMB")
     }
 
+    // §7.3 — the layout: header / trace / VALUE / grid frames, four rows inside the panel, and the §1.3 trace shrink.
+    func testLayout() {
+        let L = euclideousCCPageLayout(box: CGSize(width: 390, height: 300))
+        XCTAssertEqual(L.header.minY, 0); XCTAssertEqual(L.header.height, 30)
+        XCTAssertEqual(L.trace.minY, 38, accuracy: 0.01); XCTAssertEqual(L.trace.height, 70, accuracy: 0.01)
+        XCTAssertEqual(L.valueRow.minY, 116, accuracy: 0.01); XCTAssertEqual(L.valueRow.height, 26)
+        XCTAssertEqual(L.pad, 12); XCTAssertEqual(L.colW, (390 - 24 - 12) / 2, accuracy: 0.01)
+        // two columns: cell 0 left, cell 1 to its right, cell 2 on the next row
+        XCTAssertEqual(L.gridCell(0).minX, 12, accuracy: 0.01)
+        XCTAssertEqual(L.gridCell(1).minX, 12 + L.colW + 12, accuracy: 0.01)
+        XCTAssertEqual(L.gridCell(2).minY, L.gridCell(0).minY + 26 + 6, accuracy: 0.01)
+        XCTAssertTrue(L.fits, "four rows fit at 300 tall"); XCTAssertLessThanOrEqual(L.gridCell(6).maxY, 300, "the 7th control (row 4) is inside the panel")
+        // §1.3: a shorter panel shrinks the trace to 52; shorter still flags the floor.
+        XCTAssertEqual(euclideousCCPageLayout(box: CGSize(width: 390, height: 270)).trace.height, 52, accuracy: 0.01, "shrinks the trace when four rows wouldn't fit at 70")
+        let tiny = euclideousCCPageLayout(box: CGSize(width: 390, height: 240))
+        XCTAssertFalse(tiny.fits); XCTAssertTrue(tiny.floors.contains(EuclideousCCPageLayout.gridRowsFloor), "too short even at trace 52 ⇒ floor flagged, drawn anyway")
+    }
+
+    // §7.4 — reflow order: a control is only ever hidden by one EARLIER in the fixed order (HOLD hides RAMP/TO/CURVE; RAMP hides CURVE), so the visible list never reorders.
+    func testReflowOrder() {
+        // whenever a control is hidden, at least one control that is still shown and sits BEFORE it in the order is what gates it — i.e. the list stays a prefix-stable subsequence.
+        for mode in EmitterCCValueMode.allCases {
+            let full = euclideousCCVisibleControls(mode: mode, hold: 0, ramp: 50)   // the most-expanded set for this mode
+            for hold in [0, 25, 100] {
+                for ramp in [0, 50] {
+                    let shown = euclideousCCVisibleControls(mode: mode, hold: hold, ramp: ramp)
+                    // `shown` is always an in-order subsequence of `full` (never a reordering)
+                    var fi = 0
+                    for c in shown { while fi < full.count && full[fi] != c { fi += 1 }; XCTAssertLessThan(fi, full.count, "\(c) keeps its place for \(mode) hold \(hold) ramp \(ramp)"); fi += 1 }
+                }
+            }
+        }
+    }
+
     // amendment 1 §3.3 — the model has no muteValue; an old document that stored one decodes cleanly (the key is ignored).
     func testNoMuteValueAndOldDocDecodes() throws {
         let json = Data(#"{"on":true,"ccNumber":71,"valueMode":"HITS","high":100,"low":20,"hold":25,"ramp":50,"to":"REST","curve":"EXP","passes":1,"muteValue":99}"#.utf8)

@@ -36,13 +36,14 @@ struct CCBarSlider: View {
     @State private var startValue: Int? = nil
 
     var body: some View {
+        // CC page v2 §4.2: label 44 (10 pt, #9097A1) · bar (the rest, 14 tall, r5, #202329 track, #7C838E fill) · value 26 (12 pt, #F2F4F7), right.
         HStack(spacing: 6) {
-            Text(label).font(heavyMonoCC(9)).foregroundColor(P.muted).frame(width: 40, alignment: .leading)
+            Text(label).font(heavyMonoCC(10)).tracking(0.6).foregroundColor(P.muted).frame(width: 44, alignment: .leading)
             GeometryReader { geo in
                 let f = CGFloat(max(0, min(hi - lo, value - lo))) / CGFloat(max(1, hi - lo))
                 ZStack(alignment: .leading) {   // the visible track sits in the middle of the taller touch area
-                    RoundedRectangle(cornerRadius: 5).fill(P.slot).frame(height: 10)
-                    RoundedRectangle(cornerRadius: 5).fill(P.muted).frame(width: max(3, geo.size.width * f), height: 10)
+                    RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0x202329)).frame(height: 14)
+                    RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0x7C838E)).frame(width: max(3, geo.size.width * f), height: 14)
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
                 .contentShape(Rectangle())   // the whole (tall) row is grabbable
@@ -57,7 +58,7 @@ struct CCBarSlider: View {
                     .onEnded { _ in startValue = nil })
             }
             .frame(height: 26)   // a tall, easy touch target
-            Text("\(value)").font(heavyMonoCC(13)).foregroundColor(P.text).frame(width: 34, alignment: .trailing)
+            Text("\(value)").font(heavyMonoCC(12)).foregroundColor(P.text).frame(width: 26, alignment: .trailing)
         }
         .opacity(dimmed ? 0.35 : 1)
         .accessibilityElement(children: .ignore)
@@ -122,6 +123,7 @@ struct CCTraceView: View {
     var hideDots = false
     var faintDividers = false
     var bgRadius: CGFloat = 6
+    var dashed = false   // CC page v2 §3.1: the off-state line is dashed
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: playhead == nil)) { tl in
             Canvas { ctx, sz in draw(&ctx, sz, head: playhead?(tl.date)) }
@@ -151,7 +153,7 @@ struct CCTraceView: View {
                 fill.closeSubpath()
                 ctx.fill(fill, with: .color(area))
             }
-            ctx.stroke(path, with: .color(lineColour ?? P.light), style: StrokeStyle(lineWidth: lineColour != nil ? 1.25 : (detailed ? 1.75 : 1.5), lineCap: .round, lineJoin: .round))
+            ctx.stroke(path, with: .color(lineColour ?? P.light), style: StrokeStyle(lineWidth: dashed ? 1.2 : (lineColour != nil ? 1.25 : (detailed ? 1.75 : 1.5)), lineCap: .round, lineJoin: .round, dash: dashed ? [3, 3] : []))
         }
         if !hideDots {
         let r: CGFloat = detailed ? 3.5 : 2.75
@@ -270,33 +272,67 @@ struct EuclideousCCExpandedView: View {
     private var letter: String { euclideousOutputLetter(output) }
     private func laneColour(_ d: Int) -> Color { laneColours[max(0, min(laneColours.count - 1, d))] }
     private static let valueModes: [EmitterCCValueMode] = [.hits, .riff, .pingPong, .climb]
+    /// CC page v2 §1: header · trace (or the lane picker in its place) · VALUE · a two-column grid of only the VISIBLE controls, each placed at its frame from `euclideousCCPageLayout`. The controls reflow (0.15 s) when the visible set changes (§4.6).
     var body: some View {
         let cc = ccs[slot]
-        VStack(spacing: 8) {
-            header(cc)
-            if pickerOpen {   // §5.5 (rebuilt 2026-11-13): the lane picker fills the whole body below the header
-                pickerBody.frame(maxWidth: .infinity, maxHeight: .infinity).transition(.opacity)
-            } else {
-                traceArea(cc).frame(height: 84)
-                HStack(alignment: .top, spacing: 10) {
-                    leftColumn(cc).frame(width: min(186, bodySize.width * 0.42))
-                    rightColumn(cc).frame(maxWidth: .infinity)
-                }
-                .transition(.opacity)
+        let L = euclideousCCPageLayout(box: bodySize)
+        let visible = euclideousCCVisibleControls(mode: cc.valueMode, hold: cc.hold, ramp: cc.ramp)
+        return ZStack(alignment: .topLeading) {
+            place(header(cc), L.header)
+            place(pickerOpen ? AnyView(pickerBody) : AnyView(traceArea(cc)), L.trace)
+            place(valueRow(cc).opacity(cc.on ? 1 : 0.55), L.valueRow)          // §4: the VALUE row + grid draw at 55 % while the slot is off
+            ForEach(Array(visible.enumerated()), id: \.element) { i, c in
+                place(AnyView(controlCell(c, cc).opacity(cc.on ? 1 : 0.55)), L.gridCell(i))
             }
         }
         .frame(width: bodySize.width, height: bodySize.height, alignment: .topLeading)
+        .animation(.easeOut(duration: 0.15), value: visible)
     }
-    /// §5.4: the trace in the driver lane's colour with a lane tag at the top-left; tapping it opens the full lane picker.
+    /// Place a fully-built leaf at its frame (gesture inside the leaf; `.position` moves the hit area with it).
+    private func place<V: View>(_ v: V, _ f: CGRect) -> some View { v.frame(width: f.width, height: f.height).position(x: f.midX, y: f.midY) }
+    /// §3: the trace, full width, no lane tag now (the driver is in the header). On = the driver lane's detailed trace; off = a dashed grey line only. Tapping it opens the lane picker (§3.2).
     @ViewBuilder private func traceArea(_ cc: EmitterCC) -> some View {
         let dc = laneColour(driverLane)
-        ZStack(alignment: .topLeading) {
-            CCTraceView(trace: trace, laneColours: laneColours, playhead: cc.on ? playhead : nil, detailed: true, lineColour: cc.on ? dc : dc.opacity(0.4))
-                .contentShape(Rectangle())
-                .onTapGesture { withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = true } }
-                .accessibilityElement(children: .ignore).accessibilityLabel(euclideousCCDriverAX(lane: driverLane + 1))
-                .accessibilityAddTraits(.isButton).accessibilityAction(named: Text("Choose lane")) { withAnimation { pickerOpen = true } }
-            laneTab(driverLane, dc: dc).padding(EuclideousCCPickerMetrics.laneTabInset)   // §5.4 top-left
+        CCTraceView(trace: trace, laneColours: laneColours, playhead: cc.on ? playhead : nil, detailed: cc.on,
+                    lineColour: cc.on ? dc : Color(hex: 0x5C626C), areaColour: cc.on ? nil : .clear, hideDots: !cc.on, bgRadius: 8, dashed: !cc.on)
+            .contentShape(Rectangle())
+            .onTapGesture { withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = true } }
+            .accessibilityHidden(true)   // the driver tile in the header is the VoiceOver opener (§6)
+    }
+    /// §4.1: the VALUE row — four full-width segments.
+    @ViewBuilder private func valueRow(_ cc: EmitterCC) -> some View {
+        ccSeg(["HITS", "RIFF", "PING", "CLIMB"], selected: Self.valueModes.firstIndex(of: cc.valueMode) ?? 0, segH: 26, font: 11) { i in onEdit(true) { $0[slot].valueMode = Self.valueModes[i] } }
+    }
+    /// §4.2: one grid control — a slider (HIGH/LOW/HOLD/RAMP/PASSES) or a labelled two-segment control (TO/CURVE).
+    @ViewBuilder private func controlCell(_ c: EuclideousCCControl, _ cc: EmitterCC) -> some View {
+        switch c {
+        case .high:   CCBarSlider(label: "HIGH", value: cc.high) { v, s in onEdit(s) { $0[slot].high = v } }
+        case .low:    CCBarSlider(label: "LOW", value: cc.low) { v, s in onEdit(s) { $0[slot].low = v } }
+        case .hold:   CCBarSlider(label: "HOLD", value: cc.hold, lo: 0, hi: 100) { v, s in onEdit(s) { $0[slot].hold = v } }
+        case .ramp:   CCBarSlider(label: "RAMP", value: cc.effectiveRamp, lo: 0, hi: 100) { v, s in onEdit(s) { $0[slot].ramp = v } }   // the readout is the effective ramp; the stored value is kept
+        case .passes: CCBarSlider(label: "PASSES", value: cc.passes, lo: 1, hi: EmitterCC.maxPasses) { v, s in onEdit(s) { $0[slot].passes = v } }
+        case .to:     segCell("TO", ["REST", "NEXT"], cc.to == .rest ? 0 : 1) { i in onEdit(true) { $0[slot].to = i == 0 ? .rest : .next } }
+        case .curve:  segCell("CURVE", ["LIN", "EXP"], cc.curve == .lin ? 0 : 1) { i in onEdit(true) { $0[slot].curve = i == 0 ? .lin : .exp } }
+        }
+    }
+    /// §4.2: a labelled two-segment control (label like a slider's, then the segments 22 tall).
+    @ViewBuilder private func segCell(_ label: String, _ options: [String], _ selected: Int, _ onPick: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 6) {
+            Text(label).font(heavyMonoCC(10)).tracking(0.6).foregroundColor(P.muted).frame(width: 44, alignment: .leading)
+            ccSeg(options, selected: selected, segH: 22, font: 10, onPick: onPick)
+        }
+    }
+    /// §4.1 colours: active #E8EBF0 fill / #111317 text; others #262930 / #9097A1. 3 pt between segments.
+    @ViewBuilder private func ccSeg(_ options: [String], selected: Int, segH: CGFloat, font: CGFloat, onPick: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 3) {
+            ForEach(options.indices, id: \.self) { i in
+                let on = i == selected
+                Text(options[i]).font(heavyMonoCC(font)).tracking(0.6).foregroundColor(on ? Color(hex: 0x111317) : P.muted)
+                    .frame(maxWidth: .infinity).frame(height: segH)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color(hex: 0xE8EBF0) : Color(hex: 0x262930)))
+                    .contentShape(Rectangle()).onTapGesture { onPick(i) }
+                    .accessibilityElement(children: .ignore).accessibilityLabel(options[i]).accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+            }
         }
     }
     @ViewBuilder private func laneTab(_ d: Int, dc: Color) -> some View {
