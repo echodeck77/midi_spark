@@ -183,7 +183,7 @@ final class FillRouterTests: XCTestCase {
         var cfg = EuclideousWalkLaneConfig(buf: [Bool](repeating: true, count: 8), n: 8, dir: .fwd, sub: 0.5)
         cfg.riffDir = .forward; cfg.length = 8; cfg.stride = 1; cfg.rotate = 0; cfg.every = 1; cfg.columns = 8; cfg.gate = 0.5
         var l = EuclidLine(target: 0, pulses: 8, steps: 8, useRiff: true, riffOn: true, sourceMode: .midi)
-        l.rate = .r1_8; l.gate = 0.5; l.velocityAbsolute = 90
+        l.rate = .r1_8; l.gate = 0.5; l.velocityAbsolute = 90; l.litNotes = 0; l.notesOn = false   // riff only (match the run() harness) — the stack layer is covered by laneGhostPlans
         l.fillBars = bar(3); l.fillSpeed = 3; l.fillLength = 1   // ×2 ½
         let preview = euclideousFillPreviewNotes(cfg: cfg, line: l, lane: 0, pool: cmaj.map { Int($0) }, riffOct: 0, baseVel: 90,
                                                  ranks: [1, 2, 3, 4, 5, 6, 7, 8], fromBar: 3, toBar: 4, beatsPerBar: 4, originBeat: 0)
@@ -197,6 +197,23 @@ final class FillRouterTests: XCTestCase {
         let off = r0 - p0
         XCTAssertEqual(off % 12, 0, "only a whole-octave offset between the preview and the Router")
         XCTAssertEqual(ps.map { $0 + off }, rs, "same pitch contour (ORDER + RANKS) — steps 5,6,7,8,1,2,3,4")
+    }
+
+    // §5 — the preview's STACK (NOTES) layer rides the fill's retimed slots and respects riff off.
+    func testPreviewStackLayerRidesTheFill() {
+        var cfg = EuclideousWalkLaneConfig(buf: [Bool](repeating: true, count: 8), n: 8, dir: .fwd, sub: 0.5)
+        cfg.riffDir = .forward; cfg.length = 8; cfg.every = 1; cfg.columns = 8; cfg.gate = 0.5; cfg.riffOn = false   // riff OFF ⇒ only the stack previews
+        var l = EuclidLine(target: 0, pulses: 8, steps: 8, noteSel: .all, rate: .r1_8, useRiff: false, litNotes: 0b1, riffOn: false, sourceMode: .midi)
+        l.notesOn = true; l.notesGate = 0.5; l.velocityAbsolute = 90
+        l.fillBars = bar(3); l.fillSpeed = 3; l.fillLength = 1   // ×2 ½
+        let notes = euclideousFillPreviewNotes(cfg: cfg, line: l, lane: 0, pool: cmaj.map { Int($0) }, riffOct: 0, baseVel: 90,
+                                               ranks: [1, 2, 3, 4, 5, 6, 7, 8], fromBar: 3, toBar: 4, beatsPerBar: 4, originBeat: 0)
+        XCTAssertFalse(notes.isEmpty, "the stack layer fires in the fill")
+        XCTAssertTrue(notes.allSatisfy { $0.stack }, "riff off ⇒ every previewed note is a stack note")
+        let onsets = Set(notes.map { (($0.onset * 100).rounded() / 100) })
+        XCTAssertTrue(onsets.allSatisfy { $0 >= 14 - 1e-6 && $0 < 16 - 1e-6 }, "the stack sits inside bar 3's ×2 ½ region")
+        XCTAssertTrue(onsets.contains(14.0), "the region's first slot is at beat 14 (RUSH off here ⇒ the ×2 grid)")
+        XCTAssertTrue(onsets.contains(14.25), "slots are the retimed ×2 grid, not the lane's own ×1")
     }
 
     // MARK: §2.8 rejoin (test 8) — the bar after a region matches no fill

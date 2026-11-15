@@ -4022,14 +4022,15 @@ struct EuclideousPage: View {
                     ctx.fill(Path(roundedRect: CGRect(x: x + barW - rw + 1, y: 3, width: max(1, rw - 2), height: sz.height - 6), cornerRadius: 2), with: .color(accent.opacity(0.14)))
                 }
             }
-            for note in notes {   // §5 the predicted notes
+            for note in notes {   // §5 the predicted notes — riff = lane colour, stack (NOTES layer) = neutral grey, LAND accent = white
                 let x0 = xOf(note.onset), x1 = xOf(note.onset + note.length)
                 let rect = CGRect(x: x0, y: yOf(note.pitch) - 1.5, width: max(1.5, x1 - x0 - 0.5), height: 3)
+                let base: Color = note.land ? Color(hex: 0xF2F4F7) : (note.stack ? Color(hex: 0x9AA0AA) : accent)
                 if note.broken {
-                    ctx.stroke(Path(roundedRect: rect, cornerRadius: 1), with: .color(accent.opacity(0.45)), style: StrokeStyle(lineWidth: 0.75, dash: [1.5, 1.5]))
+                    ctx.stroke(Path(roundedRect: rect, cornerRadius: 1), with: .color(base.opacity(0.45)), style: StrokeStyle(lineWidth: 0.75, dash: [1.5, 1.5]))
                 } else {
                     let op = 0.4 + 0.6 * Double(note.vel) / 127.0
-                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(note.land ? Color(hex: 0xF2F4F7) : accent.opacity(op)))
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(note.land ? base : base.opacity(op)))
                 }
             }
             if let b = beat, loop > 0 {   // the playhead across the loop

@@ -12,7 +12,8 @@
 
 import CoreGraphics
 
-/// One predicted fill note (absolute host beats). `broken` = dropped by BREAK (drawn hatched, silent); `land` = the LAND rejoin accent.
+/// One predicted fill note (absolute host beats). `broken` = dropped by BREAK (drawn hatched, silent); `land` = the LAND
+/// rejoin accent; `stack` = a NOTES-layer note (vs the riff), so the view can shade the two apart.
 struct EuclideousFillPreviewNote: Equatable {
     var bar: Int
     var onset: Double
@@ -21,6 +22,7 @@ struct EuclideousFillPreviewNote: Equatable {
     var vel: Int
     var broken: Bool = false
     var land: Bool = false
+    var stack: Bool = false
 }
 
 /// The riff notes a lane's fill plays across bars [fromBar, toBar). Empty when the lane does not fill (neutral / unlit / no pool).
@@ -34,12 +36,23 @@ func euclideousFillPreviewNotes(cfg: EuclideousWalkLaneConfig, line: EuclidLine,
     let originTick = Int64((originBeat / cfg.sub).rounded(.down))
     var out: [EuclideousFillPreviewNote] = []
     var shuf = [Int](repeating: 0, count: euclideousFillReverseCap)
+    // A PITCH-borrowing lane (SHADOW / ECHO) plays its source's notes, not its own riff / stack — not mirrored here.
+    let borrowing = line.listenPitchResolved == .shadow || line.listenPitchResolved == .echo
+    let riffLive = cfg.riffOn && !borrowing
+    // NOTES-layer (stack) context — mirrors laneGhostPlans: live only when the layer is on and not borrowing.
+    let notesLive = euclideousNotesLayerIsOn(line) && !borrowing
+    let notesOct = max(-2, min(2, line.octaveResolved))
+    let notesGate = line.notesGateResolved
+    let notesVel = line.notesVelocityResolved
 
-    // The riff pitch at a walk ordinal (nil = a rest or out of MIDI range). `extra` is the RANKS-SHAPE climb for this slot.
-    func pitchAt(advOrd: Int64, extra: Int) -> Int? {
+    // The grid rank the walk reads at an ordinal (0 = a rest). `extra` is the RANKS-SHAPE climb.
+    func rawRankAt(_ advOrd: Int64) -> Int {
         let playedStep = euclideousRiffColumn(ordinal: advOrd, every: cfg.every, direction: cfg.riffDir, length: cfg.length, stride: cfg.stride, shift: cfg.rotate, seed: cfg.seed, columns: cfg.columns)
-        guard playedStep >= 0, playedStep < ranks.count else { return nil }
-        let rawRank = ranks[playedStep]
+        return (playedStep >= 0 && playedStep < ranks.count) ? ranks[playedStep] : 0
+    }
+    // The riff pitch at a walk ordinal (nil = a rest or out of MIDI range).
+    func pitchAt(advOrd: Int64, extra: Int) -> Int? {
+        let rawRank = rawRankAt(advOrd)
         guard rawRank >= 1 else { return nil }
         let rank = (cfg.invert ? 9 - rawRank : rawRank) + cfg.transpose + extra
         guard rank >= 1, let p = riffResolve(rank: rank, oct: riffOct, n: pool.count, wrap: .fold, asc: { pool[$0] }), (0...127).contains(p) else { return nil }
@@ -61,17 +74,28 @@ func euclideousFillPreviewNotes(cfg: EuclideousWalkLaneConfig, line: EuclidLine,
             let info = euclideousLaneChainTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: tick,
                                                chains: cfg.chains, legacySpanBeats: cfg.spanBeats, advanceStep: cfg.advanceStep || hitsActive, hostBeat: hostBeat)
             let rawIsHit = region.hits == .all ? true : (region.hits == .flip ? !info.rawIsHit : info.rawIsHit)   // §2.3
-            guard rawIsHit else { continue }                                                                      // SKIP a rest (TIE / REPEAT not previewed)
-            guard let pitch = pitchAt(advOrd: info.advOrd, extra: euclideousFillRankOffset(ranks: region.ranks, slot: s, count: N, shape: region.shape)) else { continue }
-            let vel = max(1, min(127, Int((Double(baseVel) * euclideousFillSwellFactor(swell: region.swell, slot: s, count: N)).rounded())))
-            let rollN = max(1, euclideousFillRollCount(roll: region.roll, slot: s, count: N))
-            let subLen = slotLen / Double(rollN)
-            for r in 0..<rollN {
-                out.append(EuclideousFillPreviewNote(bar: b, onset: hostBeat + Double(r) * subLen, length: max(0.002, subLen * cfg.gate), pitch: pitch, vel: vel, broken: broken))
+            guard rawIsHit else { continue }                                                                      // no rhythm hit (SKIP; TIE / REPEAT not previewed)
+            let swell = euclideousFillSwellFactor(swell: region.swell, slot: s, count: N)
+            let isRestHit = rawRankAt(info.advOrd) < 1                                                            // the riff column is a rest → the NOTES layer's RESTS mode fires
+            // RIFF layer — a note per ROLL strike (nil when the column is a grid rest; skipped when the riff is off / borrowed)
+            if riffLive, let pitch = pitchAt(advOrd: info.advOrd, extra: euclideousFillRankOffset(ranks: region.ranks, slot: s, count: N, shape: region.shape)) {
+                let vel = max(1, min(127, Int((Double(baseVel) * swell).rounded())))
+                let rollN = max(1, euclideousFillRollCount(roll: region.roll, slot: s, count: N))
+                let subLen = slotLen / Double(rollN)
+                for r in 0..<rollN {
+                    out.append(EuclideousFillPreviewNote(bar: b, onset: hostBeat + Double(r) * subLen, length: max(0.002, subLen * cfg.gate), pitch: pitch, vel: vel, broken: broken))
+                }
+            }
+            // NOTES (stack) layer — the same euclideousNotesHitPitches the Router's body runs, struck at the hit's onset (WHEN / CHANCE / the play list inside); the swell scales it like the riff
+            if notesLive {
+                let sv = max(1, min(127, Int((Double(notesVel) * swell).rounded())))
+                for p in euclideousNotesHitPitches(line: line, pool: pool, cfg: cfg, tick: tick, lane: lane, oct: notesOct, isRestHit: isRestHit, ranks: ranks, poly: nil) where (0...127).contains(p) {
+                    out.append(EuclideousFillPreviewNote(bar: b, onset: hostBeat, length: max(0.002, slotLen * notesGate), pitch: p, vel: sv, broken: broken, stack: true))
+                }
             }
         }
-        // §2.6 LAND: the rejoin accent note at E (a ×1 step, vel ×1.3, gate ×2, forced strike) — only when the walk's column there has a rank.
-        if region.land {
+        // §2.6 LAND: the rejoin accent note at E (a ×1 step, vel ×1.3, gate ×2, forced strike) — only when the riff is live and the walk's column there has a rank.
+        if region.land, riffLive {
             let tickE = Int64((region.E / cfg.sub + 1e-9).rounded(.down))
             let infoE = euclideousLaneChainTick(buf: cfg.buf, n: cfg.n, dir: cfg.dir, cycleLen: cycleLen, sub: cfg.sub, tick: tickE,
                                                 chains: cfg.chains, legacySpanBeats: cfg.spanBeats, advanceStep: cfg.advanceStep, hostBeat: region.E)
