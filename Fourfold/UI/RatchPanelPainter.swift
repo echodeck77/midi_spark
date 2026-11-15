@@ -156,7 +156,7 @@ struct EmitterRatchetChipGroup: View {
             if r.perHitResolved {
                 Text("PER HIT").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(10 * 0.04).lineLimit(1).minimumScaleFactor(0.7)
                     .foregroundColor(Color(hex: 0x0D0F14))
-                    .frame(width: size.width, height: chipH)
+                    .frame(width: size.width > 0 ? size.width : nil, height: chipH).frame(maxWidth: size.width > 0 ? nil : .infinity)   // width 0 = a flexible group (the expanded row sizes it via maxWidth); a real width pins the collapsed group
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xDFE3EA)))
                     .contentShape(Rectangle()).onTapGesture { onPerHitChip?() }
                     .accessibilityElement(children: .ignore)
@@ -176,7 +176,7 @@ struct EmitterRatchetChipGroup: View {
                             .accessibilityAddTraits(lit ? [.isButton, .isSelected] : [.isButton])
                     }
                 }
-                .frame(width: size.width, height: chipH)
+                .frame(width: size.width > 0 ? size.width : nil, height: chipH).frame(maxWidth: size.width > 0 ? nil : .infinity)   // RATCH v2 review fix: width 0 (the expanded STRIKES row) ⇒ a flexible group that fills via the outer maxWidth, instead of collapsing to 0
             }
         }
     }
@@ -379,7 +379,7 @@ struct EuclideousRatchetPanel: View {
             }
             .frame(width: M.toggleWidth, height: innerH)
             .contentShape(Rectangle())
-            .onTapGesture { onEdit(true) { $0[x].on.toggle() } }
+            .onTapGesture { onEdit(true) { $0[x] = $0[x].toggledOn() } }   // RATCH LENGTH: arming an untouched ratchet stamps the always-sounds default (AUTO + light FADE)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(emitterRatchetToggleLabel(output: x))
             .accessibilityValue(emitterRatchetToggleValue(on: r.on) + ((x < outputMuted.count && outputMuted[x]) ? ", output muted" : ""))   // EMITTER TOKEN §8.2
@@ -625,15 +625,15 @@ struct EmitterRatchetExpandedView: View {
             EmitterRatchetPerHitSwitch(on: r.perHitResolved, output: output) { onEdit(true) { $0[output] = $0[output].togglingPerHit() } }
         }
     }
-    // §6.7 SPREAD: LENGTH (½ · 1 — §0.2) segmented + the BEND value cell.
+    // §6.7 SPREAD: LENGTH (AUTO · ½ · 1 · 2 · 3 · 4 — RATCH LENGTH ferry, the per-output choke makes 2/3/4 safe) segmented + the BEND value cell. AUTO is the always-sounds default.
     private func spreadRow(r: EmitterRatchet, width: CGFloat) -> some View {
-        let lengths: [EmitterStrikeLength] = [.half, .one]
-        let sel = lengths.firstIndex(of: r.lengthResolved) ?? 1
+        let lengths: [EmitterStrikeLength] = [.auto, .half, .one, .two, .three, .four]
+        let sel = lengths.firstIndex(of: r.lengthResolved) ?? 2
         return row("SPREAD", width: width) {
-            EmitterRatchetSegmented(options: ["\u{00BD}", "1"], selected: sel, height: 26, groupLabel: "Strike length") { idx in
+            EmitterRatchetSegmented(options: ["AUTO", "\u{00BD}", "1", "2", "3", "4"], selected: sel, height: 26, groupLabel: "Strike length") { idx in
                 onEdit(true) { $0[output].length = lengths[idx] }
             }
-            .frame(width: 80)
+            .frame(width: 168)   // six segments; device-owed fit
             EmitterRatchetValueDragCell(label: "BEND", value: r.bendResolved, valueText: emitterRatchetBendText(r.bendResolved),
                                         map: emitterRatchetBendFromDrag, resetValue: 0, a11y: "Emitter \(emitterRatchetLetters[output]) bend", a11yValue: emitterRatchetBendText(r.bendResolved).lowercased(), step: EmitterRatchet.bendStep,
                                         onSet: { first, v in onEdit(first) { $0[output].bend = v } }, onDragEnd: onDragEnd)

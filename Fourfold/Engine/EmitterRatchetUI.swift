@@ -255,7 +255,7 @@ func emitterRatchetStripLabel(output x: Int, _ r: EmitterRatchet, counts: String
     if r.perHitResolved { strikesPart = "strikes per hit" }
     else { let m = r.countsMembers; strikesPart = m.count <= 1 ? "strikes \(m.first ?? 2)" : "strikes \(m.dropLast().map(String.init).joined(separator: ", ")) or \(m.last!)" }
     let len = r.lengthResolved
-    let lengthPart = len == .half ? "length half step" : "length \(Int(len.steps)) step\(len == .one ? "" : "s")"
+    let lengthPart = len == .auto ? "length auto" : (len == .half ? "length half step" : "length \(Int(len.steps)) step\(len == .one ? "" : "s")")
     let bend = r.bendResolved, bendPart = bend == 0 ? "even" : (bend > 0 ? "rush \(bend)" : "drag \(abs(bend))")
     var s = "Emitter \(letter) pattern, \(r.hits) of \(r.steps)\(counts.map { " \($0)" } ?? ""), offset \(r.offset), \(strikesPart), \(lengthPart), \(bendPart)"
     if r.velResolved != .flat { s += ", \(r.velResolved == .fade ? "fade" : "swell") \(r.depthResolved) percent" }   // §9.1 leave out the velocity part when FLAT

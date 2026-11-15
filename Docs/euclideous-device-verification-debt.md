@@ -939,3 +939,10 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - DOUBLE and RETURN on the same lane are told apart by ear (a straight-away double vs a note that comes back after the others);
   - the role marks (DOUBLE two dots 1 apart · RETURN two dots 5 apart · PEDAL a 10×1.5 bar) read on the 26 pt RANKS tiles in all four lane colours — and, with the STACK-GREY grey bar also under the number, the lit non-ONCE tile isn't too crowded (content ~29 pt in a 26 pt tile — confirm the marks aren't clipped);
   - the REPEAT pop-up's 26 pt grid cells are easy to hit on glass, and the 5-row grid + PASS band sit comfortably in the tab body at both references (214 of 221 pt).
+
+- **RATCH LENGTH ferry (2026-11-15) — the always-sounds default + LENGTH/choke (Fourfold):**
+  - the ALWAYS-SOUNDS DEFAULT: turn a ratchet ON on a fast lane (1/16+) and confirm it is an AUDIBLE roll/triplet, not a flam — this is the whole point (Paul's count-2 capture was inaudible). Tune `emitterStrikeAutoFloorSeconds` (0.075 s) and the default FADE depth (40) by ear if the strikes still fuse or sound too sparse;
+  - AUTO across rates: a slow lane (1/4) should resolve tight (½), a fast lane wide (2/3/4), each clearly separated — sweep the lane rate and listen;
+  - LENGTH 2/3/4 on a DENSE lane: the spill should choke cleanly on the next hit on that output (no doubled/colliding strikes); on a SPARSE lane the full spread should ring out;
+  - the 6-segment LENGTH control (AUTO · ½ · 1 · 2 · 3 · 4, 168 pt) is legible and tappable at both references and on the mini; the expanded STRIKES ×2 ×3 ×4 chips now render (were 0-width) — confirm they show and toggle;
+  - whether a staccato strike-gate is still wanted (deferred) — i.e. do same-pitch strikes separate enough by spacing + the FADE ramp alone.

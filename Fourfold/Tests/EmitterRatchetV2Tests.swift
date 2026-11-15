@@ -180,4 +180,30 @@ final class EmitterRatchetV2Tests: XCTestCase {
         XCTAssertEqual(emitterStrikeResolveLength(.auto, stepBeats: 0.5, tempo: 120, maxCount: 4), .two)
         XCTAssertEqual(emitterStrikeResolveLength(.auto, stepBeats: 0.5, tempo: 120, maxCount: 3), .one)
     }
+
+    // RATCH LENGTH ferry (2026-11-15) — the ARM toggle stamps the always-sounds default only on a fresh (untouched) ratchet.
+    func testArmStampsTheAlwaysSoundsDefault() {
+        let armed = EmitterRatchet().toggledOn()
+        XCTAssertTrue(armed.on)
+        XCTAssertEqual(armed.length, .auto, "a fresh arm ⇒ AUTO length")
+        XCTAssertEqual(armed.vel, .fade, "a fresh arm ⇒ a light FADE ramp")
+        XCTAssertEqual(armed.depth, 40)
+        XCTAssertNil(armed.countsBits, "count stays nil ⇒ ×3")
+        // turning OFF keeps every field, so re-arming restores the shaped ratchet
+        XCTAssertFalse(armed.toggledOn().on)
+        XCTAssertEqual(armed.toggledOn().length, .auto)
+        // a ratchet the user has already shaped (length set) is NOT re-stamped on arm
+        var shaped = EmitterRatchet(); shaped.length = .one; shaped.vel = .swell
+        let rearmed = shaped.toggledOn()
+        XCTAssertEqual(rearmed.length, .one, "a shaped length is kept")
+        XCTAssertEqual(rearmed.vel, .swell)
+    }
+    // Byte-identity: the NIL resolution (an un-armed default / a pre-ferry doc) stays ½? no — 1 / FLAT / 50, so every existing test + document is unchanged until re-armed.
+    func testNilResolutionIsUnchanged() {
+        let d = EmitterRatchet()
+        XCTAssertEqual(d.lengthResolved, .one)
+        XCTAssertEqual(d.velResolved, .flat)
+        XCTAssertEqual(d.depthResolved, 50)
+        XCTAssertFalse(d.length?.spills ?? false)
+    }
 }

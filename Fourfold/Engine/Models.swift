@@ -2171,6 +2171,14 @@ struct EmitterRatchet: Equatable {
     }
     /// §8.2 — flip PER HIT (materialising the resolved value).
     func togglingPerHit() -> EmitterRatchet { var r = self; r.perHit = !perHitResolved; return r }
+    /// RATCH LENGTH ferry (2026-11-15) — the ARM toggle. Turning OFF keeps every field (so re-arming restores it). Turning ON a ratchet whose SPREAD is still UNTOUCHED (`length == nil`) stamps the ALWAYS-SOUNDS default — AUTO length + a light FADE ramp — so a fresh ratchet is an audible roll at any lane rate without tuning (count stays nil ⇒ ×3). A ratchet the user has shaped keeps its own length/vel. The nil-resolution stays ½/1/FLAT, so every existing test and document is byte-identical until re-armed.
+    func toggledOn() -> EmitterRatchet {
+        var r = self
+        if r.on { r.on = false; return r }
+        r.on = true
+        if length == nil { r.length = .auto; r.vel = .fade; r.depth = 40 }   // the always-sounds default (device-owed feel: AUTO floor + FADE depth)
+        return r
+    }
     var lengthResolved: EmitterStrikeLength { length ?? .one }            // §1.7 any GAP ⇒ 1
     var bendResolved: Int { max(-100, min(100, bend ?? 0)) }
     var velResolved: EmitterStrikeVel { vel ?? .flat }
