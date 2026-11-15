@@ -915,3 +915,12 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - The 49-tall bands still give comfortable touch targets, and the key-over-value steppers never truncate on device.
 
 - **FILL TAB ferry (2026-11-15):** the whole-card FILL tab is landed (bar row + loop chip, 12 control tiles, a region-timeline preview) — ALL looks/feel device-owed: the 3×4 grid at the landscape and iPad-mini widths, the curve/shape mini-chips (tap cycles the mode, the rest of the tile drags the value — the notched hit area), the LOOP chip (4/8/16), the §4.3 bipolar value edges reading faint at 0. By EAR: RUSH (the fill rate rising into the downbeat), ORDER REV/BOUNCE/SHUFFLE, RANKS ARCH/SHIFT, ROLL (the ratchet thickening toward the bar line, device-only — unheard here), LAND (the rejoin accent, vel×1.3 + 2× gate). HITS is shown DISABLED (ALL/FLIP deferred). Neutral fills are byte-identical (golden) so an existing fill sounds unchanged.
+
+- **HEADER STATUS BUTTON ferry (2026-11-15) §11:** the four source pips are gone; the header button is content-hugging (KEY · grid tokens · MIDI lamp + ROOT readout · chevron). ALL looks/feel device-owed:
+  - the header reads "in key" vs "on chords" at a glance (is a grid token's presence / absence clear?);
+  - the 44×14 progression icon reads as a progression + a moving playhead at both 8 and 16 steps (marks per column, the lit column washed full-height) — legible, not a smear;
+  - the lavender live-token colour (#D6CBFB name, #7C828D marks) vs the grey idle (#AAB0BA / #5C626C) is distinguishable on the #2A2D34 button;
+  - the MIDI lamp (34×18 "MIDI") catches a generator's short note-ons (0.15 s hold) without nervous flicker, and the ROOT readout's signed `t` (true minus) is legible at 24 pt;
+  - the widest 7-glyph chord names (E♭madd9-class, ≈42 pt) truncate in the 40 pt slot — confirm the abbreviation still reads, or the slot needs widening;
+  - the widest landscape button (13-char key + two grid tokens + lamp + readout) leaves HOLD / LATCH and the UTILITIES group (HOCKET/presets/SWING/REEL/settings) comfortable, and the B/C fallback (token names hidden, then icons) kicks in at a sensible width without the button feeling cramped;
+  - VoiceOver reads the button value sensibly ("C major, grid 1, C, grid 2 waiting, D minor, MIDI in, playing, root, plus 2") — and §6.2's "no announcements while playing" is only partially honoured (the value changes per chord boundary, not at 30 Hz, but SwiftUI still announces on change — device-owed whether it's distracting under a running transport).
