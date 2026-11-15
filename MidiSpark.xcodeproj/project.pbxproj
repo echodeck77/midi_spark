@@ -11,6 +11,7 @@
 		021019A5AE17098B3B3FFD3E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20AB7B8688724B64F843182A /* Assets.xcassets */; };
 		0237DEC8D0623653E5BBC0DA /* EuclideousRandomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923F68D1FA979B5D22C2336D /* EuclideousRandomTests.swift */; };
 		0253C8EBE49C5CA05980EC2D /* AltCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A39C84E27C4C495B7A14999 /* AltCard.swift */; };
+		0275A7783E9F5083A68FE800 /* InputsV2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD3D562FB62A7DDBC0632B9 /* InputsV2Tests.swift */; };
 		0292738F25406C9B34ABE6D6 /* MidiSparkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344F3C5EF6A927E579AC9D79 /* MidiSparkApp.swift */; };
 		02B414323ED3737F7469018B /* TapeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B187EF1F183D7FB9E3E25FE /* TapeStore.swift */; };
 		02D08C2E68D61F7194EB5BE3 /* HarmonyLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 976600C373D6466052E2925D /* HarmonyLayoutTests.swift */; };
@@ -799,6 +800,7 @@
 		9ABE000F33B083E91E686CD8 /* PlayAsRowsModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsRowsModelTests.swift; sourceTree = "<group>"; };
 		9AE6D8F7DB5682AAE6EFA15E /* EffectiveParamsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectiveParamsTests.swift; sourceTree = "<group>"; };
 		9B90A0E5E3C7A378FB0B7952 /* NoteRollRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRollRing.swift; sourceTree = "<group>"; };
+		9BD3D562FB62A7DDBC0632B9 /* InputsV2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputsV2Tests.swift; sourceTree = "<group>"; };
 		9D50A76DA3E4E4C14429695C /* RiffWalkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffWalkTests.swift; sourceTree = "<group>"; };
 		9D5FD8318A130F2A8C70369A /* EuclideousRandomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandomTests.swift; sourceTree = "<group>"; };
 		9DFEB86021F33605055342D6 /* EuclideousSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousSettingsSheet.swift; sourceTree = "<group>"; };
@@ -1128,6 +1130,7 @@
 				308A4FADD0BB1FB23898BA06 /* InputsModelTests.swift */,
 				215CC43E9C5A2250AB3EC766 /* InputsRouterTests.swift */,
 				3248864521E73EC4CC4F6F45 /* InputsTestAuditionTests.swift */,
+				9BD3D562FB62A7DDBC0632B9 /* InputsV2Tests.swift */,
 				A7DA6ABCB082900BEE40BD4E /* LaneLockTests.swift */,
 				EBD9DBBEEFA1051724E66556 /* LanesGridTests.swift */,
 				225D04471362741A939D49DE /* LaneSoloTests.swift */,
@@ -2006,6 +2009,7 @@
 				228D7898F6AD4B0FC777AD10 /* InputsModelTests.swift in Sources */,
 				1F8E4BB041AD7E520007A887 /* InputsRouterTests.swift in Sources */,
 				03D3F796516A319CEE53FDD6 /* InputsTestAuditionTests.swift in Sources */,
+				0275A7783E9F5083A68FE800 /* InputsV2Tests.swift in Sources */,
 				F05E9AE1A7913956B2AE8C67 /* LaneLockTests.swift in Sources */,
 				C824D765CA367D040CAEB674 /* LaneSoloTests.swift in Sources */,
 				F93EED8D0A68E7ABB780FA27 /* LaneStripBands.swift in Sources */,

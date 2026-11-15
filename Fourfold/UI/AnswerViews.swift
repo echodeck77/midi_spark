@@ -47,27 +47,30 @@ struct PoolNowChipsView: View {
     let lane: Int
     let tint: Color
     let size: CGSize          // the whole row: eight chips and their gaps
-    let spokenName: (Int, [UInt8]) -> String
-    let name: (UInt8, [UInt8]) -> String
+    // INPUTS v2 §5.1: POOL names each rank through the shared `rankNoteName` with the lane's NOTES octave, so it reads the SAME note as the STACK grid (ROOT's t is already in the pool).
+    let octave: Int
+    let source: EuclideousLaneSource
+    let keyRoot: Int
+    let keyType: ScaleType
     @ObservedObject var live: AnswerLiveModel
 
     var body: some View {
         let st = live.pool(lane: lane)
+        let p = EuclideousLanePoolNotes(st)   // the SAME pool the STACK grid reads (both from `lps`); the octave is what used to differ
         let sorted = st.notes.map { Int($0) }
-        let chips = euclideousRankChips(sortedPool: sorted, litMask: st.playedRanks, sources: st.sources) { n in n >= 0 && n <= 127 ? name(UInt8(n), st.notes) : "\u{2013}" }
+        let chips = euclideousRankChips(sortedPool: sorted, litMask: st.playedRanks, sources: st.sources) { _ in "" }   // looks (lit / received / source pips) only; the names come from §5.1 below
+            .enumerated().map { (i, c) -> EuclideousRankChipSpec in var c2 = c; c2.name = rankNoteName(rank: i + 1, pool: p, octave: octave, source: source, keyRoot: keyRoot, keyType: keyType); return c2 }
         let gap: CGFloat = 3
         let w = max(1, (size.width - gap * 7) / 8)
         HStack(spacing: gap) {
-            ForEach(0..<8, id: \.self) { i in EuclideousRankChipView(spec: chips[i], accent: tint, size: CGSize(width: w, height: size.height), stackRank: true) }   // NOW: two rows — rank number over the assigned note (2026-11-08)
+            ForEach(0..<8, id: \.self) { i in EuclideousRankChipView(spec: chips[i], accent: tint, size: CGSize(width: w, height: size.height), stackRank: true) }   // POOL: two rows — rank number over the assigned note (2026-11-08)
         }
         .frame(width: size.width, height: size.height, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Now, lane \(lane + 1)")   // the lane is part of the name: four cards carry a NOW row
-        .accessibilityValue(euclideousPoolNowSpoken(names: st.notes.isEmpty ? [] : (0..<8).compactMap { r in
-            let ext = euclideousGlobalPoolExtended(sortedRaw: sorted)
-            guard r < ext.count else { return nil }
-            let n = spokenName(ext[r], st.notes)
-            return r < sorted.count && r < st.sources.count ? n + " " + EuclideousSourceColour.name(source: st.sources[r]) : n   // 7.6: a received note names its source ("A3 key, A sharp 3 MIDI"); a copy does not
+        .accessibilityLabel("Pool, lane \(lane + 1)")   // §2.8a: NOW → POOL
+        .accessibilityValue(euclideousPoolNowSpoken(names: st.notes.isEmpty ? [] : (0..<8).map { r in
+            let n = rankNoteNameSpoken(rank: r + 1, pool: p, octave: octave, source: source, keyRoot: keyRoot, keyType: keyType)
+            return r < sorted.count && r < st.sources.count ? n + " " + EuclideousSourceColour.name(source: st.sources[r]) : n   // 7.6: a received note names its source; a copy does not
         }))
     }
 }

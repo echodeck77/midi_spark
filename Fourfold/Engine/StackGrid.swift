@@ -129,6 +129,21 @@ func euclideousStackCellNote(row: EuclideousStackRow, pool: EuclideousLanePoolNo
     return v
 }
 
+/// INPUTS v2 §5.1: the note a lane's rank SOUNDS, named — the ONE function the STACK grid AND the POOL row call, so a rank
+/// reads the same note in both places. The note is `euclideousStackCellNote` (the engine-proven NOTES-layer pitch for the
+/// rank + the lane's NOTES octave); the name is `euclideousDisplayNoteName`. "–" when the engine would drop it out of 0…127.
+/// ROOT's `t` is already baked into `pool`. (This is why NOW used to disagree with the grid on lanes 3/4: NOW named the raw
+/// pool note with no octave; the grid applied the octave. Now both go through here.)
+func rankNoteName(rank: Int, pool: EuclideousLanePoolNotes, octave: Int, source: EuclideousLaneSource, keyRoot: Int, keyType: ScaleType) -> String {
+    guard let note = euclideousStackCellNote(row: .rank(rank), pool: pool, notesOct: octave) else { return "\u{2013}" }
+    return euclideousDisplayNoteName(UInt8(note), source: source, pool: pool.notes, keyRoot: keyRoot, keyType: keyType)
+}
+/// §5.1 / §2.8a: the spoken form of `rankNoteName` — "no note" when the engine drops it.
+func rankNoteNameSpoken(rank: Int, pool: EuclideousLanePoolNotes, octave: Int, source: EuclideousLaneSource, keyRoot: Int, keyType: ScaleType) -> String {
+    guard let note = euclideousStackCellNote(row: .rank(rank), pool: pool, notesOct: octave) else { return "no note" }
+    return euclideousAccessibleDisplayNoteName(UInt8(note), source: source, pool: pool.notes, keyRoot: keyRoot, keyType: keyType)
+}
+
 /// §1.1 / §2 — is the NOTES part's rank `r` sounding now, and the beat of its newest routed note-on (for the glow). A note counts only if it reached ≥1 emitter (`outs != 0` — it passed routing / mute / solo, exactly what the lamp flashes on).
 /// The held set + overlaps ARE the NoteRollModel's own `notes` (its ingest is the event→held accumulator, §5.1); this is a per-frame query reusing `euclideousMixNoteSounds` — no second derivation. Only the NOTES part is passed in (§2.6).
 struct EuclideousStackSounding: Equatable { var sounding: Bool; var glowOnset: Double? }

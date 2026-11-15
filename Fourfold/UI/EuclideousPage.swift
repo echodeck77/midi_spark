@@ -6613,8 +6613,8 @@ struct EuclideousPage: View {
         return AnyView(HStack(spacing: 0) {
             Text("NOW").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
             PoolNowChipsView(lane: idx, tint: lane100(accent), size: CGSize(width: max(1, fullWidth - labelW), height: height),
-                             spokenName: { n, pool in euclideousAccessibleDisplayNoteName(UInt8(max(0, min(127, n))), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
-                             name: { n, pool in euclideousDisplayNoteName(n, source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) },
+                             octave: idx < lines.count ? lines[idx].octaveResolved : 0,   // §5.1: the lane's NOTES octave, the same the STACK grid applies
+                             source: noteSource, keyRoot: keyRoot, keyType: keyType,
                              live: answerLive)
         }
         .frame(width: fullWidth, height: height))
@@ -7298,9 +7298,15 @@ struct EuclideousPage: View {
         let on = euclideousStackCellIsOn(line, row: row, poolCount: lp.count)
         let position = row.position(poolCount: lp.count)
         // STACK GRID LIVE §4: the note the lane's NOTES part would send for this rank — the pool note shifted by the NOTES OCT (the engine's riffResolve). nil (→ "–") when the engine would drop it out of 0…127 (§4.3).
-        let note = euclideousStackCellNote(row: row, pool: lp, notesOct: line.octaveResolved)
-        let name = note.map { euclideousDisplayNoteName(UInt8($0), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "\u{2013}"
-        let spoken = note.map { euclideousAccessibleDisplayNoteName(UInt8($0), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "no note"
+        let name: String, spoken: String
+        if case .rank(let r) = row {   // §5.1: the SAME namer POOL uses, so a rank reads the same note on the grid and on POOL
+            name = rankNoteName(rank: r, pool: lp, octave: line.octaveResolved, source: noteSource, keyRoot: keyRoot, keyType: keyType)
+            spoken = rankNoteNameSpoken(rank: r, pool: lp, octave: line.octaveResolved, source: noteSource, keyRoot: keyRoot, keyType: keyType)
+        } else {   // TOP / TOP−1 / TOP−2 (not gridded today) keep the engine-proven cell note directly
+            let note = euclideousStackCellNote(row: row, pool: lp, notesOct: line.octaveResolved)
+            name = note.map { euclideousDisplayNoteName(UInt8($0), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "\u{2013}"
+            spoken = note.map { euclideousAccessibleDisplayNoteName(UInt8($0), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "no note"
+        }
         let poolCount = lp.count
         // STACK GRID LIVE §2: the NOTES part lights the cell while its rank sounds; a note-on glows it. Only while playing (stopped = rest + names, §6.2); only the NOTES part (§2.6).
         var sounding = false, glowAge: Double? = nil
