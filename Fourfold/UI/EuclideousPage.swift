@@ -5258,9 +5258,8 @@ struct EuclideousPage: View {
                 let frame = lay.rankTiles[r]
                 let lit = order.contains(r)
                 let s = euclideousStackSounding(notesPart: notesPart, rank: r + 1, nowBeat: beat)
-                let sounding = clock.playing && s.sounding
-                let glowAge = s.glowOnset.map { (beat - $0) * 60 / max(1, clock.tempo) }
-                notesRankTile(idx, rank: r + 1, lit: lit, count: line.notesRankCount(r + 1), accent: accent, sounding: sounding, glowAge: glowAge)
+                let sounding = clock.playing && s.sounding   // §4.2: the held set / lamp gate — note-on to the last note-off
+                notesRankTile(idx, rank: r + 1, lit: lit, count: line.notesRankCount(r + 1), accent: accent, sounding: sounding)
                     .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
             }
             notesRepeatButton(idx, accent: accent)   // §A2.5
@@ -5270,23 +5269,32 @@ struct EuclideousPage: View {
           .accessibilityElement(children: .contain).accessibilityLabel("Ranks")
         }
     }
-    /// §A2.2-§A2.6: one 1…8 tile — the grid rank style (bold) in the one-selection colour, pips only at 2× / 3× (§A2.3), the 2 pt lane ring + glow while its rank sounds (§A2.6). A tap toggles the rank (§A2.4).
-    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, count: Int, accent: Color, sounding: Bool, glowAge: Double?) -> some View {
-        let look = euclideousNotesSelLook(selected: lit, switchedOn: true, playing: false)   // §A1/§A2.2 (the sounding ring is A2.6's own, kept explicit)
-        let glow = (sounding && !reduceMotion) ? max(0, 1 - (glowAge ?? 1) / 0.35) : 0        // a note-on glow that fades over 0.35 s
+    /// §A2.2-§A2.6 / STACK GREY §4: one 1…8 tile — the grid rank style (bold) in the one-selection colour, pips only at 2× / 3× (§A2.3),
+    /// a GREY rank bar under the number (§4.1, `stackRankColour`), and — while its rank sounds — the WHITE inside sounding mark
+    /// (§4.3: the tiles sit 3 pt apart, < 7, so the ring draws inside: 1.5 pt #F2F4F7 + 1 pt #0D0F14; no glow, no ease). A tap toggles the rank (§A2.4).
+    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, count: Int, accent: Color, sounding: Bool) -> some View {
+        let look = euclideousNotesSelLook(selected: lit, switchedOn: true, playing: false)   // §A1/§A2.2 (the sounding mark is §4's own, kept explicit)
         return ZStack {
             RoundedRectangle(cornerRadius: 4).fill(selFill(look, accent))   // §A2.2 r4
-            VStack(spacing: 2) {
+            VStack(spacing: 3) {   // §4.1: 3 pt between the number's baseline and the grey bar; the pair stays centred
                 Text("\(rank)").font(.system(size: 14, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: look.labelHex))   // §A2.2 the grid rank style, scaled
+                RoundedRectangle(cornerRadius: 1.5).fill(StackRankPalette.colour(rank: rank))   // §4.1: the rank's grey, every button, selected or not
+                    .frame(width: EuclideousPlayAsRowsLayout.tile * 0.4, height: 3)
                 if lit && count >= 2 {   // §A2.3: pips only at 2× / 3×
                     HStack(spacing: 1.5) { ForEach(0..<count, id: \.self) { _ in Circle().fill(Color(hex: 0x1B1D22)).frame(width: 2.5, height: 2.5) } }
                 }
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(lane100(accent), lineWidth: sounding ? 2 : 0))   // §A2.6 the sounding ring
-        .shadow(color: lane100(accent).opacity(glow * 0.8), radius: glow * 6)
+        .overlay {   // §4.2/§4.3: the white sounding mark, inside the button (no glow, no ease) — the 2 pt lane ring + glow are retired
+            if sounding {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4).strokeBorder(Color(hex: 0xF2F4F7), lineWidth: 1.5)
+                    RoundedRectangle(cornerRadius: 2.5).strokeBorder(Color(hex: 0x0D0F14), lineWidth: 1).padding(1.5)
+                }
+            }
+        }
         .contentShape(Rectangle())
-        .onTapGesture { edit(idx) { _ = euclideousToggleLitPosition(&$0, position: rank - 1) } }   // §A2.4 always toggles the rank (same store / undo as a grid tap)
+        .onTapGesture { edit(idx) { _ = euclideousToggleLitPosition(&$0, position: rank - 1) } }   // §A2.4 always toggles the rank (same store / undo as a grid tap); the bar/ring take no touches
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Rank \(rank)")
         .accessibilityValue(lit ? "on, \(count) time\(count == 1 ? "" : "s")" : "off")

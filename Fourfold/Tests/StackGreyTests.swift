@@ -90,4 +90,24 @@ final class StackGreyTests: XCTestCase {
         XCTAssertFalse(s.stackRing[5], "not the playhead's step")
         XCTAssertEqual(s.stackChipRanks[0], [2])
     }
+
+    // §8.8 — the RANKS ring gate (`euclideousStackSounding`, the function the RANKS row and the STACK grid both read):
+    // a hit on ranks 1/3/5 rings exactly those; a note routed nowhere / a silenced (empty) part rings nothing; an ended note is silent.
+    func testRanksRingGate() {
+        func note(_ rank: Int, outs: UInt8 = 1, end: Double? = nil) -> NoteRollNote {
+            NoteRollNote(onBeat: 0.5, endBeat: end, pitch: UInt8(60 + rank), velocity: 100, outs: outs, rank: UInt8(rank))
+        }
+        let part = [note(1), note(3), note(5)]
+        for r in 1...8 { XCTAssertEqual(euclideousStackSounding(notesPart: part, rank: r, nowBeat: 1).sounding, [1, 3, 5].contains(r), "rank \(r): only 1/3/5 ring") }
+        XCTAssertFalse(euclideousStackSounding(notesPart: [note(3, outs: 0)], rank: 3, nowBeat: 1).sounding, "a note routed nowhere (outs 0) rings nothing")
+        XCTAssertFalse(euclideousStackSounding(notesPart: [], rank: 3, nowBeat: 1).sounding, "a silenced / PLAY-STACK-off part (empty feed) rings nothing")
+        XCTAssertFalse(euclideousStackSounding(notesPart: [note(3, end: 0.8)], rank: 3, nowBeat: 1).sounding, "a note that ended before now is silent")
+        // (transport stop clears every ring at once through the caller's `clock.playing && …` gate — ranksTilesRow line ~5261.)
+    }
+
+    // §8.9 — rank isolation: a rank-4 note rings only button 4. (Riff notes live in the riff part `2·lane`, which the RANKS row never reads — it reads the notes part `2·lane+1` — so they can't ring a RANKS button.)
+    func testRankIsolationAndRiffNotesDoNotRing() {
+        let part = [NoteRollNote(onBeat: 0, endBeat: nil, pitch: 64, velocity: 100, outs: 1, rank: 4)]
+        for r in 1...8 { XCTAssertEqual(euclideousStackSounding(notesPart: part, rank: r, nowBeat: 1).sounding, r == 4, "rank \(r)") }
+    }
 }
