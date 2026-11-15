@@ -528,9 +528,12 @@ final class EmitterRatchetTests: XCTestCase {
         let r = EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0, chance: 75, strikes: 3)
         XCTAssertEqual(emitterRatchetToggleLabel(output: 0), "Ratchet on emitter A"); XCTAssertEqual(emitterRatchetToggleLabel(output: 3), "Ratchet on emitter D")
         XCTAssertEqual(emitterRatchetToggleValue(on: true), "on"); XCTAssertEqual(emitterRatchetToggleValue(on: false), "off")
-        XCTAssertEqual(emitterRatchetStripLabel(output: 0, r, counts: nil), "Emitter A pattern, 3 of 8, offset 0, 3 strikes")
-        XCTAssertEqual(emitterRatchetStripLabel(output: 1, r, counts: "hits"), "Emitter B pattern, 3 of 8 hits, offset 0, 3 strikes", "a dev build says what it counts")
-        XCTAssertEqual(emitterRatchetStripLabel(output: 2, r, counts: "steps"), "Emitter C pattern, 3 of 8 steps, offset 0, 3 strikes")
+        // RATCH v2 §9.1: COUNTS / LENGTH / BEND / VEL vocabulary. A default (FIX 3) resolves to COUNTS {3}, LENGTH 1, EVEN, FLAT (velocity omitted).
+        XCTAssertEqual(emitterRatchetStripLabel(output: 0, r, counts: nil), "Emitter A pattern, 3 of 8, offset 0, strikes 3, length 1 step, even")
+        XCTAssertEqual(emitterRatchetStripLabel(output: 1, r, counts: "hits"), "Emitter B pattern, 3 of 8 hits, offset 0, strikes 3, length 1 step, even", "a dev build says what it counts")
+        var v2 = EmitterRatchet(on: true, steps: 8, hits: 3)
+        v2.countsBits = EmitterRatchet.countBit(2) | EmitterRatchet.countBit(3) | EmitterRatchet.countBit(4); v2.length = .two; v2.bend = 40; v2.vel = .fade; v2.depth = 60
+        XCTAssertEqual(emitterRatchetStripLabel(output: 0, v2, counts: nil), "Emitter A pattern, 3 of 8, offset 0, strikes 2, 3 or 4, length 2 steps, rush 40, fade 60 percent")
         XCTAssertEqual(EmitterRatchetField.allCases.map { emitterRatchetCellLabel(output: 0, $0, r) },
                        ["Emitter A steps 8", "Emitter A hits 3", "Emitter A offset 0", "Emitter A chance 75 percent", "Emitter A strikes 3", "Emitter A restart off"])
         var o = r; o.offset = 2

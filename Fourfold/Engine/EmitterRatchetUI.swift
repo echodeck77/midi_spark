@@ -249,8 +249,17 @@ func emitterRatchetConfigValue(open: Bool) -> String { open ? "open" : "closed" 
 func emitterRatchetToggleLabel(output x: Int) -> String { "Ratchet on emitter \(emitterRatchetLetters[max(0, min(3, x))])" }
 func emitterRatchetToggleValue(on: Bool) -> String { on ? "on" : "off" }
 /// "Emitter A pattern, 3 of 8, offset 0, 3 strikes" — `counts` is "hits" or "steps" in a dev build (as FX COUNTS reads), nil in release. One static element: it is not announced as it plays.
-func emitterRatchetStripLabel(output x: Int, _ r: EmitterRatchet, counts: String?) -> String {
-    "Emitter \(emitterRatchetLetters[max(0, min(3, x))]) pattern, \(r.hits) of \(r.steps)\(counts.map { " \($0)" } ?? ""), offset \(r.offset), \(r.strikes) strikes"
+func emitterRatchetStripLabel(output x: Int, _ r: EmitterRatchet, counts: String?) -> String {   // RATCH v2 §9.1
+    let letter = emitterRatchetLetters[max(0, min(3, x))]
+    let strikesPart: String
+    if r.perHitResolved { strikesPart = "strikes per hit" }
+    else { let m = r.countsMembers; strikesPart = m.count <= 1 ? "strikes \(m.first ?? 2)" : "strikes \(m.dropLast().map(String.init).joined(separator: ", ")) or \(m.last!)" }
+    let len = r.lengthResolved
+    let lengthPart = len == .half ? "length half step" : "length \(Int(len.steps)) step\(len == .one ? "" : "s")"
+    let bend = r.bendResolved, bendPart = bend == 0 ? "even" : (bend > 0 ? "rush \(bend)" : "drag \(abs(bend))")
+    var s = "Emitter \(letter) pattern, \(r.hits) of \(r.steps)\(counts.map { " \($0)" } ?? ""), offset \(r.offset), \(strikesPart), \(lengthPart), \(bendPart)"
+    if r.velResolved != .flat { s += ", \(r.velResolved == .fade ? "fade" : "swell") \(r.depthResolved) percent" }   // §9.1 leave out the velocity part when FLAT
+    return s
 }
 /// "Emitter A steps 8" · "hits 3" · "offset plus 2" (0 reads "0") · "chance 75 percent" · "strikes 3".
 func emitterRatchetCellLabel(output x: Int, _ f: EmitterRatchetField, _ r: EmitterRatchet) -> String {
