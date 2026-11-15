@@ -37,86 +37,17 @@ final class PlayAsRowsAmendment1Tests: XCTestCase {
         var mask: UInt8 = 0; for r in ranks { mask |= 1 << UInt8(r - 1) }
         return .derived(litNotes: mask, top: false, top2: false)
     }
-    /// count value v∈{1,2,3} packed as (v−1) at bits 2·(r−1).
-    private func counts(_ pairs: [(Int, Int)]) -> UInt16 { var c: UInt16 = 0; for (r, v) in pairs { c |= UInt16(v - 1) << UInt16(2 * (r - 1)) }; return c }
-    private func later(_ ranks: [Int]) -> UInt8 { var m: UInt8 = 0; for r in ranks { m |= 1 << UInt8(r - 1) }; return m }
-
-    func testDisplayPassIsTheBuilderBeforeShift() {
-        // A battery over the §2.6 shapes: plain, copies AGAIN, copies LATER (rounds), each key order, BOUNCE.
-        let orders: [EuclideousOrderMode] = [.up, .down, .outsideIn, .insideOut, .asAdded, .bounce, .shuffle]
-        let cases: [(lit: [Int], cnt: UInt16, s2: UInt8, s3: UInt8, bass: Bool)] = [
-            ([1, 3, 5], 0, 0, 0, false),
-            ([1, 3, 5], counts([(3, 2)]), 0, 0, false),               // rank 3 ×2 AGAIN
-            ([1, 3, 5], counts([(3, 2)]), later([3]), 0, false),      // rank 3 ×2 LATER ⇒ a second round
-            ([1, 2, 3, 4], counts([(2, 3), (4, 2)]), later([4]), later([2]), false),
-            ([2, 4, 6], counts([(2, 3)]), later([2]), later([2]), true),   // bass on drops the lowest
-        ]
-        for order in orders {
-            for c in cases {
-                let lo = litOrder(c.lit)
-                let rip = euclideousRowsRanksInPlay(litOrder: lo, bassOn: c.bass)
-                for passIdx in [0, 1, 7] {
-                    let want = euclideousRowsBuildPass(asc: rip.asc, added: rip.added, order: order, counts: c.cnt, secondLater: c.s2, thirdLater: c.s3,
-                                                       passIndex: passIdx, lane: 2, shiftStart: 0, driftOn: false, driftStep: 0)
-                    let got = euclideousRowsDisplayPass(litOrder: lo, bassOn: c.bass, order: order, counts: c.cnt, secondLater: c.s2, thirdLater: c.s3, lane: 2, passIndex: passIdx)
-                    XCTAssertEqual(got.array, want.array, "order \(order) case \(c.lit) pass \(passIdx)")
-                }
-            }
-        }
-    }
-
+    // (PLAY AS ROWS amend 2 §B6: the count-based display-pass battery, the round-break test and the ×/2ND/3RD cell-liveness
+    //  test are retired — the pass builder, PASS = builder (§B6.5) and the role grid are covered by PlayAsRolesTests.)
     func testDisplayPassIgnoresShiftThatTheLineMightCarry() {
         // The pre-shift pass must differ from a SHIFTED build when start ≠ 0 — proving §A3.3 is "before SHIFT".
         let lo = litOrder([1, 2, 3, 4])
         let rip = euclideousRowsRanksInPlay(litOrder: lo, bassOn: false)
-        let pre = euclideousRowsDisplayPass(litOrder: lo, bassOn: false, order: .up, counts: 0, secondLater: 0, thirdLater: 0, lane: 0, passIndex: 0)
-        let shifted = euclideousRowsBuildPass(asc: rip.asc, added: rip.added, order: .up, counts: 0, secondLater: 0, thirdLater: 0, passIndex: 0, lane: 0, shiftStart: 1, driftOn: false, driftStep: 0)
+        let pre = euclideousRowsDisplayPass(litOrder: lo, bassOn: false, order: .up, roles: 0, lane: 0, passIndex: 0)
+        let shifted = euclideousRowsBuildPass(asc: rip.asc, added: rip.added, order: .up, roles: 0, passIndex: 0, lane: 0, shiftStart: 1, driftOn: false, driftStep: 0)
         XCTAssertEqual(pre.array, [1, 2, 3, 4])
         XCTAssertEqual(shifted.array, [2, 3, 4, 1])
         XCTAssertNotEqual(pre.array, shifted.array)
-    }
-
-    func testRoundBreaksPartitionThePass() {
-        let lo = litOrder([1, 3, 5])
-        // all round 1 ⇒ no breaks
-        XCTAssertEqual(euclideousRowsRoundBreaks(litOrder: lo, bassOn: false, order: .up, counts: counts([(3, 2)]), secondLater: 0, thirdLater: 0), [])
-        // rank 3 ×2 LATER ⇒ round1 = [1,3,5] (3 entries), round2 = [3] ⇒ a break at 3
-        let brk = euclideousRowsRoundBreaks(litOrder: lo, bassOn: false, order: .up, counts: counts([(3, 2)]), secondLater: later([3]), thirdLater: 0)
-        XCTAssertEqual(brk, [3])
-        let pass = euclideousRowsDisplayPass(litOrder: lo, bassOn: false, order: .up, counts: counts([(3, 2)]), secondLater: later([3]), thirdLater: 0, lane: 0, passIndex: 0)
-        XCTAssertEqual(pass.array, [1, 3, 5, 3])
-        // two breaks: rank 1 ×3 with copy 2 AGAIN (round 1) and copy 3 LATER (round 2); rank 2 ×2 LATER (round 2)
-        let lo2 = litOrder([1, 2])
-        let brk2 = euclideousRowsRoundBreaks(litOrder: lo2, bassOn: false, order: .up, counts: counts([(1, 3), (2, 2)]), secondLater: 0, thirdLater: later([1]))
-        // round1: rank1 copy1+copy2(AGAIN), rank2 copy1+copy2(AGAIN) = 4; round2: rank1 copy3(LATER) = 1 ⇒ pass [1,1,2,2,1], break at 4
-        XCTAssertEqual(brk2, [4])
-        XCTAssertEqual(euclideousRowsDisplayPass(litOrder: lo2, bassOn: false, order: .up, counts: counts([(1, 3), (2, 2)]), secondLater: 0, thirdLater: later([1]), lane: 0, passIndex: 0).array, [1, 1, 2, 2, 1])
-        // BOUNCE never shows breaks
-        XCTAssertEqual(euclideousRowsRoundBreaks(litOrder: lo, bassOn: false, order: .bounce, counts: counts([(3, 2)]), secondLater: later([3]), thirdLater: 0), [])
-    }
-
-    // MARK: §A12 test 4 — the REPEAT pop-up's live/dead cells (dead cells ignore taps)
-
-    func testRepeatCellLiveness() {
-        let lo = litOrder([2, 5])   // ranks 2 and 5 lit
-        let c = counts([(2, 3), (5, 2)])   // rank 2 ×3, rank 5 ×2
-        // the header (row 0) is present for every rank, lit or not
-        for r in 1...8 { XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: r, row: 0)) }
-        // an unlit rank: every editable row is dead
-        for row in 1...3 { XCTAssertFalse(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 1, row: row), "unlit rank 1 row \(row)") }
-        // rank 2 (×3): ×, 2ND, 3RD all live
-        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 2, row: 1))
-        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 2, row: 2))
-        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 2, row: 3))
-        // rank 5 (×2): ×, 2ND live; 3RD dead
-        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 5, row: 1))
-        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 5, row: 2))
-        XCTAssertFalse(euclideousRepeatCellLive(litOrder: lo, counts: c, rank: 5, row: 3))
-        // a lit rank at ×1: × live, 2ND/3RD dead
-        let lo2 = litOrder([3])
-        XCTAssertTrue(euclideousRepeatCellLive(litOrder: lo2, counts: 0, rank: 3, row: 1))
-        XCTAssertFalse(euclideousRepeatCellLive(litOrder: lo2, counts: 0, rank: 3, row: 2))
-        XCTAssertFalse(euclideousRepeatCellLive(litOrder: lo2, counts: 0, rank: 3, row: 3))
     }
 
     // MARK: §A12 test 2 — WHEN / BASS selection colours (a lit segment A1.1; BASS off → neither A1.1)

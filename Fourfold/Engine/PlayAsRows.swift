@@ -103,35 +103,40 @@ func euclideousRowsKeyOrder(asc: EuclideousRowsRankList, added: EuclideousRowsRa
     return K
 }
 
-/// §2.3-§2.5: the full pass of ranks for one play-through — the copies laid out in rounds (§2.3), BOUNCE mirrored (§2.4), SHIFT-rotated (§2.5, not for SHUFFLE). `counts` is 2 bits per rank (0⇒1 copy, 1⇒2, 2⇒3); `secondLater`/`thirdLater`
-/// are one bit per rank (set ⇒ that copy is LATER, i.e. the next round). `passIndex` is passes since the melody origin (for DRIFT). Empty when nothing is in play.
+/// §B2.3-§B2.8 (PLAY AS ROWS amend 2, replaces §2.3-§2.5): the full pass of ranks for one play-through from the per-rank ROLES. `roles` is 2 bits per rank (0 ONCE · 1 DOUBLE · 2 RETURN · 3 PEDAL). The ranks in play go in key order K; the
+/// PEDAL rank (if in play, §B2.2) is pulled out as `pedal`; the others build a GROUP LIST (round 1: DOUBLE ⇒ [r,r], else [r]; round 2: one [r] per RETURN in K order — §B2.4/§B2.5), BOUNCE mirrors the group list (§B2.6, groups never split),
+/// the pedal plays before every group (§B2.7), and SHIFT rotates the finished pass (§B2.8, not SHUFFLE). `passIndex` is passes since the melody origin (DRIFT). Empty when nothing is in play. Allocation-free (stack SIMD group buffers).
 func euclideousRowsBuildPass(asc: EuclideousRowsRankList, added: EuclideousRowsRankList, order: EuclideousOrderMode,
-                             counts: UInt16, secondLater: UInt8, thirdLater: UInt8, passIndex: Int, lane: Int,
+                             roles: UInt16, passIndex: Int, lane: Int,
                              shiftStart: Int, driftOn: Bool, driftStep: Int) -> EuclideousRowsPass {
     var pass = EuclideousRowsPass()
     guard asc.count > 0 else { return pass }
+    @inline(__always) func role(_ r: Int) -> Int { Int((roles >> UInt16(2 * (r - 1))) & 0b11) }
+    // §B2.2: the pedal — the PEDAL rank if it's in play (at most one, by §B1.2).
+    var pedal = 0
+    for r in 1...8 where role(r) == 3 && asc.contains(r) { pedal = r; break }
+    // §B2.3: the others — the ranks in play in key order K, minus the pedal.
     let K = euclideousRowsKeyOrder(asc: asc, added: added, order: order, passIndex: passIndex, lane: lane)
-    // §2.3: copy k of rank r sits in round R(k). R(1)=1; R(2)=1 if 2nd is AGAIN else 2; R(3)=R(2) if 3rd is AGAIN else R(2)+1. Round r lists, in K order, every copy whose round is r.
-    func cnt(_ r: Int) -> Int { min(3, Int((counts >> UInt16(2 * (r - 1))) & 0b11) + 1) }
-    func roundOfCopy2(_ r: Int) -> Int { (secondLater >> UInt8(r - 1)) & 1 != 0 ? 2 : 1 }
-    func roundOfCopy3(_ r: Int) -> Int { roundOfCopy2(r) + ((thirdLater >> UInt8(r - 1)) & 1 != 0 ? 1 : 0) }
-    for round in 1...3 {
-        for i in 0..<K.count {
-            let r = K[i]; let c = cnt(r)
-            var copies = 0
-            if round == 1 { copies += 1 }                               // copy 1 is always round 1
-            if c >= 2 && roundOfCopy2(r) == round { copies += 1 }
-            if c >= 3 && roundOfCopy3(r) == round { copies += 1 }
-            for _ in 0..<copies { pass.append(r) }
+    // §B2.4/§B2.5: the GROUP LIST (rank + length 1 or 2). Round 1: one group per other (DOUBLE ⇒ len 2). Round 2: one [r] per RETURN other, in K order, appended after round 1.
+    var gRank = SIMD32<UInt8>(repeating: 0), gLen = SIMD32<UInt8>(repeating: 0); var gc = 0
+    @inline(__always) func addGroup(_ r: Int, _ len: Int) { if gc < 32 { gRank[gc] = UInt8(r); gLen[gc] = UInt8(len); gc += 1 } }
+    for i in 0..<K.count { let r = K[i]; if r == pedal { continue }; addGroup(r, role(r) == 1 ? 2 : 1) }     // round 1
+    for i in 0..<K.count { let r = K[i]; if r == pedal { continue }; if role(r) == 2 { addGroup(r, 1) } }    // round 2 RETURN
+    // §B2.6: BOUNCE — the group list G followed by G reversed WITHOUT its first and last group (≤ 2 groups ⇒ unchanged). A group is never split, so a DOUBLE stays a pair. Reads only indices < gc0, writes at gc ≥ gc0 — no overlap.
+    if order == .bounce, gc > 2 {
+        let gc0 = gc
+        var j = gc0 - 2; while j >= 1 { if gc < 32 { gRank[gc] = gRank[j]; gLen[gc] = gLen[j]; gc += 1 }; j -= 1 }
+    }
+    // §B2.7: flatten — the pedal plays before every group (never splitting one); with no other groups the pass is [P].
+    if gc == 0 {
+        if pedal > 0 { pass.append(pedal) }
+    } else {
+        for i in 0..<gc {
+            if pedal > 0 { pass.append(pedal) }
+            let len = Int(gLen[i]); for _ in 0..<len { pass.append(Int(gRank[i])) }
         }
     }
-    // §2.4: BOUNCE — P then P reversed without its first and last entries (a P of 1 or 2 entries is the whole pass).
-    if order == .bounce, pass.count > 2 {
-        var tail = EuclideousRowsPass()
-        var i = pass.count - 2; while i >= 1 { tail.append(pass[i]); i -= 1 }   // reverse of P without its first and last — snapshot it before appending (appending to `pass` would move its end)
-        for j in 0..<tail.count { pass.append(tail[j]) }
-    }
-    // §2.5: SHIFT (no effect on SHUFFLE) — rotate left by (start + step × passIndex while drift on) mod len.
+    // §B2.8: SHIFT (no effect on SHUFFLE) — rotate left by (start + step × passIndex while drift on) mod len.
     if order != .shuffle, pass.count > 0 {
         let drift = driftOn ? driftStep * passIndex : 0
         pass = pass.rotatedLeft(((shiftStart + drift) % pass.count + pass.count) % pass.count)
@@ -178,7 +183,7 @@ let euclideousRowsRunBlock: Int64 = 2048
 /// §4 — the notes the NOTES layer strikes on the hit that falls `h` hits after the lane's melody origin. ONE closed simulation from the origin: the three chains cycle independently (§3.2), a pass is built when it starts (an ORDER-chip change,
 /// a cursor wrap, GROW's wrap, or every hit under ALL — §3.3, §4.2, §4.3) and consumed across hits by VOICES (§4.1), SPREAD decides the strike spacing (§4.4), BASS the root (§4.5). Pure and allocation-free on the common path.
 func euclideousRowsResolve(orderChain: [EuclideousOrderChip]?, voicesChain: [EuclideousVoicesChip]?, spreadChain: [EuclideousSpreadChip]?,
-                           litOrder: EuclideousLitOrder, counts: UInt16, secondLater: UInt8, thirdLater: UInt8,
+                           litOrder: EuclideousLitOrder, roles: UInt16,
                            bassOn: Bool, bassMode: EuclideousBassMode, shiftStart: Int, driftOn: Bool, driftStep: Int,
                            lane: Int, hitOrdinal h: Int64) -> EuclideousRowsHit {
     var out = EuclideousRowsHit()
@@ -209,7 +214,7 @@ func euclideousRowsResolve(orderChain: [EuclideousOrderChip]?, voicesChain: [Euc
 
     // The mutated state is INOUT, never captured — a nested func that captures mutable locals heap-boxes them, which the render-path alloc audit forbids (invariant 3). Only the immutable `rip`/counts/… are captured (by value, stack).
     @inline(__always) func rebuild(_ order: EuclideousOrderMode, _ pass: inout EuclideousRowsPass, _ cursor: inout Int, _ passIndex: inout Int) {
-        pass = euclideousRowsBuildPass(asc: rip.asc, added: rip.added, order: order, counts: counts, secondLater: secondLater, thirdLater: thirdLater,
+        pass = euclideousRowsBuildPass(asc: rip.asc, added: rip.added, order: order, roles: roles,
                                        passIndex: passIndex, lane: lane, shiftStart: shiftStart, driftOn: driftOn, driftStep: driftStep)
         passIndex += 1; cursor = 0
     }

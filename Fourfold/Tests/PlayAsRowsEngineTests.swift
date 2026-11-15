@@ -1,7 +1,7 @@
 //  PlayAsRowsEngineTests.swift — PLAY AS ROWS ferry (2026-11-11): the ENGINE half (§2, §3, §4, §10.1-§10.5).
-//
-//  The pass builder and the per-hit resolver are PURE functions of the lit ranks, the §1 model and the hit ordinal since the melody origin — so the §2.6 worked examples pin the pass, and a simulated hit sequence pins the chains and
-//  each-hit consume. Every assertion here is a literal from the ferry text.
+//  Amendment 2 (2026-11-15): the per-rank COUNTS became ROLES — the pass-builder worked examples + invariants moved to
+//  PlayAsRolesTests (§B6.1/2/5/6); this file keeps the key orders, SHIFT/DRIFT, the chains (VOICES/SPREAD), BASS and the
+//  RUN BLOCK, all with roles = all-ONCE (the default) or a role map where a repeat is wanted.
 
 import XCTest
 
@@ -10,73 +10,32 @@ final class PlayAsRowsEngineTests: XCTestCase {
     private func lit(_ ranks: [Int], added: [Int]? = nil) -> EuclideousLitOrder {
         var o = EuclideousLitOrder(); for r in (added ?? ranks) { o.append(r - 1) }; return o
     }
-    private func counts(_ pairs: [Int: Int]) -> UInt16 { var m: UInt16 = 0; for (r, c) in pairs { m |= UInt16(max(0, min(2, c - 1))) << UInt16(2 * (r - 1)) }; return m }
-    private func laterMask(_ ranks: [Int]) -> UInt8 { var m: UInt8 = 0; for r in ranks { m |= 1 << UInt8(r - 1) }; return m }
+    /// A packed roles word (2 bits/rank) from a {rank: role} map; ranks not named are ONCE.
+    private func roles(_ pairs: [Int: EuclideousRankRole]) -> UInt16 { var m: UInt16 = 0; for (r, role) in pairs { m |= UInt16(role.rawValue) << UInt16(2 * (r - 1)) }; return m }
 
-    private func buildPass(_ litRanks: [Int], order: EuclideousOrderMode, counts c: UInt16 = 0, second: UInt8 = 0, third: UInt8 = 0,
+    private func buildPass(_ litRanks: [Int], order: EuclideousOrderMode, roles r: UInt16 = 0,
                            added: [Int]? = nil, passIndex: Int = 0, shiftStart: Int = 0, driftOn: Bool = false, driftStep: Int = 1, bassOn: Bool = false) -> [Int] {
         let rip = euclideousRowsRanksInPlay(litOrder: lit(litRanks, added: added), bassOn: bassOn)
-        return euclideousRowsBuildPass(asc: rip.asc, added: rip.added, order: order, counts: c, secondLater: second, thirdLater: third,
+        return euclideousRowsBuildPass(asc: rip.asc, added: rip.added, order: order, roles: r,
                                        passIndex: passIndex, lane: 0, shiftStart: shiftStart, driftOn: driftOn, driftStep: driftStep).array
     }
 
-    // §10.1 / §2.6 — the pass builder, every worked example.
-    func testPassBuilderExamples() {
-        // lit 1,2,3 = A,B,C. B 2, AGAIN: A B B C. B 2, LATER: A B C B. DOWN with B 2, LATER: C B A B.
-        XCTAssertEqual(buildPass([1, 2, 3], order: .up, counts: counts([2: 2])), [1, 2, 2, 3])
-        XCTAssertEqual(buildPass([1, 2, 3], order: .up, counts: counts([2: 2]), second: laterMask([2])), [1, 2, 3, 2])
-        XCTAssertEqual(buildPass([1, 2, 3], order: .down, counts: counts([2: 2]), second: laterMask([2])), [3, 2, 1, 2])
-        // B 3: AGAIN·AGAIN A B B B C; AGAIN·LATER A B B C B; LATER·AGAIN A B C B B; LATER·LATER A B C B B.
-        XCTAssertEqual(buildPass([1, 2, 3], order: .up, counts: counts([2: 3])), [1, 2, 2, 2, 3])
-        XCTAssertEqual(buildPass([1, 2, 3], order: .up, counts: counts([2: 3]), third: laterMask([2])), [1, 2, 2, 3, 2])
-        XCTAssertEqual(buildPass([1, 2, 3], order: .up, counts: counts([2: 3]), second: laterMask([2])), [1, 2, 3, 2, 2])
-        XCTAssertEqual(buildPass([1, 2, 3], order: .up, counts: counts([2: 3]), second: laterMask([2]), third: laterMask([2])), [1, 2, 3, 2, 2])
-        // lit 2,5,6,8; rank 5 count 2 LATER; rank 8 count 3 AGAIN,LATER. UP: 2 5 6 8 8 5 8.
-        XCTAssertEqual(buildPass([2, 5, 6, 8], order: .up, counts: counts([5: 2, 8: 3]), second: laterMask([5]), third: laterMask([8])), [2, 5, 6, 8, 8, 5, 8])
-        // AS ADDED with addedOrder 8,2,5,6: 8 8 2 5 6 8 5; with start 1: 8 2 5 6 8 5 8.
-        XCTAssertEqual(buildPass([2, 5, 6, 8], order: .asAdded, counts: counts([5: 2, 8: 3]), second: laterMask([5]), third: laterMask([8]), added: [8, 2, 5, 6]), [8, 8, 2, 5, 6, 8, 5])
-        XCTAssertEqual(buildPass([2, 5, 6, 8], order: .asAdded, counts: counts([5: 2, 8: 3]), second: laterMask([5]), third: laterMask([8]), added: [8, 2, 5, 6], shiftStart: 1), [8, 2, 5, 6, 8, 5, 8])
-        // BOUNCE, lit 1-4, all count 1: 1 2 3 4 3 2.
-        XCTAssertEqual(buildPass([1, 2, 3, 4], order: .bounce), [1, 2, 3, 4, 3, 2])
-    }
-
-    // code-review 2026-11-12 — end-to-end: the MODEL's own writer (rank 1…8) must land on the bit the engine
-    // reads. A one-slot skew (the model wrote 2*r while the engine reads 2*(r-1)) made every count edit hit the
-    // wrong rank and left rank 8 unsettable; this pins the two conventions together through a real EuclidLine.
-    func testModelRankCountReachesTheEngineOnTheSameRank() {
-        for rank in 1...8 {
-            var line = EuclidLine()
-            line.setNotesRankCount(rank, 2)                 // this rank twice, via the model's own setter
-            let pass = buildPass([1, 2, 3, 4, 5, 6, 7, 8], order: .up, counts: line.notesRankCounts ?? 0)
-            XCTAssertEqual(pass.filter { $0 == rank }.count, 2, "rank \(rank) set to 2 appears twice in the engine pass")
-            for other in 1...8 where other != rank {
-                XCTAssertEqual(pass.filter { $0 == other }.count, 1, "rank \(other) stays once when only \(rank) is bumped")
-            }
-        }
-        // the 2ND timing writer reaches the engine too (LATER places the second copy at the pass end).
-        var line = EuclidLine(); line.setNotesRankCount(2, 2); line.setNotesRankSecond(2, .later)
-        XCTAssertEqual(buildPass([1, 2, 3], order: .up, counts: line.notesRankCounts ?? 0, second: line.notesRankSecondLater ?? 0), [1, 2, 3, 2])
-    }
-
     // code-review 2026-11-12 — a lane whose hit ordinal grows past the RUN BLOCK must keep walking (the old
-    // `(cap − p)` floor froze a single-chip arpeggio on one note forever past 4096), and the pass must LOOP at the
-    // block (so the far-out walk is bounded, O(block) not O(h)).
+    // `(cap − p)` floor froze a single-chip arpeggio on one note forever past 4096), and the pass must LOOP at the block.
     func testRunBlockLoopsAndNeverFreezes() {
         func pick(_ h: Int64) -> [Int] {   // ranks 1,2,3 lit; default chains = an UP arpeggio, VOICES 1
             let r = euclideousRowsResolve(orderChain: nil, voicesChain: nil, spreadChain: nil,
-                                          litOrder: lit([1, 2, 3]), counts: 0, secondLater: 0, thirdLater: 0,
+                                          litOrder: lit([1, 2, 3]), roles: 0,
                                           bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1,
                                           lane: 0, hitOrdinal: h)
             return (0..<r.count).map { Int(r[$0]) }
         }
-        // past the block the arpeggio still ADVANCES — three consecutive far-out hits are not all the same note.
         let a = pick(5000), b = pick(5001), c = pick(5002)
         XCTAssertFalse(a == b && b == c, "past the block the arpeggio still advances (not frozen on one note)")
-        // the walk LOOPS with period = the run block: h and h + block pick the identical note, in and past the block.
         for h: Int64 in [0, 1, 2, 7, 100, 3000, 4100] { XCTAssertEqual(pick(h), pick(h + euclideousRowsRunBlock), "hit \(h) == hit \(h) + block") }
     }
 
-    // §10.1 — the other key orders.
+    // §10.1 — the key orders.
     func testKeyOrders() {
         XCTAssertEqual(buildPass([2, 5, 6, 8], order: .up), [2, 5, 6, 8])
         XCTAssertEqual(buildPass([2, 5, 6, 8], order: .down), [8, 6, 5, 2])
@@ -84,51 +43,29 @@ final class PlayAsRowsEngineTests: XCTestCase {
         XCTAssertEqual(buildPass([2, 5, 6, 8], order: .insideOut), [6, 5, 8, 2])   // OUTSIDE IN reversed
     }
 
-    // §10.2 — one rank among three lit, every count/timing: exactly `count` copies, and every AGAIN copy sits straight after the copy before it.
-    func testCopyCountsAndContiguity() {
-        for count in 1...3 {
-            for secondLater in [false, true] {
-                for thirdLater in [false, true] {
-                    let pass = buildPass([1, 2, 3], order: .up, counts: counts([2: count]),
-                                         second: secondLater ? laterMask([2]) : 0, third: thirdLater ? laterMask([2]) : 0)
-                    XCTAssertEqual(pass.filter { $0 == 2 }.count, count, "count=\(count) sL=\(secondLater) tL=\(thirdLater)")
-                    // an AGAIN copy is adjacent to the copy before it: if copy 2 is AGAIN, two 2s are adjacent somewhere.
-                    if count >= 2 && !secondLater {
-                        var adj = false; for i in 1..<pass.count where pass[i] == 2 && pass[i - 1] == 2 { adj = true }
-                        XCTAssertTrue(adj, "copy 2 AGAIN ⇒ adjacent (count=\(count) tL=\(thirdLater))")
-                    }
-                }
-            }
-        }
-    }
-
     // §10.3 — SHIFT rotates by s; DRIFT adds step per pass; SHUFFLE ignores both.
     func testShiftAndDrift() {
         let base = buildPass([1, 2, 3, 4], order: .up)                            // 1 2 3 4
         XCTAssertEqual(buildPass([1, 2, 3, 4], order: .up, shiftStart: 1), Array(base[1...] + base[..<1]))   // 2 3 4 1
         XCTAssertEqual(buildPass([1, 2, 3, 4], order: .up, shiftStart: 2), [3, 4, 1, 2])
-        // DRIFT +1: pass 0 no shift, pass 1 shifts 1, pass 2 shifts 2 …
         XCTAssertEqual(buildPass([1, 2, 3, 4], order: .up, passIndex: 0, driftOn: true, driftStep: 1), [1, 2, 3, 4])
         XCTAssertEqual(buildPass([1, 2, 3, 4], order: .up, passIndex: 1, driftOn: true, driftStep: 1), [2, 3, 4, 1])
         XCTAssertEqual(buildPass([1, 2, 3, 4], order: .up, passIndex: 2, driftOn: true, driftStep: 1), [3, 4, 1, 2])
-        // a start with drift: start 1, drift +1, pass 2 ⇒ rotate 3
         XCTAssertEqual(buildPass([1, 2, 3, 4], order: .up, passIndex: 2, shiftStart: 1, driftOn: true, driftStep: 1), [4, 1, 2, 3])
-        // SHUFFLE ignores SHIFT — the permutation is the same whatever the start (it is a function of lane+passIndex only).
         let s0 = buildPass([1, 2, 3, 4], order: .shuffle, shiftStart: 0)
         let s2 = buildPass([1, 2, 3, 4], order: .shuffle, shiftStart: 2)
         XCTAssertEqual(s0, s2); XCTAssertEqual(Set(s0), Set([1, 2, 3, 4]))
     }
 
-    // §10.5 — VOICES 2 over A B B C: A+B, B+C, A+B, B+C.
+    // §10.5 — VOICES 2 over A B B C (lit 1,2,3, rank 2 DOUBLE): A+B, B+C, A+B, B+C.
     func testVoicesTwoOverABBC() {
-        // A B B C comes from lit 1,2,3 with rank 2 count 2 AGAIN.
-        let c = counts([2: 2])
-        var l = EuclidLine(); l.notesOrderChain = [EuclideousOrderChip(value: .up, hits: 4)]; l.notesVoicesChain = [EuclideousVoicesChip(value: .two, hits: 4)]
+        let c = roles([2: .double])
+        let order = [EuclideousOrderChip(value: .up, hits: 4)], voices = [EuclideousVoicesChip(value: .two, hits: 4)]
         let litO = lit([1, 2, 3])
         let want: [[Int]] = [[1, 2], [2, 3], [1, 2], [2, 3]]
         for (h, exp) in want.enumerated() {
-            let hit = euclideousRowsResolve(orderChain: l.notesOrderChain, voicesChain: l.notesVoicesChain, spreadChain: nil, litOrder: litO,
-                                            counts: c, secondLater: 0, thirdLater: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
+            let hit = euclideousRowsResolve(orderChain: order, voicesChain: voices, spreadChain: nil, litOrder: litO,
+                                            roles: c, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
             XCTAssertEqual(hit.ranks, exp, "hit \(h)")
         }
     }
@@ -138,30 +75,28 @@ final class PlayAsRowsEngineTests: XCTestCase {
         let litO = lit([1, 2, 3, 4])
         for h in 0..<6 {
             let all = euclideousRowsResolve(orderChain: nil, voicesChain: [EuclideousVoicesChip(value: .all, hits: 4)], spreadChain: nil, litOrder: litO,
-                                            counts: 0, secondLater: 0, thirdLater: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
+                                            roles: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
             XCTAssertEqual(Set(all.ranks), Set([1, 2, 3, 4]), "ALL hit \(h) plays all four"); XCTAssertEqual(all.count, 4)
         }
-        // GROW: m = 4 ⇒ sizes 1,2,3,4,1,2,… each from the pass start.
         let grow = [EuclideousVoicesChip(value: .grow, hits: 16)]
         for (h, size) in [(0, 1), (1, 2), (2, 3), (3, 4), (4, 1), (5, 2)] {
             let hit = euclideousRowsResolve(orderChain: nil, voicesChain: grow, spreadChain: nil, litOrder: litO,
-                                            counts: 0, secondLater: 0, thirdLater: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
+                                            roles: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
             XCTAssertEqual(hit.count, size, "GROW hit \(h) size"); XCTAssertEqual(hit.ranks, Array(1...size))
         }
     }
 
     // §10.4 — the three chains advance independently and loop; a single chip holds; SPREAD comes through.
     func testChainsIndependentAndLoop() {
-        let order = [EuclideousOrderChip(value: .up, hits: 2), EuclideousOrderChip(value: .down, hits: 2)]   // UP for 2 hits, DOWN for 2, loop
-        let spread = [EuclideousSpreadChip(value: .together, hits: 1), EuclideousSpreadChip(value: .strum, hits: 1)]   // alternates every hit
+        let order = [EuclideousOrderChip(value: .up, hits: 2), EuclideousOrderChip(value: .down, hits: 2)]
+        let spread = [EuclideousSpreadChip(value: .together, hits: 1), EuclideousSpreadChip(value: .strum, hits: 1)]
         let litO = lit([1, 2, 3])
-        // VOICES 3 (whole chord) so each hit shows the ORDER chip's key order directly.
         let voices = [EuclideousVoicesChip(value: .three, hits: 99)]
-        let expOrder: [[Int]] = [[1, 2, 3], [1, 2, 3], [3, 2, 1], [3, 2, 1], [1, 2, 3]]   // UP,UP,DOWN,DOWN,UP(loop) — ORDER change starts a new pass at position 0
+        let expOrder: [[Int]] = [[1, 2, 3], [1, 2, 3], [3, 2, 1], [3, 2, 1], [1, 2, 3]]
         let expSpread: [EuclideousSpreadMode] = [.together, .strum, .together, .strum, .together]
         for h in 0..<5 {
             let hit = euclideousRowsResolve(orderChain: order, voicesChain: voices, spreadChain: spread, litOrder: litO,
-                                            counts: 0, secondLater: 0, thirdLater: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
+                                            roles: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
             XCTAssertEqual(hit.ranks, expOrder[h], "order hit \(h)")
             XCTAssertEqual(hit.spread, expSpread[h], "spread hit \(h)")
         }
@@ -169,15 +104,15 @@ final class PlayAsRowsEngineTests: XCTestCase {
 
     // §4.5 — BASS: HOLD sounds every hit; FIRST on even hits only; the chord excludes the lowest lit rank.
     func testBass() {
-        let litO = lit([1, 2, 3])   // lowest lit = 1 ⇒ bass
+        let litO = lit([1, 2, 3])
         let voices = [EuclideousVoicesChip(value: .all, hits: 4)]
         for h in 0..<4 {
             let hold = euclideousRowsResolve(orderChain: nil, voicesChain: voices, spreadChain: nil, litOrder: litO,
-                                             counts: 0, secondLater: 0, thirdLater: 0, bassOn: true, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
+                                             roles: 0, bassOn: true, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
             XCTAssertEqual(hold.bassRank, 1, "HOLD bass every hit \(h)")
             XCTAssertEqual(Set(hold.ranks), Set([2, 3]), "chord excludes the bass rank")
             let first = euclideousRowsResolve(orderChain: nil, voicesChain: voices, spreadChain: nil, litOrder: litO,
-                                              counts: 0, secondLater: 0, thirdLater: 0, bassOn: true, bassMode: .first, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
+                                              roles: 0, bassOn: true, bassMode: .first, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
             XCTAssertEqual(first.bassRank, h % 2 == 0 ? 1 : 0, "FIRST bass on even hits (\(h))")
         }
     }
@@ -185,7 +120,7 @@ final class PlayAsRowsEngineTests: XCTestCase {
     // §2.8 — nothing lit ⇒ the chord is empty (bass may still play).
     func testNothingInPlay() {
         let hit = euclideousRowsResolve(orderChain: nil, voicesChain: nil, spreadChain: nil, litOrder: EuclideousLitOrder(),
-                                        counts: 0, secondLater: 0, thirdLater: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: 0)
+                                        roles: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: 0)
         XCTAssertEqual(hit.count, 0); XCTAssertEqual(hit.bassRank, 0)
     }
 
@@ -195,7 +130,7 @@ final class PlayAsRowsEngineTests: XCTestCase {
         var got: [Int] = []
         for h in 0..<6 {
             let hit = euclideousRowsResolve(orderChain: nil, voicesChain: nil, spreadChain: nil, litOrder: litO,
-                                            counts: 0, secondLater: 0, thirdLater: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
+                                            roles: 0, bassOn: false, bassMode: .hold, shiftStart: 0, driftOn: false, driftStep: 1, lane: 0, hitOrdinal: Int64(h))
             XCTAssertEqual(hit.count, 1, "one note a hit"); got.append(hit.ranks[0])
         }
         XCTAssertEqual(got, [1, 2, 3, 1, 2, 3])   // round and round

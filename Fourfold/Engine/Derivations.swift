@@ -9004,7 +9004,7 @@ func euclideousNotesHitPitches(line: EuclidLine, pool: [Int], cfg: EuclideousWal
     // PLAY AS ROWS (2026-11-11): the same pure resolver the Router's notes body runs — the three chains + per-rank counts + bass. (`isRestHit`, `ranks` and `poly` stay in the signature for the callers; the new model needs no count.)
     _ = ranks; _ = poly
     let rowsHit = euclideousRowsResolve(orderChain: line.notesOrderChain, voicesChain: line.notesVoicesChain, spreadChain: line.notesSpreadChain,
-                                        litOrder: line.litOrderResolved, counts: line.notesRankCounts ?? 0, secondLater: line.notesRankSecondLater ?? 0, thirdLater: line.notesRankThirdLater ?? 0,
+                                        litOrder: line.litOrderResolved, roles: line.notesRankRolesResolved,
                                         bassOn: line.notesBassOnResolved, bassMode: line.notesBassModeResolved, shiftStart: line.notesShiftStartResolved, driftOn: line.notesDriftOnResolved, driftStep: line.notesDriftStepResolved,
                                         lane: lane, hitOrdinal: hOrd)
     func pitchOf(_ r: Int) -> Int? { riffResolve(rank: r, oct: oct, n: pool.count, wrap: .fold, asc: { pool[$0] }) }

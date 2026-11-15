@@ -3363,7 +3363,7 @@ final class Router {
                                 // PLAY AS ROWS (2026-11-11): the three NOTES chains (RAW optionals — COW, never the *Resolved array accessors on the render thread) + per-rank counts + bass + shift/drift. The lit notes play through these now
                                 // (`euclideousRowsResolve`), not `notesPlayAs`/`notesPlaySeq` (kept for the random roll's fallback mode and compiled-but-dead PLAY AS playback — §0.2). Defaulted to the §1.9 defaults so the one call site is the only change.
                                 notesOrderChain: [EuclideousOrderChip]? = nil, notesVoicesChain: [EuclideousVoicesChip]? = nil, notesSpreadChain: [EuclideousSpreadChip]? = nil,
-                                notesRankCounts: UInt16 = 0, notesRankSecondLater: UInt8 = 0, notesRankThirdLater: UInt8 = 0,
+                                notesRankRoles: UInt16 = 0,
                                 notesBassOn: Bool = false, notesBassMode: EuclideousBassMode = .hold,
                                 notesShiftStart: Int = 0, notesDriftOn: Bool = false, notesDriftStep: Int = 1,
                                 // LANES GRID (2026-10-18): the per-lane restart / mute grid is resolved INSIDE this function (it needs the
@@ -4459,7 +4459,7 @@ final class Router {
                                     // PLAY AS ROWS (2026-11-11): the chord for this hit — RANKS from the three chains + per-rank counts + BASS (`euclideousRowsResolve`), resolved to pitches at note-on (pool changes heard at once). The bass
                                     // strikes AT the hit (not spread); the chord notes spread per SPREAD (STRUM = ROLL's spacing, RUN = RUN's; §4.4) — the spread block below reads the slots exactly as it did for PLAY AS ROLL / RUN.
                                     let rowsHit = euclideousRowsResolve(orderChain: notesOrderChain, voicesChain: notesVoicesChain, spreadChain: notesSpreadChain,
-                                                                        litOrder: litOrder, counts: notesRankCounts, secondLater: notesRankSecondLater, thirdLater: notesRankThirdLater,
+                                                                        litOrder: litOrder, roles: notesRankRoles,
                                                                         bassOn: notesBassOn, bassMode: notesBassMode, shiftStart: notesShiftStart, driftOn: notesDriftOn, driftStep: notesDriftStep,
                                                                         lane: lineIndex, hitOrdinal: notesH)
                                     notesSpreadActive = rowsHit.spread
@@ -4507,7 +4507,7 @@ final class Router {
                                             if isRest {
                                                 // PLAY AS ROWS: what the notes layer would strike on this future hit (the same pure resolver); a pitch the riff holds still strikes on the outputs only the notes use.
                                                 let fut = euclideousRowsResolve(orderChain: notesOrderChain, voicesChain: notesVoicesChain, spreadChain: notesSpreadChain,
-                                                                                litOrder: litOrder, counts: notesRankCounts, secondLater: notesRankSecondLater, thirdLater: notesRankThirdLater,
+                                                                                litOrder: litOrder, roles: notesRankRoles,
                                                                                 bassOn: notesBassOn, bassMode: notesBassMode, shiftStart: notesShiftStart, driftOn: notesDriftOn, driftStep: notesDriftStep,
                                                                                 lane: lineIndex, hitOrdinal: scanH)
                                                 func pitchOf(_ r: Int) -> Int? { riffResolve(rank: r + euclideousFillRankOffsetNow, oct: octave, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) }   // FILL §2.5 (deferred stack notes of the same slot share its climb; 0 off a fill)
@@ -5931,7 +5931,7 @@ final class Router {
                               notesOn: L.notesOnResolved, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved, notesRing: L.notesRingResolved,
                               // PLAY AS ROWS (2026-11-11): the three chains (RAW optionals, no allocation) + per-rank counts + bass + shift/drift. A random roll does not touch them (it sets only the lit notes / WHEN / CHANCE).
                               notesOrderChain: L.notesOrderChain, notesVoicesChain: L.notesVoicesChain, notesSpreadChain: L.notesSpreadChain,
-                              notesRankCounts: L.notesRankCounts ?? 0, notesRankSecondLater: L.notesRankSecondLater ?? 0, notesRankThirdLater: L.notesRankThirdLater ?? 0,
+                              notesRankRoles: L.notesRankRolesResolved,
                               notesBassOn: L.notesBassOnResolved, notesBassMode: L.notesBassModeResolved,
                               notesShiftStart: L.notesShiftStartResolved, notesDriftOn: L.notesDriftOnResolved, notesDriftStep: L.notesDriftStepResolved,
                               // LISTEN REBUILT (ferry 2026-10-23) — only Euclideous's own row ever has a
