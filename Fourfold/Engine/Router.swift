@@ -842,6 +842,8 @@ final class Router {
         // MIDI IN ROOT (2026-11-01): the latched transpose in semitones and the root note it came from (the lowest held note, or the latched one; -1 = none since load).
         var rootTranspose = 0
         var rootNote = -1
+        // HEADER STATUS ferry (2026-11-15) §1.2b: a monotonic count of MIDI-IN note-ons (set by the Kernel, read-only). The UI stamps a time when it grows, so the header's MIDI lamp catches a generator's short notes. No effect on output.
+        var midiNoteOnCount: UInt32 = 0
     }
     /// HOCKET §8: the count x of each rule at the START of the last window the Euclideous row ran, and whether the transport ran — published to the UI by `hocketLive()` (read-and-copied on the main thread, like the source
     /// status). The displays derive the turn from x with the SAME `hocketTurn` the engine plays by, so a chip lit on screen is a chip heard; nothing predicts.

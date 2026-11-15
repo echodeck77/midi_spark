@@ -4523,7 +4523,152 @@ enum EuclideousHeaderMetrics {
     static var holdLatchWidth: CGFloat { holdLatchChipWidths.reduce(0, +) + sp4 }   // 2 chips + the gap between them
     /// The two text runs whose widths the layout estimates — the views use these SAME numbers for their frames.
     static var wordmarkWidth: CGFloat { CGFloat(wordmarkChars) * wordmarkSize * (monoAdvance + wordmarkTracking) }
+    /// HEADER STATUS ferry: the status text width helper (chars × size × (advance + tracking)).
+    static func textWidth(_ chars: Int, size: CGFloat, tracking em: CGFloat = 0) -> CGFloat { CGFloat(chars) * size * (monoAdvance + em) }
 }
+
+// MARK: - HEADER STATUS BUTTON ferry (2026-11-15) — the key + chord-grid tokens + MIDI lamp that replace the four pips. Pure, test-covered.
+
+/// §10 tunables for the header button's status contents.
+enum EuclideousHeaderStatusMetrics {
+    static let pad: CGFloat = 10                                   // §2.2 leading / trailing
+    static let keyMaxChars = 13, keyTracking: CGFloat = 0.06, keySize: CGFloat = 10   // §2.3
+    static let chevronW: CGFloat = 10, sp6: CGFloat = 6           // §2.2
+    static let dividerW: CGFloat = 1, dividerH: CGFloat = 14, dividerSp: CGFloat = 8   // §2.2
+    static let numberW: CGFloat = 10, iconW: CGFloat = 44, iconH: CGFloat = 14, nameW: CGFloat = 40   // §3.2
+    static let tokInnerA: CGFloat = 4, tokInnerB: CGFloat = 6, tokenGap: CGFloat = 10   // sp4 · sp6 · sp10
+    static let lampW: CGFloat = 34, lampH: CGFloat = 18, readoutW: CGFloat = 24, readoutSp: CGFloat = 4   // §4
+    static let markH: CGFloat = 1.5, markMinW: CGFloat = 1.5, iconRows = 12            // §3.3
+    static let lampHold: Double = 0.15                            // §1.2b / §10
+    static let nameSize: CGFloat = 10, numberSize: CGFloat = 10
+    /// §5.2: a token's width per fallback step — 0 full (104), 1 name hidden (58), 2 icon hidden (56).
+    static func tokenWidth(step: Int) -> CGFloat {
+        switch step {
+        case 1: return numberW + tokInnerA + iconW
+        case 2: return numberW + tokInnerB + nameW
+        default: return numberW + tokInnerA + iconW + tokInnerB + nameW
+        }
+    }
+}
+
+/// §7.1: a chord grid's status. `laneOnGrid[l]` = lane l has this grid's CHORD chip on; `laneReading[l]` = lane l is reading this grid right now
+/// (not stepped aside by REPLACE + MIDI held) — a REST column still counts as reading, so it's live (§1.1b). `column` is the playing column (§1.1c).
+struct EuclideousGridStatus: Equatable { var inUse = false; var live = false; var column = 0 }
+func euclideousGridStatus(laneOnGrid: [Bool], laneReading: [Bool], running: Bool, column: Int) -> EuclideousGridStatus {
+    let inUse = laneOnGrid.contains(true)
+    var reading = false
+    let n = min(laneOnGrid.count, laneReading.count)
+    var i = 0; while i < n { if laneOnGrid[i] && laneReading[i] { reading = true; break }; i += 1 }
+    return EuclideousGridStatus(inUse: inUse, live: inUse && running && reading, column: max(0, column))
+}
+
+/// §7.2: the MIDI lamp — lit while a note is held, or within `lampHold` of the last note-on (so a short note from a generator shows). Times are seconds.
+func euclideousMidiLamp(held: Int, lastNoteOnAt: Double?, now: Double, lampHold: Double) -> Bool {
+    if held > 0 { return true }
+    guard let at = lastNoteOnAt else { return false }
+    return now - at < lampHold
+}
+
+/// §3.4: the chord NAME for grid `column` in the key (re-adds the retired `chordsNameAndIsRest`; a REST column → ("–", true)). Reuses the engine's own chord-name helpers.
+func euclideousChordHeaderName(column c: Int, degrees: [Int], colours: [Int], steps: Int, keyRoot: Int, keyType: ScaleType) -> (name: String, isRest: Bool) {
+    guard steps > 0 else { return ("\u{2013}", true) }
+    let minorKey = euclideousScaleIsMinor(keyType.intervals)
+    let degs = Array(degrees.prefix(steps))
+    let (deg, rest) = chordsDegreeAt(step: c, degrees: degs, rotate: 0)
+    if rest { return ("\u{2013}", true) }
+    guard let src = chordsSourceStepAt(step: c, degrees: degs, rotate: 0) else { return ("\u{2013}", true) }
+    let colour = src < colours.count ? colours[src] : 0
+    let base = 48 + keyRoot
+    let tones = euclideousChordTones(degree: deg, colour: colour, scaleTones: keyType.intervals, rootNote: base, minorKey: minorKey, spread: .close)
+    let flat = deg >= 8 ? euclideousBorrowedRowForcesFlat(row: deg - 8, minorKey: minorKey) : euclideousKeyIsFlat(((keyRoot % 12) + 12) % 12, scaleType: keyType)
+    let rootNote: Int
+    if deg >= 8 { rootNote = base + euclideousBorrowedTriad(row: deg - 8, minorKey: minorKey)[0] }
+    else { let n = keyType.intervals.count; rootNote = n > 0 ? base + keyType.intervals[((deg % n) + n) % n] : base }
+    return (euclideousChordName(tones: tones, rootNote: rootNote, flatSpelling: flat), false)
+}
+
+/// §3.3/§7.5: the chord icon as geometry — 12-row marks over columns 1…STEPS (REST / CARRY draw no mark; colour rows aren't drawn), plus a full-height
+/// wash for the lit (playing) column. `size` 44×14 in the header. Mark width = `max(markMinW, colPitch − 1)` (⚠ at 16 steps = 1.75, not §8.4's 1.5 — reported).
+struct EuclideousChordIconMark: Equatable { var rect: CGRect; var lit: Bool }
+struct EuclideousChordIcon: Equatable { var marks: [EuclideousChordIconMark]; var wash: CGRect? }
+func euclideousChordIconMarks(degrees: [Int], steps: Int, size: CGSize, litColumn: Int) -> EuclideousChordIcon {
+    typealias M = EuclideousHeaderStatusMetrics
+    let n = max(1, steps)
+    let colPitch = size.width / CGFloat(n)
+    let rowPitch = size.height / CGFloat(M.iconRows)
+    var marks: [EuclideousChordIconMark] = []
+    var wash: CGRect? = nil
+    var c = 0
+    while c < n {
+        let x = CGFloat(c) * colPitch
+        if c == litColumn { wash = CGRect(x: x, y: 0, width: colPitch, height: size.height) }
+        let deg = c < degrees.count ? degrees[c] : 0
+        if deg != 7, let row = euclideousChordsDegreeRow(deg) {   // REST (7) → no mark; CARRY (−1) → nil
+            let w = max(M.markMinW, colPitch - 1)
+            marks.append(EuclideousChordIconMark(rect: CGRect(x: x + (colPitch - w) / 2, y: CGFloat(row) * rowPitch, width: w, height: M.markH), lit: c == litColumn))
+        }
+        c += 1
+    }
+    return EuclideousChordIcon(marks: marks, wash: wash)
+}
+
+/// §4.3: the signed root transpose with a true minus ("+2", "0", "−5").
+func euclideousHeaderSignedT(_ t: Int) -> String { t == 0 ? "0" : (t > 0 ? "+\(t)" : "\u{2212}\(abs(t))") }
+
+/// §7.3: the button's logical parts (presence + text + look), from the §1 status.
+enum EuclideousHeaderLamp: Equatable { case hidden, unlit, lit }
+struct EuclideousHeaderToken: Equatable { var grid: Int; var column: Int; var name: String; var isRest: Bool; var live: Bool }
+struct EuclideousHeaderParts: Equatable { var keyLabel: String; var tokens: [EuclideousHeaderToken]; var lamp: EuclideousHeaderLamp; var readout: String? }
+func euclideousHeaderStatus(keyRoot: Int, keyType: ScaleType,
+                            grid1: EuclideousGridStatus, grid1Degrees: [Int], grid1Colours: [Int], grid1Steps: Int,
+                            grid2: EuclideousGridStatus, grid2Degrees: [Int], grid2Colours: [Int], grid2Steps: Int,
+                            midiInUse: Bool, midiLit: Bool, rootInUse: Bool, t: Int) -> EuclideousHeaderParts {
+    func token(_ g: Int, _ gs: EuclideousGridStatus, _ degs: [Int], _ cols: [Int], _ steps: Int) -> EuclideousHeaderToken? {
+        guard gs.inUse else { return nil }
+        let (nm, rest) = euclideousChordHeaderName(column: gs.column, degrees: degs, colours: cols, steps: steps, keyRoot: keyRoot, keyType: keyType)
+        return EuclideousHeaderToken(grid: g, column: gs.column, name: nm, isRest: rest, live: gs.live)
+    }
+    var tokens: [EuclideousHeaderToken] = []
+    if let t1 = token(1, grid1, grid1Degrees, grid1Colours, grid1Steps) { tokens.append(t1) }
+    if let t2 = token(2, grid2, grid2Degrees, grid2Colours, grid2Steps) { tokens.append(t2) }
+    let lamp: EuclideousHeaderLamp = !midiInUse ? .hidden : (midiLit ? .lit : .unlit)
+    let readout: String? = (midiInUse && rootInUse) ? euclideousHeaderSignedT(t) : nil
+    return EuclideousHeaderParts(keyLabel: euclideousKeyLabel(root: keyRoot, type: keyType), tokens: tokens, lamp: lamp, readout: readout)
+}
+
+/// §7.4: the button's content-hugging width for a given fallback step (§5.2).
+func euclideousHeaderWidth(parts: EuclideousHeaderParts, fallbackStep: Int) -> CGFloat {
+    typealias M = EuclideousHeaderStatusMetrics
+    var w = M.pad
+    w += EuclideousHeaderMetrics.textWidth(min(M.keyMaxChars, parts.keyLabel.count), size: M.keySize, tracking: M.keyTracking)
+    if !parts.tokens.isEmpty {
+        w += M.dividerSp + M.dividerW + M.dividerSp
+        w += M.tokenWidth(step: fallbackStep) * CGFloat(parts.tokens.count) + M.tokenGap * CGFloat(parts.tokens.count - 1)
+    }
+    if parts.lamp != .hidden {
+        w += M.dividerSp + M.dividerW + M.dividerSp + M.lampW
+        if parts.readout != nil { w += M.readoutSp + M.readoutW }
+    }
+    return w + M.sp6 + M.chevronW + M.pad
+}
+
+/// §6.1: the chord name spoken (a REST → "rest"; ♯/♭ and the known suffixes expanded). Basic — device-owed; reported as approximate.
+func euclideousChordNameSpoken(_ name: String) -> String {
+    if name == "REST" || name == "\u{2013}" { return "rest" }
+    let chars = Array(name)
+    guard !chars.isEmpty else { return name }
+    var root = String(chars[0]); var i = 1
+    if chars.count > 1, chars[1] == "\u{266F}" { root += " sharp"; i = 2 }
+    else if chars.count > 1, chars[1] == "\u{266D}" { root += " flat"; i = 2 }
+    let suffix = String(chars[i...])
+    let map: [String: String] = ["": "", "m": " minor", "7": " seven", "9": " nine", "6": " six",
+        "add9": " add nine", "madd9": " minor add nine", "m7": " minor seven", "m9": " minor nine", "m6": " minor six",
+        "maj7": " major seven", "maj9": " major nine", "sus2": " suspended two", "sus4": " suspended four",
+        "\u{00B0}": " diminished", "\u{00B0}7": " diminished seven",
+        "m7\u{266D}5": " minor seven flat five", "m9\u{266D}5": " minor nine flat five", "+": " augmented"]
+    return root + (map[suffix] ?? " " + suffix)
+}
+
 struct EuclideousHeaderGroupWidths: Equatable {
     var brand: CGFloat, notes: CGFloat, utilities: CGFloat
     var gap: CGFloat            // the space between row-1 groups: sp16 (A, B) or sp8 (C)

@@ -163,7 +163,11 @@ final class Kernel {
     func euclideousRiffLivePool() -> [UInt8] { router.euclideousRiffLivePool() }   // the ascending notes currently feeding the riff's own pool, polled (Paul 2026-10-08)
     func hocketLive() -> (counts: [Int64], running: Bool) { router.hocketLive() }   // HOCKET §8: the lit rules' counts, on the existing 30 Hz poll
     func drainNoteRoll() -> [NoteRollRecord] { router.rollRing.drain() }              // CARD BACKS §5: the notes struck since the last poll (main thread; the ring is single-consumer)
-    func euclideousSourceStatus() -> Router.EuclideousSourceStatus { router.euclideousSourceStatus() }   // SOURCES STACK ferry (2026-10-26): lane-1's source status, polled
+    func euclideousSourceStatus() -> Router.EuclideousSourceStatus {   // SOURCES STACK ferry (2026-10-26): lane-1's source status, polled
+        var s = router.euclideousSourceStatus()
+        s.midiNoteOnCount = euclideousMidiNoteOnCount   // HEADER STATUS §1.2b: the MIDI-IN note-on counter (edge-captured here, where incoming MIDI is parsed)
+        return s
+    }
     func euclideousAnswerStatus() -> [EuclideousAnswerLaneStatus] { router.euclideousAnswerStatus() }   // ANSWER (2026-11-02): each lane's running cycle (the phase bar), on the same 30 Hz poll
     func euclideousLanePoolStatus() -> [EuclideousLanePoolStatus] { router.euclideousLanePoolStatus() }   // ANSWER (2026-11-02): each lane's pool as it is choosing from it (the POOL tab's NOW row), same poll
     func euclideousNoteViewEvents() -> [[Router.EuclideousNoteViewEventSnapshot]] { router.drainEuclideousNoteViewEvents() }   // NOTE VIEW's per-lane event queue, drained (Paul 2026-10-10)
@@ -187,6 +191,7 @@ final class Kernel {
     // ARC, so the only residual race is a benign torn value (a stale meter byte). Mirrors the Router's flat feeds.
 
     private let pool = NotePool()       // the source (§2.5), fed by incoming MIDI
+    private(set) var euclideousMidiNoteOnCount: UInt32 = 0   // HEADER STATUS §1.2b: monotonic MIDI-IN note-on edges (render thread writes, main thread reads — a stale/torn read only delays the lamp by a poll, harmless)
     private let router = Router()       // grid → emission (§2/§7)
 
     #if DEBUG
@@ -602,6 +607,7 @@ final class Kernel {
         let isNote = (status == 0x90 || status == 0x80)
         let channel = bytes[0] & 0x0F
         if status == 0x90, length >= 3 {
+            if bytes[2] > 0 { euclideousMidiNoteOnCount &+= 1 }   // HEADER STATUS §1.2b: a real note-on (vel 0 = note-off); output unchanged
             pool.noteOn(bytes[1], velocity: bytes[2], channel: channel, cable: UInt8(clamping: cable))
         } else if status == 0x80, length >= 3 {
             pool.noteOff(bytes[1])
