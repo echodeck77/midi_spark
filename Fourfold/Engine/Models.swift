@@ -823,6 +823,9 @@ struct EuclidLine: Codable, Equatable {
     var fillRoll: UInt8? = nil             // §1.1 0…4 [0]
     var fillChance: UInt8? = nil           // §1.1 25 / 50 / 75 / 100 % [100]
     var fillLand: Bool? = nil              // §1.1 [false]
+    // PLAY AS ROWS, AMENDMENT 2 (Paul 2026-11-15) — APPENDED LAST (after the FILL TAB fields), additive-Optional, decode-tolerant. ONE repeat ROLE per rank 1…8 (2 bits each: 0 ONCE · 1 DOUBLE · 2 RETURN · 3 PEDAL), replacing the old
+    // count / second / third model (those fields stay DECODABLE and feed the one-time §B1.3 derive, but are no longer read by the engine). nil / 0 ⇒ every rank ONCE ⇒ byte-identical. Lane-lock field (as the counts were). §B1.1.
+    var notesRankRoles: UInt16? = nil
     // FILL TAB resolvers (§1.1 defaults; a malformed stored value folds to the default).
     var fillLoopResolved: Int { let v = Int(fillLoop ?? 8); return (v == 4 || v == 8 || v == 16) ? v : 8 }
     var fillCurveResolved: EuclideousFillCurve { fillCurve ?? .steady }
@@ -1013,6 +1016,33 @@ struct EuclidLine: Codable, Equatable {
         guard r >= 1, r <= 8 else { return }
         var m = notesRankThirdLater ?? 0; if t == .later { m |= 1 << UInt8(r - 1) } else { m &= ~(UInt8(1) << UInt8(r - 1)) }
         notesRankThirdLater = m == 0 ? nil : m
+    }
+    /// PLAY AS ROWS, AMENDMENT 2 §B1: the repeat ROLE per rank (1…8). `notesRankRolesResolved` is the packed field when it's been set, else it DERIVES once from the old count / second fields (§B1.3: count 1 ⇒ ONCE; count 2/3 + 2nd AGAIN ⇒ DOUBLE; count 2/3 + 2nd LATER ⇒ RETURN; 3rd ignored; nothing ⇒ PEDAL). From the first role write on, `notesRankRoles` is the only source.
+    var notesRankRolesResolved: UInt16 {
+        if let r = notesRankRoles { return r }
+        var m: UInt16 = 0
+        for rank in 1...8 {
+            let role: EuclideousRankRole = notesRankCount(rank) >= 2 ? (notesRankSecond(rank) == .later ? .returns : .double) : .once
+            m |= UInt16(role.rawValue) << UInt16(2 * (rank - 1))
+        }
+        return m
+    }
+    func notesRankRole(_ r: Int) -> EuclideousRankRole {
+        guard r >= 1, r <= 8 else { return .once }
+        return EuclideousRankRole(rawValue: Int((notesRankRolesResolved >> UInt16(2 * (r - 1))) & 0b11)) ?? .once
+    }
+    /// §B1.1-§B1.2: set a rank's role. PEDAL is exclusive (§B1.2): setting it on one rank clears any other rank's PEDAL to ONCE, in the SAME call (one undo step). Seeds from the resolved set (the §B1.3 derive) on the first write, so no other rank loses its role; from then on `notesRankRoles` is authoritative (the old count fields are no longer read).
+    mutating func setNotesRankRole(_ r: Int, _ role: EuclideousRankRole) {
+        guard r >= 1, r <= 8 else { return }
+        var m = notesRankRolesResolved
+        if role == .pedal {
+            for other in 1...8 where other != r && (m >> UInt16(2 * (other - 1))) & 0b11 == UInt16(EuclideousRankRole.pedal.rawValue) {
+                m &= ~(UInt16(0b11) << UInt16(2 * (other - 1)))
+            }
+        }
+        m &= ~(UInt16(0b11) << UInt16(2 * (r - 1)))
+        m |= UInt16(role.rawValue) << UInt16(2 * (r - 1))
+        notesRankRoles = m
     }
     /// The lit order: the stored one when valid, else (5.2) the lit ranks from low to high, then TOP 2, then TOP.
     var litOrderResolved: EuclideousLitOrder {
@@ -1389,6 +1419,7 @@ extension EuclidLine {
         notesRankCounts = (try? c.decodeIfPresent(UInt16.self, forKey: .notesRankCounts)).flatMap { $0 }
         notesRankSecondLater = (try? c.decodeIfPresent(UInt8.self, forKey: .notesRankSecondLater)).flatMap { $0 }
         notesRankThirdLater = (try? c.decodeIfPresent(UInt8.self, forKey: .notesRankThirdLater)).flatMap { $0 }
+        notesRankRoles = (try? c.decodeIfPresent(UInt16.self, forKey: .notesRankRoles)).flatMap { $0 }   // PLAY AS ROWS amend 2 (§B1): the custom decoder must read it, or a saved role is lost on load
         notesBassOn = (try? c.decodeIfPresent(Bool.self, forKey: .notesBassOn)).flatMap { $0 }
         notesBassMode = (try? c.decodeIfPresent(EuclideousBassMode.self, forKey: .notesBassMode)).flatMap { $0 }
         notesShiftStart = (try? c.decodeIfPresent(Int.self, forKey: .notesShiftStart)).flatMap { $0 }
@@ -1479,10 +1510,16 @@ enum EuclideousBassMode: String, Codable, CaseIterable {
     case hold = "HOLD", first = "FIRST"
     init(from decoder: Decoder) throws { self = EuclideousBassMode(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .hold }
 }
-/// §1.6: when a rank's repeated copy comes — AGAIN (straight after, A B B C) or LATER (next time round, A B C B).
+/// §1.6: when a rank's repeated copy comes — AGAIN (straight after, A B B C) or LATER (next time round, A B C B). (Decode-only since PLAY AS ROWS amend 2 — the §B1.3 derive's input.)
 enum EuclideousCopyTiming: String, Codable, CaseIterable {
     case again = "AGAIN", later = "LATER"
     init(from decoder: Decoder) throws { self = EuclideousCopyTiming(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .again }
+}
+/// PLAY AS ROWS, AMENDMENT 2 (§B1.1): a rank's repeat ROLE — what it does in the melody. ONCE plays once, DOUBLE doubles straight away, RETURN comes back after the others, PEDAL is the root the line keeps returning to. Stored 2 bits/rank in `notesRankRoles` (raw value = the 2-bit code).
+enum EuclideousRankRole: Int, Equatable, CaseIterable {
+    case once = 0, double = 1, returns = 2, pedal = 3
+    var label: String { switch self { case .once: return "ONCE"; case .double: return "DOUBLE"; case .returns: return "RETURN"; case .pedal: return "PEDAL" } }
+    var spoken: String { switch self { case .once: return "once"; case .double: return "double"; case .returns: return "return"; case .pedal: return "pedal" } }
 }
 /// PLAY AS ROWS (§1.1-§1.3): one chip of a chain — a value and how many HITS it lasts before the next chip (1…32). The chain loops after the last chip and resets at the lane's melody restart (the active chip is a pure function of the
 /// hit count since the melody origin, no accumulator). A single chip plays its value always (its count is irrelevant, §3.1). Three concrete chip types (one per value enum), each decode-tolerant like `EuclideousPlayStep`.
