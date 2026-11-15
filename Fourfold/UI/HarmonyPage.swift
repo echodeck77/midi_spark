@@ -671,45 +671,81 @@ struct EuclideousHarmonyPage: View {
 
 // MARK: - the header button (6): four pips, the key label, a chevron; a tap toggles the page
 
-/// The 192 × 32 button the SOURCES panel used to open, now toggling HARMONY. The pips come from the per-source status across the four lanes (`euclideousSourceStatusAcrossLanes`, the status feed's per-lane contributions and the lanes' own
-/// SOURCES chips): playing — fill and border in the source colour; waiting — border only; unused — border #3A3E47. Observes the status model itself, so the page does not re-run for it.
+/// HEADER STATUS ferry (2026-11-15): the 32-tall button that toggles HARMONY — content-hugging now, showing the KEY, a token per
+/// in-use chord grid (number · progression icon with the playing column lit · chord name), a MIDI lamp while any lane has MIDI IN on,
+/// and the ROOT transpose while any such lane is in ROOT. The §7 pure functions decide the parts; this draws them. No pips.
 struct EuclideousHarmonyHeaderButton: View {
+    let parts: EuclideousHeaderParts
     let keyRoot: Int
     let keyType: ScaleType
-    let laneChips: [UInt8]
+    let grid1Degrees: [Int]; let grid1Steps: Int
+    let grid2Degrees: [Int]; let grid2Steps: Int
+    let running: Bool
+    let t: Int
+    let fallbackStep: Int      // §5.2: 0 full · 1 name hidden · 2 icon hidden
     let open: Bool
-    let width: CGFloat
     let onTap: () -> Void
-    @ObservedObject var live: AnswerLiveModel
 
+    private typealias M = EuclideousHeaderStatusMetrics
     var body: some View {
-        let contrib = (0..<4).map { live.pool(lane: $0).contrib }
-        let st = euclideousSourceStatusAcrossLanes(laneContrib: contrib, laneChips: laneChips)
-        return HStack(spacing: 0) {
-            HStack(spacing: 6) {
-                pip(st.midi, EuclideousSourceColour.midi.fill); pip(st.chords, EuclideousSourceColour.chords.fill)
-                pip(st.pick, EuclideousSourceColour.pick.fill); pip(st.key, EuclideousSourceColour.key.fill)
+        HStack(spacing: 0) {
+            Text(parts.keyLabel).font(mono(10)).tracking(0.06 * 10).foregroundColor(Color(h: 0xF2F4F7)).lineLimit(1).truncationMode(.tail)
+                .frame(width: EuclideousHeaderMetrics.textWidth(min(M.keyMaxChars, parts.keyLabel.count), size: 10, tracking: 0.06), alignment: .leading)   // §2.3 hug up to 13 chars
+            ForEach(Array(parts.tokens.enumerated()), id: \.offset) { i, tok in
+                if i == 0 { divider } else { Spacer().frame(width: M.tokenGap) }   // §2.2 divider before the first token, sp10 between tokens
+                tokenView(tok)
             }
-            Spacer().frame(width: 8)
-            Text(euclideousKeyLabel(root: keyRoot, type: keyType)).font(mono(10)).tracking(0.06 * 10)
-                .foregroundColor(Color(h: 0xF2F4F7)).lineLimit(1).truncationMode(.tail)
-            Spacer(minLength: 6)
-            Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundColor(Color(h: 0xAAB0BA)).rotationEffect(.degrees(open ? 180 : 0)).fixedSize()
+            if parts.lamp != .hidden {
+                divider
+                lampView(lit: parts.lamp == .lit)
+                if let r = parts.readout { Spacer().frame(width: M.readoutSp); readoutView(r) }
+            }
+            Spacer().frame(width: M.sp6)
+            Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundColor(Color(h: 0xAAB0BA)).rotationEffect(.degrees(open ? 180 : 0)).fixedSize().accessibilityHidden(true)
         }
-        .padding(.horizontal, 10)
-        .frame(width: width, height: 32)
+        .padding(.horizontal, M.pad)
+        .frame(height: 32)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(h: 0x2A2D34)))
         .overlay(open ? RoundedRectangle(cornerRadius: 8).strokeBorder(Color(h: 0xDFE3EA), lineWidth: 1.5) : nil)
         .contentShape(Rectangle()).onTapGesture(perform: onTap)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Harmony")
-        .accessibilityValue(euclideousSourceButtonAccessibilityValue(keyLabel: euclideousKeySpokenName(root: keyRoot, type: keyType), midi: st.midi, chords: st.chords, pick: st.pick, key: st.key) + (open ? ", expanded" : ", collapsed"))
+        .accessibilityElement(children: .ignore).accessibilityLabel("Harmony")
+        .accessibilityValue(euclideousHeaderVoiceOver(parts: parts, keySpoken: euclideousKeySpokenName(root: keyRoot, type: keyType), running: running, t: t) + (open ? ", expanded" : ", collapsed"))
         .accessibilityAddTraits(.isButton)
     }
-    private func pip(_ state: EuclideousSourceLight, _ colour: UInt32) -> some View {
-        let c = Color(h: colour)
-        return RoundedRectangle(cornerRadius: 3).fill(state == .playing ? c : Color.clear)
-            .frame(width: 10, height: 10)
-            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(state == .off ? Color(h: 0x3A3E47) : c, lineWidth: 1.5))
+    private var divider: some View {   // §2.2: 1 × 14 #3A3E47, sp8 either side
+        HStack(spacing: 0) { Spacer().frame(width: M.dividerSp); RoundedRectangle(cornerRadius: 0.5).fill(Color(h: 0x3A3E47)).frame(width: M.dividerW, height: M.dividerH); Spacer().frame(width: M.dividerSp) }
+            .accessibilityHidden(true)
+    }
+    @ViewBuilder private func tokenView(_ tok: EuclideousHeaderToken) -> some View {
+        let degs = tok.grid == 1 ? grid1Degrees : grid2Degrees
+        let steps = tok.grid == 1 ? grid1Steps : grid2Steps
+        let markC = tok.live ? Color(h: 0x7C828D) : Color(h: 0x5C626C)
+        let litC = tok.live ? Color(h: 0xD6CBFB) : Color(h: 0xAAB0BA)   // §3.5 lit mark + name
+        HStack(spacing: 0) {
+            Text("\(tok.grid)").font(mono(10)).foregroundColor(Color(h: 0x8A909A)).frame(width: M.numberW)   // §3.2 number, #8A909A both
+            if fallbackStep != 2 {   // icon unless step 2 (icons hidden)
+                Spacer().frame(width: M.tokInnerA)
+                Canvas { ctx, _ in
+                    let icon = euclideousChordIconMarks(degrees: degs, steps: steps, size: CGSize(width: M.iconW, height: M.iconH), litColumn: tok.column)
+                    if let wash = icon.wash { ctx.fill(RoundedRectangle(cornerRadius: 1).path(in: wash), with: .color(Color(h: 0x2E3138))) }   // §3.5 wash
+                    for m in icon.marks { ctx.fill(RoundedRectangle(cornerRadius: 0.5).path(in: m.rect), with: .color(m.lit ? litC : markC)) }
+                }.frame(width: M.iconW, height: M.iconH).accessibilityHidden(true)
+            }
+            if fallbackStep != 1 {   // name unless step 1 (names hidden)
+                Spacer().frame(width: M.tokInnerB)
+                Text(tok.name).font(mono(10)).foregroundColor(litC).lineLimit(1).truncationMode(.tail).frame(width: M.nameW, alignment: .leading)
+            }
+        }
+    }
+    private func lampView(lit: Bool) -> some View {   // §4.2
+        Text("MIDI").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.08 * 8)
+            .foregroundColor(lit ? Color(h: 0x0D0F14) : Color(h: 0x8A909A))
+            .frame(width: M.lampW, height: M.lampH)
+            .background(RoundedRectangle(cornerRadius: 4).fill(lit ? Color(h: 0xF2F4F7) : Color.clear))
+            .overlay(lit ? nil : RoundedRectangle(cornerRadius: 4).strokeBorder(Color(h: 0x3A3E47), lineWidth: 1))
+            .accessibilityHidden(true)
+    }
+    private func readoutView(_ text: String) -> some View {   // §4.3
+        Text(text).font(mono(10)).foregroundColor(t != 0 ? Color(h: 0xF2F4F7) : Color(h: 0x5C626C)).frame(width: M.readoutW).accessibilityHidden(true)
     }
 }

@@ -4669,6 +4669,22 @@ func euclideousChordNameSpoken(_ name: String) -> String {
     return root + (map[suffix] ?? " " + suffix)
 }
 
+/// §6.1: the button's spoken value — key, then each grid's chord ("grid 1, E minor"; "grid 2 waiting, C" when idle while running), then MIDI and root.
+func euclideousHeaderVoiceOver(parts: EuclideousHeaderParts, keySpoken: String, running: Bool, t: Int) -> String {
+    var out: [String] = [keySpoken]
+    for tok in parts.tokens {
+        let name = tok.isRest ? "rest" : euclideousChordNameSpoken(tok.name)
+        out.append((!tok.live && running ? "grid \(tok.grid) waiting, " : "grid \(tok.grid), ") + name)
+    }
+    switch parts.lamp {
+    case .hidden: break
+    case .lit: out.append("MIDI in, playing")
+    case .unlit: out.append("MIDI in, quiet")
+    }
+    if parts.readout != nil { out.append("root, " + (t > 0 ? "plus \(t)" : (t < 0 ? "minus \(abs(t))" : "zero"))) }
+    return out.joined(separator: ", ")
+}
+
 struct EuclideousHeaderGroupWidths: Equatable {
     var brand: CGFloat, notes: CGFloat, utilities: CGFloat
     var gap: CGFloat            // the space between row-1 groups: sp16 (A, B) or sp8 (C)

@@ -1492,6 +1492,7 @@ struct EuclideousPage: View {
     @State private var riffKeyTabFrame: CGRect? = nil
     @State private var chordsPopupOpen = false
     @State private var harmonyOpen = false                  // INPUTS + HARMONY ferry (2026-11-06): the HARMONY page over the lane cards (UI state, 1.6; one overlay at a time)
+    @State private var headerLampAt: Double? = nil          // HEADER STATUS ferry (2026-11-15) §1.2b: the wall-clock time the MIDI-IN note-on counter last grew, so the lamp catches short notes
     @State private var harmonyRows: EuclideousHarmonyRows = .chords    // …which rows both grids show (opens on CHORDS)
     @State private var harmonyPopover: EuclideousHarmonyPopover = .none // …which popover is open (none on opening)
     @State private var octaveDragLanes: Set<Int> = []                  // NOTES-tab octave slider (2026-10-29): lanes with a drag in progress, so a drag is ONE undo burst
@@ -2065,10 +2066,40 @@ struct EuclideousPage: View {
             headerHoldLatch()
         }
     }
-    /// The ONE 192×32 button: four pips (MIDI · CHORDS · PICK · KEY, from the per-source status across the four lanes), the key label, a chevron. A tap toggles HARMONY (INPUTS + HARMONY §6); while open it gains a 1.5 pt #DFE3EA inner border and the chevron turns 180°.
+    /// HEADER STATUS ferry (2026-11-15): the button that toggles HARMONY — content-hugging, showing the KEY, a token per in-use chord grid (icon + playing column + name), the MIDI lamp and ROOT transpose. The §7 pure functions decide the parts.
     private func headerSourceButton() -> some View {
-        EuclideousHarmonyHeaderButton(keyRoot: keyRoot, keyType: keyType, laneChips: (0..<4).map { $0 < lines.count ? lines[$0].poolSrcMaskResolved : euclideousPoolSrcAll },
-                                      open: harmonyOpen, width: HM.sourceButtonWidth, onTap: { if harmonyOpen { closeHarmony() } else { openHarmony() } }, live: answerLive)
+        let g1 = chordSets.count > 0 ? chordSets[0] : MachineParams()
+        let g2 = chordSets.count > 1 ? chordSets[1] : MachineParams()
+        let g1deg = g1.chordsDegreesResolved16(), g1col = g1.chordsColoursResolved16(), g1steps = g1.chordsStepsResolved
+        let g2deg = g2.chordsDegreesResolved16(), g2col = g2.chordsColoursResolved16(), g2steps = g2.chordsStepsResolved
+        let n = min(4, lines.count)
+        func laneArrays(_ grid: Int) -> (on: [Bool], reading: [Bool]) {   // which lanes read grid `grid` (0/1), not stepped aside by REPLACE + MIDI held
+            var on = [Bool](repeating: false, count: 4), reading = [Bool](repeating: false, count: 4)
+            for l in 0..<n {
+                let line = lines[l]
+                let onG = line.poolChordsOn && line.poolChordGrid == grid
+                let mode = euclideousLaneMidiMode(line.midiMode, planMode: sourcePlan.midiModeR)
+                on[l] = onG; reading[l] = onG && !(mode == .replace && line.poolSrcMaskResolved & 1 != 0 && sourceStatus.midiPlaying)
+            }
+            return (on, reading)
+        }
+        let la1 = laneArrays(0), la2 = laneArrays(1)
+        let midiInUse = (0..<n).contains { lines[$0].poolSrcMaskResolved & 1 != 0 }
+        let rootInUse = (0..<n).contains { lines[$0].poolSrcMaskResolved & 1 != 0 && euclideousLaneMidiMode(lines[$0].midiMode, planMode: sourcePlan.midiModeR) == .root }
+        let t = sourceStatus.rootTranspose, held = sourceStatus.midiNotes.count, running = clock.playing
+        let lampIdle = !running && held == 0 && (headerLampAt == nil || Date().timeIntervalSinceReferenceDate - (headerLampAt ?? 0) >= EuclideousHeaderStatusMetrics.lampHold)
+        return TimelineView(.animation(paused: lampIdle)) { tl in   // §3.6 the playing column moves live while running; while stopped we animate only until the lamp expires
+            let beat = walkTagBeat(at: tl.date), now = tl.date.timeIntervalSinceReferenceDate
+            let gs1 = euclideousGridStatus(laneOnGrid: la1.on, laneReading: la1.reading, running: running, column: chordsPagePlayingColumn(set: 0, beat: beat))
+            let gs2 = euclideousGridStatus(laneOnGrid: la2.on, laneReading: la2.reading, running: running, column: chordsPagePlayingColumn(set: 1, beat: beat))
+            let midiLit = euclideousMidiLamp(held: held, lastNoteOnAt: headerLampAt, now: now, lampHold: EuclideousHeaderStatusMetrics.lampHold)
+            let parts = euclideousHeaderStatus(keyRoot: keyRoot, keyType: keyType, grid1: gs1, grid1Degrees: g1deg, grid1Colours: g1col, grid1Steps: g1steps,
+                                               grid2: gs2, grid2Degrees: g2deg, grid2Colours: g2col, grid2Steps: g2steps, midiInUse: midiInUse, midiLit: midiLit, rootInUse: rootInUse, t: t)
+            EuclideousHarmonyHeaderButton(parts: parts, keyRoot: keyRoot, keyType: keyType, grid1Degrees: g1deg, grid1Steps: g1steps, grid2Degrees: g2deg, grid2Steps: g2steps,
+                                          running: running, t: t, fallbackStep: 0,   // §5.2 fallback wired in step 4
+                                          open: harmonyOpen, onTap: { if harmonyOpen { closeHarmony() } else { openHarmony() } })
+        }
+        .onChange(of: sourceStatus.midiNoteOnCount) { _ in headerLampAt = Date().timeIntervalSinceReferenceDate }
     }
     /// HOLD/LATCH (Paul 2026-10-20): two fixed-width chips, mutually exclusive by construction (one optional
     /// field) — tapping the active one again turns it off; tapping the other switches. Only meaningful
