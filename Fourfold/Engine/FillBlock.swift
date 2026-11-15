@@ -11,60 +11,94 @@ import CoreGraphics
 // MARK: - §3 layout
 
 struct EuclideousFillBlockLayout: Equatable {
-    var barTiles: [CGRect] = []     // §3.3 row 1: eight bar tiles
-    var fill = CGRect.zero          // §3.4 row 2, col 1
-    var speed = CGRect.zero         //            col 2
-    var length = CGRect.zero        //            col 3
-    var reverse = CGRect.zero       //            col 4
-    var ranks = CGRect.zero         // §3.5 row 3, cols 1–2 (one tile across both + the gap)
-    var swell = CGRect.zero         //            col 3
-    var brk = CGRect.zero           //            col 4
-    var radius: CGFloat = 6         // §3.6 the note-value cells' radius
+    // §3.1 bar row (the loop's worth of bars) + the 4/8/16 loop chip at the trailing end
+    var barTiles: [CGRect] = []
+    var loopChip = CGRect.zero
+    var barCount = 8
+    // §5 the live-preview strip (zero-height when the card is too short)
+    var preview = CGRect.zero
+    // §3.4 the 12 control tiles, grouped by function (Paul 2026-11-14):
+    var fill = CGRect.zero          // row 1
+    var speed = CGRect.zero
+    var length = CGRect.zero
+    var order = CGRect.zero
+    var ranks = CGRect.zero         // row 2
+    var swell = CGRect.zero
+    var hits = CGRect.zero
+    var roll = CGRect.zero
+    var chance = CGRect.zero        // row 3
+    var brk = CGRect.zero
+    var land = CGRect.zero
+    var spare = CGRect.zero         // row 3, col 4 — reserved
+    // §4.4 the two mini chips (top-trailing, their own hit area)
+    var curveChip = CGRect.zero
+    var shapeChip = CGRect.zero
+    var radius: CGFloat = 6
     var rowH: CGFloat = 0
+    var previewH: CGFloat = 0
 }
 
-/// §3.2/§3.3: three rows at the note-value column's y/height (rowH = (H − 2·gap)/3 = 24.67 at 80, gap 3 — the
-/// SOURCE value, NOT the spec's "~29 / 4.5"); row 1 eight bar tiles 2.5 apart; rows 2–3 four columns `gridGap`(3) apart.
-func euclideousFillBlockLayout(box: CGSize) -> EuclideousFillBlockLayout {
+/// FILL TAB ferry (2026-11-14) §3: the FILL tab fills the whole card. A 28 pt bar row (the `loop` bars 2.5 apart) with a
+/// trailing loop chip; a preview strip (50 pt, 36 under a 200 pt card, gone under 180); then THREE control rows of four
+/// equal columns (4.5 apart). The curve / shape chips sit in SPEED's / RANKS's top-trailing corner (13 pt, their own hit area).
+func euclideousFillBlockLayout(box: CGSize, loop: Int = 8) -> EuclideousFillBlockLayout {
     var L = EuclideousFillBlockLayout()
-    let rowGap: CGFloat = 3        // = the note-value column's gridGap (patternRateHalf)
-    let colGap: CGFloat = 3        // = the division grid's column gap (SOURCE; the spec's 4.5 is wrong)
-    let barGap: CGFloat = 2.5      // §3.3
-    let rowH = max(1, (box.height - rowGap * 2) / 3)
+    let n = max(1, loop)
+    L.barCount = n
+    let gap: CGFloat = 3          // the column / section gap
+    let rowGap: CGFloat = 4.5     // §3.1 the control rows' gap
+    let barGap: CGFloat = 2.5     // §3.1 the bar tiles' gap
+    let barRowH: CGFloat = 28
+    let loopChipW: CGFloat = 34
+    // §5 preview height: 50, 36 on a short (< 200) card, nothing under 180
+    L.previewH = box.height < 180 ? 0 : (box.height < 200 ? 36 : 50)
+    // §3.1 bar row
+    let barAreaW = max(1, box.width - loopChipW - gap)
+    let barW = max(1, (barAreaW - barGap * CGFloat(n - 1)) / CGFloat(n))
+    L.barTiles = (0..<n).map { CGRect(x: CGFloat($0) * (barW + barGap), y: 0, width: barW, height: barRowH) }
+    L.loopChip = CGRect(x: box.width - loopChipW, y: 0, width: loopChipW, height: barRowH)
+    var y = barRowH + gap
+    if L.previewH > 0 { L.preview = CGRect(x: 0, y: y, width: box.width, height: L.previewH); y += L.previewH + gap }
+    // §3.4 three control rows of four equal columns
+    let controlTop = y
+    let rowH = max(1, (box.height - controlTop - rowGap * 2) / 3)
     L.rowH = rowH
-    func rowY(_ i: Int) -> CGFloat { CGFloat(i) * (rowH + rowGap) }
-    let barW = max(1, (box.width - barGap * 7) / 8)
-    L.barTiles = (0..<8).map { CGRect(x: CGFloat($0) * (barW + barGap), y: rowY(0), width: barW, height: rowH) }
-    let colW = max(1, (box.width - colGap * 3) / 4)
-    func col(_ c: Int) -> CGFloat { CGFloat(c) * (colW + colGap) }
-    L.fill = CGRect(x: col(0), y: rowY(1), width: colW, height: rowH)
-    L.speed = CGRect(x: col(1), y: rowY(1), width: colW, height: rowH)
-    L.length = CGRect(x: col(2), y: rowY(1), width: colW, height: rowH)
-    L.reverse = CGRect(x: col(3), y: rowY(1), width: colW, height: rowH)
-    L.ranks = CGRect(x: col(0), y: rowY(2), width: colW * 2 + colGap, height: rowH)   // §3.5 spans cols 1–2 + the gap
-    L.swell = CGRect(x: col(2), y: rowY(2), width: colW, height: rowH)
-    L.brk = CGRect(x: col(3), y: rowY(2), width: colW, height: rowH)
+    func rowY(_ i: Int) -> CGFloat { controlTop + CGFloat(i) * (rowH + rowGap) }
+    let colW = max(1, (box.width - gap * 3) / 4)
+    func col(_ c: Int) -> CGFloat { CGFloat(c) * (colW + gap) }
+    func cell(_ c: Int, _ r: Int) -> CGRect { CGRect(x: col(c), y: rowY(r), width: colW, height: rowH) }
+    L.fill = cell(0, 0); L.speed = cell(1, 0); L.length = cell(2, 0); L.order = cell(3, 0)
+    L.ranks = cell(0, 1); L.swell = cell(1, 1); L.hits = cell(2, 1); L.roll = cell(3, 1)
+    L.chance = cell(0, 2); L.brk = cell(1, 2); L.land = cell(2, 2); L.spare = cell(3, 2)
+    // §4.4 the curve / shape chips — top-trailing, 13 pt
+    let chip: CGFloat = 13
+    L.curveChip = CGRect(x: L.speed.maxX - chip - 2, y: L.speed.minY + 2, width: chip, height: chip)
+    L.shapeChip = CGRect(x: L.ranks.maxX - chip - 2, y: L.ranks.minY + 2, width: chip, height: chip)
     return L
 }
 
 // MARK: - §4.3/§4.4/§6 the value fields (SPEED · LENGTH · RANKS · SWELL)
 
 enum EuclideousFillField: CaseIterable {
-    case speed, length, ranks, swell
-    var label: String { switch self { case .speed: return "SPEED"; case .length: return "LENGTH"; case .ranks: return "RANKS"; case .swell: return "SWELL" } }
-    var bipolar: Bool { self == .ranks || self == .swell }        // §4.3 RANKS / SWELL add TILT's centre line
-    var count: Int { switch self { case .speed: return 5; case .length: return 3; case .ranks: return 15; case .swell: return 7 } }
+    case speed, length, ranks, swell, roll, chance   // FILL TAB ferry (2026-11-14): ROLL (§2.5) and CHANCE (§2.7) are value tiles too
+    var label: String { switch self { case .speed: return "SPEED"; case .length: return "LENGTH"; case .ranks: return "RANKS"; case .swell: return "SWELL"; case .roll: return "ROLL"; case .chance: return "CHANCE" } }
+    var bipolar: Bool { self == .ranks || self == .swell }        // §4.3 RANKS / SWELL add TILT's centre line (ROLL / CHANCE are unipolar)
+    var count: Int { switch self { case .speed: return 5; case .length: return 3; case .ranks: return 15; case .swell: return 7; case .roll: return 5; case .chance: return 4 } }
     /// §1.1 default, as a leading→trailing index.
-    var defaultIndex: Int { switch self { case .speed: return 3; case .length: return 1; case .ranks: return 7; case .swell: return 3 } }
+    var defaultIndex: Int { switch self { case .speed: return 3; case .length: return 1; case .ranks: return 7; case .swell: return 3; case .roll: return 0; case .chance: return 3 } }
 }
 
-/// The field's current value as a leading→trailing index (§4.3 order: SPEED ×½…×4, LENGTH ¼ ½ BAR, RANKS −7…+7, SWELL −3…+3).
+private let euclideousFillChanceSteps = [25, 50, 75, 100]   // CHANCE's four stored values, leading→trailing
+
+/// The field's current value as a leading→trailing index (§4.3 order: SPEED ×½…×4, LENGTH ¼ ½ BAR, RANKS −7…+7, SWELL −3…+3, ROLL 0…4, CHANCE 25…100).
 func euclideousFillFieldIndex(_ f: EuclideousFillField, _ line: EuclidLine) -> Int {
     switch f {
     case .speed: return line.fillSpeedResolved                    // stored 0…4 = ×½…×4 (already leading→trailing)
     case .length: return 2 - line.fillLengthResolved              // stored 0=BAR,1=½,2=¼ → leading ¼ = index 0
     case .ranks: return line.fillRanksResolved + 7
     case .swell: return line.fillSwellResolved + 3
+    case .roll: return line.fillRollResolved                      // 0…4
+    case .chance: return max(0, euclideousFillChanceSteps.firstIndex(of: line.fillChanceResolved) ?? 3)
     }
 }
 
@@ -76,6 +110,8 @@ func euclideousFillSetFieldIndex(_ f: EuclideousFillField, _ idx: Int, _ line: i
     case .length: line.fillLength = UInt8(2 - i)
     case .ranks: line.fillRanks = Int8(i - 7)
     case .swell: line.fillSwell = Int8(i - 3)
+    case .roll: line.fillRoll = UInt8(i)
+    case .chance: line.fillChance = UInt8(euclideousFillChanceSteps[i])
     }
 }
 
@@ -94,7 +130,52 @@ func euclideousFillFieldValueText(_ f: EuclideousFillField, _ line: EuclidLine) 
     case .length: return ["\u{00BC}", "\u{00BD}", "BAR"][i]                                                  // ¼ ½ BAR
     case .ranks: return euclideousFillSigned(i - 7)
     case .swell: return euclideousFillSigned(i - 3)
+    case .roll: return i == 0 ? "OFF" : "\(i)"                                                               // §2.5 0 = no roll
+    case .chance: return "\(euclideousFillChanceSteps[i])%"                                                  // §2.7 25/50/75/100 %
     }
+}
+
+// MARK: - §4.4 the curve / shape CHIPS (a top-trailing mini chip on SPEED / RANKS) + §4.5 the ORDER / HITS SELECTORS
+
+/// §4.4 SPEED's curve chip: STEADY (blank) vs RUSH. The chip's short text; a tap cycles it.
+func euclideousFillCurveChipText(_ line: EuclidLine) -> String { line.fillCurveResolved == .rush ? "RUSH" : "STDY" }
+func euclideousFillCurveIsRush(_ line: EuclidLine) -> Bool { line.fillCurveResolved == .rush }
+func euclideousFillCycleCurve(_ line: inout EuclidLine) { line.fillCurve = (line.fillCurveResolved == .rush) ? .steady : .rush }
+
+/// §4.4 RANKS's shape chip: CLIMB / ARCH / SHIFT. The chip's short text; a tap cycles it.
+func euclideousFillShapeChipText(_ line: EuclidLine) -> String { switch line.fillShapeResolved { case .climb: return "CLB"; case .arch: return "ARC"; case .shift: return "SHF" } }
+func euclideousFillCycleShape(_ line: inout EuclidLine) {
+    switch line.fillShapeResolved { case .climb: line.fillShape = .arch; case .arch: line.fillShape = .shift; case .shift: line.fillShape = .climb }
+}
+
+/// §4.5 the two SELECTOR tiles (tap cycles, double-tap resets to the default).
+enum EuclideousFillSelector: CaseIterable {
+    case order, hits
+    var label: String { self == .order ? "ORDER" : "HITS" }
+}
+/// The selector's current value as a short label (§4.5: FWD / REV / BOUNCE / SHUF · KEEP / ALL / FLIP).
+func euclideousFillSelectorText(_ s: EuclideousFillSelector, _ line: EuclidLine) -> String {
+    switch s {
+    case .order: switch line.fillOrderResolved { case .fwd: return "FWD"; case .rev: return "REV"; case .bounce: return "BOUNCE"; case .shuffle: return "SHUF" }
+    case .hits:  switch line.fillHitsResolved  { case .keep: return "KEEP"; case .all: return "ALL"; case .flip: return "FLIP" }
+    }
+}
+func euclideousFillCycleSelector(_ s: EuclideousFillSelector, _ line: inout EuclidLine) {
+    switch s {
+    case .order: switch line.fillOrderResolved { case .fwd: line.fillOrder = .rev; case .rev: line.fillOrder = .bounce; case .bounce: line.fillOrder = .shuffle; case .shuffle: line.fillOrder = .fwd }; line.fillReverse = nil   // ORDER supersedes the retired REVERSE flag
+    case .hits:  switch line.fillHitsResolved  { case .keep: line.fillHits = .all; case .all: line.fillHits = .flip; case .flip: line.fillHits = .keep }
+    }
+}
+func euclideousFillResetSelector(_ s: EuclideousFillSelector, _ line: inout EuclidLine) {
+    switch s { case .order: line.fillOrder = .fwd; line.fillReverse = nil; case .hits: line.fillHits = .keep }
+}
+func euclideousFillSelectorAX(_ s: EuclideousFillSelector, _ line: EuclidLine) -> String {
+    let v: String
+    switch s {
+    case .order: switch line.fillOrderResolved { case .fwd: v = "forward"; case .rev: v = "reverse"; case .bounce: v = "bounce"; case .shuffle: v = "shuffle" }
+    case .hits:  switch line.fillHitsResolved  { case .keep: v = "keep"; case .all: v = "all"; case .flip: v = "flip" }
+    }
+    return "Fill \(s.label.lowercased()), \(v)"
 }
 
 /// §6.3 TAP HALVES: a tap on the leading half steps toward the leading end (index − 1); the trailing half toward the
@@ -125,6 +206,8 @@ func euclideousFillFieldAX(_ f: EuclideousFillField, _ line: EuclidLine) -> Stri
     case .length: v = ["quarter", "half", "bar"][i]
     case .ranks: v = euclideousFillSpokenSigned(i - 7)
     case .swell: v = euclideousFillSpokenSigned(i - 3)
+    case .roll: v = i == 0 ? "off" : euclideousFillNumberWords[min(euclideousFillNumberWords.count - 1, i)]
+    case .chance: v = "\(euclideousFillChanceSteps[i]) percent"
     }
     return "Fill \(f.label.lowercased()), \(v)"
 }

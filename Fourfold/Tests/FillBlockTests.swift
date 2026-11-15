@@ -1,82 +1,110 @@
-//  FillBlockTests.swift — FILL ferry (2026-11-13), slice 4: the FILL block's pure layout (§3) and the value
-//  fields' text / index / drag / tap (§4.4/§6.3). The tiles' looks + feel are device-owed.
+//  FillBlockTests.swift — FILL ferry (2026-11-13) + FILL TAB ferry (2026-11-14): the FILL block's pure layout (§3,
+//  the whole-card grid: bar row + loop chip, preview, 3×4 controls), the value fields' text / index / drag / tap
+//  (§4.3/§4.4/§6.3), and the ORDER / HITS selectors + curve / shape chips (§4.4/§4.5). The looks + feel are device-owed.
 
 import XCTest
+import CoreGraphics
 
 final class FillBlockTests: XCTestCase {
 
-    // §3 — the landscape lane-card half (171.84 × 80): three rows at 24.67 (NOT the spec's ~29), 8 bar tiles 2.5 apart, 4 columns 3 apart, RANKS double-width.
-    func testLayoutAtTheLandscapeHalf() {
-        let L = euclideousFillBlockLayout(box: CGSize(width: 171.84, height: 80))
-        XCTAssertEqual(L.rowH, (80 - 6) / 3, accuracy: 1e-6, "rowH = (H − 2·3)/3 = 24.67 (the note-value column's cell height)")
+    // §3 — the whole-card grid (360 × 233, loop 8): a 28 pt bar row + a 34 pt loop chip, a 50 pt preview, then 3 control rows of 4 equal columns.
+    func testLayoutWholeCard() {
+        let L = euclideousFillBlockLayout(box: CGSize(width: 360, height: 233), loop: 8)
+        XCTAssertEqual(L.barCount, 8)
         XCTAssertEqual(L.barTiles.count, 8)
-        XCTAssertEqual(L.barTiles[0].width, (171.84 - 2.5 * 7) / 8, accuracy: 1e-6, "bar tile ≈ 19.3 wide, 2.5 apart")
-        XCTAssertEqual(L.barTiles[1].minX - L.barTiles[0].maxX, 2.5, accuracy: 1e-6)
-        XCTAssertEqual(L.speed.width, (171.84 - 3 * 3) / 4, accuracy: 1e-6, "value column ≈ 40.7 wide, 3 apart")
-        XCTAssertEqual(L.ranks.width, L.speed.width * 2 + 3, accuracy: 1e-6, "RANKS spans two columns + the gap")
-        XCTAssertEqual(L.radius, 6)
-        // row y's match the note-value column (0, 27.67, 55.33).
         XCTAssertEqual(L.barTiles[0].minY, 0, accuracy: 1e-6)
-        XCTAssertEqual(L.fill.minY, L.rowH + 3, accuracy: 1e-6)
-        XCTAssertEqual(L.ranks.minY, 2 * (L.rowH + 3), accuracy: 1e-6)
-        // columns: FILL·SPEED·LENGTH·REVERSE on row 2; RANKS(1-2)·SWELL·BREAK on row 3.
+        XCTAssertEqual(L.barTiles[0].height, 28, accuracy: 1e-6, "bar row 28 tall")
+        XCTAssertEqual(L.loopChip.maxX, 360, accuracy: 1e-6, "loop chip at the trailing end")
+        XCTAssertEqual(L.loopChip.width, 34, accuracy: 1e-6)
+        XCTAssertEqual(L.barTiles[1].minX - L.barTiles[0].maxX, 2.5, accuracy: 1e-6, "bar tiles 2.5 apart")
+        XCTAssertEqual(L.previewH, 50, accuracy: 1e-6)
+        XCTAssertEqual(L.preview.minY, 28 + 3, accuracy: 1e-6, "preview after the bar row + gap")
+        XCTAssertEqual(L.preview.height, 50, accuracy: 1e-6)
+        // control rows start after preview + gap; 3 rows 4.5 apart.
+        let top = 28 + 3 + 50 + 3
+        XCTAssertEqual(L.fill.minY, CGFloat(top), accuracy: 1e-6)
+        XCTAssertEqual(L.rowH, (233 - CGFloat(top) - 4.5 * 2) / 3, accuracy: 1e-6)
+        let colW = (360 - 3 * 3) / 4.0
+        XCTAssertEqual(L.fill.width, CGFloat(colW), accuracy: 1e-6, "4 equal columns, 3 apart")
+        // row 1 FILL·SPEED·LENGTH·ORDER, row 2 RANKS·SWELL·HITS·ROLL, row 3 CHANCE·BREAK·LAND·spare.
         XCTAssertEqual(L.fill.minX, 0, accuracy: 1e-6)
-        XCTAssertEqual(L.swell.minX, L.length.minX, accuracy: 1e-6, "SWELL sits under LENGTH (col 3)")
-        XCTAssertEqual(L.brk.minX, L.reverse.minX, accuracy: 1e-6, "BREAK sits under REVERSE (col 4)")
+        XCTAssertEqual(L.order.minX, L.roll.minX, accuracy: 1e-6, "ORDER over ROLL (col 4)")
+        XCTAssertEqual(L.speed.minX, L.swell.minX, accuracy: 1e-6, "SPEED over SWELL (col 2)")
+        XCTAssertEqual(L.length.minX, L.hits.minX, accuracy: 1e-6, "LENGTH over HITS (col 3)")
+        XCTAssertEqual(L.chance.minX, L.ranks.minX, accuracy: 1e-6, "CHANCE under RANKS (col 1)")
+        XCTAssertEqual(L.ranks.minY, L.swell.minY, accuracy: 1e-6)
+        XCTAssertEqual(L.chance.minY, L.brk.minY, accuracy: 1e-6)
+        XCTAssertGreaterThan(L.land.minY, L.swell.minY, "row 3 below row 2")
+        // §4.4 the chips sit in SPEED's / RANKS's top-trailing corner, 13 pt.
+        XCTAssertEqual(L.curveChip.width, 13, accuracy: 1e-6)
+        XCTAssertEqual(L.curveChip.maxX, L.speed.maxX - 2, accuracy: 1e-6)
+        XCTAssertEqual(L.curveChip.minY, L.speed.minY + 2, accuracy: 1e-6)
+        XCTAssertEqual(L.shapeChip.maxX, L.ranks.maxX - 2, accuracy: 1e-6)
     }
 
-    // §4.4 — value text.
+    // §3.1 — the loop length drives the bar-tile count; §5 the preview shrinks then vanishes on a short card.
+    func testLoopCountsAndPreviewShrink() {
+        XCTAssertEqual(euclideousFillBlockLayout(box: CGSize(width: 360, height: 233), loop: 4).barTiles.count, 4)
+        XCTAssertEqual(euclideousFillBlockLayout(box: CGSize(width: 360, height: 233), loop: 16).barTiles.count, 16)
+        XCTAssertEqual(euclideousFillBlockLayout(box: CGSize(width: 360, height: 233), loop: 8).previewH, 50, accuracy: 1e-6)
+        XCTAssertEqual(euclideousFillBlockLayout(box: CGSize(width: 360, height: 190), loop: 8).previewH, 36, accuracy: 1e-6, "< 200 ⇒ 36")
+        XCTAssertEqual(euclideousFillBlockLayout(box: CGSize(width: 360, height: 170), loop: 8).previewH, 0, accuracy: 1e-6, "< 180 ⇒ gone")
+    }
+
+    // §4.4 — value text, incl. ROLL / CHANCE.
     func testValueText() {
         var l = EuclidLine()
         l.fillSpeed = 0; XCTAssertEqual(euclideousFillFieldValueText(.speed, l), "\u{00D7}\u{00BD}")   // ×½
-        l.fillSpeed = 3; XCTAssertEqual(euclideousFillFieldValueText(.speed, l), "\u{00D7}2")
         l.fillSpeed = 4; XCTAssertEqual(euclideousFillFieldValueText(.speed, l), "\u{00D7}4")
         l.fillLength = 0; XCTAssertEqual(euclideousFillFieldValueText(.length, l), "BAR")
-        l.fillLength = 2; XCTAssertEqual(euclideousFillFieldValueText(.length, l), "\u{00BC}")           // ¼
         l.fillRanks = -7; XCTAssertEqual(euclideousFillFieldValueText(.ranks, l), "\u{2212}7")            // −7
-        l.fillRanks = 0; XCTAssertEqual(euclideousFillFieldValueText(.ranks, l), "0")
         l.fillSwell = 2; XCTAssertEqual(euclideousFillFieldValueText(.swell, l), "+2")
+        l.fillRoll = 0; XCTAssertEqual(euclideousFillFieldValueText(.roll, l), "OFF")
+        l.fillRoll = 3; XCTAssertEqual(euclideousFillFieldValueText(.roll, l), "3")
+        l.fillChance = 50; XCTAssertEqual(euclideousFillFieldValueText(.chance, l), "50%")
+        l.fillChance = 100; XCTAssertEqual(euclideousFillFieldValueText(.chance, l), "100%")
     }
 
-    // §4.3 — the leading→trailing index and its round-trip, and the fraction.
-    func testIndexFractionAndRoundTrip() {
+    // §4.3 — index round-trip incl. ROLL / CHANCE; defaults.
+    func testIndexAndRoundTrip() {
         var l = EuclidLine()
-        // LENGTH: leading ¼ (index 0) = stored 2; BAR (index 2) = stored 0.
-        euclideousFillSetFieldIndex(.length, 0, &l); XCTAssertEqual(l.fillLength, 2); XCTAssertEqual(euclideousFillFieldIndex(.length, l), 0)
-        euclideousFillSetFieldIndex(.length, 2, &l); XCTAssertEqual(l.fillLength, 0)
-        // RANKS: index 0 = −7, index 14 = +7; fraction 0…1.
-        euclideousFillSetFieldIndex(.ranks, 0, &l); XCTAssertEqual(l.fillRanks, -7); XCTAssertEqual(euclideousFillFieldFraction(.ranks, l), 0, accuracy: 1e-9)
-        euclideousFillSetFieldIndex(.ranks, 14, &l); XCTAssertEqual(l.fillRanks, 7); XCTAssertEqual(euclideousFillFieldFraction(.ranks, l), 1, accuracy: 1e-9)
-        euclideousFillSetFieldIndex(.ranks, 7, &l); XCTAssertEqual(euclideousFillFieldFraction(.ranks, l), 0.5, accuracy: 1e-9)
-        // clamp.
-        euclideousFillSetFieldIndex(.swell, 99, &l); XCTAssertEqual(l.fillSwell, 3)
-        // defaults (§1.1): ×2, ½, 0, 0.
-        XCTAssertEqual(EuclideousFillField.speed.defaultIndex, 3)
-        XCTAssertEqual(EuclideousFillField.length.defaultIndex, 1)
-        XCTAssertEqual(EuclideousFillField.ranks.defaultIndex, 7)
+        euclideousFillSetFieldIndex(.roll, 4, &l); XCTAssertEqual(l.fillRoll, 4); XCTAssertEqual(euclideousFillFieldIndex(.roll, l), 4)
+        euclideousFillSetFieldIndex(.chance, 0, &l); XCTAssertEqual(l.fillChance, 25); XCTAssertEqual(euclideousFillFieldIndex(.chance, l), 0)
+        euclideousFillSetFieldIndex(.chance, 3, &l); XCTAssertEqual(l.fillChance, 100); XCTAssertEqual(euclideousFillFieldIndex(.chance, l), 3)
+        XCTAssertEqual(EuclideousFillField.roll.defaultIndex, 0)
+        XCTAssertEqual(EuclideousFillField.chance.defaultIndex, 3)
     }
 
-    // §6.3 — tap halves + drag.
-    func testTapHalvesAndDrag() {
-        var l = EuclidLine(); euclideousFillSetFieldIndex(.ranks, 7, &l)   // 0
-        XCTAssertEqual(euclideousFillFieldTapStep(.ranks, l, fracX: 0.2), 6, "leading half steps toward −7")
-        XCTAssertEqual(euclideousFillFieldTapStep(.ranks, l, fracX: 0.8), 8, "trailing half steps toward +7")
-        euclideousFillSetFieldIndex(.ranks, 0, &l)
-        XCTAssertEqual(euclideousFillFieldTapStep(.ranks, l, fracX: 0.2), 0, "clamped at the leading end, no wrap")
-        // drag maps position → nearest index.
-        XCTAssertEqual(euclideousFillFieldDragIndex(.ranks, fracX: 0), 0)
-        XCTAssertEqual(euclideousFillFieldDragIndex(.ranks, fracX: 1), 14)
-        XCTAssertEqual(euclideousFillFieldDragIndex(.ranks, fracX: 0.5), 7)
-        XCTAssertEqual(euclideousFillFieldDragIndex(.speed, fracX: 1), 4)
+    // §4.4/§4.5 — the curve / shape chips and the ORDER / HITS selectors cycle and reset.
+    func testChipsAndSelectors() {
+        var l = EuclidLine()
+        XCTAssertEqual(euclideousFillCurveChipText(l), "STDY"); XCTAssertFalse(euclideousFillCurveIsRush(l))
+        euclideousFillCycleCurve(&l); XCTAssertEqual(euclideousFillCurveChipText(l), "RUSH"); XCTAssertTrue(euclideousFillCurveIsRush(l))
+        euclideousFillCycleCurve(&l); XCTAssertEqual(euclideousFillCurveChipText(l), "STDY")
+        XCTAssertEqual(euclideousFillShapeChipText(l), "CLB")
+        euclideousFillCycleShape(&l); XCTAssertEqual(euclideousFillShapeChipText(l), "ARC")
+        euclideousFillCycleShape(&l); XCTAssertEqual(euclideousFillShapeChipText(l), "SHF")
+        euclideousFillCycleShape(&l); XCTAssertEqual(euclideousFillShapeChipText(l), "CLB")
+        // ORDER cycles FWD → REV → BOUNCE → SHUF → FWD; reset → FWD (and clears the retired reverse flag).
+        XCTAssertEqual(euclideousFillSelectorText(.order, l), "FWD")
+        euclideousFillCycleSelector(.order, &l); XCTAssertEqual(euclideousFillSelectorText(.order, l), "REV")
+        euclideousFillCycleSelector(.order, &l); euclideousFillCycleSelector(.order, &l); XCTAssertEqual(euclideousFillSelectorText(.order, l), "SHUF")
+        euclideousFillCycleSelector(.order, &l); XCTAssertEqual(euclideousFillSelectorText(.order, l), "FWD")
+        euclideousFillCycleSelector(.order, &l); euclideousFillResetSelector(.order, &l); XCTAssertEqual(euclideousFillSelectorText(.order, l), "FWD"); XCTAssertNil(l.fillReverse)
+        // HITS cycles KEEP → ALL → FLIP → KEEP.
+        XCTAssertEqual(euclideousFillSelectorText(.hits, l), "KEEP")
+        euclideousFillCycleSelector(.hits, &l); XCTAssertEqual(euclideousFillSelectorText(.hits, l), "ALL")
+        euclideousFillCycleSelector(.hits, &l); euclideousFillCycleSelector(.hits, &l); XCTAssertEqual(euclideousFillSelectorText(.hits, l), "KEEP")
     }
 
     // §8 — VoiceOver.
     func testVoiceOver() {
         var l = EuclidLine(); l.fillSpeed = 3
         XCTAssertEqual(euclideousFillFieldAX(.speed, l), "Fill speed, times two")
-        l.fillRanks = 3; XCTAssertEqual(euclideousFillFieldAX(.ranks, l), "Fill ranks, plus three")
+        l.fillRoll = 2; XCTAssertEqual(euclideousFillFieldAX(.roll, l), "Fill roll, two")
+        l.fillChance = 75; XCTAssertEqual(euclideousFillFieldAX(.chance, l), "Fill chance, 75 percent")
+        XCTAssertEqual(euclideousFillSelectorAX(.order, l), "Fill order, forward")
         XCTAssertEqual(euclideousFillBarAX(3, on: true, current: true), "Fill bar 4, on, current")
-        XCTAssertEqual(euclideousFillToggleAX(false), "Fill, off")
         XCTAssertEqual(euclideousFillBoolAX("break", on: true), "Fill break, on")
     }
 }

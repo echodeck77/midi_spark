@@ -3872,34 +3872,96 @@ struct EuclideousPage: View {
     }
     // MARK: - FILL block (ferry 2026-11-13) — eight loose tiles (no box/ring) in the RATE tile's old frame; §3/§4/§5/§6
     private func fillBlock(_ idx: Int, _ line: EuclidLine, _ accent: Color, box: CGSize) -> AnyView {
-        let L = euclideousFillBlockLayout(box: box)
-        let armedAny = line.fillAnyBarLit, fillOn = line.fillOnResolved
-        let barsLit = line.fillBarsResolved
-        func pos(_ r: CGRect, _ v: AnyView) -> AnyView { AnyView(v.frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)) }
+        let loop = line.fillLoopResolved
+        let L = euclideousFillBlockLayout(box: box, loop: loop)
+        // The TimelineView closure is ONE expression (a call returning AnyView), so its Content infers cleanly.
         return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
-            let beat: Double? = clock.playing ? lanesMusicalBeat(real: walkTagBeat(at: tl.date)) : nil   // §4.6: nothing current/sounding when stopped
-            let cur = euclideousRateCurrentBox(hostBeat: beat, beatsPerBar: clock.beatsPerBar)            // §5.1: (bar mod 8); reuses the generic current-box helper
-            let prog = beat.map { euclideousRateBarProgress(hostBeat: $0, beatsPerBar: clock.beatsPerBar) } ?? 0
-            // §4.1 "sounding": FILL is on, the current bar is lit, and the host beat is inside that bar's fill region [F, E).
-            var sounding = false
-            if let b = beat {
-                let bn = Int((b / max(1e-6, clock.beatsPerBar)).rounded(.down))
-                if let rg = euclideousFillRegion(line: line, bar: bn, beatsPerBar: clock.beatsPerBar) { sounding = b >= rg.F - 1e-9 && b < rg.E }
-            }
-            return ZStack(alignment: .topLeading) {
-                ForEach(0..<8, id: \.self) { n in
-                    pos(L.barTiles[n], fillBarTile(n: n, lit: barsLit[n], fillOn: fillOn, current: beat != nil && cur == n, sounding: sounding && cur == n, progress: prog, accent: accent, size: L.barTiles[n].size, idx: idx))
-                }
-                pos(L.fill, fillToggleTile(on: fillOn, accent: accent, size: L.fill.size, idx: idx))
-                pos(L.speed, AnyView(EuclideousFillFieldTile(field: .speed, line: line, accent: accent, size: L.speed.size, radius: L.radius, onStep: { s, m in self.editStep(idx, s, m) }, onTap: { m in self.edit(idx, m) })))
-                pos(L.length, AnyView(EuclideousFillFieldTile(field: .length, line: line, accent: accent, size: L.length.size, radius: L.radius, onStep: { s, m in self.editStep(idx, s, m) }, onTap: { m in self.edit(idx, m) })))
-                pos(L.reverse, fillBoolTile(label: "REVERSE", which: "reverse", on: line.fillReverseResolved, accent: accent, size: L.reverse.size, radius: L.radius, idx: idx) { $0.fillReverse = !line.fillReverseResolved })
-                pos(L.ranks, AnyView(EuclideousFillFieldTile(field: .ranks, line: line, accent: accent, size: L.ranks.size, radius: L.radius, onStep: { s, m in self.editStep(idx, s, m) }, onTap: { m in self.edit(idx, m) })))
-                pos(L.swell, AnyView(EuclideousFillFieldTile(field: .swell, line: line, accent: accent, size: L.swell.size, radius: L.radius, onStep: { s, m in self.editStep(idx, s, m) }, onTap: { m in self.edit(idx, m) })))
-                pos(L.brk, fillBoolTile(label: "BREAK", which: "break", on: line.fillBreakResolved, accent: accent, size: L.brk.size, radius: L.radius, idx: idx) { $0.fillBreak = !line.fillBreakResolved })
-            }
-            .frame(width: box.width, height: box.height, alignment: .topLeading)
+            self.fillBlockContent(idx: idx, line: line, accent: accent, box: box, L: L, loop: loop, date: tl.date)
         })
+    }
+    private func fillBlockContent(idx: Int, line: EuclidLine, accent: Color, box: CGSize, L: EuclideousFillBlockLayout, loop: Int, date: Date) -> AnyView {
+        let beat: Double? = clock.playing ? lanesMusicalBeat(real: walkTagBeat(at: date)) : nil   // §4.6: nothing current/sounding when stopped
+        let curRaw = euclideousRateCurrentBox(hostBeat: beat, beatsPerBar: clock.beatsPerBar)
+        let cur: Int                                                                               // §5.1 the current bar, wrapped onto the loop (−1 when stopped)
+        if let c = curRaw, c >= 0 { cur = ((c % loop) + loop) % loop } else { cur = -1 }
+        let prog = beat.map { euclideousRateBarProgress(hostBeat: $0, beatsPerBar: clock.beatsPerBar) } ?? 0
+        let sounding = fillBlockSounding(line, beat: beat)
+        let layers = fillBlockLayers(idx: idx, line: line, accent: accent, L: L, loop: loop, beat: beat, cur: cur, prog: prog, sounding: sounding)
+        return AnyView(ZStack(alignment: .topLeading) {
+            ForEach(0..<layers.count, id: \.self) { layers[$0] }
+        }
+        .frame(width: box.width, height: box.height, alignment: .topLeading))
+    }
+    /// The FILL tab's absolutely-positioned layers as AnyView (built outside the ViewBuilder closure so the closure stays a clean let-and-trailing-expression). §3.4 grouping is Paul's (2026-11-14).
+    private func fillBlockLayers(idx: Int, line: EuclidLine, accent: Color, L: EuclideousFillBlockLayout, loop: Int, beat: Double?, cur: Int, prog: Double, sounding: Bool) -> [AnyView] {
+        let fillOn = line.fillOnResolved
+        let barsLit = line.fillBarsResolved
+        let chipCorner = CGSize(width: 16, height: 16)   // §4.4 the curve/shape chip's corner, notched out of the value tile's hit area
+        func pos(_ r: CGRect, _ v: AnyView) -> AnyView { AnyView(v.frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)) }
+        func value(_ f: EuclideousFillField, _ r: CGRect, exclude: Bool = false) -> AnyView {
+            pos(r, AnyView(EuclideousFillFieldTile(field: f, line: line, accent: accent, size: r.size, radius: L.radius, excludeCorner: exclude ? chipCorner : nil,
+                                                   onStep: { s, m in self.editStep(idx, s, m) }, onTap: { m in self.edit(idx, m) })))
+        }
+        func selector(_ s: EuclideousFillSelector, _ r: CGRect, enabled: Bool = true) -> AnyView {
+            pos(r, AnyView(EuclideousFillSelectorTile(selector: s, line: line, accent: accent, size: r.size, radius: L.radius, enabled: enabled, onTap: { m in self.edit(idx, m) })))
+        }
+        var layers: [AnyView] = []
+        for n in 0..<L.barCount {
+            layers.append(pos(L.barTiles[n], fillBarTile(n: n, lit: barsLit[n], fillOn: fillOn, current: beat != nil && cur == n, sounding: sounding && cur == n, progress: prog, accent: accent, size: L.barTiles[n].size, idx: idx)))
+        }
+        layers.append(pos(L.loopChip, AnyView(EuclideousFillLoopChip(loop: loop, accent: accent, size: L.loopChip.size) { self.edit(idx) { $0.fillLoop = UInt8(loop == 4 ? 8 : (loop == 8 ? 16 : 4)) } })))
+        if L.preview.height > 0 { layers.append(pos(L.preview, fillPreviewStrip(line, accent: accent, size: L.preview.size, loop: loop, beat: beat))) }
+        // §3.4 row 1: FILL · SPEED (+curve chip) · LENGTH · ORDER
+        layers.append(pos(L.fill, fillToggleTile(on: fillOn, accent: accent, size: L.fill.size, radius: L.radius, idx: idx)))
+        layers.append(value(.speed, L.speed, exclude: true))
+        layers.append(pos(L.curveChip, AnyView(EuclideousFillChip(text: euclideousFillCurveChipText(line), lit: euclideousFillCurveIsRush(line), accent: accent, size: L.curveChip.size, axLabel: "Fill curve, \(euclideousFillCurveIsRush(line) ? "rush" : "steady")") { self.edit(idx) { euclideousFillCycleCurve(&$0) } })))
+        layers.append(value(.length, L.length))
+        layers.append(selector(.order, L.order))
+        // §3.4 row 2: RANKS (+shape chip) · SWELL · HITS · ROLL
+        layers.append(value(.ranks, L.ranks, exclude: true))
+        layers.append(pos(L.shapeChip, AnyView(EuclideousFillChip(text: euclideousFillShapeChipText(line), lit: line.fillRanksResolved != 0, accent: accent, size: L.shapeChip.size, axLabel: euclideousFillShapeChipText(line)) { self.edit(idx) { euclideousFillCycleShape(&$0) } })))
+        layers.append(value(.swell, L.swell))
+        layers.append(selector(.hits, L.hits, enabled: false))   // ALL / FLIP deferred (chain-core follow-up) — KEEP is the only wired behaviour
+        layers.append(value(.roll, L.roll))
+        // §3.4 row 3: CHANCE · BREAK · LAND · (spare)
+        layers.append(value(.chance, L.chance))
+        layers.append(pos(L.brk, fillBoolTile(label: "BREAK", which: "break", on: line.fillBreakResolved, accent: accent, size: L.brk.size, radius: L.radius, idx: idx) { $0.fillBreak = !line.fillBreakResolved }))
+        layers.append(pos(L.land, fillBoolTile(label: "LAND", which: "land", on: line.fillLandResolved, accent: accent, size: L.land.size, radius: L.radius, idx: idx) { $0.fillLand = !line.fillLandResolved }))
+        return layers
+    }
+    /// §4.1 — is a fill sounding right now (FILL on, the current bar lit, the host beat inside its region [F, E))?
+    private func fillBlockSounding(_ line: EuclidLine, beat: Double?) -> Bool {
+        guard let b = beat else { return false }
+        let bn = Int((b / max(1e-6, clock.beatsPerBar)).rounded(.down))
+        guard let rg = euclideousFillRegion(line: line, bar: bn, beatsPerBar: clock.beatsPerBar) else { return false }
+        return b >= rg.F - 1e-9 && b < rg.E
+    }
+    /// §5 (slice 5a): a region-timeline preview — the loop's bars, each armed bar's fill region [F, E) washed in the lane
+    /// colour, a playhead on the current bar. Predictor-free (the note-level preview is the next slice). Device-owed look.
+    private func fillPreviewStrip(_ line: EuclidLine, accent: Color, size: CGSize, loop: Int, beat: Double?) -> AnyView {
+        let lenFrac = [1.0, 0.5, 0.25][min(2, line.fillLengthResolved)]   // BAR / ½ / ¼ of a bar
+        let barsLit = line.fillBarsResolved
+        let fillOn = line.fillOnResolved
+        return AnyView(Canvas { ctx, sz in
+            ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: sz), cornerRadius: 6), with: .color(Color(hex: 0x17191E)))
+            let n = max(1, loop)
+            let barW = sz.width / CGFloat(n)
+            for i in 0..<n {
+                let x = CGFloat(i) * barW
+                if i > 0 { ctx.fill(Path(CGRect(x: x, y: 2, width: 0.5, height: sz.height - 4)), with: .color(Color(hex: 0x2A2D34))) }   // bar divider
+                if fillOn && i < barsLit.count && barsLit[i] {   // the fill region: the last `lenFrac` of the bar
+                    let rw = barW * CGFloat(lenFrac)
+                    ctx.fill(Path(roundedRect: CGRect(x: x + barW - rw + 1, y: 3, width: max(1, rw - 2), height: sz.height - 6), cornerRadius: 2), with: .color(lane100(accent).opacity(0.28)))
+                }
+            }
+            if let b = beat, loop > 0 {   // §5 the playhead across the loop
+                let within = (b / max(1e-6, clock.beatsPerBar)).truncatingRemainder(dividingBy: Double(n))
+                let px = CGFloat(within) * barW
+                ctx.fill(Path(CGRect(x: px, y: 0, width: 1.5, height: sz.height)), with: .color(Color(hex: 0xF2F4F7).opacity(0.8)))
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .accessibilityElement(children: .ignore).accessibilityLabel("Fill preview"))
     }
     /// §4.1 one bar tile — the rate grid's selected/unselected look + the current number & progress line + the sounding fill.
     private func fillBarTile(n: Int, lit: Bool, fillOn: Bool, current: Bool, sounding: Bool, progress: Double, accent: Color, size: CGSize, idx: Int) -> AnyView {
@@ -3922,8 +3984,8 @@ struct EuclideousPage: View {
     }
     /// §6.1 toggle bar n (materializing the 8-array the first time).
     private func fillBarsToggled(_ l: EuclidLine, _ n: Int) -> [Bool] { var b = l.fillBarsResolved; b[n].toggle(); return b }
-    /// §4.2 FILL — drawn as PLAY RIFF: the lamp (on/off look) + one "FILL" line beside it; no flash.
-    private func fillToggleTile(on: Bool, accent: Color, size: CGSize, idx: Int) -> AnyView {
+    /// §4.2 FILL — drawn as PLAY RIFF (the lamp + one "FILL" line), now on SPEED's ground (§4.1, FILL TAB ferry).
+    private func fillToggleTile(on: Bool, accent: Color, size: CGSize, radius: CGFloat, idx: Int) -> AnyView {
         let look = euclideousPartPlayLook(on: on)
         return AnyView(HStack(spacing: 3) {
             EuclideousPartPlayLampShape().fill(on ? lane100(accent) : Color.clear)
@@ -3932,6 +3994,7 @@ struct EuclideousPage: View {
             Text("FILL").font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(7 * 0.1).foregroundColor(Color(hex: look.nameHex))
         }
         .frame(width: size.width, height: size.height)
+        .background(RoundedRectangle(cornerRadius: radius).fill(Color(hex: EuclideousMixV2FieldLook.groundHex)))   // §4.1: FILL no longer floats
         .contentShape(Rectangle()).onTapGesture { edit(idx) { $0.fillOn = !on } }
         .accessibilityElement(children: .ignore).accessibilityLabel(euclideousFillToggleAX(on)).accessibilityAddTraits(on ? [.isButton, .isSelected] : [.isButton]))
     }
