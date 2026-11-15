@@ -204,7 +204,7 @@ enum EuclideousRiffPanelTab: Int, CaseIterable, Equatable {
 /// The axis chip for a row: a rank row is the chip's own rank-number look (the corner-less number in the label's type, as an empty pool draws every rank), a TOP row the chip's TOP label with the suffix — the same box as the NOTES keys and the riff grid's labels.
 func euclideousStackAxisSpec(_ row: EuclideousStackRow) -> EuclideousRankChipSpec {
     switch row {
-    case .rank(let r): return EuclideousRankChipSpec(rank: r, topKind: 0, received: true, lit: false, empty: true, name: String(r), cornerNumber: false)
+    case .rank(let r): return EuclideousRankChipSpec(rank: r, topKind: 0, received: true, lit: false, empty: true, name: String(r), cornerNumber: false, rankBar: true)   // STACK GREY §5.2: the axis carries the grey rank bar
     case .top:         return EuclideousRankChipSpec(rank: 0, topKind: 2, received: true, lit: false, empty: false, name: "", cornerNumber: false)
     case .topMinus1:   return EuclideousRankChipSpec(rank: 0, topKind: 3, received: true, lit: false, empty: false, name: "", cornerNumber: false)
     case .topMinus2:   return EuclideousRankChipSpec(rank: 0, topKind: 4, received: true, lit: false, empty: false, name: "", cornerNumber: false)

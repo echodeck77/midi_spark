@@ -27,6 +27,9 @@ struct EuclideousStackCellView: View {
             }
             RoundedRectangle(cornerRadius: 5).fill(lit ? accent.opacity(look.fillAlpha) : Color(hex: 0x1F2127))
             if !lit { RoundedRectangle(cornerRadius: 5).strokeBorder(accent.opacity(live ? 0.3 : 0.12), lineWidth: 1) }
+            if look.labelInk {   // STACK GREY §5.1: a 2 pt #F2F4F7 inner stroke marks a SOUNDING cell (labelInk ⇔ sounding) — over the fill, under the name and the riff arrow
+                RoundedRectangle(cornerRadius: 5).strokeBorder(Color(hex: 0xF2F4F7), lineWidth: 2)
+            }
             // §3.1: the name is centred in the cell width MINUS a 22 pt left inset, so it never moves when the arrow appears (arrow or not).
             Text(name).font(stackHeavyMono(fontSize)).foregroundColor(label(lit)).lineLimit(1)   // truncate, never shrink
                 .position(x: (AT.nameInset + size.width) / 2, y: size.height / 2)

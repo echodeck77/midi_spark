@@ -75,7 +75,13 @@ struct EuclideousRankChipView: View {
             RoundedRectangle(cornerRadius: 6).fill(fill)
             RoundedRectangle(cornerRadius: 6).strokeBorder(border, lineWidth: 1)
             // the label: centred in the chip above a 6 pt bottom inset, clear of the bar and the place number (two rows on NOW, one everywhere else)
-            if useStack {
+            if spec.rankBar {   // STACK GREY §5.2: the STACK grid's axis — the rank number over a 50 %-width grey bar, the pair centred
+                VStack(spacing: 3) {
+                    label
+                    RoundedRectangle(cornerRadius: 1.5).fill(StackRankPalette.colour(rank: spec.rank)).frame(width: size.width * 0.5, height: 3)
+                }
+                .frame(width: size.width, height: size.height, alignment: .center)
+            } else if useStack {
                 stackedLabel.frame(width: size.width, height: size.height - 6).frame(maxHeight: .infinity, alignment: .center)
             } else {
                 label.frame(width: size.width, height: size.height - 6).frame(maxHeight: .infinity, alignment: .top)

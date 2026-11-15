@@ -110,4 +110,20 @@ final class StackGreyTests: XCTestCase {
         let part = [NoteRollNote(onBeat: 0, endBeat: nil, pitch: 64, velocity: 100, outs: 1, rank: 4)]
         for r in 1...8 { XCTAssertEqual(euclideousStackSounding(notesPart: part, rank: r, nowBeat: 1).sounding, r == 4, "rank \(r)") }
     }
+
+    // §8.10 — the STACK grid's sounding gate: a sounding cell is marked (labelInk true ⇒ the §5.1 2 pt white inner stroke draws); a rest / off cell is not.
+    func testStackCellSoundingGate() {
+        XCTAssertTrue(euclideousStackCellLook(selected: true, sounding: true, glowAgeSeconds: nil, reduceMotion: true).labelInk, "sounding ⇒ the white stroke draws")
+        XCTAssertFalse(euclideousStackCellLook(selected: true, sounding: false, glowAgeSeconds: nil, reduceMotion: true).labelInk, "selected-at-rest ⇒ no stroke")
+        XCTAssertFalse(euclideousStackCellLook(selected: false, sounding: false, glowAgeSeconds: nil, reduceMotion: true).labelInk, "off ⇒ no stroke")
+    }
+
+    // §8.11 — the axis bar is OPT-IN: the STACK grid's rank axis sets rankBar; TOP rows and every other user of the shared chip (the riff-grid labels, NOW, the NOTES keys) leave it false.
+    func testAxisBarOptInOnly() {
+        for r in 1...8 { XCTAssertTrue(euclideousStackAxisSpec(.rank(r)).rankBar, "axis rank \(r) carries the bar") }
+        XCTAssertFalse(euclideousStackAxisSpec(.top).rankBar, "a TOP row gets no bar")
+        XCTAssertFalse(euclideousStackAxisSpec(.topMinus1).rankBar)
+        XCTAssertFalse(euclideousRankChip(rank: 3, name: "C", received: true, lit: false, empty: false).rankBar, "the grid labels / NOW builder leaves it false")
+        XCTAssertTrue(euclideousRankChips(sortedPool: [60, 64, 67], litMask: 0, name: { "n\($0)" }).allSatisfy { !$0.rankBar }, "NOW / the keys leave it false")
+    }
 }

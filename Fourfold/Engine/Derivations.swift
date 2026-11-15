@@ -11618,6 +11618,8 @@ struct EuclideousRankChipSpec: Equatable {
     var sounding = 0.0
     /// NOW only (INPUTS + HARMONY 3.2): the source that supplied a RECEIVED note — 0 MIDI · 1 CHORDS · 2 PICK · 3 KEY; nil for an octave copy, an empty pool, and every chip the NOTES keys and the grid's labels draw.
     var sourcePip: UInt8? = nil
+    /// STACK RANKS GREY ferry (2026-11-15) §5.2: the STACK grid's AXIS draws a grey rank bar under the number. Opt-in — only `euclideousStackAxisSpec` sets it true, so the riff-grid label column, NOW, the NOTES keys and the MIX chips are unchanged.
+    var rankBar: Bool = false
 }
 /// §5.4 / §8.3: one rank chip of a pool. `name` is the note's display name (nil: no note at this rank).
 func euclideousRankChip(rank: Int, name: String?, received: Bool, lit: Bool, empty: Bool) -> EuclideousRankChipSpec {
