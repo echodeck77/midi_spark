@@ -3921,7 +3921,7 @@ struct EuclideousPage: View {
         layers.append(value(.ranks, L.ranks, exclude: true))
         layers.append(pos(L.shapeChip, AnyView(EuclideousFillChip(text: euclideousFillShapeChipText(line), lit: line.fillRanksResolved != 0, accent: accent, size: L.shapeChip.size, axLabel: euclideousFillShapeChipText(line)) { self.edit(idx) { euclideousFillCycleShape(&$0) } })))
         layers.append(value(.swell, L.swell))
-        layers.append(selector(.hits, L.hits, enabled: false))   // ALL / FLIP deferred (chain-core follow-up) — KEEP is the only wired behaviour
+        layers.append(selector(.hits, L.hits))   // §2.3 KEEP / ALL / FLIP — wired via the fill walk's per-step advance
         layers.append(value(.roll, L.roll))
         // §3.4 row 3: CHANCE · BREAK · LAND · (spare)
         layers.append(value(.chance, L.chance))

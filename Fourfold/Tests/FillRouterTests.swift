@@ -12,7 +12,7 @@ private final class FillEmitter: MIDIEmitter {
     var ons: [Ev] { events.filter { $0.status == 0x90 && $0.vel > 0 } }
 }
 
-struct FillSpec { var bars: [Bool]; var speed: UInt8 = 3; var length: UInt8 = 1; var reverse = false; var ranks: Int8 = 0; var swell: Int8 = 0; var brk = false }
+struct FillSpec { var bars: [Bool]; var speed: UInt8 = 3; var length: UInt8 = 1; var reverse = false; var ranks: Int8 = 0; var swell: Int8 = 0; var brk = false; var hits: EuclideousFillHits = .keep }
 
 final class FillRouterTests: XCTestCase {
     // 120 BPM at 48 kHz: 1 beat = 24000 samples. One strike opens an own-cable (1) voice AND an ALL (0) voice — count cable 1.
@@ -23,10 +23,10 @@ final class FillRouterTests: XCTestCase {
     private func perBar(_ beats: [Double]) -> [Int: Int] { Dictionary(grouping: beats, by: { Int(($0 + 1e-3) / 4.0) }).mapValues { $0.count } }
 
     /// An 8-step 1/8 lane, every step a hit, a `ranks`-pattern riff over `pool` held notes. `fill` sets the fill fields.
-    private func run(fill: FillSpec?, riffRanks: [Int] = [1, 1, 1, 1, 1, 1, 1, 1], pool poolNotes: [UInt8] = [60], beats: Double = 32) -> FillEmitter {
-        var l = EuclidLine(target: 0, pulses: 8, steps: 8, useRiff: true, riffOn: true, sourceMode: .midi)
+    private func run(fill: FillSpec?, riffRanks: [Int] = [1, 1, 1, 1, 1, 1, 1, 1], pool poolNotes: [UInt8] = [60], beats: Double = 32, pulses: Int = 8) -> FillEmitter {
+        var l = EuclidLine(target: 0, pulses: pulses, steps: 8, useRiff: true, riffOn: true, sourceMode: .midi)
         l.rate = .r1_8; l.gate = 0.5; l.velocityAbsolute = 90; l.litNotes = 0; l.notesOn = false
-        if let f = fill { l.fillBars = f.bars; l.fillSpeed = f.speed; l.fillLength = f.length; l.fillReverse = f.reverse; l.fillRanks = f.ranks; l.fillSwell = f.swell; l.fillBreak = f.brk }
+        if let f = fill { l.fillBars = f.bars; l.fillSpeed = f.speed; l.fillLength = f.length; l.fillReverse = f.reverse; l.fillRanks = f.ranks; l.fillSwell = f.swell; l.fillBreak = f.brk; l.fillHits = f.hits }
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: riffRanks)
         c.paramsA.euclidLines = [l] + (1..<4).map { _ in EuclidLine(enabled: false) }
@@ -138,6 +138,28 @@ final class FillRouterTests: XCTestCase {
         let over = onBeats(run(fill: FillSpec(bars: bar(3), speed: 3, length: 0, brk: true)))
         XCTAssertTrue(over.filter { $0 >= 15 - 1e-6 && $0 < 16 - 1e-6 }.isEmpty, "the last quarter is silent")
         XCTAssertFalse(over.filter { $0 >= 12 - 1e-6 && $0 < 15 - 1e-6 }.isEmpty, "the rest of the bar still fills")
+    }
+
+    // MARK: §2.3 HITS (KEEP / ALL / FLIP) — a sparse lane so the three differ
+
+    func testHitsAllStrikesEveryStepAndFlipTakesTheRests() {
+        // A sparse 3-of-8 lane, ×2 BAR on bar 3 ⇒ 16 lane steps fill the bar. KEEP strikes the pattern's hits; ALL strikes
+        // all 16; FLIP strikes exactly the rests ⇒ KEEP + FLIP = 16. (The walk also runs through its columns per step — §2.3.)
+        func barThree(_ h: EuclideousFillHits) -> Int {
+            onBeats(run(fill: FillSpec(bars: bar(3), speed: 3, length: 0, hits: h), pulses: 3)).filter { $0 >= 12 - 1e-6 && $0 < 16 - 1e-6 }.count
+        }
+        let keep = barThree(.keep), all = barThree(.all), flip = barThree(.flip)
+        XCTAssertEqual(all, 16, "ALL strikes every one of the 16 ×2 steps in the bar")
+        XCTAssertGreaterThan(keep, 0, "the sparse pattern still has hits")
+        XCTAssertLessThan(keep, all, "KEEP is sparser than ALL")
+        XCTAssertEqual(flip, all - keep, "FLIP strikes exactly the steps KEEP rests on (they partition the region)")
+    }
+
+    func testHitsKeepLeavesTheFillUnchanged() {
+        // KEEP must be identical to the same ×2 fill with no HITS field set (the default) — the whole event stream.
+        let base = run(fill: FillSpec(bars: bar(3), speed: 3, length: 0), pulses: 3).events
+        let keep = run(fill: FillSpec(bars: bar(3), speed: 3, length: 0, hits: .keep), pulses: 3).events
+        XCTAssertEqual(keep, base, "HITS KEEP ⇒ byte-identical to the default fill")
     }
 
     // MARK: §2.8 rejoin (test 8) — the bar after a region matches no fill

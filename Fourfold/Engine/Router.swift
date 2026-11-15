@@ -671,6 +671,8 @@ final class Router {
     private var euclideousFillRollNow: Int = 1
     // FILL TAB ferry (2026-11-14) §2.6 LAND: the gate multiplier for the slot the body is emitting — 2 on a LAND rejoin step (the first ×1 step at/after a LAND region's end), 1 otherwise ⇒ byte-identical. Folded into gateBeatsWithTie so every non-poly strike's note rings 2×.
     private var euclideousFillGateScaleNow: Double = 1
+    // FILL TAB ferry (2026-11-15) §2.3 HITS: 0 KEEP (the lane's own pattern, byte-identical) · 1 ALL (every region step strikes) · 2 FLIP (the region's rests strike). Set per slot by the fill loop (0 outside a region). In a region it forces the riff walk to advance per STEP (reusing ADV STEP's localT ordinal, so the walk runs through its columns) and overrides the step's hit-test.
+    private var euclideousFillHitsNow: Int8 = 0
     // FILL TAB ferry (2026-11-14) §2.2: a reused fixed scratch for ORDER=SHUFFLE's permutation (built once per region, never per slot, never per window) — no render-thread allocation. Sized to the 128 reverse cap.
     private var euclideousFillShufBuf = [Int](repeating: 0, count: euclideousFillReverseCap)
     // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
@@ -2185,7 +2187,7 @@ final class Router {
                               fill: EuclideousFillPlan? = nil,   // FILL ferry (2026-11-13): a per-lane fill; nil / inactive ⇒ the loop below is byte-identical to today
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
-        euclideousFillStepScaleNow = 1; euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1; euclideousFillRollNow = 1; euclideousFillGateScaleNow = 1   // FILL: neutral for the ×1 / non-fill path; the fill loop sets them per slot (§2.4 step scale, §2.5 rank climb + roll, §2.6 swell + LAND gate)
+        euclideousFillStepScaleNow = 1; euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1; euclideousFillRollNow = 1; euclideousFillGateScaleNow = 1; euclideousFillHitsNow = 0   // FILL: neutral for the ×1 / non-fill path; the fill loop sets them per slot (§2.3 hits, §2.4 step scale, §2.5 rank climb + roll, §2.6 swell + LAND gate)
         let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
         let mStartReal = musicalOf(beatPos, stepBeats: S, a: a)
         let mEndReal = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -2288,8 +2290,9 @@ final class Router {
                     euclideousFillRollNow = euclideousFillRollCount(roll: region?.roll ?? 0, slot: s, count: N)   // §2.5 ROLL (0 ⇒ 1 ⇒ byte-identical)
                     euclideousFillVelFactorNow = euclideousFillSwellFactor(swell: region?.swell ?? 0, slot: s, count: N)
                     euclideousFillGateScaleNow = 1   // LAND is a ×1-rejoin thing, never inside the region
+                    euclideousFillHitsNow = region?.hits == .all ? 1 : (region?.hits == .flip ? 2 : 0)   // §2.3 HITS (KEEP ⇒ 0 ⇒ byte-identical)
                 } else {
-                    euclideousFillRankOffsetNow = 0; euclideousFillRollNow = 1
+                    euclideousFillRankOffsetNow = 0; euclideousFillRollNow = 1; euclideousFillHitsNow = 0
                     // §2.6 LAND: the first ×1 step at/after a LAND region's end E (= the bar start b·L of the bar after it) lands with vel ×1.3 + gate ×2. A per-slot test (no carried state) so it fires on the right slot whatever window it lands in; off ⇒ 1 ⇒ byte-identical.
                     let b = Int((hostBeat / L + 1e-9).rounded(.down))
                     let landHere = (fill.region(bar: b - 1)?.land ?? false) && hostBeat - Double(b) * L >= -1e-9 && hostBeat - Double(b) * L < sub - 1e-9
@@ -3633,7 +3636,8 @@ final class Router {
                                                       chains: chains, legacySpanBeats: ladderSpanBeats, hostBeat: fillPlan != nil ? mTickBeat : nil)
                     let localT = ph.localT
                     let raw = ph.raw
-                    let rawIsHit = ph.rawIsHit
+                    // FILL §2.3 HITS: in a region, ALL makes every step a hit, FLIP strikes the rests; KEEP (0, and every non-fill tick) is the lane's own pattern ⇒ byte-identical.
+                    let rawIsHit = euclideousFillHitsNow == 1 ? true : (euclideousFillHitsNow == 2 ? !ph.rawIsHit : ph.rawIsHit)
                     let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle since the rhythm origin (localT = cy·cycleLen + raw) — the MISS ordinal below reads it, and LISTEN REBUILT's ECHO cycle-roll (§4.2)
                     // LISTEN REBUILT (§3): COPY/FILL already REPLACED `euclidBuf` itself with the borrowed
                     // pattern above — there is no separate per-tick filter any more (unlike the old WITH/
@@ -3805,7 +3809,7 @@ final class Router {
                         // pick keeps following the rhythm) AND `advOrd`, the riff walk's ordinal, counted from the MELODY origin. No `locked:`
                         // parameter — a melody chain of exactly [1] reproduces old LOCK's own re-anchoring with no special-casing (§4.7).
                         let tickInfo = euclideousLaneChainTick(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
-                                                               legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep, hostBeat: fillPlan != nil ? mTickBeat : nil)
+                                                               legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep || euclideousFillHitsNow != 0, hostBeat: fillPlan != nil ? mTickBeat : nil)   // FILL §2.3: a HITS region advances the riff walk per STEP so it runs through its columns (KEEP ⇒ unchanged)
                         let hitsUpTo = tickInfo.hitsUpTo
                         let ord = tickInfo.ord
                         // ALT ferry (§2/§3): this hit's per-part effective OCT / VEL / GATE / OUT. Decided ONCE here (§2.4 — every note of the hit and every ratchet strike share the state), from the unit's count (all 0-based from the rhythm origin:
