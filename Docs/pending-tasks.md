@@ -2248,3 +2248,7 @@ The model + engine + strip + collapsed/expanded UI are landed, byte-identical wh
 Display-only; golden byte-identical. One ruler per RESETS tile (passes/riff cycles as blocks, host grid, hits, hatched-when-cut, playhead), the value as a part:bar ratio, MELODY units reordered to PASS·BAR·HIT, FREE units outlined (not tinted), a RESETS-local 60% dim, a linked-MELODY FREE-pill dim, numbered source squares (own-lane undrawn), the running-link progress bar, link+arrow.down, and §4 VoiceOver. Slices 1–6 on main (`f2b11aa`, `6818974`, `bd5c5fd`, + slice 6). Open:
 - [ ] (spec vs code, reported) §5 test 3 ("20 steps of 1/16") is unreachable — EuclidLine STEPS clamps to 16 (`Models.swift`), so a 1/16 pass never exceeds one bar; the ruler/ratio handle a >16-step stored value (`min(16, steps)`) but the UI stepper can't make one. Substituted a legal 16-steps-of-1/8 case in the tests.
 - [ ] (device-owed) everything in `Docs/euclideous-device-verification-debt.md`'s RESETS V2 block, incl. the simulator-only `FourfoldStackBudgetTests` (the SectionView gained a TimelineView).
+
+## PLAY AS ROWS amend 3 (2026-11-15, Fourfold) — LANDED
+Display-only; golden byte-identical. RANKS label → a button that opens the pop-up; REPEAT button gone; tiles fill (~35 pt). The pop-up lights + roles ranks (live unlit cells, `euclideousRanksPopupCellTap`); the grey bar's SHAPE shows the role (replaces amend 2's marks); WHEN RIFF is two independent toggles (two flags). Open:
+- [ ] (device-owed) the lines in `Docs/euclideous-device-verification-debt.md`'s amend-3 block.

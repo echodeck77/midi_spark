@@ -13,8 +13,10 @@ final class PlayAsRowsUITests: XCTestCase {
             XCTAssertEqual(lay.emitRow.maxY, 226, accuracy: 0.01, "EMIT+OCT bottom at 226")
             XCTAssertEqual(lay.rankTiles.count, 8)
             XCTAssertEqual(lay.rankLabel.width, 55, "§A10 label column 55")
-            XCTAssertEqual(lay.rankTiles[0].width, 26, accuracy: 0.01, "§A2.2 26 pt tiles")
+            XCTAssertEqual(lay.rankTiles[0].width, (360.67 - 80) / 8, accuracy: 0.01, "amend 3 §C1.3: tiles fill (~35.08 at 360.67), REPEAT gone")
+            XCTAssertEqual(lay.rankTiles[0].height, 26, accuracy: 0.01, "§C1.3 height unchanged")
             XCTAssertEqual(lay.rankTiles[0].minX, 59, accuracy: 0.01, "tiles after the 55 label + 4 subGap")
+            XCTAssertEqual(lay.rankTiles[7].maxX, 360.67, accuracy: 0.01, "§C1.3 the eighth tile fills to the row's end")
         }
     }
     // §A10.2 / test 7: at both references every control's frame lies inside the card, and REPEAT is inside the card clear of the tiles.
@@ -23,10 +25,9 @@ final class PlayAsRowsUITests: XCTestCase {
             let lay = euclideousPlayAsRowsLayout(contentAreaH: 229, fullWidth: w)
             for t in lay.rankTiles {
                 XCTAssertGreaterThanOrEqual(t.minX, lay.rankLabel.maxX)
-                XCTAssertLessThanOrEqual(t.maxX, lay.repeatButton.minX, "tiles clear of REPEAT at \(w)")
+                XCTAssertLessThanOrEqual(t.maxX, w + 0.01, "tile inside the card at \(w)")
             }
-            XCTAssertEqual(lay.repeatButton.width, 56)
-            XCTAssertLessThanOrEqual(lay.repeatButton.maxX, w + 0.01, "REPEAT inside the card")
+            XCTAssertEqual(lay.rankTiles[7].maxX, w, accuracy: 0.01, "amend 3 §C1.3: tiles fill to the row's end (REPEAT removed)")
             for r in [lay.whenRow, lay.orderRow, lay.voicesRow, lay.spreadRow, lay.bassRow, lay.emitRow] {
                 XCTAssertEqual(r.width, w); XCTAssertGreaterThan(r.minY, 0); XCTAssertLessThanOrEqual(r.maxY, 226.01)
             }

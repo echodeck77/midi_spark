@@ -9,15 +9,13 @@ import CoreGraphics
 struct EuclideousPlayAsRowsLayout: Equatable {
     static let rowH: CGFloat = 28, gap: CGFloat = 5, subGap: CGFloat = 4
     static let labelW: CGFloat = 55, chanceW: CGFloat = 88
-    static let tile: CGFloat = 26, tileGap: CGFloat = 3          // §A2.2: 26 pt tiles, 3 apart
-    static let repeatW: CGFloat = 56                             // §A2.5: the RANKS row's REPEAT button (right-aligned)
+    static let tile: CGFloat = 26, tileGap: CGFloat = 3          // §A2.2: 26 pt TALL tiles, 3 apart (amend 3 §C1.3 widens them to fill; height stays 26)
     static let bassSwitchW: CGFloat = 30, bassPillW: CGFloat = 44
 
     var content: CGRect = .zero
     var ranks: CGRect = .zero                       // the RANKS row
-    var rankLabel: CGRect = .zero                   // §A2.1: the RANKS label in the label column
-    var rankTiles: [CGRect] = []                    // the eight 1…8 tiles (after the label)
-    var repeatButton: CGRect = .zero                // §A2.5
+    var rankLabel: CGRect = .zero                   // amend 3 §C1.1: the RANKS button in the label column
+    var rankTiles: [CGRect] = []                    // the eight 1…8 tiles — amend 3 §C1.3: they fill from the label column to the row's end (REPEAT removed)
     var whenRow: CGRect = .zero, orderRow: CGRect = .zero, voicesRow: CGRect = .zero, spreadRow: CGRect = .zero, bassRow: CGRect = .zero, emitRow: CGRect = .zero
     var fits: Bool = true
 
@@ -36,15 +34,15 @@ func euclideousPlayAsRowsLayout(contentAreaH: CGFloat, fullWidth: CGFloat) -> Eu
     let w = max(1, fullWidth)
     var out = EuclideousPlayAsRowsLayout(content: CGRect(x: 0, y: 0, width: w, height: contentAreaH))
 
-    // RANKS row: the label, eight 26 pt tiles, then REPEAT right-aligned. The tiles (and REPEAT) are centred in the 28 pt row.
+    // RANKS row (amend 3 §C1): the RANKS button in the label column, then eight tiles that FILL to the row's end (no REPEAT). Tiles 26 TALL, centred; width grows to fill, gap 3 unchanged.
     out.ranks = CGRect(x: 0, y: 0, width: w, height: L.rowH)
     out.rankLabel = CGRect(x: 0, y: 0, width: L.labelW, height: L.rowH)
     let tilesX = L.labelW + L.subGap
     let tileY = (L.rowH - L.tile) / 2
+    let tileW = max(1, (w - tilesX - CGFloat(7) * L.tileGap) / 8)   // §C1.3: fill from the label column to w
     var tiles: [CGRect] = []
-    for i in 0..<8 { tiles.append(CGRect(x: tilesX + CGFloat(i) * (L.tile + L.tileGap), y: tileY, width: L.tile, height: L.tile)) }
+    for i in 0..<8 { tiles.append(CGRect(x: tilesX + CGFloat(i) * (tileW + L.tileGap), y: tileY, width: tileW, height: L.tile)) }
     out.rankTiles = tiles
-    out.repeatButton = CGRect(x: w - L.repeatW, y: tileY, width: L.repeatW, height: L.tile)
 
     // The six rows below, 28 tall, 5 apart.
     var y: CGFloat = L.rowH

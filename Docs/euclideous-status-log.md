@@ -11985,3 +11985,23 @@ Display-only (no sound/storage/schedule/undo change; golden byte-identical throu
 **Slice 6 — VoiceOver (§4).** `euclideousRestartTileVoiceOver` — "Rhythm, 7-step pass, 8-step bar" / "Melody, 17-step riff, 8-step bar" + ", free" + ", cut short" (the block under the playhead); RESTART UNITS 9.1's "next restart in N" follows as the a11y VALUE (the state is still computed for it, its sweep/track just not drawn). §4.2 the running chip's label appends ", playing".
 
 **Known / device-owed (§7):** the ruler's legibility (blocks vs bar lines, hatching in all four lane colours), FREE drift, ratio clarity without labels, the 60% dim reading as available, the 12 pt lane numbers. `FourfoldStackBudgetTests` is simulator-only — the SectionView gained one TimelineView (the running-bar), confirm the page's debug stack in the simulator pass. The ruler draws FREE-melody blocks via a bounded completion walk (degrades to the beat past the cap — untested by §5). Goldens + the RESTART UNITS / editor-v2 equivalence suites unchanged (§5 test 10).
+
+---
+
+## PLAY AS ROWS, AMENDMENT 3 ferry (2026-11-15, Fourfold) — RANKS opens the pop-up, the pop-up lights + roles ranks, the bar's shape shows the role, WHEN reads correctly
+
+Display-only (no engine/stored-field change; golden byte-identical). Ratified by Paul. Findings `Docs/play-as-rows-amend3-findings.md`.
+
+**§0.1 found:** WHEN is TWO independent flags (`notesWhen` bits 0/1, default both) drawn as a segmented control → both lit read as a broken either/or ⇒ §C4.2. The rank toggle `euclideousToggleLitPosition` (`Derivations.swift`) is the one shared store (tile + STACK grid); roles are a separate field, so they persist across off/on.
+
+**§C1 the RANKS row.** The RANKS label is a BUTTON (`notesRanksButton`: a 26-tall #24262C pill, "RANKS" #AAB0BA, a ≥44 tall tap target) that opens the pop-up; the REPEAT button is removed (`notesRepeatButton` deleted — nothing else used it). The eight tiles fill from the label column to the row's end (`euclideousPlayAsRowsLayout`: `repeatButton`/`repeatW` removed; tile width = (w−80)/8 ≈ **35.08 landscape / 35.88 portrait**, from 26; gap 3 + height 26 unchanged). The sounding ring stays INSIDE (gap 3 < 7). A tap still toggles the rank (same store); a rank that comes back on keeps its role.
+
+**§C2 the RANKS pop-up (was REPEAT).** Title "RANKS" (a11y "Ranks, lane n"). Unlit columns are LIVE: their cells draw #1E2025 (was dead #131518), the header number stays #5A5E66. A tap on ANY cell runs the pure `euclideousRanksPopupCellTap` in one undo step — unlit ⇒ light the rank (via the shared toggle, so addedOrder + the STACK grid update) + set the role; a lit rank's SELECTED cell ⇒ turn it off (role kept); a different cell of a lit rank ⇒ set the role; PEDAL on an unlit rank lights it, moves the pedal and returns the old pedal to ONCE. VoiceOver: unlit cells are no longer hidden — "Rank 3, once", value "off" when unlit, the selected trait on a lit role.
+
+**§C3 the rank bar shows the role (replaces amend 2 §B4; amends stack-grey 4.1).** ONE grey bar under each number, filled `stackRankColour(rank)`, 3 tall, whose SHAPE is the role (`euclideousRankBarSegments`, pure: ONCE one 40 % bar · DOUBLE two 18 % bars 1.5 pt apart · RETURN two 14 % bars 12 %-of-width apart · PEDAL one 70 % bar, % of the tile's width, centred); an unlit tile draws ONCE (§C3.2). Amend 2's #1B1D22 dots/bar (`notesRoleMark`) removed (§C3.3) — nothing else sits under the number. The STACK grid axis bars + the sounding ring are unchanged. The segment fractions / DOUBLE gap are named (`EuclideousRankBarShape`, §C3.6, stack-grey §9's tunables list).
+
+**§C4.2 WHEN RIFF — two independent toggles.** PLAYS and RESTS are two 72 × 23 toggle tiles (`whenToggle`), 4 apart, each lit from its own flag (on = lane100 fill + #1B1D22; off = #24262C + #8D939D); a tap toggles its own bit (keeping ≥1 on — the model forces 0 ⇒ both). CHANCE unchanged. (Replaces the one segmented control that made both read selected.)
+
+**Tests** (`PlayAsRowsAmendment3Tests`, §C5 1–5; `PlayAsRowsUITests` §C1/§C5 6): the pop-up cell tap (light+role / off-keep-role), PEDAL-moves-pedal, pop-up == grid share the store, the bar shapes, WHEN two flags, the tiles fill at both references. Also fixed the pre-existing stale `testRepeatPopupLayout` (asserted amend 1's 4-row/32 pop-up vs amend 2's 5-row/26). iOS build clean; golden byte-identical.
+
+**Known / device-owed (§C7):** the ONCE/DOUBLE/RETURN/PEDAL bar shapes told apart at a glance on every rank's grey (rank 1's dark grey included); light-and-role in one tap feeling natural + tap-again-off not hit by accident; the RANKS button reading as a button; the wider (~35) tiles + the 44-tall RANKS tap target overflowing the 28 row are device-owed.

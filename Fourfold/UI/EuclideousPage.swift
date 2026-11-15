@@ -5530,8 +5530,7 @@ struct EuclideousPage: View {
           let beat = walkTagBeat(at: tl.date)
           let notesPart = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
           ZStack(alignment: .topLeading) {
-            Text("RANKS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))   // §A2.1
-                .frame(width: lay.rankLabel.width, height: lay.rankLabel.height, alignment: .leading).offset(x: lay.rankLabel.minX, y: lay.rankLabel.minY).accessibilityHidden(true)
+            notesRanksButton(idx, frame: lay.rankLabel)   // amend 3 §C1.1: the RANKS label is a button that opens the pop-up
             ForEach(0..<8, id: \.self) { r in
                 let frame = lay.rankTiles[r]
                 let lit = order.contains(r)
@@ -5540,8 +5539,6 @@ struct EuclideousPage: View {
                 notesRankTile(idx, rank: r + 1, lit: lit, role: line.notesRankRole(r + 1), accent: accent, sounding: sounding, tileWidth: frame.width)
                     .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
             }
-            notesRepeatButton(idx, accent: accent)   // §A2.5
-                .frame(width: lay.repeatButton.width, height: lay.repeatButton.height).offset(x: lay.repeatButton.minX, y: lay.repeatButton.minY)
         }
           .frame(width: lay.content.width, height: lay.ranks.height, alignment: .topLeading)
           .accessibilityElement(children: .contain).accessibilityLabel("Ranks")
@@ -5585,14 +5582,17 @@ struct EuclideousPage: View {
         }
         .frame(width: width, height: 3)
     }
-    /// §A2.5: the REPEAT button at the RANKS row's right — opens the REPEAT pop-up (A1.2 colours).
-    private func notesRepeatButton(_ idx: Int, accent: Color) -> some View {
-        Text("REPEAT").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8D939D))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x24262C)))
+    /// amend 3 §C1.1: the RANKS button in the label column — a 26-tall pill (r4, #24262C, "RANKS" #AAB0BA) with a ≥44 tall tap target centred on it; opens the RANKS pop-up (§C2). (Replaces §A2.5's REPEAT button, removed §C1.2.)
+    private func notesRanksButton(_ idx: Int, frame: CGRect) -> some View {
+        let target: CGFloat = 44
+        return RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x24262C))
+            .frame(width: frame.width, height: EuclideousPlayAsRowsLayout.tile)
+            .overlay(Text("RANKS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA)))
+            .frame(width: frame.width, height: target)   // §C1.1: ≥44 tall tap target, the pill centred in it
             .contentShape(Rectangle())
             .onTapGesture { closeAllOtherOverlays(); notesRepeatPopup = idx }
-            .accessibilityElement(children: .ignore).accessibilityLabel("Repeat").accessibilityAddTraits(.isButton)
+            .accessibilityElement(children: .ignore).accessibilityLabel("Ranks").accessibilityAddTraits(.isButton)   // §C2.8
+            .offset(x: frame.minX, y: frame.midY - target / 2)
     }
     // (PLAY AS ROWS amend 2 §B3: `notesCopyCell` — the 2ND / 3RD AGAIN/LATER cell — is retired with the count model.)
 
@@ -5622,7 +5622,7 @@ struct EuclideousPage: View {
         ZStack(alignment: .topLeading) {
             // title + close
             HStack(spacing: 0) {
-                Text("REPEAT").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                Text("RANKS").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))   // amend 3 §C2.1
                 Spacer()
                 Text("\u{2715}").font(.system(size: 14, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 44, height: 30).contentShape(Rectangle())
                     .onTapGesture { notesRepeatPopup = nil }.accessibilityLabel("Close").accessibilityAddTraits(.isButton)
@@ -5651,7 +5651,7 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x17191E)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0x33363D), lineWidth: 1))
         .offset(x: bodyX, y: bodyY)
-        .accessibilityElement(children: .contain).accessibilityLabel("Repeat, lane \(lane + 1)").accessibilityAddTraits(.isModal)
+        .accessibilityElement(children: .contain).accessibilityLabel("Ranks, lane \(lane + 1)").accessibilityAddTraits(.isModal)   // amend 3 §C2.1
     }
 
     /// §B3.1: one REPEAT-grid cell. Row 0 = the rank number (lane100 lit / #5A5E66 unlit, no tap). Rows 1…4 = a role cell for ONCE / DOUBLE / RETURN / PEDAL: a lit rank's cell is SELECTED (A1.1) when it holds that role, else A1.2; a tap sets
@@ -5663,11 +5663,12 @@ struct EuclideousPage: View {
         } else if let cellRole = EuclideousRankRole(rawValue: row - 1) {
             let selected = lit && role == cellRole
             let look = euclideousNotesSelLook(selected: selected, switchedOn: true, playing: false)   // §B3.1: A1.1 when selected, A1.2 otherwise
-            RoundedRectangle(cornerRadius: 4).fill(!lit ? Color(hex: 0x131518) : selFill(look, accent))
+            RoundedRectangle(cornerRadius: 4).fill(!lit ? Color(hex: 0x1E2025) : selFill(look, accent))   // amend 3 §C2.2: an UNLIT column is live now (#1E2025, no label)
                 .contentShape(Rectangle())
-                .onTapGesture { guard lit else { return }; edit(lane) { $0.setNotesRankRole(rank, cellRole) } }   // §B1.2: one undo step
-                .accessibilityElement(children: .ignore).accessibilityHidden(!lit)
-                .accessibilityLabel("Rank \(rank), \(cellRole.spoken)").accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                .onTapGesture { edit(lane) { euclideousRanksPopupCellTap(&$0, rank: rank, role: cellRole) } }   // amend 3 §C2.3–§C2.6: unlit ⇒ light + role; lit selected ⇒ off (keep role); lit other ⇒ set role — one undo step
+                .accessibilityElement(children: .ignore)   // §C2.8: unlit cells are no longer hidden
+                .accessibilityLabel("Rank \(rank), \(cellRole.spoken)").accessibilityValue(selected ? "" : (lit ? "" : "off"))
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         }
     }
 

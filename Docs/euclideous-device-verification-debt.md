@@ -970,3 +970,9 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - the lane numbers (1–4) in the 12 pt source squares are legible;
   - the running-link progress bar tracks the playhead and sits on the right chip as the chain advances (BAR [2,1,1]: chip 1 for bars 1–2, chip 2 for bar 3, chip 3 for bar 4);
   - `FourfoldStackBudgetTests` (simulator-only) still passes — the RESETS SectionView gained one TimelineView (the running-bar); confirm the page's debug main-thread stack hasn't regressed.
+
+- **PLAY AS ROWS amend 3 (2026-11-15) — RANKS pop-up + role-shaped bar (Fourfold, NOTES/STACK tab; display-only):**
+  - the ONCE / DOUBLE / RETURN / PEDAL grey-bar shapes are told apart at a glance on every rank's grey ramp, including rank 1's dark grey;
+  - lighting a rank AND setting its role in one tap in the RANKS pop-up feels natural, and tap-again-to-turn-off isn't hit by accident;
+  - the RANKS button (in the label column) reads as a button and its ≥44 tap target doesn't swallow taps meant for the WHEN row below it;
+  - the widened rank tiles (~35 pt) and the two WHEN toggles are legible at both references and on the mini.
