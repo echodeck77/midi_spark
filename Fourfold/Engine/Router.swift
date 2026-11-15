@@ -669,6 +669,8 @@ final class Router {
     private var euclideousFillVelFactorNow: Double = 1
     // FILL TAB ferry (2026-11-14) §2.5 ROLL: the slot's strike count (1 + round(ROLL·u)) the body is emitting — set per slot by the fill loop (1 otherwise ⇒ byte-identical). The body maxes it into the ratchet `nRep`, so a fill ROLL rides the shared RATCH mechanism.
     private var euclideousFillRollNow: Int = 1
+    // FILL TAB ferry (2026-11-14) §2.6 LAND: the gate multiplier for the slot the body is emitting — 2 on a LAND rejoin step (the first ×1 step at/after a LAND region's end), 1 otherwise ⇒ byte-identical. Folded into gateBeatsWithTie so every non-poly strike's note rings 2×.
+    private var euclideousFillGateScaleNow: Double = 1
     // FILL TAB ferry (2026-11-14) §2.2: a reused fixed scratch for ORDER=SHUFFLE's permutation (built once per region, never per slot, never per window) — no render-thread allocation. Sized to the 128 reverse cap.
     private var euclideousFillShufBuf = [Int](repeating: 0, count: euclideousFillReverseCap)
     // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
@@ -2183,7 +2185,7 @@ final class Router {
                               fill: EuclideousFillPlan? = nil,   // FILL ferry (2026-11-13): a per-lane fill; nil / inactive ⇒ the loop below is byte-identical to today
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
-        euclideousFillStepScaleNow = 1; euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1; euclideousFillRollNow = 1   // FILL: neutral for the ×1 / non-fill path; the fill loop sets them per slot (§2.4 step scale, §2.5 rank climb + roll, §2.6 swell)
+        euclideousFillStepScaleNow = 1; euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1; euclideousFillRollNow = 1; euclideousFillGateScaleNow = 1   // FILL: neutral for the ×1 / non-fill path; the fill loop sets them per slot (§2.4 step scale, §2.5 rank climb + roll, §2.6 swell + LAND gate)
         let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
         let mStartReal = musicalOf(beatPos, stepBeats: S, a: a)
         let mEndReal = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -2285,7 +2287,15 @@ final class Router {
                     euclideousFillRankOffsetNow = euclideousFillRankOffset(ranks: region?.ranks ?? 0, slot: s, count: N, shape: region?.shape ?? .climb)   // §2.4 SHAPE (CLIMB = the old formula ⇒ byte-identical)
                     euclideousFillRollNow = euclideousFillRollCount(roll: region?.roll ?? 0, slot: s, count: N)   // §2.5 ROLL (0 ⇒ 1 ⇒ byte-identical)
                     euclideousFillVelFactorNow = euclideousFillSwellFactor(swell: region?.swell ?? 0, slot: s, count: N)
-                } else { euclideousFillRankOffsetNow = 0; euclideousFillRollNow = 1; euclideousFillVelFactorNow = 1 }
+                    euclideousFillGateScaleNow = 1   // LAND is a ×1-rejoin thing, never inside the region
+                } else {
+                    euclideousFillRankOffsetNow = 0; euclideousFillRollNow = 1
+                    // §2.6 LAND: the first ×1 step at/after a LAND region's end E (= the bar start b·L of the bar after it) lands with vel ×1.3 + gate ×2. A per-slot test (no carried state) so it fires on the right slot whatever window it lands in; off ⇒ 1 ⇒ byte-identical.
+                    let b = Int((hostBeat / L + 1e-9).rounded(.down))
+                    let landHere = (fill.region(bar: b - 1)?.land ?? false) && hostBeat - Double(b) * L >= -1e-9 && hostBeat - Double(b) * L < sub - 1e-9
+                    euclideousFillVelFactorNow = landHere ? 1.3 : 1
+                    euclideousFillGateScaleNow = landHere ? 2 : 1
+                }
                 let onTime = sampleOf(musical: hostBeat + delayBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                       windowStart: windowStart, S: S, a: a)
                 let colEnd = columnStart(hostBeat, S) + S
@@ -3704,7 +3714,7 @@ final class Router {
                     let rateStepScale = euclideousFillStepScaleNow
                     let subAtHit = sub * rateStepScale   // FILL: the step length AT this hit in host beats (= sub/m in a region) — the ratchet spacing + cap read it (§2.4)
                     func gateBeatsWithTie(_ g: Double, _ tieExt: Double) -> Double {
-                        euclideousPitchGateBeats(gate: g, nextHitGapBeats: nextHitGapBeats * rateStepScale, tieExt: tieExt * rateStepScale, minGateBeats: minGateBeats5ms)
+                        euclideousPitchGateBeats(gate: g, nextHitGapBeats: nextHitGapBeats * rateStepScale, tieExt: tieExt * rateStepScale, minGateBeats: minGateBeats5ms) * euclideousFillGateScaleNow   // FILL §2.6 LAND: ×2 on a rejoin step (1 otherwise ⇒ byte-identical)
                     }
                     // LANES GRID §2.1/§2.2: the lane's MUTE is resolved PER HIT, at the hit's own beat — a hit on the first tick of a new cell takes
                     // the NEW cell's state (the old once-per-render-window decision took the previous step's). A muted hit still advances the walk
