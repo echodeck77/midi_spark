@@ -10,6 +10,19 @@ private typealias P = EmitterRatchetPalette
 private func heavyMonoCC(_ s: CGFloat) -> Font { .system(size: s, weight: .heavy, design: .monospaced) }
 private let ccNeutral = Color(.sRGB, red: 0xDF / 255, green: 0xE3 / 255, blue: 0xEA / 255, opacity: 1)   // the neutral emitter colour (never a lane colour)
 
+/// CC page v2 §2.2: the power glyph — an open arc (gap at the top) with a vertical stem through the gap; stroke 2, round caps. Drawn in its rect; the caller strokes it. Device-owed look.
+struct EuclideousCCPowerIcon: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let c = CGPoint(x: rect.midX, y: rect.midY + rect.height * 0.07)
+        let r = min(rect.width, rect.height) * 0.36
+        p.addArc(center: c, radius: r, startAngle: .degrees(-48), endAngle: .degrees(228), clockwise: false)   // everything but a ~96° gap centred on 12 o'clock (SwiftUI y-down)
+        p.move(to: CGPoint(x: c.x, y: c.y - r * 1.22))
+        p.addLine(to: CGPoint(x: c.x, y: c.y - r * 0.1))
+        return p
+    }
+}
+
 /// One 0…127 (or a custom range) bar slider: label · dark track with a grey fill to the value · value. The whole row is a tall touch target;
 /// the drag is RELATIVE (a scrubber anchored at touch-down — it never jumps to the finger), matching the app's other value fields. One undo burst per gesture. `dimmed` greys it.
 struct CCBarSlider: View {
@@ -57,18 +70,28 @@ struct CCBarSlider: View {
 struct CCNumberSlider: View {
     let value: Int
     let onChange: (Int, Bool) -> Void   // (new value, newStep)
+    // CC page v2 §2.3: `plain` drops the own tile + the up/down glyph, so the number sits inside the stepper's shared tile as "‹ CC n ›" — `width` sets its slot, `colour` its ink (on = #F2F4F7, off = #9097A1).
+    var plain = false
+    var width: CGFloat = 64
+    var colour: Color = P.text
     @State private var start: Int? = nil
     @State private var burstOpen = false
     @GestureState private var gestureLive = false
 
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .heavy)).foregroundColor(P.muted)
-            Text("\(value)").font(heavyMonoCC(16)).foregroundColor(P.text).frame(minWidth: 28)
+        Group {
+            if plain {
+                Text("\(value)").font(heavyMonoCC(18)).monospacedDigit().foregroundColor(colour).frame(width: width, height: 30)
+            } else {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .heavy)).foregroundColor(P.muted)
+                    Text("\(value)").font(heavyMonoCC(16)).foregroundColor(P.text).frame(minWidth: 28)
+                }
+                .frame(width: width, height: 30)
+                .background(RoundedRectangle(cornerRadius: 8).fill(P.slot))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(P.rule, lineWidth: 1))
+            }
         }
-        .frame(width: 64, height: 30)
-        .background(RoundedRectangle(cornerRadius: 8).fill(P.slot))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(P.rule, lineWidth: 1))
         .contentShape(Rectangle().inset(by: -4))
         .gesture(DragGesture(minimumDistance: 3)
             .updating($gestureLive) { _, live, _ in live = true }
@@ -237,6 +260,7 @@ struct EuclideousCCExpandedView: View {
     let laneBeat: (Date) -> Double        // the lanes' musical beat at a date (drives the pictures' playheads)
     let playhead: (Date) -> Double?
     let playing: Bool
+    var outputMuted: Bool = false          // CC page v2 §2.4: the emitter tile shows a muted look when this slot's output is fully muted
     let onEdit: (Bool, @escaping (inout EmitterCCSet) -> Void) -> Void
     let onCollapse: () -> Void
     @State private var pickerOpen = false
@@ -334,41 +358,77 @@ struct EuclideousCCExpandedView: View {
             }
         }
     }
+    /// §2: back · power · CC stepper on the left; right-aligned ON [emitter] FROM [driver]. No close tile, no OFF pill, no token at the left (§2.5).
     @ViewBuilder private func header(_ cc: EmitterCC) -> some View {
-        HStack(spacing: 8) {
-            // §5.1 the token (display only — the emitter this slot sends on) + §5.2 the per-slot ON switch after it.
-            EuclideousEmitterTokenView(size: .d28, letter: letter, state: euclideousEmitterTokenEmitterState(muted: false, activity: 0, anyRouted: cc.on), lane: Color.clear)
-                .frame(width: 30, height: 30).accessibilityHidden(true)
-            onSwitch(cc.on)
-            Spacer(minLength: 0)
+        let dc = laneColour(driverLane)
+        HStack(spacing: 6) {
+            backButton
+            powerButton(cc, dc: dc)
             ccStepper(cc)
-            // CLOSE (§5.5): with the picker open it closes only the picker; otherwise back to the rows.
-            Image(systemName: "xmark").font(.system(size: 14, weight: .heavy)).foregroundColor(P.ink)
-                .frame(width: 52, height: 30)
-                .background(RoundedRectangle(cornerRadius: 8).fill(P.light))
-                .contentShape(Rectangle().inset(by: -4)).onTapGesture { if pickerOpen { withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = false } } else { onCollapse() } }
-                .accessibilityElement(children: .ignore).accessibilityLabel("Close").accessibilityAddTraits(.isButton)
+            Spacer(minLength: 0)
+            Text("ON").font(heavyMonoCC(9)).tracking(0.72).foregroundColor(P.muted)
+            emitterTile
+            Text("FROM").font(heavyMonoCC(9)).tracking(0.72).foregroundColor(P.muted)
+            driverTile(dc: dc)
         }
         .frame(height: 30)
     }
-    /// §5.2 the slot's ON switch (the app's standard on/off pill).
-    @ViewBuilder private func onSwitch(_ on: Bool) -> some View {
-        Text(on ? "ON" : "OFF").font(heavyMonoCC(9)).tracking(0.8).foregroundColor(on ? P.ink : P.muted)
-            .frame(width: 40, height: 24)
-            .background(RoundedRectangle(cornerRadius: 6).fill(on ? P.light : P.slot))
-            .overlay(on ? nil : RoundedRectangle(cornerRadius: 6).strokeBorder(P.rule, lineWidth: 1))
-            .contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[slot].on.toggle() } }
-            .accessibilityElement(children: .ignore).accessibilityLabel("On").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
+    /// §2.1: a left chevron, no tile — back to the CC rows (or just closes the picker when it is open).
+    private var backButton: some View {
+        Path { p in p.move(to: CGPoint(x: 16, y: 7)); p.addLine(to: CGPoint(x: 8, y: 15)); p.addLine(to: CGPoint(x: 16, y: 23)) }
+            .stroke(Color(hex: 0x9097A1), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+            .frame(width: 26, height: 30)
+            .contentShape(Rectangle().inset(by: -4))
+            .onTapGesture { if pickerOpen { withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = false } } else { onCollapse() } }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Back to CC").accessibilityAddTraits(.isButton)
     }
+    /// §2.2: a power button — lit in the driver lane's colour when on, a grey outline when off. Toggles `on` (the same undo as the old OFF pill). No label.
+    @ViewBuilder private func powerButton(_ cc: EmitterCC, dc: Color) -> some View {
+        let on = cc.on
+        EuclideousCCPowerIcon()
+            .stroke(on ? dc : Color(hex: 0x5C626C), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+            .frame(width: 16, height: 16)
+            .frame(width: 34, height: 30)
+            .background(RoundedRectangle(cornerRadius: 8).fill(on ? dc.opacity(0.18) : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(on ? dc : Color(hex: 0x3A3E47), lineWidth: 1.5))
+            .contentShape(Rectangle().inset(by: -4))
+            .onTapGesture { onEdit(true) { $0[slot].on.toggle() } }
+            .accessibilityElement(children: .ignore).accessibilityLabel("CC \(cc.ccNumber)").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(.isButton).ringToggleTrait()
+    }
+    /// §2.3: ‹ CC n › in one tile — the number is draggable (plain, no own tile / glyph), #F2F4F7 on / #9097A1 off; ‹ › skip to the next free number (§1.4), hold repeats via the drag.
     @ViewBuilder private func ccStepper(_ cc: EmitterCC) -> some View {
-        HStack(spacing: 4) {
-            Text("CC").font(heavyMonoCC(10)).foregroundColor(P.muted)
-            Text("\u{2039}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[slot].ccNumber = $0.nextCCNumber(from: $0[slot].ccNumber, output: output, slot: slotIndex, up: false) } }   // §1.4 skip
-            CCNumberSlider(value: cc.ccNumber) { v, newStep in onEdit(newStep) { s in var v2 = v; if (0..<EmitterCCSet.slotsPerEmitter).contains(where: { $0 != slotIndex && s[output: output, slot: $0].ccNumber == v }) { v2 = s.nextCCNumber(from: v, output: output, slot: slotIndex, up: true) }; s[slot].ccNumber = v2 } }   // §1.4: a drag onto a taken number skips to the next free
-            Text("\u{203A}").font(heavyMonoCC(15)).foregroundColor(P.muted).frame(width: 28, height: 30).contentShape(Rectangle().inset(by: -4)).onTapGesture { onEdit(true) { $0[slot].ccNumber = $0.nextCCNumber(from: $0[slot].ccNumber, output: output, slot: slotIndex, up: true) } }   // §1.4 skip
+        HStack(spacing: 2) {
+            Text("\u{2039}").font(heavyMonoCC(14)).foregroundColor(P.muted).frame(width: 20, height: 30).contentShape(Rectangle()).onTapGesture { onEdit(true) { $0[slot].ccNumber = $0.nextCCNumber(from: $0[slot].ccNumber, output: output, slot: slotIndex, up: false) } }
+            Text("CC").font(heavyMonoCC(9)).tracking(0.72).foregroundColor(P.muted)
+            CCNumberSlider(value: cc.ccNumber, onChange: { v, newStep in onEdit(newStep) { s in var v2 = v; if (0..<EmitterCCSet.slotsPerEmitter).contains(where: { $0 != slotIndex && s[output: output, slot: $0].ccNumber == v }) { v2 = s.nextCCNumber(from: v, output: output, slot: slotIndex, up: true) }; s[slot].ccNumber = v2 } }, plain: true, width: 34, colour: cc.on ? P.text : P.muted)   // §1.4: a drag onto a taken number skips
+            Text("\u{203A}").font(heavyMonoCC(14)).foregroundColor(P.muted).frame(width: 20, height: 30).contentShape(Rectangle()).onTapGesture { onEdit(true) { $0[slot].ccNumber = $0.nextCCNumber(from: $0[slot].ccNumber, output: output, slot: slotIndex, up: true) } }
         }
-        .accessibilityElement(children: .ignore).accessibilityLabel("CC number").accessibilityValue("\(cc.ccNumber)")
+        .padding(.horizontal, 4).frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x262930)))
+        .accessibilityElement(children: .ignore).accessibilityLabel("Controller number").accessibilityValue("\(cc.ccNumber)")
         .accessibilityAdjustableAction { d in onEdit(true) { $0[slot].ccNumber = max(0, min(EmitterCC.maxCC, $0[slot].ccNumber + (d == .increment ? 1 : -1))) } }
+    }
+    /// §2.4: the emitter tile (display only — the output this slot sends on), the token at 22, muted look if the output is muted. No action.
+    private var emitterTile: some View {
+        EuclideousEmitterTokenView(size: .d22, letter: letter, state: euclideousEmitterTokenEmitterState(muted: outputMuted, activity: 0, anyRouted: true), lane: Color.clear)
+            .frame(width: 22, height: 22)
+            .padding(.horizontal, 6).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x262930)))
+            .accessibilityElement(children: .ignore).accessibilityLabel("Output \(letter)")
+    }
+    /// §2.4: the driver tile — a lane tab + a down chevron; tap opens the lane picker (tap again closes it). Lit in the lane colour while the picker is open.
+    @ViewBuilder private func driverTile(dc: Color) -> some View {
+        HStack(spacing: 5) {
+            laneTab(driverLane, dc: dc)
+            Path { p in p.move(to: CGPoint(x: 0, y: 0)); p.addLine(to: CGPoint(x: 4, y: 5)); p.addLine(to: CGPoint(x: 8, y: 0)) }
+                .stroke(Color(hex: 0x9097A1), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)).frame(width: 8, height: 6)
+        }
+        .padding(.horizontal, 6).frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: 8).fill(pickerOpen ? dc.opacity(0.18) : Color(hex: 0x262930)))
+        .overlay(pickerOpen ? RoundedRectangle(cornerRadius: 8).strokeBorder(dc, lineWidth: 1.5) : nil)
+        .contentShape(Rectangle().inset(by: -4))
+        .onTapGesture { withAnimation(.easeInOut(duration: 0.12)) { pickerOpen.toggle() } }
+        .accessibilityElement(children: .ignore).accessibilityLabel("From lane \(driverLane + 1)").accessibilityAddTraits(pickerOpen ? [.isButton, .isSelected] : [.isButton])
     }
     @ViewBuilder private func leftColumn(_ cc: EmitterCC) -> some View {
         let toInert = emitterCCToIsInert(cc)        // a HOLD of 100 % keeps the hit's value for the whole gap: there is nothing to ramp TO (dimmed, still tappable)
