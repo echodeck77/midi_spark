@@ -4919,6 +4919,54 @@ func euclideousHitsCaptionRGB(_ base: (r: Double, g: Double, b: Double)) -> (r: 
     return (mix(base.r, t.r), mix(base.g, t.g), mix(base.b, t.b))
 }
 
+// MARK: - EUCLID tab v2 (2026-11-15) §1 — the whole tab's frames from the body's W × H (ONE pure function; the view reads it, never recomputes)
+
+/// §1: Row A (H − 84) over Rows B and C (36 tall, sp6 apart, ending at H). Row A is two stepper columns (HITS, STEPS) on the left half and OFFSET-over-TILT on the right. Rows B and C share a nine-column grid (three groups of three; in-group 3, group gap 8).
+/// All frames in the body's own coordinates. `floors` lists any §1.6 floor breached (A 132 · value box 52 · g 34 · tile 36) — built at the formula's values anyway, reported.
+struct EuclideousEuclidTabLayout: Equatable {
+    var A: CGFloat                      // Row A's height (H − 84)
+    var half: CGFloat, col: CGFloat     // Row A's halves and the stepper-column width
+    var hitsCol: CGRect, stepsCol: CGRect
+    var offset: CGRect, tilt: CGRect
+    var g: CGFloat                      // a lower-grid column's width
+    var groupX: [CGFloat]               // the three group origins (x)
+    var rowBY: CGFloat, rowCY: CGFloat  // Row B / Row C top y
+    var rowH: CGFloat                   // 36
+    var floors: [String]
+    static let tileH: CGFloat = 36, rowGap: CGFloat = 6, groupGap: CGFloat = 8, inGroupGap: CGFloat = 3, plusMinusH: CGFloat = 36, stepperGap: CGFloat = 4
+    /// A stepper column's three parts: the + button (36 tall), the value box (A − 80), the − button (36), sp4 between.
+    func stepperPlus(_ c: CGRect) -> CGRect { CGRect(x: c.minX, y: c.minY, width: c.width, height: Self.plusMinusH) }
+    func stepperValue(_ c: CGRect) -> CGRect { CGRect(x: c.minX, y: c.minY + Self.plusMinusH + Self.stepperGap, width: c.width, height: max(1, A - 80)) }
+    func stepperMinus(_ c: CGRect) -> CGRect { CGRect(x: c.minX, y: c.maxY - Self.plusMinusH, width: c.width, height: Self.plusMinusH) }
+    /// The x of lower-grid column `i` (0…8).
+    func colX(_ i: Int) -> CGFloat { groupX[max(0, min(8, i)) / 3] + CGFloat(max(0, min(8, i)) % 3) * (g + Self.inGroupGap) }
+    /// A single-column tile (g wide) in Row B or C at `y`.
+    func colTile(_ i: Int, y: CGFloat) -> CGRect { CGRect(x: colX(i), y: y, width: g, height: rowH) }
+    /// A whole-group tile (3g + 6 wide) at `y` — FLIP HITS (group 1) and LET RING (group 2) in Row C.
+    func groupTile(_ gi: Int, y: CGFloat) -> CGRect { CGRect(x: groupX[max(0, min(2, gi))], y: y, width: 3 * g + 2 * Self.inGroupGap, height: rowH) }
+}
+func euclideousEuclidTabLayout(W: CGFloat, H: CGFloat) -> EuclideousEuclidTabLayout {
+    typealias L = EuclideousEuclidTabLayout
+    let A = max(1, H - 84)                                  // H − 36 − 36 − 6 − 6
+    let half = max(1, (W - 4) / 2)
+    let col = max(1, (half - 4) / 2)
+    let hitsCol = CGRect(x: 0, y: 0, width: col, height: A)
+    let stepsCol = CGRect(x: col + 4, y: 0, width: col, height: A)
+    let rightX = half + 4, rightW = max(1, W - half - 4)
+    let sliderH = max(1, (A - 4) / 2)
+    let offset = CGRect(x: rightX, y: 0, width: rightW, height: sliderH)
+    let tilt = CGRect(x: rightX, y: (A - 4) / 2 + 4, width: rightW, height: sliderH)
+    let g = max(1, (W - 34) / 9)
+    let groupX: [CGFloat] = [0, 3 * g + 14, 6 * g + 28]
+    var floors: [String] = []
+    if A < 132 { floors.append("A") }
+    if A - 80 < 52 { floors.append("valueBox") }
+    if g < 34 { floors.append("g") }
+    if L.tileH < 36 { floors.append("tile") }
+    return EuclideousEuclidTabLayout(A: A, half: half, col: col, hitsCol: hitsCol, stepsCol: stepsCol, offset: offset, tilt: tilt,
+                                     g: g, groupX: groupX, rowBY: A + 6, rowCY: A + 48, rowH: L.tileH, floors: floors)
+}
+
 // MARK: - RESTART EDITOR LAYOUT (RESTART TILES ferry, 2026-10-22, §3) — each section is the chain row and the tile's own live strip
 
 /// What a restart-editor section holds, top to bottom. The timeline, its axis label ("BAR 1–16") and the hint line (every case of it, NO CHANGE and the melody-1 line included) are gone; the page builds each section
