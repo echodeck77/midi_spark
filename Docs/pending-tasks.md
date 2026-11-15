@@ -2205,3 +2205,12 @@ Built on `fix/restart-units-withrhythm`; story in `Docs/euclideous-status-log.md
 - [ ] (RIFF v3 §3.6) the trail's reset/wrap classification is display-side from the polled walk ordinal + live step; if device testing shows poll aliasing (a fast wrap mis-flashed as a reset, or a missed reset), add the read-only per-lane early-reset counter beside `euclideousRiffWalkState()` (drained on the same 30 Hz poll) and classify from it.
 - [ ] (RIFF v3 §6.3) the WALK VoiceOver value is "step k of n" — add the sounding column ("column c") if wanted.
 - [ ] (RIFF v3) a TRANS result outside 1…8 is clamped for the walk's lit-cell placement (the lane-strip chip rule); confirm that reads right on device for extreme TRANS.
+
+## FILL TAB ferry follow-ups (2026-11-15, Fourfold) — deferred from the whole-card rework
+
+The engine (RUSH/ORDER/SHAPE/ROLL/LAND-a/CHANCE/SHUFFLE) + the whole-card tab UI are landed and byte-identical when neutral. Open:
+- **HITS ALL/FLIP** — the region-local hit pattern must feed the CHAIN CORE (`euclideousLaneChainPhase`) so the riff ordinal advances with it (KEEP = the wired default). High-risk shared-hot-path surgery; needs the walk-mirror kept in sync, a golden doc with HITS set, and device verification. The HITS tile is currently shown DISABLED ("not yet active").
+- **LAND part (b)** — a rest on the rejoin step should play the next riff/stack notes WITHOUT advancing the ordinal (force isHit, bypass ON-REST, resolve the walk's current note). Content surgery in `runEuclidLine`; part (a)'s vel×1.3 + gate×2 accent already fires when the rejoin step is a hit.
+- **The rich note-level preview** — a pure predictor mirroring the whole fill loop (ORDER/SHAPE/RUSH/ROLL/LAND + the resolvers), drawing note rectangles / region wash / BREAK hatch / CHANCE dashed, pinned to the Router by a §7.11 test (preview == Router). The current `fillPreviewStrip` is a predictor-free region timeline (shows WHEN fills fire, not the notes).
+- **A FILL golden + alloc harness scenario** — add a FILL-TAB document to `Scripts/fourfold-harness/Harness/HarnessApp.swift` so the golden hashes the fill path and the alloc audit exercises the fill loop (today the harness has no FILL doc, so golden proves only the non-fill byte-identity and alloc doesn't reach the fill loop — which is alloc-free by construction).
+- **Device-owed looks** — the 12-tile grid legibility at the iPad-mini width, the curve/shape chip tap-vs-value-drag separation, the loop chip, and RUSH / BOUNCE / ARCH / ROLL / LAND by ear.

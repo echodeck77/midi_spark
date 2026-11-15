@@ -913,3 +913,5 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - Played, upcoming and skipped can be told apart in all four lane colours, including yellow and green.
 - The reset tick is noticed without being distracting at fast tempos; an aliased fast wrap isn't mis-flashed as a reset.
 - The 49-tall bands still give comfortable touch targets, and the key-over-value steppers never truncate on device.
+
+- **FILL TAB ferry (2026-11-15):** the whole-card FILL tab is landed (bar row + loop chip, 12 control tiles, a region-timeline preview) — ALL looks/feel device-owed: the 3×4 grid at the landscape and iPad-mini widths, the curve/shape mini-chips (tap cycles the mode, the rest of the tile drags the value — the notched hit area), the LOOP chip (4/8/16), the §4.3 bipolar value edges reading faint at 0. By EAR: RUSH (the fill rate rising into the downbeat), ORDER REV/BOUNCE/SHUFFLE, RANKS ARCH/SHIFT, ROLL (the ratchet thickening toward the bar line, device-only — unheard here), LAND (the rejoin accent, vel×1.3 + 2× gate). HITS is shown DISABLED (ALL/FLIP deferred). Neutral fills are byte-identical (golden) so an existing fill sounds unchanged.
