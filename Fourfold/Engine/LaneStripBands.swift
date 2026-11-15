@@ -152,36 +152,51 @@ func laneStripChipLabelFits(_ label: String, chipWidth: CGFloat, size: CGFloat) 
     chipWidth >= CGFloat(label.count) * LaneStripBandMetrics.chipLabelAdvance * size + 2
 }
 
-// MARK: - §8.2: the stack chip colour (OKLCH, the lane's own hue)
+// MARK: - STACK RANKS GREY ferry (2026-11-15) §1: the neutral grey rank ramp
+// (replaces §8.2's lane-hued `stackChipColour` — the stack now reads as grey on every lane, so lighter = higher is the
+// riff map's shared language and lane colour stays the lane's identity. Riff chips/bars keep the riff map.)
 
-/// How many OKLCH → sRGB conversions the stack-chip table cost — 32, once; a test reads it (it must never grow).
-private(set) var stackChipConversionCount = 0
-/// The 4 × 8 table (lane-major): `L = 0.60 + (rank − 1) × 0.32 ÷ 7`, `C = 0.10` (riff map's constants), `h` = the lane's
-/// own lane100 OKLCH hue. Built once.
-private let stackChipTable: [EuclideousRGB] = {
-    var t: [EuclideousRGB] = []; t.reserveCapacity(32)
-    for lane in 0..<4 {
-        let h = euclideousOKLCH(euclideousLaneRGB[lane]).h * Double.pi / 180
-        for rank in 1...8 {
-            stackChipConversionCount += 1
-            let L = RiffMapTuning.lightnessFloor + Double(rank - 1) * RiffMapTuning.lightnessRange / 7
-            t.append(euclideousRGBFromOKLab(L: L, a: RiffMapTuning.chroma * cos(h), b: RiffMapTuning.chroma * sin(h)))
-        }
+/// §9: tunable on device (change none in THIS ferry). The ramp's OKLCH lightness floor and span.
+enum StackRankTuning { static let lightnessFloor = 0.46, lightnessRange = 0.46 }   // §1.1: L 0.46 → 0.92 over the 8 ranks
+
+/// §1.2: the WCAG 2.x relative luminance of an sRGB colour (grey ⇒ ≈ the channel's linear value).
+private func stackRankLuminance(_ c: EuclideousRGB) -> Double {
+    func lin(_ v: Int) -> Double { let s = Double(v) / 255; return s <= 0.04045 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4) }
+    return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+}
+/// §1.2: the WCAG contrast ratio between two colours (≥ 1).
+func euclideousWCAGContrast(_ a: EuclideousRGB, _ b: EuclideousRGB) -> Double {
+    let la = stackRankLuminance(a), lb = stackRankLuminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+}
+
+/// How many OKLCH → sRGB conversions the grey rank-ramp table cost — 8, once; a test reads it (it must never grow).
+private(set) var stackRankConversionCount = 0
+/// §1.1/§1.2: the 8-entry ramp — a neutral grey (chroma 0, hue 0) at `L = 0.46 + (rank − 1) × 0.46 ÷ 7`, the SAME for every
+/// lane, plus the ink (#0D0F14 or #F2F4F7) that has the higher WCAG contrast on it. Built once, the riff map's conversion.
+private let stackRankTable: [(colour: EuclideousRGB, ink: EuclideousRGB)] = {
+    let white = EuclideousRGB(r: 0xF2, g: 0xF4, b: 0xF7), ink = EuclideousRGB(r: 0x0D, g: 0x0F, b: 0x14)
+    var t: [(colour: EuclideousRGB, ink: EuclideousRGB)] = []; t.reserveCapacity(8)
+    for rank in 1...8 {
+        stackRankConversionCount += 1
+        let L = StackRankTuning.lightnessFloor + Double(rank - 1) * StackRankTuning.lightnessRange / 7
+        let c = euclideousRGBFromOKLab(L: L, a: 0, b: 0)
+        t.append((c, euclideousWCAGContrast(c, white) >= euclideousWCAGContrast(c, ink) ? white : ink))
     }
     return t
 }()
-/// §8.2: the stack footer chip's / stack rank outline's colour for a lane (0…3) and rank (1…8) — the lane's hue at the
-/// rank's lightness. A table read, never a conversion.
-func stackChipColour(lane: Int, rank: Int) -> EuclideousRGB {
-    stackChipTable[max(0, min(3, lane)) * 8 + max(1, min(8, rank)) - 1]
-}
+/// §1.1: the stack footer chip's / stack rank bar's colour for a rank (1…8) — a neutral grey, dark at 1 to light at 8, the
+/// SAME for every lane. A table read, never a conversion.
+func stackRankColour(rank: Int) -> EuclideousRGB { stackRankTable[max(1, min(8, rank)) - 1].colour }
+/// §1.2: the ink (#0D0F14 or #F2F4F7) that reads on `stackRankColour(rank)`.
+func stackRankInk(rank: Int) -> EuclideousRGB { stackRankTable[max(1, min(8, rank)) - 1].ink }
 
 // MARK: - §8.3 / §4.3–4.5: a rank's outline (or fallback bar) inside a hit cell
 
 enum LaneStripPart: Equatable { case riff, stack }
 /// The mark for a sounding rank in a hit cell: a 1 pt stroked outline, or — where the slot is under `slotFallback` (it
 /// is, at T 44) — a filled 1 pt bar (`filled`). The painter strokes an outline / fills a bar; the colour comes from the
-/// part (`riffMapColour` for riff, `stackChipColour` for stack).
+/// part (`riffMapColour` for riff, `stackRankColour` for stack).
 struct LaneRankMark: Equatable { var rect: CGRect; var filled: Bool }
 func rankSlotRect(cell: CGRect, hC: CGFloat, rank: Int, part: LaneStripPart) -> LaneRankMark {
     typealias M = LaneStripBandMetrics

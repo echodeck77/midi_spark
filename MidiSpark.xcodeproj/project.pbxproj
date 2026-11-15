@@ -93,6 +93,7 @@
 		2BC8ECB8FDF6B10688AC8D78 /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B685D12DF249234FFBB1055E /* Derivations.swift */; };
 		2D5176E97D60FBE184BABB0A /* RateTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171FC42B5CE2A794E3C3B194 /* RateTile.swift */; };
 		2DB0FD1A6F363FF7810DD7C8 /* FourfoldRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */; };
+		2FA1981AB9D6B173DCD66F2D /* StackGreyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012FB672AA4F1F120CD2D0AB /* StackGreyTests.swift */; };
 		3064B7E1818CD8CA7714A3F9 /* CCRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC16C1FCF618F1F29BFE95E2 /* CCRows.swift */; };
 		310545FAC5863CD3DAD77CC4 /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F4BE86660C760F3CD73866 /* Kernel.swift */; };
 		316F660F3C3ECC9F56AA905B /* RestartEditorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3780B20BC035BCBFBD2CCA2B /* RestartEditorViews.swift */; };
@@ -592,6 +593,7 @@
 		009F351D5DC24E7BAC8DFB3A /* EuclideousRandom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandom.swift; sourceTree = "<group>"; };
 		00A0AAF1BEFC7A0801E48D8E /* ChordsGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChordsGridTests.swift; sourceTree = "<group>"; };
 		00CC5BABD8F26424C9E350B5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
+		012FB672AA4F1F120CD2D0AB /* StackGreyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackGreyTests.swift; sourceTree = "<group>"; };
 		0207165FA77A08D14FDF6B09 /* LaneViewStripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneViewStripTests.swift; sourceTree = "<group>"; };
 		02BC895877CC2BFAB7C8DF92 /* PolyRiffEditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiffEditTests.swift; sourceTree = "<group>"; };
 		02F746D9F92666A12823BADF /* Fourfold.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Fourfold.entitlements; sourceTree = "<group>"; };
@@ -1186,6 +1188,7 @@
 				D4725DDA30BD137A2E7F2623 /* SessionTapeTests.swift */,
 				CB72B97F862EE82E9F92BEE8 /* SnapshotBuilderTests.swift */,
 				895B3CF80D62A9017460EF53 /* SourceStackTests.swift */,
+				012FB672AA4F1F120CD2D0AB /* StackGreyTests.swift */,
 				89E227C46A23C7B9BF9E36CE /* StackGridLiveTests.swift */,
 				FF7A8325F865AF22AAF72663 /* StackGridTests.swift */,
 				8462CE1B718FDEDFE558CB2F /* StackRiffArrowTests.swift */,
@@ -2083,6 +2086,7 @@
 				A30E4B4E80A4AAA15D91D659 /* SnapshotBuilder.swift in Sources */,
 				E7784ECA8F44A813DF1AB6BE /* SnapshotBuilderTests.swift in Sources */,
 				B30A6F494B84A1E0BD7FA8E3 /* SourceStackTests.swift in Sources */,
+				2FA1981AB9D6B173DCD66F2D /* StackGreyTests.swift in Sources */,
 				C61C5D495A11A7B47C2E6E78 /* StackGrid.swift in Sources */,
 				8C2C89B835B3507C4ABAF06B /* StackGridLiveTests.swift in Sources */,
 				0045AB2F6FFEDC732215D060 /* StackGridTests.swift in Sources */,

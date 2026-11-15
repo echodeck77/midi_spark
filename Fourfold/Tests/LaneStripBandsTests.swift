@@ -76,28 +76,8 @@ final class LaneStripBandsTests: XCTestCase {
         }
     }
 
-    // §10.3 — stackChipColour: luminance strictly rises rank 1→8, ink is legible on all 32, the table is built once.
-    func testStackChipColourRisesAndIsLegibleAndBuiltOnce() {
-        func relLum(_ c: EuclideousRGB) -> Double {
-            func lin(_ v: Int) -> Double { let s = Double(v) / 255; return s <= 0.03928 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4) }
-            return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
-        }
-        let ink = LaneStripBandMetrics.chipInk
-        XCTAssertEqual(ink, EuclideousRGB(r: 0x0D, g: 0x0F, b: 0x14))
-        for lane in 0..<4 {
-            var last = -1.0
-            for rank in 1...8 {
-                let c = stackChipColour(lane: lane, rank: rank)
-                let lum = relLum(c)
-                XCTAssertGreaterThan(lum, last, "lane \(lane) rank \(rank): luminance must rise")
-                last = lum
-                let hi = max(lum, relLum(ink)), lo = min(lum, relLum(ink))
-                XCTAssertGreaterThanOrEqual((hi + 0.05) / (lo + 0.05), 4.5, "lane \(lane) rank \(rank): ink contrast ≥ 4.5")
-            }
-        }
-        for _ in 0..<50 { _ = stackChipColour(lane: 2, rank: 5) }
-        XCTAssertEqual(stackChipConversionCount, 32, "the 4×8 table converts once")
-    }
+    // (STACK RANKS GREY ferry 2026-11-15 §1: the lane-hued `stackChipColour` is retired for the neutral grey `stackRankColour`;
+    //  its ramp / ink / built-once test moved to StackGreyTests §8.1–3.)
 
     // §B4 / §B7.4 — rank BARS: inset riff 2 / stack 4 (narrow 1 / 3); bar h = max(1, slot−0.5); stack inside the riff; rank 8 above 1; outline only at slot ≥ 4.
     func testRankMarksInsetsAndOrder() {

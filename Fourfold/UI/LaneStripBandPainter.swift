@@ -150,7 +150,7 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
         }
         if d.notesShown, i < s.stackOutline.count {
             for rank in s.stackOutline[i] {
-                laneStripDrawRankMark(&ctx, cell: cell, hC: d.frames.bands.hC, rank: rank, part: .stack, colour: Color(stackChipColour(lane: d.laneIndex, rank: rank)))
+                laneStripDrawRankMark(&ctx, cell: cell, hC: d.frames.bands.hC, rank: rank, part: .stack, colour: Color(stackRankColour(rank: rank)))
             }
         }
     }
@@ -171,12 +171,12 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     }
 
     // §3.3: the stack FOOTER — a chip at each hit step a stack note has played in this pass, filled
-    // `stackChipColour(lane, lowest rank)` labelled by that rank, ringed while it sounds; an off notes part draws grey
+    // `stackRankColour(rank)` labelled by that rank, ringed while it sounds; an off notes part draws grey
     // outline chips at the hit steps (§3.6). (Upcoming-hit prediction is a flagged follow-up — see the status log.)
     for i in 0..<n where i < d.hits.count {
         let isHit = d.hits[i].kind != .rhythmRest
         if d.notesShown, i < s.stackChip.count, let rank = s.stackChip[i] {
-            laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: .rgb(stackChipColour(lane: d.laneIndex, rank: rank)), label: "\(rank)", hollow: false, sounding: stackRing(i))
+            laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: .rgb(stackRankColour(rank: rank)), label: "\(rank)", hollow: false, sounding: stackRing(i))
         } else if isHit {   // §B6.1: an OFF notes part, OR an upcoming hit not yet played / predicted, draws a grey outline chip (no label)
             laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: nil, label: "", hollow: false, sounding: false)
         }
