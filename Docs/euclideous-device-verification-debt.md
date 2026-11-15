@@ -976,3 +976,13 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - lighting a rank AND setting its role in one tap in the RANKS pop-up feels natural, and tap-again-to-turn-off isn't hit by accident;
   - the RANKS button (in the label column) reads as a button and its ≥44 tap target doesn't swallow taps meant for the WHEN row below it;
   - the widened rank tiles (~35 pt) and the two WHEN toggles are legible at both references and on the mini.
+
+- **CC page v2 + amendment 1 (2026-11-15; UI rebuild + MUTE→LOW).** On an iPad in AUM, confirm:
+  - the power button reads as enable/disable at a glance in both states (lit lane colour on / grey outline off);
+  - the back arrow (no tile) is easy to find and hit;
+  - the two-column sliders (~171 pt wide) are comfortable to drag; the §4.2 bar (14 tall) + 44/26 label/value read cleanly;
+  - the reflow reads as calm, not jumpy, while dragging HOLD to/from 100 and RAMP to/from 0 (controls leave/return in place);
+  - a hidden control's value returns unchanged when it reappears; nothing ever draws below the panel or scrolls;
+  - the lane picker, now compressed into the 70 pt trace frame (four rows), is still usable; the dashed-grey off-trace reads as "off";
+  - the header reads back · power · CC ‹ n › · ON (A) FROM (n), with no close tile / OFF pill / left token;
+  - MUTE behaviour: muting output A mid-ramp makes the synth jump to that CC's LOW and stay there (not freeze mid-ramp).

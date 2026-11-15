@@ -2252,3 +2252,6 @@ Display-only; golden byte-identical. One ruler per RESETS tile (passes/riff cycl
 ## PLAY AS ROWS amend 3 (2026-11-15, Fourfold) — LANDED
 Display-only; golden byte-identical. RANKS label → a button that opens the pop-up; REPEAT button gone; tiles fill (~35 pt). The pop-up lights + roles ranks (live unlit cells, `euclideousRanksPopupCellTap`); the grey bar's SHAPE shows the role (replaces amend 2's marks); WHEN RIFF is two independent toggles (two flags). Open:
 - [ ] (device-owed) the lines in `Docs/euclideous-device-verification-debt.md`'s amend-3 block.
+
+- [ ] (CC page v2, §3.1) the off-trace is dashed grey via a `dashed` flag on `CCTraceView`; the exact grid-line alphas / tick look are approximate to §3.1 — device-owed polish.
+- [ ] (CC page v2, §0.2) `EuclideousCCExpandedView.leftColumn` / `rightColumn` and Amendment-1's dimming (`emitterCCToIsInert`/`CurveIsInert`) are kept compiled but unmounted — delete once the new page is device-confirmed.
