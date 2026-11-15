@@ -4,6 +4,10 @@
 
 import SwiftUI
 
+private extension Color {   // INPUTS v2 §2.4: a packed-hex helper (the painters keep their own fileprivate copies; AnswerViews had none)
+    init(h: UInt32) { self.init(.sRGB, red: Double((h >> 16) & 0xFF) / 255, green: Double((h >> 8) & 0xFF) / 255, blue: Double(h & 0xFF) / 255, opacity: 1) }
+}
+
 /// §4.2–§4.3: the phase bar — vertically centred in its column, inset 3 either side, 5 tall, radius 2.5, clipped; two equal halves 1.5 apart (phase A, then phase B) in the §4.3 colours; a 1.5-wide #F2F4F7 playhead at the cycle's progress, polled from
 /// the status feed (with Reduce Motion it moves in quarter-unit steps — about once a beat). Transport stopped, or the lane not cycling: the playhead sits at 0. One VoiceOver element, "Phase", whose value names whose turn it is.
 struct AnswerPhaseBarView: View {
@@ -93,6 +97,49 @@ struct MidiRootReadoutView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityHidden(r.spoken == nil)
         .accessibilityLabel(r.spoken.map { $0 + ", lane \(lane + 1)" } ?? "")   // four cards carry one: the lane is part of the name
+    }
+}
+
+/// INPUTS v2 §2.4: the MIDI row's control — ONE full-width segmented container (#202227, r5, inset 2, three equal segments sp2, r3.5, 7.5 pt heavy 0.08 em). Selected: #DFE3EA / ink #0D0F14. Others: no fill, #8A909A. In ROOT with t ≠ 0 the ROOT segment
+/// reads "ROOT <signed t>" (the readout cell is gone). While the lane's MIDI IN is off the whole control is at 40 % and the selected segment draws outline-only (0.75 pt #6B7079, #AAB0BA) so the choice shows but doesn't read as live. A leaf,
+/// observing `live` for t (the page body does not re-run on the status feed). A tap picks the mode (the page's own `onPick`, one undo step; choosing the mode already in force is not an edit).
+struct InputsMidiControlView: View {
+    let lane: Int
+    let mode: MidiMode
+    let midiOn: Bool
+    let size: CGSize
+    let accent: Color
+    let onPick: (MidiMode) -> Void
+    @ObservedObject var live: AnswerLiveModel
+    var body: some View {
+        let t = live.pool(lane: lane).rootT
+        let modes: [MidiMode] = [.add, .replace, .root]
+        let inset: CGFloat = 2, segGap: CGFloat = 2
+        let segW = max(1, (size.width - inset * 2 - segGap * 2) / 3)
+        return ZStack {
+            RoundedRectangle(cornerRadius: 5).fill(Color(h: 0x202227))
+            HStack(spacing: segGap) {
+                ForEach(0..<3, id: \.self) { i in
+                    let m = modes[i], sel = mode == m
+                    let label = (m == .root && t != 0) ? "ROOT " + euclideousHeaderSignedT(t) : euclideousInputsMidiModeLabel(m)
+                    Text(label).font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(7.5 * 0.08).lineLimit(1).minimumScaleFactor(0.7)
+                        .foregroundColor(Color(h: sel ? (midiOn ? 0x0D0F14 : 0xAAB0BA) : 0x8A909A))
+                        .frame(width: segW, height: max(1, size.height - inset * 2))
+                        .background(RoundedRectangle(cornerRadius: 3.5).fill(sel && midiOn ? Color(h: 0xDFE3EA) : Color.clear))
+                        .overlay(RoundedRectangle(cornerRadius: 3.5).strokeBorder(sel && !midiOn ? Color(h: 0x6B7079) : Color.clear, lineWidth: 0.75))   // §2.4c: off ⇒ outline-only selection
+                        .contentShape(Rectangle())
+                        .onTapGesture { if mode != m { onPick(m) } }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(euclideousInputsMidiModeSpoken(m) + ", lane \(lane + 1)" + (midiOn ? "" : ", MIDI in off"))
+                        .accessibilityValue(m == .root && t != 0 ? (t > 0 ? "plus \(t)" : "minus \(abs(t))") : "")
+                        .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+                }
+            }
+            .padding(inset)
+        }
+        .frame(width: size.width, height: size.height)
+        .opacity(midiOn ? 1 : 0.4)   // §2.4c: 40 % while MIDI IN off (still tappable)
+        .accessibilityElement(children: .contain)
     }
 }
 
