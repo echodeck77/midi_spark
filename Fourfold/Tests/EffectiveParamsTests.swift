@@ -845,6 +845,7 @@ final class EffectiveParamsTests: XCTestCase {
         // PLAY AS ROWS (2026-11-11): the three chains + per-rank counts + bass + shift/drift
         l.notesOrderChain = [EuclideousOrderChip(value: .down, hits: 2)]; l.notesVoicesChain = [EuclideousVoicesChip(value: .all, hits: 3)]; l.notesSpreadChain = [EuclideousSpreadChip(value: .strum, hits: 4)]
         l.setNotesRankCount(3, 3); l.setNotesRankSecond(3, .later); l.setNotesRankThird(3, .later)
+        l.setNotesRankRole(5, .pedal)   // PLAY AS ROWS amend 2 (2026-11-15): populate the role field (it round-trips independently of the retired counts)
         l.notesBassOn = true; l.notesBassMode = .first; l.notesShiftStart = 5; l.notesDriftOn = true; l.notesDriftStep = -2
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {
