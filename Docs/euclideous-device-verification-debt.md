@@ -924,3 +924,11 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - the widest 7-glyph chord names (E♭madd9-class, ≈42 pt) truncate in the 40 pt slot — confirm the abbreviation still reads, or the slot needs widening;
   - the widest landscape button (13-char key + two grid tokens + lamp + readout) leaves HOLD / LATCH and the UTILITIES group (HOCKET/presets/SWING/REEL/settings) comfortable, and the B/C fallback (token names hidden, then icons) kicks in at a sensible width without the button feeling cramped;
   - VoiceOver reads the button value sensibly ("C major, grid 1, C, grid 2 waiting, D minor, MIDI in, playing, root, plus 2") — and §6.2's "no announcements while playing" is only partially honoured (the value changes per chord boundary, not at 30 Hz, but SwiftUI still announces on change — device-owed whether it's distracting under a running transport).
+
+- **STACK RANKS GREY ferry (2026-11-15) §11:** the stack is now neutral grey (dark rank 1 → light rank 8), riff keeps the map colours, and white marks "sounding now". ALL by eye on device:
+  - neighbouring ranks' greys (e.g. #7E7E7E vs #919191) are told apart in 9 pt footer chips at 16 steps;
+  - the grey stack chips read as a separate thing from the colour riff chips at a glance (riff = colour, stack = grey, lane colour = identity);
+  - the white-and-ink sounding double-stroke reads on both rank 1 (#585858, dark) and rank 8 (#E4E4E4, light) chips;
+  - the grey stack bars separate from the lane-colour hit fill in all four lane colours (red, blue, yellow, green);
+  - the RANKS button's white inside ring reads at fast tempos without the row getting busy, and the grey bar + number + (2×/3×) repeat pips all fit the 26 pt tile without clipping;
+  - the STACK-grid cell's 2 pt white stroke reads on yellow and green sounding cells (the brightest fills).
