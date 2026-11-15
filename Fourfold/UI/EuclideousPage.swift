@@ -8237,7 +8237,8 @@ struct EuclideousPage: View {
                             .transition(.opacity)
                     } else {
                         EuclideousCCRowsPanel(bodySize: CGSize(width: width, height: height), ccs: emitterCCs, traces: traces, drivers: drivers, laneColours: laneCols, outputFullyMuted: (0..<4).map { outputMutes[$0].cells16 == 0 }, playhead: playhead, playing: pulseLive,
-                                              onExpand: { k in withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = k } })
+                                              onExpand: { k in withAnimation(.easeInOut(duration: 0.15)) { ccExpanded = k } },
+                                              onToggle: { k in onEditEmitterCC(true) { $0[k].on.toggle() } })   // CC tab (Paul 2026-11-15): tap toggles on/off, long press opens the edit
                             .transition(.opacity)
                     }
                 }

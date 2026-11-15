@@ -155,7 +155,7 @@ struct CCTraceView: View {
 // MARK: - the four-cell rows (CC SLOTS §4; widened + spread 2026-11-13)
 
 /// §4: four output rows A–D; each row is a token tile + FOUR cells (slots a/b/c/d) SIDE BY SIDE across the row, each a BIG CC number over
-/// its own trace in the slot's DRIVER lane's colour. Tap a cell ⇒ that slot's edit page. No on switch, no chevron (§4.7); the on/off edit is on the page.
+/// its own trace in the slot's DRIVER lane's colour. TAP a cell ⇒ toggle that slot on/off; LONG PRESS ⇒ its edit page (Paul 2026-11-15; was: tap opened the page). No on switch, no chevron (§4.7); the full on/off + edit is also on the page.
 struct EuclideousCCRowsPanel: View {
     let bodySize: CGSize
     let ccs: EmitterCCSet
@@ -166,6 +166,7 @@ struct EuclideousCCRowsPanel: View {
     let playhead: (Date) -> Double?
     let playing: Bool
     let onExpand: (Int) -> Void
+    let onToggle: (Int) -> Void   // CC tab (Paul 2026-11-15): a TAP on a cell toggles that slot on/off; a LONG PRESS opens the edit page (`onExpand`).
 
     private static let nearWhite = Color(.sRGB, red: 0xF2 / 255, green: 0xF4 / 255, blue: 0xF7 / 255, opacity: 1)
     private func driverColour(_ k: Int) -> Color { let d = k < drivers.count ? drivers[k] : 0; return laneColours[max(0, min(laneColours.count - 1, d))] }
@@ -208,12 +209,16 @@ struct EuclideousCCRowsPanel: View {
         .frame(width: rect.width, height: rect.height)
         .clipShape(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.cellRadius))
         .overlay(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.cellRadius).strokeBorder(cc.on ? dc.opacity(0.6) : P.rule, lineWidth: 1))
-        // the tap + hit shape MUST come before `.position` — `.position` fills the parent, so a gesture after it makes the hit area the whole row and every cell opens the top-drawn slot (the wrong one).
+        // the tap + hit shape MUST come before `.position` — `.position` fills the parent, so a gesture after it makes the hit area the whole row and every cell toggles the top-drawn slot (the wrong one).
         .contentShape(Rectangle())
-        .onTapGesture { onExpand(k) }
+        // CC tab (Paul 2026-11-15): a TAP toggles this slot on/off; a LONG PRESS (0.5 s, the riff-tab idiom) opens the edit page. VoiceOver can't long-press, so the edit is also an explicit "Edit" action.
+        .onTapGesture { onToggle(k) }
+        .onLongPressGesture(minimumDuration: 0.5) { onExpand(k) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(euclideousCCBandAX(output: o, cc: cc.ccNumber, driverLane: (k < drivers.count ? drivers[k] : 0) + 1, on: cc.on))
+        .accessibilityValue(cc.on ? "on" : "off")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: Text("Edit")) { onExpand(k) }
         .position(x: rect.midX, y: rect.midY)
     }
 }
