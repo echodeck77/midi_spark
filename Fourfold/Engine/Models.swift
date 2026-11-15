@@ -2387,20 +2387,22 @@ struct EmitterCC: Equatable {
     var ramp = 50                                   // 0…100 % of the gap: the ramp from the hit's value to the target (the EFFECTIVE ramp is `min(ramp, 100 − hold)`; the stored value is kept so lowering HOLD restores it)
     var to: EmitterCCTo = .rest
     var curve: EmitterCCCurve = .exp
-    var muteValue = 0                               // 0…127
+    // CC page v2 amendment 1 (2026-11-15): `muteValue` is GONE. A muted output now parks each ON slot at its LOW (its resting value); the field and its MUTE slider are removed, an old document's `muteValue` key is ignored on decode (no migration).
     var passes = 1                                  // 1…16 (CLIMB): how many passes of the lane's rhythm the climb from LOW to HIGH takes
     var driverLane: Int? = nil                      // CC SLOTS (2026-11-12) §1.1: the lane (1…4) whose Euclid hits + riff drive this slot; nil = AUTO (follows routing, §2)
     static let maxCC = 119, maxPasses = 16
     /// The ramp that actually plays: the ramp can only use what the hold leaves of the gap.
     var effectiveRamp: Int { max(0, min(ramp, 100 - hold)) }
+    /// CC page v2 §4.4: the ramp TARGET's TO as the engine must read it — HITS always acts as REST (NEXT there would only hold HIGH), so the TO control is hidden in HITS and never changes what's sent. Every other mode reads the stored `to`.
+    var effectiveTo: EmitterCCTo { valueMode == .hits ? .rest : to }
     init() {}
-    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .hits, high: Int = 127, low: Int = 0, hold: Int = 25, ramp: Int = 50, to: EmitterCCTo = .rest, curve: EmitterCCCurve = .exp, muteValue: Int = 0, passes: Int = 1, driverLane: Int? = nil) {
-        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.high = high; self.low = low; self.hold = hold; self.ramp = ramp; self.to = to; self.curve = curve; self.muteValue = muteValue; self.passes = passes; self.driverLane = driverLane
+    init(on: Bool = false, ccNumber: Int = 74, valueMode: EmitterCCValueMode = .hits, high: Int = 127, low: Int = 0, hold: Int = 25, ramp: Int = 50, to: EmitterCCTo = .rest, curve: EmitterCCCurve = .exp, passes: Int = 1, driverLane: Int? = nil) {
+        self.on = on; self.ccNumber = ccNumber; self.valueMode = valueMode; self.high = high; self.low = low; self.hold = hold; self.ramp = ramp; self.to = to; self.curve = curve; self.passes = passes; self.driverLane = driverLane
     }
     func normalized() -> EmitterCC {
         var r = self
         r.ccNumber = max(0, min(Self.maxCC, ccNumber))
-        r.high = max(0, min(127, high)); r.low = max(0, min(127, low)); r.muteValue = max(0, min(127, muteValue))
+        r.high = max(0, min(127, high)); r.low = max(0, min(127, low))
         r.hold = max(0, min(100, hold)); r.ramp = max(0, min(100, ramp))
         r.passes = max(1, min(Self.maxPasses, passes))
         r.driverLane = driverLane.map { max(1, min(4, $0)) }
@@ -2408,7 +2410,7 @@ struct EmitterCC: Equatable {
     }
 }
 extension EmitterCC: Codable {
-    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, high, low, hold, ramp, to, curve, muteValue, passes, driverLane }   // the removed level / travel / time keys are ignored on decode and never written
+    enum CodingKeys: String, CodingKey { case on, ccNumber, valueMode, high, low, hold, ramp, to, curve, passes, driverLane }   // the removed level / travel / time / muteValue keys are ignored on decode and never written (amendment 1)
     init(from decoder: Decoder) throws {
         self.init()
         guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
@@ -2422,7 +2424,6 @@ extension EmitterCC: Codable {
         if let n = int(.ramp) { ramp = n }
         if let v = (try? c.decodeIfPresent(EmitterCCTo.self, forKey: .to)) ?? nil { to = v }
         if let v = (try? c.decodeIfPresent(EmitterCCCurve.self, forKey: .curve)) ?? nil { curve = v }
-        if let n = int(.muteValue) { muteValue = n }
         if let n = int(.passes) { passes = n }
         driverLane = int(.driverLane)   // absent ⇒ nil = AUTO (§2)
         self = normalized()
@@ -2431,7 +2432,7 @@ extension EmitterCC: Codable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(on, forKey: .on); try c.encode(ccNumber, forKey: .ccNumber); try c.encode(valueMode, forKey: .valueMode)
         try c.encode(high, forKey: .high); try c.encode(low, forKey: .low); try c.encode(hold, forKey: .hold); try c.encode(ramp, forKey: .ramp)
-        try c.encode(self.to, forKey: .to); try c.encode(curve, forKey: .curve); try c.encode(muteValue, forKey: .muteValue); try c.encode(passes, forKey: .passes)
+        try c.encode(self.to, forKey: .to); try c.encode(curve, forKey: .curve); try c.encode(passes, forKey: .passes)
         try c.encodeIfPresent(driverLane, forKey: .driverLane)
     }
 }

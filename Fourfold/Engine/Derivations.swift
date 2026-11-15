@@ -10812,6 +10812,23 @@ func euclideousCCDriver(emitter x: Int, slot s: Int, driverLane: Int?, laneRoute
     return count == 1 ? only + 1 : max(1, min(4, s + 1))
 }
 
+// MARK: - CC PAGE V2 (2026-11-15) §4.3 — which controls the slot's edit page shows (hide, don't dim)
+
+/// The CC edit page's controls, in the §4.2 fixed order (MUTE is gone — amendment 1). The grid flows left-to-right, top-to-bottom through the VISIBLE ones.
+enum EuclideousCCControl: Int, CaseIterable { case high, low, hold, ramp, to, curve, passes }
+/// §4.3: the controls the page shows for a slot, in order. A control is hidden when it has no effect in the current settings; hidden means inert (the engine never reads a hidden field — §4.4, e.g. HITS reads TO as REST). ONE pure
+/// function the page and the layout/tests read, so a drawn control is always one that does something. HIGH/LOW/HOLD always; RAMP once the hold leaves a gap; TO only where a mode reads it (RIFF/PING/CLIMB — HITS's NEXT would only
+/// hold HIGH, §4.3) and the hold leaves a gap; CURVE only when a ramp actually plays; PASSES only in CLIMB (its span). `hold`/`ramp` are the stored 0…100 values; `effectiveRamp` = min(ramp, 100 − hold) decides the real ramp.
+func euclideousCCVisibleControls(mode: EmitterCCValueMode, hold: Int, ramp: Int) -> [EuclideousCCControl] {
+    let effectiveRamp = max(0, min(ramp, 100 - hold))
+    var out: [EuclideousCCControl] = [.high, .low, .hold]
+    if hold < 100 { out.append(.ramp) }                                              // RAMP: nothing to ramp when HOLD fills the gap
+    if hold < 100 && mode != .hits { out.append(.to) }                               // TO: RIFF / PING / CLIMB read it; HITS forces REST (§4.4) so it is hidden there
+    if effectiveRamp > 0 { out.append(.curve) }                                      // CURVE: shapes a ramp — nothing to shape when the effective ramp is 0
+    if mode == .climb { out.append(.passes) }                                        // PASSES: CLIMB's span only
+    return out
+}
+
 /// CC tab RAMP (2026-11-09): how many rhythm hits the clock's lane has in one pass (lap) — the same count `runEuclidLine` calls `cycleHits`, read from the captured window clock so another lane's pass length can be asked of it.
 func hocketLaneCycleHits(_ c: HocketLaneClock) -> Int {
     guard c.valid, c.n > 0 else { return 1 }

@@ -58,12 +58,12 @@ final class EmitterCCTests: XCTestCase {
         for i in 0..<4 {
             let e = set[i]
             XCTAssertFalse(e.on, "default off"); XCTAssertEqual(e.valueMode, .hits); XCTAssertEqual(e.high, 127); XCTAssertEqual(e.low, 0); XCTAssertEqual(e.hold, 25); XCTAssertEqual(e.ramp, 50)
-            XCTAssertEqual(e.to, .rest); XCTAssertEqual(e.curve, .exp); XCTAssertEqual(e.muteValue, 0); XCTAssertEqual(e.passes, 1)
+            XCTAssertEqual(e.to, .rest); XCTAssertEqual(e.curve, .exp); XCTAssertEqual(e.passes, 1)   // amendment 1: no muteValue
         }
         XCTAssertTrue(set.isAllDefault)
         // clamps: ccNumber ≤ 119, hold / ramp 0…100, values 0…127, passes 1…16
-        let c = EmitterCC(on: true, ccNumber: 127, high: -5, low: 200, hold: 150, ramp: -3, muteValue: 999, passes: 40).normalized()
-        XCTAssertEqual(c.ccNumber, 119); XCTAssertEqual(c.high, 0); XCTAssertEqual(c.low, 127); XCTAssertEqual(c.hold, 100); XCTAssertEqual(c.ramp, 0); XCTAssertEqual(c.muteValue, 127); XCTAssertEqual(c.passes, 16)
+        let c = EmitterCC(on: true, ccNumber: 127, high: -5, low: 200, hold: 150, ramp: -3, passes: 40).normalized()
+        XCTAssertEqual(c.ccNumber, 119); XCTAssertEqual(c.high, 0); XCTAssertEqual(c.low, 127); XCTAssertEqual(c.hold, 100); XCTAssertEqual(c.ramp, 0); XCTAssertEqual(c.passes, 16)
         // round-trips through Codable
         var s = EmitterCCSet(); s[0] = EmitterCC(on: true, ccNumber: 20, valueMode: .pingPong, high: 64, low: 64, hold: 10, ramp: 75, to: .next, curve: .lin)
         let data = try! JSONEncoder().encode(s)
@@ -101,28 +101,28 @@ final class EmitterCCTests: XCTestCase {
         XCTAssertTrue(vals.contains(0) && vals.contains(127), "RIFF maps rank 1→0 and rank 8→127 even with PLAY RIFF off: \(vals)")
         XCTAssertTrue(vals.allSatisfy { $0 == 0 || $0 == 127 }, "STEP holds, so only the two hit values appear: \(vals)")
     }
-    func testAMutedOutputSendsTheMuteValueOnce() {
-        let rig = CCRig(state(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .pingPong, high: 90, low: 90, travel: .step, muteValue: 7), muteA: true))
+    func testAMutedOutputSendsItsLowOnce() {
+        // amendment 1: a muted output parks each ON slot at its LOW (its resting value — the separate mute value is gone), once.
+        let rig = CCRig(state(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .hits, high: 90, low: 20, travel: .step), muteA: true))
         rig.run(to: 6.0)
-        let vals = rig.out.values(cable: 1, cc: 74)
-        XCTAssertEqual(vals, [7], "a muted output sends muteValue exactly once, then nothing")
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [20], "a muted output sends its LOW exactly once, then nothing")
     }
     func testCCOffSendsNothing() {
         let rig = CCRig(state(cc: EmitterCC.legacy(on: false, ccNumber: 74)))
         rig.run(to: 6.0)
         XCTAssertTrue(rig.out.cc.isEmpty, "an off emitter sends no CC")
     }
-    func testTurningAnEmitterOffParksItsCCAtTheMuteValueOnceThenSilent() {
-        // The leak Paul reported: turning an emitter OFF left the CC stuck at its last value on the synth. It must park at muteValue once, then send nothing.
-        var st = state(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .pingPong, high: 90, low: 90, travel: .step, muteValue: 7))
+    func testTurningAnEmitterOffParksItsCCAtItsLowOnceThenSilent() {
+        // The leak Paul reported: turning an emitter OFF left the CC stuck at its last value on the synth. It must park at its LOW once (amendment 1 — the mute value is gone), then send nothing. HITS one lane holds HIGH (90); LOW 20 ≠ 90, so the park shows.
+        var st = state(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .hits, high: 90, low: 20, travel: .step))
         let rig = CCRig(st)
         rig.run(to: 4.0)
         XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [90], "CC flows while the emitter is on")
         st.euclideousEmitterCCs![0].on = false      // the CC tab's emitter toggle, republished
         rig.box = SnapshotBuilder.build(from: st)
         rig.run(to: 8.0)
-        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [90, 7], "off-edge parks the CC at muteValue (7) exactly once, then silent")
-        XCTAssertEqual(rig.out.values(cable: 0, cc: 74), [90, 7], "and on ALL (cable 0) too")
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [90, 20], "off-edge parks the CC at its LOW (20) exactly once, then silent")
+        XCTAssertEqual(rig.out.values(cable: 0, cc: 74), [90, 20], "and on ALL (cable 0) too")
     }
 
     // MARK: slice D (2026-11-08) — the gap and the predicted value are the NEXT HIT ON THE EMITTER, merged across the lanes routed to it; an emitter whose routed lanes are ALL stopped / muted is silent
@@ -439,8 +439,8 @@ final class EmitterCCTests: XCTestCase {
     }
 
     // MARK: amendment 1 (2026-11-09) — HITS, the merged hit stream, and the hold-then-ramp shape
-    private func hitsEmitter(hold: Int = 100, ramp: Int = 0, to: EmitterCCTo = .rest, curve: EmitterCCCurve = .lin, high: Int = 127, low: Int = 0, mode: EmitterCCValueMode = .hits, muteValue: Int = 0) -> EmitterCC {
-        EmitterCC(on: true, ccNumber: 74, valueMode: mode, high: high, low: low, hold: hold, ramp: ramp, to: to, curve: curve, muteValue: muteValue)
+    private func hitsEmitter(hold: Int = 100, ramp: Int = 0, to: EmitterCCTo = .rest, curve: EmitterCCCurve = .lin, high: Int = 127, low: Int = 0, mode: EmitterCCValueMode = .hits) -> EmitterCC {
+        EmitterCC(on: true, ccNumber: 74, valueMode: mode, high: high, low: low, hold: hold, ramp: ramp, to: to, curve: curve)
     }
     private func at(_ tl: [(sample: Int64, value: Int)], _ beat: Double) -> Int { tl.last(where: { Double($0.sample) <= beat * beatSamples + 1 })?.value ?? -1 }
 
@@ -547,21 +547,21 @@ final class EmitterCCTests: XCTestCase {
         let tl = rig.out.timeline(cable: 1, cc: 74)
         XCTAssertTrue(tl.contains { abs(Double($0.sample) - 2 * beatSamples) < 2 && $0.value == 127 }, "driver lane 2's rank-8 column at beat 2 ⇒ HIGH: \(tl)")
     }
-    /// §3.6: a FULLY-muted output (all cells clear) sends muteValue once; a PARTIAL MUTE-tab pattern does NOT gate CC (every hit still fires).
-    func testPartialMuteDoesNotGateCCFullMuteSendsMuteValueOnce() {
-        // partial: cells 4…7 only — the CC fires on every hit regardless (not gated by the pattern).
-        var st = state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .hits, high: 90, low: 0, hold: 100, muteValue: 7))
+    /// §3.6 / amendment 1: a FULLY-muted output (all cells clear) sends its LOW once; a PARTIAL MUTE-tab pattern does NOT gate CC (every hit still fires).
+    func testPartialMuteDoesNotGateCCFullMuteSendsLowOnce() {
+        // partial: cells 4…7 only — the CC fires on every hit regardless (not gated by the pattern); no park. HOLD 100 holds HIGH (90), so LOW 15 never appears while on.
+        var st = state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .hits, high: 90, low: 15, hold: 100))
         var mutes = EuclideousOutputMutes(); mutes[0] = EuclideousOutputMute(cells16: 0b0000_0000_1111_0000, passes: 1); st.euclideousOutputMutes = mutes
         var rig = CCRig(st)
         rig.run(to: 4.0)
-        XCTAssertFalse(rig.out.values(cable: 1, cc: 74).contains(7), "a partial MUTE-tab pattern does not send muteValue")
+        XCTAssertFalse(rig.out.values(cable: 1, cc: 74).contains(15), "a partial MUTE-tab pattern does not park the CC")
         XCTAssertTrue(rig.out.values(cable: 1, cc: 74).contains(90), "and the CC fires on the hits")
-        // full: every cell clear ⇒ muteValue once, then nothing.
-        var st2 = state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .hits, high: 90, low: 0, hold: 100, muteValue: 7))
+        // full: every cell clear ⇒ LOW once, then nothing.
+        var st2 = state(cc: EmitterCC(on: true, ccNumber: 74, valueMode: .hits, high: 90, low: 15, hold: 100))
         var mutes2 = EuclideousOutputMutes(); mutes2[0] = EuclideousOutputMute(cells16: 0, passes: 1); st2.euclideousOutputMutes = mutes2
         rig = CCRig(st2)
         rig.run(to: 6.0)
-        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [7], "a full output mute sends muteValue once")
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [15], "a full output mute sends its LOW once")
     }
 }
 

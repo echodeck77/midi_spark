@@ -86,7 +86,7 @@ func emitterCCTrace(cfg: EmitterCCCfg, hits rawHits: [EmitterCCTraceHit], barBea
         let te = at(e), gap = max(1e-9, at(e + 1) - te), el = b - te
         let holdT = gap * holdF, rampT = gap * rampF
         if el < holdT - 1e-9 { return (v, lane) }
-        let target = cfg.hold >= 100 ? v : (cfg.to == .rest ? cfg.low : (value(e + 1) ?? v))   // HOLD 100 % = steps: the value stays until a new one arrives
+        let target = cfg.hold >= 100 ? v : (cfg.effectiveTo == .rest ? cfg.low : (value(e + 1) ?? v))   // HOLD 100 % = steps: the value stays until a new one arrives; §4.4: HITS reads TO as REST
         if rampT <= 1e-9 || el >= holdT + rampT - 1e-9 { return (target, lane) }   // no ramp: it jumps to the target at the end of the hold; after the ramp it sits there
         let f = (el - holdT) / rampT
         return (Int((Double(v) + (Double(target) - Double(v)) * emitterCCShape(f, curve: cfg.curve)).rounded()), lane)
@@ -111,15 +111,14 @@ func emitterCCTraceLane(_ t: EmitterCCTrace, atBeat beat: Double) -> Int? {
 
 // MARK: - which controls matter
 
-/// The six bar sliders of an emitter's page.
-enum EmitterCCField: Int, CaseIterable { case high, low, hold, ramp, passes, mute }
-/// True when a control changes nothing in the emitter's current settings — the page dims exactly these (they stay usable), so a live control is always one that does something (amendment 1): RAMP and TO have nothing to work with when HOLD is 100 (the hit's
-/// value is held for the whole gap); CURVE shapes a ramp that is 0 when HOLD is 100 or RAMP is 0; PASSES is CLIMB's span; HIGH, LOW, HOLD and MUTE are always read (LOW is also the REST target).
+/// The bar sliders of an emitter's page (MUTE removed — amendment 1). CC page v2's own visibility is `euclideousCCVisibleControls`; this is kept for the legacy callers still compiled.
+enum EmitterCCField: Int, CaseIterable { case high, low, hold, ramp, passes }
+/// True when a control changes nothing in the emitter's current settings (legacy CC-slots helper): RAMP has nothing to work with when HOLD is 100 (the hit's value is held for the whole gap); PASSES is CLIMB's span; HIGH, LOW and HOLD are always read (LOW is also the REST target).
 func emitterCCFieldIsInert(_ f: EmitterCCField, _ cc: EmitterCC) -> Bool {
     switch f {
     case .ramp: return cc.hold >= 100
     case .passes: return cc.valueMode != .climb
-    case .high, .low, .hold, .mute: return false
+    case .high, .low, .hold: return false
     }
 }
 func emitterCCToIsInert(_ cc: EmitterCC) -> Bool { cc.hold >= 100 }

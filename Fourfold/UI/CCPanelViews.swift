@@ -397,7 +397,7 @@ struct EuclideousCCExpandedView: View {
             // RAMP reads the EFFECTIVE ramp (what HOLD leaves of the gap); the stored value is kept, so lowering HOLD restores it
             CCBarSlider(label: "RAMP", value: cc.effectiveRamp, lo: 0, hi: 100, dimmed: emitterCCFieldIsInert(.ramp, cc)) { v, s in onEdit(s) { $0[slot].ramp = v } }
             CCBarSlider(label: "PASSES", value: cc.passes, lo: 1, hi: EmitterCC.maxPasses, dimmed: emitterCCFieldIsInert(.passes, cc)) { v, s in onEdit(s) { $0[slot].passes = v } }
-            CCBarSlider(label: "MUTE", value: cc.muteValue) { v, s in onEdit(s) { $0[slot].muteValue = v } }
+            // CC page v2 amendment 1 (2026-11-15): the MUTE slider is removed — a muted output parks each CC at its LOW. (The controls block is rebuilt in CC page v2 slice 4.)
             Spacer(minLength: 0)
         }
     }

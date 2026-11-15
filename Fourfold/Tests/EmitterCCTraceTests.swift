@@ -101,8 +101,8 @@ final class EmitterCCTraceTests: XCTestCase {
         cc.hold = 25; cc.ramp = 0
         XCTAssertTrue(emitterCCCurveIsInert(cc), "a RAMP of 0 has no curve"); XCTAssertFalse(emitterCCToIsInert(cc), "…but TO still names where the end of the hold jumps to")
         for m in EmitterCCValueMode.allCases { var c = EmitterCC(); c.valueMode = m; XCTAssertEqual(emitterCCFieldIsInert(.passes, c), m != .climb, "PASSES is CLIMB's span: inert in every other mode") }
-        for f in [EmitterCCField.high, .low, .hold, .mute] { XCTAssertFalse(emitterCCFieldIsInert(f, EmitterCC(hold: 100)), "\(f) is always read") }
-        XCTAssertEqual(EmitterCCField.allCases.count, 6, "HIGH · LOW · HOLD · RAMP · PASSES · MUTE")
+        for f in [EmitterCCField.high, .low, .hold] { XCTAssertFalse(emitterCCFieldIsInert(f, EmitterCC(hold: 100)), "\(f) is always read") }
+        XCTAssertEqual(EmitterCCField.allCases.count, 5, "HIGH · LOW · HOLD · RAMP · PASSES (MUTE removed, amendment 1)")
     }
     func testSlidingTheCCNumberIsRelativeUpRaisesAndPinsToTheRange() {
         let p = emitterCCNumberDragPointsPerStep

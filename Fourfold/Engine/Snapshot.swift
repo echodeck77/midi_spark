@@ -254,12 +254,14 @@ struct EmitterCCCfg: Equatable {
     var on = false
     var ccNumber = 74
     var valueMode: EmitterCCValueMode = .hits
-    var high = 127, low = 0, hold = 25, ramp = 50, muteValue = 0, passes = 1
+    var high = 127, low = 0, hold = 25, ramp = 50, passes = 1   // amendment 1 (2026-11-15): `muteValue` removed — a muted output parks at LOW
     var to: EmitterCCTo = .rest
     var curve: EmitterCCCurve = .exp
     var driverLane: Int? = nil   // CC SLOTS (2026-11-12): the slot's driver lane (1…4), nil = AUTO (§2)
     init() {}
-    init(_ e: EmitterCC) { let n = e.normalized(); on = n.on; ccNumber = n.ccNumber; valueMode = n.valueMode; high = n.high; low = n.low; hold = n.hold; ramp = n.ramp; to = n.to; curve = n.curve; muteValue = n.muteValue; passes = n.passes; driverLane = n.driverLane }
+    init(_ e: EmitterCC) { let n = e.normalized(); on = n.on; ccNumber = n.ccNumber; valueMode = n.valueMode; high = n.high; low = n.low; hold = n.hold; ramp = n.ramp; to = n.to; curve = n.curve; passes = n.passes; driverLane = n.driverLane }
+    /// §4.4: the ramp TARGET's TO the engine reads — HITS always REST (mirrors `EmitterCC.effectiveTo`).
+    var effectiveTo: EmitterCCTo { valueMode == .hits ? .rest : to }
     /// The ramp that plays: the stored RAMP, limited to what HOLD leaves of the gap.
     var effectiveRamp: Int { max(0, min(ramp, 100 - hold)) }
     /// The hit value for a riff rank r (1…8): LOW + (r−1)/7 × (HIGH − LOW), rounded, clamped 0…127. LOW may exceed HIGH (inverts). This is the literal rank map over 1…8 (`span` `.full`).
