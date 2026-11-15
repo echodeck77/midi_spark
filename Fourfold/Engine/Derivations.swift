@@ -11831,6 +11831,13 @@ func euclideousRankChipMinWidth() -> CGFloat {
 /// 6.3: the next lane, 1 → 2 → 3 → 4 → 1 (0-based here).
 func euclideousPickedLaneNext(_ current: Int) -> Int { (((current % 4) + 4) % 4 + 1) % 4 }
 
+/// INPUTS v2 §2.5a / §6.3: APPLY TO ALL — copy a lane's SOURCES (`poolSrcMask`, incl. the CHORD 1/2 grid bit) and MIDI mode (`midiMode`) onto every OTHER lane. DELAY CHORD (`chordDelay`) and everything else are left untouched. One mutation ⇒ one undo step. Behaviour unchanged from the as-built inline copy (extracted so it is test-covered).
+func euclideousApplyInputsToAll(_ lines: inout [EuclidLine], from idx: Int) {
+    guard idx >= 0, idx < lines.count else { return }
+    let s = lines[idx]
+    for i in lines.indices where i != idx { lines[i].poolSrcMask = s.poolSrcMask; lines[i].midiMode = s.midiMode }
+}
+
 // ── §2 THE TAB'S LAYOUT ──────────────────────────────────────────────────────────────────────────────────────────────────
 enum EuclideousPoolTabMetrics {
     /// INPUTS ferry 3.1: rows sit 14 apart now that two rows are gone; a short card gives that up first, down to today's 8, and only then the rows give up height (down to a 30 pt floor).

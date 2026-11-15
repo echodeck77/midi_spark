@@ -946,3 +946,9 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - LENGTH 2/3/4 on a DENSE lane: the spill should choke cleanly on the next hit on that output (no doubled/colliding strikes); on a SPARSE lane the full spread should ring out;
   - the 6-segment LENGTH control (AUTO · ½ · 1 · 2 · 3 · 4, 168 pt) is legible and tappable at both references and on the mini; the expanded STRIKES ×2 ×3 ×4 chips now render (were 0-width) — confirm they show and toggle;
   - whether a staccato strike-gate is still wanted (deferred) — i.e. do same-pitch strikes separate enough by spacing + the FADE ramp alone.
+
+- **INPUTS v2 (2026-11-15) §8:** the calmed INPUTS card — by eye on device, both orientations, all four lane colours:
+  - the card reads calmer at a glance and each row's state reads true (neutral selected chips with a small lane lamp; lane colour only on the lamps + APPLY TO ALL's outline);
+  - the SOURCES lamps are legible at arm's length in AUM (filled on vs a thin ring off), and the CHORDS + 1|2 group reads as one control;
+  - APPLY TO ALL is easy to find (its lane outline) yet hard to hit by accident; the MIDI control is clearly dim + outline-only while MIDI IN is off, and "ROOT +2" shows with no fourth box;
+  - the two-line DELAY CHORD label fits its 50 pt column at the narrowest layout, and UNIT reads as dim while BY is 0.

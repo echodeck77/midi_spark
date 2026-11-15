@@ -6606,14 +6606,7 @@ struct EuclideousPage: View {
     }
     /// APPLY TO ALL (Paul 2026-11-11): copies THIS lane's INPUTS — SOURCES (`poolSrcMask`, incl. the CHORD 1/2 grid) and MIDI mode (`midiMode`) — onto the other three lanes, as ONE undo step. CANON is deliberately NOT copied (Paul 2026-11-11); NOW is display-only.
     private func inputsApplyToAll(_ idx: Int) {
-        onEdit { lines in
-            guard idx >= 0, idx < lines.count else { return }
-            let s = lines[idx]
-            for i in lines.indices where i != idx {
-                lines[i].poolSrcMask = s.poolSrcMask
-                lines[i].midiMode = s.midiMode
-            }
-        }
+        onEdit { lines in euclideousApplyInputsToAll(&lines, from: idx) }   // §2.5a: one undo step; copies SOURCES + MIDI mode, never DELAY CHORD
     }
     /// §2.5b: the APPLY TO ALL button — full card width, 30 tall, r6, #262930, a 1 pt lane-colour inner border (the ONE lane-coloured outline on the card), "APPLY TO ALL" 9 pt heavy 0.18 em #F2F4F7 centred; pressed #30333B. Sits directly above DELAY CHORD.
     private struct InputsApplyButtonStyle: ButtonStyle {

@@ -120,19 +120,7 @@ struct InputsMidiControlView: View {
             RoundedRectangle(cornerRadius: 5).fill(Color(h: 0x202227))
             HStack(spacing: segGap) {
                 ForEach(0..<3, id: \.self) { i in
-                    let m = modes[i], sel = mode == m
-                    let label = (m == .root && t != 0) ? "ROOT " + euclideousHeaderSignedT(t) : euclideousInputsMidiModeLabel(m)
-                    Text(label).font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(7.5 * 0.08).lineLimit(1).minimumScaleFactor(0.7)
-                        .foregroundColor(Color(h: sel ? (midiOn ? 0x0D0F14 : 0xAAB0BA) : 0x8A909A))
-                        .frame(width: segW, height: max(1, size.height - inset * 2))
-                        .background(RoundedRectangle(cornerRadius: 3.5).fill(sel && midiOn ? Color(h: 0xDFE3EA) : Color.clear))
-                        .overlay(RoundedRectangle(cornerRadius: 3.5).strokeBorder(sel && !midiOn ? Color(h: 0x6B7079) : Color.clear, lineWidth: 0.75))   // §2.4c: off ⇒ outline-only selection
-                        .contentShape(Rectangle())
-                        .onTapGesture { if mode != m { onPick(m) } }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(euclideousInputsMidiModeSpoken(m) + ", lane \(lane + 1)" + (midiOn ? "" : ", MIDI in off"))
-                        .accessibilityValue(m == .root && t != 0 ? (t > 0 ? "plus \(t)" : "minus \(abs(t))") : "")
-                        .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+                    midiSegment(m: modes[i], t: t, segW: segW, segH: max(1, size.height - inset * 2))
                 }
             }
             .padding(inset)
@@ -140,6 +128,26 @@ struct InputsMidiControlView: View {
         .frame(width: size.width, height: size.height)
         .opacity(midiOn ? 1 : 0.4)   // §2.4c: 40 % while MIDI IN off (still tappable)
         .accessibilityElement(children: .contain)
+    }
+    /// One MIDI segment. The colours/label are precomputed as typed values so the ViewBuilder chain type-checks in time (the harness build timed out on the inline nested ternaries).
+    @ViewBuilder private func midiSegment(m: MidiMode, t: Int, segW: CGFloat, segH: CGFloat) -> some View {
+        let sel = mode == m
+        let label = (m == .root && t != 0) ? "ROOT " + euclideousHeaderSignedT(t) : euclideousInputsMidiModeLabel(m)
+        let fg: Color = sel ? (midiOn ? Color(h: 0x0D0F14) : Color(h: 0xAAB0BA)) : Color(h: 0x8A909A)
+        let fill: Color = (sel && midiOn) ? Color(h: 0xDFE3EA) : Color.clear
+        let stroke: Color = (sel && !midiOn) ? Color(h: 0x6B7079) : Color.clear
+        let axValue: String = (m == .root && t != 0) ? (t > 0 ? "plus \(t)" : "minus \(abs(t))") : ""
+        Text(label).font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(7.5 * 0.08).lineLimit(1).minimumScaleFactor(0.7)
+            .foregroundColor(fg)
+            .frame(width: segW, height: segH)
+            .background(RoundedRectangle(cornerRadius: 3.5).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: 3.5).strokeBorder(stroke, lineWidth: 0.75))   // §2.4c: off ⇒ outline-only selection
+            .contentShape(Rectangle())
+            .onTapGesture { if mode != m { onPick(m) } }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(euclideousInputsMidiModeSpoken(m) + ", lane \(lane + 1)" + (midiOn ? "" : ", MIDI in off"))
+            .accessibilityValue(axValue)
+            .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
     }
 }
 
