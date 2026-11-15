@@ -160,4 +160,24 @@ final class EmitterRatchetV2Tests: XCTestCase {
         XCTAssertEqual(shares(.flat, depth: 60), [1, 1, 1, 1])
         XCTAssertEqual(emitterStrikeVelShare(vel: .fade, depth: 60, k: 0, n: 1), 1, "n=1 ⇒ 1")
     }
+
+    // RATCH LENGTH ferry (2026-11-15) §2.3 — AUTO resolves per lane rate so the strike gap clears the 75 ms floor (0.15 beat at 120 BPM), maxCount 3.
+    func testAutoLengthResolvesByRate() {
+        func r(_ stepBeats: Double) -> EmitterStrikeLength { emitterStrikeResolveLength(.auto, stepBeats: stepBeats, tempo: 120, maxCount: 3) }
+        XCTAssertEqual(r(1.0), .half,  "1/4 lane (1 beat/step): ½ gives 0.167-beat gaps ≥ 0.15")
+        XCTAssertEqual(r(0.5), .one,   "1/8 lane: ½ is too tight (0.083), 1 gives 0.167")
+        XCTAssertEqual(r(0.25), .two,  "1/16 lane: needs 2 steps (0.167-beat gaps)")
+        XCTAssertEqual(r(0.125), .four,"1/32 lane: only 4 steps clears the floor")
+        // a non-AUTO length is returned unchanged, whatever the rate
+        for L in [EmitterStrikeLength.half, .one, .two, .three, .four] {
+            XCTAssertEqual(emitterStrikeResolveLength(L, stepBeats: 0.25, tempo: 120, maxCount: 3), L)
+        }
+        // tempo scales the floor: at 60 BPM the floor is 0.075 beat, so a 1/8 lane clears it at ½
+        XCTAssertEqual(emitterStrikeResolveLength(.auto, stepBeats: 0.5, tempo: 60, maxCount: 3), .half, "slower tempo ⇒ a smaller beat-floor ⇒ a tighter LENGTH still audible")
+    }
+    func testAutoMaxCountStretchesForMoreStrikes() {
+        // more strikes ⇒ tighter slots ⇒ AUTO needs a longer span: a 1/8 lane at maxCount 4 needs LENGTH 2 (½/1 both too tight), vs LENGTH 1 at maxCount 3.
+        XCTAssertEqual(emitterStrikeResolveLength(.auto, stepBeats: 0.5, tempo: 120, maxCount: 4), .two)
+        XCTAssertEqual(emitterStrikeResolveLength(.auto, stepBeats: 0.5, tempo: 120, maxCount: 3), .one)
+    }
 }

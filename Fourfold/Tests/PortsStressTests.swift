@@ -248,12 +248,20 @@ final class PortsStressTests: XCTestCase {
         st.scenes = [FourfoldCompose.scene(input)]
     }
     /// RATCH tab ferry (2026-10-28): four random output ratchets — mostly ON, every STEPS / HITS / OFFSET / CHANCE / STRIKES — drawn from their OWN stream, so the pinned fingerprints (no ratchets) stay exactly what they were.
+    /// RATCH LENGTH ferry (2026-11-15): also draws the SPREAD fields (COUNTS / PER HIT / LENGTH incl. 2/3/4 + AUTO / BEND / VEL / DEPTH), so the fuzz exercises the bent per-strike echo-tail path AND the per-output choke under every invariant (no stuck note, no orphan off, ALL = the union, etc.). Still its own stream ⇒ the no-ratchet fingerprints are unchanged.
     private func rEmitters(_ x: inout SM64) -> EmitterRatchetSet {
         var set = EmitterRatchetSet()
         for i in 0..<4 {
             let steps = Int.random(in: 2...16, using: &x)
-            set[i] = EmitterRatchet(on: Int.random(in: 0...3, using: &x) != 0, steps: steps, hits: Int.random(in: 0...steps, using: &x), offset: Int.random(in: 0..<steps, using: &x),
-                                    chance: [100, 100, 75, 50, 25, 5, 0].randomElement(using: &x)!, strikes: Int.random(in: 2...4, using: &x))
+            var r = EmitterRatchet(on: Int.random(in: 0...3, using: &x) != 0, steps: steps, hits: Int.random(in: 0...steps, using: &x), offset: Int.random(in: 0..<steps, using: &x),
+                                   chance: [100, 100, 75, 50, 25, 5, 0].randomElement(using: &x)!, strikes: Int.random(in: 2...4, using: &x))
+            r.countsBits = UInt8(Int.random(in: 1...7, using: &x))                 // a non-empty subset of {2,3,4}
+            r.perHit = Int.random(in: 0...3, using: &x) == 0                       // mostly off
+            r.length = [.auto, .half, .one, .two, .three, .four].randomElement(using: &x)!
+            r.bend = [0, 0, 50, -50, 100, -100, 30].randomElement(using: &x)!
+            r.vel = [.flat, .flat, .fade, .swell].randomElement(using: &x)!
+            r.depth = [0, 25, 50, 75, 100].randomElement(using: &x)!
+            set[i] = r
         }
         return set
     }

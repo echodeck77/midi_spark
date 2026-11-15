@@ -4955,7 +4955,9 @@ final class Router {
                                             if d.missed { emitMissedOuts |= UInt8(1) << UInt8(x) }
                                             if d.ratchets {
                                                 // RATCH v2 §3.5: the beat-width cap on the hit's SHORTEST strike slot (BEND makes them uneven); FILL-scaled step `subAtHit`. LENGTH 1 / BEND 0 == today's FIT cap exactly. If it lowers n below 2 the hit plays once (the `n >= 2` gate).
-                                                let n = emitterStrikeCappedCount(n: d.strikes, length: emitterRatchets[x].length, bend: emitterRatchets[x].bend, stepBeats: subAtHit, tempo: tempo)
+                                                // RATCH LENGTH §2.3: resolve AUTO → a concrete length for THIS lane rate (maxCount = the worst-case strike count, so AUTO's length is stable across hits); the strike layout re-resolves the same way.
+                                                let effLen = emitterStrikeResolveLength(emitterRatchets[x].length, stepBeats: subAtHit, tempo: tempo, maxCount: emitterRatchets[x].maxCount)
+                                                let n = emitterStrikeCappedCount(n: d.strikes, length: effLen, bend: emitterRatchets[x].bend, stepBeats: subAtHit, tempo: tempo)
                                                 if n >= 2 { emitRatchetOuts |= UInt8(1) << UInt8(x); emitN[x] = UInt8(n) }
                                             }
                                             if emitterVelAny {
@@ -4991,8 +4993,9 @@ final class Router {
                                     for x in 0..<4 where (emitRatchetOuts >> UInt8(x)) & 1 != 0 {
                                         let n = Int(emitN[x]), xBit = UInt8(1) << UInt8(x)   // already SPREAD-capped at the decision site (§3.5)
                                         let rc = emitterRatchets[x]
+                                        let effLen = emitterStrikeResolveLength(rc.length, stepBeats: subAtHit, tempo: tempo, maxCount: rc.maxCount)   // RATCH LENGTH §2.3: the same AUTO resolution the decision/cap used (maxCount ⇒ stable per emitter)
                                         let evenFlat = rc.bend == 0 && rc.vel == .flat     // BEND 0 + FLAT ⇒ even spacing + one velocity ⇒ today's single-tail path (byte-identical)
-                                        let span = emitterStrikeSpanBeats(length: rc.length, stepBeats: subAtHit)
+                                        let span = emitterStrikeSpanBeats(length: effLen, stepBeats: subAtHit)
                                         for j in 0..<pitchCount where emitOutsOf(j) & xBit != 0 {
                                             guard let fp = finalPitch(pitches[j], oct: 0) else { continue }
                                             let tieLast = tieOf(j) > 0
@@ -5020,8 +5023,8 @@ final class Router {
                                             } else {
                                                 // §2.3 bent spacing / §2.5 per-strike velocity ⇒ ONE deferred tail per strike (a bent run can't share a fixed timeBeats).
                                                 for k in 0..<n {
-                                                    let start = emitterStrikeStartOffset(k: k, n: n, length: rc.length, bend: rc.bend, stepBeats: subAtHit)
-                                                    let slot = emitterStrikeSlotBeats(k: k, n: n, length: rc.length, bend: rc.bend, stepBeats: subAtHit)
+                                                    let start = emitterStrikeStartOffset(k: k, n: n, length: effLen, bend: rc.bend, stepBeats: subAtHit)
+                                                    let slot = emitterStrikeSlotBeats(k: k, n: n, length: effLen, bend: rc.bend, stepBeats: subAtHit)
                                                     var gate = max(minGateBeats5ms, slot * pitchGate[j])
                                                     if tieLast && k == n - 1 { gate = max(gate, (nextHitGapBeats - start) + pitchGate[j] * tieOf(j)) }   // §3.7
                                                     let vel = UInt8(max(1, min(127, Int((Double(pitchVel[j]) * emitterStrikeVelShare(vel: rc.vel, depth: rc.depth, k: k, n: n)).rounded()))))   // §2.5 ramp, ≥1

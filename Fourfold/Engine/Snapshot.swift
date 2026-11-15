@@ -198,6 +198,8 @@ struct EmitterRatchetCfg: Equatable {
     @inline(__always) func isHit(_ i: Int) -> Bool { i >= 0 && i < 16 && (patternMask >> UInt16(i)) & 1 != 0 }
     /// §1.4: the HIT count (1…4) for pre-OFFSET hit ordinal `h`.
     @inline(__always) func hitCount(_ h: Int) -> Int { guard h >= 0 && h < 16 else { return 3 }; return Int((hitCountBits >> UInt32(2 * h)) & 0b11) + 1 }
+    /// RATCH LENGTH ferry (2026-11-15) §2.3: the most strikes a hit can ratchet to (PER HIT ⇒ 4; else the largest COUNTS member) — the worst-case count AUTO spaces for, so AUTO's resolved length is stable across hits.
+    @inline(__always) var maxCount: Int { perHit ? 4 : emitterCountMemberMax(countsBits) }
 }
 struct EmitterRatchetSnap: Equatable {
     var e0 = EmitterRatchetCfg(), e1 = EmitterRatchetCfg(), e2 = EmitterRatchetCfg(), e3 = EmitterRatchetCfg()

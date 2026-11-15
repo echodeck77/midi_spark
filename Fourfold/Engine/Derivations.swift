@@ -11215,6 +11215,21 @@ func emitterStrikeCappedCount(n: Int, length: EmitterStrikeLength, bend: Int, st
     return m
 }
 
+// MARK: - RATCH LENGTH ferry (2026-11-15) §2 — AUTO (the always-sounds default)
+
+/// The audible-floor gap between a ratchet's strikes, in SECONDS — AUTO stretches LENGTH until the strike gap clears it (so a fresh ratchet is a distinct roll at any lane rate). Device-owed (confirm by ear); the one place to tune AUTO's feel.
+let emitterStrikeAutoFloorSeconds = 0.075
+/// §2.2 — the LARGEST COUNTS member (the tightest strike count), for AUTO's worst-case spacing and the strip. Allocation-free; an empty mask ⇒ 3.
+@inline(__always) func emitterCountMemberMax(_ mask: UInt8) -> Int { let m = mask & 0b111; return m == 0 ? 3 : (m & 0b100 != 0 ? 4 : (m & 0b010 != 0 ? 3 : 2)) }
+/// §2.3 — resolve AUTO → the SMALLEST concrete LENGTH whose strike gap (span ÷ maxCount) clears the audible floor at this step/tempo; a non-AUTO length returns itself. The cap, the strike layout, the strip and the tile ALL call this — never a second derivation (the recurring-bug-class rule). On a slow lane AUTO lands at ½, a medium lane at 1, a fast lane at 2/3/4 (which the per-output choke keeps clean).
+func emitterStrikeResolveLength(_ length: EmitterStrikeLength, stepBeats: Double, tempo: Double, maxCount: Int) -> EmitterStrikeLength {
+    guard length == .auto else { return length }
+    let floorBeats = emitterStrikeAutoFloorSeconds * (tempo >= 1 ? tempo : 120) / 60.0
+    let n = max(2, maxCount)
+    for L in [EmitterStrikeLength.half, .one, .two, .three, .four] where L.steps * stepBeats / Double(n) >= floorBeats - 1e-9 { return L }
+    return .four
+}
+
 /// §2.7 — what the emitter decides for one emitter hit: the pattern index it fell on, whether P(index) is a hit, whether it ratchets, and STRIKES (the cap on the beat width is applied where the strikes are laid out).
 /// `missed` = the emitter is ON and P(index) is a hit but CHANCE failed (the hit feed's MISSED bit); an OFF emitter never misses.
 struct EmitterRatchetDecision: Equatable {
