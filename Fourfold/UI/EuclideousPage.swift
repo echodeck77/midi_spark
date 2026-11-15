@@ -1773,10 +1773,28 @@ struct EuclideousPage: View {
     //
     // Why `pageGeometry` exists: the body, the swing popover and the settings sheet all need the header's layout, which needs the page's riff-panel x and
     // lane-gutter x — so there is exactly ONE derivation of (container width, header layout, page layout), here.
+    /// HEADER STATUS ferry (2026-11-15) §5: the stable in-use counts the ladder reserves for (change only on an edit, never while playing).
+    private var headerStatusCounts: (tokenCount: Int, lampShown: Bool, readoutShown: Bool) {
+        let n = min(4, lines.count)
+        var g1 = false, g2 = false, midi = false, root = false
+        for l in 0..<n {
+            let line = lines[l]
+            if line.poolChordsOn { if line.poolChordGrid == 0 { g1 = true } else { g2 = true } }
+            if line.poolSrcMaskResolved & 1 != 0 {
+                midi = true
+                if euclideousLaneMidiMode(line.midiMode, planMode: sourcePlan.midiModeR) == .root { root = true }
+            }
+        }
+        return ((g1 ? 1 : 0) + (g2 ? 1 : 0), midi, midi && root)
+    }
+    private var headerButtonLayoutWidth: CGFloat {
+        let c = headerStatusCounts
+        return euclideousHeaderLayoutButtonWidth(tokenCount: c.tokenCount, lampShown: c.lampShown, readoutShown: c.readoutShown, step: 0)
+    }
     private func pageGeometry(_ size: CGSize) -> (containerW: CGFloat, hdr: EuclideousHeaderLayout, page: EuclideousPageLayout) {
         let containerW = size.width - sp16 * 2
         let page = euclideousPageLayout(size: size, bottomInset: pageBottomInset)
-        let hdr = euclideousHeaderLayout(containerW: containerW, isLandscape: page.isLandscape, riffLeadingX: page.riffLeadingX)
+        let hdr = euclideousHeaderLayout(containerW: containerW, isLandscape: page.isLandscape, riffLeadingX: page.riffLeadingX, buttonWidth: headerButtonLayoutWidth)
         return (containerW, hdr, page)
     }
     private func pageBody(_ size: CGSize) -> some View {
@@ -1908,7 +1926,8 @@ struct EuclideousPage: View {
         return ZStack(alignment: .topLeading) {
             headerBrand(layout).frame(width: layout.brand.width, height: HM.rowH, alignment: .leading)
                 .offset(x: layout.brand.x, y: CGFloat(layout.brand.row) * rowStep)
-            headerNotes().frame(width: layout.notes.width, height: HM.rowH, alignment: .leading)
+            headerNotes(fallbackStep: euclideousHeaderFallbackStep(tokenCount: headerStatusCounts.tokenCount, lampShown: headerStatusCounts.lampShown, readoutShown: headerStatusCounts.readoutShown, kind: layout.kind, containerW: containerW))
+                .frame(width: layout.notes.width, height: HM.rowH, alignment: .leading)
                 .offset(x: layout.notes.x, y: CGFloat(layout.notes.row) * rowStep)
             headerUtilities(layout).frame(width: layout.utilities.width, height: HM.rowH, alignment: .trailing)
                 .offset(x: layout.utilities.x, y: CGFloat(layout.utilities.row) * rowStep)
@@ -2060,14 +2079,14 @@ struct EuclideousPage: View {
     }
 
     // MARK: NOTES — the HARMONY button (INPUTS + HARMONY §6; it was the SOURCES button) + HOLD/LATCH
-    private func headerNotes() -> some View {
+    private func headerNotes(fallbackStep: Int) -> some View {
         HStack(spacing: HM.sp8) {
-            headerSourceButton()
+            headerSourceButton(fallbackStep: fallbackStep)
             headerHoldLatch()
         }
     }
     /// HEADER STATUS ferry (2026-11-15): the button that toggles HARMONY — content-hugging, showing the KEY, a token per in-use chord grid (icon + playing column + name), the MIDI lamp and ROOT transpose. The §7 pure functions decide the parts.
-    private func headerSourceButton() -> some View {
+    private func headerSourceButton(fallbackStep: Int) -> some View {
         let g1 = chordSets.count > 0 ? chordSets[0] : MachineParams()
         let g2 = chordSets.count > 1 ? chordSets[1] : MachineParams()
         let g1deg = g1.chordsDegreesResolved16(), g1col = g1.chordsColoursResolved16(), g1steps = g1.chordsStepsResolved
@@ -2096,7 +2115,7 @@ struct EuclideousPage: View {
             let parts = euclideousHeaderStatus(keyRoot: keyRoot, keyType: keyType, grid1: gs1, grid1Degrees: g1deg, grid1Colours: g1col, grid1Steps: g1steps,
                                                grid2: gs2, grid2Degrees: g2deg, grid2Colours: g2col, grid2Steps: g2steps, midiInUse: midiInUse, midiLit: midiLit, rootInUse: rootInUse, t: t)
             EuclideousHarmonyHeaderButton(parts: parts, keyRoot: keyRoot, keyType: keyType, grid1Degrees: g1deg, grid1Steps: g1steps, grid2Degrees: g2deg, grid2Steps: g2steps,
-                                          running: running, t: t, fallbackStep: 0,   // §5.2 fallback wired in step 4
+                                          running: running, t: t, fallbackStep: fallbackStep,
                                           open: harmonyOpen, onTap: { if harmonyOpen { closeHarmony() } else { openHarmony() } })
         }
         .onChange(of: sourceStatus.midiNoteOnCount) { _ in headerLampAt = Date().timeIntervalSinceReferenceDate }

@@ -4690,7 +4690,7 @@ struct EuclideousHeaderGroupWidths: Equatable {
     var gap: CGFloat            // the space between row-1 groups: sp16 (A, B) or sp8 (C)
 }
 /// Each group's width, once, from the same constants the views draw with.
-func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
+func euclideousHeaderGroupWidths(compact: Bool, buttonWidth: CGFloat = EuclideousHeaderMetrics.sourceButtonWidth) -> EuclideousHeaderGroupWidths {
     typealias M = EuclideousHeaderMetrics
     let t = compact ? M.compactTarget : M.target
     let wordmarkW = M.wordmarkWidth
@@ -4701,7 +4701,7 @@ func euclideousHeaderGroupWidths(compact: Bool) -> EuclideousHeaderGroupWidths {
     // THE NINE PORTS (2026-10-26): the OUTPUTS group (the four output rings) is gone — a note's port is fixed by its lane and layer.
     // Sources panel v2 §4.5: NOTES = the SOURCES button (192) + sp8 + HOLD/LATCH (106) = 306 (was 426; the button
     // replaces the 184 source control + the 120 key pill). HOLD/LATCH stays (§8); nothing else in the group moves.
-    return EuclideousHeaderGroupWidths(brand: brand, notes: M.sourceButtonWidth + M.sp8 + M.holdLatchWidth,
+    return EuclideousHeaderGroupWidths(brand: brand, notes: buttonWidth + M.sp8 + M.holdLatchWidth,   // HEADER STATUS ferry (2026-11-15): NOTES = the (now content-hugging) button + sp8 + HOLD/LATCH
                                        utilities: 4 * t + M.sp8 + HocketButtonMetrics.reservedWidth, gap: compact ? M.sp8 : M.sp16)
 }
 
@@ -4727,8 +4727,8 @@ func euclideousHeaderANeeds(_ w: EuclideousHeaderGroupWidths) -> CGFloat {
 /// The header's layout A / B / C for a container width — the ladder's ONE decision (A: landscape and wide enough for all three groups on one
 /// row; B: two rows; C: two compact rows when even B won't fit). It depends only on the width and the orientation, never on where the
 /// riff panel sits, so the page layout can take the kind as an input and the header can then take its positions from the page layout.
-func euclideousHeaderKind(containerW: CGFloat, isLandscape: Bool) -> EuclideousHeaderLayout.Kind {
-    let full = euclideousHeaderGroupWidths(compact: false)
+func euclideousHeaderKind(containerW: CGFloat, isLandscape: Bool, buttonWidth: CGFloat = EuclideousHeaderMetrics.sourceButtonWidth) -> EuclideousHeaderLayout.Kind {
+    let full = euclideousHeaderGroupWidths(compact: false, buttonWidth: buttonWidth)
     let aNeeds = euclideousHeaderANeeds(full)
     // B and C put NOTES alone on row 2, so row 1 (BRAND + UTILITIES) is what decides B against C (483.88). Narrower than NOTES itself (306, Sources panel v2) the group overflows whichever row it is on — the old D's third row only ever existed for the switch.
     let bNeeds = full.brand + full.utilities + full.gap
@@ -4739,9 +4739,9 @@ func euclideousHeaderKind(containerW: CGFloat, isLandscape: Bool) -> EuclideousH
 /// The first layout that fits `containerW` (page width − sp16 × 2). Portrait never uses A. TAB STRIP (2026-10-29): in layout A NOTES (the source control, the key pill, HOLD and LATCH) is CENTRED between BRAND's trailing edge
 /// and UTILITIES' leading edge — it used to sit on the riff panel's leading edge (`riffLeadingX`, container coordinates, kept as a parameter and no longer read) slid left to clear UTILITIES. Positions are solved with ONE clamp, so no
 /// combination of slides can leave two groups closer than their stated gap while the layout still "fits".
-func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX: CGFloat) -> EuclideousHeaderLayout {
-    let full = euclideousHeaderGroupWidths(compact: false)
-    let kind = euclideousHeaderKind(containerW: containerW, isLandscape: isLandscape)
+func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX: CGFloat, buttonWidth: CGFloat = EuclideousHeaderMetrics.sourceButtonWidth) -> EuclideousHeaderLayout {
+    let full = euclideousHeaderGroupWidths(compact: false, buttonWidth: buttonWidth)
+    let kind = euclideousHeaderKind(containerW: containerW, isLandscape: isLandscape, buttonWidth: buttonWidth)
     if kind == .a {
         let uX = containerW - full.utilities
         // NOTES: centred in the space between BRAND's trailing edge and UTILITIES' leading edge (the HOCKET pill's reserved slot), and never closer to either than the gap.
@@ -4751,7 +4751,7 @@ func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX
                                       notes: .init(x: notesX, width: full.notes, row: 0), utilities: .init(x: uX, width: full.utilities, row: 0))
     }
     let compact = kind == .c || kind == .d
-    let w = compact ? euclideousHeaderGroupWidths(compact: true) : full
+    let w = compact ? euclideousHeaderGroupWidths(compact: true, buttonWidth: buttonWidth) : full
     let uX = containerW - w.utilities
     if kind == .d {
         return EuclideousHeaderLayout(kind: .d, widths: w,
@@ -4762,6 +4762,35 @@ func euclideousHeaderLayout(containerW: CGFloat, isLandscape: Bool, riffLeadingX
     return EuclideousHeaderLayout(kind: compact ? .c : .b, widths: w,
                                   brand: .init(x: 0, width: w.brand, row: 0),
                                   notes: .init(x: 0, width: w.notes, row: 1), utilities: .init(x: uX, width: w.utilities, row: 0))
+}
+
+/// HEADER STATUS ferry (2026-11-15) §5: the width the ladder RESERVES for the status button — the widest the current in-use contents can be (the key
+/// at its widest 13-char label; the actual button hugs narrower). `step` is the §5.2 fallback (0 full · 1 names hidden · 2 icons hidden).
+func euclideousHeaderLayoutButtonWidth(tokenCount: Int, lampShown: Bool, readoutShown: Bool, step: Int) -> CGFloat {
+    typealias M = EuclideousHeaderStatusMetrics
+    var w = M.pad + EuclideousHeaderMetrics.textWidth(M.keyMaxChars, size: M.keySize, tracking: M.keyTracking)
+    if tokenCount > 0 {
+        w += M.dividerSp + M.dividerW + M.dividerSp
+        w += M.tokenWidth(step: step) * CGFloat(tokenCount) + M.tokenGap * CGFloat(max(0, tokenCount - 1))
+    }
+    if lampShown {
+        w += M.dividerSp + M.dividerW + M.dividerSp + M.lampW
+        if readoutShown { w += M.readoutSp + M.readoutW }
+    }
+    return w + M.sp6 + M.chevronW + M.pad
+}
+
+/// §5.2: the fallback step for a layout — A sizes NOTES to the button so it always fits (step 0); B / C put NOTES on its own row, so the token
+/// narrows (names, then icons) until the button + sp8 + HOLD/LATCH fit the container. Chosen from the widest case, so a layout never switches steps while playing.
+func euclideousHeaderFallbackStep(tokenCount: Int, lampShown: Bool, readoutShown: Bool, kind: EuclideousHeaderLayout.Kind, containerW: CGFloat) -> Int {
+    guard kind != .a, tokenCount > 0 else { return 0 }
+    let extra = EuclideousHeaderMetrics.sp8 + EuclideousHeaderMetrics.holdLatchWidth
+    var step = 0
+    while step < 2 {
+        if euclideousHeaderLayoutButtonWidth(tokenCount: tokenCount, lampShown: lampShown, readoutShown: readoutShown, step: step) + extra <= containerW { return step }
+        step += 1
+    }
+    return 2
 }
 
 // MARK: - PAGE LAYOUT (ferry "Page layout: six equal boxes in both orientations", ratified 2026-10-19)
