@@ -7752,9 +7752,10 @@ struct EuclideousPage: View {
         let sp = EmitterCCSet.slotsPerEmitter
         let drivers: [Int] = (0..<EmitterCCSet.count).map { k in euclideousCCDriver(emitter: k / sp, slot: k % sp, driverLane: emitterCCs[k].driverLane, laneRoutes: routes) - 1 }
         let span = emitterCCRiffSpan(ranks: effectiveGridRanks, count: riffPoly ? EuclideousPolyMetrics.columns : 8)
+        // CC SLOTS: the trace is a STATIC preview of the slot's shape over one bar (the driver lane's hits are a closed form, not live) — so it shows whether the slot is on or off and whether or not the transport is playing. The row/page draw an off slot's preview dimmed.
         let traces: [EmitterCCTrace] = (0..<EmitterCCSet.count).map { k in
             let d = max(0, min(3, drivers[k]))
-            return emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[k]), hits: emitterCCs[k].on ? laneHits[d] : [], barBeats: barBeats, span: span)
+            return emitterCCTrace(cfg: EmitterCCCfg(emitterCCs[k]), hits: laneHits[d], barBeats: barBeats, span: span)
         }
         let laneCols = laneAccents.map { lane100($0) }
         // the bar position (0…1) of the playhead at `date`, nil while the transport is stopped (a live indicator only while running)

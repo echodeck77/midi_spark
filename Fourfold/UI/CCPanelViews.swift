@@ -10,7 +10,8 @@ private typealias P = EmitterRatchetPalette
 private func heavyMonoCC(_ s: CGFloat) -> Font { .system(size: s, weight: .heavy, design: .monospaced) }
 private let ccNeutral = Color(.sRGB, red: 0xDF / 255, green: 0xE3 / 255, blue: 0xEA / 255, opacity: 1)   // the neutral emitter colour (never a lane colour)
 
-/// One 0…127 (or a custom range) bar slider: label · dark track with a grey fill to the value · value. Drag anywhere on the bar; one undo burst per gesture. `dimmed` greys it (LEVEL in RIFF mode).
+/// One 0…127 (or a custom range) bar slider: label · dark track with a grey fill to the value · value. The whole row is a tall touch target;
+/// the drag is RELATIVE (a scrubber anchored at touch-down — it never jumps to the finger), matching the app's other value fields. One undo burst per gesture. `dimmed` greys it.
 struct CCBarSlider: View {
     let label: String
     let value: Int
@@ -19,26 +20,31 @@ struct CCBarSlider: View {
     var dimmed = false
     let onChange: (Int, Bool) -> Void   // (new value, newStep)
     @GestureState private var dragging = false
+    @State private var startValue: Int? = nil
 
     var body: some View {
         HStack(spacing: 6) {
             Text(label).font(heavyMonoCC(9)).foregroundColor(P.muted).frame(width: 40, alignment: .leading)
             GeometryReader { geo in
                 let f = CGFloat(max(0, min(hi - lo, value - lo))) / CGFloat(max(1, hi - lo))
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4).fill(P.slot)
-                    RoundedRectangle(cornerRadius: 4).fill(P.muted).frame(width: max(2, geo.size.width * f))
+                ZStack(alignment: .leading) {   // the visible track sits in the middle of the taller touch area
+                    RoundedRectangle(cornerRadius: 5).fill(P.slot).frame(height: 10)
+                    RoundedRectangle(cornerRadius: 5).fill(P.muted).frame(width: max(3, geo.size.width * f), height: 10)
                 }
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0).updating($dragging) { _, s, _ in s = true }
+                .frame(maxHeight: .infinity, alignment: .center)
+                .contentShape(Rectangle())   // the whole (tall) row is grabbable
+                .gesture(DragGesture(minimumDistance: 1).updating($dragging) { _, s, _ in s = true }
                     .onChanged { g in
-                        let frac = max(0, min(1, g.location.x / max(1, geo.size.width)))
-                        let v = lo + Int((frac * CGFloat(hi - lo)).rounded())
+                        if startValue == nil { startValue = value }
+                        let base = startValue ?? value
+                        let delta = Int((g.translation.width / max(1, geo.size.width) * CGFloat(hi - lo)).rounded())   // RELATIVE: a 1-bar-width drag spans the full range; no jump to the finger
+                        let v = max(lo, min(hi, base + delta))
                         if v != value { onChange(v, !dragging) }   // newStep on the first change of the drag
-                    })
+                    }
+                    .onEnded { _ in startValue = nil })
             }
-            .frame(height: 16)
-            Text("\(value)").font(heavyMonoCC(11)).foregroundColor(P.text).frame(width: 30, alignment: .trailing)
+            .frame(height: 26)   // a tall, easy touch target
+            Text("\(value)").font(heavyMonoCC(13)).foregroundColor(P.text).frame(width: 34, alignment: .trailing)
         }
         .opacity(dimmed ? 0.35 : 1)
         .accessibilityElement(children: .ignore)
@@ -191,7 +197,7 @@ struct EuclideousCCRowsPanel: View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.cellRadius).fill(P.slot)
             CCTraceView(trace: traces[k], laneColours: laneColours, playhead: cc.on ? playhead : nil,
-                        lineColour: cc.on ? dc.opacity(0.85) : nil, areaColour: cc.on ? dc.opacity(0.14) : nil, hideDots: true, faintDividers: true, bgRadius: 0)
+                        lineColour: dc.opacity(cc.on ? 0.85 : 0.3), areaColour: dc.opacity(cc.on ? 0.14 : 0.05), hideDots: true, faintDividers: true, bgRadius: 0)
                 .frame(width: split.trace.width, height: split.trace.height)
                 .position(x: split.trace.midX, y: split.trace.midY)
             Text("\(cc.ccNumber)").font(heavyMonoCC(fs)).minimumScaleFactor(0.6).lineLimit(1)
@@ -202,12 +208,13 @@ struct EuclideousCCRowsPanel: View {
         .frame(width: rect.width, height: rect.height)
         .clipShape(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.cellRadius))
         .overlay(RoundedRectangle(cornerRadius: EuclideousCCRowsMetrics.cellRadius).strokeBorder(cc.on ? dc.opacity(0.6) : P.rule, lineWidth: 1))
-        .position(x: rect.midX, y: rect.midY)
+        // the tap + hit shape MUST come before `.position` — `.position` fills the parent, so a gesture after it makes the hit area the whole row and every cell opens the top-drawn slot (the wrong one).
         .contentShape(Rectangle())
         .onTapGesture { onExpand(k) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(euclideousCCBandAX(output: o, cc: cc.ccNumber, driverLane: (k < drivers.count ? drivers[k] : 0) + 1, on: cc.on))
         .accessibilityAddTraits(.isButton)
+        .position(x: rect.midX, y: rect.midY)
     }
 }
 
@@ -255,7 +262,7 @@ struct EuclideousCCExpandedView: View {
     @ViewBuilder private func traceArea(_ cc: EmitterCC) -> some View {
         let dc = laneColour(driverLane)
         ZStack(alignment: .topLeading) {
-            CCTraceView(trace: trace, laneColours: laneColours, playhead: cc.on ? playhead : nil, detailed: true, lineColour: cc.on ? dc : nil)
+            CCTraceView(trace: trace, laneColours: laneColours, playhead: cc.on ? playhead : nil, detailed: true, lineColour: cc.on ? dc : dc.opacity(0.4))
                 .contentShape(Rectangle())
                 .onTapGesture { withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = true } }
                 .accessibilityElement(children: .ignore).accessibilityLabel(euclideousCCDriverAX(lane: driverLane + 1))
@@ -293,10 +300,11 @@ struct EuclideousCCExpandedView: View {
         .frame(width: rect.width, height: rect.height)
         .clipShape(RoundedRectangle(cornerRadius: EuclideousCCPickerMetrics.cellRadius))
         .overlay(RoundedRectangle(cornerRadius: EuclideousCCPickerMetrics.cellRadius).strokeBorder(current ? dc : P.rule, lineWidth: current ? 3 : 1))
-        .position(x: rect.midX, y: rect.midY)
+        // the tap MUST come before `.position` (see the rows' cell): otherwise every lane row's hit area is the whole picker and only lane 4 is selectable.
         .contentShape(Rectangle())
         .onTapGesture { onEdit(true) { $0[slot].driverLane = lane + 1 }; withAnimation(.easeInOut(duration: 0.12)) { pickerOpen = false } }
         .accessibilityElement(children: .ignore).accessibilityLabel("Lane \(lane + 1)").accessibilityAddTraits(current ? [.isButton, .isSelected] : [.isButton])
+        .position(x: rect.midX, y: rect.midY)
     }
     /// The lane as the familiar horizontal Euclid step strip — the SAME pattern (`randomPictureRhythm`) and even cell geometry
     /// (`euclidEvenBoxGeometry`) the lane cards use: hits in the lane colour, rests dark, a playhead cell while running. Dimmed when not the current driver.
