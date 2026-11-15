@@ -89,24 +89,7 @@ final class InputsModelTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(EuclidLine.self, from: JSONEncoder().encode(set)).midiMode, .root, "round-trip")
     }
 
-    // MARK: test 8 — the per-source status (6.2)
-
-    func testEachSourceIsPlayingWaitingOrUnusedAcrossTheLanes() {
-        typealias L = EuclideousSourceLight
-        // lane 1: MIDI + CHORD 1, lane 2: CHORD 2 + KEY, lanes 3 and 4: PICK only / nothing
-        let chips: [UInt8] = [0b00011, 0b11000, 0b00100, 0b00000]
-        func s(_ contrib: [UInt8]) -> (L, L, L, L) { let r = euclideousSourceStatusAcrossLanes(laneContrib: contrib, laneChips: chips); return (r.midi, r.chords, r.pick, r.key) }
-        XCTAssertTrue(s([0, 0, 0, 0]) == (.waiting, .waiting, .waiting, .waiting), "everything on for some lane, nothing contributing: waiting")
-        XCTAssertTrue(s([0b0001, 0, 0, 0]) == (.playing, .waiting, .waiting, .waiting), "MIDI contributing to lane 1")
-        XCTAssertTrue(s([0, 0b1010, 0, 0]) == (.waiting, .playing, .waiting, .playing), "lane 2's CHORD 2 and KEY lit")
-        XCTAssertTrue(s([0b0010, 0, 0, 0]) == (.waiting, .playing, .waiting, .waiting), "CHORD 1 on lane 1 counts as CHORDS")
-        XCTAssertTrue(s([0, 0, 0b0100, 0]) == (.waiting, .waiting, .playing, .waiting))
-        XCTAssertTrue(s([0, 0, 0, 0b1111]) == (.waiting, .waiting, .waiting, .waiting), "a lane with every chip off contributes nothing, whatever its bits say")
-        let none = euclideousSourceStatusAcrossLanes(laneContrib: [0b1111, 0b1111, 0b1111, 0b1111], laneChips: [0, 0, 0, 0])
-        XCTAssertTrue((none.midi, none.chords, none.pick, none.key) == (.off, .off, .off, .off), "a source no lane uses is unused")
-        let oneUsed = euclideousSourceStatusAcrossLanes(laneContrib: [0, 0, 0, 0], laneChips: [0b00001, 0, 0, 0])
-        XCTAssertTrue((oneUsed.midi, oneUsed.chords, oneUsed.pick, oneUsed.key) == (.waiting, .off, .off, .off))
-    }
+    // (HEADER STATUS ferry 2026-11-15 §1.4: the four source pips are retired; `euclideousSourceStatusAcrossLanes` and this test went with them.)
 
     // MARK: test 9 — the pill (5.6)
 

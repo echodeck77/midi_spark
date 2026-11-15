@@ -106,11 +106,66 @@ final class HeaderStatusTests: XCTestCase {
         XCTAssertLessThan(euclideousHeaderWidth(parts: oneGrid, fallbackStep: 0), base, "one grid is narrower than two")
     }
 
-    // §8.8 — the fallback steps narrow the tokens; §5.2 widths 104 / 58 / 56.
+    // §8.8 — the fallback steps narrow the tokens; §5.2 widths 104 / 58 / 56, the per-step button width, and the per-layout chooser.
     func testFallbackTokenWidths() {
         XCTAssertEqual(EuclideousHeaderStatusMetrics.tokenWidth(step: 0), 104)
         XCTAssertEqual(EuclideousHeaderStatusMetrics.tokenWidth(step: 1), 58)
         XCTAssertEqual(EuclideousHeaderStatusMetrics.tokenWidth(step: 2), 56)
+
+        // the reserved button width narrows strictly with the step (two tokens, lamp + readout — the widest case)
+        let b0 = euclideousHeaderLayoutButtonWidth(tokenCount: 2, lampShown: true, readoutShown: true, step: 0)
+        let b1 = euclideousHeaderLayoutButtonWidth(tokenCount: 2, lampShown: true, readoutShown: true, step: 1)
+        let b2 = euclideousHeaderLayoutButtonWidth(tokenCount: 2, lampShown: true, readoutShown: true, step: 2)
+        XCTAssertGreaterThan(b0, b1); XCTAssertGreaterThan(b1, b2)
+        // the key + lamp + readout + chevron survive every step (step 2 is never just the key)
+        let keyOnly = euclideousHeaderLayoutButtonWidth(tokenCount: 0, lampShown: false, readoutShown: false, step: 0)
+        XCTAssertGreaterThan(b2, keyOnly)
+
+        // the chooser: A always 0; B/C pick the first step that fits container = button(step) + sp8 + HOLD/LATCH
+        let extra = EuclideousHeaderMetrics.sp8 + EuclideousHeaderMetrics.holdLatchWidth
+        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .a, containerW: 0), 0, "A sizes NOTES to the button → never a fallback")
+        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 0, lampShown: true, readoutShown: false, kind: .b, containerW: 0), 0, "no tokens → nothing to narrow")
+        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .b, containerW: b0 + extra), 0, "fits full → step 0")
+        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .b, containerW: b0 + extra - 1), 1, "just under full → hide names")
+        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .c, containerW: b1 + extra - 1), 2, "just under names-hidden → hide icons")
+        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .c, containerW: 0), 2, "narrower than even step 2 → clamped at 2")
+    }
+
+    // §8.9 — the VoiceOver value: key only; one live grid; two grids with one idle while running; stopped (no "waiting"); MIDI playing/quiet; root 0 and +2.
+    func testVoiceOver() {
+        let degs = [0, 1, 2, 3, 4, 5, 6, 7], cols = [Int](repeating: 0, count: 8)
+        let key = euclideousKeySpokenName(root: 0, type: .major)                 // "C major"
+        func status(g1 live: Bool, g2inUse: Bool, g2live: Bool, midi: Bool, lit: Bool, root: Bool, t: Int) -> EuclideousHeaderParts {
+            euclideousHeaderStatus(keyRoot: 0, keyType: .major,
+                grid1: EuclideousGridStatus(inUse: true, live: live, column: 0), grid1Degrees: degs, grid1Colours: cols, grid1Steps: 8,
+                grid2: EuclideousGridStatus(inUse: g2inUse, live: g2live, column: 1), grid2Degrees: degs, grid2Colours: cols, grid2Steps: 8,
+                midiInUse: midi, midiLit: lit, rootInUse: root, t: t)
+        }
+        // key only — no grid in use, no MIDI
+        let bare = euclideousHeaderStatus(keyRoot: 0, keyType: .major,
+            grid1: EuclideousGridStatus(inUse: false, live: false, column: 0), grid1Degrees: degs, grid1Colours: cols, grid1Steps: 8,
+            grid2: EuclideousGridStatus(inUse: false, live: false, column: 0), grid2Degrees: degs, grid2Colours: cols, grid2Steps: 8,
+            midiInUse: false, midiLit: false, rootInUse: false, t: 0)
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: bare, keySpoken: key, running: true, t: 0), "C major")
+
+        // one live grid (grid 1 = C, column 0)
+        let one = status(g1: true, g2inUse: false, g2live: false, midi: false, lit: false, root: false, t: 0)
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: one, keySpoken: key, running: true, t: 0), "C major, grid 1, C")
+
+        // two grids, grid 2 idle while running → "waiting"; the name is SPOKEN (§6.1: "Dm" → "D minor")
+        let twoRunning = status(g1: true, g2inUse: true, g2live: false, midi: false, lit: false, root: false, t: 0)
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: twoRunning, keySpoken: key, running: true, t: 0), "C major, grid 1, C, grid 2 waiting, D minor")
+        // stopped → no "waiting" on an idle grid
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: twoRunning, keySpoken: key, running: false, t: 0), "C major, grid 1, C, grid 2, D minor")
+
+        // MIDI playing / quiet; root at +2 / at 0
+        let midiRoot = status(g1: true, g2inUse: false, g2live: false, midi: true, lit: true, root: true, t: 2)
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: midiRoot, keySpoken: key, running: true, t: 2), "C major, grid 1, C, MIDI in, playing, root, plus 2")
+        let midiQuiet = status(g1: true, g2inUse: false, g2live: false, midi: true, lit: false, root: true, t: 0)
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: midiQuiet, keySpoken: key, running: true, t: 0), "C major, grid 1, C, MIDI in, quiet, root, zero")
+        // MIDI on with no ROOT → lamp but no readout clause
+        let midiNoRoot = status(g1: true, g2inUse: false, g2live: false, midi: true, lit: false, root: false, t: 0)
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: midiNoRoot, keySpoken: key, running: true, t: 0), "C major, grid 1, C, MIDI in, quiet")
     }
 
     // §6.1 — the spoken chord name (basic).

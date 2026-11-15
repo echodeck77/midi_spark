@@ -4329,9 +4329,8 @@ func euclideousListenOnAllIsLit(_ mask: UInt16) -> Bool { mask == 0xFFFF }
 /// wrapped prose a hand-rolled constant-based formula could only approximate, not reproduce exactly.
 func euclideousSettingsSheetWidth(containerW: CGFloat) -> CGFloat { min(448, containerW) }
 
-// ── SOURCES header lights (SOURCES STACK ferry 2026-10-26 §4.2/§4.3) ─────────────────────────────────
-enum EuclideousSourceLight: Equatable { case playing, waiting, off }
 // MARK: - Sources panel v2 (2026-10-28): four switchable sources, colours, pips, the panel geometry
+// (HEADER STATUS ferry 2026-11-15 §1.4: EuclideousSourceLight + the pips' status/VoiceOver derivations are retired — the header shows chord tokens + a MIDI lamp instead.)
 
 /// §3 the four source colours, each with an ink for text ON it (hex; the view wraps them in `Color`). srcMidi equals
 /// the existing text token #F2F4F7 and srcKey #8D95A3 is NEAR headerDim #8A909A — both reported as near-dups (§3.2).
@@ -4347,13 +4346,6 @@ enum EuclideousSourceColour {
     static func name(source: UInt8) -> String {
         switch source { case 0: return "MIDI"; case 1: return "chords"; case 2: return "pick"; default: return "key" }
     }
-}
-
-/// §4.7 / HARMONY 7.7 the header button's VoiceOver value: "<key>, MIDI IN playing, CHORDS waiting, PICK unused, KEY playing".
-func euclideousSourceButtonAccessibilityValue(keyLabel: String, midi: EuclideousSourceLight,
-                                              chords: EuclideousSourceLight, pick: EuclideousSourceLight, key: EuclideousSourceLight) -> String {
-    func w(_ s: EuclideousSourceLight) -> String { s == .playing ? "playing" : (s == .waiting ? "waiting" : "unused") }   // INPUTS + HARMONY 7.7: a source no lane uses is "unused"
-    return "\(keyLabel), MIDI IN \(w(midi)), CHORDS \(w(chords)), PICK \(w(pick)), KEY \(w(key))"
 }
 
 /// §1.1-§1.3 the ONE source-plan resolver — `PluginState.sourcePlanResolved` and the UI mirror both call it, so the
@@ -11850,29 +11842,7 @@ func euclideousNormaliseSources(chips: UInt8, panel: EuclideousSourceSwitches) -
     return m
 }
 
-/// §9.4 / 2.9 / 6.2: each source's light across the lanes, for the header pips: PLAYING — contributing to at least one lane (a lane whose chip is on and whose last build had the source lit); WAITING — on for at least one lane, contributing to
-/// none; UNUSED (`.off`) — on for no lane. `laneContrib[l]` bit 0 MIDI playing · 1 CHORDS lit · 2 PICK lit · 3 KEY lit (the lane's last pool build); `laneChips[l]` the lane's SOURCES mask (CHORDS = bit 1 or 4).
-func euclideousSourceStatusAcrossLanes(laneContrib: [UInt8], laneChips: [UInt8])
-    -> (midi: EuclideousSourceLight, chords: EuclideousSourceLight, pick: EuclideousSourceLight, key: EuclideousSourceLight) {
-    func light(_ bits: UInt8, _ bit: Int) -> EuclideousSourceLight {
-        var used = false
-        for l in 0..<laneChips.count {
-            let chips = euclideousPoolSrcNormalized(laneChips[l])
-            let on: Bool
-            switch bit {
-            case 0: on = chips & 0b00001 != 0
-            case 1: on = chips & (euclideousPoolSrcChords1 | euclideousPoolSrcChords2) != 0
-            case 2: on = chips & 0b00100 != 0
-            default: on = chips & 0b01000 != 0
-            }
-            guard on else { continue }
-            used = true
-            if l < laneContrib.count, laneContrib[l] & (UInt8(1) << UInt8(bit)) != 0 { return .playing }
-        }
-        return used ? .waiting : .off
-    }
-    return (light(0, 0), light(1, 1), light(2, 2), light(3, 3))
-}
+// (HEADER STATUS ferry 2026-11-15 §1.4: euclideousSourceStatusAcrossLanes — the four source pips' status — is retired; the header now shows per-grid chord tokens + a MIDI lamp.)
 
 /// §9.5 / 5.6: the summary pill of a chord grid — ADVANCE's unit, its lane square (LOOP / RIFF) and value (TIME: the rate label as built; LOOP / RIFF: "×n"), then — only while RESTART is on — its unit, its lane square (LOOP / RIFF) and "×n".
 /// `spoken` is the VoiceOver value ("Advance by riff, lane 1, every 1; restart off").
