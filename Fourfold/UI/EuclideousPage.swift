@@ -7819,7 +7819,7 @@ struct EuclideousPage: View {
                                                    onSwitch: { ratchExpanded = $0 }, onCollapse: { withAnimation(.easeInOut(duration: 0.15)) { ratchExpanded = nil } })
                             .transition(.opacity)
                     } else {
-                        let layout = emitterRatchetLayout(bodySize: CGSize(width: width, height: height), portrait: portrait, cellCount: emitterRatchetCollapsedFields.count, config: true)
+                        let layout = emitterRatchetLayout(bodySize: CGSize(width: width, height: height), portrait: portrait, cellCount: emitterRatchetCollapsedFields.count, config: true, stripHeight: 26, chipGroupW: 126)   // RATCH v2 §5.3/§5.4
                         EuclideousRatchetPanel(layout: layout, ratchets: emitterRatchets, accents: laneAccents, outputMuted: (0..<4).map { outputMutes[$0].hasMute }, counts: counts, playing: pulseLive, pulseScale: euclideousPulseScale(level: pulseLevel),
                                                strikes: strikesFeed, live: emitterLive, onEdit: onEditEmitterRatchet, onDragEnd: onEmitterRatchetDragEnd,
                                                expandedOutput: nil, onConfig: { out in withAnimation(.easeInOut(duration: 0.15)) { ratchExpanded = out } })

@@ -2121,6 +2121,16 @@ struct EmitterRatchet: Equatable {
     /// §1.1 the COUNTS members ascending — main-thread / test use (the render path reads the mask directly, allocation-free).
     var countsMembers: [Int] { let b = countsBitsResolved; return [2, 3, 4].filter { (b & Self.countBit($0)) != 0 } }
     var perHitResolved: Bool { perHit ?? (mode == .hit) }                 // §1.7 HIT ⇒ on
+    /// §8.1 — is count c (2…4) lit in COUNTS?
+    func countLit(_ c: Int) -> Bool { (countsBitsResolved & Self.countBit(c)) != 0 }
+    /// §8.1 — toggle count c in/out of COUNTS (materialising the resolved set on the first edit). Tapping the only lit chip does nothing (never empty).
+    func togglingCount(_ c: Int) -> EmitterRatchet {
+        var r = self; let cur = countsBitsResolved, next = (cur ^ Self.countBit(c)) & 0b111
+        r.countsBits = next == 0 ? cur : next
+        return r
+    }
+    /// §8.2 — flip PER HIT (materialising the resolved value).
+    func togglingPerHit() -> EmitterRatchet { var r = self; r.perHit = !perHitResolved; return r }
     var lengthResolved: EmitterStrikeLength { length ?? .one }            // §1.7 any GAP ⇒ 1
     var bendResolved: Int { max(-100, min(100, bend ?? 0)) }
     var velResolved: EmitterStrikeVel { vel ?? .flat }

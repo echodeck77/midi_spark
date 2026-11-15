@@ -139,6 +139,49 @@ struct EmitterRatchetStripV2View: View {
     }
 }
 
+// MARK: - RATCH v2 §5.4/§6.6 — the ×2 ×3 ×4 strike-count chips (collapsed + expanded)
+
+/// Three chips; a tap toggles a count in/out of COUNTS (one undo step). When PER HIT is on the group shows a single lit "PER HIT" chip (the collapsed one opens the expanded view via `onPerHitChip`, §8.1).
+struct EmitterRatchetChipGroup: View {
+    let r: EmitterRatchet
+    let size: CGSize
+    let output: Int
+    var chipH: CGFloat = 22
+    var fontSize: CGFloat = 12
+    let onChip: (Int) -> Void
+    var onPerHitChip: (() -> Void)? = nil
+    private var letter: String { emitterRatchetLetters[max(0, min(3, output))] }
+    var body: some View {
+        Group {
+            if r.perHitResolved {
+                Text("PER HIT").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(10 * 0.04).lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundColor(Color(hex: 0x0D0F14))
+                    .frame(width: size.width, height: chipH)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xDFE3EA)))
+                    .contentShape(Rectangle()).onTapGesture { onPerHitChip?() }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Emitter \(letter) strikes per hit" + (onPerHitChip != nil ? ", open settings" : ""))
+                    .accessibilityAddTraits(.isButton)
+            } else {
+                HStack(spacing: 3) {
+                    ForEach([2, 3, 4], id: \.self) { c in
+                        let lit = r.countLit(c)
+                        Text("\u{00D7}\(c)").font(.system(size: fontSize, weight: .heavy, design: .monospaced)).monospacedDigit()
+                            .foregroundColor(lit ? Color(hex: 0x0D0F14) : Color(hex: 0x6E737C))
+                            .frame(maxWidth: .infinity).frame(height: chipH)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(lit ? Color(hex: 0xDFE3EA) : Color(hex: 0x20232A)))
+                            .contentShape(Rectangle()).onTapGesture { onChip(c) }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Emitter \(letter), \(c) strikes").accessibilityValue(lit ? "on" : "off")
+                            .accessibilityAddTraits(lit ? [.isButton, .isSelected] : [.isButton])
+                    }
+                }
+                .frame(width: size.width, height: chipH)
+            }
+        }
+    }
+}
+
 // MARK: - one value cell (§4.6, §5.5, §6.2)
 
 /// One of the six readout cells: a label, the value, a bar showing the value's share of its range. Dragging up raises the value and down lowers it (starting once the touch has moved 6 pt); a double tap resets it; a single tap does
@@ -306,9 +349,15 @@ struct EuclideousRatchetPanel: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(emitterRatchetStripLabel(output: x, r, counts: counts))
                 HStack(spacing: 0) {
-                    // RATCH EXPAND §4: the collapsed row shows STEPS · HITS · OFFSET · STRIKES (CHANCE / RESTART moved to the expanded view); STRIKES reads mode-aware ("×3" / "×2–4" / "×VAR") and is a MASTER drag
+                    // RATCH v2 §5.4: STEPS · HITS · OFFSET, then the ×2 ×3 ×4 chip group (the old STRIKES master-drag cell is retired).
                     ForEach(Array(emitterRatchetCollapsedFields.enumerated()), id: \.offset) { c, field in
                         EmitterRatchetCell(output: x, field: field, r: r, size: layout.cells[min(c, layout.cells.count - 1)].size, leadingRule: c > 0, onEdit: onEdit, onDragEnd: onDragEnd)
+                    }
+                    if let cg = layout.chipGroup {
+                        Spacer().frame(width: M.toggleGap)
+                        EmitterRatchetChipGroup(r: r, size: cg.size, output: x, chipH: 22, fontSize: 12,
+                                                onChip: { c in onEdit(true) { $0[x] = $0[x].togglingCount(c) } },
+                                                onPerHitChip: { onConfig(x) })   // §8.1: the collapsed PER HIT chip opens the expanded view
                     }
                 }
             }

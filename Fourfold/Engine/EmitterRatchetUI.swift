@@ -116,7 +116,8 @@ struct EmitterRatchetLayout: Equatable {
     var toggle: CGRect              // the 44 × inner-height touch target at the card's left edge (the disc is centred in it)
     var strip: CGRect               // the 16-slot strip, 20 tall
     var slots: [CGRect]             // 16 equal slots
-    var cells: [CGRect]             // the readout cells (RATCH collapsed: STEPS · HITS · OFFSET · STRIKES; VELOCITY: five; the full six when not collapsed)
+    var cells: [CGRect]             // the readout cells (RATCH v2 collapsed: STEPS · HITS · OFFSET; VELOCITY: five)
+    var chipGroup: CGRect?          // RATCH v2 §5.4: the ×2 ×3 ×4 chip group at the readout row's trailing end (nil when none reserved)
     var config: CGRect?             // RATCH EXPAND (§4): the config button on the card's right edge, card-local; nil when the layout reserves none
     var cardHeight: CGFloat
     /// §4.8: a card under 52 pt — the frame is reported (and listed in the page's floors) rather than shrunk or left empty.
@@ -127,7 +128,8 @@ struct EmitterRatchetLayout: Equatable {
 /// own 8 below), the readout row taking whatever the 20 pt strip leaves (never under 24). A landscape card that cannot be 60 shares the height the same way.
 /// `cellCount` is the number of readout cells (RATCH collapsed: 4; the VELOCITY tab reuses this layout with 5). `config` (RATCH EXPAND §4) reserves a 44-wide button on the card's RIGHT edge (the strip and readout shrink by 44 + 6);
 /// the toggle, strip and slots are otherwise shared.
-func emitterRatchetLayout(bodySize: CGSize, portrait: Bool, cellCount: Int = EmitterRatchetField.allCases.count, config: Bool = false) -> EmitterRatchetLayout {
+func emitterRatchetLayout(bodySize: CGSize, portrait: Bool, cellCount: Int = EmitterRatchetField.allCases.count, config: Bool = false,
+                          stripHeight: CGFloat = EmitterRatchetMetrics.stripHeight, chipGroupW: CGFloat = 0) -> EmitterRatchetLayout {
     typealias M = EmitterRatchetMetrics
     let w = max(0, bodySize.width)
     let shared = (bodySize.height - M.top - 3 * M.gap) / 4
@@ -138,21 +140,23 @@ func emitterRatchetLayout(bodySize: CGSize, portrait: Bool, cellCount: Int = Emi
     let configReserve: CGFloat = config ? (M.configWidth + M.toggleGap) : 0   // §4: the config button mirrors the toggle on the right, so the strip+readout column loses 44 + 6
     let colW = max(0, w - M.padRight - colX - configReserve)
     let toggle = CGRect(x: 0, y: M.padVertical, width: M.toggleWidth, height: innerH)
-    let strip = CGRect(x: colX, y: M.padVertical, width: colW, height: M.stripHeight)
+    let strip = CGRect(x: colX, y: M.padVertical, width: colW, height: stripHeight)   // RATCH v2 §5.3: the strip can be taller (26) than the shared default (20, VELOCITY)
     let slotW = max(0, (colW - CGFloat(M.slotCount - 1) * M.slotGap) / CGFloat(M.slotCount))
-    let slots = (0..<M.slotCount).map { CGRect(x: colX + CGFloat($0) * (slotW + M.slotGap), y: M.padVertical, width: slotW, height: M.stripHeight) }
-    let readoutY = M.padVertical + M.stripHeight + M.stripGap
-    let readoutH = max(M.minReadoutHeight, innerH - M.stripHeight - M.stripGap)
-    let n = max(1, cellCount)                                        // RATCH collapsed: four cells (STEPS · HITS · OFFSET · STRIKES); VELOCITY: five (STEPS · HITS · OFFSET · HIT VEL · MISS VEL)
-    let cellW = colW / CGFloat(n)
+    let slots = (0..<M.slotCount).map { CGRect(x: colX + CGFloat($0) * (slotW + M.slotGap), y: M.padVertical, width: slotW, height: stripHeight) }
+    let readoutY = M.padVertical + stripHeight + M.stripGap
+    let readoutH = max(M.minReadoutHeight, innerH - stripHeight - M.stripGap)
+    // RATCH v2 §5.4: when a chip group is reserved, the cells share (colW − chipGroupW − gap) and the group sits at the trailing end.
+    let cellsW = chipGroupW > 0 ? max(0, colW - chipGroupW - M.toggleGap) : colW
+    let n = max(1, cellCount)
+    let cellW = cellsW / CGFloat(n)
     let cells = (0..<n).map { CGRect(x: colX + CGFloat($0) * cellW, y: readoutY, width: cellW, height: readoutH) }
-    // the config button fills the card's inner height on its right edge, ending at the card's padRight; present only when `config` reserved room for it
+    let chipGroup: CGRect? = chipGroupW > 0 ? CGRect(x: colX + cellsW + M.toggleGap, y: readoutY, width: chipGroupW, height: readoutH) : nil
     let cfg: CGRect? = config ? CGRect(x: colX + colW + M.toggleGap, y: M.padVertical, width: M.configWidth, height: innerH) : nil
-    return EmitterRatchetLayout(cards: cards, toggle: toggle, strip: strip, slots: slots, cells: cells, config: cfg, cardHeight: h)
+    return EmitterRatchetLayout(cards: cards, toggle: toggle, strip: strip, slots: slots, cells: cells, chipGroup: chipGroup, config: cfg, cardHeight: h)
 }
 
-/// RATCH EXPAND (§4): the four readout cells a collapsed RATCH card shows (CHANCE and RESTART move to the expanded view).
-let emitterRatchetCollapsedFields: [EmitterRatchetField] = [.steps, .hits, .offset, .strikes]
+/// RATCH v2 §5.4: the collapsed RATCH readout cells — STEPS · HITS · OFFSET (STRIKES became the ×2 ×3 ×4 chips; CHANCE / RESTART are in the expanded view).
+let emitterRatchetCollapsedFields: [EmitterRatchetField] = [.steps, .hits, .offset]
 
 /// §4.5: the strike bars of a hit slot — `strikes` bars, centred in the slot, 2 wide, 1 apart, 14 / 12 / 10 / 8 tall in strike order.
 func emitterRatchetBarRects(in slot: CGRect, strikes: Int) -> [CGRect] {

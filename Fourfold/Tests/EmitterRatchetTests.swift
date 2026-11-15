@@ -462,15 +462,21 @@ final class EmitterRatchetTests: XCTestCase {
 
     func testCollapsedLayoutReservesTheConfigButtonAndShrinksTheColumn() {
         let plain = emitterRatchetLayout(bodySize: CGSize(width: 364.67, height: 279), portrait: false)
-        let cfg = emitterRatchetLayout(bodySize: CGSize(width: 364.67, height: 279), portrait: false, cellCount: emitterRatchetCollapsedFields.count, config: true)
+        // RATCH v2 §5.4: STEPS · HITS · OFFSET + a 126-wide chip group (STRIKES became the chips).
+        let cfg = emitterRatchetLayout(bodySize: CGSize(width: 364.67, height: 279), portrait: false, cellCount: emitterRatchetCollapsedFields.count, config: true, stripHeight: 26, chipGroupW: 126)
         XCTAssertNil(plain.config, "no config button when not asked for")
+        XCTAssertNil(plain.chipGroup, "no chip group when not asked for")
         XCTAssertEqual(cfg.strip.width, plain.strip.width - 50, accuracy: 1e-9, "the strip+readout column loses 44 + 6")
-        XCTAssertEqual(cfg.cells.count, 4, "STEPS · HITS · OFFSET · STRIKES")
+        XCTAssertEqual(cfg.cells.count, 3, "STEPS · HITS · OFFSET")
+        XCTAssertEqual(emitterRatchetCollapsedFields, [.steps, .hits, .offset])
+        let group = try! XCTUnwrap(cfg.chipGroup)
+        XCTAssertEqual(group.width, 126, "§5.4 the chip group is 126 wide")
+        XCTAssertEqual(group.maxX, cfg.strip.minX + cfg.strip.width, accuracy: 1e-6, "the group ends at the column's trailing edge")
+        XCTAssertEqual(cfg.cells.last!.maxX + 6, group.minX, accuracy: 1e-6, "6 between the cells and the chip group")
         let c = try! XCTUnwrap(cfg.config)
         XCTAssertEqual(c.width, 44); XCTAssertEqual(c.height, cfg.toggle.height, "full inner height, like the toggle")
         XCTAssertEqual(c.minX, cfg.strip.minX + cfg.strip.width + 6, accuracy: 1e-9, "6 to the right of the column")
         XCTAssertEqual(c.maxX, 364.67 - 8, accuracy: 1e-6, "its right edge sits at the card's padRight")
-        XCTAssertEqual(emitterRatchetCollapsedFields, [.steps, .hits, .offset, .strikes])
     }
     func testStrikesValueTextIsModeAware() {
         var r = EmitterRatchet(strikes: 3)
