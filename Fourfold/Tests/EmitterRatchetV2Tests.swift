@@ -98,6 +98,46 @@ final class EmitterRatchetV2Tests: XCTestCase {
         }
     }
 
+    // §11.11 — the strip layout: STEPS 8 fills the width, slot 4 sits +3 right (the group gap); COUNTS {2,4} ⇒ 4 marks, the last two faint.
+    func testStripLayoutAndFaintMarks() {
+        var r = EmitterRatchet(on: true, steps: 8, hits: 8); r.countsBits = EmitterRatchet.countBit(3)
+        let s = euclideousRatchetStripV2(size: CGSize(width: 200, height: 26), r: r, current: 2, expanded: false)
+        XCTAssertEqual(s.slots.count, 8)
+        XCTAssertEqual(s.slots.last!.rect.maxX, 200, accuracy: 0.5, "the slots fill the width")
+        XCTAssertTrue(s.slots[2].isCurrent)
+        let cellW = s.slots[0].rect.width
+        XCTAssertEqual(s.slots[4].rect.minX, 4 * (cellW + 2) + 3, accuracy: 0.5, "slot 4 sits +3 right of an even split (the group gap)")
+        var m = EmitterRatchet(on: true, steps: 8, hits: 8); m.countsBits = EmitterRatchet.countBit(2) | EmitterRatchet.countBit(4)
+        let sm = euclideousRatchetStripV2(size: CGSize(width: 200, height: 26), r: m, current: -1, expanded: false).marks.filter { $0.slot == 0 }
+        XCTAssertEqual(sm.count, 4, "n_d = the largest member 4 ⇒ 4 marks")
+        XCTAssertEqual(sm[0].alpha, 1.0, accuracy: 1e-9, "CHANCE 100 ⇒ solid")
+        XCTAssertEqual(sm[2].alpha, 0.3, accuracy: 1e-9, "k = 2 ≥ smallest member 2 ⇒ faint")
+        XCTAssertEqual(sm[3].alpha, 0.3, accuracy: 1e-9)
+    }
+
+    // §11.11 — spilled marks (LENGTH 2+, strip math only; the UI hides 2/3/4) stop at STEPS and at the next hit slot.
+    func testStripSpillChoke() {
+        var atEnd = EmitterRatchet(on: true, steps: 8, hits: 1, offset: 1); atEnd.countsBits = EmitterRatchet.countBit(4); atEnd.length = .two   // E(1,8) left-rotated by 1 ⇒ the hit lands on slot 7
+        let strip7 = euclideousRatchetStripV2(size: CGSize(width: 200, height: 26), r: atEnd, current: -1, expanded: false)
+        XCTAssertTrue(strip7.slots[7].isHit, "the single hit is at slot 7")
+        XCTAssertEqual(strip7.marks.filter { $0.slot == 7 }.count, 2, "from slot 7, LENGTH 2 ×4 ⇒ cells 7,7,8,8 — the two past STEPS drop")
+        var toHit = EmitterRatchet(on: true, steps: 8, hits: 4); toHit.countsBits = EmitterRatchet.countBit(4); toHit.length = .four   // E(4,8) hits 0,2,4,6
+        let s = euclideousRatchetStripV2(size: CGSize(width: 240, height: 26), r: toHit, current: -1, expanded: false)
+        let m0 = s.marks.filter { $0.slot == 0 }
+        XCTAssertEqual(m0.count, 2, "slot 0's spill (cells 0,1,2,3) stops at the hit in cell 2")
+        XCTAssertTrue(m0.contains { $0.rect.minX >= s.slots[1].rect.minX - 0.5 }, "a mark spilled into cell 1")
+    }
+
+    // §4.6 — PER HIT expanded: the strip reserves a 14 pt count row and carries each hit slot's count.
+    func testStripPerHitCountRow() {
+        var r = EmitterRatchet(on: true, steps: 8, hits: 8); r.perHit = true
+        r = r.settingHitCount(0, 4)
+        let s = euclideousRatchetStripV2(size: CGSize(width: 200, height: 40), r: r, current: -1, expanded: true)
+        XCTAssertEqual(s.countRowH, 14)
+        XCTAssertEqual(s.slots[0].count, 4, "slot 0's per-hit count shows under the strip")
+        XCTAssertEqual(s.marks.filter { $0.slot == 0 }.count, 4, "n_d = that hit's count (4)")
+    }
+
     // §11.9 — VEL shares. FADE 60 ×4: 1, 0.8, 0.6, 0.4. SWELL 60: 0.4, 0.6, 0.8, 1. FLAT: all 1.
     func testVelShares() {
         func shares(_ v: EmitterStrikeVel, depth: Int) -> [Double] { (0..<4).map { emitterStrikeVelShare(vel: v, depth: depth, k: $0, n: 4) } }

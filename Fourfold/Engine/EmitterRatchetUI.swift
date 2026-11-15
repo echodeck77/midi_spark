@@ -20,6 +20,69 @@ func euclideousSeqTabWidths(tabs: [EuclideousSeqTab], contentWidth: CGFloat) -> 
     return tabs.map { isFixed($0) ? fixedW : each }
 }
 
+// MARK: - RATCH v2 ferry (2026-11-15) §4 — the redrawn strip (STEPS slots full width, in-cell strike marks by time × velocity). ONE pure layout, used collapsed + expanded; the painter only paints what it returns, and the flare recolours its marks.
+
+struct EmitterRatchetStripV2Slot: Equatable { var rect: CGRect; var isHit: Bool; var isCurrent: Bool; var count: Int }   // §4.6 `count` = this hit slot's PER-HIT count (0 for a rest or when not shown)
+struct EmitterRatchetStripV2Mark: Equatable {
+    var rect: CGRect; var alpha: Double; var slot: Int   // `slot` = the HIT slot this mark belongs to (so the flare can recolour a hit's marks, spilled ones included)
+}
+struct EmitterRatchetStripV2: Equatable {
+    var slots: [EmitterRatchetStripV2Slot] = []
+    var marks: [EmitterRatchetStripV2Mark] = []
+    var radius: CGFloat = 3
+    var countRowH: CGFloat = 0   // §4.6 PER HIT expanded: the bottom count row's height (0 otherwise)
+}
+
+/// §4.1–§4.4/§4.6. `size` the strip's frame; `r` the emitter; `current` the output's current index (−1 = none); `expanded` picks the pads / radius / minW and the PER HIT count row.
+func euclideousRatchetStripV2(size: CGSize, r: EmitterRatchet, current: Int, expanded: Bool) -> EmitterRatchetStripV2 {
+    var out = EmitterRatchetStripV2()
+    let n = max(EmitterRatchet.minSteps, min(EmitterRatchet.maxSteps, r.steps))
+    let gap: CGFloat = 2, extra: CGFloat = 3                                   // §4.1 slots 2 apart, +3 before slots 4/8/12
+    let groupExtras = CGFloat((n - 1) / 4) * extra
+    let cellW = max(1, (size.width - CGFloat(n - 1) * gap - groupExtras) / CGFloat(n))
+    out.radius = expanded ? 4 : 3                                             // §4.2
+    let padX: CGFloat = expanded ? 4 : 3, padY: CGFloat = expanded ? 5 : 3, minW: CGFloat = expanded ? 2.5 : 2   // §4.4
+    let perHit = expanded && r.perHitResolved
+    out.countRowH = perHit ? 14 : 0                                          // §4.6
+    let markAreaH = size.height - out.countRowH
+    let innerW = cellW - 2 * padX, innerH = markAreaH - 2 * padY
+    let mask = emitterRatchetPatternMask(steps: n, hits: r.hits, offset: r.offset)
+    let maskNoOffset = emitterRatchetPatternMask(steps: n, hits: r.hits, offset: 0)
+    func slotX(_ i: Int) -> CGFloat {   // the +3 sits AFTER slots 3/7/11 (i.e. before 4/8/12)
+        var x: CGFloat = 0
+        var s = 0
+        while s < i { x += cellW + gap + ((s + 1) % 4 == 0 ? extra : 0); s += 1 }
+        return x
+    }
+    let members = r.countsMembers, smallest = members.first ?? 2
+    let chanceAlpha = 0.5 + 0.5 * Double(max(0, min(100, r.chance))) / 100.0   // §4.4
+    let length = r.lengthResolved.steps, bend = r.bendResolved
+    for i in 0..<n {
+        let isHit = (mask >> UInt16(i)) & 1 != 0
+        let ordinal = isHit ? emitterRatchetHitOrdinal(index: i, steps: n, offset: r.offset, patternMaskNoOffset: maskNoOffset) : 0
+        out.slots.append(.init(rect: CGRect(x: slotX(i), y: 0, width: cellW, height: size.height), isHit: isHit, isCurrent: i == current,
+                               count: (perHit && isHit) ? r.hitCount(ordinal) : 0))
+        guard isHit else { continue }
+        // §4.4 the strike marks for this hit slot: n_d = the largest COUNTS member (or the hit's count under PER HIT).
+        let nd = r.perHitResolved ? max(1, r.hitCount(ordinal)) : max(1, members.last ?? 2)
+        for k in 0..<nd {
+            let t = emitterStrikeBendF(Double(k) / Double(nd), bend: bend) * length
+            let tNext = emitterStrikeBendF(Double(k + 1) / Double(nd), bend: bend) * length
+            let cell = i + Int(t.rounded(.down))
+            if cell >= n { break }                                           // §4.4 stop at STEPS
+            if cell != i && (mask >> UInt16(cell)) & 1 != 0 { break }        // §4.4 stop at the first mark in a later HIT slot (the choke)
+            let fracT = t - t.rounded(.down)
+            let markX = slotX(cell) + padX + CGFloat(fracT) * innerW
+            let w = max(minW, CGFloat(tNext - t) * 0.5 * innerW)             // §4.4 (0.5 = a fixed drawn gate)
+            let h = max(3, CGFloat(emitterStrikeVelShare(vel: r.velResolved, depth: r.depthResolved, k: k, n: nd)) * innerH)   // §4.4 height = §2.5 share
+            var alpha = (!r.perHitResolved && members.count > 1 && k >= smallest) ? 0.3 : chanceAlpha   // §4.4 marks beyond the smallest member draw faint
+            if cell > i { alpha *= 0.45 }                                    // §4.4 a mark spilled into a following cell
+            out.marks.append(.init(rect: CGRect(x: markX, y: markAreaH - padY - h, width: w, height: h), alpha: alpha, slot: i))
+        }
+    }
+    return out
+}
+
 // MARK: - the layout (§4.2–§4.8)
 
 enum EmitterRatchetMetrics {
