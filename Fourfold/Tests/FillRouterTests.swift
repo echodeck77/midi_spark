@@ -12,7 +12,7 @@ private final class FillEmitter: MIDIEmitter {
     var ons: [Ev] { events.filter { $0.status == 0x90 && $0.vel > 0 } }
 }
 
-struct FillSpec { var bars: [Bool]; var speed: UInt8 = 3; var length: UInt8 = 1; var reverse = false; var ranks: Int8 = 0; var swell: Int8 = 0; var brk = false; var hits: EuclideousFillHits = .keep }
+struct FillSpec { var bars: [Bool]; var speed: UInt8 = 3; var length: UInt8 = 1; var reverse = false; var ranks: Int8 = 0; var swell: Int8 = 0; var brk = false; var hits: EuclideousFillHits = .keep; var land = false }
 
 final class FillRouterTests: XCTestCase {
     // 120 BPM at 48 kHz: 1 beat = 24000 samples. One strike opens an own-cable (1) voice AND an ALL (0) voice — count cable 1.
@@ -23,10 +23,11 @@ final class FillRouterTests: XCTestCase {
     private func perBar(_ beats: [Double]) -> [Int: Int] { Dictionary(grouping: beats, by: { Int(($0 + 1e-3) / 4.0) }).mapValues { $0.count } }
 
     /// An 8-step 1/8 lane, every step a hit, a `ranks`-pattern riff over `pool` held notes. `fill` sets the fill fields.
-    private func run(fill: FillSpec?, riffRanks: [Int] = [1, 1, 1, 1, 1, 1, 1, 1], pool poolNotes: [UInt8] = [60], beats: Double = 32, pulses: Int = 8) -> FillEmitter {
+    private func run(fill: FillSpec?, riffRanks: [Int] = [1, 1, 1, 1, 1, 1, 1, 1], pool poolNotes: [UInt8] = [60], beats: Double = 32, pulses: Int = 8, flipHits: Bool = false) -> FillEmitter {
         var l = EuclidLine(target: 0, pulses: pulses, steps: 8, useRiff: true, riffOn: true, sourceMode: .midi)
         l.rate = .r1_8; l.gate = 0.5; l.velocityAbsolute = 90; l.litNotes = 0; l.notesOn = false
-        if let f = fill { l.fillBars = f.bars; l.fillSpeed = f.speed; l.fillLength = f.length; l.fillReverse = f.reverse; l.fillRanks = f.ranks; l.fillSwell = f.swell; l.fillBreak = f.brk; l.fillHits = f.hits }
+        l.patternMiss = flipHits   // FLIP HITS — invert the rhythm so a chosen step rests
+        if let f = fill { l.fillBars = f.bars; l.fillSpeed = f.speed; l.fillLength = f.length; l.fillReverse = f.reverse; l.fillRanks = f.ranks; l.fillSwell = f.swell; l.fillBreak = f.brk; l.fillHits = f.hits; l.fillLand = f.land }
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: riffRanks)
         c.paramsA.euclidLines = [l] + (1..<4).map { _ in EuclidLine(enabled: false) }
@@ -160,6 +161,17 @@ final class FillRouterTests: XCTestCase {
         let base = run(fill: FillSpec(bars: bar(3), speed: 3, length: 0), pulses: 3).events
         let keep = run(fill: FillSpec(bars: bar(3), speed: 3, length: 0, hits: .keep), pulses: 3).events
         XCTAssertEqual(keep, base, "HITS KEEP ⇒ byte-identical to the default fill")
+    }
+
+    // MARK: §2.6 LAND part b — the rejoin step strikes even on a rest
+
+    func testLandStrikesTheRejoinEvenOnARest() {
+        // FLIP HITS of a 1-of-8 ⇒ step 0 (the bar downbeat) is a REST. A ×2 BAR fill on bar 3 rejoins at beat 16 (bar 4's
+        // downbeat): without LAND it rests; LAND (part b) forces a definite landing note there.
+        let noLand = onBeats(run(fill: FillSpec(bars: bar(3), speed: 3, length: 0, land: false), pulses: 1, flipHits: true))
+        let land = onBeats(run(fill: FillSpec(bars: bar(3), speed: 3, length: 0, land: true), pulses: 1, flipHits: true))
+        XCTAssertFalse(noLand.contains { abs($0 - 16) < 1e-3 }, "no LAND: the rejoin downbeat rests")
+        XCTAssertTrue(land.contains { abs($0 - 16) < 1e-3 }, "LAND: a definite note on the rejoin downbeat")
     }
 
     // MARK: §2.8 rejoin (test 8) — the bar after a region matches no fill

@@ -673,6 +673,8 @@ final class Router {
     private var euclideousFillGateScaleNow: Double = 1
     // FILL TAB ferry (2026-11-15) §2.3 HITS: 0 KEEP (the lane's own pattern, byte-identical) · 1 ALL (every region step strikes) · 2 FLIP (the region's rests strike). Set per slot by the fill loop (0 outside a region). In a region it forces the riff walk to advance per STEP (reusing ADV STEP's localT ordinal, so the walk runs through its columns) and overrides the step's hit-test.
     private var euclideousFillHitsNow: Int8 = 0
+    // FILL TAB ferry (2026-11-15) §2.6 LAND part b: force a rest on the rejoin step to STRIKE (the walk's current note — a rest never advanced the ordinal, so this plays "the next note" without consuming it), guaranteeing a landing note. Set only on a LAND rejoin step; false ⇒ byte-identical.
+    private var euclideousFillForceHitNow = false
     // FILL TAB ferry (2026-11-14) §2.2: a reused fixed scratch for ORDER=SHUFFLE's permutation (built once per region, never per slot, never per window) — no render-thread allocation. Sized to the 128 reverse cap.
     private var euclideousFillShufBuf = [Int](repeating: 0, count: euclideousFillReverseCap)
     // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
@@ -2187,7 +2189,7 @@ final class Router {
                               fill: EuclideousFillPlan? = nil,   // FILL ferry (2026-11-13): a per-lane fill; nil / inactive ⇒ the loop below is byte-identical to today
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
-        euclideousFillStepScaleNow = 1; euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1; euclideousFillRollNow = 1; euclideousFillGateScaleNow = 1; euclideousFillHitsNow = 0   // FILL: neutral for the ×1 / non-fill path; the fill loop sets them per slot (§2.3 hits, §2.4 step scale, §2.5 rank climb + roll, §2.6 swell + LAND gate)
+        euclideousFillStepScaleNow = 1; euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1; euclideousFillRollNow = 1; euclideousFillGateScaleNow = 1; euclideousFillHitsNow = 0; euclideousFillForceHitNow = false   // FILL: neutral for the ×1 / non-fill path; the fill loop sets them per slot (§2.3 hits, §2.4 step scale, §2.5 rank climb + roll, §2.6 swell + LAND gate/force)
         let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
         let mStartReal = musicalOf(beatPos, stepBeats: S, a: a)
         let mEndReal = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -2291,13 +2293,15 @@ final class Router {
                     euclideousFillVelFactorNow = euclideousFillSwellFactor(swell: region?.swell ?? 0, slot: s, count: N)
                     euclideousFillGateScaleNow = 1   // LAND is a ×1-rejoin thing, never inside the region
                     euclideousFillHitsNow = region?.hits == .all ? 1 : (region?.hits == .flip ? 2 : 0)   // §2.3 HITS (KEEP ⇒ 0 ⇒ byte-identical)
+                    euclideousFillForceHitNow = false
                 } else {
                     euclideousFillRankOffsetNow = 0; euclideousFillRollNow = 1; euclideousFillHitsNow = 0
-                    // §2.6 LAND: the first ×1 step at/after a LAND region's end E (= the bar start b·L of the bar after it) lands with vel ×1.3 + gate ×2. A per-slot test (no carried state) so it fires on the right slot whatever window it lands in; off ⇒ 1 ⇒ byte-identical.
+                    // §2.6 LAND: the first ×1 step at/after a LAND region's end E (= the bar start b·L of the bar after it) lands with vel ×1.3 + gate ×2, and (part b) STRIKES even on a rest — a definite landing note. A per-slot test (no carried state) so it fires on the right slot whatever window it lands in; off ⇒ byte-identical.
                     let b = Int((hostBeat / L + 1e-9).rounded(.down))
                     let landHere = (fill.region(bar: b - 1)?.land ?? false) && hostBeat - Double(b) * L >= -1e-9 && hostBeat - Double(b) * L < sub - 1e-9
                     euclideousFillVelFactorNow = landHere ? 1.3 : 1
                     euclideousFillGateScaleNow = landHere ? 2 : 1
+                    euclideousFillForceHitNow = landHere
                 }
                 let onTime = sampleOf(musical: hostBeat + delayBeats, beatPos: beatPos, beatsPerSample: beatsPerSample,
                                       windowStart: windowStart, S: S, a: a)
@@ -3636,8 +3640,8 @@ final class Router {
                                                       chains: chains, legacySpanBeats: ladderSpanBeats, hostBeat: fillPlan != nil ? mTickBeat : nil)
                     let localT = ph.localT
                     let raw = ph.raw
-                    // FILL §2.3 HITS: in a region, ALL makes every step a hit, FLIP strikes the rests; KEEP (0, and every non-fill tick) is the lane's own pattern ⇒ byte-identical.
-                    let rawIsHit = euclideousFillHitsNow == 1 ? true : (euclideousFillHitsNow == 2 ? !ph.rawIsHit : ph.rawIsHit)
+                    // FILL §2.3 HITS: in a region, ALL makes every step a hit, FLIP strikes the rests; KEEP (0, and every non-fill tick) is the lane's own pattern ⇒ byte-identical. §2.6 LAND part b: a LAND rejoin step strikes even on a rest (the walk's current note — no ordinal advance).
+                    let rawIsHit = euclideousFillHitsNow == 1 ? true : (euclideousFillHitsNow == 2 ? !ph.rawIsHit : (euclideousFillForceHitNow ? true : ph.rawIsHit))
                     let cy = (localT - Int64(raw)) / Int64(cycleLen)   // floored cycle since the rhythm origin (localT = cy·cycleLen + raw) — the MISS ordinal below reads it, and LISTEN REBUILT's ECHO cycle-roll (§4.2)
                     // LISTEN REBUILT (§3): COPY/FILL already REPLACED `euclidBuf` itself with the borrowed
                     // pattern above — there is no separate per-tick filter any more (unlike the old WITH/
