@@ -100,6 +100,45 @@ private struct EmitterRatchetStripFlare: View {
     }
 }
 
+// MARK: - RATCH v2 ferry (2026-11-15) §4 — the redrawn strip (one view, collapsed + expanded)
+
+/// §4.2 the slot fills · §4.3 the current outline · §4.4 the in-cell strike marks · §4.5 the RATCHED/MISSED flare recolouring the flaring hit's marks · §4.6 the PER HIT count row. All geometry from `euclideousRatchetStripV2` — this only paints.
+struct EmitterRatchetStripV2View: View {
+    let size: CGSize
+    let r: EmitterRatchet
+    let current: Int
+    let expanded: Bool
+    let flare: EmitterRatchetFlare?
+    let flareSlot: Int
+    let accent: Color
+    var body: some View {
+        let s = euclideousRatchetStripV2(size: size, r: r, current: current, expanded: expanded)
+        let bodyH = size.height - s.countRowH
+        return Canvas { ctx, _ in
+            for slot in s.slots {
+                let cell = CGRect(x: slot.rect.minX, y: 0, width: slot.rect.width, height: bodyH)
+                ctx.fill(RoundedRectangle(cornerRadius: s.radius).path(in: cell), with: .color(slot.isHit ? Color(hex: 0x383C46) : Color(hex: 0x1F2228)))   // §4.2
+                if slot.isCurrent {   // §4.3 a 1.5 pt inner outline on top of the base fill
+                    ctx.stroke(RoundedRectangle(cornerRadius: s.radius).path(in: cell.insetBy(dx: 0.75, dy: 0.75)), with: .color(Color(hex: 0xF2F4F7)), lineWidth: 1.5)
+                }
+                if s.countRowH > 0 && slot.isHit && slot.count > 0 {   // §4.6 the PER HIT count, centred in the bottom row
+                    ctx.draw(Text("\(slot.count)").font(heavyMono(10)).foregroundColor(Color(hex: 0xF2F4F7)), at: CGPoint(x: cell.midX, y: bodyH + s.countRowH / 2))
+                }
+            }
+            for mark in s.marks {   // §4.4 the strike marks (#F2F4F7 at the computed alpha)
+                ctx.fill(RoundedRectangle(cornerRadius: 1).path(in: mark.rect), with: .color(Color(hex: 0xF2F4F7).opacity(mark.alpha)))
+            }
+            if let fl = flare, fl.f > 0.001 {   // §4.5 recolour the flaring hit's marks (spilled ones included) in the lane colour
+                let a = (fl.ratcheted ? fl.f : 0.35 * fl.f)
+                for mark in s.marks where mark.slot == flareSlot {
+                    ctx.fill(RoundedRectangle(cornerRadius: 1).path(in: mark.rect), with: .color(accent.opacity(a)))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 // MARK: - one value cell (§4.6, §5.5, §6.2)
 
 /// One of the six readout cells: a label, the value, a bar showing the value's share of its range. Dragging up raises the value and down lowers it (starting once the touch has moved 6 pt); a double tap resets it; a single tap does
@@ -258,13 +297,10 @@ struct EuclideousRatchetPanel: View {
             Spacer().frame(width: M.toggleGap)
             // the right column (§4.4): the strip, 4 below it the readout row; 42 % while the emitter is off but still live (§5.2)
             VStack(spacing: M.stripGap) {
-                ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 0).fill(Color.clear)
-                    EmitterRatchetStripBase(slots: slotsLocal, r: r, mask: mask, current: current).equatable()
-                    TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !playing)) { tl in
-                        let fl = emitterRatchetFlare(output: x, strikes: strikes(), now: tl.date.timeIntervalSinceReferenceDate, scale: pulseScale)
-                        EmitterRatchetStripFlare(slots: slotsLocal, r: r, mask: mask, current: flareSlot, flare: fl, accent: fl.map { accentOf($0.lane) } ?? .clear)
-                    }
+                // RATCH v2 (2026-11-15): the redrawn strip (STEPS slots, in-cell marks, the current outline, the flare recolouring the flaring hit's marks).
+                TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !playing)) { tl in
+                    let fl = emitterRatchetFlare(output: x, strikes: strikes(), now: tl.date.timeIntervalSinceReferenceDate, scale: pulseScale)
+                    EmitterRatchetStripV2View(size: CGSize(width: stripW, height: M.stripHeight), r: r, current: current, expanded: false, flare: fl, flareSlot: flareSlot, accent: fl.map { accentOf($0.lane) } ?? .clear)
                 }
                 .frame(width: stripW, height: M.stripHeight, alignment: .topLeading)
                 .accessibilityElement(children: .ignore)
@@ -417,29 +453,21 @@ struct EmitterRatchetExpandedView: View {
     }
 
     // the big strip (same base/flare the collapsed card draws, taller) — in HIT mode a tap on a hit cycles its count 1 → 2 → 3 → 4 (§5)
-    private func bigStrip(r: EmitterRatchet, width: CGFloat) -> some View {
-        typealias M = EmitterRatchetMetrics
-        let h: CGFloat = 28
-        let slotW = max(0, (width - CGFloat(M.slotCount - 1) * M.slotGap) / CGFloat(M.slotCount))
-        let slots = (0..<M.slotCount).map { CGRect(x: CGFloat($0) * (slotW + M.slotGap), y: 0, width: slotW, height: h) }
-        let mask = emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: r.offset)
+    private func bigStrip(r: EmitterRatchet, width: CGFloat, height: CGFloat = 76) -> some View {   // RATCH v2 §6.4: the strip card's strip (grows; 76 default)
         let maskNoOffset = emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: 0)
         let current = live.index(output) ?? -1
         let flareSlot = live.flareIndex(output) ?? current
         let accentOf: (Int) -> Color = { accents[max(0, min(accents.count - 1, $0))] }
-        return ZStack(alignment: .topLeading) {
-            EmitterRatchetStripBase(slots: slots, r: r, mask: mask, current: current).equatable()
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !playing)) { tl in
-                let fl = emitterRatchetFlare(output: output, strikes: strikes(), now: tl.date.timeIntervalSinceReferenceDate, scale: pulseScale)
-                EmitterRatchetStripFlare(slots: slots, r: r, mask: mask, current: flareSlot, flare: fl, accent: fl.map { accentOf($0.lane) } ?? .clear)
-            }
+        let s = euclideousRatchetStripV2(size: CGSize(width: width, height: height), r: r, current: current, expanded: true)
+        return TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !playing)) { tl in
+            let fl = emitterRatchetFlare(output: output, strikes: strikes(), now: tl.date.timeIntervalSinceReferenceDate, scale: pulseScale)
+            EmitterRatchetStripV2View(size: CGSize(width: width, height: height), r: r, current: current, expanded: true, flare: fl, flareSlot: flareSlot, accent: fl.map { accentOf($0.lane) } ?? .clear)
         }
-        .frame(width: width, height: h, alignment: .topLeading)
+        .frame(width: width, height: height, alignment: .topLeading)
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 0).onEnded { v in
-            guard r.mode == .hit else { return }   // §5: per-hit counts are edited only in HIT mode
-            let x = v.location.x
-            guard let slot = slots.firstIndex(where: { x >= $0.minX && x <= $0.maxX }), slot < r.steps, (mask >> UInt16(slot)) & 1 != 0 else { return }
+            guard r.perHitResolved else { return }   // §8.7: per-hit counts are edited only under PER HIT
+            guard let slot = s.slots.firstIndex(where: { v.location.x >= $0.rect.minX && v.location.x <= $0.rect.maxX }), s.slots[slot].isHit else { return }
             let ord = emitterRatchetHitOrdinal(index: slot, steps: r.steps, offset: r.offset, patternMaskNoOffset: maskNoOffset)
             let next = r.hitCount(ord) % 4 + 1
             onEdit(true) { $0[output] = $0[output].settingHitCount(ord, next) }
