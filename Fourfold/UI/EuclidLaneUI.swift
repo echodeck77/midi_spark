@@ -499,7 +499,7 @@ struct EuclidCometBar: View {
                     let playheadStep: Int? = running ? euclideousStripPlayheadStep(raw: cometRaw, n: n, dir: dir) : nil
                     // §3.4/§4.4/§4.6: a held note enters the step the sweep was on at its onset (cometRawAt), so a ring/outline never disagrees with the engine. Empty held sets (stopped / the BUILD page) ⇒ no rings or outlines.
                     let soundingHits = strip.legs[stripLeg].hits
-                    let sounding = (riffHeld.isEmpty && stackHeld.isEmpty) ? LaneStripSounding(riffRing: [], stackChip: [], stackRing: [], stackOutline: [])
+                    let sounding = (riffHeld.isEmpty && stackHeld.isEmpty) ? LaneStripSounding(riffRing: [], stackChip: [], stackChipRanks: [], stackRing: [], stackOutline: [])
                         : laneStripSounding(riffHeld: riffHeld, stackHeld: stackHeld, n: n, now: liveBeat, passBeats: Double(n) * sub,
                                             stepOf: { b in euclideousStripNoteStep(raw: cometRawAt(b), n: n, dir: dir) ?? -1 },   // §B1: ROUND to the nearest step (was floor, one early)
                                             hitSteps: (0..<n).filter { $0 < soundingHits.count && soundingHits[$0].kind != .rhythmRest })   // §B1.1/§B1.3: snap each note to its hit's step

@@ -47,4 +47,47 @@ final class StackGreyTests: XCTestCase {
 
     // §8.3 — no caller of stackChipColour remains: verified by grep at build time (a deleted symbol cannot be referenced here).
     // `grep -rn stackChipColour Fourfold/` shows only comment lines — the two code callers + three test refs moved to stackRankColour.
+
+    // §8.4 — the footer fill is grey by rank and lane-independent (there is no lane parameter any more); one voice spans the whole chip.
+    func testFooterGreyByRankLaneIndependent() {
+        let c = stackRankColour(rank: 3)
+        XCTAssertEqual(c.r, c.g); XCTAssertEqual(c.g, c.b)   // a true grey, identical for every lane
+        let segs = laneStripFooterSegments(frameWidth: 20, ranks: [3])
+        XCTAssertEqual(segs.count, 1); XCTAssertEqual(segs[0].rank, 3); XCTAssertEqual(segs[0].width, 20, accuracy: 1e-6)
+    }
+
+    // §8.5 — a two-voice hit (ranks 2 and 5) splits into two segments, 2 on the left; at a width that makes a segment < 4 pt, one chip labelled 2.
+    func testFooterSplitAndNarrowFallback() {
+        let wide = laneStripFooterSegments(frameWidth: 20, ranks: [2, 5])   // segW = (20−1)/2 = 9.5 ≥ 4 → two segments
+        XCTAssertEqual(wide.count, 2)
+        XCTAssertEqual(wide[0].rank, 2); XCTAssertEqual(wide[0].x, 0, accuracy: 1e-6)
+        XCTAssertEqual(wide[1].rank, 5); XCTAssertGreaterThan(wide[1].x, wide[0].x, "rank 5 sits to the right of rank 2")
+        XCTAssertEqual(wide[0].width, 9.5, accuracy: 1e-6); XCTAssertEqual(wide[1].width, 9.5, accuracy: 1e-6)
+        XCTAssertNotEqual(stackRankColour(rank: 2), stackRankColour(rank: 5), "each segment its own grey")
+        let narrow = laneStripFooterSegments(frameWidth: 8, ranks: [2, 5])  // segW = (8−1)/2 = 3.5 < 4 → one chip at the lowest rank
+        XCTAssertEqual(narrow.count, 1); XCTAssertEqual(narrow[0].rank, 2); XCTAssertEqual(narrow[0].width, 8, accuracy: 1e-6)
+    }
+
+    // §8.6 — the sounding gate: a stack note rings from its note-on to its last note-off and not after (the chip itself persists for the pass).
+    func testStackSoundingGateFromOnToLastOff() {
+        let n = 4
+        func snd(now: Double, end: Double?) -> LaneStripSounding {
+            let note = NoteRollNote(onBeat: 1, endBeat: end, pitch: 60, velocity: 100, outs: 1, rank: 3)
+            return laneStripSounding(riffHeld: [], stackHeld: [note], n: n, now: now, passBeats: Double(n), stepOf: { Int($0.rounded(.down)) }, hitSteps: [0, 1, 2, 3])
+        }
+        XCTAssertTrue(snd(now: 1.5, end: nil).stackRing[1], "held ⇒ ringing at the onset step")
+        XCTAssertTrue(snd(now: 1.9, end: 2.0).stackRing[1], "sounding before the off")
+        XCTAssertFalse(snd(now: 2.1, end: 2.0).stackRing[1], "silent after the last note-off")
+        XCTAssertEqual(snd(now: 2.1, end: 2.0).stackChip[1], 3, "the chip persists for the rest of the pass")
+    }
+
+    // §8.7 — a gate longer than a step keeps the mark on the note's STARTING cell, not the playhead's.
+    func testLongGateStaysOnTheStartingCell() {
+        let n = 8
+        let note = NoteRollNote(onBeat: 0, endBeat: 6, pitch: 60, velocity: 100, outs: 1, rank: 2)   // a 6-beat gate
+        let s = laneStripSounding(riffHeld: [], stackHeld: [note], n: n, now: 5, passBeats: Double(n), stepOf: { Int($0.rounded(.down)) }, hitSteps: [0, 4])
+        XCTAssertTrue(s.stackRing[0], "the ring stays on the note's onset (hit) step")
+        XCTAssertFalse(s.stackRing[5], "not the playhead's step")
+        XCTAssertEqual(s.stackChipRanks[0], [2])
+    }
 }

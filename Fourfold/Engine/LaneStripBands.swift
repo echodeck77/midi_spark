@@ -152,6 +152,18 @@ func laneStripChipLabelFits(_ label: String, chipWidth: CGFloat, size: CGFloat) 
     chipWidth >= CGFloat(label.count) * LaneStripBandMetrics.chipLabelAdvance * size + 2
 }
 
+/// STACK GREY §2.3: the footer chip's segments for a step's played ranks across a frame of `frameWidth` — one per voice
+/// (ascending `ranks`, lowest on the left, `gap` between), returned as (x offset from the frame's left, width, rank).
+/// A split segment under `minSeg` wide ⇒ a single segment at the LOWEST rank spanning the whole frame (today's look).
+func laneStripFooterSegments(frameWidth: CGFloat, ranks: [Int], gap: CGFloat = 1, minSeg: CGFloat = 4) -> [(x: CGFloat, width: CGFloat, rank: Int)] {
+    guard let low = ranks.first, frameWidth > 1 else { return [] }
+    let k = ranks.count
+    if k == 1 { return [(0, frameWidth, low)] }
+    let segW = (frameWidth - CGFloat(k - 1) * gap) / CGFloat(k)
+    if segW < minSeg { return [(0, frameWidth, low)] }                   // §2.3 fallback: one chip at the lowest rank
+    return ranks.enumerated().map { (CGFloat($0.offset) * (segW + gap), segW, $0.element) }
+}
+
 // MARK: - STACK RANKS GREY ferry (2026-11-15) §1: the neutral grey rank ramp
 // (replaces §8.2's lane-hued `stackChipColour` — the stack now reads as grey on every lane, so lighter = higher is the
 // riff map's shared language and lane colour stays the lane's identity. Riff chips/bars keep the riff map.)
@@ -294,7 +306,8 @@ func laneCCStripTrace(dots rawDots: [CGPoint], sub: Double, barBeats: Double, ce
 /// one per voice). A note counts only once it reached an emitter (`outs != 0`, the lamp's gate).
 struct LaneStripSounding: Equatable {
     var riffRing: [Bool]        // per step: a riff note that started here is sounding (header ring + the cell's riff outline)
-    var stackChip: [Int?]       // per step: the lowest stack rank played here in the current pass (the footer chip), nil = none
+    var stackChip: [Int?]       // per step: the lowest stack rank played here in the current pass (the footer chip's fallback label), nil = none
+    var stackChipRanks: [[Int]] // STACK GREY §2.3: per step, ALL stack ranks played here this pass (ascending) — one footer segment per voice
     var stackRing: [Bool]       // per step: a stack note that started here is sounding (footer ring)
     var stackOutline: [[Int]]   // per step: the stack ranks sounding now (the cell's stack outlines, one per voice)
 }
@@ -321,6 +334,7 @@ func laneStripSnapToHitStep(_ raw: Int, hitSteps: [Int]) -> Int {
 func laneStripSounding(riffHeld: [NoteRollNote], stackHeld: [NoteRollNote], n: Int, now: Double, passBeats: Double, stepOf: (Double) -> Int, hitSteps: [Int]) -> LaneStripSounding {
     var riffRing = [Bool](repeating: false, count: max(0, n))
     var stackChip = [Int?](repeating: nil, count: max(0, n))
+    var stackChipRanks = [[Int]](repeating: [], count: max(0, n))
     var stackRing = [Bool](repeating: false, count: max(0, n))
     var stackOutline = [[Int]](repeating: [], count: max(0, n))
     // §B1: everything is indexed by the hit's own step — the rounded sweep step snapped to the nearest authored hit.
@@ -335,10 +349,12 @@ func laneStripSounding(riffHeld: [NoteRollNote], stackHeld: [NoteRollNote], n: I
         let s = hitStep(note.onBeat); let r = Int(note.rank)
         guard s >= 0 && s < n, r >= 1 && r <= 8 else { continue }
         if stackChip[s] == nil || r < stackChip[s]! { stackChip[s] = r }
+        if !stackChipRanks[s].contains(r) { stackChipRanks[s].append(r) }   // §2.3: every rank played here this pass (sorted below)
         if sounding {
             stackRing[s] = true
             if !stackOutline[s].contains(r) { stackOutline[s].append(r) }
         }
     }
-    return LaneStripSounding(riffRing: riffRing, stackChip: stackChip, stackRing: stackRing, stackOutline: stackOutline)
+    for s in 0..<stackChipRanks.count { stackChipRanks[s].sort() }           // §2.3: lowest rank on the left
+    return LaneStripSounding(riffRing: riffRing, stackChip: stackChip, stackChipRanks: stackChipRanks, stackRing: stackRing, stackOutline: stackOutline)
 }

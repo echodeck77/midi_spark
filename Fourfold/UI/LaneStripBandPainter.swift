@@ -30,7 +30,7 @@ struct EuclideousStripBandInput {
     /// The step the rhythm sweep is on now (the §4.2 playhead cell); nil while stopped.
     var playheadStep: Int?
     /// §3.3 / §3.4 / §4.4: what sounds now, per step (from the note feed, mapped to steps by onset).
-    var sounding = LaneStripSounding(riffRing: [], stackChip: [], stackRing: [], stackOutline: [])
+    var sounding = LaneStripSounding(riffRing: [], stackChip: [], stackChipRanks: [], stackRing: [], stackOutline: [])
     /// §5: the faint CC trace (line + hit dots + the playhead dot) in strip coordinates; nil ⇒ no trace.
     var cc: LaneCCStripTrace? = nil
     /// §3.6: the riff / notes part is on (an off part draws its chips as grey outlines).
@@ -123,6 +123,17 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
         }
     }
 
+    let s = d.sounding
+    func riffRing(_ i: Int) -> Bool { i < s.riffRing.count && s.riffRing[i] }
+    func stackRing(_ i: Int) -> Bool { i < s.stackRing.count && s.stackRing[i] }
+
+    // STACK GREY §3.2: a 1 pt #F2F4F7 inner stroke on a hit cell while a note that started there (riff or stack) sounds —
+    // over the cell fill + its bottom bar, under the CC trace and the rank bars.
+    for i in 0..<n where i < d.hits.count && d.hits[i].kind != .rhythmRest && (riffRing(i) || stackRing(i)) {
+        let r = d.frames.cells[i].insetBy(dx: 0.5, dy: 0.5)
+        ctx.stroke(RoundedRectangle(cornerRadius: M.cellRadius).path(in: r), with: .color(Color(M.soundStroke)), lineWidth: 1)
+    }
+
     // ALT §5.9: a 1.5 pt #F2F4F7 inner outline on the body cell of each hit that plays in the alt state (empty set on every other lane / tab / while stopped ⇒ nothing drawn).
     if !d.altHitSteps.isEmpty {
         for i in 0..<n where d.altHitSteps.contains(i) && i < d.hits.count && d.hits[i].kind != .rhythmRest {
@@ -133,10 +144,6 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
 
     // §5: the faint CC trace — over the cells, under the rank outlines.
     if let cc = d.cc { laneStripDrawCC(&ctx, cc, playhead: cc.playhead) }
-
-    let s = d.sounding
-    func riffRing(_ i: Int) -> Bool { i < s.riffRing.count && s.riffRing[i] }
-    func stackRing(_ i: Int) -> Bool { i < s.stackRing.count && s.stackRing[i] }
 
     // §4.4: the sounding rank OUTLINES in the hit cells — riff in its map colour (inset 3), stack in its chip colour
     // (inset 6, inside the riff's), while the note sounds. (The CC trace will draw between the cells and these outlines.)
@@ -170,17 +177,45 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
         }
     }
 
-    // §3.3: the stack FOOTER — a chip at each hit step a stack note has played in this pass, filled
-    // `stackRankColour(rank)` labelled by that rank, ringed while it sounds; an off notes part draws grey
+    // §3.3 / STACK GREY §2: the stack FOOTER — a chip at each hit step a stack note has played in this pass, grey by rank
+    // (`stackRankColour`), SPLIT into one segment per voice (§2.3), ringed while it sounds; an off notes part draws grey
     // outline chips at the hit steps (§3.6). (Upcoming-hit prediction is a flagged follow-up — see the status log.)
     for i in 0..<n where i < d.hits.count {
         let isHit = d.hits[i].kind != .rhythmRest
-        if d.notesShown, i < s.stackChip.count, let rank = s.stackChip[i] {
-            laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: .rgb(stackRankColour(rank: rank)), label: "\(rank)", hollow: false, sounding: stackRing(i))
+        if d.notesShown, i < s.stackChipRanks.count, !s.stackChipRanks[i].isEmpty {
+            laneStripDrawFooterChip(&ctx, slot: d.frames.footer[i], steps: d.steps, ranks: s.stackChipRanks[i], sounding: stackRing(i))
         } else if isHit {   // §B6.1: an OFF notes part, OR an upcoming hit not yet played / predicted, draws a grey outline chip (no label)
             laneStripDrawChip(&ctx, slot: d.frames.footer[i], steps: d.steps, fill: nil, label: "", hollow: false, sounding: false)
         }
     }
+}
+
+/// STACK GREY §2.3: the stack footer chip — one grey segment per voice (lowest rank on the left, 1 pt gaps), each its own
+/// `stackRankColour` fill + `stackRankInk` label (hidden on a too-narrow segment, §B2.3). A segment under 4 pt wide ⇒ one
+/// chip at the lowest rank, as before. §2.4's sounding double-stroke goes round the WHOLE frame, once.
+func laneStripDrawFooterChip(_ ctx: inout GraphicsContext, slot: CGRect, steps: Int, ranks: [Int], sounding: Bool) {
+    typealias M = LaneStripBandMetrics
+    let frame = laneStripChipFrame(slot: slot)
+    guard frame.width > 1, frame.height > 1 else { return }
+    let a = sounding ? 1.0 : M.chipRestOpacity                               // §2.1: 100 % sounding, 78 % at rest
+    let size = laneStripChipLabelSize(steps: steps)
+    for seg in laneStripFooterSegments(frameWidth: frame.width, ranks: ranks) {
+        let rect = CGRect(x: frame.minX + seg.x, y: frame.minY, width: seg.width, height: frame.height)
+        ctx.fill(RoundedRectangle(cornerRadius: M.chipRadius).path(in: rect), with: .color(Color(stackRankColour(rank: seg.rank)).opacity(a)))
+        let label = "\(seg.rank)"
+        if laneStripChipLabelFits(label, chipWidth: rect.width, size: size) {   // §2.3: each segment's own width
+            ctx.draw(ctx.resolve(Text(label).font(laneStripChipFont(size)).foregroundColor(Color(stackRankInk(rank: seg.rank)))), at: CGPoint(x: rect.midX, y: rect.midY), anchor: .center)
+        }
+    }
+    if sounding { laneStripDrawSoundStroke(&ctx, frame) }                    // §2.4: round the whole chip frame, once
+}
+
+/// STACK GREY §2.4: the sounding mark on a chip — a 1 pt #F2F4F7 stroke on the inside edge of the frame and a 1 pt #0D0F14
+/// stroke just inside that, so it reads on both dark and light fills. Header, footer and split chips all use it.
+func laneStripDrawSoundStroke(_ ctx: inout GraphicsContext, _ frame: CGRect) {
+    typealias M = LaneStripBandMetrics
+    ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(Color(M.soundStroke)), lineWidth: 1)
+    ctx.stroke(RoundedRectangle(cornerRadius: max(0.5, M.chipRadius - 1)).path(in: frame.insetBy(dx: 1.5, dy: 1.5)), with: .color(Color(M.chipInk)), lineWidth: 1)
 }
 
 /// §3.1 / §3.6: one header or footer chip. `fill` nil ⇒ the off-part outline look (grey stroke, grey label, no fill);
@@ -203,9 +238,7 @@ func laneStripDrawChip(_ ctx: inout GraphicsContext, slot: CGRect, steps: Int, f
             ctx.fill(shape, with: .color(c.opacity(a)))
             labelColour = Color(M.chipInk)
         }
-        if sounding {   // §B2.4: a 1 pt #F2F4F7 stroke INSIDE the frame marks a sounding chip (no outside ring)
-            ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(Color(M.soundStroke)), lineWidth: 1)
-        }
+        if sounding { laneStripDrawSoundStroke(&ctx, frame) }   // §2.4: the #F2F4F7 + #0D0F14 double inner stroke (reads on dark and light)
     } else {
         ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(Color(M.offChipStroke)), lineWidth: 1)
         labelColour = Color(M.offChipLabel)
