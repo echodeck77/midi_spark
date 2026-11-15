@@ -138,6 +138,20 @@ final class EmitterRatchetV2Tests: XCTestCase {
         XCTAssertEqual(s.marks.filter { $0.slot == 0 }.count, 4, "n_d = that hit's count (4)")
     }
 
+    // §8.4/§8.5/§6.9 — the BEND / DEPTH value cells: text + the relative drag (a 6 pt deadzone, then 10 per 10 pt / 5 per 3 pt; negative dy = up = more).
+    func testBendDepthTextAndDrag() {
+        XCTAssertEqual(emitterRatchetBendText(0), "EVEN")
+        XCTAssertEqual(emitterRatchetBendText(40), "RUSH 40")
+        XCTAssertEqual(emitterRatchetBendText(-40), "DRAG 40")
+        XCTAssertEqual(emitterRatchetDepthText(60), "60%")
+        XCTAssertEqual(emitterRatchetBendFromDrag(start: 0, translationHeight: -4), 0, "inside the 6 pt deadzone")
+        XCTAssertEqual(emitterRatchetBendFromDrag(start: 0, translationHeight: -16), 10, "up 16 ⇒ past 6 by 10 ⇒ +10 (RUSH)")
+        XCTAssertEqual(emitterRatchetBendFromDrag(start: 0, translationHeight: 16), -10, "down ⇒ DRAG")
+        XCTAssertEqual(emitterRatchetBendFromDrag(start: 100, translationHeight: -50), 100, "clamped at +100")
+        XCTAssertEqual(emitterRatchetDepthFromDrag(start: 50, translationHeight: -9), 55, "up 9 ⇒ past 6 by 3 ⇒ +5")
+        XCTAssertEqual(emitterRatchetDepthFromDrag(start: 0, translationHeight: 60), 0, "clamped at 0")
+    }
+
     // §11.9 — VEL shares. FADE 60 ×4: 1, 0.8, 0.6, 0.4. SWELL 60: 0.4, 0.6, 0.8, 1. FLAT: all 1.
     func testVelShares() {
         func shares(_ v: EmitterStrikeVel, depth: Int) -> [Double] { (0..<4).map { emitterStrikeVelShare(vel: v, depth: depth, k: $0, n: 4) } }

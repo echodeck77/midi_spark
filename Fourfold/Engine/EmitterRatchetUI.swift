@@ -158,6 +158,17 @@ func emitterRatchetLayout(bodySize: CGSize, portrait: Bool, cellCount: Int = Emi
 /// RATCH v2 §5.4: the collapsed RATCH readout cells — STEPS · HITS · OFFSET (STRIKES became the ×2 ×3 ×4 chips; CHANCE / RESTART are in the expanded view).
 let emitterRatchetCollapsedFields: [EmitterRatchetField] = [.steps, .hits, .offset]
 
+// RATCH v2 §6.9/§8.4/§8.5 — the BEND and DEPTH value cells: their text, and the relative drag (a 6 pt start, then 10 per 10 pt for BEND / 5 per 3 pt for DEPTH; `dy` = the gesture's translation.height, negative = up = RUSH / more).
+func emitterRatchetBendText(_ bend: Int) -> String { bend == 0 ? "EVEN" : (bend > 0 ? "RUSH \(bend)" : "DRAG \(abs(bend))") }
+func emitterRatchetDepthText(_ depth: Int) -> String { "\(depth)%" }
+private func emitterRatchetDragPast(_ dy: CGFloat) -> CGFloat { let up = -dy; return up > 6 ? up - 6 : (up < -6 ? up + 6 : 0) }
+func emitterRatchetBendFromDrag(start: Int, translationHeight dy: CGFloat) -> Int {   // §8.4
+    max(-100, min(100, start + Int((emitterRatchetDragPast(dy) / 10).rounded()) * EmitterRatchet.bendStep))
+}
+func emitterRatchetDepthFromDrag(start: Int, translationHeight dy: CGFloat) -> Int {   // §8.5
+    max(0, min(100, start + Int((emitterRatchetDragPast(dy) / 3).rounded()) * EmitterRatchet.depthStep))
+}
+
 /// §4.5: the strike bars of a hit slot — `strikes` bars, centred in the slot, 2 wide, 1 apart, 14 / 12 / 10 / 8 tall in strike order.
 func emitterRatchetBarRects(in slot: CGRect, strikes: Int) -> [CGRect] {
     typealias M = EmitterRatchetMetrics

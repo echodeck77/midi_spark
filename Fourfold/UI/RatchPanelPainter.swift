@@ -182,6 +182,54 @@ struct EmitterRatchetChipGroup: View {
     }
 }
 
+/// §6.6 the PER HIT switch: 72 × 26, off #20232A/#AAB0BA, on #DFE3EA/#0D0F14. One undo step (§8.2).
+struct EmitterRatchetPerHitSwitch: View {
+    let on: Bool
+    let output: Int
+    let onTap: () -> Void
+    var body: some View {
+        Text("PER HIT").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(8 * 0.04).lineLimit(1).minimumScaleFactor(0.7)
+            .foregroundColor(on ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+            .frame(width: 72, height: 26)
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color(hex: 0xDFE3EA) : Color(hex: 0x20232A)))
+            .contentShape(Rectangle()).onTapGesture(perform: onTap)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Emitter \(emitterRatchetLetters[max(0, min(3, output))]) strikes per hit").accessibilityValue(on ? "on" : "off")
+            .accessibilityAddTraits(on ? [.isButton, .isSelected] : [.isButton])
+    }
+}
+
+/// §6.9/§8.4/§8.5 a BEND / DEPTH value cell: fill #20232A, label over the value; a relative vertical drag maps through `map`, a double tap resets. One undo step per gesture.
+struct EmitterRatchetValueDragCell: View {
+    let label: String
+    let value: Int
+    let valueText: String
+    let map: (Int, CGFloat) -> Int
+    let resetValue: Int
+    let a11y: String
+    let a11yValue: String
+    let step: Int
+    let onSet: (Bool, Int) -> Void   // (isFirstOfGesture, newValue)
+    let onDragEnd: () -> Void
+    @State private var start: Int? = nil
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            Text(valueText).font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.65)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity).frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x20232A)))
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { v in let s = start ?? value; let first = start == nil; start = s; onSet(first, map(s, v.translation.height)) }
+            .onEnded { _ in start = nil; onDragEnd() })
+        .simultaneousGesture(TapGesture(count: 2).onEnded { onSet(true, resetValue) })
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(a11y).accessibilityValue(a11yValue)
+        .accessibilityAdjustableAction { dir in onSet(true, value + (dir == .increment ? step : -step)) }   // §9.5 a swipe = one step, one undo step (the setter clamps)
+    }
+}
+
 // MARK: - one value cell (§4.6, §5.5, §6.2)
 
 /// One of the six readout cells: a label, the value, a bar showing the value's share of its range. Dragging up raises the value and down lowers it (starting once the touch has moved 6 pt); a double tap resets it; a single tap does
@@ -491,14 +539,23 @@ struct EmitterRatchetExpandedView: View {
         .frame(width: discW)
     }
 
+    // RATCH v2 §6: the strip card (grows to fill), the values card, then the STRIKES · SPREAD · VEL rows. §6.2 card style on every block.
     private func editor(r: EmitterRatchet, editorW: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            bigStrip(r: r, width: editorW)
+        let rowsBelow: CGFloat = 40 + 34 * 3 + 6 * 4   // values card (40) + three 34-tall rows + four 6 gaps
+        return VStack(alignment: .leading, spacing: 6) {
+            ratchCard(width: editorW, height: max(60, bodySize.height - rowsBelow)) { h in bigStrip(r: r, width: editorW - 12, height: h - 12) }   // §6.4 inner pad 6; grows to fill (§6.10)
             valueRow(r: r, width: editorW)
-            strikesBlock(r: r, width: editorW)
-            gapBlock(r: r, width: editorW)
-            Spacer(minLength: 0)
+            strikesRow(r: r, width: editorW)
+            spreadRow(r: r, width: editorW)
+            velRow(r: r, width: editorW)
         }
+    }
+    /// §6.2 the block card: fill #1B1D23, 1 pt #23262D, radius 8. `content` is handed the card's height so the strip can fill it.
+    private func ratchCard<V: View>(width: CGFloat, height: CGFloat, @ViewBuilder _ content: @escaping (CGFloat) -> V) -> some View {
+        content(height)
+            .frame(width: width, height: height, alignment: .center)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1B1D23)))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x23262D), lineWidth: 1))
     }
 
     // the big strip (same base/flare the collapsed card draws, taller) — in HIT mode a tap on a hit cycles its count 1 → 2 → 3 → 4 (§5)
@@ -547,45 +604,55 @@ struct EmitterRatchetExpandedView: View {
     }
 
     // STRIKES: the mode segmented control, then the count (FIX) / MIN·MAX (RANGE) / hint (HIT)
-    private func strikesBlock(r: EmitterRatchet, width: CGFloat) -> some View {
-        typealias P = EmitterRatchetPalette
-        let modeIdx = EmitterStrikeMode.allCases.firstIndex(of: r.mode) ?? 0
-        return VStack(alignment: .leading, spacing: 4) {
-            blockLabel("STRIKES")
-            EmitterRatchetSegmented(options: EmitterStrikeMode.allCases.map { $0.rawValue }, selected: modeIdx, height: 26, groupLabel: "Strikes mode") { idx in
-                onEdit(true) { $0[output].mode = EmitterStrikeMode.allCases[idx] }   // §1.7: switching mode keeps every mode's stored values
-            }
-            Group {
-                switch r.mode {
-                case .fix:
-                    EmitterRatchetCell(output: output, field: .strikes, r: r, size: CGSize(width: 90, height: 40), leadingRule: false, onEdit: onEdit, onDragEnd: onDragEnd)
-                case .range:
-                    HStack(spacing: 16) {
-                        EmitterRatchetMiniStepper(label: "MIN", value: r.rangeMin, a11y: "Emitter \(emitterRatchetLetters[output]) strikes minimum") { d in
-                            onEdit(true) { var x = $0[output]; x.rangeMin += d; $0[output] = x.normalized() }
-                        }
-                        EmitterRatchetMiniStepper(label: "MAX", value: r.rangeMax, a11y: "Emitter \(emitterRatchetLetters[output]) strikes maximum") { d in
-                            onEdit(true) { var x = $0[output]; x.rangeMax += d; $0[output] = x.normalized() }
-                        }
-                    }
-                case .hit:
-                    Text("Tap a hit on the strip to set its count").font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundColor(P.muted).lineLimit(2)
-                }
-            }
-            .frame(height: 44, alignment: .leading)
+    /// §6.5 a block row: a label in a 46-wide slot, 6, then the controls — 34 tall, inner pad 10 left / 6 right, the §6.2 card style.
+    private func row<V: View>(_ label: String, width: CGFloat, @ViewBuilder _ content: () -> V) -> some View {
+        HStack(spacing: 6) {
+            blockLabel(label).frame(width: 46, alignment: .leading)
+            content()
         }
-        .frame(width: width, alignment: .leading)
+        .padding(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 6))
+        .frame(width: width, height: 34, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1B1D23)))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x23262D), lineWidth: 1))
     }
 
-    // GAP: the strike spacing (FIT · 1/8 · 1/16 · 1/16T · 1/32). CUT · SPILL is hidden (§0.2).
-    private func gapBlock(r: EmitterRatchet, width: CGFloat) -> some View {
-        let gapIdx = EmitterStrikeGap.allCases.firstIndex(of: r.gap) ?? 0
-        return VStack(alignment: .leading, spacing: 4) {
-            blockLabel("GAP")
-            EmitterRatchetSegmented(options: EmitterStrikeGap.allCases.map { $0.rawValue }, selected: gapIdx, height: 26, groupLabel: "Strike gap") { idx in
-                onEdit(true) { $0[output].gap = EmitterStrikeGap.allCases[idx] }
-            }
+    // §6.6 STRIKES: the ×2 ×3 ×4 chips (dim + inert while PER HIT is on) + the PER HIT switch.
+    private func strikesRow(r: EmitterRatchet, width: CGFloat) -> some View {
+        row("STRIKES", width: width) {
+            EmitterRatchetChipGroup(r: r, size: CGSize(width: 0, height: 26), output: output, chipH: 26, fontSize: 14,
+                                    onChip: { c in onEdit(true) { $0[output] = $0[output].togglingCount(c) } })
+                .frame(maxWidth: .infinity).opacity(r.perHitResolved ? 0.38 : 1).allowsHitTesting(!r.perHitResolved)
+            EmitterRatchetPerHitSwitch(on: r.perHitResolved, output: output) { onEdit(true) { $0[output] = $0[output].togglingPerHit() } }
         }
-        .frame(width: width, alignment: .leading)
+    }
+    // §6.7 SPREAD: LENGTH (½ · 1 — §0.2) segmented + the BEND value cell.
+    private func spreadRow(r: EmitterRatchet, width: CGFloat) -> some View {
+        let lengths: [EmitterStrikeLength] = [.half, .one]
+        let sel = lengths.firstIndex(of: r.lengthResolved) ?? 1
+        return row("SPREAD", width: width) {
+            EmitterRatchetSegmented(options: ["\u{00BD}", "1"], selected: sel, height: 26, groupLabel: "Strike length") { idx in
+                onEdit(true) { $0[output].length = lengths[idx] }
+            }
+            .frame(width: 80)
+            EmitterRatchetValueDragCell(label: "BEND", value: r.bendResolved, valueText: emitterRatchetBendText(r.bendResolved),
+                                        map: emitterRatchetBendFromDrag, resetValue: 0, a11y: "Emitter \(emitterRatchetLetters[output]) bend", a11yValue: emitterRatchetBendText(r.bendResolved).lowercased(), step: EmitterRatchet.bendStep,
+                                        onSet: { first, v in onEdit(first) { $0[output].bend = v } }, onDragEnd: onDragEnd)
+                .frame(maxWidth: .infinity)
+        }
+    }
+    // §6.8 VEL: FLAT · FADE · SWELL segmented + the DEPTH value cell (dim at FLAT, still live).
+    private func velRow(r: EmitterRatchet, width: CGFloat) -> some View {
+        let vels: [EmitterStrikeVel] = [.flat, .fade, .swell]
+        let sel = vels.firstIndex(of: r.velResolved) ?? 0
+        return row("VEL", width: width) {
+            EmitterRatchetSegmented(options: ["FLAT", "FADE", "SWELL"], selected: sel, height: 26, groupLabel: "Strike velocity") { idx in
+                onEdit(true) { $0[output].vel = vels[idx] }
+            }
+            .frame(width: 132)
+            EmitterRatchetValueDragCell(label: "DEPTH", value: r.depthResolved, valueText: emitterRatchetDepthText(r.depthResolved),
+                                        map: emitterRatchetDepthFromDrag, resetValue: 50, a11y: "Emitter \(emitterRatchetLetters[output]) velocity depth", a11yValue: "\(r.depthResolved) percent", step: EmitterRatchet.depthStep,
+                                        onSet: { first, v in onEdit(first) { $0[output].depth = v } }, onDragEnd: onDragEnd)
+                .frame(maxWidth: .infinity).opacity(r.velResolved == .flat ? 0.38 : 1)   // §6.8 FLAT dims DEPTH (still live)
+        }
     }
 }
