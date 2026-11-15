@@ -102,6 +102,7 @@
 		31D850833DB23E88DEC4FE99 /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */; };
 		324E17FEE1D0032E38B664AA /* Dice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3D05D84CB3BB7FF47E7851 /* Dice.swift */; };
 		329BAEB907A84059CF8FBFBD /* EuclideousLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59DF6CD888C95040E34660D5 /* EuclideousLock.swift */; };
+		32B028838AA827579D5C5306 /* RestartRulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F38DA472BCA204D4D1D0A62 /* RestartRulerTests.swift */; };
 		32B8D6FE8D4377FD8E1F45B3 /* HarmonyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24C15BDAB89DD4B8DEF42338 /* HarmonyLayout.swift */; };
 		33085BD85D007CFA610CC934 /* MidiFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9093C469F102E1F2CCC6DF7D /* MidiFile.swift */; };
 		33257FF396680B09DBDBE620 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */; };
@@ -641,6 +642,7 @@
 		2CBBE0C6BCCAB378B92C134A /* FillEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillEngineTests.swift; sourceTree = "<group>"; };
 		2CD1516989D0BE5696EF4FFF /* EmitterVelocityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterVelocityTests.swift; sourceTree = "<group>"; };
 		2DCB3F95776A8BE51B7E0584 /* HarmonyPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarmonyPage.swift; sourceTree = "<group>"; };
+		2F38DA472BCA204D4D1D0A62 /* RestartRulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartRulerTests.swift; sourceTree = "<group>"; };
 		2F82B632EB1561C42D3E6FEA /* CellBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CellBrowser.swift; sourceTree = "<group>"; };
 		2F88F1D9EB66DD5E4ECF7BA7 /* Emission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Emission.swift; sourceTree = "<group>"; };
 		308A4FADD0BB1FB23898BA06 /* InputsModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputsModelTests.swift; sourceTree = "<group>"; };
@@ -1184,6 +1186,7 @@
 				86B78244085974D781CC1A40 /* RestartChainsTests.swift */,
 				5DEF38D08252CA627E3AAFBF /* RestartEditorUITests.swift */,
 				5511D6EA0BFF15C0FC45E68A /* RestartFlashTests.swift */,
+				2F38DA472BCA204D4D1D0A62 /* RestartRulerTests.swift */,
 				3C76013EC892936A85823727 /* RestartScheduleTests.swift */,
 				16EDCC49E0693650723FF086 /* RestartUnitsGoldenTests.swift */,
 				C55CF453F15638C84E0AF1F3 /* RestartUnitsModelTests.swift */,
@@ -2080,6 +2083,7 @@
 				6CAD2EC6243F59DEF78E94C6 /* RestartEditorUI.swift in Sources */,
 				DA3A4C226D7C45A8CAE854A0 /* RestartEditorUITests.swift in Sources */,
 				7BE01E23EE11445214726AD3 /* RestartFlashTests.swift in Sources */,
+				32B028838AA827579D5C5306 /* RestartRulerTests.swift in Sources */,
 				DA5603457D070ED3518079D9 /* RestartSchedule.swift in Sources */,
 				1C777E174406EFA338E6221C /* RestartScheduleTests.swift in Sources */,
 				03FFBAF3B45C536DEECBE0E4 /* RestartUnits.swift in Sources */,

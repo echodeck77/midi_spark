@@ -10366,6 +10366,156 @@ func restartTileState(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneCo
     return st
 }
 
+// MARK: - RESETS V2 ferry (2026-11-15) — the ruler, the ratio, the running link (DISPLAY-ONLY pure readers; no schedule/engine change)
+
+/// §1 — one restart tile's RULER: the time SPAN it draws (beats) and the PASS (RHYTHM) / riff-CYCLE (MELODY) blocks
+/// overlapping it, each at its real length with a `cut` flag (ended by a restart before its natural end). The view maps
+/// beats → x and draws the host grid / hits / playhead / to-come over it, and clips FREE blocks that run past the span.
+/// Everything comes through the schedule readers (RESTART UNITS §5.1) — no new schedule state. `running` is accepted for
+/// symmetry with the tile (the span is the same when stopped; the view just hides the playhead).
+struct EuclideousRestartRulerBlock: Equatable { var start: Double; var end: Double; var cut: Bool }   // beats; a FREE block may run past the span edges (the view clips, never hatches)
+struct EuclideousRestartRuler: Equatable {
+    var spanStart: Double = 0
+    var spanLen: Double = 0
+    var isFree: Bool = true
+    var blocks: [EuclideousRestartRulerBlock] = []
+}
+
+/// ADV HIT: the ABSOLUTE tick where the riff cycle starting at `fromTick` naturally completes — the walk returns to its
+/// start, `order.period × every` ordinals later — i.e. the start of the NEXT cycle. ADV STEP: `fromTick + cycleUnits`.
+/// Bounded; reads the lane's real hit schedule via `euclideousWalkTick` (rhythm restarts folded in; melody restarts do
+/// not change the hit schedule, so the NATURAL completion is found even when a melody restart cuts the cycle short).
+private func euclideousMelodyCycleCompletionTick(_ c: EuclideousWalkLaneConfig, fromTick: Int64) -> Int64 {
+    let L = max(1, min(c.columns, c.length))
+    let order = euclideousRiffCycleOrder(dir: c.riffDir, length: L, stride: c.stride, shift: c.rotate, columns: c.columns)
+    let cycleUnits = Int64(max(1, order.period * max(1, c.every)))
+    if c.advanceStep { return fromTick + cycleUnits }
+    let cycleLen = max(1, euclidCycleLen(c.dir, n: c.n))
+    let bound = fromTick + Int64(cycleLen) * (cycleUnits + 2) + 32
+    var t = fromTick, idx: Int64 = -1
+    while t <= bound {
+        if euclideousWalkTick(c, tick: t).isHit { idx += 1; if idx == cycleUnits { return t } }   // `isHit` = the lane's own pattern hit (what the walk's ordinal arithmetic counts)
+        t += 1
+    }
+    return bound   // defensive: a cycle with no hits (never, given c.n > 0)
+}
+
+/// FREE MELODY: the cycle-start tick at or before `beforeBeat` — the cycles tile the timeline from the melody origin (0
+/// when FREE). Bounded walk of the completion chain; if it can't reach `beforeBeat` within the cap it starts at the beat
+/// (a degraded but harmless fallback for a very late bar — FREE melody blocks are display-only and untested by §5).
+private func euclideousFreeMelodyCycleStartTick(_ c: EuclideousWalkLaneConfig, beforeBeat: Double) -> Int64 {
+    guard c.sub > 0 else { return 0 }
+    let target = Int64((beforeBeat / c.sub + 1e-9).rounded(.down))
+    var cur: Int64 = 0, guardN = 0
+    while guardN < 4096 {
+        let next = euclideousMelodyCycleCompletionTick(c, fromTick: cur)
+        if next > target || next <= cur { return cur }
+        cur = next; guardN += 1
+    }
+    return cur
+}
+
+func euclideousRestartRuler(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneConfig, beat: Double, running: Bool) -> EuclideousRestartRuler {
+    _ = running
+    var r = EuclideousRestartRuler()
+    let eps = 1e-9
+    let sub = c.sub
+    guard sub > 0, c.n > 0 else { return r }
+    let cycleLen = euclidCycleLen(c.dir, n: c.n)
+    let lap = Double(cycleLen) * sub
+    var chains = c.chains
+    chains.lapBeats = lap
+    let barBeats = chains.barBeats
+    let isSet = kind == .rhythm ? chains.hasRhythmRestarts : chains.hasMelodyRestarts
+    r.isFree = !isSet
+    // ── the span (§1.3)
+    var spanStart = 0.0, spanEnd = 0.0
+    if isSet {
+        let origin = kind == .rhythm ? chains.rhythmOriginBeat(beat) : chains.melodyOriginBeat(beat)
+        let next = kind == .rhythm ? chains.nextRhythmRestart(after: beat) : chains.nextMelodyRestart(after: beat)   // the schedule folds WITH RHYTHM into the melody's next restart (RESTART UNITS FIX 1)
+        spanStart = origin
+        spanEnd = next ?? (origin + max(lap, barBeats))
+    } else {
+        spanStart = barBeats > 0 ? ((beat / barBeats).rounded(.down)) * barBeats : 0
+        spanEnd = spanStart + max(eps, barBeats)
+    }
+    guard spanEnd > spanStart + eps else { return r }
+    r.spanStart = spanStart; r.spanLen = spanEnd - spanStart
+    // ── the blocks (§1.4)
+    switch kind {
+    case .rhythm:
+        var q = chains.passIndex(beat: spanStart + eps)   // the pass holding the span start (== the start for a set part; earlier for FREE, so the first block runs past the left edge)
+        var guardN = 0
+        while guardN < 8192 {
+            let s = chains.passStart(q)
+            if s >= spanEnd - eps { break }
+            let ns = chains.passStart(q + 1)
+            let end = isSet ? min(ns, spanEnd) : ns             // set: the restart (span end) clamps the last pass; FREE: natural (may run past, the view clips)
+            let cut = isSet && (end - s) < lap - eps            // §1.4: a pass shorter than a full lap ended at a restart
+            r.blocks.append(.init(start: s, end: end, cut: cut))
+            q += 1; guardN += 1
+        }
+    case .melody:
+        var curTick = isSet ? chains.melodyOriginTick(beat, sub: sub) : euclideousFreeMelodyCycleStartTick(c, beforeBeat: spanStart)
+        var guardN = 0
+        while guardN < 4096 {
+            let startBeat = Double(curTick) * sub
+            if startBeat >= spanEnd - eps { break }
+            let compTick = euclideousMelodyCycleCompletionTick(c, fromTick: curTick)
+            let naturalEnd = Double(compTick) * sub
+            let end = isSet ? min(naturalEnd, spanEnd) : naturalEnd
+            let cut = isSet && end < naturalEnd - eps           // §1.4: a cycle ended by a melody restart before its natural completion
+            r.blocks.append(.init(start: startBeat, end: end, cut: cut))
+            if isSet && end >= spanEnd - eps { break }
+            if compTick <= curTick { break }                   // no-progress safety
+            curTick = compTick; guardN += 1
+        }
+    }
+    return r
+}
+
+/// §2.1 — the tile's ratio, as two numbers (the view formats "7:8" / "12:16" / "5.3"): the part's natural length in the
+/// lane's STEPS, then one host bar in the lane's steps (`barBeats ÷ step`). RHYTHM part = STEPS. MELODY part = the
+/// CURRENT riff cycle's natural length in steps (start → natural completion); a cut cycle still shows its natural length.
+func euclideousRestartRatioSteps(_ kind: EuclideousRestartKind, cfg c: EuclideousWalkLaneConfig, beat: Double, steps: Int, barBeats: Double) -> (part: Double, bar: Double) {
+    let sub = c.sub
+    let bar = sub > 0 ? barBeats / sub : 0
+    switch kind {
+    case .rhythm:
+        return (Double(max(0, steps)), bar)
+    case .melody:
+        guard sub > 0, c.n > 0 else { return (0, bar) }
+        var chains = c.chains
+        chains.lapBeats = Double(euclidCycleLen(c.dir, n: c.n)) * sub
+        var curTick = chains.hasMelodyRestarts ? chains.melodyOriginTick(beat, sub: sub) : euclideousFreeMelodyCycleStartTick(c, beforeBeat: beat)
+        var guardN = 0
+        while guardN < 4096 {   // advance to the cycle that CONTAINS `beat` (past any natural completions already reached)
+            let comp = euclideousMelodyCycleCompletionTick(c, fromTick: curTick)
+            if comp > curTick && Double(comp) * sub <= beat + 1e-9 { curTick = comp; guardN += 1 } else { break }
+        }
+        let comp = euclideousMelodyCycleCompletionTick(c, fromTick: curTick)
+        return (Double(max(0, comp - curTick)), bar)
+    }
+}
+
+/// §3.6 — the index of the chain's RUNNING link given the current unit count (`euclideousRestartCurrentUnit`): the link
+/// whose running total ≤ (count mod total) < the next link's. nil when the chain is inactive. Uses the chain's own
+/// `runningTotal` / `total`, the same accessors `euclideousRestartTimeline` highlights cells from, so they cannot drift.
+func euclideousRestartRunningLink(chain: EuclideousRestartChain, current: Int) -> Int? {
+    guard !chain.isFree, chain.count > 0 else { return nil }
+    let total = chain.total
+    guard total > 0 else { return nil }
+    let r = ((current % total) + total) % total
+    var i = 0
+    while i < chain.count {
+        let lo = chain.runningTotal(i)
+        let hi = i + 1 < chain.count ? chain.runningTotal(i + 1) : total
+        if r >= lo && r < hi { return i }
+        i += 1
+    }
+    return chain.count - 1
+}
+
 /// RESTART TILES §1.5 — the latest strike on each MELODY cell, in fixed storage (16 slots: no allocation per frame). A strike is an event from the same per-hit stream the strip's strikes use (`EuclideousPulseFeed`), keyed by
 /// the cell of its riff column (`cellColumn` — a REPEAT hit's repeated note); TIE continuations, SKIP gaps, FX-tied and muted hits post no event, so they never appear. The look is the strip's key strike's: the shared envelope's
 /// flash `f` through the PULSE setting and Reduce Motion (`euclideousPulseFilter(.glow, …)`).
