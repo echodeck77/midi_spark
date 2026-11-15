@@ -84,3 +84,104 @@ struct EuclideousRestartTileCanvas: View {
         }
     }
 }
+
+// MARK: - RESETS V2 ferry (2026-11-15) §1 — the ruler (replaces the sweep + strip on the RESETS tab)
+
+/// What the ruler draws, from the tested `euclideousRestartRuler` (span + blocks) + the lane's hits in the span + `now`.
+struct EuclideousRestartRulerInput: Equatable {
+    var ruler: EuclideousRestartRuler
+    var barBeats: Double
+    var hits: [Double]      // absolute hit beats inside the span (the lane's own rhythm hits; §1.6)
+    var now: Double         // the musical beat of the playhead
+    var running: Bool       // §1.7/§1.8: the to-come shade + playhead show only while the transport runs
+}
+
+/// §1.2–§1.8 — one ruler band: the track, the part's passes / riff cycles as blocks (hatched when cut), the host bar/beat grid, the lane's hits, the still-to-come shade and the playhead. Immediate-mode, allocation-light, takes no touch.
+/// `blockColor` is the lane's lane100 for a set part (the caller brightens); a FREE part uses #5C626C regardless.
+struct EuclideousRestartRulerCanvas: View {
+    let input: EuclideousRestartRulerInput
+    let blockColor: Color
+    let width: CGFloat
+    let height: CGFloat
+    private let ink = Color(hex: 0xF2F4F7)
+    var body: some View {
+        Canvas { ctx, _ in draw(ctx) }
+            .frame(width: width, height: height)
+            .allowsHitTesting(false)
+    }
+    private func draw(_ base: GraphicsContext) {
+        let r = input.ruler
+        guard r.spanLen > 1e-9 else { return }
+        let inset: CGFloat = 12, rw = max(1, width - 2 * inset), h: CGFloat = 10          // §1.2: x 12 … width−12, 10 tall, bottom at the strip's built bottom (height−6)
+        let top = height - 6 - h
+        let frame = CGRect(x: inset, y: top, width: rw, height: h)
+        var ctx = base
+        ctx.fill(Path(roundedRect: frame, cornerRadius: 2), with: .color(Color(hex: 0x2A2D34)))   // §1.2 track
+        ctx.clip(to: Path(roundedRect: frame, cornerRadius: 2))                                    // clips everything inside it
+        func x(_ b: Double) -> CGFloat { frame.minX + CGFloat((b - r.spanStart) / r.spanLen) * rw }
+        let fill = r.isFree ? Color(hex: 0x5C626C) : blockColor
+        // §1.4 blocks (first). Solid: width = duration − 1.5 (the 1.5 gap marks each boundary). Cut: 135° stripes, no end gap.
+        for blk in r.blocks {
+            let x0 = x(blk.start), x1 = x(blk.end)
+            if blk.cut {
+                let rect = CGRect(x: x0, y: top, width: max(0, x1 - x0), height: h)
+                if rect.width > 0 { drawHatch(ctx, rect: rect, color: fill) }
+            } else {
+                let w = max(0, x1 - x0 - 1.5)
+                if w > 0 { ctx.fill(Path(roundedRect: CGRect(x: x0, y: top, width: w, height: h), cornerRadius: 1.5), with: .color(fill)) }
+            }
+        }
+        drawGrid(ctx, frame: frame, x: x)   // §1.5 over the blocks
+        drawHits(ctx, frame: frame, x: x)   // §1.6
+        if input.running {                  // §1.7 to-come + §1.8 playhead — hidden while stopped
+            let px = x(input.now)
+            if px < frame.maxX { ctx.fill(Path(CGRect(x: px, y: top, width: frame.maxX - px, height: h)), with: .color(Color(hex: 0x121318).opacity(0.5))) }
+            ctx.fill(Path(CGRect(x: px - 1, y: top, width: 2, height: h)), with: .color(ink))
+        }
+    }
+    /// §1.4 cut block: 135° stripes of `color`, 2 pt on / 2 pt off (period 4), clipped to the block, no end gap.
+    private func drawHatch(_ ctx0: GraphicsContext, rect: CGRect, color: Color) {
+        var ctx = ctx0
+        ctx.clip(to: Path(rect))
+        var c = rect.minX + rect.minY - rect.height
+        let cMax = rect.maxX + rect.maxY
+        while c <= cMax {
+            var p = Path(); p.move(to: CGPoint(x: c - rect.minY, y: rect.minY)); p.addLine(to: CGPoint(x: c - rect.maxY, y: rect.maxY))   // x + y = c (135°)
+            ctx.stroke(p, with: .color(color), lineWidth: 2)
+            c += 4
+        }
+    }
+    /// §1.5 — a 1×10 #F2F4F7@60% bar line at each host bar line strictly inside the span; a 1×3@25% beat tick at each other host beat. Drop the beat ticks when beats come under 4 pt apart; draw every 4th bar line when bar lines do.
+    private func drawGrid(_ ctx: GraphicsContext, frame: CGRect, x: (Double) -> CGFloat) {
+        let r = input.ruler, bb = input.barBeats
+        guard bb > 0 else { return }
+        let spanEnd = r.spanStart + r.spanLen
+        let barPx = CGFloat(bb / r.spanLen) * frame.width, beatPx = CGFloat(1.0 / r.spanLen) * frame.width
+        let barStride = barPx < 4 ? 4 : 1
+        // beat ticks (skip the ones that are bar lines; drop all when too dense)
+        if beatPx >= 4 {
+            var b = ceil(r.spanStart - 1e-9);
+            while b < spanEnd - 1e-9 {
+                if b > r.spanStart + 1e-9 {
+                    let onBar = abs((b / bb).rounded() * bb - b) < 1e-6
+                    if !onBar { ctx.fill(Path(CGRect(x: x(b) - 0.5, y: frame.minY, width: 1, height: 3)), with: .color(ink.opacity(0.25))) }
+                }
+                b += 1
+            }
+        }
+        // bar lines
+        var k = Int((r.spanStart / bb).rounded(.down));
+        var drawn = 0
+        while Double(k) * bb < spanEnd - 1e-9 {
+            let bl = Double(k) * bb
+            if bl > r.spanStart + 1e-9 { if drawn % barStride == 0 { ctx.fill(Path(CGRect(x: x(bl) - 0.5, y: frame.minY, width: 1, height: frame.height)), with: .color(ink.opacity(0.6))) }; drawn += 1 }
+            k += 1
+        }
+    }
+    /// §1.6 — a 1×6 #0D0F14@50% mark at y 2 at each hit in the span. Drop ALL of them while any two are under 3 pt apart.
+    private func drawHits(_ ctx: GraphicsContext, frame: CGRect, x: (Double) -> CGFloat) {
+        let xs = input.hits.map { x($0) }.sorted()
+        for i in 1..<max(1, xs.count) where xs[i] - xs[i - 1] < 3 { return }   // any two under 3 pt apart ⇒ draw none
+        for px in xs { ctx.fill(Path(CGRect(x: px - 0.5, y: frame.minY + 2, width: 1, height: 6)), with: .color(Color(hex: 0x0D0F14).opacity(0.5))) }
+    }
+}

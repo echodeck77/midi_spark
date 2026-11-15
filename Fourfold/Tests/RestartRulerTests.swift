@@ -133,4 +133,13 @@ final class RestartRulerTests: XCTestCase {
         XCTAssertEqual(euclideousRestartRunningLink(chain: chain, current: 4), 0, "wraps")
         XCTAssertNil(euclideousRestartRunningLink(chain: .free, current: 0), "an inactive chain has no running link")
     }
+
+    // RESETS V2 §2 — the ratio text: a whole part, a bar that drops a trailing .0 and otherwise shows one decimal.
+    func testRatioText() {
+        XCTAssertEqual(euclideousRestartRatioText(part: 8, bar: 8), "8:8")
+        XCTAssertEqual(euclideousRestartRatioText(part: 12, bar: 16), "12:16")
+        XCTAssertEqual(euclideousRestartRatioText(part: 13, bar: 8), "13:8")
+        XCTAssertEqual(euclideousRestartRatioText(part: 16, bar: 4.0), "16:4", "a whole bar drops the .0")
+        XCTAssertEqual(euclideousRestartRatioText(part: 12, bar: 4.0 / 0.75), "12:5.3", "dotted 1/8: 4 ÷ 0.75 = 5.333 → 5.3 (§5 test 7)")
+    }
 }

@@ -3692,15 +3692,16 @@ struct EuclideousPage: View {
             // The two progress tiles at y 0 of each half (§1.3) — ONE TimelineView drives both sweeps + the MELODY cell-strike bank, exactly as the old `restartTilesRow` did.
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !running || cfg == nil)) { tl in
                 let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
-                let melodyState = cfg.map { restartTileState(.melody, cfg: $0, beat: beat, running: running) }
-                let bank: EuclideousCellStrikeBank? = (running && melodyState != nil)
-                    ? euclideousRestartCellStrikes(pulseFeed.strikes(lane: idx), columnCells: melodyState!.columnCells, now: tl.date.timeIntervalSinceReferenceDate) : nil
+                let rRhythm = resetsRulerAndRatio(cfg, beat: beat, running: running, line: line, kind: .rhythm)
+                let rMelody = resetsRulerAndRatio(cfg, beat: beat, running: running, line: line, kind: .melody)
                 ZStack(alignment: .topLeading) {
                     restartTile(idx, rhythm: true, spec: rhythmSpec, label: euclideousRestartTileLabel(rhythm: true, settings: settings, ownLane: idx), accent: accent,
-                                width: L.rhythmTile.width, height: L.rhythmTile.height, state: cfg.map { restartTileState(.rhythm, cfg: $0, beat: beat, running: running) }, strikes: nil, tappable: false)
+                                width: L.rhythmTile.width, height: L.rhythmTile.height, state: nil, strikes: nil, tappable: false,
+                                ruler: rRhythm.0, ratioText: rRhythm.1, layerOrder: euclideousRestartRulerLayerOrder)
                         .offset(x: L.rhythmTile.minX, y: L.rhythmTile.minY)
                     restartTile(idx, rhythm: false, spec: melodySpec, label: euclideousRestartTileLabel(rhythm: false, settings: settings, ownLane: idx), accent: accent,
-                                width: L.melodyTile.width, height: L.melodyTile.height, state: melodyState, strikes: bank, tappable: false)
+                                width: L.melodyTile.width, height: L.melodyTile.height, state: nil, strikes: nil, tappable: false,
+                                ruler: rMelody.0, ratioText: rMelody.1, layerOrder: euclideousRestartRulerLayerOrder)
                         .offset(x: L.melodyTile.minX, y: L.melodyTile.minY)
                 }
             }
@@ -3717,6 +3718,23 @@ struct EuclideousPage: View {
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(EuclideousRestartEditorAX.resetsCard(lane: idx))   // §4.1
+    }
+
+    /// RESETS V2 §1/§2 — the ruler input (span + blocks + the lane's hits in the span) and the ratio text for one RESETS tile, at the UI beat. A regular method (not a ViewBuilder) so it can hold the hit-scan loop.
+    private func resetsRulerAndRatio(_ cfg: EuclideousWalkLaneConfig?, beat: Double, running: Bool, line: EuclidLine, kind: EuclideousRestartKind) -> (EuclideousRestartRulerInput?, String?) {
+        guard let c = cfg else { return (nil, nil) }
+        let r = euclideousRestartRuler(kind, cfg: c, beat: beat, running: running)
+        var hits: [Double] = []
+        if c.sub > 0, r.spanLen > 1e-9 {
+            let first = Int64((r.spanStart / c.sub - 1e-9).rounded(.down)), last = Int64(((r.spanStart + r.spanLen) / c.sub + 1e-9).rounded(.up))
+            if last >= first, last - first < 4096 {   // bounded (a span is a few bars); the walk mirror folds restarts in
+                var t = first
+                while t <= last { if euclideousWalkTick(c, tick: t).isHit { let b = Double(t) * c.sub; if b >= r.spanStart - 1e-9 && b < r.spanStart + r.spanLen - 1e-9 { hits.append(b) } }; t += 1 }
+            }
+        }
+        let input = EuclideousRestartRulerInput(ruler: r, barBeats: clock.beatsPerBar, hits: hits, now: beat, running: running)
+        let rr = euclideousRestartRatioSteps(kind, cfg: c, beat: beat, steps: min(16, max(2, line.steps)), barBeats: clock.beatsPerBar)   // STEPS clamps to 16 in the model (findings: §5 test 3)
+        return (input, euclideousRestartRatioText(part: rr.part, bar: rr.bar))
     }
 
     /// §6.1 — the two restart tiles (RHYTHM, MELODY), replacing the OUT A–D circles in the RHYTHM tab's lower-right row (§9 moves OUT to MIX). Each opens the shared restart editor (§6.2, holds both chains).
@@ -3749,12 +3767,14 @@ struct EuclideousPage: View {
     /// Built as an `AnyView` (the page's construction chain has almost no stack to spare in a debug build — see Docs/claude-playbook.md).
     /// RESETS TAB §3.1/§4.2: `tappable` false makes a tile a non-interactive progress bar — no tap (it opens nothing), no button trait, no hint, static text — which is how the RESETS card draws it now that the controls live on the card.
     private func restartTile(_ idx: Int, rhythm: Bool, spec: EuclideousRestartTileSpec, label: String, accent: Color, width: CGFloat, height: CGFloat,
-                             state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?, tappable: Bool = true) -> AnyView {
+                             state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?, tappable: Bool = true,
+                             ruler: EuclideousRestartRulerInput? = nil, ratioText: String? = nil,
+                             layerOrder: [EuclideousRestartTileLayer] = euclideousRestartTileLayerOrder) -> AnyView {   // RESETS V2: the RESETS card passes a ruler + ratio + the base·ruler·text order; every other surface keeps the sweep/track default
         let control: EuclideousLockControl = rhythm ? .rhythmRestart : .melodyRestart
         let name = rhythm ? "RHYTHM" : "MELODY"
         let base = ZStack(alignment: .topLeading) {
-            ForEach(Array(euclideousRestartTileLayerOrder.enumerated()), id: \.offset) { _, layer in
-                restartTileLayer(layer, spec: spec, name: name, accent: accent, width: width, height: height, state: state, strikes: strikes)
+            ForEach(Array(layerOrder.enumerated()), id: \.offset) { _, layer in
+                restartTileLayer(layer, spec: spec, name: name, accent: accent, width: width, height: height, state: state, strikes: strikes, ruler: ruler, ratioText: ratioText)
             }
         }
         .frame(width: width, height: height)
@@ -3775,7 +3795,8 @@ struct EuclideousPage: View {
             .accessibilityFocused($restartFocus, equals: .tile(lane: idx, rhythm: rhythm)))
     }
     private func restartTileLayer(_ layer: EuclideousRestartTileLayer, spec: EuclideousRestartTileSpec, name: String, accent: Color, width: CGFloat, height: CGFloat,
-                                  radius: CGFloat = 8, trackCentred: Bool = false, state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?) -> AnyView {
+                                  radius: CGFloat = 8, trackCentred: Bool = false, state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?,
+                                  ruler: EuclideousRestartRulerInput? = nil, ratioText: String? = nil) -> AnyView {
         switch layer {
         case .base:
             return AnyView(RoundedRectangle(cornerRadius: radius).fill(spec.isSet ? Color(hex: 0x22252C) : Color(hex: 0x2A2D34))
@@ -3789,31 +3810,40 @@ struct EuclideousPage: View {
             guard let state else { return AnyView(EmptyView()) }
             return AnyView(EuclideousRestartTileCanvas(part: .track, state: state, accent: accent, width: width, height: height, radius: radius, trackCentred: trackCentred, strikes: strikes,
                                                        pulseScale: euclideousPulseScale(level: pulseLevel), reduceMotion: reduceMotion))
+        case .ruler:
+            // RESETS V2 §1: the ruler replaces the sweep + strip (only mounted on the RESETS card, which includes `.ruler` in its layer order). §1.4: the lane's lane100 for a set part.
+            guard let ruler else { return AnyView(EmptyView()) }
+            return AnyView(EuclideousRestartRulerCanvas(input: ruler, blockColor: lane100(accent), width: width, height: height))
         case .text:
-            // RESTART UNITS §6.2: from leading to trailing, sp3 apart, centred on the name line: the link glyph (WITH RHYTHM), the source square, the value, the unit — the unit drops first when the group does not fit beside the name
+            // RESETS V2 §1.9: the name ink is #C4C9D1 on the RESETS card (a ruler present); #8A909A on the out-of-scope surfaces. §2: with a ratio, the leading name line stays and the trailing group becomes just the ratio.
+            let nameInk = ruler != nil ? Color(hex: 0xC4C9D1) : Color(hex: 0x8A909A)
             let fit = euclideousRestartTileFit(spec: spec, name: name, tileWidth: width)
             return AnyView(HStack(alignment: .lastTextBaseline, spacing: 0) {
                 HStack(alignment: .lastTextBaseline, spacing: 3) {
-                    Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A))
+                    Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .heavy)).foregroundColor(nameInk)
                     Text(name).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)   // §4.1: "RHYTHM" / "MELODY" alone (the " RESTART" is dropped)
-                        .foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).truncationMode(.tail)
+                        .foregroundColor(nameInk).lineLimit(1).truncationMode(.tail)
                 }
                 Spacer(minLength: 4)
-                HStack(alignment: .lastTextBaseline, spacing: 3) {
-                    if spec.showsLinkGlyph {
-                        Image(systemName: "link").font(.system(size: 10, weight: .heavy)).foregroundColor(lane100(accent))
-                            .alignmentGuide(.lastTextBaseline) { d in d.height / 2 + 3 }
+                if let ratioText {   // RESETS V2 §2: the ratio, at the value's place and type
+                    Text(ratioText).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(spec.isSet ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)).lineLimit(1).layoutPriority(1)
+                } else {
+                    HStack(alignment: .lastTextBaseline, spacing: 3) {
+                        if spec.showsLinkGlyph {
+                            Image(systemName: "link").font(.system(size: 10, weight: .heavy)).foregroundColor(lane100(accent))
+                                .alignmentGuide(.lastTextBaseline) { d in d.height / 2 + 3 }
+                        }
+                        if let s = spec.sourceLane {
+                            RoundedRectangle(cornerRadius: 1.5).fill(lane100(laneAccents[s % laneAccents.count])).frame(width: 7, height: 7)
+                                .alignmentGuide(.lastTextBaseline) { d in d.height / 2 + 3 }
+                        }
+                        Text(spec.valueText).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(spec.isSet ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA)).lineLimit(1)
+                        if fit.showsUnit, let unit = spec.unitText {
+                            Text(unit).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: 0x8A909A))
+                        }
                     }
-                    if let s = spec.sourceLane {
-                        RoundedRectangle(cornerRadius: 1.5).fill(lane100(laneAccents[s % laneAccents.count])).frame(width: 7, height: 7)
-                            .alignmentGuide(.lastTextBaseline) { d in d.height / 2 + 3 }
-                    }
-                    Text(spec.valueText).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(spec.isSet ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA)).lineLimit(1)
-                    if fit.showsUnit, let unit = spec.unitText {
-                        Text(unit).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: 0x8A909A))
-                    }
+                    .layoutPriority(1)
                 }
-                .layoutPriority(1)
             }
             .padding(.horizontal, 10).padding(.top, 6)
             .frame(width: width, height: height, alignment: .topLeading))

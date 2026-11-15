@@ -10217,8 +10217,20 @@ struct EuclideousRestartTileState: Equatable {
 }
 /// RESTART TILES §2 — what a restart tile draws, back to front. ONE list: the page builds the tile by walking it, so the order cannot drift from what the tests pin (the sweep and its leading edge never draw over the
 /// name, chain or unit). The tile's text sits on no backing, so nothing hides the sweep or track behind it.
-enum EuclideousRestartTileLayer: Hashable { case base, sweep, track, text }
+enum EuclideousRestartTileLayer: Hashable { case base, sweep, track, ruler, text }   // RESETS V2 (2026-11-15): `ruler` replaces sweep+track on the RESETS tab; sweep/track stay for the out-of-scope RHYTHM-tab tiles (`restartTilesRow`), which keep the default order below
 let euclideousRestartTileLayerOrder: [EuclideousRestartTileLayer] = [.base, .sweep, .track, .text]
+/// RESETS V2 §1 — the RESETS-tab tiles draw base · ruler · text (the sweep and strip are hidden there, §1.1).
+let euclideousRestartRulerLayerOrder: [EuclideousRestartTileLayer] = [.base, .ruler, .text]
+
+/// RESETS V2 §2 — the ratio text "part:bar" (the two numbers from `euclideousRestartRatioSteps`): the part is a whole step count; the bar drops a trailing ".0" and otherwise shows one decimal ("8", "16", "5.3").
+func euclideousRestartRatioText(part: Double, bar: Double) -> String {
+    func fmt(_ v: Double) -> String {
+        let r = (v * 10).rounded() / 10
+        if abs(r - r.rounded()) < 1e-9 { return String(Int(r.rounded())) }   // whole ⇒ no decimal (drops the trailing .0)
+        return String(format: "%.1f", r)
+    }
+    return "\(fmt(part)):\(fmt(bar))"
+}
 
 /// The beat of the next MELODY restart strictly after `beat` — the start of the next pass that begins one of the chain's links; nil when FREE.
 func euclideousNextMelodyRestart(after beat: Double, lapBeats: Double, barBeats: Double, rhythmChain: EuclideousRestartChain, melodyChain: EuclideousRestartChain) -> Double? {
