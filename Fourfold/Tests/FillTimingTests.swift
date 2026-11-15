@@ -149,6 +149,23 @@ final class FillTimingTests: XCTestCase {
         XCTAssertEqual(cometRaw(fwd, beat: 10).rounded(.down), 4, "outside a region ⇒ the plain sweep")
     }
 
+    // MARK: step display — the comet follows the fill ONLY when the fill changes the hits (Paul 2026-11-15)
+
+    func testCometFollowsOnlyWhenHitsChange() {
+        // `changesHits`: true for anything that retimes / reorders / breaks the rhythm; false for a pure recolour / reshape (RANKS / SWELL).
+        XCTAssertTrue (euclideousFillRegion(line: armedLine(speed: 3, length: 1), bar: 3, beatsPerBar: B)!.changesHits, "×2 retimes")
+        XCTAssertTrue (euclideousFillRegion(line: armedLine(speed: 1, length: 0, reverse: true), bar: 3, beatsPerBar: B)!.changesHits, "reverse reorders")
+        XCTAssertTrue (euclideousFillRegion(line: armedLine(speed: 1, length: 0, brk: true), bar: 3, beatsPerBar: B)!.changesHits, "break silences")
+        XCTAssertFalse(euclideousFillRegion(line: armedLine(speed: 1, length: 0, ranks: 3), bar: 3, beatsPerBar: B)!.changesHits, "ranks only ⇒ no hit change")
+        XCTAssertFalse(euclideousFillRegion(line: armedLine(speed: 1, length: 0, swell: 2), bar: 3, beatsPerBar: B)!.changesHits, "swell only ⇒ no hit change")
+        // A RANKS-only fill is ACTIVE (the old comet would have followed it), but it does not change the hits, so inside its
+        // region the comet keeps the plain ×1 sweep — identical to no fill at all (§ "otherwise keep the steps the same").
+        let ranksOnly = armedLine(speed: 1, length: 0, ranks: 3)
+        XCTAssertTrue(ranksOnly.usesFill, "ranks makes the fill active")
+        let plain = euclideousLaneCometChainRaw(beat: 14, n: 8, dir: .fwd, sub: sub, chains: .off, legacySpanBeats: 0, fill: nil)
+        XCTAssertEqual(cometRaw(ranksOnly, beat: 14), plain, accuracy: 1e-9, "a non-hit-changing fill keeps the base step lighting")
+    }
+
     // MARK: §2.11 locate = play-through (the mapping is a pure function of the slot)
 
     func testLocateEqualsPlaythrough_test14() {

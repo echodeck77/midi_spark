@@ -25,6 +25,11 @@ struct EuclideousFillRegion: Equatable {
     var roll = 0                 // FILL TAB §2.5 0…4
     var breakOn = false
     var land = false             // FILL TAB §2.6
+
+    /// Step-display gate (Paul 2026-11-15): does this region change WHICH steps fire, WHEN, or whether they sound — i.e. the RHYTHM — vs the lane's ordinary ×1 forward walk? Only then should a step indicator (the comet) follow the
+    /// fill "as it sounds"; a fill that merely recolours (RANKS) or reshapes velocity (SWELL) leaves the steps exactly where the base walk puts them, so the comet should keep the base step lighting. SPEED ≠ ×1, a non-forward ORDER,
+    /// RUSH timing, a HITS change (ALL/FLIP) and BREAK (some steps go silent) all change the rhythm; RANKS / SWELL / ROLL / LAND / LENGTH do not move a step's position in time. (A judgment call on the exact set — flagged for Paul.)
+    var changesHits: Bool { m != 1 || order != .fwd || curve == .rush || hits != .keep || breakOn }
 }
 
 /// §2.3 — reverse honours a fixed per-lane buffer; above it the region plays forward (reported). §2.3 worst case

@@ -7670,9 +7670,12 @@ func euclideousLaneCometChainRaw(beat: Double, n: Int, dir: EuclidDir, sub: Doub
     let cycleLen = euclidCycleLen(dir, n: n)
     // FILL ferry (2026-11-13) §2.10: inside a fill region the comet highlights the FIRED step (forward j0+s sweeping within
     // the step; reverse the mirror j0+(N−1−s), snapping as the content jumps). Not in a region / not a fill lane ⇒ falls through.
+    // STEP DISPLAY (Paul 2026-11-15): only follow the fill when the fill actually CHANGES THE HITS (`rg.changesHits`) — a fill that
+    // only recolours (RANKS) or reshapes velocity (SWELL) leaves the steps where they were, so the comet falls through to the base
+    // step lighting ("keep the steps the same"); a fill that retimes / reorders / repatterns / breaks them lights each step as it sounds.
     if let fill, fill.active {
         let bn = Int((beat / max(1e-6, fill.beatsPerBar)).rounded(.down))
-        if let rg = fill.region(bar: bn), beat >= rg.F - 1e-9, beat < rg.E {
+        if let rg = fill.region(bar: bn), rg.changesHits, beat >= rg.F - 1e-9, beat < rg.E {
             let o = fill.originBeat
             let j0 = euclideousFillFirstStep(rg, origin: o, sub: sub)
             let N = euclideousFillCount(rg, origin: o, sub: sub)
