@@ -57,13 +57,14 @@ func euclideousPlayAsRowsLayout(contentAreaH: CGFloat, fullWidth: CGFloat) -> Eu
 
 // MARK: - Amendment 1 §A3 — the REPEAT pop-up's grid (card-body scoped)
 
-/// §A3.2: the REPEAT pop-up grid — a label column (`labelW`) then eight equal rank columns 4 apart, each cell `cellH` tall. The pop-up body is `bodyW × bodyH` (the card's tab-body size less the pop-up's own 6 pt inset + title + PASS
-/// band). Rows top→bottom: header (rank numbers), ×, 2ND, 3RD. The frames are in the grid's own coordinates (the view offsets the whole grid below the title). `pass`/`passLabel` is the §A3.3 PASS band under a divider.
+/// §B3.1 (PLAY AS ROWS amend 2, replaces §A3.2): the REPEAT pop-up grid — a label column (`labelW`) then eight equal rank columns 4 apart, each cell `cellH` (26) tall. The pop-up body is `bodyW × bodyH` (the card's tab-body size less the
+/// pop-up's own 6 pt inset + title + PASS band). Rows top→bottom: header (rank numbers), ONCE, DOUBLE, RETURN, PEDAL. At the references ch = 221 / 221.67 and the grid needs 30 + 5·(26+4) + 8 + 26 = 214 — it fits (§B3.3). The frames are in the
+/// grid's own coordinates (the view offsets the whole grid below the title). `pass`/`passLabel` is the §B3.2 PASS band under a divider.
 struct EuclideousRepeatPopupLayout: Equatable {
-    static let labelW: CGFloat = 48, colGap: CGFloat = 4, cellH: CGFloat = 32, rowGap: CGFloat = 4
+    static let labelW: CGFloat = 48, colGap: CGFloat = 4, cellH: CGFloat = 26, rowGap: CGFloat = 4   // §B3.1: 26 tall (was 32)
     static let titleH: CGFloat = 30, passH: CGFloat = 26, dividerGap: CGFloat = 8
-    var gridLabel: [CGRect] = []       // the four row labels (header has none → index 0 unused/zero)
-    var cells: [[CGRect]] = []         // [row 0…3][rank 0…7]; row 0 header, 1 ×, 2 second, 3 third
+    var gridLabel: [CGRect] = []       // the five row labels (header has none → index 0 unused/zero)
+    var cells: [[CGRect]] = []         // [row 0…4][rank 0…7]; row 0 header, 1 ONCE, 2 DOUBLE, 3 RETURN, 4 PEDAL
     var passLabel: CGRect = .zero
     var passArea: CGRect = .zero
     var divider: CGRect = .zero
@@ -76,7 +77,7 @@ func euclideousRepeatPopupLayout(bodyW: CGFloat, bodyH: CGFloat) -> EuclideousRe
     let colsX = R.labelW + R.colGap
     let colW = max(1, (w - colsX - 7 * R.colGap) / 8)
     var y = R.titleH
-    for row in 0..<4 {
+    for row in 0..<5 {
         var rowCells: [CGRect] = []
         for c in 0..<8 { rowCells.append(CGRect(x: colsX + CGFloat(c) * (colW + R.colGap), y: y, width: colW, height: R.cellH)) }
         out.cells.append(rowCells)
@@ -90,20 +91,7 @@ func euclideousRepeatPopupLayout(bodyW: CGFloat, bodyH: CGFloat) -> EuclideousRe
     return out
 }
 
-/// §A3.2: which REPEAT-grid cells are LIVE (editable). The header is always shown; a × cell is live iff its rank is lit; a 2ND/3RD cell is live iff the rank is lit AND its count is at least 2 / 3. A dead cell draws #131518 and ignores
-/// taps (test 4). `row`: 0 header, 1 ×, 2 second, 3 third.
-func euclideousRepeatCellLive(litOrder: EuclideousLitOrder, counts: UInt16, rank: Int, row: Int) -> Bool {
-    guard rank >= 1, rank <= 8 else { return false }
-    if row == 0 { return true }                                   // the header (rank number) is shown for every rank; lit/unlit is only its colour
-    guard litOrder.contains(rank - 1) else { return false }       // the ×/2ND/3RD cells are dead for an unlit rank
-    let cnt = min(3, Int((counts >> UInt16(2 * (rank - 1))) & 0b11) + 1)
-    switch row {
-    case 1: return true          // × (count) — any lit rank
-    case 2: return cnt >= 2
-    case 3: return cnt >= 3
-    default: return false
-    }
-}
+// (PLAY AS ROWS amend 2 §B3: `euclideousRepeatCellLive` is retired — a role column is simply editable when its rank is lit; an unlit column's four cells are dead #131518.)
 
 // MARK: - §7 the row pop-ups' tile pictures (no numbers on any picture)
 

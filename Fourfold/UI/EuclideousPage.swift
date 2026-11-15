@@ -5259,7 +5259,7 @@ struct EuclideousPage: View {
                 let lit = order.contains(r)
                 let s = euclideousStackSounding(notesPart: notesPart, rank: r + 1, nowBeat: beat)
                 let sounding = clock.playing && s.sounding   // §4.2: the held set / lamp gate — note-on to the last note-off
-                notesRankTile(idx, rank: r + 1, lit: lit, count: line.notesRankCount(r + 1), accent: accent, sounding: sounding)
+                notesRankTile(idx, rank: r + 1, lit: lit, role: line.notesRankRole(r + 1), accent: accent, sounding: sounding)
                     .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
             }
             notesRepeatButton(idx, accent: accent)   // §A2.5
@@ -5269,10 +5269,12 @@ struct EuclideousPage: View {
           .accessibilityElement(children: .contain).accessibilityLabel("Ranks")
         }
     }
-    /// §A2.2-§A2.6 / STACK GREY §4: one 1…8 tile — the grid rank style (bold) in the one-selection colour, pips only at 2× / 3× (§A2.3),
-    /// a GREY rank bar under the number (§4.1, `stackRankColour`), and — while its rank sounds — the WHITE inside sounding mark
-    /// (§4.3: the tiles sit 3 pt apart, < 7, so the ring draws inside: 1.5 pt #F2F4F7 + 1 pt #0D0F14; no glow, no ease). A tap toggles the rank (§A2.4).
-    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, count: Int, accent: Color, sounding: Bool) -> some View {
+    /// §A2.2-§A2.6 / STACK GREY §4 / ROLES amend 2 §B4: one 1…8 tile — the grid rank style (bold) in the one-selection colour,
+    /// a GREY rank bar under the number (STACK GREY §4.1, `stackRankColour`), then the REPEAT ROLE MARK (§B4.1: ONCE nothing ·
+    /// DOUBLE two dots 1 apart · RETURN two dots 5 apart · PEDAL a 10×1.5 bar, all #1B1D22, lit tiles only), and — while its rank
+    /// sounds — the WHITE inside sounding mark (STACK GREY §4.3: tiles 3 pt apart < 7, so inside: 1.5 pt #F2F4F7 + 1 pt #0D0F14;
+    /// no glow). A tap toggles the rank (§A2.4). (The grey bar + role mark both under the number make a lit non-ONCE tile tight — device-owed, §B8.)
+    private func notesRankTile(_ idx: Int, rank: Int, lit: Bool, role: EuclideousRankRole, accent: Color, sounding: Bool) -> some View {
         let look = euclideousNotesSelLook(selected: lit, switchedOn: true, playing: false)   // §A1/§A2.2 (the sounding mark is §4's own, kept explicit)
         return ZStack {
             RoundedRectangle(cornerRadius: 4).fill(selFill(look, accent))   // §A2.2 r4
@@ -5280,9 +5282,7 @@ struct EuclideousPage: View {
                 Text("\(rank)").font(.system(size: 14, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: look.labelHex))   // §A2.2 the grid rank style, scaled
                 RoundedRectangle(cornerRadius: 1.5).fill(StackRankPalette.colour(rank: rank))   // §4.1: the rank's grey, every button, selected or not
                     .frame(width: EuclideousPlayAsRowsLayout.tile * 0.4, height: 3)
-                if lit && count >= 2 {   // §A2.3: pips only at 2× / 3×
-                    HStack(spacing: 1.5) { ForEach(0..<count, id: \.self) { _ in Circle().fill(Color(hex: 0x1B1D22)).frame(width: 2.5, height: 2.5) } }
-                }
+                if lit { notesRoleMark(role) }   // §B4.1: the repeat role mark (nothing for ONCE)
             }
         }
         .overlay {   // §4.2/§4.3: the white sounding mark, inside the button (no glow, no ease) — the 2 pt lane ring + glow are retired
@@ -5294,11 +5294,21 @@ struct EuclideousPage: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { edit(idx) { _ = euclideousToggleLitPosition(&$0, position: rank - 1) } }   // §A2.4 always toggles the rank (same store / undo as a grid tap); the bar/ring take no touches
+        .onTapGesture { edit(idx) { _ = euclideousToggleLitPosition(&$0, position: rank - 1) } }   // §A2.4 always toggles the rank (same store / undo as a grid tap); the bar/mark/ring take no touches
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Rank \(rank)")
-        .accessibilityValue(lit ? "on, \(count) time\(count == 1 ? "" : "s")" : "off")
+        .accessibilityValue(lit ? "on, \(role.spoken)" : "off")   // §B5.1
         .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
+    }
+    /// §B4.1: the repeat role mark drawn under a lit tile's number, in #1B1D22. ONCE = nothing; DOUBLE = two 2.5 pt dots 1 apart; RETURN = two 2.5 pt dots 5 apart; PEDAL = a 10 × 1.5 bar (r1).
+    @ViewBuilder private func notesRoleMark(_ role: EuclideousRankRole) -> some View {
+        let ink = Color(hex: 0x1B1D22)
+        switch role {
+        case .once: EmptyView()
+        case .double: HStack(spacing: 1) { Circle().fill(ink).frame(width: 2.5, height: 2.5); Circle().fill(ink).frame(width: 2.5, height: 2.5) }
+        case .returns: HStack(spacing: 5) { Circle().fill(ink).frame(width: 2.5, height: 2.5); Circle().fill(ink).frame(width: 2.5, height: 2.5) }
+        case .pedal: RoundedRectangle(cornerRadius: 1).fill(ink).frame(width: 10, height: 1.5)
+        }
     }
     /// §A2.5: the REPEAT button at the RANKS row's right — opens the REPEAT pop-up (A1.2 colours).
     private func notesRepeatButton(_ idx: Int, accent: Color) -> some View {
@@ -5309,25 +5319,19 @@ struct EuclideousPage: View {
             .onTapGesture { closeAllOtherOverlays(); notesRepeatPopup = idx }
             .accessibilityElement(children: .ignore).accessibilityLabel("Repeat").accessibilityAddTraits(.isButton)
     }
-    /// §A3.2: one 2ND / 3RD cell (reused by the REPEAT pop-up). A live cell shows two dots: touching = AGAIN, apart = LATER; a dead cell is dark and ignores taps.
-    private func notesCopyCell(_ idx: Int, rank: Int, copy: Int, live: Bool, later: Bool, accent: Color) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 4).fill(live ? Color(hex: 0x24262C) : Color(hex: 0x131518))   // §A3.2: dead cell #131518, r4
-            if live {   // two dots: touching (AGAIN) or apart (LATER)
-                HStack(spacing: later ? 8 : 2) { Circle().fill(lane100(accent)).frame(width: 5, height: 5); Circle().fill(lane100(accent)).frame(width: 5, height: 5) }
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { guard live else { return }; edit(idx) { copy == 2 ? $0.setNotesRankSecond(rank, later ? .again : .later) : $0.setNotesRankThird(rank, later ? .again : .later) } }
-        .accessibilityElement(children: .ignore)
-        .accessibilityHidden(!live)
-        .accessibilityLabel("Rank \(rank), \(copy == 2 ? "second" : "third") copy").accessibilityValue(later ? "later" : "again")
+    // (PLAY AS ROWS amend 2 §B3: `notesCopyCell` — the 2ND / 3RD AGAIN/LATER cell — is retired with the count model.)
+
+    /// §B3.2: the PEDAL rank in play for a lane (0 = none) — the PASS row's neutral-chip test. (A free function, not in the ViewBuilder body, which can't hold a loop.)
+    private func notesPassPedalRank(_ line: EuclidLine) -> Int {
+        let rip = euclideousRowsRanksInPlay(litOrder: line.litOrderResolved, bassOn: line.notesBassOnResolved)
+        for r in 1...8 where line.notesRankRole(r) == .pedal && rip.asc.contains(r) { return r }
+        return 0
     }
 
-    // MARK: - PLAY AS ROWS §A3 — the REPEAT pop-up (Amendment 1, card-body scoped)
+    // MARK: - PLAY AS ROWS §B3 — the REPEAT pop-up (roles, card-body scoped)
 
-    /// §A3: a pop-up covering the tapped lane's tab body (below the 44 pt top row), inset 6; nothing under it moves. A label column + eight rank columns, four rows (rank numbers, ×, 2ND, 3RD) and a PASS band. The only place counts /
-    /// timings are edited (§A3.4).
+    /// §B3: a pop-up covering the tapped lane's tab body (below the 44 pt top row), inset 6; nothing under it moves. A label column + eight rank columns, five rows (rank numbers, ONCE, DOUBLE, RETURN, PEDAL) and a PASS band. The only place
+    /// the roles are edited.
     @ViewBuilder private func notesRepeatPopupCard(_ lane: Int, page: EuclideousPageLayout) -> some View {
         let card = page.lanes[lane], lb = page.laneBox
         let accent = laneAccents[lane % max(1, laneAccents.count)]
@@ -5336,11 +5340,10 @@ struct EuclideousPage: View {
         let bodyY = card.minY + EuclideousLaneCardMetrics.bodyTop
         let bodyW = EuclideousLaneCardMetrics.innerWidth(cardWidth: lb.width)
         let bodyH = EuclideousLaneCardMetrics.contentAreaH(cardHeight: lb.height)
-        let pad: CGFloat = 6                                   // §A3.1: inset 6
+        let pad: CGFloat = 6                                   // §B3.1: inset 6
         let cw = max(1, bodyW - pad * 2), ch = max(1, bodyH - pad * 2)
         let lay = euclideousRepeatPopupLayout(bodyW: cw, bodyH: ch)
         let order = line.litOrderResolved
-        let counts = line.notesRankCounts ?? 0
         ZStack(alignment: .topLeading) {
             // title + close
             HStack(spacing: 0) {
@@ -5350,19 +5353,19 @@ struct EuclideousPage: View {
                     .onTapGesture { notesRepeatPopup = nil }.accessibilityLabel("Close").accessibilityAddTraits(.isButton)
             }
             .frame(width: cw, height: EuclideousRepeatPopupLayout.titleH, alignment: .leading)
-            // the four rows
-            ForEach(0..<4, id: \.self) { row in
-                if row > 0 {   // the × / 2ND / 3RD row label
-                    Text(row == 1 ? "\u{00D7}" : row == 2 ? "2ND" : "3RD").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            // §B3.1: the header (rank numbers) + four role rows ONCE / DOUBLE / RETURN / PEDAL
+            ForEach(0..<5, id: \.self) { row in
+                if row > 0, let role = EuclideousRankRole(rawValue: row - 1) {   // the role row's label
+                    Text(role.label).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
                         .frame(width: lay.gridLabel[row].width, height: lay.gridLabel[row].height, alignment: .leading).offset(x: lay.gridLabel[row].minX, y: lay.gridLabel[row].minY).accessibilityHidden(true)
                 }
                 ForEach(0..<8, id: \.self) { c in
-                    let rank = c + 1, lit = order.contains(c), cnt = line.notesRankCount(rank), cell = lay.cells[row][c]
-                    repeatGridCell(lane, rank: rank, row: row, lit: lit, count: cnt, accent: accent)
+                    let rank = c + 1, lit = order.contains(c), cell = lay.cells[row][c]
+                    repeatGridCell(lane, rank: rank, row: row, lit: lit, role: line.notesRankRole(rank), accent: accent)
                         .frame(width: cell.width, height: cell.height).offset(x: cell.minX, y: cell.minY)
                 }
             }
-            // divider + PASS (§A3.3)
+            // divider + PASS (§B3.2)
             Rectangle().fill(Color(hex: 0x24262C)).frame(width: lay.divider.width, height: 1).offset(x: lay.divider.minX, y: lay.divider.minY)
             Text("PASS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
                 .frame(width: lay.passLabel.width, height: lay.passLabel.height, alignment: .leading).offset(x: lay.passLabel.minX, y: lay.passLabel.minY).accessibilityHidden(true)
@@ -5376,32 +5379,25 @@ struct EuclideousPage: View {
         .accessibilityElement(children: .contain).accessibilityLabel("Repeat, lane \(lane + 1)").accessibilityAddTraits(.isModal)
     }
 
-    /// §A3.2: one REPEAT-grid cell. Row 0 = the rank number (lane100 lit / #5A5E66 unlit, no tap). Row 1 = ×/count (dead #131518 when unlit; 1× A1.2 + #E6E8EC digit; 2×/3× lane fill + #1B1D22 digit + pips; tap 1→2→3→1). Rows 2/3 reuse notesCopyCell.
-    @ViewBuilder private func repeatGridCell(_ lane: Int, rank: Int, row: Int, lit: Bool, count: Int, accent: Color) -> some View {
+    /// §B3.1: one REPEAT-grid cell. Row 0 = the rank number (lane100 lit / #5A5E66 unlit, no tap). Rows 1…4 = a role cell for ONCE / DOUBLE / RETURN / PEDAL: a lit rank's cell is SELECTED (A1.1) when it holds that role, else A1.2; a tap sets
+    /// the role (§B1.2 PEDAL exclusivity, one undo step). An unlit column's four cells are dead #131518 and take no tap.
+    @ViewBuilder private func repeatGridCell(_ lane: Int, rank: Int, row: Int, lit: Bool, role: EuclideousRankRole, accent: Color) -> some View {
         if row == 0 {
             Text("\(rank)").font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(lit ? lane100(accent) : Color(hex: 0x5A5E66))
                 .frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityHidden(true)
-        } else if row == 1 {
-            ZStack {
-                RoundedRectangle(cornerRadius: 4).fill(!lit ? Color(hex: 0x131518) : (count >= 2 ? lane100(accent) : Color(hex: 0x24262C)))
-                if lit {
-                    VStack(spacing: 2) {
-                        Text("\(count)").font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(count >= 2 ? Color(hex: 0x1B1D22) : Color(hex: 0xE6E8EC))
-                        if count >= 2 { HStack(spacing: 1.5) { ForEach(0..<count, id: \.self) { _ in Circle().fill(Color(hex: 0x1B1D22)).frame(width: 2.5, height: 2.5) } } }
-                    }
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { guard lit else { return }; edit(lane) { $0.cycleNotesRankCount(rank) } }   // §A3.2: step 1→2→3→1, one undo step
-            .accessibilityElement(children: .ignore).accessibilityHidden(!lit).accessibilityLabel("Rank \(rank), count").accessibilityValue("\(count) time\(count == 1 ? "" : "s")")
-        } else {
-            let live = lit && count >= (row == 2 ? 2 : 3)
-            let later = (row == 2 ? lines[lane].notesRankSecond(rank) : lines[lane].notesRankThird(rank)) == .later
-            notesCopyCell(lane, rank: rank, copy: row, live: live, later: later, accent: accent)
+        } else if let cellRole = EuclideousRankRole(rawValue: row - 1) {
+            let selected = lit && role == cellRole
+            let look = euclideousNotesSelLook(selected: selected, switchedOn: true, playing: false)   // §B3.1: A1.1 when selected, A1.2 otherwise
+            RoundedRectangle(cornerRadius: 4).fill(!lit ? Color(hex: 0x131518) : selFill(look, accent))
+                .contentShape(Rectangle())
+                .onTapGesture { guard lit else { return }; edit(lane) { $0.setNotesRankRole(rank, cellRole) } }   // §B1.2: one undo step
+                .accessibilityElement(children: .ignore).accessibilityHidden(!lit)
+                .accessibilityLabel("Rank \(rank), \(cellRole.spoken)").accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         }
     }
 
-    /// §A3.3: the PASS band — one chip per entry of the current ORDER chip's pass BEFORE SHIFT, a centred dot at each round break. SHUFFLE shows nothing (the live per-pass permutation has no feed yet — a deferred nicety). Shrinks to fit → 12, then scrolls.
+    /// §B3.2: the PASS band — one chip per entry of the current ORDER chip's pass BEFORE SHIFT, NO round separators; the pedal's entries draw #24262C / #AAB0BA (the others the lane colour). SHUFFLE shows nothing (its live per-pass permutation
+    /// has no feed yet — a deferred nicety). Scrolls when it overruns.
     @ViewBuilder private func notesRepeatPassRow(_ lane: Int, _ line: EuclidLine, accent: Color) -> some View {
         // the current ORDER chip: the one playing now (via the polled walk ordinal — the riff ordinal, an accepted approximation like the UI-clock offset) while running, else the first.
         let ord = (clock.playing && lane < riffWalkState.count) ? riffWalkState[lane] : Int64(0)
@@ -5411,16 +5407,15 @@ struct EuclideousPage: View {
             Color.clear.accessibilityLabel("Pass").accessibilityValue("shuffles each pass")
         } else {
             let pass = euclideousRowsDisplayPass(litOrder: line.litOrderResolved, bassOn: line.notesBassOnResolved, order: order,
-                                                 counts: line.notesRankCounts ?? 0, secondLater: line.notesRankSecondLater ?? 0, thirdLater: line.notesRankThirdLater ?? 0, lane: lane, passIndex: 0)
-            let breaks = Set(euclideousRowsRoundBreaks(litOrder: line.litOrderResolved, bassOn: line.notesBassOnResolved, order: order,
-                                                       counts: line.notesRankCounts ?? 0, secondLater: line.notesRankSecondLater ?? 0, thirdLater: line.notesRankThirdLater ?? 0))
+                                                 roles: line.notesRankRolesResolved, lane: lane, passIndex: 0)
+            let pedal = notesPassPedalRank(line)   // §B3.2: the pedal rank (if in play) — its chips are neutral
             let ranks = pass.array
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 3) {
-                    ForEach(Array(ranks.enumerated()), id: \.offset) { i, r in
-                        if breaks.contains(i) { Circle().fill(Color(hex: 0x4A4E57)).frame(width: 3, height: 3) }   // a centred dot between rounds
-                        Text("\(r)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(lane100(accent).opacity(0.85))
-                            .frame(width: 20, height: 20).background(RoundedRectangle(cornerRadius: 3).fill(lane100(accent).opacity(0.2)))
+                    ForEach(Array(ranks.enumerated()), id: \.offset) { _, r in
+                        let isPedal = r == pedal
+                        Text("\(r)").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(isPedal ? Color(hex: 0xAAB0BA) : lane100(accent).opacity(0.85))
+                            .frame(width: 20, height: 20).background(RoundedRectangle(cornerRadius: 3).fill(isPedal ? Color(hex: 0x24262C) : lane100(accent).opacity(0.2)))
                     }
                 }
             }

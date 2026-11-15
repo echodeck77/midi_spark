@@ -129,6 +129,7 @@ struct LaneLockFields: Codable {
     // PLAY AS ROWS (2026-11-11): the three chains + per-rank counts + bass + shift/drift the NOTES tab writes lock with it.
     var notesOrderChain: [EuclideousOrderChip]? = nil, notesVoicesChain: [EuclideousVoicesChip]? = nil, notesSpreadChain: [EuclideousSpreadChip]? = nil
     var notesRankCounts: UInt16? = nil, notesRankSecondLater: UInt8? = nil, notesRankThirdLater: UInt8? = nil
+    var notesRankRoles: UInt16? = nil   // PLAY AS ROWS amend 2 (2026-11-15): the repeat roles lock with the lane (the counts stay for an old locked state)
     var notesBassOn: Bool? = nil, notesBassMode: EuclideousBassMode? = nil
     var notesShiftStart: Int? = nil, notesDriftOn: Bool? = nil, notesDriftStep: Int? = nil
 
@@ -184,6 +185,7 @@ struct LaneLockFields: Codable {
         notesRankCounts = (try? c.decodeIfPresent(UInt16.self, forKey: .notesRankCounts)) ?? nil
         notesRankSecondLater = (try? c.decodeIfPresent(UInt8.self, forKey: .notesRankSecondLater)) ?? nil
         notesRankThirdLater = (try? c.decodeIfPresent(UInt8.self, forKey: .notesRankThirdLater)) ?? nil
+        notesRankRoles = (try? c.decodeIfPresent(UInt16.self, forKey: .notesRankRoles)) ?? nil
         notesBassOn = (try? c.decodeIfPresent(Bool.self, forKey: .notesBassOn)) ?? nil
         notesBassMode = (try? c.decodeIfPresent(EuclideousBassMode.self, forKey: .notesBassMode)) ?? nil
         notesShiftStart = (try? c.decodeIfPresent(Int.self, forKey: .notesShiftStart)) ?? nil
@@ -208,6 +210,7 @@ struct LaneLockFields: Codable {
         notesPlayAs = l.notesPlayAs; notesPlaySeq = l.notesPlaySeq; notesReceivedOnly = l.notesReceivedOnly
         notesOrderChain = l.notesOrderChain; notesVoicesChain = l.notesVoicesChain; notesSpreadChain = l.notesSpreadChain
         notesRankCounts = l.notesRankCounts; notesRankSecondLater = l.notesRankSecondLater; notesRankThirdLater = l.notesRankThirdLater
+        notesRankRoles = l.notesRankRoles
         notesBassOn = l.notesBassOn; notesBassMode = l.notesBassMode; notesShiftStart = l.notesShiftStart; notesDriftOn = l.notesDriftOn; notesDriftStep = l.notesDriftStep
     }
 
@@ -230,6 +233,7 @@ struct LaneLockFields: Codable {
         l.notesPlayAs = notesPlayAs; l.notesPlaySeq = notesPlaySeq; l.notesReceivedOnly = notesReceivedOnly
         l.notesOrderChain = notesOrderChain; l.notesVoicesChain = notesVoicesChain; l.notesSpreadChain = notesSpreadChain
         l.notesRankCounts = notesRankCounts; l.notesRankSecondLater = notesRankSecondLater; l.notesRankThirdLater = notesRankThirdLater
+        l.notesRankRoles = notesRankRoles
         l.notesBassOn = notesBassOn; l.notesBassMode = notesBassMode; l.notesShiftStart = notesShiftStart; l.notesDriftOn = notesDriftOn; l.notesDriftStep = notesDriftStep
     }
 }
@@ -255,7 +259,7 @@ struct LaneLockKey: Equatable {
     var notesPlaySeq: [EuclideousPlayStep]   // PLAY AS SEQUENCE (2026-11-08): the resolved chips, so a sequence edit on a locked lane snaps back
     // PLAY AS ROWS (2026-11-11): what the three chains + per-rank counts + bass + shift/drift resolve to, so any NOTES-row edit on a locked lane snaps back.
     var orderChain: [EuclideousOrderChip], voicesChain: [EuclideousVoicesChip], spreadChain: [EuclideousSpreadChip]
-    var rankCounts: UInt16, rankSecondLater: UInt8, rankThirdLater: UInt8
+    var rankRoles: UInt16   // PLAY AS ROWS amend 2: the RESOLVED roles (a role edit writes notesRankRoles, so the key compares the resolved word, not the retired counts)
     var bassOn: Bool, bassMode: EuclideousBassMode, shiftStart: Int, driftOn: Bool, driftStep: Int
 }
 extension LaneLockFields {
@@ -276,7 +280,7 @@ extension LaneLockFields {
                            notesOn: l.notesOnResolved, notesWhen: l.notesWhenResolved, notesChance: l.notesChanceResolved, notesPlayAs: l.notesPlayAsResolved, notesReceived: l.notesReceivedOnlyResolved,
                            notesPlaySeq: l.notesPlaySeqResolved,
                            orderChain: l.notesOrderChainResolved, voicesChain: l.notesVoicesChainResolved, spreadChain: l.notesSpreadChainResolved,
-                           rankCounts: l.notesRankCounts ?? 0, rankSecondLater: l.notesRankSecondLater ?? 0, rankThirdLater: l.notesRankThirdLater ?? 0,
+                           rankRoles: l.notesRankRolesResolved,
                            bassOn: l.notesBassOnResolved, bassMode: l.notesBassModeResolved, shiftStart: l.notesShiftStartResolved, driftOn: l.notesDriftOnResolved, driftStep: l.notesDriftStepResolved)
     }
 }
