@@ -59,4 +59,28 @@ final class EuclidTabV2Tests: XCTestCase {
             XCTAssertEqual(l.stepperMinus(l.hitsCol).maxY, l.A, accuracy: acc)
         }
     }
+
+    // §7.5 — OFFSET / TILT inert: true only when nothing the control could be would change what plays.
+    private func line(hits: Int, steps: Int = 8, flip: Bool = false, rotate: Int = 0) -> EuclidLine {
+        var l = EuclidLine(noteSel: .all)
+        l.steps = steps; l.pulses = hits; l.rotate = rotate
+        if flip { l.patternMiss = true }
+        return l
+    }
+    func testOffsetAndTiltInert() {
+        // 0 of 8 → nothing to move: both inert.
+        XCTAssertTrue(euclideousOffsetIsInert(line(hits: 0)))
+        XCTAssertTrue(euclideousTiltIsInert(line(hits: 0)))
+        // 8 of 8 → every step a hit: both inert.
+        XCTAssertTrue(euclideousOffsetIsInert(line(hits: 8)))
+        XCTAssertTrue(euclideousTiltIsInert(line(hits: 8)))
+        // 0 of 8 with FLIP HITS → every step a hit after the flip: both inert.
+        XCTAssertTrue(euclideousOffsetIsInert(line(hits: 0, flip: true)))
+        XCTAssertTrue(euclideousTiltIsInert(line(hits: 0, flip: true)))
+        // 3 of 8 → an asymmetric pattern: rotating by one changes it, tilting moves hits ⇒ NEITHER inert.
+        XCTAssertFalse(euclideousOffsetIsInert(line(hits: 3)), "3/8 OFFSET does something")
+        XCTAssertFalse(euclideousTiltIsInert(line(hits: 3)), "3/8 TILT does something")
+        // 4 of 8 (alternating) → rotating by one flips every cell: OFFSET not inert.
+        XCTAssertFalse(euclideousOffsetIsInert(line(hits: 4)), "4/8 OFFSET rotates to a different pattern")
+    }
 }

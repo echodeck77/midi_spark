@@ -222,11 +222,11 @@ struct EuclideousSlider: View {
         return horizontal ? Double((clamped - inset) / travel) : Double(1 - (clamped - inset) / travel)
     }
 
-    /// TILT disabled on a hand-edited pattern (ferry, literal): "EDITED pattern: TILT is disabled."
-    /// FOLLOW (§5) takes priority over this when both would apply to the same field — a FOLLOWing
-    /// lane's own hand edits are moot (its generation is replaced entirely), so the slider should read
-    /// as locked-to-the-partner, not as "EDITED," while following.
-    private var edited: Bool { field == .tilt && line.customHits != nil && !listenFollowLocked }
+    /// EUCLID tab v2 (2026-11-15) §3: the EDITED chip is GONE — TILT always shows its value now, and a hand-edited lane is signalled by the §4 inert 42 % dim (`euclideousTiltIsInert` is true there) rather than a chip that hid
+    /// the value. So `edited` is now always false: the chip branches and the in-place double-tap-to-revert (`onRevertToEuclid`) below are kept COMPILED but never taken (a real STEPS change still reverts a hand edit — §3.3, Paul
+    /// confirmed losing the in-place revert). The TILT commit itself still no-ops on a hand-edited lane (`euclideousSliderCommit(.tilt)` guards `customHits == nil`), so dragging the now-live-looking TILT writes nothing — which is
+    /// exactly what the 42 % inert dim is telling the user. (Was: `field == .tilt && line.customHits != nil && !listenFollowLocked`.)
+    private var edited: Bool { false }
     /// §5: display FROM the partner while locked, otherwise this line's own value — the one switch every
     /// display computation below reads through, so the two can never independently drift.
     private var effectiveLine: EuclidLine { displayOverrideLine ?? line }
@@ -563,8 +563,8 @@ struct EuclideousStepsStepper: View {
             stepButton("plus", enabled: plusEnabled, height: btnH) { tapSteps(line.steps < 2 ? 2 : min(16, line.steps + 1)) }
                 .accessibilityLabel("More steps, now \(line.steps)")
             VStack(spacing: 2) {
-                Text("\(line.steps)").font(.system(size: 18, weight: .heavy, design: .monospaced))
-                    .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
+                Text("\(line.steps)").font(.system(size: 32, weight: .heavy, design: .monospaced)).monospacedDigit()   // EUCLID v2 §2.2: matches the HITS hero (kept neutral #F2F4F7 — the lane colour is HITS-only)
+                    .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).frame(height: 34)
                 HStack(spacing: 4) {
                     Text("STEPS").font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(0.85)
                         .foregroundColor(Color(hex: 0x8A909A))
@@ -626,6 +626,109 @@ struct EuclideousStepsStepper: View {
         } else {
             Button(action: action) { face }.disabled(!enabled)
         }
+    }
+}
+
+/// EUCLID tab v2 (2026-11-15) §2.1: the HITS stepper — the SAME shape as `EuclideousStepsStepper` (+ 36 · value box · − 36, sp4), but the hero number is the HITS count in `heroColour` (lane100), 32 pt on a 34 pt line, over the plain key "HITS"
+/// (no "OF n", no box, no chevron). + adds a hit (off at STEPS), − removes one (off at 0); a vertical drag on the value box changes HITS by one per 12 pt (up = more), held 0…STEPS; a move under 4 pt is a tap, and a tap on the value box does nothing.
+/// Every change goes through the SAME `euclideousSliderCommit(.hits, snapshot:)` the fader used — the snapshot frozen at touch-down — so a hand-edited pattern rebuilds / round-trips exactly, and `onCommit` is the page's `edit(idx, mutate)`, so the undo
+/// coalescing is the fader's (one step per tap, one per drag). Keyboard / AU / MIDI-learn are unchanged (they ride the lane's `pulses`).
+struct EuclideousHitsStepper: View {
+    let line: EuclidLine
+    let width: CGFloat
+    let height: CGFloat
+    let heroColour: Color
+    let onCommit: (@escaping (inout EuclidLine) -> Void) -> Void   // = edit(idx, mutate) — the fader's exact funnel
+    var lockActive: Bool = false
+    var lockMomentary: Bool = false
+    var lockOutline: Color? = nil
+    var onLockTouch: ((Bool) -> Void)? = nil
+
+    @State private var dragStartLocation: CGPoint? = nil
+    @State private var dragStartLine: EuclidLine? = nil
+    @State private var dragStartHits: Int? = nil
+    @State private var isDragging = false
+    @State private var lockDown = false
+
+    private var steps: Int { max(2, min(16, line.steps)) }
+    private func commit(snapshot: EuclidLine, target: Int) {
+        guard target != line.pulses else { return }
+        onCommit { l in euclideousSliderCommit(.hits, &l, snapshot: snapshot, newValue: Double(target)) }
+    }
+    var body: some View {
+        let plusEnabled = line.pulses < steps, minusEnabled = line.pulses > 0
+        let btnH: CGFloat = 36, gap: CGFloat = 4
+        let valueBoxH = max(1, height - btnH * 2 - gap * 2)
+        VStack(spacing: gap) {
+            stepButton("plus", enabled: plusEnabled, height: btnH) { commit(snapshot: line, target: min(steps, line.pulses + 1)) }
+                .accessibilityLabel("More hits, now \(line.pulses)")
+            VStack(spacing: 2) {
+                Text("\(line.pulses)").font(.system(size: 32, weight: .heavy, design: .monospaced)).monospacedDigit()
+                    .foregroundColor(heroColour).lineLimit(1).frame(height: 34)
+                Text("HITS").font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(0.85)
+                    .foregroundColor(Color(hex: 0x8A909A)).frame(height: 10)
+            }
+            .frame(width: width, height: valueBoxH)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C)))
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { g in
+                    if lockActive && !lockDown { lockDown = true; onLockTouch?(true) }
+                    if dragStartLocation == nil { dragStartLocation = g.location; dragStartLine = line; dragStartHits = line.pulses }
+                    let dy = g.location.y - (dragStartLocation?.y ?? g.location.y)
+                    if abs(dy) > 4 { isDragging = true }   // §2.1: < 4 pt is a tap
+                    guard isDragging, let base = dragStartHits, let snap = dragStartLine else { return }
+                    commit(snapshot: snap, target: max(0, min(steps, base + Int((-dy / 12).rounded()))))   // §2.1: 12 pt per hit, up = more
+                }
+                .onEnded { _ in
+                    if lockDown { lockDown = false; onLockTouch?(false) }
+                    // a tap (never a drag) on the HITS value box does nothing (§2.1)
+                    dragStartLocation = nil; dragStartLine = nil; dragStartHits = nil; isDragging = false
+                })
+            .accessibilityLabel(euclideousLockAppendSnapWords("Hits, \(line.pulses)", outlined: lockOutline != nil))
+            .accessibilityAdjustableAction { dir in commit(snapshot: line, target: dir == .increment ? min(steps, line.pulses + 1) : max(0, line.pulses - 1)) }
+            stepButton("minus", enabled: minusEnabled, height: btnH) { commit(snapshot: line, target: max(0, line.pulses - 1)) }
+                .accessibilityLabel("Fewer hits, now \(line.pulses)")
+        }
+        .frame(width: width, height: height)
+        .overlay { if let c = lockOutline { RoundedRectangle(cornerRadius: 10).stroke(c, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])).padding(-3).allowsHitTesting(false) } }
+        .onDisappear { if lockDown { lockDown = false; onLockTouch?(false) } }
+    }
+    @ViewBuilder private func stepButton(_ glyph: String, enabled: Bool, height btnH: CGFloat, action: @escaping () -> Void) -> some View {
+        let face = Image(systemName: glyph).font(.system(size: 14, weight: .heavy))
+            .foregroundColor(enabled ? Color(hex: 0xAAB0BA) : Color(hex: 0x4A4E57))
+            .frame(width: width, height: btnH)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+        if lockActive {
+            face.contentShape(Rectangle())
+                .modifier(EuclideousLaneTap(locked: true, momentary: lockMomentary, onTouch: { onLockTouch?($0) }, action: { if enabled { action() } }))
+                .accessibilityAddTraits(.isButton)
+        } else {
+            Button(action: action) { face }.disabled(!enabled)
+        }
+    }
+}
+
+/// EUCLID tab v2 (2026-11-15) §2.6: the direction icons — a short upright playhead tick and where it goes, so they don't match the RIFF tab's arrows. Drawn from the ferry's path data in a 22 × 18 box (stroke 2, round caps/joins, no fill).
+struct EuclideousEuclidDirIcon: Shape {
+    let dir: EuclidDir
+    /// Each subpath is a polyline in the 22 × 18 design space (the ferry's M/V/H/L commands expanded).
+    private static func subpaths(_ d: EuclidDir) -> [[CGPoint]] {
+        switch d {
+        case .bkw:      return [[CGPoint(x: 20, y: 4), CGPoint(x: 20, y: 14)], [CGPoint(x: 16, y: 9), CGPoint(x: 3, y: 9)], [CGPoint(x: 7, y: 5), CGPoint(x: 3, y: 9), CGPoint(x: 7, y: 13)]]
+        case .pingpong: return [[CGPoint(x: 1, y: 4), CGPoint(x: 1, y: 14)], [CGPoint(x: 21, y: 4), CGPoint(x: 21, y: 14)], [CGPoint(x: 5, y: 9), CGPoint(x: 17, y: 9)], [CGPoint(x: 8, y: 6), CGPoint(x: 5, y: 9), CGPoint(x: 8, y: 12)], [CGPoint(x: 14, y: 6), CGPoint(x: 17, y: 9), CGPoint(x: 14, y: 12)]]
+        case .fwd:      return [[CGPoint(x: 2, y: 4), CGPoint(x: 2, y: 14)], [CGPoint(x: 6, y: 9), CGPoint(x: 19, y: 9)], [CGPoint(x: 15, y: 5), CGPoint(x: 19, y: 9), CGPoint(x: 15, y: 13)]]
+        }
+    }
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / 22, sy = rect.height / 18
+        var p = Path()
+        for sub in Self.subpaths(dir) {
+            guard let first = sub.first else { continue }
+            p.move(to: CGPoint(x: rect.minX + first.x * sx, y: rect.minY + first.y * sy))
+            for pt in sub.dropFirst() { p.addLine(to: CGPoint(x: rect.minX + pt.x * sx, y: rect.minY + pt.y * sy)) }
+        }
+        return p
     }
 }
 
@@ -3037,6 +3140,133 @@ struct EuclideousPage: View {
             lockActive: lockLocked(idx), lockOutline: lockOn(idx, .tilt) ? accent : nil, onLockTouch: lockTouch(idx)))
     }
 
+    // MARK: - EUCLID tab v2 (2026-11-15) §2 — the rebuilt tab body (Row A steppers + OFFSET/TILT · Row B rates/feel · Row C directions/FLIP/LET RING)
+
+    /// §2: the whole EUCLID tab's controls, each its own small `AnyView` leaf placed at its frame (the 1 MB stack discipline — the closures in between hold only 8-byte `AnyView`s). Frames come from the one pure `euclideousEuclidTabLayout`.
+    private func euclidTabV2Body(_ idx: Int, _ line: EuclidLine, _ accent: Color, W: CGFloat, H: CGFloat) -> AnyView {
+        let L = euclideousEuclidTabLayout(W: W, H: H)
+        return AnyView(ZStack(alignment: .topLeading) {
+            euclidV2Place(euclidV2Hits(idx, line, accent, size: L.hitsCol.size), L.hitsCol)
+            euclidV2Place(euclidV2Steps(idx, line, accent, size: L.stepsCol.size), L.stepsCol)
+            euclidV2Place(euclidV2Offset(idx, line, accent, size: L.offset.size), L.offset)
+            euclidV2Place(euclidV2Tilt(idx, line, accent, size: L.tilt.size), L.tilt)
+            // Row B: columns 0–5 the six rate divisions, 6–8 EVEN / DOT / TRIP.
+            ForEach(0..<9, id: \.self) { i in euclidV2Place(euclidV2RowBTile(idx, line, accent, i: i, size: L.colTile(i, y: L.rowBY).size), L.colTile(i, y: L.rowBY)) }
+            // Row C: columns 0–2 the three directions, group 1 (cols 4–6) FLIP HITS, group 2 (cols 7–9) LET RING.
+            ForEach(0..<3, id: \.self) { i in euclidV2Place(euclidV2DirTile(idx, line, accent, i: i, size: L.colTile(i, y: L.rowCY).size), L.colTile(i, y: L.rowCY)) }
+            euclidV2Place(euclidV2FlipTile(idx, line, accent, size: L.groupTile(1, y: L.rowCY).size), L.groupTile(1, y: L.rowCY))
+            euclidV2Place(euclidV2RingTile(idx, line, accent, size: L.groupTile(2, y: L.rowCY).size), L.groupTile(2, y: L.rowCY))
+        }
+        .frame(width: W, height: H, alignment: .topLeading))
+    }
+    /// Place a fully-built (framed + gestured) leaf at its frame — the gesture lives INSIDE the leaf, so the `.offset` here moves the hit area with it ([[feedback_swiftui-offset-before-gesture]]).
+    private func euclidV2Place(_ v: AnyView, _ f: CGRect) -> some View { v.offset(x: f.minX, y: f.minY) }
+
+    /// §2.1: HITS — the new stepper in `lane100` (the one place on the tab, with OFFSET/TILT, the lane colour shows). Same commit funnel as the fader (`euclideousSliderCommit(.hits, snapshot:)` via `edit(idx,)`).
+    private func euclidV2Hits(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
+        AnyView(EuclideousHitsStepper(line: line, width: size.width, height: size.height, heroColour: lane100(accent),
+            onCommit: { mutate in edit(idx, mutate) },
+            lockActive: lockLocked(idx), lockMomentary: lockMomentary(idx), lockOutline: lockOn(idx, .hits) ? accent : nil, onLockTouch: lockTouch(idx)))
+    }
+    /// §2.2: STEPS — the existing stepper (its number bumped to 32 pt to match HITS, kept neutral #F2F4F7). Tap the value box to open the length picker.
+    private func euclidV2Steps(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
+        AnyView(EuclideousStepsStepper(line: line, accent: accent, width: size.width, height: size.height,
+            onCommit: { newStep, mutate in editStep(idx, newStep, mutate) },
+            onToggleValueBoxTap: { if stepsPickerLane == idx { stepsPickerLane = nil } else { stepsPickerLane = idx; restartEditorLane = nil } },
+            lockActive: lockLocked(idx), lockMomentary: lockMomentary(idx), lockOutline: lockOn(idx, .steps) ? accent : nil, onLockTouch: lockTouch(idx)))
+    }
+    /// §2.3 / §4: OFFSET — the existing horizontal slider in the taller frame; drawn at 42 % (still live) when every OFFSET gives the same played pattern (`euclideousOffsetIsInert`).
+    private func euclidV2Offset(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
+        AnyView(EuclideousSlider(field: .offset, line: line, accent: accent, width: size.width, height: size.height, horizontal: true, touchPad: 2,
+            onCommit: { mutate in edit(idx, mutate) },
+            onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.offset, &$0) } },
+            onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
+            topAlignLabelRow: true,
+            lockActive: lockLocked(idx), lockOutline: lockOn(idx, .offset) ? accent : nil, onLockTouch: lockTouch(idx))
+            .opacity(euclideousOffsetIsInert(line) ? 0.42 : 1))
+    }
+    /// §2.4 / §4: TILT — the existing horizontal slider (EARLY/LATE labels), 42 % when inert (true on a hand-edited lane — the engine ignores TILT there). TILT always shows its value now (§3: EDITED gone).
+    private func euclidV2Tilt(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
+        AnyView(EuclideousSlider(field: .tilt, line: line, accent: accent, width: size.width, height: size.height, horizontal: true, touchPad: 2,
+            onCommit: { mutate in edit(idx, mutate) },
+            onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.tilt, &$0) } },
+            onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
+            topAlignLabelRow: true,
+            endLabels: EuclideousRhythmGeometry.showsEndLabels(rowH: size.height) ? ("EARLY", "LATE") : nil,
+            lockActive: lockLocked(idx), lockOutline: lockOn(idx, .tilt) ? accent : nil, onLockTouch: lockTouch(idx))
+            .opacity(euclideousTiltIsInert(line) ? 0.42 : 1))
+    }
+    /// §2.9 / §2.10: a Row-B/C tile — NEUTRAL (#DFE3EA fill + #0D0F14 ink selected, tile fill + #AAB0BA off), NO border either way; the lane colour stays off this row (it lives only on HITS + OFFSET/TILT). Lock
+    /// behaviour (the lane-tap finger-counting and the dashed lock-mode outline, which is a separate indicator in the lane colour) is unchanged (§6). `lock == nil` ⇒ no lock field (LET RING).
+    private func euclidV2Tile<Face: View>(_ idx: Int, lock: EuclideousLockControl?, on: Bool, size: CGSize, ax: String, axValue: String? = nil, help: String? = nil, toggleTrait: Bool = false,
+                                          action: @escaping () -> Void, @ViewBuilder face: () -> Face) -> AnyView {
+        let laneC = laneAccents[idx % laneAccents.count]
+        let core = face()
+            .frame(width: size.width, height: size.height)
+            .background(RoundedRectangle(cornerRadius: 7).fill(on ? Color(hex: 0xDFE3EA) : patternUnselectedFill))
+            .contentShape(Rectangle())
+            .modifier(laneTapMod(idx) { action() })
+            .modifier(EuclideousLockOutline(on: lock.map { lockOn(idx, $0) } ?? false, accent: laneC))   // LANE LOCK 5.4 — orthogonal to §2.10's selected colour
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(ax)
+            .accessibilityValue(axValue ?? "")
+        let helped = help.map { AnyView(core.euclideousHelp($0)) } ?? AnyView(core)
+        return toggleTrait ? AnyView(helped.ringToggleTrait())
+                           : AnyView(helped.accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton))
+    }
+    /// §2.5: Row B — the six rate divisions (cols 0–5) then EVEN / DOT / TRIP (cols 6–8, the note glyphs dropped for words). Writes `line.rate` through the same `euclideousRateFromDivisionFeel` the rate grid used.
+    private func euclidV2RowBTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, i: Int, size: CGSize) -> AnyView {
+        let (curDiv, curFeel) = euclideousRateDivisionFeel(line.rate ?? euclideousUnsetLaneRate)
+        if i < 6 {
+            let labels = ["1/1", "1/2", "1/4", "1/8", "1/16", "1/32"]
+            let on = i == curDiv
+            return euclidV2Tile(idx, lock: .rate, on: on, size: size, ax: "Rate \(labels[i])", axValue: lockSpoken(idx, .rate, ""),
+                                action: { edit(idx) { $0.rate = euclideousRateFromDivisionFeel(division: i, feel: curFeel) } }) {
+                Text(labels[i]).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1)
+                    .foregroundColor(on ? Color(hex: 0x0D0F14) : patternUnselectedText)
+            }
+        }
+        let f = i - 6
+        let labels = ["EVEN", "DOT", "TRIP"], names = ["Straight", "Dotted", "Triplet"]
+        let on = f == curFeel
+        return euclidV2Tile(idx, lock: .rate, on: on, size: size, ax: names[f], axValue: lockSpoken(idx, .rate, ""),
+                            action: { edit(idx) { $0.rate = euclideousRateFromDivisionFeel(division: curDiv, feel: f) } }) {
+            Text(labels[f]).font(.system(size: 9.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1)
+                .foregroundColor(on ? Color(hex: 0x0D0F14) : patternUnselectedText)
+        }
+    }
+    /// §2.6: Row C — the three directions, each the new playhead icon (`EuclideousEuclidDirIcon`, not the RIFF arrows). Writes `chooseDirection`, unchanged.
+    private func euclidV2DirTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, i: Int, size: CGSize) -> AnyView {
+        let dirs: [(EuclidDir, String)] = [(.bkw, "Backward"), (.pingpong, "Ping-pong"), (.fwd, "Forward")]
+        let (dir, name) = dirs[i]
+        let on = line.directionResolved == dir
+        return euclidV2Tile(idx, lock: .direction, on: on, size: size, ax: name, axValue: lockSpoken(idx, .direction, ""),
+                            action: { edit(idx) { $0.chooseDirection(dir) } }) {
+            EuclideousEuclidDirIcon(dir: dir)
+                .stroke(on ? Color(hex: 0x0D0F14) : patternUnselectedText, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .frame(width: 22, height: 18)
+        }
+    }
+    /// §2.7: FLIP HITS (group 1) — `patternMiss`, unchanged.
+    private func euclidV2FlipTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
+        let on = line.patternMissResolved
+        return euclidV2Tile(idx, lock: .inv, on: on, size: size, ax: EuclideousFlipHits.accessibilityLabel, axValue: lockSpoken(idx, .inv, on ? "on" : "off"),
+                            help: "Play on the empty steps instead of the hits", toggleTrait: true, action: { edit(idx) { $0.patternMiss = !on } }) {
+            VStack(spacing: 1) { Text(EuclideousFlipHits.lines[0]).tracking(0.64); Text(EuclideousFlipHits.lines[1]).tracking(0.64) }
+                .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                .foregroundColor(on ? Color(hex: 0x0D0F14) : patternUnselectedText)
+        }
+    }
+    /// §2.7: LET RING (group 2) — `notesRing` (relabelled from RING), unchanged. Not a lock field.
+    private func euclidV2RingTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
+        let on = line.notesRingResolved
+        return euclidV2Tile(idx, lock: nil, on: on, size: size, ax: "Let ring", axValue: on ? "on" : "off",
+                            help: "Stack notes ring to the end of the pass, then clear — like a sustain pedal", toggleTrait: true, action: { edit(idx) { $0.notesRing = on ? nil : true } }) {
+            Text("LET RING").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1)
+                .foregroundColor(on ? Color(hex: 0x0D0F14) : patternUnselectedText)
+        }
+    }
+
     // MARK: LANE LOCK — the normal card's side (§5, §6)
     private func lockOf(_ idx: Int) -> EuclideousLaneLock { idx < locks.count ? locks[idx] : EuclideousLaneLock() }
     private func lockLocked(_ idx: Int) -> Bool { FourfoldStackProbe.note(); return lockOf(idx).isLocked }
@@ -3150,26 +3380,22 @@ struct EuclideousPage: View {
     @ViewBuilder private func tabContent(_ idx: Int, _ line: EuclidLine, _ tab: EuclideousLaneTab, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
         switch tab {
         case .rhythm:
-            // RESTART CHAINS ferry §1.1/§1.3: the control block stays 80pt (two 38pt rows + 4pt gap); the upper zone gets whatever's left.
-            // ANSWER (§8.1–§8.3): while RHYTHM is on (cycling or not) a 38 pt strip — DELAY · FEEL · SPEED · DIRECTION — sits across the top, and the upper zone gives up its height (145 → 103 at the reference card). RHYTHM on WITHOUT cycle is
-            // BORROWED: everything below the strip draws at 18 %, takes no touches, and the card sits centred over it. The STEPS picker and the restart editor cover the whole body, strip included.
-            let patternBlockH: CGFloat = 80
+            // EUCLID tab v2 (2026-11-15): the whole tab is now ONE `euclidTabV2Body` (Row A steppers + the taller OFFSET/TILT, Row B rates/feel, Row C directions/FLIP/LET RING on the nine-column grid) — the old
+            // `VStack { rhythmUpperZone; patternControlBlock }` (both kept compiled, unmounted) is replaced. The ANSWER strip, the borrowed-dim and the STEPS picker overlay are unchanged.
+            // ANSWER (§8.1–§8.3): while RHYTHM is on (cycling or not) a 38 pt strip — DELAY · FEEL · SPEED · DIRECTION — sits across the top and the body gives up its height. RHYTHM on WITHOUT cycle is
+            // BORROWED: the body draws at 18 %, takes no touches, and the card sits centred over it. The STEPS picker covers the whole body, strip included.
             let stripShown = line.answerRhythmOnResolved
             let stripH: CGFloat = stripShown ? 38 : 0
             let belowStripH = contentAreaH - (stripShown ? stripH + sp4 : 0)
-            let upperH = max(1, belowStripH - patternBlockH - sp4)
             let pickerEditorH = contentAreaH
             let borrowed = euclideousAnswerBorrowedTabs(line, notesReadsRiff: true).rhythm
             ZStack(alignment: .topLeading) {
                 VStack(spacing: sp4) {
                     if stripShown { rhythmFollowStrip(idx, line, accent, fullWidth: fullWidth, height: stripH) }
-                    VStack(spacing: sp4) {
-                        rhythmUpperZone(idx, line, accent, fullWidth: fullWidth, rowHeight: upperH)
-                        patternControlBlock(idx, line, accent, fullWidth: fullWidth)
-                    }
-                    .opacity(borrowed ? EuclideousListenPauseMetrics.dimOpacity : 1)
-                    .allowsHitTesting(!borrowed)
-                    .accessibilityHidden(borrowed)   // §10: VoiceOver skips the paused, non-interactive content entirely
+                    euclidTabV2Body(idx, line, accent, W: fullWidth, H: max(1, belowStripH))
+                        .opacity(borrowed ? EuclideousListenPauseMetrics.dimOpacity : 1)
+                        .allowsHitTesting(!borrowed)
+                        .accessibilityHidden(borrowed)   // §10: VoiceOver skips the paused, non-interactive content entirely
                 }
                 // §1.5/§1.7: the STEPS picker covers the whole body from the top (its own 192pt floor). RESETS ferry (2026-11-11): the restart EDITOR moved to the RESETS tab with its tiles — it is no longer mounted here.
                 if stepsPickerLane == idx, pickerEditorH >= 192 {

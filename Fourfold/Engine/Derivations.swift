@@ -3573,6 +3573,43 @@ func euclideousBuildHitPatternInto(_ L: EuclidLine, cells: inout [Bool], micro: 
                                     customHits: L.customHits, patternMiss: L.patternMissResolved, cells: &cells, micro: &micro)
 }
 
+// MARK: - EUCLID tab v2 (2026-11-15) §4 — OFFSET / TILT inert when nothing they could be would change what plays
+
+@inline(__always) private func euclideousPatternSame(_ a: [Bool], _ b: [Bool], _ am: [Double], _ bm: [Double], n: Int) -> Bool {
+    for i in 0..<n { if a[i] != b[i] || abs(am[i] - bm[i]) > 1e-9 { return false } }
+    return true
+}
+/// §4.1: a lane's finished played pattern (cells + the TILT-fine micro timing) with OFFSET (`rotate`) and TILT overridden — the engine's OWN builder, so it is exactly what plays. Everything else (hits, custom edits, FLIP, fine) stays the lane's.
+private func euclideousPlayedPattern(_ line: EuclidLine, rotate: Int, tilt: Double, cells: inout [Bool], micro: inout [Double]) -> Int {
+    let n = max(2, min(16, line.steps))
+    return euclideousHitPatternInto(pulses: max(0, min(n, line.pulses)), steps: n, rotate: ((rotate % n) + n) % n, tilt: tilt, fine: line.tiltIsFine,
+                                    customHits: line.customHits, patternMiss: line.patternMissResolved, cells: &cells, micro: &micro)
+}
+/// §4.1: OFFSET is inert when every OFFSET (rotate 0…STEPS−1) gives the SAME played pattern as the current one (0 hits and hits = STEPS are the usual cases; a hand-edited pattern is evaluated as the engine plays it).
+func euclideousOffsetIsInert(_ line: EuclidLine) -> Bool {
+    let n = max(2, min(16, line.steps))
+    var cur = [Bool](repeating: false, count: 16), curM = [Double](repeating: 0, count: 16)
+    var c = [Bool](repeating: false, count: 16), m = [Double](repeating: 0, count: 16)
+    _ = euclideousPlayedPattern(line, rotate: line.rotate, tilt: line.tiltResolved, cells: &cur, micro: &curM)
+    for r in 0..<n {
+        _ = euclideousPlayedPattern(line, rotate: r, tilt: line.tiltResolved, cells: &c, micro: &m)
+        if !euclideousPatternSame(c, cur, m, curM, n: n) { return false }
+    }
+    return true
+}
+/// §4.1: TILT is inert when TILT at −100 %, 0 % and +100 % each gives the SAME played pattern as the current TILT (true on a hand-edited lane — the engine ignores TILT there).
+func euclideousTiltIsInert(_ line: EuclidLine) -> Bool {
+    let n = max(2, min(16, line.steps))
+    var cur = [Bool](repeating: false, count: 16), curM = [Double](repeating: 0, count: 16)
+    var c = [Bool](repeating: false, count: 16), m = [Double](repeating: 0, count: 16)
+    _ = euclideousPlayedPattern(line, rotate: line.rotate, tilt: line.tiltResolved, cells: &cur, micro: &curM)
+    for t in [-1.0, 0.0, 1.0] {
+        _ = euclideousPlayedPattern(line, rotate: line.rotate, tilt: t, cells: &c, micro: &m)
+        if !euclideousPatternSame(c, cur, m, curM, n: n) { return false }
+    }
+    return true
+}
+
 /// Per-tick delays (steps into the tick's cell) of a lane's hits, in TICK space: `delay[raw]` for the hit read at tick `raw` (the engine's `raw`, 0..<cycleLen). Empty = no timing (every hit on its step).
 struct EuclideousHitTiming: Equatable {
     var delay: [Double] = []

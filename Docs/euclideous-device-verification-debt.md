@@ -952,3 +952,12 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - the SOURCES lamps are legible at arm's length in AUM (filled on vs a thin ring off), and the CHORDS + 1|2 group reads as one control;
   - APPLY TO ALL is easy to find (its lane outline) yet hard to hit by accident; the MIDI control is clearly dim + outline-only while MIDI IN is off, and "ROOT +2" shows with no fourth box;
   - the two-line DELAY CHORD label fits its 50 pt column at the narrowest layout, and UNIT reads as dim while BY is 0.
+
+- **EUCLID tab v2 (2026-11-15; display-only; golden byte-identical, alloc 0).** On an iPad in AUM, confirm:
+  - HITS as a stepper (not a fader) feels right next to STEPS — the +/−/drag and the 32 pt hero number read and respond as expected; the fader's "feel" isn't missed;
+  - the Row-B/C tiles (≈37 × 36 at the reference) are comfortable to hit; EVEN/DOT/TRIP and LET RING don't truncate at the narrowest layout (g < 34 floor);
+  - the three direction playhead icons read as direction and are NOT confused with the RIFF tab's arrows;
+  - the neutral #DFE3EA/#0D0F14 selected tiles read clearly as "on" beside the lane-coloured HITS + OFFSET/TILT, and the row doesn't look dead;
+  - OFFSET/TILT at 42 % (inert) read as "does nothing right now" (e.g. HITS 0 or 8, or a hand-edited lane), not as broken/disabled;
+  - EDITED is gone: a hand-edited lane shows TILT's value (dimmed), and a STEPS change still returns it to pure Euclid (the in-place double-tap revert is gone by design);
+  - the 32 pt HITS/STEPS heroes fit their value box at the REAL body height (~233, not the 229 reference) without clipping, and the whole tab fits when the ANSWER strip is shown (A drops below the 132 floor — it's drawn at the formula's values, listed, never squeezed).
