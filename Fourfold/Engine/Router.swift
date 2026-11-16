@@ -642,6 +642,8 @@ final class Router {
     /// NOTES TAB (2026-10-19, §7.2/§8.3): the pitch the riff note of the last riff-playing hit is sounding as, per lane (−1 = none) — kept across tied rests so the notes layer never re-strikes the held riff pitch ON AN OUTPUT THE RIFF HOLDS IT
     /// ON (CARD BACKS: on the outputs only the notes are routed to, the notes' copy of that pitch still strikes). Render-state of the same class as the REPEAT cache above; reset on a play/stop edge and on `performReset`.
     private var euclideousHeldRiffPitch = [Int](repeating: -1, count: 4)
+    // Scrub ferry (2026-11-16): this window's three holds (0 = none, 1…8), read once per window. Global (all four lanes).
+    private var scrubRiffColNow = 0, scrubRiffRankNow = 0, scrubStackRankNow = 0
     // GATE FOLLOWS THE RHYTHM (Paul 2026-10-13 ferry): per-lane LEGATO continuity for GATE=100%. Flat
     // 4 lanes × 9 slots (matches `euclideousLastSoundedNotes`'s own ceiling — `noteViewMaxNotes`, the real
     // ceiling `addPitch`/`pitchCount` ever reaches, NOT the ferry's rounder "ten pitches" prose). Each
@@ -2389,6 +2391,9 @@ final class Router {
                  euclideousLockLive: UInt64 = 0,
                  euclideousTestLive: UInt16 = 0,   // INPUTS TEST (2026-11-08): 0 = none; 0x100 | lane auditioning its pool
                  euclideousNotesAuditionLive: UInt16 = 0,   // NOTES AUDITION (2026-11-11): 0 = none; 0x100 | (lane<<4) | position — the held STACK cell, the lane's only lit note while held
+                 euclideousRiffColumnHold: UInt8 = 0,   // Scrub ferry (2026-11-16): the three GLOBAL live holds — 0 = none, 1…8 (read once per window; substitute the note at every lane's hit)
+                 euclideousRiffRankHold: UInt8 = 0,
+                 euclideousStackRankHold: UInt8 = 0,
                  sceneFlush: Bool = false,
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
@@ -2470,6 +2475,10 @@ final class Router {
         // as the last Euclideous sweep saw it). The sweep inside the Euclideous row repeats this with the authoritative mask, so the snapshot-only path (no UI) is covered too.
         soloLiveWord = euclideousSoloLive
         partSoloLiveWord = euclideousPartSoloLive
+        // Scrub ferry: this window's three holds (0 = none, 1…8), read once — like `soloLiveWord`.
+        scrubRiffColNow = Int(euclideousRiffColumnHold)
+        scrubRiffRankNow = Int(euclideousRiffRankHold)
+        scrubStackRankNow = Int(euclideousStackRankHold)
         // INPUTS TEST (2026-11-08): which lane auditions this window (−1 = none). A change in the testing lane restarts the walk at the window's first sample; it is otherwise free-running (the cursor + next-sample persist across windows).
         euclideousTestLaneNow = (euclideousTestLive & 0x100 != 0) ? Int(euclideousTestLive & 3) : -1
         if euclideousTestLaneNow != euclideousTestLaneActive {
@@ -4207,6 +4216,7 @@ final class Router {
                             /// What kind of rest ended the riff layer's work this hit: 0 = none, 1 = a SKIP-like rest (SKIP, or REPEAT with no note to repeat), 2 = a tied rest. NOTES TAB (§8.1-§8.3):
                             /// a rest no longer ends the hit by itself — the notes layer may still strike on it; only when it plays nothing does the hit end exactly as it used to.
                             var restEnd = 0
+                            var scrubNaturalRawRank = -1   // Scrub §3.5: ≥0 ⇒ a riff hold is active this hit; the NATURAL column's written rank (the held riff pitch tracks the natural note so a post-release TIE carries what it would have)
                             func tieOf(_ j: Int) -> Double { (notesPitchMask >> UInt16(j)) & 1 != 0 ? tieNotesExt : tieExt }
                             func nvRiffLead() -> Int { var n = 0; while hadRiffNote && n < pitchCount && (notesPitchMask >> UInt16(n)) & 1 == 0 { n += 1 }; return n }   // the leading riff pitches of the hit (NOTE VIEW's convention: the riff's first)
                             // RING (2026-11-13): the stack layer's note length = the beat gap to the first hit of the NEXT walk cycle, so every stack note struck in this pass clears together there (a sustain pedal held for the pass). A FULL override of the notes GATE / TIE (Paul). Computed once per hit; 0 ⇒ off ⇒ byte-identical. The walk cycle is `walkPeriod × EVERY` riff hits; `advOrd` advances every hit, so the boundary always exists.
@@ -4364,10 +4374,18 @@ final class Router {
                                 }
                                 if !hadRiffNote { restEnd = 1 }
                             } else if riffOn, thisLaneCount > 0 {
-                                let leapStep = (maskedChancePassed && mm.modeResolved == .leap)
+                                let naturalLeapStep = (maskedChancePassed && mm.modeResolved == .leap)
                                     ? (((playedStep + mm.leapStepsResolved) % riffLength) + riffLength) % riffLength
                                     : playedStep
-                                let rawRank = leapStep < ranks.count ? ranks[leapStep] : 0
+                                // Scrub §3: substitute the column / rank at the source under a GLOBAL riff hold (the pure `euclideousRiffHitSource`, 1-based). No hold ⇒ the natural column + its cell's rank (byte-identical).
+                                let scrubHit = euclideousRiffHitSource(naturalColumn: naturalLeapStep + 1,
+                                                                       rawRankAtColumn: { c in (c - 1) >= 0 && (c - 1) < ranks.count ? ranks[c - 1] : 0 },
+                                                                       columnHold: scrubRiffColNow == 0 ? nil : scrubRiffColNow,
+                                                                       rankHold: scrubRiffRankNow == 0 ? nil : scrubRiffRankNow)
+                                let riffHoldActive = scrubRiffColNow != 0 || scrubRiffRankNow != 0
+                                if riffHoldActive { scrubNaturalRawRank = naturalLeapStep < ranks.count ? ranks[naturalLeapStep] : 0 }   // §3.5: for the post-release TIE carry, below
+                                let leapStep = scrubHit.column - 1   // the DISPLAY/strike column (the held column, or the natural one)
+                                let rawRank = scrubHit.rank          // the effective written rank (0 = rest)
                                 // RIFF WALK ferry §5-6: factored into a re-enterable function so REPEAT (§6) can feed a DIFFERENT
                                 // (borrowed) raw rank through the exact same invert/offset/transpose/mask-mode/riffResolve pipeline a
                                 // normal hit uses, "exactly as if it had read that column" (§6.3) — `leapStep` (the hit's OWN column,
@@ -4401,6 +4419,8 @@ final class Router {
                                         }
                                     }
                                     if rank < 1 {
+                                        // Scrub §3.2/§3.3: a rest under a riff hold is just a rest — no SKIP/FILL/TIE/REPEAT treatment.
+                                        if riffHoldActive { restEnd = 1; return false }
                                         // REST. NOTES TAB (2026-10-19, §8): a rest hit no longer ends the hit by itself — the NOTES layer may still strike on it (WHEN RESTS, §8.1-§8.3),
                                         // so each outcome now just says what KIND of rest this is (`restEnd`) and the hit goes on to the notes layer below; only when that plays nothing does
                                         // the hit end exactly as it used to (the old SKIP / tied-rest exits live right after the notes layer):
@@ -4494,8 +4514,16 @@ final class Router {
                                             if spread { notesStruck += 1 }
                                         }
                                     }
-                                    if rowsHit.bassRank > 0 { strikeRowsRank(rowsHit.bassRank, spread: false) }   // §4.5: the bass is struck at the hit
-                                    for i in 0..<rowsHit.count { strikeRowsRank(rowsHit[i], spread: doSpread) }
+                                    if scrubStackRankNow != 0 {
+                                        // Scrub §4: a GLOBAL stack hold collapses every VOICES/CHORD/role/BASS result to one rank r (a rest when the pool has no note there, §4.2); no bass, no spread. The pure `euclideousStackHitRanks` decides.
+                                        let scrubRanks = euclideousStackHitRanks(natural: (0..<rowsHit.count).map { rowsHit[$0] },
+                                                                                 poolHasRank: { r in riffResolve(rank: r, oct: 0, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) != nil },
+                                                                                 stackHold: scrubStackRankNow)
+                                        for r in scrubRanks { strikeRowsRank(r, spread: false) }
+                                    } else {
+                                        if rowsHit.bassRank > 0 { strikeRowsRank(rowsHit.bassRank, spread: false) }   // §4.5: the bass is struck at the hit
+                                        for i in 0..<rowsHit.count { strikeRowsRank(rowsHit[i], spread: doSpread) }
+                                    }
                                 }
                             }
                             // A rest hit whose notes layer played nothing ends exactly as it used to (§8.1, §8.3): a SKIP-like rest closes any legato note and posts the silent-rest NOTE VIEW
@@ -4910,7 +4938,17 @@ final class Router {
                                         euclideousLastSoundedRanks[lineIndex * 9 + i] = pitchRank[i]
                                     }
                                     // NOTES TAB (§7.2): remember the pitch the riff note sounded as, so a tied rest after this hit never re-strikes it from the notes layer. A hit without a riff note clears it — except a tied rest, which carries the riff note from before.
-                                    if hadRiffNote { euclideousHeldRiffPitch[lineIndex] = riffNote + noteDelta } else if restEnd != 2 { euclideousHeldRiffPitch[lineIndex] = -1 }
+                                    if scrubNaturalRawRank >= 0 {
+                                        // Scrub §3.5: a riff hold is active — keep the held pitch at the NATURAL note (what the riff would have held), not the substituted one, so after release a TIE rest carries exactly what it would have. (Only ON REST = TIE ever reads this; a natural rest under TIE keeps the prior natural value, else it clears.)
+                                        let nr = scrubNaturalRawRank
+                                        let invN = (riffInvert && nr >= 1) ? (9 - nr) : nr
+                                        let transN = invN >= 1 ? invN + melodyTranspose : invN
+                                        if transN >= 1, let nn = riffResolve(rank: transN + euclideousFillRankOffsetNow, oct: altRiffOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
+                                            euclideousHeldRiffPitch[lineIndex] = nn + noteDelta
+                                        } else if riffOnRest != .tie {
+                                            euclideousHeldRiffPitch[lineIndex] = -1
+                                        }
+                                    } else if hadRiffNote { euclideousHeldRiffPitch[lineIndex] = riffNote + noteDelta } else if restEnd != 2 { euclideousHeldRiffPitch[lineIndex] = -1 }
                                     euclideousLastSoundedVel[lineIndex] = vel   // UNCHANGED — stays shared with the legacy non-Euclideous `.repeatNote` path; never widened/removed
                                 }
                                 // RATCHET (ferry "Mask" §5: "repeats the whole hit, all notes") — ONE shared roll

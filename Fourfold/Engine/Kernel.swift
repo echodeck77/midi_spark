@@ -69,6 +69,15 @@ final class Kernel {
     /// INPUTS TEST (2026-11-08): which lane is auditioning its pool (0 = none; 0x100 | lane, 0-3), the same plain main-writes/render-reads hand-off. While set, the Router suppresses that lane's normal output and walks its pool across its emitters on a free-running SAMPLE clock. It sounds while the host is stopped in the default KEEP PLAYING mode (the free-run clock keeps `playing` true); with "STOP when host stops" set it waits for the transport, like every other voice. The PLAYING heal-net below is exempted for it (an audition over an empty live pool is legitimate); the stopped net is not (see there).
     private var euclideousTestLive: UInt16 = 0
     func setEuclideousTestLive(_ lane: Int?) { euclideousTestLive = lane.map { 0x100 | UInt16($0 & 3) } ?? 0 }
+    /// Scrub ferry (2026-11-16): three GLOBAL live holds — 0 = none, 1…8. The main thread writes them the instant a ribbon is touched; the render reads each once per window and substitutes the note choice at every lane's hit (riff column / riff rank / stack rank). Not in the snapshot/document/undo; the same plain main-writes/render-reads hand-off.
+    private var euclideousRiffColumnHold: UInt8 = 0
+    private var euclideousRiffRankHold: UInt8 = 0
+    private var euclideousStackRankHold: UInt8 = 0
+    func setEuclideousScrubHolds(riffColumn: Int, riffRank: Int, stackRank: Int) {
+        euclideousRiffColumnHold = UInt8(max(0, min(8, riffColumn)))
+        euclideousRiffRankHold = UInt8(max(0, min(8, riffRank)))
+        euclideousStackRankHold = UInt8(max(0, min(8, stackRank)))
+    }
     /// NOTES AUDITION (2026-11-11): while a STACK-grid cell is HELD, that lane's NOTES layer plays ONLY that one rank — the same plain main-writes/render-reads hand-off. 0 = none; 0x100 | (lane << 4) | position (position 0-9 = the `EuclideousLitOrder` index: 0-7 ranks 1-8, 8 TOP 2, 9 TOP). Released the instant the finger lifts; the Router cuts the lane's sounding notes on every change so the audition is clean.
     private var euclideousNotesAuditionLive: UInt16 = 0
     func setEuclideousNotesAuditionLive(_ v: (lane: Int, position: Int)?) { euclideousNotesAuditionLive = v.map { 0x100 | UInt16(($0.lane & 3) << 4) | UInt16($0.position & 0x0F) } ?? 0 }
@@ -508,6 +517,9 @@ final class Kernel {
                         euclideousLockLive: euclideousLockLive,
                         euclideousTestLive: euclideousTestLive,
                         euclideousNotesAuditionLive: euclideousNotesAuditionLive,
+                        euclideousRiffColumnHold: euclideousRiffColumnHold,
+                        euclideousRiffRankHold: euclideousRiffRankHold,
+                        euclideousStackRankHold: euclideousStackRankHold,
                         sceneFlush: flushRequested,
                         out: replayingLoop ? reelSilentTap : reelTap, diag: &diag)   // → reelTap (reel + session tape) → liveEmitter; or, while a pass replays, the silent tap (session tape only)
         }
