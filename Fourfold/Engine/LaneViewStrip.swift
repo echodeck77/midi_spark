@@ -26,6 +26,18 @@ enum EuclideousPageTab: Int, CaseIterable, Equatable {
 /// The LEFT-TO-RIGHT order the strip draws its segments (Paul 2026-11-05: INPUTS first, before RHYTHM). This is DELIBERATELY separate from the raw values — `.pool`'s rawValue (3) still drives the `.front` / `EuclideousTabKind` coupling and must not move; only the display position changes.
 let euclideousPageTabOrder: [EuclideousPageTab] = [.pool, .rhythm, .resets, .riff, .notes, .fill, .listen, .alt, .mix]   // FILL after STACK (2026-11-13); ALT between ANSWER and MIX (2026-11-14)
 
+/// ANSWER tab = DEV-only (Paul 2026-11-16): the ANSWER (`.listen`) tab shows in the strip only in DEBUG builds, hidden in release — the same convention as CLASHES / FX COUNTS. The engine is untouched, so a saved document's ANSWER
+/// (CYCLE / TRADE / COPY / FILL) settings still PLAY; only the editing tab is gone from release. `euclideousPageTabOrder` and the raw-value coupling are unchanged.
+#if DEBUG
+let euclideousAnswerTabVisible = true
+#else
+let euclideousAnswerTabVisible = false
+#endif
+/// The strip's left-to-right tabs with ANSWER dropped when it is hidden (release) — the ONE list the layout's segment count, the painter's per-segment tab and the tap mapping all read, so they can never disagree. `answerVisible` is a parameter only so the tests can check both builds.
+func euclideousLaneStripOrder(answerVisible: Bool = euclideousAnswerTabVisible) -> [EuclideousPageTab] {
+    answerVisible ? euclideousPageTabOrder : euclideousPageTabOrder.filter { $0 != .listen }
+}
+
 /// What a tap on the strip does: nothing when the segment is already selected; otherwise the new tab, which ALWAYS
 /// turns the cards over (the flip). Paul, 2026-10-30: MIX lives in the one segmented control now, and every tab
 /// change — front → front as well as front ↔ MIX — used the same card flip. MIX ROWS (2026-11-03): MIX is a panel of its own now, not the cards' backs, so a change to or from MIX is instant (no flip, Paul's call); front → front still flips.
@@ -97,14 +109,14 @@ struct EuclideousLaneStripLayout: Equatable {
 }
 /// The strip's frames for a lane area `width` wide (landscape: columns 1–2; portrait: the page): the tab control takes what the dice and the padlock (28 each) and their gaps (sp8, sp4) leave.
 /// MIX is the last segment of the one control now (Paul, 2026-10-30), not its own container. Landscape reference 769.33 → control 701.33, six segments (ANSWER ferry) 113.39; portrait 782 → 714, 115.5.
-func euclideousLaneStripLayout(width: CGFloat) -> EuclideousLaneStripLayout {
+func euclideousLaneStripLayout(width: CGFloat, tabCount: Int = euclideousLaneStripOrder().count) -> EuclideousLaneStripLayout {
     typealias M = EuclideousLaneStripMetrics
     let w = max(1, width)
     let padlockX = w - M.tileSize
     let diceX = padlockX - M.sp4 - M.tileSize
     let controlW = max(1, diceX - M.sp8)
     let control = CGRect(x: 0, y: 0, width: controlW, height: M.height)
-    let count = EuclideousPageTab.allCases.count          // six: RHYTHM · RIFF · NOTES · POOL · ANSWER · MIX
+    let count = max(1, tabCount)                          // the VISIBLE tabs (euclideousLaneStripOrder): nine in DEBUG, eight in release (ANSWER dev-only, 2026-11-16)
     let segW = max(1, (controlW - 2 * M.containerInset - CGFloat(count - 1) * M.segmentGap) / CGFloat(count))
     let segY = (M.height - M.segmentHeight) / 2
     var segs: [CGRect] = [], targets: [CGRect] = []

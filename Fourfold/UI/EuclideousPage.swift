@@ -5270,15 +5270,18 @@ struct EuclideousPage: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(label) follows lane \(source + 1)")
             HStack(spacing: 8) {
-                Text("GO TO ANSWER").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText)
-                    .frame(maxWidth: .infinity).frame(height: 44)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(lane20(sourceAccent)))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(sourceAccent), lineWidth: 1))
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectPageTab(.listen) }   // TAB STRIP: ANSWER (the code name stays `.listen`) is the page's tab now — all four cards go there
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Go to Answer")
-                    .accessibilityAddTraits(.isButton)
+                // ANSWER dev-only (2026-11-16): the ANSWER tab is hidden in release, so "GO TO ANSWER" (its only other entry point) is dropped there too — a borrowed lane can still "USE MY OWN" to un-follow. In DEBUG it stays.
+                if euclideousAnswerTabVisible {
+                    Text("GO TO ANSWER").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(patternSelectedText)
+                        .frame(maxWidth: .infinity).frame(height: 44)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(lane20(sourceAccent)))
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(lane100(sourceAccent), lineWidth: 1))
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectPageTab(.listen) }   // TAB STRIP: ANSWER (the code name stays `.listen`) is the page's tab now — all four cards go there
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Go to Answer")
+                        .accessibilityAddTraits(.isButton)
+                }
                 Text("USE MY OWN").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(patternUnselectedText)
                     .frame(maxWidth: .infinity).frame(height: 44)
                     .background(RoundedRectangle(cornerRadius: 7).fill(patternUnselectedFill))

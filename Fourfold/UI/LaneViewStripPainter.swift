@@ -109,7 +109,8 @@ struct EuclideousLaneViewStrip: View {
     // MARK: one segment of the tab control
 
     private func segment(_ i: Int, _ L: EuclideousLaneStripLayout) -> some View {
-        let t = i < euclideousPageTabOrder.count ? euclideousPageTabOrder[i] : .rhythm   // the strip's LEFT-TO-RIGHT order (INPUTS first), not the raw-value order
+        let order = euclideousLaneStripOrder()   // the VISIBLE tabs, left-to-right (INPUTS first), ANSWER dropped in release (2026-11-16)
+        let t = i < order.count ? order[i] : .rhythm
         let sel = tab == t
         let seg = L.segments[i], target = L.segmentTargets[i]
         let glyphs = euclideousLaneStripGlyphs(tab: t, lines: lines, planMode: planMode)   // kept only for the VoiceOver label — the visual enabled-state cluster is removed (Paul 2026-11-11); `cluster`/the glyph views stay compiled, unmounted

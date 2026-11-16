@@ -25,6 +25,23 @@ final class LaneViewStripTests: XCTestCase {
         near(L.diceTarget.width, 36, "tile targets 36 wide"); near(L.diceTarget.height, 44, "…and 44 tall"); near(L.diceTarget.midX, L.dice.midX, "centred on the tile"); near(L.padlockTarget.midY, L.padlock.midY, "centred")
         XCTAssertFalse(L.clustersVisible); XCTAssertTrue(L.belowFloor)   // FILL (2026-11-13): the 8th tab drops segments to 84 pt (< the 96 cluster floor), so the per-lane cluster dots hide at the reference; the labels still fit (6 chars ≈ 47 pt)
     }
+
+    // ANSWER dev-only (2026-11-16): the strip drops the ANSWER (`.listen`) tab in release, keeps it in DEBUG; nothing else moves.
+    func testAnswerTabIsDevOnly() {
+        let debug = euclideousLaneStripOrder(answerVisible: true)
+        let release = euclideousLaneStripOrder(answerVisible: false)
+        XCTAssertTrue(debug.contains(.listen)); XCTAssertEqual(debug.count, 9)
+        XCTAssertFalse(release.contains(.listen), "ANSWER hidden in release"); XCTAssertEqual(release.count, 8)
+        XCTAssertEqual(release, debug.filter { $0 != .listen }, "only ANSWER is dropped; the rest keep their order")
+        // the layout divides the control among the visible tabs — eight segments are wider than nine, both ending at the control's trailing inset.
+        let nine = euclideousLaneStripLayout(width: land.strip.width, tabCount: 9)
+        let eight = euclideousLaneStripLayout(width: land.strip.width, tabCount: 8)
+        XCTAssertEqual(nine.segments.count, 9); XCTAssertEqual(eight.segments.count, 8)
+        XCTAssertGreaterThan(eight.segmentWidth, nine.segmentWidth, "fewer tabs ⇒ wider segments")
+        near(eight.segments.last!.maxX, nine.segments.last!.maxX, "both end at the control's trailing inset")
+        // the default call uses the build flag — nine in this DEBUG test target.
+        XCTAssertEqual(euclideousLaneStripLayout(width: land.strip.width).segments.count, euclideousLaneStripOrder().count)
+    }
     func testPortraitReferenceFrames() {
         let L = euclideousLaneStripLayout(width: port.strip.width)
         near(port.strip.width, 782)
