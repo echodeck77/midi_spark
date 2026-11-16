@@ -48,8 +48,17 @@ struct EuclideousPartPlayButton: View {
             .background(tileBackground)   // §1.1/§1.2/§1.5 no fill, a 1 pt #5B606A stroke, #2B2D33 while pressed
             .frame(width: target?.width ?? tile.width, height: target?.height ?? tile.height, alignment: .top)
             .contentShape(Rectangle())
-            .simultaneousGesture(DragGesture(minimumDistance: 0).updating($pressed) { _, s, _ in s = true })   // §1.5 touch-down highlight (does not consume the tap)
-            .onTapGesture { onTap() }      // §2.6 / §1.6 no hold, no double-tap; tap target + action unchanged
+            // §1.5/§1.6: ONE min-0 drag does BOTH the touch-down #2B2D33 highlight (updating) and the tap (onEnded, when the
+            // release is within the tile). The earlier `.simultaneousGesture(DragGesture) + .onTapGesture` pair swallowed the
+            // tap — the riff/stack toggle stopped working. No hold, no double-tap (§2.6); the action is unchanged (§1.6).
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($pressed) { _, s, _ in s = true }
+                    .onEnded { v in
+                        let w = target?.width ?? tile.width, h = target?.height ?? tile.height
+                        if (0...w).contains(v.location.x) && (0...h).contains(v.location.y) { onTap() }
+                    }
+            )
             .transaction { $0.animation = nil }   // §A4.6 looks change at once, with no ease
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(axLabel)
@@ -88,6 +97,7 @@ struct EuclideousPartPlayButton: View {
             }
         }
         .frame(maxWidth: .infinity).frame(height: hH)
+        .allowsHitTesting(false)   // §4.8: the chip never takes touches — a tap on it is a tap on the tile (it was eating the toggle)
     }
     private var playText: some View {
         Text("PLAY").font(.system(size: type.playSize, weight: .heavy, design: .monospaced)).tracking(type.playTracking).foregroundColor(Color(hex: look.playHex))

@@ -19,6 +19,24 @@ final class FourfoldTapTests: XCTestCase {
         need(app.staticTexts["STOPPED"], "the stopped readout again")
     }
 
+    /// PLAY BUTTONS RAIL+NOTE (2026-11-16): the lane card's PLAY RIFF / PLAY STACK tiles toggle their part on/off — a tap must
+    /// REACH the engine and flip the state (the ferry's pressed-highlight gesture + the note-chip Canvas had swallowed the tap).
+    func testThePlayRiffAndPlayStackTilesToggleTheirPart() {
+        let app = XCUIApplication.fresh()
+        for label in ["Play riff, lane 1", "Play stack, lane 1"] {
+            let tile = app.buttons[label]
+            need(tile, "the \(label) tile")
+            let before = tile.value as? String ?? "off"
+            let flipped = before == "on" ? "off" : "on"
+            tile.tap()
+            expectation(for: NSPredicate(format: "value == %@", flipped), evaluatedWith: app.buttons[label], handler: nil)
+            waitForExpectations(timeout: 4) { _ in XCTFail("\(label): the tap did not toggle the part (\(before) → \(flipped))") }
+            app.buttons[label].tap()   // and back — a real toggle, both ways
+            expectation(for: NSPredicate(format: "value == %@", before), evaluatedWith: app.buttons[label], handler: nil)
+            waitForExpectations(timeout: 4) { _ in XCTFail("\(label): the second tap did not toggle back (\(flipped) → \(before))") }
+        }
+    }
+
     /// STACK GRID (2026-11-08): the riff panel's header switch shows RIFF and STACK, RIFF selected on a fresh launch; there is no POLY option (the debug `--poly-control` flag brings the old segment back for the POLY tests below) and no riff boxes.
     func testTheRiffPanelHasARiffStackSwitchAndNoPoly() {
         let app = XCUIApplication.fresh()
