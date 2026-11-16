@@ -78,7 +78,7 @@ struct EuclideousAltSliderTile: View {
         }
         .frame(width: frame.width, height: frame.height)
         .contentShape(Rectangle())
-        .gesture(on ? drag(trackW) : nil)
+        .gesture(drag(trackW))   // Paul 2026-11-16: draggable even when OFF — the first write enables the pill (the caller's onWrite ensures it on)
         .highPriorityGesture(on ? TapGesture(count: 2).onEnded { onReset() } : nil)
         .onChange(of: live) { l in if !l { axisH = nil; wroteOnce = false } }
         .offset(x: frame.minX, y: frame.minY)

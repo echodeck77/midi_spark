@@ -3545,11 +3545,11 @@ struct EuclideousPage: View {
             EuclideousAltPill(label: "VEL", on: part.velActive, accent: accent, frame: f.velPill, axLabel: "\(spoken) velocity override, \(part.velActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .vel) }
             EuclideousAltSliderTile(main: mainVel, value: part.velValue ?? mainVel, range: 1...127, gate: false, on: part.velActive, accent: accent, frame: f.velSlider,
                                     axLabel: part.velActive ? "\(spoken) alt velocity, \(part.velValue ?? mainVel), main \(mainVel)" : "\(spoken) velocity, main \(mainVel)",
-                                    onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { $0.vel = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.vel = mainVel } })
+                                    onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { p in altEnsureOn(&p, .vel, line: line, idx: idx, notes: notes); p.vel = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.vel = mainVel } })
             EuclideousAltPill(label: "GATE", on: part.gateActive, accent: accent, frame: f.gatePill, axLabel: "\(spoken) gate override, \(part.gateActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .gate) }
             EuclideousAltSliderTile(main: mainGate, value: part.gateValue ?? mainGate, range: 1...99, gate: true, on: part.gateActive, accent: accent, frame: f.gateSlider,
                                     axLabel: part.gateActive ? "\(spoken) alt gate, \(part.gateValue ?? mainGate) percent, main \(mainGate)" : "\(spoken) gate, main \(mainGate) percent",
-                                    onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { $0.gate = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.gate = mainGate } })
+                                    onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { p in altEnsureOn(&p, .gate, line: line, idx: idx, notes: notes); p.gate = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.gate = mainGate } })
         }
     }
     /// §5.7 — the four emitter tokens A–D; a token in the alt set takes the lit look; each MAIN-mask emitter carries a pip below it. All unlit at 38 % while the pill is off (§5.8); a tap toggles the bit while on (§6.5).
@@ -3567,7 +3567,7 @@ struct EuclideousPage: View {
                 }
                 .frame(width: d, height: frame.height, alignment: .top)
                 .contentShape(Rectangle())
-                .onTapGesture { if on { altPartEdit(idx, notes: notes) { $0.out = (($0.out ?? 0) ^ bit) & 0x0F } } }   // §6.5: toggle the emitter in the alt set (may empty)
+                .onTapGesture { let l = idx < lines.count ? lines[idx] : EuclidLine(); altPartEdit(idx, notes: notes) { p in altEnsureOn(&p, .out, line: l, idx: idx, notes: notes); p.out = ((p.out ?? 0) ^ bit) & 0x0F } }   // §6.5: toggle the emitter; Paul 2026-11-16: a tap while OFF enables the OUT pill first (one undo step)
                 .offset(x: frame.minX + x, y: frame.minY)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(notes ? "Stack" : "Riff") alt emitter \(euclideousJackLetters[i]), \(lit ? "on" : "off")")
@@ -3581,20 +3581,24 @@ struct EuclideousPage: View {
             if on {
                 EuclideousOctaveBoxes(value: alt, size: CGSize(width: frame.width, height: frame.height), targetHeight: frame.height, visualTop: 0, label: "\(notes ? "Stack" : "Riff") alt octave") { v, _ in altPartEdit(idx, notes: notes) { $0.oct = v } }   // §6.5
             } else {
-                altOctBoxesOff(frame: frame)   // §5.8: dim, no selection
+                altOctBoxesOff(idx, notes: notes, frame: frame)   // §5.8: dim; Paul 2026-11-16: a box tap enables the OCT pill + sets that octave
             }
             // §5.6 the main mark, on its box, 3 above the bottom edge (ink darker on the white selected box)
             EuclideousAltPip(onWhite: on && alt == max(-2, min(2, main))).offset(x: CGFloat(mainIdx) * boxW + boxW / 2 - 2, y: frame.height - 3 - 4)
         }
         .frame(width: frame.width, height: frame.height, alignment: .topLeading).offset(x: frame.minX, y: frame.minY)
     }
-    private func altOctBoxesOff(frame: CGRect) -> some View {
+    private func altOctBoxesOff(_ idx: Int, notes: Bool, frame: CGRect) -> some View {
         let boxW = frame.width / 5
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x30333A).opacity(0.6), lineWidth: 1)
             ForEach(0..<5, id: \.self) { i in
                 Text(euclideousOctLabels[i]).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA).opacity(0.45))
-                    .frame(width: boxW, height: frame.height).offset(x: CGFloat(i) * boxW)
+                    .frame(width: boxW, height: frame.height)
+                    .contentShape(Rectangle())
+                    .onTapGesture { let l = idx < lines.count ? lines[idx] : EuclidLine(); altPartEdit(idx, notes: notes) { p in altEnsureOn(&p, .oct, line: l, idx: idx, notes: notes); p.oct = i - 2 } }   // Paul 2026-11-16: tapping a greyed box enables the OCT pill + sets that octave (box i → oct i−2), one undo step
+                    .accessibilityElement(children: .ignore).accessibilityLabel("\(notes ? "Stack" : "Riff") alt octave \(euclideousOctLabels[i])").accessibilityAddTraits(.isButton)
+                    .offset(x: CGFloat(i) * boxW)
             }
         }.frame(width: frame.width, height: frame.height)
     }
@@ -3613,6 +3617,15 @@ struct EuclideousPage: View {
             case .vel:  let on = !(p.velOn ?? false);  p.velOn = on;  if on && p.vel == nil { p.vel = notes ? line.notesVelocityResolved : line.velocityAbsoluteResolved }
             case .gate: let on = !(p.gateOn ?? false); p.gateOn = on; if on && p.gate == nil { p.gate = euclideousMixSliderValue(of: line, kind: .gate, notes: notes) }
             }
+        }
+    }
+    /// Paul 2026-11-16 — editing a GREYED (pill-off) control enables it: ensure the override's pill is ON (copying the part's current MAIN value if it has none, the same as `altTogglePill`'s turn-on), so the edit that follows in the same `altPartEdit` lands as one undo step. Idempotent — a no-op when the pill is already on.
+    private func altEnsureOn(_ p: inout EuclideousAltPart, _ which: AltField, line: EuclidLine, idx: Int, notes: Bool) {
+        switch which {
+        case .out:  if p.outOn != true  { p.outOn = true;  if p.out == nil  { p.out = notes ? line.notesOutMaskResolved(lane: idx) : line.riffOutMaskResolved(lane: idx) } }
+        case .oct:  if p.octOn != true  { p.octOn = true;  if p.oct == nil  { p.oct = notes ? line.octaveResolved : line.riffOctaveResolved } }
+        case .vel:  if p.velOn != true  { p.velOn = true;  if p.vel == nil  { p.vel = notes ? line.notesVelocityResolved : line.velocityAbsoluteResolved } }
+        case .gate: if p.gateOn != true { p.gateOn = true; if p.gate == nil { p.gate = euclideousMixSliderValue(of: line, kind: .gate, notes: notes) } }
         }
     }
     /// Mutate a part's alt overrides (`altRiff` / `altNotes`) as one undo step (`newStep` false coalesces a drag).
