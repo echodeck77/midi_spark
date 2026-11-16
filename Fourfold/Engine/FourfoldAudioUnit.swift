@@ -143,6 +143,11 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func reelNotesInRange(fromBeat lo: Double, toBeat hi: Double) -> [ReelDeck.Note] {                 // the drawable notes (outputs A–D) with session-absolute beats
         kernel.tape.notesInRange(fromTick: Int((lo * Double(SessionTape.ppq)).rounded()), toTick: Int((max(lo, hi) * Double(SessionTape.ppq)).rounded()))
     }
+    func reelExportKeepFiles(fromBeat lo: Double, toBeat hi: Double, emitterMask: UInt8) -> [(label: String, data: Data)] {   // REEL PHASE 4: the SMF files for a tape BEAT range (a keep / the selection) — mask 0 = All, else per output
+        kernel.tape.reelExportBeatFiles(fromBeat: lo, toBeat: hi, emitterMask: emitterMask)
+    }
+    func reelKeeps() -> [ReelKeep] { document.reelKeepsResolved }                                       // REEL PHASE 4: the session's keeps (read)
+    func reelSetKeeps(_ keeps: [ReelKeep]) { editDocument { $0.reelKeeps = keeps.isEmpty ? nil : keeps } }   // write + persist with the session (keeps are not render data, so no republish of sound is needed)
     /// UNDO AUDIT probe (main thread, read-only): is the snapshot the render thread holds the one the AU would build from what it was given right now? Compares the Euclideous lanes of the published box with a fresh build.
     func probeBoxAgreement() -> Bool {
         func lanesHash(_ box: SnapshotBox?) -> UInt64 {

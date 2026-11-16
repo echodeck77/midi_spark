@@ -4033,6 +4033,10 @@ struct PluginState: Codable, Equatable {
     // the page and undo all read. Replaces the per-lane `EuclidLine.muteCells16`/`muteUnit` (lane N → output N on load — see Slice 2's migration); each output's grid ticks on its HOME lane's pass (A↔lane 1 … D↔lane 4).
     var euclideousOutputMutes: EuclideousOutputMutes? = nil
     var euclideousOutputMutesResolved: EuclideousOutputMutes { euclideousOutputMutes ?? EuclideousOutputMutes() }
+    // REEL redesign Phase 4 (2026-11-16): KEEPS — named tape ranges the user marked to export, stored WITH the session.
+    // Not render data (the engine never reads them), so they are not threaded into the snapshot and never move the golden.
+    var reelKeeps: [ReelKeep]? = nil
+    var reelKeepsResolved: [ReelKeep] { reelKeeps ?? [] }
     // KEY + SCALE: a page-level root+type pair, reusing the existing `ScaleType` enum purely as storage —
     // does NOT pre-wire the SCALE-door/KEY±/FOUNT machinery §4.3 explicitly leaves open (a genuinely
     // independent new field, not a reference to any door's own scale pool).

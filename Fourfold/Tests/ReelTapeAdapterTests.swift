@@ -46,6 +46,17 @@ final class ReelTapeAdapterTests: XCTestCase {
         XCTAssertTrue(notes.allSatisfy { $0.cable >= 1 && $0.cable <= 4 }, "the All/CC cable 0 is excluded")
     }
 
+    // REEL PHASE 4: the beat-range export — mask 0 = one "All" file, a mask = one per selected output; an empty range exports nothing.
+    func testBeatRangeExport() {
+        let t = tape(passes: 3)
+        let all = t.reelExportBeatFiles(fromBeat: 0, toBeat: 8, emitterMask: 0)
+        XCTAssertEqual(all.map { $0.label }, ["All"])
+        XCTAssertFalse(all.first?.data.isEmpty ?? true, "the All file has bytes")
+        let ab = t.reelExportBeatFiles(fromBeat: 0, toBeat: 8, emitterMask: 0b0011)   // outputs A + B (both have notes in the harness)
+        XCTAssertEqual(ab.map { $0.label }, ["A", "B"])
+        XCTAssertTrue(t.reelExportBeatFiles(fromBeat: 5, toBeat: 5, emitterMask: 0).isEmpty, "an empty range exports nothing")
+    }
+
     func testTheBrowserListsEveryPassPlayedWhole() {
         let t = tape(passes: 5)
         XCTAssertEqual(t.filedPasses().count, 5)

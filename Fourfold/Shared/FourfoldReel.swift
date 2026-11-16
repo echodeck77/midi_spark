@@ -39,6 +39,7 @@ struct FourfoldReelBrowser: View {
     @State private var sel = ReelSelection(startBeat: 0, endBeat: 4)
     @State private var window = ReelTapeWindow(startBeat: 0, bars: ReelScreenMetrics.defaultWindowBars)
     @State private var lastSelLoaded = ReelSelection(startBeat: -1, endBeat: -1)   // so the close-up refetches only when the selection changes
+    @State private var keeps: [ReelKeep] = []                                      // Phase 4: the session's kept ranges
     @State private var reelShareURLs: [URL] = []
     @State private var reelShowShare = false
 
@@ -54,6 +55,7 @@ struct FourfoldReelBrowser: View {
                 overviewView(L.overview, shape: L.shape)
                 if L.hasTape { tapeView(L.tape) }
                 closeUpView(L.closeUp)
+                if !keeps.isEmpty { keepsStrip(y: L.controlBar.minY - 34, width: size.width) }
             }
             controlBar(L.controlBar)
             pill(L.pill)
@@ -81,6 +83,39 @@ struct FourfoldReelBrowser: View {
             closeUpNotes = au.reelNotesInRange(fromBeat: sel.startBeat, toBeat: sel.endBeat)
             lastSelLoaded = sel
         }
+        let k = au.reelKeeps(); if k != keeps { keeps = k }
+    }
+
+    // MARK: Phase 4 — keep + export
+
+    private func addKeep() {
+        guard let au, sel.spanBeats > 0 else { return }
+        au.reelSetKeeps(reelAddKeep(au.reelKeeps(), startBeat: sel.startBeat, endBeat: sel.endBeat, beatsPerBar: beatsPerBar, at: Date()))
+        keeps = au.reelKeeps()
+    }
+    private func removeKeep(_ i: Int) { guard let au else { return }; au.reelSetKeeps(reelRemoveKeep(au.reelKeeps(), at: i)); keeps = au.reelKeeps() }
+    private func loadKeep(_ k: ReelKeep) { setSelection(ReelSelection(startBeat: k.startBeat, endBeat: k.endBeat)); window = reelClampWindow(ReelTapeWindow(startBeat: max(0, k.startBeat - 4 * beatsPerBar), bars: window.bars), sessionEndBeat: sessionEnd, beatsPerBar: beatsPerBar) }
+
+    /// Export a beat range as SMF files (the A–D mix as "All", here; per-output is a later toggle) to the app's "Reel exports" folder (or temp in the extension), uniquely named, then present the share sheet.
+    private func exportRange(_ lo: Double, _ hi: Double) {
+        guard let au else { return }
+        let files = au.reelExportKeepFiles(fromBeat: lo, toBeat: hi, emitterMask: 0)
+        guard !files.isEmpty else { return }
+        var dir = FileManager.default.temporaryDirectory
+        if PresetStore.useDocumentsFolder {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Reel exports", isDirectory: true)
+            if (try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)) != nil { dir = docs }
+        }
+        let stamp = reelExportStamp(Date())
+        var urls: [URL] = []
+        for f in files {
+            let wanted = reelKeepExportFileName(stamp: stamp, startBeat: lo, endBeat: hi, beatsPerBar: beatsPerBar, label: f.label)
+            let name = reelUniqueFileName(wanted, exists: { FileManager.default.fileExists(atPath: dir.appendingPathComponent($0).path) })
+            let url = dir.appendingPathComponent(name)
+            if (try? f.data.write(to: url)) != nil { urls.append(url) }
+        }
+        guard !urls.isEmpty else { return }
+        reelShareURLs = urls; reelShowShare = true
     }
     private func seedSelection() {
         let end = au?.reelSessionEndBeat() ?? 0
@@ -225,17 +260,40 @@ struct FourfoldReelBrowser: View {
     // MARK: control bar + the LIVE/TAPE pill
 
     private func controlBar(_ r: CGRect) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             ctlButton("backward.to.line", "START") { au?.reelPlayRange(fromTapeBeat: 0, toTapeBeat: sessionEnd, loop: false) }
-            ctlButton("play.fill", "PLAY FROM HERE") { au?.reelPlayRange(fromTapeBeat: sel.startBeat, toTapeBeat: max(sel.startBeat + beatsPerBar, sessionEnd), loop: false) }
-            ctlButton("repeat", "LOOP SEL") { au?.reelPlayRange(fromTapeBeat: sel.startBeat, toTapeBeat: sel.endBeat, loop: true) }
+            ctlButton("play.fill", "PLAY") { au?.reelPlayRange(fromTapeBeat: sel.startBeat, toTapeBeat: max(sel.startBeat + beatsPerBar, sessionEnd), loop: false) }
+            ctlButton("repeat", "LOOP") { au?.reelPlayRange(fromTapeBeat: sel.startBeat, toTapeBeat: sel.endBeat, loop: true) }
             Spacer(minLength: 0)
-            Text(selLabel).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.ink.opacity(0.8)).lineLimit(1)
+            Text(selLabel).font(.system(size: 9.5, weight: .heavy, design: .monospaced)).foregroundColor(Self.ink.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.7)
             Spacer(minLength: 0)
+            ctlButton("star", "KEEP") { addKeep() }
+            ctlButton("square.and.arrow.up", "EXPORT") { exportRange(sel.startBeat, sel.endBeat) }
             ctlButton("xmark", "CLOSE") { onClose() }
         }
         .padding(.horizontal, 12)
         .frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY)
+    }
+    // Phase 4: the keeps as chips (tap a chip to load its range; × removes it). Shown only when keeps exist, just above the control bar.
+    private func keepsStrip(y: CGFloat, width: CGFloat) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Text("KEEPS").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(Self.dim)
+                ForEach(Array(keeps.enumerated()), id: \.offset) { i, k in
+                    HStack(spacing: 5) {
+                        Text(reelKeepBarLabel(startBeat: k.startBeat, endBeat: k.endBeat, beatsPerBar: beatsPerBar))
+                            .font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Self.ink)
+                            .contentShape(Rectangle()).onTapGesture { loadKeep(k) }
+                        Button { removeKeep(i) } label: { Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundColor(Self.dim) }
+                            .accessibilityLabel("Remove keep \(reelKeepBarLabel(startBeat: k.startBeat, endBeat: k.endBeat, beatsPerBar: beatsPerBar))")
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Self.panel))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.1), lineWidth: 1))
+                }
+            }.padding(.horizontal, 12)
+        }
+        .frame(width: width, height: 30).offset(x: 0, y: y)
     }
     private var selLabel: String {
         let b0 = Int(sel.startBeat / beatsPerBar) + 1, n = max(1, Int((sel.spanBeats / beatsPerBar).rounded()))

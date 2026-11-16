@@ -20,9 +20,12 @@ final class FourfoldScreenshotTests: XCTestCase {
         let reel = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reel")).element(boundBy: 0)
         guard reel.waitForExistence(timeout: 6) else { XCTFail("the reel header button was not found"); return }
         reel.tap(); Thread.sleep(forTimeInterval: 1.5)
-        attach("reel-1-wide")
+        attach("reel-1")
+        let keep = app.buttons["KEEP"]   // Phase 4: mark the current selection as a keep so a keep chip appears
+        if keep.waitForExistence(timeout: 2) { keep.tap(); Thread.sleep(forTimeInterval: 1) }
+        attach("reel-2-with-keep")
         XCUIDevice.shared.orientation = .portrait; Thread.sleep(forTimeInterval: 1.5)
-        attach("reel-2-tall")
+        attach("reel-3-tall")
         XCUIDevice.shared.orientation = .landscapeLeft; Thread.sleep(forTimeInterval: 1)
     }
 

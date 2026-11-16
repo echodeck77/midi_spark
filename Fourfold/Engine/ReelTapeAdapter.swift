@@ -104,6 +104,36 @@ extension SessionTape {
         return (out, offset)
     }
 
+    // MARK: - REEL PHASE 4 (keep + export): beat-range SMF export (not pass-based)
+
+    /// The SMF files for a tape BEAT range [fromBeat, toBeat) — the new screen's KEEP / selection export. `emitterMask` 0 = the A–D sum as ONE file labelled "All"; else one per selected output (bit 0 = A … bit 3 = D), labelled "A"…"D".
+    /// Beats are RE-BASED to 0 (the file starts at the range's first beat); the tempo header is the tempo at the range START (REEL-12). Returns (label, data) — the caller names the file (`reelKeepExportFileName`). Main thread, read-only.
+    func reelExportBeatFiles(fromBeat lo: Double, toBeat hi: Double, emitterMask: UInt8) -> [(label: String, data: Data)] {
+        let startTick = Int((min(lo, hi) * Double(SessionTape.ppq)).rounded())
+        let endTick = Int((max(lo, hi) * Double(SessionTape.ppq)).rounded())
+        guard endTick > startTick else { return [] }
+        let bpm = self.bpm(at: startTick)
+        let total = Double(endTick - startTick) / Double(SessionTape.ppq)
+        func evs(_ cables: Set<UInt8>) -> [(beat: Double, b0: UInt8, b1: UInt8, b2: UInt8)] {
+            events(from: startTick, to: endTick, kinds: [.note, .control]).compactMap { e in
+                guard cables.contains(UInt8(e.cable)) else { return nil }
+                let w = e.wire
+                return (Double(Int(e.tick) - startTick) / Double(SessionTape.ppq), w.status, w.d1, w.d2)
+            }
+        }
+        var files: [(label: String, data: Data)] = []
+        if emitterMask == 0 {
+            let e = evs(Set((1...FourfoldPorts.outputCount).map { UInt8($0) }))
+            if !e.isEmpty { files.append(("All", MidiFile.encode(events: e, bpm: bpm, ppq: 480, loopBeats: total))) }
+        } else {
+            for i in 0..<FourfoldPorts.outputCount where (emitterMask & (1 << UInt8(i))) != 0 {
+                let e = evs([UInt8(i + 1)])
+                if !e.isEmpty { files.append((FourfoldPorts.shortName(cable: i + 1).capitalized, MidiFile.encode(events: e, bpm: bpm, ppq: 480, loopBeats: total))) }
+            }
+        }
+        return files
+    }
+
     /// The MIDI files for passes `lo…hi`: `emitterMask` 0 = the A–D sum as one file, else one per selected output (A = bit 0 … D = bit 3). The tempo header is the tempo the first pass was PLAYED at (REEL-12), not the current one.
     func reelExportFiles(from lo: Int, to hi: Int, emitterMask: UInt8) -> [(name: String, data: Data)] {
         let f = filedPasses()
