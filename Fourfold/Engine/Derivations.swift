@@ -5129,6 +5129,10 @@ func euclideousRiffPanelLayout(box: CGSize) -> EuclideousRiffPanelLayout {
 
 // MARK: - Scrub ferry (2026-11-16) §7 — the ribbon mapping + the hit-source substitution (pure, allocation-free; the engine AND the ribbons call these, no second derivation)
 
+/// §10 — tunable on device (change none in this ferry): the column ribbon's reach above rail 1.
+enum EuclideousScrubMetrics { static let columnReachAboveRails: CGFloat = 4 }
+
+
 /// §7.1 — the 1-based index (1…count) a coordinate falls on, for `count` cells of `size` starting at `first`, `gap` apart: a gap goes to the NEARER cell (its half-way line splits it), and past either end clamps to 1 / count.
 @inline(__always) func euclideousScrubIndex(_ coord: CGFloat, first: CGFloat, size: CGFloat, gap: CGFloat, count: Int) -> Int {
     guard count > 0 else { return 1 }
@@ -5150,6 +5154,10 @@ func euclideousScrubColumn(x: CGFloat, layout: EuclideousRiffPanelLayout) -> Int
 /// §2.2 / §7.1 — the riff rank (1…8, rank 8 at the top) under y in the note-label column.
 func euclideousScrubRiffRank(y: CGFloat, layout: EuclideousRiffPanelLayout) -> Int {
     9 - euclideousScrubIndex(y, first: layout.rowTop(0), size: layout.cellH, gap: EuclideousRiffPanelMetrics.rowGap, count: 8)   // row 0 (top) = rank 8
+}
+/// §2.3 / §7.1 — the STACK grid rank (1…8, rank 8 at the top) under y in the axis column. There are no TOP axis rows (§2.3), so count = 8; a drag above/below clamps.
+func euclideousScrubStackRank(y: CGFloat, layout: EuclideousStackGridLayout) -> Int {
+    9 - euclideousScrubIndex(y, first: layout.axis(0).minY, size: layout.rowH, gap: layout.rowGap, count: 8)
 }
 
 /// §7.2 / §3 — the (display column, written rank) a riff hit uses under the holds; rank 0 = a rest. All 1-based (column 1…8, rank 1…8 / 0). With both holds nil it returns exactly today's result (the natural column + its cell's rank), so the no-hold engine path is byte-identical.

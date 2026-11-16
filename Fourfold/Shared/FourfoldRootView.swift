@@ -221,6 +221,7 @@ struct FourfoldRootView: View {
                                                onStackAudition: { lane, pos in   // NOTES AUDITION (2026-11-11): a held STACK cell makes its rank the lane's only lit note while held. Ephemeral live word; nil on release.
                                                    au?.setEuclideousNotesAuditionLive(pos.map { (lane, $0) })
                                                },
+                                               onScrubHolds: { rc, rr, sr in au?.setEuclideousScrubHolds(riffColumn: rc, riffRank: rr, stackRank: sr) },   // Scrub ferry (2026-11-16): the three ribbon holds straight to the render thread (ephemeral)
                                                chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
                                                onEditChordSet: { idx, mutate in
                                                    var sets = euclideousChordSets

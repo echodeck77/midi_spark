@@ -22,6 +22,18 @@ final class ScrubTests: XCTestCase {
         }
     }
 
+    // §2.3 — the STACK axis ribbon maps y → rank 8…1 over the eight axis cells (no TOP rows).
+    func testStackRibbonMapping() {
+        for box in [CGSize(width: 380.67, height: 301), CGSize(width: 387, height: 301.67)] {
+            let L = euclideousStackGridLayout(box: box)
+            XCTAssertEqual(euclideousScrubStackRank(y: L.axis(0).midY, layout: L), 8, "axis row 0 (top) = rank 8")
+            XCTAssertEqual(euclideousScrubStackRank(y: L.axis(7).midY, layout: L), 1, "axis row 7 (bottom) = rank 1")
+            XCTAssertEqual(euclideousScrubStackRank(y: L.axis(0).minY - 20, layout: L), 8, "above clamps to 8")
+            XCTAssertEqual(euclideousScrubStackRank(y: L.axis(7).maxY + 20, layout: L), 1, "below clamps to 1")
+            XCTAssertEqual(euclideousScrubStackRank(y: L.axis(3).midY, layout: L), 5, "row 3 = rank 5")
+        }
+    }
+
     // §11.2 (pure part) — no hold: riffHitSource returns the natural column + its written rank, unchanged, for the walk's own columns.
     func testRiffHitSourceNoHoldIsIdentity() {
         let ranks = [3, 0, 5, 2, 7, 0, 1, 4]   // a sample riff (0 = rest)

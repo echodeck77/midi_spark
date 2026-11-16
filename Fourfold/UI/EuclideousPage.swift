@@ -882,6 +882,7 @@ struct EuclideousPage: View {
     var onTestUp: (Int) -> Void = { _ in }
     // NOTES AUDITION (2026-11-11): a held STACK cell auditions its rank alone — (lane, position) on engage, (lane, nil) on release. Ephemeral live word.
     var onStackAudition: (Int, Int?) -> Void = { _, _ in }
+    var onScrubHolds: (Int, Int, Int) -> Void = { _, _, _ in }   // Scrub ferry (2026-11-16): the three ribbon holds (riffColumn, riffRank, stackRank; 0 = none, 1-8) → the kernel live words
     // CHORDS GRID ferry (Paul 2026-10-24): independently-stored progressions ("tabs"), replacing the single
     // grid the CHORDS BUTTON ferry (2026-10-08) first added. TWO CHORD GRIDS (2026-11-03): two of them, and each LANE
     // picks which one it plays (CHORD 1 | CHORD 2 on the INPUTS tab's SOURCES row) — `activeChordSet` is only the tab this
@@ -1050,6 +1051,10 @@ struct EuclideousPage: View {
     @AppStorage("fourfold.stripCC") private var stripCCOn: Bool = true
     /// POOL ferry 6.3: the lane whose notes the riff grid's label column names (UI state, never saved; starts at lane 1).
     @State private var gridLane = 0
+    // Scrub ferry (2026-11-16) §1.1: the three GLOBAL ribbon holds (0 = none, 1-8), ephemeral UI state → the kernel live words via `onScrubHolds`. Not saved/undone.
+    @State private var riffColumnHold = 0
+    @State private var riffRankHold = 0
+    @State private var stackRankHold = 0
     // NOTES AUDITION (2026-11-11): the STACK cell held right now (lane / rank position, −1 = none) — drives the held cell's light and greys the lane's other lit cells. Ephemeral; mirrors the live word pushed to the engine.
     @State private var stackAuditionLane = -1
     @State private var stackAuditionPos = -1
@@ -7325,6 +7330,7 @@ struct EuclideousPage: View {
         .frame(width: box.width, height: box.height, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
         .overlay(alignment: .topLeading) { riffPanelOverlay(layout: layout, ranks: ranks, suppressArrows: midiEmpty, played: playedNow) }
+        .overlay(alignment: .topLeading) { scrubRiffRibbons(layout: layout) }   // Scrub §2.1/§2.2
     }
 
     // MARK: - POLY RIFF (2026-10-29): the sixteen-column grid
@@ -7391,6 +7397,7 @@ struct EuclideousPage: View {
         .frame(width: box.width, height: box.height, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
         .overlay(alignment: .topLeading) { riffPanelOverlay(layout: layout, ranks: ranks, suppressArrows: midiEmpty, played: playedNow) }
+        .overlay(alignment: .topLeading) { scrubRiffRibbons(layout: layout) }   // Scrub §2.1/§2.2
         // A touch that is CANCELLED (another app comes forward, Control Center, an interruption) never calls `onEnded`: the gesture state resets, and a drag left armed would take the NEXT touch for its continuation. The hop lets a normal
         // `onEnded` (which clears the drag itself, and may remove a tapped note) run first. Leaving the POLY grid (a mode switch) drops it too.
         .onChange(of: polyTouching) { touching in
@@ -7535,6 +7542,47 @@ struct EuclideousPage: View {
         guard f.riffOn, f.running, let tick = f.plan?.landedTick else { return (nil, [], .still) }
         let w = euclideousRailWalk(cfg: f.cfg, hitTick: tick)
         return (w.current, w.trail, euclideousArrowHeading(riffDir: f.cfg.riffDir, length: f.cfg.length, stride: f.cfg.stride, every: f.cfg.every, ordinal: w.ordinal))
+    }
+    // MARK: - Scrub ferry (2026-11-16) §2 — the three ribbon gestures (set the live holds; cleared on lift or when the grid disappears)
+
+    private static let scrubRiffSpace = "euclidScrubRiff", scrubStackSpace = "euclidScrubStack"
+    private func pushScrubHolds() { onScrubHolds(riffColumnHold, riffRankHold, stackRankHold) }
+    private func setRiffColumnHold(_ c: Int) { if c != riffColumnHold { riffColumnHold = c; pushScrubHolds() } }
+    private func setRiffRankHold(_ r: Int) { if r != riffRankHold { riffRankHold = r; pushScrubHolds() } }
+    private func setStackRankHold(_ r: Int) { if r != stackRankHold { stackRankHold = r; pushScrubHolds() } }
+
+    /// §2.1/§2.2 — the two riff ribbons (column over the rail block, rank over the note-label column), in the riff panel's coordinate space. Mounted over the grid; neither overlaps the editable cells, so cell editing is unchanged (§12). Clears on lift and when the panel disappears (§1.3).
+    private func scrubRiffRibbons(layout: EuclideousRiffPanelLayout) -> some View {
+        let colX = layout.columnLeft(0), colW = layout.columnLeft(7) + layout.cellW - colX
+        let colY = layout.railTop(0) - EuclideousScrubMetrics.columnReachAboveRails   // §2.1: 4 above rail 1
+        let rankY = layout.rowTop(0), rankH = layout.rowTop(7) + layout.cellH - rankY
+        return ZStack(alignment: .topLeading) {
+            Color.clear.frame(width: max(1, colW), height: max(1, layout.box.height - colY)).contentShape(Rectangle())   // §2.1 column ribbon
+                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.scrubRiffSpace))
+                    .onChanged { v in setRiffColumnHold(euclideousScrubColumn(x: v.location.x, layout: layout)) }
+                    .onEnded { _ in setRiffColumnHold(0) })
+                .offset(x: colX, y: colY)
+            Color.clear.frame(width: layout.labelW, height: max(1, rankH)).contentShape(Rectangle())                      // §2.2 rank ribbon
+                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.scrubRiffSpace))
+                    .onChanged { v in setRiffRankHold(euclideousScrubRiffRank(y: v.location.y, layout: layout)) }
+                    .onEnded { _ in setRiffRankHold(0) })
+                .offset(x: EuclideousRiffPanelMetrics.padding, y: rankY)
+        }
+        .frame(width: layout.box.width, height: layout.box.height, alignment: .topLeading)
+        .coordinateSpace(name: Self.scrubRiffSpace)
+        .onDisappear { if riffColumnHold != 0 || riffRankHold != 0 { riffColumnHold = 0; riffRankHold = 0; pushScrubHolds() } }   // §1.3: a tab change away clears the riff holds
+    }
+    /// §2.3 — the stack rank ribbon over the STACK grid's axis column. Clears on lift and when the grid disappears.
+    private func scrubStackRibbon(layout: EuclideousStackGridLayout) -> some View {
+        let a0 = layout.axis(0), a7 = layout.axis(7)
+        return Color.clear.frame(width: a0.width, height: max(1, a7.maxY - a0.minY)).contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.scrubStackSpace))
+                .onChanged { v in setStackRankHold(euclideousScrubStackRank(y: v.location.y, layout: layout)) }
+                .onEnded { _ in setStackRankHold(0) })
+            .offset(x: a0.minX, y: a0.minY)
+            .frame(width: layout.box.width, height: layout.box.height, alignment: .topLeading)
+            .coordinateSpace(name: Self.scrubStackSpace)
+            .onDisappear { if stackRankHold != 0 { stackRankHold = 0; pushScrubHolds() } }
     }
     private func riffPanelOverlay(layout: EuclideousRiffPanelLayout, ranks: [Int], suppressArrows: Bool, played: [Set<Int>]) -> some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
@@ -7700,6 +7748,7 @@ struct EuclideousPage: View {
         .padding(sp8)
         .frame(width: box.width, height: box.height, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+        .overlay(alignment: .topLeading) { scrubStackRibbon(layout: euclideousStackGridLayout(box: box)) }   // Scrub §2.3
     }
 
     // riffSourceTabs REMOVED ENTIRE (Paul 2026-10-14: "move the midi in/chords/key control to the top
