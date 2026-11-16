@@ -148,12 +148,14 @@ final class PlayButtonsAmendmentTests: XCTestCase {
 
     func testTheTileNeverChangesAndTheOffLooksAreTheRatifiedGreys() {
         let on = euclideousPartPlayLook(on: true), off = euclideousPartPlayLook(on: false)
-        XCTAssertEqual(EuclideousPartPlayLook.tileFillHex, 0x202226); XCTAssertEqual(EuclideousPartPlayLook.tileBorderHex, 0x2B2D33); closeD(EuclideousPartPlayLook.tileOpacity, 1, "no fade on the tile, on or off")
+        // PLAY BUTTONS RAIL+NOTE §1 supersedes amendment 1's tile: no resting fill (§1.1), a 1 pt #5B606A stroke (§1.2), the pressed fill #2B2D33 (§1.5), radius 9.
+        XCTAssertEqual(EuclideousPartPlayLook.tileStrokeHex, 0x5B606A); XCTAssertEqual(EuclideousPartPlayLook.tilePressedFillHex, 0x2B2D33)
         close(EuclideousPartPlayLook.tileRadius, 9, "the play tile's radius")
-        // on: lamp lane100 filled (+ a lane stroke), PLAY #AAB0BA, name #F2F4F7
-        XCTAssertTrue(on.lampFilled); XCTAssertTrue(on.lampUsesLane); XCTAssertEqual(on.playHex, 0xAAB0BA); XCTAssertEqual(on.nameHex, 0xF2F4F7)
-        // off: lamp unfilled with a #6E737C stroke, PLAY #6E737C, name #8A909A
-        XCTAssertFalse(off.lampFilled); XCTAssertFalse(off.lampUsesLane); XCTAssertEqual(off.lampStrokeHex, 0x6E737C); XCTAssertEqual(off.playHex, 0x6E737C); XCTAssertEqual(off.nameHex, 0x8A909A)
+        // on: lamp lane100 filled (+ a lane stroke), PLAY + name both #F2F4F7 (§1.3); the triangle rests at 55 % (§1.4)
+        XCTAssertTrue(on.lampFilled); XCTAssertTrue(on.lampUsesLane); XCTAssertEqual(on.playHex, 0xF2F4F7); XCTAssertEqual(on.nameHex, 0xF2F4F7)
+        close(EuclideousPartPlayLook.lampRestOpacity, 0.55, "§1.4 resting triangle opacity")
+        // off: lamp unfilled with a #C9CDD4 outline, PLAY + name both #C9CDD4 — reads as available, not disabled (§1.3/§1.4)
+        XCTAssertFalse(off.lampFilled); XCTAssertFalse(off.lampUsesLane); XCTAssertEqual(off.lampStrokeHex, 0xC9CDD4); XCTAssertEqual(off.playHex, 0xC9CDD4); XCTAssertEqual(off.nameHex, 0xC9CDD4)
         XCTAssertEqual(Double(euclideousPartPlayType(height: 78).lampStroke), 1.4, accuracy: 0.0005, "the lamp stroke is 1.4 at h 78")
     }
 

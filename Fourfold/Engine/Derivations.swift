@@ -5428,18 +5428,23 @@ func euclideousNotesLayerIsOn(_ line: EuclidLine) -> Bool { line.notesOnResolved
 
 // ── PLAY RIFF / PLAY STACK ferry (2026-11-07): the pure layer behind the lane card's two part-switch buttons ──────────────
 
-/// §2.4 the button's colours — PLAY BUTTONS AMENDMENT 1 (2026-11-08) §A4 (option A). The tile never changes between on and off: #202226 fill, 1 pt #2B2D33 inner border, full opacity, radius 9. ON: the lamp is the lane colour (filled + a lane100
-/// stroke), "PLAY" #AAB0BA, the part name #F2F4F7. OFF: the lamp is unfilled with a #6E737C stroke, "PLAY" #6E737C, the part name #8A909A (was #4A4E57 / #4E525A / #5A5E66, which read as disabled). Looks change at once, with no ease.
+/// §2.4 the button's colours — PLAY BUTTONS RAIL+NOTE (2026-11-16) §1 supersedes amendment 1's fill/on-off/top-line. The tile
+/// has NO fill (§1.1, the card ground shows through), a 1 pt #5B606A inner stroke (§1.2), radius 9. OFF reads as AVAILABLE, not
+/// disabled: "PLAY" + the name both #C9CDD4, nothing under 100 % opacity (§1.3). ON: both #F2F4F7, the lamp the lane colour
+/// (filled, 100 % while the part's held set is non-empty / `lampRestOpacity` 55 % otherwise — §1.4, applied in the view). OFF
+/// lamp = no fill + a 1 pt #C9CDD4 outline (§1.4). Pressed: the tile fills #2B2D33 while a touch is down (§1.5). No ease.
 struct EuclideousPartPlayLook: Equatable {
     var playHex: UInt32, nameHex: UInt32
     var lampFilled: Bool          // the triangle is filled (on) or an outline (off)
-    var lampUsesLane: Bool        // on → the lamp is drawn in the lane colour; off → the fixed grey below
+    var lampUsesLane: Bool        // on → the lamp is drawn in the lane colour; off → the fixed outline below
     var lampStrokeHex: UInt32     // used only when !lampUsesLane
-    static let tileFillHex: UInt32 = 0x202226, tileBorderHex: UInt32 = 0x2B2D33, tileRadius: CGFloat = 9, tileOpacity: Double = 1   // §A4.1 (radius from the source play tile)
+    static let tileFillHex: UInt32 = 0x202226    // retained for reference; the tile no longer draws a resting fill (§1.1)
+    static let tileStrokeHex: UInt32 = 0x5B606A, tilePressedFillHex: UInt32 = 0x2B2D33   // §1.2 stroke / §1.5 pressed fill (§10 tunable)
+    static let tileRadius: CGFloat = 9, tileOpacity: Double = 1, lampRestOpacity: Double = 0.55   // §1.4 resting triangle opacity (§10 tunable)
 }
 func euclideousPartPlayLook(on: Bool) -> EuclideousPartPlayLook {
-    on ? EuclideousPartPlayLook(playHex: 0xAAB0BA, nameHex: 0xF2F4F7, lampFilled: true, lampUsesLane: true, lampStrokeHex: 0)
-       : EuclideousPartPlayLook(playHex: 0x6E737C, nameHex: 0x8A909A, lampFilled: false, lampUsesLane: false, lampStrokeHex: 0x6E737C)
+    on ? EuclideousPartPlayLook(playHex: 0xF2F4F7, nameHex: 0xF2F4F7, lampFilled: true, lampUsesLane: true, lampStrokeHex: 0)
+       : EuclideousPartPlayLook(playHex: 0xC9CDD4, nameHex: 0xC9CDD4, lampFilled: false, lampUsesLane: false, lampStrokeHex: 0xC9CDD4)
 }
 
 /// PLAY BUTTONS AMENDMENT 1 §A3 (option A · BIGGER): every size on the button, from its height h alone, each rounded to the nearest 0.5 pt. The part name ("RIFF", "STACK") is h × 0.22 clamped 9…18, heavy, tracking 0.05 em, line height 1.06 × its size;

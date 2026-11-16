@@ -9,11 +9,14 @@ final class PartPlayButtonTests: XCTestCase {
 
     // MARK: §2.4 the looks
     func testLooks() {
+        // PLAY BUTTONS RAIL+NOTE §1.3/§1.4: ON both #F2F4F7; OFF both #C9CDD4 (reads as available, not disabled); OFF lamp a #C9CDD4 outline.
         let on = euclideousPartPlayLook(on: true)
-        XCTAssertEqual(on.playHex, 0xAAB0BA); XCTAssertEqual(on.nameHex, 0xF2F4F7); XCTAssertTrue(on.lampFilled); XCTAssertTrue(on.lampUsesLane)
+        XCTAssertEqual(on.playHex, 0xF2F4F7); XCTAssertEqual(on.nameHex, 0xF2F4F7); XCTAssertTrue(on.lampFilled); XCTAssertTrue(on.lampUsesLane)
         let off = euclideousPartPlayLook(on: false)
-        XCTAssertEqual(off.playHex, 0x6E737C); XCTAssertEqual(off.nameHex, 0x8A909A); XCTAssertFalse(off.lampFilled); XCTAssertFalse(off.lampUsesLane); XCTAssertEqual(off.lampStrokeHex, 0x6E737C)   // AMENDMENT 1 §A4.3
-        XCTAssertEqual(EuclideousPartPlayLook.tileFillHex, 0x202226); XCTAssertEqual(EuclideousPartPlayLook.tileBorderHex, 0x2B2D33); close(EuclideousPartPlayLook.tileRadius, 9, "the source play tile's radius")
+        XCTAssertEqual(off.playHex, 0xC9CDD4); XCTAssertEqual(off.nameHex, 0xC9CDD4); XCTAssertFalse(off.lampFilled); XCTAssertFalse(off.lampUsesLane); XCTAssertEqual(off.lampStrokeHex, 0xC9CDD4)
+        // §1.1 no resting fill; §1.2 a 1 pt #5B606A stroke; §1.5 the pressed fill #2B2D33; §1.4 the triangle rests at 55 %.
+        XCTAssertEqual(EuclideousPartPlayLook.tileStrokeHex, 0x5B606A); XCTAssertEqual(EuclideousPartPlayLook.tilePressedFillHex, 0x2B2D33)
+        close(EuclideousPartPlayLook.lampRestOpacity, 0.55, "§1.4 resting triangle opacity"); close(EuclideousPartPlayLook.tileRadius, 9, "the source play tile's radius")
     }
 
     // MARK: §2.3 the lamp geometry

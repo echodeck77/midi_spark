@@ -169,7 +169,13 @@ struct EuclidLaneBox: View {
     var body: some View {
         let on = line.enabledResolved
         let stripDim = soloDim || partsOffDim   // §4.1/§4.3: solo-silenced OR both parts off → ONE 42 % on the strip
-        HStack(spacing: compact ? EuclideousLaneCardMetrics.columnGap : 8) {   // PLAY BUTTONS AMENDMENT 1 §A1.3: g between every item of the top row
+        // Hoisted to body scope so the PLAY BUTTONS RAIL+NOTE §2 rail overlay and the EuclidCometBar width below read the SAME reserves (no drift).
+        let gap: CGFloat = compact ? EuclideousLaneCardMetrics.columnGap : 8
+        let lockPull = gap - EuclideousLockBadge.gap
+        let lockReserve: CGFloat = (soloButton != nil && lockBadge != nil) ? (gap + EuclideousLockBadge.size - 2 * lockPull) : 0
+        let badgeReserve: CGFloat = soloButton != nil ? (gap + soloButtonWidth + lockReserve) : (stepCountBadge == nil ? 0 : (gap + stepCountBadgeWidth))
+        let leadReserve: CGFloat = compact ? EuclideousLaneCardMetrics.playButtonW + EuclideousLaneCardMetrics.columnGap : 64   // PLAY RIFF and g
+        HStack(spacing: gap) {   // PLAY BUTTONS AMENDMENT 1 §A1.3: g between every item of the top row
             if let leadTile {
                 leadTile   // §4.2: PLAY RIFF never dims
             } else {
@@ -177,18 +183,9 @@ struct EuclidLaneBox: View {
                     .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)
                     .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDim)
             }
-            // WIDTH: the comet bar's own real rendered width, derived exactly from this box's layout —
-            // compact: 0pt self-padding + the 44pt play button + 6pt spacing = 50pt before the comet bar,
-            // PLUS — if a badge is present — its own width and the matching 6pt gap before it; non-compact
-            // (the regular BUILD-page editor, unchanged): 6pt padding ×2 + 44pt play + 8pt spacing = 64,
-            // badge gap 8pt. NOT measured via GeometryReader — so `EuclidCometBar` can compute its box pitch
-            // (for the rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
-            let gap: CGFloat = compact ? EuclideousLaneCardMetrics.columnGap : 8
-            // The badge's layout slot is its 34 minus what the negative padding pulls in on each side (the row's 6 pt gap becomes the ferry's sp4): 30.
-            let lockPull = gap - EuclideousLockBadge.gap
-            let lockReserve: CGFloat = (soloButton != nil && lockBadge != nil) ? (gap + EuclideousLockBadge.size - 2 * lockPull) : 0
-            let badgeReserve: CGFloat = soloButton != nil ? (gap + soloButtonWidth + lockReserve) : (stepCountBadge == nil ? 0 : (gap + stepCountBadgeWidth))
-            let leadReserve: CGFloat = compact ? EuclideousLaneCardMetrics.playButtonW + EuclideousLaneCardMetrics.columnGap : 64   // PLAY RIFF and g
+            // WIDTH: the comet bar's own real rendered width, derived exactly from this box's layout (gap/reserves hoisted
+            // to body scope above). NOT measured via GeometryReader — so `EuclidCometBar` can compute its box pitch (for the
+            // rotate-drag sensitivity) from the SAME width it will actually render at, no approximation.
             // `patternOverride` is already FINISHED (partner's pattern, this lane's own OFFSET + INV baked in), so it goes in as a
             // hand-edited pattern with nothing left to rotate, tilt or invert — the bar's own customHits path replaces generation.
             EuclidCometBar(pulses: patternOverride.map { $0.filter { $0 }.count } ?? line.pulses,
@@ -220,6 +217,27 @@ struct EuclidLaneBox: View {
                 if let lockBadge { lockBadge.frame(width: EuclideousLockBadge.size, height: height).padding(.horizontal, -(gap - EuclideousLockBadge.gap)) }
                 soloButton
             } else if let stepCountBadge { stepCountBadge }
+        }
+        // PLAY BUTTONS RAIL+NOTE §2: the running-part rail — a 1.5 pt lane-colour line along the row's outer edge, THROUGH the
+        // button (riff top: PLAY RIFF's left edge → the last cell's right edge; stack bottom: the first cell's left edge →
+        // PLAY STACK's right edge). Only for the Euclideous lane card; eases in/out with the part toggle (§3.4); never takes a
+        // touch (§2.6). The strip's left/right edges are leadReserve / (width − badgeReserve) in row coords; cells fill the
+        // strip (CLARITY PASS even columns), so (width − badgeReserve) IS the last cell's right edge.
+        .overlay(alignment: .topLeading) {
+            if strip != nil, compact {
+                let railH = LaneStripBandMetrics.railH
+                ZStack(alignment: .topLeading) {
+                    accent.frame(width: max(0, width - badgeReserve), height: railH)             // riff: top edge
+                        .opacity((strip?.riffPartOn ?? false) ? 1 : 0)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: strip?.riffPartOn ?? false)
+                    accent.frame(width: max(0, width - leadReserve), height: railH)               // stack: bottom edge
+                        .offset(x: leadReserve, y: max(0, height - railH))
+                        .opacity((strip?.notesPartOn ?? false) ? 1 : 0)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: strip?.notesPartOn ?? false)
+                }
+                .frame(width: width, height: height, alignment: .topLeading)
+                .allowsHitTesting(false)
+            }
         }
         .padding(compact ? 0 : 6)
         .frame(width: width, height: height)   // EXPLICIT width/height — the stroke/background below can never bleed past it

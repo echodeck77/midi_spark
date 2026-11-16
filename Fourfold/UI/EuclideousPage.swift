@@ -3035,9 +3035,12 @@ struct EuclideousPage: View {
     private func soloSilenced(_ lane: Int) -> Bool { euclideousLaneSilencedBySolo(lane: lane, soloMask: soloEffective, partMask: partSoloEffective) }
     /// …and one part (0 riff, 1 notes) of a lane that may still sound on its sister part: what MIX dims a row by.
     private func partSoloSilenced(_ lane: Int, part: Int) -> Bool { euclideousPartSoloSilences(lane: lane, part: part, soloMask: soloEffective, partMask: partSoloEffective) }
-    /// PLAY RIFF / PLAY STACK ferry (2026-11-07): one lane-card part-switch button, an `AnyView` leaf like the SOLO tile (the page's build chain has almost no stack to spare). A tap funnels through `cardBackToggle` (one undo step; NOTES
-    /// auto-lights so the layer reads on); the lamp flashes on each note-on the part sends to ≥1 emitter (the NoteRoll `outs` feed, 150 ms fade) while running. The ON state reads the DOCUMENT line (`lines[idx]`) — the field the toggle writes.
-    private func partPlayButton(_ idx: Int, isNotes: Bool) -> AnyView {
+    /// PLAY RIFF / PLAY STACK ferry (2026-11-07); PLAY BUTTONS RAIL+NOTE (2026-11-16) §1.4/§2: one lane-card part-switch button,
+    /// an `AnyView` leaf like the SOLO tile (the page's build chain has almost no stack to spare). A tap funnels through
+    /// `cardBackToggle` (one undo step; NOTES auto-lights so the layer reads on). The triangle is 100 % while the part's held
+    /// set is non-empty (a routed, audible note sounding now), 55 % otherwise; an ON part squares its rail edge (riff top,
+    /// stack bottom). The ON state reads the DOCUMENT line (`lines[idx]`) — the field the toggle writes.
+    private func partPlayButton(_ idx: Int, isNotes: Bool, rail: Bool = true) -> AnyView {
         let accent = laneAccents[idx % laneAccents.count]
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
         let on = !euclideousMixLayerIsOff(line, notes: isNotes)
@@ -3046,8 +3049,11 @@ struct EuclideousPage: View {
         let label = "Play \(isNotes ? "stack" : "riff"), lane \(idx + 1)"
         return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
             let notes = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
-            let flash = on ? euclideousPartPlayFlash(notes: notes, nowBeat: walkTagBeat(at: tl.date), tempo: clock.tempo, audible: audible, reduceMotion: reduceMotion) : 0
-            EuclideousPartPlayButton(isNotes: isNotes, accent: accent, on: on, flash: flash, axLabel: label) { cardBackToggle(idx, isNotes ? .notes : .riff) }
+            let nowBeat = walkTagBeat(at: tl.date)
+            // §1.4/§8.5: the triangle follows the HELD SET (a note sounding now, routed to an emitter, audible), not the playhead.
+            let sounding = on && audible && notes.contains { $0.outs != 0 && euclideousMixNoteSounds($0, at: nowBeat) }
+            EuclideousPartPlayButton(isNotes: isNotes, accent: accent, on: on, sounding: sounding,
+                                     railEdge: (on && rail) ? (isNotes ? .bottom : .top) : nil, axLabel: label) { cardBackToggle(idx, isNotes ? .notes : .riff) }
         })
     }
     /// The SOLO button of lane `idx` (§2-3), built here as an `AnyView` like every other leaf of the lane card (the page's construction chain has almost no stack to spare in a debug build).
@@ -3424,9 +3430,9 @@ struct EuclideousPage: View {
                                   landingBeat: slot < pendingRolls.count ? pendingRolls[slot]?.landingBeat : nil,
                                   pulseFeed: pulseFeed, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
                                   laneLocked: lockLocked(idx),
-                                  // PLAY RIFF / PLAY STACK ferry (2026-11-07) §1.4: the SAME PLAY buttons the normal lane card uses — not a second derivation.
-                                  playRiffView: partPlayButton(idx, isNotes: false),
-                                  playStackView: partPlayButton(idx, isNotes: true))
+                                  // PLAY RIFF / PLAY STACK ferry (2026-11-07) §1.4: the SAME PLAY buttons the normal lane card uses — not a second derivation. (rail: false — the random-mode card has no rail overlay, so the tiles keep rounded corners.)
+                                  playRiffView: partPlayButton(idx, isNotes: false, rail: false),
+                                  playStackView: partPlayButton(idx, isNotes: true, rail: false))
     }
 
     // MARK: - Per-lane tab row + content (Paul 2026-10-07, §2.6)
