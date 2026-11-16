@@ -1014,3 +1014,13 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - a session SAVED BY AN OLDER BUILD (the removed 8x8 param payload) restores WITHOUT the 2026-11-13 deserialize crash (the `super.fullState` skip is kept);
   - the enum params (Key Scale, Lane n Rate) show their names (value-strings), and the stepped ranges feel right;
   - the three simplifications read as intended: Stack Play turning on needs a lit note; Out Mute mutes the whole output; CC On/High/Low drive slot 1 of the output's 4-slot CC emitter.
+
+- **PLAY BUTTONS, RAIL and NOTE (2026-11-16, §11 — display-only, the real test is on device/in AUM):** confirm —
+  - a 1.5 pt lane-colour RAIL reads clearly in all four lane colours at the portrait-AUM size, and reads as joining the button to its row (riff along the top, stack along the bottom);
+  - the §2.2 tile corner-squaring + omitted rail-edge stroke look right (the rail IS the edge) in all four colours — the `addArc(tangent1End:…)` path was built BLIND;
+  - the NOTE CHIP is legible inside the 44 pt tile (its §4.2 frame: 3 pt right of the triangle, leading lamp, filling to 3 pt inside the right edge), and a SPLIT stack chip's voices are told apart there; 7 pt labels still read in the ~9 pt tile chip;
+  - the chip states read right: sounding (100 % + strokes), held after note-off (78 %), and PLAY returns on transport stop; after a STOP→restart the chip may briefly show the last hit until the first new note-on (the §4.6 "since transport start" nuance is approximated) — check it isn't jarring;
+  - OFF tiles read as AVAILABLE buttons (outlined #C9CDD4, no fill) against the card, not disabled; the pressed #2B2D33 fill reads on touch-down;
+  - the triangle's 55 % → 100 % change is visible at fast tempos (it follows the held set, not the playhead);
+  - the 0.12 s collapse doesn't distract when parts are toggled in time; a stopped part leaves NO empty boxes and its hits grow; both-parts-off dims the hit cells (not the rails/tiles/rest cells) to 42 %;
+  - the §5 predicted stack chips show a real chip on every upcoming hit like the riff (MONO); a POLY lane / a predicted-silent hit shows the flat #2B2D33 placeholder; a lane with its OWN sources predicts against the global pool (a known limit).

@@ -3062,29 +3062,29 @@ struct EuclideousPage: View {
             let nowBeat = walkTagBeat(at: tl.date)
             // §1.4/§8.5: the triangle follows the HELD SET (a note sounding now, routed to an emitter, audible), not the playhead.
             let sounding = on && audible && notes.contains { $0.outs != 0 && euclideousMixNoteSounds($0, at: nowBeat) }
-            // §4: in place of PLAY, a chip of the part's most recent note-on hit — only while the part is on, running and audible
-            // (§4.6: off / stopped / solo-silenced / the random card ⇒ PLAY). The sweep is the SAME one the strip + stack dots use.
-            var noteChip: EuclideousPartNoteChip? = nil
-            if rail, on, audible, clock.playing {
-                let feed = mixStripFeed(idx)
-                if !feed.legs.isEmpty {
-                    let cometRawAt: (Double) -> Double = { b in
-                        (feed.fill?.active ?? false)
-                            ? euclideousLaneCometChainRaw(beat: b, n: feed.n, dir: feed.dir, sub: feed.sub, chains: feed.chains ?? .off, legacySpanBeats: 0, fill: feed.fill)
-                            : (feed.chains.map { euclideousLaneCometChainRaw(beat: b, n: feed.n, dir: feed.dir, sub: feed.sub, chains: $0, legacySpanBeats: 0) }
-                                ?? euclidCometRaw(mTickBeat: b, sub: feed.sub, spanBeats: 0, n: feed.n, dir: feed.dir))
-                    }
-                    let legIdx = min(max(0, feed.legs.count - 1), euclideousStripLegIndex(raw: cometRawAt(nowBeat), n: feed.n, legCount: feed.legs.count))
-                    let hits = feed.legs[legIdx].hits
-                    let hitSteps = (0..<feed.n).filter { $0 < hits.count && hits[$0].kind != .rhythmRest }
-                    noteChip = euclideousPartNoteChip(held: notes, hits: hits,
-                                                      stepOf: { euclideousStripNoteStep(raw: cometRawAt($0), n: feed.n, dir: feed.dir) ?? -1 },
-                                                      hitSteps: hitSteps, now: nowBeat)
-                }
-            }
+            // §4: in place of PLAY, a chip of the part's most recent note-on hit (nil ⇒ PLAY). Computed in a helper so this ViewBuilder closure stays `let`s + one view (a bare mutating `if` here fails type inference under the harness compiler).
+            let noteChip = partNoteChip(idx: idx, notes: notes, nowBeat: nowBeat, on: on, audible: audible, rail: rail)
             EuclideousPartPlayButton(isNotes: isNotes, accent: accent, on: on, sounding: sounding, noteChip: noteChip,
                                      railEdge: (on && rail) ? (isNotes ? .bottom : .top) : nil, axLabel: label) { cardBackToggle(idx, isNotes ? .notes : .riff) }
         })
+    }
+    /// §4: the note chip for the tile's top line — the part's most recent note-on hit, from the SAME feed/sweep the strip + stack dots use (no second clock). nil ⇒ the word PLAY (§4.6: the part off / stopped / solo-silenced / the random card / no note-on yet).
+    private func partNoteChip(idx: Int, notes: [NoteRollNote], nowBeat: Double, on: Bool, audible: Bool, rail: Bool) -> EuclideousPartNoteChip? {
+        guard rail, on, audible, clock.playing else { return nil }
+        let feed = mixStripFeed(idx)
+        guard !feed.legs.isEmpty else { return nil }
+        let cometRawAt: (Double) -> Double = { b in
+            (feed.fill?.active ?? false)
+                ? euclideousLaneCometChainRaw(beat: b, n: feed.n, dir: feed.dir, sub: feed.sub, chains: feed.chains ?? .off, legacySpanBeats: 0, fill: feed.fill)
+                : (feed.chains.map { euclideousLaneCometChainRaw(beat: b, n: feed.n, dir: feed.dir, sub: feed.sub, chains: $0, legacySpanBeats: 0) }
+                    ?? euclidCometRaw(mTickBeat: b, sub: feed.sub, spanBeats: 0, n: feed.n, dir: feed.dir))
+        }
+        let legIdx = min(max(0, feed.legs.count - 1), euclideousStripLegIndex(raw: cometRawAt(nowBeat), n: feed.n, legCount: feed.legs.count))
+        let hits = feed.legs[legIdx].hits
+        let hitSteps = (0..<feed.n).filter { $0 < hits.count && hits[$0].kind != .rhythmRest }
+        return euclideousPartNoteChip(held: notes, hits: hits,
+                                      stepOf: { euclideousStripNoteStep(raw: cometRawAt($0), n: feed.n, dir: feed.dir) ?? -1 },
+                                      hitSteps: hitSteps, now: nowBeat)
     }
     /// The SOLO button of lane `idx` (§2-3), built here as an `AnyView` like every other leaf of the lane card (the page's construction chain has almost no stack to spare in a debug build).
     private func soloButton(_ idx: Int, _ accent: Color) -> AnyView {

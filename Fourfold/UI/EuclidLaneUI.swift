@@ -168,7 +168,7 @@ struct EuclidLaneBox: View {
 
     var body: some View {
         let on = line.enabledResolved
-        let stripDim = soloDim || partsOffDim   // §4.1/§4.3: solo-silenced OR both parts off → ONE 42 % on the strip
+        let stripDim = soloDim   // PLAY BUTTONS RAIL+NOTE §6.3: solo-silenced → the WHOLE strip (+ rails) at 42%. §6.1: both-parts-off is now a CELLS-ONLY dim (cellsOnlyDim below), not the whole strip.
         // Hoisted to body scope so the PLAY BUTTONS RAIL+NOTE §2 rail overlay and the EuclidCometBar width below read the SAME reserves (no drift).
         let gap: CGFloat = compact ? EuclideousLaneCardMetrics.columnGap : 8
         let lockPull = gap - EuclideousLockBadge.gap
@@ -197,7 +197,7 @@ struct EuclidLaneBox: View {
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
                            strip: strip, stripCurrent: stripCurrent, riffHeld: riffHeld, stackHeld: stackHeld, ccInput: ccInput, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, exactStyle: compact, grouped: grouped,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
-                           restartChains: restartChains, fillLine: line, mutedAt: mutedAt, suppressMuteDim: stripDim, soloSilencedWords: soloSilenced,
+                           restartChains: restartChains, fillLine: line, mutedAt: mutedAt, suppressMuteDim: stripDim, cellsOnlyDim: partsOffDim, soloSilencedWords: soloSilenced,
                            riffBandFrac: (strip?.riffPartOn ?? true) ? 1 : 0, stackBandFrac: (strip?.notesPartOn ?? true) ? 1 : 0,   // PLAY BUTTONS RAIL+NOTE §3: an off part's band collapses (the ease is attached below)
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
@@ -236,6 +236,8 @@ struct EuclidLaneBox: View {
                         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: strip?.notesPartOn ?? false)
                 }
                 .frame(width: width, height: height, alignment: .topLeading)
+                .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)   // §6.3: a solo-silenced lane dims the rails with the rest of the strip
+                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDim)
                 .allowsHitTesting(false)
             }
         }
@@ -388,6 +390,8 @@ struct EuclidCometBar: View, Animatable {
     var mutedAt: ((Double) -> Bool)? = nil
     /// LANE SOLO: the box already dims this whole bar (the lane is solo-silenced), so the bar's own LANES-mute dim stands down — one 42 %, never two multiplied.
     var suppressMuteDim: Bool = false
+    /// PLAY BUTTONS RAIL+NOTE §6.1: both parts off → the HIT cells draw at 42% (not the whole strip). Suppressed when the whole strip already dims (solo or LANES-mute) so the cells never dim twice. false (every other caller) ⇒ unchanged.
+    var cellsOnlyDim: Bool = false
     var soloSilencedWords: Bool = false   // the strip's VoiceOver value adds ", silenced by solo"
     // PLAY BUTTONS RAIL+NOTE §3: each part's band presence 0…1 (1 = the band is in; 0 = collapsed, the cells extend to that edge). The parent eases these 1↔0 on a PLAY RIFF / PLAY STACK toggle (§3.4, Animatable); default 1 (the BUILD page / every non-strip caller) ⇒ both bands in, unchanged.
     var riffBandFrac: Double = 1
@@ -546,8 +550,10 @@ struct EuclidCometBar: View, Animatable {
                                                    playheadStepFloat: running ? euclidCometPos(cometRaw, n: n, dir: dir) : nil, playheadValue: phPhase.flatMap { emitterCCTraceValue(ccIn.points, atBeat: $0) },
                                                    value: { emitterCCTraceValue(ccIn.points, atBeat: $0) })
                     }
+                    // §6.1: both parts off → the HIT cells dim to 42% (not the whole strip), UNLESS the whole strip already dims (solo via the box, or a LANES mute at this beat) — never dim the cells twice.
+                    let cellDim: Double = (cellsOnlyDim && !mutedNow && !suppressMuteDim) ? EuclideousLaneDimStyle.opacity : 1
                     drawLaneStripBands(&ctx, EuclideousStripBandInput(frames: bandFrames, hits: strip.legs[stripLeg].hits, steps: n, laneIndex: strip.lane, tint: tint, stripWidth: size.width, playheadStep: playheadStep,
-                                                                       sounding: sounding, cc: ccTrace, riffShown: strip.riffPartOn, notesShown: strip.notesPartOn, altHitSteps: strip.altHitSteps))
+                                                                       sounding: sounding, cc: ccTrace, riffShown: strip.riffPartOn, notesShown: strip.notesPartOn, cellDim: cellDim, altHitSteps: strip.altHitSteps))
                     return
                 }
                 // BOX CONTENT IS DIRECTION-INDEPENDENT — box `i` always shows `buf[i]`, the raw pattern buffer at

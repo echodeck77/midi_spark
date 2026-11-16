@@ -36,6 +36,9 @@ struct EuclideousStripBandInput {
     /// §3.6: the riff / notes part is on (an off part draws its chips as grey outlines).
     var riffShown: Bool = true
     var notesShown: Bool = true
+    /// PLAY BUTTONS RAIL+NOTE §6.1: both parts off → the HIT cells (fill + bottom bar) draw at this (0.42); rest cells, the
+    /// playhead and the tiles are unchanged. 1 (one part on, or the whole strip already dimmed by solo/mute) ⇒ no cell dim.
+    var cellDim: Double = 1
     /// ALT §5.9: the buf-index steps whose hit plays in the alt state — a white inner outline on the body cell (empty for every non-ALT lane / stopped ⇒ identical).
     var altHitSteps: Set<Int> = []
 }
@@ -85,13 +88,13 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
         let look = stripCellLook(isHit: isHit, isPlayhead: d.playheadStep == i)
         let shape = RoundedRectangle(cornerRadius: M.cellRadius).path(in: cell)
         switch look.fill {
-        case .step:          ctx.fill(shape, with: .color(Color(M.stepFill)))
-        case .playheadStep:  ctx.fill(shape, with: .color(Color(M.playheadStepFill)))
-        case .hit(let a):    ctx.fill(shape, with: .color(d.tint.opacity(a)))
+        case .step:          ctx.fill(shape, with: .color(Color(M.stepFill)))                 // §6.1: rest/step cells unchanged
+        case .playheadStep:  ctx.fill(shape, with: .color(Color(M.playheadStepFill)))          // §6.1: the playhead unchanged
+        case .hit(let a):    ctx.fill(shape, with: .color(d.tint.opacity(a * d.cellDim)))      // §6.1: both-parts-off dims the HIT cells only
         }
         if look.bar {
             let bar = CGRect(x: cell.minX, y: cell.maxY - M.bottomBarH, width: cell.width, height: M.bottomBarH)
-            ctx.fill(RoundedRectangle(cornerRadius: M.bottomBarH / 2).path(in: bar), with: .color(d.tint))
+            ctx.fill(RoundedRectangle(cornerRadius: M.bottomBarH / 2).path(in: bar), with: .color(d.tint.opacity(d.cellDim)))
         }
     }
 
