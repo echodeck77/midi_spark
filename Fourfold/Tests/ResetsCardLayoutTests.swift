@@ -77,4 +77,17 @@ final class ResetsCardLayoutTests: XCTestCase {
         XCTAssertTrue(euclideousResetsCardLayout(size: CGSize(width: 262, height: 233)).row1Fits, "§1.8: TW == 262 fits")
         XCTAssertFalse(euclideousResetsCardLayout(size: CGSize(width: 261, height: 233)).row1Fits, "§1.8: TW < 262 reported")
     }
+
+    // draft 3 §4.7/§4.8 / §6 test 10 — count-chip half-tap step runs (clamp, no wrap) + the − box frame.
+    func testCountChipStepsAndMinusBox() {
+        func up(_ v: Int) -> Int { euclideousRestartCountChipDragValue(startValue: v, translationY: -12, hit: false) }
+        func down(_ v: Int) -> Int { euclideousRestartCountChipDragValue(startValue: v, translationY: 12, hit: false) }
+        var v = 1, run: [Int] = []; for _ in 0..<6 { v = up(v); run.append(v) };   XCTAssertEqual(run, [2, 3, 4, 6, 8, 8], "top-half taps from 1")
+        v = 8; run = []; for _ in 0..<6 { v = down(v); run.append(v) };             XCTAssertEqual(run, [6, 4, 3, 2, 1, 1], "bottom-half taps from 8")
+        var h = 1; run = []; for _ in 0..<8 { h = euclideousRestartCountChipDragValue(startValue: h, translationY: -12, hit: true); run.append(h) }; XCTAssertEqual(run, [2, 3, 4, 5, 6, 7, 8, 8], "HIT ladder 1…8")
+        let f = euclideousResetsCardLayout(size: landscape()).rhythm
+        XCTAssertNil(f.minusBox(count: 1), "§4.8: no − box at one link")
+        XCTAssertNotNil(f.minusBox(count: 2)); XCTAssertNotNil(f.minusBox(count: 4))
+        near(f.minusBox(count: 4)!.maxX, 220, "§4.9: four links + − box end at x 220"); near(f.minusBox(count: 4)!.width, 28, "− box 28 wide")
+    }
 }

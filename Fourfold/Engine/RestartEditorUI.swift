@@ -135,6 +135,13 @@ struct EuclideousRestartSectionFramesV2: Equatable {
         let r = countChips[count]
         return CGRect(x: r.minX, y: r.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: r.height)
     }
+    /// draft 3 §4.8: the − box (28 wide), shown at 2+ links — sp4 after the + box, or where + would be at four links (slot 4 = x 192, so it ends at x 220, §4.9). nil below 2 links.
+    func minusBox(count: Int) -> CGRect? {
+        guard count >= 2 else { return nil }
+        let h = countChips.first?.height ?? 28, y = countChips.first?.minY ?? 0
+        if count < 4, let add = addBox(count: count) { return CGRect(x: add.maxX + 4, y: add.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: add.height) }
+        return CGRect(x: 4 * 48, y: y, width: EuclideousRestartEditorMetricsV2.addBoxW, height: h)
+    }
 }
 struct EuclideousRestartEditorFramesV2: Equatable {
     var size: CGSize

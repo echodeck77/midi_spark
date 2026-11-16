@@ -103,7 +103,6 @@ struct EuclideousCountChipView: View {
     let dim: Double
     let hit: Bool
     let label: String
-    let onTap: () -> Void
     let onDrag: (Int, Bool) -> Void      // (new value, firstUpdate — true opens a fresh undo step)
     let onRemove: () -> Void
     var progressFraction: Double? = nil  // RESETS V2 §3.6: the running link's chip draws a lane-colour progress bar (nil = not the running link / stopped / FREE)
@@ -121,6 +120,7 @@ struct EuclideousCountChipView: View {
             RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x121318)).offset(y: 1)   // the 1 pt drop edge peeking below
             RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x343841))
             Text("\(value)").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+            chevrons   // §4.7: up / down marks for the two tap halves
         }
         .frame(width: frame.width, height: frame.height)
         .overlay(alignment: .bottomLeading) {   // §3.6: the running link's progress bar — 2 tall, r1, from x 4, 3 above the bottom, width 0→36 by the span fraction
@@ -141,7 +141,14 @@ struct EuclideousCountChipView: View {
                 }
                 .onEnded { v in
                     let held = (pressStart.map { Date().timeIntervalSince($0) } ?? 0) >= 0.5
-                    if !dragging, abs(v.translation.height) < 6, abs(v.translation.width) < 6 { if held { onRemove() } else { onTap() } }
+                    if !dragging, abs(v.translation.height) < 6, abs(v.translation.width) < 6 {
+                        if held { onRemove() }
+                        else {   // §4.7: top half steps up, bottom half steps down, both clamped at the ladder's ends (no wrap); one undo step
+                            let up = v.startLocation.y < frame.height / 2
+                            let nv = euclideousRestartCountChipDragValue(startValue: value, translationY: up ? -12 : 12, hit: hit)
+                            if nv != value { onDrag(nv, true) }
+                        }
+                    }
                     dragging = false; pressStart = nil; lastEmitted = Int.min
                 }
         )
@@ -157,6 +164,19 @@ struct EuclideousCountChipView: View {
             if nv != value { onDrag(nv, true) }
         }
         .accessibilityAction(named: EuclideousRestartEditorAX.removeLink) { onRemove() }
+    }
+    /// §4.7: a quiet up chevron 3 below the top and a down chevron 3 above the bottom (7 × 4, or 6 × 3 on a 24-tall chip), centred across the width, #8A909A, 1.3 pt. The value stays centred between them.
+    @ViewBuilder private var chevrons: some View {
+        let big = frame.height >= 28, cw: CGFloat = big ? 7 : 6, ch: CGFloat = big ? 4 : 3, edge: CGFloat = big ? 3 : 2
+        let stroke = StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round), c = Color(hex: 0x8A909A)
+        ZStack {
+            Path { p in p.move(to: CGPoint(x: 0, y: ch)); p.addLine(to: CGPoint(x: cw / 2, y: 0)); p.addLine(to: CGPoint(x: cw, y: ch)) }
+                .stroke(c, style: stroke).frame(width: cw, height: ch).position(x: frame.width / 2, y: edge + ch / 2)
+            Path { p in p.move(to: CGPoint(x: 0, y: 0)); p.addLine(to: CGPoint(x: cw / 2, y: ch)); p.addLine(to: CGPoint(x: cw, y: 0)) }
+                .stroke(c, style: stroke).frame(width: cw, height: ch).position(x: frame.width / 2, y: frame.height - edge - ch / 2)
+        }
+        .frame(width: frame.width, height: frame.height)
+        .allowsHitTesting(false)
     }
 }
 
@@ -290,6 +310,7 @@ struct EuclideousRestartSectionView: View {
                 countChips(progressLink: nil, fraction: 0)
             }
             if chain.count < 4 { addBox }
+            if chain.count >= 2 { minusBox }   // §4.8
             if showsTimeline { timeline }
         }
         .accessibilityElement(children: .contain)
@@ -322,8 +343,7 @@ struct EuclideousRestartSectionView: View {
             ForEach(Array(0..<max(0, chain.count)), id: \.self) { slot in
                 EuclideousCountChipView(value: Int(chain.link(slot)), frame: frames.countChips[slot], accent: accent, dim: dim, hit: isHitUnit,
                                         label: EuclideousRestartEditorAX.link(rhythm: rhythm, slot: slot, value: Int(chain.link(slot)), unitWord: unitWord),
-                                        onTap: { onEdit(.tapLink(rhythm: rhythm, slot: slot), true) },
-                                        onDrag: { v, first in onEdit(.setLink(rhythm: rhythm, slot: slot, value: v), first) },
+                                        onDrag: { v, first in onEdit(.setLink(rhythm: rhythm, slot: slot, value: v), first) },   // §4.7: the half-tap step and the drag both land on .setLink (one undo step, clamped, no wrap)
                                         onRemove: { if chain.count > 1 { onEdit(.removeLink(rhythm: rhythm, slot: slot), true) } },
                                         progressFraction: slot == progressLink ? fraction : nil)
             }
@@ -382,6 +402,21 @@ struct EuclideousRestartSectionView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(EuclideousRestartEditorAX.addLink(rhythm: rhythm))
             .accessibilityAddTraits(.isButton)
+    }
+    /// §4.8: the − box — 28 × 28 with the + box's looks, sp4 after the + box (or where + would be at four links); removes the LAST link (one undo step; `.removeLink`'s own guard never removes the only link). Shown only at 2+ links.
+    @ViewBuilder private var minusBox: some View {
+        if let r = frames.minusBox(count: chain.count) {
+            Text("\u{2212}").font(heavyMono(15)).foregroundColor(Color(hex: 0xAAB0BA))
+                .frame(width: r.width, height: r.height)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                .contentShape(Rectangle())
+                .onTapGesture { onEdit(.removeLink(rhythm: rhythm, slot: chain.count - 1), true) }
+                .offset(x: r.minX, y: r.minY)
+                .opacity(dim)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(rhythm ? "Remove the last rhythm link" : "Remove the last melody link")
+                .accessibilityAddTraits(.isButton)
+        }
     }
 
     // MARK: row 3 — the timeline (labels and cells; read-only)
