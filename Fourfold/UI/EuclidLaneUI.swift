@@ -679,7 +679,11 @@ struct EuclidCometBar: View {
         // GESTURES: 1-finger drag left/right = Δrotate, up/down = Δhits (this lane); 2-finger drag does the same
         // but to EVERY lane (the caller's own `onAllRotateDelta`/`onAllHitsDelta`). PINCH = ΔSTEPS is the only way
         // to change STEPS from this bar. `rotateStepPt` (box-pitch-matched) governs the horizontal axis only.
-        let padInset: CGFloat = 14
+        // STEP-TAP HIT AREA (2026-11-16): was 14, which padded the gesture pad 14 pt in from each edge of the strip — so the
+        // left (and right) ~14 pt of the strip had NO recognizer and the leftmost/rightmost step wouldn't toggle near its edge.
+        // The pad now spans the cells exactly (0); `euclideousStripStepAtX` already maps a tap to the NEAREST column, so every
+        // point in the strip toggles a step. (The tiles are separate views with their own gestures, so no edge conflict.)
+        let padInset: CGFloat = 0
         let columnXs: [CGFloat] = stepXs.map { insetL + $0 }, columnW: CGFloat = groupGeo?.stepW ?? boxGeo.boxW
         EuclidGesturePad(onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                          onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState,
