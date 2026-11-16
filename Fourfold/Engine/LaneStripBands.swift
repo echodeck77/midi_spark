@@ -35,6 +35,8 @@ enum LaneStripBandMetrics {
     static let soundStroke = EuclideousRGB(r: 0xF2, g: 0xF4, b: 0xF7)
     /// §3.6: an off part's chips — outline only (1 pt #3A3D44 inner stroke), label #5A5E66, no ring.
     static let offChipStroke = EuclideousRGB(r: 0x3A, g: 0x3D, b: 0x44), offChipLabel = EuclideousRGB(r: 0x5A, g: 0x5E, b: 0x66)
+    /// PLAY BUTTONS RAIL+NOTE §5.1 / §10: a stack hit the NOTES layer is predicted to play NOTHING on draws this flat #2B2D33 placeholder (no label, no stroke).
+    static let emptySlotFill = EuclideousRGB(r: 0x2B, g: 0x2D, b: 0x33)
     /// §B2.6: the ANSWER line along the footer track's inside-bottom edge — 1.5 pt, source lane100 @ 70 %, radius 1.
     static let answerLineH: CGFloat = 1.5, answerLineAlpha = 0.7, answerLineRadius: CGFloat = 1
 
@@ -464,4 +466,28 @@ func euclideousPartNoteChip(held: [NoteRollNote], hits: [EuclideousStripHit], st
     }
     ranks.sort()
     return EuclideousPartNoteChip(chip: hits[step].chip, ranks: ranks, sounding: euclideousMixNoteSounds(newest, at: now))
+}
+
+/// §5: the stack ranks the NOTES layer is PREDICTED to play on each hit — the engine's OWN `euclideousNotesHitPitches`
+/// (fuzz-proven against the Router's notes body) mapped to pool ranks by `euclideousPoolRankOf` (the Router's own stamp), so
+/// an upcoming predicted chip and the played chip (which reads a note record's stamped rank) agree as a hit transitions.
+/// MONO only — a POLY lane (`poly != nil`) returns empty (⇒ the §5.1 #2B2D33 placeholder). Empty for a hit = predicted silent
+/// (CHANCE-dropped / WHEN-excluded / empty pool). `pool` is the live pitch pool ascending; `isRestHit` per hit is the riff
+/// column's written-rest state (MONO: `ranks[col−1] < 1`). Known limit (shared with the whole strip): `pool` is the GLOBAL
+/// pool, so a lane with its own sources predicts against the global pool.
+func euclideousStripStackRanks(line: EuclidLine, pool: [Int], cfg: EuclideousWalkLaneConfig?, hits: [EuclideousStripHit], lapStartTick: Int64?, lane: Int, ranks: [Int], poly: PolyRiffSnap?) -> [[Int]] {
+    var out = [[Int]](repeating: [], count: hits.count)
+    guard poly == nil, euclideousNotesLayerIsOn(line), !pool.isEmpty, let cfg, let lapStartTick else { return out }
+    let oct = max(-2, min(2, line.octaveResolved))
+    let slice = pool.map { (note: $0, vel: UInt8(100)) }[...]
+    for i in 0..<hits.count {
+        let h = hits[i]
+        guard h.kind != .rhythmRest, h.tick >= 0 else { continue }
+        let isRestHit: Bool = { guard let col = h.column, col >= 1, col - 1 < ranks.count else { return true }; return ranks[col - 1] < 1 }()
+        let pitches = euclideousNotesHitPitches(line: line, pool: pool, cfg: cfg, tick: lapStartTick + Int64(h.tick), lane: lane, oct: oct, isRestHit: isRestHit, ranks: ranks, poly: nil)
+        var rs: [Int] = []
+        for p in pitches { let r = Int(euclideousPoolRankOf(slice, note: p)); if r >= 1 && r <= 8 && !rs.contains(r) { rs.append(r) } }
+        out[i] = rs.sorted()
+    }
+    return out
 }

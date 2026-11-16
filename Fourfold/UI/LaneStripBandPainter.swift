@@ -153,7 +153,16 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     if stackFrac > 0 {
         for i in 0..<n where i < d.hits.count {
             if i < s.stackChipRanks.count, !s.stackChipRanks[i].isEmpty {
-                laneStripDrawFooterChip(&ctx, slot: d.frames.footer[i], steps: d.steps, ranks: s.stackChipRanks[i], sounding: stackRing(i), opacity: stackFrac)
+                laneStripDrawFooterChip(&ctx, slot: d.frames.footer[i], steps: d.steps, ranks: s.stackChipRanks[i], sounding: stackRing(i), opacity: stackFrac)   // a played hit — its chip, ringed while sounding
+            } else if d.hits[i].kind != .rhythmRest {
+                // PLAY BUTTONS RAIL+NOTE §5 (Paul 2026-11-16): every upcoming hit gets a chip too, like the riff — the REAL
+                // predicted ranks (resting look, 78 %), or a flat #2B2D33 placeholder when the hit is predicted silent.
+                let pred = d.hits[i].predictedStackRanks
+                if !pred.isEmpty {
+                    laneStripDrawFooterChip(&ctx, slot: d.frames.footer[i], steps: d.steps, ranks: pred, sounding: false, opacity: stackFrac)
+                } else {
+                    ctx.fill(RoundedRectangle(cornerRadius: M.chipRadius).path(in: d.frames.footer[i]), with: .color(Color(M.emptySlotFill).opacity(stackFrac)))
+                }
             }
         }
     }

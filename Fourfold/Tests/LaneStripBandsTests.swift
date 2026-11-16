@@ -195,6 +195,17 @@ final class LaneStripBandsTests: XCTestCase {
         XCTAssertNil(euclideousPartNoteChip(held: [note(3, rank: 4, outs: 0)], hits: hits, stepOf: step, hitSteps: hitSteps, now: 3.5), "routed nowhere (outs 0) → ignored")
     }
 
+    // PLAY BUTTONS RAIL+NOTE §5 — the predicted-stack-ranks guards (the real prediction's engine match is in StackGridLiveTests):
+    // notes layer off / empty pool / no walk config / a POLY lane all return empty ⇒ the #2B2D33 placeholder.
+    func testStripStackRanksGuards() {
+        let hits: [EuclideousStripHit] = [EuclideousStripHit(kind: .hit, column: 1, tick: 0)]
+        var line = EuclidLine(noteSel: .all)
+        XCTAssertEqual(euclideousStripStackRanks(line: line, pool: [60, 64, 67], cfg: nil, hits: hits, lapStartTick: 0, lane: 0, ranks: [1], poly: nil), [[]], "notes layer off → empty")
+        line.notesOn = true; line.litNotes = 0b0000_0001
+        XCTAssertEqual(euclideousStripStackRanks(line: line, pool: [60], cfg: nil, hits: hits, lapStartTick: 0, lane: 0, ranks: [1], poly: nil), [[]], "no walk config → empty")
+        XCTAssertEqual(euclideousStripStackRanks(line: line, pool: [], cfg: nil, hits: hits, lapStartTick: 0, lane: 0, ranks: [1], poly: nil), [[]], "empty pool → empty")
+    }
+
     // §5.3/§5.4 — the CC trace maps the emitter's bar curve onto the steps: value→y (127 top, 0 above the bar), beat→x.
     func testCCStripTrace() {
         let cellXs: [CGFloat] = [0, 20, 40, 60]                                    // 4 steps, pitch 20

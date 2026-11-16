@@ -2531,7 +2531,7 @@ struct EuclideousPage: View {
         for hs in hitSteps where hs.bufIdx >= 0 && hs.bufIdx < steps { pattern[hs.bufIdx] = true }
         let notes: EuclideousStripNotes? = layerOn
             ? EuclideousStripNotes(layerOn: true, when: line.notesWhenResolved, chance: line.notesChanceResolved, way: line.notesPlayAsResolved, list: notesPlayList(line), lane: idx) : nil
-        let legs = euclideousStripLegs(pattern: pattern, hitSteps: hitSteps, prediction: prediction, lapSteps: steps, ranks: ranks, anyLit: layerOn, fxTieColumns: riffPoly ? 0 : euclideousFXTieColumns(fx, line: line, lane: idx),   // POLY: the FX rows are off
+        var legs = euclideousStripLegs(pattern: pattern, hitSteps: hitSteps, prediction: prediction, lapSteps: steps, ranks: ranks, anyLit: layerOn, fxTieColumns: riffPoly ? 0 : euclideousFXTieColumns(fx, line: line, lane: idx),   // POLY: the FX rows are off
                                        pingPong: dispDir == .pingpong, riffPlays: playsRiff, grey: grey, onRest: riffPoly ? .skip : line.riffOnRestResolved, cfg: cfg, lapStartTick: lapStartTick,   // POLY: ON REST is SKIP — no hollow REPEAT chip on a silent column
                                        notes: notes, poly: polySnap, polyOrdinals: polyOrdinals, name: stripNoteName)
         // VoiceOver (§6): read the sweep the lane is on at this body (PING-PONG has two); the note at a written rank is the riff grid's row name, a pitch is spoken as the NOTES tab's keys speak it
@@ -2553,6 +2553,16 @@ struct EuclideousPage: View {
             for hs in hitSteps where hs.bufIdx >= 0 && hs.bufIdx < steps {
                 let tick = lapStartTick + Int64(hs.bufIdx)
                 if euclideousAltStateAtTick(line: line, cfg: cfg, tick: tick, beat: Double(tick) * cfg.sub, barBeats: clock.beatsPerBar).isAlt { altHitSteps.insert(hs.bufIdx) }
+            }
+        }
+        // PLAY BUTTONS RAIL+NOTE §5 (Paul 2026-11-16): fill each hit's PREDICTED stack ranks — the engine's own notes-pitch
+        // prediction → pool ranks — so the footer draws a real chip on every upcoming stack hit, like the riff. MONO only;
+        // a POLY lane / predicted-silent hit stays empty ⇒ the #2B2D33 placeholder.
+        if layerOn {
+            let poolInts = pool.map { Int($0) }
+            for l in 0..<legs.count {
+                let pr = euclideousStripStackRanks(line: line, pool: poolInts, cfg: cfg, hits: legs[l].hits, lapStartTick: lapStartTick, lane: idx, ranks: ranks, poly: riffPoly ? polySnap : nil)
+                for i in 0..<legs[l].hits.count where i < pr.count { legs[l].hits[i].predictedStackRanks = pr[i] }
             }
         }
         return EuclideousStripPlan(legs: legs, sweepLength: steps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase, hocketRules: hocketRules, hocketLive: hocketLive, lane: idx,

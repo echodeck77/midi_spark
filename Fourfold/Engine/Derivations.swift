@@ -9775,6 +9775,11 @@ struct EuclideousStripHit: Equatable {
     var tick: Int = -1       // the hit's lap-local tick (its place in the pass), -1 for a rest
     /// POLY RIFF (2026-10-29): the OTHER ranks of notes that start on this hit's column (the chip carries the highest) — each is drawn as a plain chip at its own height. Empty in MONO.
     var extraRanks: [Int] = []
+    /// PLAY BUTTONS RAIL+NOTE (2026-11-16) §5: the stack ranks the NOTES layer is PREDICTED to play on this hit (the footer
+    /// draws them before the hit sounds, so a running stack shows a chip on every hit like the riff). Filled by `laneStripPlan`
+    /// from `euclideousStripStackRanks` (the engine's own `euclideousNotesHitPitches` → `euclideousPoolRankOf`); empty = the hit
+    /// is predicted silent (CHANCE-dropped / WHEN-excluded / empty pool / POLY) ⇒ the §5.1 #2B2D33 placeholder.
+    var predictedStackRanks: [Int] = []
 }
 /// What the key row needs to know about the lane's notes layer: the layer on (`euclideousNotesLayerIsOn`), WHEN, CHANCE, the way, the play list and the lane index (CHANCE's roll is seeded with it).
 struct EuclideousStripNotes {

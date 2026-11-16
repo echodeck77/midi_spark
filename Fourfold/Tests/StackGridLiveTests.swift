@@ -142,10 +142,16 @@ final class StackGridLiveTests: XCTestCase {
                 let notesStarts = recs.filter { !$0.isEnd && $0.part == 1 && $0.onBeat < 7.0 }
                 XCTAssertFalse(notesStarts.isEmpty, "\(mode) oct \(oct): the notes layer struck")
                 let byBeat = Dictionary(grouping: notesStarts, by: { ($0.onBeat / cfg.sub).rounded() })
+                let slice = pool.map { (note: $0, vel: UInt8(100)) }[...]
                 for (_, group) in byBeat {
                     let tick = Int64((group[0].onBeat / cfg.sub).rounded())
                     let predicted = Set(euclideousNotesHitPitches(line: l, pool: pool, cfg: cfg, tick: tick, lane: 0, oct: max(-2, min(2, oct)), isRestHit: false, ranks: riffRanks))   // every riff rank ≥ 1 ⇒ no rest hit
                     XCTAssertEqual(predicted, Set(group.map { Int($0.pitch) }), "\(mode) oct \(oct) tick \(tick): the predicted notes-layer pitches match the engine")
+                    // PLAY BUTTONS RAIL+NOTE §5: euclideousStripStackRanks (the footer's predicted chips) == the engine's emitted notes-layer RANKS per hit.
+                    let engineRanks = Set(group.map { Int(euclideousPoolRankOf(slice, note: Int($0.pitch))) }.filter { $0 >= 1 && $0 <= 8 })
+                    let hit = EuclideousStripHit(kind: .hit, column: 1, tick: Int(tick))   // col 1 → riffRanks[0]=1 ≥ 1 ⇒ not a rest hit
+                    let pr = euclideousStripStackRanks(line: l, pool: pool, cfg: cfg, hits: [hit], lapStartTick: 0, lane: 0, ranks: riffRanks, poly: nil)
+                    XCTAssertEqual(Set(pr[0]), engineRanks, "\(mode) oct \(oct) tick \(tick): the footer's predicted ranks match the engine's emitted ranks")
                 }
             }
         }
