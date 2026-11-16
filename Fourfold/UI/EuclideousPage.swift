@@ -2718,6 +2718,54 @@ struct EuclideousPage: View {
         return p < rollLive.model.parts.count ? rollLive.model.parts[p] : []
     }
 
+    // MARK: - RIFF GRID STACK DOTS (ferry 2026-11-16): a grey dot per sounding stack note on the riff grid, in the cell of (the lane's riff column at the START hit, the rank it played). Display-only.
+
+    /// One lane's dot inputs, snapshotted at body evaluation (they change on edits, not per frame): the MIX strip feed (the SAME sweep the lane strip + MIX comet use — `legs`/`n`/`dir`/`sub`/`chains`/`fill`), the lane's
+    /// STACK held notes, and whether its STACK part is on (`stackOn`, §5). The per-frame bits — the live beat and the lane's muted/solo dim — are applied in `riffStackDotsCanvas`.
+    private struct StackDotLaneInput { let lane: Int; let feed: EuclideousMixStripFeed; let stackHeld: [NoteRollNote]; let stackOn: Bool }
+    private func stackDotInput(_ idx: Int) -> StackDotLaneInput {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        return StackDotLaneInput(lane: idx, feed: mixStripFeed(idx), stackHeld: laneHeldNotes(idx, notes: true), stackOn: !euclideousMixLayerIsOff(line, notes: true))
+    }
+    /// §2–§5 — the dots layer: for each lane whose STACK is on and which is NOT muted / solo-silenced at this beat (`frames[].dimmed`, the arrows' own signal), the sounding stack dots from `euclideousRiffStackDots`
+    /// (the lane-strip onset→step mapping + the hit's riff column), each a 3 pt `StackRankPalette.colour(rank)` disc with a dark ring in the cell's TOP-RIGHT corner (clear of the centred arrow, §2.5), stepped left by lane
+    /// order (§3: lane 1 rightmost), fading after note-off (§4). Paint only; the sweep is the SAME `euclideousLaneCometChainRaw`/`euclidCometRaw` the lane strip uses — no second clock.
+    private func riffStackDotsCanvas(layout: EuclideousRiffPanelLayout, inputs: [StackDotLaneInput], frames: [RiffLaneFrame], beat: Double) -> some View {
+        let secPerBeat = 60.0 / max(1, clock.tempo)
+        return Canvas { ctx, _ in
+            for input in inputs where input.stackOn {
+                if frames.first(where: { $0.lane == input.lane })?.dimmed ?? false { continue }   // §5: muted or solo-silenced at this beat
+                let feed = input.feed
+                guard !feed.legs.isEmpty else { continue }
+                let cometRawAt: (Double) -> Double = { b in
+                    (feed.fill?.active ?? false)
+                        ? euclideousLaneCometChainRaw(beat: b, n: feed.n, dir: feed.dir, sub: feed.sub, chains: feed.chains ?? .off, legacySpanBeats: 0, fill: feed.fill)
+                        : (feed.chains.map { euclideousLaneCometChainRaw(beat: b, n: feed.n, dir: feed.dir, sub: feed.sub, chains: $0, legacySpanBeats: 0) }
+                            ?? euclidCometRaw(mTickBeat: b, sub: feed.sub, spanBeats: 0, n: feed.n, dir: feed.dir))
+                }
+                let raw = cometRawAt(beat)
+                let legIdx = min(max(0, feed.legs.count - 1), euclideousStripLegIndex(raw: raw, n: feed.n, legCount: feed.legs.count))
+                let hits = feed.legs[legIdx].hits
+                let hitSteps = (0..<feed.n).filter { $0 < hits.count && hits[$0].kind != .rhythmRest }
+                let dots = euclideousRiffStackDots(lane: input.lane, stackHeld: input.stackHeld, hits: hits,
+                                                   stepOf: { euclideousStripNoteStep(raw: cometRawAt($0), n: feed.n, dir: feed.dir) ?? -1 },
+                                                   hitSteps: hitSteps, now: beat, fadeSeconds: RiffStackDotTuning.fadeSeconds, secPerBeat: secPerBeat, columns: layout.columns)
+                for dot in dots {
+                    let cell = layout.cellFrame(column: dot.column, rank: dot.rank)
+                    let sz = RiffStackDotTuning.size
+                    let cx = cell.maxX - RiffStackDotTuning.cornerInsetX - sz / 2 - CGFloat(dot.lane) * RiffStackDotTuning.laneStepX   // §3: lane 1 (index 0) rightmost, each later lane one step left
+                    let cy = cell.minY + RiffStackDotTuning.cornerInsetY + sz / 2
+                    let rect = CGRect(x: cx - sz / 2, y: cy - sz / 2, width: sz, height: sz)
+                    ctx.fill(Path(ellipseIn: rect), with: .color(StackRankPalette.colour(rank: dot.rank).opacity(dot.opacity)))
+                    ctx.stroke(Path(ellipseIn: rect.insetBy(dx: RiffStackDotTuning.ringWidth / 2, dy: RiffStackDotTuning.ringWidth / 2)),
+                               with: .color(Color(hex: 0x0D0F14).opacity(RiffStackDotTuning.ringOpacity * dot.opacity)), lineWidth: RiffStackDotTuning.ringWidth)
+                }
+            }
+        }
+        .frame(width: layout.box.width, height: layout.box.height, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+
     @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat, tabOverride: EuclideousLaneTab? = nil) -> some View {
         if euclideousRandomMode {
             euclideousRandomLaneCard(idx, width: width, height: height)
@@ -7631,7 +7679,9 @@ struct EuclideousPage: View {
             .onDisappear { if stackRankHold != 0 { stackRankHold = 0; pushScrubHolds() } }
     }
     private func riffPanelOverlay(layout: EuclideousRiffPanelLayout, ranks: [Int], suppressArrows: Bool, played: [Set<Int>]) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+        // RIFF GRID STACK DOTS: the per-lane inputs are built once per body eval (they change on edits, not per frame); the Canvas re-evaluates the fade + sweep at the live beat inside the TimelineView.
+        let stackDotInputs: [StackDotLaneInput] = suppressArrows ? [] : (0..<4).map { stackDotInput($0) }
+        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
             let beat = walkTagBeat(at: tl.date)
             let frames = riffLaneFrames(ranks: ranks, beat: beat, now: tl.date.timeIntervalSinceReferenceDate)
             let cells = suppressArrows ? [] : riffArrowCells(frames, ranks: ranks)
@@ -7660,6 +7710,7 @@ struct EuclideousPage: View {
                     return euclideousRailSpec(lane: i, riffOn: f?.riffOn ?? false, running: f?.running ?? false, muted: f?.dimmed ?? false,
                                               played: i < played.count ? played[i] : [], current: w.0, trail: w.1, heading: w.2, flare: f?.flare ?? 0, columns: layout.columns)
                 })
+                riffStackDotsCanvas(layout: layout, inputs: stackDotInputs, frames: frames, beat: beat)   // RIFF GRID STACK DOTS: on top of the arrows, in each cell's top-right corner
                 scrubRiffMarks(layout: layout)   // Scrub §5.1/§5.3: the held-column rect (over the rails) + the held-rank axis mark
             }
         }
