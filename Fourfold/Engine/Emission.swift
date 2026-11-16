@@ -40,6 +40,14 @@ let renderSampleImmediate: Int64 = Int64(bitPattern: 0xffffffff00000000)
 final class ReelDeck {
     enum State: Equatable { case off, armed, replaying }
     var state: State = .off
+    // REEL PHASE 2 (2026-11-16): the ANCHORED tape playhead replaces the phase-locked loop. `.loop` repeats the staged range
+    // aligned to WHEN REPLAY STARTED (not the global grid); `.toLive` plays it once, forward, then the Kernel hands back to live.
+    // Position is derived (host beat − `anchorHostBeat`); nothing accumulates across windows (invariant 2). `loopCycle` carries
+    // the range's SPAN in beats (its staged events' beats are range-relative, in [0, span)). See `Docs/reel-phase2-findings.md`.
+    enum ReplayMode: Equatable { case loop, toLive }
+    var replayMode: ReplayMode = .loop
+    private var anchorHostBeat = 0.0
+    private var anchorPending = false            // latch `anchorHostBeat` at the first emitting window after an adopt
     struct Ev: Equatable { var beat = 0.0; var cable: UInt8 = 0; var b0: UInt8 = 0; var b1: UInt8 = 0; var b2: UInt8 = 0; var machine: UInt32 = 0 }
     static let cap = 16384
     private(set) var cur = [Ev](repeating: Ev(), count: cap); private(set) var curN = 0
@@ -187,26 +195,36 @@ final class ReelDeck {
     // and a request that finds the render thread mid-copy gives up (the caller may ask again). Allocated once, here; the render thread's side is one memcpy-sized loop, no allocation.
     private let staged = UnsafeMutablePointer<Ev>.allocate(capacity: ReelDeck.cap)
     private var stagedN = 0, stagedCycle = 4.0, stagedPass = -1
+    private var stagedMode: ReplayMode = .loop, stagedAnchored = false     // REEL PHASE 2
+    /// REEL PHASE 2: which emission the current loop uses — the legacy PHASE-LOCKED `replay` (the current pass browser, unchanged) or the ANCHORED `replayAnchored` (a range staged via `stageRange`, the new path phase 3 drives). Dual-path on
+    /// purpose: the shipping browser keeps its exact behaviour (its playhead is phase-locked), while the anchored engine is built, tested and ready underneath.
+    private(set) var usesAnchoredReplay = false
     private let stagedState = ManagedAtomic<Int>(0)                // 0 free · 1 ready · 2 render thread reading · 3 main thread writing
     deinit { staged.deallocate() }
-    /// MAIN THREAD. Stage `events` (pass-relative beats) as the next loop, of length `cycle` beats, labelled as pass `pass`. False if the render thread was reading at that instant.
-    func stageLoop(_ events: [Ev], cycle: Double, pass: Int) -> Bool {
+    /// MAIN THREAD. Stage `events` (pass-relative beats) as the next loop, length `cycle`, labelled pass `pass` — the LEGACY phase-locked path (the current browser). False if the render thread was reading.
+    func stageLoop(_ events: [Ev], cycle: Double, pass: Int) -> Bool { stage(events, span: cycle, mode: .loop, pass: pass, anchored: false) }
+    /// MAIN THREAD. Stage a tape RANGE (range-relative beats in [0, `span`)) as the next loop — the ANCHORED path (phase 2). `.loop` repeats it from press-time; `.toLive` plays it once then hands back.
+    func stageRange(_ events: [Ev], span: Double, mode: ReplayMode, pass: Int) -> Bool { stage(events, span: span, mode: mode, pass: pass, anchored: true) }
+    private func stage(_ events: [Ev], span: Double, mode: ReplayMode, pass: Int, anchored: Bool) -> Bool {
         var ok = stagedState.compareExchange(expected: 0, desired: 3, ordering: .acquiring).exchanged
         if !ok { ok = stagedState.compareExchange(expected: 1, desired: 3, ordering: .acquiring).exchanged }
         guard ok else { return false }
         let n = min(events.count, ReelDeck.cap)
         for i in 0..<n { staged[i] = events[i] }
-        stagedN = n; stagedCycle = cycle; stagedPass = pass
+        stagedN = n; stagedCycle = span; stagedPass = pass; stagedMode = mode; stagedAnchored = anchored
         stagedState.store(1, ordering: .releasing)
         return true
     }
-    /// RENDER THREAD, once a window. Adopt a staged loop as `loop` (pinning it like `selectPass`). True if one was adopted.
+    /// RENDER THREAD, once a window. Adopt a staged loop/range as `loop` (pinning it like `selectPass`). True if one was adopted. An anchored range re-latches the anchor at the next emitting window, so it starts from NOW.
     func adoptStagedLoop() -> Bool {
         guard stagedState.compareExchange(expected: 1, desired: 2, ordering: .acquiring).exchanged else { return false }
         loopN = stagedN
         for i in 0..<loopN { loop[i] = staged[i] }
         loopCycle = stagedCycle
         selectedPassNo = stagedPass
+        replayMode = stagedMode                                    // REEL PHASE 2
+        usesAnchoredReplay = stagedAnchored
+        anchorPending = true                                       // REEL PHASE 2: re-anchor at the first emitting window
         stagedState.store(0, ordering: .releasing)
         closeOpenLoopNotes()
         return true
@@ -304,6 +322,44 @@ final class ReelDeck {
                 out?.emit(sampleTime: s, cable: loop[i].cable, loop[i].b0, loop[i].b1, loop[i].b2)
             }
         }
+    }
+
+    // REEL PHASE 2 — the ANCHORED replay. Position is derived from the host beat and the latched anchor; nothing accumulates.
+    // `.loop` repeats the staged range (span = `loopCycle`) aligned to when replay started; `.toLive` plays it once, forward.
+    // The staged events' beats are range-relative (in [0, span)). Called once a PLAYING window (the Kernel gates on `playing`).
+    func replayAnchored(beatPos: Double, windowBeats: Double, beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
+        guard beatsPerSample > 0, loopN > 0 else { return }
+        if anchorPending { anchorHostBeat = beatPos; anchorPending = false }   // latch: this is "now"
+        let elapsed = max(0, beatPos - anchorHostBeat)
+        if replayMode == .loop {
+            let span = max(0.0001, loopCycle)
+            var phase = elapsed.truncatingRemainder(dividingBy: span)
+            if phase < 0 { phase += span }
+            let end = phase + windowBeats                                      // may exceed `span`: an event is caught in THIS loop (b ≥ phase) or the NEXT (b + span)
+            for i in 0..<loopN {
+                let b = loop[i].beat                                          // range-relative, in [0, span]
+                var occ = b
+                if occ < phase { occ += span }                               // already passed this turn → next turn
+                if occ < end {
+                    let s = windowStart + Int64(max(0, (occ - phase) / beatsPerSample))
+                    out?.emit(sampleTime: s, cable: loop[i].cable, loop[i].b0, loop[i].b1, loop[i].b2)
+                }
+            }
+        } else {                                                              // .toLive — play the range once, forward
+            let lo = elapsed, hi = elapsed + windowBeats
+            for i in 0..<loopN {
+                let b = loop[i].beat
+                if b >= lo && b < hi {
+                    let s = windowStart + Int64(max(0, (b - lo) / beatsPerSample))
+                    out?.emit(sampleTime: s, cable: loop[i].cable, loop[i].b0, loop[i].b1, loop[i].b2)
+                }
+            }
+        }
+    }
+    /// REEL PHASE 2 — RENDER THREAD: has a `.toLive` replay reached the end of its range at `beatPos`? (The Kernel then hands back to live.) Always false while `.loop` or not anchored yet.
+    func toLiveReachedEnd(beatPos: Double) -> Bool {
+        guard replayMode == .toLive, !anchorPending, loopN > 0 else { return false }
+        return (beatPos - anchorHostBeat) >= max(0.0001, loopCycle)
     }
 }
 

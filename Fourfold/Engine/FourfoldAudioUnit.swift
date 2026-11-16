@@ -124,6 +124,20 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let events = t.reelPassEvents(p)
         for _ in 0..<8 { if kernel.reelStageLoop(events, cycle: cycle, pass: p) { break }; usleep(500) }   // the render thread holds the buffer for microseconds; give up after a few tries
     }
+    // REEL PHASE 2: replay a tape BEAT range anchored to NOW — `loop` repeats it, else it plays once then hands back to live. The range events are built here on the main thread (the render thread can't read the tape) and staged like a pass.
+    func reelPlayRange(fromTapeBeat lo: Double, toTapeBeat hi: Double, loop: Bool) {
+        let t = kernel.tape
+        let startTick = Int((min(lo, hi) * Double(SessionTape.ppq)).rounded())
+        let endTick = Int((max(lo, hi) * Double(SessionTape.ppq)).rounded())
+        guard endTick > startTick else { return }
+        let span = Double(endTick - startTick) / Double(SessionTape.ppq)
+        let events = t.events(from: startTick, to: endTick, kinds: [.note, .control]).map { e -> ReelDeck.Ev in
+            let w = e.wire
+            return ReelDeck.Ev(beat: Double(Int(e.tick) - startTick) / Double(SessionTape.ppq), cable: UInt8(e.cable), b0: w.status, b1: w.d1, b2: w.d2, machine: 0)
+        }
+        for _ in 0..<8 { if kernel.reelStageRange(events, span: span, mode: loop ? .loop : .toLive, pass: -1) { break }; usleep(500) }
+    }
+    func reelModeValue() -> Int { kernel.reelModeValue() }               // REEL PHASE 2: 0 loop · 1 to-live (the LIVE/TAPE pill)
     /// UNDO AUDIT probe (main thread, read-only): is the snapshot the render thread holds the one the AU would build from what it was given right now? Compares the Euclideous lanes of the published box with a fresh build.
     func probeBoxAgreement() -> Bool {
         func lanesHash(_ box: SnapshotBox?) -> UInt64 {

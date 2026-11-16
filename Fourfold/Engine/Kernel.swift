@@ -246,6 +246,8 @@ final class Kernel {
     func reelSelectedRoll() -> [ReelDeck.Note] { reel.selectedRoll() }   // read-only value copy — safe off the render thread (see BUILD reel note)
     func reelSelectedPassNo() -> Int { reel.selectedPassNo }
     func reelStageLoop(_ events: [ReelDeck.Ev], cycle: Double, pass: Int) -> Bool { reel.stageLoop(events, cycle: cycle, pass: pass) }   // main thread: pin + replay this pass (adopted by the next render window)
+    func reelStageRange(_ events: [ReelDeck.Ev], span: Double, mode: ReelDeck.ReplayMode, pass: Int) -> Bool { reel.stageRange(events, span: span, mode: mode, pass: pass) }   // REEL PHASE 2: main thread — stage a tape RANGE (anchored replay), adopted + replayed by the next window
+    func reelModeValue() -> Int { reel.usesAnchoredReplay ? (reel.replayMode == .toLive ? 1 : 0) : 0 }   // REEL PHASE 2: 0 loop · 1 to-live (the LIVE/TAPE pill's detail)
     func reelStopReplay() { reelStopRequest = true }
     func reelCycleValue() -> Double { reel.loopCycle }              // the SELECTED pass's length in beats (piano-roll x-axis + export) — not the live rate
     /// EXPORT (step 2): the recorded pass as SMF files — the A–D "sum" plus a per-emitter stem for each that has events.
@@ -440,6 +442,10 @@ final class Kernel {
             if reel.state == .replaying { reel.state = .off; reelExitFlush = true }
             reel.clearSelection()
         }
+        // REEL PHASE 2: a `.toLive` replay that has played its whole range hands back to live automatically (the live engine is already running on the silent tap, so it just resumes to the live emitter; the loop's ringing notes are flushed below).
+        if playing, reel.state == .replaying, reel.toLiveReachedEnd(beatPos: beatPos) {
+            reel.state = .off; reelExitFlush = true; reel.clearSelection()
+        }
         reelTempoStored = tempo                                     // remembered for EXPORT (the loop length is now per-pass: reel.loopCycle)
         reel.cycleBeats = reelCycleBeats                            // the pass browser closes open notes in the roll at this length
         // THE HISTORY FREEZES while you're IN reel-to-reel (Paul 2026-08-19): the browser open OR a pass replaying → the
@@ -493,8 +499,12 @@ final class Kernel {
         // REPLACE the live output with the recorded loop — but keep the live engine running underneath, silently (REEL PHASE 1c): the session tape goes on recording what it plays.
         let replayingLoop = reel.state == .replaying && reel.hasLoop
         if replayingLoop && playing {   // EMIT the loop only while the transport runs — the host beat is frozen when stopped, so a paused replay stays SILENT (and ready to resume on restart); the live Euclid underneath keeps going to the SILENT tap below
-            reel.replay(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, cycleBeats: reel.loopCycle,   // loop at the SELECTED pass's own length, not the live rate
-                        beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
+            if reel.usesAnchoredReplay {   // REEL PHASE 2: a staged tape RANGE — anchored to when replay started; `.loop` repeats, `.toLive` plays once then hands back (handled above)
+                reel.replayAnchored(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
+            } else {                       // the current pass browser: the legacy phase-locked loop, unchanged
+                reel.replay(beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, cycleBeats: reel.loopCycle,
+                            beatsPerSample: reelBps, windowStart: reelWinStart, out: liveEmitter)
+            }
         }
         do {
         // ---- hand off to the router (columns, arp, emission, note tracker) — output through the recording tap ----
