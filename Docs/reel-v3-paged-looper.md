@@ -122,8 +122,9 @@ clock, which touches every derived-from-beat system and is its own piece of work
   loop blanket-off) and no doubled notes; width halve/double keeps the playhead's musical position;
   forward-onto-live hand-back closes every open note; stop/restart while armed and while looping.
 - `ReelPhase2Tests`, `ReelDeckTests`, `ReelTapeAdapterTests` stay green (legacy path untouched).
-- `soak.sh` with random page open/switch/width/close; `FourfoldStackBudgetTests`; the reel
-  screenshot/tap/accessibility UI tests updated to the new screen.
+- The reel screenshot/tap UI tests updated to the new screen (run on the mini, device-owed). A soak
+  that DRIVES the reel (random open/switch/width/close) does not exist yet — the monkey suite taps
+  it blindly; a scripted reel soak is a worthwhile follow-up, not a landed gate.
 
 ## §5 Slices (each green → land)
 
