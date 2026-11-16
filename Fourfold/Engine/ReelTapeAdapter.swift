@@ -22,6 +22,31 @@ extension SessionTape {
         return i >= 0 && i < f.count ? Double(f[i].cycleTicks) / Double(SessionTape.ppq) : nil
     }
 
+    // MARK: - REEL PHASE 3 (the new screen): beat-range queries (not pass-based)
+
+    /// The drawable notes (outputs A–D) whose note-ON falls in [fromTick, toTick), with SESSION-ABSOLUTE beats — the new screen's overview + close-up read them. A note still open at `toTick` ends there. Main thread, read-only.
+    /// (A note held from BEFORE `fromTick` is not re-opened — the window shows what STARTS inside it, like the pass roll; a flagged limit for a window that cuts a long note.)
+    func notesInRange(fromTick lo: Int, toTick hi: Int) -> [ReelDeck.Note] {
+        guard hi > lo else { return [] }
+        var out: [ReelDeck.Note] = []
+        var open: [Int: (start: Double, vel: UInt8)] = [:]
+        for e in events(from: lo, to: hi, kinds: [.note]) {
+            let w = e.wire
+            guard e.cable >= 1, e.cable <= FourfoldPorts.outputCount else { continue }
+            let beat = Double(Int(e.tick)) / Double(SessionTape.ppq)
+            let key = Int(e.cable) << 8 | Int(w.d1)
+            let isOn = (w.status & 0xF0) == 0x90 && w.d2 > 0
+            let isOff = (w.status & 0xF0) == 0x80 || ((w.status & 0xF0) == 0x90 && w.d2 == 0)
+            if isOn { open[key] = (beat, w.d2) }
+            else if isOff, let o = open.removeValue(forKey: key) {
+                out.append(ReelDeck.Note(cable: UInt8(e.cable), note: w.d1, vel: o.vel, start: o.start, end: max(o.start, beat), machine: 0))
+            }
+        }
+        let endBeat = Double(hi) / Double(SessionTape.ppq)
+        for (key, o) in open { out.append(ReelDeck.Note(cable: UInt8(key >> 8), note: UInt8(key & 0xFF), vel: o.vel, start: o.start, end: max(o.start, endBeat), machine: 0)) }
+        return out
+    }
+
     /// The REMOVE DUPLICATES hash of every filed pass, oldest first, aligned with the pass list. Two passes with the same note-ons (rounded timing, cable, pitch, velocity) hash equal. Computed once per pass.
     func reelSignatures() -> [UInt64] {
         let n = filedPasses().count

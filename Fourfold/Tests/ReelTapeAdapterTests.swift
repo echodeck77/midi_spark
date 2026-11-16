@@ -36,6 +36,16 @@ final class ReelTapeAdapterTests: XCTestCase {
         return t
     }
 
+    // REEL PHASE 3: the beat-range query the new screen reads — notes with SESSION-ABSOLUTE beats, outputs A–D only.
+    func testNotesInRangeAreSessionAbsolute() {
+        let t = tape(passes: 3)
+        let notes = t.notesInRange(fromTick: Int(2 * Double(SessionTape.ppq)), toTick: Int(3.9 * Double(SessionTape.ppq)))   // beats [2, 3.9)
+        XCTAssertEqual(notes.map { $0.start }.sorted(), [2.0, 3.0], "session-absolute, not pass-relative: the rank note starting at beat 2 and the cable-2 note at beat 3")
+        XCTAssertTrue(notes.contains { $0.cable == 1 && $0.note == 60 && abs($0.start - 2) < 1e-9 && abs($0.end - 2.5) < 1e-9 })
+        XCTAssertTrue(notes.contains { $0.cable == 2 && $0.note == 48 && abs($0.start - 3) < 1e-9 })
+        XCTAssertTrue(notes.allSatisfy { $0.cable >= 1 && $0.cable <= 4 }, "the All/CC cable 0 is excluded")
+    }
+
     func testTheBrowserListsEveryPassPlayedWhole() {
         let t = tape(passes: 5)
         XCTAssertEqual(t.filedPasses().count, 5)

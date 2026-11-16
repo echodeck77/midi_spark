@@ -138,6 +138,11 @@ public class FourfoldAudioUnit: AUAudioUnit {
         for _ in 0..<8 { if kernel.reelStageRange(events, span: span, mode: loop ? .loop : .toLive, pass: -1) { break }; usleep(500) }
     }
     func reelModeValue() -> Int { kernel.reelModeValue() }               // REEL PHASE 2: 0 loop · 1 to-live (the LIVE/TAPE pill)
+    // REEL PHASE 3 (the new screen): beat-domain queries the overview / tape / close-up read.
+    func reelSessionEndBeat() -> Double { Double(kernel.tape.endTick()) / Double(SessionTape.ppq) }   // the whole session's length in beats (the overview's right edge = now)
+    func reelNotesInRange(fromBeat lo: Double, toBeat hi: Double) -> [ReelDeck.Note] {                 // the drawable notes (outputs A–D) with session-absolute beats
+        kernel.tape.notesInRange(fromTick: Int((lo * Double(SessionTape.ppq)).rounded()), toTick: Int((max(lo, hi) * Double(SessionTape.ppq)).rounded()))
+    }
     /// UNDO AUDIT probe (main thread, read-only): is the snapshot the render thread holds the one the AU would build from what it was given right now? Compares the Euclideous lanes of the published box with a fresh build.
     func probeBoxAgreement() -> Bool {
         func lanesHash(_ box: SnapshotBox?) -> UInt64 {
