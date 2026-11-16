@@ -90,10 +90,12 @@ re-routes the live engine (already running on `reelSilentTap`) back to `liveEmit
   differential still green.
 
 ## Slice order (each green → land)
-1. **2a engine:** `replayAnchored` + `stageRange`/`adoptStagedRange` + modes + hand-back in `ReelDeck`/`Kernel`;
-   `FourfoldAudioUnit` API; the current browser re-pointed to it (tap a pass = anchored `.loop` of that pass's
-   tape span); `ReelPhase2Tests`; golden identical; alloc 0.
-2. **2b engine:** the re-stage/stream for long `.toLive` spans + the `bufLo/bufHi` coverage guard + the poll
-   hook; soak.
+1. **2a engine — DONE (`692825d`):** `replayAnchored` + `stageRange`/`adoptStagedLoop` + `.loop`/`.toLive` +
+   hand-back in `ReelDeck`/`Kernel`; `FourfoldAudioUnit.reelPlayRange` + `reelModeValue`; `ReelPhase2Tests` (30
+   reel tests green). **Dual-path:** the current browser keeps its legacy phase-locked replay unchanged
+   (`usesAnchoredReplay` false), so no interim regression — the anchored engine is new + tested + driven only by
+   the new API (phase 3's UI). golden byte-identical; alloc 0 (PASS, Release, 61 docs).
+2. **2b engine:** the re-stage/stream for long `.toLive` spans + a `bufLo/bufHi` coverage guard + the main-thread
+   poll hook; soak with random replay start/stop/mode.
 3. Docs + land. (Phase 3 — the new screen — then drives `reelPlayRange` with real selections + the LIVE/TAPE
-   pill.)
+   pill; Phase 4 — keep + multi-export — adds the model, a new stable AU parameter and session persistence.)
