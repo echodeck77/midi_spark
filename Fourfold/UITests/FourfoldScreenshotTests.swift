@@ -12,20 +12,25 @@ final class FourfoldScreenshotTests: XCTestCase {
         a.name = name; a.lifetime = .keepAlways; add(a)
     }
 
-    /// REEL redesign Phase 3 (2026-11-16): the NEW reel screen — overview (stacked by lane) → tape (bar window, ×n brackets, snapping selection) → close-up piano roll, the control bar and the LIVE/TAPE pill. Plays a few bars so the
-    /// tape has content, opens the reel from the header tape icon, and screenshots the WIDE (landscape) and TALL (portrait) shapes. The small shape only appears in a short AUM window, which the standalone app can't produce.
+    /// REEL V3 (2026-11-16): the paged looper — one page drawing itself LIVE, the auto-loop at the page boundary (frame lit,
+    /// pill TAPE), ‹ › paging, the ×½/×2 width row, the minimap and a keep chip. Plays a few bars, opens the reel (the open
+    /// page arms), waits past the 4-bar boundary so the loop closes, keeps the page, pages back, and screenshots landscape + portrait.
     func testTheReel() {
         let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
-        Thread.sleep(forTimeInterval: 4)   // let the tape record a few whole bars so the overview/close-up have notes
+        Thread.sleep(forTimeInterval: 4)   // let the tape record a few bars so the page has notes
         let reel = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reel")).element(boundBy: 0)
         guard reel.waitForExistence(timeout: 6) else { XCTFail("the reel header button was not found"); return }
-        reel.tap(); Thread.sleep(forTimeInterval: 1.5)
-        attach("reel-1")
-        let keep = app.buttons["KEEP"]   // Phase 4: mark the current selection as a keep so a keep chip appears
+        reel.tap(); Thread.sleep(forTimeInterval: 1)
+        attach("reel-1-live")
+        Thread.sleep(forTimeInterval: 9)   // past the 4-bar page boundary at 120 BPM → the engine is looping the page now
+        attach("reel-2-looping")
+        let keep = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Keep bars")).element(boundBy: 0)
         if keep.waitForExistence(timeout: 2) { keep.tap(); Thread.sleep(forTimeInterval: 1) }
-        attach("reel-2-with-keep")
+        let back = app.buttons["Previous page"]
+        if back.waitForExistence(timeout: 2) { back.tap(); Thread.sleep(forTimeInterval: 1) }
+        attach("reel-3-paged-back-with-keep")
         XCUIDevice.shared.orientation = .portrait; Thread.sleep(forTimeInterval: 1.5)
-        attach("reel-3-tall")
+        attach("reel-4-tall")
         XCUIDevice.shared.orientation = .landscapeLeft; Thread.sleep(forTimeInterval: 1)
     }
 

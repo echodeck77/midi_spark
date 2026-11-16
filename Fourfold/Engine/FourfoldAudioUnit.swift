@@ -133,7 +133,6 @@ public class FourfoldAudioUnit: AUAudioUnit {
     }
     // REEL PHASE 2: replay a tape BEAT range anchored to NOW — `loop` repeats it, else it plays once then hands back to live. The range events are built here on the main thread (the render thread can't read the tape) and staged like a pass.
     func reelPlayRange(fromTapeBeat lo: Double, toTapeBeat hi: Double, loop: Bool) {
-        let t = kernel.tape
         let startTick = Int((min(lo, hi) * Double(SessionTape.ppq)).rounded())
         let endTick = Int((max(lo, hi) * Double(SessionTape.ppq)).rounded())
         guard endTick > startTick else { return }
@@ -142,11 +141,17 @@ public class FourfoldAudioUnit: AUAudioUnit {
         for _ in 0..<8 { if kernel.reelStageRange(events, span: span, mode: loop ? .loop : .toLive, pass: -1) { break }; usleep(500) }
     }
     /// The staged form of a tape range: its events with RANGE-RELATIVE beats (main thread — the render thread can't read the tape).
+    /// A plain loop, never inlined: the Release-WMO optimizer crashed (SIL ownership verifier) inlining the `.map` form into `reelPlayRange` (2026-11-16).
+    @inline(never)
     private func reelRangeEvents(startTick: Int, endTick: Int) -> [ReelDeck.Ev] {
-        kernel.tape.events(from: startTick, to: endTick, kinds: [.note, .control]).map { e -> ReelDeck.Ev in
+        let raw = kernel.tape.events(from: startTick, to: endTick, kinds: [.note, .control])
+        var out: [ReelDeck.Ev] = []
+        out.reserveCapacity(raw.count)
+        for e in raw {
             let w = e.wire
-            return ReelDeck.Ev(beat: Double(Int(e.tick) - startTick) / Double(SessionTape.ppq), cable: UInt8(e.cable), b0: w.status, b1: w.d1, b2: w.d2, machine: 0)
+            out.append(ReelDeck.Ev(beat: Double(Int(e.tick) - startTick) / Double(SessionTape.ppq), cable: UInt8(e.cable), b0: w.status, b1: w.d1, b2: w.d2, machine: 0))
         }
+        return out
     }
     // REEL V3 — the paged looper (`Docs/reel-v3-paged-looper.md` §2). All main thread; a page's events are re-based to its start.
     // ARM: stage what the tape holds of the page and flip to looping it when the live clock reaches `endBeat` (open / page-forward-onto-live;
@@ -157,16 +162,17 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func reelShowPage(startBeat: Double, endBeat: Double) { reelStageV3(startBeat, endBeat, arm: false, keepAnchor: true, livePhase: true, flush: true, retile: false) }   // replaying ⇒ phase kept; live ⇒ starts at the live clock's page phase
     func reelTopUpPage(startBeat: Double, endBeat: Double) { reelStageV3(startBeat, endBeat, arm: false, keepAnchor: true, livePhase: false, flush: false, retile: false) }
     func reelRetilePage(startBeat: Double, endBeat: Double) { reelStageV3(startBeat, endBeat, arm: false, keepAnchor: true, livePhase: false, flush: true, retile: true) }
+    @inline(never)   // Release-WMO: the SIL ownership verifier crashed optimizing this shape twice (2026-11-16) — keep it un-inlined, locals hoisted, no `kernel.tape` local
     private func reelStageV3(_ lo: Double, _ hi: Double, arm: Bool, keepAnchor: Bool, livePhase: Bool, flush: Bool, retile: Bool) {
-        let t = kernel.tape
-        t.drain()                                                            // pull everything the render has queued, so the staged page is as complete as it can be
+        kernel.tape.drain()                                                  // pull everything the render has queued, so the staged page is as complete as it can be
         let startTick = Int((lo * Double(SessionTape.ppq)).rounded())
         let endTick = Int((hi * Double(SessionTape.ppq)).rounded())
         guard endTick > startTick else { return }
         let span = Double(endTick - startTick) / Double(SessionTape.ppq)
+        let armEnd: Double? = arm ? hi : nil
         let events = reelRangeEvents(startTick: startTick, endTick: endTick)
         for _ in 0..<8 {
-            if kernel.reelStageRangeV3(events, span: span, startTapeBeat: lo, armEndTapeBeat: arm ? hi : nil,
+            if kernel.reelStageRangeV3(events, span: span, startTapeBeat: lo, armEndTapeBeat: armEnd,
                                        keepAnchor: keepAnchor, livePhase: livePhase, flushOnAdopt: flush, retile: retile) { break }
             usleep(500)
         }

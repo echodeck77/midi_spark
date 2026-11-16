@@ -891,20 +891,22 @@ final class FourfoldTapTests: XCTestCase {
         app.switches["Lock mode"].tap(); XCTAssertEqual(value(app.switches["Lock mode"]), "off")
     }
 
-    func testTheReelOpensAndClosesInLandscape() {
+    func testTheReelOpensAndClosesInLandscape() {                        // REEL V3: a fresh (never-played) launch opens onto the drawn empty state
         let app = XCUIApplication.fresh()
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.5)
         app.buttons["Reel"].tap()
-        need(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'pass'")).firstMatch, "the reel browser (something about passes)")
+        need(app.staticTexts["Play to start the tape."], "the reel's empty state")
+        app.buttons["Close the reel"].tap()
+        need(app.buttons["Reel"], "back on the page after closing")
     }
 
-    func testTheReelKeepsItsPassesAcrossAForceQuitAndRelaunch() {
+    func testTheReelKeepsItsTapeAcrossAForceQuitAndRelaunch() {          // REEL V3: the minimap only exists once the tape has content
         var app = XCUIApplication.fresh()
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.5)
         app.buttons["Play"].tap()
-        Thread.sleep(forTimeInterval: 22)                // 120 BPM and a 16-beat pass is 8 s: two whole passes are on the tape
+        Thread.sleep(forTimeInterval: 22)                // 120 BPM: several whole 4-bar pages are on the tape
         app.buttons["Stop"].tap()
         XCUIDevice.shared.press(.home); Thread.sleep(forTimeInterval: 1.5)
         app.terminate()
@@ -912,18 +914,18 @@ final class FourfoldTapTests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.5)
         app.buttons["Reel"].tap()
-        need(app.staticTexts["Tap a pass to choose what to save."], "passes on the tape, recorded before the relaunch (the reel says so only once there is something to save)")
-        XCTAssertFalse(app.staticTexts["Nothing recorded yet."].exists)
+        need(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Session map'")).firstMatch,
+             "the session recorded before the relaunch (the minimap only shows once the tape has content)")
+        XCTAssertFalse(app.staticTexts["Play to start the tape."].exists)
     }
 
-    func testAFreshLaunchStartsWithAnEmptyReel() {                       // the control for the test above: its text only shows up when there is a recorded pass
+    func testAFreshLaunchStartsWithAnEmptyReel() {                       // the control for the test above: the empty state only shows while the tape is empty
         let app = XCUIApplication.fresh()
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.5)
         app.buttons["Reel"].tap()
-        need(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'pass'")).firstMatch, "the reel browser")
-        need(app.staticTexts["Nothing recorded yet."], "an empty tape says so")
-        XCTAssertFalse(app.staticTexts["Tap a pass to choose what to save."].exists)
+        need(app.staticTexts["Play to start the tape."], "an empty tape says so")
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Session map'")).firstMatch.exists)
     }
 
     func testAnEditSurvivesAForceQuitAndRelaunch() {

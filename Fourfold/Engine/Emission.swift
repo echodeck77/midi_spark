@@ -148,7 +148,7 @@ final class ReelDeck {
         for i in 0..<n { hist[slot * ReelDeck.histCap + i] = cur[i] }
         histLen[slot] = n; histPassNo[slot] = passCounter; histCycle[slot] = cycleBeats   // remember the rate this pass was filed at
         passCounter += 1
-        if selectedPassNo < 0 { loopN = min(curN, ReelDeck.cap); for i in 0..<loopN { loop[i] = cur[i] }; loopCycle = cycleBeats; closeOpenLoopNotes() }   // auto: latest → loop
+        if selectedPassNo < 0, !usesAnchoredReplay { loopN = min(curN, ReelDeck.cap); for i in 0..<loopN { loop[i] = cur[i] }; loopCycle = cycleBeats; closeOpenLoopNotes() }   // auto: latest → loop — but never over an ANCHORED (phase-2/V3) range (the browsing freeze already prevents this; belt and braces)
     }
 
     // CR-5[review]: a pass's note-OFF can be missing from `loop` — truncated at `histCap` when re-selected from the browser,

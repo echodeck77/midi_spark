@@ -127,19 +127,30 @@ clock, which touches every derived-from-beat system and is its own piece of work
 
 ## §5 Slices (each green → land)
 
-1. Engine: deck v3 staging + host-timeline emission + armed flip + feeds + `ReelV3Tests`.
-2. Engine: top-up protocol + page-switch/width re-stage + the AU API; soak.
-3. UI pure layer + tests.
-4. UI views (page roll, minimap, control row, flip look) + VoiceOver; UI tests updated; docs.
+1. Engine: deck v3 staging + host-timeline emission + armed flip + feeds + `ReelV3Tests`. **DONE**
+   (with a fifth adopt kind the build surfaced: `livePhase` — paging back from the live, not-yet-flipped
+   page starts replay at the live clock's position in the page grid; a pre-flip top-up is instead a
+   RE-ARM, so a keep-adopt can never clear a pending arm).
+2. Engine: top-up protocol + page-switch/width re-stage + the AU API (`reelArmPage` / `reelShowPage` /
+   `reelTopUpPage` / `reelRetilePage` / `reelLivePositions`); soak owed at landing. **DONE**
+3. UI pure layer (`reelV3*` in ReelScreen.swift) + tests. **DONE**
+4. UI views (page roll, minimap, control row, flip look) + VoiceOver; UI tests updated; docs. **DONE —
+   look + feel device-owed.**
 
 ## §6 Known limits (declared)
 
 - The tail of a very short page (1 bar at fast tempi) can be thin on the FIRST loop iteration only
   (top-up races the playhead; converges by iteration 2).
 - Notes appear on the LIVE page up to one poll (~0.25 s) after they sound; the sweep itself is exact.
+- At the armed flip the LIVE engine is silenced for the whole flip window, so live notes end up to
+  one render buffer (≤ ~12 ms typical) before the boundary; the loop itself starts sample-exact AT
+  the boundary (the same window-granularity class as the legacy pass flip and random-roll landing).
 - 4/4 bar maths until the host time signature is polled; free-run output is not on the tape.
 - A keep wider than the current page still loads (the page jumps to its start; EXPORT uses the
   keep's own range).
+- Release-WMO note (2026-11-16): the SIL ownership verifier crashed twice optimizing
+  `FourfoldAudioUnit`'s reel staging helpers — fixed by a loop-based, `@inline(never)`
+  `reelRangeEvents`/`reelStageV3` with locals hoisted. Touch those shapes carefully.
 
 ## §7 Next phase (parked, Paul 2026-11-16): the two-option close
 
