@@ -12035,3 +12035,8 @@ A performance gesture: three GLOBAL live holds that override every lane's note c
 **§8 states.** HOLD-NOTES-TO-PLAY / 42% / not-saved are automatic; `performReset` ends sounding notes (§8.2 audio); the hold is finger-driven. **§9 VoiceOver** unchanged; the ribbons aren't VO-operable this ferry (pending-tasks).
 
 **Deferred (pending-tasks):** §6 audition-while-stopped (Paul's choice — buildable, device-verification-heavy); the three secondary §5.4 readers (header chips, footer chips, MUTE roll — pass-level/multi-cell, each needs its own substitution); §9 VO operation; §8.2 a full panic-clear of the holds; the POLY 16-column ribbon (the ribbon is 1-8 per the spec). **Contradictions (source won):** ANSWER PITCH + card-back out-transpose are retired (fewer riff stages); "DRONE" is RING; `labelW` 48/38 not 30.
+
+---
+
+## PLAY AS ROWS amend 3 — follow-up (2026-11-16): the TILE opens the RANKS pop-up, not the pill (Paul)
+Amendment 3 §C1.1 made the RANKS *pill* the button that opens the pop-up and the tiles toggle (§C1.4). Paul 2026-11-16: the numbered TILES should open the pop-up, not the pill. So `notesRankTile`'s tap now does `notesRepeatPopup = idx` (open the pop-up) instead of `euclideousToggleLitPosition`; lighting/unlighting a rank moves into the pop-up (§C2.3/§C2.5 already do it). `notesRanksButton` reverts to a STATIC "RANKS" label (#8A909A, no tap, accessibilityHidden). The STACK grid cells still toggle directly (`euclideousStackCellToggle`), and the pop-up is still the one place for roles. Display-only (a tap-action change); golden byte-identical; iOS build clean; PlayAs suites green. Note: a simulator FourfoldTapTests case that taps a NOTES-tab tile expecting a toggle is now device-owed to re-confirm (it opens the pop-up).

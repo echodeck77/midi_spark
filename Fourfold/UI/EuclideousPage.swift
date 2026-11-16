@@ -5586,10 +5586,11 @@ struct EuclideousPage: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { edit(idx) { _ = euclideousToggleLitPosition(&$0, position: rank - 1) } }   // §A2.4 always toggles the rank (same store / undo as a grid tap); the bar/mark/ring take no touches
+        .onTapGesture { closeAllOtherOverlays(); notesRepeatPopup = idx }   // amend 3 follow-up (Paul 2026-11-16): a tile TAP opens the RANKS pop-up (lighting + roles live there); the toggle moved into the pop-up (§C2.3/§C2.5). The STACK grid cells still toggle directly.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Rank \(rank)")
         .accessibilityValue(lit ? "on, \(role.spoken)" : "off")   // §B5.1
+        .accessibilityHint("Opens the ranks controls")
         .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
     }
     /// amend 3 §C3.1: the grey rank bar, 3 tall, filled `stackRankColour(rank)`, whose SHAPE shows the role (ONCE one 40 % bar · DOUBLE two 18 % bars 1.5 apart · RETURN two 14 % bars 12 %-of-width apart · PEDAL one 70 % bar); an unlit tile draws ONCE (§C3.2). Segments from the pure `euclideousRankBarSegments`. (Amend 2 §B4's #1B1D22 dots/bar are removed, §C3.3.)
@@ -5601,17 +5602,12 @@ struct EuclideousPage: View {
         }
         .frame(width: width, height: 3)
     }
-    /// amend 3 §C1.1: the RANKS button in the label column — a 26-tall pill (r4, #24262C, "RANKS" #AAB0BA) with a ≥44 tall tap target centred on it; opens the RANKS pop-up (§C2). (Replaces §A2.5's REPEAT button, removed §C1.2.)
+    /// amend 3 §C1.1 + follow-up (Paul 2026-11-16): the RANKS row label — a STATIC "RANKS" label (#8A909A, no tap). The pop-up now opens from a TILE tap, not the pill, so this no longer carries the button.
     private func notesRanksButton(_ idx: Int, frame: CGRect) -> some View {
-        let target: CGFloat = 44
-        return RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x24262C))
-            .frame(width: frame.width, height: EuclideousPlayAsRowsLayout.tile)
-            .overlay(Text("RANKS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA)))
-            .frame(width: frame.width, height: target)   // §C1.1: ≥44 tall tap target, the pill centred in it
-            .contentShape(Rectangle())
-            .onTapGesture { closeAllOtherOverlays(); notesRepeatPopup = idx }
-            .accessibilityElement(children: .ignore).accessibilityLabel("Ranks").accessibilityAddTraits(.isButton)   // §C2.8
-            .offset(x: frame.minX, y: frame.midY - target / 2)
+        Text("RANKS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            .frame(width: frame.width, height: frame.height, alignment: .leading)
+            .offset(x: frame.minX, y: frame.minY)
+            .accessibilityHidden(true)
     }
     // (PLAY AS ROWS amend 2 §B3: `notesCopyCell` — the 2ND / 3RD AGAIN/LATER cell — is retired with the count model.)
 
