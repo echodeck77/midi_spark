@@ -61,6 +61,12 @@ enum LaneStripBandMetrics {
     /// §2: the joined buttons' chrome — the tile fill/border (never dimmed), the track's far-corner radius.
     static let tileFill = EuclideousRGB(r: 0x20, g: 0x22, b: 0x26), tileBorder = EuclideousRGB(r: 0x2B, g: 0x2D, b: 0x33)
     static let trackCornerRadius: CGFloat = 6
+
+    /// §B2.1 / RAIL §3.1 — the ONE copy of the two formulas every consumer derives from (2026-11-16 review B1: they were
+    /// re-derived inline in `laneStripBandFrames` and the PLAY tile's chip view — the drift class this project keeps hitting).
+    static func bandH(T: CGFloat) -> CGFloat { max(8, (T * headerRatio).rounded()) }
+    /// A running part's full reserve, outer edge → cells: rail 1.5 + gap 1 + band hH + gap 1.
+    static func partReserve(hH: CGFloat) -> CGFloat { railH + rowGap + hH + rowGap }
 }
 
 // MARK: - §1.4: the three band heights
@@ -71,11 +77,10 @@ struct LaneStripBandHeights: Equatable { var hH: CGFloat; var hC: CGFloat; var g
 /// edge; a toggle eases between them, §3.4). `hC = T − riffFrac·reserve − stackFrac·reserve`. (T 44, both on → hH 9, hC 19;
 /// one on → hC 31.5; both off → hC 44.) The spec's §3.2 example uses T 41 — the built T is 44 (source wins), so hC = 19 ≥ 16.
 func laneStripBandHeights(T: CGFloat, riffFrac: Double = 1, stackFrac: Double = 1) -> LaneStripBandHeights {
-    let hH = max(8, (T * LaneStripBandMetrics.headerRatio).rounded())
-    let gap = LaneStripBandMetrics.rowGap
-    let reserve = LaneStripBandMetrics.railH + gap + hH + gap            // §3.1 full per-part reserve
+    let hH = LaneStripBandMetrics.bandH(T: T)
+    let reserve = LaneStripBandMetrics.partReserve(hH: hH)               // §3.1 full per-part reserve
     let hC = max(0, T - CGFloat(riffFrac) * reserve - CGFloat(stackFrac) * reserve)
-    return LaneStripBandHeights(hH: hH, hC: hC, gap: gap)
+    return LaneStripBandHeights(hH: hH, hC: hC, gap: LaneStripBandMetrics.rowGap)
 }
 
 // MARK: - §8.1 / §1: the top-row frames (one pure function; every layout)
@@ -124,7 +129,7 @@ func laneTopRowFrames(T: CGFloat, content: CGSize, g: CGFloat, stackNameWidth: C
     let railH = LaneStripBandMetrics.railH
     let strip = CGRect(x: stripMinX, y: 0, width: stripW, height: T)
     // PLAY BUTTONS RAIL+NOTE §3.1: the header band sits after the rail + gap; the cells after the full reserve; the footer a reserve up from the bottom.
-    let headerY = railH + b.gap, cellsY = railH + b.gap + b.hH + b.gap, footerY = T - railH - b.gap - b.hH
+    let headerY = railH + b.gap, cellsY = LaneStripBandMetrics.partReserve(hH: b.hH), footerY = T - railH - b.gap - b.hH
     let header = CGRect(x: stripMinX, y: headerY, width: stripW, height: b.hH)
     let cells = CGRect(x: stripMinX, y: cellsY, width: stripW, height: b.hC)
     let footer = CGRect(x: stripMinX, y: footerY, width: stripW, height: b.hH)
@@ -157,17 +162,14 @@ struct LaneStripBandFrames: Equatable {
 /// (cells extend to that edge, no band drawn); at 1 the full rail 1.5 + gap 1 + band hH + gap 1. The header/footer sit at a
 /// FIXED spot (rail + gap in from their edge) and are faded by the painter — the cells' own edge slides by `frac·reserve`.
 func laneStripBandFrames(xs: [CGFloat], columnW: CGFloat, T: CGFloat, riffFrac: Double = 1, stackFrac: Double = 1) -> LaneStripBandFrames {
-    let hH = max(8, (T * LaneStripBandMetrics.headerRatio).rounded())
-    let gap = LaneStripBandMetrics.rowGap, railH = LaneStripBandMetrics.railH
-    let reserve = railH + gap + hH + gap
-    let cellsY = CGFloat(riffFrac) * reserve
-    let hC = max(0, T - CGFloat(riffFrac) * reserve - CGFloat(stackFrac) * reserve)
-    let headerY = railH + gap, footerY = T - railH - gap - hH
-    let b = LaneStripBandHeights(hH: hH, hC: hC, gap: gap)
+    let b = laneStripBandHeights(T: T, riffFrac: riffFrac, stackFrac: stackFrac)   // 2026-11-16 review B1: the ONE formula (it was re-derived inline here)
+    let railH = LaneStripBandMetrics.railH
+    let cellsY = CGFloat(riffFrac) * LaneStripBandMetrics.partReserve(hH: b.hH)
+    let headerY = railH + b.gap, footerY = T - railH - b.gap - b.hH
     return LaneStripBandFrames(bands: b,
-        cells: xs.map { CGRect(x: $0, y: cellsY, width: columnW, height: hC) },
-        header: xs.map { CGRect(x: $0, y: headerY, width: columnW, height: hH) },
-        footer: xs.map { CGRect(x: $0, y: footerY, width: columnW, height: hH) },
+        cells: xs.map { CGRect(x: $0, y: cellsY, width: columnW, height: b.hC) },
+        header: xs.map { CGRect(x: $0, y: headerY, width: columnW, height: b.hH) },
+        footer: xs.map { CGRect(x: $0, y: footerY, width: columnW, height: b.hH) },
         riffFrac: riffFrac, stackFrac: stackFrac, railH: railH, cellsY: cellsY, headerY: headerY, footerY: footerY)
 }
 

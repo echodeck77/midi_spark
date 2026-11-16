@@ -87,7 +87,7 @@ struct EuclideousPartPlayButton: View {
     /// §4.3: the chip, drawn by the strip's OWN shared chip function into this frame — riff = the header chip (riff-map fill +
     /// its column label), stack = the footer split (one grey segment per voice). `sounding` gives 100 % + strokes, else 78 %.
     @ViewBuilder private func noteChipView(_ nc: EuclideousPartNoteChip) -> some View {
-        let hH = max(8, (tile.height * LaneStripBandMetrics.headerRatio).rounded())   // §4.2 the band height, as if the part were on
+        let hH = LaneStripBandMetrics.bandH(T: tile.height)   // §4.2 the band height, as if the part were on (review B1: the one formula, no inline copy)
         Canvas { ctx, size in
             let slot = CGRect(origin: .zero, size: size)
             if isNotes {

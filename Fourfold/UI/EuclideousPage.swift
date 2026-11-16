@@ -2656,6 +2656,10 @@ struct EuclideousPage: View {
             guard !tr.points.isEmpty || !tr.dots.isEmpty else { return nil }
             return EuclideousStripCCInput(points: tr.points, dots: tr.dots, barBeats: bar)
         }()
+        // PERF (2026-11-16 adversarial review A1): the PLAY tiles' note-chip feed, built ONCE per body eval from the SAME
+        // `stripPlan` the strip below draws (so tile and strip cannot disagree) — the tiles' tick closures only map the
+        // newest note-on onto it. nil while stopped (the chip only shows while playing, §4.6).
+        let chipFeed: EuclideousMixStripFeed? = clock.playing ? mixStripFeed(idx, plan: stripPlan) : nil
         EuclidLaneBox(idx: idx, line: line, width: innerWidth, height: cometRowH, accent: accent,
                       // WHOLE-CARD OUTLINE (ferry §1.4): `selected` here used to draw EuclidLaneBox's own
                       // border/fill around just this row (the step-bar area) — always `false` now; the
@@ -2697,7 +2701,7 @@ struct EuclideousPage: View {
                       // LANE SOLO (2026-10-21, §1): the step-count box's slot — same 44 × 44 frame, so the strip doesn't move — now holds the SOLO button. `stepCountBadge` (and its parameter) stay, unused here (§1.3): the
                       // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
                       // PLAY RIFF / PLAY STACK ferry (2026-11-07): the play tile → PLAY RIFF (lead), the SOLO tile's slot → PLAY STACK — same 44 × 44 frames, so the comet strip and lock badge don't move. Lane PLAY / lane SOLO leave the card (MIX keeps the strip play + per-part solo).
-                      soloButton: partPlayButton(idx, isNotes: true), soloButtonWidth: stepCountBadgeTotalWidth, soloDim: soloDimContent, leadTile: partPlayButton(idx, isNotes: false),
+                      soloButton: partPlayButton(idx, isNotes: true, feed: chipFeed), soloButtonWidth: stepCountBadgeTotalWidth, soloDim: soloDimContent, leadTile: partPlayButton(idx, isNotes: false, feed: chipFeed),
                       // §4.1: both parts off → the comet strip greys (42 %) and keeps walking; one part on → no dim
                       partsOffDim: euclideousMixLayerIsOff(line, notes: false) && euclideousMixLayerIsOff(line, notes: true),
                       // EXACT DIMENSIONS (2026-10-13 ferry): zero self-padding, 6pt spacing, the CHIP+
@@ -2829,10 +2833,12 @@ struct EuclideousPage: View {
     private var mixPanelShows: Bool { pageTab == .mix && !euclideousRandomMode && !euclideousLockMode }
     private var mixStripMode: EuclideousMixStripMode { EuclideousMixStripMode(rawValue: mixStripModeRaw) ?? .fit }
     /// One lane's rhythm strip as the card builds it (its own plan, its own live position inputs) — so the panel's strip is the card's strip, calmer.
-    private func mixStripFeed(_ idx: Int) -> EuclideousMixStripFeed {
+    /// `plan:` — a strip plan the caller ALREADY built this body eval (the lane card's own `stripPlan`, built with the same
+    /// `tradedWithLane` + `phaseLines` arguments), so the feed never rebuilds it. nil (every pre-existing caller) ⇒ built here.
+    private func mixStripFeed(_ idx: Int, plan prebuilt: EuclideousStripPlan? = nil) -> EuclideousMixStripFeed {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
         let planLane = tradedWithLane(idx)
-        let plan = laneStripPlan(planLane, planLane < lines.count ? phaseLines[planLane] : line)
+        let plan = prebuilt ?? laneStripPlan(planLane, planLane < lines.count ? phaseLines[planLane] : line)
         let followIdx = euclideousRhythmBorrowPartner(lane: idx, lines: phaseLines)
         let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: phaseLines) : nil
         let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
@@ -3050,28 +3056,33 @@ struct EuclideousPage: View {
     /// `cardBackToggle` (one undo step; NOTES auto-lights so the layer reads on). The triangle is 100 % while the part's held
     /// set is non-empty (a routed, audible note sounding now), 55 % otherwise; an ON part squares its rail edge (riff top,
     /// stack bottom). The ON state reads the DOCUMENT line (`lines[idx]`) — the field the toggle writes.
-    private func partPlayButton(_ idx: Int, isNotes: Bool, rail: Bool = true) -> AnyView {
+    /// PERF (2026-11-16 adversarial review A1/A2): `feed` is the PREBUILT strip feed of this body eval (the lane card hands
+    /// in `mixStripFeed(idx, plan: stripPlan)` — the SAME plan object its strip draws, so the tile cannot disagree with it) —
+    /// the tick closure never rebuilds a plan (it was rebuilding the whole strip plan per tick, ×8 buttons). The tick is
+    /// 30 Hz: the chip/triangle read `rollLive`, which the 30 Hz poll fills — sampling faster reads identical data. nil feed
+    /// (the random card, `rail: false`, or stopped) ⇒ no chip, the word PLAY.
+    private func partPlayButton(_ idx: Int, isNotes: Bool, rail: Bool = true, feed: EuclideousMixStripFeed? = nil) -> AnyView {
         let accent = laneAccents[idx % laneAccents.count]
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
         let on = !euclideousMixLayerIsOff(line, notes: isNotes)
         let part = 2 * idx + (isNotes ? 1 : 0)
         let audible = !partSoloSilenced(idx, part: isNotes ? 1 : 0)
         let label = "Play \(isNotes ? "stack" : "riff"), lane \(idx + 1)"
-        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !pulseLive)) { tl in
             let notes = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
             let nowBeat = walkTagBeat(at: tl.date)
             // §1.4/§8.5: the triangle follows the HELD SET (a note sounding now, routed to an emitter, audible), not the playhead.
             let sounding = on && audible && notes.contains { $0.outs != 0 && euclideousMixNoteSounds($0, at: nowBeat) }
             // §4: in place of PLAY, a chip of the part's most recent note-on hit (nil ⇒ PLAY). Computed in a helper so this ViewBuilder closure stays `let`s + one view (a bare mutating `if` here fails type inference under the harness compiler).
-            let noteChip = partNoteChip(idx: idx, notes: notes, nowBeat: nowBeat, on: on, audible: audible, rail: rail)
+            let noteChip = partNoteChip(idx: idx, notes: notes, nowBeat: nowBeat, on: on, audible: audible, rail: rail, feed: feed)
             EuclideousPartPlayButton(isNotes: isNotes, accent: accent, on: on, sounding: sounding, noteChip: noteChip,
                                      railEdge: (on && rail) ? (isNotes ? .bottom : .top) : nil, axLabel: label) { cardBackToggle(idx, isNotes ? .notes : .riff) }
         })
     }
     /// §4: the note chip for the tile's top line — the part's most recent note-on hit, from the SAME feed/sweep the strip + stack dots use (no second clock). nil ⇒ the word PLAY (§4.6: the part off / stopped / solo-silenced / the random card / no note-on yet).
-    private func partNoteChip(idx: Int, notes: [NoteRollNote], nowBeat: Double, on: Bool, audible: Bool, rail: Bool) -> EuclideousPartNoteChip? {
-        guard rail, on, audible, clock.playing else { return nil }
-        let feed = mixStripFeed(idx)
+    /// PERF (A1): `feed` is prebuilt by the caller's body eval — only the cheap newest-note-on → hit-step → chip mapping runs per tick.
+    private func partNoteChip(idx: Int, notes: [NoteRollNote], nowBeat: Double, on: Bool, audible: Bool, rail: Bool, feed: EuclideousMixStripFeed?) -> EuclideousPartNoteChip? {
+        guard rail, on, audible, clock.playing, let feed else { return nil }
         guard !feed.legs.isEmpty else { return nil }
         let cometRawAt: (Double) -> Double = { b in
             (feed.fill?.active ?? false)
