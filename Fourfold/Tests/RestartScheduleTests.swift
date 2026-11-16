@@ -672,6 +672,48 @@ final class RestartScheduleTests: XCTestCase {
         XCTAssertEqual(chainPhase(c, tick: 0).raw, 0, "tick 0 plays step 1")
     }
 
+    // MARK: RESETS V2 draft 3 §6 test 13 — the RESOLVE period P (directed-reachable joint period in bars)
+    private func resolve(_ lines: [EuclidLine], bar: Double = 4) -> [EuclideousResolveInfo] {
+        euclideousBuildResolvePeriods(euclideousScheduleInputs(lines: lines, barBeats: bar, defaultRateBeats: 0.25, riffColumns: 8))
+    }
+    func testResolveFreeRiffVsPassIsSeven() {
+        // lane 1: 7 steps of 1/8, E(3,7), riff length 8, FREE — the riff realigns with the pass every 8 passes (24 hits), 28 beats = 7 bars.
+        let r = resolve(four(line(hits: 3, steps: 7, rate: .r1_8)))
+        XCTAssertTrue(r[0].found); XCTAssertEqual(r[0].periodBars, 7, "P 7")
+    }
+    func testResolveMelodyEveryPassIsOne() {
+        // E(3,8), 8 steps of 1/8 (lap = bar), melody PASS [1] of itself ⇒ realigns every bar.
+        var l = line(hits: 3, steps: 8, rate: .r1_8); melody(&l, [1], unit: .pass, source: 0)
+        XCTAssertEqual(resolve(four(l))[0].periodBars, 1, "P 1")
+    }
+    func testResolveRiffFirstIsFive() {
+        // RESTART UNITS test 3: restarts every 10 beats; the state at bar lines repeats every LCM(10,4)=20 beats = 5 bars.
+        XCTAssertEqual(resolve(riffFirst(withRhythm: false).lines)[0].periodBars, 5, "P 5")
+    }
+    func testResolveIsDirectedNotTheUndirectedComponent() {
+        // lane 1: 7 steps 1/8 E(3,7), rhythm PASS [1] of lane 2 (12 steps 1/16), melody PASS [1] of itself ⇒ P 3.
+        var l0 = line(hits: 3, steps: 7, rate: .r1_8); rhythm(&l0, [1], unit: .pass, source: 1); melody(&l0, [1], unit: .pass, source: 0)
+        let base = four(l0, lane2Twelve(), line(hits: 2, steps: 5), line(hits: 2, steps: 5))
+        XCTAssertEqual(resolve(base)[0].periodBars, 3, "P 3")
+        // lanes 3/4 are not in lane 1's directed-reachable set ⇒ changing them leaves its P untouched.
+        let changed34 = four(l0, lane2Twelve(), line(hits: 4, steps: 9, rate: .r1_16), line(hits: 1, steps: 3))
+        XCTAssertEqual(resolve(changed34)[0], resolve(base)[0], "lanes 3/4 don't change lane 1's P")
+        // lane 2 IS read by lane 1 ⇒ changing its STEPS changes lane 1's P.
+        let changed2 = four(l0, line(hits: 5, steps: 16, rate: .r1_16), line(hits: 2, steps: 5), line(hits: 2, steps: 5))
+        XCTAssertNotEqual(resolve(changed2)[0], resolve(base)[0], "lane 2 changes lane 1's P")
+    }
+    func testResolveReaderNPState() {
+        let info = EuclideousResolveInfo(found: true, prefixBars: 0, periodBars: 7)
+        XCTAssertEqual(euclideousLaneResolve(info, nowBeat: 0, barBeats: 4).n, 1)     // bar 0 ⇒ 1 OF 7
+        XCTAssertEqual(euclideousLaneResolve(info, nowBeat: 8, barBeats: 4).n, 3)     // bar 2 ⇒ 3 OF 7
+        XCTAssertEqual(euclideousLaneResolve(info, nowBeat: 28, barBeats: 4).n, 1)    // bar 7 wraps ⇒ 1 OF 7
+        XCTAssertEqual(euclideousLaneResolve(info, nowBeat: 1000, barBeats: 4).n, euclideousLaneResolve(info, nowBeat: 1000 - 28, barBeats: 4).n, "a transport start high up gives the same N as a run from 0 (modulo P)")
+        XCTAssertEqual(euclideousLaneResolve(info, nowBeat: 8, barBeats: 4).state, .periodic)
+        XCTAssertEqual(euclideousLaneResolve(EuclideousResolveInfo(found: true, prefixBars: 0, periodBars: 1), nowBeat: 100, barBeats: 4).state, .unit, "P 1 ⇒ 1 OF 1")
+        XCTAssertEqual(euclideousLaneResolve(.none, nowBeat: 0, barBeats: 4).state, .none, "no period ⇒ —")
+        XCTAssertEqual(euclideousLaneResolve(EuclideousResolveInfo(found: true, prefixBars: 3, periodBars: 5), nowBeat: 4, barBeats: 4).state, .none, "bar 1 inside the 3-bar prefix ⇒ —")
+    }
+
 }
 
 private struct SplitMix { var state: UInt64; init(seed: UInt64) { state = seed }

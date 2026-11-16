@@ -396,9 +396,18 @@ extension EuclideousLaneSchedule {
     func loopBeat(_ k: Int64) -> Double { data.rhythmRestarts ? rhythmRestartBeat(k) : passStart(k) }
 }
 
+/// RESETS V2 draft 3 §3: a lane's RESOLVE period in host bars — `periodBars` = P, the bars after which the lane's own joint state AND the joint state of every lane it reads (transitively, DIRECTED) realign at a bar line and its timing
+/// repeats; `prefixBars` = the bars before that periodic part begins; `found` = a period was seen within the 1024-bar search window (false ⇒ "no period within 1024 bars"). Computed from the same inputs as the schedule (per-lane sim over the
+/// directed-reachable set), so it carries the memo for free.
+struct EuclideousResolveInfo: Equatable { var found: Bool; var prefixBars: Int; var periodBars: Int
+    static let none = EuclideousResolveInfo(found: false, prefixBars: 0, periodBars: 0) }
+
 /// The four lanes' schedules plus what the Router needs to decide whether to read them.
 final class EuclideousRestartScheduleSet {
     let lanes: [EuclideousLaneSchedule?]
+    /// §3: per lane, its resolve period (directed-reachable joint period in host bars). Carried through `extended` unchanged (the 1024-bar search is independent of the table window).
+    let resolve: [EuclideousResolveInfo]
+    func resolveInfo(lane: Int) -> EuclideousResolveInfo { lane >= 0 && lane < resolve.count ? resolve[lane] : .none }
     let barBeats: Double
     /// Bit i: lane i is engaged in an ANSWER cycle / trade — the Router keeps the closed forms for it.
     let engagedMask: UInt8
@@ -415,8 +424,9 @@ final class EuclideousRestartScheduleSet {
     /// Per lane: the bits of every lane in its connected component (the lanes whose patterns its restarts can depend on).
     let componentMasks: [UInt8]
     func componentMask(lane: Int) -> UInt8 { lane >= 0 && lane < componentMasks.count ? componentMasks[lane] : UInt8(1) << UInt8(max(0, min(7, lane))) }
-    fileprivate init(lanes: [EuclideousLaneSchedule?], barBeats: Double, engagedMask: UInt8, key: EuclideousScheduleInputs, simulatedMask: UInt8, windowed: Bool, coveredUntil: Double,
+    fileprivate init(lanes: [EuclideousLaneSchedule?], resolve: [EuclideousResolveInfo], barBeats: Double, engagedMask: UInt8, key: EuclideousScheduleInputs, simulatedMask: UInt8, windowed: Bool, coveredUntil: Double,
                      components: [(lanes: [Int], sim: EuclideousScheduleSim?)]) {
+        self.resolve = resolve
         var widened = engagedMask
         for c in components { let m = c.lanes.reduce(UInt8(0)) { $0 | (UInt8(1) << UInt8($1)) }; if m & engagedMask != 0 { widened |= m } }
         self.detachedMask = widened
@@ -428,7 +438,7 @@ final class EuclideousRestartScheduleSet {
     func extended(untilBars bars: Int) -> EuclideousRestartScheduleSet? {
         guard windowed, coveredUntil < Double(bars) * barBeats else { return nil }
         for c in components { c.sim?.run(untilBars: bars) }
-        return euclideousAssembleScheduleSet(key, engagedMask: engagedMask, components: components)
+        return euclideousAssembleScheduleSet(key, engagedMask: engagedMask, resolve: resolve, components: components)   // §3: the resolve period is window-independent, carry it forward
     }
 }
 
@@ -489,15 +499,19 @@ final class EuclideousScheduleSim {
     private var nextBar = 1
     private(set) var barsDone = 0
     private(set) var periodFound: (j: Int, k: Int)? = nil
+    /// RESETS V2 draft 3 §3: the period of `resolveTarget`'s OWN state slice (the lane's timing) — it divides `periodFound`, because the read lanes' riff/melody that aren't X's own time don't inflate X's resolve. nil when `resolveTarget` is nil (the schedule's own sims).
+    private(set) var resolveFound: (j: Int, k: Int)? = nil
+    private let resolveTarget: Int?
     private var seen: [StateKey: Int] = [:]
+    private var seenResolve: [StateKey: Int] = [:]
     private var snaps: [BarSnap] = []
     private var done = false
     /// The first beat the tables are NOT yet complete for.
     var coveredUntil: Double { Double(barsDone) * barBeats }
 
     private let detectPeriod: Bool
-    init(globalLanes: [Int], inputs: [EuclideousScheduleLaneInput], barBeats: Double, detectPeriod: Bool = true) {
-        self.globalLanes = globalLanes; self.barBeats = barBeats; self.detectPeriod = detectPeriod
+    init(globalLanes: [Int], inputs: [EuclideousScheduleLaneInput], barBeats: Double, detectPeriod: Bool = true, resolveTarget: Int? = nil) {
+        self.globalLanes = globalLanes; self.barBeats = barBeats; self.detectPeriod = detectPeriod; self.resolveTarget = resolveTarget
         L = inputs.map { var l = LaneState($0); l.barBeatsForHits = barBeats; return l }
         processInstant(0)   // beat 0: both chains of every lane restart (implicitly); the hits at beat 0 play
         recordBar(0)
@@ -513,7 +527,7 @@ final class EuclideousScheduleSim {
             }
             processInstant(b)
             if abs(b - Double(nextBar) * barBeats) <= schedEps { barsDone = nextBar; recordBar(nextBar); nextBar += 1 }
-            if periodFound != nil { done = true }
+            if (resolveTarget != nil ? resolveFound : periodFound) != nil { done = true }   // §3: a resolve sim stops when the TARGET's own period is found (it may be shorter than the full joint period)
         }
     }
 
@@ -681,6 +695,11 @@ final class EuclideousScheduleSim {
         }
         let key = StateKey(v: v)
         if detectPeriod { if let j = seen[key], periodFound == nil { periodFound = (j, k) } else if seen[key] == nil { seen[key] = k } }
+        // §3: the resolve target's OWN 9-element state slice (each lane appends exactly 9, in L order) — its period is the lane's TIMING period (the read lanes' riff/melody don't inflate it).
+        if detectPeriod, let t = resolveTarget, (t + 1) * 9 <= v.count {
+            let rk = StateKey(v: Array(v[(t * 9)..<((t + 1) * 9)]))
+            if let j = seenResolve[rk], resolveFound == nil { resolveFound = (j, k) } else if seenResolve[rk] == nil { seenResolve[rk] = k }
+        }
         snaps.append(snap)
     }
     private func passIndexNow(_ i: Int, _ b: Double) -> Int64 {
@@ -751,9 +770,41 @@ func euclideousBuildRestartScheduleSet(_ inputs: EuclideousScheduleInputs, engag
             comps.append((comp, sim))
         } else { comps.append((comp, nil)) }   // nothing restarts: the trivial beat-0 tables; every reader falls back to the FREE arithmetic
     }
-    return euclideousAssembleScheduleSet(inputs, engagedMask: engagedMask, components: comps)
+    return euclideousAssembleScheduleSet(inputs, engagedMask: engagedMask, resolve: euclideousBuildResolvePeriods(inputs, maxBars: maxBars), components: comps)
 }
-fileprivate func euclideousAssembleScheduleSet(_ inputs: EuclideousScheduleInputs, engagedMask: UInt8, components: [(lanes: [Int], sim: EuclideousScheduleSim?)]) -> EuclideousRestartScheduleSet {
+
+// MARK: - RESETS V2 draft 3 §3 — the per-lane RESOLVE period (directed-reachable joint period)
+
+/// §3.1: the lanes lane X reads, transitively and DIRECTED — {X} ∪ every lane reachable by following `rhythmReads` / `melodyReads`. (NOT the undirected `scheduleComponents`: a lane that reads lane 2 must not pick up a THIRD lane that also reads lane 2.) Sorted ascending.
+func euclideousResolveReach(lane x: Int, lanes: [EuclideousScheduleLaneInput]) -> [Int] {
+    guard x >= 0, x < lanes.count else { return [] }
+    var seen = Set([x]); var stack = [x]
+    while let i = stack.popLast() {
+        for y in [lanes[i].rhythmReads, lanes[i].melodyReads].compactMap({ $0 }) where y >= 0 && y < lanes.count && !seen.contains(y) { seen.insert(y); stack.append(y) }
+    }
+    return seen.sorted()
+}
+/// §3.2: each lane's resolve period = the joint period of a simulation over EXACTLY its directed-reachable set R(X) (so the sim's own component period IS X's resolve period). The set is closed under reads, so it forms one connected component. Deduped by R(X) — at
+/// most four sims, each over ≤ 4 lanes × `maxBars`. Pure, main-thread, carries the schedule's memo (same inputs). A fully-FREE lane still has a period (its pattern/riff cycle realigns with the bar); `found` false ⇒ no repeat within the window ("—").
+func euclideousBuildResolvePeriods(_ inputs: EuclideousScheduleInputs, maxBars: Int = 1024) -> [EuclideousResolveInfo] {
+    inputs.lanes.indices.map { x in
+        let r = euclideousResolveReach(lane: x, lanes: inputs.lanes)
+        guard let tLocal = r.firstIndex(of: x) else { return .none }
+        let sim = EuclideousScheduleSim(globalLanes: r, inputs: r.map { inputs.lanes[$0] }, barBeats: inputs.barBeats, detectPeriod: true, resolveTarget: tLocal)
+        sim.run(untilBars: maxBars)
+        return sim.resolveFound.map { EuclideousResolveInfo(found: true, prefixBars: $0.j, periodBars: $0.k - $0.j) } ?? .none
+    }
+}
+/// §3.3: the display numbers for a lane's resolve count at `nowBeat`: `p` = P (bars), `n` = the 1-based bar within the current period (`found && nowBar ≥ prefix`), `state` picks the look. `.none` ⇒ "—" (no period, or now still inside the prefix).
+enum EuclideousResolveDisplayState: Equatable { case periodic, unit, none }
+func euclideousLaneResolve(_ info: EuclideousResolveInfo, nowBeat: Double, barBeats: Double) -> (n: Int, p: Int, state: EuclideousResolveDisplayState) {
+    guard info.found, info.periodBars >= 1, barBeats > 0 else { return (0, 0, .none) }
+    let nowBar = Int((nowBeat / barBeats + 1e-6).rounded(.down))
+    guard nowBar >= info.prefixBars else { return (0, info.periodBars, .none) }   // §3.3: inside the prefix ⇒ "—"
+    let n = ((nowBar - info.prefixBars) % info.periodBars) + 1
+    return (n, info.periodBars, info.periodBars == 1 ? .unit : .periodic)
+}
+fileprivate func euclideousAssembleScheduleSet(_ inputs: EuclideousScheduleInputs, engagedMask: UInt8, resolve: [EuclideousResolveInfo], components: [(lanes: [Int], sim: EuclideousScheduleSim?)]) -> EuclideousRestartScheduleSet {
     var laneSchedules = [EuclideousLaneSchedule?](repeating: nil, count: inputs.lanes.count)
     var simulated: UInt8 = 0
     var windowed = false
@@ -765,7 +816,7 @@ fileprivate func euclideousAssembleScheduleSet(_ inputs: EuclideousScheduleInput
         }
         if let sim = c.sim, sim.periodFound == nil { windowed = true; covered = min(covered, sim.coveredUntil) }
     }
-    return EuclideousRestartScheduleSet(lanes: laneSchedules, barBeats: inputs.barBeats, engagedMask: engagedMask, key: inputs, simulatedMask: simulated, windowed: windowed, coveredUntil: covered, components: components)
+    return EuclideousRestartScheduleSet(lanes: laneSchedules, resolve: resolve, barBeats: inputs.barBeats, engagedMask: engagedMask, key: inputs, simulatedMask: simulated, windowed: windowed, coveredUntil: covered, components: components)
 }
 private func trivialData(_ inp: EuclideousScheduleLaneInput, _ bar: Double) -> EuclideousLaneScheduleData {
     EuclideousLaneScheduleData(sub: inp.sub, cycleLen: inp.cycleLen, barBeats: bar, rawHit: inp.rawHit, riffCycle: inp.riffCycle, advanceStep: inp.advanceStep,
