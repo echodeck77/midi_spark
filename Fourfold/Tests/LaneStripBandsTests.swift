@@ -175,6 +175,26 @@ final class LaneStripBandsTests: XCTestCase {
         XCTAssertNil(late.stackChip[5], "not on the step its onset drifted to")
     }
 
+    // PLAY BUTTONS RAIL+NOTE §4.3/§4.5/§4.6 — the chip the tile shows in place of PLAY: the most-recent note-on's hit chip
+    // (riff) + that hit's ranks (stack split); sounding while held; nil before the first note-on (⇒ PLAY).
+    func testPartNoteChip() {
+        func note(_ on: Double, end: Double? = nil, rank: Int, outs: UInt8 = 1) -> NoteRollNote { NoteRollNote(onBeat: on, endBeat: end, pitch: 60, velocity: 100, outs: outs, rank: UInt8(rank)) }
+        let hits: [EuclideousStripHit] = [EuclideousStripHit(kind: .rhythmRest),
+                                          EuclideousStripHit(kind: .hit, chip: EuclideousStripChip(rank: 6, column: 3, hollow: false, grey: false), column: 3),
+                                          EuclideousStripHit(kind: .rhythmRest),
+                                          EuclideousStripHit(kind: .hit, chip: EuclideousStripChip(rank: 4, column: 1, hollow: false, grey: false), column: 1)]
+        let hitSteps = [1, 3], step: (Double) -> Int = { Int($0) }
+        XCTAssertNil(euclideousPartNoteChip(held: [], hits: hits, stepOf: step, hitSteps: hitSteps, now: 10), "§4.6 no note-on → PLAY")
+        let a = euclideousPartNoteChip(held: [note(1, rank: 6), note(3, rank: 4)], hits: hits, stepOf: step, hitSteps: hitSteps, now: 3.5)
+        XCTAssertEqual(a?.chip, EuclideousStripChip(rank: 4, column: 1, hollow: false, grey: false), "§4.5 the newest note-on's hit chip")
+        XCTAssertEqual(a?.ranks, [4]); XCTAssertEqual(a?.sounding, true)
+        let chord = euclideousPartNoteChip(held: [note(3, rank: 5), note(3, rank: 2)], hits: hits, stepOf: step, hitSteps: hitSteps, now: 3.5)
+        XCTAssertEqual(chord?.ranks, [2, 5], "§4.3 every voice on the hit, ascending"); XCTAssertEqual(chord?.chip?.column, 1)
+        let ended = euclideousPartNoteChip(held: [note(3, end: 3.2, rank: 4)], hits: hits, stepOf: step, hitSteps: hitSteps, now: 3.5)
+        XCTAssertEqual(ended?.chip?.column, 1); XCTAssertEqual(ended?.sounding, false, "§4.4 persists after note-off, sounding false (drawn at 78 %)")
+        XCTAssertNil(euclideousPartNoteChip(held: [note(3, rank: 4, outs: 0)], hits: hits, stepOf: step, hitSteps: hitSteps, now: 3.5), "routed nowhere (outs 0) → ignored")
+    }
+
     // §5.3/§5.4 — the CC trace maps the emitter's bar curve onto the steps: value→y (127 top, 0 above the bar), beat→x.
     func testCCStripTrace() {
         let cellXs: [CGFloat] = [0, 20, 40, 60]                                    // 4 steps, pitch 20

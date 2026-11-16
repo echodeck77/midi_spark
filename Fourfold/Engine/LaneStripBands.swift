@@ -436,3 +436,32 @@ func euclideousRiffStackDots(lane: Int, stackHeld: [NoteRollNote], hits: [Euclid
     }
     return out
 }
+
+// MARK: - PLAY BUTTONS RAIL+NOTE (2026-11-16) §4: the note the button shows in place of PLAY
+
+/// §4.3: the chip of a part's MOST RECENT note-on hit. The riff tile draws `chip` (the header chip — riff-map fill + its
+/// column label); the stack tile draws `ranks` (the footer split, one grey segment per voice). `sounding` is whether that
+/// note-on is still sounding (§4.4: 100 % + strokes; else held at 78 %, no strokes). Built from the SAME onset → hit-step
+/// mapping the lane strip's sounding sets use (`laneStripSnapToHitStep(stepOf(onBeat))`), so the tile can't disagree with
+/// the strip. nil ⇒ no note-on has reached an emitter (§4.6: the word PLAY shows).
+struct EuclideousPartNoteChip: Equatable {
+    var chip: EuclideousStripChip?   // the riff header chip of the hit the newest note-on belongs to (nil when the hit has none)
+    var ranks: [Int]                 // the stack ranks on that hit (ascending; the footer split)
+    var sounding: Bool               // the newest note-on is still sounding
+}
+func euclideousPartNoteChip(held: [NoteRollNote], hits: [EuclideousStripHit], stepOf: (Double) -> Int, hitSteps: [Int], now: Double) -> EuclideousPartNoteChip? {
+    var newest: NoteRollNote? = nil
+    for n in held where n.outs != 0 && n.onBeat <= now {                    // §4.5: several sounding ⇒ the newest note-on
+        if newest == nil || n.onBeat > newest!.onBeat { newest = n }
+    }
+    guard let newest else { return nil }                                    // §4.6: no note-on reached an emitter ⇒ PLAY
+    let step = laneStripSnapToHitStep(stepOf(newest.onBeat), hitSteps: hitSteps)
+    guard step >= 0 && step < hits.count else { return nil }
+    var ranks: [Int] = []
+    for n in held where n.outs != 0 && n.onBeat <= now {                    // §4.3: every held voice on THIS hit's step (the chord) — the footer split
+        guard laneStripSnapToHitStep(stepOf(n.onBeat), hitSteps: hitSteps) == step else { continue }
+        let r = Int(n.rank); if r >= 1 && r <= 8 && !ranks.contains(r) { ranks.append(r) }
+    }
+    ranks.sort()
+    return EuclideousPartNoteChip(chip: hits[step].chip, ranks: ranks, sounding: euclideousMixNoteSounds(newest, at: now))
+}

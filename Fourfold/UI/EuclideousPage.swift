@@ -3052,7 +3052,27 @@ struct EuclideousPage: View {
             let nowBeat = walkTagBeat(at: tl.date)
             // §1.4/§8.5: the triangle follows the HELD SET (a note sounding now, routed to an emitter, audible), not the playhead.
             let sounding = on && audible && notes.contains { $0.outs != 0 && euclideousMixNoteSounds($0, at: nowBeat) }
-            EuclideousPartPlayButton(isNotes: isNotes, accent: accent, on: on, sounding: sounding,
+            // §4: in place of PLAY, a chip of the part's most recent note-on hit — only while the part is on, running and audible
+            // (§4.6: off / stopped / solo-silenced / the random card ⇒ PLAY). The sweep is the SAME one the strip + stack dots use.
+            var noteChip: EuclideousPartNoteChip? = nil
+            if rail, on, audible, clock.playing {
+                let feed = mixStripFeed(idx)
+                if !feed.legs.isEmpty {
+                    let cometRawAt: (Double) -> Double = { b in
+                        (feed.fill?.active ?? false)
+                            ? euclideousLaneCometChainRaw(beat: b, n: feed.n, dir: feed.dir, sub: feed.sub, chains: feed.chains ?? .off, legacySpanBeats: 0, fill: feed.fill)
+                            : (feed.chains.map { euclideousLaneCometChainRaw(beat: b, n: feed.n, dir: feed.dir, sub: feed.sub, chains: $0, legacySpanBeats: 0) }
+                                ?? euclidCometRaw(mTickBeat: b, sub: feed.sub, spanBeats: 0, n: feed.n, dir: feed.dir))
+                    }
+                    let legIdx = min(max(0, feed.legs.count - 1), euclideousStripLegIndex(raw: cometRawAt(nowBeat), n: feed.n, legCount: feed.legs.count))
+                    let hits = feed.legs[legIdx].hits
+                    let hitSteps = (0..<feed.n).filter { $0 < hits.count && hits[$0].kind != .rhythmRest }
+                    noteChip = euclideousPartNoteChip(held: notes, hits: hits,
+                                                      stepOf: { euclideousStripNoteStep(raw: cometRawAt($0), n: feed.n, dir: feed.dir) ?? -1 },
+                                                      hitSteps: hitSteps, now: nowBeat)
+                }
+            }
+            EuclideousPartPlayButton(isNotes: isNotes, accent: accent, on: on, sounding: sounding, noteChip: noteChip,
                                      railEdge: (on && rail) ? (isNotes ? .bottom : .top) : nil, axLabel: label) { cardBackToggle(idx, isNotes ? .notes : .riff) }
         })
     }

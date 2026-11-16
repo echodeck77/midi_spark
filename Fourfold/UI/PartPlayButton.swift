@@ -30,6 +30,7 @@ struct EuclideousPartPlayButton: View {
     let accent: Color
     let on: Bool
     var sounding: Bool = false
+    var noteChip: EuclideousPartNoteChip? = nil   // §4: nil ⇒ the word PLAY; non-nil ⇒ a chip of the part's most recent note-on hit
     var railEdge: EuclideousTileRailEdge? = nil
     var tile = CGSize(width: EuclideousLaneCardMetrics.playButtonW, height: EuclideousLaneCardMetrics.cometRowH)
     var target: CGSize? = nil
@@ -59,9 +60,34 @@ struct EuclideousPartPlayButton: View {
 
     private var content: some View {
         VStack(spacing: type.lineGap) {
-            HStack(spacing: type.lampGap) { lamp; playText }   // §A3.1 line 1: the lamp, then PLAY — centred as a group
+            topLine
             nameText
         }
+    }
+    /// §4.1: line 1 is the triangle, then the word PLAY — or, while the part is running and has started a note, a chip of its
+    /// most recent note-on hit (§4.2: 3 pt right of the triangle, filling to 3 pt inside the tile's right edge).
+    @ViewBuilder private var topLine: some View {
+        if let noteChip {
+            HStack(spacing: 3) { lamp; noteChipView(noteChip) }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 3)
+        } else {
+            HStack(spacing: type.lampGap) { lamp; playText }   // §A3.1 the lamp, then PLAY — centred as a group
+        }
+    }
+    /// §4.3: the chip, drawn by the strip's OWN shared chip function into this frame — riff = the header chip (riff-map fill +
+    /// its column label), stack = the footer split (one grey segment per voice). `sounding` gives 100 % + strokes, else 78 %.
+    @ViewBuilder private func noteChipView(_ nc: EuclideousPartNoteChip) -> some View {
+        let hH = max(8, (tile.height * LaneStripBandMetrics.headerRatio).rounded())   // §4.2 the band height, as if the part were on
+        Canvas { ctx, size in
+            let slot = CGRect(origin: .zero, size: size)
+            if isNotes {
+                laneStripDrawFooterChip(&ctx, slot: slot, steps: 8, ranks: nc.ranks, sounding: nc.sounding)
+            } else if let chip = nc.chip {
+                laneStripDrawChip(&ctx, slot: slot, steps: 8, fill: .map(riffMapColour(column: chip.column, rank: chip.rank)), label: "\(chip.column)", hollow: chip.hollow, sounding: nc.sounding)
+            }
+        }
+        .frame(maxWidth: .infinity).frame(height: hH)
     }
     private var playText: some View {
         Text("PLAY").font(.system(size: type.playSize, weight: .heavy, design: .monospaced)).tracking(type.playTracking).foregroundColor(Color(hex: look.playHex))
