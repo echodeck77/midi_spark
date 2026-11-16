@@ -10614,6 +10614,24 @@ func euclideousRestartRatioSteps(_ kind: EuclideousRestartKind, cfg c: Euclideou
     }
 }
 
+/// RESETS V2 draft 3 §2: the tile VALUE "N OF M" — M = STEPS (RHYTHM) / the riff cycle's natural length in ORDINALS (MELODY: notes for ADV HIT, steps for ADV STEP, the walk period for PEND/PING = `euclideousFXWalkPeriod × ADVANCE EVERY`); N = how much
+/// of M the pass / cycle under `beat` reaches before its next reset — M when the part is FREE or uncut, fewer when a restart cuts it (§2.2/§2.3/§2.4). Read from the ruler's block holding `beat` (the pass/cycle under the playhead, or its position when
+/// stopped — §2.6), using the SAME `hits` the ruler draws for the ADV-HIT note count. Pure; `r` and `hits` come from the one `euclideousRestartRuler` the tile already builds, so the value can never disagree with the ruler.
+func euclideousRestartNOfM(_ kind: EuclideousRestartKind, sub: Double, ruler r: EuclideousRestartRuler, hits: [Double], line: EuclidLine, beat: Double, steps: Int) -> (n: Int, m: Int) {
+    let m: Int = kind == .rhythm ? max(0, steps)
+        : max(1, euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: line.riffLengthResolved, stride: line.riffStrideResolved) * line.riffAdvanceEveryResolved)
+    if r.isFree { return (m, m) }                                                    // §2.4: a FREE part is never cut ⇒ N = M (its uncut value)
+    let block = r.blocks.first { beat >= $0.start - 1e-9 && beat < $0.end - 1e-9 }   // the pass / cycle under `beat`
+        ?? r.blocks.last(where: { beat >= $0.start - 1e-9 }) ?? r.blocks.first
+    guard let b = block, sub > 1e-9 else { return (m, m) }
+    let n: Int = (kind == .rhythm || line.riffAdvanceStepResolved)
+        ? Int(((b.end - b.start) / sub).rounded())                                   // steps across the block (RHYTHM, or MELODY under ADV STEP)
+        : hits.filter { $0 >= b.start - 1e-9 && $0 < b.end - 1e-9 }.count            // ADV HIT: the notes (hits) the cycle reaches before it ends
+    return (max(0, min(m, n)), m)
+}
+/// §2.1 / §5.1: "N OF M" as plain text (the VoiceOver value and a fallback; the tile view composes three Texts so "OF" can be smaller and greyer).
+func euclideousRestartNOfMText(n: Int, m: Int) -> String { "\(n) OF \(m)" }
+
 /// §3.6 — the index of the chain's RUNNING link given the current unit count (`euclideousRestartCurrentUnit`): the link
 /// whose running total ≤ (count mod total) < the next link's. nil when the chain is inactive. Uses the chain's own
 /// `runningTotal` / `total`, the same accessors `euclideousRestartTimeline` highlights cells from, so they cannot drift.

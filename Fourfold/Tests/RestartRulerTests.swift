@@ -150,4 +150,46 @@ final class RestartRulerTests: XCTestCase {
         XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .rhythm, part: 12, bar: 16, isFree: true, cutNow: false), "Rhythm, 12-step pass, 16-step bar, free")
         XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .melody, part: 13, bar: 8, isFree: false, cutNow: true), "Melody, 13-step riff, 8-step bar, cut short")
     }
+
+    // RESETS V2 draft 3 §2 — the "N OF M" value (how much of the pass / riff cycle plays before the next reset).
+    private func hitsIn(_ c: EuclideousWalkLaneConfig, _ r: EuclideousRestartRuler) -> [Double] {
+        guard c.sub > 0, r.spanLen > 1e-9 else { return [] }
+        var out: [Double] = []; let first = Int64((r.spanStart / c.sub - 1e-9).rounded(.down)), last = Int64(((r.spanStart + r.spanLen) / c.sub + 1e-9).rounded(.up))
+        var t = first; while t <= last { if euclideousWalkTick(c, tick: t).isHit { let b = Double(t) * c.sub; if b >= r.spanStart - 1e-9 && b < r.spanStart + r.spanLen - 1e-9 { out.append(b) } }; t += 1 }
+        return out
+    }
+    private func assertNM(_ got: (n: Int, m: Int), _ n: Int, _ m: Int, _ msg: String = "", file: StaticString = #filePath, line ln: UInt = #line) {
+        XCTAssertEqual(got.n, n, "N — \(msg)", file: file, line: ln); XCTAssertEqual(got.m, m, "M — \(msg)", file: file, line: ln)
+    }
+    private func nm(_ kind: EuclideousRestartKind, _ c: EuclideousWalkLaneConfig, _ l: EuclidLine, beat: Double, steps: Int) -> (n: Int, m: Int) {
+        let r = euclideousRestartRuler(kind, cfg: c, beat: beat, running: true)
+        return euclideousRestartNOfM(kind, sub: c.sub, ruler: r, hits: hitsIn(c, r), line: l, beat: beat, steps: steps)
+    }
+    func testNOfMRhythmRiffFirstCutsTheThirdPass() {   // §6 test 1
+        var l = line(hits: 3, steps: 8); rhythm(&l, [1], unit: .riff, source: 0); let c = build(l)
+        assertNM(nm(.rhythm, c, l, beat: 1.0, steps: 8), 8, 8, "8 OF 8 in the first pass")
+        XCTAssertEqual(nm(.rhythm, c, l, beat: 9.0, steps: 8).n, 4, "4 OF 8 once the third pass is cut at beat 8")
+    }
+    func testNOfMRhythmBarPassShorterThanBar() {   // §6 test 2
+        var l = line(hits: 4, steps: 12, rate: .r1_16); rhythm(&l, [1], unit: .bar); let c = build(l)
+        assertNM(nm(.rhythm, c, l, beat: 0.5, steps: 12), 12, 12, "the whole 12-step pass fits before the bar")
+        XCTAssertEqual(nm(.rhythm, c, l, beat: 3.5, steps: 12).n, 4, "the remainder 3..4 is cut at the bar ⇒ 4 OF 12")
+    }
+    func testNOfMFreeRhythmAndMelodyReadFullUncut() {   // §6 test 1 melody / §2.4
+        let c = build(line(hits: 3, steps: 8))   // FREE / FREE
+        assertNM(nm(.rhythm, c, line(hits: 3, steps: 8), beat: 1.0, steps: 8), 8, 8, "FREE rhythm 8 OF 8")
+        assertNM(nm(.melody, c, line(hits: 3, steps: 8), beat: 1.0, steps: 8), 8, 8, "FREE melody 8 OF 8")
+    }
+    func testNOfMMelodyEveryPassPlaysThreeOfEight() {   // §6 test 5
+        var l = line(hits: 3, steps: 8); melody(&l, [1], unit: .pass, source: 0); let c = build(l)
+        assertNM(nm(.melody, c, l, beat: 1.0, steps: 8), 3, 8, "3 of the riff's 8 notes play before the melody restarts each pass")
+    }
+    func testNOfMMelodyHitThreePlaysThreeOfEight() {   // §6 test 6
+        var l = line(hits: 5, steps: 8); melody(&l, [3], unit: .hit, source: 0); let c = build(l)
+        assertNM(nm(.melody, c, l, beat: 0.3, steps: 8), 3, 8, "HIT [3] ⇒ 3 OF 8")
+    }
+    func testNOfMAdvStepMelodyPlaysEightOfEight() {   // §6 test 8
+        var l = line(hits: 3, steps: 8, advanceStep: true); melody(&l, [1], unit: .pass, source: 0); let c = build(l)
+        assertNM(nm(.melody, c, l, beat: 1.0, steps: 8), 8, 8, "ADV STEP: the riff completes with the pass ⇒ 8 OF 8")
+    }
 }

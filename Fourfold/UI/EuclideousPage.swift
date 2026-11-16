@@ -3726,11 +3726,11 @@ struct EuclideousPage: View {
                 ZStack(alignment: .topLeading) {
                     restartTile(idx, rhythm: true, spec: rhythmSpec, label: rRhythm.2 ?? euclideousRestartTileLabel(rhythm: true, settings: settings, ownLane: idx), accent: accent,
                                 width: L.rhythmTile.width, height: L.rhythmTile.height, state: rRhythm.3, strikes: nil, tappable: false,
-                                ruler: rRhythm.0, ratioText: rRhythm.1, layerOrder: euclideousRestartRulerLayerOrder)
+                                ruler: rRhythm.0, nOfM: rRhythm.1, layerOrder: euclideousRestartRulerLayerOrder)
                         .offset(x: L.rhythmTile.minX, y: L.rhythmTile.minY)
                     restartTile(idx, rhythm: false, spec: melodySpec, label: rMelody.2 ?? euclideousRestartTileLabel(rhythm: false, settings: settings, ownLane: idx), accent: accent,
                                 width: L.melodyTile.width, height: L.melodyTile.height, state: rMelody.3, strikes: nil, tappable: false,
-                                ruler: rMelody.0, ratioText: rMelody.1, layerOrder: euclideousRestartRulerLayerOrder)
+                                ruler: rMelody.0, nOfM: rMelody.1, layerOrder: euclideousRestartRulerLayerOrder)
                         .offset(x: L.melodyTile.minX, y: L.melodyTile.minY)
                 }
             }
@@ -3768,7 +3768,7 @@ struct EuclideousPage: View {
     }
 
     /// RESETS V2 §1/§2 — the ruler input (span + blocks + the lane's hits in the span) and the ratio text for one RESETS tile, at the UI beat. A regular method (not a ViewBuilder) so it can hold the hit-scan loop.
-    private func resetsRulerAndRatio(_ cfg: EuclideousWalkLaneConfig?, beat: Double, running: Bool, line: EuclidLine, kind: EuclideousRestartKind) -> (EuclideousRestartRulerInput?, String?, String?, EuclideousRestartTileState?) {
+    private func resetsRulerAndRatio(_ cfg: EuclideousWalkLaneConfig?, beat: Double, running: Bool, line: EuclidLine, kind: EuclideousRestartKind) -> (EuclideousRestartRulerInput?, (n: Int, m: Int)?, String?, EuclideousRestartTileState?) {
         guard let c = cfg else { return (nil, nil, nil, nil) }
         let r = euclideousRestartRuler(kind, cfg: c, beat: beat, running: running)
         var hits: [Double] = []
@@ -3780,12 +3780,14 @@ struct EuclideousPage: View {
             }
         }
         let input = EuclideousRestartRulerInput(ruler: r, barBeats: clock.beatsPerBar, hits: hits, now: beat, running: running)
-        let rr = euclideousRestartRatioSteps(kind, cfg: c, beat: beat, steps: min(16, max(2, line.steps)), barBeats: clock.beatsPerBar)   // STEPS clamps to 16 in the model (findings: §5 test 3)
+        // RESETS V2 draft 3 §2: the value is "N OF M" (how much of the pass / riff cycle plays before the next reset), replacing the ratio. (The VoiceOver still reads the old ratio form until §5 / slice E.)
+        let nm = euclideousRestartNOfM(kind, sub: c.sub, ruler: r, hits: hits, line: line, beat: beat, steps: min(16, max(2, line.steps)))
+        let rr = euclideousRestartRatioSteps(kind, cfg: c, beat: beat, steps: min(16, max(2, line.steps)), barBeats: clock.beatsPerBar)
         // §4.1: ", cut short" while the block under the playhead is cut
         let cutNow = running && r.blocks.contains { beat >= $0.start - 1e-9 && beat < $0.end - 1e-9 && $0.cut }
         let vo = euclideousRestartTileVoiceOver(kind: kind, part: rr.part, bar: rr.bar, isFree: r.isFree, cutNow: cutNow)
         let state = restartTileState(kind, cfg: c, beat: beat, running: running)   // §4.1: kept only for the a11y VALUE (RESTART UNITS 9.1's "next restart in N"); the ruler layer order doesn't draw its sweep/track
-        return (input, euclideousRestartRatioText(part: rr.part, bar: rr.bar), vo, state)
+        return (input, nm, vo, state)
     }
 
     /// §6.1 — the two restart tiles (RHYTHM, MELODY), replacing the OUT A–D circles in the RHYTHM tab's lower-right row (§9 moves OUT to MIX). Each opens the shared restart editor (§6.2, holds both chains).
@@ -3819,13 +3821,13 @@ struct EuclideousPage: View {
     /// RESETS TAB §3.1/§4.2: `tappable` false makes a tile a non-interactive progress bar — no tap (it opens nothing), no button trait, no hint, static text — which is how the RESETS card draws it now that the controls live on the card.
     private func restartTile(_ idx: Int, rhythm: Bool, spec: EuclideousRestartTileSpec, label: String, accent: Color, width: CGFloat, height: CGFloat,
                              state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?, tappable: Bool = true,
-                             ruler: EuclideousRestartRulerInput? = nil, ratioText: String? = nil,
-                             layerOrder: [EuclideousRestartTileLayer] = euclideousRestartTileLayerOrder) -> AnyView {   // RESETS V2: the RESETS card passes a ruler + ratio + the base·ruler·text order; every other surface keeps the sweep/track default
+                             ruler: EuclideousRestartRulerInput? = nil, nOfM: (n: Int, m: Int)? = nil,
+                             layerOrder: [EuclideousRestartTileLayer] = euclideousRestartTileLayerOrder) -> AnyView {   // RESETS V2: the RESETS card passes a ruler + "N OF M" value + the base·ruler·text order; every other surface keeps the sweep/track default
         let control: EuclideousLockControl = rhythm ? .rhythmRestart : .melodyRestart
         let name = rhythm ? "RHYTHM" : "MELODY"
         let base = ZStack(alignment: .topLeading) {
             ForEach(Array(layerOrder.enumerated()), id: \.offset) { _, layer in
-                restartTileLayer(layer, spec: spec, name: name, accent: accent, width: width, height: height, state: state, strikes: strikes, ruler: ruler, ratioText: ratioText)
+                restartTileLayer(layer, spec: spec, name: name, accent: accent, width: width, height: height, state: state, strikes: strikes, ruler: ruler, nOfM: nOfM)
             }
         }
         .frame(width: width, height: height)
@@ -3847,7 +3849,7 @@ struct EuclideousPage: View {
     }
     private func restartTileLayer(_ layer: EuclideousRestartTileLayer, spec: EuclideousRestartTileSpec, name: String, accent: Color, width: CGFloat, height: CGFloat,
                                   radius: CGFloat = 8, trackCentred: Bool = false, state: EuclideousRestartTileState?, strikes: EuclideousCellStrikeBank?,
-                                  ruler: EuclideousRestartRulerInput? = nil, ratioText: String? = nil) -> AnyView {
+                                  ruler: EuclideousRestartRulerInput? = nil, nOfM: (n: Int, m: Int)? = nil) -> AnyView {
         switch layer {
         case .base:
             return AnyView(RoundedRectangle(cornerRadius: radius).fill(spec.isSet ? Color(hex: 0x22252C) : Color(hex: 0x2A2D34))
@@ -3876,8 +3878,13 @@ struct EuclideousPage: View {
                         .foregroundColor(nameInk).lineLimit(1).truncationMode(.tail)
                 }
                 Spacer(minLength: 4)
-                if let ratioText {   // RESETS V2 §2: the ratio, at the value's place and type
-                    Text(ratioText).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(spec.isSet ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)).lineLimit(1).layoutPriority(1)
+                if let nOfM {   // RESETS V2 draft 3 §2.1: "N OF M" at the value's place — N and M at 13 pt (§2.5: #F2F4F7 set / #8A909A free), "OF" 8 pt 0.08 em #8A909A, sp4 either side, same baseline; truncate, never shrink (§2.7).
+                    let ink = spec.isSet ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)
+                    HStack(alignment: .lastTextBaseline, spacing: 4) {
+                        Text("\(nOfM.n)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(ink)
+                        Text("OF").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: 0x8A909A))
+                        Text("\(nOfM.m)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(ink)
+                    }.lineLimit(1).layoutPriority(1)
                 } else {
                     HStack(alignment: .lastTextBaseline, spacing: 3) {
                         if spec.showsLinkGlyph {
