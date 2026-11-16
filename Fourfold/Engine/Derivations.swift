@@ -5127,6 +5127,46 @@ func euclideousRiffPanelLayout(box: CGSize) -> EuclideousRiffPanelLayout {
     return EuclideousRiffPanelLayout(box: box, cellW: cellW, rowH: rowH, cellH: min(max(1, rowH), cellW), labelW: labelW, tabRowH: tabRowH)
 }
 
+// MARK: - Scrub ferry (2026-11-16) §7 — the ribbon mapping + the hit-source substitution (pure, allocation-free; the engine AND the ribbons call these, no second derivation)
+
+/// §7.1 — the 1-based index (1…count) a coordinate falls on, for `count` cells of `size` starting at `first`, `gap` apart: a gap goes to the NEARER cell (its half-way line splits it), and past either end clamps to 1 / count.
+@inline(__always) func euclideousScrubIndex(_ coord: CGFloat, first: CGFloat, size: CGFloat, gap: CGFloat, count: Int) -> Int {
+    guard count > 0 else { return 1 }
+    let pitch = size + gap
+    guard pitch > 0 else { return 1 }
+    if coord <= first { return 1 }                       // before cell 0 ⇒ clamp 1
+    let rel = coord - first
+    let block = Int(rel / pitch)
+    if block >= count { return count }                   // past the last cell ⇒ clamp count
+    let within = rel - CGFloat(block) * pitch
+    if within <= size { return block + 1 }               // inside cell `block`
+    let nearer = within < size + gap / 2 ? block : block + 1   // in the gap: the nearer of the two cells
+    return min(count, nearer + 1)
+}
+/// §2.1 / §7.1 — the riff column (1…8) under x. POLY grids are 16 wide but the ribbon is columns 1…8 per the spec.
+func euclideousScrubColumn(x: CGFloat, layout: EuclideousRiffPanelLayout) -> Int {
+    euclideousScrubIndex(x, first: layout.columnLeft(0), size: layout.cellW, gap: layout.colGap, count: 8)
+}
+/// §2.2 / §7.1 — the riff rank (1…8, rank 8 at the top) under y in the note-label column.
+func euclideousScrubRiffRank(y: CGFloat, layout: EuclideousRiffPanelLayout) -> Int {
+    9 - euclideousScrubIndex(y, first: layout.rowTop(0), size: layout.cellH, gap: EuclideousRiffPanelMetrics.rowGap, count: 8)   // row 0 (top) = rank 8
+}
+
+/// §7.2 / §3 — the (display column, written rank) a riff hit uses under the holds; rank 0 = a rest. All 1-based (column 1…8, rank 1…8 / 0). With both holds nil it returns exactly today's result (the natural column + its cell's rank), so the no-hold engine path is byte-identical.
+/// RANK hold wins (§3.3/§3.4): the written rank is `r` on every hit, in the column the hit read (the held column if a column hold is also set — it "still places the arrows" — else the natural column). COLUMN hold alone (§3.1): the held column's own written rank (a rest if 0). The engine skips every on-rest treatment whenever either hold is set (§3.2/§3.3).
+struct EuclideousRiffHitSource: Equatable { var column: Int; var rank: Int }   // column = the DISPLAY/arrow cell's column; rank 0 = rest (no riff note-on)
+func euclideousRiffHitSource(naturalColumn: Int, rawRankAtColumn: (Int) -> Int, columnHold: Int?, rankHold: Int?) -> EuclideousRiffHitSource {
+    if let r = rankHold { return EuclideousRiffHitSource(column: columnHold ?? naturalColumn, rank: r) }
+    if let c = columnHold { return EuclideousRiffHitSource(column: c, rank: rawRankAtColumn(c)) }
+    return EuclideousRiffHitSource(column: naturalColumn, rank: rawRankAtColumn(naturalColumn))
+}
+
+/// §7.3 / §4 — the ranks a stack hit plays under the stack hold. Nil hold ⇒ today's `natural` list (byte-identical). Set ⇒ collapse to `[r]` whether or not r is selected (§4.1), or `[]` (a rest) when the lane's pool has no note at r (§4.2). The caller also drops BASS when a hold is set.
+func euclideousStackHitRanks(natural: [Int], poolHasRank: (Int) -> Bool, stackHold: Int?) -> [Int] {
+    guard let r = stackHold else { return natural }
+    return poolHasRank(r) ? [r] : []
+}
+
 /// The bottom-right panel's tab body (what LANES and FX are laid out in): the panel less sp8 padding all round, the 20pt tab row and the sp4 gap.
 func euclideousSeqTabBodySize(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize {
     let pad = EuclideousMixMetrics.sp8 * 2

@@ -53,6 +53,7 @@
 		145EEF1854DA254EBDE44F89 /* BuildGridSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03A7A06891E32697C7FD87E /* BuildGridSelector.swift */; };
 		14D864B0AC3A64F8976F82DF /* CanonHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176469F1675E0C309D28B215 /* CanonHistory.swift */; };
 		14E6C5BDAFD3D263E087BDBF /* StackGridViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73E8CDC7DAC3A8E23405B2E8 /* StackGridViews.swift */; };
+		15674CF26CAA66F430DA9C5B /* ScrubTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D03C8606067E80F11BC6F80E /* ScrubTests.swift */; };
 		165888397138D1C3E68C4BD0 /* RhythmDirectionHuntTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37F40110CDBE127195284585 /* RhythmDirectionHuntTests.swift */; };
 		17C817502F5E7067285E28A9 /* AnswerTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A00150F18F6006F1DFA952 /* AnswerTab.swift */; };
 		17EAAB1A648218E348603562 /* FXTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A29EBC243C8C44F0013668 /* FXTabTests.swift */; };
@@ -895,6 +896,7 @@
 		CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanesPanelPainter.swift; sourceTree = "<group>"; };
 		CFD093523154373C2AAE660A /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
 		CFED50679781AA2244482FB5 /* FourfoldStackBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldStackBudgetTests.swift; sourceTree = "<group>"; };
+		D03C8606067E80F11BC6F80E /* ScrubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrubTests.swift; sourceTree = "<group>"; };
 		D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CogPage.swift; sourceTree = "<group>"; };
 		D1EA698A26E0E82CDCE82B8A /* HocketModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketModelTests.swift; sourceTree = "<group>"; };
 		D1FDFAC49DE1FD6F45236A30 /* EmitterRatchetUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterRatchetUI.swift; sourceTree = "<group>"; };
@@ -1206,6 +1208,7 @@
 				9D50A76DA3E4E4C14429695C /* RiffWalkTests.swift */,
 				678E167D4A16C39447DC29C1 /* RouterTests.swift */,
 				3F6C43BE043B3253C35B961E /* SameNoteGuardTests.swift */,
+				D03C8606067E80F11BC6F80E /* ScrubTests.swift */,
 				D4725DDA30BD137A2E7F2623 /* SessionTapeTests.swift */,
 				CB72B97F862EE82E9F92BEE8 /* SnapshotBuilderTests.swift */,
 				895B3CF80D62A9017460EF53 /* SourceStackTests.swift */,
@@ -2108,6 +2111,7 @@
 				CBBC295B11E91C7833E213C7 /* Router.swift in Sources */,
 				7A38F150DFE99F651004F657 /* RouterTests.swift in Sources */,
 				6353B5D664023023090A2DF1 /* SameNoteGuardTests.swift in Sources */,
+				15674CF26CAA66F430DA9C5B /* ScrubTests.swift in Sources */,
 				41A2CB83CC4492FD4F601599 /* SessionTape.swift in Sources */,
 				895F99D3F9F1BE1F2238EE20 /* SessionTapeTests.swift in Sources */,
 				23F778EA380308B2D22F1CE0 /* Snapshot.swift in Sources */,
