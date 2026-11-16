@@ -358,3 +358,55 @@ func laneStripSounding(riffHeld: [NoteRollNote], stackHeld: [NoteRollNote], n: I
     for s in 0..<stackChipRanks.count { stackChipRanks[s].sort() }           // §2.3: lowest rank on the left
     return LaneStripSounding(riffRing: riffRing, stackChip: stackChip, stackChipRanks: stackChipRanks, stackRing: stackRing, stackOutline: stackOutline)
 }
+
+// MARK: - RIFF GRID STACK DOTS (ferry 2026-11-16): a grey dot per sounding stack note on the riff grid, in the cell of (the lane's riff column at the START hit, the rank the stack played)
+
+/// §8 tunables (named so device can change them). The dot FILL is `StackRankPalette.colour(rank)` (the grey ramp the stack-grey ferry built — NOT rebuilt here); the ring is #0D0F14 at `ringOpacity`.
+enum RiffStackDotTuning {
+    static let size: CGFloat = 3              // §2: the dot diameter
+    static let ringWidth: CGFloat = 0.5       // §2: the dark ring
+    static let ringOpacity: Double = 0.7      // §2: #0D0F14 @ 70 %
+    static let cornerInsetX: CGFloat = 1.5    // §3: inset in from the cell's top-right corner (device-owed)
+    static let cornerInsetY: CGFloat = 1.5
+    static let laneStepX: CGFloat = 4         // §3: right-to-left step per lane when several lanes' dots share one cell (lane 1 rightmost)
+    static let fadeSeconds: Double = 0.160    // §4: ease-out fade on note-off; 0 = a hard cut
+}
+
+/// One dot: the LANE (for the right-to-left, lane-order placement — not the colour, which is the RANK's grey), the grid cell (`column` 0-based, `rank` 1…8), and the `opacity` (1 while sounding, easing to 0 over the fade after note-off).
+struct EuclideousRiffStackDot: Equatable {
+    var lane: Int
+    var column: Int   // 0-based grid column (ready for EuclideousRiffPanelLayout.cellFrame)
+    var rank: Int     // 1…8
+    var opacity: Double
+}
+
+/// §4 — the ease-out curve for the note-off fade: `age` 0…1 across the window → opacity 1…0, decelerating as it reaches 0 (ease-out).
+@inline(__always) func euclideousRiffStackDotFade(_ age: Double) -> Double {
+    let u = 1 - max(0, min(1, age))
+    return u * u
+}
+
+/// §1 / §4 — the sounding stack dots for ONE lane, from the SAME held→step mapping the lane strip's stack outlines use (`laneStripSnapToHitStep(stepOf(onBeat))`, §1.6) plus the strip's own per-hit column
+/// (`EuclideousStripHit.column`, 1-based). The feed carries no column, so the column is READ from the hit the note started on — never re-derived from a second clock. A note contributes while it sounds (opacity 1)
+/// and for `fadeSeconds` after its note-off (ease-out to 0); `secPerBeat` converts the beat-domain `endBeat` to the wall-clock fade (0 ⇒ a hard cut). Allocation is one out array. `hits` / `hitSteps` are the strip
+/// plan's for the leg the sweep is on; `now` the live beat; the caller has already dropped a lane whose stack is off / muted / solo-silenced (§5).
+func euclideousRiffStackDots(lane: Int, stackHeld: [NoteRollNote], hits: [EuclideousStripHit], stepOf: (Double) -> Int, hitSteps: [Int], now: Double, fadeSeconds: Double, secPerBeat: Double, columns: Int = 8) -> [EuclideousRiffStackDot] {
+    guard !hits.isEmpty else { return [] }
+    let fadeBeats = secPerBeat > 0 ? fadeSeconds / secPerBeat : 0
+    var out: [EuclideousRiffStackDot] = []
+    for n in stackHeld where n.outs != 0 && n.onBeat <= now {   // §5: a note routed nowhere (`outs == 0`) lights nothing
+        let opacity: Double
+        if euclideousMixNoteSounds(n, at: now) { opacity = 1 }                 // still held / within gate
+        else if let end = n.endBeat, end <= now, fadeBeats > 0 {               // §4: fading out after note-off
+            let age = (now - end) / fadeBeats
+            if age >= 1 { continue }
+            opacity = euclideousRiffStackDotFade(age)
+        } else { continue }                                                    // ended with a hard cut, or not yet / no longer drawn
+        let r = Int(n.rank)
+        guard r >= 1 && r <= 8 else { continue }
+        let s = laneStripSnapToHitStep(stepOf(n.onBeat), hitSteps: hitSteps)   // §1.2/§4.6: the hit CELL the note started in (onset → step, snapped to the nearest authored hit)
+        guard s >= 0 && s < hits.count, let col1 = hits[s].column, col1 >= 1 && col1 <= columns else { continue }   // POLY grids are 16 columns
+        out.append(EuclideousRiffStackDot(lane: lane, column: col1 - 1, rank: r, opacity: opacity))   // §1.3: EuclideousStripHit.column is 1-based; the grid cell is 0-based
+    }
+    return out
+}
