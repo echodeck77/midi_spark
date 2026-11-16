@@ -999,3 +999,10 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - top-half vs bottom-half taps on the 44×28 chips land where intended; the up/down chevrons are visible but quiet;
   - the − box isn't hit by mistake when reaching for +; it appears at 2+ links and removes the last one;
   - the ruler still reads at a glance (already shipped) alongside the new value/count.
+
+- **RIFF GRID STACK DOTS (2026-11-16, display-only):** on device, confirm —
+  - a sounding stack note shows a small grey dot in the riff grid cell of (its lane's riff column at the START hit, the rank it played) — and a SUSTAINED note (RING / long gate) keeps its dot in the START cell as the arrow walks on, not under the moving arrow;
+  - the 3 pt dot + 0.5 pt dark ring is legible and reads as grey-by-rank (the stack ramp), distinct from the lane-coloured arrow it sits above in the top-right corner (the §2.5 gap holds);
+  - several lanes' dots in one cell step right-to-left (lane 1 rightmost) without piling up;
+  - the 160 ms ease-out fade on note-off reads as a fade, not a flicker or a stuck dot; a hard cut (fade 0) looks clean;
+  - no dots appear while stopped, on a muted / solo-silenced lane, or with PLAY STACK off.
