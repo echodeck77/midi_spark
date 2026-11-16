@@ -12,6 +12,20 @@ final class FourfoldScreenshotTests: XCTestCase {
         a.name = name; a.lifetime = .keepAlways; add(a)
     }
 
+    /// REEL redesign Phase 3 (2026-11-16): the NEW reel screen — overview (stacked by lane) → tape (bar window, ×n brackets, snapping selection) → close-up piano roll, the control bar and the LIVE/TAPE pill. Plays a few bars so the
+    /// tape has content, opens the reel from the header tape icon, and screenshots the WIDE (landscape) and TALL (portrait) shapes. The small shape only appears in a short AUM window, which the standalone app can't produce.
+    func testTheReel() {
+        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
+        Thread.sleep(forTimeInterval: 4)   // let the tape record a few whole bars so the overview/close-up have notes
+        let reel = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reel")).element(boundBy: 0)
+        guard reel.waitForExistence(timeout: 6) else { XCTFail("the reel header button was not found"); return }
+        reel.tap(); Thread.sleep(forTimeInterval: 1.5)
+        attach("reel-1-wide")
+        XCUIDevice.shared.orientation = .portrait; Thread.sleep(forTimeInterval: 1.5)
+        attach("reel-2-tall")
+        XCUIDevice.shared.orientation = .landscapeLeft; Thread.sleep(forTimeInterval: 1)
+    }
+
     /// RESTART UNITS (2026-11-04); RESTARTS EDITOR V2 (2026-11-06): the restart tiles and editor — free, then set with a RIFF rhythm of its own lane, a PASS source of another lane, a melody HIT chain with WITH RHYTHM — in portrait and landscape,
     /// playing. (Not run this session — no iOS simulator runtime; the labels/flow match the V2 design.)
     func testTheRestartTilesAndEditor() {
