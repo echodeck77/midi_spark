@@ -210,9 +210,7 @@ struct EuclidLaneBox: View {
                 .overlay(alignment: .bottom) { if let t = listenShadowTint { RoundedRectangle(cornerRadius: EuclideousStripMetrics.answerLineRadius).fill(t.opacity(EuclideousStripMetrics.answerLineAlpha)).frame(height: EuclideousStripMetrics.answerLineH).allowsHitTesting(false) } }   // PLAY BUTTONS AMENDMENT 1 §A5: a 2 pt line along the bottom of the note band (was a 14 pt solid band)
                 .opacity(stripDim ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.1 + PLAY STACK §4.1: the whole strip once at 42 % (solo-silenced OR both parts off), still walking
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: stripDim)
-                // PLAY BUTTONS RAIL+NOTE §3.4: ease the band collapse over 0.12 s on each part's own toggle (EuclidCometBar is Animatable); none under Reduce Motion.
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: strip?.riffPartOn ?? true)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: strip?.notesPartOn ?? true)
+                // PLAY BUTTONS RAIL+NOTE §3: the band collapse is INSTANT (the Animatable ease was a Release-WMO SIL-crash risk — see EuclidCometBar). The rail's own fade keeps the 0.12 s ease below (plain `.opacity`).
             if let soloButton {
                 if let lockBadge { lockBadge.frame(width: EuclideousLockBadge.size, height: height).padding(.horizontal, -(gap - EuclideousLockBadge.gap)) }
                 soloButton
@@ -313,14 +311,11 @@ struct EuclidCompactPlayButton: View {
 /// 2026-10-05) with its 6 implicit "live clock" reads promoted to the explicit `clock` param.
 /// Every comment on the drawing logic itself is carried over unchanged — nothing about WHAT
 /// gets drawn or WHY changed, only where the 6 scalars it reads come from.
-struct EuclidCometBar: View, Animatable {
-    // PLAY BUTTONS RAIL+NOTE §3.4: the two band fractions are the animatable data, so a PLAY RIFF / PLAY STACK toggle eases
-    // the collapse over 0.12 s (the parent attaches the curve). Animatable re-draws the Canvas each interpolation frame,
-    // so the ease runs whether the transport is playing or stopped (the strip's TimelineView is paused when stopped).
-    var animatableData: AnimatablePair<Double, Double> {
-        get { AnimatablePair(riffBandFrac, stackBandFrac) }
-        set { riffBandFrac = newValue.first; stackBandFrac = newValue.second }
-    }
+struct EuclidCometBar: View {
+    // PLAY BUTTONS RAIL+NOTE §3: the two band fractions collapse an off part's band (1 = in, 0 = out, the cells extend). The
+    // §3.4 0.12 s EASE was prototyped via `Animatable` on this view; it is removed because an Animatable on a view this large
+    // is a Release-WMO SIL-crash risk, and the band collapse is INSTANT with the ease a deferred/device-owed follow-up. The
+    // RAIL still fades over 0.12 s (a plain `.opacity` animation in `EuclidLaneBox`, no Animatable).
     let pulses: Int
     let steps: Int
     let rotate: Int
