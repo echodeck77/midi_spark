@@ -164,6 +164,7 @@ struct EuclidLaneBox: View {
     var lockOutline: Bool = false
     /// TAB STRIP ferry (2026-10-29) §6.2: a locked lane's badge (34 × 34, `EuclideousLockBadge`) sits between the comet strip and the SOLO tile, sp4 either side; the strip ends sp4 before it. nil (every other caller / lane) ⇒ the row is unchanged.
     var lockBadge: AnyView? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PLAY BUTTONS RAIL+NOTE §3.4: no collapse ease under Reduce Motion
 
     var body: some View {
         let on = line.enabledResolved
@@ -200,6 +201,7 @@ struct EuclidLaneBox: View {
                            strip: strip, stripCurrent: stripCurrent, riffHeld: riffHeld, stackHeld: stackHeld, ccInput: ccInput, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, exactStyle: compact, grouped: grouped,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
                            restartChains: restartChains, fillLine: line, mutedAt: mutedAt, suppressMuteDim: stripDim, soloSilencedWords: soloSilenced,
+                           riffBandFrac: (strip?.riffPartOn ?? true) ? 1 : 0, stackBandFrac: (strip?.notesPartOn ?? true) ? 1 : 0,   // PLAY BUTTONS RAIL+NOTE §3: an off part's band collapses (the ease is attached below)
                            tint: accent, lanePlaying: on, clock: clock, width: max(1, width - leadReserve - badgeReserve),
                            onRotateDelta: onRotateDelta, onHitsDelta: onHitsDelta, onStepsDelta: onStepsDelta,
                            onAllRotateDelta: onAllRotateDelta, onAllHitsDelta: onAllHitsDelta, onDragState: onDragState, onTapStep: onTapStep)
@@ -211,6 +213,9 @@ struct EuclidLaneBox: View {
                 .overlay(alignment: .bottom) { if let t = listenShadowTint { RoundedRectangle(cornerRadius: EuclideousStripMetrics.answerLineRadius).fill(t.opacity(EuclideousStripMetrics.answerLineAlpha)).frame(height: EuclideousStripMetrics.answerLineH).allowsHitTesting(false) } }   // PLAY BUTTONS AMENDMENT 1 §A5: a 2 pt line along the bottom of the note band (was a 14 pt solid band)
                 .opacity(stripDim ? EuclideousLaneDimStyle.opacity : 1)   // LANE SOLO §6.1 + PLAY STACK §4.1: the whole strip once at 42 % (solo-silenced OR both parts off), still walking
                 .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: stripDim)
+                // PLAY BUTTONS RAIL+NOTE §3.4: ease the band collapse over 0.12 s on each part's own toggle (EuclidCometBar is Animatable); none under Reduce Motion.
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: strip?.riffPartOn ?? true)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: strip?.notesPartOn ?? true)
             if let soloButton {
                 if let lockBadge { lockBadge.frame(width: EuclideousLockBadge.size, height: height).padding(.horizontal, -(gap - EuclideousLockBadge.gap)) }
                 soloButton
@@ -288,7 +293,14 @@ struct EuclidCompactPlayButton: View {
 /// 2026-10-05) with its 6 implicit "live clock" reads promoted to the explicit `clock` param.
 /// Every comment on the drawing logic itself is carried over unchanged — nothing about WHAT
 /// gets drawn or WHY changed, only where the 6 scalars it reads come from.
-struct EuclidCometBar: View {
+struct EuclidCometBar: View, Animatable {
+    // PLAY BUTTONS RAIL+NOTE §3.4: the two band fractions are the animatable data, so a PLAY RIFF / PLAY STACK toggle eases
+    // the collapse over 0.12 s (the parent attaches the curve). Animatable re-draws the Canvas each interpolation frame,
+    // so the ease runs whether the transport is playing or stopped (the strip's TimelineView is paused when stopped).
+    var animatableData: AnimatablePair<Double, Double> {
+        get { AnimatablePair(riffBandFrac, stackBandFrac) }
+        set { riffBandFrac = newValue.first; stackBandFrac = newValue.second }
+    }
     let pulses: Int
     let steps: Int
     let rotate: Int
@@ -359,6 +371,9 @@ struct EuclidCometBar: View {
     /// LANE SOLO: the box already dims this whole bar (the lane is solo-silenced), so the bar's own LANES-mute dim stands down — one 42 %, never two multiplied.
     var suppressMuteDim: Bool = false
     var soloSilencedWords: Bool = false   // the strip's VoiceOver value adds ", silenced by solo"
+    // PLAY BUTTONS RAIL+NOTE §3: each part's band presence 0…1 (1 = the band is in; 0 = collapsed, the cells extend to that edge). The parent eases these 1↔0 on a PLAY RIFF / PLAY STACK toggle (§3.4, Animatable); default 1 (the BUILD page / every non-strip caller) ⇒ both bands in, unchanged.
+    var riffBandFrac: Double = 1
+    var stackBandFrac: Double = 1
     let tint: Color
     let lanePlaying: Bool
     let clock: EuclidLiveClock
@@ -495,7 +510,8 @@ struct EuclidCometBar: View {
                     // LANE STRIP BANDS ferry (2026-11-12): the Fourfold lane card's strip is re-banded into a riff HEADER (riff chips), the CELLS (steps/hits + per-rank sounding outlines) and a stack FOOTER (stack chips).
                     // The playhead is the current CELL (§1.7), not a sliding line; nothing in the strip glows (§6.4). The held sets + CC trace arrive in later slices. The old `drawEuclideousStrip` stays compiled for the BUILD page.
                     let xs: [CGFloat] = (0..<n).map { insetL + boxXs[$0] }
-                    let bandFrames = laneStripBandFrames(xs: xs, columnW: boxW, T: size.height)
+                    // PLAY BUTTONS RAIL+NOTE §3: each part's band is reserved (rail+gap+band+gap) only when it is ON; an off part collapses, the cells extend. `riffBandFrac`/`stackBandFrac` ease the toggle (§3.4).
+                    let bandFrames = laneStripBandFrames(xs: xs, columnW: boxW, T: size.height, riffFrac: riffBandFrac, stackFrac: stackBandFrac)
                     let playheadStep: Int? = running ? euclideousStripPlayheadStep(raw: cometRaw, n: n, dir: dir) : nil
                     // §3.4/§4.4/§4.6: a held note enters the step the sweep was on at its onset (cometRawAt), so a ring/outline never disagrees with the engine. Empty held sets (stopped / the BUILD page) ⇒ no rings or outlines.
                     let soundingHits = strip.legs[stripLeg].hits

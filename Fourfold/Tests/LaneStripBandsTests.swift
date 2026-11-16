@@ -7,18 +7,44 @@ import CoreGraphics
 
 final class LaneStripBandsTests: XCTestCase {
 
-    // §B2.1 / §B7.2 — band heights (amendment 1: ratio 0.22, gap 1): the real T 44 and the spec's reference T 78.
+    // PLAY BUTTONS RAIL+NOTE §3.1 — band heights (ratio 0.2; each ON part reserves rail 1.5 + gap 1 + band hH + gap 1):
+    // the real T 44 and the spec's reference T 78, both parts on.
     func testBandHeights() {
+        let railH = LaneStripBandMetrics.railH
         let a = laneStripBandHeights(T: 78)
-        XCTAssertEqual(a.hH, 17); XCTAssertEqual(a.hC, 42); XCTAssertEqual(a.gap, 1)         // round(78·0.22)=17, 78−34−2=42
+        XCTAssertEqual(a.hH, 16); XCTAssertEqual(a.hC, 39); XCTAssertEqual(a.gap, 1)         // round(78·0.2)=16; 78 − 2·(1.5+1+16+1) = 39
         let b = laneStripBandHeights(T: 44)
-        XCTAssertEqual(b.hH, 10); XCTAssertEqual(b.hC, 22); XCTAssertEqual(b.gap, 1)         // round(44·0.22)=10, 44−20−2=22
-        // the three bands + two gaps always fill T exactly, and hH never drops below the 8 pt floor
+        XCTAssertEqual(b.hH, 9); XCTAssertEqual(b.hC, 19); XCTAssertEqual(b.gap, 1)          // round(44·0.2)=9;  44 − 2·(1.5+1+9+1) = 19
+        // with both parts on, 2 rails + 2 bands + 4 gaps + the cells fill T exactly, and hH never drops below the 8 pt floor
         for T in stride(from: CGFloat(30), through: 90, by: 1) {
             let h = laneStripBandHeights(T: T)
-            XCTAssertEqual(h.hH + h.gap + h.hC + h.gap + h.hH, T, accuracy: 0.001, "bands fill T at \(T)")
+            XCTAssertEqual(2 * railH + 2 * h.hH + 4 * h.gap + h.hC, T, accuracy: 0.001, "bands + rails + gaps fill T at \(T)")
             XCTAssertGreaterThanOrEqual(h.hH, 8, "§B2.1 floor at \(T)")
         }
+    }
+
+    // PLAY BUTTONS RAIL+NOTE §3.1/§3.2/§3.3 — the per-part collapse: an OFF part reserves nothing (cells extend); hC grows.
+    func testPartAwareCollapseAndBandPositions() {
+        let railH = LaneStripBandMetrics.railH, reserve: CGFloat = railH + 1 + 9 + 1   // T 44: 12.5 per on part
+        // §3.2: both on hH 9 / hC 19; riff only hC 31.5; both off hC 44.
+        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 1, stackFrac: 1).hC, 19)
+        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 1, stackFrac: 0).hC, 44 - reserve)   // 31.5
+        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 0, stackFrac: 1).hC, 44 - reserve)   // 31.5
+        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 0, stackFrac: 0).hC, 44)
+        XCTAssertGreaterThanOrEqual(laneStripBandHeights(T: 44).hC, 16, "§3.2: both-on hC (19) is not under 16")
+        // band positions (both on): rail+gap in from each edge; the cells after the full top reserve.
+        let xs: [CGFloat] = [0, 20, 40]
+        let both = laneStripBandFrames(xs: xs, columnW: 18, T: 44, riffFrac: 1, stackFrac: 1)
+        XCTAssertEqual(both.headerY, railH + 1, accuracy: 0.001)                 // 2.5
+        XCTAssertEqual(both.cellsY, reserve, accuracy: 0.001)                    // 12.5
+        XCTAssertEqual(both.footerY, 44 - railH - 1 - 9, accuracy: 0.001)        // 32.5
+        XCTAssertEqual(both.cells[0].minY, 12.5, accuracy: 0.001); XCTAssertEqual(both.cells[0].height, 19, accuracy: 0.001)
+        // riff OFF: no top reserve — the cells extend to the top edge; hC grows.
+        let stackOnly = laneStripBandFrames(xs: xs, columnW: 18, T: 44, riffFrac: 0, stackFrac: 1)
+        XCTAssertEqual(stackOnly.cellsY, 0, accuracy: 0.001)
+        XCTAssertEqual(stackOnly.cells[0].height, 44 - reserve, accuracy: 0.001)   // 31.5, taller
+        // a mid-collapse fraction interpolates the reserve (the ease, §3.4).
+        XCTAssertEqual(laneStripBandFrames(xs: xs, columnW: 18, T: 44, riffFrac: 0.5, stackFrac: 1).cellsY, reserve / 2, accuracy: 0.001)
     }
 
     // §B7.2 — the chip fills its cell's x/width at the band's full height (no shrink, no 30-cap); the 7 pt label fit.
@@ -54,13 +80,14 @@ final class LaneStripBandsTests: XCTestCase {
             XCTAssertEqual(f.w, (nameW + 8).rounded(.up), "w = ceil(STACK + 8)")             // §1.3
             XCTAssertEqual(f.leadTile.height, T); XCTAssertEqual(f.trailTile.height, T)      // §1.5 both span T
             XCTAssertEqual(f.leadTile.minX, 0); XCTAssertEqual(f.trailTile.maxX, content.width, accuracy: 0.01)
-            // the header bridge is in the header row only; the footer bridge in the footer row only
-            XCTAssertEqual(f.headerBridge, CGRect(x: f.leadTile.maxX, y: 0, width: g, height: f.hH))
-            XCTAssertEqual(f.footerBridge, CGRect(x: f.strip.maxX, y: T - f.hH, width: g, height: f.hH))
+            // PLAY BUTTONS RAIL+NOTE §3.1: the bands sit rail + gap in from each edge; the bridges sit in their band's row.
+            let railH = LaneStripBandMetrics.railH
+            XCTAssertEqual(f.headerBridge, CGRect(x: f.leadTile.maxX, y: railH + f.gap, width: g, height: f.hH))
+            XCTAssertEqual(f.footerBridge, CGRect(x: f.strip.maxX, y: T - railH - f.gap - f.hH, width: g, height: f.hH))
             // the strip bands
-            XCTAssertEqual(f.header.minY, 0); XCTAssertEqual(f.header.height, f.hH)
-            XCTAssertEqual(f.cells.minY, f.hH + f.gap); XCTAssertEqual(f.cells.height, f.hC)
-            XCTAssertEqual(f.footer.minY, T - f.hH); XCTAssertEqual(f.footer.height, f.hH)
+            XCTAssertEqual(f.header.minY, railH + f.gap); XCTAssertEqual(f.header.height, f.hH)
+            XCTAssertEqual(f.cells.minY, railH + f.gap + f.hH + f.gap); XCTAssertEqual(f.cells.height, f.hC)
+            XCTAssertEqual(f.footer.minY, T - railH - f.gap - f.hH); XCTAssertEqual(f.footer.height, f.hH)
             // §1.6: every step's header slot and footer slot share the cell's x and width
             XCTAssertEqual(f.columnXs.count, steps)
             for i in 0..<steps {
@@ -81,21 +108,24 @@ final class LaneStripBandsTests: XCTestCase {
 
     // §B4 / §B7.4 — rank BARS: inset riff 2 / stack 4 (narrow 1 / 3); bar h = max(1, slot−0.5); stack inside the riff; rank 8 above 1; outline only at slot ≥ 4.
     func testRankMarksInsetsAndOrder() {
-        let cell = CGRect(x: 20, y: 0, width: 24, height: 22)                                // hC 22 (T 44) → slot 2.125 < 4 → filled bars
-        let riff6 = rankSlotRect(cell: cell, hC: 22, rank: 6, part: .riff)
-        let stack6 = rankSlotRect(cell: cell, hC: 22, rank: 6, part: .stack)
-        XCTAssertTrue(riff6.filled, "at hC 22 the slot is 2.125 < 4 → a filled bar")
+        let cell = CGRect(x: 20, y: 0, width: 24, height: 19)                                // hC 19 (T 44, both on) → slot 1.75 < 4 → filled bars
+        let riff6 = rankSlotRect(cell: cell, hC: 19, rank: 6, part: .riff)
+        let stack6 = rankSlotRect(cell: cell, hC: 19, rank: 6, part: .stack)
+        XCTAssertTrue(riff6.filled, "at hC 19 the slot is 1.75 < 4 → a filled bar")
         XCTAssertEqual(riff6.rect.minX, cell.minX + 2); XCTAssertEqual(stack6.rect.minX, cell.minX + 4)   // §B4.2 insets
-        XCTAssertEqual(riff6.rect.height, max(1, 2.125 - 0.5), accuracy: 0.001, "§B4.2 bar h = max(1, slot − 0.5) = 1.625")
+        XCTAssertEqual(riff6.rect.height, max(1, 1.75 - 0.5), accuracy: 0.001, "§B4.2 bar h = max(1, slot − 0.5) = 1.25")
         XCTAssertGreaterThan(stack6.rect.minX, riff6.rect.minX, "the stack bar is inside the riff's (drawn over it, riff shows at both ends)")
         XCTAssertLessThan(stack6.rect.maxX, riff6.rect.maxX)
-        XCTAssertLessThan(rankSlotRect(cell: cell, hC: 22, rank: 8, part: .riff).rect.midY, rankSlotRect(cell: cell, hC: 22, rank: 1, part: .riff).rect.midY)   // rank 8 above rank 1
+        XCTAssertLessThan(rankSlotRect(cell: cell, hC: 19, rank: 8, part: .riff).rect.midY, rankSlotRect(cell: cell, hC: 19, rank: 1, part: .riff).rect.midY)   // rank 8 above rank 1
+        // §3.5 / §B4.1: a bar's height scales with hC, so it stays PROPORTIONAL as the cells grow when the other part is off.
+        let tall = rankSlotRect(cell: CGRect(x: 20, y: 0, width: 24, height: 31), hC: 31.5, rank: 6, part: .riff)   // riff only → hC 31.5
+        XCTAssertGreaterThan(tall.rect.height, riff6.rect.height, "§3.5: the bar grows with the taller cells")
         // §B4.3: a cell under 12 wide tightens the insets to riff 1 / stack 3
-        let narrow = CGRect(x: 0, y: 0, width: 10, height: 22)
-        XCTAssertEqual(rankSlotRect(cell: narrow, hC: 22, rank: 6, part: .riff).rect.minX, narrow.minX + 1)
-        XCTAssertEqual(rankSlotRect(cell: narrow, hC: 22, rank: 6, part: .stack).rect.minX, narrow.minX + 3)
-        // §B4.4: only where the slot is ≥ 4 (the spec's T 78, hC 42 → slot 4.625) is it a stroked OUTLINE, not a bar
-        XCTAssertFalse(rankSlotRect(cell: CGRect(x: 0, y: 0, width: 24, height: 42), hC: 42, rank: 6, part: .riff).filled)
+        let narrow = CGRect(x: 0, y: 0, width: 10, height: 19)
+        XCTAssertEqual(rankSlotRect(cell: narrow, hC: 19, rank: 6, part: .riff).rect.minX, narrow.minX + 1)
+        XCTAssertEqual(rankSlotRect(cell: narrow, hC: 19, rank: 6, part: .stack).rect.minX, narrow.minX + 3)
+        // §B4.4: only where the slot is ≥ 4 (the spec's reference T 78, both on → hC 39 → slot 4.25) is it a stroked OUTLINE, not a bar
+        XCTAssertFalse(rankSlotRect(cell: CGRect(x: 0, y: 0, width: 24, height: 39), hC: 39, rank: 6, part: .riff).filled)
     }
 
     // §10.9 — a hit cell is lane100 @ 30 % (45 % at the playhead) with the bar; no cell is ever 100 % or glows.
