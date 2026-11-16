@@ -713,6 +713,18 @@ final class RestartScheduleTests: XCTestCase {
         XCTAssertEqual(euclideousLaneResolve(.none, nowBeat: 0, barBeats: 4).state, .none, "no period ⇒ —")
         XCTAssertEqual(euclideousLaneResolve(EuclideousResolveInfo(found: true, prefixBars: 3, periodBars: 5), nowBeat: 4, barBeats: 4).state, .none, "bar 1 inside the 3-bar prefix ⇒ —")
     }
+    func testResolveCountFormAndVoiceOver() {   // §3.3 / §5.4
+        let p7 = EuclideousResolveInfo(found: true, prefixBars: 0, periodBars: 7)
+        XCTAssertEqual(euclideousResolveCountForm(p7, nowBeat: 8, barBeats: 4), .np(n: 3, p: 7, grey: false))
+        XCTAssertEqual(euclideousResolveCountForm(EuclideousResolveInfo(found: true, prefixBars: 0, periodBars: 1), nowBeat: 100, barBeats: 4), .np(n: 1, p: 1, grey: true), "P 1 ⇒ grey")
+        XCTAssertEqual(euclideousResolveCountForm(EuclideousResolveInfo(found: true, prefixBars: 0, periodBars: 217), nowBeat: 0, barBeats: 4), .over99)
+        XCTAssertEqual(euclideousResolveCountForm(.none, nowBeat: 0, barBeats: 4), .dash)
+        XCTAssertEqual(euclideousResolveCountForm(EuclideousResolveInfo(found: true, prefixBars: 3, periodBars: 5), nowBeat: 4, barBeats: 4), .dash, "in the prefix ⇒ —")
+        XCTAssertEqual(euclideousResolveCountVoiceOver(p7, nowBeat: 8, barBeats: 4), "Lane resolves every 7 bars, bar 3")
+        XCTAssertEqual(euclideousResolveCountVoiceOver(EuclideousResolveInfo(found: true, prefixBars: 0, periodBars: 1), nowBeat: 0, barBeats: 4), "Lane resolves every bar")
+        XCTAssertEqual(euclideousResolveCountVoiceOver(EuclideousResolveInfo(found: true, prefixBars: 0, periodBars: 217), nowBeat: 0, barBeats: 4), "Lane resolves after more than 99 bars")
+        XCTAssertEqual(euclideousResolveCountVoiceOver(.none, nowBeat: 0, barBeats: 4), "Lane doesn\u{2019}t resolve within 1024 bars")
+    }
 
 }
 

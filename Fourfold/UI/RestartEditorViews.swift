@@ -44,15 +44,22 @@ struct EuclideousRestartLinkRow: View {
     let lineOff: Color         // §1.5: #2F333B
     let button: CGRect         // the drawn pill (34 × 20, or 34 × 16 in case c)
     let hit: CGRect            // the hit area (x 0–40 by linkH)
-    let line: CGRect           // x 42 → TW, 1.5 pt, centred
+    let line: CGRect           // draft 3 §3.4: x 42 → TW − 56
     let glyphSize: CGFloat     // 11 (full) or 9 (case c)
     let axLabel: String
     let onToggle: () -> Void
+    // draft 3 §3: the lane's resolve count "N OF P" at the row's trailing end (never taps, never dims — §3.5).
+    var countBox: CGRect = .zero
+    var countForm: EuclideousResolveCountForm = .dash
+    var countAX: String = ""
     var body: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: line.height / 2).fill(on ? lineOn : lineOff)
                 .frame(width: line.width, height: line.height).offset(x: line.minX, y: line.minY)
                 .accessibilityHidden(true)
+            countView
+                .frame(width: countBox.width, height: countBox.height, alignment: .trailing)
+                .offset(x: countBox.minX, y: countBox.minY)
             HStack(spacing: 1) { Image(systemName: "link"); Image(systemName: "arrow.down") }   // RESETS V2 §3.7: editor v2 §2.7's two glyphs — link then arrow.down
                 .font(.system(size: glyphSize, weight: .heavy))
                 .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
@@ -66,6 +73,24 @@ struct EuclideousRestartLinkRow: View {
                 .accessibilityLabel(axLabel)
                 .accessibilityAddTraits(.isButton).ringToggleTrait()
         }
+    }
+    /// §3.3: "N OF P" (N/P 11 pt, "OF" 7 pt 0.08 em #8A909A sp3), trailing-aligned and vertically centred; ">99" / "—" alone. #F2F4F7, or #8A909A when P is 1.
+    @ViewBuilder private var countView: some View {
+        let ink = Color(hex: 0xF2F4F7), grey = Color(hex: 0x8A909A)
+        Group {
+            switch countForm {
+            case .dash: Text("\u{2014}").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(grey)
+            case .over99: Text(">99").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(ink)
+            case .np(let n, let p, let isGrey):
+                HStack(alignment: .lastTextBaseline, spacing: 3) {
+                    Text("\(n)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(isGrey ? grey : ink)
+                    Text("OF").font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(0.56).foregroundColor(grey)
+                    Text("\(p)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(isGrey ? grey : ink)
+                }
+            }
+        }
+        .lineLimit(1)
+        .accessibilityElement(children: .ignore).accessibilityLabel(countAX)
     }
 }
 

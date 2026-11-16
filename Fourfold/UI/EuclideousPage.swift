@@ -3739,9 +3739,17 @@ struct EuclideousPage: View {
             EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: L.rhythm, rhythm: true, settings: settings, showsTimeline: false, showsName: false, onEdit: { restartEdit(idx, $0, $1) },
                                          runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .rhythm, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet))
                 .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
-            EuclideousRestartLinkRow(on: settings.withRhythm, accent: accent, lineOn: lane100(accent).opacity(0.6), lineOff: Color(hex: 0x2F333B),
-                                     button: L.linkButton, hit: L.linkButtonHit, line: L.linkLine, glyphSize: L.linkH <= 16 ? 9 : 11,
-                                     axLabel: EuclideousRestartEditorAX.withRhythm(on: settings.withRhythm), onToggle: { restartEdit(idx, .withRhythm, true) })
+            // draft 3 §3: the resolve count rides the link row, updated at bar lines (a modest TimelineView — it changes slowly; §3.5 it never taps or dims). Stopped ⇒ the bar holding the playhead position (the frozen beat).
+            TimelineView(.animation(minimumInterval: 1.0 / 4.0, paused: !running)) { tl in
+                let info = restartScheduleSet.resolveInfo(lane: idx)
+                let nowBeat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
+                EuclideousRestartLinkRow(on: settings.withRhythm, accent: accent, lineOn: lane100(accent).opacity(0.6), lineOff: Color(hex: 0x2F333B),
+                                         button: L.linkButton, hit: L.linkButtonHit, line: L.linkLine, glyphSize: L.linkH <= 16 ? 9 : 11,
+                                         axLabel: EuclideousRestartEditorAX.withRhythm(on: settings.withRhythm), onToggle: { restartEdit(idx, .withRhythm, true) },
+                                         countBox: L.countBox, countForm: euclideousResolveCountForm(info, nowBeat: nowBeat, barBeats: clock.beatsPerBar),
+                                         countAX: euclideousResolveCountVoiceOver(info, nowBeat: nowBeat, barBeats: clock.beatsPerBar))
+            }
+            .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
             EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: L.melody, rhythm: false, settings: settings, showsTimeline: false, showsName: false, onEdit: { restartEdit(idx, $0, $1) },
                                          runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .melody, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet))
                 .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)

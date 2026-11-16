@@ -44,8 +44,11 @@ final class ResetsCardLayoutTests: XCTestCase {
             // §1.5 link row: button 34 × 20 at x 0, hit x 0–40 by 20, line x 42 → TW (1.5 pt), centred at y H + 10
             XCTAssertEqual(L.linkButton, CGRect(x: 0, y: L.h, width: 34, height: 20))
             XCTAssertEqual(L.linkButtonHit, CGRect(x: 0, y: L.h, width: 40, height: 20))
-            near(L.linkLine.minX, 42, "§1.5 line x"); near(L.linkLine.maxX, TW, "§1.5 line ends at TW"); near(L.linkLine.height, 1.5, "§1.5 line 1.5 pt")
+            near(L.linkLine.minX, 42, "§1.5 line x"); near(L.linkLine.maxX, TW - 56, "draft 3 §3.4: line ends at TW − 56"); near(L.linkLine.height, 1.5, "§1.5 line 1.5 pt")
             near(L.linkLine.midY, L.h + 10, "§1.5 line centred in the 20 pt link row")
+            // draft 3 §3.3 / §6 test 14: the resolve count box, 48 wide, trailing edge at TW (so the line stops 8 pt short of it).
+            near(L.countBox.minX, TW - 48, "§3.3 count box x"); near(L.countBox.width, 48, "§3.3 count box 48 wide"); near(L.countBox.maxX, TW, "§3.3 count box ends at TW")
+            near(L.countBox.minX - L.linkLine.maxX, 8, "§3.4 the line stops 8 pt short of the count box's leading edge")
         }
     }
 

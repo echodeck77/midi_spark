@@ -804,6 +804,25 @@ func euclideousLaneResolve(_ info: EuclideousResolveInfo, nowBeat: Double, barBe
     let n = ((nowBar - info.prefixBars) % info.periodBars) + 1
     return (n, info.periodBars, info.periodBars == 1 ? .unit : .periodic)
 }
+/// §3.3: what the resolve count box draws — "N OF P" (grey when P == 1), ">99" (P over 99), or "—" (no period, or now still inside the prefix).
+enum EuclideousResolveCountForm: Equatable { case np(n: Int, p: Int, grey: Bool); case over99; case dash }
+func euclideousResolveCountForm(_ info: EuclideousResolveInfo, nowBeat: Double, barBeats: Double) -> EuclideousResolveCountForm {
+    if info.found, info.periodBars > 99 { return .over99 }
+    let r = euclideousLaneResolve(info, nowBeat: nowBeat, barBeats: barBeats)
+    switch r.state {
+    case .none: return .dash
+    case .unit: return .np(n: r.n, p: 1, grey: true)
+    case .periodic: return .np(n: r.n, p: r.p, grey: false)
+    }
+}
+/// §5.4: the resolve count's VoiceOver string.
+func euclideousResolveCountVoiceOver(_ info: EuclideousResolveInfo, nowBeat: Double, barBeats: Double) -> String {
+    guard info.found else { return "Lane doesn\u{2019}t resolve within 1024 bars" }
+    if info.periodBars > 99 { return "Lane resolves after more than 99 bars" }
+    if info.periodBars == 1 { return "Lane resolves every bar" }
+    let r = euclideousLaneResolve(info, nowBeat: nowBeat, barBeats: barBeats)
+    return r.state == .periodic ? "Lane resolves every \(info.periodBars) bars, bar \(r.n)" : "Lane resolves every \(info.periodBars) bars"   // in the prefix: the period exists, but no current bar
+}
 fileprivate func euclideousAssembleScheduleSet(_ inputs: EuclideousScheduleInputs, engagedMask: UInt8, resolve: [EuclideousResolveInfo], components: [(lanes: [Int], sim: EuclideousScheduleSim?)]) -> EuclideousRestartScheduleSet {
     var laneSchedules = [EuclideousLaneSchedule?](repeating: nil, count: inputs.lanes.count)
     var simulated: UInt8 = 0

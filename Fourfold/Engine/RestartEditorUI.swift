@@ -202,7 +202,8 @@ struct EuclideousResetsCardLayout: Equatable {
     var melody: EuclideousRestartSectionFramesV2
     var linkButton: CGRect                       // the WITH RHYTHM button's DRAWN frame (34 × linkButtonH), x 0
     var linkButtonHit: CGRect                    // §1.5: the hit area, x 0–40 by linkH
-    var linkLine: CGRect                         // x 42 → TW, 1.5 pt tall, centred in the link row
+    var linkLine: CGRect                         // draft 3 §3.4: x 42 → TW − 56 (stops 8 short of the count box), 1.5 pt, centred
+    var countBox: CGRect                         // draft 3 §3.3: the lane's resolve count "N OF P" — 48 wide, trailing edge at TW
     var appliedCase: Case
     var row1Fits: Bool                           // §1.8: row 1 needs TW ≥ 262 (FREE, units, sp8, squares)
 }
@@ -233,12 +234,13 @@ func euclideousResetsCardLayout(size: CGSize) -> EuclideousResetsCardLayout {
     let linkTop = H
     let linkButton = CGRect(x: 0, y: linkTop + (linkH - btnH) / 2, width: 34, height: btnH)          // §1.5: 34 × 20 (or 34 × 16 in case c), x 0
     let linkButtonHit = CGRect(x: 0, y: linkTop, width: 40, height: linkH)                           // §1.5: hit area x 0–40 by linkH
-    let linkLine = CGRect(x: 42, y: linkTop + linkH / 2 - 0.75, width: max(0, TW - 42), height: 1.5) // §1.5: x 42 → TW, 1.5 pt, radius 0.75, centred
+    let linkLine = CGRect(x: 42, y: linkTop + linkH / 2 - 0.75, width: max(0, TW - 56 - 42), height: 1.5)   // draft 3 §3.4: x 42 → TW − 56
+    let countBox = CGRect(x: TW - 48, y: linkTop, width: 48, height: linkH)                                 // draft 3 §3.3: 48 wide, trailing edge at TW
     return EuclideousResetsCardLayout(size: size, tileH: T, h: H, linkH: linkH,
                                       rhythmTile: CGRect(x: 0, y: 0, width: TW, height: T),
                                       melodyTile: CGRect(x: 0, y: H + linkH, width: TW, height: T),
                                       rhythm: section(tileTop: 0), melody: section(tileTop: H + linkH),
-                                      linkButton: linkButton, linkButtonHit: linkButtonHit, linkLine: linkLine,
+                                      linkButton: linkButton, linkButtonHit: linkButtonHit, linkLine: linkLine, countBox: countBox,
                                       appliedCase: chosen.c, row1Fits: TW >= 262 - 1e-9)
 }
 
