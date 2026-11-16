@@ -1,0 +1,35 @@
+# Scrub ferry — findings (map before the build)
+
+Paul 2026-11-15, ratified. A performance gesture: three live GLOBAL holds (riff column, riff rank, stack rank) that override every lane's note choice at the source, per hit, while a finger is down; nothing saved. Mapped against source on `feature/scrub` (off `origin/main` c8bb8ae). Prerequisite ferries all landed.
+
+## §F — how UI state reaches the render thread; the lookahead (§1.2)
+Precedent: `euclideousSoloLive` / `euclideousPartSoloLive` / `euclideousLockLive` / `euclideousTestLive` are `Router.process(...)` params (Router.swift:2385+) the Kernel holds and the main thread writes the instant a control is touched; the render reads them once per window (`soloLiveWord = …` Router:2471). The three holds follow this exactly: three `process` params + three Kernel words (one atomic/scalar each), lock-free, allocation-free, not in the document/snapshot/undo. **Lookahead (§1.2): the holds are read at the top of each render window, so a change takes effect from the first hit in the NEXT render block — up to ≈ one block (tens of ms at a 2048-frame block). No quantise.**
+
+## §2.7 — nothing takes touches in the ribbon areas today (CLEAR, no stop)
+- Riff rank axis: `RiffGridRankAxisView` (AnswerViews.swift:188) is "Static — no picker"; the lane-picker `RiffGridPickerView` (:206) was RETIRED 2026-11-09 and is no longer mounted. The riff tab mounts `RiffGridRankAxisView` at EuclideousPage.swift:7590. No gesture.
+- Rails: drawn in `riffPanelOverlay` (EuclideousPage.swift:7536) as static shapes; no gesture.
+- STACK axis: `stackAxisChip` (EuclideousPage.swift:7660) = `EuclideousRankChipView(...).accessibilityHidden(true)`, no gesture. (The grid CELLS toggle via `euclideousStackCellToggle` :7652 — that's the cells, not the axis.)
+
+## §2.1/§2.2 frames — the riff panel (rails 8.1)
+`EuclideousRiffPanelLayout` (Derivations.swift:5087): `labelW` (note-label column, nominal 30), `cellW`, `cellH`, `colGap` (4 MONO / 2 POLY), `columns` (8 / 16). `firstColumnX = padding + labelW + labelGap` (:5107); `columnLeft(c)` :5110; `cellFrame(column,rank)` (rank 8 = row 0) :5113; `rowTop(r)` :5112; `railsTop` :5114; `railTop(lane)` :5115; `railNumberFrame(lane)` (the label column per rail) :5117; `railSegmentFrame(lane,column)` :5118. Rails `railH 8, railGap 3, railsH 41` (`EuclideousRiffPanelMetrics` :5076). So §2.1 column ribbon = columnLeft(0)…columnLeft(7)+cellW × (railTop(0)−4 … panel bottom); §2.2 rank ribbon = the labelW column × rowTop(0)…rowTop(7)+cellH.
+
+## §G — ONE riff; the column hold reads it
+The POLY RIFF ferry dropped the four riff tabs — `normalizeRiffsAtLoad` folds a loaded document to the one active riff (`riffs=[it]`, `activeRiff=nil`); POLY is page-level, shared by every lane (Models.swift:3954-3957). So every lane reads ONE shared riff; the panel cannot show a riff the lanes aren't reading, and a column hold reads that riff. No ambiguity.
+
+## §C/§3/§E — the riff hit path (fork map)
+Column: `euclideousRiffColumn(ordinal:…)` Derivations:1932 (on `riffStepAt`:1866), called at Router:4005 → `playedStep`. Written rank: `ranks[col]` built Router:4049-4058, read at :4370 → `rawRank` (0 = rest). Stages (`strikeRiffRawRank` :4381): FLIP NOTES :4382, riff TRANS :4383, FILL RANKS + riff OCT inside `riffResolve` ~:4440, `addPitch` :4163. **KEY / MIDI-IN-ROOT act EARLIER on the shared pool, so they apply automatically.** On-rest :4403-4429 (SKIP/FILL/TIE/REPEAT); `euclideousRiffRepeatLookback` :4419 reads the GRID rank at earlier columns = PURE (not played history). **§E GATE: the column is a PURE function of the ordinal — YES.** The ONE feedback state is **`euclideousHeldRiffPitch[lineIndex]`** (TIE's carried pitch): written from the PLAYED note at Router:4913, read at :4465. Under a hold a post-release TIE rest would carry the HELD note, breaking §3.5 — **fix: while a riff hold is active, store the NATURAL (unheld) resolved note into `euclideousHeldRiffPitch`**, so after release TIE carries what it would have. (Column holds disable on-rest during the hold, so TIE only fires post-release — the carry is the only risk.) Satisfiable; not a blocker.
+
+## §D/§4 — the stack hit path (fork map)
+Rank choice: `euclideousRowsResolve` (PlayAsRows.swift:185), the ONE pure builder (ORDER/VOICES/SPREAD/BASS/roles/SWITCH); Router call :4480 → `rowsHit`. **§4.4 PURE: YES** — it re-simulates from hit 0 every call, no persistent state, so a substituted output can't corrupt the walk. Stages (`strikeRowsRank` :4486): `riffResolve` :4487 (nil pool note = §4.2 rest), `addPitch` :4490 (ALT/gate/vel/ratchet/emitters; TRANS/KEY/ROOT folded in the pool). Collapse-to-[r]: override `rowsHit` (clear bass, ranks=[r]) before the voice loop :4497-4498. **§4.3/§14.4 — there is no DRONE; the hold-across-hits mode is RING** (Router:4212-4221), a per-hit GATE OVERRIDE (not a held note), self-scheduled offs at the walk-cycle boundary. So §4.3's "the held note ends" doesn't literally apply — no cross-hit held-note state to corrupt. DECISION (default, flagged): a held hit strikes rank r with RING's gate as normal (option a — the substitution runs through RING like every later stage); pre-hold notes ring out to their own boundary. Alternative (b, force `notesGate` while held) deferred unless Paul wants it.
+
+## §5.4 — readers of "what a hit played"
+- RIFF readers ALL derive from the WALK cursor (`euclideousRiffPositions`/`riffWalkState`, natural), NOT the played column: the grid arrows (`euclideousWalkTagPlan`/`euclideousLaneArrowState`/`euclideousArrowCells`), the footer chips (`euclideousFooterPass`), the header chips/riff-map, the STACK grid's riff arrow (`riffGhost`/`euclideousStackCurrentChip`), the rails. **All must be fed the held column/rank** (publish it to the UI); the WALK strip + the rails' own-position trail keep the natural cursor (§5.2/§5.4). No existing "played column" channel.
+- STACK sounding cells read the NoteRollRing played feed (`NoteRollRecord.rank`, stamped by `addPitch` :4490) → the substituted rank flows AUTOMATICALLY, no fix needed.
+
+## §6.4/H — audition while stopped is BUILDABLE
+`euclideousRunAudition` (Router:2070) + the live word `euclideousTestLive` (Kernel:69) already emit notes on a FREE-RUNNING SAMPLE clock while the host is stopped (default KEEP-PLAYING mode; with "STOP when host stops" it waits, like every voice). §6 audition follows this precedent (a touch manufactures a note per eligible lane through its emitters). Caveat to carry: it sounds stopped only in KEEP-PLAYING.
+
+## Contradictions (source wins)
+1. The spec lists "ANSWER's PITCH row" and "the card-back PITCH pad / out-transpose" as later riff stages — both are RETIRED (Router:4151); nothing moves the pitch after `riffResolve`. Harmless (fewer stages).
+2. The spec says "DRONE"; the code's hold-across-hits mode is **RING** (a gate override, not a held note) — §4.3 adapted as above.
+3. STACK axis TOP rows: the STACK grid rows are ranks 1–8 only in the current build (no TOP/TOP−1/−2 axis rows found); §2.3's "TOP rows, if they exist" is moot — to confirm when wiring §2.3.
