@@ -125,6 +125,15 @@ struct FourfoldReelBrowser: View {
     }
     private func setSelection(_ s: ReelSelection) { sel = s; if let au { closeUpNotes = au.reelNotesInRange(fromBeat: s.startBeat, toBeat: s.endBeat); lastSelLoaded = s } }
 
+    /// A small dim name in a panel's top-left corner so each of the three views reads for what it is (overview / tape / close-up).
+    private func panelTag(_ s: String) -> some View {
+        Text(s).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(0.8).foregroundColor(Self.dim)
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Self.ground.opacity(0.7)))
+            .padding(4)
+            .allowsHitTesting(false)   // never eat a drag that starts under the label
+    }
+
     // MARK: overview — the whole session, stacked by lane, now = the right edge
 
     private func overviewView(_ r: CGRect, shape: ReelScreenShape) -> some View {
@@ -153,7 +162,9 @@ struct FourfoldReelBrowser: View {
                 ctx.stroke(Path(CGRect(x: sx, y: 0, width: max(2, ex - sx), height: sz.height)), with: .color(Self.ink.opacity(0.7)), lineWidth: 1)
             }.padding(1)
         }
-        .frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY)
+        // GESTURE BEFORE OFFSET (the project's rule): a `.contentShape`/`.gesture` placed AFTER `.offset` leaves the hit area at the un-offset origin, so touches on the drawn panel miss. Attach interactivity to the framed view, THEN offset.
+        .frame(width: r.width, height: r.height)
+        .overlay(alignment: .topLeading) { panelTag(shape == .small ? "SESSION · DRAG TO PICK" : "WHOLE SESSION") }
         .contentShape(Rectangle())
         // small shape: the overview IS the selector — drag selects a span; a tap grabs the default keep ending there.
         .gesture(DragGesture(minimumDistance: 0).onChanged { g in
@@ -163,6 +174,7 @@ struct FourfoldReelBrowser: View {
             else { setSelection(reelSelectionBars(endingAt: f1 * sessionEnd, bars: ReelScreenMetrics.defaultKeepBars, beatsPerBar: beatsPerBar, sessionEndBeat: sessionEnd)) }
             window = reelClampWindow(ReelTapeWindow(startBeat: max(0, sel.startBeat - 4 * beatsPerBar), bars: window.bars), sessionEndBeat: sessionEnd, beatsPerBar: beatsPerBar)
         })
+        .offset(x: r.minX, y: r.minY)
     }
 
     // MARK: tape — a bar window with ×n brackets + a snapping selection (wide/tall)
@@ -211,7 +223,9 @@ struct FourfoldReelBrowser: View {
                 }
             }.padding(1)
         }
-        .frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY)
+        // GESTURE BEFORE OFFSET (see overviewView): attach interactivity to the framed view, THEN offset — else the handle grab zone sits at the wrong place and the "playhead" handles don't respond.
+        .frame(width: r.width, height: r.height)
+        .overlay(alignment: .topLeading) { panelTag("TAPE · DRAG THE EDGES") }
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 0).onChanged { g in
             let tape = CGRect(x: 0, y: 0, width: r.width, height: r.height)
@@ -219,8 +233,9 @@ struct FourfoldReelBrowser: View {
             let sx = reelTapeXAtBeat(sel.startBeat, tape: tape, window: window, beatsPerBar: beatsPerBar)
             let ex = reelTapeXAtBeat(sel.endBeat, tape: tape, window: window, beatsPerBar: beatsPerBar)
             let beat = reelTapeBeatAtX(g.location.x, tape: tape, window: window, beatsPerBar: beatsPerBar)
-            if abs(g.startLocation.x - sx) < 18 { setSelection(reelMoveHandle(sel, .start, toBeat: beat, beatsPerBar: beatsPerBar, sessionEndBeat: sessionEnd)) }
-            else if abs(g.startLocation.x - ex) < 18 { setSelection(reelMoveHandle(sel, .end, toBeat: beat, beatsPerBar: beatsPerBar, sessionEndBeat: sessionEnd)) }
+            let grab: CGFloat = 24   // a generous touch zone round each handle
+            if abs(g.startLocation.x - sx) < grab && abs(g.startLocation.x - sx) <= abs(g.startLocation.x - ex) { setSelection(reelMoveHandle(sel, .start, toBeat: beat, beatsPerBar: beatsPerBar, sessionEndBeat: sessionEnd)) }
+            else if abs(g.startLocation.x - ex) < grab { setSelection(reelMoveHandle(sel, .end, toBeat: beat, beatsPerBar: beatsPerBar, sessionEndBeat: sessionEnd)) }
             else {
                 let b0 = reelTapeBeatAtX(min(g.startLocation.x, g.location.x), tape: tape, window: window, beatsPerBar: beatsPerBar)
                 let b1 = reelTapeBeatAtX(max(g.startLocation.x, g.location.x), tape: tape, window: window, beatsPerBar: beatsPerBar)
@@ -228,6 +243,7 @@ struct FourfoldReelBrowser: View {
                 setSelection(ReelSelection(startBeat: max(0, reelSnapToBar(beat: b0, beatsPerBar: beatsPerBar)), endBeat: s.endBeat))
             }
         })
+        .offset(x: r.minX, y: r.minY)
     }
 
     // MARK: close-up — the selection as a piano roll, notes in lane colours
@@ -254,7 +270,9 @@ struct FourfoldReelBrowser: View {
                 }
             }.padding(1)
         }
-        .frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY)
+        .frame(width: r.width, height: r.height)
+        .overlay(alignment: .topLeading) { panelTag("CLOSE-UP") }
+        .offset(x: r.minX, y: r.minY)
     }
 
     // MARK: control bar + the LIVE/TAPE pill
