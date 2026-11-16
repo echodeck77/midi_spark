@@ -5130,7 +5130,14 @@ func euclideousRiffPanelLayout(box: CGSize) -> EuclideousRiffPanelLayout {
 // MARK: - Scrub ferry (2026-11-16) §7 — the ribbon mapping + the hit-source substitution (pure, allocation-free; the engine AND the ribbons call these, no second derivation)
 
 /// §10 — tunable on device (change none in this ferry): the column ribbon's reach above rail 1.
-enum EuclideousScrubMetrics { static let columnReachAboveRails: CGFloat = 4 }
+enum EuclideousScrubMetrics {   // §10 — tunable on device (change none in this ferry)
+    static let columnReachAboveRails: CGFloat = 4   // §2.1: the column ribbon's reach above rail 1
+    static let markStroke: CGFloat = 1.5            // §5.1/§5.3: the held mark's stroke
+    static let markOpacity: Double = 0.7            // §5.1/§5.3: 70%
+    static let axisFillOpacity: Double = 0.12       // §5.3: the axis fill under the number
+    static let columnRectOutset: CGFloat = 2        // §5.1: the column rect is 2 wider each side + 2 above/below
+    static let columnRectRadius: CGFloat = 5        // §5.1
+}
 
 
 /// §7.1 — the 1-based index (1…count) a coordinate falls on, for `count` cells of `size` starting at `first`, `gap` apart: a gap goes to the NEARER cell (its half-way line splits it), and past either end clamps to 1 / count.

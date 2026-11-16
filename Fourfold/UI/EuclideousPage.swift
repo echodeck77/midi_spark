@@ -2589,7 +2589,18 @@ struct EuclideousPage: View {
         let ord: Int64? = idx < riffWalkState.count ? riffWalkState[idx] : nil
         guard let tp = euclideousWalkTagPlan(cfg: cfg, ranks: effectiveGridRanks, beat: beat, secondsPerBeat: 60.0 / max(1.0, clock.tempo), polledStep: riffPositions[idx], running: true, polledOrdinal: ord, poly: polySnap) else { return nil }
         let arrow = euclideousLaneArrowState(lane: idx, cfg: cfg, plan: tp, polledOrdinal: ord ?? 0)
-        return euclideousStripCurrentChip(cfg: cfg, landedTick: tp.landedTick, passLapStartTick: plan.lapStartTick, arrowStaysOnTiedNote: tp.seatIsRest && !arrow.hollow, legs: plan.legs)
+        let chip = euclideousStripCurrentChip(cfg: cfg, landedTick: tp.landedTick, passLapStartTick: plan.lapStartTick, arrowStaysOnTiedNote: tp.seatIsRest && !arrow.hollow, legs: plan.legs)
+        return scrubGhostChip(chip)   // Scrub §5.4: under a riff hold the STACK grid's riff arrow shows the held rank/column
+    }
+    /// Scrub §5.4 — the STACK grid's riff arrow (a strip chip) under a riff hold: the held rank/column, so it appears on the row the hit played. No hold ⇒ unchanged.
+    private func scrubGhostChip(_ chip: EuclideousStripChip?) -> EuclideousStripChip? {
+        guard let chip, riffColumnHold != 0 || riffRankHold != 0 else { return chip }
+        let src = euclideousRiffHitSource(naturalColumn: chip.column + 1,
+                                          rawRankAtColumn: { c in (c - 1) >= 0 && (c - 1) < effectiveGridRanks.count ? effectiveGridRanks[c - 1] : 0 },
+                                          columnHold: riffColumnHold == 0 ? nil : riffColumnHold,
+                                          rankHold: riffRankHold == 0 ? nil : riffRankHold)
+        let isRest = src.rank == 0
+        return EuclideousStripChip(rank: isRest ? chip.rank : src.rank, column: src.column - 1, hollow: isRest, grey: chip.grey)
     }
 
     /// The card's TOP ROW — the play tile, the comet strip and the SOLO tile — shared by the front (PATTERN) and the back (MIX): the same view in the same place, so a flip never moves it.
@@ -7259,7 +7270,7 @@ struct EuclideousPage: View {
         // the static VoiceOver text — the cells' arrow phrases and each rail's label. The played sets come from the riff ferry's readout (what the mini-grid dims), once per body.
         let beatNow = walkTagBeat(at: Date())
         let frameNow = riffLaneFrames(ranks: ranks, beat: beatNow)
-        let arrowsNow: [EuclideousArrowCell] = midiEmpty ? [] : riffArrowCells(frameNow)
+        let arrowsNow: [EuclideousArrowCell] = midiEmpty ? [] : riffArrowCells(frameNow, ranks: ranks)
         let playedNow: [Set<Int>] = (0..<4).map { i in
             i < lines.count ? euclideousRailPlayedColumns(length: lines[i].riffLengthResolved, shift: lines[i].riffRotateResolved, neverPlay: riffReadout(i)?.neverPlay ?? []) : []
         }
@@ -7348,7 +7359,7 @@ struct EuclideousPage: View {
         let ranks = polyRiff.topRanks
         let beatNow = walkTagBeat(at: Date())
         let frameNow = riffLaneFrames(ranks: ranks, beat: beatNow)
-        let arrowsNow: [EuclideousArrowCell] = midiEmpty ? [] : riffArrowCells(frameNow)
+        let arrowsNow: [EuclideousArrowCell] = midiEmpty ? [] : riffArrowCells(frameNow, ranks: ranks)
         let cols = EuclideousPolyMetrics.columns
         let playedNow: [Set<Int>] = (0..<4).map { i in
             i < lines.count ? euclideousRailPlayedColumns(length: lines[i].riffLengthResolved(columns: cols), shift: lines[i].riffRotateResolved(columns: cols), neverPlay: [], columns: cols) : []
@@ -7526,15 +7537,27 @@ struct EuclideousPage: View {
         }
     }
     /// The arrows' cells: each lane's seat (`euclideousLaneArrowState`), grouped by the cell they share.
-    private func riffArrowCells(_ frames: [RiffLaneFrame]) -> [EuclideousArrowCell] {
+    private func riffArrowCells(_ frames: [RiffLaneFrame], ranks: [Int]) -> [EuclideousArrowCell] {
         let snap = polySnap
+        let held = riffColumnHold != 0 || riffRankHold != 0   // Scrub §5.2: a riff hold moves every arrow to the cell its hit PLAYED
         return euclideousArrowCells(frames.flatMap { f -> [EuclideousLaneArrowState] in
             guard let plan = f.plan else { return [] }
-            let seat = euclideousLaneArrowState(lane: f.lane, cfg: f.cfg, plan: plan, polledOrdinal: f.lane < riffWalkState.count ? riffWalkState[f.lane] : 0)
+            let seat = scrubArrowSeat(euclideousLaneArrowState(lane: f.lane, cfg: f.cfg, plan: plan, polledOrdinal: f.lane < riffWalkState.count ? riffWalkState[f.lane] : 0), ranks: ranks)
+            if held { return [seat] }   // §5.2: a hold forces one cell per lane (the one held note — no POLY chord expansion)
             // POLY: a chord strikes several notes on one hit — one arrow on each of them (the Router's own trigger rule: `euclideousPolyTrigger`)
             guard let snap else { return [seat] }
             return euclideousPolyArrowSeats(seat, poly: snap, cfg: f.cfg)
         })
+    }
+    /// Scrub §5.2 — the cell a lane's arrow draws in under a riff hold: the held column (its written rank, hollow if a rest) or the held rank in the column the hit read. No hold ⇒ the seat unchanged. The RAILS keep each lane's own natural position (riffRailInputs, untouched).
+    private func scrubArrowSeat(_ seat: EuclideousLaneArrowState, ranks: [Int]) -> EuclideousLaneArrowState {
+        guard riffColumnHold != 0 || riffRankHold != 0 else { return seat }
+        let src = euclideousRiffHitSource(naturalColumn: seat.column + 1,   // the arrow column is 0-based; the pure fn is 1-based
+                                          rawRankAtColumn: { c in (c - 1) >= 0 && (c - 1) < ranks.count ? ranks[c - 1] : 0 },
+                                          columnHold: riffColumnHold == 0 ? nil : riffColumnHold,
+                                          rankHold: riffRankHold == 0 ? nil : riffRankHold)
+        let isRest = src.rank == 0
+        return EuclideousLaneArrowState(lane: seat.lane, column: src.column - 1, rank: isRest ? seat.rank : src.rank, hollow: isRest, heading: seat.heading, ordinal: seat.ordinal)
     }
     /// A rail's current column, its trail and its heading — only while the lane runs and its latest hit is known (a stopped lane or transport, or a lane before its first hit,
     /// has none).
@@ -7588,7 +7611,7 @@ struct EuclideousPage: View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
             let beat = walkTagBeat(at: tl.date)
             let frames = riffLaneFrames(ranks: ranks, beat: beat, now: tl.date.timeIntervalSinceReferenceDate)
-            let cells = suppressArrows ? [] : riffArrowCells(frames)
+            let cells = suppressArrows ? [] : riffArrowCells(frames, ranks: ranks)
             ZStack(alignment: .topLeading) {
                 ForEach(cells.indices, id: \.self) { k in
                     let cell = cells[k]
@@ -7614,11 +7637,40 @@ struct EuclideousPage: View {
                     return euclideousRailSpec(lane: i, riffOn: f?.riffOn ?? false, running: f?.running ?? false, muted: f?.dimmed ?? false,
                                               played: i < played.count ? played[i] : [], current: w.0, trail: w.1, heading: w.2, flare: f?.flare ?? 0, columns: layout.columns)
                 })
+                scrubRiffMarks(layout: layout)   // Scrub §5.1/§5.3: the held-column rect (over the rails) + the held-rank axis mark
             }
         }
         .frame(width: layout.box.width, height: layout.box.height, alignment: .topLeading)
         .allowsHitTesting(false)
         .accessibilityHidden(true)   // paint only: the arrows are spoken in their cells' labels and each rail by its own static element (§7)
+    }
+    /// Scrub §5.1/§5.3 — the held-column rect over the rails + the held-rank ring+fill on the note-label axis. Read from the page @State holds; gone at release. Paint only.
+    @ViewBuilder private func scrubRiffMarks(layout: EuclideousRiffPanelLayout) -> some View {
+        let ink = Color(hex: 0xF2F4F7)
+        if riffColumnHold != 0 {   // §5.1: a rounded-rect stroke round the held column's four rail segments
+            let c0 = riffColumnHold - 1
+            let x = layout.columnLeft(c0) - EuclideousScrubMetrics.columnRectOutset
+            let w = layout.cellW + EuclideousScrubMetrics.columnRectOutset * 2
+            let yTop = layout.railTop(0) - EuclideousScrubMetrics.columnRectOutset
+            let yBot = layout.railTop(3) + EuclideousRiffPanelMetrics.railH + EuclideousScrubMetrics.columnRectOutset
+            RoundedRectangle(cornerRadius: EuclideousScrubMetrics.columnRectRadius)
+                .strokeBorder(ink.opacity(EuclideousScrubMetrics.markOpacity), lineWidth: EuclideousScrubMetrics.markStroke)
+                .frame(width: max(0, w), height: max(0, yBot - yTop)).offset(x: x, y: yTop)
+        }
+        if riffRankHold != 0 {   // §5.3: a 12% fill + a 70% inside ring on the held rank's axis cell
+            let cf = CGRect(x: EuclideousRiffPanelMetrics.padding, y: layout.rowTop(8 - riffRankHold), width: layout.labelW, height: layout.cellH)
+            RoundedRectangle(cornerRadius: 4).fill(ink.opacity(EuclideousScrubMetrics.axisFillOpacity)).frame(width: cf.width, height: cf.height).offset(x: cf.minX, y: cf.minY)
+            RoundedRectangle(cornerRadius: 4).strokeBorder(ink.opacity(EuclideousScrubMetrics.markOpacity), lineWidth: EuclideousScrubMetrics.markStroke).frame(width: cf.width, height: cf.height).offset(x: cf.minX, y: cf.minY)
+        }
+    }
+    /// Scrub §5.3 — the held-rank ring+fill on the STACK grid's axis cell (separate from stack-ranks-grey's sounding ring). Gone at release.
+    @ViewBuilder private func scrubStackMark(layout: EuclideousStackGridLayout) -> some View {
+        if stackRankHold != 0 {
+            let ink = Color(hex: 0xF2F4F7)
+            let cf = layout.axis(8 - stackRankHold)
+            RoundedRectangle(cornerRadius: 4).fill(ink.opacity(EuclideousScrubMetrics.axisFillOpacity)).frame(width: cf.width, height: cf.height).offset(x: cf.minX, y: cf.minY)
+            RoundedRectangle(cornerRadius: 4).strokeBorder(ink.opacity(EuclideousScrubMetrics.markOpacity), lineWidth: EuclideousScrubMetrics.markStroke).frame(width: cf.width, height: cf.height).offset(x: cf.minX, y: cf.minY)
+        }
     }
     /// Rule 2, literal: one label per rank row, right-aligned, 11pt bold `#dfe3ea`, rank 8 at top (matching
     /// the grid's own `(1...8).reversed()` order so a label never lands beside the wrong rank). An empty
@@ -7749,6 +7801,7 @@ struct EuclideousPage: View {
         .frame(width: box.width, height: box.height, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
         .overlay(alignment: .topLeading) { scrubStackRibbon(layout: euclideousStackGridLayout(box: box)) }   // Scrub §2.3
+        .overlay(alignment: .topLeading) { scrubStackMark(layout: euclideousStackGridLayout(box: box)) }     // Scrub §5.3: the held-rank mark on the stack axis
     }
 
     // riffSourceTabs REMOVED ENTIRE (Paul 2026-10-14: "move the midi in/chords/key control to the top
