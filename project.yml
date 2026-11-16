@@ -238,6 +238,7 @@ targets:
       - path: Fourfold/Engine/SessionTape.swift
       - path: Fourfold/Engine/ReelTapeAdapter.swift
       - path: Fourfold/Engine/TapeStore.swift
+      - path: Fourfold/Engine/ReelScreen.swift   # REEL redesign phase 3: the new screen's pure layer — shape/layout/selection/snap/zoom, overview density, ×n brackets (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/NoteRollRing.swift
       - path: Fourfold/Engine/EmitterRatchetUI.swift
       - path: Fourfold/Engine/EmitterVelocityUI.swift   # VELOCITY tab (2026-11-03): value text, drag, bipolar bar share and VoiceOver (Foundation + CoreGraphics only)
