@@ -489,6 +489,11 @@ final class TapeRecorder {
     /// Start the session clock at `tick` instead of 0 — after a session was restored from disk, so the new run follows the old one. Only before the first window.
     func setOrigin(tick: Int) { if !isOpen { lastTick = max(0, tick) } }
 
+    /// REEL V3 — RENDER THREAD, after `beginWindow`: the live tape beat at host beat `b`, through the open segment's own
+    /// mapping (nil while no segment is open — stopped and not yet flushed). The paged looper's armed flip and the UI's
+    /// live-write-head feed read this; tape and host beats advance 1:1 inside a segment, so it is exact and seek-proof.
+    func liveTapeBeat(atHostBeat b: Double) -> Double? { isOpen ? Double(tick(forBeat: b)) / Double(SessionTape.ppq) : nil }
+
     private func tick(forBeat b: Double) -> Int { max(baseTick, baseTick + Int(((b - startBeat) * Double(SessionTape.ppq)).rounded())) }
 
     /// Call once per render window, before the Router runs. `windowBeats` is the window's length in beats; `cycleBeats` the pass length (8 steps).

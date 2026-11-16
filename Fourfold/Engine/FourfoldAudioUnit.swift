@@ -138,12 +138,41 @@ public class FourfoldAudioUnit: AUAudioUnit {
         let endTick = Int((max(lo, hi) * Double(SessionTape.ppq)).rounded())
         guard endTick > startTick else { return }
         let span = Double(endTick - startTick) / Double(SessionTape.ppq)
-        let events = t.events(from: startTick, to: endTick, kinds: [.note, .control]).map { e -> ReelDeck.Ev in
+        let events = reelRangeEvents(startTick: startTick, endTick: endTick)
+        for _ in 0..<8 { if kernel.reelStageRange(events, span: span, mode: loop ? .loop : .toLive, pass: -1) { break }; usleep(500) }
+    }
+    /// The staged form of a tape range: its events with RANGE-RELATIVE beats (main thread — the render thread can't read the tape).
+    private func reelRangeEvents(startTick: Int, endTick: Int) -> [ReelDeck.Ev] {
+        kernel.tape.events(from: startTick, to: endTick, kinds: [.note, .control]).map { e -> ReelDeck.Ev in
             let w = e.wire
             return ReelDeck.Ev(beat: Double(Int(e.tick) - startTick) / Double(SessionTape.ppq), cable: UInt8(e.cable), b0: w.status, b1: w.d1, b2: w.d2, machine: 0)
         }
-        for _ in 0..<8 { if kernel.reelStageRange(events, span: span, mode: loop ? .loop : .toLive, pass: -1) { break }; usleep(500) }
     }
+    // REEL V3 — the paged looper (`Docs/reel-v3-paged-looper.md` §2). All main thread; a page's events are re-based to its start.
+    // ARM: stage what the tape holds of the page and flip to looping it when the live clock reaches `endBeat` (open / page-forward-onto-live;
+    // if already replaying, the engine hands back to live first). SHOW: instant phase-matched switch to another page (same width). TOP-UP:
+    // re-stage the same page as the recorder completes it (the UI's poll drives this; the anchor — the phase — is kept, nothing flushes).
+    // RETILE: a width change; the playhead's tape position maps into the new grid exactly.
+    func reelArmPage(startBeat: Double, endBeat: Double) { reelStageV3(startBeat, endBeat, arm: true, keepAnchor: false, livePhase: false, flush: false, retile: false) }
+    func reelShowPage(startBeat: Double, endBeat: Double) { reelStageV3(startBeat, endBeat, arm: false, keepAnchor: true, livePhase: true, flush: true, retile: false) }   // replaying ⇒ phase kept; live ⇒ starts at the live clock's page phase
+    func reelTopUpPage(startBeat: Double, endBeat: Double) { reelStageV3(startBeat, endBeat, arm: false, keepAnchor: true, livePhase: false, flush: false, retile: false) }
+    func reelRetilePage(startBeat: Double, endBeat: Double) { reelStageV3(startBeat, endBeat, arm: false, keepAnchor: true, livePhase: false, flush: true, retile: true) }
+    private func reelStageV3(_ lo: Double, _ hi: Double, arm: Bool, keepAnchor: Bool, livePhase: Bool, flush: Bool, retile: Bool) {
+        let t = kernel.tape
+        t.drain()                                                            // pull everything the render has queued, so the staged page is as complete as it can be
+        let startTick = Int((lo * Double(SessionTape.ppq)).rounded())
+        let endTick = Int((hi * Double(SessionTape.ppq)).rounded())
+        guard endTick > startTick else { return }
+        let span = Double(endTick - startTick) / Double(SessionTape.ppq)
+        let events = reelRangeEvents(startTick: startTick, endTick: endTick)
+        for _ in 0..<8 {
+            if kernel.reelStageRangeV3(events, span: span, startTapeBeat: lo, armEndTapeBeat: arm ? hi : nil,
+                                       keepAnchor: keepAnchor, livePhase: livePhase, flushOnAdopt: flush, retile: retile) { break }
+            usleep(500)
+        }
+    }
+    /// REEL V3: the render-published positions — the live write head and the replay playhead, both in session beats (the page's sweep lines).
+    func reelLivePositions() -> (live: Double, replay: Double, replaying: Bool) { kernel.reelLivePositions() }
     func reelModeValue() -> Int { kernel.reelModeValue() }               // REEL PHASE 2: 0 loop · 1 to-live (the LIVE/TAPE pill)
     // REEL PHASE 3 (the new screen): beat-domain queries the overview / tape / close-up read.
     func reelSessionEndBeat() -> Double { Double(kernel.tape.endTick()) / Double(SessionTape.ppq) }   // the whole session's length in beats (the overview's right edge = now)

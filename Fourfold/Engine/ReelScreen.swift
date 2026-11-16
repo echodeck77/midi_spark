@@ -188,3 +188,103 @@ func reelRepeatBrackets(fingerprints: [UInt64]) -> [ReelRepeatBracket] {
     }
     return out
 }
+
+// MARK: - REEL V3 — the paged looper (`Docs/reel-v3-paged-looper.md` §0/§1/§3). The page grid tiles the TAPE from beat 0;
+// the screen is ONE page (minimap · roll · control row). Everything here is pure; the selection/zoom/snap functions above
+// stay compiled for their tests but the v3 screen mounts none of them.
+
+enum ReelV3Metrics {                             // all device-owed; named so a device pass can retune without touching logic
+    static let margin: CGFloat = 16, gap: CGFloat = 12
+    static let minimapH: CGFloat = 36            // the whole-session locator strip (no handles — a tap jumps a page)
+    static let controlBarH: CGFloat = 56
+    static let minRollH: CGFloat = 80            // a floor, flagged not clamped (the project rule)
+    static let defaultPageBars = 4.0             // the old 16-beat pass (Paul, ratified 2026-11-16)
+    static let minPageBars = 1.0, maxPageBars = 32.0
+}
+
+struct ReelV3Layout: Equatable {
+    var size: CGSize
+    var minimap: CGRect
+    var roll: CGRect                             // the one page, full size
+    var controlBar: CGRect                       // ‹ · › · ×½ · width · ×2 · KEEP · EXPORT · pill · ×
+    var belowFloor: Bool { roll.height < ReelV3Metrics.minRollH }
+}
+
+func reelV3Layout(size: CGSize) -> ReelV3Layout {
+    typealias M = ReelV3Metrics
+    let x = M.margin, w = max(0, size.width - 2 * M.margin)
+    let barTop = max(M.margin, size.height - M.margin - M.controlBarH)
+    let mm = CGRect(x: x, y: M.margin, width: w, height: M.minimapH)
+    let rollY = mm.maxY + M.gap
+    let roll = CGRect(x: x, y: rollY, width: w, height: max(1, barTop - M.gap - rollY))
+    return ReelV3Layout(size: size, minimap: mm, roll: roll,
+                        controlBar: CGRect(x: x, y: barTop, width: w, height: M.controlBarH))
+}
+
+/// Page N of a `bars`-wide grid = tape beats [N·W, (N+1)·W). The LIVE page is the one holding the live write head.
+struct ReelV3Page: Equatable {
+    var index: Int; var startBeat: Double; var endBeat: Double
+    var spanBeats: Double { endBeat - startBeat }
+}
+
+func reelV3PageBars(_ bars: Double) -> Double { min(ReelV3Metrics.maxPageBars, max(ReelV3Metrics.minPageBars, bars)) }
+
+func reelV3Page(at beat: Double, bars: Double, beatsPerBar: Double) -> ReelV3Page {
+    let w = reelV3PageBars(bars) * max(0.0001, beatsPerBar)
+    let i = max(0, Int((beat / w).rounded(.down)))
+    return ReelV3Page(index: i, startBeat: Double(i) * w, endBeat: Double(i + 1) * w)
+}
+
+/// ‹ › (and a minimap tap's clamp): step `delta` pages, never before page 0, never past the LIVE page (§1.3).
+func reelV3Step(_ page: ReelV3Page, by delta: Int, bars: Double, beatsPerBar: Double, liveBeat: Double) -> ReelV3Page {
+    let live = reelV3Page(at: max(0, liveBeat), bars: bars, beatsPerBar: beatsPerBar)
+    let i = min(live.index, max(0, page.index + delta))
+    let w = page.spanBeats
+    return ReelV3Page(index: i, startBeat: Double(i) * w, endBeat: Double(i + 1) * w)
+}
+
+/// ×½ — the new width's page holding the PLAYHEAD (the half you are hearing stays, §1.4); a playhead outside the page falls back to its start.
+func reelV3Halve(bars: Double, page: ReelV3Page, playheadBeat: Double, beatsPerBar: Double) -> (bars: Double, page: ReelV3Page) {
+    let nb = reelV3PageBars(bars / 2)
+    guard nb < bars else { return (bars, page) }
+    let anchor = (playheadBeat >= page.startBeat && playheadBeat < page.endBeat) ? playheadBeat : page.startBeat
+    return (nb, reelV3Page(at: anchor, bars: nb, beatsPerBar: beatsPerBar))
+}
+/// ×2 — the new width's page holding the shown page's START (it stays in view, §1.4).
+func reelV3Double(bars: Double, page: ReelV3Page, beatsPerBar: Double) -> (bars: Double, page: ReelV3Page) {
+    let nb = reelV3PageBars(bars * 2)
+    guard nb > bars else { return (bars, page) }
+    return (nb, reelV3Page(at: page.startBeat, bars: nb, beatsPerBar: beatsPerBar))
+}
+
+/// The minimap: the whole session as page-width cells. The frame of cell `index` (clipped to the rect), and the page a tap lands on (clamped to the live page).
+func reelV3MinimapCell(index: Int, bars: Double, beatsPerBar: Double, sessionEndBeat: Double, rect: CGRect) -> CGRect {
+    let w = reelV3PageBars(bars) * max(0.0001, beatsPerBar)
+    let end = max(w, sessionEndBeat)
+    let x0 = rect.minX + CGFloat(Double(index) * w / end) * rect.width
+    let x1 = rect.minX + CGFloat(min(1, Double(index + 1) * w / end)) * rect.width
+    return CGRect(x: x0, y: rect.minY, width: max(0, x1 - x0), height: rect.height)
+}
+func reelV3MinimapPage(atX x: CGFloat, rect: CGRect, bars: Double, beatsPerBar: Double, sessionEndBeat: Double, liveBeat: Double) -> ReelV3Page {
+    let frac = rect.width > 0 ? min(1, max(0, Double((x - rect.minX) / rect.width))) : 0
+    let page = reelV3Page(at: frac * max(0, sessionEndBeat), bars: bars, beatsPerBar: beatsPerBar)
+    return reelV3Step(page, by: 0, bars: bars, beatsPerBar: beatsPerBar, liveBeat: liveBeat)   // by 0 = the live-page clamp
+}
+
+/// Labels. Bars are 1-based for people: page 0 of a 4-bar grid reads "BARS 1–4".
+func reelV3PageLabel(_ page: ReelV3Page, beatsPerBar: Double) -> String {
+    let bpb = max(0.0001, beatsPerBar)
+    let b0 = Int((page.startBeat / bpb).rounded()) + 1
+    let n = max(1, Int((page.spanBeats / bpb).rounded()))
+    return n == 1 ? "BAR \(b0)" : "BARS \(b0)–\(b0 + n - 1)"
+}
+func reelV3WidthLabel(bars: Double) -> String {
+    let n = Int(bars.rounded())
+    return n == 1 ? "1 BAR" : "\(n) BARS"
+}
+/// VoiceOver for the page roll — one element (§3): where you are and whether the engine is generating or replaying.
+func reelV3SpokenState(page: ReelV3Page, beatsPerBar: Double, live: Bool, armed: Bool) -> String {
+    let where_ = reelV3PageLabel(page, beatsPerBar: beatsPerBar).lowercased()
+    if live { return armed ? "Reel, \(where_), live — loops when the page ends" : "Reel, \(where_), live" }
+    return "Reel, \(where_), looping"
+}

@@ -238,7 +238,7 @@ final class Kernel {
     private var reelStoppedFlush = false                            // host transport stopped WHILE replaying → the loop's ringing notes have been closed once (see the transport-stop handler below). Reset when the host plays again.
     func reelSetBrowsing(_ on: Bool) { reelBrowsing = on }          // control thread: pop-up opened/closed
     func reelTouch() { reelToggle = true }                          // control thread: request a state toggle
-    func reelStateValue() -> Int { switch reel.state { case .off: return 0; case .armed: return 1; case .replaying: return 2 } }
+    func reelStateValue() -> Int { switch reel.state { case .off: return reel.isArmedV3 ? 1 : 0; case .armed: return 1; case .replaying: return 2 } }   // REEL V3: a pending armed page reads as armed
     // THE PASS BROWSER (Paul 2026-08-19): the pop-up reads the ring + selected roll; taps select+replay / stop (deferred to render).
     func reelPassNumbers() -> [Int] { reel.passNumbers() }
     func reelPassSignatures() -> [UInt64] { reel.passSignatures() }   // per-pass content hash (aligned with passNumbers) → REMOVE DUPLICATES
@@ -247,6 +247,11 @@ final class Kernel {
     func reelSelectedPassNo() -> Int { reel.selectedPassNo }
     func reelStageLoop(_ events: [ReelDeck.Ev], cycle: Double, pass: Int) -> Bool { reel.stageLoop(events, cycle: cycle, pass: pass) }   // main thread: pin + replay this pass (adopted by the next render window)
     func reelStageRange(_ events: [ReelDeck.Ev], span: Double, mode: ReelDeck.ReplayMode, pass: Int) -> Bool { reel.stageRange(events, span: span, mode: mode, pass: pass) }   // REEL PHASE 2: main thread — stage a tape RANGE (anchored replay), adopted + replayed by the next window
+    // REEL V3 (`Docs/reel-v3-paged-looper.md`): main thread — stage a PAGE (arm at its boundary / instant phase-matched switch / top-up / retile), and the UI's position feed.
+    func reelStageRangeV3(_ events: [ReelDeck.Ev], span: Double, startTapeBeat: Double, armEndTapeBeat: Double?, keepAnchor: Bool, livePhase: Bool, flushOnAdopt: Bool, retile: Bool) -> Bool {
+        reel.stageRangeV3(events, span: span, startTapeBeat: startTapeBeat, armEndTapeBeat: armEndTapeBeat, keepAnchor: keepAnchor, livePhase: livePhase, flushOnAdopt: flushOnAdopt, retile: retile)
+    }
+    func reelLivePositions() -> (live: Double, replay: Double, replaying: Bool) { (reel.livePos(), reel.replayPos(), reel.state == .replaying) }
     func reelModeValue() -> Int { reel.usesAnchoredReplay ? (reel.replayMode == .toLive ? 1 : 0) : 0 }   // REEL PHASE 2: 0 loop · 1 to-live (the LIVE/TAPE pill's detail)
     func reelStopReplay() { reelStopRequest = true }
     func reelCycleValue() -> Double { reel.loopCycle }              // the SELECTED pass's length in beats (piano-roll x-axis + export) — not the live rate
@@ -434,11 +439,21 @@ final class Kernel {
             reelStoppedFlush = false
         }
         if reel.adoptStagedLoop() {                                // the pop-up tapped a pass (REEL PHASE 1c: built from the session tape on the main thread and staged): it is pinned now — REPLAY NOW (replace live output)
-            if reel.state == .replaying { reelBlanketOff(out: liveEmitter) }   // PASS→PASS switch: the OLD loop's notes sound on liveEmitter and are NOT router-tracked, so externalFlush can't close them → blanket them off here (else they hang, Paul 2026-11-01)
-            reel.state = .replaying; router.externalFlush(box: box, atSample: renderSampleImmediate, out: reelFlushTap)   // reel REPLACES live output (externalFlush also clears glide/mod — Finding 1: no process() edge here) → flush the live WIRE/bypass monitor too (reconcileBypass is skipped during replay, so it can't close them → hung notes, Paul 2026-08-24)
+            switch reel.adoptedKind {                              // REEL V3 (`Docs/reel-v3-paged-looper.md` §2): an adopt is no longer always "replay now"
+            case .arm:                                             // an ARMED page: stay (or hand back to) LIVE; the flip happens at the tape boundary below
+                if reel.state == .replaying { reel.state = .off; reelExitFlush = true }   // paging forward onto the live page
+            case .keep:                                            // a mid-replay top-up (no flush — the new buffer is a superset) or an instant page switch / retile (flush the old loop's ringing notes)
+                if reel.adoptedFlush { reelBlanketOff(out: liveEmitter) }
+            case .livePhase: break                                 // paging back from the live page: the flip block below starts it, phase from the live tape clock
+            case .dropped: break                                   // a keep-adopt raced the hand-back: replay already ended — nothing starts
+            case .start:
+                if reel.state == .replaying { reelBlanketOff(out: liveEmitter) }   // PASS→PASS switch: the OLD loop's notes sound on liveEmitter and are NOT router-tracked, so externalFlush can't close them → blanket them off here (else they hang, Paul 2026-11-01)
+                reel.state = .replaying; router.externalFlush(box: box, atSample: renderSampleImmediate, out: reelFlushTap)   // reel REPLACES live output (externalFlush also clears glide/mod — Finding 1: no process() edge here) → flush the live WIRE/bypass monitor too (reconcileBypass is skipped during replay, so it can't close them → hung notes, Paul 2026-08-24)
+            }
         }
         if reelStopRequest {                                       // the pop-up stopped replay: resume live, drop the pin
             reelStopRequest = false
+            reel.cancelArm()                                       // REEL V3: closing the page also drops a pending arm
             if reel.state == .replaying { reel.state = .off; reelExitFlush = true }
             reel.clearSelection()
         }
@@ -463,6 +478,28 @@ final class Kernel {
         tapeRecorder.beginWindow(playing: playing, beatPos: beatPos, windowBeats: Double(frameCount) * reelBps, tempo: tempo, cycleBeats: reelCycleBeats, sampleStart: reelWinStart, beatsPerSample: reelBps)
         reelTap.recording = playing && !reelFrozen
         reelTap.base = beatPos; reelTap.beatsPerSample = reelBps; reelTap.cycleBeats = reelCycleBeats; reelTap.windowStart = reelWinStart
+        // REEL V3 (`Docs/reel-v3-paged-looper.md` §2): the UI's live-write-head feed, and the ARMED flip — when the live tape
+        // clock (the recorder's own segment mapping, so a stop/seek cannot shear it) reaches the armed page boundary, replay
+        // begins THIS window, anchored sample-exact at the boundary. A late adopt anchors in the past: the missed head played
+        // LIVE — the identical content — so the phase stays true. Tape and host beats advance 1:1 inside a segment (derived,
+        // nothing accumulated — invariant 2).
+        if playing, let liveTB = tapeRecorder.liveTapeBeat(atHostBeat: beatPos) {
+            reel.publishLivePos(liveTB)
+            if reel.state != .replaying {
+                if reel.livePhasePending {                         // paging back from the live page: start NOW, phase = the live clock's position in the page grid (beat-aligned)
+                    reel.beginLivePhaseReplay(beatPos: beatPos, liveTapeBeat: liveTB)
+                    reel.state = .replaying
+                    router.externalFlush(box: box, atSample: renderSampleImmediate, out: reelFlushTap)
+                } else if let armEnd = reel.armEndTapeBeat {
+                    let remain = armEnd - liveTB
+                    if remain < Double(frameCount) * reelBps {
+                        reel.beginArmedReplay(anchor: beatPos + remain)
+                        reel.state = .replaying
+                        router.externalFlush(box: box, atSample: renderSampleImmediate, out: reelFlushTap)   // the live notes ringing across the boundary end there (the loop re-strikes its own)
+                    }
+                }
+            }
+        }
 
         // FREE-RUN CLOCK: host stopped + an effective note held (live OR latched — latch/hold/keys honoured) ⇒ advance the
         // plugin's own beat and drive the scene as if playing; stop + FLUSH when the pool empties (no stuck notes). The

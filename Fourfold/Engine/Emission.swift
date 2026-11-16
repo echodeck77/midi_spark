@@ -48,6 +48,44 @@ final class ReelDeck {
     var replayMode: ReplayMode = .loop
     private var anchorHostBeat = 0.0
     private var anchorPending = false            // latch `anchorHostBeat` at the first emitting window after an adopt
+    // REEL V3 — the paged looper (2026-11-16, `Docs/reel-v3-paged-looper.md` §2). The staged range carries its TAPE-timeline
+    // start (the UI's replay position = start + phase), an optional ARM boundary (the Kernel flips to `.replaying` when the
+    // live tape clock reaches it — it owns the recorder), and the top-up / page-switch / retile adopt semantics. Every field
+    // defaults so the legacy `stageLoop` and phase-2 `stageRange` paths are byte-identical.
+    private(set) var startTapeBeat = 0.0         // the loop range's start on the TAPE timeline
+    private(set) var armEndTapeBeat: Double?     // render-internal: non-nil ⇒ ARMED — replay begins when the live tape beat reaches it
+    private(set) var isArmedV3 = false           // the main-thread-readable mirror of `armEndTapeBeat != nil` (a Bool cannot tear)
+    /// What the LAST adopt was — the Kernel branches on this right after `adoptStagedLoop()`.
+    /// `start` = begin replay now (legacy / phase-2) · `arm` = stay (or hand back to) live, flip at the tape boundary ·
+    /// `keep` = the anchor (phase) was kept mid-replay (top-up / page switch / retile) · `livePhase` = begin replay at the
+    /// next playing window with the phase taken from the LIVE clock's position in the page grid (paging back from the live,
+    /// not-yet-flipped page) · `dropped` = a keep-adopt raced the hand-back (replay already ended) — ignored, nothing starts.
+    enum AdoptKind { case start, arm, keep, livePhase, dropped }
+    private(set) var adoptedKind: AdoptKind = .start
+    private(set) var livePhasePending = false    // resolved by the Kernel's flip block (it owns the recorder's live tape clock)
+    /// RENDER THREAD — resolve a `livePhase` start: the phase is the live tape clock's position within the page grid, so a
+    /// page-back from live is beat-aligned with what would have played (any number of pages back — the grid tiles the tape).
+    func beginLivePhaseReplay(beatPos: Double, liveTapeBeat: Double) {
+        anchorHostBeat = beatPos - positiveMod(liveTapeBeat - startTapeBeat, max(0.0001, loopCycle))
+        anchorPending = false; livePhasePending = false; armEndTapeBeat = nil; isArmedV3 = false
+    }
+    private(set) var adoptedFlush = true         // `.keep` only: blanket-off the old loop's ringing notes? (page switch yes; a top-up of the SAME page no — the new buffer is a superset, its offs match)
+    private var retilePending = false            // a width change: re-derive the anchor at the next replay window so the playhead's TAPE position maps into the new grid exactly
+    private var retileOldAnchor = 0.0, retileOldSpan = 4.0, retileOldStart = 0.0
+    // The UI position feeds (render-written once a window, UI-read on the poll; bitPattern atomics, no locks — invariant 3).
+    private let livePosBits = ManagedAtomic<UInt64>(0)
+    private let replayPosBits = ManagedAtomic<UInt64>(0)
+    func publishLivePos(_ b: Double) { livePosBits.store(b.bitPattern, ordering: .relaxed) }
+    private func publishReplayPos(_ b: Double) { replayPosBits.store(b.bitPattern, ordering: .relaxed) }
+    func livePos() -> Double { Double(bitPattern: livePosBits.load(ordering: .relaxed)) }
+    func replayPos() -> Double { Double(bitPattern: replayPosBits.load(ordering: .relaxed)) }
+    /// RENDER THREAD — the ARMED flip (the Kernel computed the exact boundary host beat from the recorder's segment mapping).
+    func beginArmedReplay(anchor: Double) { anchorHostBeat = anchor; anchorPending = false; armEndTapeBeat = nil; isArmedV3 = false }
+    /// RENDER THREAD — a stop request / page close also drops a pending arm or live-phase start.
+    func cancelArm() { armEndTapeBeat = nil; isArmedV3 = false; livePhasePending = false }
+    @inline(__always) private func positiveMod(_ x: Double, _ m: Double) -> Double {
+        let r = x.truncatingRemainder(dividingBy: m); return r < 0 ? r + m : r
+    }
     struct Ev: Equatable { var beat = 0.0; var cable: UInt8 = 0; var b0: UInt8 = 0; var b1: UInt8 = 0; var b2: UInt8 = 0; var machine: UInt32 = 0 }
     static let cap = 16384
     private(set) var cur = [Ev](repeating: Ev(), count: cap); private(set) var curN = 0
@@ -138,6 +176,7 @@ final class ReelDeck {
         }
     }
     func clear() { curN = 0; carryN = 0; carryPass = Int.min; loopN = 0; state = .off; passCounter = 0; selectedPassNo = -1; loopCycle = cycleBeats
+        startTapeBeat = 0; armEndTapeBeat = nil; isArmedV3 = false; livePhasePending = false; retilePending = false; adoptedKind = .start   // REEL V3
         for i in 0..<ReelDeck.histCount { histLen[i] = 0; histPassNo[i] = -1; histCycle[i] = cycleBeats } }
 
     /// The `histCount` ring slots as pass numbers, OLDEST→NEWEST (the last index = the most recent completed pass; −1 =
@@ -196,6 +235,9 @@ final class ReelDeck {
     private let staged = UnsafeMutablePointer<Ev>.allocate(capacity: ReelDeck.cap)
     private var stagedN = 0, stagedCycle = 4.0, stagedPass = -1
     private var stagedMode: ReplayMode = .loop, stagedAnchored = false     // REEL PHASE 2
+    private var stagedStartTape = 0.0                                      // REEL V3 (see the v3 fields above)
+    private var stagedArmEnd: Double? = nil
+    private var stagedKeepAnchor = false, stagedLivePhase = false, stagedFlush = true, stagedRetile = false
     /// REEL PHASE 2: which emission the current loop uses — the legacy PHASE-LOCKED `replay` (the current pass browser, unchanged) or the ANCHORED `replayAnchored` (a range staged via `stageRange`, the new path phase 3 drives). Dual-path on
     /// purpose: the shipping browser keeps its exact behaviour (its playhead is phase-locked), while the anchored engine is built, tested and ready underneath.
     private(set) var usesAnchoredReplay = false
@@ -205,26 +247,51 @@ final class ReelDeck {
     func stageLoop(_ events: [Ev], cycle: Double, pass: Int) -> Bool { stage(events, span: cycle, mode: .loop, pass: pass, anchored: false) }
     /// MAIN THREAD. Stage a tape RANGE (range-relative beats in [0, `span`)) as the next loop — the ANCHORED path (phase 2). `.loop` repeats it from press-time; `.toLive` plays it once then hands back.
     func stageRange(_ events: [Ev], span: Double, mode: ReplayMode, pass: Int) -> Bool { stage(events, span: span, mode: mode, pass: pass, anchored: true) }
-    private func stage(_ events: [Ev], span: Double, mode: ReplayMode, pass: Int, anchored: Bool) -> Bool {
+    /// MAIN THREAD — REEL V3 (`Docs/reel-v3-paged-looper.md` §2). Stage a PAGE (range-relative beats, `startTapeBeat` its tape-timeline start).
+    /// `armEndTapeBeat` ⇒ the adopt stays LIVE and the Kernel flips to replay when the live tape clock reaches it (open / page-forward-onto-live).
+    /// `keepAnchor` ⇒ a mid-replay adopt that keeps the phase: a TOP-UP of the same page (`flushOnAdopt` false — the new buffer is a superset),
+    /// an instant PAGE SWITCH (`flushOnAdopt` true — the old loop's ringing notes are blanketed), or a `retile` (width change: the anchor is
+    /// re-derived at the next window so the playhead's TAPE position maps into the new grid exactly).
+    func stageRangeV3(_ events: [Ev], span: Double, startTapeBeat: Double, armEndTapeBeat: Double? = nil,
+                      keepAnchor: Bool = false, livePhase: Bool = false, flushOnAdopt: Bool = true, retile: Bool = false) -> Bool {
+        stage(events, span: span, mode: .loop, pass: -1, anchored: true, startTapeBeat: startTapeBeat,
+              armEnd: armEndTapeBeat, keepAnchor: keepAnchor, livePhase: livePhase, flushOnAdopt: flushOnAdopt, retile: retile)
+    }
+    private func stage(_ events: [Ev], span: Double, mode: ReplayMode, pass: Int, anchored: Bool,
+                       startTapeBeat: Double = 0, armEnd: Double? = nil, keepAnchor: Bool = false,
+                       livePhase: Bool = false, flushOnAdopt: Bool = true, retile: Bool = false) -> Bool {
         var ok = stagedState.compareExchange(expected: 0, desired: 3, ordering: .acquiring).exchanged
         if !ok { ok = stagedState.compareExchange(expected: 1, desired: 3, ordering: .acquiring).exchanged }
         guard ok else { return false }
         let n = min(events.count, ReelDeck.cap)
         for i in 0..<n { staged[i] = events[i] }
         stagedN = n; stagedCycle = span; stagedPass = pass; stagedMode = mode; stagedAnchored = anchored
+        stagedStartTape = startTapeBeat; stagedArmEnd = armEnd; stagedKeepAnchor = keepAnchor; stagedLivePhase = livePhase; stagedFlush = flushOnAdopt; stagedRetile = retile
         stagedState.store(1, ordering: .releasing)
         return true
     }
-    /// RENDER THREAD, once a window. Adopt a staged loop/range as `loop` (pinning it like `selectPass`). True if one was adopted. An anchored range re-latches the anchor at the next emitting window, so it starts from NOW.
+    /// RENDER THREAD, once a window. Adopt a staged loop/range as `loop` (pinning it like `selectPass`). True if one was adopted. An anchored range re-latches the anchor at the next emitting window, so it starts from NOW —
+    /// except the REEL V3 adopts: an ARM stays live (the Kernel flips it at the tape boundary), and a keep-anchor adopt (top-up / page switch / retile) keeps the phase. See `adoptedKind`.
     func adoptStagedLoop() -> Bool {
         guard stagedState.compareExchange(expected: 1, desired: 2, ordering: .acquiring).exchanged else { return false }
+        // REEL V3: a keep-anchor adopt only means something mid-replay — one that raced the hand-back is DROPPED (nothing restarts).
+        let keep = stagedKeepAnchor && state == .replaying && usesAnchoredReplay
+        if stagedRetile && keep { retilePending = true; retileOldAnchor = anchorHostBeat; retileOldSpan = loopCycle; retileOldStart = startTapeBeat }
+        else { retilePending = false }
         loopN = stagedN
         for i in 0..<loopN { loop[i] = staged[i] }
         loopCycle = stagedCycle
         selectedPassNo = stagedPass
         replayMode = stagedMode                                    // REEL PHASE 2
         usesAnchoredReplay = stagedAnchored
-        anchorPending = true                                       // REEL PHASE 2: re-anchor at the first emitting window
+        startTapeBeat = stagedStartTape                            // REEL V3
+        armEndTapeBeat = stagedArmEnd; isArmedV3 = stagedArmEnd != nil
+        adoptedFlush = stagedFlush
+        if stagedArmEnd != nil { adoptedKind = .arm; anchorPending = false; livePhasePending = false }
+        else if keep { adoptedKind = .keep; livePhasePending = false }           // the anchor — the phase — carries over
+        else if stagedLivePhase { adoptedKind = .livePhase; anchorPending = false; livePhasePending = true }   // paging back from the live page: the Kernel resolves the phase from the live tape clock
+        else if stagedKeepAnchor { adoptedKind = .dropped }        // raced the hand-back: content replaced, nothing starts
+        else { adoptedKind = .start; anchorPending = true; livePhasePending = false }   // REEL PHASE 2: re-anchor at the first emitting window
         stagedState.store(0, ordering: .releasing)
         closeOpenLoopNotes()
         return true
@@ -329,22 +396,34 @@ final class ReelDeck {
     // The staged events' beats are range-relative (in [0, span)). Called once a PLAYING window (the Kernel gates on `playing`).
     func replayAnchored(beatPos: Double, windowBeats: Double, beatsPerSample: Double, windowStart: Int64, out: MIDIEmitter?) {
         guard beatsPerSample > 0, loopN > 0 else { return }
+        if retilePending {                                                    // REEL V3 width change: the playhead's TAPE position maps into the new grid exactly (derived, no slip)
+            retilePending = false
+            let oldSpan = max(0.0001, retileOldSpan)
+            let p = retileOldStart + positiveMod(beatPos - retileOldAnchor, oldSpan)   // where on the tape the OLD page's playhead is
+            anchorHostBeat = beatPos - positiveMod(p - startTapeBeat, max(0.0001, loopCycle))
+        }
         if anchorPending { anchorHostBeat = beatPos; anchorPending = false }   // latch: this is "now"
         let elapsed = max(0, beatPos - anchorHostBeat)
         if replayMode == .loop {
+            // On the HOST timeline (phase 2 maths, generalised for a SCHEDULED start — REEL V3's armed flip sets an anchor
+            // mid-window, in the future of `beatPos`): an event's occurrences are `anchorHostBeat + k·span + b`; emit those in
+            // [max(beatPos, anchor), beatPos + windowBeats). k = the first turn at or after the window (clamped to turn 0 so a
+            // range-end event — the synthetic off — first occurs at the END of turn 0, exactly as the phase form did).
             let span = max(0.0001, loopCycle)
-            var phase = elapsed.truncatingRemainder(dividingBy: span)
-            if phase < 0 { phase += span }
-            let end = phase + windowBeats                                      // may exceed `span`: an event is caught in THIS loop (b ≥ phase) or the NEXT (b + span)
-            for i in 0..<loopN {
-                let b = loop[i].beat                                          // range-relative, in [0, span]
-                var occ = b
-                if occ < phase { occ += span }                               // already passed this turn → next turn
-                if occ < end {
-                    let s = windowStart + Int64(max(0, (occ - phase) / beatsPerSample))
-                    out?.emit(sampleTime: s, cable: loop[i].cable, loop[i].b0, loop[i].b1, loop[i].b2)
+            let from = max(beatPos, anchorHostBeat)
+            let to = beatPos + windowBeats
+            if to > from {
+                for i in 0..<loopN {
+                    let b = loop[i].beat                                      // range-relative, in [0, span]
+                    let k = max(0, ((from - anchorHostBeat - b) / span - 1e-9).rounded(.up))   // −1e-9: float dust must not skip an occurrence landing exactly on `from`
+                    let occ = anchorHostBeat + k * span + b
+                    if occ < to {
+                        let s = windowStart + Int64((max(0, occ - beatPos) / beatsPerSample).rounded())   // nearest sample (truncation lost 1 sample to float dust, e.g. 13.5 − 13.4)
+                        out?.emit(sampleTime: s, cable: loop[i].cable, loop[i].b0, loop[i].b1, loop[i].b2)
+                    }
                 }
             }
+            publishReplayPos(startTapeBeat + positiveMod(elapsed, span))      // REEL V3: the TAPE sweep (start + phase)
         } else {                                                              // .toLive — play the range once, forward
             let lo = elapsed, hi = elapsed + windowBeats
             for i in 0..<loopN {

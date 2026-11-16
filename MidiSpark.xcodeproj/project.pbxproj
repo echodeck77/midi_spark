@@ -163,6 +163,7 @@
 		481DDC4D6FAA35B56F87FA74 /* AnswerLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207CC51539EB0A8FC6E6C8A /* AnswerLive.swift */; };
 		48945756C07AD7AD3107E51D /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
 		49BF3C1E54D8292EF186DAAF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */; };
+		49BFF7A8991A4AF1D215F5B3 /* ReelV3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F8655B2EC32B999EC5BBC71 /* ReelV3Tests.swift */; };
 		4A2F4629204778337D64903F /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */; };
 		4A429DE1145312D4D6FD6CBC /* StackGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02F45BADC981E9AE9B0D940 /* StackGrid.swift */; };
 		4A4BDDC9ADAEE30A2ECDE52F /* HocketLooksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E881ACD3CFC301D9E276ED00 /* HocketLooksTests.swift */; };
@@ -630,6 +631,7 @@
 		0C2B1597D4FE5A642D881E53 /* FourfoldUIHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldUIHelpers.swift; sourceTree = "<group>"; };
 		0DFF24D7CF876BB9752F7ABB /* Kernel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kernel.swift; sourceTree = "<group>"; };
 		0E0F668B86AC559602B8B4B5 /* FillRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillRouterTests.swift; sourceTree = "<group>"; };
+		0F8655B2EC32B999EC5BBC71 /* ReelV3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelV3Tests.swift; sourceTree = "<group>"; };
 		10F72272A1B25436B913EB17 /* ReelScreenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelScreenTests.swift; sourceTree = "<group>"; };
 		12A516DBE825D6D37069CE2F /* EuclideousCCSlotsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousCCSlotsTests.swift; sourceTree = "<group>"; };
 		1576EC85F3DAAE1CA62B65F3 /* PresetBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetBrowser.swift; sourceTree = "<group>"; };
@@ -1218,6 +1220,7 @@
 				96BEC45A065B6D7177657EB9 /* ReelPhase2Tests.swift */,
 				10F72272A1B25436B913EB17 /* ReelScreenTests.swift */,
 				5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */,
+				0F8655B2EC32B999EC5BBC71 /* ReelV3Tests.swift */,
 				8AFBB3F2B6B8ABB8DB24CB0E /* ResetsCardLayoutTests.swift */,
 				86B78244085974D781CC1A40 /* RestartChainsTests.swift */,
 				5DEF38D08252CA627E3AAFBF /* RestartEditorUITests.swift */,
@@ -2132,6 +2135,7 @@
 				16BD7EF77210DFD916AD33EA /* ReelScreenTests.swift in Sources */,
 				36A6BA14474235FA1AA36E3B /* ReelTapeAdapter.swift in Sources */,
 				4FD44873F80293DB68DA9E67 /* ReelTapeAdapterTests.swift in Sources */,
+				49BFF7A8991A4AF1D215F5B3 /* ReelV3Tests.swift in Sources */,
 				E4E02EFE50BA1769941A5768 /* ResetsCardLayoutTests.swift in Sources */,
 				F5391EF8DBE567DE296CEB8D /* RestartChainsTests.swift in Sources */,
 				6CAD2EC6243F59DEF78E94C6 /* RestartEditorUI.swift in Sources */,
