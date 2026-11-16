@@ -1006,3 +1006,11 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - several lanes' dots in one cell step right-to-left (lane 1 rightmost) without piling up;
   - the 160 ms ease-out fade on note-off reads as a fade, not a flicker or a stuck dot; a hard cut (fade 0) looks clean;
   - no dots appear while stopped, on a muted / solo-silenced lane, or with PLAY STACK off.
+
+- **HOST PARAMETERS (2026-11-16, slice 2 — the real test is on device/in AUM):** confirm —
+  - the 70 params appear in AUM and read well in the flat alphabetical list: `Key Root` · `Key Scale` → `Lane 1…4 …` → `Out a…d …` (no interleaving, `a`<`b`<`c`<`d`, the `Riff …`/`Stack …` sub-clusters inside each lane);
+  - HOST AUTOMATION actually moves the plugin's controls — record/playback a few (Lane 1 Hits, Lane 2 Play, Key Root, Out a Mute) and watch the page follow — with NO deadlock / SIGKILL (the off-main provider must never block);
+  - a PAGE edit updates the host's displayed parameter value; a FACTORY / USER preset load and a host SESSION restore push the new values into the host's tree;
+  - a session SAVED BY AN OLDER BUILD (the removed 8x8 param payload) restores WITHOUT the 2026-11-13 deserialize crash (the `super.fullState` skip is kept);
+  - the enum params (Key Scale, Lane n Rate) show their names (value-strings), and the stepped ranges feel right;
+  - the three simplifications read as intended: Stack Play turning on needs a lit note; Out Mute mutes the whole output; CC On/High/Low drive slot 1 of the output's 4-slot CC emitter.

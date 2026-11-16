@@ -15,6 +15,12 @@ public class FourfoldAudioUnit: AUAudioUnit {
     private var _inputBusses: AUAudioUnitBusArray!
     private var _outputBusses: AUAudioUnitBusArray!
     private var _parameterTree: AUParameterTree!
+    // HOST PARAMETERS (RATIFIED 2026-11-16, slice 2): the 70-param set, driven by the ONE pure table `fourfoldParams()`. The value PROVIDER reads a lock-protected cache (never waits on main — the 2026-10-11 deadlock); a host WRITE marshals
+    // onto main before it touches the document (invariant 1); `pushingToTree` suppresses the observer while we push the document → tree so a load can't loop.
+    private let paramCache = FourfoldParamCache()
+    private let paramDefs = fourfoldParams()
+    private lazy var paramByAddress: [UInt64: FourfoldParamDef] = Dictionary(uniqueKeysWithValues: paramDefs.map { ($0.address, $0) })
+    private var pushingToTree = false   // main thread only: set while syncParameterTreeToDocument writes param.value
     private var document: PluginState   // a fresh instance loads the EMPTY "INIT" (the ARC is a named preset); built ONCE in init (Paul 2026-09-11 startup perf — was makeInit'd twice)
     private let store: SnapshotStore
     private var rebuildPending = false
@@ -50,6 +56,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func editDocument(_ mutate: (inout PluginState) -> Void) {
         mutate(&document)
         scheduleRebuild()
+        refreshParamCache()   // HOST PARAMETERS (slice 2): keep the host's read cache current for a PAGE edit too (cache-only — no param.value write, so the observer never re-fires)
     }
 
 
@@ -406,7 +413,9 @@ public class FourfoldAudioUnit: AUAudioUnit {
         _inputBusses = AUAudioUnitBusArray(audioUnit: self, busType: .input, busses: [inBus])
         _outputBusses = AUAudioUnitBusArray(audioUnit: self, busType: .output, busses: [outBus])
 
-        _parameterTree = AUParameterTree.createTree(withChildren: [])   // no host parameters for now (see `parameterTree`)
+        _parameterTree = Self.buildParameterTree(paramDefs)   // HOST PARAMETERS (slice 2): the 70-param tree from the pure table
+        wireParameterTree()
+        refreshParamCache()                                   // seed the off-main-safe read cache from the fresh document
     }
 
     public override var inputBusses: AUAudioUnitBusArray { _inputBusses }
@@ -418,6 +427,67 @@ public class FourfoldAudioUnit: AUAudioUnit {
     public override var parameterTree: AUParameterTree? {
         get { _parameterTree }
         set { /* immutable in this unit */ }
+    }
+
+    // MARK: - HOST PARAMETERS (slice 2): the tree build + the deadlock-safe observer/provider + the document↔tree sync (driven by the pure `fourfoldParams()` table)
+
+    /// The lock-protected address→value cache the parameter PROVIDER reads — safe from ANY thread, never blocks (the fix for the 2026-10-11 off-main-provider-waiting-on-main deadlock). Kept current from main (`refreshParamCache` / `syncParameterTreeToDocument`).
+    private final class FourfoldParamCache {
+        private let lock = NSLock()
+        private var values: [AUParameterAddress: AUValue] = [:]
+        func set(_ a: AUParameterAddress, _ v: AUValue) { lock.lock(); values[a] = v; lock.unlock() }
+        func get(_ a: AUParameterAddress) -> AUValue { lock.lock(); defer { lock.unlock() }; return values[a] ?? 0 }
+    }
+
+    /// Build the flat tree from the pure table (the host sorts alphabetically by name — the names already block cleanly). Every param is discrete (stepped / boolean / indexed); none ramps (they set document fields, not a smooth audio value).
+    private static func buildParameterTree(_ defs: [FourfoldParamDef]) -> AUParameterTree {
+        let children: [AUParameterNode] = defs.map { d in
+            let strings: [String]? = { if case .indexed(let s) = d.kind { return s }; return nil }()
+            let unit: AudioUnitParameterUnit = strings != nil ? .indexed : (d.kind == .boolean ? .boolean : .generic)
+            let p = AUParameterTree.createParameter(withIdentifier: "p\(d.address)", name: d.name, address: AUParameterAddress(d.address),
+                                                    min: AUValue(d.min), max: AUValue(d.max), unit: unit, unitName: nil,
+                                                    flags: [.flag_IsReadable, .flag_IsWritable], valueStrings: strings, dependentParameters: nil)
+            p.value = AUValue(d.def)
+            return p
+        }
+        return AUParameterTree.createTree(withChildren: children)
+    }
+
+    private func wireParameterTree() {
+        _parameterTree.implementorValueObserver = { [weak self] param, value in
+            guard let self else { return }
+            self.paramCache.set(param.address, value)   // update the read cache first, from whatever thread the host called on — lock-protected, no document touch, never blocks
+            if self.pushingToTree { return }             // this write came from OUR OWN document→tree push — don't re-apply it (loop guard)
+            if Thread.isMainThread { self.applyParamValue(param.address, value) }
+            else { DispatchQueue.main.async { self.applyParamValue(param.address, value) } }   // invariant 1: a host write marshals onto main before it touches the document
+        }
+        _parameterTree.implementorValueProvider = { [weak self] param in self?.paramCache.get(param.address) ?? 0 }
+        _parameterTree.implementorStringFromValueCallback = { [weak self] param, valuePtr in
+            guard let self, let def = self.paramByAddress[UInt64(param.address)], case .indexed(let s) = def.kind else { return "" }
+            let i = max(0, min(s.count - 1, Int((valuePtr?.pointee ?? param.value).rounded())))
+            return s.indices.contains(i) ? s[i] : ""
+        }
+    }
+    /// MAIN THREAD: a host (or in-app) wrote a parameter — apply it to the document through the pure table's setter (Hits/Steps/Offset route through `euclideousSliderCommit`). `editDocument` republishes + refreshes the cache.
+    private func applyParamValue(_ address: AUParameterAddress, _ value: AUValue) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let def = paramByAddress[UInt64(address)] else { return }
+        editDocument { def.set(&$0, Float(value)) }
+    }
+    /// MAIN THREAD: refresh the off-main-safe read cache from the current document (cache ONLY — no `param.value` write, so the observer never fires). Called from `editDocument`, so a page edit, a param edit and the init all keep the host's reads current.
+    private func refreshParamCache() {
+        for d in paramDefs { paramCache.set(AUParameterAddress(d.address), AUValue(d.get(document))) }
+    }
+    /// MAIN THREAD: push the whole document into the parameter tree (the host sees a wholesale change — a preset / session load). `pushingToTree` makes the resulting observer callbacks update only the cache, never re-apply.
+    func syncParameterTreeToDocument() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        pushingToTree = true
+        for d in paramDefs {
+            let v = AUValue(d.get(document))
+            paramCache.set(AUParameterAddress(d.address), v)
+            _parameterTree.parameter(withAddress: AUParameterAddress(d.address))?.value = v
+        }
+        pushingToTree = false
     }
 
     /// Load a factory scene (Docs/factory-scenes.md) — same replace-and-resync path as a test session.
@@ -473,6 +543,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         clearPendingBuild()   // K2: the new doc carries its own BUILD state — drop the outgoing session's stale pending
         currentPresetName = name
         scheduleRebuild()
+        syncParameterTreeToDocument()   // HOST PARAMETERS (slice 2): a wholesale load → the host sees the new values
     }
     /// The fresh-instance default document (`PluginState.makeInit()`); the harness's "(default)" golden entry loads it.
     func resetToFreshInit() {
@@ -482,6 +553,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         clearPendingBuild()
         currentPresetName = ""
         scheduleRebuild()
+        syncParameterTreeToDocument()   // HOST PARAMETERS (slice 2)
     }
     /// LOAD a factory preset (our browser). Applies it AND updates the host's current-preset selection.
     func loadFactoryPreset(named name: String) {
@@ -539,6 +611,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         clearPendingBuild()                  // K2: drop the outgoing session's stale BUILD pending (the preset carries its own)
         currentPresetName = PresetStore.sanitize(name)
         scheduleRebuild()
+        syncParameterTreeToDocument()        // HOST PARAMETERS (slice 2): a wholesale load → push the new values into the tree so the host sees them
     }
     private func presetNumber(for name: String) -> Int {
         (PresetStore.list().firstIndex(of: name).map { -($0 + 1) }) ?? -1   // user presets use negative numbers
@@ -641,14 +714,14 @@ public class FourfoldAudioUnit: AUAudioUnit {
             return state
         }
         set {
-            // SESSION RESTORE ROBUSTNESS (2026-11-13): while the host parameter tree is EMPTY (the 8x8 params were removed in
-            // 1200b6a, 2026-11-09), a session SAVED by an older build still carries that build's parameter payload. Apple's
-            // -[AUAudioUnit setFullState:] then raises in -[AUParameterGroup _deserialize:fromSetFullState:] — an uncatchable
-            // ObjC NSException ⇒ abort. The standalone app restores on launch and only re-saves a clean session AFTER a clean
-            // launch, so that is a crash LOOP (seen on device 2026-11-13). With no parameters there is nothing for the base to
-            // restore, so skip its setter entirely (it cannot then deserialize a legacy payload, whatever key held it); our own
-            // document rides `stateKey`, restored below, independent of the base. Drop this guard the moment real parameters return.
-            if !(_parameterTree?.allParameters.isEmpty ?? true) { super.fullState = newValue }
+            // SESSION RESTORE ROBUSTNESS (2026-11-13, kept for HOST PARAMETERS 2026-11-16): a session SAVED by an older build
+            // carries THAT build's parameter payload (the removed 8x8 set, addresses 0/1/100+/200+/300/400+). Apple's
+            // -[AUAudioUnit setFullState:] deserialises it into the current tree and raises in -[AUParameterGroup _deserialize…]
+            // — an uncatchable ObjC NSException ⇒ abort ⇒ a crash LOOP (the standalone app re-saves a clean session only AFTER a
+            // clean launch, device-seen 2026-11-13). Real parameters have now RETURNED (70 of them), but their addresses do NOT
+            // match the legacy payload, so calling `super.fullState` would STILL crash on an old session. Our parameters are
+            // DOCUMENT-DERIVED — their values ride `stateKey` and are pushed into the tree by `syncParameterTreeToDocument()`
+            // below — so we never need the base to restore the param state at all. Keep skipping `super.fullState` entirely.
             if let data = newValue?[Self.stateKey] as? Data,
                var doc = try? JSONDecoder().decode(PluginState.self, from: data) {
                 doc.migrateLegacyRoutingIfNeeded()   // old saved AUM sessions → v3 schema on load (mandatory)
@@ -663,6 +736,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host
                                                      // session restore must not strand the outgoing document's voices
                 scheduleRebuild()
+                syncParameterTreeToDocument()        // HOST PARAMETERS (slice 2): push the restored document's values into the tree (the base's own param restore is skipped above)
             }
         }
     }
