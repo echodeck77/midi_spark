@@ -986,3 +986,9 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - the lane picker, now compressed into the 70 pt trace frame (four rows), is still usable; the dashed-grey off-trace reads as "off";
   - the header reads back · power · CC ‹ n › · ON (A) FROM (n), with no close tile / OFF pill / left token;
   - MUTE behaviour: muting output A mid-ramp makes the synth jump to that CC's LOW and stay there (not freeze mid-ramp).
+
+- **Scrub ferry (2026-11-16) — the hold-to-override gesture (Fourfold, riff panel + STACK grid):**
+  - the column ribbon is easy to find + hold over the 8 pt rails in both orientations; a thumb can drag the 30-ish pt axis without touching cells; scrubbing at fast tempos feels immediate;
+  - the 70% white held mark isn't mistaken for the sounding-white; four lane arrows gathering into one blended arrow on the held cell reads as unison; the rails keep showing each lane's own position;
+  - holding a column makes all four lanes' riffs play that note in their own rhythms, holding a riff/stack rank makes every part play that one rank, sliding scrubs, release returns each lane exactly where it would have been (slip);
+  - (DEFERRED, when §6 ships) audition while stopped works in AUM + the standalone app.

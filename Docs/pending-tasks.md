@@ -2255,3 +2255,11 @@ Display-only; golden byte-identical. RANKS label → a button that opens the pop
 
 - [ ] (CC page v2, §3.1) the off-trace is dashed grey via a `dashed` flag on `CCTraceView`; the exact grid-line alphas / tick look are approximate to §3.1 — device-owed polish.
 - [ ] (CC page v2, §0.2) `EuclideousCCExpandedView.leftColumn` / `rightColumn` and Amendment-1's dimming (`emitterCCToIsInert`/`CurveIsInert`) are kept compiled but unmounted — delete once the new page is device-confirmed.
+
+## Scrub ferry (2026-11-16, Fourfold) — LANDED §1-5+8; §6 + secondary readers deferred
+The three holds (riff column / riff rank / stack rank), the gestures, the engine override (slip + TIE-carry), and the §5 marks/arrows are landed; golden byte-identical, alloc 0. Open:
+- [ ] (DEFERRED, Paul's call 2026-11-16) **§6 audition while the transport is STOPPED** — a ribbon touch plays the note each eligible lane's next hit would play under the hold, sustained (on at touch, off at lift, off-then-on on drag; only PLAY RIFF / PLAY STACK lanes, not muted). Buildable via the `euclideousRunAudition` free-run path (refcounted offs, no stuck note; KEEP-PLAYING only). Deferred because it's only device-verifiable (no golden coverage for stopped-transport notes). §11 test 11 comes with it.
+- [ ] (§5.4 follow-up) feed the held column/rank to the **header chips** (riff-map colours/column labels), the **footer chips** (`euclideousFooterPass`), and the **MUTE roll** — the pass-level/multi-cell/emitted-note readers slice 6 deferred (the grid arrows + STACK riff arrow are done; STACK sounding cells auto via `NoteRollRecord.rank`).
+- [ ] (§9) VoiceOver OPERATION of the ribbons (they're not VO-operable this ferry).
+- [ ] (§8.2) a full panic-clear of the HOLDS (today `performReset` ends the sounding notes; the hold is finger-driven, so it persists while the finger is down — a panic mid-hold leaves the live word set until lift).
+- [ ] POLY: the column ribbon is columns 1-8 per the spec; a POLY 16-column grid isn't fully covered.
