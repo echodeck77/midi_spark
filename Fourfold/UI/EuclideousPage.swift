@@ -3790,10 +3790,9 @@ struct EuclideousPage: View {
         let input = EuclideousRestartRulerInput(ruler: r, barBeats: clock.beatsPerBar, hits: hits, now: beat, running: running)
         // RESETS V2 draft 3 §2: the value is "N OF M" (how much of the pass / riff cycle plays before the next reset), replacing the ratio. (The VoiceOver still reads the old ratio form until §5 / slice E.)
         let nm = euclideousRestartNOfM(kind, sub: c.sub, ruler: r, hits: hits, line: line, beat: beat, steps: min(16, max(2, line.steps)))
-        let rr = euclideousRestartRatioSteps(kind, cfg: c, beat: beat, steps: min(16, max(2, line.steps)), barBeats: clock.beatsPerBar)
         // §4.1: ", cut short" while the block under the playhead is cut
         let cutNow = running && r.blocks.contains { beat >= $0.start - 1e-9 && beat < $0.end - 1e-9 && $0.cut }
-        let vo = euclideousRestartTileVoiceOver(kind: kind, part: rr.part, bar: rr.bar, isFree: r.isFree, cutNow: cutNow)
+        let vo = euclideousRestartTileVoiceOver(kind: kind, n: nm.n, m: nm.m, isFree: r.isFree, advStep: line.riffAdvanceStepResolved, cutNow: cutNow)   // draft 3 §5.1
         let state = restartTileState(kind, cfg: c, beat: beat, running: running)   // §4.1: kept only for the a11y VALUE (RESTART UNITS 9.1's "next restart in N"); the ruler layer order doesn't draw its sweep/track
         return (input, nm, vo, state)
     }

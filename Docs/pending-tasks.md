@@ -2263,3 +2263,6 @@ The three holds (riff column / riff rank / stack rank), the gestures, the engine
 - [ ] (§9) VoiceOver OPERATION of the ribbons (they're not VO-operable this ferry).
 - [ ] (§8.2) a full panic-clear of the HOLDS (today `performReset` ends the sounding notes; the hold is finger-driven, so it persists while the finger is down — a panic mid-hold leaves the live word set until lift).
 - [ ] POLY: the column ribbon is columns 1-8 per the spec; a POLY 16-column grid isn't fully covered.
+
+- [ ] (RESETS V2 draft 3) §6 test 3 ("20 steps of 1/16") and test 13's ">99" ("31 steps") are unreachable (EuclidLine.steps caps at 16) — substituted legal cases; a genuine ">99"/"no-period-in-1024" case is hard to construct under the clamp (the display path is tested with a synthetic EuclideousResolveInfo).
+- [ ] (RESETS V2 draft 3) the resolve count uses a 4 Hz TimelineView; if the bar-line step ever reads late, raise the rate or key it to bar boundaries.

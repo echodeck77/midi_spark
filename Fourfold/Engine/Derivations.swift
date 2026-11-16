@@ -10328,9 +10328,10 @@ func euclideousRestartRatioText(part: Double, bar: Double) -> String {
 }
 
 /// RESETS V2 §4.1 — the tile's VoiceOver label (static text): "Rhythm, 7-step pass, 8-step bar" / "Melody, 17-step riff, 8-step bar", then ", free" for a FREE part and ", cut short" while the block under the playhead is cut.
-func euclideousRestartTileVoiceOver(kind: EuclideousRestartKind, part: Double, bar: Double, isFree: Bool, cutNow: Bool) -> String {
-    let what = kind == .rhythm ? "Rhythm, \(euclideousRestartRatioStepFmt(part))-step pass" : "Melody, \(euclideousRestartRatioStepFmt(part))-step riff"
-    var s = "\(what), \(euclideousRestartRatioStepFmt(bar))-step bar"
+func euclideousRestartTileVoiceOver(kind: EuclideousRestartKind, n: Int, m: Int, isFree: Bool, advStep: Bool, cutNow: Bool) -> String {
+    // draft 3 §5.1: "Rhythm, N of M steps" / "Melody, N of M notes" ("steps" for ADV STEP), + ", free" / ", cut short".
+    let unit = kind == .rhythm ? "steps" : (advStep ? "steps" : "notes")
+    var s = "\(kind == .rhythm ? "Rhythm" : "Melody"), \(n) of \(m) \(unit)"
     if isFree { s += ", free" }
     if cutNow { s += ", cut short" }
     return s

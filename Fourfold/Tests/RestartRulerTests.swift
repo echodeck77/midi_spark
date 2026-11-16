@@ -143,12 +143,13 @@ final class RestartRulerTests: XCTestCase {
         XCTAssertEqual(euclideousRestartRatioText(part: 12, bar: 4.0 / 0.75), "12:5.3", "dotted 1/8: 4 ÷ 0.75 = 5.333 → 5.3 (§5 test 7)")
     }
 
-    // RESETS V2 §4.1 — the tile's VoiceOver label.
+    // draft 3 §5.1 — the tile's VoiceOver label (N OF M, steps / notes).
     func testTileVoiceOver() {
-        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .rhythm, part: 7, bar: 8, isFree: false, cutNow: false), "Rhythm, 7-step pass, 8-step bar")
-        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .melody, part: 17, bar: 8, isFree: false, cutNow: false), "Melody, 17-step riff, 8-step bar")
-        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .rhythm, part: 12, bar: 16, isFree: true, cutNow: false), "Rhythm, 12-step pass, 16-step bar, free")
-        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .melody, part: 13, bar: 8, isFree: false, cutNow: true), "Melody, 13-step riff, 8-step bar, cut short")
+        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .rhythm, n: 4, m: 8, isFree: false, advStep: false, cutNow: false), "Rhythm, 4 of 8 steps")
+        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .melody, n: 3, m: 8, isFree: false, advStep: false, cutNow: false), "Melody, 3 of 8 notes")
+        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .melody, n: 8, m: 8, isFree: false, advStep: true, cutNow: false), "Melody, 8 of 8 steps", "ADV STEP ⇒ steps")
+        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .rhythm, n: 8, m: 8, isFree: true, advStep: false, cutNow: false), "Rhythm, 8 of 8 steps, free")
+        XCTAssertEqual(euclideousRestartTileVoiceOver(kind: .melody, n: 3, m: 8, isFree: false, advStep: false, cutNow: true), "Melody, 3 of 8 notes, cut short")
     }
 
     // RESETS V2 draft 3 §2 — the "N OF M" value (how much of the pass / riff cycle plays before the next reset).

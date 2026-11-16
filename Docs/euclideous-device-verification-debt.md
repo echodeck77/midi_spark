@@ -992,3 +992,10 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - the 70% white held mark isn't mistaken for the sounding-white; four lane arrows gathering into one blended arrow on the held cell reads as unison; the rails keep showing each lane's own position;
   - holding a column makes all four lanes' riffs play that note in their own rhythms, holding a riff/stack rank makes every part play that one rank, sliding scrubs, release returns each lane exactly where it would have been (slip);
   - (DEFERRED, when §6 ships) audition while stopped works in AUM + the standalone app.
+
+- **RESETS V2 draft 3 (2026-11-16; "N OF M" value, resolve count, count-chip up/down + − box).** On an iPad in AUM, confirm:
+  - "N OF M" is legible and its meaning reads without labels; it truncates (never shrinks) at the narrowest card;
+  - the resolve count "N OF P" at the link row's end reads as belonging to the whole lane (not either half) and isn't confused with the tiles' values; its bar steps line up with what's heard when a long cycle comes round; grey "1 OF 1" / ">99" / "—" read right;
+  - top-half vs bottom-half taps on the 44×28 chips land where intended; the up/down chevrons are visible but quiet;
+  - the − box isn't hit by mistake when reaching for +; it appears at 2+ links and removes the last one;
+  - the ruler still reads at a glance (already shipped) alongside the new value/count.
