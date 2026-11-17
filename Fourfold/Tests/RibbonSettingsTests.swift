@@ -62,6 +62,48 @@ final class RibbonSettingsTests: XCTestCase {
         XCTAssertEqual(seq(.forward, 2, 2, 3), [2, 2, 2], "a one-column span is a static repeat")
     }
 
+    // §6.5–6.9 / §13.4 / §13.5 — TUTTI firing: the winning trigger's rank pulls every other included hit onto it.
+    private func hit(_ lane: Int, notes: Bool = false, col: Int, played: Int, written: Int, inc: Bool = true) -> EuclideousRibbonStepHit {
+        EuclideousRibbonStepHit(lane: lane, isNotes: notes, column: col, playedRank: played, columnWrittenRank: written, included: inc)
+    }
+    func testTuttiFireMarkedStep() {
+        var s = RibbonSettings(); s.tuttiSteps = 0b0001_0000   // column 5 marked
+        let hits = [hit(0, col: 2, played: 3, written: 3), hit(1, col: 7, played: 5, written: 5),
+                    hit(2, col: 5, played: 8, written: 8), hit(3, col: 1, played: 2, written: 2)]   // lane-2 (0-based) reads the marked column 5 (written 8) → trigger
+        let r = euclideousRibbonTuttiFire(hits: hits, settings: s, rankHold: nil)
+        XCTAssertEqual(r.fireRank, 8); XCTAssertEqual(r.changed, [0, 1, 3], "every other included hit plays the fire rank; the trigger (2) is unchanged")
+        var ex = hits; ex[0].included = false
+        XCTAssertEqual(euclideousRibbonTuttiFire(hits: ex, settings: s, rankHold: nil).changed, [1, 3], "an excluded part is untouched")
+        XCTAssertEqual(euclideousRibbonTuttiFire(hits: hits, settings: s, rankHold: 4).fireRank, 0, "§6.9 a rank hold beats TUTTI")
+        XCTAssertTrue(euclideousRibbonTuttiFire(hits: hits, settings: s, rankHold: 4).changed.isEmpty)
+        XCTAssertEqual(euclideousRibbonTuttiFire(hits: hits, settings: RibbonSettings(), rankHold: nil).changed, [], "no marks ⇒ nothing fires")
+    }
+    func testTuttiFireMarkedRankAndPriority() {
+        var s = RibbonSettings(); s.tuttiRanks = 0b0000_0100   // rank 3 marked
+        let hits = [hit(0, col: 1, played: 5, written: 5), hit(1, notes: true, col: 4, played: 3, written: 2), hit(2, col: 2, played: 7, written: 7)]
+        let r = euclideousRibbonTuttiFire(hits: hits, settings: s, rankHold: nil)
+        XCTAssertEqual(r.fireRank, 3); XCTAssertEqual(r.changed, [0, 2], "lane-1's stack plays marked rank 3 → the others play 3")
+        // two triggers: lane 1 (0-based) via a marked column (written 6), lane 3 via marked rank 3 → the lower lane wins (6).
+        var s2 = RibbonSettings(); s2.tuttiSteps = 0b0000_0010; s2.tuttiRanks = 0b0000_0100
+        let two = [hit(1, col: 2, played: 6, written: 6), hit(3, col: 5, played: 3, written: 3), hit(0, col: 7, played: 4, written: 4)]
+        let r2 = euclideousRibbonTuttiFire(hits: two, settings: s2, rankHold: nil)
+        XCTAssertEqual(r2.fireRank, 6, "the lower-numbered lane's trigger wins"); XCTAssertEqual(r2.changed, [2], "only the non-trigger changes")
+    }
+
+    // §7.2 / §7.3 / §13.8 / §13.9 — CONTINUE: after a hold ends, the lane reads value(o + d) so the next hit follows the last.
+    func testContinueOffset() {
+        // §13.8 FWD LEN 8 (column = (n mod 8)+1): column 6 held, next hit (ordinal 0) must read 7 ⇒ d s.t. walk(0+d-1)=6.
+        let fwd: (Int64) -> Int = { Int(($0 % 8 + 8) % 8) + 1 }
+        let d = euclideousRibbonContinueOffset(nextOrdinal: 0, last: 6, currentOffset: 0, period: 8, valueAt: fwd)
+        XCTAssertEqual(fwd(0 + Int64(d)), 7, "the next hit reads column 7, continuing from 6")
+        // a column the walk never visits ⇒ the offset is kept.
+        XCTAssertEqual(euclideousRibbonContinueOffset(nextOrdinal: 0, last: 99, currentOffset: 4, period: 8, valueAt: fwd), 4, "last not in the period ⇒ keep the offset")
+        // §13.9 PLAY AS UP over ranks 1,3,5,7: rank 5 held, the next stack hit plays 7.
+        let up: (Int64) -> Int = { [1, 3, 5, 7][Int(($0 % 4 + 4) % 4)] }
+        let ds = euclideousRibbonContinueOffset(nextOrdinal: 0, last: 5, currentOffset: 0, period: 4, valueAt: up)
+        XCTAssertEqual(up(0 + Int64(ds)), 7, "the next stack hit plays 7, continuing from 5")
+    }
+
     // §1.2 PluginState: nil ⇒ the defaults; a set value is kept; and an old document (no key) resolves to the defaults.
     func testPluginStateResolver() throws {
         var ps = PluginState(machines: [], scenes: [])

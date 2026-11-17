@@ -5196,6 +5196,48 @@ func euclideousRibbonLoopColumn(k: Int64, spanA a: Int, spanB b: Int, direction:
     return lo + max(0, min(len - 1, step))
 }
 
+/// §6.5 — one hit starting on a host step, as TUTTI firing sees it (after holds/loops + the PARTS gate). `column` is the riff
+/// column the hit reads (1-based; for a stack hit, the column ITS lane's riff reads on this hit); `playedRank` is the rank it
+/// plays after substitution, before OCT/TRANS (0 = rest); `columnWrittenRank` is the written rank of `column` (0 = rest column).
+struct EuclideousRibbonStepHit: Equatable {
+    var lane: Int, isNotes: Bool, column: Int, playedRank: Int, columnWrittenRank: Int, included: Bool
+}
+/// §10.3 result: the fire rank (0 = none) and the indices (into the step's hits) TUTTI substitutes to it.
+struct EuclideousRibbonTuttiResult: Equatable { var fireRank: Int; var changed: Set<Int> }
+/// §10.3 / §6.5–6.9 — TUTTI firing for one host step. A TRIGGER is an INCLUDED hit reading a marked step (`column` in
+/// tuttiSteps) or playing a marked rank (`playedRank` in tuttiRanks). The fire rank is the winning trigger's (lowest lane,
+/// riff before stack): a marked-step trigger fires its column's written rank, a marked-rank trigger fires that rank (§6.6).
+/// Every OTHER included hit on the step is substituted to the fire rank (§6.7); the triggers play as they are (§6.8). A set
+/// rankHold beats TUTTI entirely (§6.9), and no mark ⇒ nothing fires (byte-identical to no-TUTTI).
+func euclideousRibbonTuttiFire(hits: [EuclideousRibbonStepHit], settings: RibbonSettings, rankHold: Int?) -> EuclideousRibbonTuttiResult {
+    guard rankHold == nil, settings.tuttiActive else { return EuclideousRibbonTuttiResult(fireRank: 0, changed: []) }
+    var triggers: [(idx: Int, lane: Int, part: Int, fireRank: Int)] = []
+    for (i, h) in hits.enumerated() where h.included {
+        let markedStep = h.column >= 1 && settings.stepMarked(h.column)
+        let markedRank = h.playedRank >= 1 && settings.rankMarked(h.playedRank)
+        guard markedStep || markedRank else { continue }
+        let fr = markedStep ? h.columnWrittenRank : h.playedRank   // §6.6 (rankHold is nil here, §6.9)
+        guard fr >= 1 else { continue }                            // a rest column gives no fire rank
+        triggers.append((i, h.lane, h.isNotes ? 1 : 0, fr))        // §6.6: riff (0) before stack (1) within a lane
+    }
+    guard let win = triggers.min(by: { ($0.lane, $0.part) < ($1.lane, $1.part) }) else { return EuclideousRibbonTuttiResult(fireRank: 0, changed: []) }
+    let trig = Set(triggers.map { $0.idx })
+    var changed = Set<Int>()
+    for (i, h) in hits.enumerated() where h.included && !trig.contains(i) { changed.insert(i) }   // §6.7/§6.8: every OTHER included hit (a rest column included, §6.7); triggers unchanged
+    return EuclideousRibbonTuttiResult(fireRank: win.fireRank, changed: changed)
+}
+
+/// §7.2 / §7.3 / §10.4 — the RELEASE CONTINUE walk offset after a columnHold / loopSpan (riff) or a rankHold / columnHold /
+/// loopSpan (stack) ends: the smallest d ≥ 0 such that the lane's walk VALUE at ordinal (o + d − 1) equals `last` — the last
+/// column its riff read, or the last rank PLAY AS played — so the next hit at ordinal o reads value(o + d), continuing from
+/// where the hold left it. `o` is the ordinal of the lane's next hit. If `last` never occurs within the walk's `period`, the
+/// offset is UNCHANGED (`currentOffset`) — e.g. a DRUNK / RANDOM walk with no fixed period (§7.5, reported). One function for
+/// both: the riff passes its column walk as `valueAt`, the stack passes PLAY AS's rank sequence.
+func euclideousRibbonContinueOffset(nextOrdinal o: Int64, last: Int, currentOffset: Int, period: Int, valueAt: (Int64) -> Int) -> Int {
+    for d in 0..<max(1, period) where valueAt(o + Int64(d) - 1) == last { return d }
+    return currentOffset
+}
+
 /// The bottom-right panel's tab body (what LANES and FX are laid out in): the panel less sp8 padding all round, the 20pt tab row and the sp4 gap.
 func euclideousSeqTabBodySize(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize {
     let pad = EuclideousMixMetrics.sp8 * 2
