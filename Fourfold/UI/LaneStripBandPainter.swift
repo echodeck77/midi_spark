@@ -146,7 +146,7 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
             guard let chip = d.hits[i].chip else { continue }
             laneStripDrawChip(&ctx, slot: d.frames.header[i], steps: d.steps,
                               fill: .map(riffMapColour(column: chip.column, rank: chip.rank)),
-                              label: "\(chip.column)", hollow: chip.hollow, sounding: riffRing(i), opacity: riffFrac)
+                              label: "\(chip.column)", hollow: chip.hollow, sounding: riffRing(i), opacity: riffFrac, slim: d.frames.slim)
         }
     }
 
@@ -156,15 +156,15 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     if stackFrac > 0 {
         for i in 0..<n where i < d.hits.count {
             if i < s.stackChipRanks.count, !s.stackChipRanks[i].isEmpty {
-                laneStripDrawFooterChip(&ctx, slot: d.frames.footer[i], steps: d.steps, ranks: s.stackChipRanks[i], sounding: stackRing(i), opacity: stackFrac)   // a played hit — its chip, ringed while sounding
+                laneStripDrawFooterChip(&ctx, slot: d.frames.footer[i], steps: d.steps, ranks: s.stackChipRanks[i], sounding: stackRing(i), opacity: stackFrac, slim: d.frames.slim)   // a played hit — its chip, ringed while sounding
             } else if d.hits[i].kind != .rhythmRest {
                 // PLAY BUTTONS RAIL+NOTE §5 (Paul 2026-11-16): every upcoming hit gets a chip too, like the riff — the REAL
                 // predicted ranks (resting look, 78 %), or a flat #2B2D33 placeholder when the hit is predicted silent.
                 let pred = d.hits[i].predictedStackRanks
                 if !pred.isEmpty {
-                    laneStripDrawFooterChip(&ctx, slot: d.frames.footer[i], steps: d.steps, ranks: pred, sounding: false, opacity: stackFrac)
+                    laneStripDrawFooterChip(&ctx, slot: d.frames.footer[i], steps: d.steps, ranks: pred, sounding: false, opacity: stackFrac, slim: d.frames.slim)
                 } else {
-                    ctx.fill(RoundedRectangle(cornerRadius: M.chipRadius).path(in: d.frames.footer[i]), with: .color(Color(M.emptySlotFill).opacity(stackFrac)))
+                    ctx.fill(RoundedRectangle(cornerRadius: d.frames.slim ? M.slimChipRadius : M.chipRadius).path(in: d.frames.footer[i]), with: .color(Color(M.emptySlotFill).opacity(stackFrac)))   // §1.8: on a slim lane the unpredicted slot is the 4 pt #2B2D33 bar
                 }
             }
         }
@@ -174,21 +174,24 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
 /// STACK GREY §2.3: the stack footer chip — one grey segment per voice (lowest rank on the left, 1 pt gaps), each its own
 /// `stackRankColour` fill + `stackRankInk` label (hidden on a too-narrow segment, §B2.3). A segment under 4 pt wide ⇒ one
 /// chip at the lowest rank, as before. §2.4's sounding double-stroke goes round the WHOLE frame, once.
-func laneStripDrawFooterChip(_ ctx: inout GraphicsContext, slot: CGRect, steps: Int, ranks: [Int], sounding: Bool, opacity: Double = 1) {
+func laneStripDrawFooterChip(_ ctx: inout GraphicsContext, slot: CGRect, steps: Int, ranks: [Int], sounding: Bool, opacity: Double = 1, slim: Bool = false) {
     typealias M = LaneStripBandMetrics
     let frame = laneStripChipFrame(slot: slot)
     guard frame.width > 1, frame.height > 1, opacity > 0 else { return }
-    let a = (sounding ? 1.0 : M.chipRestOpacity) * opacity                   // §2.1: 100 % sounding, 78 % at rest; × the band's §3.4 collapse fade
+    // LANE STRIP CLARITY §1.3/§1.4: a slim band's chip is a flat colour bar — radius 1, no label, no stroke, 60 % / 100 %.
+    let a = (slim ? laneStripSlimChipOpacity(sounding: sounding) : (sounding ? 1.0 : M.chipRestOpacity)) * opacity
+    let radius = slim ? M.slimChipRadius : M.chipRadius
     let size = laneStripChipLabelSize(steps: steps)
     for seg in laneStripFooterSegments(frameWidth: frame.width, ranks: ranks) {
         let rect = CGRect(x: frame.minX + seg.x, y: frame.minY, width: seg.width, height: frame.height)
-        ctx.fill(RoundedRectangle(cornerRadius: M.chipRadius).path(in: rect), with: .color(Color(stackRankColour(rank: seg.rank)).opacity(a)))
+        ctx.fill(RoundedRectangle(cornerRadius: radius).path(in: rect), with: .color(Color(stackRankColour(rank: seg.rank)).opacity(a)))
+        guard !slim else { continue }                                        // §1.3: no labels on a slim band
         let label = "\(seg.rank)"
         if laneStripChipLabelFits(label, chipWidth: rect.width, size: size) {   // §2.3: each segment's own width
             ctx.draw(ctx.resolve(Text(label).font(laneStripChipFont(size)).foregroundColor(Color(stackRankInk(rank: seg.rank)).opacity(opacity))), at: CGPoint(x: rect.midX, y: rect.midY), anchor: .center)
         }
     }
-    if sounding, opacity > 0.5 { laneStripDrawSoundStroke(&ctx, frame) }     // §2.4: round the whole chip frame, once (dropped once the band has mostly faded)
+    if sounding, !slim, opacity > 0.5 { laneStripDrawSoundStroke(&ctx, frame) }   // §2.4 (full bands only; §1.4: slim sounds by opacity alone)
 }
 
 /// STACK GREY §2.4 / LANE STRIP CLARITY §2.2–§2.3: the sounding mark on a chip — a 1 pt #F2F4F7 stroke on the inside edge
@@ -206,28 +209,30 @@ func laneStripDrawSoundStroke(_ ctx: inout GraphicsContext, _ frame: CGRect) {
 /// §3.1 / §3.6: one header or footer chip. `fill` nil ⇒ the off-part outline look (grey stroke, grey label, no fill);
 /// `.map`/`.rgb` ⇒ a filled chip with ink label (or, when `hollow`, a dashed stroke + label in the fill colour).
 enum LaneStripChipFill { case map(EuclideousRGB); case rgb(EuclideousRGB) }
-func laneStripDrawChip(_ ctx: inout GraphicsContext, slot: CGRect, steps: Int, fill: LaneStripChipFill?, label: String, hollow: Bool, sounding: Bool, opacity: Double = 1) {
+func laneStripDrawChip(_ ctx: inout GraphicsContext, slot: CGRect, steps: Int, fill: LaneStripChipFill?, label: String, hollow: Bool, sounding: Bool, opacity: Double = 1, slim: Bool = false) {
     typealias M = LaneStripBandMetrics
     let frame = laneStripChipFrame(slot: slot)
     guard frame.width > 1, frame.height > 1, opacity > 0 else { return }
-    let shape = RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame)
+    let radius = slim ? M.slimChipRadius : M.chipRadius                      // LANE STRIP CLARITY §1.3
+    let shape = RoundedRectangle(cornerRadius: radius).path(in: frame)
     let size = laneStripChipLabelSize(steps: steps)
     let labelColour: Color
-    let a = (sounding ? 1.0 : M.chipRestOpacity) * opacity   // §B2.4: 100 % sounding / 78 % resting, × the band's §3.4 collapse fade
+    let a = (slim ? laneStripSlimChipOpacity(sounding: sounding) : (sounding ? 1.0 : M.chipRestOpacity)) * opacity   // §B2.4 / CLARITY §1.4
     if let fill {
         let c = Color(fillRGB(fill))
         if hollow {
-            ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(c.opacity(a)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+            ctx.stroke(RoundedRectangle(cornerRadius: radius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(c.opacity(a)), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
             labelColour = c
         } else {
             ctx.fill(shape, with: .color(c.opacity(a)))
             labelColour = Color(M.chipInk)
         }
-        if sounding, opacity > 0.5 { laneStripDrawSoundStroke(&ctx, frame) }   // §2.4: the #F2F4F7 + #0D0F14 double inner stroke (dropped once the band has mostly faded)
+        if sounding, !slim, opacity > 0.5 { laneStripDrawSoundStroke(&ctx, frame) }   // §2.4 (full bands; §1.4: slim sounds by opacity alone)
     } else {
-        ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(Color(M.offChipStroke).opacity(opacity)), lineWidth: 1)
+        ctx.stroke(RoundedRectangle(cornerRadius: radius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(Color(M.offChipStroke).opacity(opacity)), lineWidth: 1)
         labelColour = Color(M.offChipLabel)
     }
+    guard !slim else { return }                                              // §1.3: no labels on a slim band
     if laneStripChipLabelFits(label, chipWidth: frame.width, size: size) {   // §B2.3: no label when the chip is narrower than the label + 2
         ctx.draw(ctx.resolve(Text(label).font(laneStripChipFont(size)).foregroundColor(labelColour.opacity(opacity))), at: CGPoint(x: frame.midX, y: frame.midY), anchor: .center)
     }

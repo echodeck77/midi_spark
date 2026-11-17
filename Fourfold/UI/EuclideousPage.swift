@@ -1055,6 +1055,7 @@ struct EuclideousPage: View {
     /// POOL ferry 6.3: the lane whose notes the riff grid's label column names (UI state, never saved; starts at lane 1).
     @State private var gridLane = 0
     @StateObject private var fillV2Memo = EuclideousFillV2RollMemo()   // FILL TAB V2 §3.7: the roll row's per-bar prediction cache (recomputed on a key change — a setting, a bar line, a cycle move — never per frame)
+    @State private var pageFitScale: CGFloat = 1   // LANE STRIP CLARITY §1.1: the page's scale-to-fit factor (euclideousScaleToFit), kept for the strip's on-screen slim decision
     // Scrub ferry (2026-11-16) §1.1: the three GLOBAL ribbon holds (0 = none, 1-8), ephemeral UI state → the kernel live words via `onScrubHolds`. Not saved/undone.
     @State private var riffColumnHold = 0
     @State private var riffRankHold = 0
@@ -1852,6 +1853,9 @@ struct EuclideousPage: View {
             .frame(width: box.width, height: box.height, alignment: .topLeading)
             .scaleEffect(fit.scale, anchor: .topLeading)   // GRACEFUL SCALE-TO-FIT: interactive (scaleEffect carries hit testing), no overlay message
             .offset(x: fit.origin.x, y: fit.origin.y)
+            // LANE STRIP CLARITY §1.1: keep the fit scale in state so the strip's SLIM decision reads on-screen width.
+            .onAppear { if pageFitScale != fit.scale { pageFitScale = fit.scale } }
+            .onChange(of: geo.size) { sz in let s = euclideousScaleToFit(sz).scale; if pageFitScale != s { pageFitScale = s } }
             #if DEBUG
             .onAppear {
                 let pg = euclideousPageLayout(size: geo.size, bottomInset: pageBottomInset)
@@ -2579,7 +2583,8 @@ struct EuclideousPage: View {
             }
         }
         return EuclideousStripPlan(legs: legs, sweepLength: steps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase, hocketRules: hocketRules, hocketLive: hocketLive, lane: idx,
-                                   riffPartOn: !euclideousMixLayerIsOff(line, notes: false), notesPartOn: !euclideousMixLayerIsOff(line, notes: true), altHitSteps: altHitSteps)
+                                   riffPartOn: !euclideousMixLayerIsOff(line, notes: false), notesPartOn: !euclideousMixLayerIsOff(line, notes: true), altHitSteps: altHitSteps,
+                                   displayScale: pageFitScale)   // LANE STRIP CLARITY §1.1: the strip's slim decision is on-screen width
     }
     /// A pitch named the way the riff grid names its rows (`riffNoteLabelColumn`): C4, A♭3 — spelled relative to what is held for MIDI IN / CHORDS, from the key for KEY.
     private func stripNoteName(_ p: Int) -> String {

@@ -39,6 +39,14 @@ enum LaneStripBandMetrics {
     static let inkStrokeMinH: CGFloat = 12
     /// §2.4: the heavy-monospaced cap-height ratio the cap-band check uses (SF Mono ≈ 0.72 em).
     static let chipLabelCapRatio: CGFloat = 0.72
+    /// LANE STRIP CLARITY §1 (§10 tunables): a lane is SLIM when its cell's ON-SCREEN width (laid-out width × the page's
+    /// scale-to-fit factor — Paul 2026-11-17; the page lays out at the reference and scales down, so the laid-out width
+    /// alone never shrinks) is under `slimCellW`. A slim lane's bands are flat `slimBandH` colour bars — no labels,
+    /// radius `slimChipRadius`, resting at `slimRestOpacity`, sounding at 100 % with no stroke.
+    static let slimCellW: CGFloat = 12
+    static let slimBandH: CGFloat = 4
+    static let slimChipRadius: CGFloat = 1
+    static let slimRestOpacity = 0.6
     /// §3.6: an off part's chips — outline only (1 pt #3A3D44 inner stroke), label #5A5E66, no ring.
     static let offChipStroke = EuclideousRGB(r: 0x3A, g: 0x3D, b: 0x44), offChipLabel = EuclideousRGB(r: 0x5A, g: 0x5E, b: 0x66)
     /// PLAY BUTTONS RAIL+NOTE §5.1 / §10: a stack hit the NOTES layer is predicted to play NOTHING on draws this flat #2B2D33 placeholder (no label, no stroke).
@@ -82,12 +90,23 @@ struct LaneStripBandHeights: Equatable { var hH: CGFloat; var hC: CGFloat; var g
 /// hH + gap 1, scaled by its presence fraction `riffFrac`/`stackFrac` (1 = in, 0 = collapsed, the cells extend to that
 /// edge; a toggle eases between them, §3.4). `hC = T − riffFrac·reserve − stackFrac·reserve`. (T 44, both on → hH 9, hC 19;
 /// one on → hC 31.5; both off → hC 44.) The spec's §3.2 example uses T 41 — the built T is 44 (source wins), so hC = 19 ≥ 16.
-func laneStripBandHeights(T: CGFloat, riffFrac: Double = 1, stackFrac: Double = 1) -> LaneStripBandHeights {
-    let hH = LaneStripBandMetrics.bandH(T: T)
+func laneStripBandHeights(T: CGFloat, riffFrac: Double = 1, stackFrac: Double = 1, slim: Bool = false) -> LaneStripBandHeights {
+    // LANE STRIP CLARITY §1.2: a slim lane's band is the flat 4 pt colour bar; the reserve formula (rail 1.5 + gap 1 +
+    // band + gap 1) is unchanged, so the cells take what the shorter bands free (T 41 both on: hC 26; T 44: 29).
+    let hH = slim ? LaneStripBandMetrics.slimBandH : LaneStripBandMetrics.bandH(T: T)
     let reserve = LaneStripBandMetrics.partReserve(hH: hH)               // §3.1 full per-part reserve
     let hC = max(0, T - CGFloat(riffFrac) * reserve - CGFloat(stackFrac) * reserve)
     return LaneStripBandHeights(hH: hH, hC: hC, gap: LaneStripBandMetrics.rowGap)
 }
+
+/// LANE STRIP CLARITY §1.1 — is the lane SLIM? `displayScale` is the page's scale-to-fit factor (1 at/above the
+/// reference), so the test is the cell's ON-SCREEN width (Paul 2026-11-17: the laid-out width never shrinks — the page
+/// scales instead).
+func laneStripIsSlim(cellWidth: CGFloat, displayScale: CGFloat) -> Bool {
+    cellWidth * max(0.05, displayScale) < LaneStripBandMetrics.slimCellW
+}
+/// §1.4 — a slim chip's opacity: 60 % at rest, 100 % sounding (no stroke either way).
+func laneStripSlimChipOpacity(sounding: Bool) -> Double { sounding ? 1 : LaneStripBandMetrics.slimRestOpacity }
 
 // MARK: - §8.1 / §1: the top-row frames (one pure function; every layout)
 
@@ -163,12 +182,14 @@ struct LaneStripBandFrames: Equatable {
     var riffFrac: Double = 1, stackFrac: Double = 1
     var railH: CGFloat = LaneStripBandMetrics.railH
     var cellsY: CGFloat = 0, headerY: CGFloat = 0, footerY: CGFloat = 0
+    /// LANE STRIP CLARITY §1: the lane is SLIM — the bands are 4 pt colour bars (no labels, no strokes).
+    var slim: Bool = false
 }
 /// PLAY BUTTONS RAIL+NOTE §3.1/§3.3: the bands with each part's reserve scaled by its fraction. A part at 0 reserves nothing
 /// (cells extend to that edge, no band drawn); at 1 the full rail 1.5 + gap 1 + band hH + gap 1. The header/footer sit at a
 /// FIXED spot (rail + gap in from their edge) and are faded by the painter — the cells' own edge slides by `frac·reserve`.
-func laneStripBandFrames(xs: [CGFloat], columnW: CGFloat, T: CGFloat, riffFrac: Double = 1, stackFrac: Double = 1) -> LaneStripBandFrames {
-    let b = laneStripBandHeights(T: T, riffFrac: riffFrac, stackFrac: stackFrac)   // 2026-11-16 review B1: the ONE formula (it was re-derived inline here)
+func laneStripBandFrames(xs: [CGFloat], columnW: CGFloat, T: CGFloat, riffFrac: Double = 1, stackFrac: Double = 1, slim: Bool = false) -> LaneStripBandFrames {
+    let b = laneStripBandHeights(T: T, riffFrac: riffFrac, stackFrac: stackFrac, slim: slim)   // 2026-11-16 review B1: the ONE formula (it was re-derived inline here)
     let railH = LaneStripBandMetrics.railH
     let cellsY = CGFloat(riffFrac) * LaneStripBandMetrics.partReserve(hH: b.hH)
     let headerY = railH + b.gap, footerY = T - railH - b.gap - b.hH
@@ -176,7 +197,7 @@ func laneStripBandFrames(xs: [CGFloat], columnW: CGFloat, T: CGFloat, riffFrac: 
         cells: xs.map { CGRect(x: $0, y: cellsY, width: columnW, height: b.hC) },
         header: xs.map { CGRect(x: $0, y: headerY, width: columnW, height: b.hH) },
         footer: xs.map { CGRect(x: $0, y: footerY, width: columnW, height: b.hH) },
-        riffFrac: riffFrac, stackFrac: stackFrac, railH: railH, cellsY: cellsY, headerY: headerY, footerY: footerY)
+        riffFrac: riffFrac, stackFrac: stackFrac, railH: railH, cellsY: cellsY, headerY: headerY, footerY: footerY, slim: slim)
 }
 
 /// §B2.2: the chip is EXACTLY its cell's x/width at the band's full height — no shrink, no 30-cap.

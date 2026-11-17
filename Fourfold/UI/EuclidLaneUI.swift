@@ -527,8 +527,12 @@ struct EuclidCometBar: View {
                     // LANE STRIP BANDS ferry (2026-11-12): the Fourfold lane card's strip is re-banded into a riff HEADER (riff chips), the CELLS (steps/hits + per-rank sounding outlines) and a stack FOOTER (stack chips).
                     // The playhead is the current CELL (§1.7), not a sliding line; nothing in the strip glows (§6.4). The held sets + CC trace arrive in later slices. The old `drawEuclideousStrip` stays compiled for the BUILD page.
                     let xs: [CGFloat] = (0..<n).map { insetL + boxXs[$0] }
+                    // LANE STRIP CLARITY §1.1: SLIM when the cell's ON-SCREEN width (laid-out × the page's fit scale) is under 12 —
+                    // the bands become 4 pt colour bars and the cells take the height. The threshold crossing is instant, like the
+                    // §3.4 collapse as built (the Animatable ease was dropped for the Release-WMO risk; the rail keeps its fade).
+                    let slim = laneStripIsSlim(cellWidth: boxW, displayScale: strip.displayScale)
                     // PLAY BUTTONS RAIL+NOTE §3: each part's band is reserved (rail+gap+band+gap) only when it is ON; an off part collapses, the cells extend. `riffBandFrac`/`stackBandFrac` ease the toggle (§3.4).
-                    let bandFrames = laneStripBandFrames(xs: xs, columnW: boxW, T: size.height, riffFrac: riffBandFrac, stackFrac: stackBandFrac)
+                    let bandFrames = laneStripBandFrames(xs: xs, columnW: boxW, T: size.height, riffFrac: riffBandFrac, stackFrac: stackBandFrac, slim: slim)
                     let playheadStep: Int? = running ? euclideousStripPlayheadStep(raw: cometRaw, n: n, dir: dir) : nil
                     // §3.4/§4.4/§4.6: a held note enters the step the sweep was on at its onset (cometRawAt), so a ring/outline never disagrees with the engine. Empty held sets (stopped / the BUILD page) ⇒ no rings or outlines.
                     let soundingHits = strip.legs[stripLeg].hits

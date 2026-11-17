@@ -62,6 +62,9 @@ struct EuclideousStripPlan {
     var notesPartOn = true
     /// ALT §5.9: the buf-index steps of the current pass whose hit plays in the ALT state — drawn with a white inner outline. Empty unless the lane has an active override and is running (so every other lane / tab is byte-identical).
     var altHitSteps: Set<Int> = []
+    /// LANE STRIP CLARITY §1.1 (Paul 2026-11-17): the page's scale-to-fit factor (1 at/above the reference) — the strip's
+    /// SLIM decision is the cell's ON-SCREEN width (laid-out width × this), since the page lays out at the reference and scales.
+    var displayScale: CGFloat = 1
 
     func legIndex(raw: Double) -> Int { euclideousStripLegIndex(raw: raw, n: sweepLength, legCount: legs.count) }
 }
