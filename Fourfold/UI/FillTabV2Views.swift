@@ -111,9 +111,9 @@ struct EuclideousFillV2SegmentedTile: View {
                     }
                 }
                 .frame(width: frames[i].width, height: frames[i].height)
-                .position(x: frames[i].midX, y: frames[i].midY)
-                .contentShape(Rectangle())
+                .contentShape(Rectangle())   // HIT REGION FIX (2026-11-17): contentShape + the tap MUST precede .position — after it, .position expands the view to fill the tile and the hit area becomes the WHOLE tile, so the last-drawn segment swallows every tap (tap FLIP → BUILD). Gesture-before-position, per the SwiftUI rule.
                 .onTapGesture { if i != selected { onSelect(i) } }
+                .position(x: frames[i].midX, y: frames[i].midY)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(euclideousFillV2SegAX(seg, index: i))
                 .accessibilityAddTraits(isSel ? [.isButton, .isSelected] : .isButton)
@@ -136,8 +136,7 @@ struct EuclideousFillV2StepButton: View {
             .foregroundColor(Color(hex: EuclideousFillV2Look.stepButtonText))
             .frame(width: frame.width, height: frame.height)
             .background(RoundedRectangle(cornerRadius: EuclideousFillV2Metrics.segRadius).fill(Color(hex: EuclideousFillV2Look.stepButton).opacity(down ? 0.6 : 1)))
-            .position(x: frame.midX, y: frame.midY)
-            .contentShape(Rectangle())
+            .contentShape(Rectangle())   // HIT REGION FIX (2026-11-17): contentShape + gesture MUST precede .position (same as the segmented tile) — else .position fills the row and the two steppers overlap, one swallowing both taps
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { _ in
                     guard !down else { return }
@@ -152,6 +151,7 @@ struct EuclideousFillV2StepButton: View {
                     }
                 }
                 .onEnded { _ in down = false; repeater?.cancel(); repeater = nil })
+            .position(x: frame.midX, y: frame.midY)
             .onDisappear { repeater?.cancel(); repeater = nil; down = false }
             .accessibilityHidden(true)   // the stepper's value box is the adjustable element (§8.3)
     }
