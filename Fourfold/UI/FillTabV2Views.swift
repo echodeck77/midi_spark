@@ -18,10 +18,10 @@ enum EuclideousFillV2Look {
     static let segIdle: UInt32 = 0x22242A       // §5.1 unselected fill
     static let segIdleText: UInt32 = 0x8A909A
     static let segNeutral: UInt32 = 0x4A4D57    // §5.1 selected, neutral value
-    static let segSelectedText: UInt32 = 0xF2F4F7
+    static let segSelectedText: UInt32 = FourfoldStyle.selectedInk   // STYLE PASS 1 §3.1: ink on the selected fill (was #F2F4F7)
     static let stepButton: UInt32 = 0x22242A    // §4.4 − / + ground
     static let stepButtonText: UInt32 = 0xC9CDD5
-    static let labelText: UInt32 = 0xAAB0BA     // §4.2 tile label
+    static let labelText: UInt32 = FourfoldStyle.key     // STYLE PASS 1 §4.1 tile KEY (was #AAB0BA)
 }
 
 /// §4.3 the ORDER / RANKS glyphs as a Shape (the 24-unit box scaled into the rect; round caps and joins, 1.1 pt stroke).
@@ -49,7 +49,7 @@ struct EuclideousFillV2Tile<Content: View>: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: radius).fill(Color(hex: EuclideousMixV2FieldLook.groundHex))
-            Text(label).font(.system(size: 6, weight: .heavy, design: .monospaced)).tracking(6 * 0.12)
+            Text(label).font(.system(size: 6, weight: .medium, design: .monospaced)).tracking(6 * 0.12)
                 .foregroundColor(Color(hex: EuclideousFillV2Look.labelText))
                 .padding(.top, 6).padding(.leading, 6)
                 .allowsHitTesting(false)

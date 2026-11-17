@@ -302,8 +302,8 @@ struct EuclideousSlider: View {
                 let labelRow = HStack {
                     backed(
                         Text(euclideousSliderLabelText(field, effectiveLine))
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(0.8)
-                            .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced)).tracking(0.8)
+                            .foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1)
                     )
                     Spacer(minLength: 4)
                     if edited {
@@ -336,12 +336,12 @@ struct EuclideousSlider: View {
                     VStack(spacing: 0) {
                         Spacer(minLength: 0)
                         HStack {
-                            Text(early).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)
-                                .foregroundColor(Color(hex: 0x8A909A))
+                            Text(early).font(.system(size: 8, weight: .medium, design: .monospaced)).tracking(0.8)
+                                .foregroundColor(Color(hex: FourfoldStyle.key))
                                 .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x22252C)))
                             Spacer()
-                            Text(late).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)
-                                .foregroundColor(Color(hex: 0x8A909A))
+                            Text(late).font(.system(size: 8, weight: .medium, design: .monospaced)).tracking(0.8)
+                                .foregroundColor(Color(hex: FourfoldStyle.key))
                                 .padding(.horizontal, 4).background(RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x22252C)))
                         }
                         .padding(.horizontal, 8).padding(.bottom, 4)   // RHYTHM POLISH §1.5: 4 pt above the tile's bottom (was 5) now the rows are 38.67 tall
@@ -373,8 +373,8 @@ struct EuclideousSlider: View {
                     }
                     Spacer(minLength: 0)
                     backed(
-                        Text(euclideousSliderLabelText(field, effectiveLine)).font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundColor(Color(hex: 0xAAB0BA)).lineLimit(1)
+                        Text(euclideousSliderLabelText(field, effectiveLine)).font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1)
                     )
                     .padding(.bottom, 5)
                 }
@@ -566,8 +566,8 @@ struct EuclideousStepsStepper: View {
                 Text("\(line.steps)").font(.system(size: 32, weight: .heavy, design: .monospaced)).monospacedDigit()   // EUCLID v2 §2.2: matches the HITS hero (kept neutral #F2F4F7 — the lane colour is HITS-only)
                     .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).frame(height: 34)
                 HStack(spacing: 4) {
-                    Text("STEPS").font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(0.85)
-                        .foregroundColor(Color(hex: 0x8A909A))
+                    Text("STEPS").font(.system(size: 8.5, weight: .medium, design: .monospaced)).tracking(0.85)
+                        .foregroundColor(Color(hex: FourfoldStyle.key))
                     Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy))
                         .foregroundColor(Color(hex: 0x8A909A))
                 }
@@ -665,8 +665,8 @@ struct EuclideousHitsStepper: View {
             VStack(spacing: 2) {
                 Text("\(line.pulses)").font(.system(size: 32, weight: .heavy, design: .monospaced)).monospacedDigit()
                     .foregroundColor(heroColour).lineLimit(1).frame(height: 34)
-                Text("HITS").font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(0.85)
-                    .foregroundColor(Color(hex: 0x8A909A)).frame(height: 10)
+                Text("HITS").font(.system(size: 8.5, weight: .medium, design: .monospaced)).tracking(0.85)
+                    .foregroundColor(Color(hex: FourfoldStyle.key)).frame(height: 10)
             }
             .frame(width: width, height: valueBoxH)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C)))
@@ -3626,7 +3626,7 @@ struct EuclideousPage: View {
             HStack(spacing: 0) {
                 Text("‹").font(.system(size: 13, weight: .heavy)).foregroundColor(Color(hex: value > 1 ? 0x8A909A : 0x4A4E57)).frame(width: 18)
                 VStack(spacing: 2) {
-                    Text(label).font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(1.5).foregroundColor(Color(hex: 0x8A909A))
+                    Text(label).font(.system(size: 7.5, weight: .medium, design: .monospaced)).tracking(1.5).foregroundColor(Color(hex: FourfoldStyle.key))
                     Text("\(value)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
                 }.frame(maxWidth: .infinity)
                 Text("›").font(.system(size: 13, weight: .heavy)).foregroundColor(Color(hex: value < 16 ? 0x8A909A : 0x4A4E57)).frame(width: 18)
@@ -3991,12 +3991,12 @@ struct EuclideousPage: View {
             return AnyView(EuclideousRestartRulerCanvas(input: ruler, blockColor: lane100(accent), width: width, height: height))
         case .text:
             // RESETS V2 §1.9: the name ink is #C4C9D1 on the RESETS card (a ruler present); #8A909A on the out-of-scope surfaces. §2: with a ratio, the leading name line stays and the trailing group becomes just the ratio.
-            let nameInk = ruler != nil ? Color(hex: 0xC4C9D1) : Color(hex: 0x8A909A)
+            let nameInk = Color(hex: FourfoldStyle.key)   // STYLE PASS 1 §4.1 (was #C4C9D1 over the ruler / #8A909A - legibility over the ruler device-owed)
             let fit = euclideousRestartTileFit(spec: spec, name: name, tileWidth: width)
             return AnyView(HStack(alignment: .lastTextBaseline, spacing: 0) {
                 HStack(alignment: .lastTextBaseline, spacing: 3) {
                     Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .heavy)).foregroundColor(nameInk)
-                    Text(name).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.8)   // §4.1: "RHYTHM" / "MELODY" alone (the " RESTART" is dropped)
+                    Text(name).font(.system(size: 8, weight: .medium, design: .monospaced)).tracking(0.8)   // STYLE PASS 1 §4.1 key // §4.1: "RHYTHM" / "MELODY" alone (the " RESTART" is dropped)
                         .foregroundColor(nameInk).lineLimit(1).truncationMode(.tail)
                 }
                 Spacer(minLength: 4)
@@ -4004,7 +4004,7 @@ struct EuclideousPage: View {
                     let ink = spec.isSet ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)
                     HStack(alignment: .lastTextBaseline, spacing: 4) {
                         Text("\(nOfM.n)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(ink)
-                        Text("OF").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: 0x8A909A))
+                        Text("OF").font(.system(size: 8, weight: .medium, design: .monospaced)).tracking(0.64).foregroundColor(Color(hex: FourfoldStyle.key))
                         Text("\(nOfM.m)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(ink)
                     }.lineLimit(1).layoutPriority(1)
                 } else {
@@ -4065,7 +4065,7 @@ struct EuclideousPage: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 (Text("RESTARTS").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.48).foregroundColor(Color(hex: 0xAAB0BA))
-                 + Text(" · TAP + TO ADD · TAP A LINK TO CHANGE IT").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)))
+                )   // STYLE PASS 1: the explanatory hint run is removed (no explanatory text, §SUMMARY/§8)
                     .lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 4)
                 Button(action: { restartEditorLane = nil }) {
@@ -4219,8 +4219,8 @@ struct EuclideousPage: View {
         let lengths = Array(2...16)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
-                (Text("STEPS").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.9).foregroundColor(Color(hex: 0xAAB0BA))
-                 + Text(" · TAP A LENGTH").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)))
+                (Text("STEPS").font(.system(size: 9, weight: .medium, design: .monospaced)).tracking(0.9).foregroundColor(Color(hex: FourfoldStyle.key))
+                )   // STYLE PASS 1: the explanatory hint run is removed (no explanatory text, §SUMMARY/§8)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Button(action: { stepsPickerLane = nil }) {
@@ -4979,7 +4979,7 @@ struct EuclideousPage: View {
             .font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)   // §4.6: truncate, never shrink — no .minimumScaleFactor
         let lChev = Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: lowDisabled ? 0x4A4E57 : 0x8A909A))
         let rChev = Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: highDisabled ? 0x4A4E57 : 0x8A909A))
-        let keyLabel = Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+        let keyLabel = Text(label).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))   // STYLE PASS 1 §4.1
         let base = ZStack {
             RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control))
             if keyOverValue && showLabel {
@@ -5496,7 +5496,7 @@ struct EuclideousPage: View {
     /// RIFF v3 §4.2: ADVANCE EVERY as one tile (steppers' fill, radius 10, 4 pt pad) — the key line "ADVANCE EVERY" full width on top, then the EVERY chevron-value-chevron group (54 wide, no key) + HIT|STEP (its own darker container) filling the rest.
     private func riffAdvanceEveryTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, every: Int) -> some View {
         return VStack(spacing: 2) {
-            Text("ADVANCE EVERY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1)
+            Text("ADVANCE EVERY").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1)
                 .frame(maxWidth: .infinity).accessibilityHidden(true)
             HStack(spacing: 4) {
                 melodyStepper("ADVANCE EVERY", value: every, range: 1...8, width: 54, showLabel: false, lane: idx, outline: lockOn(idx, .advanceEvery)) { v in edit(idx) { $0.riffAdvanceEvery = v } }
@@ -5610,8 +5610,8 @@ struct EuclideousPage: View {
     /// the retired rotated `melodyVerticalLabel("ADV"/"REST", ...)` single-word labels.
     private func riffRowLabel(_ top: String, _ bottom: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(top).font(.system(size: 9, weight: .heavy, design: .monospaced)).kerning(0.9).foregroundColor(Color(hex: 0xF2F4F7))
-            Text(bottom).font(.system(size: 8, weight: .heavy, design: .monospaced)).kerning(0.64).foregroundColor(Color(hex: 0x8A909A))
+            Text(top).font(.system(size: 9, weight: .medium, design: .monospaced)).kerning(0.9).foregroundColor(Color(hex: FourfoldStyle.key))   // STYLE PASS 1 §4.1 (was heavy #F2F4F7)
+            Text(bottom).font(.system(size: 8, weight: .medium, design: .monospaced)).kerning(0.64).foregroundColor(Color(hex: FourfoldStyle.key))
         }
         .padding(.leading, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -5841,7 +5841,7 @@ struct EuclideousPage: View {
         GeometryReader { g in
             let lay = euclideousOctRowLayout(frame: g.size)
             ZStack(alignment: .topLeading) {
-                Text("OCT").font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(0.2 * 7).foregroundColor(Color(hex: 0xAAB0BA))
+                Text("OCT").font(.system(size: 7, weight: .medium, design: .monospaced)).tracking(0.2 * 7).foregroundColor(Color(hex: FourfoldStyle.key))
                     .frame(width: lay.label.width, height: lay.label.height, alignment: .trailing).offset(x: lay.label.minX).accessibilityHidden(true)
                 EuclideousOctaveBoxes(value: oct, size: lay.boxes.size, targetHeight: lay.boxes.height, visualTop: (max(44, lay.boxes.height) - lay.boxes.height) / 2,
                                       label: "\(label) \(euclideousOctValueText(oct))", onSelect: { v, newStep in editStep(idx, newStep) { write(&$0, v) } })
@@ -5978,7 +5978,7 @@ struct EuclideousPage: View {
     }
     /// amend 3 §C1.1 + follow-up (Paul 2026-11-16): the RANKS row label — a STATIC "RANKS" label (#8A909A, no tap). The pop-up now opens from a TILE tap, not the pill, so this no longer carries the button.
     private func notesRanksButton(_ idx: Int, frame: CGRect) -> some View {
-        Text("RANKS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+        Text("RANKS").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
             .frame(width: frame.width, height: frame.height, alignment: .leading)
             .offset(x: frame.minX, y: frame.minY)
             .accessibilityHidden(true)
@@ -6031,7 +6031,7 @@ struct EuclideousPage: View {
             }
             // divider + PASS (§B3.2)
             Rectangle().fill(Color(hex: 0x24262C)).frame(width: lay.divider.width, height: 1).offset(x: lay.divider.minX, y: lay.divider.minY)
-            Text("PASS").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            Text("PASS").font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
                 .frame(width: lay.passLabel.width, height: lay.passLabel.height, alignment: .leading).offset(x: lay.passLabel.minX, y: lay.passLabel.minY).accessibilityHidden(true)
             notesRepeatPassRow(lane, line, accent: accent).frame(width: lay.passArea.width, height: lay.passArea.height, alignment: .leading).offset(x: lay.passArea.minX, y: lay.passArea.minY)
         }
@@ -6122,7 +6122,7 @@ struct EuclideousPage: View {
     private func bassRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
         let on = line.notesBassOnResolved, mode = line.notesBassModeResolved
         return HStack(spacing: 6) {
-            Text("BASS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: EuclideousPlayAsRowsLayout.labelW, alignment: .leading).accessibilityHidden(true)
+            Text("BASS").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: EuclideousPlayAsRowsLayout.labelW, alignment: .leading).accessibilityHidden(true)
             EuclideousRowSwitchPill(on: on, accent: lane100(accent))
                 .contentShape(Rectangle()).frame(width: 44, height: 28).onTapGesture { edit(idx) { $0.notesBassOn = on ? nil : true } }
                 .accessibilityLabel("Bass").accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
@@ -6188,7 +6188,7 @@ struct EuclideousPage: View {
         let chipAreaW = max(40, width - EuclideousPlayAsRowsLayout.labelW - 4 - fixedRight - 4)
         let perChip = max(44, (chipAreaW - CGFloat(max(0, n - 1)) * 12) / CGFloat(max(1, n)))
         return HStack(spacing: 4) {
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: EuclideousPlayAsRowsLayout.labelW, alignment: .leading).accessibilityHidden(true)
+            Text(label).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: EuclideousPlayAsRowsLayout.labelW, alignment: .leading).accessibilityHidden(true)
             ForEach(Array(chips.enumerated()), id: \.offset) { i, chip in
                 if i > 0 { Text("\u{203A}").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x4A4E57)).accessibilityHidden(true) }   // §A4.2 "›" (THEN dropped)
                 notesChainChipView(idx, kind: kind, chip: i, count: n, name: chip.name, hits: chip.hits, multi: multi, playing: euclideousNotesChipOutlined(chipIndex: i, activeChip: active, playing: clock.playing), maxWidth: perChip, accent: accent)
@@ -6333,7 +6333,7 @@ struct EuclideousPage: View {
     /// §A5.3: the footer — HITS ‹ n › (off the chip, only with 2+ chips), ‹ › move, REMOVE (never the last).
     private func notesChainPopupFooter(_ idx: Int, kind: EuclideousChainKind, chip: Int, hits: Int, count: Int, accent: Color) -> some View {
         HStack(spacing: 8) {
-            Text("HITS").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            Text("HITS").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
             playAsCountStepper(value: hits) { d in notesChainStepHits(idx, kind, chip: chip, delta: d) }
             Spacer(minLength: 6)
             Text("\u{2039}").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(chip == 0 ? Color(hex: 0x4A4E57) : Color(hex: 0x8A909A)).frame(width: 34, height: 32).contentShape(Rectangle())
@@ -6352,12 +6352,12 @@ struct EuclideousPage: View {
         return VStack(spacing: 10) {
             Rectangle().fill(Color(hex: 0x24262C)).frame(height: 1)
             HStack {
-                Text("SHIFT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Text("SHIFT").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
                 Spacer()
                 shiftStepper(value: start, low: start == 0, high: start == 15, text: "\(start)", spoken: "Start") { d in edit(idx) { let v = max(0, min(15, start + d)); $0.notesShiftStart = v == 0 ? nil : v } }
             }
             HStack(spacing: 8) {
-                Text("DRIFT").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Text("DRIFT").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
                 EuclideousRowSwitchPill(on: driftOn, accent: accent).contentShape(Rectangle()).frame(width: 44, height: 28).onTapGesture { edit(idx) { $0.notesDriftOn = driftOn ? nil : true } }
                     .accessibilityLabel("Drift").accessibilityValue(driftOn ? "on" : "off")
                 Spacer()
@@ -6440,12 +6440,12 @@ struct EuclideousPage: View {
                 Text("\u{2715}").font(.system(size: 15, weight: .heavy)).foregroundColor(Color(hex: 0x8A909A)).frame(width: 30, height: 30).contentShape(Rectangle()).onTapGesture { notesShiftPopup = nil }.accessibilityLabel("Close")
             }
             HStack {
-                Text("START").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Text("START").font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
                 Spacer()
                 shiftStepper(value: start, low: start == 0, high: start == 15, text: "\(start)", spoken: "Start") { d in edit(lane) { $0.notesShiftStart = max(0, min(15, start + d)) == 0 ? nil : max(0, min(15, start + d)) } }
             }
             HStack(spacing: 8) {
-                Text("DRIFT").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Text("DRIFT").font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
                 EuclideousRowSwitchPill(on: driftOn, accent: accent).contentShape(Rectangle()).frame(width: 44, height: 28).onTapGesture { edit(lane) { $0.notesDriftOn = driftOn ? nil : true } }
                     .accessibilityLabel("Drift").accessibilityValue(driftOn ? "on" : "off")
                 Spacer()
@@ -6709,7 +6709,7 @@ struct EuclideousPage: View {
             Text("LANE \(idx + 1) MASK MODE").font(.system(size: 12, weight: .heavy, design: .monospaced)).foregroundColor(.white.opacity(0.6))
             ForEach(groups, id: \.0) { title, modes in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    Text(title).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
                     HStack(spacing: 4) {
                         ForEach(modes, id: \.self) { mo in
                             let on = current == mo
@@ -6779,7 +6779,7 @@ struct EuclideousPage: View {
                 .frame(width: 16, height: height)
                 .contentShape(Rectangle().path(in: tapRect)).onTapGesture { if enabled { onDec() } }
             VStack(spacing: 2) {
-                Text(label).font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Text(label).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
                 // `.minimumScaleFactor` removed (adversarial-review fix) — every value this stepper shows
                 // (UNISON/−7TH.../100%/MUTE/MOVE) fits its 79.25pt width at 13pt comfortably.
                 Text(value).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
@@ -6861,7 +6861,7 @@ struct EuclideousPage: View {
         }
         let disabled = euclideousListenDisabledSources(lane: idx, sources: sources)
         return HStack(spacing: gap) {
-            Text("WITH").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)   // AMENDMENT 1 §1.1: FOLLOW → WITH (trading isn't following)
+            Text("WITH").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)   // AMENDMENT 1 §1.1: FOLLOW → WITH (trading isn't following)
             ForEach((0..<4).filter { $0 != idx }, id: \.self) { target in
                 listenFollowChip(idx, target: target, selected: source == target, disabled: disabled.contains(target), width: chipW, height: height)
             }
@@ -7148,7 +7148,7 @@ struct EuclideousPage: View {
         func edit1(_ e: EuclideousTradeEdit) { onEdit { lines in lines = euclideousApplyTradeEdit(lines, lane: idx, edit: e) } }
         return AnyView(HStack(spacing: gap) {
             // AMENDMENT 1 §2.1–§2.2: the row label is EVERY; its two steppers drop their EACH / UNIT labels (value only, vertically centred), VoiceOver "Every" / "Unit".
-            Text("EVERY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            Text("EVERY").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
             canonStepper("", value: "\(each)", spoken: "\(each)", name: "Every, lane \(idx + 1)", width: colW, height: height,
                          onDec: { edit1(.each(max(euclideousAnswerCycleEachMin, each - 1))) }, onInc: { edit1(.each(min(euclideousAnswerCycleEachMax, each + 1))) })
             canonStepper("", value: unit.rawValue, spoken: unit == .bars ? "bars" : "passes", name: "Unit, lane \(idx + 1)", width: colW, height: height,
@@ -7195,7 +7195,7 @@ struct EuclideousPage: View {
         return AnyView(ZStack {
             RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldStyle.control))
             VStack(spacing: 2) {
-                if !label.isEmpty { Text(label).font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)) }   // AMENDMENT 1 §2.2: an empty label ⇒ the value alone, centred (the ANSWER EVERY steppers)
+                if !label.isEmpty { Text(label).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)) }   // AMENDMENT 1 §2.2: an empty label ⇒ the value alone, centred (the ANSWER EVERY steppers)
                 Text(value).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
             }
             HStack(spacing: 0) {
@@ -7216,7 +7216,7 @@ struct EuclideousPage: View {
         return AnyView(ZStack {
             RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0x202227))
             VStack(spacing: 2) {
-                Text(label).font(.system(size: 5.5, weight: .heavy, design: .monospaced)).tracking(5.5 * 0.14).foregroundColor(Color(hex: 0x8D939D))
+                Text(label).font(.system(size: 5.5, weight: .medium, design: .monospaced)).tracking(5.5 * 0.14).foregroundColor(Color(hex: FourfoldStyle.key))
                 Text(value).font(.system(size: 10.5, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
             }
             HStack(spacing: 0) {
@@ -7239,8 +7239,8 @@ struct EuclideousPage: View {
         let delay = line.chordDelayResolved
         return AnyView(HStack(spacing: 0) {
             VStack(spacing: 2) {   // §2.6a: "DELAY CHORD" on two lines, centred on the row
-                Text("DELAY").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                Text("CHORD").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Text("DELAY").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
+                Text("CHORD").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key))
             }
             .lineLimit(1).frame(width: labelW, height: height).accessibilityHidden(true)
             HStack(spacing: gap) {
@@ -7309,7 +7309,7 @@ struct EuclideousPage: View {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
         let chipsW = max(1, fullWidth - labelW - sp6 - testW)
         return AnyView(HStack(spacing: 0) {
-            Text("POOL").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            Text("POOL").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
             PoolNowChipsView(lane: idx, tint: lane100(accent), size: CGSize(width: chipsW, height: height),
                              octave: line.octaveResolved,   // §5.1: the lane's NOTES octave, the same the STACK grid applies
                              source: noteSource, keyRoot: keyRoot, keyType: keyType,
@@ -7326,7 +7326,7 @@ struct EuclideousPage: View {
         let chordExtra: CGFloat = 23 * 2 + 2 + 2   // §2.3b: the two 23-wide segments + sp2 + a 2 pt trailing inset, beyond a plain chip's share
         let plainW = max(1, (fullWidth - labelW - chordExtra - gap * 4) / 4)   // four gaps: label · MIDI · CHORDS · PICK · KEY
         return AnyView(HStack(spacing: gap) {
-            Text("SOURCES").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            Text("SOURCES").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
             poolSourceChip("MIDI IN", on: line.poolSrcOn(0), w: plainW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[0]), lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: line.poolSrcOn(0))) { edit(idx) { $0.setPoolSrc(0, !$0.poolSrcOn(0)) } }
             poolChordGroup(idx, line, w: plainW + chordExtra, height: height, accent: accent)
             poolSourceChip("PICK", on: line.poolSrcOn(2), w: plainW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[2]), lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: line.poolSrcOn(2))) { edit(idx) { $0.setPoolSrc(2, !$0.poolSrcOn(2)) } }
@@ -7428,7 +7428,7 @@ struct EuclideousPage: View {
         let midiOn = line.poolSrcOn(0)
         let controlW = max(1, fullWidth - labelW - gap)
         return AnyView(HStack(spacing: gap) {
-            Text("MIDI").font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            Text("MIDI").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
             InputsMidiControlView(lane: idx, mode: mode, midiOn: midiOn, size: CGSize(width: controlW, height: segH), accent: lane100(accent),
                                   onPick: { m in edit(idx) { $0.midiMode = m } }, live: answerLive)
                 .frame(width: controlW, height: height)
