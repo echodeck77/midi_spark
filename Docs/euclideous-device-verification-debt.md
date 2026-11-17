@@ -1034,3 +1034,9 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
   - RELEASE: SLIP snaps the riff walk back on release; CONTINUE carries it on from the last looped/held column (subtle — listen across a release); offsets reset at a melody restart / transport stop;
   - LATCH: a hold/loop stays after lift when ON; a < 250 ms tap on the already-latched value (or inside the latched loop) clears it; LATCH-off and a TOUCH-mode change clear it; a latched value survives a tab change;
   - KNOWN / deferred: STACK CONTINUE (§7.3) is not built (riff only); the TUTTI capture uses the lane's resolved riff/PLAY-AS params so TUTTI-under-random-mode-roll, POLY (read as 8 columns), per-lane LANES mute (only SOLO silences a trigger) and a chord stack's lowest rank as representative are limits; the rails' marked STEPS aren't individually announced to VoiceOver (the rank boxes are, ", tutti"); the ribbons' touch actions stay VoiceOver-unavailable (as the scrub ferry).
+- STYLE PASS 1 (2026-11-17): cards separate from the ground WITHOUT outlines, in AUM, in daylight (card #17191E on the host dark).
+- STYLE PASS 1: controls read as pressable without borders — especially off pills, off tiles and the borderless ALT override pills.
+- STYLE PASS 1: the neutral #DFE3EA selected look is as quick to find as the lane-colour one was, on all four cards at once; the riff mono tile no longer lights in the lane colour (the pass's most visible conversion).
+- STYLE PASS 1: medium-weight keys (#959BA6) are legible at their smallest sizes (5.5 pt CANON "BY"/"UNIT", 6 pt FILL tile labels; the RESETS tile names over the ruler lost their brighter #C4C9D1).
+- STYLE PASS 1: dimmed ALT controls still read as "following main", not as missing (the band panels no longer draw).
+- STYLE PASS 1: the tape's 5 pt #F0475B dot is noticed when recording (the red glyph + glow are gone); the SWING-away-from-50 cyan tint was removed — check the loss on device.
