@@ -193,11 +193,12 @@ struct RiffGridRankAxisView: View {
     var body: some View {
         VStack(spacing: gap) {
             ForEach((1...8).reversed(), id: \.self) { rank in
-                let fade: Double = (tuttiRanks != 0 && (tuttiRanks >> UInt8(rank - 1)) & 1 == 0) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1
+                let marked = tuttiRanks != 0 && (tuttiRanks >> UInt8(rank - 1)) & 1 != 0
+                let fade: Double = (tuttiRanks != 0 && !marked) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1
                 EuclideousRankChipView(spec: EuclideousRankChipSpec(rank: rank, topKind: 0, received: true, lit: false, empty: true, name: String(rank), cornerNumber: false),
                                        accent: Color(.sRGB, white: 0.7, opacity: 1), size: CGSize(width: labelW, height: cellH))
                     .opacity(fade)
-                    .accessibilityElement(children: .ignore).accessibilityLabel("Rank \(rank)")
+                    .accessibilityElement(children: .ignore).accessibilityLabel(marked ? "Rank \(rank), tutti" : "Rank \(rank)")   // §11.4: a marked rank adds ", tutti"
             }
         }
         .frame(width: labelW)
