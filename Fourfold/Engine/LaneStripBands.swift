@@ -33,6 +33,12 @@ enum LaneStripBandMetrics {
     static let chipInk = EuclideousRGB(r: 0x0D, g: 0x0F, b: 0x14)
     /// §B2.4: a sounding chip draws at 100 % with a 1 pt #F2F4F7 stroke INSIDE its frame (replaces the old outside ring).
     static let soundStroke = EuclideousRGB(r: 0xF2, g: 0xF4, b: 0xF7)
+    /// LANE STRIP CLARITY §2.2/§2.3 (§10 tunable): the ink (#0D0F14) second stroke draws only on a chip this tall or taller —
+    /// under it, ONE white stroke (inset 0.5) keeps the 7 pt digit's cap band clear (the ink stroke at inset 1.5 sat exactly on
+    /// the cap/baseline in a 9 pt chip and read as a strike-through).
+    static let inkStrokeMinH: CGFloat = 12
+    /// §2.4: the heavy-monospaced cap-height ratio the cap-band check uses (SF Mono ≈ 0.72 em).
+    static let chipLabelCapRatio: CGFloat = 0.72
     /// §3.6: an off part's chips — outline only (1 pt #3A3D44 inner stroke), label #5A5E66, no ring.
     static let offChipStroke = EuclideousRGB(r: 0x3A, g: 0x3D, b: 0x44), offChipLabel = EuclideousRGB(r: 0x5A, g: 0x5E, b: 0x66)
     /// PLAY BUTTONS RAIL+NOTE §5.1 / §10: a stack hit the NOTES layer is predicted to play NOTHING on draws this flat #2B2D33 placeholder (no label, no stroke).
@@ -180,6 +186,23 @@ func laneStripChipLabelSize(steps: Int) -> CGFloat { LaneStripBandMetrics.chipLa
 /// §B2.3: a label's drawn width (heavy monospaced: count · advance · size); hidden when the chip is narrower than this + 2.
 func laneStripChipLabelFits(_ label: String, chipWidth: CGFloat, size: CGFloat) -> Bool {
     chipWidth >= CGFloat(label.count) * LaneStripBandMetrics.chipLabelAdvance * size + 2
+}
+
+// MARK: - LANE STRIP CLARITY (2026-11-17) §2: the sounding chip's strokes
+
+/// §2.2/§2.3 — does a sounding chip of this height carry STACK GREY 2.4's second (#0D0F14) stroke? Under `inkStrokeMinH`
+/// (the 9 pt bands), only the single white stroke draws, so nothing dark sits on the digit's cap band.
+func laneStripSoundStrokeHasInk(chipHeight: CGFloat) -> Bool { chipHeight >= LaneStripBandMetrics.inkStrokeMinH }
+
+/// §2.4 — the chip label's cap band (top/bottom y, chip-local) for a centred `size`-pt heavy-monospaced digit, and the
+/// clear band the stroke layout leaves. The cap must sit WHOLLY inside the clear band at every layout (a test pins it).
+func laneStripChipCapBand(chipHeight: CGFloat, labelSize: CGFloat) -> (capTop: CGFloat, capBottom: CGFloat, clearTop: CGFloat, clearBottom: CGFloat) {
+    let cap = labelSize * LaneStripBandMetrics.chipLabelCapRatio
+    let capTop = (chipHeight - cap) / 2
+    let hasInk = laneStripSoundStrokeHasInk(chipHeight: chipHeight)
+    // single stroke: inset 0.5, 1 pt wide → occupies y 0…1 and h−1…h; two strokes: the ink at inset 1.5 → y 1…2 and h−2…h−1.
+    let strokeDepth: CGFloat = hasInk ? 2 : 1
+    return (capTop, capTop + cap, strokeDepth, chipHeight - strokeDepth)
 }
 
 /// STACK GREY §2.3: the footer chip's segments for a step's played ranks across a frame of `frameWidth` — one per voice

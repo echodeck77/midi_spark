@@ -191,12 +191,16 @@ func laneStripDrawFooterChip(_ ctx: inout GraphicsContext, slot: CGRect, steps: 
     if sounding, opacity > 0.5 { laneStripDrawSoundStroke(&ctx, frame) }     // §2.4: round the whole chip frame, once (dropped once the band has mostly faded)
 }
 
-/// STACK GREY §2.4: the sounding mark on a chip — a 1 pt #F2F4F7 stroke on the inside edge of the frame and a 1 pt #0D0F14
-/// stroke just inside that, so it reads on both dark and light fills. Header, footer and split chips all use it.
+/// STACK GREY §2.4 / LANE STRIP CLARITY §2.2–§2.3: the sounding mark on a chip — a 1 pt #F2F4F7 stroke on the inside edge
+/// of the frame; the 1 pt #0D0F14 stroke just inside it draws only on a chip 12 pt or taller (`laneStripSoundStrokeHasInk`)
+/// — in the 9 pt bands the ink stroke sat exactly on the 7 pt digit's cap/baseline and read as a strike-through.
+/// Header, footer, split chips and the PLAY tiles' note chips all use it; the label is drawn AFTER this, on top (§2.1).
 func laneStripDrawSoundStroke(_ ctx: inout GraphicsContext, _ frame: CGRect) {
     typealias M = LaneStripBandMetrics
     ctx.stroke(RoundedRectangle(cornerRadius: M.chipRadius).path(in: frame.insetBy(dx: 0.5, dy: 0.5)), with: .color(Color(M.soundStroke)), lineWidth: 1)
-    ctx.stroke(RoundedRectangle(cornerRadius: max(0.5, M.chipRadius - 1)).path(in: frame.insetBy(dx: 1.5, dy: 1.5)), with: .color(Color(M.chipInk)), lineWidth: 1)
+    if laneStripSoundStrokeHasInk(chipHeight: frame.height) {
+        ctx.stroke(RoundedRectangle(cornerRadius: max(0.5, M.chipRadius - 1)).path(in: frame.insetBy(dx: 1.5, dy: 1.5)), with: .color(Color(M.chipInk)), lineWidth: 1)
+    }
 }
 
 /// §3.1 / §3.6: one header or footer chip. `fill` nil ⇒ the off-part outline look (grey stroke, grey label, no fill);
