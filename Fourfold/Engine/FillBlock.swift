@@ -85,7 +85,7 @@ enum EuclideousFillField: CaseIterable {
     var bipolar: Bool { self == .ranks || self == .swell }        // §4.3 RANKS / SWELL add TILT's centre line (ROLL / CHANCE are unipolar)
     var count: Int { switch self { case .speed: return 5; case .length: return 3; case .ranks: return 15; case .swell: return 7; case .roll: return 5; case .chance: return 4 } }
     /// §1.1 default, as a leading→trailing index.
-    var defaultIndex: Int { switch self { case .speed: return 3; case .length: return 1; case .ranks: return 7; case .swell: return 3; case .roll: return 0; case .chance: return 3 } }
+    var defaultIndex: Int { switch self { case .speed: return 1; case .length: return 1; case .ranks: return 7; case .swell: return 3; case .roll: return 0; case .chance: return 3 } }   // FILL TAB V2: SPEED's default is ×1 (AMEND 1)
 }
 
 private let euclideousFillChanceSteps = [25, 50, 75, 100]   // CHANCE's four stored values, leading→trailing
@@ -156,24 +156,24 @@ enum EuclideousFillSelector: CaseIterable {
 /// The selector's current value as a short label (§4.5: FWD / REV / BOUNCE / SHUF · KEEP / ALL / FLIP).
 func euclideousFillSelectorText(_ s: EuclideousFillSelector, _ line: EuclidLine) -> String {
     switch s {
-    case .order: switch line.fillOrderResolved { case .fwd: return "FWD"; case .rev: return "REV"; case .bounce: return "BOUNCE"; case .shuffle: return "SHUF" }
-    case .hits:  switch line.fillHitsResolved  { case .keep: return "KEEP"; case .all: return "ALL"; case .flip: return "FLIP" }
+    case .order: switch line.fillOrderResolved { case .fwd: return "FWD"; case .rev: return "REV"; case .bounce: return "BOUNCE"; case .shuffle: return "SHUF"; case .stutter: return "STUT" }   // FILL TAB V2 cases, kept compiling (this selector UI is hidden)
+    case .hits:  switch line.fillHitsResolved  { case .keep: return "KEEP"; case .all: return "ALL"; case .flip: return "FLIP"; case .build: return "BUILD" }
     }
 }
 func euclideousFillCycleSelector(_ s: EuclideousFillSelector, _ line: inout EuclidLine) {
     switch s {
-    case .order: switch line.fillOrderResolved { case .fwd: line.fillOrder = .rev; case .rev: line.fillOrder = .bounce; case .bounce: line.fillOrder = .shuffle; case .shuffle: line.fillOrder = .fwd }; line.fillReverse = nil   // ORDER supersedes the retired REVERSE flag
-    case .hits:  switch line.fillHitsResolved  { case .keep: line.fillHits = .all; case .all: line.fillHits = .flip; case .flip: line.fillHits = .keep }
+    case .order: switch line.fillOrderResolved { case .fwd: line.fillOrder = .rev; case .rev: line.fillOrder = .bounce; case .bounce: line.fillOrder = .shuffle; case .shuffle: line.fillOrder = .stutter; case .stutter: line.fillOrder = .fwd }; line.fillReverse = nil   // ORDER supersedes the retired REVERSE flag
+    case .hits:  switch line.fillHitsResolved  { case .keep: line.fillHits = .all; case .all: line.fillHits = .flip; case .flip: line.fillHits = .build; case .build: line.fillHits = .keep }
     }
 }
 func euclideousFillResetSelector(_ s: EuclideousFillSelector, _ line: inout EuclidLine) {
-    switch s { case .order: line.fillOrder = .fwd; line.fillReverse = nil; case .hits: line.fillHits = .keep }
+    switch s { case .order: line.fillOrder = .fwd; line.fillReverse = nil; case .hits: line.fillHits = .all }   // FILL TAB V2: HITS's default is ALL (AMEND 1)
 }
 func euclideousFillSelectorAX(_ s: EuclideousFillSelector, _ line: EuclidLine) -> String {
     let v: String
     switch s {
-    case .order: switch line.fillOrderResolved { case .fwd: v = "forward"; case .rev: v = "reverse"; case .bounce: v = "bounce"; case .shuffle: v = "shuffle" }
-    case .hits:  switch line.fillHitsResolved  { case .keep: v = "keep"; case .all: v = "all"; case .flip: v = "flip" }
+    case .order: switch line.fillOrderResolved { case .fwd: v = "forward"; case .rev: v = "reverse"; case .bounce: v = "bounce"; case .shuffle: v = "shuffle"; case .stutter: v = "stutter" }
+    case .hits:  switch line.fillHitsResolved  { case .keep: v = "keep"; case .all: v = "all"; case .flip: v = "flip"; case .build: v = "build" }
     }
     return "Fill \(s.label.lowercased()), \(v)"
 }

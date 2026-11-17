@@ -81,20 +81,24 @@ final class FillBlockTests: XCTestCase {
         XCTAssertEqual(euclideousFillCurveChipText(l), "STDY"); XCTAssertFalse(euclideousFillCurveIsRush(l))
         euclideousFillCycleCurve(&l); XCTAssertEqual(euclideousFillCurveChipText(l), "RUSH"); XCTAssertTrue(euclideousFillCurveIsRush(l))
         euclideousFillCycleCurve(&l); XCTAssertEqual(euclideousFillCurveChipText(l), "STDY")
+        // FILL TAB V2 §1.4: SHIFT is retired — the cycle (hidden UI, kept compiling) shows the RESOLVED shape, so climb → arch → (stored shift reads CLIMB) → climb.
         XCTAssertEqual(euclideousFillShapeChipText(l), "CLB")
         euclideousFillCycleShape(&l); XCTAssertEqual(euclideousFillShapeChipText(l), "ARC")
-        euclideousFillCycleShape(&l); XCTAssertEqual(euclideousFillShapeChipText(l), "SHF")
-        euclideousFillCycleShape(&l); XCTAssertEqual(euclideousFillShapeChipText(l), "CLB")
-        // ORDER cycles FWD → REV → BOUNCE → SHUF → FWD; reset → FWD (and clears the retired reverse flag).
+        euclideousFillCycleShape(&l); XCTAssertEqual(euclideousFillShapeChipText(l), "CLB", "a stored SHIFT resolves to CLIMB (§1.4)")
+        l.fillShape = .climb
+        // ORDER cycles FWD → REV → BOUNCE → SHUF → STUT → FWD (V2 adds STUTTER); reset → FWD (and clears the retired reverse flag).
         XCTAssertEqual(euclideousFillSelectorText(.order, l), "FWD")
         euclideousFillCycleSelector(.order, &l); XCTAssertEqual(euclideousFillSelectorText(.order, l), "REV")
         euclideousFillCycleSelector(.order, &l); euclideousFillCycleSelector(.order, &l); XCTAssertEqual(euclideousFillSelectorText(.order, l), "SHUF")
+        euclideousFillCycleSelector(.order, &l); XCTAssertEqual(euclideousFillSelectorText(.order, l), "STUT")
         euclideousFillCycleSelector(.order, &l); XCTAssertEqual(euclideousFillSelectorText(.order, l), "FWD")
         euclideousFillCycleSelector(.order, &l); euclideousFillResetSelector(.order, &l); XCTAssertEqual(euclideousFillSelectorText(.order, l), "FWD"); XCTAssertNil(l.fillReverse)
-        // HITS cycles KEEP → ALL → FLIP → KEEP.
-        XCTAssertEqual(euclideousFillSelectorText(.hits, l), "KEEP")
+        // HITS defaults to ALL (V2 / AMEND 1) and cycles … → FLIP → BUILD → KEEP → ALL …
+        XCTAssertEqual(euclideousFillSelectorText(.hits, l), "ALL")
+        euclideousFillCycleSelector(.hits, &l); XCTAssertEqual(euclideousFillSelectorText(.hits, l), "FLIP")
+        euclideousFillCycleSelector(.hits, &l); XCTAssertEqual(euclideousFillSelectorText(.hits, l), "BUILD")
+        euclideousFillCycleSelector(.hits, &l); XCTAssertEqual(euclideousFillSelectorText(.hits, l), "KEEP")
         euclideousFillCycleSelector(.hits, &l); XCTAssertEqual(euclideousFillSelectorText(.hits, l), "ALL")
-        euclideousFillCycleSelector(.hits, &l); euclideousFillCycleSelector(.hits, &l); XCTAssertEqual(euclideousFillSelectorText(.hits, l), "KEEP")
     }
 
     // §8 — VoiceOver.

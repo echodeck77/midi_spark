@@ -16,6 +16,7 @@ final class FillTimingTests: XCTestCase {
         var l = EuclidLine()
         l.fillBars = [false, false, false, true, false, false, false, false]   // bar 4 (index 3)
         l.fillSpeed = speed; l.fillLength = length; l.fillReverse = reverse; l.fillRanks = ranks; l.fillSwell = swell; l.fillBreak = brk
+        l.fillHits = .keep   // FILL TAB V2 changed the DEFAULT to ALL; these tests pin the KEEP behaviours, so the fixture states it
         return l
     }
 

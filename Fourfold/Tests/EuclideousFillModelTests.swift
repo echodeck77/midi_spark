@@ -12,8 +12,8 @@ final class EuclideousFillModelTests: XCTestCase {
         XCTAssertNil(l.fillOn); XCTAssertNil(l.fillBars); XCTAssertNil(l.fillSpeed); XCTAssertNil(l.fillLength)
         XCTAssertNil(l.fillReverse); XCTAssertNil(l.fillRanks); XCTAssertNil(l.fillSwell); XCTAssertNil(l.fillBreak)
         XCTAssertTrue(l.fillOnResolved, "FILL defaults ON (§1.1)")
-        XCTAssertEqual(l.fillBarsResolved, [Bool](repeating: false, count: 8))
-        XCTAssertEqual(l.fillSpeedResolved, 3); XCTAssertEqual(l.fillSpeedMultiplier, 2, "default ×2")
+        XCTAssertEqual(l.fillBarsResolved, [Bool](repeating: false, count: 16), "FILL TAB widened the resolved view to 16")
+        XCTAssertEqual(l.fillSpeedResolved, 1); XCTAssertEqual(l.fillSpeedMultiplier, 1, "FILL TAB V2 / AMEND 1 default ×1")
         XCTAssertEqual(l.fillLengthResolved, 1); XCTAssertEqual(l.fillLengthFraction, 0.5, "default ½")
         XCTAssertFalse(l.fillReverseResolved); XCTAssertEqual(l.fillRanksResolved, 0); XCTAssertEqual(l.fillSwellResolved, 0); XCTAssertFalse(l.fillBreakResolved)
         XCTAssertFalse(l.usesFill, "a default lane has no bar lit ⇒ byte-identical to today")
@@ -28,9 +28,9 @@ final class EuclideousFillModelTests: XCTestCase {
 
     func testUsesFillGate() {
         var armedDefault = EuclidLine(); armedDefault.fillBars = [false, false, false, true, false, false, false, false]
-        XCTAssertTrue(armedDefault.usesFill, "a bar lit at the ×2/½ defaults ⇒ active")
-        var neutralArmed = armedDefault; neutralArmed.fillSpeed = 1   // ×1, everything else neutral
-        XCTAssertTrue(neutralArmed.fillNeutral); XCTAssertFalse(neutralArmed.usesFill, "×1 + no reverse/ranks/swell/break ⇒ inert whatever LENGTH (§summary)")
+        XCTAssertTrue(armedDefault.usesFill, "a bar lit at the defaults ⇒ active (FILL TAB V2: HITS defaults to ALL)")
+        var neutralArmed = armedDefault; neutralArmed.fillSpeed = 1; neutralArmed.fillHits = .keep   // §1.6 neutral: ×1 + KEEP, everything else default
+        XCTAssertTrue(neutralArmed.fillNeutral); XCTAssertFalse(neutralArmed.usesFill, "×1 KEEP + no reverse/ranks/swell/break ⇒ inert whatever LENGTH (§summary)")
         var neutralLenBar = neutralArmed; neutralLenBar.fillLength = 0   // LENGTH is irrelevant at ×1
         XCTAssertFalse(neutralLenBar.usesFill, "LENGTH does not make a ×1 fill active")
         var reverseOnly = neutralArmed; reverseOnly.fillReverse = true
@@ -52,8 +52,8 @@ final class EuclideousFillModelTests: XCTestCase {
 
     func testMalformedFolds() {
         var short = EuclidLine(); short.fillBars = [true, true]
-        XCTAssertEqual(short.fillBarsResolved, [Bool](repeating: false, count: 8), "a wrong-length array folds to all off")
-        var hiSpeed = EuclidLine(); hiSpeed.fillSpeed = 9; XCTAssertEqual(hiSpeed.fillSpeedResolved, 3, "out of range ⇒ default")
+        XCTAssertEqual(short.fillBarsResolved, [true, true] + [Bool](repeating: false, count: 14), "FILL TAB: a short array pads to 16, keeping what it holds")
+        var hiSpeed = EuclidLine(); hiSpeed.fillSpeed = 9; XCTAssertEqual(hiSpeed.fillSpeedResolved, 1, "out of range ⇒ the ×1 default (FILL TAB V2)")
         var hiRanks = EuclidLine(); hiRanks.fillRanks = 40; XCTAssertEqual(hiRanks.fillRanksResolved, 7, "clamped ±7")
         var loSwell = EuclidLine(); loSwell.fillSwell = -40; XCTAssertEqual(loSwell.fillSwellResolved, -3, "clamped ±3")
     }
@@ -83,7 +83,8 @@ final class EuclideousFillModelTests: XCTestCase {
         m.paramsA.euclidLines = lines
         let built = SnapshotBuilder.build(from: PluginState(machines: [m], scenes: [SceneState.empty()]))
         let out = built.machines.first { $0.a.euclidLines.count == 4 }?.a.euclidLines
-        XCTAssertEqual(out?[2].fillBars, [false, true, true, false, false, false, false, false], "a fresh-literal rebuild that forgot the field would reset it on the next render")
+        XCTAssertEqual(out?[2].fillBars, [false, true, true, false, false, false, false, false] + [Bool](repeating: false, count: 8),
+                       "the builder widens an 8-entry array to 16 (a fresh-literal rebuild that forgot the field would reset it)")
         XCTAssertEqual(out?[2].fillSpeed, 4); XCTAssertEqual(out?[2].fillLength, 0); XCTAssertEqual(out?[2].fillReverse, true)
         XCTAssertEqual(out?[2].fillRanks, 3); XCTAssertEqual(out?[2].fillSwell, -2); XCTAssertEqual(out?[2].fillBreak, true)
         XCTAssertTrue(out?[2].usesFill ?? false)

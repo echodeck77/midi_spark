@@ -6,9 +6,30 @@ final class FillTabModelTests: XCTestCase {
     func testDefaults() {
         let l = EuclidLine()
         XCTAssertEqual(l.fillLoopResolved, 8); XCTAssertEqual(l.fillCurveResolved, .steady); XCTAssertEqual(l.fillOrderResolved, .fwd)
-        XCTAssertEqual(l.fillShapeResolved, .climb); XCTAssertEqual(l.fillHitsResolved, .keep)
+        XCTAssertEqual(l.fillShapeResolved, .climb); XCTAssertEqual(l.fillHitsResolved, .all, "FILL TAB V2 / AMEND 1 default: ALL")
+        XCTAssertEqual(l.fillNotesResolved, .riff, "FILL TAB V2 §1.3 default: RIFF")
+        XCTAssertEqual(l.fillSpeedResolved, 1, "FILL TAB V2 / AMEND 1 default: ×1")
         XCTAssertEqual(l.fillRollResolved, 0); XCTAssertEqual(l.fillChanceResolved, 100); XCTAssertFalse(l.fillLandResolved)
         XCTAssertEqual(l.fillBarsResolved.count, 16); XCTAssertTrue(l.fillBarsResolved.allSatisfy { !$0 })
+    }
+
+    // FILL TAB V2 §1.4 — a stored SHIFT decodes (and plays) as CLIMB; the case stays decodable and round-trips.
+    func testStoredShiftDecodesAsClimb() throws {
+        var l = EuclidLine(); l.fillShape = .shift
+        XCTAssertEqual(l.fillShapeResolved, .climb, "SHIFT is retired — it resolves to CLIMB (§1.4, the one sound change)")
+        let r = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(l))
+        XCTAssertEqual(r.fillShape, .shift, "the stored value round-trips untouched")
+        XCTAssertEqual(r.fillShapeResolved, .climb)
+    }
+
+    // FILL TAB V2 §1.1–§1.3 — the new values store, round-trip, and an unknown stored value reads as the default.
+    func testV2FieldsRoundTripAndTolerate() throws {
+        var l = EuclidLine(); l.fillOrder = .stutter; l.fillHits = .build; l.fillNotes = .pedal
+        let r = try JSONDecoder().decode(EuclidLine.self, from: try JSONEncoder().encode(l))
+        XCTAssertEqual(r.fillOrderResolved, .stutter); XCTAssertEqual(r.fillHitsResolved, .build); XCTAssertEqual(r.fillNotesResolved, .pedal)
+        let junk = try JSONDecoder().decode(EuclidLine.self, from: Data(#"{"target":0,"fillNotes":"zigzag","fillOrder":"spiral"}"#.utf8))
+        XCTAssertEqual(junk.fillNotesResolved, .riff, "an unknown stored NOTES reads as the default (§1.7)")
+        XCTAssertEqual(junk.fillOrderResolved, .fwd, "an unknown stored ORDER reads as the default (§1.7)")
     }
     func testClampsAndUnknownFold() {
         var l = EuclidLine()
@@ -38,15 +59,22 @@ final class FillTabModelTests: XCTestCase {
         XCTAssertEqual(r.fillBarsResolved.count, 16); XCTAssertTrue(r.fillBarsResolved[0]); XCTAssertTrue(r.fillBarsResolved[7]); XCTAssertTrue(r.fillBarsResolved[8...].allSatisfy { !$0 })
     }
 
-    // §1.4 — neutral sounds exactly as no fill whatever LENGTH, SHAPE and CHANCE are.
+    // §1.4/§1.6 — neutral (×1 STEADY FWD KEEP RIFF 0 0 0 off off) sounds exactly as no fill whatever LENGTH, SHAPE and CHANCE are.
+    // FILL TAB V2: the DEFAULT lane is no longer neutral (HITS defaults to ALL) — a lit default bar now PLAYS a fill (§9).
     func testNeutral() {
-        var l = EuclidLine(); l.fillOn = true; l.fillBars = (0..<16).map { $0 == 0 }; l.fillSpeed = 1   // a bar lit + ×1 speed (the default fillSpeed is ×2, which is NOT neutral); everything else default
-        XCTAssertTrue(l.fillNeutral); XCTAssertFalse(l.usesFill, "a lit but neutral (×1) fill does nothing")
+        var l = EuclidLine(); l.fillOn = true; l.fillBars = (0..<16).map { $0 == 0 }
+        XCTAssertFalse(l.fillNeutral, "the defaults (HITS ALL) are NOT neutral — a fresh lit bar fills (AMEND 1 / §9)")
+        XCTAssertTrue(l.usesFill)
+        l.fillHits = .keep                                        // §1.6 neutral needs KEEP (and RIFF, the default)
+        XCTAssertTrue(l.fillNeutral); XCTAssertFalse(l.usesFill, "a lit but neutral fill does nothing")
         l.fillLength = 2; l.fillShape = .arch; l.fillChance = 50
         XCTAssertTrue(l.fillNeutral, "LENGTH, SHAPE and CHANCE don't break neutrality (§1.4)")
         l.fillCurve = .rush; XCTAssertFalse(l.fillNeutral, "RUSH is not neutral"); l.fillCurve = .steady
         l.fillOrder = .bounce; XCTAssertFalse(l.fillNeutral); l.fillOrder = .fwd
+        l.fillOrder = .stutter; XCTAssertFalse(l.fillNeutral, "STUTTER is not neutral (V2)"); l.fillOrder = .fwd
         l.fillHits = .all; XCTAssertFalse(l.fillNeutral); l.fillHits = .keep
+        l.fillHits = .build; XCTAssertFalse(l.fillNeutral, "BUILD is not neutral (V2)"); l.fillHits = .keep
+        l.fillNotes = .flat; XCTAssertFalse(l.fillNeutral, "a NOTES mode is not neutral (V2 §1.6)"); l.fillNotes = .riff
         l.fillRoll = 2; XCTAssertFalse(l.fillNeutral); l.fillRoll = 0
         l.fillLand = true; XCTAssertFalse(l.fillNeutral); l.fillLand = false
         l.fillRanks = 3; XCTAssertFalse(l.fillNeutral)

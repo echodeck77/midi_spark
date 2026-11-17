@@ -154,6 +154,7 @@ func euclideousFillSourceStep(_ r: EuclideousFillRegion, origin o: Double, sub: 
     case .rev:     i = N - 1 - k
     case .bounce:  let h = (N + 1) / 2; i = k < h ? k : (N - 1 - k)   // out then back: 0…h−1, then N−1−k
     case .shuffle: i = (shuffle != nil && k < shuffle!.count) ? shuffle![k] : k
+    case .stutter: i = 0                                              // FILL TAB V2 §2.1: every slot plays the region's first forward step
     }
     return j0 + Int64(max(0, min(N - 1, i)))
 }
