@@ -1053,6 +1053,7 @@ struct EuclideousPage: View {
     @AppStorage("fourfold.stripCC") private var stripCCOn: Bool = true
     /// POOL ferry 6.3: the lane whose notes the riff grid's label column names (UI state, never saved; starts at lane 1).
     @State private var gridLane = 0
+    @StateObject private var fillV2Memo = EuclideousFillV2RollMemo()   // FILL TAB V2 §3.7: the roll row's per-bar prediction cache (recomputed on a key change — a setting, a bar line, a cycle move — never per frame)
     // Scrub ferry (2026-11-16) §1.1: the three GLOBAL ribbon holds (0 = none, 1-8), ephemeral UI state → the kernel live words via `onScrubHolds`. Not saved/undone.
     @State private var riffColumnHold = 0
     @State private var riffRankHold = 0
@@ -3544,7 +3545,7 @@ struct EuclideousPage: View {
     }
     /// FILL tab (Paul 2026-11-13): the FILL block — moved off the EUCLID tab's cramped lower-right half — now gets the whole lane-card content area, much more spacious. `euclideousFillBlockLayout` is box-relative, so the tiles scale up to fill it.
     private func fillTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        fillBlock(idx, line, accent, box: CGSize(width: fullWidth, height: contentAreaH))
+        fillBlockV2(idx, line, accent, box: CGSize(width: fullWidth, height: contentAreaH))   // FILL TAB V2 (2026-11-17); the old fillBlock stays compiled, unmounted
             .frame(width: fullWidth, height: contentAreaH, alignment: .top)
     }
 
@@ -4508,6 +4509,246 @@ struct EuclideousPage: View {
             .contentShape(Rectangle()).onTapGesture { edit(idx, mutate) }
             .accessibilityElement(children: .ignore).accessibilityLabel(euclideousFillBoolAX(which, on: on)).accessibilityAddTraits(on ? [.isButton, .isSelected] : [.isButton]))
     }
+    // MARK: - FILL TAB V2 (2026-11-17) — the roll row (FILL · one cell per bar · LOOP) + four one-tap control rows.
+    // Frames/texts/looks are the pure FillTabV2.swift; the per-bar notes are euclideousFillRollBar (Router-equal, FillRouterTests).
+    private func fillBlockV2(_ idx: Int, _ line: EuclidLine, _ accent: Color, box: CGSize) -> AnyView {
+        let loop = line.fillLoopResolved
+        let L = euclideousFillTabV2Layout(box: box, loop: loop)
+        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !pulseLive)) { tl in
+            self.fillV2Content(idx: idx, line: line, accent: accent, box: box, L: L, loop: loop, date: tl.date)
+        })
+    }
+    private func fillV2Content(idx: Int, line: EuclidLine, accent: Color, box: CGSize, L: EuclideousFillTabV2Layout, loop: Int, date: Date) -> AnyView {
+        let bpb = max(1e-6, clock.beatsPerBar)
+        let beat: Double? = clock.playing ? lanesMusicalBeat(real: walkTagBeat(at: date)) : nil   // nothing current/sounding when stopped
+        let barNow = beat.map { max(0, Int(($0 / bpb).rounded(.down))) }
+        let cycleStart = (barNow ?? 0) / loop * loop                                              // §3.2: the loop cycle holding the polled host beat
+        let prog = beat.map { euclideousRateBarProgress(hostBeat: $0, beatsPerBar: bpb) } ?? 0
+        let entry = fillV2Entry(idx: idx, line: line, loop: loop, cycleStart: cycleStart, bpb: bpb)
+        let layers = fillV2Layers(idx: idx, line: line, accent: accent, L: L, loop: loop, cycleStart: cycleStart,
+                                  barNow: barNow, beat: beat, prog: prog, entry: entry, bpb: bpb)
+        return AnyView(ZStack(alignment: .topLeading) {
+            ForEach(0..<layers.count, id: \.self) { layers[$0] }
+        }
+        .frame(width: box.width, height: box.height, alignment: .topLeading))
+    }
+    /// §3.7 — the cached per-bar prediction for this lane's current cycle. The key folds every input the notes depend on,
+    /// so the recompute happens exactly when a setting changes, a bar line passes (via cycleStart only — a bar WITHIN the
+    /// cycle does not move the content), or the cycle moves; the 30 fps TimelineView only ever re-reads the cache.
+    private func fillV2Entry(idx: Int, line: EuclidLine, loop: Int, cycleStart: Int, bpb: Double) -> EuclideousFillV2RollMemo.Entry {
+        let pool: [Int] = idx < lanePools.count ? lanePools[idx].notes.sorted().map { Int($0) } : []
+        var h: UInt64 = 0xcbf29ce484222325
+        func mix(_ v: Int) { h = (h ^ UInt64(bitPattern: Int64(v))) &* 0x100000001b3 }
+        mix(cycleStart); mix(loop); mix(Int(bpb * 1000)); mix(line.fillOnResolved ? 1 : 0)
+        let bars = line.fillBarsResolved; for (i, b) in bars.enumerated() where b { mix(i + 100) }
+        mix(line.fillSpeedResolved); mix(line.fillLengthResolved); mix(line.fillRanksResolved); mix(line.fillSwellResolved)
+        mix(line.fillRollResolved); mix(line.fillChanceResolved); mix(line.fillBreakResolved ? 1 : 0); mix(line.fillLandResolved ? 1 : 0)
+        mix(euclideousFillV2SegIndex(.order, line)); mix(euclideousFillV2SegIndex(.hits, line)); mix(euclideousFillV2SegIndex(.notes, line))
+        mix(line.fillCurveResolved == .rush ? 1 : 0); mix(line.fillShapeResolved == .arch ? 1 : 0)
+        for r in effectiveGridRanks { mix(r &+ 7) }
+        for p in pool { mix(p &+ 1000) }
+        mix(line.riffOctaveResolved); mix(line.velocityAbsoluteResolved); mix(euclideousNotesLayerIsOn(line) ? 1 : 0); mix(line.octaveResolved)
+        if let e = fillV2Memo.entries[idx], e.key == h { return e }
+        var entry = EuclideousFillV2RollMemo.Entry(); entry.key = h; entry.cycleStart = cycleStart
+        if let cfg = riffWalkConfig(idx), !pool.isEmpty {
+            for b in 0..<loop {
+                entry.bars.append(euclideousFillRollBar(cfg: cfg, line: line, lane: idx, pool: pool, riffOct: line.riffOctaveResolved,
+                                                        baseVel: line.velocityAbsoluteResolved, ranks: effectiveGridRanks,
+                                                        bar: cycleStart + b, beatsPerBar: bpb, originBeat: 0))
+            }
+        } else {
+            entry.bars = (0..<loop).map { _ in EuclideousFillRollBar() }
+        }
+        let pitches = entry.bars.flatMap { $0.notes.map { $0.pitch } }
+        entry.lo = (pitches.min() ?? 55) - 1; entry.hi = max(entry.lo + 12, (pitches.max() ?? 67) + 1)
+        fillV2Memo.entries[idx] = entry   // a plain (non-published) field: safe to fill during a draw, never re-renders
+        return entry
+    }
+    private func fillV2Layers(idx: Int, line: EuclidLine, accent: Color, L: EuclideousFillTabV2Layout, loop: Int, cycleStart: Int,
+                              barNow: Int?, beat: Double?, prog: Double, entry: EuclideousFillV2RollMemo.Entry, bpb: Double) -> [AnyView] {
+        func pos(_ r: CGRect, _ v: AnyView) -> AnyView { AnyView(v.frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)) }
+        let fillOn = line.fillOnResolved
+        let barsLit = line.fillBarsResolved
+        var layers: [AnyView] = []
+        // §3.8 FILL (PLAY RIFF's lamp + "FILL")
+        layers.append(pos(L.fillTile, fillV2FillTile(on: fillOn, accent: accent, size: L.fillTile.size, idx: idx)))
+        // §3.2–§3.6 the cells
+        for i in 0..<min(loop, L.cells.count) {
+            let bar = cycleStart + i
+            let rb = i < entry.bars.count ? entry.bars[i] : EuclideousFillRollBar()
+            let lit = i < barsLit.count && barsLit[i]
+            let current = barNow == bar
+            let sounding = current && lit && fillOn && !rb.skipped && (beat.map { $0 >= rb.regionLo - 1e-9 && $0 < rb.regionHi && rb.regionHi > rb.regionLo } ?? false)
+            layers.append(pos(L.cells[i], fillV2Cell(idx: idx, i: i, rb: rb, lit: lit, fillOn: fillOn, current: current, sounding: sounding,
+                                                     prog: prog, accent: accent, size: L.cells[i].size, lo: entry.lo, hi: entry.hi, barLo: Double(bar) * bpb, bpb: bpb)))
+        }
+        // §3.9 LOOP
+        layers.append(pos(L.loopTile, AnyView(EuclideousFillV2LoopTile(loop: loop, size: L.loopTile.size, radius: 6) {
+            self.edit(idx) { $0.fillLoop = UInt8(loop == 4 ? 8 : (loop == 8 ? 16 : 4)) }
+        })))
+        // rows 1–3: the segmented controls
+        func seg(_ s: EuclideousFillV2Seg, _ r: CGRect) -> AnyView {
+            pos(r, AnyView(EuclideousFillV2SegmentedTile(seg: s, line: line, accent: accent, size: r.size, radius: 6) { i in
+                self.edit(idx) { euclideousFillV2SegSet(s, i, &$0) }
+            }))
+        }
+        layers.append(seg(.speed, L.speed)); layers.append(seg(.length, L.length))
+        layers.append(pos(L.rush, AnyView(EuclideousFillV2ToggleTile(label: "RUSH", on: line.fillCurveResolved == .rush, accent: accent, size: L.rush.size, radius: 6,
+                                                                     axLabel: euclideousFillV2ToggleAX("rush", on: line.fillCurveResolved == .rush)) {
+            self.edit(idx) { $0.fillCurve = $0.fillCurveResolved == .rush ? .steady : .rush }
+        })))
+        layers.append(seg(.order, L.order)); layers.append(seg(.hits, L.hits)); layers.append(seg(.notes, L.notes))
+        layers.append(pos(L.ranks, fillV2RanksTile(idx: idx, line: line, accent: accent, size: L.ranks.size)))
+        // row 4: the steppers + BREAK | LAND
+        layers.append(pos(L.swell, fillV2StepperTile(.swell, idx: idx, line: line, accent: accent, size: L.swell.size)))
+        layers.append(pos(L.roll, fillV2StepperTile(.roll, idx: idx, line: line, accent: accent, size: L.roll.size)))
+        layers.append(pos(L.chance, fillV2StepperTile(.chance, idx: idx, line: line, accent: accent, size: L.chance.size)))
+        layers.append(pos(L.brk, AnyView(EuclideousFillV2ToggleTile(label: "BREAK", on: line.fillBreakResolved, accent: accent, size: L.brk.size, radius: 6,
+                                                                    axLabel: euclideousFillV2ToggleAX("break", on: line.fillBreakResolved)) {
+            self.edit(idx) { $0.fillBreak = !line.fillBreakResolved }
+        })))
+        layers.append(pos(L.land, AnyView(EuclideousFillV2ToggleTile(label: "LAND", on: line.fillLandResolved, accent: accent, size: L.land.size, radius: 6,
+                                                                     axLabel: euclideousFillV2ToggleAX("land", on: line.fillLandResolved)) {
+            self.edit(idx) { $0.fillLand = !line.fillLandResolved }
+        })))
+        return layers
+    }
+    /// §3.8 FILL — the value tiles' tile holding PLAY RIFF's lamp, sp3.5, "FILL" 7.5 pt heavy 0.08 em, centred as a group.
+    private func fillV2FillTile(on: Bool, accent: Color, size: CGSize, idx: Int) -> AnyView {
+        let look = euclideousPartPlayLook(on: on)
+        return AnyView(HStack(spacing: 3.5) {
+            EuclideousPartPlayLampShape().fill(on ? lane100(accent) : Color.clear)
+                .overlay(on ? nil : EuclideousPartPlayLampShape().stroke(Color(hex: look.lampStrokeHex), lineWidth: 1.2))
+                .frame(width: 11, height: 11)
+            Text("FILL").font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(7.5 * 0.08).foregroundColor(Color(hex: look.nameHex))
+        }
+        .frame(width: size.width, height: size.height)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: EuclideousMixV2FieldLook.groundHex)))
+        .contentShape(Rectangle()).onTapGesture { edit(idx) { $0.fillOn = !on } }
+        .accessibilityElement(children: .ignore).accessibilityLabel(euclideousFillToggleAX(on)).accessibilityAddTraits(on ? [.isButton, .isSelected] : [.isButton]))
+    }
+    /// §3.3–§3.6 one bar cell: the looks, the number chip, the progress line and the predicted notes (grey outside a fill, lane colour inside).
+    private func fillV2Cell(idx: Int, i: Int, rb: EuclideousFillRollBar, lit: Bool, fillOn: Bool, current: Bool, sounding: Bool,
+                            prog: Double, accent: Color, size: CGSize, lo: Int, hi: Int, barLo: Double, bpb: Double) -> AnyView {
+        let fillColour: Color = sounding ? lane100(accent).opacity(0.24)
+            : (lit && fillOn ? Color(hex: 0x2C2427) : (current ? Color(hex: 0x30333A) : Color(hex: 0x26282D)))
+        let border: Color = lit ? lane100(accent) : .clear                            // §3.5: lit (FILL on or off) wears the border
+        let chipColour: Color = (lit && fillOn) ? lane100(accent).opacity(0.3) : (current ? Color(hex: 0x4A4D57) : Color(hex: 0x33363D))
+        let number: Color = (current || (lit && fillOn)) ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)
+        let chip = euclideousFillV2CellChip(cellSize: size)
+        let area = euclideousFillV2CellNotesArea(cellSize: size)
+        return AnyView(ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 4).fill(fillColour)
+                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(border, lineWidth: 1))
+            Canvas { ctx, _ in   // §3.6 the notes area
+                func xOf(_ b: Double) -> CGFloat { area.minX + CGFloat((b - barLo) / bpb) * area.width }
+                let span = max(1, hi - lo)
+                let rowH = min(4, area.height / CGFloat(span))
+                func yOf(_ p: Int) -> CGFloat { area.minY + (1 - CGFloat(p - lo) / CGFloat(span)) * (area.height - rowH) }
+                if fillOn, rb.regionHi > rb.regionLo {
+                    let r = CGRect(x: xOf(rb.regionLo), y: area.minY, width: max(1, xOf(rb.regionHi) - xOf(rb.regionLo)), height: area.height)
+                    if rb.skipped {   // a lit bar CHANCE skips: the region outlined dashed, its notes as no fill
+                        ctx.stroke(Path(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 2),
+                                   with: .color(lane100(accent).opacity(0.6)), style: StrokeStyle(lineWidth: 0.75, dash: [2, 2]))
+                    } else {
+                        ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(lane100(accent).opacity(0.14)))
+                        if rb.breakHi > rb.breakLo {   // BREAK's quarter: diagonal hatching
+                            let b = CGRect(x: xOf(rb.breakLo), y: area.minY, width: max(1, xOf(rb.breakHi) - xOf(rb.breakLo)), height: area.height)
+                            var hatch = Path(); var x = b.minX - b.height
+                            while x < b.maxX { hatch.move(to: CGPoint(x: x, y: b.maxY)); hatch.addLine(to: CGPoint(x: x + b.height, y: b.minY)); x += 4 }
+                            var c = ctx; c.clip(to: Path(b))
+                            c.stroke(hatch, with: .color(Color(hex: 0xF2F4F7).opacity(0.1)), lineWidth: 1)
+                        }
+                    }
+                }
+                for n in rb.notes where !n.broken {
+                    let x0 = xOf(n.onset), x1 = xOf(n.onset + n.length)
+                    let rect = CGRect(x: x0, y: yOf(n.pitch), width: max(1, x1 - x0), height: max(0.5, rowH - 0.75))
+                    let colour: Color = n.land ? lane100(accent)
+                        : ((n.fill && !rb.skipped) ? lane100(accent).opacity(0.35 + 0.65 * Double(n.vel) / 127) : Color(hex: 0x8A909A).opacity(0.38))
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: 0.75), with: .color(colour))
+                }
+                if current {   // the playhead across the notes area
+                    ctx.fill(Path(CGRect(x: area.minX + CGFloat(prog) * area.width, y: area.minY, width: 1, height: area.height)),
+                             with: .color(Color(hex: 0xF2F4F7).opacity(0.9)))
+                }
+            }
+            RoundedRectangle(cornerRadius: 3).fill(chipColour)
+                .frame(width: chip.width, height: chip.height).position(x: chip.midX, y: chip.midY)
+            Text("\(i + 1)").font(.system(size: 6.5, weight: .heavy, design: .monospaced)).foregroundColor(number)
+                .frame(width: chip.width, height: chip.height).position(x: chip.midX, y: chip.midY)
+            if current {   // §3.4 the progress line
+                let p = euclideousFillV2CellProgress(cellSize: size, fraction: prog)
+                RoundedRectangle(cornerRadius: 0.75).fill(Color(hex: 0xF2F4F7))
+                    .frame(width: max(0, p.width), height: p.height).position(x: p.minX + max(0, p.width) / 2, y: p.midY)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .contentShape(Rectangle()).onTapGesture { edit(idx) { $0.fillBars = fillBarsToggled($0, i) } }   // §3.3 one tap, one undo step
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(euclideousFillV2CellAX(bar: i, on: lit, current: current, plays: lit ? !rb.skipped : nil))
+        .accessibilityAddTraits(.isButton))
+    }
+    /// §4.3/§4.4 RANKS — the two shape glyphs, sp3, then the − value + stepper.
+    private func fillV2RanksTile(idx: Int, line: EuclidLine, accent: Color, size: CGSize) -> AnyView {
+        let row = euclideousFillV2SegRow(tileSize: size)
+        let f = euclideousFillV2RanksFrames(row: row)
+        let shapeNeutral = euclideousFillV2ShapeIsNeutral(line)
+        let isClimb = line.fillShapeResolved == .climb
+        func shapeSeg(_ r: CGRect, glyph: EuclideousFillV2Glyph, selected: Bool, ax: String, set: EuclideousFillShape) -> AnyView {
+            AnyView(ZStack {
+                EuclideousFillV2SegBack(selected: selected, neutral: shapeNeutral, accent: accent)
+                EuclideousFillV2GlyphShape(glyph: glyph)
+                    .stroke(Color(hex: selected ? EuclideousFillV2Look.segSelectedText : EuclideousFillV2Look.segIdleText),
+                            style: StrokeStyle(lineWidth: 1.1, lineCap: .round, lineJoin: .round))
+                    .frame(width: 11, height: 11)
+            }
+            .frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)
+            .contentShape(Rectangle())
+            .onTapGesture { if !selected { self.edit(idx) { $0.fillShape = set } } }
+            .accessibilityElement(children: .ignore).accessibilityLabel(ax)
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton))
+        }
+        return AnyView(EuclideousFillV2Tile(label: "RANKS", size: size, radius: 6) {
+            shapeSeg(f.climb, glyph: .climb, selected: isClimb, ax: euclideousFillV2ShapeAX(climb: true), set: .climb)
+            shapeSeg(f.arch, glyph: .arch, selected: !isClimb, ax: euclideousFillV2ShapeAX(climb: false), set: .arch)
+            fillV2StepperCore(.ranks, idx: idx, line: line, accent: accent, minus: f.minus, value: f.value, plus: f.plus)
+        })
+    }
+    /// §4.4 a one-column stepper tile (SWELL / ROLL / CHANCE).
+    private func fillV2StepperTile(_ f: EuclideousFillV2Step, idx: Int, line: EuclidLine, accent: Color, size: CGSize) -> AnyView {
+        let row = euclideousFillV2SegRow(tileSize: size)
+        let s = euclideousFillV2StepperFrames(row: row)
+        return AnyView(EuclideousFillV2Tile(label: f.label, size: size, radius: 6) {
+            fillV2StepperCore(f, idx: idx, line: line, accent: accent, minus: s.minus, value: s.value, plus: s.plus)
+        })
+    }
+    /// The stepper's three pieces: − / value box / + (tap steps, hold repeats — ONE undo step per hold; double-tap resets; §8.3 adjustable).
+    private func fillV2StepperCore(_ f: EuclideousFillV2Step, idx: Int, line: EuclidLine, accent: Color, minus: CGRect, value: CGRect, plus: CGRect) -> AnyView {
+        let neutral = euclideousFillV2StepIsNeutral(f, line)
+        func step(_ delta: Int, first: Bool) {
+            editStep(idx, first) { euclideousFillV2StepSet(f, euclideousFillV2StepValue(f, $0) + delta, &$0) }
+        }
+        return AnyView(ZStack {
+            EuclideousFillV2StepButton(text: "\u{2212}", frame: minus, axLabel: "minus") { first in step(-1, first: first) }
+            Text(euclideousFillV2StepText(f, line)).font(.system(size: 8.5, weight: .heavy, design: .monospaced))
+                .foregroundColor(Color(hex: neutral ? EuclideousFillV2Look.stepButtonText : EuclideousFillV2Look.segSelectedText))
+                .lineLimit(1).minimumScaleFactor(0.7)
+                .frame(width: value.width, height: value.height)
+                .background(RoundedRectangle(cornerRadius: EuclideousFillV2Metrics.segRadius)
+                    .fill(neutral ? Color(hex: EuclideousFillV2Look.segIdle) : lane100(accent).opacity(0.3)))
+                .position(x: value.midX, y: value.midY)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { self.edit(idx) { euclideousFillV2StepSet(f, f.defaultValue, &$0) } }   // §4.4 double-tap resets
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(euclideousFillV2StepAX(f, line))
+                .accessibilityAdjustableAction { dir in
+                    self.edit(idx) { euclideousFillV2StepSet(f, euclideousFillV2StepValue(f, $0) + (dir == .increment ? 1 : -1), &$0) }
+                }
+            EuclideousFillV2StepButton(text: "+", frame: plus, axLabel: "plus") { first in step(1, first: first) }
+        })
+    }
+
     // MARK: - RATE tile (ferry 2026-11-12, RETIRED by FILL 2026-11-13 — kept compiled, no longer mounted) — the 8-bar speed-override strip
     private func rateTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, halfW: CGFloat, blockH: CGFloat) -> AnyView {
         let L = euclideousRateTileLayout(box: CGSize(width: halfW, height: blockH))
