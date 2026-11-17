@@ -13,7 +13,7 @@ private final class FillEmitter: MIDIEmitter {
 }
 
 struct FillSpec { var bars: [Bool]; var speed: UInt8 = 3; var length: UInt8 = 1; var reverse = false; var ranks: Int8 = 0; var swell: Int8 = 0; var brk = false; var hits: EuclideousFillHits = .keep; var land = false
-    var order: EuclideousFillOrder? = nil; var notes: EuclideousFillNotes = .riff; var roll: UInt8 = 0; var chance: UInt8 = 100 }   // FILL TAB V2
+    var order: EuclideousFillOrder? = nil; var notes: EuclideousFillNotes = .riff; var roll: UInt8 = 0; var chance: UInt8 = 100; var curve: EuclideousFillCurve = .steady }   // FILL TAB V2
 
 final class FillRouterTests: XCTestCase {
     // 120 BPM at 48 kHz: 1 beat = 24000 samples. One strike opens an own-cable (1) voice AND an ALL (0) voice — count cable 1.
@@ -29,7 +29,7 @@ final class FillRouterTests: XCTestCase {
         l.rate = .r1_8; l.gate = 0.5; l.velocityAbsolute = 90; l.litNotes = 0; l.notesOn = false
         l.patternMiss = flipHits   // FLIP HITS — invert the rhythm so a chosen step rests
         if let f = fill { l.fillBars = f.bars; l.fillSpeed = f.speed; l.fillLength = f.length; l.fillReverse = f.reverse; l.fillRanks = f.ranks; l.fillSwell = f.swell; l.fillBreak = f.brk; l.fillHits = f.hits; l.fillLand = f.land
-            if let o = f.order { l.fillOrder = o }; if f.notes != .riff { l.fillNotes = f.notes }; if f.roll > 0 { l.fillRoll = f.roll }; if f.chance < 100 { l.fillChance = f.chance } }   // FILL TAB V2
+            if let o = f.order { l.fillOrder = o }; if f.notes != .riff { l.fillNotes = f.notes }; if f.roll > 0 { l.fillRoll = f.roll }; if f.chance < 100 { l.fillChance = f.chance }; if f.curve == .rush { l.fillCurve = .rush } }   // FILL TAB V2
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: riffRanks)
         c.paramsA.euclidLines = [l] + (1..<4).map { _ in EuclidLine(enabled: false) }
@@ -283,6 +283,63 @@ final class FillRouterTests: XCTestCase {
         let notes = fillNotes(e)
         XCTAssertEqual(notes.count, 24, "8 slots × 3 voices")
         XCTAssertEqual(Set(notes), Set([59, 62, 65]), "rank 7 → 59; ranks 9/11 fold over the 7-note deduped pool (the engine's rule — source wins over the spec's rank−8 reading)")
+    }
+
+    // FILL TAB V2 §7.9 — the ROLL ROW's per-bar prediction (euclideousFillRollBar) equals the Router's bar, across
+    // ORDER × HITS × NOTES × CURVE (one factor at a time; CHANCE's skipped state is the test after this one). The plain
+    // span and the fill span are both compared — onsets, pitch contour (whole-octave offset: the harness lane's oct) and velocities.
+    func testRollRowMirrorsTheRouterAcrossModes() {
+        var specs: [(FillSpec, Int)] = []                                     // (spec, pulses)
+        for o in [EuclideousFillOrder.fwd, .rev, .bounce, .shuffle, .stutter] { specs.append((FillSpec(bars: bar(3), speed: 3, length: 1, order: o), 8)) }
+        for h in [EuclideousFillHits.keep, .all, .flip, .build] { specs.append((FillSpec(bars: bar(3), speed: 1, length: 0, hits: h), 5)) }
+        for nm in [EuclideousFillNotes.flat, .pedal, .oct, .chord] { specs.append((FillSpec(bars: bar(3), speed: 3, length: 1, ranks: 3, notes: nm), 8)) }
+        specs.append((FillSpec(bars: bar(3), speed: 3, length: 1, roll: 2, curve: .rush), 8))
+        for (spec, pulses) in specs {
+            let label = "order \(String(describing: spec.order)) hits \(spec.hits) notes \(spec.notes) curve \(spec.curve) pulses \(pulses)"
+            // the roll's inputs — the lane exactly as run() builds it
+            var l = EuclidLine(target: 0, pulses: pulses, steps: 8, useRiff: true, riffOn: true, sourceMode: .midi)
+            l.rate = .r1_8; l.gate = 0.5; l.velocityAbsolute = 90; l.litNotes = 0; l.notesOn = false
+            l.fillBars = spec.bars; l.fillSpeed = spec.speed; l.fillLength = spec.length; l.fillRanks = spec.ranks; l.fillHits = spec.hits
+            if let o = spec.order { l.fillOrder = o }; if spec.notes != .riff { l.fillNotes = spec.notes }
+            if spec.roll > 0 { l.fillRoll = spec.roll }; if spec.curve == .rush { l.fillCurve = .rush }
+            var buf = [Bool](repeating: false, count: 64); var micro = [Double](repeating: 0, count: 64)
+            let n = euclideousBuildHitPatternInto(l, cells: &buf, micro: &micro)
+            var cfg = EuclideousWalkLaneConfig(buf: Array(buf.prefix(n)), n: n, dir: .fwd, sub: 0.5)
+            cfg.riffDir = .forward; cfg.length = 8; cfg.stride = 1; cfg.rotate = 0; cfg.every = 1; cfg.columns = 8; cfg.gate = 0.5
+            // the lane's EFFECTIVE pool (the source stack PC-dedupes cmaj's octave C to 7 notes) — what the page's lanePools feed carries
+            let rb = euclideousFillRollBar(cfg: cfg, line: l, lane: 0, pool: [60, 62, 64, 65, 67, 69, 71], riffOct: 0, baseVel: 90,
+                                           ranks: [1, 2, 3, 4, 5, 6, 7, 8], bar: 3, beatsPerBar: 4, originBeat: 0)
+            let predicted = rb.notes.sorted { ($0.onset, $0.pitch) < ($1.onset, $1.pitch) }
+            let routed = onPairs(run(fill: spec, riffRanks: [1, 2, 3, 4, 5, 6, 7, 8], pool: cmaj, pulses: pulses))
+                .filter { $0.beat >= 12 - 1e-6 && $0.beat < 16 - 1e-6 }
+                .sorted { ($0.beat, $0.note) < ($1.beat, $1.note) }
+            XCTAssertEqual(predicted.count, routed.count, "\(label): same note count in the fill bar")
+            guard predicted.count == routed.count, !predicted.isEmpty else { continue }
+            for (p, r) in zip(predicted, routed) {
+                XCTAssertEqual((p.onset * 1000).rounded() / 1000, r.beat, accuracy: 2e-3, "\(label): onset")
+            }
+            let off = Int(routed[0].note) - predicted[0].pitch
+            XCTAssertEqual(off % 12, 0, "\(label): a whole-octave offset only")
+            XCTAssertEqual(predicted.map { $0.pitch + off }, routed.map { Int($0.note) }, "\(label): the pitch contour")
+        }
+    }
+
+    // FILL TAB V2 §7.9 — a CHANCE-skipped bar is flagged dashed and its notes are the PLAIN bar's, drawn grey (fill: false).
+    func testRollRowSkippedBarIsDashedWithPlainNotes() {
+        let sb = (0..<8).first { !euclideousFillChancePlays(lane: 0, bar: $0, chance: 25) } ?? 0
+        var l = EuclidLine(target: 0, pulses: 8, steps: 8, useRiff: true, riffOn: true, sourceMode: .midi)
+        l.rate = .r1_8; l.gate = 0.5; l.velocityAbsolute = 90; l.litNotes = 0; l.notesOn = false
+        l.fillBars = bar(sb); l.fillSpeed = 3; l.fillLength = 1; l.fillChance = 25
+        var buf = [Bool](repeating: false, count: 64); var micro = [Double](repeating: 0, count: 64)
+        let n = euclideousBuildHitPatternInto(l, cells: &buf, micro: &micro)
+        var cfg = EuclideousWalkLaneConfig(buf: Array(buf.prefix(n)), n: n, dir: .fwd, sub: 0.5)
+        cfg.riffDir = .forward; cfg.length = 8; cfg.stride = 1; cfg.rotate = 0; cfg.every = 1; cfg.columns = 8; cfg.gate = 0.5
+        let rb = euclideousFillRollBar(cfg: cfg, line: l, lane: 0, pool: cmaj.map { Int($0) }, riffOct: 0, baseVel: 90,
+                                       ranks: [1, 2, 3, 4, 5, 6, 7, 8], bar: sb, beatsPerBar: 4, originBeat: 0)
+        XCTAssertTrue(rb.skipped, "lit + CHANCE-skipped ⇒ the dashed state")
+        XCTAssertEqual(rb.regionHi - rb.regionLo, 2, accuracy: 1e-9, "the would-be ½ region is framed for the dashed outline")
+        XCTAssertEqual(rb.notes.count, 8, "the whole bar's PLAIN notes (8 steps)")
+        XCTAssertTrue(rb.notes.allSatisfy { !$0.fill }, "drawn as normal notes, not fill")
     }
 
     // §7 — a NOTES mode on a CHANCE-skipped bar changes nothing (the skipped bar plays exactly as no fill).
