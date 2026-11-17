@@ -648,6 +648,9 @@ final class Router {
     private var loopLoNow = 0, loopHiNow = 0, loopWasActive = false
     private var euclideousLoopOrigin = [Int64](repeating: 0, count: 4)
     private var euclideousLoopOriginSet = [Bool](repeating: false, count: 4)
+    // RIBBON SETTINGS §7 (RELEASE CONTINUE) — per-lane riff walk offset so the riff CONTINUES from the last column a hold/loop read when it ends (instead of SLIPping back). `euclideousRiffContinueHeldCol` is the column the hold/loop made the riff read on the PREVIOUS hit (−1 = it was not held), used to compute the offset at the release edge. Reset at a melody restart / transport edge / SLIP; inert under SLIP (the default). Stack CONTINUE (§7.3) is a deferred follow-up.
+    private var euclideousRiffWalkOffset = [Int](repeating: 0, count: 4)
+    private var euclideousRiffContinueHeldCol = [Int](repeating: -1, count: 4)
     // RIBBON SETTINGS (2026-11-16) §6.5-6.9 — TUTTI FIRING. A rank-carrying pre-pass (built after the clock pre-pass, before any lane plays) that
     // groups this window's included hits by MUSICAL beat and, where a trigger reads a marked step / plays a marked rank, fires the winning rank to the
     // other included hits on that beat. All fixed-size (no allocation); the whole path is gated on `p.ribbon.tuttiActive`, so with no mark it is inert.
@@ -1247,6 +1250,7 @@ final class Router {
         for i in 0..<4 { laneStat.played[i] = 0 }
         canonElapsedAccum = 0; canonWinElapsed = 0; canonHistory.reset(); canonBufChord = .min; canonBufEntry = .min
         for i in 0..<4 { euclideousLoopOriginSet[i] = false }   // RIBBON SETTINGS §9.2: the loop's k-origin is an advOrd, which restarts with the walk at a transport edge / reset / scene flush
+        for i in 0..<4 { euclideousRiffWalkOffset[i] = 0; euclideousRiffContinueHeldCol[i] = -1 }   // RIBBON SETTINGS §7.4: the CONTINUE walk offset resets on a transport stop / reset / scene flush
     }
     // INPUTS + HARMONY §2.9: the source of each of the first 16 notes in the shared pool buffer (0 MIDI · 1 CHORDS · 2 PICK · 3 KEY) and which sources the build had lit (bit 0 MIDI playing · 1 CHORDS · 2 PICK · 3 KEY) — written by EVERY build (live, lane, canon),
     // read where the lane's status is written. Fixed-size, no allocation.
@@ -4163,8 +4167,23 @@ final class Router {
                                 loopColNow = euclideousRibbonLoopColumn(k: advOrd - euclideousLoopOrigin[lineIndex], spanA: loopLoNow, spanB: loopHiNow, direction: riffDir, stride: riffStride, every: riffAdvanceEvery, seed: seed) - 1
                             }
                         }
+                        // RIBBON SETTINGS §7.2/§7.4 (RELEASE CONTINUE, riff): continue the natural walk from the last column a hold/loop read when it ends under CONTINUE. The offset applies to the natural walk only (a hold/loop column overrides it while active). Reset at a melody restart (advOrd zeroed). Inert under SLIP / no hold ⇒ byte-identical.
+                        var riffWalkOff = 0
+                        if isEuclideousRow {
+                            let riffIncl = p.ribbon.riffLaneIncluded(lineIndex)
+                            let heldCol = !riffIncl ? -1 : (loopColNow >= 0 ? loopColNow : (scrubRiffColNow != 0 ? scrubRiffColNow - 1 : -1))
+                            let prevHeld = euclideousRiffContinueHeldCol[lineIndex]
+                            if advOrd < euclideousRiffLastOrd[lineIndex] || p.ribbon.release != .carryOn { euclideousRiffWalkOffset[lineIndex] = 0 }   // §7.4: a melody restart, or RELEASE = SLIP, clears the offset
+                            if heldCol < 0, prevHeld >= 0, p.ribbon.release == .carryOn {   // §7.2: the hold/loop just ENDED under CONTINUE — continue from `prevHeld`
+                                let period = euclideousFXWalkPeriod(dir: riffDir, length: riffLength, stride: riffStride) * max(1, riffAdvanceEvery)
+                                euclideousRiffWalkOffset[lineIndex] = euclideousRibbonContinueOffset(nextOrdinal: advOrd, last: prevHeld, currentOffset: euclideousRiffWalkOffset[lineIndex], period: period,
+                                    valueAt: { euclideousRiffColumn(ordinal: $0, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns) })
+                            }
+                            euclideousRiffContinueHeldCol[lineIndex] = heldCol
+                            if heldCol < 0, p.ribbon.release == .carryOn { riffWalkOff = euclideousRiffWalkOffset[lineIndex] }
+                        }
                         let playedStep = (loopColNow >= 0 && loopRiffInc) ? loopColNow
-                            : euclideousRiffColumn(ordinal: advOrd, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
+                            : euclideousRiffColumn(ordinal: advOrd + Int64(riffWalkOff), every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
                         if isEuclideousRow {
                             euclideousRiffStep[lineIndex] = playedStep   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern — now true in BOTH modes
                             euclideousRiffLastOrd[lineIndex] = advOrd    // RIFF MARKERS/FOOTERS poll (2026-10-12): the ordinal this cursor just advanced on
