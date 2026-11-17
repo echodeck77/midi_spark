@@ -109,14 +109,25 @@ struct EuclideousLaneStripLayout: Equatable {
     var segmentWidth: CGFloat { segments.first?.width ?? 0 }
     var belowFloor: Bool { segmentWidth < EuclideousLaneStripMetrics.segmentFloor }
 }
-/// The strip's frames for a lane area `width` wide (landscape: columns 1–2; portrait: the page): the tab control takes what the dice and the padlock (28 each) and their gaps (sp8, sp4) leave.
-/// MIX is the last segment of the one control now (Paul, 2026-10-30), not its own container. Landscape reference 769.33 → control 701.33, six segments (ANSWER ferry) 113.39; portrait 782 → 714, 115.5.
-func euclideousLaneStripLayout(width: CGFloat, tabCount: Int = euclideousLaneStripOrder().count) -> EuclideousLaneStripLayout {
+/// DICE + PADLOCK = DEV-only (Paul 2026-11-17): the random dice and the lane-lock padlock show in the strip only in DEBUG
+/// builds, hidden in release — the same convention as the ANSWER tab / CLASHES / FX COUNTS. The engine, the stored lock
+/// state and a locked lane's own card BADGE (which still unlocks) are untouched; release just cannot start the modes from
+/// the strip, and the tab control takes the freed width.
+#if DEBUG
+let euclideousStripTilesVisible = true
+#else
+let euclideousStripTilesVisible = false
+#endif
+
+/// The strip's frames for a lane area `width` wide (landscape: columns 1–2; portrait: the page): the tab control takes what the dice and the padlock (28 each) and their gaps (sp8, sp4) leave — or, with the tiles hidden
+/// (release, dice+padlock dev-only 2026-11-17), the full width (the tile frames come back `.zero`; `tilesVisible` is a parameter only so the tests can check both builds).
+/// MIX is the last segment of the one control now (Paul, 2026-10-30), not its own container. Landscape reference 769.33 → control 701.33, six segments (ANSWER ferry) 113.39; portrait 782 → 714, 115.5 (DEBUG; release spans the width).
+func euclideousLaneStripLayout(width: CGFloat, tabCount: Int = euclideousLaneStripOrder().count, tilesVisible: Bool = euclideousStripTilesVisible) -> EuclideousLaneStripLayout {
     typealias M = EuclideousLaneStripMetrics
     let w = max(1, width)
     let padlockX = w - M.tileSize
     let diceX = padlockX - M.sp4 - M.tileSize
-    let controlW = max(1, diceX - M.sp8)
+    let controlW = tilesVisible ? max(1, diceX - M.sp8) : w
     let control = CGRect(x: 0, y: 0, width: controlW, height: M.height)
     let count = max(1, tabCount)                          // the VISIBLE tabs (euclideousLaneStripOrder): nine in DEBUG, eight in release (ANSWER dev-only, 2026-11-16)
     let segW = max(1, (controlW - 2 * M.containerInset - CGFloat(count - 1) * M.segmentGap) / CGFloat(count))
@@ -127,9 +138,9 @@ func euclideousLaneStripLayout(width: CGFloat, tabCount: Int = euclideousLaneStr
         segs.append(r)
         targets.append(CGRect(x: r.minX, y: r.midY - M.targetHeight / 2, width: r.width, height: M.targetHeight))
     }
-    let dice = CGRect(x: diceX, y: 0, width: M.tileSize, height: M.tileSize)
-    let padlock = CGRect(x: padlockX, y: 0, width: M.tileSize, height: M.tileSize)
-    func target(_ tile: CGRect) -> CGRect { CGRect(x: tile.midX - M.tileTargetWidth / 2, y: tile.midY - M.targetHeight / 2, width: M.tileTargetWidth, height: M.targetHeight) }
+    let dice = tilesVisible ? CGRect(x: diceX, y: 0, width: M.tileSize, height: M.tileSize) : .zero
+    let padlock = tilesVisible ? CGRect(x: padlockX, y: 0, width: M.tileSize, height: M.tileSize) : .zero
+    func target(_ tile: CGRect) -> CGRect { tile == .zero ? .zero : CGRect(x: tile.midX - M.tileTargetWidth / 2, y: tile.midY - M.targetHeight / 2, width: M.tileTargetWidth, height: M.targetHeight) }
     return EuclideousLaneStripLayout(bounds: CGRect(x: 0, y: 0, width: w, height: M.height), tabControl: control, segments: segs, segmentTargets: targets,
                                      dice: dice, padlock: padlock, diceTarget: target(dice), padlockTarget: target(padlock), clustersVisible: segW >= M.segmentFloor)
 }

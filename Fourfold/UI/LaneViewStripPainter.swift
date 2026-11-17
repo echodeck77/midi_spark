@@ -98,8 +98,11 @@ struct EuclideousLaneViewStrip: View {
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: M.containerRadius).fill(Color(M.container)).frame(width: L.tabControl.width, height: L.tabControl.height)
             ForEach(0..<L.segments.count, id: \.self) { i in segment(i, L) }     // RHYTHM · RIFF · NOTES · LISTEN · MIX (MIX is just the fifth segment, 2026-10-30)
-            dice.frame(width: M.tileTargetWidth, height: M.targetHeight).offset(x: L.diceTarget.minX, y: L.diceTarget.minY)
-            padlock.frame(width: M.tileTargetWidth, height: M.targetHeight).offset(x: L.padlockTarget.minX, y: L.padlockTarget.minY)
+            // DICE + PADLOCK dev-only (Paul 2026-11-17): release hides both (the layout hands back .zero frames; the tab control spans the width).
+            if euclideousStripTilesVisible {
+                dice.frame(width: M.tileTargetWidth, height: M.targetHeight).offset(x: L.diceTarget.minX, y: L.diceTarget.minY)
+                padlock.frame(width: M.tileTargetWidth, height: M.targetHeight).offset(x: L.padlockTarget.minX, y: L.padlockTarget.minY)
+            }
         }
         .frame(width: width, height: M.height, alignment: .topLeading)
         .accessibilityElement(children: .contain)

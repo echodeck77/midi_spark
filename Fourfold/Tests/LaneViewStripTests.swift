@@ -26,6 +26,21 @@ final class LaneViewStripTests: XCTestCase {
         XCTAssertFalse(L.clustersVisible); XCTAssertTrue(L.belowFloor)   // FILL (2026-11-13): the 8th tab drops segments to 84 pt (< the 96 cluster floor), so the per-lane cluster dots hide at the reference; the labels still fit (6 chars ≈ 47 pt)
     }
 
+    // DICE + PADLOCK dev-only (Paul 2026-11-17): release hides both tiles and the tab control spans the full width;
+    // DEBUG keeps today's frames. The flag convention matches the ANSWER tab's.
+    func testDiceAndPadlockAreDevOnly() {
+        let w: CGFloat = 769.33
+        let dev = euclideousLaneStripLayout(width: w, tabCount: 9, tilesVisible: true)
+        let rel = euclideousLaneStripLayout(width: w, tabCount: 8, tilesVisible: false)
+        XCTAssertEqual(dev.dice.width, 28); XCTAssertEqual(dev.padlock.width, 28)
+        XCTAssertEqual(dev.padlock.maxX, w, accuracy: 1e-9)
+        XCTAssertEqual(dev.tabControl.width, w - 28 - 4 - 28 - 8, accuracy: 1e-9, "DEBUG: the control leaves the tiles' room, as today")
+        XCTAssertEqual(rel.dice, .zero); XCTAssertEqual(rel.padlock, .zero)
+        XCTAssertEqual(rel.diceTarget, .zero); XCTAssertEqual(rel.padlockTarget, .zero)
+        XCTAssertEqual(rel.tabControl.width, w, accuracy: 1e-9, "release: the tab control takes the freed width")
+        XCTAssertGreaterThan(rel.segmentWidth, 0)
+    }
+
     // ANSWER dev-only (2026-11-16): the strip drops the ANSWER (`.listen`) tab in release, keeps it in DEBUG; nothing else moves.
     func testAnswerTabIsDevOnly() {
         let debug = euclideousLaneStripOrder(answerVisible: true)
