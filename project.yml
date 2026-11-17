@@ -221,6 +221,7 @@ targets:
     sources:
       - Fourfold/Tests
       - path: Fourfold/Engine/Derivations.swift
+      - path: Fourfold/Engine/StyleTokens.swift   # STYLE PASS 1 (2026-11-17): the surface/selected/text tokens (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/CardBack.swift
       - path: Fourfold/Engine/Models.swift
       - path: Fourfold/Engine/Snapshot.swift

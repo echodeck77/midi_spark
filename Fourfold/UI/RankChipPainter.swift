@@ -68,7 +68,7 @@ struct EuclideousRankChipView: View {
     }
     private var useStack: Bool { stackRank && !isTop }
     var body: some View {
-        let fill = spec.received ? Color(h: 0x30343C) : Color(h: 0x17191E)
+        let fill = spec.received ? Color(h: 0x30343C) : Color(h: FourfoldStyle.card)
         let border = spec.received ? Color(h: 0x454A54) : Color(h: 0x202329)
         let corner = spec.cornerNumber && !isTop && !spec.empty && !useStack && euclideousRankChipFitsCorner(width: size.width, height: size.height, name: spec.name)
         ZStack(alignment: .bottom) {

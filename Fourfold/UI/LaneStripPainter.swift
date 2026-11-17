@@ -33,7 +33,7 @@ enum EuclideousStripPalette {
     static let ink = Color(h: 0x0D0F14)
     /// The NOTES tab's key looks (`EuclideousRankChipView`): a received note, and an octave copy / an unlit key.
     static let keyPlays = Color(h: 0x30343C), keyPlaysBorder = Color(h: 0x454A54)
-    static let keyDark = Color(h: 0x17191E), keyDarkBorder = Color(h: 0x202329)
+    static let keyDark = Color(h: FourfoldStyle.card), keyDarkBorder = Color(h: 0x202329)
     static let keyLabel = Color(h: 0xCBCCCE)   // white @ 75% over #30343C — the tab key's label
     static let keyLabelLit = Color(h: 0xF2F4F7)
 }

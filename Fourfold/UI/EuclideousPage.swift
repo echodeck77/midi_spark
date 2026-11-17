@@ -4441,7 +4441,7 @@ struct EuclideousPage: View {
         let lo = (pitches.min() ?? 60) - 1, hi = (pitches.max() ?? 72) + 1
         let span = max(1, hi - lo)
         return AnyView(Canvas { ctx, sz in
-            ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: sz), cornerRadius: 6), with: .color(Color(hex: 0x17191E)))
+            ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: sz), cornerRadius: 6), with: .color(Color(hex: FourfoldStyle.card)))
             let barW = sz.width / CGFloat(n)
             let inset: CGFloat = 4
             func xOf(_ b: Double) -> CGFloat { CGFloat((b - loBeat) / max(1e-6, hiBeat - loBeat)) * sz.width }
@@ -6041,7 +6041,7 @@ struct EuclideousPage: View {
         }
         .padding(pad)
         .frame(width: bodyW, height: bodyH, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x17191E)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0x33363D), lineWidth: 1))
         .offset(x: bodyX, y: bodyY)
         .accessibilityElement(children: .contain).accessibilityLabel("Ranks, lane \(lane + 1)").accessibilityAddTraits(.isModal)   // amend 3 §C2.1
@@ -6329,7 +6329,7 @@ struct EuclideousPage: View {
         }
         .padding(6)
         .frame(width: bodyW, height: bodyH, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x17191E)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0x33363D), lineWidth: 1))
         .offset(x: bodyX, y: bodyY)
         .accessibilityElement(children: .contain).accessibilityLabel("\(title), chip \(target.chip + 1) of \(count)").accessibilityAddTraits(.isModal)
@@ -6460,7 +6460,7 @@ struct EuclideousPage: View {
             }
         }
         .padding(16).frame(width: cardW)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(hex: 0x17191E)))
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(hex: FourfoldStyle.card)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0x33363D), lineWidth: 1))
         .frame(width: box.width, height: box.height).accessibilityAddTraits(.isModal)
     }
@@ -6591,7 +6591,7 @@ struct EuclideousPage: View {
             }
         }
         .padding(16).frame(width: cardW)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(hex: 0x17191E)))
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(hex: FourfoldStyle.card)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0x33363D), lineWidth: 1))
         .frame(width: box.width, height: box.height)   // centre the card over the lane block
         .accessibilityElement(children: .contain).accessibilityLabel("Play as").accessibilityAddTraits(.isModal)

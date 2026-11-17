@@ -27,7 +27,7 @@ enum EuclideousMixV2Metrics {
     // §6 — emitters; EMITTER TOKEN ferry §3.2–3.5: a RATCH-style card per band (x 40–92 of the column, 52 wide, top band+42, height 2·rowH+6) with the 36 pt token centred in it and an 8 pt inlet on the card's left edge (column x 40 = the line endpoint).
     static let emitterD: CGFloat = 36, emitterX: CGFloat = 40
     static let emitterCardW: CGFloat = 52, emitterCardTopGap: CGFloat = 42, emitterCardRadius: CGFloat = 10, inletDot: CGFloat = 8
-    static let emitterCardFillHex: UInt32 = 0x1B1D23, emitterCardBorderHex: UInt32 = 0x23262D
+    static let emitterCardFillHex: UInt32 = 0x1B1D23, emitterCardBorderHex: UInt32 = FourfoldStyle.control
     static let lineBend1: CGFloat = 23, lineBend2: CGFloat = 18.5
     // §3.3 — the fork's control-point x's
     static let forkC1: CGFloat = 63.8, forkC2: CGFloat = 62.2

@@ -11,7 +11,7 @@
 import SwiftUI
 
 enum EmitterRatchetPalette {
-    static let card = Color(hex: 0x1B1D23), cardEdge = Color(hex: 0x23262D), slot = Color(hex: 0x20232A), current = Color(hex: 0x2A2D34)
+    static let card = Color(hex: 0x1B1D23), cardEdge = Color(hex: FourfoldStyle.control), slot = Color(hex: 0x20232A), current = Color(hex: 0x2A2D34)
     static let disc = Color(hex: 0x2A2D34), restDot = Color(hex: 0x3A3E47), offRing = Color(hex: 0x3A3E47), rule = Color(hex: 0x262930)
     static let light = Color(hex: 0xDFE3EA), text = Color(hex: 0xF2F4F7), muted = Color(hex: 0x8A909A), ink = Color(hex: 0x0D0F14), pressedLabel = Color(hex: 0x2A2D34)
     // STEP-COUNT CLARITY (2026-11-03, device-owed): the "too gray" slots were #20232A, barely above the #1B1D23 card. The active steps now read as countable cells — a brighter two-tone beat shading (groups of four, A / B),
@@ -555,7 +555,7 @@ struct EmitterRatchetExpandedView: View {
         content(height)
             .frame(width: width, height: height, alignment: .center)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1B1D23)))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x23262D), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: FourfoldStyle.control), lineWidth: 1))
     }
 
     // the big strip (same base/flare the collapsed card draws, taller) — in HIT mode a tap on a hit cycles its count 1 → 2 → 3 → 4 (§5)
@@ -613,7 +613,7 @@ struct EmitterRatchetExpandedView: View {
         .padding(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 6))
         .frame(width: width, height: 34, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1B1D23)))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x23262D), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: FourfoldStyle.control), lineWidth: 1))
     }
 
     // §6.6 STRIKES: the ×2 ×3 ×4 chips (dim + inert while PER HIT is on) + the PER HIT switch.

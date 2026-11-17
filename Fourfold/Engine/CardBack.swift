@@ -129,7 +129,7 @@ enum EuclideousCardBackMetrics {
     /// The retired back's own body top (62: sp8 under the top row). The live card's is 58 since PLAY BUTTONS AMENDMENT 1 (g = 4 under the row); this hidden, unreachable layout keeps its old figure.
     static let bodyTop: CGFloat = 62
     /// §4.2: the BACK's own fill and a 1 pt lane100 border at 28 % — on the CARD (CARD BACKS v2 puts them there; the first build drew them round the roll panel instead and left the card in the front's #1B1D23).
-    static let fillColor = HocketColor(0x17191E), borderAlpha = 0.28, borderWidth: CGFloat = 1, cardRadius: CGFloat = 12
+    static let fillColor = HocketColor(FourfoldStyle.card), borderAlpha = 0.28, borderWidth: CGFloat = 1, cardRadius: CGFloat = 12
     // inside a row (§4.4, CARD BACKS v2): [VEL/GATE pad][sp4][PITCH pad][sp8][roll panel]; the pads keep 72 pt each until the roll panel would drop under 176, then give way down to their 44 pt floor
     static let padWidth: CGFloat = 72, padGap: CGFloat = 4, columnGap: CGFloat = 8
     static let rollPanelPreferredMin: CGFloat = 176
