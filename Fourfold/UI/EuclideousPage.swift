@@ -2040,10 +2040,10 @@ struct EuclideousPage: View {
     // riff panel's x, the lane gutter's x) from `euclideousPageLayout`, so the body and the header can never disagree. No ScrollView, no
     // `.minimumScaleFactor` (house rules): text that doesn't fit truncates.
     private typealias HM = EuclideousHeaderMetrics
-    private var headerInk: Color { Color(hex: 0x0D0F14) }
+    private var headerInk: Color { Color(hex: FourfoldStyle.selectedInk) }
     private var headerText: Color { Color(hex: 0xF2F4F7) }
-    private var headerMuted: Color { Color(hex: 0xAAB0BA) }
-    private var headerDim: Color { Color(hex: 0x8A909A) }
+    private var headerMuted: Color { Color(hex: FourfoldStyle.label) }   // STYLE PASS 1 §5.2 (was #AAB0BA)
+    private var headerDim: Color { Color(hex: FourfoldStyle.label) }   // STYLE PASS 1 §5.2: one icon colour (was #8A909A)
 
     private func fourfoldHeader(_ layout: EuclideousHeaderLayout, containerW: CGFloat) -> some View {
         let rowStep = HM.rowH + HM.sp4
@@ -2073,14 +2073,14 @@ struct EuclideousPage: View {
                 Color.clear.frame(width: HM.sp16, height: 1)
             }
             // §3.3: undo/redo keep their glyphs and their 40%-disabled look, 18pt #AAB0BA, on adjacent targets.
-            Image(systemName: "arrow.uturn.backward").font(.system(size: 18, weight: .bold))
-                .foregroundColor(headerMuted.opacity(canUndo ? 1 : 0.4))
+            Image(systemName: "arrow.uturn.backward").font(.system(size: 18, weight: .medium))
+                .foregroundColor(canUndo ? headerMuted : Color(hex: FourfoldStyle.disabled))   // §5.2 disabled is a colour now
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
                 .onTapGesture { if canUndo { onUndo() } }
                 .euclideousHelp("Undo the last change")
                 .accessibilityLabel("Undo").accessibilityAddTraits(.isButton)
-            Image(systemName: "arrow.uturn.forward").font(.system(size: 18, weight: .bold))
-                .foregroundColor(headerMuted.opacity(canRedo ? 1 : 0.4))
+            Image(systemName: "arrow.uturn.forward").font(.system(size: 18, weight: .medium))
+                .foregroundColor(canRedo ? headerMuted : Color(hex: FourfoldStyle.disabled))
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
                 .onTapGesture { if canRedo { onRedo() } }
                 .euclideousHelp("Redo the last undone change")
@@ -2100,10 +2100,9 @@ struct EuclideousPage: View {
         let glyphColor: Color = on ? Color(hex: 0x0D0F14) : (any ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
         return AnyView(ZStack {
             RoundedRectangle(cornerRadius: S.tilePlateRadius)
-                .fill(on ? Color(hex: FourfoldStyle.selectedFill) : Color.clear)
-                .overlay(RoundedRectangle(cornerRadius: S.tilePlateRadius).strokeBorder(on ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
+                .fill(Color(hex: FourfoldSelect.switchFill(on)))   // STYLE PASS 1 §2.3/§5.2: the off plate is the control tone, its border is gone (was clear + 1 pt #3A3E47)
                 .frame(width: S.tileSize, height: S.tileSize)
-            Image(systemName: glyph).font(.system(size: S.tileGlyph, weight: .regular)).foregroundColor(glyphColor)
+            Image(systemName: glyph).font(.system(size: S.tileGlyph, weight: .medium)).foregroundColor(glyphColor)
         }
         .frame(width: S.tileTargetWidth, height: S.targetHeight)
         .contentShape(Rectangle())
@@ -2130,11 +2129,10 @@ struct EuclideousPage: View {
         let on = euclideousRandomMode
         return AnyView(ZStack {
             RoundedRectangle(cornerRadius: S.tilePlateRadius)
-                .fill(on ? Color(hex: FourfoldStyle.selectedFill) : Color.clear)
-                .overlay(RoundedRectangle(cornerRadius: S.tilePlateRadius).strokeBorder(on ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
+                .fill(Color(hex: FourfoldSelect.switchFill(on)))   // STYLE PASS 1 §2.3/§5.2: the off plate is the control tone, its border is gone (was clear + 1 pt #3A3E47)
                 .frame(width: S.tileSize, height: S.tileSize)
             Image(systemName: "die.face.4")
-                .font(.system(size: S.tileGlyph, weight: .regular))
+                .font(.system(size: S.tileGlyph, weight: .medium))
                 .foregroundColor(on ? Color(hex: 0x0D0F14) : headerMuted)
             // A moving dotted ("marching ants") line around the dice while random mode is on — purely
             // decorative, so a plain wall-clock TimelineView is fine (not the render/engine path
@@ -2261,7 +2259,7 @@ struct EuclideousPage: View {
     private func headerHoldLatchChip(_ mode: EuclideousHoldLatchMode, label: String, width: CGFloat, enabled: Bool) -> some View {
         let active = enabled && holdLatchMode == mode
         return ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(active ? Color(hex: FourfoldStyle.selectedFill) : Color.clear).frame(height: 24)
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldSelect.switchFill(active))).frame(height: 24)   // STYLE PASS 1 §5.1: off = the control tone (was clear)
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
                 .foregroundColor(!enabled ? headerMuted.opacity(0.4) : (active ? headerInk : headerMuted)).lineLimit(1)
         }
@@ -2284,7 +2282,7 @@ struct EuclideousPage: View {
         return HStack(spacing: 0) {
             hocketHeaderButton
             Color.clear.frame(width: HM.sp8, height: 1)
-            Image(systemName: "folder").font(.system(size: 18)).foregroundColor(headerDim)
+            Image(systemName: "folder").font(.system(size: 18, weight: .medium)).foregroundColor(headerDim)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
                 .onTapGesture { settingsOpen = false; swingPopupOpen = false; harmonyOpen = false; hocketPopupOpen = false; onOpenPresets() }   // §2.1: opening it closes the other overlays first
                 .accessibilityLabel("Presets").accessibilityAddTraits(.isButton)
@@ -2292,8 +2290,8 @@ struct EuclideousPage: View {
             // when swing is away from its 50 (straight) default, so a non-neutral value stays visible at a
             // glance even with the popover closed — the whole point of putting this control where it's seen.
             Image(systemName: "metronome")
-                .font(.system(size: 18))
-                .foregroundColor(swingPopupOpen ? Color(hex: 0x0D0F14) : (swing == 50 ? headerDim : Color(hex: 0x4FD1E8)))
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(swingPopupOpen ? headerInk : headerDim)   // STYLE PASS 1 §5.2: one colour - the swing≠50 cyan state tint is gone (flagged in the report)
                 .frame(width: 32, height: 32)
                 .background(RoundedRectangle(cornerRadius: 8).fill(swingPopupOpen ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))
                 .animation(.easeInOut(duration: 0.15), value: swingPopupOpen)
@@ -2309,7 +2307,7 @@ struct EuclideousPage: View {
             // FOURFOLD SETTINGS (2026-10-15 ferry §1): the × (xmark) LEAVES the header — its old job (back to
             // the workbench) moves to the sheet footer's WORKBENCH link (§7.1). UTILITIES is now 4 icons (SWING joined
             // it 2026-10-17, REEL 2026-10-23 — `euclideousHeaderGroupWidths` carries the real count).
-            Image(systemName: "gearshape").font(.system(size: 18)).foregroundColor(settingsOpen ? Color(hex: 0x0D0F14) : headerDim)
+            Image(systemName: "gearshape").font(.system(size: 18, weight: .medium)).foregroundColor(settingsOpen ? Color(hex: 0x0D0F14) : headerDim)
                 .frame(width: 32, height: 32)
                 .background(RoundedRectangle(cornerRadius: 8).fill(settingsOpen ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))
                 .animation(.easeInOut(duration: 0.15), value: settingsOpen)

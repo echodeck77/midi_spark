@@ -13,7 +13,7 @@ final class HocketLooksTests: XCTestCase {
 
     func testTheButtonHasThreeLooks() {
         let off = hocketButtonLook(litRules: 0, open: false)
-        XCTAssertEqual(off.fill, HocketColor(0x2A2D34)); XCTAssertEqual(off.text, HocketColor(0x8A909A)); XCTAssertEqual(off.borderWidth, 0)
+        XCTAssertEqual(off.fill, HocketColor(FourfoldStyle.control)); XCTAssertEqual(off.text, HocketColor(FourfoldStyle.label)); XCTAssertEqual(off.borderWidth, 0)   // STYLE PASS 1 §5.1
         XCTAssertEqual(hocketButtonLabel(litRules: 0).word, "HOCKET"); XCTAssertNil(hocketButtonLabel(litRules: 0).count)
         let on = hocketButtonLook(litRules: 2, open: false)
         XCTAssertEqual(on.fill, HocketColor(0xDFE3EA, 0.12)); XCTAssertEqual(on.borderWidth, 1); XCTAssertEqual(on.border, HocketColor(0xDFE3EA)); XCTAssertEqual(on.text, HocketColor(0xF2F4F7))

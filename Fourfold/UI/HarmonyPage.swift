@@ -305,7 +305,7 @@ struct EuclideousHarmonyPage: View {
                 if let l = r.lane { laneSquare(l) }
                 pillText(r.value, 0xAAB0BA)
             }
-            Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundColor(Color(h: 0xAAB0BA))
+            Image(systemName: "chevron.down").font(.system(size: 10, weight: .medium)).foregroundColor(Color(h: FourfoldStyle.label))
                 .rotationEffect(.degrees(open ? 180 : 0)).fixedSize()
         }
         .padding(.leading, 10).padding(.trailing, 8).frame(height: 24)
@@ -701,12 +701,13 @@ struct EuclideousHarmonyHeaderButton: View {
                 if let r = parts.readout { Spacer().frame(width: M.readoutSp); readoutView(r) }
             }
             Spacer().frame(width: M.sp6)
-            Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundColor(Color(h: 0xAAB0BA)).rotationEffect(.degrees(open ? 180 : 0)).fixedSize().accessibilityHidden(true)
+            Image(systemName: "chevron.down").font(.system(size: 10, weight: .medium)).foregroundColor(Color(h: FourfoldStyle.label)).rotationEffect(.degrees(open ? 180 : 0)).fixedSize().accessibilityHidden(true)
         }
         .padding(.horizontal, M.pad)
         .frame(height: 32)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(h: 0x2A2D34)))
-        .overlay(open ? RoundedRectangle(cornerRadius: 8).strokeBorder(Color(h: 0xDFE3EA), lineWidth: 1.5) : nil)
+        // STYLE PASS 1 §5.4: fill control, no border (was #2A2D34); the OPEN outline is a state stroke and stays (§2.6).
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(h: FourfoldStyle.control)))
+        .overlay(open ? RoundedRectangle(cornerRadius: 8).strokeBorder(Color(h: FourfoldStyle.selectedFill), lineWidth: 1.5) : nil)
         .contentShape(Rectangle()).onTapGesture(perform: onTap)
         .accessibilityElement(children: .ignore).accessibilityLabel("Harmony")
         .accessibilityValue(euclideousHeaderVoiceOver(parts: parts, keySpoken: euclideousKeySpokenName(root: keyRoot, type: keyType), running: running, t: t) + (open ? ", expanded" : ", collapsed"))
@@ -737,12 +738,12 @@ struct EuclideousHarmonyHeaderButton: View {
             }
         }
     }
-    private func lampView(lit: Bool) -> some View {   // §4.2
-        Text("MIDI").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.08 * 8)
-            .foregroundColor(lit ? Color(h: 0x0D0F14) : Color(h: 0x8A909A))
+    private func lampView(lit: Bool) -> some View {   // §4.2 · STYLE PASS 1 §5.4: MIDI is a KEY (§4.1, medium #959BA6)
+        // when unlit — its border is gone; lit it takes the selected pair (was #F2F4F7 fill / #8A909A + #3A3E47 border).
+        Text("MIDI").font(.system(size: 8, weight: lit ? .heavy : .medium, design: .monospaced)).tracking(0.08 * 8)
+            .foregroundColor(lit ? Color(h: FourfoldStyle.selectedInk) : Color(h: FourfoldStyle.key))
             .frame(width: M.lampW, height: M.lampH)
-            .background(RoundedRectangle(cornerRadius: 4).fill(lit ? Color(h: 0xF2F4F7) : Color.clear))
-            .overlay(lit ? nil : RoundedRectangle(cornerRadius: 4).strokeBorder(Color(h: 0x3A3E47), lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 4).fill(lit ? Color(h: FourfoldStyle.selectedFill) : Color.clear))
             .accessibilityHidden(true)
     }
     private func readoutView(_ text: String) -> some View {   // §4.3

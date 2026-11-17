@@ -11192,7 +11192,9 @@ struct HocketButtonLook: Equatable {
 func hocketButtonLook(litRules: Int, open: Bool) -> HocketButtonLook {
     if open { return HocketButtonLook(fill: HocketPalette.light, borderWidth: 0, border: HocketPalette.light, text: HocketPalette.ink) }
     if litRules > 0 { return HocketButtonLook(fill: HocketPalette.litFill, borderWidth: 1, border: HocketPalette.light, text: HocketPalette.text) }
-    return HocketButtonLook(fill: HocketPalette.plate, borderWidth: 0, border: HocketPalette.plate, text: HocketPalette.dim)
+    // STYLE PASS 1 §5.1: closed-with-nothing-lit = the control tone + the label grey (was #2A2D34 + #8A909A); the
+    // closed-lit state above keeps its #DFE3EA@12 fill + 1 pt border (a state look, kept + reported).
+    return HocketButtonLook(fill: HocketColor(FourfoldStyle.control), borderWidth: 0, border: HocketColor(FourfoldStyle.control), text: HocketColor(FourfoldStyle.label))
 }
 /// The label's two runs: "HOCKET", then " · n" (drawn at `countOpacity` of the text colour) when a rule is lit.
 func hocketButtonLabel(litRules n: Int) -> (word: String, count: String?) { ("HOCKET", n > 0 ? " · \(n)" : nil) }
