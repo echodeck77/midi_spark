@@ -106,12 +106,8 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     func riffRing(_ i: Int) -> Bool { i < s.riffRing.count && s.riffRing[i] }
     func stackRing(_ i: Int) -> Bool { i < s.stackRing.count && s.stackRing[i] }
 
-    // STACK GREY §3.2: a 1 pt #F2F4F7 inner stroke on a hit cell while a note that started there (riff or stack) sounds —
-    // over the cell fill + its bottom bar, under the CC trace and the rank bars.
-    for i in 0..<n where i < d.hits.count && d.hits[i].kind != .rhythmRest && (riffRing(i) || stackRing(i)) {
-        let r = d.frames.cells[i].insetBy(dx: 0.5, dy: 0.5)
-        ctx.stroke(RoundedRectangle(cornerRadius: M.cellRadius).path(in: r), with: .color(Color(M.soundStroke)), lineWidth: 1)
-    }
+    // STACK GREY §3.2's white stroke round a sounding hit cell is REMOVED (LANE STRIP CLARITY §6.3): sounding is shown by
+    // the chip (§1.4/§2) and the white rank bar (§4.2); the §6 tick (drawn last, below) shows only where the playhead is.
 
     // ALT §5.9: a 1.5 pt #F2F4F7 inner outline on the body cell of each hit that plays in the alt state (empty set on every other lane / tab / while stopped ⇒ nothing drawn).
     if !d.altHitSteps.isEmpty {
@@ -180,6 +176,16 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
                 }
             }
         }
+    }
+
+    // LANE STRIP CLARITY §6: the playhead TICK — a 2 pt #F2F4F7 bar along the inside of the current cell's top edge,
+    // clipped to the cell's rounded shape (it takes the top corner radius), the SAME on a hit and a rest, drawn on top of
+    // everything in the cell (§6.6). Stopped ⇒ `playheadStep` nil ⇒ none (§6.5).
+    if let p = d.playheadStep, p >= 0 && p < n {
+        let cell = d.frames.cells[p]
+        var c = ctx
+        c.clip(to: RoundedRectangle(cornerRadius: M.cellRadius).path(in: cell))
+        c.fill(Path(laneStripTickRect(cell: cell)), with: .color(Color(M.soundStroke)))
     }
 }
 

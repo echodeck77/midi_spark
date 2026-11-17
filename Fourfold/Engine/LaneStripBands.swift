@@ -47,6 +47,9 @@ enum LaneStripBandMetrics {
     static let slimBandH: CGFloat = 4
     static let slimChipRadius: CGFloat = 1
     static let slimRestOpacity = 0.6
+    /// LANE STRIP CLARITY §6 (§10): the playhead tick — a 2 pt #F2F4F7 bar along the inside of the current cell's top edge
+    /// (clipped to the cell's rounded shape, so it takes the top corner radius), the same on a hit and a rest; none stopped.
+    static let tickH: CGFloat = 2
     /// §3.6: an off part's chips — outline only (1 pt #3A3D44 inner stroke), label #5A5E66, no ring.
     static let offChipStroke = EuclideousRGB(r: 0x3A, g: 0x3D, b: 0x44), offChipLabel = EuclideousRGB(r: 0x5A, g: 0x5E, b: 0x66)
     /// PLAY BUTTONS RAIL+NOTE §5.1 / §10: a stack hit the NOTES layer is predicted to play NOTHING on draws this flat #2B2D33 placeholder (no label, no stroke).
@@ -329,6 +332,11 @@ struct LaneCellLook: Equatable { var fill: LaneCellFill; var bar: Bool }
 func stripCellLook(isHit: Bool, isPlayhead: Bool) -> LaneCellLook {
     if isHit { return LaneCellLook(fill: .hit(atPlayhead: isPlayhead), bar: true) }
     return LaneCellLook(fill: isPlayhead ? .playheadStep : .step, bar: false)
+}
+
+/// LANE STRIP CLARITY §6.1 — the playhead tick's rect inside a cell (the painter clips it to the cell's rounded shape).
+func laneStripTickRect(cell: CGRect) -> CGRect {
+    CGRect(x: cell.minX, y: cell.minY, width: cell.width, height: LaneStripBandMetrics.tickH)
 }
 
 /// §1.7 / §4.2: the step the rhythm sweep is on now (the playhead cell), from the strip's raw tick; nil while stopped.

@@ -103,6 +103,17 @@ final class LaneStripClarityTests: XCTestCase {
         XCTAssertEqual(stripHitConversionCount, 8, "reads never convert")
     }
 
+    // MARK: §8.9/§8.10 — the tick (pure parts: the rect, the stopped gate)
+
+    func testPlayheadTickRectAndStoppedGate() {
+        let cell = CGRect(x: 10, y: 12.5, width: 14.67, height: 19)
+        let t = laneStripTickRect(cell: cell)
+        XCTAssertEqual(t, CGRect(x: 10, y: 12.5, width: 14.67, height: 2), "2 pt, full width, along the inside of the top edge")
+        XCTAssertEqual(LaneStripBandMetrics.tickH, 2)
+        // §6.5/§8.10: stopped ⇒ the painter gets playheadStep nil (the existing `running ?` gate in EuclidCometBar) ⇒ no tick.
+        XCTAssertNil(euclideousStripPlayheadStep(raw: 3.2, n: 0, dir: .fwd), "a degenerate lane has no playhead at all")
+    }
+
     // MARK: §8.4 — the PLAY tiles' note chips share the one function (structural: the same stroke rule at the tile's band height)
 
     func testPlayTileNoteChipUsesTheSameStrokeRule() {
