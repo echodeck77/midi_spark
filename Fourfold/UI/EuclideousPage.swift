@@ -1067,6 +1067,10 @@ struct EuclideousPage: View {
     @State private var loopLo = 0
     @State private var loopHi = 0
     @State private var loopAnchor: Int? = nil
+    // RIBBON SETTINGS §8 (LATCH): per-touch tracking so a lift can tell a quick TAP on the already-latched value (clears it, §8.3) from a new latch. One touch at a time, so one shared set: when the touch started, the held value BEFORE it, and the first value touched (to detect a drag).
+    @State private var ribbonDownAt: Date? = nil
+    @State private var ribbonPreVal = 0
+    @State private var ribbonFirstVal = 0
     // NOTES AUDITION (2026-11-11): the STACK cell held right now (lane / rank position, −1 = none) — drives the held cell's light and greys the lane's other lit cells. Ephemeral; mirrors the live word pushed to the engine.
     @State private var stackAuditionLane = -1
     @State private var stackAuditionPos = -1
@@ -7653,16 +7657,18 @@ struct EuclideousPage: View {
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
                 .overlay(alignment: .topLeading) {
                     EuclideousRibbonSettingsTab(box: box, panel: panel, layout: L, settings: ribbonSettings, laneAccents: laneAccents) { ns in
-                        if ns.touchMode != ribbonSettings.touchMode { clearScrubHolds() }   // §5.4
+                        if ns.touchMode != ribbonSettings.touchMode { clearRibbonLive() }   // §5.4: a TOUCH-mode change clears any live hold or loop
+                        if ribbonSettings.latch && !ns.latch { clearRibbonLive() }           // §8.3: turning LATCH OFF clears any latched value
                         onSetRibbonSettings(ns)
                     }
                 }
             )
         }
     }
-    private func clearScrubHolds() {
-        guard riffColumnHold != 0 || riffRankHold != 0 || stackRankHold != 0 else { return }
-        riffColumnHold = 0; riffRankHold = 0; stackRankHold = 0; pushScrubHolds()
+    // §5.4/§8.3: clear every live ribbon value — the three holds AND the loop.
+    private func clearRibbonLive() {
+        if riffColumnHold != 0 || riffRankHold != 0 || stackRankHold != 0 { riffColumnHold = 0; riffRankHold = 0; stackRankHold = 0; pushScrubHolds() }
+        loopAnchor = nil; if loopLo != 0 { setLoopSpan(0, 0) }
     }
     private func monoRiffGridView(box: CGSize) -> some View {
         let n = 8
@@ -7989,6 +7995,16 @@ struct EuclideousPage: View {
     private func toggleTuttiRank(_ rank: Int) { guard (1...8).contains(rank) else { return }; var ns = ribbonSettings; ns.tuttiRanks ^= UInt8(1) << UInt8(rank - 1); onSetRibbonSettings(ns) }
     // RIBBON SETTINGS §9: the live loop span → the kernel. (0,0) = none.
     private func setLoopSpan(_ lo: Int, _ hi: Int) { if lo != loopLo || hi != loopHi { loopLo = lo; loopHi = hi; onSetLoopSpan(lo, hi) } }
+    // RIBBON SETTINGS §8 (LATCH): begin a ribbon touch (the first onChanged) — the pre-touch latched value + the first value touched.
+    private static let ribbonLatchTapSeconds: Double = 0.25
+    private func ribbonTouchBegin(preVal: Int, firstVal: Int) { if ribbonDownAt == nil { ribbonDownAt = Date(); ribbonPreVal = preVal; ribbonFirstVal = firstVal } }
+    /// §8: on lift, true = CLEAR the hold/loop (LATCH off ⇒ ends on lift, §8.1; or a quick TAP on the already-latched value, §8.3), false = KEEP it latched at `curVal`.
+    private func ribbonReleaseClears(curVal: Int) -> Bool {
+        defer { ribbonDownAt = nil }
+        if !ribbonSettings.latch { return true }                                   // §8.1
+        let quick = ribbonDownAt.map { Date().timeIntervalSince($0) < Self.ribbonLatchTapSeconds } ?? false
+        return quick && curVal == ribbonFirstVal && ribbonPreVal == curVal && curVal != 0   // §8.3: a tap (no drag), on a value that was already latched
+    }
 
     /// §2.1/§2.2 — the two riff ribbons (column over the rail block, rank over the note-label column), in the riff panel's coordinate space. Mounted over the grid; neither overlaps the editable cells, so cell editing is unchanged (§12). Clears on lift and when the panel disappears (§1.3).
     private func scrubRiffRibbons(layout: EuclideousRiffPanelLayout) -> some View {
@@ -8003,34 +8019,42 @@ struct EuclideousPage: View {
                         switch ribbonSettings.touchMode {
                         case .tutti: if !tuttiDragHandled { tuttiDragHandled = true; toggleTuttiStep(col) }   // §6.1: one mark per touch-down
                         case .loop:                                                                           // §9.1: anchor at touch-down, drag extends min…max
-                            if loopAnchor == nil { loopAnchor = col }
+                            if loopAnchor == nil { ribbonTouchBegin(preVal: loopLo, firstVal: col); loopAnchor = col }
                             setLoopSpan(min(loopAnchor ?? col, col), max(loopAnchor ?? col, col))
-                        case .scrub: setRiffColumnHold(col)
+                        case .scrub: ribbonTouchBegin(preVal: riffColumnHold, firstVal: col); setRiffColumnHold(col)   // §8.2: a new touch takes over the latch
                         }
                     }
-                    .onEnded { _ in
+                    .onEnded { v in
+                        let col = euclideousScrubColumn(x: v.location.x, layout: layout)
                         switch ribbonSettings.touchMode {
                         case .tutti: tuttiDragHandled = false
-                        case .loop: loopAnchor = nil; if !ribbonSettings.latch { setLoopSpan(0, 0) }   // §8/§9.1: clears on lift unless LATCH holds it (slice 10)
-                        case .scrub: setRiffColumnHold(0)
+                        case .loop:   // §8.1/§8.3: lift clears unless LATCH holds it; a quick tap while a loop was latched clears it
+                            let quick = ribbonDownAt.map { Date().timeIntervalSince($0) < Self.ribbonLatchTapSeconds } ?? false
+                            loopAnchor = nil; ribbonDownAt = nil
+                            if !ribbonSettings.latch || (quick && col == ribbonFirstVal && ribbonPreVal != 0) { setLoopSpan(0, 0) }
+                        case .scrub: if ribbonReleaseClears(curVal: riffColumnHold) { setRiffColumnHold(0) }
                         }
                     })
                 .offset(x: colX, y: colY)
             Color.clear.frame(width: layout.labelW, height: max(1, rankH)).contentShape(Rectangle())                      // §2.2 rank ribbon
                 .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.scrubRiffSpace))
                     .onChanged { v in
+                        let rank = euclideousScrubRiffRank(y: v.location.y, layout: layout)
                         if ribbonSettings.touchMode == .tutti {
-                            if !tuttiDragHandled { tuttiDragHandled = true; toggleTuttiRank(euclideousScrubRiffRank(y: v.location.y, layout: layout)) }
-                        } else { setRiffRankHold(euclideousScrubRiffRank(y: v.location.y, layout: layout)) }
+                            if !tuttiDragHandled { tuttiDragHandled = true; toggleTuttiRank(rank) }
+                        } else { ribbonTouchBegin(preVal: riffRankHold, firstVal: rank); setRiffRankHold(rank) }
                     }
-                    .onEnded { _ in if ribbonSettings.touchMode == .tutti { tuttiDragHandled = false } else { setRiffRankHold(0) } })
+                    .onEnded { _ in if ribbonSettings.touchMode == .tutti { tuttiDragHandled = false } else if ribbonReleaseClears(curVal: riffRankHold) { setRiffRankHold(0) } })
                 .offset(x: EuclideousRiffPanelMetrics.padding, y: rankY)
         }
         .frame(width: layout.box.width, height: layout.box.height, alignment: .topLeading)
         .coordinateSpace(name: Self.scrubRiffSpace)
         .onDisappear {
-            if riffColumnHold != 0 || riffRankHold != 0 { riffColumnHold = 0; riffRankHold = 0; pushScrubHolds() }   // §1.3: a tab change away clears the riff holds
-            loopAnchor = nil; if !ribbonSettings.latch, loopLo != 0 { setLoopSpan(0, 0) }   // §9/§8: and the loop, unless LATCH holds it
+            ribbonDownAt = nil
+            if !ribbonSettings.latch {   // §1.3: a tab change away clears the riff holds + loop — but a LATCHED value survives (§2.3)
+                if riffColumnHold != 0 || riffRankHold != 0 { riffColumnHold = 0; riffRankHold = 0; pushScrubHolds() }
+                loopAnchor = nil; if loopLo != 0 { setLoopSpan(0, 0) }
+            }
         }
     }
     /// §2.3 — the stack rank ribbon over the STACK grid's axis column. Clears on lift and when the grid disappears.
@@ -8039,15 +8063,16 @@ struct EuclideousPage: View {
         return Color.clear.frame(width: a0.width, height: max(1, a7.maxY - a0.minY)).contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.scrubStackSpace))
                 .onChanged { v in
+                    let rank = euclideousScrubStackRank(y: v.location.y, layout: layout)
                     if ribbonSettings.touchMode == .tutti {   // §6.1: the stack axis toggles a rank mark on touch-down
-                        if !tuttiDragHandled { tuttiDragHandled = true; toggleTuttiRank(euclideousScrubStackRank(y: v.location.y, layout: layout)) }
-                    } else { setStackRankHold(euclideousScrubStackRank(y: v.location.y, layout: layout)) }
+                        if !tuttiDragHandled { tuttiDragHandled = true; toggleTuttiRank(rank) }
+                    } else { ribbonTouchBegin(preVal: stackRankHold, firstVal: rank); setStackRankHold(rank) }   // §8.2
                 }
-                .onEnded { _ in if ribbonSettings.touchMode == .tutti { tuttiDragHandled = false } else { setStackRankHold(0) } })
+                .onEnded { _ in if ribbonSettings.touchMode == .tutti { tuttiDragHandled = false } else if ribbonReleaseClears(curVal: stackRankHold) { setStackRankHold(0) } })
             .offset(x: a0.minX, y: a0.minY)
             .frame(width: layout.box.width, height: layout.box.height, alignment: .topLeading)
             .coordinateSpace(name: Self.scrubStackSpace)
-            .onDisappear { if stackRankHold != 0 { stackRankHold = 0; pushScrubHolds() } }
+            .onDisappear { if !ribbonSettings.latch, stackRankHold != 0 { stackRankHold = 0; pushScrubHolds() } }   // §2.3: a latched stack rank survives a tab change
     }
     private func riffPanelOverlay(layout: EuclideousRiffPanelLayout, ranks: [Int], suppressArrows: Bool, played: [Set<Int>]) -> some View {
         // RIFF GRID STACK DOTS: the per-lane inputs are built once per body eval (they change on edits, not per frame); the Canvas re-evaluates the fade + sweep at the live beat inside the TimelineView.
