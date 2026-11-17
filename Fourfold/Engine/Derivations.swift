@@ -5127,6 +5127,59 @@ func euclideousRiffPanelLayout(box: CGSize) -> EuclideousRiffPanelLayout {
     return EuclideousRiffPanelLayout(box: box, cellW: cellW, rowH: rowH, cellH: min(max(1, rowH), cellW), labelW: labelW, tabRowH: tabRowH)
 }
 
+// MARK: - RIBBON SETTINGS ferry (2026-11-16) §4/§5 — the settings button + tab layout (pure, allocation-free; the view draws from these, the test pins them)
+
+/// §12 — tunable on device (change none in this ferry).
+enum EuclideousRibbonSettingsMetrics {
+    static let rowH: CGFloat = 25          // §5.2
+    static let rowGap: CGFloat = 4         // §5.2
+    static let headerGap: CGFloat = 9      // §5.2 (the gap before PARTS)
+    static let headerH: CGFloat = 11       // the small header row: 6.5pt text + a 0.5pt rule
+    static let buttonRadius: CGFloat = 6   // §4.2
+    static let tileRadius: CGFloat = 4.5   // §5.3
+    static let buttonMin: CGFloat = 30     // §4.1 gate: below 30×30 at any layout, stop + report
+    static let unmarkedFade: Double = 0.30 // §6.2 (used from slice 6)
+    static let partOffDim: Double = 0.35   // §5.3 — a part toggle off dims its four lane tiles
+    static let latchTapWindow: Double = 0.25 // §8 (used from slice 10)
+}
+/// §4/§5 — the settings button's frame and the tab's row origins, in the riff panel's own space (0,0 = its top-left).
+/// Horizontal placement of the controls inside each row is the view's job (it reads the panel layout's `columnLeft`/`cellW` so the
+/// column-aligned halves and lane pairs line up with the grid); this struct pins the vertical stack, the label column and the button.
+struct EuclideousRibbonSettingsLayout: Equatable {
+    var button: CGRect
+    var buttonFits: Bool
+    var labelX: CGFloat, labelW: CGFloat        // §5.2: the label column is the rank axis column
+    var controlsX: CGFloat, controlsW: CGFloat  // §5.2: controls span the grid's eight columns
+    var rowH: CGFloat, headerH: CGFloat
+    var ribbonsHeaderY: CGFloat
+    var touchY: CGFloat, releaseY: CGFloat, latchY: CGFloat
+    var partsHeaderY: CGFloat
+    var riffY: CGFloat, stackY: CGFloat
+    var contentBottom: CGFloat                  // the first y below the STACK row — spare height stays empty (§5.2)
+}
+func euclideousRibbonSettingsLayout(box: CGSize) -> EuclideousRibbonSettingsLayout {
+    typealias M = EuclideousRiffPanelMetrics
+    typealias S = EuclideousRibbonSettingsMetrics
+    let l = euclideousRiffPanelLayout(box: box)
+    // §4.1: the free space under rank 1 (x = padding), left of the right-aligned rails' lane numbers, over the rails' vertical extent.
+    let buttonW = max(S.buttonMin, l.labelW - 12)   // "about 36 × 41" at the landscape labelW (48); never below 30 (the compact labelW 38 gives 30)
+    let button = CGRect(x: M.padding, y: l.railsTop, width: buttonW, height: M.railsH)
+    // §5.2: the vertical stack, on the grid's own geometry, from the grid's top.
+    var y = l.gridTop
+    let ribbonsHeaderY = y;                 y += S.headerH + S.rowGap
+    let touchY = y;                         y += S.rowH + S.rowGap
+    let releaseY = y;                       y += S.rowH + S.rowGap
+    let latchY = y;                         y += S.rowH + S.headerGap
+    let partsHeaderY = y;                   y += S.headerH + S.rowGap
+    let riffY = y;                          y += S.rowH + S.rowGap
+    let stackY = y;                         y += S.rowH
+    return EuclideousRibbonSettingsLayout(button: button, buttonFits: buttonW >= S.buttonMin && M.railsH >= S.buttonMin,
+                                          labelX: M.padding, labelW: l.labelW, controlsX: l.firstColumnX, controlsW: l.gridSize.width,
+                                          rowH: S.rowH, headerH: S.headerH, ribbonsHeaderY: ribbonsHeaderY,
+                                          touchY: touchY, releaseY: releaseY, latchY: latchY, partsHeaderY: partsHeaderY,
+                                          riffY: riffY, stackY: stackY, contentBottom: y)
+}
+
 // MARK: - Scrub ferry (2026-11-16) §7 — the ribbon mapping + the hit-source substitution (pure, allocation-free; the engine AND the ribbons call these, no second derivation)
 
 /// §10 — tunable on device (change none in this ferry): the column ribbon's reach above rail 1.

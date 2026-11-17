@@ -104,6 +104,23 @@ final class RibbonSettingsTests: XCTestCase {
         XCTAssertEqual(up(0 + Int64(ds)), 7, "the next stack hit plays 7, continuing from 5")
     }
 
+    // §4.1 / §5.2 — the settings layout: the button fits (≥ 30×30) at every layout, the rows are ordered and inside the box.
+    func testSettingsLayout() {
+        for box in [CGSize(width: 380.67, height: 301), CGSize(width: 387, height: 301.67), CGSize(width: 300, height: 260), CGSize(width: 260, height: 240)] {
+            let L = euclideousRibbonSettingsLayout(box: box)
+            XCTAssertTrue(L.buttonFits, "§4.1 the button is ≥ 30×30 at \(box)")
+            XCTAssertGreaterThanOrEqual(L.button.width, 30); XCTAssertGreaterThanOrEqual(L.button.height, 30)
+            XCTAssertEqual(L.button.minX, EuclideousRiffPanelMetrics.padding, accuracy: 0.001, "§4.1 x = padding")
+            // §5.2 top-to-bottom order: RIBBONS, TOUCH, RELEASE, LATCH, PARTS, RIFF, STACK.
+            let ys = [L.ribbonsHeaderY, L.touchY, L.releaseY, L.latchY, L.partsHeaderY, L.riffY, L.stackY]
+            for i in 1..<ys.count { XCTAssertLessThan(ys[i - 1], ys[i], "rows are ordered at \(box)") }
+            // the 9pt gap before PARTS is larger than the plain 4pt row gap.
+            XCTAssertGreaterThan(L.partsHeaderY - (L.latchY + L.rowH), (L.touchY - (L.ribbonsHeaderY + L.headerH)) - 0.001, "§5.2 the PARTS header gap is the wider one")
+            XCTAssertLessThanOrEqual(L.contentBottom, box.height, "the content fits in the box at \(box)")
+            XCTAssertEqual(L.controlsX, euclideousRiffPanelLayout(box: box).firstColumnX, accuracy: 0.001, "controls start at column 0")
+        }
+    }
+
     // §1.2 PluginState: nil ⇒ the defaults; a set value is kept; and an old document (no key) resolves to the defaults.
     func testPluginStateResolver() throws {
         var ps = PluginState(machines: [], scenes: [])

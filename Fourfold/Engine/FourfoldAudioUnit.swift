@@ -272,6 +272,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func uiRiffPoly() -> Bool { document.riffPolyResolved }                  // POLY RIFF (2026-10-29)
     func uiPolyRiff() -> EuclideousPolyRiff? { document.polyRiff }
     func uiCanonUnit() -> CanonUnit { document.canonUnitResolved }           // CHORD CANON (2026-10-31): the page's DELAY unit (part of the music — saved with a preset, undoable)
+    func uiRibbonSettings() -> RibbonSettings { document.ribbonSettingsResolved }   // RIBBON SETTINGS (2026-11-16): the saved ribbon settings (part of the music — saved with a preset, undoable)
     // `uiEuclideousLiveGrid()` (a forwarder for the looper's decode-only `euclideousLiveGridResolved`)
     // is DELETED here (2026-10-18 adversarial review found it orphaned — its one caller, `refreshFrom
     // Document`'s resync block, was removed by the same ferry that dropped the looper, and this one

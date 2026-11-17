@@ -40,6 +40,7 @@ struct FourfoldRootView: View {
     var fxCounts: FxCountsMode { get { m.fxCounts } nonmutating set { m.fxCounts = newValue } }   // RATCH tab ferry (2026-10-28): dev-only rig setting
     var canonEntry: CanonEntry { get { m.canonEntry } nonmutating set { m.canonEntry = newValue } }   // CHORD CANON ferry (2026-10-31): dev-only rig setting
     var euclideousCanonUnit: CanonUnit { get { m.euclideousCanonUnit } nonmutating set { m.euclideousCanonUnit = newValue } }   // CHORD CANON: the page's DELAY unit (undoable)
+    var euclideousRibbonSettings: RibbonSettings { get { m.euclideousRibbonSettings } nonmutating set { m.euclideousRibbonSettings = newValue } }   // RIBBON SETTINGS: the saved ribbon settings (undoable)
     var showPresets: Bool { get { m.showPresets } nonmutating set { m.showPresets = newValue } }
     var presetList: [String] { get { m.presetList } nonmutating set { m.presetList = newValue } }
     var currentPreset: String { get { m.currentPreset } nonmutating set { m.currentPreset = newValue } }
@@ -540,6 +541,14 @@ struct FourfoldRootView: View {
                                                    au?.editDocument { $0.euclideousCanonUnit = u == .passes ? nil : u }
                                                    publish()
                                                },
+                                               ribbonSettings: euclideousRibbonSettings,
+                                               onSetRibbonSettings: { s in   // RIBBON SETTINGS (2026-11-16): one discrete step per settings tap (§5.4)
+                                                   guard s != euclideousRibbonSettings else { return }
+                                                   euclideousRecordUndo(coalesceKey: nil)
+                                                   euclideousRibbonSettings = s
+                                                   au?.editDocument { $0.ribbonSettings = s == .defaults ? nil : s }
+                                                   publish()
+                                               },
                                                busChannels: busChannels,
                                                allOutputName: "All",
                                                onSetBusChannel: { bus, ch in
@@ -687,6 +696,7 @@ struct FourfoldRootView: View {
         euclideousActiveRiff = au.uiEuclideousActiveRiff()
         euclideousRiffPoly = au.uiRiffPoly(); euclideousPolyRiff = au.uiPolyRiff()
         euclideousCanonUnit = au.uiCanonUnit()
+        euclideousRibbonSettings = au.uiRibbonSettings()
         euclideousLanesSeq = au.uiEuclideousLanesSeq()
         euclideousFX = au.uiEuclideousFX()
         hocketRules = au.uiHocketRules()
@@ -747,7 +757,8 @@ struct FourfoldRootView: View {
                                 holdLatchMode: euclideousHoldLatchMode, hocketRules: hocketRules, emitterRatchets: emitterRatchets,
                                 emitterVelocities: emitterVelocities, emitterCCs: emitterCCs,
                                 outputMutes: euclideousOutputMutes,
-                                riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff, canonUnit: euclideousCanonUnit)
+                                riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff, canonUnit: euclideousCanonUnit,
+                                ribbonSettings: euclideousRibbonSettings)
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -809,6 +820,7 @@ struct FourfoldRootView: View {
         euclideousActiveRiff = s.activeRiff
         euclideousRiffPoly = s.riffPoly; euclideousPolyRiff = s.polyRiff
         euclideousCanonUnit = s.canonUnit
+        euclideousRibbonSettings = s.ribbonSettings
         euclideousLanesSeq = s.lanesSeq
         euclideousRiffsSeq = s.riffsSeq
         euclideousFX = s.fx
@@ -826,6 +838,7 @@ struct FourfoldRootView: View {
             $0.riffs = s.riffs; $0.activeRiff = s.activeRiff
             $0.riffPoly = s.riffPoly ? true : nil; $0.polyRiff = s.polyRiff   // POLY RIFF: false / nothing stored restores "nil"
             $0.euclideousCanonUnit = s.canonUnit == .passes ? nil : s.canonUnit   // CHORD CANON: the default restores "nil"
+            $0.ribbonSettings = s.ribbonSettings == .defaults ? nil : s.ribbonSettings   // RIBBON SETTINGS: the defaults restore "nil"
             $0.euclideousLanesSeqOn = s.lanesSeq.on; $0.euclideousLanesSeqRate = s.lanesSeq.rate
             $0.euclideousLanesSeqLen = s.lanesSeq.len; $0.euclideousLanesSeqCells = s.lanesSeq.cells
             $0.euclideousRiffsSeqOn = s.riffsSeq.on; $0.euclideousRiffsSeqRate = s.riffsSeq.rate
@@ -1037,6 +1050,7 @@ struct FourfoldRootView: View {
         let erp = au.uiRiffPoly(); if erp != euclideousRiffPoly { euclideousRiffPoly = erp; euclideousResynced = true }
         let epr = au.uiPolyRiff(); if epr != euclideousPolyRiff { euclideousPolyRiff = epr; euclideousResynced = true }
         let ecu = au.uiCanonUnit(); if ecu != euclideousCanonUnit { euclideousCanonUnit = ecu; euclideousResynced = true }   // CHORD CANON (2026-10-31)
+        let erbs = au.uiRibbonSettings(); if erbs != euclideousRibbonSettings { euclideousRibbonSettings = erbs; euclideousResynced = true }   // RIBBON SETTINGS (2026-11-16)
         let els = au.uiEuclideousLanesSeq(); if els != euclideousLanesSeq { euclideousLanesSeq = els; euclideousResynced = true }
         let ers = au.uiEuclideousRiffsSeq(); if ers != euclideousRiffsSeq { euclideousRiffsSeq = ers; euclideousResynced = true }
         let efx = au.uiEuclideousFX(); if efx != euclideousFX { euclideousFX = efx; euclideousResynced = true }
@@ -1153,6 +1167,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousRiffPoly: Bool = false           // POLY RIFF (2026-10-29)
     @Published var euclideousPolyRiff: EuclideousPolyRiff? = nil
     @Published var euclideousCanonUnit: CanonUnit = .passes   // CHORD CANON (2026-10-31): the DELAY unit shared by the four lanes
+    @Published var euclideousRibbonSettings: RibbonSettings = .defaults   // RIBBON SETTINGS (2026-11-16): the saved ribbon settings (TOUCH/RELEASE/LATCH/PARTS/marks)
     @Published var euclideousLanesSeq: EuclideousLanesSeq = EuclideousLanesSeq()
     @Published var euclideousFX: EuclideousFX = EuclideousFX()
     @Published var hocketRules: [HocketRule] = []   // HOCKET (2026-10-27): the document's rules, sanitised; [] = none stored

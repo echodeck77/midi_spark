@@ -979,6 +979,8 @@ struct EuclideousPage: View {
     let onSetCanonEntry: (CanonEntry) -> Void
     let canonUnit: CanonUnit                           // …and the page's DELAY unit (STEPS · PASSES · BARS), shared by the four lanes' CANON rows — an undoable page field
     let onSetCanonUnit: (CanonUnit) -> Void
+    var ribbonSettings: RibbonSettings = .defaults     // RIBBON SETTINGS (2026-11-16): the saved ribbon settings — the settings tab reads/writes this
+    var onSetRibbonSettings: (RibbonSettings) -> Void = { _ in }
     let busChannels: [Int]
     let allOutputName: String
     let onSetBusChannel: (Int, Int) -> Void
@@ -1055,6 +1057,8 @@ struct EuclideousPage: View {
     @State private var riffColumnHold = 0
     @State private var riffRankHold = 0
     @State private var stackRankHold = 0
+    // RIBBON SETTINGS (2026-11-16) §4/§5: whether the settings tab is open (replaces the grid/rails; ephemeral UI state, never saved/undone — the page opens with it closed).
+    @State private var ribbonSettingsOpen = false
     // NOTES AUDITION (2026-11-11): the STACK cell held right now (lane / rank position, −1 = none) — drives the held cell's light and greys the lane's other lit cells. Ephemeral; mirrors the live word pushed to the engine.
     @State private var stackAuditionLane = -1
     @State private var stackAuditionPos = -1
@@ -7337,7 +7341,7 @@ struct EuclideousPage: View {
         let segments: [RiffHeaderSegment] = polyControl ? [.riff, .poly, .stack] : [.riff, .stack]
         return HStack(spacing: 2) {
             ForEach(segments, id: \.self) { seg in
-                let sel: Bool = {
+                let sel: Bool = ribbonSettingsOpen ? false : {   // RIBBON SETTINGS §5.1: neither shows as selected while the settings tab is open
                     switch seg {
                     case .riff:  return riffPanelTab == .riff && (!polyControl || !riffPoly)
                     case .poly:  return riffPanelTab == .riff && riffPoly
@@ -7350,6 +7354,7 @@ struct EuclideousPage: View {
                     .background(RoundedRectangle(cornerRadius: 4).fill(sel ? Color(hex: 0xDFE3EA) : Color.clear))
                     .contentShape(Rectangle())
                     .onTapGesture {
+                        ribbonSettingsOpen = false   // RIBBON SETTINGS §5.1: tapping RIFF or STACK closes the settings tab and shows that view
                         switch seg {
                         case .riff:  riffPanelTab = .riff; if polyControl { onSetRiffPoly(false) }
                         case .poly:  riffPanelTab = .riff; onSetRiffPoly(true)
@@ -7366,10 +7371,50 @@ struct EuclideousPage: View {
         .frame(height: height)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1F2127)))
     }
-    /// The riff panel: the RIFF grid exactly as it was (MONO, or — for a stored POLY document — the sixteen-column grid), or the STACK grid.
+    /// The riff panel: the RIFF grid exactly as it was (MONO, or — for a stored POLY document — the sixteen-column grid), the STACK grid, or — RIBBON SETTINGS (2026-11-16) §5.1 — the settings tab, which replaces the grid/rails while the header stays.
     private func riffGridView(box: CGSize) -> AnyView {
-        if riffPanelTab == .stack { return AnyView(stackGridView(box: box)) }
-        return riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box))
+        let inner: AnyView
+        if ribbonSettingsOpen { inner = AnyView(ribbonSettingsTabView(box: box)) }
+        else if riffPanelTab == .stack { inner = AnyView(stackGridView(box: box)) }
+        else { inner = riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box)) }
+        // §4.3: the settings button on the RIFF view only (the STACK grid has no rails band → no bottom-left free space; reported). It stays while the tab is open so a tap can close it (§4.4).
+        let showButton = (riffPanelTab == .riff) || ribbonSettingsOpen
+        return AnyView(inner.overlay(alignment: .topLeading) {
+            if showButton { ribbonSettingsButton(box: box) }
+        })
+    }
+    // RIBBON SETTINGS §4 — the sliders button in the bottom-left free space (its frame from `euclideousRibbonSettingsLayout`).
+    private func ribbonSettingsButton(box: CGSize) -> some View {
+        let L = euclideousRibbonSettingsLayout(box: box)
+        return EuclideousRibbonSettingsButton(open: ribbonSettingsOpen, frame: L.button) { ribbonSettingsOpen.toggle() }
+    }
+    // RIBBON SETTINGS §5 — the settings tab, inside the panel: the header stays (§5.1), the settings rows replace the grid/rails.
+    // The rows are drawn as an overlay in the panel's own coordinate space (positions already below the header's `gridTop`).
+    // §5.4: choosing a TOUCH mode also clears any live scrub hold.
+    private func ribbonSettingsTabView(box: CGSize) -> some View {
+        let panel = euclideousRiffPanelLayout(box: box)
+        let L = euclideousRibbonSettingsLayout(box: box)
+        return EuclideousStackBreak {
+            AnyView(
+                VStack(alignment: .leading, spacing: 0) {
+                    riffTopRow(panel)   // §5.1: the header stays
+                    Spacer(minLength: 0)
+                }
+                .padding(sp8)
+                .frame(width: box.width, height: box.height, alignment: .topLeading)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+                .overlay(alignment: .topLeading) {
+                    EuclideousRibbonSettingsTab(box: box, panel: panel, layout: L, settings: ribbonSettings, laneAccents: laneAccents) { ns in
+                        if ns.touchMode != ribbonSettings.touchMode { clearScrubHolds() }   // §5.4
+                        onSetRibbonSettings(ns)
+                    }
+                }
+            )
+        }
+    }
+    private func clearScrubHolds() {
+        guard riffColumnHold != 0 || riffRankHold != 0 || stackRankHold != 0 else { return }
+        riffColumnHold = 0; riffRankHold = 0; stackRankHold = 0; pushScrubHolds()
     }
     private func monoRiffGridView(box: CGSize) -> some View {
         let n = 8
