@@ -4377,12 +4377,15 @@ final class Router {
                                 let naturalLeapStep = (maskedChancePassed && mm.modeResolved == .leap)
                                     ? (((playedStep + mm.leapStepsResolved) % riffLength) + riffLength) % riffLength
                                     : playedStep
-                                // Scrub §3: substitute the column / rank at the source under a GLOBAL riff hold (the pure `euclideousRiffHitSource`, 1-based). No hold ⇒ the natural column + its cell's rank (byte-identical).
+                                // Scrub §3 + RIBBON PARTS §3.1/§3.2: substitute the column / rank under a riff hold — but ONLY for a lane whose RIFF part is INCLUDED (riffOn AND riffLanes[n]). Defaults ⇒ every lane included ⇒ the hold applies as the scrub ferry did (byte-identical). An excluded part reads its natural column + its cell's rank.
+                                let riffPartIncluded = p.ribbon.riffLaneIncluded(lineIndex)
+                                let scrubRiffColGated = (riffPartIncluded && scrubRiffColNow != 0) ? scrubRiffColNow : 0
+                                let scrubRiffRankGated = (riffPartIncluded && scrubRiffRankNow != 0) ? scrubRiffRankNow : 0
                                 let scrubHit = euclideousRiffHitSource(naturalColumn: naturalLeapStep + 1,
                                                                        rawRankAtColumn: { c in (c - 1) >= 0 && (c - 1) < ranks.count ? ranks[c - 1] : 0 },
-                                                                       columnHold: scrubRiffColNow == 0 ? nil : scrubRiffColNow,
-                                                                       rankHold: scrubRiffRankNow == 0 ? nil : scrubRiffRankNow)
-                                let riffHoldActive = scrubRiffColNow != 0 || scrubRiffRankNow != 0
+                                                                       columnHold: scrubRiffColGated == 0 ? nil : scrubRiffColGated,
+                                                                       rankHold: scrubRiffRankGated == 0 ? nil : scrubRiffRankGated)
+                                let riffHoldActive = scrubRiffColGated != 0 || scrubRiffRankGated != 0
                                 if riffHoldActive { scrubNaturalRawRank = naturalLeapStep < ranks.count ? ranks[naturalLeapStep] : 0 }   // §3.5: for the post-release TIE carry, below
                                 let leapStep = scrubHit.column - 1   // the DISPLAY/strike column (the held column, or the natural one)
                                 let rawRank = scrubHit.rank          // the effective written rank (0 = rest)
@@ -4514,8 +4517,8 @@ final class Router {
                                             if spread { notesStruck += 1 }
                                         }
                                     }
-                                    if scrubStackRankNow != 0 {
-                                        // Scrub §4: a GLOBAL stack hold collapses every VOICES/CHORD/role/BASS result to one rank r (a rest when the pool has no note there, §4.2); no bass, no spread. The pure `euclideousStackHitRanks` decides.
+                                    if scrubStackRankNow != 0, p.ribbon.stackLaneIncluded(lineIndex) {
+                                        // Scrub §4 + RIBBON PARTS §3.1/§3.3: a stack hold collapses every VOICES/CHORD/role/BASS result to one rank r — but ONLY for a lane whose STACK part is INCLUDED (stackOn AND stackLanes[n]; defaults ⇒ byte-identical). (a rest when the pool has no note there, §4.2); no bass, no spread. The pure `euclideousStackHitRanks` decides.
                                         let scrubRanks = euclideousStackHitRanks(natural: (0..<rowsHit.count).map { rowsHit[$0] },
                                                                                  poolHasRank: { r in riffResolve(rank: r, oct: 0, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) != nil },
                                                                                  stackHold: scrubStackRankNow)
