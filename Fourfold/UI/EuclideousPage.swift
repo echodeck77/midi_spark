@@ -618,7 +618,7 @@ struct EuclideousStepsStepper: View {
         let face = Image(systemName: glyph).font(.system(size: 14, weight: .heavy))
             .foregroundColor(enabled ? Color(hex: 0xAAB0BA) : Color(hex: 0x4A4E57))
             .frame(width: width, height: btnH)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control)))
         if lockActive {
             face.contentShape(Rectangle())
                 .modifier(EuclideousLaneTap(locked: true, momentary: lockMomentary, onTouch: { onLockTouch?($0) }, action: { if enabled { action() } }))
@@ -698,7 +698,7 @@ struct EuclideousHitsStepper: View {
         let face = Image(systemName: glyph).font(.system(size: 14, weight: .heavy))
             .foregroundColor(enabled ? Color(hex: 0xAAB0BA) : Color(hex: 0x4A4E57))
             .frame(width: width, height: btnH)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control)))
         if lockActive {
             face.contentShape(Rectangle())
                 .modifier(EuclideousLaneTap(locked: true, momentary: lockMomentary, onTouch: { onLockTouch?($0) }, action: { if enabled { action() } }))
@@ -2837,7 +2837,7 @@ struct EuclideousPage: View {
         }
         .padding(cardInset)
         .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1B1D23)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))   // STYLE PASS 1 §2.1 (was #1B1D23)
         .clipped()
         .overlay(euclideousRandomReturnHighlight(idx, width: width, height: height))
         }
@@ -3568,6 +3568,12 @@ struct EuclideousPage: View {
             altCycleStripLive(idx, line, accent, frame: L.cycleStrip)
             altBandView(idx, line, accent, notes: false, f: L.riff)
             altBandView(idx, line, accent, notes: true, f: L.stack)
+            // STYLE PASS 1 §2.4: a hairline (1 pt, the control tone) across the body's width, centred in the gap between
+            // the RIFF band and the STACK band (the bands' own panels no longer draw, §2.2).
+            Rectangle().fill(Color(hex: FourfoldStyle.hairline))
+                .frame(width: fullWidth, height: FourfoldStyle.hairlineWidth)
+                .offset(y: (L.riff.panel.maxY + L.stack.panel.minY - FourfoldStyle.hairlineWidth) / 2)
+                .allowsHitTesting(false)
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
         .accessibilityElement(children: .contain)
@@ -3603,9 +3609,10 @@ struct EuclideousPage: View {
         }
     }
     private func altUnitSegment(_ label: String, selected: Bool, accent: Color, frame: CGRect, _ tap: @escaping () -> Void) -> some View {
-        // STYLE PASS 1 §3.1: the one selected look — #DFE3EA/#0D0F14 selected, no fill/#B4BAC4 unselected, no border (was lane20 + lane100 border + #F2F4F7/#8A909A).
+        // STYLE PASS 1 §3.1 + §2.3: selected = the one look; unselected = the CONTROL tone (the segment relied on the
+        // §2.2-removed panel's fill — "a control that had no fill of its own and relied on the panel's takes control").
         let ink = Color(hex: FourfoldSelect.segmentInk(selected))
-        let fill: Color = selected ? Color(hex: FourfoldStyle.selectedFill) : Color.clear
+        let fill = Color(hex: FourfoldSelect.switchFill(selected))
         return Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(ink)
             .frame(width: frame.width, height: frame.height)
             .background(RoundedRectangle(cornerRadius: 8).fill(fill))
@@ -3615,7 +3622,7 @@ struct EuclideousPage: View {
     /// §5.2 — a MAIN / ALT stepper (ADVANCE-style): a 7.5 pt label over a 14 pt value, ‹ / › at the edges, left half −1 / right half +1, clamped 1…16.
     private func altCountStepper(_ label: String, value: Int, accent: Color, frame: CGRect, _ onChange: @escaping (Int) -> Void) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control))
             HStack(spacing: 0) {
                 Text("‹").font(.system(size: 13, weight: .heavy)).foregroundColor(Color(hex: value > 1 ? 0x8A909A : 0x4A4E57)).frame(width: 18)
                 VStack(spacing: 2) {
@@ -3641,11 +3648,10 @@ struct EuclideousPage: View {
         let mainGate = euclideousMixSliderValue(of: line, kind: .gate, notes: notes)
         return ZStack(alignment: .topLeading) {
             riffBandFrame(dim: false) { Color.clear }.frame(width: f.panel.width, height: f.panel.height).offset(x: f.panel.minX, y: f.panel.minY)
-            // the part tile (PLAY-tile look, no lamp)
-            ZStack {
-                RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)).overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
-                Text(partName).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(Color(hex: 0xF2F4F7))
-            }.frame(width: f.partTile.width, height: f.partTile.height).offset(x: f.partTile.minX, y: f.partTile.minY)
+            // STYLE PASS 1 §2.4: NO tile — the part name draws as bare text at its built size and place (was a control
+            // tile + 1 pt #3A3E47 stroke). The §2.4 hairline between the bands is drawn by `altTabContent`.
+            Text(partName).font(.system(size: 8.5, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(Color(hex: FourfoldStyle.value))
+                .frame(width: f.partTile.width, height: f.partTile.height).offset(x: f.partTile.minX, y: f.partTile.minY)
             // row 1 — OUT pill · tokens · OCT pill · OCT boxes
             EuclideousAltPill(label: "OUT", on: part.outActive, accent: accent, frame: f.outPill, axLabel: "\(spoken) out override, \(part.outActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .out) }
             altTokenRow(idx, notes: notes, altMask: part.outValue ?? 0, mainMask: notes ? line.notesOutMaskResolved(lane: idx) : line.riffOutMaskResolved(lane: idx), on: part.outActive, accent: accent, frame: f.tokens)
@@ -3700,8 +3706,10 @@ struct EuclideousPage: View {
     }
     private func altOctBoxesOff(_ idx: Int, notes: Bool, frame: CGRect) -> some View {
         let boxW = frame.width / 5
+        // STYLE PASS 1 §2.3: the off selector relied on the (now-gone) band panel's fill — it takes the control tone at
+        // the §5.8 dim (its #30333A@0.6 container outline is removed with every container stroke).
         return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x30333A).opacity(0.6), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control)).opacity(0.45)
             ForEach(0..<5, id: \.self) { i in
                 Text(euclideousOctLabels[i]).font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA).opacity(0.45))
                     .frame(width: boxW, height: frame.height)
@@ -3966,7 +3974,7 @@ struct EuclideousPage: View {
                                   ruler: EuclideousRestartRulerInput? = nil, nOfM: (n: Int, m: Int)? = nil) -> AnyView {
         switch layer {
         case .base:
-            return AnyView(RoundedRectangle(cornerRadius: radius).fill(spec.isSet ? Color(hex: 0x22252C) : Color(hex: 0x2A2D34))
+            return AnyView(RoundedRectangle(cornerRadius: radius).fill(spec.isSet ? Color(hex: 0x22252C) : Color(hex: FourfoldStyle.control))
                 .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(spec.isSet ? lane100(accent) : Color.clear, lineWidth: 1))
                 .frame(width: width, height: height))
         case .sweep:
@@ -4064,7 +4072,7 @@ struct EuclideousPage: View {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .heavy))
                         .foregroundColor(Color(hex: 0xAAB0BA))
                         .frame(width: 28, height: 20)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control)))
                         // RHYTHM fixes §5.3 (2026-10-21): the drawn size stays 28×20; the hit area extends 2pt
                         // up/down ONLY (28×24, not 32×24 — `.inset(by:)` would widen it too), matching the
                         // picker's own close button below.
@@ -4183,7 +4191,7 @@ struct EuclideousPage: View {
                 Text("+").font(.system(size: 15, weight: .heavy, design: .monospaced))
                     .foregroundColor(Color(hex: 0xAAB0BA))
                     .frame(width: width, height: height)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control)))
                     .contentShape(Rectangle())
                     .onTapGesture {
                         var links = chain.links
@@ -4192,7 +4200,7 @@ struct EuclideousPage: View {
                     }
                     .accessibilityLabel("Add a \(isMelody ? "melody" : "rhythm") link")
             } else {
-                RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
+                RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control))
                     .frame(width: width, height: height)
                     .allowsHitTesting(false)
             }
@@ -4219,7 +4227,7 @@ struct EuclideousPage: View {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .heavy))
                         .foregroundColor(Color(hex: 0xAAB0BA))
                         .frame(width: 28, height: 20)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control)))
                         // RHYTHM fixes §5.3 (2026-10-21): drawn size stays 28×20; hit area extends 2pt up/down
                         // only (28×24).
                         .contentShape(Rectangle().path(in: CGRect(x: 0, y: -2, width: 28, height: 24)))
@@ -4336,7 +4344,7 @@ struct EuclideousPage: View {
         return AnyView(HStack(spacing: 0) {
             patternRateHalf(idx, line, accent, halfW: halfW, blockH: blockH, gap: gap)
                 .modifier(lockOutlineMod(idx, .rate, accent))
-            Rectangle().fill(Color(hex: 0x2A2D34)).frame(width: 1).padding(.horizontal, 8)
+            Rectangle().fill(Color(hex: FourfoldStyle.control)).frame(width: 1).padding(.horizontal, 8)
             // FILL TAB + RING (Paul 2026-11-13): the freed right half holds FLIP HITS and, beside it, RING.
             HStack(spacing: sp4) {
                 flipHitsButton(idx, line, accent, width: max(1, (halfW - sp4) / 2), height: blockH)
@@ -4442,7 +4450,7 @@ struct EuclideousPage: View {
             func yOf(_ p: Int) -> CGFloat { inset + (1 - CGFloat(p - lo) / CGFloat(span)) * (sz.height - 2 * inset) }
             for i in 0..<n {   // bar dividers + the fill-region wash
                 let x = CGFloat(i) * barW
-                if i > 0 { ctx.fill(Path(CGRect(x: x, y: 2, width: 0.5, height: sz.height - 4)), with: .color(Color(hex: 0x2A2D34))) }
+                if i > 0 { ctx.fill(Path(CGRect(x: x, y: 2, width: 0.5, height: sz.height - 4)), with: .color(Color(hex: FourfoldStyle.control))) }
                 if fillOn && i < barsLit.count && barsLit[i] {
                     let rw = barW * CGFloat(lenFrac)
                     ctx.fill(Path(roundedRect: CGRect(x: x + barW - rw + 1, y: 3, width: max(1, rw - 2), height: sz.height - 6), cornerRadius: 2), with: .color(accent.opacity(0.14)))
@@ -4973,7 +4981,7 @@ struct EuclideousPage: View {
         let rChev = Text("›").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: highDisabled ? 0x4A4E57 : 0x8A909A))
         let keyLabel = Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
         let base = ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control))
             if keyOverValue && showLabel {
                 // RIFF v3 §4.1: the key on its OWN full-width line on top (so it never truncates), the chevrons beside the VALUE only, below it.
                 VStack(spacing: 2) {
@@ -5252,8 +5260,7 @@ struct EuclideousPage: View {
             }
         }
         .frame(width: layout.walkWidth, height: layout.rowAHeight)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x131519)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x262930), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.clear))   // STYLE PASS 1 §2.2 (was #131519)
         .opacity(isRiff ? 1.0 : 0.42)   // §1.10: the whole walk dims to 42 % while the riff is off
         .euclideousHelp("The columns this lane's walk reads, in order.")
         .accessibilityElement(children: .ignore)
@@ -5415,11 +5422,11 @@ struct EuclideousPage: View {
     }
     /// RIFF v2 §4.1: a band's frame — the WALK strip's fill + 1 pt border, radius 10, 4 pt inner padding; not interactive. §1.10: the whole band (frame + contents) dims to 42 % while the riff is off.
     private func riffBandFrame<Content: View>(dim: Bool, @ViewBuilder _ content: () -> Content) -> some View {
+        // STYLE PASS 1 §2.2: the grouped-panel look draws NO fill and NO border (was #131519 + 1 pt #262930, r10) — the
+        // frame, inset and radius stay as layout only, so nothing inside moves; the §2.7 dim is unchanged.
         content()
             .padding(4)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x131519)))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0x262930), lineWidth: 1))
             .opacity(dim ? 0.42 : 1.0)
     }
     /// RIFF v2 §3: which of the three direction arrows this button draws (the icon follows the GLYPH it replaced, not the `RiffDir` name — the middle `><` button is PING/`.pingpong`).
@@ -5502,7 +5509,7 @@ struct EuclideousPage: View {
         }
         .padding(4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x2A2D34)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: FourfoldStyle.control)))
         .euclideousHelp("The riff moves once every this many hits (or steps)")
     }
     /// RIFF v2 §4.3: HIT | STEP as one segmented control — a #2A2D34 container (radius 10, 3 pt inset), two segments 3 apart (radius 8). Selected = lane20/lane100; writes `riffAdvanceStep`; labels HIT/STEP at EVERY 1, HITS/STEPS at 2–8.
@@ -5515,7 +5522,7 @@ struct EuclideousPage: View {
         }
         .padding(3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x1B1C21)))   // §4.2: a shade darker than the tile
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: FourfoldStyle.control)))   // STYLE PASS 1 §2.3: the segment group container takes the control tone (was #1B1C21)
     }
     private func riffHitStepSegment(_ idx: Int, label: String, selected: Bool, accent: Color, a11y: String, outline: Bool, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced))
@@ -5715,7 +5722,7 @@ struct EuclideousPage: View {
             }
         }
         .frame(width: EuclideousNotesTabLayout.stripW, height: height)   // NOTES TAB ferry §1.3: 35 wide, across both zones and the gap between them
-        .background(RoundedRectangle(cornerRadius: 6).fill(isOn ? lane100(accent) : Color(hex: 0x2A2D34)))
+        .background(RoundedRectangle(cornerRadius: 6).fill(isOn ? lane100(accent) : Color(hex: FourfoldStyle.control)))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(isOn ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
         .contentShape(Rectangle())
         .modifier(laneTapMod(idx) { edit(idx) { $0.notesOn = !euclideousNotesLayerIsOn($0) } })   // flips what the strip SHOWS (on → off, off → on)
@@ -5849,7 +5856,7 @@ struct EuclideousPage: View {
             let thumbW = max(40, min(w, h))
             let thumbX = CGFloat(oct + 2) / 4 * max(0, w - thumbW)
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0x2A2D34)).frame(height: 6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                RoundedRectangle(cornerRadius: 3).fill(Color(hex: FourfoldStyle.control)).frame(height: 6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 ZStack {
                     RoundedRectangle(cornerRadius: 6).fill(lane20(accent)).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(lane100(accent), lineWidth: 1))
                     Text("OCT \(octStr)").font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.7)
@@ -6783,7 +6790,7 @@ struct EuclideousPage: View {
                 .contentShape(Rectangle().path(in: tapRect)).onTapGesture { if enabled { onInc() } }
         }
         .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34)))
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldStyle.control)))
         .opacity(enabled ? 1 : 0.42)
     }
     /// §6's own INTERVAL naming table — KEY source names it diatonically; CHORD/MIDI IN show the bare
@@ -6997,7 +7004,7 @@ struct EuclideousPage: View {
     private func answerStripStepper(_ label: String, value: String, spoken: String, name: String, width: CGFloat, height: CGFloat, onDec: @escaping () -> Void, onInc: @escaping () -> Void) -> AnyView {
         let zone: CGFloat = 20
         return AnyView(ZStack {
-            RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34))
+            RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldStyle.control))
             VStack(spacing: 1) {
                 Text(label).font(.system(size: 9, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
                 Text(value).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
@@ -7186,7 +7193,7 @@ struct EuclideousPage: View {
     private func canonStepper(_ label: String, value: String, spoken: String, name: String, width: CGFloat, height: CGFloat, onDec: @escaping () -> Void, onInc: @escaping () -> Void) -> AnyView {
         let zone: CGFloat = 30
         return AnyView(ZStack {
-            RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x2A2D34))
+            RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldStyle.control))
             VStack(spacing: 2) {
                 if !label.isEmpty { Text(label).font(.system(size: 10, weight: .regular, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)) }   // AMENDMENT 1 §2.2: an empty label ⇒ the value alone, centred (the ANSWER EVERY steppers)
                 Text(value).font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
@@ -7644,7 +7651,7 @@ struct EuclideousPage: View {
                 }
                 .padding(sp8)
                 .frame(width: box.width, height: box.height, alignment: .topLeading)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))   // STYLE PASS 1 §2.1 (was white@3.5%)
                 .overlay(alignment: .topLeading) {
                     EuclideousRibbonSettingsTab(box: box, panel: panel, layout: L, settings: ribbonSettings, laneAccents: laneAccents) { ns in
                         if ns.touchMode != ribbonSettings.touchMode { clearRibbonLive() }   // §5.4: a TOUCH-mode change clears any live hold or loop
@@ -7746,7 +7753,7 @@ struct EuclideousPage: View {
         }
         .padding(sp8)
         .frame(width: box.width, height: box.height, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))   // STYLE PASS 1 §2.1 (was white@3.5%)
         .overlay(alignment: .topLeading) { riffPanelOverlay(layout: layout, ranks: ranks, suppressArrows: midiEmpty, played: playedNow) }
         .overlay(alignment: .topLeading) { scrubRiffRibbons(layout: layout) }   // Scrub §2.1/§2.2
     }
@@ -7813,7 +7820,7 @@ struct EuclideousPage: View {
         }
         .padding(sp8)
         .frame(width: box.width, height: box.height, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))   // STYLE PASS 1 §2.1 (was white@3.5%)
         .overlay(alignment: .topLeading) { riffPanelOverlay(layout: layout, ranks: ranks, suppressArrows: midiEmpty, played: playedNow) }
         .overlay(alignment: .topLeading) { scrubRiffRibbons(layout: layout) }   // Scrub §2.1/§2.2
         // A touch that is CANCELLED (another app comes forward, Control Center, an interruption) never calls `onEnded`: the gesture state resets, and a drag left armed would take the NEXT touch for its continuation. The hop lets a normal
@@ -8271,7 +8278,7 @@ struct EuclideousPage: View {
         }
         .padding(sp8)
         .frame(width: box.width, height: box.height, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))   // STYLE PASS 1 §2.1 (was white@3.5%)
         .overlay(alignment: .topLeading) { scrubStackRibbon(layout: euclideousStackGridLayout(box: box)) }   // Scrub §2.3
         .overlay(alignment: .topLeading) { scrubStackMark(layout: euclideousStackGridLayout(box: box)) }     // Scrub §5.3: the held-rank mark on the stack axis
     }
@@ -8494,7 +8501,7 @@ struct EuclideousPage: View {
         }
         .padding(sp8)
         .frame(width: maxWidth, height: maxHeight)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))   // STYLE PASS 1 §2.1 (was white@3.5%)
         .onChange(of: tab) { t in if t != .cc { ccExpanded = nil } }   // leaving the CC tab closes an emitter's page: coming back shows the four rows
     }
     /// Tab row — TABS ONLY (MIX ferry 2026-10-18 §1): MIX, then LANES (RIFFS stays hidden), equal widths across the content width sp4 apart
@@ -9133,7 +9140,7 @@ struct EuclideousPage: View {
         let idx = all.firstIndex(of: rate) ?? 2
         let arrowZone: CGFloat = 18
         return ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34))
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control))
             HStack(spacing: 0) {
                 Text("‹").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
                     .frame(width: arrowZone, height: height)

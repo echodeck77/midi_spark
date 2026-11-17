@@ -176,6 +176,5 @@ struct EuclideousVelocityPanel: View {
         .padding(EdgeInsets(top: M.padVertical, leading: 0, bottom: M.padVertical, trailing: M.padRight))
         .frame(width: layout.cards.first?.width ?? 0, height: layout.cardHeight, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: M.cardRadius).fill(P.card))
-        .overlay(RoundedRectangle(cornerRadius: M.cardRadius).strokeBorder(P.cardEdge, lineWidth: 1))
     }
 }

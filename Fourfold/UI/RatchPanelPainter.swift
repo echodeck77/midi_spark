@@ -11,7 +11,7 @@
 import SwiftUI
 
 enum EmitterRatchetPalette {
-    static let card = Color(hex: 0x1B1D23), cardEdge = Color(hex: FourfoldStyle.control), slot = Color(hex: 0x20232A), current = Color(hex: 0x2A2D34)
+    static let card = Color(hex: FourfoldStyle.card), cardEdge = Color(hex: FourfoldStyle.control), slot = Color(hex: 0x20232A), current = Color(hex: 0x2A2D34)
     static let disc = Color(hex: 0x2A2D34), restDot = Color(hex: 0x3A3E47), offRing = Color(hex: 0x3A3E47), rule = Color(hex: 0x262930)
     static let light = Color(hex: 0xDFE3EA), text = Color(hex: 0xF2F4F7), muted = Color(hex: 0x8A909A), ink = Color(hex: 0x0D0F14), pressedLabel = Color(hex: 0x2A2D34)
     // STEP-COUNT CLARITY (2026-11-03, device-owed): the "too gray" slots were #20232A, barely above the #1B1D23 card. The active steps now read as countable cells — a brighter two-tone beat shading (groups of four, A / B),
@@ -421,7 +421,6 @@ struct EuclideousRatchetPanel: View {
         .padding(EdgeInsets(top: M.padVertical, leading: 0, bottom: M.padVertical, trailing: M.padRight))
         .frame(width: layout.cards.first?.width ?? 0, height: layout.cardHeight, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: M.cardRadius).fill(P.card))
-        .overlay(RoundedRectangle(cornerRadius: M.cardRadius).strokeBorder(P.cardEdge, lineWidth: 1))
     }
 }
 

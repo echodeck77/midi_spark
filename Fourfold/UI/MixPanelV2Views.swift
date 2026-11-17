@@ -607,7 +607,6 @@ struct EuclideousOctaveBoxes: View {
             }
             .frame(width: size.width, height: size.height)
             .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x30333A), lineWidth: 1))
             .offset(y: visualTop)
         }
         .frame(width: size.width, height: target, alignment: .topLeading)

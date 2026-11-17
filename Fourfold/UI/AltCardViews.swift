@@ -72,7 +72,7 @@ struct EuclideousAltSliderTile: View {
     var body: some View {
         let inset: CGFloat = 8, trackW = max(1, frame.width - 2 * inset)
         return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)).opacity(on ? 1 : 0.45)
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control)).opacity(on ? 1 : 0.45)
             label.opacity(on ? 1 : 0.45).padding(.trailing, inset).padding(.top, 3).frame(width: frame.width, alignment: .trailing)
             track(trackW).frame(width: trackW, height: frame.height, alignment: .leading).offset(x: inset, y: 0)
         }
