@@ -644,6 +644,25 @@ final class Router {
     private var euclideousHeldRiffPitch = [Int](repeating: -1, count: 4)
     // Scrub ferry (2026-11-16): this window's three holds (0 = none, 1…8), read once per window. Global (all four lanes).
     private var scrubRiffColNow = 0, scrubRiffRankNow = 0, scrubStackRankNow = 0
+    // RIBBON SETTINGS (2026-11-16) §6.5-6.9 — TUTTI FIRING. A rank-carrying pre-pass (built after the clock pre-pass, before any lane plays) that
+    // groups this window's included hits by MUSICAL beat and, where a trigger reads a marked step / plays a marked rank, fires the winning rank to the
+    // other included hits on that beat. All fixed-size (no allocation); the whole path is gated on `p.ribbon.tuttiActive`, so with no mark it is inert.
+    private var tuttiWindowActive = false        // a fire table was built for THIS window (reset per window)
+    private var tuttiFireN = 0
+    private var tuttiFireBeat = [Double](repeating: 0, count: 64)
+    private var tuttiFireRank = [Int](repeating: 0, count: 64)
+    private var tuttiFireChanged = [UInt16](repeating: 0, count: 64)   // bit (lane·2+part) = substitute the fire rank on that part at this beat
+    private var tuttiHitN = 0                     // flat capture buffer of this window's hits across lanes
+    private var tuttiHitLane = [Int](repeating: 0, count: 128)
+    private var tuttiHitBeat = [Double](repeating: 0, count: 128)
+    private var tuttiHitCol = [Int](repeating: 0, count: 128)          // 1-based riff column
+    private var tuttiHitRiffRank = [Int](repeating: 0, count: 128)     // riff written rank (0 = riff not an included hit here)
+    private var tuttiHitStackRank = [Int](repeating: 0, count: 128)    // stack played rank (0 = stack not an included hit here)
+    private var tuttiHitRiffInc = [Bool](repeating: false, count: 128)
+    private var tuttiHitStackInc = [Bool](repeating: false, count: 128)
+    private var tuttiSlotCol = [Int](repeating: 0, count: 8)           // per-beat slot scratch (slot = lane·2+part)
+    private var tuttiSlotPlayed = [Int](repeating: 0, count: 8)
+    private var tuttiSlotWritten = [Int](repeating: 0, count: 8)
     // GATE FOLLOWS THE RHYTHM (Paul 2026-10-13 ferry): per-lane LEGATO continuity for GATE=100%. Flat
     // 4 lanes × 9 slots (matches `euclideousLastSoundedNotes`'s own ceiling — `noteViewMaxNotes`, the real
     // ceiling `addPitch`/`pitchCount` ever reaches, NOT the ferry's rounder "ten pitches" prose). Each
@@ -2068,6 +2087,90 @@ final class Router {
     }
 
 
+    // RIBBON SETTINGS §6.5-6.9 — build this window's TUTTI fire table from the captured clock pre-pass (allocation-free). Called ONCE, after the
+    // clock pre-pass (`hocketClockPass`) and before any lane plays, for the Euclideous row only. Each included lane's window hits are enumerated
+    // closed-form from its captured `HocketLaneClock` + its own resolved riff / PLAY AS params (the same functions the fuzzed walk mirror uses →
+    // no new derivation to drift); hits are grouped by MUSICAL beat (`tick · sub`, exactly the play pass's `mTickBeat`) and the winning trigger's
+    // rank is fired to the other included hits. Known limits (device-owed / follow-ups): random-mode roll overrides, POLY (read as 8 columns),
+    // the per-lane LANES mute (only SOLO silences here), and a chord stack's lowest played rank as its representative.
+    private func buildTuttiFireTable(p: SnapParams, mWinStart: Double, windowBeats: Double) {
+        tuttiWindowActive = false; tuttiFireN = 0; tuttiHitN = 0
+        let settings = p.ribbon
+        guard settings.tuttiActive else { return }                              // no mark ⇒ inert
+        guard scrubRiffRankNow == 0, scrubStackRankNow == 0 else { return }      // §6.9 a rank hold beats TUTTI entirely
+        tuttiWindowActive = true
+        let gridRanks = p.euclideousRiff.ranks ?? []
+        let soloM = soloMaskNow(snapshot: p.soloMask), partSoloM = partSoloMaskNow(snapshot: p.partSoloMask)
+        for lane in 0..<min(4, p.euclidLines.count) {
+            let clk = hocketClocks[lane * 2]
+            guard clk.valid, clk.sub > 0 else { continue }
+            if euclideousLaneSilencedBySolo(lane: lane, soloMask: soloM, partMask: partSoloM) { continue }   // §11.3 a solo-silenced lane is never a trigger (and plays nothing)
+            let L = p.euclidLines[lane]
+            let riffInc = settings.riffLaneIncluded(lane) && L.riffOnResolved
+            let stackInc = settings.stackLaneIncluded(lane) && euclideousNotesLayerIsOn(L)
+            guard riffInc || stackInc else { continue }
+            let riffDir = L.euclideousRiffDirResolved, stride = L.riffStrideResolved, riffLen = max(1, L.riffLengthResolved)
+            let rotate = L.riffRotateResolved, every = L.riffAdvanceEveryResolved
+            let seed = UInt64(bitPattern: Int64(L.riffDirSeedResolved)), advStep = L.riffAdvanceStepResolved
+            let t0 = Int64((mWinStart / clk.sub).rounded(.down)) - 1
+            let t1 = Int64(((mWinStart + windowBeats) / clk.sub).rounded(.up)) + 1
+            var tick = t0
+            while tick <= t1 && tuttiHitN < 128 {
+                let beat = Double(tick) * clk.sub
+                if beat >= mWinStart - 1e-9, beat < mWinStart + windowBeats - 1e-9 {
+                    let info = euclideousLaneChainTick(buf: clk.buf, n: clk.n, dir: clk.dir, cycleLen: clk.cycleLen, sub: clk.sub, tick: tick, chains: clk.chains, legacySpanBeats: clk.legacySpanBeats, advanceStep: advStep)
+                    if info.rawIsHit {
+                        let col0 = euclideousRiffColumn(ordinal: info.advOrd, every: every, direction: riffDir, length: riffLen, stride: stride, shift: rotate, seed: seed, columns: 8)
+                        let written = (riffInc && col0 >= 0 && col0 < gridRanks.count) ? Int(gridRanks[col0]) : 0
+                        var stackRank = 0
+                        if stackInc {
+                            let nw = EuclideousNotesWalk(n: clk.n, dir: clk.dir, cycleLen: clk.cycleLen, sub: clk.sub, chains: clk.chains, legacySpanBeats: clk.legacySpanBeats, advanceStep: advStep,
+                                                         riffDir: riffDir, stride: stride, length: riffLen, rotate: rotate, seed: seed, every: every, columns: 8)
+                            let notesH = euclideousNotesHitOrdinal(buf: clk.buf, w: nw, tick: tick)
+                            let rh = euclideousRowsResolve(orderChain: L.notesOrderChain, voicesChain: L.notesVoicesChain, spreadChain: L.notesSpreadChain,
+                                                           litOrder: L.litOrderResolved, roles: L.notesRankRolesResolved,
+                                                           bassOn: L.notesBassOnResolved, bassMode: L.notesBassModeResolved, shiftStart: L.notesShiftStartResolved,
+                                                           driftOn: L.notesDriftOnResolved, driftStep: L.notesDriftStepResolved, lane: lane, hitOrdinal: notesH)
+                            stackRank = rh.bassRank > 0 ? rh.bassRank : (rh.count > 0 ? rh[0] : 0)
+                        }
+                        tuttiHitLane[tuttiHitN] = lane; tuttiHitBeat[tuttiHitN] = beat; tuttiHitCol[tuttiHitN] = col0 + 1
+                        tuttiHitRiffRank[tuttiHitN] = written; tuttiHitStackRank[tuttiHitN] = stackRank
+                        tuttiHitRiffInc[tuttiHitN] = riffInc; tuttiHitStackInc[tuttiHitN] = stackInc
+                        tuttiHitN += 1
+                    }
+                }
+                tick += 1
+            }
+        }
+        guard tuttiHitN > 0 else { return }
+        for i in 0..<tuttiHitN {
+            let beat = tuttiHitBeat[i]
+            var seen = false
+            for j in 0..<i where abs(tuttiHitBeat[j] - beat) < 1e-6 { seen = true; break }
+            if seen { continue }
+            for s in 0..<8 { tuttiSlotCol[s] = 0; tuttiSlotPlayed[s] = 0; tuttiSlotWritten[s] = 0 }
+            var present: UInt16 = 0, included: UInt16 = 0
+            for k in i..<tuttiHitN where abs(tuttiHitBeat[k] - beat) < 1e-6 {
+                let lane = tuttiHitLane[k], rs = lane * 2, ss = lane * 2 + 1
+                present |= (UInt16(1) << UInt16(rs)) | (UInt16(1) << UInt16(ss))
+                tuttiSlotCol[rs] = tuttiHitCol[k]; tuttiSlotPlayed[rs] = tuttiHitRiffRank[k]; tuttiSlotWritten[rs] = tuttiHitRiffRank[k]
+                tuttiSlotCol[ss] = tuttiHitCol[k]; tuttiSlotPlayed[ss] = tuttiHitStackRank[k]; tuttiSlotWritten[ss] = tuttiHitRiffRank[k]
+                if tuttiHitRiffInc[k] { included |= UInt16(1) << UInt16(rs) }
+                if tuttiHitStackInc[k] { included |= UInt16(1) << UInt16(ss) }
+            }
+            let fire = euclideousRibbonTuttiFireSlots(present: present, included: included, column: tuttiSlotCol, played: tuttiSlotPlayed, written: tuttiSlotWritten, settings: settings, rankHold: nil)
+            if fire.fireRank > 0, fire.changedMask != 0, tuttiFireN < 64 {
+                tuttiFireBeat[tuttiFireN] = beat; tuttiFireRank[tuttiFireN] = fire.fireRank; tuttiFireChanged[tuttiFireN] = fire.changedMask; tuttiFireN += 1
+            }
+        }
+    }
+    /// §6.7 — the fire rank to substitute on (lane, part) at a hit's musical `beat`, or 0 if this part does not fire there.
+    private func tuttiFireRankAt(beat: Double, slot: Int) -> Int {
+        guard tuttiWindowActive, tuttiFireN > 0 else { return 0 }
+        for i in 0..<tuttiFireN where (tuttiFireChanged[i] >> UInt16(slot)) & 1 != 0 && abs(tuttiFireBeat[i] - beat) < 1e-6 { return tuttiFireRank[i] }
+        return 0
+    }
+
     /// INPUTS TEST (2026-11-08): the lane's pool auditioned — one note every ~150 ms, cut after ~120 ms, across the lane's emitters (riff mask | notes mask), tagged as the lane, on a free-running SAMPLE clock so it works while the transport is STOPPED. Rides `emitOneOutput` (the tested emission path: own + ALL cable, the output's channel, the flood governor, the refcounted off → no stuck note). The pool comes from the per-lane status store, refreshed in `runSegment` by `idleLanePoolSample`. No allocation (fixed loop, preallocated buffers).
     private func euclideousRunAudition(lane: Int, lines: [EuclidLine], windowStart: Int64, windowEnd: Int64, out: MIDIEmitter?) {
         guard lane >= 0, lane < 4, lane < lines.count else { return }
@@ -2479,6 +2582,7 @@ final class Router {
         scrubRiffColNow = Int(euclideousRiffColumnHold)
         scrubRiffRankNow = Int(euclideousRiffRankHold)
         scrubStackRankNow = Int(euclideousStackRankHold)
+        tuttiWindowActive = false   // RIBBON SETTINGS §6.5: cleared each window; `buildTuttiFireTable` sets it only when it builds a table (so a window without the pre-pass carries no stale table)
         // INPUTS TEST (2026-11-08): which lane auditions this window (−1 = none). A change in the testing lane restarts the walk at the window's first sample; it is otherwise free-running (the cursor + next-sample persist across windows).
         euclideousTestLaneNow = (euclideousTestLive & 0x100 != 0) ? Int(euclideousTestLive & 3) : -1
         if euclideousTestLaneNow != euclideousTestLaneActive {
@@ -4381,11 +4485,14 @@ final class Router {
                                 let riffPartIncluded = p.ribbon.riffLaneIncluded(lineIndex)
                                 let scrubRiffColGated = (riffPartIncluded && scrubRiffColNow != 0) ? scrubRiffColNow : 0
                                 let scrubRiffRankGated = (riffPartIncluded && scrubRiffRankNow != 0) ? scrubRiffRankNow : 0
+                                // RIBBON SETTINGS §6.7: a TUTTI fire substitutes the fire rank the same way a rank hold does — at the hit's NATURAL column, on rest columns too — but a scrub rank hold beats it (§6.9). mTickBeat is the hit's musical beat, the fire table's key.
+                                let tuttiRiffRank = (riffPartIncluded && scrubRiffRankGated == 0) ? tuttiFireRankAt(beat: mTickBeat, slot: lineIndex * 2) : 0
+                                let effRiffRankHold = scrubRiffRankGated != 0 ? scrubRiffRankGated : tuttiRiffRank
                                 let scrubHit = euclideousRiffHitSource(naturalColumn: naturalLeapStep + 1,
                                                                        rawRankAtColumn: { c in (c - 1) >= 0 && (c - 1) < ranks.count ? ranks[c - 1] : 0 },
                                                                        columnHold: scrubRiffColGated == 0 ? nil : scrubRiffColGated,
-                                                                       rankHold: scrubRiffRankGated == 0 ? nil : scrubRiffRankGated)
-                                let riffHoldActive = scrubRiffColGated != 0 || scrubRiffRankGated != 0
+                                                                       rankHold: effRiffRankHold == 0 ? nil : effRiffRankHold)
+                                let riffHoldActive = scrubRiffColGated != 0 || effRiffRankHold != 0
                                 if riffHoldActive { scrubNaturalRawRank = naturalLeapStep < ranks.count ? ranks[naturalLeapStep] : 0 }   // §3.5: for the post-release TIE carry, below
                                 let leapStep = scrubHit.column - 1   // the DISPLAY/strike column (the held column, or the natural one)
                                 let rawRank = scrubHit.rank          // the effective written rank (0 = rest)
@@ -4517,11 +4624,14 @@ final class Router {
                                             if spread { notesStruck += 1 }
                                         }
                                     }
-                                    if scrubStackRankNow != 0, p.ribbon.stackLaneIncluded(lineIndex) {
-                                        // Scrub §4 + RIBBON PARTS §3.1/§3.3: a stack hold collapses every VOICES/CHORD/role/BASS result to one rank r — but ONLY for a lane whose STACK part is INCLUDED (stackOn AND stackLanes[n]; defaults ⇒ byte-identical). (a rest when the pool has no note there, §4.2); no bass, no spread. The pure `euclideousStackHitRanks` decides.
+                                    // Scrub §4 + RIBBON PARTS §3 + TUTTI §6.7/§6.9: collapse to ONE rank r for an INCLUDED stack part under a scrub stack hold OR a TUTTI fire (scrub wins over TUTTI, §6.9). Defaults / no mark ⇒ effStackHold 0 ⇒ the normal path ⇒ byte-identical.
+                                    let stackInc = p.ribbon.stackLaneIncluded(lineIndex)
+                                    let effStackHold = (scrubStackRankNow != 0 && stackInc) ? scrubStackRankNow : (stackInc ? tuttiFireRankAt(beat: mTickBeat, slot: lineIndex * 2 + 1) : 0)
+                                    if effStackHold != 0 {
+                                        // a rest when the pool has no note there (§4.2); no bass, no spread. The pure `euclideousStackHitRanks` decides.
                                         let scrubRanks = euclideousStackHitRanks(natural: (0..<rowsHit.count).map { rowsHit[$0] },
                                                                                  poolHasRank: { r in riffResolve(rank: r, oct: 0, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) != nil },
-                                                                                 stackHold: scrubStackRankNow)
+                                                                                 stackHold: effStackHold)
                                         for r in scrubRanks { strikeRowsRank(r, spread: false) }
                                     } else {
                                         if rowsHit.bassRank > 0 { strikeRowsRank(rowsHit.bassRank, spread: false) }   // §4.5: the bass is struck at the hit
@@ -5875,7 +5985,9 @@ final class Router {
                 }
             }
             // CC SLOTS: a slot's shape reads its DRIVER lane's OWN next hit, computed inline from the walk at advOrd+1 as the hit fires — so CC no longer needs any lane in the clock pre-pass (the merged-stream pre-pass is retired).
-            let clockMask = hocketRefMask | avoidSourceMask   // lanes needing a pre-pass clock: HOCKET reference lanes ∪ AVOID source lanes
+            // RIBBON SETTINGS §6.5: with a TUTTI mark set, EVERY lane needs its clock captured in the pre-pass so the fire table knows all lanes' hits together (byte-identical when no mark — `tuttiActive` is false, so nothing is added).
+            let tuttiPrePass = isEuclideousRow && p.ribbon.tuttiActive && scrubRiffRankNow == 0 && scrubStackRankNow == 0
+            let clockMask = hocketRefMask | avoidSourceMask | (tuttiPrePass ? 0x0F : 0)   // lanes needing a pre-pass clock: HOCKET reference lanes ∪ AVOID source lanes ∪ (TUTTI → all four)
             if clockMask != 0 {
                 for i in 0..<8 { hocketClocks[i].valid = false }
                 for i in 0..<4 { hocketClockSplit[i] = false }
@@ -6024,6 +6136,7 @@ final class Router {
                     runSegment(tickFrom: -Double.infinity, tickBefore: Double.infinity)
                 }
             }
+            if hocketClockPass { buildTuttiFireTable(p: p, mWinStart: mWinStart, windowBeats: windowBeats) }   // RIBBON SETTINGS §6.5-6.9: after the clock pre-pass captures every lane, before the play pass
             }   // HOCKET: the clock pre-pass / play pass loop
             hocketClockPass = false
             // INPUTS TEST (2026-11-08): the testing lane walks its pool across its emitters, once per window, on the free-running audition clock (its normal output was suppressed in runSegment).

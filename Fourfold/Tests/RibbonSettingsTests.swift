@@ -90,6 +90,39 @@ final class RibbonSettingsTests: XCTestCase {
         XCTAssertEqual(r2.fireRank, 6, "the lower-numbered lane's trigger wins"); XCTAssertEqual(r2.changed, [2], "only the non-trigger changes")
     }
 
+    // §10.3 — the alloc-free render-thread sibling `euclideousRibbonTuttiFireSlots` must AGREE with `euclideousRibbonTuttiFire` on random steps.
+    func testTuttiFireSlotsAgreesWithTheSetVersion() {
+        var rng = SystemRandomNumberGenerator()
+        for _ in 0..<400 {
+            var s = RibbonSettings()
+            s.tuttiSteps = UInt8.random(in: 0...255, using: &rng); s.tuttiRanks = UInt8.random(in: 0...255, using: &rng)
+            let rankHold: Int? = Bool.random(using: &rng) ? Int.random(in: 1...8, using: &rng) : nil
+            // up to 8 slots (lane·2 + part); build both a [hit] list (for the Set fn) and the parallel fixed arrays (for the slots fn).
+            var hits: [EuclideousRibbonStepHit] = []
+            var present: UInt16 = 0, included: UInt16 = 0
+            var col = [Int](repeating: 0, count: 8), played = [Int](repeating: 0, count: 8), written = [Int](repeating: 0, count: 8)
+            for slot in 0..<8 where Bool.random(using: &rng) {
+                let lane = slot / 2, isNotes = slot % 2 == 1
+                let c = Int.random(in: 0...8, using: &rng), pr = Int.random(in: 0...8, using: &rng), wr = Int.random(in: 0...8, using: &rng)
+                let inc = Bool.random(using: &rng)
+                present |= UInt16(1) << UInt16(slot); if inc { included |= UInt16(1) << UInt16(slot) }
+                col[slot] = c; played[slot] = pr; written[slot] = wr
+                hits.append(EuclideousRibbonStepHit(lane: lane, isNotes: isNotes, column: c, playedRank: pr, columnWrittenRank: wr, included: inc))
+            }
+            let setR = euclideousRibbonTuttiFire(hits: hits, settings: s, rankHold: rankHold)
+            let slotR = euclideousRibbonTuttiFireSlots(present: present, included: included, column: col, played: played, written: written, settings: s, rankHold: rankHold)
+            XCTAssertEqual(setR.fireRank, slotR.fireRank, "fire rank agrees")
+            // the Set fn indexes into the compacted `hits`; map its changed indices back to slots to compare the masks.
+            var expectMask: UInt16 = 0
+            var hi = 0
+            for slot in 0..<8 where (present >> UInt16(slot)) & 1 != 0 {
+                if setR.changed.contains(hi) { expectMask |= UInt16(1) << UInt16(slot) }
+                hi += 1
+            }
+            XCTAssertEqual(slotR.changedMask, expectMask, "changed set agrees (steps \(s.tuttiSteps)/\(s.tuttiRanks), hold \(String(describing: rankHold)))")
+        }
+    }
+
     // §7.2 / §7.3 / §13.8 / §13.9 — CONTINUE: after a hold ends, the lane reads value(o + d) so the next hit follows the last.
     func testContinueOffset() {
         // §13.8 FWD LEN 8 (column = (n mod 8)+1): column 6 held, next hit (ordinal 0) must read 7 ⇒ d s.t. walk(0+d-1)=6.

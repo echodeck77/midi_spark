@@ -515,6 +515,7 @@
 		E6C108E83DC27EBB27958052 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */; };
 		E701FC442C61A2A5B667E2CE /* FourfoldSoak.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E7EE844DA2AAE3D8DD7FAC2 /* FourfoldSoak.swift */; };
 		E7784ECA8F44A813DF1AB6BE /* SnapshotBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB72B97F862EE82E9F92BEE8 /* SnapshotBuilderTests.swift */; };
+		E77E99DC4438544F429C2F4B /* RibbonTuttiRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F5438279482ACA2B564D35 /* RibbonTuttiRouterTests.swift */; };
 		E79F969969D54DA2CB4B2287 /* FourfoldReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E30016BB623E045246A0488 /* FourfoldReel.swift */; };
 		E8AE1645E57A562D79661AD2 /* CogPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D35E2CDA3C4B1C40CE7AD6 /* CogPage.swift */; };
 		E8C23ABF3D2A50670505E8AD /* PolyRiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73F2A52D11932A681050086 /* PolyRiff.swift */; };
@@ -990,6 +991,7 @@
 		F5C9E95418E53419FFFC1E21 /* EmitterCCTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterCCTrace.swift; sourceTree = "<group>"; };
 		F67ED63B8C6514D20364DCFB /* FourfoldPortsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldPortsTests.swift; sourceTree = "<group>"; };
 		F760F9EC70B6E5E30769292C /* AutoPilot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPilot.swift; sourceTree = "<group>"; };
+		F7F5438279482ACA2B564D35 /* RibbonTuttiRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RibbonTuttiRouterTests.swift; sourceTree = "<group>"; };
 		F83DE6BC106F7FAAF5034BAB /* ClarityPassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClarityPassTests.swift; sourceTree = "<group>"; };
 		F8F30766AEE34AB998FBBAED /* EuclideousFillModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousFillModelTests.swift; sourceTree = "<group>"; };
 		F9F33A41FDB47C91D08D42B4 /* RestartFlashPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartFlashPainter.swift; sourceTree = "<group>"; };
@@ -1237,6 +1239,7 @@
 				37F40110CDBE127195284585 /* RhythmDirectionHuntTests.swift */,
 				9E8567597528341F414DC3D5 /* RhythmPolishTests.swift */,
 				6A80C14200B901772BEC38D7 /* RibbonSettingsTests.swift */,
+				F7F5438279482ACA2B564D35 /* RibbonTuttiRouterTests.swift */,
 				BB94EF7295FC02210D4E1DDD /* RiffDirectionHuntTests.swift */,
 				839B87525F479BAE343B637A /* RiffDirectionMirrorHuntTests.swift */,
 				42A11E131366C40F5FB993C3 /* RiffGridArrowFuzzTests.swift */,
@@ -2158,6 +2161,7 @@
 				165888397138D1C3E68C4BD0 /* RhythmDirectionHuntTests.swift in Sources */,
 				DDF0A418083AE1978744004D /* RhythmPolishTests.swift in Sources */,
 				34195C303DA097D31779F795 /* RibbonSettingsTests.swift in Sources */,
+				E77E99DC4438544F429C2F4B /* RibbonTuttiRouterTests.swift in Sources */,
 				52F5DCC716C93C7604A01595 /* RiffDirectionHuntTests.swift in Sources */,
 				4F3EF380971684557D2BA782 /* RiffDirectionMirrorHuntTests.swift in Sources */,
 				F916421D23299C61B01B18B2 /* RiffGridArrowFuzzTests.swift in Sources */,

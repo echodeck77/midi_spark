@@ -5280,6 +5280,35 @@ func euclideousRibbonTuttiFire(hits: [EuclideousRibbonStepHit], settings: Ribbon
     return EuclideousRibbonTuttiResult(fireRank: win.fireRank, changed: changed)
 }
 
+/// §10.3 — the RENDER-THREAD (allocation-free) sibling of `euclideousRibbonTuttiFire`. The step's up-to-8 hits are indexed by SLOT = lane·2 + part
+/// (part 0 = riff, 1 = stack): `present` bit slot = a real hit exists; `included` bit slot = that hit is an INCLUDED, trigger-eligible part;
+/// `column[slot]` the riff column 1-based the hit read (the stack reads its lane's riff column, §6.5; 0 = none); `played[slot]` the rank the part
+/// plays (riff written rank / stack played rank; 0 = rest); `written[slot]` the column's written rank (used for a riff trigger's fire rank, §6.6).
+/// Returns the fire rank (0 = none) and the bitmask of slots TUTTI substitutes (the included non-triggers). No allocation — fixed loops, integer
+/// masks; it must agree with `euclideousRibbonTuttiFire` on the same inputs (a test pins that). SLOT order gives §6.6 "lowest lane, riff before stack".
+func euclideousRibbonTuttiFireSlots(present: UInt16, included: UInt16, column: [Int], played: [Int], written: [Int],
+                                    settings: RibbonSettings, rankHold: Int?) -> (fireRank: Int, changedMask: UInt16) {
+    guard rankHold == nil, settings.tuttiActive else { return (0, 0) }   // §6.9 a rankHold beats TUTTI; no mark ⇒ nothing fires
+    var winFire = 0, winSlot = 99
+    var triggerMask: UInt16 = 0
+    for slot in 0..<8 where (present >> UInt16(slot)) & 1 != 0 && (included >> UInt16(slot)) & 1 != 0 {
+        let col = column[slot], pr = played[slot]
+        let markedStep = col >= 1 && settings.stepMarked(col)
+        let markedRank = pr >= 1 && settings.rankMarked(pr)
+        guard markedStep || markedRank else { continue }
+        let fr = markedStep ? written[slot] : pr                   // §6.6: a marked-step trigger fires its column's written rank, a marked-rank trigger fires that rank
+        guard fr >= 1 else { continue }                            // a rest column gives no fire rank
+        triggerMask |= UInt16(1) << UInt16(slot)
+        if slot < winSlot { winSlot = slot; winFire = fr }         // SLOT = lane·2 + part ⇒ the lowest-numbered lane, riff before stack, wins
+    }
+    guard winFire >= 1 else { return (0, 0) }
+    var changed: UInt16 = 0
+    for slot in 0..<8 where (present >> UInt16(slot)) & 1 != 0 && (included >> UInt16(slot)) & 1 != 0 && (triggerMask >> UInt16(slot)) & 1 == 0 {
+        changed |= UInt16(1) << UInt16(slot)                       // §6.7/§6.8: every OTHER included hit substitutes; the triggers play as they are
+    }
+    return (winFire, changed)
+}
+
 /// §7.2 / §7.3 / §10.4 — the RELEASE CONTINUE walk offset after a columnHold / loopSpan (riff) or a rankHold / columnHold /
 /// loopSpan (stack) ends: the smallest d ≥ 0 such that the lane's walk VALUE at ordinal (o + d − 1) equals `last` — the last
 /// column its riff read, or the last rank PLAY AS played — so the next hit at ordinal o reads value(o + d), continuing from
