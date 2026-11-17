@@ -2302,3 +2302,9 @@ The three holds (riff column / riff rank / stack rank), the gestures, the engine
 - [ ] (DECIDE) HOLD/LATCH/HOCKET have no pressed mechanism, so §5.1's "pressed: control, pressed" has nothing to attach to — add one (carefully: the PLAY-tile pressed gesture regressed a toggle once) or drop the requirement.
 - [ ] (DECIDE) the SWING icon's away-from-50 cyan tint was flattened by §5.2's one-colour rule — if the at-a-glance swing signal is missed on device, it needs a §5.2-compliant replacement (e.g. a dot like the tape's).
 - [ ] Consistency pass 1 never landed: the three strips still differ structurally (the bottom-right row is underline tabs), and the chips/pill → tile conversions remain that ferry's work. STYLE PASS 1 applied its colour states to the as-built controls.
+
+## LANE STRIP CLARITY (2026-11-17, Fourfold, display only) — follow-ups (status log "LANE STRIP CLARITY"; findings `Docs/lane-strip-clarity-findings.md`)
+- [ ] DEVICE: the six §11 lines in `Docs/euclideous-device-verification-debt.md` (slim bars at 16 steps, resting-bar contour, white-on-four-hues, the tick at speed, mixed band heights, the even hit colours' identity).
+- [ ] (reported, unchanged by the ferry) GATE 99 % empties the stack's held set for ~1 % of each inter-hit gap, so SOUNDING-driven looks (the tiles' stroke, chip opacity) still flick for a frame at the boundary; the LABELS no longer move (§3.4). If the flick still bothers on device, a ~20 ms sounding-hold on the feed side would smooth it (its own small ferry — it touches every sounding consumer).
+- [ ] (known seam) the slim threshold reads the PAGE's scale-to-fit factor; a strip drawn outside the page (none today) would default to scale 1.
+- [ ] (stale comment, fixed in the findings not the code) LaneStripBands.swift's file-top "hH 10 / hC 20" describes the 0.22-era; the real T-44 values are hH 9 / hC 19 — tidy the comment next time the file is touched.

@@ -139,6 +139,16 @@ final class LaneStripClarityTests: XCTestCase {
         XCTAssertTrue(full.filled, "at hC 19 the slot is 1.75 — always the bar fallback")
     }
 
+    // MARK: §7/§8.10 — states: stopped means empty held sets ⇒ no sounding flags anywhere ⇒ chips and bars at rest, no white
+
+    func testStoppedStateHasNoSoundingAnywhere() {
+        let s = laneStripSounding(riffHeld: [], stackHeld: [], n: 8, now: 0, passBeats: 4, stepOf: { _ in 0 }, hitSteps: [0, 2, 4, 6])
+        XCTAssertTrue(s.riffRing.allSatisfy { !$0 }, "no riff note sounds ⇒ no white riff bars, chips at rest")
+        XCTAssertTrue(s.stackRing.allSatisfy { !$0 })
+        XCTAssertTrue(s.stackOutline.allSatisfy { $0.isEmpty }, "no white stack bars")
+        XCTAssertTrue(s.stackChipRanks.allSatisfy { $0.isEmpty }, "§7.2: a cleared feed returns every chip to rest at once")
+    }
+
     // MARK: §8.4 — the PLAY tiles' note chips share the one function (structural: the same stroke rule at the tile's band height)
 
     func testPlayTileNoteChipUsesTheSameStrokeRule() {
