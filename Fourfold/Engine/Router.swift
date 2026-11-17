@@ -644,6 +644,10 @@ final class Router {
     private var euclideousHeldRiffPitch = [Int](repeating: -1, count: 4)
     // Scrub ferry (2026-11-16): this window's three holds (0 = none, 1…8), read once per window. Global (all four lanes).
     private var scrubRiffColNow = 0, scrubRiffRankNow = 0, scrubStackRankNow = 0
+    // RIBBON SETTINGS §9 — the loop span (0 = none), read once per window, and the per-lane k-origin: the advOrd at a lane's first hit after the loop was set (§9.2), reset on a fresh loop / a transport edge / a loop ending. Minimal accumulated state (a sanctioned live-interaction exception, like the hold tables); cleared whenever the loop is none.
+    private var loopLoNow = 0, loopHiNow = 0, loopWasActive = false
+    private var euclideousLoopOrigin = [Int64](repeating: 0, count: 4)
+    private var euclideousLoopOriginSet = [Bool](repeating: false, count: 4)
     // RIBBON SETTINGS (2026-11-16) §6.5-6.9 — TUTTI FIRING. A rank-carrying pre-pass (built after the clock pre-pass, before any lane plays) that
     // groups this window's included hits by MUSICAL beat and, where a trigger reads a marked step / plays a marked rank, fires the winning rank to the
     // other included hits on that beat. All fixed-size (no allocation); the whole path is gated on `p.ribbon.tuttiActive`, so with no mark it is inert.
@@ -1242,6 +1246,7 @@ final class Router {
     private func resetCanonClock() {
         for i in 0..<4 { laneStat.played[i] = 0 }
         canonElapsedAccum = 0; canonWinElapsed = 0; canonHistory.reset(); canonBufChord = .min; canonBufEntry = .min
+        for i in 0..<4 { euclideousLoopOriginSet[i] = false }   // RIBBON SETTINGS §9.2: the loop's k-origin is an advOrd, which restarts with the walk at a transport edge / reset / scene flush
     }
     // INPUTS + HARMONY §2.9: the source of each of the first 16 notes in the shared pool buffer (0 MIDI · 1 CHORDS · 2 PICK · 3 KEY) and which sources the build had lit (bit 0 MIDI playing · 1 CHORDS · 2 PICK · 3 KEY) — written by EVERY build (live, lane, canon),
     // read where the lane's status is written. Fixed-size, no allocation.
@@ -2523,6 +2528,7 @@ final class Router {
                  euclideousRiffColumnHold: UInt8 = 0,   // Scrub ferry (2026-11-16): the three GLOBAL live holds — 0 = none, 1…8 (read once per window; substitute the note at every lane's hit)
                  euclideousRiffRankHold: UInt8 = 0,
                  euclideousStackRankHold: UInt8 = 0,
+                 euclideousLoopLo: UInt8 = 0, euclideousLoopHi: UInt8 = 0,   // RIBBON SETTINGS §9: the GLOBAL loop span (columns lo…hi, 1…8; 0 = no loop) — an included lane's riff reads a loop walk over it
                  sceneFlush: Bool = false,
                  out: MIDIEmitter?,
                  diag: inout KernelDiag) {
@@ -2609,6 +2615,11 @@ final class Router {
         scrubRiffRankNow = Int(euclideousRiffRankHold)
         scrubStackRankNow = Int(euclideousStackRankHold)
         tuttiWindowActive = false   // RIBBON SETTINGS §6.5: cleared each window; `buildTuttiFireTable` sets it only when it builds a table (so a window without the pre-pass carries no stale table)
+        // RIBBON SETTINGS §9: this window's loop span (0 = none). On a fresh loop (none → set) the per-lane k-origins reset, so each lane's first hit after the loop is set reads column `lo` (§9.2); a span CHANGE during a drag keeps them (k carries on).
+        loopLoNow = Int(euclideousLoopLo); loopHiNow = Int(euclideousLoopHi)
+        let loopActiveNow = loopLoNow != 0
+        if loopActiveNow && !loopWasActive { for i in 0..<4 { euclideousLoopOriginSet[i] = false } }
+        loopWasActive = loopActiveNow
         // INPUTS TEST (2026-11-08): which lane auditions this window (−1 = none). A change in the testing lane restarts the walk at the window's first sample; it is otherwise free-running (the cursor + next-sample persist across windows).
         euclideousTestLaneNow = (euclideousTestLive & 0x100 != 0) ? Int(euclideousTestLive & 3) : -1
         if euclideousTestLaneNow != euclideousTestLaneActive {
@@ -4141,7 +4152,19 @@ final class Router {
                         // REVERSE (2026-10-30): a walk heading toward lower columns (REV; the backward legs of PENDULUM / PING-PONG) meets a held note at its LAST column — that is where the note strikes (its end is treated as its start; same ring, in steps);
                         // a PENDULUM's turn meets both ends. `euclideousPolyTrigger` decides it per hit for the strike, the rest test and (per earlier hit) the notes layer's count.
                         let polyTrig: EuclideousPolyTrigger = polyOn ? euclideousPolyTrigger(riffDir: riffDir, length: riffLength, stride: riffStride, every: riffAdvanceEvery, ordinal: advOrd) : .starts
-                        let playedStep = euclideousRiffColumn(ordinal: advOrd, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
+                        // RIBBON SETTINGS §9.2/§3.3: an included lane's riff reads a LOOP WALK over the span instead of its natural walk (the stack reads the loop column's written rank, handled at the stack hook). `k` counts the lane's advances from 0 at its first hit after the loop was set — the origin is captured on that first hit and reset on a fresh loop / transport edge. `loopColNow` (0-based, −1 = no loop) is shared with the stack hook below.
+                        var loopColNow = -1
+                        var loopRiffInc = false
+                        if isEuclideousRow, loopLoNow != 0 {
+                            let riffInc = p.ribbon.riffLaneIncluded(lineIndex), stackInc = p.ribbon.stackLaneIncluded(lineIndex)
+                            loopRiffInc = riffInc
+                            if riffInc || stackInc {
+                                if !euclideousLoopOriginSet[lineIndex] { euclideousLoopOrigin[lineIndex] = advOrd; euclideousLoopOriginSet[lineIndex] = true }
+                                loopColNow = euclideousRibbonLoopColumn(k: advOrd - euclideousLoopOrigin[lineIndex], spanA: loopLoNow, spanB: loopHiNow, direction: riffDir, stride: riffStride, every: riffAdvanceEvery, seed: seed) - 1
+                            }
+                        }
+                        let playedStep = (loopColNow >= 0 && loopRiffInc) ? loopColNow
+                            : euclideousRiffColumn(ordinal: advOrd, every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
                         if isEuclideousRow {
                             euclideousRiffStep[lineIndex] = playedStep   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern — now true in BOTH modes
                             euclideousRiffLastOrd[lineIndex] = advOrd    // RIFF MARKERS/FOOTERS poll (2026-10-12): the ordinal this cursor just advanced on
@@ -4698,15 +4721,21 @@ final class Router {
                                             if spread { notesStruck += 1 }
                                         }
                                     }
-                                    // Scrub §4 + RIBBON PARTS §3 + TUTTI §6.7/§6.9: collapse to ONE rank r for an INCLUDED stack part under a scrub stack hold OR a TUTTI fire (scrub wins over TUTTI, §6.9). Defaults / no mark ⇒ effStackHold 0 ⇒ the normal path ⇒ byte-identical.
+                                    // Scrub §4 + RIBBON PARTS §3 + TUTTI §6.7/§6.9 + LOOP §3.3/§9.5: collapse to ONE rank r for an INCLUDED stack part under a scrub stack hold, a LOOP (the loop column's written rank, a rest column ⇒ a stack rest) or a TUTTI fire. Order: scrub rank hold > loop > TUTTI. Defaults / no mark / no loop ⇒ effStackHold 0 ⇒ the normal path ⇒ byte-identical.
                                     let stackInc = p.ribbon.stackLaneIncluded(lineIndex)
-                                    let effStackHold = (scrubStackRankNow != 0 && stackInc) ? scrubStackRankNow : (stackInc ? tuttiFireRankAt(beat: mTickBeat, slot: lineIndex * 2 + 1) : 0)
+                                    let loopStackGoverns = loopColNow >= 0 && stackInc && scrubStackRankNow == 0
+                                    let loopStackRank = loopStackGoverns ? (loopColNow < ranks.count ? Int(ranks[loopColNow]) : 0) : 0
+                                    let effStackHold = (scrubStackRankNow != 0 && stackInc) ? scrubStackRankNow
+                                        : loopStackGoverns ? loopStackRank
+                                        : (stackInc ? tuttiFireRankAt(beat: mTickBeat, slot: lineIndex * 2 + 1) : 0)
                                     if effStackHold != 0 {
                                         // a rest when the pool has no note there (§4.2); no bass, no spread. The pure `euclideousStackHitRanks` decides.
                                         let scrubRanks = euclideousStackHitRanks(natural: (0..<rowsHit.count).map { rowsHit[$0] },
                                                                                  poolHasRank: { r in riffResolve(rank: r, oct: 0, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) != nil },
                                                                                  stackHold: effStackHold)
                                         for r in scrubRanks { strikeRowsRank(r, spread: false) }
+                                    } else if loopStackGoverns {
+                                        // §3.3: a loop rest column ⇒ the stack plays nothing this hit (it does NOT fall through to the lit-notes path).
                                     } else {
                                         if rowsHit.bassRank > 0 { strikeRowsRank(rowsHit.bassRank, spread: false) }   // §4.5: the bass is struck at the hit
                                         for i in 0..<rowsHit.count { strikeRowsRank(rowsHit[i], spread: doSpread) }

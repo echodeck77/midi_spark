@@ -78,6 +78,12 @@ final class Kernel {
         euclideousRiffRankHold = UInt8(max(0, min(8, riffRank)))
         euclideousStackRankHold = UInt8(max(0, min(8, stackRank)))
     }
+    /// RIBBON SETTINGS §9 — the GLOBAL loop span (columns lo…hi, 1…8; 0 = no loop). Same plain main-writes/render-reads hand-off as the scrub holds; not in the snapshot/document/undo.
+    private var euclideousLoopLo: UInt8 = 0, euclideousLoopHi: UInt8 = 0
+    func setEuclideousLoopSpan(lo: Int, hi: Int) {
+        let l = max(0, min(8, lo)), h = max(0, min(8, hi))
+        euclideousLoopLo = UInt8(min(l, h)); euclideousLoopHi = UInt8(max(l, h))   // a ≤ b
+    }
     /// NOTES AUDITION (2026-11-11): while a STACK-grid cell is HELD, that lane's NOTES layer plays ONLY that one rank — the same plain main-writes/render-reads hand-off. 0 = none; 0x100 | (lane << 4) | position (position 0-9 = the `EuclideousLitOrder` index: 0-7 ranks 1-8, 8 TOP 2, 9 TOP). Released the instant the finger lifts; the Router cuts the lane's sounding notes on every change so the audition is clean.
     private var euclideousNotesAuditionLive: UInt16 = 0
     func setEuclideousNotesAuditionLive(_ v: (lane: Int, position: Int)?) { euclideousNotesAuditionLive = v.map { 0x100 | UInt16(($0.lane & 3) << 4) | UInt16($0.position & 0x0F) } ?? 0 }
@@ -567,6 +573,7 @@ final class Kernel {
                         euclideousRiffColumnHold: euclideousRiffColumnHold,
                         euclideousRiffRankHold: euclideousRiffRankHold,
                         euclideousStackRankHold: euclideousStackRankHold,
+                        euclideousLoopLo: euclideousLoopLo, euclideousLoopHi: euclideousLoopHi,
                         sceneFlush: flushRequested,
                         out: replayingLoop ? reelSilentTap : reelTap, diag: &diag)   // → reelTap (reel + session tape) → liveEmitter; or, while a pass replays, the silent tap (session tape only)
         }
