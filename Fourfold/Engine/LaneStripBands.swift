@@ -54,11 +54,12 @@ enum LaneStripBandMetrics {
     /// §B2.6: the ANSWER line along the footer track's inside-bottom edge — 1.5 pt, source lane100 @ 70 %, radius 1.
     static let answerLineH: CGFloat = 1.5, answerLineAlpha = 0.7, answerLineRadius: CGFloat = 1
 
-    /// §4.2: cell fills — a step not under / under the playhead; a hit not under / under the playhead takes lane100 at
-    /// `hitAlpha`/`hitPlayheadAlpha` with the 3 pt lane100 bottom bar. No strike flash, glow or ease.
-    static let stepFill = EuclideousRGB(r: 0x2A, g: 0x2C, b: 0x33)
+    /// §4.2 / LANE STRIP CLARITY §5.3: cell fills — the rest cell is #22242A (was #2A2C33; the hit-colour contrast is
+    /// measured against it), the rest-at-the-playhead #3A3D44 as built. A hit now fills the OPAQUE `stripHitColour`
+    /// (§5.1: one OKLCH lightness across every lane) with the 3 pt lane100 bottom bar. No strike flash, glow or ease.
+    static let stepFill = EuclideousRGB(r: 0x22, g: 0x24, b: 0x2A)
     static let playheadStepFill = EuclideousRGB(r: 0x3A, g: 0x3D, b: 0x44)
-    static let hitAlpha = 0.30, hitPlayheadAlpha = 0.45
+    static let hitAlpha = 0.30, hitPlayheadAlpha = 0.45   // pre-CLARITY (kept for reference; the hit fill is the §5.1 table now)
     static let bottomBarH: CGFloat = 3, cellRadius: CGFloat = 6
     /// §B4.1: the rank slots — 1 below the cell's top to 1 above its 3 pt bottom bar, split 8 ways (slot = (hC−5)/8). §B4.2:
     /// a sounding rank is a FILLED bar, height max(1, slot−0.5), radius 0.5, centred in its slot — riff inset 2 / stack inset 4
@@ -320,13 +321,13 @@ func rankSlotRect(cell: CGRect, hC: CGFloat, rank: Int, part: LaneStripPart) -> 
 
 // MARK: - §8.6 / §4.2: a cell's look
 
-/// §4.2: the fill a cell takes. `hit` uses lane100 at the given alpha (the painter supplies the lane colour); a step uses
-/// a flat grey. No cell ever takes lane100 at 100 %, and nothing glows.
-enum LaneCellFill: Equatable { case step, playheadStep, hit(alpha: Double) }
+/// §4.2 / LANE STRIP CLARITY §5: the fill a cell takes. A hit fills the opaque `stripHitColour(lane, atPlayhead:)` —
+/// one OKLCH lightness on every lane (the painter looks the colour up by its lane); a step uses the flat #22242A
+/// (#3A3D44 at the playhead, as built). Nothing glows.
+enum LaneCellFill: Equatable { case step, playheadStep, hit(atPlayhead: Bool) }
 struct LaneCellLook: Equatable { var fill: LaneCellFill; var bar: Bool }
 func stripCellLook(isHit: Bool, isPlayhead: Bool) -> LaneCellLook {
-    typealias M = LaneStripBandMetrics
-    if isHit { return LaneCellLook(fill: .hit(alpha: isPlayhead ? M.hitPlayheadAlpha : M.hitAlpha), bar: true) }
+    if isHit { return LaneCellLook(fill: .hit(atPlayhead: isPlayhead), bar: true) }
     return LaneCellLook(fill: isPlayhead ? .playheadStep : .step, bar: false)
 }
 

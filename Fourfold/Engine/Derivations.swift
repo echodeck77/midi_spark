@@ -8719,6 +8719,42 @@ private let riffMapTables: (map: [EuclideousRGB], faint: [EuclideousRGB]) = {
 }()
 /// The table slot of a cell (column wraps at 8, rank clamps to 1…8) — the UI builds its own `Color` tables with it, once.
 @inline(__always) func riffMapIndex(column: Int, rank: Int) -> Int { ((max(1, column) - 1) % 8) * 8 + (max(1, min(8, rank)) - 1) }
+
+// MARK: - LANE STRIP CLARITY (2026-11-17) §5: the even hit colours — one OKLCH lightness across every lane
+
+/// §10 tunables (change none in the ferry): the hit cell's lightness (and its lighter playhead variant), the chroma, and
+/// the new rest-cell fill the §8.8 contrast is measured against.
+enum StripHitTuning {
+    static let lightness = 0.46
+    static let playheadLightness = 0.56
+    static let chroma = 0.10
+    static let restFill = EuclideousRGB(r: 0x22, g: 0x24, b: 0x2A)             // §5.3 (replaces the old #2A2C33 step fill)
+}
+/// §5.1 — the ONE copy of the four lane100 tokens as RGB (the page's `laneAccents` are the same values as SwiftUI Colors):
+/// red #F25959 · blue #59BFF2 · yellow #F2BF40 · green #8CD973. The hit table takes each token's OKLCH HUE only.
+let euclideousLaneTokens: [EuclideousRGB] = [
+    EuclideousRGB(r: 0xF2, g: 0x59, b: 0x59), EuclideousRGB(r: 0x59, g: 0xBF, b: 0xF2),
+    EuclideousRGB(r: 0xF2, g: 0xBF, b: 0x40), EuclideousRGB(r: 0x8C, g: 0xD9, b: 0x73),
+]
+/// How many conversions the 4 × 2 hit table cost — 8, once (a test reads it; it must never grow).
+private(set) var stripHitConversionCount = 0
+/// §5.1: the 4 × 2 table — per lane, OKLCH(L 0.46 / 0.56 at the playhead, C 0.10, h = the token's hue), converted by the
+/// riff map's exact steps and clamping (`euclideousRGBFromOKLab`). Opaque; built once, a draw only reads it.
+private let stripHitTable: [EuclideousRGB] = {
+    var t: [EuclideousRGB] = []; t.reserveCapacity(8)
+    for token in euclideousLaneTokens {
+        let h = euclideousOKLCH(token).h * Double.pi / 180
+        for L in [StripHitTuning.lightness, StripHitTuning.playheadLightness] {
+            stripHitConversionCount += 1
+            t.append(euclideousRGBFromOKLab(L: L, a: StripHitTuning.chroma * cos(h), b: StripHitTuning.chroma * sin(h)))
+        }
+    }
+    return t
+}()
+/// §5.1/§5.2 — the hit cell's fill: the same lightness on every lane, so green and blue hits read like red's. A table read.
+func stripHitColour(lane: Int, atPlayhead: Bool) -> EuclideousRGB {
+    stripHitTable[(max(0, lane) % 4) * 2 + (atPlayhead ? 1 : 0)]
+}
 /// §1: the cell's colour — a written note's fill in the grid, and a chip's fill in the lane strip.
 func riffMapColour(column: Int, rank: Int) -> EuclideousRGB { riffMapTables.map[riffMapIndex(column: column, rank: rank)] }
 /// §1: an EMPTY cell's colour — the same map colour at 20 % over the grid's empty cell.

@@ -41,6 +41,9 @@ struct EuclideousStripBandInput {
     var cellDim: Double = 1
     /// ALT §5.9: the buf-index steps whose hit plays in the alt state — a white inner outline on the body cell (empty for every non-ALT lane / stopped ⇒ identical).
     var altHitSteps: Set<Int> = []
+    /// LANE STRIP CLARITY §5.1: the lane whose hit COLOUR the cells take (the CARD's lane — under an ANSWER trade the strip
+    /// shows the partner's plan in the card's own colour, so this is the card index, not the plan's).
+    var hitColourLane: Int = 0
 }
 
 /// §5.4: the faint CC trace — a 1 pt line, a 3 pt dot at each hit's value, a 4 pt dot at the playhead. Over the cells,
@@ -88,9 +91,10 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
         let look = stripCellLook(isHit: isHit, isPlayhead: d.playheadStep == i)
         let shape = RoundedRectangle(cornerRadius: M.cellRadius).path(in: cell)
         switch look.fill {
-        case .step:          ctx.fill(shape, with: .color(Color(M.stepFill)))                 // §6.1: rest/step cells unchanged
-        case .playheadStep:  ctx.fill(shape, with: .color(Color(M.playheadStepFill)))          // §6.1: the playhead unchanged
-        case .hit(let a):    ctx.fill(shape, with: .color(d.tint.opacity(a * d.cellDim)))      // §6.1: both-parts-off dims the HIT cells only
+        case .step:          ctx.fill(shape, with: .color(Color(M.stepFill)))                 // CLARITY §5.3: #22242A (#3A3D44 at the playhead)
+        case .playheadStep:  ctx.fill(shape, with: .color(Color(M.playheadStepFill)))
+        case .hit(let ph):   // CLARITY §5.1/§5.2: the opaque even hit colour (one lightness across lanes); §5.4 both-parts-off dims it
+            ctx.fill(shape, with: .color(Color(stripHitColour(lane: d.hitColourLane, atPlayhead: ph)).opacity(d.cellDim)))
         }
         if look.bar {
             let bar = CGRect(x: cell.minX, y: cell.maxY - M.bottomBarH, width: cell.width, height: M.bottomBarH)

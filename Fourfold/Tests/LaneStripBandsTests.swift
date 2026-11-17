@@ -130,13 +130,12 @@ final class LaneStripBandsTests: XCTestCase {
 
     // §10.9 — a hit cell is lane100 @ 30 % (45 % at the playhead) with the bar; no cell is ever 100 % or glows.
     func testCellLooks() {
-        XCTAssertEqual(stripCellLook(isHit: true, isPlayhead: false), LaneCellLook(fill: .hit(alpha: 0.30), bar: true))
-        XCTAssertEqual(stripCellLook(isHit: true, isPlayhead: true), LaneCellLook(fill: .hit(alpha: 0.45), bar: true))
+        // LANE STRIP CLARITY §5: a hit fills the opaque even hit colour (looked up by lane + playhead), not lane100 at an alpha.
+        XCTAssertEqual(stripCellLook(isHit: true, isPlayhead: false), LaneCellLook(fill: .hit(atPlayhead: false), bar: true))
+        XCTAssertEqual(stripCellLook(isHit: true, isPlayhead: true), LaneCellLook(fill: .hit(atPlayhead: true), bar: true))
         XCTAssertEqual(stripCellLook(isHit: false, isPlayhead: false), LaneCellLook(fill: .step, bar: false))
         XCTAssertEqual(stripCellLook(isHit: false, isPlayhead: true), LaneCellLook(fill: .playheadStep, bar: false))
-        for hit in [true, false] { for ph in [true, false] {
-            if case .hit(let a) = stripCellLook(isHit: hit, isPlayhead: ph).fill { XCTAssertLessThan(a, 1.0) }
-        } }
+        // (CLARITY §5: the hit fill is opaque by design now — the old below-100 % alpha check is superseded by the §8.8 contrast test.)
     }
 
     // §3.3/§3.4/§4.4/§4.6 — the sounding held sets: rings/outlines map a note's onset to its step; outs==0 is excluded.

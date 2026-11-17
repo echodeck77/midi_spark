@@ -79,6 +79,30 @@ final class LaneStripClarityTests: XCTestCase {
         // §3.4: the drawn set, not sounding, decides — the same sets give the same labels whatever is playing (pure input).
     }
 
+    // MARK: §8.8 — the even hit colours: one lightness, ≥ 1.9:1 on the rest fill, a lighter playhead variant, built once
+
+    func testHitColoursAreEvenAndContrasty() {
+        let rest = StripHitTuning.restFill
+        var lightnesses: [Double] = []
+        for lane in 0..<4 {
+            let hit = stripHitColour(lane: lane, atPlayhead: false)
+            let ph = stripHitColour(lane: lane, atPlayhead: true)
+            lightnesses.append(euclideousOKLCH(hit).L)
+            XCTAssertGreaterThanOrEqual(euclideousWCAGContrast(hit, rest), 1.9, "lane \(lane): the hit must stand off #22242A")
+            XCTAssertGreaterThan(euclideousOKLCH(ph).L, euclideousOKLCH(hit).L, "lane \(lane): the playhead variant is lighter")
+            // the hue survives the round trip (the colour is the LANE's own, §9/§11)
+            let want = euclideousOKLCH(euclideousLaneTokens[lane]).h
+            let got = euclideousOKLCH(hit).h
+            var d = abs(want - got); if d > 180 { d = 360 - d }
+            XCTAssertLessThan(d, 8, "lane \(lane): the hit keeps the token's hue (Δh \(d)°)")
+        }
+        // §8.8: all four lanes share one OKLCH lightness (within 8-bit quantisation of the round trip)
+        for l in lightnesses { XCTAssertEqual(l, lightnesses[0], accuracy: 0.015) }
+        XCTAssertEqual(stripHitConversionCount, 8, "the 4 × 2 table is built once")
+        _ = stripHitColour(lane: 2, atPlayhead: true)
+        XCTAssertEqual(stripHitConversionCount, 8, "reads never convert")
+    }
+
     // MARK: §8.4 — the PLAY tiles' note chips share the one function (structural: the same stroke rule at the tile's band height)
 
     func testPlayTileNoteChipUsesTheSameStrokeRule() {

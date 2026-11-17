@@ -552,7 +552,8 @@ struct EuclidCometBar: View {
                     // §6.1: both parts off → the HIT cells dim to 42% (not the whole strip), UNLESS the whole strip already dims (solo via the box, or a LANES mute at this beat) — never dim the cells twice.
                     let cellDim: Double = (cellsOnlyDim && !mutedNow && !suppressMuteDim) ? EuclideousLaneDimStyle.opacity : 1
                     drawLaneStripBands(&ctx, EuclideousStripBandInput(frames: bandFrames, hits: strip.legs[stripLeg].hits, steps: n, laneIndex: strip.lane, tint: tint, stripWidth: size.width, playheadStep: playheadStep,
-                                                                       sounding: sounding, cc: ccTrace, riffShown: strip.riffPartOn, notesShown: strip.notesPartOn, cellDim: cellDim, altHitSteps: strip.altHitSteps))
+                                                                       sounding: sounding, cc: ccTrace, riffShown: strip.riffPartOn, notesShown: strip.notesPartOn, cellDim: cellDim, altHitSteps: strip.altHitSteps,
+                                                                       hitColourLane: pulseLane))   // CLARITY §5.1: the CARD's lane picks the hit colour (an ANSWER trade keeps the card's own colour)
                     return
                 }
                 // BOX CONTENT IS DIRECTION-INDEPENDENT — box `i` always shows `buf[i]`, the raw pattern buffer at
