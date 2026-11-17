@@ -107,6 +107,7 @@ struct EuclideousArrowView: View {
 struct EuclideousRailsView: View {
     let layout: EuclideousRiffPanelLayout
     let rails: [EuclideousRailSpec]
+    var tuttiSteps: UInt8 = 0   // RIBBON SETTINGS §6.3: while any step is marked, every unmarked column's segment draws at 30% in all four rails (the lane numbers never fade)
     private typealias S = EuclideousRailStyle
 
     private func laneColour(_ lane: Int) -> Color { Color(euclideousLaneRGB[lane % euclideousLaneRGB.count]) }
@@ -152,7 +153,10 @@ struct EuclideousRailsView: View {
                     .offset(x: nf.minX, y: nf.minY)
                 ForEach(0..<rail.segments.count, id: \.self) { c in
                     let f = layout.railSegmentFrame(lane: rail.lane, column: c)
+                    // §6.3: a marked column draws normally; while any is marked, unmarked ones drop to 30% (the whole segment, over its own look's opacity).
+                    let tuttiFade: Double = (tuttiSteps != 0 && (tuttiSteps >> UInt8(c)) & 1 == 0) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1
                     segment(rail.segments[c], lane: rail.lane, flare: rail.flare)
+                        .opacity(tuttiFade)
                         .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: rail.segments[c].opacity)
                         .frame(width: f.width, height: f.height)
                         .offset(x: f.minX, y: f.minY)

@@ -189,11 +189,14 @@ struct RiffGridRankAxisView: View {
     let cellH: CGFloat
     let labelW: CGFloat
     let gap: CGFloat
+    var tuttiRanks: UInt8 = 0   // RIBBON SETTINGS §6.3: while any rank is marked, every unmarked rank box draws at 30% on both axes
     var body: some View {
         VStack(spacing: gap) {
             ForEach((1...8).reversed(), id: \.self) { rank in
+                let fade: Double = (tuttiRanks != 0 && (tuttiRanks >> UInt8(rank - 1)) & 1 == 0) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1
                 EuclideousRankChipView(spec: EuclideousRankChipSpec(rank: rank, topKind: 0, received: true, lit: false, empty: true, name: String(rank), cornerNumber: false),
                                        accent: Color(.sRGB, white: 0.7, opacity: 1), size: CGSize(width: labelW, height: cellH))
+                    .opacity(fade)
                     .accessibilityElement(children: .ignore).accessibilityLabel("Rank \(rank)")
             }
         }

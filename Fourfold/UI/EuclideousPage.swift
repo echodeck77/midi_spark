@@ -1059,6 +1059,8 @@ struct EuclideousPage: View {
     @State private var stackRankHold = 0
     // RIBBON SETTINGS (2026-11-16) §4/§5: whether the settings tab is open (replaces the grid/rails; ephemeral UI state, never saved/undone — the page opens with it closed).
     @State private var ribbonSettingsOpen = false
+    // RIBBON SETTINGS §6.1: in TUTTI mode a touch-down toggles ONE mark (the column/rank under the touch); the rest of the drag does nothing. This guards "only the first change of a drag acts".
+    @State private var tuttiDragHandled = false
     // NOTES AUDITION (2026-11-11): the STACK cell held right now (lane / rank position, −1 = none) — drives the held cell's light and greys the lane's other lit cells. Ephemeral; mirrors the live word pushed to the engine.
     @State private var stackAuditionLane = -1
     @State private var stackAuditionPos = -1
@@ -7736,6 +7738,9 @@ struct EuclideousPage: View {
     private func setRiffColumnHold(_ c: Int) { if c != riffColumnHold { riffColumnHold = c; pushScrubHolds() } }
     private func setRiffRankHold(_ r: Int) { if r != riffRankHold { riffRankHold = r; pushScrubHolds() } }
     private func setStackRankHold(_ r: Int) { if r != stackRankHold { stackRankHold = r; pushScrubHolds() } }
+    // RIBBON SETTINGS §6.1: toggle a TUTTI step (column 1-based) / rank (1-based) mark — one undo step, saved on the document.
+    private func toggleTuttiStep(_ col: Int) { guard (1...8).contains(col) else { return }; var ns = ribbonSettings; ns.tuttiSteps ^= UInt8(1) << UInt8(col - 1); onSetRibbonSettings(ns) }
+    private func toggleTuttiRank(_ rank: Int) { guard (1...8).contains(rank) else { return }; var ns = ribbonSettings; ns.tuttiRanks ^= UInt8(1) << UInt8(rank - 1); onSetRibbonSettings(ns) }
 
     /// §2.1/§2.2 — the two riff ribbons (column over the rail block, rank over the note-label column), in the riff panel's coordinate space. Mounted over the grid; neither overlaps the editable cells, so cell editing is unchanged (§12). Clears on lift and when the panel disappears (§1.3).
     private func scrubRiffRibbons(layout: EuclideousRiffPanelLayout) -> some View {
@@ -7745,13 +7750,21 @@ struct EuclideousPage: View {
         return ZStack(alignment: .topLeading) {
             Color.clear.frame(width: max(1, colW), height: max(1, layout.box.height - colY)).contentShape(Rectangle())   // §2.1 column ribbon
                 .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.scrubRiffSpace))
-                    .onChanged { v in setRiffColumnHold(euclideousScrubColumn(x: v.location.x, layout: layout)) }
-                    .onEnded { _ in setRiffColumnHold(0) })
+                    .onChanged { v in
+                        if ribbonSettings.touchMode == .tutti {   // §6.1: one mark per touch-down, the rest of the drag does nothing (§6.2: SCRUB/LOOP never touch marks)
+                            if !tuttiDragHandled { tuttiDragHandled = true; toggleTuttiStep(euclideousScrubColumn(x: v.location.x, layout: layout)) }
+                        } else { setRiffColumnHold(euclideousScrubColumn(x: v.location.x, layout: layout)) }
+                    }
+                    .onEnded { _ in if ribbonSettings.touchMode == .tutti { tuttiDragHandled = false } else { setRiffColumnHold(0) } })
                 .offset(x: colX, y: colY)
             Color.clear.frame(width: layout.labelW, height: max(1, rankH)).contentShape(Rectangle())                      // §2.2 rank ribbon
                 .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.scrubRiffSpace))
-                    .onChanged { v in setRiffRankHold(euclideousScrubRiffRank(y: v.location.y, layout: layout)) }
-                    .onEnded { _ in setRiffRankHold(0) })
+                    .onChanged { v in
+                        if ribbonSettings.touchMode == .tutti {
+                            if !tuttiDragHandled { tuttiDragHandled = true; toggleTuttiRank(euclideousScrubRiffRank(y: v.location.y, layout: layout)) }
+                        } else { setRiffRankHold(euclideousScrubRiffRank(y: v.location.y, layout: layout)) }
+                    }
+                    .onEnded { _ in if ribbonSettings.touchMode == .tutti { tuttiDragHandled = false } else { setRiffRankHold(0) } })
                 .offset(x: EuclideousRiffPanelMetrics.padding, y: rankY)
         }
         .frame(width: layout.box.width, height: layout.box.height, alignment: .topLeading)
@@ -7763,8 +7776,12 @@ struct EuclideousPage: View {
         let a0 = layout.axis(0), a7 = layout.axis(7)
         return Color.clear.frame(width: a0.width, height: max(1, a7.maxY - a0.minY)).contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.scrubStackSpace))
-                .onChanged { v in setStackRankHold(euclideousScrubStackRank(y: v.location.y, layout: layout)) }
-                .onEnded { _ in setStackRankHold(0) })
+                .onChanged { v in
+                    if ribbonSettings.touchMode == .tutti {   // §6.1: the stack axis toggles a rank mark on touch-down
+                        if !tuttiDragHandled { tuttiDragHandled = true; toggleTuttiRank(euclideousScrubStackRank(y: v.location.y, layout: layout)) }
+                    } else { setStackRankHold(euclideousScrubStackRank(y: v.location.y, layout: layout)) }
+                }
+                .onEnded { _ in if ribbonSettings.touchMode == .tutti { tuttiDragHandled = false } else { setStackRankHold(0) } })
             .offset(x: a0.minX, y: a0.minY)
             .frame(width: layout.box.width, height: layout.box.height, alignment: .topLeading)
             .coordinateSpace(name: Self.scrubStackSpace)
@@ -7801,7 +7818,7 @@ struct EuclideousPage: View {
                     let w = f.map(riffRailInputs) ?? (nil, [], EuclideousArrowHeading.still)
                     return euclideousRailSpec(lane: i, riffOn: f?.riffOn ?? false, running: f?.running ?? false, muted: f?.dimmed ?? false,
                                               played: i < played.count ? played[i] : [], current: w.0, trail: w.1, heading: w.2, flare: f?.flare ?? 0, columns: layout.columns)
-                })
+                }, tuttiSteps: ribbonSettings.tuttiSteps)   // §6.3: fade unmarked columns while any step is marked
                 riffStackDotsCanvas(layout: layout, inputs: stackDotInputs, frames: frames, beat: beat)   // RIFF GRID STACK DOTS: on top of the arrows, in each cell's top-right corner
                 scrubRiffMarks(layout: layout)   // Scrub §5.1/§5.3: the held-column rect (over the rails) + the held-rank axis mark
             }
@@ -7856,7 +7873,7 @@ struct EuclideousPage: View {
     /// POOL ferry 6.2: the note-label column is a column of eight rank chips (rank 1 at the bottom, each in its row's frame) naming the PICKED lane's pool, with the lit bar on the ranks that lane struck on its last hit. A leaf: it observes the status
     /// feed itself, so the page is not re-run for it. (The label's old per-strike glow from any lane is gone — the lit bar is the picked lane's.)
     private func riffNoteLabelColumn(cellH: CGFloat, labelW: CGFloat) -> some View {
-        RiffGridRankAxisView(cellH: cellH, labelW: labelW, gap: sp4)   // 2026-11-09 (Paul): the axis shows ONLY the rank numbers now — the picked-lane note names + the lane picker are gone
+        RiffGridRankAxisView(cellH: cellH, labelW: labelW, gap: sp4, tuttiRanks: ribbonSettings.tuttiRanks)   // 2026-11-09 (Paul): the axis shows ONLY the rank numbers now — the picked-lane note names + the lane picker are gone; §6.3 fades unmarked ranks while any is marked
     }
     /// POOL ferry 6.3: the riff panel's top row — the lane picker in a leading blank as wide as the label column (the MONO | POLY control starts at the grid's left edge), then the control. A tap anywhere in the blank steps to the next
     /// lane (1 → 2 → 3 → 4 → 1); the blank reaches down over the gap under the row, where the 2 × 2 dots sit.
@@ -7954,7 +7971,9 @@ struct EuclideousPage: View {
                 VStack(spacing: L.rowGap) {
                     ForEach(0..<rows.count, id: \.self) { r in
                         HStack(spacing: sp4) {
-                            stackAxisChip(rows[r], size: CGSize(width: L.labelW, height: L.rowH))
+                            // §6.3: the stack axis is the second rank axis — fade unmarked ranks (row r is rank 8−r, bit 7−r) while any rank is marked.
+                            let axisFade: Double = (ribbonSettings.tuttiRanks != 0 && (ribbonSettings.tuttiRanks >> UInt8(7 - r)) & 1 == 0) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1
+                            stackAxisChip(rows[r], size: CGSize(width: L.labelW, height: L.rowH)).opacity(axisFade)
                             ForEach(0..<4, id: \.self) { lane in
                                 stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize, beat: beat, playing: clock.playing, ghost: ghost[lane])
                             }
