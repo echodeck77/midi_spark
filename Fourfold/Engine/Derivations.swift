@@ -5182,6 +5182,20 @@ func euclideousStackHitRanks(natural: [Int], poolHasRank: (Int) -> Bool, stackHo
     return poolHasRank(r) ? [r] : []
 }
 
+// MARK: - RIBBON SETTINGS ferry (2026-11-16) §10: the pure logic (test-covered, allocation-free)
+
+/// §9.2 / §10.2 — the 1-based riff column (a…b) a lane reads at loop ordinal `k` inside span [a,b]. The walk runs over a
+/// LEN = b−a+1 window with its first position at column a, keeping the lane's own `direction` / `stride` / `every` (and so
+/// ADV STEP-or-HIT), and IGNORING shift. `k` counts the lane's advances from 0 at its first hit after the loop was set. This
+/// is riffStepAt — the same walk `euclideousRiffColumn` uses — so the loop can't disagree with the natural walk's shape.
+func euclideousRibbonLoopColumn(k: Int64, spanA a: Int, spanB b: Int, direction: RiffDir, stride: Int, every: Int, seed: UInt64 = 0) -> Int {
+    let lo = min(a, b), hi = max(a, b)
+    let len = max(1, hi - lo + 1)
+    let w = euclideousRiffWalkStep(ordinal: max(0, k), every: max(1, every))
+    let step = riffStepAt(direction, raw: Int(w) * stride, steps: len, seed: seed)   // 0…len-1, direction-aware (FWD/REV/PING-PONG over the span)
+    return lo + max(0, min(len - 1, step))
+}
+
 /// The bottom-right panel's tab body (what LANES and FX are laid out in): the panel less sp8 padding all round, the 20pt tab row and the sp4 gap.
 func euclideousSeqTabBodySize(panelWidth: CGFloat, panelHeight: CGFloat) -> CGSize {
     let pad = EuclideousMixMetrics.sp8 * 2

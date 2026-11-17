@@ -48,6 +48,20 @@ final class RibbonSettingsTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(RibbonSettings.self, from: Data("{}".utf8)), .defaults, "an empty object is all defaults")
     }
 
+    // §9.2 / §13.6 — the loop walk reads columns inside the span a…b, in the lane's own direction, first position at a.
+    func testLoopColumn() {
+        func seq(_ dir: RiffDir, _ a: Int, _ b: Int, _ n: Int) -> [Int] {
+            (0..<n).map { euclideousRibbonLoopColumn(k: Int64($0), spanA: a, spanB: b, direction: dir, stride: 1, every: 1) }
+        }
+        XCTAssertEqual(seq(.forward, 3, 5, 5), [3, 4, 5, 3, 4], "FWD loop 3–5")
+        // §9.2 keeps the lane's OWN direction = riffStepAt. This codebase's ping-pong DOUBLES the turn columns (PENDULUM-style),
+        // so PING reads 3,4,5,5,4,3 — NOT the §13.6 assumption 3,4,5,4,3,4 (the reflecting style). Reported (§16.6).
+        XCTAssertEqual(seq(.pingpong, 3, 5, 6), [3, 4, 5, 5, 4, 3], "PING loop 3–5 (lane's own doubled-endpoint ping-pong)")
+        XCTAssertEqual(seq(.reverse, 3, 5, 4), [5, 4, 3, 5], "REV loop 3–5")
+        XCTAssertEqual(euclideousRibbonLoopColumn(k: 3, spanA: 3, spanB: 6, direction: .forward, stride: 1, every: 1), 6, "dragged to 3–6, k carries on: k=3 → column 6")
+        XCTAssertEqual(seq(.forward, 2, 2, 3), [2, 2, 2], "a one-column span is a static repeat")
+    }
+
     // §1.2 PluginState: nil ⇒ the defaults; a set value is kept; and an old document (no key) resolves to the defaults.
     func testPluginStateResolver() throws {
         var ps = PluginState(machines: [], scenes: [])
