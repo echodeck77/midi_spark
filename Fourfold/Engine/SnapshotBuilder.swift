@@ -114,6 +114,7 @@ enum SnapshotBuilder {
                     sc.procs[0].euclideousSourcePlan = doc.sourcePlanResolved
                     sc.procs[0].euclideousClashPolicy = doc.clashPolicyResolved
                     sc.procs[0].canonUnit = doc.canonUnitResolved        // CHORD CANON (2026-10-31): page-level, no MachineParams hop
+                    sc.procs[0].ribbon = doc.ribbonSettingsResolved      // RIBBON SETTINGS (2026-11-16): page-level; read by the PARTS gate / TUTTI / LOOP (later slices)
                     sc.procs[0].canonEntry = doc.canonEntryResolved
                     sc.procs[0].euclideousSameNoteGuard = doc.euclideousSameNoteGuardResolved   // SAME-NOTE GAP GUARD (2026-10-31): page-level, default ON
                     // SOURCES STACK: MIDI IN ALWAYS LISTENS now — the LISTEN ON mask is passed unconditionally (not

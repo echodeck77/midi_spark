@@ -118,6 +118,7 @@
 		3377D6CBFA663342F51107D9 /* RateTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171FC42B5CE2A794E3C3B194 /* RateTile.swift */; };
 		33AE38BE8F26FCF7D2E79593 /* OutputMute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BFF4ABC895D8875ACBC3CA2 /* OutputMute.swift */; };
 		340E1D68D57C83C9BE66E996 /* EmitterRatchetUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FDFAC49DE1FD6F45236A30 /* EmitterRatchetUI.swift */; };
+		34195C303DA097D31779F795 /* RibbonSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A80C14200B901772BEC38D7 /* RibbonSettingsTests.swift */; };
 		3437F7ABE70D5C93E7A4D0C0 /* LaneSoloTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4BE4C9BF1C8E4D1C7A915E /* LaneSoloTests.swift */; };
 		34F5F9496BC2D4B00E2C0DF8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CF2D5A9C7DD040BAE1C80F /* Models.swift */; };
 		35427A57A03F8DABD474C3F4 /* MutePanelViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6DBAE3058BADDEA8F3F8260 /* MutePanelViews.swift */; };
@@ -753,6 +754,7 @@
 		688828AD8E02A3FA163D3656 /* RouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouterTests.swift; sourceTree = "<group>"; };
 		688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "manual-skeleton.md"; sourceTree = "<group>"; };
 		68F897CA5367D074206AFCA5 /* ReelTapeAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelTapeAdapter.swift; sourceTree = "<group>"; };
+		6A80C14200B901772BEC38D7 /* RibbonSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RibbonSettingsTests.swift; sourceTree = "<group>"; };
 		6B187EF1F183D7FB9E3E25FE /* TapeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapeStore.swift; sourceTree = "<group>"; };
 		6B3A5042BEB2CA838EC80D6F /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
 		6C095FB6EB2EA58E25B0F802 /* PoolHoldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoolHoldTests.swift; sourceTree = "<group>"; };
@@ -1231,6 +1233,7 @@
 				C55CF453F15638C84E0AF1F3 /* RestartUnitsModelTests.swift */,
 				37F40110CDBE127195284585 /* RhythmDirectionHuntTests.swift */,
 				9E8567597528341F414DC3D5 /* RhythmPolishTests.swift */,
+				6A80C14200B901772BEC38D7 /* RibbonSettingsTests.swift */,
 				BB94EF7295FC02210D4E1DDD /* RiffDirectionHuntTests.swift */,
 				839B87525F479BAE343B637A /* RiffDirectionMirrorHuntTests.swift */,
 				42A11E131366C40F5FB993C3 /* RiffGridArrowFuzzTests.swift */,
@@ -2149,6 +2152,7 @@
 				BCDA108570DA05970A9FAB33 /* RestartUnitsModelTests.swift in Sources */,
 				165888397138D1C3E68C4BD0 /* RhythmDirectionHuntTests.swift in Sources */,
 				DDF0A418083AE1978744004D /* RhythmPolishTests.swift in Sources */,
+				34195C303DA097D31779F795 /* RibbonSettingsTests.swift in Sources */,
 				52F5DCC716C93C7604A01595 /* RiffDirectionHuntTests.swift in Sources */,
 				4F3EF380971684557D2BA782 /* RiffDirectionMirrorHuntTests.swift in Sources */,
 				F916421D23299C61B01B18B2 /* RiffGridArrowFuzzTests.swift in Sources */,

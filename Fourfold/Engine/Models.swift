@@ -3811,6 +3811,50 @@ struct Row8Cell: Codable, Equatable {
     }
 }
 
+// RIBBON SETTINGS ferry (2026-11-16) §1: the riff panel's ribbon-control settings — saved with the session + presets and
+// undoable (§1.1/§1.3). ONE value struct of fixed-size scalars/masks so the engine reads it off the snapshot lock-free and
+// allocation-free (§1.4, no heap-backed arrays). The LIVE state (§2 holds/loops/offsets) is NOT here — it rides the Kernel
+// live words like the scrub holds. Decode-tolerant: a garbled field keeps its default, and the whole thing is an
+// additive-Optional on PluginState, so an old document decodes nil ⇒ the defaults (§1.2).
+enum RibbonTouchMode: String, Codable { case scrub, tutti, loop
+    init(from d: Decoder) throws { self = RibbonTouchMode(rawValue: (try? d.singleValueContainer().decode(String.self)) ?? "") ?? .scrub }
+}
+enum RibbonRelease: String, Codable { case slip, carryOn   // carryOn = CONTINUE (§7); "continue" is a Swift keyword
+    init(from d: Decoder) throws { self = RibbonRelease(rawValue: (try? d.singleValueContainer().decode(String.self)) ?? "") ?? .slip }
+}
+struct RibbonSettings: Codable, Equatable {
+    var touchMode: RibbonTouchMode = .scrub   // §1.1 defaults: SCRUB / SLIP / LATCH off / both parts on / all lanes / no marks
+    var release: RibbonRelease = .slip
+    var latch: Bool = false
+    var riffOn: Bool = true
+    var stackOn: Bool = true
+    var riffLanes: UInt8 = 0x0F               // bits 0…3 = lanes 1…4 included
+    var stackLanes: UInt8 = 0x0F
+    var tuttiSteps: UInt8 = 0                 // bits 0…7 = riff columns 1…8 marked
+    var tuttiRanks: UInt8 = 0                 // bits 0…7 = ranks 1…8 marked
+    static let defaults = RibbonSettings()
+    init() {}
+    enum CodingKeys: String, CodingKey { case touchMode, release, latch, riffOn, stackOn, riffLanes, stackLanes, tuttiSteps, tuttiRanks }
+    init(from decoder: Decoder) throws {      // §1.2: a garbled blob keeps every default (never throws → never nils the document)
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        touchMode = (try? c.decode(RibbonTouchMode.self, forKey: .touchMode)) ?? touchMode
+        release   = (try? c.decode(RibbonRelease.self,  forKey: .release))   ?? release
+        latch      = (try? c.decode(Bool.self,  forKey: .latch))      ?? latch
+        riffOn     = (try? c.decode(Bool.self,  forKey: .riffOn))     ?? riffOn
+        stackOn    = (try? c.decode(Bool.self,  forKey: .stackOn))    ?? stackOn
+        riffLanes  = (try? c.decode(UInt8.self, forKey: .riffLanes))  ?? riffLanes
+        stackLanes = (try? c.decode(UInt8.self, forKey: .stackLanes)) ?? stackLanes
+        tuttiSteps = (try? c.decode(UInt8.self, forKey: .tuttiSteps)) ?? tuttiSteps
+        tuttiRanks = (try? c.decode(UInt8.self, forKey: .tuttiRanks)) ?? tuttiRanks
+    }
+    // §3.1 inclusion + §6 marks (pure reads the engine + UI share).
+    func riffLaneIncluded(_ lane: Int) -> Bool { riffOn && lane >= 0 && lane < 4 && (riffLanes >> UInt8(lane)) & 1 != 0 }
+    func stackLaneIncluded(_ lane: Int) -> Bool { stackOn && lane >= 0 && lane < 4 && (stackLanes >> UInt8(lane)) & 1 != 0 }
+    func stepMarked(_ col: Int) -> Bool { col >= 1 && col <= 8 && (tuttiSteps >> UInt8(col - 1)) & 1 != 0 }
+    func rankMarked(_ rank: Int) -> Bool { rank >= 1 && rank <= 8 && (tuttiRanks >> UInt8(rank - 1)) & 1 != 0 }
+    var tuttiActive: Bool { tuttiSteps != 0 || tuttiRanks != 0 }   // §6.5: any mark exists
+}
+
 struct PluginState: Codable, Equatable {
     var formatVersion: Int = 2     // 2 = v2.x chain routing · 3 = v3.0 graph routing · 4 = + receivers (§migration)
     var machines: [Machine]
@@ -4092,6 +4136,10 @@ struct PluginState: Codable, Equatable {
     // or stuck note downstream). The settings sheet toggles it. See SnapParams.euclideousSameNoteGuard.
     var euclideousSameNoteGuard: Bool? = nil
     var euclideousSameNoteGuardResolved: Bool { euclideousSameNoteGuard ?? true }
+    // RIBBON SETTINGS ferry (2026-11-16) §1: the riff-panel ribbon-control settings (nil ⇒ the defaults, §1.2). Saved with the
+    // session + presets; undoable via the canon-unit pattern. The LIVE holds/loops (§2) are NOT here.
+    var ribbonSettings: RibbonSettings? = nil
+    var ribbonSettingsResolved: RibbonSettings { ribbonSettings ?? .defaults }
     var euclideousCanonEntry: CanonEntry? = nil
     var canonEntryResolved: CanonEntry {
         #if DEBUG

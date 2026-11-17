@@ -369,6 +369,9 @@ struct SnapParams {
     // `chordDelay` / `chordSlip` is above 0 (Router: `canonLane`); the defaults keep every other cell and every undelayed lane on the shared pool.
     var canonUnit: CanonUnit = .passes
     var canonEntry: CanonEntry = .wrap
+    // RIBBON SETTINGS ferry (2026-11-16): the riff-panel ribbon settings (§1), carried for the PARTS gate / TUTTI / LOOP the
+    // later slices read. The defaults (SCRUB, both parts, all lanes, no marks) make every reader a no-op ⇒ golden byte-identical.
+    var ribbon: RibbonSettings = .defaults
     // SAME-NOTE GAP GUARD (2026-10-31): when the NEXT riff hit on a lane is the same written rank (⇒ the same pitch),
     // shorten this note's tail so a host that delivers MIDI at buffer granularity (AUM at a large buffer) cannot merge
     // the note-off with the identical next note-on — which downstream reads as a clipped or stuck note. Shorten only,
