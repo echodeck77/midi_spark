@@ -178,7 +178,8 @@ final class LaneViewStripTests: XCTestCase {
     /// §2.2–§2.5 spelled out: a drifted colour, radius, type size or tile size used to pass every test (the painter and the layout both read these constants, so only a literal can catch it).
     func testTheFerrysLiteralLooksArePinned() {
         typealias M = EuclideousLaneStripMetrics
-        XCTAssertEqual([M.container.hex, M.selectedFill.hex, M.selectedText.hex, M.unselectedText.hex, M.outlineOnSelected.hex, M.outlineOnUnselected.hex], [0x1F2127, 0xDFE3EA, 0x0D0F14, 0xAAB0BA, 0x8A909A, 0x4A4E57])
+        // STYLE PASS 1: container = card (§2.5, was #1F2127), selected pair = the tokens, unselected label = label (§3.1, was #AAB0BA).
+        XCTAssertEqual([M.container.hex, M.selectedFill.hex, M.selectedText.hex, M.unselectedText.hex, M.outlineOnSelected.hex, M.outlineOnUnselected.hex], [FourfoldStyle.card, FourfoldStyle.selectedFill, FourfoldStyle.selectedInk, FourfoldStyle.label, 0x8A909A, 0x4A4E57])
         XCTAssertEqual([M.containerRadius, M.segmentRadius, M.containerInset, M.segmentGap, M.segmentHeight, M.height], [8, 6, 3, 3, 22, 28])
         XCTAssertEqual([M.labelFont, M.labelTracking], [10, 0.12], "10 pt heavy, 0.12 em")
         XCTAssertEqual([M.tileSize, M.tilePlateRadius, M.tileGlyph, M.tileTargetWidth, M.targetHeight], [28, 8, 16, 36, 44])

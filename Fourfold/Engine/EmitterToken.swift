@@ -98,11 +98,15 @@ func euclideousEmitterTokenPaint(_ state: EuclideousEmitterTokenState, size: Euc
         p.flare = max(0, min(1, a))
         return p
     case .routed:
-        return EuclideousEmitterTokenPaint(disc: .lane(0.2), ring: .lane(1), ringWidth: w, dashed: false, key: .lane(1), letter: .hex(0xF2F4F7, 1), flare: 0)
+        // STYLE PASS 1 §3.4: the lit/selected token's lane100 usages become the selected pair — #DFE3EA disc/ring/key,
+        // #0D0F14 letter (was lane@20 disc + lane100 ring/key + #F2F4F7). Notch, sizes and the flare path unchanged.
+        return EuclideousEmitterTokenPaint(disc: .hex(FourfoldStyle.selectedFill, 1), ring: .hex(FourfoldStyle.selectedFill, 1), ringWidth: w, dashed: false, key: .hex(FourfoldStyle.selectedFill, 1), letter: .hex(FourfoldStyle.selectedInk, 1), flare: 0)
     case .notRouted:
-        return EuclideousEmitterTokenPaint(disc: .none, ring: .hex(0x3A3E47, 1), ringWidth: w, dashed: false, key: .hex(0x3A3E47, 1), letter: .hex(0x8A909A, 1), flare: 0)
+        // §3.4 unlit: the control tone + a #B4BAC4 letter (was no disc + #8A909A); the #3A3E47 structural ring/key stay.
+        return EuclideousEmitterTokenPaint(disc: .hex(FourfoldStyle.control, 1), ring: .hex(0x3A3E47, 1), ringWidth: w, dashed: false, key: .hex(0x3A3E47, 1), letter: .hex(FourfoldStyle.label, 1), flare: 0)
     case .routedMuted:
-        // §2.3: no disc; ring lane100 @ 45 % dashed; key lane100 @ 45 %; letter #8A909A.
+        // §2.3: no disc; ring lane100 @ 45 % dashed; key lane100 @ 45 %; letter #8A909A. STYLE PASS 1: KEPT as built —
+        // the dash is the muted state's mark (§2.6/§3.4 names only lit/unlit; reported in the findings).
         return EuclideousEmitterTokenPaint(disc: .none, ring: .lane(0.45), ringWidth: w, dashed: true, key: .lane(0.45), letter: .hex(0x8A909A, 1), flare: 0)
     }
 }

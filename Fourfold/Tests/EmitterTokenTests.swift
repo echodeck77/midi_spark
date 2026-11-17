@@ -74,19 +74,21 @@ final class EmitterTokenTests: XCTestCase {
         XCTAssertEqual(p.flare, 0.5)
     }
     func testRoutingRouted() {
+        // STYLE PASS 1 §3.4 (§7 test 4): the lit token is the selected pair — no lane anywhere (was lane@20 disc + lane ring/key + #F2F4F7).
         let p = euclideousEmitterTokenPaint(.routed, size: .d22)
-        XCTAssertEqual(p.disc, .lane(0.2), "source EuclideousPartOutDiscArt fills lane @ 20 % (ferry said 18 %)")
-        XCTAssertEqual(p.ring, .lane(1))
-        XCTAssertEqual(p.key, .lane(1))
-        XCTAssertEqual(p.letter, .hex(0xF2F4F7, 1))
+        XCTAssertEqual(p.disc, .hex(FourfoldStyle.selectedFill, 1))
+        XCTAssertEqual(p.ring, .hex(FourfoldStyle.selectedFill, 1))
+        XCTAssertEqual(p.key, .hex(FourfoldStyle.selectedFill, 1))
+        XCTAssertEqual(p.letter, .hex(FourfoldStyle.selectedInk, 1))
         XCTAssertFalse(p.dashed)
     }
     func testRoutingNotRouted() {
+        // STYLE PASS 1 §3.4: unlit = the control tone + the label grey (was no disc + #8A909A); the structural #3A3E47 ring/key stay.
         let p = euclideousEmitterTokenPaint(.notRouted, size: .d22)
-        XCTAssertEqual(p.disc, .none)
+        XCTAssertEqual(p.disc, .hex(FourfoldStyle.control, 1))
         XCTAssertEqual(p.ring, .hex(0x3A3E47, 1), "source off-ring is #3A3E47 (ferry said #4A4E57)")
         XCTAssertEqual(p.key, .hex(0x3A3E47, 1))
-        XCTAssertEqual(p.letter, .hex(0x8A909A, 1))
+        XCTAssertEqual(p.letter, .hex(FourfoldStyle.label, 1))
     }
     func testRoutingRoutedButOutputMuted() {
         let p = euclideousEmitterTokenPaint(.routedMuted, size: .d28)

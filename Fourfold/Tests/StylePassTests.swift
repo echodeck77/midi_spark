@@ -51,6 +51,37 @@ final class StylePassTests: XCTestCase {
         }
     }
 
+    // MARK: §7 test 2 — the one selected look, and no caller left on the lane-tint idiom
+
+    func testTheOneSelectedLook() {
+        XCTAssertEqual(FourfoldSelect.segmentFill(true), FourfoldStyle.selectedFill)
+        XCTAssertNil(FourfoldSelect.segmentFill(false), "§3.1: an unselected segment has no fill of its own")
+        XCTAssertEqual(FourfoldSelect.segmentInk(true), FourfoldStyle.selectedInk)
+        XCTAssertEqual(FourfoldSelect.segmentInk(false), FourfoldStyle.label)
+        XCTAssertEqual(FourfoldSelect.switchFill(true), FourfoldStyle.selectedFill)
+        XCTAssertEqual(FourfoldSelect.switchFill(false), FourfoldStyle.control, "§3.2: an off switch shows the control tone, never clear")
+        XCTAssertEqual(FourfoldSelect.switchInk(false), FourfoldStyle.label)
+    }
+
+    /// §7 test 2's scan: no view still draws the OLD selected-segment idiom — a ternary choosing `lane20(accent)` as a
+    /// SELECTED fill. The survivors are lane-AS-LANE tints (§3.5) or §2.8-deferred pop-up cards, each named in the
+    /// findings §13 — this allowlist IS that list; growing it needs a findings entry.
+    func testNoCallerDrawsTheLaneTintSelectedLook() throws {
+        let allowed: Set<String> = [
+            "fill(lane20(accent))",                              // always-on value chips (findings: left + reported)
+            "lit && fillOn ? lane20(accent)",                    // FILL lit bar cells — lane as lane (FILL V2 §5)
+            "running ? lane20(accent)",                          // AUDITION running — state, not selection
+        ]
+        for sub in ["UI"] {
+            for f in try swiftSources(under: sub) {
+                for (n, line) in f.text.components(separatedBy: "\n").enumerated() where line.contains("lane20(accent)") {
+                    XCTAssertTrue(allowed.contains(where: { line.contains($0) }),
+                                  "\(f.name):\(n + 1) still draws the lane-tint selected idiom: \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+    }
+
     // MARK: §7 test 9 — contrast (WCAG relative luminance)
 
     private func luminance(_ hex: UInt32) -> Double {

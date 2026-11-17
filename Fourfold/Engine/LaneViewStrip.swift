@@ -81,7 +81,9 @@ enum EuclideousLaneStripMetrics {
     static let barSize = CGSize(width: 3, height: 8), barRadius: CGFloat = 1
     static let circleSize = CGSize(width: 6, height: 6)
     static let outlineWidth: CGFloat = 1
-    static let container = HocketColor(0x1F2127), selectedFill = HocketColor(0xDFE3EA), selectedText = HocketColor(0x0D0F14), unselectedText = HocketColor(0xAAB0BA)
+    // STYLE PASS 1: the selected pair reads the tokens (§1.5); the unselected label is the label tone (§3.1, was #AAB0BA);
+    // the container is re-toned by §2.5 (the shared strip sits on the ground ⇒ card).
+    static let container = HocketColor(FourfoldStyle.card), selectedFill = HocketColor(FourfoldStyle.selectedFill), selectedText = HocketColor(FourfoldStyle.selectedInk), unselectedText = HocketColor(FourfoldStyle.label)
     static let outlineOnSelected = HocketColor(0x8A909A), outlineOnUnselected = HocketColor(0x4A4E57)
     static func labelWidth(_ chars: Int) -> CGFloat { CGFloat(chars) * labelFont * (monoAdvance + labelTracking) }
     static func glyphSize(_ shape: EuclideousGlyphShape) -> CGSize {

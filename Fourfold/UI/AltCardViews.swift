@@ -13,14 +13,14 @@ struct EuclideousAltPill: View {
     let label: String; let on: Bool; let accent: Color; let frame: CGRect
     let axLabel: String; let onTap: () -> Void
     var body: some View {
-        let fill: Color = on ? accent.opacity(0.2) : Color(hex: 0x1F2127)
-        let border: Color = on ? accent : Color(hex: 0x343840)
-        let ink: Color = on ? Color(hex: 0xF2F4F7) : Color(hex: 0x767C86)
+        // STYLE PASS 1 §3.2: on = #DFE3EA/#0D0F14, off = the control tone/#B4BAC4, NO border (was lane20 + lane100 border
+        // on / #1F2127 + #343840 border + #767C86 off). Frame, radius, type and the tap unchanged.
+        let fill = Color(hex: FourfoldSelect.switchFill(on))
+        let ink = Color(hex: FourfoldSelect.switchInk(on))
         return Text(label).font(.system(size: 7.5, weight: .heavy, design: .monospaced)).tracking(0.98)   // 7.5 pt heavy, 0.13 em
             .foregroundColor(ink)
             .frame(width: frame.width, height: frame.height)
             .background(RoundedRectangle(cornerRadius: 4.5).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: 4.5).stroke(border, lineWidth: 1))
             .contentShape(Rectangle())
             .onTapGesture { onTap() }
             .offset(x: frame.minX, y: frame.minY)

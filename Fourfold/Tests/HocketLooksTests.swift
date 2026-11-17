@@ -55,19 +55,22 @@ final class HocketLooksTests: XCTestCase {
 
     func testEveryChipLook() {
         let lane = 1, l100 = HocketPalette.lane100(1)
+        // STYLE PASS 1 §3.1: an in-group chip is the one selected look (uniform across lanes); the lane GLYPH keeps the
+        // lane colour (identity) and the live glow stays (activity). Was lane20/lane42 fills + lane borders.
         let inGroup = hocketChipLook(lane: lane, inGroup: true, live: false, takenBy: nil)
-        XCTAssertEqual(inGroup.fill, HocketColor(l100.hex, 0.2)); XCTAssertEqual(inGroup.border, l100); XCTAssertEqual(inGroup.text, HocketColor(0xF2F4F7)); XCTAssertEqual(inGroup.glyph, .filled(l100))
+        XCTAssertEqual(inGroup.fill, HocketColor(FourfoldStyle.selectedFill)); XCTAssertEqual(inGroup.border, HocketColor(FourfoldStyle.selectedFill)); XCTAssertEqual(inGroup.text, HocketColor(FourfoldStyle.selectedInk)); XCTAssertEqual(inGroup.glyph, .filled(l100))
         let notIn = hocketChipLook(lane: lane, inGroup: false, live: false, takenBy: nil)
         XCTAssertEqual(notIn.fill, HocketColor(0x2A2D34)); XCTAssertEqual(notIn.border, HocketColor(0x2A2D34)); XCTAssertEqual(notIn.text, HocketColor(0xAAB0BA)); XCTAssertEqual(notIn.glyph, .outline(HocketColor(0xAAB0BA), opacity: 0.45))
         let live = hocketChipLook(lane: lane, inGroup: true, live: true, takenBy: nil)
-        XCTAssertEqual(live.fill, HocketColor(l100.hex, 0.42)); XCTAssertEqual(live.border, l100)
+        XCTAssertEqual(live.fill, HocketColor(FourfoldStyle.selectedFill)); XCTAssertEqual(live.border, HocketColor(FourfoldStyle.selectedFill))
         XCTAssertEqual(live.glow.count, 2); XCTAssertEqual(live.glow[0].spread, 1); XCTAssertEqual(live.glow[0].color, l100); XCTAssertEqual(live.glow[1].radius, 14); XCTAssertEqual(live.glow[1].color, HocketColor(l100.hex, 0.6))
         let taken = hocketChipLook(lane: lane, inGroup: false, live: false, takenBy: 2)
         XCTAssertEqual(taken.fill, HocketColor(0x1F2127)); XCTAssertEqual(taken.border, HocketColor(0x1F2127)); XCTAssertEqual(taken.text, HocketColor(0x6E727B))
         XCTAssertEqual(taken.glyph, .outline(HocketColor(0x6E727B), opacity: 0.6)); XCTAssertEqual(taken.tag, "R2"); XCTAssertFalse(taken.responds, "a taken chip doesn't respond")
         XCTAssertEqual(hocketChipLook(lane: lane, inGroup: true, live: true, takenBy: 3).tag, "R3", "taken wins over everything")
         XCTAssertTrue(inGroup.responds && notIn.responds && live.responds)
-        for l in 0..<4 { XCTAssertNotEqual(hocketChipLook(lane: l, inGroup: true, live: false, takenBy: nil).border, hocketChipLook(lane: (l + 1) % 4, inGroup: true, live: false, takenBy: nil).border, "each lane its own colour") }
+        // STYLE PASS 1: the selected FILL is uniform by design; the lane identity moved to the GLYPH — pin it there.
+        for l in 0..<4 { XCTAssertNotEqual(hocketChipLook(lane: l, inGroup: true, live: false, takenBy: nil).glyph, hocketChipLook(lane: (l + 1) % 4, inGroup: true, live: false, takenBy: nil).glyph, "each lane its own glyph colour") }
     }
     func testAnOutputInAnOffRuleStillCountsAsTaken() {
         let rules = [rule(main: [RR, BR]) { $0.on = false }, rule(main: [AN])]

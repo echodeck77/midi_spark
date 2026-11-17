@@ -192,7 +192,7 @@ struct EuclideousSettingsSheet: View {
                     Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.08 * 11)
                         .foregroundColor(selected ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    Rectangle().fill(selected ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)).frame(height: 2)
+                    Rectangle().fill(Color(hex: FourfoldSelect.switchFill(selected))).frame(height: 2)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { tab = i }
@@ -262,7 +262,7 @@ struct EuclideousSettingsSheet: View {
                         Text("ALL").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.06 * 10)
                             .foregroundColor(allOn ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
                             .frame(width: 44, height: 68)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(allOn ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldSelect.switchFill(allOn))))
                             .contentShape(Rectangle())
                             .onTapGesture { onSetMidiInMask(euclideousListenOnAfterAllTap()) }
                             .accessibilityLabel("All channels").accessibilityAddTraits(.isButton).accessibilityAddTraits(allOn ? .isSelected : [])

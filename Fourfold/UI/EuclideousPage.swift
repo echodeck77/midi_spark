@@ -2022,7 +2022,7 @@ struct EuclideousPage: View {
                     Text("RANDOM").font(.system(size: 8.5, weight: .heavy)).tracking(0.85)
                         .foregroundColor(Color(hex: 0x0D0F14)).lineLimit(1)
                         .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0xDFE3EA)))
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: FourfoldStyle.selectedFill)))
                         .padding(.bottom, 6).padding(.trailing, 10)   // POLY RIFF: bottom-right, over the rails' end — the MONO | POLY control owns the top row and the grid's notes stay clear
                         .allowsHitTesting(false)
                 }
@@ -2100,7 +2100,7 @@ struct EuclideousPage: View {
         let glyphColor: Color = on ? Color(hex: 0x0D0F14) : (any ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
         return AnyView(ZStack {
             RoundedRectangle(cornerRadius: S.tilePlateRadius)
-                .fill(on ? Color(hex: 0xDFE3EA) : Color.clear)
+                .fill(on ? Color(hex: FourfoldStyle.selectedFill) : Color.clear)
                 .overlay(RoundedRectangle(cornerRadius: S.tilePlateRadius).strokeBorder(on ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
                 .frame(width: S.tileSize, height: S.tileSize)
             Image(systemName: glyph).font(.system(size: S.tileGlyph, weight: .regular)).foregroundColor(glyphColor)
@@ -2130,7 +2130,7 @@ struct EuclideousPage: View {
         let on = euclideousRandomMode
         return AnyView(ZStack {
             RoundedRectangle(cornerRadius: S.tilePlateRadius)
-                .fill(on ? Color(hex: 0xDFE3EA) : Color.clear)
+                .fill(on ? Color(hex: FourfoldStyle.selectedFill) : Color.clear)
                 .overlay(RoundedRectangle(cornerRadius: S.tilePlateRadius).strokeBorder(on ? Color.clear : Color(hex: 0x3A3E47), lineWidth: 1))
                 .frame(width: S.tileSize, height: S.tileSize)
             Image(systemName: "die.face.4")
@@ -2261,7 +2261,7 @@ struct EuclideousPage: View {
     private func headerHoldLatchChip(_ mode: EuclideousHoldLatchMode, label: String, width: CGFloat, enabled: Bool) -> some View {
         let active = enabled && holdLatchMode == mode
         return ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(active ? Color(hex: 0xDFE3EA) : Color.clear).frame(height: 24)
+            RoundedRectangle(cornerRadius: 6).fill(active ? Color(hex: FourfoldStyle.selectedFill) : Color.clear).frame(height: 24)
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
                 .foregroundColor(!enabled ? headerMuted.opacity(0.4) : (active ? headerInk : headerMuted)).lineLimit(1)
         }
@@ -2295,7 +2295,7 @@ struct EuclideousPage: View {
                 .font(.system(size: 18))
                 .foregroundColor(swingPopupOpen ? Color(hex: 0x0D0F14) : (swing == 50 ? headerDim : Color(hex: 0x4FD1E8)))
                 .frame(width: 32, height: 32)
-                .background(RoundedRectangle(cornerRadius: 8).fill(swingPopupOpen ? Color(hex: 0xDFE3EA) : Color.clear))
+                .background(RoundedRectangle(cornerRadius: 8).fill(swingPopupOpen ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))
                 .animation(.easeInOut(duration: 0.15), value: swingPopupOpen)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
                 .onTapGesture {
@@ -2311,7 +2311,7 @@ struct EuclideousPage: View {
             // it 2026-10-17, REEL 2026-10-23 — `euclideousHeaderGroupWidths` carries the real count).
             Image(systemName: "gearshape").font(.system(size: 18)).foregroundColor(settingsOpen ? Color(hex: 0x0D0F14) : headerDim)
                 .frame(width: 32, height: 32)
-                .background(RoundedRectangle(cornerRadius: 8).fill(settingsOpen ? Color(hex: 0xDFE3EA) : Color.clear))
+                .background(RoundedRectangle(cornerRadius: 8).fill(settingsOpen ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))
                 .animation(.easeInOut(duration: 0.15), value: settingsOpen)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
                 .onTapGesture {
@@ -2412,10 +2412,9 @@ struct EuclideousPage: View {
         let accent = laneAccents[lane % laneAccents.count]
         func chip(_ title: String, width: CGFloat, selected: Bool, action: @escaping () -> Void) -> some View {
             Text(title).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                .foregroundColor(selected ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+                .foregroundColor(Color(hex: FourfoldSelect.switchInk(selected)))
                 .frame(width: width, height: 30)
-                .background(RoundedRectangle(cornerRadius: 6).fill(selected ? lane20(accent) : Color(hex: 0x2A2D34)))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? lane100(accent) : Color.clear, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldSelect.switchFill(selected))))
                 .contentShape(Rectangle())
                 .onTapGesture(perform: action)
         }
@@ -3142,9 +3141,9 @@ struct EuclideousPage: View {
     // LANE-20+LANE-100-border, but "unselected" is a fixed, lane-independent #2a2d34/#aab0ba (not an
     // opacity of the accent), and an ACTIVE EMITTER gets its own third look (solid LANE-100, dark text)
     // specifically so it reads differently from a selected option, per the ferry's own words.
-    private let patternUnselectedFill = Color(hex: 0x2A2D34)
-    private let patternUnselectedText = Color(hex: 0xAAB0BA)
-    private let patternSelectedText = Color(hex: 0xF2F4F7)
+    private let patternUnselectedFill = Color(hex: FourfoldStyle.control)   // STYLE PASS 1 §1.1 (was #2A2D34)
+    private let patternUnselectedText = Color(hex: FourfoldStyle.label)   // STYLE PASS 1 §1.3 (was #AAB0BA)
+    private let patternSelectedText = Color(hex: FourfoldStyle.value)
     private let patternEmitterActiveText = Color(hex: 0x0D0F14)
 
     /// Signed value text matching the ferry's own literal examples exactly: "+2" / "−1" (a true minus
@@ -3330,7 +3329,7 @@ struct EuclideousPage: View {
         let laneC = laneAccents[idx % laneAccents.count]
         let core = face()
             .frame(width: size.width, height: size.height)
-            .background(RoundedRectangle(cornerRadius: 7).fill(on ? Color(hex: 0xDFE3EA) : patternUnselectedFill))
+            .background(RoundedRectangle(cornerRadius: 7).fill(on ? Color(hex: FourfoldStyle.selectedFill) : patternUnselectedFill))
             .contentShape(Rectangle())
             .modifier(laneTapMod(idx) { action() })
             .modifier(EuclideousLockOutline(on: lock.map { lockOn(idx, $0) } ?? false, accent: laneC))   // LANE LOCK 5.4 — orthogonal to §2.10's selected colour
@@ -3350,7 +3349,7 @@ struct EuclideousPage: View {
             return euclidV2Tile(idx, lock: .rate, on: on, size: size, ax: "Rate \(labels[i])", axValue: lockSpoken(idx, .rate, ""),
                                 action: { edit(idx) { $0.rate = euclideousRateFromDivisionFeel(division: i, feel: curFeel) } }) {
                 Text(labels[i]).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1)
-                    .foregroundColor(on ? Color(hex: 0x0D0F14) : patternUnselectedText)
+                    .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
             }
         }
         let f = i - 6
@@ -3359,7 +3358,7 @@ struct EuclideousPage: View {
         return euclidV2Tile(idx, lock: .rate, on: on, size: size, ax: names[f], axValue: lockSpoken(idx, .rate, ""),
                             action: { edit(idx) { $0.rate = euclideousRateFromDivisionFeel(division: curDiv, feel: f) } }) {
             Text(labels[f]).font(.system(size: 9.5, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1)
-                .foregroundColor(on ? Color(hex: 0x0D0F14) : patternUnselectedText)
+                .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
         }
     }
     /// §2.6: Row C — the three directions, each the new playhead icon (`EuclideousEuclidDirIcon`, not the RIFF arrows). Writes `chooseDirection`, unchanged.
@@ -3370,7 +3369,7 @@ struct EuclideousPage: View {
         return euclidV2Tile(idx, lock: .direction, on: on, size: size, ax: name, axValue: lockSpoken(idx, .direction, ""),
                             action: { edit(idx) { $0.chooseDirection(dir) } }) {
             EuclideousEuclidDirIcon(dir: dir)
-                .stroke(on ? Color(hex: 0x0D0F14) : patternUnselectedText, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .stroke(on ? Color(hex: FourfoldStyle.selectedInk) : patternUnselectedText, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 .frame(width: 22, height: 18)
         }
     }
@@ -3381,7 +3380,7 @@ struct EuclideousPage: View {
                             help: "Play on the empty steps instead of the hits", toggleTrait: true, action: { edit(idx) { $0.patternMiss = !on } }) {
             VStack(spacing: 1) { Text(EuclideousFlipHits.lines[0]).tracking(0.64); Text(EuclideousFlipHits.lines[1]).tracking(0.64) }
                 .font(.system(size: 8, weight: .heavy, design: .monospaced))
-                .foregroundColor(on ? Color(hex: 0x0D0F14) : patternUnselectedText)
+                .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
         }
     }
     /// §2.7: LET RING (group 2) — `notesRing` (relabelled from RING), unchanged. Not a lock field.
@@ -3390,7 +3389,7 @@ struct EuclideousPage: View {
         return euclidV2Tile(idx, lock: nil, on: on, size: size, ax: "Let ring", axValue: on ? "on" : "off",
                             help: "Stack notes ring to the end of the pass, then clear — like a sustain pedal", toggleTrait: true, action: { edit(idx) { $0.notesRing = on ? nil : true } }) {
             Text("LET RING").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1)
-                .foregroundColor(on ? Color(hex: 0x0D0F14) : patternUnselectedText)
+                .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
         }
     }
 
@@ -3604,12 +3603,12 @@ struct EuclideousPage: View {
         }
     }
     private func altUnitSegment(_ label: String, selected: Bool, accent: Color, frame: CGRect, _ tap: @escaping () -> Void) -> some View {
-        let ink: Color = selected ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)
-        let fill: Color = selected ? lane20(accent) : Color.clear
-        let border: Color = selected ? lane100(accent) : Color.clear
+        // STYLE PASS 1 §3.1: the one selected look — #DFE3EA/#0D0F14 selected, no fill/#B4BAC4 unselected, no border (was lane20 + lane100 border + #F2F4F7/#8A909A).
+        let ink = Color(hex: FourfoldSelect.segmentInk(selected))
+        let fill: Color = selected ? Color(hex: FourfoldStyle.selectedFill) : Color.clear
         return Text(label).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.5).foregroundColor(ink)
             .frame(width: frame.width, height: frame.height)
-            .background(RoundedRectangle(cornerRadius: 8).fill(fill)).overlay(RoundedRectangle(cornerRadius: 8).stroke(border, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 8).fill(fill))
             .contentShape(Rectangle()).onTapGesture { tap() }.offset(x: frame.minX, y: frame.minY)
             .accessibilityElement(children: .ignore).accessibilityLabel(label.capitalized).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)   // §8.2
     }
@@ -3763,8 +3762,7 @@ struct EuclideousPage: View {
                     .stroke(on ? patternSelectedText : patternUnselectedText, style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
                     .frame(width: 20, height: 14.67)
                     .frame(maxWidth: .infinity).frame(height: rowH)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                    .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(on))))
                     .contentShape(Rectangle())
                     .modifier(laneTapMod(idx) { edit(idx) { $0.chooseDirection(dir) } })
                     .accessibilityElement(children: .ignore)
@@ -3784,10 +3782,9 @@ struct EuclideousPage: View {
             Text(EuclideousFlipHits.lines[0]).tracking(0.64); Text(EuclideousFlipHits.lines[1]).tracking(0.64)   // per Text: `View.tracking` on the stack is iOS 16, `Text.tracking` is iOS 13
         }
         .font(.system(size: 8, weight: .heavy, design: .monospaced))
-        .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+        .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
         .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(on))))
         .contentShape(Rectangle())
         .modifier(laneTapMod(idx) { edit(idx) { $0.patternMiss = !on } })
         .modifier(lockOutlineMod(idx, .inv, accent))
@@ -3801,10 +3798,9 @@ struct EuclideousPage: View {
     private func ringButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
         let on = line.notesRingResolved
         return AnyView(Text("RING").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.64)
-            .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+            .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
             .frame(width: width, height: height)
-            .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(on))))
             .contentShape(Rectangle())
             .modifier(laneTapMod(idx) { edit(idx) { $0.notesRing = on ? nil : true } })
             .euclideousHelp("Stack notes ring to the end of the pass, then clear — like a sustain pedal")
@@ -4114,10 +4110,9 @@ struct EuclideousPage: View {
                         .padding(.leading, 4)
                         .frame(width: M.labelW, height: M.rowH, alignment: .leading)
                         Text("FREE").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
-                            .foregroundColor(isFree ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+                            .foregroundColor(Color(hex: FourfoldSelect.switchInk(isFree)))
                             .frame(width: btnW, height: M.rowH)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(isFree ? lane20(accent) : Color(hex: 0x2A2D34)))
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(isFree ? lane100(accent) : Color.clear, lineWidth: 1))
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldSelect.switchFill(isFree))))
                             .contentShape(Rectangle())
                             .onTapGesture { if !isFree { euclideousRestartEditorSetChain(idx, melody: isMelody, links: []) } }
                             .accessibilityLabel("\(name.capitalized) restarts free")
@@ -4261,10 +4256,9 @@ struct EuclideousPage: View {
             : euclideousStepsPickerPreview(line, length: length)
         let hits = pattern.filter { $0 }.count
         return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 6).fill(isCurrent ? lane20(accent) : Color(hex: 0x2A2D34))
-            if isCurrent { RoundedRectangle(cornerRadius: 6).stroke(lane100(accent), lineWidth: 1) }
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldSelect.switchFill(isCurrent)))   // STYLE PASS 1 §3.1: the ring is gone — the fill carries the selection
             Text("\(length)").font(.system(size: 15, weight: .heavy, design: .monospaced))
-                .foregroundColor(isCurrent ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+                .foregroundColor(Color(hex: FourfoldSelect.switchInk(isCurrent)))
                 .frame(height: 18)
                 .padding(.leading, 7).padding(.top, 6)
             VStack(alignment: .leading, spacing: 2) {
@@ -4511,10 +4505,9 @@ struct EuclideousPage: View {
     /// §4.5 REVERSE / BREAK — drawn as FLIP HITS (selected/unselected), one centred label.
     private func fillBoolTile(label: String, which: String, on: Bool, accent: Color, size: CGSize, radius: CGFloat, idx: Int, _ mutate: @escaping (inout EuclidLine) -> Void) -> AnyView {
         AnyView(Text(label).font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(7 * 0.1).lineLimit(1)
-            .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+            .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
             .frame(width: size.width, height: size.height)
-            .background(RoundedRectangle(cornerRadius: radius).fill(on ? lane20(accent) : patternUnselectedFill))
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(on ? lane100(accent) : .clear, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: radius).fill(Color(hex: FourfoldSelect.switchFill(on))))
             .contentShape(Rectangle()).onTapGesture { edit(idx, mutate) }
             .accessibilityElement(children: .ignore).accessibilityLabel(euclideousFillBoolAX(which, on: on)).accessibilityAddTraits(on ? [.isButton, .isSelected] : [.isButton]))
     }
@@ -4792,7 +4785,7 @@ struct EuclideousPage: View {
                     let code = UInt8(i + 1), sel = brush == code
                     pos(L.chips[i], AnyView(ZStack {
                         RoundedRectangle(cornerRadius: 3).fill(sel ? lane100(accent).opacity(0.3) : Color(hex: 0x343841))
-                        Text(euclideousRateMultiplierLabel(code: code)).font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(sel ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+                        Text(euclideousRateMultiplierLabel(code: code)).font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(Color(hex: FourfoldSelect.switchInk(sel)))
                     }.opacity(dim).contentShape(Rectangle()).onTapGesture { rateChipTap(idx, code: code) }
                         .accessibilityElement(children: .ignore).accessibilityLabel(euclideousRateChipAXLabel(code: code)).accessibilityAddTraits(sel ? [.isButton, .isSelected] : [.isButton])))
                 }
@@ -4877,10 +4870,9 @@ struct EuclideousPage: View {
                             let d = row * 3 + col
                             let on = d == curDiv
                             Text(divisionLabels[d]).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                                .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                                .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
                                 .frame(width: cellW, height: cellH)
-                                .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
-                                .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                                .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(on))))
                                 .contentShape(Rectangle())
                                 .modifier(laneTapMod(idx) { setRate(division: d) })
                                 .accessibilityValue(lockSpoken(idx, .rate, ""))
@@ -4892,10 +4884,9 @@ struct EuclideousPage: View {
                 ForEach(0..<3, id: \.self) { f in
                     let on = f == curFeel
                     feelGlyph(f)
-                        .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                        .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
                         .frame(width: feelColW, height: feelBtnH)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : patternUnselectedFill))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldSelect.switchFill(on))))
                         .contentShape(Rectangle())
                         .modifier(laneTapMod(idx) { setRate(feel: f) })
                         .accessibilityLabel(feelLabels[f])
@@ -4954,11 +4945,10 @@ struct EuclideousPage: View {
     /// Returns `AnyView` (LANE LOCK ferry 2026-10-22): its caller's frame then holds 8 bytes per button instead of the whole modifier chain (the page's debug stack — Docs/claude-playbook.md).
     private func melodyButton(_ label: String, on: Bool, accent: Color, height: CGFloat = 40, fontSize: CGFloat = 10, cornerRadius: CGFloat = 6, help: String? = nil, lane: Int? = nil, outline: Bool = false, action: @escaping () -> Void) -> AnyView {
         let base = Text(label).font(.system(size: fontSize, weight: .heavy, design: .monospaced))
-            .foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+            .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
             .lineLimit(1)   // §4.6: nothing under 10pt — truncate, never shrink (no .minimumScaleFactor call at all, SwiftUI's own default already never scales below 1.0)
             .frame(maxWidth: .infinity).frame(height: height)
-            .background(RoundedRectangle(cornerRadius: cornerRadius).fill(on ? lane20(accent) : Color(hex: 0x2A2D34)))
-            .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: cornerRadius).fill(Color(hex: FourfoldSelect.switchFill(on))))
             .contentShape(Rectangle())
             .modifier(EuclideousLockOutline(on: outline, accent: accent))   // LANE LOCK 5.4
             .accessibilityValue(euclideousLockAppendSnapWords("", outlined: outline))   // 5.6
@@ -5217,12 +5207,14 @@ struct EuclideousPage: View {
             riffMiniGrid(idx, line, accent, size: layout.gridSize).frame(width: layout.gridSize, height: layout.gridSize)
                 .padding(.top, layout.gridTop)
             Text("RIFF").font(.system(size: 9, weight: .heavy, design: .monospaced)).kerning(9 * 0.16)   // §2.3: 9 pt heavy, 0.16 em
-                .foregroundColor(isRiff ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA)).lineLimit(1).fixedSize()
+                .foregroundColor(Color(hex: FourfoldSelect.switchInk(isRiff))).lineLimit(1).fixedSize()
                 .frame(height: layout.labelHeight).padding(.top, 2)
             Spacer(minLength: 0)
         }
         .frame(width: layout.tileWidth, height: layout.rowAHeight)
-        .background(RoundedRectangle(cornerRadius: 10).fill(isRiff ? lane100(accent) : Color(hex: 0x2A2D34)))   // §2.1 no border; §2.3 off fill keeps source #2A2D34 (canvas annotated #24262C)
+        // STYLE PASS 1 §3.2: a switch drawn as a tile — on #DFE3EA, off the control tone (was lane100 on / #2A2D34 off; the
+        // most visible conversion of the pass: the card's coloured riff square goes neutral — flagged device-owed).
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: FourfoldSelect.switchFill(isRiff))))
         .contentShape(Rectangle())
         .modifier(laneTapMod(idx) { edit(idx) { $0.riffOn = !($0.riffOnResolved) } })
         .modifier(lockOutlineMod(idx, .riffOn, accent))
@@ -5461,8 +5453,7 @@ struct EuclideousPage: View {
             .stroke(lit ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
             .frame(width: 20, height: 14.67)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 7).fill(lit ? lane20(accent) : Color(hex: 0x2A2D34)))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(lit ? lane100(accent) : Color.clear, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(lit))))
             .contentShape(Rectangle())
             .modifier(EuclideousLockOutline(on: lit && lockOn(idx, .riffDirection), accent: accent))
             .modifier(EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: { onLockHeld(idx, $0) },
@@ -5528,10 +5519,9 @@ struct EuclideousPage: View {
     }
     private func riffHitStepSegment(_ idx: Int, label: String, selected: Bool, accent: Color, a11y: String, outline: Bool, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced))
-            .foregroundColor(selected ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA)).lineLimit(1)
+            .foregroundColor(Color(hex: FourfoldSelect.switchInk(selected))).lineLimit(1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? lane20(accent) : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? lane100(accent) : Color.clear, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))
             .modifier(EuclideousLockOutline(on: outline, accent: accent))
             .contentShape(Rectangle())
             .modifier(EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: { onLockHeld(idx, $0) }, action: action))
@@ -5581,8 +5571,7 @@ struct EuclideousPage: View {
             .foregroundColor(ink)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : Color(hex: 0x2A2D34)))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(on))))
         .modifier(EuclideousLockOutline(on: lockOn(idx, .riffInvert), accent: accent))
         .contentShape(Rectangle())
         .modifier(EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: { onLockHeld(idx, $0) }, action: { edit(idx) { $0.riffInvert = !($0.riffInvertResolved) } }))
@@ -6718,10 +6707,9 @@ struct EuclideousPage: View {
                         ForEach(modes, id: \.self) { mo in
                             let on = current == mo
                             Text(mo.rawValue).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                                .foregroundColor(on ? .white : .white.opacity(0.6)).lineLimit(1)
+                                .foregroundColor(on ? Color(hex: FourfoldStyle.selectedInk) : .white.opacity(0.6)).lineLimit(1)
                                 .frame(maxWidth: .infinity).frame(height: 32)
-                                .background(RoundedRectangle(cornerRadius: 6).fill(on ? lane20(accent) : Color.white.opacity(0.08)))
-                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                                .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color(hex: FourfoldStyle.selectedFill) : Color.white.opacity(0.08)))   // STYLE PASS 1 §3.1 (the off row-fill is the menu's own, left — findings §13)
                                 .contentShape(Rectangle())
                                 .onTapGesture { editMask(idx) { $0.mode = mo }; maskModePopupLane = nil }
                         }
@@ -6750,13 +6738,12 @@ struct EuclideousPage: View {
         // widths at 11pt/10pt comfortably (the longest hint, "QUIETER WITH IT", is well under 128.5pt).
         VStack(spacing: 3) {
             Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
-                .foregroundColor(lit ? patternSelectedText : patternUnselectedText).lineLimit(1)
+                .foregroundColor(Color(hex: FourfoldSelect.switchInk(lit))).lineLimit(1)
             Text(hint).font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundColor(lit ? Color(hex: 0xDFE3EA) : Color(hex: 0x8A909A)).lineLimit(1)
+                .foregroundColor(lit ? Color(hex: FourfoldStyle.selectedInk) : Color(hex: 0x8A909A)).lineLimit(1)   // STYLE PASS 1 §3.1: the hint reads as ink on the selected fill (was #DFE3EA on lane20)
         }
         .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 7).fill(lit ? lane20(accent) : patternUnselectedFill))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(lit ? lane100(accent) : Color.clear, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(lit))))
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
         // §10: one of a row of exclusive choices — label + hint read together, SELECTED when lit (matches
@@ -6899,15 +6886,17 @@ struct EuclideousPage: View {
     /// the REMEMBERED mode, which keeps a 1 pt border in lane100 at 35 %. The off look stays touchable: a tap selects the mode and switches the row on.
     private func answerModeButton(name: String, hint: String, selected: Bool, rowOn: Bool, spoken: String, width: CGFloat, height: CGFloat, accent: Color, paused: Bool = false, action: @escaping () -> Void) -> AnyView {
         let lit = rowOn && selected
-        let border: Color = !rowOn ? (selected ? lane100(accent).opacity(0.35) : .clear) : (lit ? lane100(accent) : .clear)
+        // STYLE PASS 1 §3.1: lit = #DFE3EA/#0D0F14, no border (was lane20 + lane100 border). The row-OFF remembered-mode
+        // outline (lane100 @ 35 %) is a STATE stroke (selected-while-inactive) and stays (§2.6, findings §13).
+        let border: Color = !rowOn && selected ? lane100(accent).opacity(0.35) : .clear
         return AnyView(VStack(spacing: 3) {
             Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5)
-                .foregroundColor(!rowOn ? answerOffText : (lit ? patternSelectedText : patternUnselectedText)).lineLimit(1)
+                .foregroundColor(!rowOn ? answerOffText : Color(hex: FourfoldSelect.switchInk(lit))).lineLimit(1)
             Text(hint).font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundColor(!rowOn ? answerOffText : (lit ? Color(hex: 0xDFE3EA) : Color(hex: 0x8A909A))).lineLimit(1)
+                .foregroundColor(!rowOn ? answerOffText : (lit ? Color(hex: FourfoldStyle.selectedInk) : Color(hex: 0x8A909A))).lineLimit(1)
         }
         .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 7).fill(!rowOn ? answerOffFill : (lit ? lane20(accent) : patternUnselectedFill)))
+        .background(RoundedRectangle(cornerRadius: 7).fill(!rowOn ? answerOffFill : Color(hex: FourfoldSelect.switchFill(lit))))
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(border, lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
@@ -6921,9 +6910,11 @@ struct EuclideousPage: View {
     /// glyph lane100. Flag clear: fill #2A2D34, no border, glyph #7C828D. Flag set + row off: the flag-clear look plus a 1 pt lane100 @ 35 % border. A tap toggles the flag whether the row is on or off; it never toggles the row (§2.3). Visual only — the hit area is the label cell's right zone (§2.4).
     private func answerCycleTile(cycleOn: Bool, rowOn: Bool, accent: Color) -> AnyView {
         let lit = rowOn && cycleOn
-        let fill: Color = lit ? lane100(accent).opacity(0.35) : Color(hex: 0x2A2D34)
-        let glyph: Color = lit ? lane100(accent) : Color(hex: 0x7C828D)
-        let border: Color = lit ? lane100(accent) : (cycleOn ? lane100(accent).opacity(0.35) : .clear)
+        // STYLE PASS 1 §3.2: lit = the selected pair, no border (was lane100@35 fill + lane100 border); the set-while-row-off
+        // outline stays as the remembered-state stroke (§2.6).
+        let fill = Color(hex: FourfoldSelect.switchFill(lit))
+        let glyph: Color = lit ? Color(hex: FourfoldStyle.selectedInk) : Color(hex: 0x7C828D)
+        let border: Color = !rowOn && cycleOn ? lane100(accent).opacity(0.35) : .clear
         return AnyView(Image(systemName: "repeat").font(.system(size: 9, weight: .heavy)).foregroundColor(glyph)
             .frame(width: 20, height: 14)
             .background(RoundedRectangle(cornerRadius: 4).fill(fill))
@@ -7037,7 +7028,7 @@ struct EuclideousPage: View {
                 ForEach(order, id: \.0) { exp, glyph, spoken in
                     let on = line.listenSpeedResolved == exp
                     Text("×\(glyph)").font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                        .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
                         .frame(width: segW, height: max(1, height - (caption ? 14 : 0)))
                         .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color.white.opacity(0.14) : patternUnselectedFill))
                         .contentShape(Rectangle())
@@ -7064,10 +7055,9 @@ struct EuclideousPage: View {
                 ForEach(order, id: \.0) { dir, glyph, spoken in
                     let on = line.listenDirectionResolved == dir
                     Text(glyph).font(.system(size: 13, weight: .heavy, design: .monospaced))
-                        .foregroundColor(on ? patternSelectedText : patternUnselectedText)
+                        .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
                         .frame(width: segW, height: max(1, height - (caption ? 14 : 0)))
-                        .background(RoundedRectangle(cornerRadius: 7).fill(on ? lane20(accent) : patternUnselectedFill))
-                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? lane100(accent) : Color.clear, lineWidth: 1))
+                        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(on))))
                         .contentShape(Rectangle())
                         .onTapGesture { edit(idx) { $0.listenDirection = dir } }
                         .accessibilityElement(children: .ignore)
@@ -7342,12 +7332,12 @@ struct EuclideousPage: View {
         HStack(spacing: 5) {
             poolSourceLamp(on: on, accent: accent)
             Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.7)
-                .foregroundColor(Color(hex: on ? 0xF2F4F7 : 0x8A909A))
+                .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))   // STYLE PASS 1 §3.2 (was #F2F4F7/#8A909A)
         }
         .padding(.horizontal, 8)
         .frame(width: w, height: min(EuclideousPoolTabMetrics.toggleH, height), alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: on ? 0x30333B : 0x202227)))
-        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color(hex: on ? 0x454952 : 0x2B2D33), lineWidth: 1))
+        // STYLE PASS 1 §3.2: on = the selected pair, off = the control tone, no border (was #30333B/#202227 + #454952/#2B2D33 borders); the lane LAMP is unchanged (the row's one lane signal).
+        .background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: FourfoldSelect.switchFill(on))))
         .frame(width: w, height: height)
         .contentShape(Rectangle())
         .onTapGesture(perform: tap)
@@ -7390,7 +7380,7 @@ struct EuclideousPage: View {
                     Text(g == 0 ? "1" : "2").font(.system(size: 7.5, weight: .heavy, design: .monospaced)).lineLimit(1)
                         .foregroundColor(Color(hex: sel ? 0x0D0F14 : (outline ? 0xAAB0BA : 0x8A909A)))
                         .frame(width: seg, height: segH)
-                        .background(RoundedRectangle(cornerRadius: 3.5).fill(sel ? Color(hex: 0xDFE3EA) : Color.clear))
+                        .background(RoundedRectangle(cornerRadius: 3.5).fill(sel ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))
                         .overlay(RoundedRectangle(cornerRadius: 3.5).strokeBorder(outline ? Color(hex: 0x5C626C) : Color.clear, lineWidth: 0.75))
                         .contentShape(Rectangle())
                         .onTapGesture { edit(idx) { $0.setPoolSrc(g == 0 ? 1 : 4, true) } }   // picks the grid + turns CHORDS on
@@ -7535,7 +7525,7 @@ struct EuclideousPage: View {
                                  style: .tab)
                 }
                 .frame(maxWidth: .infinity).frame(height: height)
-                .background(RoundedRectangle(cornerRadius: 6).fill(sel ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldSelect.switchFill(sel))))
                 .contentShape(Rectangle())
                 .onTapGesture { onSetActiveRiff(i) }
                 .onLongPressGesture(minimumDuration: 0.5) { riffTabMenuLane = i }
@@ -7603,7 +7593,7 @@ struct EuclideousPage: View {
                 Text(seg == .riff ? "RIFF" : (seg == .poly ? "POLY" : "STACK")).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.1)
                     .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
                     .frame(maxWidth: .infinity).frame(height: max(1, height - 4))
-                    .background(RoundedRectangle(cornerRadius: 4).fill(sel ? Color(hex: 0xDFE3EA) : Color.clear))
+                    .background(RoundedRectangle(cornerRadius: 4).fill(sel ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))
                     .contentShape(Rectangle())
                     .onTapGesture {
                         ribbonSettingsOpen = false   // RIBBON SETTINGS §5.1: tapping RIFF or STACK closes the settings tab and shows that view
@@ -8525,7 +8515,7 @@ struct EuclideousPage: View {
                 ZStack(alignment: .bottom) {
                     HStack(spacing: 6) {
                         Text(tab.label).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                            .foregroundColor(sel ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA)).lineLimit(1)
+                            .foregroundColor(Color(hex: FourfoldSelect.switchInk(sel))).lineLimit(1)
                     }
                     .frame(width: tabW, height: height - 4, alignment: .center)   // centred in the top 16pt
                     .frame(width: tabW, height: height, alignment: .top)
@@ -9079,7 +9069,7 @@ struct EuclideousPage: View {
                                 let sel = step < cells.count && cells[step] == riffIdx
                                 let within = step < len
                                 RoundedRectangle(cornerRadius: 6)
-                                    .fill(sel ? Color(hex: 0xDFE3EA) : Color(hex: 0x22252C))
+                                    .fill(sel ? Color(hex: FourfoldStyle.selectedFill) : Color(hex: 0x22252C))
                                     .frame(width: cellW, height: cellH)
                                     .opacity(within ? 1 : 0.3)
                                     .contentShape(Rectangle())
@@ -9121,7 +9111,7 @@ struct EuclideousPage: View {
                 .font(.system(size: 12, weight: .heavy, design: .monospaced))
                 .foregroundColor(on ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
                 .frame(width: onW, height: height)
-                .background(RoundedRectangle(cornerRadius: 8).fill(on ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: FourfoldSelect.switchFill(on))))
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if isLanes { onEditLanesSeq { $0.on.toggle() } } else { onEditRiffsSeq { $0.on.toggle() } }

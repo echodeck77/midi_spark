@@ -65,10 +65,10 @@ struct EuclideousFillV2SegBack: View {
     let neutral: Bool
     let accent: Color
     var body: some View {
+        // STYLE PASS 1 §3.1: ONE selected look — the neutral/non-neutral split collapses (both draw #DFE3EA) and the
+        // lane border goes (was segNeutral/lane20 + a lane border on non-neutral; FILL V2 §5's lane rule is superseded here).
         RoundedRectangle(cornerRadius: EuclideousFillV2Metrics.segRadius)
-            .fill(selected ? (neutral ? Color(hex: EuclideousFillV2Look.segNeutral) : accent.opacity(0.2)) : Color(hex: EuclideousFillV2Look.segIdle))
-            .overlay(RoundedRectangle(cornerRadius: EuclideousFillV2Metrics.segRadius)
-                .strokeBorder(selected && !neutral ? accent : Color.clear, lineWidth: 1))
+            .fill(selected ? Color(hex: FourfoldStyle.selectedFill) : Color(hex: EuclideousFillV2Look.segIdle))
     }
 }
 
@@ -168,11 +168,10 @@ struct EuclideousFillV2ToggleTile: View {
     let onTap: () -> Void
     var body: some View {
         Text(label).font(.system(size: 6.5, weight: .heavy, design: .monospaced)).tracking(6.5 * 0.12)
-            .foregroundColor(on ? Color(hex: EuclideousFillV2Look.segSelectedText) : Color(hex: EuclideousFillV2Look.stepButtonText))
+            .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))   // STYLE PASS 1 §3.2 (was segSelectedText/stepButtonText)
             .lineLimit(1).minimumScaleFactor(0.7)
             .frame(width: size.width, height: size.height)
-            .background(RoundedRectangle(cornerRadius: radius).fill(on ? accent.opacity(0.2) : Color(hex: EuclideousMixV2FieldLook.groundHex)))
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(on ? accent : Color.clear, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: radius).fill(Color(hex: FourfoldSelect.switchFill(on))))   // §3.2: no border (was lane20 + lane border)
             .contentShape(Rectangle())
             .onTapGesture(perform: onTap)
             .accessibilityElement(children: .ignore)

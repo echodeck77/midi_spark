@@ -11246,11 +11246,14 @@ func hocketChipLook(lane: Int, inGroup: Bool, live: Bool, takenBy: Int?) -> Hock
     if let n = takenBy {
         return HocketChipLook(fill: HocketPalette.takenFill, border: HocketPalette.takenFill, text: HocketPalette.takenText, glyph: .outline(HocketPalette.takenText, opacity: 0.6), tag: "R\(n)", responds: false)
     }
+    // STYLE PASS 1 §3.1: a chip IN the group takes the one selected look — #DFE3EA fill, #0D0F14 text, no border (the
+    // border is set to the fill). The lane GLYPH keeps its lane colour (it names the output's lane — identity, §3.5) and
+    // the live GLOW stays (activity, §3.4). Was lane20/lane42 fill + lane100 border + light text.
     if inGroup && live {
-        return HocketChipLook(fill: HocketColor(l100.hex, 0.42), border: l100, text: HocketPalette.text, glyph: .filled(l100),
+        return HocketChipLook(fill: HocketColor(FourfoldStyle.selectedFill), border: HocketColor(FourfoldStyle.selectedFill), text: HocketColor(FourfoldStyle.selectedInk), glyph: .filled(l100),
                               glow: [(0, 1, l100), (14, 0, HocketColor(l100.hex, 0.6))])
     }
-    if inGroup { return HocketChipLook(fill: HocketPalette.lane20(lane), border: l100, text: HocketPalette.text, glyph: .filled(l100)) }
+    if inGroup { return HocketChipLook(fill: HocketColor(FourfoldStyle.selectedFill), border: HocketColor(FourfoldStyle.selectedFill), text: HocketColor(FourfoldStyle.selectedInk), glyph: .filled(l100)) }
     return HocketChipLook(fill: HocketPalette.plate, border: HocketPalette.plate, text: HocketPalette.mid, glyph: .outline(HocketPalette.mid, opacity: 0.45))
 }
 /// §4.4 order badge: while a group holds two or more outputs, each member carries its 1-up position; nothing otherwise.

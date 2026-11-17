@@ -14,10 +14,11 @@ struct EuclideousRowSwitchPill: View {
     var width: CGFloat = 26
     var height: CGFloat = 14
     var body: some View {
+        // STYLE PASS 1 §3.2: on = the selected pair (knob in ink), off = the control tone (knob in the label grey), no
+        // border (was lane@35 + lane border + lane knob / #2A2D34 + #3A3E47 + #7C828D).
         ZStack(alignment: on ? .trailing : .leading) {
-            RoundedRectangle(cornerRadius: height / 2).fill(on ? accent.opacity(0.35) : Color(hex: 0x2A2D34))
-            RoundedRectangle(cornerRadius: height / 2).stroke(on ? accent : Color(hex: 0x3A3E47), lineWidth: 1)
-            Circle().fill(on ? accent : Color(hex: 0x7C828D)).frame(width: height - 4, height: height - 4).padding(.horizontal, 2)
+            RoundedRectangle(cornerRadius: height / 2).fill(Color(hex: FourfoldSelect.switchFill(on)))
+            Circle().fill(Color(hex: on ? FourfoldStyle.selectedInk : FourfoldStyle.label)).frame(width: height - 4, height: height - 4).padding(.horizontal, 2)
         }
         .frame(width: width, height: height)
     }
@@ -28,9 +29,10 @@ struct EuclideousFreePill: View {
     let free: Bool            // the chain is inactive (the pill is lit)
     let accent: Color
     var body: some View {
-        Text("FREE").font(heavyMono(8)).tracking(0.48).foregroundColor(free ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
+        // STYLE PASS 1 §3.2 (FREE pills named): lit = #DFE3EA/#0D0F14, off = control/#B4BAC4 (was lane@30/#F2F4F7 · #2A2D34/#8A909A).
+        Text("FREE").font(heavyMono(8)).tracking(0.48).foregroundColor(Color(hex: FourfoldSelect.switchInk(free)))
             .frame(width: 40, height: 24)
-            .background(RoundedRectangle(cornerRadius: 12).fill(free ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldSelect.switchFill(free))))
     }
 }
 
@@ -353,9 +355,10 @@ struct EuclideousRestartSectionView: View {
         let names = rhythm ? ["PASS", "BAR", "RIFF"] : ["PASS", "BAR", "HIT"]   // RESETS V2 §3.1: MELODY PASS·BAR·HIT, so PASS and BAR line up in both halves
         let selected = unitIndex == i, r = frames.chips[i]
         let setSelected = selected && active   // §3.2: a SET row's selection keeps the lane tint; a FREE row's selection is OUTLINED, not tinted (no second-selection look)
-        return Text(names[i]).font(heavyMono(8)).tracking(0.48).foregroundColor(setSelected ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA))
+        // STYLE PASS 1 §3.1 (was lane@30/#F2F4F7 · #2A2D34/#AAB0BA); the FREE-row selected outline below is a kept state stroke (§2.6).
+        return Text(names[i]).font(heavyMono(8)).tracking(0.48).foregroundColor(Color(hex: FourfoldSelect.switchInk(setSelected)))
             .frame(width: r.width, height: r.height)
-            .background(RoundedRectangle(cornerRadius: 6).fill(setSelected ? accent.opacity(0.3) : Color(hex: 0x2A2D34)))
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldSelect.switchFill(setSelected))))
             .overlay { if selected && !active { RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x6A707A), lineWidth: 1) } }   // §3.2: FREE selected = #2A2D34 fill, #AAB0BA text, 1 pt #6A707A inner stroke
             .contentShape(Rectangle())
             .onTapGesture { onEdit(.unit(rhythm: rhythm, index: i), true) }

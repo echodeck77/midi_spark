@@ -597,9 +597,11 @@ struct EuclideousOctaveBoxes: View {
         return ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 ForEach(0..<5, id: \.self) { i in
-                    Text(euclideousOctLabels[i]).font(heavyMono(fontSize)).foregroundColor(Color(hex: i == selected ? 0x0D0F14 : 0xAAB0BA)).lineLimit(1)
+                    // STYLE PASS 1 §3.3: the selected box takes the selected pair; the OTHERS take the control tone + label
+                    // (was clear + #AAB0BA). The 1 pt dividers stay (internal structure, findings §13).
+                    Text(euclideousOctLabels[i]).font(heavyMono(fontSize)).foregroundColor(Color(hex: FourfoldSelect.segmentInk(i == selected))).lineLimit(1)
                         .frame(width: boxW, height: size.height)
-                        .background(i == selected ? Color(hex: 0xDFE3EA) : Color.clear)
+                        .background(Color(hex: FourfoldSelect.switchFill(i == selected)))
                         .overlay(alignment: .leading) { if i > 0 { Rectangle().fill(Color(hex: 0x30333A)).frame(width: 1) } }
                 }
             }
