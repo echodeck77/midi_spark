@@ -108,6 +108,25 @@ func laneStripIsSlim(cellWidth: CGFloat, displayScale: CGFloat) -> Bool {
 /// §1.4 — a slim chip's opacity: 60 % at rest, 100 % sounding (no stroke either way).
 func laneStripSlimChipOpacity(sounding: Bool) -> Double { sounding ? 1 : LaneStripBandMetrics.slimRestOpacity }
 
+/// LANE STRIP CLARITY §3 — which footer chips carry a LABEL: the pass's first hit, a hit whose drawn rank set differs
+/// from the hit before it in the pass, and the hit after an unpredicted slot (§3.2 — unpredicted counts as different from
+/// everything; the unpredicted slot itself is the label-less #2B2D33 bar). `hitRankSets[i]` is what step i DRAWS — nil for
+/// a rest, [] for an unpredicted hit, else the played-or-predicted ranks (§3.1). Sounding never moves a label (§3.4 — the
+/// drawn set, not the note state, decides). Header chips and the PLAY tiles keep labels on every hit (§3.5/§3.6 — they
+/// never call this).
+func laneStripFooterLabelled(hitRankSets: [[Int]?]) -> [Bool] {
+    var out = [Bool](repeating: false, count: hitRankSets.count)
+    var prev: [Int]? = nil          // the previous HIT's drawn set; nil = none yet, or it was unpredicted
+    var first = true
+    for i in 0..<hitRankSets.count {
+        guard let set = hitRankSets[i] else { continue }   // a rest: no chip, no label, no state change
+        if set.isEmpty { prev = nil; continue }            // §3.2: unpredicted — label-less itself, the NEXT hit labels
+        out[i] = first || prev == nil || set != prev!
+        prev = set; first = false
+    }
+    return out
+}
+
 // MARK: - §8.1 / §1: the top-row frames (one pure function; every layout)
 
 /// §8.1 — every frame of the lane card's top row in CONTENT-box-local coordinates (origin at the content box's

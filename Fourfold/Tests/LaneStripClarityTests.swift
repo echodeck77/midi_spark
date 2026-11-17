@@ -63,6 +63,22 @@ final class LaneStripClarityTests: XCTestCase {
         XCTAssertEqual(LaneStripBandMetrics.slimBandH, 4)
     }
 
+    // MARK: §8.5 — stack labels only on the first hit and where the rank set changes; unpredicted labels the hit after
+
+    func testStackLabelHiding() {
+        // a pass of five hits all on rank 1: the first chip only
+        XCTAssertEqual(laneStripFooterLabelled(hitRankSets: [[1], [1], [1], [1], [1]]), [true, false, false, false, false])
+        // ranks 1, 1, 3, 3, 1: the first, third and fifth
+        XCTAssertEqual(laneStripFooterLabelled(hitRankSets: [[1], [1], [3], [3], [1]]), [true, false, true, false, true])
+        // an unpredicted slot ([]) labels the hit after it; the slot itself shows no label
+        XCTAssertEqual(laneStripFooterLabelled(hitRankSets: [[1], [], [1], [1]]), [true, false, true, false])
+        // rests (nil) are transparent to the comparison
+        XCTAssertEqual(laneStripFooterLabelled(hitRankSets: [[2], nil, [2], nil, [3]]), [true, false, false, false, true])
+        // chords compare as sets: {1,3} → {1,3} hides; {1,3} → {1,4} labels
+        XCTAssertEqual(laneStripFooterLabelled(hitRankSets: [[1, 3], [1, 3], [1, 4]]), [true, false, true])
+        // §3.4: the drawn set, not sounding, decides — the same sets give the same labels whatever is playing (pure input).
+    }
+
     // MARK: §8.4 — the PLAY tiles' note chips share the one function (structural: the same stroke rule at the tile's band height)
 
     func testPlayTileNoteChipUsesTheSameStrokeRule() {
