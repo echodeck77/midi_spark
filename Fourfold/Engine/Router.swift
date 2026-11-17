@@ -699,6 +699,17 @@ final class Router {
     private var euclideousFillForceHitNow = false
     // FILL TAB ferry (2026-11-14) §2.2: a reused fixed scratch for ORDER=SHUFFLE's permutation (built once per region, never per slot, never per window) — no render-thread allocation. Sized to the 128 reverse cap.
     private var euclideousFillShufBuf = [Int](repeating: 0, count: euclideousFillReverseCap)
+    // FILL TAB V2 §2.3 NOTES: the mode (0 RIFF · 1 FLAT · 2 PEDAL · 3 OCT · 4 CHORD) and the time-slot's parity for the
+    // slot the body is emitting — set per slot by the fill loop (0 / false outside a region ⇒ byte-identical). FLAT's
+    // "the region's first sounding slot's rank" is LATCHED per (lane, bar), riff and stack each taking their own first
+    // strike (fixed 4-entry scratch, allocated once; a bar change resets both; a seek INTO a mid-played bar re-latches
+    // at the first strike it hears — disclosed). The bar key is the region's barIndex at the current slot.
+    private var euclideousFillNotesNow: UInt8 = 0
+    private var euclideousFillSlotOddNow = false
+    private var euclideousFillBarNow = Int.min
+    private var euclideousFillFlatBar = [Int](repeating: Int.min, count: 4)
+    private var euclideousFillFlatRiffRank = [Int](repeating: 0, count: 4)
+    private var euclideousFillFlatStackRank = [Int](repeating: 0, count: 4)
     // Edge-detect for "this lane just stopped" (ferry §2.5: "lane stopped... end everything
     // immediately") — checked in its OWN unconditional loop (NOT nested inside the per-line dispatch
     // loop's own `enabledResolved`-gated `where` clause, which structurally never executes once a lane is
@@ -2316,6 +2327,7 @@ final class Router {
                               _ body: (_ tick: Int64, _ mTickBeat: Double,
                                        _ onTime: Int64, _ offTime: Int64) -> Void) {
         euclideousFillStepScaleNow = 1; euclideousFillRankOffsetNow = 0; euclideousFillVelFactorNow = 1; euclideousFillRollNow = 1; euclideousFillGateScaleNow = 1; euclideousFillHitsNow = 0; euclideousFillForceHitNow = false   // FILL: neutral for the ×1 / non-fill path; the fill loop sets them per slot (§2.3 hits, §2.4 step scale, §2.5 rank climb + roll, §2.6 swell + LAND gate/force)
+        euclideousFillNotesNow = 0; euclideousFillSlotOddNow = false; euclideousFillBarNow = Int.min   // FILL TAB V2 §2.3 NOTES: neutral off a region
         let dedupSlot = row * Router.tickDedupSlotsPerRow + min(max(0, lineIndex), Router.tickDedupSlotsPerRow - 1)
         let mStartReal = musicalOf(beatPos, stepBeats: S, a: a)
         let mEndReal = musicalOf(beatPos + windowBeats, stepBeats: S, a: a)
@@ -2418,10 +2430,24 @@ final class Router {
                     euclideousFillRollNow = euclideousFillRollCount(roll: region?.roll ?? 0, slot: s, count: N)   // §2.5 ROLL (0 ⇒ 1 ⇒ byte-identical)
                     euclideousFillVelFactorNow = euclideousFillSwellFactor(swell: region?.swell ?? 0, slot: s, count: N)
                     euclideousFillGateScaleNow = 1   // LAND is a ×1-rejoin thing, never inside the region
-                    euclideousFillHitsNow = region?.hits == .all ? 1 : (region?.hits == .flip ? 2 : 0)   // §2.3 HITS (KEEP ⇒ 0 ⇒ byte-identical)
+                    // §2.3 HITS (KEEP ⇒ 0 ⇒ byte-identical). FILL TAB V2 BUILD: k < ⌈N/2⌉ follows the pattern but still
+                    // forces the per-step walk advance (code 3 — the body's hit-test reads it as KEEP, the walk reads ≠ 0,
+                    // the as-built ALL/FLIP mechanism); k ≥ ⌈N/2⌉ sounds like ALL.
+                    switch region?.hits ?? .keep {
+                    case .keep:  euclideousFillHitsNow = 0
+                    case .all:   euclideousFillHitsNow = 1
+                    case .flip:  euclideousFillHitsNow = 2
+                    case .build: euclideousFillHitsNow = s >= (N + 1) / 2 ? 1 : 3
+                    }
+                    euclideousFillNotesNow = {   // FILL TAB V2 §2.3 NOTES (RIFF ⇒ 0 ⇒ byte-identical)
+                        switch region?.notes ?? .riff { case .riff: return 0; case .flat: return 1; case .pedal: return 2; case .oct: return 3; case .chord: return 4 }
+                    }()
+                    euclideousFillSlotOddNow = s % 2 == 1
+                    euclideousFillBarNow = region?.barIndex ?? Int.min
                     euclideousFillForceHitNow = false
                 } else {
                     euclideousFillRankOffsetNow = 0; euclideousFillRollNow = 1; euclideousFillHitsNow = 0
+                    euclideousFillNotesNow = 0; euclideousFillSlotOddNow = false; euclideousFillBarNow = Int.min   // FILL TAB V2: neutral on the ×1 rejoin segments
                     // §2.6 LAND: the first ×1 step at/after a LAND region's end E (= the bar start b·L of the bar after it) lands with vel ×1.3 + gate ×2, and (part b) STRIKES even on a rest — a definite landing note. A per-slot test (no carried state) so it fires on the right slot whatever window it lands in; off ⇒ byte-identical.
                     let b = Int((hostBeat / L + 1e-9).rounded(.down))
                     let landHere = (fill.region(bar: b - 1)?.land ?? false) && hostBeat - Double(b) * L >= -1e-9 && hostBeat - Double(b) * L < sub - 1e-9
@@ -4563,7 +4589,7 @@ final class Router {
                                             repeatedColumn = Int8(found.column)
                                             return strikeRiffRawRank(found.rank, repeating: true)
                                         }
-                                    } else if let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: altRiffOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill) · ALT §3.1: altRiffOct = riffOctave unless the OCT pill overrides this hit
+                                    } else if euclideousFillNotesNow == 0, let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: altRiffOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill) · ALT §3.1: altRiffOct = riffOctave unless the OCT pill overrides this hit
                                         let note0 = note0Raw
                                         hadRiffNote = true
                                         riffRank = rank; riffNote = note0
@@ -4577,6 +4603,32 @@ final class Router {
                                         // posts the hit's OWN (rest) column, `leapStep` — never the repeated one.
                                         let wr = (maskedChancePassed && mm.modeResolved == .mirror && invRank >= 1) ? (9 - invRank) : invRank
                                         if wr >= 1 && wr <= 8 { wipeColumn = Int8(leapStep); wipeRankOut = Int8(wr); wipeCellColumn = repeating && repeatedColumn >= 0 ? repeatedColumn : Int8(leapStep) }
+                                    } else if euclideousFillNotesNow != 0 {
+                                        // FILL TAB V2 §2.3 NOTES — the riff voice through the mode transform (rank space; the resolver's
+                                        // fold + nil-below-1 rule stand). FLAT latches the region's first sounding riff rank per (lane, bar).
+                                        if euclideousFillFlatBar[lineIndex] != euclideousFillBarNow { euclideousFillFlatBar[lineIndex] = euclideousFillBarNow; euclideousFillFlatRiffRank[lineIndex] = 0; euclideousFillFlatStackRank[lineIndex] = 0 }
+                                        if euclideousFillNotesNow == 1, euclideousFillFlatRiffRank[lineIndex] == 0, rank >= 1 { euclideousFillFlatRiffRank[lineIndex] = rank }
+                                        let fv = euclideousFillNotesVoice(mode: EuclideousFillNotes.fromScalar(euclideousFillNotesNow), q0: rank,
+                                                                          offset: euclideousFillRankOffsetNow, flatRank: euclideousFillFlatRiffRank[lineIndex], oddSlot: euclideousFillSlotOddNow)
+                                        let rg0 = altRiffGate ?? gate
+                                        var vi = 0
+                                        while vi < fv.count {
+                                            let fr = vi == 0 ? fv.r0 : (vi == 1 ? fv.r1 : fv.r2)
+                                            if let raw0 = riffResolve(rank: fr, oct: altRiffOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {
+                                                let pch = raw0 + (fv.octUp ? 12 : 0)   // OCT's odd-slot jump (post-resolve; out of MIDI range ⇒ silent, the preview's rule)
+                                                if (0...127).contains(pch) {
+                                                    if !hadRiffNote {
+                                                        hadRiffNote = true; riffRank = fr; riffNote = pch
+                                                        addPitch(pch, vel: UInt8(altRiffVel), gate: rg0 < 1.0 ? min(rg0, sameNoteRiffGateCap) : rg0, raw: pch - 12 * altRiffOct, altOuts: altRiffOut)
+                                                        let wr = (maskedChancePassed && mm.modeResolved == .mirror && invRank >= 1) ? (9 - invRank) : invRank
+                                                        if wr >= 1 && wr <= 8 { wipeColumn = Int8(leapStep); wipeRankOut = Int8(wr); wipeCellColumn = repeating && repeatedColumn >= 0 ? repeatedColumn : Int8(leapStep) }
+                                                    } else {
+                                                        addPitch(pch, vel: UInt8(altRiffVel), gate: rg0 < 1.0 ? min(rg0, sameNoteRiffGateCap) : rg0, raw: pch - 12 * altRiffOct, altOuts: altRiffOut)   // CHORD's +2/+4 (addPitch itself collapses duplicates)
+                                                    }
+                                                }
+                                            }
+                                            vi += 1
+                                        }
                                     }
                                     return false
                                 }
@@ -4613,8 +4665,30 @@ final class Router {
                                                                         lane: lineIndex, hitOrdinal: notesH)
                                     notesSpreadActive = rowsHit.spread
                                     let doSpread = rowsHit.spread != .together
+                                    var fillPedalStruck = false   // FILL TAB V2 §2.3 PEDAL: one note per slot whatever the voice count
                                     func strikeRowsRank(_ r: Int, spread: Bool) {
-                                        guard let pch = riffResolve(rank: r + euclideousFillRankOffsetNow, oct: altNotesOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }   // FILL §2.5: the rank climb applies to stack notes too (0 off a fill) · ALT §3.1: altNotesOct = octave unless the stack OCT pill overrides this hit
+                                        var fillRank = r + euclideousFillRankOffsetNow   // FILL §2.5: the rank climb applies to stack notes too (0 off a fill)
+                                        var fillOctUp = false
+                                        var fillExtra1 = 0, fillExtra2 = 0               // FILL TAB V2 CHORD's +2/+4 (0 = none)
+                                        if euclideousFillNotesNow != 0 {                 // FILL TAB V2 §2.3 NOTES — the stack voice through the mode transform
+                                            if euclideousFillFlatBar[lineIndex] != euclideousFillBarNow { euclideousFillFlatBar[lineIndex] = euclideousFillBarNow; euclideousFillFlatRiffRank[lineIndex] = 0; euclideousFillFlatStackRank[lineIndex] = 0 }
+                                            if euclideousFillNotesNow == 1, euclideousFillFlatStackRank[lineIndex] == 0, r >= 1 { euclideousFillFlatStackRank[lineIndex] = r }
+                                            let fv = euclideousFillNotesVoice(mode: EuclideousFillNotes.fromScalar(euclideousFillNotesNow), q0: r,
+                                                                              offset: euclideousFillRankOffsetNow, flatRank: euclideousFillFlatStackRank[lineIndex], oddSlot: euclideousFillSlotOddNow)
+                                            if fv.isPedal { if fillPedalStruck { return }; fillPedalStruck = true }
+                                            fillRank = fv.r0; fillOctUp = fv.octUp
+                                            if fv.count > 1 { fillExtra1 = fv.r1; fillExtra2 = fv.r2 }
+                                        }
+                                        guard let pch0 = riffResolve(rank: fillRank, oct: altNotesOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) else { return }   // ALT §3.1: altNotesOct = octave unless the stack OCT pill overrides this hit
+                                        let pch = pch0 + (fillOctUp ? 12 : 0)            // FILL TAB V2 OCT's odd-slot jump (out of MIDI range ⇒ silent below, the engine's range rule)
+                                        if fillExtra1 > 0 {                              // FILL TAB V2 CHORD: the +2/+4 voices (addPitch collapses duplicates) — unrolled, no array literal on the render thread
+                                            func fillAddExtra(_ er: Int) {
+                                                guard er > 0, let ep = riffResolve(rank: er, oct: altNotesOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }), (0...127).contains(ep) else { return }
+                                                addPitch(ep, vel: UInt8(max(1, min(127, altNotesVel))), gate: altNotesGate ?? notesGate, notesLayer: true, heldByRiff: ep == heldRiffPitch, raw: ep - 12 * altNotesOct, rank: UInt8(clamping: max(1, er)), altOuts: altNotesOut)
+                                            }
+                                            fillAddExtra(fillExtra1); fillAddExtra(fillExtra2)
+                                        }
+                                        guard (0...127).contains(pch) else { return }
                                         let at = pitchCount
                                         // Pass the LIT rank (1…8) so the roll / STACK-grid-live feed names it exactly (a folded note no longer falls back to nearest-by-pitch, which could leave an octave copy unranked).
                                         addPitch(pch, vel: UInt8(max(1, min(127, altNotesVel))), gate: altNotesGate ?? notesGate, notesLayer: true, heldByRiff: pch == heldRiffPitch, raw: pch - 12 * altNotesOct, rank: UInt8(r), altOuts: altNotesOut)   // ALT §3.1: alt VEL/GATE/OCT/OUT (defaults = main); byte-identical when no pill is on

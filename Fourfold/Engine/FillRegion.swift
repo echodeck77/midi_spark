@@ -20,6 +20,7 @@ struct EuclideousFillRegion: Equatable {
     var order: EuclideousFillOrder = .fwd      // FILL TAB §2.2 (replaces `reverse`: .fwd/.rev are the old forward/reverse)
     var shape: EuclideousFillShape = .climb    // FILL TAB §2.4
     var hits: EuclideousFillHits = .keep       // FILL TAB §2.3
+    var notes: EuclideousFillNotes = .riff     // FILL TAB V2 §2.3 (RIFF = today, byte-identical)
     var ranks = 0                // −7…+7 climb amount R
     var swell = 0                // −3…+3 velocity ramp
     var roll = 0                 // FILL TAB §2.5 0…4
@@ -49,6 +50,7 @@ struct EuclideousFillPlan: Equatable {
     var order: EuclideousFillOrder = .fwd
     var shape: EuclideousFillShape = .climb
     var hits: EuclideousFillHits = .keep
+    var notes: EuclideousFillNotes = .riff     // FILL TAB V2 §2.3
     var ranks = 0, swell = 0, roll = 0, breakOn = false, land = false, chance = 100
     var originBeat = 0.0          // the lane's rhythm restart origin (host beats)
     var beatsPerBar = 4.0
@@ -59,7 +61,7 @@ struct EuclideousFillPlan: Equatable {
         active = true; self.lane = lane; loop = line.fillLoopResolved
         if let bars = line.fillBars { for i in 0..<min(16, bars.count) where bars[i] { armed |= (1 << UInt16(i)) } }   // read in place — no allocation on the render thread
         m = line.fillSpeedMultiplier; lengthFraction = line.fillLengthFraction
-        curve = line.fillCurveResolved; order = line.fillOrderResolved; shape = line.fillShapeResolved; hits = line.fillHitsResolved
+        curve = line.fillCurveResolved; order = line.fillOrderResolved; shape = line.fillShapeResolved; hits = line.fillHitsResolved; notes = line.fillNotesResolved
         ranks = line.fillRanksResolved; swell = line.fillSwellResolved; roll = line.fillRollResolved; breakOn = line.fillBreakResolved; land = line.fillLandResolved; chance = line.fillChanceResolved
         self.originBeat = originBeat; self.beatsPerBar = beatsPerBar; self.sub = sub
     }
@@ -70,7 +72,7 @@ struct EuclideousFillPlan: Equatable {
         var r = EuclideousFillRegion()
         r.barIndex = n; r.lane = lane; r.m = m
         r.D = lengthFraction * beatsPerBar; r.E = Double(n + 1) * beatsPerBar; r.F = r.E - r.D
-        r.curve = curve; r.order = order; r.shape = shape; r.hits = hits
+        r.curve = curve; r.order = order; r.shape = shape; r.hits = hits; r.notes = notes
         r.ranks = ranks; r.swell = swell; r.roll = roll; r.breakOn = breakOn; r.land = land
         return r
     }
@@ -168,6 +170,36 @@ func euclideousFillRankOffset(ranks R: Int, slot k: Int, count N: Int, shape: Eu
     case .arch:  return Int((Double(R) * (1 - abs(2 * u - 1))).rounded())
     case .shift: return R
     }
+}
+
+/// FILL TAB V2 §2.3 — the NOTES-mode transform for ONE voice of a sounding slot, in RANK space (the resolver's fold
+/// wraps; a rank < 1 or an empty pool resolves nil = silent — the engine's own rule, adopted per the spec). `q0` is the
+/// voice's resolved rank BEFORE the RANKS offset; `flatRank` the region's latched first-sounding rank for this part
+/// (0 = not latched yet ⇒ this voice latches itself). Fixed-size result — no allocation on the render thread.
+/// RIFF: q0+off · FLAT: flat+off · PEDAL odd: rank 1 alone, no offset (even as RIFF) · OCT: as RIFF, +12 semitones on
+/// odd slots (post-resolve) · CHORD: q, q+2, q+4 (duplicates collapse at the add site).
+struct EuclideousFillVoice: Equatable {
+    var r0 = 0, r1 = 0, r2 = 0   // the ranks to strike (0 = unused slot)
+    var count = 1
+    var octUp = false            // OCT's odd-slot +12, applied to each resolved pitch
+    var isPedal = false          // PEDAL's odd slot: one note per slot whatever the voice count (the add site gates)
+}
+extension EuclideousFillNotes {
+    /// The render scalar's inverse (0 RIFF · 1 FLAT · 2 PEDAL · 3 OCT · 4 CHORD) — a switch, never an array literal (render thread).
+    static func fromScalar(_ s: UInt8) -> EuclideousFillNotes {
+        switch s { case 1: return .flat; case 2: return .pedal; case 3: return .oct; case 4: return .chord; default: return .riff }
+    }
+}
+func euclideousFillNotesVoice(mode: EuclideousFillNotes, q0: Int, offset: Int, flatRank: Int, oddSlot: Bool) -> EuclideousFillVoice {
+    var v = EuclideousFillVoice()
+    switch mode {
+    case .riff:  v.r0 = q0 + offset
+    case .flat:  v.r0 = (flatRank > 0 ? flatRank : q0) + offset
+    case .pedal: if oddSlot { v.r0 = 1; v.isPedal = true } else { v.r0 = q0 + offset }
+    case .oct:   v.r0 = q0 + offset; v.octUp = oddSlot
+    case .chord: let q = q0 + offset; v.r0 = q; v.r1 = q + 2; v.r2 = q + 4; v.count = 3
+    }
+    return v
 }
 
 /// §2.5 — ROLL's strike count for time-slot k: 1 + round(ROLL·u), u = k/(N−1) (so the roll thickens toward the downbeat). ROLL 0 ⇒ 1 (no roll ⇒ the slot strikes once, byte-identical). Capped at 16 (the echo-tail bound the ratchet mechanism keeps).

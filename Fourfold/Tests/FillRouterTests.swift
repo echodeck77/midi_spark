@@ -12,7 +12,8 @@ private final class FillEmitter: MIDIEmitter {
     var ons: [Ev] { events.filter { $0.status == 0x90 && $0.vel > 0 } }
 }
 
-struct FillSpec { var bars: [Bool]; var speed: UInt8 = 3; var length: UInt8 = 1; var reverse = false; var ranks: Int8 = 0; var swell: Int8 = 0; var brk = false; var hits: EuclideousFillHits = .keep; var land = false }
+struct FillSpec { var bars: [Bool]; var speed: UInt8 = 3; var length: UInt8 = 1; var reverse = false; var ranks: Int8 = 0; var swell: Int8 = 0; var brk = false; var hits: EuclideousFillHits = .keep; var land = false
+    var order: EuclideousFillOrder? = nil; var notes: EuclideousFillNotes = .riff; var roll: UInt8 = 0; var chance: UInt8 = 100 }   // FILL TAB V2
 
 final class FillRouterTests: XCTestCase {
     // 120 BPM at 48 kHz: 1 beat = 24000 samples. One strike opens an own-cable (1) voice AND an ALL (0) voice — count cable 1.
@@ -27,7 +28,8 @@ final class FillRouterTests: XCTestCase {
         var l = EuclidLine(target: 0, pulses: pulses, steps: 8, useRiff: true, riffOn: true, sourceMode: .midi)
         l.rate = .r1_8; l.gate = 0.5; l.velocityAbsolute = 90; l.litNotes = 0; l.notesOn = false
         l.patternMiss = flipHits   // FLIP HITS — invert the rhythm so a chosen step rests
-        if let f = fill { l.fillBars = f.bars; l.fillSpeed = f.speed; l.fillLength = f.length; l.fillReverse = f.reverse; l.fillRanks = f.ranks; l.fillSwell = f.swell; l.fillBreak = f.brk; l.fillHits = f.hits; l.fillLand = f.land }
+        if let f = fill { l.fillBars = f.bars; l.fillSpeed = f.speed; l.fillLength = f.length; l.fillReverse = f.reverse; l.fillRanks = f.ranks; l.fillSwell = f.swell; l.fillBreak = f.brk; l.fillHits = f.hits; l.fillLand = f.land
+            if let o = f.order { l.fillOrder = o }; if f.notes != .riff { l.fillNotes = f.notes }; if f.roll > 0 { l.fillRoll = f.roll }; if f.chance < 100 { l.fillChance = f.chance } }   // FILL TAB V2
         var c = Machine(machineID: "gold", type: .euclid)
         c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: riffRanks)
         c.paramsA.euclidLines = [l] + (1..<4).map { _ in EuclidLine(enabled: false) }
@@ -224,5 +226,73 @@ final class FillRouterTests: XCTestCase {
             let over = onBeats(run(fill: FillSpec(bars: bar(3), speed: speed, length: length)))
             XCTAssertEqual(plain.filter { $0 >= 16 - 1e-6 && $0 < 31.9 }, over.filter { $0 >= 16 - 1e-6 && $0 < 31.9 }, "speed \(speed) length \(length): bar 5 on identical")
         }
+    }
+
+    // MARK: — FILL TAB V2 (§7 tests 2–7). The fill window helpers: the ×1 BAR region covers beats 12–16; ×2 ½ covers 14–16.
+
+    private func barNotes(_ e: FillEmitter, from: Double = 12, to: Double = 16) -> [UInt8] {
+        onPairs(e).filter { $0.beat >= from - 1e-6 && $0.beat < to - 1e-6 }.map { $0.note }
+    }
+
+    // §7.2 — STUTTER on N = 8 plays step j_0 (rank 1 at bar 3's first step) eight times; ROLL 2 thickens the later slots.
+    func testStutterRepeatsTheFirstStep() {
+        let e = run(fill: FillSpec(bars: bar(3), speed: 1, length: 0, order: .stutter), riffRanks: [1, 2, 3, 4, 5, 6, 7, 8], pool: cmaj)
+        XCTAssertEqual(barNotes(e), [UInt8](repeating: 48, count: 8), "every slot plays the region's first forward step (rank 1 → 48)")
+        let rolled = run(fill: FillSpec(bars: bar(3), speed: 1, length: 0, order: .stutter, roll: 2), riffRanks: [1, 2, 3, 4, 5, 6, 7, 8], pool: cmaj)
+        let notes = barNotes(rolled)
+        XCTAssertEqual(notes.count, 16, "ROLL 2 over 8 slots: strike counts 1,1,2,2,2,2,3,3 (1 + round(2·k/7)) = 16")
+        XCTAssertTrue(notes.allSatisfy { $0 == 48 }, "the rolls repeat the stuttered step's own pitch")
+    }
+
+    // §7.3 — BUILD on E(3,8), LENGTH BAR, ×1: slots 0–3 follow the pattern, slots 4–7 all sound; the bar after matches no fill.
+    func testBuildFollowsThenFillsAndRejoins() {
+        let plain = onBeats(run(fill: nil, pulses: 3))
+        let built = onBeats(run(fill: FillSpec(bars: bar(3), speed: 1, length: 0, hits: .build), pulses: 3))
+        let firstHalfPlain = plain.filter { $0 >= 12 - 1e-6 && $0 < 14 - 1e-6 }.count
+        let fillBar = built.filter { $0 >= 12 - 1e-6 && $0 < 16 - 1e-6 }
+        XCTAssertEqual(fillBar.filter { $0 < 14 - 1e-6 }.count, firstHalfPlain, "slots 0–3 (k < h) follow the E(3,8) pattern")
+        XCTAssertEqual(fillBar.filter { $0 >= 14 - 1e-6 }.count, 4, "slots 4–7 (k ≥ h) all sound")
+        XCTAssertEqual(plain.filter { $0 >= 16 - 1e-6 && $0 < 31.9 }, built.filter { $0 >= 16 - 1e-6 && $0 < 31.9 }, "the bar after matches no fill")
+    }
+
+    // §7.4 — FLAT: every fill note is the first sounding slot's pitch; with RANKS +3 CLIMB it becomes a stepwise run from it.
+    func testFlatRepeatsThenClimbsFromTheFirstPitch() {
+        let flat = run(fill: FillSpec(bars: bar(3), speed: 3, length: 1, notes: .flat), riffRanks: [1, 2, 3, 4, 5, 6, 7, 8], pool: cmaj)
+        XCTAssertEqual(fillNotes(flat), [UInt8](repeating: 55, count: 8), "RANKS 0: one pitch — the first sounding slot's (rank 5 → 55)")
+        let climb = run(fill: FillSpec(bars: bar(3), speed: 3, length: 1, ranks: 3, notes: .flat), riffRanks: [1, 2, 3, 4, 5, 6, 7, 8], pool: cmaj)
+        XCTAssertEqual(fillNotes(climb), [55, 55, 57, 57, 59, 59, 60, 60], "ranks q,q,q+1,q+1,q+2,q+2,q+3,q+3 (the FILL TAB rounding) from rank 5")
+    }
+
+    // §7.5 — PEDAL: odd slots play rank 1 of the stack (the pool's lowest) with no offset, one note each; even slots as RIFF.
+    func testPedalAlternatesWithTheStacksLowestRank() {
+        let e = run(fill: FillSpec(bars: bar(3), speed: 3, length: 1, notes: .pedal), riffRanks: [1, 2, 3, 4, 5, 6, 7, 8], pool: cmaj)
+        XCTAssertEqual(fillNotes(e), [55, 48, 59, 48, 48, 48, 52, 48], "even k: ranks 5,7,1,3; odd k: the rank-1 pedal (48)")
+    }
+
+    // §7.6 — OCT: odd slots are 12 semitones above RIFF's pitch.
+    func testOctJumpsTheOddSlots() {
+        let e = run(fill: FillSpec(bars: bar(3), speed: 3, length: 1, notes: .oct), riffRanks: [1, 2, 3, 4, 5, 6, 7, 8], pool: cmaj)
+        let expected: [UInt8] = [55, 69, 59, 72, 48, 62, 52, 65]   // 57/60/50/53 + 12 on the odd slots
+        XCTAssertEqual(fillNotes(e), expected, "the RIFF list with +12 on odd slots")
+    }
+
+    // §7.7 — CHORD: a slot on rank 7 plays ranks 7, 9 and 11, folded by the resolver's own rule — over the POOL SIZE, which
+    // here is 7 (the source stack PC-dedupes cmaj's octave C), so 9 → asc(1)+12 = 62 and 11 → asc(3)+12 = 65. Duplicates collapse.
+    func testChordStacksPlusTwoAndPlusFour() {
+        let e = run(fill: FillSpec(bars: bar(3), speed: 3, length: 1, notes: .chord), riffRanks: [7, 7, 7, 7, 7, 7, 7, 7], pool: cmaj)
+        let notes = fillNotes(e)
+        XCTAssertEqual(notes.count, 24, "8 slots × 3 voices")
+        XCTAssertEqual(Set(notes), Set([59, 62, 65]), "rank 7 → 59; ranks 9/11 fold over the 7-note deduped pool (the engine's rule — source wins over the spec's rank−8 reading)")
+    }
+
+    // §7 — a NOTES mode on a CHANCE-skipped bar changes nothing (the skipped bar plays exactly as no fill).
+    func testChanceSkippedBarIgnoresTheNotesMode() {
+        // chance 25: find a bar the (lane 0, bar) draw skips, and assert it equals the no-fill bar.
+        let skipped = (0..<8).first { !euclideousFillChancePlays(lane: 0, bar: $0, chance: 25) }
+        guard let sb = skipped else { return XCTFail("no skipped bar in 8 at 25% — seed drift?") }
+        let plain = onBeats(run(fill: nil))
+        let e = onBeats(run(fill: FillSpec(bars: bar(sb), speed: 3, length: 1, notes: .chord, chance: 25)))
+        let lo = Double(sb) * 4, hi = lo + 4
+        XCTAssertEqual(plain.filter { $0 >= lo - 1e-6 && $0 < hi - 1e-6 }, e.filter { $0 >= lo - 1e-6 && $0 < hi - 1e-6 }, "a skipped bar is exactly no fill")
     }
 }
