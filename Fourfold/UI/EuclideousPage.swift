@@ -883,6 +883,7 @@ struct EuclideousPage: View {
     // NOTES AUDITION (2026-11-11): a held STACK cell auditions its rank alone — (lane, position) on engage, (lane, nil) on release. Ephemeral live word.
     var onStackAudition: (Int, Int?) -> Void = { _, _ in }
     var onScrubHolds: (Int, Int, Int) -> Void = { _, _, _ in }   // Scrub ferry (2026-11-16): the three ribbon holds (riffColumn, riffRank, stackRank; 0 = none, 1-8) → the kernel live words
+    var onSetLoopSpan: (Int, Int) -> Void = { _, _ in }   // RIBBON SETTINGS §9: the loop span (columns lo, hi; 0 = none) → the kernel live word
     // CHORDS GRID ferry (Paul 2026-10-24): independently-stored progressions ("tabs"), replacing the single
     // grid the CHORDS BUTTON ferry (2026-10-08) first added. TWO CHORD GRIDS (2026-11-03): two of them, and each LANE
     // picks which one it plays (CHORD 1 | CHORD 2 on the INPUTS tab's SOURCES row) — `activeChordSet` is only the tab this
@@ -1062,6 +1063,10 @@ struct EuclideousPage: View {
     @State private var ribbonSettingsOpen = false
     // RIBBON SETTINGS §6.1: in TUTTI mode a touch-down toggles ONE mark (the column/rank under the touch); the rest of the drag does nothing. This guards "only the first change of a drag acts".
     @State private var tuttiDragHandled = false
+    // RIBBON SETTINGS §9: the live LOOP span (columns lo, hi; 0 = none) + the drag anchor (the column touched down on, fixed until lift). Ephemeral UI state mirroring the kernel live word; not saved/undone.
+    @State private var loopLo = 0
+    @State private var loopHi = 0
+    @State private var loopAnchor: Int? = nil
     // NOTES AUDITION (2026-11-11): the STACK cell held right now (lane / rank position, −1 = none) — drives the held cell's light and greys the lane's other lit cells. Ephemeral; mirrors the live word pushed to the engine.
     @State private var stackAuditionLane = -1
     @State private var stackAuditionPos = -1
@@ -7982,6 +7987,8 @@ struct EuclideousPage: View {
     // RIBBON SETTINGS §6.1: toggle a TUTTI step (column 1-based) / rank (1-based) mark — one undo step, saved on the document.
     private func toggleTuttiStep(_ col: Int) { guard (1...8).contains(col) else { return }; var ns = ribbonSettings; ns.tuttiSteps ^= UInt8(1) << UInt8(col - 1); onSetRibbonSettings(ns) }
     private func toggleTuttiRank(_ rank: Int) { guard (1...8).contains(rank) else { return }; var ns = ribbonSettings; ns.tuttiRanks ^= UInt8(1) << UInt8(rank - 1); onSetRibbonSettings(ns) }
+    // RIBBON SETTINGS §9: the live loop span → the kernel. (0,0) = none.
+    private func setLoopSpan(_ lo: Int, _ hi: Int) { if lo != loopLo || hi != loopHi { loopLo = lo; loopHi = hi; onSetLoopSpan(lo, hi) } }
 
     /// §2.1/§2.2 — the two riff ribbons (column over the rail block, rank over the note-label column), in the riff panel's coordinate space. Mounted over the grid; neither overlaps the editable cells, so cell editing is unchanged (§12). Clears on lift and when the panel disappears (§1.3).
     private func scrubRiffRibbons(layout: EuclideousRiffPanelLayout) -> some View {
@@ -7992,11 +7999,22 @@ struct EuclideousPage: View {
             Color.clear.frame(width: max(1, colW), height: max(1, layout.box.height - colY)).contentShape(Rectangle())   // §2.1 column ribbon
                 .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.scrubRiffSpace))
                     .onChanged { v in
-                        if ribbonSettings.touchMode == .tutti {   // §6.1: one mark per touch-down, the rest of the drag does nothing (§6.2: SCRUB/LOOP never touch marks)
-                            if !tuttiDragHandled { tuttiDragHandled = true; toggleTuttiStep(euclideousScrubColumn(x: v.location.x, layout: layout)) }
-                        } else { setRiffColumnHold(euclideousScrubColumn(x: v.location.x, layout: layout)) }
+                        let col = euclideousScrubColumn(x: v.location.x, layout: layout)
+                        switch ribbonSettings.touchMode {
+                        case .tutti: if !tuttiDragHandled { tuttiDragHandled = true; toggleTuttiStep(col) }   // §6.1: one mark per touch-down
+                        case .loop:                                                                           // §9.1: anchor at touch-down, drag extends min…max
+                            if loopAnchor == nil { loopAnchor = col }
+                            setLoopSpan(min(loopAnchor ?? col, col), max(loopAnchor ?? col, col))
+                        case .scrub: setRiffColumnHold(col)
+                        }
                     }
-                    .onEnded { _ in if ribbonSettings.touchMode == .tutti { tuttiDragHandled = false } else { setRiffColumnHold(0) } })
+                    .onEnded { _ in
+                        switch ribbonSettings.touchMode {
+                        case .tutti: tuttiDragHandled = false
+                        case .loop: loopAnchor = nil; if !ribbonSettings.latch { setLoopSpan(0, 0) }   // §8/§9.1: clears on lift unless LATCH holds it (slice 10)
+                        case .scrub: setRiffColumnHold(0)
+                        }
+                    })
                 .offset(x: colX, y: colY)
             Color.clear.frame(width: layout.labelW, height: max(1, rankH)).contentShape(Rectangle())                      // §2.2 rank ribbon
                 .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.scrubRiffSpace))
@@ -8010,7 +8028,10 @@ struct EuclideousPage: View {
         }
         .frame(width: layout.box.width, height: layout.box.height, alignment: .topLeading)
         .coordinateSpace(name: Self.scrubRiffSpace)
-        .onDisappear { if riffColumnHold != 0 || riffRankHold != 0 { riffColumnHold = 0; riffRankHold = 0; pushScrubHolds() } }   // §1.3: a tab change away clears the riff holds
+        .onDisappear {
+            if riffColumnHold != 0 || riffRankHold != 0 { riffColumnHold = 0; riffRankHold = 0; pushScrubHolds() }   // §1.3: a tab change away clears the riff holds
+            loopAnchor = nil; if !ribbonSettings.latch, loopLo != 0 { setLoopSpan(0, 0) }   // §9/§8: and the loop, unless LATCH holds it
+        }
     }
     /// §2.3 — the stack rank ribbon over the STACK grid's axis column. Clears on lift and when the grid disappears.
     private func scrubStackRibbon(layout: EuclideousStackGridLayout) -> some View {
@@ -8080,6 +8101,16 @@ struct EuclideousPage: View {
             RoundedRectangle(cornerRadius: EuclideousScrubMetrics.columnRectRadius)
                 .strokeBorder(ink.opacity(EuclideousScrubMetrics.markOpacity), lineWidth: EuclideousScrubMetrics.markStroke)
                 .frame(width: max(0, w), height: max(0, yBot - yTop)).offset(x: x, y: yTop)
+        }
+        if loopLo != 0 {   // §9.6: one rounded rect round the loop span's columns over all four rails (a columnHold can't coexist with a loop, §9.5)
+            let a0 = max(0, loopLo - 1), b0 = max(a0, loopHi - 1)
+            let x = layout.columnLeft(a0) - EuclideousScrubMetrics.columnRectOutset
+            let xr = layout.columnLeft(b0) + layout.cellW + EuclideousScrubMetrics.columnRectOutset
+            let yTop = layout.railTop(0) - EuclideousScrubMetrics.columnRectOutset
+            let yBot = layout.railTop(3) + EuclideousRiffPanelMetrics.railH + EuclideousScrubMetrics.columnRectOutset
+            RoundedRectangle(cornerRadius: EuclideousScrubMetrics.columnRectRadius)
+                .strokeBorder(ink.opacity(EuclideousScrubMetrics.markOpacity), lineWidth: EuclideousScrubMetrics.markStroke)
+                .frame(width: max(0, xr - x), height: max(0, yBot - yTop)).offset(x: x, y: yTop)
         }
         if riffRankHold != 0 {   // §5.3: a 12% fill + a 70% inside ring on the held rank's axis cell
             let cf = CGRect(x: EuclideousRiffPanelMetrics.padding, y: layout.rowTop(8 - riffRankHold), width: layout.labelW, height: layout.cellH)

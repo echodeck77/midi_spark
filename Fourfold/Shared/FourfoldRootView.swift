@@ -223,6 +223,7 @@ struct FourfoldRootView: View {
                                                    au?.setEuclideousNotesAuditionLive(pos.map { (lane, $0) })
                                                },
                                                onScrubHolds: { rc, rr, sr in au?.setEuclideousScrubHolds(riffColumn: rc, riffRank: rr, stackRank: sr) },   // Scrub ferry (2026-11-16): the three ribbon holds straight to the render thread (ephemeral)
+                                               onSetLoopSpan: { lo, hi in au?.setEuclideousLoopSpan(lo: lo, hi: hi) },   // RIBBON SETTINGS §9: the loop span straight to the render thread (ephemeral)
                                                chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
                                                onEditChordSet: { idx, mutate in
                                                    var sets = euclideousChordSets
