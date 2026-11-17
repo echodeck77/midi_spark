@@ -63,12 +63,16 @@ private func laneStripDrawCC(_ ctx: inout GraphicsContext, _ cc: LaneCCStripTrac
     }
 }
 
-/// §4.4 / §4.5: a sounding rank in a hit cell — a stroked outline (or the filled-bar fallback where the slot is tiny).
-private func laneStripDrawRankMark(_ ctx: inout GraphicsContext, cell: CGRect, hC: CGFloat, rank: Int, part: LaneStripPart, colour: Color) {
+/// Amendment 1 B4's slots / LANE STRIP CLARITY §4: a rank's mark in a hit cell. RESTING — the part's colour at 50 %
+/// (a filled bar, or B4.4's stroked outline where the slot is ≥ 4). SOUNDING — #F2F4F7 at 100 % in place of the resting
+/// colour; where the slot is ≥ 4 the sounding rank FILLS its outline white (§4.5).
+private func laneStripDrawRankMark(_ ctx: inout GraphicsContext, cell: CGRect, hC: CGFloat, rank: Int, part: LaneStripPart, restColour: Color, sounding: Bool) {
     let m = rankSlotRect(cell: cell, hC: hC, rank: rank, part: part)
     guard m.rect.width > 0.5, m.rect.height > 0.3 else { return }
-    if m.filled { ctx.fill(RoundedRectangle(cornerRadius: LaneStripBandMetrics.barRadius).path(in: m.rect), with: .color(colour)) }   // §B4.2 bar radius 0.5
-    else { ctx.stroke(RoundedRectangle(cornerRadius: LaneStripBandMetrics.outlineRadius).path(in: m.rect), with: .color(colour), lineWidth: LaneStripBandMetrics.outlineStroke) }
+    typealias M = LaneStripBandMetrics
+    let colour = sounding ? Color(M.soundStroke) : restColour.opacity(LaneRankBarTuning.restOpacity)
+    if m.filled || sounding { ctx.fill(RoundedRectangle(cornerRadius: m.filled ? M.barRadius : M.outlineRadius).path(in: m.rect), with: .color(colour)) }   // §B4.2 bar / §4.5 the filled outline
+    else { ctx.stroke(RoundedRectangle(cornerRadius: M.outlineRadius).path(in: m.rect), with: .color(colour), lineWidth: M.outlineStroke) }
 }
 
 private func laneStripChipFont(_ size: CGFloat) -> Font { .system(size: size, weight: .heavy, design: .monospaced) }
@@ -120,19 +124,31 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     // §5: the faint CC trace — over the cells, under the rank outlines.
     if let cc = d.cc { laneStripDrawCC(&ctx, cc, playhead: cc.playhead) }
 
-    // §4.4: the sounding rank OUTLINES in the hit cells — riff in its map colour (inset 3), stack in its chip colour
-    // (inset 6, inside the riff's), while the note sounds. (The CC trace will draw between the cells and these outlines.)
-    for i in 0..<n where i < d.hits.count {
+    // LANE STRIP CLARITY §4 (replaces amendment 1 B4.2's sounding-only marks): for each ON part, EVERY hit cell draws its
+    // rank bar(s) — RESTING at 50 % in the part's colour (riff map / grey ramp), #F2F4F7 at 100 % while a note from that
+    // hit sounds (§4.2). A played hit's set replaces the prediction, as its chip does (§4.3). Riff first, stack over it
+    // (§4.4 — the stack's bar is narrower and sits inside); while BOTH sound one rank, one white bar at the riff's width.
+    // Over the cell fill + CC trace, under the §6 tick (§4.7). An off part (frac 0) draws none (§4.6).
+    for i in 0..<n where i < d.hits.count && d.hits[i].kind != .rhythmRest {
         let cell = d.frames.cells[i]
-        if riffFrac > 0, riffRing(i), let chip = d.hits[i].chip {
-            laneStripDrawRankMark(&ctx, cell: cell, hC: d.frames.bands.hC, rank: chip.rank, part: .riff, colour: Color(riffMapColour(column: chip.column, rank: chip.rank)))
+        let riffChip = riffFrac > 0 ? d.hits[i].chip : nil
+        let riffSounds = riffRing(i)
+        if let chip = riffChip {
+            laneStripDrawRankMark(&ctx, cell: cell, hC: d.frames.bands.hC, rank: chip.rank, part: .riff,
+                                  restColour: Color(riffMapColour(column: chip.column, rank: chip.rank)), sounding: riffSounds)
             for extra in d.hits[i].extraRanks {   // POLY: the other riff notes started on this column
-                laneStripDrawRankMark(&ctx, cell: cell, hC: d.frames.bands.hC, rank: extra, part: .riff, colour: Color(riffMapColour(column: chip.column, rank: extra)))
+                laneStripDrawRankMark(&ctx, cell: cell, hC: d.frames.bands.hC, rank: extra, part: .riff,
+                                      restColour: Color(riffMapColour(column: chip.column, rank: extra)), sounding: riffSounds)
             }
         }
-        if stackFrac > 0, i < s.stackOutline.count {
-            for rank in s.stackOutline[i] {
-                laneStripDrawRankMark(&ctx, cell: cell, hC: d.frames.bands.hC, rank: rank, part: .stack, colour: Color(stackRankColour(rank: rank)))
+        if stackFrac > 0 {
+            let played = i < s.stackChipRanks.count ? s.stackChipRanks[i] : []
+            let ranks = laneStripRestingStackRanks(played: played, predicted: d.hits[i].predictedStackRanks)   // §4.1: unpredicted ⇒ none until played
+            for rank in ranks {
+                let sounds = i < s.stackOutline.count && s.stackOutline[i].contains(rank)
+                if sounds, laneStripStackBarFoldsIntoRiff(rank: rank, riffRank: riffChip?.rank, riffSounding: riffSounds) { continue }   // §4.4: one white bar at the riff's width
+                laneStripDrawRankMark(&ctx, cell: cell, hC: d.frames.bands.hC, rank: rank, part: .stack,
+                                      restColour: Color(stackRankColour(rank: rank)), sounding: sounds)
             }
         }
     }

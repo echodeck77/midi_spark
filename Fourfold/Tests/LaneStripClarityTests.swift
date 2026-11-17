@@ -114,6 +114,31 @@ final class LaneStripClarityTests: XCTestCase {
         XCTAssertNil(euclideousStripPlayheadStep(raw: 3.2, n: 0, dir: .fwd), "a degenerate lane has no playhead at all")
     }
 
+    // MARK: §8.6/§8.7 — resting rank bars: predicted at rest, white while sounding, none for unpredicted/off parts
+
+    func testRestingAndSoundingBarDecisions() {
+        // §4.1/§4.3 — the stack's drawn ranks: the prediction until played, then the played set
+        XCTAssertEqual(laneStripRestingStackRanks(played: [], predicted: [2, 5]), [2, 5], "predicted at rest")
+        XCTAssertEqual(laneStripRestingStackRanks(played: [3], predicted: [2, 5]), [3], "a played hit's set replaces the prediction")
+        XCTAssertEqual(laneStripRestingStackRanks(played: [], predicted: []), [], "unpredicted ⇒ no bars until it plays")
+        // §4.4 — one white bar when both parts sound one rank (the stack's folds into the riff's width)
+        XCTAssertTrue(laneStripStackBarFoldsIntoRiff(rank: 3, riffRank: 3, riffSounding: true))
+        XCTAssertFalse(laneStripStackBarFoldsIntoRiff(rank: 3, riffRank: 3, riffSounding: false), "at rest the stack draws OVER the riff (B4.2), it does not fold")
+        XCTAssertFalse(laneStripStackBarFoldsIntoRiff(rank: 3, riffRank: 5, riffSounding: true))
+        XCTAssertFalse(laneStripStackBarFoldsIntoRiff(rank: 3, riffRank: nil, riffSounding: false))
+        XCTAssertEqual(LaneRankBarTuning.restOpacity, 0.5, "§10: the resting bar opacity")
+    }
+
+    func testRankBarGeometryIsAmendmentOnes() {
+        // §4.1: the bars sit at amendment 1 B4's slots, computed from the CURRENT hC — slim (29) and full (19) alike.
+        let cellSlim = CGRect(x: 0, y: 7.5, width: 7, height: 29)
+        let slim = rankSlotRect(cell: cellSlim, hC: 29, rank: 8, part: .riff)
+        XCTAssertTrue(slim.filled, "slot (29−5)/8 = 3 < 4 ⇒ the filled-bar fallback")
+        XCTAssertEqual(slim.rect.minY, cellSlim.minY + 1 + 0 * 3 + (3 - max(1, 3 - 0.5)) / 2, accuracy: 0.001, "rank 8 in the top slot")
+        let full = rankSlotRect(cell: CGRect(x: 0, y: 12.5, width: 14.67, height: 19), hC: 19, rank: 1, part: .stack)
+        XCTAssertTrue(full.filled, "at hC 19 the slot is 1.75 — always the bar fallback")
+    }
+
     // MARK: §8.4 — the PLAY tiles' note chips share the one function (structural: the same stroke rule at the tile's band height)
 
     func testPlayTileNoteChipUsesTheSameStrokeRule() {

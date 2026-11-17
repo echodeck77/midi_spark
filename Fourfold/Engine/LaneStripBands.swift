@@ -334,6 +334,20 @@ func stripCellLook(isHit: Bool, isPlayhead: Bool) -> LaneCellLook {
     return LaneCellLook(fill: isPlayhead ? .playheadStep : .step, bar: false)
 }
 
+// MARK: - LANE STRIP CLARITY §4: resting rank marks (every hit cell shows the rank it will play)
+
+/// §10 tunables: the resting bar's opacity and the sounding bar's colour (#F2F4F7 = `soundStroke`).
+enum LaneRankBarTuning { static let restOpacity = 0.5 }
+
+/// §4.1/§4.3 — the stack ranks a hit cell's bars draw: what was PLAYED this pass if anything, else the prediction
+/// (empty = unpredicted ⇒ no bars until it plays).
+func laneStripRestingStackRanks(played: [Int], predicted: [Int]) -> [Int] { played.isEmpty ? predicted : played }
+
+/// §4.4 — while BOTH parts sound the same rank, ONE white bar at the riff's width: the stack's own white bar folds away.
+func laneStripStackBarFoldsIntoRiff(rank: Int, riffRank: Int?, riffSounding: Bool) -> Bool {
+    riffSounding && riffRank == rank
+}
+
 /// LANE STRIP CLARITY §6.1 — the playhead tick's rect inside a cell (the painter clips it to the cell's rounded shape).
 func laneStripTickRect(cell: CGRect) -> CGRect {
     CGRect(x: cell.minX, y: cell.minY, width: cell.width, height: LaneStripBandMetrics.tickH)
