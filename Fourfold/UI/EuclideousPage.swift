@@ -7623,17 +7623,13 @@ struct EuclideousPage: View {
         .frame(height: height)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1F2127)))
     }
-    /// The riff panel: the RIFF grid exactly as it was (MONO, or — for a stored POLY document — the sixteen-column grid), the STACK grid, or — RIBBON SETTINGS (2026-11-16) §5.1 — the settings tab, which replaces the grid/rails while the header stays.
+    /// The riff panel: the RIFF grid exactly as it was (MONO, or — for a stored POLY document — the sixteen-column grid) or the
+    /// STACK grid. RIBBON SETTINGS REMOVED (Paul 2026-11-17): the settings tab and its button are UNMOUNTED (the views below
+    /// stay compiled; `ribbonSettingsOpen` is never set); the x/y ribbons keep the Scrub ferry's behaviour, and a held ribbon
+    /// now HIGHLIGHTS what it plays on the grid (the ex-tutti fade plumbing, fed from the holds).
     private func riffGridView(box: CGSize) -> AnyView {
-        let inner: AnyView
-        if ribbonSettingsOpen { inner = AnyView(ribbonSettingsTabView(box: box)) }
-        else if riffPanelTab == .stack { inner = AnyView(stackGridView(box: box)) }
-        else { inner = riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box)) }
-        // §4.3: the settings button on the RIFF view only (the STACK grid has no rails band → no bottom-left free space; reported). It stays while the tab is open so a tap can close it (§4.4).
-        let showButton = (riffPanelTab == .riff) || ribbonSettingsOpen
-        return AnyView(inner.overlay(alignment: .topLeading) {
-            if showButton { ribbonSettingsButton(box: box) }
-        })
+        if riffPanelTab == .stack { return AnyView(stackGridView(box: box)) }
+        return riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box))
     }
     // RIBBON SETTINGS §4 — the sliders button in the bottom-left free space (its frame from `euclideousRibbonSettingsLayout`).
     private func ribbonSettingsButton(box: CGSize) -> some View {
@@ -7712,6 +7708,8 @@ struct EuclideousPage: View {
                             HStack(spacing: sp4) {
                                 ForEach(0..<n, id: \.self) { col in
                                     riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, arrows: arrowsNow)
+                                        // HELD RIBBON HIGHLIGHT (2026-11-17): a held column/rank ribbon keeps its own column/row full and fades the rest
+                                        .opacity(euclideousHeldRibbonCellDims(column: col + 1, rank: rank, columnHold: riffColumnHold, rankHold: riffRankHold) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1)
                                 }
                             }
                         }
@@ -8105,7 +8103,7 @@ struct EuclideousPage: View {
                     let w = f.map(riffRailInputs) ?? (nil, [], EuclideousArrowHeading.still)
                     return euclideousRailSpec(lane: i, riffOn: f?.riffOn ?? false, running: f?.running ?? false, muted: f?.dimmed ?? false,
                                               played: i < played.count ? played[i] : [], current: w.0, trail: w.1, heading: w.2, flare: f?.flare ?? 0, columns: layout.columns)
-                }, tuttiSteps: ribbonSettings.tuttiSteps)   // §6.3: fade unmarked columns while any step is marked
+                }, tuttiSteps: euclideousHeldRibbonMask(riffColumnHold))   // HELD RIBBON HIGHLIGHT (2026-11-17): while the column ribbon is held, every other column's rail fades — the ex-tutti plumbing fed from the hold
                 riffStackDotsCanvas(layout: layout, inputs: stackDotInputs, frames: frames, beat: beat)   // RIFF GRID STACK DOTS: on top of the arrows, in each cell's top-right corner
                 scrubRiffMarks(layout: layout)   // Scrub §5.1/§5.3: the held-column rect (over the rails) + the held-rank axis mark
             }
@@ -8170,7 +8168,7 @@ struct EuclideousPage: View {
     /// POOL ferry 6.2: the note-label column is a column of eight rank chips (rank 1 at the bottom, each in its row's frame) naming the PICKED lane's pool, with the lit bar on the ranks that lane struck on its last hit. A leaf: it observes the status
     /// feed itself, so the page is not re-run for it. (The label's old per-strike glow from any lane is gone — the lit bar is the picked lane's.)
     private func riffNoteLabelColumn(cellH: CGFloat, labelW: CGFloat) -> some View {
-        RiffGridRankAxisView(cellH: cellH, labelW: labelW, gap: sp4, tuttiRanks: ribbonSettings.tuttiRanks)   // 2026-11-09 (Paul): the axis shows ONLY the rank numbers now — the picked-lane note names + the lane picker are gone; §6.3 fades unmarked ranks while any is marked
+        RiffGridRankAxisView(cellH: cellH, labelW: labelW, gap: sp4, tuttiRanks: euclideousHeldRibbonMask(riffRankHold))   // 2026-11-09 (Paul): rank numbers only; HELD RIBBON HIGHLIGHT (2026-11-17): a held rank fades the other rank boxes
     }
     /// POOL ferry 6.3: the riff panel's top row — the lane picker in a leading blank as wide as the label column (the MONO | POLY control starts at the grid's left edge), then the control. A tap anywhere in the blank steps to the next
     /// lane (1 → 2 → 3 → 4 → 1); the blank reaches down over the gap under the row, where the 2 × 2 dots sit.
@@ -8222,7 +8220,9 @@ struct EuclideousPage: View {
         if case .rank(let r) = row, let g = ghost, g.rank == r { arrowChip = (g.column, r, g.hollow) }
         // §4.2: a lane whose NOTES part is silenced (per-part / lane solo) draws its rest cells, names and arrow at 42 %, once; nothing sounds then (the feed carries no outs for it).
         let dimmed = partSoloSilenced(lane, part: 1)
-        let cellOpacity: Double = greyed ? 0.28 : (dimmed ? EuclideousLaneDimStyle.opacity : 1)
+        // HELD RIBBON HIGHLIGHT (2026-11-17): while the STACK ribbon is held, the held rank's row keeps full strength and every other row fades (all four lanes — the hold overrides every lane).
+        let heldRowFades: Bool = { guard stackRankHold != 0 else { return false }; if case .rank(let r) = row { return r != stackRankHold }; return true }()
+        let cellOpacity: Double = greyed ? 0.28 : (dimmed ? EuclideousLaneDimStyle.opacity : (heldRowFades ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1))
         return AnyView(
             EuclideousStackCellView(name: name, look: look, arrowChip: arrowChip, live: position != nil, accent: lane100(accent), size: size, fontSize: fontSize)
                 .opacity(cellOpacity)
@@ -8269,7 +8269,8 @@ struct EuclideousPage: View {
                     ForEach(0..<rows.count, id: \.self) { r in
                         HStack(spacing: sp4) {
                             // §6.3: the stack axis is the second rank axis — fade unmarked ranks (row r is rank 8−r, bit 7−r) while any rank is marked.
-                            let axisFade: Double = (ribbonSettings.tuttiRanks != 0 && (ribbonSettings.tuttiRanks >> UInt8(7 - r)) & 1 == 0) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1
+                            let heldMask = euclideousHeldRibbonMask(stackRankHold)   // HELD RIBBON HIGHLIGHT (2026-11-17): the stack ribbon's held rank keeps its row, the rest fade
+                            let axisFade: Double = (heldMask != 0 && (heldMask >> UInt8(7 - r)) & 1 == 0) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1
                             stackAxisChip(rows[r], size: CGSize(width: L.labelW, height: L.rowH)).opacity(axisFade)
                             ForEach(0..<4, id: \.self) { lane in
                                 stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize, beat: beat, playing: clock.playing, ghost: ghost[lane])

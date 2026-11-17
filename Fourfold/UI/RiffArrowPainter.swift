@@ -107,7 +107,7 @@ struct EuclideousArrowView: View {
 struct EuclideousRailsView: View {
     let layout: EuclideousRiffPanelLayout
     let rails: [EuclideousRailSpec]
-    var tuttiSteps: UInt8 = 0   // RIBBON SETTINGS §6.3: while any step is marked, every unmarked column's segment draws at 30% in all four rails (the lane numbers never fade)
+    var tuttiSteps: UInt8 = 0   // HELD RIBBON HIGHLIGHT (2026-11-17): the held column's one-hot mask — every other column's segment draws at 30% in all four rails while one is held (the ex-tutti §6.3 plumbing; the marks are removed)
     private typealias S = EuclideousRailStyle
 
     private func laneColour(_ lane: Int) -> Color { Color(euclideousLaneRGB[lane % euclideousLaneRGB.count]) }

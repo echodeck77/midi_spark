@@ -5138,9 +5138,22 @@ enum EuclideousRibbonSettingsMetrics {
     static let buttonRadius: CGFloat = 6   // §4.2
     static let tileRadius: CGFloat = 4.5   // §5.3
     static let buttonMin: CGFloat = 30     // §4.1 gate: below 30×30 at any layout, stop + report
-    static let unmarkedFade: Double = 0.30 // §6.2 (used from slice 6)
+    static let unmarkedFade: Double = 0.30 // §6.2 (used from slice 6); HELD RIBBON HIGHLIGHT (2026-11-17) reuses it as the non-playing fade
     static let partOffDim: Double = 0.35   // §5.3 — a part toggle off dims its four lane tiles
     static let latchTapWindow: Double = 0.25 // §8 (used from slice 10)
+}
+
+// MARK: - HELD RIBBON HIGHLIGHT (Paul 2026-11-17, with the RIBBON SETTINGS removal)
+// While an x/y ribbon is HELD, the grid shows what is playing: the held column / rank keeps full strength and every
+// other column / rank dims to `unmarkedFade` — the ex-tutti fade plumbing (rails, rank axes, grid cells), now fed from
+// the live scrub holds instead of the (removed) marks. Display only; the holds themselves are the Scrub ferry's.
+
+/// The one-hot mask of a held column / rank (1…8), 0 when nothing is held — the rails' and rank axes' fade input.
+func euclideousHeldRibbonMask(_ hold: Int) -> UInt8 { (1...8).contains(hold) ? UInt8(1) << UInt8(hold - 1) : 0 }
+/// Does a grid CELL dim under the holds? It dims when a column hold excludes its column or a rank hold excludes its
+/// rank (1-based both); the held column/row stays full. No hold ⇒ nothing dims.
+func euclideousHeldRibbonCellDims(column: Int, rank: Int, columnHold: Int, rankHold: Int) -> Bool {
+    (columnHold != 0 && column != columnHold) || (rankHold != 0 && rank != rankHold)
 }
 /// §4/§5 — the settings button's frame and the tab's row origins, in the riff panel's own space (0,0 = its top-left).
 /// Horizontal placement of the controls inside each row is the view's job (it reads the panel layout's `columnLeft`/`cellW` so the

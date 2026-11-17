@@ -189,7 +189,7 @@ struct RiffGridRankAxisView: View {
     let cellH: CGFloat
     let labelW: CGFloat
     let gap: CGFloat
-    var tuttiRanks: UInt8 = 0   // RIBBON SETTINGS §6.3: while any rank is marked, every unmarked rank box draws at 30% on both axes
+    var tuttiRanks: UInt8 = 0   // HELD RIBBON HIGHLIGHT (2026-11-17): the held rank's one-hot mask — every other rank box draws at 30% while one is held (the ex-tutti §6.3 plumbing; the marks are removed)
     var body: some View {
         VStack(spacing: gap) {
             ForEach((1...8).reversed(), id: \.self) { rank in
@@ -198,7 +198,7 @@ struct RiffGridRankAxisView: View {
                 EuclideousRankChipView(spec: EuclideousRankChipSpec(rank: rank, topKind: 0, received: true, lit: false, empty: true, name: String(rank), cornerNumber: false),
                                        accent: Color(.sRGB, white: 0.7, opacity: 1), size: CGSize(width: labelW, height: cellH))
                     .opacity(fade)
-                    .accessibilityElement(children: .ignore).accessibilityLabel(marked ? "Rank \(rank), tutti" : "Rank \(rank)")   // §11.4: a marked rank adds ", tutti"
+                    .accessibilityElement(children: .ignore).accessibilityLabel(marked ? "Rank \(rank), playing" : "Rank \(rank)")   // HELD RIBBON HIGHLIGHT: the held rank reads ", playing"
             }
         }
         .frame(width: labelW)

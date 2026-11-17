@@ -97,24 +97,17 @@ final class RibbonLoopRouterTests: XCTestCase {
         XCTAssertEqual(Array(looped.prefix(4)), [4, 4, 4, 4], "a 4–4 loop repeats column 4")
     }
 
-    // §7.1/§7.2 — RELEASE: SLIP snaps the walk back to its natural column when the loop ends; CONTINUE carries the walk on from the last looped column.
-    func testReleaseContinueCarriesTheWalkOnWhileSlipSnapsBack() {
-        let slip = runBeats(lane(), loop: (3, 5), loopEndBeat: 2) { $0.release = .slip }       // SLIP is the default, set explicitly
+    // RIBBON SETTINGS REMOVED (Paul 2026-11-17): the stored RELEASE and PARTS settings are INERT — the builder feeds the
+    // engine `.defaults`, so a stored CONTINUE behaves as SLIP (both snap back identically) and a stored lane exclusion
+    // no longer bypasses the live loop words. (The live loop span itself — the lo/hi hand-off the three tests above
+    // drive — is dormant engine machinery with no UI arming it; kept tested, like the retired FX pures.)
+    func testStoredReleaseAndPartsSettingsAreInert() {
+        let slip = runBeats(lane(), loop: (3, 5), loopEndBeat: 2) { $0.release = .slip }
         let cont = runBeats(lane(), loop: (3, 5), loopEndBeat: 2) { $0.release = .carryOn }
-        func split(_ s: [(Double, Int)]) -> (pre: [Int], post: [Int]) { (s.filter { $0.0 < 2 }.map { $0.1 }, s.filter { $0.0 >= 2 }.map { $0.1 }) }
-        let (preSlip, postSlip) = split(slip), (preCont, postCont) = split(cont)
-        XCTAssertFalse(preCont.isEmpty && postCont.isEmpty, "the lane plays before and after the release")
-        XCTAssertEqual(preSlip, preCont, "both are in the loop (identical) before the release")
-        XCTAssertTrue(preCont.allSatisfy { (3...5).contains($0) }, "the loop reads 3–5 before release (got \(preCont))")
-        guard let lastLoop = preCont.last, let firstSlip = postSlip.first, let firstCont = postCont.first else { return XCTFail("no hits around the release") }
-        XCTAssertEqual(firstCont, (lastLoop % 8) + 1, "CONTINUE carries the FWD walk on from the last looped column \(lastLoop) → \(lastLoop + 1)")
-        XCTAssertNotEqual(postSlip, postCont, "SLIP and CONTINUE diverge after the release (SLIP snapped to natural \(firstSlip), CONTINUE continued \(firstCont))")
-    }
-
-    // §3.2 — an EXCLUDED riff lane ignores the loop entirely (plays its natural walk).
-    func testExcludedLaneIgnoresTheLoop() {
-        let natural = run(lane(), loop: nil)
-        let excluded = run(lane(), loop: (3, 5)) { $0.riffLanes = 0b1110 }   // lane 0 (bit 0) off
-        XCTAssertEqual(excluded, natural, "an excluded riff lane plays exactly as with no loop")
+        XCTAssertEqual(slip.map { $0.1 }, cont.map { $0.1 }, "a stored CONTINUE is inert — identical to SLIP throughout")
+        XCTAssertFalse(slip.isEmpty, "the lane plays")
+        let looped = run(lane(), loop: (3, 5))
+        let excluded = run(lane(), loop: (3, 5)) { $0.riffLanes = 0b1110 }   // a stored lane-0 exclusion
+        XCTAssertEqual(excluded, looped, "a stored PARTS exclusion is inert — the live loop words still apply")
     }
 }

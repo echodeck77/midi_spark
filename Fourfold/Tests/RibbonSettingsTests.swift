@@ -165,4 +165,21 @@ final class RibbonSettingsTests: XCTestCase {
         let data = try JSONEncoder().encode(old)
         XCTAssertEqual(try JSONDecoder().decode(PluginState.self, from: data).ribbonSettingsResolved, .defaults)
     }
+
+    // MARK: - HELD RIBBON HIGHLIGHT (Paul 2026-11-17, with the RIBBON SETTINGS removal)
+
+    func testHeldRibbonMaskAndCellDims() {
+        XCTAssertEqual(euclideousHeldRibbonMask(0), 0, "no hold ⇒ no mask ⇒ nothing fades")
+        XCTAssertEqual(euclideousHeldRibbonMask(1), 0b0000_0001)
+        XCTAssertEqual(euclideousHeldRibbonMask(8), 0b1000_0000)
+        XCTAssertEqual(euclideousHeldRibbonMask(9), 0, "out of range ⇒ no mask")
+        // a held COLUMN fades every other column's cells; a held RANK every other row's; the held cell itself never fades
+        XCTAssertFalse(euclideousHeldRibbonCellDims(column: 3, rank: 5, columnHold: 3, rankHold: 0))
+        XCTAssertTrue(euclideousHeldRibbonCellDims(column: 4, rank: 5, columnHold: 3, rankHold: 0))
+        XCTAssertFalse(euclideousHeldRibbonCellDims(column: 4, rank: 5, columnHold: 0, rankHold: 5))
+        XCTAssertTrue(euclideousHeldRibbonCellDims(column: 4, rank: 6, columnHold: 0, rankHold: 5))
+        XCTAssertFalse(euclideousHeldRibbonCellDims(column: 3, rank: 5, columnHold: 3, rankHold: 5), "the crossing cell stays full")
+        XCTAssertTrue(euclideousHeldRibbonCellDims(column: 3, rank: 6, columnHold: 3, rankHold: 5), "on the held column but off the held rank ⇒ fades")
+        XCTAssertFalse(euclideousHeldRibbonCellDims(column: 2, rank: 7, columnHold: 0, rankHold: 0), "no hold ⇒ nothing fades")
+    }
 }

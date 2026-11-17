@@ -48,53 +48,20 @@ final class RibbonTuttiRouterTests: XCTestCase {
         return by
     }
 
-    private func firstSharedBeat(_ a: [Double: Int], _ b: [Double: Int]) -> Double? {
-        a.keys.filter { k in b.keys.contains(where: { abs($0 - k) < 1e-6 }) }.sorted().first
-    }
-
-    // §13.4 — a MARKED STEP: the trigger's column pulls every other included lane onto that column's written rank, on exactly the shared beat.
-    func testMarkedStepPullsTheOtherLaneOntoTheFireRank() {
-        let ctl = run(l0: lane(rotate: 0), l1: lane(rotate: 3))
-        guard let r0 = ctl[0], let r2 = ctl[2], let beat = firstSharedBeat(r0, r2) else { return XCTFail("the two lanes share no hit beat") }
-        let col0 = r0[beat]!, col1 = r2[beat]!                 // grid rank = column, so rank IS the column the lane read
-        XCTAssertNotEqual(col0, col1, "the two lanes read different columns at the shared beat (so the fire is observable)")
-        // Mark lane 0's column → lane 0 is the trigger; lane 1 must play lane 0's rank there, and its own rank elsewhere.
-        let fired = run(l0: lane(rotate: 0), l1: lane(rotate: 3)) { $0.tuttiSteps = UInt8(1) << UInt8(col0 - 1) }
-        XCTAssertEqual(fired[0]?[beat], col0, "the trigger plays its own rank")
-        XCTAssertEqual(fired[2]?[beat], col0, "the other included lane plays the fire rank on the shared beat")
-        // a beat only lane 0 hits is untouched; find one lane-1 beat that is NOT shared and check it kept its own rank.
-        if let soloBeat = r2.keys.sorted().first(where: { k in !r0.keys.contains(where: { abs($0 - k) < 1e-6 }) }) {
-            XCTAssertEqual(fired[2]?[soloBeat], r2[soloBeat], "a non-shared hit keeps its own rank (§6.8: only the trigger's step changes)")
+    // RIBBON SETTINGS REMOVED (Paul 2026-11-17): SnapshotBuilder feeds the engine `.defaults` whatever the document stores,
+    // so TUTTI (and every other setting) is INERT — the removal's pin, through the REAL Router. The old firing tests
+    // (marked step/rank pulls the other lane, the PARTS gate, the lone-lane case) described behaviour that is now
+    // unreachable; this replaces them with the one fact that matters: a stored document sounds exactly as if no
+    // settings were ever saved.
+    func testStoredRibbonSettingsAreInert() {
+        let plain = run(l0: lane(rotate: 0), l1: lane(rotate: 3))
+        let marked = run(l0: lane(rotate: 0), l1: lane(rotate: 3)) {
+            $0.tuttiSteps = 0xFF; $0.tuttiRanks = 0xFF; $0.riffLanes = 0b0001; $0.stackLanes = 0; $0.latch = true
+            $0.touchMode = .tutti; $0.release = .carryOn
         }
-    }
-
-    // §13.5 — a MARKED RANK: the lane that PLAYS the marked rank is the trigger; the others play that rank on the shared beat.
-    func testMarkedRankPullsTheOtherLaneOntoThatRank() {
-        let ctl = run(l0: lane(rotate: 0), l1: lane(rotate: 3))
-        guard let r0 = ctl[0], let r2 = ctl[2], let beat = firstSharedBeat(r0, r2) else { return XCTFail("no shared beat") }
-        let rank0 = r0[beat]!, rank1 = r2[beat]!
-        XCTAssertNotEqual(rank0, rank1, "distinct ranks at the shared beat")
-        // Mark lane 1's rank → lane 1 is the trigger (it plays the marked rank); lane 0 must play lane 1's rank there.
-        let fired = run(l0: lane(rotate: 0), l1: lane(rotate: 3)) { $0.tuttiRanks = UInt8(1) << UInt8(rank1 - 1) }
-        XCTAssertEqual(fired[2]?[beat], rank1, "the trigger (the marked-rank lane) plays its own rank")
-        XCTAssertEqual(fired[0]?[beat], rank1, "the other included lane plays the fire rank")
-    }
-
-    // §3 PARTS gate: a lane EXCLUDED from the riff part is neither a trigger nor a receiver — its rank never changes under a mark.
-    func testAnExcludedLaneDoesNotFireOrReceive() {
-        let ctl = run(l0: lane(rotate: 0), l1: lane(rotate: 3))
-        guard let r0 = ctl[0], let r2 = ctl[2], let beat = firstSharedBeat(r0, r2) else { return XCTFail("no shared beat") }
-        let col0 = r0[beat]!
-        // exclude lane 1's riff; marking lane 0's column must leave lane 1 on its own rank.
-        let fired = run(l0: lane(rotate: 0), l1: lane(rotate: 3)) { $0.tuttiSteps = UInt8(1) << UInt8(col0 - 1); $0.riffLanes = 0b1101 }   // lane 1 (bit 1) off
-        XCTAssertEqual(fired[2]?[beat], r2[beat], "an excluded lane keeps its own rank (§3)")
-    }
-
-    // §6.7 — one lane alone never fires (no OTHER included hit to pull), even with every step marked: its output is identical to no mark.
-    func testOneLaneAloneNeverFires() {
-        let plain = run(l0: lane(rotate: 0), l1: EuclidLine(enabled: false))
-        let marked = run(l0: lane(rotate: 0), l1: EuclidLine(enabled: false)) { $0.tuttiSteps = 0xFF; $0.tuttiRanks = 0xFF }
-        XCTAssertEqual(marked[0], plain[0], "a lone lane is unchanged — no partner to fire to")
+        XCTAssertEqual(marked[0], plain[0], "stored settings change nothing — lane 0")
+        XCTAssertEqual(marked[2], plain[2], "stored settings change nothing — lane 1")
         XCTAssertFalse(plain[0]?.isEmpty ?? true, "lane 0 actually plays")
+        XCTAssertFalse(plain[2]?.isEmpty ?? true, "lane 1 actually plays")
     }
 }
