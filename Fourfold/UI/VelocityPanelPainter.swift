@@ -164,6 +164,20 @@ struct EuclideousVelocityPanel: View {
                     .frame(width: stripW, height: M.stripHeight, alignment: .topLeading)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(emitterVelocityStripLabel(output: x, v))
+                    // EMITTER STRIP GESTURES (2026-11-18): the lane-card gestures on this output's strip — up/down = HITS,
+                    // left/right = OFFSET, pinch = STEPS (the HIT VEL / MISS VEL cells keep their own drags below).
+                    .overlay(
+                        EmitterStripGesturePad(
+                            hits: v.hits, offset: v.offset,
+                            slotPitch: slotsLocal.count >= 2 ? slotsLocal[1].minX - slotsLocal[0].minX : stripW / 16,
+                            slotRects: slotsLocal,
+                            onHitsTarget:   { first, t in onEdit(first) { $0[x] = EmitterVelocityField.hits.setting(t, in: $0[x]) } },
+                            onOffsetTarget: { first, t in onEdit(first) { $0[x] = EmitterVelocityField.offset.setting(t, in: $0[x]) } },
+                            onSteps:        { first, d in onEdit(first) { $0[x] = EmitterVelocityField.steps.setting($0[x].steps + d, in: $0[x]) } },
+                            onDragEnd: onDragEnd
+                        )
+                        .frame(width: stripW, height: M.stripHeight)
+                    )
                 HStack(spacing: 0) {
                     ForEach(0..<EmitterVelocityField.allCases.count, id: \.self) { c in
                         EmitterVelocityCell(output: x, field: EmitterVelocityField.allCases[c], v: v, size: layout.cells[min(c, layout.cells.count - 1)].size, leadingRule: c > 0, onEdit: onEdit, onDragEnd: onDragEnd)

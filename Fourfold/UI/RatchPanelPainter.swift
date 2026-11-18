@@ -139,6 +139,68 @@ struct EmitterRatchetStripV2View: View {
     }
 }
 
+// MARK: - EMITTER STRIP GESTURES (2026-11-18) — the main Euclid lanes' gestures on the RATCH / VEL strips
+
+/// Overlays `EuclidGesturePad` on one emitter output's 16-slot strip so it takes the SAME gestures the lane cards'
+/// comet rows do (Paul: "ensure they allow the same gestures as the main Euclid lanes"): a one-finger VERTICAL drag
+/// changes HITS (up adds, down thins), a HORIZONTAL drag moves OFFSET, a PINCH changes STEPS — each snapshot-relative,
+/// so one finger-drag is one undo step and the finger maps to an absolute value (the `euclideousApplyRhythm*` pattern).
+/// Paul's "Simpler" model (2026-11-18): a hits/offset/steps gesture just REGENERATES the Euclidean pattern — there are
+/// no modes, no inert sliders, no revert control; a single TAP toggles a step (`onTapStep`; nil installs no tap
+/// recognizer, so slice 1 has drag/pinch only). Type-agnostic — RATCH (`EmitterRatchet`) and VEL (`EmitterVelocity`)
+/// share it: the caller passes the field's current value and commits the clamped target through its own
+/// `onEdit(newStep:)` funnel (the same `EmitterRatchetField.setting` / `EmitterVelocityField.setting` the cells use).
+struct EmitterStripGesturePad: View {
+    let hits: Int                 // the output's current HITS / OFFSET — the snapshot taken at a gesture's first tick
+    let offset: Int
+    let slotPitch: CGFloat        // one slot's width, so a drag of one slot moves OFFSET by one step (Paul 2026-10-06)
+    let slotRects: [CGRect]       // the 16 strip-local slots — a tap's x picks the step
+    let onHitsTarget: (Bool, Int) -> Void     // (first-of-gesture, absolute target HITS)
+    let onOffsetTarget: (Bool, Int) -> Void   // (first-of-gesture, absolute target OFFSET)
+    let onSteps: (Bool, Int) -> Void          // (first-of-gesture, incremental STEPS delta — pinch)
+    let onDragEnd: () -> Void
+    var onTapStep: ((Int) -> Void)? = nil
+    @State private var hitsBase = 0        // @State applies to ONE var per declaration (not `var a = 0, b = 0`)
+    @State private var offsetBase = 0
+    @State private var hitsAccum = 0
+    @State private var offsetAccum = 0
+    @State private var firstOfGesture = true
+    @State private var active = false
+    // An EXPLICIT internal init: the `@State private var`s above would otherwise make the synthesized memberwise
+    // initializer PRIVATE (the SwiftUI gotcha), and this view is constructed from another file (VelocityPanelPainter).
+    init(hits: Int, offset: Int, slotPitch: CGFloat, slotRects: [CGRect],
+         onHitsTarget: @escaping (Bool, Int) -> Void, onOffsetTarget: @escaping (Bool, Int) -> Void,
+         onSteps: @escaping (Bool, Int) -> Void, onDragEnd: @escaping () -> Void, onTapStep: ((Int) -> Void)? = nil) {
+        self.hits = hits; self.offset = offset; self.slotPitch = slotPitch; self.slotRects = slotRects
+        self.onHitsTarget = onHitsTarget; self.onOffsetTarget = onOffsetTarget; self.onSteps = onSteps
+        self.onDragEnd = onDragEnd; self.onTapStep = onTapStep
+    }
+    private func begin() {
+        guard !active else { return }
+        active = true; hitsBase = hits; offsetBase = offset; hitsAccum = 0; offsetAccum = 0; firstOfGesture = true
+    }
+    /// ONE undo burst per GESTURE, not per axis: the first delta of any kind opens the step (`newStep` true), the rest coalesce.
+    private func mark() -> Bool { let f = firstOfGesture; firstOfGesture = false; return f }
+    var body: some View {
+        EuclidGesturePad(
+            onRotateDelta: { d in begin(); offsetAccum += d; onOffsetTarget(mark(), offsetBase + offsetAccum) },
+            onHitsDelta:   { d in begin(); hitsAccum += d;  onHitsTarget(mark(), hitsBase + hitsAccum) },
+            onStepsDelta:  { d in begin(); onSteps(mark(), d) },
+            onAllRotateDelta: { _ in },   // no "every output" gesture for the emitters (each A–D is independent)
+            onAllHitsDelta:   { _ in },
+            onDragState: { point, _ in if point != nil { begin() } else { active = false; onDragEnd() } },
+            rotateStepPt: slotPitch,
+            onTap: onTapStep.map { cb in { (p: CGPoint) in
+                // NEAREST slot centre by x (like the lane strip's `euclideousStripStepAtX`): the 2–3 pt gaps between
+                // slots belong to their neighbours, so a tap never lands in a dead zone.
+                var best: Int? = nil; var bestD = CGFloat.greatestFiniteMagnitude
+                for (i, rect) in slotRects.enumerated() { let d = abs(p.x - rect.midX); if d < bestD { bestD = d; best = i } }
+                if let i = best { cb(i) }
+            } }
+        )
+    }
+}
+
 // MARK: - RATCH v2 §5.4/§6.6 — the ×2 ×3 ×4 strike-count chips (collapsed + expanded)
 
 /// Three chips; a tap toggles a count in/out of COUNTS (one undo step). When PER HIT is on the group shows a single lit "PER HIT" chip (the collapsed one opens the expanded view via `onPerHitChip`, §8.1).
@@ -365,7 +427,10 @@ struct EuclideousRatchetPanel: View {
         typealias M = EmitterRatchetMetrics
         let r = ratchets[x]
         let mask = emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: r.offset)
-        let slotsLocal = layout.slots.map { CGRect(x: $0.minX - layout.strip.minX, y: 0, width: $0.width, height: $0.height) }
+        // EMITTER STRIP GESTURES (2026-11-18): the RATCH v2 strip's OWN `n`-slot rects (strip-local) — the gesture pad's
+        // offset pitch + tap hit-test read these, so a drag of one VISIBLE slot moves OFFSET one step (not the old
+        // fixed-16 `layout.slots`, which the redrawn strip no longer uses).
+        let stripSlots = euclideousRatchetStripV2(size: CGSize(width: stripW, height: M.stripHeight), r: r, current: -1, expanded: false).slots.map { $0.rect }
         let current = live.index(x) ?? -1
         let flareSlot = live.flareIndex(x) ?? current       // the flare outlives a stop (its 1.5 s afterglow) though the highlighted slot clears
         let accentOf: (Int) -> Color = { accents[max(0, min(accents.count - 1, $0))] }
@@ -396,6 +461,20 @@ struct EuclideousRatchetPanel: View {
                 .frame(width: stripW, height: M.stripHeight, alignment: .topLeading)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(emitterRatchetStripLabel(output: x, r, counts: counts))
+                // EMITTER STRIP GESTURES (2026-11-18): the lane-card gestures on this output's strip — up/down = HITS,
+                // left/right = OFFSET, pinch = STEPS (the "Simpler" model: each regenerates the Euclidean pattern).
+                .overlay(
+                    EmitterStripGesturePad(
+                        hits: r.hits, offset: r.offset,
+                        slotPitch: stripSlots.count >= 2 ? stripSlots[1].minX - stripSlots[0].minX : stripW / CGFloat(max(1, r.steps)),
+                        slotRects: stripSlots,
+                        onHitsTarget:   { first, t in onEdit(first) { $0[x] = EmitterRatchetField.hits.setting(t, in: $0[x]) } },
+                        onOffsetTarget: { first, t in onEdit(first) { $0[x] = EmitterRatchetField.offset.setting(t, in: $0[x]) } },
+                        onSteps:        { first, d in onEdit(first) { $0[x] = EmitterRatchetField.steps.setting($0[x].steps + d, in: $0[x]) } },
+                        onDragEnd: onDragEnd
+                    )
+                    .frame(width: stripW, height: M.stripHeight)
+                )
                 HStack(spacing: 0) {
                     // RATCH v2 §5.4: STEPS · HITS · OFFSET, then the ×2 ×3 ×4 chip group (the old STRIKES master-drag cell is retired).
                     ForEach(Array(emitterRatchetCollapsedFields.enumerated()), id: \.offset) { c, field in
