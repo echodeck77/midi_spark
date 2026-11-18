@@ -7596,9 +7596,9 @@ struct EuclideousPage: View {
                     }
                 }()
                 Text(seg == .riff ? "RIFF" : (seg == .poly ? "POLY" : "STACK")).font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(1.1)
-                    .foregroundColor(sel ? ink : Color(hex: 0xAAB0BA))
+                    .foregroundColor(sel ? ink : Color(hex: FourfoldStyle.label))   // CONSISTENCY PASS 1: #B4BAC4 unselected (was #AAB0BA), matching the shared strip
                     .frame(maxWidth: .infinity).frame(height: max(1, height - 4))
-                    .background(RoundedRectangle(cornerRadius: 4).fill(sel ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))
+                    .background(RoundedRectangle(cornerRadius: EuclideousLaneStripMetrics.segmentRadius).fill(sel ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))   // CONSISTENCY PASS 1: the shared strip's segment radius 6 (was 4)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         ribbonSettingsOpen = false   // RIBBON SETTINGS §5.1: tapping RIFF or STACK closes the settings tab and shows that view
@@ -7616,7 +7616,9 @@ struct EuclideousPage: View {
         }
         .padding(2)
         .frame(height: height)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1F2127)))
+        // CONSISTENCY PASS 1 (2026-11-18): the container takes the control tone at the shared strip's radius 8 (was #1F2127 r6).
+        // It sits INSIDE the riff panel card, so it fills CONTROL, not the shared strip's CARD (§2.5 — same segment look, context-right ground).
+        .background(RoundedRectangle(cornerRadius: EuclideousLaneStripMetrics.containerRadius).fill(Color(hex: FourfoldStyle.control)))
     }
     /// The riff panel: the RIFF grid exactly as it was (MONO, or — for a stored POLY document — the sixteen-column grid) or the
     /// STACK grid. RIBBON SETTINGS REMOVED (Paul 2026-11-17): the settings tab and its button are UNMOUNTED (the views below
@@ -8517,15 +8519,16 @@ struct EuclideousPage: View {
             ForEach(Array(tabs.enumerated()), id: \.element.rawValue) { idx, tab in
                 let sel = selected == tab
                 let tabW = idx < tabWidths.count ? tabWidths[idx] : 0
-                // The on/off ring beside LANES is gone with the ON switch (LANES GRID, 2026-10-18): the grid is always live.
-                ZStack(alignment: .bottom) {
-                    HStack(spacing: 6) {
-                        Text(tab.label).font(.system(size: 12, weight: .heavy, design: .monospaced))
-                            .foregroundColor(Color(hex: FourfoldSelect.switchInk(sel))).lineLimit(1)
-                    }
-                    .frame(width: tabW, height: height - 4, alignment: .center)   // centred in the top 16pt
-                    .frame(width: tabW, height: height, alignment: .top)
-                    Rectangle().fill(sel ? Color(hex: 0xFFFFFF) : Color(hex: 0x2A2D34)).frame(width: tabW, height: 2)
+                // CONSISTENCY PASS 1 (2026-11-18, reconstructed — no spec; metrics flagged): "one tab look on all three strips".
+                // The bottom-right panel's tabs become the shared tab strip's PILL (a selected #DFE3EA fill, radius 6, the label
+                // in #0D0F14 / unselected #B4BAC4) instead of the old 2 pt underline — which also fixes the STYLE PASS 1
+                // regression where the selected label went dark (#0D0F14) with no light fill under it. GUESSED (device-owed):
+                // the pill height (the shared strip's 22-in-28 proportion → row height − 6, radius `EuclideousLaneStripMetrics.segmentRadius`),
+                // and that there is no surrounding control-tone CONTAINER as the shared strip has (the panel card is the ground).
+                ZStack {
+                    if sel { RoundedRectangle(cornerRadius: EuclideousLaneStripMetrics.segmentRadius).fill(Color(hex: FourfoldStyle.selectedFill)).frame(width: tabW, height: max(1, height - 6)) }
+                    Text(tab.label).font(.system(size: 12, weight: .heavy, design: .monospaced))
+                        .foregroundColor(Color(hex: FourfoldSelect.switchInk(sel))).lineLimit(1)
                 }
                 .frame(width: tabW, height: height)
                 .contentShape(Rectangle())

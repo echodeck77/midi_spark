@@ -28,24 +28,25 @@ final class CardBackTests: XCTestCase {
     /// TAB STRIP (2026-10-29): the switch left the header (MIX is the strip's own tab), taking its 124 with it — and the dice and padlock's 104 went too: A needs 805.88 with the Sources panel v2's 306 pt NOTES (925.88 with the old 426; it was 1153.88), B 483.88 (587.88).
     func testTheHeadersLayoutsWithoutTheSwitch() {
         let full = euclideousHeaderGroupWidths(compact: false)
-        near(euclideousHeaderANeeds(full), 191.88 + 16 + 306 + 16 + 276, "A: BRAND + gap + NOTES (306, Sources panel v2) + gap + UTILITIES")
-        near(euclideousHeaderANeeds(full), 805.88)
-        near(full.brand + full.utilities + full.gap, 483.88, "B's row 1: the narrower BRAND")
+        near(euclideousHeaderANeeds(full), 191.88 + 16 + 306 + 16 + 176, "A: BRAND + gap + NOTES (306) + gap + UTILITIES (176 after HOCKET RETIRED)")
+        near(euclideousHeaderANeeds(full), 705.88)
+        near(full.brand + full.utilities + full.gap, 383.88, "B's row 1: the narrower BRAND")
         // A at the 1190 reference: NOTES centred between BRAND and UTILITIES
         let p = euclideousPageLayout(size: CGSize(width: 1190, height: 834))
         XCTAssertEqual(p.headerKind, .a)
         let l = euclideousHeaderLayout(containerW: 1158, isLandscape: true, riffLeadingX: p.riffLeadingX)
-        near(l.brand.width, 191.88); near(l.notes.x, 383.94, "NOTES centred in the space between BRAND and UTILITIES")
+        near(l.brand.width, 191.88); near(l.notes.x, 433.94, "NOTES centred in the space between BRAND and UTILITIES")
         // the widths the layouts DO and DO NOT fit
         let a = euclideousHeaderANeeds(full)
         XCTAssertEqual(euclideousHeaderKind(containerW: a, isLandscape: true), .a); XCTAssertEqual(euclideousHeaderKind(containerW: a - 0.01, isLandscape: true), .b)
-        for (view, kind) in [(1376.0, EuclideousHeaderLayout.Kind.a), (1210, .a), (1194, .a), (1190, .a), (1186, .a), (1185, .a), (1180, .a), (1176, .a), (1133, .a), (1113, .a), (1024, .a), (900, .a), (838, .a), (837, .b), (800, .b)] {
+        // HOCKET RETIRED (2026-11-17): A needs container 705.88 ≈ view 737.88 now (was 837.88), so the boundary moved down.
+        for (view, kind) in [(1376.0, EuclideousHeaderLayout.Kind.a), (1210, .a), (1194, .a), (1190, .a), (1186, .a), (1185, .a), (1180, .a), (1176, .a), (1133, .a), (1113, .a), (1024, .a), (900, .a), (838, .a), (800, .a), (738, .a), (737, .b), (700, .b)] {
             XCTAssertEqual(euclideousHeaderKind(containerW: CGFloat(view) - 32, isLandscape: true), kind, "landscape view \(view)")
         }
         // B and C: NOTES alone leads row 2
         let b = euclideousHeaderLayout(containerW: 800, isLandscape: false, riffLeadingX: 0)
         XCTAssertEqual(b.kind, .b); XCTAssertEqual(b.notes.row, 1); near(b.notes.x, 0)
-        let c = euclideousHeaderLayout(containerW: 440, isLandscape: false, riffLeadingX: 0)
+        let c = euclideousHeaderLayout(containerW: 360, isLandscape: false, riffLeadingX: 0)   // HOCKET RETIRED: B needs 383.88 now, so a .c container is below that (was 440)
         XCTAssertEqual(c.kind, .c); near(c.notes.x + c.notes.width, 306, "NOTES (306) fits from 306")
     }
 

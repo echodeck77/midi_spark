@@ -117,10 +117,10 @@ final class CardBackReviewTests: XCTestCase {
     }
     /// TAB STRIP (2026-10-29): the three-row D existed to give the PATTERN | MIX switch its own row; the ladder never chooses it now (its layout code and top stay, unreachable).
     func testTheLadderNeverChoosesTheRetiredThreeRowLayout() {
-        let narrow = euclideousHeaderLayout(containerW: 400, isLandscape: false, riffLeadingX: 0)
+        let narrow = euclideousHeaderLayout(containerW: 360, isLandscape: false, riffLeadingX: 0)   // HOCKET RETIRED (2026-11-17): B now needs 383.88, so a .c-narrow container is < that (was 400)
         XCTAssertEqual(narrow.kind, .c); XCTAssertEqual(narrow.rowCount, 2); XCTAssertTrue(narrow.compact)
         XCTAssertEqual([narrow.brand.row, narrow.utilities.row, narrow.notes.row], [0, 0, 1])
         XCTAssertEqual(EuclideousPageMetrics.top(.d), 159); XCTAssertEqual(EuclideousPageMetrics.top(.c), 111)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 483.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 483.88, isLandscape: false), .b)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 383.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 383.88, isLandscape: false), .b)   // HOCKET RETIRED: B needs 383.88 (was 483.88)
     }
 }

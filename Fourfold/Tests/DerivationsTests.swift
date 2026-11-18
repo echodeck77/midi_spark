@@ -1957,11 +1957,11 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(f.brand, 13 + 8 + wordmark + 16 + 88, accuracy: 1e-9, "the mark, the wordmark, undo and redo (it was 295.88 with the dice and the padlock, 52 pt each: a 44 target and an sp8 gap)")
         XCTAssertEqual(f.brand, 191.88, accuracy: 0.01)
         // WIDENED 312→426 (2026-10-20, HOLD/LATCH): two fixed-width chips (48+54) + the sp4 between them + the sp8 before them. UTILITIES is 4 icons (presets · SWING · REEL · settings).
-        XCTAssertEqual(f.notes, 306, "Sources panel v2: the SOURCES button (192) + sp8 + HOLD/LATCH (106); it was 426 (source control 184 + key pill 120 + HOLD/LATCH)"); XCTAssertEqual(f.utilities, 176 + 100, "HOCKET ferry: the pill's reserved width (92) and the sp8 before the presets button")
+        XCTAssertEqual(f.notes, 306, "Sources panel v2: the SOURCES button (192) + sp8 + HOLD/LATCH (106); it was 426 (source control 184 + key pill 120 + HOLD/LATCH)"); XCTAssertEqual(f.utilities, 176, "HOCKET RETIRED (2026-11-17): the pill + its sp8 left UTILITIES (was 176 + 100)")
         XCTAssertEqual(HM.segmentedWidth, 184)
         let c = euclideousHeaderGroupWidths(compact: true)
-        XCTAssertEqual(c.brand, 93, "compact: the mark and two 36 pt targets (it was 181 with the dice and the padlock, 44 pt each)"); XCTAssertEqual(c.utilities, 144 + 100)
-        XCTAssertEqual(c.brand + c.utilities + c.gap, 93 + 144 + 100 + 8, "layout C's row 1: BRAND and UTILITIES, one gap apart")
+        XCTAssertEqual(c.brand, 93, "compact: the mark and two 36 pt targets (it was 181 with the dice and the padlock, 44 pt each)"); XCTAssertEqual(c.utilities, 144)   // HOCKET RETIRED: compact UTILITIES (was 144 + 100)
+        XCTAssertEqual(c.brand + c.utilities + c.gap, 93 + 144 + 8, "layout C's row 1: BRAND and UTILITIES, one gap apart")
         XCTAssertEqual(HM.topMargin, 9, "a 44pt row centred on the 31pt centre line")
         XCTAssertEqual(HM.wordmarkWidth, 8 * 11 * 0.76, accuracy: 1e-9)
     }
@@ -1977,12 +1977,12 @@ final class DerivationsTests: XCTestCase {
         }
         // the 1190 reference: 191.88 | 192.06 | NOTES 383.94…689.94 | 192.06 | 882 UTILITIES
         let ref = hdrLayout(1158, landscape: true)
-        XCTAssertEqual(ref.notes.x, 383.94, accuracy: 0.01)
+        XCTAssertEqual(ref.notes.x, 433.94, accuracy: 0.01)   // HOCKET RETIRED: UTILITIES −100 shifts the centred NOTES +50
     }
     func testLayoutAAtItsFloorHasOneGapEitherSideOfNotes() {
         let full = euclideousHeaderGroupWidths(compact: false)
         let w = euclideousHeaderANeeds(full)   // A's exact need: 805.88 (925.88 with the 426 NOTES; 1153.88 with the card-side switch and the dice and padlock too)
-        XCTAssertEqual(w, 805.88, accuracy: 0.01)
+        XCTAssertEqual(w, 705.88, accuracy: 0.01)   // HOCKET RETIRED (−100)
         let l = hdrLayout(w, landscape: true)
         XCTAssertEqual(l.kind, .a)
         XCTAssertEqual(l.notes.x - (l.brand.x + l.brand.width), full.gap, accuracy: 1e-9)
@@ -1997,13 +1997,13 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(b.notes.row, 1); XCTAssertEqual(b.notes.x, 0, "NOTES alone leads row 2 (the switch that used to lead it is the lane strip's MIX)")
         XCTAssertEqual([b.brand.row, b.utilities.row], [0, 0])
         assertHeaderInvariants(b, 620, "B@620")
-        XCTAssertEqual(hdrLayout(500, landscape: false).kind, .b, "500 is layout B now: B needs 483.88 without the dice and the padlock (587.88 before)")
-        let c = hdrLayout(470, landscape: false)
+        XCTAssertEqual(hdrLayout(500, landscape: false).kind, .b, "500 is layout B now: B needs 383.88 (HOCKET RETIRED 2026-11-17; 483.88 before)")
+        let c = hdrLayout(360, landscape: false)   // HOCKET RETIRED: B now needs 383.88, so the .c case moved below it (was 470)
         XCTAssertEqual(c.kind, .c); XCTAssertTrue(c.compact)
         XCTAssertEqual(c.widths.gap, 8)
-        assertHeaderInvariants(c, 470, "C@470 (NOTES' 306 fits row 2)")
+        assertHeaderInvariants(c, 360, "C@360 (NOTES' 306 fits row 2)")
         // the three-row D is retired: it existed to give the switch its own row. Narrower than NOTES itself (426) the group overflows whichever row it is on.
-        XCTAssertEqual(hdrLayout(400, landscape: false).kind, .c)
+        XCTAssertEqual(hdrLayout(350, landscape: false).kind, .c)
         // a landscape page too narrow for A falls to B, never A; portrait never uses A, however wide.
         XCTAssertEqual(hdrLayout(700, landscape: true).kind, .b)
         XCTAssertEqual(hdrLayout(1200, landscape: false).kind, .b)
