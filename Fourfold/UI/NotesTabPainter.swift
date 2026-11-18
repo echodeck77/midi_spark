@@ -135,17 +135,21 @@ struct EuclideousNotesPickerView: View {
     }
     private func cell(_ way: EuclidNotesPlayAs, frame: CGRect) -> some View {
         let selected = way == current
+        // STYLE PASS consistency (2026-11-18, Paul): the way picker takes the ONE neutral selected look (STYLE PASS 1 §3.1) —
+        // selected = #DFE3EA fill with its name + description in #0D0F14 ink, no border; unselected = the control tone + the
+        // label grey. The PREVIEW picture keeps the lane accent (§3.5: it shows this lane's notes — identity, not selection).
+        let nameInk = Color(hex: selected ? FourfoldStyle.selectedInk : FourfoldStyle.label)
+        let descInk = Color(hex: selected ? FourfoldStyle.selectedInk : FourfoldStyle.key)
         return VStack(alignment: .leading, spacing: 0) {
-            Text(way.rawValue).font(heavyMono(11)).foregroundColor(selected ? EuclideousNotesPalette.ink : EuclideousNotesPalette.riffDot).lineLimit(1).frame(height: 13)
+            Text(way.rawValue).font(heavyMono(11)).foregroundColor(nameInk).lineLimit(1).frame(height: 13)
             Color.clear.frame(height: 2)
-            Text(euclideousNotesWayDescriptions[way] ?? "").font(heavyMono(7.5)).kerning(0.3).foregroundColor(EuclideousNotesPalette.key).lineLimit(1).truncationMode(.tail).frame(height: 9)
+            Text(euclideousNotesWayDescriptions[way] ?? "").font(heavyMono(7.5)).kerning(0.3).foregroundColor(descInk).lineLimit(1).truncationMode(.tail).frame(height: 9)
             Color.clear.frame(height: 4)
             EuclideousNotesPreviewView(list: list, way: way, columns: 6, columnGap: 1.5, columnPad: 2, rowGap: 1, columnFill: EuclideousNotesPalette.cellPreviewColumn, accent: accent)
         }
         .padding(.top, 5).padding(.bottom, 5).padding(.leading, 6).padding(.trailing, 5)
         .frame(width: frame.width, height: frame.height, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(selected ? accent.opacity(0.2) : EuclideousNotesPalette.button))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? accent : Color.clear, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: FourfoldSelect.switchFill(selected))))
         .contentShape(Rectangle())
         .onTapGesture { onChoose(way) }
         .accessibilityElement(children: .ignore)

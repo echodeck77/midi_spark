@@ -6383,15 +6383,18 @@ struct EuclideousPage: View {
             }
         }
     }
-    /// §A5.2: a tile — selected = A1.1 (lane fill, name + picture #1B1D22), unselected = A1.2 (#24262C, #8D939D); no outline; 42 tall.
+    /// §A5.2 · STYLE PASS consistency (2026-11-18, Paul): the ORDER/VOICES/SPREAD picker tiles take the ONE neutral selected
+    /// look (STYLE PASS 1 §3.1) — selected = #DFE3EA fill with the name + picture in #0D0F14 ink, unselected = the control tone
+    /// + the label grey; no outline. (It does NOT go through the shared `euclideousNotesSelLook` — the RANKS tiles keep that
+    /// helper's dark lane fill, which their white sounding mark needs.) 42 tall.
     private func notesChainTile(name: String, selected: Bool, accent: Color, picture: (Color) -> AnyView, tap: @escaping () -> Void) -> some View {
-        let look = euclideousNotesSelLook(selected: selected, switchedOn: true, playing: false)
+        let ink = Color(hex: FourfoldSelect.switchInk(selected))   // selected #0D0F14 / unselected #B4BAC4
         return VStack(spacing: 3) {
-            picture(Color(hex: look.labelHex)).frame(height: 18)
-            Text(name).font(.system(size: 10, weight: .heavy, design: .monospaced)).minimumScaleFactor(0.6).lineLimit(1).foregroundColor(Color(hex: look.labelHex))
+            picture(ink).frame(height: 18)
+            Text(name).font(.system(size: 10, weight: .heavy, design: .monospaced)).minimumScaleFactor(0.6).lineLimit(1).foregroundColor(ink)
         }
         .frame(maxWidth: .infinity).frame(height: 42).padding(.horizontal, 4)
-        .background(RoundedRectangle(cornerRadius: 6).fill(selFill(look, accent)))
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldSelect.switchFill(selected))))
         .contentShape(Rectangle()).onTapGesture(perform: tap)
         .accessibilityElement(children: .ignore).accessibilityLabel(name).accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
