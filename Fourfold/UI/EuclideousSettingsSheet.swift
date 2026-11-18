@@ -84,6 +84,9 @@ struct EuclideousSettingsSheet: View {
     @State private var midiInNaturalHeight: CGFloat = 0   // §6.3: measured only in DEBUG (the CLASHES block makes MIDI IN the tallest tab)
     @State private var clockNaturalHeight: CGFloat = 0    // RATCH tab §7.4: measured only in DEBUG (the FX COUNTS block grows CLOCK)
     @State private var allNotesOffSentAt: Date? = nil
+    #if DEBUG
+    @State private var iconProbeResult = ""   // AU ICON PROBE (2026-11-18): the last run's per-identity report
+    #endif
 
     private let laneColours = EuclideousRingPalette.laneMark
 
@@ -432,6 +435,26 @@ struct EuclideousSettingsSheet: View {
                 let all = CanonEntry.allCases, i = all.firstIndex(of: canonEntry) ?? 0
                 onSetCanonEntry(all[max(0, min(all.count - 1, i + (dir == .increment ? 1 : -1)))])
             }
+            #endif
+            #if DEBUG
+            // AU ICON PROBE (2026-11-18): the ground truth for the missing host icon — asks the DEVICE the exact question a
+            // host asks (`AudioComponentGetIcon`) for every registered Fourfold identity and prints the answers. Run on the
+            // iPad; the simulator has no positive control. One line per identity + a warning when more than one is registered.
+            block(name: "AU ICON PROBE", description: "What the system hands a host for this plug-in's icon, per registered identity. Run on the iPad.") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Button { iconProbeResult = fourfoldIconProbeReport() } label: {
+                        Text("RUN").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1)
+                            .foregroundColor(Color(hex: 0xF2F4F7)).padding(.horizontal, 14).padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+                    }
+                    if !iconProbeResult.isEmpty {
+                        Text(iconProbeResult).font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(Color(hex: 0xC9CDD5)).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("A U icon probe")
             #endif
             #if DEBUG
             // MIX ROWS (2026-11-03): dev-only MIX STRIP — FIT spreads each lane's steps across its rhythm strip; ALIGNED puts every lane on one 16-column grid so steps line up down the panel (a lane over 16 steps falls back to FIT).

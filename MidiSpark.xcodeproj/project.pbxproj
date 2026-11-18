@@ -276,6 +276,7 @@
 		78511070F695BACE30936CB6 /* DerivationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98149EBE4B9E76352A457113 /* DerivationsTests.swift */; };
 		7972392F67F1F17CBABBE729 /* DerivationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9240C6CA393EE4F4B6FD09AB /* DerivationsTests.swift */; };
 		79915FB18AF002B1122045A3 /* FillTabV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8317BF1DF0DE24F39C7E9D /* FillTabV2.swift */; };
+		799E510CA41316334994BBD6 /* FourfoldIconProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45F0B902136B316B40FE0EE0 /* FourfoldIconProbe.swift */; };
 		7A16BFD5D61928B1E76A6DB0 /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54B806162177B626AC22A5D /* WalkTagPainter.swift */; };
 		7A38F150DFE99F651004F657 /* RouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 678E167D4A16C39447DC29C1 /* RouterTests.swift */; };
 		7AF84097F78692131905933F /* EmitterRatchetUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FDFAC49DE1FD6F45236A30 /* EmitterRatchetUI.swift */; };
@@ -393,6 +394,7 @@
 		AAC67FED0724903B425D060F /* FourfoldReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E30016BB623E045246A0488 /* FourfoldReel.swift */; };
 		AAEB896150BD00CFD80603FE /* MidiSparkAU.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D8A3525B4B47CA5BEA33A14F /* MidiSparkAU.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AB93D45851A70F9C05234F29 /* CardBack.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB85C75FDBCD12F45FAB3DC /* CardBack.swift */; };
+		ABA9799269801428E402F000 /* FourfoldIconProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45F0B902136B316B40FE0EE0 /* FourfoldIconProbe.swift */; };
 		AC95A67DE057A11667D1321C /* RandomModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AC546F65D94F67DC988CA8 /* RandomModePainter.swift */; };
 		AD2E17E7050BDD6D42D29B55 /* PolyRiffGridPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2D58238A1D4FF553EC1FAF /* PolyRiffGridPainter.swift */; };
 		AD33A6CBFA12490CF78C5CF3 /* PartPlayButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3CB81D778F201241799C1D0 /* PartPlayButtonTests.swift */; };
@@ -723,6 +725,7 @@
 		4448C88CC517582DAFC89326 /* PortsStressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortsStressTests.swift; sourceTree = "<group>"; };
 		44E192CF53C0406F41E56492 /* NoteRollRankTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRollRankTests.swift; sourceTree = "<group>"; };
 		45EDC2BE8955A84E568CE6A0 /* MidiInOctavesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiInOctavesTests.swift; sourceTree = "<group>"; };
+		45F0B902136B316B40FE0EE0 /* FourfoldIconProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldIconProbe.swift; sourceTree = "<group>"; };
 		47EFEFD20A4BE99C391A7781 /* LaneViewStripPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneViewStripPainter.swift; sourceTree = "<group>"; };
 		487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceFactoryLibraryTests.swift; sourceTree = "<group>"; };
 		48C49577E130C1DEE1509E5C /* AnswerRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerRouterTests.swift; sourceTree = "<group>"; };
@@ -1440,6 +1443,7 @@
 			children = (
 				F207CC51539EB0A8FC6E6C8A /* AnswerLive.swift */,
 				A9DD9EE712131F93295E6111 /* EmitterRatchetLive.swift */,
+				45F0B902136B316B40FE0EE0 /* FourfoldIconProbe.swift */,
 				3E30016BB623E045246A0488 /* FourfoldReel.swift */,
 				C2BFE0F83FD6BBB2D3A8654C /* FourfoldRootView.swift */,
 				586ABD7101A0017667893A62 /* FourfoldStackProbe.swift */,
@@ -1862,6 +1866,7 @@
 				98438A098C9E21AEC8237627 /* FourfoldBluetoothMIDIView.swift in Sources */,
 				C3C3B35A98FEB15A880BEF2B /* FourfoldCompose.swift in Sources */,
 				58C0C039EB97E7DB0F167462 /* FourfoldEngine.swift in Sources */,
+				ABA9799269801428E402F000 /* FourfoldIconProbe.swift in Sources */,
 				251EEE0C781BF90AFBB9B99F /* FourfoldLinkSettingsView.swift in Sources */,
 				773F692F8B836B1C245ED1F8 /* FourfoldMIDI.swift in Sources */,
 				2BAEF4D3E47461AD1EE5B328 /* FourfoldMark.swift in Sources */,
@@ -2268,6 +2273,7 @@
 				8C4CF30D65930A918DCCDA61 /* FillTabV2Views.swift in Sources */,
 				3FEBDAA999631F93DD5B17E7 /* FourfoldAudioUnit.swift in Sources */,
 				9ECB09C3718DCEDA6647C48C /* FourfoldCompose.swift in Sources */,
+				799E510CA41316334994BBD6 /* FourfoldIconProbe.swift in Sources */,
 				E3D9B4775C4DFD830B44E49F /* FourfoldMark.swift in Sources */,
 				131E579A0B97B41453E20E43 /* FourfoldParam.swift in Sources */,
 				E79F969969D54DA2CB4B2287 /* FourfoldReel.swift in Sources */,
