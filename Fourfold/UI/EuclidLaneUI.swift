@@ -101,6 +101,7 @@ struct EuclidLaneBox: View {
     var pulseLane: Int = 0
     var pulseScale: Double = 0
     var pulseLive: Bool = false
+    var flipping: Bool = false   // PERF (2026-11-18): forwarded to the strip's TimelineView — frozen while the card flips
     // STEP-COUNT BADGE (EUCLIDEOUS PAGE REWORK, Paul 2026-10-07: "a step count shown as a number" beside the
     // comet bar, permanently) — an optional trailing sibling in the SAME play+comet HStack, same additive-
     // nil-default shape as `trailingContent` above. nil (every existing BUILD-page call site) ⇒ byte-identical.
@@ -195,7 +196,7 @@ struct EuclidLaneBox: View {
                            rate: rate, spanN: spanN, tilt: patternOverride != nil ? 0 : line.tiltResolved,
                            missStyle: patternOverride != nil ? false : line.patternMissResolved,
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
-                           strip: strip, stripCurrent: stripCurrent, riffHeld: riffHeld, stackHeld: stackHeld, ccInput: ccInput, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, exactStyle: compact, grouped: grouped,
+                           strip: strip, stripCurrent: stripCurrent, riffHeld: riffHeld, stackHeld: stackHeld, ccInput: ccInput, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, flipping: flipping, exactStyle: compact, grouped: grouped,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
                            restartChains: restartChains, fillLine: line, mutedAt: mutedAt, suppressMuteDim: stripDim, cellsOnlyDim: partsOffDim, soloSilencedWords: soloSilenced,
                            riffBandFrac: (strip?.riffPartOn ?? true) ? 1 : 0, stackBandFrac: (strip?.notesPartOn ?? true) ? 1 : 0,   // PLAY BUTTONS RAIL+NOTE §3: an off part's band collapses (the ease is attached below)
@@ -358,6 +359,10 @@ struct EuclidCometBar: View {
     var pulseLane: Int = 0
     var pulseScale: Double = 0
     var pulseLive: Bool = false
+    /// PERF (2026-11-18): while the card is mid-flip (a tab turn draws both the old and new tab content for ~490 ms), the
+    /// strip's 60 fps TimelineView is paused — the playhead freezing for the turn is imperceptible and halves the per-frame
+    /// strip cost during the flip (the top row is identical in both copies). false ⇒ every non-flip caller is unchanged.
+    var flipping: Bool = false
     // EXACT DIMENSIONS (2026-10-13 "lane card, exact dimensions" ferry) — Euclideous's own cell styling: zero
     // side insets (the ferry's own cell-width table — 25.63/16.08/12.25 at 8/12/16 steps — only reconciles
     // with `euclidBoxGeometry`'s formula when the FULL steps-area width is used, hand-verified), flat LANE-
@@ -453,7 +458,7 @@ struct EuclidCometBar: View {
                 ?? euclidCometRaw(mTickBeat: b, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
         }
         ZStack {
-        TimelineView(.animation(minimumInterval: strip != nil && (running || pulseScale > 0) ? 1.0 / 60.0 : 1.0 / 30.0, paused: !(running || (pulseFeed != nil && pulseLive)))) { tl in   // the strip's playhead glides: 60 fps while it runs (LANE STRIP §2)
+        TimelineView(.animation(minimumInterval: strip != nil && (running || pulseScale > 0) ? 1.0 / 60.0 : 1.0 / 30.0, paused: flipping || !(running || (pulseFeed != nil && pulseLive)))) { tl in   // the strip's playhead glides: 60 fps while it runs (LANE STRIP §2); PERF: frozen while the card flips (§2026-11-18)
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             // DIRECTION-AWARE SWEEP: `cometRaw` is the raw tick count mod the direction's real cycle length (n, or
             // 2n under PING-PONG); `cometPos` is its continuous screen position, reversing/bouncing per

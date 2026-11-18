@@ -2503,7 +2503,12 @@ struct EuclideousPage: View {
         if let map, map.active { return map.laneStep(hostBeat: beat) + Int64((map.originBeat / sub).rounded(.down)) }
         return Int64((beat / sub).rounded(.down))
     }
-    private func laneStripPlan(_ idx: Int, _ line: EuclidLine) -> EuclideousStripPlan {
+    /// `lightweight` (PERF 2026-11-18): skip the two parts of the plan that ONLY the lane card's own strip reads — the §5
+    /// predicted-stack-rank prediction (`euclideousStripStackRanks` → `euclideousNotesHitPitches` per hit, read only by
+    /// `LaneStripBandPainter`) and the per-rank VoiceOver phrase (`euclideousStripHitsPhrase`, read only by the strip's
+    /// `accessibilityValue`). `mixStripFeed`'s consumers (the riff-panel stack dots, the MIX strips) use only `legs`/`cfg`/
+    /// timing, so they pass `true` and never pay for those — cutting that cost from ~8–12 builds a body eval to the 4 cards.
+    private func laneStripPlan(_ idx: Int, _ line: EuclidLine, lightweight: Bool = false) -> EuclideousStripPlan {
         // LISTEN REBUILT (2026-10-23): SHADOW and ECHO both pause RIFF+NOTES whole (§7, §9.9's `borrowedTabs`) —
         // so the strip's own riff/notes track is ignored under either, not SHADOW alone.
         let shadowed = phaseLines[idx].listenPitchResolved == .shadow
@@ -2547,8 +2552,11 @@ struct EuclideousPage: View {
         var nowLeg = 0
         if legs.count > 1, let cfg, let lapStartTick { nowLeg = euclideousStripLegIndex(raw: Double(euclideousDisplayLaneTick(stripRate, beat: stripBeat, sub: cfg.sub) - lapStartTick), n: steps, legCount: legs.count) }
         let pool = riffLivePool
-        let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
-        let phrase = euclideousStripHitsPhrase(hits: legs[min(nowLeg, legs.count - 1)].hits,
+        // PERF (2026-11-18): the VoiceOver phrase (per-rank note-name strings) is only read by the lane card strip — skip it for the lightweight (stack-dots / MIX) callers.
+        let phrase: String
+        if lightweight { phrase = "" } else {
+            let extended = euclideousGlobalPoolExtended(sortedRaw: pool.map { Int($0) })
+            phrase = euclideousStripHitsPhrase(hits: legs[min(nowLeg, legs.count - 1)].hits,
                                                spokenRank: { r in
                                                    guard r >= 1, r <= extended.count, (0...127).contains(extended[r - 1]) else { return nil }
                                                    return euclideousAccessibleDisplayNoteName(UInt8(extended[r - 1]), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType)
@@ -2556,6 +2564,7 @@ struct EuclideousPage: View {
                                                spokenPitch: { p in
                                                    (0...127).contains(p) ? euclideousAccessibleDisplayNoteName(UInt8(p), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) : "no note"
                                                })
+        }
         // ALT §5.9: while running, a lane with an active override outlines the current pass's hit cells that play in the alt state (white). Empty otherwise ⇒ the strip is byte-identical on every other lane and tab. The per-step tick is the lap start + the buf index (a device-owed indicator; FILL's extra in-region firings aren't modelled).
         var altHitSteps: Set<Int> = []
         if line.usesAlt, let cfg, let lapStartTick, euclideousLaneIsRunning(transportPlaying: clock.playing, line: line) {
@@ -2567,7 +2576,7 @@ struct EuclideousPage: View {
         // PLAY BUTTONS RAIL+NOTE §5 (Paul 2026-11-16): fill each hit's PREDICTED stack ranks — the engine's own notes-pitch
         // prediction → pool ranks — so the footer draws a real chip on every upcoming stack hit, like the riff. MONO only;
         // a POLY lane / predicted-silent hit stays empty ⇒ the #2B2D33 placeholder.
-        if layerOn {
+        if layerOn && !lightweight {   // PERF (2026-11-18): the predicted ranks are read only by the lane card strip — skip for the lightweight callers
             let poolInts = pool.map { Int($0) }
             for l in 0..<legs.count {
                 let pr = euclideousStripStackRanks(line: line, pool: poolInts, cfg: cfg, hits: legs[l].hits, lapStartTick: lapStartTick, lane: idx, ranks: ranks, poly: riffPoly ? polySnap : nil)
@@ -2604,7 +2613,8 @@ struct EuclideousPage: View {
     /// the lane strip reads (via `euclideousStripCurrentChip`), so the grid arrow and the strip's current chip are ONE state (§1.3). nil when there is no current chip (stopped, riff off, a SKIP rest, another pass). REPLACES `riffGhostRank`.
     private func riffGhost(_ idx: Int, beat: Double) -> EuclideousStripChip? {
         guard idx >= 0, idx < lines.count else { return nil }
-        let plan = laneStripPlan(idx, idx < phaseLines.count ? phaseLines[idx] : lines[idx])
+        // PERF (2026-11-18): this runs one plan PER LANE PER FRAME on the STACK tab and reads only riffPlays/cfg/lapStartTick/legs — lightweight skips §5 + the VoiceOver phrase.
+        let plan = laneStripPlan(idx, idx < phaseLines.count ? phaseLines[idx] : lines[idx], lightweight: true)
         guard plan.riffPlays, let cfg = plan.cfg, idx < riffPositions.count, clock.playing, lines[idx].enabledResolved else { return nil }
         let ord: Int64? = idx < riffWalkState.count ? riffWalkState[idx] : nil
         guard let tp = euclideousWalkTagPlan(cfg: cfg, ranks: effectiveGridRanks, beat: beat, secondsPerBeat: 60.0 / max(1.0, clock.tempo), polledStep: riffPositions[idx], running: true, polledOrdinal: ord, poly: polySnap) else { return nil }
@@ -2624,10 +2634,10 @@ struct EuclideousPage: View {
     }
 
     /// The card's TOP ROW — the play tile, the comet strip and the SOLO tile — shared by the front (PATTERN) and the back (MIX): the same view in the same place, so a flip never moves it.
-    private func laneCometRow(_ idx: Int, line: EuclidLine, accent: Color, innerWidth: CGFloat, stripPlan: EuclideousStripPlan, soloDimContent: Bool) -> AnyView {
-        AnyView(laneCometRowBody(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent))
+    private func laneCometRow(_ idx: Int, line: EuclidLine, accent: Color, innerWidth: CGFloat, stripPlan: EuclideousStripPlan, soloDimContent: Bool, flipping: Bool = false) -> AnyView {
+        AnyView(laneCometRowBody(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent, flipping: flipping))
     }
-    @ViewBuilder private func laneCometRowBody(_ idx: Int, line: EuclidLine, accent: Color, innerWidth: CGFloat, stripPlan: EuclideousStripPlan, soloDimContent: Bool) -> some View {
+    @ViewBuilder private func laneCometRowBody(_ idx: Int, line: EuclidLine, accent: Color, innerWidth: CGFloat, stripPlan: EuclideousStripPlan, soloDimContent: Bool, flipping: Bool = false) -> some View {
         // LISTEN TAB: a FOLLOW lane PLAYS its partner's pattern, at the partner's rate — so its bar shows THAT (lit cells in the
         // partner's colour, faded; the comet sweeping at the partner's pace) and its bar gestures edit the PARTNER, the thing it
         // is following (2026-10-16). SHADOW keeps its footer-height partner-colour band (see `EuclidLaneBox`).
@@ -2707,7 +2717,7 @@ struct EuclideousPage: View {
                       strip: stripPlan, stripCurrent: { beat, _ in stripCurrentStep(tradedWithLane(idx), plan: stripPlan, beat: beat) },
                       // LANE STRIP BANDS ferry (2026-11-12): the plan lane's two parts' held notes — the strip's header/footer rings and cell rank outlines read them (note-on to note-off), mapping each onset to its step.
                       riffHeld: laneHeldNotes(tradedWithLane(idx), notes: false), stackHeld: laneHeldNotes(tradedWithLane(idx), notes: true), ccInput: ccInput,
-                      pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive,
+                      pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive, flipping: flipping,
                       // LANE SOLO (2026-10-21, §1): the step-count box's slot — same 44 × 44 frame, so the strip doesn't move — now holds the SOLO button. `stepCountBadge` (and its parameter) stay, unused here (§1.3): the
                       // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
                       // PLAY RIFF / PLAY STACK ferry (2026-11-07): the play tile → PLAY RIFF (lead), the SOLO tile's slot → PLAY STACK — same 44 × 44 frames, so the comet strip and lock badge don't move. Lane PLAY / lane SOLO leave the card (MIX keeps the strip play + per-part solo).
@@ -2790,7 +2800,7 @@ struct EuclideousPage: View {
         .allowsHitTesting(false)
     }
 
-    @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat, tabOverride: EuclideousLaneTab? = nil) -> some View {
+    @ViewBuilder private func laneCard(_ idx: Int, width: CGFloat, height: CGFloat, tabOverride: EuclideousLaneTab? = nil, flipping: Bool = false) -> some View {
         if euclideousRandomMode {
             euclideousRandomLaneCard(idx, width: width, height: height)
         } else if euclideousLockMode {
@@ -2815,7 +2825,7 @@ struct EuclideousPage: View {
         // LANE SOLO §6.1: a solo-silenced lane's card content draws at 42 % — except the SOLO button and the card's own ground / border.
         let soloDimContent = soloSilenced(idx)
         VStack(alignment: .leading, spacing: cardBodyGap) {
-            laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent)
+            laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent, flipping: flipping)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
@@ -2848,7 +2858,7 @@ struct EuclideousPage: View {
     private func mixStripFeed(_ idx: Int, plan prebuilt: EuclideousStripPlan? = nil) -> EuclideousMixStripFeed {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
         let planLane = tradedWithLane(idx)
-        let plan = prebuilt ?? laneStripPlan(planLane, planLane < lines.count ? phaseLines[planLane] : line)
+        let plan = prebuilt ?? laneStripPlan(planLane, planLane < lines.count ? phaseLines[planLane] : line, lightweight: true)   // PERF (2026-11-18): the feed uses only legs/cfg/timing — skip §5 + the VoiceOver phrase
         let followIdx = euclideousRhythmBorrowPartner(lane: idx, lines: phaseLines)
         let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: phaseLines) : nil
         let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
@@ -2933,8 +2943,10 @@ struct EuclideousPage: View {
         guard let start = cardFlipStart, euclideousCardFlipIsLive(since: Date().timeIntervalSince(start), reduceMotion: reduceMotion) else {
             return AnyView(pageTabCardView(pageTab, idx, width: width, height: height))
         }
-        let fromView = pageTabCardView(flipFrom ?? pageTab, idx, width: width, height: height)
-        let toView = pageTabCardView(pageTab, idx, width: width, height: height)
+        // PERF (2026-11-18): `flipping: true` freezes each card's strip TimelineView for the turn — both the old and the
+        // new tab content render for ~490 ms, so this halves the per-frame strip cost during the flip (the stutter Paul hit).
+        let fromView = pageTabCardView(flipFrom ?? pageTab, idx, width: width, height: height, flipping: true)
+        let toView = pageTabCardView(pageTab, idx, width: width, height: height, flipping: true)
         let reduce = reduceMotion
         return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { tl in
             let f = euclideousCardTurn(sinceTap: tl.date.timeIntervalSince(start), lane: idx, reduceMotion: reduce)
@@ -2947,10 +2959,10 @@ struct EuclideousPage: View {
         })
     }
     /// The content of one page tab: a front tab draws the lane card on that tab (the flip overrides `frontLaneTab`), MIX draws the card back.
-    private func pageTabCardView(_ tab: EuclideousPageTab, _ idx: Int, width: CGFloat, height: CGFloat) -> AnyView {
+    private func pageTabCardView(_ tab: EuclideousPageTab, _ idx: Int, width: CGFloat, height: CGFloat, flipping: Bool = false) -> AnyView {
         guard let front = tab.front else { return AnyView(laneCardBack(idx, width: width, height: height)) }   // MIX ROWS (2026-11-03): HIDDEN — MIX is the panel now (`mixPanelShows`); nothing reaches this branch (a change to or from MIX never flips), and the back's views stay compiled for the ferry that may want them
         let laneTab = EuclideousLaneTab(rawValue: front.rawValue) ?? .rhythm
-        return AnyView(laneCard(idx, width: width, height: height, tabOverride: laneTab))
+        return AnyView(laneCard(idx, width: width, height: height, tabOverride: laneTab, flipping: flipping))
     }
 
     /// The back (MIX): the same top row as the front, a "MIX" strip, then the riff row and the notes row — the VEL/GATE pad and the PITCH pad on the left, the part's live roll and its four output jacks on the right. Every edit goes through the
