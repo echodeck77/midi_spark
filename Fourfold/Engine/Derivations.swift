@@ -4731,7 +4731,7 @@ func euclideousHeaderGroupWidths(compact: Bool, buttonWidth: CGFloat = Euclideou
     // Sources panel v2 §4.5: NOTES = the SOURCES button (192) + sp8 + HOLD/LATCH (106) = 306 (was 426; the button
     // replaces the 184 source control + the 120 key pill). HOLD/LATCH stays (§8); nothing else in the group moves.
     return EuclideousHeaderGroupWidths(brand: brand, notes: buttonWidth + M.sp8 + M.holdLatchWidth,   // HEADER STATUS ferry (2026-11-15): NOTES = the (now content-hugging) button + sp8 + HOLD/LATCH
-                                       utilities: 4 * t + M.sp8 + HocketButtonMetrics.reservedWidth, gap: compact ? M.sp8 : M.sp16)
+                                       utilities: 4 * t, gap: compact ? M.sp8 : M.sp16)   // HOCKET RETIRED (2026-11-17): the HOCKET pill + its sp8 are gone — UTILITIES is just the four icons (presets · SWING · REEL · settings)
 }
 
 struct EuclideousHeaderGroupFrame: Equatable { var x: CGFloat; var width: CGFloat; var row: Int }

@@ -35,7 +35,7 @@ enum FourfoldAuditAllowList {
     ] + harmonyClipped.map { (type: "textClipped", label: $0, why: "INPUTS + HARMONY (2026-11-06): a small heavy tracked-mono caption (the scale chips, the grid's row labels, the pill, PICK / MIDI IN / OCTAVES, the INPUTS rows) — drawn whole in the screenshots; the same false-positive family as TRANS / GATE — confirm on device") }
     /// The labels the audit flags as clipped on the HARMONY page, its popovers and the INPUTS tab (all drawn whole in `testTheHarmonyPage` / `testTheInputsTab`'s pictures), plus the page chrome that every one of those screens also carries (RHYTHM … LATCH, accepted stale since earlier ferries).
     static let harmonyClipped = ["HARM MIN", "MELODY", "VII", "REST", "ii°", "III", "MAJOR", "LYDIAN", "WHOLE", "MINOR", "DORIAN", "MIN PENT", "MIXO", "COLOUR", "CHORDS", "♭II", "CHROMATIC", "TIME", "BLUES", "MIDI IN", "vii°", "PHRYGIAN",
-                                 "1/1", "BAR", "MEL MIN", "MAJ PENT", "IGNORE", "KEEP", "OCTAVES", "LOOP", "RESTART", "1/8", "ADVANCE", "1/2.", "1/4", "2/1", "1/2", "MIDI", "MUTE", "HOLD", "PASSES", "SOURCES", "RATCH", "ANSWER", "LATCH", "HOCKET", "RHYTHM", "EUCLID", "INPUTS"]
+                                 "1/1", "BAR", "MEL MIN", "MAJ PENT", "IGNORE", "KEEP", "OCTAVES", "LOOP", "RESTART", "1/8", "ADVANCE", "1/2.", "1/4", "2/1", "1/2", "MIDI", "MUTE", "HOLD", "PASSES", "SOURCES", "RATCH", "ANSWER", "LATCH", "RHYTHM", "EUCLID", "INPUTS"]   // HOCKET RETIRED (2026-11-17): the header pill is gone
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
     /// letters are the "–" placeholders). More than this on any screen is a new unlabelled piece of text.
     static let unlocatedElementDetectionCeiling = 6
@@ -44,7 +44,6 @@ enum FourfoldAuditAllowList {
     /// TAB STRIP (2026-10-29): the page has ONE tab now, so a screen that shows a lane tab shows it on all FOUR cards at once — the NOTES placeholders and the LISTEN panels' unlabelled text that one card reported (≤ 6) are reported four times (measured: NOTES 16 landscape / 24 portrait, LISTEN 8 / 10; the same kinds
     /// of text, no new label). So a lane-tab screen accepts four cards' worth.
     static func unlocatedElementDetectionCeilingFor(screen: String) -> Int {
-        if screen.contains("hocket popup") { return 80 }
         if screen.contains("harmony") { return 16 }   // HARMONY (2026-11-06): a dialog over the lane cards — two STEP STRIPS (each an ignored container whose inner column numbers the audit counts) + the two grids give ~9 unlocated; the covered lane cards accept via `underTheEditor`
         if screen.contains("restart editor") { return screen.hasPrefix("landscape") ? 56 : 66 }   // measured 2026-11-04: 46 landscape, 56 portrait (+10) — the modal editor hides the page behind it: its unlocated text is that page, and findings with an element are judged by frame (`modalFrame`)
         return screen.contains("lane tab") ? unlocatedElementDetectionCeiling * 4 + 4 : unlocatedElementDetectionCeiling   // four cards' worth + 4: the NOTES tab in portrait measured 24 on the iPad Pro 11 and 26 on the iPad mini (adversarial review, 2026-10-29)
@@ -125,12 +124,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
         modalFrame = dialog.frame
     }
     private func laneTab(_ prefix: String) -> (XCUIApplication) -> Void { { $0.els(prefix: prefix).element(boundBy: 0).tap() } }
-    /// HOCKET (2026-10-27): the pop-up with a lit rule (a RED RIFF / BLUE RIFF swap), so the chips, the cycle strip, the steppers and the routes all exist when the audit looks.
-    private func hocket(_ app: XCUIApplication) {
-        app.els(prefix: "Hocket").firstMatch.tap()
-        XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 4), "Hocket did not open")
-        for chip in ["Main: red riff, off", "Alt: blue riff, off"] { let c = app.buttons[chip]; if c.waitForExistence(timeout: 3) { c.tap() } }
-    }
+    // HOCKET RETIRED (2026-11-17): the `hocket` audit opener is removed with the two audits that used it.
     private func open(_ button: String, expect: String) -> (XCUIApplication) -> Void { { app in app.buttons[button].tap(); XCTAssertTrue(app.staticTexts[expect].waitForExistence(timeout: 4), "\(button) did not open") } }
     /// HARMONY (2026-11-06): open the page from the header button and put GRID 1 on ADVANCE LOOP with RESTART on (through its pill's popover), then close the popover, so every new control (the root keys, the scale chips, the pills, the step strips, the
     /// grids, PICK and MIDI IN) exists when the audit looks. The page is a dialog over the lane cards only (the header and tab strip stay live): `modalFrame` is its frame, so what lies outside it is the surrounding app.
@@ -178,7 +172,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditPresetsPortrait()  { screen("presets", landscape: false, open("Presets", expect: "PRESETS")) }
     func testAuditSwingPortrait()    { screen("swing", landscape: false, open("Swing, straight", expect: "SWING")) }
     func testAuditSettingsPortrait() { screen("settings", landscape: false) { $0.buttons["Settings"].tap() } }
-    func testAuditHocketPortrait()   { screen("hocket popup", landscape: false, hocket) }
+    // HOCKET RETIRED (2026-11-17): the hocket pop-up audits are removed (no button to open it).
     func testAuditRestartEditorPortrait() { screen("restart editor", landscape: false, restartEditor) }   // RESTART UNITS (2026-11-04)
 
     func testAuditMixPanelLandscape() { screen("mix panel", landscape: true) { $0.buttons["Mix"].tap() } }
@@ -191,7 +185,6 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditPresetsLandscape()  { screen("presets", landscape: true, open("Presets", expect: "PRESETS")) }
     func testAuditSwingLandscape()    { screen("swing", landscape: true, open("Swing, straight", expect: "SWING")) }
     func testAuditSettingsLandscape() { screen("settings", landscape: true) { $0.buttons["Settings"].tap() } }
-    func testAuditHocketLandscape()   { screen("hocket popup", landscape: true, hocket) }
     func testAuditRestartEditorLandscape() { screen("restart editor", landscape: true, restartEditor) }
 
     /// The one rule the audit cannot see: a control with NO label at all is invisible to VoiceOver. Every Button / Switch / Slider on every screen must have one.

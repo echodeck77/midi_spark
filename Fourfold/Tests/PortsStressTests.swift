@@ -1018,6 +1018,9 @@ final class PortsStressTests: XCTestCase {
         return nil
     }
 
+    // HOCKET RETIRED (2026-11-17): the rule-based hocket is gone from production (stripped at load, `normalizeHocketAtLoad`),
+    // but the engine remap is kept compiled and these stress tests still exercise it — they build a `PluginState` with rules
+    // directly and `SnapshotBuilder` (unchanged) feeds them, so the fuzz still passes lines between lanes as before.
     func testHocketRulesChangingMidRunNeverStrandANoteOrLeakAcrossLanes() {
         for s in 1...300 { if let msg = runHocketSession(seed: UInt64(s) &+ 500_000, windows: 120, rawGates: false) { XCTFail(msg); return } }
         XCTAssertGreaterThan(hocketPassedNotes, 100, "the fuzz must actually pass lines between lanes (\(hocketPassedNotes) passed notes)")   // PLAY AS ROWS (2026-11-11): the notes layer plays an arpeggio (fewer notes) so fewer are passed between lanes; this coverage floor was already too high (pre-existing: 175 at base, see the MUTE-roll note). The no-stranded-note invariants above are the real check.

@@ -127,61 +127,8 @@ final class FourfoldScreenshotTests: XCTestCase {
         }
     }
 
-    /// HOCKET (2026-10-27): the pop-up in the states the ferry's acceptance walks through — empty, a swap rule while playing (live chips), a pass rule, a second rule (taken chips with R tags), the lane cards after closing it.
-    func testTheHocketPopup() {
-        XCUIDevice.shared.orientation = .landscapeLeft
-        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
-        Thread.sleep(forTimeInterval: 2)
-        func step(_ el: XCUIElement, _ side: CGFloat = 0.5) { if el.waitForExistence(timeout: 3) { el.coordinate(withNormalizedOffset: CGVector(dx: side, dy: 0.5)).tap() } }
-        step(app.el("Hocket")); Thread.sleep(forTimeInterval: 1); attach("6-hocket-empty")
-        step(app.el("Main: red riff, off")); step(app.el("Alt: blue riff, off"))
-        step(app.el("Main length"), 0.9); step(app.el("Main length"), 0.9)
-        Thread.sleep(forTimeInterval: 1.2); attach("6-hocket-swap-live")
-        step(app.el("Pass the line")); step(app.el("Main: red notes, off")); step(app.el("Main: blue notes, off")); step(app.el("Alt: blue notes, off")); step(app.el("Alt: red notes, off"))
-        Thread.sleep(forTimeInterval: 1.2); attach("6-hocket-pass-crossing")
-        step(app.el("Add a rule")); step(app.el("Main: amber notes, off")); step(app.el("Alt: green notes, off"))
-        Thread.sleep(forTimeInterval: 1.2); attach("6-hocket-rule-2-taken")
-        step(app.el("Close")); Thread.sleep(forTimeInterval: 1.5); attach("6-hocket-lane-cards")
-        // reopen on the narrowest-ish layout: portrait
-        XCUIDevice.shared.orientation = .portrait; Thread.sleep(forTimeInterval: 2)
-        step(app.el("Hocket")); Thread.sleep(forTimeInterval: 1); attach("6-hocket-portrait")
-    }
-
-    /// HOCKET §4.4 (review 2026-10-27): order badges on a group of 3+ — the fourth-column chips' badges sit beyond the chip's right edge and used to be clipped by the scroll viewport.
-    func testTheHocketBadges() {
-        XCUIDevice.shared.orientation = .landscapeLeft
-        let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()
-        Thread.sleep(forTimeInterval: 1.5)
-        func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
-        step(app.el("Hocket"))
-        for chip in ["Main: red riff, off", "Main: blue riff, off", "Main: amber riff, off", "Main: green riff, off", "Main: green notes, off", "Main: amber notes, off", "Alt: red notes, off", "Alt: blue notes, off", "Alt: green notes, off"] { step(app.el(chip)) }
-        Thread.sleep(forTimeInterval: 1); attach("6-hocket-badges")
-    }
-
-    /// HOCKET §3: the DELETE RULE popover after a hold on rule 2's tab, with a taken chip behind it.
-    func testTheHocketDeletePopover() {
-        XCUIDevice.shared.orientation = .landscapeLeft
-        let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()
-        Thread.sleep(forTimeInterval: 1.5)
-        func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
-        step(app.el("Hocket")); step(app.el("Main: red riff, off")); step(app.el("Alt: blue riff, off")); step(app.el("Add a rule"))
-        let tab2 = app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", "Rule 2")).firstMatch
-        if tab2.waitForExistence(timeout: 3) { tab2.press(forDuration: 0.8) }
-        Thread.sleep(forTimeInterval: 1); attach("6-hocket-delete-popover")
-    }
-
-    /// HOCKET §9: a riff crossing on BARS (RED RIFF and BLUE RIFF trade places every other bar) with the pop-up closed, shot across a few bars so both turns show on the lane cards' glyphs, MIX labels and strips.
-    func testTheHocketGlyphStates() {
-        XCUIDevice.shared.orientation = .landscapeLeft
-        let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()
-        Thread.sleep(forTimeInterval: 2)
-        func step(_ el: XCUIElement, _ side: CGFloat = 0.5) { if el.waitForExistence(timeout: 3) { el.coordinate(withNormalizedOffset: CGVector(dx: side, dy: 0.5)).tap() } }
-        step(app.el("Hocket")); Thread.sleep(forTimeInterval: 0.8)
-        step(app.el("Pass the line")); step(app.el("Bars"))
-        step(app.el("Main: red riff, off")); step(app.el("Main: blue riff, off")); step(app.el("Alt: blue riff, off")); step(app.el("Alt: red riff, off"))
-        step(app.el("Close")); Thread.sleep(forTimeInterval: 0.6)
-        for i in 1...6 { attach("7-glyphs-\(i)"); Thread.sleep(forTimeInterval: 1.3) }
-    }
+    // HOCKET RETIRED (2026-11-17, Paul: "I now achieve the same thing with ALT"): the four screenshot flows for the HOCKET
+    // pop-up and its glyph states are removed — there is no button to open it. The pure/engine hocket code stays compiled.
 
     /// ANSWER ferry (2026-11-02): the ANSWER tab bare, then with RHYTHM / PITCH (SHADOW, the panel) / TRADE all on and cycling (the worst-case body), the RHYTHM tab with the strip over the borrowed card, the same lane with CYCLE (a live body), and
     /// the POOL tab — landscape, then portrait. The pictures the layout is judged against.

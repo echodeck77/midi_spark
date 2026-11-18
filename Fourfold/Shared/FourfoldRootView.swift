@@ -755,7 +755,7 @@ struct FourfoldRootView: View {
                                 noteSource: euclideousNoteSource, sourcePlan: euclideousSourcePlan,
                                 riffs: euclideousRiffs, activeRiff: euclideousActiveRiff,
                                 lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
-                                holdLatchMode: euclideousHoldLatchMode, hocketRules: hocketRules, emitterRatchets: emitterRatchets,
+                                holdLatchMode: euclideousHoldLatchMode, hocketRules: [], emitterRatchets: emitterRatchets,   // HOCKET RETIRED (2026-11-17): the page is fed no rules — no header button, no pop-up, no glyph states (the stored field still round-trips; the engine is inert via SnapshotBuilder)
                                 emitterVelocities: emitterVelocities, emitterCCs: emitterCCs,
                                 outputMutes: euclideousOutputMutes,
                                 riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff, canonUnit: euclideousCanonUnit,

@@ -49,12 +49,7 @@ final class FourfoldStackBudgetTests: XCTestCase {
             for label in ["Grid 1 timing", "Edit pick notes", "Colour rows"] { let c = app.el(label); if c.waitForExistence(timeout: 3) { c.tap(); Thread.sleep(forTimeInterval: 0.4) } }
             let close = app.buttons["Close harmony"]; if close.waitForExistence(timeout: 3) { close.tap() }
         }
-        let hocket = app.els(prefix: "Hocket").firstMatch                    // HOCKET (2026-10-27): the pop-up with a lit rule is the deepest new build chain
-        if hocket.waitForExistence(timeout: 3) {
-            hocket.tap()
-            for chip in ["Main: red riff, off", "Alt: blue riff, off"] { let c = app.buttons[chip]; if c.waitForExistence(timeout: 3) { c.tap() } }
-            Thread.sleep(forTimeInterval: 0.6)
-        }
+        // HOCKET RETIRED (2026-11-17): the pop-up probe is removed (no button to open it; the pop-up is no longer mounted).
         let kb = deepest(app)
         print("STACK PROBE deepest = \(kb) KB (budget \(Self.budgetKB) KB)")
         XCTAssertGreaterThan(kb, 0, "the probe saw nothing — is it wired?")

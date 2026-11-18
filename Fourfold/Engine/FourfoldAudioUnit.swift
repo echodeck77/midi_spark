@@ -439,6 +439,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
                          options: AudioComponentInstantiationOptions = []) throws {
         var initDoc = PluginState.makeInit()   // ONE build (Paul 2026-09-11): reuse it for both the document and the initial snapshot (was two makeInit calls at instantiation)
         initDoc.normalizeSourcesAtLoad()       // INPUTS + HARMONY §1.3: (not inside `makeInit` — the factory presets build on it and replace the lanes)
+        initDoc.normalizeHocketAtLoad()        // HOCKET RETIRED (2026-11-17): no production document hockets
         document = initDoc
         store = SnapshotStore(initial: SnapshotBuilder.build(from: initDoc, generation: 1))
         try super.init(componentDescription: componentDescription, options: options)
@@ -568,6 +569,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         editDocument {
             $0 = fp.make(); $0.migrateLegacyRoutingIfNeeded()   // migrate is a no-op for v4 builders
             $0.normalizeSourcesAtLoad()                          // INPUTS + HARMONY §1.3: a factory preset opens with its lanes' own sources, the switches true
+            $0.normalizeHocketAtLoad()                           // HOCKET RETIRED (2026-11-17)
             $0.euclideousMidiInChannelMask = keepMidiInMask
             $0.ignoreAllNotesOff = keepIgnoreAllNotesOff
             $0.busChannels = keepBusChannels
@@ -768,6 +770,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
                 doc.normalizeChordSetsAtLoad()       // TWO CHORD GRIDS: an old document's four progressions become two (the playing one is grid 1)
                 doc.normalizeSoloAtLoad()            // ONE SOLO: an old document's lane solo becomes its two part bits
                 doc.normalizeSourcesAtLoad()         // INPUTS + HARMONY §1.3: lane chips take the old global switches; the switches read true
+                doc.normalizeHocketAtLoad()          // HOCKET RETIRED (2026-11-17): an old session's stored rules are dropped — no document hockets
                 document = doc
                 clearPendingBuild()   // CR-10/K2: the loaded doc carries its OWN BUILD state (via consume*) — drop the outgoing session's stale pending so the next save doesn't re-encode it over the restored doc
                 kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host

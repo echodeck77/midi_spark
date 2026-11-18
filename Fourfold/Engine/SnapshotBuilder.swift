@@ -146,7 +146,7 @@ enum SnapshotBuilder {
                                                                               riffColumns: doc.polyRiffSnapResolved.on ? EuclideousPolyMetrics.columns : 8)
                     sc.procs[0].polyRiff = doc.polyRiffSnapResolved   // POLY RIFF (2026-10-29): page-level, no MachineParams hop — fixed-size value data for the render thread
                     sc.procs[0].euclideousFX = doc.euclideousFXResolved   // FX TAB (2026-10-18): page-level, no MachineParams hop — same shape as the sequencer fields below
-                    sc.procs[0].hocketRules = HocketRulesSnap(rules: doc.hocketRulesResolved)   // HOCKET (2026-10-27): page-level, no MachineParams hop — fixed-size value data for the render thread
+                    sc.procs[0].hocketRules = HocketRulesSnap(rules: doc.hocketRulesResolved)   // HOCKET RETIRED (2026-11-17): production documents carry no rules (stripped at load, `normalizeHocketAtLoad`), so this is empty there; the engine path + the direct-injection tests (HocketRouterTests) stay intact
                     sc.procs[0].emitterRatchets = EmitterRatchetSnap(doc.euclideousEmitterRatchetsResolved, countsSteps: doc.fxCountsResolved == .steps)   // EMITTER RATCHET (2026-10-28): page-level, no MachineParams hop; the Euclid masks are built here, on the main thread
                     sc.procs[0].emitterVelocities = EmitterVelocitySnap(doc.euclideousEmitterVelocitiesResolved)   // EMITTER VELOCITY (2026-11-03): page-level per-output velocity accents; the Euclid masks are built here, on the main thread
                     sc.procs[0].emitterCCs = EmitterCCSnap(doc.euclideousEmitterCCsResolved)   // EMITTER CC (CC tab, Nov 2026): page-level per-output CC emitters (no Euclid pattern of their own)

@@ -1820,14 +1820,7 @@ struct EuclideousPage: View {
                     .padding(.horizontal, sp16)
                     .zIndex(5)
                 }
-                // HOCKET (2026-10-27) §2.1: the pop-up opens the way the settings sheet does — the same anchoring and scrim — and opening one closes the other.
-                if hocketPopupOpen {
-                    let pg = pageGeometry(box)
-                    HocketPopup(containerW: pg.containerW, containerH: box.height, headerBottomY: HM.topMargin + pg.hdr.height,
-                                rules: hocketRules, showing: $hocketShowing, live: hocketLive, onEdit: onEditHocket, onClose: { hocketPopupOpen = false })
-                        .padding(.horizontal, sp16)
-                        .zIndex(5)
-                }
+                // HOCKET RETIRED (2026-11-17, Paul: "I now achieve the same thing with ALT"): the pop-up is no longer mounted (there is no button to open it; `hocketPopupOpen` can never be true). `HocketPopup` stays compiled, unmounted.
                 // PLAY AS SEQUENCE (2026-11-08) §3: the 13-mode pop-up, opened by a chip. The scrim closes it; choosing a tile sets the chip's mode and closes.
                 if let t = playAsPopup {
                     Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { playAsPopup = nil }.zIndex(4)
@@ -2284,8 +2277,7 @@ struct EuclideousPage: View {
     private func headerUtilities(_ layout: EuclideousHeaderLayout) -> some View {
         let target = layout.compact ? HM.compactTarget : HM.target
         return HStack(spacing: 0) {
-            hocketHeaderButton
-            Color.clear.frame(width: HM.sp8, height: 1)
+            // HOCKET RETIRED (2026-11-17, Paul): the HOCKET pill + its sp8 are gone — UTILITIES is now the four icons. `hocketHeaderButton` stays compiled, unmounted.
             Image(systemName: "folder").font(.system(size: 18, weight: .medium)).foregroundColor(headerDim)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
                 .onTapGesture { settingsOpen = false; swingPopupOpen = false; harmonyOpen = false; hocketPopupOpen = false; onOpenPresets() }   // §2.1: opening it closes the other overlays first

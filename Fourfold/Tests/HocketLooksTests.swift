@@ -30,9 +30,9 @@ final class HocketLooksTests: XCTestCase {
         XCTAssertEqual(HocketButtonMetrics.reservedWidth, HocketButtonMetrics.width(litRules: 4), "the header reserves the \"HOCKET · 4\" width")
         XCTAssertEqual(HocketButtonMetrics.reservedWidth, 92)
         XCTAssertEqual(HocketButtonMetrics.target, 44); XCTAssertEqual(HocketButtonMetrics.height, 30); XCTAssertEqual(HocketButtonMetrics.radius, 7)
-        // the header's utilities group carries it plus the sp8 before the presets button, in every layout
-        XCTAssertEqual(euclideousHeaderGroupWidths(compact: false).utilities, 4 * 44 + 8 + 92)
-        XCTAssertEqual(euclideousHeaderGroupWidths(compact: true).utilities, 4 * 36 + 8 + 92)
+        // HOCKET RETIRED (2026-11-17): the utilities group is just the four icons now — the HOCKET pill + its sp8 left the header (HocketButtonMetrics stays for the unmounted button).
+        XCTAssertEqual(euclideousHeaderGroupWidths(compact: false).utilities, 4 * 44)
+        XCTAssertEqual(euclideousHeaderGroupWidths(compact: true).utilities, 4 * 36)
     }
 
     // MARK: - test 13 — the rule tabs and the on/off button

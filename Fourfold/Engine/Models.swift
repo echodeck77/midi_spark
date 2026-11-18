@@ -4262,6 +4262,12 @@ struct PluginState: Codable, Equatable {
         euclideousPartSoloMask = folded == 0 ? nil : folded
         euclideousSoloMask = nil
     }
+    /// HOCKET RETIRED (2026-11-17, Paul: "I now achieve the same thing with ALT"): the rule-based hocket is gone from the UI and
+    /// no production document hockets. Strip an old session / preset's stored rules at load so it plays without them (a one-way
+    /// retirement migration, like the pre-rename reset). The engine path + its direct-injection tests are untouched — this is
+    /// the production-only point, so `SnapshotBuilder` keeps feeding `doc.hocketRulesResolved` (empty here) and the engine tests
+    /// that build a `PluginState` with rules directly still exercise the kept-compiled remap. Run beside `normalizeSoloAtLoad`.
+    mutating func normalizeHocketAtLoad() { hocketRules = nil }
     /// INPUTS + HARMONY (2026-11-06, §1.3): the four global SOURCE switches (MIDI IN · CHORDS · PICK · KEY) are gone from the UI — a lane's sources are exactly its own SOURCES chips. SOUND-PRESERVING at load: each lane's chip becomes chip AND
     /// the matching switch of the RESOLVED plan (the old engine ANDed them), then the four switches are written true (the fields stay decodable; nothing writes them again). Not an undo step. Idempotent and `==`-neutral for a document whose switches
     /// already resolve all true (the function returns without touching it); materialises the four default lines when a switch was off and the document holds none. Run at every document entry: the session setter, `PresetStore.decode`,
