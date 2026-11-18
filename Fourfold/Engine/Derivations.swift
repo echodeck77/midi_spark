@@ -11971,6 +11971,9 @@ enum EmitterRatchetField: Int, CaseIterable {
         var out = r
         let c = max(range(in: r).lowerBound, min(range(in: r).upperBound, v))
         switch self { case .steps: out.steps = c; case .hits: out.hits = c; case .offset: out.offset = c; case .chance: out.chance = c; case .strikes: out.strikes = c; case .restart: out.restartBars = c }
+        // EMITTER STRIP GESTURES (2026-11-18): a STEPS/HITS/OFFSET edit (drag, pinch, double-tap reset or VoiceOver swipe)
+        // REGENERATES the Euclidean pattern — the "Simpler" model's "last gesture wins". CHANCE/STRIKES/RESTART don't touch the pattern.
+        if self == .steps || self == .hits || self == .offset { out.customMask = nil }
         return out.normalized()
     }
     /// §6.2 — a double tap resets the cell to its default; HITS and OFFSET are clamped by STEPS (§1.3).
@@ -12005,9 +12008,51 @@ enum EmitterVelocityField: Int, CaseIterable {
         var out = v
         let c = max(range(in: v).lowerBound, min(range(in: v).upperBound, x))
         switch self { case .steps: out.steps = c; case .hits: out.hits = c; case .offset: out.offset = c; case .hitVel: out.hitVel = c; case .missVel: out.missVel = c }
+        if self == .steps || self == .hits || self == .offset { out.customMask = nil }   // EMITTER STRIP GESTURES: a pattern-field edit regenerates Euclidean (HIT VEL / MISS VEL don't touch the pattern)
         return out.normalized()
     }
     func reset(in v: EmitterVelocity) -> EmitterVelocity { setting(defaultValue, in: v) }
+}
+
+// MARK: - EMITTER STRIP GESTURES (2026-11-18) — the hand-edited (custom-mask) pattern, shared by the engine and every display
+
+/// The 16-bit pattern an emitter ratchet ACTUALLY plays: the hand-edited `customMask` if a step has been tapped, else
+/// the Euclidean STEPS/HITS/OFFSET pattern. ONE function — the snapshot (what sounds) and every strip display read it,
+/// so a hand-edit can never show one pattern and sound another (the project's #1 bug class).
+func emitterRatchetEffectiveMask(_ r: EmitterRatchet) -> UInt16 {
+    r.customMask ?? emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: r.offset)
+}
+/// The OFFSET-0 companion (the pre-OFFSET hit ordinal for PER HIT / RANGE counts). A hand-edit bakes the offset into its
+/// mask, so "no offset" IS the custom mask.
+func emitterRatchetEffectiveMaskNoOffset(_ r: EmitterRatchet) -> UInt16 {
+    r.customMask ?? emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: 0)
+}
+/// The velocity accent's effective pattern — same rule.
+func emitterVelocityEffectiveMask(_ v: EmitterVelocity) -> UInt16 {
+    v.customMask ?? emitterRatchetPatternMask(steps: v.steps, hits: v.hits, offset: v.offset)
+}
+
+/// Toggle step `i`'s hit in an emitter ratchet — a hand-edit (`customMask`), initialised from the current effective
+/// pattern on the first tap; HITS follows the mask's popcount so the readout stays honest. `i` outside 0…STEPS−1 is a
+/// no-op (a tap past the active length). A later HITS/OFFSET/STEPS drag clears `customMask` (regenerates Euclidean).
+func emitterRatchetToggleStep(_ r: EmitterRatchet, step i: Int) -> EmitterRatchet {
+    let n = max(EmitterRatchet.minSteps, min(EmitterRatchet.maxSteps, r.steps))
+    guard i >= 0, i < n else { return r }
+    let m = emitterRatchetEffectiveMask(r) ^ (UInt16(1) << UInt16(i))
+    var out = r
+    out.customMask = m
+    out.hits = (0..<n).reduce(0) { $0 + (((m >> UInt16($1)) & 1) != 0 ? 1 : 0) }
+    return out.normalized()
+}
+/// The velocity sibling of `emitterRatchetToggleStep`.
+func emitterVelocityToggleStep(_ v: EmitterVelocity, step i: Int) -> EmitterVelocity {
+    let n = max(EmitterVelocity.minSteps, min(EmitterVelocity.maxSteps, v.steps))
+    guard i >= 0, i < n else { return v }
+    let m = emitterVelocityEffectiveMask(v) ^ (UInt16(1) << UInt16(i))
+    var out = v
+    out.customMask = m
+    out.hits = (0..<n).reduce(0) { $0 + (((m >> UInt16($1)) & 1) != 0 ? 1 : 0) }
+    return out.normalized()
 }
 
 /// The four per-output velocity counters — the trimmed sibling of `EmitterRatchetCounter`: a count per output, a per-output same-sample cache (two lanes on one output at one sample get the SAME pattern index and count once), and the

@@ -46,8 +46,8 @@ func euclideousRatchetStripV2(size: CGSize, r: EmitterRatchet, current: Int, exp
     out.countRowH = perHit ? 14 : 0                                          // §4.6
     let markAreaH = size.height - out.countRowH
     let innerW = cellW - 2 * padX, innerH = markAreaH - 2 * padY
-    let mask = emitterRatchetPatternMask(steps: n, hits: r.hits, offset: r.offset)
-    let maskNoOffset = emitterRatchetPatternMask(steps: n, hits: r.hits, offset: 0)
+    let mask = emitterRatchetEffectiveMask(r)                   // EMITTER STRIP GESTURES: show the hand-edited pattern the engine plays
+    let maskNoOffset = emitterRatchetEffectiveMaskNoOffset(r)
     func slotX(_ i: Int) -> CGFloat {   // the +3 sits AFTER slots 3/7/11 (i.e. before 4/8/12)
         var x: CGFloat = 0
         var s = 0

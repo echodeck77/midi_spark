@@ -44,6 +44,54 @@ final class EmitterRatchetTests: XCTestCase {
         XCTAssertEqual(EmitterRatchetCfg(EmitterRatchet()), EmitterRatchetCfg(), "the default document value and the inert default agree")
     }
 
+    // MARK: - EMITTER STRIP GESTURES (2026-11-18) — the hand-edited custom mask (tap-toggle, clear-on-drag, effective mask, Codable)
+
+    func testCustomMaskDefaultsToNilSoEverythingIsByteIdentical() {
+        XCTAssertNil(EmitterRatchet().customMask)
+        XCTAssertEqual(emitterRatchetEffectiveMask(EmitterRatchet()), emitterRatchetPatternMask(steps: 8, hits: 3, offset: 0))
+        XCTAssertEqual(emitterRatchetEffectiveMaskNoOffset(EmitterRatchet(on: true, steps: 5, hits: 2, offset: 3)), emitterRatchetPatternMask(steps: 5, hits: 2, offset: 0))
+        XCTAssertEqual(EmitterRatchetCfg(EmitterRatchet()).patternMask, 0b0100_1001, "nil custom mask ⇒ the Euclidean default, byte-identical")
+    }
+    func testTappingAStepTogglesItsBitAndTracksHits() {
+        var r = EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0)   // 0b0100_1001 = steps 0, 3, 6
+        XCTAssertEqual(emitterRatchetEffectiveMask(r), 0b0100_1001)
+        r = emitterRatchetToggleStep(r, step: 1)    // turn step 1 ON
+        XCTAssertEqual(r.customMask, 0b0100_1011)
+        XCTAssertEqual(r.hits, 4, "HITS follows the mask's popcount so the readout stays honest")
+        XCTAssertEqual(emitterRatchetEffectiveMask(r), 0b0100_1011)
+        XCTAssertEqual(EmitterRatchetCfg(r).patternMask, 0b0100_1011, "the engine plays the hand-edited mask")
+        r = emitterRatchetToggleStep(r, step: 0)    // turn step 0 OFF
+        XCTAssertEqual(r.customMask, 0b0100_1010)
+        XCTAssertEqual(r.hits, 3)
+    }
+    func testTapPastStepsIsANoOp() {
+        let r = EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0)
+        XCTAssertEqual(emitterRatchetToggleStep(r, step: 8), r, "a step ≥ STEPS does nothing")
+        XCTAssertEqual(emitterRatchetToggleStep(r, step: -1), r)
+    }
+    func testAPatternFieldEditRegeneratesEuclideanAndClearsTheHandEdit() {
+        let edited = emitterRatchetToggleStep(EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0), step: 1)
+        XCTAssertNotNil(edited.customMask)
+        XCTAssertNil(EmitterRatchetField.hits.setting(5, in: edited).customMask, "a HITS edit regenerates Euclidean")
+        XCTAssertEqual(emitterRatchetEffectiveMask(EmitterRatchetField.hits.setting(5, in: edited)), emitterRatchetPatternMask(steps: 8, hits: 5, offset: 0))
+        XCTAssertNil(EmitterRatchetField.offset.setting(2, in: edited).customMask, "OFFSET clears it")
+        XCTAssertNil(EmitterRatchetField.steps.setting(10, in: edited).customMask, "STEPS clears it")
+        XCTAssertNotNil(EmitterRatchetField.chance.setting(50, in: edited).customMask, "CHANCE keeps the hand-edit (not a pattern field)")
+        XCTAssertNotNil(EmitterRatchetField.strikes.setting(4, in: edited).customMask, "STRIKES keeps it")
+        XCTAssertNotNil(EmitterRatchetField.restart.setting(4, in: edited).customMask, "RESTART keeps it")
+    }
+    func testCustomMaskRoundTripsThroughCodable() throws {
+        let r = emitterRatchetToggleStep(EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0), step: 1)
+        let back = try JSONDecoder().decode(EmitterRatchet.self, from: JSONEncoder().encode(r))
+        XCTAssertEqual(back.customMask, r.customMask); XCTAssertEqual(back.hits, r.hits)
+        XCTAssertNil(try JSONDecoder().decode(EmitterRatchet.self, from: JSONEncoder().encode(EmitterRatchet())).customMask, "a default ratchet encodes no custom mask")
+    }
+    func testNormalizedClampsTheMaskToTheStepsLowBits() {
+        var r = EmitterRatchet(on: true, steps: 4, hits: 2, offset: 0)
+        r.customMask = 0b1111_1111   // bits ≥ STEPS must drop
+        XCTAssertEqual(r.normalized().customMask, 0b1111)
+    }
+
     // MARK: - §1.2 / §1.3 — ranges, defaults, and STEPS dragging HITS and OFFSET down in the same write
 
     func testTheDefaultsAreTheFerrysAndEveryFieldClamps() {

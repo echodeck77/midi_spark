@@ -2150,6 +2150,10 @@ struct EmitterRatchet: Equatable {
     var bend: Int? = nil                     // §1.4 −100…+100 in 10s, default 0 (positive RUSH, negative DRAG)
     var vel: EmitterStrikeVel? = nil         // §1.5 default FLAT
     var depth: Int? = nil                    // §1.5 0…100 in 5s, default 50
+    // EMITTER STRIP GESTURES (2026-11-18) — a HAND-EDITED pattern: nil ⇒ the Euclidean STEPS/HITS/OFFSET pattern (byte-
+    // identical to every pre-feature document); set by a TAP on a step, offset baked in. A hits/offset/steps drag/pinch
+    // CLEARS it back to Euclidean (the "Simpler" model — last gesture wins). Read via `emitterRatchetEffectiveMask`.
+    var customMask: UInt16? = nil
 
     static let minSteps = 2, maxSteps = 16, minStrikes = 2, maxStrikes = 4, chanceStep = 5, maxRestart = 16
     static let bendStep = 10, depthStep = 5
@@ -2218,11 +2222,14 @@ struct EmitterRatchet: Equatable {
         if let b = countsBits { r.countsBits = (b & 0b111) == 0 ? nil : (b & 0b111) }
         if let v = bend { r.bend = max(-100, min(100, Int((Double(v) / 10).rounded()) * 10)) }
         if let v = depth { r.depth = max(0, min(100, Int((Double(v) / 5).rounded()) * 5)) }
+        // EMITTER STRIP GESTURES: keep only the STEPS low bits (bits ≥ STEPS can never sound), defensive — a tap only
+        // sets bits < STEPS and a steps edit clears the mask, so this is a no-op for any mask this app writes.
+        if let m = customMask { r.customMask = m & UInt16(truncatingIfNeeded: (1 << r.steps) - 1) }
         return r
     }
 }
 extension EmitterRatchet: Codable {
-    enum CodingKeys: String, CodingKey { case on, steps, hits, offset, chance, strikes, restartBars, mode, rangeMin, rangeMax, hitCountBits, gap, end, countsBits, perHit, length, bend, vel, depth }
+    enum CodingKeys: String, CodingKey { case on, steps, hits, offset, chance, strikes, restartBars, mode, rangeMin, rangeMax, hitCountBits, gap, end, countsBits, perHit, length, bend, vel, depth, customMask }
     /// Never throws on content: an unreadable key keeps its default, numbers clamp (§1.2). A pre-2026-11-03 document has no `restartBars` key ⇒ FREE, so it loads and sounds exactly as before.
     init(from decoder: Decoder) throws {
         self.init()
@@ -2249,6 +2256,7 @@ extension EmitterRatchet: Codable {
         bend = int(.bend)
         vel = (try? c.decodeIfPresent(EmitterStrikeVel.self, forKey: .vel)) ?? nil
         depth = int(.depth)
+        customMask = (try? c.decodeIfPresent(UInt16.self, forKey: .customMask)) ?? nil   // absent ⇒ nil ⇒ Euclidean (pre-feature byte-identical)
         self = normalized()
     }
     func encode(to encoder: Encoder) throws {
@@ -2260,6 +2268,7 @@ extension EmitterRatchet: Codable {
         // RATCH v2 §1.6: write the new fields when set (nil ⇒ absent ⇒ derives on reload — so an untouched ratchet stays byte-identical).
         try c.encodeIfPresent(countsBits, forKey: .countsBits); try c.encodeIfPresent(perHit, forKey: .perHit); try c.encodeIfPresent(length, forKey: .length)
         try c.encodeIfPresent(bend, forKey: .bend); try c.encodeIfPresent(vel, forKey: .vel); try c.encodeIfPresent(depth, forKey: .depth)
+        try c.encodeIfPresent(customMask, forKey: .customMask)   // nil ⇒ absent ⇒ Euclidean on reload (untouched ratchet stays byte-identical)
     }
 }
 
@@ -2299,6 +2308,7 @@ struct EmitterVelocity: Equatable {
     var offset = 0          // 0…steps − 1
     var hitVel = 0          // −63…+63, the signed offset on a pattern HIT step
     var missVel = 0         // −63…+63, the signed offset on a rest step
+    var customMask: UInt16? = nil   // EMITTER STRIP GESTURES (2026-11-18): a hand-edited pattern (nil ⇒ Euclidean); see EmitterRatchet.customMask
 
     static let minSteps = 2, maxSteps = 16, maxVel = 63
     var isDefault: Bool { self == EmitterVelocity() }
@@ -2311,11 +2321,12 @@ struct EmitterVelocity: Equatable {
         r.offset = max(0, min(r.steps - 1, offset))
         r.hitVel = max(-Self.maxVel, min(Self.maxVel, hitVel))
         r.missVel = max(-Self.maxVel, min(Self.maxVel, missVel))
+        if let m = customMask { r.customMask = m & UInt16(truncatingIfNeeded: (1 << r.steps) - 1) }   // defensive, as in EmitterRatchet
         return r
     }
 }
 extension EmitterVelocity: Codable {
-    enum CodingKeys: String, CodingKey { case on, steps, hits, offset, hitVel, missVel }
+    enum CodingKeys: String, CodingKey { case on, steps, hits, offset, hitVel, missVel, customMask }
     /// Never throws on content: an unreadable key keeps its default, numbers clamp. A pre-VELOCITY document has none of these keys ⇒ off at 0, so it loads and sounds exactly as before.
     init(from decoder: Decoder) throws {
         self.init()
@@ -2327,12 +2338,14 @@ extension EmitterVelocity: Codable {
         if let n = int(.offset) { offset = n }
         if let n = int(.hitVel) { hitVel = n }
         if let n = int(.missVel) { missVel = n }
+        customMask = (try? c.decodeIfPresent(UInt16.self, forKey: .customMask)) ?? nil
         self = normalized()
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(on, forKey: .on); try c.encode(steps, forKey: .steps); try c.encode(hits, forKey: .hits); try c.encode(offset, forKey: .offset)
         try c.encode(hitVel, forKey: .hitVel); try c.encode(missVel, forKey: .missVel)
+        try c.encodeIfPresent(customMask, forKey: .customMask)
     }
 }
 

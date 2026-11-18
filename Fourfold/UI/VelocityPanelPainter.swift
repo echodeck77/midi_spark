@@ -144,7 +144,7 @@ struct EuclideousVelocityPanel: View {
         typealias P = EmitterRatchetPalette
         typealias M = EmitterRatchetMetrics
         let v = velocities[x]
-        let mask = emitterRatchetPatternMask(steps: v.steps, hits: v.hits, offset: v.offset)
+        let mask = emitterVelocityEffectiveMask(v)   // EMITTER STRIP GESTURES: show the hand-edited pattern the accent uses
         let slotsLocal = layout.slots.map { CGRect(x: $0.minX - layout.strip.minX, y: 0, width: $0.width, height: $0.height) }
         let current = live.index(x) ?? -1
         let accent = accents[max(0, min(accents.count - 1, x))]
@@ -174,7 +174,8 @@ struct EuclideousVelocityPanel: View {
                             onHitsTarget:   { first, t in onEdit(first) { $0[x] = EmitterVelocityField.hits.setting(t, in: $0[x]) } },
                             onOffsetTarget: { first, t in onEdit(first) { $0[x] = EmitterVelocityField.offset.setting(t, in: $0[x]) } },
                             onSteps:        { first, d in onEdit(first) { $0[x] = EmitterVelocityField.steps.setting($0[x].steps + d, in: $0[x]) } },
-                            onDragEnd: onDragEnd
+                            onDragEnd: onDragEnd,
+                            onTapStep:      { i in onEdit(true) { $0[x] = emitterVelocityToggleStep($0[x], step: i) } }   // a TAP toggles one step (hand-edit)
                         )
                         .frame(width: stripW, height: M.stripHeight)
                     )

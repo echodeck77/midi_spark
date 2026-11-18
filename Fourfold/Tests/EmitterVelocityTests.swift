@@ -28,6 +28,33 @@ final class EmitterVelocityTests: XCTestCase {
         XCTAssertEqual([s.steps, s.hits, s.offset], [5, 5, 4], "HITS ≤ STEPS and OFFSET ≤ STEPS − 1, at once")
         XCTAssertEqual([s.hitVel, s.missVel], [20, -10], "the offsets are untouched")
     }
+    // MARK: - EMITTER STRIP GESTURES (2026-11-18) — the hand-edited custom mask (symmetric with the ratchet's)
+
+    func testCustomMaskTapToggleClearOnDragAndEngineRead() {
+        XCTAssertNil(EmitterVelocity().customMask)
+        XCTAssertEqual(emitterVelocityEffectiveMask(EmitterVelocity()), emitterRatchetPatternMask(steps: 8, hits: 3, offset: 0))
+        XCTAssertEqual(EmitterVelocityCfg(EmitterVelocity()).patternMask, 0b0100_1001, "nil ⇒ byte-identical Euclidean")
+        var v = EmitterVelocity(on: true, steps: 8, hits: 3, offset: 0)   // 0b0100_1001
+        v = emitterVelocityToggleStep(v, step: 1)
+        XCTAssertEqual(v.customMask, 0b0100_1011); XCTAssertEqual(v.hits, 4)
+        XCTAssertEqual(EmitterVelocityCfg(v).patternMask, 0b0100_1011, "the accent uses the hand-edited pattern")
+        XCTAssertEqual(emitterVelocityToggleStep(v, step: 8), v, "a tap past STEPS is a no-op")
+        XCTAssertNil(EmitterVelocityField.hits.setting(5, in: v).customMask, "a HITS edit regenerates Euclidean")
+        XCTAssertNil(EmitterVelocityField.offset.setting(2, in: v).customMask)
+        XCTAssertNil(EmitterVelocityField.steps.setting(10, in: v).customMask)
+        XCTAssertNotNil(EmitterVelocityField.hitVel.setting(20, in: v).customMask, "HIT VEL is not a pattern field — keeps the hand-edit")
+        XCTAssertNotNil(EmitterVelocityField.missVel.setting(-20, in: v).customMask)
+    }
+    func testCustomMaskRoundTripsAndClampsToSteps() throws {
+        var v = EmitterVelocity(on: true, steps: 4, hits: 2, offset: 0)
+        v.customMask = 0b1111_1111
+        XCTAssertEqual(v.normalized().customMask, 0b1111, "bits ≥ STEPS drop")
+        let edited = emitterVelocityToggleStep(EmitterVelocity(on: true, steps: 8, hits: 3, offset: 0), step: 1)
+        let back = try JSONDecoder().decode(EmitterVelocity.self, from: JSONEncoder().encode(edited))
+        XCTAssertEqual(back.customMask, edited.customMask); XCTAssertEqual(back.hits, edited.hits)
+        XCTAssertNil(try JSONDecoder().decode(EmitterVelocity.self, from: JSONEncoder().encode(EmitterVelocity())).customMask)
+    }
+
     func testFieldRangesStepsDefaultsAndBipolar() {
         XCTAssertEqual(EmitterVelocityField.allCases.map { $0.label }, ["STEPS", "HITS", "OFFSET", "HIT VEL", "MISS VEL"])
         XCTAssertEqual(EmitterVelocityField.allCases.map { $0.defaultValue }, [8, 3, 0, 0, 0])

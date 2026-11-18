@@ -55,7 +55,7 @@ private struct EmitterRatchetStripBase: View, Equatable {
             let base = CGRect(x: slots[0].minX, y: slots[0].maxY - 1, width: slots[last].maxX - slots[0].minX, height: 1)
             ctx.fill(RoundedRectangle(cornerRadius: 0.5).path(in: base), with: .color(P.baseline))
             // RATCH EXPAND §4.4: the bars reflect the STRIKES mode — FIX draws `strikes`, RANGE draws MAX with the MIN-onward faint, HIT draws each slot's own count (by its pre-OFFSET ordinal)
-            let maskNoOffset = emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: 0)
+            let maskNoOffset = emitterRatchetEffectiveMaskNoOffset(r)   // EMITTER STRIP GESTURES: a hand-edited pattern bakes offset in
             let baseAlpha = emitterRatchetBarAlpha(chance: r.chance)
             for i in 0...last {
                 let rect = slots[i]
@@ -90,7 +90,7 @@ private struct EmitterRatchetStripFlare: View {
             guard let fl = flare, current >= 0, current < slots.count, current < r.steps, (mask >> UInt16(current)) & 1 != 0 else { return }
             let alpha = fl.ratcheted ? fl.f : 0.35 * fl.f
             // RATCH EXPAND §4.4: flash the same bar count the base drew for this slot (RANGE = MAX, HIT = this slot's count)
-            let maskNoOffset = emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: 0)
+            let maskNoOffset = emitterRatchetEffectiveMaskNoOffset(r)   // EMITTER STRIP GESTURES: a hand-edited pattern bakes offset in
             let ord = emitterRatchetHitOrdinal(index: current, steps: r.steps, offset: r.offset, patternMaskNoOffset: maskNoOffset)
             for b in emitterRatchetBarRects(in: slots[current], strikes: emitterRatchetStripBars(r, ordinal: ord).count) {
                 ctx.fill(RoundedRectangle(cornerRadius: EmitterRatchetMetrics.barRadius).path(in: b), with: .color(accent.opacity(alpha)))
@@ -426,7 +426,6 @@ struct EuclideousRatchetPanel: View {
         typealias P = EmitterRatchetPalette
         typealias M = EmitterRatchetMetrics
         let r = ratchets[x]
-        let mask = emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: r.offset)
         // EMITTER STRIP GESTURES (2026-11-18): the RATCH v2 strip's OWN `n`-slot rects (strip-local) — the gesture pad's
         // offset pitch + tap hit-test read these, so a drag of one VISIBLE slot moves OFFSET one step (not the old
         // fixed-16 `layout.slots`, which the redrawn strip no longer uses).
@@ -471,7 +470,8 @@ struct EuclideousRatchetPanel: View {
                         onHitsTarget:   { first, t in onEdit(first) { $0[x] = EmitterRatchetField.hits.setting(t, in: $0[x]) } },
                         onOffsetTarget: { first, t in onEdit(first) { $0[x] = EmitterRatchetField.offset.setting(t, in: $0[x]) } },
                         onSteps:        { first, d in onEdit(first) { $0[x] = EmitterRatchetField.steps.setting($0[x].steps + d, in: $0[x]) } },
-                        onDragEnd: onDragEnd
+                        onDragEnd: onDragEnd,
+                        onTapStep:      { i in onEdit(true) { $0[x] = emitterRatchetToggleStep($0[x], step: i) } }   // a TAP toggles one step (hand-edit)
                     )
                     .frame(width: stripW, height: M.stripHeight)
                 )
@@ -638,7 +638,7 @@ struct EmitterRatchetExpandedView: View {
 
     // the big strip (same base/flare the collapsed card draws, taller) — in HIT mode a tap on a hit cycles its count 1 → 2 → 3 → 4 (§5)
     private func bigStrip(r: EmitterRatchet, width: CGFloat, height: CGFloat = 76) -> some View {   // RATCH v2 §6.4: the strip card's strip (grows; 76 default)
-        let maskNoOffset = emitterRatchetPatternMask(steps: r.steps, hits: r.hits, offset: 0)
+        let maskNoOffset = emitterRatchetEffectiveMaskNoOffset(r)   // EMITTER STRIP GESTURES: a hand-edited pattern bakes offset in
         let current = live.index(output) ?? -1
         let flareSlot = live.flareIndex(output) ?? current
         let accentOf: (Int) -> Color = { accents[max(0, min(accents.count - 1, $0))] }

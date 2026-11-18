@@ -190,9 +190,10 @@ struct EmitterRatchetCfg: Equatable {
     init(_ r: EmitterRatchet) {
         let n = r.normalized()
         on = n.on; steps = n.steps; hits = n.hits; offset = n.offset; chance = n.chance; strikes = n.strikes; restartBars = n.restartBars
-        patternMask = emitterRatchetPatternMask(steps: steps, hits: hits, offset: offset)
+        // EMITTER STRIP GESTURES (2026-11-18): a hand-edited `customMask` wins over the Euclidean pattern (nil ⇒ byte-identical).
+        patternMask = emitterRatchetEffectiveMask(n)
         mode = n.mode; rangeMin = n.rangeMin; rangeMax = n.rangeMax; hitCountBits = n.hitCountBits; gap = n.gap; end = n.end
-        patternMaskNoOffset = emitterRatchetPatternMask(steps: steps, hits: hits, offset: 0)
+        patternMaskNoOffset = emitterRatchetEffectiveMaskNoOffset(n)
         countsBits = n.countsBitsResolved; perHit = n.perHitResolved; length = n.lengthResolved; bend = n.bendResolved; vel = n.velResolved; depth = n.depthResolved   // RATCH v2 §1.7 resolve
     }
     @inline(__always) func isHit(_ i: Int) -> Bool { i >= 0 && i < 16 && (patternMask >> UInt16(i)) & 1 != 0 }
@@ -231,7 +232,7 @@ struct EmitterVelocityCfg: Equatable {
     init(_ v: EmitterVelocity) {
         let n = v.normalized()
         on = n.on; steps = n.steps; hits = n.hits; offset = n.offset; hitVel = n.hitVel; missVel = n.missVel
-        patternMask = emitterRatchetPatternMask(steps: steps, hits: hits, offset: offset)
+        patternMask = emitterVelocityEffectiveMask(n)   // EMITTER STRIP GESTURES: hand-edited mask wins (nil ⇒ byte-identical)
     }
     @inline(__always) func isHit(_ i: Int) -> Bool { i >= 0 && i < 16 && (patternMask >> UInt16(i)) & 1 != 0 }
     /// The signed offset for an emitter hit at pattern index `i`: HIT VEL on a pattern hit, MISS VEL on a rest.
