@@ -56,18 +56,22 @@ final class InputsGoldenTests: XCTestCase {
 
     /// "document|scenario|mode" → (hash, events, note-ons).
     private let golden: [String: (UInt64, Int, Int)] = [
-        "(default)|held 8 bars then released|ADD": (9392255904225292261, 1024, 512),
-        "(default)|held 8 bars then released|REPLACE": (6802371384323426473, 1024, 512),
-        "(default)|held 8 bars then released|ROOT": (6221366943037184081, 1024, 512),
-        "(default)|held, IGNORE|ADD": (11082826744638529977, 1024, 512),
-        "(default)|held, IGNORE|REPLACE": (16748119929840287353, 1024, 512),
-        "(default)|held, IGNORE|ROOT": (6221366943037184081, 1024, 512),
-        "(default)|held, KEEP|ADD": (5810583246765842761, 1024, 512),
-        "(default)|held, KEEP|REPLACE": (15983343368842896601, 1024, 512),
-        "(default)|held, KEEP|ROOT": (6221366943037184081, 1024, 512),
-        "(default)|nothing held|ADD": (16404598349816740809, 1024, 512),
-        "(default)|nothing held|REPLACE": (16404598349816740809, 1024, 512),
-        "(default)|nothing held|ROOT": (16404598349816740809, 1024, 512),
+        // DEFAULT DOC RE-BASELINED (Paul 2026-11-18): the fresh default is now MIDI IN + CHORDS grid 1 (was KEY)
+        // and the default riff is a plain ascending run (was the arch R1) — so the "(default)" stream legitimately
+        // moves. The 20 factory presets set `sourceMode = .key` + pin the arch riff, so THEY stay bit-identical
+        // (unchanged below). These 12 entries are re-captured from the CAPTURE output of this very test:
+        "(default)|held 8 bars then released|ADD": (13886482855600816069, 1024, 512),
+        "(default)|held 8 bars then released|REPLACE": (16247500885243126169, 1024, 512),
+        "(default)|held 8 bars then released|ROOT": (6423042572934091401, 1024, 512),
+        "(default)|held, IGNORE|ADD": (15882602144144395745, 1024, 512),
+        "(default)|held, IGNORE|REPLACE": (16054217090826119369, 1024, 512),
+        "(default)|held, IGNORE|ROOT": (6423042572934091401, 1024, 512),
+        "(default)|held, KEEP|ADD": (9764849573068998081, 1024, 512),
+        "(default)|held, KEEP|REPLACE": (14765769720292496329, 1024, 512),
+        "(default)|held, KEEP|ROOT": (6423042572934091401, 1024, 512),
+        "(default)|nothing held|ADD": (3088691733876276321, 1024, 512),
+        "(default)|nothing held|REPLACE": (3088691733876276321, 1024, 512),
+        "(default)|nothing held|ROOT": (3088691733876276321, 1024, 512),
         "ARPEGGIO LADDER|held 8 bars then released|ADD": (6737327559451707885, 4096, 2048),
         "ARPEGGIO LADDER|held 8 bars then released|REPLACE": (11952300665447933981, 4096, 2048),
         "ARPEGGIO LADDER|held 8 bars then released|ROOT": (18409386287962157869, 4096, 2048),

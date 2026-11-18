@@ -30,6 +30,11 @@ enum EuclideousPresets {
     private static let sparseShape  = [1, 0, 0, 4, 0, 0, 7, 0]   // R6 SPARSE: mostly rest
     private static let callShape    = [5, 0, 3, 0, 1, 0, 6, 0]   // R7 CALL: alternating note/rest
     private static let descendShape = [8, 7, 6, 5, 4, 3, 2, 1]   // R8 DESCEND: a plain descending run
+    // R1 ARCH (C at both ends) — the FORMER default riff figure. Pinned explicitly on the presets that leaned on the
+    // unset default so they keep their exact sound now the default is a plain ascending RUN (`EuclideousRiff.defaultShape`,
+    // Paul 2026-11-18: "make the riff default go from lowest rank to highest sequentially"). riffLength is capped at 8,
+    // so an 8-step riff is byte-identical to the old 16-step default these lanes walked (no lane ever reads past column 8).
+    private static let r1Shape      = [1, 2, 3, 5, 4, 3, 2, 1]
 
     static let all: [(name: String, make: () -> PluginState)] = [
         ("STRIDE WALK", strideWalk), ("MIRROR WALK", mirrorWalk), ("BOUNCE", bounce),
@@ -53,7 +58,7 @@ enum EuclideousPresets {
         l[2].sourceMode = .key; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
         l[3].enabled = false
         s.euclideousLines = l
-        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: nil)
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: r1Shape)   // pinned to the former arch default (was `ranks: nil`) — preserves this preset's sound, Paul 2026-11-18
     } }
 
     // 2. MIRROR WALK — a riff lane walks a wide zigzag shape; a second lane walks the SAME positions with
@@ -77,6 +82,7 @@ enum EuclideousPresets {
         l[1].sourceMode = .key; l[1].noteSel = .low; l[1].pulses = 2; l[1].steps = 8; l[1].octave = -1; l[1].rate = .r1_4
         l[2].enabled = false; l[3].enabled = false
         s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: r1Shape)   // pinned to the former arch default (Paul 2026-11-18); the default riff is now a plain ascending run
     } }
 
     // 4. PING-PONG LEAD — the riff walk bounces TWICE at each end (RiffDir.pingpong — a genuinely different
@@ -89,6 +95,7 @@ enum EuclideousPresets {
         l[1].sourceMode = .key; l[1].noteSel = .low; l[1].pulses = 1; l[1].steps = 8; l[1].octave = -2; l[1].rate = .r1_2; l[1].gate = 0.95
         l[2].enabled = false; l[3].enabled = false
         s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: r1Shape)   // pinned to the former arch default (Paul 2026-11-18); the default riff is now a plain ascending run
     } }
 
     // 5. DRUNKEN WALK — a true random walk over the shared pattern (RiffDir.drunk), neutral bias, so the
@@ -100,6 +107,7 @@ enum EuclideousPresets {
         l[1].sourceMode = .key; l[1].noteSel = .low; l[1].pulses = 4; l[1].steps = 8; l[1].octave = -1; l[1].rate = .r1_8
         l[2].enabled = false; l[3].enabled = false
         s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: r1Shape)   // pinned to the former arch default (Paul 2026-11-18); the default riff is now a plain ascending run
     } }
 
     // 6. RANDOM GARDEN — three independent RANDOM-walk riff lanes, each with its own seed, all reading the
@@ -160,6 +168,7 @@ enum EuclideousPresets {
         l[1].pulses = 6; l[1].steps = 8; l[1].rate = .r1_8
         l[2].enabled = false; l[3].enabled = false
         s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: r1Shape)   // pinned to the former arch default (Paul 2026-11-18); the default riff is now a plain ascending run
     } }
 
     // 11. FIFTH ABOVE — two riff lanes walk the identical shared pattern/stride/length in lockstep; the second
@@ -172,6 +181,7 @@ enum EuclideousPresets {
         l[1].melodyTranspose = 4
         l[2].enabled = false; l[3].enabled = false
         s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: r1Shape)   // pinned to the former arch default (Paul 2026-11-18); the default riff is now a plain ascending run
     } }
 
     // 12. HELD BREATH — very sparse hits (2 of 8) at a slow rate with GATE pushed near its ceiling, so each
@@ -194,6 +204,7 @@ enum EuclideousPresets {
         l[1].sourceMode = .key; l[1].noteSel = .low; l[1].pulses = 1; l[1].steps = 8; l[1].octave = -2; l[1].rate = .r1_1
         l[2].enabled = false; l[3].enabled = false
         s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: r1Shape)   // pinned to the former arch default (Paul 2026-11-18); the default riff is now a plain ascending run
     } }
 
     // 14. CALL AND HOLD — a sparse "call" riff lane (the CALL shared shape: alternating note/rest) answered by

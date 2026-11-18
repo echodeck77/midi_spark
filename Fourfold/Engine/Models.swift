@@ -1810,23 +1810,24 @@ struct EuclideousRiff: Codable, Equatable {
     var ranks: [Int]? = nil              // MONO per-step: 0 = rest, 1...8 = pool rank. nil ⇒ an ascending default figure
     /// 1...32, defensive against a hand-edited or future out-of-range doc.
     var stepsResolved: Int { max(1, min(32, steps)) }
-    /// Padded/truncated to `stepsResolved` length; an unset/short doc gets the ferry's own named R1 shape,
-    /// cycled (usability ferry §8.2, 2026-10-11: "riff R1" — R1 = `1 2 3 5 4 3 2 1` — SUPERSEDES the earlier
-    /// plain-ascending-mod-8 default; never silence by default either way, matching EuclidLine's own "a
-    /// fresh lane defaults to something audible" convention).
-    private static let r1Shape = [1, 2, 3, 5, 4, 3, 2, 1]
+    /// Padded/truncated to `stepsResolved` length; an unset/short doc gets the default figure below,
+    /// cycled (Paul 2026-11-18: "make the riff default go from lowest rank to highest sequentially" — a
+    /// plain ascending run, lowest rank to highest; this RESTORES the pre-2026-10-11 ascending default and
+    /// SUPERSEDES the arch R1 = `1 2 3 5 4 3 2 1` that briefly held it; never silence by default either way,
+    /// matching EuclidLine's own "a fresh lane defaults to something audible" convention).
+    private static let defaultShape = [1, 2, 3, 4, 5, 6, 7, 8]
     // GENUINELY SILENT (2026-10-14 ferry §9: riff slots 2-4 "start empty") — `ranks: []` does NOT produce
-    // this on its own: `ranksResolved`'s own pad-with-R1-default logic below treats ANY short array
+    // this on its own: `ranksResolved`'s own pad-with-default logic below treats ANY short array
     // (empty included) as "pad the rest with the default shape," a pre-existing, deliberate fallback from
     // the original single-riff feature ("never silence by default") — so an empty array still resolves to
-    // the full, audible R1 figure. A genuinely-silent riff needs an EXPLICIT all-rest array of the real
+    // the full, audible default figure. A genuinely-silent riff needs an EXPLICIT all-rest array of the real
     // length instead (caught by this feature's own migration test failing against the naive `ranks: []`
     // before this helper existed).
     static var empty: EuclideousRiff { EuclideousRiff(steps: 8, ranks: [Int](repeating: 0, count: 8)) }
     var ranksResolved: [Int] {
         let n = stepsResolved
-        var r = ranks ?? (0..<n).map { Self.r1Shape[$0 % Self.r1Shape.count] }
-        if r.count < n { r += (r.count..<n).map { Self.r1Shape[$0 % Self.r1Shape.count] } }
+        var r = ranks ?? (0..<n).map { Self.defaultShape[$0 % Self.defaultShape.count] }
+        if r.count < n { r += (r.count..<n).map { Self.defaultShape[$0 % Self.defaultShape.count] } }
         if r.count > n { r = Array(r.prefix(n)) }
         return r
     }
@@ -3935,15 +3936,18 @@ struct PluginState: Codable, Equatable {
     /// only as this starting point, exactly as the earlier design already intended for the "never reachable
     /// through the gesture" half of its own reasoning.
     private static func euclideousDefaultLine(_ i: Int) -> EuclidLine {
-        // NEW DEFAULT STATE (usability ferry §8.2, 2026-10-11, literal): "riff R1 [see EuclideousRiff.
-        // ranksResolved's own default above]; lane 1: riff FWD, 3/8, rate 1/8; lane 2: riff FWD, 5/16,
-        // rate 1/16, OCT +1; lanes 3-4: 0 hits. All outputs A [CHANGED 2026-10-26: each lane has its own ports], source KEY." SUPERSEDES the prior ferry's
-        // own "lane 1 = 1 of 8, lanes 2-4 = 0 hits" default entirely — a fresh/never-touched Euclideous
-        // instance now opens on this musical shape instead.
+        // DEFAULT STATE (usability ferry §8.2, 2026-10-11): "the default riff [see EuclideousRiff.
+        // ranksResolved's own default above — an ascending run since 2026-11-18]; lane 1: riff FWD, 3/8,
+        // rate 1/8; lane 2: riff FWD, 5/16, rate 1/16, OCT +1; lanes 3-4: 0 hits. All outputs A [CHANGED
+        // 2026-10-26: each lane has its own ports]." SUPERSEDES the prior ferry's own "lane 1 = 1 of 8,
+        // lanes 2-4 = 0 hits" default entirely — a fresh/never-touched Euclideous instance opens on this
+        // musical shape. SOURCE (Paul 2026-11-18): MIDI IN + CHORDS grid 1 (was KEY) — `normalizeSourcesAtLoad`
+        // folds each lane's chips to MIDI + CHORDS 1, so a fresh instance sounds standalone over grid 1's
+        // default progression. The 20 factory presets set `sourceMode = .key` per lane and are unaffected.
         var x = EuclidLine(noteSel: .low)
-        x.sourceMode = .key           // "source KEY" — set explicitly rather than relying on the shared
-                                       // nil->.key fallback, so this default reads correctly even if that
-                                       // fallback is ever revised for an unrelated reason.
+        x.sourceMode = .chords        // "source CHORDS grid 1" — set explicitly rather than relying on the
+                                       // shared nil->.key fallback (kept .key for OLD documents / the migration
+                                       // path), so this fresh-instance default reads correctly on its own.
         x.useRiff = true
         // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, 2nd same-day ferry) — "Default for every lane: nothing
         // lit, riff on, FWD," realized explicitly here rather than left to the migration fallback: `riffOn`

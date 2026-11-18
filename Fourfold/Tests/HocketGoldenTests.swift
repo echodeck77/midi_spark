@@ -56,9 +56,12 @@ final class HocketGoldenTests: XCTestCase {
 
     /// Document × window size → (hash, events, note-ons).
     private let golden: [String: (UInt64, Int, Int)] = [
-        "(default)|137": (9771049027159314997, 1024, 512),
-        "(default)|4096": (5648158088018603419, 1024, 512),
-        "(default)|480": (5810583246765842761, 1024, 512),
+        // DEFAULT DOC RE-BASELINED (Paul 2026-11-18): fresh default is now MIDI IN + CHORDS grid 1 (was KEY) and
+        // an ascending-run default riff (was arch R1), so the "(default)" no-rule stream moves. The 20 presets pin
+        // their own source (.key) + arch riff and stay bit-identical. Re-captured from this test's CAPTURE output:
+        "(default)|137": (15887760000328875437, 1024, 512),
+        "(default)|4096": (11477244096088047971, 1024, 512),
+        "(default)|480": (9764849573068998081, 1024, 512),
         "ARPEGGIO LADDER|137": (639556068906465621, 4096, 2048),
         "ARPEGGIO LADDER|4096": (11150856385095901081, 4096, 2048),
         "ARPEGGIO LADDER|480": (15028064168758528653, 4096, 2048),

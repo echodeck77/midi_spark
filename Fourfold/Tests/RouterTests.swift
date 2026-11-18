@@ -3829,8 +3829,9 @@ final class RouterTests: XCTestCase {
 
     // ══════════════════════════════════════════════════════════════════════════════════════════════════
     // MARK: - LISTEN TAB (ferry 2026-10-14, "the LISTEN tab (lane relationships)") — §11's own T1-T9.
-    // Shared setup exactly per §11: 110 BPM, C minor, riff ranks [1,2,3,5,4,3,2,1] (the shipped R1 default
-    // shape — confirmed by hand against the pool below: rank1=C2…rank5=G2 reproduces "C2 D2 E♭2 G2 F2 E♭2
+    // Shared setup exactly per §11: 110 BPM, C minor, riff ranks [1,2,3,5,4,3,2,1] (an explicit arch figure —
+    // the former default until Paul 2026-11-18 made the default a plain ascending run; this test sets it
+    // explicitly, so it is unchanged — confirmed by hand against the pool below: rank1=C2…rank5=G2 reproduces "C2 D2 E♭2 G2 F2 E♭2
     // D2 C2" exactly). RED = lane 0 (Emit Riff A), BLUE = lane 1 (Emit Riff B) — on separate ports
     // purely so this harness can tell the two lanes' own note-ons apart in one shared recording; nothing
     // about LISTEN itself depends on that. Pool = C natural minor from C2 (MIDI 36): the SAME 7-note

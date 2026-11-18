@@ -18,7 +18,7 @@ final class PlayingSilenceLeakTests: XCTestCase {
         lines[0].pulses = 8; lines[0].steps = 8; lines[0].rate = .r1_8; lines[0].direction = .fwd
         lines[0].riffOn = true; lines[0].useRiff = true; lines[0].gate = 0.9
         st.euclideousLines = lines
-        st.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 5, 4, 3, 2, 1])   // Paul's default arch (C at both ends)
+        st.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 5, 4, 3, 2, 1])   // the former arch default (C at both ends) — set explicitly; the default is a plain ascending run since Paul 2026-11-18
         var plan = st.sourcePlanResolved
         plan.midiOn = midi; plan.chordsOn = chords; plan.keyOn = key; plan.pickOn = pick
         if pick { plan.pickNotes = [60, 63, 67] }

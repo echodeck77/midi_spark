@@ -510,17 +510,17 @@ final class EffectiveParamsTests: XCTestCase {
         XCTAssertTrue(back.euclideousEnabledResolved, "Fourfold header ferry §1: the page always runs — an absent field is no longer 'off'")
         XCTAssertEqual(back.euclideousReceiverResolved, 0)
         XCTAssertEqual(back.euclideousLinesResolved.count, 4, "always pads to exactly 4, mirroring euclidLinesForEditing()")
-        // PER-INDEX DEFAULT, REVISED (usability ferry §8.2, 2026-10-11, literal): "riff R1; lane 1: riff
-        // FWD, 3/8, rate 1/8; lane 2: riff FWD, 5/16, rate 1/16, OCT +1; lanes 3-4: 0 hits. All outputs A,
-        // source KEY." SUPERSEDES the prior ferry's own "lane 1 = 1 of 8, lanes 2-4 = 0 hits" default
-        // entirely (that older default is now itself historical — see the 2026-10-09 entry this comment
-        // used to cite).
+        // PER-INDEX DEFAULT, REVISED (usability ferry §8.2, 2026-10-11, literal): "the default riff
+        // [an ascending run since 2026-11-18]; lane 1: riff FWD, 3/8, rate 1/8; lane 2: riff FWD, 5/16,
+        // rate 1/16, OCT +1; lanes 3-4: 0 hits. All outputs A, source CHORDS grid 1 (Paul 2026-11-18, was
+        // KEY)." SUPERSEDES the prior ferry's own "lane 1 = 1 of 8, lanes 2-4 = 0 hits" default entirely
+        // (that older default is now itself historical — see the 2026-10-09 entry this comment used to cite).
         let lines = back.euclideousLinesResolved
         XCTAssertEqual(lines[0].pulses, 3); XCTAssertEqual(lines[0].steps, 8); XCTAssertEqual(lines[0].rate, .r1_8)
         XCTAssertEqual(lines[1].pulses, 5); XCTAssertEqual(lines[1].steps, 16); XCTAssertEqual(lines[1].rate, .r1_16)
         XCTAssertEqual(lines[1].riffOctaveResolved, 1)
         XCTAssertTrue(lines[2...3].allSatisfy { $0.pulses == 0 }, "lanes 3-4 open deliberately silent (0 hits)")
-        XCTAssertTrue(lines.allSatisfy { $0.sourceModeResolved == .key }, "every lane defaults to source KEY")
+        XCTAssertTrue(lines.allSatisfy { $0.sourceModeResolved == .chords }, "every lane defaults to source CHORDS grid 1 (Paul 2026-11-18, was KEY)")
         // MELODY POP-UP (Paul 2026-10-10 ferry §2): NOTE defaults to LOWEST, MODE defaults to RIFF — found
         // on a plan self-re-audit that `euclideousDefaultLine`, not EuclidLine's own shared accessor
         // fallback, is where these fresh-lane defaults actually live; this is the correctly-scoped place
@@ -546,10 +546,10 @@ final class EffectiveParamsTests: XCTestCase {
     // per-lane values" always exist to compare, even for a document with no real per-lane data at all.
     func testEuclideousNoteSourceResolvedMigratesFromLegacyPerLaneValues() {
         // (1) No explicit new field, no legacy per-lane data at all: every lane resolves to its own
-        // fresh-lane default (.key, per the melody pop-up ferry) — all 4 agree, so the migration is a
-        // trivial, warning-free `.key`.
+        // fresh-lane default (.chords since Paul 2026-11-18, was .key) — all 4 agree, so the migration is a
+        // trivial, warning-free `.chords`.
         let untouched = doc()
-        XCTAssertEqual(untouched.euclideousNoteSourceResolved, .key, "no legacy data at all ⇒ the shared fresh-lane default, KEY")
+        XCTAssertEqual(untouched.euclideousNoteSourceResolved, .chords, "no legacy data at all ⇒ the shared fresh-lane default, CHORDS grid 1 (Paul 2026-11-18, was KEY)")
 
         // (2) Legacy per-lane data present, all 4 agreeing: migrates to that shared value cleanly.
         var uniform = doc()
