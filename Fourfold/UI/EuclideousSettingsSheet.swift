@@ -440,7 +440,7 @@ struct EuclideousSettingsSheet: View {
             // AU ICON PROBE (2026-11-18): the ground truth for the missing host icon — asks the DEVICE the exact question a
             // host asks (`AudioComponentGetIcon`) for every registered Fourfold identity and prints the answers. Run on the
             // iPad; the simulator has no positive control. One line per identity + a warning when more than one is registered.
-            block(name: "AU ICON PROBE", description: "What the system hands a host for this plug-in's icon, per registered identity. Run on the iPad.") {
+            block(name: "AU ICON PROBE", description: "What the system hands a host for this plug-in's icon, per registered identity. Run in the STANDALONE app on the iPad — inside a host the extension's sandbox hides every other plug-in, so the control comparison can't run.") {
                 VStack(alignment: .leading, spacing: 6) {
                     Button { iconProbeResult = fourfoldIconProbeReport() } label: {
                         Text("RUN").font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(1)

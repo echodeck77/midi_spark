@@ -78,6 +78,11 @@ func fourfoldIconProbeReport() -> String {
     let controls = hits.filter { !$0.isOurs && $0.manufacturer != "Apple" }
     let gYes = controls.filter { $0.legacyIcon }.count, mYes = controls.filter { $0.modernIcon }.count
     lines.append("CONTROLS (non-Apple): \(controls.count) · GetIcon YES \(gYes) · icon YES \(mYes)")
+    if controls.isEmpty {
+        // Paul's 2026-11-19 run proved this happens inside a HOST: the hosted extension's sandbox hides every other
+        // plug-in (CONTROLS 0), so neither the control comparison nor even our own icon answer is trustworthy there.
+        lines.append("⚠︎ 0 controls — run inside a host? The extension cannot see other plug-ins; run this in the STANDALONE app.")
+    }
     let interesting = controls.filter { !$0.legacyIcon || !$0.modernIcon }.prefix(10)
     for h in interesting {
         lines.append("  \(h.name) (\(h.manufacturer)) · GetIcon \(yn(h.legacyIcon)) · icon \(yn(h.modernIcon))")
