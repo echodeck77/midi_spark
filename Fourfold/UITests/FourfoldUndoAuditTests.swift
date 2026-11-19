@@ -126,8 +126,8 @@ final class FourfoldUndoAuditTests: XCTestCase {
     func undo() { app.buttons["Undo"].tap() }
     func redo() { app.buttons["Redo"].tap() }
     private func post(_ name: String) { CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(name as CFString), nil, nil, true) }
-    func hostLoadsPreset() { post("com.outliermidi.fourfold.undoprobe.hostLoadPreset") }
-    func hostRestoresLaunchState() { post("com.outliermidi.fourfold.undoprobe.hostRestoreLaunch") }
+    func hostLoadsPreset() { post("com.paulbarrett.fourfold.undoprobe.hostLoadPreset") }
+    func hostRestoresLaunchState() { post("com.paulbarrett.fourfold.undoprobe.hostRestoreLaunch") }
 
     // MARK: the plain facts
 

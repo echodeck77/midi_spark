@@ -64,8 +64,8 @@ enum FourfoldUndoProbeHost {
     static weak var au: FourfoldAudioUnit?
     static var launchState: [String: Any]?
     private static var installed = false
-    static let loadPreset = "com.outliermidi.fourfold.undoprobe.hostLoadPreset"
-    static let restoreLaunch = "com.outliermidi.fourfold.undoprobe.hostRestoreLaunch"
+    static let loadPreset = "com.paulbarrett.fourfold.undoprobe.hostLoadPreset"
+    static let restoreLaunch = "com.paulbarrett.fourfold.undoprobe.hostRestoreLaunch"
     static func install(au: FourfoldAudioUnit?) {
         guard !installed, let au else { return }
         installed = true

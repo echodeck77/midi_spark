@@ -724,7 +724,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     }
 
     // MARK: - fullState = the host-level Preset (§1: the only thing called a preset)
-    private static let stateKey = "com.outliermidi.fourfold.document"   // a NEW product: its sessions are its own (the 8x8 key stays in the frozen original)
+    private static let stateKey = "com.paulbarrett.fourfold.document"   // a NEW product: its sessions are its own (the 8x8 key stays in the frozen original)
 
     // Staging live-preview overlay (main thread): while a staged cell is transiently placed on the grid
     // for the in-context preview, this records where + the cell it displaced, so fullState encodes the
