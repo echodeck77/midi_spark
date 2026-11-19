@@ -67,6 +67,12 @@ func fourfoldIconProbeReport() -> String {
     func yn(_ b: Bool) -> String { b ? "YES" : "NO" }
     var lines: [String] = []
 
+    // The registry population this process can see — 0 third-party here means the iOS visibility gate (an app without
+    // the legacy inter-app-audio entitlement, or an extension's sandbox), not an empty iPad. Debug builds of the
+    // standalone app carry the entitlement since 2026-11-19.
+    let apple = hits.filter { $0.manufacturer == "Apple" }.count
+    lines.append("REGISTRY: \(hits.count) components · Apple \(apple) · 3rd-party \(hits.count - apple)")
+
     let ours = hits.filter { $0.isOurs }
     if ours.isEmpty { lines.append("⚠︎ no Fourfold component registered") }
     for h in ours {
@@ -79,9 +85,10 @@ func fourfoldIconProbeReport() -> String {
     let gYes = controls.filter { $0.legacyIcon }.count, mYes = controls.filter { $0.modernIcon }.count
     lines.append("CONTROLS (non-Apple): \(controls.count) · GetIcon YES \(gYes) · icon YES \(mYes)")
     if controls.isEmpty {
-        // Paul's 2026-11-19 run proved this happens inside a HOST: the hosted extension's sandbox hides every other
-        // plug-in (CONTROLS 0), so neither the control comparison nor even our own icon answer is trustworthy there.
-        lines.append("⚠︎ 0 controls — run inside a host? The extension cannot see other plug-ins; run this in the STANDALONE app.")
+        // Paul's two 2026-11-19 runs proved this happens in BOTH contexts without the entitlement: a hosted extension's
+        // sandbox hides every other plug-in, and an app without inter-app-audio sees only Apple components (the
+        // standalone couldn't even see our own extension). With 0 controls nothing in this report is conclusive.
+        lines.append("⚠︎ 0 third-party components visible — this process lacks AU-scan visibility. Run the DEBUG standalone app (it carries the inter-app-audio entitlement).")
     }
     let interesting = controls.filter { !$0.legacyIcon || !$0.modernIcon }.prefix(10)
     for h in interesting {

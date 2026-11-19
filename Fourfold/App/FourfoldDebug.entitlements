@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- AU ICON PROBE (2026-11-19): since iOS 11 an app sees only APPLE components from the AudioComponent registry
+	     unless it carries the legacy inter-app-audio entitlement — both of Paul's probe runs returned 0 third-party
+	     components (and the standalone app could not even see our own extension) because of this gate. DEBUG ONLY:
+	     the probe needs full registry visibility; Release ships no deprecated entitlement. -->
+	<key>inter-app-audio</key>
+	<true/>
+</dict>
+</plist>

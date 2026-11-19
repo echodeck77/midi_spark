@@ -984,6 +984,7 @@
 		E60CB6DE9B3C049B124DC771 /* FillBlockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillBlockTests.swift; sourceTree = "<group>"; };
 		E60DAA2B9195756E92DD7102 /* EmitterVelocityUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterVelocityUI.swift; sourceTree = "<group>"; };
 		E73F2A52D11932A681050086 /* PolyRiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiff.swift; sourceTree = "<group>"; };
+		E7475350DB6D7B44E6B0EF7E /* FourfoldDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FourfoldDebug.entitlements; sourceTree = "<group>"; };
 		E881ACD3CFC301D9E276ED00 /* HocketLooksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketLooksTests.swift; sourceTree = "<group>"; };
 		E96F54D4F221EBC6B79FE989 /* InputsGoldenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputsGoldenTests.swift; sourceTree = "<group>"; };
 		EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStore.swift; sourceTree = "<group>"; };
@@ -1541,6 +1542,7 @@
 				29E016452526AE786D501E59 /* FourfoldAppModel.swift */,
 				7DFB1A5B358F63E58A93D0CA /* FourfoldAppView.swift */,
 				91D8C6146A8A708D00931B05 /* FourfoldBluetoothMIDIView.swift */,
+				E7475350DB6D7B44E6B0EF7E /* FourfoldDebug.entitlements */,
 				41C41DF4A68365DC33446B95 /* FourfoldEngine.swift */,
 				88CB15CBF16CD2853E91702B /* FourfoldLinkSettingsView.swift */,
 				4156E25D4881F600935CB6A5 /* FourfoldMIDI.swift */,
@@ -2582,6 +2584,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Fourfold/App/FourfoldDebug.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 2;
 				INFOPLIST_FILE = Fourfold/App/Info.plist;

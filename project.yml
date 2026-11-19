@@ -110,6 +110,15 @@ targets:
 #LINK         SWIFT_OBJC_BRIDGING_HEADER: Fourfold/App/Fourfold-Bridging-Header.h
 #LINK         OTHER_LDFLAGS: "$(inherited) -lc++"
         # LINK-END
+      configs:
+        # AU ICON PROBE (2026-11-19), DEBUG ONLY: iOS hides every THIRD-PARTY audio component from an app without the
+        # legacy `inter-app-audio` entitlement (both probe runs saw 0 controls; the standalone app couldn't even see its
+        # own extension). Debug carries it so the probe can compare us against plug-ins whose icons DO show; Release
+        # ships NO entitlement (deprecated, and the app doesn't host other AUs). NOTE if Ableton Link comes back on:
+        # the #LINK `entitlements:` block sets CODE_SIGN_ENTITLEMENTS for ALL configs to Fourfold.entitlements — merge
+        # inter-app-audio into that file for Debug (or drop this line) at link-switch time, or Debug loses multicast.
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: Fourfold/App/FourfoldDebug.entitlements
     info:
       path: Fourfold/App/Info.plist
       properties:
