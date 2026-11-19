@@ -44,9 +44,9 @@ func fourfoldIconProbeHits() -> [FourfoldIconProbeHit] {
     var out: [FourfoldIconProbeHit] = []
     for c in all {
         let name = c.name, maker = c.manufacturerName
-        let ours = name.localizedCaseInsensitiveContains("fourfold") || maker.localizedCaseInsensitiveContains("outlier")
+        let ours = name.localizedCaseInsensitiveContains("fourfold") || maker.localizedCaseInsensitiveContains("paul barrett")
             || name.localizedCaseInsensitiveContains("euclideous")
-            || (fourCC(c.audioComponentDescription.componentManufacturer) == "MSPK" && fourCC(c.audioComponentDescription.componentSubType) == "Frfd")
+            || (fourCC(c.audioComponentDescription.componentManufacturer) == "PBrt" && fourCC(c.audioComponentDescription.componentSubType) == "Frfd")
         var legacy = false, modern = false
         #if canImport(UIKit)
         legacy = AudioComponentGetIcon(c.audioComponent, 44) != nil

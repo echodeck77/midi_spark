@@ -66,6 +66,6 @@ final class AppIconTests: XCTestCase {
     func testTheExtensionsHandMaintainedPlistDoesNotOverrideTheIcon() throws {
         let plist = try String(contentsOf: repo.appendingPathComponent("Fourfold/AU/Info.plist"), encoding: .utf8)
         XCTAssertFalse(plist.contains("CFBundleIcons"), "the build merges CFBundleIcons from the asset catalog; a hand-written one would fight it")
-        XCTAssertTrue(plist.contains("<string>Frfd</string>") && plist.contains("<string>OutM</string>"), "the component identity the icon belongs to: aumi / Frfd / OutM")
+        XCTAssertTrue(plist.contains("<string>Frfd</string>") && plist.contains("<string>PBrt</string>"), "the component identity the icon belongs to: aumi / Frfd / PBrt")
     }
 }

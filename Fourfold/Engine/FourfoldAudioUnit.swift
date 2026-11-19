@@ -429,9 +429,10 @@ public class FourfoldAudioUnit: AUAudioUnit {
     public override var midiOutputNames: [String] { FourfoldPorts.names }
 
     /// IDENTITY — keep in step with `Fourfold/AU/Info.plist` (type / subtype / manufacturer) and `project.yml` (bundle ids). The standalone app never registers this description (it builds the AU directly); it only needs to be well-formed.
-    /// `Frfd` / `OutM` (Outlier MIDI) is a one-way door once anyone has saved an AUM session (plan: "Decisions").
+    /// `Frfd` / `PBrt` ("Paul Barrett") is a one-way door once anyone has saved an AUM session (plan: "Decisions").
+    /// The manufacturer code was `OutM` (Outlier MIDI) until 2026-11-19 and `MSPK` before that; Paul changed it to `PBrt` and reinstalled fresh while no real session existed.
     static let componentDescription = AudioComponentDescription(componentType: kAudioUnitType_MIDIProcessor,
-                                                                componentSubType: fourCC("Frfd"), componentManufacturer: fourCC("OutM"),
+                                                                componentSubType: fourCC("Frfd"), componentManufacturer: fourCC("PBrt"),
                                                                 componentFlags: 0, componentFlagsMask: 0)
     private static func fourCC(_ s: String) -> FourCharCode { s.utf8.prefix(4).reduce(0) { ($0 << 8) | FourCharCode($1) } }
 
