@@ -183,7 +183,12 @@ struct EmitterStripGesturePad: View {
     private func mark() -> Bool { let f = firstOfGesture; firstOfGesture = false; return f }
     var body: some View {
         EuclidGesturePad(
-            onRotateDelta: { d in begin(); offsetAccum += d; onOffsetTarget(mark(), offsetBase + offsetAccum) },
+            // DRAG DIRECTION (Paul 2026-11-19): negate like the main Euclid lanes' own rotate handler
+            // (`euclideousApplyAllRhythmX`: `rotate - d`). `offset` here IS the raw `euclideousHitPatternInto(rotate:)`
+            // value, which LEFT-rotates for a positive offset — so to make the hits move the SAME way as the finger
+            // (slide LEFT → hits move left), a rightward drag (`d > 0`) must DECREASE offset. Was `+= d`, which moved
+            // the hits opposite the finger (the reported bug).
+            onRotateDelta: { d in begin(); offsetAccum -= d; onOffsetTarget(mark(), offsetBase + offsetAccum) },
             onHitsDelta:   { d in begin(); hitsAccum += d;  onHitsTarget(mark(), hitsBase + hitsAccum) },
             onStepsDelta:  { d in begin(); onSteps(mark(), d) },
             onAllRotateDelta: { _ in },   // no "every output" gesture for the emitters (each A–D is independent)
