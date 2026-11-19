@@ -396,14 +396,16 @@ final class EmitterRatchetTests: XCTestCase {
 
     // MARK: - §4.1 — the tab strip
 
-    func testRatchIsAFixed80AndTheOtherTabsShareTheRest() {
-        let w = euclideousSeqTabWidths(tabs: [.lanes, .fx, .ratch], contentWidth: 364.67)
-        XCTAssertEqual(w[2], 80); XCTAssertEqual(w[0], w[1], accuracy: 1e-9)
-        XCTAssertEqual(w[0], (364.67 - 8 - 80) / 2, accuracy: 1e-9, "LANES and FX share what is left, sp4 apart")
+    func testTheTabStripIsAnEqualSplit() {
+        // EQUAL SPLIT (Paul 2026-11-19): every visible tab the same width, sp4 apart, filling the strip —
+        // superseding the RATCH/CC fixed-80 scheme (which ballooned MUTE once VELOCITY left the release build).
+        let w = euclideousSeqTabWidths(tabs: [.lanes, .ratch, .cc], contentWidth: 364.67)
+        XCTAssertEqual(w[0], w[1], accuracy: 1e-9); XCTAssertEqual(w[1], w[2], accuracy: 1e-9, "all cells equal")
+        XCTAssertEqual(w[0], (364.67 - 8) / 3, accuracy: 1e-9, "each = (width − 2·sp4) / 3")
         XCTAssertEqual(w.reduce(0, +) + 8, 364.67, accuracy: 1e-9, "the strip fills the content width")
-        XCTAssertEqual(euclideousSeqTabWidths(tabs: [.lanes, .fx], contentWidth: 401), [198.5, 198.5], "without RATCH it is the old equal split")
+        XCTAssertEqual(euclideousSeqTabWidths(tabs: [.lanes, .fx], contentWidth: 401), [198.5, 198.5], "two tabs split evenly")
         XCTAssertEqual(euclideousSeqTabWidths(tabs: [], contentWidth: 100), [])
-        XCTAssertEqual(euclideousSeqTabWidth(count: 2, contentWidth: 401), 198.5, "the old function is kept")
+        XCTAssertEqual(euclideousSeqTabWidth(count: 2, contentWidth: 401), 198.5, "matches the equal-split helper")
         XCTAssertEqual(EuclideousSeqTab.ratch.rawValue, 4); XCTAssertEqual(EuclideousSeqTab.ratch.label, "RATCH"); XCTAssertEqual(emitterRatchetTabAccessibilityLabel(), "Ratchet")
         XCTAssertEqual(EuclideousSeqTab.default, .lanes, "the panel still opens on LANES")
     }

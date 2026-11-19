@@ -7,17 +7,15 @@ import CoreGraphics
 
 // MARK: - the tab strip (§4.1)
 
-/// The tab strip's widths: RATCH and VELOCITY are a fixed 80 each; the other tabs (MUTE, FX) share what is left equally, sp4 apart. (The old `euclideousSeqTabWidth` — an equal split — is kept for the callers and tests that still use it.)
+/// The tab strip's widths: an EQUAL split — every visible tab gets the same width, sp4 apart, filling the strip
+/// (Paul 2026-11-19). The old RATCH/VELOCITY/CC fixed-80 scheme left MUTE (the one flexible tab) absorbing ALL
+/// the leftover width; once VELOCITY was dropped from the release build that cell ballooned, so MUTE's centred
+/// label floated far from RATCH (a large MUTE↔RATCH gap, a small RATCH↔CC one). An equal split keeps every gap
+/// uniform whatever the tab count. This is now just `euclideousSeqTabWidth` applied per tab.
 func euclideousSeqTabWidths(tabs: [EuclideousSeqTab], contentWidth: CGFloat) -> [CGFloat] {
     guard !tabs.isEmpty else { return [] }
-    func isFixed(_ t: EuclideousSeqTab) -> Bool { t == .ratch || t == .velocity || t == .cc }   // VELOCITY tab (2026-11-03): a fixed-width tab beside RATCH; CC tab (Nov 2026): the same
-    let gaps = CGFloat(tabs.count - 1) * 4
-    let fixed = tabs.filter { isFixed($0) }.count
-    let fixedW: CGFloat = 80
-    let others = tabs.count - fixed
-    let rest = max(0, contentWidth - gaps - CGFloat(fixed) * fixedW)
-    let each = others > 0 ? rest / CGFloat(others) : 0
-    return tabs.map { isFixed($0) ? fixedW : each }
+    let each = euclideousSeqTabWidth(count: tabs.count, contentWidth: contentWidth)
+    return tabs.map { _ in each }
 }
 
 // MARK: - RATCH v2 ferry (2026-11-15) §4 — the redrawn strip (STEPS slots full width, in-cell strike marks by time × velocity). ONE pure layout, used collapsed + expanded; the painter only paints what it returns, and the flare recolours its marks.
