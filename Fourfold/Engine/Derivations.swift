@@ -4757,6 +4757,19 @@ func euclideousHeaderKind(containerW: CGFloat, isLandscape: Bool, buttonWidth: C
     return containerW < bNeeds ? .c : .b
 }
 
+/// HEADER v2 §3.6 / §8.5: the fit step for a container, from the WIDEST contents (the key at 13 chars, both grid tokens,
+/// the lamp and readout, HOLD, LATCH and both masters). Applied in order, each tried only after the one before it still
+/// overflows: `none` full one row · `a` the next-chord slot dropped · `b` …and the wordmark dropped (compact BRAND) ·
+/// `c` the masters move to their own row. The key, a token's name, the lamp, the readout, HOLD, LATCH, undo, redo and a
+/// master are NEVER dropped. `buttonFull` / `buttonNoNext` are `euclideousHeaderLayoutButtonWidth` at step 0 / 1.
+enum EuclideousHeaderFitStep: Equatable { case none, a, b, c }
+func euclideousHeaderFit(available: CGFloat, buttonFull: CGFloat, buttonNoNext: CGFloat) -> EuclideousHeaderFitStep {
+    if euclideousHeaderANeeds(euclideousHeaderGroupWidths(compact: false, buttonWidth: buttonFull)) <= available { return .none }
+    if euclideousHeaderANeeds(euclideousHeaderGroupWidths(compact: false, buttonWidth: buttonNoNext)) <= available { return .a }   // §3.6(a): drop the next-chord slot
+    if euclideousHeaderANeeds(euclideousHeaderGroupWidths(compact: true, buttonWidth: buttonNoNext)) <= available { return .b }    // §3.6(b): …and the wordmark (compact BRAND)
+    return .c                                                                                                                      // §3.6(c): the masters move to their own row
+}
+
 /// The first layout that fits `containerW` (page width − sp16 × 2). Portrait never uses A. TAB STRIP (2026-10-29): in layout A NOTES (the source control, the key pill, HOLD and LATCH) is CENTRED between BRAND's trailing edge
 /// and UTILITIES' leading edge — it used to sit on the riff panel's leading edge (`riffLeadingX`, container coordinates, kept as a parameter and no longer read) slid left to clear UTILITIES. Positions are solved with ONE clamp, so no
 /// combination of slides can leave two groups closer than their stated gap while the layout still "fits".

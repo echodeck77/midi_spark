@@ -161,4 +161,50 @@ final class HeaderStatusTests: XCTestCase {
         XCTAssertEqual(euclideousChordNameSpoken("E\u{266D}maj7"), "E flat major seven")
         XCTAssertEqual(euclideousChordNameSpoken("G7"), "G seven")
     }
+
+    // HEADER v2 §9 test 10: across every column, with the lamp switching and t moving, the button's reserved width never
+    // changes (the token's slots are fixed-width; only inUse / midiInUse / rootInUse move it — already in testWidthStableWhilePlaying;
+    // this pins the token slots themselves don't vary with the chord name length).
+    func testTokenWidthConstantAcrossColumns() {
+        let degs = [0, 1, 2, 3, 4, 5, 6, 7], cols = [Int](repeating: 0, count: 8)
+        var widths = Set<CGFloat>()
+        for c in 0..<8 {
+            let p = euclideousHeaderStatus(keyRoot: 0, keyType: .major, grid1: EuclideousGridStatus(inUse: true, live: true, column: c, nextColumn: (c + 1) % 8), grid1Degrees: degs, grid1Colours: cols, grid1Steps: 8,
+                                           grid2: EuclideousGridStatus(inUse: false, live: false, column: 0), grid2Degrees: degs, grid2Colours: cols, grid2Steps: 8,
+                                           midiInUse: true, midiLit: c % 2 == 0, rootInUse: true, t: c - 3)
+            widths.insert(euclideousHeaderWidth(parts: p, fallbackStep: 0))
+        }
+        XCTAssertEqual(widths.count, 1, "the button width never changes while the column / lamp / t move")
+    }
+
+    // §9 test 11: every root and scale label fits in full in the 13-char key slot (no ellipsis — §4.3 "always in full").
+    func testEveryKeyLabelFitsInFull() {
+        for root in 0..<12 {
+            for scale in ScaleType.allCases {
+                let label = euclideousKeyLabel(root: root, type: scale)
+                XCTAssertLessThanOrEqual(label.count, EuclideousHeaderStatusMetrics.keyMaxChars, "key label '\(label)' exceeds the 13-char slot — would ellipsize")
+            }
+        }
+    }
+
+    // §9 test 12: euclideousHeaderFit — the step ladder from the widest contents. Wide → none; narrower → a (drop next),
+    // b (drop wordmark), c (masters own row), in that order; a layout never un-narrows as it shrinks.
+    func testHeaderFitLadder() {
+        let full = euclideousHeaderLayoutButtonWidth(tokenCount: 2, lampShown: true, readoutShown: true, step: 0)
+        let noNext = euclideousHeaderLayoutButtonWidth(tokenCount: 2, lampShown: true, readoutShown: true, step: 1)
+        func step(_ avail: CGFloat) -> EuclideousHeaderFitStep { euclideousHeaderFit(available: avail, buttonFull: full, buttonNoNext: noNext) }
+        // a very wide container keeps everything; a very narrow one needs the masters on their own row
+        XCTAssertEqual(step(10_000), .none)
+        XCTAssertEqual(step(0), .c)
+        // the ladder is monotone: as the width shrinks the step only ever advances none → a → b → c
+        var ranks: [EuclideousHeaderFitStep: Int] = [.none: 0, .a: 1, .b: 2, .c: 3]
+        var last = -1
+        for w in stride(from: 2000.0, through: 0, by: -20) {
+            let r = ranks[step(w)]!
+            XCTAssertGreaterThanOrEqual(r, last, "fit step went backwards as the width shrank at \(w)")
+            last = r
+        }
+        // each of the four steps is reachable at some width
+        XCTAssertEqual(Set((0...2000).map { step(CGFloat($0)) }), [.none, .a, .b, .c], "every fit step is reachable")
+    }
 }
