@@ -167,7 +167,6 @@
 		47CA95171F41A3546DCBCD6D /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = C40FFEC9C51764F0A2A53F81 /* Atomics */; };
 		481DDC4D6FAA35B56F87FA74 /* AnswerLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207CC51539EB0A8FC6E6C8A /* AnswerLive.swift */; };
 		48945756C07AD7AD3107E51D /* Diag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A2346CB2C876A900961902 /* Diag.swift */; };
-		49BF3C1E54D8292EF186DAAF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D2BF7591C6F8CC6FF5F06CF6 /* Assets.xcassets */; };
 		49BFF7A8991A4AF1D215F5B3 /* ReelV3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F8655B2EC32B999EC5BBC71 /* ReelV3Tests.swift */; };
 		4A2F4629204778337D64903F /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */; };
 		4A429DE1145312D4D6FD6CBC /* StackGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02F45BADC981E9AE9B0D940 /* StackGrid.swift */; };
@@ -234,6 +233,7 @@
 		61FD41E8AAFF6443AFC70C85 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDCE8A830228B93BE51322A /* SnapshotStore.swift */; };
 		6353B5D664023023090A2DF1 /* SameNoteGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F6C43BE043B3253C35B961E /* SameNoteGuardTests.swift */; };
 		636A60432C298D2FA586D43B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 510B7145E7932E23ADB4D23D /* PrivacyInfo.xcprivacy */; };
+		64338BC490854B63E2774651 /* AUAssets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AC475460E77EABD72DB00A3F /* AUAssets.xcassets */; };
 		64D15BEC504AF3DF1CD41F3E /* LaneStripBands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53BC97CD3AF04DB5093562C9 /* LaneStripBands.swift */; };
 		65474F46CCF46A2F9D7EA3A0 /* HarmonyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24C15BDAB89DD4B8DEF42338 /* HarmonyLayout.swift */; };
 		66E87FCC147957D2D5BE9931 /* LanesPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF83C9F0A7C01E583A2B753F /* LanesPanelPainter.swift */; };
@@ -886,6 +886,7 @@
 		AB063E2496497A1B3757D426 /* CardBackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardBackTests.swift; sourceTree = "<group>"; };
 		AB4E013DDA3B122F0BEEBFB8 /* HocketGlyphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HocketGlyphView.swift; sourceTree = "<group>"; };
 		ABB85C75FDBCD12F45FAB3DC /* CardBack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardBack.swift; sourceTree = "<group>"; };
+		AC475460E77EABD72DB00A3F /* AUAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = AUAssets.xcassets; sourceTree = "<group>"; };
 		AC8317BF1DF0DE24F39C7E9D /* FillTabV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillTabV2.swift; sourceTree = "<group>"; };
 		AD095B8B6B4600B7D9AEFDC4 /* RiffMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffMapTests.swift; sourceTree = "<group>"; };
 		AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousPresets.swift; sourceTree = "<group>"; };
@@ -1554,6 +1555,7 @@
 		E8F08893D569D87D0D5D52FD /* AU */ = {
 			isa = PBXGroup;
 			children = (
+				AC475460E77EABD72DB00A3F /* AUAssets.xcassets */,
 				B505AD7C314653CD2DB395CD /* FourfoldViewController.swift */,
 				510B7145E7932E23ADB4D23D /* PrivacyInfo.xcprivacy */,
 			);
@@ -1788,7 +1790,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				49BF3C1E54D8292EF186DAAF /* Assets.xcassets in Resources */,
+				64338BC490854B63E2774651 /* AUAssets.xcassets in Resources */,
 				636A60432C298D2FA586D43B /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

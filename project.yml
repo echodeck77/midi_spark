@@ -169,7 +169,7 @@ targets:
     sources:
       - path: Fourfold/AU
         excludes: ["Info.plist"]     # hand-maintained, like MidiSparkAU's: never let XcodeGen generate it (it would drop the aumi AudioComponents)
-      - path: Fourfold/App/Assets.xcassets   # the SAME Canon AppIcon set as the app. A host gets a component's icon from the system (`AVAudioUnitComponent.icon`, documented as the CONTAINING APP's icon for an extension); the extension used to carry none of its own, so anything that looks at the extension itself (an older iOS, a host reading its bundle) found nothing. Device-verified: no (the simulator returns nil for every extension-based component).
+      - path: Fourfold/AU/AUAssets.xcassets   # the extension's OWN AppIcon set — a FULL classic size ladder (every iPhone/iPad px, generated from the app's 1024 master), replacing the app's single-1024 "universal" set here (2026-11-19). Ground truth from the on-device AU ICON PROBE: with the single-size set the system's own `AudioComponentGetIcon` returns NO icon for our registered component, while the appex bundle looks complete — shipping AUv3s whose icons DO show carry full classic sets, so the appex now ships one. The app keeps the single-1024 master (its home-screen icon works). Regenerate with sips from fourfold-icon-1024.png if the mark changes.
     # NOTE: no `info:` block here, for the same reason as MidiSparkAU.
     settings:
       base:

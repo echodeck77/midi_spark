@@ -1,15 +1,18 @@
-//  FourfoldIconProbe.swift — AU ICON PROBE (DEBUG only, 2026-11-18).
+//  FourfoldIconProbe.swift — AU ICON PROBE (DEBUG only; v1 2026-11-18, v2 2026-11-19).
 //
-//  Paul has reported the Fourfold AU showing NO icon in AUM — and now in a second host — while the standalone app's icon
-//  is fine. The appex's built bundle is verifiably complete (Assets.car + loose PNGs + CFBundleIcons / ~ipad /
-//  CFBundleIconName), so config guessing is over: this probe asks the DEVICE the exact question a host asks —
-//  `AudioComponentGetIcon` (the API AUM-era hosts call; deprecated but shipping) for every registered component whose
-//  name or maker looks like ours — and reports what the system actually hands back, per identity. Run it ON THE IPAD
-//  from the settings sheet's CLOCK tab (DEBUG builds only): it distinguishes, with data,
-//    (a) the system returns an icon and hosts just don't show it   → a host-display matter,
-//    (b) the system returns NO icon for the live component          → the device's icon/registration record is the problem,
-//    (c) more than one Fourfold identity is registered              → a stale install (the pre-rename com.paulbarrett one)
-//                                                                     is what the hosts are actually listing.
+//  Paul's Fourfold AU shows NO icon in AUM — and in a second host — while the standalone app's icon is fine, and the
+//  appex's built bundle is verifiably complete (Assets.car + loose PNGs + CFBundleIcons / ~ipad / CFBundleIconName).
+//  v1 asked the DEVICE the question a host asks — `AudioComponentGetIcon` (deprecated since iOS 13, still shipping) —
+//  for our own registered component, and the device answered ICON NO: the system's record for us has no icon.
+//
+//  v2 turns the next run into a CONTROLLED EXPERIMENT, because ICON NO alone cannot say whether the API path is dead
+//  for every v3 extension or deficient only for ours:
+//    • our identities: `AudioComponentGetIcon` AND the modern `AVAudioUnitComponent.icon` (iOS 16+), per line;
+//    • positive controls: the same two calls across EVERY non-Apple component on the device (on iOS those are all
+//      extension-based AUv3s — the plug-ins whose icons DO show in AUM), reported as counts plus the NO names.
+//  Readings: controls mostly YES + ours NO → our record/bundle genuinely differs (the full-size icon set shipped with
+//  this same build is the fix candidate). Controls ALL NO on GetIcon but YES on .icon → hosts ride the modern path and
+//  only .icon matters. Everything NO → neither public API serves icons and hosts use a private path.
 //  The simulator returns nil for every extension-based component (no positive control) — device results only.
 
 #if DEBUG
@@ -19,17 +22,18 @@ import AudioToolbox
 import UIKit
 #endif
 
-/// One registered component that looks like ours, and what the system says about its icon.
+/// One registered component and what the system says about its icon through both public APIs.
 struct FourfoldIconProbeHit {
     var name: String
     var manufacturer: String
     var version: String
     var typeSubtype: String
-    var hasIcon: Bool
+    var isOurs: Bool
+    var legacyIcon: Bool    // AudioComponentGetIcon (deprecated, the AUM-era API)
+    var modernIcon: Bool    // AVAudioUnitComponent.icon (iOS 16+); false below iOS 16
 }
 
-/// Every registered audio component whose name or manufacturer matches Fourfold / Outlier / the old MSPK identity,
-/// with the system's own icon answer for each. Main thread; DEBUG only; on-demand (a button runs it).
+/// Every registered audio component, with the system's own icon answers. Main thread; DEBUG only; on-demand (a button runs it).
 func fourfoldIconProbeHits() -> [FourfoldIconProbeHit] {
     let any = AudioComponentDescription(componentType: 0, componentSubType: 0, componentManufacturer: 0, componentFlags: 0, componentFlagsMask: 0)
     let all = AVAudioUnitComponentManager.shared().components(matching: any)
@@ -40,27 +44,45 @@ func fourfoldIconProbeHits() -> [FourfoldIconProbeHit] {
     var out: [FourfoldIconProbeHit] = []
     for c in all {
         let name = c.name, maker = c.manufacturerName
-        guard name.localizedCaseInsensitiveContains("fourfold") || maker.localizedCaseInsensitiveContains("outlier")
-            || name.localizedCaseInsensitiveContains("euclideous") || fourCC(c.audioComponentDescription.componentManufacturer) == "MSPK" && fourCC(c.audioComponentDescription.componentSubType) == "Frfd" else { continue }
-        var hasIcon = false
+        let ours = name.localizedCaseInsensitiveContains("fourfold") || maker.localizedCaseInsensitiveContains("outlier")
+            || name.localizedCaseInsensitiveContains("euclideous")
+            || (fourCC(c.audioComponentDescription.componentManufacturer) == "MSPK" && fourCC(c.audioComponentDescription.componentSubType) == "Frfd")
+        var legacy = false, modern = false
         #if canImport(UIKit)
-        hasIcon = AudioComponentGetIcon(c.audioComponent, 44) != nil   // THE host-side question (deprecated since iOS 13, still what hosts get)
+        legacy = AudioComponentGetIcon(c.audioComponent, 44) != nil
+        if #available(iOS 16.0, *) { modern = c.icon != nil }
         #endif
         let v = c.versionString.isEmpty ? String(c.version) : c.versionString
         out.append(FourfoldIconProbeHit(name: name, manufacturer: maker, version: v,
                                         typeSubtype: "\(fourCC(c.audioComponentDescription.componentType))/\(fourCC(c.audioComponentDescription.componentSubType))/\(fourCC(c.audioComponentDescription.componentManufacturer))",
-                                        hasIcon: hasIcon))
+                                        isOurs: ours, legacyIcon: legacy, modernIcon: modern))
     }
     return out
 }
 
-/// The probe's one-line-per-identity report for the settings sheet.
+/// The probe's report for the settings sheet: our identities line by line, then the device-wide positive controls.
 func fourfoldIconProbeReport() -> String {
     let hits = fourfoldIconProbeHits()
-    guard !hits.isEmpty else { return "No Fourfold component registered (simulator, or the registry hasn't scanned yet)" }
-    let lines = hits.map { h in "\(h.name) · \(h.typeSubtype) · v\(h.version) · ICON \(h.hasIcon ? "YES" : "NO")" }
-    var s = lines.joined(separator: "\n")
-    if hits.count > 1 { s += "\n⚠︎ \(hits.count) identities registered — a stale install is likely what hosts list" }
-    return s
+    guard !hits.isEmpty else { return "No components registered (simulator, or the registry hasn't scanned yet)" }
+    func yn(_ b: Bool) -> String { b ? "YES" : "NO" }
+    var lines: [String] = []
+
+    let ours = hits.filter { $0.isOurs }
+    if ours.isEmpty { lines.append("⚠︎ no Fourfold component registered") }
+    for h in ours {
+        lines.append("\(h.name) · \(h.typeSubtype) · v\(h.version) · GetIcon \(yn(h.legacyIcon)) · icon \(yn(h.modernIcon))")
+    }
+    if ours.count > 1 { lines.append("⚠︎ \(ours.count) Fourfold identities registered — a stale install is likely what hosts list") }
+
+    // Positive controls: every non-Apple component on an iPad is an extension-based AUv3 — the comparable population.
+    let controls = hits.filter { !$0.isOurs && $0.manufacturer != "Apple" }
+    let gYes = controls.filter { $0.legacyIcon }.count, mYes = controls.filter { $0.modernIcon }.count
+    lines.append("CONTROLS (non-Apple): \(controls.count) · GetIcon YES \(gYes) · icon YES \(mYes)")
+    let interesting = controls.filter { !$0.legacyIcon || !$0.modernIcon }.prefix(10)
+    for h in interesting {
+        lines.append("  \(h.name) (\(h.manufacturer)) · GetIcon \(yn(h.legacyIcon)) · icon \(yn(h.modernIcon))")
+    }
+    if controls.filter({ !$0.legacyIcon || !$0.modernIcon }).count > 10 { lines.append("  …and more NOs not shown") }
+    return lines.joined(separator: "\n")
 }
 #endif

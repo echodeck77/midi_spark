@@ -26,8 +26,28 @@ final class AppIconTests: XCTestCase {
             let t = try target(name)
             XCTAssertTrue(t.contains("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon"), "\(name) must name the AppIcon set")
         }
-        XCTAssertTrue(try target("FourfoldAU").contains("Fourfold/App/Assets.xcassets"), "the extension compiles the app's own catalog — one icon, not a copy that can drift")
+        // 2026-11-19: the extension carries its OWN full classic size set (AUAssets.xcassets) — the on-device AU ICON
+        // PROBE showed the system registers NO icon for the component from the app's single-1024 "universal" set.
+        XCTAssertTrue(try target("FourfoldAU").contains("Fourfold/AU/AUAssets.xcassets"), "the extension compiles its own full-size icon catalog")
         XCTAssertFalse(try target("FourfoldAU").contains("\n    info:"), "the extension's Info.plist stays hand-maintained (an `info:` block would drop its aumi AudioComponents)")
+    }
+
+    /// The extension's set is a FULL classic ladder generated from the same 1024 master — every entry's file exists at its exact pixel size.
+    func testTheExtensionsIconSetIsAFullSizeLadderFromTheMaster() throws {
+        let set = repo.appendingPathComponent("Fourfold/AU/AUAssets.xcassets/AppIcon.appiconset")
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: set.appendingPathComponent("Contents.json"))) as? [String: Any]
+        let images = json?["images"] as? [[String: Any]] ?? []
+        XCTAssertGreaterThanOrEqual(images.count, 18, "iPhone + iPad + marketing entries")
+        for e in images {
+            let file = try XCTUnwrap(e["filename"] as? String)
+            let size = try XCTUnwrap(e["size"] as? String).components(separatedBy: "x")
+            let scale = Double((e["scale"] as? String ?? "1x").dropLast()) ?? 1
+            let px = Int((Double(size[0]) ?? 0) * scale)
+            let src = try XCTUnwrap(CGImageSourceCreateWithURL(set.appendingPathComponent(file) as CFURL, nil), "\(file) missing")
+            let img = try XCTUnwrap(CGImageSourceCreateImageAtIndex(src, 0, nil))
+            XCTAssertEqual(img.width, px, "\(file) must be \(px)px for \(e["size"] ?? "?")@\(scale)x")
+            XCTAssertEqual(img.width, img.height, "\(file) square")
+        }
     }
 
     func testTheMasterIconIsA1024SquareWithNoAlpha() throws {
