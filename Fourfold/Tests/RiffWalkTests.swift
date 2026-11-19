@@ -103,6 +103,21 @@ final class RiffWalkTests: XCTestCase {
         // With liveCurrent == trail.current (no skew) both cases satisfy §3.7 — proven by assertTrailInvariant above.
     }
 
+    // RIFF v4 §9 test 4 — the tile's cell colours: on → note #B4BAC4, empty #30343C, playing note = lane100 (nil);
+    // off → note #3E424A, empty #2A2D33; never the selected fill (#DFE3EA / #F2F4F7).
+    func testRiffTileCellColours() {
+        XCTAssertEqual(euclideousRiffTileCellColour(isRiff: true, isHit: true, isCur: false), 0xB4BAC4, "on note")
+        XCTAssertEqual(euclideousRiffTileCellColour(isRiff: true, isHit: false, isCur: false), 0x30343C, "on empty")
+        XCTAssertNil(euclideousRiffTileCellColour(isRiff: true, isHit: true, isCur: true), "the playing cell draws in lane100")
+        XCTAssertEqual(euclideousRiffTileCellColour(isRiff: false, isHit: true, isCur: false), 0x3E424A, "off note")
+        XCTAssertEqual(euclideousRiffTileCellColour(isRiff: false, isHit: false, isCur: false), 0x2A2D33, "off empty")
+        XCTAssertEqual(euclideousRiffTileCellColour(isRiff: false, isHit: true, isCur: true), 0x3E424A, "off ignores isCur (the tile isn't sounding)")
+        for c: UInt32? in [euclideousRiffTileCellColour(isRiff: true, isHit: true, isCur: false),
+                           euclideousRiffTileCellColour(isRiff: true, isHit: false, isCur: false)] {
+            XCTAssertNotEqual(c, 0xDFE3EA, "never the selected fill"); XCTAssertNotEqual(c, 0xF2F4F7)
+        }
+    }
+
     // §6.3 — VoiceOver value.
     func testWalkVoiceOver() {
         XCTAssertEqual(euclideousRiffWalkVoiceOver(n: 8, playing: false, current: 3), "8 steps")

@@ -5179,7 +5179,7 @@ struct EuclideousPage: View {
                 HStack(spacing: gap) {
                     ForEach(0..<n, id: \.self) { col in
                         RoundedRectangle(cornerRadius: poly ? 0.75 : monoRadius)
-                            .fill(riffMiniGridFill(isRiff: isRiff, isHit: glyph.isHit(col: col, rank: rank), isCur: col == glyph.current))
+                            .fill(riffMiniGridFill(isRiff: isRiff, isHit: glyph.isHit(col: col, rank: rank), isCur: col == glyph.current, accent: accent))
                             .frame(width: cellW, height: cellH)
                             .opacity(glyph.opacity(col: col))
                     }
@@ -5188,22 +5188,13 @@ struct EuclideousPage: View {
         }
         .frame(width: size, height: size)
     }
-    /// Fix 1's own exact fill table — riff ON (card = lane colour, label INK): a note is solid INK; an empty
-    /// cell is INK at 14%; the CURRENT step's note (if it has one) is `#f2f4f7`, one cell only. Riff OFF
-    /// keeps the SAME palette already shipped, with the current-step note's own `#aab0ba` fill. RIFF WALK
-    /// ferry §2.1: a past-LEN or never-played column's own 32% dim is now ONE uniform opacity layer the
-    /// caller applies on top (lit or empty alike) — this function no longer bakes its own separate "outside
-    /// the window" reduction into the fill colour, which would have double-dimmed those cells.
-    private func riffMiniGridFill(isRiff: Bool, isHit: Bool, isCur: Bool) -> Color {
-        if isRiff {
-            if isHit && isCur { return Color(hex: 0xF2F4F7) }
-            if isHit { return Color(hex: 0x0D0F14) }
-            return Color(hex: 0x0D0F14).opacity(0.14)
-        } else {
-            if isHit && isCur { return Color(hex: 0xAAB0BA) }
-            if isHit { return Color.white.opacity(0.55) }
-            return Color.white.opacity(0.06)
-        }
+    /// RIFF v4 §2.2–§2.4: the tile's cell colours come from the pure `euclideousRiffTileCellColour` (ON: note #B4BAC4,
+    /// empty #30343C; OFF: note #3E424A, empty #2A2D33), and the PLAYING cell (the column now sounding) draws in lane100.
+    /// The tile no longer uses the selected look (§2.7). A past-LEN / never-played column's own 32% dim is ONE uniform
+    /// opacity layer the caller applies on top (lit or empty alike), so this function never bakes its own reduction in.
+    private func riffMiniGridFill(isRiff: Bool, isHit: Bool, isCur: Bool, accent: Color) -> Color {
+        if let hex = euclideousRiffTileCellColour(isRiff: isRiff, isHit: isHit, isCur: isCur) { return Color(hex: hex) }
+        return accent   // §2.4 the playing cell
     }
     /// The riff card itself — a 90×82 thumbnail (RIFF WALK ferry §2.1, 8pt shorter than before: OCT's row
     /// is gone) that ALSO serves as this lane's on/off switch for the whole riff layer (ferry §2: "the whole
@@ -5219,15 +5210,15 @@ struct EuclideousPage: View {
         return VStack(spacing: 0) {
             riffMiniGrid(idx, line, accent, size: layout.gridSize).frame(width: layout.gridSize, height: layout.gridSize)
                 .padding(.top, layout.gridTop)
-            Text("RIFF").font(.system(size: 9, weight: .heavy, design: .monospaced)).kerning(9 * 0.16)   // §2.3: 9 pt heavy, 0.16 em
-                .foregroundColor(Color(hex: FourfoldSelect.switchInk(isRiff))).lineLimit(1).fixedSize()
+            Text("RIFF").font(.system(size: 9, weight: .heavy, design: .monospaced)).kerning(9 * 0.16)   // §2.2/§2.3: 9 pt heavy, 0.16 em
+                .foregroundColor(Color(hex: isRiff ? 0xF2F4F7 : 0x959BA6)).lineLimit(1).fixedSize()      // §2.2 label on / §2.3 off
                 .frame(height: layout.labelHeight).padding(.top, 2)
             Spacer(minLength: 0)
         }
         .frame(width: layout.tileWidth, height: layout.rowAHeight)
-        // STYLE PASS 1 §3.2: a switch drawn as a tile — on #DFE3EA, off the control tone (was lane100 on / #2A2D34 off; the
-        // most visible conversion of the pass: the card's coloured riff square goes neutral — flagged device-owed).
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: FourfoldSelect.switchFill(isRiff))))
+        // RIFF v4 §2.2/§2.3/§2.7: the tile is NOT the selected look any more — its fill is the control tone (#23262D) on AND
+        // off; the notes and the label carry the on/off state (§2), so the tile stops being the brightest shape on the card.
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: FourfoldStyle.control)))
         .contentShape(Rectangle())
         .modifier(laneTapMod(idx) { edit(idx) { $0.riffOn = !($0.riffOnResolved) } })
         .modifier(lockOutlineMod(idx, .riffOn, accent))

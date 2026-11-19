@@ -7336,6 +7336,18 @@ struct EuclideousRiffWalkGrid: Equatable {
     var xs: [CGFloat]          // n leading-edge x, from the strip's leading edge (already past the 6 pt pad)
     var pad: CGFloat           // 6 — the inset from each side of the strip
 }
+/// RIFF v4 ferry (2026-11-19) §2.2–§2.4: the riff tile's mini-grid cell colour as a hex, or nil for the PLAYING cell
+/// (the column now sounding, drawn in lane100). ON: a note #B4BAC4, empty #30343C. OFF: a note #3E424A, empty #2A2D33.
+/// The tile no longer uses the selected look (§2.7) — it never returns #DFE3EA/#F2F4F7. `isCur` is only ever true while
+/// the lane runs (the caller passes the live step, −1 when stopped), so the playing colour cannot show on a stopped tile.
+func euclideousRiffTileCellColour(isRiff: Bool, isHit: Bool, isCur: Bool) -> UInt32? {
+    if isRiff {
+        if isHit && isCur { return nil }        // §2.4 the playing cell = lane100
+        return isHit ? 0xB4BAC4 : 0x30343C      // §2.2 note / empty
+    }
+    return isHit ? 0x3E424A : 0x2A2D33          // §2.3 note / empty (off)
+}
+
 func euclideousRiffWalkGrid(n: Int, innerWidth: CGFloat) -> EuclideousRiffWalkGrid {
     let pad: CGFloat = 6, gap: CGFloat = 2.5
     let count = max(1, n)
