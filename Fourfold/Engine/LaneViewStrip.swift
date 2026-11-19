@@ -10,7 +10,7 @@ import Foundation
 // MARK: - the page's one tab
 
 /// The tab all four lane cards show. MIX is the sixth: whatever is lit is what you see. ANSWER FERRY (2026-11-02): LISTEN is renamed ANSWER (the case keeps its code name `.listen`) and POOL joins between NOTES and ANSWER:
-/// INPUTS · EUCLID · RESETS · RIFF · STACK · ANSWER · MIX (display order in `euclideousPageTabOrder`). The raw values are coupled with `EuclideousTabKind` and the page's `EuclideousLaneTab` — reorder all three together. RESETS (2026-11-11) = rawValue 5 in all three; MIX moved to 6 so it stays the one tab with no `front` (the backs).
+/// INPUTS · EUCLID · RIFF · STACK · RESETS · ANSWER · MIX (display order in `euclideousPageTabOrder`; RESETS moved after RIFF + STACK, Paul 2026-11-19). The raw values are coupled with `EuclideousTabKind` and the page's `EuclideousLaneTab` — reorder all three together. RESETS (2026-11-11) = rawValue 5 in all three; MIX moved to 6 so it stays the one tab with no `front` (the backs).
 enum EuclideousPageTab: Int, CaseIterable, Equatable {
     case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, resets = 5, mix = 6, fill = 7, alt = 8   // FILL (2026-11-13) rawValue 7; ALT (2026-11-14) rawValue 8 in all three coupled enums (mix stays 6 as the only front-less tab); display position is set by `euclideousPageTabOrder`
     /// The page opens on RHYTHM, never on MIX (the tab is not saved, so every open is this).
@@ -24,7 +24,7 @@ enum EuclideousPageTab: Int, CaseIterable, Equatable {
     var label: String { spokenName.uppercased() }
 }
 /// The LEFT-TO-RIGHT order the strip draws its segments (Paul 2026-11-05: INPUTS first, before RHYTHM). This is DELIBERATELY separate from the raw values — `.pool`'s rawValue (3) still drives the `.front` / `EuclideousTabKind` coupling and must not move; only the display position changes.
-let euclideousPageTabOrder: [EuclideousPageTab] = [.pool, .rhythm, .resets, .riff, .notes, .fill, .listen, .alt, .mix]   // FILL after STACK (2026-11-13); ALT between ANSWER and MIX (2026-11-14)
+let euclideousPageTabOrder: [EuclideousPageTab] = [.pool, .rhythm, .riff, .notes, .resets, .fill, .listen, .alt, .mix]   // RESETS moved after RIFF + STACK (Paul 2026-11-19); FILL after STACK (2026-11-13); ALT between ANSWER and MIX (2026-11-14)
 
 /// ANSWER tab = DEV-only (Paul 2026-11-16): the ANSWER (`.listen`) tab shows in the strip only in DEBUG builds, hidden in release — the same convention as CLASHES / FX COUNTS. The engine is untouched, so a saved document's ANSWER
 /// (CYCLE / TRADE / COPY / FILL) settings still PLAY; only the editing tab is gone from release. `euclideousPageTabOrder` and the raw-value coupling are unchanged.
@@ -32,6 +32,19 @@ let euclideousPageTabOrder: [EuclideousPageTab] = [.pool, .rhythm, .resets, .rif
 let euclideousAnswerTabVisible = true
 #else
 let euclideousAnswerTabVisible = false
+#endif
+/// REEL + emitter VELOCITY tab = DEV-only (Paul 2026-11-19): shown in the DEBUG dev build, hidden in release — the same
+/// convention as the ANSWER tab above. The reel's pass-browser / recorder icon (and its popup) and the emitter VEL
+/// sequencer tab leave the shipping UI; all their code — the browser, the `SessionTape` recorder, the velocity panel and
+/// its `EmitterVelocity` engine — stays compiled and runs. The macOS test target is DEBUG, so the header-width and
+/// seq-tab tests still see both (and the dedicated tests below check the hidden state via the explicit parameters).
+/// Flip either to a plain `true` / `false` to force it on / off in both builds.
+#if DEBUG
+let euclideousReelVisible = true
+let euclideousVelocityTabVisible = true
+#else
+let euclideousReelVisible = false
+let euclideousVelocityTabVisible = false
 #endif
 /// The strip's left-to-right tabs with ANSWER dropped when it is hidden (release) — the ONE list the layout's segment count, the painter's per-segment tab and the tap mapping all read, so they can never disagree. `answerVisible` is a parameter only so the tests can check both builds.
 func euclideousLaneStripOrder(answerVisible: Bool = euclideousAnswerTabVisible) -> [EuclideousPageTab] {

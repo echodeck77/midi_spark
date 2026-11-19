@@ -586,7 +586,7 @@ struct FourfoldRootView: View {
 
     @_optimize(speed)
     @ViewBuilder func overlays(_ geo: GeometryProxy) -> some View {
-        if reelShowPopup {      // the REEL pass browser, above the page (FOURFOLD REEL LINK 2026-10-23); framed to the root geo like the page
+        if euclideousReelVisible, reelShowPopup {      // the REEL pass browser, above the page (FOURFOLD REEL LINK 2026-10-23); framed to the root geo like the page. DEV-only since Paul 2026-11-19 — hidden in release (the icon is gone, so it can't open, but gate the mount too)
             FourfoldReelBrowser(au: au, size: geo.size, playing: d.playing, tempo: d.tempo, onClose: { reelShowPopup = false })
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
         }

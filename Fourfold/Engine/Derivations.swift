@@ -4719,7 +4719,7 @@ struct EuclideousHeaderGroupWidths: Equatable {
     var gap: CGFloat            // the space between row-1 groups: sp16 (A, B) or sp8 (C)
 }
 /// Each group's width, once, from the same constants the views draw with.
-func euclideousHeaderGroupWidths(compact: Bool, buttonWidth: CGFloat = EuclideousHeaderMetrics.sourceButtonWidth) -> EuclideousHeaderGroupWidths {
+func euclideousHeaderGroupWidths(compact: Bool, buttonWidth: CGFloat = EuclideousHeaderMetrics.sourceButtonWidth, reelVisible: Bool = euclideousReelVisible) -> EuclideousHeaderGroupWidths {
     typealias M = EuclideousHeaderMetrics
     let t = compact ? M.compactTarget : M.target
     let wordmarkW = M.wordmarkWidth
@@ -4731,7 +4731,7 @@ func euclideousHeaderGroupWidths(compact: Bool, buttonWidth: CGFloat = Euclideou
     // Sources panel v2 §4.5: NOTES = the SOURCES button (192) + sp8 + HOLD/LATCH (106) = 306 (was 426; the button
     // replaces the 184 source control + the 120 key pill). HOLD/LATCH stays (§8); nothing else in the group moves.
     return EuclideousHeaderGroupWidths(brand: brand, notes: buttonWidth + M.sp8 + M.holdLatchWidth,   // HEADER STATUS ferry (2026-11-15): NOTES = the (now content-hugging) button + sp8 + HOLD/LATCH
-                                       utilities: 4 * t, gap: compact ? M.sp8 : M.sp16)   // HOCKET RETIRED (2026-11-17): the HOCKET pill + its sp8 are gone — UTILITIES is just the four icons (presets · SWING · REEL · settings)
+                                       utilities: (reelVisible ? 4 : 3) * t, gap: compact ? M.sp8 : M.sp16)   // HOCKET RETIRED (2026-11-17): the HOCKET pill + its sp8 are gone. UTILITIES = 4 icons (presets · SWING · REEL · settings), or 3 when the REEL is hidden in release (Paul 2026-11-19, `euclideousReelVisible`)
 }
 
 struct EuclideousHeaderGroupFrame: Equatable { var x: CGFloat; var width: CGFloat; var row: Int }
@@ -6061,7 +6061,7 @@ enum EuclideousSeqTab: Int, CaseIterable {
     /// CARD BACKS (2026-10-28) §8: the MIX tab is RETIRED — what it edited (VEL, GATE, OCT per part) now lives on the lane cards' backs. The case stays (hidden, not deleted), so the panel is LANES | FX and LANES is the default.
     static let visible: [EuclideousSeqTab] = [.lanes]
     /// FX is RETIRED (Paul, 2026-11-07): the case stays (hidden, not deleted — its panel code and the document's `euclideousFX` are still compiled), but no tab offers it; a stray `.fx` shows MUTE.
-    static func visible(fxAvailable: Bool) -> [EuclideousSeqTab] { fxAvailable ? [.lanes, .ratch, .velocity, .cc] : visible }   // RATCH tab ferry: RATCH is the third VISIBLE tab (MIX is retired), after FX; VELOCITY tab (2026-11-03): the fourth; CC tab (Nov 2026): the fifth, after VEL
+    static func visible(fxAvailable: Bool, velocityVisible: Bool = euclideousVelocityTabVisible) -> [EuclideousSeqTab] { fxAvailable ? ([.lanes, .ratch] + (velocityVisible ? [.velocity] : []) + [.cc]) : visible }   // RATCH tab ferry: RATCH is the third VISIBLE tab (MIX is retired), after FX; VELOCITY tab (2026-11-03): the fourth — DEV-only since Paul 2026-11-19 (`euclideousVelocityTabVisible`), hidden in release; CC tab (Nov 2026): after VEL
     static let `default`: EuclideousSeqTab = .lanes
 }
 /// Tabs only: equal widths across the full content width, sp4 apart (two tabs at the 401pt reference = 198.5 each).

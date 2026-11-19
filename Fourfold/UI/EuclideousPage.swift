@@ -2298,8 +2298,10 @@ struct EuclideousPage: View {
                 }
                 .accessibilityLabel("Swing, \(swing == 50 ? "straight" : "\(swing)")").accessibilityAddTraits(.isButton).accessibilityAddTraits(swingPopupOpen ? .isSelected : [])
             // REEL (2026-10-23): the pass browser / MIDI recorder. Sits after SWING so presets and SWING keep their slots
-            // (the swing popover's anchor below is unchanged); the gear stays last.
-            reelHeaderButton(target: target)
+            // (the swing popover's anchor below is unchanged); the gear stays last. DEV-only since Paul 2026-11-19
+            // (`euclideousReelVisible`): hidden in release, kept in the DEBUG dev build; `euclideousHeaderGroupWidths`
+            // drops its slot to 3 icons in release so nothing else shifts.
+            if euclideousReelVisible { reelHeaderButton(target: target) }
             // FOURFOLD SETTINGS (2026-10-15 ferry §1): the × (xmark) LEAVES the header — its old job (back to
             // the workbench) moves to the sheet footer's WORKBENCH link (§7.1). UTILITIES is now 4 icons (SWING joined
             // it 2026-10-17, REEL 2026-10-23 — `euclideousHeaderGroupWidths` carries the real count).

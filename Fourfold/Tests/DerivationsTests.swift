@@ -1958,6 +1958,9 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(f.brand, 191.88, accuracy: 0.01)
         // WIDENED 312→426 (2026-10-20, HOLD/LATCH): two fixed-width chips (48+54) + the sp4 between them + the sp8 before them. UTILITIES is 4 icons (presets · SWING · REEL · settings).
         XCTAssertEqual(f.notes, 306, "Sources panel v2: the SOURCES button (192) + sp8 + HOLD/LATCH (106); it was 426 (source control 184 + key pill 120 + HOLD/LATCH)"); XCTAssertEqual(f.utilities, 176, "HOCKET RETIRED (2026-11-17): the pill + its sp8 left UTILITIES (was 176 + 100)")
+        // REEL DEV-only (Paul 2026-11-19): the macOS test target is DEBUG, so `euclideousReelVisible` is true and the defaults above see the 4-icon UTILITIES (176 / 144). In release the REEL icon is dropped — UTILITIES is 3 icons.
+        XCTAssertEqual(euclideousHeaderGroupWidths(compact: false, reelVisible: false).utilities, 132, "REEL hidden: 3 icons × 44 (presets · SWING · settings)")
+        XCTAssertEqual(euclideousHeaderGroupWidths(compact: true, reelVisible: false).utilities, 108, "REEL hidden, compact: 3 × 36")
         XCTAssertEqual(HM.segmentedWidth, 184)
         let c = euclideousHeaderGroupWidths(compact: true)
         XCTAssertEqual(c.brand, 93, "compact: the mark and two 36 pt targets (it was 181 with the dice and the padlock, 44 pt each)"); XCTAssertEqual(c.utilities, 144)   // HOCKET RETIRED: compact UTILITIES (was 144 + 100)
@@ -2507,6 +2510,9 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true), [.lanes, .ratch, .velocity, .cc])
         XCTAssertFalse(EuclideousSeqTab.visible(fxAvailable: true).contains(.mix), "no MIX tab any more"); XCTAssertFalse(EuclideousSeqTab.visible(fxAvailable: true).contains(.fx), "no FX tab any more")
         XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true).map { $0.label }, ["MUTE", "RATCH", "VEL", "CC"])   // MUTE TAB ferry (2026-11-02): LANES → MUTE
+        // VEL DEV-only (Paul 2026-11-19): DEBUG (this target) keeps VEL above; release drops it — MUTE · RATCH · CC.
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true, velocityVisible: false), [.lanes, .ratch, .cc])
+        XCTAssertEqual(EuclideousSeqTab.visible(fxAvailable: true, velocityVisible: false).map { $0.label }, ["MUTE", "RATCH", "CC"])
         XCTAssertEqual(euclideousSeqTabWidth(count: 2, contentWidth: 401), 198.5, accuracy: 1e-9, "two tabs at the reference panel")
         XCTAssertEqual(euclideousSeqTabWidth(count: 1, contentWidth: 401), 401)
     }
