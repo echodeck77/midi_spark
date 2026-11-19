@@ -51,6 +51,58 @@ final class RiffWalkTests: XCTestCase {
         for i in 1..<14 { XCTAssertEqual(t.state(of: i, liveCurrent: -1), .upcoming) }
     }
 
+    // RIFF v4 §6/§9 test 7 — the two screenshot cases driven through the extracted pure decision `euclideousRiffWalkStepTrail`.
+    // The trail is correct by construction: at every tick, relative to the trail's OWN current, every entry before it is
+    // played-or-skipped and every entry after it is upcoming-or-skipped. The screenshot oddities are a SAMPLE SKEW between the
+    // 15 Hz live-current ring and the 30 Hz trail-set update (the ring leads the trail by ≤ one poll), NOT a reducer bug — the
+    // second half of this test reproduces both artifacts purely by feeding `state(of:liveCurrent:)` a liveCurrent one step ahead.
+    private func assertTrailInvariant(_ t: EuclideousRiffWalkTrail, P: Int, file: StaticString = #filePath, line: UInt = #line) {
+        let c = t.current
+        guard c >= 0 else { return }
+        for i in 0..<P where i != c {
+            let s = t.state(of: i, liveCurrent: c)
+            if i < c { XCTAssert(s == .played || s == .skipped, "entry \(i) before current \(c) is \(s)", file: file, line: line) }
+            else { XCTAssert(s == .upcoming || s == .skipped, "entry \(i) after current \(c) is \(s)", file: file, line: line) }
+        }
+    }
+    func testWalkTrailTwoScreenshotCasesAndTheSkewDiagnosis() {
+        // Case 1 — forward, LEN 8, 3 hits a pass, a reset every pass. Walk visits 0,2,4 then is sent back to 0 (early reset).
+        var t = EuclideousRiffWalkTrail()
+        var prev = -1
+        for _ in 0..<8 {                                              // 8 passes ≈ 32 bars at 4 bars/pass
+            for cur in [0, 2, 4] {
+                let r = euclideousRiffWalkStepTrail(t, prev: prev, cur: cur, P: 8, looped: false)
+                t = r.trail; prev = cur; assertTrailInvariant(t, P: 8)
+            }
+            let r = euclideousRiffWalkStepTrail(t, prev: prev, cur: 0, P: 8, looped: false)   // reset: prev 4 < 7, not looped
+            XCTAssertTrue(r.tick, "an early send-back-to-0 flashes the tick")
+            t = r.trail; prev = 0
+            XCTAssertEqual(t.skipped, [5, 6, 7], "entries after the last-played (4) that the pass never reached are skipped")
+            assertTrailInvariant(t, P: 8)
+        }
+        // Case 2 — forward, LEN 8, 5 hits a pass, no reset, ADVANCE EVERY 1: 0..7 then a natural wrap to 0 (no tick).
+        t = EuclideousRiffWalkTrail(); prev = -1
+        for _ in 0..<8 {
+            for cur in 0...7 {
+                let r = euclideousRiffWalkStepTrail(t, prev: prev, cur: cur, P: 8, looped: false)
+                XCTAssertFalse(r.tick); t = r.trail; prev = cur; assertTrailInvariant(t, P: 8)
+            }
+            let r = euclideousRiffWalkStepTrail(t, prev: 7, cur: 0, P: 8, looped: false)   // prev == P−1 → natural wrap
+            XCTAssertFalse(r.tick, "a natural wrap does NOT tick"); t = r.trail; prev = 0
+            XCTAssertTrue(t.played.isEmpty && t.skipped.isEmpty)
+        }
+        // THE DIAGNOSIS: the screenshot artifacts come ONLY from drawing with a liveCurrent that leads the trail's own current.
+        // Case 2 still: trail at current 3 (played 0,1,2), but the 15 Hz ring already shows liveCurrent 4 → entry 3 draws UPCOMING.
+        var lag = EuclideousRiffWalkTrail(); lag.advance(to: 3, count: 8)
+        XCTAssertEqual(lag.state(of: 3, liveCurrent: 4), .upcoming, "ring one ahead → the trail's own current draws upcoming (the Case-2 still)")
+        XCTAssertEqual(lag.state(of: 4, liveCurrent: 4), .current)
+        // Case 1 still: trail still mid-pass at current 2 (played 0,1), but the ring already wrapped to 0 → entry 1 still draws PLAYED while 0 is current.
+        var lag2 = EuclideousRiffWalkTrail(); lag2.advance(to: 2, count: 8)
+        XCTAssertEqual(lag2.state(of: 0, liveCurrent: 0), .current)
+        XCTAssertEqual(lag2.state(of: 1, liveCurrent: 0), .played, "ring wrapped to 0 before the trail reset → a played entry sits after the drawn current (the Case-1 still)")
+        // With liveCurrent == trail.current (no skew) both cases satisfy §3.7 — proven by assertTrailInvariant above.
+    }
+
     // §6.3 — VoiceOver value.
     func testWalkVoiceOver() {
         XCTAssertEqual(euclideousRiffWalkVoiceOver(n: 8, playing: false, current: 3), "8 steps")

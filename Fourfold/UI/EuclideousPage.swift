@@ -5355,18 +5355,10 @@ struct EuclideousPage: View {
             let P = min(16, max(1, euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)))
             guard let cur = riffWalkCurrentStep(cfg, beat: beat, P: P) else { continue }
             let prev = walkPrevStep[idx]
-            if prev < 0 {
-                walkTrails[idx].advance(to: cur, count: P)
-            } else if cur > prev {
-                walkTrails[idx].advance(to: cur, count: P)
-            } else if cur < prev {
-                if cur == 0 {
-                    if !looped && prev < P - 1 { walkTrails[idx].reset(count: P); walkTickAt[idx] = Date() }   // §3.6 early reset → tick
-                    else { walkTrails[idx].wrap() }                                                           // §3.7 natural wrap / loop: no tick
-                } else {
-                    walkTrails[idx].advance(to: cur, count: P)   // §3.9 fill running the index backward: follow it
-                }
-            }
+            // RIFF v4 §6: the decision is the pure `euclideousRiffWalkStepTrail` (extracted so it is unit-testable — §3.6/§3.7/§3.9).
+            let (newTrail, tick) = euclideousRiffWalkStepTrail(walkTrails[idx], prev: prev, cur: cur, P: P, looped: looped)
+            walkTrails[idx] = newTrail
+            if tick { walkTickAt[idx] = Date() }
             walkPrevStep[idx] = cur
         }
     }

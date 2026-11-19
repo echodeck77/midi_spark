@@ -7283,6 +7283,29 @@ struct EuclideousRiffWalkTrail: Equatable {
     }
 }
 
+/// RIFF v4 ferry (2026-11-19) §6: the per-tick trail decision, extracted VERBATIM from `updateWalkTrails` so it is
+/// unit-testable. `prev` = last tick's walk step (−1 = not started this run), `cur` = this tick's step, `P` = the walk
+/// period, `looped` = the host looped/seeked this tick. Returns the updated trail and whether an early-reset TICK should
+/// flash (§3.6). Mirrors §3.6 (early reset → tick), §3.7 (natural wrap / loop → no tick) and §3.9 (fill running the index
+/// backward → follow it). cur == prev leaves the trail untouched. Pure: no `Date()`, no `@State` — the caller stamps the tick.
+func euclideousRiffWalkStepTrail(_ trail: EuclideousRiffWalkTrail, prev: Int, cur: Int, P: Int, looped: Bool) -> (trail: EuclideousRiffWalkTrail, tick: Bool) {
+    var t = trail
+    var tick = false
+    if prev < 0 {
+        t.advance(to: cur, count: P)
+    } else if cur > prev {
+        t.advance(to: cur, count: P)
+    } else if cur < prev {
+        if cur == 0 {
+            if !looped && prev < P - 1 { t.reset(count: P); tick = true }   // §3.6 early reset → tick
+            else { t.wrap() }                                               // §3.7 natural wrap / loop: no tick
+        } else {
+            t.advance(to: cur, count: P)                                    // §3.9 fill running the index backward: follow it
+        }
+    }
+    return (t, tick)
+}
+
 /// RIFF v3 ferry (2026-11-14) §6.3: the WALK's VoiceOver value — "n steps" while not playing, "step k of n" while it runs.
 func euclideousRiffWalkVoiceOver(n: Int, playing: Bool, current: Int) -> String {
     let n = max(1, n)
