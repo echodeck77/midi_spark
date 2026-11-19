@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Fourfold</string>
+	<string>Fourfold2</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -32,11 +32,11 @@
 					<key>manufacturer</key>
 					<string>OutM</string>
 					<key>name</key>
-					<string>Outlier MIDI: Fourfold</string>
+					<string>Outlier MIDI: Fourfold2</string>
 					<key>sandboxSafe</key>
 					<true/>
 					<key>subtype</key>
-					<string>Frfd</string>
+					<string>Frf2</string>
 					<key>tags</key>
 					<array>
 						<string>MIDI</string>
