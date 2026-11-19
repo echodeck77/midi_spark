@@ -269,7 +269,7 @@ final class UndoAuditTests: XCTestCase {
         let capture = try body(of: src, from: "func euclideousSnapshot()", to: "func euclideousRecordUndo")
         let apply = try body(of: src, from: "func euclideousApply(", to: "func euclideousUndoAction")
         let labels = Mirror(reflecting: snapshot([])).children.compactMap { $0.label }
-        XCTAssertEqual(Set(labels), ["lines", "riff", "resetSpanBars", "keyRoot", "keyType", "chordSets", "activeChordSet", "noteSource", "sourcePlan", "riffs", "activeRiff", "lanesSeq", "riffsSeq", "fx", "holdLatchMode", "hocketRules", "emitterRatchets", "emitterVelocities", "emitterCCs", "outputMutes", "riffPoly", "polyRiff", "canonUnit", "presetPlay", "ribbonSettings"],   // ribbonSettings: RIBBON SETTINGS ferry (2026-11-17) — the list was left stale at its landing, fixed here
+        XCTAssertEqual(Set(labels), ["lines", "riff", "resetSpanBars", "keyRoot", "keyType", "chordSets", "activeChordSet", "noteSource", "sourcePlan", "riffs", "activeRiff", "lanesSeq", "riffsSeq", "fx", "holdLatchMode", "hocketRules", "emitterRatchets", "emitterVelocities", "emitterCCs", "outputMutes", "riffPoly", "polyRiff", "canonUnit", "presetPlay", "ribbonSettings", "riffMaster", "stackMaster"],   // riffMaster/stackMaster: HEADER v2 ferry (2026-11-19) — the two global PLAY-part masters are undoable (§1.6)
                        "the undo snapshot changed shape: update `euclideousSnapshot()`, `euclideousApply` and this list together")
         for l in labels {
             let uses = apply.components(separatedBy: "s.\(l)").count - 1

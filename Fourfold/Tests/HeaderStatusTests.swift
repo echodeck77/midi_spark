@@ -43,20 +43,7 @@ final class HeaderStatusTests: XCTestCase {
         XCTAssertEqual(c7, "\u{2013}"); XCTAssertTrue(r7, "REST column → en-dash")
     }
 
-    // §8.4 — icon: a mark per non-rest column at its row; the lit column washes full height; nothing beyond STEPS; colour array ignored.
-    func testChordIcon() {
-        let degs = [0, 7, 8, 11, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]   // 16 long but STEPS 8
-        let icon = euclideousChordIconMarks(degrees: degs, steps: 8, size: CGSize(width: 44, height: 14), litColumn: 3)
-        XCTAssertNotNil(icon.wash); XCTAssertEqual(icon.wash?.height, 14, "the lit column washes the full height")
-        XCTAssertEqual(icon.wash?.width ?? 0, 44.0 / 8, accuracy: 1e-6, "wash is one column pitch wide")
-        // column 1 is REST (degree 7) → no mark; 8 marks of 16 columns are NOT drawn (steps 8), REST drops one more
-        XCTAssertEqual(icon.marks.count, 7, "8 columns − 1 REST = 7 marks; columns 8…15 beyond STEPS not drawn")
-        for m in icon.marks { XCTAssertGreaterThanOrEqual(m.rect.width, EuclideousHeaderStatusMetrics.markMinW) }
-        // §3.3 formula at 16 steps (⚠ 1.75, not §8.4's 1.5 — a spec self-inconsistency, reported)
-        let m16 = euclideousChordIconMarks(degrees: [Int](repeating: 0, count: 16), steps: 16, size: CGSize(width: 44, height: 14), litColumn: 0)
-        XCTAssertEqual(m16.marks.first?.rect.width ?? 0, max(1.5, 44.0 / 16 - 1), accuracy: 1e-6)
-        XCTAssertEqual(m16.marks.count, 16)
-    }
+    // HEADER v2 §4.4: the chord icon / miniature grid is DELETED (euclideousChordIconMarks gone). testChordIcon retired.
 
     // §4.3 — the signed-t text with a true minus.
     func testSignedT() {
@@ -106,29 +93,27 @@ final class HeaderStatusTests: XCTestCase {
         XCTAssertLessThan(euclideousHeaderWidth(parts: oneGrid, fallbackStep: 0), base, "one grid is narrower than two")
     }
 
-    // §8.8 — the fallback steps narrow the tokens; §5.2 widths 104 / 58 / 56, the per-step button width, and the per-layout chooser.
+    // HEADER v2 §4.4 / §3.6(a): the token is number(10) · sp6 · name(40) · sp6 · next(34); dropping the next-chord slot (step 1) leaves number · sp6 · name.
     func testFallbackTokenWidths() {
-        XCTAssertEqual(EuclideousHeaderStatusMetrics.tokenWidth(step: 0), 104)
-        XCTAssertEqual(EuclideousHeaderStatusMetrics.tokenWidth(step: 1), 58)
-        XCTAssertEqual(EuclideousHeaderStatusMetrics.tokenWidth(step: 2), 56)
+        XCTAssertEqual(EuclideousHeaderStatusMetrics.tokenWidth(showNext: true), 10 + 6 + 40 + 6 + 34)   // 96 full
+        XCTAssertEqual(EuclideousHeaderStatusMetrics.tokenWidth(showNext: false), 10 + 6 + 40)            // 56 next hidden
+        XCTAssertGreaterThan(EuclideousHeaderStatusMetrics.tokenWidth(showNext: true), EuclideousHeaderStatusMetrics.tokenWidth(showNext: false))
 
-        // the reserved button width narrows strictly with the step (two tokens, lamp + readout — the widest case)
+        // the reserved button width narrows when the next-chord slot drops (two tokens, lamp + readout — the widest case)
         let b0 = euclideousHeaderLayoutButtonWidth(tokenCount: 2, lampShown: true, readoutShown: true, step: 0)
         let b1 = euclideousHeaderLayoutButtonWidth(tokenCount: 2, lampShown: true, readoutShown: true, step: 1)
-        let b2 = euclideousHeaderLayoutButtonWidth(tokenCount: 2, lampShown: true, readoutShown: true, step: 2)
-        XCTAssertGreaterThan(b0, b1); XCTAssertGreaterThan(b1, b2)
-        // the key + lamp + readout + chevron survive every step (step 2 is never just the key)
+        XCTAssertGreaterThan(b0, b1)
+        // the key + lamp + readout + chevron survive (the next-hidden button is never just the key)
         let keyOnly = euclideousHeaderLayoutButtonWidth(tokenCount: 0, lampShown: false, readoutShown: false, step: 0)
-        XCTAssertGreaterThan(b2, keyOnly)
+        XCTAssertGreaterThan(b1, keyOnly)
 
-        // the chooser: A always 0; B/C pick the first step that fits container = button(step) + sp8 + HOLD/LATCH
+        // the chooser: A always 0; B/C drop the next slot (step 1) only when the full token won't fit
         let extra = EuclideousHeaderMetrics.sp8 + EuclideousHeaderMetrics.holdLatchWidth
         XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .a, containerW: 0), 0, "A sizes NOTES to the button → never a fallback")
         XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 0, lampShown: true, readoutShown: false, kind: .b, containerW: 0), 0, "no tokens → nothing to narrow")
         XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .b, containerW: b0 + extra), 0, "fits full → step 0")
-        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .b, containerW: b0 + extra - 1), 1, "just under full → hide names")
-        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .c, containerW: b1 + extra - 1), 2, "just under names-hidden → hide icons")
-        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .c, containerW: 0), 2, "narrower than even step 2 → clamped at 2")
+        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .b, containerW: b0 + extra - 1), 1, "just under full → drop the next-chord slot")
+        XCTAssertEqual(euclideousHeaderFallbackStep(tokenCount: 2, lampShown: true, readoutShown: true, kind: .c, containerW: 0), 1, "narrower than even the name-only token → still step 1 (name never hidden)")
     }
 
     // §8.9 — the VoiceOver value: key only; one live grid; two grids with one idle while running; stopped (no "waiting"); MIDI playing/quiet; root 0 and +2.

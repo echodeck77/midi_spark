@@ -805,12 +805,13 @@ func chordsRestartBeat(_ p: ChordsAdvanceConfig, beat: Double, schedule: Euclide
 /// §3.2 restart, §3.4 the (count mod STEPS) + ROTATE wrap. With TIME + restart off this is today's `floor(beat/rate)`
 /// progression exactly (byte-identical; `ChordColumnArithmeticTests` test 1). `schedule` is needed only for LOOP /
 /// RIFF (the Router attaches it to the lanes those read); a nil schedule there yields no advance.
-func chordColumn(_ p: ChordsAdvanceConfig, beat: Double, schedule: EuclideousRestartScheduleSet?, barBeats: Double) -> Int {
+/// The raw advance COUNT at `beat` (before `chordsColumnResolve`) — factored out so `chordColumn` and the HEADER v2
+/// `euclideousChordNextColumn` share the exact same arithmetic (no second derivation).
+func chordsAdvanceCount(_ p: ChordsAdvanceConfig, beat: Double, schedule: EuclideousRestartScheduleSet?, barBeats: Double) -> Int {
     let r = chordsRestartBeat(p, beat: beat, schedule: schedule, barBeats: barBeats)
-    let a: Int64
     switch p.advanceUnit {
     case .time:
-        a = Int64(chordsTimeAdvanceCount(beat: beat, rateBeats: p.rateBeats, restartBeat: r))
+        return chordsTimeAdvanceCount(beat: beat, rateBeats: p.rateBeats, restartBeat: r)
     case .loop, .riff:
         let to = p.advanceUnit == .loop
             ? chordsLoopEventCount(lane: p.advanceLane, atOrBefore: beat, schedule: schedule)
@@ -818,9 +819,20 @@ func chordColumn(_ p: ChordsAdvanceConfig, beat: Double, schedule: EuclideousRes
         let from = p.advanceUnit == .loop
             ? chordsLoopEventCount(lane: p.advanceLane, atOrBefore: r, schedule: schedule)
             : chordsRiffEventCount(lane: p.advanceLane, atOrBefore: r, schedule: schedule)
-        a = max(0, to - from) / Int64(max(1, p.advanceEvery))   // §3.3: events in (r, beat] ÷ every, floored
+        return Int(max(0, to - from) / Int64(max(1, p.advanceEvery)))   // §3.3: events in (r, beat] ÷ every, floored
     }
-    return chordsColumnResolve(count: Int(a), steps: p.steps, rotate: p.rotate)
+}
+func chordColumn(_ p: ChordsAdvanceConfig, beat: Double, schedule: EuclideousRestartScheduleSet?, barBeats: Double) -> Int {
+    chordsColumnResolve(count: chordsAdvanceCount(p, beat: beat, schedule: schedule, barBeats: barBeats), steps: p.steps, rotate: p.rotate)
+}
+
+/// HEADER v2 §8.3: the column the grid plays AFTER the current one — the next column in the progression order
+/// (`resolve(count + 1)`). This is EXACT for plain TIME advance with restart off; for LOOP / RIFF advance, or any
+/// restart, it is the documented FALLBACK ("next in order, wrapping at STEPS") since the true next event's timing
+/// (or a restart jumping back to column 0) can't be known without predicting the engine. REST falls out of the
+/// column naming, exactly like the current column.
+func euclideousChordNextColumn(_ p: ChordsAdvanceConfig, beat: Double, schedule: EuclideousRestartScheduleSet?, barBeats: Double) -> Int {
+    chordsColumnResolve(count: chordsAdvanceCount(p, beat: beat, schedule: schedule, barBeats: barBeats) + 1, steps: p.steps, rotate: p.rotate)
 }
 
 /// A grid with no advance and no restart is the pre-ferry `floor(beat/rate)` progression — the engine keeps its
@@ -4545,7 +4557,8 @@ enum EuclideousHeaderMetrics {
     static let segmentInset: CGFloat = 4
     static var segmentedWidth: CGFloat { segmentWidths.reduce(0, +) + segmentInset * 2 }   // 184
     static let keyPillWidth: CGFloat = 120           // Sources panel v2: the key pill is gone; kept only for the KEY pop-up card width until that is deleted too
-    static let sourceButtonWidth: CGFloat = 192      // Sources panel v2 §4.1: the one SOURCES button (four pips + the key label + a chevron)
+    static let sourceButtonWidth: CGFloat = 192
+    static let masterW: CGFloat = 124   // HEADER v2 §3.3/§11: a PLAY-part master button's width (tunable on device)      // Sources panel v2 §4.1: the one SOURCES button (four pips + the key label + a chevron)
     // HOLD/LATCH (Paul 2026-10-20): two fixed-width chips after the key pill, same "nothing moves when the
     // selection changes" shape as `segmentWidths` above — chip 0 = HOLD (4 chars), chip 1 = LATCH (5 chars).
     static let holdLatchChipWidths: [CGFloat] = [48, 54]
@@ -4561,34 +4574,30 @@ enum EuclideousHeaderMetrics {
 /// §10 tunables for the header button's status contents.
 enum EuclideousHeaderStatusMetrics {
     static let pad: CGFloat = 10                                   // §2.2 leading / trailing
-    static let keyMaxChars = 13, keyTracking: CGFloat = 0.06, keySize: CGFloat = 10   // §2.3
+    static let keyMaxChars = 13, keyTracking: CGFloat = 0.08, keySize: CGFloat = 11   // §4.3 (HEADER v2: 11 pt heavy, 0.08 em — was 10 / 0.06)
     static let chevronW: CGFloat = 10, sp6: CGFloat = 6           // §2.2
     static let dividerW: CGFloat = 1, dividerH: CGFloat = 14, dividerSp: CGFloat = 8   // §2.2
-    static let numberW: CGFloat = 10, iconW: CGFloat = 44, iconH: CGFloat = 14, nameW: CGFloat = 40   // §3.2
-    static let tokInnerA: CGFloat = 4, tokInnerB: CGFloat = 6, tokenGap: CGFloat = 10   // sp4 · sp6 · sp10
-    static let lampW: CGFloat = 34, lampH: CGFloat = 18, readoutW: CGFloat = 24, readoutSp: CGFloat = 4   // §4
-    static let markH: CGFloat = 1.5, markMinW: CGFloat = 1.5, iconRows = 12            // §3.3
+    // HEADER v2 §4.4: a token is number · sp6 · name · sp6 · next (no icon). §11 tunables: slots 10 / 40 / 34, inner gap 6, tokens 14 apart.
+    static let numberW: CGFloat = 10, nameW: CGFloat = 40, nextW: CGFloat = 34   // §4.4 fixed slots
+    static let tokInner: CGFloat = 6, tokenGap: CGFloat = 14                      // sp6 within a token · 14 between tokens
+    static let lampW: CGFloat = 40, lampH: CGFloat = 20, readoutW: CGFloat = 22, readoutSp: CGFloat = 4   // §4.7 lamp 40×20 · §4.8 readout 22
     static let lampHold: Double = 0.15                            // §1.2b / §10
-    static let nameSize: CGFloat = 10, numberSize: CGFloat = 10
-    /// §5.2: a token's width per fallback step — 0 full (104), 1 name hidden (58), 2 icon hidden (56).
-    static func tokenWidth(step: Int) -> CGFloat {
-        switch step {
-        case 1: return numberW + tokInnerA + iconW
-        case 2: return numberW + tokInnerB + nameW
-        default: return numberW + tokInnerA + iconW + tokInnerB + nameW
-        }
+    static let nameSize: CGFloat = 13, nextSize: CGFloat = 10, numberSize: CGFloat = 10   // §4.4 name 13pt · next 10pt
+    /// §4.4 / §3.6(a): a token's width — the next-chord slot is dropped at fit step a+ (`showNext == false`).
+    static func tokenWidth(showNext: Bool) -> CGFloat {
+        showNext ? numberW + tokInner + nameW + tokInner + nextW : numberW + tokInner + nameW
     }
 }
 
 /// §7.1: a chord grid's status. `laneOnGrid[l]` = lane l has this grid's CHORD chip on; `laneReading[l]` = lane l is reading this grid right now
 /// (not stepped aside by REPLACE + MIDI held) — a REST column still counts as reading, so it's live (§1.1b). `column` is the playing column (§1.1c).
-struct EuclideousGridStatus: Equatable { var inUse = false; var live = false; var column = 0 }
-func euclideousGridStatus(laneOnGrid: [Bool], laneReading: [Bool], running: Bool, column: Int) -> EuclideousGridStatus {
+struct EuclideousGridStatus: Equatable { var inUse = false; var live = false; var column = 0; var nextColumn = 0 }   // HEADER v2 §4.4: nextColumn = the column the grid plays after the current one (euclideousChordNextColumn)
+func euclideousGridStatus(laneOnGrid: [Bool], laneReading: [Bool], running: Bool, column: Int, nextColumn: Int = 0) -> EuclideousGridStatus {
     let inUse = laneOnGrid.contains(true)
     var reading = false
     let n = min(laneOnGrid.count, laneReading.count)
     var i = 0; while i < n { if laneOnGrid[i] && laneReading[i] { reading = true; break }; i += 1 }
-    return EuclideousGridStatus(inUse: inUse, live: inUse && running && reading, column: max(0, column))
+    return EuclideousGridStatus(inUse: inUse, live: inUse && running && reading, column: max(0, column), nextColumn: max(0, nextColumn))
 }
 
 /// §7.2: the MIDI lamp — lit while a note is held, or within `lampHold` of the last note-on (so a short note from a generator shows). Times are seconds.
@@ -4616,37 +4625,16 @@ func euclideousChordHeaderName(column c: Int, degrees: [Int], colours: [Int], st
     return (euclideousChordName(tones: tones, rootNote: rootNote, flatSpelling: flat), false)
 }
 
-/// §3.3/§7.5: the chord icon as geometry — 12-row marks over columns 1…STEPS (REST / CARRY draw no mark; colour rows aren't drawn), plus a full-height
-/// wash for the lit (playing) column. `size` 44×14 in the header. Mark width = `max(markMinW, colPitch − 1)` (⚠ at 16 steps = 1.75, not §8.4's 1.5 — reported).
-struct EuclideousChordIconMark: Equatable { var rect: CGRect; var lit: Bool }
-struct EuclideousChordIcon: Equatable { var marks: [EuclideousChordIconMark]; var wash: CGRect? }
-func euclideousChordIconMarks(degrees: [Int], steps: Int, size: CGSize, litColumn: Int) -> EuclideousChordIcon {
-    typealias M = EuclideousHeaderStatusMetrics
-    let n = max(1, steps)
-    let colPitch = size.width / CGFloat(n)
-    let rowPitch = size.height / CGFloat(M.iconRows)
-    var marks: [EuclideousChordIconMark] = []
-    var wash: CGRect? = nil
-    var c = 0
-    while c < n {
-        let x = CGFloat(c) * colPitch
-        if c == litColumn { wash = CGRect(x: x, y: 0, width: colPitch, height: size.height) }
-        let deg = c < degrees.count ? degrees[c] : 0
-        if deg != 7, let row = euclideousChordsDegreeRow(deg) {   // REST (7) → no mark; CARRY (−1) → nil
-            let w = max(M.markMinW, colPitch - 1)
-            marks.append(EuclideousChordIconMark(rect: CGRect(x: x + (colPitch - w) / 2, y: CGFloat(row) * rowPitch, width: w, height: M.markH), lit: c == litColumn))
-        }
-        c += 1
-    }
-    return EuclideousChordIcon(marks: marks, wash: wash)
-}
+// HEADER v2 (2026-11-19, §4.4): the chord icon / miniature progression grid is DELETED. The token now shows the
+// current chord name and the dimmed NEXT chord only. `euclideousChordIconMarks` + `EuclideousChordIcon(Mark)` are
+// gone (their only caller was the header token); `euclideousChordsDegreeRow` survives (other callers use it).
 
 /// §4.3: the signed root transpose with a true minus ("+2", "0", "−5").
 func euclideousHeaderSignedT(_ t: Int) -> String { t == 0 ? "0" : (t > 0 ? "+\(t)" : "\u{2212}\(abs(t))") }
 
 /// §7.3: the button's logical parts (presence + text + look), from the §1 status.
 enum EuclideousHeaderLamp: Equatable { case hidden, unlit, lit }
-struct EuclideousHeaderToken: Equatable { var grid: Int; var column: Int; var name: String; var isRest: Bool; var live: Bool }
+struct EuclideousHeaderToken: Equatable { var grid: Int; var column: Int; var name: String; var isRest: Bool; var live: Bool; var nextName: String; var nextIsRest: Bool }   // HEADER v2 §4.4: next* = the dimmed next chord
 struct EuclideousHeaderParts: Equatable { var keyLabel: String; var tokens: [EuclideousHeaderToken]; var lamp: EuclideousHeaderLamp; var readout: String? }
 func euclideousHeaderStatus(keyRoot: Int, keyType: ScaleType,
                             grid1: EuclideousGridStatus, grid1Degrees: [Int], grid1Colours: [Int], grid1Steps: Int,
@@ -4655,7 +4643,8 @@ func euclideousHeaderStatus(keyRoot: Int, keyType: ScaleType,
     func token(_ g: Int, _ gs: EuclideousGridStatus, _ degs: [Int], _ cols: [Int], _ steps: Int) -> EuclideousHeaderToken? {
         guard gs.inUse else { return nil }
         let (nm, rest) = euclideousChordHeaderName(column: gs.column, degrees: degs, colours: cols, steps: steps, keyRoot: keyRoot, keyType: keyType)
-        return EuclideousHeaderToken(grid: g, column: gs.column, name: nm, isRest: rest, live: gs.live)
+        let (nx, nxRest) = euclideousChordHeaderName(column: gs.nextColumn, degrees: degs, colours: cols, steps: steps, keyRoot: keyRoot, keyType: keyType)   // HEADER v2 §4.4: the dimmed next chord
+        return EuclideousHeaderToken(grid: g, column: gs.column, name: nm, isRest: rest, live: gs.live, nextName: nx, nextIsRest: nxRest)
     }
     var tokens: [EuclideousHeaderToken] = []
     if let t1 = token(1, grid1, grid1Degrees, grid1Colours, grid1Steps) { tokens.append(t1) }
@@ -4672,7 +4661,7 @@ func euclideousHeaderWidth(parts: EuclideousHeaderParts, fallbackStep: Int) -> C
     w += EuclideousHeaderMetrics.textWidth(min(M.keyMaxChars, parts.keyLabel.count), size: M.keySize, tracking: M.keyTracking)
     if !parts.tokens.isEmpty {
         w += M.dividerSp + M.dividerW + M.dividerSp
-        w += M.tokenWidth(step: fallbackStep) * CGFloat(parts.tokens.count) + M.tokenGap * CGFloat(parts.tokens.count - 1)
+        w += M.tokenWidth(showNext: fallbackStep == 0) * CGFloat(parts.tokens.count) + M.tokenGap * CGFloat(parts.tokens.count - 1)   // HEADER v2 §3.6(a): the next-chord slot drops at fit step ≥ 1
     }
     if parts.lamp != .hidden {
         w += M.dividerSp + M.dividerW + M.dividerSp + M.lampW
@@ -4730,8 +4719,11 @@ func euclideousHeaderGroupWidths(compact: Bool, buttonWidth: CGFloat = Euclideou
     // THE NINE PORTS (2026-10-26): the OUTPUTS group (the four output rings) is gone — a note's port is fixed by its lane and layer.
     // Sources panel v2 §4.5: NOTES = the SOURCES button (192) + sp8 + HOLD/LATCH (106) = 306 (was 426; the button
     // replaces the 184 source control + the 120 key pill). HOLD/LATCH stays (§8); nothing else in the group moves.
+    // HEADER v2 §3.1 (2026-11-19): UTILITIES now LEADS with the two PLAY-part masters (124 each, sp6 between, sp14 before the icons);
+    // SWING is gone (§6.4); the icons are presets · [REEL dev] · settings (2 in release, 3 in the DEBUG dev build).
+    let masters = 2 * M.masterW + 6 + 14   // PLAY RIFF · sp6 · PLAY STACK · sp14
     return EuclideousHeaderGroupWidths(brand: brand, notes: buttonWidth + M.sp8 + M.holdLatchWidth,   // HEADER STATUS ferry (2026-11-15): NOTES = the (now content-hugging) button + sp8 + HOLD/LATCH
-                                       utilities: (reelVisible ? 4 : 3) * t, gap: compact ? M.sp8 : M.sp16)   // HOCKET RETIRED (2026-11-17): the HOCKET pill + its sp8 are gone. UTILITIES = 4 icons (presets · SWING · REEL · settings), or 3 when the REEL is hidden in release (Paul 2026-11-19, `euclideousReelVisible`)
+                                       utilities: masters + (reelVisible ? 3 : 2) * t, gap: compact ? M.sp8 : M.sp16)
 }
 
 struct EuclideousHeaderGroupFrame: Equatable { var x: CGFloat; var width: CGFloat; var row: Int }
@@ -4800,7 +4792,7 @@ func euclideousHeaderLayoutButtonWidth(tokenCount: Int, lampShown: Bool, readout
     var w = M.pad + EuclideousHeaderMetrics.textWidth(M.keyMaxChars, size: M.keySize, tracking: M.keyTracking)
     if tokenCount > 0 {
         w += M.dividerSp + M.dividerW + M.dividerSp
-        w += M.tokenWidth(step: step) * CGFloat(tokenCount) + M.tokenGap * CGFloat(max(0, tokenCount - 1))
+        w += M.tokenWidth(showNext: step == 0) * CGFloat(tokenCount) + M.tokenGap * CGFloat(max(0, tokenCount - 1))   // HEADER v2 §3.6(a)
     }
     if lampShown {
         w += M.dividerSp + M.dividerW + M.dividerSp + M.lampW
@@ -4809,17 +4801,15 @@ func euclideousHeaderLayoutButtonWidth(tokenCount: Int, lampShown: Bool, readout
     return w + M.sp6 + M.chevronW + M.pad
 }
 
-/// §5.2: the fallback step for a layout — A sizes NOTES to the button so it always fits (step 0); B / C put NOTES on its own row, so the token
-/// narrows (names, then icons) until the button + sp8 + HOLD/LATCH fit the container. Chosen from the widest case, so a layout never switches steps while playing.
+/// HEADER v2 §3.6(a): the token-narrowing fit step for a layout — A sizes NOTES to the button so it always fits (step 0);
+/// B / C put NOTES on its own row, so if the full token (with the next-chord slot) + sp8 + HOLD/LATCH doesn't fit, the
+/// next-chord slot is dropped (step 1). The chord NAME is never hidden (§3.6). Chosen from the widest case, so a layout
+/// never switches steps while playing. (Slice 7 adds the further §3.6 steps — hide wordmark, masters to own row — at the
+/// group-layout level; this function only decides the token's own next-chord slot.)
 func euclideousHeaderFallbackStep(tokenCount: Int, lampShown: Bool, readoutShown: Bool, kind: EuclideousHeaderLayout.Kind, containerW: CGFloat) -> Int {
     guard kind != .a, tokenCount > 0 else { return 0 }
     let extra = EuclideousHeaderMetrics.sp8 + EuclideousHeaderMetrics.holdLatchWidth
-    var step = 0
-    while step < 2 {
-        if euclideousHeaderLayoutButtonWidth(tokenCount: tokenCount, lampShown: lampShown, readoutShown: readoutShown, step: step) + extra <= containerW { return step }
-        step += 1
-    }
-    return 2
+    return euclideousHeaderLayoutButtonWidth(tokenCount: tokenCount, lampShown: lampShown, readoutShown: readoutShown, step: 0) + extra <= containerW ? 0 : 1
 }
 
 // MARK: - PAGE LAYOUT (ferry "Page layout: six equal boxes in both orientations", ratified 2026-10-19)
@@ -10400,6 +10390,27 @@ func euclideousLaneSoloTap(parts: UInt8, lane: Int) -> UInt8 {
 enum EuclideousMasterPip: Equatable { case filled(opacity: Double), outline }
 @inline(__always) func euclideousMasterPips(master: Bool, parts: [Bool]) -> [EuclideousMasterPip] {
     parts.map { $0 ? .filled(opacity: master ? 1.0 : 0.30) : .outline }
+}
+
+/// §10.1: a master's spoken VALUE — "off" when the master is off, else "on, lanes 1, 2 and 4" (the lanes whose OWN part
+/// is on) or "on, no lanes". The LABEL ("Play riff, all lanes" / "Play stack, all lanes") is set by the view.
+func euclideousMasterVoiceOverValue(master: Bool, parts: [Bool]) -> String {
+    guard master else { return "off" }
+    let on = parts.enumerated().filter { $0.element }.map { "\($0.offset + 1)" }
+    guard !on.isEmpty else { return "on, no lanes" }
+    let list: String
+    switch on.count {
+    case 1: list = "lane \(on[0])"
+    case 2: list = "lanes \(on[0]) and \(on[1])"
+    default: list = "lanes " + on.dropLast().joined(separator: ", ") + " and " + on.last!
+    }
+    return "on, " + list
+}
+
+/// HEADER v2 §5.3: HOLD / LATCH act only on MIDI IN's held notes, so while NO lane has its MIDI IN chip on they can have no
+/// effect and dim (to 35 %, still tappable). "MIDI IN on" = bit 0 of the lane's resolved pool-source mask.
+@inline(__always) func euclideousAnyLaneMidiIn(_ lines: [EuclidLine]) -> Bool {
+    lines.prefix(4).contains { $0.poolSrcMaskResolved & 1 != 0 }
 }
 
 /// The dimmed lanes' 0.42, in one place (the page's existing OFF-dim value) and the ease every dim uses (§6: 0.15 s both ways).

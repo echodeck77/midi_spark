@@ -28,6 +28,15 @@ final class MastersTests: XCTestCase {
                        [.outline, .outline, .outline, .outline])
     }
 
+    // §10.1: the master's spoken VALUE — off, or "on, lanes …" naming the lanes whose own part is on.
+    func testMasterVoiceOverValue() {
+        XCTAssertEqual(euclideousMasterVoiceOverValue(master: false, parts: [true, true, false, true]), "off")
+        XCTAssertEqual(euclideousMasterVoiceOverValue(master: true, parts: [false, false, false, false]), "on, no lanes")
+        XCTAssertEqual(euclideousMasterVoiceOverValue(master: true, parts: [true, false, false, false]), "on, lane 1")
+        XCTAssertEqual(euclideousMasterVoiceOverValue(master: true, parts: [true, true, false, false]), "on, lanes 1 and 2")
+        XCTAssertEqual(euclideousMasterVoiceOverValue(master: true, parts: [true, true, false, true]), "on, lanes 1, 2 and 4")
+    }
+
     // §9 test 6: a session without the fields resolves both ON and round-trips; a session saved with riffMaster off reloads off.
     func testSavedDataRoundTripAndResolveOn() throws {
         let enc = JSONEncoder(); let dec = JSONDecoder()

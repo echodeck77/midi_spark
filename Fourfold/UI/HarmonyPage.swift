@@ -689,8 +689,8 @@ struct EuclideousHarmonyHeaderButton: View {
     private typealias M = EuclideousHeaderStatusMetrics
     var body: some View {
         HStack(spacing: 0) {
-            Text(parts.keyLabel).font(mono(10)).tracking(0.06 * 10).foregroundColor(Color(h: 0xF2F4F7)).lineLimit(1).truncationMode(.tail)
-                .frame(width: EuclideousHeaderMetrics.textWidth(min(M.keyMaxChars, parts.keyLabel.count), size: 10, tracking: 0.06), alignment: .leading)   // §2.3 hug up to 13 chars
+            Text(parts.keyLabel).font(mono(M.keySize)).tracking(M.keyTracking * M.keySize).foregroundColor(Color(h: 0xF2F4F7)).lineLimit(1).truncationMode(.tail)   // §4.3 key 11 pt heavy, 0.08 em, always in full
+                .frame(width: EuclideousHeaderMetrics.textWidth(min(M.keyMaxChars, parts.keyLabel.count), size: M.keySize, tracking: M.keyTracking), alignment: .leading)   // §4.3 hug up to 13 chars
             ForEach(Array(parts.tokens.enumerated()), id: \.offset) { i, tok in
                 if i == 0 { divider } else { Spacer().frame(width: M.tokenGap) }   // §2.2 divider before the first token, sp10 between tokens
                 tokenView(tok)
@@ -718,35 +718,27 @@ struct EuclideousHarmonyHeaderButton: View {
             .accessibilityHidden(true)
     }
     @ViewBuilder private func tokenView(_ tok: EuclideousHeaderToken) -> some View {
-        let degs = tok.grid == 1 ? grid1Degrees : grid2Degrees
-        let steps = tok.grid == 1 ? grid1Steps : grid2Steps
-        let markC = tok.live ? Color(h: 0x7C828D) : Color(h: 0x5C626C)
-        let litC = tok.live ? Color(h: 0xD6CBFB) : Color(h: 0xAAB0BA)   // §3.5 lit mark + name
+        // HEADER v2 §4.4: number · sp6 · chord name · sp6 · dimmed next chord. No icon / wash / mark. §4.5 live/idle colours.
+        let litC = tok.live ? Color(h: 0xD6CBFB) : Color(h: 0xAAB0BA)   // §4.5 chord name
         HStack(spacing: 0) {
-            Text("\(tok.grid)").font(mono(10)).foregroundColor(Color(h: 0x8A909A)).frame(width: M.numberW)   // §3.2 number, #8A909A both
-            if fallbackStep != 2 {   // icon unless step 2 (icons hidden)
-                Spacer().frame(width: M.tokInnerA)
-                Canvas { ctx, _ in
-                    let icon = euclideousChordIconMarks(degrees: degs, steps: steps, size: CGSize(width: M.iconW, height: M.iconH), litColumn: tok.column)
-                    if let wash = icon.wash { ctx.fill(RoundedRectangle(cornerRadius: 1).path(in: wash), with: .color(Color(h: 0x2E3138))) }   // §3.5 wash
-                    for m in icon.marks { ctx.fill(RoundedRectangle(cornerRadius: 0.5).path(in: m.rect), with: .color(m.lit ? litC : markC)) }
-                }.frame(width: M.iconW, height: M.iconH).accessibilityHidden(true)
-            }
-            if fallbackStep != 1 {   // name unless step 1 (names hidden)
-                Spacer().frame(width: M.tokInnerB)
-                Text(tok.name).font(mono(10)).foregroundColor(litC).lineLimit(1).truncationMode(.tail).frame(width: M.nameW, alignment: .leading)
+            Text("\(tok.grid)").font(mono(M.numberSize)).foregroundColor(Color(h: 0x8A909A)).frame(width: M.numberW)   // §4.4 grid number (10 pt heavy #8A909A)
+            Spacer().frame(width: M.tokInner)
+            Text(tok.name).font(mono(M.nameSize)).foregroundColor(litC).lineLimit(1).truncationMode(.tail).frame(width: M.nameW, alignment: .leading)   // §4.4 chord name (13 pt heavy; REST → "–")
+            if fallbackStep == 0 {   // §3.6(a): the next-chord slot is the first thing dropped when space is tight
+                Spacer().frame(width: M.tokInner)
+                Text("\u{203A} " + tok.nextName).font(mono(M.nextSize, .semibold)).foregroundColor(Color(h: 0x5C626C)).lineLimit(1).truncationMode(.tail).frame(width: M.nextW, alignment: .leading)   // §4.4 next (10 pt semibold #5C626C; REST → "› –")
             }
         }
     }
-    private func lampView(lit: Bool) -> some View {   // §4.2 · STYLE PASS 1 §5.4: MIDI is a KEY (§4.1, medium #959BA6)
-        // when unlit — its border is gone; lit it takes the selected pair (was #F2F4F7 fill / #8A909A + #3A3E47 border).
-        Text("MIDI").font(.system(size: 8, weight: lit ? .heavy : .medium, design: .monospaced)).tracking(0.08 * 8)
-            .foregroundColor(lit ? Color(h: FourfoldStyle.selectedInk) : Color(h: FourfoldStyle.key))
+    private func lampView(lit: Bool) -> some View {   // §4.7: a real MIDI lamp — lit = amber (Paul 2026-11-19, diverges from §4.7's srcMidi), unlit = outlined
+        Text("MIDI").font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.1 * 8)
+            .foregroundColor(lit ? Color(h: 0x1A1205) : Color(h: 0x8A909A))
             .frame(width: M.lampW, height: M.lampH)
-            .background(RoundedRectangle(cornerRadius: 4).fill(lit ? Color(h: FourfoldStyle.selectedFill) : Color.clear))
+            .background(RoundedRectangle(cornerRadius: 5).fill(lit ? Color(h: 0xF5B54A) : Color.clear))
+            .overlay(lit ? nil : RoundedRectangle(cornerRadius: 5).strokeBorder(Color(h: 0x3A3E47), lineWidth: 1))
             .accessibilityHidden(true)
     }
-    private func readoutView(_ text: String) -> some View {   // §4.3
-        Text(text).font(mono(10)).foregroundColor(t != 0 ? Color(h: 0xF2F4F7) : Color(h: 0x5C626C)).frame(width: M.readoutW).accessibilityHidden(true)
+    private func readoutView(_ text: String) -> some View {   // §4.8: 22 wide, 11 pt heavy
+        Text(text).font(mono(11)).foregroundColor(t != 0 ? Color(h: 0xF2F4F7) : Color(h: 0x5C626C)).frame(width: M.readoutW).accessibilityHidden(true)
     }
 }

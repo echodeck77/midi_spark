@@ -85,6 +85,8 @@ struct FourfoldRootView: View {
         euclideousResolveSourcePlan(stored: euclideousSourcePlan, legacySource: euclideousNoteSource)
     }
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? { get { m.euclideousHoldLatchMode } nonmutating set { m.euclideousHoldLatchMode = newValue } }
+    var riffMaster: Bool { get { m.riffMaster } nonmutating set { m.riffMaster = newValue } }     // HEADER v2 §1.1: the resolved global PLAY-part masters (UI mirror of the document)
+    var stackMaster: Bool { get { m.stackMaster } nonmutating set { m.stackMaster = newValue } }
     var euclideousSoloMask: UInt8 { get { m.euclideousSoloMask } nonmutating set { m.euclideousSoloMask = newValue } }
     var euclideousSoloHeld: UInt8 { get { m.euclideousSoloHeld } nonmutating set { m.euclideousSoloHeld = newValue } }
     var euclideousPartSoloMask: UInt8 { get { m.euclideousPartSoloMask } nonmutating set { m.euclideousPartSoloMask = newValue } }   // PER-PART SOLO (MIX v2): latched
@@ -201,6 +203,22 @@ struct FourfoldRootView: View {
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    euclideousHoldLatchMode = v
                                                    au?.editDocument { $0.euclideousHoldLatchMode = v }
+                                                   publish()
+                                               },
+                                               // HEADER v2 §1.6: a master tap is one undo step, like a lane-card PLAY tap. ON restores "nil" (default), OFF explicit. The AU param moves with the document (editDocument refreshes the param cache).
+                                               riffMaster: riffMaster, stackMaster: stackMaster,
+                                               onSetRiffMaster: { v in
+                                                   guard v != riffMaster else { return }
+                                                   euclideousRecordUndo(coalesceKey: nil)
+                                                   riffMaster = v
+                                                   au?.editDocument { $0.riffMaster = v ? nil : false }
+                                                   publish()
+                                               },
+                                               onSetStackMaster: { v in
+                                                   guard v != stackMaster else { return }
+                                                   euclideousRecordUndo(coalesceKey: nil)
+                                                   stackMaster = v
+                                                   au?.editDocument { $0.stackMaster = v ? nil : false }
                                                    publish()
                                                },
                                                // PER-LANE I/O (Paul 2026-10-08): riffSourceMidi/lanesSourceMidi no longer passed —
@@ -680,6 +698,7 @@ struct FourfoldRootView: View {
         euclideousNoteSource = au.uiEuclideousNoteSource()
         euclideousSourcePlan = au.uiEuclideousSourcePlan()
         euclideousHoldLatchMode = au.uiEuclideousHoldLatchMode()
+        riffMaster = au.uiRiffMaster(); stackMaster = au.uiStackMaster()     // HEADER v2 §1.1 / §2.2: mirror the masters (a host param write lands in the document; this read moves the header)
         euclideousSoloMask = au.uiEuclideousSoloMask()
         au.setEuclideousSoloLive(euclideousSoloEffective(latched: euclideousSoloMask, held: euclideousSoloHeld))   // the live word follows the document (a restore / a preset load)
         euclideousPartSoloMask = au.uiEuclideousPartSoloMask()
@@ -759,7 +778,7 @@ struct FourfoldRootView: View {
                                 emitterVelocities: emitterVelocities, emitterCCs: emitterCCs,
                                 outputMutes: euclideousOutputMutes,
                                 riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff, canonUnit: euclideousCanonUnit,
-                                ribbonSettings: euclideousRibbonSettings)
+                                ribbonSettings: euclideousRibbonSettings, riffMaster: riffMaster, stackMaster: stackMaster)   // HEADER v2 §1.6: the masters are undoable
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -830,6 +849,7 @@ struct FourfoldRootView: View {
         emitterVelocities = s.emitterVelocities; emitterCCs = s.emitterCCs
         euclideousOutputMutes = s.outputMutes
         euclideousHoldLatchMode = s.holdLatchMode
+        riffMaster = s.riffMaster; stackMaster = s.stackMaster   // HEADER v2 §1.6: restore the masters (undo/redo)
         au?.editDocument {
             $0.euclideousLines = lines; $0.euclideousRiff = s.riff; $0.euclideousResetSpanBars = s.resetSpanBars
             $0.euclideousKeyRoot = s.keyRoot; $0.euclideousKeyType = s.keyType
@@ -851,6 +871,7 @@ struct FourfoldRootView: View {
             $0.euclideousEmitterCCs = s.emitterCCs.isAllDefault ? nil : s.emitterCCs   // CC tab: all-default restores "nothing stored"
             $0.euclideousOutputMutes = s.outputMutes.isAllDefault ? nil : s.outputMutes   // MUTE TAB: all-default restores "nothing stored"
             $0.euclideousHoldLatchMode = s.holdLatchMode
+            $0.riffMaster = s.riffMaster ? nil : false; $0.stackMaster = s.stackMaster ? nil : false   // HEADER v2 §1.6: ON restores "nil" (default), OFF explicit
         }
         historyMoved(clearStack: false)
         publish()
@@ -1045,6 +1066,8 @@ struct FourfoldRootView: View {
         let ens = au.uiEuclideousNoteSource(); if ens != euclideousNoteSource { euclideousNoteSource = ens; euclideousResynced = true }
         let esp = au.uiEuclideousSourcePlan(); if esp != euclideousSourcePlan { euclideousSourcePlan = esp; euclideousResynced = true }
         let ehlm = au.uiEuclideousHoldLatchMode(); if ehlm != euclideousHoldLatchMode { euclideousHoldLatchMode = ehlm; euclideousResynced = true }
+        let erm = au.uiRiffMaster(); if erm != riffMaster { riffMaster = erm; euclideousResynced = true }       // HEADER v2 §2.2: a host automation write to Play riff / Play stack moves the header here
+        let esm = au.uiStackMaster(); if esm != stackMaster { stackMaster = esm; euclideousResynced = true }
         // SEQUENCER PANEL (2026-10-14 ferry) — same checklist discipline as the 6 lines just above.
         let erfs = au.uiEuclideousRiffs(); if erfs != euclideousRiffs { euclideousRiffs = erfs; euclideousResynced = true }
         let ear = au.uiEuclideousActiveRiff(); if ear != euclideousActiveRiff { euclideousActiveRiff = ear; euclideousResynced = true }
@@ -1194,6 +1217,8 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousNoteSource: EuclideousLaneSource = .key
     @Published var euclideousSourcePlan: SourcePlan? = nil
     @Published var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil
+    @Published var riffMaster: Bool = true     // HEADER v2 §1.1: resolved global PLAY-part masters
+    @Published var stackMaster: Bool = true
     @Published var euclideousSoloMask: UInt8 = 0
     @Published var euclideousSoloHeld: UInt8 = 0
     @Published var euclideousPartSoloMask: UInt8 = 0   // PER-PART SOLO (MIX v2): latched (saved) …

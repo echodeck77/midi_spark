@@ -4743,6 +4743,8 @@ struct EuclideousUndoSnapshot: Equatable {
     var polyRiff: EuclideousPolyRiff? = nil      // …and the POLY riff itself (nil = nothing stored); one drag is one step
     var canonUnit: CanonUnit = .passes           // CHORD CANON (2026-10-31): the DELAY unit — undoable page-level state (the lanes' DELAY / SLIP ride in `lines`); PASSES restores "nil"
     var ribbonSettings: RibbonSettings = .defaults   // RIBBON SETTINGS (2026-11-16): the saved ribbon settings — undoable page-level state (TOUCH/RELEASE/LATCH/PARTS/marks); `.defaults` restores "nil"
+    var riffMaster: Bool = true                  // HEADER v2 §1.6: the two global PLAY-part masters — undoable page-level state (a tap is one step, like a lane-card PLAY). Default ON ⇒ an old snapshot restores both on.
+    var stackMaster: Bool = true
     /// UNDO-5 (2026-10-25): lanes' PLAY/STOP are never undoable (§7.3) — EXCEPT across a preset load, which is itself a step and replaces them: only such a step carries the flags it must put back (`nil` = every other step, which
     /// keeps the live flags as always). Captured by `loadPreset` / `loadFactoryPreset`, and re-stamped on the opposite side when that step is undone or redone so ↶ and ↷ both land on the right flags.
     var presetPlay: [EuclideousLanePlay]? = nil

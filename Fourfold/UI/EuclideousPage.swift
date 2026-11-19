@@ -870,6 +870,11 @@ struct EuclideousPage: View {
     // unless the source was MIDI).
     let holdLatchMode: EuclideousHoldLatchMode?
     let onSetHoldLatchMode: (EuclideousHoldLatchMode?) -> Void
+    // HEADER v2 §1 / §3: the two global PLAY-part masters (resolved on/off) + their setters (one undo step each).
+    let riffMaster: Bool
+    let stackMaster: Bool
+    let onSetRiffMaster: (Bool) -> Void
+    let onSetStackMaster: (Bool) -> Void
     // LANE SOLO (2026-10-21): the latched solo mask (saved) and the held one (a finger down; UI only). `soloEffective` is what every dim and the engine use.
     let soloMask: UInt8
     let soloHeld: UInt8
@@ -1596,7 +1601,6 @@ struct EuclideousPage: View {
     // SWING (2026-10-17): the global, scene-wide SWING control (AUParameter 1 — shared with the rest of the
     // 8×8 grid, not Euclideous-specific data) gets its own anchored popover off a third UTILITIES icon, the
     // same "one overlay at a time" family as `settingsOpen`/`keyPopupOpen`/`chordsPopupOpen` below.
-    @State private var swingPopupOpen = false
     // RESTART CHAINS (ferry 2026-10-19 §1.6): "Which is open is UI state: not saved, not undoable" — exactly
     // one of the STEPS picker (§3) and the restart editor (§6.2) open at a time, per lane; opening either
     // closes the other on that SAME lane (both close on a tab switch too, handled where `laneTab` is set).
@@ -1783,22 +1787,7 @@ struct EuclideousPage: View {
                 // pop-up above (NOT CogPage's own AudioUnitViewController-level overlay — the gear lives
                 // inside this page). `headerH`/`containerW` recomputed via the SAME `pageGeometry` call the
                 // two layout functions already use (one formula, not a parallel derivation).
-                // SWING POPOVER (2026-10-17): anchored under the metronome icon — the UTILITIES group's
-                // second (index 1 of 4) touch target. No frame-preference tracker needed (unlike the KEY
-                // pill, which can land in several places): UTILITIES' own x and the icons' shared `target`
-                // width are already the ONE formula every other header view draws from.
-                if swingPopupOpen {
-                    Color.clear.contentShape(Rectangle()).onTapGesture { swingPopupOpen = false }
-                        .frame(width: box.width, height: box.height)
-                        .zIndex(3)
-                    let hdr = pageGeometry(box).hdr
-                    let target = hdr.compact ? HM.compactTarget : HM.target
-                    let anchorX = sp16 + hdr.utilities.x + hdr.utilities.width - 3 * target   // the metronome is the third target from the right (the HOCKET pill sits before presets)
-                    let anchorY = HM.topMargin + hdr.height
-                    swingPopupCard
-                        .offset(x: min(max(anchorX, sp8), max(sp8, box.width - 200 - sp8)), y: anchorY + sp4)
-                        .zIndex(4)
-                }
+                // SWING POPOVER REMOVED (HEADER v2 §6.4, 2026-11-19).
                 if settingsOpen {
                     let pg = pageGeometry(box)
                     let containerW = pg.containerW, hdr = pg.hdr
@@ -2228,8 +2217,8 @@ struct EuclideousPage: View {
         let lampIdle = !running && held == 0 && (headerLampAt == nil || Date().timeIntervalSinceReferenceDate - (headerLampAt ?? 0) >= EuclideousHeaderStatusMetrics.lampHold)
         return TimelineView(.animation(paused: lampIdle)) { tl in   // §3.6 the playing column moves live while running; while stopped we animate only until the lamp expires
             let beat = walkTagBeat(at: tl.date), now = tl.date.timeIntervalSinceReferenceDate
-            let gs1 = euclideousGridStatus(laneOnGrid: la1.on, laneReading: la1.reading, running: running, column: chordsPagePlayingColumn(set: 0, beat: beat))
-            let gs2 = euclideousGridStatus(laneOnGrid: la2.on, laneReading: la2.reading, running: running, column: chordsPagePlayingColumn(set: 1, beat: beat))
+            let gs1 = euclideousGridStatus(laneOnGrid: la1.on, laneReading: la1.reading, running: running, column: chordsPagePlayingColumn(set: 0, beat: beat), nextColumn: chordsPageNextColumn(set: 0, beat: beat))
+            let gs2 = euclideousGridStatus(laneOnGrid: la2.on, laneReading: la2.reading, running: running, column: chordsPagePlayingColumn(set: 1, beat: beat), nextColumn: chordsPageNextColumn(set: 1, beat: beat))
             let midiLit = euclideousMidiLamp(held: held, lastNoteOnAt: headerLampAt, now: now, lampHold: EuclideousHeaderStatusMetrics.lampHold)
             let parts = euclideousHeaderStatus(keyRoot: keyRoot, keyType: keyType, grid1: gs1, grid1Degrees: g1deg, grid1Colours: g1col, grid1Steps: g1steps,
                                                grid2: gs2, grid2Degrees: g2deg, grid2Colours: g2col, grid2Steps: g2steps, midiInUse: midiInUse, midiLit: midiLit, rootInUse: rootInUse, t: t)
@@ -2244,63 +2233,88 @@ struct EuclideousPage: View {
     /// against MIDI IN (CHORDS/KEY already generate a fixed algorithmic pool with no physical note-on/off to
     /// freeze or toggle). SOURCES STACK ferry (2026-10-26): always enabled — MIDI always listens.
     private func headerHoldLatch() -> some View {
-        // SOURCES STACK ferry (2026-10-26): MIDI IN ALWAYS listens now, so HOLD/LATCH always apply — the old
-        // `noteSource == .midi` gate is stale (the source selector is gone; `noteSource` is decode-only), which
-        // left the chips permanently dimmed. Always enabled now.
-        let enabled = true
-        return HStack(spacing: HM.sp4) {
-            headerHoldLatchChip(.hold, label: "HOLD", width: HM.holdLatchChipWidths[0], enabled: enabled)
-            headerHoldLatchChip(.latch, label: "LATCH", width: HM.holdLatchChipWidths[1], enabled: enabled)
-        }
+        // HEADER v2 §5.3: HOLD/LATCH act only on MIDI IN's held notes — while no lane has MIDI IN on they can have no
+        // effect, so the two tiles dim to 35 % (still tappable). Always tappable (unlike the old stale `.midi` gate).
+        let dim = euclideousAnyLaneMidiIn(lines) ? 1.0 : 0.35
+        return HStack(spacing: 6) {   // §5.2: gap 6
+            headerHoldLatchChip(.hold, label: "HOLD", width: HM.holdLatchChipWidths[0])
+            headerHoldLatchChip(.latch, label: "LATCH", width: HM.holdLatchChipWidths[1])
+        }.opacity(dim).animation(.easeInOut(duration: 0.15), value: dim)
     }
-    private func headerHoldLatchChip(_ mode: EuclideousHoldLatchMode, label: String, width: CGFloat, enabled: Bool) -> some View {
-        let active = enabled && holdLatchMode == mode
+    private func headerHoldLatchChip(_ mode: EuclideousHoldLatchMode, label: String, width: CGFloat) -> some View {
+        let active = holdLatchMode == mode
         return ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldSelect.switchFill(active))).frame(height: 24)   // STYLE PASS 1 §5.1: off = the control tone (was clear)
-            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.6)
-                .foregroundColor(!enabled ? headerMuted.opacity(0.4) : (active ? headerInk : headerMuted)).lineLimit(1)
+            // §5.1: off #2A2D34 / #AAB0BA · on #DFE3EA / #0D0F14; labels 11 pt heavy, 0.1 em.
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: active ? 0xDFE3EA : 0x2A2D34)).frame(height: 24)
+            Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.1 * 11)
+                .foregroundColor(Color(hex: active ? 0x0D0F14 : 0xAAB0BA)).lineLimit(1)
         }
         .frame(width: width, height: 32)
         .contentShape(Rectangle())
-        .onTapGesture {
-            guard enabled else { return }
-            onSetHoldLatchMode(holdLatchMode == mode ? nil : mode)
-        }
-        .allowsHitTesting(enabled)
+        .onTapGesture { onSetHoldLatchMode(holdLatchMode == mode ? nil : mode) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label.capitalized)
-        .accessibilityHint(enabled ? "" : "Only available for MIDI In")
         .accessibilityAddTraits(.isButton)
         .accessibilityAddTraits(active ? .isSelected : [])
     }
-    // MARK: UTILITIES — presets, swing, reel, settings (outline icons, one family with undo/redo)
+    // HEADER v2 §3.3/§3.4: a global PLAY-part MASTER — a gate across every lane. Triangle · "PLAY"/part-name · a 2×2 lane-pip grid.
+    // An `AnyView`-returning leaf (the 1 MB extension-stack rule). The pips show which lanes' OWN part is on (state, not activity).
+    private func headerMasterButton(isNotes: Bool) -> AnyView {
+        let on = isNotes ? stackMaster : riffMaster
+        let name = isNotes ? "STACK" : "RIFF"
+        let parts = (0..<4).map { i -> Bool in i < lines.count ? (isNotes ? euclideousNotesLayerIsOn(lines[i]) : lines[i].riffOnResolved) : false }
+        let pips = euclideousMasterPips(master: on, parts: parts)
+        let nameC = on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)
+        let tri = Path { p in p.move(to: CGPoint(x: 1.5, y: 1)); p.addLine(to: CGPoint(x: 9, y: 5)); p.addLine(to: CGPoint(x: 1.5, y: 9)); p.closeSubpath() }   // §3.3: 10×10, same shape as the lane PLAY triangle
+        return AnyView(
+            HStack(spacing: 0) {
+                (on ? AnyView(tri.fill(Color(hex: 0xF2F4F7))) : AnyView(tri.stroke(Color(hex: 0x8A909A), lineWidth: 1.2))).frame(width: 10, height: 10)
+                Spacer().frame(width: HM.sp8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PLAY").font(.system(size: 8, weight: .semibold, design: .monospaced)).tracking(0.16 * 8).foregroundColor(Color(hex: 0x8A909A))
+                    Text(name).font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(0.1 * 12).foregroundColor(nameC)
+                }
+                Spacer(minLength: 0)
+                VStack(spacing: 3) {   // §3.3: lane 1,2 over 3,4
+                    HStack(spacing: 3) { headerMasterPip(pips[0], lane: 0); headerMasterPip(pips[1], lane: 1) }
+                    HStack(spacing: 3) { headerMasterPip(pips[2], lane: 2); headerMasterPip(pips[3], lane: 3) }
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(width: 124, height: 24)
+            .background(RoundedRectangle(cornerRadius: 9).fill(on ? Color(hex: 0x2A2D34) : Color.clear))   // §3.4 on fill / off 1 pt inner border
+            .overlay(on ? nil : RoundedRectangle(cornerRadius: 9).strokeBorder(Color(hex: 0x2A2D34), lineWidth: 1))
+            .frame(height: HM.rowH).contentShape(Rectangle())
+            .onTapGesture { if isNotes { onSetStackMaster(!on) } else { onSetRiffMaster(!on) } }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Play \(isNotes ? "stack" : "riff"), all lanes")
+            .accessibilityValue(euclideousMasterVoiceOverValue(master: on, parts: parts))
+            .accessibilityAddTraits(.isButton)
+        )
+    }
+    private func headerMasterPip(_ look: EuclideousMasterPip, lane: Int) -> some View {   // §3.4: filled in the lane's colour (100 % / 30 %) or an outline (45 %); hidden from VoiceOver (§10.5)
+        let c = lane100(laneAccents[lane % laneAccents.count])
+        switch look {
+        case .filled(let o): return AnyView(RoundedRectangle(cornerRadius: 2).fill(c.opacity(o)).frame(width: 9, height: 9))
+        case .outline: return AnyView(RoundedRectangle(cornerRadius: 2).strokeBorder(c.opacity(0.45), lineWidth: 1.2).frame(width: 9, height: 9))
+        }
+    }
+    // MARK: UTILITIES — PLAY RIFF / PLAY STACK masters, presets, reel, settings (swing removed — HEADER v2 §6.4)
     private func headerUtilities(_ layout: EuclideousHeaderLayout) -> some View {
         let target = layout.compact ? HM.compactTarget : HM.target
         return HStack(spacing: 0) {
-            // HOCKET RETIRED (2026-11-17, Paul): the HOCKET pill + its sp8 are gone — UTILITIES is now the four icons. `hocketHeaderButton` stays compiled, unmounted.
+            // HEADER v2 §3.1: PLAY RIFF · sp6 · PLAY STACK · sp14 · sessions · settings. The masters lead the right group.
+            headerMasterButton(isNotes: false)
+            Spacer().frame(width: 6)
+            headerMasterButton(isNotes: true)
+            Spacer().frame(width: 14)
             Image(systemName: "folder").font(.system(size: 18, weight: .medium)).foregroundColor(headerDim)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
-                .onTapGesture { settingsOpen = false; swingPopupOpen = false; harmonyOpen = false; hocketPopupOpen = false; onOpenPresets() }   // §2.1: opening it closes the other overlays first
+                .onTapGesture { settingsOpen = false; harmonyOpen = false; hocketPopupOpen = false; onOpenPresets() }   // §2.1: opening it closes the other overlays first
                 .accessibilityLabel("Presets").accessibilityAddTraits(.isButton)
-            // SWING (2026-10-17): a third icon, same selected-state styling as the gear just below. Tinted
-            // when swing is away from its 50 (straight) default, so a non-neutral value stays visible at a
-            // glance even with the popover closed — the whole point of putting this control where it's seen.
-            Image(systemName: "metronome")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundColor(swingPopupOpen ? headerInk : headerDim)   // STYLE PASS 1 §5.2: one colour - the swing≠50 cyan state tint is gone (flagged in the report)
-                .frame(width: 32, height: 32)
-                .background(RoundedRectangle(cornerRadius: 8).fill(swingPopupOpen ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))
-                .animation(.easeInOut(duration: 0.15), value: swingPopupOpen)
-                .frame(width: target, height: HM.rowH).contentShape(Rectangle())
-                .onTapGesture {
-                    if !swingPopupOpen { closeAllOtherOverlays(); settingsOpen = false }
-                    swingPopupOpen.toggle()
-                }
-                .accessibilityLabel("Swing, \(swing == 50 ? "straight" : "\(swing)")").accessibilityAddTraits(.isButton).accessibilityAddTraits(swingPopupOpen ? .isSelected : [])
-            // REEL (2026-10-23): the pass browser / MIDI recorder. Sits after SWING so presets and SWING keep their slots
-            // (the swing popover's anchor below is unchanged); the gear stays last. DEV-only since Paul 2026-11-19
-            // (`euclideousReelVisible`): hidden in release, kept in the DEBUG dev build; `euclideousHeaderGroupWidths`
-            // drops its slot to 3 icons in release so nothing else shifts.
+            // SWING REMOVED (HEADER v2 §6.4, Paul 2026-11-19): the "metronome"-glyph swing button + its popover are gone;
+            // the `swing` document field and its engine path are untouched (old sessions keep their swing).
+            // REEL (2026-10-23): the pass browser / MIDI recorder. DEV-only (`euclideousReelVisible`): hidden in release.
             if euclideousReelVisible { reelHeaderButton(target: target) }
             // FOURFOLD SETTINGS (2026-10-15 ferry §1): the × (xmark) LEAVES the header — its old job (back to
             // the workbench) moves to the sheet footer's WORKBENCH link (§7.1). UTILITIES is now 4 icons (SWING joined
@@ -2311,7 +2325,7 @@ struct EuclideousPage: View {
                 .animation(.easeInOut(duration: 0.15), value: settingsOpen)
                 .frame(width: target, height: HM.rowH).contentShape(Rectangle())
                 .onTapGesture {
-                    if !settingsOpen { closeAllOtherOverlays(); swingPopupOpen = false }
+                    if !settingsOpen { closeAllOtherOverlays() }
                     settingsOpen.toggle()
                 }
                 .accessibilityLabel("Settings").accessibilityAddTraits(.isButton).accessibilityAddTraits(settingsOpen ? .isSelected : [])
@@ -2357,37 +2371,14 @@ struct EuclideousPage: View {
     /// SWING popover (2026-10-17): the SAME compact scrim-less anchored-card chrome as `resetPopupCard`
     /// (reused, not reinvented). Range 50...75 matches `SceneState.swing` exactly (§4 v2.3) — dragging to
     /// the slider's own minimum IS "straight," so the readout names it rather than showing a bare "50".
-    private var swingPopupCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("SWING").font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .tracking(0.04).foregroundColor(Color(hex: 0xAAB0BA))
-                Spacer()
-                Text(swing == 50 ? "STRAIGHT" : "\(swing)")
-                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .foregroundColor(Color(hex: 0xF2F4F7))
-            }
-            .frame(height: 14)
-            Slider(value: Binding(get: { Double(swing) }, set: { onSetSwing(Int($0.rounded())) }), in: 50...75)
-                .tint(Color(hex: 0x4FD1E8))
-            HStack {
-                Text("STRAIGHT").font(.system(size: 9, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                Spacer()
-                Text("MAX").font(.system(size: 9, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-            }
-        }
-        .padding(8).frame(width: 200)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x3A3E47), lineWidth: 1))
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
-    }
+    // HEADER v2 §6.4 (2026-11-19): swingPopupCard removed with the swing header button. `swing`/`onSetSwing` stay wired to the engine (untouched).
     /// §2.1: "one overlay at a time: opening the key pill, the chord grid or presets closes the sheet first,
     /// and opening the sheet closes them" — this half of that rule (closing the OTHER three before the sheet
     /// opens); the sibling trigger points (key pill, chords segment, the folder/presets icon) each call this
     /// too before opening their own overlay. No existing "one overlay at a time" coordination to extend —
     /// every pop-up on this page toggles fully independently today, confirmed by reading each one first.
     private func closeAllOtherOverlays() {
-        keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; swingPopupOpen = false; riffTabMenuLane = nil
+        keyPopupOpen = false; chordsPopupOpen = false; resetPopupLane = nil; riffTabMenuLane = nil
         harmonyOpen = false; harmonyPopover = .none   // HARMONY: one overlay at a time (§4.1)
         hocketPopupOpen = false   // HOCKET (2026-10-27): the same
         playAsPopup = nil         // PLAY AS SEQUENCE (2026-11-08): the same
@@ -2461,6 +2452,10 @@ struct EuclideousPage: View {
     /// The grid's current playing column (chordColumn — the engine's own); while stopped the beat is the frozen anchor's, which is "the column the next play would start on".
     private func chordsPagePlayingColumn(set: Int, beat: Double) -> Int {
         chordColumn(chordsPageConfig(set), beat: beat, schedule: restartScheduleSet, barBeats: clock.beatsPerBar)
+    }
+    /// HEADER v2 §4.4: the column the grid plays next (the dimmed token), from the same config.
+    private func chordsPageNextColumn(set: Int, beat: Double) -> Int {
+        euclideousChordNextColumn(chordsPageConfig(set), beat: beat, schedule: restartScheduleSet, barBeats: clock.beatsPerBar)
     }
     private func harmonyPageView(size: CGSize) -> some View {
         EuclideousHarmonyPage(size: size, keyRoot: keyRoot, keyType: keyType, plan: sourcePlan, heldNotes: sourceStatus.midiNotes, midiPlaying: sourceStatus.midiPlaying,
@@ -3091,6 +3086,7 @@ struct EuclideousPage: View {
         let on = !euclideousMixLayerIsOff(line, notes: isNotes)
         let part = 2 * idx + (isNotes ? 1 : 0)
         let audible = !partSoloSilenced(idx, part: isNotes ? 1 : 0)
+        let heldByHeader = on && (isNotes ? !stackMaster : !riffMaster)   // HEADER v2 §3.5: the lane's own part is on but its master is off
         let label = "Play \(isNotes ? "stack" : "riff"), lane \(idx + 1)"
         return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !pulseLive)) { tl in
             let notes = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
@@ -3100,7 +3096,7 @@ struct EuclideousPage: View {
             // §4: in place of PLAY, a chip of the part's most recent note-on hit (nil ⇒ PLAY). Computed in a helper so this ViewBuilder closure stays `let`s + one view (a bare mutating `if` here fails type inference under the harness compiler).
             let noteChip = partNoteChip(idx: idx, notes: notes, nowBeat: nowBeat, on: on, audible: audible, rail: rail, feed: feed)
             EuclideousPartPlayButton(isNotes: isNotes, accent: accent, on: on, sounding: sounding, noteChip: noteChip,
-                                     railEdge: (on && rail) ? (isNotes ? .bottom : .top) : nil, axLabel: label) { cardBackToggle(idx, isNotes ? .notes : .riff) }
+                                     railEdge: (on && rail) ? (isNotes ? .bottom : .top) : nil, axLabel: label, heldByHeader: heldByHeader) { cardBackToggle(idx, isNotes ? .notes : .riff) }
         })
     }
     /// §4: the note chip for the tile's top line — the part's most recent note-on hit, from the SAME feed/sweep the strip + stack dots use (no second clock). nil ⇒ the word PLAY (§4.6: the part off / stopped / solo-silenced / the random card / no note-on yet).

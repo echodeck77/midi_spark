@@ -35,6 +35,7 @@ struct EuclideousPartPlayButton: View {
     var tile = CGSize(width: EuclideousLaneCardMetrics.playButtonW, height: EuclideousLaneCardMetrics.cometRowH)
     var target: CGSize? = nil
     var axLabel: String = ""
+    var heldByHeader: Bool = false   // HEADER v2 §3.5: this part's master is off while the lane's own part is on — the on-look button fades to 40 % (still tappable; nothing sounds) and VoiceOver says ", held by header"
     let onTap: () -> Void
 
     @GestureState private var pressed = false   // §1.5: filled #2B2D33 while a touch is down, cleared at once on release
@@ -59,10 +60,11 @@ struct EuclideousPartPlayButton: View {
                         if (0...w).contains(v.location.x) && (0...h).contains(v.location.y) { onTap() }
                     }
             )
+            .opacity(heldByHeader ? 0.4 : 1)   // HEADER v2 §3.5: a part-on button under an off master fades
             .transaction { $0.animation = nil }   // §A4.6 looks change at once, with no ease
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(axLabel)
-            .accessibilityValue(on ? "on" : "off")   // §6.2 / §7.1 unchanged
+            .accessibilityValue((on ? "on" : "off") + (heldByHeader ? ", held by header" : ""))   // §6.2 / §7.1 · HEADER v2 §10.4
             .accessibilityAddTraits(.isButton)
             .ringToggleTrait()
     }

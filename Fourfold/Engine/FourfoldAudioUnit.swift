@@ -303,6 +303,8 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func uiEuclideousNoteSource() -> EuclideousLaneSource { document.euclideousNoteSourceResolved }
     func uiEuclideousSourcePlan() -> SourcePlan? { document.euclideousSourcePlan }   // SOURCES STACK: the raw optional (nil ⇒ UI shows the derived plan)
     func uiEuclideousHoldLatchMode() -> EuclideousHoldLatchMode? { document.euclideousHoldLatchMode }   // HOLD/LATCH (2026-10-20): nil = off, no Resolved coercion needed
+    func uiRiffMaster() -> Bool { document.riffMasterResolved }     // HEADER v2 §1.1: the two global PLAY-part masters (resolved default ON). The page edits them through `editDocument` like any field; the AU params (addr 2/3) read the same document.
+    func uiStackMaster() -> Bool { document.stackMasterResolved }
     func uiEuclideousSoloMask() -> UInt8 { document.euclideousSoloMaskResolved }
     func uiEuclideousPartSoloMask() -> UInt8 { document.euclideousPartSoloMaskResolved }   // PER-PART SOLO (MIX v2, 2026-11-05)
     /// LANE SOLO: the effective mask (latched | held) straight to the render thread — no snapshot in the way. Main thread.
