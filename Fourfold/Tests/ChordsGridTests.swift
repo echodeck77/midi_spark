@@ -555,6 +555,36 @@ final class ChordColumnScheduleTests: XCTestCase {
         beats.map { chordColumn(c, beat: $0, schedule: set, barBeats: bar) }
     }
 
+    // HEADER v2 §8.3 / §9 test 9: euclideousChordNextColumn — the next column in the progression, resolve(count+1).
+    func testChordNextColumn() {
+        for steps in [6, 16] {
+            for rotate in [0, 2] {
+                // TIME, no restart: next is EXACT — the column at the next rate boundary, and (count+1) wrapped.
+                let time = cfg(steps: steps, rotate: rotate, rate: 1, adv: .time)
+                for beat in stride(from: 0.0, through: Double(steps) * 1.5, by: 0.5) {
+                    let next = euclideousChordNextColumn(time, beat: beat, schedule: nil, barBeats: 4)
+                    XCTAssertEqual(next, chordsColumnResolve(count: chordsAdvanceCount(time, beat: beat, schedule: nil, barBeats: 4) + 1, steps: steps, rotate: rotate))
+                    XCTAssertEqual(next, chordColumn(time, beat: beat + 1, schedule: nil, barBeats: 4), "plain TIME: the next chord is the column the next step plays")
+                }
+                // LOOP / RIFF advance + a restart: the documented FALLBACK is still resolve(count+1) — no engine prediction.
+                for adv in [ChordsAdvanceUnit.loop, .riff] {
+                    let c = cfg(steps: steps, rotate: rotate, rate: 1, adv: adv, restartOn: true, rUnit: .bar, rEvery: 2)
+                    for beat in [0.0, 3.0, 7.5, 12.0] {
+                        XCTAssertEqual(euclideousChordNextColumn(c, beat: beat, schedule: nil, barBeats: 4),
+                                       chordsColumnResolve(count: chordsAdvanceCount(c, beat: beat, schedule: nil, barBeats: 4) + 1, steps: steps, rotate: rotate))
+                    }
+                }
+            }
+        }
+        // REST: a grid whose NEXT column is a REST names it "–" (the token draws "› –").
+        let degs = [0, 7, 1, 2, 3, 4, 5, 6]   // column 1 is REST
+        let restCfg = cfg(steps: 8, rotate: 0, rate: 1, adv: .time)
+        let atCol0 = euclideousChordNextColumn(restCfg, beat: 0, schedule: nil, barBeats: 4)   // count 0 → next column 1 (REST)
+        XCTAssertEqual(atCol0, 1)
+        let (nm, rest) = euclideousChordHeaderName(column: atCol0, degrees: degs, colours: [], steps: 8, keyRoot: 0, keyType: .major)
+        XCTAssertTrue(rest); XCTAssertEqual(nm, "\u{2013}", "a REST next column shows the en-dash (token prefixes '› ')")
+    }
+
     // §3.6: the new rhythm-restart accessors match a brute-force walk of `nextRhythmRestart` (beat 0 included).
     func testRhythmRestartAccessorsMatchABruteForceWalk() {
         var l = mkLine(hits: 3, steps: 7); l.restartRhythmBars = [1]; l.restartRhythmUnit = .bar    // restart every bar (4 beats)

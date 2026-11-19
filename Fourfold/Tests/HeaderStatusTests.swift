@@ -135,22 +135,22 @@ final class HeaderStatusTests: XCTestCase {
 
         // one live grid (grid 1 = C, column 0)
         let one = status(g1: true, g2inUse: false, g2live: false, midi: false, lit: false, root: false, t: 0)
-        XCTAssertEqual(euclideousHeaderVoiceOver(parts: one, keySpoken: key, running: true, t: 0), "C major, grid 1, C")
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: one, keySpoken: key, running: true, t: 0), "C major, grid 1, C, next C")
 
         // two grids, grid 2 idle while running → "waiting"; the name is SPOKEN (§6.1: "Dm" → "D minor")
         let twoRunning = status(g1: true, g2inUse: true, g2live: false, midi: false, lit: false, root: false, t: 0)
-        XCTAssertEqual(euclideousHeaderVoiceOver(parts: twoRunning, keySpoken: key, running: true, t: 0), "C major, grid 1, C, grid 2 waiting, D minor")
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: twoRunning, keySpoken: key, running: true, t: 0), "C major, grid 1, C, next C, grid 2 waiting, D minor, next C")
         // stopped → no "waiting" on an idle grid
-        XCTAssertEqual(euclideousHeaderVoiceOver(parts: twoRunning, keySpoken: key, running: false, t: 0), "C major, grid 1, C, grid 2, D minor")
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: twoRunning, keySpoken: key, running: false, t: 0), "C major, grid 1, C, next C, grid 2, D minor, next C")
 
         // MIDI playing / quiet; root at +2 / at 0
         let midiRoot = status(g1: true, g2inUse: false, g2live: false, midi: true, lit: true, root: true, t: 2)
-        XCTAssertEqual(euclideousHeaderVoiceOver(parts: midiRoot, keySpoken: key, running: true, t: 2), "C major, grid 1, C, MIDI in, playing, root, plus 2")
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: midiRoot, keySpoken: key, running: true, t: 2), "C major, grid 1, C, next C, MIDI in, playing, root, plus 2")
         let midiQuiet = status(g1: true, g2inUse: false, g2live: false, midi: true, lit: false, root: true, t: 0)
-        XCTAssertEqual(euclideousHeaderVoiceOver(parts: midiQuiet, keySpoken: key, running: true, t: 0), "C major, grid 1, C, MIDI in, quiet, root, zero")
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: midiQuiet, keySpoken: key, running: true, t: 0), "C major, grid 1, C, next C, MIDI in, quiet, root, zero")
         // MIDI on with no ROOT → lamp but no readout clause
         let midiNoRoot = status(g1: true, g2inUse: false, g2live: false, midi: true, lit: false, root: false, t: 0)
-        XCTAssertEqual(euclideousHeaderVoiceOver(parts: midiNoRoot, keySpoken: key, running: true, t: 0), "C major, grid 1, C, MIDI in, quiet")
+        XCTAssertEqual(euclideousHeaderVoiceOver(parts: midiNoRoot, keySpoken: key, running: true, t: 0), "C major, grid 1, C, next C, MIDI in, quiet")
     }
 
     // §6.1 — the spoken chord name (basic).

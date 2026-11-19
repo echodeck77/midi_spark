@@ -2312,3 +2312,10 @@ The three holds (riff column / riff rank / stack rank), the gestures, the engine
 ## HOCKET RETIRED follow-ups (2026-11-17)
 - [ ] (DECIDE) Full SOURCE deletion of the retired hocket feature — the Router remap (`hocketTurn` / `hocketOutput` / note-groups `Voice.group`), `HocketPopup.swift`, `hocketHeaderButton` / `HocketButtonMetrics` / `hocketButtonLook`, the `HocketRule*` model + snapshot, the hocket stress tests + `runHocketSession`/`runHocketMaskSession`, and `normalizeHocketAtLoad`. Kept compiled-dead for now (retire-not-delete; the engine code is still stress-tested); delete if the dead weight isn't wanted.
 - [ ] Note: the retirement DROPS an old session's stored hocket rules on load (`normalizeHocketAtLoad`), not round-trip — by design (one-way migration). If preserving the data mattered, revisit.
+
+## HEADER v2 — §3.6(c) masters-on-own-row (DECIDE on device, 2026-11-19)
+The HEADER v2 ferry shipped the masters, HARMONY v2, the ▶/■ transport and the pure `euclideousHeaderFit` ladder, but did NOT build §3.6's final fit step as a LIVE layout change: the live header keeps the A/B/C reflow (the masters are sized into the UTILITIES group, so it fits and does not clip). Open:
+- PORTRAIT: should the two masters move to their OWN row (§3.6c)? Would mean splitting the masters out of the UTILITIES group (a 4th header group / a 3-row variant). NOT built — awaiting Paul's on-device look.
+- STANDALONE §3.6(c): when the shared row can't fit, move the masters to the trailing end of the TRANSPORT row. NOT built.
+- §3.6(b) hide-wordmark as a DISTINCT step (vs the existing `compact`/kind-C reflow that already hides it). The pure ladder models it; the live layout approximates it via `compact`.
+Decide the portrait behaviour first; the structural change follows.

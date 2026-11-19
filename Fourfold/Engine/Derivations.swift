@@ -4692,7 +4692,8 @@ func euclideousHeaderVoiceOver(parts: EuclideousHeaderParts, keySpoken: String, 
     var out: [String] = [keySpoken]
     for tok in parts.tokens {
         let name = tok.isRest ? "rest" : euclideousChordNameSpoken(tok.name)
-        out.append((!tok.live && running ? "grid \(tok.grid) waiting, " : "grid \(tok.grid), ") + name)
+        let next = tok.nextIsRest ? "rest" : euclideousChordNameSpoken(tok.nextName)   // HEADER v2 §10.2: "…, next C minor"
+        out.append((!tok.live && running ? "grid \(tok.grid) waiting, " : "grid \(tok.grid), ") + name + ", next " + next)
     }
     switch parts.lamp {
     case .hidden: break
