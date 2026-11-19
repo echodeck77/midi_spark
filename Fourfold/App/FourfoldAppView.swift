@@ -61,13 +61,24 @@ struct FourfoldAppView: View {
 
     private var transportBar: some View {
         HStack(spacing: 12) {
-            Button { model.togglePlaying() } label: {
-                Image(systemName: model.playing ? "stop.fill" : "play.fill").font(.system(size: 18))
-                    .foregroundColor(model.playing ? bg : accent)
-                    .frame(width: 52, height: 40)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(model.playing ? accent : panel))
+            // HEADER v2 §6.2: separate ▶ and ■. ▶ starts (does nothing while playing); ■ stops while playing, and while
+            // stopped returns to bar 1 beat 1 + silences every output. sp4 between them.
+            HStack(spacing: 4) {
+                Button { if !model.playing { model.togglePlaying() } } label: {
+                    Image(systemName: "play.fill").font(.system(size: 18))
+                        .foregroundColor(model.playing ? bg : accent)
+                        .frame(width: 52, height: 40)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(model.playing ? accent : Color(red: 0.137, green: 0.149, blue: 0.176)))   // playing: cyan/bg triangle · stopped: #23262D/#AAB0BA
+                }
+                .accessibilityLabel("Play")
+                Button { if model.playing { model.togglePlaying() } else { model.returnToStart() } } label: {
+                    Image(systemName: "stop.fill").font(.system(size: 18))
+                        .foregroundColor(model.playing ? Color(red: 0.874, green: 0.890, blue: 0.918) : dim)   // #DFE3EA playing · #8A909A stopped
+                        .frame(width: 52, height: 40)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.137, green: 0.149, blue: 0.176)))   // always #23262D
+                }
+                .accessibilityLabel(model.playing ? "Stop" : "Return to start")
             }
-            .accessibilityLabel(model.playing ? "Stop" : "Play")
 
             HStack(spacing: 4) {
                 stepButton("minus") { model.setTempo(model.tempo - 1) }
@@ -94,14 +105,37 @@ struct FourfoldAppView: View {
 
             Spacer(minLength: 0)
 
+            // HEADER v2 §6.6: two lines — "<bar> · <beat>" over one pip per beat of the bar (4/4). "BAR" is gone.
             TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-                let beat = model.playing ? (model.engine?.au.kernelDiagnostics().beat ?? 0) : 0
-                let bar = Int(beat / 4) + 1, inBar = Int(beat.truncatingRemainder(dividingBy: 4)) + 1
-                Text(model.playing ? "BAR \(bar) · \(inBar)" : "STOPPED").font(.system(size: 11, weight: .bold, design: .monospaced)).tracking(1.2).foregroundColor(dim)
+                positionReadout
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 6)
         .background(panel.opacity(0.6))
+    }
+
+    // HEADER v2 §6.6: the position — two lines (84 wide, 5 apart). Numbers #AAB0BA playing / #5C626C stopped; the " · "
+    // always #5C626C. Below, one 6×6 pip per beat of the bar: the current beat #DFE3EA while playing, the rest #3A3E47;
+    // all #3A3E47 while stopped. Beats per bar = 4 (Fourfold's internal clock is 4/4).
+    private var positionReadout: some View {
+        let beatsPerBar = 4
+        let beat = model.engine?.au.kernelDiagnostics().beat ?? 0
+        let pos = euclideousTransportPosition(beat: beat, beatsPerBar: beatsPerBar)
+        let numC = model.playing ? Color(red: 0.667, green: 0.690, blue: 0.729) : Color(red: 0.361, green: 0.384, blue: 0.424)
+        let sepC = Color(red: 0.361, green: 0.384, blue: 0.424)
+        let dot = Color(red: 0.227, green: 0.243, blue: 0.278), live = Color(red: 0.874, green: 0.890, blue: 0.918)
+        return VStack(alignment: .leading, spacing: 5) {
+            (Text("\(pos.bar)").foregroundColor(numC) + Text(" · ").foregroundColor(sepC) + Text("\(pos.beatInBar)").foregroundColor(numC))
+                .font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(0.06 * 13)
+            HStack(spacing: 4) {
+                ForEach(0..<beatsPerBar, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 1.5).fill((model.playing && i == pos.beatInBar - 1) ? live : dot).frame(width: 6, height: 6)
+                }
+            }.accessibilityHidden(true)
+        }
+        .frame(width: 84, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("bar \(pos.bar), beat \(pos.beatInBar)")
     }
 
     #if FOURFOLD_LINK

@@ -6,6 +6,34 @@ import XCTest
 final class FourfoldTransportTests: XCTestCase {
     private let sr = 48_000.0
 
+    // HEADER v2 §8.6 / §9 test 13: stopAction — stop while playing, return+silence while stopped.
+    func testStopAction() {
+        XCTAssertEqual(stopAction(playing: true), .stop)
+        XCTAssertEqual(stopAction(playing: false), .returnAndSilence)
+    }
+    // §6.6: the position from the beat (1-based bar · beat, 4/4).
+    func testTransportPosition() {
+        XCTAssertEqual(euclideousTransportPosition(beat: 0, beatsPerBar: 4), EuclideousTransportPosition(bar: 1, beatInBar: 1))
+        XCTAssertEqual(euclideousTransportPosition(beat: 3.9, beatsPerBar: 4), EuclideousTransportPosition(bar: 1, beatInBar: 4))
+        XCTAssertEqual(euclideousTransportPosition(beat: 4, beatsPerBar: 4), EuclideousTransportPosition(bar: 2, beatInBar: 1))
+        XCTAssertEqual(euclideousTransportPosition(beat: 600, beatsPerBar: 4), EuclideousTransportPosition(bar: 151, beatInBar: 1))
+        XCTAssertEqual(euclideousTransportPosition(beat: -5, beatsPerBar: 4), EuclideousTransportPosition(bar: 1, beatInBar: 1), "a negative beat reads 1 · 1")
+    }
+    // §6.2: ■ while stopped returns the frozen position to beat 0; a no-op while playing.
+    func testReturnToStartResetsTheFrozenBeat() {
+        var c = FourfoldTransportClock(sampleRate: sr)
+        c.sync(desiredPlaying: true, desiredTempo: 120, at: 0)
+        _ = c.beat(at: 48_000)                              // ~2 beats in
+        c.sync(desiredPlaying: false, desiredTempo: 120, at: 48_000)   // stop → freezes near beat 2
+        XCTAssertGreaterThan(c.beat(at: 99_999), 1.5, "stopped freezes where it was")
+        c.returnToStart()
+        XCTAssertEqual(c.beat(at: 99_999), 0, "■ while stopped returns to beat 0")
+        // a no-op while playing
+        c.sync(desiredPlaying: true, desiredTempo: 120, at: 100_000)
+        let before = c.beat(at: 148_000); c.returnToStart()
+        XCTAssertEqual(c.beat(at: 148_000), before, accuracy: 1e-9, "returnToStart does nothing while playing")
+    }
+
     func testStoppedTransportHoldsBeatZeroAndReportsNoNextBeatOffset() {
         var c = FourfoldTransportClock(sampleRate: sr)
         c.sync(desiredPlaying: false, desiredTempo: 120, at: 5_000)

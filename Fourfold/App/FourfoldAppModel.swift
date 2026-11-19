@@ -84,6 +84,8 @@ final class FourfoldAppModel: ObservableObject {
     #endif
     func setPlaying(_ on: Bool) { playing = on; engine?.setPlaying(on) }
     func togglePlaying() { setPlaying(!playing) }
+    /// HEADER v2 §6.2: ■ while STOPPED — return the transport to bar 1 beat 1 and silence every output. Playing is unchanged (stays stopped).
+    func returnToStart() { engine?.returnToStart() }
     func setTempo(_ bpm: Double) {
         let t = FourfoldTransportClock.clamped(bpm.rounded())
         tempo = t; engine?.setTempo(t)

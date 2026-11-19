@@ -54,6 +54,12 @@ struct FourfoldTransportClock: Equatable {
             else { anchorBeat = beat(at: sampleTime); playing = false }                         // a stop edge: freeze
         }
     }
+    /// HEADER v2 §6.2: ■ while stopped — put the frozen position back at bar 1 beat 1. A no-op while playing (PLAY already
+    /// starts from beat 0; the next PLAY re-anchors regardless). No sample arg needed: a stopped `beat(at:)` returns `anchorBeat`.
+    mutating func returnToStart() {
+        guard !playing else { return }
+        anchorBeat = 0; pendingRestartBeat = nil
+    }
 
     /// The audio timeline is about to restart (engine restart, possibly at another sample rate): remember where the beat is, and re-anchor on the next buffer.
     mutating func timelineWillRestart(lastSampleTime: Double, newSampleRate: Double) {

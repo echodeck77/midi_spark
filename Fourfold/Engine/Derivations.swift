@@ -10392,6 +10392,20 @@ enum EuclideousMasterPip: Equatable { case filled(opacity: Double), outline }
     parts.map { $0 ? .filled(opacity: master ? 1.0 : 0.30) : .outline }
 }
 
+/// HEADER v2 §8.6: what the standalone ■ button does — stop the transport while playing, or (while already stopped)
+/// return to bar 1 and silence every output.
+enum EuclideousStopAction: Equatable { case stop, returnAndSilence }
+@inline(__always) func stopAction(playing: Bool) -> EuclideousStopAction { playing ? .stop : .returnAndSilence }
+
+/// HEADER v2 §6.6: the standalone transport's bar · beat from the host beat (beatsPerBar from the transport's time
+/// signature — Fourfold's internal clock is 4/4). Bars and beats are 1-based; a negative/zero beat reads 1 · 1.
+struct EuclideousTransportPosition: Equatable { var bar: Int; var beatInBar: Int }
+func euclideousTransportPosition(beat: Double, beatsPerBar: Int) -> EuclideousTransportPosition {
+    let bpb = max(1, beatsPerBar)
+    let b = max(0, Int(beat.rounded(.down)))
+    return EuclideousTransportPosition(bar: b / bpb + 1, beatInBar: b % bpb + 1)
+}
+
 /// §10.1: a master's spoken VALUE — "off" when the master is off, else "on, lanes 1, 2 and 4" (the lanes whose OWN part
 /// is on) or "on, no lanes". The LABEL ("Play riff, all lanes" / "Play stack, all lanes") is set by the view.
 func euclideousMasterVoiceOverValue(master: Bool, parts: [Bool]) -> String {

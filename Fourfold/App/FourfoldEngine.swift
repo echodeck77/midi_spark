@@ -24,6 +24,13 @@ final class FourfoldTransportMailbox {
     // LINK toggle) and read every render callback.
     private let linkActiveFlag = ManagedAtomic<Bool>(false)
     #endif
+    // HEADER v2 §6.2: a one-shot "■ while stopped → return to bar 1" request. Set from the main thread (the ■ button),
+    // consumed once by `pump` on the render thread (same atomic-flag pattern as `playing`).
+    private let returnFlag = ManagedAtomic<Bool>(false)
+    var returnRequested: Bool {
+        get { returnFlag.load(ordering: .relaxed) }
+        set { returnFlag.store(newValue, ordering: .relaxed) }
+    }
     var playing: Bool {
         get { playingFlag.load(ordering: .relaxed) }
         set { playingFlag.store(newValue, ordering: .relaxed) }
@@ -120,6 +127,12 @@ final class FourfoldEngine {
         if on { ensureRunning() } else { scheduleRelease() }   // IDLE RELEASE: hold the hardware only while playing
     }
     func setTempo(_ bpm: Double) { mailbox.tempo = FourfoldTransportClock.clamped(bpm) }
+    /// HEADER v2 §6.2: ■ while stopped — return the transport to bar 1 beat 1 and silence every output (note-off for each
+    /// sounding note + CC123 on every output channel, via the existing `euclideousAllNotesOff` path). Only meaningful stopped.
+    func returnToStart() {
+        au.euclideousAllNotesOff()        // note-offs + CC123 per output channel (Router.process's euclideousAllNotesOff branch)
+        mailbox.returnRequested = true    // the pump resets the beat to 0 next buffer (only while stopped)
+    }
     #if FOURFOLD_LINK
     /// ABLETON LINK: `ABLLinkSetActive` is a configuration call (advertise/connect), not a realtime
     /// one — called here on the caller's thread (the UI), same as `ABLLinkNew`'s own "active by
@@ -207,6 +220,7 @@ final class FourfoldEngine {
         let t = ts.mSampleTime
         lastSampleTime = t
         clock.sync(desiredPlaying: mailbox.playing, desiredTempo: mailbox.tempo, at: t)
+        if mailbox.returnRequested { mailbox.returnRequested = false; if !clock.playing { clock.returnToStart() } }   // HEADER v2 §6.2: ■ while stopped → bar 1 beat 1 (the note-off/CC123 silence rode the main-thread euclideousAllNotesOff)
         bufferSample = t
         bufferHost = ts.mFlags.contains(.hostTimeValid) ? ts.mHostTime : mach_absolute_time()
         #if FOURFOLD_LINK
