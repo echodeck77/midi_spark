@@ -51,6 +51,11 @@ func fourfoldParams() -> [FourfoldParamDef] {
     p.append(FourfoldParamDef(address: 1, name: "Key Scale", min: 0, max: Float(scaleNames.count - 1), def: Float(ScaleType.allCases.firstIndex(of: .naturalMinor) ?? 0), kind: .indexed(scaleNames),
                               get: { Float(ScaleType.allCases.firstIndex(of: $0.euclideousKeyTypeResolved) ?? 0) },
                               set: { s, v in s.euclideousKeyType = ScaleType.allCases[clampIndex(v, scaleNames.count)] }))
+    // HEADER v2 (§2): the two global PLAY-part masters — automatable booleans, default ON (so an untouched document is byte-identical, golden unchanged). Addresses 2/3 extend the global block (0/1); addresses are stable forever (invariant 5).
+    p.append(FourfoldParamDef(address: 2, name: "Play riff", min: 0, max: 1, def: 1, kind: .boolean,
+                              get: { $0.riffMasterResolved ? 1 : 0 }, set: { s, v in s.riffMaster = v > 0.5 }))
+    p.append(FourfoldParamDef(address: 3, name: "Play stack", min: 0, max: 1, def: 1, kind: .boolean,
+                              get: { $0.stackMasterResolved ? 1 : 0 }, set: { s, v in s.stackMaster = v > 0.5 }))
 
     // ── Per lane (1…4) ──────────────────────────────────────────────────────
     for i in 0..<4 {

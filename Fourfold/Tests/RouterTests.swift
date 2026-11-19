@@ -5512,6 +5512,72 @@ final class RouterTests: XCTestCase {
         e.events.map { [$0.sample, Int64($0.cable), Int64($0.status), Int64($0.chan), Int64($0.note), Int64($0.vel)] }
     }
 
+    // ── HEADER v2 MASTERS (ferry 2026-11-19, §1 / §9 tests 3-5) ──
+    /// `fxBox` with the two PLAY-part masters set on the document.
+    private func mastersBox(_ lines: [EuclidLine], riff: Bool, stack: Bool, ranks: [Int] = [1, 2, 3, 4, 5, 6, 7, 8]) -> SnapshotBox {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: ranks)
+        c.paramsA.euclidLines = lines
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi; st.riffMaster = riff; st.stackMaster = stack
+        return SnapshotBuilder.build(keeping: st)
+    }
+    /// Render `boxes` (each applied from its beat) across [start, end) at 120 BPM, then a final stopped window.
+    private func mastersRender(_ boxes: [(SnapshotBox, Double)], from start: Double, to end: Double, pool: [UInt8]? = nil) -> RecordingEmitter {
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048
+        let p = chord(pool ?? fxPoolNotes); var ts = start * 60.0 / tempo * sr
+        while true {
+            let beat = ts * tempo / 60.0 / sr
+            if beat >= end { break }
+            router.process(box: boxes.last(where: { beat >= $0.1 })!.0, pool: p, playing: true, beatPos: beat, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            ts += Double(frames)
+        }
+        router.process(box: boxes.last!.0, pool: p, playing: false, beatPos: end, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        return e
+    }
+    private func onsInBeats(_ e: RecordingEmitter, _ lo: Double, _ hi: Double, cables: Set<UInt8>) -> Int {
+        e.ons.filter { cables.contains($0.cable) && Double($0.sample) / 24_000 >= lo && Double($0.sample) / 24_000 < hi }.count
+    }
+    // §9 test 3: lanes 1, 2, 4 riff on, lane 3 off; PLAY RIFF master off at bar 3 (beat 8), on at bar 5 (beat 16).
+    func testRiffMasterGatesEveryLaneWithoutTouchingTheirOwnState() {
+        func lanes() -> [EuclidLine] { (0..<4).map { i in var l = notesLine(when: 0, riffOn: i != 2); l.notesOn = false; return l } }   // notes off; lane 3 (index 2) riff off
+        let on = mastersBox(lanes(), riff: true, stack: true), off = mastersBox(lanes(), riff: false, stack: true)
+        let e = mastersRender([(on, 0), (off, 8), (on, 16)], from: 0, to: 20)
+        assertNothingLeftSounding(e)
+        let riffCables: Set<UInt8> = [1, 2, 4]   // lane 1→A, 2→B, 4→D (lane 3→C is off)
+        XCTAssertGreaterThan(onsInBeats(e, 0, 8, cables: riffCables), 0, "riff plays before the master turns off")
+        XCTAssertEqual(onsInBeats(e, 8.1, 15.9, cables: riffCables), 0, "no riff from any lane while PLAY RIFF is off (bars 3-4)")
+        XCTAssertGreaterThan(onsInBeats(e, 16, 20, cables: riffCables), 0, "lanes 1, 2, 4 resume when PLAY RIFF comes back on")
+        XCTAssertEqual(onsInBeats(e, 0, 20, cables: [3]), 0, "lane 3 (its own riff off) stays silent throughout")
+        // §1.3: the master never writes the lanes' own state — the resume above proves exactly the lanes that were on return.
+    }
+    // §9 test 4: a riff note sounding when riffMaster goes off ends exactly as it does when the lane's own PLAY RIFF goes off.
+    func testARiffNoteEndsTheSameWayWhetherTheMasterOrTheLanesOwnPlayTurnsOff() {
+        func lane(riffOn: Bool) -> [EuclidLine] { var l = notesLine(when: 0, riffOn: riffOn); l.notesOn = false; return [l] }
+        let onBox = mastersBox(lane(riffOn: true), riff: true, stack: true)
+        let masterOff = mastersBox(lane(riffOn: true), riff: false, stack: true)      // same lane, master off
+        let playOff = mastersBox(lane(riffOn: false), riff: true, stack: true)        // lane's own PLAY off
+        let viaMaster = mastersRender([(onBox, 0), (masterOff, 2)], from: 0, to: 6)
+        let viaPlay = mastersRender([(onBox, 0), (playOff, 2)], from: 0, to: 6)
+        func offs(_ e: RecordingEmitter) -> [[Int64]] { e.events.filter { $0.cable == 1 && $0.status == 0x80 }.map { [$0.sample, Int64($0.note)] }.sorted { ($0[0], $0[1]) < ($1[0], $1[1]) } }
+        XCTAssertEqual(offs(viaMaster), offs(viaPlay), "the note-offs after the gate closes are identical (same cut-nothing, ring-out behaviour)")
+        assertNothingLeftSounding(viaMaster); assertNothingLeftSounding(viaPlay)
+    }
+    // §9 test 5: with stackMaster off, turning lane 2's own PLAY STACK on produces no stack notes until stackMaster is on.
+    func testStackMasterSuppressesALaneWhoseOwnStackIsTurnedOnUntilTheMasterIsOn() {
+        func lanes(l2notes: Bool) -> [EuclidLine] { (0..<4).map { i in var l = notesLine(when: 0b11, riffOn: false); l.notesOn = (i == 1 && l2notes); return l } }   // only lane 2 stack, riff off everywhere
+        let before = mastersBox(lanes(l2notes: false), riff: true, stack: false)
+        let l2on = mastersBox(lanes(l2notes: true), riff: true, stack: false)     // lane 2 stack ON but stackMaster still OFF
+        let mOn = mastersBox(lanes(l2notes: true), riff: true, stack: true)       // stackMaster ON
+        let e = mastersRender([(before, 0), (l2on, 4), (mOn, 8)], from: 0, to: 12, pool: notesExPool)
+        assertNothingLeftSounding(e)
+        XCTAssertEqual(onsInBeats(e, 0, 8, cables: [2]), 0, "no stack notes on lane 2's output while stackMaster is off (even after its own PLAY STACK turns on)")
+        XCTAssertGreaterThan(onsInBeats(e, 8, 12, cables: [2]), 0, "lane 2's stack sounds once stackMaster is on")
+    }
+
 
     // ── REVIEW FIX ferry (2026-10-23): ratchets at fast steps, large buffers, and the document's default step rate ──
     /// `fxBox` with the scene's step rate and swing as parameters (the suite's own `fxBox` pins 1/8, which hid the cap's dependence on it).

@@ -14,12 +14,14 @@ final class FourfoldParamTests: XCTestCase {
 
     func testCountAndAddresses() {
         let p = fourfoldParams()
-        XCTAssertEqual(p.count, 70, "2 global + 4×13 lane + 4×4 output")
-        XCTAssertEqual(Set(p.map { $0.address }).count, 70, "every address is unique")
+        XCTAssertEqual(p.count, 72, "2 global + 2 HEADER v2 masters + 4×13 lane + 4×4 output")
+        XCTAssertEqual(Set(p.map { $0.address }).count, 72, "every address is unique")
         // spot-check the stable scheme (invariant 5 — never renumber)
         func addr(_ name: String) -> UInt64? { p.first { $0.name == name }?.address }
         XCTAssertEqual(addr("Key Root"), 0)
         XCTAssertEqual(addr("Key Scale"), 1)
+        XCTAssertEqual(addr("Play riff"), 2)     // HEADER v2 masters
+        XCTAssertEqual(addr("Play stack"), 3)
         XCTAssertEqual(addr("Lane 1 Play"), 1000)
         XCTAssertEqual(addr("Lane 1 Hits"), 1001)
         XCTAssertEqual(addr("Lane 4 Stack Velocity"), 1323)
@@ -90,5 +92,20 @@ final class FourfoldParamTests: XCTestCase {
     func testUntouchedDocumentUnchanged() {
         let a = fixture(), b = fixture()
         XCTAssertEqual(a, b, "no param set → identical")
+    }
+
+    // HEADER v2 §2 / §9 test 7 (pure part): the "Play riff"/"Play stack" boolean params map to riffMaster/stackMaster.
+    func testMasterParams() {
+        let p = fourfoldParams()
+        let riff = p.first { $0.name == "Play riff" }!, stack = p.first { $0.name == "Play stack" }!
+        XCTAssertEqual(riff.kind, .boolean); XCTAssertEqual(stack.kind, .boolean)
+        var s = fixture()
+        XCTAssertEqual(riff.get(s), 1, "a fresh document reads the master ON (default/resolved)")
+        XCTAssertEqual(stack.get(s), 1)
+        riff.set(&s, 0)
+        XCTAssertEqual(s.riffMaster, false); XCTAssertFalse(s.riffMasterResolved); XCTAssertEqual(riff.get(s), 0)
+        XCTAssertTrue(s.stackMasterResolved, "setting Play riff did not touch Play stack")
+        riff.set(&s, 1); stack.set(&s, 0)
+        XCTAssertTrue(s.riffMasterResolved); XCTAssertEqual(s.stackMaster, false)
     }
 }

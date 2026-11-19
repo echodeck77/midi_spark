@@ -4200,6 +4200,15 @@ struct PluginState: Codable, Equatable {
     // HOLD/LATCH (Paul 2026-10-20, header buttons beside the key pill): nil ⇒ off, today's plain live-MIDI
     // pool, byte-identical for every existing document. See `EuclideousHoldLatchMode`'s own doc comment.
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil
+    // HEADER v2 (Paul 2026-11-19, §1.1): the two global PLAY-part MASTERS — a GATE, not a setter. Each silences
+    // that part on EVERY lane while off, without touching the lanes' own PLAY state; turning it back on restores
+    // exactly the lanes that were on. Additive-optional, resolving to ON when absent, so every existing session
+    // (and every factory preset) loads with both on and sounds byte-identically. Saved with the session; also
+    // exposed as the AU parameters "Play riff"/"Play stack" (FourfoldParam.swift addresses 2/3).
+    var riffMaster: Bool? = nil
+    var stackMaster: Bool? = nil
+    var riffMasterResolved: Bool { riffMaster ?? true }
+    var stackMasterResolved: Bool { stackMaster ?? true }
     // EUCLIDEOUS CHORDS (Paul 2026-10-08): "next to [KEY] place a chords button that opens a pop-up to a
     // chord grid with rate control... base this on the existing chord grid used on the chord door." Stored
     // as a plain MachineParams — the EXACT same storage shape the chord door's own `Receiver.chordSeqs:

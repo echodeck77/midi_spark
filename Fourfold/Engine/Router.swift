@@ -2126,8 +2126,8 @@ final class Router {
             guard clk.valid, clk.sub > 0 else { continue }
             if euclideousLaneSilencedBySolo(lane: lane, soloMask: soloM, partMask: partSoloM) { continue }   // §11.3 a solo-silenced lane is never a trigger (and plays nothing)
             let L = p.euclidLines[lane]
-            let riffInc = settings.riffLaneIncluded(lane) && L.riffOnResolved
-            let stackInc = settings.stackLaneIncluded(lane) && euclideousNotesLayerIsOn(L)
+            let riffInc = settings.riffLaneIncluded(lane) && laneSounds(L.riffOnResolved, p.riffMaster)         // HEADER v2 §1.2: a master-silenced part is no TUTTI trigger either
+            let stackInc = settings.stackLaneIncluded(lane) && laneSounds(euclideousNotesLayerIsOn(L), p.stackMaster)
             guard riffInc || stackInc else { continue }
             let riffDir = L.euclideousRiffDirResolved, stride = L.riffStrideResolved, riffLen = max(1, L.riffLengthResolved)
             let rotate = L.riffRotateResolved, every = L.riffAdvanceEveryResolved
@@ -6222,13 +6222,14 @@ final class Router {
                               // `litNotesResolved`/etc. already migrate safely to byte-identical legacy
                               // behaviour for any line that's never touched the new fields, confirmed in
                               // Models.swift.
-                              riffOn: L.riffOnResolved,
+                              riffOn: isEuclideousRow ? laneSounds(L.riffOnResolved, p.riffMaster) : L.riffOnResolved,   // HEADER v2 §1.2: the PLAY RIFF master gates every lane's riff here, where the lane's own PLAY state is applied (so CC/ratchet/ALT/FILL/mute/emitters need not know). Master defaults ON ⇒ byte-identical.
                               // NOTES TAB (2026-10-19): the lit order is fixed-size data (ten bytes and a count), built from the lane's stored order without allocating; WHEN / CHANCE / PLAY AS /
                               // RECEIVED are plain scalars. `noteOctShifts` is no longer passed at all — the per-note octave shifts stopped sounding (§6.7).
                               // NOTES AUDITION (2026-11-11): while a STACK cell is held, this lane's NOTES layer plays ONLY the held rank — override the lit order with the single-position order decoded above (every other input, incl. WHEN/CHANCE, is unchanged, so the audition rides the lane's own rhythm/play-as).
                               litOrder: (isEuclideousRow && lineIndex == euclideousNotesAuditionLaneNow) ? euclideousNotesAuditionOrder : (notesRoll?.notesLitOrder ?? L.litOrderResolved), notesWhen: notesRoll?.notesWhen ?? L.notesWhenResolved, notesChance: notesRoll?.notesChance ?? L.notesChanceResolved,
                               notesPlaySeq: notesRoll != nil ? nil : L.notesPlaySeq, notesPlayAs: notesRoll?.notesPlayAs ?? L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,   // PLAY AS SEQUENCE: a random roll forces its one mode (nil seq ⇒ the fallback); else the lane's RAW chip sequence (no allocation, unlike …Resolved)
-                              notesOn: L.notesOnResolved, notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved, notesRing: L.notesRingResolved,
+                              notesOn: isEuclideousRow ? laneSounds(L.notesOnResolved, p.stackMaster) : L.notesOnResolved,   // HEADER v2 §1.2: the PLAY STACK master gates every lane's stack here. Master defaults ON ⇒ byte-identical.
+                              notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved, notesRing: L.notesRingResolved,
                               // PLAY AS ROWS (2026-11-11): the three chains (RAW optionals, no allocation) + per-rank counts + bass + shift/drift. A random roll does not touch them (it sets only the lit notes / WHEN / CHANCE).
                               notesOrderChain: L.notesOrderChain, notesVoicesChain: L.notesVoicesChain, notesSpreadChain: L.notesSpreadChain,
                               notesRankRoles: L.notesRankRolesResolved,

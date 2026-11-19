@@ -124,6 +124,8 @@ enum SnapshotBuilder {
                     sc.procs[0].globalSrcChanMask = doc.euclideousMidiInChannelMaskResolved
                     sc.procs[0].globalSrcChanMaskSet = true
                     sc.procs[0].euclideousHoldLatchMode = doc.euclideousHoldLatchMode
+                    sc.procs[0].riffMaster = doc.riffMasterResolved     // HEADER v2 §1.1: the global PLAY-part masters (default ON ⇒ byte-identical)
+                    sc.procs[0].stackMaster = doc.stackMasterResolved
                 }
                 // RESET SPAN (Paul 2026-10-08, §2.2): a SEPARATE, independent guard from the block above — this
                 // has nothing to do with receivers, so it must not be skipped just because none are configured.

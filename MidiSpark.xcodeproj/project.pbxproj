@@ -138,6 +138,7 @@
 		380EF70566461B22D7C2CF72 /* ClarityPassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */; };
 		3836DB5444419EF950474B6B /* FillBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 407FD14520B913CDE86C5503 /* FillBlock.swift */; };
 		38C9A1B4BC7692004525AD3D /* PlayAsRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97697074543323A5A46DF3D /* PlayAsRows.swift */; };
+		39682E25804FD8FFE3AD0AF9 /* MastersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC57A1016A4DFA04BA48662 /* MastersTests.swift */; };
 		3A2A785935974B530833355F /* HocketPopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB03CC002F55E0712BACE13 /* HocketPopup.swift */; };
 		3A2F3B82A370A99A045A1502 /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */; };
 		3A52898CC0364C8405809177 /* OutputMute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BFF4ABC895D8875ACBC3CA2 /* OutputMute.swift */; };
@@ -755,6 +756,7 @@
 		594C398B05FB437D79DB0AFA /* LaneViewStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneViewStrip.swift; sourceTree = "<group>"; };
 		59DF6CD888C95040E34660D5 /* EuclideousLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousLock.swift; sourceTree = "<group>"; };
 		5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageLayoutTests.swift; sourceTree = "<group>"; };
+		5AC57A1016A4DFA04BA48662 /* MastersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MastersTests.swift; sourceTree = "<group>"; };
 		5AD500F94EC4D567F8FB244C /* MixPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixPanelTests.swift; sourceTree = "<group>"; };
 		5B1FE1781AE0C4878A7935FE /* PulseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTests.swift; sourceTree = "<group>"; };
 		5B858B91950A98DA4EC31ED3 /* FourfoldUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FourfoldUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1211,6 +1213,7 @@
 				F2312CDF903FBE2ABB3E824E /* LaneStripTests.swift */,
 				0207165FA77A08D14FDF6B09 /* LaneViewStripTests.swift */,
 				BC6819599CED217146F91C04 /* ListenTabTests.swift */,
+				5AC57A1016A4DFA04BA48662 /* MastersTests.swift */,
 				7A20C66088682B1B60A45B7C /* MidiFileTests.swift */,
 				45EDC2BE8955A84E568CE6A0 /* MidiInOctavesTests.swift */,
 				372CA48448A531F0C9C47D25 /* MigrationTests.swift */,
@@ -2130,6 +2133,7 @@
 				12439134E8AE1F2CBAFD42A0 /* LaneViewStripTests.swift in Sources */,
 				D08D82C2CBB2C7595C9F0E29 /* LanesGridTests.swift in Sources */,
 				4D1ED5A783E864704FEFF3A6 /* ListenTabTests.swift in Sources */,
+				39682E25804FD8FFE3AD0AF9 /* MastersTests.swift in Sources */,
 				4C85D2EB2EC89304C0620DBA /* MidiFile.swift in Sources */,
 				BFADB19C396460B7B42F4BC2 /* MidiFileTests.swift in Sources */,
 				5495BE04F784F6B9DF629FD7 /* MidiInOctavesTests.swift in Sources */,

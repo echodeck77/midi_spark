@@ -10386,6 +10386,22 @@ func euclideousLaneSoloTap(parts: UInt8, lane: Int) -> UInt8 {
     for lane in 0..<4 { for part in 0..<2 where euclideousPartSoloSilences(lane: lane, part: part, soloMask: soloMask, partMask: partMask) { bits |= UInt8(1) << UInt8(2 * lane + part) } }
     return bits
 }
+// MARK: - HEADER v2 MASTERS (ferry 2026-11-19)
+
+/// §8.1: the ONE gate shared by the engine (riff + stack) and the header. A lane's part sounds exactly while its own
+/// PLAY state is on AND the part's master is on. Both masters default ON, so `laneSounds(x, true) == x` ⇒ every
+/// existing session is byte-identical. The Router ANDs this at the exact points it reads the lane's own PLAY state
+/// (runEuclidLine's `riffOn`/`notesOn` args and the TUTTI inclusion) — no second derivation anywhere.
+@inline(__always) func laneSounds(_ lanePlay: Bool, _ master: Bool) -> Bool { lanePlay && master }
+
+/// §3.4/§8.2: the look of each of a master's four lane pips. `parts[l]` = lane l's OWN part state (riff for PLAY RIFF,
+/// stack for PLAY STACK). A lit part → a FILLED pip in the lane's colour, 100 % while the master is on, 30 % while off
+/// (it shows the lane WILL return); an unlit part → an OUTLINE pip (1.2 pt inner border, lane colour at 45 %).
+enum EuclideousMasterPip: Equatable { case filled(opacity: Double), outline }
+@inline(__always) func euclideousMasterPips(master: Bool, parts: [Bool]) -> [EuclideousMasterPip] {
+    parts.map { $0 ? .filled(opacity: master ? 1.0 : 0.30) : .outline }
+}
+
 /// The dimmed lanes' 0.42, in one place (the page's existing OFF-dim value) and the ease every dim uses (§6: 0.15 s both ways).
 enum EuclideousLaneDimStyle {
     static let opacity = 0.42

@@ -459,10 +459,9 @@ public class FourfoldAudioUnit: AUAudioUnit {
 
     public override var inputBusses: AUAudioUnitBusArray { _inputBusses }
     public override var outputBusses: AUAudioUnitBusArray { _outputBusses }
-    /// Fourfold exposes NO host parameters for now. The 8x8 State set it was born with (Step Rate, Swing, 16 palette-machine transposes, 8 macros) was removed 2026-11-09: the transposes address palette machines the Euclid cell
-    /// ("euclideous", an ephemeral machine) is not, the macros do not exist in this engine, Step Rate is only the swing grid, and Swing is the page's own control (a document value, `setSwing`). The replacement list is a decision
-    /// in `Docs/pending-tasks.md`. WHEN PARAMETERS RETURN: `implementorValueProvider` must never wait on the main thread (a 2026-10-11 deadlock between an off-main provider and a main-thread `AUParameter.setValue` got the
-    /// extension SIGKILLed — read a lock-protected cache instead, kept current from main), and a host write marshals onto main before it touches the document (invariant 1).
+    /// Fourfold exposes host parameters again (RATIFIED 2026-11-16; the 8x8-born set — Step Rate, Swing, transposes, macros — was removed 2026-11-09 and this is the replacement). The live tree is built above from the pure
+    /// `fourfoldParams()` table (Key Root/Scale · per-lane · per-output · the HEADER v2 masters at addresses 2/3). Invariants that keep it safe: `implementorValueProvider` must never wait on the main thread (the 2026-10-11
+    /// deadlock between an off-main provider and a main-thread `AUParameter.setValue` SIGKILLed the extension — it reads a lock-protected cache, kept current from main), and a host write marshals onto main before it touches the document (invariant 1).
     public override var parameterTree: AUParameterTree? {
         get { _parameterTree }
         set { /* immutable in this unit */ }

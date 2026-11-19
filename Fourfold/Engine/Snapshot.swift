@@ -381,6 +381,10 @@ struct SnapParams {
     // HOLD/LATCH (Paul 2026-10-20): nil = off (plain live MIDI, today's behaviour). Only consulted by
     // Router.swift's `.euclid` `case .midi:` branch — inert for CHORDS/KEY and every non-Euclideous `.euclid` cell.
     var euclideousHoldLatchMode: EuclideousHoldLatchMode? = nil
+    // HEADER v2 (§1.1): the two global PLAY-part masters, resolved (default ON). The Router ANDs each into the
+    // lane's own PLAY gate via `laneSounds` (Derivations). Both true ⇒ byte-identical to pre-ferry (golden).
+    var riffMaster: Bool = true
+    var stackMaster: Bool = true
     // EUCLIDEOUS CHORDS (Paul 2026-10-08): the page's own self-contained chord progression reuses the SHARED
     // chords* fields directly (chordsMode/chordsDegrees/chordsSteps/chordsRateBeats/chordsRotate/chordsVoicing/
     // chordsSpread, already present on SnapParams for the regular CHORDS processor) rather than a parallel
