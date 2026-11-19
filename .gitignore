@@ -51,3 +51,7 @@ fastlane/screenshots
 /_dear_claude_code/
 # _dear_paul/ = notes to the user (local scratch channel, never tracked)
 /_dear_paul/
+
+# App Store Connect API keys — NEVER commit (secret, and this repo is public)
+*.p8
+AuthKey_*.p8
