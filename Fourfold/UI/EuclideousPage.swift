@@ -5480,10 +5480,11 @@ struct EuclideousPage: View {
                     riffDirectionButton(idx, line, accent, kind: .forward, dir: .forward)
                 }
                 .frame(width: 3 * layout.directionButtonWidth + 2 * 3)
-                Spacer().frame(width: 8)
+                Spacer().frame(width: 4)   // §1.5 MOVE band gaps 4 (matching NOTES)
                 riffAdvanceEveryTile(idx, line, accent, every: every).frame(width: layout.advanceEveryWidth)   // §4.2 EVERY + HIT|STEP under one key
-                Spacer().frame(width: 8)
-                melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: layout.strideWidth, help: "How many riff steps to move per note", lane: idx, outline: lockOn(idx, .stride), keyOverValue: true) { v in edit(idx) { $0.riffStride = v } }
+                Spacer().frame(width: 4)
+                // §1.5 STRIDE fills the band's full content height (41) — no longer the bare 34 pt floater beside ADVANCE EVERY.
+                melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: layout.strideWidth, help: "How many riff steps to move per note", height: layout.bandHeight - 8, lane: idx, outline: lockOn(idx, .stride), keyOverValue: true) { v in edit(idx) { $0.riffStride = v } }
                     .frame(width: layout.strideWidth)
                     .accessibilityElement(children: .ignore).accessibilityLabel("Stride").accessibilityValue(lockSpoken(idx, .stride, "\(line.riffStrideResolved)"))
                     .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { $0.riffStride = min(7, line.riffStrideResolved + 1) }; case .decrement: edit(idx) { $0.riffStride = max(1, line.riffStrideResolved - 1) }; @unknown default: break } }

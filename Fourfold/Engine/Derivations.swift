@@ -7223,23 +7223,27 @@ func euclideousRiffTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGF
     let rowAHeight = max(1, H - 3 * rowGap - (2 * bandHeight + outputRowHeight))   // §1.1 Row A = H − 154
     let contentInset: CGFloat = 4                           // §1.2
     let innerW = max(1, W - 2 * contentInset)               // x4 .. W−4
-    let gap8: CGFloat = 8
-    let T: CGFloat = 67                                     // §1.3 the tile width
-    let walkX = contentInset + T + gap8                    // §1.3 = 79
-    let walkWidth = max(1, (W - contentInset) - walkX)     // §1.3 = W − 83
-    let directionButtonWidth: CGFloat = 34                 // §1.5
-    let directionsEnd = contentInset + 3 * directionButtonWidth + 2 * 3   // §1.5 x4 .. 112
-    let advanceEveryX = directionsEnd + gap8               // §1.5 = 120
-    let advanceEveryWidth: CGFloat = 168                   // §1.5 one merged tile
-    let strideX = advanceEveryX + advanceEveryWidth + gap8 // §1.5 = 296
-    let strideWidth = max(1, (W - contentInset) - strideX) // §1.5 = W − 300
-    let notesCellWidth = max(1, (innerW - 3 * sp4) / 4)    // §1.6 four equal cells
-    // §1.4 shared grid geometry (tile + walk): 8 cells 5.6 square, 1.4 apart; grid top 4 below Row A; 10 pt label line 2 below.
-    let gridCell: CGFloat = 5.6, gridGap: CGFloat = 1.4
-    let gridSize = 8 * gridCell + 7 * gridGap              // 54.6
+    let tileWalkGap: CGFloat = 8                           // §1.4 the tile↔walk gap stays 8 (the reset tick lives in it, §3.4)
+    let moveGap: CGFloat = 4                                // §1.5 the MOVE band gaps are 4, matching NOTES (was 8)
+    // §1.2 (RIFF v4) the grid geometry shared by the tile (§2) and the walk (§3): the cell height GROWS with the body,
+    // clamped 5.6…8.0; 8 cells `gridGap` apart; grid top 4 below Row A's top; a 10 pt label line 2 below the grid; whatever
+    // is left goes under the label line. c = clamp((A − 4 − 2 − 10 − 2 − 7g)/8, 5.6, 8.0) = 6.4 @ A 79 · 5.9 @ A 75 · 8.0 capped.
+    let gridGap: CGFloat = 1.4
     let gridTop: CGFloat = 4
-    let labelTop = gridTop + gridSize + 2                  // 60.6
     let labelHeight: CGFloat = 10
+    let gridCell = min(8.0, max(5.6, (rowAHeight - gridTop - 2 - labelHeight - 2 - 7 * gridGap) / 8))
+    let gridSize = 8 * gridCell + 7 * gridGap
+    let labelTop = gridTop + gridSize + 2
+    let T = max(67, gridSize + 10)                         // §1.3 T = max(67, G + 10)
+    let walkX = contentInset + T + tileWalkGap             // §1.4 = 4 + T + 8
+    let walkWidth = max(1, (W - contentInset) - walkX)     // §1.4 = W − 4 − walkX
+    let directionButtonWidth: CGFloat = 34                 // §1.5 (per-button width; §4's segmented control re-splits the x4..112 cluster)
+    let directionsEnd = contentInset + 3 * directionButtonWidth + 2 * 3   // §1.5 x4 .. 112 (108-wide direction cluster)
+    let advanceEveryX = directionsEnd + moveGap            // §1.5 = 116
+    let advanceEveryWidth: CGFloat = 168                   // §1.5 one merged tile
+    let strideX = advanceEveryX + advanceEveryWidth + moveGap   // §1.5 = 288
+    let strideWidth = max(1, (W - contentInset) - strideX) // §1.5 = W − 292
+    let notesCellWidth = max(1, (innerW - 3 * sp4) / 4)    // §1.6 four equal cells
     // §1.8 the walk's column width at n = 16 (6 pt in each side, 2.5 apart, capped at 34) — for the floor flag only.
     let walkInnerW = max(1, walkWidth - 12)
     let walkColumnWidthAt16 = min(34, max(0.5, (walkInnerW - 15 * 2.5) / 16))
