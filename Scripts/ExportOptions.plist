@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- TestFlight / App Store export settings for Fourfold (the app + its embedded FourfoldAU extension). -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>upload</string>
+	<key>teamID</key>
+	<string>U9LCUSTWSQ</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<!-- dSYMs so TestFlight/App Store Connect can symbolicate crash reports. -->
+	<key>uploadSymbols</key>
+	<true/>
+	<key>stripSwiftSymbols</key>
+	<true/>
+	<!-- We own the build number via project.yml (bump-build.sh); don't let Xcode rewrite it. -->
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>

@@ -2559,7 +2559,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.FourfoldTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.FourfoldTests;
 				SDKROOT = macosx;
 			};
 			name = Release;
@@ -2594,7 +2594,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.Fourfold;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.Fourfold;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -2613,7 +2613,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.FourfoldUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.FourfoldUITests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = Fourfold;
@@ -2716,7 +2716,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.FourfoldTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.FourfoldTests;
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -2734,7 +2734,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.Fourfold;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.Fourfold;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -2753,7 +2753,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.FourfoldUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.FourfoldUITests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = Fourfold;
@@ -2806,7 +2806,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.Fourfold.AU;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.Fourfold.AU;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -2827,7 +2827,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.outliermidi.Fourfold.AU;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.Fourfold.AU;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
 				TARGETED_DEVICE_FAMILY = "1,2";
