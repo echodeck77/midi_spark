@@ -5577,6 +5577,28 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(onsInBeats(e, 0, 8, cables: [2]), 0, "no stack notes on lane 2's output while stackMaster is off (even after its own PLAY STACK turns on)")
         XCTAssertGreaterThan(onsInBeats(e, 8, 12, cables: [2]), 0, "lane 2's stack sounds once stackMaster is on")
     }
+    // §7.3 / §9 test 14: the AUv3 host-stop edge closes every sounding output note, including notes the sequencer is
+    // playing from a LATCH pool. (The transport edge runs allNotesOff + resets the HOLD/LATCH pool, Router 2656/2671.)
+    func testHostStopWithLatchHeldNotesLeavesNothingSounding() {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+        c.paramsA.euclidLines = [notesLine(when: 0, riffOn: true, gate: 0.9)]   // one riff lane, long gate so a note is sounding at the stop
+        var sc = SceneState.empty(); sc.stepRate = .r1_8
+        sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+        st.euclideousNoteSource = .midi; st.euclideousHoldLatchMode = .latch   // LATCH accumulates the held MIDI into the pool the lane plays
+        let box = SnapshotBuilder.build(keeping: st)
+        let e = RecordingEmitter(); let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048; var ts = 0.0
+        while ts * tempo / 60.0 / sr < 6 {   // play 6 beats with a chord held (the latch pool fills, the lane sounds)
+            router.process(box: box, pool: chord(notesExPool), playing: true, beatPos: ts * tempo / 60.0 / sr, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            ts += Double(frames)
+        }
+        XCTAssertFalse(e.ons.isEmpty, "the latched lane sounded while playing")
+        // the host transport stops (STOP-when-host-stops: playing → false) — one stopped window
+        router.process(box: box, pool: chord(notesExPool), playing: false, beatPos: ts * tempo / 60.0 / sr, tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, out: e, diag: &diag)
+        assertNothingLeftSounding(e)
+    }
 
 
     // ── REVIEW FIX ferry (2026-10-23): ratchets at fast steps, large buffers, and the document's default step rate ──
