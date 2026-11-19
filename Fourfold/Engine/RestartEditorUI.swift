@@ -295,11 +295,13 @@ private func fixSwitch(_ l: inout EuclidLine, rhythm: Bool) {
 }
 /// §3: any FREE-row edit turns the chain LIVE in the same step — the switch on, a 1 appended if it had no links. (Replaces RESTART UNITS §7.5's "a link edit never turns a switch on" for every edit but `.removeLink`.)
 private func turnChainLive(_ l: inout EuclidLine, rhythm: Bool) {
+    // Idempotent at the RESOLVED level: only flip the switch when the chain isn't already live, so calling this on an
+    // already-active chain (e.g. re-tapping the current unit) leaves the stored fields untouched and registers no edit.
     if rhythm {
-        l.restartRhythmOn = true
+        if !l.restartRhythmOnResolved { l.restartRhythmOn = true }
         if l.restartRhythmChainResolved.isFree { l.restartRhythmBars = [1] }
     } else {
-        l.restartMelodyOn = true
+        if !l.restartMelodyOnResolved { l.restartMelodyOn = true }
         if l.restartMelodyChainResolved.isFree { l.restartMelodyPasses = [1] }
     }
 }
@@ -307,18 +309,24 @@ private func euclideousApplyRestartEditCore(_ e: EuclideousRestartEdit, to l: in
     let own = max(0, min(3, lane))
     switch e {
     case .unit(let rhythm, let index):
+        // §3: tapping a unit chip must ALWAYS wake a FREE row (via `turnChainLive` below) — even when the chosen unit
+        // already equals the resolved default (melody PASS, rhythm BAR). The old `guard … != units[index]` returned early
+        // in exactly that case, so the first tap on the default unit of a free chain did nothing.
+        guard index >= 0, index < 3 else { return }
         if rhythm {
             let units: [EuclideousRhythmRestartUnit] = [.pass, .bar, .riff]   // §2.2 order: short → long (PASS · BAR · RIFF)
-            guard index >= 0, index < 3, l.restartRhythmUnitResolved != units[index] else { return }
-            l.restartRhythmUnit = units[index]
-            if units[index] == .pass, (l.restartRhythmSource.map { max(0, min(3, $0)) } ?? own) == own { l.restartRhythmSource = (own + 1) % 4 }   // PASS never counts the lane itself: the source moves to the next lane in the same step
+            if l.restartRhythmUnitResolved != units[index] {
+                l.restartRhythmUnit = units[index]
+                if units[index] == .pass, (l.restartRhythmSource.map { max(0, min(3, $0)) } ?? own) == own { l.restartRhythmSource = (own + 1) % 4 }   // PASS never counts the lane itself: the source moves to the next lane in the same step
+            }
         } else {
             let units: [EuclideousMelodyRestartUnit] = [.pass, .bar, .hit]   // RESETS V2 §3.1: MELODY chip order PASS · BAR · HIT
-            guard index >= 0, index < 3, l.restartMelodyUnitResolved != units[index] else { return }
-            if l.restartMelodyUnitResolved == .hit {   // leaving HIT: 5 → 6 and 7 → 8 (those values are not valid for the other units)
-                l.restartMelodyPasses = l.restartMelodyPasses.map { $0.map { $0 == 5 ? 6 : ($0 == 7 ? 8 : $0) } }
+            if l.restartMelodyUnitResolved != units[index] {
+                if l.restartMelodyUnitResolved == .hit {   // leaving HIT: 5 → 6 and 7 → 8 (those values are not valid for the other units)
+                    l.restartMelodyPasses = l.restartMelodyPasses.map { $0.map { $0 == 5 ? 6 : ($0 == 7 ? 8 : $0) } }
+                }
+                l.restartMelodyUnit = units[index]
             }
-            l.restartMelodyUnit = units[index]
         }
         turnChainLive(&l, rhythm: rhythm)   // §3: choosing a unit on a FREE row wakes it (a 1 is appended if it had no links)
     case .source(let rhythm, let square):
