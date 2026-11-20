@@ -10476,6 +10476,22 @@ func euclideousStackMasterPips(master: Bool, parts: [Bool], hasRanks: [Bool]) ->
         (i < hasRanks.count && !hasRanks[i]) ? .empty : p
     }
 }
+/// RE-ENABLE ON ENABLE (Paul 2026-11-20): turn lane `lane`'s part ON and every OTHER lane's same part OFF, so re-enabling a
+/// stopped PLAY RIFF / PLAY STACK master from a single lane's switch leaves ONLY that lane playing. For NOTES (the stack), it
+/// lights the lowest rank when the lane has none, so the layer actually reads on. Pure; the caller also flips the master on.
+func euclideousEnableLanePartSolo(_ lines: [EuclidLine], lane: Int, isNotes: Bool) -> [EuclidLine] {
+    guard lane >= 0, lane < lines.count else { return lines }
+    var out = lines
+    for i in out.indices {
+        if isNotes {
+            out[i].notesOn = (i == lane)
+            if i == lane && !euclideousNotesHaveSelection(out[i]) { var o = EuclideousLitOrder(); o.append(0); out[i].setLitOrder(o) }
+        } else {
+            out[i].riffOn = (i == lane)
+        }
+    }
+    return out
+}
 
 /// HEADER v2 §8.6: what the standalone ■ button does — stop the transport while playing, or (while already stopped)
 /// return to bar 1 and silence every output.

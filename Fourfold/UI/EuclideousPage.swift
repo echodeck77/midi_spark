@@ -875,6 +875,8 @@ struct EuclideousPage: View {
     let stackMaster: Bool
     let onSetRiffMaster: (Bool) -> Void
     let onSetStackMaster: (Bool) -> Void
+    // RE-ENABLE ON ENABLE (Paul 2026-11-20): (lane, isNotes) — turn this lane's part ON, every other lane's same part OFF, and the master ON, as ONE undo step.
+    let onEnableLanePartSolo: (Int, Bool) -> Void
     // LANE SOLO (2026-10-21): the latched solo mask (saved) and the held one (a finger down; UI only). `soloEffective` is what every dim and the engine use.
     let soloMask: UInt8
     let soloHeld: UInt8
@@ -3039,6 +3041,12 @@ struct EuclideousPage: View {
     }
     /// The label pill (and the TURN ON invitations): the part's on/off, the field and the undo step the tab's own switch uses.
     private func cardBackToggle(_ idx: Int, _ part: EuclideousCardPart) {
+        let isNotes = part == .notes
+        // RE-ENABLE ON ENABLE (Paul 2026-11-20): turning a lane's part ON while its master (PLAY RIFF / PLAY STACK) is OFF
+        // re-enables the master with ONLY this lane playing (every other lane's same part turned off) — one undo step.
+        let currentlyOn = idx < lines.count && (isNotes ? euclideousNotesLayerIsOn(lines[idx]) : lines[idx].riffOnResolved)
+        let masterOn = isNotes ? stackMaster : riffMaster
+        if !currentlyOn && !masterOn { onEnableLanePartSolo(idx, isNotes); return }
         edit(idx) { l in
             if part == .riff { l.riffOn = !(l.riffOnResolved); return }
             if euclideousNotesLayerIsOn(l) { l.notesOn = false; return }
@@ -5255,7 +5263,7 @@ struct EuclideousPage: View {
         // off; the notes and the label carry the on/off state (§2), so the tile stops being the brightest shape on the card.
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: FourfoldStyle.control)))
         .contentShape(Rectangle())
-        .modifier(laneTapMod(idx) { edit(idx) { $0.riffOn = !($0.riffOnResolved) } })
+        .modifier(laneTapMod(idx) { cardBackToggle(idx, .riff) })   // RE-ENABLE ON ENABLE: shared toggle (re-enables PLAY RIFF with just this lane when its master is off)
         .modifier(lockOutlineMod(idx, .riffOn, accent))
         .euclideousHelp("The riff as this lane plays it. Tap to turn the riff on or off.")
         .accessibilityElement(children: .ignore)
@@ -5760,7 +5768,7 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(isOn ? lane100(accent) : Color(hex: FourfoldStyle.control)))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(isOn ? Color(hex: 0x0D0F14) : Color(hex: 0x5C626C), lineWidth: 1))
         .contentShape(Rectangle())
-        .modifier(laneTapMod(idx) { edit(idx) { $0.notesOn = !euclideousNotesLayerIsOn($0) } })   // flips what the strip SHOWS (on → off, off → on)
+        .modifier(laneTapMod(idx) { cardBackToggle(idx, .notes) })   // RE-ENABLE ON ENABLE: shared toggle (re-enables PLAY STACK with just this lane when its master is off); also lights a rank so the layer reads on
         .modifier(lockOutlineMod(idx, .notesStrip, accent))
         .euclideousHelp("Turn the notes layer on or off. Lit notes are remembered.")
         .accessibilityElement(children: .ignore)

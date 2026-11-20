@@ -27,6 +27,19 @@ final class MastersTests: XCTestCase {
         XCTAssertEqual(euclideousMasterPips(master: false, parts: [false, false, false, false]),
                        [.outline, .outline, .outline, .outline])
     }
+    // RE-ENABLE ON ENABLE (Paul 2026-11-20): enabling a lane's part solos it — every other lane's same part turns off.
+    func testEnableLanePartSolo() {
+        let lines = (0..<4).map { _ -> EuclidLine in var l = EuclidLine(noteSel: .all); l.riffOn = true; l.notesOn = true; return l }
+        let r = euclideousEnableLanePartSolo(lines, lane: 2, isNotes: false)
+        XCTAssertEqual(r.map { $0.riffOnResolved }, [false, false, true, false], "riff: only lane 2 stays on")
+        XCTAssertEqual(r.map { $0.notesOnResolved }, lines.map { $0.notesOnResolved }, "riff solo leaves notes untouched")
+        // stack: clear other lanes' selections first so the layer-on test is meaningful
+        var cleared = lines; for i in cleared.indices { cleared[i].setLitOrder(EuclideousLitOrder()) }
+        let s = euclideousEnableLanePartSolo(cleared, lane: 1, isNotes: true)
+        XCTAssertEqual(s.map { euclideousNotesLayerIsOn($0) }, [false, true, false, false], "stack: only lane 1 plays")
+        XCTAssertTrue(euclideousNotesHaveSelection(s[1]), "the enabled lane gets a lit rank so the layer reads on")
+        XCTAssertEqual(euclideousEnableLanePartSolo(lines, lane: 9, isNotes: false).map { $0.riffOnResolved }, [true, true, true, true], "out-of-range lane is a no-op")
+    }
     // PLAY STACK (Paul 2026-11-20): a lane with no ranks selected shows EMPTY (not the off-outline) — it must not read as enabled.
     func testStackMasterPipsEmptyWhenNoRanks() {
         // lane 0 plays (filled), lane 1 has ranks but part off (outline), lanes 2 & 3 have NO ranks (empty)

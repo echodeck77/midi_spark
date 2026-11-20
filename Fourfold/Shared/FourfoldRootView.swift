@@ -239,6 +239,20 @@ struct FourfoldRootView: View {
                                                    au?.editDocument { $0.stackMaster = v ? nil : false }
                                                    publish()
                                                },
+                                               // RE-ENABLE ON ENABLE (Paul 2026-11-20): enabling a lane's part while its master is OFF turns the master back ON with ONLY that lane
+                                               // playing (every other lane's same part off). ONE undo step: record once, mutate lines + the master together, publish once.
+                                               onEnableLanePartSolo: { lane, isNotes in
+                                                   applyLandedLockSnaps()
+                                                   euclideousRecordUndo(coalesceKey: nil)
+                                                   let lines = euclideousEnableLanePartSolo(euclideousLines, lane: lane, isNotes: isNotes)
+                                                   setEuclideousLines(lines)
+                                                   if isNotes { stackMaster = true } else { riffMaster = true }
+                                                   au?.editDocument { doc in
+                                                       doc.euclideousLines = lines
+                                                       if isNotes { doc.stackMaster = nil } else { doc.riffMaster = nil }
+                                                   }
+                                                   publish()
+                                               },
                                                // PER-LANE I/O (Paul 2026-10-08): riffSourceMidi/lanesSourceMidi no longer passed —
                                                // each lane now owns its own source directly on EuclidLine (sourceMode), edited via
                                                // the existing generic onEdit below; euclideousRiffSourceMidi/euclideousLanesSourceMidi
