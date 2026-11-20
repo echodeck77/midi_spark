@@ -4990,14 +4990,17 @@ struct EuclideousPage: View {
         let base = ZStack {
             RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.control))
             if keyOverValue && showLabel {
-                // RIFF v3 §4.1: the key on its OWN full-width line on top (so it never truncates), the chevrons beside the VALUE only, below it.
+                // RIFF v3 §4.1 / RIFF v4 §5.1: the key on its OWN full-width line on top (so it never truncates); below it the
+                // value is CENTRED and the two chevrons sit at the value's centre ± `arrowZone` (18) — the SAME offset in every
+                // stepper, whatever the value's width (a ZStack, so the chevrons don't move with the value's text width).
                 VStack(spacing: 2) {
                     keyLabel.lineLimit(1).frame(maxWidth: .infinity)
-                    HStack(spacing: 0) {
-                        lChev.frame(width: arrowZone)
-                        valueText.frame(maxWidth: .infinity)
-                        rChev.frame(width: arrowZone)
+                    ZStack {
+                        valueText
+                        lChev.offset(x: -arrowZone)
+                        rChev.offset(x: arrowZone)
                     }
+                    .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, 2)
             } else {
@@ -5115,7 +5118,7 @@ struct EuclideousPage: View {
                 l.riffOutMask = m == own ? nil : m
             }
             .frame(width: outW)
-            partOctaveBoxes(idx, oct: line.riffOctaveResolved, label: "Riff octave") { l, n in
+            partOctaveBoxes(idx, oct: line.riffOctaveResolved, label: "Riff octave", keySize: 10, keyTracking: 0, keyLabelW: 20, keyGap: 4) { l, n in   // §5.4 the OCT key matches LEN's (10 pt, no tracking)
                 l.riffOctave = n == 0 ? nil : n
             }
             .frame(width: max(1, fullWidth - outW - gap))
@@ -5839,11 +5842,13 @@ struct EuclideousPage: View {
             .accessibilityValue(on ? (outputMuted ? "on, output muted" : "on") : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)   // §8.2: routed to a muted output
     }
     /// MIX v2 §5: the RIFF / NOTES tab's OCT — five linked boxes (`EuclideousOctaveBoxes`) right-aligned in the frame the old track and pill filled, "OCT" to their left. One undo step per tap or drag; the write is the old control's.
-    private func partOctaveBoxes(_ idx: Int, oct: Int, label: String, write: @escaping (inout EuclidLine, Int) -> Void) -> some View {
+    // RIFF v4 §5.4: `keySize`/`keyTracking`/`keyLabelW`/`keyGap` default to the NOTES tab's OCT key (7 pt, 0.2 em, 17/6); the RIFF
+    // tab passes LEN's key style (10 pt, no tracking, 20/4) so its OCT key matches the other steppers' keys. NOTES is unchanged.
+    private func partOctaveBoxes(_ idx: Int, oct: Int, label: String, keySize: CGFloat = 7, keyTracking: CGFloat = 0.2 * 7, keyLabelW: CGFloat = 17, keyGap: CGFloat = 6, write: @escaping (inout EuclidLine, Int) -> Void) -> some View {
         GeometryReader { g in
-            let lay = euclideousOctRowLayout(frame: g.size)
+            let lay = euclideousOctRowLayout(frame: g.size, labelW: keyLabelW, gap: keyGap)
             ZStack(alignment: .topLeading) {
-                Text("OCT").font(.system(size: 7, weight: .medium, design: .monospaced)).tracking(0.2 * 7).foregroundColor(Color(hex: FourfoldStyle.key))
+                Text("OCT").font(.system(size: keySize, weight: .medium, design: .monospaced)).tracking(keyTracking).foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1).fixedSize()
                     .frame(width: lay.label.width, height: lay.label.height, alignment: .trailing).offset(x: lay.label.minX).accessibilityHidden(true)
                 EuclideousOctaveBoxes(value: oct, size: lay.boxes.size, targetHeight: lay.boxes.height, visualTop: (max(44, lay.boxes.height) - lay.boxes.height) / 2,
                                       label: "\(label) \(euclideousOctValueText(oct))", onSelect: { v, newStep in editStep(idx, newStep) { write(&$0, v) } })

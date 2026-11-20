@@ -252,6 +252,16 @@ final class PageLayoutTests: XCTestCase {
             XCTAssert(r.gridCell >= 5.6 - 1e-9 && r.gridCell <= 8.0 + 1e-9, "cell within the clamp")
         }
     }
+    /// RIFF v4 §9 test 9: the RIFF OCT key matches LEN's key (10 pt medium) and fits the RIFF OCT row's wider label; NOTES keeps 7 pt in 17.
+    func testRiffV4OctKeyMatchesLenKey() {
+        #if canImport(AppKit)
+        func w(_ s: String, _ size: CGFloat) -> CGFloat { (s as NSString).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: size, weight: .medium)]).width }
+        let riff = euclideousOctRowLayout(frame: CGSize(width: 90, height: 38), labelW: 20, gap: 4)
+        XCTAssertEqual(riff.label.width, 20); XCTAssertLessThanOrEqual(w("OCT", 10), riff.label.width, "OCT at 10 pt (LEN's size) fits the RIFF label")
+        let notes = euclideousOctRowLayout(frame: CGSize(width: 90, height: 38))   // defaults 17 / 6 — the NOTES tab is unchanged
+        XCTAssertEqual(notes.label.width, 17); XCTAssertLessThanOrEqual(w("OCT", 7), notes.label.width)
+        #endif
+    }
     /// RIFF v3 §8.13 / §1.9: no key or label on the tab truncates at either reference — every key now sits on its OWN full-width line
     /// (key-over-value), so the longest keys fit without shrinking. Measures the rendered width (heavy monospaced) against the key line.
     func testRiffV3KeysDoNotTruncate() {

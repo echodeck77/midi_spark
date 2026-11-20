@@ -462,8 +462,8 @@ func euclideousMixV2FieldGeometry(size: CGSize, frac: Double) -> (fill: CGRect, 
 // MARK: - §5.5 OCT on the RIFF and NOTES tabs
 
 /// The five boxes right-aligned in the tab's OCT frame — 30 wide each where the frame has room for them and the "OCT" label (7 pt heavy, 0.2 em ≈ 17 pt) sp6 to their left, narrower otherwise — the frame's full height; the label's frame to their left.
-func euclideousOctRowLayout(frame: CGSize) -> (label: CGRect, boxes: CGRect) {
-    let labelW: CGFloat = 17, gap: CGFloat = 6
+func euclideousOctRowLayout(frame: CGSize, labelW: CGFloat = 17, gap: CGFloat = 6) -> (label: CGRect, boxes: CGRect) {
+    // RIFF v4 §5.4: the RIFF tab passes a wider label (20) + a 4 pt gap so the OCT key can match LEN's 10 pt size; the defaults keep every other caller (the NOTES tab, tests) exactly as before.
     let boxW = max(1, min(30, ((frame.width - labelW - gap) / 5).rounded(.down)))
     let boxes = CGRect(x: frame.width - 5 * boxW, y: 0, width: 5 * boxW, height: frame.height)
     return (CGRect(x: max(0, boxes.minX - gap - labelW), y: 0, width: labelW, height: frame.height), boxes)
