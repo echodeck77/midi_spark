@@ -6,6 +6,7 @@ import UIKit
 
 struct FourfoldAppView: View {
     @StateObject private var model = FourfoldAppModel()
+    @StateObject private var visibility = FourfoldViewVisibility()   // UI-CPU fix (2026-11-20): driven by scenePhase; false while backgrounded → the page freezes its animations
     @Environment(\.scenePhase) private var scenePhase
     @State private var showBluetooth = false
     private let autosave = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
@@ -28,7 +29,7 @@ struct FourfoldAppView: View {
             VStack(spacing: 0) {
                 transportBar
                 if let au = model.engine?.au {
-                    FourfoldRootView(au: au, internalTransport: true).modifier(FourfoldTestWindowSize())
+                    FourfoldRootView(au: au, internalTransport: true, visibility: visibility).modifier(FourfoldTestWindowSize())
                 } else {
                     Spacer()
                     Text(model.launchError ?? "NO ENGINE").font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundColor(dim)
@@ -44,7 +45,7 @@ struct FourfoldAppView: View {
                 scene.sizeRestrictions?.minimumSize = CGSize(width: 760, height: 480)
             }
         }
-        .onChange(of: scenePhase) { phase in if phase != .active { model.saveState() } }
+        .onChange(of: scenePhase) { phase in visibility.onScreen = (phase == .active); if phase != .active { model.saveState() } }
         .onReceive(autosave) { _ in model.saveState() }
         #if FOURFOLD_LINK
         .sheet(isPresented: $showLinkSettings) {

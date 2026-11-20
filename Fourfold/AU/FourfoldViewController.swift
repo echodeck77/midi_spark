@@ -8,6 +8,10 @@ import UIKit
 
 public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
     var audioUnit: FourfoldAudioUnit?
+    // UI-CPU fix (2026-11-20): the host calls these appearance callbacks when it shows / hides the plugin view — the
+    // reliable "on screen" signal for the AUv3 (SwiftUI's own `.onDisappear` may not fire when a host hides rather than
+    // removes the view). While off screen the page freezes its animations; the audio render thread is unaffected.
+    private let visibility = FourfoldViewVisibility()
 
     public func createAudioUnit(with componentDescription: AudioComponentDescription) throws -> AUAudioUnit {
         let au = try FourfoldAudioUnit(componentDescription: componentDescription, options: [])
@@ -15,6 +19,9 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
         DispatchQueue.main.async { [weak self] in self?.embedUI() }
         return au
     }
+
+    public override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); visibility.onScreen = true }
+    public override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); visibility.onScreen = false }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
@@ -24,7 +31,7 @@ public class AudioUnitViewController: AUViewController, AUAudioUnitFactory {
 
     private func embedUI() {
         guard children.isEmpty else { return }
-        let host = UIHostingController(rootView: FourfoldRootView(au: audioUnit))
+        let host = UIHostingController(rootView: FourfoldRootView(au: audioUnit, visibility: visibility))
         addChild(host)
         host.view.frame = view.bounds
         host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]

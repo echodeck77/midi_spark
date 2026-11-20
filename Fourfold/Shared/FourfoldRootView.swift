@@ -11,11 +11,24 @@ import SwiftUI
 import UIKit
 import os
 
+/// UI-CPU fix (2026-11-20): a UIKit→SwiftUI bridge for "is the plugin view actually on screen?". The host drives the AU
+/// extension's view controller appearance callbacks (`viewWillAppear`/`viewWillDisappear`) even when SwiftUI's own
+/// `.onDisappear` does not fire (a host that HIDES rather than removes the view); the standalone app drives it from
+/// `scenePhase`. When false, the page freezes every `TimelineView(.animation)` and backs off the 30 Hz poll — the audio /
+/// MIDI render thread is untouched. (An AUv3 left playing while its UI is non-frontmost was pegging a core at 93 % —
+/// FourfoldAU.cpu_resource report, 2026-11-17.)
+final class FourfoldViewVisibility: ObservableObject { @Published var onScreen: Bool = true }
+private struct FourfoldViewAppearedKey: EnvironmentKey { static let defaultValue = true }   // fail-safe: default ON (animations run) so nothing can accidentally freeze a visible page
+extension EnvironmentValues { var fourfoldViewAppeared: Bool { get { self[FourfoldViewAppearedKey.self] } set { self[FourfoldViewAppearedKey.self] = newValue } } }
+
 struct FourfoldRootView: View {
     weak var au: FourfoldAudioUnit?
     /// true in the standalone app: the app's own transport is the clock, so Fourfold must NOT free-run on its own while it is stopped (and the "when the host stops" setting is hidden). The AUv3 extension (a host drives it) leaves this false.
     let internalTransport: Bool
-    init(au: FourfoldAudioUnit?, internalTransport: Bool = false) { self.au = au; self.internalTransport = internalTransport }
+    @ObservedObject private var visibility: FourfoldViewVisibility
+    init(au: FourfoldAudioUnit?, internalTransport: Bool = false, visibility: FourfoldViewVisibility = FourfoldViewVisibility()) {
+        self.au = au; self.internalTransport = internalTransport; _visibility = ObservedObject(wrappedValue: visibility)
+    }
 
     // ── host / display state ──
     static let hangLog = OSLog(subsystem: "com.paulbarrett.Fourfold", category: "hang")
@@ -148,6 +161,11 @@ struct FourfoldRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in appActive = true }
+        // UI-CPU fix: the host's view-controller appearance (AUv3) / scenePhase (app) is the reliable "on screen" signal —
+        // reflect it into `uiAppeared` (which already freezes the polls) so a host that HIDES-without-removing the view
+        // still stops the animations. On re-appearing, resync at once (as `.onAppear` does).
+        .onChange(of: visibility.onScreen) { on in uiAppeared = on; if on { refreshFromDocument(); refreshTiming(); publish() } }
+        .environment(\.fourfoldViewAppeared, uiAppeared && appActive)   // the page ANDs this into `pulseLive` to pause every TimelineView while the view is hidden OR the app/host is backgrounded (`appActive`, previously set-but-unused)
         .overlay(alignment: .bottomLeading) { FourfoldUndoProbe(m: m, au: au) }   // UNDO AUDIT: draws nothing unless the app was launched with `--undo-probe`
         .overlay(alignment: .bottomTrailing) { FourfoldStackProbeView() }   // STACK BUDGET GUARD: draws nothing unless the app was launched with `--stack-probe` (Debug builds)
     }

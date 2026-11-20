@@ -1665,6 +1665,7 @@ struct EuclideousPage: View {
     // two-phase split); the lane-card progress FILL is hidden entirely (the fill's own TimelineView simply
     // never draws it); the header "IN n" countdown is UNAFFECTED — §5 explicitly says it "still shows."
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.fourfoldViewAppeared) private var viewAppeared   // UI-CPU fix (2026-11-20): false while the plugin UI is off screen → `pulseLive` false → every TimelineView(.animation) pauses (the render thread keeps playing)
 
     private let laneAccents: [Color] = [
         Color(red: 0.95, green: 0.35, blue: 0.35), Color(red: 0.35, green: 0.75, blue: 0.95),
@@ -8381,7 +8382,7 @@ struct EuclideousPage: View {
     /// this page uses (frozen at the anchor while the transport is stopped).
     /// PULSE §9.1: the strike effects keep their TimelineViews running while the page plays AND for the 1.5 s after it stops (the decays and the marks' fade), then idle. `pulseSettleTick` is bumped once
     /// when that window ends so the body re-evaluates and the views pause.
-    private var pulseLive: Bool { _ = pulseSettleTick; return clock.playing || pulseFeed.isSettling(now: Date()) }   // reading the tick is what makes its bump re-evaluate the body
+    private var pulseLive: Bool { _ = pulseSettleTick; return viewAppeared && (clock.playing || pulseFeed.isSettling(now: Date())) }   // reading the tick is what makes its bump re-evaluate the body; `viewAppeared` false (plugin UI off screen) freezes every animation
     private func walkTagBeat(at date: Date) -> Double {
         clock.playing ? clock.anchor + date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0 : clock.anchor
     }
