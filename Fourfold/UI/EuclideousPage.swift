@@ -2262,7 +2262,14 @@ struct EuclideousPage: View {
     private func headerMasterButton(isNotes: Bool) -> AnyView {
         let on = isNotes ? stackMaster : riffMaster
         let name = isNotes ? "STACK" : "RIFF"
-        let parts = (0..<4).map { i -> Bool in i < lines.count ? (isNotes ? euclideousNotesLayerIsOn(lines[i]) : lines[i].riffOnResolved) : false }
+        // §3.4 amended (Paul 2026-11-20): a pip lights only when the lane will ACTUALLY play that part — its part switch is on
+        // AND the lane produces output (`euclideousLaneRunsInEngine`: hits > 0 or an inverted pattern, and the lane enabled).
+        // A part-on lane with no hits plays nothing, so its pip reads as off (like a part-off lane), matching the VoiceOver value.
+        let parts = (0..<4).map { i -> Bool in
+            guard i < lines.count else { return false }
+            let partOn = isNotes ? euclideousNotesLayerIsOn(lines[i]) : lines[i].riffOnResolved
+            return partOn && euclideousLaneRunsInEngine(lines[i])
+        }
         let pips = euclideousMasterPips(master: on, parts: parts)
         let nameC = on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)
         let tri = Path { p in p.move(to: CGPoint(x: 1.5, y: 1)); p.addLine(to: CGPoint(x: 9, y: 5)); p.addLine(to: CGPoint(x: 1.5, y: 9)); p.closeSubpath() }   // §3.3: 10×10, same shape as the lane PLAY triangle
@@ -2280,7 +2287,7 @@ struct EuclideousPage: View {
                     HStack(spacing: 3) { headerMasterPip(pips[2], lane: 2); headerMasterPip(pips[3], lane: 3) }
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 16)   // §11 tunable (Paul 2026-11-20: bumped 12 → 16 so the triangle and pips aren't crammed against the edges — the central flex space absorbs it, the 124 outer width is unchanged so the layout pins hold)
             .frame(width: 124, height: 24)
             .background(RoundedRectangle(cornerRadius: 9).fill(on ? Color(hex: 0x2A2D34) : Color.clear))   // §3.4 on fill / off 1 pt inner border
             .overlay(on ? nil : RoundedRectangle(cornerRadius: 9).strokeBorder(Color(hex: 0x2A2D34), lineWidth: 1))
