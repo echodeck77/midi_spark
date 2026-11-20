@@ -8217,23 +8217,27 @@ struct EuclideousPage: View {
     // Four columns (the four lanes, in lane-card order, headed in their colours) by eleven rows — TOP, TOP−1, TOP−2, then ranks 8 … 1 — of toggle cells, beside the app's own rank chips as the axis. A cell reads and writes the lane's NOTES selection
     // (`euclideousStackCellIsOn` / `euclideousStackCellToggle`, which call the NOTES tab's `euclideousToggleLitPosition` on the position the cell stands for): nothing is kept here, so a change on either side shows on the other at once.
     /// One cell, as an `AnyView` leaf (the page's build chain has little stack to spare). The tap goes through `laneTapMod` — the lock-aware tap the NOTES keys use — with a HOLD gate (`tapMaxSeconds`): a press held past the page's hold threshold does NOT toggle the cell, only a quick tap (Paul 2026-11-11). The cell wears the keys' "will snap back" outline on a locked lane.
-    private func stackCell(_ row: EuclideousStackRow, lane: Int, size: CGSize, fontSize: CGFloat, beat: Double, playing: Bool, ghost: EuclideousStripChip?) -> AnyView {
+    // PERF (2026-11-20): the cell's note NAME + spoken name are a pure function of the lane's edits (rank / pool / NOTES
+    // octave / source / key — no time input), so they're resolved ONCE per body eval (`stackCellNames` → passed into
+    // `stackCell`) instead of 44×2 times every frame inside the 60 fps STACK-grid TimelineView.
+    private func stackCellNames(_ row: EuclideousStackRow, lane: Int) -> (name: String, spoken: String) {
         let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
         let lp = lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
-        let pool = lp.notes
+        if case .rank(let r) = row {   // §5.1: the SAME namer POOL uses, so a rank reads the same note on the grid and on POOL
+            return (rankNoteName(rank: r, pool: lp, octave: line.octaveResolved, source: noteSource, keyRoot: keyRoot, keyType: keyType),
+                    rankNoteNameSpoken(rank: r, pool: lp, octave: line.octaveResolved, source: noteSource, keyRoot: keyRoot, keyType: keyType))
+        }
+        let note = euclideousStackCellNote(row: row, pool: lp, notesOct: line.octaveResolved)   // TOP / TOP−1 / TOP−2 keep the engine-proven cell note directly
+        return (note.map { euclideousDisplayNoteName(UInt8($0), source: noteSource, pool: lp.notes, keyRoot: keyRoot, keyType: keyType) } ?? "\u{2013}",
+                note.map { euclideousAccessibleDisplayNoteName(UInt8($0), source: noteSource, pool: lp.notes, keyRoot: keyRoot, keyType: keyType) } ?? "no note")
+    }
+    private func stackCell(_ row: EuclideousStackRow, lane: Int, size: CGSize, fontSize: CGFloat, beat: Double, playing: Bool, ghost: EuclideousStripChip?, names: (name: String, spoken: String)) -> AnyView {
+        let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+        let lp = lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
         let accent = laneAccents[lane % laneAccents.count]
         let on = euclideousStackCellIsOn(line, row: row, poolCount: lp.count)
         let position = row.position(poolCount: lp.count)
-        // STACK GRID LIVE §4: the note the lane's NOTES part would send for this rank — the pool note shifted by the NOTES OCT (the engine's riffResolve). nil (→ "–") when the engine would drop it out of 0…127 (§4.3).
-        let name: String, spoken: String
-        if case .rank(let r) = row {   // §5.1: the SAME namer POOL uses, so a rank reads the same note on the grid and on POOL
-            name = rankNoteName(rank: r, pool: lp, octave: line.octaveResolved, source: noteSource, keyRoot: keyRoot, keyType: keyType)
-            spoken = rankNoteNameSpoken(rank: r, pool: lp, octave: line.octaveResolved, source: noteSource, keyRoot: keyRoot, keyType: keyType)
-        } else {   // TOP / TOP−1 / TOP−2 (not gridded today) keep the engine-proven cell note directly
-            let note = euclideousStackCellNote(row: row, pool: lp, notesOct: line.octaveResolved)
-            name = note.map { euclideousDisplayNoteName(UInt8($0), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "\u{2013}"
-            spoken = note.map { euclideousAccessibleDisplayNoteName(UInt8($0), source: noteSource, pool: pool, keyRoot: keyRoot, keyType: keyType) } ?? "no note"
-        }
+        let (name, spoken) = names   // PERF: hoisted (see stackCellNames)
         let poolCount = lp.count
         // STACK GRID LIVE §2: the NOTES part lights the cell while its rank sounds; a note-on glows it. Only while playing (stopped = rest + names, §6.2); only the NOTES part (§2.6).
         var sounding = false, glowAge: Double? = nil
@@ -8279,6 +8283,7 @@ struct EuclideousPage: View {
     private func stackGridView(box: CGSize) -> some View {
         let L = euclideousStackGridLayout(box: box)
         let rows = euclideousStackGridRows
+        let stackNames = rows.map { row in (0..<4).map { stackCellNames(row, lane: $0) } }   // PERF (2026-11-20): note names resolved once per body eval, not per frame (see stackCellNames)
         return VStack(alignment: .leading, spacing: 0) {
             // the switch keeps the place it has over the riff grid: a blank as wide as the label column (where the lane picker sits), then the control
             HStack(alignment: .top, spacing: sp4) {
@@ -8306,7 +8311,7 @@ struct EuclideousPage: View {
                             let axisFade: Double = (heldMask != 0 && (heldMask >> UInt8(7 - r)) & 1 == 0) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1
                             stackAxisChip(rows[r], size: CGSize(width: L.labelW, height: L.rowH)).opacity(axisFade)
                             ForEach(0..<4, id: \.self) { lane in
-                                stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize, beat: beat, playing: clock.playing, ghost: ghost[lane])
+                                stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize, beat: beat, playing: clock.playing, ghost: ghost[lane], names: stackNames[r][lane])
                             }
                         }
                     }
