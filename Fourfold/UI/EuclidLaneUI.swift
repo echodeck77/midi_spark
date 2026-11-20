@@ -457,6 +457,17 @@ struct EuclidCometBar: View {
             return restartChains.map { euclideousLaneCometChainRaw(beat: b, n: n, dir: dir, sub: sub, chains: $0, legacySpanBeats: spanBeats) }
                 ?? euclidCometRaw(mTickBeat: b, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
         }
+        // PERF (2026-11-20): the step pattern is a pure function of the lane's edits (hits/steps/tilt/rotate/customHits — no
+        // time input), so it is built ONCE here per body eval, not rebuilt in the 60 fps Canvas below. HAND-EDITED PATTERN
+        // (2026-10-12): a non-nil `customHits` replaces generation (TILT never consulted); ROTATE always applies on top.
+        // REORDERED (2026-10-11): tilt runs on the UNROTATED pattern, rotation on the tilted result — matches `runEuclidLine`.
+        let stripBuf: [Bool] = {
+            var b = [Bool](repeating: false, count: n)
+            if let custom = customHits, !custom.isEmpty { for i in 0..<n { b[i] = i < custom.count ? custom[i] : false } }
+            else { _ = euclidPatternInto(&b, pulses: k, steps: n, rotation: 0); if tilt != 0 { euclidTiltPattern(&b, pulses: k, steps: n, tilt: tilt) } }
+            euclidRotateBuffer(&b, steps: n, rotation: rotate)
+            return b
+        }()
         ZStack {
         TimelineView(.animation(minimumInterval: euclideousAnimInterval(strip != nil && (running || pulseScale > 0) ? 1.0 / 60.0 : 1.0 / 30.0, reduceMotion: reduceMotion), paused: flipping || !(running || (pulseFeed != nil && pulseLive)))) { tl in   // the strip's playhead glides: 60 fps while it runs (LANE STRIP §2); PERF: frozen while the card flips (§2026-11-18); Reduce Motion caps the rate (2026-11-20)
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
@@ -478,22 +489,8 @@ struct EuclidCometBar: View {
             // LANE STRIP BANDS ferry (2026-11-12): the old per-strike chip dip/glow (`stripStrikes`) and the current-chip ring (`stripCurrent`) are gone from the strip — nothing in it glows (§6.4); sounding is the held-set ring (§3.4). `stripCurrent` is kept as a param, unused here (the STACK grid's ghost reads the page's own `riffGhostRank`).
             let stripLeg = strip.map { $0.legIndex(raw: running ? cometRaw : 0) } ?? 0
             Canvas { ctx, size in
-                var buf = [Bool](repeating: false, count: n)
+                let buf = stripBuf   // PERF (2026-11-20): the step pattern is hoisted out of this 60 fps Canvas (built once per body eval below — it has no time input; §HAND-EDITED PATTERN / REORDERED details are on `stripBuf`)
                 let cellColour = cellTint ?? tint   // the LIT cells' colour (the comet head below keeps `tint`)
-                // HAND-EDITED PATTERN (found 2026-10-12) — mirrors Router.swift's own `runEuclidLine`
-                // exactly: a non-nil `customHits` replaces generation entirely (TILT never consulted);
-                // ROTATE still applies on top regardless, matching the engine's own unconditional call.
-                if let custom = customHits, !custom.isEmpty {
-                    for i in 0..<n { buf[i] = i < custom.count ? custom[i] : false }
-                } else {
-                    // REORDERED 2026-10-11 alongside the real engine (see `euclidTiltPattern`'s own doc
-                    // comment): tilt now runs on the UNROTATED pattern, rotation applied to the already-
-                    // tilted result — ferry §3.4's own "match the real engine's own emission exactly" still
-                    // holds, just against the engine's new (decoupled) order instead of the old one.
-                    _ = euclidPatternInto(&buf, pulses: k, steps: n, rotation: 0)
-                    if tilt != 0 { euclidTiltPattern(&buf, pulses: k, steps: n, tilt: tilt) }
-                }
-                euclidRotateBuffer(&buf, steps: n, rotation: rotate)
                 let w = size.width, midY = size.height / 2
                 let insetL: CGFloat = exactStyle ? 0 : 6, insetR: CGFloat = exactStyle ? 0 : 6
                 let usable = max(1, w - insetL - insetR)
