@@ -128,7 +128,8 @@ struct EuclideousRailsView: View {
                 .fill(LinearGradient(colors: [c.opacity(EuclideousArrowStyle.topAlpha), c.opacity(EuclideousArrowStyle.bottomAlpha)], startPoint: .top, endPoint: .bottom))
                 .background {
                     if flare > 0 {
-                        RoundedRectangle(cornerRadius: r + 2).fill(c.opacity(S.glowAlpha * flare)).padding(-S.glowSpread).blur(radius: S.glowRadius / 2 * flare)   // PULSE §4.4: blur 8 × f, spread 2, lane100 @ 65% × f
+                        // PULSE §4.4: lane100 @ 65%, spread 2, blur 8. PERF (2026-11-20): the blur RADIUS is now constant and the flare drives a plain `.opacity` — a blur whose radius changes re-rasterises the layer every frame (a GPU killer on old iPads); an opacity change is a cheap alpha blend, so the blurred shape is rasterised once and only faded.
+                        RoundedRectangle(cornerRadius: r + 2).fill(c.opacity(S.glowAlpha)).padding(-S.glowSpread).blur(radius: S.glowRadius / 2).opacity(flare)
                     }
                 }
                 .overlay {

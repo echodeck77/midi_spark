@@ -22,8 +22,9 @@ struct EuclideousStackCellView: View {
         let arrow = arrowChip.map { euclideousStackRiffArrow(cell: CGRect(origin: .zero, size: size), column: $0.column, rank: $0.rank, isRepeat: $0.isRepeat) }
         ZStack {
             if look.glowAlpha > 0 {   // §2.2 the note-on glow — lane colour, a 4 pt blur, drawn OUTSIDE the cell frame and under it
-                RoundedRectangle(cornerRadius: 5).fill(accent.opacity(look.glowAlpha))
-                    .frame(width: size.width + 6, height: size.height + 6).blur(radius: EuclideousStackTuning.glowBlur)
+                // §2.2 note-on glow. PERF (2026-11-20): blur a CONSTANT-opacity shape and fade the whole thing with `.opacity` — animating the fill opacity under a blur re-rasterises the blurred layer every frame; `.opacity` on top does not.
+                RoundedRectangle(cornerRadius: 5).fill(accent)
+                    .frame(width: size.width + 6, height: size.height + 6).blur(radius: EuclideousStackTuning.glowBlur).opacity(look.glowAlpha)
             }
             RoundedRectangle(cornerRadius: 5).fill(lit ? accent.opacity(look.fillAlpha) : Color(hex: 0x1F2127))
             if !lit { RoundedRectangle(cornerRadius: 5).strokeBorder(accent.opacity(live ? 0.3 : 0.12), lineWidth: 1) }
