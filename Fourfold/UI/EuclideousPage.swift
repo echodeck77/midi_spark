@@ -2273,15 +2273,12 @@ struct EuclideousPage: View {
         }
         let pips = euclideousMasterPips(master: on, parts: parts)
         let nameC = on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)
-        let tri = Path { p in p.move(to: CGPoint(x: 1.5, y: 1)); p.addLine(to: CGPoint(x: 9, y: 5)); p.addLine(to: CGPoint(x: 1.5, y: 9)); p.closeSubpath() }   // §3.3: 10×10, same shape as the lane PLAY triangle
         return AnyView(
             HStack(spacing: 0) {
-                (on ? AnyView(tri.fill(Color(hex: 0xF2F4F7))) : AnyView(tri.stroke(Color(hex: 0x8A909A), lineWidth: 1.2))).frame(width: 10, height: 10)
+                // Paul 2026-11-20: the word "PLAY" is gone — the play glyph already says it, and its second label line was the main source of the cramping. The part name is now ONE bigger line, vertically centred, and the icon is the system play glyph (filled when on, grey when off).
+                Image(systemName: "play.fill").font(.system(size: 12, weight: .semibold)).foregroundColor(on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A))
                 Spacer().frame(width: HM.sp8)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("PLAY").font(.system(size: 8, weight: .semibold, design: .monospaced)).tracking(0.16 * 8).foregroundColor(Color(hex: 0x8A909A))
-                    Text(name).font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(0.1 * 12).foregroundColor(nameC)
-                }
+                Text(name).font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(0.1 * 13).foregroundColor(nameC)
                 Spacer(minLength: 0)
                 VStack(spacing: 3) {   // §3.3: lane 1,2 over 3,4
                     HStack(spacing: 3) { headerMasterPip(pips[0], lane: 0); headerMasterPip(pips[1], lane: 1) }
