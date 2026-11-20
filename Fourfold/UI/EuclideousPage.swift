@@ -4774,11 +4774,13 @@ struct EuclideousPage: View {
                             style: StrokeStyle(lineWidth: 1.1, lineCap: .round, lineJoin: .round))
                     .frame(width: 11, height: 11)
             }
-            .frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)
+            // HIT REGION FIX (2026-11-20): gesture-before-position — `.position` last, else the segment fills the whole RANKS tile and swallows the other segment's / the stepper's taps.
+            .frame(width: r.width, height: r.height)
             .contentShape(Rectangle())
             .onTapGesture { if !selected { self.edit(idx) { $0.fillShape = set } } }
             .accessibilityElement(children: .ignore).accessibilityLabel(ax)
-            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton))
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .position(x: r.midX, y: r.midY))
         }
         return AnyView(EuclideousFillV2Tile(label: "RANKS", size: size, radius: 6) {
             shapeSeg(f.climb, glyph: .climb, selected: isClimb, ax: euclideousFillV2ShapeAX(climb: true), set: .climb)
@@ -4808,7 +4810,9 @@ struct EuclideousPage: View {
                 .frame(width: value.width, height: value.height)
                 .background(RoundedRectangle(cornerRadius: EuclideousFillV2Metrics.segRadius)
                     .fill(neutral ? Color(hex: EuclideousFillV2Look.segIdle) : lane100(accent).opacity(0.3)))
-                .position(x: value.midX, y: value.midY)
+                // HIT REGION FIX (2026-11-20): `.contentShape` + the double-tap MUST precede `.position` — after it, `.position`
+                // expands the value box to FILL the whole tile and its hit area swallows the − button's taps (the "range buttons
+                // don't work" bug). Gesture-before-position, the same rule the segmented tile and the step buttons already follow.
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { self.edit(idx) { euclideousFillV2StepSet(f, f.defaultValue, &$0) } }   // §4.4 double-tap resets
                 .accessibilityElement(children: .ignore)
@@ -4816,6 +4820,7 @@ struct EuclideousPage: View {
                 .accessibilityAdjustableAction { dir in
                     self.edit(idx) { euclideousFillV2StepSet(f, euclideousFillV2StepValue(f, $0) + (dir == .increment ? 1 : -1), &$0) }
                 }
+                .position(x: value.midX, y: value.midY)
             EuclideousFillV2StepButton(text: "+", frame: plus, axLabel: "plus") { first in step(1, first: first) }
         })
     }
