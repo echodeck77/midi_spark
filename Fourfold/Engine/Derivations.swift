@@ -7244,9 +7244,8 @@ func euclideousRiffTabLayout(contentAreaH: CGFloat, fullWidth: CGFloat, sp4: CGF
     let strideX = advanceEveryX + advanceEveryWidth + moveGap   // §1.5 = 288
     let strideWidth = max(1, (W - contentInset) - strideX) // §1.5 = W − 292
     let notesCellWidth = max(1, (innerW - 3 * sp4) / 4)    // §1.6 four equal cells
-    // §1.8 the walk's column width at n = 16 (6 pt in each side, 2.5 apart, capped at 34) — for the floor flag only.
-    let walkInnerW = max(1, walkWidth - 12)
-    let walkColumnWidthAt16 = min(34, max(0.5, (walkInnerW - 15 * 2.5) / 16))
+    // §1.8 the walk's column width at n = 16 (RIFF v4 §3.1: no inner pad now, 2.5 apart, capped at 34) — for the floor flag only.
+    let walkColumnWidthAt16 = min(34, max(0.5, (walkWidth - 15 * 2.5) / 16))
     let rowAUnderFloor = rowAHeight < F.rowAHeight
     let tileUnderFloor = T < F.tileWidth
     let directionButtonUnderFloor = directionButtonWidth < F.directionButtonWidth
@@ -7330,11 +7329,13 @@ func euclideousRiffWalkVoiceOver(n: Int, playing: Bool, current: Int) -> String 
     return "\(n) steps"
 }
 
-/// RIFF v3 ferry (2026-11-14) §3.2: the walk grid's horizontal geometry — one column per walk entry, 6 pt in from each side of the strip, `w = min((inner − (n−1)·2.5)/n, 34)` wide, 2.5 apart, left-aligned; any spare stays empty at the trailing end.
+/// RIFF v3 §3.2 / RIFF v4 §3.1: the walk grid's horizontal geometry — one column per walk entry, `w = min((inner − (n−1)·2.5)/n, 34)`
+/// wide, 2.5 apart, left-aligned; any spare stays empty at the trailing end. RIFF v4 §3.1: the 6 pt inner pad is REMOVED — columns
+/// start at the strip's leading edge and use its full width (the reset tick moved into the tile↔walk gap, §3.4).
 struct EuclideousRiffWalkGrid: Equatable {
     var columnWidth: CGFloat
-    var xs: [CGFloat]          // n leading-edge x, from the strip's leading edge (already past the 6 pt pad)
-    var pad: CGFloat           // 6 — the inset from each side of the strip
+    var xs: [CGFloat]          // n leading-edge x, from the strip's leading edge (no pad since RIFF v4)
+    var pad: CGFloat           // 0 (RIFF v4 §3.1 — was 6)
 }
 /// RIFF v4 ferry (2026-11-19) §2.2–§2.4: the riff tile's mini-grid cell colour as a hex, or nil for the PLAYING cell
 /// (the column now sounding, drawn in lane100). ON: a note #B4BAC4, empty #30343C. OFF: a note #3E424A, empty #2A2D33.
@@ -7348,8 +7349,22 @@ func euclideousRiffTileCellColour(isRiff: Bool, isHit: Bool, isCur: Bool) -> UIn
     return isHit ? 0x3E424A : 0x2A2D33          // §2.3 note / empty (off)
 }
 
+/// RIFF v4 §3.2: the walk's unlit cell colour — nearly the card colour so it barely textures the card (was #22232A).
+let euclideousRiffWalkUnlitHex: UInt32 = 0x1D1F24
+/// RIFF v3 §3.4 / RIFF v4 §3.3: a walk column NUMBER's colour by trail state (stopped → the unselected grey). A skipped
+/// number is quieter than an upcoming one (#4A4E57). `isRiff` never affected it, so it is dropped from the signature.
+func euclideousRiffWalkNumberColour(_ st: EuclideousRiffWalkEntryState, playing: Bool) -> UInt32 {
+    guard playing else { return 0x9A9CA3 }
+    switch st {
+    case .current:  return 0xF1F2F4
+    case .played:   return 0xC9CBD1
+    case .upcoming: return 0x80838C
+    case .skipped:  return 0x4A4E57
+    }
+}
+
 func euclideousRiffWalkGrid(n: Int, innerWidth: CGFloat) -> EuclideousRiffWalkGrid {
-    let pad: CGFloat = 6, gap: CGFloat = 2.5
+    let pad: CGFloat = 0, gap: CGFloat = 2.5   // RIFF v4 §3.1: no inner pad (the reset tick moved to the tile↔walk gap, §3.4)
     let count = max(1, n)
     let usable = max(1, innerWidth - 2 * pad)
     let w = min(34, max(0.5, (usable - CGFloat(count - 1) * gap) / CGFloat(count)))

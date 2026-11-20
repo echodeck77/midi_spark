@@ -118,6 +118,23 @@ final class RiffWalkTests: XCTestCase {
         }
     }
 
+    // RIFF v4 §9 test 5 — the walk looks: unlit #1D1F24; a skipped number #4A4E57, quieter than upcoming #80838C;
+    // current/played as before; and the reset tick lies wholly in the tile↔walk gap.
+    func testRiffV4WalkLooksAndTick() {
+        XCTAssertEqual(euclideousRiffWalkUnlitHex, 0x1D1F24, "unlit nearly the card colour")
+        XCTAssertEqual(euclideousRiffWalkNumberColour(.current, playing: true), 0xF1F2F4)
+        XCTAssertEqual(euclideousRiffWalkNumberColour(.played, playing: true), 0xC9CBD1)
+        XCTAssertEqual(euclideousRiffWalkNumberColour(.upcoming, playing: true), 0x80838C)
+        XCTAssertEqual(euclideousRiffWalkNumberColour(.skipped, playing: true), 0x4A4E57, "skipped quieter than upcoming")
+        XCTAssertEqual(euclideousRiffWalkNumberColour(.current, playing: false), 0x9A9CA3, "stopped → the unselected grey")
+        // the reset tick: drawn at the walk's leading edge − 5, 2 wide → body x 4+T+3 … 4+T+5, wholly inside the gap (4+T … 4+T+8)
+        let r = euclideousRiffTabLayout(contentAreaH: 233, fullWidth: 360.67)
+        let tickLeft = r.walkX - 5, tickRight = r.walkX - 3           // walk-local −5, width 2, in body coords via walkX
+        let gapStart = r.contentInset + r.tileWidth, gapEnd = r.walkX  // the 8 pt tile↔walk gap
+        XCTAssertGreaterThanOrEqual(tickLeft, gapStart); XCTAssertLessThanOrEqual(tickRight, gapEnd)
+        XCTAssertEqual(tickLeft, r.contentInset + r.tileWidth + 3, accuracy: 1e-9, "§3.4: tick at 4 + T + 3")
+    }
+
     // §6.3 — VoiceOver value.
     func testWalkVoiceOver() {
         XCTAssertEqual(euclideousRiffWalkVoiceOver(n: 8, playing: false, current: 3), "8 steps")

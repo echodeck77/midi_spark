@@ -5252,7 +5252,16 @@ struct EuclideousPage: View {
             let tick = ringEligible && riffWalkTickActive(idx, cfg: cfg, now: tl.date)
             Canvas { ctx, size in
                 riffDrawWalk(&ctx, size: size, layout: layout, n: P, cfg: cfg, len: len, stepRanks: stepRanks, accent: accent,
-                             isRiff: isRiff, playing: ringEligible, trail: trail, liveCurrent: liveCur, tick: tick)
+                             isRiff: isRiff, playing: ringEligible, trail: trail, liveCurrent: liveCur)
+            }
+            // RIFF v4 §3.4: the reset tick — a 2 pt lane bar in the 8 pt tile↔walk gap (body x 4+T+3 = the walk's leading edge − 5),
+            // the grid's height and y. Drawn as an un-clipped overlay LEFT of the Canvas so no column has to move for it.
+            .overlay(alignment: .topLeading) {
+                if tick {
+                    RoundedRectangle(cornerRadius: 1).fill(lane100(accent))
+                        .frame(width: 2, height: layout.gridSize)
+                        .offset(x: -5, y: layout.gridTop)
+                }
             }
         }
         .frame(width: layout.walkWidth, height: layout.rowAHeight)
@@ -5272,10 +5281,10 @@ struct EuclideousPage: View {
     }
     /// §3: draw the walk rank grid into the strip. Columns from `euclideousRiffWalkGrid`, rows from the shared §1.4 geometry.
     private func riffDrawWalk(_ ctx: inout GraphicsContext, size: CGSize, layout: EuclideousRiffTabLayout, n: Int, cfg: EuclideousWalkLaneConfig?, len: Int,
-                              stepRanks: [Int], accent: Color, isRiff: Bool, playing: Bool, trail: EuclideousRiffWalkTrail, liveCurrent: Int, tick: Bool) {
+                              stepRanks: [Int], accent: Color, isRiff: Bool, playing: Bool, trail: EuclideousRiffWalkTrail, liveCurrent: Int) {
         let grid = euclideousRiffWalkGrid(n: n, innerWidth: size.width)
         let cell = layout.gridCell, gap = layout.gridGap, w = grid.columnWidth
-        let unlit = Color(hex: 0x22232A)
+        let unlit = Color(hex: euclideousRiffWalkUnlitHex)   // RIFF v4 §3.2: unlit cells nearly the card colour (was #22232A)
         let lane = lane100(accent)
         for i in 0..<n {
             let x = grid.xs[i]
@@ -5290,7 +5299,7 @@ struct EuclideousPage: View {
                 let p = RoundedRectangle(cornerRadius: 1).path(in: rect)
                 if r == litRow {
                     if playing && st == .skipped {
-                        ctx.stroke(RoundedRectangle(cornerRadius: 1).path(in: rect.insetBy(dx: 0.75, dy: 0.75)), with: .color(lane.opacity(0.7)), lineWidth: 1.5)   // §3.5 skipped: hollow
+                        ctx.stroke(RoundedRectangle(cornerRadius: 1).path(in: rect.insetBy(dx: 0.5, dy: 0.5)), with: .color(lane.opacity(0.32)), lineWidth: 1)   // RIFF v4 §3.3 skipped: a faint 1 pt hollow outline (was 1.5 pt @ 0.7)
                     } else {
                         ctx.fill(p, with: .color(riffWalkLitColour(st, isRiff: isRiff, playing: playing, lane: lane)))
                     }
@@ -5307,11 +5316,8 @@ struct EuclideousPage: View {
             let txt = ctx.resolve(Text("\(col + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(numColour))
             ctx.draw(txt, at: CGPoint(x: labelRect.midX, y: labelRect.midY))
         }
-        // §3.8: the reset tick — a 2 pt lane bar in the strip's left padding (x2), the grid's height, so no column moves.
-        if tick {
-            let bar = CGRect(x: 2, y: layout.gridTop, width: 2, height: layout.gridSize)
-            ctx.fill(RoundedRectangle(cornerRadius: 1).path(in: bar), with: .color(lane))
-        }
+        // RIFF v4 §3.4: the reset tick no longer lives inside the walk (the pad is gone) — it is drawn as an un-clipped
+        // overlay in the tile↔walk gap by `riffWalkStrip` (a Canvas clips to its frame, so it cannot escape left on its own).
     }
     /// §3.4/§3.5: a lit cell's fill by state.
     private func riffWalkLitColour(_ st: EuclideousRiffWalkEntryState, isRiff: Bool, playing: Bool, lane: Color) -> Color {
@@ -5323,14 +5329,9 @@ struct EuclideousPage: View {
         case .skipped:  return .clear   // drawn as a hollow stroke by the caller
         }
     }
-    /// §3.4/§3.5: a column number's colour by state.
+    /// §3.4/§3.5 / RIFF v4 §3.3: a column number's colour by state — the pure `euclideousRiffWalkNumberColour`, mapped to Color.
     private func riffWalkNumberColour(_ st: EuclideousRiffWalkEntryState, isRiff: Bool, playing: Bool) -> Color {
-        guard playing else { return Color(hex: 0x9A9CA3) }   // §3.4 unselected label colour
-        switch st {
-        case .current:  return Color(hex: 0xF1F2F4)
-        case .played:   return Color(hex: 0xC9CBD1)
-        case .upcoming, .skipped: return Color(hex: 0x80838C)
-        }
+        Color(hex: euclideousRiffWalkNumberColour(st, playing: playing))
     }
     /// §3.6/§3.7: fold the 30 Hz walk poll into each lane's trail. A backward jump TO entry 0 from a non-last step is an early reset
     /// (flashes the tick); from the last step, or on a host loop/seek, it is a natural wrap (no tick); a backward move to a mid step
