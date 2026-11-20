@@ -39,7 +39,11 @@ final class EmitterVelocityTests: XCTestCase {
         XCTAssertEqual(v.customMask, 0b0100_1011); XCTAssertEqual(v.hits, 4)
         XCTAssertEqual(EmitterVelocityCfg(v).patternMask, 0b0100_1011, "the accent uses the hand-edited pattern")
         XCTAssertEqual(emitterVelocityToggleStep(v, step: 8), v, "a tap past STEPS is a no-op")
-        XCTAssertNil(EmitterVelocityField.hits.setting(5, in: v).customMask, "a HITS edit regenerates Euclidean")
+        // HIT COUNT KEEPS THE HAND-EDIT (2026-11-20): a HITS edit rebuilds the mask (keeps the tapped steps, add-only) — popcount follows; STEPS/OFFSET still regenerate.
+        let vUp = EmitterVelocityField.hits.setting(5, in: v)
+        XCTAssertNotNil(vUp.customMask, "a HITS edit KEEPS the hand-edit"); XCTAssertEqual(vUp.customMask!.nonzeroBitCount, 5)
+        XCTAssertEqual(vUp.customMask! & v.customMask!, v.customMask!, "every tapped step kept")
+        XCTAssertNil(EmitterVelocityField.hits.setting(5, in: EmitterVelocity(on: true, steps: 8, hits: 3, offset: 0)).customMask, "no hand-edit: HITS regenerates Euclidean")
         XCTAssertNil(EmitterVelocityField.offset.setting(2, in: v).customMask)
         XCTAssertNil(EmitterVelocityField.steps.setting(10, in: v).customMask)
         XCTAssertNotNil(EmitterVelocityField.hitVel.setting(20, in: v).customMask, "HIT VEL is not a pattern field — keeps the hand-edit")

@@ -69,16 +69,31 @@ final class EmitterRatchetTests: XCTestCase {
         XCTAssertEqual(emitterRatchetToggleStep(r, step: 8), r, "a step ≥ STEPS does nothing")
         XCTAssertEqual(emitterRatchetToggleStep(r, step: -1), r)
     }
-    func testAPatternFieldEditRegeneratesEuclideanAndClearsTheHandEdit() {
-        let edited = emitterRatchetToggleStep(EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0), step: 1)
-        XCTAssertNotNil(edited.customMask)
-        XCTAssertNil(EmitterRatchetField.hits.setting(5, in: edited).customMask, "a HITS edit regenerates Euclidean")
-        XCTAssertEqual(emitterRatchetEffectiveMask(EmitterRatchetField.hits.setting(5, in: edited)), emitterRatchetPatternMask(steps: 8, hits: 5, offset: 0))
+    // HIT COUNT KEEPS THE HAND-EDIT (Paul 2026-11-20): a HITS edit on a hand-edited strip rebuilds the mask (keeping the
+    // tapped steps) instead of regenerating; STEPS/OFFSET still regenerate Euclidean; non-pattern fields never touch it.
+    func testAHitsEditKeepsTheHandEditWhileStepsAndOffsetRegenerate() {
+        let base = EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0)
+        let edited = emitterRatchetToggleStep(base, step: 1)      // Euclidean(3,8) {0,3,6} + step 1 → 4 hits, hand-edited
+        let editedMask = edited.customMask!
+        XCTAssertEqual(editedMask, 0b0100_1011)
+        // HITS UP: keeps the hand-edit, adds into the widest gap → a SUPERSET of the edit, popcount == the new count
+        let up = EmitterRatchetField.hits.setting(5, in: edited)
+        XCTAssertNotNil(up.customMask, "a HITS edit now KEEPS the hand-edit")
+        XCTAssertEqual(up.hits, 5); XCTAssertEqual(up.customMask!.nonzeroBitCount, 5)
+        XCTAssertEqual(up.customMask! & editedMask, editedMask, "every tapped step is kept (add-only)")
+        // HITS DOWN: strips the most crowded → a SUBSET of the edit
+        let down = EmitterRatchetField.hits.setting(3, in: edited)
+        XCTAssertEqual(down.hits, 3); XCTAssertEqual(down.customMask!.nonzeroBitCount, 3)
+        XCTAssertEqual(down.customMask! & editedMask, down.customMask!, "the kept steps are a subset of the edit (remove-only)")
+        // STEPS / OFFSET still regenerate Euclidean (clear the hand-edit)
         XCTAssertNil(EmitterRatchetField.offset.setting(2, in: edited).customMask, "OFFSET clears it")
         XCTAssertNil(EmitterRatchetField.steps.setting(10, in: edited).customMask, "STEPS clears it")
-        XCTAssertNotNil(EmitterRatchetField.chance.setting(50, in: edited).customMask, "CHANCE keeps the hand-edit (not a pattern field)")
+        // non-pattern fields keep the hand-edit
+        XCTAssertNotNil(EmitterRatchetField.chance.setting(50, in: edited).customMask, "CHANCE keeps it")
         XCTAssertNotNil(EmitterRatchetField.strikes.setting(4, in: edited).customMask, "STRIKES keeps it")
         XCTAssertNotNil(EmitterRatchetField.restart.setting(4, in: edited).customMask, "RESTART keeps it")
+        // NO hand-edit → HITS still regenerates Euclidean (customMask stays nil), byte-identical to before
+        XCTAssertNil(EmitterRatchetField.hits.setting(5, in: base).customMask, "no hand-edit: HITS regenerates Euclidean")
     }
     func testCustomMaskRoundTripsThroughCodable() throws {
         let r = emitterRatchetToggleStep(EmitterRatchet(on: true, steps: 8, hits: 3, offset: 0), step: 1)

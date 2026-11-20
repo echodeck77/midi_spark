@@ -12079,9 +12079,15 @@ enum EmitterRatchetField: Int, CaseIterable {
         var out = r
         let c = max(range(in: r).lowerBound, min(range(in: r).upperBound, v))
         switch self { case .steps: out.steps = c; case .hits: out.hits = c; case .offset: out.offset = c; case .chance: out.chance = c; case .strikes: out.strikes = c; case .restart: out.restartBars = c }
-        // EMITTER STRIP GESTURES (2026-11-18): a STEPS/HITS/OFFSET edit (drag, pinch, double-tap reset or VoiceOver swipe)
-        // REGENERATES the Euclidean pattern — the "Simpler" model's "last gesture wins". CHANCE/STRIKES/RESTART don't touch the pattern.
-        if self == .steps || self == .hits || self == .offset { out.customMask = nil }
+        // EMITTER STRIP GESTURES (2026-11-18) + HIT COUNT KEEPS THE HAND-EDIT (Paul 2026-11-20): a STEPS or OFFSET edit still
+        // REGENERATES the Euclidean pattern (clears the hand-edit), but a HITS edit on a HAND-EDITED pattern REBUILDS the mask to
+        // the new count — add into the widest gap, strip the most crowded, keeping hand-placed hits (`euclidRebuildPattern`, the
+        // main Euclid lane's own rule). No hand-edit (customMask nil) → regenerate Euclidean as before. CHANCE/STRIKES/RESTART never touch the pattern.
+        switch self {
+        case .steps, .offset: out.customMask = nil
+        case .hits: if let mask = r.customMask { out.customMask = emitterRebuildCustomMask(mask, steps: out.steps, targetHits: c) }
+        default: break
+        }
         return out.normalized()
     }
     /// §6.2 — a double tap resets the cell to its default; HITS and OFFSET are clamped by STEPS (§1.3).
@@ -12116,7 +12122,12 @@ enum EmitterVelocityField: Int, CaseIterable {
         var out = v
         let c = max(range(in: v).lowerBound, min(range(in: v).upperBound, x))
         switch self { case .steps: out.steps = c; case .hits: out.hits = c; case .offset: out.offset = c; case .hitVel: out.hitVel = c; case .missVel: out.missVel = c }
-        if self == .steps || self == .hits || self == .offset { out.customMask = nil }   // EMITTER STRIP GESTURES: a pattern-field edit regenerates Euclidean (HIT VEL / MISS VEL don't touch the pattern)
+        // HIT COUNT KEEPS THE HAND-EDIT (2026-11-20, as the ratchet's): STEPS/OFFSET regenerate; a HITS edit rebuilds a hand-edited mask to the new count. HIT VEL / MISS VEL never touch the pattern.
+        switch self {
+        case .steps, .offset: out.customMask = nil
+        case .hits: if let mask = v.customMask { out.customMask = emitterRebuildCustomMask(mask, steps: out.steps, targetHits: c) }
+        default: break
+        }
         return out.normalized()
     }
     func reset(in v: EmitterVelocity) -> EmitterVelocity { setting(defaultValue, in: v) }
@@ -12161,6 +12172,21 @@ func emitterVelocityToggleStep(_ v: EmitterVelocity, step i: Int) -> EmitterVelo
     out.customMask = m
     out.hits = (0..<n).reduce(0) { $0 + (((m >> UInt16($1)) & 1) != 0 ? 1 : 0) }
     return out.normalized()
+}
+
+/// HIT COUNT KEEPS THE HAND-EDIT (Paul 2026-11-20): rebuild a hand-edited 16-bit emitter mask to `targetHits` by the main
+/// Euclid lane's rule — add into the widest gap, strip the most crowded, keeping hand-placed hits (`euclidRebuildPattern`).
+/// So changing HITS on a tapped strip no longer throws the edit away; the existing steps are always considered. The mask ↔
+/// `[Bool]` conversion is over the lane's `steps` (only those bits can be lit). Rebuilt from the mask HANDED IN each call —
+/// for a drag, that is the live mask, so a long drag up then back is NOT guaranteed to restore the exact start (the main
+/// lane rebuilds from a FROZEN touch-down snapshot for that; the strip gesture has no snapshot channel — a follow-up).
+func emitterRebuildCustomMask(_ mask: UInt16, steps: Int, targetHits: Int) -> UInt16 {
+    let n = max(1, min(16, steps))
+    let bools = (0..<n).map { ((mask >> UInt16($0)) & 1) != 0 }
+    let rebuilt = euclidRebuildPattern(bools, targetCount: targetHits)
+    var m: UInt16 = 0
+    for i in 0..<n where i < rebuilt.count && rebuilt[i] { m |= UInt16(1) << UInt16(i) }
+    return m
 }
 
 /// The four per-output velocity counters — the trimmed sibling of `EmitterRatchetCounter`: a count per output, a per-output same-sample cache (two lanes on one output at one sample get the SAME pattern index and count once), and the
