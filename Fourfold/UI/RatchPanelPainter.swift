@@ -614,11 +614,16 @@ struct EmitterRatchetExpandedView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
-                .onTapGesture { onSwitch(i) }
+                // Paul 2026-11-20: the expanded ("settings") view had NO on/off control — tapping the
+                // already-open emitter's disc was a dead no-op switch. The disc shows the on/off state and
+                // looks exactly like the collapsed card's toggle, so a tap on the SELECTED emitter now toggles
+                // it on/off (the same `toggledOn()` the collapsed card uses); a tap on ANOTHER emitter still
+                // switches which one is open.
+                .onTapGesture { if sel { onEdit(true) { $0[i] = $0[i].toggledOn() } } else { onSwitch(i) } }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Edit emitter \(emitterRatchetLetters[i])")
-                .accessibilityValue(sel ? "editing" : "")
-                .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+                .accessibilityLabel(sel ? emitterRatchetToggleLabel(output: i) : "Edit emitter \(emitterRatchetLetters[i])")
+                .accessibilityValue(sel ? emitterRatchetToggleValue(on: ratchets[i].on) : "")
+                .accessibilityAddTraits(.isButton)
             }
         }
         .frame(width: discW)
