@@ -113,3 +113,24 @@ up; Priorities 1–3 are the wins that don't touch this tradeoff.
 
 P1 + P2 deliver most of the benefit. Verify each on device (watch CPU with the plugin playing, open,
 on a weaker iPad; confirm no visual regression and animations resume correctly).
+
+---
+
+## Implementation status (2026-11-20)
+
+- **P1 — DONE** (`7d797d2`): `euclideousAnimInterval(base, reduceMotion)`; Reduce Motion caps every
+  TimelineView to ≤20 fps; the 2 unbounded sites got a 1/30 interval; the PULSE-only mixPulseOverlay
+  pauses when PULSE is OFF. `PerfTests` covers the helper. **Device-owed:** confirm the capped rate looks
+  right under Reduce Motion and the CPU drops.
+- **P4 — DONE** (`d708d0f`): RiffArrow + StackGrid glows blur a CONSTANT shape and fade with `.opacity`
+  (no per-frame blur-radius re-rasterise). (EuclidLaneUI's constant-radius Canvas trail blur left — can't
+  decouple without redrawing the trail.)
+- **P3 — PARTIAL** (`ea5cf9e`): the lane-strip step pattern (`stripBuf`) hoisted out of its 60 fps Canvas.
+  **NOT done** (higher blind-risk, needs device verification): the STACK-grid 44-string-resolve split and
+  the MIX-strip text-measure/`Color(hex:)` caching — both restructure hot draw code with no test reach.
+- **P2 — NOT done; needs device verification.** Concrete blocker found: `EuclideousPage.swift:5303`
+  `.onChange(of: riffWalkState) { updateWalkTrails() }` and several body-static reads of `riffPositions` /
+  `riffWalkState` (the walk-tag plans, `laneStripPlan`) depend on the `@Published` re-eval. Moving those
+  fields to the leaf-pull model would silently FREEZE the walk trails / arrows / markers — an invisible
+  regression off-device. Safe path: do it field-by-field, landing each, with an on-device spot-check
+  between (re-wiring the `.onChange` trigger into the leaf first), so a frozen indicator is caught early.
