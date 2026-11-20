@@ -2850,6 +2850,22 @@ struct EuclideousPage: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))   // STYLE PASS 1 §2.1 (was #1B1D23)
         .clipped()
         .overlay(euclideousRandomReturnHighlight(idx, width: width, height: height))
+        // NO INPUT (Paul 2026-11-20): an always-visible amber flag when this lane would play but every source chip is off (so
+        // it is silently producing nothing — `euclideousLaneHasNoInput`). Sits just below the 44 pt comet row, centred, so it
+        // never collides with PLAY / SOLO. Non-interactive. Placement / size device-owed (I can't see it render).
+        .overlay(alignment: .top) {
+            if euclideousLaneHasNoInput(line) {
+                Text("NO INPUT")
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.8)
+                    .foregroundColor(Color(hex: 0x15171C))
+                    .padding(.horizontal, 7).padding(.vertical, 2.5)
+                    .background(Capsule().fill(Color(hex: 0xFFB454)))   // the inert-caption amber
+                    .padding(.top, 60)   // below the comet row (inset 10 + comet 44 + gap 8 ≈ 62)
+                    .allowsHitTesting(false)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("No input. This lane has no source on, so it is silent. Turn a source on in INPUTS.")
+            }
+        }
         }
     }
 

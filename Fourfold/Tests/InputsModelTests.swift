@@ -3,6 +3,22 @@
 import XCTest
 
 final class InputsModelTests: XCTestCase {
+    // NO INPUT (Paul 2026-11-20): a lane that would play but has every source chip off is flagged; the legitimate cases are not.
+    func testNoInputFlagsOnlyAMisconfiguredSilentLane() {
+        var l = EuclidLine(noteSel: .all); l.pulses = 3; l.steps = 8
+        l.poolSrcMask = 0
+        XCTAssertTrue(euclideousLaneHasNoInput(l), "hits + every source off → NO INPUT")
+        l.poolSrcMask = euclideousPoolSrcAll
+        XCTAssertFalse(euclideousLaneHasNoInput(l), "a source on → not flagged")
+        l.poolSrcMask = 1   // only MIDI IN on → WAITING for input, not misconfigured
+        XCTAssertFalse(euclideousLaneHasNoInput(l), "MIDI IN on but nothing held = waiting, not no-input")
+        l.poolSrcMask = 0; l.pulses = 0; l.patternMiss = false
+        XCTAssertFalse(euclideousLaneHasNoInput(l), "no hits → already silent for a named reason")
+        // a follower (PITCH SHADOW) plays another lane's pool — it carries no own source by design
+        l.pulses = 3; l.poolSrcMask = 0; l.answerPitchOn = true; l.answerPitchMode = .shadow
+        XCTAssertEqual(l.listenPitchResolved, .shadow)
+        XCTAssertFalse(euclideousLaneHasNoInput(l), "a SHADOW lane follows another lane's notes")
+    }
     private func doc(midi: Bool, chords: Bool, pick: Bool, key: Bool, mode: MidiMode = .add, laneChips: [UInt8?] = [nil, nil, nil, nil]) -> PluginState {
         var st = PluginState.makeInit()
         st.euclideousSourcePlan = SourcePlan(midiOn: midi, chordsOn: chords, pickOn: pick, keyOn: key, midiMode: mode, pickNotes: [60, 64], midiOctaves: .keep)

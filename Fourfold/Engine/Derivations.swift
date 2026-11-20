@@ -12347,6 +12347,19 @@ func euclideousCanonInertCaption(sourceOn: Bool, pitch: EuclideousListenPitchMod
     if pitch == .shadow || pitch == .echo { return "CANON UNUSED: LANE FOLLOWS ANOTHER'S NOTES" }
     return nil
 }
+/// NO INPUT (Paul 2026-11-20): a lane is MISCONFIGURED-SILENT when it WOULD play (PLAY on + has hits / inverted) and reads
+/// its OWN pool, but every source chip is off (`poolSrcMaskResolved == 0`) — so its pool is always empty and nothing can sound,
+/// with no on-screen reason (the footgun Paul hit). DETERMINISTIC (from the stored mask, no live MIDI state), so it never
+/// flickers. NOT flagged when: the lane follows another lane's notes (PITCH SHADOW/ECHO) or re-voices a traded hit (ANSWER
+/// TRADE) — those legitimately carry no own source; nor when it has no hits / is off (already silent for a named reason); nor
+/// when a MIDI chip is on but nothing is held right now (that is a lane WAITING for input, by design — a chip being on ⇒ mask ≠ 0).
+func euclideousLaneHasNoInput(_ line: EuclidLine) -> Bool {
+    guard line.poolSrcMaskResolved == 0 else { return false }          // at least one source chip on ⇒ has (or is waiting for) input
+    guard euclideousLaneRunsInEngine(line) else { return false }        // PLAY on and hits > 0 (or inverted) — it would strike
+    guard line.listenPitchResolved != .shadow, line.listenPitchResolved != .echo else { return false }   // plays another lane's pool
+    guard !line.answerTradeOnResolved else { return false }             // may re-voice a traded hit from another lane
+    return true
+}
 /// The next value of DELAY one step up or down (clamped, never wrapping); 0 is stored as nil.
 func euclideousCanonDelayMoved(_ delay: Int, by d: Int) -> Int { max(0, min(euclideousCanonMaxDelay, delay + d)) }
 /// The next value of SLIP one step (5 %) up or down (clamped, never wrapping).
