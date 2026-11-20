@@ -508,6 +508,13 @@ public class FourfoldAudioUnit: AUAudioUnit {
             return s.indices.contains(i) ? s[i] : ""
         }
     }
+    /// Run `work` on the main thread — inline if already there, else async. HOST ENTRY POINTS (fullState / currentPreset
+    /// setters, and future preset writers) are invoked on a BACKGROUND XPC queue, but the document and the parameter tree are
+    /// main-thread-only — applying off-main fires a `dispatchPrecondition` SIGTRAP (the 2026-11-20 instantiation crash). Async,
+    /// never sync: a host writer/value-provider must not block on main (the 2026-10-11 deadlock).
+    private func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+    }
     /// MAIN THREAD: a host (or in-app) wrote a parameter — apply it to the document through the pure table's setter (Hits/Steps/Offset route through `euclideousSliderCommit`). `editDocument` republishes + refreshes the cache.
     private func applyParamValue(_ address: AUParameterAddress, _ value: AUValue) {
         dispatchPrecondition(condition: .onQueue(.main))
@@ -700,10 +707,15 @@ public class FourfoldAudioUnit: AUAudioUnit {
     public override var currentPreset: AUAudioUnitPreset? {
         get { _currentPreset }
         set {
-            _currentPreset = newValue
-            guard let p = newValue else { return }
-            if p.number < 0 { applyPresetDocument(named: p.name) }      // a user preset → load its file
-            else { applyFactoryDocument(named: p.name) }               // a factory preset → build it
+            // MAIN-THREAD MARSHALLING (2026-11-20): the host sets this from its preset menu on a background XPC queue, but the
+            // apply mutates the document + parameter tree (main-thread-only) — same crash class as the fullState setter.
+            onMain { [weak self] in
+                guard let self else { return }
+                self._currentPreset = newValue
+                guard let p = newValue else { return }
+                if p.number < 0 { self.applyPresetDocument(named: p.name) }      // a user preset → load its file
+                else { self.applyFactoryDocument(named: p.name) }               // a factory preset → build it
+            }
         }
     }
     public override func saveUserPreset(_ userPreset: AUAudioUnitPreset) throws {
@@ -763,23 +775,32 @@ public class FourfoldAudioUnit: AUAudioUnit {
             // match the legacy payload, so calling `super.fullState` would STILL crash on an old session. Our parameters are
             // DOCUMENT-DERIVED — their values ride `stateKey` and are pushed into the tree by `syncParameterTreeToDocument()`
             // below — so we never need the base to restore the param state at all. Keep skipping `super.fullState` entirely.
-            if let data = newValue?[Self.stateKey] as? Data,
-               var doc = try? JSONDecoder().decode(PluginState.self, from: data) {
-                doc.migrateLegacyRoutingIfNeeded()   // old saved AUM sessions → v3 schema on load (mandatory)
-                doc.normalizeLocksAtLoad()           // LANE LOCK 3.5: a session always opens at its locked states
-                doc.normalizeRiffsAtLoad()           // POLY RIFF: the four riff boxes are gone — the riff that was active is the one riff
-                doc.normalizeTradesAtLoad()          // ANSWER 6.5: a SWAP whose partner does not SWAP back has its TRADE switched off
-                doc.normalizeChordSetsAtLoad()       // TWO CHORD GRIDS: an old document's four progressions become two (the playing one is grid 1)
-                doc.normalizeSoloAtLoad()            // ONE SOLO: an old document's lane solo becomes its two part bits
-                doc.normalizeSourcesAtLoad()         // INPUTS + HARMONY §1.3: lane chips take the old global switches; the switches read true
-                doc.normalizeHocketAtLoad()          // HOCKET RETIRED (2026-11-17): an old session's stored rules are dropped — no document hockets
-                document = doc
-                clearPendingBuild()   // CR-10/K2: the loaded doc carries its OWN BUILD state (via consume*) — drop the outgoing session's stale pending so the next save doesn't re-encode it over the restored doc
-                kernel.flushVoices()                 // audit B3: flush like every other load path — a mid-play host
-                                                     // session restore must not strand the outgoing document's voices
-                scheduleRebuild()
-                syncParameterTreeToDocument()        // HOST PARAMETERS (slice 2): push the restored document's values into the tree (the base's own param restore is skipped above)
+            // MAIN-THREAD MARSHALLING (2026-11-20, crash fix): the host calls this setter on a BACKGROUND XPC queue
+            // (com.apple.NSXPCConnection.user.endpoint — seen in AUM AND Logic Pro), but the document and the parameter tree
+            // are main-thread-only (`syncParameterTreeToDocument`/`editDocument` assert `.onQueue(.main)`). Applying here
+            // off-main fired a `dispatchPrecondition` SIGTRAP the instant the host restored state — DURING instantiation — so
+            // the AU "appeared" in the host but crashed on create (Logic's "won't instantiate"; the AUM crash report). Decode
+            // off-main (cheap, no shared state), then apply on main. Async (not sync) — a value provider/ writer must never
+            // block on main (the 2026-10-11 deadlock). On an in-process host already on main, run inline.
+            guard let data = newValue?[Self.stateKey] as? Data,
+                  var doc = try? JSONDecoder().decode(PluginState.self, from: data) else { return }
+            doc.migrateLegacyRoutingIfNeeded()   // old saved AUM sessions → v3 schema on load (mandatory)
+            doc.normalizeLocksAtLoad()           // LANE LOCK 3.5: a session always opens at its locked states
+            doc.normalizeRiffsAtLoad()           // POLY RIFF: the four riff boxes are gone — the riff that was active is the one riff
+            doc.normalizeTradesAtLoad()          // ANSWER 6.5: a SWAP whose partner does not SWAP back has its TRADE switched off
+            doc.normalizeChordSetsAtLoad()       // TWO CHORD GRIDS: an old document's four progressions become two (the playing one is grid 1)
+            doc.normalizeSoloAtLoad()            // ONE SOLO: an old document's lane solo becomes its two part bits
+            doc.normalizeSourcesAtLoad()         // INPUTS + HARMONY §1.3: lane chips take the old global switches; the switches read true
+            doc.normalizeHocketAtLoad()          // HOCKET RETIRED (2026-11-17): an old session's stored rules are dropped — no document hockets
+            let applyRestoredDocument = { [weak self] in
+                guard let self else { return }
+                self.document = doc
+                self.clearPendingBuild()   // CR-10/K2: the loaded doc carries its OWN BUILD state (via consume*) — drop the outgoing session's stale pending so the next save doesn't re-encode it over the restored doc
+                self.kernel.flushVoices()  // audit B3: flush like every other load path — a mid-play host session restore must not strand the outgoing document's voices
+                self.scheduleRebuild()
+                self.syncParameterTreeToDocument()   // HOST PARAMETERS (slice 2): push the restored document's values into the tree (the base's own param restore is skipped above)
             }
+            onMain(applyRestoredDocument)
         }
     }
 
