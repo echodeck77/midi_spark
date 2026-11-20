@@ -123,6 +123,7 @@ struct EuclideousCardBackView: View {
 // MARK: one part's row
 
 struct EuclideousCardBackPartRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let lane: Int
     let part: EuclideousCardPart
     let frames: EuclideousCardBackPartFrames
@@ -180,7 +181,7 @@ struct EuclideousCardBackPartRow: View {
         let model = rolls
         let tracker = span
         let laneIdx = lane, p = partIndex, on = input.on, mask = input.mask, hasHits = laneHasHits, audibleAt = laneAudibleAt, tempoNow = tempo, bpb = beatsPerBar, beatOf = beatAt
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !live)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !live)) { tl in
             Canvas { ctx, sz in
                 let now = beatOf(tl.date)
                 let laneAud = audibleAt(tl.date)

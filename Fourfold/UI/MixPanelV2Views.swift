@@ -238,6 +238,7 @@ struct EuclideousMixV2BandView: View {
 // MARK: - the band's live canvas: strip frame, pool, fork, plates' stacks (one TimelineView, one Canvas)
 
 struct EuclideousMixV2BandCanvas: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let lane: Int
     let band: EuclideousMixV2BandFrames
     let layout: EuclideousMixV2Layout
@@ -263,7 +264,7 @@ struct EuclideousMixV2BandCanvas: View {
         let band = self.band, lane = self.lane
         let forkRiff = euclideousMixV2ForkCurve(from: band.forkStart, to: band.forkRiffEnd)
         let forkNotes = euclideousMixV2ForkCurve(from: band.forkStart, to: band.forkNotesEnd)
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !input.live)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !input.live)) { tl in
             Canvas { ctx, size in
                 let nowBeat = beatAt(tl.date)
                 // ── the top line: never dimmed
@@ -669,6 +670,7 @@ struct EuclideousMixV2OutButton: View {
 // MARK: - the lines, the origin dots and the four emitters (one layer, no touches)
 
 struct EuclideousMixV2LinesLayer: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let layout: EuclideousMixV2Layout
     let input: EuclideousMixV2Input
     /// EMITTER TOKEN §4.4 / §5.2: outputs being held. A line not ending at a held output draws at 15 %; the non-held emitters' contents (token + inlet) draw at 42 %.
@@ -693,7 +695,7 @@ struct EuclideousMixV2LinesLayer: View {
         let left = layout.bandW - 8
         let canvasW = layout.size.width - left
         let clipLocalMaxX = (layout.bandW + 32) - left   // §4.2: a muted line stops 8 pt short of the inlet at bandW + 40
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !input.live)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !input.live)) { tl in
             Canvas { ctx, size in
                 ctx.translateBy(x: -left, y: 0)
                 typealias M = EuclideousMixLineMetrics

@@ -265,7 +265,7 @@ struct FourfoldReelBrowser: View {
         let all = pageNotes.map { Int($0.note) }
         let rawLo = all.min() ?? 48, rawHi = all.max() ?? 72
         let lo = (rawLo / 12) * 12, hi = max(lo + 12, ((rawHi + 11) / 12) * 12)
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing && !replaying)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !playing && !replaying)) { tl in
             Canvas { ctx, sz in
                 let tape = CGRect(x: 0, y: 0, width: sz.width, height: sz.height)
                 let rulerH: CGFloat = 16

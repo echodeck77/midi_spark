@@ -272,6 +272,7 @@ struct EuclideousRestartEditorView: View {
 
 /// One section (RHYTHM or MELODY): row 1 (FREE pill, unit chips, source squares), row 2 (the count chips + the add box), row 3 (the timeline).
 struct EuclideousRestartSectionView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let input: EuclideousRestartEditorInput
     let focus: AccessibilityFocusState<EuclideousRestartFocus?>.Binding
     let frames: EuclideousRestartSectionFramesV2
@@ -304,7 +305,7 @@ struct EuclideousRestartSectionView: View {
             ForEach(0..<3, id: \.self) { i in chip(i) }
             if readsSource { ForEach(0..<4, id: \.self) { i in sourceSquare(i) } }
             if let runningBar {   // §3.6: the running link's bar animates at 60 fps while the transport runs
-                TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !input.running)) { tl in
+                TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !input.running)) { tl in
                     let rb = runningBar(tl.date)
                     countChips(progressLink: rb?.link, fraction: rb?.fraction ?? 0)
                 }
@@ -424,7 +425,7 @@ struct EuclideousRestartSectionView: View {
 
     // MARK: row 3 — the timeline (labels and cells; read-only)
     private var timeline: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 10.0, paused: !input.running)) { tl in
+        TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 10.0, reduceMotion: reduceMotion), paused: !input.running)) { tl in
             let beat = input.beatAt(tl.date)
             let current = euclideousRestartCurrentUnit(rhythm: rhythm, settings: settings, ownLane: input.lane, beat: beat, barBeats: input.barBeats, set: input.scheduleSet)
             let t = euclideousRestartTimeline(chain: chain, active: active, unitWord: unitWord, current: current, rhythm: rhythm)

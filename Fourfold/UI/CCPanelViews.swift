@@ -113,6 +113,7 @@ struct CCNumberSlider: View {
 /// playhead and a ring riding the drawn curve at the playhead, both in the colour of the lane whose hit is in effect at that position. There is ONE bar clock, so there is one playhead; with several lanes on the emitter it changes colour as the lane
 /// driving the value changes. Drawn from the pure `emitterCCTrace`; nothing here keeps time except the playhead, which asks the page's clock.
 struct CCTraceView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let trace: EmitterCCTrace
     var laneColours: [Color] = []
     var playhead: ((Date) -> Double?)? = nil     // the bar position 0…1 at a date, nil while stopped
@@ -125,7 +126,7 @@ struct CCTraceView: View {
     var bgRadius: CGFloat = 6
     var dashed = false   // CC page v2 §3.1: the off-state line is dashed
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: playhead == nil)) { tl in
+        TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30, reduceMotion: reduceMotion), paused: playhead == nil)) { tl in
             Canvas { ctx, sz in draw(&ctx, sz, head: playhead?(tl.date)) }
         }
         .accessibilityHidden(true)
@@ -252,6 +253,7 @@ struct EuclideousCCRowsPanel: View {
 
 /// One SLOT's full page: a header (token · ON switch · CC stepper · close), the trace in the driver lane's colour (tap ⇒ the lane picker), and two columns — VALUE/TO/CURVE on the left, the six bar sliders on the right. All read/write THIS slot.
 struct EuclideousCCExpandedView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let slot: Int                         // the flat slot index k = output×4 + slot
     let bodySize: CGSize
     let ccs: EmitterCCSet
@@ -346,7 +348,7 @@ struct EuclideousCCExpandedView: View {
     private var pickerBody: some View {
         GeometryReader { geo in
             let rects = euclideousCCPickerRows(size: geo.size)
-            TimelineView(.animation(paused: !playing)) { tl in
+            TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !playing)) { tl in
                 let beat = playing ? laneBeat(tl.date) : 0
                 ZStack(alignment: .topLeading) {
                     ForEach(0..<4, id: \.self) { lane in laneCell(lane, rect: rects[lane], beat: beat) }

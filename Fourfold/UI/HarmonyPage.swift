@@ -224,7 +224,7 @@ struct EuclideousHarmonyPage: View {
         let cfg = chordSets[min(set, max(0, chordSets.count - 1))]
         let steps = cfg.chordsStepsResolved
         let col = set == 0 ? L.column0 : L.column1
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !playing)) { tl in
             let pc = playingColumn(set, beatAt(tl.date))   // stopped: the column the next play would start on (the beat is frozen at the anchor)
             ZStack(alignment: .topLeading) {
                 gridTitleRow(set, cfg: cfg, steps: steps, L: L).offset(y: L.gridTitleY)

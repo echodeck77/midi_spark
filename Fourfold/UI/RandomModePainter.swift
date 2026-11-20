@@ -11,6 +11,7 @@ import SwiftUI
 /// tab's pre-roll state while a roll is undecided, nil when decided); `holding` is true while this card's
 /// picture is actively held (§5.6 — the hold ferry step wires this; it always reads false until then).
 struct EuclideousRandomCardView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let lane: Int
     let width: CGFloat
     let height: CGFloat
@@ -78,7 +79,7 @@ struct EuclideousRandomCardView: View {
         // after a stop, then idle — so a hit's glow fades out instead of freezing (the strike-feedback review,
         // 2026-10-24). The playhead itself still freezes correctly: `currentBeat` returns the frozen anchor when
         // stopped, so these extra settle-window frames only fade the glows, they don't move the playhead.
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !pulseLive)) { tl in
+        TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !pulseLive)) { tl in
             let beat = currentBeat(at: tl.date)
             let now = tl.date.timeIntervalSinceReferenceDate
             let riffGlow = strikeGlow(now: now, riff: true)
@@ -301,7 +302,7 @@ struct EuclideousRandomCardView: View {
 
     @ViewBuilder private func waitingBorder(_ dashed: Bool) -> some View {
         if dashed {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
+            TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion))) { tl in
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [4, 3], dashPhase: euclideousMarchingAntsPhase(tl.date, period: 7)))
                     .foregroundColor(accent)

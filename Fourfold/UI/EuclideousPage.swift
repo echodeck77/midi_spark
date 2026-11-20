@@ -2125,7 +2125,7 @@ struct EuclideousPage: View {
             // decorative, so a plain wall-clock TimelineView is fine (not the render/engine path
             // architecture invariants govern; this never reaches the document or the snapshot).
             if on {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
+                TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion))) { tl in
                     RoundedRectangle(cornerRadius: S.diceRingRadius)
                         .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 3], dashPhase: euclideousMarchingAntsPhase(tl.date)))
                         .foregroundColor(Color(hex: 0xDFE3EA))
@@ -2216,7 +2216,7 @@ struct EuclideousPage: View {
         let rootInUse = (0..<n).contains { lines[$0].poolSrcMaskResolved & 1 != 0 && euclideousLaneMidiMode(lines[$0].midiMode, planMode: sourcePlan.midiModeR) == .root }
         let t = sourceStatus.rootTranspose, held = sourceStatus.midiNotes.count, running = clock.playing
         let lampIdle = !running && held == 0 && (headerLampAt == nil || Date().timeIntervalSinceReferenceDate - (headerLampAt ?? 0) >= EuclideousHeaderStatusMetrics.lampHold)
-        return TimelineView(.animation(paused: lampIdle)) { tl in   // §3.6 the playing column moves live while running; while stopped we animate only until the lamp expires
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: lampIdle)) { tl in   // §3.6 the playing column moves live while running; while stopped we animate only until the lamp expires. PERF (2026-11-20): the chord/lamp change on musical steps — 30 fps (was display-max, no interval).
             let beat = walkTagBeat(at: tl.date), now = tl.date.timeIntervalSinceReferenceDate
             let gs1 = euclideousGridStatus(laneOnGrid: la1.on, laneReading: la1.reading, running: running, column: chordsPagePlayingColumn(set: 0, beat: beat), nextColumn: chordsPageNextColumn(set: 0, beat: beat))
             let gs2 = euclideousGridStatus(laneOnGrid: la2.on, laneReading: la2.reading, running: running, column: chordsPagePlayingColumn(set: 1, beat: beat), nextColumn: chordsPageNextColumn(set: 1, beat: beat))
@@ -2969,7 +2969,7 @@ struct EuclideousPage: View {
         let fromView = pageTabCardView(flipFrom ?? pageTab, idx, width: width, height: height, flipping: true)
         let toView = pageTabCardView(pageTab, idx, width: width, height: height, flipping: true)
         let reduce = reduceMotion
-        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { tl in
+        return AnyView(TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion))) { tl in
             let f = euclideousCardTurn(sinceTap: tl.date.timeIntervalSince(start), lane: idx, reduceMotion: reduce)
             ZStack {
                 if let underTo = f.underShowsTo { (underTo ? toView : fromView).opacity(f.underOpacity) }
@@ -3054,7 +3054,7 @@ struct EuclideousPage: View {
         if let start = euclideousRandomReturnHighlightStart[idx] {
             let accent = laneAccents[idx % laneAccents.count]
             let durationSeconds = clock.playing && clock.tempo > 0 ? (2 * clock.beatsPerBar * 60.0 / clock.tempo) : 4.0
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+            TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: false)) { tl in
                 let elapsed = tl.date.timeIntervalSinceReferenceDate - start.timeIntervalSinceReferenceDate
                 if elapsed < 0 || elapsed > durationSeconds {
                     Color.clear.allowsHitTesting(false)
@@ -3112,7 +3112,7 @@ struct EuclideousPage: View {
         let audible = !partSoloSilenced(idx, part: isNotes ? 1 : 0)
         let heldByHeader = on && (isNotes ? !stackMaster : !riffMaster)   // HEADER v2 §3.5: the lane's own part is on but its master is off
         let label = "Play \(isNotes ? "stack" : "riff"), lane \(idx + 1)"
-        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !pulseLive)) { tl in
+        return AnyView(TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !pulseLive)) { tl in
             let notes = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
             let nowBeat = walkTagBeat(at: tl.date)
             // §1.4/§8.5: the triangle follows the HELD SET (a note sounding now, routed to an emitter, audible), not the playhead.
@@ -3613,7 +3613,7 @@ struct EuclideousPage: View {
     private func altCycleStripLive(_ idx: Int, _ line: EuclidLine, _ accent: Color, frame: CGRect) -> some View {
         let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
         let cfg = riffWalkConfig(idx)
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running || cfg == nil)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !running || cfg == nil)) { tl in
             let cur: Int = {
                 guard running, let cfg else { return -1 }
                 let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
@@ -3865,7 +3865,7 @@ struct EuclideousPage: View {
                                                  barBeats: clock.beatsPerBar, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: running)
         return ZStack(alignment: .topLeading) {
             // The two progress tiles at y 0 of each half (§1.3) — ONE TimelineView drives both sweeps + the MELODY cell-strike bank, exactly as the old `restartTilesRow` did.
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !running || cfg == nil)) { tl in
+            TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !running || cfg == nil)) { tl in
                 let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
                 let rRhythm = resetsRulerAndRatio(cfg, beat: beat, running: running, line: line, kind: .rhythm)
                 let rMelody = resetsRulerAndRatio(cfg, beat: beat, running: running, line: line, kind: .melody)
@@ -3886,7 +3886,7 @@ struct EuclideousPage: View {
                                          runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .rhythm, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet))
                 .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
             // draft 3 §3: the resolve count rides the link row, updated at bar lines (a modest TimelineView — it changes slowly; §3.5 it never taps or dims). Stopped ⇒ the bar holding the playhead position (the frozen beat).
-            TimelineView(.animation(minimumInterval: 1.0 / 4.0, paused: !running)) { tl in
+            TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 4.0, reduceMotion: reduceMotion), paused: !running)) { tl in
                 let info = restartScheduleSet.resolveInfo(lane: idx)
                 let nowBeat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
                 EuclideousRestartLinkRow(on: settings.withRhythm, accent: accent, lineOn: lane100(accent).opacity(0.6), lineOff: Color(hex: 0x2F333B),
@@ -3953,7 +3953,7 @@ struct EuclideousPage: View {
         let rhythmSpec = euclideousRestartTileSpec(rhythm: true, settings: settings, ownLane: idx), melodySpec = euclideousRestartTileSpec(rhythm: false, settings: settings, ownLane: idx)
         let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
         let cfg = riffWalkConfig(idx)
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !running || cfg == nil)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !running || cfg == nil)) { tl in
             let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))   // the engine's musical beat (identity at 50 % swing): the restarts are on its bar lines
             let melodyState = cfg.map { restartTileState(.melody, cfg: $0, beat: beat, running: running) }
             let bank: EuclideousCellStrikeBank? = (running && melodyState != nil)
@@ -4179,7 +4179,7 @@ struct EuclideousPage: View {
         let beatNow = lanesMusicalBeat(real: walkTagBeat(at: Date()))
         let spoken = cfg.map { restartTileState(kind, cfg: $0, beat: beatNow, running: running) }
         let value = [spoken?.restartsInText ?? "", isMelody ? (spoken?.notesThisCycleText ?? "") : ""].filter { !$0.isEmpty }.joined(separator: ", ")
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !running || cfg == nil)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !running || cfg == nil)) { tl in
             let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
             let state = cfg.map { restartTileState(kind, cfg: $0, beat: beat, running: running) }
             let bank: EuclideousCellStrikeBank? = (isMelody && running && state != nil)
@@ -4390,7 +4390,7 @@ struct EuclideousPage: View {
         let loop = line.fillLoopResolved
         let L = euclideousFillBlockLayout(box: box, loop: loop)
         // The TimelineView closure is ONE expression (a call returning AnyView), so its Content infers cleanly.
-        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+        return AnyView(TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !pulseLive)) { tl in
             self.fillBlockContent(idx: idx, line: line, accent: accent, box: box, L: L, loop: loop, date: tl.date)
         })
     }
@@ -4555,7 +4555,7 @@ struct EuclideousPage: View {
     private func fillBlockV2(_ idx: Int, _ line: EuclidLine, _ accent: Color, box: CGSize) -> AnyView {
         let loop = line.fillLoopResolved
         let L = euclideousFillTabV2Layout(box: box, loop: loop)
-        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !pulseLive)) { tl in
+        return AnyView(TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !pulseLive)) { tl in
             self.fillV2Content(idx: idx, line: line, accent: accent, box: box, L: L, loop: loop, date: tl.date)
         })
     }
@@ -4796,7 +4796,7 @@ struct EuclideousPage: View {
         let active = line.usesRateOverride, freeOn = line.rateFreeResolved, brush = line.rateBrushResolved, bars = line.rateBarsResolved
         let dim: Double = freeOn ? 0.42 : 1.0
         func pos(_ r: CGRect, _ v: AnyView) -> AnyView { AnyView(v.frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)) }
-        return AnyView(TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+        return AnyView(TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !pulseLive)) { tl in
             let beat: Double? = clock.playing ? lanesMusicalBeat(real: walkTagBeat(at: tl.date)) : nil
             let cur = euclideousRateCurrentBox(hostBeat: beat, beatsPerBar: clock.beatsPerBar)
             let prog = beat.map { euclideousRateBarProgress(hostBeat: $0, beatsPerBar: clock.beatsPerBar) } ?? 0
@@ -5276,7 +5276,7 @@ struct EuclideousPage: View {
         let isRiff = line.riffOnResolved
         let ringEligible = clock.playing && line.enabledResolved && isRiff
         let trail = idx < walkTrails.count ? walkTrails[idx] : EuclideousRiffWalkTrail()
-        return TimelineView(.animation(minimumInterval: 1.0 / 15, paused: !ringEligible)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 15, reduceMotion: reduceMotion), paused: !ringEligible)) { tl in
             let liveCur = (ringEligible ? cfg : nil).flatMap { riffWalkCurrentStep($0, beat: walkTagBeat(at: tl.date), P: P) } ?? -1
             let tick = ringEligible && riffWalkTickActive(idx, cfg: cfg, now: tl.date)
             Canvas { ctx, size in
@@ -5950,7 +5950,7 @@ struct EuclideousPage: View {
         let order = line.litOrderResolved
         let part = 2 * idx + 1
         // §A2.6: a 60 fps layer so a tile rings + glows while its rank sounds (the STACK-grid-live feed and rule); paused when the page isn't live.
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !pulseLive)) { tl in
           let beat = walkTagBeat(at: tl.date)
           let notesPart = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
           ZStack(alignment: .topLeading) {
@@ -8108,7 +8108,7 @@ struct EuclideousPage: View {
     private func riffPanelOverlay(layout: EuclideousRiffPanelLayout, ranks: [Int], suppressArrows: Bool, played: [Set<Int>]) -> some View {
         // RIFF GRID STACK DOTS: the per-lane inputs are built once per body eval (they change on edits, not per frame); the Canvas re-evaluates the fade + sweep at the live beat inside the TimelineView.
         let stackDotInputs: [StackDotLaneInput] = suppressArrows ? [] : (0..<4).map { stackDotInput($0) }
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !pulseLive)) { tl in
             let beat = walkTagBeat(at: tl.date)
             let frames = riffLaneFrames(ranks: ranks, beat: beat, now: tl.date.timeIntervalSinceReferenceDate)
             let cells = suppressArrows ? [] : riffArrowCells(frames, ranks: ranks)
@@ -8295,7 +8295,7 @@ struct EuclideousPage: View {
             }
             Color.clear.frame(height: L.headerGap)
             // STACK GRID LIVE §2/§3: a 60 fps layer so the cells light + glow while notes sound and the riff ghost ring tracks; paused when the page isn't live (stopped = the frozen rest looks, §6.2).
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+            TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !pulseLive)) { tl in
                 let beat = walkTagBeat(at: tl.date)
                 let ghost = (0..<4).map { riffGhost($0, beat: beat) }   // STACK GRID RIFF ARROW §1: the current chip each lane's riff reads now (the arrow), one plan per lane per frame
                 VStack(spacing: L.rowGap) {
@@ -9010,7 +9010,7 @@ struct EuclideousPage: View {
     /// PULSE §5: ONE overlay over the whole grid (one TimelineView, never one per pad): for each pad the lane's latest strike of ITS layer — the riff pad shows riff strikes, the notes pad notes-layer strikes (5.1) — and
     /// for each routed, main-out-on OUT button the lane's latest strike of either layer. Only strikes that have happened and are younger than 1.5 s are passed; the painter turns velocity and age into pixels.
     private func mixPulseOverlay(grid: EuclideousMixGrid, width: CGFloat, height: CGFloat) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !pulseLive)) { tl in
+        TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !pulseLive || euclideousPulseScale(level: pulseLevel) == 0)) { tl in   // PERF (2026-11-20): this overlay is PULSE-only — with PULSE OFF it draws nothing, so pause it (was running 60 fps building an empty overlay)
             let now = tl.date.timeIntervalSinceReferenceDate
             let p = euclideousPulseScale(level: pulseLevel)
             var pads: [EuclideousMixPulsePad] = []

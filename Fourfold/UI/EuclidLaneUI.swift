@@ -458,7 +458,7 @@ struct EuclidCometBar: View {
                 ?? euclidCometRaw(mTickBeat: b, sub: sub, spanBeats: spanBeats, n: n, dir: dir)
         }
         ZStack {
-        TimelineView(.animation(minimumInterval: strip != nil && (running || pulseScale > 0) ? 1.0 / 60.0 : 1.0 / 30.0, paused: flipping || !(running || (pulseFeed != nil && pulseLive)))) { tl in   // the strip's playhead glides: 60 fps while it runs (LANE STRIP §2); PERF: frozen while the card flips (§2026-11-18)
+        TimelineView(.animation(minimumInterval: euclideousAnimInterval(strip != nil && (running || pulseScale > 0) ? 1.0 / 60.0 : 1.0 / 30.0, reduceMotion: reduceMotion), paused: flipping || !(running || (pulseFeed != nil && pulseLive)))) { tl in   // the strip's playhead glides: 60 fps while it runs (LANE STRIP §2); PERF: frozen while the card flips (§2026-11-18); Reduce Motion caps the rate (2026-11-20)
             let liveBeat = clock.anchor + tl.date.timeIntervalSince(clock.anchorAt) * clock.tempo / 60.0
             // DIRECTION-AWARE SWEEP: `cometRaw` is the raw tick count mod the direction's real cycle length (n, or
             // 2n under PING-PONG); `cometPos` is its continuous screen position, reversing/bouncing per
@@ -916,6 +916,7 @@ struct EuclidGesturePad: UIViewRepresentable {
 /// its own per-tick hit decision (`euclidReadIndex`/`euclidCycleLen`/`euclidPatternInto`) via the
 /// same continuous tick-count the comet bar drives its own sweep from (`euclidCometRaw`).
 struct EuclidBeacon: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let line: EuclidLine
     let isMiss: Bool
     let accent: Color
@@ -931,7 +932,7 @@ struct EuclidBeacon: View {
         let sub = max(0.03125, rate.beats)
         let spanBeats = spanN > 0 ? spanLadderBeats(spanN, S: clock.stepBeats, row: Double(clock.cols) * clock.stepBeats) : 0
         let running = clock.playing && line.enabledResolved
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running || !isReady)) { tl in
+        TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !running || !isReady)) { tl in
             beaconCircle(flash: beaconFlash(tl.date, n: n, k: k, rotate: line.rotate, dir: dir, sub: sub, spanBeats: spanBeats, running: running))
         }
     }

@@ -161,6 +161,7 @@ struct EuclideousMixBandView: View {
 // MARK: - the band's live canvas: strip, pool chips, two rolls (one TimelineView, one Canvas)
 
 struct EuclideousMixBandCanvas: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let lane: Int
     let band: EuclideousMixBandFrames
     let strip: CGRect
@@ -183,7 +184,7 @@ struct EuclideousMixBandCanvas: View {
         let cells = euclideousMixStripCells(strip: strip, steps: feed.n, mode: mode)
         let poolName = input.poolName
         let lane = self.lane
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !input.live)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !input.live)) { tl in
             Canvas { ctx, size in
                 ctx.translateBy(x: -origin.x, y: -origin.y)
                 let now = beatAt(tl.date)
@@ -473,6 +474,7 @@ struct EuclideousMixSliderTile: View {
 // MARK: - the lines, the origin dots and the four emitters (one layer, no touches)
 
 struct EuclideousMixLinesLayer: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let layout: EuclideousMixRowsLayout
     let input: EuclideousMixPanelInput
 
@@ -491,7 +493,7 @@ struct EuclideousMixLinesLayer: View {
         let noHits: [Bool] = (0..<4).map { $0 < input.strips.count ? euclideousMixLaneHasNoHits(legs: input.strips[$0].legs) : false }
         let left = layout.bandW - 8
         let canvasW = layout.size.width - left
-        return TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !input.live)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !input.live)) { tl in
             Canvas { ctx, size in
                 ctx.translateBy(x: -left, y: 0)
                 typealias M = EuclideousMixLineMetrics

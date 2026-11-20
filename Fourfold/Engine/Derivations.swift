@@ -9704,6 +9704,15 @@ let euclideousNotesWayOrder: [EuclidNotesPlayAs] = [.chord, .roll, .run, .cycle,
 
 /// PULSE setting → the scale P (7.1): OFF 0, SUBTLE 0.6, FULL 1. The stored level is 0 / 1 / 2 (anything else reads FULL).
 func euclideousPulseScale(level: Int) -> Double { level == 0 ? 0 : (level == 1 ? 0.6 : 1) }
+
+/// PERF (2026-11-20, main-thread relief valve): the frame interval a `TimelineView(.animation)` should use. Reduce
+/// Motion (the accessibility / weak-device signal) clamps the redraw rate to at most `euclideousReduceMotionFPS`
+/// (20 fps) — so a motion-sensitive user on an older iPad pays far less CPU, while everyone else keeps the smooth
+/// `base` rate. Already-slower animations keep their own (slower) interval. `base` is the normal interval (e.g. 1/60).
+let euclideousReduceMotionFPS: Double = 20
+@inline(__always) func euclideousAnimInterval(_ base: Double, reduceMotion: Bool) -> Double {
+    reduceMotion ? max(base, 1.0 / euclideousReduceMotionFPS) : base
+}
 let euclideousPulseMaxAge: Double = 1.5
 
 /// RANDOM MODE "marching ants": the dash OFFSET for a scrolling dashed stroke, one full dash cycle every

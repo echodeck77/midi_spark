@@ -113,6 +113,7 @@ private struct EuclideousMuteStripView: View, Equatable {
 /// independent of the cached window). iOS-15 floor ⇒ glows are GraphicsContext `.shadow` filters, not a Metal `.layerEffect` (§6.3).
 /// Stopped: the TimelineView pauses, the body re-renders with `playing == false`, so no glow / trail draws and the playhead freezes.
 private struct EuclideousMuteLiveLayer: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let layout: EuclideousMuteRowsLayout
     let rows: [EuclideousMuteRow]
     let accents: [Color]
@@ -122,7 +123,7 @@ private struct EuclideousMuteLiveLayer: View {
     private static let flashBeats = 0.12   // the white note-on flash fades over ~an eighth of a beat (DEVICE-OWED by eye)
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !playing)) { tl in
+        TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !playing)) { tl in
             let beat = beatAt(tl.date)
             Canvas { ctx, _ in
                 for o in 0..<min(4, rows.count) {

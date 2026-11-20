@@ -401,6 +401,7 @@ struct EmitterRatchetConfigButton: View {
 
 /// The RATCH tab: four cards A–D (toggle · strip · four cells · config button), laid out by `emitterRatchetLayout`. `playing` keeps the flare layers animating (and for the 1.5 s after a stop).
 struct EuclideousRatchetPanel: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let layout: EmitterRatchetLayout
     let ratchets: EmitterRatchetSet
     let accents: [Color]
@@ -440,7 +441,7 @@ struct EuclideousRatchetPanel: View {
         let accentOf: (Int) -> Color = { accents[max(0, min(accents.count - 1, $0))] }
         return HStack(alignment: .top, spacing: 0) {
             // the toggle target: 44 × the card's inner height, the disc centred in it (§4.3)
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !playing)) { tl in
+            TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60, reduceMotion: reduceMotion), paused: !playing)) { tl in
                 let now = tl.date.timeIntervalSinceReferenceDate
                 let fl = emitterRatchetFlare(output: x, strikes: strikes(), now: now, scale: pulseScale)
                 let ratcheted = fl?.ratcheted == true ? fl : nil
@@ -458,7 +459,7 @@ struct EuclideousRatchetPanel: View {
             // the right column (§4.4): the strip, 4 below it the readout row; 42 % while the emitter is off but still live (§5.2)
             VStack(spacing: M.stripGap) {
                 // RATCH v2 (2026-11-15): the redrawn strip (STEPS slots, in-cell marks, the current outline, the flare recolouring the flaring hit's marks).
-                TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !playing)) { tl in
+                TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60, reduceMotion: reduceMotion), paused: !playing)) { tl in
                     let fl = emitterRatchetFlare(output: x, strikes: strikes(), now: tl.date.timeIntervalSinceReferenceDate, scale: pulseScale)
                     EmitterRatchetStripV2View(size: CGSize(width: stripW, height: M.stripHeight), r: r, current: current, expanded: false, flare: fl, flareSlot: flareSlot, accent: fl.map { accentOf($0.lane) } ?? .clear)
                 }
@@ -571,6 +572,7 @@ private struct EmitterRatchetMiniStepper: View {
 /// One emitter fills the whole panel: an A–D disc column on the left to switch which emitter is open, then the editor — a big strip, the value row (STEPS · HITS · OFFSET · CHANCE · RESTART + a collapse button), the STRIKES block
 /// (FIX · RANGE · HIT and its count / MIN·MAX / per-hit editing) and the GAP block. CUT · SPILL is hidden (§0.2 — SPILL falls back to CUT this build). Every data edit is one undo step through `onEdit`; opening / switching / collapsing is view-state only (§7.8).
 struct EmitterRatchetExpandedView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let output: Int
     let bodySize: CGSize
     let portrait: Bool
@@ -648,7 +650,7 @@ struct EmitterRatchetExpandedView: View {
         let flareSlot = live.flareIndex(output) ?? current
         let accentOf: (Int) -> Color = { accents[max(0, min(accents.count - 1, $0))] }
         let s = euclideousRatchetStripV2(size: CGSize(width: width, height: height), r: r, current: current, expanded: true)
-        return TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !playing)) { tl in
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60, reduceMotion: reduceMotion), paused: !playing)) { tl in
             let fl = emitterRatchetFlare(output: output, strikes: strikes(), now: tl.date.timeIntervalSinceReferenceDate, scale: pulseScale)
             EmitterRatchetStripV2View(size: CGSize(width: width, height: height), r: r, current: current, expanded: true, flare: fl, flareSlot: flareSlot, accent: fl.map { accentOf($0.lane) } ?? .clear)
         }

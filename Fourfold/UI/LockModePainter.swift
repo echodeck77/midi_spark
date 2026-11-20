@@ -90,7 +90,7 @@ struct EuclideousLockRing: View {
     let reduceMotion: Bool
     var body: some View {
         if let start {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+            TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: false)) { tl in
                 let t = tl.date.timeIntervalSince(start)
                 if t >= 0 && t < 0.6 {
                     RoundedRectangle(cornerRadius: radius).strokeBorder(accent, lineWidth: 2)

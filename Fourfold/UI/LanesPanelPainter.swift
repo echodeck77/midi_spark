@@ -119,13 +119,14 @@ private struct EuclideousLanesStaticLayer: View, Equatable {
 /// The playheads: one per lane, 2pt wide, from 2pt above the block to 2pt below, glowing, drawn above everything. Position from the
 /// transport beat only (`euclideousLanesPosition`), never a timer; frozen while the transport is stopped.
 private struct EuclideousLanesPlayheads: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion   // PERF (2026-11-20): caps the TimelineView frame rate
     let layout: EuclideousLanesLayout
     let unitBeats: [Double]
     let playing: Bool
     let beatAt: (Date) -> Double
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !playing)) { tl in
+        TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !playing)) { tl in
             let beat = beatAt(tl.date)
             Canvas { ctx, _ in
                 for output in 0..<4 {
