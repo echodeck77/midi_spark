@@ -493,6 +493,21 @@ final class RhythmPolishTests: XCTestCase {
         XCTAssertEqual((0..<7).map { cellsScratch[$0] }, (0..<7).map { flipped[$0] })
     }
 
+    // FLIP HITS as a ONE-OFF (Paul 2026-11-20): euclideousFlipHitsPattern = the current effective pattern, every step toggled (for customHits).
+    func testFlipHitsOneOffInvertsTheCurrentPattern() {
+        let l = EuclidLine(pulses: 3, steps: 7, noteSel: .all)
+        var cells = [Bool](repeating: false, count: 16), micro = [Double](repeating: 0, count: 16)
+        _ = euclideousBuildHitPatternInto(l, cells: &cells, micro: &micro)
+        let flip = euclideousFlipHitsPattern(l)
+        XCTAssertEqual(flip.count, 7)
+        XCTAssertEqual(flip, (0..<7).map { !cells[$0] }, "every step toggled")
+        // stored as a hand-edit, flipping again returns the original (flip of flip)
+        var l2 = l; l2.customHits = flip; l2.patternMiss = false
+        XCTAssertEqual(euclideousFlipHitsPattern(l2), (0..<7).map { cells[$0] }, "flip of flip is the original")
+        // a lane already in patternMiss mode: the one-off reads the inverted cells and inverts back to the plain euclidean
+        var l3 = l; l3.patternMiss = true
+        XCTAssertEqual(euclideousFlipHitsPattern(l3), (0..<7).map { cells[$0] }, "flipping an inverted lane gives the plain pattern")
+    }
     func testTheRightHalfRowsAndDirectionButtonsAtTheReferenceCard() {
         // the reference card's upper zone is 116 pt tall and its right half 167.25 pt wide (RHYTHM POLISH §1.2–1.3): three equal rows and four equal buttons, sp4 apart
         let gap = EuclideousRhythmGeometry.gap

@@ -3584,6 +3584,15 @@ func euclideousBuildHitPatternInto(_ L: EuclidLine, cells: inout [Bool], micro: 
     return euclideousHitPatternInto(pulses: max(0, min(n, L.pulses)), steps: n, rotate: L.rotate, tilt: L.tiltResolved, fine: L.tiltIsFine,
                                     customHits: L.customHits, patternMiss: L.patternMissResolved, cells: &cells, micro: &micro)
 }
+/// FLIP HITS as a ONE-OFF (Paul 2026-11-20): the lane's current effective pattern with EVERY step toggled — meant to be stored as
+/// a hand-edit (`customHits`), so it behaves exactly as if the user tapped every step (and the drag controls then work normally),
+/// NOT the `patternMiss` mode. TILT micro-timing is dropped, as a hand-edited pattern never carries tilt (a manual toggle wouldn't either).
+func euclideousFlipHitsPattern(_ line: EuclidLine) -> [Bool] {
+    let n = max(2, min(16, line.steps))
+    var cells = [Bool](repeating: false, count: 16), micro = [Double](repeating: 0, count: 16)
+    _ = euclideousBuildHitPatternInto(line, cells: &cells, micro: &micro)
+    return (0..<n).map { !cells[$0] }
+}
 
 // MARK: - EUCLID tab v2 (2026-11-15) §4 — OFFSET / TILT inert when nothing they could be would change what plays
 

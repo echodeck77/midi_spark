@@ -1040,6 +1040,7 @@ struct EuclideousPage: View {
     @State private var ratchExpanded: Int? = nil
     @State private var ccExpanded: Int? = nil   // CC tab (Nov 2026): which emitter's full page is open (nil = the four collapsed rows)
     // RIFF v3 ferry (2026-11-14) §3.7: the per-lane walk trail (played/skipped/current), its last-seen walk step, and the reset-tick stamp. Display-only view state, driven from the 30 Hz walk poll; never saved, never undone.
+    @State private var euclidFlipSpin = [0, 0, 0, 0]   // FLIP HITS: a per-lane counter bumped on each one-off flip, to spin the button
     @State private var walkTrails = [EuclideousRiffWalkTrail](repeating: EuclideousRiffWalkTrail(), count: 4)
     @State private var walkPrevStep = [Int](repeating: -1, count: 4)
     @State private var walkTickAt = [Date?](repeating: nil, count: 4)
@@ -3040,6 +3041,18 @@ struct EuclideousPage: View {
             .clipped()          // (the back paints its own fill and border — `EuclideousCardBackView`, §4.2)
     }
     /// The label pill (and the TURN ON invitations): the part's on/off, the field and the undo step the tab's own switch uses.
+    /// FLIP HITS (Paul 2026-11-20): a ONE-OFF action — bake the inverted current pattern into `customHits` (a hand-edit, so the
+    /// drag controls behave normally) and clear the `patternMiss` mode, as ONE undo step. Same result as tapping every step.
+    private func flipHits(_ idx: Int) {
+        guard idx >= 0, idx < 4 else { return }
+        edit(idx) { l in
+            let flipped = euclideousFlipHitsPattern(l)
+            l.customHits = flipped
+            l.patternMiss = false
+            l.pulses = flipped.filter { $0 }.count   // the HITS readout tracks the hand-edit's hit count
+        }
+        euclidFlipSpin[idx] += 1   // spin the button to show the flip happening
+    }
     private func cardBackToggle(_ idx: Int, _ part: EuclideousCardPart) {
         let isNotes = part == .notes
         // RE-ENABLE ON ENABLE (Paul 2026-11-20): turning a lane's part ON while its master (PLAY RIFF / PLAY STACK) is OFF
@@ -3416,15 +3429,18 @@ struct EuclideousPage: View {
                 .frame(width: 22, height: 18)
         }
     }
-    /// §2.7: FLIP HITS (group 1) — `patternMiss`, unchanged.
+    /// §2.7 / FLIP HITS as a ONE-OFF (Paul 2026-11-20): a momentary ACTION (no persistent on-state) — `flipHits` bakes the inverted
+    /// pattern into `customHits` so the drag controls keep working. The tile spins 360° around Y on each tap to show the flip.
     private func euclidV2FlipTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
-        let on = line.patternMissResolved
-        return euclidV2Tile(idx, lock: .inv, on: on, size: size, ax: EuclideousFlipHits.accessibilityLabel, axValue: lockSpoken(idx, .inv, on ? "on" : "off"),
-                            help: "Play on the empty steps instead of the hits", toggleTrait: true, action: { edit(idx) { $0.patternMiss = !on } }) {
+        let tile = euclidV2Tile(idx, lock: nil, on: false, size: size, ax: EuclideousFlipHits.accessibilityLabel,
+                                help: "Flip the lane: every hit becomes a rest and every rest a hit (one step)", action: { flipHits(idx) }) {
             VStack(spacing: 1) { Text(EuclideousFlipHits.lines[0]).tracking(0.64); Text(EuclideousFlipHits.lines[1]).tracking(0.64) }
                 .font(.system(size: 8, weight: .heavy, design: .monospaced))
-                .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
+                .foregroundColor(Color(hex: FourfoldSelect.switchInk(false)))
         }
+        return AnyView(tile
+            .rotation3DEffect(.degrees(Double(euclidFlipSpin[idx]) * 360), axis: (x: 0, y: 1, z: 0))
+            .animation(.easeInOut(duration: 0.4), value: euclidFlipSpin[idx]))
     }
     /// §2.7: LET RING (group 2) — `notesRing` (relabelled from RING), unchanged. Not a lock field.
     private func euclidV2RingTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
@@ -3830,22 +3846,22 @@ struct EuclideousPage: View {
     /// RHYTHM POLISH ferry (2026-10-22) §2.3: INV is now FLIP HITS — "FLIP" over "HITS" on two lines (8 pt heavy, 0.08 em tracking, 1 pt apart, centred). The setter, undo and selected state are unchanged; VoiceOver says
     /// "Flip hits" and it carries the page's toggle trait (INV carried none). The old `invButton` below is kept, unused.
     private func flipHitsButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
-        let on = line.patternMissResolved
+        // FLIP HITS is a ONE-OFF action now (Paul 2026-11-20): no persistent on-state; `flipHits` bakes the inverted pattern into customHits. Spins 360° on tap.
         return AnyView(VStack(spacing: 1) {
             Text(EuclideousFlipHits.lines[0]).tracking(0.64); Text(EuclideousFlipHits.lines[1]).tracking(0.64)   // per Text: `View.tracking` on the stack is iOS 16, `Text.tracking` is iOS 13
         }
         .font(.system(size: 8, weight: .heavy, design: .monospaced))
-        .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
+        .foregroundColor(Color(hex: FourfoldSelect.switchInk(false)))
         .frame(width: width, height: height)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(on))))
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(false))))
         .contentShape(Rectangle())
-        .modifier(laneTapMod(idx) { edit(idx) { $0.patternMiss = !on } })
-        .modifier(lockOutlineMod(idx, .inv, accent))
-        .euclideousHelp("Play on the empty steps instead of the hits")
+        .modifier(laneTapMod(idx) { flipHits(idx) })
+        .euclideousHelp("Flip the lane: every hit becomes a rest and every rest a hit (one step)")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(EuclideousFlipHits.accessibilityLabel)
-        .accessibilityValue(lockSpoken(idx, .inv, on ? "on" : "off"))
-        .ringToggleTrait())
+        .accessibilityAddTraits(.isButton)
+        .rotation3DEffect(.degrees(Double(euclidFlipSpin[idx]) * 360), axis: (x: 0, y: 1, z: 0))
+        .animation(.easeInOut(duration: 0.4), value: euclidFlipSpin[idx]))
     }
     /// RING (Paul 2026-11-13): next to FLIP HITS — the stack (NOTES) layer's notes keep sounding through rests to the end of the pass (the riff walk cycle), building up like a sustain pedal, then clear. A full override of the notes GATE while on. Not a lock field.
     private func ringButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat, height: CGFloat) -> AnyView {
