@@ -2271,7 +2271,14 @@ struct EuclideousPage: View {
             let partOn = isNotes ? euclideousNotesLayerIsOn(lines[i]) : lines[i].riffOnResolved
             return partOn && euclideousLaneRunsInEngine(lines[i])
         }
-        let pips = euclideousMasterPips(master: on, parts: parts)
+        // PLAY STACK (Paul 2026-11-20): a lane with NO ranks selected shows an EMPTY pip (not the off-outline) — nothing for its stack to play, so it must not read as enabled.
+        let pips: [EuclideousMasterPip]
+        if isNotes {
+            let hasRanks = (0..<4).map { i in i < lines.count && euclideousNotesHaveSelection(lines[i]) }
+            pips = euclideousStackMasterPips(master: on, parts: parts, hasRanks: hasRanks)
+        } else {
+            pips = euclideousMasterPips(master: on, parts: parts)
+        }
         let nameC = on ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)
         return AnyView(
             HStack(spacing: 0) {
@@ -2280,9 +2287,9 @@ struct EuclideousPage: View {
                 Spacer().frame(width: HM.sp8)
                 Text(name).font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(0.1 * 13).foregroundColor(nameC)
                 Spacer(minLength: 0)
-                VStack(spacing: 3) {   // §3.3: lane 1,2 over 3,4
-                    HStack(spacing: 3) { headerMasterPip(pips[0], lane: 0); headerMasterPip(pips[1], lane: 1) }
-                    HStack(spacing: 3) { headerMasterPip(pips[2], lane: 2); headerMasterPip(pips[3], lane: 3) }
+                VStack(spacing: 2) {   // §3.3: lane 1,2 over 3,4 (Paul 2026-11-20: tighter — smaller pips)
+                    HStack(spacing: 2) { headerMasterPip(pips[0], lane: 0); headerMasterPip(pips[1], lane: 1) }
+                    HStack(spacing: 2) { headerMasterPip(pips[2], lane: 2); headerMasterPip(pips[3], lane: 3) }
                 }
             }
             .padding(.horizontal, 16)   // §11 tunable (Paul 2026-11-20: bumped 12 → 16 so the triangle and pips aren't crammed against the edges — the central flex space absorbs it, the 124 outer width is unchanged so the layout pins hold)
@@ -2299,9 +2306,11 @@ struct EuclideousPage: View {
     }
     private func headerMasterPip(_ look: EuclideousMasterPip, lane: Int) -> some View {   // §3.4: filled in the lane's colour (100 % / 30 %) or an outline (45 %); hidden from VoiceOver (§10.5)
         let c = lane100(laneAccents[lane % laneAccents.count])
+        // Paul 2026-11-20: the four pips shrank 9 → 7; a no-ranks STACK lane draws EMPTY (a clear 7×7 spacer, keeping the 2×2 layout) so it reads as not enabled.
         switch look {
-        case .filled(let o): return AnyView(RoundedRectangle(cornerRadius: 2).fill(c.opacity(o)).frame(width: 9, height: 9))
-        case .outline: return AnyView(RoundedRectangle(cornerRadius: 2).strokeBorder(c.opacity(0.45), lineWidth: 1.2).frame(width: 9, height: 9))
+        case .filled(let o): return AnyView(RoundedRectangle(cornerRadius: 2).fill(c.opacity(o)).frame(width: 7, height: 7))
+        case .outline: return AnyView(RoundedRectangle(cornerRadius: 2).strokeBorder(c.opacity(0.45), lineWidth: 1.2).frame(width: 7, height: 7))
+        case .empty: return AnyView(Color.clear.frame(width: 7, height: 7))
         }
     }
     // MARK: UTILITIES — PLAY RIFF / PLAY STACK masters, presets, reel, settings (swing removed — HEADER v2 §6.4)

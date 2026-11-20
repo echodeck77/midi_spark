@@ -27,6 +27,15 @@ final class MastersTests: XCTestCase {
         XCTAssertEqual(euclideousMasterPips(master: false, parts: [false, false, false, false]),
                        [.outline, .outline, .outline, .outline])
     }
+    // PLAY STACK (Paul 2026-11-20): a lane with no ranks selected shows EMPTY (not the off-outline) — it must not read as enabled.
+    func testStackMasterPipsEmptyWhenNoRanks() {
+        // lane 0 plays (filled), lane 1 has ranks but part off (outline), lanes 2 & 3 have NO ranks (empty)
+        XCTAssertEqual(euclideousStackMasterPips(master: true, parts: [true, false, false, false], hasRanks: [true, true, false, false]),
+                       [.filled(opacity: 1.0), .outline, .empty, .empty])
+        // with ranks everywhere it matches the plain master pips
+        XCTAssertEqual(euclideousStackMasterPips(master: false, parts: [true, false, true, false], hasRanks: [true, true, true, true]),
+                       euclideousMasterPips(master: false, parts: [true, false, true, false]))
+    }
 
     // §10.1: the master's spoken VALUE — off, or "on, lanes …" naming the lanes whose own part is on.
     func testMasterVoiceOverValue() {

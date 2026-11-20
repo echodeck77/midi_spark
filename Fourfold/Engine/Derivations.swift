@@ -10464,9 +10464,17 @@ func euclideousLaneSoloTap(parts: UInt8, lane: Int) -> UInt8 {
 /// §3.4/§8.2: the look of each of a master's four lane pips. `parts[l]` = lane l's OWN part state (riff for PLAY RIFF,
 /// stack for PLAY STACK). A lit part → a FILLED pip in the lane's colour, 100 % while the master is on, 30 % while off
 /// (it shows the lane WILL return); an unlit part → an OUTLINE pip (1.2 pt inner border, lane colour at 45 %).
-enum EuclideousMasterPip: Equatable { case filled(opacity: Double), outline }
+enum EuclideousMasterPip: Equatable { case filled(opacity: Double), outline, empty }
 @inline(__always) func euclideousMasterPips(master: Bool, parts: [Bool]) -> [EuclideousMasterPip] {
     parts.map { $0 ? .filled(opacity: master ? 1.0 : 0.30) : .outline }
+}
+/// The PLAY STACK master's pips (Paul 2026-11-20): like `euclideousMasterPips`, but a lane with NO ranks selected shows EMPTY
+/// (no fill, no outline) rather than the off-outline — there is nothing for that lane's stack to play, so it must not read as
+/// enabled. A lane WITH ranks but its part off keeps the outline (available, just not sounding).
+func euclideousStackMasterPips(master: Bool, parts: [Bool], hasRanks: [Bool]) -> [EuclideousMasterPip] {
+    euclideousMasterPips(master: master, parts: parts).enumerated().map { i, p in
+        (i < hasRanks.count && !hasRanks[i]) ? .empty : p
+    }
 }
 
 /// HEADER v2 §8.6: what the standalone ■ button does — stop the transport while playing, or (while already stopped)
