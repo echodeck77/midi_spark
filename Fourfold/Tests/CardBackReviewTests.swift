@@ -121,6 +121,6 @@ final class CardBackReviewTests: XCTestCase {
         XCTAssertEqual(narrow.kind, .c); XCTAssertEqual(narrow.rowCount, 2); XCTAssertTrue(narrow.compact)
         XCTAssertEqual([narrow.brand.row, narrow.utilities.row, narrow.notes.row], [0, 0, 1])
         XCTAssertEqual(EuclideousPageMetrics.top(.d), 159); XCTAssertEqual(EuclideousPageMetrics.top(.c), 111)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 383.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 383.88, isLandscape: false), .b)   // HOCKET RETIRED: B needs 383.88 (was 483.88)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 607.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 607.88, isLandscape: false), .b)   // HEADER v2: B needs 607.88 (the masters widened UTILITIES)
     }
 }

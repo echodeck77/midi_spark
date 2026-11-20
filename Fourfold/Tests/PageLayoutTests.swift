@@ -63,13 +63,12 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertFalse(euclideousPageLayout(size: CGSize(width: 814, height: 1102)).isLandscape)
         XCTAssertFalse(euclideousPageLayout(size: CGSize(width: 800, height: 800)).isLandscape, "square is not strictly wider than tall")
         // the header kind comes from the header's own ladder on the page's container width
-        // 2026-10-20: two offsetting changes — output rings to 75% dropped OUTPUTS by 44pt (839.86 layout A
-        // need), then the HOLD/LATCH header buttons widened NOTES by 114pt (953.86) — net +70, still short of 868.
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 800, height: 600)).headerKind, .a, "768 ≥ the 705.88 layout A needs (HOCKET RETIRED 2026-11-17 dropped UTILITIES by 100; it was 805.88)")
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 900, height: 600)).headerKind, .a, "868 ≥ 705.88: the one-row header")
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 1190, height: 600)).headerKind, .a)
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 400, height: 900)).headerKind, .c, "the three-row D is retired (it existed for the PATTERN | MIX switch): a narrow container takes the compact two-row header")
-        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 600, height: 900)).headerKind, .b, "568 ≥ B's 383.88 and < A's 705.88")
+        // HEADER v2 (2026-11-19): the masters widened UTILITIES to 400, so A needs container 929.88 and B needs 607.88.
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 800, height: 600)).headerKind, .b, "container 768: ≥ B's 607.88 but < A's 929.88 → two-row B")
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 900, height: 600)).headerKind, .b, "container 868: still < A's 929.88 → B")
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 1190, height: 600)).headerKind, .a, "container 1158 ≥ 929.88 → one-row A")
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 400, height: 900)).headerKind, .c, "the three-row D is retired: a narrow container takes the compact two-row header")
+        XCTAssertEqual(euclideousPageLayout(size: CGSize(width: 600, height: 900)).headerKind, .c, "container 568 < B's 607.88 → C")
     }
 
     // MARK: 3. the sweep
@@ -141,14 +140,14 @@ final class PageLayoutTests: XCTestCase {
     func testHeaderKindThresholdsAreTheLaddersOwn() {
         let full = euclideousHeaderGroupWidths(compact: false)
         XCTAssertEqual(full.notes, 306, accuracy: 0.01, "Sources panel v2: the SOURCES button (192) + sp8 + HOLD/LATCH (106)")
-        let aNeeds = euclideousHeaderANeeds(full)   // HOCKET RETIRED (2026-11-17): brand 191.88 + gap + notes 306 + gap + utilities 176 = 705.88 (was 805.88 with the HOCKET pill's 100 in UTILITIES)
-        XCTAssertEqual(aNeeds, 705.88, accuracy: 0.01)
+        let aNeeds = euclideousHeaderANeeds(full)   // HEADER v2 (2026-11-19): brand 191.88 + gap + notes 306 + gap + utilities 400 = 929.88 (the masters added 224 to UTILITIES)
+        XCTAssertEqual(aNeeds, 929.88, accuracy: 0.01)
         let bNeeds = full.brand + full.utilities + full.gap
         XCTAssertEqual(euclideousHeaderKind(containerW: aNeeds, isLandscape: true), .a)
         XCTAssertEqual(euclideousHeaderKind(containerW: aNeeds - 0.01, isLandscape: true), .b)
         XCTAssertEqual(euclideousHeaderKind(containerW: 5000, isLandscape: false), .b, "portrait never uses A")
         XCTAssertEqual(euclideousHeaderKind(containerW: bNeeds - 0.01, isLandscape: false), .c)
-        XCTAssertEqual(bNeeds, 383.88, accuracy: 0.01)   // HOCKET RETIRED (2026-11-17): brand 191.88 + utilities 176 + gap 16 (was 483.88)
+        XCTAssertEqual(bNeeds, 607.88, accuracy: 0.01)   // HEADER v2: brand 191.88 + utilities 400 + gap 16
         XCTAssertEqual(euclideousHeaderKind(containerW: bNeeds, isLandscape: false), .b)
         for cw in stride(from: 200, through: 2400, by: 3) { for landscape in [true, false] { XCTAssertNotEqual(euclideousHeaderKind(containerW: CGFloat(cw), isLandscape: landscape), .d, "\(cw): the three-row layout is retired") } }
         for cw in stride(from: 300, through: 1500, by: 7) { for landscape in [true, false] {
@@ -364,9 +363,9 @@ final class PageLayoutTests: XCTestCase {
         euclideousHeaderLayout(containerW: size.width - 32, isLandscape: p.isLandscape, riffLeadingX: p.riffLeadingX)
     }
     func testNotesIsCentredAt1190() {
-        // layout A centres NOTES (306) between BRAND (0…191.88) and UTILITIES. HOCKET RETIRED (2026-11-17): UTILITIES lost 100 and moved right, so the centred NOTES x shifts +50: 383.94 → 433.94.
+        // layout A centres NOTES (306) between BRAND (0…191.88) and UTILITIES. HEADER v2: the wider UTILITIES (400) moves the centred NOTES left (433.94 → 321.94).
         let l = headerFor(land, landscapeRef)
-        XCTAssertEqual(l.notes.x, 433.94, accuracy: 0.01)
+        XCTAssertEqual(l.notes.x, 321.94, accuracy: 0.01)
         XCTAssertEqual(l.notes.x - l.brand.width, l.utilities.x - (l.notes.x + l.notes.width), accuracy: 1e-9)
         XCTAssertLessThan(l.notes.x, land.riffLeadingX)
     }
@@ -405,12 +404,12 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertFalse(f.contains(.mixPadH), "padH 71 ≥ minPadH 64 now the OUT row is gone"); XCTAssertFalse(f.contains(.mixPadHStop))
         XCTAssertTrue(f.contains(.riffRows), "20.1 (even after the tab-row fair-share gives it back 0.75) is still under 24"); XCTAssertFalse(f.contains(.fxRows), "FX rows 24.67 clear 24")
         // windowed AUM panels
-        let wl = euclideousPageLayout(size: CGSize(width: 900, height: 553))   // (900 × 600 under the old ladder; layout A holds from a 837.88 view now, so 553 high gives the same 284 × 232.5 box under the one-row header)
-        XCTAssertEqual(wl.headerKind, .a, "868 ≥ A's 705.88: boxes start at 64")
-        XCTAssertEqual(wl.box.width, 284, accuracy: 1e-9); XCTAssertEqual(wl.box.height, 232.5, accuracy: 1e-9)
-        // §5.2: at this windowed size the pad is 56.25 — under the 64 floor (`.mixPadH`) but no longer under the 48 stop (`.mixPadHStop`), the OUT row's room reclaimed.
+        let wl = euclideousPageLayout(size: CGSize(width: 900, height: 553))   // HEADER v2: container 868 < A's 929.88 → the two-row header (boxes start at 111), so the 284-wide box is 209 tall here
+        XCTAssertEqual(wl.headerKind, .b, "container 868: ≥ B's 607.88 but < A's 929.88 → two-row B")
+        XCTAssertEqual(wl.box.width, 284, accuracy: 1e-9); XCTAssertEqual(wl.box.height, 209, accuracy: 1e-9)   // (553 − 111 − 32 − gap) / 2
+        // at this (now shorter) windowed box the mix pad is under BOTH the 64 floor (`.mixPadH`) and the 48 stop (`.mixPadHStop`).
         XCTAssertTrue(Set(wl.floors).isSuperset(of: [.mixCellW, .mixPadH, .rhythmZones, .riffRows, .fxRows]), "\(wl.floors)")
-        XCTAssertFalse(Set(wl.floors).contains(.mixPadHStop))
+        XCTAssertTrue(Set(wl.floors).contains(.mixPadHStop))
         let wp = euclideousPageLayout(size: CGSize(width: 700, height: 900))   // 600 → 650 (LANE LOCK ferry §2.2): B's floor rose ≈564 → ≈616 · 650 → 700 (FOURFOLD REEL LINK 2026-10-23): → ≈660, so a 650-wide portrait view is layout C now
         XCTAssertEqual(wp.headerKind, .b); XCTAssertEqual(wp.box.width, 330, accuracy: 1e-9); XCTAssertEqual(wp.box.height, (900 - 111 - 32) / 3, accuracy: 1e-9)
         XCTAssertFalse(wp.floors.isEmpty)

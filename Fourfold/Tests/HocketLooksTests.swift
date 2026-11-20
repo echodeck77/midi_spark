@@ -30,9 +30,9 @@ final class HocketLooksTests: XCTestCase {
         XCTAssertEqual(HocketButtonMetrics.reservedWidth, HocketButtonMetrics.width(litRules: 4), "the header reserves the \"HOCKET · 4\" width")
         XCTAssertEqual(HocketButtonMetrics.reservedWidth, 92)
         XCTAssertEqual(HocketButtonMetrics.target, 44); XCTAssertEqual(HocketButtonMetrics.height, 30); XCTAssertEqual(HocketButtonMetrics.radius, 7)
-        // HOCKET RETIRED (2026-11-17): the utilities group is just the four icons now — the HOCKET pill + its sp8 left the header (HocketButtonMetrics stays for the unmounted button).
-        XCTAssertEqual(euclideousHeaderGroupWidths(compact: false).utilities, 4 * 44)
-        XCTAssertEqual(euclideousHeaderGroupWidths(compact: true).utilities, 4 * 36)
+        // HEADER v2 (2026-11-19): UTILITIES is the two 124 pt masters (sp6 between, sp14 before the icons) = 268, then 3 DEBUG icons; SWING is gone, HOCKET stays unmounted.
+        XCTAssertEqual(euclideousHeaderGroupWidths(compact: false).utilities, 268 + 3 * 44)
+        XCTAssertEqual(euclideousHeaderGroupWidths(compact: true).utilities, 268 + 3 * 36)
     }
 
     // MARK: - test 13 — the rule tabs and the on/off button

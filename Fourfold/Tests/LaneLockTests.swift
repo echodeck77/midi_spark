@@ -334,9 +334,9 @@ final class LaneLockTests: XCTestCase {
         // TAB STRIP ferry (2026-10-29): the dice, the padlock and the PATTERN | MIX switch left the header — A needs brand + notes (306, Sources panel v2) + utilities + two gaps = 805.88 (view 837.88), B needs brand + utilities + one gap = 483.88 (view 515.88).
         let a = euclideousHeaderANeeds(full)
         let b = full.brand + full.utilities + full.gap
-        XCTAssertEqual(a, 705.88, accuracy: 0.01); XCTAssertEqual(b, 383.88, accuracy: 0.01)   // HOCKET RETIRED (2026-11-17): UTILITIES lost the pill (−100)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 705.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 705.9, isLandscape: true), .a)   // HOCKET RETIRED: A needs 705.88 (was 805.88)
-        XCTAssertEqual(euclideousHeaderKind(containerW: 383.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 383.9, isLandscape: false), .b)   // HOCKET RETIRED: B needs 383.88 (was 483.88)
+        XCTAssertEqual(a, 929.88, accuracy: 0.01); XCTAssertEqual(b, 607.88, accuracy: 0.01)   // HEADER v2 (2026-11-19): UTILITIES gained the two 124 pt masters (+224)
+        XCTAssertEqual(euclideousHeaderKind(containerW: 929.8, isLandscape: true), .b); XCTAssertEqual(euclideousHeaderKind(containerW: 929.9, isLandscape: true), .a)   // HEADER v2: A needs 929.88
+        XCTAssertEqual(euclideousHeaderKind(containerW: 607.8, isLandscape: false), .c); XCTAssertEqual(euclideousHeaderKind(containerW: 607.9, isLandscape: false), .b)   // HEADER v2: B needs 607.88
         XCTAssertEqual(euclideousHeaderKind(containerW: 992, isLandscape: true), .a, "a 1024-wide landscape window (container 992) has the one-row header again")
         XCTAssertEqual(euclideousHeaderKind(containerW: 1158, isLandscape: true), .a, "the 1190 reference keeps the one-row header (now with 232 pt to spare)")
         XCTAssertEqual(euclideousHeaderKind(containerW: 1148, isLandscape: true), .a, "an iPad Air 11\" at 1180")
