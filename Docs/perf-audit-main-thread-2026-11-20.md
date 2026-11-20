@@ -128,9 +128,15 @@ on a weaker iPad; confirm no visual regression and animations resume correctly).
 - **P3 — PARTIAL** (`ea5cf9e`): the lane-strip step pattern (`stripBuf`) hoisted out of its 60 fps Canvas.
   **NOT done** (higher blind-risk, needs device verification): the STACK-grid 44-string-resolve split and
   the MIX-strip text-measure/`Color(hex:)` caching — both restructure hot draw code with no test reach.
-- **P2 — NOT done; needs device verification.** Concrete blocker found: `EuclideousPage.swift:5303`
-  `.onChange(of: riffWalkState) { updateWalkTrails() }` and several body-static reads of `riffPositions` /
-  `riffWalkState` (the walk-tag plans, `laneStripPlan`) depend on the `@Published` re-eval. Moving those
-  fields to the leaf-pull model would silently FREEZE the walk trails / arrows / markers — an invisible
-  regression off-device. Safe path: do it field-by-field, landing each, with an on-device spot-check
-  between (re-wiring the `.onChange` trigger into the leaf first), so a frozen indicator is caught early.
+- **P2 — NOT done; it is a large walk-trail-subsystem refactor, not a 10-field move.** Deeper trace:
+  the page re-evaluates every hit not only from the ~7 hit-rate `@Published` fields but from the
+  `walkTrails` **`@State`** chain — `updateWalkTrails()` (driven by `.onChange(of: riffWalkState)`,
+  `EuclideousPage.swift:5368`) mutates `@State walkTrails` (`:1041`), which the trail TimelineView
+  (`:5279`) reads, so the mutation itself re-evals the body every hit. To actually stop the hit-rate
+  re-eval, ALL of these must move to the pull-model together: the 7 fields AND the whole walk-trail state
+  (`walkTrails`, `walkPrevStep`, `walkPrevBeat`, `walkTickAt`, `walkTagLog`) plus `updateWalkTrails` /
+  `logWalkTagHits` re-driven from a non-SwiftUI 30 Hz poll. That is a high-regression-surface refactor of
+  the walk trails / arrows / markers / key-flash — all live indicators with ZERO macOS test reach — so a
+  mistake silently freezes one and I cannot see it. **Recommended: do this with the app running** (change
+  → device spot-check → iterate). Given P1 already removed the dominant 60 fps load, P2's marginal benefit
+  (a few full-body re-evals/sec → edit-rate) does not justify shipping it blind.
