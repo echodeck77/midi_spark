@@ -135,6 +135,16 @@ final class RiffWalkTests: XCTestCase {
         XCTAssertEqual(tickLeft, r.contentInset + r.tileWidth + 3, accuracy: 1e-9, "§3.4: tick at 4 + T + 3")
     }
 
+    // RIFF v4 §9 test 6 / §4.4 — the selected-icon contract the direction control (and the RHYTHM-tab copy + FLIP NOTES) now use:
+    // an icon on the selected look takes the ink #0D0F14 (not the pale #F2F4F7); the pill is #DFE3EA; an unselected icon is #B4BAC4.
+    func testRiffV4DirectionSelectedInk() {
+        XCTAssertEqual(FourfoldSelect.switchInk(true), 0x0D0F14, "selected icon ink")
+        XCTAssertEqual(FourfoldSelect.switchInk(false), 0xB4BAC4, "unselected icon")
+        XCTAssertEqual(FourfoldStyle.selectedFill, 0xDFE3EA, "the selected pill")
+        XCTAssertEqual(FourfoldStyle.selectedInk, 0x0D0F14)
+        XCTAssertNotEqual(FourfoldSelect.switchInk(true), FourfoldStyle.value, "the fix: NOT the pale #F2F4F7 that was pale-on-pale")
+    }
+
     // §6.3 — VoiceOver value.
     func testWalkVoiceOver() {
         XCTAssertEqual(euclideousRiffWalkVoiceOver(n: 8, playing: false, current: 3), "8 steps")

@@ -3772,7 +3772,9 @@ struct EuclideousPage: View {
             ForEach(order, id: \.0) { dir, kind, name in
                 let on = line.directionResolved == dir
                 RiffDirectionIcon(kind: kind)
-                    .stroke(on ? patternSelectedText : patternUnselectedText, style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
+                    // RIFF v4 §4.4 (global): an icon on the selected #DFE3EA look takes the ink #0D0F14 (was the near-white
+                    // patternSelectedText #F2F4F7 — pale on pale). The RHYTHM tab is the second copy of this control.
+                    .stroke(on ? Color(hex: FourfoldStyle.selectedInk) : patternUnselectedText, style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
                     .frame(width: 20, height: 14.67)
                     .frame(maxWidth: .infinity).frame(height: rowH)
                     .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(on))))
@@ -5442,14 +5444,28 @@ struct EuclideousPage: View {
             return p.applying(CGAffineTransform(scaleX: rect.width / 30, y: rect.height / 22)).applying(CGAffineTransform(translationX: rect.minX, y: rect.minY))
         }
     }
-    /// §3.1/§3.2: one direction button — the arrow icon in `melodyButton`'s selected look and lane-lock tap behaviour (tapping the lit one turns the riff off; another sets `riffDir`).
-    private func riffDirectionButton(_ idx: Int, _ line: EuclidLine, _ accent: Color, kind: RiffDirectionKind, dir: RiffDir) -> some View {
+    /// RIFF v4 §4: the three directions as ONE segmented control — a control-tone container (r10, 3 pt inset), three equal
+    /// segments (≈32.67 wide) 2 apart, order backward · ping-pong · forward (like HIT | STEP). Selected = the #DFE3EA pill + ink icon.
+    private func riffDirectionControl(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
+        HStack(spacing: 2) {   // §4.1 segments 2 apart
+            riffDirectionSegment(idx, line, accent, kind: .backward, dir: .reverse)
+            riffDirectionSegment(idx, line, accent, kind: .pingpong, dir: .pingpong)
+            riffDirectionSegment(idx, line, accent, kind: .forward, dir: .forward)
+        }
+        .padding(3)   // §4.1 the 3 pt inset
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: FourfoldStyle.control)))
+    }
+    /// §4.2: one direction segment — the arrow icon on the selected look (ink on #DFE3EA, else #B4BAC4 on clear), with the lane-lock
+    /// tap behaviour unchanged (tapping the lit one turns the riff off; another sets `riffDir`). Same actions/undo/accessibility as before.
+    private func riffDirectionSegment(_ idx: Int, _ line: EuclidLine, _ accent: Color, kind: RiffDirectionKind, dir: RiffDir) -> some View {
         let lit = line.euclideousRiffDirResolved == dir
         return RiffDirectionIcon(kind: kind)
-            .stroke(lit ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
+            // §4.2 / §4.4: route the icon ink through the selected-look funnel — switchInk(true) = ink #0D0F14 on the #DFE3EA pill, switchInk(false) = #B4BAC4.
+            .stroke(Color(hex: FourfoldSelect.switchInk(lit)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
             .frame(width: 20, height: 14.67)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: FourfoldSelect.switchFill(lit))))
+            .background(RoundedRectangle(cornerRadius: 8).fill(lit ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))   // §4.2 selected pill r8, else no fill
             .contentShape(Rectangle())
             .modifier(EuclideousLockOutline(on: lit && lockOn(idx, .riffDirection), accent: accent))
             .modifier(EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: { onLockHeld(idx, $0) },
@@ -5466,12 +5482,8 @@ struct EuclideousPage: View {
         let every = line.riffAdvanceEveryResolved
         return riffBandFrame(dim: !isRiff) {
             HStack(spacing: 0) {
-                HStack(spacing: 3) {   // §1.5: three directions 34 wide, 3 apart (x4..112)
-                    riffDirectionButton(idx, line, accent, kind: .backward, dir: .reverse)
-                    riffDirectionButton(idx, line, accent, kind: .pingpong, dir: .pingpong)
-                    riffDirectionButton(idx, line, accent, kind: .forward, dir: .forward)
-                }
-                .frame(width: 3 * layout.directionButtonWidth + 2 * 3)
+                riffDirectionControl(idx, line, accent)   // §4.1 ONE segmented control in the x4..112 cluster (108 wide)
+                    .frame(width: 3 * layout.directionButtonWidth + 2 * 3)
                 Spacer().frame(width: 4)   // §1.5 MOVE band gaps 4 (matching NOTES)
                 riffAdvanceEveryTile(idx, line, accent, every: every).frame(width: layout.advanceEveryWidth)   // §4.2 EVERY + HIT|STEP under one key
                 Spacer().frame(width: 4)
@@ -5554,7 +5566,7 @@ struct EuclideousPage: View {
     /// RIFF v2 §5: FLIP NOTES — today's INV toggle (`riffInvert`) in the NOTES band's fourth cell: a centred group of the mirror icon and the two-line "FLIP"/"NOTES" label (§5.2: 11 pt, 0.1 em, leading-aligned — the findings note this differs from FLIP HITS's actual 8 pt). Selected = `melodyButton`'s on-look; lane-lock tap behaviour unchanged from INV.
     private func riffFlipNotesButton(_ idx: Int, _ line: EuclidLine, _ accent: Color) -> some View {
         let on = line.riffInvertResolved
-        let ink = on ? Color(hex: 0xF2F4F7) : Color(hex: 0xAAB0BA)
+        let ink = on ? Color(hex: FourfoldStyle.selectedInk) : Color(hex: 0xAAB0BA)   // RIFF v4 §4.4 (global): the icon + label on the selected #DFE3EA look take the ink #0D0F14 (was pale #F2F4F7)
         return HStack(spacing: 8) {
             ZStack {
                 RiffFlipNotesContours().stroke(ink, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
