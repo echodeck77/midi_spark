@@ -49,6 +49,9 @@ struct EuclideousHarmonyPage: View {
     private static let space = "euclideousHarmonyPage"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var anchors: [String: CGRect] = [:]
+    // DRAW (Paul 2026-11-21): the chord grids paint on drag like the riff grid — one overlay owns the gesture; this tracks the last cell it touched (so a drag edits each cell once) and, in COLOUR mode, the on/off value the first cell toggled to (then painted across the rest).
+    @State private var chordDragLastCell: (col: Int, row: Int)? = nil
+    @State private var chordDragColourVal: Int? = nil
     private var L: EuclideousHarmonyLayout { euclideousHarmonyLayout(block: size, scaleCount: ScaleType.allCases.count) }
     private var rootPc: Int { ((keyRoot % 12) + 12) % 12 }
     private var minorKey: Bool { euclideousScaleIsMinor(keyType.intervals) }
@@ -361,8 +364,45 @@ struct EuclideousHarmonyPage: View {
                         .offset(x: L.columnLeft(steps: steps, col), y: L.rowTop(mode, position: p))
                 }
             }
+            // DRAW (Paul 2026-11-21): ONE clear overlay owns tap AND drag for the whole grid (exactly the riff grid's `monoRiffGridView` shape — the cells carry no touch gesture of their own, only a VoiceOver action). A tap paints one cell (minimumDistance 0 fires onChanged once); a drag paints each cell as the finger crosses it.
+            Color.clear
+                .frame(width: L.columnW, height: L.gridH)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { g in
+                    guard let (col, pos) = chordGridCellAt(x: g.location.x, y: g.location.y, steps: steps, mode: mode, L: L) else { return }
+                    guard (col, pos) != (chordDragLastCell?.col ?? -1, chordDragLastCell?.row ?? -1) else { return }
+                    chordPaint(set: set, col: col, pos: pos, mode: mode, first: chordDragLastCell == nil, colours: colours)
+                    chordDragLastCell = (col, pos)
+                }.onEnded { _ in chordDragLastCell = nil; chordDragColourVal = nil })
+                .accessibilityHidden(true)
         }
         .frame(width: L.columnW, height: L.gridH, alignment: .topLeading)
+    }
+    /// DRAW: a touch in the grid's own coordinate space → the (column, row-position) it falls on, or nil over the row-label column. Columns snap by width; the row snaps to the NEAREST row centre (so a drag paints continuously across the row gaps). Mirrors `monoRiffGridView`'s inverse mapping.
+    private func chordGridCellAt(x: CGFloat, y: CGFloat, steps: Int, mode: EuclideousHarmonyRows, L: EuclideousHarmonyLayout) -> (col: Int, row: Int)? {
+        let m = EuclideousHarmonyMetrics.self
+        let labelLeft = m.gridLabelW + m.labelGap
+        guard x >= labelLeft else { return nil }
+        let c = max(8, min(16, steps))
+        let col = max(0, min(c - 1, Int((x - labelLeft) / max(1, L.cellW(steps: steps) + m.cellGap))))
+        let rowH = L.rowH(mode)
+        var best = 0; var bestD = CGFloat.greatestFiniteMagnitude
+        for p in 0..<mode.rowCount { let d = abs(y - (L.rowTop(mode, position: p) + rowH / 2)); if d < bestD { bestD = d; best = p } }
+        return (col, best)
+    }
+    /// DRAW: paint one cell. CHORDS rows SET the column's degree (a drag draws a contour — matching the tap, which always sets). COLOUR rows TOGGLE on the first cell, then paint that on/off value across the rest (the riff grid's first-cell-toggles rule). Every edit funnels through `onEditChordSet`, whose coalesce key makes a whole drag ONE undo step.
+    private func chordPaint(set: Int, col: Int, pos: Int, mode: EuclideousHarmonyRows, first: Bool, colours: [Int]) {
+        let r = mode.firstRow + pos
+        if mode == .chords {
+            guard let deg = euclideousChordsRowDegree(r) else { return }
+            onEditChordSet(set) { p in var a = p.chordsDegreesResolved16(); if col < a.count { a[col] = deg }; p.chordsDegrees = a }
+        } else {
+            let colourVal = r - 11
+            let value: Int
+            if first { let cur = col < colours.count ? colours[col] : 0; value = (cur == colourVal) ? 0 : colourVal; chordDragColourVal = value }
+            else { value = chordDragColourVal ?? colourVal }
+            onEditChordSet(set) { p in var a = p.chordsColoursResolved16(); if col < a.count { a[col] = value }; p.chordsColours = a }
+        }
     }
     @ViewBuilder private func cell(_ set: Int, row r: Int, column c: Int, degrees: [Int], colours: [Int], steps: Int, playing: Int) -> some View {
         let _ = FourfoldStackProbe.note()   // the deepest leaf of the page's build chain (FourfoldStackBudgetTests)
@@ -376,19 +416,23 @@ struct EuclideousHarmonyPage: View {
             let on = c < colours.count && colours[c] == colourVal
             RoundedRectangle(cornerRadius: 4).fill(on ? Color(h: isPlaying ? 0xD6CBFB : 0xB9A8FF) : unlit)
                 .opacity(isRest ? 0.42 : (beyond ? 0.30 : 1))
-                .contentShape(Rectangle())
-                .onTapGesture { onEditChordSet(set) { p in var a = p.chordsColoursResolved16(); if c < a.count { a[c] = (a[c] == colourVal ? 0 : colourVal) }; p.chordsColours = a } }
+                // DRAW: touch is owned by the grid's drag overlay; the cell keeps only its VoiceOver action (like the riff grid cell).
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Column \(c + 1), \(label), \(on ? "on" : "off")")
+                .accessibilityLabel("Column \(c + 1), \(label)")
+                .accessibilityValue(on ? "on" : "off")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { onEditChordSet(set) { p in var a = p.chordsColoursResolved16(); if c < a.count { a[c] = (a[c] == colourVal ? 0 : colourVal) }; p.chordsColours = a } }
         } else if let deg = euclideousChordsRowDegree(r) {
             let cellState = chordsMatrixCell(degrees, step: c, steps: steps)
             let on = cellState.bright == deg
             let lit = deg == 7 ? Color(h: 0x5C626C) : Color(h: isPlaying ? 0xD6CBFB : 0xB9A8FF)
             RoundedRectangle(cornerRadius: 4).fill(on ? lit : unlit).opacity(beyond ? 0.30 : 1)
-                .contentShape(Rectangle())
-                .onTapGesture { onEditChordSet(set) { p in var a = p.chordsDegreesResolved16(); if c < a.count { a[c] = deg }; p.chordsDegrees = a } }
+                // DRAW: touch is owned by the grid's drag overlay; the cell keeps only its VoiceOver action (like the riff grid cell).
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Column \(c + 1), \(label), \(on ? "selected" : "not selected")")
+                .accessibilityLabel("Column \(c + 1), \(label)")
+                .accessibilityValue(on ? "selected" : "not selected")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { onEditChordSet(set) { p in var a = p.chordsDegreesResolved16(); if c < a.count { a[c] = deg }; p.chordsDegrees = a } }
         }
     }
 
