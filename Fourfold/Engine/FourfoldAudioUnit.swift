@@ -515,6 +515,12 @@ public class FourfoldAudioUnit: AUAudioUnit {
     private func onMain(_ work: @escaping () -> Void) {
         if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
+    /// SYNCHRONOUS main-thread marshal for a throwing host call that needs its result back (saveUserPreset). Unlike `onMain` it
+    /// blocks until the work runs on main and rethrows its error. Safe here: these are host preset-menu actions, never the render
+    /// thread or the parameter value provider (the "never wait on main" rule, the 2026-10-11 deadlock, applies only to those).
+    private func onMainSync<T>(_ work: () throws -> T) rethrows -> T {
+        Thread.isMainThread ? try work() : try DispatchQueue.main.sync(execute: work)
+    }
     /// MAIN THREAD: a host (or in-app) wrote a parameter — apply it to the document through the pure table's setter (Hits/Steps/Offset route through `euclideousSliderCommit`). `editDocument` republishes + refreshes the cache.
     private func applyParamValue(_ address: AUParameterAddress, _ value: AUValue) {
         dispatchPrecondition(condition: .onQueue(.main))
@@ -718,13 +724,18 @@ public class FourfoldAudioUnit: AUAudioUnit {
             }
         }
     }
+    // MAIN-THREAD MARSHALLING (2026-11-21): a host (Logic/AUM) drives these from its preset menu on a BACKGROUND XPC queue, but
+    // savePreset/deletePreset mutate the document + fire KVO (main-thread-only, `dispatchPrecondition(.onQueue(.main))`) — the SAME
+    // crash class as the fullState / currentPreset setters. These throw a result the host needs, so marshal SYNCHRONOUSLY (`onMainSync`).
     public override func saveUserPreset(_ userPreset: AUAudioUnitPreset) throws {
-        guard savePreset(named: userPreset.name) else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not write preset."])
+        try onMainSync {
+            guard self.savePreset(named: userPreset.name) else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not write preset."])
+            }
         }
     }
     public override func deleteUserPreset(_ userPreset: AUAudioUnitPreset) throws {
-        deletePreset(named: userPreset.name)
+        onMainSync { self.deletePreset(named: userPreset.name) }
     }
     /// The state blob for a user preset — the SAME shape `fullState` returns, so the host round-trips it through
     /// the fullState setter. We hand back the raw stored bytes under our state key.
