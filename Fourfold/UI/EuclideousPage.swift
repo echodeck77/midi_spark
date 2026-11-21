@@ -8730,13 +8730,18 @@ struct EuclideousPage: View {
         var plans: [EuclideousLaneGhostPlan] = []
         for lane in 0..<min(4, lines.count) {
             let l = lines[lane]
+            // MUTE ROLL TRUTHFULNESS (Paul 2026-11-21): the roll must only predict what will actually EMIT. A STOPPED lane
+            // (`enabled` off — as every factory preset ships lane 4) emits nothing, so it predicts nothing; likewise a riff /
+            // notes part is predicted only when ITS switch AND the header master are on — exactly the engine's own gates.
+            guard l.enabledResolved else { continue }
             let riffOuts = l.riffOutMaskResolved(lane: lane) & 0x0F
             let notesOuts = l.notesOutMaskResolved(lane: lane) & 0x0F
             guard (riffOuts | notesOuts) != 0, let cfg = riffWalkConfig(lane) else { continue }
             let pool = lane < lanePools.count ? lanePools[lane].notes.sorted().map { Int($0) } : []   // the lane's live pool (root / key / canon already folded in)
             let riffOct = l.riffOctaveResolved
+            let riffLive = l.riffOnResolved && riffMaster   // the riff part emits only when its switch AND the header PLAY RIFF master are on
             let notesOct = max(-2, min(2, l.octaveResolved))
-            let notesLive = euclideousNotesLayerIsOn(l) && l.listenPitchResolved != .shadow && l.listenPitchResolved != .echo   // a SHADOW / ECHO lane's notes layer is paused
+            let notesLive = euclideousNotesLayerIsOn(l) && stackMaster && l.listenPitchResolved != .shadow && l.listenPitchResolved != .echo   // the notes layer emits only when lit + the PLAY STACK master; a SHADOW / ECHO lane's notes layer is paused
             let tie = poly == nil && l.riffOnRestResolved == .tie   // only MONO TIE carries the riff pitch across a rest (POLY uses length, ON REST is SKIP)
             let gateRatio = cfg.gate > 0.001 ? l.notesGateResolved / cfg.gate : 1   // the notes length scales from the riff gate the roll mirror used to the notes gate
             let hits = euclideousLaneRollHits(cfg: cfg, windowStart: from, windowBeats: windowEnd - from, minGateBeats: 0.01, poly: poly,
@@ -8752,10 +8757,12 @@ struct EuclideousPage: View {
                     let h = hits[j]
                     if repLen == 0 { repLen = h.gateBeats }
                     if h.rank >= 1 {
-                        hasRank = true
-                        if pool.isEmpty { blind = true; blindLen = h.gateBeats }   // the riff strikes but there is no pool ⇒ a middle-line ghost
-                        else if let n = riffResolve(rank: h.rank, oct: riffOct, n: pool.count, wrap: .fold, asc: { pool[$0] }), (0...127).contains(n) {
-                            riffPitches.append(UInt8(n)); riffLens.append(h.gateBeats)
+                        hasRank = true   // rest-detection follows the WRITTEN riff column (riff on or off), so the notes layer's WHEN is unaffected
+                        if riffLive {    // …but a riff PITCH is predicted only when the riff part will emit
+                            if pool.isEmpty { blind = true; blindLen = h.gateBeats }   // the riff strikes but there is no pool ⇒ a middle-line ghost
+                            else if let n = riffResolve(rank: h.rank, oct: riffOct, n: pool.count, wrap: .fold, asc: { pool[$0] }), (0...127).contains(n) {
+                                riffPitches.append(UInt8(n)); riffLens.append(h.gateBeats)
+                            }
                         }
                     }
                     j += 1
