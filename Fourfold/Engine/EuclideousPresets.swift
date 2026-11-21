@@ -42,8 +42,20 @@ enum EuclideousPresets {
     // tested source path, the same one `euclideousDefaultLine` uses). The old 20 are OUT of the list (kept compiled below for
     // now so nothing is lost; removed once the full new set lands). Tiers 2–5 (15 more) are added after the Tier-1 audition.
     static let all: [(name: String, make: () -> PluginState)] = [
+        // Tier 1 — chord-driven, press-play
         ("CHORD ARP", chordArp), ("RIFF LEAD", riffLead), ("CANON", canon),
         ("COLOUR CHORDS", colourChords), ("HELD CHORDS", heldChords),
+        // Tier 2 — melodic RIFF craft
+        ("STRIDE HARMONY", strideHarmony), ("MIRROR LINE", mirrorLine), ("PING-PONG LEAD", pingPongLead2),
+        ("HELD RIFF", heldRiff), ("STUTTER WALK", stutterWalk), ("POLY RIFF", polyRiffPreset),
+        // Tier 3 — scale / pattern / evolving
+        ("PARALLEL FIFTH", parallelFifth), ("FIVE ON EIGHT", fiveOnEight), ("KOTEKAN", kotekan2),
+        ("TILT PHRASE", tiltPhrase), ("RESTART SHIFT", restartShift), ("SCALE WALK", scaleWalk2),
+        ("REVERSE READ", reverseRead), ("ARPEGGIO LADDER", arpeggioLadder2),
+        // Tier 4 — lane interaction / layers
+        ("STACK ARP", stackArp), ("SHADOW HARMONY", shadowHarmony), ("CALL & ANSWER", callAnswer), ("FILL RUN", fillRun),
+        // Tier 5 — MIDI-reactive
+        ("REHARMONIZE", reharmonize), ("ROOT FOLLOW", rootFollow),
     ]
 
     /// A grid-1 chord progression as a `MachineParams` (what `euclideousChords` holds). PATTERN mode, one chord per bar.
@@ -123,6 +135,243 @@ enum EuclideousPresets {
         s.euclideousLines = l
         s.euclideousRiff = EuclideousRiff(steps: 8, ranks: archShape)
         s.euclideousChords = chordGrid([0, 5, 3, 4], voicing: .add9)
+    } }
+
+    // ═══ TIER 2–5 (Paul 2026-11-21) — 20 more, each a DIFFERENT feature / use-case. Chord-driven ones author their own
+    //     progression (`sourceMode = .chords` → the lane reads MIDI + CHORDS 1, so it plays standalone and reharmonizes
+    //     from played MIDI); the scale/MIDI ones use `.key` or a per-lane `midiMode`. ═══
+
+    // 6 STRIDE HARMONY — two riff lanes walk the SAME figure at different STRIDEs (3 and 2), visiting the chord tones in a
+    // different order → self-harmonising counterpoint. Hero: riff STRIDE.
+    static func strideHarmony() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].riffStride = 3; l[0].riffLength = 5; l[0].pulses = 6; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].useRiff = true; l[1].riffDir = .forward; l[1].riffStride = 2; l[1].riffLength = 5; l[1].pulses = 6; l[1].steps = 8; l[1].rate = .r1_8
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: archShape); s.euclideousChords = chordGrid([0, 4, 5, 3], voicing: .seventh)
+    } }
+
+    // 7 MIRROR LINE — a riff lead and its INVERSION (riffInvert = the 9−rank mirror) trace opposite pitch contours over the
+    // harmony → instant counterpoint. Hero: riff FLIP/INVERT.
+    static func mirrorLine() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 6; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].useRiff = true; l[1].riffDir = .forward; l[1].riffInvert = true; l[1].pulses = 6; l[1].steps = 8; l[1].rate = .r1_8
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: zigzagShape); s.euclideousChords = chordGrid([5, 3, 0, 4], voicing: .seventh)
+    } }
+
+    // 8 PING-PONG LEAD — the riff walk bounces off each end of the figure (riffDir .pingpong, each end sounds twice), a bright
+    // lead over held harmony. Hero: riff DIRECTION.
+    static func pingPongLead2() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .pingpong; l[0].pulses = 7; l[0].steps = 8; l[0].rate = .r1_16; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: r1Shape); s.euclideousChords = chordGrid([0, 5, 3, 4], voicing: .seventh)
+    } }
+
+    // 9 HELD RIFF — ON-REST = TIE: every riff rest extends the preceding note instead of cutting, so a sparse figure reads as
+    // one long legato line that re-voices on the chord changes. Hero: ON-REST TIE.
+    static func heldRiff() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].riffOnRest = .tie; l[0].pulses = 5; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 1; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_1; l[2].gate = 0.98
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: sparseShape); s.euclideousChords = chordGrid([3, 0, 4, 5], voicing: .seventh)
+    } }
+
+    // 10 STUTTER WALK — ADVANCE = STEP: the walk moves on every grid step, not just hits, so a rest doesn't pause it — a fast
+    // stuttering arp. Hero: ADVANCE STEP.
+    static func stutterWalk() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].riffAdvanceStep = true; l[0].pulses = 11; l[0].steps = 16; l[0].rate = .r1_32; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: runShape); s.euclideousChords = chordGrid([0, 3, 4, 0], voicing: .seventh)
+    } }
+
+    // 11 POLY RIFF — overlapping held riff notes (the POLY grid) layer chord tones that ring into one another → the melody
+    // builds its own evolving chords. Hero: POLY RIFF.
+    static func polyRiffPreset() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 8; l[0].steps = 8; l[0].rate = .r1_16; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].noteSel = .low; l[1].pulses = 2; l[1].steps = 8; l[1].octave = -2; l[1].rate = .r1_4
+        l[2].enabled = false; l[3].enabled = false
+        s.euclideousLines = l
+        s.riffPoly = true
+        s.polyRiff = EuclideousPolyRiff(notes: [
+            EuclideousPolyNote(col: 0, rank: 1, len: 6), EuclideousPolyNote(col: 2, rank: 3, len: 6),
+            EuclideousPolyNote(col: 4, rank: 5, len: 6), EuclideousPolyNote(col: 6, rank: 8, len: 4),
+            EuclideousPolyNote(col: 8, rank: 6, len: 4), EuclideousPolyNote(col: 10, rank: 4, len: 4),
+            EuclideousPolyNote(col: 12, rank: 2, len: 4), EuclideousPolyNote(col: 14, rank: 5, len: 2),
+        ])
+        s.euclideousChords = chordGrid([0, 5, 1, 4], voicing: .seventh)
+    } }
+
+    // 12 PARALLEL FIFTH — over the KEY scale, a lead and a second lane MELODY-TRANSPOSED +4 scale steps (a fifth) move in
+    // parallel harmony. Hero: MELODY TRANSPOSE over a scale. (Modal — a bring-your-own-chords bed too.)
+    static func parallelFifth() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .key; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 6; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].sourceMode = .key; l[1].useRiff = true; l[1].riffDir = .forward; l[1].melodyTranspose = 4; l[1].pulses = 6; l[1].steps = 8; l[1].rate = .r1_8; l[1].riffOctave = 1
+        l[2].sourceMode = .key; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: archShape)
+        s.euclideousChords = chordGrid([0, 5, 3, 4]); s.euclideousKeyRoot = 2; s.euclideousKeyType = .dorian
+    } }
+
+    // 13 FIVE ON EIGHT — a 5-step lane and an 8-step lane at the same rate slip in and out of phase (polymeter), their chord
+    // tones interlocking into an ever-shifting pattern. Hero: POLYMETER (different STEPS).
+    static func fiveOnEight() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 3; l[0].steps = 5; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].useRiff = true; l[1].riffDir = .forward; l[1].pulses = 5; l[1].steps = 8; l[1].rate = .r1_8; l[1].riffOctave = 0
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: runShape); s.euclideousChords = chordGrid([0, 3], voicing: .seventh)
+    } }
+
+    // 14 KOTEKAN — two plain Euclid lanes at the same density, OFFSET by one step, so their hits interlock and never coincide
+    // (the Balinese interlocking figure), over the chord pool. Hero: OFFSET / rotate interlock.
+    static func kotekan2() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].noteSel = .low; l[0].pulses = 4; l[0].steps = 8; l[0].rotate = 0; l[0].rate = .r1_16
+        l[1].sourceMode = .chords; l[1].noteSel = .high; l[1].pulses = 4; l[1].steps = 8; l[1].rotate = 1; l[1].rate = .r1_16; l[1].octave = 1
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousChords = chordGrid([0, 4], voicing: .seventh)
+    } }
+
+    // 15 TILT PHRASE — TILT pushed negative bunches the hits early in each cycle then leaves a breath; the phrase "leans" then
+    // rests. Hero: TILT.
+    static func tiltPhrase() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 5; l[0].steps = 8; l[0].tilt = -1; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: archShape); s.euclideousChords = chordGrid([0, 5, 3, 4], voicing: .seventh)
+    } }
+
+    // 16 RESTART SHIFT — the melody chain restarts every 3 passes while the rhythm restarts every 2 bars, so the figure keeps
+    // re-anchoring against the harmony — it never settles into a loop. Hero: RESTART CHAINS.
+    static func restartShift() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 5; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[0].restartMelodyPasses = [3]; l[0].restartRhythmBars = [2]
+        l[1].sourceMode = .chords; l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: runShape); s.euclideousChords = chordGrid([0, 4, 5, 3], voicing: .seventh)
+    } }
+
+    // 17 SCALE WALK — straight from the KEY (D dorian): two lanes cycle ascending through the scale at different rates and
+    // octaves — a modal walk up and down the mode, hypnotic. Hero: KEY / scale (no fixed progression). Play chords to re-key it.
+    static func scaleWalk2() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .key; l[0].noteSel = .cycle; l[0].pulses = 8; l[0].steps = 8; l[0].rate = .r1_8; l[0].octave = 1
+        l[1].sourceMode = .key; l[1].noteSel = .cycle; l[1].pulses = 4; l[1].steps = 8; l[1].rate = .r1_4; l[1].octave = -1
+        l[2].enabled = false; l[3].enabled = false
+        s.euclideousLines = l; s.euclideousKeyRoot = 2; s.euclideousKeyType = .dorian
+    } }
+
+    // 18 REVERSE READ — the riff walk reads the figure BACKWARD (riffDir .reverse) over a lane whose Euclid PATTERN also runs
+    // backward (.bkw) — two senses of "backward" at once. Hero: REVERSE direction.
+    static func reverseRead() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .reverse; l[0].pulses = 6; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].noteSel = .low; l[1].pulses = 4; l[1].steps = 8; l[1].direction = .bkw; l[1].octave = -1; l[1].rate = .r1_8
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: descendShape); s.euclideousChords = chordGrid([5, 3, 0, 4], voicing: .seventh)
+    } }
+
+    // 19 STACK ARP — the NOTES (stack) layer arpeggiates a chosen stack of ranks (1·3·5·8) through the chord pool — the stack
+    // arpeggiator, separate from the riff. Hero: STACK / PLAY AS ROWS.
+    static func stackArp() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = false; l[0].notesOn = true; l[0].notesLitOrder = [0, 2, 4, 7]; l[0].pulses = 8; l[0].steps = 8; l[0].rate = .r1_16; l[0].octave = 1
+        l[1].sourceMode = .chords; l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousChords = chordGrid([0, 5, 3, 4], voicing: .seventh)
+    } }
+
+    // 20 SHADOW HARMONY — lane 2 ANSWERs lane 1 in PITCH SHADOW: it plays its own rhythm but harmonises lane 1's line from the
+    // shared pool — a second voice that tracks the lead. Hero: ANSWER PITCH SHADOW.
+    static func shadowHarmony() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 6; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].useRiff = true; l[1].riffDir = .forward; l[1].pulses = 4; l[1].steps = 8; l[1].rate = .r1_8; l[1].riffOctave = 0
+        l[1].answerPitchOn = true; l[1].answerPitchMode = .shadow; l[1].listenSource = 0
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: archShape); s.euclideousChords = chordGrid([0, 3, 5, 4], voicing: .seventh)
+    } }
+
+    // 21 CALL & ANSWER — lane 2 ANSWERs lane 1 in RHYTHM AVOID: it plays only in lane 1's GAPS, so the two trade a melodic
+    // call-and-response. Hero: ANSWER RHYTHM (AVOID).
+    static func callAnswer() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 4; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].useRiff = true; l[1].riffDir = .reverse; l[1].pulses = 4; l[1].steps = 8; l[1].rate = .r1_8; l[1].riffOctave = 0
+        l[1].answerRhythmOn = true; l[1].answerRhythmMode = .avoid; l[1].listenSource = 0
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: callShape); s.euclideousChords = chordGrid([0, 4, 5, 3], voicing: .seventh)
+    } }
+
+    // 22 FILL RUN — a gentle lead whose ARMED bars (4 and 8) burst into a fast ascending FILL run, then settle — a flourish
+    // every few bars. Hero: FILL.
+    static func fillRun() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 4; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[0].fillOn = true; l[0].fillBars = [false, false, false, true, false, false, false, true]; l[0].fillShape = .climb; l[0].fillRanks = 5; l[0].fillLoop = 8
+        l[1].sourceMode = .chords; l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: archShape); s.euclideousChords = chordGrid([0, 5, 3, 4], voicing: .seventh)
+    } }
+
+    // 23 REHARMONIZE — a "bring your own chords" engine: MIDI = REPLACE, so when you play chords your harmony TAKES OVER the
+    // melody; press Play alone and it runs on its own progression. Hero: MIDI IN REPLACE.
+    static func reharmonize() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        for i in 0..<3 { l[i].sourceMode = .chords; l[i].midiMode = .replace }
+        l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 8; l[0].steps = 8; l[0].rate = .r1_16; l[0].riffOctave = 1
+        l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: runShape); s.euclideousChords = chordGrid([0, 5, 3, 4], voicing: .seventh)
+    } }
+
+    // 24 ROOT FOLLOW — MIDI = ROOT: play a single note and the whole arp + bass TRANSPOSE to that root, live; standalone it
+    // runs on its own progression. Hero: MIDI IN ROOT.
+    static func rootFollow() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        for i in 0..<3 { l[i].sourceMode = .chords; l[i].midiMode = .root }
+        l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 6; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: archShape); s.euclideousChords = chordGrid([0, 3, 4], voicing: .seventh)
+    } }
+
+    // 25 ARPEGGIO LADDER — one riff lane walks the ascending RUN and a second walks it an octave up, ROTATE-offset — a rising
+    // ladder of chord tones. Hero: riff ROTATE + octave stacking.
+    static func arpeggioLadder2() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 8; l[0].steps = 8; l[0].rate = .r1_16
+        l[1].sourceMode = .chords; l[1].useRiff = true; l[1].riffDir = .forward; l[1].riffRotate = 2; l[1].pulses = 8; l[1].steps = 8; l[1].rate = .r1_16; l[1].riffOctave = 1
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: runShape); s.euclideousChords = chordGrid([0, 5, 3, 4], voicing: .seventh)
     } }
 
     // ── OLD PRESETS (Paul 2026-10-11) — OUT of `all` during the redesign; kept compiled until the full new set lands. ──

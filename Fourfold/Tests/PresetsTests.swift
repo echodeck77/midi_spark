@@ -10,34 +10,33 @@ final class PresetsTests: XCTestCase {
         return s
     }
 
-    /// Pins the source wiring: after load, every active chord lane reads exactly MIDI IN + CHORDS 1 (mask 0b00011) — so it plays
-    /// the authored progression standalone AND reharmonizes from played MIDI for free, with KEY/PICK off (no scale muddying).
-    func testTier1LanesReadMidiAndChordsOnly() {
-        let midiChords: UInt8 = euclideousPoolSrcChords1 | 0b00001   // 0b00011
+    /// Every preset: ≥1 lane that will strike, and NO active lane is a NO-INPUT lane (every active lane has a source) — so
+    /// nothing is silently broken. (Musical quality is device-owed; this only guards against a mis-wired / empty preset.)
+    func testEveryPresetIsWiredAndNotSilent() {
         for (name, make) in EuclideousPresets.all {
-            for (i, l) in loaded(make).euclideousLinesResolved.enumerated() where l.enabledResolved {
-                XCTAssertEqual(l.poolSrcMaskResolved, midiChords, "\(name) L\(i): reads MIDI + CHORDS 1 only")
-            }
+            let active = loaded(make).euclideousLinesResolved.filter { $0.enabledResolved && ($0.pulses > 0 || $0.patternMissResolved) }
+            XCTAssertGreaterThanOrEqual(active.count, 1, "\(name): at least one lane will strike")
+            for (i, l) in active.enumerated() { XCTAssertNotEqual(l.poolSrcMaskResolved, 0, "\(name) active lane \(i): has a source (not NO-INPUT)") }
         }
     }
 
-    func testTier1AreWiredAndNotSilent() {
-        for (name, make) in EuclideousPresets.all {
+    /// The chord-driven presets (those that author a progression and use CHORDS, not the two KEY-based ones) really read the chords after load.
+    func testChordDrivenPresetsReadTheirChords() {
+        let keyBased: Set = ["PARALLEL FIFTH", "SCALE WALK"]
+        for (name, make) in EuclideousPresets.all where !keyBased.contains(name) {
             let s = loaded(make)
-            let lines = s.euclideousLinesResolved
-            let active = lines.filter { $0.enabledResolved && ($0.pulses > 0 || $0.patternMissResolved) }
-            XCTAssertGreaterThanOrEqual(active.count, 2, "\(name): ≥2 lanes will strike")
-            for l in active { XCTAssertNotEqual(l.poolSrcMaskResolved, 0, "\(name): an active lane has a source (not a NO-INPUT lane)") }
             XCTAssertNotNil(s.euclideousChords, "\(name): authors a chord progression")
-            XCTAssertTrue(lines.contains { $0.enabledResolved && $0.poolChordsOn }, "\(name): an active lane reads the chords")
+            XCTAssertTrue(s.euclideousLinesResolved.contains { $0.enabledResolved && $0.poolChordsOn }, "\(name): an active lane reads the chords")
         }
     }
 
-    func testTier1RoundTrips() throws {
+    func testEveryPresetRoundTrips() throws {
         for (name, make) in EuclideousPresets.all {
             let s = make()
             let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(s))
-            XCTAssertEqual(back.euclideousChords?.chordsDegrees, s.euclideousChords?.chordsDegrees, "\(name) round-trips its progression")
+            XCTAssertEqual(back.euclideousLines?.count, s.euclideousLines?.count, "\(name) lanes round-trip")
+            XCTAssertEqual(back.euclideousChords?.chordsDegrees, s.euclideousChords?.chordsDegrees, "\(name) progression round-trips")
+            XCTAssertEqual(back.riffPoly, s.riffPoly, "\(name) poly flag round-trips")
         }
     }
 }
