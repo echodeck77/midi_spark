@@ -47,13 +47,13 @@ enum EuclideousPresets {
         ("COLOUR CHORDS", colourChords), ("HELD CHORDS", heldChords),
         // Tier 2 — melodic RIFF craft
         ("STRIDE HARMONY", strideHarmony), ("MIRROR LINE", mirrorLine), ("PING-PONG LEAD", pingPongLead2),
-        ("HELD RIFF", heldRiff), ("STUTTER WALK", stutterWalk), ("POLY RIFF", polyRiffPreset),
+        ("HELD RIFF", heldRiff), ("STUTTER WALK", stutterWalk),
         // Tier 3 — scale / pattern / evolving
         ("PARALLEL FIFTH", parallelFifth), ("FIVE ON EIGHT", fiveOnEight), ("KOTEKAN", kotekan2),
         ("TILT PHRASE", tiltPhrase), ("RESTART SHIFT", restartShift), ("SCALE WALK", scaleWalk2),
         ("REVERSE READ", reverseRead), ("ARPEGGIO LADDER", arpeggioLadder2),
-        // Tier 4 — lane interaction / layers
-        ("STACK ARP", stackArp), ("SHADOW HARMONY", shadowHarmony), ("CALL & ANSWER", callAnswer), ("FILL RUN", fillRun),
+        // Tier 4 — layers
+        ("STACK ARP", stackArp), ("FILL RUN", fillRun),
         // Tier 5 — MIDI-reactive
         ("REHARMONIZE", reharmonize), ("ROOT FOLLOW", rootFollow),
     ]
@@ -196,24 +196,6 @@ enum EuclideousPresets {
         s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: runShape); s.euclideousChords = chordGrid([0, 3, 4, 0], voicing: .seventh)
     } }
 
-    // 11 POLY RIFF — overlapping held riff notes (the POLY grid) layer chord tones that ring into one another → the melody
-    // builds its own evolving chords. Hero: POLY RIFF.
-    static func polyRiffPreset() -> PluginState { base { s in
-        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
-        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 8; l[0].steps = 8; l[0].rate = .r1_16; l[0].riffOctave = 1
-        l[1].sourceMode = .chords; l[1].noteSel = .low; l[1].pulses = 2; l[1].steps = 8; l[1].octave = -2; l[1].rate = .r1_4
-        l[2].enabled = false; l[3].enabled = false
-        s.euclideousLines = l
-        s.riffPoly = true
-        s.polyRiff = EuclideousPolyRiff(notes: [
-            EuclideousPolyNote(col: 0, rank: 1, len: 6), EuclideousPolyNote(col: 2, rank: 3, len: 6),
-            EuclideousPolyNote(col: 4, rank: 5, len: 6), EuclideousPolyNote(col: 6, rank: 8, len: 4),
-            EuclideousPolyNote(col: 8, rank: 6, len: 4), EuclideousPolyNote(col: 10, rank: 4, len: 4),
-            EuclideousPolyNote(col: 12, rank: 2, len: 4), EuclideousPolyNote(col: 14, rank: 5, len: 2),
-        ])
-        s.euclideousChords = chordGrid([0, 5, 1, 4], voicing: .seventh)
-    } }
-
     // 12 PARALLEL FIFTH — over the KEY scale, a lead and a second lane MELODY-TRANSPOSED +4 scale steps (a fifth) move in
     // parallel harmony. Hero: MELODY TRANSPOSE over a scale. (Modal — a bring-your-own-chords bed too.)
     static func parallelFifth() -> PluginState { base { s in
@@ -301,30 +283,6 @@ enum EuclideousPresets {
         l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
         l[3].enabled = false
         s.euclideousLines = l; s.euclideousChords = chordGrid([0, 5, 3, 4], voicing: .seventh)
-    } }
-
-    // 20 SHADOW HARMONY — lane 2 ANSWERs lane 1 in PITCH SHADOW: it plays its own rhythm but harmonises lane 1's line from the
-    // shared pool — a second voice that tracks the lead. Hero: ANSWER PITCH SHADOW.
-    static func shadowHarmony() -> PluginState { base { s in
-        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
-        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 6; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
-        l[1].sourceMode = .chords; l[1].useRiff = true; l[1].riffDir = .forward; l[1].pulses = 4; l[1].steps = 8; l[1].rate = .r1_8; l[1].riffOctave = 0
-        l[1].answerPitchOn = true; l[1].answerPitchMode = .shadow; l[1].listenSource = 0
-        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
-        l[3].enabled = false
-        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: archShape); s.euclideousChords = chordGrid([0, 3, 5, 4], voicing: .seventh)
-    } }
-
-    // 21 CALL & ANSWER — lane 2 ANSWERs lane 1 in RHYTHM AVOID: it plays only in lane 1's GAPS, so the two trade a melodic
-    // call-and-response. Hero: ANSWER RHYTHM (AVOID).
-    static func callAnswer() -> PluginState { base { s in
-        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
-        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 4; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
-        l[1].sourceMode = .chords; l[1].useRiff = true; l[1].riffDir = .reverse; l[1].pulses = 4; l[1].steps = 8; l[1].rate = .r1_8; l[1].riffOctave = 0
-        l[1].answerRhythmOn = true; l[1].answerRhythmMode = .avoid; l[1].listenSource = 0
-        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
-        l[3].enabled = false
-        s.euclideousLines = l; s.euclideousRiff = EuclideousRiff(steps: 8, ranks: callShape); s.euclideousChords = chordGrid([0, 4, 5, 3], voicing: .seventh)
     } }
 
     // 22 FILL RUN — a gentle lead whose ARMED bars (4 and 8) burst into a fast ascending FILL run, then settle — a flourish
