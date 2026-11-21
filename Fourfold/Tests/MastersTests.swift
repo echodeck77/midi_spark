@@ -39,6 +39,13 @@ final class MastersTests: XCTestCase {
         XCTAssertEqual(s.map { euclideousNotesLayerIsOn($0) }, [false, true, false, false], "stack: only lane 1 plays")
         XCTAssertTrue(euclideousNotesHaveSelection(s[1]), "the enabled lane gets a lit rank so the layer reads on")
         XCTAssertEqual(euclideousEnableLanePartSolo(lines, lane: 9, isNotes: false).map { $0.riffOnResolved }, [true, true, true, true], "out-of-range lane is a no-op")
+        // AUTO-ENABLE (Paul 2026-11-21): switching a part on from a STOPPED lane (enabled=false, as factory presets ship lane 4) starts the lane too.
+        var stopped = (0..<4).map { _ -> EuclidLine in var l = EuclidLine(noteSel: .all); l.enabled = false; return l }
+        let er = euclideousEnableLanePartSolo(stopped, lane: 3, isNotes: false)
+        XCTAssertTrue(er[3].enabledResolved, "riff solo from a stopped lane enables that lane")
+        XCTAssertFalse(er[0].enabledResolved, "other lanes stay stopped")
+        let en = euclideousEnableLanePartSolo(stopped, lane: 3, isNotes: true)
+        XCTAssertTrue(en[3].enabledResolved, "stack solo from a stopped lane enables that lane")
     }
     // PLAY STACK (Paul 2026-11-20): a lane with no ranks selected shows EMPTY (not the off-outline) — it must not read as enabled.
     func testStackMasterPipsEmptyWhenNoRanks() {

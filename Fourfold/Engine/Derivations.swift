@@ -10494,9 +10494,13 @@ func euclideousEnableLanePartSolo(_ lines: [EuclidLine], lane: Int, isNotes: Boo
     for i in out.indices {
         if isNotes {
             out[i].notesOn = (i == lane)
-            if i == lane && !euclideousNotesHaveSelection(out[i]) { var o = EuclideousLitOrder(); o.append(0); out[i].setLitOrder(o) }
+            if i == lane {
+                out[i].enabled = true   // AUTO-ENABLE (Paul 2026-11-21): the lane's own PLAY/STOP starts too, so this path always sounds
+                if !euclideousNotesHaveSelection(out[i]) { var o = EuclideousLitOrder(); o.append(0); out[i].setLitOrder(o) }
+            }
         } else {
             out[i].riffOn = (i == lane)
+            if i == lane { out[i].enabled = true }   // AUTO-ENABLE (Paul 2026-11-21)
         }
     }
     return out

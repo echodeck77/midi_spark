@@ -3061,10 +3061,20 @@ struct EuclideousPage: View {
         let masterOn = isNotes ? stackMaster : riffMaster
         if !currentlyOn && !masterOn { onEnableLanePartSolo(idx, isNotes); return }
         edit(idx) { l in
-            if part == .riff { l.riffOn = !(l.riffOnResolved); return }
+            // AUTO-ENABLE (Paul 2026-11-21): turning a part ON also starts the LANE itself (`enabled`). The visible
+            // PLAY RIFF / PLAY STACK switches must make sound on EVERY tab (incl. MIX) — a part played into a
+            // lane whose own PLAY/STOP is off (as every factory preset ships lane 4) was silent, with no visible way
+            // to fix it since the lane PLAY moved to MIX. Turning a part OFF never touches `enabled`. One undo step.
+            if part == .riff {
+                let newOn = !(l.riffOnResolved)
+                l.riffOn = newOn
+                if newOn { l.enabled = true }
+                return
+            }
             if euclideousNotesLayerIsOn(l) { l.notesOn = false; return }
             // turning NOTES on with no note lit would change nothing (the layer reads on only while a note is selected — the factory document starts that way): light the lowest note in the same step
             l.notesOn = true
+            l.enabled = true
             if !euclideousNotesHaveSelection(l) { var order = EuclideousLitOrder(); order.append(0); l.setLitOrder(order) }
         }
     }
