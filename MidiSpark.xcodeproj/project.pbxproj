@@ -573,6 +573,7 @@
 		F93EED8D0A68E7ABB780FA27 /* LaneStripBands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53BC97CD3AF04DB5093562C9 /* LaneStripBands.swift */; };
 		F98AB3C003834E203E8A2A09 /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */; };
 		FA9F3BD7C5BFE4AC373970EB /* PlayAsRowsUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54B8D73A12DAFC4099A8C75A /* PlayAsRowsUI.swift */; };
+		FB28A847AAEBC2B1EF7112A6 /* PresetsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27A99EA407A142E2752035D5 /* PresetsTests.swift */; };
 		FB90E1D2C6DD0490D543E2CC /* PageLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A3F3EB2B086C27A581B906A /* PageLayoutTests.swift */; };
 		FD0934CECE8FE814F7E47505 /* AnswerTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A00150F18F6006F1DFA952 /* AnswerTab.swift */; };
 		FDC4CCB5FA83EBBCF5518EFE /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E074C5873A3072DF6841935F /* PresetStore.swift */; };
@@ -680,6 +681,7 @@
 		225D04471362741A939D49DE /* LaneSoloTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloTests.swift; sourceTree = "<group>"; };
 		22F2A9EB8BFA7038CE4C84B1 /* LaneStripFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripFuzzTests.swift; sourceTree = "<group>"; };
 		24C15BDAB89DD4B8DEF42338 /* HarmonyLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarmonyLayout.swift; sourceTree = "<group>"; };
+		27A99EA407A142E2752035D5 /* PresetsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetsTests.swift; sourceTree = "<group>"; };
 		29CF77F773CA703BF84AE945 /* PlayAsRowsAmendment3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsRowsAmendment3Tests.swift; sourceTree = "<group>"; };
 		29E016452526AE786D501E59 /* FourfoldAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldAppModel.swift; sourceTree = "<group>"; };
 		2A5CDA9228755C13703AA880 /* PlayAsSequenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsSequenceTests.swift; sourceTree = "<group>"; };
@@ -1248,6 +1250,7 @@
 				77749334275AD68C87E2E707 /* PoolTabModelTests.swift */,
 				95422B6B62343806F5933B8D /* PoolTabPureTests.swift */,
 				4448C88CC517582DAFC89326 /* PortsStressTests.swift */,
+				27A99EA407A142E2752035D5 /* PresetsTests.swift */,
 				99F625F72C3FD2D49A4440D5 /* PresetStoreTests.swift */,
 				5B1FE1781AE0C4878A7935FE /* PulseTests.swift */,
 				4C2389DC9C33A4961918B034 /* RateStripModelTests.swift */,
@@ -2181,6 +2184,7 @@
 				50DDE4A2AA20ABE1CD4B82AF /* PortsStressTests.swift in Sources */,
 				C79BA16AFBFFB6C53F200E37 /* PresetStore.swift in Sources */,
 				5CE639FE1C31C52CF9452B0C /* PresetStoreTests.swift in Sources */,
+				FB28A847AAEBC2B1EF7112A6 /* PresetsTests.swift in Sources */,
 				692A1708CCCE988100850092 /* PulseTests.swift in Sources */,
 				C0535F9A57D935E39EC42A7E /* RateStripModelTests.swift in Sources */,
 				2D5176E97D60FBE184BABB0A /* RateTile.swift in Sources */,

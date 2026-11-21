@@ -36,15 +36,96 @@ enum EuclideousPresets {
     // so an 8-step riff is byte-identical to the old 16-step default these lanes walked (no lane ever reads past column 8).
     private static let r1Shape      = [1, 2, 3, 5, 4, 3, 2, 1]
 
+    // PRESETS REDESIGN (Paul 2026-11-21) — a fresh, feature-demonstrating, MELODY-focused set. Built in slices so Paul can
+    // audition early (device-owed: I can't hear them). TIER 1 = the chord-driven "press play" five; each authors its OWN chord
+    // progression (`euclideousChords`, grid 1) so it sounds finished standalone, and reads it via `sourceMode = .chords` (the
+    // tested source path, the same one `euclideousDefaultLine` uses). The old 20 are OUT of the list (kept compiled below for
+    // now so nothing is lost; removed once the full new set lands). Tiers 2–5 (15 more) are added after the Tier-1 audition.
     static let all: [(name: String, make: () -> PluginState)] = [
-        ("STRIDE WALK", strideWalk), ("MIRROR WALK", mirrorWalk), ("BOUNCE", bounce),
-        ("PING-PONG LEAD", pingPongLead), ("DRUNKEN WALK", drunkenWalk), ("RANDOM GARDEN", randomGarden),
-        ("OCTAVE COLUMN", octaveColumn), ("KOTEKAN", kotekan), ("FIVE AGAINST EIGHT", fiveAgainstEight),
-        ("MIRRORED PITCH", mirroredPitch), ("FIFTH ABOVE", fifthAbove), ("HELD BREATH", heldBreath),
-        ("STUTTER FILL", stutterFill), ("CALL AND HOLD", callAndHold), ("LONG TAIL", longTail),
-        ("GAPPED GROOVE", gappedGroove), ("EARLY BLOOM", earlyBloom), ("SCALE WALK", scaleWalk),
-        ("ARPEGGIO LADDER", arpeggioLadder), ("BACKWARDS GLANCE", backwardsGlance),
+        ("CHORD ARP", chordArp), ("RIFF LEAD", riffLead), ("CANON", canon),
+        ("COLOUR CHORDS", colourChords), ("HELD CHORDS", heldChords),
     ]
+
+    /// A grid-1 chord progression as a `MachineParams` (what `euclideousChords` holds). PATTERN mode, one chord per bar.
+    /// `degrees` 0…6 = I…vii (−1 CARRY · 7 REST); `colours` 1…6 = 7/9/6/ADD9/SUS2/SUS4 per step (nil = none).
+    private static func chordGrid(_ degrees: [Int], colours: [Int]? = nil, voicing: ChordVoicing = .triad, steps: Int? = nil) -> MachineParams {
+        var p = MachineParams()
+        p.chordsMode = .pattern
+        p.chordsDegrees = degrees
+        p.chordsSteps = steps ?? degrees.count
+        p.chordsVoicing = voicing
+        p.chordsColours = colours
+        p.chordsRate = .r1_1
+        return p
+    }
+
+    // T1.1 CHORD ARP — a fast ascending arpeggio of the chord tones (a RIFF lane walking the CHORDS pool) over a held pad and a
+    // root bass. Hero: own chord progression (I–vi–IV–V, 7ths) + riff-as-arpeggiator.
+    static func chordArp() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 8; l[0].steps = 8; l[0].rate = .r1_16; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: runShape)
+        s.euclideousChords = chordGrid([0, 5, 3, 4], voicing: .seventh)
+    } }
+
+    // T1.2 RIFF LEAD — a singing rise-and-fall RIFF melody over moving harmony, a held pad and a half-note bass. Hero: riff-walk
+    // melody sitting on a chord progression (vi–IV–I–V, 7ths).
+    static func riffLead() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 6; l[0].steps = 8; l[0].rate = .r1_8; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: archShape)
+        s.euclideousChords = chordGrid([5, 3, 0, 4], voicing: .seventh)
+    } }
+
+    // T1.3 CANON — two arpeggio lanes read the SAME progression, but the second is CANON-delayed two bars (`chordDelay`), so it
+    // sounds the earlier chord against the current one — overlapping, suspended harmony. Hero: CANON delay.
+    static func canon() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 8; l[0].steps = 8; l[0].rate = .r1_16; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].useRiff = true; l[1].riffDir = .forward; l[1].pulses = 8; l[1].steps = 8; l[1].rate = .r1_16; l[1].riffOctave = 0; l[1].chordDelay = 2
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: runShape)
+        s.euclideousChords = chordGrid([0, 4, 5, 3], voicing: .seventh)
+        s.euclideousCanonUnit = .bars
+    } }
+
+    // T1.4 COLOUR CHORDS — the chord COLOURS (ADD9 / SUS2 / 9) give the progression a modern, open sound under an arp lead.
+    // Hero: per-step chord colours (I–IV–vi–V with ADD9/SUS2/ADD9/9).
+    static func colourChords() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].useRiff = true; l[0].riffDir = .forward; l[0].pulses = 8; l[0].steps = 8; l[0].rate = .r1_16; l[0].riffOctave = 1
+        l[1].sourceMode = .chords; l[1].noteSel = .all; l[1].pulses = 1; l[1].steps = 8; l[1].rate = .r1_1; l[1].gate = 0.98
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 2; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_4
+        l[3].enabled = false
+        s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: runShape)
+        s.euclideousChords = chordGrid([0, 3, 5, 4], colours: [4, 5, 4, 2])
+    } }
+
+    // T1.5 HELD CHORDS — a lush ADD9 chord pad, once a bar, long gate, with a gentle top-note melody drifting over it and a
+    // sustained root. Hero: chord voicing + sustain (noteSel ALL pad + a slow riff melody).
+    static func heldChords() -> PluginState { base { s in
+        var l = [EuclidLine(), EuclidLine(), EuclidLine(), EuclidLine()]
+        l[0].sourceMode = .chords; l[0].noteSel = .all; l[0].pulses = 1; l[0].steps = 8; l[0].rate = .r1_1; l[0].gate = 0.98
+        l[1].sourceMode = .chords; l[1].useRiff = true; l[1].riffDir = .forward; l[1].pulses = 3; l[1].steps = 8; l[1].rate = .r1_4; l[1].riffOctave = 1
+        l[2].sourceMode = .chords; l[2].noteSel = .low; l[2].pulses = 1; l[2].steps = 8; l[2].octave = -2; l[2].rate = .r1_1; l[2].gate = 0.98
+        l[3].enabled = false
+        s.euclideousLines = l
+        s.euclideousRiff = EuclideousRiff(steps: 8, ranks: archShape)
+        s.euclideousChords = chordGrid([0, 5, 3, 4], voicing: .add9)
+    } }
+
+    // ── OLD PRESETS (Paul 2026-10-11) — OUT of `all` during the redesign; kept compiled until the full new set lands. ──
 
     // 1. STRIDE WALK — two riff lanes walk the SAME shared pattern at different STRIDEs over a 5-step window
     // (3 and 2), so they visit the same 5 ranks in a different order; a plain low bass anchors underneath.
