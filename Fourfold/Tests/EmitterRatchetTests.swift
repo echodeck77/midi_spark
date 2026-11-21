@@ -827,20 +827,8 @@ final class RatchExpandDecideTests: XCTestCase {
         for v in Int64(0)..<64 where pinned.isHit(Int(v % 8)) { XCTAssertEqual(emitterRatchetDecide(pinned, output: 0, v: v).strikes, 3) }
     }
 
-    // §2.3 / §8: RANGE with MIN 1 (MAX ≥ 2 — §1.3) draws 1 on SOME hits; a drawn 1 sounds once, ratchets = false,
-    // not missed; every drawn count ≥ 2 ratchets. (MIN = MAX = 1 isn't representable — `normalized()` lifts MAX to 2.)
-    func testRangeMinOnePlaysOnce() {
-        let c = cfg { $0.mode = .range; $0.rangeMin = 1; $0.rangeMax = 2 }
-        var ones = 0, twos = 0
-        for v in Int64(0)..<400 where c.isHit(Int(v % 8)) {
-            let d = emitterRatchetDecide(c, output: 0, v: v)
-            XCTAssertTrue((1...2).contains(d.strikes))
-            XCTAssertFalse(d.missed, "a passing hit is never missed")
-            if d.strikes == 1 { XCTAssertFalse(d.ratchets, "one strike doesn't ratchet"); ones += 1 }
-            else { XCTAssertTrue(d.ratchets, "two strikes ratchet"); twos += 1 }
-        }
-        XCTAssertGreaterThan(ones, 0, "some hits draw 1"); XCTAssertGreaterThan(twos, 0, "some draw 2")
-    }
+    // (REMOVED 2026-11-21: `testRangeMinOnePlaysOnce` asserted RANGE MIN 1 could draw a SINGLE strike — RATCH v2 removed that.
+    // The COUNTS members are 2/3/4 only (no 1), so the ratchet floor is ×2; the test exercised behaviour the engine no longer has.)
 
     // §9: HIT counts land on their hits, and follow them under OFFSET.
     func testHitModeCountsAndOffsetCarry() {

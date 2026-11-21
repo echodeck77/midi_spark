@@ -250,9 +250,11 @@ struct FourfoldRootView: View {
                                                // RE-ENABLE ON ENABLE (Paul 2026-11-20): enabling a lane's part while its master is OFF turns the master back ON with ONLY that lane
                                                // playing (every other lane's same part off). ONE undo step: record once, mutate lines + the master together, publish once.
                                                onEnableLanePartSolo: { lane, isNotes in
+                                                   let lines = euclideousEnableLanePartSolo(euclideousLines, lane: lane, isNotes: isNotes)
+                                                   let masterOn = isNotes ? stackMaster : riffMaster
+                                                   guard lines != euclideousLines || !masterOn else { return }   // UNDO-6: a complete no-op (already soloed to this lane AND its master already on) records nothing
                                                    applyLandedLockSnaps()
                                                    euclideousRecordUndo(coalesceKey: nil)
-                                                   let lines = euclideousEnableLanePartSolo(euclideousLines, lane: lane, isNotes: isNotes)
                                                    setEuclideousLines(lines)
                                                    if isNotes { stackMaster = true } else { riffMaster = true }
                                                    au?.editDocument { doc in

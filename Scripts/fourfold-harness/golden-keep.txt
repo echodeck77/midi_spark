@@ -1,59 +1,61 @@
 GOLDEN (default): events=1032 hash=911c18caa34d7d23
-GOLDEN STRIDE WALK: events=1164 hash=43dbb64e1af73d75
-GOLDEN MIRROR WALK: events=1544 hash=be20737e9ac04d9
-GOLDEN BOUNCE: events=1032 hash=ab14aac3ffcd2f07
-GOLDEN PING-PONG LEAD: events=1576 hash=183c8f415fa58801
-GOLDEN DRUNKEN WALK: events=1160 hash=1fc4165b9a9443a3
-GOLDEN RANDOM GARDEN: events=1804 hash=97e74726b5fa5bf9
-GOLDEN OCTAVE COLUMN: events=2576 hash=f682c8d4336002b5
-GOLDEN KOTEKAN: events=1028 hash=f8c6255dde80f56d
-GOLDEN FIVE AGAINST EIGHT: events=616 hash=8713dfeecc358d3b
-GOLDEN MIRRORED PITCH: events=904 hash=a5b202f11d18d83d
-GOLDEN FIFTH ABOVE: events=1288 hash=4261a4a2afa75b6d
-GOLDEN HELD BREATH: events=68 hash=94b48951f5e18fc9
-GOLDEN STUTTER FILL: events=3608 hash=8a28c6ef2c6ccd8b
-GOLDEN CALL AND HOLD: events=840 hash=688cb4ca8312c8bd
-GOLDEN LONG TAIL: events=312 hash=5376e1a3e5a13251
-GOLDEN GAPPED GROOVE: events=772 hash=fca23bd350b77c3
-GOLDEN EARLY BLOOM: events=536 hash=2d7747961193f4c9
-GOLDEN SCALE WALK: events=1288 hash=8d19b1cc4609fc6b
-GOLDEN ARPEGGIO LADDER: events=4104 hash=fd1e1adfe9e48bf9
-GOLDEN BACKWARDS GLANCE: events=1284 hash=cef4d365e11e5a25
-GOLDEN ALL: documents=21 events=28536 hash=b43fe44748ed5cae
-GOLDEN POLY POLY seeded: events=1032 hash=af14182c84e4523
-GOLDEN POLY POLY chords and long notes: events=1800 hash=af09457ee144c839
-GOLDEN POLY POLY walks: events=640 hash=487aeaa26a123537
-GOLDEN POLY POLY reverse: events=1564 hash=f6d095d2cc71ab2d
-GOLDEN POLY POLY pendulum and ping-pong: events=2052 hash=2d1a454a0273bcff
-GOLDEN POLY ALL: documents=5 events=7088 hash=7fd2a2208992d9d6
-GOLDEN CANON CANON control, no delays: events=3748 hash=40076eb02b489c99
-GOLDEN CANON CANON passes: events=3748 hash=75ef9788f8b8fcd5
-GOLDEN CANON CANON bars and slip: events=3748 hash=28dba0c1092d4ff9
-GOLDEN CANON CANON steps: events=3748 hash=e6e6a314aa93749d
-GOLDEN CANON CANON lanes of 5 7 11 16: events=4064 hash=6345aaffd677e583
-GOLDEN CANON CANON MIDI IN, a hand changing chords: events=3748 hash=28f7178e85d1335
-GOLDEN CANON CANON MIDI IN with slip, lanes of 5 7 11 16: events=4064 hash=d0c8fcfc9c94bbbb
-GOLDEN CANON CANON every source: events=3748 hash=89987769aaf37259
-GOLDEN CANON CANON MIDI replaces chords: events=3748 hash=3ee07d4bf0966d21
-GOLDEN CANON ALL: documents=9 events=34364 hash=827aacf00ecdcd3c
-GOLDEN OCTAVES MIDI alone, high inversions: events=1032 hash=e032e23891b3410b
-GOLDEN OCTAVES MIDI alone KEEP, high inversions: events=1032 hash=fc15ee202304710b
-GOLDEN OCTAVES MIDI + KEY, high inversions: events=1032 hash=641d0aa8f05b31ff
-GOLDEN OCTAVES MIDI + CHORDS, high inversions: events=3748 hash=4cf0b9db4a99a94d
-GOLDEN OCTAVES REPLACE over CHORDS + KEY, high inversions: events=3748 hash=167de0940bc7a769
-GOLDEN OCTAVES ROOT over CHORDS + KEY, a low note: events=3500 hash=87dbd4f845c4a46d
-GOLDEN OCTAVES ROOT over CHORDS + KEY + PICK KEEP, a low note: events=3748 hash=323437ad42453f85
-GOLDEN OCTAVES ROOT with delayed lanes: events=3504 hash=c915bc501069db93
-GOLDEN OCTAVES ALL: documents=8 events=21344 hash=28db66d62897fd5d
-GOLDEN ANSWER ANSWER every row off, fields stored: events=1032 hash=db13614b6865d523
-GOLDEN ANSWER ANSWER PITCH + RHYTHM cycles in bars: events=1032 hash=7e4916a6928122af
-GOLDEN ANSWER ANSWER cycles in passes: events=1028 hash=2b0474994b6e0605
-GOLDEN ANSWER ANSWER BORROW: events=1352 hash=d6e261803f1a2537
-GOLDEN ANSWER ANSWER SWAP + BORROW: events=1352 hash=932c7a3044c4fd89
-GOLDEN ANSWER ANSWER cycling rows + a trade on one lane: events=712 hash=28b298d1043e9cc7
-GOLDEN ANSWER ALL: documents=6 events=6508 hash=84ebb86ea10d33b
-GOLDEN INPUTS INPUTS ADD, REPLACE, ROOT and a lane without MIDI IN: events=3568 hash=99bb5b982667a8fb
-GOLDEN INPUTS INPUTS every lane ROOT, delayed lanes: events=3748 hash=1200b765d3d36a55
-GOLDEN INPUTS INPUTS the document's REPLACE with one lane in ADD: events=3484 hash=5125974a16fbedf7
-GOLDEN INPUTS INPUTS REPLACE and ROOT on the second chord grid: events=3540 hash=12274ee858c7bb87
-GOLDEN INPUTS ALL: documents=4 events=14340 hash=a5a833bb47e1c7fb
+GOLDEN CHORD ARP: events=2204 hash=95e30decba944263
+GOLDEN RIFF LEAD: events=924 hash=eac926bcd7134a81
+GOLDEN CANON: events=4236 hash=e27550eea69f8977
+GOLDEN COLOUR CHORDS: events=2204 hash=33b5739fd0fee24b
+GOLDEN HELD CHORDS: events=236 hash=7f39126a9530fd53
+GOLDEN STRIDE HARMONY: events=1676 hash=266110fa5b7f037
+GOLDEN MIRROR LINE: events=1676 hash=76a861d0ad8a78c3
+GOLDEN PING-PONG LEAD: events=1948 hash=4f76bd50955540dd
+GOLDEN HELD RIFF: events=284 hash=cfd24fb882046695
+GOLDEN STUTTER WALK: events=2972 hash=5b165b6a1246dbe5
+GOLDEN PARALLEL FIFTH: events=1676 hash=a83f9aa362e08037
+GOLDEN FIVE ON EIGHT: events=1392 hash=a93c93399ed975b5
+GOLDEN KOTEKAN: events=1160 hash=966f1a0aa9669d3
+GOLDEN TILT PHRASE: events=796 hash=c15d0798807bf6ff
+GOLDEN RESTART SHIFT: events=796 hash=71eb76c3d145f73b
+GOLDEN SCALE WALK: events=1288 hash=6a8be3d72519caab
+GOLDEN REVERSE READ: events=1416 hash=9147cdfb635c6b37
+GOLDEN ARPEGGIO LADDER: events=4236 hash=a9f7adc26e224bf7
+GOLDEN STACK ARP: events=2204 hash=46ca814412d9a2ab
+GOLDEN FILL RUN: events=792 hash=a45ce5128686b499
+GOLDEN REHARMONIZE: events=2204 hash=170bde2aa9ad7c57
+GOLDEN ROOT FOLLOW: events=924 hash=b0e81943debfaa05
+GOLDEN ALL: documents=23 events=38276 hash=3cd830b7000bb36e
+GOLDEN POLY POLY seeded: events=1032 hash=5c7183cdbe9f2523
+GOLDEN POLY POLY chords and long notes: events=1800 hash=86a10d1577b95839
+GOLDEN POLY POLY walks: events=640 hash=42f2969acc503537
+GOLDEN POLY POLY reverse: events=1564 hash=5721a166433d872d
+GOLDEN POLY POLY pendulum and ping-pong: events=2052 hash=bd7ed0334c8ef8ff
+GOLDEN POLY ALL: documents=5 events=7088 hash=ffada7c9bfd481d6
+GOLDEN CANON CANON control, no delays: events=3748 hash=60f962b0293f7499
+GOLDEN CANON CANON passes: events=3748 hash=fe99b8fdb22df4d5
+GOLDEN CANON CANON bars and slip: events=3748 hash=28ecf7ca6a0b9bf9
+GOLDEN CANON CANON steps: events=3748 hash=eac003fc6d87ec9d
+GOLDEN CANON CANON lanes of 5 7 11 16: events=4064 hash=4faf93f0239c7183
+GOLDEN CANON CANON MIDI IN, a hand changing chords: events=3748 hash=bcc3eef1c0439b35
+GOLDEN CANON CANON MIDI IN with slip, lanes of 5 7 11 16: events=4064 hash=d187994ad1ad5bbb
+GOLDEN CANON CANON every source: events=3748 hash=e07320886997ea59
+GOLDEN CANON CANON MIDI replaces chords: events=3748 hash=271118be2992ad21
+GOLDEN CANON ALL: documents=9 events=34364 hash=5b2a783a0b4dad3c
+GOLDEN OCTAVES MIDI alone, high inversions: events=1032 hash=48c3cd09e56dd0b
+GOLDEN OCTAVES MIDI alone KEEP, high inversions: events=1032 hash=5cbd2aa68e3a750b
+GOLDEN OCTAVES MIDI + KEY, high inversions: events=1032 hash=3a8ae042c610c1ff
+GOLDEN OCTAVES MIDI + CHORDS, high inversions: events=3748 hash=fdead2f718f24d4d
+GOLDEN OCTAVES REPLACE over CHORDS + KEY, high inversions: events=3748 hash=ebe72bd8cf880b69
+GOLDEN OCTAVES ROOT over CHORDS + KEY, a low note: events=3500 hash=a486d93e62fb846d
+GOLDEN OCTAVES ROOT over CHORDS + KEY + PICK KEEP, a low note: events=3748 hash=608647f947b15f85
+GOLDEN OCTAVES ROOT with delayed lanes: events=3504 hash=2bda1ea6609e9793
+GOLDEN OCTAVES ALL: documents=8 events=21344 hash=b1ffb8052a03315d
+GOLDEN ANSWER ANSWER every row off, fields stored: events=1032 hash=5f26ff33a9459523
+GOLDEN ANSWER ANSWER PITCH + RHYTHM cycles in bars: events=1032 hash=df3a0aa6ad0692af
+GOLDEN ANSWER ANSWER cycles in passes: events=1028 hash=b7cfd1ceef27c605
+GOLDEN ANSWER ANSWER BORROW: events=1352 hash=f6e21bdae2b32d37
+GOLDEN ANSWER ANSWER SWAP + BORROW: events=1352 hash=39001a317960ad89
+GOLDEN ANSWER ANSWER cycling rows + a trade on one lane: events=712 hash=91362b01b0978cc7
+GOLDEN ANSWER ALL: documents=6 events=6508 hash=c3e743cccd9bab3b
+GOLDEN INPUTS INPUTS ADD, REPLACE, ROOT and a lane without MIDI IN: events=3568 hash=44ecd4c722eb2cfb
+GOLDEN INPUTS INPUTS every lane ROOT, delayed lanes: events=3748 hash=334954495704fa55
+GOLDEN INPUTS INPUTS the document's REPLACE with one lane in ADD: events=3484 hash=a774893bd0c931f7
+GOLDEN INPUTS INPUTS REPLACE and ROOT on the second chord grid: events=3540 hash=13a3e705723c8f87
+GOLDEN INPUTS ALL: documents=4 events=14340 hash=c28863c449cdcbfb

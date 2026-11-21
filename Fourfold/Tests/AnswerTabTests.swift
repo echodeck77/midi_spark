@@ -309,7 +309,7 @@ final class AnswerTabTests: XCTestCase {
         XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["EUCLID", "RIFF", "STACK", "INPUTS", "ANSWER", "RESETS", "MIX", "FILL", "ALT"])   // POOL→INPUTS (2026-11-05); NOTES→STACK (2026-11-08); RESETS (2026-11-11); FILL rawValue 7 (2026-11-13); ALT rawValue 8 (2026-11-14) — both skip MIX's 6
         XCTAssertEqual(EuclideousPageTab.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5, 6, 7, 8])
         // the strip DRAWS them INPUTS first, RESETS right after EUCLID, FILL after STACK, ALT between ANSWER and MIX (the display order is separate from the raw-value coupling)
-        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["INPUTS", "EUCLID", "RESETS", "RIFF", "STACK", "FILL", "ANSWER", "ALT", "MIX"])
+        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["INPUTS", "EUCLID", "RIFF", "STACK", "RESETS", "FILL", "ANSWER", "ALT", "MIX"])   // RESETS moved after RIFF + STACK (Paul 2026-11-19)
         XCTAssertEqual(euclideousPageTabOrder.count, EuclideousPageTab.allCases.count)
         XCTAssertEqual(Set(euclideousPageTabOrder), Set(EuclideousPageTab.allCases), "every tab appears exactly once")
         XCTAssertEqual(EuclideousTabKind.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5, 7, 8])   // FILL = 7, ALT = 8 (both skip MIX's 6, which has no front tab)

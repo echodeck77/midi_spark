@@ -115,8 +115,9 @@ final class ClarityPassTests: XCTestCase {
         // RHYTHM COPY alone is enough to be "following", same resolution
         let fill = lane { $0.setAnswerRhythm(.fill); $0.listenSource = 3 }
         XCTAssertEqual(euclideousListenSource(fill, lane: 0), .lane(3))
-        // a source that is out of range, or the lane itself, falls back to the default partner (lane 2 for lane 1, else lane 1)
-        let outOfRange = lane { $0.setAnswerPitch(.avoid); $0.listenSource = 9 }
+        // a source that is out of range, or the lane itself, falls back to the default partner (lane 2 for lane 1, else lane 1).
+        // (DODGE, not AVOID: ANSWER v2 moved AVOID to RHYTHM — `setAnswerPitch(.avoid)` no longer makes a lane follow — so a current following pitch mode exercises the fallback.)
+        let outOfRange = lane { $0.setAnswerPitch(.dodge); $0.listenSource = 9 }
         XCTAssertEqual(euclideousListenSource(outOfRange, lane: 1), .lane(0))
         let selfRef = lane { $0.setAnswerPitch(.echo); $0.listenSource = 0 }
         XCTAssertEqual(euclideousListenSource(selfRef, lane: 0), .lane(1))

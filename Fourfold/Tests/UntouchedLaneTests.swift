@@ -58,7 +58,7 @@ final class UntouchedLaneTests: XCTestCase {
                 checked += 1
             }
         }
-        XCTAssertEqual(checked, 4 * 21)
+        XCTAssertEqual(checked, 4 * (EuclideousPresets.all.count + 1), "the fresh document + every factory preset, four lanes each")
     }
 
     /// Five thousand stored lanes — every mix of the legacy markers, the lit fields (legacy and the order, valid and not) and the switches, set or absent — read the same by the page and the engine.
