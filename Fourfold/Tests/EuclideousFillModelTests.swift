@@ -14,7 +14,7 @@ final class EuclideousFillModelTests: XCTestCase {
         XCTAssertTrue(l.fillOnResolved, "FILL defaults ON (§1.1)")
         XCTAssertEqual(l.fillBarsResolved, [Bool](repeating: false, count: 16), "FILL TAB widened the resolved view to 16")
         XCTAssertEqual(l.fillSpeedResolved, 1); XCTAssertEqual(l.fillSpeedMultiplier, 1, "FILL TAB V2 / AMEND 1 default ×1")
-        XCTAssertEqual(l.fillLengthResolved, 1); XCTAssertEqual(l.fillLengthFraction, 0.5, "default ½")
+        XCTAssertEqual(l.fillLengthResolved, 0); XCTAssertEqual(l.fillLengthFraction, 1.0, "default BAR / whole bar (Paul 2026-11-21; was ½)")
         XCTAssertFalse(l.fillReverseResolved); XCTAssertEqual(l.fillRanksResolved, 0); XCTAssertEqual(l.fillSwellResolved, 0); XCTAssertFalse(l.fillBreakResolved)
         XCTAssertFalse(l.usesFill, "a default lane has no bar lit ⇒ byte-identical to today")
     }

@@ -800,7 +800,7 @@ struct EuclidLine: Codable, Equatable {
     var fillOn: Bool? = nil            // §1.1 [true]
     var fillBars: [Bool]? = nil        // §1.1 8 entries [all false]; a lit bar arms the fill
     var fillSpeed: UInt8? = nil        // §1.1 index 0…4 → ×½ ×1 ×1½ ×2 ×4 [3 = ×2]
-    var fillLength: UInt8? = nil       // §1.1 index 0…2 → BAR ½ ¼ [1 = ½]
+    var fillLength: UInt8? = nil       // §1.1 index 0…2 → BAR ½ ¼ [0 = BAR, whole bar — Paul 2026-11-21; was ½]
     var fillReverse: Bool? = nil       // §1.1 [false]
     var fillRanks: Int8? = nil         // §1.1 −7…+7, a climb [0]
     var fillSwell: Int8? = nil         // §1.1 −3…+3, a velocity ramp [0]
@@ -862,7 +862,7 @@ struct EuclidLine: Codable, Equatable {
     var fillSpeedMultiplier: Double {   // §1.1 m — a switch, NOT an array literal (which would heap-allocate on the render thread)
         switch fillSpeedResolved { case 0: return 0.5; case 2: return 1.5; case 3: return 2; case 4: return 4; default: return 1 }
     }
-    var fillLengthResolved: Int { let v = Int(fillLength ?? 1); return (0...2).contains(v) ? v : 1 }
+    var fillLengthResolved: Int { let v = Int(fillLength ?? 0); return (0...2).contains(v) ? v : 0 }   // default BAR (whole bar) — Paul 2026-11-21 (was ½)
     var fillLengthFraction: Double {    // §1.1 L (BAR · ½ · ¼)
         switch fillLengthResolved { case 0: return 1; case 2: return 0.25; default: return 0.5 }
     }
