@@ -31,8 +31,8 @@ targetTemplates:
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) FOURFOLD"
         # ONE version for the app AND its embedded AU extension (App Store validation wants them to agree): MARKETING_VERSION is the user-visible version, CURRENT_PROJECT_VERSION the build
         # number that must go up on every upload. Both plists read these two (`$(MARKETING_VERSION)`); `sh Scripts/bump-build.sh` raises the build number.
-        MARKETING_VERSION: "0.2.0"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "0.3.0"
+        CURRENT_PROJECT_VERSION: "6"
 targets:
   MidiSpark:
     type: application
