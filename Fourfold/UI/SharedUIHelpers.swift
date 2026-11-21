@@ -25,3 +25,47 @@ let machineHexes: [UInt32] = [
 // machine — not a shade drawn over the source). Session-scoped, like the rest of the BUILD workspace. (Paul 2026-08-15)
 var machineHueOverride: [String: UInt32] = [:]
 
+
+// HEADER MASTER SOLO (Paul 2026-11-21): the PLAY RIFF / PLAY STACK masters tell a TAP from a HOLD exactly the way the MIX
+// S buttons do (`EuclideousMixV2EmitterTouch` — the solo ferry's `EuclideousRingPress`, 0.3 s): release before 0.3 s is a
+// TAP (toggle the master); at 0.3 s `onHold(true)` fires and the part is soloed across all four lanes until the finger lifts
+// (`onHold(false)`). No drag-cancel — a slide-off still counts by its duration; a system-cancelled touch ends as a hold would.
+struct EuclideousHeaderMasterTouch: View {
+    let onTapToggle: () -> Void
+    let onHold: (Bool) -> Void
+    @State private var press = EuclideousRingPress()
+    @State private var holdTask: Task<Void, Never>? = nil
+    @GestureState private var touching = false
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($touching) { _, t, _ in t = true }
+                    .onChanged { _ in
+                        guard !press.down else { return }
+                        press.touchDown()
+                        holdTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: UInt64(EuclideousRingPress.holdSeconds * 1_000_000_000))
+                            guard !Task.isCancelled else { return }
+                            if case .holdBegan = press.holdTimerFired() { onHold(true) }
+                        }
+                    }
+                    .onEnded { _ in finish(ended: true) }
+            )
+            .onChange(of: touching) { t in
+                guard !t else { return }
+                Task { @MainActor in if press.down { finish(ended: false) } }
+            }
+            .onDisappear { if press.down { finish(ended: false) } }
+            .accessibilityHidden(true)
+    }
+    private func finish(ended: Bool) {
+        holdTask?.cancel(); holdTask = nil
+        switch ended ? press.touchEnded() : press.touchCancelled() {
+        case .tap: onTapToggle()
+        case .holdEnded, .holdBegan: onHold(false)
+        case .none: break
+        }
+    }
+}

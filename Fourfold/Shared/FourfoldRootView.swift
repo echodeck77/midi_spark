@@ -239,6 +239,14 @@ struct FourfoldRootView: View {
                                                    au?.editDocument { $0.stackMaster = v ? nil : false }
                                                    publish()
                                                },
+                                               // HEADER MASTER SOLO (Paul 2026-11-21): press-and-hold PLAY RIFF / PLAY STACK momentarily solos that PART across all four lanes.
+                                               // Reuses the per-part held-solo path (bits 0x55 riff / 0xAA notes) — the render thread gets the live word first, `publish()` follows; no undo, nothing saved.
+                                               onHeaderPartSoloHold: { isNotes, down in
+                                                   let bits = euclideousHeaderSoloHeldBits(isNotes: isNotes)
+                                                   if down { euclideousPartSoloHeld |= bits } else { euclideousPartSoloHeld &= ~bits }
+                                                   au?.setEuclideousPartSoloLive(euclideousPartSoloEffective(latched: euclideousPartSoloMask, held: euclideousPartSoloHeld))
+                                                   publish()
+                                               },
                                                // RE-ENABLE ON ENABLE (Paul 2026-11-20): enabling a lane's part while its master is OFF turns the master back ON with ONLY that lane
                                                // playing (every other lane's same part off). ONE undo step: record once, mutate lines + the master together, publish once.
                                                onEnableLanePartSolo: { lane, isNotes in

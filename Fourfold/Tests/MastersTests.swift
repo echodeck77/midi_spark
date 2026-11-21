@@ -57,6 +57,26 @@ final class MastersTests: XCTestCase {
                        euclideousMasterPips(master: false, parts: [true, false, true, false]))
     }
 
+    // HEADER MASTER SOLO (Paul 2026-11-21): press-and-hold PLAY RIFF / PLAY STACK momentarily solos that PART across all four lanes.
+    func testHeaderSoloHeldBitsSilenceTheOtherPart() {
+        XCTAssertEqual(euclideousHeaderSoloHeldBits(isNotes: false), 0x55, "riff = bits 0,2,4,6")
+        XCTAssertEqual(euclideousHeaderSoloHeldBits(isNotes: true), 0xAA, "stack = bits 1,3,5,7")
+        // hold PLAY RIFF → effective part mask 0x55: every lane's riff audible, every lane's stack silenced.
+        let riff = euclideousPartSoloEffective(latched: 0, held: euclideousHeaderSoloHeldBits(isNotes: false))
+        for lane in 0..<4 {
+            XCTAssertFalse(euclideousPartSoloSilences(lane: lane, part: 0, soloMask: 0, partMask: riff), "lane \(lane) riff heard")
+            XCTAssertTrue(euclideousPartSoloSilences(lane: lane, part: 1, soloMask: 0, partMask: riff), "lane \(lane) stack silenced")
+        }
+        // hold PLAY STACK → the mirror.
+        let stack = euclideousPartSoloEffective(latched: 0, held: euclideousHeaderSoloHeldBits(isNotes: true))
+        for lane in 0..<4 {
+            XCTAssertTrue(euclideousPartSoloSilences(lane: lane, part: 0, soloMask: 0, partMask: stack), "lane \(lane) riff silenced")
+            XCTAssertFalse(euclideousPartSoloSilences(lane: lane, part: 1, soloMask: 0, partMask: stack), "lane \(lane) stack heard")
+        }
+        // release → held cleared → nothing silenced.
+        XCTAssertEqual(euclideousPartSoloEffective(latched: 0, held: 0x55 & ~euclideousHeaderSoloHeldBits(isNotes: false)), 0)
+    }
+
     // §10.1: the master's spoken VALUE — off, or "on, lanes …" naming the lanes whose own part is on.
     func testMasterVoiceOverValue() {
         XCTAssertEqual(euclideousMasterVoiceOverValue(master: false, parts: [true, true, false, true]), "off")

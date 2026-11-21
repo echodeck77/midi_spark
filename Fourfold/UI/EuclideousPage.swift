@@ -875,6 +875,8 @@ struct EuclideousPage: View {
     let stackMaster: Bool
     let onSetRiffMaster: (Bool) -> Void
     let onSetStackMaster: (Bool) -> Void
+    // HEADER MASTER SOLO (Paul 2026-11-21): (isNotes, down) — press-and-hold a master momentarily solos that PART across all four lanes (sets/clears the held part-solo bits). Not a toggle, not per-lane; a tap still toggles the master.
+    let onHeaderPartSoloHold: (Bool, Bool) -> Void
     // RE-ENABLE ON ENABLE (Paul 2026-11-20): (lane, isNotes) — turn this lane's part ON, every other lane's same part OFF, and the master ON, as ONE undo step.
     let onEnableLanePartSolo: (Int, Bool) -> Void
     // LANE SOLO (2026-10-21): the latched solo mask (saved) and the held one (a finger down; UI only). `soloEffective` is what every dim and the engine use.
@@ -2300,9 +2302,17 @@ struct EuclideousPage: View {
             .background(RoundedRectangle(cornerRadius: 9).fill(on ? Color(hex: 0x2A2D34) : Color.clear))   // §3.4 on fill / off 1 pt inner border
             .overlay(on ? nil : RoundedRectangle(cornerRadius: 9).strokeBorder(Color(hex: 0x2A2D34), lineWidth: 1))
             .frame(height: HM.rowH).contentShape(Rectangle())
-            .onTapGesture { if isNotes { onSetStackMaster(!on) } else { onSetRiffMaster(!on) } }
+            // HEADER MASTER SOLO (Paul 2026-11-21): a TAP still toggles the master; a press-and-hold (≥ 0.3 s, the house convention) momentarily
+            // solos this PART across all four lanes — `onHeaderPartSoloHold(isNotes, down)` sets/clears the held part-solo bits. One gesture, no toggle on a hold.
+            .overlay(EuclideousHeaderMasterTouch(
+                onTapToggle: { if isNotes { onSetStackMaster(!on) } else { onSetRiffMaster(!on) } },
+                onHold: { down in onHeaderPartSoloHold(isNotes, down) }))
+            // HEADER MASTER SOLO (Paul 2026-11-21): while the OTHER master is held (this part solo-silenced across every lane), this button dims to 42 % — the clearest "this part is held silent" signal, right at the finger. Opacity doesn't affect hit-testing, so the tap/hold still works.
+            .opacity(partGloballySilenced(part: isNotes ? 1 : 0) ? EuclideousLaneDimStyle.opacity : 1)
+            .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: partGloballySilenced(part: isNotes ? 1 : 0))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Play \(isNotes ? "stack" : "riff"), all lanes")
+            .accessibilityHint("Double tap to toggle; touch and hold to solo this part")
             .accessibilityValue(euclideousMasterVoiceOverValue(master: on, parts: parts))
             .accessibilityAddTraits(.isButton)
         )
@@ -2838,6 +2848,9 @@ struct EuclideousPage: View {
         let steps = max(2, min(16, line.steps))
         // LANE SOLO §6.1: a solo-silenced lane's card content draws at 42 % — except the SOLO button and the card's own ground / border.
         let soloDimContent = soloSilenced(idx)
+        // HEADER MASTER SOLO (Paul 2026-11-21): a part-specific tab (RIFF / NOTES) also dims when JUST its part is solo-silenced (a held PLAY RIFF / PLAY STACK),
+        // while the lane itself still sounds its other part. The TOP ROW (play / strip / SOLO) stays full — the lane isn't silenced — so this only dims the tab body.
+        let tabDimContent = soloDimContent || (laneTabPart(tab).map { partOnlySilenced(idx, part: $0) } ?? false)
         VStack(alignment: .leading, spacing: cardBodyGap) {
             laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent, flipping: flipping)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
@@ -2851,8 +2864,8 @@ struct EuclideousPage: View {
             // `stepCountBadge` below (and, at the time, the now-retired `trailingContent` slot) — rather
             // than a logic change; nothing about what's drawn or how it behaves is different.
             EuclideousStackBreak { AnyView(tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth)) }
-                .opacity(soloDimContent ? EuclideousLaneDimStyle.opacity : 1)
-                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: soloDimContent)
+                .opacity(tabDimContent ? EuclideousLaneDimStyle.opacity : 1)
+                .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: tabDimContent)
         }
         .padding(cardInset)
         .frame(width: width, height: height)
@@ -3131,6 +3144,13 @@ struct EuclideousPage: View {
     private func soloSilenced(_ lane: Int) -> Bool { euclideousLaneSilencedBySolo(lane: lane, soloMask: soloEffective, partMask: partSoloEffective) }
     /// …and one part (0 riff, 1 notes) of a lane that may still sound on its sister part: what MIX dims a row by.
     private func partSoloSilenced(_ lane: Int, part: Int) -> Bool { euclideousPartSoloSilences(lane: lane, part: part, soloMask: soloEffective, partMask: partSoloEffective) }
+    // HEADER MASTER SOLO (Paul 2026-11-21): just ONE of a lane's parts solo-silenced (the other still sounds) — the part-only dim the
+    // lane-level `soloSilenced` can't cover. A part momentarily soloed by a held PLAY RIFF / PLAY STACK dims its silent twin everywhere it shows.
+    private func partOnlySilenced(_ lane: Int, part: Int) -> Bool { partSoloSilenced(lane, part: part) && !soloSilenced(lane) }
+    /// The part (0 riff, 1 notes) a lane tab edits, or nil for a shared / non-part tab (EUCLID rhythm, INPUTS, RESETS, FILL, ALT).
+    private func laneTabPart(_ tab: EuclideousLaneTab) -> Int? { switch tab { case .riff: return 0; case .notes: return 1; default: return nil } }
+    /// Is EVERY lane's `part` solo-silenced (the whole part is silent) — what the header PLAY RIFF / PLAY STACK master dims to show its part is held silent.
+    private func partGloballySilenced(part: Int) -> Bool { (0..<4).allSatisfy { partSoloSilenced($0, part: part) } }
     /// PLAY RIFF / PLAY STACK ferry (2026-11-07); PLAY BUTTONS RAIL+NOTE (2026-11-16) §1.4/§2: one lane-card part-switch button,
     /// an `AnyView` leaf like the SOLO tile (the page's build chain has almost no stack to spare). A tap funnels through
     /// `cardBackToggle` (one undo step; NOTES auto-lights so the layer reads on). The triangle is 100 % while the part's held
@@ -3158,7 +3178,10 @@ struct EuclideousPage: View {
             let noteChip = partNoteChip(idx: idx, notes: notes, nowBeat: nowBeat, on: on, audible: audible, rail: rail, feed: feed)
             EuclideousPartPlayButton(isNotes: isNotes, accent: accent, on: on, sounding: sounding, noteChip: noteChip,
                                      railEdge: (on && rail) ? (isNotes ? .bottom : .top) : nil, axLabel: label, heldByHeader: heldByHeader) { cardBackToggle(idx, isNotes ? .notes : .riff) }
-        })
+        }
+        // HEADER MASTER SOLO (Paul 2026-11-21): the button glyph dims to 42 % while JUST this part is solo-silenced (a held PLAY RIFF / PLAY STACK) and the lane still sounds its other part — so the silent part reads as silent on every tab.
+        .opacity(partOnlySilenced(idx, part: isNotes ? 1 : 0) ? EuclideousLaneDimStyle.opacity : 1)
+        .animation(.easeInOut(duration: EuclideousLaneDimStyle.easeSeconds), value: partOnlySilenced(idx, part: isNotes ? 1 : 0)))
     }
     /// §4: the note chip for the tile's top line — the part's most recent note-on hit, from the SAME feed/sweep the strip + stack dots use (no second clock). nil ⇒ the word PLAY (§4.6: the part off / stopped / solo-silenced / the random card / no note-on yet).
     /// PERF (A1): `feed` is prebuilt by the caller's body eval — only the cheap newest-note-on → hit-step → chip mapping runs per tick.

@@ -10410,6 +10410,12 @@ func euclidEvenBoxGeometry(n: Int, g: Int, usableWidth: CGFloat) -> EuclidStepGr
 /// §7.1: the effective part mask — latched | held, eight bits.
 @inline(__always) func euclideousPartSoloEffective(latched: UInt8, held: UInt8) -> UInt8 { latched | held }
 
+/// HEADER MASTER SOLO (Paul 2026-11-21): press-and-hold PLAY RIFF / PLAY STACK momentarily solos that PART across ALL
+/// four lanes (not a toggle, not per-lane). The held part-solo bits for the part: riff = every lane's riff bit (2n,
+/// 0,2,4,6 ⇒ 0x55), stack = every lane's notes bit (2n+1, 1,3,5,7 ⇒ 0xAA). OR'd into `euclideousPartSoloHeld` while the
+/// finger is down, cleared on release — so `euclideousPartSoloEffective` silences (and every dim reads) the OTHER part.
+@inline(__always) func euclideousHeaderSoloHeldBits(isNotes: Bool) -> UInt8 { isNotes ? 0xAA : 0x55 }
+
 // MARK: - ONE SOLO (2026-11-05, Paul): the lane SOLO tile and the MIX S buttons are two views of the SAME eight part bits
 // A lane's SOLO sets and clears BOTH of its parts' bits; an S sets or clears one. So a lane soloed on RHYTHM shows both S lit on MIX, and a riff soloed alone on MIX shows the lane's SOLO half-lit. The engine is untouched: it already treats the lane mask and
 // the part mask as a union, and a lane bit is exactly its two part bits. The lane mask is now only what an OLD document stored — folded into the part mask at load (`normalizeSoloAtLoad`) and on the first solo edit.
