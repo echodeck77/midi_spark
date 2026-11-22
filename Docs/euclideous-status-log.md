@@ -12377,3 +12377,10 @@ against the reader's own rhythm; STATELESS (the borrowed column is a pure functi
   reader's card strip is still the own-walk look (§7.6, device-owed). Byte-identical for an own lane (`borrowedColumn`/`riffSourceColor`
   nil ⇒ the exact old expressions); `euclideousLaneRollHits`'s default-nil override is byte-identical for every existing caller / the
   golden harness (a display function, never on the render path). Looks are device-owed.
+  **Mirror consolidation (same slice):** on rebase, the earlier reader WALK-STRIP work (`cd64535`) had added its OWN display mirror
+  `riffDisplaySourceColumn` (over `euclideousWalkTick`, which reads the SOURCE's real ADV STEP) — but the Router's borrow is ADV-STEP-
+  blind (the captured `HocketLaneClock` carries no ADV STEP, so `euclideousRiffSourceColumn` runs the source column at `advanceStep:
+  false`). The two would disagree with what plays for an ADV-STEP source. Per the "share ONE pure function between draw and engine" law,
+  `riffReaderWalkColumns` (the walk strip) now ALSO routes through `euclideousRiffSourceColumn` over `euclideousDisplayRiffClocks` —
+  `riffDisplaySourceColumn`/`riffDisplayLatestHitTick` deleted — so all three display surfaces AND the engine read ONE function
+  (identical for a non-ADV-STEP source, which is why the walk/riff-source suite stayed green).

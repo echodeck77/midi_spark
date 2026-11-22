@@ -8611,36 +8611,21 @@ struct EuclideousPage: View {
         let n = euclideousEffectiveHitPattern(lane: idx, lines: lines)?.n ?? max(2, min(16, line.steps))
         return euclideousHitBoxes(layoutCells: cfg.buf, n: n, dir: euclideousLaneDisplayDirection(lane: idx, lines: phaseLines))
     }
-    /// RIFF WALK ferry §3/§7: one lane's walk config, unconditionally (the WALK strip and the mini-grid's
-    /// dim rule need it regardless of `walkTagShows` — they're drawn even while the riff is off, at 42%).
-    /// RIFF SOURCE (Paul 2026-11-22, walk refinement): the display mirror of `euclideousRiffSourceColumn` — the borrowed column a
-    /// reader reads at a MUSICAL beat, from the DISPLAY's per-lane walk configs (the engine uses the captured clocks; this reads the
-    /// same walk values off `lines`, so the picture matches what plays). Latest source hit ≤ beat → its column; recurses a chain to 3.
-    private func riffDisplayLatestHitTick(_ cfg: EuclideousWalkLaneConfig, musicalBeat: Double) -> Int64? {
-        guard cfg.sub > 0, cfg.n > 0 else { return nil }
-        let k0 = Int64((musicalBeat / cfg.sub + 1e-9).rounded(.down))
-        let cap = Int64(euclidCycleLen(cfg.dir, n: cfg.n) * 4 + 16)
-        var k = k0, scanned: Int64 = 0
-        while scanned < cap { if k < 0 { return nil }; if euclideousWalkTick(cfg, tick: k).isHit { return k }; k -= 1; scanned += 1 }
-        return nil
-    }
-    private func riffDisplaySourceColumn(_ lane: Int, beat: Double, depth: Int = 0) -> Int? {
-        guard depth < 3, lane >= 0, lane < lines.count, let cfg = riffWalkConfig(lane) else { return nil }
-        guard let t = riffDisplayLatestHitTick(cfg, musicalBeat: beat) else { return nil }
-        if let s = lines[lane].riffSourceLaneResolved(ownLane: lane) { return riffDisplaySourceColumn(s, beat: Double(t) * cfg.sub, depth: depth + 1) }
-        return euclideousWalkTick(cfg, tick: t).playedStep
-    }
     /// RIFF SOURCE walk refinement: a reader's walk strip shows what it WILL PLAY — the borrowed column at each of its OWN hits (from
     /// beat 0, capped at `cap` = the strip's max), with `isRepeat` true when this hit holds the SAME borrowed column as the previous
     /// (the sample-and-hold the ear hears). `col == -1` = a rest (no source hit yet). Display-only; the colour rule (source vs native)
     /// is applied by the painter. Starting from beat 0 gives a stable picture (FREE lanes loop; it is representative of what repeats).
+    /// RIFF SOURCE §9 (2026-11-22): the borrowed column is the ENGINE's own `euclideousRiffSourceColumn` over the display clocks — the
+    /// SAME call the lane-card strip + the MUTE roll use, so all three display surfaces AND the Router agree (incl. the Router's
+    /// ADV-STEP-blind borrow — the captured clock carries no ADV STEP). ONE display mirror (replaces the earlier `riffDisplaySourceColumn`).
     private func riffReaderWalkColumns(_ idx: Int, cap: Int = 16) -> [(col: Int, isRepeat: Bool)] {
         guard idx >= 0, idx < lines.count, let src = lines[idx].riffSourceLaneResolved(ownLane: idx), let cfg = riffWalkConfig(idx) else { return [] }
+        let clocks = euclideousDisplayRiffClocks()
         var out: [(Int, Bool)] = []; out.reserveCapacity(cap)
         var prevCol = -999; var tick: Int64 = 0; var scanned = 0
         while out.count < cap, scanned < 4096 {
             if euclideousWalkTick(cfg, tick: tick).isHit {
-                if let col = riffDisplaySourceColumn(src, beat: Double(tick) * cfg.sub) { out.append((col, col == prevCol)); prevCol = col }
+                if let col = euclideousRiffSourceColumn(clocks: clocks, lane: src, beat: Double(tick) * cfg.sub) { out.append((col, col == prevCol)); prevCol = col }
                 else { out.append((-1, false)); prevCol = -999 }   // §7.3: a rest (no source hit yet) — never a repeat
             }
             tick += 1; scanned += 1
@@ -8677,6 +8662,8 @@ struct EuclideousPage: View {
         let h = HocketPalette.lane100(src).hex
         return EuclideousRGB(r: Int((h >> 16) & 0xFF), g: Int((h >> 8) & 0xFF), b: Int(h & 0xFF))
     }
+    /// RIFF WALK ferry §3/§7: one lane's walk config, unconditionally (the WALK strip and the mini-grid's
+    /// dim rule need it regardless of `walkTagShows` — they're drawn even while the riff is off, at 42%).
     private func riffWalkConfig(_ idx: Int) -> EuclideousWalkLaneConfig? {
         guard idx >= 0, idx < lines.count else { return nil }
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
