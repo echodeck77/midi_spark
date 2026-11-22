@@ -1103,3 +1103,11 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   line", the source colour is distinguishable from the reader's own, and the current-chip ring (the reader's own colour) still tracks.
   On the MUTE tab, a reader's upcoming GHOSTS now land on the borrowed pitch (so the predicted roll matches what the output emits). The
   nil-borrow gap (before the source's first hit) draws as a no-chip rhythm hit, not a wrong note. POLY readers keep the own-walk look.
+
+- **GRID CHANCE (ferry 2026-11-22):** the two `%` toggles are easy to hit without catching the rails / rank 1 / rank 8 /
+  lane 1's header (the STACK toggle is 48×20, under the 22 pt floor by Paul's call — check it is still tappable). Sliders
+  are easy to drag on 8 rows and 4 lanes at the portrait-AUM size without catching neighbours. CLR reads as a button, not
+  a value, and clearing the whole axis does not surprise. The inert (30 %) ladder reads as unavailable, not broken (it is
+  drawn as a card-tinted scrim — confirm it looks dimmed, not blanked). Thinning by rank/position/lane sounds intended at
+  20–60 %. The outside-tap close does not eat taps meant elsewhere in the panel. POLY riff is NOT gated (no creation UI) —
+  confirm the toggle on a POLY document is not misleading. The stack-cell 35 % dim also dims that cell's sounding glow.

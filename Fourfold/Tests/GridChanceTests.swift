@@ -171,6 +171,42 @@ final class GridChanceTests: XCTestCase {
         XCTAssertTrue(fixed.stackLane.allSatisfy { $0 == 100 })
     }
 
+    // MARK: §3 / §5 UI frames + slider maths
+
+    func testToggleRects() {
+        let landBox = CGSize(width: 380.67, height: 319)
+        let portBox = CGSize(width: 387, height: 319.67)
+        for box in [landBox, portBox] {
+            let riff = euclideousRiffChanceToggleRect(box: box)
+            XCTAssertEqual(riff.minX, 8, accuracy: 0.01)            // the rank-box column's left edge
+            XCTAssertEqual(riff.width, 48, accuracy: 0.01)         // the label column's width
+            XCTAssertEqual(riff.height, EuclideousRiffPanelMetrics.railsH, accuracy: 0.01)   // the rails' vertical extent (41)
+            XCTAssertGreaterThanOrEqual(min(riff.width, riff.height), 22, "riff toggle clears the 22×22 floor")
+            let stack = euclideousStackChanceToggleRect(box: box)
+            XCTAssertEqual(stack.minX, 8, accuracy: 0.01)
+            XCTAssertEqual(stack.minY, 34, accuracy: 0.01)         // the lane headers' y (headerTop)
+            XCTAssertEqual(stack.width, 48, accuracy: 0.01)
+            XCTAssertEqual(stack.height, 20, accuracy: 0.01)       // Paul 2026-11-22: 48×20, under the 22 floor by his choice
+        }
+    }
+
+    func testSliderValueSnapsAndClamps() {
+        let h = CGRect(x: 10, y: 20, width: 100, height: 30)
+        XCTAssertEqual(euclideousGridChanceSliderValue(at: CGPoint(x: 10, y: 35), in: h, vertical: false), 0)    // left edge
+        XCTAssertEqual(euclideousGridChanceSliderValue(at: CGPoint(x: 110, y: 35), in: h, vertical: false), 100) // right edge
+        XCTAssertEqual(euclideousGridChanceSliderValue(at: CGPoint(x: 60, y: 35), in: h, vertical: false), 50)   // midpoint
+        XCTAssertEqual(euclideousGridChanceSliderValue(at: CGPoint(x: -50, y: 35), in: h, vertical: false), 0)   // clamped
+        XCTAssertEqual(euclideousGridChanceSliderValue(at: CGPoint(x: 1000, y: 35), in: h, vertical: false), 100)
+        // snap to 5
+        let v = euclideousGridChanceSliderValue(at: CGPoint(x: 10 + 100 * 0.63, y: 35), in: h, vertical: false)
+        XCTAssertEqual(v % 5, 0); XCTAssertEqual(v, 65)
+        // vertical fills from the bottom
+        let vr = CGRect(x: 0, y: 0, width: 20, height: 100)
+        XCTAssertEqual(euclideousGridChanceSliderValue(at: CGPoint(x: 10, y: 100), in: vr, vertical: true), 0)   // bottom
+        XCTAssertEqual(euclideousGridChanceSliderValue(at: CGPoint(x: 10, y: 0), in: vr, vertical: true), 100)   // top
+        XCTAssertEqual(euclideousGridChanceSliderValue(at: CGPoint(x: 10, y: 50), in: vr, vertical: true), 50)
+    }
+
     func testNormalizeAtLoadKeepsRankAndNilsAllDefault() {
         var p = PluginState(machines: [], scenes: [SceneState.empty()])
         p.euclideousGridChance = EuclideousGridChance(riffRank: [40, 100, 100, 100, 100, 100, 100, 100], riffColumn: [70, 100, 100, 100, 100, 100, 100, 100])

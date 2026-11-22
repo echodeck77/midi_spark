@@ -9585,6 +9585,43 @@ func euclideousGridChanceRepairInvariant(_ gc: EuclideousGridChance) -> Euclideo
     return r
 }
 
+// MARK: - GRID CHANCE — UI (§3-§5, §11), pure. The views draw from these; the tests pin the toggles + the slider maths.
+
+enum EuclideousGridChanceUI {
+    static let toggleRadius: CGFloat = 6     // §3.2
+    static let pickerRing: Double = 0.60     // §11 (the picker ring opacity)
+    static let inertDim: Double = 0.30       // §11 (the inert ladder dim)
+    static let cellDim: Double = 0.35        // §11 (the grid cells under the sliders)
+    static let snap: Int = 5                 // §11 (the slider snap)
+    static let sliderRadius: CGFloat = 4     // §5.2
+    static let pickerRingRadius: CGFloat = 5 // §4.2 (the riff column buttons' ring)
+    static let sliderInset: CGFloat = 3      // §5.1 (riff either side; stack rank top/bottom)
+    static let sliderInsetStackLane: CGFloat = 6 // §5.1 (stack lane vertical sliders either side)
+    static let value: CGFloat = 11           // §5.2 (the value number)
+    static let glyph: CGFloat = 15           // §3.2 ("%")
+    static let clr: CGFloat = 10             // §4.6 ("CLR")
+}
+
+/// §3.1 riff: the % toggle, bottom-left — the rank-box column's width over the rails' vertical extent (free 48×41 at the reference).
+func euclideousRiffChanceToggleRect(box: CGSize) -> CGRect {
+    let l = euclideousRiffPanelLayout(box: box)
+    return CGRect(x: EuclideousRiffPanelMetrics.padding, y: l.railsTop, width: l.labelW, height: EuclideousRiffPanelMetrics.railsH)
+}
+/// §3.1 stack: the % toggle, top-left — the rank-box column's width, the lane headers' y, 48×20 (Paul 2026-11-22: <22 tall accepted, no layout change).
+func euclideousStackChanceToggleRect(box: CGSize) -> CGRect {
+    let l = euclideousStackGridLayout(box: box)
+    return CGRect(x: EuclideousRiffPanelMetrics.padding, y: l.headerTop, width: l.labelW, height: l.headerH + l.headerGap)
+}
+
+/// §5.4: a horizontal slider's value from a touch x within its rect (fill from the left); a vertical slider's from a touch y (fill from the BOTTOM). Snapped to `snap`, clamped 0…100.
+func euclideousGridChanceSliderValue(at point: CGPoint, in rect: CGRect, vertical: Bool) -> Int {
+    guard rect.width > 0, rect.height > 0 else { return 100 }
+    let frac = vertical ? (1 - (point.y - rect.minY) / rect.height) : (point.x - rect.minX) / rect.width
+    let raw = Int((Double(max(0, min(1, frac))) * 100).rounded())
+    let snapped = Int((Double(raw) / Double(EuclideousGridChanceUI.snap)).rounded()) * EuclideousGridChanceUI.snap
+    return max(0, min(100, snapped))
+}
+
 /// h: the hit's index among the lane's pattern hits since the melody origin (the rhythm's hits, before LANES, the mask or FX act on them), 0 for the first — whatever ADVANCE the
 /// riff walk uses (under ADV STEP the walk counts ticks, but the notes count hits).
 func euclideousNotesHitOrdinal(buf: [Bool], w: EuclideousNotesWalk, tick: Int64) -> Int64 {

@@ -836,6 +836,8 @@ struct EuclideousPage: View {
     let emitterCCs: EmitterCCSet   // CC tab (Nov 2026): the document's four per-output CC emitters (edited via `onEditEmitterCC`)
     // MUTE TAB (2026-11-02): the document's four per-output mutes (the MUTE tab edits these via `onEditOutputMute`). All defaults = nothing muted.
     let outputMutes: EuclideousOutputMutes
+    // GRID CHANCE (2026-11-22): the two grids' per-axis chance (edited via `onEditGridChance`). All 100 = nothing thinned.
+    let gridChance: EuclideousGridChance
     let hocketLive: HocketLiveModel      // HOCKET §8: the count of each lit rule as the Router last published it — read ONLY by leaf views that observe it
     let rollLive: NoteRollLive           // CARD BACKS §5: each part's recent notes and when each output last took one — read ONLY inside the card backs' own frame clocks
     let emitterLive: EmitterRatchetLive  // RATCH tab §3.10: each output's current pattern index — observed ONLY by the RATCH tab's own leaf views
@@ -972,6 +974,8 @@ struct EuclideousPage: View {
     let onEmitterVelocityDragEnd: () -> Void
     /// MUTE TAB (2026-11-02): one write + one republish — `newStep: true` opens an undo step (a pass ◀/▶ tap, the touch-down cell of a stroke), `false` writes into the step already open (the rest of the stroke).
     let onEditOutputMute: (Bool, @escaping (inout EuclideousOutputMutes) -> Void) -> Void
+    // GRID CHANCE (2026-11-22): mutate the grid chance. `newStep` true starts a new undo burst (one step per slider drag / per CLR / per toggle-less change), like `onEditOutputMute`.
+    let onEditGridChance: (Bool, @escaping (inout EuclideousGridChance) -> Void) -> Void
     let onEditRiffsSeq: (@escaping (inout EuclideousRiffsSeq) -> Void) -> Void
     // §4.8 (2026-10-15 ferry): "a preset pick is one undo step" — a DISCRETE action, same class as
     // `onSetActiveRiff`/`onSetKeyRoot` below, not a continuous gesture. Routing a preset pick through the
@@ -1088,6 +1092,12 @@ struct EuclideousPage: View {
     @State private var stackRankHold = 0
     // RIBBON SETTINGS (2026-11-16) §4/§5: whether the settings tab is open (replaces the grid/rails; ephemeral UI state, never saved/undone — the page opens with it closed).
     @State private var ribbonSettingsOpen = false
+    // GRID CHANCE (2026-11-22, §1.3): the per-grid chance editor's live state — UI only, never saved, never undone.
+    @State private var riffChanceOpen = false
+    @State private var stackChanceOpen = false
+    @State private var riffChanceAxis: EuclideousGridChanceAxis = .none
+    @State private var stackChanceAxis: EuclideousGridChanceAxis = .none
+    @State private var chanceDragActive = false   // one shared flag: the first onChanged of a slider drag starts a new undo burst (§1.4)
     // RIBBON SETTINGS §6.1: in TUTTI mode a touch-down toggles ONE mark (the column/rank under the touch); the rest of the drag does nothing. This guards "only the first change of a drag acts".
     @State private var tuttiDragHandled = false
     // RIBBON SETTINGS §9: the live LOOP span (columns lo, hi; 0 = none) + the drag anchor (the column touched down on, fixed until lift). Ephemeral UI state mirroring the kernel live word; not saved/undone.
@@ -8054,6 +8064,7 @@ struct EuclideousPage: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         ribbonSettingsOpen = false   // RIBBON SETTINGS §5.1: tapping RIFF or STACK closes the settings tab and shows that view
+                        closeGridChanceAll()          // GRID CHANCE §6.3: switching RIFF ↔ STACK closes the chance editor
                         switch seg {
                         case .riff:  riffPanelTab = .riff; if polyControl { onSetRiffPoly(false) }
                         case .poly:  riffPanelTab = .riff; onSetRiffPoly(true)
@@ -8077,8 +8088,8 @@ struct EuclideousPage: View {
     /// stay compiled; `ribbonSettingsOpen` is never set); the x/y ribbons keep the Scrub ferry's behaviour, and a held ribbon
     /// now HIGHLIGHTS what it plays on the grid (the ex-tutti fade plumbing, fed from the holds).
     private func riffGridView(box: CGSize) -> AnyView {
-        if riffPanelTab == .stack { return AnyView(stackGridView(box: box)) }
-        return riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box))
+        let base: AnyView = riffPanelTab == .stack ? AnyView(stackGridView(box: box)) : (riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box)))
+        return AnyView(base.overlay(alignment: .topLeading) { gridChanceOverlay(box: box) })   // GRID CHANCE (2026-11-22): the % toggle + the pickers/sliders, in the panel's own space
     }
     // RIBBON SETTINGS §4 — the sliders button in the bottom-left free space (its frame from `euclideousRibbonSettingsLayout`).
     private func ribbonSettingsButton(box: CGSize) -> some View {
@@ -8114,6 +8125,219 @@ struct EuclideousPage: View {
     private func clearRibbonLive() {
         if riffColumnHold != 0 || riffRankHold != 0 || stackRankHold != 0 { riffColumnHold = 0; riffRankHold = 0; stackRankHold = 0; pushScrubHolds() }
         loopAnchor = nil; if loopLo != 0 { setLoopSpan(0, 0) }
+    }
+
+    // MARK: - GRID CHANCE (ferry 2026-11-22) — the % toggle, the ladders-as-pickers and the sliders (§3-§8). Labels and values only (§12), all device-owed.
+    private typealias GCUI = EuclideousGridChanceUI
+    private var chanceEditingThisGrid: Bool { riffPanelTab == .stack ? stackChanceOpen : riffChanceOpen }   // §7.1: cell edits / scrub are off while the showing grid's chance editor is open
+    private var chanceCellsDimmed: Bool { riffPanelTab == .stack ? (stackChanceOpen && stackChanceAxis != .none) : (riffChanceOpen && riffChanceAxis != .none) }   // §5.3
+
+    private func openGridChance(stack: Bool) {
+        ribbonSettingsOpen = false   // §7.4: chance and the (unmounted) ribbon-settings tab never co-open
+        clearRibbonLive()            // §7.2: a live ribbon hold / loop is cleared when editing opens (ribbon is inert in production; nothing is latched)
+        if stack {
+            riffChanceOpen = false; riffChanceAxis = .none
+            stackChanceAxis = euclideousGridChanceAxisSet(gridChance, grid: .stack)   // §4.3/§4.5: open on the set axis's sliders, or the picker
+            stackChanceOpen = true
+        } else {
+            stackChanceOpen = false; stackChanceAxis = .none
+            riffChanceAxis = euclideousGridChanceAxisSet(gridChance, grid: .riff)
+            riffChanceOpen = true
+        }
+    }
+    /// §6: close the chance editor on both grids (used by the outside-tap catcher, the toggle, and a RIFF↔STACK switch §6.3).
+    func closeGridChanceAll() { riffChanceOpen = false; stackChanceOpen = false; riffChanceAxis = .none; stackChanceAxis = .none }
+
+    /// The overlay mounted on the riff / stack grid: the % toggle, and (while open) the pickers or sliders over a close-catcher.
+    @ViewBuilder
+    private func gridChanceOverlay(box: CGSize) -> some View {
+        let stack = (riffPanelTab == .stack)
+        let open = stack ? stackChanceOpen : riffChanceOpen
+        let set = stack ? gridChance.stackSet : gridChance.riffSet
+        let toggleRect = stack ? euclideousStackChanceToggleRect(box: box) : euclideousRiffChanceToggleRect(box: box)
+        ZStack(alignment: .topLeading) {
+            if open {
+                // §6.1: a touch not on a ladder button / slider / the toggle closes (the editor's own controls sit above and consume theirs).
+                Color.clear.frame(width: box.width, height: box.height).contentShape(Rectangle()).onTapGesture { closeGridChanceAll() }
+                // EuclideousStackBreak keeps the editor off the page body's Debug stack frame (the 1 MB main-thread rule)
+                if stack { EuclideousStackBreak { AnyView(stackChanceEditor(box: box)) } } else { EuclideousStackBreak { AnyView(riffChanceEditor(box: box)) } }
+            }
+            chanceToggle(rect: toggleRect, set: set, open: open, axLabel: stack ? "Stack chance" : "Riff chance") {
+                if open { closeGridChanceAll() } else { openGridChance(stack: stack) }
+            }
+        }
+        .frame(width: box.width, height: box.height, alignment: .topLeading)
+    }
+
+    // MARK: leaf views
+    private func chanceToggle(rect: CGRect, set: Bool, open: Bool, axLabel: String, onTap: @escaping () -> Void) -> some View {
+        Text("%").font(.system(size: GCUI.glyph, weight: .heavy, design: .monospaced))
+            .foregroundColor(set ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+            .frame(width: rect.width, height: rect.height)
+            .background(RoundedRectangle(cornerRadius: GCUI.toggleRadius).fill(set ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+            .overlay { if open { RoundedRectangle(cornerRadius: GCUI.toggleRadius + 2).stroke(Color(hex: 0xDFE3EA), lineWidth: 1).padding(-2) } }   // §3.3 open: a 1 pt outline 2 pt out
+            .contentShape(Rectangle()).onTapGesture(perform: onTap)
+            .accessibilityElement(children: .ignore).accessibilityLabel(axLabel).accessibilityValue(set ? "set" : "not set").accessibilityAddTraits(.isButton)
+            .position(x: rect.midX, y: rect.midY)
+    }
+    /// §5: one slider. `apply(newStep, value)` — newStep true starts a new undo burst.
+    private func chanceSlider(rect: CGRect, vertical: Bool, value: Int, axName: String, apply: @escaping (Bool, Int) -> Void) -> some View {
+        let frac = CGFloat(max(0, min(100, value))) / 100
+        let fillLen = (vertical ? rect.height : rect.width) * frac
+        let inside = fillLen >= 22
+        return ZStack(alignment: vertical ? .bottom : .leading) {
+            RoundedRectangle(cornerRadius: GCUI.sliderRadius).fill(Color(hex: 0x1C1E24).opacity(0.88))   // §5.2 track
+            RoundedRectangle(cornerRadius: GCUI.sliderRadius).fill(value >= 100 ? Color(hex: 0x6E7480) : Color(hex: 0xDFE3EA))   // §5.2 fill: 100 neutral, under 100 bright
+                .frame(width: vertical ? nil : max(0, fillLen), height: vertical ? max(0, fillLen) : nil)
+            Text("\(value)").font(.system(size: GCUI.value, weight: .heavy, design: .monospaced))
+                .foregroundColor(inside ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
+                .padding(vertical ? .vertical : .horizontal, 3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: inside ? (vertical ? .bottom : .trailing) : (vertical ? .top : .leading))
+        }
+        .frame(width: rect.width, height: rect.height)
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { g in
+                let v = euclideousGridChanceSliderValue(at: g.location, in: CGRect(origin: .zero, size: rect.size), vertical: vertical)
+                let newStep = !chanceDragActive; chanceDragActive = true
+                apply(newStep, v)
+            }
+            .onEnded { _ in chanceDragActive = false })
+        .accessibilityElement(children: .ignore).accessibilityLabel(axName).accessibilityValue("\(value) percent")
+        .accessibilityAdjustableAction { dir in apply(true, max(0, min(100, value + (dir == .increment ? GCUI.snap : -GCUI.snap)))) }
+        .position(x: rect.midX, y: rect.midY)
+    }
+    /// §4.2: a picker ring over a ladder box (inner on rank boxes / stack headers, outer over the riff rail columns).
+    private func chancePickerRing(rect: CGRect, inner: Bool) -> some View {
+        RoundedRectangle(cornerRadius: inner ? 4 : GCUI.pickerRingRadius)
+            .stroke(Color(hex: 0xDFE3EA).opacity(GCUI.pickerRing), lineWidth: 1)
+            .frame(width: max(1, rect.width - (inner ? 2 : 0)), height: max(1, rect.height - (inner ? 2 : 0)))
+            .allowsHitTesting(false)
+            .position(x: rect.midX, y: rect.midY)
+    }
+    /// §4.4: a whole-ladder tap region that picks an axis.
+    private func chanceTapRegion(rect: CGRect, axLabel: String, onTap: @escaping () -> Void) -> some View {
+        Color.clear.frame(width: rect.width, height: rect.height).contentShape(Rectangle()).onTapGesture(perform: onTap)
+            .accessibilityElement(children: .ignore).accessibilityLabel(axLabel).accessibilityAddTraits(.isButton)
+            .position(x: rect.midX, y: rect.midY)
+    }
+    /// §4.6: a CLR block over a set ladder box.
+    private func chanceClrBox(rect: CGRect, axName: String, onTap: @escaping () -> Void) -> some View {
+        Text("CLR").font(.system(size: GCUI.clr, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
+            .frame(width: rect.width, height: rect.height)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0xDFE3EA)))
+            .contentShape(Rectangle()).onTapGesture(perform: onTap)
+            .accessibilityElement(children: .ignore).accessibilityLabel("Clear \(axName) chance").accessibilityAddTraits(.isButton)
+            .position(x: rect.midX, y: rect.midY)
+    }
+    /// §4.4/§4.5: the OTHER ladder — dimmed to 30 % and ignoring touches while an axis is chosen.
+    private func chanceInertLadder(rect: CGRect) -> some View {
+        Color(hex: FourfoldStyle.card).opacity(1 - GCUI.inertDim)   // a card-tinted scrim fades the ladder toward 30 % (device-owed approximation)
+            .frame(width: rect.width, height: rect.height)
+            .contentShape(Rectangle()).onTapGesture { }   // consumes touches (§4.4 "ignores touches") so they don't reach the close-catcher
+            .position(x: rect.midX, y: rect.midY)
+    }
+
+    // MARK: riff editor
+    @ViewBuilder
+    private func riffChanceEditor(box: CGSize) -> some View {
+        let L = euclideousRiffPanelLayout(box: box)
+        let pad = EuclideousRiffPanelMetrics.padding
+        let railsH = EuclideousRiffPanelMetrics.railsH
+        let rankLadder = CGRect(x: pad, y: L.gridTop, width: L.labelW, height: L.gridSize.height)
+        let colLadder = CGRect(x: L.firstColumnX, y: L.railsTop - 4, width: L.gridSize.width, height: railsH + 4)
+        let gc = gridChance
+        ZStack(alignment: .topLeading) {
+            switch riffChanceAxis {
+            case .none:
+                ForEach(0..<8, id: \.self) { r in chancePickerRing(rect: CGRect(x: pad, y: L.rowTop(r), width: L.labelW, height: L.cellH), inner: true) }
+                chanceTapRegion(rect: rankLadder, axLabel: "Chance by rank") { riffChanceAxis = .rank }
+                ForEach(0..<8, id: \.self) { c in chancePickerRing(rect: CGRect(x: L.columnLeft(c), y: L.railsTop - 4, width: L.cellW, height: railsH + 4), inner: false) }
+                chanceTapRegion(rect: colLadder, axLabel: "Chance by position") { riffChanceAxis = .other }
+            case .rank:
+                ForEach(0..<8, id: \.self) { r in
+                    let idx = 7 - r
+                    chanceSlider(rect: CGRect(x: L.firstColumnX, y: L.rowTop(r) + GCUI.sliderInset, width: L.gridSize.width, height: max(1, L.cellH - 2 * GCUI.sliderInset)),
+                                 vertical: false, value: gc.riffRank[idx], axName: "Rank \(idx + 1) chance") { ns, v in onEditGridChance(ns) { $0.riffRank[idx] = v } }
+                }
+                riffAxisLadderBoxes(L, values: gc.riffRank, vertical: false) { r in CGRect(x: pad, y: L.rowTop(r), width: L.labelW, height: L.cellH) }
+                chanceInertLadder(rect: colLadder)
+            case .other:
+                ForEach(0..<8, id: \.self) { c in
+                    chanceSlider(rect: CGRect(x: L.columnLeft(c) + GCUI.sliderInset, y: L.gridTop, width: max(1, L.cellW - 2 * GCUI.sliderInset), height: L.gridSize.height),
+                                 vertical: true, value: gc.riffColumn[c], axName: "Position \(c + 1) chance") { ns, v in onEditGridChance(ns) { $0.riffColumn[c] = v } }
+                }
+                riffAxisLadderBoxes(L, values: gc.riffColumn, vertical: true) { c in CGRect(x: L.columnLeft(c), y: L.railsTop - 4, width: L.cellW, height: railsH + 4) }
+                chanceInertLadder(rect: rankLadder)
+            }
+        }
+    }
+    /// §4.6/§4.7/§4.8: the chosen riff axis's ladder boxes — CLR on a set box, a return-to-picker tap when all 100.
+    @ViewBuilder
+    private func riffAxisLadderBoxes(_ L: EuclideousRiffPanelLayout, values: [Int], vertical: Bool, rect: @escaping (Int) -> CGRect) -> some View {
+        let anySet = values.contains { $0 < 100 }
+        let axName = vertical ? "position" : "rank"
+        ForEach(0..<8, id: \.self) { i in
+            let v = vertical ? values[i] : values[7 - i]   // rank rows are drawn top (rank 8) down
+            if anySet && v < 100 {
+                chanceClrBox(rect: rect(i), axName: axName) { onEditGridChance(true) { vertical ? ($0.riffColumn = Array(repeating: 100, count: 8)) : ($0.riffRank = Array(repeating: 100, count: 8)) }; riffChanceAxis = .none }
+            } else if !anySet {
+                chanceTapRegion(rect: rect(i), axLabel: "Chance by \(axName)") { riffChanceAxis = .none }   // §4.8: all 100 ⇒ a tap returns to the picker
+            }
+        }
+    }
+
+    // MARK: stack editor
+    @ViewBuilder
+    private func stackChanceEditor(box: CGSize) -> some View {
+        let L = euclideousStackGridLayout(box: box)
+        let pad = EuclideousRiffPanelMetrics.padding
+        let rowsH = CGFloat(L.rowCount) * L.rowH + CGFloat(max(0, L.rowCount - 1)) * L.rowGap
+        let lanesW = L.colW * 4 + L.colGap * 3
+        let rankLadder = CGRect(x: pad, y: L.rowsTop, width: L.labelW, height: rowsH)
+        let laneLadder = CGRect(x: L.colsLeft, y: L.headerTop, width: lanesW, height: L.headerH)
+        let gc = gridChance
+        ZStack(alignment: .topLeading) {
+            switch stackChanceAxis {
+            case .none:
+                ForEach(0..<L.rowCount, id: \.self) { r in chancePickerRing(rect: L.axis(r), inner: true) }
+                chanceTapRegion(rect: rankLadder, axLabel: "Chance by rank") { stackChanceAxis = .rank }
+                ForEach(0..<4, id: \.self) { lane in chancePickerRing(rect: L.header(lane), inner: false) }
+                chanceTapRegion(rect: laneLadder, axLabel: "Chance by lane") { stackChanceAxis = .other }
+            case .rank:
+                ForEach(0..<min(8, L.rowCount), id: \.self) { r in
+                    let idx = 7 - r
+                    let a = L.axis(r)
+                    chanceSlider(rect: CGRect(x: L.colsLeft, y: a.minY + GCUI.sliderInset, width: lanesW, height: max(1, a.height - 2 * GCUI.sliderInset)),
+                                 vertical: false, value: gc.stackRank[idx], axName: "Rank \(idx + 1) chance") { ns, v in onEditGridChance(ns) { $0.stackRank[idx] = v } }
+                }
+                stackAxisLadderBoxes(L, values: gc.stackRank, lane: false)
+                chanceInertLadder(rect: laneLadder)
+            case .other:
+                ForEach(0..<4, id: \.self) { lane in
+                    let h = L.header(lane)
+                    chanceSlider(rect: CGRect(x: h.minX + GCUI.sliderInsetStackLane, y: L.rowsTop, width: max(1, L.colW - 2 * GCUI.sliderInsetStackLane), height: rowsH),
+                                 vertical: true, value: gc.stackLane[lane], axName: "Lane \(lane + 1) chance") { ns, v in onEditGridChance(ns) { $0.stackLane[lane] = v } }
+                }
+                stackAxisLadderBoxes(L, values: gc.stackLane, lane: true)
+                chanceInertLadder(rect: rankLadder)
+            }
+        }
+    }
+    @ViewBuilder
+    private func stackAxisLadderBoxes(_ L: EuclideousStackGridLayout, values: [Int], lane: Bool) -> some View {
+        let anySet = values.contains { $0 < 100 }
+        let axName = lane ? "lane" : "rank"
+        let count = lane ? 4 : min(8, L.rowCount)
+        ForEach(0..<count, id: \.self) { i in
+            let v = lane ? values[i] : values[7 - i]
+            let r = lane ? L.header(i) : L.axis(i)
+            if anySet && v < 100 {
+                chanceClrBox(rect: r, axName: axName) { onEditGridChance(true) { lane ? ($0.stackLane = Array(repeating: 100, count: 4)) : ($0.stackRank = Array(repeating: 100, count: 8)) }; stackChanceAxis = .none }
+            } else if !anySet {
+                chanceTapRegion(rect: r, axLabel: "Chance by \(axName)") { stackChanceAxis = .none }
+            }
+        }
     }
     private func monoRiffGridView(box: CGSize) -> some View {
         let n = 8
@@ -8157,8 +8381,8 @@ struct EuclideousPage: View {
                             HStack(spacing: sp4) {
                                 ForEach(0..<n, id: \.self) { col in
                                     riffGridCell(col: col, rank: rank, ranks: ranks, cellW: cellW, cellH: cellH, n: n, arrows: arrowsNow)
-                                        // HELD RIBBON HIGHLIGHT (2026-11-17): a held column/rank ribbon keeps its own column/row full and fades the rest
-                                        .opacity(euclideousHeldRibbonCellDims(column: col + 1, rank: rank, columnHold: riffColumnHold, rankHold: riffRankHold) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1)
+                                        // GRID CHANCE §5.3: cells draw at 35 % under the sliders (arrows/dots in the overlay stay full). Otherwise the held-ribbon fade (2026-11-17).
+                                        .opacity(chanceCellsDimmed ? GCUI.cellDim : (euclideousHeldRibbonCellDims(column: col + 1, rank: rank, columnHold: riffColumnHold, rankHold: riffRankHold) ? EuclideousRibbonSettingsMetrics.unmarkedFade : 1))
                                 }
                             }
                         }
@@ -8167,6 +8391,7 @@ struct EuclideousPage: View {
                     Color.clear
                         .frame(width: gridW, height: gridH)
                         .contentShape(Rectangle())
+                        .allowsHitTesting(!riffChanceOpen)   // GRID CHANCE §7.1: cell edits off while the chance editor is open
                         .gesture(DragGesture(minimumDistance: 0).onChanged { g in
                             let col = max(0, min(n - 1, Int(g.location.x / max(1, cellW + sp4))))
                             let rankRow = max(0, min(7, Int(g.location.y / max(1, cellH + sp4))))
@@ -8205,7 +8430,7 @@ struct EuclideousPage: View {
         .frame(width: box.width, height: box.height, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))   // STYLE PASS 1 §2.1 (was white@3.5%)
         .overlay(alignment: .topLeading) { riffPanelOverlay(layout: layout, ranks: ranks, suppressArrows: midiEmpty, played: playedNow) }
-        .overlay(alignment: .topLeading) { scrubRiffRibbons(layout: layout) }   // Scrub §2.1/§2.2
+        .overlay(alignment: .topLeading) { if !riffChanceOpen { scrubRiffRibbons(layout: layout) } }   // Scrub §2.1/§2.2 — off while the chance editor is open (§4.9/§7.2)
     }
 
     // MARK: - POLY RIFF (2026-10-29): the sixteen-column grid
@@ -8730,6 +8955,7 @@ struct EuclideousPage: View {
                             stackAxisChip(rows[r], size: CGSize(width: L.labelW, height: L.rowH)).opacity(axisFade)
                             ForEach(0..<4, id: \.self) { lane in
                                 stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize, beat: beat, playing: clock.playing, ghost: ghost[lane], names: stackNames[r][lane])
+                                    .opacity(stackChanceOpen && stackChanceAxis != .none ? GCUI.cellDim : 1)   // GRID CHANCE §5.3: cells at 35 % under the sliders
                             }
                         }
                     }
@@ -8739,8 +8965,8 @@ struct EuclideousPage: View {
         .padding(sp8)
         .frame(width: box.width, height: box.height, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))   // STYLE PASS 1 §2.1 (was white@3.5%)
-        .overlay(alignment: .topLeading) { scrubStackRibbon(layout: euclideousStackGridLayout(box: box)) }   // Scrub §2.3
-        .overlay(alignment: .topLeading) { scrubStackMark(layout: euclideousStackGridLayout(box: box)) }     // Scrub §5.3: the held-rank mark on the stack axis
+        .overlay(alignment: .topLeading) { if !stackChanceOpen { scrubStackRibbon(layout: euclideousStackGridLayout(box: box)) } }   // Scrub §2.3 — off while the chance editor is open
+        .overlay(alignment: .topLeading) { if !stackChanceOpen { scrubStackMark(layout: euclideousStackGridLayout(box: box)) } }     // Scrub §5.3: the held-rank mark on the stack axis
     }
 
     // riffSourceTabs REMOVED ENTIRE (Paul 2026-10-14: "move the midi in/chords/key control to the top

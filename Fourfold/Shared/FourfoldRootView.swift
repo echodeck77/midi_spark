@@ -181,7 +181,7 @@ struct FourfoldRootView: View {
                                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff, riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff ?? EuclideousPolyRiff(),
                                                riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
-                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, emitterVelocities: emitterVelocities, emitterCCs: emitterCCs, outputMutes: euclideousOutputMutes, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters, emitterVelLive: meters.emitterVel, ccLive: meters.cc,
+                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, emitterVelocities: emitterVelocities, emitterCCs: emitterCCs, outputMutes: euclideousOutputMutes, gridChance: euclideousGridChance, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters, emitterVelLive: meters.emitterVel, ccLive: meters.cc,
                                                lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                                wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                                pulseFeed: meters.pulse, pulseLevel: pulseLevel,
@@ -493,6 +493,16 @@ struct FourfoldRootView: View {
                                                    if m.checkpoint.take(changed: true) { euclideousRecordUndo(coalesceKey: nil) }
                                                    euclideousOutputMutes = o
                                                    au?.editDocument { $0.euclideousOutputMutes = o.isAllDefault ? nil : o }
+                                                   publish()
+                                               },
+                                               onEditGridChance: { newStep, mutate in   // GRID CHANCE (2026-11-22): one write + one republish; a slider drag coalesces into one step via the checkpoint burst (§1.4: a CLR / a toggle-less change is one step)
+                                                   var g = euclideousGridChance
+                                                   mutate(&g)
+                                                   if newStep { m.checkpoint.newBurst() }
+                                                   guard g != euclideousGridChance else { return }
+                                                   if m.checkpoint.take(changed: true) { euclideousRecordUndo(coalesceKey: nil) }
+                                                   euclideousGridChance = g
+                                                   au?.editDocument { $0.euclideousGridChance = g.isAllDefault ? nil : g }
                                                    publish()
                                                },
                                                onEditRiffsSeq: { mutate in
@@ -1263,11 +1273,7 @@ final class FourfoldModel: ObservableObject {
     @Published var emitterVelocities = EmitterVelocitySet()   // EMITTER VELOCITY (2026-11-03): the document's four per-output velocity accents; all defaults when nothing is stored
     @Published var emitterCCs = EmitterCCSet()   // CC tab (Nov 2026): the document's four per-output CC emitters; all defaults when nothing is stored
     @Published var euclideousOutputMutes = EuclideousOutputMutes()   // MUTE TAB (2026-11-02): the document's four per-output mutes; all defaults when nothing is stored
-    @Published var euclideousGridChance = EuclideousGridChance()   // GRID CHANCE (2026-11-22): the two grids' per-axis chance; all 100 when nothing is stored
-    @Published var euclideousRiffChanceOpen = false    // GRID CHANCE (§1.3): the riff grid's chance editor is open (UI only, never saved/undone)
-    @Published var euclideousStackChanceOpen = false   // GRID CHANCE (§1.3): the STACK grid's chance editor is open (UI only)
-    @Published var euclideousRiffChanceAxis: EuclideousGridChanceAxis = .none    // GRID CHANCE (§1.3): which riff axis is chosen while open
-    @Published var euclideousStackChanceAxis: EuclideousGridChanceAxis = .none   // GRID CHANCE (§1.3): which STACK axis is chosen while open
+    @Published var euclideousGridChance = EuclideousGridChance()   // GRID CHANCE (2026-11-22): the two grids' per-axis chance; all 100 when nothing is stored (the open/axis editor flags are EuclideousPage @State, §1.3)
     @Published var euclideousRiffsSeq: EuclideousRiffsSeq = EuclideousRiffsSeq()
     @Published var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
     @Published var euclideousMaskPositions: [Int] = [-1, -1, -1, -1]

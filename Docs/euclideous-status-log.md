@@ -12384,3 +12384,47 @@ against the reader's own rhythm; STATELESS (the borrowed column is a pure functi
   `riffReaderWalkColumns` (the walk strip) now ALSO routes through `euclideousRiffSourceColumn` over `euclideousDisplayRiffClocks` —
   `riffDisplaySourceColumn`/`riffDisplayLatestHitTick` deleted — so all three display surfaces AND the engine read ONE function
   (identical for a non-ADV-STEP source, which is why the walk/riff-source suite stayed green).
+
+---
+
+## GRID CHANCE (ferry 2026-11-22; Fourfold only; branch `feature/grid-chance`)
+
+A probability feature on BOTH riff-panel grids, reached by one `%` toggle per grid (ratified by Paul from the
+"Fourfold grid · CHANCE" canvas). Turning it on makes that grid's x/y axis ladders into pickers; choosing one shows
+one slider per row (rank) or per column (riff position / lane). A value under 100 thins the phrase — a chance-skipped
+note is SILENT but the walk / stack sequence advances as if it played. GLOBAL (not per lane), saved + undoable.
+Findings (corners, hit paths, salts, undo) in `Docs/grid-chance-findings.md`.
+
+- **Model:** `EuclideousGridChance` (Models.swift) — four `[Int]` 0…100, default 100: `riffRank[8]` · `riffColumn[8]` ·
+  `stackRank[8]` · `stackLane[4]`. Page-level `PluginState.euclideousGridChance` (additive-Optional, tolerant decode;
+  nil ⇒ all 100 ⇒ byte-identical). §1.2 invariant (per grid at most one axis <100) repaired at load by
+  `normalizeGridChanceAtLoad` (pure `euclideousGridChanceRepairInvariant`: keep the rank array, reset the other) at all
+  four load sites. Threaded to `SnapParams.gridChance` via `SnapshotBuilder` (row-gated). Undo = the canon-unit/output-
+  mute path (`EuclideousUndoSnapshot.gridChance`, `euclideousSnapshot`/`Apply`, `onEditGridChance` funnel with the
+  checkpoint burst — one step per slider drag / CLR / toggle-less change, §1.4). The editor's open/axis flags are
+  EuclideousPage `@State` (UI only, never saved/undone, §1.3).
+- **Pure (`Derivations.swift // MARK: - GRID CHANCE`):** `euclideousGridChanceRoll` (splitmix64, salts `0x5249464647524944`
+  "RIFFGRID" / `0x5354414B47524944` "STAKGRID" — distinct from mask/RATCH/NOTES/CANON-SLIP/FILL), `euclideousRiffGridChancePasses`,
+  `euclideousStackRankChancePasses`, `euclideousStackLaneChancePasses`, `euclideousGridChanceAxisSet`, the invariant
+  repair; plus the UI frames (`euclideousRiffChanceToggleRect`, `euclideousStackChanceToggleRect`) and
+  `euclideousGridChanceSliderValue` (snap 5). Allocation-free, integer-only, replay-exact.
+- **Engine (`Router.runEuclidLine`):** the LAST gate before emitters, keyed on the step since the melody origin so a
+  transport start / melody restart replays the same thinning. Riff at the strike call (`advOrd`, played rank / read
+  column; a fail ⇒ `restEnd = 1` SKIP so the walk advances, a held/legato note closes, the notes layer still sees the
+  written column). Stack by RANK per voice (`strikeRowsRank`) and by LANE whole-hit (same answer for every voice);
+  gap stacks (`strikeGap`) the same. All 100 ⇒ every hit path byte-identical.
+- **UI (`EuclideousPage.swift`, device-owed):** the `%` toggle in each grid's spare corner (riff bottom-left, the empty
+  ribbon-settings rect `48×41`; stack top-left `48×20` — Paul accepted <22 tall, §3.1); lit while that grid has chance
+  set. Open ⇒ both ladders become pickers (rings, 60 %); choosing one shows per-row/column sliders over the cells (cells
+  at 35 %), the other ladder dimmed 30 % + inert. Set boxes read CLR (clears the whole axis → picker); all-100 ⇒ a box
+  tap returns to the picker. A touch outside the grid/ladders/toggle closes; a RIFF↔STACK switch closes; cell edits +
+  scrub off while open; a live ribbon hold cleared on open. VoiceOver: the toggle, the pickers, the CLR boxes and the
+  per-slider "Rank/Position/Lane N chance" adjustable (step 5).
+- **Proofs:** `run.sh --golden` IDENTICAL + `--octaves-keep`; `CONFIG=Release … --alloc` PASS (0); `GridChanceTests` (19
+  pure: model/codec/clamp/gates/distribution/replay/salts/axis/invariant/toggle-rects/slider-maths), `GridChanceRouterTests`
+  (5 engine, on the real `useRiff`+`riffOn` / `Snap.euclideousRow` path: riff rank/column silence with the walk
+  unchanged — sanity-guarded, not false passes — stack rank per-voice, stack lane whole-hit, all-100 == nil). `PortsStressTests`.
+- **Known limits:** POLY riff uses its own engine branch and is NOT gated by grid chance (POLY has no creation UI); the
+  toggle still edits the stored riff arrays. The inert-ladder 30 % dim is a card-tinted scrim approximation. Stack cell
+  dimming under sliders also dims that cell's sounding glow (the riff grid keeps arrows/dots full via its own overlay).
+  Outside-tap close is scoped to the panel (taps in other UI don't close). All visuals/legibility device-owed.
