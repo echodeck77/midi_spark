@@ -6194,12 +6194,13 @@ struct EuclideousPage: View {
         return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !pulseLive)) { tl in
           let beat = walkTagBeat(at: tl.date)
           let notesPart = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
+          let riffPart = (2 * idx) < rollLive.model.parts.count ? rollLive.model.parts[2 * idx] : []   // RIFF SHARES THE RANK: a lit tile flashes when the riff plays its rank too (incl. the §2.5 dedup)
           ZStack(alignment: .topLeading) {
             notesRanksButton(idx, frame: lay.rankLabel)   // amend 3 §C1.1: the RANKS label is a button that opens the pop-up
             ForEach(0..<8, id: \.self) { r in
                 let frame = lay.rankTiles[r]
                 let lit = order.contains(r)
-                let s = euclideousStackSounding(notesPart: notesPart, rank: r + 1, nowBeat: beat)
+                let s = euclideousStackSounding(notesPart: notesPart, riffPart: lit ? riffPart : [], rank: r + 1, nowBeat: beat)
                 let sounding = clock.playing && s.sounding   // §4.2: the held set / lamp gate — note-on to the last note-off
                 notesRankTile(idx, rank: r + 1, lit: lit, role: line.notesRankRole(r + 1), accent: accent, sounding: sounding, tileWidth: frame.width)
                     .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
@@ -8482,11 +8483,13 @@ struct EuclideousPage: View {
         let position = row.position(poolCount: lp.count)
         let (name, spoken) = names   // PERF: hoisted (see stackCellNames)
         let poolCount = lp.count
-        // STACK GRID LIVE §2: the NOTES part lights the cell while its rank sounds; a note-on glows it. Only while playing (stopped = rest + names, §6.2); only the NOTES part (§2.6).
+        // STACK GRID LIVE §2: the NOTES part lights the cell while its rank sounds; a note-on glows it. Only while playing (stopped = rest + names, §6.2).
+        // RIFF SHARES THE RANK (Paul 2026-11-22): a lit (ON) cell ALSO flashes when the RIFF part plays the same rank — incl. the §2.5 dedup that merges a lit notes pitch into the riff strike (the NOTES feed then has nothing). Only for ON cells, so an unlit rank the riff reads never lights a stack cell.
         var sounding = false, glowAge: Double? = nil
         if playing, case .rank(let r) = row {
-            let part = 2 * lane + 1
-            let s = euclideousStackSounding(notesPart: part < rollLive.model.parts.count ? rollLive.model.parts[part] : [], rank: r, nowBeat: beat)
+            let notesPart = (2 * lane + 1) < rollLive.model.parts.count ? rollLive.model.parts[2 * lane + 1] : []
+            let riffPart = (on && 2 * lane < rollLive.model.parts.count) ? rollLive.model.parts[2 * lane] : []
+            let s = euclideousStackSounding(notesPart: notesPart, riffPart: riffPart, rank: r, nowBeat: beat)
             sounding = s.sounding
             glowAge = s.glowOnset.map { (beat - $0) * 60 / max(1, clock.tempo) }
         }

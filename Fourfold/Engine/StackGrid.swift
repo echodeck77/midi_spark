@@ -144,12 +144,19 @@ func rankNoteNameSpoken(rank: Int, pool: EuclideousLanePoolNotes, octave: Int, s
     return euclideousAccessibleDisplayNoteName(UInt8(note), source: source, pool: pool.notes, keyRoot: keyRoot, keyType: keyType)
 }
 
-/// §1.1 / §2 — is the NOTES part's rank `r` sounding now, and the beat of its newest routed note-on (for the glow). A note counts only if it reached ≥1 emitter (`outs != 0` — it passed routing / mute / solo, exactly what the lamp flashes on).
-/// The held set + overlaps ARE the NoteRollModel's own `notes` (its ingest is the event→held accumulator, §5.1); this is a per-frame query reusing `euclideousMixNoteSounds` — no second derivation. Only the NOTES part is passed in (§2.6).
+/// §1.1 / §2 — is rank `r` sounding now, and the beat of its newest routed note-on (for the glow). A note counts only if it reached ≥1 emitter (`outs != 0` — it passed routing / mute / solo, exactly what the lamp flashes on).
+/// The held set + overlaps ARE the NoteRollModel's own `notes` (its ingest is the event→held accumulator, §5.1); this is a per-frame query reusing `euclideousMixNoteSounds` — no second derivation.
+/// RIFF SHARES THE RANK (Paul 2026-11-22): a LIT stack cell also flashes when the RIFF part plays the same rank — whether on its own, or because the engine merged a lit notes pitch INTO the riff
+/// strike (the §2.5 same-output dedup drops the duplicate notes note, so the NOTES part carries nothing for it). The caller passes `riffPart` ONLY for a lit/selected cell (an unlit rank the riff happens
+/// to read never lights a stack cell); an empty `riffPart` ⇒ the old NOTES-only behaviour (§2.6).
 struct EuclideousStackSounding: Equatable { var sounding: Bool; var glowOnset: Double? }
-func euclideousStackSounding(notesPart: [NoteRollNote], rank: Int, nowBeat: Double) -> EuclideousStackSounding {
+func euclideousStackSounding(notesPart: [NoteRollNote], riffPart: [NoteRollNote] = [], rank: Int, nowBeat: Double) -> EuclideousStackSounding {
     var sounding = false, newestOn = -Double.infinity
     for n in notesPart where Int(n.rank) == rank && n.outs != 0 && n.onBeat <= nowBeat {
+        if euclideousMixNoteSounds(n, at: nowBeat) { sounding = true }
+        newestOn = max(newestOn, n.onBeat)
+    }
+    for n in riffPart where Int(n.rank) == rank && n.outs != 0 && n.onBeat <= nowBeat {
         if euclideousMixNoteSounds(n, at: nowBeat) { sounding = true }
         newestOn = max(newestOn, n.onBeat)
     }

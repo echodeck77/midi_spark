@@ -69,12 +69,13 @@ final class StackGridLiveTests: XCTestCase {
         XCTAssertFalse(euclideousStackSounding(notesPart: m.parts[1], rank: 2, nowBeat: 1).sounding, "a transport edge clears the feed → rest")
     }
 
-    // 7 — only the NOTES part lights: a riff-part note on rank 4 is in a different part array and never reaches the grid.
-    func testRiffPartNotesDoNotLight() {
+    // 7 — RIFF SHARES THE RANK (Paul 2026-11-22): a LIT cell flashes when the RIFF part plays its rank too — the §2.5 same-output dedup merges a lit
+    // notes pitch INTO the riff strike, so the NOTES feed carries nothing for it, yet the rank is sounding. The caller passes `riffPart` only for a lit cell.
+    func testRiffPartLightsALitStackCell() {
         let riffPart = [note(0, end: 4, rank: 4)]
-        // the grid queries the NOTES part only; the riff part's notes are simply never passed in
-        XCTAssertFalse(euclideousStackSounding(notesPart: [], rank: 4, nowBeat: 1).sounding, "an empty notes part → rank 4 unlit even though the riff plays it")
-        XCTAssertTrue(euclideousStackSounding(notesPart: riffPart, rank: 4, nowBeat: 1).sounding, "(control) the same notes, were they the NOTES part, would light")
+        XCTAssertFalse(euclideousStackSounding(notesPart: [], rank: 4, nowBeat: 1).sounding, "no NOTES note and no riff part passed (an UNLIT cell) → rank 4 dark")
+        XCTAssertTrue(euclideousStackSounding(notesPart: [], riffPart: riffPart, rank: 4, nowBeat: 1).sounding, "the riff plays rank 4 and the cell is lit (riffPart passed) → it flashes")
+        XCTAssertFalse(euclideousStackSounding(notesPart: [], riffPart: [note(0, end: 4, rank: 5)], rank: 4, nowBeat: 1).sounding, "the riff plays a DIFFERENT rank → rank 4 stays dark")
     }
 
     // 8 (part) — the ghost rank is nil when nothing has landed (stopped / before the first hit); the running cases are fuzzed against the engine in LaneStripFuzzTests.
