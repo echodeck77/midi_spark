@@ -508,6 +508,22 @@ final class RhythmPolishTests: XCTestCase {
         var l3 = l; l3.patternMiss = true
         XCTAssertEqual(euclideousFlipHitsPattern(l3), (0..<7).map { cells[$0] }, "flipping an inverted lane gives the plain pattern")
     }
+
+    // BUG (Paul 2026-11-22): with a non-zero OFFSET, FLIP HITS must still invert what PLAYS and be involutive — the old code
+    // stored the post-OFFSET pattern into `customHits`, so the builder rotated it a SECOND time (one press ≠ the inverse,
+    // two presses ≠ the original). This simulates what `flipHits` does: customHits = the flip, patternMiss off, OFFSET kept.
+    func testFlipHitsIsInvolutiveWithAnOffset() {
+        func played(_ line: EuclidLine) -> [Bool] {
+            var c = [Bool](repeating: false, count: 16), m = [Double](repeating: 0, count: 16)
+            _ = euclideousBuildHitPatternInto(line, cells: &c, micro: &m); return (0..<max(2, min(16, line.steps))).map { c[$0] }
+        }
+        var l = EuclidLine(pulses: 3, steps: 8, noteSel: .all); l.rotate = 2
+        let base = played(l)
+        var once = l; once.customHits = euclideousFlipHitsPattern(l); once.patternMiss = false   // one press
+        XCTAssertEqual(played(once), base.map { !$0 }, "one press inverts the ACTUAL played pattern (OFFSET applied once)")
+        var twice = once; twice.customHits = euclideousFlipHitsPattern(once); twice.patternMiss = false   // press again
+        XCTAssertEqual(played(twice), base, "two presses return to the original played pattern")
+    }
     func testTheRightHalfRowsAndDirectionButtonsAtTheReferenceCard() {
         // the reference card's upper zone is 116 pt tall and its right half 167.25 pt wide (RHYTHM POLISH §1.2–1.3): three equal rows and four equal buttons, sp4 apart
         let gap = EuclideousRhythmGeometry.gap

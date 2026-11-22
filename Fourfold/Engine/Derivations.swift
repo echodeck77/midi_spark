@@ -3590,8 +3590,14 @@ func euclideousBuildHitPatternInto(_ L: EuclidLine, cells: inout [Bool], micro: 
 func euclideousFlipHitsPattern(_ line: EuclidLine) -> [Bool] {
     let n = max(2, min(16, line.steps))
     var cells = [Bool](repeating: false, count: 16), micro = [Double](repeating: 0, count: 16)
-    _ = euclideousBuildHitPatternInto(line, cells: &cells, micro: &micro)
-    return (0..<n).map { !cells[$0] }
+    _ = euclideousBuildHitPatternInto(line, cells: &cells, micro: &micro)   // the EFFECTIVE pattern (OFFSET + any FLIP already applied)
+    for i in 0..<n { cells[i].toggle() }                                     // every step toggled = the flip of what plays
+    // BUG FIX (Paul 2026-11-22): `customHits` is stored in the PRE-OFFSET space (the builder re-applies `rotate` on top — see
+    // `euclideousHitPatternInto`), so rotate the flipped pattern BACK by −rotate here, exactly as `euclideousToggleStepHit` does.
+    // Storing the post-OFFSET pattern made the builder rotate it a SECOND time, so one press gave rotate(!P) and two presses
+    // never returned to the original. At rotate 0 this is a no-op, so every existing (rotate-0) test is unchanged.
+    euclidRotateBuffer(&cells, steps: n, rotation: -line.rotate)
+    return (0..<n).map { cells[$0] }
 }
 
 // MARK: - EUCLID tab v2 (2026-11-15) §4 — OFFSET / TILT inert when nothing they could be would change what plays
