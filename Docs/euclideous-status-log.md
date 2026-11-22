@@ -12292,6 +12292,17 @@ whose offset equals the buffer length. Reported, not "fixed" (changing which win
 move every golden and can only be shown necessary on a device, §7.2). `testReportBoundaryStampedEventCount`
 tracks the count; see the device-verification debt list.
 
+**Second finding (PRE-EXISTING, not introduced; §3.4 cross-process determinism).** The full-suite run surfaced
+`PortsStressTests.testARuleOnLanes1And2LeavesLanes3And4OutputsByteIdentical` failing — but intermittently: it
+passed 3/3 on isolated re-run and under `SWIFT_DETERMINISTIC_HASHING=1`, and the engine is byte-identical to the
+pre-ferry baseline (which passed it). Cause: cross-process `Set`/`Dictionary` iteration-order nondeterminism in
+the HOCKET path (the per-process random hash seed occasionally reorders lane 3–4's note set when a rule is lit on
+lanes 1–2). HOCKET is RETIRED in production (`normalizeHocketAtLoad` drops rules at load) so no shipping document
+reaches it — zero beta risk, reported in `pending-tasks.md` as a flake to de-flake when convenient. Production
+renders ARE cross-process deterministic: the 13 `MutationOracleTests` pins + `golden.txt` hold across separate
+build/process captures (that is the §3.4 cross-process evidence). `testRenderingTwiceInOneProcessIsIdentical`
+covers the in-process half.
+
 **Proofs to re-run after touching any of this:** the normal suite (RenderInvariantTests + HardeningFuzz quick +
 KernelHostTests + MutationOracleTests), `touch /tmp/fourfold-hardening-deep` then the deep tiers, `run.sh
 --golden` (+ `diff -r` the `golden-events/`) + `--octaves-keep`, `CONFIG=Release run.sh --alloc`, a TSan run of
