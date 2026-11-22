@@ -827,6 +827,8 @@ final class EffectiveParamsTests: XCTestCase {
         l.riffAdvanceEvery = 3; l.riffShiftRequested = 4   // RIFF WALK (2026-10-19)
         // NOTES TAB (2026-10-19). riffOnRest is `.repeatLast` above, not `.fill`: FILL leaves ON REST and decodes as SKIP by design (§9).
         l.notesWhen = 0b01; l.notesChance = 50; l.notesPlayAs = .split; l.notesReceivedOnly = true
+        l.notesGaps = true; l.notesFirst = true   // STACK WHEN (2026-11-22): GAP + FIRST
+        l.riffSourceLane = 2   // RIFF SOURCE (another branch): the lane whose riff this lane follows
         l.offsetFraction = 0.35; l.tiltFine = -0.3   // RHYTHM POLISH (2026-10-22)
         l.riffOutMask = 0b0101; l.notesOutMask = 0b1000   // CARD BACKS (2026-10-28): the outputs each part leaves on
         l.riffOutTranspose = -3; l.notesOutTranspose = 5   // CARD BACKS v2 (2026-10-28): each part's out-transpose, in scale steps
