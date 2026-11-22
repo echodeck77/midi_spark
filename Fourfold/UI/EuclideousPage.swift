@@ -6191,29 +6191,31 @@ struct EuclideousPage: View {
 
     /// §A7 / amend 3 §C4.2: WHEN RIFF — PLAYS and RESTS are TWO INDEPENDENT toggles (not a segmented control: they are two flags, `notesWhen` bits 0/1, and both-on is the default, so a segmented control read as a broken either/or). Each a 23-tall tile, 4 apart, lit from its own flag; a tap toggles its own bit (keeping ≥1 on — the model forces 0 ⇒ both). Then CHANCE right-aligned. The lane-lock dashed indicator is kept.
     private func whenRiffRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, width: CGFloat) -> some View {
+        // STACK WHEN ferry (2026-11-22, §1): the row is WHEN · NOTE · REST · GAP, then FIRST set apart (10 pt). Four equal tiles fill from the 55 pt label to the card's right inset; CHANCE is gone (§1.6/§4).
         let plays = line.notesPlaysResolved, rests = line.notesRestsResolved
-        let chance = line.notesChanceResolved, chanceStops = [25, 50, 75, 100]
-        let chanceIdx = chanceStops.firstIndex(of: chance) ?? 3
-        return HStack(spacing: 4) {
+        let gaps = line.notesGapsResolved, first = line.notesFirstResolved
+        let tileW = euclideousWhenRowLayout(rowWidth: width, labelW: EuclideousPlayAsRowsLayout.labelW).tileW   // §1.2: shared with the layout test
+        return HStack(spacing: 0) {
             riffRowLabel("WHEN", "RIFF").frame(width: EuclideousPlayAsRowsLayout.labelW).accessibilityHidden(true)
-            HStack(spacing: 4) {   // §C4.2: two separate toggle tiles, 4 apart
-                whenToggle("PLAYS", on: plays, accent: accent, spoken: euclideousNotesPlaysLabel) { guard !(plays && !rests) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 } }
-                whenToggle("RESTS", on: rests, accent: accent, spoken: euclideousNotesRestsLabel) { guard !(rests && !plays) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 } }
-            }
-            .modifier(EuclideousLockOutline(on: lockOn(idx, .notesWhen), accent: accent))
-            Spacer(minLength: 0)
-            melodyStepper("CHANCE", value: chanceIdx, range: 0...3, width: 88, help: "How many of the chosen hits the lit notes play.", height: 28, valueText: "\(chance)%",
-                          lowDisabled: chanceIdx == 0, highDisabled: chanceIdx == 3, lane: idx, outline: lockOn(idx, .notesChance)) { v in guard v != chanceIdx else { return }; edit(idx) { $0.notesChance = chanceStops[v] } }
+            Spacer().frame(width: 4)
+            whenToggle("NOTE", on: plays, accent: accent, width: tileW, spoken: "Note", lockOutline: lockOn(idx, .notesWhen)) { guard !(plays && !rests) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b01 } }
+            Spacer().frame(width: 4)
+            whenToggle("REST", on: rests, accent: accent, width: tileW, spoken: "Rest", lockOutline: lockOn(idx, .notesWhen)) { guard !(rests && !plays) else { return }; edit(idx) { $0.notesWhen = $0.notesWhenResolved ^ 0b10 } }
+            Spacer().frame(width: 4)
+            whenToggle("GAP", on: gaps, accent: accent, width: tileW, spoken: "Gap", lockOutline: false) { edit(idx) { $0.notesGaps = $0.notesGapsResolved ? nil : true } }
+            Spacer().frame(width: 10)   // §1.2: FIRST is set apart, 10 to the right of GAP
+            whenToggle("FIRST", on: first, accent: accent, width: tileW, spoken: "First", lockOutline: false) { edit(idx) { $0.notesFirst = $0.notesFirstResolved ? nil : true } }
         }
         .frame(width: width, height: 28, alignment: .leading)
-        .accessibilityElement(children: .contain).accessibilityLabel(euclideousNotesWhenGroupLabel)
+        .accessibilityElement(children: .contain).accessibilityLabel("When")
     }
-    /// §C4.2: one WHEN toggle — on = A1.1 (lane100 fill, #1B1D22 label), off = A1.2 (#24262C fill, #8D939D label); radius 4, 72 × 23.
-    private func whenToggle(_ label: String, on: Bool, accent: Color, spoken: String, action: @escaping () -> Void) -> some View {
+    /// §1.3: one WHEN toggle — on = A1.1 (lane100 fill, #1B1D22 label), off = A1.2 (#24262C fill, #8D939D label); radius 4, `width` × 23.
+    private func whenToggle(_ label: String, on: Bool, accent: Color, width: CGFloat, spoken: String, lockOutline: Bool, action: @escaping () -> Void) -> some View {
         Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
             .foregroundColor(Color(hex: on ? 0x1B1D22 : 0x8D939D))
-            .frame(width: 72, height: 23)
+            .frame(width: width, height: 23)
             .background(RoundedRectangle(cornerRadius: 4).fill(on ? lane100(accent) : Color(hex: 0x24262C)))
+            .modifier(EuclideousLockOutline(on: lockOutline, accent: accent))
             .contentShape(Rectangle()).onTapGesture(perform: action)
             .accessibilityElement(children: .ignore).accessibilityLabel(spoken).accessibilityValue(on ? "on" : "off").accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }

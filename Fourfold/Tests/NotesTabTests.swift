@@ -253,6 +253,18 @@ final class NotesTabTests: XCTestCase {
         }
     }
 
+    func testWhenRowFourTilesFitAndFillTheRow() {   // §1.2 / §8.10
+        for rowWidth in [300.0, 240.0] as [CGFloat] {
+            let (tileW, xs) = euclideousWhenRowLayout(rowWidth: rowWidth)
+            XCTAssertEqual(xs.count, 4); XCTAssertGreaterThan(tileW, 0, "positive tile width at \(rowWidth)")
+            XCTAssertEqual(xs[0], 55 + 4, accuracy: 1e-6, "NOTE after the 55 label + 4 gap")
+            XCTAssertEqual(xs[1] - (xs[0] + tileW), 4, accuracy: 1e-6, "NOTE·REST 4 apart")
+            XCTAssertEqual(xs[2] - (xs[1] + tileW), 4, accuracy: 1e-6, "REST·GAP 4 apart")
+            XCTAssertEqual(xs[3] - (xs[2] + tileW), 10, accuracy: 1e-6, "FIRST set apart, 10 right of GAP")
+            XCTAssertEqual(xs[3] + tileW, rowWidth, accuracy: 1e-6, "the four tiles fill to the right inset")
+        }
+    }
+
     func testGapsAndFirstRoundTripAndThreadThroughTheSnapshot() {   // §1.5 persistence
         var l = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
         XCTAssertFalse(l.notesGapsResolved); XCTAssertFalse(l.notesFirstResolved)   // default off

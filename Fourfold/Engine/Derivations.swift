@@ -9370,6 +9370,17 @@ func euclideousNotesKeptCountBefore(buf: [Bool], w: EuclideousNotesWalk, tick: I
     return advOrd + gaps
 }
 
+/// STACK WHEN ferry (§1.2/§1.8) — the four WHEN tiles (NOTE · REST · GAP · FIRST) in a row of `rowWidth`: after the label
+/// column and a 4 pt gap, four equal `tileW`-wide tiles with internal gaps 4 · 4 · 10 reach exactly `rowWidth` (FIRST set
+/// apart). Returns the tile width and the four x origins — the row UI and its layout test share this one source.
+func euclideousWhenRowLayout(rowWidth: CGFloat, labelW: CGFloat = 55) -> (tileW: CGFloat, xs: [CGFloat]) {
+    let tileW = max(1, (rowWidth - labelW - 4 - (4 + 4 + 10)) / 4)
+    var x = labelW + 4, xs: [CGFloat] = []
+    for gapAfter in [4.0, 4.0, 10.0] as [CGFloat] { xs.append(x); x += tileW + gapAfter }
+    xs.append(x)   // FIRST
+    return (tileW, xs)
+}
+
 /// §2.3 FIRST — is the step at `tick` the FIRST chosen step of its pass? The pass is the chain's `cy` (RESETS' pass, which a
 /// rhythm restart bumps — §2.3). Walks back while `cy` stays equal, returning false the moment an earlier step in the pass is
 /// chosen. Bounded by the pass length, allocation-free; only consulted when FIRST is on.
