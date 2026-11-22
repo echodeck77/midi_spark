@@ -2348,8 +2348,9 @@ Decide the portrait behaviour first; the structural change follows.
 - §9 the predictive walk-tag THREAD (the riff-grid arrow's future-position animation) and the lane-strip chips re-derive the column
   from the lane's own config — correct for an own lane, but a reader should read position(source, that hit's beat). The arrow's
   CURRENT seat is already right (polled `euclideousRiffStep`); only the prediction/thread + the strip's predicted chips remain.
-- §7.6 engine look-back on a reader: REPEAT (on a grid-rest borrowed column), the TIE lookahead, the footer and grid-marker
-  prediction still read the reader's OWN walk. Each "other hit's column" should be position(source, that hit's beat). Edge (REPEAT/
-  TIE-on-rest specifically on a reader); gated behind the reader branch, so own lanes are unaffected. Needs engine work + tests.
+- §7.6 engine look-back on a reader: REPEAT is DONE (`euclideousReaderRepeatLookback` — a reader repeats the nearest earlier BORROWED
+  non-rest column; golden bit-identical, alloc 0, tested). REMAINING: the TIE lookahead (`euclideousChainTieExtensionsCore`) and the
+  DISPLAY footer / grid-marker prediction still read the reader's OWN walk — each "other hit's column" should be position(source, that
+  hit's beat). Edge (TIE-on-rest on a reader); the footer/markers are device-owed prediction. Reader-gated, so own lanes are unaffected.
 - §9.2 the RESETS tab's MELODY half shows a reader's own walk (unchanged by this ferry, per §9.2) — DECIDE whether it should reflect
   the borrowed walk.

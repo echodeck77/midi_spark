@@ -2035,6 +2035,30 @@ func euclideousRiffSourceColumn(clocks: [HocketLaneClock], lane: Int, beat b: Do
     return euclideousRiffColumn(ordinal: advOrd, every: c.riffEvery, direction: c.riffDir, length: c.riffLength, stride: c.riffStride, shift: c.riffRotate, seed: c.riffSeed, columns: c.riffColumns)   // §7.4: the 0-based column L read
 }
 
+/// §7.6: REPEAT on a READER. When a reader's borrowed column is a grid-rest and ON REST is REPEAT, the note it repeats is the nearest
+/// EARLIER reader hit whose BORROWED column has a note — not the reader's own walk (which is inert). Scans the reader's own hit schedule
+/// (its captured clock) backward from `thisBeat`, taking `position(source, that hit's beat)` for each, and reads the rank at `thisBeat`
+/// (the current grid, as the own-lane REPEAT does). Pure, allocation-free. nil ⇒ nothing to repeat ⇒ the caller rests (SKIP), §6.2.
+func euclideousReaderRepeatLookback(clocks: [HocketLaneClock], readerLane: Int, source: Int, thisBeat: Double,
+                                    rankAt: (_ column: Int, _ beat: Double) -> Int) -> (column: Int, rank: Int)? {
+    guard readerLane >= 0, readerLane < clocks.count else { return nil }
+    let c = clocks[readerLane]
+    guard c.valid, c.sub > 0, c.n > 0 else { return nil }
+    let k0 = Int64((thisBeat / c.sub + 1e-9).rounded(.down))
+    let cap = Int64(c.cycleLen * 4 + 16)
+    var k = k0 - 1, scanned: Int64 = 0
+    while scanned < cap, k >= 0 {
+        if euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: c.cycleLen, sub: c.sub, tick: k, chains: c.chains, legacySpanBeats: c.legacySpanBeats, advanceStep: false).rawIsHit {
+            if let col = euclideousRiffSourceColumn(clocks: clocks, lane: source, beat: Double(k) * c.sub) {
+                let r = rankAt(col, thisBeat)
+                if r >= 1 { return (col, r) }
+            }
+        }
+        k -= 1; scanned += 1
+    }
+    return nil
+}
+
 // MARK: - RIFF SOURCE picker + tile layout (§2.2, §6) — pure geometry (device-owed looks)
 
 enum EuclideousRiffSourceUI {

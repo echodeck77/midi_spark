@@ -4640,17 +4640,21 @@ final class Router {
                                         case .repeatLast:
                                             // `repeating`: the repeated rank came back through the transforms below 1 again (a negative TRANSPOSE can do that) — treat it as SKIP rather than
                                             // looking the same column up again forever.
-                                            guard !repeating, let found = euclideousRiffRepeatLookback(
-                                                buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
-                                                legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep,
-                                                riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed, every: riffAdvanceEvery,
-                                                thisBeat: mTickBeat,
-                                                rankAt: { column, beat in
-                                                    euclideousLooperEffectiveRank(column: column, beat: beat, liveGrid: euclideousLiveGridRanksForHit,
-                                                                                   active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
-                                                                                   passes: p.euclideousLooperPasses, startRanks: p.euclideousLooperStartRanks,
-                                                                                   events: p.euclideousLooperEvents, beatsPerBar: beatsPerBar)
-                                                }) else {
+                                            let bpb = beatsPerBar   // capture locally so the hoisted closure needs no explicit self
+                                            let repeatRankAt: (Int, Double) -> Int = { column, beat in
+                                                euclideousLooperEffectiveRank(column: column, beat: beat, liveGrid: euclideousLiveGridRanksForHit,
+                                                                               active: p.euclideousLooperActive, startBeat: p.euclideousLooperStartBeat,
+                                                                               passes: p.euclideousLooperPasses, startRanks: p.euclideousLooperStartRanks,
+                                                                               events: p.euclideousLooperEvents, beatsPerBar: bpb)
+                                            }
+                                            // RIFF SOURCE §7.6: a READER repeats the nearest earlier BORROWED column with a note (its own walk is inert); an own lane uses the normal ordinal lookback.
+                                            let found = riffSrcLane >= 0
+                                                ? euclideousReaderRepeatLookback(clocks: euclideousRiffClocks, readerLane: lineIndex, source: riffSrcLane, thisBeat: mTickBeat, rankAt: repeatRankAt)
+                                                : euclideousRiffRepeatLookback(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: tick, chains: chains,
+                                                                               legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep,
+                                                                               riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: seed, every: riffAdvanceEvery,
+                                                                               thisBeat: mTickBeat, rankAt: repeatRankAt)
+                                            guard !repeating, let found else {
                                                 restEnd = 1
                                                 return false
                                             }

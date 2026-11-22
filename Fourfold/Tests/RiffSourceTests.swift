@@ -128,6 +128,27 @@ final class RiffSourceTests: XCTestCase {
         XCTAssertEqual(got, euclideousRiffSourceColumn(clocks: clocks, lane: 1, beat: 3.0), "= position(root, mid's hit beat)")
     }
 
+    // §7.6: REPEAT on a reader repeats the nearest EARLIER reader hit whose BORROWED column has a note (not the reader's own walk).
+    func testReaderRepeatLookbackUsesBorrowedColumns() {
+        // source (idx 1): own, forward walk, hits every tick ⇒ borrowed column at beat b = source's column at floor(b) = floor(b) mod 8.
+        let source = cfg(stepCount: 8, hitsAt: [0, 1, 2, 3, 4, 5, 6, 7], riffDir: .forward)
+        let reader = cfg(stepCount: 8, hitsAt: [0, 1, 2, 3, 4, 5, 6, 7], source: 1)   // idx 2, hits every tick, reads idx 1
+        let clocks = [emptyCfg(), source, reader, emptyCfg()]
+        // a rank table: column 3 is a REST (0), the others have notes. The reader's hit at beat 4 borrows column 4 (if it were a rest,
+        // REPEAT looks back): earlier hits borrow columns 3 (rest), 2, 1, 0 → the nearest earlier non-rest borrowed column is 2.
+        let ranks = [1, 2, 3, 0, 5, 6, 7, 8]   // column → rank (column 3 a rest)
+        let rankAt: (Int, Double) -> Int = { col, _ in (col >= 0 && col < 8) ? ranks[col] : 0 }
+        // from beat 4 (reader hit, borrowed column 4): the lookback is only consulted when column 4 is a rest; here we drive it from a
+        // rest at beat 3 (borrowed column 3, a rest) — the nearest earlier non-rest borrowed column is 2 (beat 2).
+        let found = euclideousReaderRepeatLookback(clocks: clocks, readerLane: 2, source: 1, thisBeat: 3.0, rankAt: rankAt)
+        XCTAssertEqual(found?.column, 2, "the nearest earlier reader hit with a non-rest borrowed column is beat 2 → column 2")
+        XCTAssertEqual(found?.rank, 3, "its rank, read at the current grid")
+        // no earlier non-rest at all ⇒ nil (the caller rests)
+        let allRest: (Int, Double) -> Int = { _, _ in 0 }
+        XCTAssertNil(euclideousReaderRepeatLookback(clocks: clocks, readerLane: 2, source: 1, thisBeat: 3.0, rankAt: allRest))
+        XCTAssertNil(euclideousReaderRepeatLookback(clocks: clocks, readerLane: 2, source: 1, thisBeat: 0.0, rankAt: rankAt), "no earlier hit at beat 0")
+    }
+
     // §6.2/§6.4: picker layout — four equal rows, 2 apart; the floor flag; contour column width capped at 17.
     func testPickerLayout() {
         let (rows, rowH, below) = euclideousRiffPickerRows(size: CGSize(width: 300, height: 130))
