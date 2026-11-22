@@ -281,36 +281,45 @@ final class KernelHostTests: XCTestCase {
     /// 30 Hz — the real three-thread shape. Under TSan (SANITIZE build) any data race is reported and fails.
     /// Without TSan it is a smoke test that the concurrency does not crash or strand notes.
     func testConcurrentRenderPublishAndPoll() {
+        // The REAL shape: the RENDER loop runs on a background thread (the audio thread, which calls
+        // store.acquire()), while the MAIN thread PUBLISHES snapshots (SnapshotStore.publish enforces
+        // dispatchPrecondition(.main)), and a third thread polls the UI feed at 30 Hz. SnapshotStore's
+        // lock-free atomic swap is exactly for this; under TSan any race is reported.
         let h = KernelHarness(box())
         let stop = NSLock(); var stopped = false
         func isStopped() -> Bool { stop.lock(); defer { stop.unlock() }; return stopped }
-        let publisher = Thread {
-            var n: UInt64 = 1
-            while !isStopped() {
-                var s = PluginState.makeInit(); var ls = s.euclideousLinesResolved
-                for i in 0..<4 { ls[i].steps = Int(2 + n % 14); ls[i].riffOn = true }
-                s.euclideousLines = ls
-                h.publish(HardeningCorpus.box(for: s)); n &+= 1
-                usleep(300)
-            }
+
+        // Render on a background thread (the "audio thread").
+        let renderDone = DispatchSemaphore(value: 0)
+        let renderer = Thread {
+            h.render(512, midi: [(0, 0, self.on(60)), (0, 0, self.on(64)), (0, 0, self.on(67))])
+            for _ in 0..<600 { h.render(512) }
+            h.render(512, midi: [(0, 0, self.off(60)), (0, 0, self.off(64)), (0, 0, self.off(67))])
+            h.playing = false; h.render(512)   // stop + flush, on the render thread
+            renderDone.signal()
         }
-        let poller = Thread {
-            while !isStopped() { _ = h.kernel.diag; usleep(33_000) }   // 30 Hz UI poll
+        // Poll the diag on a third thread (benign UI-feed race, the thing TSan vets).
+        let poller = Thread { while !isStopped() { _ = h.kernel.diag; usleep(10_000) } }
+        renderer.start(); poller.start()
+
+        // MAIN thread: publish fresh snapshots as fast as the render churns (hundreds of swaps).
+        var n: UInt64 = 1
+        while renderDone.wait(timeout: .now()) == .timedOut {
+            var s = PluginState.makeInit(); var ls = s.euclideousLinesResolved
+            for i in 0..<4 { ls[i].steps = Int(2 + n % 14); ls[i].riffOn = true }
+            s.euclideousLines = ls
+            h.publish(HardeningCorpus.box(for: s)); n &+= 1
+            usleep(200)
         }
-        publisher.start(); poller.start()
-        h.render(512, midi: [(0, 0, on(60)), (0, 0, on(64)), (0, 0, on(67))])
-        h.run(600)
         stop.lock(); stopped = true; stop.unlock()
-        usleep(5000)
-        h.render(512, midi: [(0, 0, off(60)), (0, 0, off(64)), (0, 0, off(67))])
-        h.stopAndFlush()
+        usleep(20_000)
         assertClean(h, "concurrent render/publish/poll")
     }
 
     // MARK: §5.5 headless soak (deep tier) — fast, no simulator
 
     func testHeadlessSoak() throws {
-        try XCTSkipUnless(ProcessInfo.processInfo.environment["HARDENING_DEEP"] == "1", "headless soak runs with HARDENING_DEEP=1")
+        try XCTSkipUnless(hardeningDeepEnabled, "headless soak runs when /tmp/fourfold-hardening-deep exists (or HARDENING_DEEP=1)")
         let h = KernelHarness(box())
         var g: UInt64 = 0xDEADBEEF
         func rnd(_ n: Int) -> Int { g = g &* 6364136223846793005 &+ 1442695040888963407; return Int((g >> 33) % UInt64(n)) }

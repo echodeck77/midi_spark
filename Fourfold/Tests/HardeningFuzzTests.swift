@@ -31,7 +31,7 @@ private extension SM {
 
 final class HardeningFuzzTests: XCTestCase {
 
-    private var deep: Bool { ProcessInfo.processInfo.environment["HARDENING_DEEP"] == "1" }
+    private var deep: Bool { hardeningDeepEnabled }
 
     func testFuzzQuickTier() {
         var fails: [(UInt64, String)] = []
@@ -42,7 +42,7 @@ final class HardeningFuzzTests: XCTestCase {
     }
 
     func testFuzzDeepTier() throws {
-        try XCTSkipUnless(deep, "deep tier runs only with HARDENING_DEEP=1")
+        try XCTSkipUnless(deep, "deep tier runs only when /tmp/fourfold-hardening-deep exists (or HARDENING_DEEP=1)")
         let target = 100_000
         var fails: [(UInt64, String)] = [], ran = 0
         for seed in UInt64(1_000_000)...(1_000_000 + UInt64(target)) {

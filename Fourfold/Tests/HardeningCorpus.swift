@@ -10,6 +10,15 @@ import Foundation
 /// A corpus entry: a name and a builder (fresh each call — never shared mutable state).
 struct CorpusDoc { let name: String; let make: () -> PluginState }
 
+/// The deep-tier gate. `xcodebuild test[-without-building]` does NOT reliably forward a shell env var into
+/// the macOS test runner, so the gate is BOTH the env var (when it does propagate) AND a file sentinel the
+/// caller touches before a deep run: `touch /tmp/fourfold-hardening-deep`. Keeps the deep tiers out of the
+/// normal suite while making them trivially runnable.
+var hardeningDeepEnabled: Bool {
+    ProcessInfo.processInfo.environment["HARDENING_DEEP"] == "1"
+        || FileManager.default.fileExists(atPath: "/tmp/fourfold-hardening-deep")
+}
+
 enum HardeningCorpus {
 
     /// Build the published SnapshotBox for a document exactly as the app does (FourfoldCompose chain),
@@ -89,6 +98,28 @@ enum HardeningCorpus {
         doc("all on output A") { s in
             s.busChannels = [1, 1, 1, 1]
             lanes(&s) { l, _ in l.enabled = true; l.riffOn = true; l.riffOutMask = 0b0001; l.notesOutMask = 0b0001 } }
+
+        // Three docs added for the §6 mutation oracle to reach functions the simple docs miss: the pattern
+        // builder's tilt/custom/tiny-steps edges, the chain tie/gap lookahead, and the ROOT transpose path.
+        // Integer-timed only (NO tiltFine / offsetFraction): continuous sub-sample timing is floating-point-
+        // codegen sensitive, so its hash is not portable across builds and must not be a cross-build pin —
+        // the fine-timing path is covered by RhythmPolishTests + the golden harness instead.
+        doc("EUCLID custom tiny") { s in
+            lanes(&s) { l, i in l.enabled = true; l.riffOn = true
+                l.steps = [2, 8, 16, 5][i]; l.pulses = [1, 3, 7, 2][i]
+                l.tilt = [1.0, -1.0, 0.0, 1.0][i]   // rounded tilt → integer step shift, build-stable
+                if i == 3 { l.customHits = [true, false, true, false, true] } }
+        }
+        doc("RIFF tie advance") { s in
+            lanes(&s) { l, i in l.enabled = true; l.riffOn = true
+                l.riffOnRest = .tie; l.riffAdvanceEvery = [1, 2, 3, 4][i]
+                l.restartMelodyPasses = [2, 3]; l.restartRhythmBars = [4] }
+        }
+        doc("INPUTS root transpose") { s in
+            lanes(&s) { l, i in l.enabled = true; l.riffOn = true
+                l.poolSrcMask = 0b00011          // MIDI IN + CHORDS: ROOT admits no MIDI note but transposes the CHORDS pool by the held low note
+                l.midiMode = i < 2 ? .root : .add }
+        }
 
         return out
     }

@@ -12218,3 +12218,81 @@ Proofs: `RiffWalkTests` (7-9 incl. the trail/tile/walk/direction helpers), `Page
 - **§7 AUv3.** No transport row / no metronome (as before). §7.3 host-stop: already satisfied — the transport-stop edge runs `allNotesOff` + resets the HOLD/LATCH pool (`Router:2656/2671`), so every sounding output note incl. HOLD/LATCH-held gets a note-off; before == after, guard test added.
 - **§3.6 fit (pure only).** `euclideousHeaderFit(available, buttonFull, buttonNoNext) -> none/a/b/c` is the tested §3.6 ladder; the LIVE header keeps the A/B/C reflow (masters sized into UTILITIES → fits, no clip). Steps b (wordmark-as-distinct-step) and c (masters on their own row in portrait; standalone masters-to-transport-row) are DEVICE-OWED and NOT yet built as a layout step — see `Docs/euclideous-device-verification-debt.md`.
 - **Proofs:** golden byte-identical (both masters default on) + `--octaves-keep`; alloc 0 (Router gate is a pure `&&`); `MastersTests`, `FourfoldParamTests` (count 72), `HeaderStatusTests` (fit ladder / token-constancy / key-full / next-chord VoiceOver), `ChordColumnScheduleTests` (`testChordNextColumn`), `FourfoldTransportTests` (stopAction / position / returnToStart), `RouterTests` (master gate #3/#4/#5, host-stop LATCH #14), `UndoAuditTests` (snapshot shape). The header-layout pin tests (`DerivationsTests`, `PageLayoutTests`, `CardBackTests`, `CardBackReviewTests`, `LaneLockTests`, `HocketLooksTests`) were re-pinned for the wider UTILITIES group (A needs 929.88, B 607.88, NOTES centre 321.94). UI/VoiceOver/layout per-device checks owed.
+
+---
+
+## FERRY: ENGINE HARDENING 1 (2026-11-21/22; Fourfold only; branch `hardening/engine-1`; commits `4629d92` re-pin + `ff0fdc3` infra)
+
+**What it is.** A test-infrastructure ferry to de-risk the beta (TestFlight open) against the failures that
+hurt most in hosts/settings Paul hasn't tried himself — stuck notes, wrong timing, lost state — found on the
+Mac before testers hit them, and left behind as tests. **No engine behaviour change** (every pre-existing
+golden/fuzz pin holds; alloc audit still 0); the only code touched outside tests is the harness and the
+FourfoldTests target membership. Full writeup of the spec in Paul's chat brief; this is the record.
+
+**Stage 0 — re-pin the stale oracles (`4629d92`, prerequisite).** The 20→22 preset redesign + the fresh-doc
+default change shipped in 0.3.0; `1b7c30e` re-derived the harness goldens and 6 tests but missed three
+test-file pin tables. Re-pinned `HocketGoldenTests` (per-preset × window-size table + count), `InputsGoldenTests`
+(252-pin table + count), `RouterTests` (preset note-stream tables + `testDefaultRouting…`'s 44 `preset32`/`preset8`
+routing pins + counts). Old preset names dropped, the 22 current ones captured from the engine's own CAPTURE
+output. Engine unchanged.
+
+**The infrastructure (`ff0fdc3`).**
+- **§1 coverage map** — `Docs/fourfold-coverage-map.md`: 136 control rows across 19 areas, each → document
+  fields written, engine readers, tests by name, fuzz coverage + range, device-owed; the excluded-in-release
+  list; and the gap list that drove §2–§4.
+- **§3 invariant model** — `Fourfold/Engine/HardeningInvariants.swift` (Foundation + Emission's `MIDIEmitter`,
+  in the test target): `WireEvent`/`WireRecorder` + ONE pure checker (balance per output+ALL, order within
+  window, range, ALL=union of note-ons, block-size/sample-rate tolerant compares, musical-beat stamping,
+  note-on-by-beat multiset). Shared by the harness, the fuzz and the Kernel host so the rules can't drift.
+  **`Kernel.swift` + `SnapshotStore.swift` are now in `FourfoldTests`** (project.yml) — the first unit-test
+  reach into the Kernel.
+- **§2 golden renders** — the harness (`Scripts/fourfold-harness`) gained a `GOLDEN HARDENING` group (36 docs:
+  one isolating each coverage-map feature area + ≥17 combination docs incl. silence/edge shapes) AND a
+  per-document **EVENT-LIST** golden (`golden-events/*.txt`, one line per message `sample cable ch kind data` —
+  reads as music, diffs as music), plus `run.sh --capture` to adopt a baseline. `golden.txt` re-captured with
+  all 7 groups (GOLDEN HARDENING ALL: 36 docs, 154,488 events). Harness files: `Harness/HardeningGolden.swift`
+  (writer + the position-independent HARDENING chain) + `Harness/HardeningCorpus.swift` (the 36 docs).
+- **§3 render invariants** — `Fourfold/Tests/RenderInvariantTests.swift` over the corpus (default + 22 presets
+  + 9 authored feature docs, `HardeningCorpus.swift`). **Results, all green:** balance/range/ALL-union/order
+  absolute; determinism (two renders identical); **block-size invariant** (480 vs 1024 vs a per-window-varying
+  plan; full 64…4096 matrix in the deep tier) and **sample-rate invariant** (44.1/48/96 kHz) — compared as a
+  note-on-by-musical-beat multiset, so neither ±1-sample beat→sample rounding nor the end-of-render flush tail
+  reads as a difference (both are real, acceptable); **seek-exact** by musical beat except a 3-document
+  exceptions table (CANON / REHARMONIZE / ROOT FOLLOW — carried canon/ROOT state, the sanctioned exception to
+  invariant 2). Quick tier in the suite; the full matrix runs when `/tmp/fourfold-hardening-deep` exists (or
+  `HARDENING_DEEP=1` — xcodebuild drops the env into the runner unreliably, hence the file sentinel).
+- **§4 fuzz** — `Fourfold/Tests/HardeningFuzzTests.swift`: a seeded transport/edit fuzz covering what
+  `PortsStressTests` omits — randomised sample rate, tempo 20–999 + ramps, time-signature changes, negative/
+  pre-roll beats, seeks, sub-step loops, a host with no transport / no musical context, document REPLACE
+  mid-note, and the Router flags — each case run through the §3 invariants, with a delta-debug **shrinker** and
+  seed reproduction. Quick tier (1,500 cases) in the suite; deep tier ≥100k. Plus `testRandomDocumentsRoundTrip`
+  (codec idempotent + a decoded doc renders identically — the real "no lost state" property; a hand-built doc
+  need not equal its decode because Swift's synthesised `init(from:)` bypasses the `didSet` that derives
+  litNotes/topLit), `testTruncatedAndCorruptedDocumentsNeverTrap`, and a pinned **0.3.0 beta fixture**
+  (`BetaFixture.swift`, the serialized default doc) that must keep decoding + rendering.
+- **§5 headless Kernel host** — `Fourfold/Tests/KernelHostTests.swift`: drives `Kernel.render(...)` through a
+  synthetic `AudioTimeStamp` + transport/musical-context blocks + real `AURenderEvent` MIDI, output captured off
+  `kernel.midiOut`. 16 scenarios (transport edges, panic, euclideous-all-notes-off, reset, document replace,
+  reel record/browse/stop, free-run-while-stopped, note-off-without-on, repeated note-on, 100 held notes,
+  sustain + controllers, CC120/CC123, notes-while-stopped, host with no transport, host with no musical
+  context), all under the DEBUG `hardTrapOnStuckNote` net (the STUCK oracle) so each also proves no stuck note.
+  **§5.3 TSan CLEAN** (0 data races): a render loop on a background thread while MAIN publishes (`SnapshotStore`
+  enforces `dispatchPrecondition(.main)`) and a 3rd thread polls — SnapshotStore's lock-free swap vetted.
+  **§5.4 alloc** still 0 (`CONFIG=Release run.sh --alloc`, 63 docs). **§5.5 soak**: a fast headless soak
+  (deep tier, 40k windows of random edits under the stuck trap) beside the existing `soak.sh`.
+- **§6 mutation** — `Fourfold/Tests/MutationOracleTests.swift` (a fast pinned-hash kill oracle, 10 spread docs)
+  + `Scripts/mutation-check.py` (a sampling mutator over Derivations/Router/SnapshotBuilder; a full tool is
+  infeasible at a 20-min suite).
+
+**New finding (device-owed, NOT a timing bug).** ~1,410 events across 30/32 corpus docs are stamped at exactly
+a window's exclusive end (absolute sample = windowStart+frameCount, i.e. a real-AU buffer offset == frameCount).
+The absolute sample is musically correct — determinism + block-size + sample-rate invariance all confirm it —
+so the note sounds at the right time; the open question is whether a strict host clamps/defers/doubles an event
+whose offset equals the buffer length. Reported, not "fixed" (changing which window emits a boundary hit would
+move every golden and can only be shown necessary on a device, §7.2). `testReportBoundaryStampedEventCount`
+tracks the count; see the device-verification debt list.
+
+**Proofs to re-run after touching any of this:** the normal suite (RenderInvariantTests + HardeningFuzz quick +
+KernelHostTests + MutationOracleTests), `touch /tmp/fourfold-hardening-deep` then the deep tiers, `run.sh
+--golden` (+ `diff -r` the `golden-events/`) + `--octaves-keep`, `CONFIG=Release run.sh --alloc`, a TSan run of
+`testConcurrentRenderPublishAndPoll`, and `python3 Scripts/mutation-check.py`.

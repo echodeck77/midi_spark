@@ -13,7 +13,7 @@ import XCTest
 
 final class RenderInvariantTests: XCTestCase {
 
-    private var deep: Bool { ProcessInfo.processInfo.environment["HARDENING_DEEP"] == "1" }
+    private var deep: Bool { hardeningDeepEnabled }
     private let renderBeats = 24.0   // 6 bars: long enough for every lap/restart/canon to turn over, quick enough for the normal-suite budget
     private let endMargin = 0.5      // drop the final half-beat from invariance compares — the end-of-render flush catches a block-size-dependent count of hits exactly at the cut (not a musical difference)
 

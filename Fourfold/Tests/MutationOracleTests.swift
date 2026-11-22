@@ -23,19 +23,22 @@ final class MutationOracleTests: XCTestCase {
         return (h, rec.events.count)
     }
 
-    // A spread across the feature map: default, chord-driven, riff, stack, directions, routing, inputs.
+    // A spread across the feature map incl. the mutation-targeted edges (tilt/custom/tie/root).
     private let pins: [String: (UInt64, Int)] = [
         "(default)": (5483164581228339621, 264),
         "CHORD ARP": (14912749089064120033, 560),
         "EUCLID directions": (13557268081135209563, 700),
+        "EUCLID custom tiny": (7022300638227720763, 864),
         "FIVE ON EIGHT": (8381925510441271585, 356),
         "INPUTS lanes apart": (8530612876838366861, 264),
+        "INPUTS root transpose": (4970920666746730001, 264),
         "MIX routing": (4307192896080910421, 200),
         "RIFF LEAD": (8252341453779098091, 240),
+        "RIFF tie advance": (2280704568982536861, 264),
         "RIFF walks": (16994671481090744181, 264),
         "STACK ARP": (325616040662575821, 560),
         "STACK lit": (16654341988918432671, 348),
-    ]
+        ]
 
     func testTheMutationOraclePinsHold() {
         var captures: [String] = []

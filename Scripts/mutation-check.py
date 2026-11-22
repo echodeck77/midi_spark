@@ -67,20 +67,22 @@ def is_mutable(line):
         return False
     return True
 
-def run(cmd, timeout=1200):
-    return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+def run(cmd, timeout=1800):
+    # Fold stderr into stdout so build failures (which xcodebuild often prints to stderr) are captured.
+    return subprocess.run(cmd + " 2>&1", shell=True, capture_output=True, text=True, timeout=timeout)
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--file", required=True)
     ap.add_argument("--count", type=int, default=60)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--funcs", default="", help="comma-separated func names: mutate ONLY lines inside these (the render-reached paths). Empty = whole file.")
     ap.add_argument("--only-testing", default="FourfoldTests/MutationOracleTests FourfoldTests/DerivationsTests")
     ap.add_argument("--out", default="build/mutation")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
-    env = dict(os.environ, DEVELOPER_DIR=DEVELOPER_DIR)
+    os.environ["DEVELOPER_DIR"] = DEVELOPER_DIR   # so every xcodebuild subprocess finds Xcode, not CommandLineTools
     only = " ".join(f"-only-testing:{t}" for t in args.only_testing.split())
     build_cmd = (f"xcodebuild build-for-testing -project MidiSpark.xcodeproj -scheme FourfoldTests "
                  f"-destination 'platform=macOS,arch=arm64' -derivedDataPath {DD}")
@@ -90,9 +92,17 @@ def main():
     src = open(args.file).read()
     lines = src.split("\n")
 
-    # enumerate all mutant candidates
+    # enumerate all mutant candidates, tracking the enclosing function so --funcs can scope the run
+    funcset = set(f.strip() for f in args.funcs.split(",") if f.strip())
+    funcpat = re.compile(r'^\s*(?:static\s+|private\s+|public\s+|internal\s+)*func\s+(\w+)')
     candidates = []
+    current_func = ""
     for i, line in enumerate(lines):
+        m = funcpat.match(line)
+        if m:
+            current_func = m.group(1)
+        if funcset and current_func not in funcset:
+            continue
         if not is_mutable(line):
             continue
         for desc, mutated in mutate_line(line):

@@ -1048,3 +1048,36 @@ LANE STRIP amendment 1 (2026-11-12), device-owed (§B9 + the landed slices):
 - 2026-11-19 HEADER v2: (§13) the PLAY RIFF / PLAY STACK masters read as performance buttons and on-vs-off is unmistakable at a glance; the four pips read as "which lanes" and the 30%-filled pip reads as "will return"; a faded (40%) lane-card PLAY button reads as held-by-the-header, not broken; the dimmed next chord (#5C626C) is readable but clearly secondary to the current chord (#D6CBFB/#AAB0BA); hitting the masters in AUM during play feels immediate, and mapping "Play riff"/"Play stack" to a controller in AUM toggles the header button; the amber (#F5B54A) MIDI lamp reads clearly as a lit lamp and is plainly a lamp (outline) when unlit; the key always reads in full ("C MINOR", never "C MIN…") at every window width; ■-twice (return to 1·1) is discoverable enough and nobody hits it by accident mid-set; the ▶/■ split reads right (▶ cyan while playing, ■ square active while playing); the bar·beat readout + beat pips track the transport.
 - 2026-11-19 HEADER v2 §3.6 FIT (DEVICE-OWED, NOT YET BUILT AS A LAYOUT STEP): the pure `euclideousHeaderFit` ladder (none→drop next-chord→drop wordmark→masters-to-own-row) is tested, but the LIVE header still uses the existing A/B/C reflow (masters sized into the UTILITIES group, so it fits and does not clip). To confirm on device and decide the exact realization: in AUM landscape (~1140) with both grids in use nothing is clipped; in PORTRAIT whether the masters should move to their OWN row (step c) — NOT built yet (would split the masters out of the UTILITIES group / add a third row; and the standalone §3.6(c) "masters to the trailing end of the transport row" is likewise unbuilt). Paul to confirm the portrait behaviour on device before the structural layout change is made.
 - 2026-11-20 AU UI CPU WHEN HIDDEN: an AUv3 left PLAYING with its UI non-frontmost pegged a core at 93% (SwiftUI TimelineView animations never pausing — FourfoldAU.cpu_resource report 2026-11-17). Fix: `pulseLive` (and so every `TimelineView(.animation)`) now ANDs in `fourfoldViewAppeared = uiAppeared && appActive`, driven by the AU view controller's `viewWillAppear`/`viewDidDisappear` (AUv3) and `scenePhase` (app). DEVICE-OWED: in AUM, with the plugin PLAYING, (a) hide the plugin UI / switch to another app and confirm the CPU drops (was ~93%); (b) re-open it and confirm the animations resume and the UI isn't frozen/stale; (c) confirm audio/MIDI keeps playing throughout (the render thread is untouched). Re-run the cpu_resource scenario on the current build to confirm the watchdog no longer trips.
+
+---
+
+## ENGINE HARDENING 1 (2026-11-22) — items now covered off-device, and the one new device-owed item
+
+**NEW device-owed [engine-behaviour / host-compat]:** **BOUNDARY-STAMPED EVENTS.** ~1,410 note events across
+30/32 corpus documents are emitted stamped at exactly a render window's exclusive end (buffer offset ==
+frameCount in a real AU). Off-device this is proven harmless — the absolute sample is musically correct
+(determinism + block-size 64–4096 + sample-rate 44.1/48/96 kHz invariance all confirm the sample) — but whether
+a strict host clamps, defers to the next buffer, or doubles such an event is host-specific. **Check in ≥2 hosts
+other than AUM** (e.g. Logic/AUM/Cubasis/Loopy): record the All output over a doc with hits on bar lines (e.g.
+a 1/4 lane) and confirm no bar-line hit is dropped or doubled. `FourfoldTests/RenderInvariantTests/
+testReportBoundaryStampedEventCount` prints the current count.
+
+**Now covered OFF-DEVICE by this ferry (previously device-owed [engine-behaviour] items — downgrade/close):**
+- Buffer-size timing displacement (the "odd timing" investigation, L436–444): the engine is block-size
+  invariant to within one sample across 64–4096 + per-window-varying blocks (RenderInvariantTests). Any audible
+  wobble is NOT engine block-size dependence — it is downstream (confirms the earlier timing-wobble diagnosis).
+- ADVANCE EVERY 5–8 (L204–209): fuzzed (HardeningFuzzTests draws 1…8) with no stuck/doubled/dropped hit.
+- RESTART UNITS cross-lane / schedule rebuild mid-play / odd bars (L142–151): exercised by the corpus +
+  transport fuzz under the invariants (still DEVICE-owed for the UI-closed headless-meter path specifically).
+- CHORDS hit-on-chord-change, SAME-NOTE GAP GUARD, GENERATOR SILENCE-LEAK, LANES/MUTE off-clamp, CHORD CANON
+  delay (L369–371, L96–97, L456–459, L91–96): rendered across the corpus + Kernel host with balance/stuck
+  invariants green; the live-MIDI-canon-by-ear remains device-owed (feel, not correctness).
+- HOLD/LATCH continuous apply, note-off-without-on, 100 held notes, CC120/123, sustain, notes-while-stopped
+  (L334–341 + raw-MIDI edges): KernelHostTests, all clean under the stuck trap.
+- Transport edges / panic / all-notes-off / document-replace / reset leave no stuck note (the whole stuck-note
+  class): KernelHostTests + the transport fuzz, under the DEBUG stuck trap. By-ear "no click" at the edge stays
+  device-owed (feel).
+- Concurrent render/publish/poll has no data race (AU UI CPU / publish safety): TSan clean.
+
+These stay DEVICE-owed (feel/audibility, not correctness): every "no click / by ear / sounds right" item, reel
+paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPad pass itself.
