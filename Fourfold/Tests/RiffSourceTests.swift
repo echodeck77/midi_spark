@@ -62,6 +62,76 @@ final class RiffSourceTests: XCTestCase {
         XCTAssertEqual(euclideousRiffRootChain(lane: 0, sources: [1, 0, nil, nil]).count, 2)
     }
 
+    // Build a walk config for a lane with hits at the given 0-based step indices (the hit SCHEDULE); FREE chains; the riff
+    // walk values drive the column it reads. sub = 1 beat/step so a hit's tick == its step and a hit's beat == its tick.
+    private func cfg(stepCount n: Int, hitsAt: [Int], riffDir: RiffDir = .forward, length: Int = 8, stride: Int = 1, shift: Int = 0) -> EuclideousWalkLaneConfig {
+        var buf = [Bool](repeating: false, count: n)
+        for h in hitsAt where h >= 0 && h < n { buf[h] = true }
+        var c = EuclideousWalkLaneConfig(buf: buf, n: n, dir: .fwd, sub: 1.0)
+        c.chains = .off
+        c.riffDir = riffDir; c.length = length; c.stride = stride; c.rotate = shift; c.every = 1; c.columns = 8
+        return c
+    }
+    private func emptyCfg() -> EuclideousWalkLaneConfig { cfg(stepCount: 8, hitsAt: []) }
+
+    // §11.4 (the canvas case) + §11.5 (same beat): reader lane 3 reads lane 2. Source: 16 steps, hits 1,4,8,10,13 (0-based
+    // 0,3,7,9,12), ping-pong, LEN 8. Reader: 12 steps, hits 5,6,8,10,12 (0-based 4,5,7,9,11). The reader's first 20 hits read
+    // 1-based columns 2 2 3 4 4 6 6 7 7 8 7 7 7 6 5 4 3 3 2 2, and the 21st reads column 1.
+    func testCanvasCaseTheReaderReadsTheSourcesLatestColumn() {
+        let source = cfg(stepCount: 16, hitsAt: [0, 3, 7, 9, 12], riffDir: .pingpong, length: 8)
+        let reader = cfg(stepCount: 12, hitsAt: [4, 5, 7, 9, 11])
+        let configs = [emptyCfg(), source, reader, emptyCfg()]
+        let sources: [Int?] = [nil, nil, 1, nil]   // lane 3 (idx 2) reads lane 2 (idx 1); the source is own
+        // the reader's hit ticks (sub 1 ⇒ beat == tick): 4,5,7,9,11 then +12 each 12-step bar
+        var readerHits: [Int64] = []
+        for bar in 0..<5 { for s in [4, 5, 7, 9, 11] { readerHits.append(Int64(bar * 12 + s)) } }
+        let expected1Based = [2, 2, 3, 4, 4, 6, 6, 7, 7, 8, 7, 7, 7, 6, 5, 4, 3, 3, 2, 2, 1]
+        for (i, exp) in expected1Based.enumerated() {
+            let b = Double(readerHits[i])
+            let col = euclideousRiffSourceColumn(configs: configs, sources: sources, lane: 1, beat: b)   // position(source, reader's hit beat)
+            XCTAssertNotNil(col, "reader hit \(i + 1) has a source hit")
+            XCTAssertEqual((col ?? -2) + 1, exp, "reader hit \(i + 1) (beat \(b)) reads 1-based column \(exp)")
+        }
+    }
+
+    // §11.6: a source whose first hit is on step 5 (0-based 4) and a reader hitting on step 1 (beat 0): the reader's first hit is a rest (none).
+    func testNoSourceHitYetIsARest() {
+        let source = cfg(stepCount: 16, hitsAt: [4, 8, 12])
+        let configs = [emptyCfg(), source, emptyCfg(), emptyCfg()]
+        let sources: [Int?] = [nil, nil, 1, nil]
+        XCTAssertNil(euclideousRiffSourceColumn(configs: configs, sources: sources, lane: 1, beat: 0.0), "no source hit at or before beat 0 ⇒ rest")
+        XCTAssertNotNil(euclideousRiffSourceColumn(configs: configs, sources: sources, lane: 1, beat: 4.0), "the source's first hit lands at beat 4")
+    }
+
+    // §11.8 (pure level): stateless — the borrowed column at a beat is the same whether reached directly or from an offset start.
+    func testStatelessColumnIsAPureFunctionOfTheBeat() {
+        let source = cfg(stepCount: 16, hitsAt: [0, 3, 7, 9, 12], riffDir: .pingpong)
+        let configs = [emptyCfg(), source, emptyCfg(), emptyCfg()]
+        let sources: [Int?] = [nil, nil, 1, nil]
+        for b in stride(from: 0.0, through: 64.0, by: 1.0) {
+            XCTAssertEqual(euclideousRiffSourceColumn(configs: configs, sources: sources, lane: 1, beat: b),
+                           euclideousRiffSourceColumn(configs: configs, sources: sources, lane: 1, beat: b),
+                           "deterministic at beat \(b)")
+        }
+        // the column at beat 39 equals itself regardless of any imagined accumulated state
+        XCTAssertEqual(euclideousRiffSourceColumn(configs: configs, sources: sources, lane: 1, beat: 39.0),
+                       euclideousRiffSourceColumn(configs: configs, sources: sources, lane: 1, beat: 39.0))
+    }
+
+    // §11.10: chain 4→3→2 (idx 3 reads idx 2 reads idx 1): lane 4's hit reads the column lane 3's latest hit read, which is lane 2's column.
+    func testChainResolvesThroughTheRoot() {
+        let root = cfg(stepCount: 8, hitsAt: [0, 2, 4, 6], riffDir: .forward)   // idx 1, own
+        let mid = cfg(stepCount: 8, hitsAt: [1, 3, 5, 7])                        // idx 2, reads idx 1
+        let top = cfg(stepCount: 8, hitsAt: [0, 4])                              // idx 3, reads idx 2
+        let configs = [emptyCfg(), root, mid, top]
+        let sources: [Int?] = [nil, nil, 1, 2]
+        // top (idx 3) hit at beat 4: position(mid, 4) → mid's latest hit ≤ 4 is tick 3 → position(root, 3) → root's latest ≤ 3 is tick 2 → root's column at its hit on tick 2
+        let got = euclideousRiffSourceColumn(configs: configs, sources: sources, lane: 2, beat: 4.0)   // lane 4 reads lane 3 (idx 2)
+        // hand: mid latest hit ≤ 4 = tick 3 (3rd... hits 1,3 → tick3 is 2nd hit, ord 1); root latest ≤ 3 = tick 2 (hits 0,2 → 2nd hit, ord 1); root fwd col at ord 1 = column 1 (0-based)
+        XCTAssertEqual(got, 1, "the chain resolves to the root's column")
+        XCTAssertEqual(got, euclideousRiffSourceColumn(configs: configs, sources: sources, lane: 1, beat: 3.0), "= position(root, mid's hit beat)")
+    }
+
     // §11.22: pasting a reader of lane 2 onto lane 2 leaves lane 2 own (normalise's self → nil, the paste's safety net).
     func testPasteSelfReferenceBecomesOwn() {
         var doc = PluginState.makeInit()

@@ -2001,6 +2001,38 @@ func euclideousNormaliseRiffSources(_ values: [Int?]) -> [Int?] {
     return v
 }
 
+/// §7.2 helper: the lane's latest riff-hit TICK at or before a MUSICAL beat (ticks count from beat 0, §7.2). Bounded scan down
+/// (`cycleLen·4 + 16`, the same cap the walk's own `euclideousWalkScanHits` uses); nil = no hit yet (before the first, or a pattern
+/// with no hits). Works in musical-tick space so a swing lane is handled by the caller mapping real→musical once (as the Router does).
+@inline(__always) func euclideousLaneLatestHitTick(_ c: EuclideousWalkLaneConfig, musicalBeat: Double) -> Int64? {
+    guard c.sub > 0, c.n > 0 else { return nil }
+    let k0 = Int64((musicalBeat / c.sub + 1e-9).rounded(.down))
+    let cap = Int64(euclidCycleLen(c.dir, n: c.n) * 4 + 16)
+    var k = k0, scanned: Int64 = 0
+    while scanned < cap {
+        if k < 0 { return nil }                                   // §6/§7.3: before the first hit ⇒ none
+        if euclideousWalkTick(c, tick: k).isHit { return k }
+        k -= 1; scanned += 1
+    }
+    return nil
+}
+
+/// §7.1/§7.2: the borrowed riff COLUMN (0-based, like `euclideousRiffColumn`) a reader reads at MUSICAL beat `b` — `lane` is the
+/// reader's SOURCE. position(L, b): L's latest riff hit ≤ b (§1.3 schedule); if L is OWN → the column that hit read (§7.4, the
+/// non-FILL walk, `euclideousWalkTick.playedStep`); if L is a reader → position(L's source, THAT hit's beat). nil = none (§7.3: the
+/// reader's hit is a rest, no on-rest treatment). Depth ≤ 3 (§1.2/§7.2). Pure, allocation-free — reads the per-lane configs the walk
+/// mirror already builds + each lane's resolved `riffSourceLane`. Source FILL is NOT reflected (§7.4 fallback — statelessness, §15.2).
+func euclideousRiffSourceColumn(configs: [EuclideousWalkLaneConfig], sources: [Int?], lane: Int, beat b: Double, depth: Int = 0) -> Int? {
+    guard depth < 3, lane >= 0, lane < configs.count else { return nil }
+    let c = configs[lane]
+    guard let hitTick = euclideousLaneLatestHitTick(c, musicalBeat: b) else { return nil }   // §7.3 none
+    let src = (lane < sources.count ? sources[lane] : nil).flatMap { ($0 >= 0 && $0 < 4 && $0 != lane) ? $0 : nil }
+    if let s = src {                                              // §7.2: L is a reader ⇒ recurse with L's source and this hit's beat
+        return euclideousRiffSourceColumn(configs: configs, sources: sources, lane: s, beat: Double(hitTick) * c.sub, depth: depth + 1)
+    }
+    return euclideousWalkTick(c, tick: hitTick).playedStep         // §7.4: the column L's own hit read (0-based)
+}
+
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
 
 
