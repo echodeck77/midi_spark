@@ -6249,6 +6249,23 @@ final class RouterTests: XCTestCase {
         }
         return nil
     }
+    // STACK WHEN ferry (2026-11-22) — GAP fires the stack on the rhythm's gaps (one lane answering itself); FIRST keeps one per pass
+    func testGapStackFillsTheRhythmsGapsAndGapOffIsUnchanged() {
+        // the example lane hits ticks 0,2,4,5,7 and is a GAP on 1,3,6. Stack only (riff off), NOTE+REST both on; each step is 12 000 samples.
+        func stackTicks(_ gaps: Bool, first: Bool = false) -> Set<Int> {
+            var l = notesLine(.chord, when: 0b11, onRest: .skip, riffOn: false)
+            l.notesGaps = gaps; l.notesFirst = first
+            let e = notesRender(l, passes: 2)
+            assertNothingLeftSounding(e)   // §5.2: one finite-gate strike ⇒ never a stuck note
+            var s = Set<Int>()
+            for ev in e.ons where ev.cable == 1 { let t = Int((Double(ev.sample) / 12_000 + 1e-3).rounded(.down)); if t < 8 { s.insert(t) } }
+            return s
+        }
+        XCTAssertEqual(stackTicks(false), Set([0, 2, 4, 5, 7]), "GAP off: the stack plays only on the rhythm's hits (byte-identical to before)")
+        XCTAssertEqual(stackTicks(true), Set(0..<8), "GAP on: the stack also fills the gaps 1, 3, 6")
+        XCTAssertEqual(stackTicks(true, first: true), Set([0]), "GAP + FIRST: at most one stack per pass (the first chosen step)")
+    }
+
     // test 6: the count k, on the example lane
     // PLAY AS ROWS (2026-11-11): testNotesWhenRestsPlayOnlyTheRestHitsAndTheWayWalksOnlyThoseHits and testNotesBothWithTheRiffOnTheRiffKeepsItsPitchAndTheHitStillCountsForK are RETIRED — they pinned the PLAY AS ways' walk (CYCLE / BOUNCE /
     // SPLIT / BUILD) and the "k" count, which the three-chains model replaces (the pass/cursor is covered by PlayAsRowsEngineTests; WHEN RESTS by testNotesInvertTransposeAndOnRestNeverChangeWhichHitsAreRestHits below).

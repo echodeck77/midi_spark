@@ -5871,6 +5871,46 @@ final class Router {
                             let (onset, duration) = nvTiming(hitGate)
                             pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: hitNC)
                         }
+                    } else if isEuclideousRow, notesGaps, notesOn, litOrder.count > 0, !lanesSeqMuted,
+                              !((listenPitch == .shadow || listenPitch == .echo || listenPitch == .mirror) && listenSource >= 0 && listenSource < 4 && listenSource != lineIndex) {
+                        // STACK WHEN ferry (2026-11-22, §2.4/§5) — a GAP step: the rhythm does NOT hit here, but GAP is on, so the stack fills the space (one lane answering itself). A gap stack is NOT a hit — the riff walk, the hit ordinal,
+                        // CC, ratchet, the mask and RESETS all live inside `if isHit` above and never run on this non-hit tick. It plays ONE strike per pitch (no ratchet, §5.2), at the lane's notes gate from the step's start (§5.3),
+                        // sharing the STACK sequence with hit stacks through the kept-step ordinal `k` (§3.3), with the ALT state at the gap step for STEP/BAR/PASS and the LAST hit's for the HIT unit (§5.4/§5.5).
+                        let nw = EuclideousNotesWalk(n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, chains: chains, legacySpanBeats: ladderSpanBeats, advanceStep: riffAdvanceStep,
+                                                     riffDir: riffDir, stride: riffStride, length: riffLength, rotate: riffRotate, seed: UInt64(bitPattern: Int64(riffDirSeed)), every: riffAdvanceEvery, columns: p.polyRiff.on ? EuclideousPolyMetrics.columns : 8)
+                        let gridRanks = p.euclideousRiff.ranks ?? []
+                        let gapRankAt: (Int, Double) -> Int = { c, _ in c >= 0 && c < gridRanks.count ? Int(gridRanks[c]) : 0 }
+                        let thisLaneCount = laneCount(lineIndex)
+                        // §2.3 FIRST: a gap plays only if it is the first chosen step of its pass; and it needs a non-empty pool to resolve a pitch.
+                        if thisLaneCount > 0, !notesFirst || euclideousNotesIsFirstChosenInPass(buf: euclidBuf, w: nw, tick: tick, passCy: cy, when: notesWhen, gapOn: true, thisBeat: mTickBeat, rankAt: gapRankAt) {
+                            var altNotesOct = octave, altNotesVel = notesVelocity; var altNotesGate: Double? = nil; var altNotesOut: UInt8? = nil
+                            if altUses {   // ALT §5.5: STEP/BAR/PASS read the gap step's own count, the HIT unit the last hit before it (`euclideousRiffLastOrd`)
+                                let altBar = Int(((mTickBeat / max(1e-6, beatsPerBar)) + 1e-9).rounded(.down))
+                                let altX = euclideousAltX(unit: altUnitRes, hit: Int(euclideousRiffLastOrd[lineIndex]), step: Int(localT), pass: Int(cy), bar: altBar)
+                                if euclideousAltState(main: altMainRes, alt: altAltRes, x: altX).isAlt {
+                                    if altNotesPart.octActive, let v = altNotesPart.octValue { altNotesOct = v }
+                                    if altNotesPart.velActive, let v = altNotesPart.velValue { altNotesVel = v }
+                                    if altNotesPart.gateActive, let v = altNotesPart.gateValue { altNotesGate = Double(v) / 100 }
+                                    if altNotesPart.outActive { altNotesOut = altNotesPart.outValue }
+                                }
+                            }
+                            let advOrd = euclideousNotesHitOrdinal(buf: euclidBuf, w: nw, tick: tick)
+                            let k = euclideousNotesKeptCountBefore(buf: euclidBuf, w: nw, tick: tick, originTick: chains.melodyOriginTick(mTickBeat, sub: sub),
+                                                                   when: notesWhen, gapOn: true, firstOn: notesFirst, advOrd: advOrd, thisBeat: mTickBeat, rankAt: gapRankAt)
+                            let rowsHit = euclideousRowsResolve(orderChain: notesOrderChain, voicesChain: notesVoicesChain, spreadChain: notesSpreadChain,
+                                                                litOrder: litOrder, roles: notesRankRoles, bassOn: notesBassOn, bassMode: notesBassMode,
+                                                                shiftStart: notesShiftStart, driftOn: notesDriftOn, driftStep: notesDriftStep, lane: lineIndex, hitOrdinal: k)
+                            let gapNotes = laneNotes(lineIndex)
+                            let gapGate = gateBeatsWithTie(altNotesGate ?? notesGate, 0)   // §5.3: the notes gate from the step's start (no TIE — a gap isn't a riff tie)
+                            let gapOuts: UInt8? = altNotesOut.map { $0 & 0x0F }            // nil ⇒ the notes part's own routing (strikeChord's default), as a hit notes pitch uses
+                            func strikeGap(_ r: Int) {
+                                guard r >= 1, let pch = riffResolve(rank: r, oct: altNotesOct, n: thisLaneCount, wrap: .fold, asc: { gapNotes[$0].note }), (0...127).contains(pch) else { return }
+                                strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gapGate, octave: 0, explicitNote: pch, rank: UInt8(max(1, min(8, r))),
+                                            explicitVel: UInt8(max(1, min(127, altNotesVel))), busOverride: notesBus, outsOverride: gapOuts)   // one finite-gate strike ⇒ self-closing, never legato (notes gate ≤ 99 %); the roll/footer/grid read NoteRollRing which emitArtic fills
+                            }
+                            if rowsHit.bassRank > 0 { strikeGap(rowsHit.bassRank) }
+                            for i in 0..<rowsHit.count { strikeGap(rowsHit[i]) }
+                        }
                     } else if !isEuclideousRow, let missSel = missNoteSel {
                         // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — STILL LIVE for the regular,
                         // non-Euclideous BUILD-page EUCLID processor's own dual-voice feature (GridUI.swift's
