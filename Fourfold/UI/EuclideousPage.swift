@@ -2650,7 +2650,15 @@ struct EuclideousPage: View {
         guard idx >= 0, idx < lines.count else { return nil }
         // PERF (2026-11-18): this runs one plan PER LANE PER FRAME on the STACK tab and reads only riffPlays/cfg/lapStartTick/legs — lightweight skips §5 + the VoiceOver phrase.
         let plan = laneStripPlan(idx, idx < phaseLines.count ? phaseLines[idx] : lines[idx], lightweight: true)
-        guard plan.riffPlays, let cfg = plan.cfg, idx < riffPositions.count, clock.playing, lines[idx].enabledResolved else { return nil }
+        // STACK GRID RIFF ARROW §1 (Paul 2026-11-22): the arrow shows only while the riff is actually SOUNDING — the lane plays the riff
+        // AND is RUNNING (transport on, PLAY RIFF on, HITS > 0 — the main riff-grid arrows' own `euclideousLaneArrowShows`/`euclideousLaneIsRunning`
+        // gate, which `clock.playing && enabledResolved` alone did not cover), AND it is not MUTED (the LANES grid at this beat) or solo-silenced
+        // on its RIFF part. A stopped / zero-hit / muted lane sounds no riff, so it shows no arrow (the main grid DIMS a muted arrow — here it hides,
+        // matching the STACK grid's sounding cells, which vanish when muted because their feed carries no `outs`).
+        guard plan.riffPlays, let cfg = plan.cfg, idx < riffPositions.count,
+              euclideousLaneIsRunning(transportPlaying: clock.playing, line: lines[idx]),
+              euclideousLaneAudible(beat: lanesMusicalBeat(real: beat), cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats),
+              !partSoloSilenced(idx, part: 0) else { return nil }
         let ord: Int64? = idx < riffWalkState.count ? riffWalkState[idx] : nil
         guard let tp = euclideousWalkTagPlan(cfg: cfg, ranks: effectiveGridRanks, beat: beat, secondsPerBeat: 60.0 / max(1.0, clock.tempo), polledStep: riffPositions[idx], running: true, polledOrdinal: ord, poly: polySnap) else { return nil }
         let arrow = euclideousLaneArrowState(lane: idx, cfg: cfg, plan: tp, polledOrdinal: ord ?? 0)
