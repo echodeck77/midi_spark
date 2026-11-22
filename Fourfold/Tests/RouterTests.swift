@@ -3959,6 +3959,36 @@ final class RouterTests: XCTestCase {
         let hits = listenRun(listenRedLine(), blue)
         XCTAssertEqual(hits.count, 0, "T6 AVOID: every blue hit coincides in time with a red strike, so all are muted")
     }
+    // RIFF SOURCE ferry (2026-11-22) — the engine substitution, end to end. A reader with the SAME rhythm + pool + TRANS 0 as its
+    // source plays the source's EXACT notes (position(source, b) at the reader's hit = the source's own column at that same hit, read
+    // through the reader's own identical pool). TRANS shifts them; a different pool re-resolves them. All-own is the golden oracle.
+    private func riffSourceRun(_ lines: [EuclidLine]) -> [Int: [UInt8]] {
+        var c = Machine(machineID: "gold", type: .euclid)
+        c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 5, 4, 3, 2, 1])
+        c.paramsA.euclidLines = lines
+        var st = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) },
+                             scenes: [{ var s = SceneState.empty(); s.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b]); return s }()])
+        st.euclideousNoteSource = .midi
+        let e = RecordingEmitter()
+        run(SnapshotBuilder.build(keeping: st), chord(listenPoolCMinor), beats: 3.9, into: e, forceColumn: 0, tempo: 110.0, sr: 48_000.0)
+        assertNothingLeftSounding(e)
+        var byCable: [Int: [UInt8]] = [:]
+        for ev in e.ons.sorted(by: { $0.sample < $1.sample }) { byCable[Int(ev.cable), default: []].append(ev.note) }
+        return byCable
+    }
+    func testRiffSourceReaderPlaysTheSourcesNotesAndTransposes() {
+        let src = EuclidLine(target: 0, pulses: 8, steps: 8, velocityAbsolute: 100, rate: .r1_8, useRiff: true, riffOn: true, sourceMode: .midi)   // lane 1 → cable A(1)
+        var reader = src; reader.riffSourceLane = 0                                                                                                 // lane 2 → cable B(2), reads lane 1
+        let notes = riffSourceRun([src, reader, EuclidLine(enabled: false), EuclidLine(enabled: false)])
+        XCTAssertFalse((notes[1] ?? []).isEmpty, "the source plays")
+        XCTAssertEqual(notes[2], notes[1], "a reader with the same rhythm, pool and TRANS 0 plays the source's exact notes")
+        // TRANS +2 scale steps shifts every borrowed note up; the sequence stays the same length, pitches differ
+        var t = src; t.riffSourceLane = 0; t.melodyTranspose = 2
+        let shifted = riffSourceRun([src, t, EuclidLine(enabled: false), EuclidLine(enabled: false)])
+        XCTAssertEqual(shifted[2]?.count, notes[1]?.count, "the reader strikes on its own (identical) rhythm")
+        XCTAssertNotEqual(shifted[2], notes[1], "TRANS +2 moves the borrowed notes (the reader's own TRANS, §7.5)")
+    }
+
     func testListenAvoidMutesOnlyHitsSimultaneousWithTheSource() {
         // The defining NEW semantic: AVOID punches a hole ONLY where the source actually strikes at the same instant,
         // NOT by pitch. red is 3-of-8 (cols 0,3,6 → beats 0, 1.5, 3.0); blue is the default 4-of-8 (cols 0,2,4,6 →

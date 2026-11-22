@@ -526,6 +526,11 @@ final class Router {
     private var hocketClockSplit = [Bool](repeating: false, count: 4)
     private var hocketClockSplitBeat = [Double](repeating: 0, count: 4)   // where a lane's window was split (a lock line, or an ANSWER phase boundary): ticks from it read slot 1
     private var hocketClockPass = false             // true while the pre-pass runs: `runEuclidLine` captures its clock and returns before playing anything
+    // RIFF SOURCE ferry (2026-11-22): each lane's captured riff clock (buf + chains + walk values + its resolved riffSourceLane) for a
+    // reader to borrow its source's column via `euclideousRiffSourceColumn`. Filled in the SAME pre-pass as `hocketClocks` (for lanes in
+    // `riffSourceMask`), allocation-free. `euclideousRiffSrc[li]` = lane li's resolved riffSourceLane (−1 = own), built once per window.
+    private var euclideousRiffClocks: [HocketLaneClock] = (0..<4).map { _ in HocketLaneClock() }
+    private var euclideousRiffSrc = [Int](repeating: -1, count: 4)
 
     private var busChannels: [UInt8] = [1, 2, 3, 4]   // per-OUTPUT stamp channels (A–D, `FourfoldPorts`), refreshed each process
     /// CARD BACKS: which outputs (bits 0–3 = A–D) each PART's notes leave on — part p = 2 × lane + (notes ? 1 : 0). Refreshed from the snapshot each window; the default is each lane's own output.
@@ -3779,6 +3784,11 @@ final class Router {
                     if split { hocketClockSplit[lineIndex] = true; hocketClockSplitBeat[lineIndex] = tickFrom != -Double.infinity ? tickFrom : tickBefore }
                     hocketClocks[lineIndex * 2 + (tickFrom == -Double.infinity ? 0 : 1)].capture(cells: euclidBuf, delays: euclidTickDelay, timing: timingActive, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub,
                                                                                                     chains: chains, legacySpanBeats: ladderSpanBeats)
+                    // RIFF SOURCE ferry (2026-11-22): capture this lane's riff clock too (one per lane, no split) so a reader can borrow its column. The riff walk values are runEuclidLine's own params, in scope here.
+                    if lineIndex >= 0, lineIndex < 4 {
+                        euclideousRiffClocks[lineIndex].capture(cells: euclidBuf, delays: euclidTickDelay, timing: timingActive, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, chains: chains, legacySpanBeats: ladderSpanBeats)
+                        euclideousRiffClocks[lineIndex].captureRiff(dir: riffDir, length: riffLength, stride: riffStride, rotate: riffRotate, every: riffAdvanceEvery, columns: (isEuclideousRow && p.polyRiff.on) ? EuclideousPolyMetrics.columns : 8, seed: UInt64(bitPattern: Int64(riffDirSeed)), source: euclideousRiffSrc[lineIndex])
+                    }
                     return
                 }
                 iterateTicks(row: r, effColumn: effColumn, sub: sub, gateFraction: 0.9,
@@ -4184,8 +4194,22 @@ final class Router {
                             euclideousRiffContinueHeldCol[lineIndex] = heldCol
                             if heldCol < 0, p.ribbon.release == .carryOn { riffWalkOff = euclideousRiffWalkOffset[lineIndex] }
                         }
-                        let playedStep = (loopColNow >= 0 && loopRiffInc) ? loopColNow
-                            : euclideousRiffColumn(ordinal: advOrd + Int64(riffWalkOff), every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
+                        // RIFF SOURCE ferry (2026-11-22, §7.1/§7.5/§13): a READER borrows its SOURCE's column at THIS hit's musical beat
+                        // (`mTickBeat`), then plays it through its OWN pool/OCT/TRANS/FLIP below. The LOOP hold still wins (§13); the reader's
+                        // own scrub/TUTTI rank holds apply later on the borrowed column (they read `playedStep` as the natural column). A nil
+                        // borrow (no source hit yet, §7.3) is a REST for the riff part with no on-rest treatment — the MONO/POLY strike is
+                        // skipped below (`riffSourceRest`), the notes layer still runs (§7.5). All-own ⇒ `euclideousRiffSrc` all −1 ⇒ the exact
+                        // old expression ⇒ bit-identical (golden). A SHADOW/ECHO reader (ANSWER PITCH) takes that branch instead — §15.3.
+                        var riffSourceRest = false
+                        let riffSrcLane = isEuclideousRow ? euclideousRiffSrc[lineIndex] : -1
+                        let borrowedColumn: Int? = riffSrcLane >= 0 ? euclideousRiffSourceColumn(clocks: euclideousRiffClocks, lane: riffSrcLane, beat: mTickBeat) : nil
+                        let playedStep: Int
+                        if loopColNow >= 0 && loopRiffInc { playedStep = loopColNow }
+                        else if riffSrcLane >= 0 {
+                            if let b = borrowedColumn { playedStep = b } else { riffSourceRest = true; playedStep = 0 }
+                        } else {
+                            playedStep = euclideousRiffColumn(ordinal: advOrd + Int64(riffWalkOff), every: riffAdvanceEvery, direction: riffDir, length: riffLength, stride: riffStride, shift: riffRotate, seed: seed, columns: riffColumns)
+                        }
                         if isEuclideousRow {
                             euclideousRiffStep[lineIndex] = playedStep   // the cursor updates even on a rest, so the UI tracks real motion through the whole pattern — now true in BOTH modes
                             euclideousRiffLastOrd[lineIndex] = advOrd    // RIFF MARKERS/FOOTERS poll (2026-10-12): the ordinal this cursor just advanced on
@@ -4492,7 +4516,7 @@ final class Router {
                                     euclideousEchoFollowerJ[lineIndex] += 1
                                 }
                                 if pitchCount > notesBefore { hadRiffNote = true; riffRank = thisLaneCount; riffNote = pitches[notesBefore] }
-                            } else if riffOn, thisLaneCount > 0, polyOn {
+                            } else if riffOn, thisLaneCount > 0, polyOn, !riffSourceRest {   // RIFF SOURCE §7.3: a reader with no source hit rests (no riff note, no on-rest)
                                 // POLY RIFF (2026-10-29): the walk lands on one column of the 16-column grid and EVERY note that starts there strikes — each through the same INVERT → TRANSPOSE → `riffResolve` → out-transpose →
                                 // `addPitch` steps as a MONO note (lowest rank first, so pitch 0 is "the riff note" for NOTE VIEW's primary / +n convention). A note rings for its LENGTH in walk steps from this hit
                                 // (`euclideousPolyRingBeats`; length 1 is exactly MONO's `gate × gap to the next hit`); the FX tab is off and ON REST is SKIP — no start ⇒ a SKIP-like rest hit. A note moved below rank 1 by
@@ -4547,7 +4571,7 @@ final class Router {
                                     rk += 1
                                 }
                                 if !hadRiffNote { restEnd = 1 }
-                            } else if riffOn, thisLaneCount > 0 {
+                            } else if riffOn, thisLaneCount > 0, !riffSourceRest {   // RIFF SOURCE §7.3: a reader with no source hit rests (no riff note, no on-rest)
                                 let naturalLeapStep = (maskedChancePassed && mm.modeResolved == .leap)
                                     ? (((playedStep + mm.leapStepsResolved) % riffLength) + riffLength) % riffLength
                                     : playedStep
@@ -6159,10 +6183,26 @@ final class Router {
             // CC SLOTS: a slot's shape reads its DRIVER lane's OWN next hit, computed inline from the walk at advOrd+1 as the hit fires — so CC no longer needs any lane in the clock pre-pass (the merged-stream pre-pass is retired).
             // RIBBON SETTINGS §6.5: with a TUTTI mark set, EVERY lane needs its clock captured in the pre-pass so the fire table knows all lanes' hits together (byte-identical when no mark — `tuttiActive` is false, so nothing is added).
             let tuttiPrePass = isEuclideousRow && p.ribbon.tuttiActive && scrubRiffRankNow == 0 && scrubStackRankNow == 0
-            let clockMask = hocketRefMask | avoidSourceMask | (tuttiPrePass ? 0x0F : 0)   // lanes needing a pre-pass clock: HOCKET reference lanes ∪ AVOID source lanes ∪ (TUTTI → all four)
+            // RIFF SOURCE ferry (2026-11-22): every lane in any reader's root chain needs its clock captured (the source + up the chain).
+            var riffSourceMask: UInt8 = 0
+            for i in 0..<4 { euclideousRiffSrc[i] = -1 }
+            if isEuclideousRow {
+                for li in 0..<min(4, p.euclidLines.count) { euclideousRiffSrc[li] = p.euclidLines[li].riffSourceLaneResolved(ownLane: li) ?? -1 }
+                // Mark every lane in any reader's root chain (source + up, ≤ 3 links). Inlined — NO allocation (no `.map`, no chain array) on the render path, so a reader document stays invariant-3 clean.
+                for li in 0..<min(4, p.euclidLines.count) where euclideousRiffSrc[li] >= 0 {
+                    riffSourceMask |= UInt8(1) << UInt8(li & 3)
+                    var cur = li, seen: UInt8 = UInt8(1) << UInt8(li & 3)
+                    for _ in 0..<3 {
+                        let s = euclideousRiffSrc[cur]
+                        if s < 0 || s >= 4 || s == cur || (seen & (UInt8(1) << UInt8(s & 3))) != 0 { break }
+                        riffSourceMask |= UInt8(1) << UInt8(s & 3); seen |= UInt8(1) << UInt8(s & 3); cur = s
+                    }
+                }
+            }
+            let clockMask = hocketRefMask | avoidSourceMask | riffSourceMask | (tuttiPrePass ? 0x0F : 0)   // lanes needing a pre-pass clock: HOCKET reference ∪ AVOID source ∪ RIFF-SOURCE chain ∪ (TUTTI → all four)
             if clockMask != 0 {
                 for i in 0..<8 { hocketClocks[i].valid = false }
-                for i in 0..<4 { hocketClockSplit[i] = false }
+                for i in 0..<4 { hocketClockSplit[i] = false; euclideousRiffClocks[i].valid = false }
             }
             // ANSWER 5.7: a phase boundary ends what a lane was holding the way a mode change does — at the boundary instant (a legato note the old phase left open; finite gates end by themselves). Done for EVERY lane before any lane
             // plays: a lane processed earlier can push a TRADE hit onto a later lane's legato state, and that first phase-B note must not be closed with the old phase's.

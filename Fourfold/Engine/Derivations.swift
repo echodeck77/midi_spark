@@ -2001,17 +2001,18 @@ func euclideousNormaliseRiffSources(_ values: [Int?]) -> [Int?] {
     return v
 }
 
-/// §7.2 helper: the lane's latest riff-hit TICK at or before a MUSICAL beat (ticks count from beat 0, §7.2). Bounded scan down
-/// (`cycleLen·4 + 16`, the same cap the walk's own `euclideousWalkScanHits` uses); nil = no hit yet (before the first, or a pattern
-/// with no hits). Works in musical-tick space so a swing lane is handled by the caller mapping real→musical once (as the Router does).
-@inline(__always) func euclideousLaneLatestHitTick(_ c: EuclideousWalkLaneConfig, musicalBeat: Double) -> Int64? {
-    guard c.sub > 0, c.n > 0 else { return nil }
+/// §7.2 helper: a captured lane clock's latest riff-hit TICK at or before a MUSICAL beat (ticks count from beat 0, §7.2). Bounded
+/// scan down (`cycleLen·4 + 16`, the same cap the walk's own `euclideousWalkScanHits` uses); nil = no hit yet (before the first, or a
+/// pattern with no hits). Musical-tick space (the caller maps real→musical once, as the Router does). Allocation-free (reads the clock's
+/// own fixed `buf`). `euclideousLaneChainTick(...).rawIsHit` is the SAME hit test the walk mirror and the Router run (`euclideousWalkTick`).
+@inline(__always) func euclideousClockLatestHitTick(_ c: HocketLaneClock, musicalBeat: Double) -> Int64? {
+    guard c.valid, c.sub > 0, c.n > 0 else { return nil }
     let k0 = Int64((musicalBeat / c.sub + 1e-9).rounded(.down))
-    let cap = Int64(euclidCycleLen(c.dir, n: c.n) * 4 + 16)
+    let cap = Int64(c.cycleLen * 4 + 16)
     var k = k0, scanned: Int64 = 0
     while scanned < cap {
         if k < 0 { return nil }                                   // §6/§7.3: before the first hit ⇒ none
-        if euclideousWalkTick(c, tick: k).isHit { return k }
+        if euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: c.cycleLen, sub: c.sub, tick: k, chains: c.chains, legacySpanBeats: c.legacySpanBeats, advanceStep: false).rawIsHit { return k }
         k -= 1; scanned += 1
     }
     return nil
@@ -2019,18 +2020,19 @@ func euclideousNormaliseRiffSources(_ values: [Int?]) -> [Int?] {
 
 /// §7.1/§7.2: the borrowed riff COLUMN (0-based, like `euclideousRiffColumn`) a reader reads at MUSICAL beat `b` — `lane` is the
 /// reader's SOURCE. position(L, b): L's latest riff hit ≤ b (§1.3 schedule); if L is OWN → the column that hit read (§7.4, the
-/// non-FILL walk, `euclideousWalkTick.playedStep`); if L is a reader → position(L's source, THAT hit's beat). nil = none (§7.3: the
-/// reader's hit is a rest, no on-rest treatment). Depth ≤ 3 (§1.2/§7.2). Pure, allocation-free — reads the per-lane configs the walk
-/// mirror already builds + each lane's resolved `riffSourceLane`. Source FILL is NOT reflected (§7.4 fallback — statelessness, §15.2).
-func euclideousRiffSourceColumn(configs: [EuclideousWalkLaneConfig], sources: [Int?], lane: Int, beat b: Double, depth: Int = 0) -> Int? {
-    guard depth < 3, lane >= 0, lane < configs.count else { return nil }
-    let c = configs[lane]
-    guard let hitTick = euclideousLaneLatestHitTick(c, musicalBeat: b) else { return nil }   // §7.3 none
-    let src = (lane < sources.count ? sources[lane] : nil).flatMap { ($0 >= 0 && $0 < 4 && $0 != lane) ? $0 : nil }
-    if let s = src {                                              // §7.2: L is a reader ⇒ recurse with L's source and this hit's beat
-        return euclideousRiffSourceColumn(configs: configs, sources: sources, lane: s, beat: Double(hitTick) * c.sub, depth: depth + 1)
+/// non-FILL walk); if L is a reader → position(L's source, THAT hit's beat). nil = none (§7.3: the reader's hit is a rest, no on-rest
+/// treatment). Depth ≤ 3 (§1.2/§7.2). Pure, allocation-free — reads the per-lane CLOCKS captured in the pre-pass (fixed storage; the
+/// clock's own `riffSource` carries the chain). Source FILL is NOT reflected (§7.4 fallback — statelessness, §15.2). `euclideousRiffColumn`
+/// on the clock's walk values is the SAME call the Router makes at 4186, so a reader can never drift from what an own lane would play.
+func euclideousRiffSourceColumn(clocks: [HocketLaneClock], lane: Int, beat b: Double, depth: Int = 0) -> Int? {
+    guard depth < 3, lane >= 0, lane < clocks.count else { return nil }
+    let c = clocks[lane]
+    guard let hitTick = euclideousClockLatestHitTick(c, musicalBeat: b) else { return nil }   // §7.3 none
+    if c.riffSource >= 0, c.riffSource < 4, c.riffSource != lane {                              // §7.2: L is a reader ⇒ recurse with L's source and this hit's beat
+        return euclideousRiffSourceColumn(clocks: clocks, lane: c.riffSource, beat: Double(hitTick) * c.sub, depth: depth + 1)
     }
-    return euclideousWalkTick(c, tick: hitTick).playedStep         // §7.4: the column L's own hit read (0-based)
+    let advOrd = euclideousLaneChainTick(buf: c.buf, n: c.n, dir: c.dir, cycleLen: c.cycleLen, sub: c.sub, tick: hitTick, chains: c.chains, legacySpanBeats: c.legacySpanBeats, advanceStep: false).advOrd
+    return euclideousRiffColumn(ordinal: advOrd, every: c.riffEvery, direction: c.riffDir, length: c.riffLength, stride: c.riffStride, shift: c.riffRotate, seed: c.riffSeed, columns: c.riffColumns)   // §7.4: the 0-based column L read
 }
 
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
@@ -11388,6 +11390,13 @@ struct HocketLaneClock {
     var sub = 0.25
     var chains = EuclideousLaneRestartChains.off
     var legacySpanBeats = 0.0
+    // RIFF SOURCE ferry (2026-11-22): the lane's riff WALK values, captured so a reader can compute the column this lane's hit read
+    // (`euclideousRiffColumn`) without rebuilding anything. Defaults = MONO forward, so a clock captured by a non-riff-source caller
+    // (HOCKET / AVOID / TUTTI) is unchanged. `riffSource` = this lane's resolved riffSourceLane (−1 = own) so the chain is self-contained.
+    var riffDir: RiffDir = .forward
+    var riffLength = 8, riffStride = 1, riffRotate = 0, riffEvery = 1, riffColumns = 8
+    var riffSeed: UInt64 = 0
+    var riffSource = -1
     /// Copy a lane's window state in place — no allocation (the arrays are already 32 long).
     mutating func capture(cells: [Bool], delays: [Double], timing: Bool, n: Int, dir: EuclidDir, cycleLen: Int, sub: Double,
                           chains: EuclideousLaneRestartChains, legacySpanBeats: Double) {
@@ -11397,6 +11406,10 @@ struct HocketLaneClock {
         hasTiming = timing
         self.n = n; self.dir = dir; self.cycleLen = max(1, cycleLen); self.sub = sub; self.chains = chains; self.legacySpanBeats = legacySpanBeats
         valid = true
+    }
+    /// RIFF SOURCE ferry: capture the riff walk values too (in the same pre-pass, allocation-free). Call AFTER `capture`.
+    mutating func captureRiff(dir: RiffDir, length: Int, stride: Int, rotate: Int, every: Int, columns: Int, seed: UInt64, source: Int) {
+        riffDir = dir; riffLength = max(1, length); riffStride = stride; riffRotate = rotate; riffEvery = max(1, every); riffColumns = columns; riffSeed = seed; riffSource = source
     }
 }
 /// The reference lane's counts at the musical beat `m`. HITS: its pattern hits since its rhythm origin, up to and including this moment, minus one — counted before LANES, solo, the mask or FX act on them (a muted hit still moves
