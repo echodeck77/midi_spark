@@ -6253,7 +6253,20 @@ final class Router {
                 let L = linesView[lineIndex]
                 // INPUTS TEST (2026-11-08): the testing lane produces NO normal output (the audition below walks its pool instead); keep its pool fresh for the audition + the NOW display.
                 if isEuclideousRow && lineIndex == euclideousTestLaneNow { if !hocketClockPass { idleLanePoolSample(lane: lineIndex, line: L) }; return }
-                guard (L.pulses > 0 || L.patternMissResolved) && L.enabledResolved else { if isEuclideousRow, lineIndex < 4 { idleLanePoolSample(lane: lineIndex, line: L) }; return }
+                // EUCLID FROM (ferry 2026-11-22, §4.1): a FOLLOWING Euclideous lane inherits its ROOT's STEPS/HITS/OFFSET/customHits
+                // (the relative offsets summed in, `euclideousEffectiveEuclid`), read live; its own TILT/FLIP/direction/rate/gate/RESETS
+                // apply downstream in the existing order (base → TILT → OFFSET → FLIP; a hand-edited root leaves follower TILT inert by
+                // the existing customHits rule; FLIP toggles the follower's own patternMiss over the inherited shape ⇒ the complement, §4.4).
+                // A non-following lane resolves root == itself ⇒ eff == own ⇒ byte-identical. A follower IGNORES a pending random RHYTHM
+                // roll (§7.3) — eff overrides it. Allocation-free (reads the lines view in place; customHits is the root's own array, no copy).
+                let euclidEff = isEuclideousRow ? euclideousEffectiveEuclid(linesView, lineIndex) : nil
+                let euclidFollowing = (euclidEff?.root ?? lineIndex) != lineIndex
+                let euclidPulsesIn  = euclidFollowing ? euclidEff!.pulses : (rhythmRoll?.pulses ?? L.pulses)
+                let euclidStepsIn   = euclidFollowing ? euclidEff!.steps  : (rhythmRoll?.steps ?? L.steps)
+                let euclidRotateIn  = euclidFollowing ? euclidEff!.rotate : (rhythmRoll?.rotate ?? L.rotate)
+                let euclidCustomIn: [Bool]? = euclidFollowing ? linesView[euclidEff!.root].customHits : (rhythmRoll == nil ? L.customHits : nil)
+                let euclidOffsetFracIn = euclidFollowing ? euclidEff!.offsetFraction : (rhythmRoll == nil ? L.offsetFractionResolved : 0)
+                guard ((euclidFollowing ? euclidPulsesIn : L.pulses) > 0 || L.patternMissResolved) && L.enabledResolved else { if isEuclideousRow, lineIndex < 4 { idleLanePoolSample(lane: lineIndex, line: L) }; return }
                 // ANSWER: which phase this segment plays in, and so which of the lane's rows act (a cycling row acts as if switched off in phase B, 5.5). With no cycle anywhere this is `L.listenRhythmResolved` / `listenPitchResolved`.
                 let segPhaseB = answerEngaged && lineIndex < 4 && ((tickFrom + 1e-9 >= answerBoundary[lineIndex] ? answerAfterBits : answerBeforeBits) >> UInt8(lineIndex)) & 1 != 0
                 // ANSWER v2 §4.1: a TRADING lane's RHYTHM/PITCH act as off (the engaged branch excludes them via the overload; the non-engaged branch does too, belt-and-suspenders for a trading lane that isn't cycle-engaged).
@@ -6272,7 +6285,7 @@ final class Router {
                 // reading `GridUI.swift`'s `-3...3` control before deciding this) — the tighter range is applied
                 // right here instead, gated on the SAME `isEuclideousRow` this per-row loop already computed.
                 let euclideousOct = isEuclideousRow ? max(-2, min(2, L.octaveResolved)) : L.octaveResolved
-                runEuclidLine(lineIndex: lineIndex, pulses: rhythmRoll?.pulses ?? L.pulses, steps: rhythmRoll?.steps ?? L.steps, rotate: rhythmRoll?.rotate ?? L.rotate, dir: L.directionResolved,
+                runEuclidLine(lineIndex: lineIndex, pulses: euclidPulsesIn, steps: euclidStepsIn, rotate: euclidRotateIn, dir: L.directionResolved,
                               noteSel: L.noteSelResolved, gate: L.gateResolved, octave: euclideousOct, velocity: L.velocityResolved,
                               velocityAbsolute: L.velocityAbsoluteResolved,
                               rate: L.rate?.beats ?? p.euclidRateBeats,
@@ -6314,7 +6327,7 @@ final class Router {
                               // longer one for free, with no separate resized copy needed. Passing the RAW
                               // `L.customHits` directly removes the allocation possibility structurally, not just
                               // leaves it dormant.
-                              customHits: rhythmRoll == nil ? L.customHits : nil,   // a landed random rhythm is a fresh Euclid pattern (see `euclideousRandomCommitPendingRoll`)
+                              customHits: euclidCustomIn,   // a landed random rhythm is a fresh Euclid pattern (see `euclideousRandomCommitPendingRoll`); a FOLLOWER (§4.1) reads its ROOT's customHits
                               // LIT NOTES PLUS THE RIFF (Paul 2026-10-13, second same-day ferry): harmless
                               // no-ops for every non-Euclideous row (the new `isEuclideousRow`-gated branch
                               // inside `runEuclidLine` never reads these otherwise) — `riffOnResolved`/
@@ -6342,7 +6355,7 @@ final class Router {
                               listenDelay: L.listenDelayResolved, listenFeel: L.listenFeelResolved, listenSpeed: L.listenSpeedResolved, listenDirection: L.listenDirectionResolved,
                               listenPitch: segPitchMode, listenInterval: L.listenIntervalResolved, listenOctave: L.listenOctaveResolved,
                               // RHYTHM POLISH (2026-10-22): a landed rhythm roll replaces the lane's pattern (a randomise clears the fraction), TILT's unrounded marker rides the lane itself.
-                              offsetFraction: rhythmRoll == nil ? L.offsetFractionResolved : 0, tiltFine: L.tiltIsFine,
+                              offsetFraction: euclidOffsetFracIn, tiltFine: L.tiltIsFine,
                               // RATE ferry (2026-11-12): the lane's 8-bar speed strip (inactive ⇒ byte-identical). A landed random rhythm roll leaves it alone — RATE is not a randomised field.
                               tickFrom: tickFrom, tickBefore: tickBefore)
                 }

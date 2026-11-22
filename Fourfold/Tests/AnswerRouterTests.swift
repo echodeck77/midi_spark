@@ -347,4 +347,61 @@ final class AnswerRouterTests: XCTestCase {
         let e2 = run(onState, beats: 40, swapAt: [(6.1, offState), (14.9, onState)])
         assertNothingLeftSounding(e2)
     }
+
+    // MARK: - EUCLID FROM ferry (2026-11-22) §10 tests 2,3,4,5 — the engine reads effectiveEuclid, event-for-event
+
+    // §10.2 (+ the guard fix): a FOLLOWER plays its SOURCE's shape rotated by the relative offset, even with its OWN hits set to 0.
+    func testEuclidFromFollowerPlaysTheSourceShapeRotatedByTheRelativeOffset() {
+        let src = lane(pulses: 3, steps: 8, rate: .r1_8)
+        var follower = lane(pulses: 0, steps: 4, rate: .r1_8)              // own shape (0 of 4) is deliberately empty — it MUST be ignored while following
+        follower.euclidFrom = 0; follower.euclidFromOffset = 2
+        let eF = run(state([src, follower]), beats: 8)
+        var equiv = lane(pulses: 3, steps: 8, rate: .r1_8); equiv.rotate = 2   // the same lane, standing on its own E(3,8) at rotate 2
+        let eO = run(state([src, equiv]), beats: 8)
+        let got = hitsBetween(eF, lane: 1, 0, 8).map { [$0.beat, Double($0.note)] }
+        XCTAssertFalse(got.isEmpty, "a follower whose own HITS is 0 still plays the source's 3-of-8 (the early-out reads the effective hits)")
+        XCTAssertEqual(got, hitsBetween(eO, lane: 1, 0, 8).map { [$0.beat, Double($0.note)] }, "follower of E(3,8) +2 == its own E(3,8) rotate 2, beat and note")
+        assertNothingLeftSounding(eF)
+    }
+
+    // §10.3: a chain 2 FROM 1 FROM 0 resolves to lane 0's shape with BOTH relative offsets summed.
+    func testEuclidFromChainSumsBothOffsets() {
+        let src = lane(pulses: 3, steps: 8, rate: .r1_8)
+        var mid = lane(pulses: 2, steps: 5, rate: .r1_8); mid.euclidFrom = 0; mid.euclidFromOffset = 1
+        var tail = lane(pulses: 7, steps: 3, rate: .r1_8); tail.euclidFrom = 1; tail.euclidFromOffset = 2
+        let eF = run(state([src, mid, tail]), beats: 8)
+        var equiv = lane(pulses: 3, steps: 8, rate: .r1_8); equiv.rotate = 3   // 1 + 2
+        let eO = run(state([src, lane(pulses: 1, steps: 8, rate: .r1_8), equiv]), beats: 8)
+        XCTAssertEqual(hitsBetween(eF, lane: 2, 0, 8).map { [$0.beat, Double($0.note)] },
+                       hitsBetween(eO, lane: 2, 0, 8).map { [$0.beat, Double($0.note)] },
+                       "tail (2 FROM 1 FROM 0) plays lane 0's E(3,8) rotated by 1+2")
+        assertNothingLeftSounding(eF)
+    }
+
+    // §10.4: FLIP HITS on a follower inverts the INHERITED shape (its complement), via the follower's own patternMiss over the inherited base.
+    func testEuclidFromFollowerFlipPlaysTheComplementOfTheInheritedShape() {
+        let src = lane(pulses: 3, steps: 8, rate: .r1_8)
+        var follower = lane(pulses: 1, steps: 8, rate: .r1_8); follower.euclidFrom = 0; follower.patternMiss = true
+        let eF = run(state([src, follower]), beats: 4)
+        var equiv = lane(pulses: 3, steps: 8, rate: .r1_8); equiv.patternMiss = true
+        let eO = run(state([src, equiv]), beats: 4)
+        let got = hitsBetween(eF, lane: 1, 0, 4)
+        XCTAssertEqual(got.count, 5, "the complement of a 3-of-8 is 5 hits")
+        XCTAssertEqual(got.map { $0.beat }, hitsBetween(eO, lane: 1, 0, 4).map { $0.beat }, "FLIP on the follower == FLIP over the inherited 3-of-8, not its own 1-of-8")
+        assertNothingLeftSounding(eF)
+    }
+
+    // §10.5: a hand-edited (customHits) source is inherited exactly, including under a relative offset.
+    func testEuclidFromFollowerInheritsAHandEditedSource() {
+        var src = lane(pulses: 3, steps: 8, rate: .r1_8)
+        src.customHits = [true, false, false, true, false, true, false, false]   // a hand-edited pattern, no pure-Euclid equivalent
+        var follower = lane(pulses: 8, steps: 8, rate: .r1_8); follower.euclidFrom = 0; follower.euclidFromOffset = 2
+        let eF = run(state([src, follower]), beats: 4)
+        var equiv = lane(pulses: 8, steps: 8, rate: .r1_8); equiv.customHits = src.customHits; equiv.rotate = 2
+        let eO = run(state([src, equiv]), beats: 4)
+        XCTAssertEqual(hitsBetween(eF, lane: 1, 0, 4).map { $0.beat },
+                       hitsBetween(eO, lane: 1, 0, 4).map { $0.beat },
+                       "a follower reads the SOURCE's customHits, rotated by the relative offset")
+        assertNothingLeftSounding(eF)
+    }
 }
