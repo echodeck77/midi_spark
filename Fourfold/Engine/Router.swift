@@ -4704,7 +4704,15 @@ final class Router {
                                     }
                                     return false
                                 }
-                                strikeRiffRawRank(rawRank)
+                                // GRID CHANCE (2026-11-22, §2.1/§2.6): the riff grid's LAST gate before emitters. A riff hit about to sound (rawRank ≥ 1 — a rest has no note to thin)
+                                // rolls once on its played rank / read column (advOrd = the step since the melody origin, so a restart replays the same thinning). A fail is SILENT but the walk
+                                // has already advanced — treat it as SKIP (restEnd = 1), never TIE, so a held/legato riff note closes and the notes layer still sees the written column (not a rest).
+                                // All 100 (the default) ⇒ the gate always passes ⇒ byte-identical.
+                                if rawRank >= 1, !euclideousRiffGridChancePasses(lane: lineIndex, step: advOrd, rank: Int(rawRank), column: leapStep, model: p.gridChance) {
+                                    restEnd = 1
+                                } else {
+                                    strikeRiffRawRank(rawRank)
+                                }
                             }
 
                             // NOTES TAB LAYER (ferry 2026-10-19, §6-§8) — independent of riffOn. WHICH hits the lit notes play (WHEN, CHANCE: 6.1-6.3), WHAT they play (the play list in the
@@ -4747,6 +4755,11 @@ final class Router {
                                     let doSpread = rowsHit.spread != .together
                                     var fillPedalStruck = false   // FILL TAB V2 §2.3 PEDAL: one note per slot whatever the voice count
                                     func strikeRowsRank(_ r: Int, spread: Bool) {
+                                        // GRID CHANCE (2026-11-22, §2.2/§2.3/§2.6): the stack grid's LAST gate before emitters. By RANK each voice rolls on its own rank; by LANE the whole hit
+                                        // rolls once (the same (lane, notesK) answer for every voice ⇒ all-or-nothing). notesK = the kept-step ordinal (the step since the melody origin). Only one
+                                        // axis is ever set (§1.2), so one of these is a no-op. A silenced voice is simply not struck; the STACK sequence (notesK) already advanced. All 100 ⇒ byte-identical.
+                                        if !euclideousStackRankChancePasses(lane: lineIndex, step: notesK, rank: r, model: p.gridChance) { return }
+                                        if !euclideousStackLaneChancePasses(lane: lineIndex, step: notesK, model: p.gridChance) { return }
                                         var fillRank = r + euclideousFillRankOffsetNow   // FILL §2.5: the rank climb applies to stack notes too (0 off a fill)
                                         var fillOctUp = false
                                         var fillExtra1 = 0, fillExtra2 = 0               // FILL TAB V2 CHORD's +2/+4 (0 = none)
@@ -5933,6 +5946,9 @@ final class Router {
                             let gapOuts: UInt8? = altNotesOut.map { $0 & 0x0F }            // nil ⇒ the notes part's own routing (strikeChord's default), as a hit notes pitch uses
                             var gapNvCount = 0   // STACK WHEN follow-up (2026-11-22): a gap stack also posts a NOTE VIEW event, so it flashes (PULSE) and feeds the lane-strip live strike feed like a hit stack
                             func strikeGap(_ r: Int) {
+                                // GRID CHANCE (2026-11-22, §2.2/§2.3): a gap stack is thinned exactly like a hit stack — by RANK per voice, by LANE the whole gap (k = the kept-step ordinal, shared with hit stacks). All 100 ⇒ byte-identical.
+                                if !euclideousStackRankChancePasses(lane: lineIndex, step: k, rank: r, model: p.gridChance) { return }
+                                if !euclideousStackLaneChancePasses(lane: lineIndex, step: k, model: p.gridChance) { return }
                                 guard r >= 1, let pch = riffResolve(rank: r, oct: altNotesOct, n: thisLaneCount, wrap: .fold, asc: { gapNotes[$0].note }), (0...127).contains(pch) else { return }
                                 strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gapGate, octave: 0, explicitNote: pch, rank: UInt8(max(1, min(8, r))),
                                             explicitVel: UInt8(max(1, min(127, altNotesVel))), busOverride: notesBus, outsOverride: gapOuts)   // one finite-gate strike ⇒ self-closing, never legato (notes gate ≤ 99 %); the roll/footer/grid read NoteRollRing which emitArtic fills
