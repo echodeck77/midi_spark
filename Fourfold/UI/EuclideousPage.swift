@@ -5512,8 +5512,12 @@ struct EuclideousPage: View {
             var currentBorder: Color? = nil
             if let rc = readerColumns, i < rc.count {
                 col = rc[i].col
-                litColour = rc[i].isRepeat ? lane : (sourceColor ?? lane)
-                numColour = Color(hex: 0xF1F2F4); skipped = false
+                // Paul 2026-11-22: the cells still MOVE with the music — the current played entry (`liveCurrent`) is WHITE with a border
+                // (the playhead), the rest keep the inherited(source) / repeat(native) colour rule so the sample-and-hold stays visible.
+                let isCurrent = playing && i == liveCurrent
+                litColour = isCurrent ? Color(hex: 0xFFFFFF) : (rc[i].isRepeat ? lane : (sourceColor ?? lane))
+                numColour = Color(hex: isCurrent ? 0xFFFFFF : 0xF1F2F4); skipped = false
+                currentBorder = isCurrent ? (sourceColor ?? lane) : nil
             } else {
                 col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg?.riffDir ?? .forward, length: len,
                                            stride: cfg?.stride ?? 1, shift: cfg?.rotate ?? 0, seed: cfg?.seed ?? 0, columns: cfg?.columns ?? 8)
