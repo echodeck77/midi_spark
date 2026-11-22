@@ -2001,6 +2001,82 @@ func euclideousNormaliseRiffSources(_ values: [Int?]) -> [Int?] {
     return v
 }
 
+// MARK: - EUCLID FROM (ferry 2026-11-22) — a lane inherits another lane's Euclid shape
+
+/// §3.2: clean the four FROM values with the SAME self/loop rule as riff-source. Pure, idempotent.
+func euclideousNormaliseEuclidFrom(_ values: [Int?]) -> [Int?] { euclideousNormaliseRiffSources(values) }
+
+/// §3.1/§4.7: follow the FROM chain from `lane` to its ROOT (the lane with no FROM), summing the relative offsets along the way.
+/// Fixed depth 3 (four lanes ⇒ ≤3 hops), cycle-safe (a value returning to the start, or a depth overrun, stops the walk). No
+/// FROM ⇒ `(lane, 0)`. Allocation-free, render-thread safe. Mirrors the riff-source chain walk (`euclideousRiffSourceColumn`).
+func euclideousEuclidRoot(_ lines: [EuclidLine], _ lane: Int) -> (root: Int, addedOffset: Int) {
+    guard lane >= 0, lane < lines.count else { return (lane, 0) }
+    var cur = lane, added = 0
+    for _ in 0..<3 {
+        guard cur < lines.count, let s = lines[cur].euclidFromResolved(ownLane: cur), s < lines.count, s != lane else { break }
+        added += lines[cur].euclidFromOffsetResolved
+        cur = s
+    }
+    return (cur, added)
+}
+
+/// §3.1: the EFFECTIVE Euclid ingredients a lane plays. A lane that follows nothing returns its OWN (clamped the way the engine
+/// clamps them, so the Router re-clamp is a no-op) with `root == lane` ⇒ byte-identical engine path. A FOLLOWER returns its ROOT's
+/// STEPS/HITS/OFFSET with the relative offsets SUMMED IN, and the root's fractional offset. `customHits` is NOT copied here — the
+/// caller reads `lines[root].customHits` directly (allocation-free). TILT/FLIP/direction/rate/gate stay the FOLLOWER's own (§4.1,
+/// applied downstream by the builder — the established order base-shape → TILT → OFFSET → FLIP composes source base + follower
+/// TILT/FLIP; a hand-edited root leaves follower TILT inert by the existing `customHits`-disables-TILT rule).
+struct EuclideousEffectiveEuclid: Equatable { var steps: Int; var pulses: Int; var rotate: Int; var offsetFraction: Double; var root: Int }
+func euclideousEffectiveEuclid(_ lines: [EuclidLine], _ lane: Int) -> EuclideousEffectiveEuclid {
+    let (root, added) = euclideousEuclidRoot(lines, lane)
+    let r = (root >= 0 && root < lines.count) ? root : lane
+    guard r >= 0, r < lines.count else { return EuclideousEffectiveEuclid(steps: 8, pulses: 1, rotate: 0, offsetFraction: 0, root: lane) }
+    let R = lines[r]
+    let n = max(2, min(16, R.steps))
+    // rotate stays RAW (R.rotate + added) — the builder's `euclidRotateBuffer` mods by n; for a non-follower added == 0 ⇒ R.rotate.
+    return EuclideousEffectiveEuclid(steps: n, pulses: max(0, min(n, R.pulses)), rotate: R.rotate + added, offsetFraction: R.offsetFractionResolved, root: r)
+}
+
+/// §3.2/§5.5: does lane `a` reach lane `b` by following FROM links? (b may not pick a — that would loop — and on a's FROM row the
+/// chip for b is LOCKED.) Depth-bounded, cycle-safe. Pure.
+func euclideousFromFollowsChain(_ lines: [EuclidLine], _ a: Int, _ b: Int) -> Bool {
+    guard a >= 0, a < lines.count, b >= 0, a != b else { return false }
+    var cur = a
+    for _ in 0..<4 {
+        guard cur < lines.count, let s = lines[cur].euclidFromResolved(ownLane: cur) else { return false }
+        if s == b { return true }
+        cur = s
+    }
+    return false
+}
+
+@inline(__always) private func euclideousFromGcd(_ a: Int, _ b: Int) -> Int { var x = abs(a), y = abs(b); while y != 0 { (x, y) = (y, x % y) }; return max(1, x) }
+/// §3.1 helper: the two step durations as an exact reduced fraction p/q (ratio = source ÷ follower). ArpRate.beats are rationals
+/// whose 48× is integral (1/32 triplet = 0.0833·48 = 4, dotted 1/8 = 0.375·48 = 18, …), so ×48-and-round is exact. (0, 0) on bad input.
+@inline(__always) private func euclideousSpeedRatioPQ(_ sourceBeats: Double, _ followerBeats: Double) -> (p: Int, q: Int) {
+    guard sourceBeats > 0, followerBeats > 0 else { return (0, 0) }
+    let a = Int((sourceBeats * 48).rounded()), b = Int((followerBeats * 48).rounded())
+    guard a > 0, b > 0 else { return (0, 0) }
+    let g = euclideousFromGcd(a, b)
+    return (a / g, b / g)
+}
+/// §3.3: the speed line shown on the selected rate button while following — ×n / ×½ ×¼ ×⅛ / reduced ×p/q / ×1.
+func euclideousSpeedRatioText(sourceBeats: Double, followerBeats: Double) -> String {
+    let (p, q) = euclideousSpeedRatioPQ(sourceBeats, followerBeats)
+    guard p > 0, q > 0 else { return "×1" }
+    if q == 1 { return p == 1 ? "×1" : "×\(p)" }
+    if p == 1 { switch q { case 2: return "×½"; case 4: return "×¼"; case 8: return "×⅛"; default: return "×1/\(q)" } }
+    return "×\(p)/\(q)"
+}
+/// §9.3: the spoken form — "double speed" / "half speed" / "3 over 2 speed".
+func euclideousSpeedRatioVoiceOver(sourceBeats: Double, followerBeats: Double) -> String {
+    let (p, q) = euclideousSpeedRatioPQ(sourceBeats, followerBeats)
+    guard p > 0, q > 0 else { return "same speed" }
+    if q == 1 { switch p { case 1: return "same speed"; case 2: return "double speed"; case 4: return "four times speed"; default: return "\(p) times speed" } }
+    if p == 1 { switch q { case 2: return "half speed"; case 4: return "quarter speed"; case 8: return "eighth speed"; default: return "one over \(q) speed" } }
+    return "\(p) over \(q) speed"
+}
+
 /// §7.2 helper: a captured lane clock's latest riff-hit TICK at or before a MUSICAL beat (ticks count from beat 0, §7.2). Bounded
 /// scan down (`cycleLen·4 + 16`, the same cap the walk's own `euclideousWalkScanHits` uses); nil = no hit yet (before the first, or a
 /// pattern with no hits). Musical-tick space (the caller maps real→musical once, as the Router does). Allocation-free (reads the clock's

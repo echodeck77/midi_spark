@@ -2907,3 +2907,59 @@ final class DerivationsTests: XCTestCase {
         XCTAssertEqual(euclideousMixGateStep(0.03, longer: false), 0.01, accuracy: 1e-12)
     }
 }
+
+// MARK: - EUCLID FROM ferry (2026-11-22) §10 pure tests (effectiveEuclid / root / chains / speedRatio)
+final class EuclidFromTests: XCTestCase {
+    private func line(steps: Int = 8, pulses: Int = 3, rotate: Int = 0, from: Int? = nil, fromOff: Int? = nil, rate: ArpRate? = nil) -> EuclidLine {
+        var l = EuclidLine(); l.steps = steps; l.pulses = pulses; l.rotate = rotate; l.euclidFrom = from; l.euclidFromOffset = fromOff; l.rate = rate; return l
+    }
+
+    // §10.2 (ingredients): lane 1 FROM lane 0 (3 of 8, rotate 0) with +2 ⇒ lane 0's shape, offset summed to 2; lane 0 unchanged.
+    func testEffectiveEuclidFollowsSourceShapeAndSumsOffset() {
+        var lines = [line(steps: 8, pulses: 3, rotate: 0), line(steps: 16, pulses: 5, rotate: 1, from: 0, fromOff: 2),
+                     line(), line()]
+        let e1 = euclideousEffectiveEuclid(lines, 1)
+        XCTAssertEqual(e1.root, 0); XCTAssertEqual(e1.steps, 8); XCTAssertEqual(e1.pulses, 3); XCTAssertEqual(e1.rotate, 2)   // 0 + 2
+        // lane 0 is nobody's follower: its own values, root == itself (byte-identical path)
+        let e0 = euclideousEffectiveEuclid(lines, 0)
+        XCTAssertEqual(e0.root, 0); XCTAssertEqual(e0.steps, 8); XCTAssertEqual(e0.pulses, 3); XCTAssertEqual(e0.rotate, 0)
+        // §4.3 live: change lane 0 to 5 of 8 ⇒ lane 1's effective pulses follow
+        lines[0].pulses = 5
+        XCTAssertEqual(euclideousEffectiveEuclid(lines, 1).pulses, 5)
+    }
+
+    // §10.3: chain 2 FROM 1 FROM 0 resolves to lane 0's shape with both relative offsets summed.
+    func testEffectiveEuclidChainSumsBothOffsets() {
+        let lines = [line(steps: 8, pulses: 3, rotate: 1), line(steps: 4, pulses: 2, from: 0, fromOff: 2),
+                     line(steps: 16, pulses: 9, from: 1, fromOff: 3), line()]
+        let (root, added) = euclideousEuclidRoot(lines, 2)
+        XCTAssertEqual(root, 0); XCTAssertEqual(added, 5)                                   // 3 (on 2) + 2 (on 1)
+        let e = euclideousEffectiveEuclid(lines, 2)
+        XCTAssertEqual(e.root, 0); XCTAssertEqual(e.steps, 8); XCTAssertEqual(e.pulses, 3); XCTAssertEqual(e.rotate, 6)   // 1 + 5
+    }
+
+    // §10.3: lane 0 can't choose lane 2 if 2 already reaches 0 (the chip is locked); a loaded loop is broken (no cycle remains).
+    func testFollowsChainAndLoopBreak() {
+        let lines = [line(), line(from: 0), line(from: 1), line()]                          // 2→1→0
+        XCTAssertTrue(euclideousFromFollowsChain(lines, 2, 0))                               // 2 reaches 0
+        XCTAssertFalse(euclideousFromFollowsChain(lines, 0, 2))                              // 0 reaches nobody
+        // a loaded loop 0↔1 is cleaned: at least one is dropped and no lane still sits on a cycle
+        let cleaned = euclideousNormaliseEuclidFrom([1, 0, nil, nil])
+        let broken = [line(from: cleaned[0]), line(from: cleaned[1]), line(), line()]
+        XCTAssertFalse(euclideousFromFollowsChain(broken, 0, 0))
+        XCTAssertFalse(euclideousFromFollowsChain(broken, 1, 1))
+        // a self-reference and an out-of-range value both become nil
+        XCTAssertEqual(euclideousNormaliseEuclidFrom([0, 9, nil, nil]), [nil, nil, nil, nil])
+    }
+
+    // §10.6: speedRatio from the two rates (ArpRate.beats).
+    func testSpeedRatioText() {
+        XCTAssertEqual(euclideousSpeedRatioText(sourceBeats: ArpRate.r1_8.beats,  followerBeats: ArpRate.r1_16.beats), "×2")
+        XCTAssertEqual(euclideousSpeedRatioText(sourceBeats: ArpRate.r1_16.beats, followerBeats: ArpRate.r1_8.beats),  "×½")
+        XCTAssertEqual(euclideousSpeedRatioText(sourceBeats: ArpRate.r1_8.beats,  followerBeats: ArpRate.r1_8t.beats), "×3/2")
+        XCTAssertEqual(euclideousSpeedRatioText(sourceBeats: ArpRate.r1_8.beats,  followerBeats: ArpRate.r1_8.beats),  "×1")
+        XCTAssertEqual(euclideousSpeedRatioText(sourceBeats: ArpRate.r1_4.beats,  followerBeats: ArpRate.r1_16.beats), "×4")
+        XCTAssertEqual(euclideousSpeedRatioVoiceOver(sourceBeats: ArpRate.r1_8.beats, followerBeats: ArpRate.r1_16.beats), "double speed")
+        XCTAssertEqual(euclideousSpeedRatioVoiceOver(sourceBeats: ArpRate.r1_8.beats, followerBeats: ArpRate.r1_8t.beats), "3 over 2 speed")
+    }
+}

@@ -444,6 +444,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
         initDoc.normalizeSourcesAtLoad()       // INPUTS + HARMONY §1.3: (not inside `makeInit` — the factory presets build on it and replace the lanes)
         initDoc.normalizeHocketAtLoad()        // HOCKET RETIRED (2026-11-17): no production document hockets
         initDoc.normalizeRiffSourcesAtLoad()   // RIFF SOURCE ferry (2026-11-22, §8.2): clean any self/loop riff-source to OWN
+        initDoc.normalizeEuclidFromAtLoad()    // EUCLID FROM ferry (2026-11-22, §3.2): clean any self/loop FROM to none
         document = initDoc
         store = SnapshotStore(initial: SnapshotBuilder.build(from: initDoc, generation: 1))
         try super.init(componentDescription: componentDescription, options: options)
@@ -587,6 +588,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
             $0.normalizeSourcesAtLoad()                          // INPUTS + HARMONY §1.3: a factory preset opens with its lanes' own sources, the switches true
             $0.normalizeHocketAtLoad()                           // HOCKET RETIRED (2026-11-17)
             $0.normalizeRiffSourcesAtLoad()                      // RIFF SOURCE ferry (2026-11-22, §8.2)
+            $0.normalizeEuclidFromAtLoad()                       // EUCLID FROM ferry (2026-11-22, §3.2)
             $0.euclideousMidiInChannelMask = keepMidiInMask
             $0.ignoreAllNotesOff = keepIgnoreAllNotesOff
             $0.busChannels = keepBusChannels
@@ -806,6 +808,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
             doc.normalizeSourcesAtLoad()         // INPUTS + HARMONY §1.3: lane chips take the old global switches; the switches read true
             doc.normalizeHocketAtLoad()          // HOCKET RETIRED (2026-11-17): an old session's stored rules are dropped — no document hockets
             doc.normalizeRiffSourcesAtLoad()     // RIFF SOURCE ferry (2026-11-22, §8.2): a self/loop riff-source becomes OWN
+            doc.normalizeEuclidFromAtLoad()      // EUCLID FROM ferry (2026-11-22, §3.2): a self/loop FROM becomes none
             let applyRestoredDocument = { [weak self] in
                 guard let self else { return }
                 self.document = doc

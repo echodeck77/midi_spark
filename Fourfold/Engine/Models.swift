@@ -838,6 +838,20 @@ struct EuclidLine: Codable, Equatable {
     /// §1.1: nil (own) or a legal 0…3 that is not this lane; any out-of-range or self value resolves to own here (the stored
     /// value is cleaned at load by `euclideousNormaliseRiffSources`; this is the render-thread-safe read).
     func riffSourceLaneResolved(ownLane: Int) -> Int? { guard let s = riffSourceLane, s >= 0, s < 4, s != ownLane else { return nil }; return s }
+    // EUCLID FROM ferry (Paul 2026-11-22) — APPENDED LAST (after riffSourceLane), additive-Optional, decode-tolerant. nil ⇒ none
+    // (the lane reads its OWN STEPS/HITS/OFFSET/customHits — byte-identical to a document that never had it); a legal value 0…3
+    // naming ONE OF THE OTHER THREE lanes makes this lane a FOLLOWER that inherits that lane's Euclid SHAPE live (STEPS, HITS,
+    // OFFSET and hand-edited hits), on its OWN playhead, at its own rate, with its own TILT/FLIP/direction/LET RING applied on top
+    // (`euclideousEffectiveEuclid`). `euclidFromOffset` (0…source STEPS−1) is a RELATIVE offset ADDED to the source's, so one drag
+    // makes a canon. Normalised (`normalizeEuclidFromAtLoad`, the SAME self/loop rule as riff-source — `euclideousNormaliseRiffSources`):
+    // a self-reference and any loop collapse to nil. Saved, undoable, NOT a host parameter (§7.4), NOT a lane-lock field.
+    var euclidFrom: Int? = nil
+    var euclidFromOffset: Int? = nil
+    /// §3.1: nil (own) or a legal 0…3 that is not this lane; any out-of-range or self value resolves to own here (the stored value
+    /// is cleaned at load by `normalizeEuclidFromAtLoad`; this is the render-thread-safe read). Mirrors `riffSourceLaneResolved`.
+    func euclidFromResolved(ownLane: Int) -> Int? { guard let s = euclidFrom, s >= 0, s < 4, s != ownLane else { return nil }; return s }
+    /// §6.3: the stored relative offset, floored at 0 (the UI clamps it to 0…source STEPS−1; the engine wraps it mod the source's STEPS).
+    var euclidFromOffsetResolved: Int { max(0, euclidFromOffset ?? 0) }
     // FILL TAB resolvers (§1.1 defaults; a malformed stored value folds to the default).
     var fillLoopResolved: Int { let v = Int(fillLoop ?? 8); return (v == 4 || v == 8 || v == 16) ? v : 8 }
     var fillCurveResolved: EuclideousFillCurve { fillCurve ?? .steady }
@@ -4319,6 +4333,18 @@ struct PluginState: Codable, Equatable {
         let cleaned = euclideousNormaliseRiffSources(lines.map { $0.riffSourceLane })
         var changed = false
         for i in lines.indices where i < 4 { if lines[i].riffSourceLane != cleaned[i] { lines[i].riffSourceLane = cleaned[i]; changed = true } }
+        if changed { euclideousLines = lines }
+        return changed
+    }
+    /// EUCLID FROM ferry (2026-11-22, §3.2): clean the four FROM values with the SAME self/loop rule as riff-source — a value
+    /// naming its own lane, out of range, or on a chain that loops back becomes nil (own). Pure; run at every document entry
+    /// (the session setter, `PresetStore.decode`, a factory preset's make(), the AU's initial document) and after a lane paste.
+    /// Idempotent. A loaded loop is broken by clearing the higher-numbered lane's FROM (the order `euclideousNormaliseRiffSources` walks).
+    @discardableResult mutating func normalizeEuclidFromAtLoad() -> Bool {
+        var lines = euclideousLinesResolved
+        let cleaned = euclideousNormaliseRiffSources(lines.map { $0.euclidFrom })
+        var changed = false
+        for i in lines.indices where i < 4 { if lines[i].euclidFrom != cleaned[i] { lines[i].euclidFrom = cleaned[i]; changed = true } }
         if changed { euclideousLines = lines }
         return changed
     }
