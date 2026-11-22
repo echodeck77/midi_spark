@@ -128,6 +128,18 @@ final class RiffSourceTests: XCTestCase {
         XCTAssertEqual(got, euclideousRiffSourceColumn(clocks: clocks, lane: 1, beat: 3.0), "= position(root, mid's hit beat)")
     }
 
+    // §6.2/§6.4: picker layout — four equal rows, 2 apart; the floor flag; contour column width capped at 17.
+    func testPickerLayout() {
+        let (rows, rowH, below) = euclideousRiffPickerRows(size: CGSize(width: 300, height: 130))
+        XCTAssertEqual(rows.count, 4)
+        XCTAssertEqual(rowH, (130 - 3 * 2) / 4, accuracy: 1e-9, "four rows, 2 apart")
+        XCTAssertFalse(below, "31 pt > the 30 floor at the reference")
+        XCTAssertTrue(euclideousRiffPickerRows(size: CGSize(width: 300, height: 110)).belowFloor, "a short frame reports under the 30 floor")
+        XCTAssertLessThanOrEqual(euclideousRiffPickerContourColumnWidth(contourWidth: 400, entries: 8), 17, "column width is capped at 17")
+        XCTAssertEqual(euclideousRiffSourceVoiceOver(nil), "own")
+        XCTAssertEqual(euclideousRiffSourceVoiceOver(2), "lane 3")
+    }
+
     // §11.22: pasting a reader of lane 2 onto lane 2 leaves lane 2 own (normalise's self → nil, the paste's safety net).
     func testPasteSelfReferenceBecomesOwn() {
         var doc = PluginState.makeInit()

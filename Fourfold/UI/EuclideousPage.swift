@@ -939,6 +939,8 @@ struct EuclideousPage: View {
     let onEditRiffs: (@escaping (inout [EuclideousRiff]) -> Void) -> Void
     let onSetActiveRiff: (Int) -> Void
     let onSetRiffPoly: (Bool) -> Void
+    // RIFF SOURCE ferry (2026-11-22, §6.8): set lane `idx`'s riff source (nil = own), normalised, as ONE undo step.
+    let onSetRiffSource: (Int, Int?) -> Void
     let onEditPolyRiff: (@escaping (inout EuclideousPolyRiff) -> Void) -> Void
     let onEditLanesSeq: (@escaping (inout EuclideousLanesSeq) -> Void) -> Void
     /// FX TAB: like `onEditStep` — `newStep: true` takes a `coalesceKey: nil` undo checkpoint (the first value-changing write of a tap / stroke / drag / toggle),
@@ -1611,6 +1613,8 @@ struct EuclideousPage: View {
     // closes the other on that SAME lane (both close on a tab switch too, handled where `laneTab` is set).
     @State private var stepsPickerLane: Int? = nil
     @State private var restartEditorLane: Int? = nil
+    @State private var riffSourcePickerLane: Int? = nil   // RIFF SOURCE ferry (§6): the lane whose riff-source picker is open (one at a time, §6.10). Ephemeral, never saved.
+    private func closeOtherRiffPickerOverlays(except idx: Int) { stepsPickerLane = nil; restartEditorLane = nil; notesPickerOpen.removeAll() }   // §6.1: the picker replaces the tile/walk/MOVE area; close the other card overlays
     @State private var restartEditorOpenedFromRhythm = true   // RESTART UNITS: which tile opened the editor (VoiceOver focus goes to its section, and back to the tile on close)
     @AccessibilityFocusState private var restartFocus: EuclideousRestartFocus?
     // FOUR RIFFS — the tab row's own long-press COPY/PASTE/CLEAR menu (2026-10-14 ferry §7). No precedent
@@ -2167,7 +2171,7 @@ struct EuclideousPage: View {
         guard let change = euclideousPageTabTap(current: pageTab, tapped: tapped) else { return }
         if change.flips, let start = cardFlipStart, euclideousCardFlipIsLive(since: Date().timeIntervalSince(start), reduceMotion: reduceMotion) { return }
         // the STEPS picker, the restart editor and the NOTES picker belong to a card's tab: they close when the tab changes (the tab row used to close its own lane's; every card shows the one tab now)
-        stepsPickerLane = nil; restartEditorLane = nil; notesPickerOpen.removeAll()
+        stepsPickerLane = nil; restartEditorLane = nil; notesPickerOpen.removeAll(); riffSourcePickerLane = nil
         flipFrom = pageTab
         pageTab = change.tab
         if !change.flips { cardFlipStart = nil }   // MIX ROWS: to or from MIX the view changes at once — a flip still in flight (front → front a moment ago) must not replay over it
@@ -3515,7 +3519,7 @@ struct EuclideousPage: View {
     }
     /// 6.2: "its STEPS picker or restart editor is open" (and the NOTES picker, which writes a lock field too) counts as a finger on the lane: opening is touch-down, closing is lift.
     private var lockOverlayMask: Int {
-        (0..<4).reduce(0) { m, i in m | (((stepsPickerLane == i || restartEditorLane == i || notesPickerOpen.contains(i)) ? 1 : 0) << i) }
+        (0..<4).reduce(0) { m, i in m | (((stepsPickerLane == i || restartEditorLane == i || notesPickerOpen.contains(i) || riffSourcePickerLane == i) ? 1 : 0) << i) }
     }
     private func laneTapMod(_ idx: Int, tapMaxSeconds: Double? = nil, onHold: ((Bool) -> Void)? = nil, _ action: @escaping () -> Void) -> EuclideousLaneTap {
         EuclideousLaneTap(locked: lockLocked(idx), momentary: lockMomentary(idx), onTouch: lockTouch(idx), action: action, tapMaxSeconds: tapMaxSeconds, onHold: onHold)
@@ -3627,7 +3631,14 @@ struct EuclideousPage: View {
                 }
             }
         case .riff:
+            // RIFF SOURCE ferry (§6.1): the picker draws OVER the tile/walk/MOVE area (filled with the card colour) when open. Height ≈ §6.1's 130 at the reference (Row A top → MOVE band bottom), clamped to the body.
             riffTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
+                .overlay(alignment: .top) {
+                    if riffSourcePickerLane == idx {
+                        riffSourcePicker(idx, width: fullWidth, height: min(contentAreaH, 130))
+                            .transition(.opacity)
+                    }
+                }
         case .notes:
             notesTabContent(idx, line, accent, contentAreaH: contentAreaH, fullWidth: fullWidth)
         case .pool:
@@ -5308,9 +5319,9 @@ struct EuclideousPage: View {
         return VStack(spacing: 0) {
             riffMiniGrid(idx, line, accent, size: layout.gridSize).frame(width: layout.gridSize, height: layout.gridSize)
                 .padding(.top, layout.gridTop)
-            Text("RIFF").font(.system(size: 9, weight: .heavy, design: .monospaced)).kerning(9 * 0.16)   // §2.2/§2.3: 9 pt heavy, 0.16 em
-                .foregroundColor(Color(hex: isRiff ? 0xF2F4F7 : 0x959BA6)).lineLimit(1).fixedSize()      // §2.2 label on / §2.3 off
-                .frame(height: layout.labelHeight).padding(.top, 2)
+            // RIFF SOURCE ferry (§2.2): the label line is "RIFF" · sp3 · a lane tab (the source lane, or this lane when own) · sp3 · a down chevron.
+            // The tile TAP now OPENS THE PICKER (§2.5) — riff on/off moved to PLAY RIFF + the header master. Device-owed: the tab's legibility in all four lane colours.
+            riffTileLabelLine(idx, line, on: isRiff).frame(height: layout.labelHeight).padding(.top, 2)
             Spacer(minLength: 0)
         }
         .frame(width: layout.tileWidth, height: layout.rowAHeight)
@@ -5318,16 +5329,106 @@ struct EuclideousPage: View {
         // off; the notes and the label carry the on/off state (§2), so the tile stops being the brightest shape on the card.
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: FourfoldStyle.control)))
         .contentShape(Rectangle())
-        .modifier(laneTapMod(idx) { cardBackToggle(idx, .riff) })   // RE-ENABLE ON ENABLE: shared toggle (re-enables PLAY RIFF with just this lane when its master is off)
+        .modifier(laneTapMod(idx) { riffSourcePickerLane = (riffSourcePickerLane == idx) ? nil : idx; closeOtherRiffPickerOverlays(except: idx) })   // §2.5/§6.1: open the picker (not a riff toggle)
         .modifier(lockOutlineMod(idx, .riffOn, accent))
-        .euclideousHelp("The riff as this lane plays it. Tap to turn the riff on or off.")
+        .euclideousHelp("Riff source: which lane's riff position this lane plays. Tap to choose.")
         .accessibilityElement(children: .ignore)
-        .accessibilityValue(lockSpoken(idx, .riffOn, ""))
-        .accessibilityLabel({
-            guard isRiff else { return "Riff, off" }
-            let pos = (idx < riffPositions.count && euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)) ? riffPositions[idx] : -1
-            return pos >= 0 ? "Riff, on, now on step \(pos + 1)" : "Riff, on"
-        }())
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Riff source")   // §10.1
+        .accessibilityValue(euclideousRiffSourceVoiceOver(line.riffSourceLaneResolved(ownLane: idx)))
+    }
+    /// §2.2: "RIFF" · sp3 · a lane tab (source lane100, or this lane when own; 42 % when riff off) · sp3 · a down chevron. Device-owed look.
+    @ViewBuilder private func riffTileLabelLine(_ idx: Int, _ line: EuclidLine, on: Bool) -> some View {
+        let src = line.riffSourceLaneResolved(ownLane: idx)
+        let tabLane = src ?? idx
+        HStack(spacing: EuclideousRiffSourceUI.labelGap) {
+            Text("RIFF").font(.system(size: 9, weight: .heavy, design: .monospaced)).kerning(9 * 0.16)
+                .foregroundColor(Color(hex: on ? 0xF2F4F7 : 0x959BA6)).lineLimit(1).fixedSize()
+            Text("\(tabLane + 1)").font(.system(size: EuclideousRiffSourceUI.tileTabFont, weight: .heavy, design: .monospaced))
+                .foregroundColor(Color(hex: 0x0D0F14))
+                .frame(width: EuclideousRiffSourceUI.tileTabW, height: EuclideousRiffSourceUI.tileTabH)
+                .background(RoundedRectangle(cornerRadius: EuclideousRiffSourceUI.tileTabRadius).fill(lane100(laneAccents[tabLane % laneAccents.count])))
+                .opacity(on ? 1 : 0.42)
+            riffSourceChevron
+        }.fixedSize()
+    }
+    /// §6: the four-row lane picker. Row = lane tab + a contour of that lane's walk; the current choice lit; a row that would loop
+    /// (`canRead` false) is dashed + "FOLLOWS YOU" and unpickable; a pickable tap sets the source (one undo step) and closes; a tap on
+    /// the lit row, or outside, closes with no change. Device-owed: every look, the contour's legibility, the row hit size.
+    private func riffSourcePicker(_ idx: Int, width: CGFloat, height: CGFloat) -> AnyView {
+        let sources: [Int?] = (0..<4).map { li in li < lines.count ? lines[li].riffSourceLaneResolved(ownLane: li) : nil }
+        let current = idx < lines.count ? lines[idx].riffSourceLaneResolved(ownLane: idx) : nil   // nil = own
+        return AnyView(
+            GeometryReader { geo in
+                let lay = euclideousRiffPickerRows(size: geo.size)
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 10).fill(Color(hex: FourfoldStyle.card))   // §6.1: the card's own colour so nothing shows through
+                    ForEach(0..<4, id: \.self) { lane in
+                        riffSourcePickerRow(idx: idx, lane: lane, rect: lay.rows[lane],
+                                            isCurrent: (current ?? idx) == lane,
+                                            canPick: euclideousCanRiffRead(lane: idx, candidate: lane, sources: sources) || lane == idx)
+                    }
+                }
+            }
+            .frame(width: width - 2 * EuclideousRiffSourceUI.pickerInsetX, height: height)
+            .padding(.horizontal, EuclideousRiffSourceUI.pickerInsetX)
+        )
+    }
+    private func riffSourcePickerRow(idx: Int, lane: Int, rect: CGRect, isCurrent: Bool, canPick: Bool) -> some View {
+        let dc = lane100(laneAccents[lane % laneAccents.count])
+        let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+        // §6.6: a lane's own row shows its OWN kept walk even while it is a reader; a reader row shows its root's walk — both via the lane's own riff values (own) or its root's.
+        let rootLane = (lane == idx) ? lane : euclideousRiffRootChain(lane: lane, sources: (0..<4).map { li in li < lines.count ? lines[li].riffSourceLaneResolved(ownLane: li) : nil }).last ?? lane
+        let walkLine = rootLane < lines.count ? lines[rootLane] : line
+        return ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: EuclideousRiffSourceUI.rowRadius)
+                .fill(isCurrent ? dc.opacity(EuclideousRiffSourceUI.litFill) : Color(hex: EuclideousRiffSourceUI.rowFill))
+            if isCurrent { RoundedRectangle(cornerRadius: EuclideousRiffSourceUI.rowRadius).strokeBorder(dc, lineWidth: 1.5) }   // §6.5
+            if !canPick { RoundedRectangle(cornerRadius: EuclideousRiffSourceUI.rowRadius).strokeBorder(Color(hex: 0x3A3E47), style: StrokeStyle(lineWidth: 1, dash: [4, 3])) }   // §6.7
+            HStack(spacing: EuclideousRiffSourceUI.rowSidePad) {
+                Text("\(lane + 1)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: canPick ? 0x0D0F14 : 0xB4BAC4))
+                    .frame(width: 16, height: 14).background(RoundedRectangle(cornerRadius: 3).fill(canPick ? dc : Color(hex: 0x3A3E47)))   // §6.3 / §6.7 tab
+                riffPickerContour(walkLine, accent: dc).opacity(canPick ? 1 : EuclideousRiffSourceUI.unpickableContour)
+                Spacer(minLength: 0)
+                if !canPick { Text("FOLLOWS YOU").font(.system(size: 8, weight: .heavy, design: .monospaced)).kerning(8 * 0.08).foregroundColor(Color(hex: 0x8A909A)) }   // §6.7
+            }.padding(.horizontal, EuclideousRiffSourceUI.rowSidePad)
+        }
+        .frame(width: rect.width, height: rect.height)
+        .contentShape(Rectangle())   // the tap MUST precede .position/.offset (the house gesture rule) — here it is applied directly on the frame
+        .onTapGesture {
+            guard canPick else { return }                                   // §6.7: an unpickable row does nothing
+            if !isCurrent { onSetRiffSource(idx, lane == idx ? nil : lane) }  // §6.8: the lane's own row sets own (nil); one undo step. A tap on the lit row is a no-op.
+            withAnimation(.easeInOut(duration: 0.12)) { riffSourcePickerLane = nil }
+        }
+        .position(x: rect.midX, y: rect.midY)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Lane \(lane + 1)")                             // §10.2
+        .accessibilityValue(canPick ? "" : "follows you")
+        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+    }
+    /// §6.4: a compact contour of the lane's walk — a cell per walk entry at its drawn rank (8 rank rows, rank 8 top). Device-owed; a
+    /// simplified read of the lane's own riff values (refined with the grid-label walk in the display step). A rest draws nothing.
+    private func riffPickerContour(_ line: EuclidLine, accent: Color) -> some View {
+        let len = line.riffLengthResolved
+        let P = min(16, max(1, euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)))
+        let ranks = euclideousRiffStepRanks(ranks: effectiveGridRanks, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
+        return Canvas { ctx, size in
+            let cw = euclideousRiffPickerContourColumnWidth(contourWidth: size.width, entries: P)
+            let g = EuclideousRiffSourceUI.contourGap, ch = EuclideousRiffSourceUI.contourCellH
+            for e in 0..<P {
+                let col = euclideousRiffColumn(ordinal: Int64(e), every: line.riffAdvanceEveryResolved, direction: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved, shift: line.riffRotateResolved)
+                let rank = (col >= 0 && col < ranks.count) ? ranks[col] : 0
+                guard rank >= 1 else { continue }   // a rest draws nothing (§6.4)
+                let x = CGFloat(e) * (cw + g)
+                let y = size.height - CGFloat(rank) * (ch + 0.3)
+                ctx.fill(Path(roundedRect: CGRect(x: x, y: y, width: cw, height: ch), cornerRadius: 0.75), with: .color(accent))
+            }
+        }.frame(height: EuclideousRiffSourceUI.contourH)
+    }
+    private var riffSourceChevron: some View {   // §2.2: a down chevron 6×4, stroke 1, round caps/joins, #959BA6
+        Path { p in p.move(to: CGPoint(x: 0, y: 0)); p.addLine(to: CGPoint(x: EuclideousRiffSourceUI.chevronW / 2, y: EuclideousRiffSourceUI.chevronH)); p.addLine(to: CGPoint(x: EuclideousRiffSourceUI.chevronW, y: 0)) }
+            .stroke(Color(hex: 0x959BA6), style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
+            .frame(width: EuclideousRiffSourceUI.chevronW, height: EuclideousRiffSourceUI.chevronH)
     }
     /// RIFF WALK ferry §3 — the WALK strip: display only, not interactive. A header line ("WALK" + the
     /// readout, §7.5) over a row of up to 16 cells, one per walk step 0..<P, each showing the column it

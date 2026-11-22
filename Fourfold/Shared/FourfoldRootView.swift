@@ -385,6 +385,22 @@ struct FourfoldRootView: View {
                                                    au?.editDocument { $0.riffPoly = on ? true : nil; $0.polyRiff = stored }
                                                    publish()
                                                },
+                                               // RIFF SOURCE ferry (2026-11-22, §6.8): set lane idx's riff source (nil = own), normalised (self/loop → own), as ONE undo step. A no-op is dropped.
+                                               onSetRiffSource: { idx, src in
+                                                   applyLandedLockSnaps()
+                                                   guard idx >= 0, idx < 4 else { return }
+                                                   var lines = euclideousLines
+                                                   guard idx < lines.count else { return }
+                                                   let want = src.flatMap { ($0 >= 0 && $0 < 4 && $0 != idx) ? $0 : nil }
+                                                   guard want != lines[idx].riffSourceLane else { return }
+                                                   euclideousRecordUndo(coalesceKey: nil)
+                                                   lines[idx].riffSourceLane = want
+                                                   let cleaned = euclideousNormaliseRiffSources(lines.map { $0.riffSourceLane })
+                                                   for i in lines.indices where i < 4 { lines[i].riffSourceLane = cleaned[i] }
+                                                   setEuclideousLines(lines)
+                                                   au?.editDocument { $0.euclideousLines = lines }
+                                                   publish()
+                                               },
                                                onEditPolyRiff: { mutate in
                                                    var r = euclideousPolyRiff ?? EuclideousPolyRiff()
                                                    mutate(&r)

@@ -2035,6 +2035,41 @@ func euclideousRiffSourceColumn(clocks: [HocketLaneClock], lane: Int, beat b: Do
     return euclideousRiffColumn(ordinal: advOrd, every: c.riffEvery, direction: c.riffDir, length: c.riffLength, stride: c.riffStride, shift: c.riffRotate, seed: c.riffSeed, columns: c.riffColumns)   // §7.4: the 0-based column L read
 }
 
+// MARK: - RIFF SOURCE picker + tile layout (§2.2, §6) — pure geometry (device-owed looks)
+
+enum EuclideousRiffSourceUI {
+    // §12 tunables. Tile label-line tab 14×10 / 8 pt; chevron 6×4. PLAY RIFF tab 11×9 / 7 pt.
+    static let tileTabW: CGFloat = 14, tileTabH: CGFloat = 10, tileTabFont: CGFloat = 8, tileTabRadius: CGFloat = 2.5
+    static let chevronW: CGFloat = 6, chevronH: CGFloat = 4
+    static let playTabW: CGFloat = 11, playTabH: CGFloat = 9, playTabFont: CGFloat = 7, playTabRadius: CGFloat = 2
+    static let labelGap: CGFloat = 3            // sp3 between RIFF · tab · chevron
+    static let rowGap: CGFloat = 2              // §6.2 rows 2 apart
+    static let rowFloor: CGFloat = 30           // §6.2 floor 30 (build at the formula, report under it)
+    static let rowRadius: CGFloat = 6, rowFill: UInt32 = 0x1B1D22, rowSidePad: CGFloat = 7   // §6.3
+    static let contourH: CGFloat = 20, contourCellH: CGFloat = 2.5, contourColCap: CGFloat = 17, contourGap: CGFloat = 2   // §6.4
+    static let litFill: Double = 0.18, unpickableContour: Double = 0.4                        // §6.5 / §6.7
+    static let pickerInsetX: CGFloat = 4        // §6.1 x 4 … W−4
+}
+
+/// §6.2: the four picker row rects (lanes 1–4 top→bottom, `rowGap` apart, equal heights) inside a picker frame of `size`, and
+/// whether the row height fell under the §6.2 floor (30). Pure.
+func euclideousRiffPickerRows(size: CGSize) -> (rows: [CGRect], rowH: CGFloat, belowFloor: Bool) {
+    let g = EuclideousRiffSourceUI.rowGap
+    let rowH = (size.height - 3 * g) / 4
+    let rows = (0..<4).map { CGRect(x: 0, y: CGFloat($0) * (rowH + g), width: size.width, height: rowH) }
+    return (rows, rowH, rowH < EuclideousRiffSourceUI.rowFloor)
+}
+
+/// §10.1: the tile's spoken value — "own" or "lane n" (1-based).
+func euclideousRiffSourceVoiceOver(_ src: Int?) -> String { src.map { "lane \($0 + 1)" } ?? "own" }
+
+/// §6.4: the per-column width for a lane contour of `n` entries within `contourWidth` — `min((w − (n−1)·gap)/n, cap)`.
+func euclideousRiffPickerContourColumnWidth(contourWidth: CGFloat, entries n: Int) -> CGFloat {
+    guard n > 0 else { return 0 }
+    let g = EuclideousRiffSourceUI.contourGap
+    return min((contourWidth - CGFloat(n - 1) * g) / CGFloat(n), EuclideousRiffSourceUI.contourColCap)
+}
+
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
 
 
