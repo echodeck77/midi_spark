@@ -5447,15 +5447,16 @@ struct EuclideousPage: View {
     /// at the tile's own row-y (§1.4), the lit cell at the entry's drawn rank, its column number below. While playing it shows the
     /// played (lane) / current (white) / upcoming (dim) / skipped (hollow) trail and flashes a tick in the left pad on an early reset (§3.8).
     private func riffWalkStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
-        // RIFF SOURCE §3.2: a reader's walk draws the ROOT's walk — its entries, length and column numbers come from the root's config/values;
-        // §3.3: the lit cell is at the READER's own drawn rank (its FLIP NOTES + TRANS). The painter keeps the reader's colour (`accent`).
-        let rootLane = riffWalkRootLane(idx)
-        let wl = rootLane < lines.count ? lines[rootLane] : line   // the root line (own ⇒ the lane itself)
-        let cfg = riffWalkConfig(rootLane)
+        // RIFF SOURCE (Paul 2026-11-22): a reader's walk shows WHAT IT PLAYS — the borrowed column at each of its own hits, the held
+        // repeats visualised by colour (first inherited in the source's colour, the sample-and-hold repeats in the native colour). So
+        // it draws the reader's OWN hit schedule with the played-column override, NOT the root's walk. An own lane is unchanged.
+        let reader = line.riffSourceLaneResolved(ownLane: idx) != nil
+        let readerCols = reader ? riffReaderWalkColumns(idx) : []
+        let cfg = riffWalkConfig(idx)
         let stepRanks = euclideousRiffStepRanks(ranks: effectiveGridRanks, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
-        let len = riffPoly ? wl.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : wl.riffLengthResolved
-        let every = wl.riffAdvanceEveryResolved
-        let P = min(16, max(1, euclideousFXWalkPeriod(dir: wl.euclideousRiffDirResolved, length: len, stride: wl.riffStrideResolved)))   // MONO: ≤ 16 (POLY is dropped for v1)
+        let len = riffPoly ? line.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : line.riffLengthResolved
+        let every = line.riffAdvanceEveryResolved
+        let P = reader ? max(1, readerCols.count) : min(16, max(1, euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)))   // reader: one entry per played hit (≤16); MONO own: ≤ 16
         let isRiff = line.riffOnResolved
         let ringEligible = clock.playing && line.enabledResolved && isRiff
         let trail = idx < walkTrails.count ? walkTrails[idx] : EuclideousRiffWalkTrail()
@@ -5465,7 +5466,8 @@ struct EuclideousPage: View {
             Canvas { ctx, size in
                 riffDrawWalk(&ctx, size: size, layout: layout, n: P, cfg: cfg, len: len, stepRanks: stepRanks, accent: accent,
                              isRiff: isRiff, playing: ringEligible, trail: trail, liveCurrent: liveCur,
-                             sourceColor: line.riffSourceLaneResolved(ownLane: idx).map { lane100(laneAccents[$0 % laneAccents.count]) })   // §3.6/§3.11: the DIRECT source's colour (nil = own)
+                             sourceColor: line.riffSourceLaneResolved(ownLane: idx).map { lane100(laneAccents[$0 % laneAccents.count]) },   // the DIRECT source's colour (nil = own)
+                             readerColumns: reader ? readerCols : nil)   // a reader: the played sequence (inherited/repeat colouring)
             }
             // RIFF v4 §3.4: the reset tick — a 2 pt lane bar in the 8 pt tile↔walk gap (body x 4+T+3 = the walk's leading edge − 5),
             // the grid's height and y. Drawn as an un-clipped overlay LEFT of the Canvas so no column has to move for it.
@@ -5494,43 +5496,55 @@ struct EuclideousPage: View {
     }
     /// §3: draw the walk rank grid into the strip. Columns from `euclideousRiffWalkGrid`, rows from the shared §1.4 geometry.
     private func riffDrawWalk(_ ctx: inout GraphicsContext, size: CGSize, layout: EuclideousRiffTabLayout, n: Int, cfg: EuclideousWalkLaneConfig?, len: Int,
-                              stepRanks: [Int], accent: Color, isRiff: Bool, playing: Bool, trail: EuclideousRiffWalkTrail, liveCurrent: Int, sourceColor: Color? = nil) {
+                              stepRanks: [Int], accent: Color, isRiff: Bool, playing: Bool, trail: EuclideousRiffWalkTrail, liveCurrent: Int, sourceColor: Color? = nil,
+                              readerColumns: [(col: Int, isRepeat: Bool)]? = nil) {
         let grid = euclideousRiffWalkGrid(n: n, innerWidth: size.width)
         let cell = layout.gridCell, gap = layout.gridGap, w = grid.columnWidth
         let unlit = Color(hex: euclideousRiffWalkUnlitHex)   // RIFF v4 §3.2: unlit cells nearly the card colour (was #22232A)
         let lane = lane100(accent)
         for i in 0..<n {
             let x = grid.xs[i]
-            let col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg?.riffDir ?? .forward, length: len,
+            // RIFF SOURCE (Paul 2026-11-22): on a READER, `readerColumns` is the lane's PLAYED sequence — the borrowed column at each of its
+            // own hits, with `isRepeat` for a held repeat. The first of each inherited group draws in the SOURCE's colour, the held repeats
+            // in the reader's NATIVE colour — so the strip visualises the sample-and-hold the ear hears. Static (no live trail). An own lane
+            // (readerColumns nil) keeps the exact v4 trail path below.
+            let col: Int, litColour: Color, numColour: Color, skipped: Bool
+            var currentBorder: Color? = nil
+            if let rc = readerColumns, i < rc.count {
+                col = rc[i].col
+                litColour = rc[i].isRepeat ? lane : (sourceColor ?? lane)
+                numColour = Color(hex: 0xF1F2F4); skipped = false
+            } else {
+                col = euclideousRiffColumn(ordinal: Int64(i), every: 1, direction: cfg?.riffDir ?? .forward, length: len,
                                            stride: cfg?.stride ?? 1, shift: cfg?.rotate ?? 0, seed: cfg?.seed ?? 0, columns: cfg?.columns ?? 8)
+                let st: EuclideousRiffWalkEntryState = playing ? trail.state(of: i, liveCurrent: liveCurrent) : .upcoming
+                // §3.11: the FIRST entry's lit cell takes the SOURCE's colour, except the sounding (white) look.
+                let cellLane = (i == 0 && sourceColor != nil && !(playing && st == .current)) ? sourceColor! : lane
+                litColour = riffWalkLitColour(st, isRiff: isRiff, playing: playing, lane: cellLane)
+                numColour = riffWalkNumberColour(st, isRiff: isRiff, playing: playing)
+                skipped = playing && st == .skipped
+                currentBorder = (playing && st == .current) ? (sourceColor ?? lane) : nil   // §3.6 source marker (reader) / lane100 (own)
+            }
             let rank = (col >= 0 && col < stepRanks.count) ? stepRanks[col] : 0
-            let isRest = rank < 1
+            let isRest = col < 0 || rank < 1
             let litRow = isRest ? -1 : min(8, max(1, rank))   // §3.3: the lit cell's rank, clamped 1…8 for placement like the lane-strip chip
-            let st: EuclideousRiffWalkEntryState = playing ? trail.state(of: i, liveCurrent: liveCurrent) : .upcoming
             for r in 1...8 {
                 let rect = CGRect(x: x, y: layout.gridTop + CGFloat(8 - r) * (cell + gap), width: w, height: cell)
                 let p = RoundedRectangle(cornerRadius: 1).path(in: rect)
                 if r == litRow {
-                    // RIFF SOURCE §3.11: on a reader, the FIRST entry's lit cell takes the SOURCE's colour wherever the reader's would be used — except the sounding (white) look, which stays. The source is the DIRECT source (the tile's tab).
-                    let cellLane = (i == 0 && sourceColor != nil && !(playing && st == .current)) ? sourceColor! : lane
-                    if playing && st == .skipped {
-                        ctx.stroke(RoundedRectangle(cornerRadius: 1).path(in: rect.insetBy(dx: 0.5, dy: 0.5)), with: .color(cellLane.opacity(0.32)), lineWidth: 1)   // RIFF v4 §3.3 skipped: a faint 1 pt hollow outline (§3.11: the first cell's stroke in the source colour)
-                    } else {
-                        ctx.fill(p, with: .color(riffWalkLitColour(st, isRiff: isRiff, playing: playing, lane: cellLane)))
-                    }
+                    if skipped { ctx.stroke(RoundedRectangle(cornerRadius: 1).path(in: rect.insetBy(dx: 0.5, dy: 0.5)), with: .color(litColour.opacity(0.32)), lineWidth: 1) }   // RIFF v4 §3.3 skipped: a faint 1 pt hollow outline
+                    else { ctx.fill(p, with: .color(litColour)) }
                 } else {
                     ctx.fill(p, with: .color(unlit))
                 }
             }
-            // §3.2/§3.5: the column number in the label line (a lane100 border box on the current entry)
+            // §3.2/§3.5: the column number in the label line (a lane100 / source-colour border box on the current entry)
             let labelRect = CGRect(x: x, y: layout.labelTop, width: w, height: layout.labelHeight)
-            if playing && st == .current {
-                // RIFF SOURCE §3.6: on a reader the current entry IS where the SOURCE's latest hit read (the walk tracks the root) — box its number in the SOURCE's lane100.
-                ctx.stroke(RoundedRectangle(cornerRadius: 3).path(in: labelRect), with: .color(sourceColor ?? lane), lineWidth: 1)
+            if let bc = currentBorder { ctx.stroke(RoundedRectangle(cornerRadius: 3).path(in: labelRect), with: .color(bc), lineWidth: 1) }
+            if col >= 0 {   // a reader's rest placeholder (col −1, no source hit yet) draws no number
+                let txt = ctx.resolve(Text("\(col + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(numColour))
+                ctx.draw(txt, at: CGPoint(x: labelRect.midX, y: labelRect.midY))
             }
-            let numColour = riffWalkNumberColour(st, isRiff: isRiff, playing: playing)
-            let txt = ctx.resolve(Text("\(col + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(numColour))
-            ctx.draw(txt, at: CGPoint(x: labelRect.midX, y: labelRect.midY))
         }
         // RIFF v4 §3.4: the reset tick no longer lives inside the walk (the pad is gone) — it is drawn as an un-clipped
         // overlay in the tile↔walk gap by `riffWalkStrip` (a Canvas clips to its frame, so it cannot escape left on its own).
@@ -5558,12 +5572,10 @@ struct EuclideousPage: View {
         walkPrevBeat = beat
         for idx in 0..<min(4, lines.count) {
             let line = lines[idx]
-            // RIFF SOURCE §3.2: a reader's walk strip draws (and so trails) the ROOT's walk — track the trail on the root's config/period so the drawn trail matches the drawn entries.
-            let rootLane = riffWalkRootLane(idx)
-            let wl = rootLane < lines.count ? lines[rootLane] : line
-            guard clock.playing, line.enabledResolved, line.riffOnResolved, let cfg = riffWalkConfig(rootLane) else { walkPrevStep[idx] = -1; continue }
-            let len = riffPoly ? wl.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : wl.riffLengthResolved
-            let P = min(16, max(1, euclideousFXWalkPeriod(dir: wl.euclideousRiffDirResolved, length: len, stride: wl.riffStrideResolved)))
+            // RIFF SOURCE (Paul 2026-11-22): a reader's walk strip is a STATIC played-sequence picture (no live trail), so the trail is only driven for own lanes — the reader branch of the strip ignores it.
+            guard clock.playing, line.enabledResolved, line.riffOnResolved, line.riffSourceLaneResolved(ownLane: idx) == nil, let cfg = riffWalkConfig(idx) else { walkPrevStep[idx] = -1; continue }
+            let len = riffPoly ? line.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : line.riffLengthResolved
+            let P = min(16, max(1, euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)))
             guard let cur = riffWalkCurrentStep(cfg, beat: beat, P: P) else { continue }
             let prev = walkPrevStep[idx]
             // RIFF v4 §6: the decision is the pure `euclideousRiffWalkStepTrail` (extracted so it is unit-testable — §3.6/§3.7/§3.9).
@@ -8579,11 +8591,39 @@ struct EuclideousPage: View {
     }
     /// RIFF WALK ferry §3/§7: one lane's walk config, unconditionally (the WALK strip and the mini-grid's
     /// dim rule need it regardless of `walkTagShows` — they're drawn even while the riff is off, at 42%).
-    /// RIFF SOURCE §3.2: the lane whose walk a lane's RIFF-tab walk strip draws — its own, or its ROOT's when it is a reader (the first own lane up the chain).
-    private func riffWalkRootLane(_ idx: Int) -> Int {
-        guard idx >= 0, idx < lines.count, lines[idx].riffSourceLaneResolved(ownLane: idx) != nil else { return idx }
-        let srcs: [Int?] = (0..<4).map { li in li < lines.count ? lines[li].riffSourceLaneResolved(ownLane: li) : nil }
-        return euclideousRiffRootChain(lane: idx, sources: srcs).last ?? idx
+    /// RIFF SOURCE (Paul 2026-11-22, walk refinement): the display mirror of `euclideousRiffSourceColumn` — the borrowed column a
+    /// reader reads at a MUSICAL beat, from the DISPLAY's per-lane walk configs (the engine uses the captured clocks; this reads the
+    /// same walk values off `lines`, so the picture matches what plays). Latest source hit ≤ beat → its column; recurses a chain to 3.
+    private func riffDisplayLatestHitTick(_ cfg: EuclideousWalkLaneConfig, musicalBeat: Double) -> Int64? {
+        guard cfg.sub > 0, cfg.n > 0 else { return nil }
+        let k0 = Int64((musicalBeat / cfg.sub + 1e-9).rounded(.down))
+        let cap = Int64(euclidCycleLen(cfg.dir, n: cfg.n) * 4 + 16)
+        var k = k0, scanned: Int64 = 0
+        while scanned < cap { if k < 0 { return nil }; if euclideousWalkTick(cfg, tick: k).isHit { return k }; k -= 1; scanned += 1 }
+        return nil
+    }
+    private func riffDisplaySourceColumn(_ lane: Int, beat: Double, depth: Int = 0) -> Int? {
+        guard depth < 3, lane >= 0, lane < lines.count, let cfg = riffWalkConfig(lane) else { return nil }
+        guard let t = riffDisplayLatestHitTick(cfg, musicalBeat: beat) else { return nil }
+        if let s = lines[lane].riffSourceLaneResolved(ownLane: lane) { return riffDisplaySourceColumn(s, beat: Double(t) * cfg.sub, depth: depth + 1) }
+        return euclideousWalkTick(cfg, tick: t).playedStep
+    }
+    /// RIFF SOURCE walk refinement: a reader's walk strip shows what it WILL PLAY — the borrowed column at each of its OWN hits (from
+    /// beat 0, capped at `cap` = the strip's max), with `isRepeat` true when this hit holds the SAME borrowed column as the previous
+    /// (the sample-and-hold the ear hears). `col == -1` = a rest (no source hit yet). Display-only; the colour rule (source vs native)
+    /// is applied by the painter. Starting from beat 0 gives a stable picture (FREE lanes loop; it is representative of what repeats).
+    private func riffReaderWalkColumns(_ idx: Int, cap: Int = 16) -> [(col: Int, isRepeat: Bool)] {
+        guard idx >= 0, idx < lines.count, let src = lines[idx].riffSourceLaneResolved(ownLane: idx), let cfg = riffWalkConfig(idx) else { return [] }
+        var out: [(Int, Bool)] = []; out.reserveCapacity(cap)
+        var prevCol = -999; var tick: Int64 = 0; var scanned = 0
+        while out.count < cap, scanned < 4096 {
+            if euclideousWalkTick(cfg, tick: tick).isHit {
+                if let col = riffDisplaySourceColumn(src, beat: Double(tick) * cfg.sub) { out.append((col, col == prevCol)); prevCol = col }
+                else { out.append((-1, false)); prevCol = -999 }   // §7.3: a rest (no source hit yet) — never a repeat
+            }
+            tick += 1; scanned += 1
+        }
+        return out
     }
     private func riffWalkConfig(_ idx: Int) -> EuclideousWalkLaneConfig? {
         guard idx >= 0, idx < lines.count else { return nil }
