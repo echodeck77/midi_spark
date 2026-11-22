@@ -75,6 +75,7 @@ struct FourfoldRootView: View {
     var emitterVelocities: EmitterVelocitySet { get { m.emitterVelocities } nonmutating set { m.emitterVelocities = newValue } }   // EMITTER VELOCITY (2026-11-03)
     var emitterCCs: EmitterCCSet { get { m.emitterCCs } nonmutating set { m.emitterCCs = newValue } }   // CC tab (Nov 2026)
     var euclideousOutputMutes: EuclideousOutputMutes { get { m.euclideousOutputMutes } nonmutating set { m.euclideousOutputMutes = newValue } }   // MUTE TAB (2026-11-02)
+    var euclideousGridChance: EuclideousGridChance { get { m.euclideousGridChance } nonmutating set { m.euclideousGridChance = newValue } }   // GRID CHANCE (2026-11-22): the two grids' per-axis chance (undoable)
     var euclideousRiffsSeq: EuclideousRiffsSeq { get { m.euclideousRiffsSeq } nonmutating set { m.euclideousRiffsSeq = newValue } }
     var euclideousRiffPositions: [Int] { get { m.euclideousRiffPositions } nonmutating set { m.euclideousRiffPositions = newValue } }
     var euclideousMaskPositions: [Int] { get { m.euclideousMaskPositions } nonmutating set { m.euclideousMaskPositions = newValue } }
@@ -782,6 +783,7 @@ struct FourfoldRootView: View {
         emitterVelocities = au.uiEmitterVelocities()   // EMITTER VELOCITY (2026-11-03)
         emitterCCs = au.uiEmitterCCs()   // CC tab (Nov 2026)
         euclideousOutputMutes = au.uiEuclideousOutputMutes()   // MUTE TAB (2026-11-02)
+        euclideousGridChance = au.uiEuclideousGridChance()     // GRID CHANCE (2026-11-22)
         euclideousRiffsSeq = au.uiEuclideousRiffsSeq()
     }
 
@@ -836,7 +838,8 @@ struct FourfoldRootView: View {
                                 emitterVelocities: emitterVelocities, emitterCCs: emitterCCs,
                                 outputMutes: euclideousOutputMutes,
                                 riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff, canonUnit: euclideousCanonUnit,
-                                ribbonSettings: euclideousRibbonSettings, riffMaster: riffMaster, stackMaster: stackMaster)   // HEADER v2 §1.6: the masters are undoable
+                                ribbonSettings: euclideousRibbonSettings, riffMaster: riffMaster, stackMaster: stackMaster,   // HEADER v2 §1.6: the masters are undoable
+                                gridChance: euclideousGridChance)   // GRID CHANCE (2026-11-22): the two grids' chance is undoable
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -906,6 +909,7 @@ struct FourfoldRootView: View {
         emitterRatchets = s.emitterRatchets
         emitterVelocities = s.emitterVelocities; emitterCCs = s.emitterCCs
         euclideousOutputMutes = s.outputMutes
+        euclideousGridChance = s.gridChance   // GRID CHANCE (2026-11-22): restore the two grids' chance
         euclideousHoldLatchMode = s.holdLatchMode
         riffMaster = s.riffMaster; stackMaster = s.stackMaster   // HEADER v2 §1.6: restore the masters (undo/redo)
         au?.editDocument {
@@ -928,6 +932,7 @@ struct FourfoldRootView: View {
             $0.euclideousEmitterVelocities = s.emitterVelocities.isAllDefault ? nil : s.emitterVelocities   // EMITTER VELOCITY: all-default restores "nothing stored"
             $0.euclideousEmitterCCs = s.emitterCCs.isAllDefault ? nil : s.emitterCCs   // CC tab: all-default restores "nothing stored"
             $0.euclideousOutputMutes = s.outputMutes.isAllDefault ? nil : s.outputMutes   // MUTE TAB: all-default restores "nothing stored"
+            $0.euclideousGridChance = s.gridChance.isAllDefault ? nil : s.gridChance   // GRID CHANCE: all 100 restores "nothing stored"
             $0.euclideousHoldLatchMode = s.holdLatchMode
             $0.riffMaster = s.riffMaster ? nil : false; $0.stackMaster = s.stackMaster ? nil : false   // HEADER v2 §1.6: ON restores "nil" (default), OFF explicit
         }
@@ -1141,6 +1146,7 @@ struct FourfoldRootView: View {
         let eev = au.uiEmitterVelocities(); if eev != emitterVelocities { emitterVelocities = eev; euclideousResynced = true }   // EMITTER VELOCITY (2026-11-03)
         let ecc = au.uiEmitterCCs(); if ecc != emitterCCs { emitterCCs = ecc; euclideousResynced = true }   // CC tab (Nov 2026)
         let eom = au.uiEuclideousOutputMutes(); if eom != euclideousOutputMutes { euclideousOutputMutes = eom; euclideousResynced = true }   // MUTE TAB (2026-11-02)
+        let egc = au.uiEuclideousGridChance(); if egc != euclideousGridChance { euclideousGridChance = egc; euclideousResynced = true }   // GRID CHANCE (2026-11-22)
         if euclideousResynced { m.probeResyncs &+= 1; historyMoved(clearStack: true); publish() }   // UNDO-3: every funnel writes the page AND the document, so a difference here means the document was replaced behind the page's back (host preset menu, project load): the history described a document that is gone   // (`probeResyncs`: UNDO AUDIT — how often the page found itself out of step with the document)
         let nd = au.kernelDiagnostics()
         if nd.panics != lastStuckPanics {   // a8 STUCK-NOTE: the render thread healed since the last poll — log it ONCE here, off the audio thread (was an os_log PER BLOCK on the render path = crackle; Paul 2026-09-12)
@@ -1257,6 +1263,11 @@ final class FourfoldModel: ObservableObject {
     @Published var emitterVelocities = EmitterVelocitySet()   // EMITTER VELOCITY (2026-11-03): the document's four per-output velocity accents; all defaults when nothing is stored
     @Published var emitterCCs = EmitterCCSet()   // CC tab (Nov 2026): the document's four per-output CC emitters; all defaults when nothing is stored
     @Published var euclideousOutputMutes = EuclideousOutputMutes()   // MUTE TAB (2026-11-02): the document's four per-output mutes; all defaults when nothing is stored
+    @Published var euclideousGridChance = EuclideousGridChance()   // GRID CHANCE (2026-11-22): the two grids' per-axis chance; all 100 when nothing is stored
+    @Published var euclideousRiffChanceOpen = false    // GRID CHANCE (§1.3): the riff grid's chance editor is open (UI only, never saved/undone)
+    @Published var euclideousStackChanceOpen = false   // GRID CHANCE (§1.3): the STACK grid's chance editor is open (UI only)
+    @Published var euclideousRiffChanceAxis: EuclideousGridChanceAxis = .none    // GRID CHANCE (§1.3): which riff axis is chosen while open
+    @Published var euclideousStackChanceAxis: EuclideousGridChanceAxis = .none   // GRID CHANCE (§1.3): which STACK axis is chosen while open
     @Published var euclideousRiffsSeq: EuclideousRiffsSeq = EuclideousRiffsSeq()
     @Published var euclideousRiffPositions: [Int] = [-1, -1, -1, -1]
     @Published var euclideousMaskPositions: [Int] = [-1, -1, -1, -1]

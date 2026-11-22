@@ -4130,6 +4130,11 @@ struct PluginState: Codable, Equatable {
     // the page and undo all read. Replaces the per-lane `EuclidLine.muteCells16`/`muteUnit` (lane N → output N on load — see Slice 2's migration); each output's grid ticks on its HOME lane's pass (A↔lane 1 … D↔lane 4).
     var euclideousOutputMutes: EuclideousOutputMutes? = nil
     var euclideousOutputMutesResolved: EuclideousOutputMutes { euclideousOutputMutes ?? EuclideousOutputMutes() }
+    // GRID CHANCE (ferry 2026-11-22): per-grid probability that thins a phrase without shifting the walk/sequence. GLOBAL (not per lane), saved with the session and in presets, undoable. Additive-Optional and decode-tolerant:
+    // nil ⇒ all 100 ⇒ every pre-feature document and all 20 factory presets play bit-identically. `…Resolved` is what the render path (via `SnapshotBuilder`), the page and undo all read. §1.2 invariant (per grid at most one
+    // axis under 100) is enforced by the UI (§4) and repaired at load by `normalizeGridChanceAtLoad` (keep rank, reset the other).
+    var euclideousGridChance: EuclideousGridChance? = nil
+    var euclideousGridChanceResolved: EuclideousGridChance { euclideousGridChance ?? EuclideousGridChance() }
     // REEL redesign Phase 4 (2026-11-16): KEEPS — named tape ranges the user marked to export, stored WITH the session.
     // Not render data (the engine never reads them), so they are not threaded into the snapshot and never move the golden.
     var reelKeeps: [ReelKeep]? = nil
@@ -4324,6 +4329,14 @@ struct PluginState: Codable, Equatable {
     /// the production-only point, so `SnapshotBuilder` keeps feeding `doc.hocketRulesResolved` (empty here) and the engine tests
     /// that build a `PluginState` with rules directly still exercise the kept-compiled remap. Run beside `normalizeSoloAtLoad`.
     mutating func normalizeHocketAtLoad() { hocketRules = nil }
+    /// GRID CHANCE §1.2: per grid at most one of its two axes may hold a value under 100. A load that breaks it (both the rank AND the other axis set on one grid) KEEPS the rank array and resets the other axis to 100,
+    /// per grid. Idempotent; guarded (a no-op when nothing is stored or the invariant already holds). Not an undo step. Run beside `normalizeSoloAtLoad` at every document entry (session setter, PresetStore.decode, factory make, initDoc).
+    mutating func normalizeGridChanceAtLoad() {
+        guard let gc = euclideousGridChance else { return }
+        let fixed = euclideousGridChanceRepairInvariant(gc)   // §1.2: keep the rank array, reset the other axis (per grid)
+        if fixed.isAllDefault { euclideousGridChance = nil; return }   // an all-default (incl. explicitly-stored) collapses to "nothing stored"
+        if fixed != gc { euclideousGridChance = fixed }
+    }
     /// RIFF SOURCE ferry (2026-11-22, §8.2): clean the four lanes' `riffSourceLane` — a self-reference and any loop collapse to OWN
     /// (nil). SOUND-PRESERVING only in that an un-loopable document is untouched; a stored loop would otherwise be a reader with no
     /// resolvable root. Not an undo step; idempotent. Run beside `normalizeSourcesAtLoad` at every document entry + the picker write.
@@ -4761,6 +4774,51 @@ struct StampConfig: Equatable {
 /// keep in sync as EuclidLine grows), the RESTORE step (AudioUnitViewController's `euclideousApply`) re-merges
 /// the CURRENT live play/stop state back in after applying a snapshot — so recording is simple/uniform while
 /// restoring is what actually enforces the exclusion.
+/// GRID CHANCE (ferry 2026-11-22). Four arrays of integers 0…100, default 100 — the probability a note on that row/column
+/// actually sounds. The riff grid's RANK (8, index 0 = rank 1) and riff-POSITION (8, index 0 = position 0); the STACK
+/// grid's RANK (8 — the stack is 8 rank rows, TOP/TOP−1/TOP−2 removed 2026-11-09) and LANE (4, index 0 = lane 1). §1.2:
+/// per grid at most ONE of its two arrays may hold a value under 100 (the UI enforces it; `normalizeGridChanceAtLoad`
+/// repairs a broken load). Decode is tolerant — a missing / short / out-of-range array is padded and clamped to 0…100.
+struct EuclideousGridChance: Codable, Equatable {
+    var riffRank:   [Int]
+    var riffColumn: [Int]
+    var stackRank:  [Int]
+    var stackLane:  [Int]
+
+    init(riffRank: [Int] = Array(repeating: 100, count: 8),
+         riffColumn: [Int] = Array(repeating: 100, count: 8),
+         stackRank: [Int] = Array(repeating: 100, count: 8),
+         stackLane: [Int] = Array(repeating: 100, count: 4)) {
+        self.riffRank = Self.fix(riffRank, 8); self.riffColumn = Self.fix(riffColumn, 8)
+        self.stackRank = Self.fix(stackRank, 8); self.stackLane = Self.fix(stackLane, 4)
+    }
+    private static func fix(_ a: [Int], _ n: Int) -> [Int] {
+        var r = a.prefix(n).map { max(0, min(100, $0)) }
+        while r.count < n { r.append(100) }
+        return r
+    }
+    enum CodingKeys: String, CodingKey { case riffRank, riffColumn, stackRank, stackLane }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        self.init(riffRank: (try? c.decode([Int].self, forKey: .riffRank)) ?? Array(repeating: 100, count: 8),
+                  riffColumn: (try? c.decode([Int].self, forKey: .riffColumn)) ?? Array(repeating: 100, count: 8),
+                  stackRank: (try? c.decode([Int].self, forKey: .stackRank)) ?? Array(repeating: 100, count: 8),
+                  stackLane: (try? c.decode([Int].self, forKey: .stackLane)) ?? Array(repeating: 100, count: 4))
+    }
+
+    var isAllDefault: Bool { riffRank.allSatisfy { $0 == 100 } && riffColumn.allSatisfy { $0 == 100 } && stackRank.allSatisfy { $0 == 100 } && stackLane.allSatisfy { $0 == 100 } }
+    var riffRankSet: Bool { riffRank.contains { $0 < 100 } }
+    var riffColumnSet: Bool { riffColumn.contains { $0 < 100 } }
+    var stackRankSet: Bool { stackRank.contains { $0 < 100 } }
+    var stackLaneSet: Bool { stackLane.contains { $0 < 100 } }
+    var riffSet: Bool { riffRankSet || riffColumnSet }     // the riff grid has chance set (the % toggle is lit)
+    var stackSet: Bool { stackRankSet || stackLaneSet }    // the STACK grid has chance set
+}
+
+/// GRID CHANCE §1.3: which axis a grid's chance editor is showing while open — UI state, never saved. `.rank` is the
+/// y axis of both grids; `.other` is the riff grid's x = riff POSITION and the STACK grid's x = LANE.
+enum EuclideousGridChanceAxis: Equatable { case none, rank, other }
+
 struct EuclideousUndoSnapshot: Equatable {
     var lines: [EuclidLine]
     var riff: EuclideousRiff
@@ -4799,6 +4857,7 @@ struct EuclideousUndoSnapshot: Equatable {
     var ribbonSettings: RibbonSettings = .defaults   // RIBBON SETTINGS (2026-11-16): the saved ribbon settings — undoable page-level state (TOUCH/RELEASE/LATCH/PARTS/marks); `.defaults` restores "nil"
     var riffMaster: Bool = true                  // HEADER v2 §1.6: the two global PLAY-part masters — undoable page-level state (a tap is one step, like a lane-card PLAY). Default ON ⇒ an old snapshot restores both on.
     var stackMaster: Bool = true
+    var gridChance: EuclideousGridChance = EuclideousGridChance()   // GRID CHANCE (2026-11-22): the two grids' per-axis chance — undoable page-level state (§1.4: a CLR is one step); all-default restores "nothing stored" (nil)
     /// UNDO-5 (2026-10-25): lanes' PLAY/STOP are never undoable (§7.3) — EXCEPT across a preset load, which is itself a step and replaces them: only such a step carries the flags it must put back (`nil` = every other step, which
     /// keeps the live flags as always). Captured by `loadPreset` / `loadFactoryPreset`, and re-stamped on the opposite side when that step is undone or redone so ↶ and ↷ both land on the right flags.
     var presetPlay: [EuclideousLanePlay]? = nil

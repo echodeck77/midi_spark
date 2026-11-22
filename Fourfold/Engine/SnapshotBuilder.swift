@@ -153,6 +153,7 @@ enum SnapshotBuilder {
                     sc.procs[0].emitterVelocities = EmitterVelocitySnap(doc.euclideousEmitterVelocitiesResolved)   // EMITTER VELOCITY (2026-11-03): page-level per-output velocity accents; the Euclid masks are built here, on the main thread
                     sc.procs[0].emitterCCs = EmitterCCSnap(doc.euclideousEmitterCCsResolved)   // EMITTER CC (CC tab, Nov 2026): page-level per-output CC emitters (no Euclid pattern of their own)
                     sc.procs[0].outputMutes = doc.euclideousOutputMutesResolved   // MUTE TAB (output mute, 2026-11-02): page-level, no MachineParams hop — a plain value struct for the render thread; nil ⇒ nothing muted, byte-identical
+                    sc.procs[0].gridChance = doc.euclideousGridChanceResolved   // GRID CHANCE (2026-11-22): page-level, no MachineParams hop; all 100 (the default) ⇒ every hit path is byte-identical
                     sc.procs[0].euclideousLanesSeqOn = doc.euclideousLanesSeqOnResolved
                     sc.procs[0].euclideousLanesSeqRate = doc.euclideousLanesSeqRateResolved
                     sc.procs[0].euclideousLanesSeqLen = doc.euclideousLanesSeqLenResolved

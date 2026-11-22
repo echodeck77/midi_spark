@@ -33,6 +33,7 @@ enum PresetStore {
         doc.normalizeSourcesAtLoad()             // INPUTS + HARMONY §1.3: each lane's SOURCES chips take the old global switches (chip AND switch), the switches read true
         doc.normalizeRiffSourcesAtLoad()         // RIFF SOURCE ferry (2026-11-22, §8.2): a self/loop riff-source becomes OWN
         doc.normalizeEuclidFromAtLoad()          // EUCLID FROM ferry (2026-11-22, §3.2): a self/loop FROM becomes none
+        doc.normalizeGridChanceAtLoad()          // GRID CHANCE (2026-11-22, §1.2): a preset that breaks "one axis per grid" keeps the rank array, resets the other
         return doc
     }
 

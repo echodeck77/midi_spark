@@ -9518,6 +9518,73 @@ private let euclideousNotesChanceSalt: UInt64 = 0x4E4F_5445_5343_4841
 /// A chosen hit gets through when roll < CHANCE; CHANCE 100 lets every one through.
 @inline(__always) func euclideousNotesChanceAllows(chance: Int, lane: Int, h: Int64) -> Bool { chance >= 100 || euclideousNotesChanceRoll(lane: lane, h: h) < chance }
 
+// MARK: - GRID CHANCE (ferry 2026-11-22) — per-grid probability that thins a phrase without shifting the walk/sequence.
+//         Pure, integer-only, allocation-free, replay-exact (a transport start or melody restart rolls the same answers).
+
+/// Two salts of their own so the grid rolls never repeat the mask's, RATCHET's, NOTES chance's, CANON SLIP's or FILL's.
+let euclideousRiffGridChanceSalt:  UInt64 = 0x5249_4646_4752_4944   // "RIFFGRID"
+let euclideousStackGridChanceSalt: UInt64 = 0x5354_414B_4752_4944   // "STAKGRID"
+
+/// §9.1 / §2.4: the roll 0…99, from `splitmix64Mix` (the idiom the mask's and NOTES chance use) seeded with the lane, the
+/// step index since the melody origin, a coordinate (the rank for the stack's by-rank mode, else the active axis's own index)
+/// and a salt per grid. A pure function of (lane, step, coord) ⇒ replay-exact.
+@inline(__always) func euclideousGridChanceRoll(lane: Int, step: Int64, coord: Int, salt: UInt64) -> Int {
+    let x = UInt64(bitPattern: step) &* 0x9E37_79B9_7F4A_7C15
+          &+ UInt64(truncatingIfNeeded: coord) &* 0xBF58_476D_1CE4_E5B9
+          &+ UInt64(truncatingIfNeeded: lane)
+          &+ salt
+    return Int(splitmix64Mix(x) % 100)
+}
+/// A note gets through when roll < chance; 100 always passes, 0 never (the roll is 0…99).
+@inline(__always) func euclideousGridChanceAllows(chance: Int, lane: Int, step: Int64, coord: Int, salt: UInt64) -> Bool {
+    chance >= 100 || euclideousGridChanceRoll(lane: lane, step: step, coord: coord, salt: salt) < chance
+}
+
+/// §9.2 / §2.1: does a riff hit sound? `rank` is the played rank (1…8, after holds/LOOP/TUTTI, before octave/transpose);
+/// `column` is the riff position it read (0…7). The riff grid's active axis decides — POSITION → `riffColumn[column]`,
+/// else RANK → `riffRank[rank-1]`. A rest (rank < 1) under the RANK axis always passes (rank chance needs a rank). All 100 ⇒ true.
+@inline(__always) func euclideousRiffGridChancePasses(lane: Int, step: Int64, rank: Int, column: Int, model: EuclideousGridChance) -> Bool {
+    if model.riffColumnSet {
+        guard column >= 0, column < model.riffColumn.count else { return true }
+        return euclideousGridChanceAllows(chance: model.riffColumn[column], lane: lane, step: step, coord: column, salt: euclideousRiffGridChanceSalt)
+    }
+    if model.riffRankSet {
+        guard rank >= 1, rank <= model.riffRank.count else { return true }
+        return euclideousGridChanceAllows(chance: model.riffRank[rank - 1], lane: lane, step: step, coord: rank, salt: euclideousRiffGridChanceSalt)
+    }
+    return true
+}
+
+/// §9.2 / §2.2: does a single stack voice at `rank` sound (the by-RANK mode)? Keyed per voice so a chord thins note by note.
+@inline(__always) func euclideousStackRankChancePasses(lane: Int, step: Int64, rank: Int, model: EuclideousGridChance) -> Bool {
+    guard model.stackRankSet, rank >= 1, rank <= model.stackRank.count else { return true }
+    return euclideousGridChanceAllows(chance: model.stackRank[rank - 1], lane: lane, step: step, coord: rank, salt: euclideousStackGridChanceSalt)
+}
+
+/// §9.2 / §2.3: does the WHOLE stack hit sound (the by-LANE mode)? One roll for the hit, keyed on (lane, step) with a fixed coord.
+@inline(__always) func euclideousStackLaneChancePasses(lane: Int, step: Int64, model: EuclideousGridChance) -> Bool {
+    guard model.stackLaneSet, lane >= 0, lane < model.stackLane.count else { return true }
+    return euclideousGridChanceAllows(chance: model.stackLane[lane], lane: lane, step: step, coord: 0, salt: euclideousStackGridChanceSalt)
+}
+
+/// §9.3: which axis of a grid is "set" (holds a value under 100). The UI keeps at most one per grid (§1.2).
+enum EuclideousGridChanceGrid { case riff, stack }
+@inline(__always) func euclideousGridChanceAxisSet(_ model: EuclideousGridChance, grid: EuclideousGridChanceGrid) -> EuclideousGridChanceAxis {
+    switch grid {
+    case .riff:  return model.riffRankSet ? .rank : (model.riffColumnSet ? .other : .none)
+    case .stack: return model.stackRankSet ? .rank : (model.stackLaneSet ? .other : .none)
+    }
+}
+
+/// §1.2 / §9.3 invariant repair (pure — used by `normalizeGridChanceAtLoad` and the tests): per grid at most one axis may hold
+/// a value under 100; when both the rank AND the other axis are set on a grid, KEEP the rank array and reset the other to 100.
+func euclideousGridChanceRepairInvariant(_ gc: EuclideousGridChance) -> EuclideousGridChance {
+    var r = gc
+    if r.riffRankSet && r.riffColumnSet { r.riffColumn = Array(repeating: 100, count: 8) }
+    if r.stackRankSet && r.stackLaneSet { r.stackLane = Array(repeating: 100, count: 4) }
+    return r
+}
+
 /// h: the hit's index among the lane's pattern hits since the melody origin (the rhythm's hits, before LANES, the mask or FX act on them), 0 for the first — whatever ADVANCE the
 /// riff walk uses (under ADV STEP the walk counts ticks, but the notes count hits).
 func euclideousNotesHitOrdinal(buf: [Bool], w: EuclideousNotesWalk, tick: Int64) -> Int64 {
