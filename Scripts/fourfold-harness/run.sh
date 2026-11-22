@@ -63,9 +63,30 @@ xcrun simctl terminate "$UDID" com.example.FFHarness 2>/dev/null || true
 xcrun simctl install "$UDID" "$APP"
 (xcrun simctl launch --console "$UDID" com.example.FFHarness "$@" > "$OUT/console.log" 2>&1 &)
 if [ "$1" = "--golden" ]; then
-  for i in $(seq 1 900); do grep -aq "GOLDEN INPUTS ALL" "$OUT/console.log" && break; sleep 1; done
+  # ENGINE HARDENING 1 (2026-11-21): the chain now ends with the GOLDEN HARDENING group (per-feature +
+  # combination documents) and every document also writes an EVENT-LIST golden (one text file per document,
+  # readable as music) into the app container; they are copied out below. --capture adopts the run as the
+  # checked-in baseline (golden.txt + golden-events/, or golden-keep.txt under --octaves-keep).
+  for i in $(seq 1 2400); do grep -aq "GOLDEN HARDENING ALL" "$OUT/console.log" && break; sleep 1; done
   grep -a "^GOLDEN" "$OUT/console.log" | tee "$OUT/golden.txt"
-  echo "(compare with Scripts/fourfold-harness/golden.txt — or golden-keep.txt after --octaves-keep: diff Scripts/fourfold-harness/golden.txt $OUT/golden.txt)"
+  CONTAINER=$(xcrun simctl get_app_container "$UDID" com.example.FFHarness data 2>/dev/null || true)
+  rm -rf "$OUT/golden-events"
+  if [ -n "$CONTAINER" ] && [ -d "$CONTAINER/Documents/golden-events" ]; then
+    cp -R "$CONTAINER/Documents/golden-events" "$OUT/golden-events"
+    echo "event lists: $OUT/golden-events ($(ls "$OUT/golden-events" | wc -l | tr -d ' ') files)"
+  fi
+  if printf '%s\n' "$@" | grep -q -- '^--capture$'; then
+    if printf '%s\n' "$@" | grep -q -- '^--octaves-keep$'; then
+      cp "$OUT/golden.txt" Scripts/fourfold-harness/golden-keep.txt && echo "CAPTURED golden-keep.txt"
+    else
+      cp "$OUT/golden.txt" Scripts/fourfold-harness/golden.txt
+      rm -rf Scripts/fourfold-harness/golden-events
+      [ -d "$OUT/golden-events" ] && cp -R "$OUT/golden-events" Scripts/fourfold-harness/golden-events
+      echo "CAPTURED golden.txt + golden-events/"
+    fi
+  else
+    echo "(compare: diff Scripts/fourfold-harness/golden.txt $OUT/golden.txt — golden-keep.txt after --octaves-keep; diff -r Scripts/fourfold-harness/golden-events $OUT/golden-events for the event lists)"
+  fi
   exit 0
 fi
 if [ "$1" = "--alloc" ]; then

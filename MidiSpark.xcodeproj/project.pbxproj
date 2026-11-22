@@ -78,6 +78,7 @@
 		1F8E4BB041AD7E520007A887 /* InputsRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 215CC43E9C5A2250AB3EC766 /* InputsRouterTests.swift */; };
 		204572430D6CE1EBADA36680 /* BuildModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */; };
 		20646456AFE103561CB819CE /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E074C5873A3072DF6841935F /* PresetStore.swift */; };
+		20BAD02163958A9C1C66C874 /* HardeningInvariants.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA50DA32261577FC40AF655C /* HardeningInvariants.swift */; };
 		21A237E4460BF2277F6B5A03 /* FourfoldAppView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DFB1A5B358F63E58A93D0CA /* FourfoldAppView.swift */; };
 		228D7898F6AD4B0FC777AD10 /* InputsModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 308A4FADD0BB1FB23898BA06 /* InputsModelTests.swift */; };
 		239884A77276ED1DEA6EE2DB /* PoolEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 410368CA489DB99EF79B2677 /* PoolEngineTests.swift */; };
@@ -93,6 +94,7 @@
 		282189AB3D697A6FA80FB740 /* AcceptanceTuttiLengthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */; };
 		2862323D03259AC99DF87345 /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
 		288852EBB8ACE59F90F4E572 /* EuclideousSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF54D865F988739612526D4 /* EuclideousSettingsSheet.swift */; };
+		28C37FB186B7F982930EB769 /* RenderInvariantTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19F12ACAE090E6DCA3887C1A /* RenderInvariantTests.swift */; };
 		28E1FCD3397792DBD86B8803 /* TabGlyphPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440E5D6E44D2818020EF291B /* TabGlyphPainter.swift */; };
 		28FE4CC0BED3E844C4D3152E /* OutputMute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BFF4ABC895D8875ACBC3CA2 /* OutputMute.swift */; };
 		2A13BA2CD92BDE358A0AD2BA /* AcceptanceGatesSpecialTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D276BBCDD2EF6CDEC29EDA27 /* AcceptanceGatesSpecialTests.swift */; };
@@ -138,6 +140,7 @@
 		380EF70566461B22D7C2CF72 /* ClarityPassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */; };
 		3836DB5444419EF950474B6B /* FillBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 407FD14520B913CDE86C5503 /* FillBlock.swift */; };
 		38C9A1B4BC7692004525AD3D /* PlayAsRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97697074543323A5A46DF3D /* PlayAsRows.swift */; };
+		3908AFA9D4567DB981BE89D3 /* HardeningCorpus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0D2164020E55F2DDA4914D /* HardeningCorpus.swift */; };
 		39682E25804FD8FFE3AD0AF9 /* MastersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC57A1016A4DFA04BA48662 /* MastersTests.swift */; };
 		3A2A785935974B530833355F /* HocketPopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB03CC002F55E0712BACE13 /* HocketPopup.swift */; };
 		3A2F3B82A370A99A045A1502 /* EuclideousPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85642BF61CDCAAD973E1AD76 /* EuclideousPage.swift */; };
@@ -185,6 +188,7 @@
 		4F3EF380971684557D2BA782 /* RiffDirectionMirrorHuntTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839B87525F479BAE343B637A /* RiffDirectionMirrorHuntTests.swift */; };
 		4F7BB6013CA868EE5B545EEE /* NotesTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368C260460EAF19255196447 /* NotesTabTests.swift */; };
 		4FD44873F80293DB68DA9E67 /* ReelTapeAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */; };
+		5020FB1BBEBC9F92D9690D37 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1064FD5A30CAAF595381D1 /* SnapshotStore.swift */; };
 		50D3FB0F2FD2D19D2F42B5F8 /* ChordsGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00A0AAF1BEFC7A0801E48D8E /* ChordsGridTests.swift */; };
 		50DDE4A2AA20ABE1CD4B82AF /* PortsStressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4448C88CC517582DAFC89326 /* PortsStressTests.swift */; };
 		51142768E24F20693A5BFF40 /* FourfoldTransportClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */; };
@@ -203,6 +207,7 @@
 		545028F07A69D1A05607B1BD /* MigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372CA48448A531F0C9C47D25 /* MigrationTests.swift */; };
 		5495BE04F784F6B9DF629FD7 /* MidiInOctavesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45EDC2BE8955A84E568CE6A0 /* MidiInOctavesTests.swift */; };
 		54E1359ABAD90A7E9CD9C4BD /* LockModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11A47312E5B36EA267536F5 /* LockModePainter.swift */; };
+		5505833554E169DAD38BE128 /* BetaFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B060093450A354DD1196FF73 /* BetaFixture.swift */; };
 		5533EBEF2E9CE4295C52B55C /* manual-skeleton.md in Resources */ = {isa = PBXBuildFile; fileRef = 688CC1C241EE0B1DC3D29D23 /* manual-skeleton.md */; };
 		563C9F9FE1FC5BEFDF06258E /* PlayAsRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97697074543323A5A46DF3D /* PlayAsRows.swift */; };
 		565A178ED04D52344FB8C914 /* CanonHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176469F1675E0C309D28B215 /* CanonHistory.swift */; };
@@ -352,11 +357,13 @@
 		960ACD49BD8FBEB02D6E8C4F /* ChordCanonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C65CD0797F00553F393868 /* ChordCanonTests.swift */; };
 		965C21A77C376F3057CB4206 /* RestartFlashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9C44DDB2035A6F3CE3FA8C /* RestartFlashTests.swift */; };
 		96D95AD2579E7D75BE561066 /* AcceptanceFactoryLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 487507F0C28C27276746785D /* AcceptanceFactoryLibraryTests.swift */; };
+		981570A593FE41A139816F6C /* KernelHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4B699546974CAE2E93625C /* KernelHostTests.swift */; };
 		9823091D20B2F0B914889A3F /* HarmonyPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DCB3F95776A8BE51B7E0584 /* HarmonyPage.swift */; };
 		9824AF2008EB998246B476F2 /* LaneStripClarityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 370AADF7BB97B31974239E41 /* LaneStripClarityTests.swift */; };
 		983D7E1AE41FB6F16F74D28A /* InputsGoldenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E96F54D4F221EBC6B79FE989 /* InputsGoldenTests.swift */; };
 		98438A098C9E21AEC8237627 /* FourfoldBluetoothMIDIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D8C6146A8A708D00931B05 /* FourfoldBluetoothMIDIView.swift */; };
 		98B88E222AD58D08D018376B /* RateTileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B38E5A55AE0D534C7B3AEE /* RateTileTests.swift */; };
+		98ECE7B1E434F3414D1E9A1B /* HardeningInvariants.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA50DA32261577FC40AF655C /* HardeningInvariants.swift */; };
 		99988F247FD22A5143E99B8D /* FourfoldAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */; };
 		999F001A6896EB83AB4DF907 /* RiffArrowPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */; };
 		9A1D0C39FFDB7F8E415ABD0B /* AltCardLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8808AAE9F71E311EC51BB40D /* AltCardLayoutTests.swift */; };
@@ -385,6 +392,7 @@
 		A562F349805997D49225F58F /* RoomsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CD05B6D166BF878367A888 /* RoomsPage.swift */; };
 		A57032C55AA307C1E2ED0041 /* CCRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC16C1FCF618F1F29BFE95E2 /* CCRows.swift */; };
 		A5CDA0DEF652E37DAD464472 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B57AAED2B1C8E75FD6CC8E7 /* Snapshot.swift */; };
+		A5E9CAB57C550268D5B0C37A /* Kernel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F4BE86660C760F3CD73866 /* Kernel.swift */; };
 		A605695A8BF69ED9B2B6401A /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0621BA4C4017C0D9D72C9A97 /* Snapshot.swift */; };
 		A606DB40A2135BB2DAB67042 /* RestartTilePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33ADAC80653CA2A15DC3535E /* RestartTilePainter.swift */; };
 		A71376B370E076CCB3B3A89E /* Dice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3D05D84CB3BB7FF47E7851 /* Dice.swift */; };
@@ -464,6 +472,7 @@
 		C8CFE11D3DB3409414F297EC /* AltStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79EB9BDF2D2556C8069447A2 /* AltStateTests.swift */; };
 		C92C119B5BC121BBC214A873 /* CardBack.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB85C75FDBCD12F45FAB3DC /* CardBack.swift */; };
 		CAA879F70D5F5AE14AB5D30D /* EuclideousCCSlotsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12A516DBE825D6D37069CE2F /* EuclideousCCSlotsTests.swift */; };
+		CACD5493D99CA94B42858D0F /* MutationOracleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A953ED029FC2910FF1C5C1B4 /* MutationOracleTests.swift */; };
 		CAD5208AFAFD119B887A0322 /* EuclideousPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD27B9428CAA7E9A8A555CD1 /* EuclideousPresets.swift */; };
 		CB3A0A5022DD3AEE477726B1 /* FourfoldCardBackReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FCF94D6B0B577386D2EB82A /* FourfoldCardBackReviewTests.swift */; };
 		CB94FD3868B139E13FADBBE0 /* FourfoldSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE73B92A4EF42A15B2A9DDF /* FourfoldSelfTest.swift */; };
@@ -474,6 +483,7 @@
 		CE23C2F9BB42137FF4AE0EE5 /* FXPanelPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC544116E21F42832ADE7D7 /* FXPanelPainter.swift */; };
 		CE7A58D6EDC60C74AD08C3BC /* Derivations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21FBCA687DA3D7C57F31B353 /* Derivations.swift */; };
 		CE97BD814E8D16F33DECB416 /* PresetBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 500BF1C84A48860BBCA8AED1 /* PresetBrowser.swift */; };
+		CF5DFCF8A05C45F6A2238DBF /* HardeningInvariants.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA50DA32261577FC40AF655C /* HardeningInvariants.swift */; };
 		D03CA11E6C9141FC5159AA11 /* MidiSparkAudioUnit+CellLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6696EEB895A52FCBB9F0125 /* MidiSparkAudioUnit+CellLibrary.swift */; };
 		D08D82C2CBB2C7595C9F0E29 /* LanesGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBD9DBBEEFA1051724E66556 /* LanesGridTests.swift */; };
 		D1821FAD0A95396DCF2169C7 /* CellLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5E253FF72BF5D6483D14FD /* CellLibraryStore.swift */; };
@@ -509,6 +519,7 @@
 		DBB20E40237446256E6E190E /* MixPanelViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1789A8785BE83C4F4C04A00 /* MixPanelViews.swift */; };
 		DC037E862D4B214FFB1DF9E4 /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */; };
 		DC948A6C41FBACF023BDC377 /* BuildSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */; };
+		DCA39297DAE5B98DE4934199 /* HardeningFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B3CAF3019E80BEC2E6F23DD /* HardeningFuzzTests.swift */; };
 		DD2F6CC4F4A55ED066C41E47 /* EmitterVelocityUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60DAA2B9195756E92DD7102 /* EmitterVelocityUI.swift */; };
 		DDF0A418083AE1978744004D /* RhythmPolishTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8567597528341F414DC3D5 /* RhythmPolishTests.swift */; };
 		DE89E4C93FDCA0C7DA420525 /* LockModePainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EEEDB7EA84061D398367F9 /* LockModePainter.swift */; };
@@ -667,6 +678,7 @@
 		1798771BE2116F2E07FB6C98 /* StyleTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleTokens.swift; sourceTree = "<group>"; };
 		1946456A5B99A0460A26CA77 /* RateTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateTimingTests.swift; sourceTree = "<group>"; };
 		1960B5FDB07EEA6E95788BD1 /* MidiSpark.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidiSpark.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		19F12ACAE090E6DCA3887C1A /* RenderInvariantTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderInvariantTests.swift; sourceTree = "<group>"; };
 		1A39C84E27C4C495B7A14999 /* AltCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AltCard.swift; sourceTree = "<group>"; };
 		1B7D24358B6E5C59D5D50B3A /* BuildModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildModel.swift; sourceTree = "<group>"; };
 		1BA41AD77C8490B0DE3D73D5 /* FillRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillRegion.swift; sourceTree = "<group>"; };
@@ -685,6 +697,7 @@
 		29CF77F773CA703BF84AE945 /* PlayAsRowsAmendment3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsRowsAmendment3Tests.swift; sourceTree = "<group>"; };
 		29E016452526AE786D501E59 /* FourfoldAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldAppModel.swift; sourceTree = "<group>"; };
 		2A5CDA9228755C13703AA880 /* PlayAsSequenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsSequenceTests.swift; sourceTree = "<group>"; };
+		2C0D2164020E55F2DDA4914D /* HardeningCorpus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardeningCorpus.swift; sourceTree = "<group>"; };
 		2C6E676F1410031DD753DD2B /* EmitterCCLegacy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterCCLegacy.swift; sourceTree = "<group>"; };
 		2CBBE0C6BCCAB378B92C134A /* FillEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillEngineTests.swift; sourceTree = "<group>"; };
 		2CD1516989D0BE5696EF4FFF /* EmitterVelocityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterVelocityTests.swift; sourceTree = "<group>"; };
@@ -771,6 +784,7 @@
 		5D7C93D75576EE5D4C9BF72E /* FourfoldUndoAuditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldUndoAuditTests.swift; sourceTree = "<group>"; };
 		5DEF38D08252CA627E3AAFBF /* RestartEditorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestartEditorUITests.swift; sourceTree = "<group>"; };
 		5DF0A2C1D3809EFFB73B3B50 /* PolyRiffRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiffRouterTests.swift; sourceTree = "<group>"; };
+		5E4B699546974CAE2E93625C /* KernelHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelHostTests.swift; sourceTree = "<group>"; };
 		5E7EE844DA2AAE3D8DD7FAC2 /* FourfoldSoak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldSoak.swift; sourceTree = "<group>"; };
 		5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelTapeAdapterTests.swift; sourceTree = "<group>"; };
 		61A29EBC243C8C44F0013668 /* FXTabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FXTabTests.swift; sourceTree = "<group>"; };
@@ -857,6 +871,7 @@
 		9AB19F22BB8954057C891B07 /* SharedUIHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedUIHelpers.swift; sourceTree = "<group>"; };
 		9ABE000F33B083E91E686CD8 /* PlayAsRowsModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsRowsModelTests.swift; sourceTree = "<group>"; };
 		9AE6D8F7DB5682AAE6EFA15E /* EffectiveParamsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectiveParamsTests.swift; sourceTree = "<group>"; };
+		9B3CAF3019E80BEC2E6F23DD /* HardeningFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardeningFuzzTests.swift; sourceTree = "<group>"; };
 		9B90A0E5E3C7A378FB0B7952 /* NoteRollRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRollRing.swift; sourceTree = "<group>"; };
 		9BD3D562FB62A7DDBC0632B9 /* InputsV2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputsV2Tests.swift; sourceTree = "<group>"; };
 		9D50A76DA3E4E4C14429695C /* RiffWalkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffWalkTests.swift; sourceTree = "<group>"; };
@@ -882,6 +897,7 @@
 		A7CF2D5A9C7DD040BAE1C80F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		A7DA6ABCB082900BEE40BD4E /* LaneLockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneLockTests.swift; sourceTree = "<group>"; };
 		A7EED3540DD5920A264F6F08 /* NotesTabPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTabPainter.swift; sourceTree = "<group>"; };
+		A953ED029FC2910FF1C5C1B4 /* MutationOracleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationOracleTests.swift; sourceTree = "<group>"; };
 		A9A5668DDC237E7254223E5F /* TabGlyphPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabGlyphPainter.swift; sourceTree = "<group>"; };
 		A9DD9EE712131F93295E6111 /* EmitterRatchetLive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterRatchetLive.swift; sourceTree = "<group>"; };
 		AA2CE4922DDE31C0061FDC98 /* LanesPanelPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanesPanelPainter.swift; sourceTree = "<group>"; };
@@ -904,6 +920,7 @@
 		AFDB5291C25223F6969713A2 /* EuclidLaneUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclidLaneUI.swift; sourceTree = "<group>"; };
 		B01B17949682E981730A51A3 /* PlayAsRolesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsRolesTests.swift; sourceTree = "<group>"; };
 		B049851538F9CC0979176A1D /* MidiSparkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MidiSparkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B060093450A354DD1196FF73 /* BetaFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetaFixture.swift; sourceTree = "<group>"; };
 		B082E4CB531BF1B8D9D2803C /* ReelKeep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelKeep.swift; sourceTree = "<group>"; };
 		B0AC546F65D94F67DC988CA8 /* RandomModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RandomModePainter.swift; sourceTree = "<group>"; };
 		B0B5010859F2BD29DE19E10C /* AudioUnitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioUnitViewController.swift; sourceTree = "<group>"; };
@@ -919,6 +936,7 @@
 		B97697074543323A5A46DF3D /* PlayAsRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsRows.swift; sourceTree = "<group>"; };
 		B9CE70864BC305F0A2B79F94 /* EmitterCCTraceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterCCTraceTests.swift; sourceTree = "<group>"; };
 		BA31E0983C1E4B625C4C7C8F /* AcceptanceTuttiLengthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTuttiLengthTests.swift; sourceTree = "<group>"; };
+		BA50DA32261577FC40AF655C /* HardeningInvariants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardeningInvariants.swift; sourceTree = "<group>"; };
 		BB8E0318D250070707593C53 /* PartPlayButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartPlayButton.swift; sourceTree = "<group>"; };
 		BB94EF7295FC02210D4E1DDD /* RiffDirectionHuntTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffDirectionHuntTests.swift; sourceTree = "<group>"; };
 		BBA624E3B8BFEE80AECD9F1D /* AnswerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerViews.swift; sourceTree = "<group>"; };
@@ -1160,6 +1178,7 @@
 				D9645E965DE0DE6F90ED9E38 /* AnswerTradeReviewTests.swift */,
 				C0CC18F46C2EEF16A71C80F2 /* AppIconTests.swift */,
 				576484A9C2B543B32EF2D55F /* AvoidTests.swift */,
+				B060093450A354DD1196FF73 /* BetaFixture.swift */,
 				0024C31E772682B8A6B1C552 /* CardBackReviewTests.swift */,
 				AB063E2496497A1B3757D426 /* CardBackTests.swift */,
 				87EA57BE0B157B557D245D87 /* CCPageV2Tests.swift */,
@@ -1195,6 +1214,8 @@
 				F67ED63B8C6514D20364DCFB /* FourfoldPortsTests.swift */,
 				C08CEAAFF57F496AB60992D7 /* FourfoldTransportTests.swift */,
 				61A29EBC243C8C44F0013668 /* FXTabTests.swift */,
+				2C0D2164020E55F2DDA4914D /* HardeningCorpus.swift */,
+				9B3CAF3019E80BEC2E6F23DD /* HardeningFuzzTests.swift */,
 				976600C373D6466052E2925D /* HarmonyLayoutTests.swift */,
 				9F1D0322903F86424D4EBF59 /* HeaderStatusTests.swift */,
 				096E792FD82D17B85BC1E860 /* HocketGlyphTests.swift */,
@@ -1208,6 +1229,7 @@
 				215CC43E9C5A2250AB3EC766 /* InputsRouterTests.swift */,
 				3248864521E73EC4CC4F6F45 /* InputsTestAuditionTests.swift */,
 				9BD3D562FB62A7DDBC0632B9 /* InputsV2Tests.swift */,
+				5E4B699546974CAE2E93625C /* KernelHostTests.swift */,
 				A7DA6ABCB082900BEE40BD4E /* LaneLockTests.swift */,
 				EBD9DBBEEFA1051724E66556 /* LanesGridTests.swift */,
 				225D04471362741A939D49DE /* LaneSoloTests.swift */,
@@ -1223,6 +1245,7 @@
 				372CA48448A531F0C9C47D25 /* MigrationTests.swift */,
 				5AD500F94EC4D567F8FB244C /* MixPanelTests.swift */,
 				5C169CE907BA9CDA80D21519 /* MixPanelV2Tests.swift */,
+				A953ED029FC2910FF1C5C1B4 /* MutationOracleTests.swift */,
 				CD83DE78379336DCA2C151FF /* MutePanelTests.swift */,
 				44E192CF53C0406F41E56492 /* NoteRollRankTests.swift */,
 				EE63B3EA2A58FDDCB52C7C9D /* NoteRollTests.swift */,
@@ -1263,6 +1286,7 @@
 				10F72272A1B25436B913EB17 /* ReelScreenTests.swift */,
 				5FB2E25857363CC39BC7A1F9 /* ReelTapeAdapterTests.swift */,
 				0F8655B2EC32B999EC5BBC71 /* ReelV3Tests.swift */,
+				19F12ACAE090E6DCA3887C1A /* RenderInvariantTests.swift */,
 				8AFBB3F2B6B8ABB8DB24CB0E /* ResetsCardLayoutTests.swift */,
 				86B78244085974D781CC1A40 /* RestartChainsTests.swift */,
 				5DEF38D08252CA627E3AAFBF /* RestartEditorUITests.swift */,
@@ -1507,6 +1531,7 @@
 				E4719CCB62E446D031068139 /* FourfoldAudioUnit.swift */,
 				B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */,
 				C86A6F16D4CFCB75CB7DA2D9 /* FourfoldParam.swift */,
+				BA50DA32261577FC40AF655C /* HardeningInvariants.swift */,
 				24C15BDAB89DD4B8DEF42338 /* HarmonyLayout.swift */,
 				C1F4BE86660C760F3CD73866 /* Kernel.swift */,
 				53BC97CD3AF04DB5093562C9 /* LaneStripBands.swift */,
@@ -1892,6 +1917,7 @@
 				76D1A6880AAD5A2FAB978C4C /* FourfoldTelemetry.swift in Sources */,
 				A7CDEB9BFEA39A8E05477A8E /* FourfoldTransportClock.swift in Sources */,
 				24FBAC22E0F946FA47ABD0EB /* FourfoldUndoProbe.swift in Sources */,
+				20BAD02163958A9C1C66C874 /* HardeningInvariants.swift in Sources */,
 				32B8D6FE8D4377FD8E1F45B3 /* HarmonyLayout.swift in Sources */,
 				DF6F521FB0B85195A7A5317F /* HarmonyPage.swift in Sources */,
 				7CBFA50E60A5106C2832841E /* HocketGlyphView.swift in Sources */,
@@ -2058,6 +2084,7 @@
 				03C9703C81F1038A07A5F978 /* AnswerTradeReviewTests.swift in Sources */,
 				2594ED671865D7F71B005204 /* AppIconTests.swift in Sources */,
 				B366BC763D2FD14CC1C3E557 /* AvoidTests.swift in Sources */,
+				5505833554E169DAD38BE128 /* BetaFixture.swift in Sources */,
 				25B419195913DB1102E1FD61 /* BuildModel.swift in Sources */,
 				8A301F87CB07275B68552039 /* CCPageV2Tests.swift in Sources */,
 				3064B7E1818CD8CA7714A3F9 /* CCRows.swift in Sources */,
@@ -2114,6 +2141,9 @@
 				C875D48D800180B8838CE151 /* FourfoldPortsTests.swift in Sources */,
 				D2F912D985A2AE74BF23B5A9 /* FourfoldTransportClock.swift in Sources */,
 				BE8C5FC00FE0F49C2EB7F07F /* FourfoldTransportTests.swift in Sources */,
+				3908AFA9D4567DB981BE89D3 /* HardeningCorpus.swift in Sources */,
+				DCA39297DAE5B98DE4934199 /* HardeningFuzzTests.swift in Sources */,
+				CF5DFCF8A05C45F6A2238DBF /* HardeningInvariants.swift in Sources */,
 				4E09544FFD854AA9ECA2EC42 /* HarmonyLayout.swift in Sources */,
 				02D08C2E68D61F7194EB5BE3 /* HarmonyLayoutTests.swift in Sources */,
 				0E585F891165621E093C1318 /* HeaderStatusTests.swift in Sources */,
@@ -2128,6 +2158,8 @@
 				1F8E4BB041AD7E520007A887 /* InputsRouterTests.swift in Sources */,
 				03D3F796516A319CEE53FDD6 /* InputsTestAuditionTests.swift in Sources */,
 				0275A7783E9F5083A68FE800 /* InputsV2Tests.swift in Sources */,
+				A5E9CAB57C550268D5B0C37A /* Kernel.swift in Sources */,
+				981570A593FE41A139816F6C /* KernelHostTests.swift in Sources */,
 				F05E9AE1A7913956B2AE8C67 /* LaneLockTests.swift in Sources */,
 				C824D765CA367D040CAEB674 /* LaneSoloTests.swift in Sources */,
 				F93EED8D0A68E7ABB780FA27 /* LaneStripBands.swift in Sources */,
@@ -2149,6 +2181,7 @@
 				F59BA16461447F290F0778CB /* MixPanelV2.swift in Sources */,
 				931CCC7F9A8C3258AF1EAA1F /* MixPanelV2Tests.swift in Sources */,
 				4BFF997B67F572F08E8EBF7D /* Models.swift in Sources */,
+				CACD5493D99CA94B42858D0F /* MutationOracleTests.swift in Sources */,
 				7C743346A512910094D68F9F /* MutePanelTests.swift in Sources */,
 				67F01C5019FD92A5537610C6 /* NoteRollRankTests.swift in Sources */,
 				7F7C8B318D46429B3492F2C4 /* NoteRollRing.swift in Sources */,
@@ -2200,6 +2233,7 @@
 				36A6BA14474235FA1AA36E3B /* ReelTapeAdapter.swift in Sources */,
 				4FD44873F80293DB68DA9E67 /* ReelTapeAdapterTests.swift in Sources */,
 				49BFF7A8991A4AF1D215F5B3 /* ReelV3Tests.swift in Sources */,
+				28C37FB186B7F982930EB769 /* RenderInvariantTests.swift in Sources */,
 				E4E02EFE50BA1769941A5768 /* ResetsCardLayoutTests.swift in Sources */,
 				F5391EF8DBE567DE296CEB8D /* RestartChainsTests.swift in Sources */,
 				6CAD2EC6243F59DEF78E94C6 /* RestartEditorUI.swift in Sources */,
@@ -2233,6 +2267,7 @@
 				23F778EA380308B2D22F1CE0 /* Snapshot.swift in Sources */,
 				A30E4B4E80A4AAA15D91D659 /* SnapshotBuilder.swift in Sources */,
 				E7784ECA8F44A813DF1AB6BE /* SnapshotBuilderTests.swift in Sources */,
+				5020FB1BBEBC9F92D9690D37 /* SnapshotStore.swift in Sources */,
 				B30A6F494B84A1E0BD7FA8E3 /* SourceStackTests.swift in Sources */,
 				2FA1981AB9D6B173DCD66F2D /* StackGreyTests.swift in Sources */,
 				C61C5D495A11A7B47C2E6E78 /* StackGrid.swift in Sources */,
@@ -2299,6 +2334,7 @@
 				51142768E24F20693A5BFF40 /* FourfoldTransportClock.swift in Sources */,
 				B38DC5D3B8ED2F5C5FB02F16 /* FourfoldUndoProbe.swift in Sources */,
 				D8BD22D1CF5FD1970D2A1F25 /* FourfoldViewController.swift in Sources */,
+				98ECE7B1E434F3414D1E9A1B /* HardeningInvariants.swift in Sources */,
 				65474F46CCF46A2F9D7EA3A0 /* HarmonyLayout.swift in Sources */,
 				9823091D20B2F0B914889A3F /* HarmonyPage.swift in Sources */,
 				57BCDCBF45A53D8A884EBBA3 /* HocketGlyphView.swift in Sources */,

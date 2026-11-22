@@ -59,3 +59,40 @@ GOLDEN INPUTS INPUTS every lane ROOT, delayed lanes: events=3748 hash=3349544957
 GOLDEN INPUTS INPUTS the document's REPLACE with one lane in ADD: events=3484 hash=a774893bd0c931f7
 GOLDEN INPUTS INPUTS REPLACE and ROOT on the second chord grid: events=3540 hash=13a3e705723c8f87
 GOLDEN INPUTS ALL: documents=4 events=14340 hash=c28863c449cdcbfb
+GOLDEN HARDENING EUCLID directions and timing: events=2556 hash=cbecc67167535653
+GOLDEN HARDENING EUCLID let ring: events=2012 hash=82e56fb2fdf1896d
+GOLDEN HARDENING RIFF walks: events=2280 hash=6239ca5747807a4d
+GOLDEN HARDENING STACK chains: events=3612 hash=7862af88f73ad4e3
+GOLDEN HARDENING STACK ring and shift drift: events=5940 hash=53f4a952d8f2403d
+GOLDEN HARDENING INPUTS lanes apart: events=3256 hash=fd1fd21b496030f5
+GOLDEN HARDENING CANON delays: events=3748 hash=6e5650945210b1e1
+GOLDEN HARDENING RESETS units: events=3296 hash=ac5668ec29979f4f
+GOLDEN HARDENING FILL: events=11124 hash=925aef7a00abaa2b
+GOLDEN HARDENING ALT: events=1424 hash=14f993f22e87293d
+GOLDEN HARDENING RATCH emitters: events=6044 hash=5070630cb06b1ff9
+GOLDEN HARDENING CC slots: events=6292 hash=b1d1e2200dd848a7
+GOLDEN HARDENING MUTE rows: events=1496 hash=49a6dc3d2f127e31
+GOLDEN HARDENING MIX routing: events=3644 hash=d446d0b3cdc744bb
+GOLDEN HARDENING HARMONY grids: events=3256 hash=c3966af362da2885
+GOLDEN HARDENING SCRUB ribbons: events=1032 hash=cf2a984c4cf08d4b
+GOLDEN HARDENING PART SOLO live: events=620 hash=f692176c8eb564db
+GOLDEN HARDENING REEL replay: events=550 hash=6f9409cf7b7ee16a
+GOLDEN HARDENING HOLD sustains: events=388 hash=aad8a7e53a639823
+GOLDEN HARDENING COMBO 01 fill ratchet mute shared output: events=504 hash=a71fa1d8daca551f
+GOLDEN HARDENING COMBO 02 resets canon root: events=588 hash=dd1f3e877321a581
+GOLDEN HARDENING COMBO 03 alt part solo routed nowhere: events=388 hash=6a3a65b5956562fb
+GOLDEN HARDENING COMBO 04 cc ratchet channels: events=6296 hash=3f96fb209c431f3f
+GOLDEN HARDENING COMBO 05 stack chains ring tie: events=244 hash=778fedceaa5cf839
+GOLDEN HARDENING COMBO 06 grids pick key replace: events=388 hash=8ff4fdafafc08aeb
+GOLDEN HARDENING COMBO 07 poly stored document: events=224 hash=3056cd5812aca8bb
+GOLDEN HARDENING COMBO 08 one step zero hits full hits: events=516 hash=b06f8c08c6d073e3
+GOLDEN HARDENING COMBO 09 maximum lengths: events=12288 hash=33fe0daa8ab09703
+GOLDEN HARDENING COMBO 10 all lanes one output: events=388 hash=6506faa4f935393b
+GOLDEN HARDENING COMBO 11 no outputs: events=0 hash=cbf29ce484222325
+GOLDEN HARDENING COMBO 12 every source off: events=0 hash=cbf29ce484222325
+GOLDEN HARDENING COMBO 13 empty riff nothing lit: events=0 hash=cbf29ce484222325
+GOLDEN HARDENING COMBO 14 masters off part solo: events=0 hash=cbf29ce484222325
+GOLDEN HARDENING COMBO 15 locked lanes scrubbed: events=388 hash=9299c3ad380d02ff
+GOLDEN HARDENING COMBO 16 ratchet cc fill alt: events=4154 hash=4672bf07de0ee7a3
+GOLDEN HARDENING COMBO 17 tempo dense flood: events=65552 hash=65fa710b66d8612d
+GOLDEN HARDENING ALL: documents=36 events=154488 hash=e32fd5c118f69ffe

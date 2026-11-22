@@ -87,6 +87,11 @@ final class Host {
     var timer: Timer?
     var dumpName: String?    // --dump (with --golden): print every message as "DUMP <doc>\t<cable>\t<sample>\t<bytes>" so two engine versions can be compared event by event, not just by hash
     var watching = false     // --alloc: the MIDI block does nothing but count (the harness's own bookkeeping must not look like the AU's allocation)
+    // ENGINE HARDENING 1 (2026-11-21): per-document EVENT-LIST goldens — every message of a golden document, kept raw
+    // during the render and written as one readable text file per document at the document's end (HardeningGolden.swift).
+    // `--octaves-keep` skips the files (hash lines only) so the corpus isn't stored twice.
+    var capturing = false
+    var captured: [(t: Int64, cable: UInt8, b0: UInt8, b1: UInt8, b2: UInt8)] = []
 
     init() {
         let d = AudioComponentDescription(componentType: kAudioUnitType_MIDIProcessor, componentSubType: 0x46726664, componentManufacturer: 0x4D53504B, componentFlags: 0, componentFlagsMask: 0)
@@ -109,6 +114,7 @@ final class Host {
             mix(UInt64(cable)); mix(UInt64(bitPattern: Int64(t) &- Int64(self.baseSample)))
             for i in 0..<len { mix(UInt64(bytes[i])) }
             if let d = self.dumpName { fputs("DUMP \(d)\t\(cable)\t\(Int64(t) &- Int64(self.baseSample))\t\((0..<len).map { String(bytes[$0], radix: 16) }.joined(separator: " "))\n", stderr) }
+            if self.capturing, len >= 3 { self.captured.append((t, cable, bytes[0], bytes[1], bytes[2])) }   // ENGINE HARDENING 1: raw copy for the per-document event-list golden
             if len >= 3 {
                 let st = bytes[0] & 0xF0
                 if st == 0x90 && bytes[2] > 0 { self.onsPerCable[Int(cable)] += 1; if self.firstOns.count < 12 && cable == 1 { self.firstOns.append((t, bytes[1], bytes[2])) } }
@@ -175,12 +181,13 @@ extension Host {
             publishDocument()                                                      // schedules the snapshot rebuild on the main queue…
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in     // …which has run by now
                 for _ in 0..<8 { render(480) }
-                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime; beginEventCapture()
                 if CommandLine.arguments.contains("--dump") { dumpName = name }
                 hold([60, 64, 67]); playing = true
                 for _ in 0..<6400 { render(480) }                                  // 128 beats = 32 bars at 120 BPM
                 playing = false; for _ in 0..<8 { render(480) }
                 release([60, 64, 67])
+                writeEventGolden("", name)
                 fputs("GOLDEN \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
                 all = (all ^ hash) &* 0x100000001b3; total += eventCount
                 DispatchQueue.main.async { step(i + 1) }
@@ -237,12 +244,13 @@ extension Host {
             publishDocument()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
                 for _ in 0..<8 { render(480) }
-                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime; beginEventCapture()
                 if CommandLine.arguments.contains("--dump") { dumpName = "POLY: " + name }
                 hold([60, 64, 67]); playing = true
                 for _ in 0..<6400 { render(480) }
                 playing = false; for _ in 0..<8 { render(480) }
                 release([60, 64, 67])
+                writeEventGolden("POLY", name)
                 fputs("GOLDEN POLY \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
                 all = (all ^ hash) &* 0x100000001b3; total += eventCount
                 DispatchQueue.main.async { step(i + 1) }
@@ -306,7 +314,7 @@ extension Host {
             publishDocument()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
                 for _ in 0..<8 { render(480) }
-                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime; beginEventCapture()
                 if CommandLine.arguments.contains("--dump") { dumpName = "CANON: " + name }
                 hold([60, 64, 67]); playing = true
                 var held = 0
@@ -317,6 +325,7 @@ extension Host {
                 playing = false; for _ in 0..<8 { render(480) }
                 release(canonHandChords[held % canonHandChords.count])
                 release([60, 64, 67])
+                writeEventGolden("CANON", name)
                 fputs("GOLDEN CANON \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
                 all = (all ^ hash) &* 0x100000001b3; total += eventCount
                 DispatchQueue.main.async { step(i + 1) }
@@ -363,7 +372,7 @@ extension Host {
             publishDocument()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
                 for _ in 0..<8 { render(480) }
-                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime; beginEventCapture()
                 if CommandLine.arguments.contains("--dump") { dumpName = "OCTAVES: " + name }
                 var held = 0
                 hold(hand[0]); playing = true
@@ -373,6 +382,7 @@ extension Host {
                 }
                 playing = false; for _ in 0..<8 { render(480) }
                 release(hand[held % hand.count])
+                writeEventGolden("OCTAVES", name)
                 fputs("GOLDEN OCTAVES \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
                 all = (all ^ hash) &* 0x100000001b3; total += eventCount
                 DispatchQueue.main.async { step(i + 1) }
@@ -454,12 +464,13 @@ extension Host {
             publishDocument()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
                 for _ in 0..<8 { render(480) }
-                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime; beginEventCapture()
                 if CommandLine.arguments.contains("--dump") { dumpName = "ANSWER: " + name }
                 hold([60, 64, 67]); playing = true
                 for _ in 0..<6400 { render(480) }
                 playing = false; for _ in 0..<8 { render(480) }
                 release([60, 64, 67])
+                writeEventGolden("ANSWER", name)
                 fputs("GOLDEN ANSWER \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
                 all = (all ^ hash) &* 0x100000001b3; total += eventCount
                 DispatchQueue.main.async { step(i + 1) }
@@ -492,7 +503,8 @@ extension Host {
         func step(_ i: Int) {
             if i == docs.count {
                 fputs("GOLDEN INPUTS ALL: documents=\(docs.count) events=\(total) hash=\(String(all, radix: 16))\n", stderr)
-                exit(0)
+                goldenHardening()   // ENGINE HARDENING 1 (2026-11-21): the per-feature + combination corpus, appended last; it prints GOLDEN HARDENING ALL and exits
+                return
             }
             let (name, edit) = docs[i]
             playing = false; for _ in 0..<8 { render(480) }
@@ -500,7 +512,7 @@ extension Host {
             publishDocument()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
                 for _ in 0..<8 { render(480) }
-                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime
+                hash = 0xcbf29ce484222325; eventCount = 0; baseSample = sampleTime; beginEventCapture()
                 if CommandLine.arguments.contains("--dump") { dumpName = "INPUTS: " + name }
                 var held = 0
                 hold(rootHandNotes[0]); playing = true
@@ -510,6 +522,7 @@ extension Host {
                 }
                 playing = false; for _ in 0..<8 { render(480) }
                 release(rootHandNotes[held % rootHandNotes.count])
+                writeEventGolden("INPUTS", name)
                 fputs("GOLDEN INPUTS \(name): events=\(eventCount) hash=\(String(hash, radix: 16))\n", stderr)
                 all = (all ^ hash) &* 0x100000001b3; total += eventCount
                 DispatchQueue.main.async { step(i + 1) }
