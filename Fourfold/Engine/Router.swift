@@ -5931,13 +5931,18 @@ final class Router {
                             let gapNotes = laneNotes(lineIndex)
                             let gapGate = gateBeatsWithTie(altNotesGate ?? notesGate, 0)   // §5.3: the notes gate from the step's start (no TIE — a gap isn't a riff tie)
                             let gapOuts: UInt8? = altNotesOut.map { $0 & 0x0F }            // nil ⇒ the notes part's own routing (strikeChord's default), as a hit notes pitch uses
+                            var gapNvCount = 0   // STACK WHEN follow-up (2026-11-22): a gap stack also posts a NOTE VIEW event, so it flashes (PULSE) and feeds the lane-strip live strike feed like a hit stack
                             func strikeGap(_ r: Int) {
                                 guard r >= 1, let pch = riffResolve(rank: r, oct: altNotesOct, n: thisLaneCount, wrap: .fold, asc: { gapNotes[$0].note }), (0...127).contains(pch) else { return }
                                 strikeChord(tau: mTickBeat, velScale: 1.0, gateBeats: gapGate, octave: 0, explicitNote: pch, rank: UInt8(max(1, min(8, r))),
                                             explicitVel: UInt8(max(1, min(127, altNotesVel))), busOverride: notesBus, outsOverride: gapOuts)   // one finite-gate strike ⇒ self-closing, never legato (notes gate ≤ 99 %); the roll/footer/grid read NoteRollRing which emitArtic fills
+                                if gapNvCount < Router.noteViewMaxNotes {
+                                    nvScratch[gapNvCount] = UInt8(pch); nvVelScratch[gapNvCount] = UInt8(max(1, min(127, altNotesVel))); nvDestScratch[gapNvCount] = Int8(truncatingIfNeeded: notesBus.trailingZeroBitCount); gapNvCount += 1
+                                }
                             }
                             if rowsHit.bassRank > 0 { strikeGap(rowsHit.bassRank) }
                             for i in 0..<rowsHit.count { strikeGap(rowsHit[i]) }
+                            if gapNvCount > 0 { let (onset, duration) = nvTiming(gapGate); pushNoteViewEvent(lane: lineIndex, onsetBeat: onset, durationBeat: duration, kind: 0, noteCount: gapNvCount, withVels: true) }
                         }
                     } else if !isEuclideousRow, let missSel = missNoteSel {
                         // HIT/MISS SPLIT (Paul 2026-10-02: "plays the off notes") — STILL LIVE for the regular,
