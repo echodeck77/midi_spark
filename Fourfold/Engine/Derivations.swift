@@ -9331,56 +9331,66 @@ enum EuclideousNotesStepKind: Equatable { case note, rest, gap }
     }
 }
 
-/// §3.1/§3.2 — `k` for the step at `tick`: the number of EARLIER steps since the melody origin that §2 KEPT — chosen by
-/// WHEN/GAP (§2.2), and under FIRST only the first chosen step of each pass (§2.3). The STACK sequence
-/// (ORDER/VOICES/SPREAD/BASS/roles/SHIFT) advances on `k`, so a gap stack moves it on just like a hit stack (§3.3).
+/// §3 (Paul 2026-11-22 — "let gaps advance the sequence; keep existing lanes byte-identical") — `k` for the step at `tick`,
+/// the ordinal the STACK sequence (ORDER/VOICES/SPREAD/BASS/roles/SHIFT) advances on: the raw hit ordinal `advOrd` (every hit
+/// always advanced it, so a one-sided WHEN lane is unchanged — §9) PLUS the KEPT GAPS before this step (§3.3: a gap stack
+/// moves the sequence on like a hit stack). A gap is kept when GAP is on and, under FIRST, it is the first chosen step of
+/// its pass (§2.3). FIRING (does a step play) is decided separately — this is only the sequence index.
 ///
-/// FAST PATH (byte-identity): with GAP off, WHEN=both and FIRST off, every hit is kept and nothing else is, so the kept
-/// count equals the hit ordinal `advOrd` — returned directly, exactly the ordinal today's render fed to `rowsResolve`.
-/// Every factory preset lands here, so the golden is unchanged.
-///
-/// GENERAL PATH (GAP on, a one-sided WHEN, or FIRST): a forward step-walk from the current 1024-STEP block's start
-/// (§3.2's bound; `originTick` is the melody origin tick, `advanceStep`/the riff walk give each hit's column). FIRST reads
-/// `passIndexAt`. Bounded to one 1024-step block, allocation-free. For stepOrd < 1024 (the whole golden and any lane that
-/// restarts) the block starts at the origin, so `k` is the exact cumulative kept count since the origin.
+/// FAST PATH: GAP off ⇒ k == `advOrd` for ANY WHEN / FIRST ⇒ byte-identical to today. Every factory preset lands here.
+/// GENERAL PATH (GAP on): a forward step-walk over the current 1024-STEP block counting kept gaps; the chain tick's `cy` is
+/// the pass for FIRST. Bounded, allocation-free.
 func euclideousNotesKeptCountBefore(buf: [Bool], w: EuclideousNotesWalk, tick: Int64, originTick: Int64,
                                     when: UInt8, gapOn: Bool, firstOn: Bool, advOrd: Int64,
-                                    thisBeat: Double, rankAt: (_ column: Int, _ beat: Double) -> Int,
-                                    passIndexAt: (_ tick: Int64) -> Int64, poly: PolyRiffSnap? = nil) -> Int64 {
-    if !gapOn && (when & 0b11) == 0b11 && !firstOn { return advOrd }   // every hit kept, no gaps ⇒ kept count == hit ordinal
+                                    thisBeat: Double, rankAt: (_ column: Int, _ beat: Double) -> Int, poly: PolyRiffSnap? = nil) -> Int64 {
+    guard gapOn else { return advOrd }   // no gaps ⇒ the sequence advances on hits exactly as before (any WHEN / FIRST)
     let stepOrd = tick - originTick
-    guard stepOrd > 0 else { return 0 }
+    guard stepOrd > 0 else { return advOrd }
     let start = originTick + (stepOrd - (stepOrd % euclideousNotesBlock))   // the 1024-step block's first tick
     func isRestHit(_ col: Int, ordinal: Int64) -> Bool {
         if let poly { return poly.topTriggerRank(col, euclideousPolyTrigger(riffDir: w.riffDir, length: w.length, stride: w.stride, every: w.every, ordinal: ordinal)) < 1 }
         return rankAt(col, thisBeat) < 1
     }
-    var k: Int64 = 0
-    var firstPass: Int64 = .min, seenInPass = false
+    var gaps: Int64 = 0
+    var pass: Int64 = .min, chosenSeen = false   // FIRST: a gap is kept only if it is the first CHOSEN step (hit or gap) of its pass
     var t = start
     while t < tick {
-        let ph = euclideousLaneChainPhase(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: t, chains: w.chains, legacySpanBeats: w.legacySpanBeats)
-        let kind: EuclideousNotesStepKind
-        if ph.rawIsHit {
-            let ord = euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: t, chains: w.chains,
-                                              legacySpanBeats: w.legacySpanBeats, advanceStep: w.advanceStep).advOrd
-            let col = euclideousRiffColumn(ordinal: ord, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed, columns: w.columns)
-            kind = isRestHit(col, ordinal: ord) ? .rest : .note
-        } else {
-            kind = .gap
-        }
-        if euclideousNotesStepChosen(kind: kind, when: when, gapOn: gapOn) {
-            if firstOn {
-                let p = passIndexAt(t)
-                if p != firstPass { firstPass = p; seenInPass = false }
-                if !seenInPass { seenInPass = true; k += 1 }   // §2.3: only the first chosen step of each pass is kept
-            } else {
-                k += 1
+        let info = euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: t, chains: w.chains, legacySpanBeats: w.legacySpanBeats, advanceStep: w.advanceStep)
+        if firstOn && info.cy != pass { pass = info.cy; chosenSeen = false }
+        if info.rawIsHit {
+            if firstOn {   // a chosen hit uses up the pass's first-chosen slot, so a later gap is not first
+                let col = euclideousRiffColumn(ordinal: info.advOrd, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed, columns: w.columns)
+                if euclideousNotesStepChosen(kind: isRestHit(col, ordinal: info.advOrd) ? .rest : .note, when: when, gapOn: false) { chosenSeen = true }
             }
+        } else {   // a GAP — chosen here because gapOn is true
+            if firstOn { if !chosenSeen { gaps += 1; chosenSeen = true } } else { gaps += 1 }
         }
         t += 1
     }
-    return k
+    return advOrd + gaps
+}
+
+/// §2.3 FIRST — is the step at `tick` the FIRST chosen step of its pass? The pass is the chain's `cy` (RESETS' pass, which a
+/// rhythm restart bumps — §2.3). Walks back while `cy` stays equal, returning false the moment an earlier step in the pass is
+/// chosen. Bounded by the pass length, allocation-free; only consulted when FIRST is on.
+func euclideousNotesIsFirstChosenInPass(buf: [Bool], w: EuclideousNotesWalk, tick: Int64, passCy: Int64,
+                                        when: UInt8, gapOn: Bool,
+                                        thisBeat: Double, rankAt: (_ column: Int, _ beat: Double) -> Int, poly: PolyRiffSnap? = nil) -> Bool {
+    func isRestHit(_ col: Int, ordinal: Int64) -> Bool {
+        if let poly { return poly.topTriggerRank(col, euclideousPolyTrigger(riffDir: w.riffDir, length: w.length, stride: w.stride, every: w.every, ordinal: ordinal)) < 1 }
+        return rankAt(col, thisBeat) < 1
+    }
+    var t = tick - 1
+    let floorTick = tick - euclideousNotesBlock * Int64(max(1, w.cycleLen)) - 64   // a hard bound for a degenerate (endless) pass
+    while t > floorTick {
+        let info = euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: t, chains: w.chains, legacySpanBeats: w.legacySpanBeats, advanceStep: w.advanceStep)
+        if info.cy != passCy { break }   // left the pass — nothing earlier in it was chosen
+        let col = euclideousRiffColumn(ordinal: info.advOrd, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed, columns: w.columns)
+        let kind: EuclideousNotesStepKind = info.rawIsHit ? (isRestHit(col, ordinal: info.advOrd) ? .rest : .note) : .gap
+        if euclideousNotesStepChosen(kind: kind, when: when, gapOn: gapOn) { return false }
+        t -= 1
+    }
+    return true
 }
 
 /// The play list (6.5): up to eleven notes — a pitch, the lit-order position it came from, and the pool rank it stands for — in fixed storage.

@@ -179,23 +179,22 @@ final class NotesTabTests: XCTestCase {
     /// The riff column a hit of ordinal `o` reads on the example walk (rotate 5, FWD, len 8), for the rest-ness test.
     private func exCol(_ o: Int64) -> Int { Int(euclideousRiffColumn(ordinal: o, every: 1, direction: .forward, length: 8, stride: 1, shift: 5, seed: 0)) }
     /// A brute-force reference for §2: the kind, chosen and kept of every tick 0..<count on the example FREE lane (one pass).
-    private func keptRef(count: Int, when: UInt8, gap: Bool, first: Bool, passLap: Int = 0) -> [Bool] {
-        var out = [Bool](); var firstPass = Int.min, seen = false
-        var ordinal: Int64 = 0
-        for t in 0..<count {
+    /// Brute-force reference for §3 (Paul 2026-11-22): the KEPT GAPS before `tick` on the example FREE lane — 0 if GAP off;
+    /// else every gap (no FIRST), or the first chosen step of each pass when that step is a gap (FIRST). k = advOrd + this.
+    private func gapRef(tick: Int, when: UInt8, gap: Bool, first: Bool, passLap: Int = 8) -> Int64 {
+        guard gap else { return 0 }
+        var gaps = 0, firstPass = Int.min, chosenSeen = false, ordinal: Int64 = 0
+        for t in 0..<tick {
             let hit = exBuf[t % 8]
-            let kind: EuclideousNotesStepKind = hit ? (exRanks[exCol(ordinal)] < 1 ? .rest : .note) : .gap
-            let chosen = euclideousNotesStepChosen(kind: kind, when: when, gapOn: gap)
-            var kept = chosen
-            if chosen && first {
-                let p = passLap > 0 ? t / passLap : 0
-                if p != firstPass { firstPass = p; seen = false }
-                kept = !seen; if !seen { seen = true }
+            if first && (t / passLap) != firstPass { firstPass = t / passLap; chosenSeen = false }
+            if hit {
+                if first, euclideousNotesStepChosen(kind: exRanks[exCol(ordinal)] < 1 ? .rest : .note, when: when, gapOn: false) { chosenSeen = true }
+                ordinal += 1
+            } else {
+                if first { if !chosenSeen { gaps += 1; chosenSeen = true } } else { gaps += 1 }
             }
-            out.append(kept)
-            if hit { ordinal += 1 }
         }
-        return out
+        return Int64(gaps)
     }
 
     func testStepKindMatchesTheRhythmAndRiffColumn() {   // §8.1
@@ -218,47 +217,39 @@ final class NotesTabTests: XCTestCase {
         XCTAssertFalse(euclideousNotesStepChosen(kind: .gap, when: 0b11, gapOn: false))
     }
 
-    func testKeptCountFastPathEqualsTheHitOrdinal() {   // §3 byte-identity: both/GAP off/FIRST off ⇒ advOrd
-        let w = walk()   // FREE, no restart; one pass. The hit path only ever asks on a HIT tick, where advOrd == hits-before.
-        for t in (1...40).map(Int64.init) where exBuf[Int(t) % 8] {
-            let adv = euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: t)
-            let k = euclideousNotesKeptCountBefore(buf: exBuf, w: w, tick: t, originTick: 0, when: 0b11, gapOn: false, firstOn: false,
-                                                   advOrd: adv, thisBeat: 0, rankAt: rankAt(exRanks), passIndexAt: { _ in 0 })
-            XCTAssertEqual(k, adv, "hit tick \(t): kept count == hit ordinal when nothing new is on")
-            // …and that equals a brute-force kept count of all hits before t
-            XCTAssertEqual(k, Int64(keptRef(count: Int(t), when: 0b11, gap: false, first: false).filter { $0 }.count))
-        }
-    }
-
-    func testKeptCountGeneralPathMatchesBruteForceAcrossEveryCombo() {   // §8.2 / §8.5
-        let w = walk(advanceStep: false)   // ADV HIT: the riff column's ordinal IS the hit count, so `keptRef`'s per-hit ordinal matches the walk's
-
+    func testKeptOrdinalIsAdvOrdPlusKeptGaps() {   // §3 (Paul 2026-11-22) + §8.2 / §8.5
+        let w = walk(advanceStep: false)   // ADV HIT: the riff column's ordinal is the hit count, matching gapRef
         for when: UInt8 in [0b01, 0b10, 0b11] {
             for gap in [false, true] {
                 for first in [false, true] {
-                    if when == 0b11 && !gap && !first { continue }   // the fast path (advOrd, hit-tick only) — tested in testKeptCountFastPathEqualsTheHitOrdinal
-                    for t in (1...20).map(Int64.init) {
+                    for t in (1...24).map(Int64.init) {
                         let adv = euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: t)
                         let k = euclideousNotesKeptCountBefore(buf: exBuf, w: w, tick: t, originTick: 0, when: when, gapOn: gap, firstOn: first,
-                                                               advOrd: adv, thisBeat: 0, rankAt: rankAt(exRanks), passIndexAt: { Int64($0) / 8 })
-                        let ref = Int64(keptRef(count: Int(t), when: when, gap: gap, first: first, passLap: first ? 8 : 0).filter { $0 }.count)
-                        XCTAssertEqual(k, ref, "when \(when) gap \(gap) first \(first) tick \(t)")
+                                                               advOrd: adv, thisBeat: 0, rankAt: rankAt(exRanks))
+                        XCTAssertEqual(k, adv + gapRef(tick: Int(t), when: when, gap: gap, first: first),
+                                       "k = advOrd + kept gaps — when \(when) gap \(gap) first \(first) tick \(t)")
                     }
                 }
             }
         }
     }
 
-    func testGapOnAllKindsKeepsEveryStepAndFirstKeepsOnePerPass() {   // §8.3 (FIRST) + GAP fills
+    func testGapOffIsByteIdenticalAndGapOnAddsGaps() {   // §3 byte-identity (any WHEN / FIRST) + GAP fills
         let w = walk()
-        // GAP + both: every one of the 8 steps per lap is kept
-        XCTAssertEqual(euclideousNotesKeptCountBefore(buf: exBuf, w: w, tick: 8, originTick: 0, when: 0b11, gapOn: true, firstOn: false,
-                                                      advOrd: euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: 8), thisBeat: 0, rankAt: rankAt(exRanks), passIndexAt: { _ in 0 }), 8)
-        // GAP + both + FIRST with an 8-step pass: exactly one kept per lap
-        for laps in 1...4 {
-            let k = euclideousNotesKeptCountBefore(buf: exBuf, w: w, tick: Int64(laps * 8), originTick: 0, when: 0b11, gapOn: true, firstOn: true,
-                                                   advOrd: euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: Int64(laps * 8)), thisBeat: 0, rankAt: rankAt(exRanks), passIndexAt: { Int64($0) / 8 })
-            XCTAssertEqual(k, Int64(laps), "FIRST keeps one per pass over \(laps) passes")
+        // GAP off ⇒ k == advOrd for ANY WHEN / FIRST — every existing lane is unchanged (Paul 2026-11-22)
+        for when: UInt8 in [0b01, 0b10, 0b11] {
+            for first in [false, true] {
+                for t in (1...24).map(Int64.init) {
+                    let adv = euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: t)
+                    XCTAssertEqual(euclideousNotesKeptCountBefore(buf: exBuf, w: w, tick: t, originTick: 0, when: when, gapOn: false, firstOn: first,
+                                                                  advOrd: adv, thisBeat: 0, rankAt: rankAt(exRanks)), adv, "GAP off when \(when) first \(first) tick \(t)")
+                }
+            }
+        }
+        // GAP + both, no FIRST: every step (5 hits + 3 gaps per lap) advances the sequence ⇒ k == the step ordinal
+        for laps in 1...3 {
+            XCTAssertEqual(euclideousNotesKeptCountBefore(buf: exBuf, w: w, tick: Int64(laps * 8), originTick: 0, when: 0b11, gapOn: true, firstOn: false,
+                                                          advOrd: euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: Int64(laps * 8)), thisBeat: 0, rankAt: rankAt(exRanks)), Int64(laps * 8))
         }
     }
 

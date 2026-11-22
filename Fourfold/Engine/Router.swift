@@ -3529,6 +3529,8 @@ final class Router {
                                 // NOTES TAB ferry (2026-10-19): what is lit is ONE fixed-size ordered list (`litOrder`: positions 0-7 = ranks 1-8, 8 = TOP 2, 9 = TOP), and the lit notes play
                                 // on the hits `notesWhen` / `notesChance` choose, as `notesPlayAs` says. (The per-note octave shifts no longer sound — the parameter is gone.)
                                 litOrder: EuclideousLitOrder = EuclideousLitOrder(), notesWhen: UInt8 = 0b11, notesChance: Int = 100,
+                                // STACK WHEN ferry (2026-11-22): GAP (the stack also fires on steps the rhythm doesn't hit) and FIRST (keep only the first chosen step per pass). Default off ⇒ byte-identical. `notesChance` is now IGNORED (§4).
+                                notesGaps: Bool = false, notesFirst: Bool = false,
                                 // PLAY AS SEQUENCE (2026-11-08): `notesPlaySeq` is the lane's RAW stored optional (COW — reading/passing it never allocates, unlike `notesPlaySeqResolved`, which the render thread must not call); the active mode per hit
                                 // is derived from it, with `notesPlayAs` the fallback single mode (nil sequence = the migrated single value, or a random roll's one mode). An empty sequence plays CHORD; a single chip is that mode always.
                                 notesPlaySeq: [EuclideousPlayStep]? = nil, notesPlayAs: EuclidNotesPlayAs = .chord, notesReceivedOnly: Bool = false,
@@ -4695,16 +4697,24 @@ final class Router {
                             // just SHADOW — since the NOTES layer reads riff-grid data (the walk ordinal,
                             // written ranks up to 1024 earlier hits, future columns for TIE) far beyond
                             // "the hit's single struck riff pitch."
-                            if !shadowOrEchoValid, notesOn, thisLaneCount > 0, litOrder.count > 0,
-                               euclideousNotesWhenChooses(when: notesWhen, isRestHit: ranks[playedStep] < 1) {
-                                notesH = euclideousNotesHitOrdinal(buf: euclidBuf, w: nw, tick: tick)
-                                if euclideousNotesChanceAllows(chance: notesChance, lane: lineIndex, h: notesH) {
+                            // STACK WHEN ferry (2026-11-22): a HIT step — its kind is NOTE/REST by the riff column (§2.1). CHOSEN by WHEN (§2.2); CHANCE is gone (§4). Under FIRST only the first chosen step of its pass is KEPT (§2.3). The STACK
+                            // sequence advances on the kept-STEP ordinal k (§3), shared with gap stacks, so `rowsResolve` gets k not the raw hit ordinal. GAP off / WHEN both / FIRST off ⇒ k == the old hit ordinal ⇒ byte-identical.
+                            notesH = euclideousNotesHitOrdinal(buf: euclidBuf, w: nw, tick: tick)   // the raw hit ordinal — the TIE look-ahead below still keys on it
+                            let stackRankAt: (Int, Double) -> Int = { c, _ in c >= 0 && c < ranks.count ? Int(ranks[c]) : 0 }
+                            let stackChosen = euclideousNotesStepChosen(kind: ranks[playedStep] < 1 ? .rest : .note, when: notesWhen, gapOn: false)
+                            let stackKept = stackChosen && (!notesFirst || euclideousNotesIsFirstChosenInPass(buf: euclidBuf, w: nw, tick: tick,
+                                                                 passCy: euclideousLaneChainTick(buf: euclidBuf, n: nw.n, dir: nw.dir, cycleLen: nw.cycleLen, sub: nw.sub, tick: tick, chains: nw.chains, legacySpanBeats: nw.legacySpanBeats, advanceStep: nw.advanceStep).cy,
+                                                                 when: notesWhen, gapOn: notesGaps, thisBeat: mTickBeat, rankAt: stackRankAt))
+                            if !shadowOrEchoValid, notesOn, thisLaneCount > 0, litOrder.count > 0, stackKept {
+                                let notesK = euclideousNotesKeptCountBefore(buf: euclidBuf, w: nw, tick: tick, originTick: chains.melodyOriginTick(mTickBeat, sub: sub),
+                                                                            when: notesWhen, gapOn: notesGaps, firstOn: notesFirst, advOrd: notesH, thisBeat: mTickBeat, rankAt: stackRankAt)
+                                do {
                                     // PLAY AS ROWS (2026-11-11): the chord for this hit — RANKS from the three chains + per-rank counts + BASS (`euclideousRowsResolve`), resolved to pitches at note-on (pool changes heard at once). The bass
                                     // strikes AT the hit (not spread); the chord notes spread per SPREAD (STRUM = ROLL's spacing, RUN = RUN's; §4.4) — the spread block below reads the slots exactly as it did for PLAY AS ROLL / RUN.
                                     let rowsHit = euclideousRowsResolve(orderChain: notesOrderChain, voicesChain: notesVoicesChain, spreadChain: notesSpreadChain,
                                                                         litOrder: litOrder, roles: notesRankRoles,
                                                                         bassOn: notesBassOn, bassMode: notesBassMode, shiftStart: notesShiftStart, driftOn: notesDriftOn, driftStep: notesDriftStep,
-                                                                        lane: lineIndex, hitOrdinal: notesH)
+                                                                        lane: lineIndex, hitOrdinal: notesK)
                                     notesSpreadActive = rowsHit.spread
                                     let doSpread = rowsHit.spread != .together
                                     var fillPedalStruck = false   // FILL TAB V2 §2.3 PEDAL: one note per slot whatever the voice count
@@ -4785,7 +4795,7 @@ final class Router {
                                 if notesStruck > 0 {
                                     ext = tieLookaheads(hasNotesStrikes: true, notesStrikes: { isRest, _, _ in
                                         var strikes = false
-                                        if euclideousNotesWhenChooses(when: notesWhen, isRestHit: isRest), euclideousNotesChanceAllows(chance: notesChance, lane: lineIndex, h: scanH) {
+                                        if euclideousNotesWhenChooses(when: notesWhen, isRestHit: isRest) {   // STACK WHEN ferry (§4): CHANCE is gone; a tied rest is a hit (NOTE/REST), never a GAP, so the WHEN test still decides
                                             if isRest {
                                                 // PLAY AS ROWS: what the notes layer would strike on this future hit (the same pure resolver); a pitch the riff holds still strikes on the outputs only the notes use.
                                                 let fut = euclideousRowsResolve(orderChain: notesOrderChain, voicesChain: notesVoicesChain, spreadChain: notesSpreadChain,
@@ -6227,6 +6237,7 @@ final class Router {
                               // RECEIVED are plain scalars. `noteOctShifts` is no longer passed at all — the per-note octave shifts stopped sounding (§6.7).
                               // NOTES AUDITION (2026-11-11): while a STACK cell is held, this lane's NOTES layer plays ONLY the held rank — override the lit order with the single-position order decoded above (every other input, incl. WHEN/CHANCE, is unchanged, so the audition rides the lane's own rhythm/play-as).
                               litOrder: (isEuclideousRow && lineIndex == euclideousNotesAuditionLaneNow) ? euclideousNotesAuditionOrder : (notesRoll?.notesLitOrder ?? L.litOrderResolved), notesWhen: notesRoll?.notesWhen ?? L.notesWhenResolved, notesChance: notesRoll?.notesChance ?? L.notesChanceResolved,
+                              notesGaps: L.notesGapsResolved, notesFirst: L.notesFirstResolved,   // STACK WHEN ferry (2026-11-22)
                               notesPlaySeq: notesRoll != nil ? nil : L.notesPlaySeq, notesPlayAs: notesRoll?.notesPlayAs ?? L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,   // PLAY AS SEQUENCE: a random roll forces its one mode (nil seq ⇒ the fallback); else the lane's RAW chip sequence (no allocation, unlike …Resolved)
                               notesOn: isEuclideousRow ? laneSounds(L.notesOnResolved, p.stackMaster) : L.notesOnResolved,   // HEADER v2 §1.2: the PLAY STACK master gates every lane's stack here. Master defaults ON ⇒ byte-identical.
                               notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved, notesRing: L.notesRingResolved,

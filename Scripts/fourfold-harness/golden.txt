@@ -62,7 +62,7 @@ GOLDEN INPUTS ALL: documents=4 events=14340 hash=c28863c449cdcbfb
 GOLDEN HARDENING EUCLID directions and timing: events=2556 hash=cbecc67167535653
 GOLDEN HARDENING EUCLID let ring: events=2012 hash=82e56fb2fdf1896d
 GOLDEN HARDENING RIFF walks: events=2280 hash=6239ca5747807a4d
-GOLDEN HARDENING STACK chains: events=3612 hash=7862af88f73ad4e3
+GOLDEN HARDENING STACK chains: events=4192 hash=466c0d9e17b9658d
 GOLDEN HARDENING STACK ring and shift drift: events=5940 hash=53f4a952d8f2403d
 GOLDEN HARDENING INPUTS lanes apart: events=3256 hash=fd1fd21b496030f5
 GOLDEN HARDENING CANON delays: events=3748 hash=6e5650945210b1e1
@@ -95,4 +95,4 @@ GOLDEN HARDENING COMBO 14 masters off part solo: events=0 hash=cbf29ce484222325
 GOLDEN HARDENING COMBO 15 locked lanes scrubbed: events=388 hash=9299c3ad380d02ff
 GOLDEN HARDENING COMBO 16 ratchet cc fill alt: events=4154 hash=4672bf07de0ee7a3
 GOLDEN HARDENING COMBO 17 tempo dense flood: events=65552 hash=65fa710b66d8612d
-GOLDEN HARDENING ALL: documents=36 events=154488 hash=e32fd5c118f69ffe
+GOLDEN HARDENING ALL: documents=36 events=155068 hash=589bb3ed29567594
