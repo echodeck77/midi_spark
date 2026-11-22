@@ -1956,6 +1956,51 @@ func euclideousRiffWindowColumns(length: Int, shift: Int, columns: Int = 8) -> S
     return Set((0..<len).map { ((shift + $0) % columns + columns) % columns })
 }
 
+// MARK: - RIFF SOURCE (ferry 2026-11-22) — a lane reads another lane's riff position
+
+/// §1.2: follow riff sources from `lane` to its ROOT (a lane that is own), returning every link's lane index in order
+/// [lane, …, root]. A chain has at most three links (§1.2); a loop or an over-length chain is broken by returning at the
+/// cap. Pure; `sources[i]` is lane i's `riffSourceLane` (nil = own). The result's last element is the root (own) lane.
+@inline(__always) func euclideousRiffRootChain(lane: Int, sources: [Int?]) -> [Int] {
+    var chain = [lane]
+    var cur = lane
+    var seen: UInt8 = 1 << UInt8(lane & 3)
+    for _ in 0..<3 {                                   // §1.2: at most three links
+        guard cur >= 0, cur < sources.count, let s = sources[cur], s >= 0, s < 4, s != cur else { return chain }
+        if seen & (1 << UInt8(s & 3)) != 0 { return chain }   // a loop (should never survive normalise, but the render path never trusts it)
+        chain.append(s); seen |= 1 << UInt8(s & 3); cur = s
+    }
+    return chain
+}
+
+/// §8.3: can `lane` legally read `candidate`? False if following sources FROM the candidate reaches `lane` (that would make a
+/// loop — the picker's unpickable set, "FOLLOWS YOU"). Reading a lane that is itself own, or part of an unrelated chain, is fine.
+@inline(__always) func euclideousCanRiffRead(lane: Int, candidate: Int, sources: [Int?]) -> Bool {
+    guard candidate != lane else { return false }                 // a lane never reads itself (that is OWN)
+    var cur = candidate
+    for _ in 0..<4 {                                              // walk the candidate's chain; if it returns to `lane`, it would loop
+        guard cur >= 0, cur < sources.count, let s = sources[cur], s >= 0, s < 4, s != cur else { return true }
+        if s == lane { return false }
+        cur = s
+    }
+    return true
+}
+
+/// §8.2: clean the four riff-source values. A value naming its OWN lane becomes nil; then, for lanes 0…3 in order, if following
+/// sources from a lane returns to it (a loop), that lane's value becomes nil. Pure; run on decode, after a lane paste and after
+/// any write. Idempotent. Out-of-range values (not 0…3) also become nil.
+func euclideousNormaliseRiffSources(_ values: [Int?]) -> [Int?] {
+    var v = Array(values.prefix(4))
+    while v.count < 4 { v.append(nil) }
+    for i in 0..<4 { if let s = v[i], !(s >= 0 && s < 4) || s == i { v[i] = nil } }   // self / out-of-range → own
+    for i in 0..<4 {                                             // break loops: if following i returns to i, drop i's source
+        var cur = i, looped = false
+        for _ in 0..<4 { guard let s = v[cur], s >= 0, s < 4, s != cur else { break }; if s == i { looped = true; break }; cur = s }
+        if looped { v[i] = nil }
+    }
+    return v
+}
+
 // MARK: - TUTTI (Paul 2026-08-13): SET-level chance — decided ONCE per step for the whole held set (CHANCE's cousin)
 
 

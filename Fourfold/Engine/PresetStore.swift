@@ -31,6 +31,7 @@ enum PresetStore {
         doc.normalizeChordSetsAtLoad()           // TWO CHORD GRIDS: an old preset's four progressions become two (the playing one is grid 1)
         doc.normalizeSoloAtLoad()                // ONE SOLO: an old preset's lane solo becomes its two part bits
         doc.normalizeSourcesAtLoad()             // INPUTS + HARMONY §1.3: each lane's SOURCES chips take the old global switches (chip AND switch), the switches read true
+        doc.normalizeRiffSourcesAtLoad()         // RIFF SOURCE ferry (2026-11-22, §8.2): a self/loop riff-source becomes OWN
         return doc
     }
 

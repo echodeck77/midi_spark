@@ -829,6 +829,15 @@ struct EuclidLine: Codable, Equatable {
     // PLAY AS ROWS, AMENDMENT 2 (Paul 2026-11-15) — APPENDED LAST (after the FILL TAB fields), additive-Optional, decode-tolerant. ONE repeat ROLE per rank 1…8 (2 bits each: 0 ONCE · 1 DOUBLE · 2 RETURN · 3 PEDAL), replacing the old
     // count / second / third model (those fields stay DECODABLE and feed the one-time §B1.3 derive, but are no longer read by the engine). nil / 0 ⇒ every rank ONCE ⇒ byte-identical. Lane-lock field (as the counts were). §B1.1.
     var notesRankRoles: UInt16? = nil
+    // RIFF SOURCE ferry (Paul 2026-11-22) — APPENDED LAST (after notesRankRoles), additive-Optional, decode-tolerant. nil ⇒ OWN
+    // (the lane reads its own riff walk — byte-identical to a document that never had it); a legal value 0…3 naming ONE OF THE
+    // OTHER THREE lanes makes this lane a READER that borrows that lane's riff COLUMN per hit (see `euclideousRiffSourceColumn`).
+    // Normalised (`normalizeRiffSourcesAtLoad` / `euclideousNormaliseRiffSources`): a self-reference and any loop collapse to nil.
+    // Saved, undoable, NOT a host parameter (§8.5). NOT a lane-lock field.
+    var riffSourceLane: Int? = nil
+    /// §1.1: nil (own) or a legal 0…3 that is not this lane; any out-of-range or self value resolves to own here (the stored
+    /// value is cleaned at load by `euclideousNormaliseRiffSources`; this is the render-thread-safe read).
+    func riffSourceLaneResolved(ownLane: Int) -> Int? { guard let s = riffSourceLane, s >= 0, s < 4, s != ownLane else { return nil }; return s }
     // FILL TAB resolvers (§1.1 defaults; a malformed stored value folds to the default).
     var fillLoopResolved: Int { let v = Int(fillLoop ?? 8); return (v == 4 || v == 8 || v == 16) ? v : 8 }
     var fillCurveResolved: EuclideousFillCurve { fillCurve ?? .steady }
@@ -1428,6 +1437,7 @@ extension EuclidLine {
         notesRankSecondLater = (try? c.decodeIfPresent(UInt8.self, forKey: .notesRankSecondLater)).flatMap { $0 }
         notesRankThirdLater = (try? c.decodeIfPresent(UInt8.self, forKey: .notesRankThirdLater)).flatMap { $0 }
         notesRankRoles = (try? c.decodeIfPresent(UInt16.self, forKey: .notesRankRoles)).flatMap { $0 }   // PLAY AS ROWS amend 2 (§B1): the custom decoder must read it, or a saved role is lost on load
+        riffSourceLane = (try? c.decodeIfPresent(Int.self, forKey: .riffSourceLane)).flatMap { $0 }.flatMap { (0..<4).contains($0) ? $0 : nil }   // RIFF SOURCE ferry (§8.1): the custom decoder must read it; a loop/self is cleaned by normalizeRiffSourcesAtLoad after the four lanes load
         notesBassOn = (try? c.decodeIfPresent(Bool.self, forKey: .notesBassOn)).flatMap { $0 }
         notesBassMode = (try? c.decodeIfPresent(EuclideousBassMode.self, forKey: .notesBassMode)).flatMap { $0 }
         notesShiftStart = (try? c.decodeIfPresent(Int.self, forKey: .notesShiftStart)).flatMap { $0 }
@@ -4300,6 +4310,18 @@ struct PluginState: Codable, Equatable {
     /// the production-only point, so `SnapshotBuilder` keeps feeding `doc.hocketRulesResolved` (empty here) and the engine tests
     /// that build a `PluginState` with rules directly still exercise the kept-compiled remap. Run beside `normalizeSoloAtLoad`.
     mutating func normalizeHocketAtLoad() { hocketRules = nil }
+    /// RIFF SOURCE ferry (2026-11-22, §8.2): clean the four lanes' `riffSourceLane` — a self-reference and any loop collapse to OWN
+    /// (nil). SOUND-PRESERVING only in that an un-loopable document is untouched; a stored loop would otherwise be a reader with no
+    /// resolvable root. Not an undo step; idempotent. Run beside `normalizeSourcesAtLoad` at every document entry + the picker write.
+    /// Returns whether anything changed.
+    @discardableResult mutating func normalizeRiffSourcesAtLoad() -> Bool {
+        var lines = euclideousLinesResolved
+        let cleaned = euclideousNormaliseRiffSources(lines.map { $0.riffSourceLane })
+        var changed = false
+        for i in lines.indices where i < 4 { if lines[i].riffSourceLane != cleaned[i] { lines[i].riffSourceLane = cleaned[i]; changed = true } }
+        if changed { euclideousLines = lines }
+        return changed
+    }
     /// INPUTS + HARMONY (2026-11-06, §1.3): the four global SOURCE switches (MIDI IN · CHORDS · PICK · KEY) are gone from the UI — a lane's sources are exactly its own SOURCES chips. SOUND-PRESERVING at load: each lane's chip becomes chip AND
     /// the matching switch of the RESOLVED plan (the old engine ANDed them), then the four switches are written true (the fields stay decodable; nothing writes them again). Not an undo step. Idempotent and `==`-neutral for a document whose switches
     /// already resolve all true (the function returns without touching it); materialises the four default lines when a switch was off and the document holds none. Run at every document entry: the session setter, `PresetStore.decode`,
