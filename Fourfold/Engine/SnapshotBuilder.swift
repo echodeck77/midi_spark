@@ -472,6 +472,7 @@ enum SnapshotBuilder {
                                                                       // NOTES TAB (2026-10-19): WHEN / CHANCE / PLAY AS / RECEIVED / the lit order — threaded here for the same fresh-literal reason as
                                                                       // every field above (`notesWhen` DEFAULTS to both, so leaving it out would silently turn every stored PLAYS-only lane back to both).
                                                                       notesWhen: $0.notesWhen, notesChance: $0.notesChance.map(EuclidLine.nearestLegalNotesChance),
+                                                                      notesGaps: $0.notesGaps, notesFirst: $0.notesFirst,   // STACK WHEN ferry (2026-11-22): thread or a stored GAP/FIRST resets every snapshot
                                                                       notesPlayAs: $0.notesPlayAs, notesReceivedOnly: $0.notesReceivedOnly, notesLitOrder: $0.notesLitOrder,
                                                                       // RHYTHM POLISH (2026-10-22): the continuous OFFSET fraction and TILT's fine value — raw passthrough, the same fresh-literal reason as every field above.
                                                                       offsetFraction: $0.offsetFraction, tiltFine: $0.tiltFine.map { clamp($0, -1, 1) },

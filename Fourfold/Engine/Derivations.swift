@@ -9310,6 +9310,79 @@ func euclideousNotesCountBefore(buf: [Bool], w: EuclideousNotesWalk, tick: Int64
     return k
 }
 
+// MARK: - STACK WHEN (ferry 2026-11-22): NOTE / REST / GAP + FIRST, and the kept-STEP ordinal
+
+/// §2.1 — a lane step's kind for the STACK layer: NOTE (a rhythm hit on a riff note), REST (a rhythm hit on a riff
+/// REST column), GAP (the rhythm does not hit this step). `rawIsHitPostFill` is the engine's own post-FILL hit test
+/// at the step (FILL's ALL/FLIP/LAND force already folded in by the caller); `isRestColumn` is the written riff
+/// column's rest-ness, read only for a hit.
+enum EuclideousNotesStepKind: Equatable { case note, rest, gap }
+@inline(__always) func euclideousNotesStepKind(rawIsHitPostFill: Bool, isRestColumn: Bool) -> EuclideousNotesStepKind {
+    rawIsHitPostFill ? (isRestColumn ? .rest : .note) : .gap
+}
+
+/// §2.2 — a step is CHOSEN when its kind's toggle is on: NOTE ⇔ WHEN bit 0 (the old PLAYS), REST ⇔ WHEN bit 1 (the old
+/// RESTS), GAP ⇔ the GAP flag. §4: CHANCE is gone — there is no roll here.
+@inline(__always) func euclideousNotesStepChosen(kind: EuclideousNotesStepKind, when: UInt8, gapOn: Bool) -> Bool {
+    switch kind {
+    case .note: return when & 0b01 != 0
+    case .rest: return when & 0b10 != 0
+    case .gap:  return gapOn
+    }
+}
+
+/// §3.1/§3.2 — `k` for the step at `tick`: the number of EARLIER steps since the melody origin that §2 KEPT — chosen by
+/// WHEN/GAP (§2.2), and under FIRST only the first chosen step of each pass (§2.3). The STACK sequence
+/// (ORDER/VOICES/SPREAD/BASS/roles/SHIFT) advances on `k`, so a gap stack moves it on just like a hit stack (§3.3).
+///
+/// FAST PATH (byte-identity): with GAP off, WHEN=both and FIRST off, every hit is kept and nothing else is, so the kept
+/// count equals the hit ordinal `advOrd` — returned directly, exactly the ordinal today's render fed to `rowsResolve`.
+/// Every factory preset lands here, so the golden is unchanged.
+///
+/// GENERAL PATH (GAP on, a one-sided WHEN, or FIRST): a forward step-walk from the current 1024-STEP block's start
+/// (§3.2's bound; `originTick` is the melody origin tick, `advanceStep`/the riff walk give each hit's column). FIRST reads
+/// `passIndexAt`. Bounded to one 1024-step block, allocation-free. For stepOrd < 1024 (the whole golden and any lane that
+/// restarts) the block starts at the origin, so `k` is the exact cumulative kept count since the origin.
+func euclideousNotesKeptCountBefore(buf: [Bool], w: EuclideousNotesWalk, tick: Int64, originTick: Int64,
+                                    when: UInt8, gapOn: Bool, firstOn: Bool, advOrd: Int64,
+                                    thisBeat: Double, rankAt: (_ column: Int, _ beat: Double) -> Int,
+                                    passIndexAt: (_ tick: Int64) -> Int64, poly: PolyRiffSnap? = nil) -> Int64 {
+    if !gapOn && (when & 0b11) == 0b11 && !firstOn { return advOrd }   // every hit kept, no gaps ⇒ kept count == hit ordinal
+    let stepOrd = tick - originTick
+    guard stepOrd > 0 else { return 0 }
+    let start = originTick + (stepOrd - (stepOrd % euclideousNotesBlock))   // the 1024-step block's first tick
+    func isRestHit(_ col: Int, ordinal: Int64) -> Bool {
+        if let poly { return poly.topTriggerRank(col, euclideousPolyTrigger(riffDir: w.riffDir, length: w.length, stride: w.stride, every: w.every, ordinal: ordinal)) < 1 }
+        return rankAt(col, thisBeat) < 1
+    }
+    var k: Int64 = 0
+    var firstPass: Int64 = .min, seenInPass = false
+    var t = start
+    while t < tick {
+        let ph = euclideousLaneChainPhase(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: t, chains: w.chains, legacySpanBeats: w.legacySpanBeats)
+        let kind: EuclideousNotesStepKind
+        if ph.rawIsHit {
+            let ord = euclideousLaneChainTick(buf: buf, n: w.n, dir: w.dir, cycleLen: w.cycleLen, sub: w.sub, tick: t, chains: w.chains,
+                                              legacySpanBeats: w.legacySpanBeats, advanceStep: w.advanceStep).advOrd
+            let col = euclideousRiffColumn(ordinal: ord, every: w.every, direction: w.riffDir, length: w.length, stride: w.stride, shift: w.rotate, seed: w.seed, columns: w.columns)
+            kind = isRestHit(col, ordinal: ord) ? .rest : .note
+        } else {
+            kind = .gap
+        }
+        if euclideousNotesStepChosen(kind: kind, when: when, gapOn: gapOn) {
+            if firstOn {
+                let p = passIndexAt(t)
+                if p != firstPass { firstPass = p; seenInPass = false }
+                if !seenInPass { seenInPass = true; k += 1 }   // §2.3: only the first chosen step of each pass is kept
+            } else {
+                k += 1
+            }
+        }
+        t += 1
+    }
+    return k
+}
+
 /// The play list (6.5): up to eleven notes — a pitch, the lit-order position it came from, and the pool rank it stands for — in fixed storage.
 struct EuclideousNotesList: Equatable {
     static let capacity = 16

@@ -174,6 +174,112 @@ final class NotesTabTests: XCTestCase {
                        (1024..<2047).filter { exRanks[Int(euclideousRiffColumn(ordinal: Int64($0), every: 1, direction: .forward, length: 8, stride: 1, shift: 5, seed: 0))] < 1 }.count)
     }
 
+    // MARK: STACK WHEN ferry (2026-11-22) — NOTE/REST/GAP + FIRST + the kept-step ordinal
+
+    /// The riff column a hit of ordinal `o` reads on the example walk (rotate 5, FWD, len 8), for the rest-ness test.
+    private func exCol(_ o: Int64) -> Int { Int(euclideousRiffColumn(ordinal: o, every: 1, direction: .forward, length: 8, stride: 1, shift: 5, seed: 0)) }
+    /// A brute-force reference for §2: the kind, chosen and kept of every tick 0..<count on the example FREE lane (one pass).
+    private func keptRef(count: Int, when: UInt8, gap: Bool, first: Bool, passLap: Int = 0) -> [Bool] {
+        var out = [Bool](); var firstPass = Int.min, seen = false
+        var ordinal: Int64 = 0
+        for t in 0..<count {
+            let hit = exBuf[t % 8]
+            let kind: EuclideousNotesStepKind = hit ? (exRanks[exCol(ordinal)] < 1 ? .rest : .note) : .gap
+            let chosen = euclideousNotesStepChosen(kind: kind, when: when, gapOn: gap)
+            var kept = chosen
+            if chosen && first {
+                let p = passLap > 0 ? t / passLap : 0
+                if p != firstPass { firstPass = p; seen = false }
+                kept = !seen; if !seen { seen = true }
+            }
+            out.append(kept)
+            if hit { ordinal += 1 }
+        }
+        return out
+    }
+
+    func testStepKindMatchesTheRhythmAndRiffColumn() {   // §8.1
+        // on the example: steps 0,2,4,5,7 hit (exBuf); a hit's kind is NOTE/REST by its riff column's rank
+        var ordinal: Int64 = 0
+        for t in 0..<8 {
+            let hit = exBuf[t]
+            let kind = euclideousNotesStepKind(rawIsHitPostFill: hit, isRestColumn: hit && exRanks[exCol(ordinal)] < 1)
+            if !hit { XCTAssertEqual(kind, .gap, "step \(t) is a gap") }
+            else { XCTAssertEqual(kind, exRanks[exCol(ordinal)] < 1 ? .rest : .note, "hit step \(t)") ; ordinal += 1 }
+        }
+    }
+
+    func testStepChosenTruthTable() {   // §2.2
+        XCTAssertTrue(euclideousNotesStepChosen(kind: .note, when: 0b01, gapOn: false))
+        XCTAssertFalse(euclideousNotesStepChosen(kind: .note, when: 0b10, gapOn: true))
+        XCTAssertTrue(euclideousNotesStepChosen(kind: .rest, when: 0b10, gapOn: false))
+        XCTAssertFalse(euclideousNotesStepChosen(kind: .rest, when: 0b01, gapOn: true))
+        XCTAssertTrue(euclideousNotesStepChosen(kind: .gap, when: 0b00, gapOn: true))
+        XCTAssertFalse(euclideousNotesStepChosen(kind: .gap, when: 0b11, gapOn: false))
+    }
+
+    func testKeptCountFastPathEqualsTheHitOrdinal() {   // §3 byte-identity: both/GAP off/FIRST off ⇒ advOrd
+        let w = walk()   // FREE, no restart; one pass. The hit path only ever asks on a HIT tick, where advOrd == hits-before.
+        for t in (1...40).map(Int64.init) where exBuf[Int(t) % 8] {
+            let adv = euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: t)
+            let k = euclideousNotesKeptCountBefore(buf: exBuf, w: w, tick: t, originTick: 0, when: 0b11, gapOn: false, firstOn: false,
+                                                   advOrd: adv, thisBeat: 0, rankAt: rankAt(exRanks), passIndexAt: { _ in 0 })
+            XCTAssertEqual(k, adv, "hit tick \(t): kept count == hit ordinal when nothing new is on")
+            // …and that equals a brute-force kept count of all hits before t
+            XCTAssertEqual(k, Int64(keptRef(count: Int(t), when: 0b11, gap: false, first: false).filter { $0 }.count))
+        }
+    }
+
+    func testKeptCountGeneralPathMatchesBruteForceAcrossEveryCombo() {   // §8.2 / §8.5
+        let w = walk(advanceStep: false)   // ADV HIT: the riff column's ordinal IS the hit count, so `keptRef`'s per-hit ordinal matches the walk's
+
+        for when: UInt8 in [0b01, 0b10, 0b11] {
+            for gap in [false, true] {
+                for first in [false, true] {
+                    if when == 0b11 && !gap && !first { continue }   // the fast path (advOrd, hit-tick only) — tested in testKeptCountFastPathEqualsTheHitOrdinal
+                    for t in (1...20).map(Int64.init) {
+                        let adv = euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: t)
+                        let k = euclideousNotesKeptCountBefore(buf: exBuf, w: w, tick: t, originTick: 0, when: when, gapOn: gap, firstOn: first,
+                                                               advOrd: adv, thisBeat: 0, rankAt: rankAt(exRanks), passIndexAt: { Int64($0) / 8 })
+                        let ref = Int64(keptRef(count: Int(t), when: when, gap: gap, first: first, passLap: first ? 8 : 0).filter { $0 }.count)
+                        XCTAssertEqual(k, ref, "when \(when) gap \(gap) first \(first) tick \(t)")
+                    }
+                }
+            }
+        }
+    }
+
+    func testGapOnAllKindsKeepsEveryStepAndFirstKeepsOnePerPass() {   // §8.3 (FIRST) + GAP fills
+        let w = walk()
+        // GAP + both: every one of the 8 steps per lap is kept
+        XCTAssertEqual(euclideousNotesKeptCountBefore(buf: exBuf, w: w, tick: 8, originTick: 0, when: 0b11, gapOn: true, firstOn: false,
+                                                      advOrd: euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: 8), thisBeat: 0, rankAt: rankAt(exRanks), passIndexAt: { _ in 0 }), 8)
+        // GAP + both + FIRST with an 8-step pass: exactly one kept per lap
+        for laps in 1...4 {
+            let k = euclideousNotesKeptCountBefore(buf: exBuf, w: w, tick: Int64(laps * 8), originTick: 0, when: 0b11, gapOn: true, firstOn: true,
+                                                   advOrd: euclideousNotesHitOrdinal(buf: exBuf, w: w, tick: Int64(laps * 8)), thisBeat: 0, rankAt: rankAt(exRanks), passIndexAt: { Int64($0) / 8 })
+            XCTAssertEqual(k, Int64(laps), "FIRST keeps one per pass over \(laps) passes")
+        }
+    }
+
+    func testGapsAndFirstRoundTripAndThreadThroughTheSnapshot() {   // §1.5 persistence
+        var l = EuclidLine(pulses: 3, steps: 8, noteSel: .all)
+        XCTAssertFalse(l.notesGapsResolved); XCTAssertFalse(l.notesFirstResolved)   // default off
+        l.notesGaps = true; l.notesFirst = true
+        let back = try! JSONDecoder().decode(EuclidLine.self, from: JSONEncoder().encode(l))
+        XCTAssertEqual(back.notesGaps, true); XCTAssertEqual(back.notesFirst, true)
+        let old = try! JSONDecoder().decode(EuclidLine.self, from: Data(#"{"target":0}"#.utf8))
+        XCTAssertNil(old.notesGaps); XCTAssertFalse(old.notesGapsResolved)   // a pre-ferry document stays off (no migration)
+        var m = Machine(machineID: "g", type: .euclid)
+        var lines = (0..<4).map { _ in EuclidLine(noteSel: .all) }
+        lines[2].notesGaps = true; lines[1].notesFirst = true
+        m.paramsA.euclidLines = lines
+        let built = SnapshotBuilder.build(from: PluginState(machines: [m], scenes: [SceneState.empty()]))
+        let out = built.machines.first { $0.a.euclidLines.count == 4 }?.a.euclidLines
+        XCTAssertEqual(out?[2].notesGaps, true, "a forgotten fresh-literal field would reset it every snapshot")
+        XCTAssertEqual(out?[1].notesFirst, true); XCTAssertNil(out?[0].notesGaps)
+    }
+
     // MARK: 7. ROLL and RUN timing (pure)
     func testRollSpacingAndRunSlotsMatchTheFerrysExamples() {
         func ms(_ beats: Double, bpm: Double) -> Double { beats * 60_000 / bpm }

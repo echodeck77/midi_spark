@@ -709,7 +709,9 @@ struct EuclidLine: Codable, Equatable {
     //  · `notesLitOrder`: lit positions in the order they were lit, 0-7 = ranks 1-8, 8 = TOP 2, 9 = TOP. `litNotes`/`topLit`/`top2Lit` stay decodable but are
     //    READ-ONLY PROJECTIONS of it (`litNotesResolved` & co.); setting the order rewrites all three so the encoder always writes them in agreement.
     var notesWhen: UInt8? = 0b11
-    var notesChance: Int? = nil
+    var notesChance: Int? = nil   // STACK WHEN ferry (2026-11-22): kept but IGNORED by the engine (§4) — the field decodes/round-trips, nothing reads it
+    var notesGaps: Bool? = nil    // STACK WHEN ferry (2026-11-22, §1.5): GAP — the stack also fires on steps the rhythm doesn't hit. nil ⇒ off (byte-identical)
+    var notesFirst: Bool? = nil   // STACK WHEN ferry (2026-11-22, §1.5): FIRST — keep only the first chosen step per pass. nil ⇒ off (byte-identical)
     var notesPlayAs: EuclidNotesPlayAs? = nil
     var notesReceivedOnly: Bool? = nil
     var notesLitOrder: [UInt8]? = nil {
@@ -979,6 +981,8 @@ struct EuclidLine: Codable, Equatable {
     var notesPlaysResolved: Bool { notesWhenResolved & 0b01 != 0 }
     var notesRestsResolved: Bool { notesWhenResolved & 0b10 != 0 }
     var notesChanceResolved: Int { EuclidLine.nearestLegalNotesChance(notesChance ?? 100) }
+    var notesGapsResolved: Bool { notesGaps ?? false }     // STACK WHEN ferry (§1.5)
+    var notesFirstResolved: Bool { notesFirst ?? false }   // STACK WHEN ferry (§1.5)
     var notesPlayAsResolved: EuclidNotesPlayAs { notesPlayAs ?? .chord }
     /// PLAY AS SEQUENCE: the lane's chips, always at least one. nil (never edited) ⇒ the legacy single value as ONE chip (sound-preserving); an explicit empty sequence ⇒ one CHORD chip (the engine's fallback — "no modes" plays chords).
     /// The engine and the Router read this; the UI reads the RAW `notesPlaySeq` to tell a migrated single chip (nil) from a user-emptied sequence (`[]`, which shows "+ ADD MODE").
@@ -1412,6 +1416,8 @@ extension EuclidLine {
         // NOTES TAB ferry (2026-10-19, §5): tolerant by construction (`try?`): a wrong-typed value reads as missing, never a whole-session reset.
         let rawWhen = (try? c.decodeIfPresent(UInt8.self, forKey: .notesWhen)).flatMap { $0 }
         notesChance = (try? c.decodeIfPresent(Int.self, forKey: .notesChance)).flatMap { $0 }.map(EuclidLine.nearestLegalNotesChance)
+        notesGaps = (try? c.decodeIfPresent(Bool.self, forKey: .notesGaps)).flatMap { $0 }     // STACK WHEN ferry (2026-11-22)
+        notesFirst = (try? c.decodeIfPresent(Bool.self, forKey: .notesFirst)).flatMap { $0 }   // STACK WHEN ferry (2026-11-22)
         notesPlayAs = (try? c.decodeIfPresent(EuclidNotesPlayAs.self, forKey: .notesPlayAs)).flatMap { $0 }
         notesPlaySeq = (try? c.decodeIfPresent([EuclideousPlayStep].self, forKey: .notesPlaySeq)).flatMap { $0 }   // PLAY AS SEQUENCE: nil (old document) ⇒ the single notesPlayAs as one chip (`notesPlaySeqResolved`)
         // PLAY AS ROWS (2026-11-11): tolerant by construction (`try?`) — a wrong-typed value reads as missing (the §1.9 default), never a whole-session reset. No migration from PLAY AS (§1.10).
