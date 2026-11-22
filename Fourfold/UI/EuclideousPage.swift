@@ -3181,8 +3181,11 @@ struct EuclideousPage: View {
             let sounding = on && audible && notes.contains { $0.outs != 0 && euclideousMixNoteSounds($0, at: nowBeat) }
             // §4: in place of PLAY, a chip of the part's most recent note-on hit (nil ⇒ PLAY). Computed in a helper so this ViewBuilder closure stays `let`s + one view (a bare mutating `if` here fails type inference under the harness compiler).
             let noteChip = partNoteChip(idx: idx, notes: notes, nowBeat: nowBeat, on: on, audible: audible, rail: rail, feed: feed)
+            // RIFF SOURCE ferry §5.1: a reader's PLAY RIFF carries its source lane as a tab (riff part only), so the borrow shows from every tab.
+            let riffSrc = isNotes ? nil : line.riffSourceLaneResolved(ownLane: idx)
             EuclideousPartPlayButton(isNotes: isNotes, accent: accent, on: on, sounding: sounding, noteChip: noteChip,
-                                     railEdge: (on && rail) ? (isNotes ? .bottom : .top) : nil, axLabel: label, heldByHeader: heldByHeader) { cardBackToggle(idx, isNotes ? .notes : .riff) }
+                                     railEdge: (on && rail) ? (isNotes ? .bottom : .top) : nil, axLabel: label, heldByHeader: heldByHeader,
+                                     riffSourceTab: riffSrc, riffSourceTabColor: riffSrc.map { lane100(laneAccents[$0 % laneAccents.count]) } ?? .clear) { cardBackToggle(idx, isNotes ? .notes : .riff) }
         }
         // HEADER MASTER SOLO (Paul 2026-11-21): the button glyph dims to 42 % while JUST this part is solo-silenced (a held PLAY RIFF / PLAY STACK) and the lane still sounds its other part — so the silent part reads as silent on every tab.
         .opacity(partOnlySilenced(idx, part: isNotes ? 1 : 0) ? EuclideousLaneDimStyle.opacity : 1)
@@ -5674,23 +5677,28 @@ struct EuclideousPage: View {
             .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
     }
     /// RIFF v2 §1.5 MOVE band: the three direction icon buttons (over the toggle's width), then ADVANCE EVERY (its own key line now — the old "ADVANCE"/"EVERY" label column is gone), HIT | STEP (one segmented control) and STRIDE. Framed (§4.1); the whole band dims while the riff is off (§1.10).
-    private func riffMoveBand(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
+    private func riffMoveBand(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout, borrowedRoot: EuclidLine? = nil) -> some View {
         let isRiff = line.riffOnResolved
-        let every = line.riffAdvanceEveryResolved
+        // RIFF SOURCE §4: on a reader, direction / ADVANCE EVERY / STRIDE show the ROOT's values, dimmed 42 %, no touch. ALL of this band is borrowed, so the whole band dims + disables. The reader's own values are untouched in the model (§4.2).
+        let reading = borrowedRoot != nil
+        let L = borrowedRoot ?? line
+        let every = L.riffAdvanceEveryResolved
         return riffBandFrame(dim: !isRiff) {
             HStack(spacing: 0) {
-                riffDirectionControl(idx, line, accent)   // §4.1 ONE segmented control in the x4..112 cluster (108 wide)
+                riffDirectionControl(idx, L, accent)   // §4.1 ONE segmented control in the x4..112 cluster (108 wide)
                     .frame(width: 3 * layout.directionButtonWidth + 2 * 3)
                 Spacer().frame(width: 4)   // §1.5 MOVE band gaps 4 (matching NOTES)
-                riffAdvanceEveryTile(idx, line, accent, every: every).frame(width: layout.advanceEveryWidth)   // §4.2 EVERY + HIT|STEP under one key
+                riffAdvanceEveryTile(idx, L, accent, every: every).frame(width: layout.advanceEveryWidth)   // §4.2 EVERY + HIT|STEP under one key
                 Spacer().frame(width: 4)
                 // §1.5 STRIDE fills the band's full content height (41) — no longer the bare 34 pt floater beside ADVANCE EVERY.
-                melodyStepper("STRIDE", value: line.riffStrideResolved, range: 1...7, width: layout.strideWidth, help: "How many riff steps to move per note", height: layout.bandHeight - 8, lane: idx, outline: lockOn(idx, .stride), keyOverValue: true) { v in edit(idx) { $0.riffStride = v } }
+                melodyStepper("STRIDE", value: L.riffStrideResolved, range: 1...7, width: layout.strideWidth, help: "How many riff steps to move per note", height: layout.bandHeight - 8, lane: idx, outline: lockOn(idx, .stride), keyOverValue: true) { v in edit(idx) { $0.riffStride = v } }
                     .frame(width: layout.strideWidth)
-                    .accessibilityElement(children: .ignore).accessibilityLabel("Stride").accessibilityValue(lockSpoken(idx, .stride, "\(line.riffStrideResolved)"))
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Stride").accessibilityValue(lockSpoken(idx, .stride, "\(L.riffStrideResolved)"))
                     .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { $0.riffStride = min(7, line.riffStrideResolved + 1) }; case .decrement: edit(idx) { $0.riffStride = max(1, line.riffStrideResolved - 1) }; @unknown default: break } }
             }
         }
+        .opacity(reading ? EuclideousRiffSourceUI.borrowedDim : 1)   // §4.1 dim
+        .allowsHitTesting(!reading)                                   // §4.1 no touch (§10.3: not enabled; the per-control labels already read the root's values via L)
     }
     /// RIFF v3 §4.2: ADVANCE EVERY as one tile (steppers' fill, radius 10, 4 pt pad) — the key line "ADVANCE EVERY" full width on top, then the EVERY chevron-value-chevron group (54 wide, no key) + HIT|STEP (its own darker container) filling the rest.
     private func riffAdvanceEveryTile(_ idx: Int, _ line: EuclidLine, _ accent: Color, every: Int) -> some View {
@@ -5736,20 +5744,25 @@ struct EuclideousPage: View {
             .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
     /// RIFF v2 §1.6 NOTES band: LEN · SHIFT · TRANS · FLIP NOTES (STRIDE has moved to the MOVE band). Framed (§4.1); the whole band dims while the riff is off (§1.10).
-    private func riffNotesBand(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
+    private func riffNotesBand(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout, borrowedRoot: EuclidLine? = nil) -> some View {
         let isRiff = line.riffOnResolved
+        // RIFF SOURCE §4: LEN and SHIFT are borrowed (root's values, dimmed, no touch); TRANS and FLIP NOTES stay the reader's OWN (§4.3) — so this band dims only its first two steppers, not the whole band.
+        let reading = borrowedRoot != nil
+        let lenL = borrowedRoot ?? line
         let cols = riffPoly ? EuclideousPolyMetrics.columns : 8
-        let n = riffPoly ? line.riffLengthResolved(columns: cols) : line.riffLengthResolved
-        let shift = riffPoly ? line.riffRotateResolved(columns: cols) : line.riffRotateResolved
+        let n = riffPoly ? lenL.riffLengthResolved(columns: cols) : lenL.riffLengthResolved
+        let shift = riffPoly ? lenL.riffRotateResolved(columns: cols) : lenL.riffRotateResolved
         let w = layout.notesCellWidth
         return riffBandFrame(dim: !isRiff) {
             HStack(spacing: 4) {
                 melodyStepper("LEN", value: n, range: 1...cols, width: w, help: "How many riff columns, from SHIFT, the walk loops over", lane: idx, outline: lockOn(idx, .length), keyOverValue: true) { v in edit(idx) { euclideousSetRiffLength(&$0, v) } }
                     .frame(width: w)
+                    .opacity(reading ? EuclideousRiffSourceUI.borrowedDim : 1).allowsHitTesting(!reading)   // §4: LEN borrowed on a reader
                     .accessibilityElement(children: .ignore).accessibilityLabel("Length").accessibilityValue(lockSpoken(idx, .length, "\(n)"))
                     .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { euclideousSetRiffLength(&$0, min(cols, n + 1)) }; case .decrement: edit(idx) { euclideousSetRiffLength(&$0, max(1, n - 1)) }; @unknown default: break } }
                 melodyStepper("SHIFT", value: shift, range: 0...(cols - 1), width: w, help: "Which riff column the walk starts reading from, wrapping at \(cols)", wraps: true, lane: idx, outline: lockOn(idx, .shift), keyOverValue: true) { v in edit(idx) { euclideousSetRiffShift(&$0, v, columns: cols) } }
                     .frame(width: w)
+                    .opacity(reading ? EuclideousRiffSourceUI.borrowedDim : 1).allowsHitTesting(!reading)   // §4: SHIFT borrowed on a reader
                     .accessibilityElement(children: .ignore).accessibilityLabel("Shift").accessibilityHint("Which riff column the walk starts reading from, wrapping at \(cols)").accessibilityValue(lockSpoken(idx, .shift, "\(shift)"))
                     .accessibilityAdjustableAction { dir in switch dir { case .increment: edit(idx) { euclideousSetRiffShift(&$0, (shift + 1) % cols, columns: cols) }; case .decrement: edit(idx) { euclideousSetRiffShift(&$0, (shift + cols - 1) % cols, columns: cols) }; @unknown default: break } }
                 melodyStepper("TRANS", value: line.melodyTransposeResolved, range: -7...7, width: w, help: "Shift every riff note up or down the pool", lane: idx, outline: lockOn(idx, .transpose), keyOverValue: true) { v in edit(idx) { $0.melodyTranspose = v } }
@@ -5821,11 +5834,18 @@ struct EuclideousPage: View {
         let layout = euclideousRiffTabLayout(contentAreaH: contentAreaH, fullWidth: fullWidth, sp4: sp4)
         // LISTEN REBUILT (2026-10-23): RIFF pauses whole under SHADOW or ECHO now (§9.9's `borrowedTabs`), not SHADOW alone.
         let paused = euclideousAnswerBorrowedTabs(line, notesReadsRiff: true).riff   // ANSWER §8.4: PITCH on, SHADOW chosen, CYCLE off — AVOID or a cycling PITCH leaves the tab live
+        // RIFF SOURCE §4: a reader's five walk controls (direction / ADVANCE EVERY / STRIDE / LEN / SHIFT) show the ROOT's values. The root is the first own lane up the chain.
+        let readingRoot: EuclidLine? = {
+            guard line.riffSourceLaneResolved(ownLane: idx) != nil else { return nil }
+            let srcs: [Int?] = (0..<4).map { li in li < lines.count ? lines[li].riffSourceLaneResolved(ownLane: li) : nil }
+            let root = euclideousRiffRootChain(lane: idx, sources: srcs).last ?? idx
+            return root < lines.count ? lines[root] : nil
+        }()
         return ZStack {
             VStack(spacing: layout.rowGap) {   // §1.1: the four rows, 6 apart
                 riffRowA(idx, line, accent, layout: layout)
-                riffMoveBand(idx, line, accent, layout: layout).frame(height: layout.bandHeight)
-                riffNotesBand(idx, line, accent, layout: layout).frame(height: layout.bandHeight)
+                riffMoveBand(idx, line, accent, layout: layout, borrowedRoot: readingRoot).frame(height: layout.bandHeight)
+                riffNotesBand(idx, line, accent, layout: layout, borrowedRoot: readingRoot).frame(height: layout.bandHeight)
                 riffOutputOctaveRow(idx, line, accent, fullWidth: fullWidth - 2 * layout.contentInset)   // §1.7: A–D + OCT as today, inset 4 like Row A
                     .padding(.horizontal, layout.contentInset)
                     .frame(height: layout.outputRowHeight)

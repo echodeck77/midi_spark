@@ -36,6 +36,8 @@ struct EuclideousPartPlayButton: View {
     var target: CGSize? = nil
     var axLabel: String = ""
     var heldByHeader: Bool = false   // HEADER v2 §3.5: this part's master is off while the lane's own part is on — the on-look button fades to 40 % (still tappable; nothing sounds) and VoiceOver says ", held by header"
+    var riffSourceTab: Int? = nil    // RIFF SOURCE ferry §5.1: on the RIFF button of a READER, the source lane (0-based) shown as a small tab after "RIFF". Own ⇒ nil ⇒ unchanged.
+    var riffSourceTabColor: Color = .clear
     let onTap: () -> Void
 
     @GestureState private var pressed = false   // §1.5: filled #2B2D33 while a touch is down, cleared at once on release
@@ -64,7 +66,7 @@ struct EuclideousPartPlayButton: View {
             .transaction { $0.animation = nil }   // §A4.6 looks change at once, with no ease
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(axLabel)
-            .accessibilityValue((on ? "on" : "off") + (heldByHeader ? ", held by header" : ""))   // §6.2 / §7.1 · HEADER v2 §10.4
+            .accessibilityValue((on ? "on" : "off") + (heldByHeader ? ", held by header" : "") + (riffSourceTab.map { ", reading lane \($0 + 1)" } ?? ""))   // §6.2 / §7.1 · HEADER v2 §10.4 · RIFF SOURCE §10.4
             .accessibilityAddTraits(.isButton)
             .ringToggleTrait()
     }
@@ -106,9 +108,18 @@ struct EuclideousPartPlayButton: View {
             .lineLimit(1).frame(height: type.playLineH)
     }
     private var nameText: some View {
-        Text(isNotes ? "STACK" : "RIFF").font(.system(size: type.nameSize, weight: .heavy, design: .monospaced)).tracking(type.nameTracking)
+        let name = Text(isNotes ? "STACK" : "RIFF").font(.system(size: type.nameSize, weight: .heavy, design: .monospaced)).tracking(type.nameTracking)
             .foregroundColor(Color(hex: look.nameHex)).lineLimit(1).truncationMode(.tail)   // §A3.4 truncate, never shrink
-            .fixedSize(horizontal: false, vertical: true).frame(height: type.nameLineH)   // the line box is 1.06 × the size; the glyphs keep their natural height inside it
+            .fixedSize(horizontal: false, vertical: true).frame(height: type.nameLineH)
+        // RIFF SOURCE ferry §5.1: a reader's RIFF button carries the source lane as a small tab after the word, centred as a pair. (§5.2's top-trailing fallback at a tight width is device-owed — flagged.)
+        if let src = riffSourceTab {
+            return AnyView(HStack(spacing: 3) {
+                name
+                Text("\(src + 1)").font(.system(size: 7, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
+                    .frame(width: 11, height: 9).background(RoundedRectangle(cornerRadius: 2).fill(riffSourceTabColor))
+            }.fixedSize())
+        }
+        return AnyView(name)
     }
     private var tileBackground: some View {
         let radius = EuclideousPartPlayLook.tileRadius

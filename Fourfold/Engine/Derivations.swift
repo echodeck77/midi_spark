@@ -2049,6 +2049,7 @@ enum EuclideousRiffSourceUI {
     static let contourH: CGFloat = 20, contourCellH: CGFloat = 2.5, contourColCap: CGFloat = 17, contourGap: CGFloat = 2   // §6.4
     static let litFill: Double = 0.18, unpickableContour: Double = 0.4                        // §6.5 / §6.7
     static let pickerInsetX: CGFloat = 4        // §6.1 x 4 … W−4
+    static let borrowedDim: Double = 0.42       // §4.1 / §12: a reader's borrowed controls
 }
 
 /// §6.2: the four picker row rects (lanes 1–4 top→bottom, `rowGap` apart, equal heights) inside a picker frame of `size`, and
