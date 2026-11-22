@@ -509,6 +509,34 @@ final class RhythmPolishTests: XCTestCase {
         XCTAssertEqual(euclideousFlipHitsPattern(l3), (0..<7).map { cells[$0] }, "flipping an inverted lane gives the plain pattern")
     }
 
+    // FLIP HITS involution at NONZERO OFFSET (Paul 2026-11-22, user: "press twice and it's not back to original"). What the user
+    // actually does: press FLIP (store customHits, patternMiss off), see the EFFECTIVE pattern invert; press again, see it return.
+    // So the round-trip through the engine's own builder — effective → flip → store → effective → flip → store → effective — must
+    // give: press1 = NOT original, press2 = original. Tested across OFFSET (rotate) and several pulses/steps the old fix missed.
+    func testFlipHitsIsInvolutiveThroughTheBuilderAtEveryOffset() {
+        func effective(_ l: EuclidLine) -> [Bool] {
+            let n = max(2, min(16, l.steps))
+            var c = [Bool](repeating: false, count: 16), m = [Double](repeating: 0, count: 16)
+            _ = euclideousBuildHitPatternInto(l, cells: &c, micro: &m)
+            return (0..<n).map { c[$0] }
+        }
+        func pressFlip(_ l: inout EuclidLine) {   // exactly what EuclideousPage.flipHits does to the model
+            let f = euclideousFlipHitsPattern(l); l.customHits = f; l.patternMiss = false; l.pulses = f.filter { $0 }.count
+        }
+        for steps in [7, 8, 16] {
+            for pulses in [1, 3, 5] where pulses <= steps {
+                for rotate in 0..<steps {
+                    var l = EuclidLine(pulses: pulses, steps: steps, noteSel: .all); l.rotate = rotate
+                    let e0 = effective(l)
+                    var l1 = l; pressFlip(&l1); let e1 = effective(l1)
+                    XCTAssertEqual(e1, e0.map { !$0 }, "p=\(pulses) s=\(steps) r=\(rotate): one press is the inverse")
+                    var l2 = l1; pressFlip(&l2); let e2 = effective(l2)
+                    XCTAssertEqual(e2, e0, "p=\(pulses) s=\(steps) r=\(rotate): two presses return to the original")
+                }
+            }
+        }
+    }
+
     // BUG (Paul 2026-11-22): with a non-zero OFFSET, FLIP HITS must still invert what PLAYS and be involutive — the old code
     // stored the post-OFFSET pattern into `customHits`, so the builder rotated it a SECOND time (one press ≠ the inverse,
     // two presses ≠ the original). This simulates what `flipHits` does: customHits = the flip, patternMiss off, OFFSET kept.
