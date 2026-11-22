@@ -5464,7 +5464,8 @@ struct EuclideousPage: View {
             let tick = ringEligible && riffWalkTickActive(idx, cfg: cfg, now: tl.date)
             Canvas { ctx, size in
                 riffDrawWalk(&ctx, size: size, layout: layout, n: P, cfg: cfg, len: len, stepRanks: stepRanks, accent: accent,
-                             isRiff: isRiff, playing: ringEligible, trail: trail, liveCurrent: liveCur)
+                             isRiff: isRiff, playing: ringEligible, trail: trail, liveCurrent: liveCur,
+                             sourceColor: line.riffSourceLaneResolved(ownLane: idx).map { lane100(laneAccents[$0 % laneAccents.count]) })   // §3.6/§3.11: the DIRECT source's colour (nil = own)
             }
             // RIFF v4 §3.4: the reset tick — a 2 pt lane bar in the 8 pt tile↔walk gap (body x 4+T+3 = the walk's leading edge − 5),
             // the grid's height and y. Drawn as an un-clipped overlay LEFT of the Canvas so no column has to move for it.
@@ -5493,7 +5494,7 @@ struct EuclideousPage: View {
     }
     /// §3: draw the walk rank grid into the strip. Columns from `euclideousRiffWalkGrid`, rows from the shared §1.4 geometry.
     private func riffDrawWalk(_ ctx: inout GraphicsContext, size: CGSize, layout: EuclideousRiffTabLayout, n: Int, cfg: EuclideousWalkLaneConfig?, len: Int,
-                              stepRanks: [Int], accent: Color, isRiff: Bool, playing: Bool, trail: EuclideousRiffWalkTrail, liveCurrent: Int) {
+                              stepRanks: [Int], accent: Color, isRiff: Bool, playing: Bool, trail: EuclideousRiffWalkTrail, liveCurrent: Int, sourceColor: Color? = nil) {
         let grid = euclideousRiffWalkGrid(n: n, innerWidth: size.width)
         let cell = layout.gridCell, gap = layout.gridGap, w = grid.columnWidth
         let unlit = Color(hex: euclideousRiffWalkUnlitHex)   // RIFF v4 §3.2: unlit cells nearly the card colour (was #22232A)
@@ -5510,10 +5511,12 @@ struct EuclideousPage: View {
                 let rect = CGRect(x: x, y: layout.gridTop + CGFloat(8 - r) * (cell + gap), width: w, height: cell)
                 let p = RoundedRectangle(cornerRadius: 1).path(in: rect)
                 if r == litRow {
+                    // RIFF SOURCE §3.11: on a reader, the FIRST entry's lit cell takes the SOURCE's colour wherever the reader's would be used — except the sounding (white) look, which stays. The source is the DIRECT source (the tile's tab).
+                    let cellLane = (i == 0 && sourceColor != nil && !(playing && st == .current)) ? sourceColor! : lane
                     if playing && st == .skipped {
-                        ctx.stroke(RoundedRectangle(cornerRadius: 1).path(in: rect.insetBy(dx: 0.5, dy: 0.5)), with: .color(lane.opacity(0.32)), lineWidth: 1)   // RIFF v4 §3.3 skipped: a faint 1 pt hollow outline (was 1.5 pt @ 0.7)
+                        ctx.stroke(RoundedRectangle(cornerRadius: 1).path(in: rect.insetBy(dx: 0.5, dy: 0.5)), with: .color(cellLane.opacity(0.32)), lineWidth: 1)   // RIFF v4 §3.3 skipped: a faint 1 pt hollow outline (§3.11: the first cell's stroke in the source colour)
                     } else {
-                        ctx.fill(p, with: .color(riffWalkLitColour(st, isRiff: isRiff, playing: playing, lane: lane)))
+                        ctx.fill(p, with: .color(riffWalkLitColour(st, isRiff: isRiff, playing: playing, lane: cellLane)))
                     }
                 } else {
                     ctx.fill(p, with: .color(unlit))
@@ -5522,7 +5525,8 @@ struct EuclideousPage: View {
             // §3.2/§3.5: the column number in the label line (a lane100 border box on the current entry)
             let labelRect = CGRect(x: x, y: layout.labelTop, width: w, height: layout.labelHeight)
             if playing && st == .current {
-                ctx.stroke(RoundedRectangle(cornerRadius: 3).path(in: labelRect), with: .color(lane), lineWidth: 1)
+                // RIFF SOURCE §3.6: on a reader the current entry IS where the SOURCE's latest hit read (the walk tracks the root) — box its number in the SOURCE's lane100.
+                ctx.stroke(RoundedRectangle(cornerRadius: 3).path(in: labelRect), with: .color(sourceColor ?? lane), lineWidth: 1)
             }
             let numColour = riffWalkNumberColour(st, isRiff: isRiff, playing: playing)
             let txt = ctx.resolve(Text("\(col + 1)").font(.system(size: 9, weight: .heavy, design: .monospaced)).foregroundColor(numColour))
