@@ -5199,6 +5199,7 @@ struct EuclideousEuclidTabLayout: Equatable {
     var half: CGFloat, col: CGFloat     // Row A's halves and the stepper-column width
     var hitsCol: CGRect, stepsCol: CGRect
     var offset: CGRect, tilt: CGRect
+    var from: CGRect                    // EUCLID FROM §1.3: as tall as the HITS − button (36), bottom level with it (y = A − 36)
     var g: CGFloat                      // a lower-grid column's width
     var groupX: [CGFloat]               // the three group origins (x)
     var rowBY: CGFloat, rowCY: CGFloat  // Row B / Row C top y
@@ -5224,18 +5225,37 @@ func euclideousEuclidTabLayout(W: CGFloat, H: CGFloat) -> EuclideousEuclidTabLay
     let hitsCol = CGRect(x: 0, y: 0, width: col, height: A)
     let stepsCol = CGRect(x: col + 4, y: 0, width: col, height: A)
     let rightX = half + 4, rightW = max(1, W - half - 4)
-    let sliderH = max(1, (A - 4) / 2)
+    // EUCLID FROM §1.3: FROM is 36 tall (the HITS − button's height) at the bottom (y = A − 36); OFFSET then TILT split the
+    // rest equally — each (A − 36 − 8)/2, with two sp4 gaps between OFFSET|TILT|FROM (50.5 at the landscape A 145).
+    let fromH: CGFloat = L.plusMinusH
+    let sliderH = max(1, (A - fromH - 8) / 2)
     let offset = CGRect(x: rightX, y: 0, width: rightW, height: sliderH)
-    let tilt = CGRect(x: rightX, y: (A - 4) / 2 + 4, width: rightW, height: sliderH)
+    let tilt = CGRect(x: rightX, y: sliderH + 4, width: rightW, height: sliderH)
+    let from = CGRect(x: rightX, y: A - fromH, width: rightW, height: fromH)
     let g = max(1, (W - 34) / 9)
     let groupX: [CGFloat] = [0, 3 * g + 14, 6 * g + 28]
     var floors: [String] = []
     if A < 132 { floors.append("A") }
     if A - 80 < 52 { floors.append("valueBox") }
+    if sliderH < 44 { floors.append("offsetTilt") }   // §1.5: flag an OFFSET/TILT height under 44 (50.5 at the reference)
     if g < 34 { floors.append("g") }
     if L.tileH < 36 { floors.append("tile") }
-    return EuclideousEuclidTabLayout(A: A, half: half, col: col, hitsCol: hitsCol, stepsCol: stepsCol, offset: offset, tilt: tilt,
+    return EuclideousEuclidTabLayout(A: A, half: half, col: col, hitsCol: hitsCol, stepsCol: stepsCol, offset: offset, tilt: tilt, from: from,
                                      g: g, groupX: groupX, rowBY: A + 6, rowCY: A + 48, rowH: L.tileH, floors: floors)
+}
+
+/// EUCLID FROM §5.1-5.2: the FROM row's key rect and one chip rect per OTHER lane (in lane order), in row-local coordinates.
+/// `keyWidth` is the "FROM" label's own width plus OFFSET's label inset (the view measures/sets it). Chips are `gap` (3) apart,
+/// equal, full row height, filling to the trailing edge. Pure, allocation-light.
+func euclideousEuclidFromRowLayout(size: CGSize, keyWidth: CGFloat, chipCount: Int = 3) -> (key: CGRect, chips: [CGRect]) {
+    let gap: CGFloat = 3
+    let keyW = max(1, min(keyWidth, size.width))
+    let key = CGRect(x: 0, y: 0, width: keyW, height: size.height)
+    let n = max(1, chipCount)
+    let chipsX = keyW + gap
+    let w = max(1, (size.width - chipsX - gap * CGFloat(n - 1)) / CGFloat(n))
+    let chips = (0..<n).map { CGRect(x: chipsX + CGFloat($0) * (w + gap), y: 0, width: w, height: size.height) }
+    return (key, chips)
 }
 
 // MARK: - RESTART EDITOR LAYOUT (RESTART TILES ferry, 2026-10-22, §3) — each section is the chain row and the tile's own live strip

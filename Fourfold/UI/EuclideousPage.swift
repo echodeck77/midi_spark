@@ -3397,6 +3397,7 @@ struct EuclideousPage: View {
             euclidV2Place(euclidV2Steps(idx, line, accent, size: L.stepsCol.size), L.stepsCol)
             euclidV2Place(euclidV2Offset(idx, line, accent, size: L.offset.size), L.offset)
             euclidV2Place(euclidV2Tilt(idx, line, accent, size: L.tilt.size), L.tilt)
+            euclidV2Place(euclidV2FromRow(idx, line, accent, size: L.from.size), L.from)   // EUCLID FROM §5
             // Row B: columns 0–5 the six rate divisions, 6–8 EVEN / DOT / TRIP.
             ForEach(0..<9, id: \.self) { i in euclidV2Place(euclidV2RowBTile(idx, line, accent, i: i, size: L.colTile(i, y: L.rowBY).size), L.colTile(i, y: L.rowBY)) }
             // Row C: columns 0–2 the three directions, group 1 (cols 4–6) FLIP HITS, group 2 (cols 7–9) LET RING.
@@ -3408,6 +3409,53 @@ struct EuclideousPage: View {
     }
     /// Place a fully-built (framed + gestured) leaf at its frame — the gesture lives INSIDE the leaf, so the `.offset` here moves the hit area with it ([[feedback_swiftui-offset-before-gesture]]).
     private func euclidV2Place(_ v: AnyView, _ f: CGRect) -> some View { v.offset(x: f.minX, y: f.minY) }
+
+    /// EUCLID FROM §5: the FROM row under OFFSET/TILT — a "FROM" key (OFFSET's label style) then one chip per OTHER lane in
+    /// lane order. Tap an unlit chip to follow it (relative offset 0); tap the lit one to stop. A chip whose lane already
+    /// follows THIS one is LOCKED (§5.5, `euclideousFromFollowsChain`) and ignores taps, so no loop can be made.
+    private func euclidV2FromRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
+        let others = (0..<4).filter { $0 != idx }
+        let keyW: CGFloat = 38   // "FROM" at 10 pt mono + OFFSET's 10 pt label inset (device-owed; see §12)
+        let lay = euclideousEuclidFromRowLayout(size: size, keyWidth: keyW, chipCount: others.count)
+        let current = line.euclidFromResolved(ownLane: idx)
+        return AnyView(ZStack(alignment: .topLeading) {
+            Text("FROM").font(.system(size: 10, weight: .medium, design: .monospaced)).tracking(0.8)
+                .foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1)
+                .frame(width: lay.key.width, height: lay.key.height, alignment: .leading)
+                .offset(x: lay.key.minX, y: lay.key.minY)
+            ForEach(Array(others.enumerated()), id: \.element) { pair in
+                let oL = pair.element, f = lay.chips[pair.offset]
+                euclidV2FromChip(idx: idx, otherLane: oL, lit: current == oL,
+                                 locked: euclideousFromFollowsChain(lines, oL, idx), size: f.size)
+                    .offset(x: f.minX, y: f.minY)
+            }
+        }.frame(width: size.width, height: size.height, alignment: .topLeading))
+    }
+    /// §5.2/§5.4/§5.5: one FROM chip — an 8 pt lane-colour dot + the lane number, the pair centred. Lit = the rate buttons'
+    /// selected look (#DFE3EA fill + #0D0F14 ink), the dot keeping its lane colour; locked = no fill, a 1 pt dashed #3A3E47
+    /// border, number #4A4E57, the dot at 40 %, no taps.
+    private func euclidV2FromChip(idx: Int, otherLane oL: Int, lit: Bool, locked: Bool, size: CGSize) -> AnyView {
+        let laneC = laneAccents[oL % laneAccents.count]
+        let face = HStack(spacing: 5) {
+            Circle().fill(laneC.opacity(locked ? 0.4 : 1)).frame(width: 8, height: 8)
+            Text("\(oL + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1)
+                .foregroundColor(locked ? Color(hex: 0x4A4E57) : Color(hex: FourfoldSelect.switchInk(lit)))
+        }
+        .frame(width: size.width, height: size.height)
+        .background(RoundedRectangle(cornerRadius: 7).fill(locked ? Color.clear : (lit ? Color(hex: FourfoldStyle.selectedFill) : patternUnselectedFill)))
+        .overlay { if locked { RoundedRectangle(cornerRadius: 7).strokeBorder(Color(hex: 0x3A3E47), style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
+        .contentShape(Rectangle())
+        let axLabel = "Lane \(oL + 1)" + (locked ? ", follows you" : "")
+        let tapped = AnyView(face.onTapGesture {
+            if lit { edit(idx) { $0.euclidFrom = nil; $0.euclidFromOffset = nil } }       // §5.3: stop following
+            else { edit(idx) { $0.euclidFrom = oL; $0.euclidFromOffset = 0 } }             // §5.3: follow, relative offset 0
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(axLabel)
+        .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton))
+        // §5.5: a locked chip ignores taps and reads dimmed.
+        return locked ? AnyView(face.allowsHitTesting(false).accessibilityElement(children: .ignore).accessibilityLabel(axLabel)) : tapped
+    }
 
     /// §2.1: HITS — the new stepper in `lane100` (the one place on the tab, with OFFSET/TILT, the lane colour shows). Same commit funnel as the fader (`euclideousSliderCommit(.hits, snapshot:)` via `edit(idx,)`).
     private func euclidV2Hits(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {

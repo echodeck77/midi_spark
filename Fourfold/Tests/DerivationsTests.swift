@@ -2962,4 +2962,26 @@ final class EuclidFromTests: XCTestCase {
         XCTAssertEqual(euclideousSpeedRatioVoiceOver(sourceBeats: ArpRate.r1_8.beats, followerBeats: ArpRate.r1_16.beats), "double speed")
         XCTAssertEqual(euclideousSpeedRatioVoiceOver(sourceBeats: ArpRate.r1_8.beats, followerBeats: ArpRate.r1_8t.beats), "3 over 2 speed")
     }
+
+    // §10.1: the FROM row sits under OFFSET+TILT; FROM's bottom lines up with the HITS − button; OFFSET and TILT stay equal.
+    func testEuclidTabLayoutMakesRoomForFrom() {
+        for (W, H) in [(360.67, 229.0), (367.0, 229.67)] {
+            let L = euclideousEuclidTabLayout(W: CGFloat(W), H: CGFloat(H))
+            // HITS / STEPS columns are the same math as before (left half untouched).
+            XCTAssertEqual(L.hitsCol, CGRect(x: 0, y: 0, width: L.col, height: L.A))
+            XCTAssertEqual(L.stepsCol, CGRect(x: L.col + 4, y: 0, width: L.col, height: L.A))
+            // FROM is 36 tall and its bottom equals the HITS − button's bottom (both A).
+            XCTAssertEqual(L.from.height, 36, accuracy: 1e-9)
+            XCTAssertEqual(L.from.maxY, L.A, accuracy: 1e-9)
+            XCTAssertEqual(L.from.maxY, L.stepperMinus(L.hitsCol).maxY, accuracy: 1e-9)
+            // OFFSET and TILT are equal height and, with FROM and two sp4 gaps, fill Row A.
+            XCTAssertEqual(L.offset.height, L.tilt.height, accuracy: 1e-9)
+            XCTAssertEqual(L.offset.height + L.tilt.height + L.from.height + 8, L.A, accuracy: 1e-9)
+            XCTAssertEqual(L.offset.minY, 0, accuracy: 1e-9)
+            XCTAssertEqual(L.tilt.minY, L.offset.maxY + 4, accuracy: 1e-9)
+            XCTAssertEqual(L.from.minY, L.tilt.maxY + 4, accuracy: 1e-9)
+            XCTAssertGreaterThanOrEqual(L.offset.height, 44, "§1.5: OFFSET/TILT stay ≥ 44 at the reference (≈50.5)")
+            XCTAssertFalse(L.floors.contains("offsetTilt"))
+        }
+    }
 }
