@@ -12360,6 +12360,20 @@ against the reader's own rhythm; STATELESS (the borrowed column is a pure functi
 - **Landed in slices:** model `9f7ccac` · pure `9534877` · engine `f9908ad` → `f311f10`; tile+picker `2c235cd`; borrowed controls +
   PLAY RIFF tab `ad91d5f`; walk strip `4155edd`; +§6.9. Tests: `RiffSourceTests` (model/normalise/canRead/canvas-case/picker),
   `RouterTests.testRiffSourceReaderPlaysTheSourcesNotesAndTransposes`.
-- **REMAINING (device-owed painter + one engine edge — follow-ups in pending-tasks):** §3.6 source marker, §3.7 caught/missed trail,
-  §3.11 first-cell source colour; §9 the predictive walk-tag THREAD + lane-strip chip re-derivation on a reader; §7.6 the engine
-  look-back (REPEAT / TIE-lookahead / footer / grid-marker prediction) still reads the reader's own walk, not position(source).
+- **REMAINING (device-owed painter + one engine edge — follow-ups in pending-tasks):** §3.7 caught/missed trail; §7.6 the engine
+  look-back (TIE-lookahead / footer / grid-marker prediction) still reads the reader's own walk, not position(source).
+- **§9 LANE-STRIP CHIP RE-DERIVATION + MUTE-ROLL PREDICTION (2026-11-22, Paul's own direct ask: "if a lane is playing a rank from
+  another lane's riff, then when the hit is shown on the euclid lane itself, it should [be] in that colour. the mutes grid shows the
+  predicted output, but this isn't accurate when one lane is following another").** Two display mirrors now show the BORROWED column,
+  not the reader's own (inert) walk, using the SAME `euclideousRiffSourceColumn` the Router strikes from (over display-side
+  `HocketLaneClock`s built on the main thread from each lane's walk config — `euclideousDisplayRiffClocks`; no `delay` array, which the
+  riff-source path never reads). (1) **The LANE CARD strip** (`laneStripPlan`): a reader's `prediction` columns are replaced per hit with
+  `position(source, hit's beat) + 1` (nil borrow, §7.3 ⇒ column 0, a rhythm hit that strikes no riff note), so the banded strip's riff
+  chips + rank marks sit at the right ranks AND wear the SOURCE lane's colour (`EuclideousStripPlan.riffSourceColor` →
+  `EuclideousStripBandInput` → `drawLaneStripBands` overrides the riff-map colour with `.rgb(source lane)`, §3.11 extended from the walk
+  strip to the card). (2) **The MUTE roll** (`laneGhostPlans` → `euclideousLaneRollHits(borrowedColumn:)`): a reader's upcoming ghost
+  reads the borrowed column, so the predicted pitch is the one that will EMIT. All MONO; a POLY reader (page-level MONO|POLY) keeps the
+  old own-walk look (device-owed, `riffSourceColumn0`/`riffSourceColorRGB` return nil under POLY). On-rest REPEAT's repeated note on a
+  reader's card strip is still the own-walk look (§7.6, device-owed). Byte-identical for an own lane (`borrowedColumn`/`riffSourceColor`
+  nil ⇒ the exact old expressions); `euclideousLaneRollHits`'s default-nil override is byte-identical for every existing caller / the
+  golden harness (a display function, never on the render path). Looks are device-owed.

@@ -8005,7 +8005,7 @@ struct EuclideousRollHit: Equatable {
 /// FILL hit (it strikes the lane's own NOTE pick, which the rank axis cannot show) — those draw as rests (rank 0).
 /// AVOID's time-based holes (rebuilt 2026-11-01) are likewise NOT predicted here: a hit the source silences still draws (device-owed).
 func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double, windowBeats: Double, minGateBeats: Double,
-                            poly: PolyRiffSnap? = nil,
+                            poly: PolyRiffSnap? = nil, borrowedColumn: ((_ beat: Double) -> Int?)? = nil,
                             rankAt: (_ column: Int, _ beat: Double) -> Int) -> [EuclideousRollHit] {
     guard c.sub > 0, c.n > 0, windowBeats > 0 else { return [] }
     let cycleLen = euclidCycleLen(c.dir, n: c.n)
@@ -8023,12 +8023,22 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
         // RHYTHM POLISH: the hit sounds its delay into the cell — everything below is asked at THAT time, as the Router asks it.
         let hitBeat = c.timing.isNone ? beat : beat + c.timing.delaySteps(raw: euclideousLaneChainPhase(buf: c.buf, n: c.n, dir: c.dir, cycleLen: cycleLen, sub: c.sub, tick: tick,
                                                                                                          chains: c.chains, legacySpanBeats: c.spanBeats).raw) * c.sub
+        // RIFF SOURCE ferry (§7.1/§7.3, display mirror): a READER borrows its SOURCE's column at this hit's beat (`borrowedColumn`,
+        // = the Router's `euclideousRiffSourceColumn`), then plays it through this lane's own grid/ranks below — so the roll predicts
+        // the pitch that will actually EMIT, not the reader's own (inert) walk column. A nil borrow (the source has no hit yet, §7.3)
+        // rests the riff part (no note, no on-rest), the reader's own RHYTHM (`w.strikes`) unchanged. nil override (an own lane) ⇒
+        // `w.playedStep`, byte-identical.
+        var playedStep = w.playedStep
+        var readerRest = false
+        if let bc = borrowedColumn {
+            if let b = bc(hitBeat) { playedStep = b } else { readerRest = true; playedStep = 0 }
+        }
         // The SAME decision the Router makes per hit (§2.3): the column the walk reads, the written rank there, the pass index, then `euclideousFXApply`.
-        let written = c.riffOn ? rankAt(w.playedStep, hitBeat) : 0
+        let written = (c.riffOn && !readerRest) ? rankAt(playedStep, hitBeat) : 0
         var fxHit = EuclideousFXHit()
-        if fxLive {
+        if fxLive && !readerRest {
             let pass = laneHasNoteFX ? euclideousFXNotePassForTick(c, tick: tick, advOrd: w.advOrd) : 0   // the Router's own function (REVIEW FIX 2026-10-23)
-            fxHit = euclideousFXApply(c.fx, lane: c.lane, playsRiff: true, column: w.playedStep, writtenRank: written, pass: pass)
+            fxHit = euclideousFXApply(c.fx, lane: c.lane, playsRiff: true, column: playedStep, writtenRank: written, pass: pass)
         }
         if fxHit.tie { continue }                      // a tied hit does not strike: no bar of its own (the previous bar's length covers it)
         var rank = 0
@@ -8044,7 +8054,7 @@ func euclideousLaneRollHits(cfg c: EuclideousWalkLaneConfig, windowStart: Double
         if let poly, c.riffOn {
             let audible = euclideousLaneAudible(beat: hitBeat, cells16: c.muteCells, unitBeats: c.muteUnitBeats)
             var any = false
-            let starts = poly.triggerNotes(w.playedStep, euclideousPolyTrigger(cfg: c, ordinal: w.advOrd))
+            let starts = poly.triggerNotes(playedStep, euclideousPolyTrigger(cfg: c, ordinal: w.advOrd))
             var times: [Double] = [], found = 0, restartIndex = 0
             if !c.advanceStep {   // the Router's own single scan per hit (`euclideousPolyHitTimes`), shared by every note of the column
                 let maxAhead = starts.reduce(0) { max($0, euclideousPolyHitsAhead(len: $1.len, every: c.every)) }

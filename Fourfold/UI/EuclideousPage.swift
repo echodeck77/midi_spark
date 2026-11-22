@@ -2573,6 +2573,15 @@ struct EuclideousPage: View {
         } else if layerOn, let cfg {
             lapStartTick = euclideousLapStart(cfg: cfg, beat: stripBeat, rate: stripRate)?.lapStartTick   // the keys' count k needs the pass's ticks even with the riff off
         }
+        // RIFF SOURCE ferry (§9): a READER's strip shows the column it BORROWS from its source — not its own (inert) walk. Replace each
+        // predicted hit's column with position(source, that hit's beat) + 1 (the 1-based column the footers use), the SAME
+        // `euclideousRiffSourceColumn` the Router strikes from; a nil borrow (the source has no hit yet, §7.3) becomes column 0 — a
+        // rhythm hit that strikes no riff note (no chip), the notes layer still runs. MONO only (the lookup is nil under POLY); the
+        // reader's own RHYTHM (`hitSteps`) is untouched. On-rest REPEAT's repeated note on a reader is still the own-walk look (§7.6, device-owed).
+        if let lst = lapStartTick, let cfg, var p = prediction, let bc = riffSourceColumn0(idx) {
+            for i in hitSteps.indices where i < p.count { p[i] = bc(Double(lst + Int64(hitSteps[i].tick)) * cfg.sub).map { $0 + 1 } ?? 0 }
+            prediction = p
+        }
         // riff off with nothing lit: every step is a `.miss` ("nothing will sound"); a hit an FX TIE cell applies to reads as a hit on a tied rest
         let ranks = effectiveGridRanks
         var pattern = [Bool](repeating: false, count: steps)
@@ -2620,7 +2629,8 @@ struct EuclideousPage: View {
         return EuclideousStripPlan(legs: legs, sweepLength: steps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase, hocketRules: hocketRules, hocketLive: hocketLive, lane: idx,
                                    notesGaps: line.notesGapsResolved,   // STACK WHEN §6.1: the footer places a gap stack under its own step
                                    riffPartOn: !euclideousMixLayerIsOff(line, notes: false), notesPartOn: !euclideousMixLayerIsOff(line, notes: true), altHitSteps: altHitSteps,
-                                   displayScale: pageFitScale)   // LANE STRIP CLARITY §1.1: the strip's slim decision is on-screen width
+                                   displayScale: pageFitScale,   // LANE STRIP CLARITY §1.1: the strip's slim decision is on-screen width
+                                   riffSourceColor: riffSourceColorRGB(idx))   // RIFF SOURCE §9: a reader's chips wear its source lane's colour
     }
     /// A pitch named the way the riff grid names its rows (`riffNoteLabelColumn`): C4, A♭3 — spelled relative to what is held for MIDI IN / CHORDS, from the key for KEY.
     private func stripNoteName(_ p: Int) -> String {
@@ -8637,6 +8647,36 @@ struct EuclideousPage: View {
         }
         return out
     }
+    /// RIFF SOURCE ferry (§9): the four lanes' walk CLOCKS as the render thread's `euclideousRiffClocks` capture them — built on the
+    /// main thread from each lane's display walk config (no `delay` array: `euclideousRiffSourceColumn` reads only the hit test + the
+    /// walk, never the delay). Reused by the lane strip's chip re-derivation and the MUTE roll's ghost prediction so both show the
+    /// column a READER actually borrows. Only built when a reader exists (the callers guard first).
+    private func euclideousDisplayRiffClocks() -> [HocketLaneClock] {
+        (0..<4).map { li in
+            var clk = HocketLaneClock()
+            guard li < lines.count, let c = riffWalkConfig(li) else { return clk }   // invalid clock (valid == false) ⇒ `euclideousRiffSourceColumn` yields nil (a rest)
+            clk.capture(cells: c.buf, delays: [], timing: false, n: c.n, dir: c.dir, cycleLen: euclidCycleLen(c.dir, n: c.n), sub: c.sub, chains: c.chains, legacySpanBeats: c.spanBeats)
+            let src = lines[li].riffSourceLaneResolved(ownLane: li) ?? -1
+            clk.captureRiff(dir: c.riffDir, length: c.length, stride: c.stride, rotate: c.rotate, every: c.every, columns: c.columns, seed: c.seed, source: src)
+            return clk
+        }
+    }
+    /// RIFF SOURCE ferry (§9): for a READER lane, a closure giving the 0-based riff COLUMN it borrows from its source at a hit's musical
+    /// beat (the Router's own `euclideousRiffSourceColumn`, over the display clocks); nil ⇒ the source has no hit yet (§7.3, the riff
+    /// rests). nil for an OWN lane or while POLY is on (the reader strip/roll re-derivation is MONO — a POLY reader stays the old,
+    /// own-walk look, device-owed). The caller adds 1 for the 1-based column the footers/prediction use.
+    private func riffSourceColumn0(_ idx: Int) -> ((Double) -> Int?)? {
+        guard !riffPoly, idx >= 0, idx < lines.count, let src = lines[idx].riffSourceLaneResolved(ownLane: idx) else { return nil }
+        let clocks = euclideousDisplayRiffClocks()
+        return { beat in euclideousRiffSourceColumn(clocks: clocks, lane: src, beat: beat) }
+    }
+    /// RIFF SOURCE ferry (§3.11/§9): the DIRECT source lane's colour for a reader's strip chips (nil ⇒ own). The same four lane hexes the
+    /// walk strip's §3.11 marker uses (`laneAccents` == `HocketPalette.lane`), as the `EuclideousRGB` the band painter fills chips with.
+    private func riffSourceColorRGB(_ idx: Int) -> EuclideousRGB? {
+        guard !riffPoly, idx >= 0, idx < lines.count, let src = lines[idx].riffSourceLaneResolved(ownLane: idx) else { return nil }
+        let h = HocketPalette.lane100(src).hex
+        return EuclideousRGB(r: Int((h >> 16) & 0xFF), g: Int((h >> 8) & 0xFF), b: Int(h & 0xFF))
+    }
     private func riffWalkConfig(_ idx: Int) -> EuclideousWalkLaneConfig? {
         guard idx >= 0, idx < lines.count else { return nil }
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
@@ -8967,6 +9007,7 @@ struct EuclideousPage: View {
             let tie = poly == nil && l.riffOnRestResolved == .tie   // only MONO TIE carries the riff pitch across a rest (POLY uses length, ON REST is SKIP)
             let gateRatio = cfg.gate > 0.001 ? l.notesGateResolved / cfg.gate : 1   // the notes length scales from the riff gate the roll mirror used to the notes gate
             let hits = euclideousLaneRollHits(cfg: cfg, windowStart: from, windowBeats: windowEnd - from, minGateBeats: 0.01, poly: poly,
+                                              borrowedColumn: riffSourceColumn0(lane),   // RIFF SOURCE §9: a reader's roll predicts the column it BORROWS, so the pitch it will EMIT is right
                                               rankAt: { col, _ in col >= 0 && col < ranks.count ? ranks[col] : 0 })
             var ghostHits: [EuclideousGhostHit] = []
             var held: UInt8? = nil   // the riff pitch currently held across tied rests, tracked forward (nil at the window edge — the one boundary we cannot see)

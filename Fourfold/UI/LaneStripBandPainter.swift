@@ -44,6 +44,9 @@ struct EuclideousStripBandInput {
     /// LANE STRIP CLARITY §5.1: the lane whose hit COLOUR the cells take (the CARD's lane — under an ANSWER trade the strip
     /// shows the partner's plan in the card's own colour, so this is the card index, not the plan's).
     var hitColourLane: Int = 0
+    /// RIFF SOURCE ferry (§9): a READER lane's riff chips + rank marks take the SOURCE lane's colour (§3.11 on the card
+    /// strip), in place of the borrowed cell's riff-map colour — so the chip says the line comes from the source. nil ⇒ own.
+    var riffSourceColor: EuclideousRGB? = nil
 }
 
 /// §5.4: the faint CC trace — a 1 pt line, a 3 pt dot at each hit's value, a 4 pt dot at the playhead. Over the cells,
@@ -134,11 +137,13 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
         let riffChip = riffFrac > 0 ? d.hits[i].chip : nil
         let riffSounds = riffRing(i)
         if let chip = riffChip {
+            // RIFF SOURCE §9: a reader's rank marks are the SOURCE lane's colour, not the borrowed cell's map colour.
+            let riffRestColour: (Int) -> Color = { rank in d.riffSourceColor.map { Color($0) } ?? Color(riffMapColour(column: chip.column, rank: rank)) }
             laneStripDrawRankMark(&ctx, cell: cell, hC: d.frames.bands.hC, rank: chip.rank, part: .riff,
-                                  restColour: Color(riffMapColour(column: chip.column, rank: chip.rank)), sounding: riffSounds)
+                                  restColour: riffRestColour(chip.rank), sounding: riffSounds)
             for extra in d.hits[i].extraRanks {   // POLY: the other riff notes started on this column
                 laneStripDrawRankMark(&ctx, cell: cell, hC: d.frames.bands.hC, rank: extra, part: .riff,
-                                      restColour: Color(riffMapColour(column: chip.column, rank: extra)), sounding: riffSounds)
+                                      restColour: riffRestColour(extra), sounding: riffSounds)
             }
         }
         if stackFrac > 0 {
@@ -160,8 +165,10 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     if riffFrac > 0 {
         for i in 0..<n where i < d.hits.count {
             guard let chip = d.hits[i].chip else { continue }
+            // RIFF SOURCE §9: a reader's header chip is the SOURCE lane's colour; an own lane keeps the riff-map colour of the cell it plays.
+            let fill: LaneStripChipFill = d.riffSourceColor.map { .rgb($0) } ?? .map(riffMapColour(column: chip.column, rank: chip.rank))
             laneStripDrawChip(&ctx, slot: d.frames.header[i], steps: d.steps,
-                              fill: .map(riffMapColour(column: chip.column, rank: chip.rank)),
+                              fill: fill,
                               label: "\(chip.column)", hollow: chip.hollow, sounding: riffRing(i), opacity: riffFrac, slim: d.frames.slim)
         }
     }

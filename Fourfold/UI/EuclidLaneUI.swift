@@ -556,7 +556,8 @@ struct EuclidCometBar: View {
                     let cellDim: Double = (cellsOnlyDim && !mutedNow && !suppressMuteDim) ? EuclideousLaneDimStyle.opacity : 1
                     drawLaneStripBands(&ctx, EuclideousStripBandInput(frames: bandFrames, hits: strip.legs[stripLeg].hits, steps: n, laneIndex: strip.lane, tint: tint, stripWidth: size.width, playheadStep: playheadStep,
                                                                        sounding: sounding, cc: ccTrace, riffShown: strip.riffPartOn, notesShown: strip.notesPartOn, cellDim: cellDim, altHitSteps: strip.altHitSteps,
-                                                                       hitColourLane: pulseLane))   // CLARITY §5.1: the CARD's lane picks the hit colour (an ANSWER trade keeps the card's own colour)
+                                                                       hitColourLane: pulseLane,   // CLARITY §5.1: the CARD's lane picks the hit colour (an ANSWER trade keeps the card's own colour)
+                                                                       riffSourceColor: strip.riffSourceColor))   // RIFF SOURCE §9: a reader's chips take its source lane's colour
                     return
                 }
                 // BOX CONTENT IS DIRECTION-INDEPENDENT — box `i` always shows `buf[i]`, the raw pattern buffer at

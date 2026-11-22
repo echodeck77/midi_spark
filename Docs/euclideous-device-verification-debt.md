@@ -1098,3 +1098,8 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   by and its rows are easy to hit; FOLLOWS YOU is legible at 8 pt; the dimmed borrowed controls read as "someone else's", not broken;
   a reader's walk strip (the root's walk in the reader's colour) is not confusing; setting lane 3 to read lane 2 SOUNDS like lane 2's
   line in lane 3's rhythm (unison / parallel at TRANS / mirrored at FLIP); muting lane 2 leaves lane 3 playing; back-to-own restores.
+- RIFF SOURCE §9 lane-strip + mute-roll (2026-11-22): on a READER's lane CARD, the riff chips sit at the borrowed ranks (what actually
+  sounds, matching the source's line) AND are drawn in the SOURCE lane's colour — it reads clearly as "this lane is playing lane X's
+  line", the source colour is distinguishable from the reader's own, and the current-chip ring (the reader's own colour) still tracks.
+  On the MUTE tab, a reader's upcoming GHOSTS now land on the borrowed pitch (so the predicted roll matches what the output emits). The
+  nil-borrow gap (before the source's first hit) draws as a no-chip rhythm hit, not a wrong note. POLY readers keep the own-walk look.

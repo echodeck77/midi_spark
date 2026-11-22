@@ -2341,13 +2341,14 @@ Decide the portrait behaviour first; the structural change follows.
   `euclideousNotesChance*` pure functions, kept for their own tests) in a later cleanup.
 
 ## RIFF SOURCE ferry follow-ups (2026-11-22) — the feature is landed and usable; these are the device-owed painter polish + one engine edge
-- §3.6/§3.7/§3.11 the reader's WALK painter: the source marker (the source's current entry boxed in the SOURCE's lane100), the
-  caught/missed trail distinction (`EuclideousRiffWalkTrail` extended with sourceAdvance/wrap/reset/readerHit per §3.7), and the
-  first-cell-in-source-colour (§3.11). The walk strip already draws the ROOT's walk in the reader's colour (§3.2/§3.3); these are the
-  remaining looks in `riffDrawWalk`. Device-owed.
-- §9 the predictive walk-tag THREAD (the riff-grid arrow's future-position animation) and the lane-strip chips re-derive the column
-  from the lane's own config — correct for an own lane, but a reader should read position(source, that hit's beat). The arrow's
-  CURRENT seat is already right (polled `euclideousRiffStep`); only the prediction/thread + the strip's predicted chips remain.
+- §3.7 the reader's WALK painter: the caught/missed trail distinction (`EuclideousRiffWalkTrail` extended with
+  sourceAdvance/wrap/reset/readerHit per §3.7) is the remaining look in `riffDrawWalk`. (§3.6 source marker + §3.11 first-cell source
+  colour on the walk strip landed in `a3ca09c`.) Device-owed.
+- §9 the predictive walk-tag THREAD (the riff-grid arrow's future-position animation) still re-derives from the lane's own config.
+  DONE (2026-11-22): the LANE CARD strip's predicted chips + the MUTE roll's predicted ghosts now read position(source, hit's beat) for
+  a reader (MONO; `riffSourceColumn0` / `euclideousDisplayRiffClocks` reuse the Router's `euclideousRiffSourceColumn`), and the card
+  strip's reader chips wear the SOURCE lane's colour (`riffSourceColor`). REMAINING: the riff-grid-arrow predictive THREAD animation
+  (the arrow's CURRENT seat is already right via polled `euclideousRiffStep`); a POLY reader (the strip + roll keep the own-walk look).
 - §7.6 engine look-back on a reader: REPEAT is DONE (`euclideousReaderRepeatLookback` — a reader repeats the nearest earlier BORROWED
   non-rest column; golden bit-identical, alloc 0, tested). REMAINING: the TIE lookahead (`euclideousChainTieExtensionsCore`) and the
   DISPLAY footer / grid-marker prediction still read the reader's OWN walk — each "other hit's column" should be position(source, that
