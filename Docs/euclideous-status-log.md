@@ -12307,3 +12307,27 @@ covers the in-process half.
 KernelHostTests + MutationOracleTests), `touch /tmp/fourfold-hardening-deep` then the deep tiers, `run.sh
 --golden` (+ `diff -r` the `golden-events/`) + `--octaves-keep`, `CONFIG=Release run.sh --alloc`, a TSan run of
 `testConcurrentRenderPublishAndPoll`, and `python3 Scripts/mutation-check.py`.
+
+## STACK WHEN ferry (2026-11-22; Fourfold only; five slices landed) — GAP and FIRST join NOTE and REST; CHANCE goes
+The STACK (notes) tab's WHEN row is now **NOTE · REST · GAP** then **FIRST** (four flags): NOTE/REST = the old
+PLAYS/RESTS relabelled (same bits), **GAP** fires the stack on steps the rhythm does NOT hit (one lane answering
+itself), **FIRST** keeps only the first chosen step per pass (a chord marks each phrase). **CHANCE is removed from
+the row and the engine** — `EuclidLine.notesChance` still decodes/round-trips but nothing reads it (§4); no migration.
+New per-lane fields `notesGaps`/`notesFirst` (additive-Optional, default off). **Model:** `Models.swift` (decl,
+resolvers, decoder, `SnapshotBuilder` literal). **Pure (`Derivations.swift`):** `euclideousNotesStepKind` (NOTE/REST/GAP),
+`euclideousNotesStepChosen`, `euclideousNotesKeptCountBefore` (the STACK sequence ordinal **k = advOrd + kept gaps** —
+Paul 2026-11-22 "let gaps advance the sequence; keep existing lanes byte-identical": GAP off ⇒ k = advOrd for ANY
+WHEN/FIRST, so a one-sided-WHEN lane is unchanged; a kept gap adds to k so a gap stack moves ORDER/VOICES/SPREAD/
+BASS/roles/SHIFT like a hit stack, §3.3), `euclideousNotesIsFirstChosenInPass`, `euclideousWhenRowLayout`. **Engine
+(`Router.runEuclidLine`):** the hit-path gate became chosen(WHEN)+kept(FIRST), CHANCE dropped from the gate and the
+TIE look-ahead, `k` fed to `euclideousRowsResolve`; a NEW `else if` after `if isHit` strikes a GAP step (one finite-gate
+`strikeChord` per rank — notes gates ≤ 99 % so never legato, self-closing, no stuck note — routed to the notes part bus,
+ALT via `euclideousRiffLastOrd` for the HIT unit, §5). A gap stack runs on a non-hit tick so the riff walk, hit ordinal,
+CC, ratchet, mask and RESETS (all inside `if isHit`) never run (§5.1). BASS keys on k automatically; **RING stays
+hit-based for v1** (device-owed). **UI (`EuclideousPage.whenRiffRow`):** four equal tiles filling to the right inset,
+FIRST 10 pt apart, CHANCE stepper deleted. **Footer (`laneStripSounding`):** a `stackSteps` set so a gap stack draws
+under its OWN step (every step when GAP on, else the old hit-snap); the STACK grid / RANKS tiles / MUTE roll already
+show gap stacks (they read `NoteRollRing` by rank/time, no snap). **Golden byte-identical** for every preset and every
+doc EXCEPT the one HARDENING doc that set CHANCE 50 (`STACK chains`, re-baselined); `golden-keep.txt` left alone (it was
+independently stale, missing the HARDENING section). RouterTests 283/0, alloc PASS (0), new tests in NotesTabTests /
+RouterTests / LaneStripBandsTests. Findings + the two spec-vs-engine tensions in `Docs/ferry-stack-when-findings.md`.

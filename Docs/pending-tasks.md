@@ -2325,3 +2325,17 @@ The HEADER v2 ferry shipped the masters, HARMONY v2, the ▶/■ transport and t
 - STANDALONE §3.6(c): when the shared row can't fit, move the masters to the trailing end of the TRANSPORT row. NOT built.
 - §3.6(b) hide-wordmark as a DISTINCT step (vs the existing `compact`/kind-C reflow that already hides it). The pure ladder models it; the live layout approximates it via `compact`.
 Decide the portrait behaviour first; the structural change follows.
+
+## STACK WHEN ferry (2026-11-22) — v1 follow-ups (the ferry landed; these are deferred refinements)
+- RING on a GAP step: the cycle PHASE is still hit-based (`advOrd % cyclePeriod`, computed before the notes block) and a
+  gap stack uses the normal notes gate, not a RING length. §5.7 wants holds to key on kept steps — rekey RING's phase to
+  `k` and give a gap stack a RING length. Byte-identical for GAP off; device-owed for GAP on.
+- GAP-on `--alloc` scenario: the gap strike path is alloc-free by construction (it uses the hit path's own primitives) but
+  isn't exercised by the `--alloc` corpus (all docs are GAP off). Add a GAP-on hand scenario to `HardeningCorpus` / the
+  alloc doc list to audit it directly.
+- PULSE on a gap stack: a gap stack is in the roll/grid/RANKS/MUTE-roll but does NOT push a NOTE VIEW event, so it does not
+  trigger the per-strike PULSE animation / the lane-strip live strike feed. Add a `pushNoteViewEvent` in the gap branch.
+- Footer GAP-on jitter snap: the stack snap set is every step when GAP is on, so a jittered hit-stack note is placed on its
+  rounded step rather than corrected to its authored hit. Snap to {hits ∪ kept-gap steps} instead of all steps.
+- CHANCE field: `notesChance` still decodes/round-trips but is engine-dead — DECIDE whether to delete it (and the
+  `euclideousNotesChance*` pure functions, kept for their own tests) in a later cleanup.

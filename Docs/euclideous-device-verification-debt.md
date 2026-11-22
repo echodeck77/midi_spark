@@ -1079,5 +1079,16 @@ testReportBoundaryStampedEventCount` prints the current count.
   device-owed (feel).
 - Concurrent render/publish/poll has no data race (AU UI CPU / publish safety): TSan clean.
 
+## STACK WHEN ferry (2026-11-22) — NOTE/REST/GAP + FIRST, CHANCE gone
+- GAP on a sparse lane sounds like the lane answering itself, not clutter (§10).
+- FIRST reads as phrase marks (a chord per phrase) at slow and fast tempos (§10).
+- The four WHEN toggles are comfortable to tap at 23 tall, and FIRST's 10 pt gap reads as a separate control (§10).
+- A gap-step footer mark under an empty step reads clearly, and the step keeps its gap look (§10, §6.1).
+- v1 tradeoffs owed (engineering, not just feel): a GAP-on lane's RING cycle phase is still hit-based (doesn't count
+  gaps); a gap stack uses the normal notes gate (no RING length); the footer's GAP-on stack snap set is every step, so
+  a jittered hit-stack note is placed on its rounded step rather than corrected to its authored hit; gap stacks don't
+  yet trigger the PULSE strike animation (they are in the roll/grid/RANKS/MUTE-roll, which read NoteRollRing); and the
+  GAP-on render path isn't in the --alloc corpus (alloc-free by construction — same primitives as the hit path).
+
 These stay DEVICE-owed (feel/audibility, not correctness): every "no click / by ear / sounds right" item, reel
 paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPad pass itself.
