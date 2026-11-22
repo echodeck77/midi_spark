@@ -2077,6 +2077,23 @@ func euclideousSpeedRatioVoiceOver(sourceBeats: Double, followerBeats: Double) -
     return "\(p) over \(q) speed"
 }
 
+/// EUCLID FROM §6/§8.1 (DISPLAY, main thread — may allocate; NEVER the render thread): a copy of `lines[lane]` with its
+/// STEPS/HITS/OFFSET/customHits/offsetFraction replaced by what it actually PLAYS (its root's, the relative offsets summed),
+/// so any surface that describes what a follower plays (the steppers, the lane strip, the riff arrows, MIX, RESETS) reads the
+/// inherited shape. Its TILT/FLIP/direction/rate/gate stay its OWN. A non-follower returns its own line unchanged.
+func euclideousEffectiveLine(_ lines: [EuclidLine], _ lane: Int) -> EuclidLine {
+    guard lane >= 0, lane < lines.count else { return EuclidLine() }
+    let eff = euclideousEffectiveEuclid(lines, lane)
+    guard eff.root != lane, eff.root >= 0, eff.root < lines.count else { return lines[lane] }
+    var l = lines[lane]
+    let R = lines[eff.root]
+    l.steps = eff.steps; l.pulses = eff.pulses; l.rotate = eff.rotate
+    l.offsetFraction = R.offsetFraction
+    l.customHits = R.customHits
+    l.hitsRequested = R.hitsRequested; l.offsetRequested = R.offsetRequested
+    return l
+}
+
 /// §7.2 helper: a captured lane clock's latest riff-hit TICK at or before a MUSICAL beat (ticks count from beat 0, §7.2). Bounded
 /// scan down (`cycleLen·4 + 16`, the same cap the walk's own `euclideousWalkScanHits` uses); nil = no hit yet (before the first, or a
 /// pattern with no hits). Musical-tick space (the caller maps real→musical once, as the Router does). Allocation-free (reads the clock's

@@ -530,6 +530,9 @@ struct EuclideousStepsStepper: View {
     let height: CGFloat
     let onCommit: (_ newStep: Bool, _ mutate: @escaping (inout EuclidLine) -> Void) -> Void
     let onToggleValueBoxTap: () -> Void
+    // EUCLID FROM §6.1-6.2: while following, the value draws in the ROOT's lane100 and the box wears a 1 pt root-colour @50% border.
+    var valueColour: Color? = nil
+    var followBorder: Color? = nil
     // LANE LOCK (2026-10-22): see EuclideousSlider — inside the control, not wrapping modifiers. `lockMomentary` (locked on the BEAT grid): + and − act at touch-down (6.9).
     var lockActive: Bool = false
     var lockMomentary: Bool = false
@@ -563,8 +566,8 @@ struct EuclideousStepsStepper: View {
             stepButton("plus", enabled: plusEnabled, height: btnH) { tapSteps(line.steps < 2 ? 2 : min(16, line.steps + 1)) }
                 .accessibilityLabel("More steps, now \(line.steps)")
             VStack(spacing: 2) {
-                Text("\(line.steps)").font(.system(size: 32, weight: .heavy, design: .monospaced)).monospacedDigit()   // EUCLID v2 §2.2: matches the HITS hero (kept neutral #F2F4F7 — the lane colour is HITS-only)
-                    .foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).frame(height: 34)
+                Text("\(line.steps)").font(.system(size: 32, weight: .heavy, design: .monospaced)).monospacedDigit()   // EUCLID v2 §2.2: neutral #F2F4F7 normally; the ROOT's lane100 while following (§6.1)
+                    .foregroundColor(valueColour ?? Color(hex: 0xF2F4F7)).lineLimit(1).frame(height: 34)
                 HStack(spacing: 4) {
                     Text("STEPS").font(.system(size: 8.5, weight: .medium, design: .monospaced)).tracking(0.85)
                         .foregroundColor(Color(hex: FourfoldStyle.key))
@@ -574,6 +577,7 @@ struct EuclideousStepsStepper: View {
             }
             .frame(width: width, height: valueBoxH)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C)))
+            .overlay { if let b = followBorder { RoundedRectangle(cornerRadius: 6).strokeBorder(b, lineWidth: 1) } }   // EUCLID FROM §6.2
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -643,6 +647,7 @@ struct EuclideousHitsStepper: View {
     var lockMomentary: Bool = false
     var lockOutline: Color? = nil
     var onLockTouch: ((Bool) -> Void)? = nil
+    var followBorder: Color? = nil   // EUCLID FROM §6.2: a 1 pt root-colour @50% border on the value box while following
 
     @State private var dragStartLocation: CGPoint? = nil
     @State private var dragStartLine: EuclidLine? = nil
@@ -670,6 +675,7 @@ struct EuclideousHitsStepper: View {
             }
             .frame(width: width, height: valueBoxH)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C)))
+            .overlay { if let b = followBorder { RoundedRectangle(cornerRadius: 6).strokeBorder(b, lineWidth: 1) } }   // EUCLID FROM §6.2
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { g in
@@ -2542,6 +2548,12 @@ struct EuclideousPage: View {
     /// `LaneStripBandPainter`) and the per-rank VoiceOver phrase (`euclideousStripHitsPhrase`, read only by the strip's
     /// `accessibilityValue`). `mixStripFeed`'s consumers (the riff-panel stack dots, the MIX strips) use only `legs`/`cfg`/
     /// timing, so they pass `true` and never pay for those — cutting that cost from ~8–12 builds a body eval to the 4 cards.
+    /// EUCLID FROM §8.1: the line a "what-the-lane-plays" surface (the lane strip and, via `plan.cfg`, the riff arrows) should
+    /// use for `planLane` — the effective (inherited) pattern while following, else the given fallback. One substitution feeds
+    /// the strip AND the arrows because both read `laneStripPlan(...).cfg`.
+    private func euclideousDisplayLine(_ planLane: Int, _ fallback: EuclidLine) -> EuclidLine {
+        (planLane >= 0 && planLane < lines.count && euclideousEuclidRoot(lines, planLane).root != planLane) ? euclideousEffectiveLine(lines, planLane) : fallback
+    }
     private func laneStripPlan(_ idx: Int, _ line: EuclidLine, lightweight: Bool = false) -> EuclideousStripPlan {
         // LISTEN REBUILT (2026-10-23): SHADOW and ECHO both pause RIFF+NOTES whole (§7, §9.9's `borrowedTabs`) —
         // so the strip's own riff/notes track is ignored under either, not SHADOW alone.
@@ -2659,7 +2671,7 @@ struct EuclideousPage: View {
     private func riffGhost(_ idx: Int, beat: Double) -> EuclideousStripChip? {
         guard idx >= 0, idx < lines.count else { return nil }
         // PERF (2026-11-18): this runs one plan PER LANE PER FRAME on the STACK tab and reads only riffPlays/cfg/lapStartTick/legs — lightweight skips §5 + the VoiceOver phrase.
-        let plan = laneStripPlan(idx, idx < phaseLines.count ? phaseLines[idx] : lines[idx], lightweight: true)
+        let plan = laneStripPlan(idx, euclideousDisplayLine(idx, idx < phaseLines.count ? phaseLines[idx] : lines[idx]), lightweight: true)
         // STACK GRID RIFF ARROW §1 (Paul 2026-11-22): the arrow shows only while the riff is actually SOUNDING — the lane plays the riff
         // AND is RUNNING (transport on, PLAY RIFF on, HITS > 0 — the main riff-grid arrows' own `euclideousLaneArrowShows`/`euclideousLaneIsRunning`
         // gate, which `clock.playing && enabledResolved` alone did not cover), AND it is not MUTED (the LANES grid at this beat) or solo-silenced
@@ -2863,7 +2875,7 @@ struct EuclideousPage: View {
         let accent = laneAccents[idx % laneAccents.count]
         let tab = tabOverride ?? frontLaneTab   // TAB STRIP: the page's one tab (the flip overrides it to draw the tab being left / entered, flip-on-every-tab-change 2026-10-30)
         let planLane = tradedWithLane(idx)   // ANSWER 6.6: during a traded phase the strip shows what the lane EMITS — the WITH lane's own strikes
-        let stripPlan = laneStripPlan(planLane, planLane < lines.count ? phaseLines[planLane] : line)   // LANE STRIP ferry: the riff track and the key row, from the footers' own per-hit functions
+        let stripPlan = laneStripPlan(planLane, euclideousDisplayLine(planLane, planLane < lines.count ? phaseLines[planLane] : line))   // LANE STRIP ferry: the riff track and the key row, from the footers' own per-hit functions (EUCLID FROM §8.1: effective while following)
         // ONE INNER WIDTH FOR EVERY ROW — every row below is built from THIS one width, never the raw card
         // `width` (W = 326 at the ferry's own reference 346pt card). "Wider cards: flexible items share the
         // extra width" — `innerWidth` scales directly with `width`, so every formula below that derives from
@@ -2930,7 +2942,7 @@ struct EuclideousPage: View {
     private func mixStripFeed(_ idx: Int, plan prebuilt: EuclideousStripPlan? = nil) -> EuclideousMixStripFeed {
         let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
         let planLane = tradedWithLane(idx)
-        let plan = prebuilt ?? laneStripPlan(planLane, planLane < lines.count ? phaseLines[planLane] : line, lightweight: true)   // PERF (2026-11-18): the feed uses only legs/cfg/timing — skip §5 + the VoiceOver phrase
+        let plan = prebuilt ?? laneStripPlan(planLane, euclideousDisplayLine(planLane, planLane < lines.count ? phaseLines[planLane] : line), lightweight: true)   // PERF (2026-11-18): the feed uses only legs/cfg/timing — skip §5 + the VoiceOver phrase (EUCLID FROM §8.1: effective while following)
         let followIdx = euclideousRhythmBorrowPartner(lane: idx, lines: phaseLines)
         let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: phaseLines) : nil
         let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
@@ -3072,7 +3084,7 @@ struct EuclideousPage: View {
                 }
             })
         EuclideousCardBackView(lane: idx, size: CGSize(width: width, height: height), accent: accent,
-                               topRow: laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: laneStripPlan(tradedWithLane(idx), tradedWithLane(idx) < lines.count ? phaseLines[tradedWithLane(idx)] : line), soloDimContent: soloDim),
+                               topRow: laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: laneStripPlan(tradedWithLane(idx), euclideousDisplayLine(tradedWithLane(idx), tradedWithLane(idx) < lines.count ? phaseLines[tradedWithLane(idx)] : line)), soloDimContent: soloDim),
                                riff: riff, notes: notes, laneHasHits: line.pulses > 0 || line.patternMissResolved,     // ADD HITS is about the RHYTHM having hits — a PLAY-off lane still has them
                                laneAudibleAt: { date in
                                    runs && !soloDim && (muteCells == 0xFFFF || euclideousLaneAudible(beat: lanesMusicalBeat(real: walkTagBeat(at: date)), cells16: muteCells, unitBeats: muteUnit))
@@ -3459,26 +3471,79 @@ struct EuclideousPage: View {
 
     /// §2.1: HITS — the new stepper in `lane100` (the one place on the tab, with OFFSET/TILT, the lane colour shows). Same commit funnel as the fader (`euclideousSliderCommit(.hits, snapshot:)` via `edit(idx,)`).
     private func euclidV2Hits(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
-        AnyView(EuclideousHitsStepper(line: line, width: size.width, height: size.height, heroColour: lane100(accent),
-            onCommit: { mutate in edit(idx, mutate) },
-            lockActive: lockLocked(idx), lockMomentary: lockMomentary(idx), lockOutline: lockOn(idx, .hits) ? accent : nil, onLockTouch: lockTouch(idx)))
+        // EUCLID FROM §6.1: while following, HITS shows the EFFECTIVE (inherited) count in the ROOT's lane100, with a 50 % root-colour
+        // border, and edits write the ROOT (amendment §1.2). Non-following ⇒ root == idx, dispLine == line ⇒ unchanged.
+        let root = euclideousEuclidRoot(lines, idx).root, following = root != idx
+        let dispLine = following ? euclideousEffectiveLine(lines, idx) : line
+        let rootC = laneAccents[root % laneAccents.count]
+        return AnyView(EuclideousHitsStepper(line: dispLine, width: size.width, height: size.height, heroColour: lane100(following ? rootC : accent),
+            onCommit: { mutate in edit(root, mutate) },
+            lockActive: lockLocked(idx), lockMomentary: lockMomentary(idx), lockOutline: lockOn(idx, .hits) ? accent : nil, onLockTouch: lockTouch(idx),
+            followBorder: following ? rootC.opacity(0.5) : nil))
     }
     /// §2.2: STEPS — the existing stepper (its number bumped to 32 pt to match HITS, kept neutral #F2F4F7). Tap the value box to open the length picker.
     private func euclidV2Steps(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
-        AnyView(EuclideousStepsStepper(line: line, accent: accent, width: size.width, height: size.height,
-            onCommit: { newStep, mutate in editStep(idx, newStep, mutate) },
+        // EUCLID FROM §6.1: while following, STEPS shows the EFFECTIVE count in the ROOT's lane100 (switched from the neutral white),
+        // with a 50 % root-colour border, and the +/−/drag write the ROOT (amendment §1.2). The length-picker popup still targets idx
+        // (its write-through is handled with the strip tap in slice 6). Non-following ⇒ unchanged.
+        let root = euclideousEuclidRoot(lines, idx).root, following = root != idx
+        let dispLine = following ? euclideousEffectiveLine(lines, idx) : line
+        let rootC = laneAccents[root % laneAccents.count]
+        return AnyView(EuclideousStepsStepper(line: dispLine, accent: accent, width: size.width, height: size.height,
+            onCommit: { newStep, mutate in editStep(root, newStep, mutate) },
             onToggleValueBoxTap: { if stepsPickerLane == idx { stepsPickerLane = nil } else { stepsPickerLane = idx; restartEditorLane = nil } },
+            valueColour: following ? lane100(rootC) : nil, followBorder: following ? rootC.opacity(0.5) : nil,
             lockActive: lockLocked(idx), lockMomentary: lockMomentary(idx), lockOutline: lockOn(idx, .steps) ? accent : nil, onLockTouch: lockTouch(idx)))
     }
     /// §2.3 / §4: OFFSET — the existing horizontal slider in the taller frame; drawn at 42 % (still live) when every OFFSET gives the same played pattern (`euclideousOffsetIsInert`).
     private func euclidV2Offset(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
-        AnyView(EuclideousSlider(field: .offset, line: line, accent: accent, width: size.width, height: size.height, horizontal: true, touchPad: 2,
+        // EUCLID FROM §6.3: while following, OFFSET becomes the RELATIVE offset (+n) — it reads/writes `euclidFromOffset`,
+        // not `rotate`, over the source's STEPS. Its own slider (writing `rotate`) is unreachable while following.
+        if euclideousEuclidRoot(lines, idx).root != idx { return euclidV2FromOffset(idx, line, accent, size: size) }
+        return AnyView(EuclideousSlider(field: .offset, line: line, accent: accent, width: size.width, height: size.height, horizontal: true, touchPad: 2,
             onCommit: { mutate in edit(idx, mutate) },
             onDoubleTap: { edit(idx) { euclideousSliderDoubleTapDefault(.offset, &$0) } },
             onRevertToEuclid: { edit(idx) { $0.customHits = nil } },
             topAlignLabelRow: true,
             lockActive: lockLocked(idx), lockOutline: lockOn(idx, .offset) ? accent : nil, onLockTouch: lockTouch(idx))
             .opacity(euclideousOffsetIsInert(line) ? 0.42 : 1))
+    }
+    /// §6.3: the OFFSET slider while following — "+n" (`euclidFromOffset`, 0…STEPS−1) over the source's STEPS, filled in THIS
+    /// lane's colour, a 2 pt source-colour @50% marker at the +0 leading edge; a drag writes `euclidFromOffset` (one undo step via
+    /// the HITS funnel's gesture coalescing). Look modelled on `EuclideousSlider`'s horizontal track (device-owed).
+    private func euclidV2FromOffset(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
+        let n = max(2, euclideousEffectiveEuclid(lines, idx).steps)
+        let rel = max(0, min(n - 1, line.euclidFromOffsetResolved))
+        let srcC = line.euclidFromResolved(ownLane: idx).map { laneAccents[$0 % laneAccents.count] } ?? accent
+        let inset: CGFloat = 6
+        let trackW = max(1, size.width - inset * 2)
+        let frac = CGFloat(rel) / CGFloat(n - 1)
+        let srcLane = (line.euclidFromResolved(ownLane: idx) ?? 0) + 1
+        return AnyView(ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22252C))
+            Rectangle().fill(accent.opacity(0.2)).frame(width: max(0, trackW * frac), height: size.height).offset(x: inset)
+            Rectangle().fill(accent).frame(width: 2, height: size.height).offset(x: inset + max(0, trackW * frac) - 1)   // the value edge, lane colour
+            Rectangle().fill(srcC.opacity(0.5)).frame(width: 2, height: size.height).offset(x: inset)                    // §6.3: the +0 leading edge, source colour @50%
+            HStack {
+                Text("OFFSET").font(.system(size: 10, weight: .medium, design: .monospaced)).tracking(0.8).foregroundColor(Color(hex: FourfoldStyle.key))
+                Spacer(minLength: 4)
+                Text("+\(rel)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+            }.padding(.horizontal, 10).padding(.top, 9)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0).onChanged { g in
+            let x = min(max(0, g.location.x - inset), trackW)
+            let target = max(0, min(n - 1, Int((x / trackW * CGFloat(n - 1)).rounded())))
+            if target != line.euclidFromOffsetResolved { edit(idx) { $0.euclidFromOffset = target } }
+        })
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Offset")
+        .accessibilityValue("plus \(rel) from lane \(srcLane)")
+        .accessibilityAdjustableAction { dir in
+            let t = dir == .increment ? min(n - 1, rel + 1) : max(0, rel - 1)
+            if t != rel { edit(idx) { $0.euclidFromOffset = t } }
+        })
     }
     /// §2.4 / §4: TILT — the existing horizontal slider (EARLY/LATE labels), 42 % when inert (true on a hand-edited lane — the engine ignores TILT there). TILT always shows its value now (§3: EDITED gone).
     private func euclidV2Tilt(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
@@ -3515,10 +3580,23 @@ struct EuclideousPage: View {
         if i < 6 {
             let labels = ["1/1", "1/2", "1/4", "1/8", "1/16", "1/32"]
             let on = i == curDiv
-            return euclidV2Tile(idx, lock: .rate, on: on, size: size, ax: "Rate \(labels[i])", axValue: lockSpoken(idx, .rate, ""),
+            // EUCLID FROM §6.5: while following, the SELECTED rate button carries a 2nd line — the speed against the SOURCE
+            // (source step duration ÷ this lane's). Rate stays the lane's OWN (the action still writes idx).
+            let src = line.euclidFromResolved(ownLane: idx)
+            let fBeats = (line.rate ?? euclideousUnsetLaneRate).beats
+            let sBeats = src.map { (lines[$0].rate ?? euclideousUnsetLaneRate).beats }
+            let ratio: String? = (on && sBeats != nil) ? euclideousSpeedRatioText(sourceBeats: sBeats!, followerBeats: fBeats) : nil
+            return euclidV2Tile(idx, lock: .rate, on: on, size: size, ax: "Rate \(labels[i])",
+                                axValue: (on && sBeats != nil) ? euclideousSpeedRatioVoiceOver(sourceBeats: sBeats!, followerBeats: fBeats) + " against lane \((src ?? 0) + 1)" : lockSpoken(idx, .rate, ""),
                                 action: { edit(idx) { $0.rate = euclideousRateFromDivisionFeel(division: i, feel: curFeel) } }) {
-                Text(labels[i]).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1)
-                    .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
+                VStack(spacing: 0) {
+                    Text(labels[i]).font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1)
+                        .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)))
+                    if let r = ratio {
+                        Text(r).font(.system(size: 8, weight: .heavy, design: .monospaced)).lineLimit(1)
+                            .foregroundColor(Color(hex: FourfoldSelect.switchInk(on)).opacity(0.6))
+                    }
+                }
             }
         }
         let f = i - 6
@@ -8718,7 +8796,11 @@ struct EuclideousPage: View {
     private func riffWalkConfig(_ idx: Int) -> EuclideousWalkLaneConfig? {
         guard idx >= 0, idx < lines.count else { return nil }
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
-        return polyAdjusted(euclideousWalkLaneConfig(lane: idx, lines: phaseLines, cyc: cyc, resetSpanBars: resetSpanBars,
+        // EUCLID FROM §8.1: a following lane's riff-panel arrow must walk on its INHERITED hit schedule, so substitute its
+        // effective euclid shape in the array (its own riff/direction stay — only steps/hits/offset/customHits change).
+        var srcLines = phaseLines
+        if idx < srcLines.count, euclideousEuclidRoot(lines, idx).root != idx { srcLines[idx] = euclideousEffectiveLine(lines, idx) }
+        return polyAdjusted(euclideousWalkLaneConfig(lane: idx, lines: srcLines, cyc: cyc, resetSpanBars: resetSpanBars,
                                         lanesSeqRate: lanesSeq.rate, lanesSeqLen: lanesSeq.len, lanesSeqOn: lanesSeq.on, lanesSeqCells: lanesSeq.cells, fx: walkFX,
                                         swingPercent: clock.swing, stepBeats: clock.stepBeats, beatsPerBar: clock.beatsPerBar, tempo: clock.tempo,
                                         riffColumns: walkColumns, scheduleSet: restartScheduleSet))
