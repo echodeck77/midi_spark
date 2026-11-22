@@ -5441,11 +5441,15 @@ struct EuclideousPage: View {
     /// at the tile's own row-y (§1.4), the lit cell at the entry's drawn rank, its column number below. While playing it shows the
     /// played (lane) / current (white) / upcoming (dim) / skipped (hollow) trail and flashes a tick in the left pad on an early reset (§3.8).
     private func riffWalkStrip(_ idx: Int, _ line: EuclidLine, _ accent: Color, layout: EuclideousRiffTabLayout) -> some View {
-        let cfg = riffWalkConfig(idx)
+        // RIFF SOURCE §3.2: a reader's walk draws the ROOT's walk — its entries, length and column numbers come from the root's config/values;
+        // §3.3: the lit cell is at the READER's own drawn rank (its FLIP NOTES + TRANS). The painter keeps the reader's colour (`accent`).
+        let rootLane = riffWalkRootLane(idx)
+        let wl = rootLane < lines.count ? lines[rootLane] : line   // the root line (own ⇒ the lane itself)
+        let cfg = riffWalkConfig(rootLane)
         let stepRanks = euclideousRiffStepRanks(ranks: effectiveGridRanks, invert: line.riffInvertResolved, transpose: line.melodyTransposeResolved)
-        let len = riffPoly ? line.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : line.riffLengthResolved
-        let every = line.riffAdvanceEveryResolved
-        let P = min(16, max(1, euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)))   // MONO: ≤ 16 (POLY is dropped for v1)
+        let len = riffPoly ? wl.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : wl.riffLengthResolved
+        let every = wl.riffAdvanceEveryResolved
+        let P = min(16, max(1, euclideousFXWalkPeriod(dir: wl.euclideousRiffDirResolved, length: len, stride: wl.riffStrideResolved)))   // MONO: ≤ 16 (POLY is dropped for v1)
         let isRiff = line.riffOnResolved
         let ringEligible = clock.playing && line.enabledResolved && isRiff
         let trail = idx < walkTrails.count ? walkTrails[idx] : EuclideousRiffWalkTrail()
@@ -5544,9 +5548,12 @@ struct EuclideousPage: View {
         walkPrevBeat = beat
         for idx in 0..<min(4, lines.count) {
             let line = lines[idx]
-            guard clock.playing, line.enabledResolved, line.riffOnResolved, let cfg = riffWalkConfig(idx) else { walkPrevStep[idx] = -1; continue }
-            let len = riffPoly ? line.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : line.riffLengthResolved
-            let P = min(16, max(1, euclideousFXWalkPeriod(dir: line.euclideousRiffDirResolved, length: len, stride: line.riffStrideResolved)))
+            // RIFF SOURCE §3.2: a reader's walk strip draws (and so trails) the ROOT's walk — track the trail on the root's config/period so the drawn trail matches the drawn entries.
+            let rootLane = riffWalkRootLane(idx)
+            let wl = rootLane < lines.count ? lines[rootLane] : line
+            guard clock.playing, line.enabledResolved, line.riffOnResolved, let cfg = riffWalkConfig(rootLane) else { walkPrevStep[idx] = -1; continue }
+            let len = riffPoly ? wl.riffLengthResolved(columns: EuclideousPolyMetrics.columns) : wl.riffLengthResolved
+            let P = min(16, max(1, euclideousFXWalkPeriod(dir: wl.euclideousRiffDirResolved, length: len, stride: wl.riffStrideResolved)))
             guard let cur = riffWalkCurrentStep(cfg, beat: beat, P: P) else { continue }
             let prev = walkPrevStep[idx]
             // RIFF v4 §6: the decision is the pure `euclideousRiffWalkStepTrail` (extracted so it is unit-testable — §3.6/§3.7/§3.9).
@@ -8562,6 +8569,12 @@ struct EuclideousPage: View {
     }
     /// RIFF WALK ferry §3/§7: one lane's walk config, unconditionally (the WALK strip and the mini-grid's
     /// dim rule need it regardless of `walkTagShows` — they're drawn even while the riff is off, at 42%).
+    /// RIFF SOURCE §3.2: the lane whose walk a lane's RIFF-tab walk strip draws — its own, or its ROOT's when it is a reader (the first own lane up the chain).
+    private func riffWalkRootLane(_ idx: Int) -> Int {
+        guard idx >= 0, idx < lines.count, lines[idx].riffSourceLaneResolved(ownLane: idx) != nil else { return idx }
+        let srcs: [Int?] = (0..<4).map { li in li < lines.count ? lines[li].riffSourceLaneResolved(ownLane: li) : nil }
+        return euclideousRiffRootChain(lane: idx, sources: srcs).last ?? idx
+    }
     private func riffWalkConfig(_ idx: Int) -> EuclideousWalkLaneConfig? {
         guard idx >= 0, idx < lines.count else { return nil }
         let cyc = clock.stepBeats * Double(max(1, clock.cols))
