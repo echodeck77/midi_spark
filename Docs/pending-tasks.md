@@ -2339,3 +2339,17 @@ Decide the portrait behaviour first; the structural change follows.
   rounded step rather than corrected to its authored hit. Snap to {hits ∪ kept-gap steps} instead of all steps.
 - CHANCE field: `notesChance` still decodes/round-trips but is engine-dead — DECIDE whether to delete it (and the
   `euclideousNotesChance*` pure functions, kept for their own tests) in a later cleanup.
+
+## RIFF SOURCE ferry follow-ups (2026-11-22) — the feature is landed and usable; these are the device-owed painter polish + one engine edge
+- §3.6/§3.7/§3.11 the reader's WALK painter: the source marker (the source's current entry boxed in the SOURCE's lane100), the
+  caught/missed trail distinction (`EuclideousRiffWalkTrail` extended with sourceAdvance/wrap/reset/readerHit per §3.7), and the
+  first-cell-in-source-colour (§3.11). The walk strip already draws the ROOT's walk in the reader's colour (§3.2/§3.3); these are the
+  remaining looks in `riffDrawWalk`. Device-owed.
+- §9 the predictive walk-tag THREAD (the riff-grid arrow's future-position animation) and the lane-strip chips re-derive the column
+  from the lane's own config — correct for an own lane, but a reader should read position(source, that hit's beat). The arrow's
+  CURRENT seat is already right (polled `euclideousRiffStep`); only the prediction/thread + the strip's predicted chips remain.
+- §7.6 engine look-back on a reader: REPEAT (on a grid-rest borrowed column), the TIE lookahead, the footer and grid-marker
+  prediction still read the reader's OWN walk. Each "other hit's column" should be position(source, that hit's beat). Edge (REPEAT/
+  TIE-on-rest specifically on a reader); gated behind the reader branch, so own lanes are unaffected. Needs engine work + tests.
+- §9.2 the RESETS tab's MELODY half shows a reader's own walk (unchanged by this ferry, per §9.2) — DECIDE whether it should reflect
+  the borrowed walk.

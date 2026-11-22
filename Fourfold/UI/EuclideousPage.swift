@@ -1943,6 +1943,12 @@ struct EuclideousPage: View {
             // the lane cards in z-order, so a card's own controls still get first claim on their own area.
             // Random mode no longer finishes this way (lane-box buttons ferry, 2026-10-22).
             modeFinishLayer(size)
+            // RIFF SOURCE §6.9: while the picker is open, a tap ANYWHERE outside it closes it with no change. Sits below the lane cards in z-order (so the picker's own rows inside the card get first claim), above everything else.
+            if riffSourcePickerLane != nil {
+                Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
+                    .onTapGesture { withAnimation(.easeInOut(duration: 0.12)) { riffSourcePickerLane = nil } }
+                    .accessibilityHidden(true)
+            }
             // AnyView on each laneCard call (2026-10-13 crash fix, see the comment inside laneCard itself): the device crash named the frames "closure #1
             // in closure #1 in landscapeLayout/portraitLayout" resolving 4 laneCard copies' combined type — erasing here keeps each one independently resolvable.
             // MIX ROWS (2026-11-03): while the page tab is MIX the lane area (the cards' 2 × 2 box) holds the MIX panel instead of the four cards; random mode and lock mode show the cards with their own faces (as for any tab) and finishing

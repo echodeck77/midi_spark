@@ -1092,3 +1092,9 @@ testReportBoundaryStampedEventCount` prints the current count.
 
 These stay DEVICE-owed (feel/audibility, not correctness): every "no click / by ear / sounds right" item, reel
 paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPad pass itself.
+
+- RIFF SOURCE ferry (2026-11-22): the tile reads as a selector (RIFF + source tab + chevron) and its tab is legible in all four lane
+  colours; the source's colour on the tile and on PLAY RIFF is noticed at a glance; the picker's contours are distinct enough to choose
+  by and its rows are easy to hit; FOLLOWS YOU is legible at 8 pt; the dimmed borrowed controls read as "someone else's", not broken;
+  a reader's walk strip (the root's walk in the reader's colour) is not confusing; setting lane 3 to read lane 2 SOUNDS like lane 2's
+  line in lane 3's rhythm (unison / parallel at TRANS / mirrored at FLIP); muting lane 2 leaves lane 3 playing; back-to-own restores.

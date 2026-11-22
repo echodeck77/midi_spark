@@ -12331,3 +12331,35 @@ show gap stacks (they read `NoteRollRing` by rank/time, no snap). **Golden byte-
 doc EXCEPT the one HARDENING doc that set CHANCE 50 (`STACK chains`, re-baselined); `golden-keep.txt` left alone (it was
 independently stale, missing the HARDENING section). RouterTests 283/0, alloc PASS (0), new tests in NotesTabTests /
 RouterTests / LaneStripBandsTests. Findings + the two spec-vs-engine tensions in `Docs/ferry-stack-when-findings.md`.
+
+## RIFF SOURCE ferry (2026-11-22; Fourfold only; ratified by Paul from the "Fourfold riff source" canvas) — a lane reads another lane's riff POSITION
+The RIFF tile lost its on/off job to PLAY RIFF, so it becomes a SELECTOR: a lane (a "reader") reads which COLUMN of the shared
+riff grid each of its own hits plays from one of the other three lanes (its "source"), then plays that column through its OWN
+FLIP NOTES / TRANS / pool / OCT. SHADOW's idea at the riff layer, but borrowing the POSITION not the sounding note; sample-and-hold
+against the reader's own rhythm; STATELESS (the borrowed column is a pure function of the beat, so scrub/replay/export stay exact).
+
+- **Model.** `EuclidLine.riffSourceLane: Int?` (additive-Optional, decode-tolerant, declared LAST, threaded through SnapshotBuilder's
+  fresh literal). nil = own (bit-identical). Pure `euclideousNormaliseRiffSources` (self/loop → own) / `euclideousCanRiffRead` /
+  `euclideousRiffRootChain` (Derivations.swift); `PluginState.normalizeRiffSourcesAtLoad()` runs beside `normalizeSourcesAtLoad`
+  at every load path. Not a host parameter; not a lane-lock field. Old docs load as own.
+- **Engine (pure).** `euclideousRiffSourceColumn(clocks:lane:beat:)` — the source's latest riff hit ≤ beat (§1 chain schedule, NOT
+  FILL — §7.4 fallback for statelessness) → its non-FILL walk column; recurses through a chain to depth 3; nil = a rest (§7.3).
+  Reads per-lane clocks captured in the hocket pre-pass (a dedicated allocation-free `euclideousRiffClocks[4]`, `HocketLaneClock`
+  extended with the riff walk values + `riffSource`); `riffSourceMask` (inlined, no per-window allocation) adds reader chains to
+  `clockMask`. Substituted at Router.swift's one column read (~4196): a reader's `playedStep = position(source, mTickBeat)`; LOOP
+  hold still wins; nil ⇒ the MONO/POLY strike is skipped (`riffSourceRest`), the notes layer still runs. All-own ⇒ the exact old
+  expression ⇒ **golden bit-identical** (verified pre + post two rebases), **alloc 0/63**, PortsStress subsumed. A SHADOW/ECHO
+  reader (ANSWER PITCH on) takes that branch instead → ANSWER wins the pitch, riff-source still drives when it fires (§15.3).
+- **UI.** Tile label = RIFF + a source lane tab + a down chevron; tap opens a four-row lane picker (reuses the CC lane-tab/picker look,
+  `EuclideousRiffSourceUI` tunables): current lit, a loop row dashed + "FOLLOWS YOU" + unpickable (`euclideousCanRiffRead`), a pick
+  sets the source (`onSetRiffSource` → one undo step + normalise), the lit row / a tab-or-page change / a tap outside (§6.9) closes.
+  PLAY RIFF carries the source tab on every tab (VoiceOver "reading lane n"). The five borrowed walk controls (direction / ADVANCE
+  EVERY / STRIDE / LEN / SHIFT) show the ROOT's values, dimmed 42 %, no touch (TRANS / FLIP / OCT / A–D stay the reader's own). The
+  RIFF-tab WALK STRIP draws the ROOT's walk in the reader's colour with the reader's own ranks (§3.2/§3.3); the riff-grid arrows'
+  current seat is already the borrowed column (the engine sets `euclideousRiffStep` to it, so polled displays are correct).
+- **Landed in slices:** model `9f7ccac` · pure `9534877` · engine `f9908ad` → `f311f10`; tile+picker `2c235cd`; borrowed controls +
+  PLAY RIFF tab `ad91d5f`; walk strip `4155edd`; +§6.9. Tests: `RiffSourceTests` (model/normalise/canRead/canvas-case/picker),
+  `RouterTests.testRiffSourceReaderPlaysTheSourcesNotesAndTransposes`.
+- **REMAINING (device-owed painter + one engine edge — follow-ups in pending-tasks):** §3.6 source marker, §3.7 caught/missed trail,
+  §3.11 first-cell source colour; §9 the predictive walk-tag THREAD + lane-strip chip re-derivation on a reader; §7.6 the engine
+  look-back (REPEAT / TIE-lookahead / footer / grid-marker prediction) still reads the reader's own walk, not position(source).
