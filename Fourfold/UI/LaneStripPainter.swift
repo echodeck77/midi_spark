@@ -57,6 +57,8 @@ struct EuclideousStripPlan {
     var hocketRules: [HocketRule] = []
     var hocketLive: HocketLiveModel? = nil
     var lane = 0
+    /// STACK WHEN ferry (§6.1): GAP is on, so a stack note may sound on a non-hit (gap) step — the footer places it under its OWN step, not snapped to the nearest hit.
+    var notesGaps = false
     /// The riff / notes TAB is on (an off part shows only the clarity pass's off look; hocket states don't apply, 9.1).
     var riffPartOn = true
     var notesPartOn = true

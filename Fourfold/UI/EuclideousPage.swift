@@ -2608,6 +2608,7 @@ struct EuclideousPage: View {
             }
         }
         return EuclideousStripPlan(legs: legs, sweepLength: steps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase, hocketRules: hocketRules, hocketLive: hocketLive, lane: idx,
+                                   notesGaps: line.notesGapsResolved,   // STACK WHEN §6.1: the footer places a gap stack under its own step
                                    riffPartOn: !euclideousMixLayerIsOff(line, notes: false), notesPartOn: !euclideousMixLayerIsOff(line, notes: true), altHitSteps: altHitSteps,
                                    displayScale: pageFitScale)   // LANE STRIP CLARITY §1.1: the strip's slim decision is on-screen width
     }

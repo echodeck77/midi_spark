@@ -447,7 +447,7 @@ func laneStripSnapToHitStep(_ raw: Int, hitSteps: [Int]) -> Int {
     return best
 }
 
-func laneStripSounding(riffHeld: [NoteRollNote], stackHeld: [NoteRollNote], n: Int, now: Double, passBeats: Double, stepOf: (Double) -> Int, hitSteps: [Int]) -> LaneStripSounding {
+func laneStripSounding(riffHeld: [NoteRollNote], stackHeld: [NoteRollNote], n: Int, now: Double, passBeats: Double, stepOf: (Double) -> Int, hitSteps: [Int], stackSteps: [Int]? = nil) -> LaneStripSounding {
     var riffRing = [Bool](repeating: false, count: max(0, n))
     var stackChip = [Int?](repeating: nil, count: max(0, n))
     var stackChipRanks = [[Int]](repeating: [], count: max(0, n))
@@ -455,6 +455,8 @@ func laneStripSounding(riffHeld: [NoteRollNote], stackHeld: [NoteRollNote], n: I
     var stackOutline = [[Int]](repeating: [], count: max(0, n))
     // §B1: everything is indexed by the hit's own step — the rounded sweep step snapped to the nearest authored hit.
     func hitStep(_ onBeat: Double) -> Int { laneStripSnapToHitStep(stepOf(onBeat), hitSteps: hitSteps) }
+    // STACK WHEN ferry (§6.1): with GAP on a stack note can sound on a non-hit step, so it snaps to its OWN step (the caller passes every step), not the nearest authored hit.
+    func stackStep(_ onBeat: Double) -> Int { laneStripSnapToHitStep(stepOf(onBeat), hitSteps: stackSteps ?? hitSteps) }
     for note in riffHeld where note.outs != 0 && note.onBeat <= now && euclideousMixNoteSounds(note, at: now) {
         let s = hitStep(note.onBeat)
         if s >= 0 && s < n { riffRing[s] = true }
@@ -462,7 +464,7 @@ func laneStripSounding(riffHeld: [NoteRollNote], stackHeld: [NoteRollNote], n: I
     for note in stackHeld where note.outs != 0 && note.onBeat <= now {
         let sounding = euclideousMixNoteSounds(note, at: now)
         guard sounding || note.onBeat >= now - passBeats else { continue }   // §3.3: a played hit keeps its chip for the rest of the pass
-        let s = hitStep(note.onBeat); let r = Int(note.rank)
+        let s = stackStep(note.onBeat); let r = Int(note.rank)
         guard s >= 0 && s < n, r >= 1 && r <= 8 else { continue }
         if stackChip[s] == nil || r < stackChip[s]! { stackChip[s] = r }
         if !stackChipRanks[s].contains(r) { stackChipRanks[s].append(r) }   // §2.3: every rank played here this pass (sorted below)

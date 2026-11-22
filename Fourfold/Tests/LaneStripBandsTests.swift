@@ -174,6 +174,20 @@ final class LaneStripBandsTests: XCTestCase {
         XCTAssertNil(late.stackChip[5], "not on the step its onset drifted to")
     }
 
+    func testGapStackLandsOnItsOwnStepNotTheNearestHit() {   // STACK WHEN ferry §6.1
+        func note(_ on: Double, rank: Int) -> NoteRollNote { NoteRollNote(onBeat: on, endBeat: nil, pitch: 60, velocity: 100, outs: 1, rank: UInt8(rank)) }
+        let hits = [0, 2, 4, 5, 7]                       // the example lane; gaps on 1, 3, 6
+        let gap = note(1.0, rank: 3)                     // a stack note on gap step 1
+        let step: (Double) -> Int = { Int($0.rounded()) }
+        // GAP off (stackSteps nil): the stack still snaps to the nearest hit (0), never the gap step — the old behaviour, unchanged
+        let off = laneStripSounding(riffHeld: [], stackHeld: [gap], n: 8, now: 2.0, passBeats: 8.0, stepOf: step, hitSteps: hits)
+        XCTAssertNil(off.stackChip[1], "GAP off: the gap step has no chip (snapped to a hit)")
+        XCTAssertEqual(off.stackChip[0], 3, "GAP off: snapped onto hit 0")
+        // GAP on (every step allowed): the gap stack draws under its OWN step 1
+        let on = laneStripSounding(riffHeld: [], stackHeld: [gap], n: 8, now: 2.0, passBeats: 8.0, stepOf: step, hitSteps: hits, stackSteps: Array(0..<8))
+        XCTAssertEqual(on.stackChip[1], 3, "GAP on: the gap stack is drawn under its own gap step (1)")
+    }
+
     // PLAY BUTTONS RAIL+NOTE §4.3/§4.5/§4.6 — the chip the tile shows in place of PLAY: the most-recent note-on's hit chip
     // (riff) + that hit's ranks (stack split); sounding while held; nil before the first note-on (⇒ PLAY).
     func testPartNoteChip() {

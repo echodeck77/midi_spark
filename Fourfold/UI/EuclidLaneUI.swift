@@ -541,7 +541,8 @@ struct EuclidCometBar: View {
                     let sounding = (riffHeld.isEmpty && stackHeld.isEmpty) ? LaneStripSounding(riffRing: [], stackChip: [], stackChipRanks: [], stackRing: [], stackOutline: [])
                         : laneStripSounding(riffHeld: riffHeld, stackHeld: stackHeld, n: n, now: liveBeat, passBeats: Double(n) * sub,
                                             stepOf: { b in euclideousStripNoteStep(raw: cometRawAt(b), n: n, dir: dir) ?? -1 },   // §B1: ROUND to the nearest step (was floor, one early)
-                                            hitSteps: (0..<n).filter { $0 < soundingHits.count && soundingHits[$0].kind != .rhythmRest })   // §B1.1/§B1.3: snap each note to its hit's step
+                                            hitSteps: (0..<n).filter { $0 < soundingHits.count && soundingHits[$0].kind != .rhythmRest },   // §B1.1/§B1.3: snap each note to its hit's step
+                                            stackSteps: strip.notesGaps ? Array(0..<n) : nil)   // STACK WHEN §6.1: a gap stack sounds on a non-hit step ⇒ it stays on its own step, not the nearest hit
                     // §5: the faint CC trace mapped onto the steps (the emitter's own one-bar curve; the pass is taken to start on a bar line — a flagged approximation). The playhead dot rides the current sweep + value while running.
                     var ccTrace: LaneCCStripTrace? = nil
                     if let ccIn = ccInput {
