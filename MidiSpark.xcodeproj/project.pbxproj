@@ -2649,7 +2649,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.Fourfold;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 2;
 			};
 			name = Debug;
 		};
@@ -2667,7 +2667,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.FourfoldUITests;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 2;
 				TEST_TARGET_NAME = Fourfold;
 			};
 			name = Debug;
@@ -2789,7 +2789,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.Fourfold;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 2;
 			};
 			name = Release;
 		};
@@ -2807,7 +2807,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.FourfoldUITests;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 2;
 				TEST_TARGET_NAME = Fourfold;
 			};
 			name = Release;
@@ -2861,7 +2861,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.Fourfold.AU;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 2;
 			};
 			name = Debug;
 		};
@@ -2882,7 +2882,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.paulbarrett.Fourfold.AU;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) FOURFOLD";
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 2;
 			};
 			name = Release;
 		};

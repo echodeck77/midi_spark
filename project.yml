@@ -29,6 +29,12 @@ targetTemplates:
     settings:
       base:
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) FOURFOLD"
+        # iPad-ONLY (2026-11-22): the project-level `settings.base` TARGETED_DEVICE_FAMILY = "2" lands only on the
+        # project build config — XcodeGen writes "1,2" (iPhone + iPad) onto every TARGET, which wins, so without
+        # this line the built app/extension carried UIDeviceFamily [1,2] and would install on an iPhone with the
+        # iPad-only page UI. Set it on the TEMPLATE so BOTH Fourfold + FourfoldAU are iPad-only; confirm with
+        # `grep TARGETED_DEVICE_FAMILY` on the generated .pbxproj (the app's General → Supported Destinations).
+        TARGETED_DEVICE_FAMILY: "2"
         # ONE version for the app AND its embedded AU extension (App Store validation wants them to agree): MARKETING_VERSION is the user-visible version, CURRENT_PROJECT_VERSION the build
         # number that must go up on every upload. Both plists read these two (`$(MARKETING_VERSION)`); `sh Scripts/bump-build.sh` raises the build number.
         MARKETING_VERSION: "0.3.0"
@@ -310,6 +316,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.paulbarrett.FourfoldUITests
         TEST_TARGET_NAME: Fourfold
         CODE_SIGNING_ALLOWED: NO
+        TARGETED_DEVICE_FAMILY: "2"   # iPad-only, matching the app under test (does not ship, but keep it consistent)
 
 schemes:
   MidiSpark:
