@@ -2676,9 +2676,14 @@ struct EuclideousPage: View {
                 for i in 0..<legs[l].hits.count where i < pr.count { legs[l].hits[i].predictedStackRanks = pr[i] }
             }
         }
-        return EuclideousStripPlan(legs: legs, sweepLength: steps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty), shadowed: shadowed, hitsPhrase: phrase, hocketRules: hocketRules, hocketLive: hocketLive, lane: idx,
+        // `riffPlays` gates the riff's active indicators (the current chip + the STACK-grid arrow `riffGhost`), so it must fold in the header PLAY RIFF master —
+        // "stop riff" (riffMaster off) silences the riff on every lane, so its walk is not running. The band's `riffPartOn` carries the master separately (above).
+        return EuclideousStripPlan(legs: legs, sweepLength: steps, cfg: cfg, lapStartTick: lapStartTick, riffPlays: playsRiff && !(noteSource == .midi && pool.isEmpty) && riffMaster, shadowed: shadowed, hitsPhrase: phrase, hocketRules: hocketRules, hocketLive: hocketLive, lane: idx,
                                    notesGaps: line.notesGapsResolved,   // STACK WHEN §6.1: the footer places a gap stack under its own step
-                                   riffPartOn: !euclideousMixLayerIsOff(line, notes: false), notesPartOn: !euclideousMixLayerIsOff(line, notes: true), altHitSteps: altHitSteps,
+                                   // The band ("the line along the bottom") is an ACTIVE indicator — it shows only when the part would SOUND, so it must fold in the header
+                                   // PLAY RIFF / PLAY STACK master exactly as the engine does (`laneSounds(L.riffOnResolved, p.riffMaster)` / `…(notesOnResolved, p.stackMaster)`,
+                                   // Router.swift:6358/6365). Without this, "stop stack" (stackMaster off) left the stack band drawn so the lane looked like it was still running.
+                                   riffPartOn: laneSounds(!euclideousMixLayerIsOff(line, notes: false), riffMaster), notesPartOn: laneSounds(!euclideousMixLayerIsOff(line, notes: true), stackMaster), altHitSteps: altHitSteps,
                                    displayScale: pageFitScale,   // LANE STRIP CLARITY §1.1: the strip's slim decision is on-screen width
                                    riffSourceColor: riffSourceColorRGB(idx))   // RIFF SOURCE §9: a reader's chips wear its source lane's colour
     }
@@ -8613,7 +8618,7 @@ struct EuclideousPage: View {
             let line = heldOriginal ?? lines[i]
             // `walkTagShows(i)`'s own test, inlined against the override-aware `line` above (that function
             // reads `lines[i]` directly, which would bypass the held-original substitution).
-            let riffOn = euclideousLanePlaysRiff(line)
+            let riffOn = euclideousLanePlaysRiff(line) && riffMaster   // "stop riff" (header PLAY RIFF master off) silences every lane's riff, so its grid arrow must not show as running
             let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
             let muted = !euclideousLaneAudible(beat: lanesMusicalBeat(real: beat), cells16: cfg.muteCells, unitBeats: cfg.muteUnitBeats)
             let flare = riffPulse(i, now: now)?.f ?? 0   // PULSE §4.1: velocity-scaled flash of the lane's latest riff strike (was the comet bar's step-based flare)
