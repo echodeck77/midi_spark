@@ -2952,6 +2952,20 @@ final class EuclidFromTests: XCTestCase {
         XCTAssertEqual(euclideousNormaliseEuclidFrom([0, 9, nil, nil]), [nil, nil, nil, nil])
     }
 
+    // §6/§8.1: the display helper — a follower's effective line carries the root's shape but its OWN tilt/flip/direction.
+    func testEffectiveLineCarriesRootShapeButOwnExpression() {
+        var src = line(steps: 8, pulses: 3, rotate: 1); src.customHits = [true, false, true, false, false, true, false, false]
+        var follower = line(steps: 4, pulses: 2, rotate: 0, from: 0, fromOff: 2); follower.tilt = 0.5; follower.patternMiss = true
+        let lines = [src, follower, line(), line()]
+        let e = euclideousEffectiveLine(lines, 1)
+        XCTAssertEqual(e.steps, 8); XCTAssertEqual(e.pulses, 3); XCTAssertEqual(e.rotate, 3)   // root rotate 1 + rel 2
+        XCTAssertEqual(e.customHits, src.customHits)                                            // the root's hand edits
+        XCTAssertEqual(e.tilt, 0.5); XCTAssertEqual(e.patternMiss, true)                        // the follower's OWN expression
+        // a non-follower returns its own line unchanged
+        XCTAssertEqual(euclideousEffectiveLine(lines, 0).steps, 8)
+        XCTAssertEqual(euclideousEffectiveLine(lines, 0).rotate, 1)
+    }
+
     // §10.6: speedRatio from the two rates (ArpRate.beats).
     func testSpeedRatioText() {
         XCTAssertEqual(euclideousSpeedRatioText(sourceBeats: ArpRate.r1_8.beats,  followerBeats: ArpRate.r1_16.beats), "×2")

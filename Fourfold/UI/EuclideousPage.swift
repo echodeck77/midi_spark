@@ -156,6 +156,10 @@ extension View {
 /// no dead code paths," not to port one of its mechanisms onto a structurally different widget. Read as
 /// a deliberate scope cut: multi-lane editing is still reachable by repeating the same drag on each lane
 /// in turn, just no longer in one combined gesture.
+/// EUCLID FROM amendment §2.3: which (root, follower) pair is mid-edit, so the root's card and the edited follower's card can
+/// light up while the other followers of that root show only the quiet at-rest border.
+struct EuclidEditPulse: Equatable { var root: Int; var follower: Int }
+
 struct EuclideousSlider: View {
     let field: EuclideousSliderField
     let line: EuclidLine
@@ -533,6 +537,7 @@ struct EuclideousStepsStepper: View {
     // EUCLID FROM §6.1-6.2: while following, the value draws in the ROOT's lane100 and the box wears a 1 pt root-colour @50% border.
     var valueColour: Color? = nil
     var followBorder: Color? = nil
+    var followBorderWidth: CGFloat = 1   // §2.3: 2 pt at full strength while this card is mid-edit (the pulse)
     // LANE LOCK (2026-10-22): see EuclideousSlider — inside the control, not wrapping modifiers. `lockMomentary` (locked on the BEAT grid): + and − act at touch-down (6.9).
     var lockActive: Bool = false
     var lockMomentary: Bool = false
@@ -577,7 +582,8 @@ struct EuclideousStepsStepper: View {
             }
             .frame(width: width, height: valueBoxH)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C)))
-            .overlay { if let b = followBorder { RoundedRectangle(cornerRadius: 6).strokeBorder(b, lineWidth: 1) } }   // EUCLID FROM §6.2
+            .overlay { if let b = followBorder { RoundedRectangle(cornerRadius: 6).strokeBorder(b, lineWidth: followBorderWidth) } }   // EUCLID FROM §6.2 / §2.3
+            .animation(.easeOut(duration: 0.3), value: followBorder).animation(.easeOut(duration: 0.3), value: followBorderWidth)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -648,6 +654,7 @@ struct EuclideousHitsStepper: View {
     var lockOutline: Color? = nil
     var onLockTouch: ((Bool) -> Void)? = nil
     var followBorder: Color? = nil   // EUCLID FROM §6.2: a 1 pt root-colour @50% border on the value box while following
+    var followBorderWidth: CGFloat = 1   // §2.3: 2 pt at full strength while this card is mid-edit (the pulse)
 
     @State private var dragStartLocation: CGPoint? = nil
     @State private var dragStartLine: EuclidLine? = nil
@@ -675,7 +682,8 @@ struct EuclideousHitsStepper: View {
             }
             .frame(width: width, height: valueBoxH)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x22252C)))
-            .overlay { if let b = followBorder { RoundedRectangle(cornerRadius: 6).strokeBorder(b, lineWidth: 1) } }   // EUCLID FROM §6.2
+            .overlay { if let b = followBorder { RoundedRectangle(cornerRadius: 6).strokeBorder(b, lineWidth: followBorderWidth) } }   // EUCLID FROM §6.2 / §2.3
+            .animation(.easeOut(duration: 0.3), value: followBorder).animation(.easeOut(duration: 0.3), value: followBorderWidth)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { g in
@@ -1248,7 +1256,9 @@ struct EuclideousPage: View {
         // the tab, not random mode, not MIDI or automation." THROW on a borrowed RHYTHM/RIFF/NOTES tab
         // no-ops (§0's own research found no such guard existed under the old model — this is new).
         let borrowed = euclideousAnswerBorrowedTabs(l, notesReadsRiff: true)
-        if (tab == .rhythm && borrowed.rhythm) || (tab == .riff && borrowed.riff) || (tab == .notes && borrowed.notes) {
+        // EUCLID FROM amendment §7.3: a RHYTHM roll on a FOLLOWING lane is a no-op too — random must leave its STEPS/HITS/OFFSET/
+        // customHits (and FROM) alone so tapping the chip restores its untouched own pattern (§2.3). RIFF / NOTES rolls still apply.
+        if (tab == .rhythm && (borrowed.rhythm || lines[lane].euclidFromResolved(ownLane: lane) != nil)) || (tab == .riff && borrowed.riff) || (tab == .notes && borrowed.notes) {
             euclideousRandomMarkNothingToChange(lane: lane, tab: tab)
             return
         }
@@ -1299,7 +1309,9 @@ struct EuclideousPage: View {
         let l = euclideousRandomEffectiveLine(lane: lane)
         // LISTEN REBUILT §7.3: same borrowed-tab guard as THROW above.
         let borrowed = euclideousAnswerBorrowedTabs(l, notesReadsRiff: true)
-        if (tab == .rhythm && borrowed.rhythm) || (tab == .riff && borrowed.riff) || (tab == .notes && borrowed.notes) {
+        // EUCLID FROM amendment §7.3: a RHYTHM roll on a FOLLOWING lane is a no-op too — random must leave its STEPS/HITS/OFFSET/
+        // customHits (and FROM) alone so tapping the chip restores its untouched own pattern (§2.3). RIFF / NOTES rolls still apply.
+        if (tab == .rhythm && (borrowed.rhythm || lines[lane].euclidFromResolved(ownLane: lane) != nil)) || (tab == .riff && borrowed.riff) || (tab == .notes && borrowed.notes) {
             euclideousRandomMarkNothingToChange(lane: lane, tab: tab)
             return
         }
@@ -1618,6 +1630,10 @@ struct EuclideousPage: View {
     // one of the STEPS picker (§3) and the restart editor (§6.2) open at a time, per lane; opening either
     // closes the other on that SAME lane (both close on a tab switch too, handled where `laneTab` is set).
     @State private var stepsPickerLane: Int? = nil
+    // EUCLID FROM amendment §2.3: while a write-through edit is happening, light the ROOT's card and the edited FOLLOWER's
+    // card. Ephemeral UI state (never saved / undone). Set on each write-through edit, faded 0.3 s after the last one.
+    @State private var euclidPulse: EuclidEditPulse? = nil
+    @State private var euclidPulseGen: Int = 0
     @State private var restartEditorLane: Int? = nil
     @State private var riffSourcePickerLane: Int? = nil   // RIFF SOURCE ferry (§6): the lane whose riff-source picker is open (one at a time, §6.10). Ephemeral, never saved.
     private func closeOtherRiffPickerOverlays(except idx: Int) { stepsPickerLane = nil; restartEditorLane = nil; notesPickerOpen.removeAll() }   // §6.1: the picker replaces the tile/walk/MOVE area; close the other card overlays
@@ -2971,8 +2987,26 @@ struct EuclideousPage: View {
             })
     }
     /// A tap on step `box` of lane `idx`'s strip: toggles the hit (one undo step), the same on the lane cards and the MIX bands.
+    /// EUCLID FROM amendment §1.2-1.3: on a FOLLOWER the tap WRITES THROUGH to the root — the displayed box `s` toggles the
+    /// root's box `(s − total relative offset) mod STEPS`, so the hit under the finger is the one that flips on every lane in
+    /// the chain. Non-following ⇒ root == idx ⇒ the plain edit.
     private func tapStep(_ idx: Int, _ box: Int) {
-        editStep(idx, true) { l in euclideousToggleStepHit(&l, box: box) }
+        let (root, added) = euclideousEuclidRoot(lines, idx)
+        guard root != idx else { editStep(idx, true) { l in euclideousToggleStepHit(&l, box: box) }; return }
+        let n = max(2, euclideousEffectiveEuclid(lines, idx).steps)
+        let rootBox = ((box - added) % n + n) % n
+        editStep(root, true) { l in euclideousToggleStepHit(&l, box: rootBox) }
+        euclidPulseEdit(root: root, follower: idx)
+    }
+    /// Amendment §2.3: light the ROOT's card and the edited FOLLOWER's while a write-through edit happens. Set on each edit,
+    /// cleared (0.3 s fade) 0.35 s after the LAST one — a tap flashes ~0.35 s then fades; a drag holds until it ends. Ephemeral.
+    private func euclidPulseEdit(root: Int, follower: Int) {
+        euclidPulse = EuclidEditPulse(root: root, follower: follower)
+        euclidPulseGen += 1
+        let g = euclidPulseGen
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            if euclidPulseGen == g { withAnimation(.easeOut(duration: 0.3)) { euclidPulse = nil } }
+        }
     }
     private var mixToggleMode: EuclideousMixToggleMode { EuclideousMixToggleMode(rawValue: mixToggleModeRaw) ?? .filled }
     /// MIX v2 (2026-11-05): the panel. The MIX rows build's `EuclideousMixPanel` (and its rolls, sliders and SOLO tile) stays compiled, unmounted.
@@ -3476,10 +3510,19 @@ struct EuclideousPage: View {
         let root = euclideousEuclidRoot(lines, idx).root, following = root != idx
         let dispLine = following ? euclideousEffectiveLine(lines, idx) : line
         let rootC = laneAccents[root % laneAccents.count]
+        let (border, bw) = euclidFollowBorder(idx: idx, root: root, following: following, rootC: rootC)
         return AnyView(EuclideousHitsStepper(line: dispLine, width: size.width, height: size.height, heroColour: lane100(following ? rootC : accent),
-            onCommit: { mutate in edit(root, mutate) },
+            onCommit: { mutate in edit(root, mutate); if following { euclidPulseEdit(root: root, follower: idx) } },
             lockActive: lockLocked(idx), lockMomentary: lockMomentary(idx), lockOutline: lockOn(idx, .hits) ? accent : nil, onLockTouch: lockTouch(idx),
-            followBorder: following ? rootC.opacity(0.5) : nil))
+            followBorder: border, followBorderWidth: bw))
+    }
+    /// §2.2/§2.3: the value-box border for lane `idx` — nil for a plain lane; the root's colour @50% (1 pt) for a follower at rest;
+    /// full strength (2 pt) on the edited FOLLOWER and on the ROOT while a write-through edit is pulsing. Other followers stay @50%.
+    private func euclidFollowBorder(idx: Int, root: Int, following: Bool, rootC: Color) -> (Color?, CGFloat) {
+        let pulsedRoot = !following && euclidPulse?.root == idx
+        let pulsedFollower = following && euclidPulse?.follower == idx
+        let colour: Color? = following ? (pulsedFollower ? rootC : rootC.opacity(0.5)) : (pulsedRoot ? rootC : nil)
+        return (colour, (pulsedRoot || pulsedFollower) ? 2 : 1)
     }
     /// §2.2: STEPS — the existing stepper (its number bumped to 32 pt to match HITS, kept neutral #F2F4F7). Tap the value box to open the length picker.
     private func euclidV2Steps(_ idx: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
@@ -3489,10 +3532,11 @@ struct EuclideousPage: View {
         let root = euclideousEuclidRoot(lines, idx).root, following = root != idx
         let dispLine = following ? euclideousEffectiveLine(lines, idx) : line
         let rootC = laneAccents[root % laneAccents.count]
+        let (border, bw) = euclidFollowBorder(idx: idx, root: root, following: following, rootC: rootC)
         return AnyView(EuclideousStepsStepper(line: dispLine, accent: accent, width: size.width, height: size.height,
-            onCommit: { newStep, mutate in editStep(root, newStep, mutate) },
+            onCommit: { newStep, mutate in editStep(root, newStep, mutate); if following { euclidPulseEdit(root: root, follower: idx) } },
             onToggleValueBoxTap: { if stepsPickerLane == idx { stepsPickerLane = nil } else { stepsPickerLane = idx; restartEditorLane = nil } },
-            valueColour: following ? lane100(rootC) : nil, followBorder: following ? rootC.opacity(0.5) : nil,
+            valueColour: following ? lane100(rootC) : nil, followBorder: border, followBorderWidth: bw,
             lockActive: lockLocked(idx), lockMomentary: lockMomentary(idx), lockOutline: lockOn(idx, .steps) ? accent : nil, onLockTouch: lockTouch(idx)))
     }
     /// §2.3 / §4: OFFSET — the existing horizontal slider in the taller frame; drawn at 42 % (still live) when every OFFSET gives the same played pattern (`euclideousOffsetIsInert`).
@@ -3775,7 +3819,9 @@ struct EuclideousPage: View {
                 }
                 // §1.5/§1.7: the STEPS picker covers the whole body from the top (its own 192pt floor). RESETS ferry (2026-11-11): the restart EDITOR moved to the RESETS tab with its tiles — it is no longer mounted here.
                 if stepsPickerLane == idx, pickerEditorH >= 192 {
-                    stepsPicker(idx, line, accent, width: fullWidth, height: pickerEditorH)
+                    // EUCLID FROM amendment §1.2: while following, the picker previews and edits the ROOT (its cells commit via edit(idx)).
+                    let r = euclideousEuclidRoot(lines, idx).root
+                    stepsPicker(r, r == idx ? line : euclideousEffectiveLine(lines, idx), r == idx ? accent : laneAccents[r % laneAccents.count], width: fullWidth, height: pickerEditorH)
                 }
                 if borrowed {
                     listenPausedOverlay(idx, line, label: "RHYTHM", width: fullWidth, height: belowStripH) { $0.answerRhythmOn = false }
