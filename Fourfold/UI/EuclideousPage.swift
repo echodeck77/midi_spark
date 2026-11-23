@@ -8629,7 +8629,12 @@ struct EuclideousPage: View {
                 cfg = riffWalkConfig(i)
             }
             guard let cfg else { return nil }
-            let line = heldOriginal ?? lines[i]
+            // EUCLID FROM (Paul 2026-11-23): a FOLLOWING lane walks the riff over the INHERITED hits, so its riff-grid arrow +
+            // rails must show whenever it is running — but `euclideousLaneIsRunning` reads the line's HITS, and a follower's
+            // OWN pulses may be 0 (its source has the hits). Feed the EFFECTIVE line here so the running/arrow gate sees the
+            // inherited hit count; `cfg` (riffWalkConfig) is already effective. `riffOn` stays the follower's own (preserved by
+            // the effective line). heldOriginal (random mode) still wins. Non-following ⇒ lines[i] unchanged ⇒ byte-identical.
+            let line = heldOriginal ?? (euclideousEuclidRoot(lines, i).root != i ? euclideousEffectiveLine(lines, i) : lines[i])
             // `walkTagShows(i)`'s own test, inlined against the override-aware `line` above (that function
             // reads `lines[i]` directly, which would bypass the held-original substitution).
             let riffOn = euclideousLanePlaysRiff(line) && riffMaster   // "stop riff" (header PLAY RIFF master off) silences every lane's riff, so its grid arrow must not show as running
