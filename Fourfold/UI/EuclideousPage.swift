@@ -2754,12 +2754,6 @@ struct EuclideousPage: View {
         let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: phaseLines) : nil
         let listenFollowTint: Color? = followIdx.map { laneAccents[$0 % laneAccents.count] }   // the partner's colour: the lit cells + the badge dot
         let listenShadowTint: Color? = phaseLines[idx].listenPitchResolved == .shadow ? laneAccents[line.listenSourceResolved(ownLane: idx) % laneAccents.count] : nil
-        // EUCLID FROM (2026-11-23, Paul): a FOLLOWING lane's comet strip — the always-visible, most prominent component on the
-        // card — draws its LIT (hit) cells in the lane it has ADOPTED (the ROOT's colour), at full strength, so the whole card
-        // reads "playing lane X's pattern" on every tab. The strip already shows the inherited STEP COUNT (the plan is built
-        // from `euclideousDisplayLine`, i.e. the root's 16). LISTEN's own partner tint still wins if both somehow apply.
-        let euclidFromRoot = euclideousEuclidRoot(lines, idx)
-        let euclidFromTint: Color? = euclidFromRoot.root != idx ? laneAccents[euclidFromRoot.root % laneAccents.count] : nil
         // LANES GRID: the lane's own grid, resolved exactly as the engine resolves it, so the card's comet / flashes follow the rhythm origin and a
         // lane the grid has muted dims. Both stay nil for a lane with no restart marks / no mute, leaving its card byte-identical.
         let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
@@ -2852,7 +2846,7 @@ struct EuclideousPage: View {
                       // colour, faded, and the comet sweeps at the partner's rate × the multiplier.
                       patternOverride: laneTimingBoxes(idx, line) ?? followEff.map { Array($0.buf.prefix($0.n)) },
                       dirOverride: euclideousLaneDisplayDirection(lane: idx, lines: phaseLines),
-                      cellTint: listenFollowTint ?? euclidFromTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
+                      cellTint: listenFollowTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
                       rateBeatsOverride: followEff?.rateBeats,
                       restartChains: cardChains.isActive ? cardChains : nil,
                       mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) },
@@ -2941,8 +2935,17 @@ struct EuclideousPage: View {
         // HEADER MASTER SOLO (Paul 2026-11-21): a part-specific tab (RIFF / NOTES) also dims when JUST its part is solo-silenced (a held PLAY RIFF / PLAY STACK),
         // while the lane itself still sounds its other part. The TOP ROW (play / strip / SOLO) stays full — the lane isn't silenced — so this only dims the tab body.
         let tabDimContent = soloDimContent || (laneTabPart(tab).map { partOnlySilenced(idx, part: $0) } ?? false)
+        // EUCLID FROM (Paul 2026-11-23): a FOLLOWING lane's comet strip — the always-visible step display — must render the
+        // INHERITED pattern (the root's step COUNT / pulses / offset / hand edits; the follower keeps its own tilt/dir/flip)
+        // in the ADOPTED (root's) lane colour. `EuclidCometBar` takes its cell COUNT from `line.steps` and its colour from
+        // `accent`, so BOTH must be the effective ones here — the strip PLAN alone (already effective) drives neither. A
+        // non-following lane resolves root == idx ⇒ `line`/`accent` unchanged ⇒ byte-identical.
+        let cometRoot = euclideousEuclidRoot(lines, idx).root
+        let cometFollowing = cometRoot != idx
+        let cometLine = cometFollowing ? euclideousEffectiveLine(lines, idx) : line
+        let cometAccent = cometFollowing ? laneAccents[cometRoot % laneAccents.count] : accent
         VStack(alignment: .leading, spacing: cardBodyGap) {
-            laneCometRow(idx, line: line, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent, flipping: flipping)
+            laneCometRow(idx, line: cometLine, accent: cometAccent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent, flipping: flipping)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
