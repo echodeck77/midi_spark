@@ -790,6 +790,9 @@ struct EuclideousStackBreak: View {
     var body: some View { FourfoldStackProbe.note(); return content() }
 }
 
+/// KIT SOURCE (ferry 2026-11-23): the open kit editor's lane + selected rank (0-based). UI state, never saved.
+struct KitEditorTarget: Equatable { var lane: Int; var rank: Int }
+
 struct EuclideousPage: View {
     let lines: [EuclidLine]
     // FOUR RIFFS (2026-10-18 ferry, "drop the loop functionality in favour of four riff tabs... with a
@@ -1100,6 +1103,11 @@ struct EuclideousPage: View {
     @State private var riffChanceAxis: EuclideousGridChanceAxis = .none
     @State private var stackChanceAxis: EuclideousGridChanceAxis = .none
     @State private var chanceDragActive = false   // one shared flag: the first onChanged of a slider drag starts a new undo burst (§1.4)
+    // KIT SOURCE (ferry 2026-11-23, §4): the editor's live state — UI only, never saved, never undone.
+    @State private var kitEditor: KitEditorTarget? = nil        // nil = closed; the open lane + selected rank
+    @State private var kitEditorPrevNote: UInt8? = nil          // §4.7 the selected rank's note when it was last selected
+    @State private var kitEditorRangeLow: Int = 36              // §4.9 the keyboard's low C (a multiple of 12)
+    @State private var kitEditorNameDraft: String = ""          // §4.4 the NAME field's in-progress text
     // RIBBON SETTINGS §6.1: in TUTTI mode a touch-down toggles ONE mark (the column/rank under the touch); the rest of the drag does nothing. This guards "only the first change of a drag acts".
     @State private var tuttiDragHandled = false
     // RIBBON SETTINGS §9: the live LOOP span (columns lo, hi; 0 = none) + the drag anchor (the column touched down on, fixed until lift). Ephemeral UI state mirroring the kernel live word; not saved/undone.
@@ -2489,6 +2497,7 @@ struct EuclideousPage: View {
         hocketPopupOpen = false   // HOCKET (2026-10-27): the same
         playAsPopup = nil         // PLAY AS SEQUENCE (2026-11-08): the same
         notesChainPopup = nil; notesShiftPopup = nil; notesRepeatPopup = nil   // PLAY AS ROWS (2026-11-11 / amend 1): the ORDER/VOICES/SPREAD, SHIFT and REPEAT pop-ups
+        kitEditor = nil           // KIT SOURCE (§4.1): the same
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -7817,12 +7826,13 @@ struct EuclideousPage: View {
         // APPLY TO ALL (Paul 2026-11-11): a button in the row flow directly ABOVE DELAY CHORD; its height (+ one gap) is reserved from the area so the four rows + button fit / scroll together. §2.5b: 30 tall.
         let buttonH: CGFloat = 30
         let layout = euclideousInputsTabLayout(contentAreaH: max(0, contentAreaH - buttonH - 14))
+        let kitOn = line.kitOnResolved   // KIT SOURCE §5.2: the MIDI row and DELAY CHORD dim to 42 % and do nothing while KIT is on
         let rows = VStack(spacing: layout.gap) {
             poolNowRow(idx, accent, fullWidth: fullWidth, height: layout.nowH)
             poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
-            inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
+            inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH).opacity(kitOn ? 0.42 : 1).allowsHitTesting(!kitOn)
             inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)   // above CANON
-            listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH)
+            listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH).opacity(kitOn ? 0.42 : 1).allowsHitTesting(!kitOn)
             Spacer(minLength: 0)
         }
         if layout.fits { return AnyView(rows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
@@ -7862,14 +7872,59 @@ struct EuclideousPage: View {
         let chipsW = max(1, fullWidth - labelW - sp6 - testW)
         return AnyView(HStack(spacing: 0) {
             Text("POOL").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            PoolNowChipsView(lane: idx, tint: lane100(accent), size: CGSize(width: chipsW, height: height),
-                             octave: line.octaveResolved,   // §5.1: the lane's NOTES octave, the same the STACK grid applies
-                             source: noteSource, keyRoot: keyRoot, keyType: keyType,
-                             live: answerLive)
+            if line.kitOnResolved {
+                kitPoolChips(idx, line, accent, size: CGSize(width: chipsW, height: height))   // KIT SOURCE §5.4: the lane's kit, each cell tapping open the editor
+            } else {
+                PoolNowChipsView(lane: idx, tint: lane100(accent), size: CGSize(width: chipsW, height: height),
+                                 octave: line.octaveResolved,   // §5.1: the lane's NOTES octave, the same the STACK grid applies
+                                 source: noteSource, keyRoot: keyRoot, keyType: keyType,
+                                 live: answerLive)
+            }
             Spacer().frame(width: sp6)
             poolTestButton(idx, line, w: testW, height: height, accent: accent)
         }
         .frame(width: fullWidth, height: height))
+    }
+
+    /// KIT SOURCE §5.4: eight chips of the lane's kit — rank · name · note number, a velocity fill behind (lane colour 16 %); a tap opens the editor on that rank.
+    private func kitPoolChips(_ lane: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
+        let notes = line.kitNotesResolved, names = line.kitNamesResolved, vels = line.kitVelResolved
+        let gap: CGFloat = 3
+        let w = max(1, (size.width - gap * 7) / 8)
+        return AnyView(HStack(spacing: gap) {
+            ForEach(0..<8, id: \.self) { r in
+                kitPoolCell(lane: lane, rank: r, note: notes[r], name: names[r], vel: Int(vels[r]), accent: accent, size: CGSize(width: w, height: size.height))
+            }
+        }.frame(width: size.width, height: size.height))
+    }
+    private func kitPoolCell(lane: Int, rank: Int, note: UInt8, name: String, vel: Int, accent: Color, size: CGSize) -> some View {
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.card))
+            RoundedRectangle(cornerRadius: 6).fill(lane100(accent).opacity(0.16))             // §4.3/§5.4 velocity fill
+                .frame(height: max(0, size.height * CGFloat(vel) / 100))
+            VStack(spacing: 1) {
+                Text("\(rank + 1)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.5)
+                Text("\(note)").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            }.padding(.horizontal, 2)
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x202329), lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { openKitEditor(lane: lane, rank: rank) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Rank \(rank + 1), \(name), note \(note), velocity \(vel) percent")   // §6.2
+        .accessibilityAddTraits(.isButton)
+    }
+    /// KIT SOURCE §4.1: open the kit editor on (lane, rank), closing every other overlay first.
+    private func openKitEditor(lane: Int, rank: Int) {
+        closeAllOtherOverlays()
+        let notes = (lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)).kitNotesResolved
+        kitEditorRangeLow = euclideousKitEditorRangeLowC(note: notes[rank])
+        kitEditorPrevNote = notes[rank]
+        kitEditorNameDraft = ""
+        kitEditor = KitEditorTarget(lane: lane, rank: rank)
     }
     /// 3.3 (SOURCES row ferry, 2026-11-08): MIDI IN · CHORDS (+ a 1|2 grid chooser) · PICK · KEY, then a separated TEST button. The two chord bits (CHORD 1 / CHORD 2, mutually exclusive) are consolidated into ONE CHORDS toggle plus a small
     /// 1|2 segmented chooser that picks the grid (dimmed while CHORDS is off, still tappable — picking a grid turns chords on). The model is unchanged (`poolSrcMask` bits 1 / 4). One `edit`, one undo step, per tap (`onEdit`'s UNDO-6 guard drops a no-op re-tap).
@@ -7877,12 +7932,16 @@ struct EuclideousPage: View {
         let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 5   // §2.3: sp5 apart; TEST moved to POOL (§2.2d)
         let chordExtra: CGFloat = 23 * 2 + 2 + 2   // §2.3b: the two 23-wide segments + sp2 + a 2 pt trailing inset, beyond a plain chip's share
         let plainW = max(1, (fullWidth - labelW - chordExtra - gap * 4) / 4)   // four gaps: label · MIDI · CHORDS · PICK · KEY
+        // KIT SOURCE (ferry 2026-11-23): KIT takes PICK's slot. With KIT on the other chips (and the MIDI row + DELAY CHORD, dimmed in `poolTabContent`) draw at 42 % and do nothing but §5.3 — a tap turns KIT off AND toggles that chip, one undo step.
+        let kitOn = line.kitOnResolved
+        func srcTap(_ bit: Int) { edit(idx) { if $0.kitOnResolved { $0.kitOn = false }; $0.setPoolSrc(bit, !$0.poolSrcOn(bit)) } }
+        let srcVal: (Bool) -> String = { on in kitOn ? "inactive" : euclideousPoolSourceValue(on: on) }   // §6.1: a dimmed chip keeps its label and reads "inactive"
         return AnyView(HStack(spacing: gap) {
             Text("SOURCES").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            poolSourceChip("MIDI IN", on: line.poolSrcOn(0), w: plainW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[0]), lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: line.poolSrcOn(0))) { edit(idx) { $0.setPoolSrc(0, !$0.poolSrcOn(0)) } }
-            poolChordGroup(idx, line, w: plainW + chordExtra, height: height, accent: accent)
-            poolSourceChip("PICK", on: line.poolSrcOn(2), w: plainW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[2]), lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: line.poolSrcOn(2))) { edit(idx) { $0.setPoolSrc(2, !$0.poolSrcOn(2)) } }
-            poolSourceChip("KEY", on: line.poolSrcOn(3), w: plainW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[3]), lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: line.poolSrcOn(3))) { edit(idx) { $0.setPoolSrc(3, !$0.poolSrcOn(3)) } }
+            poolSourceChip("MIDI IN", on: line.poolSrcOn(0), w: plainW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[0]), lane \(idx + 1)", axValue: srcVal(line.poolSrcOn(0))) { srcTap(0) }.opacity(kitOn ? 0.42 : 1)
+            poolChordGroup(idx, line, w: plainW + chordExtra, height: height, accent: accent, kitOn: kitOn).opacity(kitOn ? 0.42 : 1)
+            poolSourceChip("KIT", on: kitOn, w: plainW, height: height, accent: accent, ax: "Kit, lane \(idx + 1)", axValue: kitOn ? "on" : "off") { edit(idx) { $0.kitOn = !($0.kitOn ?? false) } }
+            poolSourceChip("KEY", on: line.poolSrcOn(3), w: plainW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[3]), lane \(idx + 1)", axValue: srcVal(line.poolSrcOn(3))) { srcTap(3) }.opacity(kitOn ? 0.42 : 1)
         }
         .frame(width: fullWidth, height: height))
     }
@@ -7914,7 +7973,8 @@ struct EuclideousPage: View {
     /// §2.3b: the CHORDS group — ONE container (a source toggle + its 1|2 grid chooser read as one control). The container takes CHORDS's on/off fill + border; the CHORDS toggle (lamp + label, no border of its own) fills the left, the two
     /// 23 × 21 segments sit at the trailing edge (inset 2, sp2). A segment tap picks that grid AND turns CHORDS on; a tap on the left toggles CHORDS. Selected grid while CHORDS on: #DFE3EA / ink #0D0F14; while off: no fill, a 0.75 pt #5C626C
     /// border, #AAB0BA (the chosen grid is kept as an outline); unselected: no fill, #8A909A. One undo step per tap.
-    private func poolChordGroup(_ idx: Int, _ line: EuclidLine, w: CGFloat, height: CGFloat, accent: Color) -> some View {
+    private func poolChordGroup(_ idx: Int, _ line: EuclidLine, w: CGFloat, height: CGFloat, accent: Color, kitOn: Bool = false) -> some View {
+        func kitOff(_ l: inout EuclidLine) { if l.kitOnResolved { l.kitOn = false } }   // KIT SOURCE §5.3: a tap on the dimmed CHORDS group turns KIT off too, in the same undo step
         let chordsOn = line.poolSrcOn(1) || line.poolSrcOn(4)
         let grid = line.poolSrcOn(4) ? 1 : 0
         let h = min(EuclideousPoolTabMetrics.toggleH, height)
@@ -7930,7 +7990,7 @@ struct EuclideousPage: View {
             .padding(.leading, 8)
             .frame(width: max(1, w - segsW - segInset), height: h, alignment: .leading)
             .contentShape(Rectangle())
-            .onTapGesture { edit(idx) { l in if l.poolSrcOn(1) || l.poolSrcOn(4) { l.setPoolSrc(1, false); l.setPoolSrc(4, false) } else { l.setPoolSrc(1, true) } } }
+            .onTapGesture { edit(idx) { l in kitOff(&l); if l.poolSrcOn(1) || l.poolSrcOn(4) { l.setPoolSrc(1, false); l.setPoolSrc(4, false) } else { l.setPoolSrc(1, true) } } }
             .accessibilityElement(children: .ignore).accessibilityLabel("Chords, lane \(idx + 1)").accessibilityValue(euclideousPoolSourceValue(on: chordsOn)).accessibilityAddTraits(.isButton)
             HStack(spacing: segGap) {   // the 1 | 2 segments, trailing
                 ForEach(0..<2, id: \.self) { g in
@@ -7942,7 +8002,7 @@ struct EuclideousPage: View {
                         .background(RoundedRectangle(cornerRadius: 3.5).fill(sel ? Color(hex: FourfoldStyle.selectedFill) : Color.clear))
                         .overlay(RoundedRectangle(cornerRadius: 3.5).strokeBorder(outline ? Color(hex: 0x5C626C) : Color.clear, lineWidth: 0.75))
                         .contentShape(Rectangle())
-                        .onTapGesture { edit(idx) { $0.setPoolSrc(g == 0 ? 1 : 4, true) } }   // picks the grid + turns CHORDS on
+                        .onTapGesture { edit(idx) { kitOff(&$0); $0.setPoolSrc(g == 0 ? 1 : 4, true) } }   // picks the grid + turns CHORDS on (and turns KIT off if on, §5.3)
                         .accessibilityElement(children: .ignore).accessibilityLabel("Grid \(g + 1), lane \(idx + 1)").accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
                 }
             }
