@@ -2001,6 +2001,16 @@ struct EuclideousPage: View {
                     .offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
                     .zIndex(6)
             }
+            // GRID CHANCE (Paul 2026-11-23): the editor lives at the PAGE level so a tap ANYWHERE outside the riff panel closes it (req 1). The full-page catcher (only while open) sits BELOW the overlay; the overlay covers just the riff panel box, so taps on the grid / ladders / toggle are consumed there and every other tap closes.
+            if riffChanceOpen || stackChanceOpen {
+                Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
+                    .onTapGesture { closeGridChanceAll() }
+                    .accessibilityHidden(true).zIndex(7)
+            }
+            EuclideousStackBreak { AnyView(gridChanceOverlay(box: box)) }
+                .frame(width: box.width, height: box.height)
+                .offset(x: page.riff.minX, y: page.riff.minY)
+                .zIndex(8)
             modeHint(size)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -8096,8 +8106,8 @@ struct EuclideousPage: View {
     /// stay compiled; `ribbonSettingsOpen` is never set); the x/y ribbons keep the Scrub ferry's behaviour, and a held ribbon
     /// now HIGHLIGHTS what it plays on the grid (the ex-tutti fade plumbing, fed from the holds).
     private func riffGridView(box: CGSize) -> AnyView {
-        let base: AnyView = riffPanelTab == .stack ? AnyView(stackGridView(box: box)) : (riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box)))
-        return AnyView(base.overlay(alignment: .topLeading) { gridChanceOverlay(box: box) })   // GRID CHANCE (2026-11-22): the % toggle + the pickers/sliders, in the panel's own space
+        // GRID CHANCE (Paul 2026-11-23): the % toggle + pickers/sliders are mounted at the PAGE level (pageBody), not here, so a tap anywhere OUTSIDE the riff panel closes the editor (req 1).
+        return riffPanelTab == .stack ? AnyView(stackGridView(box: box)) : (riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box)))
     }
     // RIBBON SETTINGS §4 — the sliders button in the bottom-left free space (its frame from `euclideousRibbonSettingsLayout`).
     private func ribbonSettingsButton(box: CGSize) -> some View {
@@ -8266,9 +8276,9 @@ struct EuclideousPage: View {
     private func riffChanceEditor(box: CGSize) -> some View {
         let L = euclideousRiffPanelLayout(box: box)
         let pad = EuclideousRiffPanelMetrics.padding
-        let railsH = EuclideousRiffPanelMetrics.railsH
         let rankLadder = CGRect(x: pad, y: L.gridTop, width: L.labelW, height: L.gridSize.height)
-        let colLadder = CGRect(x: L.firstColumnX, y: L.railsTop - 4, width: L.gridSize.width, height: railsH + 4)
+        // POSITION picker / CLEAR overlays the RIFF | STACK tab row at the top (Paul 2026-11-23) — more height than the cramped rails, and it leaves the rails (lane numbers) clear.
+        let colLadder = CGRect(x: L.firstColumnX, y: pad, width: max(1, box.width - pad - L.firstColumnX), height: L.tabRowH + EuclideousRiffPanelMetrics.tabToGrid)
         let gc = gridChance
         ZStack(alignment: .topLeading) {
             switch riffChanceAxis {
@@ -8302,7 +8312,8 @@ struct EuclideousPage: View {
         let rowsH = CGFloat(L.rowCount) * L.rowH + CGFloat(max(0, L.rowCount - 1)) * L.rowGap
         let lanesW = L.colW * 4 + L.colGap * 3
         let rankLadder = CGRect(x: pad, y: L.rowsTop, width: L.labelW, height: rowsH)
-        let laneLadder = CGRect(x: L.colsLeft, y: L.headerTop, width: lanesW, height: L.headerH)
+        // LANE picker / CLEAR overlays the RIFF | STACK tab row at the top (Paul 2026-11-23) — more height than the 16 pt header band.
+        let laneLadder = CGRect(x: L.colsLeft, y: EuclideousRiffPanelMetrics.padding, width: max(1, box.width - EuclideousRiffPanelMetrics.padding - L.colsLeft), height: L.tabRowH + EuclideousRiffPanelMetrics.tabToGrid)
         let gc = gridChance
         ZStack(alignment: .topLeading) {
             switch stackChanceAxis {

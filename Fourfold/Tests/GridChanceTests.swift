@@ -177,10 +177,12 @@ final class GridChanceTests: XCTestCase {
         let landBox = CGSize(width: 380.67, height: 319)
         let portBox = CGSize(width: 387, height: 319.67)
         for box in [landBox, portBox] {
+            let L = euclideousRiffPanelLayout(box: box)
             let riff = euclideousRiffChanceToggleRect(box: box)
             XCTAssertEqual(riff.minX, 8, accuracy: 0.01)            // the rank-box column's left edge
+            XCTAssertEqual(riff.minY, 8, accuracy: 0.01)           // top-left (padding), LEFT of the RIFF|STACK tabs (Paul 2026-11-23)
             XCTAssertEqual(riff.width, 48, accuracy: 0.01)         // the label column's width
-            XCTAssertEqual(riff.height, EuclideousRiffPanelMetrics.railsH, accuracy: 0.01)   // the rails' vertical extent (41)
+            XCTAssertEqual(riff.height, L.tabRowH + EuclideousRiffPanelMetrics.tabToGrid, accuracy: 0.01)   // the tab-row chrome
             XCTAssertGreaterThanOrEqual(min(riff.width, riff.height), 22, "riff toggle clears the 22×22 floor")
             let stack = euclideousStackChanceToggleRect(box: box)
             XCTAssertEqual(stack.minX, 8, accuracy: 0.01)

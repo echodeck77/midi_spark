@@ -9604,10 +9604,10 @@ enum EuclideousGridChanceUI {
     static let clr: CGFloat = 10             // §4.6 ("CLR")
 }
 
-/// §3.1 riff: the % toggle, bottom-left — the rank-box column's width over the rails' vertical extent (free 48×41 at the reference).
+/// §3.1 riff (Paul 2026-11-23): the % toggle now fills the empty top-left blank — LEFT of the RIFF | STACK tabs (no longer the bottom rails, which frees the rail lane-numbers). The rank-box column's width × the tab-row chrome.
 func euclideousRiffChanceToggleRect(box: CGSize) -> CGRect {
     let l = euclideousRiffPanelLayout(box: box)
-    return CGRect(x: EuclideousRiffPanelMetrics.padding, y: l.railsTop, width: l.labelW, height: EuclideousRiffPanelMetrics.railsH)
+    return CGRect(x: EuclideousRiffPanelMetrics.padding, y: EuclideousRiffPanelMetrics.padding, width: l.labelW, height: l.tabRowH + EuclideousRiffPanelMetrics.tabToGrid)
 }
 /// §3.1 stack: the % toggle, top-left — the rank-box column's width, the lane headers' y, 48×20 (Paul 2026-11-22: <22 tall accepted, no layout change).
 func euclideousStackChanceToggleRect(box: CGSize) -> CGRect {
