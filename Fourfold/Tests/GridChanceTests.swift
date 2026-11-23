@@ -178,17 +178,17 @@ final class GridChanceTests: XCTestCase {
         let portBox = CGSize(width: 387, height: 319.67)
         for box in [landBox, portBox] {
             let L = euclideousRiffPanelLayout(box: box)
+            let S = euclideousStackGridLayout(box: box)
             let riff = euclideousRiffChanceToggleRect(box: box)
             XCTAssertEqual(riff.minX, 8, accuracy: 0.01)            // the rank-box column's left edge
-            XCTAssertEqual(riff.minY, 8, accuracy: 0.01)           // top-left (padding), LEFT of the RIFF|STACK tabs (Paul 2026-11-23)
+            XCTAssertEqual(riff.minY, L.railsTop, accuracy: 0.01)  // the FOOTER — beside the bottom rails (Paul 2026-11-23, restored)
             XCTAssertEqual(riff.width, 48, accuracy: 0.01)         // the label column's width
-            XCTAssertEqual(riff.height, L.tabRowH + EuclideousRiffPanelMetrics.tabToGrid, accuracy: 0.01)   // the tab-row chrome
-            XCTAssertGreaterThanOrEqual(min(riff.width, riff.height), 22, "riff toggle clears the 22×22 floor")
+            XCTAssertEqual(riff.height, EuclideousRiffPanelMetrics.railsH, accuracy: 0.01)   // the rails' height
             let stack = euclideousStackChanceToggleRect(box: box)
             XCTAssertEqual(stack.minX, 8, accuracy: 0.01)
-            XCTAssertEqual(stack.minY, 34, accuracy: 0.01)         // the lane headers' y (headerTop)
+            XCTAssertEqual(stack.minY, 8, accuracy: 0.01)          // top (padding) — fills the full top chrome now (Paul 2026-11-23)
             XCTAssertEqual(stack.width, 48, accuracy: 0.01)
-            XCTAssertEqual(stack.height, 20, accuracy: 0.01)       // Paul 2026-11-22: 48×20, under the 22 floor by his choice
+            XCTAssertEqual(stack.height, S.headerTop + S.headerH - 8, accuracy: 0.01)   // the tab row + the lane-header row ("the header + the tabs")
         }
     }
 

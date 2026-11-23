@@ -9604,15 +9604,15 @@ enum EuclideousGridChanceUI {
     static let clr: CGFloat = 10             // §4.6 ("CLR")
 }
 
-/// §3.1 riff (Paul 2026-11-23): the % toggle now fills the empty top-left blank — LEFT of the RIFF | STACK tabs (no longer the bottom rails, which frees the rail lane-numbers). The rank-box column's width × the tab-row chrome.
+/// §3.1 riff (Paul 2026-11-23, restored): the % toggle is the FOOTER — the label column beside the bottom rails, not the top-left tab chrome.
 func euclideousRiffChanceToggleRect(box: CGSize) -> CGRect {
     let l = euclideousRiffPanelLayout(box: box)
-    return CGRect(x: EuclideousRiffPanelMetrics.padding, y: EuclideousRiffPanelMetrics.padding, width: l.labelW, height: l.tabRowH + EuclideousRiffPanelMetrics.tabToGrid)
+    return CGRect(x: EuclideousRiffPanelMetrics.padding, y: l.railsTop, width: l.labelW, height: EuclideousRiffPanelMetrics.railsH)
 }
-/// §3.1 stack: the % toggle, top-left — the rank-box column's width, the lane headers' y, 48×20 (Paul 2026-11-22: <22 tall accepted, no layout change).
+/// §3.1 stack (Paul 2026-11-23): the % toggle fills the empty top-left column for the FULL top chrome — the tab row AND the lane-header row (same height as "the header + the tabs").
 func euclideousStackChanceToggleRect(box: CGSize) -> CGRect {
     let l = euclideousStackGridLayout(box: box)
-    return CGRect(x: EuclideousRiffPanelMetrics.padding, y: l.headerTop, width: l.labelW, height: l.headerH + l.headerGap)
+    return CGRect(x: EuclideousRiffPanelMetrics.padding, y: EuclideousRiffPanelMetrics.padding, width: l.labelW, height: l.headerTop + l.headerH - EuclideousRiffPanelMetrics.padding)
 }
 
 /// §5.4: a horizontal slider's value from a touch x within its rect (fill from the left); a vertical slider's from a touch y (fill from the BOTTOM). Snapped to `snap`, clamped 0…100.

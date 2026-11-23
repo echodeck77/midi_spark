@@ -19,6 +19,22 @@ final class FourfoldTapTests: XCTestCase {
         need(app.staticTexts["STOPPED"], "the stopped readout again")
     }
 
+    /// EUCLID FROM (2026-11-23): tapping a FROM chip makes the lane follow the referenced lane END-TO-END — the chip lights,
+    /// and the follower's STEPS value switches from "Steps, n" to "n, lane 1's" (it shows the SOURCE's count, spoken as the
+    /// source's). Proves the whole path (chip tap → euclidFrom set → the display reads the effective line).
+    func testTappingAFromChipMakesTheLaneFollowAndShowTheSourcesSteps() {
+        let app = XCUIApplication.fresh()
+        let chip = need(app.buttons["Lane 1"].firstMatch, "a FROM chip for lane 1 on another lane's EUCLID tab")
+        XCTAssertFalse(chip.isSelected, "no lane follows lane 1 yet")
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "lane 1's")).firstMatch.exists,
+                       "nothing reads 'lane 1's' before any lane follows")
+        chip.tap()
+        XCTAssertTrue(app.buttons["Lane 1"].firstMatch.isSelected, "the chip lit — a lane now follows lane 1")
+        let borrowed = need(app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "lane 1's")).firstMatch,
+                            "a HITS/STEPS value now reading '…, lane 1's' — the follower shows the SOURCE's count")
+        XCTAssertTrue(borrowed.label.contains("lane 1's"), "the follower's display speaks the source: \(borrowed.label)")
+    }
+
     // (PLAY BUTTONS RAIL+NOTE 2026-11-16: the PLAY RIFF / PLAY STACK tile toggle is already covered end-to-end by
     //  testThePlayRiffAndPlayStackButtonsSwitchTheirPartsAndUndo below — a redundant tile test added during the
     //  toggle-regression fix was removed; that existing test is the regression guard.)
