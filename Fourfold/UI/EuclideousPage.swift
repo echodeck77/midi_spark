@@ -6295,11 +6295,11 @@ struct EuclideousPage: View {
             if p < 8 {
                 let rank = p + 1
                 let has = rank <= extended.count
-                let kitName = line.kitOnResolved ? line.kitNamesResolved[rank - 1] : nil   // KIT SOURCE (Paul 2026-11-23): the NOTES keys read KIT names on a kit lane
+                let kitNum = line.kitOnResolved ? String(Int(line.kitNotesResolved[rank - 1])) : nil   // KIT SOURCE (Paul 2026-11-23): a KIT lane shows the NOTE NUMBER (stored order), not a pitch name
                 // §5.4: an empty pool — every key takes the copy look and shows its rank number in the centre (no corner number); otherwise the note name and the corner rank number.
-                specs.append(EuclideousRankChipSpec(rank: rank, topKind: 0, received: n > 0 && rank <= n, lit: lit, empty: n == 0, name: kitName ?? (n == 0 ? String(rank) : (has ? name(extended[rank - 1]) : "\u{2013}")),
+                specs.append(EuclideousRankChipSpec(rank: rank, topKind: 0, received: n > 0 && rank <= n, lit: lit, empty: n == 0, name: kitNum ?? (n == 0 ? String(rank) : (has ? name(extended[rank - 1]) : "\u{2013}")),
                                                     cornerNumber: n > 0, heldBack: lit && receivedOnly && rank > n, place: places[p], riffDot: riffDotRank == rank, sounding: sound))
-                spokenNames.append(kitName.map { [$0] } ?? (has && extended[rank - 1] <= 127 ? [spoken(extended[rank - 1])] : []))
+                spokenNames.append(kitNum.map { ["note \($0)"] } ?? (has && extended[rank - 1] <= 127 ? [spoken(extended[rank - 1])] : []))
             } else if p == EuclideousLitOrder.topTwoPosition {
                 let second: String = n >= 2 ? name(Int(lp.top2)) + "+" : (n == 1 ? name(Int(pool.first ?? 0)) : "\u{2013}")
                 specs.append(EuclideousRankChipSpec(rank: 0, topKind: 1, received: n > 0, lit: lit, empty: n == 0, name: second, cornerNumber: false, place: places[p], sounding: sound))
@@ -7915,8 +7915,7 @@ struct EuclideousPage: View {
                 .frame(height: max(0, size.height * CGFloat(vel) / 100))
             VStack(spacing: 1) {
                 Text("\(rank + 1)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                Text(name).font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.5)
-                Text("\(note)").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                Text("\(note)").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.5)   // KIT SOURCE (Paul 2026-11-23): the NOTE NUMBER (drums), not the name
             }.padding(.horizontal, 2)
         }
         .frame(width: size.width, height: size.height)
@@ -9117,9 +9116,9 @@ struct EuclideousPage: View {
     private func stackCellNames(_ row: EuclideousStackRow, lane: Int) -> (name: String, spoken: String) {
         let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
         let lp = lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
-        if line.kitOnResolved, case .rank(let r) = row, r >= 1, r <= 8 {   // KIT SOURCE (Paul 2026-11-23): a KIT lane's rank chips read the KIT names (KICK / SNR …), not the pitch name
-            let nm = line.kitNamesResolved[r - 1]
-            return (nm, "rank \(r), \(nm)")
+        if line.kitOnResolved, case .rank(let r) = row, r >= 1, r <= 8 {   // KIT SOURCE (Paul 2026-11-23): a KIT lane's rank chips show the NOTE NUMBER it plays (stored order, what the editor set) — better than a pitch name for drums
+            let n = Int(line.kitNotesResolved[r - 1])
+            return ("\(n)", "rank \(r), note \(n)")
         }
         if case .rank(let r) = row {   // §5.1: the SAME namer POOL uses, so a rank reads the same note on the grid and on POOL
             return (rankNoteName(rank: r, pool: lp, octave: line.octaveResolved, source: noteSource, keyRoot: keyRoot, keyType: keyType),

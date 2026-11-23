@@ -2252,12 +2252,15 @@ final class Router {
         euclideousStrikeRank = 0           // the UI passes the final velocity — do not re-scale by kitVel
         euclideousStrikeMuteBeat = fBeatPos
         let onS = windowStart, offS = onS &+ gate
+        euclideousKitAuditionOffSample = offS   // KIT SOURCE §4.8: until this sample a preview voice is legitimately ringing — the Kernel's stopped silence-invariant net must NOT treat it as a stuck note
         var m = mask
         while m != 0 { let o = Int(m.trailingZeroBitCount); m &= m &- 1
             _ = emitOneOutput(o, part: 2 * lane, note: UInt8(max(0, min(127, note))), velocity: UInt8(max(1, min(127, vel))), onSample: onS, offSample: offS, windowEnd: windowEnd, out: out, onVoiceOpened: { _ in }, euclideousLegato: false)
         }
         euclideousStrikeLane = saveLane; euclideousStrikeRank = saveRank
     }
+    /// KIT SOURCE §4.8: the sample up to which a one-shot editor-preview voice is still ringing (Int64.min = none). The Kernel's stopped silence-invariant net reads this to exempt the preview.
+    private(set) var euclideousKitAuditionOffSample: Int64 = Int64.min
 
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
                              box: SnapshotBox, pool: NotePool, beatPos: Double, windowStart: Int64, windowEnd: Int64,

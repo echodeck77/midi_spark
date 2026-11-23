@@ -600,10 +600,9 @@ final class Kernel {
         // is replaying (which REPLACES the output and SKIPS router.process → activeVoiceCount goes stale; the soft net
         // already exempts it, so the hard net must too).
         let producing = rPlaying || reel.state == .replaying
-        // INPUTS TEST: the stopped-net is NOT exempted for the audition. `Router.process` emits audition notes only while `playing` (free-run keeps that true while the host is stopped, which is the default); whenever this hard net can
-        // fire (`!producing`), the audition path did not run, so any lingering audition voice IS a stuck note and must be healed. (In free-run `producing` is true and this net is a no-op anyway.) The sibling PLAYING net below keeps the
-        // exemption — there the audition legitimately sounds over an empty live pool.
-        if silenceInvariantViolated(playing: producing, heldInput: pool.count, auditioning: false,
+        // INPUTS TEST: the stopped-net is NOT exempted for the pool audition (it only runs while `playing`). But the KIT editor PREVIEW (§4.8) is deliberately emitted even while STOPPED — a one-shot voice that rings ~120 ms — so while it rings
+        // (`now < router.euclideousKitAuditionOffSample`) it is a LEGITIMATE sounding voice, not a stuck note, and must exempt this hard net (else the preview crashes the stopped silence invariant). In free-run `producing` is true and this net is a no-op anyway.
+        if silenceInvariantViolated(playing: producing, heldInput: pool.count, auditioning: now < router.euclideousKitAuditionOffSample,
                                     activeVoices: diag.activeVoiceCount, passthroughHeld: diag.passthroughHeld) {
             healStuckNotes(now: now, hardTrap: true, reasonCode: 1, diag: &diag)   // 1 = silence invariant (stopped); DEBUG traps into the corpse
             emptyInputSamples = 0

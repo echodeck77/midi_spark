@@ -257,6 +257,23 @@ final class KernelHostTests: XCTestCase {
         assertClean(h, "notes while stopped")
     }
 
+    // KIT SOURCE §4.8: a kit-editor PREVIEW emitted while the host is STOPPED (not free-running) must NOT trip the
+    // stopped silence-invariant hard-trap — the preview voice is legitimate, and the Kernel exempts it while it rings.
+    // Without the exemption this render hard-traps (fatalError) and the test aborts.
+    func testKitEditorPreviewWhileStoppedDoesNotTrap() {
+        var st = PluginState.makeInit()
+        var lines = st.euclideousLinesResolved
+        lines[0].kitOn = true; lines[0].kitNotes = [36, 38, 42, 46, 49, 51, 37, 39]; lines[0].kitVel = Array(repeating: 100, count: 8)
+        st.euclideousLines = lines
+        let h = KernelHarness(box { st })
+        h.playing = false                 // host STOPPED, no free-run (the crash scenario)
+        h.render(512)                     // a stopped baseline window
+        h.kernel.setEuclideousKitAudition(lane: 0, note: 60, vel: 100, seq: 1)
+        h.run(40)                         // the preview rings ~120 ms then closes — must not hard-trap
+        XCTAssertTrue(h.events.contains { $0.b0 & 0xF0 == 0x90 && $0.b1 == 60 && $0.b2 > 0 }, "the preview note actually sounded while stopped (non-vacuous)")
+        assertClean(h, "kit preview while stopped")   // …and balanced: its note-off was sent, no stuck note
+    }
+
     // MARK: §5 host that supplies no transport / no musical context
 
     func testHostWithNoMusicalContextDoesNotCrashOrStrand() {
