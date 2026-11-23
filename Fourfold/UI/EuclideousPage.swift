@@ -6295,10 +6295,11 @@ struct EuclideousPage: View {
             if p < 8 {
                 let rank = p + 1
                 let has = rank <= extended.count
+                let kitName = line.kitOnResolved ? line.kitNamesResolved[rank - 1] : nil   // KIT SOURCE (Paul 2026-11-23): the NOTES keys read KIT names on a kit lane
                 // §5.4: an empty pool — every key takes the copy look and shows its rank number in the centre (no corner number); otherwise the note name and the corner rank number.
-                specs.append(EuclideousRankChipSpec(rank: rank, topKind: 0, received: n > 0 && rank <= n, lit: lit, empty: n == 0, name: n == 0 ? String(rank) : (has ? name(extended[rank - 1]) : "\u{2013}"),
+                specs.append(EuclideousRankChipSpec(rank: rank, topKind: 0, received: n > 0 && rank <= n, lit: lit, empty: n == 0, name: kitName ?? (n == 0 ? String(rank) : (has ? name(extended[rank - 1]) : "\u{2013}")),
                                                     cornerNumber: n > 0, heldBack: lit && receivedOnly && rank > n, place: places[p], riffDot: riffDotRank == rank, sounding: sound))
-                spokenNames.append(has && extended[rank - 1] <= 127 ? [spoken(extended[rank - 1])] : [])
+                spokenNames.append(kitName.map { [$0] } ?? (has && extended[rank - 1] <= 127 ? [spoken(extended[rank - 1])] : []))
             } else if p == EuclideousLitOrder.topTwoPosition {
                 let second: String = n >= 2 ? name(Int(lp.top2)) + "+" : (n == 1 ? name(Int(pool.first ?? 0)) : "\u{2013}")
                 specs.append(EuclideousRankChipSpec(rank: 0, topKind: 1, received: n > 0, lit: lit, empty: n == 0, name: second, cornerNumber: false, place: places[p], sounding: sound))
@@ -7955,8 +7956,8 @@ struct EuclideousPage: View {
             },
             onAssignNote: { note in
                 let old = notes[rank]
-                edit(lane) { var nn = $0.kitNotesResolved; var nm = $0.kitNamesResolved; nn[rank] = note; nm[rank] = euclideousGMDrumName(note); $0.kitNotes = nn; $0.kitNames = nm }   // §4.6 note + GM name, one step
-                kitEditorPrevNote = old; kitEditorNameDraft = euclideousGMDrumName(note)   // §4.6: the field follows the new GM name
+                edit(lane) { var nn = $0.kitNotesResolved; nn[rank] = note; $0.kitNotes = nn }   // §4.6 (Paul 2026-11-23): set the PITCH only — never overwrite the rank's name (rename is the NAME field's job)
+                kitEditorPrevNote = old   // the NAME field keeps its current label
                 let vel = euclideousKitScaledVelocity(base: 100, kitVel: Int(vels[rank]))   // §4.6 audition at the rank's velocity
                 if let v = vel { onKitAudition(lane, Int(note), Int(v)) }
             },
@@ -9116,6 +9117,10 @@ struct EuclideousPage: View {
     private func stackCellNames(_ row: EuclideousStackRow, lane: Int) -> (name: String, spoken: String) {
         let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
         let lp = lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
+        if line.kitOnResolved, case .rank(let r) = row, r >= 1, r <= 8 {   // KIT SOURCE (Paul 2026-11-23): a KIT lane's rank chips read the KIT names (KICK / SNR …), not the pitch name
+            let nm = line.kitNamesResolved[r - 1]
+            return (nm, "rank \(r), \(nm)")
+        }
         if case .rank(let r) = row {   // §5.1: the SAME namer POOL uses, so a rank reads the same note on the grid and on POOL
             return (rankNoteName(rank: r, pool: lp, octave: line.octaveResolved, source: noteSource, keyRoot: keyRoot, keyType: keyType),
                     rankNoteNameSpoken(rank: r, pool: lp, octave: line.octaveResolved, source: noteSource, keyRoot: keyRoot, keyType: keyType))

@@ -137,8 +137,8 @@ final class KitSourceRouterTests: XCTestCase {
         XCTAssertTrue(notes.allSatisfy { kit.contains(UInt8($0)) }, "and plays exactly the kit")
     }
 
-    // §4.8 — the one-shot editor audition emits a note-on at the given velocity on the lane's output (free-run / KEEP PLAYING, the default while "stopped").
-    func testEditorAuditionSounds() {
+    // §4.8 — the one-shot editor audition emits a note-on at the given velocity AND its note-off, even while the host is STOPPED (playing=false): the preview fires before the `!playing` early-out, and drainDue sends the off.
+    func testEditorAuditionSoundsWhileStopped() {
         let kit: [UInt8] = [36, 38, 42, 46, 49, 51, 37, 39]
         let st = state([riffLine(kitNotes: kit)])
         var d = st; var pl = d.sourcePlanResolved; pl.midiOctaves = .keep; d.euclideousSourcePlan = pl
@@ -146,10 +146,14 @@ final class KitSourceRouterTests: XCTestCase {
         let e = KitEmitter(); let router = Router(); var diag = KernelDiag()
         let sr = 48_000.0, frames: UInt32 = 2048
         let word: UInt32 = (UInt32(1) << 16) | (UInt32(0) << 14) | (UInt32(100) << 7) | UInt32(60)   // lane 0, note 60, vel 100, seq 1
-        router.process(box: box, pool: NotePool(), playing: true, beatPos: 0, tempo: 120, sampleRate: sr, timestampSample: 0, frameCount: frames, euclideousKitAudWord: word, out: e, diag: &diag)
-        let ons = e.ons.filter { $0.note == 60 }
-        XCTAssertFalse(ons.isEmpty, "the one-shot audition emits note 60")
+        // STOPPED (playing=false) across several windows so the 120 ms off falls due; sample clock advances as it does under a stopped host.
+        var ts = 0.0
+        for _ in 0..<12 { router.process(box: box, pool: NotePool(), playing: false, beatPos: 0, tempo: 120, sampleRate: sr, timestampSample: ts, frameCount: frames, euclideousKitAudWord: word, out: e, diag: &diag); ts += Double(frames) }
+        let ons = e.ons.filter { $0.note == 60 && $0.vel > 0 && $0.cable == 1 }   // the lane's own output (cable 1 = A); the ALL mirror (cable 0) doubles it
+        XCTAssertEqual(ons.count, 1, "fires exactly once (seq unchanged) while stopped")
         XCTAssertEqual(ons.first?.vel, 100, "at the velocity passed in")
+        let offs = e.events.filter { $0.note == 60 && ($0.status == 0x80 || ($0.status == 0x90 && $0.vel == 0)) }
+        XCTAssertFalse(offs.isEmpty, "and its note-off is sent (no stuck preview note) while stopped")
     }
 
     // §7.7 — turning KIT off returns the lane to its normal (held-MIDI) pool.

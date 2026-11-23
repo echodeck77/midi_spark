@@ -2639,6 +2639,14 @@ final class Router {
         }
         let beatsPerSample = tempo / 60.0 / sampleRate
         fBeatPos = beatPos; fBeatsPerSample = beatsPerSample; fWindowStart = windowStart; fSampleRate = sampleRate   // this render's beat conversion (the LANES mute sweep, the RIFFS sequencer step, NOTE VIEW's host time)
+        // KIT SOURCE §4.8: the one-shot kit-editor audition — fire once per seq change (a key/rank tap). Placed BEFORE the `!playing` early-out and the source early-out, and independent of the transport, so a tap ALWAYS previews — even while the host is stopped and with no source / nothing held.
+        if let euLines = box.cells[Snap.euclideousRow].procs.first?.euclidLines, euclideousKitAudWord != 0 {
+            let seq = Int((euclideousKitAudWord >> 16) & 0xFFFF)
+            if seq != euclideousKitAudLastSeq {
+                euclideousKitAudLastSeq = seq
+                euclideousPlayKitAudition(lane: Int((euclideousKitAudWord >> 14) & 3), note: Int(euclideousKitAudWord & 0x7F), vel: Int((euclideousKitAudWord >> 7) & 0x7F), lines: euLines, windowStart: windowStart, windowEnd: windowEnd, out: out)
+            }
+        }
         let swing = min(75, max(50, over(1, box.swing)))
         let a = swing / 50.0
         var S = box.stepBeats
@@ -2881,14 +2889,6 @@ final class Router {
         // is met exactly when the old exclusive source made this true. `euclideousStackMidiPlaying` is read again
         // by the stacked-pool build in `emitGeneratorRow`.
         let euProc = box.cells[Snap.euclideousRow].procs.first
-        // KIT SOURCE §4.8: the one-shot kit-editor audition — fire once per seq change (a key/rank tap). Placed BEFORE the source early-out and independent of the transport, so a tap always sounds — even in the standalone app's STOP-silent mode and even with no source / nothing held.
-        if let euLines = euProc?.euclidLines, euclideousKitAudWord != 0 {
-            let seq = Int((euclideousKitAudWord >> 16) & 0xFFFF)
-            if seq != euclideousKitAudLastSeq {
-                euclideousKitAudLastSeq = seq
-                euclideousPlayKitAudition(lane: Int((euclideousKitAudWord >> 14) & 3), note: Int(euclideousKitAudWord & 0x7F), vel: Int((euclideousKitAudWord >> 7) & 0x7F), lines: euLines, windowStart: windowStart, windowEnd: windowEnd, out: out)
-            }
-        }
         // HOLD/LATCH (Paul 2026-10-20): a HOLD-sustained or LATCH-accumulated pool keeps driving the row once every
         // physical key is released — a non-empty MIDI contribution even with nothing held.
         let euclideousHoldLatchActive = euProc?.euclideousHoldLatchMode != nil && euclideousHoldLatchPool.count > 0
