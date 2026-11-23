@@ -2801,16 +2801,17 @@ struct EuclideousPage: View {
                       // own HITS/OFFSET sliders use, so an edited (hand-drawn) pattern rebuilds/round-
                       // trips identically whichever control you drag, and OFFSET can't disagree with
                       // the slider's own just-fixed drag-direction mirror.
-                      // A FOLLOWing lane's gestures edit the lane it follows (`gestureLane` = idx for every other lane).
-                      onRotateDelta: { d in euclideousApplyRhythmX(gestureLane, d) },
-                      onHitsDelta: { d in euclideousApplyRhythmY(gestureLane, d) },
+                      // A FOLLOWing lane's gestures edit the lane it follows: ANSWER borrow via `gestureLane`, EUCLID FROM via the
+                      // `euclidStrip*` helpers (HITS/STEPS → the root, OFFSET → this follower's relative `euclidFromOffset`).
+                      onRotateDelta: { d in euclidStripOffsetDelta(idx, d) },
+                      onHitsDelta: { d in euclideousApplyRhythmY(euclidStripRhythmTarget(idx), d) },
                       // §2.5: PINCH goes through the one STEPS setter too, so HITS/OFFSET memory survives it.
-                      onStepsDelta: { d in edit(gestureLane) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(max(2, min(16, l.steps + d)))) } },
+                      onStepsDelta: { d in let t = euclidStripRhythmTarget(idx); edit(t) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(max(2, min(16, l.steps + d)))) } },
                       onAllRotateDelta: { d in euclideousApplyAllRhythmX(d) },
                       onAllHitsDelta: { d in euclideousApplyAllRhythmY(d) },
                       onDragState: { point, allRows in
-                          lockCometTouch(idx, lane: gestureLane, down: point != nil, all: allRows)   // LANE LOCK 6.2: a finger on the comet bar writes lock fields too
-                          euclideousRhythmDragState(gestureLane, point)
+                          lockCometTouch(idx, lane: euclidStripRhythmTarget(idx), down: point != nil, all: allRows)   // LANE LOCK 6.2: a finger on the comet bar writes lock fields too
+                          euclidStripDragState(idx, point)
                       },
                       // TAP A STEP (2026-11-08): one tap toggles that step's hit. A lane borrowing RHYTHM (COPY / FILL) has no pattern of its own to edit by position, so its taps do nothing.
                       onTapStep: { i in if gestureLane == idx { tapStep(idx, i) } },
@@ -3008,16 +3009,15 @@ struct EuclideousPage: View {
     /// The MIX strip's drag / pinch — the lane card strip's own handlers (`laneCometRowBody`), so a lane's strip edits the same way on every page. A FOLLOWing lane's gestures edit the lane it follows.
     private func mixStripGestures() -> EuclideousMixV2StripGestures {
         EuclideousMixV2StripGestures(
-            rotate: { idx, d in euclideousApplyRhythmX(euclideousRhythmGestureTarget(lane: idx, lines: lines), d) },
-            hits: { idx, d in euclideousApplyRhythmY(euclideousRhythmGestureTarget(lane: idx, lines: lines), d) },
-            steps: { idx, d in edit(euclideousRhythmGestureTarget(lane: idx, lines: lines)) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(max(2, min(16, l.steps + d)))) } },
+            rotate: { idx, d in euclidStripOffsetDelta(idx, d) },   // EUCLID FROM: a follower's OFFSET is its relative offset
+            hits: { idx, d in euclideousApplyRhythmY(euclidStripRhythmTarget(idx), d) },
+            steps: { idx, d in let t = euclidStripRhythmTarget(idx); edit(t) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(max(2, min(16, l.steps + d)))) } },
             allRotate: { d in euclideousApplyAllRhythmX(d) },
             allHits: { d in euclideousApplyAllRhythmY(d) },
             tapStep: { idx, box in if euclideousRhythmGestureTarget(lane: idx, lines: lines) == idx { tapStep(idx, box) } },
             dragState: { idx, point, allRows in
-                let target = euclideousRhythmGestureTarget(lane: idx, lines: lines)
-                lockCometTouch(idx, lane: target, down: point != nil, all: allRows)
-                euclideousRhythmDragState(target, point)
+                lockCometTouch(idx, lane: euclidStripRhythmTarget(idx), down: point != nil, all: allRows)
+                euclidStripDragState(idx, point)
             })
     }
     /// A tap on step `box` of lane `idx`'s strip: toggles the hit (one undo step), the same on the lane cards and the MIX bands.
@@ -7115,6 +7115,35 @@ struct EuclideousPage: View {
         let snap = rhythmGestureSnapshot[idx] ?? (idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all))
         rhythmHitsAccum[idx] += d   // d > 0 = upward drag (matches MASK's own onHitsDelta convention exactly)
         edit(idx) { l in euclideousSliderCommit(.hits, &l, snapshot: snap, newValue: Double(snap.pulses + rhythmHitsAccum[idx])) }
+    }
+    // EUCLID FROM (Paul 2026-11-23): a FOLLOWER's own strip gestures (comet row + MIX strip) must edit what it FOLLOWS, exactly as the
+    // EUCLID tab's steppers already do — HITS (density, drag up/down) and STEPS (pinch) write the ROOT (`euclideousEuclidRoot`), OFFSET
+    // (drag left/right) writes this follower's RELATIVE offset `euclidFromOffset` (kept as the per-follower phase control, Paul's choice).
+    // Before this, the strip routed every gesture through `euclideousRhythmGestureTarget`, which only knows the ANSWER borrow, so a
+    // FROM-follower edited its OWN (hidden) fields and nothing moved. Non-follower / ANSWER-borrow ⇒ the old target ⇒ unchanged.
+    /// The lane a strip's HITS / STEPS gesture edits: the EUCLID FROM root if following, else the ANSWER borrow target, else self.
+    private func euclidStripRhythmTarget(_ idx: Int) -> Int {
+        let root = euclideousEuclidRoot(lines, idx).root
+        return root != idx ? root : euclideousRhythmGestureTarget(lane: idx, lines: lines)
+    }
+    /// A strip's OFFSET (horizontal drag). A FROM-follower writes its RELATIVE offset (the field the EUCLID tab's OFFSET slider writes
+    /// while following, §6.3); everyone else writes `rotate` through the usual path. Snapshot/accum live in THIS lane's own slot (its
+    /// HITS/STEPS target is a DIFFERENT lane while following, so the slots never collide).
+    private func euclidStripOffsetDelta(_ idx: Int, _ d: Int) {
+        guard euclideousEuclidRoot(lines, idx).root != idx else { euclideousApplyRhythmX(euclideousRhythmGestureTarget(lane: idx, lines: lines), d); return }
+        let n = max(2, euclideousEffectiveEuclid(lines, idx).steps)
+        let base = rhythmGestureSnapshot[idx]?.euclidFromOffsetResolved ?? (idx < lines.count ? lines[idx].euclidFromOffsetResolved : 0)
+        rhythmOffsetAccum[idx] += d
+        let target = max(0, min(n - 1, base + rhythmOffsetAccum[idx]))
+        if idx < lines.count, target != lines[idx].euclidFromOffsetResolved { edit(idx) { $0.euclidFromOffset = target } }
+    }
+    /// Capture / clear a strip gesture's drag-start state. A FROM-follower needs BOTH the ROOT's snapshot (HITS/STEPS) and its OWN
+    /// (the relative-offset base); a non-follower just the one target's.
+    private func euclidStripDragState(_ idx: Int, _ point: CGPoint?) {
+        euclideousRhythmDragState(euclidStripRhythmTarget(idx), point)   // HITS/STEPS target (root / ANSWER partner / self)
+        guard euclideousEuclidRoot(lines, idx).root != idx else { return }
+        if point == nil { rhythmGestureSnapshot[idx] = nil; rhythmOffsetAccum[idx] = 0; rhythmHitsAccum[idx] = 0 }
+        else if rhythmGestureSnapshot[idx] == nil { rhythmGestureSnapshot[idx] = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all); rhythmOffsetAccum[idx] = 0; rhythmHitsAccum[idx] = 0 }
     }
     // ALL-LANES 2-finger variants — mirror MASK's own SIMPLER, direct-mutation model (no edited-pattern
     // rebuild awareness here), a disclosed scope trade-off: a hand-edited lane caught by an all-lanes bump
