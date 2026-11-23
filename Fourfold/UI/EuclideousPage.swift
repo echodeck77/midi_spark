@@ -6399,7 +6399,10 @@ struct EuclideousPage: View {
         return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !pulseLive)) { tl in
           let beat = walkTagBeat(at: tl.date)
           let notesPart = part < rollLive.model.parts.count ? rollLive.model.parts[part] : []
-          let riffPart = (2 * idx) < rollLive.model.parts.count ? rollLive.model.parts[2 * idx] : []   // RIFF SHARES THE RANK: a lit tile flashes when the riff plays its rank too (incl. the §2.5 dedup)
+          // RIFF SHARES THE RANK fires only while the STACK actually plays this lane (the §2.5 dedup) — not when the stack is STOPPED
+          // (PLAY STACK off, the header master off, the lane disabled or solo-silenced); then the riff plays alone (Paul 2026-11-23, see stackCell).
+          let stackPlays = laneSounds(euclideousNotesLayerIsOn(line), stackMaster) && line.enabledResolved && !partSoloSilenced(idx, part: 1)
+          let riffPart = (stackPlays && 2 * idx < rollLive.model.parts.count) ? rollLive.model.parts[2 * idx] : []
           ZStack(alignment: .topLeading) {
             notesRanksButton(idx, frame: lay.rankLabel)   // amend 3 §C1.1: the RANKS label is a button that opens the pop-up
             ForEach(0..<8, id: \.self) { r in
@@ -8891,7 +8894,12 @@ struct EuclideousPage: View {
         var sounding = false, glowAge: Double? = nil
         if playing, case .rank(let r) = row {
             let notesPart = (2 * lane + 1) < rollLive.model.parts.count ? rollLive.model.parts[2 * lane + 1] : []
-            let riffPart = (on && 2 * lane < rollLive.model.parts.count) ? rollLive.model.parts[2 * lane] : []
+            // RIFF SHARES THE RANK (Paul 2026-11-22) fires ONLY while the STACK actually plays this lane — the dedup that merges a lit
+            // stack note into the riff strike (§2.5) exists only then. With the stack STOPPED (PLAY STACK off per-lane, the header PLAY
+            // STACK master off, the lane disabled or its stack solo-silenced) the riff plays alone: its ARROW shows the rank (below), and
+            // a lit stack cell must NOT flash as if the stack were running (Paul 2026-11-23).
+            let stackPlays = laneSounds(euclideousNotesLayerIsOn(line), stackMaster) && line.enabledResolved && !partSoloSilenced(lane, part: 1)
+            let riffPart = (on && stackPlays && 2 * lane < rollLive.model.parts.count) ? rollLive.model.parts[2 * lane] : []
             let s = euclideousStackSounding(notesPart: notesPart, riffPart: riffPart, rank: r, nowBeat: beat)
             sounding = s.sounding
             glowAge = s.glowOnset.map { (beat - $0) * 60 / max(1, clock.tempo) }
