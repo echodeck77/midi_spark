@@ -99,6 +99,7 @@ struct EuclidLaneBox: View {
     // `pulseLive` is "the page is playing or settling after a stop" (the TimelineView's un-paused condition) and `pulseLane` is the lane's index in the feed.
     var pulseFeed: EuclideousPulseFeed? = nil
     var pulseLane: Int = 0
+    var hitColourLane: Int? = nil   // EUCLID FROM (Paul 2026-11-23): the lane whose colour the HIT boxes take (nil ⇒ pulseLane, the card's own). Set to the followed lane's root so a follower's hits adopt the source colour; the playhead/floor keep the lane's own `tint`.
     var pulseScale: Double = 0
     var pulseLive: Bool = false
     var flipping: Bool = false   // PERF (2026-11-18): forwarded to the strip's TimelineView — frozen while the card flips
@@ -196,7 +197,7 @@ struct EuclidLaneBox: View {
                            rate: rate, spanN: spanN, tilt: patternOverride != nil ? 0 : line.tiltResolved,
                            missStyle: patternOverride != nil ? false : line.patternMissResolved,
                            customHits: patternOverride ?? line.customHitsResolved(max(2, min(16, line.steps))),
-                           strip: strip, stripCurrent: stripCurrent, riffHeld: riffHeld, stackHeld: stackHeld, ccInput: ccInput, pulseFeed: pulseFeed, pulseLane: pulseLane, pulseScale: pulseScale, pulseLive: pulseLive, flipping: flipping, exactStyle: compact, grouped: grouped,
+                           strip: strip, stripCurrent: stripCurrent, riffHeld: riffHeld, stackHeld: stackHeld, ccInput: ccInput, pulseFeed: pulseFeed, pulseLane: pulseLane, hitColourLane: hitColourLane, pulseScale: pulseScale, pulseLive: pulseLive, flipping: flipping, exactStyle: compact, grouped: grouped,
                            subBeatsOverride: rateBeatsOverride, cellTint: cellTint, cellFade: cellFade,
                            restartChains: restartChains, fillLine: line, mutedAt: mutedAt, suppressMuteDim: stripDim, cellsOnlyDim: partsOffDim, soloSilencedWords: soloSilenced,
                            riffBandFrac: (strip?.riffPartOn ?? true) ? 1 : 0, stackBandFrac: (strip?.notesPartOn ?? true) ? 1 : 0,   // PLAY BUTTONS RAIL+NOTE §3: an off part's band collapses (the ease is attached below)
@@ -357,6 +358,7 @@ struct EuclidCometBar: View {
     // PULSE ferry (2026-10-20): the strike feed (nil ⇒ no strikes), P, whether the page is playing or settling after a stop, and the lane's index in the feed.
     var pulseFeed: EuclideousPulseFeed? = nil
     var pulseLane: Int = 0
+    var hitColourLane: Int? = nil   // EUCLID FROM (Paul 2026-11-23): the lane whose colour the HIT boxes take (nil ⇒ pulseLane, the card's own). Set to the followed lane's root so a follower's hits adopt the source colour; the playhead/floor keep the lane's own `tint`.
     var pulseScale: Double = 0
     var pulseLive: Bool = false
     /// PERF (2026-11-18): while the card is mid-flip (a tab turn draws both the old and new tab content for ~490 ms), the
@@ -556,7 +558,7 @@ struct EuclidCometBar: View {
                     let cellDim: Double = (cellsOnlyDim && !mutedNow && !suppressMuteDim) ? EuclideousLaneDimStyle.opacity : 1
                     drawLaneStripBands(&ctx, EuclideousStripBandInput(frames: bandFrames, hits: strip.legs[stripLeg].hits, steps: n, laneIndex: strip.lane, tint: tint, stripWidth: size.width, playheadStep: playheadStep,
                                                                        sounding: sounding, cc: ccTrace, riffShown: strip.riffPartOn, notesShown: strip.notesPartOn, cellDim: cellDim, altHitSteps: strip.altHitSteps,
-                                                                       hitColourLane: pulseLane,   // CLARITY §5.1: the CARD's lane picks the hit colour (an ANSWER trade keeps the card's own colour)
+                                                                       hitColourLane: hitColourLane ?? pulseLane,   // CLARITY §5.1: the CARD's lane picks the hit colour; EUCLID FROM: a follower's hits adopt the source lane's colour (nil ⇒ the card's own)
                                                                        riffSourceColor: strip.riffSourceColor))   // RIFF SOURCE §9: a reader's chips take its source lane's colour
                     return
                 }

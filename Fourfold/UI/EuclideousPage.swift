@@ -2825,7 +2825,8 @@ struct EuclideousPage: View {
                       strip: stripPlan, stripCurrent: { beat, _ in stripCurrentStep(tradedWithLane(idx), plan: stripPlan, beat: beat) },
                       // LANE STRIP BANDS ferry (2026-11-12): the plan lane's two parts' held notes — the strip's header/footer rings and cell rank outlines read them (note-on to note-off), mapping each onset to its step.
                       riffHeld: laneHeldNotes(tradedWithLane(idx), notes: false), stackHeld: laneHeldNotes(tradedWithLane(idx), notes: true), ccInput: ccInput,
-                      pulseFeed: pulseFeed, pulseLane: idx, pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive, flipping: flipping,
+                      pulseFeed: pulseFeed, pulseLane: idx, hitColourLane: euclideousEuclidRoot(lines, idx).root,   // EUCLID FROM (Paul 2026-11-23): a following lane's HIT boxes take the inherited (root) lane's colour; the running indicator / playhead keep this lane's own `accent`. Non-following ⇒ root == idx ⇒ unchanged.
+                      pulseScale: euclideousPulseScale(level: pulseLevel), pulseLive: pulseLive, flipping: flipping,
                       // LANE SOLO (2026-10-21, §1): the step-count box's slot — same 44 × 44 frame, so the strip doesn't move — now holds the SOLO button. `stepCountBadge` (and its parameter) stay, unused here (§1.3): the
                       // step count is still on the RHYTHM tab's STEPS stepper and in the strip's boxes. `soloDim` is "this lane is solo-silenced": its play button and strip dim; the button never does.
                       // PLAY RIFF / PLAY STACK ferry (2026-11-07): the play tile → PLAY RIFF (lead), the SOLO tile's slot → PLAY STACK — same 44 × 44 frames, so the comet strip and lock badge don't move. Lane PLAY / lane SOLO leave the card (MIX keeps the strip play + per-part solo).
@@ -2935,17 +2936,14 @@ struct EuclideousPage: View {
         // HEADER MASTER SOLO (Paul 2026-11-21): a part-specific tab (RIFF / NOTES) also dims when JUST its part is solo-silenced (a held PLAY RIFF / PLAY STACK),
         // while the lane itself still sounds its other part. The TOP ROW (play / strip / SOLO) stays full — the lane isn't silenced — so this only dims the tab body.
         let tabDimContent = soloDimContent || (laneTabPart(tab).map { partOnlySilenced(idx, part: $0) } ?? false)
-        // EUCLID FROM (Paul 2026-11-23): a FOLLOWING lane's comet strip — the always-visible step display — must render the
-        // INHERITED pattern (the root's step COUNT / pulses / offset / hand edits; the follower keeps its own tilt/dir/flip)
-        // in the ADOPTED (root's) lane colour. `EuclidCometBar` takes its cell COUNT from `line.steps` and its colour from
-        // `accent`, so BOTH must be the effective ones here — the strip PLAN alone (already effective) drives neither. A
-        // non-following lane resolves root == idx ⇒ `line`/`accent` unchanged ⇒ byte-identical.
-        let cometRoot = euclideousEuclidRoot(lines, idx).root
-        let cometFollowing = cometRoot != idx
-        let cometLine = cometFollowing ? euclideousEffectiveLine(lines, idx) : line
-        let cometAccent = cometFollowing ? laneAccents[cometRoot % laneAccents.count] : accent
+        // EUCLID FROM (Paul 2026-11-23): a FOLLOWING lane's comet strip must render the INHERITED pattern — the root's step
+        // COUNT / pulses / offset / hand edits (the follower keeps its own tilt/dir/flip). `EuclidCometBar` takes its cell
+        // COUNT from `line.steps`, so the strip gets the EFFECTIVE line. The strip's ACCENT stays the lane's OWN (so the
+        // running indicator / playhead keep the lane's colour, Paul's call); only the HIT BOXES adopt the source colour, via
+        // `hitColourLane` inside `laneCometRowBody`. A non-following lane resolves root == idx ⇒ `line` unchanged ⇒ byte-identical.
+        let cometLine = euclideousEuclidRoot(lines, idx).root != idx ? euclideousEffectiveLine(lines, idx) : line
         VStack(alignment: .leading, spacing: cardBodyGap) {
-            laneCometRow(idx, line: cometLine, accent: cometAccent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent, flipping: flipping)
+            laneCometRow(idx, line: cometLine, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent, flipping: flipping)
             // TYPE-METADATA STACK OVERFLOW FIX (2026-10-13, device crash: "Thread stack size exceeded" /
             // EXC_BAD_ACCESS on the main thread, inside recursive swift::Demangle type-metadata decoding,
             // bottoming out through landscapeLayout's laneCard assembly — EuclideousLaneTab visible in a
@@ -3169,6 +3167,16 @@ struct EuclideousPage: View {
     /// drag controls behave normally) and clear the `patternMiss` mode, as ONE undo step. Same result as tapping every step.
     private func flipHits(_ idx: Int) {
         guard idx >= 0, idx < 4 else { return }
+        // EUCLID FROM (Paul 2026-11-23): on a FOLLOWING lane, FLIP toggles THIS lane's own `patternMiss` over the INHERITED
+        // shape (the engine applies it AFTER the root's pattern + offset each window, Router §4.1) — so it stays the LIVE
+        // inverse of the followed euclid, faithful even as either lane's hits/steps change. Baking into `customHits` (below)
+        // would be inert: a follower ignores its own customHits (it reads the root's). FLIP is the lane's OWN, never written
+        // through to the source (amendment §1.5). One undo step.
+        if euclideousEuclidRoot(lines, idx).root != idx {
+            edit(idx) { $0.patternMiss = !($0.patternMissResolved) }
+            euclidFlipSpin[idx] += 1
+            return
+        }
         edit(idx) { l in
             let flipped = euclideousFlipHitsPattern(l)
             l.customHits = flipped
