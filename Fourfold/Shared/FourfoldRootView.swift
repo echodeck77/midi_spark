@@ -283,6 +283,10 @@ struct FourfoldRootView: View {
                                                onStackAudition: { lane, pos in   // NOTES AUDITION (2026-11-11): a held STACK cell makes its rank the lane's only lit note while held. Ephemeral live word; nil on release.
                                                    au?.setEuclideousNotesAuditionLive(pos.map { (lane, $0) })
                                                },
+                                               onKitAudition: { lane, note, vel in   // KIT SOURCE §4.8: a one-shot editor audition — bump the seq so the render thread plays it once.
+                                                   m.euclideousKitAudSeq &+= 1
+                                                   au?.setEuclideousKitAudition(lane: lane, note: note, vel: vel, seq: m.euclideousKitAudSeq)
+                                               },
                                                onScrubHolds: { rc, rr, sr in au?.setEuclideousScrubHolds(riffColumn: rc, riffRank: rr, stackRank: sr) },   // Scrub ferry (2026-11-16): the three ribbon holds straight to the render thread (ephemeral)
                                                onSetLoopSpan: { lo, hi in au?.setEuclideousLoopSpan(lo: lo, hi: hi) },   // RIBBON SETTINGS §9: the loop span straight to the render thread (ephemeral)
                                                chordSets: euclideousChordSets, activeChordSet: euclideousActiveChordSet,
@@ -1299,6 +1303,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousPartSoloMask: UInt8 = 0   // PER-PART SOLO (MIX v2): latched (saved) …
     @Published var euclideousPartSoloHeld: UInt8 = 0   // … and held (UI only)
     @Published var euclideousTestLane: Int? = nil      // INPUTS TEST (2026-11-08): the lane auditioning its pool (UI only, never saved) → a live word to the kernel
+    var euclideousKitAudSeq: Int = 0                    // KIT SOURCE §4.8: the one-shot editor-audition seq (plain counter, not @Published — a tap bumps it and hands it to the kernel)
     @Published var euclideousLocks: [EuclideousLaneLock] = Array(repeating: EuclideousLaneLock(), count: 4)
     @Published var euclideousLockRevs: UInt32 = 0
     @Published var euclideousLockTouches: [Int] = [0, 0, 0, 0]

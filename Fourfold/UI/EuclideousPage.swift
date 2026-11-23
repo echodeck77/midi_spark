@@ -912,6 +912,7 @@ struct EuclideousPage: View {
     var onTestUp: (Int) -> Void = { _ in }
     // NOTES AUDITION (2026-11-11): a held STACK cell auditions its rank alone — (lane, position) on engage, (lane, nil) on release. Ephemeral live word.
     var onStackAudition: (Int, Int?) -> Void = { _, _ in }
+    var onKitAudition: (Int, Int, Int) -> Void = { _, _, _ in }   // KIT SOURCE §4.8: a one-shot editor audition (lane, note, final velocity)
     var onScrubHolds: (Int, Int, Int) -> Void = { _, _, _ in }   // Scrub ferry (2026-11-16): the three ribbon holds (riffColumn, riffRank, stackRank; 0 = none, 1-8) → the kernel live words
     var onSetLoopSpan: (Int, Int) -> Void = { _, _ in }   // RIBBON SETTINGS §9: the loop span (columns lo, hi; 0 = none) → the kernel live word
     // CHORDS GRID ferry (Paul 2026-10-24): independently-stored progressions ("tabs"), replacing the single
@@ -2027,6 +2028,15 @@ struct EuclideousPage: View {
                 EuclideousStackBreak { AnyView(harmonyPageView(size: page.lanes[0].union(page.lanes[3]).size)) }
                     .offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
                     .zIndex(6)
+            }
+            // KIT SOURCE (ferry 2026-11-23) §4.1: the editor over the four lane cards' block. A page-level catcher below it closes on an outside tap (§4.2, the GRID CHANCE pattern).
+            if let kit = kitEditor, kit.lane >= 0, kit.lane < lines.count {
+                Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
+                    .onTapGesture { kitEditor = nil }
+                    .accessibilityHidden(true).zIndex(9)
+                EuclideousStackBreak { AnyView(kitEditorView(kit, block: page.lanes[0].union(page.lanes[3]).size)) }
+                    .offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
+                    .zIndex(10)
             }
             // GRID CHANCE (Paul 2026-11-23): the editor lives at the PAGE level so a tap ANYWHERE outside the riff panel closes it (req 1). The full-page catcher (only while open) sits BELOW the overlay; the overlay covers just the riff panel box, so taps on the grid / ladders / toggle are consumed there and every other tap closes.
             if riffChanceOpen || stackChanceOpen {
@@ -7925,6 +7935,35 @@ struct EuclideousPage: View {
         kitEditorPrevNote = notes[rank]
         kitEditorNameDraft = ""
         kitEditor = KitEditorTarget(lane: lane, rank: rank)
+    }
+    /// KIT SOURCE §4: assemble the editor for `kit`, wiring every action through the page's `edit`/`editStep` undo funnel.
+    private func kitEditorView(_ kit: KitEditorTarget, block: CGSize) -> some View {
+        let lane = kit.lane, rank = kit.rank
+        let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+        let notes = line.kitNotesResolved, names = line.kitNamesResolved, vels = line.kitVelResolved
+        let accent = laneAccents[lane % laneAccents.count]
+        return EuclideousKitEditorView(
+            lane: lane, selectedRank: rank, notes: notes, names: names, vels: vels,
+            lowC: kitEditorRangeLow, prevNote: kitEditorPrevNote, laneColor: lane100(accent), box: block,
+            onSelectRank: { r in
+                let n = (lane < lines.count ? lines[lane] : line).kitNotesResolved
+                kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n[r]); kitEditorPrevNote = n[r]; kitEditorNameDraft = ""
+                kitEditor = KitEditorTarget(lane: lane, rank: r)
+            },
+            onAssignNote: { note in
+                let old = notes[rank]
+                edit(lane) { var nn = $0.kitNotesResolved; var nm = $0.kitNamesResolved; nn[rank] = note; nm[rank] = euclideousGMDrumName(note); $0.kitNotes = nn; $0.kitNames = nm }   // §4.6 note + GM name, one step
+                kitEditorPrevNote = old; kitEditorNameDraft = ""
+                let vel = euclideousKitScaledVelocity(base: 100, kitVel: Int(vels[rank]))   // §4.6 audition at the rank's velocity
+                if let v = vel { onKitAudition(lane, Int(note), Int(v)) }
+            },
+            onSetName: { name in edit(lane) { var nm = $0.kitNamesResolved; nm[rank] = euclideousKitNameClean(name, note: notes[rank]); $0.kitNames = nm } },   // §4.4
+            onSetVel: { v, first in editStep(lane, first) { var vv = $0.kitVelResolved; vv[rank] = UInt8(max(0, min(100, v))); $0.kitVel = vv } },   // §4.4 one step per drag
+            onOctave: { up in kitEditorRangeLow = euclideousKitEditorOctaveStep(lowC: kitEditorRangeLow, up: up) },   // §4.9 UI only
+            onResetGM: { edit(lane) { $0.kitNotes = euclideousKitDefaultNotes; $0.kitNames = euclideousKitNamesResolved(nil, notes: euclideousKitDefaultNotes); $0.kitVel = euclideousKitDefaultVel }   // §4.10
+                let n = euclideousKitDefaultNotes[rank]; kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n); kitEditorPrevNote = n },
+            onClose: { kitEditor = nil },
+            nameDraft: $kitEditorNameDraft)
     }
     /// 3.3 (SOURCES row ferry, 2026-11-08): MIDI IN · CHORDS (+ a 1|2 grid chooser) · PICK · KEY, then a separated TEST button. The two chord bits (CHORD 1 / CHORD 2, mutually exclusive) are consolidated into ONE CHORDS toggle plus a small
     /// 1|2 segmented chooser that picks the grid (dimmed while CHORDS is off, still tappable — picking a grid turns chords on). The model is unchanged (`poolSrcMask` bits 1 / 4). One `edit`, one undo step, per tap (`onEdit`'s UNDO-6 guard drops a no-op re-tap).

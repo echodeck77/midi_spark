@@ -101,6 +101,8 @@ final class Router {
     // INPUTS TEST (2026-11-08): the audition. `…Now` is this window's testing lane (−1 = none, decoded from the live word); `…Active` tracks it so a change restarts the walk; the cursor + next-sample are a free-running clock (absolute samples, independent of the transport, so it runs while STOPPED).
     private var euclideousTestLaneNow: Int = -1
     private var euclideousTestLaneActive: Int = -1
+    private var euclideousKitAudLastSeq: Int = 0   // KIT SOURCE §4.8: the last-served one-shot-audition seq (resting word seq is 0, so init 0 ⇒ no spurious strike)
+    private var euclideousKitAudWordNow: UInt32 = 0   // KIT SOURCE §4.8: this window's one-shot-audition word, copied from the process param (runSegment, a nested fn, reads this instance var — mirroring euclideousTestLaneNow)
     private var euclideousTestNextSample: Int64 = 0
     private var euclideousTestCursor: Int = 0
     /// NOTES AUDITION (2026-11-11): the held STACK cell's lane (−1 = none) + its rank position, decoded per window; `…Order` is the single-position lit order the held lane's NOTES layer uses while held; `…WordPrev` edge-detects engage/move/release so the lane's sounding notes are cut cleanly.
@@ -2219,10 +2221,13 @@ final class Router {
         euclideousStrikeLane = Int8(lane)
         euclideousStrikeMuteBeat = fBeatPos   // the output-mute gate reads a musical beat; use the (frozen) beat — a muted output simply does not audition
         euclideousStrikeRank = 0
+        let kitLane = euclideousKit.kitOn(lane)   // KIT SOURCE §5.5: a KIT lane's audition rides the per-rank velocity — the pool's cursor index IS the rank (the kit pool is kitNotes in stored order, count 8), so set the strike rank and emitOneOutput scales by kitVel
         var guardN = 0
         while euclideousTestNextSample < windowEnd && guardN < 64 {
             guardN &+= 1
-            let note = Int(laneStat.notes[lane * 16 + (euclideousTestCursor % count)])
+            let slot = euclideousTestCursor % count
+            euclideousStrikeRank = kitLane ? UInt8(slot + 1) : 0
+            let note = Int(laneStat.notes[lane * 16 + slot])
             let onS = euclideousTestNextSample, offS = onS &+ gate
             var m = mask
             while m != 0 { let o = Int(m.trailingZeroBitCount); m &= m &- 1
@@ -2231,7 +2236,28 @@ final class Router {
             euclideousTestCursor &+= 1
             euclideousTestNextSample &+= step
         }
+        euclideousStrikeRank = 0
         euclideousStrikeLane = saveLane
+    }
+
+    /// KIT SOURCE §4.8: play ONE note once, at the given (already-scaled) velocity, across the lane's own outputs — the editor's key/rank tap feedback. Free-running onset at the window start (sounds while stopped); 120 ms gate; refcounted off (no stuck note). `euclideousStrikeRank = 0` so emitOneOutput does NOT re-scale the velocity (the UI passed the final value). Fixed loop, no allocation.
+    private func euclideousPlayKitAudition(lane: Int, note: Int, vel: Int, lines: [EuclidLine], windowStart: Int64, windowEnd: Int64, out: MIDIEmitter?) {
+        guard lane >= 0, lane < 4, lane < lines.count, vel > 0 else { return }
+        let mask = (lines[lane].riffOutMaskResolved(lane: lane) | lines[lane].notesOutMaskResolved(lane: lane)) & 0x0F
+        guard mask != 0 else { return }
+        let gate = max(Int64(1), Int64(fSampleRate * 0.12))
+        var mReset = mask
+        while mReset != 0 { let o = Int(mReset.trailingZeroBitCount); mReset &= mReset &- 1; euclideousOnsThisBeat[o] = 0 }   // fresh budget (stopped host freezes it)
+        let saveLane = euclideousStrikeLane, saveRank = euclideousStrikeRank
+        euclideousStrikeLane = Int8(lane)
+        euclideousStrikeRank = 0           // the UI passes the final velocity — do not re-scale by kitVel
+        euclideousStrikeMuteBeat = fBeatPos
+        let onS = windowStart, offS = onS &+ gate
+        var m = mask
+        while m != 0 { let o = Int(m.trailingZeroBitCount); m &= m &- 1
+            _ = emitOneOutput(o, part: 2 * lane, note: UInt8(max(0, min(127, note))), velocity: UInt8(max(1, min(127, vel))), onSample: onS, offSample: offS, windowEnd: windowEnd, out: out, onVoiceOpened: { _ in }, euclideousLegato: false)
+        }
+        euclideousStrikeLane = saveLane; euclideousStrikeRank = saveRank
     }
 
     private func emitTickRow(r: Int, effColumn: Int, S: Double, cycleBeats: Double, windowBeats: Double,
@@ -2541,6 +2567,7 @@ final class Router {
                  euclideousHoldOverrides: EuclideousPendingRollSlots = EuclideousPendingRollSlots(),
                  euclideousLockLive: UInt64 = 0,
                  euclideousTestLive: UInt16 = 0,   // INPUTS TEST (2026-11-08): 0 = none; 0x100 | lane auditioning its pool
+                 euclideousKitAudWord: UInt32 = 0,   // KIT SOURCE §4.8: one-shot editor audition — seq(16)|lane(2)|vel(7)|note(7), played once per seq change
                  euclideousNotesAuditionLive: UInt16 = 0,   // NOTES AUDITION (2026-11-11): 0 = none; 0x100 | (lane<<4) | position — the held STACK cell, the lane's only lit note while held
                  euclideousRiffColumnHold: UInt8 = 0,   // Scrub ferry (2026-11-16): the three GLOBAL live holds — 0 = none, 1…8 (read once per window; substitute the note at every lane's hit)
                  euclideousRiffRankHold: UInt8 = 0,
@@ -2639,6 +2666,7 @@ final class Router {
         loopWasActive = loopActiveNow
         // INPUTS TEST (2026-11-08): which lane auditions this window (−1 = none). A change in the testing lane restarts the walk at the window's first sample; it is otherwise free-running (the cursor + next-sample persist across windows).
         euclideousTestLaneNow = (euclideousTestLive & 0x100 != 0) ? Int(euclideousTestLive & 3) : -1
+        euclideousKitAudWordNow = euclideousKitAudWord   // KIT SOURCE §4.8: copy the param so nested runSegment can read it
         if euclideousTestLaneNow != euclideousTestLaneActive {
             euclideousTestLaneActive = euclideousTestLaneNow
             euclideousTestCursor = 0
@@ -6432,6 +6460,14 @@ final class Router {
             // INPUTS TEST (2026-11-08): the testing lane walks its pool across its emitters, once per window, on the free-running audition clock (its normal output was suppressed in runSegment).
             if isEuclideousRow, euclideousTestLaneNow >= 0 {
                 euclideousRunAudition(lane: euclideousTestLaneNow, lines: p.euclidLines, windowStart: windowStart, windowEnd: windowEnd, out: out)
+            }
+            // KIT SOURCE §4.8: a one-shot kit-editor audition — fire once per seq change (a key/rank tap), free-running so it sounds while stopped.
+            if isEuclideousRow, euclideousKitAudWordNow != 0 {
+                let seq = Int((euclideousKitAudWordNow >> 16) & 0xFFFF)
+                if seq != euclideousKitAudLastSeq {
+                    euclideousKitAudLastSeq = seq
+                    euclideousPlayKitAudition(lane: Int((euclideousKitAudWordNow >> 14) & 3), note: Int(euclideousKitAudWordNow & 0x7F), vel: Int((euclideousKitAudWordNow >> 7) & 0x7F), lines: p.euclidLines, windowStart: windowStart, windowEnd: windowEnd, out: out)
+                }
             }
             // HOCKET §8: the count of each lit rule at this window's start, from the SAME `hocketCount` the notes are routed by (the clocks above are this window's).
             if isEuclideousRow {

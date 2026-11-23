@@ -13247,6 +13247,93 @@ func euclideousKitEditorRangeLowC(note: UInt8) -> Int {
     let c = (Int(note) / 12) * 12
     return max(0, min(108, c > 108 ? c - 12 : c))
 }
+/// §4.9 the octave `‹` / `›` steps — a low C can move 0…96 (two octaves, so the top key is 96+23 = 119; a stored note up to 127 opens on low C 108 showing 108…127 but the arrows never go past 96 themselves). Returns the clamped new low C, or the same value at a stop.
+func euclideousKitEditorOctaveStep(lowC: Int, up: Bool) -> Int {
+    let next = ((lowC / 12) * 12) + (up ? 12 : -12)
+    return max(0, min(96, next))
+}
+
+// §4.5 one kit-editor keyboard key: its rect, the MIDI note it plays, and whether it is a white key.
+struct EuclideousKitKey: Equatable { var rect: CGRect; var note: UInt8; var white: Bool }
+
+/// §4 the kit editor's frames, laid out inside `box` (the lane-cards block) with a 16 pt inset. Pure — `EuclideousKitEditorLayoutTests` pins it at both references; a key is never under 22 pt wide.
+struct EuclideousKitEditorLayout: Equatable {
+    var card: CGRect        // the inset surface
+    var header: CGRect      // title · RESET GM · close
+    var closeBtn: CGRect
+    var resetBtn: CGRect
+    var ranks: [CGRect]     // 8 rank cells
+    var nameField: CGRect
+    var velField: CGRect
+    var octDown: CGRect     // ‹
+    var octUp: CGRect       // ›
+    var keyboard: CGRect    // the whole keyboard band (whites + blacks)
+    var whiteKeys: [EuclideousKitKey]   // 14, left→right (drawn first)
+    var blackKeys: [EuclideousKitKey]   // up to 10 (drawn over the whites)
+}
+private let euclideousKitWhitePCs: [Int] = [0, 2, 4, 5, 7, 9, 11]   // C D E F G A B
+private let euclideousKitBlackAfter: [Int] = [0, 1, 3, 4, 5]        // a black sits after white index 0,1,3,4,5 in each octave (C♯ D♯ F♯ G♯ A♯)
+private let euclideousKitBlackPCs: [Int] = [1, 3, 6, 8, 10]
+func euclideousKitEditorLayout(box: CGSize, lowC: Int) -> EuclideousKitEditorLayout {
+    let inset: CGFloat = 16
+    let card = CGRect(x: inset, y: inset, width: max(1, box.width - inset * 2), height: max(1, box.height - inset * 2))
+    let pad: CGFloat = 16
+    let innerX = card.minX + pad, innerW = max(1, card.width - pad * 2)
+    var y = card.minY + pad
+    // header
+    let headerH: CGFloat = 32
+    let header = CGRect(x: innerX, y: y, width: innerW, height: headerH)
+    let closeW: CGFloat = 32, resetW: CGFloat = 86
+    let closeBtn = CGRect(x: header.maxX - closeW, y: y, width: closeW, height: headerH)
+    let resetBtn = CGRect(x: closeBtn.minX - 8 - resetW, y: y, width: resetW, height: headerH)
+    y += headerH + 12
+    // 8 rank cells
+    let rankGap: CGFloat = 4
+    let rankW = max(1, (innerW - rankGap * 7) / 8)
+    let rankH: CGFloat = 52
+    var ranks: [CGRect] = []
+    for i in 0..<8 { ranks.append(CGRect(x: innerX + CGFloat(i) * (rankW + rankGap), y: y, width: rankW, height: rankH)) }
+    y += rankH + 12
+    // NAME · VEL row
+    let nvH: CGFloat = 40
+    let nameW = max(1, innerW * 0.45)
+    let nameField = CGRect(x: innerX, y: y, width: nameW, height: nvH)
+    let velField = CGRect(x: nameField.maxX + 10, y: y, width: max(1, innerW - nameW - 10), height: nvH)
+    y += nvH + 14
+    // octave buttons + keyboard
+    let octW: CGFloat = 34
+    let octDown = CGRect(x: innerX, y: y, width: octW, height: 36)
+    let octUp = CGRect(x: innerX + octW + 6, y: y, width: octW, height: 36)
+    let kbX = octUp.maxX + 10
+    let kbW = max(1, card.maxX - pad - kbX)
+    let kbH = max(1, card.maxY - pad - y)
+    let keyboard = CGRect(x: kbX, y: y, width: kbW, height: kbH)
+    // 14 white keys edge-to-edge; 10 blacks straddling the boundaries, 60 % width, 62 % height
+    let whiteW = kbW / 14
+    let blackW = whiteW * 0.62, blackH = kbH * 0.62
+    var whites: [EuclideousKitKey] = [], blacks: [EuclideousKitKey] = []
+    for oct in 0..<2 {
+        for (wi, pc) in euclideousKitWhitePCs.enumerated() {
+            let idx = oct * 7 + wi
+            let rect = CGRect(x: kbX + CGFloat(idx) * whiteW, y: y, width: whiteW, height: kbH)
+            whites.append(EuclideousKitKey(rect: rect, note: UInt8(max(0, min(127, lowC + oct * 12 + pc))), white: true))
+        }
+        for (bi, after) in euclideousKitBlackAfter.enumerated() {
+            let boundary = kbX + CGFloat(oct * 7 + after + 1) * whiteW
+            let rect = CGRect(x: boundary - blackW / 2, y: y, width: blackW, height: blackH)
+            blacks.append(EuclideousKitKey(rect: rect, note: UInt8(max(0, min(127, lowC + oct * 12 + euclideousKitBlackPCs[bi]))), white: false))
+        }
+    }
+    return EuclideousKitEditorLayout(card: card, header: header, closeBtn: closeBtn, resetBtn: resetBtn, ranks: ranks,
+                                     nameField: nameField, velField: velField, octDown: octDown, octUp: octUp,
+                                     keyboard: keyboard, whiteKeys: whites, blackKeys: blacks)
+}
+/// §4.6 which key a tap at `p` hits (blacks first — they sit over the whites), or nil. Returns the MIDI note.
+func euclideousKitKeyAt(_ p: CGPoint, layout: EuclideousKitEditorLayout) -> UInt8? {
+    for k in layout.blackKeys where k.rect.contains(p) { return k.note }
+    for k in layout.whiteKeys where k.rect.contains(p) { return k.note }
+    return nil
+}
 
 /// INPUTS v2 §2.5a / §6.3: APPLY TO ALL — copy a lane's SOURCES (`poolSrcMask`, incl. the CHORD 1/2 grid bit), MIDI mode (`midiMode`) and (KIT SOURCE ferry §1.8) the four kit fields onto every OTHER lane. DELAY CHORD (`chordDelay`) and everything else are left untouched. One mutation ⇒ one undo step. Extracted so it is test-covered.
 func euclideousApplyInputsToAll(_ lines: inout [EuclidLine], from idx: Int) {

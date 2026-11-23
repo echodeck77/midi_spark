@@ -69,6 +69,11 @@ final class Kernel {
     /// INPUTS TEST (2026-11-08): which lane is auditioning its pool (0 = none; 0x100 | lane, 0-3), the same plain main-writes/render-reads hand-off. While set, the Router suppresses that lane's normal output and walks its pool across its emitters on a free-running SAMPLE clock. It sounds while the host is stopped in the default KEEP PLAYING mode (the free-run clock keeps `playing` true); with "STOP when host stops" set it waits for the transport, like every other voice. The PLAYING heal-net below is exempted for it (an audition over an empty live pool is legitimate); the stopped net is not (see there).
     private var euclideousTestLive: UInt16 = 0
     func setEuclideousTestLive(_ lane: Int?) { euclideousTestLive = lane.map { 0x100 | UInt16($0 & 3) } ?? 0 }
+    /// KIT SOURCE §4.8: a ONE-SHOT kit-editor audition — the main thread bumps `seq` on each key/rank tap, the Router plays `note` once at `vel` on the lane's outputs (free-running, so it sounds while stopped). Packed seq(16) | lane(2) | vel(7) | note(7). Not in the snapshot/undo; the plain main-writes/render-reads hand-off.
+    private var euclideousKitAudWord: UInt32 = 0
+    func setEuclideousKitAudition(lane: Int, note: Int, vel: Int, seq: Int) {
+        euclideousKitAudWord = (UInt32(seq & 0xFFFF) << 16) | (UInt32(lane & 3) << 14) | (UInt32(vel & 0x7F) << 7) | UInt32(note & 0x7F)
+    }
     /// Scrub ferry (2026-11-16): three GLOBAL live holds — 0 = none, 1…8. The main thread writes them the instant a ribbon is touched; the render reads each once per window and substitutes the note choice at every lane's hit (riff column / riff rank / stack rank). Not in the snapshot/document/undo; the same plain main-writes/render-reads hand-off.
     private var euclideousRiffColumnHold: UInt8 = 0
     private var euclideousRiffRankHold: UInt8 = 0
@@ -569,6 +574,7 @@ final class Kernel {
                         euclideousHoldOverrides: euclideousHoldOverrides,
                         euclideousLockLive: euclideousLockLive,
                         euclideousTestLive: euclideousTestLive,
+                        euclideousKitAudWord: euclideousKitAudWord,
                         euclideousNotesAuditionLive: euclideousNotesAuditionLive,
                         euclideousRiffColumnHold: euclideousRiffColumnHold,
                         euclideousRiffRankHold: euclideousRiffRankHold,

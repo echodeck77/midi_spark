@@ -312,6 +312,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func setEuclideousSoloLive(_ mask: UInt8) { kernel.setEuclideousSoloLive(mask) }
     func setEuclideousPartSoloLive(_ mask: UInt8) { kernel.setEuclideousPartSoloLive(mask) }   // PER-PART SOLO (MIX v2): the LATCHED | held part mask   // LANE SOLO (2026-10-21): the LATCHED mask
     func setEuclideousTestLive(_ lane: Int?) { kernel.setEuclideousTestLive(lane) }   // INPUTS TEST (2026-11-08): the lane auditioning its pool (nil = off)
+    func setEuclideousKitAudition(lane: Int, note: Int, vel: Int, seq: Int) { kernel.setEuclideousKitAudition(lane: lane, note: note, vel: vel, seq: seq) }   // KIT SOURCE §4.8: one-shot editor audition
     func setEuclideousNotesAuditionLive(_ v: (lane: Int, position: Int)?) { kernel.setEuclideousNotesAuditionLive(v) }   // NOTES AUDITION (2026-11-11): the held STACK cell (nil = off)
     func setEuclideousScrubHolds(riffColumn: Int, riffRank: Int, stackRank: Int) { kernel.setEuclideousScrubHolds(riffColumn: riffColumn, riffRank: riffRank, stackRank: stackRank) }   // Scrub ferry (2026-11-16): the three GLOBAL ribbon holds (0 = none, 1-8); ephemeral live words, same hand-off as the live words above
     func setEuclideousLoopSpan(lo: Int, hi: Int) { kernel.setEuclideousLoopSpan(lo: lo, hi: hi) }   // RIBBON SETTINGS §9: the GLOBAL loop span (columns 1-8; 0 = none); ephemeral live word

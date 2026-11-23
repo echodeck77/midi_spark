@@ -80,6 +80,43 @@ final class KitSourceTests: XCTestCase {
         XCTAssertNil(freshBack.kitOn)
     }
 
+    // §4.9 octave ‹ / › steps, clamped 0…96
+    func testOctaveStep() {
+        XCTAssertEqual(euclideousKitEditorOctaveStep(lowC: 36, up: true), 48)
+        XCTAssertEqual(euclideousKitEditorOctaveStep(lowC: 36, up: false), 24)
+        XCTAssertEqual(euclideousKitEditorOctaveStep(lowC: 0, up: false), 0)      // bottom stop
+        XCTAssertEqual(euclideousKitEditorOctaveStep(lowC: 96, up: true), 96)     // top stop
+        XCTAssertEqual(euclideousKitEditorOctaveStep(lowC: 108, up: false), 96)   // a 127-opened range steps back into bounds
+    }
+
+    // §4 editor layout — fits both references; 14 whites + 10 blacks; keys ≥ 22 pt; the right notes.
+    func testEditorLayout() {
+        for box in [CGSize(width: 769.33, height: 610), CGSize(width: 782, height: 611.33)] {
+            let L = euclideousKitEditorLayout(box: box, lowC: 36)
+            XCTAssertEqual(L.ranks.count, 8)
+            XCTAssertEqual(L.whiteKeys.count, 14)
+            XCTAssertEqual(L.blackKeys.count, 10)
+            XCTAssertGreaterThanOrEqual(L.whiteKeys[0].rect.width, 22, "a white key is at least 22 pt wide")
+            XCTAssertGreaterThan(L.keyboard.height, 44)
+            // the keyboard spans two octaves from low C: first white = 36 (C2), last white = 59 → B3's B is 59
+            XCTAssertEqual(L.whiteKeys.first?.note, 36)
+            XCTAssertEqual(L.whiteKeys.last?.note, 59)
+            XCTAssertTrue(L.whiteKeys.allSatisfy { $0.white })
+            XCTAssertTrue(L.blackKeys.allSatisfy { !$0.white })
+            // every frame inside the card
+            for r in L.ranks { XCTAssertTrue(L.card.insetBy(dx: -0.5, dy: -0.5).contains(r)) }
+        }
+    }
+
+    // §4.6 tap-to-note — a point inside a white key returns its note; a black key wins over the white beneath it.
+    func testKeyHitTesting() {
+        let L = euclideousKitEditorLayout(box: CGSize(width: 769.33, height: 610), lowC: 36)
+        let w0 = L.whiteKeys[0]
+        XCTAssertEqual(euclideousKitKeyAt(CGPoint(x: w0.rect.midX, y: w0.rect.maxY - 4), layout: L), 36)   // low in the white, clear of any black
+        let b0 = L.blackKeys[0]   // C♯2 = 37
+        XCTAssertEqual(euclideousKitKeyAt(CGPoint(x: b0.rect.midX, y: b0.rect.midY), layout: L), 37)
+    }
+
     // §1.8 APPLY TO ALL copies the four kit fields
     func testApplyToAll() {
         var lines = [EuclidLine(noteSel: .all), EuclidLine(noteSel: .all), EuclidLine(noteSel: .all), EuclidLine(noteSel: .all)]
