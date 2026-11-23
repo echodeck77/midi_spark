@@ -13191,6 +13191,31 @@ func euclideousRankChipMinWidth() -> CGFloat {
 /// 6.3: the next lane, 1 → 2 → 3 → 4 → 1 (0-based here).
 func euclideousPickedLaneNext(_ current: Int) -> Int { (((current % 4) + 4) % 4 + 1) % 4 }
 
+// MARK: - DRUM MODE (ferry 2026-11-23) — one drum per lane, a velocity ramp across the ranks. Pure; the engine reads the kit snapshot filled by mode.
+
+/// §1.1 which fixed-note source `kitOn` turns on: the 8-note KIT or a single DRUM. Lenient decode (unknown ⇒ KIT, via the custom decoder's `try?`).
+enum EuclideousFixedMode: String, Codable, Equatable { case kit = "KIT", drum = "DRUM" }
+/// §1.1 the drum's velocity ramp direction across ranks 1→8.
+enum EuclideousDrumRamp: String, Codable, Equatable { case up = "UP", down = "DOWN" }
+
+/// §1.2 the per-lane default drum note: lane 1 KICK 36, lane 2 SNR 38, lane 3 CH 42, lane 4 CLAP 39 (else KICK).
+func euclideousDrumNoteDefault(lane: Int) -> UInt8 { [36, 38, 42, 39][safe: lane] ?? 36 }
+private extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
+/// §1.2 the lane's resolved drum note: the stored value, else the per-lane default (nil stays nil in the model so nothing saved changes).
+func euclideousDrumNote(_ line: EuclidLine, lane: Int) -> UInt8 { line.drumNote.map { min(127, $0) } ?? euclideousDrumNoteDefault(lane: lane) }
+
+/// §2.2 the velocity (0…100 %) at rank `r` (1…8) for a ramp from `low` to `high`. UP: low at rank 1 → high at rank 8; DOWN: the mirror (high at rank 1 → low at rank 8). Rounded to the nearest integer. `low`/`high` are clamped 0…100 and `high` is read ≥ `low`.
+func euclideousDrumRampVel(rank r: Int, low: Int, high: Int, ramp: EuclideousDrumRamp) -> Int {
+    let lo = max(0, min(100, low)), hi = max(lo, min(100, high))
+    let rr = max(1, min(8, r))
+    let k = ramp == .up ? rr : (9 - rr)             // §2.2: DOWN replaces r with 9 − r
+    return lo + Int((Double(hi - lo) * Double(k - 1) / 7.0).rounded())
+}
+/// §2.2 the 8 ramp velocities (rank 1→8) for a lane's drum — used by SnapshotBuilder to fill the kit snapshot's `vel` for a DRUM lane.
+func euclideousDrumRampVels(low: Int, high: Int, ramp: EuclideousDrumRamp) -> [UInt8] {
+    (1...8).map { UInt8(euclideousDrumRampVel(rank: $0, low: low, high: high, ramp: ramp)) }
+}
+
 // MARK: - KIT SOURCE (ferry 2026-11-23) — fixed drum notes per lane; pure, allocation-free on the render-read side.
 
 /// §1.3 the default kit, rank 1→8 (GM: KICK 36, RIM 37, SNR 38, CLAP 39, CH 42, PH 44, OH 46, CRASH 49).
@@ -13275,7 +13300,7 @@ struct EuclideousKitEditorLayout: Equatable {
 private let euclideousKitWhitePCs: [Int] = [0, 2, 4, 5, 7, 9, 11]   // C D E F G A B
 private let euclideousKitBlackAfter: [Int] = [0, 1, 3, 4, 5]        // a black sits after white index 0,1,3,4,5 in each octave (C♯ D♯ F♯ G♯ A♯)
 private let euclideousKitBlackPCs: [Int] = [1, 3, 6, 8, 10]
-func euclideousKitEditorLayout(box: CGSize, lowC: Int) -> EuclideousKitEditorLayout {
+func euclideousKitEditorLayout(box: CGSize, lowC: Int, showsRanksAndName: Bool = true) -> EuclideousKitEditorLayout {
     let inset: CGFloat = 16
     let card = CGRect(x: inset, y: inset, width: max(1, box.width - inset * 2), height: max(1, box.height - inset * 2))
     let pad: CGFloat = 16
@@ -13288,26 +13313,28 @@ func euclideousKitEditorLayout(box: CGSize, lowC: Int) -> EuclideousKitEditorLay
     let closeBtn = CGRect(x: header.maxX - closeW, y: y, width: closeW, height: headerH)
     let resetBtn = CGRect(x: closeBtn.minX - 8 - resetW, y: y, width: resetW, height: headerH)
     y += headerH + 12
-    // 8 rank cells
+    // 8 rank cells + NAME · VEL — DROM MODE §4.1: the drum picker drops both rows and the keyboard takes the freed height.
     let rankGap: CGFloat = 4
     let rankW = max(1, (innerW - rankGap * 7) / 8)
     let rankH: CGFloat = 52
     var ranks: [CGRect] = []
-    for i in 0..<8 { ranks.append(CGRect(x: innerX + CGFloat(i) * (rankW + rankGap), y: y, width: rankW, height: rankH)) }
-    y += rankH + 12
-    // NAME · VEL row
-    let nvH: CGFloat = 40
-    let nameW = max(1, innerW * 0.45)
-    let nameField = CGRect(x: innerX, y: y, width: nameW, height: nvH)
-    let velField = CGRect(x: nameField.maxX + 10, y: y, width: max(1, innerW - nameW - 10), height: nvH)
-    y += nvH + 14
+    var nameField = CGRect.zero, velField = CGRect.zero
+    if showsRanksAndName {
+        for i in 0..<8 { ranks.append(CGRect(x: innerX + CGFloat(i) * (rankW + rankGap), y: y, width: rankW, height: rankH)) }
+        y += rankH + 12
+        let nvH: CGFloat = 40
+        let nameW = max(1, innerW * 0.45)
+        nameField = CGRect(x: innerX, y: y, width: nameW, height: nvH)
+        velField = CGRect(x: nameField.maxX + 10, y: y, width: max(1, innerW - nameW - 10), height: nvH)
+        y += nvH + 14
+    }
     // octave buttons + keyboard
     let octW: CGFloat = 34
     let octDown = CGRect(x: innerX, y: y, width: octW, height: 36)
     let octUp = CGRect(x: innerX + octW + 6, y: y, width: octW, height: 36)
     let kbX = octUp.maxX + 10
     let kbW = max(1, card.maxX - pad - kbX)
-    let kbH = max(1, min(132, card.maxY - pad - y))   // §4.5: a fixed, modest keyboard height (was "all remaining" — far too tall); empty space below is fine
+    let kbH = max(1, min(showsRanksAndName ? 132 : 240, card.maxY - pad - y))   // §4.5: the picker's keyboard takes the freed height (ranks + NAME removed)
     let keyboard = CGRect(x: kbX, y: y, width: kbW, height: kbH)
     // 14 white keys edge-to-edge; 10 blacks straddling the boundaries, 60 % width, 62 % height
     let whiteW = kbW / 14
@@ -13343,6 +13370,8 @@ func euclideousApplyInputsToAll(_ lines: inout [EuclidLine], from idx: Int) {
     for i in lines.indices where i != idx {
         lines[i].poolSrcMask = s.poolSrcMask; lines[i].midiMode = s.midiMode
         lines[i].kitOn = s.kitOn; lines[i].kitNotes = s.kitNotes; lines[i].kitNames = s.kitNames; lines[i].kitVel = s.kitVel   // KIT SOURCE §1.8
+        // DRUM MODE §1.6: copy fixedMode + the four drum fields. drumNote is MATERIALISED from the source lane (copying raw nil would give each target its OWN per-lane default, not the source's note).
+        lines[i].fixedMode = s.fixedMode; lines[i].drumNote = euclideousDrumNote(s, lane: idx); lines[i].drumLow = s.drumLow; lines[i].drumHigh = s.drumHigh; lines[i].drumRamp = s.drumRamp
     }
 }
 

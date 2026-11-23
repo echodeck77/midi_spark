@@ -29,10 +29,14 @@ struct EuclideousKitEditorView: View {
     var onResetGM: () -> Void
     var onClose: () -> Void
 
+    var isDrumPicker: Bool = false       // DRUM MODE §4.1: the DRUM picker variant — title DRUM, no RESET / ranks / NAME; the keyboard sets the lane's drum note
+    var selectedNote: UInt8? = nil       // the note to highlight on the keyboard (the drum note in the picker; else the selected rank's note)
+    var onMakeDrum: (() -> Void)? = nil  // §4.5: the kit editor's DRUM button (nil in the picker)
+
     @Binding var nameDraft: String
     @State private var velDragging = false
 
-    private var layout: EuclideousKitEditorLayout { euclideousKitEditorLayout(box: box, lowC: lowC) }
+    private var layout: EuclideousKitEditorLayout { euclideousKitEditorLayout(box: box, lowC: lowC, showsRanksAndName: !isDrumPicker) }
 
     var body: some View {
         let L = layout
@@ -45,8 +49,7 @@ struct EuclideousKitEditorView: View {
                 .position(x: L.card.midX, y: L.card.midY)
 
             header(L)
-            ranks(L)
-            nameVel(L)
+            if !isDrumPicker { ranks(L); nameVel(L) }
             octaveButtons(L)
             keyboard(L)
         }
@@ -55,19 +58,26 @@ struct EuclideousKitEditorView: View {
 
     // MARK: header — title · RESET GM · close (§4.2)
     private func header(_ L: EuclideousKitEditorLayout) -> some View {
-        ZStack(alignment: .leading) {
-            Text("KIT \(lane + 1)").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(1)
-                .foregroundColor(Color(hex: 0xF2F4F7))
-                .frame(width: L.header.width, alignment: .leading)
-            Button(action: onResetGM) {
-                Text("RESET GM").font(.system(size: 11, weight: .heavy, design: .monospaced))
+        let headerBtn: (String, String, @escaping () -> Void) -> AnyView = { title, ax, action in AnyView(
+            Button(action: action) {
+                Text(title).font(.system(size: 11, weight: .heavy, design: .monospaced))
                     .foregroundColor(Color(hex: 0xC6CBD3))
                     .frame(width: L.resetBtn.width, height: L.resetBtn.height)
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x33363D), lineWidth: 1))
+            }.accessibilityLabel(ax)) }
+        return ZStack(alignment: .leading) {
+            Text(isDrumPicker ? "DRUM" : "KIT \(lane + 1)").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(1)
+                .foregroundColor(Color(hex: 0xF2F4F7))
+                .frame(width: L.header.width, alignment: .leading)
+            if !isDrumPicker {
+                headerBtn("RESET GM", "Reset to GM kit", onResetGM)
+                    .frame(width: L.header.width, alignment: .trailing).padding(.trailing, L.closeBtn.width + 8)
+                if let mk = onMakeDrum {   // §4.5: the DRUM button, 8 before RESET GM
+                    headerBtn("DRUM", "Make drum", mk)
+                        .frame(width: L.header.width, alignment: .trailing).padding(.trailing, L.closeBtn.width + 8 + L.resetBtn.width + 8)
+                }
             }
-            .frame(width: L.header.width, alignment: .trailing).padding(.trailing, L.closeBtn.width + 8)
-            .accessibilityLabel("Reset to GM kit")
             Button(action: onClose) {
                 Image(systemName: "xmark").font(.system(size: 13, weight: .bold))
                     .foregroundColor(Color(hex: 0xC6CBD3))
@@ -179,7 +189,7 @@ struct EuclideousKitEditorView: View {
 
     // MARK: keyboard (§4.5/§4.6/§4.7)
     private func keyboard(_ L: EuclideousKitEditorLayout) -> some View {
-        let selNote = selectedRank < notes.count ? notes[selectedRank] : nil
+        let selNote = selectedNote ?? (selectedRank < notes.count ? notes[selectedRank] : nil)
         return Canvas { ctx, _ in
             for k in L.whiteKeys {
                 let r = k.rect.offsetBy(dx: -L.keyboard.minX, dy: -L.keyboard.minY).insetBy(dx: 0.5, dy: 0.5)
@@ -218,5 +228,64 @@ struct EuclideousKitEditorView: View {
         })
         .accessibilityHidden(true)   // the ranks carry the accessible note values; the keyboard is a visual assign surface (§6.2)
         .position(x: L.keyboard.midX, y: L.keyboard.midY)
+    }
+}
+
+// MARK: - DRUM MODE (ferry 2026-11-23) — small shapes + the two-thumb VEL slider used on the lane card.
+
+/// §3.4 a 10 × 6 down chevron (open path; stroked by the caller).
+struct EuclideousChevronDown: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path(); p.move(to: CGPoint(x: r.minX, y: r.minY)); p.addLine(to: CGPoint(x: r.midX, y: r.maxY)); p.addLine(to: CGPoint(x: r.maxX, y: r.minY)); return p
+    }
+}
+
+/// §3.4 the ramp icon — four bars (4 wide, 2 apart, radius 1) rising (UP: 5, 8, 12, 16) or falling (DOWN: the reverse), bottom-aligned in a 26 × 18 box. A Shape, so the caller's `.foregroundColor` fills it.
+struct EuclideousRampBars: Shape {
+    var up: Bool
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let heights: [CGFloat] = up ? [5, 8, 12, 16] : [16, 12, 8, 5]
+        let bw: CGFloat = 4, gap: CGFloat = 2
+        let total = bw * 4 + gap * 3
+        var x = r.midX - total / 2
+        for h in heights {
+            p.addRoundedRect(in: CGRect(x: x, y: r.maxY - h, width: bw, height: h), cornerSize: CGSize(width: 1, height: 1))
+            x += bw + gap
+        }
+        return p
+    }
+}
+
+/// §3.5 the two-thumb velocity slider. Track 8 tall; the span between the thumbs in the lane colour; thumbs 22 × 30. The full height is the touch area, each side going to the nearer thumb. 0…100 step 1; the thumbs meet but never cross.
+/// A drag sounds nothing and reports (low, high, isFirstOfDrag) so the page records one undo step per drag.
+struct EuclideousDrumVelSlider: View {
+    let low: Int; let high: Int; let laneColor: Color; let width: CGFloat; let height: CGFloat
+    var onChange: (Int, Int, Bool) -> Void
+    @Binding var dragging: Bool
+    @State private var active: Int = 0   // 0 = none, 1 = low, 2 = high (which thumb this drag grabbed)
+
+    private let thumbW: CGFloat = 22, thumbH: CGFloat = 30, trackH: CGFloat = 8
+    private func x(_ v: Int) -> CGFloat { let inset = thumbW / 2; return inset + (width - thumbW) * CGFloat(max(0, min(100, v))) / 100 }
+    private func valueAt(_ px: CGFloat) -> Int { let inset = thumbW / 2; return Int((((px - inset) / max(1, width - thumbW)) * 100).rounded()) }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x2A2D34)).frame(width: width, height: trackH)
+            RoundedRectangle(cornerRadius: 4).fill(laneColor).frame(width: max(0, x(high) - x(low)), height: trackH).offset(x: x(low))
+            thumb.offset(x: x(low) - thumbW / 2)
+            thumb.offset(x: x(high) - thumbW / 2)
+        }
+        .frame(width: width, height: height, alignment: .leading)
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0).onChanged { g in
+            let first = active == 0
+            if first { active = abs(g.location.x - x(low)) <= abs(g.location.x - x(high)) ? 1 : 2; dragging = true }
+            let v = max(0, min(100, valueAt(g.location.x)))
+            if active == 1 { onChange(min(v, high), high, first) } else { onChange(low, max(v, low), first) }   // §3.5 meet but never cross
+        }.onEnded { _ in active = 0; dragging = false })
+    }
+    private var thumb: some View {
+        RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xF2F4F7)).frame(width: thumbW, height: thumbH).shadow(color: Color.black.opacity(0.5), radius: 6, x: 0, y: 2)
     }
 }

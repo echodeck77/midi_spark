@@ -1109,6 +1109,8 @@ struct EuclideousPage: View {
     @State private var kitEditorPrevNote: UInt8? = nil          // §4.7 the selected rank's note when it was last selected
     @State private var kitEditorRangeLow: Int = 36              // §4.9 the keyboard's low C (a multiple of 12)
     @State private var kitEditorNameDraft: String = ""          // §4.4 the NAME field's in-progress text
+    @State private var kitEditorIsDrumPicker = false            // DRUM MODE §4.1: the open editor is the DRUM picker (no RESET / ranks / NAME; a key sets the lane's drum note)
+    @State private var drumVelDragging = false                  // DRUM MODE §3.5: the two-thumb VEL drag's one-undo-step-per-drag flag
     // RIBBON SETTINGS §6.1: in TUTTI mode a touch-down toggles ONE mark (the column/rank under the touch); the rest of the drag does nothing. This guards "only the first change of a drag acts".
     @State private var tuttiDragHandled = false
     // RIBBON SETTINGS §9: the live LOOP span (columns lo, hi; 0 = none) + the drag anchor (the column touched down on, fixed until lift). Ephemeral UI state mirroring the kernel live word; not saved/undone.
@@ -2507,7 +2509,7 @@ struct EuclideousPage: View {
         hocketPopupOpen = false   // HOCKET (2026-10-27): the same
         playAsPopup = nil         // PLAY AS SEQUENCE (2026-11-08): the same
         notesChainPopup = nil; notesShiftPopup = nil; notesRepeatPopup = nil   // PLAY AS ROWS (2026-11-11 / amend 1): the ORDER/VOICES/SPREAD, SHIFT and REPEAT pop-ups
-        kitEditor = nil           // KIT SOURCE (§4.1): the same
+        kitEditor = nil; kitEditorIsDrumPicker = false           // KIT SOURCE (§4.1): the same
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -7838,12 +7840,15 @@ struct EuclideousPage: View {
         let buttonH: CGFloat = 30
         let layout = euclideousInputsTabLayout(contentAreaH: max(0, contentAreaH - buttonH - 14))
         let kitOn = line.kitOnResolved   // KIT SOURCE §5.2: the MIDI row and DELAY CHORD dim to 42 % and do nothing while KIT is on
+        let drum = kitOn && line.fixedModeResolved == .drum   // DRUM MODE §3.2: MIDI → DRUM row, DELAY CHORD → VEL row; APPLY TO ALL stays below them
         let rows = VStack(spacing: layout.gap) {
             poolNowRow(idx, accent, fullWidth: fullWidth, height: layout.nowH)
             poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
-            inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH).opacity(kitOn ? 0.42 : 1).allowsHitTesting(!kitOn)
-            inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)   // above CANON
-            listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH).opacity(kitOn ? 0.42 : 1).allowsHitTesting(!kitOn)
+            if drum { drumRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH) }
+            else { inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH).opacity(kitOn ? 0.42 : 1).allowsHitTesting(!kitOn) }
+            inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
+            if drum { drumVelRow(idx, line, accent, fullWidth: fullWidth, height: layout.canonH) }
+            else { listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH).opacity(kitOn ? 0.42 : 1).allowsHitTesting(!kitOn) }
             Spacer(minLength: 0)
         }
         if layout.fits { return AnyView(rows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
@@ -7943,6 +7948,8 @@ struct EuclideousPage: View {
         let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
         let notes = line.kitNotesResolved, names = line.kitNamesResolved, vels = line.kitVelResolved
         let accent = laneAccents[lane % laneAccents.count]
+        let picker = kitEditorIsDrumPicker
+        let drumNote = euclideousDrumNote(line, lane: lane), drumHigh = line.drumHighResolved
         return EuclideousKitEditorView(
             lane: lane, selectedRank: rank, notes: notes, names: names, vels: vels,
             lowC: kitEditorRangeLow, prevNote: kitEditorPrevNote, laneColor: lane100(accent), box: block,
@@ -7954,11 +7961,17 @@ struct EuclideousPage: View {
                 kitEditor = KitEditorTarget(lane: lane, rank: r)
             },
             onAssignNote: { note in
-                let old = notes[rank]
-                edit(lane) { var nn = $0.kitNotesResolved; nn[rank] = note; $0.kitNotes = nn }   // §4.6 (Paul 2026-11-23): set the PITCH only — never overwrite the rank's name (rename is the NAME field's job)
-                kitEditorPrevNote = old   // the NAME field keeps its current label
-                let vel = euclideousKitScaledVelocity(base: 100, kitVel: Int(vels[rank]))   // §4.6 audition at the rank's velocity
-                if let v = vel { onKitAudition(lane, Int(note), Int(v)) }
+                if picker {   // DRUM MODE §4.3: set the lane's drum note (one undo step), audition at drumHigh; tapping the current note changes nothing (edit's no-op guard drops it)
+                    let old = drumNote
+                    edit(lane) { $0.drumNote = note }
+                    kitEditorPrevNote = old
+                    if let v = euclideousKitScaledVelocity(base: 100, kitVel: drumHigh) { onKitAudition(lane, Int(note), Int(v)) }
+                } else {
+                    let old = notes[rank]
+                    edit(lane) { var nn = $0.kitNotesResolved; nn[rank] = note; $0.kitNotes = nn }   // §4.6 (Paul 2026-11-23): set the PITCH only — never overwrite the rank's name (rename is the NAME field's job)
+                    kitEditorPrevNote = old   // the NAME field keeps its current label
+                    if let v = euclideousKitScaledVelocity(base: 100, kitVel: Int(vels[rank])) { onKitAudition(lane, Int(note), Int(v)) }   // §4.6 audition at the rank's velocity
+                }
             },
             onSetName: { name in edit(lane) { var nm = $0.kitNamesResolved; nm[rank] = euclideousKitNameClean(name, note: notes[rank]); $0.kitNames = nm } },   // §4.4
             onSetVel: { v, first in editStep(lane, first) { var vv = $0.kitVelResolved; vv[rank] = UInt8(max(0, min(100, v))); $0.kitVel = vv } },   // §4.4 one step per drag
@@ -7966,7 +7979,14 @@ struct EuclideousPage: View {
             onResetGM: { edit(lane) { $0.kitNotes = euclideousKitDefaultNotes; $0.kitNames = euclideousKitNamesResolved(nil, notes: euclideousKitDefaultNotes); $0.kitVel = euclideousKitDefaultVel }   // §4.10
                 let n = euclideousKitDefaultNotes[rank]; kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n); kitEditorPrevNote = n
                 kitEditorNameDraft = euclideousKitNamesResolved(nil, notes: euclideousKitDefaultNotes)[rank] },
-            onClose: { kitEditor = nil },
+            onClose: { kitEditor = nil; kitEditorIsDrumPicker = false },
+            isDrumPicker: picker,
+            selectedNote: picker ? drumNote : nil,
+            onMakeDrum: picker ? nil : {   // §4.5: send the selected rank's note to DRUM, switch mode, close — one undo step; low/high/ramp kept
+                let n = notes[rank]
+                edit(lane) { $0.drumNote = n; $0.fixedMode = .drum }
+                kitEditor = nil; kitEditorIsDrumPicker = false
+            },
             nameDraft: $kitEditorNameDraft)
     }
     /// 3.3 (SOURCES row ferry, 2026-11-08): MIDI IN · CHORDS (+ a 1|2 grid chooser) · PICK · KEY, then a separated TEST button. The two chord bits (CHORD 1 / CHORD 2, mutually exclusive) are consolidated into ONE CHORDS toggle plus a small
@@ -7974,19 +7994,117 @@ struct EuclideousPage: View {
     private func poolSourcesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
         let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 5   // §2.3: sp5 apart; TEST moved to POOL (§2.2d)
         let chordExtra: CGFloat = 23 * 2 + 2 + 2   // §2.3b: the two 23-wide segments + sp2 + a 2 pt trailing inset, beyond a plain chip's share
-        let plainW = max(1, (fullWidth - labelW - chordExtra - gap * 4) / 4)   // four gaps: label · MIDI · CHORDS · PICK · KEY
-        // KIT SOURCE (ferry 2026-11-23): KIT takes PICK's slot. With KIT on the other chips (and the MIDI row + DELAY CHORD, dimmed in `poolTabContent`) draw at 42 % and do nothing but §5.3 — a tap turns KIT off AND toggles that chip, one undo step.
+        let plainW = max(1, (fullWidth - labelW - chordExtra - gap * 4) / 4)   // four gaps: label · MIDI · CHORDS · KIT|DRUM · KEY
+        // DRUM MODE §3.1: the KIT chip becomes a two-segment KIT | DRUM switch, WIDENED by taking `chordExtra`/2 from each of MIDI IN and KEY (the row's total width is unchanged). Reported widths at the 1190 reference below.
+        let switchW = plainW + chordExtra        // ≈ plainW + 48
+        let sideW = max(1, plainW - chordExtra / 2)   // MIDI IN / KEY narrowed by 24 each
+        // KIT SOURCE (ferry 2026-11-23): with kitOn the other chips (and the MIDI row + DELAY CHORD, dimmed in `poolTabContent`) draw at 42 % and do nothing but §5.3 — a tap turns KIT off AND toggles that chip, one undo step.
         let kitOn = line.kitOnResolved
         func srcTap(_ bit: Int) { edit(idx) { if $0.kitOnResolved { $0.kitOn = false }; $0.setPoolSrc(bit, !$0.poolSrcOn(bit)) } }
         let srcVal: (Bool) -> String = { on in kitOn ? "inactive" : euclideousPoolSourceValue(on: on) }   // §6.1: a dimmed chip keeps its label and reads "inactive"
         return AnyView(HStack(spacing: gap) {
             Text("SOURCES").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            poolSourceChip("MIDI IN", on: line.poolSrcOn(0), w: plainW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[0]), lane \(idx + 1)", axValue: srcVal(line.poolSrcOn(0))) { srcTap(0) }.opacity(kitOn ? 0.42 : 1)
+            poolSourceChip("MIDI IN", on: line.poolSrcOn(0), w: sideW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[0]), lane \(idx + 1)", axValue: srcVal(line.poolSrcOn(0))) { srcTap(0) }.opacity(kitOn ? 0.42 : 1)
             poolChordGroup(idx, line, w: plainW + chordExtra, height: height, accent: accent, kitOn: kitOn).opacity(kitOn ? 0.42 : 1)
-            poolSourceChip("KIT", on: kitOn, w: plainW, height: height, accent: accent, ax: "Kit, lane \(idx + 1)", axValue: kitOn ? "on" : "off") { edit(idx) { $0.kitOn = !($0.kitOn ?? false) } }
-            poolSourceChip("KEY", on: line.poolSrcOn(3), w: plainW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[3]), lane \(idx + 1)", axValue: srcVal(line.poolSrcOn(3))) { srcTap(3) }.opacity(kitOn ? 0.42 : 1)
+            kitDrumSwitch(idx, line, accent: accent, w: switchW, height: height)
+            poolSourceChip("KEY", on: line.poolSrcOn(3), w: sideW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[3]), lane \(idx + 1)", axValue: srcVal(line.poolSrcOn(3))) { srcTap(3) }.opacity(kitOn ? 0.42 : 1)
         }
         .frame(width: fullWidth, height: height))
+    }
+    /// DRUM MODE §3.1: the KIT | DRUM switch — two equal segments in a #17191E well. The lit segment (while kitOn) is #EDEFF3 / ink #0D0F14 with the lane dot; unlit is #8A909A, no fill; with kitOn off neither is lit. A tap on an unlit
+    /// segment sets kitOn + that fixedMode; a tap on the lit segment turns kitOn off (returns the stored sources). One undo step.
+    private func kitDrumSwitch(_ idx: Int, _ line: EuclidLine, accent: Color, w: CGFloat, height: CGFloat) -> some View {
+        let kitOn = line.kitOnResolved, mode = line.fixedModeResolved
+        let h = min(EuclideousPoolTabMetrics.toggleH, height)
+        func seg(_ title: String, _ m: EuclideousFixedMode) -> some View {
+            let lit = kitOn && mode == m
+            return HStack(spacing: 4) {
+                if lit { Circle().fill(lane100(accent)).frame(width: 8, height: 8) }
+                Text(title).font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.04).lineLimit(1).minimumScaleFactor(0.6)
+                    .foregroundColor(Color(hex: lit ? 0x0D0F14 : 0x8A909A))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 7).fill(lit ? Color(hex: 0xEDEFF3) : .clear))
+            .contentShape(Rectangle())
+            .onTapGesture { edit(idx) { if $0.kitOnResolved && $0.fixedModeResolved == m { $0.kitOn = false } else { $0.kitOn = true; $0.fixedMode = m } } }
+            .accessibilityElement(children: .ignore).accessibilityLabel(m == .kit ? "Kit" : "Drum")
+            .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
+        }
+        return HStack(spacing: 3) { seg("KIT", .kit); seg("DRUM", .drum) }
+            .padding(3)
+            .frame(width: w, height: h)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x17191E)))
+            .frame(width: w, height: height)
+    }
+    /// DRUM MODE §3.4: the DRUM row — label, the drum button (name + note + chevron, opens the picker), and the ramp UP/DOWN switch.
+    private func drumRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 8, rampW: CGFloat = 132
+        let note = euclideousDrumNote(line, lane: idx)
+        let name = euclideousGMDrumName(note)
+        let btnW = max(1, fullWidth - labelW - gap - rampW)
+        let h = min(EuclideousPoolTabMetrics.toggleH, height)
+        return AnyView(HStack(spacing: 0) {
+            Text("DRUM").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            HStack(spacing: 0) {   // the drum button
+                Text(name).font(.system(size: 17, weight: .heavy, design: .monospaced)).tracking(1.02).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(Color(hex: 0xF2F4F7))
+                Text("\(Int(note))").font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).padding(.leading, 14)
+                Spacer(minLength: 6)
+                EuclideousChevronDown().stroke(Color(hex: 0x8A909A), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)).frame(width: 10, height: 6)
+            }
+            .padding(.horizontal, 16).frame(width: btnW, height: h)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(hex: 0x3A3E47), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { openDrumPicker(lane: idx) }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Drum, \(name), note \(Int(note))").accessibilityAddTraits(.isButton)
+            Spacer(minLength: gap)
+            drumRampSwitch(idx, line, w: rampW, height: h)
+        }
+        .frame(width: fullWidth, height: height))
+    }
+    /// §3.4 the ramp UP | DOWN switch — two segments, each a four-bar icon; the selected one filled.
+    private func drumRampSwitch(_ idx: Int, _ line: EuclidLine, w: CGFloat, height: CGFloat) -> some View {
+        let ramp = line.drumRampResolved
+        func seg(_ r: EuclideousDrumRamp) -> some View {
+            let sel = ramp == r
+            return EuclideousRampBars(up: r == .up).frame(width: 26, height: 18).foregroundColor(Color(hex: sel ? 0xF2F4F7 : 0x6E7480))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(RoundedRectangle(cornerRadius: 7).fill(sel ? Color(hex: 0x2A2D34) : .clear))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(sel ? Color(hex: 0x3A3E47) : .clear, lineWidth: 1))
+                .contentShape(Rectangle()).onTapGesture { if !sel { edit(idx) { $0.drumRamp = r } } }
+                .accessibilityElement(children: .ignore).accessibilityLabel(r == .up ? "Ramp up" : "Ramp down").accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+        }
+        return HStack(spacing: 3) { seg(.up); seg(.down) }.padding(3).frame(width: w, height: height)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x17191E)))
+    }
+    /// DRUM MODE §3.5: the VEL row — low %, a two-thumb slider, high %. A drag sounds nothing; one undo step per thumb drag; the thumbs meet but never cross.
+    private func drumVelRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let labelW = EuclideousPoolTabMetrics.labelColumn, lowW: CGFloat = 52, highW: CGFloat = 60, gap: CGFloat = 8
+        let low = line.drumLowResolved, high = line.drumHighResolved
+        let sliderW = max(1, fullWidth - labelW - lowW - highW - gap * 3)
+        return AnyView(HStack(spacing: 0) {
+            Text("VEL").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            Text("\(low)%").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).frame(width: lowW, alignment: .trailing)
+                .accessibilityElement(children: .ignore).accessibilityLabel("Lowest velocity").accessibilityValue("\(low) percent")
+                .accessibilityAdjustableAction { d in let v = max(0, min(high, low + (d == .increment ? 5 : -5))); edit(idx) { $0.drumLow = UInt8(v) } }
+            Spacer(minLength: gap)
+            EuclideousDrumVelSlider(low: low, high: high, laneColor: lane100(accent), width: sliderW, height: height,
+                                    onChange: { newLow, newHigh, first in editStep(idx, first) { $0.drumLow = UInt8(max(0, min(100, newLow))); $0.drumHigh = UInt8(max(0, min(100, newHigh))) } },
+                                    dragging: $drumVelDragging)
+            Spacer(minLength: gap)
+            Text("\(high)%").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).frame(width: highW, alignment: .leading)
+                .accessibilityElement(children: .ignore).accessibilityLabel("Highest velocity").accessibilityValue("\(high) percent")
+                .accessibilityAdjustableAction { d in let v = max(low, min(100, high + (d == .increment ? 5 : -5))); edit(idx) { $0.drumHigh = UInt8(v) } }
+        }
+        .frame(width: fullWidth, height: height))
+    }
+    /// DRUM MODE §4.1: open the drum picker (the kit editor in its DRUM variant) on `lane`.
+    private func openDrumPicker(lane: Int) {
+        closeAllOtherOverlays()
+        let note = euclideousDrumNote(lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all), lane: lane)
+        kitEditorRangeLow = euclideousKitEditorRangeLowC(note: note)
+        kitEditorPrevNote = note
+        kitEditorIsDrumPicker = true
+        kitEditor = KitEditorTarget(lane: lane, rank: 0)
     }
     /// §2.3a: one SOURCES toggle chip (MIDI IN / PICK / KEY) — NEUTRAL fills with a small lane-colour LAMP (the only lane colour in the row). On: #30333B / 1 pt #454952 / label #F2F4F7 / filled lane lamp. Off: #202227 / 1 pt #2B2D33 / label #8A909A / a 0.75 pt #4A4E57 ring lamp, no fill. Padding 0 8, a 4.5 pt lamp, sp5, then the label.
     private func poolSourceChip(_ name: String, on: Bool, w: CGFloat, height: CGFloat, accent: Color, ax: String, axValue: String, tap: @escaping () -> Void) -> some View {

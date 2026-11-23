@@ -80,6 +80,7 @@
 		20646456AFE103561CB819CE /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E074C5873A3072DF6841935F /* PresetStore.swift */; };
 		20BAD02163958A9C1C66C874 /* HardeningInvariants.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA50DA32261577FC40AF655C /* HardeningInvariants.swift */; };
 		21A237E4460BF2277F6B5A03 /* FourfoldAppView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DFB1A5B358F63E58A93D0CA /* FourfoldAppView.swift */; };
+		22184DD0C531CD4EB2351776 /* DrumModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC2A91FB90BA693FE1DE6ECA /* DrumModeTests.swift */; };
 		228D7898F6AD4B0FC777AD10 /* InputsModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 308A4FADD0BB1FB23898BA06 /* InputsModelTests.swift */; };
 		239884A77276ED1DEA6EE2DB /* PoolEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 410368CA489DB99EF79B2677 /* PoolEngineTests.swift */; };
 		23ADDE8FC723ED3BDE946883 /* EmitterRatchetLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9DD9EE712131F93295E6111 /* EmitterRatchetLive.swift */; };
@@ -1005,6 +1006,7 @@
 		DA330BA092C36F9FDE1ACBE8 /* MixPanelV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixPanelV2.swift; sourceTree = "<group>"; };
 		DB3E9C0462983BB004D57666 /* ColourTypeSwitchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColourTypeSwitchTests.swift; sourceTree = "<group>"; };
 		DB638CF9CF505A6ABF3A9423 /* SnapshotBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotBuilderTests.swift; sourceTree = "<group>"; };
+		DC2A91FB90BA693FE1DE6ECA /* DrumModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrumModeTests.swift; sourceTree = "<group>"; };
 		DC80E358AFF64399AA7C7A69 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		DCBDE4866C54153107885AD8 /* RandomModePainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RandomModePainter.swift; sourceTree = "<group>"; };
 		DE4E7DC7848B387208127C6F /* BuildSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildSelfTest.swift; sourceTree = "<group>"; };
@@ -1201,6 +1203,7 @@
 				6D382A1509F5E3281A5ED444 /* ClarityPassTests.swift */,
 				9240C6CA393EE4F4B6FD09AB /* DerivationsTests.swift */,
 				A11AE3A0BF3AC4B072700339 /* DirectionDisplayTests.swift */,
+				DC2A91FB90BA693FE1DE6ECA /* DrumModeTests.swift */,
 				9AE6D8F7DB5682AAE6EFA15E /* EffectiveParamsTests.swift */,
 				2C6E676F1410031DD753DD2B /* EmitterCCLegacy.swift */,
 				AEFD2AB47B6CFF23BF8A2769 /* EmitterCCTests.swift */,
@@ -2120,6 +2123,7 @@
 				7972392F67F1F17CBABBE729 /* DerivationsTests.swift in Sources */,
 				48945756C07AD7AD3107E51D /* Diag.swift in Sources */,
 				F07697603C75FE4AA225AF36 /* DirectionDisplayTests.swift in Sources */,
+				22184DD0C531CD4EB2351776 /* DrumModeTests.swift in Sources */,
 				819B652118BED142B9A10073 /* EffectiveParamsTests.swift in Sources */,
 				2AB5EB9EA0763C9ECA31CA30 /* Emission.swift in Sources */,
 				8E5DFF82368B8CD0F33315AD /* EmitterCCLegacy.swift in Sources */,

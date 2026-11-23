@@ -524,8 +524,15 @@ enum SnapshotBuilder {
                 kit.notes = [UInt8](repeating: 0, count: 32); kit.vel = [UInt8](repeating: 100, count: 32)
                 for (li, l) in kitLanes.prefix(4).enumerated() {
                     kit.on[li] = l.kitOnResolved
-                    let n = l.kitNotesResolved, v = l.kitVelResolved
-                    for r in 0..<8 { kit.notes[li * 8 + r] = n[r]; kit.vel[li * 8 + r] = v[r] }
+                    // DRUM MODE (§2.1/§2.2): `fixedMode` picks what fills this lane's snapshot — KIT fills the 8 kit notes + per-rank kitVel; DRUM fills one note (×8) and the velocity ramp. The Router then reads `kitSnap` uniformly (pitch bypass, §3.1 scale, §3.4 dedup, fillKitPool, audition all unchanged).
+                    if l.fixedModeResolved == .drum {
+                        let note = euclideousDrumNote(l, lane: li)
+                        let ramp = euclideousDrumRampVels(low: l.drumLowResolved, high: l.drumHighResolved, ramp: l.drumRampResolved)
+                        for r in 0..<8 { kit.notes[li * 8 + r] = note; kit.vel[li * 8 + r] = ramp[r] }
+                    } else {
+                        let n = l.kitNotesResolved, v = l.kitVelResolved
+                        for r in 0..<8 { kit.notes[li * 8 + r] = n[r]; kit.vel[li * 8 + r] = v[r] }
+                    }
                 }
                 out.kitSnap = kit
             }

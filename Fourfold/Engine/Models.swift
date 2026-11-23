@@ -858,6 +858,17 @@ struct EuclidLine: Codable, Equatable {
     var kitNotesResolved: [UInt8] { euclideousKitNotesClamped(kitNotes) }     // §1.2 pad/clamp to 8; default kit when nil
     var kitVelResolved: [UInt8] { euclideousKitVelClamped(kitVel) }           // §1.2 pad/clamp to 8; default 100
     var kitNamesResolved: [String] { euclideousKitNamesResolved(kitNames, notes: kitNotesResolved) }   // UI only
+    // DRUM MODE (ferry 2026-11-23, §1.1): with `kitOn`, `fixedMode` picks which fixed-note source fills the pool — KIT (the 8-note kit above) or DRUM (one note across all 8 ranks, velocity a ramp). The kit's fields and the drum's
+    // fields are kept INDEPENDENTLY (§1.3); switching mode changes neither. Additive-Optional, declared last; the custom decoder reads them explicitly; the engine reads the render-ready `EuclideousKitSnap`, filled by mode in SnapshotBuilder.
+    var fixedMode: EuclideousFixedMode? = nil   // nil ⇒ KIT (§1.2, so nothing already saved changes)
+    var drumNote: UInt8? = nil                  // nil ⇒ the per-lane default (36/38/42/39) via `euclideousDrumNote(line:lane:)`
+    var drumLow: UInt8? = nil                   // 0…100 %, nil ⇒ 40
+    var drumHigh: UInt8? = nil                  // 0…100 %, nil ⇒ 100; always read ≥ low
+    var drumRamp: EuclideousDrumRamp? = nil     // nil ⇒ UP
+    var fixedModeResolved: EuclideousFixedMode { fixedMode ?? .kit }
+    var drumLowResolved: Int { max(0, min(100, Int(drumLow ?? 40))) }
+    var drumHighResolved: Int { max(drumLowResolved, min(100, Int(drumHigh ?? 100))) }
+    var drumRampResolved: EuclideousDrumRamp { drumRamp ?? .up }
     /// §3.1: nil (own) or a legal 0…3 that is not this lane; any out-of-range or self value resolves to own here (the stored value
     /// is cleaned at load by `normalizeEuclidFromAtLoad`; this is the render-thread-safe read). Mirrors `riffSourceLaneResolved`.
     func euclidFromResolved(ownLane: Int) -> Int? { guard let s = euclidFrom, s >= 0, s < 4, s != ownLane else { return nil }; return s }
@@ -1470,6 +1481,12 @@ extension EuclidLine {
         kitNotes = (try? c.decodeIfPresent([UInt8].self, forKey: .kitNotes)).flatMap { $0 }
         kitNames = (try? c.decodeIfPresent([String].self, forKey: .kitNames)).flatMap { $0 }
         kitVel = (try? c.decodeIfPresent([UInt8].self, forKey: .kitVel)).flatMap { $0 }
+        // DRUM MODE (ferry 2026-11-23): the custom decoder must read each drum field (lenient enum decode ⇒ nil ⇒ the §1.2 default).
+        fixedMode = (try? c.decodeIfPresent(EuclideousFixedMode.self, forKey: .fixedMode)).flatMap { $0 }
+        drumNote = (try? c.decodeIfPresent(UInt8.self, forKey: .drumNote)).flatMap { $0 }
+        drumLow = (try? c.decodeIfPresent(UInt8.self, forKey: .drumLow)).flatMap { $0 }
+        drumHigh = (try? c.decodeIfPresent(UInt8.self, forKey: .drumHigh)).flatMap { $0 }
+        drumRamp = (try? c.decodeIfPresent(EuclideousDrumRamp.self, forKey: .drumRamp)).flatMap { $0 }
         notesBassOn = (try? c.decodeIfPresent(Bool.self, forKey: .notesBassOn)).flatMap { $0 }
         notesBassMode = (try? c.decodeIfPresent(EuclideousBassMode.self, forKey: .notesBassMode)).flatMap { $0 }
         notesShiftStart = (try? c.decodeIfPresent(Int.self, forKey: .notesShiftStart)).flatMap { $0 }

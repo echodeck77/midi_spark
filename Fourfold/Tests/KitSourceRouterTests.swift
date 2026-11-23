@@ -156,6 +156,46 @@ final class KitSourceRouterTests: XCTestCase {
         XCTAssertFalse(offs.isEmpty, "and its note-off is sent (no stuck preview note) while stopped")
     }
 
+    // DRUM MODE helpers / tests
+    private func drumLine(note: UInt8, low: UInt8 = 40, high: UInt8 = 100, ramp: EuclideousDrumRamp = .up) -> EuclidLine {
+        var l = EuclidLine(target: 0, pulses: 8, steps: 8, octave: 0, rate: .r1_4, useRiff: true, riffOn: true, sourceMode: .midi)
+        l.gate = 0.5; l.kitOn = true; l.fixedMode = .drum; l.drumNote = note; l.drumLow = low; l.drumHigh = high; l.drumRamp = ramp
+        return l
+    }
+
+    // §6.3 — a DRUM lane's pool is drumNote eight times (every rank plays the one note).
+    func testDrumPoolIsOneNote() {
+        let notes = run(state([drumLine(note: 38)]), beats: 24).laneNotes(0)
+        XCTAssertFalse(notes.isEmpty)
+        XCTAssertTrue(notes.allSatisfy { $0 == 38 }, "every rank plays the one drum note")
+        XCTAssertFalse(notes.contains(48), "the held chord never leaks in")
+    }
+
+    // §6.4 — the ramp velocity feeds the velocity scale; a 0 % rank sends nothing but the walk continues.
+    func testDrumRampVelocity() {
+        // low 0, high 100, UP ⇒ rank 1 = 0 % (silent), rank 8 = 100 %. Base velocity is the riff pad default (100), so the scaled velocity equals the ramp percent.
+        let e = run(state([drumLine(note: 38, low: 0, high: 100, ramp: .up)]), beats: 48)
+        let ons = e.laneOns(0)
+        XCTAssertFalse(ons.isEmpty)
+        XCTAssertTrue(ons.allSatisfy { $0.note == 38 })
+        XCTAssertTrue(ons.contains { $0.vel == 100 }, "rank 8 at 100 %")
+        XCTAssertTrue(ons.allSatisfy { $0.vel >= 1 }, "no on carries velocity 0 (a 0 % rank sends nothing, not a silent note)")
+        // DOWN reverses it — rank 1 loudest
+        let down = run(state([drumLine(note: 38, low: 0, high: 100, ramp: .down)]), beats: 48).laneOns(0)
+        XCTAssertTrue(down.contains { $0.vel == 100 })
+    }
+
+    // §6.5 — a stack event choosing ranks 2, 5 and 7 sends ONE note at rank 7's velocity (UP).
+    func testDrumSamePitchHighestRank() {
+        var l = drumLine(note: 42, low: 40, high: 100, ramp: .up)
+        l.riffOn = false; l.notesOn = true; l.setLitOrder(.derived(litNotes: 0b0101_0010, top: false, top2: false))   // ranks 2, 5, 7
+        l.notesGate = 0.3; l.notesVoicesChain = [EuclideousVoicesChip(value: .all)]   // VOICES ALL ⇒ all three in one hit
+        let ons = run(state([l]), beats: 16).laneOns(0).filter { $0.note == 42 }
+        XCTAssertFalse(ons.isEmpty)
+        // rank 7 UP = euclideousDrumRampVel(7, 40,100) = 91
+        XCTAssertTrue(ons.allSatisfy { $0.vel == 91 }, "the same-pitch collapse keeps the loudest chosen rank (7 ⇒ 91), not 2 or 5")
+    }
+
     // §7.7 — turning KIT off returns the lane to its normal (held-MIDI) pool.
     func testKitOffRestoresSources() {
         let kit: [UInt8] = [36, 38, 42, 46, 49, 51, 37, 39]
