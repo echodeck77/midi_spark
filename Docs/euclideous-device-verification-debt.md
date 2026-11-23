@@ -1103,7 +1103,6 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   line", the source colour is distinguishable from the reader's own, and the current-chip ring (the reader's own colour) still tracks.
   On the MUTE tab, a reader's upcoming GHOSTS now land on the borrowed pitch (so the predicted roll matches what the output emits). The
   nil-borrow gap (before the source's first hit) draws as a no-chip rhythm hit, not a wrong note. POLY readers keep the own-walk look.
-
 - **GRID CHANCE (ferry 2026-11-22):** the two `%` toggles are easy to hit without catching the rails / rank 1 / rank 8 /
   lane 1's header (the STACK toggle is 48×20, under the 22 pt floor by Paul's call — check it is still tappable). Sliders
   are easy to drag on 8 rows and 4 lanes at the portrait-AUM size without catching neighbours. CLR reads as a button, not
@@ -1111,3 +1110,13 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   drawn as a card-tinted scrim — confirm it looks dimmed, not blanked). Thinning by rank/position/lane sounds intended at
   20–60 %. The outside-tap close does not eat taps meant elsewhere in the panel. POLY riff is NOT gated (no creation UI) —
   confirm the toggle on a POLY document is not misleading. The stack-cell 35 % dim also dims that cell's sounding glow.
+- EUCLID FROM §12 + AMENDMENT §7 (2026-11-23): the FROM row's chips are comfortable to TAP at the ~36 pt row height in
+  AUM, both orientations; the shortened OFFSET/TILT (~50.5 pt) are still comfortable to DRAG; source-coloured HITS/STEPS
+  numbers + the 50 % root-colour box border read as "borrowed" at a glance in all four lane colours (and the locked chip's
+  dashed/dimmed look reads as "can't pick — would loop"); the ×2 / ×½ / ×3/2 speed line on the selected rate button is
+  legible at the 36 pt tile height (STOP + report if it clips); the cross-card edit PULSE (root card + edited follower's
+  HITS/STEPS boxes go 2 pt full, fade 0.3 s) is noticeable across the 2×2 cards but not distracting during a performance;
+  editing through a follower feels like reaching the source, not a bug; and tapping the lit FROM chip restores the
+  follower's own untouched pattern. Deferred/approximate (flag if wrong): the pulse's instant-on vs 0.3 s-fade is a single
+  eased transition both ways; the root card's STRIP top-line pulse and the MIX strip's hits/steps DRAG write-through are
+  NOT done (the MIX strip TAP does write through); RESETS tiles on a follower still read the follower's own pattern.

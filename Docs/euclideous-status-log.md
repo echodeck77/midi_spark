@@ -12428,3 +12428,42 @@ Findings (corners, hit paths, salts, undo) in `Docs/grid-chance-findings.md`.
   toggle still edits the stored riff arrays. The inert-ladder 30 % dim is a card-tinted scrim approximation. Stack cell
   dimming under sliders also dims that cell's sounding glow (the riff grid keeps arrows/dots full via its own overlay).
   Outside-tap close is scoped to the panel (taps in other UI don't close). All visuals/legibility device-owed.
+
+---
+
+## EUCLID FROM (+ AMENDMENT 1) ferry — 2026-11-23 (Fourfold only; branch `euclid-from`, slices `d5e8ec8`→`e0fd109`→`21a1915`→`8bfab3e`→`22d2b9d`→final)
+
+A lane inherits its STEPS/HITS/OFFSET/hand-edited hits from ANOTHER lane, live, on its own playhead, at its own rate,
+with its own TILT/FLIP/direction/LET RING. Amendment 1 made editing a follower edit the SOURCE (write-through), with a
+cross-card cue. Landed in slices; the engine was golden-byte-identical + alloc-0 throughout (no document sets FROM).
+
+- **Model (`d5e8ec8`):** two additive-Optional `EuclidLine` fields, `euclidFrom` (0…3, nil = none) + `euclidFromOffset`
+  (relative, 0…source STEPS−1), appended last, threaded through `SnapshotBuilder`'s literal, cleaned at every load point by
+  `normalizeEuclidFromAtLoad` (reuses the riff-source self/loop rule `euclideousNormaliseRiffSources` — so a loaded loop is
+  broken by clearing the LOWER-numbered lane, NOT the ferry's "higher"; reported). Pure `euclideousEuclidRoot` (chain walk,
+  depth 3, offset-summing), `euclideousEffectiveEuclid`, `euclideousFromFollowsChain`, `euclideousSpeedRatioText/VoiceOver`.
+- **Engine (`e0fd109`):** `runEuclidLine`'s pattern inputs come from `euclideousEffectiveEuclid` for a follower (root shape +
+  summed offset, read live); the follower keeps its own TILT/FLIP/dir/rate/gate/RESETS in the existing base→TILT→OFFSET→FLIP
+  order. The early-out guard reads the effective hit count (a 0-own-hits follower still plays). FLIP over the inherited shape
+  is the follower's own `patternMiss` (Paul's decision — FLIP is a one-off bake elsewhere, inert while following). Proven
+  event-for-event by `AnswerRouterTests` (follower rotation, chain sum, FLIP complement, hand-edited inheritance).
+  ANSWER COPY/FILL still overrides upstream (§4.6). CAVEAT KEPT: a hand-edited ROOT leaves the follower's TILT inert
+  (existing customHits-disables-TILT rule).
+- **Layout + FROM row (`21a1915`):** `euclideousEuclidTabLayout` gains a `from` frame — OFFSET/TILT shorten to (A−44)/2
+  (~50.5), FROM takes the HITS − button's 36 pt, bottom level with it. FROM row = "FROM" key + one chip per other lane;
+  tap to follow/unfollow (one undo step), a chip that would loop is LOCKED (dashed/dimmed, no tap). `EuclidTabV2Tests`
+  re-pinned (70.5→50.5 / 70.83→50.83) + the new `testEuclidTabLayoutMakesRoomForFrom` — note: slices 4–6 landed with
+  `EuclidTabV2Tests` RED (only the new layout test was run then); the re-pin in the final slice restores green.
+- **Display while following (`8bfab3e`):** HITS/STEPS show the effective values in the ROOT's lane100 + a 50 % root-colour
+  box border; OFFSET becomes "+n" (a dedicated `euclidV2FromOffset` writing `euclidFromOffset`, source-colour +0 marker);
+  the selected rate button shows the speed vs the IMMEDIATE source (literal §3.3 — colour tracks the root, ratio the
+  immediate source: a deliberate split, flagged). §8.1: the lane strip, the stack-grid riff arrow (both via
+  `laneStripPlan`'s line), the shared riff-panel arrows (`riffWalkConfig`) and the MIX strip feed describe the inherited
+  pattern via `euclideousEffectiveLine`.
+- **Write-through + pulse + random (`22d2b9d`):** a follower's strip tap toggles the ROOT's box `(s − total rel offset) mod
+  STEPS` (`tapStep`), the STEPS picker previews/commits the root, HITS/STEPS +/−/drag write the root; a RHYTHM throw/tweak
+  on a follower is a no-op (§7.3). Cross-card pulse (`euclidPulse`, ephemeral per (root, follower)) lights the root's + edited
+  follower's HITS/STEPS boxes to 2 pt full, fading 0.3 s. Deferred (device-owed): the root strip-top-line pulse, the MIX
+  strip hits/steps DRAG write-through (its TAP works), the picker's own pulse call, and RESETS-tile effective display.
+- **VoiceOver (final):** FROM chips "Lane n" (+ selected / "follows you" dimmed when locked); following HITS/STEPS
+  "n, lane X's" + "More/Fewer hits/steps on lane X"; OFFSET "plus n from lane X"; rate "double speed against lane X".

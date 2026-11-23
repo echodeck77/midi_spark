@@ -1452,6 +1452,8 @@ extension EuclidLine {
         notesRankThirdLater = (try? c.decodeIfPresent(UInt8.self, forKey: .notesRankThirdLater)).flatMap { $0 }
         notesRankRoles = (try? c.decodeIfPresent(UInt16.self, forKey: .notesRankRoles)).flatMap { $0 }   // PLAY AS ROWS amend 2 (§B1): the custom decoder must read it, or a saved role is lost on load
         riffSourceLane = (try? c.decodeIfPresent(Int.self, forKey: .riffSourceLane)).flatMap { $0 }.flatMap { (0..<4).contains($0) ? $0 : nil }   // RIFF SOURCE ferry (§8.1): the custom decoder must read it; a loop/self is cleaned by normalizeRiffSourcesAtLoad after the four lanes load
+        euclidFrom = (try? c.decodeIfPresent(Int.self, forKey: .euclidFrom)).flatMap { $0 }.flatMap { (0..<4).contains($0) ? $0 : nil }   // EUCLID FROM ferry (§2.1): the custom decoder must read it, or a saved FROM is lost on load; a loop/self is cleaned by normalizeEuclidFromAtLoad
+        euclidFromOffset = (try? c.decodeIfPresent(Int.self, forKey: .euclidFromOffset)).flatMap { $0 }
         notesBassOn = (try? c.decodeIfPresent(Bool.self, forKey: .notesBassOn)).flatMap { $0 }
         notesBassMode = (try? c.decodeIfPresent(EuclideousBassMode.self, forKey: .notesBassMode)).flatMap { $0 }
         notesShiftStart = (try? c.decodeIfPresent(Int.self, forKey: .notesShiftStart)).flatMap { $0 }

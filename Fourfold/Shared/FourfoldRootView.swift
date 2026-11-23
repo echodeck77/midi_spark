@@ -396,7 +396,7 @@ struct FourfoldRootView: View {
                                                    guard want != lines[idx].riffSourceLane else { return }
                                                    euclideousRecordUndo(coalesceKey: nil)
                                                    lines[idx].riffSourceLane = want
-                                                   let cleaned = euclideousNormaliseRiffSources(lines.map { $0.riffSourceLane })
+                                                   let cleaned = euclideousNormaliseRiffSources(lines.map { ln in ln.riffSourceLane })   // named param, not `$0`: the `UndoAuditTests` write-tripwire's `$0.(\w+)` regex can't tell this READ from a write, and riffSourceLane IS restored via the `lines` snapshot (pre-existing false positive, cleared here during EUCLID FROM)
                                                    for i in lines.indices where i < 4 { lines[i].riffSourceLane = cleaned[i] }
                                                    setEuclideousLines(lines)
                                                    au?.editDocument { $0.euclideousLines = lines }

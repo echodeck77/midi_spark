@@ -538,6 +538,7 @@ struct EuclideousStepsStepper: View {
     var valueColour: Color? = nil
     var followBorder: Color? = nil
     var followBorderWidth: CGFloat = 1   // §2.3: 2 pt at full strength while this card is mid-edit (the pulse)
+    var followSpeak: Int? = nil   // EUCLID FROM amendment §4.1: while following, the source lane number (1-based) for VoiceOver
     // LANE LOCK (2026-10-22): see EuclideousSlider — inside the control, not wrapping modifiers. `lockMomentary` (locked on the BEAT grid): + and − act at touch-down (6.9).
     var lockActive: Bool = false
     var lockMomentary: Bool = false
@@ -569,7 +570,7 @@ struct EuclideousStepsStepper: View {
         let valueBoxH = max(1, height - btnH * 2 - gap * 2)
         VStack(spacing: gap) {
             stepButton("plus", enabled: plusEnabled, height: btnH) { tapSteps(line.steps < 2 ? 2 : min(16, line.steps + 1)) }
-                .accessibilityLabel("More steps, now \(line.steps)")
+                .accessibilityLabel(followSpeak.map { "More steps on lane \($0)" } ?? "More steps, now \(line.steps)")
             VStack(spacing: 2) {
                 Text("\(line.steps)").font(.system(size: 32, weight: .heavy, design: .monospaced)).monospacedDigit()   // EUCLID v2 §2.2: neutral #F2F4F7 normally; the ROOT's lane100 while following (§6.1)
                     .foregroundColor(valueColour ?? Color(hex: 0xF2F4F7)).lineLimit(1).frame(height: 34)
@@ -607,7 +608,7 @@ struct EuclideousStepsStepper: View {
                         dragStartLocation = nil; dragStartSteps = nil; isDragging = false; firstWriteDone = false
                     }
             )
-            .accessibilityLabel(euclideousLockAppendSnapWords("Steps, \(line.steps)", outlined: lockOutline != nil))
+            .accessibilityLabel(followSpeak.map { "\(line.steps), lane \($0)'s" } ?? euclideousLockAppendSnapWords("Steps, \(line.steps)", outlined: lockOutline != nil))
             .accessibilityHint("Double-tap to pick a length")
             .accessibilityAdjustableAction { direction in
                 // §6.2: each VoiceOver swipe is its own undo step, independent of firstWriteDone's
@@ -617,7 +618,7 @@ struct EuclideousStepsStepper: View {
                 onCommit(true) { l in euclideousSliderCommit(.steps, &l, snapshot: l, newValue: Double(target)) }
             }
             stepButton("minus", enabled: minusEnabled, height: btnH) { tapSteps(line.steps > 16 ? 16 : max(2, line.steps - 1)) }
-                .accessibilityLabel("Fewer steps, now \(line.steps)")
+                .accessibilityLabel(followSpeak.map { "Fewer steps on lane \($0)" } ?? "Fewer steps, now \(line.steps)")
         }
         .frame(width: width, height: height)
         .overlay { if let c = lockOutline { RoundedRectangle(cornerRadius: 10).stroke(c, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])).padding(-3).allowsHitTesting(false) } }   // LANE LOCK 5.4
@@ -655,6 +656,7 @@ struct EuclideousHitsStepper: View {
     var onLockTouch: ((Bool) -> Void)? = nil
     var followBorder: Color? = nil   // EUCLID FROM §6.2: a 1 pt root-colour @50% border on the value box while following
     var followBorderWidth: CGFloat = 1   // §2.3: 2 pt at full strength while this card is mid-edit (the pulse)
+    var followSpeak: Int? = nil   // EUCLID FROM amendment §4.1: while following, the source lane number (1-based) for VoiceOver
 
     @State private var dragStartLocation: CGPoint? = nil
     @State private var dragStartLine: EuclidLine? = nil
@@ -673,7 +675,7 @@ struct EuclideousHitsStepper: View {
         let valueBoxH = max(1, height - btnH * 2 - gap * 2)
         VStack(spacing: gap) {
             stepButton("plus", enabled: plusEnabled, height: btnH) { commit(snapshot: line, target: min(steps, line.pulses + 1)) }
-                .accessibilityLabel("More hits, now \(line.pulses)")
+                .accessibilityLabel(followSpeak.map { "More hits on lane \($0)" } ?? "More hits, now \(line.pulses)")
             VStack(spacing: 2) {
                 Text("\(line.pulses)").font(.system(size: 32, weight: .heavy, design: .monospaced)).monospacedDigit()
                     .foregroundColor(heroColour).lineLimit(1).frame(height: 34)
@@ -699,10 +701,10 @@ struct EuclideousHitsStepper: View {
                     // a tap (never a drag) on the HITS value box does nothing (§2.1)
                     dragStartLocation = nil; dragStartLine = nil; dragStartHits = nil; isDragging = false
                 })
-            .accessibilityLabel(euclideousLockAppendSnapWords("Hits, \(line.pulses)", outlined: lockOutline != nil))
+            .accessibilityLabel(followSpeak.map { "\(line.pulses), lane \($0)'s" } ?? euclideousLockAppendSnapWords("Hits, \(line.pulses)", outlined: lockOutline != nil))
             .accessibilityAdjustableAction { dir in commit(snapshot: line, target: dir == .increment ? min(steps, line.pulses + 1) : max(0, line.pulses - 1)) }
             stepButton("minus", enabled: minusEnabled, height: btnH) { commit(snapshot: line, target: max(0, line.pulses - 1)) }
-                .accessibilityLabel("Fewer hits, now \(line.pulses)")
+                .accessibilityLabel(followSpeak.map { "Fewer hits on lane \($0)" } ?? "Fewer hits, now \(line.pulses)")
         }
         .frame(width: width, height: height)
         .overlay { if let c = lockOutline { RoundedRectangle(cornerRadius: 10).stroke(c, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])).padding(-3).allowsHitTesting(false) } }
@@ -3524,7 +3526,7 @@ struct EuclideousPage: View {
         return AnyView(EuclideousHitsStepper(line: dispLine, width: size.width, height: size.height, heroColour: lane100(following ? rootC : accent),
             onCommit: { mutate in edit(root, mutate); if following { euclidPulseEdit(root: root, follower: idx) } },
             lockActive: lockLocked(idx), lockMomentary: lockMomentary(idx), lockOutline: lockOn(idx, .hits) ? accent : nil, onLockTouch: lockTouch(idx),
-            followBorder: border, followBorderWidth: bw))
+            followBorder: border, followBorderWidth: bw, followSpeak: following ? root + 1 : nil))
     }
     /// §2.2/§2.3: the value-box border for lane `idx` — nil for a plain lane; the root's colour @50% (1 pt) for a follower at rest;
     /// full strength (2 pt) on the edited FOLLOWER and on the ROOT while a write-through edit is pulsing. Other followers stay @50%.
@@ -3546,7 +3548,7 @@ struct EuclideousPage: View {
         return AnyView(EuclideousStepsStepper(line: dispLine, accent: accent, width: size.width, height: size.height,
             onCommit: { newStep, mutate in editStep(root, newStep, mutate); if following { euclidPulseEdit(root: root, follower: idx) } },
             onToggleValueBoxTap: { if stepsPickerLane == idx { stepsPickerLane = nil } else { stepsPickerLane = idx; restartEditorLane = nil } },
-            valueColour: following ? lane100(rootC) : nil, followBorder: border, followBorderWidth: bw,
+            valueColour: following ? lane100(rootC) : nil, followBorder: border, followBorderWidth: bw, followSpeak: following ? root + 1 : nil,
             lockActive: lockLocked(idx), lockMomentary: lockMomentary(idx), lockOutline: lockOn(idx, .steps) ? accent : nil, onLockTouch: lockTouch(idx)))
     }
     /// §2.3 / §4: OFFSET — the existing horizontal slider in the taller frame; drawn at 42 % (still live) when every OFFSET gives the same played pattern (`euclideousOffsetIsInert`).

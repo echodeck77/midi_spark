@@ -17,8 +17,9 @@ final class EuclidTabV2Tests: XCTestCase {
         XCTAssertEqual(l.stepsCol.minX, 92.75, accuracy: acc)
         XCTAssertEqual(l.stepperValue(l.hitsCol).height, 65.67, accuracy: acc)
         XCTAssertEqual(l.offset.width, 181.5, accuracy: acc); XCTAssertEqual(l.offset.minX, 185.5, accuracy: acc)
-        XCTAssertEqual(l.offset.height, 70.83, accuracy: acc); XCTAssertEqual(l.offset.minY, 0, accuracy: acc)
-        XCTAssertEqual(l.tilt.minY, 74.83, accuracy: acc); XCTAssertEqual(l.tilt.height, 70.83, accuracy: acc)
+        XCTAssertEqual(l.offset.height, 50.83, accuracy: acc); XCTAssertEqual(l.offset.minY, 0, accuracy: acc)   // EUCLID FROM §1.3: (A − 36 − 8)/2
+        XCTAssertEqual(l.tilt.minY, 54.83, accuracy: acc); XCTAssertEqual(l.tilt.height, 50.83, accuracy: acc)
+        XCTAssertEqual(l.from.minY, 109.67, accuracy: acc); XCTAssertEqual(l.from.height, 36, accuracy: acc)      // level with the HITS − button (y = A − 36)
         XCTAssertEqual(l.g, 37, accuracy: acc)
         XCTAssertEqual(l.groupX, [0, 125, 250])
         XCTAssertEqual(l.rowBY, 151.67, accuracy: acc); XCTAssertEqual(l.rowCY, 193.67, accuracy: acc)
@@ -30,7 +31,8 @@ final class EuclidTabV2Tests: XCTestCase {
         XCTAssertEqual(l.half, 178.33, accuracy: acc)
         XCTAssertEqual(l.col, 87.17, accuracy: acc)
         XCTAssertEqual(l.stepperValue(l.stepsCol).height, 65, accuracy: acc)
-        XCTAssertEqual(l.offset.height, 70.5, accuracy: acc); XCTAssertEqual(l.offset.minX, 182.33, accuracy: acc)
+        XCTAssertEqual(l.offset.height, 50.5, accuracy: acc); XCTAssertEqual(l.offset.minX, 182.33, accuracy: acc)   // EUCLID FROM §1.3
+        XCTAssertEqual(l.from.minY, 109, accuracy: acc); XCTAssertEqual(l.from.height, 36, accuracy: acc)
         XCTAssertEqual(l.g, 36.30, accuracy: acc)
         XCTAssertEqual(l.groupX[1], 122.89, accuracy: acc); XCTAssertEqual(l.groupX[2], 245.78, accuracy: acc)
         XCTAssertEqual(l.rowBY, 151, accuracy: acc); XCTAssertEqual(l.rowCY, 193, accuracy: acc)
