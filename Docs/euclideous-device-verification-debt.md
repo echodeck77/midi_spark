@@ -1125,3 +1125,5 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   lane colours, and that the comet head staying the lane's OWN colour isn't confusing. (The step COUNT already shows the
   source's — e.g. 16 for an 8-native follower of a 16-step lane — proven by `EuclidFromTests.testFollowerOfA16StepSourceShowsSixteen`;
   if a reloaded session still shows the native count, it predates the slice-7 decoder fix and the FROM link must be re-made.)
+
+- **GRID CHANCE picker rework (Paul 2026-11-23):** each axis ladder is now ONE button — "RANK CHANCE" / "POSITION CHANCE" / "LANE CHANCE" (the tall rank-axis column stacks its text top-to-bottom, a letter per line); once an axis is chosen that same button reads "CLEAR" (clears the whole axis, back to the picker), the other ladder shows its label dimmed. Confirm the vertical text is legible in the 48 pt-wide rank column at the portrait-AUM size, the wide POSITION/LANE labels fit (POSITION on the rails, LANE on the 16 pt header band), CLEAR reads as a button, and a tap outside the grid still closes.

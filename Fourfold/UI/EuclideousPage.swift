@@ -8218,28 +8218,33 @@ struct EuclideousPage: View {
         .accessibilityAdjustableAction { dir in apply(true, max(0, min(100, value + (dir == .increment ? GCUI.snap : -GCUI.snap)))) }
         .position(x: rect.midX, y: rect.midY)
     }
-    /// §4.2: a picker ring over a ladder box (inner on rank boxes / stack headers, outer over the riff rail columns).
-    private func chancePickerRing(rect: CGRect, inner: Bool) -> some View {
-        RoundedRectangle(cornerRadius: inner ? 4 : GCUI.pickerRingRadius)
-            .stroke(Color(hex: 0xDFE3EA).opacity(GCUI.pickerRing), lineWidth: 1)
-            .frame(width: max(1, rect.width - (inner ? 2 : 0)), height: max(1, rect.height - (inner ? 2 : 0)))
-            .allowsHitTesting(false)
-            .position(x: rect.midX, y: rect.midY)
-    }
-    /// §4.4: a whole-ladder tap region that picks an axis.
-    private func chanceTapRegion(rect: CGRect, axLabel: String, onTap: @escaping () -> Void) -> some View {
-        Color.clear.frame(width: rect.width, height: rect.height).contentShape(Rectangle()).onTapGesture(perform: onTap)
-            .accessibilityElement(children: .ignore).accessibilityLabel(axLabel).accessibilityAddTraits(.isButton)
-            .position(x: rect.midX, y: rect.midY)
-    }
-    /// §4.6: a CLR block over a set ladder box.
-    private func chanceClrBox(rect: CGRect, axName: String, onTap: @escaping () -> Void) -> some View {
-        Text("CLR").font(.system(size: GCUI.clr, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x0D0F14))
-            .frame(width: rect.width, height: rect.height)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0xDFE3EA)))
-            .contentShape(Rectangle()).onTapGesture(perform: onTap)
-            .accessibilityElement(children: .ignore).accessibilityLabel("Clear \(axName) chance").accessibilityAddTraits(.isButton)
-            .position(x: rect.midX, y: rect.midY)
+    /// §4 (Paul 2026-11-23): each ladder is ONE button — "<AXIS> CHANCE" to pick (picker), "CLEAR" once chosen (clear), or a dimmed label while the OTHER axis is chosen (inert). A tall/narrow button (the rank-axis column) stacks its text top-to-bottom, a letter per line, a blank line between words.
+    private enum ChanceLadderLook { case picker, clear, inert }
+    private func chanceLadderButton(rect: CGRect, axisName: String, look: ChanceLadderLook, onTap: @escaping () -> Void) -> some View {
+        let vertical = rect.height > rect.width
+        let text = look == .clear ? "CLEAR" : "\(axisName) CHANCE"
+        let fontSize: CGFloat = vertical ? 11 : min(13, max(8, rect.height * 0.45))
+        let fg = look == .clear ? Color(hex: 0x0D0F14) : Color(hex: 0xDFE3EA)
+        let fill = look == .clear ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)
+        return Group {
+            if vertical {
+                Text(text.split(separator: " ").map { $0.map(String.init).joined(separator: "\n") }.joined(separator: "\n\n"))   // R⏎A⏎N⏎K⏎(blank)⏎C⏎H⏎A⏎N⏎C⏎E
+                    .font(.system(size: fontSize, weight: .heavy, design: .monospaced)).multilineTextAlignment(.center)
+            } else {
+                Text(text).font(.system(size: fontSize, weight: .heavy, design: .monospaced)).tracking(1).lineLimit(1).minimumScaleFactor(0.5)
+            }
+        }
+        .foregroundColor(fg)
+        .frame(width: rect.width, height: rect.height)
+        .background(RoundedRectangle(cornerRadius: GCUI.toggleRadius).fill(fill))
+        .overlay { if look != .clear { RoundedRectangle(cornerRadius: GCUI.toggleRadius).stroke(Color(hex: 0xDFE3EA).opacity(GCUI.pickerRing), lineWidth: 1) } }
+        .opacity(look == .inert ? GCUI.inertDim : 1)   // §4.4/§4.5: the other ladder dims to 30 % and ignores touches
+        .contentShape(Rectangle()).onTapGesture { if look != .inert { onTap() } }
+        .allowsHitTesting(look != .inert)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(look == .clear ? "Clear \(axisName.lowercased()) chance" : "Chance by \(axisName.lowercased())")
+        .accessibilityAddTraits(.isButton)
+        .position(x: rect.midX, y: rect.midY)
     }
     /// §6.1: a transparent region over the grid cells that CONSUMES a tap (does nothing) so the close-catcher beneath it never dismisses on a grid tap. The sliders (axis chosen) already cover the cells; this covers the gaps + the picker state.
     private func chanceGridConsumeRegion(box: CGSize, stack: Bool) -> some View {
@@ -8256,14 +8261,6 @@ struct EuclideousPage: View {
         return Color.clear.frame(width: rect.width, height: rect.height).contentShape(Rectangle()).onTapGesture { }
             .position(x: rect.midX, y: rect.midY)
     }
-    /// §4.4/§4.5: the OTHER ladder — dimmed to 30 % and ignoring touches while an axis is chosen.
-    private func chanceInertLadder(rect: CGRect) -> some View {
-        Color(hex: FourfoldStyle.card).opacity(1 - GCUI.inertDim)   // a card-tinted scrim fades the ladder toward 30 % (device-owed approximation)
-            .frame(width: rect.width, height: rect.height)
-            .contentShape(Rectangle()).onTapGesture { }   // consumes touches (§4.4 "ignores touches") so they don't reach the close-catcher
-            .position(x: rect.midX, y: rect.midY)
-    }
-
     // MARK: riff editor
     @ViewBuilder
     private func riffChanceEditor(box: CGSize) -> some View {
@@ -8276,39 +8273,23 @@ struct EuclideousPage: View {
         ZStack(alignment: .topLeading) {
             switch riffChanceAxis {
             case .none:
-                ForEach(0..<8, id: \.self) { r in chancePickerRing(rect: CGRect(x: pad, y: L.rowTop(r), width: L.labelW, height: L.cellH), inner: true) }
-                chanceTapRegion(rect: rankLadder, axLabel: "Chance by rank") { riffChanceAxis = .rank }
-                ForEach(0..<8, id: \.self) { c in chancePickerRing(rect: CGRect(x: L.columnLeft(c), y: L.railsTop - 4, width: L.cellW, height: railsH + 4), inner: false) }
-                chanceTapRegion(rect: colLadder, axLabel: "Chance by position") { riffChanceAxis = .other }
+                chanceLadderButton(rect: rankLadder, axisName: "RANK", look: .picker) { riffChanceAxis = .rank }
+                chanceLadderButton(rect: colLadder, axisName: "POSITION", look: .picker) { riffChanceAxis = .other }
             case .rank:
                 ForEach(0..<8, id: \.self) { r in
                     let idx = 7 - r
                     chanceSlider(rect: CGRect(x: L.firstColumnX, y: L.rowTop(r) + GCUI.sliderInset, width: L.gridSize.width, height: max(1, L.cellH - 2 * GCUI.sliderInset)),
                                  vertical: false, value: gc.riffRank[idx], axName: "Rank \(idx + 1) chance") { ns, v in onEditGridChance(ns) { $0.riffRank[idx] = v } }
                 }
-                riffAxisLadderBoxes(L, values: gc.riffRank, vertical: false) { r in CGRect(x: pad, y: L.rowTop(r), width: L.labelW, height: L.cellH) }
-                chanceInertLadder(rect: colLadder)
+                chanceLadderButton(rect: rankLadder, axisName: "RANK", look: .clear) { onEditGridChance(true) { $0.riffRank = Array(repeating: 100, count: 8) }; riffChanceAxis = .none }
+                chanceLadderButton(rect: colLadder, axisName: "POSITION", look: .inert) { }
             case .other:
                 ForEach(0..<8, id: \.self) { c in
                     chanceSlider(rect: CGRect(x: L.columnLeft(c) + GCUI.sliderInset, y: L.gridTop, width: max(1, L.cellW - 2 * GCUI.sliderInset), height: L.gridSize.height),
                                  vertical: true, value: gc.riffColumn[c], axName: "Position \(c + 1) chance") { ns, v in onEditGridChance(ns) { $0.riffColumn[c] = v } }
                 }
-                riffAxisLadderBoxes(L, values: gc.riffColumn, vertical: true) { c in CGRect(x: L.columnLeft(c), y: L.railsTop - 4, width: L.cellW, height: railsH + 4) }
-                chanceInertLadder(rect: rankLadder)
-            }
-        }
-    }
-    /// §4.6/§4.7/§4.8: the chosen riff axis's ladder boxes — CLR on a set box, a return-to-picker tap when all 100.
-    @ViewBuilder
-    private func riffAxisLadderBoxes(_ L: EuclideousRiffPanelLayout, values: [Int], vertical: Bool, rect: @escaping (Int) -> CGRect) -> some View {
-        let anySet = values.contains { $0 < 100 }
-        let axName = vertical ? "position" : "rank"
-        ForEach(0..<8, id: \.self) { i in
-            let v = vertical ? values[i] : values[7 - i]   // rank rows are drawn top (rank 8) down
-            if anySet && v < 100 {
-                chanceClrBox(rect: rect(i), axName: axName) { onEditGridChance(true) { vertical ? ($0.riffColumn = Array(repeating: 100, count: 8)) : ($0.riffRank = Array(repeating: 100, count: 8)) }; riffChanceAxis = .none }
-            } else if !anySet {
-                chanceTapRegion(rect: rect(i), axLabel: "Chance by \(axName)") { riffChanceAxis = .none }   // §4.8: all 100 ⇒ a tap returns to the picker
+                chanceLadderButton(rect: colLadder, axisName: "POSITION", look: .clear) { onEditGridChance(true) { $0.riffColumn = Array(repeating: 100, count: 8) }; riffChanceAxis = .none }
+                chanceLadderButton(rect: rankLadder, axisName: "RANK", look: .inert) { }
             }
         }
     }
@@ -8326,10 +8307,8 @@ struct EuclideousPage: View {
         ZStack(alignment: .topLeading) {
             switch stackChanceAxis {
             case .none:
-                ForEach(0..<L.rowCount, id: \.self) { r in chancePickerRing(rect: L.axis(r), inner: true) }
-                chanceTapRegion(rect: rankLadder, axLabel: "Chance by rank") { stackChanceAxis = .rank }
-                ForEach(0..<4, id: \.self) { lane in chancePickerRing(rect: L.header(lane), inner: false) }
-                chanceTapRegion(rect: laneLadder, axLabel: "Chance by lane") { stackChanceAxis = .other }
+                chanceLadderButton(rect: rankLadder, axisName: "RANK", look: .picker) { stackChanceAxis = .rank }
+                chanceLadderButton(rect: laneLadder, axisName: "LANE", look: .picker) { stackChanceAxis = .other }
             case .rank:
                 ForEach(0..<min(8, L.rowCount), id: \.self) { r in
                     let idx = 7 - r
@@ -8337,31 +8316,16 @@ struct EuclideousPage: View {
                     chanceSlider(rect: CGRect(x: L.colsLeft, y: a.minY + GCUI.sliderInset, width: lanesW, height: max(1, a.height - 2 * GCUI.sliderInset)),
                                  vertical: false, value: gc.stackRank[idx], axName: "Rank \(idx + 1) chance") { ns, v in onEditGridChance(ns) { $0.stackRank[idx] = v } }
                 }
-                stackAxisLadderBoxes(L, values: gc.stackRank, lane: false)
-                chanceInertLadder(rect: laneLadder)
+                chanceLadderButton(rect: rankLadder, axisName: "RANK", look: .clear) { onEditGridChance(true) { $0.stackRank = Array(repeating: 100, count: 8) }; stackChanceAxis = .none }
+                chanceLadderButton(rect: laneLadder, axisName: "LANE", look: .inert) { }
             case .other:
                 ForEach(0..<4, id: \.self) { lane in
                     let h = L.header(lane)
                     chanceSlider(rect: CGRect(x: h.minX + GCUI.sliderInsetStackLane, y: L.rowsTop, width: max(1, L.colW - 2 * GCUI.sliderInsetStackLane), height: rowsH),
                                  vertical: true, value: gc.stackLane[lane], axName: "Lane \(lane + 1) chance") { ns, v in onEditGridChance(ns) { $0.stackLane[lane] = v } }
                 }
-                stackAxisLadderBoxes(L, values: gc.stackLane, lane: true)
-                chanceInertLadder(rect: rankLadder)
-            }
-        }
-    }
-    @ViewBuilder
-    private func stackAxisLadderBoxes(_ L: EuclideousStackGridLayout, values: [Int], lane: Bool) -> some View {
-        let anySet = values.contains { $0 < 100 }
-        let axName = lane ? "lane" : "rank"
-        let count = lane ? 4 : min(8, L.rowCount)
-        ForEach(0..<count, id: \.self) { i in
-            let v = lane ? values[i] : values[7 - i]
-            let r = lane ? L.header(i) : L.axis(i)
-            if anySet && v < 100 {
-                chanceClrBox(rect: r, axName: axName) { onEditGridChance(true) { lane ? ($0.stackLane = Array(repeating: 100, count: 4)) : ($0.stackRank = Array(repeating: 100, count: 8)) }; stackChanceAxis = .none }
-            } else if !anySet {
-                chanceTapRegion(rect: r, axLabel: "Chance by \(axName)") { stackChanceAxis = .none }
+                chanceLadderButton(rect: laneLadder, axisName: "LANE", look: .clear) { onEditGridChance(true) { $0.stackLane = Array(repeating: 100, count: 4) }; stackChanceAxis = .none }
+                chanceLadderButton(rect: rankLadder, axisName: "RANK", look: .inert) { }
             }
         }
     }
