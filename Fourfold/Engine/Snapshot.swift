@@ -326,6 +326,21 @@ struct EmitterCCSnap: Equatable {
     var anyOn: Bool { for i in 0..<EmitterCCSet.count where self[i].on { return true }; return false }
 }
 
+/// KIT SOURCE (ferry 2026-11-23): the render-ready drum kit for the 4 Euclideous lanes. Built once per publish in
+/// `SnapshotBuilder` from each lane's `kit*Resolved`; the Router reads it (pool build + per-rank velocity). `notes`/`vel`
+/// are empty when NO lane has KIT on (then `anyOn` is false and the Router's KIT branches are all skipped, byte-identical);
+/// otherwise they are 32 long (4 lanes × 8 ranks). A fixed `[Bool]`/`[UInt8]` is read element-wise on the render thread
+/// (no allocation, like `EuclideousGridChance`). kitNames are UI-only and not carried here.
+struct EuclideousKitSnap: Equatable {
+    var on: [Bool] = [false, false, false, false]
+    var notes: [UInt8] = []   // lane*8 + rank; empty ⇒ no KIT lane
+    var vel: [UInt8] = []
+    var anyOn: Bool { on.contains(true) }
+    func kitOn(_ lane: Int) -> Bool { lane >= 0 && lane < 4 && on[lane] }
+    @inline(__always) func note(lane: Int, rank: Int) -> UInt8 { let i = lane * 8 + rank; return i >= 0 && i < notes.count ? notes[i] : 0 }
+    @inline(__always) func vel(lane: Int, rank: Int) -> UInt8 { let i = lane * 8 + rank; return i >= 0 && i < vel.count ? vel[i] : 100 }
+}
+
 struct SnapParams {
     var type: ProcessorType = .arp
     var octaves: UInt8 = 1
@@ -425,6 +440,8 @@ struct SnapParams {
     var outputMutes: EuclideousOutputMutes = EuclideousOutputMutes()
     // GRID CHANCE (ferry 2026-11-22): the page-level per-grid chance, gated to `Snap.euclideousRow`. Plain value struct (four small `[Int]`); all 100 (the default) ⇒ every hit path returns exactly today's result, bit for bit.
     var gridChance: EuclideousGridChance = EuclideousGridChance()
+    // KIT SOURCE (ferry 2026-11-23): the render-ready per-lane drum kit, gated to `Snap.euclideousRow`. `anyOn` false (no KIT lane — the default) ⇒ the Router skips every KIT branch, bit for bit. kitNames are UI-only and NOT here.
+    var kitSnap: EuclideousKitSnap = EuclideousKitSnap()
     var euclideousLanesSeqOn: Bool = false
     var euclideousLanesSeqRate: EuclideousSeqRate = .oneBar
     var euclideousLanesSeqLen: Int = 8

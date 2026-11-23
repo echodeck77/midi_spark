@@ -515,7 +515,21 @@ enum SnapshotBuilder {
                                                                       // RIFF SOURCE ferry (2026-11-22): which lane this one borrows its riff COLUMN from — declared last in Models.swift, threaded here or a reader silently reverts to OWN each render. nil (own) ⇒ bit-identical.
                                                                       riffSourceLane: $0.riffSourceLane,
                                                                       euclidFrom: $0.euclidFrom,
-                                                                      euclidFromOffset: $0.euclidFromOffset) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild.
+                                                                      euclidFromOffset: $0.euclidFromOffset) }   // EUCLIDEOUS (Paul 2026-10-05): this is a fresh literal, not copy-with-mutation — every EuclidLine field must be threaded through here or it silently resets each render (the exact gotcha a prior RATE-automation feature was bitten by). customHits (the usability-ferry hand-edited-pattern override) added 2026-10-12 — missing it here would have silently reverted every hand edit to pure Euclid on the very next snapshot rebuild. (KIT SOURCE: kit fields are deliberately NOT threaded — the engine reads `out.kitSnap`, built next from the SAME lanes, so no per-hit allocation.)
+        // KIT SOURCE (2026-11-23, §1.6/§2.1): the render-ready drum kit, from the SAME lanes the engine reads (this cell's `euclidLinesForEditing()`). Empty while no lane has KIT on ⇒ the Router skips every KIT branch, byte-identical.
+        do {
+            let kitLanes = p.euclidLinesForEditing()
+            if kitLanes.prefix(4).contains(where: { $0.kitOnResolved }) {
+                var kit = EuclideousKitSnap()
+                kit.notes = [UInt8](repeating: 0, count: 32); kit.vel = [UInt8](repeating: 100, count: 32)
+                for (li, l) in kitLanes.prefix(4).enumerated() {
+                    kit.on[li] = l.kitOnResolved
+                    let n = l.kitNotesResolved, v = l.kitVelResolved
+                    for r in 0..<8 { kit.notes[li * 8 + r] = n[r]; kit.vel[li * 8 + r] = v[r] }
+                }
+                out.kitSnap = kit
+            }
+        }
         // LISTEN TAB preset-load safety (§4's own "(My interpretation.)"): "if a loaded preset contains a
         // loop, switch off the row that closes it." Applied ONCE here, after every lane's own fields have
         // been resolved above, so a hand-edited or legacy doc can never reach the render path (or the UI,

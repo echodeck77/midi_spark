@@ -391,6 +391,8 @@ final class Router {
     private var emitterVelocities = EmitterVelocitySnap()
     private var emitterVelAny = false
     private var emitterVelCounter = EmitterVelocityCounter()
+    // KIT SOURCE (2026-11-23): the Euclideous row's render-ready drum kit — the one the render thread reads (the pool build in `runEuclidLine` and the per-rank velocity scale in `emitOneOutput`). Set per window from `p.kitSnap`; `anyOn` false (the default) ⇒ every KIT branch is skipped.
+    private var euclideousKit = EuclideousKitSnap()
     private var euclideousStrikeVelOffset = SIMD4<Int8>(repeating: 0)   // [output] the signed velocity offset applied at `emitOneOutput` for the strike in flight; 0 everywhere = no change
     private(set) var emitterVelIndexLive: UInt32 = 0xFFFF_FFFF
     // EMITTER CC — CC SLOTS (2026-11-12): FOUR outputs × THREE slots = 12 CCs. Each SLOT follows its DRIVER lane's Euclid
@@ -2082,6 +2084,12 @@ final class Router {
             let off = Int(euclideousStrikeVelOffset[o])
             if off != 0 { velOn = UInt8(max(1, min(127, Int(velocity) + off))) }
         }
+        // KIT SOURCE (2026-11-23, §3): on a KIT lane, scale the now-FINAL velocity by the struck rank's kitVel ÷ 100 — the LAST stage (after EMITTER VELOCITY). kitVel 0 ⇒ send NO note (the flood counter above already counted it, and the
+        // roll/walk/hit counters are upstream, so it still "counts as played", §3.2). euclideousStrikeRank is 1…8 for a pool hit (0 for the free-run audition, which carries its own scaled velocity, §4.8/§5.5). anyOn false ⇒ untouched.
+        if euclideous, euclideousKit.anyOn, euclideousStrikeRank >= 1, euclideousStrikeLane < 4, euclideousKit.kitOn(Int(euclideousStrikeLane)) {
+            guard let scaled = euclideousKitScaledVelocity(base: Int(velOn), kitVel: Int(euclideousKit.vel(lane: Int(euclideousStrikeLane), rank: Int(euclideousStrikeRank) - 1))) else { return -1 }
+            velOn = scaled
+        }
         // HOCKET §7.3: a strike by a part of a LIT rule joins a sounding key instead of re-articulating it (never a legato hold — those are tracked per slot; unreachable in production, gate max 0.99).
         // A strike joins a sounding key when its PART is in a lit rule, or when a note group is sounding on that very key at that time (an unlit part's note that lands on a lit part's — on ALL, and on any output the two share
         // a channel on — must not become a second note-on of a note that is already sounding). Every other strike keeps the old re-articulation, so a lane no rule touches keeps its outputs exactly as they were.
@@ -3429,6 +3437,12 @@ final class Router {
             }
             func laneCount(_ li: Int) -> Int { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcCount : srcCount }
             func laneNotes(_ li: Int) -> ArraySlice<(note: Int, vel: UInt8)> { (isEuclideousRow && !globalSrcUsesLegacy) ? globalSrcBuf[0..<globalSrcCount] : srcNotes }
+            // KIT SOURCE (2026-11-23, §2.1): the lane's pool IS its 8 kit notes, rank 1→8 in stored order, vel 100 (the kit velocity scales at emission, §3.1, not the pool entry). No stacked build, no sort, no pitch change.
+            func fillKitPool(_ lane: Int) {
+                let k = euclideousKit
+                for r in 0..<8 { globalSrcBuf[r] = (Int(k.note(lane: lane, rank: r)), 100) }
+                globalSrcCount = 8
+            }
             // INPUTS + HARMONY §2.1: one lane's build inputs — its plan (chips AND switches, its own mode), the shared buffer's cache key and whether the lane is a DEFAULT lane (every chip, the page's mode: it reads the window-top live merge).
             func laneBuildInfo(_ line: EuclidLine) -> (plan: SourcePlan, key: UInt8, isDefault: Bool, mode: MidiMode) {
                 let mask = line.poolSrcMaskResolved
@@ -3454,9 +3468,13 @@ final class Router {
             }
             // A lane with no hits (or switched off) still has a pool its NOW row and NOTES keys name: its pool through its own chips and mode at the window start (CANON needs hits to act, so it is not applied).
             func idleLanePoolSample(lane: Int, line: EuclidLine) {
-                let info = laneBuildInfo(line)
-                if !info.isDefault { refreshLaneStack(plan: info.plan, mask: info.key, atBeat: mWinStart) }
-                else if chordPoolStep == euclideousCanonDirtyKey { mergeStack(atBeat: mWinStart + 1e-9) }
+                if isEuclideousRow, lane >= 0, lane < 4, euclideousKit.kitOn(lane) {   // KIT SOURCE §2.1/§5.4: an idle KIT lane's pool (for the NOW/POOL display) is its kit
+                    fillKitPool(lane)
+                } else {
+                    let info = laneBuildInfo(line)
+                    if !info.isDefault { refreshLaneStack(plan: info.plan, mask: info.key, atBeat: mWinStart) }
+                    else if chordPoolStep == euclideousCanonDirtyKey { mergeStack(atBeat: mWinStart + 1e-9) }
+                }
                 writeLanePoolStatus(lane: lane, line: line)
                 laneStat.played[lane] = 0
             }
@@ -3688,6 +3706,12 @@ final class Router {
                 let lanePlan = euclideousLaneSourcePlan(euPlan, mask: laneMask, mode: laneMode)   // the page plan with this lane's chips ANDed in and this lane's mode written in (the page plan itself when the lane is default)
                 let laneKey = euclideousLaneKey(mask: laneMask, mode: laneMode)                    // the shared buffer's cache key
                 let laneIsDefault = laneMask == euclideousPoolSrcAll && laneMode == euPlan.midiModeR
+                // KIT SOURCE (2026-11-23, §2.1): a KIT lane's pool is EXACTLY its 8 kit notes (stored order) — the stacked build / CANON / sources are skipped for it.
+                let kitLane = isEuclideousRow && lineIndex >= 0 && lineIndex < 4 && euclideousKit.kitOn(lineIndex)
+                // KIT SOURCE §2.2: NO pitch change reaches a kit note — force every octave to 0 (riff / notes / ALT, below) and ANSWER PITCH to OWN. TRANS/INVERT/FILL-RANKS stay (they choose a rank, §2.2). These shadow the params for the rest of the lane (neither is used above here).
+                let riffOctave = kitLane ? 0 : riffOctave
+                let octave = kitLane ? 0 : octave
+                let listenPitch = kitLane ? .own : listenPitch
                 // RHYTHM POLISH (2026-10-22): a lane with a fractional OFFSET and/or a fine TILT is read in TICK space — `euclideousHitLayoutInto` turns the buffer-space cells + in-step positions into the cell each hit
                 // STARTS in (direction mirrored, wrapped round the lap) and its delay in that cell; every reader below then sees `eN` / `eDir` = (the lap's tick count, FWD) over those cells. A lane with neither keeps
                 // (`n`, `dir`) over the buffer — the exact path it always ran.
@@ -3801,7 +3825,8 @@ final class Router {
                                  let ph = euclideousLaneChainPhase(buf: euclidBuf, n: eN, dir: eDir, cycleLen: cycleLen, sub: sub, tick: t, chains: chains, legacySpanBeats: ladderSpanBeats)
                                  return ph.rawIsHit ? euclidTickDelay[ph.raw] : 0
                              }, fill: fillPlan) { tick, mTickBeat, _, _ in
-                    if canonLane { refreshCanonStack(beat: mTickBeat, delayBeats: canonDelayBeats, lane: lineIndex, plan: lanePlan, mask: laneKey) }   // CHORD CANON: this lane's own pool, `d` beats back
+                    if kitLane { fillKitPool(lineIndex) }   // KIT SOURCE §2.1: the pool is the 8 kit notes; no CANON / sources / stacked build
+                    else if canonLane { refreshCanonStack(beat: mTickBeat, delayBeats: canonDelayBeats, lane: lineIndex, plan: lanePlan, mask: laneKey) }   // CHORD CANON: this lane's own pool, `d` beats back
                     else if !laneIsDefault { refreshLaneStack(plan: lanePlan, mask: laneKey, atBeat: mTickBeat) }   // INPUTS: this lane's own chips and mode
                     else {
                         if chordPoolStep == euclideousCanonDirtyKey { mergeStack(atBeat: mTickBeat + 1e-9) }   // a delayed lane left its own pool in the shared buffer: put the live one back before this lane reads it
@@ -4012,11 +4037,11 @@ final class Router {
                             let altBar = Int(((mTickBeat / max(1e-6, beatsPerBar)) + 1e-9).rounded(.down))   // §2.2 BAR: the absolute host bar (FILL 1.4's source), reset by no restart
                             let altX = euclideousAltX(unit: altUnitRes, hit: Int(ord), step: Int(localT), pass: Int(cy), bar: altBar)
                             if euclideousAltState(main: altMainRes, alt: altAltRes, x: altX).isAlt {
-                                if altRiffPart.octActive, let v = altRiffPart.octValue { altRiffOct = v }
+                                if !kitLane, altRiffPart.octActive, let v = altRiffPart.octValue { altRiffOct = v }   // KIT SOURCE §2.2: ALT octave does not move a kit note
                                 if altRiffPart.velActive, let v = altRiffPart.velValue { altRiffVel = v }
                                 if altRiffPart.gateActive, let v = altRiffPart.gateValue { altRiffGate = Double(v) / 100 }
                                 if altRiffPart.outActive { altRiffOut = altRiffPart.outValue }   // §3.1: 0 allowed (a rest); the walk still advances
-                                if altNotesPart.octActive, let v = altNotesPart.octValue { altNotesOct = v }
+                                if !kitLane, altNotesPart.octActive, let v = altNotesPart.octValue { altNotesOct = v }   // KIT SOURCE §2.2
                                 if altNotesPart.velActive, let v = altNotesPart.velValue { altNotesVel = v }
                                 if altNotesPart.gateActive, let v = altNotesPart.gateValue { altNotesGate = Double(v) / 100 }
                                 if altNotesPart.outActive { altNotesOut = altNotesPart.outValue }
@@ -4375,7 +4400,14 @@ final class Router {
                                     v = d
                                 }
                                 let bus = Int(notesLayer ? addNotesBus : addRiffBus)
-                                for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == bus { return }   // the same pitch on the SAME part: first insertion wins
+                                for j in 0..<pitchCount where pitches[j] == v && pitchBus[j] == bus {
+                                    // KIT SOURCE §3.4: duplicate ranks sending the same note to the same part sound ONCE, at the HIGHER kit velocity — keep whichever rank has the larger kitVel (the base is the lane's own pad, equal for both, so the louder rank wins). Non-KIT: first insertion wins, unchanged.
+                                    if euclideousKit.anyOn, isEuclideousRow, lineIndex < 4, euclideousKit.kitOn(lineIndex), let nr = rank, pitchRank[j] >= 1,
+                                       euclideousKit.vel(lane: lineIndex, rank: Int(nr) - 1) > euclideousKit.vel(lane: lineIndex, rank: Int(pitchRank[j]) - 1) {
+                                        pitchRank[j] = nr
+                                    }
+                                    return
+                                }
                                 var outs: UInt8 = 0xFF
                                 if let ao = altOuts {   // ALT §3.1: the alt emitter mask REPLACES the part's mask for this hit (0 = a rest: no note-on on any output or ALL; the pitch is still added, so the walk advances §3.1). The narrowing/dedup below is a main-routing nicety the explicit alt set supersedes.
                                     outs = ao & 0x0F
@@ -5934,7 +5966,7 @@ final class Router {
                                 let altBar = Int(((mTickBeat / max(1e-6, beatsPerBar)) + 1e-9).rounded(.down))
                                 let altX = euclideousAltX(unit: altUnitRes, hit: Int(euclideousRiffLastOrd[lineIndex]), step: Int(localT), pass: Int(cy), bar: altBar)
                                 if euclideousAltState(main: altMainRes, alt: altAltRes, x: altX).isAlt {
-                                    if altNotesPart.octActive, let v = altNotesPart.octValue { altNotesOct = v }
+                                    if !kitLane, altNotesPart.octActive, let v = altNotesPart.octValue { altNotesOct = v }   // KIT SOURCE §2.2: ALT octave does not move a kit note
                                     if altNotesPart.velActive, let v = altNotesPart.velValue { altNotesVel = v }
                                     if altNotesPart.gateActive, let v = altNotesPart.gateValue { altNotesGate = Double(v) / 100 }
                                     if altNotesPart.outActive { altNotesOut = altNotesPart.outValue }
@@ -6179,6 +6211,7 @@ final class Router {
             emitterSpillAny = emitterRatchets.spillAny   // RATCH LENGTH: gate the per-output choke (false ⇒ never runs ⇒ byte-identical)
             emitterVelocities = isEuclideousRow ? p.emitterVelocities : EmitterVelocitySnap()   // EMITTER VELOCITY: the Euclideous row's four per-output velocity accents (inert default elsewhere)
             emitterVelAny = emitterVelocities.anyOn
+            euclideousKit = isEuclideousRow ? p.kitSnap : EuclideousKitSnap()   // KIT SOURCE: the render-ready kit for this row (empty elsewhere)
             emitterCCs = isEuclideousRow ? p.emitterCCs : EmitterCCSnap()   // EMITTER CC — CC SLOTS: the Euclideous row's 4×3 CC slots (inert default elsewhere)
             emitterCCAny = emitterCCs.anyOn
             do {   // CC SLOTS: the off→on edge per SLOT — a freshly-on slot waits for the next hit and starts from a clean "no value sent"
