@@ -4544,7 +4544,8 @@ final class Router {
                                     if polyMask & (UInt8(1) << UInt8(rk - 1)) != 0 {
                                         let invRank = riffInvert ? 9 - rk : rk
                                         let rank = invRank + melodyTranspose
-                                        if rank >= 1, let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: altRiffOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill) · ALT §3.1: altRiffOct = riffOctave unless the OCT pill overrides this hit
+                                        // GRID CHANCE (2026-11-22): POLY riff is thinned too — each started note rolls on its rank (`rk`) and column (`playedStep`). Column chance covers positions 0…7 (riffColumn is 8-wide; 8…15 pass — grid chance's position axis is a MONO 8-column concept); rank chance is full. All 100 ⇒ byte-identical.
+                                        if rank >= 1, euclideousRiffGridChancePasses(lane: lineIndex, step: advOrd, rank: rk, column: playedStep, model: p.gridChance), let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: altRiffOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill) · ALT §3.1: altRiffOct = riffOctave unless the OCT pill overrides this hit
                                             let note0 = note0Raw
                                             let len = p.polyRiff.triggerLength(col: playedStep, rank: rk, polyTrig)
                                             var ringBeats = riffAdvanceStep
@@ -4601,6 +4602,10 @@ final class Router {
                                 // func only exits the func itself, so the caller must re-propagate the signal).
                                 @discardableResult
                                 func strikeRiffRawRank(_ rr: Int, repeating: Bool = false) -> Bool {
+                                    // GRID CHANCE (2026-11-22, §2.1): decided HERE, on the PLAYED rank (`rr`, before octave/transpose) and the column READ (the repeated column under REPEAT, §6.3; else the hit's own `leapStep`), so the
+                                    // mask-CLIMB offset and the FILL-FLAT latch below still advance "as if played" (§2.5) when the note is silenced, and a REPEAT-on-rest re-strike is gated on its repeated rank/column (not skipped). A rest (`rr < 1`) has
+                                    // no note to thin. A fail silences only the note-on (no `addPitch`, no light) and sets `restEnd = 1` so a held/legato note closes. All 100 (the default) ⇒ `chancePass` is always true ⇒ byte-identical.
+                                    let chancePass = rr < 1 || euclideousRiffGridChancePasses(lane: lineIndex, step: advOrd, rank: rr, column: repeating ? Int(repeatedColumn) : leapStep, model: p.gridChance)
                                     let invRank = (riffInvert && rr >= 1) ? (9 - rr) : rr
                                     let transposedRank = invRank >= 1 ? invRank + melodyTranspose : invRank
                                     var rank = transposedRank
@@ -4662,6 +4667,8 @@ final class Router {
                                             return strikeRiffRawRank(found.rank, repeating: true)
                                         }
                                     } else if euclideousFillNotesNow == 0, let note0Raw = riffResolve(rank: rank + euclideousFillRankOffsetNow, oct: altRiffOct, n: thisLaneCount, wrap: .fold, asc: { notes[$0].note }) {   // FILL §2.5: the rank climb (0 off a fill) · ALT §3.1: altRiffOct = riffOctave unless the OCT pill overrides this hit
+                                        if !chancePass { restEnd = 1 }   // GRID CHANCE: silenced — no note, no light; the walk / CLIMB already advanced; restEnd 1 closes any held legato (§2.7)
+                                        else {
                                         let note0 = note0Raw
                                         hadRiffNote = true
                                         riffRank = rank; riffNote = note0
@@ -4675,11 +4682,15 @@ final class Router {
                                         // posts the hit's OWN (rest) column, `leapStep` — never the repeated one.
                                         let wr = (maskedChancePassed && mm.modeResolved == .mirror && invRank >= 1) ? (9 - invRank) : invRank
                                         if wr >= 1 && wr <= 8 { wipeColumn = Int8(leapStep); wipeRankOut = Int8(wr); wipeCellColumn = repeating && repeatedColumn >= 0 ? repeatedColumn : Int8(leapStep) }
+                                        }
                                     } else if euclideousFillNotesNow != 0 {
                                         // FILL TAB V2 §2.3 NOTES — the riff voice through the mode transform (rank space; the resolver's
                                         // fold + nil-below-1 rule stand). FLAT latches the region's first sounding riff rank per (lane, bar).
+                                        // GRID CHANCE §2.5: the FILL-FLAT latch + bar reset run REGARDLESS of the chance roll (a silenced hit still "counts as played", so FLAT latches on it — the surviving notes don't shift).
                                         if euclideousFillFlatBar[lineIndex] != euclideousFillBarNow { euclideousFillFlatBar[lineIndex] = euclideousFillBarNow; euclideousFillFlatRiffRank[lineIndex] = 0; euclideousFillFlatStackRank[lineIndex] = 0 }
                                         if euclideousFillNotesNow == 1, euclideousFillFlatRiffRank[lineIndex] == 0, rank >= 1 { euclideousFillFlatRiffRank[lineIndex] = rank }
+                                        if !chancePass { restEnd = 1 }   // GRID CHANCE: silenced — the FLAT state above already advanced; close any held legato
+                                        else {
                                         let fv = euclideousFillNotesVoice(mode: EuclideousFillNotes.fromScalar(euclideousFillNotesNow), q0: rank,
                                                                           offset: euclideousFillRankOffsetNow, flatRank: euclideousFillFlatRiffRank[lineIndex], oddSlot: euclideousFillSlotOddNow)
                                         let rg0 = altRiffGate ?? gate
@@ -4701,18 +4712,12 @@ final class Router {
                                             }
                                             vi += 1
                                         }
+                                        }   // GRID CHANCE: close the `else` that gated the FILL strike loop
                                     }
                                     return false
                                 }
-                                // GRID CHANCE (2026-11-22, §2.1/§2.6): the riff grid's LAST gate before emitters. A riff hit about to sound (rawRank ≥ 1 — a rest has no note to thin)
-                                // rolls once on its played rank / read column (advOrd = the step since the melody origin, so a restart replays the same thinning). A fail is SILENT but the walk
-                                // has already advanced — treat it as SKIP (restEnd = 1), never TIE, so a held/legato riff note closes and the notes layer still sees the written column (not a rest).
-                                // All 100 (the default) ⇒ the gate always passes ⇒ byte-identical.
-                                if rawRank >= 1, !euclideousRiffGridChancePasses(lane: lineIndex, step: advOrd, rank: Int(rawRank), column: leapStep, model: p.gridChance) {
-                                    restEnd = 1
-                                } else {
-                                    strikeRiffRawRank(rawRank)
-                                }
+                                // GRID CHANCE (2026-11-22): the riff grid-chance gate now lives INSIDE `strikeRiffRawRank` (at the add-pitch points) so a REPEAT-on-rest re-strike is thinned and the mask-CLIMB / FILL-FLAT sequence state still advances on a silenced hit (§2.5).
+                                strikeRiffRawRank(rawRank)
                             }
 
                             // NOTES TAB LAYER (ferry 2026-10-19, §6-§8) — independent of riffOn. WHICH hits the lit notes play (WHEN, CHANCE: 6.1-6.3), WHAT they play (the play list in the

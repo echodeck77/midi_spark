@@ -8137,6 +8137,7 @@ struct EuclideousPage: View {
     private func openGridChance(stack: Bool) {
         ribbonSettingsOpen = false   // §7.4: chance and the (unmounted) ribbon-settings tab never co-open
         clearRibbonLive()            // §7.2: a live ribbon hold / loop is cleared when editing opens (ribbon is inert in production; nothing is latched)
+        chanceDragActive = false     // a stale drag flag (a cancelled gesture) must not coalesce the next slider edit into a prior undo step
         if stack {
             riffChanceOpen = false; riffChanceAxis = .none
             stackChanceAxis = euclideousGridChanceAxisSet(gridChance, grid: .stack)   // §4.3/§4.5: open on the set axis's sliders, or the picker
@@ -8148,7 +8149,7 @@ struct EuclideousPage: View {
         }
     }
     /// §6: close the chance editor on both grids (used by the outside-tap catcher, the toggle, and a RIFF↔STACK switch §6.3).
-    func closeGridChanceAll() { riffChanceOpen = false; stackChanceOpen = false; riffChanceAxis = .none; stackChanceAxis = .none }
+    func closeGridChanceAll() { riffChanceOpen = false; stackChanceOpen = false; riffChanceAxis = .none; stackChanceAxis = .none; chanceDragActive = false }
 
     /// The overlay mounted on the riff / stack grid: the % toggle, and (while open) the pickers or sliders over a close-catcher.
     @ViewBuilder
@@ -8159,8 +8160,10 @@ struct EuclideousPage: View {
         let toggleRect = stack ? euclideousStackChanceToggleRect(box: box) : euclideousRiffChanceToggleRect(box: box)
         ZStack(alignment: .topLeading) {
             if open {
-                // §6.1: a touch not on a ladder button / slider / the toggle closes (the editor's own controls sit above and consume theirs).
+                // §6.1: a touch not on the GRID / a ladder button / a slider / the toggle closes. The close-catcher is the bottom layer; the grid-cell consume-region (next) and the editor's own controls sit above it and swallow their touches.
                 Color.clear.frame(width: box.width, height: box.height).contentShape(Rectangle()).onTapGesture { closeGridChanceAll() }
+                // §6.1: the GRID itself is excluded from "tap to close" — a tap on a cell does nothing (cell edits are off, §7.1), it must not dismiss the editor.
+                chanceGridConsumeRegion(box: box, stack: stack)
                 // EuclideousStackBreak keeps the editor off the page body's Debug stack frame (the 1 MB main-thread rule)
                 if stack { EuclideousStackBreak { AnyView(stackChanceEditor(box: box)) } } else { EuclideousStackBreak { AnyView(riffChanceEditor(box: box)) } }
             }
@@ -8230,6 +8233,21 @@ struct EuclideousPage: View {
             .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0xDFE3EA)))
             .contentShape(Rectangle()).onTapGesture(perform: onTap)
             .accessibilityElement(children: .ignore).accessibilityLabel("Clear \(axName) chance").accessibilityAddTraits(.isButton)
+            .position(x: rect.midX, y: rect.midY)
+    }
+    /// §6.1: a transparent region over the grid cells that CONSUMES a tap (does nothing) so the close-catcher beneath it never dismisses on a grid tap. The sliders (axis chosen) already cover the cells; this covers the gaps + the picker state.
+    private func chanceGridConsumeRegion(box: CGSize, stack: Bool) -> some View {
+        let rect: CGRect = {
+            if stack {
+                let L = euclideousStackGridLayout(box: box)
+                let rowsH = CGFloat(L.rowCount) * L.rowH + CGFloat(max(0, L.rowCount - 1)) * L.rowGap
+                return CGRect(x: L.colsLeft, y: L.rowsTop, width: L.colW * 4 + L.colGap * 3, height: rowsH)
+            } else {
+                let L = euclideousRiffPanelLayout(box: box)
+                return CGRect(x: L.firstColumnX, y: L.gridTop, width: L.gridSize.width, height: L.gridSize.height)
+            }
+        }()
+        return Color.clear.frame(width: rect.width, height: rect.height).contentShape(Rectangle()).onTapGesture { }
             .position(x: rect.midX, y: rect.midY)
     }
     /// §4.4/§4.5: the OTHER ladder — dimmed to 30 % and ignoring touches while an axis is chosen.
@@ -8958,6 +8976,7 @@ struct EuclideousPage: View {
                             ForEach(0..<4, id: \.self) { lane in
                                 stackCell(rows[r], lane: lane, size: CGSize(width: L.colW, height: L.rowH), fontSize: L.cellFontSize, beat: beat, playing: clock.playing, ghost: ghost[lane], names: stackNames[r][lane])
                                     .opacity(stackChanceOpen && stackChanceAxis != .none ? GCUI.cellDim : 1)   // GRID CHANCE §5.3: cells at 35 % under the sliders
+                                    .allowsHitTesting(!stackChanceOpen)   // GRID CHANCE §7.1: stack cell edits / audition off while the chance editor is open (the riff grid guards its drag the same way)
                             }
                         }
                     }

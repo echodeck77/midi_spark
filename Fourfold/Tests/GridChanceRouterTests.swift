@@ -99,6 +99,53 @@ final class GridChanceRouterTests: XCTestCase {
         XCTAssertFalse(e.laneOnNotes(0).isEmpty, "lane 1's stack still sounds")
     }
 
+    // REVIEW FIX (adversarial, 2026-11-23) — ON REST = REPEAT: a note re-struck on a WRITTEN REST column is thinned too
+    // (before the fix the gate only fired for rawRank ≥ 1, so REPEAT fills escaped it — a §2.5 texture shift).
+    func testRiffRepeatOnRestIsThinned() {
+        func st(_ gc: EuclideousGridChance?) -> PluginState {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 4, ranks: [1, 0, 3, 4])   // column 1 is a WRITTEN rest
+            var l = EuclidLine(target: 0, pulses: 4, steps: 4, velocityAbsolute: 100, rate: .r1_4, useRiff: true, riffOn: true, sourceMode: .midi)
+            l.gate = 0.5; l.riffOnRest = .repeatLast   // a rest hit repeats the nearest earlier note (column 0 → rank 1 → 48)
+            c.paramsA.euclidLines = [l] + (1..<4).map { _ in EuclidLine(enabled: false) }
+            var sc = SceneState.empty(); sc.stepRate = .r1_8
+            sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+            var s = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+            s.euclideousNoteSource = .midi; s.euclideousGridChance = gc
+            return s
+        }
+        let base = run(st(nil), beats: 16).laneOnNotes(0)
+        var gc = EuclideousGridChance(); gc.riffRank[0] = 0   // rank 1 (48) = 0 %
+        let thin = run(st(gc), beats: 16).laneOnNotes(0)
+        XCTAssertTrue(base.contains(48), "sanity: rank 1 (48) sounds by default — on column 0 AND as the REPEAT fill on the rest column")
+        XCTAssertFalse(thin.contains(48), "rank 1 is silenced everywhere, including the REPEAT re-strike on the rest column (the fix)")
+        XCTAssertTrue(thin.contains(52), "other ranks still sound")
+    }
+
+    // REVIEW FIX (adversarial, 2026-11-23) — POLY riff is thinned too (it used a separate engine branch that was ungated before).
+    func testPolyRiffRankThinned() {
+        func st(_ gc: EuclideousGridChance?) -> PluginState {
+            var c = Machine(machineID: "gold", type: .euclid)
+            c.paramsA.euclideousRiff = EuclideousRiff(steps: 8, ranks: [1, 2, 3, 4, 5, 6, 7, 8])
+            var l = EuclidLine(target: 0, pulses: 4, steps: 4, velocityAbsolute: 100, rate: .r1_4, useRiff: true, riffOn: true, sourceMode: .midi)
+            l.gate = 0.5
+            c.paramsA.euclidLines = [l] + (1..<4).map { _ in EuclidLine(enabled: false) }
+            var sc = SceneState.empty(); sc.stepRate = .r1_8
+            sc.cells[0][Snap.euclideousRow] = Cell(machineID: "gold", buses: [.a, .b, .c, .d])
+            var s = PluginState(machines: machineIDs.map { $0 == "gold" ? c : Machine(machineID: $0, type: .arp) }, scenes: [sc])
+            s.euclideousNoteSource = .midi; s.euclideousGridChance = gc
+            s.riffPoly = true
+            s.polyRiff = EuclideousPolyRiff(notes: (0..<8).flatMap { [EuclideousPolyNote(col: $0, rank: 2), EuclideousPolyNote(col: $0, rank: 5)] })   // rank 2 + rank 5 on every walked column
+            return s
+        }
+        let base = run(st(nil), beats: 16).laneOnNotes(0)
+        XCTAssertTrue(base.contains(50) && base.contains(55), "sanity: POLY ranks 2 (50) and 5 (55) sound by default")
+        var gc = EuclideousGridChance(); gc.riffRank[1] = 0   // rank 2 → pool[1] = 50
+        let thin = run(st(gc), beats: 16).laneOnNotes(0)
+        XCTAssertFalse(thin.contains(50), "POLY riff rank 2 is thinned (the fix — POLY riff was ungated before)")
+        XCTAssertTrue(thin.contains(55), "POLY rank 5 still sounds")
+    }
+
     // §10.1 — an explicit all-100 grid chance is byte-for-byte the same stream as nil (no gate effect).
     func testAll100EqualsNil() {
         let a = run(state([riffLane(pulses: 5)], gridChance: nil), beats: 24).events

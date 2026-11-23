@@ -9544,13 +9544,14 @@ let euclideousStackGridChanceSalt: UInt64 = 0x5354_414B_4752_4944   // "STAKGRID
 /// `column` is the riff position it read (0…7). The riff grid's active axis decides — POSITION → `riffColumn[column]`,
 /// else RANK → `riffRank[rank-1]`. A rest (rank < 1) under the RANK axis always passes (rank chance needs a rank). All 100 ⇒ true.
 @inline(__always) func euclideousRiffGridChancePasses(lane: Int, step: Int64, rank: Int, column: Int, model: EuclideousGridChance) -> Bool {
-    if model.riffColumnSet {
-        guard column >= 0, column < model.riffColumn.count else { return true }
-        return euclideousGridChanceAllows(chance: model.riffColumn[column], lane: lane, step: step, coord: column, salt: euclideousRiffGridChanceSalt)
-    }
+    // RANK first so the engine's tie-break matches `euclideousGridChanceRepairInvariant` / the display (rank wins) in the — UI-unreachable, §1.2-repaired — both-axes-set case.
     if model.riffRankSet {
         guard rank >= 1, rank <= model.riffRank.count else { return true }
         return euclideousGridChanceAllows(chance: model.riffRank[rank - 1], lane: lane, step: step, coord: rank, salt: euclideousRiffGridChanceSalt)
+    }
+    if model.riffColumnSet {
+        guard column >= 0, column < model.riffColumn.count else { return true }
+        return euclideousGridChanceAllows(chance: model.riffColumn[column], lane: lane, step: step, coord: column, salt: euclideousRiffGridChanceSalt)
     }
     return true
 }
@@ -9563,7 +9564,8 @@ let euclideousStackGridChanceSalt: UInt64 = 0x5354_414B_4752_4944   // "STAKGRID
 
 /// §9.2 / §2.3: does the WHOLE stack hit sound (the by-LANE mode)? One roll for the hit, keyed on (lane, step) with a fixed coord.
 @inline(__always) func euclideousStackLaneChancePasses(lane: Int, step: Int64, model: EuclideousGridChance) -> Bool {
-    guard model.stackLaneSet, lane >= 0, lane < model.stackLane.count else { return true }
+    // `!stackRankSet` so RANK wins in the — UI-unreachable, §1.2-repaired — both-axes-set case (matching the riff gate and the repair/display), instead of both axes double-thinning the stack.
+    guard model.stackLaneSet, !model.stackRankSet, lane >= 0, lane < model.stackLane.count else { return true }
     return euclideousGridChanceAllows(chance: model.stackLane[lane], lane: lane, step: step, coord: 0, salt: euclideousStackGridChanceSalt)
 }
 
