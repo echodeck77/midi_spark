@@ -1127,3 +1127,21 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   if a reloaded session still shows the native count, it predates the slice-7 decoder fix and the FROM link must be re-made.)
 
 - **GRID CHANCE amendment 1 (Paul 2026-11-24) — reverted to per-box CLR (supersedes the 2026-11-23 single-button ladder):** confirm on the iPad in AUM — (A1) no title/caption anywhere in the chance editor (the "POSITION CHANCE" ribbon over the RIFF|STACK switch is gone); (A2) the rank axis shows its per-box numbers, with a 10 pt "CLR" box only on ranks under 100, and a tap on any CLR clears the whole axis; (A3) the unchosen ladder — the rails when RANK is chosen, the rank column when POSITION/LANE is — reads as dimmed (~30 %) and takes no touches; (A4) the slider value sits at the END of its fill (inside it in dark ink, or just past it in light), never pinned to the track's far end; (A5) the riff arrows + stack dots stay visible, full-strength, ABOVE the opaque sliders while an axis is chosen, and the cells beneath read at ~35 %; (A6) the "%" toggle is lit (filled) whenever the grid has any value under 100, open or closed — confirm it is NOT dark when values are set (reported already-correct in source); (A7) rank sliders are horizontal, position/lane sliders vertical. All at the portrait-AUM size on 8 rank rows / 8 columns / 4 lanes; a tap outside the grid still closes.
+
+- **KIT SOURCE (ferry 2026-11-23, on `feature/kit-source`, not yet landed):** a per-lane KIT source — the lane's pool is
+  exactly 8 fixed drum notes (rank 1→8, stored order), no pitch change reaching them, each rank with its own velocity
+  (0–100 %). Off-device checks done: golden BYTE-IDENTICAL (kit paths gated off for every non-kit doc), `KitSourceTests`
+  + `KitSourceRouterTests` green, alloc audit (pending at time of writing — see below). Device-owed:
+  - **Sound** (can't hear it): a KIT lane plays its 8 drum notes with NO key/octave/transpose/ALT movement; each rank
+    at its own velocity (0 % sends nothing yet the walk still advances); duplicate ranks hitting one output sound once
+    at the higher velocity; turning KIT off restores the lane's held-MIDI/chord/key pool.
+  - **POOL headphone** on a KIT lane auditions the kit at the per-rank velocities (not a flat 100).
+  - **SOURCES row look** (§5): the KIT chip in PICK's old slot (today's chip + lamp); with KIT on, the MIDI IN / CHORDS /
+    KEY chips, the MIDI row and DELAY CHORD dim to 42 % and do nothing (a tap on a dimmed chip turns KIT off AND toggles
+    that chip). POOL cells show rank · name · note with a lane-colour velocity fill.
+  - **Kit editor** (§4): the overlay opens on a POOL-cell tap, closes on × / outside tap; the 8 rank cells, NAME field
+    (keyboard entry on an AUv3 in a host is the unknown — confirm the text field is usable or needs a different control),
+    the VEL fill tile, the two-octave keyboard (keys ≥ 22 pt, legible labels), octave ‹ / › stops, RESET GM. A key tap
+    assigns the note + GM name + sounds it; the previous-note mark shows; every action is one undo step.
+  - Layout legibility of the editor at both AUM sizes (portrait + landscape) — all frames are from the pure
+    `euclideousKitEditorLayout`, device-owed for feel.

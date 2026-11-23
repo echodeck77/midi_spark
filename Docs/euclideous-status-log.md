@@ -12476,3 +12476,62 @@ cross-card cue. Landed in slices; the engine was golden-byte-identical + alloc-0
 - **A6 (% toggle): NO CHANGE — already correct in source.** `chanceToggle` already fills #DFE3EA whenever the grid has any value < 100 (`gridChance.riffSet`/`stackSet`, the LIVE document value) + a 1 pt outline while open. Reported, not re-fixed. (If the screenshot showed it dark with values set, that predates this code or is a stale build.)
 - **A7: NO CHANGE — orientations already correct.** RANK → horizontal sliders (one per rank row); POSITION / LANE → vertical (one per column / lane). Arrays `gridChance.riffRank` / `riffColumn` (8) · `stackRank` (8) / `stackLane` (4).
 - **Proofs:** Fourfold iOS build SUCCEEDED; `GridChanceTests` 25 pass incl. 3 new amendment-1 tests (`testAmendment1PerBoxClrRole` A2, `testAmendment1TogglePercentLit` A6, `testAmendment1AxisOrientationArrays` A7). No engine/model file touched ⇒ golden + alloc unchanged by construction (not re-run). Ferry tests 12-15 are VISUAL (no snapshot harness / simulator here) → device-owed. All looks/legibility device-owed.
+
+---
+
+## KIT SOURCE ferry (2026-11-23; Fourfold only; branch `feature/kit-source` — NOT LANDED, awaiting Paul's sign-off)
+
+A new per-lane source **KIT**: the lane's pool is exactly 8 user-chosen drum notes (rank 1→8, stored order), with NO
+pitch change reaching them, each rank carrying its own velocity (0–100 %). It takes the PICK chip's slot in the
+SOURCES row, defaults to a GM kit, and gets a kit-editor overlay. Plan `Docs/rippling-skipping-cookie.md` (plan-mode),
+findings `Docs/kit-source-findings.md`. Built on INPUTS + HARMONY. No migration — old sessions with PICK still sound
+(PICK's fields + its HARMONY editor stay decodable/compiled; only the SOURCES chip is replaced).
+
+**Model (§1, `Models.swift`/`Derivations.swift`).** Four additive-Optional `EuclidLine` fields (declared last):
+`kitOn: Bool?`, `kitNotes: [UInt8]?`, `kitNames: [String]?`, `kitVel: [UInt8]?`, each with a `…Resolved` helper that
+clamps/pads to exactly 8 (notes 0–127, vel 0–100, names ≤ 6 chars upper). nil ⇒ off + the default GM kit (KICK 36, RIM
+37, SNR 38, CLAP 39, CH 42, PH 44, OH 46, CRASH 49, every vel 100). The custom `EuclidLine` decoder reads all four;
+`kitNames` is document-only (the engine needs only on/notes/vel). Pure: `euclideousGMDrumName` (35–81 table, else the
+note-view name), `euclideousKitNameClean`, `euclideousKitScaledVelocity(base:kitVel:)` (round(base×kitVel/100), clamp
+1–127, nil at 0), `euclideousKitEditorRangeLowC` / `…OctaveStep`, `euclideousKitEditorLayout` / `…KitKeyAt`
+(`EuclideousKitKey`). APPLY TO ALL copies the four fields.
+
+**Engine (§2/§3).** `EuclideousKitSnap` (4 × on + notes[8] + vel[8], fixed value struct) rides `SnapParams.kitSnap`,
+built in `SnapshotBuilder` from `p.euclidLinesForEditing()` — the SAME lanes the engine's `EuclidLine` literal reads
+(NOT page-level `doc.euclideousLinesResolved`, which the Router never sees). In `runEuclidLine` a KIT lane:
+(a) fills its pool buffer with `kitNotes[0..7]` in stored order (`fillKitPool`) and SKIPS the stacked build /
+mergeLaneStack / fold / ROOT / dedup / sort — so no source moves the kit and a held MIDI chord is ignored;
+(b) is pitch-neutral — `riffOctave`, `octave` and `listenPitch` are shadowed to 0/.own, ALT octave overrides are
+guarded off, so `riffResolve`'s +12·oct, the notes pick, LISTEN and mask CHORD all leave the kit note at its pitch
+(the rank-choices — INVERT, TRANS, the walk, PLAY AS — still move the RANK); (c) scales velocity per rank at the one
+emission choke point `emitOneOutput` (after the base/ALT/mask/hocket/ratchet stages), `velOn = scaled(velOn, kitVel)`,
+kitVel 0 ⇒ the note-on is suppressed while the flood/roll counters already ran (the walk still advances). §3.4: a KIT
+stack hit whose pitch already sits on the part keeps the HIGHER kit velocity instead of dropping the duplicate.
+Everything is gated on `euclideousKit.anyOn` / per-lane `kitOn`, all false for every non-kit document ⇒ **golden
+BYTE-IDENTICAL** (proven) and `PortsStressTests` fingerprints unchanged.
+
+**Audition (§4.8/§5.5).** The POOL headphone (`euclideousRunAudition`) now sets the strike rank per note on a KIT lane,
+so emitOneOutput scales by kitVel — the kit auditions at its per-rank velocities. The editor's key/rank tap uses a new
+ONE-SHOT Kernel live word (`euclideousKitAudWord`, seq | lane | vel | note; copied to an instance var so the nested
+`runSegment` can read it) played once per seq change by `Router.euclideousPlayKitAudition` on the lane's outputs,
+free-running so it sounds while the transport is stopped. Both are no-ops with no kit/audition request.
+
+**UI (§5, `EuclideousPage.swift`).** The KIT chip replaces PICK in SOURCES (today's chip look + lamp, toggling
+`kitOn` — its own field, not a mask bit). With KIT on, the MIDI IN / CHORDS / KEY chips, the MIDI row and DELAY CHORD
+draw at 42 % and are inert; a tap on a dimmed source chip turns KIT off AND toggles that chip in one undo step, and
+reads "inactive" in VoiceOver. POOL cells on a KIT lane show rank · name · note with a lane-colour velocity fill (16 %);
+a tap opens the editor on that rank (`openKitEditor`, closing every other overlay first; `closeAllOtherOverlays` clears
+the editor too).
+
+**Kit editor (§4, `KitEditorViews.swift` — a standalone `EuclideousKitEditorView` so the page's 1 MB main stack pays
+only one `EuclideousStackBreak`).** A full overlay over the lane-cards block (surface #1B1D23 / border #2E3138 / r12 /
+shadow), mounted in `pageBody` with a page-level outside-tap catcher (the GRID CHANCE pattern). 8 rank cells (rank ·
+name · note, the selected one lane-tinted, tap selects); a NAME field (≤ 6 chars, GM name on empty) and a VEL fill tile
+(0–100 %, one undo step per drag via `editStep`); a two-octave keyboard (14 white + 10 black keys from the pure
+`euclideousKitEditorLayout`) with octave ‹ / › buttons (clamped 0…96). A key tap assigns the note + its GM name to the
+selected rank in one step (§4.6), auditions it at the rank's velocity, and the rank's previous note is marked (§4.7).
+RESET GM restores the default kit. Every frame is pure; every action threads the page's `edit`/`editStep` undo funnel.
+
+**Proofs.** `run.sh --golden` BYTE-IDENTICAL; `KitSourceTests` (16) + `KitSourceRouterTests` (5) green; build green on
+`Fourfold`. Alloc audit (`CONFIG=Release … --alloc`) and device verification per
+`Docs/euclideous-device-verification-debt.md`. **Held on `feature/kit-source` — not merged to main.**
