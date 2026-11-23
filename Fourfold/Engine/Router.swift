@@ -102,7 +102,6 @@ final class Router {
     private var euclideousTestLaneNow: Int = -1
     private var euclideousTestLaneActive: Int = -1
     private var euclideousKitAudLastSeq: Int = 0   // KIT SOURCE §4.8: the last-served one-shot-audition seq (resting word seq is 0, so init 0 ⇒ no spurious strike)
-    private var euclideousKitAudWordNow: UInt32 = 0   // KIT SOURCE §4.8: this window's one-shot-audition word, copied from the process param (runSegment, a nested fn, reads this instance var — mirroring euclideousTestLaneNow)
     private var euclideousTestNextSample: Int64 = 0
     private var euclideousTestCursor: Int = 0
     /// NOTES AUDITION (2026-11-11): the held STACK cell's lane (−1 = none) + its rank position, decoded per window; `…Order` is the single-position lit order the held lane's NOTES layer uses while held; `…WordPrev` edge-detects engage/move/release so the lane's sounding notes are cut cleanly.
@@ -2666,7 +2665,6 @@ final class Router {
         loopWasActive = loopActiveNow
         // INPUTS TEST (2026-11-08): which lane auditions this window (−1 = none). A change in the testing lane restarts the walk at the window's first sample; it is otherwise free-running (the cursor + next-sample persist across windows).
         euclideousTestLaneNow = (euclideousTestLive & 0x100 != 0) ? Int(euclideousTestLive & 3) : -1
-        euclideousKitAudWordNow = euclideousKitAudWord   // KIT SOURCE §4.8: copy the param so nested runSegment can read it
         if euclideousTestLaneNow != euclideousTestLaneActive {
             euclideousTestLaneActive = euclideousTestLaneNow
             euclideousTestCursor = 0
@@ -2883,6 +2881,14 @@ final class Router {
         // is met exactly when the old exclusive source made this true. `euclideousStackMidiPlaying` is read again
         // by the stacked-pool build in `emitGeneratorRow`.
         let euProc = box.cells[Snap.euclideousRow].procs.first
+        // KIT SOURCE §4.8: the one-shot kit-editor audition — fire once per seq change (a key/rank tap). Placed BEFORE the source early-out and independent of the transport, so a tap always sounds — even in the standalone app's STOP-silent mode and even with no source / nothing held.
+        if let euLines = euProc?.euclidLines, euclideousKitAudWord != 0 {
+            let seq = Int((euclideousKitAudWord >> 16) & 0xFFFF)
+            if seq != euclideousKitAudLastSeq {
+                euclideousKitAudLastSeq = seq
+                euclideousPlayKitAudition(lane: Int((euclideousKitAudWord >> 14) & 3), note: Int(euclideousKitAudWord & 0x7F), vel: Int((euclideousKitAudWord >> 7) & 0x7F), lines: euLines, windowStart: windowStart, windowEnd: windowEnd, out: out)
+            }
+        }
         // HOLD/LATCH (Paul 2026-10-20): a HOLD-sustained or LATCH-accumulated pool keeps driving the row once every
         // physical key is released — a non-empty MIDI contribution even with nothing held.
         let euclideousHoldLatchActive = euProc?.euclideousHoldLatchMode != nil && euclideousHoldLatchPool.count > 0
@@ -2911,7 +2917,10 @@ final class Router {
         if playing { canonElapsedAccum += Double(frameCount) * beatsPerSample }
         var canonAnyLane = false
         if let ls = euProc?.euclidLines { for L in ls where L.chordDelayResolved > 0 { canonAnyLane = true; break } }   // INPUTS + HARMONY: SLIP is gone — only a DELAY keeps the row running with nothing held
-        let euclideousAnySource = pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive || canonAnyLane
+        // KIT SOURCE §2.1: a KIT lane IS a source (its 8 fixed notes) — the row must run even with no source chips on and nothing held, else a kit-only lane is silent.
+        // Read `kitSnap` (built from `euclidLinesForEditing()`), NOT `euProc.euclidLines` — the latter is the memberwise-rebuilt snapshot copy that deliberately drops the kit fields (SnapshotBuilder §1.6).
+        let euclideousKitLaneActive = euProc?.kitSnap.anyOn ?? false
+        let euclideousAnySource = pool.count > 0 || euclideousGeneratedSourceActive || euclideousHoldLatchActive || canonAnyLane || euclideousKitLaneActive
         euclideousSourcePresent = euclideousAnySource   // §a8b: tell the Kernel's silence-leak net the row is a live source (generative sources drive voices with an empty live pool)
         guard euclideousAnySource else {   // latch: a frozen pool drives the TICK (arp) cells with no keys down
             euclideousRiffLiveCount = 0   // same reasoning — the riff's own live-pool display feed goes empty too
@@ -6460,14 +6469,6 @@ final class Router {
             // INPUTS TEST (2026-11-08): the testing lane walks its pool across its emitters, once per window, on the free-running audition clock (its normal output was suppressed in runSegment).
             if isEuclideousRow, euclideousTestLaneNow >= 0 {
                 euclideousRunAudition(lane: euclideousTestLaneNow, lines: p.euclidLines, windowStart: windowStart, windowEnd: windowEnd, out: out)
-            }
-            // KIT SOURCE §4.8: a one-shot kit-editor audition — fire once per seq change (a key/rank tap), free-running so it sounds while stopped.
-            if isEuclideousRow, euclideousKitAudWordNow != 0 {
-                let seq = Int((euclideousKitAudWordNow >> 16) & 0xFFFF)
-                if seq != euclideousKitAudLastSeq {
-                    euclideousKitAudLastSeq = seq
-                    euclideousPlayKitAudition(lane: Int((euclideousKitAudWordNow >> 14) & 3), note: Int(euclideousKitAudWordNow & 0x7F), vel: Int((euclideousKitAudWordNow >> 7) & 0x7F), lines: p.euclidLines, windowStart: windowStart, windowEnd: windowEnd, out: out)
-                }
             }
             // HOCKET §8: the count of each lit rule at this window's start, from the SAME `hocketCount` the notes are routed by (the clocks above are this window's).
             if isEuclideousRow {

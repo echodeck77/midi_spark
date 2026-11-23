@@ -104,6 +104,54 @@ final class KitSourceRouterTests: XCTestCase {
         XCTAssertTrue(ons42.allSatisfy { $0.vel == 90 }, "the duplicate 42 sounds once at the higher kit velocity (90), not 60")
     }
 
+    // §2.1 — a KIT lane with a NON-DEFAULT source mask (here: MIDI chip OFF, KEY on) still plays ONLY the kit, not its configured sources.
+    func testKitBypassesNonDefaultSources() {
+        let kit: [UInt8] = [36, 38, 42, 46, 49, 51, 37, 39]
+        var l = riffLine(kitNotes: kit)
+        l.setPoolSrc(0, false)   // MIDI IN off
+        l.setPoolSrc(3, true)    // KEY on — a non-default mask; without the kit bypass the lane would play a KEY pool, not the held chord
+        let notes = run(state([l]), beats: 24).laneNotes(0)
+        XCTAssertFalse(notes.isEmpty)
+        XCTAssertTrue(notes.allSatisfy { kit.contains(UInt8($0)) }, "a non-default-mask KIT lane still plays exactly the kit")
+        XCTAssertFalse(notes.contains(48), "the held chord never leaks in")
+    }
+
+    // §2.1 — a KIT-only lane (no source chips, NOTHING held) still sounds: the kit IS the source, so the row must not early-out.
+    func testKitOnlyLaneWithNothingHeldSounds() {
+        let kit: [UInt8] = [36, 38, 42, 46, 49, 51, 37, 39]
+        var l = riffLine(kitNotes: kit)
+        for b in 0..<5 { l.setPoolSrc(b, false) }   // every source chip OFF — only KIT
+        let st = state([l])
+        // run with an EMPTY held pool (nothing down), the device case
+        var d = st; var pl = d.sourcePlanResolved; pl.midiOctaves = .keep; d.euclideousSourcePlan = pl
+        let box = SnapshotBuilder.build(from: d)
+        let e = KitEmitter(); let router = Router(); var diag = KernelDiag()
+        let tempo = 120.0, sr = 48_000.0, frames: UInt32 = 2048; var ts = 0.0
+        func beatNow() -> Double { ts * tempo / 60.0 / sr }
+        while beatNow() < 24 {
+            router.process(box: box, pool: NotePool(), playing: true, beatPos: beatNow(), tempo: tempo, sampleRate: sr, timestampSample: ts, frameCount: frames, forceColumn: 0, out: e, diag: &diag)
+            ts += Double(frames)
+        }
+        let notes = e.laneNotes(0)
+        XCTAssertFalse(notes.isEmpty, "a KIT-only lane sounds with nothing held and no source chips on")
+        XCTAssertTrue(notes.allSatisfy { kit.contains(UInt8($0)) }, "and plays exactly the kit")
+    }
+
+    // §4.8 — the one-shot editor audition emits a note-on at the given velocity on the lane's output (free-run / KEEP PLAYING, the default while "stopped").
+    func testEditorAuditionSounds() {
+        let kit: [UInt8] = [36, 38, 42, 46, 49, 51, 37, 39]
+        let st = state([riffLine(kitNotes: kit)])
+        var d = st; var pl = d.sourcePlanResolved; pl.midiOctaves = .keep; d.euclideousSourcePlan = pl
+        let box = SnapshotBuilder.build(from: d)
+        let e = KitEmitter(); let router = Router(); var diag = KernelDiag()
+        let sr = 48_000.0, frames: UInt32 = 2048
+        let word: UInt32 = (UInt32(1) << 16) | (UInt32(0) << 14) | (UInt32(100) << 7) | UInt32(60)   // lane 0, note 60, vel 100, seq 1
+        router.process(box: box, pool: NotePool(), playing: true, beatPos: 0, tempo: 120, sampleRate: sr, timestampSample: 0, frameCount: frames, euclideousKitAudWord: word, out: e, diag: &diag)
+        let ons = e.ons.filter { $0.note == 60 }
+        XCTAssertFalse(ons.isEmpty, "the one-shot audition emits note 60")
+        XCTAssertEqual(ons.first?.vel, 100, "at the velocity passed in")
+    }
+
     // §7.7 — turning KIT off returns the lane to its normal (held-MIDI) pool.
     func testKitOffRestoresSources() {
         let kit: [UInt8] = [36, 38, 42, 46, 49, 51, 37, 39]

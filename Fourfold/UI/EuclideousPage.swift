@@ -7930,10 +7930,11 @@ struct EuclideousPage: View {
     /// KIT SOURCE §4.1: open the kit editor on (lane, rank), closing every other overlay first.
     private func openKitEditor(lane: Int, rank: Int) {
         closeAllOtherOverlays()
-        let notes = (lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)).kitNotesResolved
+        let l = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+        let notes = l.kitNotesResolved
         kitEditorRangeLow = euclideousKitEditorRangeLowC(note: notes[rank])
         kitEditorPrevNote = notes[rank]
-        kitEditorNameDraft = ""
+        kitEditorNameDraft = l.kitNamesResolved[rank]   // §3/§4.4: seed the NAME field with the rank's current label
         kitEditor = KitEditorTarget(lane: lane, rank: rank)
     }
     /// KIT SOURCE §4: assemble the editor for `kit`, wiring every action through the page's `edit`/`editStep` undo funnel.
@@ -7946,14 +7947,16 @@ struct EuclideousPage: View {
             lane: lane, selectedRank: rank, notes: notes, names: names, vels: vels,
             lowC: kitEditorRangeLow, prevNote: kitEditorPrevNote, laneColor: lane100(accent), box: block,
             onSelectRank: { r in
-                let n = (lane < lines.count ? lines[lane] : line).kitNotesResolved
-                kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n[r]); kitEditorPrevNote = n[r]; kitEditorNameDraft = ""
+                let ll = lane < lines.count ? lines[lane] : line
+                let n = ll.kitNotesResolved
+                kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n[r]); kitEditorPrevNote = n[r]
+                kitEditorNameDraft = ll.kitNamesResolved[r]   // §3: the selected rank's current label
                 kitEditor = KitEditorTarget(lane: lane, rank: r)
             },
             onAssignNote: { note in
                 let old = notes[rank]
                 edit(lane) { var nn = $0.kitNotesResolved; var nm = $0.kitNamesResolved; nn[rank] = note; nm[rank] = euclideousGMDrumName(note); $0.kitNotes = nn; $0.kitNames = nm }   // §4.6 note + GM name, one step
-                kitEditorPrevNote = old; kitEditorNameDraft = ""
+                kitEditorPrevNote = old; kitEditorNameDraft = euclideousGMDrumName(note)   // §4.6: the field follows the new GM name
                 let vel = euclideousKitScaledVelocity(base: 100, kitVel: Int(vels[rank]))   // §4.6 audition at the rank's velocity
                 if let v = vel { onKitAudition(lane, Int(note), Int(v)) }
             },
@@ -7961,7 +7964,8 @@ struct EuclideousPage: View {
             onSetVel: { v, first in editStep(lane, first) { var vv = $0.kitVelResolved; vv[rank] = UInt8(max(0, min(100, v))); $0.kitVel = vv } },   // §4.4 one step per drag
             onOctave: { up in kitEditorRangeLow = euclideousKitEditorOctaveStep(lowC: kitEditorRangeLow, up: up) },   // §4.9 UI only
             onResetGM: { edit(lane) { $0.kitNotes = euclideousKitDefaultNotes; $0.kitNames = euclideousKitNamesResolved(nil, notes: euclideousKitDefaultNotes); $0.kitVel = euclideousKitDefaultVel }   // §4.10
-                let n = euclideousKitDefaultNotes[rank]; kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n); kitEditorPrevNote = n },
+                let n = euclideousKitDefaultNotes[rank]; kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n); kitEditorPrevNote = n
+                kitEditorNameDraft = euclideousKitNamesResolved(nil, notes: euclideousKitDefaultNotes)[rank] },
             onClose: { kitEditor = nil },
             nameDraft: $kitEditorNameDraft)
     }

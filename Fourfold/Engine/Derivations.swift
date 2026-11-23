@@ -12893,6 +12893,7 @@ func euclideousCanonInertCaption(sourceOn: Bool, pitch: EuclideousListenPitchMod
 /// TRADE) — those legitimately carry no own source; nor when it has no hits / is off (already silent for a named reason); nor
 /// when a MIDI chip is on but nothing is held right now (that is a lane WAITING for input, by design — a chip being on ⇒ mask ≠ 0).
 func euclideousLaneHasNoInput(_ line: EuclidLine) -> Bool {
+    guard !line.kitOnResolved else { return false }                    // KIT SOURCE: the kit IS the input (its 8 notes), regardless of the source chips
     guard line.poolSrcMaskResolved == 0 else { return false }          // at least one source chip on ⇒ has (or is waiting for) input
     guard euclideousLaneRunsInEngine(line) else { return false }        // PLAY on and hits > 0 (or inverted) — it would strike
     guard line.listenPitchResolved != .shadow, line.listenPitchResolved != .echo else { return false }   // plays another lane's pool
@@ -13306,7 +13307,7 @@ func euclideousKitEditorLayout(box: CGSize, lowC: Int) -> EuclideousKitEditorLay
     let octUp = CGRect(x: innerX + octW + 6, y: y, width: octW, height: 36)
     let kbX = octUp.maxX + 10
     let kbW = max(1, card.maxX - pad - kbX)
-    let kbH = max(1, card.maxY - pad - y)
+    let kbH = max(1, min(132, card.maxY - pad - y))   // §4.5: a fixed, modest keyboard height (was "all remaining" — far too tall); empty space below is fine
     let keyboard = CGRect(x: kbX, y: y, width: kbW, height: kbH)
     // 14 white keys edge-to-edge; 10 blacks straddling the boundaries, 60 % width, 62 % height
     let whiteW = kbW / 14

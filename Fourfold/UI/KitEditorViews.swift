@@ -109,13 +109,14 @@ struct EuclideousKitEditorView: View {
     private func nameVel(_ L: EuclideousKitEditorLayout) -> some View {
         let vel = selectedRank < vels.count ? Int(vels[selectedRank]) : 100
         return Group {
-            // NAME — a text field (≤6 chars, uppercased on commit)
-            TextField("", text: $nameDraft, onCommit: { onSetName(nameDraft) })
+            // NAME — a text field seeded with the rank's current label; it saves on every change (not only on return — §4.4).
+            TextField("NAME", text: $nameDraft, onCommit: { onSetName(nameDraft) })
                 .textFieldStyle(.plain)
                 .font(.system(size: 14, weight: .heavy, design: .monospaced))
                 .foregroundColor(Color(hex: 0xF2F4F7))
                 .autocorrectionDisabled(true)
                 .multilineTextAlignment(.leading)
+                .onChange(of: nameDraft) { onSetName($0) }
                 .padding(.horizontal, 10)
                 .frame(width: L.nameField.width, height: L.nameField.height, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x14151A)))
