@@ -2739,6 +2739,12 @@ struct EuclideousPage: View {
         let followEff = followIdx != nil ? euclideousEffectivePattern(lane: idx, lines: phaseLines) : nil
         let listenFollowTint: Color? = followIdx.map { laneAccents[$0 % laneAccents.count] }   // the partner's colour: the lit cells + the badge dot
         let listenShadowTint: Color? = phaseLines[idx].listenPitchResolved == .shadow ? laneAccents[line.listenSourceResolved(ownLane: idx) % laneAccents.count] : nil
+        // EUCLID FROM (2026-11-23, Paul): a FOLLOWING lane's comet strip — the always-visible, most prominent component on the
+        // card — draws its LIT (hit) cells in the lane it has ADOPTED (the ROOT's colour), at full strength, so the whole card
+        // reads "playing lane X's pattern" on every tab. The strip already shows the inherited STEP COUNT (the plan is built
+        // from `euclideousDisplayLine`, i.e. the root's 16). LISTEN's own partner tint still wins if both somehow apply.
+        let euclidFromRoot = euclideousEuclidRoot(lines, idx)
+        let euclidFromTint: Color? = euclidFromRoot.root != idx ? laneAccents[euclidFromRoot.root % laneAccents.count] : nil
         // LANES GRID: the lane's own grid, resolved exactly as the engine resolves it, so the card's comet / flashes follow the rhythm origin and a
         // lane the grid has muted dims. Both stay nil for a lane with no restart marks / no mute, leaving its card byte-identical.
         let gridView = euclideousLaneGridView(lines: lines, lane: idx, legacy: lanesSeq, defaultRateBeats: 0.25, beatsPerBar: clock.beatsPerBar)
@@ -2831,7 +2837,7 @@ struct EuclideousPage: View {
                       // colour, faded, and the comet sweeps at the partner's rate × the multiplier.
                       patternOverride: laneTimingBoxes(idx, line) ?? followEff.map { Array($0.buf.prefix($0.n)) },
                       dirOverride: euclideousLaneDisplayDirection(lane: idx, lines: phaseLines),
-                      cellTint: listenFollowTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
+                      cellTint: listenFollowTint ?? euclidFromTint, cellFade: followIdx != nil ? euclideousListenCellFade : 1,
                       rateBeatsOverride: followEff?.rateBeats,
                       restartChains: cardChains.isActive ? cardChains : nil,
                       mutedAt: cardMuteCells == 0xFFFF ? nil : { b in !euclideousLaneAudible(beat: lanesMusicalBeat(real: b), cells16: cardMuteCells, unitBeats: cardMuteUnit) },

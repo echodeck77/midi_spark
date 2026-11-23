@@ -1120,3 +1120,8 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   follower's own untouched pattern. Deferred/approximate (flag if wrong): the pulse's instant-on vs 0.3 s-fade is a single
   eased transition both ways; the root card's STRIP top-line pulse and the MIX strip's hits/steps DRAG write-through are
   NOT done (the MIX strip TAP does write through); RESETS tiles on a follower still read the follower's own pattern.
+- EUCLID FROM adopted-colour (2026-11-23, Paul): a FOLLOWING lane's comet strip draws its LIT (hit) cells in the lane it
+  adopted (the ROOT's colour), full strength — confirm it reads clearly as "playing lane X" on every tab and in all four
+  lane colours, and that the comet head staying the lane's OWN colour isn't confusing. (The step COUNT already shows the
+  source's — e.g. 16 for an 8-native follower of a 16-step lane — proven by `EuclidFromTests.testFollowerOfA16StepSourceShowsSixteen`;
+  if a reloaded session still shows the native count, it predates the slice-7 decoder fix and the FROM link must be re-made.)

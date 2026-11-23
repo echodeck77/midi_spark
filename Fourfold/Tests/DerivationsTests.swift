@@ -2928,6 +2928,14 @@ final class EuclidFromTests: XCTestCase {
         XCTAssertEqual(euclideousEffectiveEuclid(lines, 1).pulses, 5)
     }
 
+    // Paul 2026-11-23: a lane whose NATIVE is 8 following a 16-step source shows the source's 16 (steps, offset range, pattern).
+    func testFollowerOfA16StepSourceShowsSixteen() {
+        let lines = [line(steps: 16, pulses: 9, rotate: 3), line(steps: 8, pulses: 3, from: 0, fromOff: 5), line(), line()]
+        XCTAssertEqual(euclideousEffectiveEuclid(lines, 1).steps, 16, "the 8-native follower inherits the 16-step source's count")
+        XCTAssertEqual(euclideousEffectiveEuclid(lines, 1).pulses, 9)
+        XCTAssertEqual(euclideousEffectiveLine(lines, 1).steps, 16, "the display line (stepper + comet strip plan) shows 16")
+    }
+
     // §10.3: chain 2 FROM 1 FROM 0 resolves to lane 0's shape with both relative offsets summed.
     func testEffectiveEuclidChainSumsBothOffsets() {
         let lines = [line(steps: 8, pulses: 3, rotate: 1), line(steps: 4, pulses: 2, from: 0, fromOff: 2),
