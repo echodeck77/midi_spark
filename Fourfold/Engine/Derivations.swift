@@ -13190,11 +13190,72 @@ func euclideousRankChipMinWidth() -> CGFloat {
 /// 6.3: the next lane, 1 → 2 → 3 → 4 → 1 (0-based here).
 func euclideousPickedLaneNext(_ current: Int) -> Int { (((current % 4) + 4) % 4 + 1) % 4 }
 
-/// INPUTS v2 §2.5a / §6.3: APPLY TO ALL — copy a lane's SOURCES (`poolSrcMask`, incl. the CHORD 1/2 grid bit) and MIDI mode (`midiMode`) onto every OTHER lane. DELAY CHORD (`chordDelay`) and everything else are left untouched. One mutation ⇒ one undo step. Behaviour unchanged from the as-built inline copy (extracted so it is test-covered).
+// MARK: - KIT SOURCE (ferry 2026-11-23) — fixed drum notes per lane; pure, allocation-free on the render-read side.
+
+/// §1.3 the default kit, rank 1→8 (GM: KICK 36, RIM 37, SNR 38, CLAP 39, CH 42, PH 44, OH 46, CRASH 49).
+let euclideousKitDefaultNotes: [UInt8] = [36, 37, 38, 39, 42, 44, 46, 49]
+/// §1.1 default velocity (100 % on every rank).
+let euclideousKitDefaultVel: [UInt8] = Array(repeating: 100, count: 8)
+
+/// §1.5 the GM short name for notes 35…81; a note outside that range takes its note name in the app's convention (C4 = 60).
+func euclideousGMDrumName(_ note: UInt8) -> String {
+    switch note {
+    case 35: return "KICK 2"; case 36: return "KICK"; case 37: return "RIM"; case 38: return "SNR"; case 39: return "CLAP"
+    case 40: return "SNR 2"; case 41: return "F TOM"; case 42: return "CH"; case 43: return "F TOM"; case 44: return "PH"
+    case 45: return "L TOM"; case 46: return "OH"; case 47: return "M TOM"; case 48: return "M TOM"; case 49: return "CRASH"
+    case 50: return "H TOM"; case 51: return "RIDE"; case 52: return "CHINA"; case 53: return "BELL"; case 54: return "TAMB"
+    case 55: return "SPLSH"; case 56: return "COWB"; case 57: return "CRSH 2"; case 58: return "VIBRA"; case 59: return "RIDE 2"
+    case 60: return "H BNGO"; case 61: return "L BNGO"; case 62: return "MT CNG"; case 63: return "H CNGA"; case 64: return "L CNGA"
+    case 65: return "H TIMB"; case 66: return "L TIMB"; case 67: return "H AGGO"; case 68: return "L AGGO"; case 69: return "CABASA"
+    case 70: return "MARACA"; case 71: return "S WHSL"; case 72: return "L WHSL"; case 73: return "S GURO"; case 74: return "L GURO"
+    case 75: return "CLAVE"; case 76: return "H WOOD"; case 77: return "L WOOD"; case 78: return "M CUCA"; case 79: return "O CUCA"
+    case 80: return "M TRI"; case 81: return "O TRI"
+    default: return euclideousNoteViewName(note, flatKey: false)
+    }
+}
+/// §1.1/§4.4 sanitise a user name: uppercased, ≤ 6 characters; empty ⇒ the GM name of `note`.
+func euclideousKitNameClean(_ raw: String, note: UInt8) -> String {
+    let up = String(raw.uppercased().prefix(6))
+    return up.isEmpty ? euclideousGMDrumName(note) : up
+}
+/// §1.2 pad/clamp the stored notes to exactly 8 (the default kit filling any gap), each 0…127. nil/empty ⇒ the default kit.
+func euclideousKitNotesClamped(_ stored: [UInt8]?) -> [UInt8] {
+    guard let s = stored, !s.isEmpty else { return euclideousKitDefaultNotes }
+    return (0..<8).map { i in i < s.count ? min(127, s[i]) : euclideousKitDefaultNotes[i] }
+}
+/// §1.2 pad/clamp the stored velocities to exactly 8 (100 filling any gap), each 0…100.
+func euclideousKitVelClamped(_ stored: [UInt8]?) -> [UInt8] {
+    guard let s = stored, !s.isEmpty else { return euclideousKitDefaultVel }
+    return (0..<8).map { i in i < s.count ? min(100, s[i]) : 100 }
+}
+/// §1.1 resolve the 8 names: a stored (cleaned) name, else the GM name of the rank's note. UI only (not on the render path).
+func euclideousKitNamesResolved(_ stored: [String]?, notes: [UInt8]) -> [String] {
+    (0..<8).map { i in
+        let n = i < notes.count ? notes[i] : 0
+        if let s = stored, i < s.count, !s[i].isEmpty { return euclideousKitNameClean(s[i], note: n) }
+        return euclideousGMDrumName(n)
+    }
+}
+/// §3.1 the per-rank velocity scale: round(base × kitVel / 100), clamped 1…127; nil when kitVel is 0 (the rank sends no note, §3.2).
+@inline(__always) func euclideousKitScaledVelocity(base: Int, kitVel: Int) -> UInt8? {
+    if kitVel <= 0 { return nil }
+    if kitVel >= 100 { return UInt8(max(1, min(127, base))) }
+    return UInt8(max(1, min(127, Int((Double(base) * Double(kitVel) / 100.0).rounded()))))
+}
+/// §4.9 the kit editor's opening range: the low C (a multiple of 12, 0…108) whose first octave holds `note`, or whose second does when the first would start above 108.
+func euclideousKitEditorRangeLowC(note: UInt8) -> Int {
+    let c = (Int(note) / 12) * 12
+    return max(0, min(108, c > 108 ? c - 12 : c))
+}
+
+/// INPUTS v2 §2.5a / §6.3: APPLY TO ALL — copy a lane's SOURCES (`poolSrcMask`, incl. the CHORD 1/2 grid bit), MIDI mode (`midiMode`) and (KIT SOURCE ferry §1.8) the four kit fields onto every OTHER lane. DELAY CHORD (`chordDelay`) and everything else are left untouched. One mutation ⇒ one undo step. Extracted so it is test-covered.
 func euclideousApplyInputsToAll(_ lines: inout [EuclidLine], from idx: Int) {
     guard idx >= 0, idx < lines.count else { return }
     let s = lines[idx]
-    for i in lines.indices where i != idx { lines[i].poolSrcMask = s.poolSrcMask; lines[i].midiMode = s.midiMode }
+    for i in lines.indices where i != idx {
+        lines[i].poolSrcMask = s.poolSrcMask; lines[i].midiMode = s.midiMode
+        lines[i].kitOn = s.kitOn; lines[i].kitNotes = s.kitNotes; lines[i].kitNames = s.kitNames; lines[i].kitVel = s.kitVel   // KIT SOURCE §1.8
+    }
 }
 
 // ── §2 THE TAB'S LAYOUT ──────────────────────────────────────────────────────────────────────────────────────────────────

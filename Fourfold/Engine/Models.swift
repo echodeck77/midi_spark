@@ -847,6 +847,17 @@ struct EuclidLine: Codable, Equatable {
     // a self-reference and any loop collapse to nil. Saved, undoable, NOT a host parameter (§7.4), NOT a lane-lock field.
     var euclidFrom: Int? = nil
     var euclidFromOffset: Int? = nil
+    // KIT SOURCE (ferry 2026-11-23, §1.1): a per-lane drum kit — 8 fixed notes (rank 1→8, stored order), each with a name (≤6 chars, UI only) and a velocity (0…100 %). Additive-Optional, declared LAST (the SnapshotBuilder
+    // memberwise literal is omitted by design and the custom decoder reads these explicitly). nil ⇒ off + the default kit (§1.2). The ENGINE reads the render-ready `EuclideousKitSnap` (fixed-size, built in SnapshotBuilder), NOT
+    // these arrays — so the resolvers below (which allocate) are for the UI / SnapshotBuilder only, never the render thread (§1.6).
+    var kitOn: Bool? = nil
+    var kitNotes: [UInt8]? = nil
+    var kitNames: [String]? = nil
+    var kitVel: [UInt8]? = nil
+    var kitOnResolved: Bool { kitOn ?? false }
+    var kitNotesResolved: [UInt8] { euclideousKitNotesClamped(kitNotes) }     // §1.2 pad/clamp to 8; default kit when nil
+    var kitVelResolved: [UInt8] { euclideousKitVelClamped(kitVel) }           // §1.2 pad/clamp to 8; default 100
+    var kitNamesResolved: [String] { euclideousKitNamesResolved(kitNames, notes: kitNotesResolved) }   // UI only
     /// §3.1: nil (own) or a legal 0…3 that is not this lane; any out-of-range or self value resolves to own here (the stored value
     /// is cleaned at load by `normalizeEuclidFromAtLoad`; this is the render-thread-safe read). Mirrors `riffSourceLaneResolved`.
     func euclidFromResolved(ownLane: Int) -> Int? { guard let s = euclidFrom, s >= 0, s < 4, s != ownLane else { return nil }; return s }
@@ -1454,6 +1465,11 @@ extension EuclidLine {
         riffSourceLane = (try? c.decodeIfPresent(Int.self, forKey: .riffSourceLane)).flatMap { $0 }.flatMap { (0..<4).contains($0) ? $0 : nil }   // RIFF SOURCE ferry (§8.1): the custom decoder must read it; a loop/self is cleaned by normalizeRiffSourcesAtLoad after the four lanes load
         euclidFrom = (try? c.decodeIfPresent(Int.self, forKey: .euclidFrom)).flatMap { $0 }.flatMap { (0..<4).contains($0) ? $0 : nil }   // EUCLID FROM ferry (§2.1): the custom decoder must read it, or a saved FROM is lost on load; a loop/self is cleaned by normalizeEuclidFromAtLoad
         euclidFromOffset = (try? c.decodeIfPresent(Int.self, forKey: .euclidFromOffset)).flatMap { $0 }
+        // KIT SOURCE (ferry 2026-11-23): the custom decoder must read each kit field, or a saved kit is lost on load (resolvers clamp/pad at read time, so raw storage is kept here).
+        kitOn = (try? c.decodeIfPresent(Bool.self, forKey: .kitOn)).flatMap { $0 }
+        kitNotes = (try? c.decodeIfPresent([UInt8].self, forKey: .kitNotes)).flatMap { $0 }
+        kitNames = (try? c.decodeIfPresent([String].self, forKey: .kitNames)).flatMap { $0 }
+        kitVel = (try? c.decodeIfPresent([UInt8].self, forKey: .kitVel)).flatMap { $0 }
         notesBassOn = (try? c.decodeIfPresent(Bool.self, forKey: .notesBassOn)).flatMap { $0 }
         notesBassMode = (try? c.decodeIfPresent(EuclideousBassMode.self, forKey: .notesBassMode)).flatMap { $0 }
         notesShiftStart = (try? c.decodeIfPresent(Int.self, forKey: .notesShiftStart)).flatMap { $0 }

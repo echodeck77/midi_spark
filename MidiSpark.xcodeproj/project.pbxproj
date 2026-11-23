@@ -196,6 +196,7 @@
 		51142768E24F20693A5BFF40 /* FourfoldTransportClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAF284C129AE0A5A999BCBC /* FourfoldTransportClock.swift */; };
 		515AC8EFDF9F6B1DD84898FD /* Router.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80701821EB9AD6D1683D1DDD /* Router.swift */; };
 		51A37B1488B09240E4BC081F /* EmitterCCTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEFD2AB47B6CFF23BF8A2769 /* EmitterCCTests.swift */; };
+		51A67992B8A38DDAB7F3DE3C /* KitSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2723EF5DD21AF157C72E87BE /* KitSourceTests.swift */; };
 		51C730004A1AC324DDB4C4B9 /* FillRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BA41AD77C8490B0DE3D73D5 /* FillRegion.swift */; };
 		52285FEB6BDCD4E6215D40FA /* SharedUIHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F380ACB5AA7EF62B0F677A8A /* SharedUIHelpers.swift */; };
 		52F5DCC716C93C7604A01595 /* RiffDirectionHuntTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB94EF7295FC02210D4E1DDD /* RiffDirectionHuntTests.swift */; };
@@ -696,6 +697,7 @@
 		225D04471362741A939D49DE /* LaneSoloTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneSoloTests.swift; sourceTree = "<group>"; };
 		22F2A9EB8BFA7038CE4C84B1 /* LaneStripFuzzTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripFuzzTests.swift; sourceTree = "<group>"; };
 		24C15BDAB89DD4B8DEF42338 /* HarmonyLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarmonyLayout.swift; sourceTree = "<group>"; };
+		2723EF5DD21AF157C72E87BE /* KitSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KitSourceTests.swift; sourceTree = "<group>"; };
 		27A99EA407A142E2752035D5 /* PresetsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetsTests.swift; sourceTree = "<group>"; };
 		29CF77F773CA703BF84AE945 /* PlayAsRowsAmendment3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsRowsAmendment3Tests.swift; sourceTree = "<group>"; };
 		29E016452526AE786D501E59 /* FourfoldAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldAppModel.swift; sourceTree = "<group>"; };
@@ -1238,6 +1240,7 @@
 				3248864521E73EC4CC4F6F45 /* InputsTestAuditionTests.swift */,
 				9BD3D562FB62A7DDBC0632B9 /* InputsV2Tests.swift */,
 				5E4B699546974CAE2E93625C /* KernelHostTests.swift */,
+				2723EF5DD21AF157C72E87BE /* KitSourceTests.swift */,
 				A7DA6ABCB082900BEE40BD4E /* LaneLockTests.swift */,
 				EBD9DBBEEFA1051724E66556 /* LanesGridTests.swift */,
 				225D04471362741A939D49DE /* LaneSoloTests.swift */,
@@ -2171,6 +2174,7 @@
 				0275A7783E9F5083A68FE800 /* InputsV2Tests.swift in Sources */,
 				A5E9CAB57C550268D5B0C37A /* Kernel.swift in Sources */,
 				981570A593FE41A139816F6C /* KernelHostTests.swift in Sources */,
+				51A67992B8A38DDAB7F3DE3C /* KitSourceTests.swift in Sources */,
 				F05E9AE1A7913956B2AE8C67 /* LaneLockTests.swift in Sources */,
 				C824D765CA367D040CAEB674 /* LaneSoloTests.swift in Sources */,
 				F93EED8D0A68E7ABB780FA27 /* LaneStripBands.swift in Sources */,
