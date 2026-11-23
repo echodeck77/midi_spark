@@ -149,9 +149,19 @@ struct EuclideousKitEditorView: View {
 
     // MARK: octave ‹ / › (§4.9)
     private func octaveButtons(_ L: EuclideousKitEditorLayout) -> some View {
-        Group {
+        let hi = min(127, lowC + 23)
+        return Group {
             octButton("‹", rect: L.octDown, enabled: lowC > 0) { onOctave(false) }
             octButton("›", rect: L.octUp, enabled: lowC < 96) { onOctave(true) }
+            // the visible note range, so it's clear which octaves are shown (Paul 2026-11-23)
+            VStack(spacing: 1) {
+                Text("\(lowC)–\(hi)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                Text("C\(lowC / 12 - 1)–C\(hi / 12 - 1)").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+            }
+            .frame(width: L.octUp.maxX - L.octDown.minX)
+            .position(x: (L.octDown.minX + L.octUp.maxX) / 2, y: L.octDown.maxY + 16)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Showing notes \(lowC) to \(hi)")
         }
     }
     private func octButton(_ glyph: String, rect: CGRect, enabled: Bool, action: @escaping () -> Void) -> some View {
@@ -180,10 +190,14 @@ struct EuclideousKitEditorView: View {
                 if let p = prevNote, p == k.note, !on {
                     ctx.stroke(Path(roundedRect: r.insetBy(dx: 3, dy: 3), cornerRadius: 2), with: .color(laneColor), lineWidth: 2)   // §4.7 previous-note mark
                 }
-                // a C gets a faint label
-                if Int(k.note) % 12 == 0 {
-                    let t = Text("C\(Int(k.note) / 12 - 1)").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
-                    ctx.draw(t, at: CGPoint(x: r.midX, y: r.maxY - 9))
+                // Every white key is labelled with its MIDI note number so the visible range reads at a glance (Paul 2026-11-23); a C is emphasised (dark, with its octave) as the octave anchor.
+                let isC = Int(k.note) % 12 == 0
+                let ink = Color(hex: on ? 0x0D0F14 : (isC ? 0x15171C : 0x6B7280))
+                let num = Text("\(Int(k.note))").font(.system(size: 8.5, weight: isC ? .heavy : .semibold, design: .monospaced)).foregroundColor(ink)
+                ctx.draw(num, at: CGPoint(x: r.midX, y: r.maxY - 9))
+                if isC {
+                    let oct = Text("C\(Int(k.note) / 12 - 1)").font(.system(size: 7.5, weight: .heavy, design: .monospaced)).foregroundColor(ink)
+                    ctx.draw(oct, at: CGPoint(x: r.midX, y: r.maxY - 18))
                 }
             }
             for k in L.blackKeys {
