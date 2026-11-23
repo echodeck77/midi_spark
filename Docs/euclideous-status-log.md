@@ -12535,3 +12535,46 @@ RESET GM restores the default kit. Every frame is pure; every action threads the
 **Proofs.** `run.sh --golden` BYTE-IDENTICAL; `KitSourceTests` (16) + `KitSourceRouterTests` (5) green; build green on
 `Fourfold`. Alloc audit (`CONFIG=Release … --alloc`) and device verification per
 `Docs/euclideous-device-verification-debt.md`. **Held on `feature/kit-source` — not merged to main.**
+
+---
+
+## DRUM MODE ferry (2026-11-23; Fourfold only; branch `feature/kit-source` — NOT LANDED, rides the kit branch awaiting sign-off)
+
+One drum per lane, a velocity ramp across the ranks. Built on the KIT source ferry; findings `Docs/drum-mode-findings.md`.
+
+**Design — the engine barely changed.** DRUM = a kit whose 8 notes are all `drumNote` and whose 8 velocities are the
+ramp. `SnapshotBuilder` fills `kitSnap.notes/vel` per lane by `EuclidLine.fixedMode` (KIT → `kitNotes`/`kitVel`; DRUM →
+`drumNote`×8 / `euclideousDrumRampVels`). `kitOn` stays the on/off; `fixedMode` picks which fills the snapshot. The kit
+ferry's pitch bypass, §3.1 velocity scale, §3.4 same-pitch dedup, `fillKitPool` and the audition all read `kitSnap`
+uniformly, so they work for DRUM with no Router change.
+
+**Model (§1, `Models.swift`/`Derivations.swift`).** `EuclideousFixedMode` (KIT|DRUM) + `EuclideousDrumRamp` (UP|DOWN),
+lenient decode. `EuclidLine.fixedMode/drumNote/drumLow/drumHigh/drumRamp` (additive-Optional, declared last, custom-decoder
+lines; nil ⇒ KIT / per-lane default note / 40–100 / UP). Per-lane default note `euclideousDrumNote(line:lane:)` = 36/38/42/39
+(nil stays nil in the model so nothing saved changes). Pure `euclideousDrumRampVel(rank:low:high:ramp:)` (§2.2) /
+`euclideousDrumRampVels`. APPLY TO ALL copies `fixedMode` + the four drum fields (drumNote materialised from the source lane).
+
+**Engine fix found en route.** The riff layer let `euclideousStrikeRank` fall back to `euclideousPoolRankOf`, which
+collapses to rank 1 when the pool notes are identical (a DRUM lane) — so the velocity ramp never varied. The riff
+`addPitch` now passes the WALK rank for a kit/drum lane (byte-identical for a distinct-note kit, where walk rank ==
+pool rank; golden identical). The notes layer already passed an explicit rank, so it was already correct.
+
+**UI (§3/§4, `EuclideousPage.swift` + `KitEditorViews.swift`).** The KIT chip is a two-segment KIT | DRUM switch
+(`kitDrumSwitch`), widened by taking `chordExtra`/2 (24) from each of MIDI IN and KEY (row total unchanged): at the 1190
+reference the switch is ≈108 pt and MIDI IN / KEY ≈36 pt. A tap on an unlit segment sets `kitOn` + that mode; a tap on the
+lit segment turns `kitOn` off. In DRUM the card swaps the MIDI row → DRUM row (`drumRow`: the drum button opening the
+picker + the ramp UP/DOWN four-bar switch) and DELAY CHORD → VEL row (`drumVelRow`: a two-thumb slider, meet-not-cross,
+one undo step per drag, sounds nothing); APPLY TO ALL stays between them; the six rows reuse the existing `nowH/sourcesH/
+midiH/canonH` so the row count (and fit) is unchanged. POOL cells on a DRUM lane show the rank's ramp velocity. The drum
+picker is the kit editor in a DRUM variant (`isDrumPicker`: title DRUM, no RESET/ranks/NAME, taller keyboard — the layout
+fn gained `showsRanksAndName`); a key sets `drumNote` and auditions at `drumHigh`. The kit editor gains a DRUM button
+(`onMakeDrum`, before RESET GM) that sends the selected rank's note to DRUM and closes.
+
+**§2.3 / PLAY AS VOICES on a DRUM lane:** every rank is the same `drumNote`, so VOICES=ALL choosing several ranks
+collapses (via §3.4) to ONE hit at the loudest chosen rank's ramp velocity — a single drum hit, never a chord.
+
+**No migration / deletions.** `fixedMode` nil ⇒ KIT, so nothing saved changes.
+
+**Proofs.** `run.sh --golden` BYTE-IDENTICAL; `CONFIG=Release … --alloc` PASS (0); `DrumModeTests` (7) +
+`KitSourceRouterTests` drum cases (3: pool-is-one-note, ramp-velocity, same-pitch-highest-rank) + all kit tests green;
+build green. Device verification per `Docs/euclideous-device-verification-debt.md`. Held on `feature/kit-source`.

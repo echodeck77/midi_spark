@@ -1145,3 +1145,10 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
     assigns the note + GM name + sounds it; the previous-note mark shows; every action is one undo step.
   - Layout legibility of the editor at both AUM sizes (portrait + landscape) — all frames are from the pure
     `euclideousKitEditorLayout`, device-owed for feel.
+
+- **DRUM MODE (ferry 2026-11-23, on `feature/kit-source`, not landed):** one drum per lane, a velocity ramp across the ranks (§8):
+  - The KIT | DRUM switch reads as two choices at its real width (switch ≈ plainW+48 ≈ 108 pt at the 1190 reference; MIDI IN / KEY narrowed to ≈ plainW−24 ≈ 36 pt — confirm "MIDI IN" is still legible at that width).
+  - A 40–100 ramp under a riff walk sounds like accents, not random loudness, on a GM drum app and on one analogue-style machine; DOWN reverses it.
+  - The VEL two-thumb slider's thumbs are easy to grab apart when they're close together (each half of the row goes to the nearer thumb).
+  - The four default drums are right on a GM drum app from fresh (lane 1 KICK 36, lane 2 SNR 38, lane 3 CH 42, lane 4 CLAP 39), rank 8 loudest.
+  - The DRUM row (name + note + chevron, the ramp UP/DOWN four-bar icons) and the POOL cells' ramp-velocity readout are legible at both AUM sizes; the drum picker (taller keyboard, no ranks/NAME) and the kit editor's DRUM button read correctly.
