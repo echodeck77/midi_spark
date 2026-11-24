@@ -519,19 +519,22 @@ enum SnapshotBuilder {
         // KIT SOURCE (2026-11-23, §1.6/§2.1): the render-ready drum kit, from the SAME lanes the engine reads (this cell's `euclidLinesForEditing()`). Empty while no lane has KIT on ⇒ the Router skips every KIT branch, byte-identical.
         do {
             let kitLanes = p.euclidLinesForEditing()
-            if kitLanes.prefix(4).contains(where: { $0.kitOnResolved }) {
+            // INPUTS MODE (§2): a lane is a fixed-note (KIT / DRUM) lane by its `laneMode` (which migrates from the old kitOn/fixedMode). MELODIC ⇒ off.
+            if kitLanes.prefix(4).contains(where: { $0.euclideousFixedLane }) {
                 var kit = EuclideousKitSnap()
                 kit.notes = [UInt8](repeating: 0, count: 32); kit.vel = [UInt8](repeating: 100, count: 32)
                 for (li, l) in kitLanes.prefix(4).enumerated() {
-                    kit.on[li] = l.kitOnResolved
-                    // DRUM MODE (§2.1/§2.2): `fixedMode` picks what fills this lane's snapshot — KIT fills the 8 kit notes + per-rank kitVel; DRUM fills one note (×8) and the velocity ramp. The Router then reads `kitSnap` uniformly (pitch bypass, §3.1 scale, §3.4 dedup, fillKitPool, audition all unchanged).
-                    if l.fixedModeResolved == .drum {
+                    kit.on[li] = l.euclideousFixedLane
+                    // DRUM / KIT fill this lane's snapshot: KIT → the 8 kit notes + per-rank kitVel; DRUM → one note (×8) + the velocity ramp. The Router reads `kitSnap` uniformly (pitch bypass, §3.1 scale, §3.4 dedup, fillKitPool, audition all unchanged).
+                    switch l.laneModeResolved {
+                    case .drum:
                         let note = euclideousDrumNote(l, lane: li)
                         let ramp = euclideousDrumRampVels(low: l.drumLowResolved, high: l.drumHighResolved, ramp: l.drumRampResolved)
                         for r in 0..<8 { kit.notes[li * 8 + r] = note; kit.vel[li * 8 + r] = ramp[r] }
-                    } else {
+                    case .kit:
                         let n = l.kitNotesResolved, v = l.kitVelResolved
                         for r in 0..<8 { kit.notes[li * 8 + r] = n[r]; kit.vel[li * 8 + r] = v[r] }
+                    case .melodic: break   // on == false; nothing to fill
                     }
                 }
                 out.kitSnap = kit

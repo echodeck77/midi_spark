@@ -869,6 +869,12 @@ struct EuclidLine: Codable, Equatable {
     var drumLowResolved: Int { max(0, min(100, Int(drumLow ?? 40))) }
     var drumHighResolved: Int { max(drumLowResolved, min(100, Int(drumHigh ?? 100))) }
     var drumRampResolved: EuclideousDrumRamp { drumRamp ?? .up }
+    // INPUTS MODE (ferry 2026-11-24, §1.1): the lane's mode — MELODIC | DRUM | KIT — REPLACES `kitOn` (kit ferry) and `fixedMode` (drum ferry) as the switch. Additive-Optional; the custom decoder reads it; `kitOn`/`fixedMode` stay decodable and are no longer written (§1.2).
+    var laneMode: EuclideousLaneMode? = nil
+    /// §1.2: nil migrates from the old fields — kitOn off ⇒ MELODIC; kitOn on + fixedMode DRUM ⇒ DRUM; kitOn on + KIT/nil ⇒ KIT. (`kitOnResolved`/`fixedModeResolved` default false/.kit, so this is exactly §1.2.)
+    var laneModeResolved: EuclideousLaneMode { if let m = laneMode { return m }; return kitOnResolved ? (fixedModeResolved == .drum ? .drum : .kit) : .melodic }
+    /// The render-side "is this a fixed-note (kit/drum) lane" the engine keys off (replaces the old `kitOnResolved`).
+    var euclideousFixedLane: Bool { laneModeResolved != .melodic }
     /// §3.1: nil (own) or a legal 0…3 that is not this lane; any out-of-range or self value resolves to own here (the stored value
     /// is cleaned at load by `normalizeEuclidFromAtLoad`; this is the render-thread-safe read). Mirrors `riffSourceLaneResolved`.
     func euclidFromResolved(ownLane: Int) -> Int? { guard let s = euclidFrom, s >= 0, s < 4, s != ownLane else { return nil }; return s }
@@ -1487,6 +1493,7 @@ extension EuclidLine {
         drumLow = (try? c.decodeIfPresent(UInt8.self, forKey: .drumLow)).flatMap { $0 }
         drumHigh = (try? c.decodeIfPresent(UInt8.self, forKey: .drumHigh)).flatMap { $0 }
         drumRamp = (try? c.decodeIfPresent(EuclideousDrumRamp.self, forKey: .drumRamp)).flatMap { $0 }
+        laneMode = (try? c.decodeIfPresent(EuclideousLaneMode.self, forKey: .laneMode)).flatMap { $0 }   // INPUTS MODE §1.2: nil ⇒ migrate from kitOn/fixedMode at read time (laneModeResolved)
         notesBassOn = (try? c.decodeIfPresent(Bool.self, forKey: .notesBassOn)).flatMap { $0 }
         notesBassMode = (try? c.decodeIfPresent(EuclideousBassMode.self, forKey: .notesBassMode)).flatMap { $0 }
         notesShiftStart = (try? c.decodeIfPresent(Int.self, forKey: .notesShiftStart)).flatMap { $0 }

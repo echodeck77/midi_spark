@@ -69,6 +69,40 @@ final class DrumModeTests: XCTestCase {
         XCTAssertEqual(l.drumNote, 44); XCTAssertEqual(l.drumLowResolved, 30); XCTAssertEqual(l.drumHighResolved, 95); XCTAssertEqual(l.drumRampResolved, .down)
     }
 
+    // INPUTS MODE §7.1 — decode: nil ⇒ MELODIC; stored kitOn/fixedMode map per §1.2.
+    func testLaneModeMigration() {
+        var l = EuclidLine(noteSel: .all)
+        XCTAssertNil(l.laneMode); XCTAssertEqual(l.laneModeResolved, .melodic)
+        l.kitOn = false; XCTAssertEqual(l.laneModeResolved, .melodic)
+        l.kitOn = true; l.fixedMode = nil; XCTAssertEqual(l.laneModeResolved, .kit)
+        l.fixedMode = .kit; XCTAssertEqual(l.laneModeResolved, .kit)
+        l.fixedMode = .drum; XCTAssertEqual(l.laneModeResolved, .drum)
+        l.laneMode = .melodic; XCTAssertEqual(l.laneModeResolved, .melodic, "an explicit laneMode wins over the old fields")
+        XCTAssertTrue(EuclidLine(noteSel: .all).laneModeResolved == .melodic)
+        XCTAssertFalse(EuclidLine(noteSel: .all).euclideousFixedLane)
+    }
+
+    // INPUTS MODE §7.2 — switching MELODIC → KIT → DRUM → MELODIC keeps every mode's settings.
+    func testModeSwitchKeepsEverything() {
+        var l = EuclidLine(noteSel: .all)
+        l.poolSrcMask = 0b01010; l.midiMode = .root
+        l.kitNotes = [60, 61, 62, 63, 64, 65, 66, 67]; l.kitVel = [10, 20, 30, 40, 50, 60, 70, 80]
+        l.drumNote = 44; l.drumLow = 30; l.drumHigh = 95; l.drumRamp = .down
+        l.laneMode = .melodic; l.laneMode = .kit; l.laneMode = .drum; l.laneMode = .melodic
+        XCTAssertEqual(l.poolSrcMask, 0b01010); XCTAssertEqual(l.midiMode, .root)
+        XCTAssertEqual(l.kitNotesResolved, [60, 61, 62, 63, 64, 65, 66, 67]); XCTAssertEqual(l.kitVelResolved, [10, 20, 30, 40, 50, 60, 70, 80])
+        XCTAssertEqual(l.drumNote, 44); XCTAssertEqual(l.drumHighResolved, 95); XCTAssertEqual(l.drumRampResolved, .down)
+    }
+
+    // INPUTS MODE §7.1 round-trip — the custom decoder reads laneMode.
+    func testLaneModeCodable() throws {
+        var l = EuclidLine(noteSel: .all); l.laneMode = .drum
+        var p = PluginState(machines: [Machine(machineID: "g", type: .euclid)], scenes: [SceneState.empty()])
+        p.euclideousLines = [l, EuclidLine(enabled: false), EuclidLine(enabled: false), EuclidLine(enabled: false)]
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(p)).euclideousLinesResolved[0]
+        XCTAssertEqual(back.laneModeResolved, .drum)
+    }
+
     // §6.10 APPLY TO ALL copies fixedMode + the four drum fields (drumNote materialised from the source lane).
     func testApplyToAll() {
         var lines = (0..<4).map { _ in EuclidLine(noteSel: .all) }

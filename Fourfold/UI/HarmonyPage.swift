@@ -243,7 +243,7 @@ struct EuclideousHarmonyPage: View {
         .accessibilitySortPriority(set == 0 ? 60 : 50)
     }
     private func lanesOnGrid(_ set: Int) -> [Int] {
-        (0..<min(4, lines.count)).filter { lines[$0].poolChordsOn && euclideousLaneChordGrid(lines[$0].poolSrcMaskResolved) == set }
+        (0..<min(4, lines.count)).filter { !lines[$0].euclideousFixedLane && lines[$0].poolChordsOn && euclideousLaneChordGrid(lines[$0].poolSrcMaskResolved) == set }   // INPUTS MODE §5.5: a DRUM / KIT lane uses neither grid
     }
     private func lanesSpoken(_ set: Int) -> String {
         let l = lanesOnGrid(set).map { $0 + 1 }

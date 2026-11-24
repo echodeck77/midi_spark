@@ -175,6 +175,7 @@ struct EuclideousMixV2BandView: View {
     private func partRow(notes: Bool, f: EuclideousMixV2RowFrames, base: Double) -> some View {
         let part = notes ? EuclideousCardPart.notes : EuclideousCardPart.riff
         let partIndex = 2 * lane + (notes ? 1 : 0)
+        let fixedLane = line.euclideousFixedLane   // INPUTS MODE §5.2/§5.3: GATE + OCT inert on a DRUM / KIT lane
         let on = !euclideousMixLayerIsOff(line, notes: notes)
         let partDim = !on || partSoloDim(notes)
         let mask = notes ? line.notesOutMaskResolved(lane: lane) : line.riffOutMaskResolved(lane: lane)
@@ -196,10 +197,13 @@ struct EuclideousMixV2BandView: View {
             EuclideousMixV2FieldTile(kind: .velocity, notes: notes, value: euclideousMixSliderValue(of: line, kind: .velocity, notes: notes), accent: accent, size: f.vel.size, dimmed: own(.vel) < 1,
                                      onEditStep: { newStep, mutate in callbacks.editStep(lane, newStep, mutate) })
                 .offset(x: f.vel.minX, y: f.vel.minY).accessibilitySortPriority(base - 3)
-            EuclideousMixV2FieldTile(kind: .gate, notes: notes, value: euclideousMixSliderValue(of: line, kind: .gate, notes: notes), accent: accent, size: f.gate.size, dimmed: own(.gate) < 1,
+            // INPUTS MODE §5.2/§5.3: on a DRUM / KIT lane GATE (gate) and OCT (pitch) dim to 42 % and do nothing — the gate is the fixed half-step and pitch is bypassed. VEL stays live.
+            EuclideousMixV2FieldTile(kind: .gate, notes: notes, value: euclideousMixSliderValue(of: line, kind: .gate, notes: notes), accent: accent, size: f.gate.size, dimmed: fixedLane || own(.gate) < 1,
                                      onEditStep: { newStep, mutate in callbacks.editStep(lane, newStep, mutate) })
-                .offset(x: f.gate.minX, y: f.gate.minY).accessibilitySortPriority(base - 4)
-            octave(notes: notes, f: f, dimmed: own(.oct) < 1).accessibilitySortPriority(base - 5)
+                .offset(x: f.gate.minX, y: f.gate.minY).opacity(fixedLane ? EuclideousLaneDimStyle.opacity : 1).allowsHitTesting(!fixedLane)
+                .accessibilityValue(fixedLane ? "inactive" : "").accessibilitySortPriority(base - 4)
+            octave(notes: notes, f: f, dimmed: fixedLane || own(.oct) < 1).opacity(fixedLane ? EuclideousLaneDimStyle.opacity : 1).allowsHitTesting(!fixedLane)
+                .accessibilityValue(fixedLane ? "inactive" : "").accessibilitySortPriority(base - 5)
             // ALT (2026-11-14): a part whose ALT OUT override is armed also lights the alt outputs on the toggles, DIMMED (the main output stays full).
             let altPart = notes ? line.altNotes : line.altRiff
             let altMask: UInt8 = (altPart?.outActive == true) ? (altPart?.outValue ?? 0) : 0

@@ -12893,7 +12893,7 @@ func euclideousCanonInertCaption(sourceOn: Bool, pitch: EuclideousListenPitchMod
 /// TRADE) — those legitimately carry no own source; nor when it has no hits / is off (already silent for a named reason); nor
 /// when a MIDI chip is on but nothing is held right now (that is a lane WAITING for input, by design — a chip being on ⇒ mask ≠ 0).
 func euclideousLaneHasNoInput(_ line: EuclidLine) -> Bool {
-    guard !line.kitOnResolved else { return false }                    // KIT SOURCE: the kit IS the input (its 8 notes), regardless of the source chips
+    guard !line.euclideousFixedLane else { return false }              // KIT / DRUM: the kit/drum IS the input, regardless of the source chips
     guard line.poolSrcMaskResolved == 0 else { return false }          // at least one source chip on ⇒ has (or is waiting for) input
     guard euclideousLaneRunsInEngine(line) else { return false }        // PLAY on and hits > 0 (or inverted) — it would strike
     guard line.listenPitchResolved != .shadow, line.listenPitchResolved != .echo else { return false }   // plays another lane's pool
@@ -13193,6 +13193,8 @@ func euclideousPickedLaneNext(_ current: Int) -> Int { (((current % 4) + 4) % 4 
 
 // MARK: - DRUM MODE (ferry 2026-11-23) — one drum per lane, a velocity ramp across the ranks. Pure; the engine reads the kit snapshot filled by mode.
 
+/// INPUTS MODE (ferry 2026-11-24, §1.1) the lane's mode — the one switch (replaces `kitOn` + `fixedMode`). Lenient decode (unknown ⇒ MELODIC, via the custom decoder's `try?` → nil → the §1.2 migration).
+enum EuclideousLaneMode: String, Codable, Equatable { case melodic = "MELODIC", drum = "DRUM", kit = "KIT" }
 /// §1.1 which fixed-note source `kitOn` turns on: the 8-note KIT or a single DRUM. Lenient decode (unknown ⇒ KIT, via the custom decoder's `try?`).
 enum EuclideousFixedMode: String, Codable, Equatable { case kit = "KIT", drum = "DRUM" }
 /// §1.1 the drum's velocity ramp direction across ranks 1→8.
@@ -13372,6 +13374,7 @@ func euclideousApplyInputsToAll(_ lines: inout [EuclidLine], from idx: Int) {
         lines[i].kitOn = s.kitOn; lines[i].kitNotes = s.kitNotes; lines[i].kitNames = s.kitNames; lines[i].kitVel = s.kitVel   // KIT SOURCE §1.8
         // DRUM MODE §1.6: copy fixedMode + the four drum fields. drumNote is MATERIALISED from the source lane (copying raw nil would give each target its OWN per-lane default, not the source's note).
         lines[i].fixedMode = s.fixedMode; lines[i].drumNote = euclideousDrumNote(s, lane: idx); lines[i].drumLow = s.drumLow; lines[i].drumHigh = s.drumHigh; lines[i].drumRamp = s.drumRamp
+        lines[i].laneMode = s.laneModeResolved   // INPUTS MODE §1.6: copy the resolved mode (materialised so a source whose mode is still the migrated default carries explicitly)
     }
 }
 

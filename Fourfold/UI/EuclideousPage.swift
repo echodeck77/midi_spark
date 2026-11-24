@@ -1111,6 +1111,7 @@ struct EuclideousPage: View {
     @State private var kitEditorNameDraft: String = ""          // §4.4 the NAME field's in-progress text
     @State private var kitEditorIsDrumPicker = false            // DRUM MODE §4.1: the open editor is the DRUM picker (no RESET / ranks / NAME; a key sets the lane's drum note)
     @State private var drumVelDragging = false                  // DRUM MODE §3.5: the two-thumb VEL drag's one-undo-step-per-drag flag
+    @State private var lastSelectedKitRank: [Int: Int] = [:]     // INPUTS MODE §3.4: the rank last selected per lane, so KIT-row EDIT reopens on it (nil ⇒ rank 1)
     // RIBBON SETTINGS §6.1: in TUTTI mode a touch-down toggles ONE mark (the column/rank under the touch); the rest of the drag does nothing. This guards "only the first change of a drag acts".
     @State private var tuttiDragHandled = false
     // RIBBON SETTINGS §9: the live LOOP span (columns lo, hi; 0 = none) + the drag anchor (the column touched down on, fixed until lift). Ephemeral UI state mirroring the kernel live word; not saved/undone.
@@ -2309,15 +2310,15 @@ struct EuclideousPage: View {
             var on = [Bool](repeating: false, count: 4), reading = [Bool](repeating: false, count: 4)
             for l in 0..<n {
                 let line = lines[l]
-                let onG = line.poolChordsOn && line.poolChordGrid == grid
+                let onG = !line.euclideousFixedLane && line.poolChordsOn && line.poolChordGrid == grid   // INPUTS MODE §5.5: a DRUM / KIT lane uses neither grid
                 let mode = euclideousLaneMidiMode(line.midiMode, planMode: sourcePlan.midiModeR)
                 on[l] = onG; reading[l] = onG && !(mode == .replace && line.poolSrcMaskResolved & 1 != 0 && sourceStatus.midiPlaying)
             }
             return (on, reading)
         }
         let la1 = laneArrays(0), la2 = laneArrays(1)
-        let midiInUse = (0..<n).contains { lines[$0].poolSrcMaskResolved & 1 != 0 }
-        let rootInUse = (0..<n).contains { lines[$0].poolSrcMaskResolved & 1 != 0 && euclideousLaneMidiMode(lines[$0].midiMode, planMode: sourcePlan.midiModeR) == .root }
+        let midiInUse = (0..<n).contains { !lines[$0].euclideousFixedLane && lines[$0].poolSrcMaskResolved & 1 != 0 }   // §5.5: a fixed lane isn't counted
+        let rootInUse = (0..<n).contains { !lines[$0].euclideousFixedLane && lines[$0].poolSrcMaskResolved & 1 != 0 && euclideousLaneMidiMode(lines[$0].midiMode, planMode: sourcePlan.midiModeR) == .root }
         let t = sourceStatus.rootTranspose, held = sourceStatus.midiNotes.count, running = clock.playing
         let lampIdle = !running && held == 0 && (headerLampAt == nil || Date().timeIntervalSinceReferenceDate - (headerLampAt ?? 0) >= EuclideousHeaderStatusMetrics.lampHold)
         return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: lampIdle)) { tl in   // §3.6 the playing column moves live while running; while stopped we animate only until the lamp expires. PERF (2026-11-20): the chord/lamp change on musical steps — 30 fps (was display-max, no interval).
@@ -4040,6 +4041,8 @@ struct EuclideousPage: View {
         let mainOct = notes ? line.octaveResolved : line.riffOctaveResolved
         let mainVel = notes ? line.notesVelocityResolved : line.velocityAbsoluteResolved
         let mainGate = euclideousMixSliderValue(of: line, kind: .gate, notes: notes)
+        let fixed = line.euclideousFixedLane   // INPUTS MODE §5.2/§5.3: ALT's OCT (pitch) and GATE dim + inert on a DRUM / KIT lane
+        func dimFixed<V: View>(_ v: V) -> some View { v.opacity(fixed ? EuclideousLaneDimStyle.opacity : 1).allowsHitTesting(!fixed) }
         return ZStack(alignment: .topLeading) {
             riffBandFrame(dim: false) { Color.clear }.frame(width: f.panel.width, height: f.panel.height).offset(x: f.panel.minX, y: f.panel.minY)
             // STYLE PASS 1 §2.4: NO tile — the part name draws as bare text at its built size and place (was a control
@@ -4049,17 +4052,17 @@ struct EuclideousPage: View {
             // row 1 — OUT pill · tokens · OCT pill · OCT boxes
             EuclideousAltPill(label: "OUT", on: part.outActive, accent: accent, frame: f.outPill, axLabel: "\(spoken) out override, \(part.outActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .out) }
             altTokenRow(idx, notes: notes, altMask: part.outValue ?? 0, mainMask: notes ? line.notesOutMaskResolved(lane: idx) : line.riffOutMaskResolved(lane: idx), on: part.outActive, accent: accent, frame: f.tokens)
-            EuclideousAltPill(label: "OCT", on: part.octActive, accent: accent, frame: f.octPill, axLabel: "\(spoken) octave override, \(part.octActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .oct) }
-            altOctControl(idx, notes: notes, alt: part.octValue ?? mainOct, main: mainOct, on: part.octActive, accent: accent, frame: f.octBoxes)
+            dimFixed(EuclideousAltPill(label: "OCT", on: part.octActive, accent: accent, frame: f.octPill, axLabel: "\(spoken) octave override, \(fixed ? "inactive" : (part.octActive ? "on" : "off"))") { altTogglePill(idx, notes: notes, .oct) })
+            dimFixed(altOctControl(idx, notes: notes, alt: part.octValue ?? mainOct, main: mainOct, on: part.octActive, accent: accent, frame: f.octBoxes))
             // row 2 — VEL pill · VEL slider · GATE pill · GATE slider
             EuclideousAltPill(label: "VEL", on: part.velActive, accent: accent, frame: f.velPill, axLabel: "\(spoken) velocity override, \(part.velActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .vel) }
             EuclideousAltSliderTile(main: mainVel, value: part.velValue ?? mainVel, range: 1...127, gate: false, on: part.velActive, accent: accent, frame: f.velSlider,
                                     axLabel: part.velActive ? "\(spoken) alt velocity, \(part.velValue ?? mainVel), main \(mainVel)" : "\(spoken) velocity, main \(mainVel)",
                                     onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { p in altEnsureOn(&p, .vel, line: line, idx: idx, notes: notes); p.vel = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.vel = mainVel } })
-            EuclideousAltPill(label: "GATE", on: part.gateActive, accent: accent, frame: f.gatePill, axLabel: "\(spoken) gate override, \(part.gateActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .gate) }
-            EuclideousAltSliderTile(main: mainGate, value: part.gateValue ?? mainGate, range: 1...99, gate: true, on: part.gateActive, accent: accent, frame: f.gateSlider,
+            dimFixed(EuclideousAltPill(label: "GATE", on: part.gateActive, accent: accent, frame: f.gatePill, axLabel: "\(spoken) gate override, \(fixed ? "inactive" : (part.gateActive ? "on" : "off"))") { altTogglePill(idx, notes: notes, .gate) })
+            dimFixed(EuclideousAltSliderTile(main: mainGate, value: part.gateValue ?? mainGate, range: 1...99, gate: true, on: part.gateActive, accent: accent, frame: f.gateSlider,
                                     axLabel: part.gateActive ? "\(spoken) alt gate, \(part.gateValue ?? mainGate) percent, main \(mainGate)" : "\(spoken) gate, main \(mainGate) percent",
-                                    onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { p in altEnsureOn(&p, .gate, line: line, idx: idx, notes: notes); p.gate = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.gate = mainGate } })
+                                    onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { p in altEnsureOn(&p, .gate, line: line, idx: idx, notes: notes); p.gate = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.gate = mainGate } }))
         }
     }
     /// §5.7 — the four emitter tokens A–D; a token in the alt set takes the lit look; each MAIN-mask emitter carries a pip below it. All unlit at 38 % while the pill is off (§5.8); a tap toggles the bit while on (§6.5).
@@ -6297,7 +6300,7 @@ struct EuclideousPage: View {
             if p < 8 {
                 let rank = p + 1
                 let has = rank <= extended.count
-                let kitNum = line.kitOnResolved ? String(Int(line.kitNotesResolved[rank - 1])) : nil   // KIT SOURCE (Paul 2026-11-23): a KIT lane shows the NOTE NUMBER (stored order), not a pitch name
+                let kitNum: String? = line.euclideousFixedLane ? String(Int(line.laneModeResolved == .drum ? euclideousDrumNote(line, lane: lane) : line.kitNotesResolved[rank - 1])) : nil   // KIT/DRUM: show the NOTE NUMBER (a DRUM lane's is its one drum note)
                 // §5.4: an empty pool — every key takes the copy look and shows its rank number in the centre (no corner number); otherwise the note name and the corner rank number.
                 specs.append(EuclideousRankChipSpec(rank: rank, topKind: 0, received: n > 0 && rank <= n, lit: lit, empty: n == 0, name: kitNum ?? (n == 0 ? String(rank) : (has ? name(extended[rank - 1]) : "\u{2013}")),
                                                     cornerNumber: n > 0, heldBack: lit && receivedOnly && rank > n, place: places[p], riffDot: riffDotRank == rank, sounding: sound))
@@ -6424,9 +6427,11 @@ struct EuclideousPage: View {
                 ranksTilesRow(idx, line, accent, lay: lay)                                   // §A2: the eight tiles + the REPEAT button
                 notesRowAt(lay.whenRow, fullWidth) { whenRiffRow(idx, line, accent, width: fullWidth) }
                 notesRowAt(lay.orderRow, fullWidth) { notesChainRow(idx, line, kind: .order, accent: accent, width: fullWidth) }
-                notesRowAt(lay.voicesRow, fullWidth) { notesChainRow(idx, line, kind: .voices, accent: accent, width: fullWidth) }
-                notesRowAt(lay.spreadRow, fullWidth) { notesChainRow(idx, line, kind: .spread, accent: accent, width: fullWidth) }
-                notesRowAt(lay.bassRow, fullWidth) { bassRow(idx, line, accent, width: fullWidth) }
+                // INPUTS MODE §5.4: on a DRUM lane VOICES / SPREAD / BASS dim + inert (every rank is the one drum note — voicing / spread / bass can't apply). KIT lanes keep them.
+                let drumDim = line.laneModeResolved == .drum
+                notesRowAt(lay.voicesRow, fullWidth) { notesChainRow(idx, line, kind: .voices, accent: accent, width: fullWidth).opacity(drumDim ? EuclideousLaneDimStyle.opacity : 1).allowsHitTesting(!drumDim) }
+                notesRowAt(lay.spreadRow, fullWidth) { notesChainRow(idx, line, kind: .spread, accent: accent, width: fullWidth).opacity(drumDim ? EuclideousLaneDimStyle.opacity : 1).allowsHitTesting(!drumDim) }
+                notesRowAt(lay.bassRow, fullWidth) { bassRow(idx, line, accent, width: fullWidth).opacity(drumDim ? EuclideousLaneDimStyle.opacity : 1).allowsHitTesting(!drumDim) }
                 notesRowAt(lay.emitRow, fullWidth) { emitOctRow(idx, line, accent, width: fullWidth) }
             }
             .opacity(bodyOpacity)
@@ -7836,19 +7841,27 @@ struct EuclideousPage: View {
     /// INPUTS (v2, 2026-11-15): POOL · SOURCES · MIDI · APPLY TO ALL · DELAY CHORD — which harmony a lane hears and when, never which notes are removed from it. The 50 pt label column; heights from `euclideousInputsTabLayout` (POOL/SOURCES/
     /// MIDI/DELAY-CHORD 44 / 30 / 30 / 44, sp14 → 8 → a 30 pt floor) with the 30 pt APPLY TO ALL button + one gap reserved out of the area. When even the floors do not fit (a very short window) the body scrolls: no row is squeezed under 30 pt.
     private func poolTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        // APPLY TO ALL (Paul 2026-11-11): a button in the row flow directly ABOVE DELAY CHORD; its height (+ one gap) is reserved from the area so the four rows + button fit / scroll together. §2.5b: 30 tall.
-        let buttonH: CGFloat = 30
-        let layout = euclideousInputsTabLayout(contentAreaH: max(0, contentAreaH - buttonH - 14))
-        let kitOn = line.kitOnResolved   // KIT SOURCE §5.2: the MIDI row and DELAY CHORD dim to 42 % and do nothing while KIT is on
-        let drum = kitOn && line.fixedModeResolved == .drum   // DRUM MODE §3.2: MIDI → DRUM row, DELAY CHORD → VEL row; APPLY TO ALL stays below them
+        // INPUTS MODE §3.2: the MODE row (first, under the Euclid strip) + the per-mode body. The MODE row (30) + the APPLY button (30) + their two gaps are reserved out of the area; the remaining four row heights come from the existing layout — MELODIC uses all four (POOL/SOURCES/MIDI/DELAY), DRUM three (POOL/DRUM/VEL), KIT two (POOL/KIT).
+        let buttonH: CGFloat = 30, modeH: CGFloat = 30
+        let layout = euclideousInputsTabLayout(contentAreaH: max(0, contentAreaH - buttonH - modeH - 28))
+        let mode = line.laneModeResolved
         let rows = VStack(spacing: layout.gap) {
+            modeRow(idx, line, accent, fullWidth: fullWidth, height: modeH)
             poolNowRow(idx, accent, fullWidth: fullWidth, height: layout.nowH)
-            poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
-            if drum { drumRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH) }
-            else { inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH).opacity(kitOn ? 0.42 : 1).allowsHitTesting(!kitOn) }
-            inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
-            if drum { drumVelRow(idx, line, accent, fullWidth: fullWidth, height: layout.canonH) }
-            else { listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH).opacity(kitOn ? 0.42 : 1).allowsHitTesting(!kitOn) }
+            switch mode {
+            case .melodic:
+                poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
+                inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
+                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
+                listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH)
+            case .drum:
+                drumRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
+                drumVelRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
+                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
+            case .kit:
+                kitRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
+                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
+            }
             Spacer(minLength: 0)
         }
         if layout.fits { return AnyView(rows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
@@ -7888,8 +7901,10 @@ struct EuclideousPage: View {
         let chipsW = max(1, fullWidth - labelW - sp6 - testW)
         return AnyView(HStack(spacing: 0) {
             Text("POOL").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            if line.kitOnResolved {
+            if line.laneModeResolved == .kit {
                 kitPoolChips(idx, line, accent, size: CGSize(width: chipsW, height: height))   // KIT SOURCE §5.4: the lane's kit, each cell tapping open the editor
+            } else if line.laneModeResolved == .drum {
+                drumPoolChips(idx, line, accent, size: CGSize(width: chipsW, height: height))   // DRUM MODE §3.3: the per-rank ramp velocity, each cell tapping open the drum picker
             } else {
                 PoolNowChipsView(lane: idx, tint: lane100(accent), size: CGSize(width: chipsW, height: height),
                                  octave: line.octaveResolved,   // §5.1: the lane's NOTES octave, the same the STACK grid applies
@@ -7910,6 +7925,30 @@ struct EuclideousPage: View {
         return AnyView(HStack(spacing: gap) {
             ForEach(0..<8, id: \.self) { r in
                 kitPoolCell(lane: lane, rank: r, note: notes[r], name: names[r], vel: Int(vels[r]), accent: accent, size: CGSize(width: w, height: size.height))
+            }
+        }.frame(width: size.width, height: size.height))
+    }
+    /// DRUM MODE §3.3: eight POOL cells showing each rank's RAMP velocity (number + "%"), a lane-colour fill behind at the velocity; a tap opens the drum picker.
+    private func drumPoolChips(_ lane: Int, _ line: EuclidLine, _ accent: Color, size: CGSize) -> AnyView {
+        let ramp = euclideousDrumRampVels(low: line.drumLowResolved, high: line.drumHighResolved, ramp: line.drumRampResolved)
+        let name = euclideousGMDrumName(euclideousDrumNote(line, lane: lane))
+        let gap: CGFloat = 3, w = max(1, (size.width - gap * 7) / 8)
+        return AnyView(HStack(spacing: gap) {
+            ForEach(0..<8, id: \.self) { r in
+                let v = Int(ramp[r])
+                ZStack(alignment: .bottom) {
+                    RoundedRectangle(cornerRadius: 6).fill(Color(hex: FourfoldStyle.card))
+                    RoundedRectangle(cornerRadius: 6).fill(lane100(accent).opacity(0.20)).frame(height: max(0, size.height * CGFloat(v) / 100))
+                    VStack(spacing: 0) {
+                        Text("\(r + 1)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                        Text("\(v)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.5)
+                        Text("%").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    }
+                }
+                .frame(width: w, height: size.height).clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x202329), lineWidth: 1))
+                .contentShape(Rectangle()).onTapGesture { openDrumPicker(lane: lane) }
+                .accessibilityElement(children: .ignore).accessibilityLabel("Rank \(r + 1), \(name), velocity \(v) percent").accessibilityAddTraits(.isButton)
             }
         }.frame(width: size.width, height: size.height))
     }
@@ -7940,7 +7979,12 @@ struct EuclideousPage: View {
         kitEditorRangeLow = euclideousKitEditorRangeLowC(note: notes[rank])
         kitEditorPrevNote = notes[rank]
         kitEditorNameDraft = l.kitNamesResolved[rank]   // §3/§4.4: seed the NAME field with the rank's current label
+        lastSelectedKitRank[lane] = rank   // INPUTS MODE §3.4: remember it for the KIT-row EDIT button
         kitEditor = KitEditorTarget(lane: lane, rank: rank)
+    }
+    /// INPUTS MODE §3.4 / kit ferry §4.10: RESET GM from the KIT row (one undo step) — restores the default kit.
+    private func resetKitGM(lane: Int) {
+        edit(lane) { $0.kitNotes = euclideousKitDefaultNotes; $0.kitNames = euclideousKitNamesResolved(nil, notes: euclideousKitDefaultNotes); $0.kitVel = euclideousKitDefaultVel }
     }
     /// KIT SOURCE §4: assemble the editor for `kit`, wiring every action through the page's `edit`/`editStep` undo funnel.
     private func kitEditorView(_ kit: KitEditorTarget, block: CGSize) -> some View {
@@ -7958,6 +8002,7 @@ struct EuclideousPage: View {
                 let n = ll.kitNotesResolved
                 kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n[r]); kitEditorPrevNote = n[r]
                 kitEditorNameDraft = ll.kitNamesResolved[r]   // §3: the selected rank's current label
+                lastSelectedKitRank[lane] = r   // INPUTS MODE §3.4
                 kitEditor = KitEditorTarget(lane: lane, rank: r)
             },
             onAssignNote: { note in
@@ -7982,9 +8027,9 @@ struct EuclideousPage: View {
             onClose: { kitEditor = nil; kitEditorIsDrumPicker = false },
             isDrumPicker: picker,
             selectedNote: picker ? drumNote : nil,
-            onMakeDrum: picker ? nil : {   // §4.5: send the selected rank's note to DRUM, switch mode, close — one undo step; low/high/ramp kept
+            onMakeDrum: picker ? nil : {   // §4.1/§4.5: send the selected rank's note to DRUM, set laneMode DRUM, close — one undo step; low/high/ramp kept
                 let n = notes[rank]
-                edit(lane) { $0.drumNote = n; $0.fixedMode = .drum }
+                edit(lane) { $0.drumNote = n; $0.laneMode = .drum }
                 kitEditor = nil; kitEditorIsDrumPicker = false
             },
             nameDraft: $kitEditorNameDraft)
@@ -7992,22 +8037,66 @@ struct EuclideousPage: View {
     /// 3.3 (SOURCES row ferry, 2026-11-08): MIDI IN · CHORDS (+ a 1|2 grid chooser) · PICK · KEY, then a separated TEST button. The two chord bits (CHORD 1 / CHORD 2, mutually exclusive) are consolidated into ONE CHORDS toggle plus a small
     /// 1|2 segmented chooser that picks the grid (dimmed while CHORDS is off, still tappable — picking a grid turns chords on). The model is unchanged (`poolSrcMask` bits 1 / 4). One `edit`, one undo step, per tap (`onEdit`'s UNDO-6 guard drops a no-op re-tap).
     private func poolSourcesRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
-        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 5   // §2.3: sp5 apart; TEST moved to POOL (§2.2d)
-        let chordExtra: CGFloat = 23 * 2 + 2 + 2   // §2.3b: the two 23-wide segments + sp2 + a 2 pt trailing inset, beyond a plain chip's share
-        let plainW = max(1, (fullWidth - labelW - chordExtra - gap * 4) / 4)   // four gaps: label · MIDI · CHORDS · KIT|DRUM · KEY
-        // DRUM MODE §3.1: the KIT chip becomes a two-segment KIT | DRUM switch, WIDENED by taking `chordExtra`/2 from each of MIDI IN and KEY (the row's total width is unchanged). Reported widths at the 1190 reference below.
-        let switchW = plainW + chordExtra        // ≈ plainW + 48
-        let sideW = max(1, plainW - chordExtra / 2)   // MIDI IN / KEY narrowed by 24 each
-        // KIT SOURCE (ferry 2026-11-23): with kitOn the other chips (and the MIDI row + DELAY CHORD, dimmed in `poolTabContent`) draw at 42 % and do nothing but §5.3 — a tap turns KIT off AND toggles that chip, one undo step.
-        let kitOn = line.kitOnResolved
-        func srcTap(_ bit: Int) { edit(idx) { if $0.kitOnResolved { $0.kitOn = false }; $0.setPoolSrc(bit, !$0.poolSrcOn(bit)) } }
-        let srcVal: (Bool) -> String = { on in kitOn ? "inactive" : euclideousPoolSourceValue(on: on) }   // §6.1: a dimmed chip keeps its label and reads "inactive"
+        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 5
+        // INPUTS MODE §3.3: three full-label chips — MIDI IN, CHORDS (+ 1|2), KEY. MIDI IN = KEY; CHORDS = 1.5× their width. No KIT / DRUM / PICK chip (MODE carries that now). At the 1190 reference: w ≈ (fullWidth − 50 − 15)/3.5.
+        let w = max(1, (fullWidth - labelW - gap * 3) / 3.5)
+        func srcTap(_ bit: Int) { edit(idx) { $0.setPoolSrc(bit, !$0.poolSrcOn(bit)) } }   // SOURCES is MELODIC-only now — never dimmed, no KIT toggle
         return AnyView(HStack(spacing: gap) {
             Text("SOURCES").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            poolSourceChip("MIDI IN", on: line.poolSrcOn(0), w: sideW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[0]), lane \(idx + 1)", axValue: srcVal(line.poolSrcOn(0))) { srcTap(0) }.opacity(kitOn ? 0.42 : 1)
-            poolChordGroup(idx, line, w: plainW + chordExtra, height: height, accent: accent, kitOn: kitOn).opacity(kitOn ? 0.42 : 1)
-            kitDrumSwitch(idx, line, accent: accent, w: switchW, height: height)
-            poolSourceChip("KEY", on: line.poolSrcOn(3), w: sideW, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[3]), lane \(idx + 1)", axValue: srcVal(line.poolSrcOn(3))) { srcTap(3) }.opacity(kitOn ? 0.42 : 1)
+            poolSourceChip("MIDI IN", on: line.poolSrcOn(0), w: w, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[0]), lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: line.poolSrcOn(0))) { srcTap(0) }
+            poolChordGroup(idx, line, w: w * 1.5, height: height, accent: accent, kitOn: false)
+            poolSourceChip("KEY", on: line.poolSrcOn(3), w: w, height: height, accent: accent, ax: "\(euclideousPoolSourceNames[3]), lane \(idx + 1)", axValue: euclideousPoolSourceValue(on: line.poolSrcOn(3))) { srcTap(3) }
+        }
+        .frame(width: fullWidth, height: height))
+    }
+    /// INPUTS MODE §3.1: the MODE row — three segments MELODIC · DRUM · KIT in a #17191E well; the lit one #EDEFF3 / ink #0D0F14 with the lane dot. A tap selects (one undo step); tapping the lit one does nothing.
+    private func modeRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let labelW = EuclideousPoolTabMetrics.labelColumn
+        let mode = line.laneModeResolved
+        let h = min(EuclideousPoolTabMetrics.toggleH, height)
+        func seg(_ title: String, _ m: EuclideousLaneMode) -> some View {
+            let lit = mode == m
+            return HStack(spacing: 9) {
+                if lit { Circle().fill(lane100(accent)).frame(width: 8, height: 8) }
+                Text(title).font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.3).lineLimit(1).minimumScaleFactor(0.6)
+                    .foregroundColor(Color(hex: lit ? 0x0D0F14 : 0x8A909A))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 8).fill(lit ? Color(hex: 0xEDEFF3) : .clear))
+            .contentShape(Rectangle())
+            .onTapGesture { if mode != m { edit(idx) { $0.laneMode = m } } }   // §1.5 one undo step; tapping the lit segment does nothing
+            .accessibilityElement(children: .ignore).accessibilityLabel(m == .melodic ? "Melodic" : (m == .drum ? "Drum" : "Kit"))
+            .accessibilityAddTraits(lit ? [.isButton, .isSelected] : .isButton)
+        }
+        return AnyView(HStack(spacing: 0) {
+            Text("MODE").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            HStack(spacing: 4) { seg("MELODIC", .melodic); seg("DRUM", .drum); seg("KIT", .kit) }
+                .padding(4)
+                .frame(maxWidth: .infinity, maxHeight: h)
+                .background(RoundedRectangle(cornerRadius: 11).fill(Color(hex: 0x17191E)))
+        }
+        .frame(width: fullWidth, height: height)
+        .accessibilityElement(children: .contain).accessibilityLabel("Mode"))
+    }
+    /// INPUTS MODE §3.4: the KIT row — label, EDIT (2/3 of the row, opens the editor) and RESET GM (1/3), 8 apart.
+    private func kitRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
+        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 8
+        let avail = max(1, fullWidth - labelW - gap), editW = avail * 2 / 3, resetW = avail - editW
+        let h = min(EuclideousPoolTabMetrics.toggleH, height)
+        return AnyView(HStack(spacing: 0) {
+            Text("KIT").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
+            Text("EDIT").font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.56).foregroundColor(Color(hex: 0xF2F4F7))
+                .frame(width: editW, height: h)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(hex: 0x3A3E47), lineWidth: 1))
+                .contentShape(Rectangle()).onTapGesture { openKitEditor(lane: idx, rank: lastSelectedKitRank[idx] ?? 0) }
+                .accessibilityElement(children: .ignore).accessibilityLabel("Edit kit").accessibilityAddTraits(.isButton)
+            Spacer(minLength: gap)
+            Text("RESET GM").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.2).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(Color(hex: 0xAAB0BA))
+                .frame(width: resetW, height: h)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
+                .contentShape(Rectangle()).onTapGesture { resetKitGM(lane: idx) }
+                .accessibilityElement(children: .ignore).accessibilityLabel("Reset to General MIDI").accessibilityAddTraits(.isButton)
         }
         .frame(width: fullWidth, height: height))
     }
@@ -9234,8 +9323,8 @@ struct EuclideousPage: View {
     private func stackCellNames(_ row: EuclideousStackRow, lane: Int) -> (name: String, spoken: String) {
         let line = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
         let lp = lane < lanePools.count ? lanePools[lane] : EuclideousLanePoolNotes()
-        if line.kitOnResolved, case .rank(let r) = row, r >= 1, r <= 8 {   // KIT SOURCE (Paul 2026-11-23): a KIT lane's rank chips show the NOTE NUMBER it plays (stored order, what the editor set) — better than a pitch name for drums
-            let n = Int(line.kitNotesResolved[r - 1])
+        if line.euclideousFixedLane, case .rank(let r) = row, r >= 1, r <= 8 {   // KIT/DRUM: the rank chips show the NOTE NUMBER (a DRUM lane's one drum note); better than a pitch name for drums
+            let n = Int(line.laneModeResolved == .drum ? euclideousDrumNote(line, lane: lane) : line.kitNotesResolved[r - 1])
             return ("\(n)", "rank \(r), note \(n)")
         }
         if case .rank(let r) = row {   // §5.1: the SAME namer POOL uses, so a rank reads the same note on the grid and on POOL
