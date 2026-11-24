@@ -172,16 +172,30 @@ final class DrumModeTests: XCTestCase {
         }
     }
 
-    // §6.10 APPLY TO ALL copies fixedMode + the four drum fields (drumNote materialised from the source lane).
+    // §6.10 APPLY TO ALL copies fixedMode + the four drum fields. An EXPLICITLY-set drum note is forced onto every lane.
     func testApplyToAll() {
         var lines = (0..<4).map { _ in EuclidLine(noteSel: .all) }
         lines[0].kitOn = true; lines[0].fixedMode = .drum; lines[0].drumNote = 50; lines[0].drumLow = 20; lines[0].drumHigh = 80; lines[0].drumRamp = .down
         euclideousApplyInputsToAll(&lines, from: 0)
         for i in 1..<4 {
             XCTAssertEqual(lines[i].fixedModeResolved, .drum)
-            XCTAssertEqual(euclideousDrumNote(lines[i], lane: i), 50, "the source's drum note, not lane i's default")
+            XCTAssertEqual(euclideousDrumNote(lines[i], lane: i), 50, "an explicit source drum note is forced onto every lane")
             XCTAssertEqual(lines[i].drumLowResolved, 20); XCTAssertEqual(lines[i].drumHighResolved, 80)
             XCTAssertEqual(lines[i].drumRampResolved, .down)
+        }
+    }
+
+    // §6.10 APPLY TO ALL respects the drum defaults (Paul 2026-11-24): a source lane left at its DEFAULT drum note (nil)
+    // propagates "default", so each target keeps its OWN per-lane drum note (KICK 36 / SNR 38 / CH 42 / CLAP 39).
+    func testApplyToAllRespectsDrumDefaults() {
+        var lines = (0..<4).map { _ in EuclidLine(noteSel: .all) }
+        lines[0].kitOn = true; lines[0].fixedMode = .drum   // drumNote left nil = lane 1's default (KICK 36)
+        euclideousApplyInputsToAll(&lines, from: 0)
+        for i in 1..<4 {
+            XCTAssertEqual(lines[i].fixedModeResolved, .drum)
+            XCTAssertNil(lines[i].drumNote, "a default source note copies as nil, not a materialised note")
+            XCTAssertEqual(euclideousDrumNote(lines[i], lane: i), euclideousDrumNoteDefault(lane: i),
+                           "each target keeps its own per-lane default drum note")
         }
     }
 }

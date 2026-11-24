@@ -13440,8 +13440,8 @@ func euclideousApplyInputsToAll(_ lines: inout [EuclidLine], from idx: Int) {
     for i in lines.indices where i != idx {
         lines[i].poolSrcMask = s.poolSrcMask; lines[i].midiMode = s.midiMode
         lines[i].kitOn = s.kitOn; lines[i].kitNotes = s.kitNotes; lines[i].kitNames = s.kitNames; lines[i].kitVel = s.kitVel   // KIT SOURCE §1.8
-        // DRUM MODE §1.6: copy fixedMode + the four drum fields. drumNote is MATERIALISED from the source lane (copying raw nil would give each target its OWN per-lane default, not the source's note).
-        lines[i].fixedMode = s.fixedMode; lines[i].drumNote = euclideousDrumNote(s, lane: idx); lines[i].drumLow = s.drumLow; lines[i].drumHigh = s.drumHigh; lines[i].drumRamp = s.drumRamp
+        // DRUM MODE §1.6: copy fixedMode + the four drum fields. drumNote is copied RAW (Paul 2026-11-24): a source lane left at its default (nil) propagates "default" so each target keeps its OWN per-lane drum note (KICK/SNR/CH/CLAP); only an EXPLICITLY-set note is forced onto all. (drumLow/High/Ramp were already raw and share one default across lanes, so they resolve the same either way.)
+        lines[i].fixedMode = s.fixedMode; lines[i].drumNote = s.drumNote; lines[i].drumLow = s.drumLow; lines[i].drumHigh = s.drumHigh; lines[i].drumRamp = s.drumRamp
         lines[i].laneMode = s.laneModeResolved   // INPUTS MODE §1.6: copy the resolved mode (materialised so a source whose mode is still the migrated default carries explicitly)
     }
 }

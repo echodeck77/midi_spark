@@ -7852,8 +7852,8 @@ struct EuclideousPage: View {
             case .melodic:
                 poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
                 inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
-                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
                 listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH)
+                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)   // foot of the tab (Paul 2026-11-24): below CANON, matching DRUM/KIT
             case .drum:
                 drumRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
                 drumVelRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
@@ -7872,7 +7872,7 @@ struct EuclideousPage: View {
     private func inputsApplyToAll(_ idx: Int) {
         onEdit { lines in euclideousApplyInputsToAll(&lines, from: idx) }   // §2.5a: one undo step; copies SOURCES + MIDI mode, never DELAY CHORD
     }
-    /// §2.5b: the APPLY TO ALL button — full card width, 30 tall, r6, #262930, a 1 pt lane-colour inner border (the ONE lane-coloured outline on the card), "APPLY TO ALL" 9 pt heavy 0.18 em #F2F4F7 centred; pressed #30333B. Sits directly above DELAY CHORD.
+    /// §2.5b: the APPLY TO ALL button — full card width, 30 tall, r6, #262930, a 1 pt lane-colour inner border (the ONE lane-coloured outline on the card), "APPLY TO ALL" 9 pt heavy 0.18 em #F2F4F7 centred; pressed #30333B. Sits at the FOOT of the tab (below DELAY CHORD/CANON in MELODIC; last row in DRUM/KIT).
     private struct InputsApplyButtonStyle: ButtonStyle {
         let accent: Color
         func makeBody(configuration: Configuration) -> some View {
