@@ -227,4 +227,56 @@ final class GridChanceTests: XCTestCase {
         r.normalizeGridChanceAtLoad()
         XCTAssertEqual(r.euclideousGridChance, valid)
     }
+
+    // MARK: amendment 1 (Paul 2026-11-24) — one CLR per row/column, not the whole ribbon.
+    // Tests 12–15 of the ferry (the title is gone, the 30 % inert rails, the value inside its fill, the arrows above the sliders) are VISUAL and device-owed — no snapshot harness here. These pin the pure rules the fixes hang on.
+
+    /// A2 / tests 12-13: the per-box role — a CLR block only on a box under 100 while the axis has any value set; a box at 100 draws nothing (its rank number / rail shows through); all-100 ⇒ the picker tap region (§4.8).
+    func testAmendment1PerBoxClrRole() {
+        // the ferry's example — rank 8→1 = 100,100,50,35,35,35,35,45 (the array is indexed rank-1, so rank 1 is first)
+        let rankVals = [45, 35, 35, 35, 35, 50, 100, 100]
+        let anySet = rankVals.contains { $0 < 100 }
+        XCTAssertTrue(anySet)
+        for rank in 1...8 {
+            let v = rankVals[rank - 1]
+            XCTAssertEqual(euclideousGridChanceBoxRole(boxValue: v, anyAxisSet: anySet), v < 100 ? .clear : .plain, "rank \(rank) value \(v)")
+        }
+        XCTAssertEqual(rankVals.filter { euclideousGridChanceBoxRole(boxValue: $0, anyAxisSet: anySet) == .clear }.count, 6)   // ranks 1…6
+        XCTAssertEqual(rankVals.filter { euclideousGridChanceBoxRole(boxValue: $0, anyAxisSet: anySet) == .plain }.count, 2)   // ranks 7, 8
+        // all 100 ⇒ every box is the picker tap region, none CLR
+        XCTAssertEqual(euclideousGridChanceBoxRole(boxValue: 100, anyAxisSet: false), .pick)
+        XCTAssertEqual(euclideousGridChanceBoxRole(boxValue: 1, anyAxisSet: false), .pick)   // (unreachable in the UI — all 100 means no box is < 100 — but the rule is "no axis set ⇒ pick" regardless)
+        // a 100 box among set values draws nothing; a set box clears
+        XCTAssertEqual(euclideousGridChanceBoxRole(boxValue: 100, anyAxisSet: true), .plain)
+        XCTAssertEqual(euclideousGridChanceBoxRole(boxValue: 99, anyAxisSet: true), .clear)
+    }
+
+    /// A6 / test 16: the % toggle is lit whenever the grid has ANY value under 100 (open or closed); all-100 ⇒ dark. (`riffSet` / `stackSet` are what the toggle fill reads, from the LIVE document.)
+    func testAmendment1TogglePercentLit() {
+        XCTAssertFalse(EuclideousGridChance().riffSet)    // all default ⇒ dark
+        XCTAssertFalse(EuclideousGridChance().stackSet)
+        var c = EuclideousGridChance(); c.riffColumn[3] = 75
+        XCTAssertTrue(c.riffSet)                           // one column under 100 ⇒ lit
+        var r = EuclideousGridChance(); r.riffRank[0] = 20
+        XCTAssertTrue(r.riffSet)
+        var s = EuclideousGridChance(); s.stackLane[1] = 50
+        XCTAssertTrue(s.stackSet)
+        var t = EuclideousGridChance(); t.stackRank[7] = 95
+        XCTAssertTrue(t.stackSet)
+        var hundred = EuclideousGridChance(); hundred.riffRank[2] = 100
+        XCTAssertFalse(hundred.riffSet)                    // exactly 100 is NOT "set"
+    }
+
+    /// A7: the chosen-axis orientation — RANK is read per rank (horizontal sliders), POSITION / LANE per column / lane (vertical sliders). Confirmed through the axis arrays + the axis-set mapping the editors switch on.
+    func testAmendment1AxisOrientationArrays() {
+        let m = EuclideousGridChance()
+        XCTAssertEqual(m.riffRank.count, 8)     // rank axis: 8 ranks → horizontal sliders, one per rank row
+        XCTAssertEqual(m.riffColumn.count, 8)   // riff position axis: 8 columns → vertical sliders
+        XCTAssertEqual(m.stackRank.count, 8)    // stack rank axis: 8 ranks → horizontal
+        XCTAssertEqual(m.stackLane.count, 4)    // stack lane axis: 4 lanes → vertical
+        var r = EuclideousGridChance(); r.riffColumn[0] = 50
+        XCTAssertEqual(euclideousGridChanceAxisSet(r, grid: .riff), .other)   // position chosen ⇒ vertical
+        r.riffRank[0] = 50
+        XCTAssertEqual(euclideousGridChanceAxisSet(r, grid: .riff), .rank)    // rank chosen ⇒ horizontal
+    }
 }

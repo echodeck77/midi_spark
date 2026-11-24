@@ -9587,6 +9587,14 @@ func euclideousGridChanceRepairInvariant(_ gc: EuclideousGridChance) -> Euclideo
     return r
 }
 
+/// §4.6 (amendment 1, A2 — Paul 2026-11-24, "1 CLR per row/column, not the whole ribbon"): the role of ONE chosen-axis ladder box. A box whose own value is < 100 shows a CLR block (a tap clears the
+/// WHOLE axis); when NOTHING on the axis is set, every box is a tap-to-return-to-picker region (§4.8); a box at 100 while the axis has OTHER set values draws nothing, so its rank number / rail shows through.
+enum EuclideousGridChanceBoxRole: Equatable { case clear, pick, plain }
+func euclideousGridChanceBoxRole(boxValue: Int, anyAxisSet: Bool) -> EuclideousGridChanceBoxRole {
+    guard anyAxisSet else { return .pick }
+    return boxValue < 100 ? .clear : .plain
+}
+
 // MARK: - GRID CHANCE — UI (§3-§5, §11), pure. The views draw from these; the tests pin the toggles + the slider maths.
 
 enum EuclideousGridChanceUI {
