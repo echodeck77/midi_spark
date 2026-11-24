@@ -11,6 +11,14 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 - [ ] **Deferred (cosmetic, non-blocking):** the ROOT card's STRIP top-line pulse (§2.3 — only the HITS/STEPS boxes pulse today); the MIX strip's hits/steps DRAG write-through (its TAP write-throughs via `tapStep`; the drags edit own-inert for a follower); RESETS tiles read a follower's OWN pattern, not the inherited one; the STEPS-picker on a follower has no edit pulse.
 - [ ] **Judgment calls to confirm with Paul:** rate ratio tracks the IMMEDIATE source while HITS/STEPS colour tracks the ROOT (literal §3.3 vs amendment §2.1); OFFSET inherits the root's fractional `offsetFraction`; a loaded FROM loop is broken on the LOWER-numbered lane (riff-source rule) not the ferry's "higher"; FLIP-on-follower is the follower's own `patternMiss`.
 
+## ★ INPUTS MODE (2026-11-24; branch `feature/kit-source` — NOT LANDED, rides the kit/drum branch; log in `euclideous-status-log.md`, findings `inputs-mode-findings.md`)
+- [x] Model: `laneMode` (MELODIC|DRUM|KIT) replaces kitOn+fixedMode; §1.2 migration; APPLY TO ALL; `DrumModeTests` migration/switch/codable.
+- [x] Engine keyed off laneMode; §2.4 half-step gate on DRUM/KIT (RATCH spacing step-based, unchanged). Golden IDENTICAL, alloc 0.
+- [x] MODE row first; per-mode rows (MELODIC/DRUM/KIT); SOURCES = 3 full chips (MELODIC-only); POOL kit-numbers/ramp; KIT row EDIT+RESET; editor DRUM button → laneMode.
+- [x] Dims §5: MIX OCT+GATE, ALT OCT+GATE, STACK VOICES/SPREAD/BASS (DRUM); HARMONY/header exclude fixed lanes. (TRANS/PITCH pad already retired — reported.)
+- [ ] **DO NOT LAND** until Paul signs off the whole kit/drum/mode branch.
+- [ ] **DEVICE-OWED:** the INPUTS MODE list in `euclideous-device-verification-debt.md` — MODE at real size × 4 colours, DRUM/KIT card balance, half-step notes + unchanged ratchets, dimmed MIX/ALT/STACK reading as inactive, SOURCES untruncated.
+
 ## ★ DRUM MODE (2026-11-23; branch `feature/kit-source` — NOT LANDED, rides the kit branch; log in `euclideous-status-log.md`, findings `drum-mode-findings.md`)
 - [x] Model (`fixedMode`, `drumNote/Low/High/Ramp` + resolvers, decoder, per-lane default note, APPLY TO ALL) + pure ramp (`euclideousDrumRampVel`) + `DrumModeTests` (7).
 - [x] Engine: `SnapshotBuilder` fills `kitSnap` by mode (Router unchanged); riff `addPitch` passes the WALK rank for a kit/drum lane (fixes the ramp on identical pool notes). Golden IDENTICAL, alloc 0, `KitSourceRouterTests` drum cases.

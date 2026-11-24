@@ -1152,3 +1152,10 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   - The VEL two-thumb slider's thumbs are easy to grab apart when they're close together (each half of the row goes to the nearer thumb).
   - The four default drums are right on a GM drum app from fresh (lane 1 KICK 36, lane 2 SNR 38, lane 3 CH 42, lane 4 CLAP 39), rank 8 loudest.
   - The DRUM row (name + note + chevron, the ramp UP/DOWN four-bar icons) and the POOL cells' ramp-velocity readout are legible at both AUM sizes; the drum picker (taller keyboard, no ranks/NAME) and the kit editor's DRUM button read correctly.
+
+- **INPUTS MODE (ferry 2026-11-24, on `feature/kit-source`, not landed):** MELODIC · DRUM · KIT first; drum lanes dim what they can't use (§9):
+  - MODE reads as the card's first choice at real size in all four lane colours (the three-segment control under the Euclid strip).
+  - The DRUM and KIT cards (fewer rows) don't feel empty or unbalanced beside a MELODIC card.
+  - Half-step notes (gate 0.5) sound right on a GM drum app and on a sampler in gate mode; ratchets sound as before (RATCH spacing is step-based, unchanged — only the note length shortened).
+  - The dimmed controls on MIX (OCT, GATE) and ALT (OCT, GATE pills) and STACK (VOICES/SPREAD/BASS on DRUM) read as inactive, not broken.
+  - SOURCES (MELODIC) shows MIDI IN · CHORDS 1 2 · KEY untruncated at the new widths (w ≈ (fullWidth−50−15)/3.5 for MIDI IN / KEY, 1.5× for CHORDS).

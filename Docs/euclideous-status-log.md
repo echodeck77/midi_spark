@@ -12578,3 +12578,19 @@ collapses (via §3.4) to ONE hit at the loudest chosen rank's ramp velocity — 
 **Proofs.** `run.sh --golden` BYTE-IDENTICAL; `CONFIG=Release … --alloc` PASS (0); `DrumModeTests` (7) +
 `KitSourceRouterTests` drum cases (3: pool-is-one-note, ramp-velocity, same-pitch-highest-rank) + all kit tests green;
 build green. Device verification per `Docs/euclideous-device-verification-debt.md`. Held on `feature/kit-source`.
+
+---
+
+## INPUTS MODE ferry (2026-11-24; Fourfold only; branch `feature/kit-source` — NOT LANDED, rides the kit/drum branch)
+
+MELODIC · DRUM · KIT first; drum lanes dim what they can't use. Replaces `kitOn` + `fixedMode` with one `laneMode`. Findings `Docs/inputs-mode-findings.md`.
+
+**Model (§1).** `EuclidLine.laneMode` (`EuclideousLaneMode` MELODIC|DRUM|KIT), additive-Optional. `laneModeResolved` migrates from the old fields (§1.2: kitOn off ⇒ MELODIC; on + DRUM ⇒ DRUM; on + KIT/nil ⇒ KIT); `kitOn`/`fixedMode` stay decodable, no longer written. `euclideousFixedLane` (= laneMode ≠ MELODIC) is the one "fixed-note lane" test the engine/UI key off (replaces `kitOnResolved`). APPLY TO ALL copies `laneMode`. No session migration; nothing deleted.
+
+**Engine (§2).** `SnapshotBuilder` fills the existing `kitSnap` by `laneMode` (the Router is unchanged — `kitLane = euclideousKit.kitOn(lane)`, driven by `kit.on = euclideousFixedLane`). §2.4: a DRUM/KIT lane's notes are a fixed HALF-STEP (gate 0.5), overriding every gate control at the `runEuclidLine` call site (riff/notes/miss gate) and with ALT's gate overrides guarded off. RATCH strike SPACING is step-based (`emitterStrikeSpanBeats`), independent of gate, so its onsets are unchanged — only each ratchet note's length shortens. Golden byte-identical (no golden doc has a fixed lane).
+
+**Card (§3).** `modeRow` is the first INPUTS row under the Euclid strip (three-segment MELODIC·DRUM·KIT; a tap is one undo step). `poolTabContent` reserves MODE (30) + APPLY (30) + two gaps and lays the per-mode body in the existing four row-height slots: MELODIC POOL·SOURCES·MIDI·APPLY·DELAY (all four), DRUM POOL·DRUM·VEL·APPLY (three), KIT POOL·KIT·APPLY (two). SOURCES is MELODIC-only, three FULL-label chips (`poolSourcesRow` rewritten: MIDI IN = KEY, CHORDS 1.5×; the DRUM ferry's switch-widening that truncated them is gone). POOL shows kit note numbers (KIT) or per-rank ramp velocities (`drumPoolChips`, DRUM). `kitRow` = EDIT (2/3, opens the editor on the last-selected rank) + RESET GM (1/3). The editor's DRUM button sets `laneMode` (§4.1).
+
+**Dims (§5).** On DRUM/KIT lanes: MIX's GATE + OCT tiles and ALT's GATE + OCT pills draw at 42 % and `allowsHitTesting(false)` (VoiceOver "inactive"); on DRUM lanes STACK's VOICES/SPREAD/BASS rows too. HARMONY excludes a fixed lane from both grid lane-groups (`lanesOnGrid`) and the header's MIDI lamp / ROOT / grid counts (§5.5). Stored values kept. **TRANS and the PITCH pad named in §5.2 are already retired (2026-11-07 / card backs) — nothing to dim there.** The old `kitDrumSwitch` stays compiled, unmounted.
+
+**Proofs.** `run.sh --golden` BYTE-IDENTICAL; `CONFIG=Release … --alloc` PASS (0); `DrumModeTests` (10, incl. the §7.1/7.2 migration + switch-keeps-settings + codable) + `KitSource(Router)Tests` (22) green; build green. Device verification per `Docs/euclideous-device-verification-debt.md`. Held on `feature/kit-source`.
