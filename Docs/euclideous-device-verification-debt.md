@@ -1159,3 +1159,10 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   - Half-step notes (gate 0.5) sound right on a GM drum app and on a sampler in gate mode; ratchets sound as before (RATCH spacing is step-based, unchanged — only the note length shortened).
   - The dimmed controls on MIX (OCT, GATE) and ALT (OCT, GATE pills) and STACK (VOICES/SPREAD/BASS on DRUM) read as inactive, not broken.
   - SOURCES (MELODIC) shows MIDI IN · CHORDS 1 2 · KEY untruncated at the new widths (w ≈ (fullWidth−50−15)/3.5 for MIDI IN / KEY, 1.5× for CHORDS).
+
+- **KIT EDITOR V2 (ferry 2026-11-24, on `feature/kit-editor-v2`, not landed):** amends the kit/drum/inputs-mode device list — the half-step-gate item is SUPERSEDED (gate is now live everywhere). §8:
+  - The taller keys and their names, numbers and rank badges are legible at real size (black-key number/name especially — narrow).
+  - OCT moves a GM kit onto a device that places the kick at 24 or 48, and the names still read right (they don't become the new notes' GM names).
+  - The open-hat kit (TO KIT from CH, then rank 7 → OH, ▲) sounds like accents opening the hat.
+  - MIX's gate on a DRUM lane audibly shortens and lengthens notes on a sampler in gate mode, and changes nothing on a one-shot drum app (§1.4).
+  - The kit editor header (KIT · OCT · SEMI · DRUM · RESET GM · close) fits inside the overlay at both AUM sizes without overlap; the title no longer escapes to the screen edge.

@@ -11,6 +11,14 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 - [ ] **Deferred (cosmetic, non-blocking):** the ROOT card's STRIP top-line pulse (§2.3 — only the HITS/STEPS boxes pulse today); the MIX strip's hits/steps DRAG write-through (its TAP write-throughs via `tapStep`; the drags edit own-inert for a follower); RESETS tiles read a follower's OWN pattern, not the inherited one; the STEPS-picker on a follower has no edit pulse.
 - [ ] **Judgment calls to confirm with Paul:** rate ratio tracks the IMMEDIATE source while HITS/STEPS colour tracks the ROOT (literal §3.3 vs amendment §2.1); OFFSET inherits the root's fractional `offsetFraction`; a loaded FROM loop is broken on the LOWER-numbered lane (riff-source rule) not the ferry's "higher"; FLIP-on-follower is the follower's own `patternMiss`.
 
+## ★ KIT EDITOR V2 (2026-11-24; branch `feature/kit-editor-v2` — NOT LANDED; log in `euclideous-status-log.md`, findings `kit-editor-v2-findings.md`)
+- [x] §1 gate: INPUTS MODE fixed half-step (2.4) + gate dims (5.3) removed — gate live on every lane; OCT/STACK dims kept. Golden IDENTICAL, alloc 0.
+- [x] §2 fixes: name-scramble (NAME commits on return/switch/close, not per-change), title "KIT" inside, range "C2–B3", keys GM name+number+badges, rank cells "note · vel%", keyboard fills; "▲ KEYS" = host's, not ours.
+- [x] §3 OCT/SEMI move the kit (±12/±1, keep names+vel, refuse out-of-range), ▼/▲ copy ranks; §4 TO KIT. Pure fns + `DrumModeTests` (16).
+- [ ] **DO NOT LAND** until Paul signs off.
+- [ ] **DEVICE-OWED:** the KIT EDITOR V2 list in `euclideous-device-verification-debt.md` — key/badge legibility (esp. black keys), OCT onto a 24/48 device, open-hat kit by ear, MIX gate on a sampler, header fits.
+- [ ] Known: saved sessions edited by clicking ranks in the shipped build hold scrambled kitNames (no migration).
+
 ## ★ INPUTS MODE (2026-11-24; branch `feature/kit-source` — NOT LANDED, rides the kit/drum branch; log in `euclideous-status-log.md`, findings `inputs-mode-findings.md`)
 - [x] Model: `laneMode` (MELODIC|DRUM|KIT) replaces kitOn+fixedMode; §1.2 migration; APPLY TO ALL; `DrumModeTests` migration/switch/codable.
 - [x] Engine keyed off laneMode; §2.4 half-step gate on DRUM/KIT (RATCH spacing step-based, unchanged). Golden IDENTICAL, alloc 0.
