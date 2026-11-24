@@ -45,6 +45,8 @@ struct EuclideousMixV2Callbacks {
     var lockBadge: (Int) -> AnyView?
     /// The page's burst funnel: (lane, newStep, mutate).
     var editStep: (Int, Bool, @escaping (inout EuclidLine) -> Void) -> Void
+    /// EUCLID FROM: like `editStep`, but an OCTAVE edit on a FOLLOWING lane also sets the followed (root) lane's octave (write-both, one step).
+    var editOctave: (Int, Bool, @escaping (inout EuclidLine) -> Void) -> Void
     var toggleOn: (Int, EuclideousCardPart) -> Void
     var toggleOut: (Int, EuclideousCardPart, Int) -> Void
     /// Per-part solo, by part index 0…7 — the same touch machine as the lane SOLO button.
@@ -228,7 +230,7 @@ struct EuclideousMixV2BandView: View {
                 .accessibilityHidden(true)
             EuclideousOctaveBoxes(value: value, size: CGSize(width: f.oct.width, height: boxes.height), targetHeight: f.octTargets.first?.height ?? boxes.height, visualTop: boxes.minY - (f.octTargets.first?.minY ?? boxes.minY),
                                   label: EuclideousMixV2AX.octave(notes: notes, value: value),
-                                  onSelect: { v, newStep in callbacks.editStep(lane, newStep) { l in euclideousMixSliderWrite(&l, kind: .octave, notes: notes, value: v) } })
+                                  onSelect: { v, newStep in callbacks.editOctave(lane, newStep) { l in euclideousMixSliderWrite(&l, kind: .octave, notes: notes, value: v) } })
                 .offset(x: f.oct.minX, y: (f.octTargets.first?.minY ?? boxes.minY))
         }
         .opacity(dimmed ? EuclideousLaneDimStyle.opacity : 1)

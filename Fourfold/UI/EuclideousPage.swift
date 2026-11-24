@@ -1749,6 +1749,25 @@ struct EuclideousPage: View {
     private func editStep(_ idx: Int, _ newStep: Bool, _ mutate: @escaping (inout EuclidLine) -> Void) {
         onEditStep(newStep) { lines in guard idx >= 0, idx < lines.count else { return }; mutate(&lines[idx]) }
     }
+    /// EUCLID FROM (Paul 2026-11-24): an OCTAVE edit on a FOLLOWING lane ALSO sets the lane it follows ("changing octaves on the
+    /// follower also controls the followed lane"). Applies the mutation to BOTH this lane and its FROM root (one undo step), so the
+    /// follower keeps a live OCT control (no snap-back) and the source tracks it. Non-following ⇒ root == idx ⇒ a single write.
+    private func editOctave(_ idx: Int, _ newStep: Bool, _ mutate: @escaping (inout EuclidLine) -> Void) {
+        let root = euclideousEuclidRoot(lines, idx).root
+        onEditStep(newStep) { lines in
+            guard idx >= 0, idx < lines.count else { return }
+            mutate(&lines[idx])
+            if root != idx, root >= 0, root < lines.count { mutate(&lines[root]) }
+        }
+    }
+    private func editOctave(_ idx: Int, _ mutate: @escaping (inout EuclidLine) -> Void) {
+        let root = euclideousEuclidRoot(lines, idx).root
+        onEdit { lines in
+            guard idx >= 0, idx < lines.count else { return }
+            mutate(&lines[idx])
+            if root != idx, root >= 0, root < lines.count { mutate(&lines[root]) }
+        }
+    }
     /// Edits ONE line's MASK by index — mirrors `edit` above, materializing a fresh `EuclidLineMask` the
     /// first time a lane's mask is ever touched (its own plain struct default, matching every other
     /// additive-Optional nested-struct precedent in this codebase, e.g. `Cell.chop`).
@@ -3068,6 +3087,7 @@ struct EuclideousPage: View {
             },
             lockBadge: { lockBadgeView($0) },
             editStep: { idx, newStep, mutate in editStep(idx, newStep, mutate) },
+            editOctave: { idx, newStep, mutate in editOctave(idx, newStep, mutate) },
             toggleOn: { idx, part in cardBackToggle(idx, part) },
             toggleOut: { idx, part, o in
                 editStep(idx, true) { l in
@@ -6332,7 +6352,7 @@ struct EuclideousPage: View {
                 Text("OCT").font(.system(size: keySize, weight: .medium, design: .monospaced)).tracking(keyTracking).foregroundColor(Color(hex: FourfoldStyle.key)).lineLimit(1).fixedSize()
                     .frame(width: lay.label.width, height: lay.label.height, alignment: .trailing).offset(x: lay.label.minX).accessibilityHidden(true)
                 EuclideousOctaveBoxes(value: oct, size: lay.boxes.size, targetHeight: lay.boxes.height, visualTop: (max(44, lay.boxes.height) - lay.boxes.height) / 2,
-                                      label: "\(label) \(euclideousOctValueText(oct))", onSelect: { v, newStep in editStep(idx, newStep) { write(&$0, v) } })
+                                      label: "\(label) \(euclideousOctValueText(oct))", onSelect: { v, newStep in editOctave(idx, newStep) { write(&$0, v) } })   // EUCLID FROM: a follower's octave edit also sets the followed lane's
                     .offset(x: lay.boxes.minX, y: -(max(44, lay.boxes.height) - lay.boxes.height) / 2)
             }
         }
@@ -9825,7 +9845,7 @@ struct EuclideousPage: View {
             EuclideousMixOctaveStepper(cellW: grid.cellW, height: grid.stepperH, octave: euclideousMixOctave(of: line, notes: notes), accent: accent,
                                        opacity: euclideousMixOffStepperOpacity(off: off, soloSilenced: soloSilenced(lane)),
                                        accessibilityLabelText: euclideousMixOctaveAccessibilityLabel(lane: lane, notes: notes),
-                                       onSet: { o in edit(lane) { l in if notes { euclideousSetNotesOctave(&l, o) } else { euclideousSetRiffOctave(&l, o) } } })
+                                       onSet: { o in editOctave(lane) { l in if notes { euclideousSetNotesOctave(&l, o) } else { euclideousSetRiffOctave(&l, o) } } })   // EUCLID FROM: a follower's octave edit also sets the followed lane's
         }
         .frame(width: grid.cellW, height: grid.padH + sp4 + grid.stepperH, alignment: .top)
         .accessibilityElement(children: .contain)
