@@ -32,6 +32,8 @@ struct EuclideousKitEditorView: View {
     var isDrumPicker: Bool = false       // DRUM MODE §4.1: the DRUM picker variant — title DRUM, no RESET / ranks / NAME; the keyboard sets the lane's drum note
     var selectedNote: UInt8? = nil       // the note to highlight on the keyboard (the drum note in the picker; else the selected rank's note)
     var onMakeDrum: (() -> Void)? = nil  // §4.5: the kit editor's DRUM button (nil in the picker)
+    var onShift: (Int) -> Void = { _ in }              // KIT EDITOR V2 §3.2: OCT ±12 / SEMI ±1 — move every rank's note
+    var onCopy: (EuclideousKitCopyDir) -> Void = { _ in }   // §3.7: ▼ / ▲ copy the selected rank down / up
 
     @Binding var nameDraft: String
     @State private var velDragging = false
@@ -56,40 +58,56 @@ struct EuclideousKitEditorView: View {
         .frame(width: box.width, height: box.height, alignment: .topLeading)
     }
 
-    // MARK: header — title · RESET GM · close (§4.2)
-    private func header(_ L: EuclideousKitEditorLayout) -> some View {
-        let headerBtn: (String, String, @escaping () -> Void) -> AnyView = { title, ax, action in AnyView(
-            Button(action: action) {
-                Text(title).font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    .foregroundColor(Color(hex: 0xC6CBD3))
-                    .frame(width: L.resetBtn.width, height: L.resetBtn.height)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x33363D), lineWidth: 1))
-            }.accessibilityLabel(ax)) }
-        return ZStack(alignment: .leading) {
-            Text(isDrumPicker ? "DRUM" : "KIT \(lane + 1)").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(1)
-                .foregroundColor(Color(hex: 0xF2F4F7))
-                .frame(width: L.header.width, alignment: .leading)
-            if !isDrumPicker {
-                headerBtn("RESET GM", "Reset to GM kit", onResetGM)
-                    .frame(width: L.header.width, alignment: .trailing).padding(.trailing, L.closeBtn.width + 8)
-                if let mk = onMakeDrum {   // §4.5: the DRUM button, 8 before RESET GM
-                    headerBtn("DRUM", "Make drum", mk)
-                        .frame(width: L.header.width, alignment: .trailing).padding(.trailing, L.closeBtn.width + 8 + L.resetBtn.width + 8)
-                }
-            }
-            Button(action: onClose) {
-                Image(systemName: "xmark").font(.system(size: 13, weight: .bold))
-                    .foregroundColor(Color(hex: 0xC6CBD3))
-                    .frame(width: L.closeBtn.width, height: L.closeBtn.height)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x33363D), lineWidth: 1))
-            }
-            .frame(width: L.header.width, alignment: .trailing)
-            .accessibilityLabel("Close kit editor")
+    // MARK: header (§2.2/§2.3) — KIT · OCT − + · SEMI − + · flex · DRUM · RESET GM · close, each positioned absolutely inside the overlay (no escaping, no overlap).
+    @ViewBuilder private func header(_ L: EuclideousKitEditorLayout) -> some View {
+        at(L.kitLabel) {
+            Text(isDrumPicker ? "DRUM" : "KIT").font(.system(size: 15, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(Color(hex: 0xF2F4F7))
+                .frame(width: L.kitLabel.width, height: L.kitLabel.height, alignment: .leading).accessibilityAddTraits(.isHeader)
         }
-        .frame(width: L.header.width, height: L.header.height)
-        .position(x: L.header.midX, y: L.header.midY)
+        if !isDrumPicker {   // §3.1 OCT / SEMI wells (kit editor only)
+            shiftWell(L.octWell, label: "OCT", minus: L.octMinus, plus: L.octPlus, delta: 12, axDown: "Kit down an octave", axUp: "Kit up an octave")
+            shiftWell(L.semiWell, label: "SEMI", minus: L.semiMinus, plus: L.semiPlus, delta: 1, axDown: "Kit down a semitone", axUp: "Kit up a semitone")
+            if onMakeDrum != nil { headerBtn(L.drumBtn, "DRUM", "Make drum", action: { onMakeDrum?() }) }
+            headerBtn(L.resetBtn, "RESET GM", "Reset to GM kit", action: onResetGM)
+        }
+        headerBtn(L.closeBtn, nil, "Close kit editor", systemImage: "xmark", action: onClose)
+    }
+    private func at<V: View>(_ r: CGRect, @ViewBuilder _ v: () -> V) -> some View { v().frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY) }
+    private func headerBtn(_ r: CGRect, _ title: String?, _ ax: String, systemImage: String? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Group {
+                if let s = systemImage { Image(systemName: s).font(.system(size: 13, weight: .bold)) }
+                else { Text(title ?? "").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.6) }
+            }
+            .foregroundColor(Color(hex: 0xC6CBD3)).frame(width: r.width, height: r.height)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x33363D), lineWidth: 1))
+        }.accessibilityLabel(ax).position(x: r.midX, y: r.midY)
+    }
+    /// §3.1 one OCT / SEMI well: a #17191E background, a label, and − / + buttons (disabled + 42 % when a shift of ±`delta` would push any note out of 0…127, §3.4).
+    @ViewBuilder private func shiftWell(_ well: CGRect, label: String, minus: CGRect, plus: CGRect, delta: Int, axDown: String, axUp: String) -> some View {
+        at(well) { RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x17191E)) }
+        at(CGRect(x: well.minX + 10, y: well.minY, width: minus.minX - (well.minX + 10) - 3, height: well.height)) {
+            Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.1 * 10).foregroundColor(Color(hex: 0x8A909A)).frame(maxWidth: .infinity, alignment: .leading).accessibilityHidden(true)
+        }
+        shiftBtn(minus, "−", enabled: euclideousKitCanShift(notes, by: -delta), ax: axDown) { onShift(-delta) }
+        shiftBtn(plus, "+", enabled: euclideousKitCanShift(notes, by: delta), ax: axUp) { onShift(delta) }
+    }
+    private func shiftBtn(_ r: CGRect, _ glyph: String, enabled: Bool, ax: String, action: @escaping () -> Void) -> some View {
+        Button(action: { if enabled { action() } }) {
+            Text(glyph).font(.system(size: 16, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+                .frame(width: r.width, height: r.height).background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
+        }.disabled(!enabled).opacity(enabled ? 1 : 0.42).accessibilityLabel(ax).position(x: r.midX, y: r.midY)
+    }
+    /// §3.6/§3.7 the ▼ / ▲ copy button — a filled triangle; disabled + 42 % on rank 1 (▼) / rank 8 (▲).
+    private func copyBtn(_ r: CGRect, down: Bool, enabled: Bool) -> some View {
+        Button(action: { if enabled { onCopy(down ? .below : .above) } }) {
+            Image(systemName: down ? "arrowtriangle.down.fill" : "arrowtriangle.up.fill").font(.system(size: 13, weight: .bold)).foregroundColor(Color(hex: 0xF2F4F7))
+                .frame(width: r.width, height: r.height)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x2A2D34)))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(hex: 0x3A3E47), lineWidth: 1))
+        }.disabled(!enabled).opacity(enabled ? 1 : 0.42)
+        .accessibilityLabel(down ? "Copy to every rank below" : "Copy to every rank above").position(x: r.midX, y: r.midY)
     }
 
     // MARK: 8 rank cells (§4.3) — rank · name · note; the selected one lane-tinted.
@@ -97,19 +115,25 @@ struct EuclideousKitEditorView: View {
         ForEach(0..<min(8, L.ranks.count), id: \.self) { r in
             let sel = r == selectedRank
             let rect = L.ranks[r]
-            VStack(spacing: 2) {
-                Text("\(r + 1)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: sel ? 0x0D0F14 : 0x8A909A))
-                Text(r < names.count ? names[r] : "").font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5)
-                    .foregroundColor(Color(hex: sel ? 0x0D0F14 : 0xF2F4F7))
-                Text("\(r < notes.count ? Int(notes[r]) : 0)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: sel ? 0x0D0F14 : 0x8A909A))
+            let note = r < notes.count ? Int(notes[r]) : 0
+            let vel = r < vels.count ? Int(vels[r]) : 100
+            let ink = Color(hex: sel ? 0x0D0F14 : 0xF2F4F7), sub = Color(hex: sel ? 0x0D0F14 : 0x8A909A)
+            ZStack(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: 7).fill(sel ? laneColor : Color(hex: 0x24262C))
+                // §2.6 velocity fill behind — lane colour on an unselected cell, #0D0F14 @ 12 % on the selected (lane-fill) cell so it still reads.
+                RoundedRectangle(cornerRadius: 7).fill(sel ? Color(hex: 0x0D0F14).opacity(0.12) : laneColor.opacity(0.16)).frame(height: max(0, rect.height * CGFloat(vel) / 100))
+                VStack(spacing: 1) {
+                    Text("\(r + 1)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(sub)
+                    Text(r < names.count ? names[r] : "").font(.system(size: 12, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5).foregroundColor(ink)
+                    Text("\(note) · \(vel)%").font(.system(size: 8.5, weight: .bold, design: .monospaced)).foregroundColor(sub).lineLimit(1).minimumScaleFactor(0.6)
+                }.padding(.horizontal, 2)
             }
-            .frame(width: rect.width, height: rect.height)
-            .background(RoundedRectangle(cornerRadius: 7).fill(sel ? laneColor : Color(hex: 0x24262C)))
+            .frame(width: rect.width, height: rect.height).clipShape(RoundedRectangle(cornerRadius: 7))
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color(hex: sel ? 0x000000 : 0x33363D).opacity(sel ? 0.25 : 1), lineWidth: 1))
             .contentShape(Rectangle())
             .onTapGesture { onSelectRank(r) }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Rank \(r + 1), \(r < names.count ? names[r] : ""), note \(r < notes.count ? Int(notes[r]) : 0)")
+            .accessibilityLabel("Rank \(r + 1), \(r < names.count ? names[r] : ""), note \(note), velocity \(vel) percent")
             .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
             .position(x: rect.midX, y: rect.midY)
         }
@@ -119,14 +143,25 @@ struct EuclideousKitEditorView: View {
     private func nameVel(_ L: EuclideousKitEditorLayout) -> some View {
         let vel = selectedRank < vels.count ? Int(vels[selectedRank]) : 100
         return Group {
-            // NAME — a text field seeded with the rank's current label; it saves on every change (not only on return — §4.4).
+            // §3.6 the selected-rank tile
+            at(L.rankTile) {
+                VStack(spacing: 0) {
+                    Text("\(selectedRank + 1)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                    Text(selectedRank < names.count ? names[selectedRank] : "").font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.5).foregroundColor(Color(hex: 0xF2F4F7))
+                }
+                .frame(width: L.rankTile.width, height: L.rankTile.height)
+                .background(RoundedRectangle(cornerRadius: 8).fill(laneColor)).accessibilityHidden(true)
+            }
+            // §3.7 ▼ / ▲ copy the selected rank down / up (velocities untouched); disabled on rank 1 / rank 8
+            copyBtn(L.copyDown, down: true, enabled: selectedRank > 0)
+            copyBtn(L.copyUp, down: false, enabled: selectedRank < 7)
+            // NAME — a text field seeded with the rank's current label. KIT EDITOR V2 §2.1: it commits on RETURN only (the page also commits on rank-switch / close). It MUST NOT commit on every change: the page reseeds `nameDraft` when a rank is selected, and a per-change commit wrote that new name onto the PREVIOUS rank (the stale view's `rank`), shifting names vs notes.
             TextField("NAME", text: $nameDraft, onCommit: { onSetName(nameDraft) })
                 .textFieldStyle(.plain)
                 .font(.system(size: 14, weight: .heavy, design: .monospaced))
                 .foregroundColor(Color(hex: 0xF2F4F7))
                 .autocorrectionDisabled(true)
                 .multilineTextAlignment(.leading)
-                .onChange(of: nameDraft) { onSetName($0) }
                 .padding(.horizontal, 10)
                 .frame(width: L.nameField.width, height: L.nameField.height, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: 0x14151A)))
@@ -166,7 +201,8 @@ struct EuclideousKitEditorView: View {
             // the visible note range, so it's clear which octaves are shown (Paul 2026-11-23)
             VStack(spacing: 1) {
                 Text("\(lowC)–\(hi)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
-                Text("C\(lowC / 12 - 1)–C\(hi / 12 - 1)").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                // KIT EDITOR V2 §2.4: the names of the FIRST and LAST notes (e.g. "C2–B3"), not the next C — the last note's own name.
+                Text("\(euclideousNoteViewName(UInt8(max(0, min(127, lowC))), flatKey: false))–\(euclideousNoteViewName(UInt8(max(0, min(127, hi))), flatKey: false))").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
             }
             .frame(width: L.octUp.maxX - L.octDown.minX)
             .position(x: (L.octDown.minX + L.octUp.maxX) / 2, y: L.octDown.maxY + 16)
@@ -190,6 +226,9 @@ struct EuclideousKitEditorView: View {
     // MARK: keyboard (§4.5/§4.6/§4.7)
     private func keyboard(_ L: EuclideousKitEditorLayout) -> some View {
         let selNote = selectedNote ?? (selectedRank < notes.count ? notes[selectedRank] : nil)
+        // §2.5 helpers: the GM short name (nil outside 35…81) and, in the kit editor, the rank badge for this key's note.
+        func gmName(_ note: UInt8) -> String? { (35...81).contains(Int(note)) ? euclideousGMDrumName(note) : nil }
+        func badge(_ note: UInt8) -> String { isDrumPicker ? "" : euclideousKitRankBadge((0..<min(8, notes.count)).filter { notes[$0] == note }.map { $0 + 1 }) }
         return Canvas { ctx, _ in
             for k in L.whiteKeys {
                 let r = k.rect.offsetBy(dx: -L.keyboard.minX, dy: -L.keyboard.minY).insetBy(dx: 0.5, dy: 0.5)
@@ -200,15 +239,13 @@ struct EuclideousKitEditorView: View {
                 if let p = prevNote, p == k.note, !on {
                     ctx.stroke(Path(roundedRect: r.insetBy(dx: 3, dy: 3), cornerRadius: 2), with: .color(laneColor), lineWidth: 2)   // §4.7 previous-note mark
                 }
-                // Every white key is labelled with its MIDI note number so the visible range reads at a glance (Paul 2026-11-23); a C is emphasised (dark, with its octave) as the octave anchor.
                 let isC = Int(k.note) % 12 == 0
                 let ink = Color(hex: on ? 0x0D0F14 : (isC ? 0x15171C : 0x6B7280))
-                let num = Text("\(Int(k.note))").font(.system(size: 8.5, weight: isC ? .heavy : .semibold, design: .monospaced)).foregroundColor(ink)
-                ctx.draw(num, at: CGPoint(x: r.midX, y: r.maxY - 9))
-                if isC {
-                    let oct = Text("C\(Int(k.note) / 12 - 1)").font(.system(size: 7.5, weight: .heavy, design: .monospaced)).foregroundColor(ink)
-                    ctx.draw(oct, at: CGPoint(x: r.midX, y: r.maxY - 18))
-                }
+                // §2.5 bottom-up: NUMBER (C keys as "C2 36"), GM NAME above, rank BADGE above that.
+                ctx.draw(Text(isC ? "C\(Int(k.note) / 12 - 1) \(Int(k.note))" : "\(Int(k.note))").font(.system(size: 8, weight: isC ? .heavy : .semibold, design: .monospaced)).foregroundColor(ink), at: CGPoint(x: r.midX, y: r.maxY - 8))
+                if let nm = gmName(k.note) { ctx.draw(Text(nm).font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(ink), at: CGPoint(x: r.midX, y: r.maxY - 19)) }
+                let b = badge(k.note)
+                if !b.isEmpty { ctx.draw(Text(b).font(.system(size: 8, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: on ? 0x0D0F14 : 0x15171C)), at: CGPoint(x: r.midX, y: r.maxY - 30)) }
             }
             for k in L.blackKeys {
                 let r = k.rect.offsetBy(dx: -L.keyboard.minX, dy: -L.keyboard.minY)
@@ -218,6 +255,10 @@ struct EuclideousKitEditorView: View {
                 if let p = prevNote, p == k.note, !on {
                     ctx.stroke(Path(roundedRect: r.insetBy(dx: 2, dy: 2), cornerRadius: 2), with: .color(laneColor), lineWidth: 2)
                 }
+                // §2.5 black keys show their number (device-owed legibility at the narrow width); GM name above where it fits.
+                let ink = Color(hex: on ? 0x0D0F14 : 0xAAB0BA)
+                ctx.draw(Text("\(Int(k.note))").font(.system(size: 7.5, weight: .bold, design: .monospaced)).foregroundColor(ink), at: CGPoint(x: r.midX, y: r.maxY - 7))
+                if let nm = gmName(k.note), r.height > 40 { ctx.draw(Text(nm).font(.system(size: 7, weight: .bold, design: .monospaced)).foregroundColor(ink), at: CGPoint(x: r.midX, y: r.maxY - 16)) }
             }
         }
         .frame(width: L.keyboard.width, height: L.keyboard.height)

@@ -13218,6 +13218,50 @@ func euclideousDrumRampVels(low: Int, high: Int, ramp: EuclideousDrumRamp) -> [U
     (1...8).map { UInt8(euclideousDrumRampVel(rank: $0, low: low, high: high, ramp: ramp)) }
 }
 
+// MARK: - KIT EDITOR V2 (ferry 2026-11-24) — move the kit, copy ranks, TO KIT; pure.
+
+/// §3.2 shift every rank's note by `delta` (OCT = ±12, SEMI = ±1). Returns nil if ANY note would leave 0…127 (the whole shift is refused — §3.4). Names/velocities are the caller's to keep (§3.3).
+func euclideousKitShift(_ notes: [UInt8], by delta: Int) -> [UInt8]? {
+    var out = notes
+    for i in out.indices { let v = Int(out[i]) + delta; guard v >= 0, v <= 127 else { return nil }; out[i] = UInt8(v) }
+    return out
+}
+/// §3.4 whether a shift of `delta` keeps every note in 0…127 (drives the button's 42 % disabled look).
+func euclideousKitCanShift(_ notes: [UInt8], by delta: Int) -> Bool { euclideousKitShift(notes, by: delta) != nil }
+
+enum EuclideousKitCopyDir { case below, above }   // §3.7 ▼ = below (lower ranks), ▲ = above (higher ranks)
+/// §3.7 copy rank `from`'s note AND name to every rank below (▼) or above (▲) it; velocities untouched. `from` is 0-based.
+func euclideousKitCopy(notes: [UInt8], names: [String], from: Int, dir: EuclideousKitCopyDir) -> (notes: [UInt8], names: [String]) {
+    guard from >= 0, from < notes.count, from < names.count else { return (notes, names) }
+    var n = notes, nm = names
+    let range = dir == .below ? (0..<from) : ((from + 1)..<notes.count)
+    for i in range where i < n.count && i < nm.count { n[i] = notes[from]; nm[i] = names[from] }
+    return (n, nm)
+}
+
+/// §2.5 the rank badge for a set of ranks (1-based, any order) sharing a key's note: consecutive runs of ≥3 collapse to "first–last", shorter runs show each rank, all joined by "·" (e.g. [1,2,3,4,5,6] → "1–6", [7,8] → "7·8", [1,3,5] → "1·3·5").
+func euclideousKitRankBadge(_ ranks: [Int]) -> String {
+    let rs = Array(Set(ranks)).sorted()
+    guard !rs.isEmpty else { return "" }
+    var pieces: [String] = [], i = 0
+    while i < rs.count {
+        var j = i
+        while j + 1 < rs.count && rs[j + 1] == rs[j] + 1 { j += 1 }   // the consecutive run rs[i...j]
+        let len = j - i + 1
+        if len >= 3 { pieces.append("\(rs[i])–\(rs[j])") } else { for k in i...j { pieces.append("\(rs[k])") } }
+        i = j + 1
+    }
+    return pieces.joined(separator: "·")
+}
+
+/// §4.2 TO KIT — the kit a DRUM lane becomes: every rank the drum note + the drum's GM name, each velocity the DRUM ramp value.
+func euclideousKitFromDrum(_ line: EuclidLine, lane: Int) -> (notes: [UInt8], names: [String], vel: [UInt8]) {
+    let note = euclideousDrumNote(line, lane: lane)
+    let name = euclideousGMDrumName(note)
+    return (Array(repeating: note, count: 8), Array(repeating: name, count: 8),
+            euclideousDrumRampVels(low: line.drumLowResolved, high: line.drumHighResolved, ramp: line.drumRampResolved))
+}
+
 // MARK: - KIT SOURCE (ferry 2026-11-23) — fixed drum notes per lane; pure, allocation-free on the render-read side.
 
 /// §1.3 the default kit, rank 1→8 (GM: KICK 36, RIM 37, SNR 38, CLAP 39, CH 42, PH 44, OH 46, CRASH 49).
@@ -13287,17 +13331,23 @@ struct EuclideousKitKey: Equatable { var rect: CGRect; var note: UInt8; var whit
 /// §4 the kit editor's frames, laid out inside `box` (the lane-cards block) with a 16 pt inset. Pure — `EuclideousKitEditorLayoutTests` pins it at both references; a key is never under 22 pt wide.
 struct EuclideousKitEditorLayout: Equatable {
     var card: CGRect        // the inset surface
-    var header: CGRect      // title · RESET GM · close
+    var header: CGRect
+    var kitLabel: CGRect    // §2.3 "KIT" at the leading edge
+    var octWell: CGRect; var octMinus: CGRect; var octPlus: CGRect       // §3.1 OCT − +
+    var semiWell: CGRect; var semiMinus: CGRect; var semiPlus: CGRect    // §3.1 SEMI − +
+    var drumBtn: CGRect
     var closeBtn: CGRect
     var resetBtn: CGRect
     var ranks: [CGRect]     // 8 rank cells
+    var rankTile: CGRect    // §3.6 the selected-rank tile in the NAME·VEL row
     var nameField: CGRect
+    var copyDown: CGRect; var copyUp: CGRect   // §3.6 ▼ ▲
     var velField: CGRect
-    var octDown: CGRect     // ‹
+    var octDown: CGRect     // ‹  (keyboard octave, picker + editor)
     var octUp: CGRect       // ›
-    var keyboard: CGRect    // the whole keyboard band (whites + blacks)
-    var whiteKeys: [EuclideousKitKey]   // 14, left→right (drawn first)
-    var blackKeys: [EuclideousKitKey]   // up to 10 (drawn over the whites)
+    var keyboard: CGRect
+    var whiteKeys: [EuclideousKitKey]
+    var blackKeys: [EuclideousKitKey]
 }
 private let euclideousKitWhitePCs: [Int] = [0, 2, 4, 5, 7, 9, 11]   // C D E F G A B
 private let euclideousKitBlackAfter: [Int] = [0, 1, 3, 4, 5]        // a black sits after white index 0,1,3,4,5 in each octave (C♯ D♯ F♯ G♯ A♯)
@@ -13308,35 +13358,50 @@ func euclideousKitEditorLayout(box: CGSize, lowC: Int, showsRanksAndName: Bool =
     let pad: CGFloat = 16
     let innerX = card.minX + pad, innerW = max(1, card.width - pad * 2)
     var y = card.minY + pad
-    // header
-    let headerH: CGFloat = 32
+    // header — §2.3: KIT · OCT − + · SEMI − + · flex · DRUM · RESET GM · close, all inside the overlay (40 tall for the OCT/SEMI wells, §3.1)
+    let headerH: CGFloat = 40
     let header = CGRect(x: innerX, y: y, width: innerW, height: headerH)
-    let closeW: CGFloat = 32, resetW: CGFloat = 86
+    let kitLabel = CGRect(x: innerX, y: y, width: 40, height: headerH)
+    func well(_ x: CGFloat, labelW: CGFloat) -> (well: CGRect, minus: CGRect, plus: CGRect) {   // §3.1 a #17191E well: padL 10 · label · − (34) · 3 · + (34) · padR 3
+        let btn: CGFloat = 34, gap: CGFloat = 3, padL: CGFloat = 10, padR: CGFloat = 3
+        let w = padL + labelW + gap + btn + gap + btn + padR
+        let r = CGRect(x: x, y: y, width: w, height: headerH)
+        let my: CGFloat = y + (headerH - btn) / 2
+        let m = CGRect(x: x + padL + labelW + gap, y: my, width: btn, height: btn)
+        let p = CGRect(x: m.maxX + gap, y: my, width: btn, height: btn)
+        return (r, m, p)
+    }
+    let octc = well(kitLabel.maxX + 10, labelW: 26)      // "OCT"
+    let semic = well(octc.well.maxX + 8, labelW: 34)     // "SEMI"
+    let closeW: CGFloat = 32, resetW: CGFloat = 86, drumW: CGFloat = 70
     let closeBtn = CGRect(x: header.maxX - closeW, y: y, width: closeW, height: headerH)
     let resetBtn = CGRect(x: closeBtn.minX - 8 - resetW, y: y, width: resetW, height: headerH)
+    let drumBtn = CGRect(x: resetBtn.minX - 8 - drumW, y: y, width: drumW, height: headerH)
     y += headerH + 12
-    // 8 rank cells + NAME · VEL — DROM MODE §4.1: the drum picker drops both rows and the keyboard takes the freed height.
+    // 8 rank cells + NAME · VEL (the drum picker drops both; the keyboard takes the freed height, §2.7)
     let rankGap: CGFloat = 4
     let rankW = max(1, (innerW - rankGap * 7) / 8)
     let rankH: CGFloat = 52
     var ranks: [CGRect] = []
-    var nameField = CGRect.zero, velField = CGRect.zero
+    var rankTile = CGRect.zero, nameField = CGRect.zero, copyDown = CGRect.zero, copyUp = CGRect.zero, velField = CGRect.zero
     if showsRanksAndName {
         for i in 0..<8 { ranks.append(CGRect(x: innerX + CGFloat(i) * (rankW + rankGap), y: y, width: rankW, height: rankH)) }
         y += rankH + 12
-        let nvH: CGFloat = 40
-        let nameW = max(1, innerW * 0.45)
-        nameField = CGRect(x: innerX, y: y, width: nameW, height: nvH)
-        velField = CGRect(x: nameField.maxX + 10, y: y, width: max(1, innerW - nameW - 10), height: nvH)
+        let nvH: CGFloat = 44, cp: CGFloat = 44   // §3.6 tiles 44 × 44
+        rankTile = CGRect(x: innerX, y: y, width: nvH, height: nvH)
+        nameField = CGRect(x: rankTile.maxX + 8, y: y, width: 130, height: nvH)
+        copyDown = CGRect(x: nameField.maxX + 8, y: y, width: cp, height: nvH)
+        copyUp = CGRect(x: copyDown.maxX + 4, y: y, width: cp, height: nvH)
+        velField = CGRect(x: copyUp.maxX + 8, y: y, width: max(1, innerX + innerW - (copyUp.maxX + 8)), height: nvH)
         y += nvH + 14
     }
-    // octave buttons + keyboard
+    // octave buttons + keyboard — §2.7: the keyboard fills ALL remaining height (no cap, no empty band)
     let octW: CGFloat = 34
     let octDown = CGRect(x: innerX, y: y, width: octW, height: 36)
     let octUp = CGRect(x: innerX + octW + 6, y: y, width: octW, height: 36)
     let kbX = octUp.maxX + 10
     let kbW = max(1, card.maxX - pad - kbX)
-    let kbH = max(1, min(showsRanksAndName ? 132 : 240, card.maxY - pad - y))   // §4.5: the picker's keyboard takes the freed height (ranks + NAME removed)
+    let kbH = max(1, card.maxY - pad - y)
     let keyboard = CGRect(x: kbX, y: y, width: kbW, height: kbH)
     // 14 white keys edge-to-edge; 10 blacks straddling the boundaries, 60 % width, 62 % height
     let whiteW = kbW / 14
@@ -13354,9 +13419,12 @@ func euclideousKitEditorLayout(box: CGSize, lowC: Int, showsRanksAndName: Bool =
             blacks.append(EuclideousKitKey(rect: rect, note: UInt8(max(0, min(127, lowC + oct * 12 + euclideousKitBlackPCs[bi]))), white: false))
         }
     }
-    return EuclideousKitEditorLayout(card: card, header: header, closeBtn: closeBtn, resetBtn: resetBtn, ranks: ranks,
-                                     nameField: nameField, velField: velField, octDown: octDown, octUp: octUp,
-                                     keyboard: keyboard, whiteKeys: whites, blackKeys: blacks)
+    return EuclideousKitEditorLayout(card: card, header: header, kitLabel: kitLabel,
+                                     octWell: octc.well, octMinus: octc.minus, octPlus: octc.plus,
+                                     semiWell: semic.well, semiMinus: semic.minus, semiPlus: semic.plus,
+                                     drumBtn: drumBtn, closeBtn: closeBtn, resetBtn: resetBtn, ranks: ranks,
+                                     rankTile: rankTile, nameField: nameField, copyDown: copyDown, copyUp: copyUp, velField: velField,
+                                     octDown: octDown, octUp: octUp, keyboard: keyboard, whiteKeys: whites, blackKeys: blacks)
 }
 /// §4.6 which key a tap at `p` hits (blacks first — they sit over the whites), or nil. Returns the MIDI note.
 func euclideousKitKeyAt(_ p: CGPoint, layout: EuclideousKitEditorLayout) -> UInt8? {

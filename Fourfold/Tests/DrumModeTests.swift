@@ -103,6 +103,75 @@ final class DrumModeTests: XCTestCase {
         XCTAssertEqual(back.laneModeResolved, .drum)
     }
 
+    // KIT EDITOR V2 §6.2 — OCT/SEMI shift every note, keep names/velocities; an out-of-range shift refuses.
+    func testKitShift() {
+        let notes: [UInt8] = [36, 37, 38, 39, 42, 44, 46, 49]
+        XCTAssertEqual(euclideousKitShift(notes, by: 12), [48, 49, 50, 51, 54, 56, 58, 61])
+        XCTAssertEqual(euclideousKitShift(notes, by: -1), [35, 36, 37, 38, 41, 43, 45, 48])
+        XCTAssertNil(euclideousKitShift([0, 5, 10], by: -1), "a note leaving 0…127 refuses the whole shift")
+        XCTAssertNil(euclideousKitShift([120, 125], by: 12))
+        XCTAssertFalse(euclideousKitCanShift([0], by: -1)); XCTAssertTrue(euclideousKitCanShift([36], by: 12))
+    }
+
+    // §6.3 — ▼ copies the selected rank's note+name to ranks below; ▲ to ranks above; velocities untouched.
+    func testKitCopy() {
+        let notes: [UInt8] = [10, 20, 30, 40, 50, 60, 70, 80]
+        let names = ["a", "b", "c", "d", "e", "f", "g", "h"]
+        let below = euclideousKitCopy(notes: notes, names: names, from: 2, dir: .below)   // rank 3 (0-based 2) → ranks 1,2
+        XCTAssertEqual(below.notes, [30, 30, 30, 40, 50, 60, 70, 80]); XCTAssertEqual(Array(below.names.prefix(3)), ["c", "c", "c"])
+        let above = euclideousKitCopy(notes: notes, names: names, from: 6, dir: .above)   // rank 7 → rank 8
+        XCTAssertEqual(above.notes, [10, 20, 30, 40, 50, 60, 70, 70]); XCTAssertEqual(above.names[7], "g")
+        XCTAssertEqual(euclideousKitCopy(notes: notes, names: names, from: 0, dir: .below).notes, notes, "▼ on rank 1 changes nothing")
+        XCTAssertEqual(euclideousKitCopy(notes: notes, names: names, from: 7, dir: .above).notes, notes, "▲ on rank 8 changes nothing")
+    }
+
+    // §6.6 — rank badges.
+    func testRankBadge() {
+        XCTAssertEqual(euclideousKitRankBadge([1, 2, 3, 4, 5, 6]), "1–6")
+        XCTAssertEqual(euclideousKitRankBadge([7, 8]), "7·8")
+        XCTAssertEqual(euclideousKitRankBadge([1, 3, 5]), "1·3·5")
+        XCTAssertEqual(euclideousKitRankBadge([8, 7]), "7·8")   // order-independent
+        XCTAssertEqual(euclideousKitRankBadge([3]), "3")
+        XCTAssertEqual(euclideousKitRankBadge([]), "")
+    }
+
+    // §6.4 — TO KIT: notes = drumNote×8, names = drum GM name, vels = ramp.
+    func testKitFromDrum() {
+        var l = EuclidLine(noteSel: .all); l.laneMode = .drum; l.drumNote = 42; l.drumLow = 40; l.drumHigh = 100; l.drumRamp = .up
+        let k = euclideousKitFromDrum(l, lane: 0)
+        XCTAssertEqual(k.notes, Array(repeating: 42, count: 8))
+        XCTAssertEqual(k.names, Array(repeating: "CH", count: 8))
+        XCTAssertEqual(k.vel.map { Int($0) }, [40, 49, 57, 66, 74, 83, 91, 100])
+    }
+
+    // §6.5 — the range label shows the FIRST/LAST notes' names (36→C2, 59→B3), not the next C.
+    func testRangeNames() {
+        XCTAssertEqual(euclideousNoteViewName(36, flatKey: false), "C2")
+        XCTAssertEqual(euclideousNoteViewName(59, flatKey: false), "B3")
+        XCTAssertEqual(euclideousNoteViewName(0, flatKey: false), "C-1")
+        XCTAssertEqual(euclideousNoteViewName(127, flatKey: false), "G9")
+    }
+
+    // §6.8 — the kit editor header frames fit without overlap and inside the card; the keyboard fills the height, at both references.
+    func testEditorHeaderLayout() {
+        for box in [CGSize(width: 769.33, height: 610), CGSize(width: 782, height: 611.33)] {
+            let L = euclideousKitEditorLayout(box: box, lowC: 36)
+            let hdr = [L.kitLabel, L.octWell, L.semiWell, L.drumBtn, L.resetBtn, L.closeBtn]
+            for i in 0..<hdr.count { for j in (i + 1)..<hdr.count { XCTAssertFalse(hdr[i].intersects(hdr[j].insetBy(dx: 0.5, dy: 0.5)), "header \(i) overlaps \(j)") } }
+            for r in hdr { XCTAssertTrue(L.card.insetBy(dx: -0.5, dy: -0.5).contains(r), "a header item is outside the card") }
+            XCTAssertEqual(L.octMinus.width, 34); XCTAssertEqual(L.octPlus.width, 34)
+            XCTAssertTrue(L.octWell.contains(L.octMinus) && L.octWell.contains(L.octPlus))
+            XCTAssertEqual(L.rankTile.width, 44); XCTAssertEqual(L.copyDown.width, 44); XCTAssertEqual(L.copyUp.width, 44)
+            // §2.7 the keyboard fills down to the card's bottom padding (no empty band)
+            XCTAssertEqual(L.keyboard.maxY, L.card.maxY - 16, accuracy: 0.5)
+            XCTAssertGreaterThan(L.keyboard.height, 120)
+            // picker: no ranks/NAME, keyboard starts higher and fills
+            let P = euclideousKitEditorLayout(box: box, lowC: 36, showsRanksAndName: false)
+            XCTAssertTrue(P.ranks.isEmpty); XCTAssertEqual(P.keyboard.maxY, P.card.maxY - 16, accuracy: 0.5)
+            XCTAssertGreaterThan(P.keyboard.minY, L.card.minY)
+        }
+    }
+
     // §6.10 APPLY TO ALL copies fixedMode + the four drum fields (drumNote materialised from the source lane).
     func testApplyToAll() {
         var lines = (0..<4).map { _ in EuclidLine(noteSel: .all) }

@@ -2035,7 +2035,7 @@ struct EuclideousPage: View {
             // KIT SOURCE (ferry 2026-11-23) §4.1: the editor over the four lane cards' block. A page-level catcher below it closes on an outside tap (§4.2, the GRID CHANCE pattern).
             if let kit = kitEditor, kit.lane >= 0, kit.lane < lines.count {
                 Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
-                    .onTapGesture { kitEditor = nil }
+                    .onTapGesture { commitOpenKitName(); kitEditor = nil }
                     .accessibilityHidden(true).zIndex(9)
                 EuclideousStackBreak { AnyView(kitEditorView(kit, block: page.lanes[0].union(page.lanes[3]).size)) }
                     .offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
@@ -2510,7 +2510,7 @@ struct EuclideousPage: View {
         hocketPopupOpen = false   // HOCKET (2026-10-27): the same
         playAsPopup = nil         // PLAY AS SEQUENCE (2026-11-08): the same
         notesChainPopup = nil; notesShiftPopup = nil; notesRepeatPopup = nil   // PLAY AS ROWS (2026-11-11 / amend 1): the ORDER/VOICES/SPREAD, SHIFT and REPEAT pop-ups
-        kitEditor = nil; kitEditorIsDrumPicker = false           // KIT SOURCE (§4.1): the same
+        commitOpenKitName(); kitEditor = nil; kitEditorIsDrumPicker = false           // KIT SOURCE (§4.1): the same; KIT EDITOR V2 §2.1 commits a typed name first
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -4059,10 +4059,10 @@ struct EuclideousPage: View {
             EuclideousAltSliderTile(main: mainVel, value: part.velValue ?? mainVel, range: 1...127, gate: false, on: part.velActive, accent: accent, frame: f.velSlider,
                                     axLabel: part.velActive ? "\(spoken) alt velocity, \(part.velValue ?? mainVel), main \(mainVel)" : "\(spoken) velocity, main \(mainVel)",
                                     onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { p in altEnsureOn(&p, .vel, line: line, idx: idx, notes: notes); p.vel = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.vel = mainVel } })
-            dimFixed(EuclideousAltPill(label: "GATE", on: part.gateActive, accent: accent, frame: f.gatePill, axLabel: "\(spoken) gate override, \(fixed ? "inactive" : (part.gateActive ? "on" : "off"))") { altTogglePill(idx, notes: notes, .gate) })
-            dimFixed(EuclideousAltSliderTile(main: mainGate, value: part.gateValue ?? mainGate, range: 1...99, gate: true, on: part.gateActive, accent: accent, frame: f.gateSlider,
+            EuclideousAltPill(label: "GATE", on: part.gateActive, accent: accent, frame: f.gatePill, axLabel: "\(spoken) gate override, \(part.gateActive ? "on" : "off")") { altTogglePill(idx, notes: notes, .gate) }   // KIT EDITOR V2 §1: ALT GATE stays live on every lane
+            EuclideousAltSliderTile(main: mainGate, value: part.gateValue ?? mainGate, range: 1...99, gate: true, on: part.gateActive, accent: accent, frame: f.gateSlider,
                                     axLabel: part.gateActive ? "\(spoken) alt gate, \(part.gateValue ?? mainGate) percent, main \(mainGate)" : "\(spoken) gate, main \(mainGate) percent",
-                                    onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { p in altEnsureOn(&p, .gate, line: line, idx: idx, notes: notes); p.gate = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.gate = mainGate } }))
+                                    onWrite: { v, s in altPartEdit(idx, notes: notes, newStep: s) { p in altEnsureOn(&p, .gate, line: line, idx: idx, notes: notes); p.gate = v } }, onReset: { altPartEdit(idx, notes: notes) { $0.gate = mainGate } })
         }
     }
     /// §5.7 — the four emitter tokens A–D; a token in the alt set takes the lit look; each MAIN-mask emitter carries a pip below it. All unlit at 38 % while the pill is off (§5.8); a tap toggles the bit while on (§6.5).
@@ -7982,6 +7982,13 @@ struct EuclideousPage: View {
         lastSelectedKitRank[lane] = rank   // INPUTS MODE §3.4: remember it for the KIT-row EDIT button
         kitEditor = KitEditorTarget(lane: lane, rank: rank)
     }
+    /// KIT EDITOR V2 §2.1: commit the open kit editor's NAME draft to its rank (only a real rename; never the picker). Called on every close path so a typed name is never lost — and never written to the wrong rank.
+    private func commitOpenKitName() {
+        guard !kitEditorIsDrumPicker, let kit = kitEditor, kit.lane < lines.count else { return }
+        let cur = lines[kit.lane].kitNamesResolved
+        guard kit.rank >= 0, kit.rank < cur.count, kitEditorNameDraft != cur[kit.rank] else { return }
+        edit(kit.lane) { var nm = $0.kitNamesResolved; nm[kit.rank] = euclideousKitNameClean(kitEditorNameDraft, note: $0.kitNotesResolved[kit.rank]); $0.kitNames = nm }
+    }
     /// INPUTS MODE §3.4 / kit ferry §4.10: RESET GM from the KIT row (one undo step) — restores the default kit.
     private func resetKitGM(lane: Int) {
         edit(lane) { $0.kitNotes = euclideousKitDefaultNotes; $0.kitNames = euclideousKitNamesResolved(nil, notes: euclideousKitDefaultNotes); $0.kitVel = euclideousKitDefaultVel }
@@ -7998,6 +8005,7 @@ struct EuclideousPage: View {
             lane: lane, selectedRank: rank, notes: notes, names: names, vels: vels,
             lowC: kitEditorRangeLow, prevNote: kitEditorPrevNote, laneColor: lane100(accent), box: block,
             onSelectRank: { r in
+                if !picker, kitEditorNameDraft != names[rank] { edit(lane) { var nm = $0.kitNamesResolved; nm[rank] = euclideousKitNameClean(kitEditorNameDraft, note: $0.kitNotesResolved[rank]); $0.kitNames = nm } }   // §2.1: commit the OLD rank's typed name before switching (only if it actually changed — never a spurious write that would shift names)
                 let ll = lane < lines.count ? lines[lane] : line
                 let n = ll.kitNotesResolved
                 kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n[r]); kitEditorPrevNote = n[r]
@@ -8024,13 +8032,24 @@ struct EuclideousPage: View {
             onResetGM: { edit(lane) { $0.kitNotes = euclideousKitDefaultNotes; $0.kitNames = euclideousKitNamesResolved(nil, notes: euclideousKitDefaultNotes); $0.kitVel = euclideousKitDefaultVel }   // §4.10
                 let n = euclideousKitDefaultNotes[rank]; kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n); kitEditorPrevNote = n
                 kitEditorNameDraft = euclideousKitNamesResolved(nil, notes: euclideousKitDefaultNotes)[rank] },
-            onClose: { kitEditor = nil; kitEditorIsDrumPicker = false },
+            onClose: { if !picker, kitEditorNameDraft != names[rank] { edit(lane) { var nm = $0.kitNamesResolved; nm[rank] = euclideousKitNameClean(kitEditorNameDraft, note: $0.kitNotesResolved[rank]); $0.kitNames = nm } }   // §2.1: commit a typed name on close
+                kitEditor = nil; kitEditorIsDrumPicker = false },
             isDrumPicker: picker,
             selectedNote: picker ? drumNote : nil,
             onMakeDrum: picker ? nil : {   // §4.1/§4.5: send the selected rank's note to DRUM, set laneMode DRUM, close — one undo step; low/high/ramp kept
                 let n = notes[rank]
                 edit(lane) { $0.drumNote = n; $0.laneMode = .drum }
                 kitEditor = nil; kitEditorIsDrumPicker = false
+            },
+            onShift: { delta in   // §3.2/§3.3: move every note; keep names (materialise them so a nil-named kit doesn't re-derive GM names) + velocities; §3.5 the range follows the selected rank, the prev-note shifts with the kit
+                guard let shifted = euclideousKitShift(notes, by: delta) else { return }
+                edit(lane) { $0.kitNotes = shifted; $0.kitNames = names }
+                kitEditorRangeLow = euclideousKitEditorRangeLowC(note: shifted[rank])
+                if let pv = kitEditorPrevNote { kitEditorPrevNote = UInt8(max(0, min(127, Int(pv) + delta))) }
+            },
+            onCopy: { dir in   // §3.7: copy the selected rank's note + name below / above; velocities untouched
+                let res = euclideousKitCopy(notes: notes, names: names, from: rank, dir: dir)
+                edit(lane) { $0.kitNotes = res.notes; $0.kitNames = res.names }
             },
             nameDraft: $kitEditorNameDraft)
     }
@@ -8127,10 +8146,10 @@ struct EuclideousPage: View {
     }
     /// DRUM MODE §3.4: the DRUM row — label, the drum button (name + note + chevron, opens the picker), and the ramp UP/DOWN switch.
     private func drumRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
-        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 8, rampW: CGFloat = 132
+        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 8, rampW: CGFloat = 132, toKitW: CGFloat = 96   // §4.1 TO KIT between the drum button and the ramp switch
         let note = euclideousDrumNote(line, lane: idx)
         let name = euclideousGMDrumName(note)
-        let btnW = max(1, fullWidth - labelW - gap - rampW)
+        let btnW = max(1, fullWidth - labelW - gap * 3 - toKitW - rampW)   // §4.3: narrow the DRUM button to fit TO KIT, not the ramp switch
         let h = min(EuclideousPoolTabMetrics.toggleH, height)
         return AnyView(HStack(spacing: 0) {
             Text("DRUM").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
@@ -8146,9 +8165,20 @@ struct EuclideousPage: View {
             .contentShape(Rectangle()).onTapGesture { openDrumPicker(lane: idx) }
             .accessibilityElement(children: .ignore).accessibilityLabel("Drum, \(name), note \(Int(note))").accessibilityAddTraits(.isButton)
             Spacer(minLength: gap)
+            Text("TO KIT").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.2).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(Color(hex: 0xAAB0BA))
+                .frame(width: toKitW, height: h).background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
+                .contentShape(Rectangle()).onTapGesture { toKitFromDrum(lane: idx) }
+                .accessibilityElement(children: .ignore).accessibilityLabel("Make kit from drum").accessibilityAddTraits(.isButton)
+            Spacer(minLength: gap)
             drumRampSwitch(idx, line, w: rampW, height: h)
         }
         .frame(width: fullWidth, height: height))
+    }
+    /// §4.2 TO KIT: turn the drum + its ramp into a kit (notes = drum note, names = drum GM name, velocities = the ramp), and switch the lane to KIT — one undo step. The drum's own fields are unchanged, so switching back to DRUM restores it; undo brings back the old kit + mode.
+    private func toKitFromDrum(lane: Int) {
+        let l = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
+        let k = euclideousKitFromDrum(l, lane: lane)
+        edit(lane) { $0.kitNotes = k.notes; $0.kitNames = k.names; $0.kitVel = k.vel; $0.laneMode = .kit }
     }
     /// §3.4 the ramp UP | DOWN switch — two segments, each a four-bar icon; the selected one filled.
     private func drumRampSwitch(_ idx: Int, _ line: EuclidLine, w: CGFloat, height: CGFloat) -> some View {

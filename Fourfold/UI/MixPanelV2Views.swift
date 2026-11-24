@@ -197,11 +197,10 @@ struct EuclideousMixV2BandView: View {
             EuclideousMixV2FieldTile(kind: .velocity, notes: notes, value: euclideousMixSliderValue(of: line, kind: .velocity, notes: notes), accent: accent, size: f.vel.size, dimmed: own(.vel) < 1,
                                      onEditStep: { newStep, mutate in callbacks.editStep(lane, newStep, mutate) })
                 .offset(x: f.vel.minX, y: f.vel.minY).accessibilitySortPriority(base - 3)
-            // INPUTS MODE §5.2/§5.3: on a DRUM / KIT lane GATE (gate) and OCT (pitch) dim to 42 % and do nothing — the gate is the fixed half-step and pitch is bypassed. VEL stays live.
-            EuclideousMixV2FieldTile(kind: .gate, notes: notes, value: euclideousMixSliderValue(of: line, kind: .gate, notes: notes), accent: accent, size: f.gate.size, dimmed: fixedLane || own(.gate) < 1,
+            // KIT EDITOR V2 §1: GATE stays LIVE on every lane (the INPUTS MODE gate dim is removed). OCT (pitch, §5.2) still dims + inert on a DRUM / KIT lane.
+            EuclideousMixV2FieldTile(kind: .gate, notes: notes, value: euclideousMixSliderValue(of: line, kind: .gate, notes: notes), accent: accent, size: f.gate.size, dimmed: own(.gate) < 1,
                                      onEditStep: { newStep, mutate in callbacks.editStep(lane, newStep, mutate) })
-                .offset(x: f.gate.minX, y: f.gate.minY).opacity(fixedLane ? EuclideousLaneDimStyle.opacity : 1).allowsHitTesting(!fixedLane)
-                .accessibilityValue(fixedLane ? "inactive" : "").accessibilitySortPriority(base - 4)
+                .offset(x: f.gate.minX, y: f.gate.minY).accessibilitySortPriority(base - 4)
             octave(notes: notes, f: f, dimmed: fixedLane || own(.oct) < 1).opacity(fixedLane ? EuclideousLaneDimStyle.opacity : 1).allowsHitTesting(!fixedLane)
                 .accessibilityValue(fixedLane ? "inactive" : "").accessibilitySortPriority(base - 5)
             // ALT (2026-11-14): a part whose ALT OUT override is armed also lights the alt outputs on the toggles, DIMMED (the main output stays full).

@@ -4079,11 +4079,11 @@ final class Router {
                             if euclideousAltState(main: altMainRes, alt: altAltRes, x: altX).isAlt {
                                 if !kitLane, altRiffPart.octActive, let v = altRiffPart.octValue { altRiffOct = v }   // KIT SOURCE §2.2: ALT octave does not move a kit note
                                 if altRiffPart.velActive, let v = altRiffPart.velValue { altRiffVel = v }
-                                if !kitLane, altRiffPart.gateActive, let v = altRiffPart.gateValue { altRiffGate = Double(v) / 100 }   // INPUTS MODE §5.3/§2.4: a fixed (kit/drum) lane's gate is the fixed half-step — ALT's gate override does nothing
+                                if altRiffPart.gateActive, let v = altRiffPart.gateValue { altRiffGate = Double(v) / 100 }   // KIT EDITOR V2 §1: gate stays live on every lane (the INPUTS MODE fixed-gate / dim is removed)
                                 if altRiffPart.outActive { altRiffOut = altRiffPart.outValue }   // §3.1: 0 allowed (a rest); the walk still advances
                                 if !kitLane, altNotesPart.octActive, let v = altNotesPart.octValue { altNotesOct = v }   // KIT SOURCE §2.2
                                 if altNotesPart.velActive, let v = altNotesPart.velValue { altNotesVel = v }
-                                if !kitLane, altNotesPart.gateActive, let v = altNotesPart.gateValue { altNotesGate = Double(v) / 100 }   // INPUTS MODE §5.3
+                                if altNotesPart.gateActive, let v = altNotesPart.gateValue { altNotesGate = Double(v) / 100 }   // KIT EDITOR V2 §1: gate stays live
                                 if altNotesPart.outActive { altNotesOut = altNotesPart.outValue }
                             }
                         }
@@ -6008,7 +6008,7 @@ final class Router {
                                 if euclideousAltState(main: altMainRes, alt: altAltRes, x: altX).isAlt {
                                     if !kitLane, altNotesPart.octActive, let v = altNotesPart.octValue { altNotesOct = v }   // KIT SOURCE §2.2: ALT octave does not move a kit note
                                     if altNotesPart.velActive, let v = altNotesPart.velValue { altNotesVel = v }
-                                    if !kitLane, altNotesPart.gateActive, let v = altNotesPart.gateValue { altNotesGate = Double(v) / 100 }   // INPUTS MODE §5.3
+                                    if altNotesPart.gateActive, let v = altNotesPart.gateValue { altNotesGate = Double(v) / 100 }   // KIT EDITOR V2 §1: gate stays live
                                     if altNotesPart.outActive { altNotesOut = altNotesPart.outValue }
                                 }
                             }
@@ -6379,15 +6379,14 @@ final class Router {
                 // reading `GridUI.swift`'s `-3...3` control before deciding this) — the tighter range is applied
                 // right here instead, gated on the SAME `isEuclideousRow` this per-row loop already computed.
                 let euclideousOct = isEuclideousRow ? max(-2, min(2, L.octaveResolved)) : L.octaveResolved
-                // INPUTS MODE §2.4: on a DRUM / KIT lane every note is a fixed HALF-STEP (0.5 of the step interval), in place of any gate control. RATCH strike SPACING is step-based (independent of gate), so its onsets are unchanged.
-                let euclideousFixedGate = isEuclideousRow && L.euclideousFixedLane
+                // KIT EDITOR V2 §1: the INPUTS MODE §2.4 fixed half-step gate on DRUM / KIT lanes is REMOVED — every lane takes its length from its own gate controls, as today.
                 runEuclidLine(lineIndex: lineIndex, pulses: euclidPulsesIn, steps: euclidStepsIn, rotate: euclidRotateIn, dir: L.directionResolved,
-                              noteSel: L.noteSelResolved, gate: euclideousFixedGate ? 0.5 : L.gateResolved, octave: euclideousOct, velocity: L.velocityResolved,
+                              noteSel: L.noteSelResolved, gate: L.gateResolved, octave: euclideousOct, velocity: L.velocityResolved,
                               velocityAbsolute: L.velocityAbsoluteResolved,
                               rate: L.rate?.beats ?? p.euclidRateBeats,
                               busOverride: FourfoldPorts.laneBusMask(lineIndex),
                               riffBus: FourfoldPorts.busMask(lane: lineIndex, part: .riff), notesBus: FourfoldPorts.busMask(lane: lineIndex, part: .notes),
-                              missNoteSel: L.missNoteSel, missGate: euclideousFixedGate ? 0.5 : L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
+                              missNoteSel: L.missNoteSel, missGate: L.missGateResolved, missOctave: L.missOctaveResolved, missVelocity: L.missVelocityResolved,
                               patternMiss: L.patternMissResolved,
                               useRiff: L.useRiffResolved, riffRotate: riffRoll?.riffRotate ?? (isEuclideousRow && p.polyRiff.on ? L.riffRotateResolved(columns: EuclideousPolyMetrics.columns) : L.riffRotateResolved), riffOctave: L.riffOctaveResolved,
                               // EUCLIDEOUS-SCOPED DRUNK/RANDOM→FWD (Paul 2026-10-13 ferry, Presets rule 1):
@@ -6438,7 +6437,7 @@ final class Router {
                               notesGaps: L.notesGapsResolved, notesFirst: L.notesFirstResolved,   // STACK WHEN ferry (2026-11-22)
                               notesPlaySeq: notesRoll != nil ? nil : L.notesPlaySeq, notesPlayAs: notesRoll?.notesPlayAs ?? L.notesPlayAsResolved, notesReceivedOnly: L.notesReceivedOnlyResolved,   // PLAY AS SEQUENCE: a random roll forces its one mode (nil seq ⇒ the fallback); else the lane's RAW chip sequence (no allocation, unlike …Resolved)
                               notesOn: isEuclideousRow ? laneSounds(L.notesOnResolved, p.stackMaster) : L.notesOnResolved,   // HEADER v2 §1.2: the PLAY STACK master gates every lane's stack here. Master defaults ON ⇒ byte-identical.
-                              notesVelocity: L.notesVelocityResolved, notesGate: euclideousFixedGate ? 0.5 : L.notesGateResolved, notesRing: L.notesRingResolved,
+                              notesVelocity: L.notesVelocityResolved, notesGate: L.notesGateResolved, notesRing: L.notesRingResolved,
                               // PLAY AS ROWS (2026-11-11): the three chains (RAW optionals, no allocation) + per-rank counts + bass + shift/drift. A random roll does not touch them (it sets only the lit notes / WHEN / CHANCE).
                               notesOrderChain: L.notesOrderChain, notesVoicesChain: L.notesVoicesChain, notesSpreadChain: L.notesSpreadChain,
                               notesRankRoles: L.notesRankRolesResolved,
