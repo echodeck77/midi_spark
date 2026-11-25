@@ -53,6 +53,24 @@ func euclideousAllRestartCount(atOrBefore beat: Double, barBeats: Double, chain:
     return count
 }
 
+/// The latest ALL restart at or before `beat` (0 if none yet / no ALL) — the start of ALL's CURRENT link, for the tile's shared span (§2.4).
+func euclideousAllRestartAtOrBefore(beat: Double, barBeats: Double, chain: [UInt8]) -> Double {
+    let total = euclideousAllTotalBars(chain)
+    guard total > 0, barBeats > 0, beat > schedEps else { return 0 }
+    var offsets: [Int] = []; var acc = 0
+    for c in chain { acc += Int(c); offsets.append(acc) }
+    let bars = (beat / barBeats) + 1e-6
+    let n0 = Int((bars / Double(total)).rounded(.down))
+    var best = 0.0
+    for n in [n0 - 1, n0, n0 + 1] where n >= 0 {
+        for off in offsets {
+            let b = Double(n * total + off) * barBeats
+            if b <= beat + 1e-6 && b > best { best = b }
+        }
+    }
+    return best
+}
+
 /// The next ALL restart strictly after `beat` (nil ⇒ no ALL).
 func euclideousNextAllRestart(after beat: Double, barBeats: Double, chain: [UInt8]) -> Double? {
     let total = euclideousAllTotalBars(chain)

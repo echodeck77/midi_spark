@@ -41,8 +41,9 @@ struct EuclideousStripBandInput {
     var cellDim: Double = 1
     /// ALT §5.9: the buf-index steps whose hit plays in the alt state — a white inner outline on the body cell (empty for every non-ALT lane / stopped ⇒ identical).
     var altHitSteps: Set<Int> = []
-    /// STEP DISPLAY part 2 (FILL step flash, 2026-11-25): while a hit-changing fill plays, which displayed boxes it SOUNDS
-    /// (drawn as a hit, incl. standard rests) and which standard hits it SILENCES (drawn as a rest) — held for the region.
+    /// STEP DISPLAY part 2 (FILL step flash, 2026-11-25; gated to the playhead): the displayed boxes a hit-changing fill SOUNDS
+    /// (drawn as a hit, incl. standard rests) or SILENCES (drawn as a rest). The set covers the whole region, but the painter
+    /// applies it ONLY on the box the playhead is currently sounding — so the effect shows while sounding, not in advance or after.
     /// Empty (every non-fill lane / recolour-only fill / stopped) ⇒ the cells draw the standard pattern, byte-identical.
     var fillFlash: EuclideousFillStepFlash = EuclideousFillStepFlash()
     /// LANE STRIP CLARITY §5.1: the lane whose hit COLOUR the cells take (the CARD's lane — under an ANSWER trade the strip
@@ -99,11 +100,16 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     for i in 0..<n {
         let cell = d.frames.cells[i]
         var isHit = i < d.hits.count && d.hits[i].kind != .rhythmRest
-        // STEP DISPLAY part 2 (2026-11-25): a hit-changing fill HOLDS its effective set over the box — a box it sounds reads as
-        // a hit (even a standard rest), a standard hit it silences reads as a rest. Empty sets (no fill / recolour-only) ⇒ no change.
-        if d.fillFlash.sounds.contains(i) { isHit = true }
-        else if d.fillFlash.silenced.contains(i) { isHit = false }
-        let look = stripCellLook(isHit: isHit, isPlayhead: d.playheadStep == i)
+        let atPlayhead = d.playheadStep == i
+        // STEP DISPLAY part 2 (gated to the playhead, Paul 2026-11-25): a hit-changing fill overrides a box ONLY while the
+        // playhead is sounding THAT box — not held across the whole region (not in advance, not after). A box the fill SOUNDS
+        // reads as a hit while the playhead is on it (lane colour, incl. a standard rest the fill plays); a standard hit the fill
+        // SILENCES reads as a rest EXACTLY as a sounding miss does in normal mode (stripCellLook → .playheadStep), and only then.
+        if atPlayhead {
+            if d.fillFlash.sounds.contains(i) { isHit = true }
+            else if d.fillFlash.silenced.contains(i) { isHit = false }
+        }
+        let look = stripCellLook(isHit: isHit, isPlayhead: atPlayhead)
         let shape = RoundedRectangle(cornerRadius: M.cellRadius).path(in: cell)
         switch look.fill {
         case .step:          ctx.fill(shape, with: .color(Color(M.stepFill)))                 // CLARITY §5.3: #22242A (#3A3D44 at the playhead)
