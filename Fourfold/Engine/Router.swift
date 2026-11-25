@@ -3269,7 +3269,7 @@ final class Router {
             // construction — `chordColumn` is engaged only when a grid actually uses LOOP / RIFF or a restart).
             func chordAdvanceColumn(_ grid: Int, beat: Double) -> Int {
                 let cfg = grid == 1 ? p.chords2.advanceConfig : p.chordsAdvanceConfig
-                return chordsAdvanceIsPlainTime(cfg) ? -1 : chordColumn(cfg, beat: beat, schedule: p.restartSchedule, barBeats: beatsPerBar)
+                return chordsAdvanceIsPlainTime(cfg) ? -1 : chordColumn(cfg, beat: beat, schedule: p.restartScheduleNoAll ?? p.restartSchedule, barBeats: beatsPerBar)   // RESETS V3 §1.6: the chord grid reads the NO-ALL schedule so ALL never advances it (identical when ALL is empty)
             }
             func fillChordLayer(atBeat m: Double, grid: Int = 0) {
                 let col = chordAdvanceColumn(grid, beat: m)
@@ -3393,7 +3393,7 @@ final class Router {
                 }
                 // CHORDS PAGE §3.7: an advance grid's delayed column is `chordColumn` at (m − delay); plain-TIME keeps read.step (SLIP, a TIME-step roll, applies to plain-TIME only — a documented limit for advance grids).
                 let cfg = grid == 1 ? p.chords2.advanceConfig : p.chordsAdvanceConfig
-                let delayedCol = (!read.waiting && !chordsAdvanceIsPlainTime(cfg)) ? chordColumn(cfg, beat: m - delayBeats, schedule: p.restartSchedule, barBeats: beatsPerBar) : -1
+                let delayedCol = (!read.waiting && !chordsAdvanceIsPlainTime(cfg)) ? chordColumn(cfg, beat: m - delayBeats, schedule: p.restartScheduleNoAll ?? p.restartSchedule, barBeats: beatsPerBar) : -1   // RESETS V3 §1.6: no-ALL schedule (insulated)
                 let chordKey = read.waiting ? euclideousCanonWaitingKey : (delayedCol >= 0 ? delayedCol : read.step)
                 if chordPoolStep == euclideousCanonDirtyKey && canonBufChord == chordKey && canonBufEntry == entry && canonBufMask == mask { return }   // the buffer already holds exactly this pool
                 mergeCanonStack(read, entry: entry, plan: lp, grid: grid, column: delayedCol)

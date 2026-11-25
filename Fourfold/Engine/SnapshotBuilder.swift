@@ -147,6 +147,10 @@ enum SnapshotBuilder {
                     sc.procs[0].restartSchedule = euclideousRestartScheduleSet(lines: sc.procs[0].euclidLines, barBeats: restartBarBeats, defaultRateBeats: sc.procs[0].euclidRateBeats,
                                                                               riffColumns: doc.polyRiffSnapResolved.on ? EuclideousPolyMetrics.columns : 8,
                                                                               allChain: doc.allChainResolved)   // RESETS V3 §1.7: ALL folds into the schedule (empty ⇒ byte-identical)
+                    // RESETS V3 §1.6: the chord grid reads a NO-ALL schedule so ALL never advances it. When ALL is empty it IS the schedule above (same memo entry — no second build); set ⇒ one extra main-thread build.
+                    sc.procs[0].restartScheduleNoAll = doc.allChainResolved.isEmpty ? sc.procs[0].restartSchedule
+                        : euclideousRestartScheduleSet(lines: sc.procs[0].euclidLines, barBeats: restartBarBeats, defaultRateBeats: sc.procs[0].euclidRateBeats,
+                                                       riffColumns: doc.polyRiffSnapResolved.on ? EuclideousPolyMetrics.columns : 8, allChain: [])
                     sc.procs[0].polyRiff = doc.polyRiffSnapResolved   // POLY RIFF (2026-10-29): page-level, no MachineParams hop — fixed-size value data for the render thread
                     sc.procs[0].euclideousFX = doc.euclideousFXResolved   // FX TAB (2026-10-18): page-level, no MachineParams hop — same shape as the sequencer fields below
                     sc.procs[0].hocketRules = HocketRulesSnap(rules: doc.hocketRulesResolved)   // HOCKET RETIRED (2026-11-17): production documents carry no rules (stripped at load, `normalizeHocketAtLoad`), so this is empty there; the engine path + the direct-injection tests (HocketRouterTests) stay intact

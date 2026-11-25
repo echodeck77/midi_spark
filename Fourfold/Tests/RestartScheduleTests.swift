@@ -760,6 +760,18 @@ final class RestartScheduleTests: XCTestCase {
         XCTAssertTrue(p > 0, "periodic under ALL")
         XCTAssertEqual(16.0.truncatingRemainder(dividingBy: p), 0, accuracy: 1e-6, "the period \(p) divides the ALL total (16 beats)")
     }
+
+    /// §1.6: the chord grid is insulated from ALL — the Router hands it `restartScheduleNoAll`, so ALL's restarts never advance it. A grid on LOOP of a FREE lane advances on that lane's LAPS (no-ALL), not the ALL beats; the two schedules give different columns, so reading the no-ALL one is what insulates.
+    func testChordGridReadsTheNoAllScheduleSoAllDoesNotAdvanceIt() {
+        let lines = four(line(hits: 3, steps: 8))                                   // lane 1 free: a loop every bar (lap 4 beats)
+        let allSched = setFor(lines, all: [4]), noAll = setFor(lines, all: [])
+        let cfg = ChordsAdvanceConfig(rateBeats: 4, steps: 4, rotate: 0, advanceUnit: .loop, advanceLane: 0, advanceEvery: 1, restartOn: false, restartUnit: .bar, restartLane: 0, restartEvery: 1)
+        // no-ALL: 6 laps in (0,24] ⇒ column (6 mod 4) = 2 — exactly what every ALL-empty document already plays.
+        XCTAssertEqual(chordColumn(cfg, beat: 24, schedule: noAll, barBeats: 4), 2, "the insulated (no-ALL) advance: the lane's own laps")
+        // ALL [4]: the lane's loop basis becomes the ALL restarts (one by beat 24) ⇒ column 1 — what the grid would wrongly do if it read the ALL schedule.
+        XCTAssertEqual(chordColumn(cfg, beat: 24, schedule: allSched, barBeats: 4), 1)
+        XCTAssertNotEqual(chordColumn(cfg, beat: 24, schedule: allSched, barBeats: 4), chordColumn(cfg, beat: 24, schedule: noAll, barBeats: 4), "the schedule choice changes the advance — so the chord grid MUST read the no-ALL one to stay insulated (§1.6)")
+    }
 }
 
 private struct SplitMix { var state: UInt64; init(seed: UInt64) { state = seed }
