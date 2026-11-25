@@ -11,6 +11,15 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 - [ ] **Deferred (cosmetic, non-blocking):** the ROOT card's STRIP top-line pulse (§2.3 — only the HITS/STEPS boxes pulse today); the MIX strip's hits/steps DRAG write-through (its TAP write-throughs via `tapStep`; the drags edit own-inert for a follower); RESETS tiles read a follower's OWN pattern, not the inherited one; the STEPS-picker on a follower has no edit pulse.
 - [ ] **Judgment calls to confirm with Paul:** rate ratio tracks the IMMEDIATE source while HITS/STEPS colour tracks the ROOT (literal §3.3 vs amendment §2.1); OFFSET inherits the root's fractional `offsetFraction`; a loaded FROM loop is broken on the LOWER-numbered lane (riff-source rule) not the ferry's "higher"; FLIP-on-follower is the follower's own `patternMiss`.
 
+## ★ KIT TEMPLATES (2026-11-25; branch `feature/kit-templates` — NOT LANDED; log in `euclideous-status-log.md`, findings `kit-templates-findings.md`)
+- [x] Static table (`KitTemplates.swift`, GM + 6 apps + 8 hardware) + lookups + COMMUNITY/DEBUG filter + `KitTemplatesTests` (3).
+- [x] Model `kitTemplate` (nil⇒gm) + decoder + APPLY TO ALL. Picker (header template button → GM / APPS | HARDWARE; apply in one step, rank 1). Key names by device (§4). TO KIT ⇒ gm.
+- [x] Golden IDENTICAL (never reaches the render path); 42 tests green. Alloc to confirm before landing.
+- [ ] **DO NOT LAND** until Paul signs off.
+- [ ] **FLAG / confirm:** §4.2 reverses the "keep the label on note-pick" fix — a key tap names the rank again (device/GM). Confirm wanted.
+- [ ] **DEVICE-OWED:** the KIT TEMPLATES list in `euclideous-device-verification-debt.md` — each hardware template on the device, Ruismaker/Microtonic, the COMMUNITY rows behind the flag, picker legibility, the template button truncation.
+- [ ] Open §0 (now ratified as proposed) — the "all seven" HARDWARE miscount (8 shown); DRUM picker still untemplated (§0.5).
+
 ## ★ KIT EDITOR V2 (2026-11-24; branch `feature/kit-editor-v2` — NOT LANDED; log in `euclideous-status-log.md`, findings `kit-editor-v2-findings.md`)
 - [x] §1 gate: INPUTS MODE fixed half-step (2.4) + gate dims (5.3) removed — gate live on every lane; OCT/STACK dims kept. Golden IDENTICAL, alloc 0.
 - [x] §2 fixes: name-scramble (NAME commits on return/switch/close, not per-change), title "KIT" inside, range "C2–B3", keys GM name+number+badges, rank cells "note · vel%", keyboard fills; "▲ KEYS" = host's, not ours.

@@ -1168,10 +1168,19 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   - MIX's gate on a DRUM lane audibly shortens and lengthens notes on a sampler in gate mode, and changes nothing on a one-shot drum app (§1.4).
   - The kit editor header (KIT · OCT · SEMI · DRUM · RESET GM · close) fits inside the overlay at both AUM sizes without overlap; the title no longer escapes to the screen edge.
 
-- **FILL STEP FLASH (STEP DISPLAY part 2, ferry 2026-11-25, on `feature/fill-step-flash`, not landed):** the lane card step grid holds a hit-changing fill's set while it plays. On the device:
+- **FILL STEP FLASH (STEP DISPLAY part 2, ferry 2026-11-25, LANDED):** the lane card step grid holds a hit-changing fill's set while it plays. On the device:
   - An ALL fill lights every step box in the lane colour for the fill; a FLIP fill flips which boxes are lit; the boxes snap back to the standard pattern the instant the fill ends (no stuck-lit box).
   - A standard hit the fill silences (FLIP, BREAK) reads clearly as a rest box; a standard rest the fill plays reads clearly as a lit hit box.
   - A reorder/retime-only fill (SPEED, REVERSE, RUSH with hits KEEP) leaves the boxes looking exactly like the standard pattern (no flash) — only the comet moves.
   - The lit boxes line up with the comet/playhead as it sweeps the fill.
   - A CHANCE<100 or SHUFFLE fill: the comet and the lit boxes agree with what actually sounds (the plan-lane fix).
   - Legibility of the box recolour vs the riff/stack chips still showing the standard pass (the chips are NOT recoloured — confirm it reads clearly or decide the chips should follow).
+
+- **KIT TEMPLATES (ferry 2026-11-25, LANDED):** a device template picker in the kit editor. §9:
+  - Each VERIFIED/SECONDARY hardware template plays the right voice on every rank, on the device, from a fresh KIT lane: TR-8S, RD-6, RD-8, RD-9, Volca Beats, Drumlogue, MPC, Circuit Rhythm (the emitter must send on channel 16).
+  - Volca Beats rank 8 + keys 67 and 75 play crash, agogo and claves (the three `*` notes are the GM guesses — check Korg's full chart).
+  - Ruismaker in AUM plays KICK (rank 1) through OH (rank 8) with its default keymap; the key names match its channels.
+  - Microtonic for iPad answers 36–43 as the desktop manual says.
+  - Each COMMUNITY row before it leaves the DEBUG flag: Gadget (one drum gadget), Koala (pad order on the default grid), DigiStix.
+  - The picker rows are easy to hit and read at real size; the header template button truncates (not widens) a long name at both AUM sizes.
+  - NOTE (reversal to confirm): §4.2 makes a key tap NAME the rank again (device/GM name) — this undoes the KIT SOURCE "keep the label on note-pick" fix. Confirm this is wanted now that names are device-aware.

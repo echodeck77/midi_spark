@@ -12618,7 +12618,7 @@ Amends KIT source + DRUM mode + INPUTS MODE. Findings `Docs/kit-editor-v2-findin
 - **§9 report.** (9.2 toggle/cell sizes) Riff toggle 48×41 landscape / 38×41 compact → 8 cells stacked, each **40 × 2.81** / **30 × 2.81**. Stack toggle 48×42 / 38×42 → rank: 8 cells side by side, each **3.69 × 34** / **2.44 × 34**; lane: 4 cells, each **8.875 × 34** / **6.375 × 34**. (9.3) `euclideousStackGridRows` is exactly 8 ranks, NO TOP rows → stack-rank = 8 cells, stack-lane = 4. (9.4 contradiction) §2.3's "(tall)"/"(wide)" parentheticals are backwards vs the actual near-square dims (the riff toggle is a touch wider than tall, the stack a touch taller than wide) — I followed §2.3's EXPLICIT cell-direction sentences (riff stacked, stack side by side), not the parentheticals; the thin cells are the §8 device-owed legibility risk.
 - **Proofs.** iOS build green; `GridChanceTests` 32 (7 new: 17–23 — cells/idle, riff + stack events match the gate, flash timing + restart, clear → %, ring round-trip/overflow); `GridChanceRouterTests` unchanged. `run.sh --golden` BYTE-IDENTICAL (events emit no MIDI; the gate is the same `*Passes`); `CONFIG=Release … --alloc` PASS (0) with a new `(default) GRID CHANCE` scenario (riff-rank + stack-lane, both parts playing, so the roll helpers + the ring push run on the render thread). Visual items (§8) device-owed — no simulator here.
 
-## FILL STEP FLASH ferry (STEP DISPLAY part 2, 2026-11-25; Fourfold only; branch `feature/fill-step-flash` — NOT LANDED; display only).
+## FILL STEP FLASH ferry (STEP DISPLAY part 2, 2026-11-25; Fourfold only; LANDED; display only).
 
 The STEP DISPLAY ferry (2026-11-15) made the lane card's COMET follow a fill ("as it sounds", `euclideousLaneCometChainRaw`'s fill branch, gated on `EuclideousFillRegion.changesHits` so a recolour-only fill keeps the base step lighting). Paul: extend that from the comet's POSITION to the step CELLS themselves (the biggest element on the lane) — while a hit-CHANGING fill plays, a step the fill SOUNDS flashes the hit look in the lane colour **even if it's a standard rest**, and a standard hit the fill SILENCES flashes the non-hit (rest) look. **Flash model (Paul 2026-11-25): HOLD while in the fill** — the cells hold the fill's effective set for the region and snap back to the standard pattern when it ends (consistent with the comet), NOT a per-strike pulse.
 
@@ -12628,4 +12628,22 @@ The STEP DISPLAY ferry (2026-11-15) made the lane card's COMET follow a fill ("a
 
 **Known / device-owed.** Only the STEP BOX (fill + bottom bar) is recoloured — the riff/stack CHIP + rank-mark layer still shows the standard pass (a sounding standard-rest box has no chip; a silenced standard-hit box keeps its chip). A STUTTER fill repeats one step, so it lights only that box; LAND's ×1-rejoin strike is outside the region, so it isn't shown. The chain+fill mid-region cell mapping is the comet's existing raw-content approximation. All looks/timing device-owed (no simulator here).
 
-**Proofs.** iOS build green; `FillStepFlashTests` (7: ALL/FLIP/reorder-no-op/BREAK/recolour-empty/no-region/disjoint-invariant) + `LaneStripFuzzTests` green; `run.sh --golden` byte-identical (no engine behaviour changed — the mirror is UI-consumed only). Held on `feature/fill-step-flash` pending Paul's sign-off.
+**Proofs.** iOS build green; `FillStepFlashTests` (7: ALL/FLIP/reorder-no-op/BREAK/recolour-empty/no-region/disjoint-invariant) + `LaneStripFuzzTests` green; `run.sh --golden` byte-identical (no engine behaviour changed — the mirror is UI-consumed only).
+
+---
+
+## KIT TEMPLATES ferry (2026-11-25; Fourfold only; branch `feature/kit-templates` — NOT LANDED; ratified with §0 proposed answers). Findings `Docs/kit-templates-findings.md`.
+
+A device-template picker in the kit editor. Lifts "fixed kit templates" from the KIT source ferry's out-of-scope (user-saved kits stay out).
+
+**Data (§5, `KitTemplates.swift`, Foundation-only, in the test target).** `EuclideousKitTemplate` (id, name, group gm/apps/hardware, confidence verified/secondary/community, `ranks` 8 × (note, name), `keys` superset) + the static table: GM, APPS (Ableton, Gadget, Koala, Microtonic, Ruismaker, DigiStix), HARDWARE (Circuit Rhythm, Drumlogue, MPC, RD-6, RD-8, RD-9, TR-8S, Volca Beats). `euclideousKitTemplate(id:)` (nil/unknown ⇒ gm) and `euclideousKitTemplatesForPicker(includeCommunity:)` (COMMUNITY = Gadget/Koala/DigiStix, shown only in a DEBUG build). GM's ranks == the kit ferry's default kit, so GM == RESET GM. `KitTemplatesTests` pins 8-ranks / 0–127 / ≤6-upper names / rank-note-in-keys / unique ids / GM-equals-default / the community filter.
+
+**Model (§1).** `EuclidLine.kitTemplate: String?` (nil ⇒ "gm"; records the last template applied, untouched by later edits), decoder line, copied by APPLY TO ALL. The engine never reads it (it only ever sees `kitNotes`).
+
+**Picker (§3).** The kit editor header's RESET GM slot is now a template button (`templateButton`: the name truncated-not-widened + a down chevron). A tap opens `templatePicker` over the body (ranks / NAME·VEL / keyboard hidden, header stays): a full-width GM row then APPS | HARDWARE columns, 44-tall rows, the current one #EDEFF3 with the lane dot, scrolling together if they overflow. A row applies the template in ONE undo step — notes + names + velocities 100 + `kitTemplate` (§2.1/§0.2) — closes, and returns with rank 1 selected (§3.4). TO KIT sets `kitTemplate` to nil (§2.3). OCT/SEMI/▼▲ leave `kitTemplate` unchanged (§1.2).
+
+**Key names (§4).** While a non-GM template is chosen, the kit editor's keys name a note by the device (`template.keyName`, GM fallback); a key tap names the rank the same way — **reversing the KIT SOURCE §4.6 pitch-only note-pick** (this ferry wins; flagged in the device-debt). GM's own keys are the GM table, so a GM lane is unchanged.
+
+**Contradictions reported.** §5 lists 8 HARDWARE rows but the release line says "all seven" — a miscount; all 8 show (none are COMMUNITY). §4.2 reverses the earlier "keep the label on note-pick" fix.
+
+**Proofs.** `run.sh --golden` byte-identical (kitTemplate never reaches the render path); `CONFIG=Release … --alloc` — (run before landing); `KitTemplatesTests` (3) + `DrumModeTests` (16) + `KitSource(Router)Tests` (22) green; build green. Device verification per `Docs/euclideous-device-verification-debt.md`. Held on `feature/kit-templates`.
