@@ -5,6 +5,17 @@ refs); THIS file is forward-looking (what's open). Keep them from overlapping: w
 AND add its commit line to CLAUDE.md status. Terse by design — detail lives in the spec (`midispark-spec-v3.0-
 delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-17._
 
+## ★ RESETS V3 (2026-11-24; branch `resets-v3`; log in `euclideous-status-log.md`; landing in slices)
+A document-level ALL reset (1–4 host-bar counts; resets every lane completely at each restart) + a reworked RESETS tab (one tile, rhythm+melody block rows on one ruler; linked=1 controls row / split=2; no FREE pills/link row/hatching/resolve count). ALL is the only engine change; empty ALL sounds as today. Chord grid insulated from ALL by default + a per-grid "Honour restarts" toggle (HARMONY page, off).
+- [x] **Slice A — model foundation (inert, byte-identical):** `PluginState.euclideousAllChain` + `allChainResolved`; `RestartUnitsModelTests` round-trip/bounds. No reader yet.
+- [ ] **Slice B — engine fold (§1):** thread `allChain` to `SnapParams`/`EuclideousScheduleInputs`; fold ALL's restarts into the schedule sim (rhythm+melody restarts/origins); `euclideousAttachedSchedule` forces every lane onto the schedule when ALL is set; periodicity bound to the chain's total bars; coincident lane+ALL restart = one (§1.4). Golden byte-identical while empty + ALL [4]/[2,1] restart tests; alloc 0.
+- [ ] **Slice C — chord-grid insulation + toggle (§1.6 decision):** `chordsLoopEventCount`/`chordsRiffEventCount` exclude ALL by default; per-grid `honourRestarts` flag (default off) makes RIFF/LOOP advance ALL-inclusive; HARMONY-page toggle UI (one undo step).
+- [ ] **Slice D — the tile (§2):** one 46 pt tile, two block rows (passes / riff-cycles) on one ruler, one playhead, two "N OF M", cut ticks (`lane100 × 45% white`, no hatching), host grid, dense/still-to-come. Hide the two old tiles + link row.
+- [ ] **Slice E — the controls (§3):** linked (1 units + 1 counts row) / split (RHYTHM + MELODY pairs); no FREE pills (+ only when empty); − removes incl. the only link; link button shows on a free linked lane; count tap top-up/bottom-down; running-link fill. No FREE dim.
+- [ ] **Slice F — the ALL row (§4)** between the tab strip and the cards (cards move down); count chips + ±, BARS, ruler, "N OF M"; one undo step; funnel between the UndoAudit anchors with a no-op guard.
+- [ ] **Slice G — VoiceOver (§5) + remaining tests (§6 1–15);** full `FourfoldTests` once before the final land.
+- [ ] **DEVICE-OWED:** the §8 line in `euclideous-device-verification-debt.md` (two rows read as rhythm/melody; cut ticks legible/not playheads; compare-under-ALL; free reads as free; link on/off + split reveals MELODY; tap halves + −-vs-+; ALL row reads as above the lanes; ALL restart heard where the ruler shows it).
+
 ## ★ EUCLID FROM (+ AMENDMENT 1) (2026-11-23; branch `euclid-from`, slices `d5e8ec8`→`22d2b9d`→final; log in `euclideous-status-log.md`)
 - [x] Model + pure fns + engine inheritance (golden byte-identical, alloc 0, event-for-event RouterTests); FROM row + chips; display while following (HITS/STEPS/OFFSET/rate + §8.1 strip/arrows/MIX feed); write-through (strip tap, picker, HITS/STEPS → root); random RHYTHM no-op on a follower; cross-card pulse; VoiceOver.
 - [ ] **DEVICE-OWED:** the whole §12 + amendment §7 visual/feel list (see `euclideous-device-verification-debt.md`) — chip tap comfort, shortened OFFSET/TILT drag, borrowed-colour legibility, the ×2 rate line fit, the pulse's conspicuity.

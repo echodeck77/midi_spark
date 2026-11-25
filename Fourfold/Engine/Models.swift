@@ -4234,6 +4234,13 @@ struct PluginState: Codable, Equatable {
     // undoable; `canonEntryResolved` is the ONLY reader — the stored value under DEBUG, WRAP in release).
     var euclideousCanonUnit: CanonUnit? = nil
     var canonUnitResolved: CanonUnit { euclideousCanonUnit ?? .passes }
+    // RESETS V3 ferry (2026-11-24) §1.1: the document-level ALL reset — a chain of 1…4 links, each a count of HOST BARS from
+    // {1,2,3,4,6,8,12,16}. Empty (nil) ⇒ no ALL (the default; old documents and presets load empty, so empty sounds exactly as
+    // today, §1.8). At each ALL restart every lane resets completely (rhythm + melody + their chains), §1.3. Additive-Optional,
+    // synthesized-Codable (a missing key decodes nil), undoable via the canon-unit pattern. `allChainResolved` bounds it to 4
+    // positive links; the UI stepper snaps values to the ladder. Read by the restart schedule (§1.7), never per-lane.
+    var euclideousAllChain: [UInt8]? = nil
+    var allChainResolved: [UInt8] { Array((euclideousAllChain ?? []).filter { $0 > 0 }.prefix(4)) }
     // SAME-NOTE GAP GUARD (2026-10-31): nil ⇒ ON (default). Shortens a riff note whose very next hit repeats the same
     // pitch, so a host delivering MIDI at buffer granularity can't merge the off with the identical next on (a clipped
     // or stuck note downstream). The settings sheet toggles it. See SnapParams.euclideousSameNoteGuard.

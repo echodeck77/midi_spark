@@ -193,4 +193,18 @@ final class RestartUnitsModelTests: XCTestCase {
         XCTAssertTrue(euclideousApplyRestartEdit(.unit(rhythm: true, index: 2), to: &k, lane: 0, pin: pin), "a real first edit still pins")
         XCTAssertEqual(k.restartRhythmBars, [2]); XCTAssertEqual(k.restartRhythmUnit, .riff)
     }
+
+    // RESETS V3 §1.1/§1.8: the document-level ALL chain — default empty (nil), and `allChainResolved` keeps only positive links, at most 4.
+    func testAllChainDefaultAndResolveBounds() {
+        let fresh = PluginState(machines: [], scenes: [SceneState.empty()])
+        XCTAssertNil(fresh.euclideousAllChain)                 // new documents start with no ALL (§1.1)
+        XCTAssertEqual(fresh.allChainResolved, [])
+        var p = PluginState(machines: [], scenes: [SceneState.empty()])
+        p.euclideousAllChain = [4]
+        XCTAssertEqual(p.allChainResolved, [4])
+        p.euclideousAllChain = [4, 0, 2, 8, 16, 3]             // a zero link is dropped; capped at 4 links
+        XCTAssertEqual(p.allChainResolved, [4, 2, 8, 16])
+        p.euclideousAllChain = []                               // explicitly empty ⇒ no ALL
+        XCTAssertEqual(p.allChainResolved, [])
+    }
 }
