@@ -772,6 +772,32 @@ final class RestartScheduleTests: XCTestCase {
         XCTAssertEqual(chordColumn(cfg, beat: 24, schedule: allSched, barBeats: 4), 1)
         XCTAssertNotEqual(chordColumn(cfg, beat: 24, schedule: allSched, barBeats: 4), chordColumn(cfg, beat: 24, schedule: noAll, barBeats: 4), "the schedule choice changes the advance — so the chord grid MUST read the no-ALL one to stay insulated (§1.6)")
     }
+
+    // MARK: RESETS V3 §2 — the one-tile two-row ruler's pure data (frames, shared span, row blocks, host grid). The drawing is device-owed.
+    func testResetsTileV3FramesSpanBlocksGrid() {
+        // §2.3 frames at TW 300
+        let f = euclideousResetsTileFrames(tw: 300)
+        XCTAssertEqual(f.ruler.minX, 72, accuracy: 0.01)
+        XCTAssertEqual(f.ruler.width, 144, accuracy: 0.01)        // TW − 156
+        XCTAssertEqual(f.ruler.minY, 8, accuracy: 0.01); XCTAssertEqual(f.ruler.height, 30, accuracy: 0.01)
+        XCTAssertEqual(f.rhythmRow.minY, 10, accuracy: 0.01)      // ruler y 8 + 2
+        XCTAssertEqual(f.melodyRow.minY, 26, accuracy: 0.01)      // ruler y 8 + 18
+        XCTAssertEqual(f.rhythmValue.maxX, 290, accuracy: 0.01)   // trailing edge TW − 10
+        XCTAssertEqual(f.rhythmValue.width, 66, accuracy: 0.01)
+        // §2.4 a free lane: the span is the host bar holding `beat`; §2.5 one uncut pass block per bar
+        let lines = four(line(hits: 3, steps: 8))
+        let c = cfg(lines, set: setFor(lines))
+        let span = euclideousResetsTileSpan(cfg: c, allChain: [], barBeats: 4, beat: 5)
+        XCTAssertEqual(span.start, 4, accuracy: 1e-9); XCTAssertEqual(span.len, 4, accuracy: 1e-9)
+        let blocks = euclideousResetsRowBlocks(kind: .rhythm, cfg: c, displayStart: span.start, displayLen: span.len)
+        XCTAssertEqual(blocks.count, 1)
+        XCTAssertEqual(blocks.first?.start ?? -1, 4, accuracy: 1e-9); XCTAssertEqual(blocks.first?.end ?? -1, 8, accuracy: 1e-9)
+        XCTAssertEqual(blocks.first?.cut, false, "a full lap ⇒ not cut")
+        // §2.7 host grid over [4,8): beats 5,6,7 strictly inside, none a bar line (bar lines 4 and 8 are the span edges)
+        let grid = euclideousResetsHostGridLines(spanStart: 4, spanLen: 4, barBeats: 4, rulerWidth: 144)
+        XCTAssertEqual(grid.count, 3)
+        XCTAssertTrue(grid.allSatisfy { !$0.bar })
+    }
 }
 
 private struct SplitMix { var state: UInt64; init(seed: UInt64) { state = seed }

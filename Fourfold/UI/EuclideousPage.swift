@@ -4229,8 +4229,6 @@ struct EuclideousPage: View {
         let settings = euclideousRestartSettings(line: line, lane: idx)
         let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
         let cfg = riffWalkConfig(idx)
-        let rhythmSpec = euclideousRestartTileSpec(rhythm: true, settings: settings, ownLane: idx)
-        let melodySpec = euclideousRestartTileSpec(rhythm: false, settings: settings, ownLane: idx)
         let input = EuclideousRestartEditorInput(lane: idx, line: line, laneColors: laneAccents, size: CGSize(width: fullWidth, height: contentAreaH), scheduleSet: restartScheduleSet,
                                                  barBeats: clock.beatsPerBar, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: running)
         return ZStack(alignment: .topLeading) {
@@ -4239,16 +4237,10 @@ struct EuclideousPage: View {
                 let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
                 let rRhythm = resetsRulerAndRatio(cfg, beat: beat, running: running, line: line, kind: .rhythm)
                 let rMelody = resetsRulerAndRatio(cfg, beat: beat, running: running, line: line, kind: .melody)
-                ZStack(alignment: .topLeading) {
-                    restartTile(idx, rhythm: true, spec: rhythmSpec, label: rRhythm.2 ?? euclideousRestartTileLabel(rhythm: true, settings: settings, ownLane: idx), accent: accent,
-                                width: L.rhythmTile.width, height: L.rhythmTile.height, state: rRhythm.3, strikes: nil, tappable: false,
-                                ruler: rRhythm.0, nOfM: rRhythm.1, layerOrder: euclideousRestartRulerLayerOrder)
-                        .offset(x: L.rhythmTile.minX, y: L.rhythmTile.minY)
-                    restartTile(idx, rhythm: false, spec: melodySpec, label: rMelody.2 ?? euclideousRestartTileLabel(rhythm: false, settings: settings, ownLane: idx), accent: accent,
-                                width: L.melodyTile.width, height: L.melodyTile.height, state: rMelody.3, strikes: nil, tappable: false,
-                                ruler: rMelody.0, nOfM: rMelody.1, layerOrder: euclideousRestartRulerLayerOrder)
-                        .offset(x: L.melodyTile.minX, y: L.melodyTile.minY)
-                }
+                // RESETS V3 §2: ONE tile, two block rows (passes above, riff cycles below) on a shared span. (The old two tiles + their link-row ruler are hidden — `restartTile`'s ruler path / `restartTilesRow` stay compiled, unmounted.)
+                resetsTileV3(idx, cfg: cfg, accent: accent, tw: L.rhythmTile.width, beat: beat, running: running, line: line,
+                             rhythmLabel: rRhythm.2, melodyLabel: rMelody.2, rhythmNM: rRhythm.1, melodyNM: rMelody.1)
+                    .offset(x: L.rhythmTile.minX, y: L.rhythmTile.minY)
             }
             .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
             // RHYTHM controls (no name, no timeline) · the link row · MELODY controls — declared RHYTHM → link → MELODY so VoiceOver reads them in that order (§4.1). Each section view is full-size with absolute card-coordinate offsets.
@@ -4273,6 +4265,92 @@ struct EuclideousPage: View {
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(EuclideousRestartEditorAX.resetsCard(lane: idx))   // §4.1
+    }
+
+    /// RESETS V3 §2: ONE tile — two block rows (RHYTHM passes above, MELODY riff cycles below) on a shared span, one playhead + "still to come" dim over both, a host-bar/beat grid, two "N OF M" values; no hatching. The Canvas paints the pure `ResetsTileV3*` data; labels + values are Text overlays. All looks device-owed (§8). `allChain` is empty until the ALL row ships (slice F) — then it is threaded here and the span uses ALL's current link.
+    @ViewBuilder
+    private func resetsTileV3(_ idx: Int, cfg: EuclideousWalkLaneConfig?, accent: Color, tw: CGFloat, beat: Double, running: Bool, line: EuclidLine,
+                             rhythmLabel: String?, melodyLabel: String?, rhythmNM: (n: Int, m: Int)?, melodyNM: (n: Int, m: Int)?) -> some View {
+        let f = euclideousResetsTileFrames(tw: tw)
+        let H = EuclideousResetsTileMetrics.height
+        let allChain: [UInt8] = []   // slice F wires the real value
+        let span: (start: Double, len: Double) = cfg.map { euclideousResetsTileSpan(cfg: $0, allChain: allChain, barBeats: clock.beatsPerBar, beat: beat) } ?? (beat, max(1e-6, clock.beatsPerBar))
+        let rhythmBlocks = cfg.map { euclideousResetsRowBlocks(kind: .rhythm, cfg: $0, displayStart: span.start, displayLen: span.len) } ?? []
+        let melodyBlocks = cfg.map { euclideousResetsRowBlocks(kind: .melody, cfg: $0, displayStart: span.start, displayLen: span.len) } ?? []
+        let grid = euclideousResetsHostGridLines(spanStart: span.start, spanLen: span.len, barBeats: clock.beatsPerBar, rulerWidth: f.rulerWidth)
+        let rhythmSet = cfg?.chains.hasRhythmRestarts ?? false
+        let melodySet = cfg?.chains.hasMelodyRestarts ?? false
+        let lightTone = Color(hex: 0xFFFFFF)   // §2.6 "light tone" ≈ lane100 × 45 % white; drawn as the accent then white@45 % (device-owed approximation)
+        return ZStack(alignment: .topLeading) {
+            Canvas { ctx, _ in
+                typealias M = EuclideousResetsTileMetrics
+                // §2.2 base
+                let base = Path(roundedRect: CGRect(x: 0.5, y: 0.5, width: tw - 1, height: H - 1), cornerRadius: 9)
+                ctx.fill(base, with: .color(Color(hex: 0x1F2229)))
+                ctx.stroke(base, with: .color(Color(hex: 0x2A2D34)), lineWidth: 1)
+                // §2.3 ruler track (clips its contents except the playhead/cut ticks)
+                let track = Path(roundedRect: f.ruler, cornerRadius: 3)
+                ctx.fill(track, with: .color(Color(hex: 0x2A2D34)))
+                func x(_ b: Double) -> CGFloat { f.ruler.minX + CGFloat((b - span.start) / max(1e-9, span.len)) * f.rulerWidth }
+                func drawRow(_ row: CGRect, _ blocks: [EuclideousRestartRulerBlock], set: Bool) {
+                    var clip = ctx; clip.clip(to: track)
+                    let fill = set ? lane100(accent) : Color(hex: 0x5C626C)
+                    for blk in blocks {
+                        let x0 = x(blk.start), x1 = x(blk.end)
+                        let w = max(0, x1 - x0 - M.blockGap)
+                        guard w > 0 || x1 > x0 else { continue }
+                        clip.fill(Path(roundedRect: CGRect(x: x0, y: row.minY, width: max(0.5, w), height: row.height), cornerRadius: M.blockRadius), with: .color(fill))
+                        if blk.cut {   // §2.6: a cut tick (no hatching) in the lane's light tone, centred 2.5 before the block's end
+                            let tx = x1 - M.cutTickInset - M.cutTickW / 2
+                            let tr = CGRect(x: tx, y: row.minY - M.cutTickExtra, width: M.cutTickW, height: row.height + M.cutTickExtra * 2)
+                            ctx.fill(Path(roundedRect: tr, cornerRadius: M.cutTickRadius), with: .color(lane100(accent)))
+                            ctx.fill(Path(roundedRect: tr, cornerRadius: M.cutTickRadius), with: .color(lightTone.opacity(0.45)))
+                        }
+                    }
+                }
+                drawRow(f.rhythmRow, rhythmBlocks, set: rhythmSet)
+                drawRow(f.melodyRow, melodyBlocks, set: melodySet)
+                // §2.7 host grid over the blocks, the ruler's full height
+                for g in grid {
+                    let gx = f.ruler.minX + g.x
+                    ctx.stroke(Path { $0.move(to: CGPoint(x: gx, y: f.ruler.minY)); $0.addLine(to: CGPoint(x: gx, y: f.ruler.maxY)) },
+                               with: .color(Color(hex: 0xF2F4F7).opacity(g.bar ? 0.60 : 0.18)), lineWidth: 1)
+                }
+                // §2.9 still-to-come + playhead (hidden while stopped)
+                if running {
+                    let px = min(max(x(beat), f.ruler.minX), f.ruler.maxX)
+                    if px < f.ruler.maxX - 0.5 { ctx.fill(Path(CGRect(x: px, y: f.ruler.minY, width: f.ruler.maxX - px, height: f.ruler.height)), with: .color(Color(hex: 0x121318).opacity(0.5))) }
+                    ctx.fill(Path(roundedRect: CGRect(x: px - 1, y: f.ruler.minY - 3, width: 2, height: f.ruler.height + 6), cornerRadius: 1), with: .color(Color(hex: 0xF2F4F7)))
+                }
+            }
+            .frame(width: tw, height: H)
+            // labels (§2.3)
+            resetsTileLabel("RHYTHM", at: f.rhythmLabel)
+            resetsTileLabel("MELODY", at: f.melodyLabel)
+            // values (§2.10)
+            resetsTileValue(rhythmNM, at: f.rhythmValue, set: rhythmSet)
+            resetsTileValue(melodyNM, at: f.melodyValue, set: melodySet)
+        }
+        .frame(width: tw, height: H, alignment: .topLeading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(euclideousResetsTileVoiceOver(rhythmNM: rhythmNM, rhythmSet: rhythmSet, melodyNM: melodyNM, melodySet: melodySet, advStep: line.riffAdvanceStepResolved))
+    }
+    private func resetsTileLabel(_ s: String, at r: CGRect) -> some View {
+        Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.08 * 8).foregroundColor(Color(hex: 0xAAB0BA))
+            .frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)
+    }
+    /// §2.10 "N OF M": N/M 11 pt heavy, "OF" 7 pt 0.08 em #8A909A sp3; ink #F2F4F7 (set) / #8A909A (free). Trailing-aligned in the value column; truncates, never shrinks.
+    @ViewBuilder
+    private func resetsTileValue(_ nm: (n: Int, m: Int)?, at r: CGRect, set: Bool) -> some View {
+        if let nm = nm {
+            let ink = set ? Color(hex: 0xF2F4F7) : Color(hex: 0x8A909A)
+            HStack(spacing: 0) {
+                Text("\(nm.n)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(ink)
+                Text("OF").font(.system(size: 7, weight: .heavy, design: .monospaced)).tracking(0.08 * 7).foregroundColor(Color(hex: 0x8A909A)).padding(.horizontal, 3)
+                Text("\(nm.m)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(ink)
+            }
+            .lineLimit(1).frame(width: r.width, height: r.height, alignment: .trailing).position(x: r.midX, y: r.midY)
+        }
     }
 
     /// RESETS V2 §3.6 — the per-frame closure feeding a half's running-link bar: the running link + the span fraction at a date (the SAME fraction as the ruler's playhead). nil (no closure) when stopped or the lane has no config, so the chips stay static. Captures only values + `beatAt` (no View `self`).

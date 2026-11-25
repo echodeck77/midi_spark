@@ -156,6 +156,7 @@
 		3D69F2AE2E4E4FAD31E29C37 /* FillEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CBBE0C6BCCAB378B92C134A /* FillEngineTests.swift */; };
 		3DD61804369E108DE2689925 /* MixPanelV2Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC5F675561EF5B87BB75724 /* MixPanelV2Views.swift */; };
 		3E3E07320E78189A744572F4 /* FillBlockViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9099B82BA8CD4AC2F0908130 /* FillBlockViews.swift */; };
+		3E4CB934EE1FF8C8E6720E53 /* ResetsTileV3.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EAEB14B47BC1D8B4B2D73E /* ResetsTileV3.swift */; };
 		3E91D49AE613E8D551D8B040 /* EmitterToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = E575B1D5376C5D667A10621E /* EmitterToken.swift */; };
 		3E9FF95A517649C43ED0D955 /* MidiFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F572C3FC335A28D6CA7D4002 /* MidiFileTests.swift */; };
 		3EF0308FDA83DBF4C04EB4E2 /* EmitterRatchetUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FDFAC49DE1FD6F45236A30 /* EmitterRatchetUI.swift */; };
@@ -282,6 +283,7 @@
 		746D078B5FCA81085A898B77 /* SessionTape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F916631CD0B4974C26CB893 /* SessionTape.swift */; };
 		746E24079B190777EFA7AF96 /* RiffGridArrowFuzzTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FC04EA80539F56545C2F422 /* RiffGridArrowFuzzTests.swift */; };
 		755AC5470022DBA5733B09AD /* ChordCanonSourcesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4730170C71768BFA49DCB6C /* ChordCanonSourcesTests.swift */; };
+		75EA204A11A3EBD66D3506F1 /* ResetsTileV3.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EAEB14B47BC1D8B4B2D73E /* ResetsTileV3.swift */; };
 		76200A32A504EA152B5EE00C /* FXTabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17864B5ACB5F8D44C78497C4 /* FXTabTests.swift */; };
 		76D1A6880AAD5A2FAB978C4C /* FourfoldTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1FFCC11328030F43BD907D /* FourfoldTelemetry.swift */; };
 		773F692F8B836B1C245ED1F8 /* FourfoldMIDI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4156E25D4881F600935CB6A5 /* FourfoldMIDI.swift */; };
@@ -469,6 +471,7 @@
 		C4B435D192FA99140BB67FAC /* EmitterRatchetRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0020B93EA1C4C6C4EF443729 /* EmitterRatchetRouterTests.swift */; };
 		C4FC8D3D987668BF1C537345 /* LaneSoloPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBCB1A8913CBDE416F8B6821 /* LaneSoloPainter.swift */; };
 		C51F6C7CA3B78101EE7826D8 /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54B806162177B626AC22A5D /* WalkTagPainter.swift */; };
+		C56BD96C30001FA505500624 /* ResetsTileV3.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EAEB14B47BC1D8B4B2D73E /* ResetsTileV3.swift */; };
 		C5FAA70DAA2123BDE08E7E23 /* RestartFlashPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE216B742656753132B6BF90 /* RestartFlashPainter.swift */; };
 		C61C5D495A11A7B47C2E6E78 /* StackGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02F45BADC981E9AE9B0D940 /* StackGrid.swift */; };
 		C632C006B308626B3B9E3411 /* EmitterTokenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EED14AFBC380ACC035A573D3 /* EmitterTokenView.swift */; };
@@ -874,6 +877,7 @@
 		8E2D58238A1D4FF553EC1FAF /* PolyRiffGridPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyRiffGridPainter.swift; sourceTree = "<group>"; };
 		9093C469F102E1F2CCC6DF7D /* MidiFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiFile.swift; sourceTree = "<group>"; };
 		9099B82BA8CD4AC2F0908130 /* FillBlockViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillBlockViews.swift; sourceTree = "<group>"; };
+		90EAEB14B47BC1D8B4B2D73E /* ResetsTileV3.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetsTileV3.swift; sourceTree = "<group>"; };
 		91BA15AAFC801CACFECA4085 /* MigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationTests.swift; sourceTree = "<group>"; };
 		91D8C6146A8A708D00931B05 /* FourfoldBluetoothMIDIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldBluetoothMIDIView.swift; sourceTree = "<group>"; };
 		923F68D1FA979B5D22C2336D /* EuclideousRandomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EuclideousRandomTests.swift; sourceTree = "<group>"; };
@@ -1593,6 +1597,7 @@
 				B082E4CB531BF1B8D9D2803C /* ReelKeep.swift */,
 				DEBD08079332D4A520876D2D /* ReelScreen.swift */,
 				68F897CA5367D074206AFCA5 /* ReelTapeAdapter.swift */,
+				90EAEB14B47BC1D8B4B2D73E /* ResetsTileV3.swift */,
 				A3FB716944E87E6D0BE2C364 /* RestartEditorUI.swift */,
 				CE4A9F61B5C96E28C70286A0 /* RestartSchedule.swift */,
 				95AD2F96C94C50838B6D8644 /* RestartUnits.swift */,
@@ -2006,6 +2011,7 @@
 				30C738F88FFD922DF7B406A6 /* ReelKeep.swift in Sources */,
 				7266341EE167DBAFB443C912 /* ReelScreen.swift in Sources */,
 				5B0BECCA9EE233272181562B /* ReelTapeAdapter.swift in Sources */,
+				C56BD96C30001FA505500624 /* ResetsTileV3.swift in Sources */,
 				D2F120D67C6722E60591D9C2 /* RestartEditorUI.swift in Sources */,
 				DBA8CB133AC79C0B8224B4F1 /* RestartEditorViews.swift in Sources */,
 				C5FAA70DAA2123BDE08E7E23 /* RestartFlashPainter.swift in Sources */,
@@ -2290,6 +2296,7 @@
 				49BFF7A8991A4AF1D215F5B3 /* ReelV3Tests.swift in Sources */,
 				28C37FB186B7F982930EB769 /* RenderInvariantTests.swift in Sources */,
 				E4E02EFE50BA1769941A5768 /* ResetsCardLayoutTests.swift in Sources */,
+				3E4CB934EE1FF8C8E6720E53 /* ResetsTileV3.swift in Sources */,
 				F5391EF8DBE567DE296CEB8D /* RestartChainsTests.swift in Sources */,
 				6CAD2EC6243F59DEF78E94C6 /* RestartEditorUI.swift in Sources */,
 				DA3A4C226D7C45A8CAE854A0 /* RestartEditorUITests.swift in Sources */,
@@ -2437,6 +2444,7 @@
 				BAC90F8A441EA17223D23868 /* ReelKeep.swift in Sources */,
 				BE533581B9493122006D1AA4 /* ReelScreen.swift in Sources */,
 				5ABD56A8428921E9D40CD132 /* ReelTapeAdapter.swift in Sources */,
+				75EA204A11A3EBD66D3506F1 /* ResetsTileV3.swift in Sources */,
 				F5CA87432FB6A9E50D3521D8 /* RestartEditorUI.swift in Sources */,
 				316F660F3C3ECC9F56AA905B /* RestartEditorViews.swift in Sources */,
 				BBF942FAE6FEC457D0351322 /* RestartFlashPainter.swift in Sources */,
