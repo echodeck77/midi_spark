@@ -7854,16 +7854,14 @@ struct EuclideousPage: View {
                 poolSourcesRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
                 inputsMidiRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
                 listenCanonRow(idx, line, fullWidth: fullWidth, height: layout.canonH)
-                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)   // foot of the tab (Paul 2026-11-24): below CANON, matching DRUM/KIT
             case .drum:
                 drumRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
                 drumVelRow(idx, line, accent, fullWidth: fullWidth, height: layout.midiH)
-                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
             case .kit:
                 kitRow(idx, line, accent, fullWidth: fullWidth, height: layout.sourcesH)
-                inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 0)   // absorbs the slack between the mode's rows and the button
+            inputsApplyAllButton(idx, accent, fullWidth: fullWidth, height: buttonH)   // PINNED to the foot (Paul 2026-11-25): the spacer above it keeps it at the same y in every mode (MELODIC/DRUM/KIT), evenly aligned at the bottom of the box
         }
         if layout.fits { return AnyView(rows.frame(width: fullWidth, height: contentAreaH, alignment: .top)) }
         return AnyView(ScrollView(.vertical, showsIndicators: false) { rows.frame(width: fullWidth, alignment: .top) }
