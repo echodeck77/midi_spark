@@ -34,6 +34,14 @@ struct EuclideousKitEditorView: View {
     var onMakeDrum: (() -> Void)? = nil  // §4.5: the kit editor's DRUM button (nil in the picker)
     var onShift: (Int) -> Void = { _ in }              // KIT EDITOR V2 §3.2: OCT ±12 / SEMI ±1 — move every rank's note
     var onCopy: (EuclideousKitCopyDir) -> Void = { _ in }   // §3.7: ▼ / ▲ copy the selected rank down / up
+    // KIT TEMPLATES (ferry 2026-11-25): the header's RESET GM slot becomes a template button that opens a picker over the body.
+    var templateName: String = "GM"
+    var currentTemplateId: String = "gm"
+    var templatePickerOpen: Bool = false
+    var pickerTemplates: [EuclideousKitTemplate] = []
+    var onTemplateButton: () -> Void = { }
+    var onPickTemplate: (String) -> Void = { _ in }
+    var template: EuclideousKitTemplate? = nil   // §4: the lane's current template, for key names (nil ⇒ GM names)
 
     @Binding var nameDraft: String
     @State private var velDragging = false
@@ -51,11 +59,52 @@ struct EuclideousKitEditorView: View {
                 .position(x: L.card.midX, y: L.card.midY)
 
             header(L)
-            if !isDrumPicker { ranks(L); nameVel(L) }
-            octaveButtons(L)
-            keyboard(L)
+            if templatePickerOpen && !isDrumPicker {   // KIT TEMPLATES §3.2: the picker replaces the ranks / NAME·VEL / keyboard; the header stays
+                templatePicker(L)
+            } else {
+                if !isDrumPicker { ranks(L); nameVel(L) }
+                octaveButtons(L)
+                keyboard(L)
+            }
         }
         .frame(width: box.width, height: box.height, alignment: .topLeading)
+    }
+
+    // MARK: KIT TEMPLATES §3.3 — the picker over the editor body: a full-width GM row, then APPS | HARDWARE columns.
+    private func templatePicker(_ L: EuclideousKitEditorLayout) -> some View {
+        let pad: CGFloat = 16
+        let innerX = L.card.minX + pad, innerW = max(1, L.card.width - pad * 2)
+        let top = L.header.maxY + 12, bottom = L.card.maxY - pad
+        let apps = pickerTemplates.filter { $0.group == .apps }, hw = pickerTemplates.filter { $0.group == .hardware }
+        let gm = pickerTemplates.first { $0.group == .gm }
+        func row(_ t: EuclideousKitTemplate, width: CGFloat) -> some View {
+            let cur = t.id == currentTemplateId
+            return HStack(spacing: 8) {
+                if cur { Circle().fill(laneColor).frame(width: 8, height: 8) }
+                Text(t.name).font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(0.06 * 13).lineLimit(1).minimumScaleFactor(0.6)
+                    .foregroundColor(Color(hex: cur ? 0x0D0F14 : 0xF2F4F7))
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 12).frame(width: width, height: 44)
+            .background(RoundedRectangle(cornerRadius: 8).fill(cur ? Color(hex: 0xEDEFF3) : Color(hex: 0x2A2D34)))
+            .contentShape(Rectangle()).onTapGesture { onPickTemplate(t.id) }
+            .accessibilityElement(children: .ignore).accessibilityLabel(t.name).accessibilityAddTraits(cur ? [.isButton, .isSelected] : .isButton)
+        }
+        func sectionLabel(_ s: String) -> some View { Text(s).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.1 * 10).foregroundColor(Color(hex: 0x8A909A)).frame(maxWidth: .infinity, alignment: .leading) }
+        let colGap: CGFloat = 10, colW = max(1, (innerW - colGap) / 2)
+        return ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 6) {
+                if let gm = gm { row(gm, width: innerW) }
+                HStack(alignment: .top, spacing: colGap) {
+                    VStack(alignment: .leading, spacing: 6) { sectionLabel("APPS"); ForEach(apps, id: \.id) { row($0, width: colW) } }.frame(width: colW, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 6) { sectionLabel("HARDWARE"); ForEach(hw, id: \.id) { row($0, width: colW) } }.frame(width: colW, alignment: .leading)
+                }
+            }
+            .frame(width: innerW, alignment: .topLeading)
+        }
+        .frame(width: innerW, height: max(1, bottom - top), alignment: .topLeading)
+        .position(x: innerX + innerW / 2, y: top + max(1, bottom - top) / 2)
+        .accessibilityElement(children: .contain).accessibilityLabel("Templates")
     }
 
     // MARK: header (§2.2/§2.3) — KIT · OCT − + · SEMI − + · flex · DRUM · RESET GM · close, each positioned absolutely inside the overlay (no escaping, no overlap).
@@ -68,11 +117,23 @@ struct EuclideousKitEditorView: View {
             shiftWell(L.octWell, label: "OCT", minus: L.octMinus, plus: L.octPlus, delta: 12, axDown: "Kit down an octave", axUp: "Kit up an octave")
             shiftWell(L.semiWell, label: "SEMI", minus: L.semiMinus, plus: L.semiPlus, delta: 1, axDown: "Kit down a semitone", axUp: "Kit up a semitone")
             if onMakeDrum != nil { headerBtn(L.drumBtn, "DRUM", "Make drum", action: { onMakeDrum?() }) }
-            headerBtn(L.resetBtn, "RESET GM", "Reset to GM kit", action: onResetGM)
+            templateButton(L.resetBtn)   // KIT TEMPLATES §3.1: the RESET GM slot is now the template button (name + chevron)
         }
         headerBtn(L.closeBtn, nil, "Close kit editor", systemImage: "xmark", action: onClose)
     }
     private func at<V: View>(_ r: CGRect, @ViewBuilder _ v: () -> V) -> some View { v().frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY) }
+    /// §3.1 the template button — the lane's template name (ellipsis-truncated, never widened) + a down chevron; a tap opens/closes the picker.
+    private func templateButton(_ r: CGRect) -> some View {
+        Button(action: onTemplateButton) {
+            HStack(spacing: 8) {
+                Text(templateName).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1).truncationMode(.tail).foregroundColor(Color(hex: 0xC6CBD3))
+                EuclideousChevronDown().stroke(Color(hex: 0xAAB0BA), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)).frame(width: 10, height: 6)
+            }
+            .padding(.horizontal, 8).frame(width: r.width, height: r.height)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x33363D), lineWidth: 1))
+        }.accessibilityElement(children: .ignore).accessibilityLabel("Template, \(templateName)").accessibilityAddTraits(.isButton).position(x: r.midX, y: r.midY)
+    }
     private func headerBtn(_ r: CGRect, _ title: String?, _ ax: String, systemImage: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Group {
@@ -227,7 +288,8 @@ struct EuclideousKitEditorView: View {
     private func keyboard(_ L: EuclideousKitEditorLayout) -> some View {
         let selNote = selectedNote ?? (selectedRank < notes.count ? notes[selectedRank] : nil)
         // §2.5 helpers: the GM short name (nil outside 35…81) and, in the kit editor, the rank badge for this key's note.
-        func gmName(_ note: UInt8) -> String? { (35...81).contains(Int(note)) ? euclideousGMDrumName(note) : nil }
+        // §4.1: a key in the template's `keys` shows the device's name; other keys keep their GM name. (GM's own keys are the GM table, so a GM lane is unchanged.)
+        func gmName(_ note: UInt8) -> String? { template?.keyName(note) ?? ((35...81).contains(Int(note)) ? euclideousGMDrumName(note) : nil) }
         func badge(_ note: UInt8) -> String { isDrumPicker ? "" : euclideousKitRankBadge((0..<min(8, notes.count)).filter { notes[$0] == note }.map { $0 + 1 }) }
         return Canvas { ctx, _ in
             for k in L.whiteKeys {

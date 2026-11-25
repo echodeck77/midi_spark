@@ -854,6 +854,8 @@ struct EuclidLine: Codable, Equatable {
     var kitNotes: [UInt8]? = nil
     var kitNames: [String]? = nil
     var kitVel: [UInt8]? = nil
+    var kitTemplate: String? = nil   // KIT TEMPLATES (ferry 2026-11-25, §1.1): the last template applied (§5 id); nil ⇒ "gm". Records the last apply; later edits to notes/names/vel leave it unchanged (§1.2). The engine never reads it.
+    var kitTemplateResolved: String { kitTemplate ?? "gm" }
     var kitOnResolved: Bool { kitOn ?? false }
     var kitNotesResolved: [UInt8] { euclideousKitNotesClamped(kitNotes) }     // §1.2 pad/clamp to 8; default kit when nil
     var kitVelResolved: [UInt8] { euclideousKitVelClamped(kitVel) }           // §1.2 pad/clamp to 8; default 100
@@ -1487,6 +1489,7 @@ extension EuclidLine {
         kitNotes = (try? c.decodeIfPresent([UInt8].self, forKey: .kitNotes)).flatMap { $0 }
         kitNames = (try? c.decodeIfPresent([String].self, forKey: .kitNames)).flatMap { $0 }
         kitVel = (try? c.decodeIfPresent([UInt8].self, forKey: .kitVel)).flatMap { $0 }
+        kitTemplate = (try? c.decodeIfPresent(String.self, forKey: .kitTemplate)).flatMap { $0 }   // KIT TEMPLATES §1.1: nil ⇒ "gm"
         // DRUM MODE (ferry 2026-11-23): the custom decoder must read each drum field (lenient enum decode ⇒ nil ⇒ the §1.2 default).
         fixedMode = (try? c.decodeIfPresent(EuclideousFixedMode.self, forKey: .fixedMode)).flatMap { $0 }
         drumNote = (try? c.decodeIfPresent(UInt8.self, forKey: .drumNote)).flatMap { $0 }

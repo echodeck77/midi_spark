@@ -1113,6 +1113,7 @@ struct EuclideousPage: View {
     @State private var kitEditorIsDrumPicker = false            // DRUM MODE §4.1: the open editor is the DRUM picker (no RESET / ranks / NAME; a key sets the lane's drum note)
     @State private var drumVelDragging = false                  // DRUM MODE §3.5: the two-thumb VEL drag's one-undo-step-per-drag flag
     @State private var lastSelectedKitRank: [Int: Int] = [:]     // INPUTS MODE §3.4: the rank last selected per lane, so KIT-row EDIT reopens on it (nil ⇒ rank 1)
+    @State private var kitTemplatePickerOpen = false             // KIT TEMPLATES §3.2: the template picker over the kit editor body (UI only)
     // RIBBON SETTINGS §6.1: in TUTTI mode a touch-down toggles ONE mark (the column/rank under the touch); the rest of the drag does nothing. This guards "only the first change of a drag acts".
     @State private var tuttiDragHandled = false
     // RIBBON SETTINGS §9: the live LOOP span (columns lo, hi; 0 = none) + the drag anchor (the column touched down on, fixed until lift). Ephemeral UI state mirroring the kernel live word; not saved/undone.
@@ -2036,7 +2037,7 @@ struct EuclideousPage: View {
             // KIT SOURCE (ferry 2026-11-23) §4.1: the editor over the four lane cards' block. A page-level catcher below it closes on an outside tap (§4.2, the GRID CHANCE pattern).
             if let kit = kitEditor, kit.lane >= 0, kit.lane < lines.count {
                 Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
-                    .onTapGesture { commitOpenKitName(); kitEditor = nil }
+                    .onTapGesture { commitOpenKitName(); kitEditor = nil; kitTemplatePickerOpen = false }
                     .accessibilityHidden(true).zIndex(9)
                 EuclideousStackBreak { AnyView(kitEditorView(kit, block: page.lanes[0].union(page.lanes[3]).size)) }
                     .offset(x: page.lanes[0].minX, y: page.lanes[0].minY)
@@ -2511,7 +2512,7 @@ struct EuclideousPage: View {
         hocketPopupOpen = false   // HOCKET (2026-10-27): the same
         playAsPopup = nil         // PLAY AS SEQUENCE (2026-11-08): the same
         notesChainPopup = nil; notesShiftPopup = nil; notesRepeatPopup = nil   // PLAY AS ROWS (2026-11-11 / amend 1): the ORDER/VOICES/SPREAD, SHIFT and REPEAT pop-ups
-        commitOpenKitName(); kitEditor = nil; kitEditorIsDrumPicker = false           // KIT SOURCE (§4.1): the same; KIT EDITOR V2 §2.1 commits a typed name first
+        commitOpenKitName(); kitEditor = nil; kitEditorIsDrumPicker = false; kitTemplatePickerOpen = false           // KIT SOURCE (§4.1): the same; KIT EDITOR V2 §2.1 commits a typed name first
     }
 
     /// PER-LANE RESTART PRESETS popup (2026-10-15 ferry §6, replacing the 2026-10-14 ferry's plain OFF/
@@ -8000,6 +8001,13 @@ struct EuclideousPage: View {
         let accent = laneAccents[lane % laneAccents.count]
         let picker = kitEditorIsDrumPicker
         let drumNote = euclideousDrumNote(line, lane: lane), drumHigh = line.drumHighResolved
+        let tmpl = euclideousKitTemplate(id: line.kitTemplateResolved)   // KIT TEMPLATES: the lane's current template (gm when nil)
+        #if DEBUG
+        let pickerTmpls = euclideousKitTemplatesForPicker(includeCommunity: true)
+        #else
+        let pickerTmpls = euclideousKitTemplatesForPicker(includeCommunity: false)
+        #endif
+        func keyNameFor(_ note: UInt8) -> String { tmpl.keyName(note) ?? euclideousGMDrumName(note) }   // §4.2: the template's name for the note, else GM
         return EuclideousKitEditorView(
             lane: lane, selectedRank: rank, notes: notes, names: names, vels: vels,
             lowC: kitEditorRangeLow, prevNote: kitEditorPrevNote, laneColor: lane100(accent), box: block,
@@ -8020,9 +8028,10 @@ struct EuclideousPage: View {
                     if let v = euclideousKitScaledVelocity(base: 100, kitVel: drumHigh) { onKitAudition(lane, Int(note), Int(v)) }
                 } else {
                     let old = notes[rank]
-                    edit(lane) { var nn = $0.kitNotesResolved; nn[rank] = note; $0.kitNotes = nn }   // §4.6 (Paul 2026-11-23): set the PITCH only — never overwrite the rank's name (rename is the NAME field's job)
-                    kitEditorPrevNote = old   // the NAME field keeps its current label
-                    if let v = euclideousKitScaledVelocity(base: 100, kitVel: Int(vels[rank])) { onKitAudition(lane, Int(note), Int(v)) }   // §4.6 audition at the rank's velocity
+                    let nm = keyNameFor(note)   // KIT TEMPLATES §4.2 (reverses KIT SOURCE §4.6's pitch-only): a key tap names the rank by the template's key name for that note, else the GM name
+                    edit(lane) { var nn = $0.kitNotesResolved; var names2 = $0.kitNamesResolved; nn[rank] = note; names2[rank] = nm; $0.kitNotes = nn; $0.kitNames = names2 }
+                    kitEditorPrevNote = old; kitEditorNameDraft = nm
+                    if let v = euclideousKitScaledVelocity(base: 100, kitVel: Int(vels[rank])) { onKitAudition(lane, Int(note), Int(v)) }
                 }
             },
             onSetName: { name in edit(lane) { var nm = $0.kitNamesResolved; nm[rank] = euclideousKitNameClean(name, note: notes[rank]); $0.kitNames = nm } },   // §4.4
@@ -8032,7 +8041,7 @@ struct EuclideousPage: View {
                 let n = euclideousKitDefaultNotes[rank]; kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n); kitEditorPrevNote = n
                 kitEditorNameDraft = euclideousKitNamesResolved(nil, notes: euclideousKitDefaultNotes)[rank] },
             onClose: { if !picker, kitEditorNameDraft != names[rank] { edit(lane) { var nm = $0.kitNamesResolved; nm[rank] = euclideousKitNameClean(kitEditorNameDraft, note: $0.kitNotesResolved[rank]); $0.kitNames = nm } }   // §2.1: commit a typed name on close
-                kitEditor = nil; kitEditorIsDrumPicker = false },
+                kitEditor = nil; kitEditorIsDrumPicker = false; kitTemplatePickerOpen = false },
             isDrumPicker: picker,
             selectedNote: picker ? drumNote : nil,
             onMakeDrum: picker ? nil : {   // §4.1/§4.5: send the selected rank's note to DRUM, set laneMode DRUM, close — one undo step; low/high/ramp kept
@@ -8050,6 +8059,16 @@ struct EuclideousPage: View {
                 let res = euclideousKitCopy(notes: notes, names: names, from: rank, dir: dir)
                 edit(lane) { $0.kitNotes = res.notes; $0.kitNames = res.names }
             },
+            templateName: tmpl.name, currentTemplateId: tmpl.id, templatePickerOpen: kitTemplatePickerOpen && !picker, pickerTemplates: pickerTmpls,
+            onTemplateButton: { kitTemplatePickerOpen.toggle() },   // §3.2 open / close
+            onPickTemplate: { id in   // §2: apply the template (notes + names + velocities 100 + kitTemplate) in one undo step, close, select rank 1
+                let t = euclideousKitTemplate(id: id)
+                edit(lane) { $0.kitNotes = t.notes; $0.kitNames = t.names; $0.kitVel = Array(repeating: 100, count: 8); $0.kitTemplate = id }
+                kitTemplatePickerOpen = false
+                let n = t.notes[0]; kitEditorRangeLow = euclideousKitEditorRangeLowC(note: n); kitEditorPrevNote = n; kitEditorNameDraft = t.names[0]
+                lastSelectedKitRank[lane] = 0; kitEditor = KitEditorTarget(lane: lane, rank: 0)   // §3.4 return with rank 1 selected
+            },
+            template: tmpl,   // §4: the keyboard names keys by the template (GM fallback)
             nameDraft: $kitEditorNameDraft)
     }
     /// 3.3 (SOURCES row ferry, 2026-11-08): MIDI IN · CHORDS (+ a 1|2 grid chooser) · PICK · KEY, then a separated TEST button. The two chord bits (CHORD 1 / CHORD 2, mutually exclusive) are consolidated into ONE CHORDS toggle plus a small
@@ -8177,7 +8196,7 @@ struct EuclideousPage: View {
     private func toKitFromDrum(lane: Int) {
         let l = lane < lines.count ? lines[lane] : EuclidLine(noteSel: .all)
         let k = euclideousKitFromDrum(l, lane: lane)
-        edit(lane) { $0.kitNotes = k.notes; $0.kitNames = k.names; $0.kitVel = k.vel; $0.laneMode = .kit }
+        edit(lane) { $0.kitNotes = k.notes; $0.kitNames = k.names; $0.kitVel = k.vel; $0.laneMode = .kit; $0.kitTemplate = nil }   // KIT TEMPLATES §2.3: TO KIT resets the template to gm
     }
     /// §3.4 the ramp UP | DOWN switch — two segments, each a four-bar icon; the selected one filled.
     private func drumRampSwitch(_ idx: Int, _ line: EuclidLine, w: CGFloat, height: CGFloat) -> some View {

@@ -286,6 +286,7 @@ targets:
       - path: Fourfold/Engine/FillTabV2.swift   # FILL TAB V2 (2026-11-17): the paged tab's pure layer — frames, segment/stepper maths, looks-state, VoiceOver (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/CCRows.swift   # CC SLOTS ferry (2026-11-12): the CC tab's three-band row layout + the lane-picker frames (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/LaneStripBands.swift   # LANE STRIP BANDS ferry (2026-11-12): the top strip's band heights, top-row frames, stack-chip colour, rank outlines, cell look + CC source (Foundation + CoreGraphics only)
+      - path: Fourfold/Engine/KitTemplates.swift   # KIT TEMPLATES ferry (2026-11-25): the static drum-machine template table + its lookups (Foundation only)
       - path: Fourfold/Shared/FourfoldTransportClock.swift
       - path: Fourfold/Engine/HardeningInvariants.swift   # ENGINE HARDENING 1 (2026-11-21): the §3 pure event-list checker + WireRecorder, shared by goldens/fuzz/Kernel host (Foundation + Emission's MIDIEmitter)
       - path: Fourfold/Engine/SnapshotStore.swift   # ENGINE HARDENING 1 (2026-11-21): the atomic snapshot seam, needed by the headless Kernel host (Foundation + Atomics only)
