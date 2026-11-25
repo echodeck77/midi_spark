@@ -8677,6 +8677,29 @@ struct EuclideousPage: View {
             .allowsHitTesting(false)
             .position(x: rect.midX, y: rect.midY)
     }
+    /// LANE picker button (Paul 2026-11-25): the horizontal LANE option as a TALL, visible band spanning the RIFF/STACK tab row through the four lane-colour headers. An OPAQUE base hides the tab + header text beneath (no bleed-through); over the lane columns it draws four FAINT lane-coloured segments — "like the four coloured headers but faint" — each wearing the same picker ring the RANK axis uses, so the two axes read consistently. The whole band is one tap that picks the LANE axis.
+    private func chanceLaneBand(box: CGSize, L: EuclideousStackGridLayout, onTap: @escaping () -> Void) -> some View {
+        let pad = EuclideousRiffPanelMetrics.padding
+        let top = pad                               // the tab row's top edge
+        let bottom = L.headerTop + L.headerH        // through the bottom of the lane-header band
+        let band = CGRect(x: pad, y: top, width: max(1, box.width - 2 * pad), height: max(1, bottom - top))
+        let segH = max(1, band.height - 4)
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1B1D23))   // opaque — the tab / header text must not bleed through
+                .frame(width: band.width, height: band.height).position(x: band.midX, y: band.midY)
+            ForEach(0..<4, id: \.self) { lane in
+                let h = L.header(lane)
+                RoundedRectangle(cornerRadius: 4).fill(lane100(laneAccents[lane % laneAccents.count]).opacity(0.18))   // the coloured header, faint
+                    .frame(width: h.width, height: segH)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(hex: 0xDFE3EA).opacity(GCUI.pickerRing), lineWidth: 1))   // the same ring as the RANK axis — consistent
+                    .position(x: h.midX, y: band.midY)
+            }
+        }
+        .frame(width: band.width, height: band.height)
+        .contentShape(Rectangle()).onTapGesture(perform: onTap)
+        .accessibilityElement(children: .ignore).accessibilityLabel("Chance by lane").accessibilityAddTraits(.isButton)
+        .position(x: band.midX, y: band.midY)
+    }
     /// §4.4: a whole-ladder tap region that picks an axis.
     private func chanceTapRegion(rect: CGRect, axLabel: String, onTap: @escaping () -> Void) -> some View {
         Color.clear.frame(width: rect.width, height: rect.height).contentShape(Rectangle()).onTapGesture(perform: onTap)
@@ -8783,8 +8806,7 @@ struct EuclideousPage: View {
             case .none:
                 ForEach(0..<L.rowCount, id: \.self) { r in chancePickerRing(rect: L.axis(r), inner: true) }
                 chanceTapRegion(rect: rankLadder, axLabel: "Chance by rank") { stackChanceAxis = .rank }
-                ForEach(0..<4, id: \.self) { lane in chancePickerRing(rect: L.header(lane), inner: false) }
-                chanceTapRegion(rect: laneLadder, axLabel: "Chance by lane") { stackChanceAxis = .other }
+                chanceLaneBand(box: box, L: L) { stackChanceAxis = .other }   // Paul 2026-11-25: the LANE button, a TALL faint-coloured band over the tab row + the four lane headers (visible; text hidden)
             case .rank:
                 ForEach(0..<min(8, L.rowCount), id: \.self) { r in
                     let idx = 7 - r
