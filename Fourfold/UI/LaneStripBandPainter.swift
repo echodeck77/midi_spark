@@ -41,6 +41,10 @@ struct EuclideousStripBandInput {
     var cellDim: Double = 1
     /// ALT §5.9: the buf-index steps whose hit plays in the alt state — a white inner outline on the body cell (empty for every non-ALT lane / stopped ⇒ identical).
     var altHitSteps: Set<Int> = []
+    /// STEP DISPLAY part 2 (FILL step flash, 2026-11-25): while a hit-changing fill plays, which displayed boxes it SOUNDS
+    /// (drawn as a hit, incl. standard rests) and which standard hits it SILENCES (drawn as a rest) — held for the region.
+    /// Empty (every non-fill lane / recolour-only fill / stopped) ⇒ the cells draw the standard pattern, byte-identical.
+    var fillFlash: EuclideousFillStepFlash = EuclideousFillStepFlash()
     /// LANE STRIP CLARITY §5.1: the lane whose hit COLOUR the cells take (the CARD's lane — under an ANSWER trade the strip
     /// shows the partner's plan in the card's own colour, so this is the card index, not the plan's).
     var hitColourLane: Int = 0
@@ -94,7 +98,11 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     // gap ring and the strike dip/glow of the old strip are replaced here, per the ferry.)
     for i in 0..<n {
         let cell = d.frames.cells[i]
-        let isHit = i < d.hits.count && d.hits[i].kind != .rhythmRest
+        var isHit = i < d.hits.count && d.hits[i].kind != .rhythmRest
+        // STEP DISPLAY part 2 (2026-11-25): a hit-changing fill HOLDS its effective set over the box — a box it sounds reads as
+        // a hit (even a standard rest), a standard hit it silences reads as a rest. Empty sets (no fill / recolour-only) ⇒ no change.
+        if d.fillFlash.sounds.contains(i) { isHit = true }
+        else if d.fillFlash.silenced.contains(i) { isHit = false }
         let look = stripCellLook(isHit: isHit, isPlayhead: d.playheadStep == i)
         let shape = RoundedRectangle(cornerRadius: M.cellRadius).path(in: cell)
         switch look.fill {

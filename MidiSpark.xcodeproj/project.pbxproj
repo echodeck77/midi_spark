@@ -460,6 +460,7 @@
 		C2B78F42CCC207F602D4937C /* WalkTagPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B324D879C239B5A1451B258F /* WalkTagPainter.swift */; };
 		C2E06CA6204355A767BE5042 /* RankChipPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF45F04EACF0BD829D28D308 /* RankChipPainter.swift */; };
 		C3C3B35A98FEB15A880BEF2B /* FourfoldCompose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BCA11D9EF8F9648490AA2D /* FourfoldCompose.swift */; };
+		C43D718DB33BE3D52EA0A79E /* FillStepFlashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9188F7A070458EDDCB34B2C /* FillStepFlashTests.swift */; };
 		C43DFF9334E196B60F237673 /* LaneStripBands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53BC97CD3AF04DB5093562C9 /* LaneStripBands.swift */; };
 		C4B21D64133FF65C1D73F27A /* ReelExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEB3F91B098254B25E5B502 /* ReelExportTests.swift */; };
 		C4B435D192FA99140BB67FAC /* EmitterRatchetRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0020B93EA1C4C6C4EF443729 /* EmitterRatchetRouterTests.swift */; };
@@ -952,6 +953,7 @@
 		B42102CE93C5093BDE344B9C /* RiffArrowPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiffArrowPainter.swift; sourceTree = "<group>"; };
 		B505AD7C314653CD2DB395CD /* FourfoldViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourfoldViewController.swift; sourceTree = "<group>"; };
 		B685D12DF249234FFBB1055E /* Derivations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Derivations.swift; sourceTree = "<group>"; };
+		B9188F7A070458EDDCB34B2C /* FillStepFlashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillStepFlashTests.swift; sourceTree = "<group>"; };
 		B94A31D253520EA87F4B4A91 /* LaneStripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneStripTests.swift; sourceTree = "<group>"; };
 		B97697074543323A5A46DF3D /* PlayAsRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayAsRows.swift; sourceTree = "<group>"; };
 		B9CE70864BC305F0A2B79F94 /* EmitterCCTraceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmitterCCTraceTests.swift; sourceTree = "<group>"; };
@@ -1229,6 +1231,7 @@
 				E60CB6DE9B3C049B124DC771 /* FillBlockTests.swift */,
 				2CBBE0C6BCCAB378B92C134A /* FillEngineTests.swift */,
 				0E0F668B86AC559602B8B4B5 /* FillRouterTests.swift */,
+				B9188F7A070458EDDCB34B2C /* FillStepFlashTests.swift */,
 				8800FADE3475DE968A8029EB /* FillTabModelTests.swift */,
 				064E393BAEA7C79E7CC1BB8C /* FillTabV2Tests.swift */,
 				4D19AE4FB122F125CE9C31EA /* FillTimingTests.swift */,
@@ -2165,6 +2168,7 @@
 				1201E348FC95B54F90EE8A18 /* FillPreview.swift in Sources */,
 				437ACFB4211DDEA15A115CC2 /* FillRegion.swift in Sources */,
 				742FF8658C2BA6896C704B9C /* FillRouterTests.swift in Sources */,
+				C43D718DB33BE3D52EA0A79E /* FillStepFlashTests.swift in Sources */,
 				C05AFA92C0C0ECDF936D170B /* FillTabModelTests.swift in Sources */,
 				47B1B9A847FA96AE7946AB72 /* FillTabV2.swift in Sources */,
 				E1215758C55A42B7FFE291A7 /* FillTabV2Tests.swift in Sources */,

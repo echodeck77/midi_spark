@@ -453,7 +453,8 @@ struct EuclidCometBar: View {
             // FILL ferry (2026-11-13) §2.10: inside a fill region the playhead sweeps at the fill speed and highlights the fired step (reverse mirrored). The origin is read at this beat (correct across a restart). Outside a region / not a fill lane ⇒ the plain chain sweep.
             if let fl = fillLine, fl.usesFill {
                 let origin = (restartChains?.hasRhythmRestarts ?? false) ? restartChains!.rhythmOriginBeat(b) : 0
-                let plan = EuclideousFillPlan(line: fl, originBeat: origin, beatsPerBar: clock.beatsPerBar, sub: sub)
+                // STEP DISPLAY part 2 (2026-11-25): pass the REAL lane — the CHANCE / SHUFFLE seeds key on it, so a lane-0 plan disagreed with the engine on a CHANCE<100 / SHUFFLE fill (the comet and the new cell flash both read this plan, so they must agree with what sounds).
+                let plan = EuclideousFillPlan(line: fl, lane: pulseLane, originBeat: origin, beatsPerBar: clock.beatsPerBar, sub: sub)
                 return euclideousLaneCometChainRaw(beat: b, n: n, dir: dir, sub: sub, chains: restartChains ?? .off, legacySpanBeats: spanBeats, fill: plan)
             }
             return restartChains.map { euclideousLaneCometChainRaw(beat: b, n: n, dir: dir, sub: sub, chains: $0, legacySpanBeats: spanBeats) }
@@ -556,8 +557,18 @@ struct EuclidCometBar: View {
                     }
                     // §6.1: both parts off → the HIT cells dim to 42% (not the whole strip), UNLESS the whole strip already dims (solo via the box, or a LANES mute at this beat) — never dim the cells twice.
                     let cellDim: Double = (cellsOnlyDim && !mutedNow && !suppressMuteDim) ? EuclideousLaneDimStyle.opacity : 1
+                    // STEP DISPLAY part 2 (Paul 2026-11-25): while a hit-CHANGING fill plays, the step cells HOLD the fill's set — a box it sounds reads as a hit
+                    // (lane colour, even a standard rest), a standard hit it silences reads as a rest. Empty (no fill / recolour-only / stopped) ⇒ the standard pattern.
+                    let fillFlash: EuclideousFillStepFlash = {
+                        guard runningNow, let fl = fillLine, fl.usesFill else { return EuclideousFillStepFlash() }
+                        let origin = (restartChains?.hasRhythmRestarts ?? false) ? restartChains!.rhythmOriginBeat(liveBeat) : 0
+                        let plan = EuclideousFillPlan(line: fl, lane: pulseLane, originBeat: origin, beatsPerBar: clock.beatsPerBar, sub: sub)
+                        let std = (0..<n).map { $0 < soundingHits.count && soundingHits[$0].kind != .rhythmRest }
+                        return euclideousFillStepFlash(plan: plan, beat: liveBeat, n: n, dir: dir, sub: sub, standardHits: std)
+                    }()
                     drawLaneStripBands(&ctx, EuclideousStripBandInput(frames: bandFrames, hits: strip.legs[stripLeg].hits, steps: n, laneIndex: strip.lane, tint: tint, stripWidth: size.width, playheadStep: playheadStep,
                                                                        sounding: sounding, cc: ccTrace, riffShown: strip.riffPartOn, notesShown: strip.notesPartOn, cellDim: cellDim, altHitSteps: strip.altHitSteps,
+                                                                       fillFlash: fillFlash,
                                                                        hitColourLane: hitColourLane ?? pulseLane,   // CLARITY §5.1: the CARD's lane picks the hit colour; EUCLID FROM: a follower's hits adopt the source lane's colour (nil ⇒ the card's own)
                                                                        riffSourceColor: strip.riffSourceColor))   // RIFF SOURCE §9: a reader's chips take its source lane's colour
                     return

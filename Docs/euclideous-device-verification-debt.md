@@ -1167,3 +1167,11 @@ paging groove, random-mode landing feel, the live-MIDI-canon timbre, and the iPa
   - The open-hat kit (TO KIT from CH, then rank 7 → OH, ▲) sounds like accents opening the hat.
   - MIX's gate on a DRUM lane audibly shortens and lengthens notes on a sampler in gate mode, and changes nothing on a one-shot drum app (§1.4).
   - The kit editor header (KIT · OCT · SEMI · DRUM · RESET GM · close) fits inside the overlay at both AUM sizes without overlap; the title no longer escapes to the screen edge.
+
+- **FILL STEP FLASH (STEP DISPLAY part 2, ferry 2026-11-25, on `feature/fill-step-flash`, not landed):** the lane card step grid holds a hit-changing fill's set while it plays. On the device:
+  - An ALL fill lights every step box in the lane colour for the fill; a FLIP fill flips which boxes are lit; the boxes snap back to the standard pattern the instant the fill ends (no stuck-lit box).
+  - A standard hit the fill silences (FLIP, BREAK) reads clearly as a rest box; a standard rest the fill plays reads clearly as a lit hit box.
+  - A reorder/retime-only fill (SPEED, REVERSE, RUSH with hits KEEP) leaves the boxes looking exactly like the standard pattern (no flash) — only the comet moves.
+  - The lit boxes line up with the comet/playhead as it sweeps the fill.
+  - A CHANCE<100 or SHUFFLE fill: the comet and the lit boxes agree with what actually sounds (the plan-lane fix).
+  - Legibility of the box recolour vs the riff/stack chips still showing the standard pass (the chips are NOT recoloured — confirm it reads clearly or decide the chips should follow).
