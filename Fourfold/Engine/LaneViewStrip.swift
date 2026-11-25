@@ -19,20 +19,16 @@ enum EuclideousPageTab: Int, CaseIterable, Equatable {
     var front: EuclideousTabKind? { self == .mix ? nil : EuclideousTabKind(rawValue: rawValue) }
     var isMix: Bool { self == .mix }
     var spokenName: String {
-        switch self { case .rhythm: return "Euclid"; case .riff: return "Riff"; case .notes: return "Stack"; case .pool: return "Inputs"; case .listen: return "Answer"; case .resets: return "Resets"; case .mix: return "Mix"; case .fill: return "Fill"; case .alt: return "Alt" }   // RHYTHM renamed EUCLID / POOL renamed INPUTS on screen (Paul 2026-11-08 / 2026-11-05; both cases keep their code names `.rhythm` / `.pool`, so the rawValue coupling is untouched); ALT (2026-11-14)
+        switch self { case .rhythm: return "Euclid"; case .riff: return "Riff"; case .notes: return "Stack"; case .pool: return "Lane Mode"; case .listen: return "Answer"; case .resets: return "Resets"; case .mix: return "Mix"; case .fill: return "Fill"; case .alt: return "Alt" }   // RHYTHM → EUCLID; POOL → INPUTS → LANE MODE (Paul 2026-11-25); both cases keep their code names `.rhythm` / `.pool`, so the rawValue coupling is untouched; ALT (2026-11-14)
     }
     var label: String { spokenName.uppercased() }
 }
 /// The LEFT-TO-RIGHT order the strip draws its segments (Paul 2026-11-05: INPUTS first, before RHYTHM). This is DELIBERATELY separate from the raw values — `.pool`'s rawValue (3) still drives the `.front` / `EuclideousTabKind` coupling and must not move; only the display position changes.
 let euclideousPageTabOrder: [EuclideousPageTab] = [.pool, .rhythm, .riff, .notes, .resets, .fill, .listen, .alt, .mix]   // RESETS moved after RIFF + STACK (Paul 2026-11-19); FILL after STACK (2026-11-13); ALT between ANSWER and MIX (2026-11-14)
 
-/// ANSWER tab = DEV-only (Paul 2026-11-16): the ANSWER (`.listen`) tab shows in the strip only in DEBUG builds, hidden in release — the same convention as CLASHES / FX COUNTS. The engine is untouched, so a saved document's ANSWER
-/// (CYCLE / TRADE / COPY / FILL) settings still PLAY; only the editing tab is gone from release. `euclideousPageTabOrder` and the raw-value coupling are unchanged.
-#if DEBUG
-let euclideousAnswerTabVisible = true
-#else
+/// ANSWER tab REMOVED from the strip (Paul 2026-11-25): the ANSWER (`.listen`) tab no longer shows in ANY build (it was dev-only since 2026-11-16, hidden in release). The engine is untouched, so a saved document's ANSWER
+/// (CYCLE / TRADE / COPY / FILL) settings still PLAY; only the editing tab is gone. The `.listen` case stays in all three coupled enums (rawValue coupling + saved-document playback); `euclideousPageTabOrder` keeps it (the raw order) and `euclideousLaneStripOrder` filters it out. Flip to `true` to bring the editor back.
 let euclideousAnswerTabVisible = false
-#endif
 /// REEL + emitter VELOCITY tab = DEV-only (Paul 2026-11-19): shown in the DEBUG dev build, hidden in release — the same
 /// convention as the ANSWER tab above. The reel's pass-browser / recorder icon (and its popup) and the emitter VEL
 /// sequencer tab leave the shipping UI; all their code — the browser, the `SessionTape` recorder, the velocity panel and

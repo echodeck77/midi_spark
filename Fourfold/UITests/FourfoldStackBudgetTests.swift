@@ -26,7 +26,7 @@ final class FourfoldStackBudgetTests: XCTestCase {
             XCUIDevice.shared.orientation = orientation
             Thread.sleep(forTimeInterval: 1.0)
             // TAB STRIP (2026-10-29): one tab for all four cards — each tab is built on every lane at once
-            for tab in ["Riff, ", "Stack, ", "Inputs, ", "Answer, ", "Euclid"] {   // POOL renamed INPUTS / RHYTHM renamed EUCLID (Paul 2026-11-05 / 2026-11-08)
+            for tab in ["Riff, ", "Stack, ", "Lane Mode, ", "Euclid"] {   // POOL → INPUTS → LANE MODE (Paul 2026-11-25); ANSWER tab removed (2026-11-25)
                 let t = tab == "Euclid" ? app.buttons["Euclid"].firstMatch : app.els(prefix: tab).firstMatch   // (the EUCLID segment has no glyph cluster, so its exact label is "Euclid"; ANSWER's own switches are "Rhythm, lane n")
                 if t.waitForExistence(timeout: 3) { t.tap() }
             }

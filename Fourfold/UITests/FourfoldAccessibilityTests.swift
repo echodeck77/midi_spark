@@ -35,7 +35,7 @@ enum FourfoldAuditAllowList {
     ] + harmonyClipped.map { (type: "textClipped", label: $0, why: "INPUTS + HARMONY (2026-11-06): a small heavy tracked-mono caption (the scale chips, the grid's row labels, the pill, PICK / MIDI IN / OCTAVES, the INPUTS rows) — drawn whole in the screenshots; the same false-positive family as TRANS / GATE — confirm on device") }
     /// The labels the audit flags as clipped on the HARMONY page, its popovers and the INPUTS tab (all drawn whole in `testTheHarmonyPage` / `testTheInputsTab`'s pictures), plus the page chrome that every one of those screens also carries (RHYTHM … LATCH, accepted stale since earlier ferries).
     static let harmonyClipped = ["HARM MIN", "MELODY", "VII", "REST", "ii°", "III", "MAJOR", "LYDIAN", "WHOLE", "MINOR", "DORIAN", "MIN PENT", "MIXO", "COLOUR", "CHORDS", "♭II", "CHROMATIC", "TIME", "BLUES", "MIDI IN", "vii°", "PHRYGIAN",
-                                 "1/1", "BAR", "MEL MIN", "MAJ PENT", "IGNORE", "KEEP", "OCTAVES", "LOOP", "RESTART", "1/8", "ADVANCE", "1/2.", "1/4", "2/1", "1/2", "MIDI", "MUTE", "HOLD", "PASSES", "SOURCES", "RATCH", "ANSWER", "LATCH", "RHYTHM", "EUCLID", "INPUTS"]   // HOCKET RETIRED (2026-11-17): the header pill is gone
+                                 "1/1", "BAR", "MEL MIN", "MAJ PENT", "IGNORE", "KEEP", "OCTAVES", "LOOP", "RESTART", "1/8", "ADVANCE", "1/2.", "1/4", "2/1", "1/2", "MIDI", "MUTE", "HOLD", "PASSES", "SOURCES", "RATCH", "ANSWER", "LATCH", "RHYTHM", "EUCLID", "LANE MODE", "LANE", "MODE"]   // HOCKET RETIRED (2026-11-17); POOL → INPUTS → LANE MODE (2026-11-25; LANE / MODE cover a tail-truncated segment)
     /// `elementDetection` issues come with NO element ("potentially inaccessible text"), so they cannot be matched by label: up to this many per screen are accepted (the most seen: 6, on the NOTES tab while stopped, where its key
     /// letters are the "–" placeholders). More than this on any screen is a new unlabelled piece of text.
     static let unlocatedElementDetectionCeiling = 6
@@ -167,8 +167,8 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditStackGridPortrait() { screen("stack grid", landscape: false) { $0.buttons["Stack"].firstMatch.tap() } }   // STACK GRID (2026-11-08): the riff panel's RIFF | STACK switch and the four-lane grid
     func testAuditStackGridLandscape() { screen("stack grid", landscape: true) { $0.buttons["Stack"].firstMatch.tap() } }
     func testAuditNotesTabPortrait() { screen("lane tab NOTES", landscape: false, laneTab("Stack, ")) }
-    func testAuditAnswerTabPortrait() { screen("lane tab ANSWER", landscape: false, laneTab("Answer, ")) }
-    func testAuditPoolTabPortrait() { screen("lane tab INPUTS", landscape: false, laneTab("Inputs, ")) }   // POOL renamed INPUTS (2026-11-05); INPUTS ferry (2026-11-06): NOW · SOURCES · MIDI · CANON
+    // ANSWER tab removed (Paul 2026-11-25): the ANSWER audits are gone (no tab to reach).
+    func testAuditPoolTabPortrait() { screen("lane tab LANE MODE", landscape: false, laneTab("Lane Mode, ")) }   // POOL → INPUTS → LANE MODE (2026-11-25): NOW · SOURCES · MIDI · CANON
     func testAuditPresetsPortrait()  { screen("presets", landscape: false, open("Presets", expect: "PRESETS")) }
     func testAuditSwingPortrait()    { screen("swing", landscape: false, open("Swing, straight", expect: "SWING")) }
     func testAuditSettingsPortrait() { screen("settings", landscape: false) { $0.buttons["Settings"].tap() } }
@@ -180,8 +180,7 @@ final class FourfoldAccessibilityTests: XCTestCase {
     func testAuditRatchLandscape()    { screen("page RATCH", landscape: true) { $0.buttons["Ratchet"].tap() } }   // RATCH tab ferry (2026-10-28)
     func testAuditRiffTabLandscape()  { screen("lane tab RIFF", landscape: true, laneTab("Riff, ")) }
     func testAuditNotesTabLandscape() { screen("lane tab NOTES", landscape: true, laneTab("Stack, ")) }
-    func testAuditAnswerTabLandscape() { screen("lane tab ANSWER", landscape: true, laneTab("Answer, ")) }
-    func testAuditPoolTabLandscape() { screen("lane tab INPUTS", landscape: true, laneTab("Inputs, ")) }   // POOL renamed INPUTS (2026-11-05)
+    func testAuditPoolTabLandscape() { screen("lane tab LANE MODE", landscape: true, laneTab("Lane Mode, ")) }   // POOL → INPUTS → LANE MODE (2026-11-25)
     func testAuditPresetsLandscape()  { screen("presets", landscape: true, open("Presets", expect: "PRESETS")) }
     func testAuditSwingLandscape()    { screen("swing", landscape: true, open("Swing, straight", expect: "SWING")) }
     func testAuditSettingsLandscape() { screen("settings", landscape: true) { $0.buttons["Settings"].tap() } }

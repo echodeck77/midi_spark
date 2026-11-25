@@ -145,7 +145,8 @@ enum SnapshotBuilder {
                 if r == Snap.euclideousRow, !sc.procs.isEmpty {
                     // RESTART UNITS (2026-11-04): the lanes' restart schedule — simulated here (memoised on its inputs), read by the Router and the page alike. Built from the lines the Router will read (`sc.procs[0].euclidLines`), the host's bar length and the default step.
                     sc.procs[0].restartSchedule = euclideousRestartScheduleSet(lines: sc.procs[0].euclidLines, barBeats: restartBarBeats, defaultRateBeats: sc.procs[0].euclidRateBeats,
-                                                                              riffColumns: doc.polyRiffSnapResolved.on ? EuclideousPolyMetrics.columns : 8)
+                                                                              riffColumns: doc.polyRiffSnapResolved.on ? EuclideousPolyMetrics.columns : 8,
+                                                                              allChain: doc.allChainResolved)   // RESETS V3 §1.7: ALL folds into the schedule (empty ⇒ byte-identical)
                     sc.procs[0].polyRiff = doc.polyRiffSnapResolved   // POLY RIFF (2026-10-29): page-level, no MachineParams hop — fixed-size value data for the render thread
                     sc.procs[0].euclideousFX = doc.euclideousFXResolved   // FX TAB (2026-10-18): page-level, no MachineParams hop — same shape as the sequencer fields below
                     sc.procs[0].hocketRules = HocketRulesSnap(rules: doc.hocketRulesResolved)   // HOCKET RETIRED (2026-11-17): production documents carry no rules (stripped at load, `normalizeHocketAtLoad`), so this is empty there; the engine path + the direct-injection tests (HocketRouterTests) stay intact

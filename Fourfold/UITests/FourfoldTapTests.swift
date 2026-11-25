@@ -260,50 +260,23 @@ final class FourfoldTapTests: XCTestCase {
         need(app.el("Advance every"), "the RIFF tab's ADVANCE EVERY row")   // (the WALK strip above it is dropped on a card too short for it — the iPad mini — so it is not the thing to look for)
         app.els(prefix: "Stack, ").firstMatch.tap()
         need(app.el("Notes layer, off, 0 notes lit"), "the NOTES tab's layer switch")
-        app.els(prefix: "Inputs, ").firstMatch.tap()   // POOL tab renamed INPUTS (Paul 2026-11-05)
-        need(app.els(prefix: "Now, lane 1").firstMatch, "the POOL tab's NOW row")
-        need(app.el("Canon delay, lane 1"), "the POOL tab's CANON row")
-        app.els(prefix: "Answer, ").firstMatch.tap()
-        need(app.el("Follow lane 2"), "the ANSWER tab's partner picker")
-        need(app.el("Rhythm, lane 1"), "the ANSWER tab's RHYTHM switch")
+        app.els(prefix: "Lane Mode, ").firstMatch.tap()   // POOL → INPUTS → LANE MODE (Paul 2026-11-25)
+        need(app.els(prefix: "Now, lane 1").firstMatch, "the LANE MODE tab's NOW row")
+        need(app.el("Canon delay, lane 1"), "the LANE MODE tab's CANON row")
         app.buttons["Euclid"].tap()
         need(app.otherElements.matching(NSPredicate(format: "label == %@", "HITS")).firstMatch, "the RHYTHM tab again")
     }
 
-    /// ANSWER (2026-11-02): a switch turns its row on (the mode button then draws selected) and RHYTHM's strip appears on the RHYTHM tab; CYCLE shows the CYCLE row; TRADE pairs a SWAP in one undo step; everything undoes.
-    func testTheAnswerSwitchesCycleAndTradeAndTheirUndo() {
-        let app = XCUIApplication.fresh()
-        app.els(prefix: "Answer, ").firstMatch.tap()
-        XCTAssertEqual(value(need(app.el("Rhythm, lane 2"), "lane 2's RHYTHM switch")), "off")
-        XCTAssertFalse(app.els(prefix: "Each, lane 2").firstMatch.exists, "no CYCLE row while nothing cycles")
-        app.el("Rhythm, lane 2").tap()
-        XCTAssertEqual(value(app.el("Rhythm, lane 2")), "on")
-        app.buttons["Undo"].tap()
-        XCTAssertEqual(value(app.el("Rhythm, lane 2")), "off", "a switch tap is one undo step")
-        app.el("Rhythm, lane 2").tap()
-        app.el("Cycle rhythm, lane 2").tap()
-        need(app.el("Each, lane 2"), "the CYCLE row appears while a row is on with CYCLE")
-        need(app.el("Phase, lane 2"), "the phase bar")
-        // the RHYTHM tab shows the strip while RHYTHM is on
-        app.buttons["Euclid"].tap()
-        need(app.el("Delay, lane 2"), "the rhythm strip's DELAY")
-        app.els(prefix: "Answer, ").firstMatch.tap()
-        // TRADE: SWAP with the default WITH pairs the other lane too, in one undo step
-        app.el("Trade, lane 1").tap()
-        XCTAssertEqual(value(app.el("Trade, lane 1")), "on")
-        XCTAssertEqual(value(app.el("Trade, lane 2")), "on", "lane 1 swaps with lane 2 → lane 2 swaps back")
-        Thread.sleep(forTimeInterval: 0.7)
-        app.buttons["Undo"].tap()
-        XCTAssertEqual(value(app.el("Trade, lane 1")), "off")
-        XCTAssertEqual(value(app.el("Trade, lane 2")), "off", "the pairing was one undo step for both lanes")
-    }
+    // ANSWER tab REMOVED from the strip (Paul 2026-11-25): the UI test that drove the ANSWER editor
+    // (testTheAnswerSwitchesCycleAndTradeAndTheirUndo) is gone — there is no tab to reach it. The ANSWER
+    // engine (CYCLE / TRADE / COPY / FILL) still PLAYS a saved document and is covered by AnswerRouterTests.
 
-    /// INPUTS (ferry 2026-11-06; the POOL tab renamed): the INPUTS tab's SOURCES toggles and each lane's MIDI mode edit through the document and back through undo (one step each); NOW reads the pool; the grid's lane picker steps
+    /// INPUTS (ferry 2026-11-06; the POOL tab renamed, now LANE MODE): the tab's SOURCES toggles and each lane's MIDI mode edit through the document and back through undo (one step each); NOW reads the pool; the grid's lane picker steps
     /// 1 → 2 → 3 → 4 → 1 and the NOTES keys carry their rank numbers in their names.
     func testTheInputsTabSwitchesSourcesMidiModeAndTheGridPicker() {
         let app = XCUIApplication.fresh(["--autoplay"])   // a stopped engine has no pools to show (as before the ferry: the old shared pool was only refreshed while playing)
         Thread.sleep(forTimeInterval: 1.5)
-        app.els(prefix: "Inputs, ").firstMatch.tap()
+        app.els(prefix: "Lane Mode, ").firstMatch.tap()
         need(app.els(prefix: "Now, lane 1").firstMatch, "the NOW row (a leaf: the status feed does not re-run the page)")
         // SOURCES: a toggle is one undo step, the lane's name is in its label
         XCTAssertEqual(value(need(app.el("Key, lane 1"), "lane 1's KEY toggle")), "on")
@@ -362,7 +335,7 @@ final class FourfoldTapTests: XCTestCase {
     /// every source (the factory document has MIDI IN and KEY on), so it reports no "no effect" reason. The value follows a tap a moment later (the edit goes through the document and back), so each check waits for it.
     func testTheCanonRowStepsDelayAndTheSharedUnit() {
         let app = XCUIApplication.fresh()
-        app.els(prefix: "Inputs, ").firstMatch.tap()   // the POOL tab renamed INPUTS; CANON lives there
+        app.els(prefix: "Lane Mode, ").firstMatch.tap()   // the POOL tab renamed INPUTS; CANON lives there
         func waitValue(_ label: String, _ prefix: String, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
             let end = Date().addingTimeInterval(4)
             while !value(app.el(label)).hasPrefix(prefix) && Date() < end { Thread.sleep(forTimeInterval: 0.1) }

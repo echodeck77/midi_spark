@@ -105,7 +105,7 @@ final class FourfoldUndoAuditTests: XCTestCase {
     // the cap test use map onto lane chips: each is a toggle — always a change, always one step. The page goes back to RHYTHM afterwards, where the other operations expect to be.
     func noteSource(_ cell: String) {
         let chip = ["CHORDS while MIDI plays": "Chords 1, lane 1", "KEY while MIDI plays": "Key, lane 1", "KEY with no MIDI": "Key, lane 2", "CHORDS with no MIDI": "Chords 1, lane 2"][cell] ?? cell
-        app.els(prefix: "Inputs, ").firstMatch.tap(); Thread.sleep(forTimeInterval: 0.3)
+        app.els(prefix: "Lane Mode, ").firstMatch.tap(); Thread.sleep(forTimeInterval: 0.3)
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", chip)).firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
         app.buttons["Euclid"].firstMatch.tap(); Thread.sleep(forTimeInterval: 0.2)
     }

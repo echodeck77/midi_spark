@@ -112,7 +112,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             ("5-mix", { _ in }), ("5-lanes", { $0.buttons["Mute"].tap() }),
             ("5-lane-riff", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff, '")).element(boundBy: 0).tap() }),
             ("5-lane-notes", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes'")).element(boundBy: 0).tap() }),
-            ("5-lane-listen", { $0.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Answer, '")).element(boundBy: 0).tap() }),
+            // ANSWER tab removed (Paul 2026-11-25): no "5-lane-listen" capture.
             ("5-presets", { $0.buttons["Presets"].tap() }), ("5-harmony", { $0.buttons["Harmony"].tap() }), ("5-swing", { $0.buttons["Swing, straight"].tap() }),
             ("5-settings-midi-in", { $0.buttons["Settings"].tap() }),
             ("5-settings-ports", { $0.buttons["Settings"].tap(); $0.buttons["PORTS"].tap() }),
@@ -130,26 +130,10 @@ final class FourfoldScreenshotTests: XCTestCase {
     // HOCKET RETIRED (2026-11-17, Paul: "I now achieve the same thing with ALT"): the four screenshot flows for the HOCKET
     // pop-up and its glyph states are removed — there is no button to open it. The pure/engine hocket code stays compiled.
 
-    /// ANSWER ferry (2026-11-02): the ANSWER tab bare, then with RHYTHM / PITCH (SHADOW, the panel) / TRADE all on and cycling (the worst-case body), the RHYTHM tab with the strip over the borrowed card, the same lane with CYCLE (a live body), and
-    /// the POOL tab — landscape, then portrait. The pictures the layout is judged against.
-    func testTheAnswerAndPoolTabs() {
-        for (tag, o) in [("land", UIDeviceOrientation.landscapeLeft), ("port", .portrait)] {
-            XCUIDevice.shared.orientation = o
-            let app = XCUIApplication(); app.launchArguments = ["--fresh", "--autoplay"]; app.launch()   // a fresh document each orientation: the taps below are toggles
-            Thread.sleep(forTimeInterval: 2)
-            func tap(_ label: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.4) } }
-            func tapPrefix(_ p: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", p)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.4) } }
-            tapPrefix("Answer, "); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-0-bare")
-            tap("Rhythm, lane 1"); attach("11-answer-\(tag)-1-rhythm-on")
-            tap("Pitch, lane 1"); tap("Cycle pitch, lane 1"); tap("Trade, lane 1"); tap("Cycle rhythm, lane 1"); Thread.sleep(forTimeInterval: 1.5); attach("11-answer-\(tag)-2-everything")
-            app.buttons["Euclid"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-3-rhythm-tab-live-body-with-cycle")
-            tapPrefix("Answer, "); tap("Cycle rhythm, lane 1"); app.buttons["Euclid"].tap(); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-4-rhythm-tab-borrowed")
-            tapPrefix("Inputs, "); Thread.sleep(forTimeInterval: 0.8); attach("11-answer-\(tag)-5-inputs")   // POOL renamed INPUTS (2026-11-05)
-        }
-        XCUIDevice.shared.orientation = .portrait
-    }
+    // ANSWER tab REMOVED from the strip (Paul 2026-11-25): the ANSWER screenshot flow (testTheAnswerAndPoolTabs)
+    // is gone — there is no tab to open. The LANE MODE (ex-INPUTS) tab pictures are in testTheInputsTab below.
 
-    /// INPUTS (ferry 2026-11-06): the INPUTS tab (NOW with its source pips, SOURCES, MIDI, CANON), a lane's MIDI mode switched through ADD · REPLACE · ROOT, a source chip off (the MIDI row dims), the NOTES keys as rank chips and the riff grid's label chips — landscape and portrait.
+    /// INPUTS (ferry 2026-11-06; the tab is LANE MODE since 2026-11-25): the tab (NOW with its source pips, SOURCES, MIDI, CANON), a lane's MIDI mode switched through ADD · REPLACE · ROOT, a source chip off (the MIDI row dims), the NOTES keys as rank chips and the riff grid's label chips — landscape and portrait.
     func testTheInputsTab() {
         for (tag, o) in [("land", UIDeviceOrientation.landscapeLeft), ("port", .portrait)] {
             XCUIDevice.shared.orientation = o
@@ -157,7 +141,7 @@ final class FourfoldScreenshotTests: XCTestCase {
             Thread.sleep(forTimeInterval: 2)
             func tap(_ label: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.5) } }
             func tapPrefix(_ p: String) { let e = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", p)).firstMatch; if e.waitForExistence(timeout: 3) { e.tap(); Thread.sleep(forTimeInterval: 0.5) } }
-            tapPrefix("Inputs, "); Thread.sleep(forTimeInterval: 1); attach("12-inputs-\(tag)-0-bare")
+            tapPrefix("Lane Mode, "); Thread.sleep(forTimeInterval: 1); attach("12-inputs-\(tag)-0-bare")
             tap("Chords 2, lane 1"); tap("Chords 2, lane 3"); tap("Chords 1, lane 3"); Thread.sleep(forTimeInterval: 0.6); attach("12-inputs-\(tag)-0b-chord-grids")   // TWO CHORD GRIDS: lane 1 on CHORD 2; lane 3 to CHORD 2 and back to CHORD 1 (the default)
             tap("Replace, lane 1"); tap("Root, lane 2"); tap("Replace, lane 3"); tap("Root, lane 3"); Thread.sleep(forTimeInterval: 0.8); attach("12-inputs-\(tag)-1-midi-modes")
             tap("MIDI in, lane 4"); tap("Key, lane 2"); Thread.sleep(forTimeInterval: 1); attach("12-inputs-\(tag)-2-midi-chip-off-dims-the-row")
@@ -176,7 +160,7 @@ final class FourfoldScreenshotTests: XCTestCase {
         attach("9-strip-1-rhythm")
         step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Riff, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-2-riff")
         step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Notes, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-3-notes")
-        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Answer, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("9-strip-4-listen")
+        // ANSWER tab removed (Paul 2026-11-25): no "9-strip-4-listen" capture.
         step(app.buttons["Mix"]); Thread.sleep(forTimeInterval: 1.2); attach("9-strip-5-mix")
         step(app.buttons["Euclid"]); Thread.sleep(forTimeInterval: 1.2)
         step(app.buttons["Random mode"]); Thread.sleep(forTimeInterval: 1); attach("9-strip-6-random-mode")
@@ -211,7 +195,7 @@ final class FourfoldScreenshotTests: XCTestCase {
         let app = XCUIApplication(); app.launchArguments = ["--fresh"]; app.launch()
         Thread.sleep(forTimeInterval: 2)
         func step(_ el: XCUIElement) { if el.waitForExistence(timeout: 3) { el.tap() } }
-        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Inputs, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape")   // ANSWER ferry: CANON lives on the INPUTS tab (the POOL tab renamed)
+        step(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Lane Mode, '")).firstMatch); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape")   // ANSWER ferry: CANON lives on the INPUTS tab (the POOL tab renamed)
         if let delay = Optional(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Canon delay, lane 1")).firstMatch), delay.waitForExistence(timeout: 3) {
             delay.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap(); Thread.sleep(forTimeInterval: 1); attach("10-canon-row-landscape-delay-set")
         }

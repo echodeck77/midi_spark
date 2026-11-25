@@ -6007,7 +6007,7 @@ func euclideousTabAccessibilityLabel(tab: EuclideousTabKind, lines: [EuclidLine]
         if euclideousPausedTabHeaderText(tab: .notes, lane: lane, lines: lines) != nil { return "Notes, paused, following lane \(source + 1)" }
         return "Notes, " + (euclideousTabGlyph(tab: .notes, line: line, lane: lane).on ? "on" : "off")
     case .pool:
-        return "Inputs, " + (euclideousTabGlyph(tab: .pool, line: line, lane: lane, planMode: planMode).on ? "set" : "nothing set")   // POOL tab renamed INPUTS (Paul 2026-11-05)
+        return "Lane Mode, " + (euclideousTabGlyph(tab: .pool, line: line, lane: lane, planMode: planMode).on ? "set" : "nothing set")   // POOL → INPUTS → LANE MODE (Paul 2026-11-25)
     case .listen:
         switch euclideousListenSource(line, lane: lane) {
         case .lane(let p): return "Answer, on, following lane \(p + 1)"

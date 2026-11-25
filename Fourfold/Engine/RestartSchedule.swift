@@ -105,6 +105,8 @@ struct EuclideousScheduleLaneInput: Hashable {
 struct EuclideousScheduleInputs: Hashable {
     var lanes: [EuclideousScheduleLaneInput]
     var barBeats: Double
+    /// RESETS V3 §1.1/§1.7: the document-level ALL reset (host-bar counts). Empty ⇒ no ALL — then the schedule is built exactly as before (byte-identical). Part of the memo key, so a change rebuilds. (The sim folds it in; see `EuclideousScheduleSim`.)
+    var allChain: [UInt8] = []
 }
 
 /// A lane's input from the lines: the pattern the engine ACTUALLY plays (a COPY / FILL follower reads the source's, in tick space when it has timing), its riff cycle, and its restart settings (a borrowing lane reads the SOURCE's
@@ -143,13 +145,13 @@ func euclideousScheduleLaneInput(lane: Int, lines: [EuclidLine], defaultRateBeat
     inp.withRhythm = s.withRhythm   // RESTART UNITS FIX 1: WITH RHYTHM follows the lane's LOOP (its rhythm restarts when the chain is active, else its pass starts), so it no longer needs the rhythm chain
     return inp
 }
-func euclideousScheduleInputs(lines: [EuclidLine], barBeats: Double, defaultRateBeats: Double, riffColumns: Int) -> EuclideousScheduleInputs {
+func euclideousScheduleInputs(lines: [EuclidLine], barBeats: Double, defaultRateBeats: Double, riffColumns: Int, allChain: [UInt8] = []) -> EuclideousScheduleInputs {
     var out: [EuclideousScheduleLaneInput] = []
     for i in 0..<min(4, lines.count) {
         out.append(euclideousScheduleLaneInput(lane: i, lines: lines, defaultRateBeats: defaultRateBeats, riffColumns: riffColumns)
                    ?? EuclideousScheduleLaneInput(sub: max(1e-6, defaultRateBeats), rawHit: [false, false]))
     }
-    return EuclideousScheduleInputs(lanes: out, barBeats: max(1e-6, barBeats))
+    return EuclideousScheduleInputs(lanes: out, barBeats: max(1e-6, barBeats), allChain: allChain)
 }
 /// Lanes whose restarts the simulation cannot own: a lane engaged in an ANSWER cycle or trade plays a DIFFERENT effective line in phase B (a runtime latch no pure simulation has), so the Router keeps the closed forms for it.
 func euclideousScheduleEngagedLanes(lines: [EuclidLine]) -> UInt8 {
@@ -928,12 +930,13 @@ final class EuclideousRestartScheduleMemo {
 final class EuclideousScheduleHolder {
     private var lines: [EuclidLine] = []
     private var bar = 0.0, rate = 0.0, cols = 0, memoVersion = -1
+    private var allC: [UInt8] = []
     private var cached: EuclideousRestartScheduleSet?
-    func set(lines l: [EuclidLine], barBeats: Double, defaultRateBeats: Double, riffColumns: Int) -> EuclideousRestartScheduleSet {
+    func set(lines l: [EuclidLine], barBeats: Double, defaultRateBeats: Double, riffColumns: Int, allChain: [UInt8] = []) -> EuclideousRestartScheduleSet {
         let v = EuclideousRestartScheduleMemo.shared.version
-        if let c = cached, bar == barBeats, rate == defaultRateBeats, cols == riffColumns, memoVersion == v, lines == l { return c }
-        let s = euclideousRestartScheduleSet(lines: l, barBeats: barBeats, defaultRateBeats: defaultRateBeats, riffColumns: riffColumns)
-        lines = l; bar = barBeats; rate = defaultRateBeats; cols = riffColumns; memoVersion = EuclideousRestartScheduleMemo.shared.version; cached = s
+        if let c = cached, bar == barBeats, rate == defaultRateBeats, cols == riffColumns, memoVersion == v, allC == allChain, lines == l { return c }
+        let s = euclideousRestartScheduleSet(lines: l, barBeats: barBeats, defaultRateBeats: defaultRateBeats, riffColumns: riffColumns, allChain: allChain)
+        lines = l; bar = barBeats; rate = defaultRateBeats; cols = riffColumns; allC = allChain; memoVersion = EuclideousRestartScheduleMemo.shared.version; cached = s
         return s
     }
 }
@@ -945,7 +948,7 @@ extension EuclideousRestartScheduleMemo {
         return true
     }
 }
-func euclideousRestartScheduleSet(lines: [EuclidLine], barBeats: Double, defaultRateBeats: Double, riffColumns: Int) -> EuclideousRestartScheduleSet {
-    EuclideousRestartScheduleMemo.shared.set(euclideousScheduleInputs(lines: lines, barBeats: barBeats, defaultRateBeats: defaultRateBeats, riffColumns: riffColumns),
+func euclideousRestartScheduleSet(lines: [EuclidLine], barBeats: Double, defaultRateBeats: Double, riffColumns: Int, allChain: [UInt8] = []) -> EuclideousRestartScheduleSet {
+    EuclideousRestartScheduleMemo.shared.set(euclideousScheduleInputs(lines: lines, barBeats: barBeats, defaultRateBeats: defaultRateBeats, riffColumns: riffColumns, allChain: allChain),
                                              engagedMask: euclideousScheduleEngagedLanes(lines: lines))
 }
