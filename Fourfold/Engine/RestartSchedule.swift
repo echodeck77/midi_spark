@@ -528,10 +528,11 @@ final class EuclideousScheduleSim {
         var mWithRhythmRestarted = false
         /// The EXACT beat of this instant's pass / riff event: a restart a pass or riff event causes happens at THAT beat (the closed forms' `passStart`), not at the grouped instant's earliest beat.
         var passBeat = 0.0, riffBeat = 0.0
-        init(_ i: EuclideousScheduleLaneInput) {
+        init(_ i: EuclideousScheduleLaneInput, allActive: Bool) {
             inp = i
             rChain = i.rhythmChain; mChain = i.melodyChain
-            viaClosedForm = !i.rhythmActive || i.rhythmUnit == .bar
+            // RESETS V3: when ALL is active a lane counts hits via the SIMULATED tables (which the ALL reset updates each cycle), never the fixed-tick closed form (which can't see ALL's restarts) — this also keeps the period detecting at the ALL total (§6.6).
+            viaClosedForm = (!i.rhythmActive || i.rhythmUnit == .bar) && !allActive
             closedRhythm = viaClosedForm && i.rhythmActive ? i.rhythmChain : .free
             cl = Int64(i.cycleLen)
             var pre = [Int32](repeating: 0, count: i.cycleLen + 1)
@@ -550,6 +551,9 @@ final class EuclideousScheduleSim {
     }
     let globalLanes: [Int]
     let barBeats: Double
+    /// RESETS V3 §1: the document-level ALL reset. Empty ⇒ the sim runs exactly as before (byte-identical). Non-empty ⇒ every lane returns to its transport-origin state at each ALL restart beat (§1.3), and every lane is treated as "has restarts" (§1.7).
+    private let allChain: [UInt8]
+    private var allActive: Bool { !allChain.isEmpty }
     private var L: [LaneState]
     private var nextBar = 1
     private(set) var barsDone = 0
@@ -565,9 +569,10 @@ final class EuclideousScheduleSim {
     var coveredUntil: Double { Double(barsDone) * barBeats }
 
     private let detectPeriod: Bool
-    init(globalLanes: [Int], inputs: [EuclideousScheduleLaneInput], barBeats: Double, detectPeriod: Bool = true, resolveTarget: Int? = nil) {
-        self.globalLanes = globalLanes; self.barBeats = barBeats; self.detectPeriod = detectPeriod; self.resolveTarget = resolveTarget
-        L = inputs.map { var l = LaneState($0); l.barBeatsForHits = barBeats; return l }
+    init(globalLanes: [Int], inputs: [EuclideousScheduleLaneInput], barBeats: Double, detectPeriod: Bool = true, resolveTarget: Int? = nil, allChain: [UInt8] = []) {
+        self.globalLanes = globalLanes; self.barBeats = barBeats; self.detectPeriod = detectPeriod; self.resolveTarget = resolveTarget; self.allChain = allChain
+        let allOn = !allChain.isEmpty
+        L = inputs.map { var l = LaneState($0, allActive: allOn); l.barBeatsForHits = barBeats; return l }
         processInstant(0)   // beat 0: both chains of every lane restart (implicitly); the hits at beat 0 play
         recordBar(0)
     }
@@ -695,6 +700,14 @@ final class EuclideousScheduleSim {
                 L[x].melodyCountOrigin = L[x].melodyCount
                 L[x].hitsAtCountOrigin = L[x].hitsAtM
             }
+            // RESETS V3 §1.3: at an ALL restart every lane returns to its transport-origin state — rhythm + melody restart, both chains to link 1 (counts reset), the riff ordinal to its origin, pending natural RIFF dropped. The rRestarted/mRestarted guards make a lane
+            // that already restarted this beat (its own chain, or WITH RHYTHM) a no-op, so there is ONE restart, not two (§1.4). Done after the fixpoint + the withRhythm re-base, before the hits play — the order the engine applies a lane restart.
+            if allActive, euclideousAllRestartIsAt(beat: b, barBeats: barBeats, chain: allChain) {
+                for x in L.indices {
+                    rhythmRestart(x, b); melodyRestart(x, b)
+                    L[x].rhythmCount = 0; L[x].melodyCount = 0; L[x].melodyCountOrigin = 0; L[x].hitsAtCountOrigin = L[x].hitsAtM; L[x].pendingRiff = .infinity
+                }
+            }
         }
         // (3) play the hits at b: each takes the riff ordinal; reaching a whole multiple of the cycle sets the natural completion at the start of the lane's next step
         for x in L.indices {
@@ -748,11 +761,16 @@ final class EuclideousScheduleSim {
             let pr = passIndexNow(i, b)
             snap.pass.append(pr)
         }
+        // RESETS V3: the ALL cycle phase (bars since the last period boundary). Two bars whose lane state matches but whose ALL phase differs must NOT be deduped — a plainly looping lane would otherwise repeat at 1 bar and drop ALL's restarts beyond the first cycle. Added only when ALL is set, so the pre-feature key is byte-identical.
+        let allPhase: Int64 = allActive ? Int64(k % max(1, euclideousAllTotalBars(allChain))) : -1
+        if allActive { v.append(allPhase) }
         let key = StateKey(v: v)
         if detectPeriod { if let j = seen[key], periodFound == nil { periodFound = (j, k) } else if seen[key] == nil { seen[key] = k } }
         // §3: the resolve target's OWN 9-element state slice (each lane appends exactly 9, in L order) — its period is the lane's TIMING period (the read lanes' riff/melody don't inflate it).
         if detectPeriod, let t = resolveTarget, (t + 1) * 9 <= v.count {
-            let rk = StateKey(v: Array(v[(t * 9)..<((t + 1) * 9)]))
+            var rkv = Array(v[(t * 9)..<((t + 1) * 9)])
+            if allActive { rkv.append(allPhase) }
+            let rk = StateKey(v: rkv)
             if let j = seenResolve[rk], resolveFound == nil { resolveFound = (j, k) } else if seenResolve[rk] == nil { seenResolve[rk] = k }
         }
         snaps.append(snap)
@@ -790,9 +808,9 @@ final class EuclideousScheduleSim {
                                           rBeat: rB, rTick: rT, rPass: rP, rHits: rH, mBeat: mB, mTick: mT, mHits: mH, fBeat: fB,
                                           prefixEnd: prefixEnd, period: period, dPass: dPass, dHits: dHits, dTick: dTick, dRiff: dRiff,
                                           rPeriodStart: rStart, mPeriodStart: mStart, fPeriodStart: fStart, coveredUntil: covered,
-                                          rhythmRestarts: inp.rhythmActive, melodyRestarts: inp.melodyRestarts,
+                                          rhythmRestarts: inp.rhythmActive || allActive, melodyRestarts: inp.melodyRestarts || allActive,
                                           melodyEveryPass: inp.melodyActive && inp.melodyUnit == .pass && inp.melodySource == globalLanes[local] && inp.melodyLinks == [1],
-                                          closedFormExpressible: inp.closedFormExpressible(ownLane: globalLanes[local]),
+                                          closedFormExpressible: inp.closedFormExpressible(ownLane: globalLanes[local]) && !allActive,   // RESETS V3 §1.7: ALL forces every lane onto the schedule (so its restarts reach the Router + the readers consult the tables)
                                           hitsViaClosedForm: s.viaClosedForm, closedRhythm: s.closedRhythm)
     }
 }
@@ -818,9 +836,9 @@ private func scheduleComponents(_ lanes: [EuclideousScheduleLaneInput]) -> [[Int
 func euclideousBuildRestartScheduleSet(_ inputs: EuclideousScheduleInputs, engagedMask: UInt8 = 0, maxBars: Int = 1024, detectPeriod: Bool = true) -> EuclideousRestartScheduleSet {
     var comps: [(lanes: [Int], sim: EuclideousScheduleSim?)] = []
     for comp in scheduleComponents(inputs.lanes) {
-        let any = comp.contains { inputs.lanes[$0].rhythmActive || inputs.lanes[$0].melodyRestarts }   // every lane with a restart is simulated, closed-form-expressible ones too: the CHORDS PAGE reads loop counts of any lane that has a rhythm chain
+        let any = !inputs.allChain.isEmpty || comp.contains { inputs.lanes[$0].rhythmActive || inputs.lanes[$0].melodyRestarts }   // every lane with a restart is simulated; ALL (RESETS V3) restarts every lane, so every component is simulated when it is set
         if any {
-            let sim = EuclideousScheduleSim(globalLanes: comp, inputs: comp.map { inputs.lanes[$0] }, barBeats: inputs.barBeats, detectPeriod: detectPeriod)
+            let sim = EuclideousScheduleSim(globalLanes: comp, inputs: comp.map { inputs.lanes[$0] }, barBeats: inputs.barBeats, detectPeriod: detectPeriod, allChain: inputs.allChain)
             sim.run(untilBars: maxBars)
             comps.append((comp, sim))
         } else { comps.append((comp, nil)) }   // nothing restarts: the trivial beat-0 tables; every reader falls back to the FREE arithmetic
@@ -845,7 +863,7 @@ func euclideousBuildResolvePeriods(_ inputs: EuclideousScheduleInputs, maxBars: 
     inputs.lanes.indices.map { x in
         let r = euclideousResolveReach(lane: x, lanes: inputs.lanes)
         guard let tLocal = r.firstIndex(of: x) else { return .none }
-        let sim = EuclideousScheduleSim(globalLanes: r, inputs: r.map { inputs.lanes[$0] }, barBeats: inputs.barBeats, detectPeriod: true, resolveTarget: tLocal)
+        let sim = EuclideousScheduleSim(globalLanes: r, inputs: r.map { inputs.lanes[$0] }, barBeats: inputs.barBeats, detectPeriod: true, resolveTarget: tLocal, allChain: inputs.allChain)
         sim.run(untilBars: maxBars)
         return sim.resolveFound.map { EuclideousResolveInfo(found: true, prefixBars: $0.j, periodBars: $0.k - $0.j) } ?? .none
     }

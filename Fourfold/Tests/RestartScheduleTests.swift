@@ -21,8 +21,8 @@ final class RestartScheduleTests: XCTestCase {
     private func four(_ l0: EuclidLine, _ l1: EuclidLine? = nil, _ l2: EuclidLine? = nil, _ l3: EuclidLine? = nil) -> [EuclidLine] {
         [l0, l1 ?? line(hits: 1, steps: 8), l2 ?? line(hits: 1, steps: 8), l3 ?? line(hits: 1, steps: 8)]
     }
-    private func setFor(_ lines: [EuclidLine], bar: Double = 4, detect: Bool = true, maxBars: Int = 1024) -> EuclideousRestartScheduleSet {
-        euclideousBuildRestartScheduleSet(euclideousScheduleInputs(lines: lines, barBeats: bar, defaultRateBeats: 0.25, riffColumns: 8), engagedMask: 0, maxBars: maxBars, detectPeriod: detect)
+    private func setFor(_ lines: [EuclidLine], bar: Double = 4, detect: Bool = true, maxBars: Int = 1024, all: [UInt8] = []) -> EuclideousRestartScheduleSet {
+        euclideousBuildRestartScheduleSet(euclideousScheduleInputs(lines: lines, barBeats: bar, defaultRateBeats: 0.25, riffColumns: 8, allChain: all), engagedMask: 0, maxBars: maxBars, detectPeriod: detect)
     }
     private func cfg(_ lines: [EuclidLine], lane: Int = 0, set: EuclideousRestartScheduleSet?, bar: Double = 4) -> EuclideousWalkLaneConfig {
         euclideousWalkLaneConfig(lane: lane, lines: lines, cyc: 4, resetSpanBars: 0, lanesSeqRate: .oneBar, lanesSeqLen: 8, defaultRateBeats: 0.25, beatsPerBar: bar, scheduleSet: set)!
@@ -726,6 +726,40 @@ final class RestartScheduleTests: XCTestCase {
         XCTAssertEqual(euclideousResolveCountVoiceOver(.none, nowBeat: 0, barBeats: 4), "Lane doesn\u{2019}t resolve within 1024 bars")
     }
 
+    // MARK: RESETS V3 — the ALL reset folded into the schedule (§1.2/§1.3/§1.7, tests §6.2/§6.3/§6.6)
+
+    /// §6.2/§1.3: ALL [4] returns EVERY lane (its own chains notwithstanding, free lanes included) to its transport-origin state at beats 16, 32, 48 — both rhythm and melody origins land ON the ALL beat.
+    func testAll4ReturnsEveryLaneToOriginAtEachAllBeat() {
+        var l0 = line(hits: 5, steps: 8); rhythm(&l0, [3], unit: .bar); melody(&l0, [2], unit: .pass)   // lane 1 has its own chains
+        let set = setFor(four(l0), all: [4])                                                             // lanes 2–4 free
+        for lane in 0..<4 {
+            let s = set.lane(lane)!
+            XCTAssertEqual(s.rhythmRecord(atOrBefore: 16).beat, 16, accuracy: 1e-9, "lane \(lane + 1): rhythm origin is the ALL beat 16")
+            XCTAssertEqual(s.melodyRecord(atOrBefore: 16).beat, 16, accuracy: 1e-9, "lane \(lane + 1): melody origin is the ALL beat 16")
+            XCTAssertEqual(s.rhythmRecord(atOrBefore: 32).beat, 32, accuracy: 1e-9, "lane \(lane + 1): and at 32")
+            XCTAssertTrue(s.rhythmRestarts && s.melodyRestarts, "lane \(lane + 1): ALL makes every lane a restarting one (§1.7)")
+            XCTAssertFalse(s.data.closedFormExpressible, "lane \(lane + 1): forced onto the schedule so the Router applies ALL")
+        }
+        // §1.4: a lane whose own chain also restarts at 16 fires ONE restart there, not two (beat 0's implicit + one at 16 = 2).
+        let s0 = set.lane(0)!
+        XCTAssertEqual(s0.rhythmRestartCount(atOrBefore: 16) - s0.rhythmRestartCount(atOrBefore: 15.9), 1, "one restart at 16, not two")
+    }
+
+    /// §6.2/§1.2: ALL [2,1] restarts at the cumulative-sum bar lines 3,4,6,7,9,10 ⇒ beats 8,12,20,24,32,36; the joint period is the chain total (3 bars = 12 beats).
+    func testAll2_1RestartsAtTheChainBarLines() {
+        let s = setFor(four(line(hits: 3, steps: 8)), all: [2, 1]).lane(0)!   // free lanes
+        close(restarts({ s.nextRhythmRestart(after: $0) }, upTo: 37), [8, 12, 20, 24, 32, 36], "ALL [2,1] restart beats (§1.2)")
+        XCTAssertEqual(s.data.period, 12, accuracy: 1e-9, "the joint period is the ALL total, 3 bars = 12 beats")
+    }
+
+    /// §6.6: with ALL set every lane's joint period DIVIDES the ALL total — here ALL [4] over a lane whose own rhythm period is 3 bars forces the period to 4 bars (16 beats), not lcm(3,4).
+    func testAll4ForcesThePeriodToDivideTheTotal() {
+        var l = line(hits: 5, steps: 8); rhythm(&l, [3], unit: .bar)
+        let s = setFor(four(l), all: [4]).lane(0)!
+        let p = s.data.period
+        XCTAssertTrue(p > 0, "periodic under ALL")
+        XCTAssertEqual(16.0.truncatingRemainder(dividingBy: p), 0, accuracy: 1e-6, "the period \(p) divides the ALL total (16 beats)")
+    }
 }
 
 private struct SplitMix { var state: UInt64; init(seed: UInt64) { state = seed }
