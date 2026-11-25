@@ -720,11 +720,14 @@ final class Kernel {
             if fwd != 0 && !suppressAllOff {
                 let n = min(length, 3)
                 for i in 0..<n { passthroughScratch[i] = bytes[i] }
+                // CC RESTORE (Paul 2026-11-25): a continuous controller (0xB0, cc 0…119) is forwarded here from an external source; remember its value per output so disabling a CC slot can restore the controller to how it sounded before the slot drove it.
+                let witnessCC = (bytes[0] & 0xF0) == 0xB0 && length >= 3 && bytes[1] < 120
                 var m = fwd
                 while m != 0 {
                     let bus = Int(m.trailingZeroBitCount); m &= m - 1
                     passthroughScratch[0] = (bytes[0] & 0xF0) | ((busChannels[bus] &- 1) & 15)   // RE-STAMP the channel
                     _ = out(sampleTime, UInt8(bus + 1), n, &passthroughScratch)                  // the output's cable (A = 1 … D = 4)
+                    if witnessCC { router.euclideousWitnessCC(output: bus, cc: Int(bytes[1]), value: Int(bytes[2])) }
                 }
             }
             return   // controller handled by the routing forward — skip the legacy passthrough

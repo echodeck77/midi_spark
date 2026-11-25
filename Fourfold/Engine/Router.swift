@@ -403,6 +403,7 @@ final class Router {
     // state is indexed by SLOT k = output×ccSlotsPer + slot; the wire (cable / channel / `ccValueLive`) uses the output o = k / ccSlotsPer.
     private static let ccSlotsPer = EmitterCCSet.slotsPerEmitter   // 4 (CC SLOTS, widened 2026-11-13)
     private static let ccSlots = EmitterCCSet.count                // 16 — fits the UInt16 masks exactly
+    private static let ccOutputs = ccSlots / ccSlotsPer            // 4 — outputs A…D (= busChannels.count)
     private var emitterCCs = EmitterCCSnap()
     private var emitterCCAny = false
     private var ccSegFrom = [Float](repeating: 0, count: ccSlots)        // the hold value before the ramp (and the value at/after a STEP hit)
@@ -427,6 +428,8 @@ final class Router {
     private var ccPendingReset: UInt16 = 0  // bit k = slot k's CC was just switched OFF with a value standing — park it at its LOW ONCE so the synth isn't left stuck at the last value (amendment 1)
     private var ccLaneRoutes = SIMD4<UInt8>(repeating: 0)            // per lane: the outputs (bits 0…3 = A…D) its riff and notes parts are routed to — the only per-lane fact the DRIVER (§2.1) reads
     private(set) var ccValueLive: UInt32 = 0xFFFF_FFFF   // one byte per OUTPUT = the current CC value last sent on it (0xFF = none yet), for the UI trace (polled at 30 Hz)
+    // CC RESTORE (Paul 2026-11-25): the last value an INCOMING controller was forwarded at, per output × CC number (−1 = none seen). Fed by the Kernel's controller-forward (the pre-slot wire value), NOT the slot's own emission; read ONLY when a slot is disabled, to restore the controller to how it sounded before the slot drove it (else its LOW). Fixed-size, written on the render thread; persists for the life of the Router instance (a real downstream value) — deliberately NOT cleared by transport edges / scene flush / reset, so a controller set once still restores.
+    private var ccWitnessed = [Int16](repeating: -1, count: ccOutputs * 128)
     private func resetEmitterCC() {
         for i in 0..<Self.ccSlots {
             ccSegFrom[i] = 0; ccSegTo[i] = 0; ccSegHold[i] = 0; ccSegFromSample[i] = Int64.max; ccSegToSample[i] = Int64.max
@@ -456,6 +459,11 @@ final class Router {
         guard let out = out else { return }
         emitModCCWire(cable: UInt8(o + 1), ch: ch, cc: cc, value: vv, atSample: s, out: out, force: false)
         emitModCCWire(cable: 0, ch: ch, cc: cc, value: vv, atSample: s, out: out, force: false)
+    }
+    /// CC RESTORE (Paul 2026-11-25): record an incoming controller's value as it was forwarded to an output (called by the Kernel's controller-forward, render thread). Lets a disabled CC slot restore the controller to its pre-slot value. cc 0…119 only (120/123 are mode messages, not continuous values a slot drives); value clamped.
+    @inline(__always) func euclideousWitnessCC(output o: Int, cc: Int, value v: Int) {
+        guard o >= 0, o < Self.ccOutputs, cc >= 0, cc < 128 else { return }
+        ccWitnessed[o * 128 + cc] = Int16(max(0, min(127, v)))
     }
     /// Walk slot k's segment from the last-considered sample up to `toSample` (exclusive) at the rate limit, emitting a CC each time the integer value changes.
     private func ccWalk(_ k: Int, output o: Int, cc: Int, toSample: Int64, windowStart: Int64, rateSamples: Int64, out: MIDIEmitter?) {
@@ -504,9 +512,13 @@ final class Router {
     @inline(__always) private func ccOutputFullyMuted(_ o: Int) -> Bool { euclideousOutputMuteAny && euclideousOutputMuteCells[o] == 0 }
     /// Once per window, after the lane loop: for each ON slot, either send its LOW once (its output is fully muted — amendment 1) or walk the ramp from the last emission to the window end. The LOW goes out no earlier than the last message sent.
     private func ccRampPass(windowStart: Int64, windowEnd: Int64, endBeat: Double, beatsPerSample: Double, out: MIDIEmitter?) {
-        if ccPendingReset != 0 {   // a slot was just switched OFF: park its CC at its LOW once (amendment 1: `muteValue` is gone; LOW is the CC's resting value). Before the `emitterCCAny` guard so the LAST slot turning off still parks.
+        if ccPendingReset != 0 {   // a slot was just switched OFF with a value standing on the wire: restore the controller once so the synth isn't left stuck at the slot's last value.
             for k in 0..<Self.ccSlots where ccPendingReset & (UInt16(1) << UInt16(k)) != 0 {
-                ccSend(k, output: k / Self.ccSlotsPer, cc: emitterCCs[k].ccNumber, value: emitterCCs[k].low, atSample: max(windowStart, ccLastSentSample[k]), out: out)
+                let o = k / Self.ccSlotsPer, cc = emitterCCs[k].ccNumber
+                // CC RESTORE (Paul 2026-11-25): restore the LAST value we forwarded IN for this cc on this output — how it sounded before the slot drove it — else the slot's LOW (amendment 1: LOW is the CC's resting value) when no incoming value was ever seen.
+                let w = (cc >= 0 && cc < 128) ? ccWitnessed[o * 128 + cc] : -1
+                let restore = w >= 0 ? Int(w) : emitterCCs[k].low
+                ccSend(k, output: o, cc: cc, value: restore, atSample: max(windowStart, ccLastSentSample[k]), out: out)
                 let bit = UInt16(1) << UInt16(k); ccArmedMask &= ~bit; ccRecValid &= ~bit; ccMuteSentMask &= ~bit
             }
             ccPendingReset = 0

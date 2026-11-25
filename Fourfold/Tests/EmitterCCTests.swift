@@ -124,6 +124,19 @@ final class EmitterCCTests: XCTestCase {
         XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [90, 20], "off-edge parks the CC at its LOW (20) exactly once, then silent")
         XCTAssertEqual(rig.out.values(cable: 0, cc: 74), [90, 20], "and on ALL (cable 0) too")
     }
+    func testTurningAnEmitterOffRestoresTheIncomingValueWeSaw() {
+        // CC RESTORE (Paul 2026-11-25): when a CC value came IN from an external source before the slot drove it, disabling the slot restores THAT value — how it sounded before — not the slot's LOW. Driven HIGH 90, LOW 20, witnessed 55 → the off-edge sends 55.
+        var st = state(cc: EmitterCC.legacy(on: true, ccNumber: 74, mode: .hits, high: 90, low: 20, travel: .step))
+        let rig = CCRig(st)
+        rig.router.euclideousWitnessCC(output: 0, cc: 74, value: 55)   // the Kernel forwarded an incoming CC74 = 55 on output A before the slot drove it
+        rig.run(to: 4.0)
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [90], "CC flows while the emitter is on")
+        st.euclideousEmitterCCs![0].on = false
+        rig.box = SnapshotBuilder.build(from: st)
+        rig.run(to: 8.0)
+        XCTAssertEqual(rig.out.values(cable: 1, cc: 74), [90, 55], "off-edge restores the witnessed incoming value (55), not LOW (20)")
+        XCTAssertEqual(rig.out.values(cable: 0, cc: 74), [90, 55], "and on ALL (cable 0) too")
+    }
 
     // MARK: slice D (2026-11-08) — the gap and the predicted value are the NEXT HIT ON THE EMITTER, merged across the lanes routed to it; an emitter whose routed lanes are ALL stopped / muted is silent
     /// Two lanes both routed to output A (lane 2 moved off B). Lane 1 hits once a 4-beat pass at beat 0; lane 2 hits once a pass, two beats later (pattern + riff rotated by 2). Per-lane overrides via `lane1` / `lane2`.
