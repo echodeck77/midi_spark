@@ -11,6 +11,8 @@ final class FourfoldTelemetry {
     let answer = AnswerLiveModel()
     /// CARD BACKS §5: the notes each part struck (the rolls) and when each output last took one (the jack lights).
     let rolls = NoteRollLive()
+    /// GRID CHANCE amendment 2 (2026-11-24): the chance rolls that fired / dropped, flashing the % toggle's cells — observed by the toggle's own frame clock only.
+    let gridChanceFlash = GridChanceFlashLive()
     /// RATCH tab §3.10: each output's pattern index at its latest emitter hit (the RATCH tab's strikes' current slot — observed by that tab's leaf views only).
     let emitters = EmitterRatchetLive()
     /// VELOCITY tab (2026-11-03): each output's velocity-pattern index (the VELOCITY tab strip's current slot) — reuses the ratchet's live class, a second instance, observed by that tab only.

@@ -183,6 +183,7 @@ final class Kernel {
     func euclideousRiffLivePool() -> [UInt8] { router.euclideousRiffLivePool() }   // the ascending notes currently feeding the riff's own pool, polled (Paul 2026-10-08)
     func hocketLive() -> (counts: [Int64], running: Bool) { router.hocketLive() }   // HOCKET §8: the lit rules' counts, on the existing 30 Hz poll
     func drainNoteRoll() -> [NoteRollRecord] { router.rollRing.drain() }              // CARD BACKS §5: the notes struck since the last poll (main thread; the ring is single-consumer)
+    func drainGridChanceEvents() -> [GridChanceEvent] { router.gridChanceEventRing.drain() }   // GRID CHANCE amd 2 §1: the chance rolls since the last poll (main thread; single-consumer)
     func euclideousSourceStatus() -> Router.EuclideousSourceStatus {   // SOURCES STACK ferry (2026-10-26): lane-1's source status, polled
         var s = router.euclideousSourceStatus()
         s.midiNoteOnCount = euclideousMidiNoteOnCount   // HEADER STATUS §1.2b: the MIDI-IN note-on counter (edge-captured here, where incoming MIDI is parsed)

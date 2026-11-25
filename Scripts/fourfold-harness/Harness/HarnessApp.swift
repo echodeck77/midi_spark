@@ -541,7 +541,7 @@ extension Host {
         // the factory presets all read the KEY source, so the other note sources (CHORDS, MIDI IN with the held chord, MIDI IN + HOLD, + LATCH) are audited on the default document too
         // HOCKET (2026-10-27): two worst cases with every output in a lit rule — SWAP ROTATE over the riff outputs on HITS + a PASS ROTATE over the notes outputs on PASSES, and the same shapes on STEPS + BARS (a crossing)
         let sourceRuns = ["(default) CHORDS", "(default) CHORDS colours + borrowed", "(default) MIDI IN", "(default) MIDI IN + HOLD", "(default) MIDI IN + LATCH", "(default) MIDI IN + REPLAY",
-                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) INPUTS lane modes hand", "(default) INPUTS ROOT delayed hand", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER COPY of a PING-PONG source", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off", "(default) PART SOLO changing", "(default) PLAY AS SEQUENCE", "(default) EMITTER CC", "(default) OUTPUT MUTE"]
+                          "(default) HOCKET HITS+PASSES", "(default) HOCKET STEPS+BARS", "(default) HOCKET FANOUT", "(default) POLY", "(default) POLY + HOCKET FANOUT", "(default) CANON", "(default) CANON shapes + HOCKET FANOUT", "(default) INPUTS lane modes hand", "(default) INPUTS ROOT delayed hand", "(default) CANON MIDI IN hand", "(default) CANON every source hand", "(default) ROUTED", "(default) ROUTED + OUT-TRANSPOSE", "(default) ROUTED + EMITTER RATCHETS", "(default) ROUTED + EMITTER VELOCITY", "(default) HOCKET FANOUT + EMITTER RATCHETS", "(default) MIDI IN KEEP", "(default) ROOT hand", "(default) ROOT hand delayed", "(default) ANSWER cycles", "(default) ANSWER COPY of a PING-PONG source", "(default) ANSWER SWAP + BORROW", "(default) ANSWER every row + HOCKET FANOUT + ROUTED", "(default) POOL SOURCES + SUSTAIN hand", "(default) POOL SUSTAIN + CANON every source hand", "(default) POOL grid 2 SOURCES + SUSTAIN hand", "(default) POOL grid 2 SUSTAIN + CANON every source hand", "(default) RESTART UNITS riff-first + isorhythm", "(default) RESTART UNITS cross-lane + WITH RHYTHM", "(default) RESTART UNITS WITH RHYTHM rhythm off", "(default) PART SOLO changing", "(default) PLAY AS SEQUENCE", "(default) EMITTER CC", "(default) OUTPUT MUTE", "(default) GRID CHANCE"]
         var names = ["(default)"]; names += au.factoryPresetNames(); names += sourceRuns
         var totalAllocs = 0, totalFrees = 0, dirty = 0
         func step(_ i: Int) {
@@ -696,6 +696,17 @@ extension Host {
                         var ls = $0.euclideousLinesResolved   // the default document's lanes 3 and 4 have no hits, so C and D would never fire: give every emitter a lane (and lane 2 onto A as well, so one emitter merges two lanes)
                         for i in 2..<4 { ls[i].pulses = 3 + i; ls[i].steps = 8; ls[i].enabled = true }
                         ls[1].riffOutMask = 0b0011; ls[1].notesOutMask = 0b0011
+                        $0.euclideousLines = ls
+                    }
+                }
+                if name.contains("GRID CHANCE") {   // GRID CHANCE amendment 2 (2026-11-24): riff-RANK and stack-LANE chance both set, every lane playing BOTH parts — so the per-hit roll helpers (`euclideousGridChanceRiffRoll` / `StackRoll`) AND the event-ring push run on the render thread for the riff and the stack path, and must allocate nothing
+                    au.editDocument {
+                        var gc = EuclideousGridChance()
+                        gc.riffRank = [50, 100, 75, 100, 60, 100, 40, 100]   // riff rank axis (POLY + MONO riff push)
+                        gc.stackLane = [50, 100, 75, 100]                     // stack lane axis (stack hit + gap push)
+                        $0.euclideousGridChance = gc
+                        var ls = $0.euclideousLinesResolved
+                        for i in 0..<4 { ls[i].riffOn = true; ls[i].notesOn = true; ls[i].notesLitOrder = [0, 2, 4, 5, 7]; ls[i].pulses = [5, 3, 4, 7][i]; ls[i].steps = [8, 8, 7, 12][i]; ls[i].enabled = true }
                         $0.euclideousLines = ls
                     }
                 }

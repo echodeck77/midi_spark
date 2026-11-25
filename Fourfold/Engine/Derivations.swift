@@ -9569,6 +9569,38 @@ let euclideousStackGridChanceSalt: UInt64 = 0x5354_414B_4752_4944   // "STAKGRID
     return euclideousGridChanceAllows(chance: model.stackLane[lane], lane: lane, step: step, coord: 0, salt: euclideousStackGridChanceSalt)
 }
 
+// MARK: GRID CHANCE amendment 2 (2026-11-24) §1 — one event per REAL roll (value < 100) to flash the % toggle's cell. `pass` reuses the gate verbatim, so the event never diverges from what sounds; a 100 axis emits nothing (§1.2).
+
+/// The riff gate PLUS the flash event. `pass` == `euclideousRiffGridChancePasses`; `event` is non-nil only when the SET axis's own value < 100, with `fired = pass`. index is zero-based (rank − 1 / column). A rest (rank < 1) rolls nothing on the rank axis.
+func euclideousGridChanceRiffRoll(lane: Int, step: Int64, rank: Int, column: Int, onBeat: Double, model: EuclideousGridChance) -> (pass: Bool, event: GridChanceEvent?) {
+    let pass = euclideousRiffGridChancePasses(lane: lane, step: step, rank: rank, column: column, model: model)
+    if model.riffRankSet {
+        guard rank >= 1, rank <= model.riffRank.count, model.riffRank[rank - 1] < 100 else { return (pass, nil) }
+        return (pass, GridChanceEvent(onBeat: onBeat, grid: 0, axis: 0, index: UInt8(rank - 1), fired: pass))
+    }
+    if model.riffColumnSet {
+        guard column >= 0, column < model.riffColumn.count, model.riffColumn[column] < 100 else { return (pass, nil) }
+        return (pass, GridChanceEvent(onBeat: onBeat, grid: 0, axis: 1, index: UInt8(column), fired: pass))
+    }
+    return (pass, nil)
+}
+
+/// The stack gate (rank AND lane — the two `if`s at the call site) PLUS the event. Only one axis is ever set (§1.2), so at most one event; `fired` is that axis's own gate result (the other gate is a no-op when its axis isn't set).
+func euclideousGridChanceStackRoll(lane: Int, step: Int64, rank: Int, onBeat: Double, model: EuclideousGridChance) -> (pass: Bool, event: GridChanceEvent?) {
+    let rankPass = euclideousStackRankChancePasses(lane: lane, step: step, rank: rank, model: model)
+    let lanePass = euclideousStackLaneChancePasses(lane: lane, step: step, model: model)
+    let pass = rankPass && lanePass
+    if model.stackRankSet {
+        guard rank >= 1, rank <= model.stackRank.count, model.stackRank[rank - 1] < 100 else { return (pass, nil) }
+        return (pass, GridChanceEvent(onBeat: onBeat, grid: 1, axis: 0, index: UInt8(rank - 1), fired: rankPass))
+    }
+    if model.stackLaneSet {
+        guard !model.stackRankSet, lane >= 0, lane < model.stackLane.count, model.stackLane[lane] < 100 else { return (pass, nil) }
+        return (pass, GridChanceEvent(onBeat: onBeat, grid: 1, axis: 1, index: UInt8(lane), fired: lanePass))
+    }
+    return (pass, nil)
+}
+
 /// §9.3: which axis of a grid is "set" (holds a value under 100). The UI keeps at most one per grid (§1.2).
 enum EuclideousGridChanceGrid { case riff, stack }
 @inline(__always) func euclideousGridChanceAxisSet(_ model: EuclideousGridChance, grid: EuclideousGridChanceGrid) -> EuclideousGridChanceAxis {
@@ -9630,6 +9662,41 @@ func euclideousGridChanceSliderValue(at point: CGPoint, in rect: CGRect, vertica
     let raw = Int((Double(max(0, min(1, frac))) * 100).rounded())
     let snapped = Int((Double(raw) / Double(EuclideousGridChanceUI.snap)).rounded()) * EuclideousGridChanceUI.snap
     return max(0, min(100, snapped))
+}
+
+// MARK: GRID CHANCE amendment 2 (2026-11-24) §2–§3 — the % toggle's live cells + flashes. Pure; the toggle view draws from these.
+
+/// §3: a cell's flash state from its newest roll (nil = none) and the display clock `now`. 120 ms, no easing (§3.6); after it, idle.
+enum EuclideousGridChanceCellFlashState: Equatable { case idle, fired, dropped }
+func euclideousGridChanceCellFlash(latest: (onsetAt: Double, fired: Bool)?, now: Double, flashSeconds: Double = 0.120) -> EuclideousGridChanceCellFlashState {
+    guard let l = latest, now >= l.onsetAt, now - l.onsetAt < flashSeconds else { return .idle }
+    return l.fired ? .fired : .dropped
+}
+/// §2.4: a cell's idle look — #0D0F14 at 32 % when its slider is under 100, 10 % at 100.
+func euclideousGridChanceCellIdleOpacity(value: Int) -> Double { value < 100 ? 0.32 : 0.10 }
+
+/// §2.3: the toggle's cell frames (toggle-LOCAL coordinates; visual order — frames[0] = top for the riff toggle / left for the stack toggle). Riff = cells stacked down its long side (each the inset width); stack = cells side by side across its long side (each the inset height). inset 4, gap 1.5. `count` = sliders on the chosen axis (riff 8; stack 8 rank / 4 lane).
+func euclideousGridChanceCellFrames(toggle: CGRect, grid: EuclideousGridChanceGrid, count: Int, inset: CGFloat = 4, gap: CGFloat = 1.5) -> [CGRect] {
+    guard count > 0 else { return [] }
+    let innerW = max(0, toggle.width - 2 * inset), innerH = max(0, toggle.height - 2 * inset)
+    let n = CGFloat(count)
+    var out: [CGRect] = []; out.reserveCapacity(count)
+    if grid == .riff {
+        let cellH = max(0, (innerH - gap * (n - 1)) / n)
+        for i in 0..<count { out.append(CGRect(x: inset, y: inset + CGFloat(i) * (cellH + gap), width: innerW, height: cellH)) }
+    } else {
+        let cellW = max(0, (innerW - gap * (n - 1)) / n)
+        for i in 0..<count { out.append(CGRect(x: inset + CGFloat(i) * (cellW + gap), y: inset, width: cellW, height: innerH)) }
+    }
+    return out
+}
+/// §2.3: the VISUAL cell position (0 = top for riff / left for stack) of a zero-based axis index. Only the riff RANK axis reverses — rank 8 (index `count − 1`) at the top; every other axis is index order.
+func euclideousGridChanceCellVisualIndex(grid: EuclideousGridChanceGrid, axis: EuclideousGridChanceAxis, axisIndex: Int, count: Int) -> Int {
+    (grid == .riff && axis == .rank) ? (count - 1) - axisIndex : axisIndex
+}
+/// §2.2: the cell count for a grid's chosen axis — riff 8 either axis; stack 8 by rank (the grid is exactly 8 rank rows, no TOP rows), 4 by lane.
+func euclideousGridChanceCellCount(grid: EuclideousGridChanceGrid, axis: EuclideousGridChanceAxis) -> Int {
+    (grid == .stack && axis == .other) ? 4 : 8
 }
 
 /// h: the hit's index among the lane's pattern hits since the melody origin (the rhythm's hits, before LANES, the mask or FX act on them), 0 for the first — whatever ADVANCE the

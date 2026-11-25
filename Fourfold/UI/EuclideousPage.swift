@@ -843,6 +843,7 @@ struct EuclideousPage: View {
     let outputMutes: EuclideousOutputMutes
     // GRID CHANCE (2026-11-22): the two grids' per-axis chance (edited via `onEditGridChance`). All 100 = nothing thinned.
     let gridChance: EuclideousGridChance
+    let gridChanceFlash: GridChanceFlashLive   // GRID CHANCE amd 2 §1/§3: the % toggle's cell flashes — read ONLY inside the toggle's own frame clock
     let hocketLive: HocketLiveModel      // HOCKET §8: the count of each lit rule as the Router last published it — read ONLY by leaf views that observe it
     let rollLive: NoteRollLive           // CARD BACKS §5: each part's recent notes and when each output last took one — read ONLY inside the card backs' own frame clocks
     let emitterLive: EmitterRatchetLive  // RATCH tab §3.10: each output's current pattern index — observed ONLY by the RATCH tab's own leaf views
@@ -8597,7 +8598,7 @@ struct EuclideousPage: View {
                 // EuclideousStackBreak keeps the editor off the page body's Debug stack frame (the 1 MB main-thread rule)
                 if stack { EuclideousStackBreak { AnyView(stackChanceEditor(box: box)) } } else { EuclideousStackBreak { AnyView(riffChanceEditor(box: box)) } }
             }
-            chanceToggle(rect: toggleRect, set: set, open: open, axLabel: stack ? "Stack chance" : "Riff chance") {
+            chanceToggle(rect: toggleRect, grid: stack ? .stack : .riff, set: set, open: open, axLabel: stack ? "Stack chance" : "Riff chance") {
                 if open { closeGridChanceAll() } else { openGridChance(stack: stack) }
             }
         }
@@ -8620,15 +8621,54 @@ struct EuclideousPage: View {
     }
 
     // MARK: leaf views
-    private func chanceToggle(rect: CGRect, set: Bool, open: Bool, axLabel: String, onTap: @escaping () -> Void) -> some View {
-        Text("%").font(.system(size: GCUI.glyph, weight: .heavy, design: .monospaced))
-            .foregroundColor(set ? Color(hex: 0x0D0F14) : Color(hex: 0xAAB0BA))
-            .frame(width: rect.width, height: rect.height)
-            .background(RoundedRectangle(cornerRadius: GCUI.toggleRadius).fill(set ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
-            .overlay { if open { RoundedRectangle(cornerRadius: GCUI.toggleRadius + 2).stroke(Color(hex: 0xDFE3EA), lineWidth: 1).padding(-2) } }   // §3.3 open: a 1 pt outline 2 pt out
-            .contentShape(Rectangle()).onTapGesture(perform: onTap)
-            .accessibilityElement(children: .ignore).accessibilityLabel(axLabel).accessibilityValue(set ? "set" : "not set").accessibilityAddTraits(.isButton)
-            .position(x: rect.midX, y: rect.midY)
+    // GRID CHANCE amendment 2 (2026-11-24) §2: while a grid has chance set, the toggle shows a strip of live cells in place of the % glyph (the lit #DFE3EA fill + the open outline stay, §2.1 / amd 1 A6); with nothing set, the plain % as before.
+    private func chanceToggle(rect: CGRect, grid: EuclideousGridChanceGrid, set: Bool, open: Bool, axLabel: String, onTap: @escaping () -> Void) -> some View {
+        Group {
+            if set {
+                chanceCellStrip(rect: rect, grid: grid)
+            } else {
+                Text("%").font(.system(size: GCUI.glyph, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xAAB0BA))
+            }
+        }
+        .frame(width: rect.width, height: rect.height)
+        .background(RoundedRectangle(cornerRadius: GCUI.toggleRadius).fill(set ? Color(hex: 0xDFE3EA) : Color(hex: 0x2A2D34)))
+        .overlay { if open { RoundedRectangle(cornerRadius: GCUI.toggleRadius + 2).stroke(Color(hex: 0xDFE3EA), lineWidth: 1).padding(-2) } }   // §3.3 open: a 1 pt outline 2 pt out
+        .contentShape(Rectangle()).onTapGesture(perform: onTap)
+        .accessibilityElement(children: .ignore).accessibilityLabel(axLabel).accessibilityValue(set ? "set" : "not set").accessibilityAddTraits(.isButton)   // §4: the cells post nothing — the toggle keeps the ferry's label/value
+        .position(x: rect.midX, y: rect.midY)
+    }
+    /// §2/§3: the % toggle's live cells — one per slider on the chosen axis, faint by idle look (§2.4), flashing solid (fired) / a 1 pt hollow outline (dropped) for 120 ms (§3). Toggle-LOCAL coordinates; the toggle's own `.background`/`.frame`/`.position` place it. Its 60 fps frame clock reads `gridChanceFlash` (filled by the 30 Hz poll) — §3.5 runs open or closed; §3.7 Reduce Motion unchanged (the flashes are instant anyway, §3.6).
+    private func chanceCellStrip(rect: CGRect, grid: EuclideousGridChanceGrid) -> some View {
+        let axis = euclideousGridChanceAxisSet(gridChance, grid: grid)
+        let count = euclideousGridChanceCellCount(grid: grid, axis: axis)
+        let frames = euclideousGridChanceCellFrames(toggle: CGRect(x: 0, y: 0, width: rect.width, height: rect.height), grid: grid, count: count)
+        let values: [Int] = (0..<count).map { chanceAxisValue(grid: grid, axis: axis, index: $0) }
+        let gi = grid == .riff ? 0 : 1, ai = axis == .rank ? 0 : 1
+        return TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: false), paused: !pulseLive)) { tl in
+            let now = tl.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, _ in
+                for i in 0..<count {
+                    let vis = euclideousGridChanceCellVisualIndex(grid: grid, axis: axis, axisIndex: i, count: count)
+                    guard vis >= 0, vis < frames.count else { continue }
+                    let f = frames[vis]
+                    ctx.fill(Path(roundedRect: f, cornerRadius: 1), with: .color(Color(hex: 0x0D0F14).opacity(euclideousGridChanceCellIdleOpacity(value: values[i]))))   // §2.4 idle
+                    switch euclideousGridChanceCellFlash(latest: gridChanceFlash.model.latest(grid: gi, axis: ai, cell: i), now: now) {
+                    case .idle:   break
+                    case .fired:  ctx.fill(Path(roundedRect: f, cornerRadius: 1), with: .color(Color(hex: 0x0D0F14)))                                                        // §3.1 solid
+                    case .dropped: ctx.stroke(Path(roundedRect: f.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 1), with: .color(Color(hex: 0x0D0F14)), lineWidth: 1)             // §3.2 a 1 pt inner outline, no fill
+                    }
+                }
+            }
+        }
+    }
+    /// The slider value behind a chance cell (its idle opacity reads it), by grid + chosen axis + zero-based axis index.
+    private func chanceAxisValue(grid: EuclideousGridChanceGrid, axis: EuclideousGridChanceAxis, index: Int) -> Int {
+        switch (grid, axis) {
+        case (.riff, .rank):  return index < gridChance.riffRank.count ? gridChance.riffRank[index] : 100
+        case (.riff, _):      return index < gridChance.riffColumn.count ? gridChance.riffColumn[index] : 100
+        case (.stack, .rank): return index < gridChance.stackRank.count ? gridChance.stackRank[index] : 100
+        case (.stack, _):     return index < gridChance.stackLane.count ? gridChance.stackLane[index] : 100
+        }
     }
     /// §5: one slider. `apply(newStep, value)` — newStep true starts a new undo burst.
     private func chanceSlider(rect: CGRect, vertical: Bool, value: Int, axName: String, apply: @escaping (Bool, Int) -> Void) -> some View {

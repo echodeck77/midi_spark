@@ -258,6 +258,7 @@ targets:
       - path: Fourfold/Engine/ReelKeep.swift   # REEL redesign phase 4: the KEEP model + naming + list ops (Foundation-only)
       - path: Fourfold/Engine/FourfoldParam.swift   # host parameters: the pure address↔document mapping table (Foundation-only)
       - path: Fourfold/Engine/NoteRollRing.swift
+      - path: Fourfold/Engine/GridChanceEventRing.swift   # GRID CHANCE amendment 2: the % toggle's flash feed ring + pure flash model
       - path: Fourfold/Engine/EmitterRatchetUI.swift
       - path: Fourfold/Engine/EmitterVelocityUI.swift   # VELOCITY tab (2026-11-03): value text, drag, bipolar bar share and VoiceOver (Foundation + CoreGraphics only)
       - path: Fourfold/Engine/EmitterCCTrace.swift   # CC tab: the one-bar trace of an emitter's output, mirroring the Router's segments (Foundation + CoreGraphics only)

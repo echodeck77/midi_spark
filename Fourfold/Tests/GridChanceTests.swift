@@ -279,4 +279,111 @@ final class GridChanceTests: XCTestCase {
         r.riffRank[0] = 50
         XCTAssertEqual(euclideousGridChanceAxisSet(r, grid: .riff), .rank)    // rank chosen ⇒ horizontal
     }
+
+    // MARK: amendment 2 (Paul 2026-11-24) — the % toggle shows chance in action (§5 tests 17–23)
+
+    /// 17: riff by rank, ranks 8 and 6 set → 8 cells stacked top→bottom; the top cell (rank 8) and the 3rd (rank 6) idle at 32 %, the rest 10 %.
+    func testAmendment2RiffByRankCells() {
+        var gc = EuclideousGridChance(); gc.riffRank[7] = 50; gc.riffRank[5] = 50   // rank 8 (index 7), rank 6 (index 5)
+        XCTAssertTrue(gc.riffSet)                                                    // % hidden, cells shown
+        let toggle = euclideousRiffChanceToggleRect(box: CGSize(width: 380.67, height: 319))
+        XCTAssertEqual(euclideousGridChanceCellCount(grid: .riff, axis: .rank), 8)
+        let frames = euclideousGridChanceCellFrames(toggle: toggle, grid: .riff, count: 8)
+        XCTAssertEqual(frames.count, 8)
+        for i in 1..<8 { XCTAssertGreaterThan(frames[i].minY, frames[i - 1].minY) }  // stacked top → bottom
+        XCTAssertEqual(euclideousGridChanceCellVisualIndex(grid: .riff, axis: .rank, axisIndex: 7, count: 8), 0)   // rank 8 at the TOP
+        XCTAssertEqual(euclideousGridChanceCellVisualIndex(grid: .riff, axis: .rank, axisIndex: 5, count: 8), 2)   // rank 6 is the 3rd cell
+        for i in 0..<8 {
+            XCTAssertEqual(euclideousGridChanceCellIdleOpacity(value: gc.riffRank[i]), (i == 7 || i == 5) ? 0.32 : 0.10, accuracy: 1e-9, "rank index \(i)")
+        }
+    }
+
+    /// 18: STACK by lane, lanes 2 and 4 set → 4 cells left→right; cells 2 and 4 idle at 32 %.
+    func testAmendment2StackByLaneCells() {
+        var gc = EuclideousGridChance(); gc.stackLane[1] = 50; gc.stackLane[3] = 50   // lane 2, lane 4
+        XCTAssertTrue(gc.stackSet)
+        let toggle = euclideousStackChanceToggleRect(box: CGSize(width: 380.67, height: 319))
+        XCTAssertEqual(euclideousGridChanceCellCount(grid: .stack, axis: .other), 4)
+        let frames = euclideousGridChanceCellFrames(toggle: toggle, grid: .stack, count: 4)
+        XCTAssertEqual(frames.count, 4)
+        for i in 1..<4 { XCTAssertGreaterThan(frames[i].minX, frames[i - 1].minX) }   // side by side, left → right
+        XCTAssertEqual(euclideousGridChanceCellVisualIndex(grid: .stack, axis: .other, axisIndex: 1, count: 4), 1)   // lane 2 = cell 2
+        XCTAssertEqual(euclideousGridChanceCellVisualIndex(grid: .stack, axis: .other, axisIndex: 3, count: 4), 3)   // lane 4 = cell 4
+        for i in 0..<4 { XCTAssertEqual(euclideousGridChanceCellIdleOpacity(value: gc.stackLane[i]), (i == 1 || i == 3) ? 0.32 : 0.10, accuracy: 1e-9) }
+    }
+
+    /// 19: riff rank-6 at 50 over 1 000 hits — every event's `fired` matches the gate one-for-one; rank 6 at 100 emits nothing.
+    func testAmendment2RiffEventsMatchGate() {
+        var gc = EuclideousGridChance(); gc.riffRank[5] = 50   // rank 6 at 50 %
+        var fired = 0
+        for step in Int64(0)..<1000 {
+            let roll = euclideousGridChanceRiffRoll(lane: 0, step: step, rank: 6, column: 0, onBeat: 0, model: gc)
+            let gate = euclideousRiffGridChancePasses(lane: 0, step: step, rank: 6, column: 0, model: gc)
+            XCTAssertNotNil(roll.event)
+            XCTAssertEqual(roll.event?.fired, gate)      // one-for-one with the engine gate
+            XCTAssertEqual(roll.pass, gate)
+            XCTAssertEqual(roll.event?.grid, 0); XCTAssertEqual(roll.event?.axis, 0); XCTAssertEqual(roll.event?.index, 5)
+            if roll.event?.fired == true { fired += 1 }
+        }
+        XCTAssertGreaterThan(fired, 350); XCTAssertLessThan(fired, 650)   // ~50 %
+        // rank 6 at 100 emits nothing (another rank is set so the axis is active)
+        var gc100 = EuclideousGridChance(); gc100.riffRank[0] = 50
+        for step in Int64(0)..<10 { XCTAssertNil(euclideousGridChanceRiffRoll(lane: 0, step: step, rank: 6, column: 0, onBeat: 0, model: gc100).event) }
+    }
+
+    /// 20: stack chord ranks 1,3,5 — rank 1 @50, rank 3 @0, rank 5 @100: one event for rank 1 (matching its roll), one DROPPED for rank 3, none for rank 5.
+    func testAmendment2StackChordEvents() {
+        var gc = EuclideousGridChance(); gc.stackRank[0] = 50; gc.stackRank[2] = 0   // rank 1 @50, rank 3 @0 (always drops); rank 5 stays 100
+        let step: Int64 = 7
+        let r1 = euclideousGridChanceStackRoll(lane: 0, step: step, rank: 1, onBeat: 0, model: gc)
+        let r3 = euclideousGridChanceStackRoll(lane: 0, step: step, rank: 3, onBeat: 0, model: gc)
+        let r5 = euclideousGridChanceStackRoll(lane: 0, step: step, rank: 5, onBeat: 0, model: gc)
+        XCTAssertNotNil(r1.event); XCTAssertEqual(r1.event?.index, 0)
+        XCTAssertEqual(r1.event?.fired, euclideousStackRankChancePasses(lane: 0, step: step, rank: 1, model: gc))
+        XCTAssertNotNil(r3.event); XCTAssertEqual(r3.event?.fired, false); XCTAssertEqual(r3.event?.index, 2); XCTAssertFalse(r3.pass)
+        XCTAssertNil(r5.event); XCTAssertTrue(r5.pass)
+    }
+
+    /// 21: a fired event turns the cell solid and returns to idle 120 ms later; a dropped event in the same frame restarts it as dropped; a later fired restarts fired.
+    func testAmendment2FlashTimingAndRestart() {
+        XCTAssertEqual(euclideousGridChanceCellFlash(latest: (onsetAt: 100.0, fired: true), now: 100.0), .fired)
+        XCTAssertEqual(euclideousGridChanceCellFlash(latest: (onsetAt: 100.0, fired: true), now: 100.10), .fired)   // inside 120 ms
+        XCTAssertEqual(euclideousGridChanceCellFlash(latest: (onsetAt: 100.0, fired: true), now: 100.12), .idle)    // 120 ms → idle
+        XCTAssertEqual(euclideousGridChanceCellFlash(latest: (onsetAt: 100.0, fired: false), now: 100.05), .dropped)
+        XCTAssertEqual(euclideousGridChanceCellFlash(latest: nil, now: 100.0), .idle)
+        var m = GridChanceFlashModel()
+        m.ingest([GridChanceEvent(onBeat: 10, grid: 0, axis: 0, index: 0, fired: true)], anchorBeat: 10, anchorAt: 100.0, tempo: 120)   // onsetAt 100.0
+        XCTAssertEqual(euclideousGridChanceCellFlash(latest: m.latest(grid: 0, axis: 0, cell: 0), now: 100.0), .fired)
+        m.ingest([GridChanceEvent(onBeat: 10, grid: 0, axis: 0, index: 0, fired: false)], anchorBeat: 10, anchorAt: 100.0, tempo: 120)   // same frame → DROPPED wins
+        XCTAssertEqual(euclideousGridChanceCellFlash(latest: m.latest(grid: 0, axis: 0, cell: 0), now: 100.0), .dropped)
+        m.ingest([GridChanceEvent(onBeat: 11, grid: 0, axis: 0, index: 0, fired: true)], anchorBeat: 10, anchorAt: 100.0, tempo: 120)   // onsetAt 100.5 (later) → restarts fired
+        XCTAssertEqual(euclideousGridChanceCellFlash(latest: m.latest(grid: 0, axis: 0, cell: 0), now: 100.5), .fired)
+    }
+
+    /// 22: clearing the axis (CLR) shows the plain % at once — the strip is shown iff the grid has chance.
+    func testAmendment2ClearShowsPercent() {
+        var gc = EuclideousGridChance()
+        XCTAssertFalse(gc.riffSet)   // nothing set → plain %
+        gc.riffRank[0] = 50
+        XCTAssertTrue(gc.riffSet)    // set → cells
+        gc.riffRank[0] = 100         // CLR
+        XCTAssertFalse(gc.riffSet)   // cleared → plain % at once
+    }
+
+    /// 23: the event ring round-trips and drops the OLDEST (never the newest) when the consumer falls behind.
+    func testAmendment2RingRoundTripAndOverflow() {
+        let ring = GridChanceEventRing()
+        XCTAssertTrue(ring.drain().isEmpty)
+        ring.push(GridChanceEvent(onBeat: 1, grid: 0, axis: 0, index: 3, fired: true))
+        ring.push(GridChanceEvent(onBeat: 2, grid: 1, axis: 1, index: 2, fired: false))
+        let out = ring.drain()
+        XCTAssertEqual(out, [GridChanceEvent(onBeat: 1, grid: 0, axis: 0, index: 3, fired: true),
+                             GridChanceEvent(onBeat: 2, grid: 1, axis: 1, index: 2, fired: false)])
+        XCTAssertTrue(ring.drain().isEmpty)   // nothing new
+        for i in 0..<(GridChanceEventRing.capacity + 100) { ring.push(GridChanceEvent(onBeat: Double(i), grid: 0, axis: 0, index: 0, fired: true)) }
+        let out2 = ring.drain()
+        XCTAssertLessThanOrEqual(out2.count, GridChanceEventRing.capacity)
+        XCTAssertEqual(out2.last?.onBeat, Double(GridChanceEventRing.capacity + 100 - 1))   // the newest is kept
+        XCTAssertGreaterThan(ring.dropped, 0)
+    }
 }

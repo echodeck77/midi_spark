@@ -181,7 +181,7 @@ struct FourfoldRootView: View {
                                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff, riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff ?? EuclideousPolyRiff(),
                                                riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
-                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, emitterVelocities: emitterVelocities, emitterCCs: emitterCCs, outputMutes: euclideousOutputMutes, gridChance: euclideousGridChance, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters, emitterVelLive: meters.emitterVel, ccLive: meters.cc,
+                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, emitterVelocities: emitterVelocities, emitterCCs: emitterCCs, outputMutes: euclideousOutputMutes, gridChance: euclideousGridChance, gridChanceFlash: meters.gridChanceFlash, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters, emitterVelLive: meters.emitterVel, ccLive: meters.cc,
                                                lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                                wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                                pulseFeed: meters.pulse, pulseLevel: pulseLevel,
@@ -1072,6 +1072,7 @@ struct FourfoldRootView: View {
     if rlp != euclideousRiffLivePool { euclideousRiffLivePool = rlp }
     let hl = au.pollHocketLive(); meters.hocket.update(counts: hl.counts, running: hl.running)   // HOCKET §8: the lit rules' counts (the pop-up and the lane cards read them through leaf views)
     meters.rolls.poll(records: au.pollNoteRoll(), beat: meters.beat, playing: d.effectivePlaying)   // CARD BACKS §5: the rolls and jack lights, from the same 30 Hz poll
+    meters.gridChanceFlash.poll(events: au.pollGridChanceEvents(), anchorBeat: meters.beatAnchor, anchorAt: meters.beatAnchorAt, tempo: meters.tempo, beat: meters.beat, playing: d.effectivePlaying)   // GRID CHANCE amd 2 §1/§3: the % toggle's cell flashes, onset-stamped on the display clock like PULSE, from the same 30 Hz poll
     meters.emitters.update(packed: au.pollEmitterIndexPacked(), running: d.effectivePlaying)   // RATCH tab §3.10: each output's current pattern index, from the same 30 Hz poll (cleared while the transport is not running)
     meters.emitterVel.update(packed: au.pollEmitterVelIndexPacked(), running: d.effectivePlaying)   // VELOCITY tab (2026-11-03): each output's velocity-pattern index, same poll
     meters.cc.update(packed: au.pollEmitterCCValuePacked(), running: d.effectivePlaying)   // CC tab (Nov 2026): each output's current CC value, same poll

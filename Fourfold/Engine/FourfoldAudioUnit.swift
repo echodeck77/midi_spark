@@ -349,6 +349,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func pollEuclideousRiffLivePool() -> [UInt8] { kernel.euclideousRiffLivePool() }
     func pollHocketLive() -> (counts: [Int64], running: Bool) { kernel.hocketLive() }   // HOCKET §8: rides the existing 30 Hz fast poll
     func pollNoteRoll() -> [NoteRollRecord] { kernel.drainNoteRoll() }                   // CARD BACKS §5: each part's piano-roll feed, on the same 30 Hz poll
+    func pollGridChanceEvents() -> [GridChanceEvent] { kernel.drainGridChanceEvents() }  // GRID CHANCE amd 2 §1: the % toggle's flash feed, on the same 30 Hz poll
     func pollEuclideousSourceStatus() -> Router.EuclideousSourceStatus { kernel.euclideousSourceStatus() }   // SOURCES STACK: rides the existing 30 Hz fastPoll
     func pollEuclideousAnswerStatus() -> [EuclideousAnswerLaneStatus] { kernel.euclideousAnswerStatus() }   // ANSWER: each lane's running cycle, on the same 30 Hz fastPoll
     func pollEuclideousLanePoolStatus() -> [EuclideousLanePoolStatus] { kernel.euclideousLanePoolStatus() }   // ANSWER: each lane's pool (POOL tab NOW), same poll
