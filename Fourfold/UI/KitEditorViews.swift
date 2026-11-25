@@ -92,15 +92,19 @@ struct EuclideousKitEditorView: View {
         }
         func sectionLabel(_ s: String) -> some View { Text(s).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.1 * 10).foregroundColor(Color(hex: 0x8A909A)).frame(maxWidth: .infinity, alignment: .leading) }
         let colGap: CGFloat = 10, colW = max(1, (innerW - colGap) / 2)
-        return ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 6) {
-                if let gm = gm { row(gm, width: innerW) }
-                HStack(alignment: .top, spacing: colGap) {
-                    VStack(alignment: .leading, spacing: 6) { sectionLabel("APPS"); ForEach(apps, id: \.id) { row($0, width: colW) } }.frame(width: colW, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 6) { sectionLabel("HARDWARE"); ForEach(hw, id: \.id) { row($0, width: colW) } }.frame(width: colW, alignment: .leading)
+        // §3.3: a FIXED GM row + section labels; the two columns scroll together under them and open scrolled to the current row.
+        return VStack(alignment: .leading, spacing: 6) {
+            if let gm = gm { row(gm, width: innerW) }
+            HStack(spacing: colGap) { sectionLabel("APPS"); sectionLabel("HARDWARE") }
+            ScrollViewReader { sv in
+                ScrollView(.vertical, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: colGap) {
+                        VStack(alignment: .leading, spacing: 6) { ForEach(apps, id: \.id) { row($0, width: colW).id($0.id) } }.frame(width: colW, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 6) { ForEach(hw, id: \.id) { row($0, width: colW).id($0.id) } }.frame(width: colW, alignment: .leading)
+                    }.frame(width: innerW, alignment: .topLeading)
                 }
+                .onAppear { if currentTemplateId != "gm" { sv.scrollTo(currentTemplateId, anchor: .center) } }
             }
-            .frame(width: innerW, alignment: .topLeading)
         }
         .frame(width: innerW, height: max(1, bottom - top), alignment: .topLeading)
         .position(x: innerX + innerW / 2, y: top + max(1, bottom - top) / 2)

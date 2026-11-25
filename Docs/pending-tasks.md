@@ -15,6 +15,7 @@ delta.md`, esp. §10) and the `Docs/design-*.md` ferries. Last synced: 2026-09-1
 - [x] Static table (`KitTemplates.swift`, GM + 6 apps + 8 hardware) + lookups + COMMUNITY/DEBUG filter + `KitTemplatesTests` (3).
 - [x] Model `kitTemplate` (nil⇒gm) + decoder + APPLY TO ALL. Picker (header template button → GM / APPS | HARDWARE; apply in one step, rank 1). Key names by device (§4). TO KIT ⇒ gm.
 - [x] Golden IDENTICAL (never reaches the render path); 42 tests green. Alloc to confirm before landing.
+- [x] **DRAFT 2 (NOT RATIFIED)** maps/rows rework + expanded charts (17 apps / 16 hardware), RUISMAKER role order, release filter (APPS Ableton/Microtonic/Ruismaker, HARDWARE all but SP-404MKII), picker fixed GM row + scroll-to-current. `KitTemplatesTests` (4, +`testSharedMaps`) + 39 kit/drum tests green; build green. **Needs Paul's explicit draft-2 nod before landing.**
 - [ ] **DO NOT LAND** until Paul signs off.
 - [ ] **FLAG / confirm:** §4.2 reverses the "keep the label on note-pick" fix — a key tap names the rank again (device/GM). Confirm wanted.
 - [ ] **DEVICE-OWED:** the KIT TEMPLATES list in `euclideous-device-verification-debt.md` — each hardware template on the device, Ruismaker/Microtonic, the COMMUNITY rows behind the flag, picker legibility, the template button truncation.
