@@ -207,4 +207,37 @@ final class RestartUnitsModelTests: XCTestCase {
         p.euclideousAllChain = []                               // explicitly empty ⇒ no ALL
         XCTAssertEqual(p.allChainResolved, [])
     }
+
+    // RESETS V3 §1.2/§6.2: the ALL restart beats are a closed form — cumulative sums of the chain, in host bars, repeating with period = the total.
+    func testAllRestartClosedForm() {
+        let bar = 4.0   // 4/4
+        // ALL [4] → beats 16, 32, 48 (bar lines 5, 9, 13)
+        XCTAssertEqual(euclideousAllTotalBars([4]), 4)
+        XCTAssertTrue(euclideousAllRestartIsAt(beat: 16, barBeats: bar, chain: [4]))
+        XCTAssertTrue(euclideousAllRestartIsAt(beat: 32, barBeats: bar, chain: [4]))
+        XCTAssertFalse(euclideousAllRestartIsAt(beat: 20, barBeats: bar, chain: [4]))   // a bar line, but not a cumulative sum
+        XCTAssertFalse(euclideousAllRestartIsAt(beat: 10, barBeats: bar, chain: [4]))   // not a bar line
+        XCTAssertEqual(euclideousAllRestartCount(atOrBefore: 15.9, barBeats: bar, chain: [4]), 0)
+        XCTAssertEqual(euclideousAllRestartCount(atOrBefore: 16, barBeats: bar, chain: [4]), 1)
+        XCTAssertEqual(euclideousAllRestartCount(atOrBefore: 48, barBeats: bar, chain: [4]), 3)
+        XCTAssertEqual(euclideousNextAllRestart(after: 0, barBeats: bar, chain: [4]), 16)
+        XCTAssertEqual(euclideousNextAllRestart(after: 15, barBeats: bar, chain: [4]), 16)
+        XCTAssertEqual(euclideousNextAllRestart(after: 16, barBeats: bar, chain: [4]), 32)
+        // ALL [2,1] → bar lines 3,4,6,7,9,10 ⇒ beats 8,12,20,24,32,36 (§6.2)
+        XCTAssertEqual(euclideousAllTotalBars([2, 1]), 3)
+        let beats = [8.0, 12, 20, 24, 32, 36]
+        for b in beats { XCTAssertTrue(euclideousAllRestartIsAt(beat: b, barBeats: bar, chain: [2, 1]), "beat \(b)") }
+        XCTAssertFalse(euclideousAllRestartIsAt(beat: 16, barBeats: bar, chain: [2, 1]))   // bar 5's line is NOT a restart
+        XCTAssertEqual(euclideousAllRestartCount(atOrBefore: 8, barBeats: bar, chain: [2, 1]), 1)
+        XCTAssertEqual(euclideousAllRestartCount(atOrBefore: 12, barBeats: bar, chain: [2, 1]), 2)
+        XCTAssertEqual(euclideousAllRestartCount(atOrBefore: 20, barBeats: bar, chain: [2, 1]), 3)
+        XCTAssertEqual(euclideousAllRestartCount(atOrBefore: 36, barBeats: bar, chain: [2, 1]), 6)
+        var cur = -1.0, seq: [Double] = []
+        for _ in 0..<6 { cur = euclideousNextAllRestart(after: cur, barBeats: bar, chain: [2, 1])!; seq.append(cur) }
+        XCTAssertEqual(seq, beats)
+        // empty ⇒ nothing
+        XCTAssertEqual(euclideousAllRestartCount(atOrBefore: 100, barBeats: bar, chain: []), 0)
+        XCTAssertNil(euclideousNextAllRestart(after: 0, barBeats: bar, chain: []))
+        XCTAssertFalse(euclideousAllRestartIsAt(beat: 16, barBeats: bar, chain: []))
+    }
 }

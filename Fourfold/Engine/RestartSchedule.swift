@@ -17,6 +17,59 @@ private let schedEps = 1e-9
     return Int64(((beat / sub) + schedEps).rounded(.down))
 }
 
+// MARK: - RESETS V3 (2026-11-24) §1.2 — the ALL reset's restart beats, a closed form
+//
+// ALL is a document-level chain of host-bar counts starting at the transport origin (beat 0 = bar 1's line). Link 1 lasts its
+// count of bars, then link 2, …; after the last link it starts over. Each link's END is an ALL restart, on a host bar line. So the
+// restart points are the chain's CUMULATIVE SUMS (in bars), repeating with period = the chain's total bars. E.g. [4] → bars 4,8,12…
+// (beats 16,32,48 at 4/4); [2,1] → bars 2,3,5,6,8,9… (bar lines 3,4,6,7,9,10…). Empty ⇒ no ALL. Pure; the sim folds these in (§1.7)
+// and the chord-grid insulation subtracts their count (§1.6).
+
+/// Total bars in one ALL cycle (0 ⇒ no ALL).
+@inline(__always) func euclideousAllTotalBars(_ chain: [UInt8]) -> Int { chain.reduce(0) { $0 + Int($1) } }
+
+/// Is `beat` an ALL restart — a host bar line whose bar count from the origin is a cumulative sum of the chain? Empty chain / beat 0 ⇒ false.
+func euclideousAllRestartIsAt(beat: Double, barBeats: Double, chain: [UInt8]) -> Bool {
+    let total = euclideousAllTotalBars(chain)
+    guard total > 0, barBeats > 0, beat > schedEps else { return false }
+    let barsF = beat / barBeats, bar = barsF.rounded()
+    guard abs(barsF - bar) < 1e-6, bar >= 1 else { return false }            // a host bar line only
+    let within = (Int(bar) % total + total) % total                          // 0 = a full-period boundary (also a restart)
+    if within == 0 { return true }
+    var acc = 0
+    for c in chain { acc += Int(c); if acc == within { return true }; if acc > within { break } }
+    return false
+}
+
+/// How many ALL restarts fell in (0, beat] (§6.2 oracle). Used to insulate the chord grid (§1.6): subtract this from the schedule's restart count.
+func euclideousAllRestartCount(atOrBefore beat: Double, barBeats: Double, chain: [UInt8]) -> Int64 {
+    let total = euclideousAllTotalBars(chain)
+    guard total > 0, barBeats > 0, beat > schedEps else { return 0 }
+    let bars = Int((beat / barBeats) + 1e-6)                                  // whole host bars elapsed (floor with ε)
+    var count = Int64(bars / total) * Int64(chain.count)                      // each whole period has `chain.count` restarts
+    let rem = bars % total
+    var acc = 0
+    for c in chain { acc += Int(c); if acc <= rem { count += 1 } else { break } }
+    return count
+}
+
+/// The next ALL restart strictly after `beat` (nil ⇒ no ALL).
+func euclideousNextAllRestart(after beat: Double, barBeats: Double, chain: [UInt8]) -> Double? {
+    let total = euclideousAllTotalBars(chain)
+    guard total > 0, barBeats > 0 else { return nil }
+    var offsets: [Int] = []; var acc = 0
+    for c in chain { acc += Int(c); offsets.append(acc) }                     // ascending cumulative sums within a period
+    let x = max(0, beat / barBeats)
+    let n0 = Int((x / Double(total)).rounded(.down))
+    for n in [n0, n0 + 1] {
+        for off in offsets {
+            let b = Double(n * total + off) * barBeats
+            if b > beat + schedEps { return b }
+        }
+    }
+    return nil
+}
+
 // MARK: - the inputs (Hashable: the memo key)
 
 struct EuclideousScheduleLaneInput: Hashable {
