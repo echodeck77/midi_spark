@@ -251,6 +251,56 @@ func euclideousResetsCardLayout(size: CGSize) -> EuclideousResetsCardLayout {
                                       appliedCase: chosen.c, row1Fits: TW >= 262 - 1e-9)
 }
 
+// MARK: - RESETS V3 §3 — the reworked card: one tile + linked/split control rows (no FREE pills; a link button). Pure geometry; `EuclideousResetsControlsView` draws the sections, `resetsTileV3` the tile.
+
+struct EuclideousResetsCardLayoutV3: Equatable {
+    var size: CGSize
+    var tile: CGRect                 // §2.2: one tile, TW × 46, at the top
+    var linked: Bool                 // §3.3: withRhythm on AND the melody chain inactive ⇒ ONE part (rhythm; the melody follows)
+    var rhythm: EuclideousRestartSectionFramesV2
+    var melody: EuclideousRestartSectionFramesV2   // split only; unused in the linked view
+    var rhythmActive: Bool, melodyActive: Bool
+    var linkButton: CGRect           // §3.6: 28 × 28 on the rhythm/top controls row, x TW − 28
+    var linkButtonHit: CGRect        // §3.6: a 36 × 44 touch target
+    var rowCount: Int                // §3.1: for the floor report
+    var row1Fits: Bool               // §3.4: row 1 needs TW ≥ 54 + units + 10 + squares + 8 + 28
+    var contentBottom: CGFloat
+}
+/// §3.1–§3.4 — the card's tile + control frames. A part's unit chips + sources sit on row 1 (ONLY while the chain is active, §3.5); the count chips + (add / minus) on row 2. An inactive chain shows ONLY its + box, on row 1. Split adds a 54 pt label column; the link button rides the rhythm/top row.
+func euclideousResetsCardLayoutV3(size: CGSize, rhythmActive: Bool, melodyActive: Bool, withRhythm: Bool) -> EuclideousResetsCardLayoutV3 {
+    let TW = max(1, size.width)
+    let tileH = EuclideousResetsTileMetrics.height
+    let rowH: CGFloat = 28, rowGap: CGFloat = 8, ctrlTop = tileH + 8
+    let linked = withRhythm && !melodyActive
+    let unitW: CGFloat = 40, unitGap: CGFloat = 4, srcW: CGFloat = 20, srcGap: CGFloat = 4, countW: CGFloat = 44, countGap: CGFloat = 4, labelW: CGFloat = 54, unitsToSrc: CGFloat = 10
+    let linkButton = CGRect(x: TW - 28, y: ctrlTop + (rowH - 28) / 2, width: 28, height: 28)
+    let linkButtonHit = CGRect(x: TW - 36, y: ctrlTop + (rowH - 44) / 2, width: 36, height: 44)
+    func part(top: CGFloat, x0: CGFloat, label: CGRect, active: Bool) -> EuclideousRestartSectionFramesV2 {
+        let chips = (0..<3).map { CGRect(x: x0 + CGFloat($0) * (unitW + unitGap), y: top, width: unitW, height: rowH) }
+        let srcStart = (chips.last?.maxX ?? x0) + unitsToSrc
+        let sources = (0..<4).map { CGRect(x: srcStart + CGFloat($0) * (srcW + srcGap), y: top, width: srcW, height: rowH) }
+        let countTop = active ? top + rowH + rowGap : top            // §3.3: an inactive chain's + box is on row 1, not a phantom row 2
+        let countChips = (0..<4).map { CGRect(x: x0 + CGFloat($0) * (countW + countGap), y: countTop, width: countW, height: rowH) }
+        return EuclideousRestartSectionFramesV2(top: top, labelColumn: label, freePill: .zero, chips: chips, sources: sources, countChips: countChips, axisLabel: nil, cells: [])
+    }
+    let rhythmRows = rhythmActive ? 2 : 1
+    let rhythm = part(top: ctrlTop, x0: linked ? 0 : labelW, label: linked ? .zero : CGRect(x: 0, y: ctrlTop, width: labelW, height: rowH), active: rhythmActive)
+    var melody = EuclideousRestartSectionFramesV2(top: 0, labelColumn: .zero, freePill: .zero, chips: [], sources: [], countChips: [], axisLabel: nil, cells: [])
+    var rows = rhythmRows
+    var bottom = ctrlTop + CGFloat(rhythmRows) * rowH + CGFloat(max(0, rhythmRows - 1)) * rowGap
+    if !linked {
+        let melodyTop = bottom + rowGap
+        melody = part(top: melodyTop, x0: labelW, label: CGRect(x: 0, y: melodyTop, width: labelW, height: rowH), active: melodyActive)
+        let melodyRows = melodyActive ? 2 : 1
+        rows += melodyRows
+        bottom = melodyTop + CGFloat(melodyRows) * rowH + CGFloat(max(0, melodyRows - 1)) * rowGap
+    }
+    let row1Fits = TW >= labelW + 3 * unitW + 2 * unitGap + unitsToSrc + 4 * srcW + 3 * srcGap + 8 + 28
+    return EuclideousResetsCardLayoutV3(size: size, tile: CGRect(x: 0, y: 0, width: TW, height: tileH), linked: linked,
+                                        rhythm: rhythm, melody: melody, rhythmActive: rhythmActive, melodyActive: melodyActive,
+                                        linkButton: linkButton, linkButtonHit: linkButtonHit, rowCount: rows, row1Fits: row1Fits, contentBottom: bottom)
+}
+
 // MARK: - what a tap does (§7.4) — one undo step each
 
 enum EuclideousRestartEdit: Equatable {

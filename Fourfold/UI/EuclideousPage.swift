@@ -4225,41 +4225,38 @@ struct EuclideousPage: View {
     /// half, the WITH RHYTHM link row the divider (§1). The controls are editor v2's OWN views reused — `EuclideousRestartSectionView` with no timeline (§3.3, the tile is the bar) and no name (§1.4, the tile names the half) — and the tiles are
     /// the same `restartTile`, non-interactive now (§3.1). One `TimelineView` animates both tiles' sweeps + the MELODY strike bank; the controls are static. Every edit is the editor's `restartEdit` funnel, one undo step (§2.1); all four cards live at once (§2.2).
     private func resetsTabContent(_ idx: Int, _ line: EuclidLine, _ accent: Color, contentAreaH: CGFloat, fullWidth: CGFloat) -> some View {
-        let L = euclideousResetsCardLayout(size: CGSize(width: fullWidth, height: contentAreaH))
         let settings = euclideousRestartSettings(line: line, lane: idx)
+        let V = euclideousResetsCardLayoutV3(size: CGSize(width: fullWidth, height: contentAreaH), rhythmActive: settings.rhythmActive, melodyActive: settings.melodyActive, withRhythm: settings.withRhythm)
         let running = euclideousLaneIsRunning(transportPlaying: clock.playing, line: line)
         let cfg = riffWalkConfig(idx)
         let input = EuclideousRestartEditorInput(lane: idx, line: line, laneColors: laneAccents, size: CGSize(width: fullWidth, height: contentAreaH), scheduleSet: restartScheduleSet,
                                                  barBeats: clock.beatsPerBar, beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: running)
         return ZStack(alignment: .topLeading) {
-            // The two progress tiles at y 0 of each half (§1.3) — ONE TimelineView drives both sweeps + the MELODY cell-strike bank, exactly as the old `restartTilesRow` did.
+            // RESETS V3 §2: ONE tile, two block rows (passes above, riff cycles below) on a shared span. (The old two tiles + link-row ruler are hidden — `restartTile`'s ruler path / `restartTilesRow` stay compiled, unmounted.)
             TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !running || cfg == nil)) { tl in
                 let beat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
                 let rRhythm = resetsRulerAndRatio(cfg, beat: beat, running: running, line: line, kind: .rhythm)
                 let rMelody = resetsRulerAndRatio(cfg, beat: beat, running: running, line: line, kind: .melody)
-                // RESETS V3 §2: ONE tile, two block rows (passes above, riff cycles below) on a shared span. (The old two tiles + their link-row ruler are hidden — `restartTile`'s ruler path / `restartTilesRow` stay compiled, unmounted.)
-                resetsTileV3(idx, cfg: cfg, accent: accent, tw: L.rhythmTile.width, beat: beat, running: running, line: line,
+                resetsTileV3(idx, cfg: cfg, accent: accent, tw: V.tile.width, beat: beat, running: running, line: line,
                              rhythmLabel: rRhythm.2, melodyLabel: rMelody.2, rhythmNM: rRhythm.1, melodyNM: rMelody.1)
-                    .offset(x: L.rhythmTile.minX, y: L.rhythmTile.minY)
+                    .offset(x: V.tile.minX, y: V.tile.minY)
             }
             .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
-            // RHYTHM controls (no name, no timeline) · the link row · MELODY controls — declared RHYTHM → link → MELODY so VoiceOver reads them in that order (§4.1). Each section view is full-size with absolute card-coordinate offsets.
-            EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: L.rhythm, rhythm: true, settings: settings, showsTimeline: false, showsName: false, onEdit: { restartEdit(idx, $0, $1) },
-                                         runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .rhythm, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet))
+            // §3.3/§3.4: the RHYTHM part (the only part when linked; labelled when split) then, split only, the MELODY part — declared RHYTHM → MELODY so VoiceOver reads them in order. No FREE pills; nothing dims (§3.2).
+            EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: V.rhythm, rhythm: true, settings: settings, showsTimeline: false, showsName: false,
+                                         onEdit: { restartEdit(idx, $0, $1) },
+                                         runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .rhythm, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet),
+                                         cardMode: true, cardLabel: V.linked ? nil : "RHYTHM")
                 .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
-            // draft 3 §3: the resolve count rides the link row, updated at bar lines (a modest TimelineView — it changes slowly; §3.5 it never taps or dims). Stopped ⇒ the bar holding the playhead position (the frozen beat).
-            TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 4.0, reduceMotion: reduceMotion), paused: !running)) { tl in
-                let info = restartScheduleSet.resolveInfo(lane: idx)
-                let nowBeat = lanesMusicalBeat(real: walkTagBeat(at: tl.date))
-                EuclideousRestartLinkRow(on: settings.withRhythm, accent: accent, lineOn: lane100(accent).opacity(0.6), lineOff: Color(hex: 0x2F333B),
-                                         button: L.linkButton, hit: L.linkButtonHit, line: L.linkLine, glyphSize: L.linkH <= 16 ? 9 : 11,
-                                         axLabel: EuclideousRestartEditorAX.withRhythm(on: settings.withRhythm), onToggle: { restartEdit(idx, .withRhythm, true) },
-                                         countBox: L.countBox, countForm: euclideousResolveCountForm(info, nowBeat: nowBeat, barBeats: clock.beatsPerBar),
-                                         countAX: euclideousResolveCountVoiceOver(info, nowBeat: nowBeat, barBeats: clock.beatsPerBar))
+            if !V.linked {
+                EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: V.melody, rhythm: false, settings: settings, showsTimeline: false, showsName: false,
+                                             onEdit: { restartEdit(idx, $0, $1) },
+                                             runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .melody, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet),
+                                             cardMode: true, cardLabel: "MELODY")
+                    .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
             }
-            .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
-            EuclideousRestartSectionView(input: input, focus: $restartFocus, frames: L.melody, rhythm: false, settings: settings, showsTimeline: false, showsName: false, onEdit: { restartEdit(idx, $0, $1) },
-                                         runningBar: resetsRunningBar(cfg, settings: settings, lane: idx, running: running, kind: .melody, beatAt: input.beatAt, barBeats: clock.beatsPerBar, scheduleSet: restartScheduleSet))
+            // §3.6: the WITH RHYTHM link button — on the rhythm/top controls row (shown even on a free linked lane, §3.4 departure, so it can be split without a count first).
+            resetsLinkButton(on: settings.withRhythm, accent: accent, button: V.linkButton, hit: V.linkButtonHit, onToggle: { restartEdit(idx, .withRhythm, true) })
                 .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
         }
         .frame(width: fullWidth, height: contentAreaH, alignment: .topLeading)
@@ -4351,6 +4348,19 @@ struct EuclideousPage: View {
             }
             .lineLimit(1).frame(width: r.width, height: r.height, alignment: .trailing).position(x: r.midX, y: r.midY)
         }
+    }
+    /// §3.6: the WITH RHYTHM link button (28 × 28, r6) on the rhythm/top controls row — on: lane100 @ 25 % fill + lane100 link glyph; off: #22252C fill, 1 pt #3A3E46 inner stroke, #8A909A broken-link glyph. One undo step; a 36 × 44 touch target. (The exact "broken link" glyph is device-owed — SF has no clean unlink mark.)
+    private func resetsLinkButton(on: Bool, accent: Color, button: CGRect, hit: CGRect, onToggle: @escaping () -> Void) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(on ? lane100(accent).opacity(0.25) : Color(hex: 0x22252C)).frame(width: button.width, height: button.height)
+            if !on { RoundedRectangle(cornerRadius: 6).strokeBorder(Color(hex: 0x3A3E46), lineWidth: 1).frame(width: button.width, height: button.height) }
+            Image(systemName: on ? "link" : "link.badge.plus").font(.system(size: 14, weight: .heavy)).foregroundColor(on ? lane100(accent) : Color(hex: 0x8A909A))
+        }
+        .frame(width: hit.width, height: hit.height)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onToggle)
+        .position(x: hit.midX, y: hit.midY)
+        .accessibilityElement(children: .ignore).accessibilityLabel(EuclideousRestartEditorAX.withRhythm(on: on)).accessibilityAddTraits(.isButton).ringToggleTrait()
     }
 
     /// RESETS V2 §3.6 — the per-frame closure feeding a half's running-link bar: the running link + the span fraction at a date (the SAME fraction as the ruler's playhead). nil (no closure) when stopped or the lane has no config, so the chips stay static. Captures only values + `beatAt` (no View `self`).

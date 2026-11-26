@@ -1,14 +1,15 @@
-//  FillStepFlashTests.swift — STEP DISPLAY part 2 (FILL step flash, 2026-11-25): the lane card step grid's fill overlay.
+//  FillStepFlashTests.swift — STEP DISPLAY part 2 (FILL step flash, 2026-11-25; gated to the playhead 2026-11-26).
 //
-//  Pins `euclideousFillStepFlash` — which displayed step boxes a hit-changing fill SOUNDS / SILENCES while it holds over
-//  the region. The function reuses the Router's own fired-step / BREAK / hit-test functions, so these cases double as the
-//  contract the cells draw against; the visual itself is device-owed.
+//  Pins `euclideousFillPlayheadFlash` — what a hit-changing fill does to the ONE box the playhead is sounding now:
+//  `.sounds` (draw as a hit), `.silencedMiss` (a dropped standard hit — draw as a rest = the normal sounding-miss look),
+//  or `.none` (standard pattern). The function reads the standard hit AT THE PLAYHEAD BOX and the fill's CURRENT slot
+//  (s = floor((beat − F)/stepLen)), reusing the Router's own BREAK / hit-test; the visual itself is device-owed.
 
 import XCTest
 
 final class FillStepFlashTests: XCTestCase {
 
-    // An 8-step lane, 3-of-8 hits at boxes 0, 3, 6; sub 0.5, a BAR-length fill ⇒ 8 slots cover all 8 boxes.
+    // An 8-step lane, 3-of-8 hits at boxes 0, 3, 6; sub 0.5, a BAR-length fill ⇒ 8 slots (0.5 beat each), box i = forward slot i.
     private let std = [true, false, false, true, false, false, true, false]
 
     private func plan(hits: EuclideousFillHits = .keep, order: EuclideousFillOrder = .fwd, m: Double = 1,
@@ -20,59 +21,64 @@ final class FillStepFlashTests: XCTestCase {
         p.originBeat = 0; p.beatsPerBar = 4; p.sub = 0.5
         return p
     }
-    private func flash(_ p: EuclideousFillPlan, beat: Double = 1.0) -> EuclideousFillStepFlash {
-        euclideousFillStepFlash(plan: p, beat: beat, n: 8, dir: .fwd, sub: 0.5, standardHits: std)
+    /// box i's own forward slot sits at beat i × 0.5; this is the (beat, box) pair the comet is on for box i.
+    private func flash(_ p: EuclideousFillPlan, box: Int) -> EuclideousFillPlayheadFlash {
+        euclideousFillPlayheadFlash(plan: p, beat: Double(box) * 0.5 + 1e-6, sub: 0.5, playheadBox: box, standardHits: std)
     }
 
-    // §: ALL — every visited box sounds (incl. the standard rests), nothing silenced.
-    func testAllSoundsEveryBox() {
-        let f = flash(plan(hits: .all))
-        XCTAssertEqual(f.sounds, Set(0..<8))
-        XCTAssertTrue(f.silenced.isEmpty)
+    // §: ALL — the box the playhead is on sounds whether it is a standard hit or a standard rest.
+    func testAllSoundsAnyBox() {
+        XCTAssertEqual(flash(plan(hits: .all), box: 0), .sounds)   // a standard hit
+        XCTAssertEqual(flash(plan(hits: .all), box: 1), .sounds)   // a standard rest the fill plays
     }
 
-    // §: FLIP — the standard rests sound, the standard hits go silent.
-    func testFlipInvertsTheSet() {
-        let f = flash(plan(hits: .flip))
-        XCTAssertEqual(f.sounds, Set([1, 2, 4, 5, 7]))   // the rests
-        XCTAssertEqual(f.silenced, Set([0, 3, 6]))       // the standard hits, now silent
+    // §: FLIP — a standard hit reads as a (sounding) miss, a standard rest sounds.
+    func testFlipInverts() {
+        XCTAssertEqual(flash(plan(hits: .flip), box: 0), .silencedMiss)   // standard hit → dropped
+        XCTAssertEqual(flash(plan(hits: .flip), box: 1), .sounds)         // standard rest → plays
     }
 
-    // §: a KEEP fill that only REORDERS (REV) plays the SAME set — a visible no-op (sounds == the standard hits, nothing silenced).
-    func testReorderOnlyMatchesStandard() {
-        let f = flash(plan(order: .rev))   // changesHits (order ≠ fwd) but the SET is unchanged
-        XCTAssertEqual(f.sounds, Set([0, 3, 6]))
-        XCTAssertTrue(f.silenced.isEmpty)
+    // §: a KEEP fill that only REORDERS plays the SAME set — a standard hit sounds, a standard rest is a no-op (.none).
+    func testKeepReorderIsANoOpPerBox() {
+        XCTAssertEqual(flash(plan(order: .rev), box: 0), .sounds)   // a standard hit
+        XCTAssertEqual(flash(plan(order: .rev), box: 1), .none)     // a standard rest stays a rest ⇒ draw the standard pattern
     }
 
-    // §: BREAK drops the region's last quarter — a standard hit there reads as a rest.
+    // §: BREAK drops the region's last quarter — a standard hit there reads as a sounding miss; a hit before it still sounds.
     func testBreakSilencesTheLastQuarter() {
-        let f = flash(plan(breakOn: true))   // last quarter [3,4) ⇒ slots 6,7 (box 6 is a hit, box 7 a rest)
-        XCTAssertEqual(f.sounds, Set([0, 3]))
-        XCTAssertEqual(f.silenced, Set([6]))
+        XCTAssertEqual(flash(plan(breakOn: true), box: 6), .silencedMiss)   // box 6 (slot 6) is in the last quarter
+        XCTAssertEqual(flash(plan(breakOn: true), box: 0), .sounds)         // box 0 (slot 0) is not
     }
 
-    // §: a fill that doesn't change the HITS (RANKS only) is empty ⇒ the cells draw the standard pattern.
-    func testRecolourOnlyFillIsEmpty() {
-        XCTAssertFalse(flash(plan(ranks: 5)).active)
+    // §: a fill that doesn't change the HITS (RANKS only) ⇒ .none for every box (the cells draw the standard pattern).
+    func testRecolourOnlyFillIsNone() {
+        for b in 0..<8 { XCTAssertEqual(flash(plan(ranks: 5), box: b), .none) }
     }
 
-    // §: no active region (an unarmed bar, or a beat outside [F, E), or CHANCE 0 skipping) ⇒ empty.
-    func testNoRegionIsEmpty() {
-        XCTAssertFalse(flash(plan(hits: .all, armedBar0: false)).active)     // bar 0 not armed
-        XCTAssertFalse(flash(plan(hits: .all), beat: 5.0).active)            // bar 1, not armed
-        XCTAssertFalse(flash(plan(hits: .all, chance: 0)).active)            // CHANCE 0 never plays
-        XCTAssertFalse(euclideousFillStepFlash(plan: nil, beat: 1, n: 8, dir: .fwd, sub: 0.5, standardHits: std).active)
+    // §: BUILD — the first half KEEPs (a standard rest is a no-op), the second half is ALL (a standard rest sounds).
+    func testBuildKeepsThenPlaysAll() {
+        XCTAssertEqual(flash(plan(hits: .build), box: 0), .sounds)   // first half, a standard hit
+        XCTAssertEqual(flash(plan(hits: .build), box: 1), .none)     // first half, a standard rest ⇒ stays a rest
+        XCTAssertEqual(flash(plan(hits: .build), box: 4), .sounds)   // second half (slot 4 ≥ (8+1)/2), a standard rest now sounds
     }
 
-    // §: sounds and silenced are always disjoint (a box that sounds in any slot wins).
-    func testSoundsAndSilencedDisjoint() {
+    // §: no active region (unarmed bar / outside [F,E) / CHANCE 0 / nil plan), and a box out of range ⇒ .none.
+    func testNoRegionOrOutOfRangeIsNone() {
+        XCTAssertEqual(flash(plan(hits: .all, armedBar0: false), box: 0), .none)   // bar 0 not armed
+        XCTAssertEqual(euclideousFillPlayheadFlash(plan: plan(hits: .all), beat: 5.0, sub: 0.5, playheadBox: 0, standardHits: std), .none)   // bar 1, not armed
+        XCTAssertEqual(flash(plan(hits: .all, chance: 0), box: 0), .none)          // CHANCE 0 never plays
+        XCTAssertEqual(euclideousFillPlayheadFlash(plan: nil, beat: 1, sub: 0.5, playheadBox: 0, standardHits: std), .none)
+        XCTAssertEqual(flash(plan(hits: .all), box: 99), .none)                    // box out of range
+    }
+
+    // §: a standard REST is never a silenced MISS (that look is only for a dropped standard hit), for every mode / order / break.
+    func testARestIsNeverASilencedMiss() {
         for h in [EuclideousFillHits.keep, .all, .flip, .build] {
             for ord in [EuclideousFillOrder.fwd, .rev, .bounce] {
                 for br in [false, true] {
-                    let f = flash(plan(hits: h, order: ord, breakOn: br))
-                    XCTAssertTrue(f.sounds.isDisjoint(with: f.silenced), "hits=\(h) order=\(ord) break=\(br)")
-                    XCTAssertTrue(f.silenced.allSatisfy { std[$0] }, "a silenced box must be a standard hit (hits=\(h))")
+                    for box in 0..<8 where !std[box] {
+                        XCTAssertNotEqual(flash(plan(hits: h, order: ord, breakOn: br), box: box), .silencedMiss, "hits=\(h) order=\(ord) break=\(br) box=\(box)")
+                    }
                 }
             }
         }

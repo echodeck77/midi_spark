@@ -231,69 +231,52 @@ func euclideousFillSwellFactor(swell S: Int, slot k: Int, count N: Int) -> Doubl
     return speed > 0 ? sub / speed : sub
 }
 
-// MARK: - STEP DISPLAY part 2 (FILL step flash, Paul 2026-11-25) — which step CELLS a hit-changing fill lights / silences
+// MARK: - STEP DISPLAY part 2 (FILL step flash, Paul 2026-11-25; gated to the playhead 2026-11-26) — what a hit-changing fill does to the box the playhead is sounding NOW
 //
 // The STEP DISPLAY ferry (2026-11-15) made the lane card's COMET follow a fill ("as it sounds", `euclideousLaneCometChainRaw`'s
 // fill branch), gated on `changesHits` so a recolour-only fill keeps the base step lighting. This is the second half of that
-// decision for the step CELLS themselves (the biggest element on the lane): while a hit-CHANGING fill plays, a step the fill
-// SOUNDS is drawn as a hit (in the lane colour — even a standard rest the fill plays), and a standard hit the fill VISITS but
-// does not sound is drawn as a rest — held for the fill region, snapping back to the standard pattern when it ends ("Hold while
-// in the fill", Paul 2026-11-25). A fill that only recolours / retimes / reorders (`!changesHits`, or a reorder that replays the
-// SAME set) is a visible no-op, matching "if the HITS that play are changed".
+// decision for the step CELLS themselves: a step the fill SOUNDS is drawn as a hit (in the lane colour — even a standard rest the
+// fill plays), and a standard hit the fill DROPS is drawn as a rest — but ONLY on the box the playhead is sounding RIGHT NOW,
+// not held across the region (Paul 2026-11-26: "only while it's sounding, not in advance or after"), so at the playhead a dropped
+// hit reads EXACTLY as a sounding miss does in normal play (the painter's `stripCellLook` → `.playheadStep`). A fill that only
+// recolours / retimes / reorders (`!changesHits`) is a visible no-op, matching "if the HITS that play are changed".
+//
+// (The earlier held-region set `euclideousFillStepFlash` is gone: it lit the whole region and, once gated to the playhead, its
+// box map (`euclideousFillSourceStep`→`euclidReadIndex`) did not line up frame-for-frame with the comet's playhead box, so the
+// override barely showed. This reads the standard hit AT THE PLAYHEAD BOX directly, so it can never point elsewhere.)
 
-/// The step cells a hit-changing fill lights / silences, in DISPLAYED (screen) step indices. Held while the region plays.
-struct EuclideousFillStepFlash: Equatable {
-    var sounds: Set<Int> = []     // §: cells to draw as a HIT (lane colour + bottom bar), INCLUDING standard rests the fill plays
-    var silenced: Set<Int> = []   // §: standard-hit cells the fill VISITS but does not sound — drawn as a non-hit (rest)
-    var active: Bool { !sounds.isEmpty || !silenced.isEmpty }
-}
+enum EuclideousFillPlayheadFlash: Equatable { case none, sounds, silencedMiss }
 
-/// Which displayed step cells the lane's fill lights (`sounds`) or silences (`silenced`) for the region active at `beat`.
-/// Empty — the grid draws the standard pattern — for a non-fill lane, a bar with no active region, or a fill that doesn't
-/// change the hits. `standardHits` is the lane's n displayed step-cell hit flags (the strip's own `d.hits`, which already
-/// folds in FLIP HITS / `patternMiss`), indexed by displayed box, so the overlay never disagrees with the base pattern.
+/// What a hit-CHANGING fill does to the box the playhead is sounding at `beat`: `.sounds` (draw it as a hit, incl. a standard rest
+/// the fill plays), `.silencedMiss` (a standard hit the fill drops — draw it as a rest; at the playhead that is the normal
+/// sounding-miss look), or `.none` (the standard pattern). `.none` for a non-fill lane, no active region, a recolour-only fill, or
+/// `playheadBox` out of range. `standardHits` is the lane's displayed step-cell hit flags (the strip's own `d.hits`, folding in
+/// FLIP HITS / `patternMiss`), indexed by displayed box.
 ///
-/// Correct-by-construction: the sounding content follows the Router's own fired-step `euclideousFillSourceStep` (REV ·
-/// BOUNCE · SHUFFLE · STUTTER) and BREAK drop `euclideousFillBreakDrops`, the content tick maps to a box with the base
-/// draw's own `euclidReadIndex`, and the ALL · FLIP · BUILD · KEEP decision is `Router.swift`'s hit-test read against the
-/// box's displayed hit. VISITED-based (only boxes the fill touches in the region deviate), so a partial-length fill leaves
-/// the boxes it never reaches at their standard look. (Known: a STUTTER fill repeats one step, so it lights only that box;
-/// LAND's ×1-rejoin strike is outside the region, so it isn't shown here — flagged for Paul.)
-func euclideousFillStepFlash(plan: EuclideousFillPlan?, beat: Double, n: Int, dir: EuclidDir, sub: Double,
-                             standardHits: [Bool]) -> EuclideousFillStepFlash {
-    var out = EuclideousFillStepFlash()
-    guard let plan, plan.active, n > 0, sub > 0, plan.beatsPerBar > 0 else { return out }
-    let o = plan.originBeat
+/// Correct-by-construction: it reads the standard hit AT THE PLAYHEAD BOX and the fill's CURRENT slot `s = floor((beat − F)/stepLen)`
+/// — the SAME slot `euclideousLaneCometChainRaw`'s comet highlights (§2.10) — so the override can never land on a box other than the
+/// one the playhead is on. The ALL · FLIP · BUILD · KEEP hit-test and the BREAK drop are `Router.swift`'s.
+func euclideousFillPlayheadFlash(plan: EuclideousFillPlan?, beat: Double, sub: Double, playheadBox: Int, standardHits: [Bool]) -> EuclideousFillPlayheadFlash {
+    guard let plan, plan.active, sub > 0, plan.beatsPerBar > 0, playheadBox >= 0, playheadBox < standardHits.count else { return .none }
     let bn = Int((beat / plan.beatsPerBar).rounded(.down))
-    guard let rg = plan.region(bar: bn), rg.changesHits, beat >= rg.F - 1e-9, beat < rg.E else { return out }
+    guard let rg = plan.region(bar: bn), rg.changesHits, beat >= rg.F - 1e-9, beat < rg.E else { return .none }
+    let o = plan.originBeat
     let N = euclideousFillCount(rg, origin: o, sub: sub)
-    guard N > 0 else { return out }
-    let cycleLen = euclidCycleLen(dir, n: n)
-    var shuf: [Int]? = nil
-    if rg.order == .shuffle, euclideousFillOrderBuffered(rg, count: N) {
-        var buf = [Int](repeating: 0, count: N); euclideousFillShuffle(lane: rg.lane, bar: rg.barIndex, count: N, into: &buf); shuf = buf
-    }
-    var silencedCand = Set<Int>()
-    for s in 0..<N {
-        let contentK = euclideousFillSourceStep(rg, origin: o, sub: sub, count: N, slot: s, shuffle: shuf)
-        let box = euclidReadIndex(posMod(Int(contentK), cycleLen), n: n, dir: dir)   // the displayed box this time-slot plays — the base draw's own cycle-pos→box map
-        guard box >= 0, box < standardHits.count else { continue }
-        let std = standardHits[box]
-        // Router.swift's hit-test: ALL ⇒ true, FLIP ⇒ !hit, BUILD ⇒ KEEP first half then ALL, else the lane's own hit; BREAK drops the region's last quarter.
-        let hostBeat = euclideousFillSlotHostBeat(rg, origin: o, sub: sub, slot: s)
-        let soundsHit: Bool
-        if euclideousFillBreakDrops(rg, hostBeat: hostBeat) { soundsHit = false }
-        else {
-            switch rg.hits {
-            case .keep:  soundsHit = std
-            case .all:   soundsHit = true
-            case .flip:  soundsHit = !std
-            case .build: soundsHit = s >= (N + 1) / 2 ? true : std
-            }
+    guard N > 0 else { return .none }
+    let stepLen = max(1e-9, euclideousFillStepHostLength(rg, sub: sub))
+    let s = min(max(0, N - 1), max(0, Int(((beat - rg.F) / stepLen).rounded(.down))))   // the comet's own current slot
+    let std = standardHits[playheadBox]
+    let hostBeat = euclideousFillSlotHostBeat(rg, origin: o, sub: sub, slot: s)
+    let soundsHit: Bool
+    if euclideousFillBreakDrops(rg, hostBeat: hostBeat) { soundsHit = false }
+    else {
+        switch rg.hits {
+        case .keep:  soundsHit = std
+        case .all:   soundsHit = true
+        case .flip:  soundsHit = !std
+        case .build: soundsHit = s >= (N + 1) / 2 ? true : std
         }
-        if soundsHit { out.sounds.insert(box) }
-        else if std { silencedCand.insert(box) }   // visited + a standard hit + silent ⇒ a candidate for the rest look
     }
-    out.silenced = silencedCand.subtracting(out.sounds)     // a box that sounds in ANY slot wins — it is not "silenced"
-    return out
+    if soundsHit { return .sounds }
+    return std ? .silencedMiss : .none
 }

@@ -284,6 +284,9 @@ struct EuclideousRestartSectionView: View {
     let onEdit: (EuclideousRestartEdit, Bool) -> Void
     /// RESETS V2 §3.6: given a date, the chain's running link + the span fraction (nil = no bar: stopped / FREE / not this chain). nil closure ⇒ the count chips never animate (the overlay editor, the RHYTHM-tab surface).
     var runningBar: ((Date) -> (link: Int, fraction: Double)?)? = nil
+    /// RESETS V3 §3: the card's linked/split controls. No FREE pill; the unit chips + source squares show ONLY while the chain is active (§3.5); nothing dims (§3.2); the − removes the only link, deactivating the chain (§3.8). `cardLabel` is the 8 pt split label ("RHYTHM"/"MELODY", nil in the linked view and the overlay editor).
+    var cardMode: Bool = false
+    var cardLabel: String? = nil
 
     private var accent: Color { input.laneColors[input.lane % max(1, input.laneColors.count)] }
     private var chain: EuclideousRestartChain { rhythm ? settings.rhythm : settings.melody }
@@ -294,17 +297,20 @@ struct EuclideousRestartSectionView: View {
     private var readsSource: Bool { rhythm ? settings.rhythmUnit.readsSource : settings.melodyUnit.readsSource }
     private var sourceLane: Int { rhythm ? settings.rhythmSource : settings.melodySource }
     /// RESETS V2 §3.3: an inactive (FREE) chain dims its unit chips, source squares, count chips, + box and timeline to 60 % (a RESETS-local constant, NOT the shared lane-dim); the name stays full strength.
-    private var dim: Double { active ? 1 : euclideousResetsFreeDim }
+    private var dim: Double { cardMode ? 1 : (active ? 1 : euclideousResetsFreeDim) }   // §3.2: nothing on the card dims
     /// §3.4: a linked MELODY with its chain inactive dims its FREE pill too (otherwise the pill is full strength). RHYTHM and an active melody keep the pill full.
     private var freePillDim: Double { (!rhythm && settings.withRhythm && !active) ? euclideousResetsFreeDim : 1 }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             if showsName { nameLabel }   // §1.4: the card names each half with its tile, not a label
-            freePill
-            ForEach(0..<3, id: \.self) { i in chip(i) }
-            if readsSource { ForEach(0..<4, id: \.self) { i in sourceSquare(i) } }
-            if let runningBar {   // §3.6: the running link's bar animates at 60 fps while the transport runs
+            if let cardLabel { cardLabelView(cardLabel) }   // §3.4: the split label ("RHYTHM"/"MELODY"), 8 pt, in the label column
+            if !cardMode { freePill }    // §3.2: no FREE pill on the card
+            if active || !cardMode {     // §3.5: the card shows the unit chips + sources ONLY while the chain is active
+                ForEach(0..<3, id: \.self) { i in chip(i) }
+                if readsSource { ForEach(0..<4, id: \.self) { i in sourceSquare(i) } }
+            }
+            if let runningBar {   // §3.6/§3.9: the running link's bar animates at 60 fps while the transport runs
                 TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 60.0, reduceMotion: reduceMotion), paused: !input.running)) { tl in
                     let rb = runningBar(tl.date)
                     countChips(progressLink: rb?.link, fraction: rb?.fraction ?? 0)
@@ -313,7 +319,7 @@ struct EuclideousRestartSectionView: View {
                 countChips(progressLink: nil, fraction: 0)
             }
             if chain.count < 4 { addBox }
-            if chain.count >= 2 { minusBox }   // §4.8
+            if (cardMode ? chain.count >= 1 : chain.count >= 2) { minusBox }   // §3.8: the card's − shows at 1+ links (removing the only one deactivates); the overlay keeps §4.8 (2+)
             if showsTimeline { timeline }
         }
         .accessibilityElement(children: .contain)
@@ -407,14 +413,27 @@ struct EuclideousRestartSectionView: View {
             .accessibilityLabel(EuclideousRestartEditorAX.addLink(rhythm: rhythm))
             .accessibilityAddTraits(.isButton)
     }
-    /// §4.8: the − box — 28 × 28 with the + box's looks, sp4 after the + box (or where + would be at four links); removes the LAST link (one undo step; `.removeLink`'s own guard never removes the only link). Shown only at 2+ links.
+    /// §3.4: the split label ("RHYTHM"/"MELODY"), 8 pt heavy, in the label column (card mode only).
+    private func cardLabelView(_ s: String) -> some View {
+        let r = frames.labelColumn
+        return Text(s).font(.system(size: 8, weight: .heavy, design: .monospaced)).tracking(0.08 * 8).foregroundColor(Color(hex: 0xAAB0BA))
+            .frame(width: r.width, height: r.height, alignment: .leading).offset(x: r.minX, y: r.minY).accessibilityHidden(true)
+    }
+    /// §3.8: the card's − frame — sp4 after the + box (or after the last chip at four links); shown at 1+ links.
+    private func cardMinusFrame() -> CGRect? {
+        let h = frames.countChips.first?.height ?? 28
+        if chain.count < 4, let add = frames.addBox(count: chain.count) { return CGRect(x: add.maxX + 4, y: add.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: h) }
+        if let last = frames.countChips.last { return CGRect(x: last.maxX + 4, y: last.minY, width: EuclideousRestartEditorMetricsV2.addBoxW, height: h) }
+        return nil
+    }
+    /// The − box — 28 × 28 with the + box's looks. Card (§3.8): shown at 1+ links; at ONE link it deactivates the chain (removing the last count). Overlay (§4.8): 2+ links, removes the last link (`.removeLink`'s guard keeps the only one).
     @ViewBuilder private var minusBox: some View {
-        if let r = frames.minusBox(count: chain.count) {
+        if let r = cardMode ? cardMinusFrame() : frames.minusBox(count: chain.count) {
             Text("\u{2212}").font(heavyMono(15)).foregroundColor(Color(hex: 0xAAB0BA))
                 .frame(width: r.width, height: r.height)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x2A2D34)))
                 .contentShape(Rectangle())
-                .onTapGesture { onEdit(.removeLink(rhythm: rhythm, slot: chain.count - 1), true) }
+                .onTapGesture { onEdit(cardMode && chain.count <= 1 ? .toggleOn(rhythm: rhythm) : .removeLink(rhythm: rhythm, slot: chain.count - 1), true) }
                 .offset(x: r.minX, y: r.minY)
                 .opacity(dim)
                 .accessibilityElement(children: .ignore)

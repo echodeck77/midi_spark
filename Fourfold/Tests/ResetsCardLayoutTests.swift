@@ -90,4 +90,28 @@ final class ResetsCardLayoutTests: XCTestCase {
         XCTAssertNotNil(f.minusBox(count: 2)); XCTAssertNotNil(f.minusBox(count: 4))
         near(f.minusBox(count: 4)!.maxX, 220, "§4.9: four links + − box end at x 220"); near(f.minusBox(count: 4)!.width, 28, "− box 28 wide")
     }
+
+    // MARK: RESETS V3 §3 — the reworked card (one tile + linked/split rows, a link button, no FREE pills)
+    func testV3LinkedVsSplitLayout() {
+        let size = landscape()
+        // LINKED (withRhythm on, melody inactive, rhythm active): one part, 2 rows, the melody not laid out, units from x 0, the link button at the trailing edge.
+        let linked = euclideousResetsCardLayoutV3(size: size, rhythmActive: true, melodyActive: false, withRhythm: true)
+        XCTAssertTrue(linked.linked)
+        near(linked.tile.minY, 0, "tile at the top"); near(linked.tile.height, 46, "tile 46 tall")
+        XCTAssertEqual(linked.rowCount, 2)
+        XCTAssertTrue(linked.melody.chips.isEmpty, "the melody isn't laid out in the linked view")
+        near(linked.rhythm.chips.first!.minX, 0, "linked: units from x 0")
+        near(linked.linkButton.maxX, size.width, "the link button sits at the trailing edge"); near(linked.linkButton.width, 28, "28 wide")
+        // SPLIT (withRhythm off): two labelled parts, units from x 54, MELODY below RHYTHM's rows.
+        let split = euclideousResetsCardLayoutV3(size: size, rhythmActive: true, melodyActive: true, withRhythm: false)
+        XCTAssertFalse(split.linked); XCTAssertEqual(split.rowCount, 4, "both parts active ⇒ four rows")
+        near(split.rhythm.labelColumn.minX, 0, "split RHYTHM label at x 0"); near(split.rhythm.labelColumn.width, 54, "label 54 wide")
+        near(split.rhythm.chips.first!.minX, 54, "split: units from x 54")
+        XCTAssertGreaterThan(split.melody.top, split.rhythm.countChips.first!.maxY, "MELODY sits below RHYTHM's two rows")
+        // a FREE linked lane: one row, the + box on row 1, and the link button still shown (§3.4 departure).
+        let free = euclideousResetsCardLayoutV3(size: size, rhythmActive: false, melodyActive: false, withRhythm: true)
+        XCTAssertTrue(free.linked); XCTAssertEqual(free.rowCount, 1)
+        near(free.rhythm.countChips[0].minY, 46 + 8, "an inactive chain's + box is on row 1, not a phantom row 2")
+        near(free.linkButton.maxX, size.width, "a free linked lane still shows the link button")
+    }
 }
