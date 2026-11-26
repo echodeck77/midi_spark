@@ -5774,12 +5774,23 @@ func euclideousScaleToFit(_ size: CGSize, ref overrideRef: CGSize? = nil) -> Euc
 
 enum EuclideousSizeClass: Equatable { case full, compact }
 
-/// §1.1 / §1.5: the page's size class. Landscape only switches — FULL at or above `landscapeRef` in BOTH dimensions, else
-/// COMPACT. Portrait is always FULL (Compact is out of scope in portrait). `devForceCompact` (§1.5 ALWAYS) forces COMPACT at
-/// any landscape size — below `compactRef` the scale-to-fit (§1.3) handles it, so it stays COMPACT and just scales.
-func euclideousSizeClass(size: CGSize, devForceCompact: Bool = false) -> EuclideousSizeClass {
+/// Compact is OFF by default and behind a DEV-only toggle (Paul 2026-11-26: "not keen on the new interface as a launch
+/// feature"). OFF (the default, and ALWAYS the case in release builds) ⇒ the page is always FULL (+ the existing whole-page
+/// scale-to-fit), exactly as before this ferry. AUTO ⇒ Compact when a landscape window is below the full design minimum.
+/// ALWAYS ⇒ Compact at any landscape size.
+enum EuclideousCompactMode: Equatable {
+    case off, auto, always
+    init(storage: String) { switch storage { case "auto": self = .auto; case "always": self = .always; default: self = .off } }
+    var storage: String { switch self { case .off: return "off"; case .auto: return "auto"; case .always: return "always" } }
+}
+
+/// §1.1 / §1.5: the page's size class for the (dev) Compact mode. OFF ⇒ always FULL (the default / release behaviour); portrait
+/// is never Compact; AUTO ⇒ FULL at/above `landscapeRef` in both dims else COMPACT; ALWAYS ⇒ COMPACT at any landscape size
+/// (below `compactRef` the scale-to-fit §1.3 handles it, so it stays COMPACT and just scales).
+func euclideousSizeClass(size: CGSize, compactMode: EuclideousCompactMode) -> EuclideousSizeClass {
+    guard compactMode != .off else { return .full }                          // Compact disabled (default / release) ⇒ always FULL
     guard size.width > size.height else { return .full }                     // §1.1 portrait never Compact
-    if devForceCompact { return .compact }                                   // §1.5 ALWAYS
+    if compactMode == .always { return .compact }                           // §1.5 ALWAYS
     let ref = EuclideousScaleToFit.landscapeRef
     return (size.width >= ref.width && size.height >= ref.height) ? .full : .compact
 }

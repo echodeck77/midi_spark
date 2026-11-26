@@ -1645,11 +1645,11 @@ struct EuclideousPage: View {
     @State private var compactLane: Int = 0
     @State private var compactRightGrid: Bool = true
     #if DEBUG
-    /// §1.5 ALWAYS — forces Compact at any landscape size (dev only; the settings-sheet toggle in slice 5 writes this key).
-    @AppStorage("fourfold.compactForce") private var compactForceAlways = false
-    private var euclideousCompactForce: Bool { compactForceAlways }
+    /// Compact is a DEV-only toggle (OFF · AUTO · ALWAYS), default OFF — the settings-sheet COMPACT row writes this key.
+    @AppStorage("fourfold.compactMode") private var compactModeRaw = "off"
+    private var euclideousCompactMode: EuclideousCompactMode { EuclideousCompactMode(storage: compactModeRaw) }
     #else
-    private var euclideousCompactForce: Bool { false }
+    private var euclideousCompactMode: EuclideousCompactMode { .off }   // Compact is never shown in release — always FULL
     #endif
     @State private var polyDrag: EuclideousPolyDrag? = nil      // POLY RIFF: the touch shaping a note right now
     @State private var polyDragLastCol: Int = -1
@@ -1810,7 +1810,7 @@ struct EuclideousPage: View {
         GeometryReader { geo in
             // COMPACT LAYOUT §1 (2026-11-26): pick the size class first, then scale to the right reference. FULL / portrait use the
             // orientation reference (unchanged); COMPACT (landscape, below the full design minimum) uses `compactRef`.
-            let compact = euclideousSizeClass(size: geo.size, devForceCompact: euclideousCompactForce) == .compact
+            let compact = euclideousSizeClass(size: geo.size, compactMode: euclideousCompactMode) == .compact
             let fit = euclideousScaleToFit(geo.size, ref: compact ? EuclideousScaleToFit.compactRef : nil)   // GRACEFUL SCALE-TO-FIT: lay out at the reference when small, scale the whole page down
             let box = fit.renderSize
             // ORIENTATION (Paul 2026-10-08, ferry §3): recomputed from the view's OWN live bounds every time
@@ -1931,7 +1931,7 @@ struct EuclideousPage: View {
             .offset(x: fit.origin.x, y: fit.origin.y)
             // LANE STRIP CLARITY §1.1: keep the fit scale in state so the strip's SLIM decision reads on-screen width.
             .onAppear { if pageFitScale != fit.scale { pageFitScale = fit.scale } }
-            .onChange(of: geo.size) { sz in let c = euclideousSizeClass(size: sz, devForceCompact: euclideousCompactForce) == .compact; let s = euclideousScaleToFit(sz, ref: c ? EuclideousScaleToFit.compactRef : nil).scale; if pageFitScale != s { pageFitScale = s } }
+            .onChange(of: geo.size) { sz in let c = euclideousSizeClass(size: sz, compactMode: euclideousCompactMode) == .compact; let s = euclideousScaleToFit(sz, ref: c ? EuclideousScaleToFit.compactRef : nil).scale; if pageFitScale != s { pageFitScale = s } }
             #if DEBUG
             .onAppear {
                 let pg = euclideousPageLayout(size: geo.size, bottomInset: pageBottomInset)

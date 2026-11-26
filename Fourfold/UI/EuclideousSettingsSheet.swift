@@ -80,7 +80,7 @@ struct EuclideousSettingsSheet: View {
     @AppStorage(euclideousMixToggleModeKey) private var mixToggleModeRaw: String = EuclideousMixToggleMode.filled.rawValue
     // LANE STRIP BANDS (2026-11-12) §5.7: the dev-only STRIP CC toggle (the faint CC trace on each lane strip), a rig setting like MIX STRIP; release builds always draw it.
     @AppStorage("fourfold.stripCC") private var stripCCOn: Bool = true
-    @AppStorage("fourfold.compactForce") private var compactForce: Bool = false   // COMPACT LAYOUT §1.5 (2026-11-26): dev-only ALWAYS; the page reads the same key
+    @AppStorage("fourfold.compactMode") private var compactModeRaw: String = "off"   // COMPACT (2026-11-26): dev-only OFF (default) · AUTO · ALWAYS; the page reads the same key
     @State private var portsNaturalHeight: CGFloat = 0
     @State private var midiInNaturalHeight: CGFloat = 0   // §6.3: measured only in DEBUG (the CLASHES block makes MIDI IN the tallest tab)
     @State private var clockNaturalHeight: CGFloat = 0    // RATCH tab §7.4: measured only in DEBUG (the FX COUNTS block grows CLOCK)
@@ -494,15 +494,18 @@ struct EuclideousSettingsSheet: View {
             .accessibilityValue(stripCCOn ? "ON" : "OFF")
             .accessibilityAddTraits(.isButton)
             .accessibilityAdjustableAction { _ in stripCCOn.toggle() }
-            // COMPACT LAYOUT §1.5 (2026-11-26): dev-only COMPACT — ALWAYS forces the Compact layout at any landscape size; AUTO lets the window size decide. A rig setting (UserDefaults), not in a session or preset, no undo. Release builds have no toggle (always AUTO).
+            // COMPACT (2026-11-26, Paul): dev-only, OFF by default — the Compact layout is NOT a launch feature. OFF ⇒ the page is
+            // always FULL (as before the ferry). AUTO ⇒ Compact when a landscape window is below the full design minimum. ALWAYS ⇒
+            // Compact at any landscape size. A rig setting (UserDefaults), not in a session or preset, no undo. Release builds have no toggle (always OFF).
             block(name: "COMPACT") {
-                segmented([("AUTO", 48), ("ALWAYS", 64)], selected: compactForce ? 1 : 0) { i in compactForce = (i == 1) }
+                let sel = compactModeRaw == "always" ? 2 : (compactModeRaw == "auto" ? 1 : 0)
+                segmented([("OFF", 40), ("AUTO", 48), ("ALWAYS", 64)], selected: sel) { i in compactModeRaw = (i == 2 ? "always" : (i == 1 ? "auto" : "off")) }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Compact")
-            .accessibilityValue(compactForce ? "ALWAYS" : "AUTO")
+            .accessibilityValue(compactModeRaw == "always" ? "ALWAYS" : (compactModeRaw == "auto" ? "AUTO" : "OFF"))
             .accessibilityAddTraits(.isButton)
-            .accessibilityAdjustableAction { _ in compactForce.toggle() }
+            .accessibilityAdjustableAction { _ in compactModeRaw = (compactModeRaw == "off" ? "auto" : (compactModeRaw == "auto" ? "always" : "off")) }
             #endif
             // PULSE §7.1: how strongly a strike shows on the comet bars, riff arrows and MIX pads. OFF shows none (gaps still draw); SUBTLE is 60%. Reduce Motion is honoured on top of this.
             block(name: "STRIKE PULSE",

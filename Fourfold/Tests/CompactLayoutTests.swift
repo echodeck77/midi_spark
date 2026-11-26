@@ -15,25 +15,27 @@ final class CompactLayoutTests: XCTestCase {
         euclideousCompactLayout(size: CGSize(width: w, height: h), headerKind: kind(w)).floors
     }
 
-    // MARK: §1.1 / §1.5 — the size class (§6 test 1, test 8)
+    // MARK: §1.1 / §1.5 — the size class (§6 test 1, test 8). Compact is OFF by default (dev-only); OFF ⇒ always FULL.
     func testSizeClasses() {
         let ref = EuclideousScaleToFit.landscapeRef
-        // at/above the reference in BOTH dims (landscape) → FULL
-        XCTAssertEqual(euclideousSizeClass(size: ref), .full)
-        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 1366, height: 1024)), .full)
-        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 1194, height: 834)), .full)
-        // landscape below the reference in EITHER dim → COMPACT
-        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 900, height: 600)), .compact)
-        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: ref.width - 1, height: ref.height)), .compact, "1 pt under the ref width")
-        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: ref.width, height: ref.height - 1)), .compact, "1 pt under the ref height")
-        // portrait is NEVER Compact (out of scope); the whole-page scale-to-fit still handles small portrait
-        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 600, height: 900)), .full, "portrait")
-        XCTAssertEqual(euclideousSizeClass(size: EuclideousScaleToFit.portraitRef), .full, "portrait ref")
-        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 400, height: 900)), .full, "tiny portrait stays FULL")
+        // OFF (the default / release): always FULL, at any size
+        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 900, height: 600), compactMode: .off), .full, "OFF disables Compact")
+        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 400, height: 300), compactMode: .off), .full, "OFF: even a tiny landscape is FULL")
+        // AUTO: FULL at/above the reference in BOTH dims, else COMPACT
+        XCTAssertEqual(euclideousSizeClass(size: ref, compactMode: .auto), .full)
+        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 1194, height: 834), compactMode: .auto), .full)
+        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 900, height: 600), compactMode: .auto), .compact)
+        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: ref.width - 1, height: ref.height), compactMode: .auto), .compact, "1 pt under the ref width")
+        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: ref.width, height: ref.height - 1), compactMode: .auto), .compact, "1 pt under the ref height")
+        // portrait is NEVER Compact (out of scope), whatever the mode
+        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 600, height: 900), compactMode: .auto), .full, "portrait")
+        XCTAssertEqual(euclideousSizeClass(size: EuclideousScaleToFit.portraitRef, compactMode: .always), .full, "portrait ignores ALWAYS")
         // §1.5 ALWAYS vs AUTO at 1366×1024 (§6 test 8)
-        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 1366, height: 1024), devForceCompact: true), .compact, "ALWAYS @ 1366×1024 → Compact")
-        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 1366, height: 1024), devForceCompact: false), .full, "AUTO @ 1366×1024 → FULL")
-        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 600, height: 900), devForceCompact: true), .full, "portrait ignores ALWAYS (out of scope)")
+        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 1366, height: 1024), compactMode: .always), .compact, "ALWAYS @ 1366×1024 → Compact")
+        XCTAssertEqual(euclideousSizeClass(size: CGSize(width: 1366, height: 1024), compactMode: .auto), .full, "AUTO @ 1366×1024 → FULL")
+        // the dev-toggle storage round-trips; an unknown value is OFF
+        for m in [EuclideousCompactMode.off, .auto, .always] { XCTAssertEqual(EuclideousCompactMode(storage: m.storage), m) }
+        XCTAssertEqual(EuclideousCompactMode(storage: "garbage"), .off, "unknown storage ⇒ OFF (Compact disabled)")
     }
 
     // MARK: §2 — the Compact layout at 900×600 (§6 test 2 / §9.2)

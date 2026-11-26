@@ -105,12 +105,12 @@ final class FourfoldScreenshotTests: XCTestCase {
         device.orientation = .portrait
     }
 
-    /// COMPACT LAYOUT (2026-11-26): the Compact size class forced on (the dev flag `fourfold.compactForce`), so the layout
-    /// renders at 1× on the full iPad — the four chip-led lane strips, the selected lane's card, and the right 6-tab panel.
-    /// Captures EUCLID, a lane switch, a right-column emitter tab (MUTE) and the dense MODE tab (the §9.3 card-fit check).
+    /// COMPACT LAYOUT (2026-11-26): the Compact size class forced on (the dev toggle `fourfold.compactMode` = ALWAYS; Compact is
+    /// OFF by default and dev-only), so the layout renders at 1× on the full iPad — the four chip-led lane strips, the selected
+    /// lane's card, and the right 6-tab panel. Captures EUCLID, a lane switch, a right-column emitter tab (MUTE) and the dense MODE tab.
     func testTheCompactLayout() {
         let app = XCUIApplication()
-        app.launchArguments = ["--fresh", "--autoplay", "-fourfold.compactForce", "YES"]
+        app.launchArguments = ["--fresh", "--autoplay", "-fourfold.compactMode", "always"]
         app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 2.5)
