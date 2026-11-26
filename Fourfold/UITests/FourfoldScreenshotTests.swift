@@ -105,6 +105,28 @@ final class FourfoldScreenshotTests: XCTestCase {
         device.orientation = .portrait
     }
 
+    /// COMPACT LAYOUT (2026-11-26): the Compact size class forced on (the dev flag `fourfold.compactForce`), so the layout
+    /// renders at 1× on the full iPad — the four chip-led lane strips, the selected lane's card, and the right 6-tab panel.
+    /// Captures EUCLID, a lane switch, a right-column emitter tab (MUTE) and the dense MODE tab (the §9.3 card-fit check).
+    func testTheCompactLayout() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--fresh", "--autoplay", "-fourfold.compactForce", "YES"]
+        app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2.5)
+        attach("10-compact-1-euclid")
+        let lane2 = app.buttons.matching(NSPredicate(format: "label == %@", "Lane 2")).element(boundBy: 0)
+        if lane2.waitForExistence(timeout: 3) { lane2.tap(); Thread.sleep(forTimeInterval: 1) }
+        attach("10-compact-2-lane-2")
+        let mute = app.buttons.matching(NSPredicate(format: "label == %@", "MUTE")).element(boundBy: 0)
+        if mute.waitForExistence(timeout: 2) { mute.tap(); Thread.sleep(forTimeInterval: 1) }
+        attach("10-compact-3-right-mute")
+        let mode = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Mode")).element(boundBy: 0)
+        if mode.waitForExistence(timeout: 2) { mode.tap(); Thread.sleep(forTimeInterval: 1) }
+        attach("10-compact-4-mode-tab")
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     /// Every tab, popup and sheet the page can show, in the orientation the device is in (portrait): the pictures the audits' findings (truncated captions, cramped sheets) are judged against.
     func testEveryTabPopupAndSheet() {
         XCUIDevice.shared.orientation = .portrait
