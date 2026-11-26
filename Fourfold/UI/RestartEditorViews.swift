@@ -473,3 +473,140 @@ struct EuclideousRestartSectionView: View {
         }
     }
 }
+
+// MARK: - RESETS V3 §4 — the ALL row (the document-level reset chain), above the four lane cards while the RESETS tab is selected.
+
+/// One ALL count chip — a host-bar count on the ALL ladder {1,2,3,4,6,8,12,16}. A vertical drag or a top/bottom tap steps it (one undo step); a long press removes the link. Mirrors `EuclideousCountChipView`'s feel on the ALL ladder.
+struct EuclideousAllCountChip: View {
+    let value: Int
+    let size: CGSize
+    let progressFraction: Double?         // §4.4: the running link draws a progress bar
+    let onChange: (Int) -> Void           // a new value (one undo step)
+    let onRemove: () -> Void
+
+    @State private var startValue = 0
+    @State private var pressStart: Date? = nil
+    @State private var dragging = false
+    @State private var lastEmitted = Int.min
+    @GestureState private var gestureActive = false
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x121318)).offset(y: 1)
+            RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x343841))
+            Text("\(value)").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+        }
+        .frame(width: size.width, height: size.height)
+        .overlay(alignment: .bottomLeading) {
+            if let f = progressFraction {
+                RoundedRectangle(cornerRadius: 1).fill(Color(hex: 0xDFE3EA)).frame(width: CGFloat(max(0, min(1, f))) * (size.width - 8), height: 2).padding(.leading, 4).padding(.bottom, 3)
+            }
+        }
+        .contentShape(Rectangle())
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 0)
+                .updating($gestureActive) { _, s, _ in s = true }
+                .onChanged { v in
+                    if pressStart == nil { pressStart = Date(); startValue = value; dragging = false; lastEmitted = Int.min }
+                    if abs(v.translation.height) >= 6 {
+                        let nv = euclideousAllCountDragValue(startValue: startValue, translationY: v.translation.height)
+                        if nv != lastEmitted { onChange(nv); dragging = true; lastEmitted = nv }
+                    }
+                }
+                .onEnded { v in
+                    let held = (pressStart.map { Date().timeIntervalSince($0) } ?? 0) >= 0.5
+                    if !dragging, abs(v.translation.height) < 6, abs(v.translation.width) < 6 {
+                        if held { onRemove() }
+                        else {   // §4.2: top half steps up the ladder, bottom half down (no wrap)
+                            let up = v.startLocation.y < size.height / 2
+                            let nv = euclideousAllCountDragValue(startValue: value, translationY: up ? -12 : 12)
+                            if nv != value { onChange(nv) }
+                        }
+                    }
+                    dragging = false; pressStart = nil; lastEmitted = Int.min
+                }
+        )
+        .onChange(of: gestureActive) { a in if !a { dragging = false; pressStart = nil; lastEmitted = Int.min } }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(value) bars")
+        .accessibilityAdjustableAction { d in
+            let nv = euclideousAllCountDragValue(startValue: value, translationY: d == .increment ? -12 : 12)
+            if nv != value { onChange(nv) }
+        }
+        .accessibilityAction(named: "Remove link") { onRemove() }
+    }
+}
+
+/// §4: the ALL row — "ALL", the count chips (+ a `+` to add; long-press a chip to remove), "BARS", and the live "bar N of M" of the running link with a mini ruler. Empty chain = just "ALL" and `+`. One undo step per edit (the page funnel). Visuals device-owed.
+struct EuclideousAllRowView: View {
+    let chain: [UInt8]
+    let rect: CGRect
+    let barBeats: Double
+    let beatAt: (Date) -> Double
+    let running: Bool
+    let reduceMotion: Bool
+    let onSet: ([UInt8]) -> Void
+
+    private let chipW: CGFloat = 40, chipH: CGFloat = 28
+
+    var body: some View {
+        let ints = chain.map { Int($0) }
+        return ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x16181E))
+            RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0x24262C), lineWidth: 1)
+            HStack(spacing: 8) {
+                Text("ALL").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1).foregroundColor(Color(hex: 0xAAB0BA))
+                ForEach(Array(ints.enumerated()), id: \.offset) { i, v in
+                    EuclideousAllCountChip(value: v, size: CGSize(width: chipW, height: chipH), progressFraction: nil,
+                                           onChange: { nv in var c = ints; c[i] = nv; onSet(c.map { UInt8($0) }) },
+                                           onRemove: { var c = ints; c.remove(at: i); onSet(c.map { UInt8($0) }) })
+                }
+                if ints.count < 4 { addBox }
+                if !ints.isEmpty {
+                    Text("BARS").font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(0.8).foregroundColor(Color(hex: 0x6B707A))
+                    nowReadout(ints)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+        }
+        .frame(width: rect.width, height: rect.height, alignment: .leading)
+        .offset(x: rect.minX, y: rect.minY)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("All reset")
+    }
+
+    private var addBox: some View {
+        Button { onSet(chain + [4]) } label: {   // §4.2: a new link defaults to 4 bars
+            Image(systemName: "plus").font(.system(size: 12, weight: .heavy)).foregroundColor(Color(hex: 0xAAB0BA))
+                .frame(width: 28, height: chipH)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x24262C)))
+        }
+        .accessibilityLabel(chain.isEmpty ? "Add an ALL reset" : "Add a link")
+    }
+
+    /// §4.4/§4.5: the running link's "bar N of M" and a mini ruler of its bars (the current bar filled by the elapsed fraction). Frozen at bar 1 of the first link when stopped.
+    @ViewBuilder private func nowReadout(_ ints: [Int]) -> some View {
+        TimelineView(.animation(minimumInterval: euclideousAnimInterval(1.0 / 30.0, reduceMotion: reduceMotion), paused: !running)) { tl in
+            let beat = running ? beatAt(tl.date) : 0
+            let now = euclideousAllRowNowLink(beat: beat, barBeats: barBeats, chain: chain) ?? (link: 0, barInLink: 1, linkBars: max(1, ints.first ?? 1))
+            let frac = (running && barBeats > 0) ? max(0, min(1, beat.truncatingRemainder(dividingBy: barBeats) / barBeats)) : 0
+            HStack(spacing: 6) {
+                HStack(spacing: 2) {   // a cell per bar of the current link; the current bar fills by the elapsed fraction
+                    ForEach(Array(0..<min(now.linkBars, 16)), id: \.self) { b in
+                        let state = b < now.barInLink - 1 ? 1.0 : (b == now.barInLink - 1 ? frac : 0.0)
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 1).fill(Color(hex: 0x2A2D34))
+                            RoundedRectangle(cornerRadius: 1).fill(Color(hex: 0xDFE3EA)).frame(width: 7 * CGFloat(max(0, min(1, state))))
+                        }
+                        .frame(width: 7, height: 10)
+                    }
+                }
+                Text("\(now.barInLink)/\(now.linkBars)").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7))
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(running ? "Bar \(now.barInLink) of \(now.linkBars)" : "")
+            .accessibilityHidden(!running)
+        }
+    }
+}

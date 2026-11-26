@@ -4910,6 +4910,7 @@ struct EuclideousUndoSnapshot: Equatable {
     var riffMaster: Bool = true                  // HEADER v2 §1.6: the two global PLAY-part masters — undoable page-level state (a tap is one step, like a lane-card PLAY). Default ON ⇒ an old snapshot restores both on.
     var stackMaster: Bool = true
     var gridChance: EuclideousGridChance = EuclideousGridChance()   // GRID CHANCE (2026-11-22): the two grids' per-axis chance — undoable page-level state (§1.4: a CLR is one step); all-default restores "nothing stored" (nil)
+    var allChain: [UInt8] = []   // RESETS V3 (2026-11-24): the document-level ALL reset chain (host-bar counts) — undoable page-level state; empty restores "nothing stored" (nil)
     /// UNDO-5 (2026-10-25): lanes' PLAY/STOP are never undoable (§7.3) — EXCEPT across a preset load, which is itself a step and replaces them: only such a step carries the flags it must put back (`nil` = every other step, which
     /// keeps the live flags as always). Captured by `loadPreset` / `loadFactoryPreset`, and re-stamped on the opposite side when that step is undone or redone so ↶ and ↷ both land on the right flags.
     var presetPlay: [EuclideousLanePlay]? = nil

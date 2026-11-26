@@ -844,6 +844,8 @@ struct EuclideousPage: View {
     // GRID CHANCE (2026-11-22): the two grids' per-axis chance (edited via `onEditGridChance`). All 100 = nothing thinned.
     let gridChance: EuclideousGridChance
     let gridChanceFlash: GridChanceFlashLive   // GRID CHANCE amd 2 §1/§3: the % toggle's cell flashes — read ONLY inside the toggle's own frame clock
+    var euclideousAllChain: [UInt8] = []       // RESETS V3 §1/§4: the document-level ALL reset chain (the ALL row edits it; the tile's span + the engine read it)
+    var onSetAllChain: ([UInt8]) -> Void = { _ in }   // RESETS V3 §4: one undo step per ALL edit
     let hocketLive: HocketLiveModel      // HOCKET §8: the count of each lit rule as the Router last published it — read ONLY by leaf views that observe it
     let rollLive: NoteRollLive           // CARD BACKS §5: each part's recent notes and when each output last took one — read ONLY inside the card backs' own frame clocks
     let emitterLive: EmitterRatchetLive  // RATCH tab §3.10: each output's current pattern index — observed ONLY by the RATCH tab's own leaf views
@@ -1978,9 +1980,11 @@ struct EuclideousPage: View {
         let c = headerStatusCounts
         return euclideousHeaderLayoutButtonWidth(tokenCount: c.tokenCount, lampShown: c.lampShown, readoutShown: c.readoutShown, step: 0)
     }
+    /// RESETS V3 §4.1: while RESETS is the selected tab, the page reserves a 46 pt ALL row below the strip (the cards shrink to fit).
+    private var resetsAllRow: CGFloat { pageTab == .resets ? 46 : 0 }
     private func pageGeometry(_ size: CGSize) -> (containerW: CGFloat, hdr: EuclideousHeaderLayout, page: EuclideousPageLayout) {
         let containerW = size.width - sp16 * 2
-        let page = euclideousPageLayout(size: size, bottomInset: pageBottomInset)
+        let page = euclideousPageLayout(size: size, bottomInset: pageBottomInset, allRow: resetsAllRow)
         let hdr = euclideousHeaderLayout(containerW: containerW, isLandscape: page.isLandscape, riffLeadingX: page.riffLeadingX, buttonWidth: headerButtonLayoutWidth)
         return (containerW, hdr, page)
     }
@@ -2027,6 +2031,12 @@ struct EuclideousPage: View {
                 EuclideousStackBreak { AnyView(laneCardSided(1, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[1].minX, y: page.lanes[1].minY)
                 EuclideousStackBreak { AnyView(laneCardSided(2, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[2].minX, y: page.lanes[2].minY)
                 EuclideousStackBreak { AnyView(laneCardSided(3, width: laneBox.width, height: laneBox.height)) }.offset(x: page.lanes[3].minX, y: page.lanes[3].minY)
+            }
+            // RESETS V3 §4: the ALL row (the document-level reset chain) sits in the reserved rect above the four lane cards while the RESETS tab is selected.
+            if pageTab == .resets, !mixPanelShows, page.allRowRect != .zero {
+                EuclideousStackBreak { AnyView(EuclideousAllRowView(chain: euclideousAllChain, rect: page.allRowRect, barBeats: clock.beatsPerBar,
+                                                                    beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: clock.playing, reduceMotion: reduceMotion,
+                                                                    onSet: { onSetAllChain($0) })) }
             }
             // HARMONY (INPUTS + HARMONY ferry 2026-11-06) §4.1: a full-size page over the four lane cards' block (it replaced the CHORDS page and the SOURCES panel) — the header, tab strip, riff panel and lower-right panel stay visible and live.
             if harmonyOpen {
@@ -4264,14 +4274,13 @@ struct EuclideousPage: View {
         .accessibilityLabel(EuclideousRestartEditorAX.resetsCard(lane: idx))   // §4.1
     }
 
-    /// RESETS V3 §2: ONE tile — two block rows (RHYTHM passes above, MELODY riff cycles below) on a shared span, one playhead + "still to come" dim over both, a host-bar/beat grid, two "N OF M" values; no hatching. The Canvas paints the pure `ResetsTileV3*` data; labels + values are Text overlays. All looks device-owed (§8). `allChain` is empty until the ALL row ships (slice F) — then it is threaded here and the span uses ALL's current link.
+    /// RESETS V3 §2: ONE tile — two block rows (RHYTHM passes above, MELODY riff cycles below) on a shared span, one playhead + "still to come" dim over both, a host-bar/beat grid, two "N OF M" values; no hatching. The Canvas paints the pure `ResetsTileV3*` data; labels + values are Text overlays. All looks device-owed (§8). When ALL is set the span follows ALL's current link (§2.4).
     @ViewBuilder
     private func resetsTileV3(_ idx: Int, cfg: EuclideousWalkLaneConfig?, accent: Color, tw: CGFloat, beat: Double, running: Bool, line: EuclidLine,
                              rhythmLabel: String?, melodyLabel: String?, rhythmNM: (n: Int, m: Int)?, melodyNM: (n: Int, m: Int)?) -> some View {
         let f = euclideousResetsTileFrames(tw: tw)
         let H = EuclideousResetsTileMetrics.height
-        let allChain: [UInt8] = []   // slice F wires the real value
-        let span: (start: Double, len: Double) = cfg.map { euclideousResetsTileSpan(cfg: $0, allChain: allChain, barBeats: clock.beatsPerBar, beat: beat) } ?? (beat, max(1e-6, clock.beatsPerBar))
+        let span: (start: Double, len: Double) = cfg.map { euclideousResetsTileSpan(cfg: $0, allChain: euclideousAllChain, barBeats: clock.beatsPerBar, beat: beat) } ?? (beat, max(1e-6, clock.beatsPerBar))
         let rhythmBlocks = cfg.map { euclideousResetsRowBlocks(kind: .rhythm, cfg: $0, displayStart: span.start, displayLen: span.len) } ?? []
         let melodyBlocks = cfg.map { euclideousResetsRowBlocks(kind: .melody, cfg: $0, displayStart: span.start, displayLen: span.len) } ?? []
         let grid = euclideousResetsHostGridLines(spanStart: span.start, spanLen: span.len, barBeats: clock.beatsPerBar, rulerWidth: f.rulerWidth)

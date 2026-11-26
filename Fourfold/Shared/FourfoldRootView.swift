@@ -53,6 +53,7 @@ struct FourfoldRootView: View {
     var fxCounts: FxCountsMode { get { m.fxCounts } nonmutating set { m.fxCounts = newValue } }   // RATCH tab ferry (2026-10-28): dev-only rig setting
     var canonEntry: CanonEntry { get { m.canonEntry } nonmutating set { m.canonEntry = newValue } }   // CHORD CANON ferry (2026-10-31): dev-only rig setting
     var euclideousCanonUnit: CanonUnit { get { m.euclideousCanonUnit } nonmutating set { m.euclideousCanonUnit = newValue } }   // CHORD CANON: the page's DELAY unit (undoable)
+    var euclideousAllChain: [UInt8] { get { m.euclideousAllChain } nonmutating set { m.euclideousAllChain = newValue } }   // RESETS V3: the document-level ALL reset chain (undoable)
     var euclideousRibbonSettings: RibbonSettings { get { m.euclideousRibbonSettings } nonmutating set { m.euclideousRibbonSettings = newValue } }   // RIBBON SETTINGS: the saved ribbon settings (undoable)
     var showPresets: Bool { get { m.showPresets } nonmutating set { m.showPresets = newValue } }
     var presetList: [String] { get { m.presetList } nonmutating set { m.presetList = newValue } }
@@ -181,7 +182,16 @@ struct FourfoldRootView: View {
                                                riffs: euclideousRiffs, activeRiff: euclideousActiveRiff, riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff ?? EuclideousPolyRiff(),
                                                riffPositions: euclideousRiffPositions, riffWalkState: euclideousRiffWalkState, maskPositions: euclideousMaskPositions, riffLivePool: euclideousRiffLivePool,
                                                lanesSeq: euclideousLanesSeq, riffsSeq: euclideousRiffsSeq, fx: euclideousFX,
-                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, emitterVelocities: emitterVelocities, emitterCCs: emitterCCs, outputMutes: euclideousOutputMutes, gridChance: euclideousGridChance, gridChanceFlash: meters.gridChanceFlash, hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters, emitterVelLive: meters.emitterVel, ccLive: meters.cc,
+                                               hocketRules: hocketRules, emitterRatchets: emitterRatchets, emitterVelocities: emitterVelocities, emitterCCs: emitterCCs, outputMutes: euclideousOutputMutes, gridChance: euclideousGridChance, gridChanceFlash: meters.gridChanceFlash,
+                                               euclideousAllChain: euclideousAllChain,
+                                               onSetAllChain: { newChain in   // RESETS V3 §4/§1.5: one undo step; the document stores nil for an empty chain (every pre-feature document loads empty)
+                                                   guard newChain != euclideousAllChain else { return }
+                                                   euclideousRecordUndo(coalesceKey: nil)
+                                                   euclideousAllChain = newChain
+                                                   au?.editDocument { $0.euclideousAllChain = newChain.isEmpty ? nil : newChain }
+                                                   publish()
+                                               },
+                                               hocketLive: meters.hocket, rollLive: meters.rolls, emitterLive: meters.emitters, emitterVelLive: meters.emitterVel, ccLive: meters.cc,
                                                lanesSeqStep: euclideousLanesSeqStep, riffsSeqStep: euclideousRiffsSeqStep,
                                                wipeEvents: euclideousWipeEvent, strikeEvents: euclideousStrikeEvent,
                                                pulseFeed: meters.pulse, pulseLevel: pulseLevel,
@@ -789,6 +799,7 @@ struct FourfoldRootView: View {
         euclideousActiveRiff = au.uiEuclideousActiveRiff()
         euclideousRiffPoly = au.uiRiffPoly(); euclideousPolyRiff = au.uiPolyRiff()
         euclideousCanonUnit = au.uiCanonUnit()
+        euclideousAllChain = au.uiAllChain()   // RESETS V3
         euclideousRibbonSettings = au.uiRibbonSettings()
         euclideousLanesSeq = au.uiEuclideousLanesSeq()
         euclideousFX = au.uiEuclideousFX()
@@ -853,7 +864,8 @@ struct FourfoldRootView: View {
                                 outputMutes: euclideousOutputMutes,
                                 riffPoly: euclideousRiffPoly, polyRiff: euclideousPolyRiff, canonUnit: euclideousCanonUnit,
                                 ribbonSettings: euclideousRibbonSettings, riffMaster: riffMaster, stackMaster: stackMaster,   // HEADER v2 §1.6: the masters are undoable
-                                gridChance: euclideousGridChance)   // GRID CHANCE (2026-11-22): the two grids' chance is undoable
+                                gridChance: euclideousGridChance,   // GRID CHANCE (2026-11-22): the two grids' chance is undoable
+                                allChain: euclideousAllChain)   // RESETS V3 (2026-11-24): the document-level ALL reset chain is undoable
     }
     /// Called BEFORE a mutation, with the PRE-mutation live state (`UndoStack.record`'s own documented
     /// contract) — every undoable Euclideous edit funnel (onEdit/onEditRiff/onEditChords/onSetResetSpanBars/
@@ -924,6 +936,7 @@ struct FourfoldRootView: View {
         emitterVelocities = s.emitterVelocities; emitterCCs = s.emitterCCs
         euclideousOutputMutes = s.outputMutes
         euclideousGridChance = s.gridChance   // GRID CHANCE (2026-11-22): restore the two grids' chance
+        euclideousAllChain = s.allChain   // RESETS V3 (2026-11-24): restore the document-level ALL reset chain
         euclideousHoldLatchMode = s.holdLatchMode
         riffMaster = s.riffMaster; stackMaster = s.stackMaster   // HEADER v2 §1.6: restore the masters (undo/redo)
         au?.editDocument {
@@ -947,6 +960,7 @@ struct FourfoldRootView: View {
             $0.euclideousEmitterCCs = s.emitterCCs.isAllDefault ? nil : s.emitterCCs   // CC tab: all-default restores "nothing stored"
             $0.euclideousOutputMutes = s.outputMutes.isAllDefault ? nil : s.outputMutes   // MUTE TAB: all-default restores "nothing stored"
             $0.euclideousGridChance = s.gridChance.isAllDefault ? nil : s.gridChance   // GRID CHANCE: all 100 restores "nothing stored"
+            $0.euclideousAllChain = s.allChain.isEmpty ? nil : s.allChain   // RESETS V3: an empty chain restores "nothing stored"
             $0.euclideousHoldLatchMode = s.holdLatchMode
             $0.riffMaster = s.riffMaster ? nil : false; $0.stackMaster = s.stackMaster ? nil : false   // HEADER v2 §1.6: ON restores "nil" (default), OFF explicit
         }
@@ -1152,6 +1166,7 @@ struct FourfoldRootView: View {
         let erp = au.uiRiffPoly(); if erp != euclideousRiffPoly { euclideousRiffPoly = erp; euclideousResynced = true }
         let epr = au.uiPolyRiff(); if epr != euclideousPolyRiff { euclideousPolyRiff = epr; euclideousResynced = true }
         let ecu = au.uiCanonUnit(); if ecu != euclideousCanonUnit { euclideousCanonUnit = ecu; euclideousResynced = true }   // CHORD CANON (2026-10-31)
+        let eac = au.uiAllChain(); if eac != euclideousAllChain { euclideousAllChain = eac; euclideousResynced = true }   // RESETS V3
         let erbs = au.uiRibbonSettings(); if erbs != euclideousRibbonSettings { euclideousRibbonSettings = erbs; euclideousResynced = true }   // RIBBON SETTINGS (2026-11-16)
         let els = au.uiEuclideousLanesSeq(); if els != euclideousLanesSeq { euclideousLanesSeq = els; euclideousResynced = true }
         let ers = au.uiEuclideousRiffsSeq(); if ers != euclideousRiffsSeq { euclideousRiffsSeq = ers; euclideousResynced = true }
@@ -1270,6 +1285,7 @@ final class FourfoldModel: ObservableObject {
     @Published var euclideousRiffPoly: Bool = false           // POLY RIFF (2026-10-29)
     @Published var euclideousPolyRiff: EuclideousPolyRiff? = nil
     @Published var euclideousCanonUnit: CanonUnit = .passes   // CHORD CANON (2026-10-31): the DELAY unit shared by the four lanes
+    @Published var euclideousAllChain: [UInt8] = []   // RESETS V3 (2026-11-24): the document-level ALL reset chain (host-bar counts; empty = no ALL); undoable, saved with the document
     @Published var euclideousRibbonSettings: RibbonSettings = .defaults   // RIBBON SETTINGS (2026-11-16): the saved ribbon settings (TOUCH/RELEASE/LATCH/PARTS/marks)
     @Published var euclideousLanesSeq: EuclideousLanesSeq = EuclideousLanesSeq()
     @Published var euclideousFX: EuclideousFX = EuclideousFX()

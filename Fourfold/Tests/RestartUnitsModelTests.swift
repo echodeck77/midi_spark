@@ -240,4 +240,41 @@ final class RestartUnitsModelTests: XCTestCase {
         XCTAssertNil(euclideousNextAllRestart(after: 0, barBeats: bar, chain: []))
         XCTAssertFalse(euclideousAllRestartIsAt(beat: 16, barBeats: bar, chain: []))
     }
+
+    // RESETS V3 §4.2: the ALL row's count-chip ladder stepper clamps at both ends, no wrap, and snaps an off-ladder value toward the step.
+    func testAllChainStepperAndDrag() {
+        XCTAssertEqual(euclideousAllChainLadder, [1, 2, 3, 4, 6, 8, 12, 16])
+        XCTAssertEqual(euclideousAllChainStepValue(4, up: true), 6)
+        XCTAssertEqual(euclideousAllChainStepValue(4, up: false), 3)
+        XCTAssertEqual(euclideousAllChainStepValue(16, up: true), 16)      // clamp at the top
+        XCTAssertEqual(euclideousAllChainStepValue(1, up: false), 1)       // clamp at the bottom
+        XCTAssertEqual(euclideousAllChainStepValue(5, up: true), 6)        // off-ladder snaps up
+        XCTAssertEqual(euclideousAllChainStepValue(5, up: false), 4)       // …and down
+        // a drag: translationY < 0 steps up one rung per 12 pt, clamped
+        XCTAssertEqual(euclideousAllCountDragValue(startValue: 4, translationY: -12), 6)
+        XCTAssertEqual(euclideousAllCountDragValue(startValue: 4, translationY: -36), 12)   // three rungs up (4→6→8→12)
+        XCTAssertEqual(euclideousAllCountDragValue(startValue: 4, translationY: 24), 2)     // two rungs down (4→3→2)
+        XCTAssertEqual(euclideousAllCountDragValue(startValue: 16, translationY: -120), 16) // clamp
+        XCTAssertEqual(euclideousAllCountDragValue(startValue: 1, translationY: 120), 1)    // clamp
+        XCTAssertEqual(euclideousAllCountDragValue(startValue: 4, translationY: -6), 4)     // under one rung ⇒ no change
+    }
+
+    // RESETS V3 §4.5: the running link / bar-in-link that the ALL row reads at a beat.
+    func testAllRowNowLink() {
+        let bar = 4.0
+        XCTAssertNil(euclideousAllRowNowLink(beat: 0, barBeats: bar, chain: []))             // no ALL
+        // ALL [4]: one link of 4 bars, bars 1…4 then it repeats
+        XCTAssertEqual(euclideousAllRowNowLink(beat: 0, barBeats: bar, chain: [4])!.barInLink, 1)
+        XCTAssertEqual(euclideousAllRowNowLink(beat: 4, barBeats: bar, chain: [4])!.barInLink, 2)   // second bar
+        XCTAssertEqual(euclideousAllRowNowLink(beat: 12, barBeats: bar, chain: [4])!.barInLink, 4)  // fourth bar
+        XCTAssertEqual(euclideousAllRowNowLink(beat: 16, barBeats: bar, chain: [4])!.barInLink, 1)  // wrapped
+        XCTAssertEqual(euclideousAllRowNowLink(beat: 4, barBeats: bar, chain: [4])!.linkBars, 4)
+        // ALL [2,1]: link 0 (2 bars, bars 1–2), link 1 (1 bar, bar 1), total 3
+        let a = euclideousAllRowNowLink(beat: 0, barBeats: bar, chain: [2, 1])!
+        XCTAssertEqual(a.link, 0); XCTAssertEqual(a.barInLink, 1); XCTAssertEqual(a.linkBars, 2)
+        let b = euclideousAllRowNowLink(beat: 8, barBeats: bar, chain: [2, 1])!   // bar 3 ⇒ link 1, bar 1
+        XCTAssertEqual(b.link, 1); XCTAssertEqual(b.barInLink, 1); XCTAssertEqual(b.linkBars, 1)
+        let c = euclideousAllRowNowLink(beat: 12, barBeats: bar, chain: [2, 1])!  // bar 4 ⇒ wrapped to link 0, bar 1
+        XCTAssertEqual(c.link, 0); XCTAssertEqual(c.barInLink, 1)
+    }
 }

@@ -216,6 +216,28 @@ final class PageLayoutTests: XCTestCase {
         XCTAssertEqual(rp.strideWidth, 75, accuracy: 0.01)
         XCTAssertEqual(rp.notesCellWidth, 86.75, accuracy: 0.01); XCTAssertEqual(rp.directionButtonWidth, 34)
     }
+    /// RESETS V3 §4.1: an ALL row reserves a frame sp10 below the strip and the cards shrink to make room — the lane AREA's bottom edge is unchanged, and `allRow == 0` is byte-identical to no reservation (what every non-RESETS tab passes).
+    func testResetsAllRowReservationShrinksTheCardsWithoutMovingTheAreaBottom() {
+        for size in [landscapeRef, portraitRef] {
+            let base = euclideousPageLayout(size: size)                  // allRow 0 (the default every other tab uses)
+            let withAll = euclideousPageLayout(size: size, allRow: 46)
+            XCTAssertEqual(base.allRowRect, .zero, "no row reserved by default")
+            // the reserved rect: full lane-area width, sp10 below the strip, 46 tall
+            XCTAssertEqual(withAll.allRowRect.width, base.strip.width, accuracy: 0.01)
+            XCTAssertEqual(withAll.allRowRect.minX, base.strip.minX, accuracy: 0.01)
+            XCTAssertEqual(withAll.allRowRect.minY, base.strip.maxY + 10, accuracy: 0.01)
+            XCTAssertEqual(withAll.allRowRect.height, 46, accuracy: 0.01)
+            // the cards start 10 below the row and are shorter by the row + the two 10 pt gaps; their columns are unchanged
+            XCTAssertEqual(withAll.lanes[0].minY, withAll.allRowRect.maxY + 10, accuracy: 0.01)
+            XCTAssertEqual(withAll.lanes[0].minX, base.lanes[0].minX, accuracy: 0.01)
+            XCTAssertEqual(withAll.laneBox.width, base.laneBox.width, accuracy: 0.01)
+            XCTAssertLessThan(withAll.laneBox.height, base.laneBox.height)
+            // the lane area's bottom edge (the lower cards' maxY) does not move — only the cards shrink
+            XCTAssertEqual(withAll.lanes[3].maxY, base.lanes[3].maxY, accuracy: 0.01)
+            // the riff / seq / strip boxes are untouched by the ALL row
+            XCTAssertEqual(withAll.strip, base.strip); XCTAssertEqual(withAll.riff, base.riff); XCTAssertEqual(withAll.seq, base.seq)
+        }
+    }
     /// RIFF v3 §8.2: in every layout Row A (tile + WALK) and the MOVE band (directions + ADVANCE EVERY + STRIDE) and the NOTES cells
     /// all span x4 … W−4, the tile grid and the walk grid share the same vertical geometry, and the four rows + three 6 pt gaps fill H.
     func testRiffV3BandAlignmentInEveryLayout() {

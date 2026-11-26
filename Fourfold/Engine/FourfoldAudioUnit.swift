@@ -272,6 +272,7 @@ public class FourfoldAudioUnit: AUAudioUnit {
     func uiRiffPoly() -> Bool { document.riffPolyResolved }                  // POLY RIFF (2026-10-29)
     func uiPolyRiff() -> EuclideousPolyRiff? { document.polyRiff }
     func uiCanonUnit() -> CanonUnit { document.canonUnitResolved }           // CHORD CANON (2026-10-31): the page's DELAY unit (part of the music — saved with a preset, undoable)
+    func uiAllChain() -> [UInt8] { document.allChainResolved }               // RESETS V3 (2026-11-24): the document-level ALL reset chain
     func uiRibbonSettings() -> RibbonSettings { .defaults }   // RIBBON SETTINGS REMOVED (Paul 2026-11-17): the UI always sees the defaults — the settings tab and its button are unmounted, TUTTI / LOOP / LATCH / PARTS are unreachable, and a stored document's settings are inert (the field still decodes and round-trips)
     // `uiEuclideousLiveGrid()` (a forwarder for the looper's decode-only `euclideousLiveGridResolved`)
     // is DELETED here (2026-10-18 adversarial review found it orphaned — its one caller, `refreshFrom

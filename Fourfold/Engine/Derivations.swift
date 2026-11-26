@@ -5671,6 +5671,8 @@ struct EuclideousPageLayout: Equatable {
     var lanes: [CGRect]
     var riff: CGRect
     var seq: CGRect
+    /// RESETS V3 §4.1: the ALL row's frame (between the strip and the cards), when the RESETS tab reserves it — the cards shrink to make room. `.zero` otherwise.
+    var allRowRect: CGRect = .zero
     /// The lane gutter's centre x — the output rings centre on it (§1.6).
     var gutterX: CGFloat
     var floors: [EuclideousPageFloor]
@@ -5680,7 +5682,7 @@ struct EuclideousPageLayout: Equatable {
 }
 
 /// The page's six boxes for a view of `size` and a header of `headerKind`. Orientation is the view's own: strictly wider than tall is landscape.
-func euclideousPageLayout(size: CGSize, headerKind: EuclideousHeaderLayout.Kind, bottomInset: CGFloat = 0) -> EuclideousPageLayout {
+func euclideousPageLayout(size: CGSize, headerKind: EuclideousHeaderLayout.Kind, bottomInset: CGFloat = 0, allRow: CGFloat = 0) -> EuclideousPageLayout {
     typealias P = EuclideousPageMetrics
     let landscape = size.width > size.height
     let top = P.top(headerKind)
@@ -5702,21 +5704,23 @@ func euclideousPageLayout(size: CGSize, headerKind: EuclideousHeaderLayout.Kind,
     // TAB STRIP (2026-10-29): the lane area (columns 1–2 in landscape, the page in portrait; rows 1–2) holds the strip, sp8, then the four cards in their 2 × 2. The cards keep their columns' x and width; their height is
     // (the area's height − strip − sp8 − the gap between the two rows) / 2.
     let strip = CGRect(x: P.margin, y: top, width: cw * 2 + P.gap, height: EuclideousLaneStripMetrics.height)
-    let areaH = rh * 2 + P.gap
-    let laneH = max(1, (areaH - EuclideousLaneStripMetrics.height - P.gap - P.gap) / 2)
-    let laneTop = top + EuclideousLaneStripMetrics.height + P.gap
+    let areaBottom = top + rh * 2 + P.gap   // the lane area's bottom edge (unchanged by the ALL row — only the cards shrink)
+    // RESETS V3 §4.1: the ALL row sits sp10 below the strip; the cards start 10 below it. `.zero` when no row is reserved.
+    let allRowRect = allRow > 0 ? CGRect(x: P.margin, y: strip.maxY + 10, width: cw * 2 + P.gap, height: allRow) : .zero
+    let laneTop = allRow > 0 ? allRowRect.maxY + 10 : (top + EuclideousLaneStripMetrics.height + P.gap)
+    let laneH = max(1, (areaBottom - laneTop - P.gap) / 2)
     func laneFrame(_ col: Int, _ row: Int) -> CGRect {
         CGRect(x: P.margin + CGFloat(col) * (cw + P.gap), y: laneTop + CGFloat(row) * (laneH + P.gap), width: cw, height: laneH)
     }
     let lanes = [laneFrame(0, 0), laneFrame(1, 0), laneFrame(0, 1), laneFrame(1, 1)]
     let laneBox = CGSize(width: cw, height: laneH)
     return EuclideousPageLayout(isLandscape: landscape, headerKind: headerKind, box: box, laneBox: laneBox, strip: strip, lanes: lanes, riff: riff, seq: seq,
-                                gutterX: P.margin + cw + P.gap / 2, floors: euclideousPageFloors(box: box, laneBox: laneBox, stripWidth: strip.width))
+                                allRowRect: allRowRect, gutterX: P.margin + cw + P.gap / 2, floors: euclideousPageFloors(box: box, laneBox: laneBox, stripWidth: strip.width))
 }
 /// `euclideousPageLayout` with the header kind taken from the header's own ladder for this view width — what the page itself calls.
-func euclideousPageLayout(size: CGSize, bottomInset: CGFloat = 0) -> EuclideousPageLayout {
+func euclideousPageLayout(size: CGSize, bottomInset: CGFloat = 0, allRow: CGFloat = 0) -> EuclideousPageLayout {
     let kind = euclideousHeaderKind(containerW: size.width - EuclideousPageMetrics.margin * 2, isLandscape: size.width > size.height)
-    return euclideousPageLayout(size: size, headerKind: kind, bottomInset: bottomInset)
+    return euclideousPageLayout(size: size, headerKind: kind, bottomInset: bottomInset, allRow: allRow)
 }
 
 // MARK: - UNIFORM SCALE-TO-FIT (small-window)

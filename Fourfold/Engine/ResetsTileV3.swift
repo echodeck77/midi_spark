@@ -137,6 +137,38 @@ func euclideousResetsHostGridLines(spanStart: Double, spanLen: Double, barBeats:
     return out
 }
 
+// MARK: - RESETS V3 §4 — the ALL row's pure data (ladder, stepper, the current link / bar). The row's layout is a SwiftUI HStack; these supply the values.
+
+/// §4.2: the ALL count-chip ladder (host bars).
+let euclideousAllChainLadder: [Int] = [1, 2, 3, 4, 6, 8, 12, 16]
+/// Step a value to the next/previous ladder entry; clamps at the ends, no wrap (§3.8 / §4.2). A value off the ladder snaps to the next one in the step's direction.
+func euclideousAllChainStepValue(_ v: Int, up: Bool) -> Int {
+    let L = euclideousAllChainLadder
+    return up ? (L.first { $0 > v } ?? L.last!) : (L.last { $0 < v } ?? L.first!)
+}
+/// §4.2: a vertical drag on an ALL count chip — translationY < 0 steps up the ladder, > 0 down, one rung per 12 pt, clamped (no wrap). Matches the restart editor's count-chip feel on the ALL ladder.
+func euclideousAllCountDragValue(startValue v: Int, translationY: CGFloat) -> Int {
+    let L = euclideousAllChainLadder
+    let i = L.firstIndex(of: v) ?? 0
+    let rungs = Int((-translationY / 12).rounded(.towardZero))
+    return L[min(L.count - 1, max(0, i + rungs))]
+}
+/// §4.2/§4.5: which ALL link is running at `beat`, the bar within it (1-based), and that link's bar count — for the "N OF M" value, the ruler and the running fill. nil ⇒ no ALL.
+func euclideousAllRowNowLink(beat: Double, barBeats: Double, chain: [UInt8]) -> (link: Int, barInLink: Int, linkBars: Int)? {
+    let total = euclideousAllTotalBars(chain)
+    guard total > 0, barBeats > 0, !chain.isEmpty else { return nil }
+    let barsElapsed = Int((max(0, beat) / barBeats) + 1e-6)          // whole host bars since the origin
+    let within = ((barsElapsed % total) + total) % total            // 0 ..< total
+    var acc = 0
+    for (i, c) in chain.enumerated() {
+        let bars = Int(c)
+        if within < acc + bars { return (i, within - acc + 1, bars) }   // the bar within link i, 1-based
+        acc += bars
+    }
+    let last = chain.count - 1
+    return (last, Int(chain[last]), Int(chain[last]))
+}
+
 /// §5.3 — the tile's VoiceOver: "Rhythm, 8 of 16 steps; melody, 3 of 8 notes" (steps for ADV STEP melody), with ", free" after a free part.
 func euclideousResetsTileVoiceOver(rhythmNM: (n: Int, m: Int)?, rhythmSet: Bool, melodyNM: (n: Int, m: Int)?, melodySet: Bool, advStep: Bool) -> String {
     var r = "Rhythm"
