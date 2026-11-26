@@ -850,6 +850,9 @@ final class EffectiveParamsTests: XCTestCase {
         l.setNotesRankCount(3, 3); l.setNotesRankSecond(3, .later); l.setNotesRankThird(3, .later)
         l.setNotesRankRole(5, .pedal)   // PLAY AS ROWS amend 2 (2026-11-15): populate the role field (it round-trips independently of the retired counts)
         l.notesBassOn = true; l.notesBassMode = .first; l.notesShiftStart = 5; l.notesDriftOn = true; l.notesDriftStep = -2
+        // KIT SOURCE (2026-11-23) + DRUM MODE (2026-11-23) + INPUTS MODE (2026-11-24): the per-lane fixed-note kit, the drum-note fields and the lane mode
+        l.kitOn = true; l.kitNotes = [36, 38, 42, 46, 50, 45, 48, 51]; l.kitNames = ["K", "S", "CH", "OH", "T1", "T2", "T3", "CR"]; l.kitVel = [100, 96, 88, 80, 75, 70, 92, 85]; l.kitTemplate = "ableton"
+        l.fixedMode = .drum; l.drumNote = 40; l.drumLow = 30; l.drumHigh = 90; l.drumRamp = .down; l.laneMode = .kit
         // every OPTIONAL stored field is populated (so this test can't silently stop covering a newly added one)
         for child in Mirror(reflecting: l).children {
             let m = Mirror(reflecting: child.value)

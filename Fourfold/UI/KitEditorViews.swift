@@ -151,7 +151,7 @@ struct EuclideousKitEditorView: View {
     }
     /// §3.1 one OCT / SEMI well: a #17191E background, a label, and − / + buttons (disabled + 42 % when a shift of ±`delta` would push any note out of 0…127, §3.4).
     @ViewBuilder private func shiftWell(_ well: CGRect, label: String, minus: CGRect, plus: CGRect, delta: Int, axDown: String, axUp: String) -> some View {
-        at(well) { RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x17191E)) }
+        at(well) { RoundedRectangle(cornerRadius: 8).fill(Color(hex: FourfoldStyle.card)) }
         at(CGRect(x: well.minX + 10, y: well.minY, width: minus.minX - (well.minX + 10) - 3, height: well.height)) {
             Text(label).font(.system(size: 10, weight: .heavy, design: .monospaced)).tracking(0.1 * 10).foregroundColor(Color(hex: 0x8A909A)).frame(maxWidth: .infinity, alignment: .leading).accessibilityHidden(true)
         }

@@ -8207,7 +8207,7 @@ struct EuclideousPage: View {
             HStack(spacing: 4) { seg("MELODIC", .melodic); seg("DRUM", .drum); seg("KIT", .kit) }
                 .padding(4)
                 .frame(maxWidth: .infinity, maxHeight: h)
-                .background(RoundedRectangle(cornerRadius: 11).fill(Color(hex: 0x17191E)))
+                .background(RoundedRectangle(cornerRadius: 11).fill(Color(hex: FourfoldStyle.card)))
         }
         .frame(width: fullWidth, height: height)
         .accessibilityElement(children: .contain).accessibilityLabel("Mode"))
@@ -8256,7 +8256,7 @@ struct EuclideousPage: View {
         return HStack(spacing: 3) { seg("KIT", .kit); seg("DRUM", .drum) }
             .padding(3)
             .frame(width: w, height: h)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x17191E)))
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: FourfoldStyle.card)))
             .frame(width: w, height: height)
     }
     /// DRUM MODE §3.4: the DRUM row — label, the drum button (name + note + chevron, opens the picker), and the ramp UP/DOWN switch.
@@ -8308,7 +8308,7 @@ struct EuclideousPage: View {
                 .accessibilityElement(children: .ignore).accessibilityLabel(r == .up ? "Ramp up" : "Ramp down").accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
         }
         return HStack(spacing: 3) { seg(.up); seg(.down) }.padding(3).frame(width: w, height: height)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x17191E)))
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: FourfoldStyle.card)))
     }
     /// DRUM MODE §3.5: the VEL row — low %, a two-thumb slider, high %. A drag sounds nothing; one undo step per thumb drag; the thumbs meet but never cross.
     private func drumVelRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
