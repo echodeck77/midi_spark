@@ -20,17 +20,18 @@ enum LaneStripBandMetrics {
     /// after each ON part's reserve (rail + gap + band + gap). §10 tunable.
     static let headerRatio = 0.2                        // PLAY BUTTONS RAIL+NOTE §3.1: was 0.22 (amendment 1) / 0.23
     static let rowGap: CGFloat = 1                       // amendment 1: was 2
-    /// PLAY BUTTONS RAIL+NOTE §2.1 / §10: the running-part rail — a 1.5 pt lane-colour line along the row's outer edge
-    /// (riff top, stack bottom). Reserved by the band layout (rail 1.5 + gap 1 + band hH + gap 1 per on part); drawn in §2.
-    static let railH: CGFloat = 1.5
+    /// PLAY BUTTONS RAIL+NOTE §2.1 / §10: the running-part rail — the lane "line" along the row's outer edge (riff top,
+    /// stack bottom). Reserved by the band layout (rail + gap 1 + band hH + gap 1 per on part); drawn in §2.
+    /// COMPACT+STRIP STYLE §4.3 (2026-11-26): the line is now 2 pt (was 1.5) — so headerY = rail 2 + gap 1 = 3 pt from the top.
+    static let railH: CGFloat = 2
     /// §B2.2 / §B2.3: a chip is EXACTLY its cell's x/width at the band's full height (no shrink, no width cap), radius
     /// `chipRadius`, label `chipLabel` pt heavy, ink `chipInk`, no tracking; resting opacity `chipRestOpacity`, sounding 1
     /// with an inner `soundStroke` stroke (§B2.4). A label hides when the chip is narrower than count·`chipLabelAdvance`·size + 2.
-    static let chipRadius: CGFloat = 2                   // amendment 1: was 4
-    static let chipLabel: CGFloat = 7                    // amendment 1: was 10 (and 9 over 12 steps) — now a flat 7
+    static let chipRadius: CGFloat = 3                   // COMPACT+STRIP STYLE §4.4 (2026-11-26): was 2 (amendment 1 had 4)
+    static let chipLabel: CGFloat = 8                    // COMPACT+STRIP STYLE §4.4: was 7 (amendment 1 had 10 / 9-over-12)
     static let chipLabelAdvance: CGFloat = 0.6           // heavy-monospaced digit advance ÷ point size (§B2.3 label-fit)
     static let chipRestOpacity = 0.78
-    static let chipInk = EuclideousRGB(r: 0x0D, g: 0x0F, b: 0x14)
+    static let chipInk = EuclideousRGB(r: 0x14, g: 0x15, b: 0x18)   // COMPACT+STRIP STYLE §4.4: the riff chip number ink, was #0D0F14
     /// §B2.4: a sounding chip draws at 100 % with a 1 pt #F2F4F7 stroke INSIDE its frame (replaces the old outside ring).
     static let soundStroke = EuclideousRGB(r: 0xF2, g: 0xF4, b: 0xF7)
     /// LANE STRIP CLARITY §2.2/§2.3 (§10 tunable): the ink (#0D0F14) second stroke draws only on a chip this tall or taller —
@@ -60,10 +61,15 @@ enum LaneStripBandMetrics {
     /// §4.2 / LANE STRIP CLARITY §5.3: cell fills — the rest cell is #22242A (was #2A2C33; the hit-colour contrast is
     /// measured against it), the rest-at-the-playhead #3A3D44 as built. A hit now fills the OPAQUE `stripHitColour`
     /// (§5.1: one OKLCH lightness across every lane) with the 3 pt lane100 bottom bar. No strike flash, glow or ease.
-    static let stepFill = EuclideousRGB(r: 0x22, g: 0x24, b: 0x2A)
+    static let stepFill = EuclideousRGB(r: 0x27, g: 0x29, b: 0x2E)   // COMPACT+STRIP STYLE §4.6 (2026-11-26): the rest cell, was #22242A
     static let playheadStepFill = EuclideousRGB(r: 0x3A, g: 0x3D, b: 0x44)
     static let hitAlpha = 0.30, hitPlayheadAlpha = 0.45   // pre-CLARITY (kept for reference; the hit fill is the §5.1 table now)
-    static let bottomBarH: CGFloat = 3, cellRadius: CGFloat = 6
+    static let bottomBarH: CGFloat = 3, cellRadius: CGFloat = 5    // COMPACT+STRIP STYLE §4.5/§4.6: cell radius was 6
+    /// COMPACT+STRIP STYLE §4.6: a rest cell carries a 1 pt inner top highlight, white at 3 %.
+    static let restHighlight = EuclideousRGB(r: 0xFF, g: 0xFF, b: 0xFF), restHighlightAlpha = 0.03, restHighlightH: CGFloat = 1
+    /// COMPACT+STRIP STYLE §4.7: the playhead-on-a-hit outer glow — a `glowBlur`-pt blur of the lane colour at `glowAlpha`,
+    /// drawn under the cell and clipped by the strip (not by the step).
+    static let glowBlur: CGFloat = 10, glowAlpha = 0.40
     /// §B4.1: the rank slots — 1 below the cell's top to 1 above its 3 pt bottom bar, split 8 ways (slot = (hC−5)/8). §B4.2:
     /// a sounding rank is a FILLED bar, height max(1, slot−0.5), radius 0.5, centred in its slot — riff inset 2 / stack inset 4
     /// (§B4.3 under a 12 pt cell: riff 1 / stack 3). §B4.4: only where the slot is ≥ 4 is it the old 1 pt stroked outline instead.
@@ -297,8 +303,12 @@ private let stackRankTable: [(colour: EuclideousRGB, ink: EuclideousRGB)] = {
 /// §1.1: the stack footer chip's / stack rank bar's colour for a rank (1…8) — a neutral grey, dark at 1 to light at 8, the
 /// SAME for every lane. A table read, never a conversion.
 func stackRankColour(rank: Int) -> EuclideousRGB { stackRankTable[max(1, min(8, rank)) - 1].colour }
-/// §1.2: the ink (#0D0F14 or #F2F4F7) that reads on `stackRankColour(rank)`.
-func stackRankInk(rank: Int) -> EuclideousRGB { stackRankTable[max(1, min(8, rank)) - 1].ink }
+/// COMPACT+STRIP STYLE §4.4 (2026-11-26): the stack chip number ink is now a FIXED split by rank band — #16171A on the
+/// light ranks 5–8, #E4E6EA on the dark ranks 1–4 (was the per-rank WCAG pick from `stackRankTable`, kept for reference).
+func stackRankInk(rank: Int) -> EuclideousRGB {
+    let r = max(1, min(8, rank))
+    return r >= 5 ? EuclideousRGB(r: 0x16, g: 0x17, b: 0x1A) : EuclideousRGB(r: 0xE4, g: 0xE6, b: 0xEA)
+}
 
 // MARK: - §8.3 / §4.3–4.5: a rank's outline (or fallback bar) inside a hit cell
 

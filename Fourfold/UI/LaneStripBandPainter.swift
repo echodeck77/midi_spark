@@ -94,31 +94,49 @@ func drawLaneStripBands(_ ctx: inout GraphicsContext, _ d: EuclideousStripBandIn
     // RAIL (§2) is the only edge, drawn by the row's overlay; a stopped part's band simply isn't here (§3.3) and the cells
     // extend into it. (The old #202226 track plates of the LANE STRIP BANDS ferry are retired.)
 
-    // §4.1 / §4.2: the cells — steps and hits, no strike flash. A hit is lane100 (30 %, 45 % at the playhead) with a 3 pt
-    // lane100 bar inside its bottom edge; a step is a flat grey (brighter at the playhead). (The beat-group shading, the
-    // gap ring and the strike dip/glow of the old strip are replaced here, per the ferry.)
+    // §4.1 / §4.2 + COMPACT+STRIP STYLE §4.5–§4.7 (2026-11-26): the cells. A HIT fills a vertical gradient mid→dark
+    // (lane100→mid at the playhead) with a 3 pt lane100 bottom bar; a REST is #27292E (#3A3D44 at the playhead) with a 1 pt
+    // white@3 % inner top highlight (none at the playhead — the §4.7 white cap takes that edge). The playhead-on-a-hit also
+    // carries an outer glow (drawn first, below). STEP DISPLAY part 2 (gated to the playhead, Paul 2026-11-26): a hit-changing
+    // fill overrides ONLY the box the playhead is sounding NOW — `.sounds` ⇒ a hit, `.silencedMiss` ⇒ a dropped standard hit
+    // reads as a rest; `.none` ⇒ the standard pattern.
+    func isHitCell(_ i: Int) -> Bool {
+        var h = i < d.hits.count && d.hits[i].kind != .rhythmRest
+        if d.playheadStep == i {
+            switch d.fillPlayheadFlash { case .sounds: h = true; case .silencedMiss: h = false; case .none: break }
+        }
+        return h
+    }
+    // COMPACT+STRIP STYLE §4.7: the playhead-on-a-hit outer glow — a blurred lane-colour halo UNDER the cells, clipped to the
+    // strip (not to the step), so it reads beyond the cell edges but never bleeds into another lane.
+    if let p = d.playheadStep, p >= 0, p < n, isHitCell(p) {
+        let T = d.frames.footerY + d.frames.bands.hH + d.frames.bands.gap + d.frames.railH
+        var g = ctx
+        g.clip(to: Path(CGRect(x: 0, y: 0, width: d.stripWidth, height: T)))
+        g.drawLayer { layer in
+            layer.addFilter(.blur(radius: M.glowBlur))
+            layer.fill(RoundedRectangle(cornerRadius: M.cellRadius).path(in: d.frames.cells[p]), with: .color(d.tint.opacity(M.glowAlpha)))
+        }
+    }
     for i in 0..<n {
         let cell = d.frames.cells[i]
-        var isHit = i < d.hits.count && d.hits[i].kind != .rhythmRest
+        let isHit = isHitCell(i)
         let atPlayhead = d.playheadStep == i
-        // STEP DISPLAY part 2 (gated to the playhead, Paul 2026-11-26): a hit-changing fill overrides ONLY the box the playhead is
-        // sounding NOW — not held across the region (not in advance, not after). `.sounds` ⇒ a hit while the playhead is on it (lane
-        // colour, incl. a standard rest the fill plays); `.silencedMiss` ⇒ a dropped standard hit reads as a rest EXACTLY as a
-        // sounding miss does in normal play (stripCellLook → .playheadStep), and only then.
-        if atPlayhead {
-            switch d.fillPlayheadFlash {
-            case .sounds:       isHit = true
-            case .silencedMiss: isHit = false
-            case .none:         break
-            }
-        }
         let look = stripCellLook(isHit: isHit, isPlayhead: atPlayhead)
         let shape = RoundedRectangle(cornerRadius: M.cellRadius).path(in: cell)
         switch look.fill {
-        case .step:          ctx.fill(shape, with: .color(Color(M.stepFill)))                 // CLARITY §5.3: #22242A (#3A3D44 at the playhead)
-        case .playheadStep:  ctx.fill(shape, with: .color(Color(M.playheadStepFill)))
-        case .hit(let ph):   // CLARITY §5.1/§5.2: the opaque even hit colour (one lightness across lanes); §5.4 both-parts-off dims it
-            ctx.fill(shape, with: .color(Color(stripHitColour(lane: d.hitColourLane, atPlayhead: ph)).opacity(d.cellDim)))
+        case .step:          // §4.6: the rest + its 1 pt white@3 % inner top highlight
+            ctx.fill(shape, with: .color(Color(M.stepFill)))
+            let hl = CGRect(x: cell.minX, y: cell.minY, width: cell.width, height: M.restHighlightH)
+            ctx.fill(RoundedRectangle(cornerRadius: M.restHighlightH / 2).path(in: hl), with: .color(Color(M.restHighlight).opacity(M.restHighlightAlpha)))
+        case .playheadStep:  ctx.fill(shape, with: .color(Color(M.playheadStepFill)))          // §4.7: the rest at the playhead (the cap is drawn last)
+        case .hit(let ph):   // §4.5/§4.7: the vertical gradient — mid→dark normally, lane100→mid at the playhead; §5.4 dims it
+            let dark = Color(stripHitColour(lane: d.hitColourLane, atPlayhead: false)).opacity(d.cellDim)
+            let mid = Color(stripHitMidColour(lane: d.hitColourLane)).opacity(d.cellDim)
+            let top = ph ? d.tint.opacity(d.cellDim) : mid
+            let bottom = ph ? mid : dark
+            ctx.fill(shape, with: .linearGradient(Gradient(colors: [top, bottom]),
+                                                  startPoint: CGPoint(x: cell.midX, y: cell.minY), endPoint: CGPoint(x: cell.midX, y: cell.maxY)))
         }
         if look.bar {
             let bar = CGRect(x: cell.minX, y: cell.maxY - M.bottomBarH, width: cell.width, height: M.bottomBarH)

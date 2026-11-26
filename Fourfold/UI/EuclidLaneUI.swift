@@ -229,11 +229,11 @@ struct EuclidLaneBox: View {
                 ZStack(alignment: .topLeading) {
                     accent.frame(width: max(0, width - badgeReserve), height: railH)             // riff: top edge
                         .opacity((strip?.riffPartOn ?? false) ? 1 : 0)
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: strip?.riffPartOn ?? false)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: strip?.riffPartOn ?? false)   // COMPACT+STRIP STYLE §4.3: 0.15 s (was 0.12)
                     accent.frame(width: max(0, width - leadReserve), height: railH)               // stack: bottom edge
                         .offset(x: leadReserve, y: max(0, height - railH))
                         .opacity((strip?.notesPartOn ?? false) ? 1 : 0)
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: strip?.notesPartOn ?? false)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: strip?.notesPartOn ?? false)   // COMPACT+STRIP STYLE §4.3: 0.15 s (was 0.12)
                 }
                 .frame(width: width, height: height, alignment: .topLeading)
                 .opacity(soloDim ? EuclideousLaneDimStyle.opacity : 1)   // §6.3: a solo-silenced lane dims the rails with the rest of the strip

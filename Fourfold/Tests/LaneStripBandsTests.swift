@@ -12,9 +12,9 @@ final class LaneStripBandsTests: XCTestCase {
     func testBandHeights() {
         let railH = LaneStripBandMetrics.railH
         let a = laneStripBandHeights(T: 78)
-        XCTAssertEqual(a.hH, 16); XCTAssertEqual(a.hC, 39); XCTAssertEqual(a.gap, 1)         // round(78·0.2)=16; 78 − 2·(1.5+1+16+1) = 39
+        XCTAssertEqual(a.hH, 16); XCTAssertEqual(a.hC, 38); XCTAssertEqual(a.gap, 1)         // COMPACT+STRIP §4.3 rail 2: round(78·0.2)=16; 78 − 2·(2+1+16+1) = 38
         let b = laneStripBandHeights(T: 44)
-        XCTAssertEqual(b.hH, 9); XCTAssertEqual(b.hC, 19); XCTAssertEqual(b.gap, 1)          // round(44·0.2)=9;  44 − 2·(1.5+1+9+1) = 19
+        XCTAssertEqual(b.hH, 9); XCTAssertEqual(b.hC, 18); XCTAssertEqual(b.gap, 1)          // round(44·0.2)=9;  44 − 2·(2+1+9+1) = 18
         // with both parts on, 2 rails + 2 bands + 4 gaps + the cells fill T exactly, and hH never drops below the 8 pt floor
         for T in stride(from: CGFloat(30), through: 90, by: 1) {
             let h = laneStripBandHeights(T: T)
@@ -25,24 +25,24 @@ final class LaneStripBandsTests: XCTestCase {
 
     // PLAY BUTTONS RAIL+NOTE §3.1/§3.2/§3.3 — the per-part collapse: an OFF part reserves nothing (cells extend); hC grows.
     func testPartAwareCollapseAndBandPositions() {
-        let railH = LaneStripBandMetrics.railH, reserve: CGFloat = railH + 1 + 9 + 1   // T 44: 12.5 per on part
-        // §3.2: both on hH 9 / hC 19; riff only hC 31.5; both off hC 44.
-        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 1, stackFrac: 1).hC, 19)
-        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 1, stackFrac: 0).hC, 44 - reserve)   // 31.5
-        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 0, stackFrac: 1).hC, 44 - reserve)   // 31.5
+        let railH = LaneStripBandMetrics.railH, reserve: CGFloat = railH + 1 + 9 + 1   // COMPACT+STRIP §4.3 rail 2 → 13 per on part
+        // §3.2: both on hH 9 / hC 18; riff only hC 31; both off hC 44.
+        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 1, stackFrac: 1).hC, 18)
+        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 1, stackFrac: 0).hC, 44 - reserve)   // 31
+        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 0, stackFrac: 1).hC, 44 - reserve)   // 31
         XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 0, stackFrac: 0).hC, 44)
-        XCTAssertGreaterThanOrEqual(laneStripBandHeights(T: 44).hC, 16, "§3.2: both-on hC (19) is not under 16")
+        XCTAssertGreaterThanOrEqual(laneStripBandHeights(T: 44).hC, 16, "§3.2: both-on hC (18) is not under 16")
         // band positions (both on): rail+gap in from each edge; the cells after the full top reserve.
         let xs: [CGFloat] = [0, 20, 40]
         let both = laneStripBandFrames(xs: xs, columnW: 18, T: 44, riffFrac: 1, stackFrac: 1)
-        XCTAssertEqual(both.headerY, railH + 1, accuracy: 0.001)                 // 2.5
-        XCTAssertEqual(both.cellsY, reserve, accuracy: 0.001)                    // 12.5
-        XCTAssertEqual(both.footerY, 44 - railH - 1 - 9, accuracy: 0.001)        // 32.5
-        XCTAssertEqual(both.cells[0].minY, 12.5, accuracy: 0.001); XCTAssertEqual(both.cells[0].height, 19, accuracy: 0.001)
+        XCTAssertEqual(both.headerY, railH + 1, accuracy: 0.001)                 // 3
+        XCTAssertEqual(both.cellsY, reserve, accuracy: 0.001)                    // 13
+        XCTAssertEqual(both.footerY, 44 - railH - 1 - 9, accuracy: 0.001)        // 32
+        XCTAssertEqual(both.cells[0].minY, 13, accuracy: 0.001); XCTAssertEqual(both.cells[0].height, 18, accuracy: 0.001)
         // riff OFF: no top reserve — the cells extend to the top edge; hC grows.
         let stackOnly = laneStripBandFrames(xs: xs, columnW: 18, T: 44, riffFrac: 0, stackFrac: 1)
         XCTAssertEqual(stackOnly.cellsY, 0, accuracy: 0.001)
-        XCTAssertEqual(stackOnly.cells[0].height, 44 - reserve, accuracy: 0.001)   // 31.5, taller
+        XCTAssertEqual(stackOnly.cells[0].height, 44 - reserve, accuracy: 0.001)   // 31, taller
         // a mid-collapse fraction interpolates the reserve (the ease, §3.4).
         XCTAssertEqual(laneStripBandFrames(xs: xs, columnW: 18, T: 44, riffFrac: 0.5, stackFrac: 1).cellsY, reserve / 2, accuracy: 0.001)
     }
@@ -53,7 +53,7 @@ final class LaneStripBandsTests: XCTestCase {
         let slot = CGRect(x: 12, y: 0, width: 18, height: b.hH)
         XCTAssertEqual(laneStripChipFrame(slot: slot), slot, "§B2.2: the chip IS its slot — fills the band")
         XCTAssertEqual(laneStripChipFrame(slot: CGRect(x: 0, y: 0, width: 50, height: b.hH)).width, 50, "§B2.2: no 30-cap")
-        XCTAssertEqual(laneStripChipLabelSize(steps: 16), 7, "§B2.3: a flat 7 pt label")
+        XCTAssertEqual(laneStripChipLabelSize(steps: 16), 8, "COMPACT+STRIP §4.4: a flat 8 pt label")
         XCTAssertTrue(laneStripChipLabelFits("16", chipWidth: 16, size: 7))                  // 16 ≥ 2·0.6·7 + 2 = 10.4
         XCTAssertFalse(laneStripChipLabelFits("16", chipWidth: 8, size: 7), "hidden under the label width + 2")
     }
@@ -62,13 +62,13 @@ final class LaneStripBandsTests: XCTestCase {
     func testSoundingChipMetrics() {
         XCTAssertEqual(LaneStripBandMetrics.chipRestOpacity, 0.78)
         XCTAssertEqual(LaneStripBandMetrics.soundStroke, EuclideousRGB(r: 0xF2, g: 0xF4, b: 0xF7))
-        XCTAssertEqual(LaneStripBandMetrics.chipRadius, 2)
+        XCTAssertEqual(LaneStripBandMetrics.chipRadius, 3)   // COMPACT+STRIP §4.4 (was 2)
     }
 
     // §B7.7 — the button type at the REAL T 44 (the amendment's "name 9" holds only at its scaled 41).
     func testButtonTypeAtT44() {
-        let t = euclideousPartPlayType(height: 44)
-        XCTAssertEqual(t.nameSize, 9.5); XCTAssertEqual(t.playSize, 6); XCTAssertEqual(t.lineGap, 3)
+        let t = euclideousPartPlayType(height: 44, isNotes: false)   // COMPACT+STRIP §4.2: fixed sizes
+        XCTAssertEqual(t.nameSize, 10); XCTAssertEqual(t.playSize, 7); XCTAssertEqual(t.lineGap, 3)
     }
 
     // §10.1 — the top-row frames: w, tiles span T, the bridges sit in their own row only, the chip slots equal the cells.

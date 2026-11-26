@@ -36,22 +36,22 @@ final class LaneStripClarityTests: XCTestCase {
     }
 
     func testSlimBandHeights() {
-        // §1.2: rail 1.5 + gap 1 + band 4 + gap 1 = 7.5 a part. At T 41 both on: hC 26 (the spec's example); at the built T 44: 29.
+        // COMPACT+STRIP §4.3: rail 2 + gap 1 + band 4 + gap 1 = 8 a part. At T 41 both on: hC 25; at the built T 44: 28.
         let t41 = laneStripBandHeights(T: 41, slim: true)
-        XCTAssertEqual(t41.hH, 4); XCTAssertEqual(t41.hC, 26)
+        XCTAssertEqual(t41.hH, 4); XCTAssertEqual(t41.hC, 25)
         let t44 = laneStripBandHeights(T: 44, slim: true)
-        XCTAssertEqual(t44.hH, 4); XCTAssertEqual(t44.hC, 29)
+        XCTAssertEqual(t44.hH, 4); XCTAssertEqual(t44.hC, 28)
         // §1.5: a lane that isn't slim keeps play rail 3.1's band.
         let wide = laneStripBandHeights(T: 44)
-        XCTAssertEqual(wide.hH, 9); XCTAssertEqual(wide.hC, 19)
+        XCTAssertEqual(wide.hH, 9); XCTAssertEqual(wide.hC, 18)
         // play rail 3.3: one part off collapses its reserve, slim or not.
-        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 0, slim: true).hC, 36.5)
-        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 0).hC, 31.5)
+        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 0, slim: true).hC, 36)
+        XCTAssertEqual(laneStripBandHeights(T: 44, riffFrac: 0).hC, 31)
         // the frames carry the slim flag + 4 pt band slots
         let f = laneStripBandFrames(xs: [0, 10], columnW: 8, T: 44, slim: true)
         XCTAssertTrue(f.slim)
         XCTAssertEqual(f.header[0].height, 4); XCTAssertEqual(f.footer[0].height, 4)
-        XCTAssertEqual(f.cells[0].height, 29)
+        XCTAssertEqual(f.cells[0].height, 28)   // COMPACT+STRIP §4.3 rail 2: slim T44 both on → 44 − 2·8
     }
 
     // MARK: §8.2 — a slim chip rests at 60 % and sounds at 100 % (no stroke: the painter skips the stroke when slim)

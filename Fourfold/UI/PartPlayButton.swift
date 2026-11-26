@@ -42,8 +42,7 @@ struct EuclideousPartPlayButton: View {
 
     @GestureState private var pressed = false   // §1.5: filled #2B2D33 while a touch is down, cleared at once on release
 
-    private var look: EuclideousPartPlayLook { euclideousPartPlayLook(on: on) }
-    private var type: EuclideousPartPlayType { euclideousPartPlayType(height: tile.height) }   // §A3: every size from the button's height
+    private var type: EuclideousPartPlayType { euclideousPartPlayType(height: tile.height, isNotes: isNotes) }   // COMPACT+STRIP STYLE §4.2: fixed sizes, name by part
 
     var body: some View {
         content
@@ -72,10 +71,13 @@ struct EuclideousPartPlayButton: View {
     }
 
     private var content: some View {
-        VStack(spacing: type.lineGap) {
+        // COMPACT+STRIP STYLE §4.2: leading-aligned, 7 in from the leading edge (6 for STACK).
+        VStack(alignment: .leading, spacing: type.lineGap) {
             topLine
             nameText
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, isNotes ? EuclideousPartPlayLook.leadInsetStack : EuclideousPartPlayLook.leadInsetRiff)
     }
     /// §4.1: line 1 is the triangle, then the word PLAY — or, while the part is running and has started a note, a chip of its
     /// most recent note-on hit (§4.2: 3 pt right of the triangle, filling to 3 pt inside the tile's right edge).
@@ -83,7 +85,7 @@ struct EuclideousPartPlayButton: View {
         if let noteChip {
             HStack(spacing: 3) { lamp; noteChipView(noteChip) }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 3)
+                .padding(.trailing, 3)   // COMPACT+STRIP STYLE §4.2: the content leading inset handles the left; the chip fills to 3 pt from the right
         } else {
             HStack(spacing: type.lampGap) { lamp; playText }   // §A3.1 the lamp, then PLAY — centred as a group
         }
@@ -104,12 +106,12 @@ struct EuclideousPartPlayButton: View {
         .allowsHitTesting(false)   // §4.8: the chip never takes touches — a tap on it is a tap on the tile (it was eating the toggle)
     }
     private var playText: some View {
-        Text("PLAY").font(.system(size: type.playSize, weight: .heavy, design: .monospaced)).tracking(type.playTracking).foregroundColor(Color(hex: look.playHex))
+        Text("PLAY").font(.system(size: type.playSize, weight: .heavy, design: .monospaced)).tracking(type.playTracking).foregroundColor(Color(hex: EuclideousPartPlayLook.playInkHex))   // §4.2: #AAB0BA
             .lineLimit(1).frame(height: type.playLineH)
     }
     private var nameText: some View {
         let name = Text(isNotes ? "STACK" : "RIFF").font(.system(size: type.nameSize, weight: .heavy, design: .monospaced)).tracking(type.nameTracking)
-            .foregroundColor(Color(hex: look.nameHex)).lineLimit(1).truncationMode(.tail)   // §A3.4 truncate, never shrink
+            .foregroundColor(Color(hex: EuclideousPartPlayLook.nameInkHex)).lineLimit(1).truncationMode(.tail)   // §4.2: #F2F4F7 · §A3.4 truncate, never shrink
             .fixedSize(horizontal: false, vertical: true).frame(height: type.nameLineH)
         // RIFF SOURCE ferry §5.1: a reader's RIFF button carries the source lane as a small tab after the word, centred as a pair. (§5.2's top-trailing fallback at a tight width is device-owed — flagged.)
         if let src = riffSourceTab {
@@ -122,13 +124,14 @@ struct EuclideousPartPlayButton: View {
         return AnyView(name)
     }
     private var tileBackground: some View {
+        // COMPACT+STRIP STYLE §4.2 (2026-11-26): no outline stroke. Fill #25272C at rest; while the part plays, lane100 @ 14 %
+        // with a 1 pt inner lane100 @ 50 % stroke. (Replaces §1.1/§1.2's no-fill + #5B606A stroke; the rail-edge squaring is
+        // dropped with the stroke — the 2 pt rail sits on the tile's edge. A tap still fills #2B2D33 while pressed.)
         let radius = EuclideousPartPlayLook.tileRadius
         return ZStack {
-            // §1.5: the pressed fill — #2B2D33 only while a touch is down (§1.1: nothing at rest, the card ground shows through).
+            RoundedRectangle(cornerRadius: radius).fill(on ? accent.opacity(EuclideousPartPlayLook.runFillAlpha) : Color(hex: EuclideousPartPlayLook.tileRestFillHex))
             if pressed { RoundedRectangle(cornerRadius: radius).fill(Color(hex: EuclideousPartPlayLook.tilePressedFillHex)) }
-            // §1.2 / §2.2: a 1 pt #5B606A stroke inside the frame; a rail edge omits its own edge + squares its two corners (the rail is the edge).
-            tileStrokePath(CGRect(origin: .zero, size: tile).insetBy(dx: 0.5, dy: 0.5), radius: radius - 0.5, open: railEdge)
-                .stroke(Color(hex: EuclideousPartPlayLook.tileStrokeHex), lineWidth: 1)
+            if on { RoundedRectangle(cornerRadius: radius).inset(by: 0.5).stroke(accent.opacity(EuclideousPartPlayLook.runStrokeAlpha), lineWidth: 1) }
         }
     }
 
@@ -155,16 +158,17 @@ struct EuclideousPartPlayButton: View {
 
     /// §1.4 the lamp: the §2.3 triangle. ON = the lane colour (filled + a lane100 stroke), at 100 % while the part's held set
     /// is non-empty and `lampRestOpacity` (55 %) otherwise — no glow, no ease. OFF = no fill, a 1 pt #C9CDD4 outline.
+    /// COMPACT+STRIP STYLE §4.2: the triangle lamp. ON (the part plays) = filled lane100, 100 % while the held set is non-empty
+    /// and `lampRestOpacity` (55 %) otherwise. OFF (stopped) = a 1.1 pt #AAB0BA outline, rounded joins. No glow, no ease.
     private var lamp: some View {
         let sz = CGSize(width: type.lampW, height: type.lampH)
         return Group {
-            if look.lampFilled {
+            if on {
                 EuclideousPartPlayLampShape().fill(accent)
-                    .overlay(EuclideousPartPlayLampShape().stroke(accent, style: StrokeStyle(lineWidth: type.lampStroke, lineJoin: .round)))
                     .frame(width: sz.width, height: sz.height)
                     .opacity(sounding ? 1 : EuclideousPartPlayLook.lampRestOpacity)
             } else {
-                EuclideousPartPlayLampShape().stroke(Color(hex: look.lampStrokeHex), style: StrokeStyle(lineWidth: type.lampStroke, lineJoin: .round))
+                EuclideousPartPlayLampShape().stroke(Color(hex: EuclideousPartPlayLook.playInkHex), style: StrokeStyle(lineWidth: EuclideousPartPlayLook.lampOffStroke, lineJoin: .round))
                     .frame(width: sz.width, height: sz.height)
             }
         }

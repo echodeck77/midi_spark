@@ -27,22 +27,19 @@ final class StackGreyTests: XCTestCase {
         XCTAssertEqual(stackRankConversionCount, 8, "the 8-entry table converts once")
     }
 
-    // §8.2 — stackRankInk: ≥ 4.5:1 WCAG contrast on every rank; it is whichever of #0D0F14 / #F2F4F7 is better. Report which take light ink.
+    // COMPACT+STRIP STYLE §4.4 (2026-11-26): stackRankInk is a FIXED band split now — #E4E6EA on the DARK ranks 1–4, #16171A
+    // on the LIGHT ranks 5–8 (was the per-rank WCAG pick of #0D0F14 / #F2F4F7, floored at 4.5:1). The band assignment is pinned
+    // and the achieved contrasts printed; the fixed inks trade some contrast on the mid ranks for a uniform look — a reported
+    // legibility note (device-owed), not a hard floor.
     func testInkIsLegibleOnEveryRank() {
-        let white = EuclideousRGB(r: 0xF2, g: 0xF4, b: 0xF7), dark = EuclideousRGB(r: 0x0D, g: 0x0F, b: 0x14)
-        var lightInk: [Int] = []
+        let light = EuclideousRGB(r: 0xE4, g: 0xE6, b: 0xEA), darkInk = EuclideousRGB(r: 0x16, g: 0x17, b: 0x1A)
         var contrasts: [String] = []
         for rank in 1...8 {
             let c = stackRankColour(rank: rank), ink = stackRankInk(rank: rank)
-            XCTAssertTrue(ink == white || ink == dark, "rank \(rank): ink is one of the two tokens")
-            // the chosen ink is the better of the two
-            XCTAssertGreaterThanOrEqual(euclideousWCAGContrast(c, ink), euclideousWCAGContrast(c, ink == white ? dark : white) - 1e-9, "rank \(rank): the better ink is chosen")
-            let ratio = euclideousWCAGContrast(c, ink)
-            XCTAssertGreaterThanOrEqual(ratio, 4.5, "rank \(rank): ink contrast ≥ 4.5 (got \(String(format: "%.2f", ratio)))")
-            if ink == white { lightInk.append(rank) }
-            contrasts.append("r\(rank) #\(String(format: "%02X%02X%02X", c.r, c.g, c.b)) ink=\(ink == white ? "white" : "dark") \(String(format: "%.2f", ratio)):1")
+            XCTAssertEqual(ink, rank >= 5 ? darkInk : light, "rank \(rank): §4.4 fixed split (dark ranks 1–4 → light ink, light ranks 5–8 → dark ink)")
+            contrasts.append("r\(rank) #\(String(format: "%02X%02X%02X", c.r, c.g, c.b)) ink=\(ink == light ? "light" : "dark") \(String(format: "%.2f", euclideousWCAGContrast(c, ink))):1")
         }
-        print("STACK-GREY-REPORT ink: ranks with LIGHT (#F2F4F7) ink = \(lightInk); \(contrasts.joined(separator: " · "))")
+        print("STACK-GREY-REPORT §4.4 ink split: \(contrasts.joined(separator: " · "))")
     }
 
     // §8.3 — no caller of stackChipColour remains: verified by grep at build time (a deleted symbol cannot be referenced here).

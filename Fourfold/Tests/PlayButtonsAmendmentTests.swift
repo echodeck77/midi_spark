@@ -106,29 +106,18 @@ final class PlayButtonsAmendmentTests: XCTestCase {
 
     // MARK: test 3 — the type (§A3)
 
-    /// The ratified sizes. h 78 (the design canvas's / screenshot's size): name 17, PLAY 10, lamp 11 tall × 10, lamp gap 6, line gap 5; h 44 (the references): 9.5 / 6 / 3; h 70: 15.5 / 9 / 4.5; inside the clamps at 30 and 100.
+    /// COMPACT+STRIP STYLE §4.2 (2026-11-26): the type is FIXED now (the h-derived amendment-1 formula is retired — the strip's
+    /// buttons are the same size at the card's 44 and the Compact panel's 50). PLAY 7 pt / 0.12 em; RIFF 10 pt / 0.08 em, STACK
+    /// 9 pt / 0.05 em; the lamp from PLAY's size (7.5 × 7); lamp gap 4; line gap 3; the stopped triangle 1.1 pt.
     func testTheTypeSizes() {
-        let t78 = euclideousPartPlayType(height: 78)
-        close(t78.nameSize, 17); close(t78.playSize, 10); close(t78.lampH, 11); close(t78.lampW, 10); close(t78.lampGap, 6); close(t78.lineGap, 5)
-        XCTAssertEqual(Double(t78.lampStroke), 1.4, accuracy: 0.0005, "A4.4: the lamp stroke is 1.4 at h 78"); close(t78.glowBlur, 5, "A4.5: 5 pt at h 78")
-        closeD(Double(t78.nameTracking), 0.05 * 17); closeD(Double(t78.playTracking), 0.16 * 10); closeD(Double(t78.nameLineH), 1.06 * 17); closeD(Double(t78.playLineH), 1.1 * 10)
-        let t44 = euclideousPartPlayType(height: 44)
-        close(t44.nameSize, 9.5); close(t44.playSize, 6); close(t44.lineGap, 3)
-        close(t44.lampH, 6.5); close(t44.lampW, 6); close(t44.lampGap, 3.5); close(t44.lampStroke, 1, "never under 1 pt"); close(t44.glowBlur, 4, "never under 4")
-        let t70 = euclideousPartPlayType(height: 70)
-        close(t70.nameSize, 15.5); close(t70.playSize, 9); close(t70.lineGap, 4.5)
-        for h: CGFloat in [30, 100] {
-            let t = euclideousPartPlayType(height: h)
-            XCTAssertTrue((9...18).contains(t.nameSize), "name \(t.nameSize) at h \(h)"); XCTAssertTrue((6...11).contains(t.playSize)); XCTAssertTrue((3...6).contains(t.lineGap))
-            XCTAssertTrue((1...1.6).contains(t.lampStroke + 1e-9)); XCTAssertGreaterThanOrEqual(t.glowBlur, 4)
-        }
-        close(euclideousPartPlayType(height: 30).nameSize, 9, "clamped up"); close(euclideousPartPlayType(height: 100).nameSize, 18, "clamped down")
-        close(euclideousPartPlayType(height: 100).playSize, 11); close(euclideousPartPlayType(height: 30).playSize, 6)
-        // every size is a multiple of 0.5 (the stroke of 0.1)
-        for h in stride(from: 20.0, through: 120.0, by: 0.7) {
-            let t = euclideousPartPlayType(height: CGFloat(h))
-            for v in [t.nameSize, t.playSize, t.lampH, t.lampW, t.lampGap, t.lineGap, t.glowBlur] { XCTAssertEqual(Double(v * 2).rounded(), Double(v * 2), accuracy: 1e-9, "h \(h)") }
-            XCTAssertGreaterThan(t.nameSize, t.playSize, "A3.3: the part name is the largest text on the button (h \(h))")
+        for h: CGFloat in [44, 50, 78] {
+            let riff = euclideousPartPlayType(height: h, isNotes: false), stack = euclideousPartPlayType(height: h, isNotes: true)
+            close(riff.playSize, 7); close(stack.playSize, 7)
+            close(riff.nameSize, 10, "RIFF 10 pt"); close(stack.nameSize, 9, "STACK 9 pt")
+            closeD(Double(riff.nameTracking), 0.08 * 10); closeD(Double(stack.nameTracking), 0.05 * 9)
+            closeD(Double(riff.playTracking), 0.12 * 7); closeD(Double(riff.playLineH), 1.1 * 7); closeD(Double(riff.nameLineH), 1.06 * 10)
+            close(riff.lampGap, 4); close(riff.lineGap, 3); close(riff.lampStroke, 1.1, "§4.2 stopped triangle"); close(riff.lampH, 7.5); close(riff.lampW, 7)
+            XCTAssertGreaterThan(riff.nameSize, riff.playSize, "the part name is the largest text on the button (h \(h))")
         }
     }
     /// A3.2's size at every layout: the button is 44 tall everywhere (the top row is T = 44 at every card size), so every layout takes the h 44 sizes. And the name's width in the 44-wide tile (A3.4): "STACK" at 9.5 pt needs ≈ 31 pt; at h 78 the
@@ -137,26 +126,27 @@ final class PlayButtonsAmendmentTests: XCTestCase {
         for (_, size) in pageSizes {
             let card = euclideousPageLayout(size: size).laneBox
             let F = euclideousLaneCardFrames(card: card, withBadge: false)
-            XCTAssertEqual(euclideousPartPlayType(height: F.lead.height), euclideousPartPlayType(height: 44))
+            XCTAssertEqual(euclideousPartPlayType(height: F.lead.height, isNotes: false), euclideousPartPlayType(height: 44, isNotes: false), "§4.2 fixed, same at every layout")
         }
         func stackWidth(_ t: EuclideousPartPlayType) -> Double { 5 * Double(0.6 * t.nameSize + t.nameTracking) }
-        XCTAssertLessThan(stackWidth(euclideousPartPlayType(height: 44)), 42, "STACK fits the 44 pt tile (inside its 1 pt borders) at the real height")
-        print("PLAYAMEND-TYPE STACK needs ≈ \(String(format: "%.1f", stackWidth(euclideousPartPlayType(height: 44)))) pt at h 44 (tile 44), ≈ \(String(format: "%.1f", stackWidth(euclideousPartPlayType(height: 78)))) pt at h 78, ≈ \(String(format: "%.1f", stackWidth(euclideousPartPlayType(height: 70)))) pt at h 70")
+        XCTAssertLessThan(stackWidth(euclideousPartPlayType(height: 44, isNotes: true)), 42, "STACK (9 pt) fits the 44 pt tile")
+        print("PLAYAMEND-TYPE STACK needs ≈ \(String(format: "%.1f", stackWidth(euclideousPartPlayType(height: 44, isNotes: true)))) pt (§4.2 fixed 9 pt)")
     }
 
     // MARK: test 4 — the looks (§A4)
 
     func testTheTileNeverChangesAndTheOffLooksAreTheRatifiedGreys() {
         let on = euclideousPartPlayLook(on: true), off = euclideousPartPlayLook(on: false)
-        // PLAY BUTTONS RAIL+NOTE §1 supersedes amendment 1's tile: no resting fill (§1.1), a 1 pt #5B606A stroke (§1.2), the pressed fill #2B2D33 (§1.5), radius 9.
+        // The shared `euclideousPartPlayLook` is UNCHANGED (the FILL-tab tiles read it); COMPACT+STRIP STYLE §4.2 restyles the
+        // strip's buttons in the view only (fill #25272C/lane100@14 %, no outline, radius 7, fixed 1.1 pt stopped triangle).
         XCTAssertEqual(EuclideousPartPlayLook.tileStrokeHex, 0x5B606A); XCTAssertEqual(EuclideousPartPlayLook.tilePressedFillHex, 0x2B2D33)
-        close(EuclideousPartPlayLook.tileRadius, 9, "the play tile's radius")
+        close(EuclideousPartPlayLook.tileRadius, 7, "§4.2 the strip play tile's radius (was 9)")
         // on: lamp lane100 filled (+ a lane stroke), PLAY + name both #F2F4F7 (§1.3); the triangle rests at 55 % (§1.4)
         XCTAssertTrue(on.lampFilled); XCTAssertTrue(on.lampUsesLane); XCTAssertEqual(on.playHex, 0xF2F4F7); XCTAssertEqual(on.nameHex, 0xF2F4F7)
         close(EuclideousPartPlayLook.lampRestOpacity, 0.55, "§1.4 resting triangle opacity")
         // off: lamp unfilled with a #C9CDD4 outline, PLAY + name both #C9CDD4 — reads as available, not disabled (§1.3/§1.4)
         XCTAssertFalse(off.lampFilled); XCTAssertFalse(off.lampUsesLane); XCTAssertEqual(off.lampStrokeHex, 0xC9CDD4); XCTAssertEqual(off.playHex, 0xC9CDD4); XCTAssertEqual(off.nameHex, 0xC9CDD4)
-        XCTAssertEqual(Double(euclideousPartPlayType(height: 78).lampStroke), 1.4, accuracy: 0.0005, "the lamp stroke is 1.4 at h 78")
+        XCTAssertEqual(Double(euclideousPartPlayType(height: 78, isNotes: false).lampStroke), 1.1, accuracy: 0.0005, "§4.2 the stopped triangle is 1.1 pt")
     }
 
     // MARK: §A5 — the ANSWER line

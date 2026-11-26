@@ -14,9 +14,27 @@ final class PartPlayButtonTests: XCTestCase {
         XCTAssertEqual(on.playHex, 0xF2F4F7); XCTAssertEqual(on.nameHex, 0xF2F4F7); XCTAssertTrue(on.lampFilled); XCTAssertTrue(on.lampUsesLane)
         let off = euclideousPartPlayLook(on: false)
         XCTAssertEqual(off.playHex, 0xC9CDD4); XCTAssertEqual(off.nameHex, 0xC9CDD4); XCTAssertFalse(off.lampFilled); XCTAssertFalse(off.lampUsesLane); XCTAssertEqual(off.lampStrokeHex, 0xC9CDD4)
-        // §1.1 no resting fill; §1.2 a 1 pt #5B606A stroke; §1.5 the pressed fill #2B2D33; §1.4 the triangle rests at 55 %.
+        // The shared look is UNCHANGED (the FILL-tab tiles still read it); §4.2 restyles the strip's buttons in the view only.
         XCTAssertEqual(EuclideousPartPlayLook.tileStrokeHex, 0x5B606A); XCTAssertEqual(EuclideousPartPlayLook.tilePressedFillHex, 0x2B2D33)
-        close(EuclideousPartPlayLook.lampRestOpacity, 0.55, "§1.4 resting triangle opacity"); close(EuclideousPartPlayLook.tileRadius, 9, "the source play tile's radius")
+        close(EuclideousPartPlayLook.lampRestOpacity, 0.55, "§1.4 resting triangle opacity")
+        // COMPACT+STRIP STYLE §4.2 (2026-11-26): radius 7 (was 9); the strip tile's own fills/inks/insets.
+        close(EuclideousPartPlayLook.tileRadius, 7, "§4.2 the strip play tile's radius")
+        XCTAssertEqual(EuclideousPartPlayLook.tileRestFillHex, 0x25272C, "§4.2 resting fill")
+        XCTAssertEqual(EuclideousPartPlayLook.playInkHex, 0xAAB0BA, "§4.2 PLAY / stopped-triangle ink")
+        XCTAssertEqual(EuclideousPartPlayLook.nameInkHex, 0xF2F4F7, "§4.2 part-name ink")
+        close(EuclideousPartPlayLook.runFillAlpha, 0.14); close(EuclideousPartPlayLook.runStrokeAlpha, 0.5)
+        close(EuclideousPartPlayLook.lampOffStroke, 1.1); close(EuclideousPartPlayLook.leadInsetRiff, 7); close(EuclideousPartPlayLook.leadInsetStack, 6)
+    }
+
+    // MARK: COMPACT+STRIP STYLE §4.2 — the fixed type model (name by part, PLAY 7 pt, lamp from PLAY, lineGap 3)
+    func testFixedTypeModel() {
+        let riff = euclideousPartPlayType(height: 44, isNotes: false), stack = euclideousPartPlayType(height: 44, isNotes: true)
+        close(riff.playSize, 7); close(stack.playSize, 7)
+        close(riff.nameSize, 10, "RIFF 10 pt"); close(stack.nameSize, 9, "STACK 9 pt")
+        close(riff.nameTracking, 0.08 * 10, "RIFF 0.08 em"); close(stack.nameTracking, 0.05 * 9, "STACK 0.05 em")
+        close(riff.playTracking, 0.12 * 7, "PLAY 0.12 em"); close(riff.lampGap, 4); close(riff.lineGap, 3); close(riff.lampStroke, 1.1)
+        // fixed: the Compact strip's 50 pt and the card's 44 pt give the same text sizes
+        XCTAssertEqual(euclideousPartPlayType(height: 50, isNotes: false).nameSize, euclideousPartPlayType(height: 44, isNotes: false).nameSize, "fixed, not h-derived")
     }
 
     // MARK: §2.3 the lamp geometry

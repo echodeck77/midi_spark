@@ -5866,7 +5866,15 @@ struct EuclideousPartPlayLook: Equatable {
     var lampStrokeHex: UInt32     // used only when !lampUsesLane
     static let tileFillHex: UInt32 = 0x202226    // retained for reference; the tile no longer draws a resting fill (§1.1)
     static let tileStrokeHex: UInt32 = 0x5B606A, tilePressedFillHex: UInt32 = 0x2B2D33   // §1.2 stroke / §1.5 pressed fill (§10 tunable)
-    static let tileRadius: CGFloat = 9, tileOpacity: Double = 1, lampRestOpacity: Double = 0.55   // §1.4 resting triangle opacity (§10 tunable)
+    static let tileRadius: CGFloat = 7, tileOpacity: Double = 1, lampRestOpacity: Double = 0.55   // COMPACT+STRIP STYLE §4.2 radius 7 (was 9) · §1.4 resting triangle opacity
+    // COMPACT+STRIP STYLE §4.2 (2026-11-26): the strip's PLAY RIFF / PLAY STACK tiles — these are read by the lane-strip
+    // button view ONLY (`EuclideousPartPlayButton`); the FILL-tab tiles keep the shared `euclideousPartPlayLook` above.
+    static let tileRestFillHex: UInt32 = 0x25272C   // the resting tile fill (off); on → lane100 @ `runFillAlpha`
+    static let playInkHex: UInt32 = 0xAAB0BA        // the word "PLAY" and the stopped triangle outline
+    static let nameInkHex: UInt32 = 0xF2F4F7        // the part name RIFF / STACK
+    static let runFillAlpha: Double = 0.14, runStrokeAlpha: Double = 0.5   // running: lane100 @ 14 % fill + 50 % inner stroke
+    static let lampOffStroke: CGFloat = 1.1         // the stopped triangle's outline width
+    static let leadInsetRiff: CGFloat = 7, leadInsetStack: CGFloat = 6     // content leading inset (6 for STACK)
 }
 func euclideousPartPlayLook(on: Bool) -> EuclideousPartPlayLook {
     on ? EuclideousPartPlayLook(playHex: 0xF2F4F7, nameHex: 0xF2F4F7, lampFilled: true, lampUsesLane: true, lampStrokeHex: 0)
@@ -5882,16 +5890,19 @@ struct EuclideousPartPlayType: Equatable {
     var lampH: CGFloat, lampW: CGFloat, lampGap: CGFloat
     var lineGap: CGFloat, lampStroke: CGFloat, glowBlur: CGFloat
 }
-func euclideousPartPlayType(height h: CGFloat) -> EuclideousPartPlayType {
+/// COMPACT+STRIP STYLE §4.2 (2026-11-26): FIXED sizes (the h-derived amendment-1 formula is retired — the strip's buttons
+/// are the same size at the card's 44 and the Compact panel's 50). PLAY 7 pt / 0.12 em; the part name RIFF 10 pt / 0.08 em,
+/// STACK 9 pt / 0.05 em; the lamp from PLAY's size; lamp→PLAY gap 4; the two lines 3 apart; the stopped triangle 1.1 pt.
+/// `h` is kept for API/the running note-chip's band height (read separately in the view); it no longer scales the text.
+func euclideousPartPlayType(height h: CGFloat, isNotes: Bool) -> EuclideousPartPlayType {
     func half(_ x: CGFloat) -> CGFloat { (x * 2).rounded() / 2 }
-    func clamp(_ x: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { max(lo, min(hi, x)) }
-    let name = half(clamp(h * 0.22, 9, 18)), play = half(clamp(h * 0.13, 6, 11))
+    let play: CGFloat = 7, name: CGFloat = isNotes ? 9 : 10, nameEm: CGFloat = isNotes ? 0.05 : 0.08
     let lampH = half(play * 1.1)
-    return EuclideousPartPlayType(nameSize: name, nameTracking: 0.05 * name, nameLineH: 1.06 * name,
-                                  playSize: play, playTracking: 0.16 * play, playLineH: 1.1 * play,
-                                  lampH: lampH, lampW: half(lampH * 0.91), lampGap: half(play * 0.6),
-                                  lineGap: half(clamp(h * 0.065, 3, 6)),
-                                  lampStroke: (clamp(lampH / 8, 1, 1.6) * 10).rounded() / 10, glowBlur: max(4, half(lampH * 0.45)))
+    return EuclideousPartPlayType(nameSize: name, nameTracking: nameEm * name, nameLineH: 1.06 * name,
+                                  playSize: play, playTracking: 0.12 * play, playLineH: 1.1 * play,
+                                  lampH: lampH, lampW: half(lampH * 0.91), lampGap: 4,
+                                  lineGap: 3,
+                                  lampStroke: EuclideousPartPlayLook.lampOffStroke, glowBlur: 4)
 }
 
 /// §2.3 the lamp: a right-pointing triangle 5.5 × 6, its path `M1 1 L7 4.5 L1 8 Z` given in an 8 × 9 box. These are the path's three points and its own bounding box within that box (x 1…7, y 1…8), so the view (and a test) map them to the 5.5 × 6 frame.
@@ -9107,6 +9118,13 @@ private let stripHitTable: [EuclideousRGB] = {
 func stripHitColour(lane: Int, atPlayhead: Bool) -> EuclideousRGB {
     stripHitTable[(max(0, lane) % 4) * 2 + (atPlayhead ? 1 : 0)]
 }
+/// COMPACT+STRIP STYLE §4.5 (2026-11-26): the DERIVED mid tone — source has no mid/dark lane token, so mid = lane100
+/// (`euclideousLaneTokens`) mixed 50 % with the dark tone (= the built hit fill `stripHitColour(atPlayhead:false)`), in
+/// OKLCH. A hit cell fills a vertical gradient mid→dark; the playhead-on-a-hit cell fills lane100→mid (§4.7). Built once.
+private let stripHitMidTable: [EuclideousRGB] = (0..<4).map {
+    euclideousMixOKLCH(euclideousLaneTokens[$0], stripHitColour(lane: $0, atPlayhead: false), t: 0.5)
+}
+func stripHitMidColour(lane: Int) -> EuclideousRGB { stripHitMidTable[max(0, lane) % 4] }
 /// §1: the cell's colour — a written note's fill in the grid, and a chip's fill in the lane strip.
 func riffMapColour(column: Int, rank: Int) -> EuclideousRGB { riffMapTables.map[riffMapIndex(column: column, rank: rank)] }
 /// §1: an EMPTY cell's colour — the same map colour at 20 % over the grid's empty cell.
