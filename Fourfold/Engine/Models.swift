@@ -859,7 +859,16 @@ struct EuclidLine: Codable, Equatable {
     var kitOnResolved: Bool { kitOn ?? false }
     var kitNotesResolved: [UInt8] { euclideousKitNotesClamped(kitNotes) }     // §1.2 pad/clamp to 8; default kit when nil
     var kitVelResolved: [UInt8] { euclideousKitVelClamped(kitVel) }           // §1.2 pad/clamp to 8; default 100
-    var kitNamesResolved: [String] { euclideousKitNamesResolved(kitNames, notes: kitNotesResolved) }   // UI only
+    var kitNamesResolved: [String] { euclideousKitNamesResolved(kitNames, notes: kitNotesResolved) }   // UI only (KIT CARD V2 §1.5: decode-only — no longer drawn/edited/written)
+    // KIT CARD V2 (ferry 2026-11-26, §1.1): whether this lane's kit IS the session defaultKit (§2). nil decodes per §1.3:
+    // a lane on "gm" with a GM-or-nil kit follows; a custom kit or a template id does not. Additive-Optional, in the custom decoder.
+    var kitFollowsDefault: Bool? = nil
+    var kitFollowsDefaultResolved: Bool {
+        if let f = kitFollowsDefault { return f }
+        if kitTemplateResolved != "gm" { return false }   // a template id or "custom" ⇒ not following
+        let gmKit = (kitNotes == nil || kitNotesResolved == euclideousKitDefaultNotes) && (kitVel == nil || kitVelResolved == euclideousKitDefaultVel)
+        return gmKit
+    }
     // DRUM MODE (ferry 2026-11-23, §1.1): with `kitOn`, `fixedMode` picks which fixed-note source fills the pool — KIT (the 8-note kit above) or DRUM (one note across all 8 ranks, velocity a ramp). The kit's fields and the drum's
     // fields are kept INDEPENDENTLY (§1.3); switching mode changes neither. Additive-Optional, declared last; the custom decoder reads them explicitly; the engine reads the render-ready `EuclideousKitSnap`, filled by mode in SnapshotBuilder.
     var fixedMode: EuclideousFixedMode? = nil   // nil ⇒ KIT (§1.2, so nothing already saved changes)
@@ -1492,6 +1501,7 @@ extension EuclidLine {
         kitNames = (try? c.decodeIfPresent([String].self, forKey: .kitNames)).flatMap { $0 }
         kitVel = (try? c.decodeIfPresent([UInt8].self, forKey: .kitVel)).flatMap { $0 }
         kitTemplate = (try? c.decodeIfPresent(String.self, forKey: .kitTemplate)).flatMap { $0 }   // KIT TEMPLATES §1.1: nil ⇒ "gm"
+        kitFollowsDefault = (try? c.decodeIfPresent(Bool.self, forKey: .kitFollowsDefault)).flatMap { $0 }   // KIT CARD V2 §1.1 (nil ⇒ §1.3 resolver)
         // DRUM MODE (ferry 2026-11-23): the custom decoder must read each drum field (lenient enum decode ⇒ nil ⇒ the §1.2 default).
         fixedMode = (try? c.decodeIfPresent(EuclideousFixedMode.self, forKey: .fixedMode)).flatMap { $0 }
         drumNote = (try? c.decodeIfPresent(UInt8.self, forKey: .drumNote)).flatMap { $0 }
