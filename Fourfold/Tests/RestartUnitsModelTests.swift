@@ -208,6 +208,20 @@ final class RestartUnitsModelTests: XCTestCase {
         XCTAssertEqual(p.allChainResolved, [])
     }
 
+    // RESETS V3 §6 (save / reload): the ALL chain survives the document codec; a document that never set it omits the key (nil), so every old document loads empty.
+    func testAllChainSurvivesTheDocumentCodec() throws {
+        var p = PluginState(machines: [], scenes: [SceneState.empty()])
+        p.euclideousAllChain = [4, 2]
+        let back = try JSONDecoder().decode(PluginState.self, from: JSONEncoder().encode(p))
+        XCTAssertEqual(back.euclideousAllChain, [4, 2]); XCTAssertEqual(back.allChainResolved, [4, 2])
+        // a never-set document: the key is omitted (nil) and decodes nil ⇒ an old document loads empty.
+        let fresh = PluginState(machines: [], scenes: [SceneState.empty()])
+        let s = String(data: try JSONEncoder().encode(fresh), encoding: .utf8)!
+        XCTAssertFalse(s.contains("euclideousAllChain"), "a document that never set ALL must not encode the key (nil omitted)")
+        let reloaded = try JSONDecoder().decode(PluginState.self, from: Data(s.utf8))
+        XCTAssertNil(reloaded.euclideousAllChain); XCTAssertEqual(reloaded.allChainResolved, [])
+    }
+
     // RESETS V3 §1.2/§6.2: the ALL restart beats are a closed form — cumulative sums of the chain, in host bars, repeating with period = the total.
     func testAllRestartClosedForm() {
         let bar = 4.0   // 4/4
