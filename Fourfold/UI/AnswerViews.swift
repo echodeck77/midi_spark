@@ -133,7 +133,7 @@ struct InputsMidiControlView: View {
     @ViewBuilder private func midiSegment(m: MidiMode, t: Int, segW: CGFloat, segH: CGFloat) -> some View {
         let sel = mode == m
         let label = (m == .root && t != 0) ? "ROOT " + euclideousHeaderSignedT(t) : euclideousInputsMidiModeLabel(m)
-        let fg: Color = sel ? (midiOn ? Color(h: 0x0D0F14) : Color(h: 0xAAB0BA)) : Color(h: 0x8A909A)
+        let fg: Color = sel ? (midiOn ? Color(h: 0x0D0F14) : Color(h: 0xAAB0BA)) : Color(h: 0xA6ACB6)   // LEGIBILITY (Paul 2026-11-26): the unselected ADD/REPLACE/ROOT text one shade lighter (was #8A909A)
         let fill: Color = (sel && midiOn) ? Color(h: 0xDFE3EA) : Color.clear
         let stroke: Color = (sel && !midiOn) ? Color(h: 0x6B7079) : Color.clear
         let axValue: String = (m == .root && t != 0) ? (t > 0 ? "plus \(t)" : "minus \(abs(t))") : ""

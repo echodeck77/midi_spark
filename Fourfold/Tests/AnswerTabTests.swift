@@ -306,10 +306,10 @@ final class AnswerTabTests: XCTestCase {
     // MARK: strip: six tabs
 
     func testTheStripReadsRhythmRiffNotesPoolAnswerMix() {
-        XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["EUCLID", "RIFF", "STACK", "LANE MODE", "ANSWER", "RESETS", "MIX", "FILL", "ALT"])   // POOL→INPUTS→LANE MODE (2026-11-25); NOTES→STACK; the ANSWER (.listen) case STAYS in allCases (rawValue coupling) even though its tab is removed from the strip
+        XCTAssertEqual(EuclideousPageTab.allCases.map(\.label), ["EUCLID", "RIFF", "STACK", "MODE", "ANSWER", "RESETS", "MIX", "FILL", "ALT"])   // POOL→INPUTS→LANE MODE→MODE (2026-11-26); NOTES→STACK; the ANSWER (.listen) case STAYS in allCases (rawValue coupling) even though its tab is removed from the strip
         XCTAssertEqual(EuclideousPageTab.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5, 6, 7, 8])
-        // the strip DRAWS them LANE MODE first, RESETS after RIFF + STACK, FILL after RESETS, then ALT, MIX (the display order is separate from the raw-value coupling; ANSWER is filtered out by euclideousLaneStripOrder)
-        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["LANE MODE", "EUCLID", "RIFF", "STACK", "RESETS", "FILL", "ANSWER", "ALT", "MIX"])   // euclideousPageTabOrder keeps the raw order incl. ANSWER; the strip filters it (testAnswerTabIsRemovedFromTheStrip)
+        // the strip DRAWS them MODE first, RESETS after RIFF + STACK, FILL after RESETS, then ALT, MIX (the display order is separate from the raw-value coupling; ANSWER is filtered out by euclideousLaneStripOrder)
+        XCTAssertEqual(euclideousPageTabOrder.map(\.label), ["MODE", "EUCLID", "RIFF", "STACK", "RESETS", "FILL", "ANSWER", "ALT", "MIX"])   // euclideousPageTabOrder keeps the raw order incl. ANSWER; the strip filters it (testAnswerTabIsRemovedFromTheStrip)
         XCTAssertEqual(euclideousPageTabOrder.count, EuclideousPageTab.allCases.count)
         XCTAssertEqual(Set(euclideousPageTabOrder), Set(EuclideousPageTab.allCases), "every tab appears exactly once")
         XCTAssertEqual(EuclideousTabKind.allCases.map(\.rawValue), [0, 1, 2, 3, 4, 5, 7, 8])   // FILL = 7, ALT = 8 (both skip MIX's 6, which has no front tab)
@@ -320,7 +320,7 @@ final class AnswerTabTests: XCTestCase {
         XCTAssertEqual(land.segments.count, 8); XCTAssertEqual(land.segmentWidth, 84.29, accuracy: 0.01); XCTAssertEqual(port.segmentWidth, 85.88, accuracy: 0.01)   // ANSWER removed (2026-11-25): 8 tabs
         XCTAssertFalse(land.clustersVisible); XCTAssertFalse(port.clustersVisible)   // 8 tabs → segments below the 96 cluster floor at the reference
         XCTAssertFalse(euclideousLaneStripLayout(width: 660).clustersVisible)
-        // at 8 tabs the reference segment (84.29) is BELOW the 96 cluster floor by design — the clusters hide and `.laneStrip` fires (LaneViewStripTests / PageLayoutTests pin this); the labels still fit ("LANE MODE" ≈ 70 pt).
+        // at 8 tabs the reference segment (84.29) is BELOW the 96 cluster floor by design — the clusters hide and `.laneStrip` fires (LaneViewStripTests / PageLayoutTests pin this); the labels still fit (widest "EUCLID"/"RESETS" ≈ 50 pt; LANE MODE → MODE 2026-11-26).
         XCTAssertLessThan(land.segmentWidth, EuclideousLaneStripMetrics.segmentFloor); XCTAssertTrue(land.belowFloor)
     }
     func testTheInputsGlyphLightsOnACanonDelayASourceOffOrAMidiMode() {
@@ -346,8 +346,8 @@ final class AnswerTabTests: XCTestCase {
         var ls = lanes(); ls[2].listenSource = 1; ls[2].answerRhythmOn = true; ls[1].chordDelay = 2
         XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: ls)), "Answer, lane 3 following lane 2")
         XCTAssertEqual(euclideousLaneStripLabel(tab: .listen, glyphs: euclideousLaneStripGlyphs(tab: .listen, lines: lanes())), "Answer, all off")
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: ls)), "Lane Mode, lane 2 set")
-        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: lanes())), "Lane Mode, nothing set")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: ls)), "Mode, lane 2 set")
+        XCTAssertEqual(euclideousLaneStripLabel(tab: .pool, glyphs: euclideousLaneStripGlyphs(tab: .pool, lines: lanes())), "Mode, nothing set")
     }
 
     // MARK: SHADOW's mover is allocation-free (the Release audit exercises it now) and unchanged

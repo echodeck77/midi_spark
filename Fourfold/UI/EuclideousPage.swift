@@ -777,7 +777,7 @@ enum EuclideousLaneTab: Int, CaseIterable {
     // are all untouched, just never reachable from the UI and never fed a genuinely-enabled mask by the
     // one call site that used to (see Router.swift's own call-site comment).
     case rhythm = 0, riff = 1, notes = 2, pool = 3, listen = 4, resets = 5, fill = 7, alt = 8   // ANSWER FERRY: POOL joined, LISTEN is ANSWER on screen (the case keeps its code name); RESETS added 2026-11-11, FILL 2026-11-13, ALT 2026-11-14 (rawValues 7, 8 past MIX's 6); coupled by raw value with EuclideousTabKind / EuclideousPageTab
-    var label: String { switch self { case .rhythm: "EUCLID"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "LANE MODE"; case .listen: "ANSWER"; case .resets: "RESETS"; case .fill: "FILL"; case .alt: "ALT" } }   // RHYTHM → EUCLID; POOL → INPUTS → LANE MODE (Paul 2026-11-25)
+    var label: String { switch self { case .rhythm: "EUCLID"; case .riff: "RIFF"; case .notes: "NOTES"; case .pool: "MODE"; case .listen: "ANSWER"; case .resets: "RESETS"; case .fill: "FILL"; case .alt: "ALT" } }   // RHYTHM → EUCLID; POOL → INPUTS → LANE MODE → MODE (Paul 2026-11-26)
 }
 
 /// STACK BREAK (2026-10-25, crash `FourfoldAU-2026-10-25-213535.ips`): the extension's main thread has a 1 MB stack and building the page eagerly nests
@@ -7894,13 +7894,14 @@ struct EuclideousPage: View {
         return AnyView(ZStack {
             RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0x202227))
             VStack(spacing: 2) {
-                Text(label).font(.system(size: 5.5, weight: .medium, design: .monospaced)).tracking(5.5 * 0.14).foregroundColor(Color(hex: FourfoldStyle.key))
+                // LEGIBILITY (Paul 2026-11-26): the BY / UNIT micro-labels were 5.5 pt — too small to read; bumped to 7.5 pt.
+                Text(label).font(.system(size: 7.5, weight: .medium, design: .monospaced)).tracking(7.5 * 0.12).foregroundColor(Color(hex: FourfoldStyle.key))
                 Text(value).font(.system(size: 10.5, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1)
             }
-            HStack(spacing: 0) {
-                Text("\u{2039}").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x6B7079)).frame(width: 44, height: height).contentShape(Rectangle()).onTapGesture(perform: onDec)
+            HStack(spacing: 0) {   // the < > steppers, a shade brighter so they read as live controls (was #6B7079)
+                Text("\u{2039}").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x9298A2)).frame(width: 44, height: height).contentShape(Rectangle()).onTapGesture(perform: onDec)
                 Spacer(minLength: 0)
-                Text("\u{203A}").font(.system(size: 13, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x6B7079)).frame(width: 44, height: height).contentShape(Rectangle()).onTapGesture(perform: onInc)
+                Text("\u{203A}").font(.system(size: 15, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0x9298A2)).frame(width: 44, height: height).contentShape(Rectangle()).onTapGesture(perform: onInc)
             }
         }
         .frame(width: width, height: height)
@@ -8039,7 +8040,7 @@ struct EuclideousPage: View {
                     VStack(spacing: 0) {
                         Text("\(r + 1)").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
                         Text("\(v)").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xF2F4F7)).lineLimit(1).minimumScaleFactor(0.5)
-                        Text("%").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A))
+                        Text("%").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0xA6ACB6))   // LEGIBILITY (Paul 2026-11-26): the % one shade lighter
                     }
                 }
                 .frame(width: w, height: size.height).clipShape(RoundedRectangle(cornerRadius: 6))
@@ -8193,7 +8194,7 @@ struct EuclideousPage: View {
             return HStack(spacing: 9) {
                 if lit { Circle().fill(lane100(accent)).frame(width: 8, height: 8) }
                 Text(title).font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.3).lineLimit(1).minimumScaleFactor(0.6)
-                    .foregroundColor(Color(hex: lit ? 0x0D0F14 : 0x8A909A))
+                    .foregroundColor(Color(hex: lit ? 0x0D0F14 : 0xA6ACB6))   // LEGIBILITY (Paul 2026-11-26): unselected MODE segment one shade lighter (was #8A909A)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(RoundedRectangle(cornerRadius: 8).fill(lit ? Color(hex: 0xEDEFF3) : .clear))
@@ -8212,25 +8213,36 @@ struct EuclideousPage: View {
         .frame(width: fullWidth, height: height)
         .accessibilityElement(children: .contain).accessibilityLabel("Mode"))
     }
-    /// INPUTS MODE §3.4: the KIT row — label, EDIT (2/3 of the row, opens the editor) and RESET GM (1/3), 8 apart.
+    /// INPUTS MODE §3.4 / KIT TEMPLATES (Paul 2026-11-26): the KIT row — label, the TEMPLATE selector (2/3, prominent: the lane's
+    /// current template name + a chevron, a tap opens the picker straight away) and EDIT (1/3). RESET GM is gone from the row — GM
+    /// is the first row of the picker, so choosing it there is the reset.
     private func kitRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
         let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 8
-        let avail = max(1, fullWidth - labelW - gap), editW = avail * 2 / 3, resetW = avail - editW
+        let avail = max(1, fullWidth - labelW - gap), tmplW = avail * 2 / 3, editW = avail - tmplW
         let h = min(EuclideousPoolTabMetrics.toggleH, height)
+        let tmpl = euclideousKitTemplate(id: line.kitTemplateResolved)   // the lane's current template (gm when nil)
         return AnyView(HStack(spacing: 0) {
             Text("KIT").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            Text("EDIT").font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.56).foregroundColor(Color(hex: 0xF2F4F7))
+            // The template selector, on the card and prominent: the current template name + a down chevron, an accent border. A tap
+            // opens the picker directly (the editor, straight into its template list — `kitTemplatePickerOpen` set after the open resets it).
+            HStack(spacing: 6) {
+                Text(tmpl.name).font(.system(size: 14, weight: .heavy, design: .monospaced)).tracking(0.5).lineLimit(1).minimumScaleFactor(0.55).foregroundColor(Color(hex: 0xF2F4F7))
+                Spacer(minLength: 2)
+                EuclideousChevronDown().stroke(lane100(accent), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)).frame(width: 11, height: 7)
+            }
+            .padding(.horizontal, 12)
+            .frame(width: tmplW, height: h)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(lane100(accent).opacity(0.55), lineWidth: 1))
+            .contentShape(Rectangle()).onTapGesture { openKitEditor(lane: idx, rank: lastSelectedKitRank[idx] ?? 0); kitTemplatePickerOpen = true }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Kit template, \(tmpl.name)").accessibilityHint("Choose a drum machine template").accessibilityAddTraits(.isButton)
+            Spacer(minLength: gap)
+            Text("EDIT").font(.system(size: 13, weight: .heavy, design: .monospaced)).tracking(1.0).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(Color(hex: 0xF2F4F7))
                 .frame(width: editW, height: h)
                 .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
                 .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(hex: 0x3A3E47), lineWidth: 1))
                 .contentShape(Rectangle()).onTapGesture { openKitEditor(lane: idx, rank: lastSelectedKitRank[idx] ?? 0) }
                 .accessibilityElement(children: .ignore).accessibilityLabel("Edit kit").accessibilityAddTraits(.isButton)
-            Spacer(minLength: gap)
-            Text("RESET GM").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.2).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(Color(hex: 0xAAB0BA))
-                .frame(width: resetW, height: h)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
-                .contentShape(Rectangle()).onTapGesture { resetKitGM(lane: idx) }
-                .accessibilityElement(children: .ignore).accessibilityLabel("Reset to General MIDI").accessibilityAddTraits(.isButton)
         }
         .frame(width: fullWidth, height: height))
     }
@@ -8261,26 +8273,32 @@ struct EuclideousPage: View {
     }
     /// DRUM MODE §3.4: the DRUM row — label, the drum button (name + note + chevron, opens the picker), and the ramp UP/DOWN switch.
     private func drumRow(_ idx: Int, _ line: EuclidLine, _ accent: Color, fullWidth: CGFloat, height: CGFloat) -> AnyView {
-        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 8, rampW: CGFloat = 132, toKitW: CGFloat = 96   // §4.1 TO KIT between the drum button and the ramp switch
+        // PROMINENT DRUM PICKER (Paul 2026-11-26): the drum selector is the HERO of the row — TO KIT + the ramp switch gave up width
+        // (96/132 → 66/92) so the picker can't truncate to "…". It wears an accent border + chevron so it reads as THE picker, and
+        // shows the selected drum NAME big with its MIDI note in a badge.
+        let labelW = EuclideousPoolTabMetrics.labelColumn, gap: CGFloat = 8, rampW: CGFloat = 92, toKitW: CGFloat = 66
         let note = euclideousDrumNote(line, lane: idx)
         let name = euclideousGMDrumName(note)
-        let btnW = max(1, fullWidth - labelW - gap * 3 - toKitW - rampW)   // §4.3: narrow the DRUM button to fit TO KIT, not the ramp switch
+        let btnW = max(1, fullWidth - labelW - gap * 3 - toKitW - rampW)
         let h = min(EuclideousPoolTabMetrics.toggleH, height)
         return AnyView(HStack(spacing: 0) {
             Text("DRUM").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundColor(Color(hex: FourfoldStyle.key)).frame(width: labelW, alignment: .leading).accessibilityHidden(true)
-            HStack(spacing: 0) {   // the drum button
-                Text(name).font(.system(size: 17, weight: .heavy, design: .monospaced)).tracking(1.02).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(Color(hex: 0xF2F4F7))
-                Text("\(Int(note))").font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(Color(hex: 0x8A909A)).padding(.leading, 14)
-                Spacer(minLength: 6)
-                EuclideousChevronDown().stroke(Color(hex: 0x8A909A), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)).frame(width: 10, height: 6)
+            HStack(spacing: 8) {   // the drum picker — the hero
+                Text(name).font(.system(size: 18, weight: .heavy, design: .monospaced)).tracking(0.6).lineLimit(1).minimumScaleFactor(0.55).foregroundColor(Color(hex: 0xF2F4F7))
+                if btnW >= 118 {   // the MIDI note in a small badge, only when there is room
+                    Text("\(Int(note))").font(.system(size: 11, weight: .heavy, design: .monospaced)).foregroundColor(Color(hex: 0xC6CBD3))
+                        .padding(.horizontal, 6).frame(height: 17).background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0x363A42)))
+                }
+                Spacer(minLength: 4)
+                EuclideousChevronDown().stroke(lane100(accent), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)).frame(width: 11, height: 7)
             }
-            .padding(.horizontal, 16).frame(width: btnW, height: h)
+            .padding(.horizontal, 12).frame(width: btnW, height: h)
             .background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(hex: 0x3A3E47), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(lane100(accent).opacity(0.55), lineWidth: 1))
             .contentShape(Rectangle()).onTapGesture { openDrumPicker(lane: idx) }
-            .accessibilityElement(children: .ignore).accessibilityLabel("Drum, \(name), note \(Int(note))").accessibilityAddTraits(.isButton)
+            .accessibilityElement(children: .ignore).accessibilityLabel("Drum, \(name), note \(Int(note))").accessibilityHint("Choose the drum").accessibilityAddTraits(.isButton)
             Spacer(minLength: gap)
-            Text("TO KIT").font(.system(size: 12, weight: .heavy, design: .monospaced)).tracking(1.2).lineLimit(1).minimumScaleFactor(0.6).foregroundColor(Color(hex: 0xAAB0BA))
+            Text("TO KIT").font(.system(size: 11, weight: .heavy, design: .monospaced)).tracking(0.6).lineLimit(1).minimumScaleFactor(0.55).foregroundColor(Color(hex: 0xAAB0BA))
                 .frame(width: toKitW, height: h).background(RoundedRectangle(cornerRadius: 9).fill(Color(hex: 0x2A2D34)))
                 .contentShape(Rectangle()).onTapGesture { toKitFromDrum(lane: idx) }
                 .accessibilityElement(children: .ignore).accessibilityLabel("Make kit from drum").accessibilityAddTraits(.isButton)
@@ -8298,9 +8316,14 @@ struct EuclideousPage: View {
     /// §3.4 the ramp UP | DOWN switch — two segments, each a four-bar icon; the selected one filled.
     private func drumRampSwitch(_ idx: Int, _ line: EuclidLine, w: CGFloat, height: CGFloat) -> some View {
         let ramp = line.drumRampResolved
+        // CLEARER RAMP (Paul 2026-11-26): an up / down ARROW beside the bars so the ramp direction reads at a glance (the bars alone were ambiguous).
         func seg(_ r: EuclideousDrumRamp) -> some View {
             let sel = ramp == r
-            return EuclideousRampBars(up: r == .up).frame(width: 26, height: 18).foregroundColor(Color(hex: sel ? 0xF2F4F7 : 0x6E7480))
+            let ink = Color(hex: sel ? 0xF2F4F7 : 0x8A909A)
+            return HStack(spacing: 4) {
+                Image(systemName: r == .up ? "arrow.up" : "arrow.down").font(.system(size: 11, weight: .heavy)).foregroundColor(ink)
+                EuclideousRampBars(up: r == .up).frame(width: 20, height: 16).foregroundColor(ink)
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(RoundedRectangle(cornerRadius: 7).fill(sel ? Color(hex: 0x2A2D34) : .clear))
                 .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(sel ? Color(hex: 0x3A3E47) : .clear, lineWidth: 1))

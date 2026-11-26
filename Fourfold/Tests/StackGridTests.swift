@@ -154,7 +154,7 @@ final class StackGridTests: XCTestCase {
     }
     func testTheNotesTabIsCalledStackInTheTabStrip() {
         XCTAssertEqual(EuclideousPageTab.notes.label, "STACK"); XCTAssertEqual(EuclideousPageTab.notes.spokenName, "Stack")
-        XCTAssertEqual(euclideousPageTabOrder.map { $0.label }, ["LANE MODE", "EUCLID", "RIFF", "STACK", "RESETS", "FILL", "ANSWER", "ALT", "MIX"], "POOL → INPUTS → LANE MODE (Paul 2026-11-25); euclideousPageTabOrder keeps the raw order incl. ANSWER (the strip filters it out)")
+        XCTAssertEqual(euclideousPageTabOrder.map { $0.label }, ["MODE", "EUCLID", "RIFF", "STACK", "RESETS", "FILL", "ANSWER", "ALT", "MIX"], "POOL → INPUTS → LANE MODE → MODE (Paul 2026-11-26); euclideousPageTabOrder keeps the raw order incl. ANSWER (the strip filters it out)")
         XCTAssertEqual(EuclideousPageTab.notes.front, .notes, "behaviour and content stay as they are")
     }
 }

@@ -228,7 +228,7 @@ final class LaneViewStripTests: XCTestCase {
             XCTAssertLessThanOrEqual(S.padlockTarget.maxX, S.bounds.maxX + 4 + 1e-9)
         }
     }
-    /// At exactly the 96 pt floor every tab's LABEL fits the segment. The painter draws the label only (the cluster is unmounted, Paul 2026-11-11) centred and tail-truncated; "LANE MODE" (9) is the widest now and still fits (≈ 70 < 96).
+    /// At exactly the 96 pt floor every tab's LABEL fits the segment. The painter draws the label only (the cluster is unmounted, Paul 2026-11-11) centred and tail-truncated; the widest labels ("EUCLID"/"RESETS"/"ANSWER", 6) fit easily (LANE MODE → MODE, 2026-11-26).
     func testLabelFitsASegmentAtTheFloor() {
         let S = euclideousLaneStripLayout(width: 863)   // eight segments at the 96 pt floor (ANSWER removed): 8 × 96 + chrome
         XCTAssertTrue(S.clustersVisible); near(S.segmentWidth, 96)
