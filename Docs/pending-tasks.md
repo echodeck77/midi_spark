@@ -2427,3 +2427,12 @@ Decide the portrait behaviour first; the structural change follows.
   hit's beat). Edge (TIE-on-rest on a reader); the footer/markers are device-owed prediction. Reader-gated, so own lanes are unaffected.
 - §9.2 the RESETS tab's MELODY half shows a reader's own walk (unchanged by this ferry, per §9.2) — DECIDE whether it should reflect
   the borrowed walk.
+
+## COMPACT LAYOUT + LANE STRIP STYLE (ferry 2026-11-26) — follow-ups (slices 2–6 landed on main)
+- **DECISIONS for Paul (from the §9 report, `Docs/compact-layout-findings.md`):**
+  - §4.4: keep the fixed stack-chip ink split (ranks 3–4 drop under 4.5:1 contrast) or revert those ranks to the WCAG pick?
+  - §4.5: keep the rank line's per-voice colour (as built) or flatten it to the spec's "2 pt white @ 60 %"?
+  - §2.6: MIX/HARMONY/KIT scaled into the ~476-wide Compact left region — accept scaled, or give them the full body width in Compact?
+- **v1 gaps to finish (Compact):** random & lock modes and the grid-chance (%) editor overlay are not wired in Compact (§3.4 wants grid-chance to work there); the body-only right panels (grid/emitter) keep their layout's reserved tab-row height as a small slack at the panel foot — tighten it (lay the body out without reserving the tab row) once the look is confirmed.
+- **Harness/sweep (§6.6):** the pure floor sweep is `CompactLayoutTests`; the image sweep is `FourfoldScreenshotTests.testTheCompactLayout` (one iPad, a few states) — extend to every state × 900×600 and Compact's minimum when the look is settled.
+- **Device-owed:** the whole Compact look — see `Docs/euclideous-device-verification-debt.md` (proportions, chip hit, dense-tab fit, overlay scaling, AUM/Loopy/Drambo sizes).

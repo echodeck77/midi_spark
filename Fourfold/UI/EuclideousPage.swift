@@ -2138,6 +2138,7 @@ struct EuclideousPage: View {
             }
         }
         .frame(width: L.stripsPanel.width, height: L.stripsPanel.height, alignment: .topLeading)
+        .accessibilityElement(children: .contain).accessibilityLabel("Lanes")   // §5.2: the lane strips panel is one "Lanes" group (each strip inside, its chip first)
     }
 
     /// §2.3: one lane strip — the selected/unselected background, the lane chip (tap selects), and the built lane strip
@@ -2216,7 +2217,10 @@ struct EuclideousPage: View {
                 RoundedRectangle(cornerRadius: 1).fill(lane100(accent)).frame(height: 2).padding(.horizontal, cardInset).padding(.top, cardInset)
             }
             .clipped()
+            .accessibilityElement(children: .contain).accessibilityLabel("Lane \(idx + 1) \(frontCardPageTab.spokenName)")   // §5.2: the card is one "Lane N TAB" group
     }
+    /// The page tab the Compact card shows (for its §5.2 VoiceOver label) — the front tab, not MIX (the MIX overlay covers the card).
+    private var frontCardPageTab: EuclideousPageTab { pageTab.isMix ? .rhythm : pageTab }
 
     /// §3.2: the right column's ONE 6-tab row — RIFF STACK │ MUTE RATCH VEL CC (VEL dev-only). RIFF/STACK drive the grid
     /// (`compactRightGrid` true + `riffPanelTab`); the emitters drive `sequencerTab` (`compactRightGrid` false). The look is the
