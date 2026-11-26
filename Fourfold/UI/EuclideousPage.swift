@@ -1639,6 +1639,18 @@ struct EuclideousPage: View {
     @State private var riffTabMenuLane: Int? = nil
     /// STACK GRID ferry (2026-11-08): which of the riff panel's two views shows — RIFF by default, never saved, never an undo step.
     @State private var riffPanelTab: EuclideousRiffPanelTab = .opening
+    /// COMPACT LAYOUT (2026-11-26) §2.3/§3: which lane's card the Compact layout shows (chip-selected), and whether the Compact
+    /// right column shows the RIFF/STACK grid (true) or an emitter tab (false). Both ephemeral — never saved, never an undo step;
+    /// they survive a FULL↔COMPACT class switch (§1.4). The grid sub-tab lives on `riffPanelTab`, the emitter on `sequencerTab`.
+    @State private var compactLane: Int = 0
+    @State private var compactRightGrid: Bool = true
+    #if DEBUG
+    /// §1.5 ALWAYS — forces Compact at any landscape size (dev only; the settings-sheet toggle in slice 5 writes this key).
+    @AppStorage("fourfold.compactForce") private var compactForceAlways = false
+    private var euclideousCompactForce: Bool { compactForceAlways }
+    #else
+    private var euclideousCompactForce: Bool { false }
+    #endif
     @State private var polyDrag: EuclideousPolyDrag? = nil      // POLY RIFF: the touch shaping a note right now
     @State private var polyDragLastCol: Int = -1
     @GestureState private var polyTouching = false   // true while a finger is down on the POLY grid; it resets on a CANCELLED touch too (`onEnded` does not fire then) — see `polyGridGesture`
@@ -1796,7 +1808,10 @@ struct EuclideousPage: View {
 
     var body: some View {
         GeometryReader { geo in
-            let fit = euclideousScaleToFit(geo.size)   // GRACEFUL SCALE-TO-FIT: lay out at the reference size when small, scale the whole page down
+            // COMPACT LAYOUT §1 (2026-11-26): pick the size class first, then scale to the right reference. FULL / portrait use the
+            // orientation reference (unchanged); COMPACT (landscape, below the full design minimum) uses `compactRef`.
+            let compact = euclideousSizeClass(size: geo.size, devForceCompact: euclideousCompactForce) == .compact
+            let fit = euclideousScaleToFit(geo.size, ref: compact ? EuclideousScaleToFit.compactRef : nil)   // GRACEFUL SCALE-TO-FIT: lay out at the reference when small, scale the whole page down
             let box = fit.renderSize
             // ORIENTATION (Paul 2026-10-08, ferry §3): recomputed from the view's OWN live bounds every time
             // SwiftUI re-lays-out (host rotation, AUM windowed ↔ full-screen, split-view resize, …) — never a
@@ -1817,7 +1832,7 @@ struct EuclideousPage: View {
                     // §1.4: the view closing (or the host tearing it down) ends random mode as if finished,
                     // keeping whatever's currently playing — the same path the dice-off tap uses.
                     .onDisappear { if euclideousRandomMode { euclideousRandomFinish() } }
-                pageBody(box)
+                if compact { compactBody(box) } else { pageBody(box) }
                 // THE RATE POP-UP is RETIRED (ratified PATTERN-tab-layout ferry, 2026-10-12) — RATE now
                 // lives directly in the tab as a division×feel grid, no overlay card needed.
                 // MASK MODE POP-UP (Paul 2026-10-10 ferry §4) — same scrim+centred-card shape popups
@@ -1916,7 +1931,7 @@ struct EuclideousPage: View {
             .offset(x: fit.origin.x, y: fit.origin.y)
             // LANE STRIP CLARITY §1.1: keep the fit scale in state so the strip's SLIM decision reads on-screen width.
             .onAppear { if pageFitScale != fit.scale { pageFitScale = fit.scale } }
-            .onChange(of: geo.size) { sz in let s = euclideousScaleToFit(sz).scale; if pageFitScale != s { pageFitScale = s } }
+            .onChange(of: geo.size) { sz in let c = euclideousSizeClass(size: sz, devForceCompact: euclideousCompactForce) == .compact; let s = euclideousScaleToFit(sz, ref: c ? EuclideousScaleToFit.compactRef : nil).scale; if pageFitScale != s { pageFitScale = s } }
             #if DEBUG
             .onAppear {
                 let pg = euclideousPageLayout(size: geo.size, bottomInset: pageBottomInset)
@@ -2077,6 +2092,207 @@ struct EuclideousPage: View {
                 let now = (new >> lane) & 1 == 1
                 if now != lockOverlayHeld[lane] { lockOverlayHeld[lane] = now; onLockHeld(lane, now) }
             }
+        }
+    }
+
+    // MARK: - COMPACT LAYOUT (ferry 2026-11-26): the Compact body + its left/right columns
+    //
+    // §2/§3: below the full design minimum (landscape), the page shows the header as built, then a LEFT column (the tab
+    // strip · the RESETS ALL row · a panel of four chip-led lane strips · the selected lane's card, no comet header) and a
+    // RIGHT column (one 6-tab row over one panel = the RIFF/STACK grid or an emitter tab). Every piece reuses the full page's
+    // own views; the frames come from `euclideousCompactLayout`. Known v1 gaps (device-owed / refinement): random & lock modes
+    // and the grid-chance editor overlay are not wired in Compact (the dice/padlock are DEV-only; grid-chance is §3.4-owed).
+    private func compactBody(_ size: CGSize) -> some View {
+        let g = pageGeometry(size)                                             // the header is unchanged (§2) — reuse the full header layout
+        let kind = euclideousHeaderKind(containerW: size.width - sp16 * 2, isLandscape: true)
+        let L = euclideousCompactLayout(size: size, headerKind: kind, bottomInset: pageBottomInset, allRow: resetsAllRow)
+        let coverLeft = mixPanelShows || harmonyOpen || (kitEditor != nil)     // §2.6: these overlays cover the card + strips panel
+        return ZStack(alignment: .topLeading) {
+            EuclideousStackBreak { AnyView(fourfoldHeader(g.hdr, containerW: g.containerW)) }.offset(x: sp16, y: HM.topMargin)
+            EuclideousStackBreak { AnyView(laneViewStrip(width: L.strip.width)) }.offset(x: L.strip.minX, y: L.strip.minY)
+            if pageTab == .resets, L.allRowRect != .zero {
+                EuclideousStackBreak { AnyView(EuclideousAllRowView(chain: euclideousAllChain, rect: L.allRowRect, barBeats: clock.beatsPerBar,
+                                                                    beatAt: { lanesMusicalBeat(real: walkTagBeat(at: $0)) }, running: clock.playing, reduceMotion: reduceMotion,
+                                                                    onSet: { onSetAllChain($0) })) }
+            }
+            EuclideousStackBreak { AnyView(compactLaneStripsPanel(L)) }.offset(x: L.stripsPanel.minX, y: L.stripsPanel.minY)
+            if !coverLeft {
+                EuclideousStackBreak { AnyView(compactSelectedCard(L)) }.offset(x: L.card.minX, y: L.card.minY)
+            }
+            EuclideousStackBreak { AnyView(compactRightTabRow(L)) }.offset(x: L.rightTab.minX, y: L.rightTab.minY)
+            EuclideousStackBreak { AnyView(compactRightPanel(L)) }.offset(x: L.rightPanel.minX, y: L.rightPanel.minY)
+            compactLeftOverlays(L, size: size)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    /// §2.3: the four chip-led lane strips in their panel (fill #141518, r12, pad 5, four 50-tall strips sp3). The strip
+    /// positions (`L.laneStrips`) are page coords; here they're drawn panel-local.
+    private func compactLaneStripsPanel(_ L: EuclideousCompactLayout) -> some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: EuclideousCompactMetrics.panelRadius).fill(Color(hex: 0x141518))
+            ForEach(0..<4, id: \.self) { i in
+                let r = L.laneStrips[i]
+                compactLaneStrip(i, size: r.size)
+                    .offset(x: r.minX - L.stripsPanel.minX, y: r.minY - L.stripsPanel.minY)
+            }
+        }
+        .frame(width: L.stripsPanel.width, height: L.stripsPanel.height, alignment: .topLeading)
+    }
+
+    /// §2.3: one lane strip — the selected/unselected background, the lane chip (tap selects), and the built lane strip
+    /// (`laneCometRow`: PLAY RIFF | steps | PLAY STACK) in the remaining width, vertically centred.
+    private func compactLaneStrip(_ idx: Int, size: CGSize) -> some View {
+        let parts = euclideousCompactStripParts(stripRect: CGRect(origin: .zero, size: size))
+        let accent = laneAccents[idx % laneAccents.count]
+        let selected = compactLane == idx
+        let radius = EuclideousCompactMetrics.laneStripRadius
+        let cometW = max(1, parts.playStack.maxX - parts.playRiff.minX)
+        let cometH = EuclideousLaneCardMetrics.cometRowH
+        return ZStack(alignment: .topLeading) {
+            // §2.3 background: unselected #1D1E22; selected a leading lane100@18 % → #1D1E22@55 % gradient + a 1 pt inner lane100@55 % stroke
+            if selected {
+                RoundedRectangle(cornerRadius: radius).fill(LinearGradient(gradient: Gradient(stops: [
+                    .init(color: lane100(accent).opacity(0.18), location: 0),
+                    .init(color: Color(hex: 0x1D1E22), location: 0.55)]), startPoint: .leading, endPoint: .trailing))
+                RoundedRectangle(cornerRadius: radius).strokeBorder(lane100(accent).opacity(0.55), lineWidth: 1)
+            } else {
+                RoundedRectangle(cornerRadius: radius).fill(Color(hex: 0x1D1E22))
+            }
+            // the built lane strip (PLAY RIFF | steps | PLAY STACK), vertically centred
+            compactStripRow(idx, innerWidth: cometW)
+                .frame(width: cometW, height: cometH)
+                .offset(x: parts.playRiff.minX, y: (size.height - cometH) / 2)
+            // the lane chip (visual)
+            compactLaneChip(idx, size: parts.chip.size, accent: accent, selected: selected)
+                .offset(x: parts.chip.minX, y: parts.chip.minY)
+            // §2.3 the tap target: the chip's full height, leading edge → PLAY RIFF (under 44, a reported FLOOR). A tap selects.
+            Color.clear.contentShape(Rectangle()).frame(width: parts.chipHit.width, height: parts.chipHit.height)
+                .offset(x: parts.chipHit.minX, y: parts.chipHit.minY)
+                .onTapGesture { if compactLane != idx { compactLane = idx } }
+                .accessibilityElement(children: .ignore).accessibilityLabel("Lane \(idx + 1)")
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    /// §2.3 the lane chip: r7, the lane number centred 12 pt heavy. Selected = fill lane100 + number #111214; else no fill, number lane100.
+    private func compactLaneChip(_ idx: Int, size: CGSize, accent: Color, selected: Bool) -> some View {
+        ZStack {
+            if selected { RoundedRectangle(cornerRadius: 7).fill(lane100(accent)) }
+            Text("\(idx + 1)").font(.system(size: 12, weight: .heavy, design: .monospaced))
+                .foregroundColor(selected ? Color(hex: 0x111214) : lane100(accent))
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    /// The built lane strip for a lane (mirrors `laneCard`'s own setup of `laneCometRow`), so a Compact strip reads exactly as the card header strip.
+    private func compactStripRow(_ idx: Int, innerWidth: CGFloat) -> AnyView {
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        let accent = laneAccents[idx % laneAccents.count]
+        let planLane = tradedWithLane(idx)
+        let stripPlan = laneStripPlan(planLane, euclideousDisplayLine(planLane, planLane < lines.count ? phaseLines[planLane] : line))
+        let soloDimContent = soloSilenced(idx)
+        let cometLine = euclideousEuclidRoot(lines, idx).root != idx ? euclideousEffectiveLine(lines, idx) : line
+        return laneCometRow(idx, line: cometLine, accent: accent, innerWidth: innerWidth, stripPlan: stripPlan, soloDimContent: soloDimContent)
+    }
+
+    /// §2.4/§2.5: the selected lane's card — the same per-tab `tabContent` as the full card, WITHOUT the comet row header
+    /// (the strips panel above shows all four), in a card frame with a 2 pt lane-colour line along the top inner edge.
+    private func compactSelectedCard(_ L: EuclideousCompactLayout) -> some View {
+        let idx = max(0, min(3, compactLane))
+        let line = idx < lines.count ? lines[idx] : EuclidLine(noteSel: .all)
+        let accent = laneAccents[idx % laneAccents.count]
+        let tab = frontLaneTab
+        let innerWidth = EuclideousLaneCardMetrics.innerWidth(cardWidth: L.card.width)
+        let contentAreaH = max(1, L.card.height - cardInset * 2)              // no comet row in Compact (§2.5)
+        let tabDimContent = soloSilenced(idx) || (laneTabPart(tab).map { partOnlySilenced(idx, part: $0) } ?? false)
+        return EuclideousStackBreak { AnyView(tabContent(idx, line, tab, accent, contentAreaH: contentAreaH, fullWidth: innerWidth)) }
+            .opacity(tabDimContent ? EuclideousLaneDimStyle.opacity : 1)
+            .padding(cardInset)
+            .frame(width: L.card.width, height: L.card.height, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: FourfoldStyle.card)))
+            .overlay(alignment: .top) {   // §2.4: the 2 pt lane-colour top inner line
+                RoundedRectangle(cornerRadius: 1).fill(lane100(accent)).frame(height: 2).padding(.horizontal, cardInset).padding(.top, cardInset)
+            }
+            .clipped()
+    }
+
+    /// §3.2: the right column's ONE 6-tab row — RIFF STACK │ MUTE RATCH VEL CC (VEL dev-only). RIFF/STACK drive the grid
+    /// (`compactRightGrid` true + `riffPanelTab`); the emitters drive `sequencerTab` (`compactRightGrid` false). The look is the
+    /// sequencer panel's pill. An extra sp10 sits before MUTE.
+    private func compactRightTabRow(_ L: EuclideousCompactLayout) -> some View {
+        let emitters = EuclideousSeqTab.visible(fxAvailable: true)             // [.lanes, .ratch, (.velocity dev), .cc]
+        func gridSeg(_ t: EuclideousRiffPanelTab, _ label: String) -> some View {
+            let sel = compactRightGrid && riffPanelTab == t
+            return compactTabSegment(label: label, selected: sel) { compactRightGrid = true; if riffPanelTab != t { riffPanelTab = t } }
+        }
+        func emitterSeg(_ t: EuclideousSeqTab) -> some View {
+            let sel = !compactRightGrid && sequencerTab == t
+            return compactTabSegment(label: t.label, selected: sel) { compactRightGrid = false; if sequencerTab != t { sequencerTab = t }; if t != .cc { ccExpanded = nil } }
+        }
+        return HStack(spacing: 2) {
+            gridSeg(.riff, "RIFF"); gridSeg(.stack, "STACK")
+            Color.clear.frame(width: 8)                                        // the extra sp10 before MUTE (2 already between)
+            ForEach(Array(emitters.enumerated()), id: \.element.rawValue) { _, t in emitterSeg(t) }
+        }
+        .frame(width: L.rightTab.width, height: L.rightTab.height)
+        .background(RoundedRectangle(cornerRadius: EuclideousLaneStripMetrics.containerRadius).fill(Color(hex: FourfoldStyle.control)))
+        .accessibilityElement(children: .contain)
+    }
+    /// One pill segment of the Compact right tab row (equal share of the row width).
+    private func compactTabSegment(label: String, selected: Bool, tap: @escaping () -> Void) -> some View {
+        ZStack {
+            if selected { RoundedRectangle(cornerRadius: EuclideousLaneStripMetrics.segmentRadius).fill(Color(hex: FourfoldStyle.selectedFill)) }
+            Text(label).font(.system(size: 11, weight: .heavy, design: .monospaced)).lineLimit(1)
+                .foregroundColor(Color(hex: FourfoldSelect.switchInk(selected)))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: tap)
+        .accessibilityElement(children: .ignore).accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// §3.3: the right panel — the selected view at the panel's full size (its own tab row omitted, §3.2). RIFF/STACK = the
+    /// grid; the emitters = the sequencer panel body.
+    private func compactRightPanel(_ L: EuclideousCompactLayout) -> some View {
+        Group {
+            if compactRightGrid {
+                riffGridView(box: L.rightPanel.size, showTabRow: false)
+            } else {
+                sequencerPanel(maxWidth: L.rightPanel.size.width, maxHeight: L.rightPanel.size.height, fxAvailable: true, portrait: false, showTabRow: false)
+            }
+        }
+        .frame(width: L.rightPanel.width, height: L.rightPanel.height, alignment: .topLeading)
+    }
+
+    /// §2.6 (+ Paul's decision #2): MIX / HARMONY / KIT cover the left column below the tab strip — laid out at their designed
+    /// block size and scaled to fit the left region (the strips panel + card together).
+    @ViewBuilder private func compactLeftOverlays(_ L: EuclideousCompactLayout, size: CGSize) -> some View {
+        let region = CGRect(x: L.stripsPanel.minX, y: L.stripsPanel.minY, width: L.leftW, height: max(1, L.card.maxY - L.stripsPanel.minY))
+        let full = euclideousPageLayout(size: EuclideousScaleToFit.landscapeRef)
+        let block = full.lanes[0].union(full.lanes[3]).size
+        let scale = max(0.05, min(region.width / max(1, block.width), region.height / max(1, block.height)))
+        let ox = region.minX + (region.width - block.width * scale) / 2
+        let oy = region.minY + (region.height - block.height * scale) / 2
+        if mixPanelShows {
+            EuclideousStackBreak { AnyView(mixPanel(size: block)) }
+                .frame(width: block.width, height: block.height, alignment: .topLeading)
+                .scaleEffect(scale, anchor: .topLeading).offset(x: ox, y: oy)
+        }
+        if harmonyOpen {
+            EuclideousStackBreak { AnyView(harmonyPageView(size: block)) }
+                .frame(width: block.width, height: block.height, alignment: .topLeading)
+                .scaleEffect(scale, anchor: .topLeading).offset(x: ox, y: oy).zIndex(6)
+        }
+        if let kit = kitEditor, kit.lane >= 0, kit.lane < lines.count {
+            Color.clear.contentShape(Rectangle()).frame(width: size.width, height: size.height)
+                .onTapGesture { commitOpenKitName(); kitEditor = nil; kitTemplatePickerOpen = false }
+                .accessibilityHidden(true).zIndex(9)
+            EuclideousStackBreak { AnyView(kitEditorView(kit, block: block)) }
+                .frame(width: block.width, height: block.height, alignment: .topLeading)
+                .scaleEffect(scale, anchor: .topLeading).offset(x: ox, y: oy).zIndex(10)
         }
     }
 
@@ -8657,9 +8873,10 @@ struct EuclideousPage: View {
     /// STACK grid. RIBBON SETTINGS REMOVED (Paul 2026-11-17): the settings tab and its button are UNMOUNTED (the views below
     /// stay compiled; `ribbonSettingsOpen` is never set); the x/y ribbons keep the Scrub ferry's behaviour, and a held ribbon
     /// now HIGHLIGHTS what it plays on the grid (the ex-tutti fade plumbing, fed from the holds).
-    private func riffGridView(box: CGSize) -> AnyView {
+    private func riffGridView(box: CGSize, showTabRow: Bool = true) -> AnyView {
         // GRID CHANCE (Paul 2026-11-23): the % toggle + pickers/sliders are mounted at the PAGE level (pageBody), not here, so a tap anywhere OUTSIDE the riff panel closes the editor (req 1).
-        return riffPanelTab == .stack ? AnyView(stackGridView(box: box)) : (riffPoly ? AnyView(polyRiffGridView(box: box)) : AnyView(monoRiffGridView(box: box)))
+        // COMPACT LAYOUT §3.2 (2026-11-26): the Compact right column drives selection from ONE 6-tab row, so it renders the grid with `showTabRow: false` (its own RIFF│STACK row is omitted).
+        return riffPanelTab == .stack ? AnyView(stackGridView(box: box, showTabRow: showTabRow)) : (riffPoly ? AnyView(polyRiffGridView(box: box, showTabRow: showTabRow)) : AnyView(monoRiffGridView(box: box, showTabRow: showTabRow)))
     }
     // RIBBON SETTINGS §4 — the sliders button in the bottom-left free space (its frame from `euclideousRibbonSettingsLayout`).
     private func ribbonSettingsButton(box: CGSize) -> some View {
@@ -9022,7 +9239,7 @@ struct EuclideousPage: View {
             }
         }
     }
-    private func monoRiffGridView(box: CGSize) -> some View {
+    private func monoRiffGridView(box: CGSize, showTabRow: Bool = true) -> some View {
         let n = 8
         let ranks = effectiveGridRanks
         // RIFF PANEL ferry (2026-10-19) §1/§8.1: the panel's inside comes from ONE pure function of the box the page gives it — the tab row, the grid's cell
@@ -9049,7 +9266,7 @@ struct EuclideousPage: View {
             return euclideousAppendSilencedBySolo(euclideousRailAccessibilityLabel(lane: i, riffOn: f.riffOn, running: f.running, played: playedNow[i], current: w.current, heading: w.heading, muted: f.muted), silenced: f.soloSilenced)
         }
         return VStack(alignment: .leading, spacing: 0) {
-            riffTopRow(layout)   // includes the tab-to-grid gap
+            if showTabRow { riffTopRow(layout) }   // includes the tab-to-grid gap · COMPACT §3.2: omitted (the one 6-tab row drives selection)
             HStack(spacing: sp4) {
                 riffNoteLabelColumn(cellH: cellH, labelW: layout.labelW)
                 // DRAGGABLE (see `riffDragLastCell`'s own doc comment above): the matrix VStack carries no
@@ -9122,7 +9339,7 @@ struct EuclideousPage: View {
     // it covers (`EuclideousPolyGridView`, one Canvas). ONE drag overlay owns every touch (`EuclideousPolyDrag`, pure and tested): touching an empty cell makes a length-1 note there, dragging sideways stretches it either way,
     // touching a note and lifting takes it away, dragging from a note moves its nearer end. The arrows and rails are MONO's (`riffPanelOverlay`), reading the walk at 16 columns; an arrow's rank is the highest note
     // STARTING on its column (`topRanks`), hollow on a column where none starts.
-    private func polyRiffGridView(box: CGSize) -> some View {
+    private func polyRiffGridView(box: CGSize, showTabRow: Bool = true) -> some View {
         let layout = euclideousPolyPanelLayout(box: box)
         let cellH = layout.cellH
         let source = noteSource
@@ -9143,7 +9360,7 @@ struct EuclideousPage: View {
         }
         let gridSize = layout.gridSize
         return VStack(alignment: .leading, spacing: 0) {
-            riffTopRow(layout)   // includes the tab-to-grid gap
+            if showTabRow { riffTopRow(layout) }   // includes the tab-to-grid gap · COMPACT §3.2: omitted (the one 6-tab row drives selection)
             HStack(spacing: sp4) {
                 riffNoteLabelColumn(cellH: cellH, labelW: layout.labelW)
                 ZStack(alignment: .topLeading) {
@@ -9620,17 +9837,19 @@ struct EuclideousPage: View {
     private func stackAxisChip(_ row: EuclideousStackRow, size: CGSize) -> AnyView {
         AnyView(EuclideousRankChipView(spec: euclideousStackAxisSpec(row), accent: .clear, size: size).accessibilityHidden(true))
     }
-    private func stackGridView(box: CGSize) -> some View {
+    private func stackGridView(box: CGSize, showTabRow: Bool = true) -> some View {
         let L = euclideousStackGridLayout(box: box)
         let rows = euclideousStackGridRows
         let stackNames = rows.map { row in (0..<4).map { stackCellNames(row, lane: $0) } }   // PERF (2026-11-20): note names resolved once per body eval, not per frame (see stackCellNames)
         return VStack(alignment: .leading, spacing: 0) {
             // the switch keeps the place it has over the riff grid: a blank as wide as the label column (where the lane picker sits), then the control
+            if showTabRow {   // COMPACT §3.2: omitted (the one 6-tab row drives selection)
             HStack(alignment: .top, spacing: sp4) {
                 Color.clear.frame(width: L.labelW, height: L.tabRowH + EuclideousRiffPanelMetrics.tabToGrid)
                 riffModeRow(height: L.tabRowH)
             }
             .frame(height: L.tabRowH + EuclideousRiffPanelMetrics.tabToGrid, alignment: .top)
+            }
             HStack(spacing: sp4) {
                 Color.clear.frame(width: L.labelW, height: L.headerH)
                 ForEach(0..<4, id: \.self) { lane in
@@ -9898,7 +10117,7 @@ struct EuclideousPage: View {
     // panel this feature retired was the only surface that ever called `euclideousSilenceReason`
     // (Derivations.swift) — that pure function and its own tests are UNTOUCHED, just orphaned (zero UI call
     // sites now), ready to be wired into wherever §10 lands once it's answered. Not reused here as a guess.
-    private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat, fxAvailable: Bool = false, portrait: Bool = false) -> some View {
+    private func sequencerPanel(maxWidth: CGFloat, maxHeight: CGFloat, fxAvailable: Bool = false, portrait: Bool = false, showTabRow: Bool = true) -> some View {
         // FX TAB: offered in both orientations since the PAGE LAYOUT ferry (2026-10-19) — in portrait this panel sits BESIDE the riff panel at the same width, so each FX
         // column takes the riff grid's column width and the same offset from its own panel's leading edge (§10.3, by construction); `fxAvailable` stays a parameter.
         let tab: EuclideousSeqTab = ((sequencerTab == .ratch || sequencerTab == .velocity || sequencerTab == .cc) && !fxAvailable) || sequencerTab == .mix || sequencerTab == .fx ? .lanes : sequencerTab   // CARD BACKS §8: MIX is retired — a stray .mix shows LANES (RATCH / VELOCITY / CC, like FX, need the wide panel)
@@ -9915,7 +10134,7 @@ struct EuclideousPage: View {
         let gridH = max(1, innerH - tabRowH - controlsRowH - sp4 * 2)
         let mixH = max(1, innerH - tabRowH - sp8)
         return VStack(spacing: tab == .mix ? sp8 : sp4) {
-            sequencerTabRow(width: innerW, height: tabRowH, fxAvailable: fxAvailable, selected: tab)
+            if showTabRow { sequencerTabRow(width: innerW, height: tabRowH, fxAvailable: fxAvailable, selected: tab) }   // COMPACT §3.2: omitted (the one 6-tab row drives selection)
             switch tab {
             case .mix:
                 mixGrid(width: innerW, height: mixH)
